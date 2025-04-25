@@ -4,9 +4,10 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_mcp_gateway.hrl").
+-include("emqx_mcp_errors.hrl").
 
 %% API
--export([start_link/0, stop/0, restart/0, start_server_pool/1]).
+-export([start_link/0, stop/0, restart/0, start_server_pool/1, initialize/5]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -33,27 +34,37 @@ restart() ->
 start_server_pool(Conf) ->
     gen_server:cast(?SERVER, {start_server_pool, Conf}).
 
+initialize(ServerName, McpClientId, Credentials, Id, RawInitReq) ->
+    gen_server:call(?SERVER, {initialize, ServerName, McpClientId, Credentials, Id, RawInitReq}).
+
 %%==============================================================================
 %% GenServer Callbacks
 %%==============================================================================
 init([]) ->
+    % Opts = [public, named_table, set, {read_concurrency, true}],
+    % ets:new(?TAB_MCP_READY_SERVERS, Opts),
     {ok, #{}}.
 
 handle_call(
-    {initialize, ServerName, McpClientId, Credentials},
+    {initialize, ServerName, McpClientId, Credentials, Id, RawInitReq},
     Caller,
     #{listening_mcp_servers := McpServers} = State
 ) ->
     case maps:get(ServerName, McpServers, []) of
         [] ->
-            {reply, {error, {no_server_available, ServerName}}, State};
+            {reply, {error, ?ERR_NO_SERVER_AVAILABLE}, State};
         [{Pid, Conf} | Servers] ->
-            Request = {client_initialize, Caller, McpClientId, Credentials},
-            %% NOTE: this is an "async" call which should return immediately
-            case safe_call(Pid, Request, 100) of
+            Request = {client_initialize, Caller, McpClientId, Credentials, Id, RawInitReq},
+            %% NOTE: this is an "async" call which should return immediately.
+            %% We use 'call' instead of 'cast' here, because:
+            %%  1. monitor the server process in case of crash
+            %%  2. add back pressure to the caller
+            case emqx_mcp_server:safe_call(Pid, Request, 100) of
                 ok ->
+                    %register_mcp_client_server_mapping(McpClientId, Pid),
                     start_server_pool(Conf),
-                    %% the emqx_mcp_sever will reply to the request
+                    %% We don't reply the caller here, instead the emqx_mcp_server will
+                    %% send the response back to the caller.
                     {noreply, State#{listening_mcp_servers => McpServers#{ServerName => Servers}}};
                 {error, Reason} ->
                     emqx_mcp_server:stop(Pid),
@@ -95,8 +106,7 @@ code_change(_OldVsn, State, _Extra) ->
 start_mcp_server(Conf) ->
     case emqx_mcp_server:start_supervised(Conf) of
         {ok, Pid} ->
-            {Pid, Conf};
-        {error, {already_started, Pid}} ->
+            _ = erlang:monitor(process, Pid),
             {Pid, Conf};
         {error, Reason} ->
             throw({start_mcp_server_failed, Reason})
@@ -128,16 +138,5 @@ start_n_mcp_servers(Num, #{server_name := ServerName} = Conf, State) ->
             {noreply, State}
     end.
 
-safe_call(ServerRef, Message, Timeout) ->
-    try
-        gen_statem:call(ServerRef, Message, {clean_timeout, Timeout})
-    catch
-        error:badarg ->
-            {error, not_found};
-        exit:{R, _} when R == noproc; R == normal; R == shutdown ->
-            {error, not_found};
-        exit:{timeout, _} ->
-            {error, timeout};
-        exit:{{shutdown, removed}, _} ->
-            {error, not_found}
-    end.
+% register_mcp_client_server_mapping(McpClientId, Pid) ->
+%     ets:insert(?TAB_MCP_READY_SERVERS, {McpClientId, Pid}).

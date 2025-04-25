@@ -14,8 +14,6 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Opts = [public, named_table, set, {read_concurrency, true}],
-    ets:new(?TAB_MCP_ESTAB_SERVERS, Opts),
     SupFlags = #{
         strategy => simple_one_for_one,
         intensity => 100,

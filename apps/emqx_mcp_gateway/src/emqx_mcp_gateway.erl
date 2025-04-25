@@ -2,6 +2,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include("emqx_mcp_errors.hrl").
 
 -export([
     enable/0,
@@ -64,7 +65,7 @@ on_session_creating(
     UserPropsConn = maps:get('User-Property', maps:get(conn_props, ConnInfo, #{}), []),
     case proplists:get_value(?PROP_K_MCP_COMP_TYPE, UserPropsConn) of
         <<"mcp-server">> ->
-            {ServerId, ServerName} = split_server_id_and_name(ServerIdAndName),
+            {ServerId, ServerName} = split_id_and_server_name(ServerIdAndName),
             case get_broker_suggested_server_name(Username) of
                 {ok, ServerName} ->
                     {ok, ChannelData};
@@ -101,13 +102,121 @@ on_client_connack(ConnInfo = #{mcp_server_name := SuggestedName}, success, ConnA
 on_client_connack(_ConnInfo, _Rc, ConnAckProps) ->
     {ok, ConnAckProps}.
 
-on_message_publish(#message{topic = <<"$mcp", _/binary>>} = Message) ->
+on_message_publish(#message{topic = <<"$mcp-server/capability", _/binary>>} = Message) ->
+    %% ignore capability notifications sent by mcp server
+    {ok, Message};
+on_message_publish(#message{topic = <<"$mcp-server/presence", _/binary>>} = Message) ->
+    %% ignore online/offline notifications sent by mcp server
+    {ok, Message};
+on_message_publish(
+    #message{
+        from = McpClientId,
+        topic = <<"$mcp-server/", ServerIdAndName/binary>>,
+        headers = Headers,
+        payload = RawInitReq
+    } = Message
+) ->
+    {_, ServerName} = split_id_and_server_name(ServerIdAndName),
+    case emqx_mcp_message:decode_rpc_msg(RawInitReq) of
+        {ok, #{type := json_rpc_request, method := <<"initialize">>, id := Id}} ->
+            Credentials = #{username => maps:get(username, Headers, undefined)},
+            send_initialize_request(Id, ServerName, McpClientId, Credentials, RawInitReq);
+        {ok, #{type := json_rpc_request, method := Method, id := Id}} ->
+            emqx_mcp_message:json_rpc_error(
+                Id,
+                ?ERR_CODE(?ERR_UNEXPECTED_METHOD),
+                ?ERR_UNEXPECTED_METHOD,
+                #{expected => <<"initialize">>, received => Method}
+            );
+        {ok, Msg} ->
+            ?SLOG(error, #{msg => unsupported_mcp_server_msg, rpc_msg => Msg});
+        {error, #{reason := Reason} = Details} ->
+            D = maps:remove(reason, Details),
+            emqx_mcp_message:json_rpc_error(0, ?ERR_CODE(Reason), Reason, D)
+    end,
+    {ok, Message};
+on_message_publish(
+    #message{
+        from = McpClientId,
+        topic = <<"$mcp-client/presence/", McpClientId/binary>>,
+        payload = PresenceMsg
+    } = Message
+) ->
+    case emqx_mcp_message:decode_rpc_msg(PresenceMsg) of
+        {ok, #{method := <<"notifications/disconnected">>}} ->
+            ServerNamePids = get_mcp_server_name_pid_mapping(),
+            ServerNames = maps:keys(ServerNamePids),
+            lists:foreach(
+                fun(ServerName) ->
+                    _ = maybe_call_mcp_server(ServerName, client_disconnected)
+                end,
+                ServerNames
+            ),
+            ok;
+        {ok, Msg} ->
+            ?SLOG(error, #{msg => unsupported_client_presence_msg, rpc_msg => Msg});
+        {error, Reason} ->
+            ?SLOG(error, #{msg => decode_rpc_msg_failed, reason => Reason})
+    end,
+    {ok, Message};
+on_message_publish(
+    #message{
+        from = McpClientId,
+        topic = <<"$mcp-client/capability/list-changed/", McpClientId/binary>>,
+        payload = ListChangedNotify
+    } = Message
+) ->
+    ServerNamePids = get_mcp_server_name_pid_mapping(),
+    ServerNames = maps:keys(ServerNamePids),
+    lists:foreach(
+        fun(ServerName) ->
+            _ = maybe_call_mcp_server(ServerName, {rpc, ListChangedNotify})
+        end,
+        ServerNames
+    ),
+    {ok, Message};
+on_message_publish(
+    #message{
+        from = McpClientId,
+        topic = <<"$mcp-rpc-endpoint/", ClientIdAndServerName/binary>>,
+        payload = RpcMsg
+    } = Message
+) ->
+    {_, ServerName} = split_id_and_server_name(ClientIdAndServerName),
+    case maybe_call_mcp_server(ServerName, {rpc, RpcMsg}) of
+        {error, Reason} ->
+            case emqx_mcp_message:decode_rpc_msg(RpcMsg) of
+                {ok, #{type := json_rpc_request, id := Id}} ->
+                    ErrMsg = error_to_rpc_msg(Id, Reason),
+                    emqx_mcp_message:publish_mcp_server_message(
+                        ServerName, McpClientId, rpc, #{}, ErrMsg
+                    );
+                {error, Reason} ->
+                    ?SLOG(error, #{msg => decode_rpc_msg_failed, reason => Reason})
+            end;
+        _ ->
+            ok
+    end,
     {ok, Message};
 on_message_publish(Message) ->
     %% Ignore other messages
     {ok, Message}.
 
-on_session_subscribed(_, <<"$mcp", _/binary>> = _Topic, _SubOpts) ->
+on_session_subscribed(_, <<"$mcp-server/presence/", ServerIdAndName/binary>> = _Topic, _SubOpts) ->
+    {_, ServerNameFilter} = split_id_and_server_name(ServerIdAndName),
+    maps:foreach(
+        fun(_, #{enable := true, server_name := ServerName} = ServerConf) ->
+            case emqx_topic:match(ServerName, ServerNameFilter) of
+                true ->
+                    ServerDesc = maps:get(server_desc, ServerConf, <<>>),
+                    ServerMeta = server_meta(ServerName),
+                    emqx_mcp_message:send_server_online_message(ServerName, ServerDesc, ServerMeta);
+                false ->
+                    ok
+            end
+        end,
+        emqx:get_config([mcp, servers])
+    ),
     ok;
 on_session_subscribed(_, _Topic, _SubOpts) ->
     %% Ignore other topics
@@ -118,11 +227,11 @@ add_broker_suggested_server_name(SuggestedName, ConnAckProps) ->
     UserPropsConnAck1 = [{?PROP_K_MCP_SERVER_NAME, SuggestedName} | UserPropsConnAck],
     ConnAckProps#{'User-Property' => UserPropsConnAck1}.
 
-split_server_id_and_name(ServerIdAndName) ->
+split_id_and_server_name(Str) ->
     %% Split the server ID and name from the topic
-    case string:split(ServerIdAndName, <<"/">>) of
-        [ServerId, ServerName] -> {ServerId, ServerName};
-        _ -> throw({error, {invalid_server_id_and_name, ServerIdAndName}})
+    case string:split(Str, <<"/">>) of
+        [Id, ServerName] -> {Id, ServerName};
+        _ -> throw({error, {invalid_id_and_server_name, Str}})
     end.
 
 get_broker_suggested_server_name(undefined) ->
@@ -184,3 +293,57 @@ mcp_server_callback_module(internal) ->
     emqx_mcp_server_internal;
 mcp_server_callback_module(SType) ->
     throw({error, {invalid_mcp_server_type, SType}}).
+
+server_meta(ServerName) ->
+    case emqx_mcp_authorization:get_roles(ServerName) of
+        {ok, Roles} ->
+            #{
+                <<"authorization">> => #{
+                    <<"roles">> => Roles
+                }
+            };
+        _ ->
+            #{}
+    end.
+
+send_initialize_request(Id, ServerName, McpClientId, Credentials, RawInitReq) ->
+    case
+        emqx_mcp_server_dispatcher:initialize(ServerName, McpClientId, Credentials, Id, RawInitReq)
+    of
+        {ok, #{raw_response := Resp, server_pid := ServerPid}} ->
+            register_mcp_server_pid(ServerName, ServerPid),
+            emqx_mcp_message:publish_mcp_server_message(ServerName, McpClientId, rpc, #{}, Resp);
+        {json_rpc_error, ErrMsg} ->
+            emqx_mcp_message:publish_mcp_server_message(ServerName, McpClientId, rpc, #{}, ErrMsg);
+        {error, Reason} ->
+            ErrMsg = error_to_rpc_msg(Id, Reason),
+            emqx_mcp_message:publish_mcp_server_message(ServerName, McpClientId, rpc, #{}, ErrMsg)
+    end.
+
+error_to_rpc_msg(Id, Reason) when is_atom(Reason) ->
+    emqx_mcp_message:json_rpc_error(Id, ?ERR_CODE(Reason), Reason, #{});
+error_to_rpc_msg(Id, #{reason := Reason} = Details) when is_atom(Reason) ->
+    emqx_mcp_message:json_rpc_error(Id, ?ERR_CODE(Reason), Reason, maps:remove(reason, Details)).
+
+register_mcp_server_pid(ServerName, ServerPid) ->
+    ServerNamePids = get_mcp_server_name_pid_mapping(),
+    erlang:put(mcp_server_pid, ServerNamePids#{ServerName => ServerPid}).
+
+get_mcp_server_pid(ServerName) ->
+    ServerNamePids = get_mcp_server_name_pid_mapping(),
+    maps:find(ServerName, ServerNamePids).
+
+get_mcp_server_name_pid_mapping() ->
+    case erlang:get(mcp_server_pid) of
+        undefined -> #{};
+        ServerNamePids -> ServerNamePids
+    end.
+
+maybe_call_mcp_server(ServerName, Request) ->
+    case get_mcp_server_pid(ServerName) of
+        {ok, ServerPid} ->
+            emqx_mcp_server:safe_call(ServerPid, Request, infinity);
+        _ ->
+            %% ignore if no server running
+            ok
+    end.

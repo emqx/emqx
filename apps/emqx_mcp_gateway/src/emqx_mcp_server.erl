@@ -2,6 +2,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_mcp_gateway.hrl").
+-include("emqx_mcp_errors.hrl").
 
 -behaviour(gen_statem).
 
@@ -10,7 +11,8 @@
     start_supervised/1,
     start_link/1,
     stop_supervised_all/0,
-    stop/1
+    stop/1,
+    safe_call/3
 ]).
 
 %% gen_statem callbacks
@@ -70,7 +72,6 @@
     opts := opts(),
     pending_requests := pending_requests(),
     mcp_state := mcp_state(),
-    next_req_id := integer(),
     mcp_client_id := mcp_client_id(),
     init_caller => pid() | undefined
 }.
@@ -83,22 +84,6 @@
 -define(handle_common, ?FUNCTION_NAME(T, C, D) -> handle_common(?FUNCTION_NAME, T, C, D)).
 -define(log_enter_state(OldState),
     ?SLOG(debug, #{msg => enter_state, state => ?FUNCTION_NAME, previous => OldState})
-).
--define(MCP_RPC_REQ(RPC),
-    RPC =:= send_ping;
-    RPC =:= send_progress_notification;
-    RPC =:= set_logging_level;
-    RPC =:= list_resources;
-    RPC =:= list_resource_templates;
-    RPC =:= read_resource;
-    RPC =:= subscribe_resource;
-    RPC =:= unsubscribe_resource;
-    RPC =:= call_tool;
-    RPC =:= list_prompts;
-    RPC =:= get_prompt;
-    RPC =:= complete;
-    RPC =:= list_tools;
-    RPC =:= send_roots_list_changed
 ).
 
 %%==============================================================================
@@ -125,10 +110,25 @@ start_link(Conf) ->
 stop(Pid) ->
     gen_statem:cast(Pid, stop).
 
+safe_call(ServerRef, Message, Timeout) ->
+    try
+        gen_statem:call(ServerRef, Message, {clean_timeout, Timeout})
+    catch
+        error:badarg ->
+            {error, ?ERR_NO_SERVER_AVAILABLE};
+        exit:{R, _} when R == noproc; R == normal; R == shutdown ->
+            {error, ?ERR_NO_SERVER_AVAILABLE};
+        exit:{timeout, _} ->
+            {error, ?ERR_TIMEOUT};
+        exit:{{shutdown, _}, _} ->
+            {error, ?ERR_NO_SERVER_AVAILABLE}
+    end.
+
 %% gen_statem callbacks
 -spec init(config()) ->
     gen_statem:init_result(state_name(), loop_data()).
 init(#{name := Name, server_name := ServerName, server_conf := ServerConf, mod := Mod} = Conf) ->
+    process_flag(trap_exit, true),
     LoopData = #{
         name => Name,
         server_name => ServerName,
@@ -136,8 +136,7 @@ init(#{name := Name, server_name := ServerName, server_conf := ServerConf, mod :
         mcp_server_conf => ServerConf,
         opts => maps:get(opts, Conf, #{}),
         pending_requests => #{},
-        mcp_state => #{},
-        next_req_id => 1
+        mcp_state => #{}
     },
     {ok, idle, LoopData, [{next_event, internal, connect_server}]}.
 
@@ -167,25 +166,27 @@ idle(_EventType, _Event, _LoopData) ->
 server_connected(enter, OldState, _LoopData) ->
     ?log_enter_state(OldState),
     {keep_state_and_data, []};
-server_connected({call, From}, {client_initialize, Caller, McpClientId, Credentials}, LoopData) ->
+server_connected(
+    {call, From}, {client_initialize, Caller, McpClientId, Credentials, Id, RawInitReq}, LoopData
+) ->
     %% reply the dispatcher, not the caller
     gen_statem:reply(From, ok),
     case authorize(Credentials) of
         ok ->
-            case send_initialize_request(LoopData) of
+            case forward_initialize_request(Id, RawInitReq, LoopData) of
                 {ok, LoopData1} ->
                     {next_state, wait_init_response,
                         LoopData1#{
                             init_caller => Caller,
                             mcp_client_id => McpClientId
                         },
-                        [{state_timeout, ?INIT_TIMEOUT, handshake_timeout}]};
+                        [{state_timeout, ?INIT_TIMEOUT, initialize_timeout}]};
                 {error, Reason} ->
-                    shutdown(#{error => Reason}, [{reply, From, {error, Reason}}])
+                    shutdown(#{error => Reason}, [{reply, Caller, {error, Reason}}])
             end;
         {error, Reason} ->
             ?SLOG(error, #{msg => authorize_failed, reason => Reason}),
-            shutdown(#{error => Reason}, [{reply, From, {error, Reason}}])
+            shutdown(#{error => Reason}, [{reply, Caller, {error, Reason}}])
     end;
 ?handle_common.
 
@@ -195,21 +196,30 @@ server_connected({call, From}, {client_initialize, Caller, McpClientId, Credenti
 wait_init_response(enter, OldState, _LoopData) ->
     ?log_enter_state(OldState),
     {keep_state_and_data, []};
-wait_init_response(info, Packet, #{mod := Mod, init_caller := From} = LoopData) ->
+wait_init_response(state_timeout, TimeoutReason, #{init_caller := Caller}) ->
+    shutdown(#{error => TimeoutReason}, [{reply, Caller, {error, {timeout, TimeoutReason}}}]);
+wait_init_response(info, Packet, #{mod := Mod, init_caller := Caller} = LoopData) ->
     McpState = maps:get(mcp_state, LoopData),
-    case Mod:decode_packet(Packet, McpState) of
-        {ok, Msg, McpState1} ->
-            case handle_initialize_response(Msg, LoopData#{mcp_state => McpState1}) of
+    case Mod:unpack(Packet, McpState) of
+        {ok, Resp, McpState1} ->
+            case handle_initialize_response(Resp, LoopData#{mcp_state => McpState1}) of
                 {ok, LoopData1} ->
-                    {next_state, server_initialized, LoopData1, [{reply, From, ok}]};
-                {error, Reason} ->
-                    shutdown(#{error => Reason}, [{reply, From, {error, Reason}}])
+                    Return = {ok, #{raw_response => Resp, server_pid => self()}},
+                    {next_state, server_initialized, LoopData1, [{reply, Caller, Return}]};
+                {error, #{reason := ?ERR_INVALID_JSON}} ->
+                    handle_mcp_server_log_msg(Resp, LoopData#{mcp_state => McpState1});
+                {error, Reason} = Err ->
+                    shutdown(#{error => Reason}, [{reply, Caller, Err}])
             end;
         {more, McpState1} ->
             {keep_state, LoopData#{mcp_state => McpState1}};
+        {stop, Reason} ->
+            shutdown(#{error => Reason}, [{reply, Caller, {error, Reason}}]);
         {error, Reason} ->
-            ?SLOG(error, #{msg => invalid_initialize_response, reason => Reason}),
-            {error, {invalid_initialize_response, Reason}}
+            ?SLOG(error, #{
+                msg => unexpected_info, reason => Reason, info => Packet, state => ?FUNCTION_NAME
+            }),
+            keep_state_and_data
     end;
 ?handle_common.
 
@@ -219,31 +229,47 @@ wait_init_response(info, Packet, #{mod := Mod, init_caller := From} = LoopData) 
 server_initialized(enter, OldState, _LoopData) ->
     ?log_enter_state(OldState),
     {keep_state_and_data, []};
-server_initialized(info, Info, #{mod := Mod, mcp_state := McpState} = LoopData) ->
-    case Mod:decode_packet(Info, McpState) of
+server_initialized(info, Info, #{mod := Mod, mcp_state := McpState} = LoopData0) ->
+    case Mod:unpack(Info, McpState) of
         {ok, Msg, McpState1} ->
-            handle_operation_msg(Msg, LoopData#{mcp_state => McpState1});
+            LoopData = LoopData0#{mcp_state => McpState1},
+            case emqx_mcp_message:decode_rpc_msg(Msg) of
+                {ok, RpcMsg} ->
+                    %% Forward RPC msgs to the MCP client
+                    #{server_name := ServerName} = LoopData,
+                    TopicType = emqx_mcp_message:topic_type_of_rpc_msg(RpcMsg),
+                    McpClientId = maps:get(mcp_client_id, LoopData),
+                    emqx_mcp_message:publish_mcp_server_message(
+                        ServerName, McpClientId, TopicType, #{}, Msg
+                    ),
+                    {keep_state, LoopData};
+                {error, #{reason := ?ERR_INVALID_JSON}} ->
+                    handle_mcp_server_log_msg(Msg, LoopData);
+                {error, _Reason} ->
+                    handle_unexpected_msg(server_initialized, Msg, LoopData)
+            end;
         {more, McpState1} ->
-            {keep_state, LoopData#{mcp_state => McpState1}};
+            {keep_state, LoopData0#{mcp_state => McpState1}};
+        {stop, Reason} ->
+            shutdown(#{error => Reason});
         {error, _} ->
-            handle_common(?FUNCTION_NAME, info, Info, LoopData)
+            handle_common(?FUNCTION_NAME, info, Info, LoopData0)
     end;
 server_initialized(
-    {call, From}, {Rpc, Request}, #{mod := Mod, mcp_state := McpState} = LoopData
-) when
-    ?MCP_RPC_REQ(Rpc)
-->
-    case Mod:Rpc(Request, McpState) of
-        {ok, Result, McpState1} ->
-            {keep_state, LoopData#{mcp_state => McpState1}, [{reply, From, Result}]};
+    {call, From}, {rpc, RpcMsg}, #{mod := Mod, mcp_state := McpState} = LoopData
+) ->
+    case Mod:send_msg(McpState, RpcMsg) of
+        {ok, McpState1} ->
+            {keep_state, LoopData#{mcp_state => McpState1}, [{reply, From, ok}]};
         {error, Reason} ->
-            ?SLOG(error, #{msg => rpc_failed, reason => Reason}),
-            {keep_state_and_data, [{reply, From, {error, Reason}}]}
+            ?SLOG(error, #{msg => send_rpc_failed, reason => Reason}),
+            Reply = #{reason => ?ERR_SEND_TO_MCP_SERVER_FAILED, details => Reason},
+            {keep_state_and_data, [{reply, From, Reply}]}
     end;
-server_initialized({call, From}, {client_disconnected, McpClientId}, #{
+server_initialized({call, From}, client_disconnected, #{
     mod := Mod, mcp_state := McpState
 }) ->
-    case Mod:close(McpClientId, McpState) of
+    case Mod:handle_close(McpState) of
         ok ->
             {keep_state_and_data, [{reply, From, ok}]};
         {error, Reason} ->
@@ -252,9 +278,16 @@ server_initialized({call, From}, {client_disconnected, McpClientId}, #{
     end;
 ?handle_common.
 
-terminate(_Reason, _State, #{mod := Mod, mcp_state := McpState} = _LoopData) ->
+terminate(_Reason, State, #{mod := Mod, mcp_state := McpState} = LoopData) ->
     Mod:handle_close(McpState),
-    ok;
+    case State of
+        server_initialized ->
+            %% Notify the client that the server has disconnected
+            ServerName = maps:get(server_name, LoopData),
+            emqx_mcp_message:send_server_offline_message(ServerName);
+        _ ->
+            ok
+    end;
 terminate(_Reason, _State, _LoopData) ->
     ok.
 
@@ -266,7 +299,7 @@ handle_common(_State, state_timeout, TimeoutReason, _LoopData) ->
 handle_common(_State, cast, stop, _LoopData) ->
     shutdown(#{error => normal});
 handle_common(State, info, Info, LoopData) ->
-    handle_common_msg(State, Info, LoopData);
+    handle_unexpected_msg(State, Info, LoopData);
 handle_common(State, EventType, EventContent, _LoopData) ->
     ?SLOG(error, #{
         msg => unexpected_msg,
@@ -294,16 +327,16 @@ authorize(_Credentials) ->
 %%==============================================================================
 %% Internal functions
 %%==============================================================================
-send_initialize_request(
+forward_initialize_request(
+    Id,
+    RawInitReq,
     #{
         pending_requests := PendingReqs,
         mod := Mod,
-        mcp_state := McpState,
-        next_req_id := Id
+        mcp_state := McpState
     } = LoopData
 ) ->
-    InitMsg = emqx_mcp_message:initialize_request(Id, ?CLIENT_INFO, #{}),
-    case Mod:send_msg(McpState, InitMsg) of
+    case Mod:send_msg(McpState, RawInitReq) of
         {ok, McpState1} ->
             {ok, LoopData#{
                 pending_requests => PendingReqs#{
@@ -312,107 +345,45 @@ send_initialize_request(
                         mcp_msg_type => initialize
                     }
                 },
-                mcp_state => McpState1,
-                next_req_id => Id + 1
+                mcp_state => McpState1
             }};
         {error, Reason} ->
-            ?SLOG(error, #{msg => initialize_failed, reason => Reason}),
-            {error, Reason}
+            ?SLOG(error, #{msg => forward_initialize_request_failed, reason => Reason}),
+            {error, #{reason => ?ERR_SEND_TO_MCP_SERVER_FAILED, details => Reason}}
     end.
 
-handle_initialize_response(Msg, LoopData) ->
+handle_initialize_response(Resp, LoopData) ->
     PendingReqs = maps:get(pending_requests, LoopData, #{}),
-    case emqx_mcp_message:decode_rpc_msg(Msg) of
-        {ok, #{type := json_rpc_response, id := Id, result := Result}} ->
+    case emqx_mcp_message:decode_rpc_msg(Resp) of
+        {ok, #{type := json_rpc_response, id := Id}} ->
             case maps:take(Id, PendingReqs) of
-                {#{msg_type := initialize}, PendingReqs1} ->
-                    validate_initialize_response(
-                        Id,
-                        Result,
-                        LoopData#{pending_requests => PendingReqs1}
-                    );
+                {#{mcp_msg_type := initialize}, PendingReqs1} ->
+                    {ok, LoopData#{pending_requests => PendingReqs1}};
                 error ->
-                    {error, {invalid_initialize_response_id, Id}}
+                    {error, #{reason => ?ERR_WRONG_SERVER_RESPONSE_ID, id => Id}}
             end;
-        {ok, #{type := json_rpc_error, id := Id, error := Error}} ->
+        {ok, #{type := json_rpc_error, id := Id}} ->
             case maps:take(Id, PendingReqs) of
-                {#{msg_type := initialize}, _PendingReqs1} ->
-                    {error, {initialize_failed, Error}};
+                {#{mcp_msg_type := initialize}, _PendingReqs1} ->
+                    {json_rpc_error, Resp};
                 error ->
-                    {error, {invalid_initialize_response_id, Id}}
+                    {error, #{reason => ?ERR_WRONG_SERVER_RESPONSE_ID, id => Id}}
             end;
-        {error, Reason} ->
-            {error, {invalid_initialize_response, Reason}}
+        {error, _} = Err ->
+            Err
     end.
 
-validate_initialize_response(Id, Result, #{mod := Mod, mcp_state := McpState} = LoopData) ->
-    case maps:get(<<"protocolVersion">>, Result) of
-        ?MCP_VERSION ->
-            InitializedMs = emqx_mcp_message:initialized_notification(),
-            Mod:send_msg(McpState, InitializedMs),
-            {ok, LoopData};
-        Vsn ->
-            ErrorMsg = emqx_mcp_message:json_rpc_error(
-                Id,
-                -32602,
-                <<"Unsupported protocol version">>,
-                #{
-                    <<"supported">> => [?MCP_VERSION],
-                    <<"requested">> => Vsn
-                }
-            ),
-            Mod:send_msg(McpState, ErrorMsg),
-            {error, unsupported_protocol_version}
-    end.
-
-handle_operation_msg(Msg, LoopData) ->
-    case emqx_mcp_message:decode_rpc_msg(Msg) of
-        {ok, RpcMsg} ->
-            %% Forward RPC msgs to the MCP client
-            send_to_mcp_client(RpcMsg, Msg, LoopData);
-        {error, _Reason} ->
-            %% Not a valid RPC msg, handle it as a common msg
-            handle_common_msg(server_initialized, Msg, LoopData)
-    end.
-
-handle_common_msg(_State, Msg, #{mod := Mod, mcp_state := McpState} = LoopData) ->
-    case Mod:handle_msg(Msg, McpState) of
-        {ok, McpState1} ->
-            {keep_state, LoopData#{mcp_state => McpState1}};
-        {error, Reason} ->
-            ?SLOG(error, #{msg => handle_common_msg_error, reason => Reason}),
-            keep_state_and_data;
-        {stop, Reason} ->
-            shutdown(#{error => Reason})
-    end;
-handle_common_msg(State, Msg, _LoopData) ->
+handle_unexpected_msg(State, Msg, LoopData) ->
     ?SLOG(error, #{
         msg => unexpected_common_msg,
         state => State,
         event_content => Msg
     }),
-    keep_state_and_data.
+    {keep_state, LoopData}.
 
-send_to_mcp_client(RpcMsg, Msg, #{name := Name, server_name := ServerName}) ->
-    NameB = emqx_utils_conv:bin(Name),
-    McpServerId = ?MCP_SERVER_ID(NameB),
-    Topic = emqx_message:get_topic(
-        emqx_mcp_message:topic_type_of_rpc_msg(RpcMsg),
-        #{server_id => McpServerId, server_name => ServerName}
-    ),
-    Flags = #{},
-    UserProps = [
-        {<<"MCP-COMPONENT-TYPE">>, <<"mcp-server">>},
-        {<<"MCP-MQTT-CLIENT-ID">>, McpServerId}
-    ],
-    Headers = #{
-        properties => #{
-            'User-Property' => UserProps
-        }
-    },
-    MqttMsg = emqx_message:make(McpServerId, 1, Topic, Msg, Flags, Headers),
-    _ = emqx:publish(MqttMsg),
-    ok.
+handle_mcp_server_log_msg(Msg, LoopData) ->
+    ?SLOG(debug, #{msg => received_non_json_msg_from_mcp_server, details => Msg}),
+    {keep_state, LoopData}.
 
 msg_ts() ->
     erlang:monotonic_time(millisecond).

@@ -3,8 +3,7 @@
 
 -export([
     connect_server/1,
-    decode_packet/2,
-    handle_msg/2,
+    unpack/2,
     handle_close/1
 ]).
 
@@ -26,7 +25,7 @@ connect_server(#{command := Cmd, args := Args, env := Env0}) ->
             {error, Reason}
     end.
 
-decode_packet({_Port, {data, Data}}, State) ->
+unpack({_Port, {data, Data}}, State) ->
     case Data of
         {eol, Data1} ->
             PartialData = maps:get(partial_data, State, <<>>),
@@ -39,7 +38,10 @@ decode_packet({_Port, {data, Data}}, State) ->
         _ ->
             {error, {invalid_port_data, Data}}
     end;
-decode_packet(Data, _State) ->
+unpack({'DOWN', MonRef, port, _Port, _Reason}, #{port_mon := MonRef} = State) ->
+    handle_close(State),
+    {stop, port_closed};
+unpack(Data, _State) ->
     {error, {unexpected_stdio_data, Data}}.
 
 send_msg(#{port := Port} = State, Msg) ->
@@ -48,12 +50,8 @@ send_msg(#{port := Port} = State, Msg) ->
         {ok, State}
     catch
         error:badarg ->
-            {error, {send_msg_error, badarg}}
+            {error, badarg}
     end.
-
-handle_msg({'DOWN', MonRef, port, _Port, _Reason}, #{port_mon := MonRef} = State) ->
-    handle_close(State),
-    {stop, port_closed}.
 
 handle_close(#{port := Port, port_mon := MonRef}) ->
     erlang:demonitor(MonRef, [flush]),

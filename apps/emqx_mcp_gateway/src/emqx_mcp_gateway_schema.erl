@@ -57,101 +57,55 @@ fields(broker_suggested_server_name) ->
             )}
     ];
 fields(stdio_server) ->
-    [
-        {enable,
-            ?HOCON(
-                boolean(),
-                #{
-                    desc => ?DESC(enable),
-                    default => true
-                }
-            )},
-        {server_type,
-            ?HOCON(
-                stdio,
-                #{
-                    desc => ?DESC(server_type),
-                    default => true
-                }
-            )},
-        {server_name,
-            ?HOCON(
-                binary(),
-                #{
-                    desc => ?DESC(server_name),
-                    required => true
-                }
-            )},
-        {command,
-            ?HOCON(
-                binary(),
-                #{
-                    desc => ?DESC(command),
-                    validator => fun ?MODULE:validate_cmd/1,
-                    required => true
-                }
-            )},
-        {args,
-            ?HOCON(
-                ?ARRAY(binary()),
-                #{
-                    desc => ?DESC(args),
-                    default => []
-                }
-            )},
-        {env,
-            ?HOCON(
-                map(),
-                #{
-                    desc => ?DESC(env),
-                    validator => fun ?MODULE:validate_env/1,
-                    default => #{}
-                }
-            )}
-    ];
+    common_server_confs(stdio) ++
+        [
+            {command,
+                ?HOCON(
+                    binary(),
+                    #{
+                        desc => ?DESC(command),
+                        validator => fun ?MODULE:validate_cmd/1,
+                        required => true
+                    }
+                )},
+            {args,
+                ?HOCON(
+                    ?ARRAY(binary()),
+                    #{
+                        desc => ?DESC(args),
+                        default => []
+                    }
+                )},
+            {env,
+                ?HOCON(
+                    map(),
+                    #{
+                        desc => ?DESC(env),
+                        validator => fun ?MODULE:validate_env/1,
+                        default => #{}
+                    }
+                )}
+        ];
 fields(http_server) ->
-    [
-        {enable,
-            ?HOCON(
-                boolean(),
-                #{
-                    desc => ?DESC(enable),
-                    default => true
-                }
-            )},
-        {server_type,
-            ?HOCON(
-                http,
-                #{
-                    desc => ?DESC(server_type),
-                    default => true
-                }
-            )},
-        {server_name,
-            ?HOCON(
-                binary(),
-                #{
-                    desc => ?DESC(server_name),
-                    required => true
-                }
-            )},
-        {url,
-            ?HOCON(
-                binary(),
-                #{
-                    desc => ?DESC(emqx_authn_http_schema, url),
-                    required => true
-                }
-            )},
-        {request_timeout,
-            ?HOCON(
-                emqx_schema:duration_ms(),
-                #{
-                    desc => ?DESC(emqx_authn_http_schema, request_timeout),
-                    default => <<"5s">>
-                }
-            )}
-    ] ++
+    common_server_confs(http) ++
+        [
+            {url,
+                ?HOCON(
+                    binary(),
+                    #{
+                        desc => ?DESC(emqx_authn_http_schema, url),
+                        required => true
+                    }
+                )},
+            {request_timeout,
+                ?HOCON(
+                    emqx_schema:duration_ms(),
+                    #{
+                        desc => ?DESC(emqx_authn_http_schema, request_timeout),
+                        default => <<"5s">>
+                    }
+                )}
+        ] ++
         maps:to_list(
             maps:without(
                 [
@@ -161,6 +115,19 @@ fields(http_server) ->
             )
         );
 fields(internal_server) ->
+    common_server_confs(internal) ++
+        [
+            {module,
+                ?HOCON(
+                    binary(),
+                    #{
+                        desc => ?DESC(module),
+                        required => true
+                    }
+                )}
+        ].
+
+common_server_confs(Type) ->
     [
         {enable,
             ?HOCON(
@@ -172,7 +139,7 @@ fields(internal_server) ->
             )},
         {server_type,
             ?HOCON(
-                internal,
+                Type,
                 #{
                     desc => ?DESC(server_type),
                     default => true
@@ -186,12 +153,12 @@ fields(internal_server) ->
                     required => true
                 }
             )},
-        {module,
+        {server_desc,
             ?HOCON(
                 binary(),
                 #{
-                    desc => ?DESC(module),
-                    required => true
+                    desc => ?DESC(server_desc),
+                    default => <<>>
                 }
             )}
     ].

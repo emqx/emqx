@@ -1,5 +1,6 @@
 -module(emqx_mcp_message).
 -include("emqx_mcp_gateway.hrl").
+-include("emqx_mcp_errors.hrl").
 
 -export([
     json_rpc_request/3,
@@ -10,10 +11,19 @@
 ]).
 
 -export([
-    initialize_request/2, initialize_request/3, initialize_response/3, initialized_notification/0
+    initialize_request/2,
+    initialize_request/3,
+    initialize_response/3,
+    initialized_notification/0
 ]).
 
 -export([decode_rpc_msg/1, topic_type_of_rpc_msg/1, get_topic/2]).
+
+-export([
+    send_server_online_message/3,
+    send_server_offline_message/1,
+    publish_mcp_server_message/5
+]).
 
 %%==============================================================================
 %% MCP Requests/Responses/Notifications
@@ -102,11 +112,13 @@ decode_rpc_msg(Msg) ->
             {ok, #{type => json_rpc_error, id => Id, error => Error}};
         #{<<"jsonrpc">> := <<"2.0">>, <<"method">> := Method, <<"params">> := Params} ->
             {ok, #{type => json_rpc_notification, method => Method, params => Params}};
-        Msg ->
-            {error, {invalid_json_rpc_msg, Msg}}
+        #{<<"jsonrpc">> := <<"2.0">>, <<"method">> := Method} ->
+            {ok, #{type => json_rpc_notification, method => Method}};
+        Msg1 ->
+            {error, #{reason => ?ERR_MALFORMED_JSON_RPC, msg => Msg1}}
     catch
         error:Reason ->
-            {error, {invalid_json, Msg, Reason}}
+            {error, #{reason => ?ERR_INVALID_JSON, msg => Msg, details => Reason}}
     end.
 
 topic_type_of_rpc_msg(Msg) when is_binary(Msg) ->
@@ -148,3 +160,37 @@ get_topic(client_capability_list_changed, #{mcp_clientid := McpClientId}) ->
     <<"$mcp-client/capability/list-changed/", McpClientId/binary>>;
 get_topic(rpc, #{mcp_clientid := McpClientId, server_name := ServerName}) ->
     <<"$mcp-rpc-endpoint/", McpClientId/binary, "/", ServerName/binary>>.
+
+send_server_online_message(ServerName, ServerDesc, ServerMeta) ->
+    Payload = json_rpc_notification(<<"notifications/server/online">>, #{
+        <<"server_name">> => ServerName,
+        <<"description">> => ServerDesc,
+        <<"meta">> => ServerMeta
+    }),
+    publish_mcp_server_message(ServerName, undefined, server_presence, #{}, Payload).
+
+send_server_offline_message(ServerName) ->
+    %% No payload for offline message
+    Payload = <<>>,
+    publish_mcp_server_message(ServerName, undefined, server_presence, #{}, Payload).
+
+publish_mcp_server_message(ServerName, McpClientId, TopicType, Flags, Payload) ->
+    ServerId = ?MCP_SERVER_ID(ServerName),
+    Topic = get_topic(TopicType, #{
+        server_id => ServerId,
+        server_name => ServerName,
+        mcp_clientid => McpClientId
+    }),
+    UserProps = [
+        {<<"MCP-COMPONENT-TYPE">>, <<"mcp-server">>},
+        {<<"MCP-MQTT-CLIENT-ID">>, ServerId}
+    ],
+    Headers = #{
+        properties => #{
+            'User-Property' => UserProps
+        }
+    },
+    QoS = 1,
+    MqttMsg = emqx_message:make(ServerId, QoS, Topic, Payload, Flags, Headers),
+    _ = emqx:publish(MqttMsg),
+    ok.
