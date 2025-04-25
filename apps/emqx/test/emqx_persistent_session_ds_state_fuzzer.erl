@@ -318,6 +318,7 @@ command(S) ->
                 {1, {call, ?MODULE, delete, [session_id(S)]}},
                 {5, {call, ?MODULE, reopen, [session_id(S)]}},
                 {2, {call, ?MODULE, commit, [session_id(S)]}},
+                {2, {call, ?MODULE, async_checkpoint, [session_id(S)]}},
 
                 %% Metadata:
                 {3, {call, ?MODULE, put_metadata, [session_id(S), put_metadata()]}},
@@ -423,14 +424,12 @@ initial_state() ->
 %% Operations
 %%================================================================================
 
--define(sync, sync => 5_000).
-
 create_new(SessionId) ->
     ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
     S = emqx_persistent_session_ds_state:create_new(SessionId),
     put_state(
         SessionId,
-        emqx_persistent_session_ds_state:commit(S, #{lifetime => new, ?sync})
+        emqx_persistent_session_ds_state:commit(S, #{lifetime => new, sync => true})
     ).
 
 delete(SessionId) ->
@@ -442,14 +441,25 @@ commit(SessionId) ->
     ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
     put_state(
         SessionId,
-        emqx_persistent_session_ds_state:commit(get_state(SessionId), #{lifetime => up, ?sync})
+        emqx_persistent_session_ds_state:commit(get_state(SessionId), #{
+            lifetime => up, sync => true
+        })
+    ).
+
+async_checkpoint(SessionId) ->
+    ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
+    put_state(
+        SessionId,
+        emqx_persistent_session_ds_state:commit(get_state(SessionId), #{
+            lifetime => up, sync => false
+        })
     ).
 
 reopen(SessionId) ->
     ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
     _ = emqx_persistent_session_ds_state:commit(
         get_state(SessionId),
-        #{lifetime => takeover, ?sync}
+        #{lifetime => takeover, sync => true}
     ),
     {ok, S} = emqx_persistent_session_ds_state:open(SessionId),
     %% Return a tuple containing previous and new state:

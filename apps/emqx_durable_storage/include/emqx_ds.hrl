@@ -42,10 +42,15 @@
     lagging :: boolean() | undefined
 }).
 
--record(ds_tx_commit_reply, {
-    ref :: reference(),
-    payload :: {ok, emqx_ds:tx_serial()} | emqx_ds:error(_)
-}).
+-define(ds_tx_commit_reply(REF, REPLY), REPLY = {'DOWN', REF, _, _, _}).
+
+%% Helper macros for generating transaction commit messages (internal
+%% macros, for use in the backends). `META' argument can be used by
+%% the backend to store arbitrary data.
+-define(ds_tx_commit_ok(REF, META, SERIAL), {'DOWN', REF, ok, META, SERIAL}).
+-define(ds_tx_commit_error(REF, META, ERROR_CLASS, INFO),
+    {'DOWN', REF, {error, ERROR_CLASS}, META, INFO}
+).
 
 -record(new_stream_event, {
     subref :: emqx_ds_new_streams:watch()

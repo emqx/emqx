@@ -42,6 +42,20 @@
 -export([timestamp_us/0]).
 -export([topic_words/1]).
 
+%% Transaction API:
+-export([
+    %% General "high-level" transaction API
+    trans/2,
+    tx_commit_outcome/3,
+    reset_trans/0,
+
+    %% Key-value functions:
+    tx_kv_write/2,
+    tx_del_topic/1,
+    tx_kv_assert_present/2,
+    tx_kv_assert_absent/1
+]).
+
 %% Utility functions:
 -export([
     stream_to_binary/2,
@@ -53,16 +67,7 @@
     dirty_read/2,
     dirty_read/3,
 
-    fold_topic/4,
-    fold_topic/5,
-    fold_topic/6,
-
-    trans/2,
-    tx_kv_write/2,
-    tx_del_topic/1,
-    tx_kv_assert_present/2,
-    tx_kv_assert_absent/1,
-    reset_trans/0
+    fold_topic/4
 ]).
 
 -export_type([
@@ -376,22 +381,18 @@
 
 -type transaction_opts() :: #{
     db := db(),
-    %% Either `owner' or `shard' field should be present. If `owner'
-    %% option is given, current sharding strategy will be used to
-    %% determine the shard.
-    %%
-    %% WARNING: combination of `owner' and `generation' options is
-    %% dangerous since number of shards may change, and shard
-    %% allocation for older generations could be different.
-    owner => emqx_types:clientid(),
-    shard => shard(),
+    %% Specifies shard of transaction. If set to `{auto, Term}' then
+    %% the shard is derived automatically by calling
+    %% `shard_of(DB, Term)'.
+    shard := shard() | {auto, _},
 
     %% If not specified, the last generation will be used:
     generation => generation(),
 
     %% Options that govern retry of recoverable errors:
     retries => non_neg_integer(),
-    timeout => async | timeout(),
+    timeout => timeout(),
+    sync => boolean(),
     retry_interval => non_neg_integer()
 }.
 
@@ -401,7 +402,7 @@
     | {async, reference(), Ret}
     | error(_).
 
--type commit_result() :: reference() | {ok, tx_serial()} | error(_).
+-type commit_result() :: {ok, tx_serial()} | error(_).
 
 -type fold_fun(Acc) :: fun(
     (
@@ -415,8 +416,10 @@
 
 -type fold_options() ::
     #{
+        db := db(),
         errors => crash | report,
         batch_size => pos_integer(),
+        start_time => time(),
         shard => shard(),
         generation => generation()
     }.
@@ -497,7 +500,10 @@
 -callback new_kv_tx(db(), transaction_opts()) ->
     {ok, tx_context()} | error(_).
 
--callback commit_kv_tx(db(), tx_context(), blob_tx_ops()) -> commit_result().
+-callback commit_kv_tx(db(), tx_context(), blob_tx_ops()) -> reference().
+
+-callback tx_commit_outcome({'DOWN', reference(), _, _, _}) ->
+    commit_result().
 
 -optional_callbacks([
     list_generations_with_lifetimes/1,
@@ -524,7 +530,7 @@ register_backend(Name, Module) ->
 -spec open_db(db(), create_db_opts()) -> ok.
 open_db(DB, UserOpts) ->
     Opts = #{backend := Backend} = set_db_defaults(UserOpts),
-    %% Santiy checks:
+    %% Sanity checks:
     case Opts of
         #{store_kv := true, append_only := true} ->
             %% Blobs don't have a builtin timestamp field, so we
@@ -743,15 +749,29 @@ count(DB) ->
 %% @hidden Low-level transaction API. Obtain context for an optimistic
 %% transaction that allows to execute a set of operations atomically.
 -spec new_kv_tx(db(), transaction_opts()) -> {ok, tx_context()} | error(_).
-new_kv_tx(DB, Opts) ->
+new_kv_tx(DB, Opts = #{shard := _, timeout := _}) ->
     ?module(DB):new_kv_tx(DB, Opts).
 
-%% @hidden Low-level transaction API. Try to commit a set of operations
-%% executed in a given transaction context.
--spec commit_kv_tx(db(), tx_context(), blob_tx_ops()) ->
-    commit_result().
+%% @hidden Low-level transaction API. Try to commit a set of
+%% operations executed in a given transaction context. This function
+%% returns immediately.
+%%
+%% Outcome of the transaction is sent to the process that created
+%% `TxContext' as a message.
+%%
+%% This message matches `?ds_tx_commit_reply(Ref, Reply)' macro from
+%% `emqx_ds.hrl'. Reply should be passed to `tx_commit_outcome'
+%% function.
+-spec commit_kv_tx(db(), tx_context(), blob_tx_ops()) -> reference().
 commit_kv_tx(DB, TxContext, TxOps) ->
     ?module(DB):commit_kv_tx(DB, TxContext, TxOps).
+
+%% @doc Process asynchronous DS transaction commit reply and return
+%% the outcome of commit.
+-spec tx_commit_outcome(db(), reference(), term()) ->
+    commit_result().
+tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
+    ?module(DB):tx_commit_outcome(Reply).
 
 %%================================================================================
 %% Utility functions
@@ -803,28 +823,26 @@ commit_kv_tx(DB, TxContext, TxOps) ->
 %%
 %% - `db': name of the database
 %%
-%% - `owner': Client ID. This option is used for sharding. When
-%% `owner' is specified, shard is derived based on the current mapping
-%% of client IDs to shard ID.
-%%
-%% - `shard': Specify the shard directly. Can't be used together with
-%% `owner'.
+%% - `shard': Specify the shard directly. If set to `{auto, Term}',
+%% then the shard is derived by calling `shard_of(DB, Term)'.
 %%
 %% - `generation': Specify generation for the transaction. If omitted,
 %% current generation is assumed.
 %%
+%% - `sync': If set to `false', this function will return immediately
+%% without waiting for commit. Commit outcome will be sent as a
+%% message. `true' by default.
+%%
 %% - `timeout': sets timeout waiting for the commit.
 %%
 %%   + If set to a positive integer, function may return
-%%     `{error, recoverable, timeout}'.
+%%     `{error, unrecoverable, timeout}'.
 %%
-%%   + If set to `async', this function returns immediately.
+%% - `retries': Automatically retry the transaction if commit results
+%% in a recoverable error. This option specifies number of retries. 0
+%% by default. This option has no effect when `sync' = `false'.
 %%
-%% - `retries': Retry transaction that results in a recoverable error
-%% other than `timeout'. This option has no effect when `timeout' =
-%% `async'.
-%%
-%% - `retry_interval': sets pause between retries.
+%% - `retry_interval': set pause between the retries.
 %%
 %% == Return values ==
 %%
@@ -834,8 +852,25 @@ commit_kv_tx(DB, TxContext, TxOps) ->
 %%
 %% - When `timeout' option is set `async', this function returns
 %% `{async, Ref, Ret}' tuple where `Ref' is a reference. Result of the
-%% commit is sent to the caller asynchronously as a message of type
-%% `#ds_tx_commit_reply{}' with `ref' field equal to `Ref'.
+%% commit is sent to the caller asynchronously as a message that
+%% should be matched using `?tx_commit_reply(Ref, Reply)' macro. This
+%% macro binds `Reply' to a variable that should be passed to
+%% `emqx_ds:check_commit_reply' function to get the outcome of the
+%% async commit. For example:
+%%
+%% ```
+%% {async, Ref, Ret} = emqx_ds:trans(#{sync => false}, Fun),
+%% receive
+%%   ?tx_commit_reply(Ref, Reply) ->
+%%      CommitOutcome = emqx_ds:tx_commit_outcome(Ref, Reply)
+%% end.
+%% '''
+%%
+%% WARNING: `?tx_commit_reply(Ref, Reply)' has the same structure as a
+%% monitor 'DOWN' message. Therefore, in a selective receive or
+%% `gen_*' callbacks it should be matched before other 'DOWN'
+%% messages. Also, indiscriminate flushing such messages must be
+%% avoided.
 %%
 %% - Otherwise, `{atomic, Serial, Ret}' tuple is returned on
 %% successful commit. `Serial' is a shard-unique monotonically
@@ -847,10 +882,17 @@ commit_kv_tx(DB, TxContext, TxOps) ->
     fun(() -> Ret)
 ) ->
     transaction_result(Ret).
-trans(Opts = #{db := DB}, Fun) ->
+trans(UserOpts = #{db := DB, shard := _}, Fun) ->
+    Defaults = #{
+        timeout => 5_000,
+        sync => true,
+        retries => 0,
+        retry_interval => 1_000
+    },
+    Opts = maps:merge(Defaults, UserOpts),
     case is_trans() of
         false ->
-            Retries = maps:get(retries, Opts, 0),
+            #{retries := Retries} = Opts,
             trans(DB, Fun, Opts, Retries);
         true ->
             ?err_unrec(nested_transaction)
@@ -939,37 +981,30 @@ dirty_read(DB, TopicFilter) ->
 -spec dirty_read(db(), topic_filter(), fold_options()) ->
     fold_result([kv_pair() | emqx_types:message()]).
 dirty_read(DB, TopicFilter, Opts) ->
-    Fun = fun(_Slab, _Stream, _DSKey, Object, Acc) -> [Object | Acc] end,
-    fold_topic(Fun, [], DB, TopicFilter, 0, Opts).
-
--spec fold_topic(fold_fun(Acc), Acc, db(), topic_filter()) -> fold_result(Acc).
-fold_topic(Fun, Acc, DB, TopicFilter) ->
-    fold_topic(Fun, Acc, DB, TopicFilter, 0).
-
--spec fold_topic(fold_fun(Acc), Acc, db(), topic_filter(), time()) ->
-    fold_result(Acc).
-fold_topic(Fun, Acc, DB, TopicFilter, StartTime) ->
-    fold_topic(Fun, Acc, DB, TopicFilter, StartTime, #{}).
+    Fun = fun(_Slab, _Stream, _DSKey, Object, Acc) ->
+        [Object | Acc]
+    end,
+    fold_topic(Fun, [], TopicFilter, Opts#{db => DB}).
 
 -spec fold_topic(
     fold_fun(Acc),
     Acc,
-    db(),
     topic_filter(),
-    time(),
     fold_options()
 ) -> fold_result(Acc).
-fold_topic(Fun, AccIn, DB, TopicFilter, StartTime, UserOpts) ->
+fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
     %% Merge config and make fold context:
     Defaults = #{
         batch_size => 100,
         generation => '_',
-        errors => crash
+        errors => crash,
+        start_time => 0
     },
     #{
         batch_size := BatchSize,
         generation := GenerationMatcher,
-        errors := ErrorHandling
+        errors := ErrorHandling,
+        start_time := StartTime
     } = maps:merge(Defaults, UserOpts),
     Ctx = #fold_ctx{
         db = DB,
@@ -1067,7 +1102,10 @@ trans(DB, Fun, Opts, Retries) ->
     _ = put(?tx_ops_del_topic, []),
     _ = put(?tx_ops_assert_present, []),
     _ = put(?tx_ops_assert_absent, []),
-    RetryTimeout = maps:get(retry_interval, Opts, 1_000),
+    #{
+        sync := IsSync,
+        retry_interval := RetryInterval
+    } = Opts,
     try
         case new_kv_tx(DB, Opts) of
             {ok, Ctx} ->
@@ -1088,31 +1126,31 @@ trans(DB, Fun, Opts, Retries) ->
                         %% Nothing to commit
                         {nop, Ret};
                     _ ->
-                        case commit_kv_tx(DB, Ctx, Tx) of
-                            {ok, CommitTXId} ->
-                                {atomic, CommitTXId, Ret};
-                            Ref when is_reference(Ref) ->
+                        Ref = commit_kv_tx(DB, Ctx, Tx),
+                        case IsSync of
+                            false ->
                                 {async, Ref, Ret};
-                            ?err_unrec(_) = Err ->
-                                Err;
-                            ?err_rec(_) when Retries > 0 ->
-                                timer:sleep(RetryTimeout),
-                                trans(DB, Fun, Opts, Retries - 1);
-                            Err ->
-                                Err
+                            true ->
+                                receive
+                                    ?ds_tx_commit_reply(Ref, Reply) ->
+                                        case tx_commit_outcome(DB, Ref, Reply) of
+                                            {ok, CommitTXId} ->
+                                                {atomic, CommitTXId, Ret};
+                                            ?err_unrec(_) = Err ->
+                                                Err;
+                                            ?err_rec(_) when Retries > 0 ->
+                                                timer:sleep(RetryInterval),
+                                                trans(DB, Fun, Opts, Retries - 1);
+                                            Err ->
+                                                Err
+                                        end
+                                end
                         end
-                end;
-            ?err_rec(timeout) = Err ->
-                Err;
-            ?err_rec(_) ->
-                timer:sleep(RetryTimeout),
-                trans(DB, Fun, Opts, Retries - 1);
-            ?err_unrec(_) = Err ->
-                Err
+                end
         end
     catch
         ?tx_reset when Retries > 0 ->
-            timer:sleep(RetryTimeout),
+            timer:sleep(RetryInterval),
             trans(DB, Fun, Opts, Retries - 1)
     after
         _ = erase(?tx_ops_write),

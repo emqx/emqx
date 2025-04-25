@@ -69,6 +69,8 @@
 
 -define(TIMER_SCHEDULER_RETRY, timer_scheduler_retry).
 
+-define(checkpoint_ref, checkpoint_ref).
+
 -include("../emqx_tracepoints.hrl").
 
 -endif.

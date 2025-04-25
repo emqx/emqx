@@ -160,7 +160,6 @@
 
 -define(FLAG_DRAIN_INFLIGHT, flag_drain_inflight).
 -define(TIMER_COMMIT, timer_commit).
--define(TIMER_COMMIT_TIMEOUT, timer_commit_timeout).
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
 
 -type timer() ::
@@ -211,8 +210,7 @@
     ?FLAG_DRAIN_INFLIGHT := boolean(),
     %% Timers:
     ?TIMER_RETRY_REPLAY := timer_state(),
-    ?TIMER_COMMIT := timer_state(),
-    ?TIMER_COMMIT_TIMEOUT := timer_state()
+    ?TIMER_COMMIT := timer_state()
 }.
 
 -define(IS_REPLAY_ONGOING(REPLAY), is_list(REPLAY)).
@@ -635,9 +633,6 @@ handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     {ok, [], ensure_state_commit_timer(Session)};
 handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session) ->
     {ok, [], async_checkpoint(Session)};
-handle_timeout(_ClientInfo, ?TIMER_COMMIT_TIMEOUT, _Session) ->
-    %% FIXME: nicer error handling
-    exit(state_commit_timeout);
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session);
 handle_timeout(
@@ -681,9 +676,16 @@ handle_info(
     ),
     Session#{s := S, stream_scheduler_s := SchedS};
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
-    Session = commit(Session0, #{lifetime => up, sync => 5_000}),
+    Session = commit(Session0, #{lifetime => up, sync => true}),
     From ! Ref,
     Session;
+handle_info(
+    ?ds_tx_commit_reply(Ref, Reply),
+    Session = #{s := S0 = #{?checkpoint_ref := Ref}},
+    _ClientInfo
+) ->
+    S = emqx_persistent_session_ds_state:on_commit_reply(Ref, Reply, S0),
+    ensure_state_commit_timer(Session#{s := S});
 handle_info(
     Msg = {'DOWN', _, _, _, _},
     Session = #{s := S, stream_scheduler_s := SchedS0, buffer := Buf0},
@@ -699,23 +701,6 @@ handle_info(
                 stream_scheduler_s := SchedS,
                 buffer := Buf
             }
-    end;
-handle_info(
-    #ds_tx_commit_reply{ref = Ref, payload = Payload},
-    Session = #{state_commit_ref := MyRef},
-    _ClientInfo
-) ->
-    This = Ref =:= MyRef,
-    case Payload of
-        {ok, _Serial} when This ->
-            ensure_state_commit_timer(cancel_state_commit_timeout_timer(Session));
-        ?err_rec(_) when This ->
-            ensure_state_commit_timer(cancel_state_commit_timeout_timer(Session));
-        ?err_unrec(Reason) when This ->
-            %% FIXME: nicer error handling
-            exit({state_commit_failure, Reason});
-        _ ->
-            Session
     end;
 handle_info(Msg, Session, _ClientInfo) ->
     ?tp(warning, ?sessds_unknown_message, #{message => Msg}),
@@ -901,7 +886,7 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
 terminate(Reason, Session = #{s := S0, id := Id}) ->
     _ = maybe_set_will_message_timer(Session),
     S = finalize_last_alive_at(S0),
-    _ = commit(Session#{s := S}, #{lifetime => terminate, sync => 5_000}),
+    _ = commit(Session#{s := S}, #{lifetime => terminate, sync => true}),
     ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
     ok.
 
@@ -1392,7 +1377,7 @@ create_session(Lifetime, ClientID, S0, ConnInfo, Conf) ->
                 S1, shared_sub_opts(ClientID)
             )
     end,
-    S = emqx_persistent_session_ds_state:commit(S2, #{lifetime => Lifetime, sync => 5_000}),
+    S = emqx_persistent_session_ds_state:commit(S2, #{lifetime => Lifetime, sync => true}),
     #{
         id => ClientID,
         s => S,
@@ -1405,7 +1390,6 @@ create_session(Lifetime, ClientID, S0, ConnInfo, Conf) ->
         state_commit_ref => undefined,
         ?FLAG_DRAIN_INFLIGHT => false,
         ?TIMER_COMMIT => undefined,
-        ?TIMER_COMMIT_TIMEOUT => undefined,
         ?TIMER_RETRY_REPLAY => undefined
     }.
 
@@ -1822,63 +1806,29 @@ set_timer(Timer, Time, Session) ->
 %%--------------------------------------------------------------------
 
 async_checkpoint(Session) ->
-    commit(Session, #{lifetime => up, sync => async}).
+    commit(Session, #{lifetime => up, sync => false}).
 
-commit(Session = #{state_commit_ref := Ref}, #{sync := async}) when is_reference(Ref) ->
-    %% Ignore double async commit
-    Session;
-commit(Session = #{state_commit_ref := Ref}, Opts) when
-    is_reference(Ref)
-->
-    %% The caller needs to commit in a synchronized fashion, but we
-    %% already have an async commit running. Wait for it to finish.
-
-    %% FIXME: hardcode
-    Timeout = 5_000,
-    receive
-        #ds_tx_commit_reply{ref = Ref} ->
-            commit(cancel_state_commit_timeout_timer(Session), Opts)
-    after Timeout ->
-        exit(commit_timeout)
-    end;
 commit(Session0 = #{s := S0}, Opts) ->
     ?tp(?sessds_commit, #{s => S0, opts => Opts}),
     S1 = emqx_persistent_session_ds_subs:gc(emqx_persistent_session_ds_stream_scheduler:gc(S0)),
-    Session =
-        case emqx_persistent_session_ds_state:commit(S1, Opts) of
-            {async, Ref, S} ->
-                %% FIXME: hardcode
-                Timeout = 5_000,
-                ensure_timer(
-                    ?TIMER_COMMIT_TIMEOUT,
-                    Timeout,
-                    Session0#{s := S, state_commit_ref := Ref}
-                );
-            S ->
-                Session0#{s := S, state_commit_ref := undefined}
-        end,
+    S = emqx_persistent_session_ds_state:commit(S1, Opts),
+    Session = Session0#{s := S},
     cancel_state_commit_timer(Session).
 
 -spec ensure_state_commit_timer(session()) -> session().
-ensure_state_commit_timer(#{s := S, state_commit_ref := undefined} = Session) ->
-    case emqx_persistent_session_ds_state:is_dirty(S) of
-        true ->
+ensure_state_commit_timer(#{s := S} = Session) ->
+    Dirty = emqx_persistent_session_ds_state:is_dirty(S),
+    case S of
+        #{?checkpoint_ref := undefined} when Dirty ->
             ensure_timer(?TIMER_COMMIT, commit_interval(), Session);
-        false ->
+        _ ->
             Session
-    end;
-ensure_state_commit_timer(Session) ->
-    Session.
+    end.
 
 -spec cancel_state_commit_timer(session()) -> session().
 cancel_state_commit_timer(#{?TIMER_COMMIT := TRef} = Session) ->
     emqx_utils:cancel_timer(TRef),
     Session#{?TIMER_COMMIT := undefined}.
-
--spec cancel_state_commit_timeout_timer(session()) -> session().
-cancel_state_commit_timeout_timer(#{?TIMER_COMMIT_TIMEOUT := TRef} = Session) ->
-    emqx_utils:cancel_timer(TRef),
-    Session#{?TIMER_COMMIT_TIMEOUT := undefined, state_commit_ref := undefined}.
 
 %%--------------------------------------------------------------------
 %% Management of the heartbeat
