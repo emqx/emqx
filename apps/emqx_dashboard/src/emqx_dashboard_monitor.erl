@@ -156,7 +156,7 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
-    sample_timer(),
+    ok = start_sample_timer(),
     %% clean immediately
     self() ! clean_expired,
     {ok, #state{last = undefined, clean_timer = undefined, extra = []}}.
@@ -178,7 +178,7 @@ handle_info({sample, Time}, State = #state{last = Last}) ->
     Now = sample(Time),
     {atomic, ok} = flush(Last, Now),
     ?tp(dashboard_monitor_flushed, #{}),
-    sample_timer(),
+    ok = start_sample_timer(),
     {noreply, State#state{last = Now}};
 handle_info(clean_expired, #state{clean_timer = TrefOld} = State) ->
     ok = maybe_cancel_timer(TrefOld),
@@ -587,9 +587,10 @@ gauges() ->
 %% -------------------------------------------------------------------------------------------------
 %% timer
 
-sample_timer() ->
+start_sample_timer() ->
     {NextTime, Remaining} = next_interval(),
-    erlang:send_after(Remaining, self(), {sample, NextTime}).
+    _ = erlang:send_after(Remaining, self(), {sample, NextTime}),
+    ok.
 
 clean_timer() ->
     erlang:send_after(?CLEAN_EXPIRED_INTERVAL, self(), clean_expired).
