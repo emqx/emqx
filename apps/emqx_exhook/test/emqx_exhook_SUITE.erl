@@ -16,26 +16,26 @@
 
 -define(OTHER_CLUSTER_NAME_STRING, "test_emqx_cluster").
 
--define(CONF_DEFAULT, <<
-    "exhook {\n"
-    "  servers = [\n"
-    "    { name = default,\n"
-    "      url = \"http://127.0.0.1:9000\"\n"
-    "    },\n"
-    "    { name = enable,\n"
-    "      enable = false,\n"
-    "      url = \"http://127.0.0.1:9000\"\n"
-    "    },\n"
-    "    { name = error,\n"
-    "      url = \"http://127.0.0.1:9001\"\n"
-    "    },\n"
-    "    { name = not_reconnect,\n"
-    "      auto_reconnect = false,\n"
-    "      url = \"http://127.0.0.1:9001\"\n"
-    "    }\n"
-    "  ]\n"
-    "}\n"
->>).
+-define(CONF_DEFAULT, <<"""
+    exhook {
+      servers = [
+        { name = default,
+          url = "http://127.0.0.1:9000"
+        },
+        { name = enable,
+          enable = false,
+          url = "http://127.0.0.1:9000"
+        },
+        { name = error,
+          url = "http://127.0.0.1:9001"
+        },
+        { name = not_reconnect,
+          auto_reconnect = false,
+          url = "http://127.0.0.1:9001"
+        }
+      ]
+    }
+""">>).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -50,8 +50,24 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
+init_per_testcase(t_health_check = TC, Config) ->
+    common_init(TC, Config);
 init_per_testcase(TC, Config) ->
     _ = emqx_exhook_demo_svr:start(),
+    common_init(TC, Config).
+
+end_per_testcase(t_health_check, Config) ->
+    common_stop(Config);
+end_per_testcase(_, Config) ->
+    common_stop(Config),
+    ok = emqx_exhook_demo_svr:stop().
+
+emqx_conf(t_cluster_name) ->
+    io_lib:format("cluster.name = ~p", [?OTHER_CLUSTER_NAME_STRING]);
+emqx_conf(_) ->
+    #{}.
+
+common_init(TC, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -62,14 +78,8 @@ init_per_testcase(TC, Config) ->
     ),
     emqx_common_test_helpers:init_per_testcase(?MODULE, TC, [{tc_apps, Apps} | Config]).
 
-end_per_testcase(_, Config) ->
-    ok = emqx_cth_suite:stop(?config(tc_apps, Config)),
-    ok = emqx_exhook_demo_svr:stop().
-
-emqx_conf(t_cluster_name) ->
-    io_lib:format("cluster.name = ~p", [?OTHER_CLUSTER_NAME_STRING]);
-emqx_conf(_) ->
-    #{}.
+common_stop(Config) ->
+    ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -158,6 +168,75 @@ t_timer(_) ->
     _ = erlang:send(Pid, {timeout, undefined, {reload, <<"default">>}}),
     _ = erlang:send(Pid, {timeout, undefined, {reload, <<"not_found">>}}),
     _ = erlang:send(Pid, {timeout, undefined, {reload, <<"error">>}}),
+    ok.
+
+t_health_check('init', Config) ->
+    %% health_check and auto_reconnect logic:
+    %% assume auto_reconnect = 7.5s
+    %% It takes too much time to perform health checks manually.
+    %%
+    %% Status:
+    %% C: Connected
+    %% R: (re)Connecting
+    %% D: Disconnected
+    %%
+    %% Time (s) 0.0   2.5   5.0   7.5  10.0  12.5  15.0  17.5  20.0  22.5  25.0
+    %%          |-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
+    %%      Stop Server  ^                      Start Server ^
+    %% Health Check timer:
+    %%          |           |           |           |           |           |
+    %%          C1          C2         C3          C4          C5          C6
+    %%          |---------->|---------->|---------->|---------->|---------->|
+    %%          |           |           |           |           |           |
+    %% Status:  |---- C ----|---- R ----|- D -|- R -|---- D ----|---- C ----|
+    %%          |           |           |           |           |           |
+    %% Reconnect Interval:  |           |           |           |           |
+    %%                      |---- 7.5s ------>|---- 7.5s ------>| Cancaled
+
+    emqx_exhook_mgr:disable(<<"default">>),
+    _ = emqx_exhook_demo_svr:start(),
+    Config;
+t_health_check('end', _Config) ->
+    ok.
+
+t_health_check(_Config) ->
+    %% before time C1
+    Name = <<"default">>,
+    ?assertMatch(#{status := disabled}, emqx_exhook_mgr:lookup(Name)),
+
+    emqx_exhook_mgr:enable(Name),
+
+    timer:sleep(200),
+    %% will be `connecting` and then changed to `connected` very soon
+    %% disabled -> connected
+    ?assertMatch(#{status := connected}, emqx_exhook_mgr:lookup(Name)),
+
+    %% stop server
+    _ = emqx_exhook_demo_svr:stop(),
+
+    %% manually perform health_check
+    %% health_check found it unhealthy and then start a reload timer,
+    %% the reload timer marked it `connecting`
+    %% connected -> connecting
+    erlang:send(erlang:whereis(emqx_exhook_mgr), refresh_tick),
+    ?assertMatch(#{status := connecting}, emqx_exhook_mgr:lookup(Name)),
+
+    %% still unhealthy after next health_check, then mark `disconnected` (reload timer still working)
+    %% connecting -> disconnected
+    erlang:send(erlang:whereis(emqx_exhook_mgr), refresh_tick),
+    ?assertMatch(#{status := disconnected}, emqx_exhook_mgr:lookup(Name)),
+
+    emqx_exhook_mgr:disable(Name),
+    emqx_exhook_mgr:enable(Name),
+
+    %% re-enable, will be `connecting` if server is not started
+    ?assertMatch(#{status := connecting}, emqx_exhook_mgr:lookup(Name)),
+
+    %% still unhealthy after next health_check
+    %% connecting -> disconnected
+    erlang:send(erlang:whereis(emqx_exhook_mgr), refresh_tick),
+    ?assertMatch(#{status := disconnected}, emqx_exhook_mgr:lookup(Name)),
+
     ok.
 
 t_error_update_conf(_) ->
