@@ -100,6 +100,17 @@
 -define(LICENSE_QUOTA, []).
 -endif.
 
+%% record the max value over the history
+-define(WATERMARK_SAMPLER_LIST, [
+    %% sessions history high water mark is only recorded when
+    %% the config broker.s
+    sessions_hist_hwmark
+]).
+
+-define(NEWER_WINS_KEYS, maps:from_keys(?WATERMARK_SAMPLER_LIST ++ ?GAUGE_SAMPLER_LIST, true)).
+
+-define(PICK_NEWER(Key), is_map_key(Key, ?NEWER_WINS_KEYS)).
+
 %% use this atom to indicate no value provided from http request
 -define(NO_MFA_TOKEN, no_mfa_token).
 %% use this atom for internal calls where token validation is not required

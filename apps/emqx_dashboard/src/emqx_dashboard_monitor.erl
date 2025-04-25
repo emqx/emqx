@@ -20,6 +20,7 @@
     handle_call/3,
     handle_cast/2,
     handle_info/2,
+    handle_continue/2,
     terminate/2,
     code_change/3
 ]).
@@ -64,16 +65,24 @@
 -define(RETENTION_TIME, 7 * ?DAYS).
 -define(MAX_POSSIBLE_SAMPLES, 1440).
 -define(LOG(LEVEL, DATA), ?SLOG(LEVEL, DATA, #{tag => "DASHBOARD"})).
-
--record(state, {
-    last,
-    clean_timer,
-    extra = []
-}).
+-define(NO_WMARK, no_wmark).
+-define(HWMARK(T, V), {T, V}).
+-define(MAYBE_HWMARK(Condition, Hwmark),
+    case Condition of
+        true -> Hwmark;
+        false -> ?NO_WMARK
+    end
+).
 
 -record(emqx_monit, {
     time :: integer(),
     data :: map()
+}).
+
+-record(state, {
+    last :: #emqx_monit{},
+    clean_timer :: undefined | reference(),
+    extra = []
 }).
 
 create_tables() ->
@@ -105,7 +114,7 @@ samplers(NodeOrCluster, Latest) ->
     end.
 
 latest2time(infinity) -> 0;
-latest2time(Latest) -> erlang:system_time(millisecond) - (Latest * 1000).
+latest2time(Latest) -> now_ts() - (Latest * 1000).
 
 current_rate(all) ->
     current_rate_cluster();
@@ -157,17 +166,32 @@ start_link() ->
 
 init([]) ->
     ok = start_sample_timer(),
-    %% clean immediately
-    self() ! clean_expired,
-    {ok, #state{last = undefined, clean_timer = undefined, extra = []}}.
+    Dummy = #emqx_monit{time = now_ts(), data = #{}},
+    {ok, #state{last = Dummy, clean_timer = undefined, extra = []}, {continue, initial_cleanup}}.
+
+handle_continue(initial_cleanup, State) ->
+    ok = clean(),
+    ok = inplace_downsample(),
+    {noreply, State#state{clean_timer = start_clean_timer()}, {continue, read_hwmark}};
+handle_continue(read_hwmark, State) ->
+    case all_data() of
+        [] ->
+            {noreply, State};
+        List ->
+            %% this is silly, but the table type is set to `set`, not `ordered_set`
+            %% so we need to sort the list by time and get the latest one
+            {Time, Data} = lists:last(List),
+            {noreply, State#state{last = #emqx_monit{time = Time, data = Data}}}
+    end.
 
 handle_call(current_rate, _From, State = #state{last = Last}) ->
-    NowTime = erlang:system_time(millisecond),
-    NowSamplers = sample(NowTime),
+    NowTime = now_ts(),
+    NowSamplers = sample(NowTime, Last),
     Rate = cal_rate(NowSamplers, Last),
     NonRateValue = non_rate_value(),
-    Samples = maps:merge(Rate, NonRateValue),
-    {reply, {ok, Samples}, State};
+    Result1 = maps:merge(Rate, NonRateValue),
+    Result = merge_hwmarks(Result1, NowSamplers),
+    {reply, {ok, Result}, State};
 handle_call(_Request, _From, State = #state{}) ->
     {reply, ok, State}.
 
@@ -175,16 +199,16 @@ handle_cast(_Request, State = #state{}) ->
     {noreply, State}.
 
 handle_info({sample, Time}, State = #state{last = Last}) ->
-    Now = sample(Time),
+    Now = sample(Time, Last),
     {atomic, ok} = flush(Last, Now),
     ?tp(dashboard_monitor_flushed, #{}),
     ok = start_sample_timer(),
     {noreply, State#state{last = Now}};
 handle_info(clean_expired, #state{clean_timer = TrefOld} = State) ->
     ok = maybe_cancel_timer(TrefOld),
-    clean(),
-    inplace_downsample(),
-    TrefNew = clean_timer(),
+    ok = clean(),
+    ok = inplace_downsample(),
+    TrefNew = start_clean_timer(),
     {noreply, State#state{clean_timer = TrefNew}};
 handle_info(_Info, State = #state{}) ->
     {noreply, State}.
@@ -204,7 +228,7 @@ all_data() ->
 
 inplace_downsample() ->
     All = all_data(),
-    Now = erlang:system_time(millisecond),
+    Now = now_ts(),
     Compacted = compact(Now, All),
     {Deletes, Writes} = compare(All, Compacted, [], []),
     {atomic, ok} = mria:transaction(
@@ -271,7 +295,7 @@ randomize(Count, Data) when is_map(Data) ->
     randomize(Count, Data, MaxAge).
 
 randomize(Count, Data, Age) when is_map(Data) andalso is_integer(Age) ->
-    Now = erlang:system_time(millisecond) - 1,
+    Now = now_ts() - 1,
     StartTs = Now - Age,
     Gauges = gauges(),
     lists:foreach(
@@ -417,6 +441,8 @@ merge_cluster_rate(Node, Cluster) ->
                 NCluster#{shared_subscriptions => V};
             (license_quota, V, NCluster) ->
                 NCluster#{license_quota => V};
+            (sessions_hist_hwmark, V, NCluster) ->
+                NCluster#{sessions_hist_hwmark => V};
             %% for cluster sample, ignore node_uptime
             (node_uptime, _V, NCluster) ->
                 NCluster;
@@ -451,35 +477,28 @@ format(Data0) ->
     Data = lists:keysort(1, Data1),
     lists:map(fun({TimeStamp, V}) -> V#{time_stamp => TimeStamp} end, Data).
 
-cal_rate(_Now, undefined) ->
-    AllSamples = ?GAUGE_SAMPLER_LIST ++ maps:values(?DELTA_SAMPLER_RATE_MAP),
-    lists:foldl(fun(Key, Acc) -> Acc#{Key => 0} end, #{}, AllSamples);
 cal_rate(
     #emqx_monit{data = NowData, time = NowTime},
-    #emqx_monit{data = LastData, time = LastTime} = Last
+    #emqx_monit{data = LastData, time = LastTime}
 ) ->
-    case NowTime - LastTime of
-        0 ->
-            %% make sure: not divide by zero
-            timer:sleep(5),
-            NewSamplers = sample(erlang:system_time(millisecond)),
-            cal_rate(NewSamplers, Last);
-        TimeDelta ->
-            Filter = fun(Key, _) -> lists:member(Key, ?GAUGE_SAMPLER_LIST) end,
-            Gauge = maps:filter(Filter, NowData),
-            {_, _, _, Rate} =
-                lists:foldl(
-                    fun cal_rate_/2,
-                    {NowData, LastData, TimeDelta, Gauge},
-                    ?DELTA_SAMPLER_LIST
-                ),
-            Rate
-    end.
+    TimeDelta = NowTime - LastTime,
+    Filter = fun(Key, _) -> lists:member(Key, ?GAUGE_SAMPLER_LIST) end,
+    Gauge = maps:filter(Filter, NowData),
+    {_, _, _, Rate} =
+        lists:foldl(
+            fun cal_rate_/2,
+            {NowData, LastData, TimeDelta, Gauge},
+            ?DELTA_SAMPLER_LIST
+        ),
+    Rate.
 
 cal_rate_(Key, {Now, Last, TDelta, Res}) ->
     NewValue = maps:get(Key, Now),
-    LastValue = maps:get(Key, Last),
-    Rate = round((NewValue - LastValue) * 1000 / TDelta),
+    LastValue = maps:get(Key, Last, 0),
+    %% round up time delta to 1s, and value data to non-negative
+    %% 1. never divide by zero, or result in unreasonably high rate.
+    %% 2. never return negative rate.
+    Rate = round(max(NewValue - LastValue, 0) * 1000 / max(TDelta, 1000)),
     RateKey = maps:get(Key, ?DELTA_SAMPLER_RATE_MAP),
     {Now, Last, TDelta, Res#{RateKey => Rate}}.
 
@@ -582,8 +601,7 @@ downsample_local_loop([Ts | Rest], Gauges, TsDataMap, Interval, Res) ->
     downsample_local_loop(Rest, Gauges, TsDataMap, Interval, Res#{Bucket => Agg}).
 
 gauges() ->
-    maps:from_keys(?GAUGE_SAMPLER_LIST, true).
-
+    ?NEWER_WINS_KEYS.
 %% -------------------------------------------------------------------------------------------------
 %% timer
 
@@ -592,7 +610,7 @@ start_sample_timer() ->
     _ = erlang:send_after(Remaining, self(), {sample, NextTime}),
     ok.
 
-clean_timer() ->
+start_clean_timer() ->
     erlang:send_after(?CLEAN_EXPIRED_INTERVAL, self(), clean_expired).
 
 %% Per interval seconds.
@@ -602,7 +620,7 @@ clean_timer() ->
 %% Ensure that the monitor data of all nodes in the cluster are aligned in time
 next_interval() ->
     Interval = emqx_conf:get([dashboard, sample_interval], ?DEFAULT_SAMPLE_INTERVAL) * 1000,
-    Now = erlang:system_time(millisecond),
+    Now = now_ts(),
     NextTime = round_down(Now, Interval) + Interval,
     Remaining = NextTime - Now,
     {NextTime, Remaining}.
@@ -610,13 +628,58 @@ next_interval() ->
 %% -------------------------------------------------------------------------------------------------
 %% data
 
-sample(Time) ->
+sample(Time, LastHwmark) ->
     Fun =
         fun(Key, Acc) ->
             Acc#{Key => getstats(Key)}
         end,
     Data = lists:foldl(Fun, #{}, ?SAMPLER_LIST),
-    #emqx_monit{time = Time, data = Data}.
+    #emqx_monit{time = Time, data = refresh_hwmark(Time, LastHwmark, Data)}.
+
+refresh_hwmark(Time, #emqx_monit{data = LastHwmarks}, Data) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            Current = current_wmark(Key),
+            Old = ?MAYBE_HWMARK(
+                is_map(LastHwmarks) andalso is_map_key(Key, LastHwmarks),
+                maps:get(Key, LastHwmarks)
+            ),
+            New = ?MAYBE_HWMARK(Current =/= ?NO_WMARK, ?HWMARK(Time, Current)),
+            case compare_hwmark(Old, New) of
+                ?NO_WMARK ->
+                    Acc;
+                ?HWMARK(_, _) = Now ->
+                    Acc#{Key => Now}
+            end
+        end,
+        Data,
+        ?WATERMARK_SAMPLER_LIST
+    ).
+
+current_wmark(sessions_hist_hwmark) ->
+    case emqx_cm_registry:is_hist_enabled() of
+        true -> emqx_cm_registry:table_size();
+        false -> ?NO_WMARK
+    end.
+
+compare_hwmark(?HWMARK(TPast, VPast) = Past, ?HWMARK(TNow, VNow) = Now) ->
+    %% The old high watermark is expired,
+    %% or the current high watermark is greater than the old one
+    %% Most of the time, the new high watermark is greater than the old one,
+    %% unless after a full cluster restart, the retained information is lost.
+    %% For example, sessions_hist_hwmark reached 1000, then the cluster was
+    %% restarted, after restart, the watermaark has to start from 0,
+    %% it has 7 days to catch up to 1000, during this period, the old high watermark
+    %% is greater than the current one.
+    PickNew = (TPast + ?RETENTION_TIME < TNow) orelse (VPast =< VNow),
+    case PickNew of
+        true -> Now;
+        false -> Past
+    end;
+compare_hwmark(_, ?HWMARK(_, _) = Now) ->
+    Now;
+compare_hwmark(_, _) ->
+    ?NO_WMARK.
 
 flush(_Last = undefined, Now) ->
     store(Now);
@@ -627,7 +690,7 @@ flush(_Last = #emqx_monit{data = LastData}, Now = #emqx_monit{data = NowData}) -
 delta(LastData, NowData) ->
     Fun =
         fun(Key, Data) ->
-            Value = maps:get(Key, NowData) - maps:get(Key, LastData),
+            Value = maps:get(Key, NowData) - maps:get(Key, LastData, 0),
             Data#{Key => Value}
         end,
     lists:foldl(Fun, NowData, ?DELTA_SAMPLER_LIST).
@@ -643,7 +706,7 @@ clean() ->
     clean(?RETENTION_TIME).
 
 clean(Retention) ->
-    Now = erlang:system_time(millisecond),
+    Now = now_ts(),
     MS = ets:fun2ms(fun(#emqx_monit{time = T}) when Now - T > Retention -> T end),
     TsList = ets:select(?TAB, MS),
     {atomic, ok} =
@@ -739,3 +802,20 @@ license_quota() ->
 license_quota() ->
     #{}.
 -endif.
+
+now_ts() ->
+    erlang:system_time(millisecond).
+
+merge_hwmarks(Result, #emqx_monit{data = Samplers}) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            case maps:get(Key, Samplers, ?NO_WMARK) of
+                ?HWMARK(_, Value) ->
+                    Acc#{Key => Value};
+                _ ->
+                    Acc
+            end
+        end,
+        Result,
+        ?WATERMARK_SAMPLER_LIST
+    ).

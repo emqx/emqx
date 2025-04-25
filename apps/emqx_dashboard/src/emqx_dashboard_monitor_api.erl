@@ -128,7 +128,8 @@ fields(sampler_current) ->
     fields_current(sample_names(sampler_current)).
 
 sample_names(sampler_current_node) ->
-    maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST ++ ?CURRENT_SAMPLE_NON_RATE;
+    maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST ++ ?CURRENT_SAMPLE_NON_RATE ++
+        ?WATERMARK_SAMPLER_LIST;
 sample_names(sampler_current) ->
     sample_names(sampler_current_node) -- [node_uptime].
 
@@ -254,7 +255,9 @@ swagger_desc(shared_subscriptions) ->
 swagger_desc(node_uptime) ->
     <<"Node up time in seconds. Only presented in endpoint: `/monitor_current/nodes/:node`.">>;
 swagger_desc(license_quota) ->
-    <<"License quota. AKA: limited max_connections for cluster">>.
+    <<"License quota. AKA: limited max_connections for cluster">>;
+swagger_desc(Name) ->
+    ?DESC(Name).
 
 swagger_desc_format(Format) ->
     swagger_desc_format(Format, last).

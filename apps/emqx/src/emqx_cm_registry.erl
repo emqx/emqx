@@ -11,7 +11,7 @@
 
 -export([start_link/0]).
 
--export([is_enabled/0, is_hist_enabled/0]).
+-export([is_enabled/0, is_hist_enabled/0, table_size/0]).
 
 -export([
     register_channel/1,
@@ -63,6 +63,11 @@ is_enabled() ->
 -spec is_hist_enabled() -> boolean().
 is_hist_enabled() ->
     retain_duration() > 0.
+
+%% @doc Get the size of the global channel registry table.
+-spec table_size() -> non_neg_integer().
+table_size() ->
+    ets:info(?CHAN_REG_TAB, size).
 
 %% @doc Register a global channel.
 -spec register_channel(
@@ -120,6 +125,9 @@ lookup_channels(ClientId) ->
 
 %% Return 'true' or 'false' if it's a local pid.
 %% Otherwise return 'unknown'.
+is_pid_alive(Pid) when is_integer(Pid) ->
+    %% broker.session_history_retain > 0
+    false;
 is_pid_alive(Pid) when is_pid(Pid) andalso node(Pid) =:= node() ->
     erlang:is_process_alive(Pid);
 is_pid_alive(_) ->
