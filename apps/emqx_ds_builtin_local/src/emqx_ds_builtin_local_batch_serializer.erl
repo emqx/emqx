@@ -141,7 +141,10 @@ prepare_blob_tx(S, L) ->
 prepare_blob_tx(_S, [], CookedBatch, Replies) ->
     {CookedBatch, Replies};
 prepare_blob_tx(
-    S, [#ds_tx{ctx = Ctx, ops = Ops, from = From, ref = Ref} | Rest], CookedBatchAcc, Replies
+    S,
+    [#ds_tx{ctx = Ctx, ops = Ops, from = From, ref = Ref, meta = Meta} | Rest],
+    CookedBatchAcc,
+    Replies
 ) ->
     %% FIXME take generation into account
     #s{dbshard = DBShard = {DB, _}, serial = SerRef} = S,
@@ -153,14 +156,11 @@ prepare_blob_tx(
             emqx_ds_storage_layer:prepare_blob_tx(
                 DBShard, GenId, CommitSerial, Ops, CookedBatchAcc, #{}
             ),
-        Reply = #ds_tx_commit_reply{
-            ref = Ref,
-            payload = {ok, CommitSerial}
-        },
+        Reply = ?ds_tx_commit_ok(Ref, Meta, CommitSerial),
         prepare_blob_tx(S, Rest, CookedBatch, [{From, Reply} | Replies])
     else
-        Error ->
-            From ! #ds_tx_commit_reply{ref = Ref, payload = Error},
+        {error, Class, Error} ->
+            From ! ?ds_tx_commit_error(Ref, Meta, Class, Error),
             prepare_blob_tx(S, Rest, CookedBatchAcc, Replies)
     end.
 
@@ -200,7 +200,7 @@ do_store_operations(DBShard, Operations0, DBOpts, _StoreOpts) ->
     emqx_ds_builtin_local_meta:set_current_timestamp(DBShard, Latest),
     Result.
 
-db_config(#{db := DB}) ->
+db_config({DB, _}) ->
     emqx_ds_builtin_local_meta:db_config(DB).
 
 current_timestamp(DBShard) ->

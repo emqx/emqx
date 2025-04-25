@@ -20,6 +20,7 @@
 -compile(inline).
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+-include("session_internals.hrl").
 
 -export([open_db/1]).
 
@@ -27,8 +28,8 @@
     open/1,
     create_new/1,
     delete/1,
-    async_checkpoint/1,
     commit/2,
+    on_commit_reply/3,
     format/1,
     print_session/1,
     list_sessions/0
@@ -99,10 +100,6 @@
 
 -define(DB, ?DURABLE_SESSION_STATE).
 
--define(SESSION_REOPEN_RETRY_TIMEOUT, 1_000).
--define(READ_RETRY_TIMEOUT, 100).
--define(MAX_READ_ATTEMPTS, 5).
-
 -type pmap(K, V) ::
     #pmap{
         cache :: #{K => V},
@@ -139,6 +136,7 @@
     ?id := emqx_persistent_session_ds:id(),
     ?guard := guard(),
     ?dirty := boolean(),
+    ?checkpoint_ref := reference() | undefined,
     ?metadata := pmap(atom(), term()),
     ?subscriptions := pmap(
         emqx_persistent_session_ds:topic_filter(), emqx_persistent_session_ds_subs:subscription()
@@ -163,7 +161,7 @@
 
 -type lifetime() :: new | terminate | takeover | up.
 
--type commit_opts() :: #{lifetime := lifetime(), sync := async | timeout()}.
+-type commit_opts() :: #{lifetime := lifetime(), sync := boolean()}.
 
 %%================================================================================
 %% API functions
@@ -207,17 +205,12 @@ format(Rec = #{?id := Id}) ->
             Acc#{MapKey => Val}
         end,
         #{?id => Id},
-        maps:without([?id, ?dirty, ?guard, ?last_id], Rec)
+        maps:without([?id, ?dirty, ?guard, ?checkpoint_ref, ?last_id], Rec)
     ).
 
 -spec list_sessions() -> [emqx_persistent_session_ds:id()].
 list_sessions() ->
-    %% FIXME:
-    [].
-%% lists:map(
-%%     fun(#{session_id := Id}) -> Id end,
-%%     read_iterate('+', [?metadata_domain_bin, ?metadata_domain_bin])
-%% ).
+    emqx_persistent_session_ds_state_v2:list_sessions(generation()).
 
 -spec delete(emqx_persistent_session_ds:id() | t()) -> ok.
 delete(Id) when is_binary(Id) ->
@@ -230,15 +223,40 @@ delete(Id) when is_binary(Id) ->
 delete(Rec) when is_map(Rec) ->
     emqx_persistent_session_ds_state_v2:delete(generation(), Rec).
 
--spec async_checkpoint(t()) -> {async, reference(), t()}.
-async_checkpoint(Rec) ->
-    commit(Rec, #{lifetime => up, sync => async}).
-
 -spec commit(t(), commit_opts()) ->
     t().
 commit(Rec, Opts = #{lifetime := _, sync := _}) ->
     check_sequence(Rec),
     emqx_persistent_session_ds_state_v2:commit(generation(), Rec, Opts).
+
+-spec on_commit_reply(reference(), term(), t()) -> t().
+on_commit_reply(Ref, Reply, S = #{?id := ClientId}) ->
+    case emqx_ds:tx_commit_outcome(?DB, Ref, Reply) of
+        {ok, _CommitSerial} ->
+            S#{?checkpoint_ref := undefined};
+        ?err_rec(Reason) ->
+            ?tp(
+                warning,
+                ?sessds_commit_failure,
+                #{
+                    recoverable => true,
+                    reason => Reason,
+                    client => ClientId
+                }
+            ),
+            S#{?checkpoint_ref := undefined};
+        ?err_unrec(Reason) ->
+            ?tp(
+                error,
+                ?sessds_commit_failure,
+                #{
+                    recoverable => false,
+                    reason => Reason,
+                    client => ClientId
+                }
+            ),
+            exit(?sessds_commit_failure)
+    end.
 
 -spec create_new(emqx_persistent_session_ds:id()) -> t().
 create_new(SessionId) ->
@@ -247,6 +265,8 @@ create_new(SessionId) ->
         ?id => SessionId,
         ?guard => undefined,
         ?dirty => true,
+        ?checkpoint_ref => undefined,
+        %% FIXME: this is part of metadata?
         ?last_id => 1,
         ?metadata => #pmap{name = ?metadata},
         ?subscriptions => #pmap{name = ?subscriptions},

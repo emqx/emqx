@@ -38,6 +38,7 @@
 
     new_kv_tx/2,
     commit_kv_tx/3,
+    tx_commit_outcome/1,
 
     stream_to_binary/2,
     binary_to_stream/2,
@@ -235,13 +236,13 @@ store_batch(DB, Batch, Opts) ->
 
 -spec new_kv_tx(emqx_ds:db(), emqx_ds:transaction_opts()) ->
     {ok, tx_context()} | emqx_ds:error(_).
-new_kv_tx(DB, Options) ->
+new_kv_tx(DB, Options = #{shard := ShardOpt}) ->
     case emqx_ds_builtin_local_meta:db_config(DB) of
         #{atomic_batches := true, store_kv := true} ->
-            case Options of
-                #{owner := Owner} ->
+            case ShardOpt of
+                {auto, Owner} ->
                     Shard = shard_of(DB, Owner);
-                #{shard := Shard} ->
+                Shard ->
                     ok
             end,
             Now = emqx_ds_builtin_local_meta:current_timestamp(Shard),
@@ -251,22 +252,27 @@ new_kv_tx(DB, Options) ->
     end.
 
 -spec commit_kv_tx(emqx_ds:db(), tx_context(), emqx_ds:blob_tx_ops()) -> emqx_ds:commit_result().
-commit_kv_tx(DB, Ctx = #ds_tx_ctx{opts = Options}, Ops) ->
+commit_kv_tx(DB, Ctx = #ds_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
     Ref = make_ref(),
+    TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
     emqx_ds_builtin_local_batch_serializer:blob_tx(DB, #ds_tx{
-        ctx = Ctx, ops = Ops, from = self(), ref = Ref
+        ctx = Ctx, ops = Ops, from = self(), ref = Ref, meta = TRef
     }),
-    Sync = maps:get(sync, Options, 5_000),
-    case Sync of
-        async ->
-            Ref;
-        _ ->
-            receive
-                #ds_tx_commit_reply{ref = Ref, payload = Result} ->
-                    Result
-            after Sync ->
-                ?err_rec(timeout)
-            end
+    Ref.
+
+tx_commit_outcome(Reply) ->
+    case Reply of
+        ?ds_tx_commit_ok(Ref, TRef, Serial) ->
+            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+            {ok, Serial};
+        ?ds_tx_commit_error(Ref, TRef, Class, Info) ->
+            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+            {error, Class, Info};
+        {'DOWN', _Ref, Type, Object, Info} ->
+            %% This is likely a real monitor message. It doesn't contain TRef,
+            %% so the caller will receive the timeout message after the fact.
+            %% There's not much we can do about it.
+            ?err_unrec({Type, Object, Info})
     end.
 
 store_batch_buffered(DB, Messages, Opts) ->
@@ -628,6 +634,9 @@ timeus_to_timestamp(undefined) ->
     undefined;
 timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
+
+tx_timeout_msg(Ref) ->
+    ?ds_tx_commit_error(Ref, undefined, unrecoverable, timeout).
 
 %%================================================================================
 %% Common test options

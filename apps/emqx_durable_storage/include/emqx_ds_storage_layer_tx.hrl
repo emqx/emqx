@@ -31,7 +31,8 @@
     ctx :: emqx_ds:tx_context(),
     ops :: emqx_ds:blob_tx_ops(),
     from :: pid() | reference(),
-    ref :: reference()
+    ref :: reference(),
+    meta :: term()
 }).
 
 -endif.

@@ -44,6 +44,8 @@
     delete/2,
     commit/3,
 
+    list_sessions/1,
+
     set_offline_info/3,
 
     lts_threshold_cb/2,
@@ -89,8 +91,11 @@
 -spec open(emqx_ds:generation(), emqx_types:clientid(), boolean()) ->
     {ok, emqx_persistent_session_ds_state:t()} | undefined.
 open(Generation, ClientId, Verify) ->
+    Opts = #{
+        db => ?DB, generation => Generation, shard => {auto, ClientId}, timeout => trans_timeout()
+    },
     Ret = emqx_ds:trans(
-        #{db => ?DB, generation => Generation, owner => ClientId},
+        Opts,
         fun() -> open_tx(Generation, ClientId, Verify) end
     ),
     case Ret of
@@ -106,7 +111,24 @@ open(Generation, ClientId, Verify) ->
     emqx_persistent_session_ds_state:commit_opts()
 ) ->
     emqx_persistent_session_ds_state:t().
+commit(Generation, Rec = #{?checkpoint_ref := Ref}, Opts) when is_reference(Ref) ->
+    %% Attempt to commit while previous async checkpoint is still in
+    %% progress.
+    case Opts of
+        #{sync := false} ->
+            %% This is another async checkpoint. Just ignore it.
+            Rec;
+        #{sync := true} ->
+            %% Wait for the checkpoint to conclude, then commit again:
+            receive
+                ?ds_tx_commit_reply(Ref, Reply) ->
+                    %% FIXME: match result
+                    _ = emqx_ds:tx_commit_outcome(?DB, Ref, Reply),
+                    commit(Generation, Rec#{?checkpoint_ref => undefined}, Opts)
+            end
+    end;
 commit(_Generation, Rec = #{?dirty := false}, #{lifetime := L}) when L =/= takeover, L =/= new ->
+    %% There's nothing to checkpoint.
     Rec;
 commit(
     Generation,
@@ -124,9 +146,16 @@ commit(
     #{lifetime := Lifetime, sync := Sync}
 ) ->
     NewGuard = Lifetime =:= takeover orelse Lifetime =:= new,
+    Opts = #{
+        db => ?DB,
+        shard => {auto, ClientId},
+        generation => Generation,
+        sync => Sync,
+        timeout => trans_timeout()
+    },
     Result =
         emqx_ds:trans(
-            #{db => ?DB, owner => ClientId, generation => Generation, sync => Sync},
+            Opts,
             fun() ->
                 %% Generate a new guard if needed:
                 NewGuard andalso
@@ -155,7 +184,7 @@ commit(
         {nop, Rec} ->
             Rec;
         {async, Ref, Rec} ->
-            {async, Ref, Rec};
+            Rec#{?checkpoint_ref := Ref};
         {error, unrecoverable, {precondition_failed, Conflict}} when
             Lifetime =:= terminate
         ->
@@ -173,6 +202,20 @@ commit(
             )
     end.
 
+-spec list_sessions(emqx_ds:generation()) -> [emqx_persistent_session_ds:id()].
+list_sessions(Gen) ->
+    {L, _Errors} = emqx_ds:fold_topic(
+        fun(_Slab, _Stream, _DSKey, {Topic, _Guard}, Acc) ->
+            %% FIXME check slab
+            [?top_guard, Id] = Topic,
+            [Id | Acc]
+        end,
+        [],
+        [?top_guard, '+'],
+        #{db => ?DB, generation => Gen, errors => report}
+    ),
+    L.
+
 -spec set_offline_info(
     emqx_ds:generation(),
     emqx_types:client_id(),
@@ -180,8 +223,11 @@ commit(
 ) ->
     ok.
 set_offline_info(Generation, ClientId, Data) ->
+    Opts = #{
+        db => ?DB, shard => {auto, ClientId}, generation => Generation, timeout => trans_timeout()
+    },
     emqx_ds:trans(
-        #{db => ?DB, owner => ClientId, generation => Generation},
+        Opts,
         fun() ->
             emqx_ds:tx_kv_write([?top_offline_info, ClientId], term_to_binary(Data))
         end
@@ -202,9 +248,12 @@ delete(
         ?awaiting_rel := AwaitingRels
     }
 ) ->
+    Opts = #{
+        db => ?DB, shard => {auto, ClientId}, generation => Generation, timeout => trans_timeout()
+    },
     {atomic, _, _} =
         emqx_ds:trans(
-            #{db => ?DB, owner => ClientId, generation => Generation},
+            Opts,
             fun() ->
                 pmap_delete(ClientId, Metadata),
                 pmap_delete(ClientId, Subs),
@@ -265,6 +314,7 @@ open_tx(Generation, ClientId, Verify) ->
                 ?id => ClientId,
                 ?guard => Guard,
                 ?dirty => false,
+                ?checkpoint_ref => undefined,
                 ?metadata => pmap_restore(?metadata, Shard, ClientId),
                 ?subscriptions => pmap_restore(?subscriptions, Shard, ClientId),
                 ?subscription_states => pmap_restore(?subscription_states, Shard, ClientId),
@@ -353,10 +403,8 @@ pmap_restore(Name, Shard, ClientId) ->
             Acc#{Key => Val}
         end,
         #{},
-        ?DB,
         pmap_topic(Name, ClientId, '+'),
-        0,
-        #{shard => Shard}
+        #{db => ?DB, shard => Shard}
     ),
     #pmap{
         name = Name,
@@ -628,3 +676,6 @@ unwrap_subopts(Misc) ->
             Misc
         )
     ).
+
+trans_timeout() ->
+    emqx_config:get([durable_sessions, heartbeat_interval]).

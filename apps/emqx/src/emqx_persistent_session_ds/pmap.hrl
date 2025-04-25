@@ -43,7 +43,7 @@
 -define(id, id).
 -define(dirty, dirty).
 -define(guard, guard).
-%-define(commit_ref, commit_ref).
+
 %%   Pmap names:
 -define(metadata, metadata).
 -define(subscriptions, subscriptions).
