@@ -272,21 +272,20 @@ compare([{T0, _} | _] = All, [{T1, Data1} | Compacted], Deletes, Writes) when T0
 %% compact the data points to a smaller set of buckets
 %% Pre-condition: data fed to this function must be sorted chronologically.
 compact(Now, Data) ->
-    Gauges = gauges(),
-    compact(Now, Data, Gauges, []).
+    compact(Now, Data, []).
 
-compact(_Now, [], _Gauges, Acc) ->
+compact(_Now, [], Acc) ->
     lists:reverse(Acc);
-compact(Now, [{Time, Data} | Rest], Gauges, Acc) ->
+compact(Now, [{Time, Data} | Rest], Acc) ->
     Interval = sample_interval(Now - Time),
     Bucket = round_down(Time, Interval),
-    NewAcc = merge_to_bucket(Bucket, Data, Gauges, Acc),
-    compact(Now, Rest, Gauges, NewAcc).
+    NewAcc = merge_to_bucket(Bucket, Data, Acc),
+    compact(Now, Rest, NewAcc).
 
-merge_to_bucket(Bucket, Data, Gauges, [{Bucket, Data0} | Acc]) ->
-    NewData = merge_local_sampler_maps(Data0, Data, Gauges),
+merge_to_bucket(Bucket, Data, [{Bucket, Data0} | Acc]) ->
+    NewData = merge_local_sampler_maps(Data0, Data),
     [{Bucket, NewData} | Acc];
-merge_to_bucket(Bucket, Data, _Gauges, Acc) ->
+merge_to_bucket(Bucket, Data, Acc) ->
     [{Bucket, Data} | Acc].
 
 %% for testing
@@ -297,7 +296,6 @@ randomize(Count, Data) when is_map(Data) ->
 randomize(Count, Data, Age) when is_map(Data) andalso is_integer(Age) ->
     Now = now_ts() - 1,
     StartTs = Now - Age,
-    Gauges = gauges(),
     lists:foreach(
         fun(_) ->
             Ts = round_down(StartTs + rand:uniform(Age), timer:seconds(10)),
@@ -306,7 +304,7 @@ randomize(Count, Data, Age) when is_map(Data) andalso is_integer(Age) ->
                 [] ->
                     store(Record);
                 [#emqx_monit{data = D} = R] ->
-                    store(R#emqx_monit{data = merge_local_sampler_maps(Data, D, Gauges)})
+                    store(R#emqx_monit{data = merge_local_sampler_maps(Data, D)})
             end
         end,
         lists:seq(1, Count)
@@ -392,8 +390,8 @@ merge_sampler_maps(M1, M2) when is_map(M1) andalso is_map(M2) ->
     lists:foldl(Fun, M2, ?SAMPLER_LIST).
 
 %% `M1' is assumed to be newer data compared to anything `M2' has seen.
-merge_local_sampler_maps(M1, M2, Gauges) when is_map(M1) andalso is_map(M2) ->
-    Fun = fun(Key, Acc) -> merge_local_values(Key, M1, Acc, Gauges) end,
+merge_local_sampler_maps(M1, M2) when is_map(M1) andalso is_map(M2) ->
+    Fun = fun(Key, Acc) -> merge_local_values(Key, M1, Acc) end,
     lists:foldl(Fun, M2, ?SAMPLER_LIST).
 
 %% topics, subscriptions_durable and disconnected_durable_sessions are cluster synced
@@ -406,13 +404,10 @@ merge_values(disconnected_durable_sessions, M1, M2) ->
 merge_values(Key, M1, M2) ->
     sum_values(Key, M1, M2).
 
-merge_local_values(Key, M1, M2, Gauges) when
-    is_map_key(Key, Gauges) andalso
-        (is_map_key(Key, M1) orelse is_map_key(Key, M2))
-->
+merge_local_values(Key, M1, M2) when ?IS_PICK_NEWER(Key) ->
     %% First argument is assumed to be from a newer timestamp, so we keep the latest.
     M2#{Key => maps:get(Key, M1, maps:get(Key, M2, 0))};
-merge_local_values(Key, M1, M2, _Gauges) ->
+merge_local_values(Key, M1, M2) ->
     merge_values(Key, M1, M2).
 
 max_values(Key, M1, M2) when is_map_key(Key, M1) orelse is_map_key(Key, M2) ->
@@ -571,8 +566,7 @@ downsample_local(SinceTs, TsDataMap) when map_size(TsDataMap) >= 2 ->
     TsList = ts_list(TsDataMap),
     Latest = lists:max(TsList),
     Interval = sample_interval(Latest - SinceTs),
-    Gauges = gauges(),
-    downsample_local_loop(TsList, Gauges, TsDataMap, Interval, #{});
+    downsample_local_loop(TsList, TsDataMap, Interval, #{});
 downsample_local(_Since, TsDataMap) ->
     TsDataMap.
 
@@ -591,18 +585,15 @@ downsample_loop([Ts | Rest], TsDataMap, Interval, Res) ->
     Agg = merge_sampler_maps(Inc, Agg0),
     downsample_loop(Rest, TsDataMap, Interval, Res#{Bucket => Agg}).
 
-downsample_local_loop([], _Gauges, _TsDataMap, _Interval, Res) ->
+downsample_local_loop([], _TsDataMap, _Interval, Res) ->
     Res;
-downsample_local_loop([Ts | Rest], Gauges, TsDataMap, Interval, Res) ->
+downsample_local_loop([Ts | Rest], TsDataMap, Interval, Res) ->
     Bucket = round_down(Ts, Interval),
     Agg0 = maps:get(Bucket, Res, #{}),
     Inc = maps:get(Ts, TsDataMap),
-    Agg = merge_local_sampler_maps(Inc, Agg0, Gauges),
-    downsample_local_loop(Rest, Gauges, TsDataMap, Interval, Res#{Bucket => Agg}).
+    Agg = merge_local_sampler_maps(Inc, Agg0),
+    downsample_local_loop(Rest, TsDataMap, Interval, Res#{Bucket => Agg}).
 
-gauges() ->
-    ?NEWER_WINS_KEYS.
-%% -------------------------------------------------------------------------------------------------
 %% timer
 
 start_sample_timer() ->

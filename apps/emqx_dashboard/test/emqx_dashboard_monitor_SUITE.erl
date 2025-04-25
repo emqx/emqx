@@ -140,6 +140,15 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test Cases
 %%--------------------------------------------------------------------
 
+t_assert_no_missing_key_in_IS_PICK_NEWER(_Config) ->
+    Missing = lists:filter(
+        fun(Key) ->
+            not ?IS_PICK_NEWER(Key)
+        end,
+        ?GAUGE_SAMPLER_LIST ++ ?WATERMARK_SAMPLER_LIST
+    ),
+    ?assertEqual([], Missing).
+
 t_empty_table(_Config) ->
     pause_monitor_process(),
     clean_data(),

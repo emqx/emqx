@@ -107,9 +107,18 @@
     sessions_hist_hwmark
 ]).
 
--define(NEWER_WINS_KEYS, maps:from_keys(?WATERMARK_SAMPLER_LIST ++ ?GAUGE_SAMPLER_LIST, true)).
-
--define(PICK_NEWER(Key), is_map_key(Key, ?NEWER_WINS_KEYS)).
+%% Pick the newer value from the two maps when merging
+%% Keys are from ?WATERMARK_SAMPLER_LIST and ?GAUGE_SAMPLER_LIST
+%% test case is added to ensure no missing key in this macro
+-define(IS_PICK_NEWER(Key),
+    (Key =:= sessions_hist_hwmark orelse
+        Key =:= disconnected_durable_sessions orelse
+        Key =:= subscriptions_durable orelse
+        Key =:= subscriptions orelse
+        Key =:= topics orelse
+        Key =:= connections orelse
+        Key =:= live_connections)
+).
 
 %% use this atom to indicate no value provided from http request
 -define(NO_MFA_TOKEN, no_mfa_token).
