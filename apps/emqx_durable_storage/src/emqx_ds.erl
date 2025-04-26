@@ -28,7 +28,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Transactional API (low-level):
--export([new_kv_tx/2, commit_kv_tx/3]).
+-export([new_kv_tx/2, commit_tx/3]).
 
 %% Message replay API:
 -export([get_streams/3, get_streams/4, make_iterator/4, next/3]).
@@ -65,8 +65,6 @@
     binary_to_iterator/2,
 
     dirty_read/2,
-    dirty_read/3,
-
     fold_topic/4
 ]).
 
@@ -121,9 +119,9 @@
     kv_pair/0,
     kv_matcher/0,
 
-    tx_context/0,
+    kv_tx_context/0,
     transaction_opts/0,
-    blob_tx_ops/0,
+    kv_tx_ops/0,
     commit_result/0
 ]).
 
@@ -363,11 +361,10 @@
 -type sub_seqno() :: non_neg_integer().
 
 %% Low-level transaction types:
+-type kv_tx_context() :: term().
 -type tx_context() :: term().
 
-%% Note: the only guarantee about order of operations is that all
-%% deletions are executed before the writes.
--type blob_tx_ops() :: #{
+-type kv_tx_ops() :: #{
     %% Write operations:
     ?ds_tx_write => [kv_pair() | {topic(), ?ds_tx_serial}],
     %% Deletions:
@@ -378,6 +375,9 @@
     %%   List of objects that should NOT be present in the database.
     ?ds_tx_unexpected => [topic()]
 }.
+
+%% TODO:
+-type tx_ops() :: #{}.
 
 -type transaction_opts() :: #{
     db := db(),
@@ -498,9 +498,11 @@
 
 %% Blob transaction API:
 -callback new_kv_tx(db(), transaction_opts()) ->
-    {ok, tx_context()} | error(_).
+    {ok, kv_tx_context()} | error(_).
 
--callback commit_kv_tx(db(), tx_context(), blob_tx_ops()) -> reference().
+-callback commit_tx
+    (db(), kv_tx_context(), kv_tx_ops()) -> reference();
+    (db(), tx_context(), tx_ops()) -> reference().
 
 -callback tx_commit_outcome({'DOWN', reference(), _, _, _}) ->
     commit_result().
@@ -748,7 +750,7 @@ count(DB) ->
 
 %% @hidden Low-level transaction API. Obtain context for an optimistic
 %% transaction that allows to execute a set of operations atomically.
--spec new_kv_tx(db(), transaction_opts()) -> {ok, tx_context()} | error(_).
+-spec new_kv_tx(db(), transaction_opts()) -> {ok, kv_tx_context()} | error(_).
 new_kv_tx(DB, Opts = #{shard := _, timeout := _}) ->
     ?module(DB):new_kv_tx(DB, Opts).
 
@@ -762,9 +764,11 @@ new_kv_tx(DB, Opts = #{shard := _, timeout := _}) ->
 %% This message matches `?ds_tx_commit_reply(Ref, Reply)' macro from
 %% `emqx_ds.hrl'. Reply should be passed to `tx_commit_outcome'
 %% function.
--spec commit_kv_tx(db(), tx_context(), blob_tx_ops()) -> reference().
-commit_kv_tx(DB, TxContext, TxOps) ->
-    ?module(DB):commit_kv_tx(DB, TxContext, TxOps).
+-spec commit_tx
+    (db(), kv_tx_context(), kv_tx_ops()) -> reference();
+    (db(), tx_context(), tx_ops()) -> reference().
+commit_tx(DB, TxContext, TxOps) ->
+    ?module(DB):commit_tx(DB, TxContext, TxOps).
 
 %% @doc Process asynchronous DS transaction commit reply and return
 %% the outcome of commit.
@@ -973,18 +977,16 @@ iterator_to_binary(DB, Stream) ->
 binary_to_iterator(DB, Bin) ->
     ?module(DB):binary_to_iterator(DB, Bin).
 
--spec dirty_read(db(), topic_filter()) ->
+%% @doc Return _all_ messages matching the topic-filter as a list.
+-spec dirty_read(db() | fold_options(), topic_filter()) ->
     fold_result([kv_pair() | emqx_types:message()]).
-dirty_read(DB, TopicFilter) ->
-    dirty_read(DB, TopicFilter, #{}).
-
--spec dirty_read(db(), topic_filter(), fold_options()) ->
-    fold_result([kv_pair() | emqx_types:message()]).
-dirty_read(DB, TopicFilter, Opts) ->
+dirty_read(DB, TopicFilter) when is_atom(DB) ->
+    dirty_read(#{db => DB}, TopicFilter);
+dirty_read(#{db := _} = Opts, TopicFilter) ->
     Fun = fun(_Slab, _Stream, _DSKey, Object, Acc) ->
         [Object | Acc]
     end,
-    fold_topic(Fun, [], TopicFilter, Opts#{db => DB}).
+    fold_topic(Fun, [], TopicFilter, Opts).
 
 -spec fold_topic(
     fold_fun(Acc),
@@ -1126,7 +1128,7 @@ trans(DB, Fun, Opts, Retries) ->
                         %% Nothing to commit
                         {nop, Ret};
                     _ ->
-                        Ref = commit_kv_tx(DB, Ctx, Tx),
+                        Ref = commit_tx(DB, Ctx, Tx),
                         case IsSync of
                             false ->
                                 {async, Ref, Ret};

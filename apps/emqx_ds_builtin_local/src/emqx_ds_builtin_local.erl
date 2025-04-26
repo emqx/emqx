@@ -37,7 +37,7 @@
     subscription_info/2,
 
     new_kv_tx/2,
-    commit_kv_tx/3,
+    commit_tx/3,
     tx_commit_outcome/1,
 
     stream_to_binary/2,
@@ -251,8 +251,9 @@ new_kv_tx(DB, Options = #{shard := ShardOpt}) ->
             ?err_unrec(database_does_not_support_transactions)
     end.
 
--spec commit_kv_tx(emqx_ds:db(), tx_context(), emqx_ds:blob_tx_ops()) -> emqx_ds:commit_result().
-commit_kv_tx(DB, Ctx = #ds_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
+-spec commit_tx(emqx_ds:db(), tx_context(), emqx_ds:kv_tx_ops()) -> emqx_ds:commit_result().
+commit_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
+    %% TODO: monitor batch serializer (?)
     Ref = make_ref(),
     TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
     emqx_ds_builtin_local_batch_serializer:blob_tx(DB, #ds_tx{
@@ -389,7 +390,7 @@ shard_of_operation(DB, {_, #message_matcher{from = From, topic = Topic}}, Serial
         topic -> Key = Topic
     end,
     shard_of(DB, Key);
-shard_of_operation(_DB, #ds_tx{ctx = #ds_tx_ctx{shard = Shard}}, _SerializeBy, _Options) ->
+shard_of_operation(_DB, #ds_tx{ctx = #kv_tx_ctx{shard = Shard}}, _SerializeBy, _Options) ->
     Shard.
 
 shard_of(DB, Key) ->

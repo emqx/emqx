@@ -493,7 +493,7 @@ batch_starts_at([]) ->
     dbshard(),
     gen_id(),
     emqx_ds:tx_serial(),
-    emqx_ds:blob_tx_ops(),
+    emqx_ds:kv_tx_ops(),
     cooked_batch() | undefined,
     batch_prepare_opts()
 ) ->

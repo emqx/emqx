@@ -64,7 +64,7 @@
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
     emqx_ds:tx_serial(),
-    emqx_ds:blob_tx_ops(),
+    emqx_ds:kv_tx_ops(),
     emqx_ds_storage_layer:batch_prepare_opts()
 ) ->
     {ok, term()} | emqx_ds:error(_).

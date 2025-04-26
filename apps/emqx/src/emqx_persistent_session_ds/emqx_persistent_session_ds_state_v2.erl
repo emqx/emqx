@@ -341,7 +341,10 @@ open_tx(Generation, ClientId, Verify) ->
     binary() | undefined.
 guard(ClientId, Shard, Generation) ->
     case
-        emqx_ds:dirty_read(?DB, [?top_guard, ClientId], #{shard => Shard, generation => Generation})
+        emqx_ds:dirty_read(
+            #{db => ?DB, shard => Shard, generation => Generation},
+            [?top_guard, ClientId]
+        )
     of
         [{_Topic, Guard}] ->
             Guard;

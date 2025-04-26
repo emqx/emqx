@@ -183,12 +183,12 @@
     s := emqx_persistent_session_ds_state:t(),
     %% Shared subscription state:
     shared_sub_s := shared_sub_state(),
-    %% Buffer accumulates poll replies received from the DS, that
-    %% could not be immediately added to the inflight due to stream
-    %% blocking. Buffered messages have not been seen by the client.
-    %% Therefore, they (and their iterators) are entirely ephemeral
-    %% and are lost when the client disconnets. Session restarts with
-    %% an empty buffer.
+    %% Buffer accumulates batches received from the DS, that could not
+    %% be immediately added to the inflight due to stream blocking.
+    %% Buffered messages have not been seen by the client. Therefore,
+    %% they (and their iterators) are entirely ephemeral and are lost
+    %% when the client disconnets. Session restarts with an empty
+    %% buffer.
     buffer := emqx_persistent_session_ds_buffer:t(),
     %% Inflight represents a sequence of outgoing messages with
     %% assigned packet IDs. Some of these messages MAY have been seen
@@ -204,8 +204,6 @@
     %% In-progress replay:
     %% List of stream replay states to be added to the inflight.
     replay := [{_StreamKey, stream_state()}, ...] | undefined,
-    %% Async checkpoint reference:
-    state_commit_ref := reference() | undefined,
     %% Flags:
     ?FLAG_DRAIN_INFLIGHT := boolean(),
     %% Timers:
@@ -680,31 +678,31 @@ handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
     From ! Ref,
     Session;
 handle_info(
-    ?ds_tx_commit_reply(Ref, Reply),
-    Session = #{s := S0 = #{?checkpoint_ref := Ref}},
+    Info,
+    Session = #{s := S0, stream_scheduler_s := SchedS0, buffer := Buf0},
     _ClientInfo
 ) ->
-    S = emqx_persistent_session_ds_state:on_commit_reply(Ref, Reply, S0),
-    ensure_state_commit_timer(Session#{s := S});
-handle_info(
-    Msg = {'DOWN', _, _, _, _},
-    Session = #{s := S, stream_scheduler_s := SchedS0, buffer := Buf0},
-    _ClientInfo
-) ->
-    %% Handle potential subscription DS crash:
-    case emqx_persistent_session_ds_stream_scheduler:handle_down(Msg, S, SchedS0) of
+    %% Handle all the other messages.
+    %%
+    %% Is it a state commit reply?
+    case emqx_persistent_session_ds_state:on_commit_reply(Info, S0) of
         ignore ->
-            Session;
-        {drop_buffer, StreamKey, SchedS} ->
-            Buf = emqx_persistent_session_ds_buffer:drop_stream(StreamKey, Buf0),
-            Session#{
-                stream_scheduler_s := SchedS,
-                buffer := Buf
-            }
-    end;
-handle_info(Msg, Session, _ClientInfo) ->
-    ?tp(warning, ?sessds_unknown_message, #{message => Msg}),
-    Session.
+            %% No. Is it a DS subscription crash then?
+            case emqx_persistent_session_ds_stream_scheduler:handle_down(Info, S0, SchedS0) of
+                ignore ->
+                    ?tp(warning, ?sessds_unknown_message, #{message => Info}),
+                    Session;
+                {drop_buffer, StreamKey, SchedS} ->
+                    Buf = emqx_persistent_session_ds_buffer:drop_stream(StreamKey, Buf0),
+                    Session#{
+                        stream_scheduler_s := SchedS,
+                        buffer := Buf
+                    }
+            end;
+        S ->
+            %% Yes, session checkpoint just completed.
+            ensure_state_commit_timer(Session#{s := S})
+    end.
 
 %%--------------------------------------------------------------------
 %% Shared subscription outgoing messages
@@ -1307,7 +1305,7 @@ drain_buffer(Session0, ClientInfo, BufferIterator) ->
     end.
 
 %% @doc Move batches from a specified stream's buffer to the inflight.
-%% This function is called when the client unblock the stream by
+%% This function is called when the client unblocks the stream by
 %% acking a message.
 -spec drain_buffer_of_stream(
     emqx_persistent_session_ds_stream_scheduler:stream_key(),
@@ -1387,7 +1385,6 @@ create_session(Lifetime, ClientID, S0, ConnInfo, Conf) ->
         props => Conf,
         stream_scheduler_s => SchedS,
         replay => undefined,
-        state_commit_ref => undefined,
         ?FLAG_DRAIN_INFLIGHT => false,
         ?TIMER_COMMIT => undefined,
         ?TIMER_RETRY_REPLAY => undefined
@@ -1818,8 +1815,8 @@ commit(Session0 = #{s := S0}, Opts) ->
 -spec ensure_state_commit_timer(session()) -> session().
 ensure_state_commit_timer(#{s := S} = Session) ->
     Dirty = emqx_persistent_session_ds_state:is_dirty(S),
-    case S of
-        #{?checkpoint_ref := undefined} when Dirty ->
+    case emqx_persistent_session_ds_state:checkpoint_ref(S) of
+        undefined when Dirty ->
             ensure_timer(?TIMER_COMMIT, commit_interval(), Session);
         _ ->
             Session

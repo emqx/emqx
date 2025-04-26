@@ -37,7 +37,7 @@
 %% Type declarations
 %%================================================================================
 
--opaque ctx() :: #ds_tx_ctx{}.
+-opaque ctx() :: #kv_tx_ctx{}.
 
 %%================================================================================
 %% API functions
@@ -53,15 +53,15 @@ new_kv_tx_ctx(DB, Shard, Options, _Now) ->
         #{generation := G} when G =/= Generation ->
             ?err_unrec({generation_is_not_current, G});
         _ ->
-            {ok, #ds_tx_ctx{
+            {ok, #kv_tx_ctx{
                 shard = Shard,
                 generation = Generation,
                 opts = Options
             }}
     end.
 
--spec verify_preconditions(emqx_ds:db(), ctx(), emqx_ds:blob_tx_ops()) -> ok | emqx_ds:error().
-verify_preconditions(DB, #ds_tx_ctx{shard = Shard, generation = Gen}, Ops) ->
+-spec verify_preconditions(emqx_ds:db(), ctx(), emqx_ds:kv_tx_ops()) -> ok | emqx_ds:error().
+verify_preconditions(DB, #kv_tx_ctx{shard = Shard, generation = Gen}, Ops) ->
     ErrAcc0 = lists:foldl(
         fun({Topic, ValueMatcher}, Acc) ->
             case emqx_ds_storage_layer:lookup_blob({DB, Shard}, Gen, Topic) of
