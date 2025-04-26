@@ -26,11 +26,21 @@ current_stats_node.label:
 """Node runtime stats"""
 
 sessions_hist_hwmark.desc:
-"""Sessions count high watermark is tracked when `broker.session_history_retain` is configured with a non-zero duration.
-
-Note: After a full cluster restart, the previously recorded high watermark will continue to be reported until either its retention period expires or a new higher value is recorded."""
+"""Sessions count high watermark is tracked when `broker.session_history_retain` is configured with a non-zero duration."""
 
 sessions_hist_hwmark.label:
 """Sessions Count High Watermark"""
+
+hwmark_peak_time.desc:
+"""Timestamp for when the peak value was recorded. Unix epoch in milliseconds."""
+hwmark_peak_time.label: "Peak Time"
+
+hwmark_peak_value.desc:
+"""The peak value of the high watermark."""
+hwmark_peak_value.label: "Peak Value"
+
+hwmark_current_value.desc:
+"""The current hight of the watermark."""
+hwmark_current_value.label: "Current Hight"
 
 }

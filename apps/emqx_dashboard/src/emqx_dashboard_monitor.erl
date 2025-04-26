@@ -66,7 +66,7 @@
 -define(MAX_POSSIBLE_SAMPLES, 1440).
 -define(LOG(LEVEL, DATA), ?SLOG(LEVEL, DATA, #{tag => "DASHBOARD"})).
 -define(NO_WMARK, no_wmark).
--define(HWMARK(T, V), {T, V}).
+-define(HWMARK(T, P, V), {T, P, V}).
 -define(MAYBE_HWMARK(Condition, Hwmark),
     case Condition of
         true -> Hwmark;
@@ -635,11 +635,11 @@ refresh_hwmark(Time, #emqx_monit{data = LastHwmarks}, Data) ->
                 is_map(LastHwmarks) andalso is_map_key(Key, LastHwmarks),
                 maps:get(Key, LastHwmarks)
             ),
-            New = ?MAYBE_HWMARK(Current =/= ?NO_WMARK, ?HWMARK(Time, Current)),
-            case compare_hwmark(Old, New) of
+            New = ?MAYBE_HWMARK(Current =/= ?NO_WMARK, ?HWMARK(Time, Current, Current)),
+            case hwmark(Old, New) of
                 ?NO_WMARK ->
                     Acc;
-                ?HWMARK(_, _) = Now ->
+                ?HWMARK(_, _, _) = Now ->
                     Acc#{Key => Now}
             end
         end,
@@ -653,28 +653,20 @@ current_wmark(sessions_hist_hwmark) ->
         false -> ?NO_WMARK
     end.
 
-compare_hwmark(?HWMARK(TPast, VPast) = Past, ?HWMARK(TNow, VNow) = Now) ->
+hwmark(?HWMARK(TPast, PPast, _VPast), ?HWMARK(TNow, PNow, VNow) = Now) ->
     %% The old high watermark is expired,
-    %% or the current high watermark is greater than the old one
-    %% Most of the time, the new high watermark is greater than the old one,
-    %% unless after a full cluster restart, the retained information is lost.
-    %% For example, sessions_hist_hwmark reached 1000, then the cluster was
-    %% restarted, after restart, the watermaark has to start from 0,
-    %% it has 7 days to catch up to 1000, during this period, the old high watermark
-    %% is greater than the current one.
-    PickNew = (TPast + ?RETENTION_TIME < TNow) orelse (VPast =< VNow),
-    case PickNew of
+    %% or the current watermark is higher than the old one.
+    IsNewPeak = (TPast + ?RETENTION_TIME < TNow) orelse (PPast < PNow),
+    case IsNewPeak of
         true -> Now;
-        false -> Past
+        false -> ?HWMARK(TPast, PPast, VNow)
     end;
-compare_hwmark(_, ?HWMARK(_, _) = Now) ->
+hwmark(_, ?HWMARK(_, _, _) = Now) ->
     Now;
-compare_hwmark(_, _) ->
+hwmark(_, _) ->
     ?NO_WMARK.
 
-flush(_Last = undefined, Now) ->
-    store(Now);
-flush(_Last = #emqx_monit{data = LastData}, Now = #emqx_monit{data = NowData}) ->
+flush(#emqx_monit{data = LastData}, Now = #emqx_monit{data = NowData}) ->
     Store = Now#emqx_monit{data = delta(LastData, NowData)},
     store(Store).
 
@@ -801,8 +793,8 @@ merge_hwmarks(Result, #emqx_monit{data = Samplers}) ->
     lists:foldl(
         fun(Key, Acc) ->
             case maps:get(Key, Samplers, ?NO_WMARK) of
-                ?HWMARK(_, Value) ->
-                    Acc#{Key => Value};
+                ?HWMARK(T, P, V) ->
+                    Acc#{Key => #{peak_time => T, peak_value => P, current_value => V}};
                 _ ->
                     Acc
             end

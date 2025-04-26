@@ -37,6 +37,14 @@
     do_cleanup_channels/1
 ]).
 
+-ifdef(TEST).
+%% For testing only
+-export([
+    force_delete/1,
+    purge/0
+]).
+-endif.
+
 -include("emqx.hrl").
 -include("emqx_cm.hrl").
 -include("logger.hrl").
@@ -111,6 +119,20 @@ unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid
         false ->
             ok
     end.
+
+-ifdef(TEST).
+%% @hidden Force delete a global channel.
+%% For testing only.
+-spec force_delete(emqx_types:clientid()) -> ok.
+force_delete(ClientId) ->
+    mria:dirty_delete(?CHAN_REG_TAB, ClientId).
+
+%% @hidden Purge the global channel registry.
+%% For testing only.
+-spec purge() -> ok.
+purge() ->
+    ets:delete_all_objects(?CHAN_REG_TAB).
+-endif.
 
 %% @private
 unregister_channel2(#channel{chid = ClientId} = Record) ->

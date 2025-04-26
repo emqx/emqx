@@ -107,40 +107,31 @@ end_per_group(common, Config) ->
     emqx_common_test_helpers:stop_apps_ds(Config),
     ok.
 
-init_per_testcase(t_smoke_test_monitor_multiple_windows = TestCase, Config0) ->
-    Port = 28083,
-    NodeSpecs = [
-        {smoke_multiple_windows1, #{apps => cluster_node_appspec(true, Port)}},
-        {smoke_multiple_windows2, #{apps => cluster_node_appspec(false, Port)}}
-    ],
-    Config = emqx_common_test_helpers:start_cluster_ds(
-        Config0,
-        NodeSpecs,
-        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config0)}
-    ),
-    ok = snabbkaffe:start_trace(),
-    Config;
-init_per_testcase(t_monitor_current_shared_subscription, Config) ->
-    init_per_testcase(common, Config);
-init_per_testcase(_TestCase, Config) ->
-    ok = snabbkaffe:start_trace(),
-    ct:timetrap({seconds, 30}),
-    Config.
+init_per_testcase(TestCase, Config) ->
+    try
+        ?MODULE:TestCase({init, Config})
+    catch
+        error:function_clause ->
+            ok = snabbkaffe:start_trace(),
+            ct:timetrap({seconds, 30}),
+            Config
+    end.
 
-end_per_testcase(t_smoke_test_monitor_multiple_windows, Config) ->
-    ok = snabbkaffe:stop(),
-    ok = emqx_common_test_helpers:stop_cluster_ds(Config),
-    ok;
-end_per_testcase(_TestCase, _Config) ->
-    ok = snabbkaffe:stop(),
-    emqx_common_test_helpers:call_janitor(),
-    ok.
+end_per_testcase(TestCase, Config) ->
+    try
+        ?MODULE:TestCase({'end', Config})
+    catch
+        error:function_clause ->
+            ok = snabbkaffe:stop(),
+            emqx_common_test_helpers:call_janitor(),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
 
-t_assert_no_missing_key_in_IS_PICK_NEWER(_Config) ->
+t_assert_no_missing_key_in_IS_PICK_NEWER(Config) when is_list(Config) ->
     Missing = lists:filter(
         fun(Key) ->
             not ?IS_PICK_NEWER(Key)
@@ -149,12 +140,12 @@ t_assert_no_missing_key_in_IS_PICK_NEWER(_Config) ->
     ),
     ?assertEqual([], Missing).
 
-t_empty_table(_Config) ->
+t_empty_table(Config) when is_list(Config) ->
     pause_monitor_process(),
     clean_data(),
     ?assertEqual({ok, []}, request(["monitor"], "latest=20000")).
 
-t_pmap_nodes(_Config) ->
+t_pmap_nodes(Config) when is_list(Config) ->
     MaxAge = timer:hours(1),
     Now = erlang:system_time(millisecond) - 1,
     Interval = emqx_dashboard_monitor:sample_interval(MaxAge),
@@ -170,7 +161,7 @@ t_pmap_nodes(_Config) ->
     ok = check_sample_intervals(Interval, hd(Data), tl(Data)),
     ?assertEqual(LastVal * length(Nodes), maps:get(sent, lists:last(Data))).
 
-t_inplace_downsample(_Config) ->
+t_inplace_downsample(Config) when is_list(Config) ->
     clean_data(),
     %% -20s to ensure the oldest data point will not expire during the test
     SinceT = 7 * timer:hours(24) - timer:seconds(20),
@@ -215,7 +206,7 @@ check_intervals([Interval | Rest], [{Ts, _} | RestData] = All) ->
             check_intervals(Rest, All)
     end.
 
-t_randomize(_Config) ->
+t_randomize(Config) when is_list(Config) ->
     clean_data(),
     emqx_dashboard_monitor:randomize(1, #{sent => 100}),
     Since = integer_to_list(7 * timer:hours(24)),
@@ -223,19 +214,19 @@ t_randomize(_Config) ->
     Count = lists:sum(lists:map(fun(#{<<"sent">> := S}) -> S end, Samplers)),
     ?assertEqual(100, Count).
 
-t_downsample_7d(_Config) ->
+t_downsample_7d(Config) when is_list(Config) ->
     MaxAge = 7 * timer:hours(24),
     test_downsample(MaxAge, 10).
 
-t_downsample_3d(_Config) ->
+t_downsample_3d(Config) when is_list(Config) ->
     MaxAge = 3 * timer:hours(24),
     test_downsample(MaxAge, 10).
 
-t_downsample_1d(_Config) ->
+t_downsample_1d(Config) when is_list(Config) ->
     MaxAge = timer:hours(24),
     test_downsample(MaxAge, 10).
 
-t_downsample_1h(_Config) ->
+t_downsample_1h(Config) when is_list(Config) ->
     MaxAge = timer:hours(1),
     test_downsample(MaxAge, 10).
 
@@ -353,7 +344,7 @@ write(Time, Data) ->
     {atomic, ok} = emqx_dashboard_monitor:store({emqx_monit, Time, Data}),
     ok.
 
-t_monitor_sampler_format(_Config) ->
+t_monitor_sampler_format(Config) when is_list(Config) ->
     {ok, _} =
         snabbkaffe:block_until(
             ?match_event(#{?snk_kind := dashboard_monitor_flushed}),
@@ -364,7 +355,7 @@ t_monitor_sampler_format(_Config) ->
     [?assert(lists:member(SamplerName, SamplerKeys)) || SamplerName <- ?SAMPLER_LIST],
     ok.
 
-t_sample_specific_node_but_badrpc(_Config) ->
+t_sample_specific_node_but_badrpc(Config) when is_list(Config) ->
     meck:new(emqx_dashboard_monitor, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
         emqx_dashboard_monitor,
@@ -383,7 +374,7 @@ t_sample_specific_node_but_badrpc(_Config) ->
     meck:unload(emqx_dashboard_monitor),
     ok.
 
-t_handle_old_monitor_data(_Config) ->
+t_handle_old_monitor_data(Config) when is_list(Config) ->
     Now = erlang:system_time(second),
     FakeOldData = maps:from_list(
         lists:map(
@@ -418,7 +409,7 @@ t_handle_old_monitor_data(_Config) ->
     ok = meck:unload([emqx, emqx_dashboard_proto_v2]),
     ok.
 
-t_monitor_api(_) ->
+t_monitor_api(Config) when is_list(Config) ->
     clean_data(),
     {ok, _} =
         snabbkaffe:block_until(
@@ -450,7 +441,7 @@ t_monitor_api(_) ->
     [Fun(NodeSampler) || NodeSampler <- NodeSamplers],
     ok.
 
-t_monitor_current_api(_) ->
+t_monitor_current_api(Config) when is_list(Config) ->
     {ok, _} =
         snabbkaffe:block_until(
             ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
@@ -480,7 +471,7 @@ t_monitor_current_api(_) ->
     ?assertNot(maps:is_key(<<"disconnected_durable_sessions">>, NodeRate)),
     ok.
 
-t_monitor_current_api_live_connections(_) ->
+t_monitor_current_api_live_connections(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     ClientId = <<"live_conn_tests">>,
     ClientId1 = <<"live_conn_tests1">>,
@@ -501,7 +492,7 @@ t_monitor_current_api_live_connections(_) ->
     {ok, _} = emqtt:connect(C2),
     ok = emqtt:disconnect(C2).
 
-t_monitor_current_retained_count(_) ->
+t_monitor_current_retained_count(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     ClientId = <<"live_conn_tests">>,
     {ok, C} = emqtt:start_link([{clean_start, false}, {clientid, ClientId}]),
@@ -517,7 +508,104 @@ t_monitor_current_retained_count(_) ->
     ok = emqtt:disconnect(C),
     ok.
 
-t_monitor_current_shared_subscription(_) ->
+t_monitor_sessions_hist_hwmark({init, Config}) ->
+    %% some stale channels might exist, purge them
+    emqx_cm_registry:purge(),
+    meck:new(emqx_config, [passthrough, no_history]),
+    meck:expect(
+        emqx_config,
+        get,
+        fun
+            ([broker, session_history_retain]) ->
+                timer:seconds(60);
+            (Path) ->
+                meck:passthrough([Path])
+        end
+    ),
+    ok = snabbkaffe:start_trace(),
+    ct:timetrap({seconds, 30}),
+    Config;
+t_monitor_sessions_hist_hwmark({'end', _Config}) ->
+    emqx_cm_registry:purge(),
+    meck:unload(emqx_config),
+    ok = snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor();
+t_monitor_sessions_hist_hwmark(Config) when is_list(Config) ->
+    ?assertEqual(0, emqx_cm_registry:table_size()),
+    Wait = fun() ->
+        {ok, _} =
+            snabbkaffe:block_until(
+                ?match_n_events(1, #{?snk_kind := dashboard_monitor_flushed}),
+                infinity,
+                0
+            ),
+        ok
+    end,
+
+    ClientId = fun(I) -> list_to_binary(["sessions_hist_hwmark_", integer_to_list(I)]) end,
+    Connect = fun(Id) ->
+        {ok, C} = emqtt:start_link([{clean_start, false}, {clientid, Id}]),
+        unlink(C),
+        {ok, _} = emqtt:connect(C),
+        ok = emqtt:disconnect(C)
+    end,
+    %% Connect 10 clients
+    Count = 10,
+    ClientIds = lists:map(ClientId, lists:seq(1, Count)),
+    ok = lists:foreach(Connect, ClientIds),
+    ?assertEqual(Count, emqx_cm_registry:table_size()),
+    {ok, Res1} = request(["monitor_current"]),
+    #{
+        <<"peak_value">> := Peak1,
+        <<"peak_time">> := T1,
+        <<"current_value">> := Count1
+    } = maps:get(<<"sessions_hist_hwmark">>, Res1),
+    ?assertEqual(Count, Count1),
+    ?assertEqual(Count, Peak1),
+    ok = Wait(),
+    %% request again after flushed
+    {ok, Res2} = request(["monitor_current"]),
+    %% expect the same values
+    ?assertMatch(
+        #{
+            <<"peak_value">> := Peak1,
+            <<"current_value">> := Count1
+        },
+        maps:get(<<"sessions_hist_hwmark">>, Res2)
+    ),
+    %% connect another client
+    ClientId11 = ClientId(11),
+    ok = Connect(ClientId11),
+    ok = Wait(),
+    {ok, Res3} = request(["monitor_current"]),
+    %% expect new peak value
+    #{
+        <<"peak_value">> := Peak2,
+        <<"peak_time">> := T2,
+        <<"current_value">> := Count2
+    } = maps:get(<<"sessions_hist_hwmark">>, Res3),
+    ?assert(T2 > T1),
+    ?assertEqual(Count + 1, Count2),
+    ?assertEqual(Count + 1, Peak2),
+    %% wait for the new peak to be flushed
+    ok = Wait(),
+    %% delete the client
+    ok = emqx_cm_registry:force_delete(ClientId11),
+    %% wait for the new current value to be flushed
+    ok = Wait(),
+    {ok, Res4} = request(["monitor_current"]),
+    %% expect the old peak value and new current value
+    #{
+        <<"peak_value">> := Peak3,
+        <<"peak_time">> := T3,
+        <<"current_value">> := Count3
+    } = maps:get(<<"sessions_hist_hwmark">>, Res4),
+    ?assertEqual(Count, Count3),
+    ?assertEqual(Peak2, Peak3),
+    ?assertEqual(T2, T3),
+    ok.
+
+t_monitor_current_shared_subscription(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     ShareT = <<"$share/group1/t/1">>,
     AssertFun = fun(Num, Line) ->
@@ -560,7 +648,7 @@ t_monitor_current_shared_subscription(_) ->
     ok = ?retry(100, 10, AssertFun(0, ?LINE)),
     ok.
 
-t_monitor_reset(_) ->
+t_monitor_reset(Config) when is_list(Config) ->
     restart_monitor(),
     {ok, Rate} = request(["monitor_current"]),
     [
@@ -581,7 +669,7 @@ t_monitor_reset(_) ->
     ?assertMatch({ok, []}, request(["monitor"], "latest=1")),
     ok.
 
-t_monitor_api_error(_) ->
+t_monitor_api_error(Config) when is_list(Config) ->
     {error, {404, #{<<"code">> := <<"NOT_FOUND">>}}} =
         request(["monitor", "nodes", 'emqx@127.0.0.2']),
     {error, {404, #{<<"code">> := <<"NOT_FOUND">>}}} =
@@ -593,7 +681,7 @@ t_monitor_api_error(_) ->
     ok.
 
 %% Verifies that subscriptions from persistent sessions are correctly accounted for.
-t_persistent_session_stats(Config) ->
+t_persistent_session_stats(Config) when is_list(Config) ->
     [N1, N2 | _] = ?config(cluster_nodes, Config),
     %% pre-condition
     true = ?ON(N1, emqx_persistent_message:is_persistence_enabled()),
@@ -672,6 +760,12 @@ t_persistent_session_stats(Config) ->
             ?ON(N1, request(["monitor_current"]))
         )
     end),
+    {ok, _} =
+        snabbkaffe:block_until(
+            ?match_n_events(1, #{?snk_kind := dashboard_monitor_flushed}),
+            infinity,
+            0
+        ),
     %% Verify that historical metrics are in line with the current ones.
     ?assertMatch(
         {ok, [
@@ -715,7 +809,23 @@ t_persistent_session_stats(Config) ->
 
 %% Checks that we get consistent data when changing the requested time window for
 %% `/monitor'.
-t_smoke_test_monitor_multiple_windows(Config) ->
+t_smoke_test_monitor_multiple_windows({init, Config0}) ->
+    Port = 28083,
+    NodeSpecs = [
+        {smoke_multiple_windows1, #{apps => cluster_node_appspec(true, Port)}},
+        {smoke_multiple_windows2, #{apps => cluster_node_appspec(false, Port)}}
+    ],
+    Config = emqx_common_test_helpers:start_cluster_ds(
+        Config0,
+        NodeSpecs,
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config0)}
+    ),
+    ok = snabbkaffe:start_trace(),
+    Config;
+t_smoke_test_monitor_multiple_windows({'end', Config}) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_common_test_helpers:stop_cluster_ds(Config);
+t_smoke_test_monitor_multiple_windows(Config) when is_list(Config) ->
     [N1, N2 | _] = ?config(cluster_nodes, Config),
     %% pre-condition
     true = ?ON(N1, emqx_persistent_message:is_persistence_enabled()),
