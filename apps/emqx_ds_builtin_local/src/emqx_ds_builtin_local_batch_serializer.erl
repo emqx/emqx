@@ -55,7 +55,7 @@ start_link(DB, Shard, _Opts) ->
 store_batch_atomic(DB, Shard, Batch, Opts) ->
     gen_server:call(?via(DB, Shard), #store_batch_atomic{batch = Batch, opts = Opts}, infinity).
 
-blob_tx(DB, TX = #ds_tx{ctx = #ds_tx_ctx{shard = Shard}}) ->
+blob_tx(DB, TX = #ds_tx{ctx = #kv_tx_ctx{shard = Shard}}) ->
     gen_server:call(?via(DB, Shard), TX, infinity).
 
 %%------------------------------------------------------------------------------
@@ -148,7 +148,7 @@ prepare_blob_tx(
 ) ->
     %% FIXME take generation into account
     #s{dbshard = DBShard = {DB, _}, serial = SerRef} = S,
-    #ds_tx_ctx{generation = GenId} = Ctx,
+    #kv_tx_ctx{generation = GenId} = Ctx,
     maybe
         ok ?= emqx_ds_storage_layer_tx:verify_preconditions(DB, Ctx, Ops),
         CommitSerial = term_to_binary(new_serial(DBShard, SerRef)),

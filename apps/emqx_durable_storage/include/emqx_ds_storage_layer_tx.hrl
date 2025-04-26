@@ -16,7 +16,7 @@
 -ifndef(EMQX_DS_STORAGE_LAYER_TX_HRL).
 -define(EMQX_DS_STORAGE_LAYER_TX_HRL, true).
 
--record(ds_tx_ctx, {
+-record(kv_tx_ctx, {
     %% For convenience we store shard in the context (although it
     %% somewhat violates API layering). We treat it as an opaque
     %% object.
@@ -28,8 +28,8 @@
 }).
 
 -record(ds_tx, {
-    ctx :: emqx_ds:tx_context(),
-    ops :: emqx_ds:blob_tx_ops(),
+    ctx :: emqx_ds:kv_tx_context() | emqx_ds:tx_context(),
+    ops :: emqx_ds:kv_tx_ops() | emqx_ds:tx_ops(),
     from :: pid() | reference(),
     ref :: reference(),
     meta :: term()

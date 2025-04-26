@@ -1577,7 +1577,7 @@ create_wildcard(DB, Prefix) ->
 
 %% Manual sync wrapper for the low-level DS transaction API.
 do_commit_tx(DB, Ctx, Ops) ->
-    Ref = emqx_ds:commit_kv_tx(DB, Ctx, Ops),
+    Ref = emqx_ds:commit_tx(DB, Ctx, Ops),
     ?assert(is_reference(Ref)),
     receive
         ?ds_tx_commit_reply(Ref, Reply) ->

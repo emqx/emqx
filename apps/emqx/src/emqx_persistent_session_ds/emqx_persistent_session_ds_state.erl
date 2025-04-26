@@ -29,12 +29,12 @@
     create_new/1,
     delete/1,
     commit/2,
-    on_commit_reply/3,
+    on_commit_reply/2,
     format/1,
     print_session/1,
     list_sessions/0
 ]).
--export([is_dirty/1]).
+-export([is_dirty/1, checkpoint_ref/1]).
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_node_epoch_id/1, set_node_epoch_id/2]).
@@ -136,6 +136,7 @@
     ?id := emqx_persistent_session_ds:id(),
     ?guard := guard(),
     ?dirty := boolean(),
+    %% Reference for the ongoing async commit.
     ?checkpoint_ref := reference() | undefined,
     ?metadata := pmap(atom(), term()),
     ?subscriptions := pmap(
@@ -153,6 +154,7 @@
     ?awaiting_rel := pmap(emqx_types:packet_id(), _Timestamp :: integer())
 }.
 
+%% FIXME:
 %% -if(?EMQX_RELEASE_EDITION == ee).
 %% -define(DEFAULT_BACKEND, builtin_raft).
 %% -else.
@@ -229,8 +231,11 @@ commit(Rec, Opts = #{lifetime := _, sync := _}) ->
     check_sequence(Rec),
     emqx_persistent_session_ds_state_v2:commit(generation(), Rec, Opts).
 
--spec on_commit_reply(reference(), term(), t()) -> t().
-on_commit_reply(Ref, Reply, S = #{?id := ClientId}) ->
+-spec on_commit_reply(term(), t()) -> t() | no_commit.
+on_commit_reply(
+    ?ds_tx_commit_reply(Ref, Reply),
+    S = #{?id := ClientId, ?checkpoint_ref := Ref}
+) ->
     case emqx_ds:tx_commit_outcome(?DB, Ref, Reply) of
         {ok, _CommitSerial} ->
             S#{?checkpoint_ref := undefined};
@@ -256,7 +261,9 @@ on_commit_reply(Ref, Reply, S = #{?id := ClientId}) ->
                 }
             ),
             exit(?sessds_commit_failure)
-    end.
+    end;
+on_commit_reply(_, _) ->
+    no_commit.
 
 -spec create_new(emqx_persistent_session_ds:id()) -> t().
 create_new(SessionId) ->
@@ -279,6 +286,10 @@ create_new(SessionId) ->
 
 -spec is_dirty(t()) -> boolean().
 is_dirty(#{?dirty := Dirty}) ->
+    Dirty.
+
+-spec checkpoint_ref(t()) -> undefined | reference().
+checkpoint_ref(#{?checkpoint_ref := Dirty}) ->
     Dirty.
 
 -spec get_created_at(t()) -> emqx_persistent_session_ds:timestamp() | undefined.

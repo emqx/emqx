@@ -43,6 +43,7 @@
 -define(id, id).
 -define(dirty, dirty).
 -define(guard, guard).
+-define(checkpoint_ref, checkpoint_ref).
 
 %%   Pmap names:
 -define(metadata, metadata).
