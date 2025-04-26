@@ -125,6 +125,11 @@ sample_interval.desc:
 """How often to update metrics displayed in the dashboard.
 Note: `sample_interval` should be a divisor of 60, default is 10s."""
 
+hwmark_expire_time.desc: """~
+   Specifies the expiration interval for high watermark metrics such as the session history high watermark (`sessions_hist_hwmark`).
+   When the high watermark is recorded, it remains valid for this configured duration. After the interval expires, the system resets the high watermark, using the current value as the new baseline and starts recording the next high value along with its timestamp.~"""
+hwmark_expire_time.label: "High Watermark Expire Time"
+
 send_timeout.desc:
 """Send timeout for the socket."""
 

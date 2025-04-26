@@ -656,7 +656,8 @@ current_wmark(sessions_hist_hwmark) ->
 hwmark(?HWMARK(TPast, PPast, _VPast), ?HWMARK(TNow, PNow, VNow) = Now) ->
     %% The old high watermark is expired,
     %% or the current watermark is higher than the old one.
-    IsNewPeak = (TPast + ?RETENTION_TIME < TNow) orelse (PPast < PNow),
+    RetentionTime = emqx_conf:get([dashboard, hwmark_expire_time]),
+    IsNewPeak = (TPast + RetentionTime < TNow) orelse (PPast < PNow),
     case IsNewPeak of
         true -> Now;
         false -> ?HWMARK(TPast, PPast, VNow)
