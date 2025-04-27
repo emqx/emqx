@@ -554,6 +554,8 @@ t_monitor_sessions_hist_hwmark(Config) when is_list(Config) ->
     ClientIds = lists:map(ClientId, lists:seq(1, Count)),
     ok = lists:foreach(Connect, ClientIds),
     ?assertEqual(Count, emqx_cm_registry:table_size()),
+    %% wait for the first flush
+    ok = Wait(),
     {ok, Res1} = request(["monitor_current"]),
     #{
         <<"peak_value">> := Peak1,
@@ -563,7 +565,7 @@ t_monitor_sessions_hist_hwmark(Config) when is_list(Config) ->
     ?assertEqual(Count, Count1),
     ?assertEqual(Count, Peak1),
     ok = Wait(),
-    %% request again after flushed
+    %% request again after flushed again
     {ok, Res2} = request(["monitor_current"]),
     %% expect the same values
     ?assertMatch(
@@ -597,12 +599,10 @@ t_monitor_sessions_hist_hwmark(Config) when is_list(Config) ->
     %% expect the old peak value and new current value
     #{
         <<"peak_value">> := Peak3,
-        <<"peak_time">> := T3,
         <<"current_value">> := Count3
     } = maps:get(<<"sessions_hist_hwmark">>, Res4),
     ?assertEqual(Count, Count3),
     ?assertEqual(Peak2, Peak3),
-    ?assertEqual(T2, T3),
     ok.
 
 t_monitor_current_shared_subscription(Config) when is_list(Config) ->

@@ -174,19 +174,19 @@ handle_continue(initial_cleanup, State) ->
     ok = inplace_downsample(),
     {noreply, State#state{clean_timer = start_clean_timer()}, {continue, read_hwmark}};
 handle_continue(read_hwmark, State) ->
+    %% this is silly, but the table type is set to `set`, not `ordered_set`
+    %% so we need to sort the list by time and get the latest one
     case all_data() of
         [] ->
             {noreply, State};
         List ->
-            %% this is silly, but the table type is set to `set`, not `ordered_set`
-            %% so we need to sort the list by time and get the latest one
             {Time, Data} = lists:last(List),
             {noreply, State#state{last = #emqx_monit{time = Time, data = Data}}}
     end.
 
 handle_call(current_rate, _From, State = #state{last = Last}) ->
     NowTime = now_ts(),
-    NowSamplers = sample(NowTime, Last),
+    NowSamplers = take_sample(NowTime, Last, read_hwmark),
     Rate = cal_rate(NowSamplers, Last),
     NonRateValue = non_rate_value(),
     Result1 = maps:merge(Rate, NonRateValue),
@@ -199,7 +199,7 @@ handle_cast(_Request, State = #state{}) ->
     {noreply, State}.
 
 handle_info({sample, Time}, State = #state{last = Last}) ->
-    Now = sample(Time, Last),
+    Now = take_sample(Time, Last, write_hwmark),
     {atomic, ok} = flush(Last, Now),
     ?tp(dashboard_monitor_flushed, #{}),
     ok = start_sample_timer(),
@@ -222,9 +222,25 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
 %% -------------------------------------------------------------------------------------------------
 %% Internal functions
 
+-spec all_data() -> [{integer(), map()}].
 all_data() ->
-    Fn = fun(#emqx_monit{time = Time, data = Data}, Acc) -> [{Time, Data} | Acc] end,
-    lists:keysort(1, ets:foldl(Fn, [], ?TAB)).
+    all_data(fun(_) -> true end, sort).
+
+-spec all_data(fun((integer()) -> boolean()), sort | no_sort) -> [{integer(), map()}].
+all_data(Pred, Sort) ->
+    Fn = fun(#emqx_monit{time = Time, data = Data}, Acc) ->
+        case Pred(Time) of
+            true -> [{Time, Data} | Acc];
+            false -> Acc
+        end
+    end,
+    All = ets:foldl(Fn, [], ?TAB),
+    case Sort of
+        sort ->
+            lists:keysort(1, All);
+        no_sort ->
+            All
+    end.
 
 inplace_downsample() ->
     All = all_data(),
@@ -619,28 +635,50 @@ next_interval() ->
 %% -------------------------------------------------------------------------------------------------
 %% data
 
-sample(Time, LastHwmark) ->
+take_sample(Time, LastHwmark, ReadOrWrite) ->
     Fun =
         fun(Key, Acc) ->
             Acc#{Key => getstats(Key)}
         end,
-    Data = lists:foldl(Fun, #{}, ?SAMPLER_LIST),
-    #emqx_monit{time = Time, data = refresh_hwmark(Time, LastHwmark, Data)}.
+    Data0 = lists:foldl(Fun, #{}, ?SAMPLER_LIST),
+    Data =
+        case ReadOrWrite of
+            read_hwmark ->
+                last_hwmark(LastHwmark, Data0);
+            write_hwmark ->
+                refresh_hwmark(Time, LastHwmark, Data0)
+        end,
+    #emqx_monit{time = Time, data = Data}.
 
+%% Take hwmark data from the last sample.
+last_hwmark(#emqx_monit{data = LastHwmarks}, Data) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            case ?MAYBE_HWMARK(is_map_key(Key, LastHwmarks), maps:get(Key, LastHwmarks)) of
+                ?HWMARK(_, _, _) = Hwmark ->
+                    Acc#{Key => Hwmark};
+                _ ->
+                    Acc
+            end
+        end,
+        Data,
+        ?WATERMARK_SAMPLER_LIST
+    ).
+
+%% Refresh the hwmark data, prepare for writing to the database.
 refresh_hwmark(Time, #emqx_monit{data = LastHwmarks}, Data) ->
     lists:foldl(
         fun(Key, Acc) ->
             Current = current_wmark(Key),
-            Old = ?MAYBE_HWMARK(
-                is_map(LastHwmarks) andalso is_map_key(Key, LastHwmarks),
-                maps:get(Key, LastHwmarks)
-            ),
-            New = ?MAYBE_HWMARK(Current =/= ?NO_WMARK, ?HWMARK(Time, Current, Current)),
-            case hwmark(Old, New) of
-                ?NO_WMARK ->
+            case Current =:= ?NO_WMARK of
+                true ->
+                    %% no hwmark for this key, e.g. disabled, ignore it
                     Acc;
-                ?HWMARK(_, _, _) = Now ->
-                    Acc#{Key => Now}
+                false ->
+                    Old = ?MAYBE_HWMARK(is_map_key(Key, LastHwmarks), maps:get(Key, LastHwmarks)),
+                    New = ?MAYBE_HWMARK(Current =/= ?NO_WMARK, ?HWMARK(Time, Current, Current)),
+                    Hwmark = do_refresh_hwmark(Key, Old, New),
+                    Acc#{Key => Hwmark}
             end
         end,
         Data,
@@ -653,19 +691,38 @@ current_wmark(sessions_hist_hwmark) ->
         false -> ?NO_WMARK
     end.
 
-hwmark(?HWMARK(TPast, PPast, _VPast), ?HWMARK(TNow, PNow, VNow) = Now) ->
-    %% The old high watermark is expired,
-    %% or the current watermark is higher than the old one.
+do_refresh_hwmark(
+    Key,
+    ?HWMARK(TPast, PPast, VPast),
+    ?HWMARK(TNow, _PNow, VNow)
+) when VNow < VPast ->
+    %% Check if the last high watermark is expired.
     RetentionTime = emqx_conf:get([dashboard, hwmark_expire_time]),
-    IsNewPeak = (TPast + RetentionTime < TNow) orelse (PPast < PNow),
-    case IsNewPeak of
-        true -> Now;
-        false -> ?HWMARK(TPast, PPast, VNow)
+    ExpireAt = TNow - RetentionTime,
+    case TPast =< ExpireAt of
+        true ->
+            %% the old high watermark is expired,
+            %% scan the data since TPast to find the new peak time and value.
+            %% this needs to read all records from the database, but hopefully this is not so frequent.
+            All = all_data(fun(T) -> T > ExpireAt end, no_sort),
+            {PT, PV} = scan_hwmark(Key, All, TNow, VNow),
+            ?HWMARK(PT, PV, VNow);
+        false ->
+            %% keep the old peak time and value.
+            ?HWMARK(TPast, PPast, VNow)
     end;
-hwmark(_, ?HWMARK(_, _, _) = Now) ->
-    Now;
-hwmark(_, _) ->
-    ?NO_WMARK.
+do_refresh_hwmark(_Key, _Past, ?HWMARK(_, _, _) = Now) ->
+    Now.
+
+scan_hwmark(_Key, [], T, V) ->
+    {T, V};
+scan_hwmark(Key, [{T0, Data} | Rest], T, V) ->
+    case maps:get(Key, Data, ?NO_WMARK) of
+        ?HWMARK(_, _, V0) when (V0 > V) orelse (V0 =:= V andalso T0 > T) ->
+            scan_hwmark(Key, Rest, T0, V0);
+        _ ->
+            scan_hwmark(Key, Rest, T, V)
+    end.
 
 flush(#emqx_monit{data = LastData}, Now = #emqx_monit{data = NowData}) ->
     Store = Now#emqx_monit{data = delta(LastData, NowData)},
@@ -790,6 +847,7 @@ license_quota() ->
 now_ts() ->
     erlang:system_time(millisecond).
 
+%% make hwmark data JSON serializable.
 merge_hwmarks(Result, #emqx_monit{data = Samplers}) ->
     lists:foldl(
         fun(Key, Acc) ->
