@@ -125,7 +125,13 @@ fields(sampler) ->
 fields(sampler_current_node) ->
     fields_current(sample_names(sampler_current_node));
 fields(sampler_current) ->
-    fields_current(sample_names(sampler_current)).
+    fields_current(sample_names(sampler_current));
+fields(session_hist_hwmark) ->
+    [
+        {peak_time, hoconsc:mk(non_neg_integer(), #{desc => ?DESC(hwmark_kpeak_time)})},
+        {peak_value, hoconsc:mk(non_neg_integer(), #{desc => ?DESC(hwmark_peak_value)})},
+        {current_value, hoconsc:mk(non_neg_integer(), #{desc => ?DESC(hwmark_current_value)})}
+    ].
 
 sample_names(sampler_current_node) ->
     maps:values(?DELTA_SAMPLER_RATE_MAP) ++ ?GAUGE_SAMPLER_LIST ++ ?CURRENT_SAMPLE_NON_RATE;
@@ -133,10 +139,15 @@ sample_names(sampler_current) ->
     sample_names(sampler_current_node) -- [node_uptime].
 
 fields_current(Names) ->
-    [
+    IntegerSamplers = [
         {SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
      || SamplerName <- Names
-    ].
+    ],
+    HwmarkSamplers = [
+        {sessions_hist_hwmark,
+            hoconsc:mk(hoconsc:ref(session_hist_hwmark), #{desc => ?DESC(sessions_hist_hwmark)})}
+    ],
+    IntegerSamplers ++ HwmarkSamplers.
 
 %% -------------------------------------------------------------------------------------------------
 %% API
@@ -254,7 +265,9 @@ swagger_desc(shared_subscriptions) ->
 swagger_desc(node_uptime) ->
     <<"Node up time in seconds. Only presented in endpoint: `/monitor_current/nodes/:node`.">>;
 swagger_desc(license_quota) ->
-    <<"License quota. AKA: limited max_connections for cluster">>.
+    <<"License quota. AKA: limited max_connections for cluster">>;
+swagger_desc(Name) ->
+    ?DESC(Name).
 
 swagger_desc_format(Format) ->
     swagger_desc_format(Format, last).

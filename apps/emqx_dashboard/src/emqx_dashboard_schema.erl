@@ -39,6 +39,15 @@ fields("dashboard") ->
                     validator => fun validate_sample_interval/1
                 }
             )},
+        {hwmark_expire_time,
+            ?HOCON(
+                emqx_schema:duration(),
+                #{
+                    default => <<"7d">>,
+                    desc => ?DESC(hwmark_expire_time),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {token_expired_time,
             ?HOCON(
                 emqx_schema:duration(),

@@ -100,6 +100,26 @@
 -define(LICENSE_QUOTA, []).
 -endif.
 
+%% record the max value over the history
+-define(WATERMARK_SAMPLER_LIST, [
+    %% sessions history high water mark is only recorded when
+    %% the config broker.s
+    sessions_hist_hwmark
+]).
+
+%% Pick the newer value from the two maps when merging
+%% Keys are from ?WATERMARK_SAMPLER_LIST and ?GAUGE_SAMPLER_LIST
+%% test case is added to ensure no missing key in this macro
+-define(IS_PICK_NEWER(Key),
+    (Key =:= sessions_hist_hwmark orelse
+        Key =:= disconnected_durable_sessions orelse
+        Key =:= subscriptions_durable orelse
+        Key =:= subscriptions orelse
+        Key =:= topics orelse
+        Key =:= connections orelse
+        Key =:= live_connections)
+).
+
 %% use this atom to indicate no value provided from http request
 -define(NO_MFA_TOKEN, no_mfa_token).
 %% use this atom for internal calls where token validation is not required

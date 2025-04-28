@@ -11,7 +11,7 @@
 
 -export([start_link/0]).
 
--export([is_enabled/0, is_hist_enabled/0]).
+-export([is_enabled/0, is_hist_enabled/0, table_size/0]).
 
 -export([
     register_channel/1,
@@ -36,6 +36,14 @@
 -export([
     do_cleanup_channels/1
 ]).
+
+-ifdef(TEST).
+%% For testing only
+-export([
+    force_delete/1,
+    purge/0
+]).
+-endif.
 
 -include("emqx.hrl").
 -include("emqx_cm.hrl").
@@ -63,6 +71,11 @@ is_enabled() ->
 -spec is_hist_enabled() -> boolean().
 is_hist_enabled() ->
     retain_duration() > 0.
+
+%% @doc Get the size of the global channel registry table.
+-spec table_size() -> non_neg_integer().
+table_size() ->
+    ets:info(?CHAN_REG_TAB, size).
 
 %% @doc Register a global channel.
 -spec register_channel(
@@ -107,6 +120,20 @@ unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid
             ok
     end.
 
+-ifdef(TEST).
+%% @hidden Force delete a global channel.
+%% For testing only.
+-spec force_delete(emqx_types:clientid()) -> ok.
+force_delete(ClientId) ->
+    mria:dirty_delete(?CHAN_REG_TAB, ClientId).
+
+%% @hidden Purge the global channel registry.
+%% For testing only.
+-spec purge() -> ok.
+purge() ->
+    ets:delete_all_objects(?CHAN_REG_TAB).
+-endif.
+
 %% @private
 unregister_channel2(#channel{chid = ClientId} = Record) ->
     mria:dirty_delete_object(?CHAN_REG_TAB, Record),
@@ -120,6 +147,9 @@ lookup_channels(ClientId) ->
 
 %% Return 'true' or 'false' if it's a local pid.
 %% Otherwise return 'unknown'.
+is_pid_alive(Pid) when is_integer(Pid) ->
+    %% broker.session_history_retain > 0
+    false;
 is_pid_alive(Pid) when is_pid(Pid) andalso node(Pid) =:= node() ->
     erlang:is_process_alive(Pid);
 is_pid_alive(_) ->
