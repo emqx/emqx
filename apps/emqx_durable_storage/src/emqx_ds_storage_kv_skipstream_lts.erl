@@ -163,7 +163,7 @@ open(
             trie => Trie,
             serialization_schema => SSchema,
             get_topic => fun(StreamKey, _Val) ->
-                {ok, Varying} = 'DurableBlob':decode('Topic', StreamKey),
+                {ok, Varying} = 'DSBuiltinMetadata':decode('TopicWords', StreamKey),
                 Varying
             end,
             wildcard_hash_bytes => WCBytes
@@ -415,7 +415,7 @@ get_streams(Trie, TopicFilter) ->
 %%%%%%%% Keys %%%%%%%%%%
 
 stream_key(Varying) ->
-    {ok, StreamKey} = 'DurableBlob':encode('Topic', Varying),
+    {ok, StreamKey} = 'DSBuiltinMetadata':encode('TopicWords', Varying),
     StreamKey.
 
 %%%%%%%% Column families %%%%%%%%%%

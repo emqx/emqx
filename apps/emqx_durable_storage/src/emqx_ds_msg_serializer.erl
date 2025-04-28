@@ -20,7 +20,7 @@
 
 -elvis([{elvis_style, atom_naming_convention, disable}]).
 -include("../gen_src/DurableMessage.hrl").
--include("../gen_src/DurableBlob.hrl").
+-include("../gen_src/DSBuiltinMetadata.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
