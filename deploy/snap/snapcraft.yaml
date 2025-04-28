@@ -19,6 +19,7 @@ confinement: strict
 apps:
   emqx:
     command: bin/emqx foreground
+    stop-command: bin/emqx stop
     daemon: simple
     plugs:
       - network
