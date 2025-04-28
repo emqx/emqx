@@ -69,7 +69,3 @@ curl -s -u key:secret http://localhost:18083/api/v5/rules | jq
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-## License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).
