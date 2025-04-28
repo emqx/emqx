@@ -94,6 +94,11 @@ t_cluster(_Config) ->
     %% cluster status             # Cluster status
     emqx_ctl:run_command(["cluster", "status"]),
 
+    ?assertEqual(
+        {error, {node_down, 'nosuchnode@127.0.0.1'}},
+        emqx_ctl:run_command(["cluster", "join", "nosuchnode@127.0.0.1"])
+    ),
+
     emqx_ctl:run_command(["cluster", "force-leave", atom_to_list(FakeNode)]),
     ?assertMatch(
         {atomic, [
