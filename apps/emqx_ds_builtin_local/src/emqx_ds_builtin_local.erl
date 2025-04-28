@@ -394,7 +394,7 @@ update_iterator(ShardId, Iter0 = #{?tag := ?IT, ?enc := StorageIter0}, Key) ->
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter, N) ->
-    {ok, Ref} = emqx_ds_lib:with_worker(?MODULE, do_next, [DB, Iter, N]),
+    {ok, _, Ref} = emqx_ds_lib:with_worker(?MODULE, do_next, [DB, Iter, N]),
     receive
         {Ref, Result} ->
             Result
@@ -500,7 +500,7 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(emqx_ds:delete_iterator()).
 delete_next(DB, Iter, Selector, N) ->
-    {ok, Ref} = emqx_ds_lib:with_worker(?MODULE, do_delete_next, [DB, Iter, Selector, N]),
+    {ok, _, Ref} = emqx_ds_lib:with_worker(?MODULE, do_delete_next, [DB, Iter, Selector, N]),
     receive
         {Ref, Result} -> Result
     end.

@@ -38,7 +38,7 @@
 %%================================================================================
 
 new() ->
-    ets:new(?MODULE, [ordered_set, private]).
+    ets:new(?MODULE, [ordered_set, public]).
 
 insert(Stream, Filter, ID, Rank, Tab) ->
     Key = make_key(Stream, Filter, ID),
