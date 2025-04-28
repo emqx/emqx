@@ -103,7 +103,7 @@
 %% record the max value over the history
 -define(WATERMARK_SAMPLER_LIST, [
     %% sessions history high water mark is only recorded when
-    %% the config broker.s
+    %% the config broker.session_history_retain > 0s
     sessions_hist_hwmark
 ]).
 
