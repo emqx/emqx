@@ -43,4 +43,159 @@ hwmark_current_value.desc:
 """The current hight of the watermark."""
 hwmark_current_value.label: "Current Hight"
 
+parameter_latest: {
+    desc: "The latest N seconds data. For example `300` for 5 minutes."
+    label: "Laest N seconds"
+}
+
+parameter_node: {
+    desc: "Node name"
+    label: "Node Name"
+}
+
+time_stamp: {
+    desc: "Unix timestamp in seconds"
+    label: "Timestamp"
+}
+
+received: {
+    desc: "Received messages in the last sample window."
+    label: "Received Messages"
+}
+received_bytes: {
+    desc: "Received bytes in the last sample window."
+    label: "Received Bytes"
+}
+
+sent: {
+    desc: "Sent messages in the last sample window."
+    label: "Sent Messages"
+}
+sent_bytes: {
+    desc: "Sent bytes in the last sample window."
+    label: "Sent Bytes"
+}
+
+dropped: {
+    desc: "Dropped messages in the last sample window."
+    label: "Dropped Messages"
+}
+
+validation_succeeded: {
+    desc: "Schema validations succeeded in the last sample window."
+    label: "Validation Succeeded"
+}
+
+validation_failed: {
+    desc: "Schema validations failed in the last sample window."
+    label: "Validation Failed"
+}
+
+transformation_succeeded: {
+    desc: "Message transformations succeeded in the last sample window."
+    label: "Transformation Succeeded"
+}
+
+transformation_failed: {
+    desc: "Message transformations failed in the last sample window."
+    label: "Transformation Failed"
+}
+persisted: {
+    desc: "Messages saved to the durable storage in the last sample window."
+    label: "Persisted Messages"
+}
+
+disconnected_durable_sessions: {
+    desc: "Number of disconnected durable sessions at the time of sampling. Can only represent an approximation."
+    label: "Disconnected Durable Sessions"
+}
+
+subscriptions_durable: {
+    desc: "Number of durable subscriptions at the time of sampling. Can only represent an approximation."
+    label: "Durable Subscriptions"
+}
+subscriptions: {
+    desc: "Number of subscriptions at the time of sampling. Can only represent an approximation."
+    label: "Subscriptions"
+}
+
+topics: {
+    desc: "Number of topics at the time of sampling. Can only represent an approximation."
+    label: "Topics"
+}
+
+connections: {
+    desc: "Number of connections at the time of sampling. Can only represent an approximation."
+    label: "Connections"
+}
+
+live_connections: {
+    desc: "Number of live connections at the time of sampling. Can only represent an approximation."
+    label: "Live Connections"
+}
+
+cluster_sessions: {
+    desc: "Total number of sessions in the cluster at the time of sampling. It includes expired sessions when `broker.session_history_retain` is set to a duration greater than `0s`. Can only represent an approximation."
+    label: "Cluster Sessions"
+}
+
+received_msg_rate: {
+    desc: "Received messages rate in the last sampling window."
+    label: "Received Message Rate"
+}
+
+sent_msg_rate: {
+    desc: "Sent messages rate in the last sampling window."
+    label: "Sent Message Rate"
+}
+
+dropped_msg_rate: {
+    desc: "Dropped messages rate in the last sampling window."
+    label: "Dropped Message Rate"
+}
+
+validation_succeeded_rate: {
+    desc: "Message validations succeeded rate in the last sampling window."
+    label: "Validation Succeeded Rate"
+}
+
+validation_failed_rate: {
+    desc: "Message validations failed rate in the last sampling window."
+    label: "Validation Failed Rate"
+}
+
+transformation_succeeded_rate: {
+    desc: "Message transformations succeeded rate in the last sampling window."
+    label: "Transformation Succeeded Rate"
+}
+
+transformation_failed_rate: {
+    desc: "Message transformations failed rate in the last sampling window."
+    label: "Transformation Failed Rate"
+}
+
+persisted_rate: {
+    desc: "Messages persisted rate in the last sampling window."
+    label: "Persisted Message Rate"
+}
+
+retained_msg_count: {
+    desc: "Number of retained messages at the time of sampling. Can only represent an approximation."
+    label: "Retained Messages"
+}
+
+shared_subscriptions: {
+    desc: "Number of shared subscriptions at the time of sampling. Can only represent an approximation."
+    label: "Shared Subscriptions"
+}
+node_uptime: {
+    desc: "Node up time in seconds."
+    label: "Node Uptime"
+}
+
+license_quota: {
+    desc: "Maximum number of sessions allowed by the license."
+    label: "License Quota"
+}
+
 }
