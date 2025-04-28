@@ -38,12 +38,12 @@ call(
         max_tokens => MaxTokens,
         system => Prompt
     },
-    ?tp(warning, emqx_ai_completion_request, #{
+    ?tp(debug, emqx_ai_completion_request, #{
         request => Request
     }),
     case emqx_ai_completion_client:api_post(Client, messages, Request) of
         {ok, #{<<"content">> := [#{<<"type">> := <<"text">>, <<"text">> := Result} | _]}} ->
-            ?tp(warning, emqx_ai_completion_result, #{
+            ?tp(debug, emqx_ai_completion_result, #{
                 result => Result
             }),
             Result;
