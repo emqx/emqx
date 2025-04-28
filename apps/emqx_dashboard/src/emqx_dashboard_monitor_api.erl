@@ -126,7 +126,7 @@ fields(sampler_current_node) ->
     fields_current(sample_names(sampler_current_node));
 fields(sampler_current) ->
     fields_current(sample_names(sampler_current));
-fields(session_hist_hwmark) ->
+fields(sessions_hist_hwmark) ->
     [
         {peak_time, hoconsc:mk(non_neg_integer(), #{desc => ?DESC(hwmark_kpeak_time)})},
         {peak_value, hoconsc:mk(non_neg_integer(), #{desc => ?DESC(hwmark_peak_value)})},
@@ -145,7 +145,7 @@ fields_current(Names) ->
     ],
     HwmarkSamplers = [
         {sessions_hist_hwmark,
-            hoconsc:mk(hoconsc:ref(session_hist_hwmark), #{desc => ?DESC(sessions_hist_hwmark)})}
+            hoconsc:mk(hoconsc:ref(sessions_hist_hwmark), #{desc => ?DESC(sessions_hist_hwmark)})}
     ],
     IntegerSamplers ++ HwmarkSamplers.
 
@@ -201,9 +201,7 @@ current_rate(Node) ->
 %% Internal
 
 swagger_desc(received) -> ?DESC("received");
-swagger_desc(received_bytes) -> ?DESC("received_bytes");
 swagger_desc(sent) -> ?DESC("sent");
-swagger_desc(sent_bytes) -> ?DESC("sent_bytes");
 swagger_desc(dropped) -> ?DESC("dropped");
 swagger_desc(validation_succeeded) -> ?DESC("validation_succeeded");
 swagger_desc(validation_failed) -> ?DESC("validation_failed");
