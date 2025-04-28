@@ -84,9 +84,6 @@
 -spec load(binary(), map()) -> {ok, service()} | {error, term()} | {load_error, term()} | disable.
 load(_Name, #{enable := false}) ->
     disable;
-%% load(_Name, #{status := disconnected}) ->
-%%     %% for disconnected Service, skip load to follow auto_reconnect timer
-%%     {load_error, disconnected};
 load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) ->
     ReqOpts = #{timeout => Timeout, failed_action => FailedAction},
     case channel_opts(Opts) of
@@ -306,7 +303,7 @@ health_check(#{enable := false}) ->
 health_check(#{status := disconnected}) ->
     %% for disconnected Service, skip health check to follow auto_reconnect timer
     skip;
-health_check(#{name := Name, request_timeout := Timeout, failed_action := FailedAction} = _Opts) ->
+health_check(#{name := Name, request_timeout := Timeout} = _Opts) ->
     %% check all workers
     case grpc_client_sup:workers(Name) of
         [] ->
@@ -317,7 +314,7 @@ health_check(#{name := Name, request_timeout := Timeout, failed_action := Failed
                     case
                         grpc_client:health_check(
                             WorkerPid,
-                            #{timeout => Timeout, failed_action => FailedAction, channel => Name}
+                            #{timeout => Timeout, channel => Name}
                         )
                     of
                         ok -> true;

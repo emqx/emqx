@@ -79,9 +79,9 @@
     | disabled.
 
 -type server() :: #{
-    status := status(),
-    timer := reference(),
-    order := integer(),
+    status => status(),
+    timer => undefined | reference(),
+    order => integer(),
     %% include the content of server_options
     atom() => any()
 }.
@@ -392,7 +392,7 @@ do_load_server(#{name := Name} = Server) ->
             {ok, Server#{status => connected}};
         disable ->
             {ok, set_disable(Server)};
-        {ErrorType, Reason} = Error ->
+        {ErrorType, Reason} ->
             ?SLOG(
                 error,
                 #{
@@ -405,7 +405,7 @@ do_load_server(#{name := Name} = Server) ->
                 load_error ->
                     {ok, ensure_reload_timer(Server)};
                 _ ->
-                    {Error, Server#{status => disconnected}}
+                    {ErrorType, Server#{status => disconnected}}
             end
     end.
 
