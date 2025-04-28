@@ -108,7 +108,8 @@ test(#{sql := Sql, context := Context}) ->
     end.
 
 test_rule(#{rule := #{id := RuleId, from := EventTopics}} = RichedRule, Context) ->
-    FullContext = fill_default_values(hd(EventTopics), Context),
+    FullContext0 = fill_default_values(hd(EventTopics), Context),
+    FullContext = remove_internal_fields(FullContext0),
     set_is_test_runtime_env(),
     try emqx_rule_runtime:apply_rule(RichedRule, FullContext, #{}) of
         {ok, Data} ->
