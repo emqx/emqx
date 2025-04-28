@@ -51,7 +51,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds.hrl").
 -include("emqx_ds_metrics.hrl").
--include("../gen_src/DurableBlob.hrl").
+-include("../gen_src/DSBuiltinMetadata.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

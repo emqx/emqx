@@ -104,7 +104,7 @@
 ]).
 
 -include("emqx_ds.hrl").
--include("../gen_src/DurableBlob.hrl").
+-include("../gen_src/DSBuiltinMetadata.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
@@ -1436,11 +1436,11 @@ stream_to_binary(_DB, Shard, ?stream_v2(GenId, Inner)) ->
         generation = GenId,
         inner = InnerRec
     },
-    'DurableBlob':encode('Stream', Rec).
+    'DSBuiltinMetadata':encode('Stream', Rec).
 
 binary_to_stream(_DB, Bin) ->
     maybe
-        {ok, Rec} ?= 'DurableBlob':decode('Stream', Bin),
+        {ok, Rec} ?= 'DSBuiltinMetadata':decode('Stream', Bin),
         #'Stream'{
             shard = Shard,
             generation = GenId,
@@ -1463,11 +1463,11 @@ iterator_to_binary(_DB, Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inne
         generation = GenId,
         inner = InnerRec
     },
-    'DurableBlob':encode('Iterator', Rec).
+    'DSBuiltinMetadata':encode('Iterator', Rec).
 
 binary_to_iterator(_DB, Bin) ->
     maybe
-        {ok, Rec} ?= 'DurableBlob':decode('Iterator', Bin),
+        {ok, Rec} ?= 'DSBuiltinMetadata':decode('Iterator', Bin),
         #'Iterator'{
             shard = Shard,
             generation = GenId,
