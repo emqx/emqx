@@ -66,7 +66,7 @@
 ]).
 
 -define(STORAGE_LAYER_METRICS, [
-    {counter, hist, ?DS_STORE_BATCH_TIME},
+    {counter, slide, ?DS_STORE_BATCH_TIME},
     {counter, counter, ?DS_BITFIELD_LTS_SEEK_COUNTER},
     {counter, counter, ?DS_BITFIELD_LTS_NEXT_COUNTER},
     {counter, counter, ?DS_BITFIELD_LTS_COLLISION_COUNTER},
@@ -91,7 +91,7 @@
     {counter, counter, ?DS_BUFFER_BATCHES_FAILED},
     {counter, counter, ?DS_BUFFER_MESSAGES},
     {counter, counter, ?DS_BUFFER_BYTES},
-    {gauge, hist, ?DS_BUFFER_FLUSH_TIME},
+    {gauge, slide, ?DS_BUFFER_FLUSH_TIME},
     {gauge, slide, ?DS_BUFFER_LATENCY}
 ]).
 
