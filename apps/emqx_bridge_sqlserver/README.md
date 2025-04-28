@@ -29,8 +29,3 @@ Please see [Ingest Data into SQL Server](https://www.emqx.io/docs/en/v5.0/data-i
 # Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-
-# License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).

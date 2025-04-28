@@ -33,8 +33,3 @@ User can create a rule and easily ingest IoT data into TimescaleDB by leveraging
 # Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-
-# License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).
