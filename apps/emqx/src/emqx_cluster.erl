@@ -50,6 +50,8 @@ check_permission(PeerNode) ->
     try
         emqx_cluster_proto_v1:can_i_join(node(), PeerNode)
     catch
+        error:{erpc, noconnection} ->
+            {error, {node_down, PeerNode}};
         error:{exception, undef, [{emqx_cluster, can_i_join, _, _}]} ->
             %% The peer node is older than 5.9.0
             %% This can happen during rolling upgrade.
