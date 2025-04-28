@@ -21,7 +21,3 @@ Please see [Ingest Data into Kafka](https://www.emqx.io/docs/en/v5.0/data-integr
 # Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-# License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).

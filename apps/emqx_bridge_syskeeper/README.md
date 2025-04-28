@@ -23,8 +23,3 @@ Users can create a rule and quickly ingest IoT data to the Syskeeper by leveragi
 # Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-
-# License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).

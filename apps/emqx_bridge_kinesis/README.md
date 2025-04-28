@@ -16,7 +16,3 @@ Please see [Ingest Data into Kinesis](https://docs.emqx.com/en/enterprise/v5.1/d
 # Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-# License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).

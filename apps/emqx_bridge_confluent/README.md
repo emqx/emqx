@@ -21,7 +21,3 @@ Please see [Ingest Data into Confluent](https://docs.emqx.com/en/enterprise/v5.3
 # Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-# License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).
