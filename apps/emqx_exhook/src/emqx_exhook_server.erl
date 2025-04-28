@@ -317,9 +317,7 @@ health_check(#{name := Name, request_timeout := Timeout, failed_action := Failed
                     case
                         grpc_client:health_check(
                             WorkerPid,
-                            _ReqOpts = #{
-                                timeout => Timeout, failed_action => FailedAction, channel => Name
-                            }
+                            #{timeout => Timeout, failed_action => FailedAction, channel => Name}
                         )
                     of
                         ok -> true;
