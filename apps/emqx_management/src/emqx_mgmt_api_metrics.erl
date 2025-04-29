@@ -8,7 +8,6 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
--include_lib("emqx/include/emqx_metrics.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
@@ -176,25 +175,13 @@ fields(node_metrics) ->
     [{node, mk(binary(), #{desc => <<"Node name">>})}] ++ properties().
 
 properties() ->
-    Metrics = lists:append([
-        ?BYTES_METRICS,
-        ?PACKET_METRICS,
-        ?MESSAGE_METRICS,
-        ?DELIVERY_METRICS,
-        ?CLIENT_METRICS,
-        ?SESSION_METRICS,
-        ?STASTS_ACL_METRICS,
-        ?STASTS_AUTHN_METRICS,
-        ?OLP_METRICS
-    ]),
-    lists:reverse(
-        lists:foldl(
-            fun({_Type, MetricName, Desc}, Acc) ->
-                [m(MetricName, Desc) | Acc]
-            end,
-            [],
-            Metrics
-        )
+    Metrics = emqx_metrics:all_metrics(),
+    lists:foldl(
+        fun({_Type, MetricName, Desc}, Acc) ->
+            [m(MetricName, Desc) | Acc]
+        end,
+        [],
+        Metrics
     ).
 
 m(K, Desc) ->
