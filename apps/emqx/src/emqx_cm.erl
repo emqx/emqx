@@ -179,7 +179,7 @@ insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
 %% @end
 register_channel(#{clientid := ClientId, predecessor := _} = ClientInfo, ChanPid, ConnInfo) ->
     %% used by lcr only.
-    case emqx_linear_channel_registry:register_channel(ClientInfo, ChanPid, ConnInfo) of
+    case emqx_lcr:register_channel(ClientInfo, ChanPid, ConnInfo) of
         ok ->
             register_channel_local(ClientId, ChanPid, ConnInfo);
         {error, _} = Err ->
@@ -191,7 +191,7 @@ register_channel(ClientId, ChanPid, ConnInfo) when
     %% Note that: It maybe be called in a locked transaction.
     Chan = {ClientId, ChanPid},
     ok = emqx_cm_registry:register_channel(Chan),
-    case emqx_linear_channel_registry:is_enabled() of
+    case emqx_lcr:is_enabled() of
         true ->
             %% skip local register_channel_local
             ok;
@@ -249,8 +249,8 @@ do_unregister_channel_local({_ClientId, ChanPid} = Chan) ->
 do_unregister_channel_global(Chan, Vsn) ->
     emqx_cm_registry:is_enabled() andalso
         emqx_cm_registry:unregister_channel(Chan),
-    emqx_linear_channel_registry:is_enabled() andalso
-        emqx_linear_channel_registry:unregister_channel(Chan, Vsn).
+    emqx_lcr:is_enabled() andalso
+        emqx_lcr:unregister_channel(Chan, Vsn).
 
 %% @doc Get info of a channel.
 -spec get_chan_info(emqx_types:clientid()) -> option(emqx_types:infos()).
@@ -318,9 +318,9 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     end.
 
 global_chan_cnt() ->
-    case emqx_linear_channel_registry:is_enabled() of
+    case emqx_lcr:is_enabled() of
         true ->
-            emqx_linear_channel_registry:count_local_d();
+            emqx_lcr:count_local_d();
         false ->
             emqx_cm_registry:count_local_d()
     end.
@@ -340,10 +340,10 @@ global_chan_cnt() ->
     | {error, Reason :: term()}.
 
 open_session(CleanStart, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
-    case emqx_linear_channel_registry:is_enabled() of
+    case emqx_lcr:is_enabled() of
         true ->
             Retries = 3,
-            Predecessor = emqx_linear_channel_registry:max_channel_d(ClientId),
+            Predecessor = emqx_lcr:max_channel_d(ClientId),
             open_session_with_predecessor(Predecessor, ClientInfo, ConnInfo, MaybeWillMsg, Retries);
         false ->
             open_session_with_cm_locker(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg)
@@ -394,7 +394,7 @@ open_session_lcr(
     #{clean_start := true} = ConnInfo,
     MaybeWillMsg
 ) ->
-    ok = discard_session(ClientId, emqx_linear_channel_registry:ch_pid(Predecessor)),
+    ok = discard_session(ClientId, emqx_lcr:ch_pid(Predecessor)),
     ok = emqx_session:destroy(ClientInfo, ConnInfo),
     Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
     {ok, #{session => Session, present => false}};
@@ -573,6 +573,7 @@ handle_stepdown_exception(Err, Reason, St, ConnMod, Pid, Action) ->
             ?tp(warning, "session_stepdown_request_timeout", Meta#{
                 stale_channel => stale_channel_info(Pid)
             }),
+            %% @FIXME: if Pid holds the Ekka lock, it leaves the lock in the cluster
             _ = exit(Pid, kill),
             {error, timeout};
         _ ->
@@ -770,11 +771,11 @@ lookup_channels(ClientId) ->
 %% @doc Lookup local or global channels.
 -spec lookup_channels(local | global, emqx_types:clientid()) -> list(chan_pid()).
 lookup_channels(global, ClientId) ->
-    case {emqx_cm_registry:is_enabled(), emqx_linear_channel_registry:is_enabled()} of
+    case {emqx_cm_registry:is_enabled(), emqx_lcr:is_enabled()} of
         {_, true} ->
             lists:map(
-                fun emqx_linear_channel_registry:ch_pid/1,
-                emqx_linear_channel_registry:lookup_channels_d(ClientId)
+                fun emqx_lcr:ch_pid/1,
+                emqx_lcr:lookup_channels_d(ClientId)
             );
         {true, false} ->
             emqx_cm_registry:lookup_channels(ClientId);

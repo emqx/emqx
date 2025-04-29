@@ -15,9 +15,9 @@
 %%--------------------------------------------------------------------
 
 %% @doc linearizable channel registry
-%% A channel registry fo
+%% A channel registry for correctness
 %% @end
--module(emqx_linear_channel_registry).
+-module(emqx_lcr).
 
 -behaviour(gen_server).
 
