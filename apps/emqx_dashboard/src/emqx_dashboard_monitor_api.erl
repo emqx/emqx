@@ -203,25 +203,25 @@ current_rate(Node) ->
 -define(APPROXIMATE_DESC, " Can only represent an approximate state.").
 
 swagger_desc(received) ->
-    swagger_desc_format("Received messages ");
+    swagger_desc_format("Received messages");
 swagger_desc(received_bytes) ->
-    swagger_desc_format("Received bytes ");
+    swagger_desc_format("Received bytes");
 swagger_desc(sent) ->
-    swagger_desc_format("Sent messages ");
+    swagger_desc_format("Sent messages");
 swagger_desc(sent_bytes) ->
-    swagger_desc_format("Sent bytes ");
+    swagger_desc_format("Sent bytes");
 swagger_desc(dropped) ->
-    swagger_desc_format("Dropped messages ");
+    swagger_desc_format("Dropped messages");
 swagger_desc(validation_succeeded) ->
-    swagger_desc_format("Schema validations succeeded ");
+    swagger_desc_format("Schema validations succeeded");
 swagger_desc(validation_failed) ->
-    swagger_desc_format("Schema validations failed ");
+    swagger_desc_format("Schema validations failed");
 swagger_desc(transformation_succeeded) ->
-    swagger_desc_format("Message transformations succeeded ");
+    swagger_desc_format("Message transformations succeeded");
 swagger_desc(transformation_failed) ->
-    swagger_desc_format("Message transformations failed ");
+    swagger_desc_format("Message transformations failed");
 swagger_desc(persisted) ->
-    swagger_desc_format("Messages saved to the durable storage ");
+    swagger_desc_format("Messages saved to the durable storage");
 swagger_desc(disconnected_durable_sessions) ->
     <<"Disconnected durable sessions at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(subscriptions_durable) ->
@@ -241,23 +241,21 @@ swagger_desc(cluster_sessions) ->
         ?APPROXIMATE_DESC
     >>;
 swagger_desc(received_msg_rate) ->
-    swagger_desc_format("Dropped messages ", per);
-%swagger_desc(received_bytes_rate) -> swagger_desc_format("Received bytes ", per);
+    <<"Dropped messages per second">>;
 swagger_desc(sent_msg_rate) ->
-    swagger_desc_format("Sent messages ", per);
-%swagger_desc(sent_bytes_rate)     -> swagger_desc_format("Sent bytes ", per);
+    <<"Sent messages per second">>;
 swagger_desc(dropped_msg_rate) ->
-    swagger_desc_format("Dropped messages ", per);
+    <<"Dropped messages per second">>;
 swagger_desc(validation_succeeded_rate) ->
-    swagger_desc_format("Schema validations succeeded ", per);
+    <<"Schema validations succeeded per second">>;
 swagger_desc(validation_failed_rate) ->
-    swagger_desc_format("Schema validations failed ", per);
+    <<"Schema validations failed per second">>;
 swagger_desc(transformation_succeeded_rate) ->
-    swagger_desc_format("Message transformations succeeded ", per);
+    <<"Message transformations succeeded per second">>;
 swagger_desc(transformation_failed_rate) ->
-    swagger_desc_format("Message transformations failed ", per);
+    <<"Message transformations failed per second">>;
 swagger_desc(persisted_rate) ->
-    swagger_desc_format("Messages saved to the durable storage ", per);
+    <<"Messages saved to the durable storage per second">>;
 swagger_desc(retained_msg_count) ->
     <<"Retained messages count at the time of sampling.", ?APPROXIMATE_DESC>>;
 swagger_desc(shared_subscriptions) ->
@@ -270,11 +268,8 @@ swagger_desc(Name) ->
     ?DESC(Name).
 
 swagger_desc_format(Format) ->
-    swagger_desc_format(Format, last).
-
-swagger_desc_format(Format, Type) ->
     Interval = emqx_conf:get([dashboard, monitor, interval], ?DEFAULT_SAMPLE_INTERVAL),
-    list_to_binary(io_lib:format(Format ++ "~p ~p seconds", [Type, Interval])).
+    list_to_binary(io_lib:format(Format ++ " last ~p seconds", [Interval])).
 
 maybe_reject_cluster_only_metrics(<<"all">>, Rates) ->
     Rates;
