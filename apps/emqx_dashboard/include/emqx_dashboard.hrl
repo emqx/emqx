@@ -81,29 +81,23 @@
     persisted => persisted_rate
 }).
 
--define(CURRENT_SAMPLE_NON_RATE,
-    [
-        node_uptime,
-        retained_msg_count,
-        shared_subscriptions
-    ] ++ ?LICENSE_QUOTA
-).
+-define(CURRENT_SAMPLE_NON_RATE, [
+    node_uptime,
+    retained_msg_count,
+    shared_subscriptions,
+    cluster_sessions,
+    license_quota
+]).
 
 -define(CLUSTERONLY_SAMPLER_LIST, [
     subscriptions_durable,
     disconnected_durable_sessions
 ]).
 
--if(?EMQX_RELEASE_EDITION == ee).
--define(LICENSE_QUOTA, [license_quota]).
--else.
--define(LICENSE_QUOTA, []).
--endif.
-
 %% record the max value over the history
 -define(WATERMARK_SAMPLER_LIST, [
     %% sessions history high water mark is only recorded when
-    %% the config broker.s
+    %% the config broker.session_history_retain > 0s
     sessions_hist_hwmark
 ]).
 

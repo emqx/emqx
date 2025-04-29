@@ -102,7 +102,7 @@ parameter_latest() ->
         in => query,
         required => false,
         example => 5 * 60,
-        desc => <<"The latest N seconds data. Like 300 for 5 min.">>
+        desc => ?DESC("parameter_latest")
     },
     {latest, hoconsc:mk(range(1, inf), Info)}.
 
@@ -111,7 +111,7 @@ parameter_node() ->
         in => path,
         required => true,
         example => node(),
-        desc => <<"EMQX node name.">>
+        desc => ?DESC("parameter_node")
     },
     {node, hoconsc:mk(binary(), Info)}.
 
@@ -121,12 +121,12 @@ fields(sampler) ->
             {SamplerName, hoconsc:mk(integer(), #{desc => swagger_desc(SamplerName)})}
          || SamplerName <- ?SAMPLER_LIST
         ],
-    [{time_stamp, hoconsc:mk(non_neg_integer(), #{desc => <<"Timestamp">>})} | Samplers];
+    [{time_stamp, hoconsc:mk(non_neg_integer(), #{desc => ?DESC("time_stamp")})} | Samplers];
 fields(sampler_current_node) ->
     fields_current(sample_names(sampler_current_node));
 fields(sampler_current) ->
     fields_current(sample_names(sampler_current));
-fields(session_hist_hwmark) ->
+fields(sessions_hist_hwmark) ->
     [
         {peak_time, hoconsc:mk(non_neg_integer(), #{desc => ?DESC(hwmark_kpeak_time)})},
         {peak_value, hoconsc:mk(non_neg_integer(), #{desc => ?DESC(hwmark_peak_value)})},
@@ -145,7 +145,7 @@ fields_current(Names) ->
     ],
     HwmarkSamplers = [
         {sessions_hist_hwmark,
-            hoconsc:mk(hoconsc:ref(session_hist_hwmark), #{desc => ?DESC(sessions_hist_hwmark)})}
+            hoconsc:mk(hoconsc:ref(sessions_hist_hwmark), #{desc => ?DESC(sessions_hist_hwmark)})}
     ],
     IntegerSamplers ++ HwmarkSamplers.
 
@@ -200,81 +200,33 @@ current_rate(Node) ->
 %% -------------------------------------------------------------------------------------------------
 %% Internal
 
--define(APPROXIMATE_DESC, " Can only represent an approximate state.").
-
-swagger_desc(received) ->
-    swagger_desc_format("Received messages ");
-swagger_desc(received_bytes) ->
-    swagger_desc_format("Received bytes ");
-swagger_desc(sent) ->
-    swagger_desc_format("Sent messages ");
-swagger_desc(sent_bytes) ->
-    swagger_desc_format("Sent bytes ");
-swagger_desc(dropped) ->
-    swagger_desc_format("Dropped messages ");
-swagger_desc(validation_succeeded) ->
-    swagger_desc_format("Schema validations succeeded ");
-swagger_desc(validation_failed) ->
-    swagger_desc_format("Schema validations failed ");
-swagger_desc(transformation_succeeded) ->
-    swagger_desc_format("Message transformations succeeded ");
-swagger_desc(transformation_failed) ->
-    swagger_desc_format("Message transformations failed ");
-swagger_desc(persisted) ->
-    swagger_desc_format("Messages saved to the durable storage ");
-swagger_desc(disconnected_durable_sessions) ->
-    <<"Disconnected durable sessions at the time of sampling.", ?APPROXIMATE_DESC>>;
-swagger_desc(subscriptions_durable) ->
-    <<"Subscriptions from durable sessions at the time of sampling.", ?APPROXIMATE_DESC>>;
-swagger_desc(subscriptions) ->
-    <<"Subscriptions at the time of sampling.", ?APPROXIMATE_DESC>>;
-swagger_desc(topics) ->
-    <<"Count topics at the time of sampling.", ?APPROXIMATE_DESC>>;
-swagger_desc(connections) ->
-    <<"Sessions at the time of sampling.", ?APPROXIMATE_DESC>>;
-swagger_desc(live_connections) ->
-    <<"Connections at the time of sampling.", ?APPROXIMATE_DESC>>;
-swagger_desc(cluster_sessions) ->
-    <<
-        "Total number of sessions in the cluster at the time of sampling. "
-        "It includes expired sessions when `broker.session_history_retain` is set to a duration greater than `0s`."
-        ?APPROXIMATE_DESC
-    >>;
-swagger_desc(received_msg_rate) ->
-    swagger_desc_format("Dropped messages ", per);
-%swagger_desc(received_bytes_rate) -> swagger_desc_format("Received bytes ", per);
-swagger_desc(sent_msg_rate) ->
-    swagger_desc_format("Sent messages ", per);
-%swagger_desc(sent_bytes_rate)     -> swagger_desc_format("Sent bytes ", per);
-swagger_desc(dropped_msg_rate) ->
-    swagger_desc_format("Dropped messages ", per);
-swagger_desc(validation_succeeded_rate) ->
-    swagger_desc_format("Schema validations succeeded ", per);
-swagger_desc(validation_failed_rate) ->
-    swagger_desc_format("Schema validations failed ", per);
-swagger_desc(transformation_succeeded_rate) ->
-    swagger_desc_format("Message transformations succeeded ", per);
-swagger_desc(transformation_failed_rate) ->
-    swagger_desc_format("Message transformations failed ", per);
-swagger_desc(persisted_rate) ->
-    swagger_desc_format("Messages saved to the durable storage ", per);
-swagger_desc(retained_msg_count) ->
-    <<"Retained messages count at the time of sampling.", ?APPROXIMATE_DESC>>;
-swagger_desc(shared_subscriptions) ->
-    <<"Shared subscriptions count at the time of sampling.", ?APPROXIMATE_DESC>>;
-swagger_desc(node_uptime) ->
-    <<"Node up time in seconds. Only presented in endpoint: `/monitor_current/nodes/:node`.">>;
-swagger_desc(license_quota) ->
-    <<"License quota. AKA: limited max_connections for cluster">>;
-swagger_desc(Name) ->
-    ?DESC(Name).
-
-swagger_desc_format(Format) ->
-    swagger_desc_format(Format, last).
-
-swagger_desc_format(Format, Type) ->
-    Interval = emqx_conf:get([dashboard, monitor, interval], ?DEFAULT_SAMPLE_INTERVAL),
-    list_to_binary(io_lib:format(Format ++ "~p ~p seconds", [Type, Interval])).
+swagger_desc(received) -> ?DESC("received");
+swagger_desc(sent) -> ?DESC("sent");
+swagger_desc(dropped) -> ?DESC("dropped");
+swagger_desc(validation_succeeded) -> ?DESC("validation_succeeded");
+swagger_desc(validation_failed) -> ?DESC("validation_failed");
+swagger_desc(transformation_succeeded) -> ?DESC("transformation_succeeded");
+swagger_desc(transformation_failed) -> ?DESC("transformation_failed");
+swagger_desc(persisted) -> ?DESC("persisted");
+swagger_desc(disconnected_durable_sessions) -> ?DESC("disconnected_durable_sessions");
+swagger_desc(subscriptions_durable) -> ?DESC("subscriptions_durable");
+swagger_desc(subscriptions) -> ?DESC("subscriptions");
+swagger_desc(topics) -> ?DESC("topics");
+swagger_desc(connections) -> ?DESC("connections");
+swagger_desc(live_connections) -> ?DESC("live_connections");
+swagger_desc(cluster_sessions) -> ?DESC("cluster_sessions");
+swagger_desc(received_msg_rate) -> ?DESC("received_msg_rate");
+swagger_desc(sent_msg_rate) -> ?DESC("sent_msg_rate");
+swagger_desc(dropped_msg_rate) -> ?DESC("dropped_msg_rate");
+swagger_desc(validation_succeeded_rate) -> ?DESC("validation_succeeded_rate");
+swagger_desc(validation_failed_rate) -> ?DESC("validation_failed_rate");
+swagger_desc(transformation_succeeded_rate) -> ?DESC("transformation_succeeded_rate");
+swagger_desc(transformation_failed_rate) -> ?DESC("transformation_failed_rate");
+swagger_desc(persisted_rate) -> ?DESC("persisted_rate");
+swagger_desc(retained_msg_count) -> ?DESC("retained_msg_count");
+swagger_desc(shared_subscriptions) -> ?DESC("shared_subscriptions");
+swagger_desc(node_uptime) -> ?DESC("node_uptime");
+swagger_desc(license_quota) -> ?DESC("license_quota").
 
 maybe_reject_cluster_only_metrics(<<"all">>, Rates) ->
     Rates;
