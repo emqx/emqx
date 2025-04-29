@@ -7,39 +7,49 @@
 -- persistently on disk.
 DSBuiltinMetadata DEFINITIONS AUTOMATIC TAGS ::=
 BEGIN
+  -- Common definitions
   TopicWords ::= SEQUENCE OF OCTET STRING
 
-  -- emqx_ds_storage_skipstream_lts
-  StreamSkipstreamLtsV1 ::= OCTET STRING
+  -- Layout-specific storage layer definitions
+  --   emqx_ds_storage_reference
+  SLReferenceStream ::= NULL
+  --   We encode iterator as term_to_binary. Reference layout is not
+  --   built for efficiency anyways
+  SLReferenceIt ::= OCTET STRING
 
-  ItSkipstreamV1 ::= SEQUENCE {
+  --   emqx_ds_storage_skipstream_lts
+  SLSkipstreamLtsV1Stream ::= OCTET STRING
+
+  SLSkipstreamV1It ::= SEQUENCE {
     static OCTET STRING,
     lastKey INTEGER,
     compressedTf OCTET STRING
   }
 
-  -- Generic definitions (local and Raft)
-  --   Stream:
-  StorageStream ::= CHOICE {
-    skipstreamLtsV1 StreamSkipstreamLtsV1,
+  -- Common storage layer definitions
+  SLStream ::= CHOICE {
+    reference SLRefereceStream,
+    skipstreamLtsV1 SLSkipstreamLtsV1Stream,
     ...
-  }
-
-  Stream ::= SEQUENCE {
-    shard OCTET STRING,
-    generation INTEGER,
-    inner StorageStream
   }
 
   --   Iterator:
-  StorageIterator ::= CHOICE {
-    skipstreamLtsV1 ItSkipstreamV1,
+  SLIterator ::= CHOICE {
+    reference SLRefereceIt,
+    skipstreamLtsV1 SLSkipstreamV1It,
     ...
+  }
+
+  -- Top level (local and Raft)
+  Stream ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER,
+    inner SLStream
   }
 
   Iterator ::= SEQUENCE {
     shard OCTET STRING,
     generation INTEGER,
-    inner StorageIterator
+    inner SLIterator
   }
 END

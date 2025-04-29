@@ -957,22 +957,24 @@ tx_kv_assert_absent(Topic) ->
 reset_trans() ->
     throw(?tx_reset).
 
-%% @doc Serialize stream to a compact binary representation
+%% @doc Serialize stream to a compact binary representation.
 -spec stream_to_binary(db(), stream()) -> {ok, binary()} | {error, _}.
 stream_to_binary(DB, Stream) ->
     ?module(DB):stream_to_binary(DB, Stream).
 
-%% @doc Deserialize stream from a binary produced by `stream_to_binary'
+%% @doc Deserialize stream from a binary produced by
+%% `stream_to_binary'.
 -spec binary_to_stream(db(), binary()) -> {ok, stream()} | {error, _}.
 binary_to_stream(DB, Bin) ->
     ?module(DB):binary_to_stream(DB, Bin).
 
-%% @doc Serialize iterator to a compact binary representation
+%% @doc Serialize iterator to a compact binary representation.
 -spec iterator_to_binary(db(), stream()) -> {ok, binary()} | {error, _}.
 iterator_to_binary(DB, Stream) ->
     ?module(DB):iterator_to_binary(DB, Stream).
 
-%% @doc Deserialize iterator from a binary produced by `iterator_to_binary'
+%% @doc Deserialize iterator from a binary produced by
+%% `iterator_to_binary'.
 -spec binary_to_iterator(db(), binary()) -> {ok, stream()} | {error, _}.
 binary_to_iterator(DB, Bin) ->
     ?module(DB):binary_to_iterator(DB, Bin).
