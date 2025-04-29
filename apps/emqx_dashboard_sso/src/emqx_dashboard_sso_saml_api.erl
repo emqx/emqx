@@ -45,7 +45,9 @@ api_spec() ->
     }).
 
 check_api_schema(Params, Meta) ->
-    emqx_dashboard_swagger:validate_content_type(Params, Meta, <<"application/xml">>).
+    emqx_dashboard_swagger:validate_content_type(
+        Params, Meta, <<"application/x-www-form-urlencoded">>
+    ).
 
 paths() ->
     [
