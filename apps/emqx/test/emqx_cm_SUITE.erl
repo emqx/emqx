@@ -73,7 +73,7 @@ end_per_suite(Config) ->
 
 open_session(CleanStart, ClientInfo0, ConnInfo) ->
     ClientInfo =
-        case emqx_linear_channel_registry:is_enabled() of
+        case emqx_lcr:is_enabled() of
             true ->
                 ClientInfo0#{predecessor => undefined};
             _ ->
@@ -158,7 +158,7 @@ t_open_session(_) ->
         open_session(true, ClientInfo, ConnInfo),
     ?assertEqual(100, emqx_session:info(inflight_max, Session1)),
 
-    case emqx_linear_channel_registry:is_enabled() of
+    case emqx_lcr:is_enabled() of
         false ->
             {ok, #{session := Session2, present := false}} =
                 open_session(true, ClientInfo, ConnInfo),
