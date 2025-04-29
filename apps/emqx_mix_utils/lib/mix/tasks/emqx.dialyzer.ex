@@ -21,6 +21,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       Mix.Tasks.Emqx.Ct,
       Mix.Tasks.Emqx.Eunit,
       Mix.Tasks.Emqx.Proper,
+      Mix.Tasks.Emqx.Cover,
       Mix.Tasks.Compile.Grpc,
       Mix.Tasks.Compile.CopySrcs,
     ]
