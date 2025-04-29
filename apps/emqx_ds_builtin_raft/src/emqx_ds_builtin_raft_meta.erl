@@ -45,6 +45,7 @@
 -export([
     join_db_site/2,
     leave_db_site/2,
+    forget_node/1,
     assign_db_sites/2,
     modify_db_sites/2,
     replica_set_transitions/2,
@@ -66,7 +67,7 @@
 %% internal exports:
 -export([
     open_db_trans/2,
-    allocate_shards_trans/1,
+    allocate_shards_trans/2,
     assign_db_sites_trans/2,
     modify_db_sites_trans/2,
     claim_transition_trans/3,
@@ -257,13 +258,15 @@ my_shards(DB) ->
     [Shard || #?SHARD_TAB{shard = {_, Shard}, replica_set = RS} <- Recs, lists:member(Site, RS)].
 
 allocate_shards(DB) ->
-    case mria:transaction(?RLOG_SHARD, fun ?MODULE:allocate_shards_trans/1, [DB]) of
+    case mria:transaction(?RLOG_SHARD, fun ?MODULE:allocate_shards_trans/2, [this_site(), DB]) of
         {atomic, Shards} ->
             {ok, Shards};
         {aborted, {shards_already_allocated, Shards}} ->
             {ok, Shards};
         {aborted, {insufficient_sites_online, Needed, Sites}} ->
-            {error, #{reason => insufficient_sites_online, needed => Needed, sites => Sites}}
+            {error, #{reason => insufficient_sites_online, needed => Needed, sites => Sites}};
+        {aborted, this_site_is_gone} ->
+            exit(restart)
     end.
 
 %% @doc List all sites.
@@ -553,13 +556,6 @@ target_set(DB, Shard) ->
 
 %%================================================================================
 
-%% @doc Schedules a cleanup activity, which currently involves:
-%% 1. Erasing records of lost sites no longer assigned to any shards.
-schedule_cleanup() ->
-    gen_server:cast(?SERVER, cleanup).
-
-%%================================================================================
-
 subscribe(Pid, Subject) ->
     gen_server:call(?SERVER, {subscribe, Pid, Subject}, infinity).
 
@@ -581,7 +577,6 @@ init([]) ->
     ensure_tables(),
     run_migrations(),
     ensure_site(),
-    schedule_cleanup(),
     {ok, _Node} = mnesia:subscribe({table, ?SHARD_TAB, simple}),
     {ok, #s{}}.
 
@@ -592,9 +587,6 @@ handle_call({unsubscribe, Pid}, _From, S) ->
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
-handle_cast(cleanup, S) ->
-    forget_lost_sites(),
-    {noreply, S};
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
@@ -603,8 +595,7 @@ handle_info({mnesia_table_event, {write, #?SHARD_TAB{shard = {DB, Shard}}, _}}, 
     {noreply, S};
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, S) ->
     {noreply, handle_unsubscribe(Pid, S)};
-handle_info({membership, {node, leaving, Node}}, S) ->
-    forget_node(Node),
+handle_info({membership, {node, leaving, _Node}}, S) ->
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
@@ -638,8 +629,36 @@ open_db_trans(DB, CreateOpts) ->
             end
     end.
 
--spec allocate_shards_trans(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
-allocate_shards_trans(DB) ->
+-spec allocate_shards_trans(site(), emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+allocate_shards_trans(Site, DB) ->
+    case mnesia:read(?NODE_TAB, Site) of
+        [_] ->
+            ok;
+        [] ->
+            %% Workaround for a race condition that may occur on a
+            %% replicant in a cluster with 2 or more core nodes.
+            %%
+            %% Current site may be unexpectedly gone if the following
+            %% happens:
+            %%
+            %% 1. Replicant connects to the core A.
+            %%
+            %% 2. This module initializes and starts waiting for the
+            %% quorum.
+            %%
+            %% 3. In the meanwhile, A runs autocluster and decides to
+            %% join core node B (or the operator commands to do that)
+            %%
+            %% 4. During join, A wipes its data and replaces it with
+            %% B's data. Since replicant nodes DON'T restart business
+            %% apps during cluster join, this may go undetected.
+            %%
+            %% 5. Replicant that registered itself on A ends up in the
+            %% situation where its site registration is gone.
+            %%
+            %% To combat that we just restart the server.
+            mnesia:abort(this_site_is_gone)
+    end,
     Opts = #{n_shards := NShards, n_sites := NSites} = db_config_trans(DB),
     case mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write) of
         [] ->
@@ -849,9 +868,6 @@ site_shards_trans(Site) ->
     ],
     Current ++ Target.
 
-node_sites(Node) ->
-    mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT(Node)).
-
 node_sites_trans(Node) ->
     mnesia:match_object(?NODE_TAB, ?NODE_PAT(Node), write).
 
@@ -966,18 +982,8 @@ forget_node(Node) ->
             logger:error("Failed to forget leaving node ~p: ~p", [Node, Reason])
     end.
 
-forget_lost_sites() ->
-    NodesLost = [R || R = #?NODE_TAB{node = N} <- all_nodes(), node_status(N) =:= lost],
-    lists:foreach(fun forget_lost_site/1, NodesLost).
-
-forget_lost_site(Node = #?NODE_TAB{site = Site}) ->
-    Result = transaction(fun ?MODULE:forget_site_trans/1, [Node]),
-    case Result of
-        ok ->
-            ok;
-        {error, Reason} ->
-            logger:notice("Failed to forget lost site ~s: ~p", [Site, Reason])
-    end.
+node_sites(Node) ->
+    mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT(Node)).
 
 %% @doc Returns sorted list of sites shards are replicated across.
 -spec list_sites([_Shard]) -> [site()].

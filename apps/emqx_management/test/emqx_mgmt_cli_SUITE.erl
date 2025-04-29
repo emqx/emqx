@@ -401,8 +401,11 @@ t_leave_rejected_ds_nonempty(Config) ->
     ?assertEqual(ok, ?ON(N1, emqx_mgmt_cli:ds(["leave", DBArg, S2Arg]))),
     ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(DB)),
 
-    %% Now leave the cluster again, wait until N1 forgets about S2.
+    %% Now leave the cluster again.
     ?assertEqual(ok, ?ON(N2, emqx_mgmt_cli:cluster(["leave"]))),
+    %% Make N1 forget about S2
+    LostSite = binary_to_list(?ON(N2, emqx_ds_builtin_raft_meta:this_site())),
+    ?assertEqual(ok, ?ON(N1, emqx_mgmt_cli:ds(["forget", LostSite]))),
     ?retry(500, 10, undefined = ?ON(N1, emqx_ds_builtin_raft_meta:node(S2))),
     ?ON(N1, emqx_mgmt_cli:ds(["info"])),
 
