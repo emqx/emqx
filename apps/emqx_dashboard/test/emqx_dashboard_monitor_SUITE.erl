@@ -640,6 +640,15 @@ t_merge_hwmark(Config) when is_list(Config) ->
         #{sessions_hist_hwmark => R(2, 100, 100)},
         emqx_dashboard_monitor:merge_current_rate_cluster(Results4)
     ),
+    %% two nodes, the other node has no data
+    Results5 = [
+        {ok, #{sessions_hist_hwmark => R(2, 100, 100)}},
+        {ok, #{}}
+    ],
+    ?assertEqual(
+        #{sessions_hist_hwmark => R(2, 100, 100)},
+        emqx_dashboard_monitor:merge_current_rate_cluster(Results5)
+    ),
     ok.
 
 t_monitor_current_shared_subscription(Config) when is_list(Config) ->
