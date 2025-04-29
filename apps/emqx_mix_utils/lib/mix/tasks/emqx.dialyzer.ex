@@ -82,6 +82,8 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       files: files,
     }
 
+    EMQX.Mix.Utils.clear_screen()
+
     try do
       case mode do
         :classic ->
