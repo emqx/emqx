@@ -1424,12 +1424,44 @@ handle_event(Shard, Time, Event) ->
     GenId = generation_current(Shard),
     handle_event(Shard, Time, ?mk_storage_event(GenId, Event)).
 
+%%--------------------------------------------------------------------------------
+
+%% NOTE: Architecturally speaking, these functions DON'T belong in the
+%% storage layer. But they are currently here for lack of a better
+%% place.
+%%
+%% These functions don't follow the normal convention where the stream
+%% and iterator objects are unraveled layer by layer and the inner
+%% layer is dynamically dispatched to the storage layout module. We
+%% can't do it here, because we should be able to encode and decode
+%% objects that belong to generations that are either already gone or
+%% are unknown for other reasons. As such, metadata encoding is not
+%% considered part of the DS layer model, it's a separate sidecar
+%% functionality that lives on the side.
+%%
+%% Another ugly part is that these function currently try to look
+%% *inside* the objects (which functions in this module should NOT
+%% do). But this is a workaround for the legacy implementation. Future
+%% storage layouts should define their streams and iterators in
+%% DSBuiltinMetadata.asn, and use the automatically generated records
+%% as is.
+%%
+%% FIXME: since we migrate state from Mnesia anyways, all persistent
+%% data can take a new form, and explicit conversions here can be
+%% avoided. So the hacks based on guessing the format should be moved
+%% to the migration procedure (if we decide to write it). However,
+%% this should be done in a separate PR.
 stream_to_binary(_DB, Shard, ?stream_v2(GenId, Inner)) ->
-    %% FIXME:
     InnerRec =
         case Inner of
+            %% Legacy cases:
+            {stream} ->
+                {reference, 'NULL'};
             {stream, Str} ->
-                {skipstreamLtsV1, Str}
+                {skipstreamLtsV1, Str};
+            %% Future cases:
+            _ ->
+                Inner
         end,
     Rec = #'Stream'{
         shard = Shard,
@@ -1446,18 +1478,33 @@ binary_to_stream(_DB, Bin) ->
             generation = GenId,
             inner = InnerRec
         } = Rec,
-        %% FIXME:
         Inner =
             case InnerRec of
+                %% Legacy cases:
+                {reference, _} ->
+                    {stream};
                 {skipstreamLtsV1, Str} ->
-                    {stream, Str}
+                    {stream, Str};
+                %% All future cases:
+                _ ->
+                    InnerRec
             end,
         {Shard, ?stream_v2(GenId, Inner)}
     end.
 
 iterator_to_binary(_DB, Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     %% FIXME:
-    InnerRec = emqx_ds_storage_skipstream_lts:iterator_to_asn1(Inner),
+    InnerRec =
+        case Inner of
+            %% Legacy cases:
+            {it, _, _, _} = ReferenceIt ->
+                term_to_binary(ReferenceIt);
+            {it, _, _, _, _} ->
+                emqx_ds_storage_skipstream_lts:iterator_to_asn1(Inner);
+            %% All future cases:
+            _ ->
+                Inner
+        end,
     Rec = #'Iterator'{
         shard = Shard,
         generation = GenId,
@@ -1476,8 +1523,14 @@ binary_to_iterator(_DB, Bin) ->
         %% FIXME:
         Inner =
             case InnerRec of
+                %% Legacy cases:
+                {reference, ReferenceBin} ->
+                    binary_to_term(ReferenceBin);
                 {skipstreamLtsV1, It} ->
-                    emqx_ds_storage_skipstream_lts:asn1_to_iterator(It)
+                    emqx_ds_storage_skipstream_lts:asn1_to_iterator(It);
+                %% Future cases:
+                _ ->
+                    InnerRec
             end,
         {Shard, #{?tag => ?IT, ?generation => GenId, ?enc => Inner}}
     end.
