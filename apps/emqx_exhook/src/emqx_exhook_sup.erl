@@ -15,7 +15,8 @@
 
 -export([
     start_grpc_client_channel/3,
-    stop_grpc_client_channel/1
+    stop_grpc_client_channel/1,
+    grpc_client_channel_workers/1
 ]).
 
 -define(DEFAULT_TIMEOUT, 5000).
@@ -56,7 +57,7 @@ init([]) ->
 start_grpc_client_channel(Name, SvrAddr, Options) ->
     grpc_client_sup:create_channel_pool(Name, SvrAddr, Options).
 
--spec stop_grpc_client_channel(binary()) -> ok.
+-spec stop_grpc_client_channel(binary()) -> ok | {error, term()}.
 stop_grpc_client_channel(Name) ->
     %% Avoid crash due to hot-upgrade had unloaded
     %% grpc application
@@ -66,6 +67,10 @@ stop_grpc_client_channel(Name) ->
         _:_:_ ->
             ok
     end.
+
+-spec grpc_client_channel_workers(binary()) -> list().
+grpc_client_channel_workers(Name) ->
+    grpc_client_sup:workers(Name).
 
 %% Calculate the maximum timeout, which will help to shutdown the
 %% emqx_exhook_mgr process correctly.

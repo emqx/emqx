@@ -15,7 +15,8 @@
 %% Load/Unload
 -export([
     load/2,
-    unload/1
+    unload/1,
+    health_check/1
 ]).
 
 %% APIs
@@ -33,8 +34,8 @@
 -export([hk2func/1]).
 -endif.
 
-%% Server name (equal to grpc client channel name)
--type server() :: #{
+-type service() :: #{
+    %% Server name (equal to grpc client channel name)
     name := binary(),
     %% The function options
     options := map(),
@@ -67,30 +68,27 @@
     | 'message.acked'
     | 'message.dropped'.
 
--export_type([server/0, hookpoint/0]).
+-export_type([service/0, hookpoint/0]).
 
 -dialyzer({nowarn_function, [inc_metrics/2]}).
 
--elvis([{elvis_style, dont_repeat_yourself, disable}, {elvis_style, no_catch_expressions, disable}]).
+-elvis([
+    {elvis_style, dont_repeat_yourself, disable},
+    {elvis_style, no_catch_expressions, disable}
+]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload APIs
 %%--------------------------------------------------------------------
 
--spec load(binary(), map()) -> {ok, server()} | {error, term()} | {load_error, term()} | disable.
+-spec load(binary(), map()) -> {ok, service()} | {error, term()} | {load_error, term()} | disable.
 load(_Name, #{enable := false}) ->
     disable;
 load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) ->
     ReqOpts = #{timeout => Timeout, failed_action => FailedAction},
     case channel_opts(Opts) of
         {ok, {SvrAddr, ClientOpts}} ->
-            case
-                emqx_exhook_sup:start_grpc_client_channel(
-                    Name,
-                    SvrAddr,
-                    ClientOpts
-                )
-            of
+            case start_client_channel(Name, SvrAddr, ClientOpts) of
                 {ok, _ChannPoolPid} ->
                     case do_init(Name, ReqOpts) of
                         {ok, HookSpecs} ->
@@ -107,7 +105,7 @@ load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) 
                                 prefix => Prefix
                             }};
                         {error, Reason} ->
-                            emqx_exhook_sup:stop_grpc_client_channel(Name),
+                            _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
                             {load_error, Reason}
                     end;
                 {error, _} = E ->
@@ -161,26 +159,27 @@ channel_opts(Opts = #{url := URL, socket_options := SockOpts}) ->
             {error, {bad_server_url, URL, Error}}
     end.
 
+%% @private
 format_http_uri(Scheme, Host, Port) ->
     lists:flatten(io_lib:format("~ts://~ts:~w", [Scheme, Host, Port])).
 
+%% @private
 filter(Ls) ->
     [E || E <- Ls, E /= undefined].
 
--spec unload(server()) -> ok.
-unload(#{name := Name, options := ReqOpts, hookspec := HookSpecs}) ->
-    _ = may_unload_hooks(HookSpecs),
-    _ = do_deinit(Name, ReqOpts),
-    _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
-    ok.
+%% @private
+-spec start_client_channel(binary(), string(), map()) -> {ok, pid()} | {error, term()}.
+start_client_channel(Name, SvrAddr, ClientOpts) ->
+    case emqx_exhook_sup:start_grpc_client_channel(Name, SvrAddr, ClientOpts) of
+        {ok, ChannPoolPid} ->
+            {ok, ChannPoolPid};
+        {error, {already_started, ChannPoolPid}} ->
+            {ok, ChannPoolPid};
+        {error, _} = E ->
+            E
+    end.
 
-do_deinit(Name, ReqOpts) ->
-    %% Override the request timeout to deinit grpc server to
-    %% avoid emqx_exhook_mgr force killed by upper supervisor
-    NReqOpts = ReqOpts#{timeout => ?SERVER_FORCE_SHUTDOWN_TIMEOUT},
-    _ = do_call(Name, undefined, 'on_provider_unloaded', #{}, NReqOpts),
-    ok.
-
+%% @private
 do_init(ChannName, ReqOpts) ->
     %% BrokerInfo defined at: exhook.protos
     BrokerInfo = maps:with(
@@ -240,6 +239,7 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
         HookSpecs
     ).
 
+%% @private
 ensure_metrics(Prefix, HookSpecs) ->
     Keys = [
         list_to_atom(Prefix ++ atom_to_list(Hookpoint))
@@ -247,6 +247,7 @@ ensure_metrics(Prefix, HookSpecs) ->
     ],
     lists:foreach(fun emqx_metrics:ensure/1, Keys).
 
+%% @private
 ensure_hooks(HookSpecs) ->
     lists:foreach(
         fun(Hookpoint) ->
@@ -261,6 +262,14 @@ ensure_hooks(HookSpecs) ->
         maps:keys(HookSpecs)
     ).
 
+-spec unload(service()) -> ok.
+unload(#{name := Name, options := ReqOpts, hookspec := HookSpecs}) ->
+    _ = may_unload_hooks(HookSpecs),
+    _ = do_deinit(Name, ReqOpts),
+    _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
+    ok.
+
+%% @private
 may_unload_hooks(HookSpecs) ->
     lists:foreach(
         fun(Hookpoint) ->
@@ -280,10 +289,41 @@ may_unload_hooks(HookSpecs) ->
         maps:keys(HookSpecs)
     ).
 
-format(#{name := Name, hookspec := Hooks}) ->
-    lists:flatten(
-        io_lib:format("name=~ts, hooks=~0p, active=true", [Name, Hooks])
-    ).
+%% @private
+do_deinit(Name, ReqOpts) ->
+    %% Override the request timeout to deinit grpc server to
+    %% avoid emqx_exhook_mgr force killed by upper supervisor
+    NReqOpts = ReqOpts#{timeout => ?SERVER_FORCE_SHUTDOWN_TIMEOUT},
+    _ = do_call(Name, undefined, 'on_provider_unloaded', #{}, NReqOpts),
+    ok.
+
+-spec health_check(map() | undefined) -> boolean() | skip | disable.
+health_check(#{enable := false}) ->
+    disable;
+health_check(#{status := disconnected}) ->
+    %% for disconnected Service, skip health check to follow auto_reconnect timer
+    skip;
+health_check(#{name := Name, request_timeout := Timeout} = _Opts) ->
+    %% check all workers
+    case grpc_client_sup:workers(Name) of
+        [] ->
+            false;
+        Workers ->
+            lists:all(
+                fun({_, WorkerPid}) ->
+                    case
+                        grpc_client:health_check(
+                            WorkerPid,
+                            #{timeout => Timeout, channel => Name}
+                        )
+                    of
+                        ok -> true;
+                        _ -> false
+                    end
+                end,
+                Workers
+            )
+    end.
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -292,6 +332,7 @@ format(#{name := Name, hookspec := Hooks}) ->
 name(#{name := Name}) ->
     Name.
 
+-spec hooks(service()) -> list().
 hooks(#{hookspec := Hooks}) ->
     FoldFun = fun(Hook, Params, Acc) ->
         [
@@ -304,16 +345,26 @@ hooks(#{hookspec := Hooks}) ->
     end,
     maps:fold(FoldFun, [], Hooks).
 
--spec call(hookpoint(), map(), server()) ->
+-spec format(service()) -> list().
+format(#{name := Name, hookspec := Hooks}) ->
+    lists:flatten(
+        io_lib:format("name=~ts, hooks=~0p, active=true", [Name, Hooks])
+    ).
+
+-spec call(hookpoint(), map(), service()) ->
     ignore
     | {ok, Resp :: term()}
     | {error, term()}.
-call(Hookpoint, Req, #{
-    name := ChannName,
-    options := ReqOpts,
-    hookspec := Hooks,
-    prefix := Prefix
-}) ->
+call(
+    Hookpoint,
+    Req,
+    #{
+        name := ChannName,
+        options := ReqOpts,
+        hookspec := Hooks,
+        prefix := Prefix
+    }
+) ->
     case maps:get(Hookpoint, Hooks, undefined) of
         undefined ->
             ignore;
@@ -360,6 +411,7 @@ match_topic_filter(TopicName, TopicFilter) ->
 ).
 -endif.
 
+%% @private
 -spec do_call(binary(), atom(), atom(), map(), map()) -> {ok, map()} | {error, term()}.
 do_call(ChannName, Hookpoint, Fun, Req, ReqOpts) ->
     NReq = Req#{meta => emqx_exhook_handler:request_meta()},
