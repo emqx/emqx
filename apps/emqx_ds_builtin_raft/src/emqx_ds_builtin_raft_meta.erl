@@ -45,6 +45,7 @@
 -export([
     join_db_site/2,
     leave_db_site/2,
+    forget_node/1,
     assign_db_sites/2,
     modify_db_sites/2,
     replica_set_transitions/2,
@@ -553,13 +554,6 @@ target_set(DB, Shard) ->
 
 %%================================================================================
 
-%% @doc Schedules a cleanup activity, which currently involves:
-%% 1. Erasing records of lost sites no longer assigned to any shards.
-schedule_cleanup() ->
-    gen_server:cast(?SERVER, cleanup).
-
-%%================================================================================
-
 subscribe(Pid, Subject) ->
     gen_server:call(?SERVER, {subscribe, Pid, Subject}, infinity).
 
@@ -581,7 +575,6 @@ init([]) ->
     ensure_tables(),
     run_migrations(),
     ensure_site(),
-    schedule_cleanup(),
     {ok, _Node} = mnesia:subscribe({table, ?SHARD_TAB, simple}),
     {ok, #s{}}.
 
@@ -592,9 +585,6 @@ handle_call({unsubscribe, Pid}, _From, S) ->
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
-handle_cast(cleanup, S) ->
-    forget_lost_sites(),
-    {noreply, S};
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
@@ -603,8 +593,7 @@ handle_info({mnesia_table_event, {write, #?SHARD_TAB{shard = {DB, Shard}}, _}}, 
     {noreply, S};
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, S) ->
     {noreply, handle_unsubscribe(Pid, S)};
-handle_info({membership, {node, leaving, Node}}, S) ->
-    forget_node(Node),
+handle_info({membership, {node, leaving, _Node}}, S) ->
     {noreply, S};
 handle_info(_Info, S) ->
     {noreply, S}.
@@ -849,9 +838,6 @@ site_shards_trans(Site) ->
     ],
     Current ++ Target.
 
-node_sites(Node) ->
-    mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT(Node)).
-
 node_sites_trans(Node) ->
     mnesia:match_object(?NODE_TAB, ?NODE_PAT(Node), write).
 
@@ -966,18 +952,8 @@ forget_node(Node) ->
             logger:error("Failed to forget leaving node ~p: ~p", [Node, Reason])
     end.
 
-forget_lost_sites() ->
-    NodesLost = [R || R = #?NODE_TAB{node = N} <- all_nodes(), node_status(N) =:= lost],
-    lists:foreach(fun forget_lost_site/1, NodesLost).
-
-forget_lost_site(Node = #?NODE_TAB{site = Site}) ->
-    Result = transaction(fun ?MODULE:forget_site_trans/1, [Node]),
-    case Result of
-        ok ->
-            ok;
-        {error, Reason} ->
-            logger:notice("Failed to forget lost site ~s: ~p", [Site, Reason])
-    end.
+node_sites(Node) ->
+    mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT(Node)).
 
 %% @doc Returns sorted list of sites shards are replicated across.
 -spec list_sites([_Shard]) -> [site()].
