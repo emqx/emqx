@@ -67,7 +67,7 @@
 %% internal exports:
 -export([
     open_db_trans/2,
-    allocate_shards_trans/1,
+    allocate_shards_trans/2,
     assign_db_sites_trans/2,
     modify_db_sites_trans/2,
     claim_transition_trans/3,
@@ -258,13 +258,15 @@ my_shards(DB) ->
     [Shard || #?SHARD_TAB{shard = {_, Shard}, replica_set = RS} <- Recs, lists:member(Site, RS)].
 
 allocate_shards(DB) ->
-    case mria:transaction(?RLOG_SHARD, fun ?MODULE:allocate_shards_trans/1, [DB]) of
+    case mria:transaction(?RLOG_SHARD, fun ?MODULE:allocate_shards_trans/2, [this_site(), DB]) of
         {atomic, Shards} ->
             {ok, Shards};
         {aborted, {shards_already_allocated, Shards}} ->
             {ok, Shards};
         {aborted, {insufficient_sites_online, Needed, Sites}} ->
-            {error, #{reason => insufficient_sites_online, needed => Needed, sites => Sites}}
+            {error, #{reason => insufficient_sites_online, needed => Needed, sites => Sites}};
+        {aborted, this_site_is_gone} ->
+            exit(restart)
     end.
 
 %% @doc List all sites.
@@ -627,8 +629,36 @@ open_db_trans(DB, CreateOpts) ->
             end
     end.
 
--spec allocate_shards_trans(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
-allocate_shards_trans(DB) ->
+-spec allocate_shards_trans(site(), emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+allocate_shards_trans(Site, DB) ->
+    case mnesia:read(?NODE_TAB, Site) of
+        [_] ->
+            ok;
+        [] ->
+            %% Workaround for a race condition that may occur on a
+            %% replicant in a cluster with 2 or more core nodes.
+            %%
+            %% Current site may be unexpectedly gone if the following
+            %% happens:
+            %%
+            %% 1. Replicant connects to the core A.
+            %%
+            %% 2. This module initializes and starts waiting for the
+            %% quorum.
+            %%
+            %% 3. In the meanwhile, A runs autocluster and decides to
+            %% join core node B (or the operator commands to do that)
+            %%
+            %% 4. During join, A wipes its data and replaces it with
+            %% B's data. Since replicant nodes DON'T restart business
+            %% apps during cluster join, this may go undetected.
+            %%
+            %% 5. Replicant that registered itself on A ends up in the
+            %% situation where its site registration is gone.
+            %%
+            %% To combat that we just restart the server.
+            mnesia:abort(this_site_is_gone)
+    end,
     Opts = #{n_shards := NShards, n_sites := NSites} = db_config_trans(DB),
     case mnesia:match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'}), write) of
         [] ->
