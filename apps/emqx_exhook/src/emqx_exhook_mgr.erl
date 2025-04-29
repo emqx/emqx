@@ -292,7 +292,7 @@ handle_call(
     _From,
     #{servers := Servers} = State
 ) ->
-    Status = maps:map(fun(_Name, #{status := Status}) -> Status end, Servers),
+    Status = map_each_server(fun({Name, #{status := Status}}) -> {Name, Status} end, Servers),
     Metrics = emqx_exhook_metrics:servers_metrics(),
 
     Result = #{
@@ -333,8 +333,8 @@ handle_info({timeout, _Ref, {reload, Name}}, State) ->
 handle_info(refresh_tick, #{servers := Servers} = State) ->
     refresh_tick(),
     emqx_exhook_metrics:update(?REFRESH_INTERVAL),
-    NServers = maps:map(
-        fun(_Name, Server) -> do_health_check(Server) end,
+    NServers = map_each_server(
+        fun({Name, Server}) -> {Name, do_health_check(Server)} end,
         Servers
     ),
     {noreply, State#{servers => NServers}};
@@ -452,7 +452,9 @@ ensure_reload_timer(#{name := Name, auto_reconnect := Intv} = Server) when is_in
     maybe
         true ?= expired_timer(Server),
         %% otherwise, respect the running timer
-        Ref = erlang:start_timer(Intv, self(), {reload, Name}),
+        %% NOTE: parallel health check and reload timer
+        %% should send te the current gen_server
+        Ref = erlang:start_timer(Intv, erlang:whereis(?MODULE), {reload, Name}),
         %% mark status as connecting, the refresh_tick will check real conn states
         Server#{status => connecting, timer => Ref}
     else
@@ -463,13 +465,10 @@ ensure_reload_timer(Server) ->
 
 expired_timer(#{timer := undefined}) ->
     true;
-expired_timer(#{name := Name, timer := Timer}) ->
+expired_timer(#{timer := Timer}) ->
     case erlang:read_timer(Timer) of
-        false ->
-            ?SLOG(debug, #{msg => "reload_timer_not_expired", name => Name}),
-            true;
-        _RemainingTime ->
-            false
+        false -> true;
+        _RemainingTime -> false
     end.
 
 -spec clean_reload_timer(server()) -> ok.
@@ -611,7 +610,7 @@ sort_name_by_order(Names, Orders) ->
     ).
 
 refresh_tick() ->
-    erlang:send_after(?REFRESH_INTERVAL, self(), ?FUNCTION_NAME).
+    erlang:send_after(?REFRESH_INTERVAL, erlang:whereis(?MODULE), ?FUNCTION_NAME).
 
 -spec opts_to_state(server_options()) -> server().
 opts_to_state(Options) ->
@@ -642,7 +641,7 @@ handle_health_check_res(Server, false) ->
     ensure_reload_timer(Server);
 handle_health_check_res(Server, skip) ->
     %% skip the health check due to unsaved/reconnecting service
-    Server.
+    ensure_reload_timer(Server).
 
 %%----------------------------------------------------------------------------------------
 %% Server state persistent
@@ -719,3 +718,6 @@ new_ssl_source(Source, undefined) ->
     Source;
 new_ssl_source(Source, SSL) ->
     Source#{<<"ssl">> => SSL}.
+
+map_each_server(Fun, Servers) ->
+    maps:from_list(emqx_utils:pmap(Fun, maps:to_list(Servers))).
