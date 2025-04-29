@@ -1,0 +1,293 @@
+emqx_metrics {
+    bytes_received {
+        desc: "Number of bytes received"
+    }
+    bytes_sent {
+        desc: "Number of bytes sent on this connection"
+    }
+    packets_received {
+        desc: "Number of received packets"
+    }
+    packets_sent {
+        desc: "Number of sent packets"
+    }
+    packets_connect_received {
+        desc: "Number of received CONNECT packets"
+    }
+    packets_connack_sent {
+        desc: "Number of sent CONNACK packets"
+    }
+    packets_connack_error {
+        desc: "Number of received CONNECT packet with unsuccessful connections"
+    }
+    packets_connack_auth_error {
+        desc: "Number of received CONNECT packet with failed Authentication"
+    }
+    packets_publish_received {
+        desc: "Number of received PUBLISH packet"
+    }
+    packets_publish_sent {
+        desc: "Number of sent PUBLISH packet"
+    }
+    packets_publish_inuse {
+        desc: "Number of received PUBLISH packet with occupied identifiers"
+    }
+    packets_publish_error {
+        desc: "Number of received PUBLISH packet that cannot be published"
+    }
+    packets_publish_auth_error {
+        desc: "Number of received PUBLISH packets with failed the Authorization check"
+    }
+    packets_publish_quota_exceeded {
+        desc: "Number of received PUBLISH packets that exceeded the quota"
+    }
+    packets_puback_received {
+        desc: "Number of received PUBACK packet"
+    }
+    packets_puback_sent {
+        desc: "Number of sent PUBACK packet"
+    }
+    packets_puback_inuse {
+        desc: "Number of received PUBACK packet with occupied identifiers"
+    }
+    packets_puback_missed {
+        desc: "Number of received packet with identifiers"
+    }
+    packets_pubrec_received {
+        desc: "Number of received PUBREC packet"
+    }
+    packets_pubrec_sent {
+        desc: "Number of sent PUBREC packet"
+    }
+    packets_pubrec_inuse {
+        desc: "Number of received PUBREC packet with occupied identifiers"
+    }
+    packets_pubrec_missed {
+        desc: "Number of received PUBREC packet with unknown identifiers"
+    }
+    packets_pubrel_received {
+        desc: "Number of received PUBREL packet"
+    }
+    packets_pubrel_sent {
+        desc: "Number of sent PUBREL packet"
+    }
+    packets_pubrel_missed {
+        desc: "Number of received PUBREC packet with unknown identifiers"
+    }
+    packets_pubcomp_received {
+        desc: "Number of received PUBCOMP packet"
+    }
+    packets_pubcomp_sent {
+        desc: "Number of sent PUBCOMP packet"
+    }
+    packets_pubcomp_inuse {
+        desc: "Number of received PUBCOMP packet with occupied identifiers"
+    }
+    packets_pubcomp_missed {
+        desc: "Number of missed PUBCOMP packet"
+    }
+    packets_subscribe_received {
+        desc: "Number of received SUBSCRIBE packet"
+    }
+    packets_subscribe_error {
+        desc: "Number of received SUBSCRIBE packet with failed subscriptions"
+    }
+    packets_subscribe_auth_error {
+        desc: "Number of received SUBACK packet with failed Authorization check"
+    }
+    packets_suback_sent {
+        desc: "Number of sent SUBACK packet"
+    }
+    packets_unsubscribe_received {
+        desc: "Number of received UNSUBSCRIBE packet"
+    }
+    packets_unsubscribe_error {
+        desc: "Number of received UNSUBSCRIBE packet with failed unsubscriptions"
+    }
+    packets_unsuback_sent {
+        desc: "Number of sent UNSUBACK packet"
+    }
+    packets_pingreq_received {
+        desc: "Number of received PINGREQ packet"
+    }
+    packets_pingresp_sent {
+        desc: "Number of sent PUBRESP packet"
+    }
+    packets_disconnect_received {
+        desc: "Number of received DISCONNECT packet"
+    }
+    packets_disconnect_sent {
+        desc: "Number of sent DISCONNECT packet"
+    }
+    packets_auth_received {
+        desc: "Number of received AUTH packet"
+    }
+    packets_auth_sent {
+        desc: "Number of sent AUTH packet"
+    }
+    messages_received {
+        desc: "Number of messages received from the client, equal to the sum of messages.qos0.received, messages.qos1.received and messages.qos2.received"
+    }
+    messages_sent {
+        desc: "Number of messages sent to the client, equal to the sum of messages.qos0.sent, messages.qos1.sent and messages.qos2.sent"
+    }
+    messages_qos0_received {
+        desc: "Number of QoS 0 messages received from clients"
+    }
+    messages_qos0_sent {
+        desc: "Number of QoS 0 messages sent to clients"
+    }
+    messages_qos1_received {
+        desc: "Number of QoS 1 messages received from clients"
+    }
+    messages_qos1_sent {
+        desc: "Number of QoS 1 messages sent to clients"
+    }
+    messages_qos2_received {
+        desc: "Number of QoS 2 messages received from clients"
+    }
+    messages_qos2_sent {
+        desc: "Number of QoS 2 messages sent to clients"
+    }
+    messages_publish {
+        desc: "Number of messages published in addition to system messages"
+    }
+    messages_dropped {
+        desc: "Number of messages dropped before forwarding to the subscription process"
+    }
+    messages_dropped_await_pubrel_timeout {
+        desc: "Number of messages dropped due to waiting PUBREL timeout"
+    }
+    messages_dropped_no_subscribers {
+        desc: "Number of messages dropped due to no subscribers"
+    }
+    messages_dropped_quota_exceeded {
+        desc: "Number of messages dropped due to quota being exceeded"
+    }
+    messages_dropped_receive_maximum {
+        desc: "Number of messages dropped due to receive maximum being reached"
+    }
+    messages_forward {
+        desc: "Number of messages forwarded to other nodes"
+    }
+    messages_delayed {
+        desc: "Number of delay-published messages"
+    }
+    messages_delivered {
+        desc: "Number of messages forwarded to the subscription process internally"
+    }
+    messages_acked {
+        desc: "Number of received PUBACK and PUBREC packet"
+    }
+    messages_validation_failed {
+        desc: "Number of message validation failed"
+    }
+    messages_validation_succeeded {
+        desc: "Number of message validation successful"
+    }
+    messages_transformation_failed {
+        desc: "Number of message transformation failed"
+    }
+    messages_transformation_succeeded {
+        desc: "Number of message transformation succeeded"
+    }
+    messages_persisted {
+        desc: "Number of message persisted"
+    }
+    delivery_dropped {
+        desc: "Total number of discarded messages when sending"
+    }
+    delivery_dropped_no_local {
+        desc: "Number of messages that were dropped due to the No Local subscription option when sending"
+    }
+    delivery_dropped_too_large {
+        desc: "The number of messages that were dropped because the length exceeded the limit when sending"
+    }
+    delivery_dropped_qos0_msg {
+        desc: "Number of messages with QoS 0 that were dropped because mqtt.mqueue_store_qos0=false when sending"
+    }
+    delivery_dropped_queue_full {
+        desc: "Number of messages that were dropped because the message queue was full when sending"
+    }
+    delivery_dropped_expired {
+        desc: "Number of messages dropped due to message expiration on sending"
+    }
+    client_connect {
+        desc: "Number of client connections"
+    }
+    client_connack {
+        desc: "Number of CONNACK packet sent"
+    }
+    client_connected {
+        desc: "Number of successful client connected"
+    }
+    client_authenticate {
+        desc: "Number of client Authentication"
+    }
+    client_auth_anonymous {
+        desc: "Number of clients who log in anonymously"
+    }
+    client_authorize {
+        desc: "Number of Authorization rule checks"
+    }
+    client_subscribe {
+        desc: "Number of client subscriptions"
+    }
+    client_unsubscribe {
+        desc: "Number of client unsubscriptions"
+    }
+    client_disconnected {
+        desc: "Number of client disconnects"
+    }
+    session_created {
+        desc: "Number of sessions created"
+    }
+    session_resumed {
+        desc: "Number of sessions resumed because Clean Session or Clean Start is false"
+    }
+    session_takenover {
+        desc: "Number of sessions takenover because Clean Session or Clean Start is false"
+    }
+    session_discarded {
+        desc: "Number of sessions dropped because Clean Session or Clean Start is true"
+    }
+    session_terminated {
+        desc: "Number of terminated sessions"
+    }
+    authorization_allow {
+        desc: "Number of Authorization allow"
+    }
+    authorization_deny {
+        desc: "Number of Authorization deny"
+    }
+    authorization_cache_hit {
+        desc: "Number of Authorization hits the cache"
+    }
+    authorization_cache_miss {
+        desc: "Number of Authorization cache missing"
+    }
+    authentication_success {
+        desc: "Number of successful client Authentication"
+    }
+    authentication_success_anonymous {
+        desc: "Number of successful client Authentication due to anonymous"
+    }
+    authentication_failure {
+        desc: "Number of failed client Authentication"
+    }
+    overload_protection_delay_ok {
+        desc: "Number of overload protection delayed"
+    }
+    overload_protection_delay_timeout {
+        desc: "Number of overload protection delay timeout"
+    }
+    overload_protection_hibernation {
+        desc: "Number of overload protection hibernation"
+    }
+    overload_protection_gc {
+        desc: "Number of overload protection garbage collection"
+    }
+    overload_protection_new_conn {
+        desc: "Number of overload protection close new incoming connection"
+    }
+}

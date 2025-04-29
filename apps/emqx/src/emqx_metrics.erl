@@ -10,6 +10,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([
     start_link/0,
@@ -526,252 +527,141 @@ all_metrics() ->
 %% Bytes sent and received
 bytes_metrics() ->
     [
-        {counter, 'bytes.received', <<"Number of bytes received ">>},
-        {counter, 'bytes.sent', <<"Number of bytes sent on this connection">>}
+        {counter, 'bytes.received', ?DESC("bytes_received")},
+        {counter, 'bytes.sent', ?DESC("bytes_sent")}
     ].
 
 %% Packets sent and received
 packet_metrics() ->
     [
-        {counter, 'packets.received', <<"Number of received packet">>},
-        {counter, 'packets.sent', <<"Number of sent packet">>},
-        {counter, 'packets.connect.received', <<"Number of received CONNECT packet">>},
-        {counter, 'packets.connack.sent', <<"Number of sent CONNACK packet">>},
-        {counter, 'packets.connack.error',
-            <<"Number of received CONNECT packet with unsuccessful connections">>},
-        {counter, 'packets.connack.auth_error',
-            <<"Number of received CONNECT packet with failed Authentication">>},
-        {counter, 'packets.publish.received', <<"Number of received PUBLISH packet">>},
-        %% PUBLISH packets sent
-        {counter, 'packets.publish.sent', <<"Number of sent PUBLISH packet">>},
-        %% PUBLISH packet_id inuse
-        {counter, 'packets.publish.inuse',
-            <<"Number of received PUBLISH packet with occupied identifiers">>},
-        %% PUBLISH failed for error
-        {counter, 'packets.publish.error',
-            <<"Number of received PUBLISH packet that cannot be published">>},
-        %% PUBLISH failed for auth error
-        {counter, 'packets.publish.auth_error',
-            <<"Number of received PUBLISH packets with failed the Authorization check">>},
-        %% PUBLISH failed due to rate limiting
-        {counter, 'packets.publish.quota_exceeded',
-            <<"Number of received PUBLISH packets that exceeded the quota">>},
-        %% PUBACK packets received
-        {counter, 'packets.puback.received', <<"Number of received PUBACK packet">>},
-        %% PUBACK packets sent
-        {counter, 'packets.puback.sent', <<"Number of sent PUBACK packet">>},
-        %% PUBACK packet_id inuse
-        {counter, 'packets.puback.inuse',
-            <<"Number of received PUBACK packet with occupied identifiers">>},
-        %% PUBACK packets missed
-        {counter, 'packets.puback.missed', <<"Number of received packet with identifiers.">>},
-        %% PUBREC packets received
-        {counter, 'packets.pubrec.received', <<"Number of received PUBREC packet">>},
-        %% PUBREC packets sent
-        {counter, 'packets.pubrec.sent', <<"Number of sent PUBREC packet">>},
-        %% PUBREC packet_id inuse
-        {counter, 'packets.pubrec.inuse',
-            <<"Number of received PUBREC packet with occupied identifiers">>},
-        %% PUBREC packets missed
-        {counter, 'packets.pubrec.missed',
-            <<"Number of received PUBREC packet with unknown identifiers">>},
-        %% PUBREL packets received
-        {counter, 'packets.pubrel.received', <<"Number of received PUBREL packet">>},
-        %% PUBREL packets sent
-        {counter, 'packets.pubrel.sent', <<"Number of sent PUBREL packet">>},
-        %% PUBREL packets missed
-        {counter, 'packets.pubrel.missed',
-            <<"Number of received PUBREC packet with unknown identifiers">>},
-        %% PUBCOMP packets received
-        {counter, 'packets.pubcomp.received', <<"Number of received PUBCOMP packet">>},
-        %% PUBCOMP packets sent
-        {counter, 'packets.pubcomp.sent', <<"Number of sent PUBCOMP packet">>},
-        %% PUBCOMP packet_id inuse
-        {counter, 'packets.pubcomp.inuse',
-            <<"Number of received PUBCOMP packet with occupied identifiers">>},
-        %% PUBCOMP packets missed
-        {counter, 'packets.pubcomp.missed', <<"Number of missed PUBCOMP packet">>},
-        %% SUBSCRIBE Packets received
-        {counter, 'packets.subscribe.received', <<"Number of received SUBSCRIBE packet">>},
-        %% SUBSCRIBE error
-        {counter, 'packets.subscribe.error',
-            <<"Number of received SUBSCRIBE packet with failed subscriptions">>},
-        %% SUBSCRIBE failed for not auth
-        {counter, 'packets.subscribe.auth_error',
-            <<"Number of received SUBACK packet with failed Authorization check">>},
-        %% SUBACK packets sent
-        {counter, 'packets.suback.sent', <<"Number of sent SUBACK packet">>},
-        %% UNSUBSCRIBE Packets received
-        {counter, 'packets.unsubscribe.received', <<"Number of received UNSUBSCRIBE packet">>},
-        %% UNSUBSCRIBE error
-        {counter, 'packets.unsubscribe.error',
-            <<"Number of received UNSUBSCRIBE packet with failed unsubscriptions">>},
-        %% UNSUBACK Packets sent
-        {counter, 'packets.unsuback.sent', <<"Number of sent UNSUBACK packet">>},
-        %% PINGREQ packets received
-        {counter, 'packets.pingreq.received', <<"Number of received PINGREQ packet">>},
-        %% PINGRESP Packets sent
-        {counter, 'packets.pingresp.sent', <<"Number of sent PUBRESP packet">>},
-        %% DISCONNECT Packets received
-        {counter, 'packets.disconnect.received', <<"Number of received DISCONNECT packet">>},
-        %% DISCONNECT Packets sent
-        {counter, 'packets.disconnect.sent', <<"Number of sent DISCONNECT packet">>},
-        %% Auth Packets received
-        {counter, 'packets.auth.received', <<"Number of received AUTH packet">>},
-        %% Auth Packets sent
-        {counter, 'packets.auth.sent', <<"Number of sent AUTH packet">>}
+        {counter, 'packets.received', ?DESC("packets_received")},
+        {counter, 'packets.sent', ?DESC("packets_sent")},
+        {counter, 'packets.connect.received', ?DESC("packets_connect_received")},
+        {counter, 'packets.connack.sent', ?DESC("packets_connack_sent")},
+        {counter, 'packets.connack.error', ?DESC("packets_connack_error")},
+        {counter, 'packets.connack.auth_error', ?DESC("packets_connack_auth_error")},
+        {counter, 'packets.publish.received', ?DESC("packets_publish_received")},
+        {counter, 'packets.publish.sent', ?DESC("packets_publish_sent")},
+        {counter, 'packets.publish.inuse', ?DESC("packets_publish_inuse")},
+        {counter, 'packets.publish.error', ?DESC("packets_publish_error")},
+        {counter, 'packets.publish.auth_error', ?DESC("packets_publish_auth_error")},
+        {counter, 'packets.publish.quota_exceeded', ?DESC("packets_publish_quota_exceeded")},
+        {counter, 'packets.puback.received', ?DESC("packets_puback_received")},
+        {counter, 'packets.puback.sent', ?DESC("packets_puback_sent")},
+        {counter, 'packets.puback.inuse', ?DESC("packets_puback_inuse")},
+        {counter, 'packets.puback.missed', ?DESC("packets_puback_missed")},
+        {counter, 'packets.pubrec.received', ?DESC("packets_pubrec_received")},
+        {counter, 'packets.pubrec.sent', ?DESC("packets_pubrec_sent")},
+        {counter, 'packets.pubrec.inuse', ?DESC("packets_pubrec_inuse")},
+        {counter, 'packets.pubrec.missed', ?DESC("packets_pubrec_missed")},
+        {counter, 'packets.pubrel.received', ?DESC("packets_pubrel_received")},
+        {counter, 'packets.pubrel.sent', ?DESC("packets_pubrel_sent")},
+        {counter, 'packets.pubrel.missed', ?DESC("packets_pubrel_missed")},
+        {counter, 'packets.pubcomp.received', ?DESC("packets_pubcomp_received")},
+        {counter, 'packets.pubcomp.sent', ?DESC("packets_pubcomp_sent")},
+        {counter, 'packets.pubcomp.inuse', ?DESC("packets_pubcomp_inuse")},
+        {counter, 'packets.pubcomp.missed', ?DESC("packets_pubcomp_missed")},
+        {counter, 'packets.subscribe.received', ?DESC("packets_subscribe_received")},
+        {counter, 'packets.subscribe.error', ?DESC("packets_subscribe_error")},
+        {counter, 'packets.subscribe.auth_error', ?DESC("packets_subscribe_auth_error")},
+        {counter, 'packets.suback.sent', ?DESC("packets_suback_sent")},
+        {counter, 'packets.unsubscribe.received', ?DESC("packets_unsubscribe_received")},
+        {counter, 'packets.unsubscribe.error', ?DESC("packets_unsubscribe_error")},
+        {counter, 'packets.unsuback.sent', ?DESC("packets_unsuback_sent")},
+        {counter, 'packets.pingreq.received', ?DESC("packets_pingreq_received")},
+        {counter, 'packets.pingresp.sent', ?DESC("packets_pingresp_sent")},
+        {counter, 'packets.disconnect.received', ?DESC("packets_disconnect_received")},
+        {counter, 'packets.disconnect.sent', ?DESC("packets_disconnect_sent")},
+        {counter, 'packets.auth.received', ?DESC("packets_auth_received")},
+        {counter, 'packets.auth.sent', ?DESC("packets_auth_sent")}
     ].
 
 %% Messages sent/received and pubsub
 message_metrics() ->
     [
-        %% All Messages received
-        {counter, 'messages.received', <<
-            "Number of messages received from the client, equal to the sum of "
-            "messages.qos0.received, messages.qos1.received and messages.qos2.received"
-        >>},
-        %% All Messages sent
-        {counter, 'messages.sent', <<
-            "Number of messages sent to the client, equal to the sum of "
-            "messages.qos0.sent, messages.qos1.sent and messages.qos2.sent"
-        >>},
-        %% QoS0 Messages received
-        {counter, 'messages.qos0.received', <<"Number of QoS 0 messages received from clients">>},
-        %% QoS0 Messages sent
-        {counter, 'messages.qos0.sent', <<"Number of QoS 0 messages sent to clients">>},
-        %% QoS1 Messages received
-        {counter, 'messages.qos1.received', <<"Number of QoS 1 messages received from clients">>},
-        %% QoS1 Messages sent
-        {counter, 'messages.qos1.sent', <<"Number of QoS 1 messages sent to clients">>},
-        %% QoS2 Messages received
-        {counter, 'messages.qos2.received', <<"Number of QoS 2 messages received from clients">>},
-        %% QoS2 Messages sent
-        {counter, 'messages.qos2.sent', <<"Number of QoS 2 messages sent to clients">>},
-        %% PubSub Metrics
-
-        %% Messages Publish
-        {counter, 'messages.publish',
-            <<"Number of messages published in addition to system messages">>},
-        %% Messages dropped due to no subscribers
-        {counter, 'messages.dropped',
-            <<"Number of messages dropped before forwarding to the subscription process">>},
-        %% Messages that failed validations
-        {counter, 'messages.validation_failed', <<"Number of message validation failed">>},
-        %% Messages that passed validations
-        {counter, 'messages.validation_succeeded', <<"Number of message validation successful">>},
-        %% % Messages that failed transformations
-        {counter, 'messages.transformation_failed', <<"Number fo message transformation failed">>},
-        %% % Messages that passed transformations
-        {counter, 'messages.transformation_succeeded',
-            <<"Number fo message transformation succeeded">>},
-        %% QoS2 Messages expired
+        {counter, 'messages.received', ?DESC("messages_received")},
+        {counter, 'messages.sent', ?DESC("messages_sent")},
+        {counter, 'messages.qos0.received', ?DESC("messages_qos0_received")},
+        {counter, 'messages.qos0.sent', ?DESC("messages_qos0_sent")},
+        {counter, 'messages.qos1.received', ?DESC("messages_qos1_received")},
+        {counter, 'messages.qos1.sent', ?DESC("messages_qos1_sent")},
+        {counter, 'messages.qos2.received', ?DESC("messages_qos2_received")},
+        {counter, 'messages.qos2.sent', ?DESC("messages_qos2_sent")},
+        {counter, 'messages.publish', ?DESC("messages_publish")},
+        {counter, 'messages.dropped', ?DESC("messages_dropped")},
         {counter, 'messages.dropped.await_pubrel_timeout',
-            <<"Number of messages dropped due to waiting PUBREL timeout">>},
-        %% Messages dropped
-        {counter, 'messages.dropped.no_subscribers',
-            <<"Number of messages dropped due to no subscribers">>},
-        %% Messages dropped - quota exceeded
-        {counter, 'messages.dropped.quota_exceeded',
-            <<"Number of messages dropped due to quota being exceeded">>},
-        %% Messages dropped - receive maximum
-        {counter, 'messages.dropped.receive_maximum',
-            <<"Number of messages dropped due to receive maximum being reached">>},
-        %% Messages forward
-        {counter, 'messages.forward', <<"Number of messages forwarded to other nodes">>},
-        %% Messages delayed
-        {counter, 'messages.delayed', <<"Number of delay-published messages">>},
-        %% Messages delivered
-        {counter, 'messages.delivered',
-            <<"Number of messages forwarded to the subscription process internally">>},
-        %% Messages acked
-        {counter, 'messages.acked', <<"Number of received PUBACK and PUBREC packet">>},
-        %% Messages persistently stored
-        {counter, 'messages.persisted', <<"Number of message persisted">>}
+            ?DESC("messages_dropped_await_pubrel_timeout")},
+        {counter, 'messages.dropped.no_subscribers', ?DESC("messages_dropped_no_subscribers")},
+        {counter, 'messages.dropped.quota_exceeded', ?DESC("messages_dropped_quota_exceeded")},
+        {counter, 'messages.dropped.receive_maximum', ?DESC("messages_dropped_receive_maximum")},
+        {counter, 'messages.forward', ?DESC("messages_forward")},
+        {counter, 'messages.delayed', ?DESC("messages_delayed")},
+        {counter, 'messages.delivered', ?DESC("messages_delivered")},
+        {counter, 'messages.acked', ?DESC("messages_acked")},
+        {counter, 'messages.validation_failed', ?DESC("messages_validation_failed")},
+        {counter, 'messages.validation_succeeded', ?DESC("messages_validation_succeeded")},
+        {counter, 'messages.transformation_failed', ?DESC("messages_transformation_failed")},
+        {counter, 'messages.transformation_succeeded', ?DESC("messages_transformation_succeeded")},
+        {counter, 'messages.persisted', ?DESC("messages_persisted")}
     ].
 
 %% Delivery metrics
 delivery_metrics() ->
     [
-        %% All Dropped during delivery
-        {counter, 'delivery.dropped', <<"Total number of discarded messages when sending">>},
-        %% Dropped due to no_local
-        {counter, 'delivery.dropped.no_local', <<
-            "Number of messages that were dropped due to the No Local subscription "
-            "option when sending"
-        >>},
-        %% Dropped due to message too large
-        {counter, 'delivery.dropped.too_large', <<
-            "The number of messages that were dropped because the length exceeded "
-            "the limit when sending"
-        >>},
-        %% Dropped qos0 message
-        {counter, 'delivery.dropped.qos0_msg', <<
-            "Number of messages with QoS 0 that were dropped because "
-            "mqtt.mqueue_store_qos0=false when sending"
-        >>},
-        %% Dropped due to queue full
-        {counter, 'delivery.dropped.queue_full', <<
-            "Number of messages that were dropped because the "
-            "message queue was full when sending"
-        >>},
-        %% Dropped due to expired
-        {counter, 'delivery.dropped.expired',
-            <<"Number of messages dropped due to message expiration on sending">>}
+        {counter, 'delivery.dropped', ?DESC("delivery_dropped")},
+        {counter, 'delivery.dropped.no_local', ?DESC("delivery_dropped_no_local")},
+        {counter, 'delivery.dropped.too_large', ?DESC("delivery_dropped_too_large")},
+        {counter, 'delivery.dropped.qos0_msg', ?DESC("delivery_dropped_qos0_msg")},
+        {counter, 'delivery.dropped.queue_full', ?DESC("delivery_dropped_queue_full")},
+        {counter, 'delivery.dropped.expired', ?DESC("delivery_dropped_expired")}
     ].
 
-%% Client Lifecircle metrics
+%% Client Lifecycle metrics
 client_metrics() ->
     [
-        {counter, 'client.connect', <<"Number of client connections">>},
-        {counter, 'client.connack', <<"Number of CONNACK packet sent">>},
-        {counter, 'client.connected', <<"Number of successful client connected">>},
-        {counter, 'client.authenticate', <<"Number of client Authentication">>},
-        {counter, 'client.auth.anonymous', <<"Number of clients who log in anonymously">>},
-        {counter, 'client.authorize', <<"Number of Authorization rule checks">>},
-        {counter, 'client.subscribe', <<"Number of client subscriptions">>},
-        {counter, 'client.unsubscribe', <<"Number of client unsubscriptions">>},
-        {counter, 'client.disconnected', <<"Number of client disconnects">>}
+        {counter, 'client.connect', ?DESC("client_connect")},
+        {counter, 'client.connack', ?DESC("client_connack")},
+        {counter, 'client.connected', ?DESC("client_connected")},
+        {counter, 'client.authenticate', ?DESC("client_authenticate")},
+        {counter, 'client.auth.anonymous', ?DESC("client_auth_anonymous")},
+        {counter, 'client.authorize', ?DESC("client_authorize")},
+        {counter, 'client.subscribe', ?DESC("client_subscribe")},
+        {counter, 'client.unsubscribe', ?DESC("client_unsubscribe")},
+        {counter, 'client.disconnected', ?DESC("client_disconnected")}
     ].
 
-%% Session Lifecircle metrics
+%% Session Lifecycle metrics
 session_metrics() ->
     [
-        {counter, 'session.created', <<"Number of sessions created">>},
-        {counter, 'session.resumed',
-            <<"Number of sessions resumed because Clean Session or Clean Start is false">>},
-        {counter, 'session.takenover',
-            <<"Number of sessions takenover because Clean Session or Clean Start is false">>},
-        {counter, 'session.discarded',
-            <<"Number of sessions dropped because Clean Session or Clean Start is true">>},
-        {counter, 'session.terminated', <<"Number of terminated sessions">>}
+        {counter, 'session.created', ?DESC("session_created")},
+        {counter, 'session.resumed', ?DESC("session_resumed")},
+        {counter, 'session.takenover', ?DESC("session_takenover")},
+        {counter, 'session.discarded', ?DESC("session_discarded")},
+        {counter, 'session.terminated', ?DESC("session_terminated")}
     ].
 
 %% Statistic metrics for ACL checking
 stats_acl_metrics() ->
     [
-        {counter, 'authorization.allow', <<"Number of Authorization allow">>},
-        {counter, 'authorization.deny', <<"Number of Authorization deny">>},
-        {counter, 'authorization.cache_hit', <<"Number of Authorization hits the cache">>},
-        {counter, 'authorization.cache_miss', <<"Number of Authorization cache missing">>}
+        {counter, 'authorization.allow', ?DESC("authorization_allow")},
+        {counter, 'authorization.deny', ?DESC("authorization_deny")},
+        {counter, 'authorization.cache_hit', ?DESC("authorization_cache_hit")},
+        {counter, 'authorization.cache_miss', ?DESC("authorization_cache_miss")}
     ].
 
 stats_authn_metrics() ->
     %% Statistic metrics for auth checking
     [
-        {counter, 'authentication.success', <<"Number of successful client Authentication">>},
-        {counter, 'authentication.success.anonymous',
-            <<"Number of successful client Authentication due to anonymous">>},
-        {counter, 'authentication.failure', <<"Number of failed client Authentication">>}
+        {counter, 'authentication.success', ?DESC("authentication_success")},
+        {counter, 'authentication.success.anonymous', ?DESC("authentication_success_anonymous")},
+        {counter, 'authentication.failure', ?DESC("authentication_failure")}
     ].
 
 olp_metrics() ->
     [
-        {counter, 'overload_protection.delay.ok', <<"Number of overload protection delayed">>},
-        {counter, 'overload_protection.delay.timeout',
-            <<"Number of overload protection delay timeout">>},
-        {counter, 'overload_protection.hibernation',
-            <<"Number of overload protection hibernation">>},
-        {counter, 'overload_protection.gc', <<"Number of overload protection garbage collection">>},
-        {counter, 'overload_protection.new_conn',
-            <<"Number of overload protection close new incoming connection">>}
+        {counter, 'overload_protection.delay.ok', ?DESC("overload_protection_delay_ok")},
+        {counter, 'overload_protection.delay.timeout', ?DESC("overload_protection_delay_timeout")},
+        {counter, 'overload_protection.hibernation', ?DESC("overload_protection_hibernation")},
+        {counter, 'overload_protection.gc', ?DESC("overload_protection_gc")},
+        {counter, 'overload_protection.new_conn', ?DESC("overload_protection_new_conn")}
     ].
