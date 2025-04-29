@@ -339,11 +339,11 @@ validate_sample_interval(Second) ->
 
 %% Cannot allow >7d because dashboard monitor data is only kept for 7 days
 validate_hwmark_expire_time(ExpireTime) ->
-    case ExpireTime >= 1 andalso ExpireTime =< ?DAYS_7) of
+    case ExpireTime >= 1 andalso ExpireTime =< ?DAYS_7 of
         true ->
             ok;
         false ->
-            Msg = "must be between 1s and 7 days.",
+            Msg = "must be between 1s and 7d.",
             {error, Msg}
     end.
 

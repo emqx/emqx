@@ -605,6 +605,43 @@ t_monitor_sessions_hist_hwmark(Config) when is_list(Config) ->
     ?assertEqual(Peak2, Peak3),
     ok.
 
+t_merge_hwmark(Config) when is_list(Config) ->
+    R = fun(T, P, V) -> #{peak_time => T, peak_value => P, current_value => V} end,
+    %% one node
+    Results1 = [{ok, #{sessions_hist_hwmark => R(1, 100, 100)}}],
+    ?assertEqual(
+        #{sessions_hist_hwmark => R(1, 100, 100)},
+        emqx_dashboard_monitor:merge_current_rate_cluster(Results1)
+    ),
+    %% two nodes
+    Results2 = [
+        {ok, #{sessions_hist_hwmark => R(1, 100, 100)}},
+        {ok, #{sessions_hist_hwmark => R(2, 200, 90)}}
+    ],
+    ?assertEqual(
+        #{sessions_hist_hwmark => R(2, 200, 90)},
+        emqx_dashboard_monitor:merge_current_rate_cluster(Results2)
+    ),
+    %% two nodes, same peak value, pick later peak time
+    Results3 = [
+        {ok, #{sessions_hist_hwmark => R(3, 100, 100)}},
+        {ok, #{sessions_hist_hwmark => R(2, 100, 90)}}
+    ],
+    ?assertEqual(
+        #{sessions_hist_hwmark => R(3, 100, 100)},
+        emqx_dashboard_monitor:merge_current_rate_cluster(Results3)
+    ),
+    %% two nodes, same peak value, same peak time
+    Results4 = [
+        {ok, #{sessions_hist_hwmark => R(2, 100, 100)}},
+        {ok, #{sessions_hist_hwmark => R(2, 100, 0)}}
+    ],
+    ?assertEqual(
+        #{sessions_hist_hwmark => R(2, 100, 100)},
+        emqx_dashboard_monitor:merge_current_rate_cluster(Results4)
+    ),
+    ok.
+
 t_monitor_current_shared_subscription(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
     ShareT = <<"$share/group1/t/1">>,
