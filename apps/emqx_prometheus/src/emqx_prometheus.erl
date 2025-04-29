@@ -540,6 +540,8 @@ emqx_collect(K = ?DS_SUBS_STUCK_TOTAL, D) -> counter_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SUBS_UNSTUCK_TOTAL, D) -> counter_metrics(?MG(K, D, []));
 %% DS beamformer worker:
 emqx_collect(K = ?DS_SUBS, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_HANDOVER, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_SUBS_PROCESS_COMMANDS_TIME, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SUBS_BEAMS_SENT_TOTAL, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SUBS_REQUEST_SHARING, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SUBS_FULFILL_TIME, D) -> counter_metrics(?MG(K, D, []));
