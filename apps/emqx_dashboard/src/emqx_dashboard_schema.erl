@@ -17,6 +17,8 @@
     https_converter/2
 ]).
 
+-define(DAYS_7, 7 * 24 * 60 * 60 * 1000).
+
 namespace() -> dashboard.
 roots() -> ["dashboard"].
 
@@ -45,7 +47,8 @@ fields("dashboard") ->
                 #{
                     default => <<"7d">>,
                     desc => ?DESC(hwmark_expire_time),
-                    importance => ?IMPORTANCE_LOW
+                    importance => ?IMPORTANCE_LOW,
+                    validator => fun validate_hwmark_expire_time/1
                 }
             )},
         {token_expired_time,
@@ -331,6 +334,16 @@ validate_sample_interval(Second) ->
             ok;
         false ->
             Msg = "must be between 1 and 60 and be a divisor of 60.",
+            {error, Msg}
+    end.
+
+%% Cannot allow >7d because dashboard monitor data is only kept for 7 days
+validate_hwmark_expire_time(ExpireTime) ->
+    case ExpireTime >= 1 andalso ExpireTime =< ?DAYS_7) of
+        true ->
+            ok;
+        false ->
+            Msg = "must be between 1s and 7 days.",
             {error, Msg}
     end.
 
