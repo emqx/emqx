@@ -16,7 +16,8 @@
     emqx_gateway_lwm2m,
     emqx_gateway_mqttsn,
     emqx_gateway_ocpp,
-    emqx_gateway_stomp
+    emqx_gateway_stomp,
+    emqx_gateway_nats
 ]).
 
 -export([

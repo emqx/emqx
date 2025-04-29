@@ -363,7 +363,8 @@ fields(Gw) when
     Gw == exproto;
     Gw == gbt32960;
     Gw == ocpp;
-    Gw == jt808
+    Gw == jt808;
+    Gw == nats
 ->
     [{name, mk(Gw, #{desc => ?DESC(gateway_name)})}] ++
         convert_listener_struct(emqx_gateway_schema:gateway_schema(Gw));
@@ -375,7 +376,8 @@ fields(Gw) when
     Gw == update_exproto;
     Gw == update_gbt32960;
     Gw == update_ocpp;
-    Gw == update_jt808
+    Gw == update_jt808;
+    Gw == update_nats
 ->
     "update_" ++ GwStr = atom_to_list(Gw),
     Gw1 = list_to_existing_atom(GwStr),
@@ -957,6 +959,21 @@ examples_update_gateway_confs() ->
                             },
                         dnstream => #{topic => <<"cp/${cid}">>},
                         message_format_checking => disable
+                    }
+            },
+        nats_gateway =>
+            #{
+                summary => <<"A simple NATS gateway config">>,
+                value =>
+                    #{
+                        enable => true,
+                        enable_stats => true,
+                        idle_timeout => <<"30s">>,
+                        mountpoint => <<"nats/">>,
+                        protocol =>
+                            #{
+                                max_payload_size => 1048576
+                            }
                     }
             }
     }.

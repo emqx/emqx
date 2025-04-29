@@ -740,14 +740,15 @@ next_incoming_msgs(Packets) ->
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
+
+handle_incoming({frame_error, Reason}, State) ->
+    with_channel(handle_frame_error, [Reason], State);
 handle_incoming(Packet, State) ->
     #state{channel = Channel, frame_mod = FrameMod, chann_mod = ChannMod} = State,
     Ctx = ChannMod:info(ctx, Channel),
     ok = inc_incoming_stats(Ctx, FrameMod, Packet),
     do_handle_incoming(Packet, FrameMod, State).
 
-do_handle_incoming({frame_error, Reason}, _FrameMod, State) ->
-    with_channel(handle_frame_error, [Reason], State);
 do_handle_incoming(Packet, FrameMod, State) ->
     ?SLOG(debug, #{msg => "packet_received", packet => FrameMod:format(Packet)}),
     with_channel(handle_in, [Packet], State).
