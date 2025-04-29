@@ -100,9 +100,9 @@
     {counter, counter, ?DS_SUBS_HANDOVER},
     {counter, counter, ?DS_SUBS_BEAMS_SENT_TOTAL},
     {gauge, slide, ?DS_SUBS_REQUEST_SHARING},
-    {counter, slide, ?DS_SUBS_FULFILL_TIME},
-    {counter, slide, ?DS_SUBS_PROCESS_COMMANDS_TIME},
-    {counter, slide, ?DS_SUBS_SCAN_TIME}
+    {gauge, slide, ?DS_SUBS_FULFILL_TIME},
+    {gauge, slide, ?DS_SUBS_PROCESS_COMMANDS_TIME},
+    {gauge, slide, ?DS_SUBS_SCAN_TIME}
 ]).
 
 -type shard_metrics_id() :: binary().
