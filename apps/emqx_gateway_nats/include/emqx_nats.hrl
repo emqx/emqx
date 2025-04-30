@@ -312,6 +312,7 @@
 ).
 
 -define(PACKET(Op), #nats_frame{operation = Op}).
+-define(PACKET(Op, Message), #nats_frame{operation = Op, message = Message}).
 
 %% Default max payload size
 
