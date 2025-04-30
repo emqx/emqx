@@ -28,6 +28,7 @@
 -define(CACHE_COUNT_THRESHOLD, 1000).
 -define(MIN_COUNT_INTERVAL_SECONDS, 5).
 -define(CLEANUP_CHUNK_SIZE, 10000).
+-define(CLEANUP_CHUNK_INTERVAL, 5000).
 
 -define(IS_HIST_ENABLED(RETAIN), (RETAIN > 0)).
 
@@ -114,6 +115,7 @@ handle_info(start, #{next_clientid := NextClientId} = State) ->
                         undefined;
                     Id ->
                         _ = erlang:garbage_collect(),
+                        send_delay_start(?CLEANUP_CHUNK_INTERVAL),
                         Id
                 end,
             {noreply, State#{next_clientid := NewNext}};
@@ -189,8 +191,7 @@ send_delay_start() ->
     ok = send_delay_start(Delay).
 
 send_delay_start(Delay) ->
-    _ = erlang:send_after(Delay, self(), start),
-    ok.
+    erlang:send_after(Delay, self(), start).
 
 now_ts() ->
     erlang:system_time(seconds).
