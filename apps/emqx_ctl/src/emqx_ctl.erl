@@ -231,7 +231,7 @@ format(Format, Args) ->
 format_usage(UsageList) ->
     Width = lists:foldl(
         fun({CmdStr, _}, W) ->
-            max(iolist_size(CmdStr), W)
+            max(cmd_str_width(CmdStr), W)
         end,
         0,
         UsageList
@@ -241,6 +241,16 @@ format_usage(UsageList) ->
             format_usage(CmdParams, Desc, Width)
         end,
         UsageList
+    ).
+
+-spec cmd_str_width(string()) -> integer().
+cmd_str_width(CmdStr) ->
+    lists:foldl(
+        fun(Line, W) ->
+            max(iolist_size(Line), W)
+        end,
+        0,
+        split_cmd(CmdStr)
     ).
 
 -spec format_usage(cmd_params(), cmd_descr()) -> string().
