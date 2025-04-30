@@ -27,8 +27,13 @@
 
 -define(CACHE_COUNT_THRESHOLD, 1000).
 -define(MIN_COUNT_INTERVAL_SECONDS, 5).
+-ifdef(TEST).
+-define(CLEANUP_CHUNK_SIZE, 100).
+-define(CLEANUP_CHUNK_INTERVAL, 100).
+-else.
 -define(CLEANUP_CHUNK_SIZE, 10000).
--define(CLEANUP_CHUNK_INTERVAL, 5000).
+-define(CLEANUP_CHUNK_INTERVAL, 1000).
+-endif.
 
 -define(IS_HIST_ENABLED(RETAIN), (RETAIN > 0)).
 
@@ -43,8 +48,8 @@ init(_) ->
             %% The process is started to serve the 'count' calls
             {ok, #{no_deletes => true}};
         false ->
-            ok = send_delay_start(),
-            {ok, #{next_clientid => undefined}}
+            TimerRef = send_delay_start(),
+            {ok, #{next_clientid => undefined, timer_ref => TimerRef}}
     end.
 
 %% @doc Count the number of sessions.
@@ -105,25 +110,26 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(start, #{next_clientid := NextClientId} = State) ->
+handle_info(start, #{next_clientid := NextClientId, timer_ref := TimerRef} = State) ->
+    %% ensure old timer is cancelled
+    is_reference(TimerRef) andalso erlang:cancel_timer(TimerRef),
     case is_hist_enabled() of
         true ->
-            NewNext =
+            {NewNext, NewTimerRef} =
                 case cleanup_one_chunk(NextClientId) of
                     '$end_of_table' ->
-                        ok = send_delay_start(),
-                        undefined;
+                        {undefined, send_delay_start()};
                     Id ->
+                        %% ensure the next clientid is not in the cache
                         _ = erlang:garbage_collect(),
-                        send_delay_start(?CLEANUP_CHUNK_INTERVAL),
-                        Id
+                        {Id, send_delay_start(?CLEANUP_CHUNK_INTERVAL)}
                 end,
-            {noreply, State#{next_clientid := NewNext}};
+            {noreply, State#{next_clientid := NewNext, timer_ref := NewTimerRef}};
         false ->
             %% if not enabled, delay and check again
             %% because it might be enabled from online config change while waiting
-            ok = send_delay_start(),
-            {noreply, State}
+            NewTimerRef = send_delay_start(),
+            {noreply, State#{timer_ref := NewTimerRef}}
     end;
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -188,7 +194,7 @@ cleanup_delay() ->
 
 send_delay_start() ->
     Delay = cleanup_delay(),
-    ok = send_delay_start(Delay).
+    send_delay_start(Delay).
 
 send_delay_start(Delay) ->
     erlang:send_after(Delay, self(), start).
