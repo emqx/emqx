@@ -50,6 +50,11 @@
     all_data/0
 ]).
 
+%% For testing
+-export([
+    merge_current_rate_cluster/1
+]).
+
 -define(TAB, ?MODULE).
 
 -define(ONE_SECOND, 1_000).
@@ -154,9 +159,12 @@ current_rate_cluster() ->
     ),
     Failed =/= [] andalso
         ?LOG(badrpc_log_level(L1), #{msg => "failed_to_sample_current_rate", errors => Failed}),
-    Fun = fun({ok, Result}, Cluster) -> merge_cluster_rate(Result, Cluster) end,
-    Metrics = lists:foldl(Fun, #{}, L1),
+    Metrics = merge_current_rate_cluster(L1),
     {ok, adjust_synthetic_cluster_metrics(Metrics)}.
+
+merge_current_rate_cluster(L1) ->
+    Fun = fun({ok, Result}, Cluster) -> merge_cluster_rate(Result, Cluster) end,
+    lists:foldl(Fun, #{}, L1).
 
 %% -------------------------------------------------------------------------------------------------
 %% gen_server functions
@@ -190,7 +198,7 @@ handle_call(current_rate, _From, State = #state{last = Last}) ->
     Rate = cal_rate(NowSamplers, Last),
     NonRateValue = non_rate_value(),
     Result1 = maps:merge(Rate, NonRateValue),
-    Result = merge_hwmarks(Result1, NowSamplers),
+    Result = format_hwmarks(Result1, NowSamplers),
     {reply, {ok, Result}, State};
 handle_call(_Request, _From, State = #state{}) ->
     {reply, ok, State}.
@@ -453,7 +461,7 @@ merge_cluster_rate(Node, Cluster) ->
             (license_quota, V, NCluster) ->
                 NCluster#{license_quota => V};
             (sessions_hist_hwmark, V, NCluster) ->
-                NCluster#{sessions_hist_hwmark => V};
+                max_hwmark(sessions_hist_hwmark, V, NCluster);
             %% for cluster sample, ignore node_uptime
             (node_uptime, _V, NCluster) ->
                 NCluster;
@@ -848,7 +856,7 @@ now_ts() ->
     erlang:system_time(millisecond).
 
 %% make hwmark data JSON serializable.
-merge_hwmarks(Result, #emqx_monit{data = Samplers}) ->
+format_hwmarks(Result, #emqx_monit{data = Samplers}) ->
     lists:foldl(
         fun(Key, Acc) ->
             case maps:get(Key, Samplers, ?NO_WMARK) of
@@ -861,3 +869,16 @@ merge_hwmarks(Result, #emqx_monit{data = Samplers}) ->
         Result,
         ?WATERMARK_SAMPLER_LIST
     ).
+
+%% High watermarks are sampled on all nodes in different pace,
+%% we pick the max value from all nodes.
+max_hwmark(Key, ThisNode, Cluster) when not is_map_key(Key, Cluster) ->
+    Cluster#{Key => ThisNode};
+max_hwmark(Key, #{peak_time := T, peak_value := V} = ThisNode, Cluster) ->
+    #{peak_time := ClusterPT, peak_value := ClusterPV} = OtherNode = maps:get(Key, Cluster),
+    case V > ClusterPV orelse (V =:= ClusterPV andalso T > ClusterPT) of
+        true ->
+            Cluster#{Key => ThisNode};
+        false ->
+            Cluster#{Key => OtherNode}
+    end.
