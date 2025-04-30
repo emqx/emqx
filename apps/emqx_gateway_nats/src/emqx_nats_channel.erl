@@ -524,13 +524,14 @@ handle_in(
                 sid => SId,
                 topic => MountedTopic
             }),
-            {ok, Channel#channel{subscriptions = lists:keydelete(SId, 1, Subs)}};
+            Channel1 = Channel#channel{subscriptions = lists:keydelete(SId, 1, Subs)},
+            handle_out(ok, [{event, updated}], Channel1);
         false ->
             ?SLOG(info, #{
                 msg => "ignore_unsubscribe_for_unknown_sid",
                 sid => SId
             }),
-            {ok, Channel}
+            handle_out(ok, [], Channel)
     end;
 %% FIXME: How to ack a frame ???
 handle_in(Frame = ?PACKET(?OP_OK), Channel) ->
@@ -796,7 +797,7 @@ handle_deliver(
     Frames0 = lists:foldl(
         fun({_, _, Message}, Acc) ->
             Topic = emqx_message:topic(Message),
-            case lists:keyfind(Topic, 2, Subs) of
+            case find_sub_by_topic(Topic, Subs) of
                 {SId, _Topic, Subject, _SubOpts} ->
                     Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
                     metrics_inc('messages.delivered', Channel),
@@ -991,4 +992,13 @@ metrics_inc(Name, #channel{ctx = Ctx}) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 is_verbose_mode(_Channel = #channel{conninfo = #{conn_params := ConnParams}}) ->
-    maps:get(verbose, ConnParams, false).
+    maps:get(<<"verbose">>, ConnParams, false).
+
+find_sub_by_topic(_Topic, []) ->
+    false;
+find_sub_by_topic(Topic, [E = {_, Topic, _, _} | _]) ->
+    E;
+find_sub_by_topic(Topic, [E = {_, {share, _Group, Topic}, _, _} | _]) ->
+    E;
+find_sub_by_topic(Topic, [{_, _, _, _} | Rest]) ->
+    find_sub_by_topic(Topic, Rest).

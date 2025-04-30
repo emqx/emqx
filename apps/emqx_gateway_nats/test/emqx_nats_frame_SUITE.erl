@@ -63,14 +63,14 @@ t_info(_Config) ->
 t_ok(_Config) ->
     State = emqx_nats_frame:initial_parse_state(#{}),
 
-    {ok, Frame, Rest, _} = emqx_nats_frame:parse(<<"OK\r\n">>, State),
+    {ok, Frame, Rest, _} = emqx_nats_frame:parse(<<"+OK\r\n">>, State),
     ?assertEqual(?OP_OK, emqx_nats_frame:type(Frame)),
     ?assertEqual(<<>>, Rest).
 
 t_err(_Config) ->
     State = emqx_nats_frame:initial_parse_state(#{}),
     ErrorMsg = <<"Invalid subject">>,
-    ErrorFrame = <<"ERR ", ErrorMsg/binary, "\r\n">>,
+    ErrorFrame = <<"-ERR ", ErrorMsg/binary, "\r\n">>,
 
     {ok, Frame, Rest, _} = emqx_nats_frame:parse(ErrorFrame, State),
     ?assertEqual(?OP_ERR, emqx_nats_frame:type(Frame)),
