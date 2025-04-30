@@ -280,7 +280,7 @@ on_query(
     is_map_key(ChanResId, InstalledChans)
 ->
     ChanState = maps:get(ChanResId, InstalledChans),
-    run_aggregated_action([Data], ChanState);
+    run_aggregated_action([Data], ChanResId, ChanState);
 on_query(_ConnResId, Query, _ConnState) ->
     {error, {unrecoverable_error, {invalid_query, Query}}}.
 
@@ -295,7 +295,7 @@ on_batch_query(
 ->
     ChanState = maps:get(ChanResId, InstalledChans),
     Batch = [Data || {_, Data} <- Queries],
-    run_aggregated_action(Batch, ChanState);
+    run_aggregated_action(Batch, ChanResId, ChanState);
 on_batch_query(_ConnResId, Queries, _ConnectorState) ->
     {error, {unrecoverable_error, {invalid_batch, Queries}}}.
 
@@ -536,8 +536,9 @@ init_location_client(ConnResId, #{parameters := #{location_type := s3tables} = P
         {ok, #{?s3_client_config => S3ClientConfig}}
     end.
 
-run_aggregated_action(Batch, #{?aggreg_id := AggregId}) ->
+run_aggregated_action(Batch, ChanResId, #{?aggreg_id := AggregId}) ->
     Timestamp = erlang:system_time(second),
+    emqx_trace:rendered_action_template(ChanResId, #{records => Batch}),
     case emqx_connector_aggregator:push_records(AggregId, Timestamp, Batch) of
         ok ->
             ok;
