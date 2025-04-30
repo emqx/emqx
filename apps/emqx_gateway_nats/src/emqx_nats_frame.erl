@@ -19,6 +19,7 @@
 ]).
 
 -export([
+    message/1,
     subject/1,
     sid/1,
     queue_group/1,
@@ -27,7 +28,7 @@
     payload/1
 ]).
 
--define(INIT_STATE(S), #{state := init} = S).
+-define(INIT_STATE(S, B), #{state := init, buffer := B} = S).
 -define(ARGS_STATE(S, B), #{state := args, buffer := B} = S).
 -define(PAYLOAD_STATE(S, B), #{state := payload, buffer := B} = S).
 
@@ -46,7 +47,8 @@ initial_parse_state(_) ->
         iframe => undefined
     }.
 
-parse(Data, ?INIT_STATE(State)) ->
+parse(Data0, ?INIT_STATE(State, Buffer)) ->
+    Data = <<Buffer/binary, Data0/binary>>,
     parse_operation(Data, State);
 parse(Data0, ?ARGS_STATE(State, Buffer)) ->
     Data = <<Buffer/binary, Data0/binary>>,
@@ -109,8 +111,27 @@ parse_operation(<<"HMSG ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_HMSG));
 parse_operation(<<"hmsg ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_HMSG));
-parse_operation(Data, _) ->
-    error({unknown_operation, Data}).
+parse_operation(Data, State) ->
+    case is_prefix_of_any(Data, ?ALL_OPS) of
+        true ->
+            {more, State#{buffer => Data}};
+        false ->
+            error({unknown_operation, Data})
+    end.
+
+is_prefix_of_any(Data, Ops) ->
+    DataLen = byte_size(Data),
+    lists:any(
+        fun(Op) ->
+            case Op of
+                <<Data:DataLen/binary, _/binary>> ->
+                    true;
+                _ ->
+                    false
+            end
+        end,
+        Ops
+    ).
 
 %%--------------------------------------------------------------------
 %% Serialize frames
@@ -129,6 +150,10 @@ serialize_pkt(#nats_frame{operation = Op, message = Message}, _Opts) ->
             [Bin1, " ", Bin2, "\r\n"]
     end.
 
+serialize_operation(?OP_OK) ->
+    [?OP_RAW_OK];
+serialize_operation(?OP_ERR) ->
+    [?OP_RAW_ERR];
 serialize_operation(Op) when is_atom(Op) ->
     [string:to_upper(atom_to_list(Op))].
 
@@ -193,6 +218,9 @@ is_message(#nats_frame{operation = Op}) ->
 
 %%--------------------------------------------------------------------
 %% Getter
+
+message(#nats_frame{message = M}) ->
+    M.
 
 subject(#nats_frame{operation = Op, message = M}) when ?HAS_SUBJECT_OP(Op) ->
     maps:get(subject, M, undefined);
@@ -269,10 +297,10 @@ pre_do_parse_args(Op, Line, Rest, State) ->
     do_parse_args(Op, Args, Rest, State).
 
 do_parse_args(pub, [Subject, PayloadSize], Rest, State) ->
-    M0 = #{subject => Subject, payload_size => PayloadSize},
+    M0 = #{subject => Subject, payload_size => binary_to_integer(PayloadSize)},
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(pub, [Subject, ReplyTo, PayloadSize], Rest, State) ->
-    M0 = #{subject => Subject, reply_to => ReplyTo, payload_size => PayloadSize},
+    M0 = #{subject => Subject, reply_to => ReplyTo, payload_size => binary_to_integer(PayloadSize)},
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(sub, [Subject, Sid], Rest, State) ->
     Msg = #{subject => Subject, sid => Sid},
@@ -291,10 +319,15 @@ do_parse_args(unsub, [Sid, MaxMsgs], Rest, State) ->
     Frame = #nats_frame{operation = ?OP_UNSUB, message = Msg},
     {ok, Frame, Rest, reset(State)};
 do_parse_args(msg, [Subject, Sid, PayloadSize], Rest, State) ->
-    M0 = #{subject => Subject, sid => Sid, payload_size => PayloadSize},
+    M0 = #{subject => Subject, sid => Sid, payload_size => binary_to_integer(PayloadSize)},
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(msg, [Subject, Sid, ReplyTo, PayloadSize], Rest, State) ->
-    M0 = #{subject => Subject, sid => Sid, reply_to => ReplyTo, payload_size => PayloadSize},
+    M0 = #{
+        subject => Subject,
+        sid => Sid,
+        reply_to => ReplyTo,
+        payload_size => binary_to_integer(PayloadSize)
+    },
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(_Op, _Args, _Rest, _State) ->
     error(invalid_args).
