@@ -95,6 +95,33 @@
     | server_to_client_op()
     | client_to_server_op().
 
+-define(ALL_OPS, [
+    ?OP_RAW_INFO,
+    ?OP_RAW_INFO_L,
+    ?OP_RAW_CONNECT,
+    ?OP_RAW_CONNECT_L,
+    ?OP_RAW_PING,
+    ?OP_RAW_PING_L,
+    ?OP_RAW_PONG,
+    ?OP_RAW_PONG_L,
+    ?OP_RAW_OK,
+    ?OP_RAW_OK_L,
+    ?OP_RAW_ERR,
+    ?OP_RAW_ERR_L,
+    ?OP_RAW_PUB,
+    ?OP_RAW_PUB_L,
+    ?OP_RAW_HPUB,
+    ?OP_RAW_HPUB_L,
+    ?OP_RAW_SUB,
+    ?OP_RAW_SUB_L,
+    ?OP_RAW_UNSUB,
+    ?OP_RAW_UNSUB_L,
+    ?OP_RAW_MSG,
+    ?OP_RAW_MSG_L,
+    ?OP_RAW_HMSG,
+    ?OP_RAW_HMSG_L
+]).
+
 %%--------------------------------------------------------------------
 %% Message structure
 %%--------------------------------------------------------------------

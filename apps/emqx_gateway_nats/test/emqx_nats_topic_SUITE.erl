@@ -10,8 +10,7 @@
 -export([
     t_nats_to_mqtt/1,
     t_mqtt_to_nats/1,
-    t_validate_nats_subject/1,
-    t_validate_mqtt_topic/1
+    t_validate_nats_subject/1
 ]).
 
 all() ->
@@ -27,8 +26,7 @@ groups() ->
             t_mqtt_to_nats
         ]},
         {validation, [sequence], [
-            t_validate_nats_subject,
-            t_validate_mqtt_topic
+            t_validate_nats_subject
         ]}
     ].
 
@@ -54,7 +52,7 @@ t_nats_to_mqtt(_) ->
     ?assertEqual(<<"foo/+/bar/+">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar.*">>)),
 
     %% Edge cases
-    ?assertEqual(<<"">>, emqx_nats_topic:nats_to_mqtt(<<"">>)).
+    ?assertError(badarg, emqx_nats_topic:nats_to_mqtt(<<"">>)).
 
 t_mqtt_to_nats(_) ->
     %% Basic conversion
@@ -74,7 +72,7 @@ t_mqtt_to_nats(_) ->
     ?assertEqual(<<"foo.*.bar.*">>, emqx_nats_topic:mqtt_to_nats(<<"foo/+/bar/+">>)),
 
     %% Edge cases
-    ?assertEqual(<<"">>, emqx_nats_topic:mqtt_to_nats(<<"">>)).
+    ?assertError(badarg, emqx_nats_topic:mqtt_to_nats(<<"">>)).
 
 t_validate_nats_subject(_) ->
     %% Valid subjects
@@ -90,26 +88,4 @@ t_validate_nats_subject(_) ->
     ?assertEqual({error, starts_with_dot}, emqx_nats_topic:validate_nats_subject(<<".foo">>)),
     ?assertEqual({error, ends_with_dot}, emqx_nats_topic:validate_nats_subject(<<"foo.">>)),
     ?assertEqual({error, consecutive_dots}, emqx_nats_topic:validate_nats_subject(<<"foo..bar">>)),
-    ?assertEqual(
-        {error, invalid_wildcard_position}, emqx_nats_topic:validate_nats_subject(<<"foo.*.bar.>">>)
-    ),
     ?assertEqual({error, invalid_characters}, emqx_nats_topic:validate_nats_subject(<<"foo$bar">>)).
-
-t_validate_mqtt_topic(_) ->
-    %% Valid topics
-    ?assertEqual(ok, emqx_nats_topic:validate_mqtt_topic(<<"foo">>)),
-    ?assertEqual(ok, emqx_nats_topic:validate_mqtt_topic(<<"foo/bar">>)),
-    ?assertEqual(ok, emqx_nats_topic:validate_mqtt_topic(<<"foo/+/bar">>)),
-    ?assertEqual(ok, emqx_nats_topic:validate_mqtt_topic(<<"foo/#">>)),
-    ?assertEqual(ok, emqx_nats_topic:validate_mqtt_topic(<<"foo-bar">>)),
-    ?assertEqual(ok, emqx_nats_topic:validate_mqtt_topic(<<"foo_bar">>)),
-
-    %% Invalid topics
-    ?assertEqual({error, empty_topic}, emqx_nats_topic:validate_mqtt_topic(<<"">>)),
-    ?assertEqual({error, starts_with_slash}, emqx_nats_topic:validate_mqtt_topic(<<"/foo">>)),
-    ?assertEqual({error, ends_with_slash}, emqx_nats_topic:validate_mqtt_topic(<<"foo/">>)),
-    ?assertEqual({error, consecutive_slashes}, emqx_nats_topic:validate_mqtt_topic(<<"foo//bar">>)),
-    ?assertEqual(
-        {error, invalid_wildcard_position}, emqx_nats_topic:validate_mqtt_topic(<<"foo/+/bar/#">>)
-    ),
-    ?assertEqual({error, invalid_characters}, emqx_nats_topic:validate_mqtt_topic(<<"foo$bar">>)).

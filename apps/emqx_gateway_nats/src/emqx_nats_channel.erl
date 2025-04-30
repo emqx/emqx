@@ -200,16 +200,15 @@ enrich_conninfo(
     #nats_frame{operation = ?OP_CONNECT, message = ConnParams},
     Channel = #channel{conninfo = ConnInfo}
 ) ->
-    %% XXX: Just keep it in conninfo for now
-    ConnInfo1 = maps:merge(ConnInfo, ConnParams),
-    NConnInfo = ConnInfo1#{
+    NConnInfo = ConnInfo#{
         proto_name => <<"NATS">>,
         proto_ver => <<"1">>,
         clean_start => true,
         keepalive => ?KEEPALIVE_SEND_INTERVAL,
         expiry_interval => 0,
         conn_props => #{},
-        receive_maximum => 0
+        receive_maximum => 0,
+        conn_params => ConnParams
     },
     {ok, Channel#channel{conninfo = NConnInfo}}.
 
@@ -546,7 +545,7 @@ handle_in(?PACKET(?OP_PING), Channel) ->
 handle_in(?PACKET(?OP_PONG), Channel) ->
     Channel1 = ensure_timer(
         keepalive_send_timer,
-        clean_timer(keepalive_recv_timer, Channel)
+        cancel_timer(keepalive_recv_timer, Channel)
     ),
     {ok, Channel1};
 handle_in(Msg, Channel) ->
@@ -661,9 +660,11 @@ handle_out(
     Replies1 = [
         {event, connected} | Replies
     ],
-    handle_out(ok, Replies1, Channel);
+    handle_out(ok, Replies1, ensure_timer(keepalive_send_timer, Channel));
 handle_out(pong, _, Channel) ->
     {ok, {outgoing, #nats_frame{operation = ?OP_PONG}}, Channel};
+handle_out(ping, _, Channel) ->
+    {ok, {outgoing, #nats_frame{operation = ?OP_PING}}, Channel};
 handle_out(ok, Replies, Channel) ->
     case is_verbose_mode(Channel) of
         true ->
@@ -956,6 +957,16 @@ ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
+cancel_timer(Name, Channel = #channel{timers = Timers}) ->
+    TRef = maps:get(Name, Timers, undefined),
+    case TRef == undefined of
+        true ->
+            Channel;
+        false ->
+            emqx_utils:cancel_timer(TRef),
+            Channel#channel{timers = maps:remove(Name, Timers)}
+    end.
+
 interval(keepalive_send_timer, _) ->
     ?KEEPALIVE_SEND_INTERVAL;
 interval(keepalive_recv_timer, _) ->
@@ -979,7 +990,5 @@ run_hooks_without_metrics(_Ctx, Name, Args, Acc) ->
 metrics_inc(Name, #channel{ctx = Ctx}) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
-is_verbose_mode(_Channel = #channel{conninfo = #{verbose := true}}) ->
-    true;
-is_verbose_mode(_Channel) ->
-    false.
+is_verbose_mode(_Channel = #channel{conninfo = #{conn_params := ConnParams}}) ->
+    maps:get(verbose, ConnParams, false).
