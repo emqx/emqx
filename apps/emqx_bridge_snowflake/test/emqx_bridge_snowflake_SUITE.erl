@@ -1203,6 +1203,10 @@ t_wrong_snowpipe_user(Config) ->
     ),
     ok.
 
+t_rule_test_trace(Config) ->
+    Opts = #{},
+    emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
+
 %% Todo: test scenarios
 %% * User error in rule definition; e.g.:
 %%    - forgot to use `bin2hexstr' to encode the payload

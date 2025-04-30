@@ -765,3 +765,7 @@ t_fallback_actions_load_config(Config) ->
     ),
     ok = emqx_cth_cluster:stop(Nodes),
     ok.
+
+t_rule_test_trace(Config) ->
+    Opts = #{},
+    emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).

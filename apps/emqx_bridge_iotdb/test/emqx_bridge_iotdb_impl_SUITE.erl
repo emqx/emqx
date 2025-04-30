@@ -113,7 +113,7 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(TestCase, Config0) ->
-    Type = ?config(bridge_type, Config0),
+    Type = ?BRIDGE_TYPE_BIN,
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     Name = <<
         (atom_to_binary(TestCase))/binary, UniqueNum/binary
@@ -122,12 +122,13 @@ init_per_testcase(TestCase, Config0) ->
 
     {_, ActionConfig} = action_config(TestCase, Name, Config0),
     Config = [
+        {bridge_kind, action},
         {connector_type, Type},
         {connector_name, Name},
         {connector_config, ConnectorConfig},
-        {bridge_type, Type},
-        {bridge_name, Name},
-        {bridge_config, ActionConfig}
+        {action_type, Type},
+        {action_name, Name},
+        {action_config, ActionConfig}
         | Config0
     ],
     iotdb_reset(Config),
@@ -147,46 +148,6 @@ iotdb_server_url(Host, Port) ->
         ":",
         integer_to_binary(Port)
     ]).
-
-bridge_config(TestCase, Config) ->
-    UniqueNum = integer_to_binary(erlang:unique_integer()),
-    Host = ?config(bridge_host, Config),
-    Port = ?config(bridge_port, Config),
-    Version = ?config(iotdb_version, Config),
-    Type = ?config(bridge_type, Config),
-    Name = <<
-        (atom_to_binary(TestCase))/binary, UniqueNum/binary
-    >>,
-    ServerURL = iotdb_server_url(Host, Port),
-    QueryMode = query_mode(TestCase),
-    ConfigString =
-        io_lib:format(
-            "bridges.~s.~s {\n"
-            "  enable = true\n"
-            "  base_url = \"~s\"\n"
-            "  authentication = {\n"
-            "     username = \"root\"\n"
-            "     password = \"root\"\n"
-            "  }\n"
-            "  iotdb_version = \"~s\"\n"
-            "  pool_size = 1\n"
-            "  resource_opts = {\n"
-            "     health_check_interval = \"1s\"\n"
-            "     request_ttl = 30s\n"
-            "     query_mode = \"~s\"\n"
-            "     worker_pool_size = 1\n"
-            "  }\n"
-            "}\n",
-            [
-                Type,
-                Name,
-                ServerURL,
-                Version,
-                QueryMode
-            ]
-        ),
-    {ok, InnerConfigMap} = hocon:binary(ConfigString),
-    {Name, ConfigString, emqx_bridge_v2_testlib:parse_and_check(Type, Name, InnerConfigMap)}.
 
 make_iotdb_payload(DeviceId, Measurement, Type, Value) ->
     #{
@@ -277,37 +238,34 @@ is_error_check(Reason) ->
         ?assertEqual({error, Reason}, Result)
     end.
 
-action_config(TestCase, Name, Config) ->
-    Type = ?config(bridge_type, Config),
+action_config(TestCase, ConnectorName, _Config) ->
+    Type = ?BRIDGE_TYPE_BIN,
     QueryMode = query_mode(TestCase),
     DataTemplate = data_template_config(TestCase),
     ConfigString =
         io_lib:format(
-            "actions.~s.~s {\n"
-            "  enable = true\n"
-            "  connector = \"~s\"\n"
-            "  parameters = {\n"
-            "     data = [~s]\n"
-            "  }\n"
-            "  resource_opts = {\n"
-            "     query_mode = \"~s\"\n"
-            "  }\n"
+            "enable = true\n"
+            "connector = \"~s\"\n"
+            "parameters = {\n"
+            "   data = [~s]\n"
+            "}\n"
+            "resource_opts = {\n"
+            "   query_mode = \"~s\"\n"
             "}\n",
             [
-                Type,
-                Name,
-                Name,
+                ConnectorName,
                 DataTemplate,
                 QueryMode
             ]
         ),
     ct:pal("ActionConfig:~ts~n", [ConfigString]),
-    {ConfigString, parse_action_and_check(ConfigString, Type, Name)}.
+    {ok, ConfMap} = hocon:binary(ConfigString),
+    {ConfigString, emqx_bridge_v2_testlib:parse_and_check(Type, <<"x">>, ConfMap)}.
 
 connector_config(TestCase, Name, Config) ->
     Host = ?config(bridge_host, Config),
     Port = ?config(bridge_port, Config),
-    Type = ?config(bridge_type, Config),
+    Type = ?BRIDGE_TYPE_BIN,
     Version = ?config(iotdb_version, Config),
     ServerURL = iotdb_server_url(Host, Port),
     ConfigString =
@@ -315,60 +273,38 @@ connector_config(TestCase, Name, Config) ->
             thrift ->
                 Server = make_thrift_server(TestCase, Config),
                 io_lib:format(
-                    "connectors.~s.~s {\n"
-                    "  enable = true\n"
-                    "  driver = \"thrift\"\n"
-                    "  server = \"~s\"\n"
-                    "  protocol_version = \"~p\"\n"
-                    "  username = \"root\"\n"
-                    "  password = \"root\"\n"
-                    "  zoneId = \"Asia/Shanghai\"\n"
-                    "  ssl.enable = false\n"
-                    "}\n",
+                    "enable = true\n"
+                    "driver = \"thrift\"\n"
+                    "server = \"~s\"\n"
+                    "protocol_version = \"~p\"\n"
+                    "username = \"root\"\n"
+                    "password = \"root\"\n"
+                    "zoneId = \"Asia/Shanghai\"\n"
+                    "ssl.enable = false\n",
                     [
-                        Type,
-                        Name,
                         Server,
                         Version
                     ]
                 );
             _ ->
                 io_lib:format(
-                    "connectors.~s.~s {\n"
-                    "  enable = true\n"
-                    "  base_url = \"~s\"\n"
-                    "     max_inactive = 10s\n"
-                    "  iotdb_version = \"~s\"\n"
-                    "  authentication = {\n"
-                    "     username = \"root\"\n"
-                    "     password = \"root\"\n"
-                    "  }\n"
+                    "enable = true\n"
+                    "base_url = \"~s\"\n"
+                    "   max_inactive = 10s\n"
+                    "iotdb_version = \"~s\"\n"
+                    "authentication = {\n"
+                    "   username = \"root\"\n"
+                    "   password = \"root\"\n"
                     "}\n",
                     [
-                        Type,
-                        Name,
                         ServerURL,
                         Version
                     ]
                 )
         end,
     ct:pal("ConnectorConfig:~ts~n", [ConfigString]),
-    {ConfigString, parse_connector_and_check(ConfigString, Type, Name)}.
-
-parse_action_and_check(ConfigString, BridgeType, Name) ->
-    parse_and_check(ConfigString, emqx_bridge_schema, <<"actions">>, BridgeType, Name).
-
-parse_connector_and_check(ConfigString, ConnectorType, Name) ->
-    parse_and_check(
-        ConfigString, emqx_connector_schema, <<"connectors">>, ConnectorType, Name
-    ).
-
-parse_and_check(ConfigString, SchemaMod, RootKey, Type0, Name) ->
-    Type = to_bin(Type0),
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    hocon_tconf:check_plain(SchemaMod, RawConf, #{required => false, atom_key => false}),
-    #{RootKey := #{Type := #{Name := Config}}} = RawConf,
-    Config.
+    {ok, ConfMap} = hocon:binary(ConfigString),
+    {ConfigString, emqx_bridge_v2_testlib:parse_and_check_connector(Type, Name, ConfMap)}.
 
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8);
@@ -431,7 +367,7 @@ t_sync_device_id_missing(Config) ->
     ).
 
 t_extract_device_id_from_rule_engine_message(Config) ->
-    BridgeType = ?config(bridge_type, Config),
+    BridgeType = ?config(action_type, Config),
     RuleTopic = <<"t/iotdb">>,
     DeviceId = iotdb_device(Config),
     Payload = make_iotdb_payload(DeviceId, "temp", "int32", "12"),
@@ -544,7 +480,10 @@ t_template(Config) ->
     %% Create without data  configured
     ?assertMatch(
         {error, #{reason := empty_array_not_allowed}},
-        emqx_bridge_v2_testlib:create_bridge(Config)
+        emqx_bridge_v2_testlib:create_bridge(
+            Config,
+            #{<<"parameters">> => #{<<"data">> => []}}
+        )
     ),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
 
@@ -677,6 +616,15 @@ t_sync_query_templated_timestamp(Config) ->
         emqx_utils_json:decode(IoTDBResult)
     ).
 
+t_rule_test_trace(Config) ->
+    DeviceId = iotdb_device(Config),
+    PayloadFn = fun() ->
+        Msg = make_iotdb_payload(DeviceId, "temp", "int32", "36"),
+        emqx_utils_json:encode(Msg)
+    end,
+    Opts = #{payload_fn => PayloadFn},
+    emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
+
 is_empty(null) -> true;
 is_empty([]) -> true;
 is_empty([[]]) -> true;
@@ -714,8 +662,6 @@ test_case_data_type(t_sync_query_with_lowercase) ->
 test_case_data_type(_) ->
     <<"int32">>.
 
-data_template_config(t_template) ->
-    <<"">>;
 data_template_config(TestCase) when
     TestCase =:= t_sync_query_invalid_timestamp;
     TestCase =:= t_sync_query_missing_timestamp;

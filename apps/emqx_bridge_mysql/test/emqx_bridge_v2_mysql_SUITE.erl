@@ -101,15 +101,16 @@ init_per_testcase(TestCase, Config) ->
     ],
     emqx_bridge_mysql_SUITE:connect_and_create_table(NConfig),
     ConnectorConfig = connector_config(Name, NConfig),
-    BridgeConfig = bridge_config(Name, Name),
+    ActionConfig = action_config(Name, Name),
     ok = snabbkaffe:start_trace(),
     [
+        {bridge_kind, action},
         {connector_type, proplists:get_value(connector_type, Config, ?CONNECTOR_TYPE)},
         {connector_name, Name},
         {connector_config, ConnectorConfig},
         {action_type, proplists:get_value(action_type, Config, ?ACTION_TYPE)},
         {action_name, Name},
-        {bridge_config, BridgeConfig}
+        {action_config, ActionConfig}
         | NConfig
     ].
 
@@ -163,7 +164,7 @@ bad_sql() ->
         "VALUES (${payload}, FROM_UNIXTIME(${timestamp}/1000))"
     >>.
 
-bridge_config(Name, ConnectorId) ->
+action_config(Name, ConnectorId) ->
     InnerConfigMap0 =
         #{
             <<"enable">> => true,
@@ -382,3 +383,7 @@ t_timeout_disconnected_then_recover(Config) ->
         []
     ),
     ok.
+
+t_rule_test_trace(Config) ->
+    Opts = #{},
+    emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).

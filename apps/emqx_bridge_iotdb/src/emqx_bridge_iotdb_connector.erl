@@ -860,8 +860,10 @@ preproc_data_template(DataList) ->
     ).
 
 do_on_query(InstanceId, ChannelId, Data, #{driver := restapi} = State) ->
+    %% HTTP connector already calls `emqx_trace:rendered_action_template`.
     emqx_bridge_http_connector:on_query(InstanceId, {ChannelId, Data}, State);
-do_on_query(InstanceId, _ChannelId, Data, #{driver := thrift} = _State) ->
+do_on_query(InstanceId, ChannelId, Data, #{driver := thrift} = _State) ->
+    emqx_trace:rendered_action_template(ChannelId, #{records => Data}),
     ecpool:pick_and_do(InstanceId, {iotdb, insert_records, [Data]}, no_handover).
 
 %% 1. The default timeout in Thrift is `infinity`, but it may cause stuck

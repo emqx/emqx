@@ -213,10 +213,10 @@ create_bridge(Config) ->
     create_bridge(Config, _Overrides = #{}).
 
 create_bridge(Config, Overrides) ->
-    BridgeType = ?config(bridge_type, Config),
-    BridgeName = ?config(bridge_name, Config),
-    BridgeConfig0 = ?config(bridge_config, Config),
-    BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
+    ActionType = get_ct_config_with_fallback(Config, [action_type, bridge_type]),
+    ActionName = get_ct_config_with_fallback(Config, [action_name, bridge_name]),
+    ActionConfig0 = get_ct_config_with_fallback(Config, [action_config, bridge_config]),
+    ActionConfig = emqx_utils_maps:deep_merge(ActionConfig0, Overrides),
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
     ConnectorConfig = ?config(connector_config, Config),
@@ -226,8 +226,8 @@ create_bridge(Config, Overrides) ->
     {ok, _} =
         emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig),
 
-    ct:pal("creating bridge with config:\n  ~p", [BridgeConfig]),
-    emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig).
+    ct:pal("creating bridge with config:\n  ~p", [ActionConfig]),
+    emqx_bridge_v2:create(ActionType, ActionName, ActionConfig).
 
 get_ct_config_with_fallback(Config, [Key]) ->
     ?config(Key, Config);
@@ -762,6 +762,62 @@ delete_rule_api(RuleId) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules", RuleId]),
     simplify_result(request(delete, Path, "")).
 
+start_rule_test_trace(RuleId) ->
+    Name0 = uuid:uuid_to_string(uuid:get_v4(), binary_standard),
+    Name = <<"trace-", Name0/binary>>,
+    Body = #{
+        <<"name">> => Name,
+        <<"type">> => <<"ruleid">>,
+        <<"ruleid">> => RuleId,
+        <<"formatter">> => <<"json">>,
+        <<"payload_encode">> => <<"text">>
+    },
+    URL = emqx_mgmt_api_test_util:api_path(["trace"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => post,
+        url => URL,
+        body => Body
+    }).
+
+stop_rule_test_trace(TraceName) ->
+    URL = emqx_mgmt_api_test_util:api_path(["trace", TraceName]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => URL
+    }).
+
+trigger_rule_test_trace_flow(Opts) ->
+    #{
+        context := Context,
+        rule_id := RuleId
+    } = Opts,
+    Body = #{
+        <<"context">> => Context,
+        <<"stop_action_after_template_rendering">> => false
+    },
+    URL = emqx_mgmt_api_test_util:api_path(["rules", RuleId, "test"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => post,
+        url => URL,
+        body => Body
+    }).
+
+get_test_trace_log(TraceName) ->
+    URL = emqx_mgmt_api_test_util:api_path(["trace", TraceName, "log"]),
+    QueryParams = #{
+        <<"bytes">> => integer_to_binary(trunc(math:pow(2, 30)))
+    },
+    maybe
+        {200, #{<<"items">> := Bin}} ?=
+            emqx_mgmt_api_test_util:simple_request(#{
+                method => get,
+                url => URL,
+                query_params => QueryParams
+            }),
+        %% ct:pal("get log resp:\n  ~p", [Resp]),
+        {ok, emqx_connector_aggreg_json_lines_test_utils:decode(Bin)}
+    end.
+
 api_spec_schemas(Root) ->
     Method = get,
     Path = emqx_mgmt_api_test_util:api_path(["schemas", Root]),
@@ -876,14 +932,14 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
                 _Attempts = 20,
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
-            BridgeId = bridge_id(Config),
-            BridgeType = ?config(bridge_type, Config),
-            BridgeName = ?config(bridge_name, Config),
-            Message = {BridgeId, MakeMessageFun()},
+            ActionResId = bridge_id(Config),
+            ActionType = get_ct_config_with_fallback(Config, [action_type, bridge_type]),
+            ActionName = get_ct_config_with_fallback(Config, [action_name, bridge_name]),
+            Message = {ActionResId, MakeMessageFun()},
             ?assertMatch(
                 {ok, {ok, _}},
                 ?wait_async_action(
-                    emqx_bridge_v2:query(BridgeType, BridgeName, Message, #{
+                    emqx_bridge_v2:query(ActionType, ActionName, Message, #{
                         async_reply_fun => {ReplyFun, [self()]}
                     }),
                     #{?snk_kind := TracePoint, instance_id := ResourceId},
@@ -1433,6 +1489,181 @@ t_deobfuscate_connector(Config) ->
         end,
         []
     ),
+    ok.
+
+-doc """
+Verifies that the action correctly handles rule test tracing correctly.
+
+This basically entails checking that we call `emqx_trace:rendered_action_template/2` or
+`emqx_trace:rendered_action_template_with_ctx/2` before actually sending any data to the
+remote systems.
+
+This is done by the frontend via:
+
+1. Starting a trace with `POST /trace` with `type` `ruleid`.
+2. Performing a `POST /rules/:rule-id/test`, which in turn runs the actual rule with
+   special logger metadata set.  Currently, the frontend always calls the test endpoint
+   with `stop_action_after_template_rendering = false`, which means that junk test data
+   will actually be sent to the remote servers.
+3. This rule triggers the real action and logs the data.
+4. Frontend fetches logs via `GET /trace/:name/log_detail`.
+""".
+t_rule_test_trace(Config, Opts) ->
+    #{
+        type := ActionType,
+        name := ActionName
+    } = get_common_values(Config),
+    ?tpal("creating connector and actions"),
+    {201, #{<<"status">> := <<"connected">>}} =
+        simplify_result(create_connector_api(Config)),
+    FallbackActionName = <<ActionName/binary, "_fallback">>,
+    {201, #{<<"status">> := <<"connected">>}} =
+        simplify_result(create_action_api([{action_name, FallbackActionName} | Config])),
+    {201, #{<<"status">> := <<"connected">>}} =
+        simplify_result(
+            create_action_api(Config, #{
+                <<"fallback_actions">> => [
+                    #{
+                        <<"kind">> => <<"reference">>,
+                        <<"type">> => bin(ActionType),
+                        <<"name">> => FallbackActionName
+                    }
+                ]
+            })
+        ),
+    ?tpal("creating rule"),
+    RuleTopic = <<"rule/test/trace">>,
+    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(ActionType, RuleTopic, Config),
+
+    Context0 = #{},
+    PreTestFn = maps:get(pre_test_fn, Opts, fun(Context) -> Context end),
+    ?tpal("calling pre-test fn"),
+    Context1 = PreTestFn(Context0),
+
+    ?tpal("start rule test trace"),
+    {200, #{<<"name">> := TraceName}} = start_rule_test_trace(RuleId),
+    PayloadFn = maps:get(payload_fn, Opts, fun() ->
+        emqx_utils_json:encode(#{<<"msg">> => <<"hello">>})
+    end),
+
+    Payload = PayloadFn(),
+    TestOpts = #{
+        context => #{
+            <<"clientid">> => <<"c_emqx">>,
+            <<"event_type">> => <<"message_publish">>,
+            <<"payload">> => Payload,
+            <<"qos">> => 1,
+            <<"topic">> => RuleTopic,
+            <<"username">> => <<"u_emqx">>
+        },
+        rule_id => RuleId
+    },
+    ?tpal("triggering rule test flow"),
+    {200, TriggerTestResp} = trigger_rule_test_trace_flow(TestOpts),
+    ct:pal("trigger test trace response:\n  ~p", [TriggerTestResp]),
+    PostTestFn = maps:get(post_test_fn, Opts, fun(Context) -> Context end),
+    ?tpal("calling post-test fn"),
+    Context2 = PostTestFn(Context1#{payload => Payload}),
+
+    AssertLogFn = maps:get(assert_log_fn, Opts, fun(TraceNameIn) ->
+        {ok, LogLines0} = get_test_trace_log(TraceNameIn),
+        LogLines = lists:filter(
+            fun(#{<<"msg">> := Msg}) ->
+                lists:member(Msg, [
+                    <<"rule_activated">>,
+                    <<"bridge_action">>,
+                    <<"action_template_rendered">>,
+                    <<"action_success">>
+                ])
+            end,
+            LogLines0
+        ),
+        ?assertMatch(
+            [
+                #{<<"msg">> := <<"rule_activated">>},
+                #{<<"msg">> := <<"bridge_action">>},
+                #{<<"msg">> := <<"action_template_rendered">>},
+                #{<<"msg">> := <<"action_success">>}
+            ],
+            LogLines
+        )
+    end),
+    ?tpal("checking logs"),
+    ?retry(1_000, 10, AssertLogFn(TraceName)),
+    ?tpal("logs ok"),
+    {204, _} = stop_rule_test_trace(TraceName),
+
+    ?tpal("calling clenaup fn"),
+    CleanupFn = maps:get(cleanup_fn, Opts, fun(Context) -> Context end),
+    Context3 = CleanupFn(Context2),
+
+    %% Now we test fallback action traces
+    ?tpal("starting fallback action test trace"),
+    {200, #{<<"name">> := TraceNameErr}} = start_rule_test_trace(RuleId),
+    AssertFallbackLogFn = maps:get(assert_fallback_log_fn, Opts, fun(TraceNameIn) ->
+        {ok, LogLines0} = get_test_trace_log(TraceNameIn),
+        LogLines = lists:filter(
+            fun(#{<<"msg">> := Msg}) ->
+                lists:member(Msg, [
+                    <<"rule_activated">>,
+                    <<"bridge_action">>,
+                    <<"action_template_rendered">>,
+                    <<"action_success">>
+                ])
+            end,
+            LogLines0
+        ),
+        ?assertMatch(
+            [
+                #{<<"msg">> := <<"rule_activated">>},
+                #{<<"msg">> := <<"bridge_action">>},
+                #{
+                    <<"msg">> := <<"action_template_rendered">>,
+                    <<"meta">> := #{
+                        <<"action_info">> := #{
+                            <<"name">> := ActionName
+                        }
+                    }
+                },
+                #{
+                    <<"msg">> := <<"action_template_rendered">>,
+                    <<"meta">> := #{
+                        <<"action_info">> := #{
+                            <<"name">> := FallbackActionName
+                        }
+                    }
+                }
+                %% No `action_success` event; this is logged in rule runtime
+            ],
+            LogLines
+        )
+    end),
+    {ok, {_ConnResId, PrimaryActionResId}} =
+        emqx_bridge_v2:get_resource_ids(actions, ActionType, ActionName),
+    emqx_common_test_helpers:with_mock(
+        emqx_trace,
+        rendered_action_template,
+        fun(ActionId, Result) ->
+            %% Call the trace to generate the genuine primary event
+            Res = meck:passthrough([ActionId, Result]),
+            %% Generate an unrecoverable error to trigger fallback action
+            case ActionId == PrimaryActionResId of
+                true ->
+                    error({unrecoverable_error, <<"mocked error, check fallback!">>});
+                false ->
+                    Res
+            end
+        end,
+        fun() ->
+            {200, TriggerTestRespErr} = trigger_rule_test_trace_flow(TestOpts),
+            ct:pal("trigger test trace response (with error):\n  ~p", [TriggerTestRespErr]),
+            _Context4 = PostTestFn(Context3),
+            ?tpal("waiting for fallback action test logs"),
+            ?retry(1_000, 10, AssertFallbackLogFn(TraceNameErr))
+        end
+    ),
+    {204, _} = stop_rule_test_trace(TraceNameErr),
+
     ok.
 
 snk_timetrap() ->

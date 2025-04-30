@@ -207,9 +207,9 @@ on_query(ConnResId, {Tag, Data}, #{installed_actions := InstalledActions} = Conn
 ->
     ?tp("couchbase_on_query_enter", #{}),
     ActionState = maps:get(Tag, InstalledActions),
-    run_action(ConnResId, Data, ActionState, ConnState);
+    run_action(ConnResId, Tag, Data, ActionState, ConnState);
 on_query(ConnResId, #sql_query{sql = SQL, opts = Opts}, ConnState) ->
-    run_query(ConnResId, SQL, Opts, ConnState);
+    run_query(ConnResId, <<"ad-hoc-query">>, SQL, Opts, ConnState);
 on_query(_ConnResId, Query, _ConnState) ->
     {error, {unrecoverable_error, {invalid_query, Query}}}.
 
@@ -319,7 +319,7 @@ auth_header(ConnState) ->
     BasicAuth = base64:encode(<<Username/binary, ":", Password/binary>>),
     {<<"Authorization">>, [<<"Basic ">>, BasicAuth]}.
 
-run_action(ConnResId, Data, ActionState, ConnState) ->
+run_action(ConnResId, ActionResId, Data, ActionState, ConnState) ->
     #{
         args_template := ArgsTemplate,
         sql := SQL,
@@ -327,18 +327,19 @@ run_action(ConnResId, Data, ActionState, ConnState) ->
         max_retries := MaxRetries
     } = ActionState,
     Args = render_args(Data, ArgsTemplate),
-    do_query(ConnResId, SQL, Args, RequestTTL, MaxRetries, ConnState).
+    do_query(ConnResId, ActionResId, SQL, Args, RequestTTL, MaxRetries, ConnState).
 
-run_query(ConnResId, SQL, Opts, ConnState) ->
+run_query(ConnResId, ActionResId, SQL, Opts, ConnState) ->
     RequestTTL = maps:get(request_ttl, Opts, timer:seconds(15)),
     MaxRetries = maps:get(max_retries, Opts, 3),
     Args = maps:get(args, Opts, undefined),
-    do_query(ConnResId, SQL, Args, RequestTTL, MaxRetries, ConnState).
+    do_query(ConnResId, ActionResId, SQL, Args, RequestTTL, MaxRetries, ConnState).
 
-do_query(ConnResId, SQL, Args, RequestTTL, MaxRetries, ConnState) ->
+do_query(ConnResId, ActionResId, SQL, Args, RequestTTL, MaxRetries, ConnState) ->
     Body0 = #{statement => iolist_to_binary(SQL)},
     Body1 = emqx_utils_maps:put_if(Body0, args, Args, Args =/= undefined),
     Body = emqx_utils_json:encode(Body1),
+    emqx_trace:rendered_action_template(ActionResId, #{args => Args}),
     Request = {
         <<"/query/service">>,
         [
