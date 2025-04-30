@@ -78,6 +78,112 @@ t_connect(_Config) ->
     ?assertMatch([#nats_frame{operation = ?OP_PONG}], Msgs2),
     emqx_nats_client:stop(Client).
 
+t_verbose_mode(_Config) ->
+    ClientOpts = maps:merge(?DEFAULT_CLIENT_OPTS, #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+
+    %% Test INFO message
+    {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_INFO,
+            message = #{
+                <<"auth_required">> := false,
+                <<"version">> := _,
+                <<"max_payload">> := _
+            }
+        },
+        InfoMsg
+    ),
+
+    %% Test CONNECT with verbose mode
+    ok = emqx_nats_client:connect(Client),
+    {ok, [ConnectAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        ConnectAck
+    ),
+
+    %% Test PING/PONG
+    ok = emqx_nats_client:ping(Client),
+    {ok, [PongMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_PONG
+        },
+        PongMsg
+    ),
+
+    %% Test SUBSCRIBE
+    ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>),
+    {ok, [SubAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        SubAck
+    ),
+
+    %% Test PUBLISH and message delivery
+    ok = emqx_nats_client:publish(Client, <<"foo">>, <<"hello">>),
+    {ok, [PubAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        PubAck
+    ),
+
+    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_MSG,
+            message = #{
+                subject := <<"foo">>,
+                sid := <<"sid-1">>,
+                payload := <<"hello">>
+            }
+        },
+        Msg
+    ),
+
+    %% Test PUBLISH with reply-to
+    ok = emqx_nats_client:publish(Client, <<"foo">>, <<"reply-to">>, <<"with reply">>),
+    {ok, [PubAck2]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        PubAck2
+    ),
+
+    {ok, [Msg2]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_MSG,
+            message = #{
+                subject := <<"foo">>,
+                sid := <<"sid-1">>,
+                payload := <<"with reply">>
+            }
+        },
+        Msg2
+    ),
+
+    %% Test UNSUBSCRIBE
+    ok = emqx_nats_client:unsubscribe(Client, <<"sid-1">>),
+    {ok, [UnsubAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        UnsubAck
+    ),
+
+    emqx_nats_client:stop(Client).
+
 t_ping_pong(_Config) ->
     ClientOpts = ?DEFAULT_CLIENT_OPTS,
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
@@ -138,3 +244,35 @@ t_unsubscribe(_Config) ->
     ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>),
     ok = emqx_nats_client:unsubscribe(Client, <<"sid-1">>),
     emqx_nats_client:stop(Client).
+
+t_queue_group(_Config) ->
+    ClientOpts = maps:merge(?DEFAULT_CLIENT_OPTS, #{verbose => true}),
+    {ok, Client1} = emqx_nats_client:start_link(ClientOpts),
+    {ok, Client2} = emqx_nats_client:start_link(ClientOpts),
+
+    %% Connect both clients
+    {ok, [_]} = emqx_nats_client:receive_message(Client1),
+    {ok, [_]} = emqx_nats_client:receive_message(Client2),
+    ok = emqx_nats_client:connect(Client1),
+    ok = emqx_nats_client:connect(Client2),
+    {ok, [_]} = emqx_nats_client:receive_message(Client1),
+    {ok, [_]} = emqx_nats_client:receive_message(Client2),
+
+    %% Subscribe to the same queue group
+    ok = emqx_nats_client:subscribe(Client1, <<"foo">>, <<"sid-1">>, <<"group-1">>),
+    ok = emqx_nats_client:subscribe(Client2, <<"foo">>, <<"sid-2">>, <<"group-1">>),
+    {ok, [_]} = emqx_nats_client:receive_message(Client1),
+    {ok, [_]} = emqx_nats_client:receive_message(Client2),
+
+    %% Publish messages with mqtt
+    _ = emqx_broker:publish(emqx_message:make(<<"foo">>, <<"msgs1">>)),
+    _ = emqx_broker:publish(emqx_message:make(<<"foo">>, <<"msgs2">>)),
+
+    %% Receive messages - only one client should receive each message
+    {ok, Msgs1} = emqx_nats_client:receive_message(Client1),
+    {ok, Msgs2} = emqx_nats_client:receive_message(Client2),
+
+    ?assertEqual(2, length(Msgs1 ++ Msgs2)),
+
+    emqx_nats_client:stop(Client1),
+    emqx_nats_client:stop(Client2).

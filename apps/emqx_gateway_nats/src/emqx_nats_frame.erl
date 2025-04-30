@@ -76,13 +76,13 @@ parse_operation(<<"INFO ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_INFO));
 parse_operation(<<"info ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_INFO));
-parse_operation(<<"OK\r\n", Rest/binary>>, State) ->
+parse_operation(<<"+OK\r\n", Rest/binary>>, State) ->
     return_ok(Rest, State);
-parse_operation(<<"ok\r\n", Rest/binary>>, State) ->
+parse_operation(<<"+ok\r\n", Rest/binary>>, State) ->
     return_ok(Rest, State);
-parse_operation(<<"ERR ", Rest/binary>>, State) ->
+parse_operation(<<"-ERR ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_ERR));
-parse_operation(<<"err ", Rest/binary>>, State) ->
+parse_operation(<<"-err ", Rest/binary>>, State) ->
     parse_args(Rest, to_args_state(State, ?OP_ERR));
 %%--------------------------------------------------------------------
 %% Message frames

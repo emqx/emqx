@@ -15,6 +15,7 @@
     connect/1,
     ping/1,
     subscribe/3,
+    subscribe/4,
     unsubscribe/2,
     publish/3,
     publish/4,
@@ -80,6 +81,10 @@ ping(Client) ->
 subscribe(Client, Subject, Sid) ->
     gen_server:call(Client, {subscribe, Subject, Sid}).
 
+-spec subscribe(client(), binary(), binary(), binary()) -> ok.
+subscribe(Client, Subject, Sid, Queue) ->
+    gen_server:call(Client, {subscribe, Subject, Sid, Queue}).
+
 -spec unsubscribe(client(), binary()) -> ok.
 unsubscribe(Client, Sid) ->
     gen_server:call(Client, {unsubscribe, Sid}).
@@ -100,9 +105,14 @@ receive_message(Client) ->
 receive_message(Client, Count) ->
     receive_message(Client, Count, 1000).
 
--spec receive_message(client(), pos_integer(), timeout()) -> {ok, [map()]}.
+-spec receive_message(client(), pos_integer(), timeout()) -> {ok, [map()]} | {error, busy}.
 receive_message(Client, Count, Timeout) ->
-    gen_server:call(Client, {receive_message, Count, Timeout}).
+    try
+        gen_server:call(Client, {receive_message, Count, Timeout})
+    catch
+        _:_ ->
+            {ok, []}
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -140,6 +150,13 @@ handle_call(ping, _From, #{socket := Socket} = State) ->
     {reply, ok, State};
 handle_call({subscribe, Subject, Sid}, _From, #{socket := Socket} = State) ->
     SubFrame = #nats_frame{operation = ?OP_SUB, message = #{subject => Subject, sid => Sid}},
+    Bin = serialize_pkt(SubFrame),
+    ok = gen_tcp:send(Socket, Bin),
+    {reply, ok, State};
+handle_call({subscribe, Subject, Sid, Queue}, _From, #{socket := Socket} = State) ->
+    SubFrame = #nats_frame{
+        operation = ?OP_SUB, message = #{subject => Subject, sid => Sid, queue_group => Queue}
+    },
     Bin = serialize_pkt(SubFrame),
     ok = gen_tcp:send(Socket, Bin),
     {reply, ok, State};
@@ -247,12 +264,9 @@ is_server_ready(#{socket := Socket, connected_server_info := ServerInfo}) ->
             end
     end.
 
-connect_opts(#{options := Options, connected_server_info := ServerInfo}) ->
-    ClientVerbose = maps:get(verbose, Options, false),
-    ServerVerbose = maps:get(verbose, ServerInfo, false),
-    Verbose = ClientVerbose and ServerVerbose,
+connect_opts(#{options := Options, connected_server_info := _ServerInfo}) ->
     #{
-        verbose => Verbose,
+        verbose => maps:get(verbose, Options, false),
         pedantic => maps:get(pedantic, Options, false),
         tls_required => maps:get(tls_required, Options, false),
         user => maps:get(user, Options, undefined),
