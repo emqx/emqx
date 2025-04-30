@@ -1,22 +1,6 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
-
-%% @doc linearizable channel registry
-%% A channel registry for correctness
-%% @end
 -module(emqx_lcr).
 
 -behaviour(gen_server).
@@ -36,7 +20,8 @@
     max_channel_d/1,
     register_channel/3,
     unregister_channel/2,
-    count_local_d/0
+    count_local_d/0,
+    do_cleanup_channels/1
 ]).
 
 %% getters
@@ -177,9 +162,71 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-cleanup_channels(_) ->
-    %% @TODO maybe not needed to handle here
-    ok.
+cleanup_channels(Node) ->
+    case if_cleanup_channels(Node) of
+        true ->
+            do_cleanup_channels(Node);
+        false ->
+            emqx_logger:info("~p: NO Cleanup channels for node ~p", [?MODULE, Node]),
+            ok
+    end.
+
+do_cleanup_channels(Node) ->
+    emqx_logger:info("~p: Cleanup channels for node ~p", [?MODULE, Node]),
+    TS = erlang:system_time(),
+    MatchSpec = [
+        {
+            #lcr_channel{pid = '$1', vsn = '$2', _ = '_'},
+            _Match = [{'andalso', {'<', '$2', TS}, {'==', {node, '$1'}, Node}}],
+            _Return = ['$_']
+        }
+    ],
+
+    mria:async_dirty(?LCR_SHARD, fun() ->
+        do_cleanup_channels_cont(do_cleanup_channels_init(MatchSpec))
+    end).
+
+do_cleanup_channels_init(MS) ->
+    case mnesia:select(?LCR_TAB, MS, 200, write) of
+        {Matched, Cont} ->
+            lists:foreach(
+                fun(Obj) ->
+                    mnesia:delete_object(?LCR_TAB, Obj, write)
+                end,
+                Matched
+            ),
+            Cont;
+        '$end_of_table' ->
+            '$end_of_table'
+    end.
+
+do_cleanup_channels_cont('$end_of_table') ->
+    ok;
+do_cleanup_channels_cont(Cont0) ->
+    do_cleanup_channels_cont(
+        case mnesia:select(Cont0) of
+            {Matched, Cont} ->
+                lists:foreach(
+                    fun(Obj) ->
+                        mnesia:delete_object(?LCR_TAB, Obj, write)
+                    end,
+                    Matched
+                ),
+                Cont;
+            '$end_of_table' ->
+                '$end_of_table'
+        end
+    ).
+
+if_cleanup_channels(Node) ->
+    case core =:= mria_rlog:role() of
+        false ->
+            false;
+        true ->
+            Cores = lists:usort(mria_membership:running_core_nodelist()),
+            Hash = erlang:phash2(Node, length(Cores)),
+            lists:nth(Hash + 1, Cores) =:= node()
+    end.
 
 %% Internals
 do_register_channel(#lcr_channel{id = ClientId, vsn = MyVsn} = Ch, CachedMax) ->

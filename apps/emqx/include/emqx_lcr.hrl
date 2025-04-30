@@ -10,8 +10,8 @@
 
 -record(lcr_channel, {
     id :: lcr_channel_id(),
-    pid :: pid() | undefined,
-    vsn :: integer() | undefined
+    pid :: pid() | undefined | '_',
+    vsn :: integer() | undefined | '$2'
 }).
 
 -type lcr_channel_id() :: emqx_types:clientid().

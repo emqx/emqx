@@ -1258,6 +1258,15 @@ fields("broker") ->
                     desc => ?DESC(broker_enable_session_registry)
                 }
             )},
+        {enable_linear_channel_registry,
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    importance => ?IMPORTANCE_HIGH,
+                    desc => ?DESC(broker_enable_linearizable_channel_registry)
+                }
+            )},
         {session_history_retain,
             sc(
                 duration_s(),
