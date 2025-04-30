@@ -8,7 +8,3 @@ It is used by the PostgreSQL bridge to insert messages and by the `emqx_auth_pos
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-## License
-
-See [APL](../../APL.txt).
