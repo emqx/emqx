@@ -16,7 +16,3 @@ In Snowflake, files are staged either in internal or external stages (AWS, Azure
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-## License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).

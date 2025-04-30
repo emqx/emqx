@@ -21,7 +21,3 @@ Just like the InfluxDB data bridge but have some different parameters. Below are
 
 # Contributing - [Mandatory]
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-# License
-
-See [BSL](./BSL.txt).

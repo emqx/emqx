@@ -5,7 +5,3 @@ This application provides common logic for connector and action implementations 
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-## License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).

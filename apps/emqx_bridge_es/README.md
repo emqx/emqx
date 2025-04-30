@@ -17,7 +17,3 @@ Please see [our official
 
 # Contributing
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-# License
-
-See [BSL](./BSL.txt).
