@@ -75,10 +75,11 @@ purge() ->
     purge_loop(undefined).
 
 purge_loop(StartId) ->
-    case cleanup_one_chunk(StartId, _IsPurge = true) of
-        '$end_of_table' ->
+    NextId = cleanup_one_chunk(StartId, _IsPurge = true),
+    case NextId =:= '$end_of_table' of
+        true ->
             ok;
-        NextId ->
+        false ->
             purge_loop(NextId)
     end.
 
