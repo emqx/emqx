@@ -603,6 +603,32 @@ t_monitor_sessions_hist_hwmark(Config) when is_list(Config) ->
     } = maps:get(<<"sessions_hist_hwmark">>, Res4),
     ?assertEqual(Count, Count3),
     ?assertEqual(Peak2, Peak3),
+    %% delete all clients
+    ok = lists:foreach(
+        fun(Id) ->
+            ok = emqx_cm_registry:force_delete(Id)
+        end,
+        ClientIds
+    ),
+    ok = Wait(),
+    {ok, Res5} = request(["monitor_current"]),
+    ?assertMatch(
+        #{
+            <<"peak_value">> := Peak3,
+            <<"current_value">> := 0
+        },
+        maps:get(<<"sessions_hist_hwmark">>, Res5)
+    ),
+    %% wait for another flush
+    ok = Wait(),
+    {ok, Res6} = request(["monitor_current"]),
+    ?assertMatch(
+        #{
+            <<"peak_value">> := Peak3,
+            <<"current_value">> := 0
+        },
+        maps:get(<<"sessions_hist_hwmark">>, Res6)
+    ),
     ok.
 
 t_merge_hwmark(Config) when is_list(Config) ->

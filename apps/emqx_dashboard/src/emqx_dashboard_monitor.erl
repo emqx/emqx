@@ -701,10 +701,10 @@ current_wmark(sessions_hist_hwmark) ->
 
 do_refresh_hwmark(
     Key,
-    ?HWMARK(TPast, PPast, VPast),
+    ?HWMARK(TPast, PPast, _VPast),
     ?HWMARK(TNow, _PNow, VNow)
-) when VNow < VPast ->
-    %% Check if the last high watermark is expired.
+) when VNow < PPast ->
+    %% Lower than peak, check if the peak is expired.
     RetentionTime = emqx_conf:get([dashboard, hwmark_expire_time]),
     ExpireAt = TNow - RetentionTime,
     case TPast =< ExpireAt of
