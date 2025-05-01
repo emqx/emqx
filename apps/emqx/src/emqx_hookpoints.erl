@@ -119,25 +119,26 @@ when
     callback_result().
 
 -callback 'client.authorize'(
-    emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), allow | deny
+    emqx_types:clientinfo(),
+    emqx_types:pubsub(),
+    emqx_types:topic(),
+    emqx_access_control:authorize_hook_result()
 ) ->
-    fold_callback_result(#{result := allow | deny, from => term()}).
+    fold_callback_result(emqx_access_control:authorize_hook_result()).
 
 -callback 'client.check_authz_complete'(
-    emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), allow | deny, _From :: term()
+    emqx_types:clientinfo(),
+    emqx_types:pubsub(),
+    emqx_types:topic(),
+    emqx_access_control:authz_result(),
+    _From :: term()
 ) ->
     callback_result().
 
--callback 'client.authenticate'(emqx_types:clientinfo(), ignore) ->
-    fold_callback_result(
-        ignore
-        | ok
-        | {ok, map()}
-        | {ok, map(), binary()}
-        | {continue, map()}
-        | {continue, binary(), map()}
-        | {error, term()}
-    ).
+-callback 'client.authenticate'(
+    emqx_types:clientinfo(), emqx_access_control:authenticate_hook_result()
+) ->
+    fold_callback_result(emqx_access_control:authenticate_hook_result()).
 
 -callback 'client.subscribe'(emqx_types:clientinfo(), emqx_types:properties(), TopicFilters) ->
     fold_callback_result(TopicFilters)
