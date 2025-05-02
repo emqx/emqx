@@ -1054,10 +1054,11 @@ session_drop(SessionId, Reason) ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-set_clientinfo(ClientInfo0, S) ->
-    %% Remove unnecessary fields from the clientinfo:
-    ClientInfo = maps:without([cn, dn, auth_result], ClientInfo0),
-    emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S).
+set_clientinfo(_ClientInfo0, S) ->
+    %% %% Remove unnecessary fields from the clientinfo:
+    %% ClientInfo = maps:without([cn, dn, auth_result], ClientInfo0),
+    %% emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S).
+    S.
 
 %%--------------------------------------------------------------------
 %% Normal replay:

@@ -546,13 +546,13 @@ asn1_to_stream({skipstreamLtsV1, Static}) ->
     #stream{static_index = Static}.
 
 iterator_to_asn1(#it{static_index = Static, last_key = LSK, compressed_tf = CTF}) ->
-    {skipstreamLtsV1, #'ItSkipstreamV1'{
+    {skipstreamLtsV1, #'SLSkipstreamV1It'{
         static = Static,
         lastKey = LSK,
         compressedTf = CTF
     }}.
 
-asn1_to_iterator(#'ItSkipstreamV1'{static = Static, lastKey = LSK, compressedTf = CTF}) ->
+asn1_to_iterator(#'SLSkipstreamV1It'{static = Static, lastKey = LSK, compressedTf = CTF}) ->
     #it{
         static_index = Static,
         last_key = LSK,

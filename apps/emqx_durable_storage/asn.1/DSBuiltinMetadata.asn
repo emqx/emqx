@@ -28,14 +28,14 @@ BEGIN
 
   -- Common storage layer definitions
   SLStream ::= CHOICE {
-    reference SLRefereceStream,
+    reference SLReferenceStream,
     skipstreamLtsV1 SLSkipstreamLtsV1Stream,
     ...
   }
 
   --   Iterator:
   SLIterator ::= CHOICE {
-    reference SLRefereceIt,
+    reference SLReferenceIt,
     skipstreamLtsV1 SLSkipstreamV1It,
     ...
   }

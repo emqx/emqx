@@ -20,7 +20,7 @@
 %%
 %% o|<sessid>                       -- Offline data, aka misc. stuff
 %%                                     for the dashboard that we don't
-%%                                     in the state
+%%                                     need in the state
 %%
 -module(emqx_persistent_session_ds_state_v2).
 

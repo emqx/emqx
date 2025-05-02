@@ -48,7 +48,7 @@ db_config(Path) ->
 session_config() ->
     %% FIXME:
     #{
-        n_shards => 64,
+        n_shards => 8,
         n_sites => 1,
         replication_options => #{},
         replication_factor => 1
