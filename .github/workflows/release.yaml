@@ -121,5 +121,5 @@ jobs:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
         run: |
           sudo snap install snapcraft --classic
-          snapcraft upload "packages/${PROFILE}/${PROFILE}_${VERSION}_amd64.snap" --release=stable
-          snapcraft upload "packages/${PROFILE}/${PROFILE}_${VERSION}_arm64.snap" --release=stable
+          snapcraft upload --release=stable "packages/${PROFILE}/${PROFILE}_${VERSION}_amd64.snap"
+          snapcraft upload --release=stable "packages/${PROFILE}/${PROFILE}_${VERSION}_arm64.snap"
