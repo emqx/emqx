@@ -54,7 +54,18 @@ fields(oidc) ->
             {issuer,
                 ?HOCON(
                     binary(),
-                    #{desc => ?DESC(issuer), required => true}
+                    #{
+                        desc => ?DESC(issuer),
+                        required => true,
+                        example => <<"https://issuer.com">>,
+                        validator => emqx_schema:servers_validator(
+                            #{
+                                supported_schemes => ["https", "http"],
+                                default_port => 443
+                            },
+                            _Required = true
+                        )
+                    }
                 )},
             {clientid,
                 ?HOCON(
