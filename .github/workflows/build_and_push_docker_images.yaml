@@ -182,13 +182,11 @@ jobs:
       - name: smoke test
         timeout-minutes: 5
         run: |
-          for tag in $(cat .emqx_docker_image_tags); do
-            CID=$(docker run -d -p 18083:18083 $tag)
-            HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
-            ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
-            docker rm -f $CID
-            ./scripts/test/cluster-smoke-test.sh $tag
-          done
+          CID=$(docker run -d -p 18083:18083 $_EMQX_DOCKER_IMAGE_TAG)
+          HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
+          ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+          docker rm -f $CID
+          ./scripts/test/cluster-smoke-test.sh $_EMQX_DOCKER_IMAGE_TAG
 
       - name: dashboard tests
         working-directory: ./scripts/ui-tests
