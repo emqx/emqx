@@ -29,6 +29,9 @@
     terminate/2
 ]).
 
+%% For testing only
+-export([where/1]).
+
 -export_type([
     container_type/0,
     record/0,
@@ -46,9 +49,13 @@
 %%
 
 -define(VSN, 1).
--define(SRVREF(NAME), {via, gproc, {n, l, {?MODULE, NAME}}}).
+-define(REF(NAME), {n, l, {?MODULE, NAME}}).
+-define(SRVREF(NAME), {via, gproc, ?REF(NAME)}).
 
 %%
+
+where(Name) ->
+    gproc:where(?REF(Name)).
 
 start_link(Name, Opts) ->
     gen_server:start_link(?SRVREF(Name), ?MODULE, mk_state(Name, Opts), []).
@@ -66,10 +73,12 @@ push_records(_Name, _Timestamp, []) ->
     ok.
 
 tick(Name, Timestamp) ->
+    ?tp("connector_aggregator_tick_enter", #{}),
     case pick_buffer(Name, Timestamp) of
         #buffer{} ->
             ok;
         _Outdated ->
+            ?tp("connector_aggregator_tick_close_buffer_async", #{}),
             send_close_buffer(Name, Timestamp)
     end.
 
@@ -96,6 +105,7 @@ write_records_limited(Name, Buffer = #buffer{max_records = MaxRecords}, Records)
             %% NOTE: Allow unconditionally if it's the first write.
             write_records(Name, Buffer, Records, NR);
         NWritten when NWritten > MaxRecords ->
+            ?tp("connector_aggregator_push_records_rotate_buffer", #{}),
             NextBuffer = rotate_buffer(Name, Buffer),
             write_records_limited(Name, NextBuffer, Records);
         NWritten ->
@@ -201,6 +211,7 @@ handle_call(take_error, _From, St0) ->
 handle_cast({close_buffer, Timestamp}, St) ->
     {noreply, handle_close_buffer(Timestamp, St)};
 handle_cast({rotate_buffer, FD}, St0) ->
+    ?tp("connector_aggregator_cast_rotate_buffer_received", #{}),
     St = handle_rotate_buffer(FD, St0),
     {noreply, St};
 handle_cast(enqueue_delivery, St0) ->
@@ -360,6 +371,16 @@ handle_close_buffer(
     St = St0#st{buffer = undefined},
     _ = announce_current_buffer(St),
     enqueue_delivery(close_buffer(Buffer), St);
+handle_close_buffer(Timestamp, St = #st{buffer = Until}) when
+    Timestamp < Until
+->
+    %% If, for example, a `tick` operation (which triggers a `close_buffer`) happens
+    %% concurrently with a `push_records` (which triggers a `next_buffer` if buffer is
+    %% outdated), then, by the time the aggregator process handles the `close_buffer`
+    %% event, the `#state.buffer` might have already been rotated and have an
+    %% `#buffer.until > Timestamp`.  Long story short, the buffer has been closed
+    %% concurrently.
+    St;
 handle_close_buffer(_Timestamp, St = #st{buffer = undefined}) ->
     St.
 
