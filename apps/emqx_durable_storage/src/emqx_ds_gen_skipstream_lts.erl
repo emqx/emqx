@@ -39,6 +39,10 @@
 -include("emqx_ds.hrl").
 -include("emqx_ds_metrics.hrl").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
@@ -119,9 +123,9 @@
 
 %% Level iterator:
 -record(l, {
-    n :: non_neg_integer(),
+    n :: wildcard_idx(),
     handle :: rocksdb:itr_handle(),
-    hash :: binary()
+    hash :: wildcard_hash()
 }).
 
 -ifdef(DEBUG2).
@@ -240,9 +244,11 @@ open(
     stream_key(),
     binary()
 ) -> ok.
-batch_put(#s{data_cf = DataCF, hash_bytes = HashBytes}, Batch, Static, Varying, StreamKey, Value) ->
+batch_put(
+    #s{data_cf = DataCF, hash_bytes = HashBytes}, Batch, Static, Varying, StreamKey, SerializedValue
+) ->
     MasterKey = mk_master_key(Static, StreamKey),
-    ok = rocksdb:batch_put(Batch, DataCF, MasterKey, Value),
+    ok = rocksdb:batch_put(Batch, DataCF, MasterKey, SerializedValue),
     mk_index(Batch, DataCF, HashBytes, Static, Varying, StreamKey).
 
 %% @doc Low-level API for deleting data and indexes. Similar to
@@ -256,7 +262,7 @@ batch_delete(#s{data_cf = DataCF, hash_bytes = HashBytes}, Batch, Static, Varyin
     ok = rocksdb:batch_delete(Batch, DataCF, MasterKey).
 
 %% @doc Compose a RocksDB key for data or index from the parts.
--spec mk_key(emqx_ds_lts:static_key(), wildcard_idx(), binary(), stream_key()) ->
+-spec mk_key(emqx_ds_lts:static_key(), wildcard_idx(), wildcard_hash(), stream_key()) ->
     binary().
 mk_key(StaticIdx, 0, <<>>, StreamKey) ->
     mk_master_key(StaticIdx, StreamKey);
@@ -432,7 +438,7 @@ read_persisted_trie(_It, {error, invalid_iterator}) ->
 
 %% @doc Init RockDB iterators for each non-wildcard level of indices,
 %% order is important: e.g. [L1, L2, L3, L0].
--spec init_iterators(s(), emqx_ds_lts:static_key(), [binary()], fold_interval()) ->
+-spec init_iterators(s(), emqx_ds_lts:static_key(), emqx_ds:topic_filter(), fold_interval()) ->
     {rocksdb:snapshot_handle(), [rocksdb:itr_handle()]}.
 init_iterators(S, Static, CompressedTF, Interval) ->
     {ok, Snapshot} = rocksdb:snapshot(S#s.db),
@@ -491,11 +497,25 @@ get_key_range(_S, Snapshot, Static, {_, Lower, Upper}, WildcardLevel, Hash) ->
         {snapshot, Snapshot}
     ].
 
+%% @doc Calculate `iterate_upper_bound' of the rocksdb iterator that
+%% covers _all_ values in the stream.
+-spec stream_limit(emqx_ds_lts:static_index(), wildcard_idx(), wildcard_hash()) -> binary().
 stream_limit(Static, 0, _) ->
+    %% Data stream:
     mk_key(Static, 1, <<>>, <<>>);
-stream_limit(Static, N, _WCHash) ->
-    %% FIXME: not the most optimal strategy, since it doesn't take hash into account
-    mk_key(Static, N + 1, <<>>, <<>>).
+stream_limit(_, WcLevel, _) when WcLevel >= 16#ffff ->
+    error(too_many_wildcard_levels);
+stream_limit(Static, WcLevel, Hash) ->
+    Sz = bit_size(Hash),
+    <<HashInt:Sz>> = Hash,
+    case 1 bsl Sz - 1 of
+        HashInt ->
+            %% This happens to be the maximum hash of the given size.
+            %% We increase the wildcard index instead:
+            mk_key(Static, WcLevel + 1, <<>>, <<>>);
+        _ ->
+            mk_key(Static, WcLevel, <<(HashInt + 1):Sz>>, <<>>)
+    end.
 
 free_iterators(Its) ->
     lists:foreach(
@@ -705,3 +725,55 @@ deserialize(
     Blob
 ) ->
     emqx_ds_msg_serializer:deserialize(SSchema, Blob).
+
+-ifdef(TEST).
+
+%% Verify calculation of the upper bound for rocksdb iterators
+rocksdb_upper_limit_test() ->
+    %% End of the data stream is always calculated as the beginning of
+    %% the index stream:
+    ?assertMatch(
+        <<"static", 1:?wcb>>,
+        stream_limit(<<"static">>, 0, <<>>)
+    ),
+    %% Index streams:
+    %% 1. 1st level, 8-bit hash, no overflow:
+    ?assertMatch(
+        <<"static", 1:?wcb, 2:8>>,
+        stream_limit(<<"static">>, 1, <<1:8>>)
+    ),
+    ?assertMatch(
+        <<"static", 1:?wcb, 255:8>>,
+        stream_limit(<<"static">>, 1, <<254:8>>)
+    ),
+    %% 2. 1st level, 8-bit hash, overflow:
+    ?assertMatch(
+        <<"static", 2:?wcb>>,
+        stream_limit(<<"static">>, 1, <<16#ff:8>>)
+    ),
+    %% 3. 10th level, 128-bit hash, no overflow:
+    ?assertMatch(
+        <<"hello", 10:?wcb, "0123456789ABCDEG">>,
+        stream_limit(<<"hello">>, 10, <<"0123456789ABCDEF">>)
+    ),
+    %% 3. 10th level, 128-bit hash, overflow:
+    ?assertMatch(
+        <<"hello", 11:?wcb>>,
+        stream_limit(<<"hello">>, 10, <<(1 bsl 128 - 1):128>>)
+    ),
+    %% 4. Last valid wildcard hash level, 16-bit hash, overflow:
+    ?assertMatch(
+        <<"hello", 16#ffff:?wcb>>,
+        stream_limit(<<"hello">>, 16#ffff - 1, <<16#ffff:16>>)
+    ),
+    %% 5. Too many wildcard levels:
+    ?assertError(
+        too_many_wildcard_levels,
+        stream_limit(<<"hello">>, 16#ffff, <<"hash">>)
+    ),
+    ?assertError(
+        too_many_wildcard_levels,
+        stream_limit(<<"hello">>, 16#100000, <<"hash">>)
+    ).
+
+-endif.
