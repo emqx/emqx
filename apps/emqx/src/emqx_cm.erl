@@ -374,7 +374,7 @@ open_session_with_cm_locker(
 open_session_with_predecessor(_Predecessor, _ClientInfo, _ConnInfo, _MaybeWillMsg, Retries) when
     Retries < 0
 ->
-    {error, max_retries};
+    {error, ?lcr_err_max_retries};
 open_session_with_predecessor(Predecessor, ClientInfo0, ConnInfo, MaybeWillMsg, Retries) ->
     ClientInfo = ClientInfo0#{predecessor => Predecessor},
     {ok, Res} = open_session_lcr(ClientInfo, ConnInfo, MaybeWillMsg),
