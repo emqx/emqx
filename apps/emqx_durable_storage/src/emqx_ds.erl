@@ -973,7 +973,7 @@ call_if_implemented(Mod, Fun, Args, Default) ->
     transaction_opts(),
     non_neg_integer()
 ) ->
-    {ok, Ret} | error(_).
+    {ok, tx_serial() | undefined, Ret} | error(_).
 trans(DB, Fun, Opts, Retries) ->
     _ = put(?tx_ops_write, []),
     _ = put(?tx_ops_del_topic, []),
@@ -997,8 +997,7 @@ trans(DB, Fun, Opts, Retries) ->
                         ?ds_tx_expected := [],
                         ?ds_tx_unexpected := []
                     } ->
-                        %% Nothing to commit:
-                        %% FIXME: what should we return as the serial?
+                        %% Nothing to commit
                         {ok, undefined, Ret};
                     _ ->
                         case commit_blob_tx(DB, Ctx, Tx) of
@@ -1008,7 +1007,9 @@ trans(DB, Fun, Opts, Retries) ->
                                 Err;
                             ?err_rec(_) when Retries > 0 ->
                                 timer:sleep(RetryTimeout),
-                                trans(DB, Fun, Opts, Retries - 1)
+                                trans(DB, Fun, Opts, Retries - 1);
+                            Err ->
+                                Err
                         end
                 end;
             ?err_rec(_) ->

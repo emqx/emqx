@@ -17,7 +17,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
--export([do_process_stream_event/3]).
+-export([process_stream_event/4]).
 
 -export_type([]).
 
@@ -31,17 +31,10 @@
 %% Type declarations
 %%================================================================================
 
-%% Whenever we receive a notification that a stream has new data, we
-%% add this stream to this table. Events are deduplicated.
--record(active_streams, {
-    %% Table of streams
+-record(evtq, {
     t :: ets:tid(),
-    %% Last stream that we processed. It is kept to process streams in
-    %% a round robin fashion
     last_key :: term()
 }).
-
--type active_streams() :: #active_streams{}.
 
 -record(s, {
     module :: module(),
@@ -53,11 +46,9 @@
     queue :: emqx_ds_beamformer_waitq:t(),
     batch_size :: non_neg_integer(),
     worker :: pid() | undefined,
-    worker_ref :: reference() | undefined,
-    %% Table of streams that has new data:
-    active_streams = active_streams_new() :: active_streams(),
-    %% Queue of pending commands (such as subscribe/unsubscribe) saved
-    %% while the temporary worker is active:
+    %% Queue of pending events:
+    event_queue = make_evt_queue(),
+    %% Queue of pending commands (such as subscribe/unsubscribe):
     cmd_queue = [] :: [fun((S) -> S)]
 }).
 
@@ -136,7 +127,7 @@ handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
 handle_cast(#seal_event{rank = Rank}, S0) ->
-    Fun = fun(S = #s{queue = Queue}) ->
+    Fun = fun(S = #s{queue = Queue, worker = undefined}) ->
         %% Currently generation seal events are treated as stream events,
         %% for each known stream that has the matching rank:
         Streams = emqx_ds_beamformer_waitq:streams_of_rank(Rank, Queue),
@@ -148,13 +139,13 @@ handle_cast(#seal_event{rank = Rank}, S0) ->
 handle_cast(_Cast, S) ->
     {noreply, S}.
 
-handle_info(E = #shard_event{}, S = #s{shard = Shard, active_streams = Q}) ->
-    ?tp(debug, beamformer_rt_event, #{event => E, shard => Shard}),
-    active_streams_push(Q, E),
+handle_info(E = #shard_event{}, S = #s{shard = Shard, event_queue = Q}) ->
+    ?tp(info, beamformer_rt_event, #{event => E, shard => Shard}),
+    evt_queue_push(Q, E),
     {noreply, maybe_dispatch_event(S)};
-handle_info({Ref, Result}, S0 = #s{worker_ref = Ref}) ->
+handle_info({Ref, Result}, S0 = #s{worker = Ref}) ->
     ok = Result,
-    S = exec_pending_cmds(S0#s{worker = undefined, worker_ref = undefined}),
+    S = exec_pending_cmds(S0#s{worker = undefined}),
     {noreply, maybe_dispatch_event(S)};
 handle_info(
     ?housekeeping_loop, S0 = #s{name = Name, metrics_id = Metrics, queue = Queue}
@@ -185,14 +176,8 @@ handle_info(
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(Reason, #s{shard = ShardId, name = Name, sub_tab = SubTab, worker = Worker}) ->
-    case Worker of
-        undefined ->
-            ok;
-        Pid when is_pid(Pid) ->
-            unlink(Pid),
-            erlang:exit(Pid, shutdown)
-    end,
+terminate(Reason, #s{shard = ShardId, name = Name, sub_tab = SubTab}) ->
+    %% FIXME: deal with worker and pending cmds
     Pool = pool(ShardId),
     gproc_pool:disconnect_worker(Pool, Name),
     gproc_pool:remove_worker(Pool, Name),
@@ -223,7 +208,8 @@ do_enqueue(
     Reply =
         case high_watermark(Stream, S) of
             {ok, HighWatermark} ->
-                FFRes = emqx_ds_beamformer:fast_forward(CBM, Shard, It0, HighWatermark),
+                %% FFRes = emqx_ds_beamformer:fast_forward(CBM, Shard, It0, HighWatermark),
+                FFRes = fake_forward(CBM, Shard, It0, HighWatermark),
                 case FFRes of
                     {ok, It} ->
                         ?tp(beamformer_push_rt, #{
@@ -235,30 +221,6 @@ do_enqueue(
                         emqx_ds_beamformer:take_ownership(Shard, SubTab, Req),
                         ok;
                     {error, unrecoverable, has_data} ->
-                        %% TODO: This piece of code is very
-                        %% problematic, because it can cause an
-                        %% infinite back and forth loop.
-                        %%
-                        %% Alt. 1: Instead of kicking the subscription
-                        %% back we could attempt to simply read the
-                        %% data and deliver it to the client before
-                        %% adding it to the queue. This may, of
-                        %% course, introduce latency to the other
-                        %% clients in the RT queue. But the effect
-                        %% will be temporary, and only happen when a
-                        %% new subscription joins.
-                        %%
-                        %% Assuming that catchup worker has done all
-                        %% the heavy lifting, the impact on the
-                        %% latency should be small under normal
-                        %% circumstances.
-                        %%
-                        %% Alt. 2: Kill the subsription when this
-                        %% happens with a reason indicating overload
-                        %% and so the client re-subscribes.
-                        %%
-                        %% This should spread the load over time, but
-                        %% it's not the perfect solution.
                         ?tp(info, beamformer_push_rt_downgrade, #{
                             req_id => ReqId, stream => Stream, key => Key
                         }),
@@ -285,21 +247,13 @@ do_enqueue(
     ok = gen_server:reply(From, Reply),
     S.
 
+%% FIXME: it's fake, right.
+fake_forward(_, _, It, _) ->
+    {ok, It}.
+
 process_stream_event(Parent, RetryOnEmpty, Stream, S) ->
     T0 = erlang:monotonic_time(microsecond),
-    Parent = self(),
-    %% Poor man's arena:
-    Child = erlang:spawn_opt(
-        fun() ->
-            Result = do_process_stream_event(RetryOnEmpty, Stream, S),
-            Parent ! {self(), Result}
-        end,
-        [link, {min_heap_size, 10_000}]
-    ),
-    receive
-        {Child, _Result} ->
-            ok
-    end,
+    do_process_stream_event(Parent, RetryOnEmpty, Stream, S),
     emqx_ds_builtin_metrics:observe_beamformer_fulfill_time(
         S#s.metrics_id,
         erlang:monotonic_time(microsecond) - T0
@@ -437,7 +391,7 @@ stream_event(Stream) ->
 
 %% Add a callback to the pending command queue. It will be executed
 %% when the worker process is not running.
-push_cmd(S0 = #s{cmd_queue = Q0, worker_ref = W}, Fun) ->
+push_cmd(S0 = #s{cmd_queue = Q0, worker = W}, Fun) ->
     S = S0#s{cmd_queue = [Fun | Q0]},
     case W of
         undefined ->
@@ -461,38 +415,38 @@ exec_pending_cmds(S0 = #s{cmd_queue = Q}) ->
     ),
     S.
 
-active_streams_new() ->
-    #active_streams{
+make_evt_queue() ->
+    #evtq{
         t = ets:new(evt_queue, [private, ordered_set, {keypos, #shard_event.event}])
     }.
 
-maybe_dispatch_event(S = #s{worker_ref = W}) when is_reference(W) ->
+maybe_dispatch_event(S = #s{worker = W}) when is_reference(W) ->
     S;
-maybe_dispatch_event(S = #s{active_streams = AS0, worker_ref = undefined, queue = Queue}) ->
-    case active_streams_pop(AS0) of
+maybe_dispatch_event(S = #s{event_queue = Q0, worker = undefined, queue = Queue}) ->
+    case evt_queue_pop(Q0) of
         undefined ->
             S;
-        {ok, Stream, AS} ->
+        {ok, Stream, Q} ->
             case emqx_ds_beamformer_waitq:has_candidates(Stream, Queue) of
                 true ->
-                    {ok, Pid, Ref} = emqx_ds_lib:with_worker(
+                    {ok, Ref} = emqx_ds_lib:with_worker(
                         ?MODULE, process_stream_event, [self(), true, Stream, S]
                     ),
-                    S#s{worker = Pid, worker_ref = Ref, active_streams = AS};
+                    S#s{worker = Ref, event_queue = Q};
                 false ->
                     %% Even if we don't have any poll requests for the stream,
                     %% it's still necessary to update the high watermark to
                     %% avoid full scans of very old data:
-                    _ = update_high_watermark(Stream, S),
-                    S#s{active_streams = AS}
+                    update_high_watermark(Stream, S),
+                    S#s{event_queue = Q}
             end
     end.
 
-active_streams_push(#active_streams{t = T}, Event = #shard_event{}) ->
+evt_queue_push(#evtq{t = T}, Event = #shard_event{}) ->
     _ = ets:insert_new(T, Event),
     ok.
 
-active_streams_pop(Q = #active_streams{t = T, last_key = K0}) ->
+evt_queue_pop(Q = #evtq{t = T, last_key = K0}) ->
     case ets:next(T, K0) of
         '$end_of_table' ->
             case ets:first(T) of
@@ -500,9 +454,9 @@ active_streams_pop(Q = #active_streams{t = T, last_key = K0}) ->
                     undefined;
                 Key ->
                     [#shard_event{event = Stream}] = ets:take(T, Key),
-                    {ok, Stream, Q#active_streams{last_key = Key}}
+                    {ok, Stream, Q#evtq{last_key = Key}}
             end;
         Key ->
             [#shard_event{event = Stream}] = ets:take(T, Key),
-            {ok, Stream, Q#active_streams{last_key = Key}}
+            {ok, Stream, Q#evtq{last_key = Key}}
     end.

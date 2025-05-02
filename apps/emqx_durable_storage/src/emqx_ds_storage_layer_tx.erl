@@ -60,7 +60,7 @@ new_blob_tx_ctx(DB, Shard, Options, _Now) ->
             }}
     end.
 
--spec verify_preconditions(emqx_ds:db(), ctx(), emqx_ds:blob_tx_ops()) -> ok | ?err_unrec(_).
+-spec verify_preconditions(emqx_ds:db(), ctx(), emqx_ds:blob_tx_ops()) -> ok | emqx_ds:error().
 verify_preconditions(DB, #ds_tx_ctx{shard = Shard, generation = Gen}, Ops) ->
     ErrAcc0 = lists:foldl(
         fun({Topic, ValueMatcher}, Acc) ->

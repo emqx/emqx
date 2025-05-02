@@ -27,4 +27,11 @@
     opts :: emqx_ds:transaction_opts()
 }).
 
+-record(ds_tx, {
+    ctx :: emqx_ds:tx_context(),
+    ops :: emqx_ds:blob_tx_ops(),
+    from :: pid() | reference(),
+    ref :: reference()
+}).
+
 -endif.

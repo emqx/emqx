@@ -254,42 +254,55 @@ cook_blob_deletes2(GS, Static, Varying, LSK, Acc0) ->
 commit_batch(
     ShardId,
     #s{db = DB, trie_cf = TrieCF, trie = Trie, gs = GS},
-    #{?cooked_lts_ops := LtsOps, ?cooked_msg_ops := Operations},
+    Input,
     Options
 ) ->
     {ok, Batch} = rocksdb:batch(),
     try
-        %% Commit LTS trie to the storage:
+        %% Handle LTS updates:
         lists:foreach(
-            fun({Key, Val}) ->
-                ok = rocksdb:batch_put(Batch, TrieCF, term_to_binary(Key), term_to_binary(Val))
+            fun(#{?cooked_lts_ops := LtsOps}) ->
+                %% Commit LTS trie to the storage:
+                lists:foreach(
+                    fun({Key, Val}) ->
+                        ok = rocksdb:batch_put(
+                            Batch, TrieCF, term_to_binary(Key), term_to_binary(Val)
+                        )
+                    end,
+                    LtsOps
+                ),
+                %% Apply LTS ops to the memory cache and notify about the new
+                %% streams. Note: in case of `builtin_raft' backend
+                %% notification is sent _for every replica_ of the database, to
+                %% account for possible delays in the replication. Event
+                %% deduplication logic of `emqx_ds_new_streams' module should
+                %% mitigate the performance impact of repeated events.
+                _ = emqx_ds_lts:trie_update(Trie, LtsOps),
+                emqx_ds_gen_skipstream_lts:notify_new_streams(ShardId, Trie, LtsOps)
             end,
-            LtsOps
+            Input
         ),
-        %% Apply LTS ops to the memory cache and notify about the new
-        %% streams. Note: in case of `builtin_raft' backend
-        %% notification is sent _for every replica_ of the database, to
-        %% account for possible delays in the replication. Event
-        %% deduplication logic of `emqx_ds_new_streams' module should
-        %% mitigate the performance impact of repeated events.
-        _ = emqx_ds_lts:trie_update(Trie, LtsOps),
-        emqx_ds_gen_skipstream_lts:notify_new_streams(ShardId, Trie, LtsOps),
         %% Commit payloads:
         lists:foreach(
-            fun(?cooked_msg_op(Static, Varying, Op)) ->
-                StreamKey = stream_key(Varying),
-                case Op of
-                    Payload when is_binary(Payload) ->
-                        emqx_ds_gen_skipstream_lts:batch_put(
-                            GS, Batch, Static, Varying, StreamKey, Payload
-                        );
-                    ?cooked_delete ->
-                        emqx_ds_gen_skipstream_lts:batch_delete(
-                            GS, Batch, Static, Varying, StreamKey
-                        )
-                end
+            fun(#{?cooked_msg_ops := Operations}) ->
+                lists:foreach(
+                    fun(?cooked_msg_op(Static, Varying, Op)) ->
+                        StreamKey = stream_key(Varying),
+                        case Op of
+                            Payload when is_binary(Payload) ->
+                                emqx_ds_gen_skipstream_lts:batch_put(
+                                    GS, Batch, Static, Varying, StreamKey, Payload
+                                );
+                            ?cooked_delete ->
+                                emqx_ds_gen_skipstream_lts:batch_delete(
+                                    GS, Batch, Static, Varying, StreamKey
+                                )
+                        end
+                    end,
+                    Operations
+                )
             end,
-            Operations
+            Input
         ),
         Result = rocksdb:write_batch(DB, Batch, [
             {disable_wal, not maps:get(durable, Options, true)}
