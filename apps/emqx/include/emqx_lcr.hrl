@@ -10,7 +10,7 @@
 
 -record(lcr_channel, {
     id :: lcr_channel_id(),
-    pid :: pid() | undefined | '_',
+    pid :: pid() | undefined | '$1',
     vsn :: integer() | undefined | '$2'
 }).
 
