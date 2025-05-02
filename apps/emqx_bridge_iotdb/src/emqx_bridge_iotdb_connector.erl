@@ -923,11 +923,11 @@ render_channel_record(#{data := DataTemplate} = Channel, Msg) ->
         DeviceId = device_id(Msg, Payload, Channel),
         true ?= (<<"undefined">> =/= DeviceId),
         #{timestamp := TimestampTkn} = hd(DataTemplate),
-        NowNS = erlang:system_time(nanosecond),
+        NowNs = erlang:system_time(nanosecond),
         Nows = #{
-            now_ms => erlang:convert_time_unit(NowNS, nanosecond, millisecond),
-            now_us => erlang:convert_time_unit(NowNS, nanosecond, microsecond),
-            now_ns => NowNS
+            now_ms => erlang:convert_time_unit(NowNs, nanosecond, millisecond),
+            now_us => erlang:convert_time_unit(NowNs, nanosecond, microsecond),
+            now_ns => NowNs
         },
         {ok, MeasurementAcc, TypeAcc, ValueAcc} ?=
             proc_record_data(
