@@ -60,7 +60,7 @@
 ) ->
     ok | {error, _Reason}.
 
--callback prepare_blob_tx(
+-callback prepare_kv_tx(
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
     emqx_ds:tx_serial(),

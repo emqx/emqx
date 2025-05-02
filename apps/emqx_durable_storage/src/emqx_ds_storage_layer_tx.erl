@@ -64,7 +64,7 @@ new_kv_tx_ctx(DB, Shard, Options, _Now) ->
 verify_preconditions(DB, #kv_tx_ctx{shard = Shard, generation = Gen}, Ops) ->
     ErrAcc0 = lists:foldl(
         fun({Topic, ValueMatcher}, Acc) ->
-            case emqx_ds_storage_layer:lookup_blob({DB, Shard}, Gen, Topic) of
+            case emqx_ds_storage_layer:lookup_kv({DB, Shard}, Gen, Topic) of
                 {ok, {_, Value}} when
                     ValueMatcher =:= '_';
                     ValueMatcher =:= Value
@@ -81,7 +81,7 @@ verify_preconditions(DB, #kv_tx_ctx{shard = Shard, generation = Gen}, Ops) ->
     ),
     Errors = lists:foldl(
         fun(Topic, Acc) ->
-            case emqx_ds_storage_layer:lookup_blob({DB, Shard}, Gen, Topic) of
+            case emqx_ds_storage_layer:lookup_kv({DB, Shard}, Gen, Topic) of
                 {ok, Value} ->
                     [#{topic => Topic, unexpected => Value} | Acc];
                 undefined ->

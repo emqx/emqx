@@ -110,7 +110,7 @@ handle_cast(_Cast, S) ->
 commit_kv_batch(S, Txs) ->
     #s{dbshard = DBShard} = S,
     %% Verify the preconditions and cook valid transactions:
-    {CookedBatch, Replies} = prepare_blob_tx(S, Txs),
+    {CookedBatch, Replies} = prepare_kv_tx(S, Txs),
     case CookedBatch of
         undefined ->
             ok;
@@ -135,12 +135,12 @@ commit_kv_batch(S, Txs) ->
         Replies
     ).
 
-prepare_blob_tx(S, L) ->
-    prepare_blob_tx(S, L, undefined, []).
+prepare_kv_tx(S, L) ->
+    prepare_kv_tx(S, L, undefined, []).
 
-prepare_blob_tx(_S, [], CookedBatch, Replies) ->
+prepare_kv_tx(_S, [], CookedBatch, Replies) ->
     {CookedBatch, Replies};
-prepare_blob_tx(
+prepare_kv_tx(
     S,
     [#ds_tx{ctx = Ctx, ops = Ops, from = From, ref = Ref, meta = Meta} | Rest],
     CookedBatchAcc,
@@ -153,15 +153,15 @@ prepare_blob_tx(
         ok ?= emqx_ds_storage_layer_tx:verify_preconditions(DB, Ctx, Ops),
         CommitSerial = term_to_binary(new_serial(DBShard, SerRef)),
         {ok, CookedBatch} ?=
-            emqx_ds_storage_layer:prepare_blob_tx(
+            emqx_ds_storage_layer:prepare_kv_tx(
                 DBShard, GenId, CommitSerial, Ops, CookedBatchAcc, #{}
             ),
         Reply = ?ds_tx_commit_ok(Ref, Meta, CommitSerial),
-        prepare_blob_tx(S, Rest, CookedBatch, [{From, Reply} | Replies])
+        prepare_kv_tx(S, Rest, CookedBatch, [{From, Reply} | Replies])
     else
         {error, Class, Error} ->
             From ! ?ds_tx_commit_error(Ref, Meta, Class, Error),
-            prepare_blob_tx(S, Rest, CookedBatchAcc, Replies)
+            prepare_kv_tx(S, Rest, CookedBatchAcc, Replies)
     end.
 
 -spec do_store_batch_atomic(

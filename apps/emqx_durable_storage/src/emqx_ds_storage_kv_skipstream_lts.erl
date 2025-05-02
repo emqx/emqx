@@ -25,7 +25,7 @@
     create/6,
     open/5,
     drop/5,
-    prepare_blob_tx/5,
+    prepare_kv_tx/5,
     commit_batch/4,
     get_streams/4,
     make_iterator/5,
@@ -184,7 +184,7 @@ drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{data_cf = DataCF, trie_cf = TrieCF,
     ok = rocksdb:drop_column_family(DBHandle, TrieCF),
     ok.
 
-prepare_blob_tx(DBShard, S, TXID, Ops, _Options) ->
+prepare_kv_tx(DBShard, S, TXID, Ops, _Options) ->
     _ = emqx_ds_gen_skipstream_lts:pop_lts_persist_ops(),
     W = maps:get(?ds_tx_write, Ops, []),
     DT = maps:get(?ds_tx_delete_topic, Ops, []),

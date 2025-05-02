@@ -16,7 +16,7 @@
     store_batch/3,
     store_batch/4,
     prepare_batch/3,
-    prepare_blob_tx/6,
+    prepare_kv_tx/6,
     commit_batch/3,
     dispatch_events/3,
 
@@ -41,7 +41,7 @@
 
     %% Preconditions
     lookup_message/2,
-    lookup_blob/3,
+    lookup_kv/3,
 
     %% Generations
     update_config/3,
@@ -100,7 +100,7 @@
     batch_store_opts/0,
     poll_iterators/0,
     event_dispatch_f/0,
-    blob_tx_ctx/0
+    kv_tx_ctx/0
 ]).
 
 -include("emqx_ds.hrl").
@@ -282,7 +282,7 @@
 -define(ERR_GEN_GONE, {error, unrecoverable, generation_not_found}).
 -define(ERR_BUFF_FULL, {error, recoverable, reached_max}).
 
--record(blob_tx_ctx, {
+-record(kv_tx_ctx, {
     %% For convenience we store shard in the context (although it
     %% somewhat violates API layering). We treat it as an opaque
     %% object.
@@ -293,7 +293,7 @@
     opts :: emqx_ds:transaction_opts()
 }).
 
--opaque blob_tx_ctx() :: #blob_tx_ctx{}.
+-opaque kv_tx_ctx() :: #kv_tx_ctx{}.
 
 %%================================================================================
 %% Generation callbacks
@@ -489,7 +489,7 @@ batch_starts_at([]) ->
 
 %% @doc Transform a transaction into a "cooked batch" that can
 %% be stored in the transaction log or transfered over the network.
--spec prepare_blob_tx(
+-spec prepare_kv_tx(
     dbshard(),
     gen_id(),
     emqx_ds:tx_serial(),
@@ -498,21 +498,21 @@ batch_starts_at([]) ->
     batch_prepare_opts()
 ) ->
     {ok, cooked_batch()} | emqx_ds:error(_).
-prepare_blob_tx(Shard, GenId, TXSerial, Tx, OldBatch, Options) ->
+prepare_kv_tx(Shard, GenId, TXSerial, Tx, OldBatch, Options) ->
     case OldBatch of
         undefined ->
             Acc = [];
         #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := Acc} ->
             ok
     end,
-    ?tp(emqx_ds_storage_layer_prepare_blob_tx, #{
+    ?tp(emqx_ds_storage_layer_prepare_kv_tx, #{
         shard => Shard, generation => GenId, batch => Tx, options => Options
     }),
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             T0 = erlang:monotonic_time(microsecond),
             Result =
-                case Mod:prepare_blob_tx(Shard, GenData, TXSerial, Tx, Options) of
+                case Mod:prepare_kv_tx(Shard, GenData, TXSerial, Tx, Options) of
                     {ok, CookedBatch} ->
                         {ok, #{
                             ?tag => ?COOKED_BATCH,
@@ -867,9 +867,9 @@ lookup_message(ShardId, #message_matcher{timestamp = Time, topic = Topic}) ->
             not_found
     end.
 
--spec lookup_blob(dbshard(), emqx_ds:generation(), emqx_ds:topic()) ->
+-spec lookup_kv(dbshard(), emqx_ds:generation(), emqx_ds:topic()) ->
     {ok, emqx_ds:kv_pair()} | undefined | emqx_ds:error(_).
-lookup_blob(DBShard, Generation, Topic) ->
+lookup_kv(DBShard, Generation, Topic) ->
     case generation_get(DBShard, Generation) of
         not_found ->
             ?err_unrec(generation_not_found);
