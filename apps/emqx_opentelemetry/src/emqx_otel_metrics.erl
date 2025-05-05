@@ -113,10 +113,9 @@ filter_olp_metrics(Metrics) ->
         true ->
             Metrics;
         false ->
-            OlpMetrics = emqx_metrics:olp_metrics(),
             lists:filter(
                 fun({K, _}) ->
-                    not lists:member(K, OlpMetrics)
+                    not emqx_metrics:is_olp_metric(K)
                 end,
                 Metrics
             )
