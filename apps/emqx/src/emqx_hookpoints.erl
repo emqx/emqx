@@ -59,7 +59,8 @@
     'delivery.dropped',
     'delivery.completed',
     'cm.channel.unregistered',
-    'tls_handshake.psk_lookup'
+    'tls_handshake.psk_lookup',
+    'config.zones_updated'
 ]).
 
 %% Our template plugin used this hookpoints before its 5.1.0 version,
@@ -240,6 +241,11 @@ when
         | {error, term()}
         | normal
     ).
+
+%% NOTE
+%% Executed out of channel process context
+-callback 'config.zones_updated'(_Old :: emqx_config:config(), _New :: emqx_config:config()) ->
+    callback_result().
 
 %%-----------------------------------------------------------------------------
 %% API

@@ -21,7 +21,8 @@
 %% _before_ most of the EMQX applications are started.
 post_update(OldZones, NewZones) ->
     ok = emqx_flapping:update_config(),
-    ok = emqx_limiter:post_zone_config_update(OldZones, NewZones).
+    ok = emqx_limiter:post_zone_config_update(OldZones, NewZones),
+    ok = run_update_hook(OldZones, NewZones).
 
 is_olp_enabled() ->
     maps:fold(
@@ -54,4 +55,13 @@ assert_zone_exists(Name) when is_atom(Name) ->
     catch
         error:{config_not_found, _} ->
             throw({unknown_zone, Name})
+    end.
+
+run_update_hook(OldZones, NewZones) ->
+    try
+        emqx_hooks:run('config.zones_updated', [OldZones, NewZones])
+    catch
+        error:{invalid_hookpoint, _} ->
+            %% hooks are not registered yet
+            ok
     end.
