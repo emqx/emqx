@@ -132,6 +132,8 @@ init([]) ->
     ]),
     ok = mria_rlog:wait_for_shards([SHARD], infinity),
     ok = ekka:monitor(membership),
+
+    maybe_init_channel_cleanup(),
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
@@ -143,12 +145,12 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
-    ?tp(warning, lcr_mnesia_down, #{node => Node}),
-    cleanup_channels(Node),
+    ?tp(warning, lcr_mnesia_down, #{self_node => node(), down_node => Node}),
+    maybe_cleanup_channels(Node),
     {noreply, State};
 handle_info({membership, {node, down, Node}}, State) ->
-    ?tp(warning, lcr_node_down, #{node => Node}),
-    cleanup_channels(Node),
+    ?tp(warning, lcr_node_down, #{self_node => node(), down_node => Node}),
+    maybe_cleanup_channels(Node),
     {noreply, State};
 handle_info({membership, _Event}, State) ->
     {noreply, State};
@@ -162,17 +164,18 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-cleanup_channels(Node) ->
+maybe_cleanup_channels(Node) ->
     case if_cleanup_channels(Node) of
         true ->
+            ?tp(warning, lcr_node_down_cleanup, #{self_node => node(), down_node => Node}),
             do_cleanup_channels(Node);
         false ->
-            emqx_logger:info("~p: NO Cleanup channels for node ~p", [?MODULE, Node]),
+            ?tp(debug, lcr_node_down_no_cleanup, #{self_node => node(), down_node => Node}),
             ok
     end.
 
 do_cleanup_channels(Node) ->
-    emqx_logger:info("~p: Cleanup channels for node ~p", [?MODULE, Node]),
+    ?tp(warning, lcr_do_cleanup_channels, #{self_node => node()}),
     TS = erlang:system_time(),
     MatchSpec = [
         {
@@ -223,9 +226,18 @@ if_cleanup_channels(Node) ->
         false ->
             false;
         true ->
-            Cores = lists:usort(mria_membership:running_core_nodelist()),
-            Hash = erlang:phash2(Node, length(Cores)),
-            lists:nth(Hash + 1, Cores) =:= node()
+            %% @NOTE mria:cluster_nodes(cores) only returns 'DOWN' cores calling from `core' node.
+            case lists:member(Node, mria:cluster_nodes(cores)) of
+                true ->
+                    %%% Nobody will run cleanup for other core node because:
+                    %%% 1. usually no traffic via core nodes while table scan is expensive.
+                    %%% 2. core is designed and expected to comeback and clean up on its own.
+                    false;
+                false ->
+                    Cores = lists:usort(mria_membership:running_core_nodelist()),
+                    Hash = erlang:phash2(Node, length(Cores)),
+                    lists:nth(Hash + 1, Cores) =:= node()
+            end
     end.
 
 %% Internals
@@ -256,4 +268,12 @@ do_register_channel(#lcr_channel{id = ClientId, vsn = MyVsn} = Ch, CachedMax) ->
             ok;
         {aborted, Reason} ->
             {error, Reason}
+    end.
+
+maybe_init_channel_cleanup() ->
+    case mria_rlog:role() of
+        core ->
+            do_cleanup_channels(node());
+        _ ->
+            ok
     end.

@@ -333,6 +333,193 @@ t_takeover_timeout(Config) ->
         end
     ).
 
+t_lcr_cleanup_replicant(init, Config) ->
+    %% GIVEN: 5 nodes cluster with 2 replicants
+    Nodes = start_cluster(?FUNCTION_NAME, Config, 6),
+    [{cluster_nodes, Nodes} | Config].
+t_lcr_cleanup_replicant(Config) ->
+    process_flag(trap_exit, true),
+    ClientId = <<"client1">>,
+    ClientsOnR1 = [<<"client11">>, <<"client12">>, <<"client13">>, <<"client14">>],
+
+    ClientId2 = <<"client2">>,
+    ClientId3 = <<"client3">>,
+    CleanSession = false,
+    Nodes = ?config(cluster_nodes, Config),
+
+    Replicant = lists:last(Nodes),
+    Port1 = get_mqtt_port(Replicant, tcp),
+
+    Replicant2 = lists:last(Nodes -- [Replicant]),
+    ReplicantPort2 = get_mqtt_port(Replicant2, tcp),
+
+    Replicant3 = lists:last(Nodes -- [Replicant, Replicant2]),
+    ReplicantPort3 = get_mqtt_port(Replicant3, tcp),
+    %% GIVEN: Client1[1..4] on replicant node, client2 on replicant2 node
+    _Client1 = start_connect_client(#{
+        clientid => ClientId, port => Port1, clean_session => CleanSession
+    }),
+
+    _Client2 = start_connect_client(#{
+        clientid => ClientId2, port => ReplicantPort2, clean_session => CleanSession
+    }),
+
+    _Client3 = start_connect_client(#{
+        clientid => ClientId3, port => ReplicantPort3, clean_session => CleanSession
+    }),
+
+    lists:foreach(
+        fun(C) ->
+            start_connect_client(#{
+                clientid => C,
+                port => Port1,
+                clean_session => CleanSession
+            })
+        end,
+        ClientsOnR1
+    ),
+
+    true = erlang:monitor_node(Replicant, true),
+
+    %% WHEN: replicant node is down
+    emqx_cth_cluster:stop([Replicant]),
+
+    receive
+        {nodedown, Replicant} ->
+            ok
+    end,
+
+    timer:sleep(1000),
+    %% THEN: lcr of client1[1..4] should be cleaned up
+    %%%      while client2 and client3 remains
+    [
+        ?assertEqual(
+            {[[], [], [], [], []], [Replicant]},
+            rpc:multicall(Nodes, emqx_cm, lookup_channels, [C])
+        )
+     || C <- [ClientId | ClientsOnR1]
+    ],
+    ?assertMatch(
+        {[[_], [_], [_], [_], [_]], [Replicant]},
+        rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId2])
+    ),
+    ?assertMatch(
+        {[[_], [_], [_], [_], [_]], [Replicant]},
+        rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId3])
+    ).
+
+t_lcr_cleanup_core(init, Config) ->
+    %% GIVEN: 5 nodes cluster with 2 replicants
+    ClusterSize = 6,
+    ClusterSpec = cluster_spec(?FUNCTION_NAME, ClusterSize, Config),
+    Nodes = start_cluster(ClusterSpec),
+    [{cluster_nodes, Nodes}, {cluster_spec, ClusterSpec} | Config].
+t_lcr_cleanup_core(Config) ->
+    process_flag(trap_exit, true),
+    ClientId = <<"client1">>,
+    ClientsOnC1 = [<<"client11">>, <<"client12">>, <<"client13">>, <<"client14">>],
+
+    ClientId2 = <<"client2">>,
+    ClientId3 = <<"client3">>,
+    CleanSession = false,
+    Nodes = ?config(cluster_nodes, Config),
+
+    Core1 = hd(Nodes),
+    Core1Spec = hd(?config(cluster_spec, Config)),
+    Replicant = lists:last(Nodes),
+    Port1 = get_mqtt_port(Core1, tcp),
+
+    Replicant2 = lists:last(Nodes -- [Replicant]),
+    ReplicantPort2 = get_mqtt_port(Replicant2, tcp),
+
+    Replicant3 = lists:last(Nodes -- [Replicant, Replicant2]),
+    ReplicantPort3 = get_mqtt_port(Replicant3, tcp),
+    %% GIVEN: Client1[1..4] on core node, client2 on replicant2 node
+    _Client1 = start_connect_client(#{
+        clientid => ClientId, port => Port1, clean_session => CleanSession
+    }),
+
+    _Client2 = start_connect_client(#{
+        clientid => ClientId2, port => ReplicantPort2, clean_session => CleanSession
+    }),
+
+    _Client3 = start_connect_client(#{
+        clientid => ClientId3, port => ReplicantPort3, clean_session => CleanSession
+    }),
+
+    lists:foreach(
+        fun(C) ->
+            start_connect_client(#{
+                clientid => C,
+                port => Port1,
+                clean_session => CleanSession
+            })
+        end,
+        ClientsOnC1
+    ),
+
+    [
+        ?assertMatch(
+            {[[_], [_], [_], [_], [_], [_]], []},
+            rpc:multicall(Nodes, emqx_cm, lookup_channels, [C])
+        )
+     || C <- [ClientId | ClientsOnC1]
+    ],
+
+    true = erlang:monitor_node(Core1, true),
+
+    %% WHEN: core node is down
+    rpc:call(Core1, timer, apply_after, [1000, erlang, halt, [0]]),
+
+    receive
+        {nodedown, Core1} ->
+            ok
+    after 5000 ->
+        ct:pal("Node down timeout, core node: ~p", [Core1])
+    end,
+
+    timer:sleep(1000),
+
+    %% THEN: all clients should be cleaned.
+    [
+        ?assertMatch(
+            {[[_], [_], [_], [_], [_]], [Core1]},
+            %rpc:multicall(Nodes, emqx_cm, lookup_channels, [C]))
+            rpc:multicall(Nodes, ets, lookup, [emqx_lcr, C])
+        )
+     || C <- [ClientId | ClientsOnC1]
+    ],
+    ?assertMatch(
+        {[[_], [_], [_], [_], [_]], [Core1]},
+        rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId2])
+    ),
+    ?assertMatch(
+        {[[_], [_], [_], [_], [_]], [Core1]},
+        rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId3])
+    ),
+
+    %% WHEN: the code node is up
+    emqx_cth_cluster:restart(Core1Spec),
+
+    timer:sleep(5000),
+
+    %% THEN: clients which is previously down must be cleaned up
+    [
+        ?assertEqual(
+            {[[], [], [], [], [], []], []},
+            rpc:multicall(Nodes, emqx_cm, lookup_channels, [C])
+        )
+     || C <- [ClientId | ClientsOnC1]
+    ],
+    ?assertMatch(
+        {[[_], [_], [_], [_], [_], [_]], []},
+        rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId2])
+    ),
+    ?assertMatch(
+        {[[_], [_], [_], [_], [_], [_]], []},
+        rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId3])
+    ).
+
 %% Helpers
 suspend_channel(Node, ClientId) ->
     ChanPids = rpc:call(Node, emqx_cm, lookup_channels, [ClientId]),
@@ -388,11 +575,10 @@ start_connect_client(Opts = #{}) ->
     Client.
 
 start_cluster(TestCase, Config, ClusterSize) ->
-    emqx_cth_cluster:start(
-        cluster_spec(ClusterSize, Config),
-        %% Use Node1 to scope the work dirs for all the nodes
-        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
-    ).
+    start_cluster(cluster_spec(TestCase, ClusterSize, Config)).
+
+start_cluster(ClusterSpec) ->
+    emqx_cth_cluster:start(ClusterSpec).
 
 ensure_dist() ->
     case net_kernel:get_state() of
@@ -402,9 +588,9 @@ ensure_dist() ->
             ok
     end.
 
--spec cluster_spec(Size :: non_neg_integer(), Config :: proplists:proplist()) ->
+-spec cluster_spec(TCName :: atom(), Size :: non_neg_integer(), Config :: proplists:proplist()) ->
     [emqx_cth_cluster:nodespec()].
-cluster_spec(Size, _Config) ->
+cluster_spec(TCName, Size, Config) ->
     EmqxConf = "broker.enable_linear_channel_registry = true\nbroker.enable_session_registry=false",
     NoCores = min(3, Size),
     NoReplicants = Size - NoCores,
@@ -421,4 +607,4 @@ cluster_spec(Size, _Config) ->
      || N <- lists:seq(1, NoReplicants)
     ],
     Cluster = Cores ++ Replicants,
-    Cluster.
+    emqx_cth_cluster:mk_nodespecs(Cluster, #{work_dir => emqx_cth_suite:work_dir(TCName, Config)}).
