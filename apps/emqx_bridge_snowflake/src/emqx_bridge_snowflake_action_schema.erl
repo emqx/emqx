@@ -73,6 +73,11 @@ fields(aggreg_parameters) ->
         {mode, mk(aggregated, #{required => true, desc => ?DESC("aggregated_mode")})},
         {aggregation, mk(ref(aggregation), #{required => true, desc => ?DESC("aggregation")})},
         {private_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC("private_key")})},
+        {private_key_password,
+            emqx_schema_secret:mk(#{
+                required => false,
+                desc => ?DESC("private_key_password")
+            })},
         {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
         {schema, mk(binary(), #{required => true, desc => ?DESC("schema")})},
         {stage, mk(binary(), #{required => true, desc => ?DESC("stage")})},

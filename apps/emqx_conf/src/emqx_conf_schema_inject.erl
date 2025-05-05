@@ -65,7 +65,8 @@ shared_subs(ee) ->
 bridges(ee) ->
     [
         emqx_bridge_disk_log_connector_schema,
-        emqx_bridge_mqtt_connector_schema
+        emqx_bridge_mqtt_connector_schema,
+        emqx_bridge_snowflake_connector_schema
     ].
 
 %% Add more schemas here.
