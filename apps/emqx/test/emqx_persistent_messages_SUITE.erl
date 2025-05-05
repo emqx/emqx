@@ -265,6 +265,11 @@ t_qos0_only_many_streams(_Config) ->
         emqtt:stop(Pub)
     end.
 
+%% Smoke test QoS0 and QoS1/2 subscriptions coexisting in a durable session.
+%% Verifies that such subscriptions follow relevant MQTT Spec requirements and provide
+%% message ordering guarantees corresponding to the mechanism they operate through:
+%% publishing order for "direct" QoS0 subsctipions and per-topic publishing order for
+%% DS-based QoS1/2 subscriptions.
 t_mixed_qos_subscriptions(_Config) ->
     CPub = connect(<<"mixed_qos_subscriptions:pub">>, true, 0),
     CSub = connect(<<"mixed_qos_subscriptions:sub">>, true, 30),
@@ -324,9 +329,12 @@ t_mixed_qos_subscriptions(_Config) ->
         lists:foreach(fun emqtt:stop/1, [CPub, CSub])
     end.
 
-t_qos0_subscription_upgrade_downgrade(_Config) ->
-    CIDSub = <<"qos0_subscription_upgrade_downgrade:sub">>,
-    CPub = connect(<<"mixed_qos_subscriptions:pub">>, true, 0),
+%% Verify that QoS0 "direct" subcsriptions can be turned into QoS1/2 DS-based
+%% subscriptions in a durable session and vice versa, and subscriptions survive
+%% client reconnects regardless of the mechanism.
+t_mixed_qos_subscription_upgrade_downgrade(_Config) ->
+    CIDSub = <<"mixed_qos_subscription_upgrade_downgrade:sub">>,
+    CPub = connect(<<"mixed_qos_subscription_upgrade_downgrade:pub">>, true, 0),
     CSub1 = connect(CIDSub, true, 30),
     try
         %% This should turn into durable mode subscription.
