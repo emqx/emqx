@@ -131,11 +131,24 @@ mqtt_subscription_max_qos_rules.label:
 """Max Subscription QoS Rules"""
 
 topic_qos_rule_match.desc:
-"""Expression evaluated over the given topic to decide if the rule applies.
-Follows `<topic-predicate>(topic, '<topic-argument>')` syntax where `<topic-argument>` is a string containing literal topic filter, and `<topic-predicate>` is one of:
-* `topic_equal`,
-* `topic_intersects`,
-* `topic_subset_of`."""
+"""Expression evaluated over the given topic (or topic filter) to decide if the rule applies.
+Follows `<topic-predicate>(topic, '<topic-argument>')` syntax where `<topic-argument>` is a string containing literal topic filter. Following topic predicates are allowed:
+
+* `topic_equal`
+
+    Given topic or topic filter is simply equal to the argument.
+
+* `topic_subset_of`
+
+    Tests if given topic filter effectively covers a subset of topics that are covered by the topic filter in the argument.
+
+    For example, if `topic` is `t/conf/+` then `topic_subset_of(topic, 't/+/#')` is _true_ but `topic_subset_of(topic, 't/conf/+/+')` is _false_.
+
+* `topic_intersects`
+
+    Set of topics covered by given topic intersects with set of topics covered by the topic filter in the argument.
+
+    For example, if `topic` is `t/conf/+` then `topic_intersects(topic, 't/+/1337')` is _true_ but `topic_intersects(topic, 't/+')` is _false_.""" 
 
 topic_qos_rule_match.label:
 """Topic Match"""
