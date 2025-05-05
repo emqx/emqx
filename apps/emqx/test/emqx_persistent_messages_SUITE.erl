@@ -279,20 +279,20 @@ t_mixed_qos_subscriptions(_Config) ->
         SIDQ0 = 32#Q0,
         %% This should turn into durable mode subscription.
         {ok, _, [?RC_GRANTED_QOS_1]} =
-            emqtt:subscribe(CSub, #{?PROP_SUBID => SIDQ1}, <<"t/+/#">>, qos1),
+            emqtt:subscribe(CSub, #{?PROP_SUBID => SIDQ1}, <<"t/+">>, qos1),
         %% This should turn into simpler, direct mode subscription.
         {ok, _, [?RC_GRANTED_QOS_0]} =
-            emqtt:subscribe(CSub, #{?PROP_SUBID => SIDQ0}, <<"t/+/+">>, qos0),
+            emqtt:subscribe(CSub, #{?PROP_SUBID => SIDQ0}, <<"t/#">>, qos0),
         %% Verify that respective routes end up in different tables:
-        ?assertEqual([<<"t/+/+">>], emqx_router:topics()),
-        ?assertEqual([<<"t/+/#">>], emqx_persistent_session_ds_router:topics()),
+        ?assertEqual([<<"t/+">>], emqx_persistent_session_ds_router:topics()),
+        ?assertEqual([<<"t/#">>], emqx_router:topics()),
         %% Publish a bunch of messages:
         Messages = [
             {<<"t/level/1">>, <<"0">>, 2},
             {<<"t/1">>, <<"1">>, 2},
             {<<"t/level/2">>, <<"2">>, 1},
-            {<<"t">>, <<"XXX">>, 0},
-            {<<"t/1">>, <<"3">>, 0},
+            {<<"/t">>, <<"XXX">>, 0},
+            {<<"t/2">>, <<"3">>, 0},
             {<<"t/level/1">>, <<"4">>, 0},
             {<<"t/1">>, <<"5">>, 0}
         ],
@@ -302,8 +302,11 @@ t_mixed_qos_subscriptions(_Config) ->
         ?assertMatch(
             [
                 #{topic := <<"t/level/1">>, payload := <<"0">>},
+                #{topic := <<"t/1">>, payload := <<"1">>},
                 #{topic := <<"t/level/2">>, payload := <<"2">>},
-                #{topic := <<"t/level/1">>, payload := <<"4">>}
+                #{topic := <<"t/2">>, payload := <<"3">>},
+                #{topic := <<"t/level/1">>, payload := <<"4">>},
+                #{topic := <<"t/1">>, payload := <<"5">>}
             ],
             [M || M = #{properties := #{?PROP_SUBID := SID}} <- Received, SID == SIDQ0],
             Received
@@ -312,11 +315,8 @@ t_mixed_qos_subscriptions(_Config) ->
         ?assertMatch(
             [
                 #{qos := 1, topic := <<"t/1">>, payload := <<"1">>},
-                #{qos := 0, topic := <<"t/1">>, payload := <<"3">>},
                 #{qos := 0, topic := <<"t/1">>, payload := <<"5">>},
-                #{qos := 1, topic := <<"t/level/1">>, payload := <<"0">>},
-                #{qos := 0, topic := <<"t/level/1">>, payload := <<"4">>},
-                #{qos := 1, topic := <<"t/level/2">>, payload := <<"2">>}
+                #{qos := 0, topic := <<"t/2">>, payload := <<"3">>}
             ],
             group_by(
                 topic,
@@ -324,7 +324,19 @@ t_mixed_qos_subscriptions(_Config) ->
             ),
             Received
         ),
-        ?assertNotReceive(_)
+        ?assertNotReceive(_),
+        %% Only messages matching `SIDQ1` subscription should have ended up in DS.
+        ?assertMatch(
+            [
+                #message{qos = 2, topic = <<"t/1">>, payload = <<"1">>},
+                #message{qos = 0, topic = <<"t/2">>, payload = <<"3">>},
+                #message{qos = 0, topic = <<"t/1">>, payload = <<"5">>}
+            ],
+            lists:keysort(
+                #message.payload,
+                emqx_ds_test_helpers:consume(?PERSISTENT_MESSAGE_DB, ['#'])
+            )
+        )
     after
         lists:foreach(fun emqtt:stop/1, [CPub, CSub])
     end.
