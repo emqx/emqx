@@ -301,7 +301,7 @@ on_query(
     is_map_key(ActionResId, InstalledActions)
 ->
     #{ActionResId := #{mode := aggregated} = ActionState} = InstalledActions,
-    run_aggregated_action([Data], ActionState);
+    run_aggregated_action([Data], ActionResId, ActionState);
 on_query(
     _ConnResId,
     #insert_report{action_res_id = ActionResId, opts = Opts},
@@ -321,7 +321,7 @@ on_batch_query(_ConnResId, [{ActionResId, _} | _] = Batch0, #{installed_actions 
 ->
     #{ActionResId := #{mode := aggregated} = ActionState} = InstalledActions,
     Batch = [Data || {_, Data} <- Batch0],
-    run_aggregated_action(Batch, ActionState);
+    run_aggregated_action(Batch, ActionResId, ActionState);
 on_batch_query(_ConnResId, Batch, _ConnState) ->
     {error, {unrecoverable_error, {bad_batch, Batch}}}.
 
@@ -806,8 +806,12 @@ ensure_common_action_destroyed(ActionResId) ->
     ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ActionResId),
     ok.
 
-run_aggregated_action(Batch, #{aggreg_id := AggregId}) ->
+run_aggregated_action(Batch, ActionResId, #{aggreg_id := AggregId}) ->
     Timestamp = erlang:system_time(second),
+    emqx_trace:rendered_action_template(ActionResId, #{
+        mode => aggregated,
+        records => Batch
+    }),
     case emqx_connector_aggregator:push_records(AggregId, Timestamp, Batch) of
         ok ->
             ok;

@@ -860,8 +860,10 @@ preproc_data_template(DataList) ->
     ).
 
 do_on_query(InstanceId, ChannelId, Data, #{driver := restapi} = State) ->
+    %% HTTP connector already calls `emqx_trace:rendered_action_template`.
     emqx_bridge_http_connector:on_query(InstanceId, {ChannelId, Data}, State);
-do_on_query(InstanceId, _ChannelId, Data, #{driver := thrift} = _State) ->
+do_on_query(InstanceId, ChannelId, Data, #{driver := thrift} = _State) ->
+    emqx_trace:rendered_action_template(ChannelId, #{records => Data}),
     ecpool:pick_and_do(InstanceId, {iotdb, insert_records, [Data]}, no_handover).
 
 %% 1. The default timeout in Thrift is `infinity`, but it may cause stuck
@@ -921,11 +923,11 @@ render_channel_record(#{data := DataTemplate} = Channel, Msg) ->
         DeviceId = device_id(Msg, Payload, Channel),
         true ?= (<<"undefined">> =/= DeviceId),
         #{timestamp := TimestampTkn} = hd(DataTemplate),
-        NowNS = erlang:system_time(nanosecond),
+        NowNs = erlang:system_time(nanosecond),
         Nows = #{
-            now_ms => erlang:convert_time_unit(NowNS, nanosecond, millisecond),
-            now_us => erlang:convert_time_unit(NowNS, nanosecond, microsecond),
-            now_ns => NowNS
+            now_ms => erlang:convert_time_unit(NowNs, nanosecond, millisecond),
+            now_us => erlang:convert_time_unit(NowNs, nanosecond, microsecond),
+            now_ns => NowNs
         },
         {ok, MeasurementAcc, TypeAcc, ValueAcc} ?=
             proc_record_data(

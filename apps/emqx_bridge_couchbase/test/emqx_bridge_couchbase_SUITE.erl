@@ -375,6 +375,20 @@ pre_publish_fn(Scope, Collection, Config) ->
         Context
     end.
 
+post_publish_fn(Scope, Collection, Config) ->
+    fun(#{payload := Payload} = Context) ->
+        %% need to retry because things are async in couchbase
+        ?retry(
+            100,
+            10,
+            ?assertMatch(
+                {ok, [#{<<"payload">> := Payload}]},
+                get_all_rows(Scope, Collection, Config)
+            )
+        ),
+        Context
+    end.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -395,18 +409,7 @@ t_rule_action(Config) ->
     Scope = scope(),
     Collection = ?config(action_name, Config),
     PrePublishFn = pre_publish_fn(Scope, Collection, Config),
-    PostPublishFn = fun(#{payload := Payload} = Context) ->
-        %% need to retry because things are async in couchbase
-        ?retry(
-            100,
-            10,
-            ?assertMatch(
-                {ok, [#{<<"payload">> := Payload}]},
-                get_all_rows(Scope, Collection, Config)
-            )
-        ),
-        Context
-    end,
+    PostPublishFn = post_publish_fn(Scope, Collection, Config),
     Opts = #{pre_publish_fn => PrePublishFn, post_publish_fn => PostPublishFn},
     ok = emqx_bridge_v2_testlib:t_rule_action(Config, Opts),
     ok.
@@ -478,3 +481,18 @@ t_sync_query_down(Config) ->
     },
     emqx_bridge_v2_testlib:t_sync_query_down(Config, Opts),
     ok.
+
+t_rule_test_trace(Config) ->
+    Scope = scope(),
+    Collection = ?config(action_name, Config),
+    PreTestFn = pre_publish_fn(Scope, Collection, Config),
+    CleanupFn = fun(Context) ->
+        delete_scope(scope(), Config),
+        PreTestFn(Context)
+    end,
+    Opts = #{
+        pre_test_fn => PreTestFn,
+        post_test_fn => post_publish_fn(Scope, Collection, Config),
+        cleanup_fn => CleanupFn
+    },
+    emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).

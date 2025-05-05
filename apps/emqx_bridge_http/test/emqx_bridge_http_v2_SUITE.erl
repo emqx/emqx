@@ -261,6 +261,21 @@ t_disable_action_counters(Config) ->
 
     ok.
 
+t_rule_test_trace(Config) ->
+    ConnectorCfg = make_connector_config(Config),
+    ActionCfg = make_action_config(Config),
+    CreateConfig = [
+        {bridge_kind, action},
+        {action_type, ?BRIDGE_TYPE},
+        {action_name, ?BRIDGE_NAME},
+        {action_config, ActionCfg},
+        {connector_type, ?BRIDGE_TYPE},
+        {connector_name, ?CONNECTOR_NAME},
+        {connector_config, ConnectorCfg}
+    ],
+    Opts = #{},
+    emqx_bridge_v2_testlib:t_rule_test_trace(CreateConfig, Opts).
+
 %%--------------------------------------------------------------------
 %% helpers
 %%--------------------------------------------------------------------

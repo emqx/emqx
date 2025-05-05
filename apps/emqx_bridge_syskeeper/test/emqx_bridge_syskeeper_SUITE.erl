@@ -92,9 +92,8 @@ init_per_testcase(_Testcase, Config) ->
 
 end_per_testcase(_Testcase, _Config) ->
     ok = snabbkaffe:stop(),
-    delete_bridge(syskeeper_forwarder, ?SYSKEEPER_NAME),
-    delete_connectors(syskeeper_forwarder, ?SYSKEEPER_NAME),
-    delete_connectors(syskeeper_proxy, ?SYSKEEPER_PROXY_NAME),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -436,3 +435,29 @@ t_list_v1_bridges_forwarder(Config) ->
         []
     ),
     ok.
+
+%% Apparently, `proxy` connector does not have any associated action type.
+t_rule_test_trace_forwarder(Config) ->
+    {ProxyName, ProxyConf} = syskeeper_proxy_config(Config),
+    {ok, _} = create_connectors(syskeeper_proxy, ProxyName, ProxyConf),
+    {ConnectorName, ConnectorConfig} = syskeeper_connector_config(Config),
+    {ActionName, ActionConfig0} = syskeeper_config(Config),
+    ActionConfig = emqx_utils_maps:deep_merge(
+        ActionConfig0,
+        #{<<"parameters">> => #{<<"target_topic">> => <<"/dev/null">>}}
+    ),
+    PayloadFn = fun() -> emqx_utils_json:encode(make_message()) end,
+    Opts = #{payload_fn => PayloadFn},
+    emqx_bridge_v2_testlib:t_rule_test_trace(
+        [
+            {bridge_kind, action},
+            {connector_type, syskeeper_forwarder},
+            {connector_name, ConnectorName},
+            {connector_config, ConnectorConfig},
+            {action_type, syskeeper_forwarder},
+            {action_name, ActionName},
+            {action_config, ActionConfig}
+            | Config
+        ],
+        Opts
+    ).

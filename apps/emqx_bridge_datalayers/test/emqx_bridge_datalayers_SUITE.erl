@@ -122,10 +122,14 @@ init_per_group(DatalayersType, Config0) when
                     {datalayers_port, DatalayersPort},
                     {ehttpc_pool_name, EHttpcPoolName},
 
+                    {bridge_kind, action},
                     {bridge_type, datalayers},
                     {bridge_name, Name},
                     {bridge_config, ActionConfMap},
                     {bridge_config_string, ActionConfString},
+                    {action_type, datalayers},
+                    {action_name, Name},
+                    {action_config, ActionConfMap},
 
                     {connector_name, Name},
                     {connector_type, datalayers},
@@ -830,10 +834,10 @@ t_bad_timestamp(Config) ->
         ActionName
     ),
     Config1 = lists:keystore(
-        bridge_config,
+        action_config,
         1,
         Config,
-        {bridge_config, ActionConfig1}
+        {action_config, ActionConfig1}
     ),
     ?assertMatch(
         {ok, _},
@@ -1228,3 +1232,7 @@ t_authentication_error_on_send_message(Config0) ->
             )
     end,
     ok.
+
+t_rule_test_trace(Config) ->
+    Opts = #{},
+    emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
