@@ -35,12 +35,14 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(HTTP_TIMEOUT, timer:seconds(15)).
--define(RETRY_TIMEOUT, 5_000).
 -ifdef(TEST).
--define(MIN_REFRESH_PERIOD, timer:seconds(5)).
+-define(RETRY_TIMEOUT, 500).
+-define(MIN_REFRESH_PERIOD, 500).
 -else.
+-define(RETRY_TIMEOUT, 5_000).
 -define(MIN_REFRESH_PERIOD, timer:minutes(1)).
 -endif.
+-define(DEFAULT_FAILURE_THRESHOLD, 10).
 -define(DEFAULT_REFRESH_INTERVAL, timer:minutes(15)).
 -define(DEFAULT_CACHE_CAPACITY, 100).
 -define(CONF_KEY_PATH, [crl_cache]).
@@ -57,6 +59,7 @@
     %% registered.
     cached_urls = sets:new([{version, 2}]) :: sets:set(url()),
     cache_capacity = 100 :: pos_integer(),
+    failures = #{} :: #{url() => pos_integer()},
     %% for future use
     extra = #{} :: map()
 }).
@@ -130,22 +133,8 @@ handle_cast({evict, URL}, State0 = #state{refresh_timers = RefreshTimers0}) ->
 handle_cast({register_der_crls, URL, CRLs}, State0) ->
     handle_register_der_crls(State0, URL, CRLs);
 handle_cast({refresh, URL}, State0) ->
-    case do_http_fetch_and_cache(URL, State0#state.http_timeout) of
-        {error, Error} ->
-            ?tp(crl_refresh_failure, #{error => Error, url => URL}),
-            ?SLOG(error, #{
-                msg => "failed_to_fetch_crl_response",
-                url => URL,
-                error => Error
-            }),
-            {noreply, ensure_timer(URL, State0, ?RETRY_TIMEOUT)};
-        {ok, _CRLs} ->
-            ?SLOG(debug, #{
-                msg => "fetched_crl_response",
-                url => URL
-            }),
-            {noreply, ensure_timer(URL, State0)}
-    end;
+    State = do_handle_refresh(State0, URL),
+    {noreply, State};
 handle_cast({update_config, Conf}, State0) ->
     {noreply, update_state_config(Conf, State0)};
 handle_cast(_Cast, State) ->
@@ -153,28 +142,16 @@ handle_cast(_Cast, State) ->
 
 handle_info(
     {timeout, TRef, {refresh, URL}},
-    State = #state{
-        refresh_timers = RefreshTimers,
-        http_timeout = HTTPTimeoutMS
-    }
+    State0 = #state{refresh_timers = RefreshTimers}
 ) ->
     case maps:get(URL, RefreshTimers, undefined) of
         TRef ->
             ?tp(debug, crl_refresh_timer, #{url => URL}),
-            case do_http_fetch_and_cache(URL, HTTPTimeoutMS) of
-                {error, Error} ->
-                    ?SLOG(error, #{
-                        msg => "failed_to_fetch_crl_response",
-                        url => URL,
-                        error => Error
-                    }),
-                    {noreply, ensure_timer(URL, State, ?RETRY_TIMEOUT)};
-                {ok, _CRLs} ->
-                    ?tp(debug, crl_refresh_timer_done, #{url => URL}),
-                    {noreply, ensure_timer(URL, State)}
-            end;
+            State = do_handle_refresh(State0, URL),
+            ?tp(debug, crl_refresh_timer_done, #{url => URL}),
+            {noreply, State};
         _ ->
-            {noreply, State}
+            {noreply, State0}
     end;
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -311,6 +288,58 @@ handle_cache_overflow(State0) ->
                 cached_urls = CachedURLs,
                 refresh_timers = RefreshTimers
             }
+    end.
+
+do_handle_refresh(State0, URL) ->
+    case do_http_fetch_and_cache(URL, State0#state.http_timeout) of
+        {error, Error} ->
+            ?tp(crl_refresh_failure, #{error => Error, url => URL}),
+            ?SLOG(error, #{
+                msg => "failed_to_fetch_crl_response",
+                url => URL,
+                error => Error
+            }),
+            State1 = inc_failure(State0, URL),
+            case is_failure_threshold_exceeded(State1, URL) of
+                true ->
+                    ?tp(warning, "crl_cache_evicted_url_due_to_failure_threshold", #{url => URL}),
+                    evict(URL),
+                    State1;
+                false ->
+                    ensure_timer(URL, State1, ?RETRY_TIMEOUT)
+            end;
+        {ok, _CRLs} ->
+            ?SLOG(debug, #{
+                msg => "fetched_crl_response",
+                url => URL
+            }),
+            State1 = clear_failure(State0, URL),
+            ensure_timer(URL, State1)
+    end.
+
+inc_failure(State0, URL) ->
+    #state{failures = Failures0} = State0,
+    Failures = maps:update_with(
+        URL,
+        fun(N) -> N + 1 end,
+        1,
+        Failures0
+    ),
+    State0#state{failures = Failures}.
+
+clear_failure(State0, URL) ->
+    #state{failures = Failures0} = State0,
+    Failures = maps:remove(URL, Failures0),
+    State0#state{failures = Failures}.
+
+is_failure_threshold_exceeded(State, URL) ->
+    FailureThreshold = emqx:get_config([crl_cache, failure_threshold], ?DEFAULT_FAILURE_THRESHOLD),
+    #state{failures = Failures} = State,
+    case Failures of
+        #{URL := N} when N > FailureThreshold ->
+            true;
+        _ ->
+            false
     end.
 
 to_string(B) when is_binary(B) ->

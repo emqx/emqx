@@ -94,6 +94,7 @@
 ]).
 
 -export([ensure_loaded/1]).
+-export([is_standalone_test/0]).
 
 %% DS test helpers
 -export([
@@ -1565,3 +1566,7 @@ format_io_requests(IoRequests) ->
         end,
         IoRequests
     ).
+
+%% In standalone tests, other applications such as `emqx_conf` are not available.
+is_standalone_test() ->
+    not emqx_common_test_helpers:ensure_loaded(emqx_conf).

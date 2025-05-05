@@ -113,13 +113,47 @@ init_per_testcase(TestCase, Config) when
         {tc_apps, Apps}
         | Config
     ];
+init_per_testcase(t_evict_after_failure_threshold = TestCase, Config) ->
+    case emqx_common_test_helpers:is_standalone_test() of
+        true ->
+            %% We use `emqx_utils` here.
+            {skip, standalone_not_supported};
+        false ->
+            ct:timetrap({seconds, 30}),
+            ok = snabbkaffe:start_trace(),
+            DataDir = ?config(data_dir, Config),
+            {CRLPem, CRLDer} = read_crl(filename:join(DataDir, "intermediate-not-revoked.crl.pem")),
+            ok = meck:new(emqx_crl_cache, [passthrough, no_history, no_link]),
+            mock_success_http_response(CRLPem),
+            FailureThreshold = 3,
+            Apps = start_emqx_with_crl_cache(
+                #{
+                    is_cached => true,
+                    overrides => #{
+                        crl_cache => #{
+                            refresh_interval => <<"300ms">>,
+                            failure_threshold => FailureThreshold
+                        }
+                    }
+                },
+                TestCase,
+                Config
+            ),
+            [
+                {crl_pem, CRLPem},
+                {crl_der, CRLDer},
+                {tc_apps, Apps},
+                {failure_threshold, FailureThreshold}
+                | Config
+            ]
+    end;
 init_per_testcase(t_refresh_config = TestCase, Config) ->
     ct:timetrap({seconds, 30}),
     ok = snabbkaffe:start_trace(),
     DataDir = ?config(data_dir, Config),
     {CRLPem, CRLDer} = read_crl(filename:join(DataDir, "intermediate-revoked.crl.pem")),
     TestPid = self(),
-    ok = meck:new(emqx_crl_cache, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:new(emqx_crl_cache, [passthrough, no_history, no_link]),
     meck:expect(
         emqx_crl_cache,
         http_get,
@@ -184,7 +218,7 @@ init_per_testcase(_TestCase, Config) ->
     DataDir = ?config(data_dir, Config),
     {CRLPem, CRLDer} = read_crl(filename:join(DataDir, "intermediate-revoked.crl.pem")),
     TestPid = self(),
-    ok = meck:new(emqx_crl_cache, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:new(emqx_crl_cache, [passthrough, no_history, no_link]),
     meck:expect(
         emqx_crl_cache,
         http_get,
@@ -246,6 +280,18 @@ end_per_testcase(_TestCase, Config) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+mock_success_http_response(CRLPem) ->
+    TestPid = self(),
+    meck:expect(
+        emqx_crl_cache,
+        http_get,
+        fun(URL, _HTTPTimeout) ->
+            ct:pal("http get crl ~p", [URL]),
+            TestPid ! {http_get, iolist_to_binary(URL)},
+            {ok, {{"HTTP/1.0", 200, "OK"}, [], CRLPem}}
+        end
+    ).
 
 does_module_exist(Mod) ->
     case erlang:module_loaded(Mod) of
@@ -512,7 +558,7 @@ t_refresh_request_error(_Config) ->
         ),
         fun(Trace) ->
             ?assertMatch(
-                [#{error := {bad_response, #{code := 404}}}],
+                [#{error := {bad_response, #{code := 404}}} | _],
                 ?of_kind(crl_refresh_failure, Trace)
             ),
             ok
@@ -570,7 +616,7 @@ t_refresh_http_error(_Config) ->
         ),
         fun(Trace) ->
             ?assertMatch(
-                [#{error := {http_error, timeout}}],
+                [#{error := {http_error, timeout}} | _],
                 ?of_kind(crl_refresh_failure, Trace)
             ),
             ok
@@ -1137,16 +1183,6 @@ do_t_update_listener_enable_disable(Config) ->
                 }
         },
     ListenerData3 = emqx_utils_maps:deep_merge(ListenerData2, CRLConfig1),
-    redbug:start(
-        [
-            "esockd_server:get_listener_prop -> return",
-            "esockd_server:set_listener_prop -> return",
-            "esockd:merge_opts -> return",
-            "esockd_listener_sup:set_options -> return",
-            "emqx_listeners:inject_crl_config -> return"
-        ],
-        [{msgs, 100}]
-    ),
     {ok, {_, _, ListenerData4}} = update_listener_via_api(ListenerId, ListenerData3),
     ?assertMatch(
         #{
@@ -1174,5 +1210,68 @@ do_t_update_listener_enable_disable(Config) ->
     emqtt:stop(C),
 
     ?assertNotReceive({http_get, _}),
+
+    ok.
+
+%% Verifies that we evict an URL that hits the failure threshold, instead of continuing to
+%% try and refresh it and flood logs.
+t_evict_after_failure_threshold(Config) ->
+    CRLPem = ?config(crl_pem, Config),
+    FailureThreshold = ?config(failure_threshold, Config),
+    ct:pal("checking failure threshold crossed"),
+    Ref = get_crl_cache_table(),
+    ?assertMatch([_], ets:tab2list(Ref)),
+    %% Sanity check: refesh is happening
+    ?assertReceive({http_get, _}),
+    %% Now refresh starts failing
+    TestPid = self(),
+    meck:expect(
+        emqx_crl_cache,
+        http_get,
+        fun(URL, _HTTPTimeout) ->
+            TestPid ! {http_get, URL},
+            {error, timeout}
+        end
+    ),
+    ?block_until(#{?snk_kind := "crl_cache_evicted_url_due_to_failure_threshold"}),
+    ?drainMailbox(),
+    %% Should no longer refresh this URL
+    ?assertNotReceive({http_get, _}, 750),
+
+    %% Check that we reset the failure count if it succeeds before threshold is reached.
+    ct:pal("checking failure reset"),
+    mock_success_http_response(CRLPem),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx_crl_cache:refresh(?DEFAULT_URL),
+            #{?snk_kind := "emqx_ssl_crl_cache_inserted"}
+        ),
+    ?assertReceive({http_get, <<?DEFAULT_URL>>}),
+    %% Fail just before threshold
+    {ok, Agent} = emqx_utils_agent:start_link(FailureThreshold - 1),
+    meck:expect(
+        emqx_crl_cache,
+        http_get,
+        fun(URL, _HTTPTimeout) ->
+            TestPid ! {http_get, URL},
+            Remaining = emqx_utils_agent:get_and_update(Agent, fun(N) -> {N, N - 1} end),
+            case Remaining < 0 of
+                true ->
+                    TestPid ! succeeded,
+                    {ok, {{"HTTP/1.0", 200, "OK"}, [], CRLPem}};
+                false ->
+                    TestPid ! failed,
+                    {error, timeout}
+            end
+        end
+    ),
+    lists:foreach(fun(_) -> ?assertReceive(failed) end, lists:seq(1, FailureThreshold)),
+    ?assertReceive(succeeded),
+    ?assertReceive(succeeded),
+    %% Can fail again
+    emqx_utils_agent:get_and_update(Agent, fun(_N) -> {unused, FailureThreshold - 1} end),
+    lists:foreach(fun(_) -> ?assertReceive(failed) end, lists:seq(1, FailureThreshold)),
+    ?assertReceive(succeeded),
+    ?assertReceive(succeeded),
 
     ok.
