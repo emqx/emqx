@@ -1011,8 +1011,8 @@ t_subscribe_max_qos_allowed(Config) ->
         "mqtt {"
         "\n max_qos_allowed = 2"
         "\n subscription_max_qos_rules = ["
-        "\n   { is_match = \"topic_equal(topic, 't')\", qos = 1 }"
-        "\n   { is_match = \"topic_subset_of(topic, 'glob/+/#')\", qos = 0 }"
+        "\n   { topic { equals = \"t\" }, qos = 1 }"
+        "\n   { topic { matches = \"glob/+/#\" }, qos = 0 }"
         "\n ] }"
     ),
 

@@ -118,21 +118,13 @@ t_check_sub(_) ->
 t_check_sub_max_qos_rules(_) ->
     emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_0),
     emqx_config:put_zone_conf(default, [mqtt, subscription_max_qos_rules], [
-        mk_topic_qos_rule(topic_equal, "t/1/2/3", ?QOS_2),
-        mk_topic_qos_rule(topic_equal, "t/4/5/6", ?QOS_2),
-        mk_topic_qos_rule(topic_intersects, "dev/dev1/conf/#", ?QOS_1),
-        mk_topic_qos_rule(topic_intersects, "root/+", ?QOS_1)
+        mk_topic_qos_rule(equals, "t/1/2/3", ?QOS_2),
+        mk_topic_qos_rule(equals, "t/4/5/6", ?QOS_2),
+        mk_topic_qos_rule(matches, "dev/+/conf/#", ?QOS_1),
+        mk_topic_qos_rule(matches, "root/+", ?QOS_1)
     ]),
 
-    emqx_config:put_zone_conf(?MODULE, [mqtt, max_qos_allowed], ?QOS_0),
-    emqx_config:put_zone_conf(?MODULE, [mqtt, subscription_max_qos_rules], [
-        mk_topic_qos_rule(topic_subset_of, "dev/+/conf/#", ?QOS_2),
-        mk_topic_qos_rule(topic_intersects, "dev/dev2/+/#", ?QOS_1),
-        mk_topic_qos_rule(topic_subset_of, "root", ?QOS_2)
-    ]),
-
-    CI1 = #{zone => default},
-    CI2 = #{zone => ?MODULE},
+    CI = #{zone => default},
     SubOpts = #{
         rh => 0,
         rap => 0,
@@ -140,23 +132,17 @@ t_check_sub_max_qos_rules(_) ->
         qos => ?QOS_2
     },
     %% No match, fallback:
-    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI1, <<"topic">>, SubOpts)),
+    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI, <<"topic">>, SubOpts)),
     %% Verify equality works as expected:
-    ?assertMatch(ok = _QOS_2, emqx_mqtt_caps:check_sub(CI1, <<"t/4/5/6">>, SubOpts)),
-    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI1, <<"t/1/2/+">>, SubOpts)),
-    %% Verify intersection works as expected:
-    ?assertMatch({ok, ?QOS_1}, emqx_mqtt_caps:check_sub(CI1, <<"dev/+/conf/#">>, SubOpts)),
-    ?assertMatch({ok, ?QOS_1}, emqx_mqtt_caps:check_sub(CI1, <<"root/#">>, SubOpts)),
-    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI1, <<"root/+/+">>, SubOpts)),
-    %% Verify subset-of works as expected:
-    ?assertMatch(ok = _QOS_2, emqx_mqtt_caps:check_sub(CI2, <<"dev/dev2/conf/web/#">>, SubOpts)),
-    ?assertMatch({ok, ?QOS_1}, emqx_mqtt_caps:check_sub(CI2, <<"dev/dev2/health/+">>, SubOpts)),
-    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI2, <<"dev/dev1/health/#">>, SubOpts)),
-    ?assertMatch(ok = _QOS_2, emqx_mqtt_caps:check_sub(CI2, <<"root">>, SubOpts)),
-    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI2, <<"root/#">>, SubOpts)).
+    ?assertMatch(ok = _QOS_2, emqx_mqtt_caps:check_sub(CI, <<"t/4/5/6">>, SubOpts)),
+    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI, <<"t/1/2/+">>, SubOpts)),
+    %% Verify match works as expected:
+    ?assertMatch({ok, ?QOS_1}, emqx_mqtt_caps:check_sub(CI, <<"dev/foo/conf/+">>, SubOpts)),
+    ?assertMatch({ok, ?QOS_1}, emqx_mqtt_caps:check_sub(CI, <<"root/#">>, SubOpts)),
+    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI, <<"root/+/+">>, SubOpts)).
 
 mk_topic_qos_rule(Pred, Topic, QoS) ->
     #{
-        is_match => #{form => {Pred, emqx_topic:words(iolist_to_binary(Topic))}},
+        topic => #{Pred => iolist_to_binary(Topic)},
         qos => QoS
     }.

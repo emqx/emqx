@@ -32,14 +32,11 @@
 
 %% See "topic_qos_rule" struct in `emqx_schema`:
 -type topic_qos_rule() ::
-    #{is_match := topic_match_compiled(), qos := emqx_types:qos()}.
+    #{topic := topic_predicate(), qos := emqx_types:qos()}.
 
-%% Reflects `emqx_variform:compiled/0` structure:
--type topic_match_compiled() :: #{form := topic_match_spec(), _ => _}.
--type topic_match_spec() ::
-    {topic_equal, emqx_types:words()}
-    | {topic_intersects, emqx_types:words()}
-    | {topic_subset_of, emqx_types:words()}.
+-type topic_predicate() ::
+    #{matches => emqx_types:topic()}
+    | #{equals => emqx_types:topic()}.
 
 -define(DEFAULT_CAPS_KEYS, [
     max_packet_size,
@@ -158,15 +155,17 @@ eval_max_qos_allowed([Rule | Rest], Topic) ->
 eval_max_qos_allowed([], _) ->
     undefined.
 
-eval_topic_qos_rule(#{is_match := #{form := Match}, qos := QoS}, Topic) ->
-    eval_topic_match(Match, Topic) andalso QoS.
+eval_topic_qos_rule(#{topic := Predicate, qos := QoS}, Topic) ->
+    eval_topic_predicate(Predicate, Topic) andalso QoS.
 
-eval_topic_match({topic_equal, To}, Topic) ->
-    emqx_topic:is_equal(Topic, To);
-eval_topic_match({topic_intersects, With}, Topic) ->
-    emqx_topic:intersection(Topic, With) =/= false;
-eval_topic_match({topic_subset_of, Of}, Topic) ->
-    emqx_topic:is_subset(Topic, Of).
+eval_topic_predicate(#{matches := TopicFilter}, Topic) ->
+    %% NOTE
+    %% In SUBSCRIBE context, `Topic` here is also a Topic Filter.
+    %% Using regular `emqx_topic:match/2` can produce results one may find a bit confusing.
+    %% E.g. `emqx_topic:match(<<"t/#">>, <<"t/+">>) = true`.
+    emqx_topic:match(Topic, TopicFilter);
+eval_topic_predicate(#{equals := To}, Topic) ->
+    emqx_topic:is_equal(Topic, To).
 
 get_caps(Zone) ->
     get_caps(?DEFAULT_CAPS_KEYS, Zone).
