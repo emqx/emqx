@@ -11,20 +11,81 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
+suite() ->
+    [{timetrap, {seconds, 60}}].
+
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, v5},
+        {group, v3}
+    ].
+
+groups() ->
+    TCRace = t_massive_connect_race,
+    AllTCs = [{group, race} | emqx_common_test_helpers:all(?MODULE) -- [TCRace]],
+    [
+        {v3, [{group, lcr_only}, {group, lcr_hybrid}]},
+        {v5, [{group, lcr_only}, {group, lcr_hybrid}]},
+        {lcr_only, [], AllTCs},
+        {lcr_hybrid, [], AllTCs},
+        {race, [
+            {group, race_sleep_0},
+            {group, race_sleep_10},
+            {group, race_sleep_100}
+        ]},
+        {race_sleep_0, [TCRace]},
+        {race_sleep_1, [TCRace]},
+        {race_sleep_10, [TCRace]},
+        {race_sleep_100, [TCRace]}
+    ].
 
 init_per_suite(Config) ->
     ensure_dist(),
+    ClientDefaults = #{
+        port => 1883,
+        proto_ver => v5,
+        clean_start => false,
+        properties => #{'Session-Expiry-Interval' => 300}
+    },
     case emqx_common_test_helpers:ensure_loaded(emqx_conf) of
         true ->
-            Config;
+            [
+                {client_opts, ClientDefaults},
+                {race_sleep, 0}
+                | Config
+            ];
         false ->
             {skip, standalone_not_supported}
     end.
 
 end_per_suite(_Config) ->
     ok.
+
+init_per_group(v3, Config) ->
+    ClientOpts = ?config(client_opts, Config),
+    lists:keystore(client_opts, 1, Config, {client_opts, ClientOpts#{proto_ver => v3}});
+init_per_group(v5, Config) ->
+    ClientOpts = ?config(client_opts, Config),
+    lists:keystore(client_opts, 1, Config, {client_opts, ClientOpts#{proto_ver => v5}});
+init_per_group(lcr_only, Config) ->
+    Conf = "broker.enable_linear_channel_registry = true\nbroker.enable_session_registry=false",
+    lists:keystore(emqx_conf, 1, Config, {emqx_conf, Conf});
+init_per_group(lcr_hybrid, Config) ->
+    Conf = "broker.enable_linear_channel_registry = true\nbroker.enable_session_registry=true",
+    lists:keystore(emqx_conf, 1, Config, {emqx_conf, Conf});
+init_per_group(race_sleep_0, Config) ->
+    lists:keystore(race_sleep, 1, Config, {race_sleep, 0});
+init_per_group(race_sleep_1, Config) ->
+    lists:keystore(race_sleep, 1, Config, {race_sleep, 1});
+init_per_group(race_sleep_10, Config) ->
+    lists:keystore(race_sleep, 1, Config, {race_sleep, 10});
+init_per_group(race_sleep_100, Config) ->
+    lists:keystore(race_sleep, 1, Config, {race_sleep, 100});
+init_per_group(_, Config) ->
+    Config.
+
+end_per_group(_, Config) ->
+    Config.
 
 init_per_testcase(TestCase, Config) ->
     process_flag(trap_exit, true),
@@ -50,7 +111,7 @@ t_cores(Config) ->
     [Node1 | _] = Nodes = ?config(cluster_nodes, Config),
     Port1 = get_mqtt_port(Node1, tcp),
     %% WHEN: client connected to the cluster
-    start_connect_client(#{clientid => ClientId, port => Port1}),
+    start_connect_client(Config, #{clientid => ClientId, port => Port1}),
     %% THEN: client should be registered in all nodes
     ?assertMatch(
         {[Pid, Pid, Pid], []},
@@ -66,7 +127,7 @@ t_replicant(Config) ->
     [Node1 | _] = Nodes = ?config(cluster_nodes, Config),
     Port1 = get_mqtt_port(Node1, tcp),
     %% WHEN: client connected to the cluster via core node.
-    start_connect_client(#{clientid => ClientId, port => Port1}),
+    start_connect_client(Config, #{clientid => ClientId, port => Port1}),
     %% THEN: client should be registered in all nodes eventually.
     ?assertMatch(
         {[[Pid], [Pid], [Pid], [Pid], [Pid]], []},
@@ -82,7 +143,7 @@ t_replicant_2(Config) ->
     Nodes = ?config(cluster_nodes, Config),
     Port1 = get_mqtt_port(lists:last(Nodes), tcp),
     %% WHEN: client connected to the cluster via replicant node
-    start_connect_client(#{clientid => ClientId, port => Port1}),
+    start_connect_client(Config, #{clientid => ClientId, port => Port1}),
     %% THEN: client should be registered in all nodes eventually.
     ?assertMatch(
         {[[Pid], [Pid], [Pid], [Pid], [Pid]], []},
@@ -105,7 +166,9 @@ t_discard_when_replicant_lagging(Config) ->
     Replicant = lists:last(Nodes),
     SuspendedPids = suspend_replicant_rlog(Replicant),
     Port1 = get_mqtt_port(hd(Nodes), tcp),
-    start_connect_client(#{clientid => ClientId, port => Port1, clean_session => CleanSession}),
+    start_connect_client(Config, #{
+        clientid => ClientId, port => Port1, clean_session => CleanSession
+    }),
     %% Given when replicant (last node) is lagging
     ?assertMatch(
         {[Pid, Pid, Pid, Pid, []], []},
@@ -119,7 +182,7 @@ t_discard_when_replicant_lagging(Config) ->
     ),
 
     %% WHEN: client reconnect to the lagging replicant
-    start_connect_client(#{
+    start_connect_client(Config, #{
         clientid => ClientId, port => get_mqtt_port(Replicant, tcp), clean_session => CleanSession
     }),
 
@@ -148,7 +211,9 @@ t_takeover_when_replicant_lagging(Config) ->
     Replicant = lists:last(Nodes),
     SuspendedPids = suspend_replicant_rlog(Replicant),
     Port1 = get_mqtt_port(hd(Nodes), tcp),
-    start_connect_client(#{clientid => ClientId, port => Port1, clean_session => CleanSession}),
+    start_connect_client(Config, #{
+        clientid => ClientId, port => Port1, clean_session => CleanSession
+    }),
     %% Given when replicant (last node) is lagging
     ?assertMatch(
         {[Pid, Pid, Pid, Pid, []], []},
@@ -163,7 +228,7 @@ t_takeover_when_replicant_lagging(Config) ->
 
     %% WHEN: client reconnect to the lagging replicant
     ReplicantPort = get_mqtt_port(Replicant, tcp),
-    start_connect_client(#{
+    start_connect_client(Config, #{
         clientid => ClientId, port => ReplicantPort, clean_session => CleanSession
     }),
 
@@ -198,7 +263,7 @@ t_takeover_race(Config) ->
     Replicant3 = lists:last(Nodes -- [Replicant, Replicant2]),
     ReplicantPort3 = get_mqtt_port(Replicant3, tcp),
     %% GIVEN: One existing session by Client1
-    _Client1 = start_connect_client(#{
+    _Client1 = start_connect_client(Config, #{
         clientid => ClientId, port => Port1, clean_session => CleanSession
     }),
     SuspendedPids = suspend_channel(Core1, ClientId),
@@ -206,7 +271,7 @@ t_takeover_race(Config) ->
     Parent = self(),
     %% WHEN: Client2 and Client3 race to takeover the session
     Client2 = spawn_link(fun() ->
-        Client = start_client(#{
+        Client = start_client(Config, #{
             clientid => ClientId, port => ReplicantPort2, clean_session => CleanSession
         }),
         Result =
@@ -219,7 +284,7 @@ t_takeover_race(Config) ->
 
     timer:sleep(10),
     Client3 = spawn_link(fun() ->
-        Client = start_client(#{
+        Client = start_client(Config, #{
             clientid => ClientId, port => ReplicantPort3, clean_session => CleanSession
         }),
         Result =
@@ -272,7 +337,7 @@ t_takeover_timeout(Config) ->
     Replicant3 = lists:last(Nodes -- [Replicant, Replicant2]),
     ReplicantPort3 = get_mqtt_port(Replicant3, tcp),
     %% GIVEN: One existing session by Client1
-    _Client1 = start_connect_client(#{
+    _Client1 = start_connect_client(Config, #{
         clientid => ClientId, port => Port1, clean_session => CleanSession
     }),
     SuspendedPids = suspend_channel(Core1, ClientId),
@@ -280,7 +345,7 @@ t_takeover_timeout(Config) ->
     Parent = self(),
     %% WHEN: Client2 and Client3 race to takeover the session
     Client2 = spawn_link(fun() ->
-        Client = start_client(#{
+        Client = start_client(Config, #{
             clientid => ClientId, port => ReplicantPort2, clean_session => CleanSession
         }),
         Result =
@@ -293,7 +358,7 @@ t_takeover_timeout(Config) ->
 
     timer:sleep(10),
     Client3 = spawn_link(fun() ->
-        Client = start_client(#{
+        Client = start_client(Config, #{
             clientid => ClientId, port => ReplicantPort3, clean_session => CleanSession
         }),
         Result =
@@ -350,21 +415,21 @@ t_lcr_cleanup_replicant(Config) ->
     Replicant3 = lists:last(Nodes -- [Replicant, Replicant2]),
     ReplicantPort3 = get_mqtt_port(Replicant3, tcp),
     %% GIVEN: Client1[1..4] on replicant node, client2 on replicant2 node
-    _Client1 = start_connect_client(#{
+    _Client1 = start_connect_client(Config, #{
         clientid => ClientId, port => Port1, clean_session => CleanSession
     }),
 
-    _Client2 = start_connect_client(#{
+    _Client2 = start_connect_client(Config, #{
         clientid => ClientId2, port => ReplicantPort2, clean_session => CleanSession
     }),
 
-    _Client3 = start_connect_client(#{
+    _Client3 = start_connect_client(Config, #{
         clientid => ClientId3, port => ReplicantPort3, clean_session => CleanSession
     }),
 
     lists:foreach(
         fun(C) ->
-            start_connect_client(#{
+            start_connect_client(Config, #{
                 clientid => C,
                 port => Port1,
                 clean_session => CleanSession
@@ -428,21 +493,21 @@ t_lcr_cleanup_core(Config) ->
     Replicant3 = lists:last(Nodes -- [Replicant, Replicant2]),
     ReplicantPort3 = get_mqtt_port(Replicant3, tcp),
     %% GIVEN: Client1[1..4] on core node, client2 on replicant2 node
-    _Client1 = start_connect_client(#{
+    _Client1 = start_connect_client(Config, #{
         clientid => ClientId, port => Port1, clean_session => CleanSession
     }),
 
-    _Client2 = start_connect_client(#{
+    _Client2 = start_connect_client(Config, #{
         clientid => ClientId2, port => ReplicantPort2, clean_session => CleanSession
     }),
 
-    _Client3 = start_connect_client(#{
+    _Client3 = start_connect_client(Config, #{
         clientid => ClientId3, port => ReplicantPort3, clean_session => CleanSession
     }),
 
     lists:foreach(
         fun(C) ->
-            start_connect_client(#{
+            start_connect_client(Config, #{
                 clientid => C,
                 port => Port1,
                 clean_session => CleanSession
@@ -494,7 +559,7 @@ t_lcr_cleanup_core(Config) ->
     %% WHEN: the code node is up
     emqx_cth_cluster:restart(Core1Spec),
 
-    timer:sleep(5000),
+    timer:sleep(1000),
 
     %% THEN: clients which is previously down must be cleaned up
     [
@@ -518,11 +583,12 @@ t_lcr_batch_cleanup(init, Config) ->
     Nodes = start_cluster(?FUNCTION_NAME, Config, 6),
     [{cluster_nodes, Nodes} | Config].
 t_lcr_batch_cleanup(Config) ->
+    NoCLients = 400,
     ClientsOnR1 = lists:map(
         fun(N) ->
             <<"client", (integer_to_binary(N))/binary>>
         end,
-        lists:seq(1, 120)
+        lists:seq(1, NoCLients)
     ),
 
     CleanSession = false,
@@ -534,7 +600,7 @@ t_lcr_batch_cleanup(Config) ->
     %% GIVEN: 120 Clients on replicant node
     lists:foreach(
         fun(C) ->
-            start_connect_client(#{
+            start_connect_client(Config, #{
                 clientid => C,
                 port => Port1,
                 clean_session => CleanSession
@@ -547,7 +613,7 @@ t_lcr_batch_cleanup(Config) ->
         _Interval = 100,
         _NTimes = 10,
         ?assertEqual(
-            {[120, 120, 120, 120, 120, 120], []},
+            {[400, 400, 400, 400, 400, 400], []},
             rpc:multicall(Nodes, emqx_cm, global_chan_cnt, [])
         )
     ),
@@ -586,11 +652,13 @@ t_massive_connect_race(Config) ->
         )
     ),
 
+    Sleep = ?config(race_sleep, Config),
+
     %%% WHEN: number of clients connect with the same clientid all nodes in the cluster
     Clients = [
         begin
-            C = spawn_test_client(ClientId, Port, CleanSession),
-            timer:sleep(0),
+            C = spawn_test_client(ClientId, Port, CleanSession, Config),
+            timer:sleep(Sleep),
             C
         end
      || Port <- Ports
@@ -669,21 +737,15 @@ wait_nodeup(Node) ->
         pong = net_adm:ping(Node)
     ).
 
-start_client(Opts0 = #{}) ->
-    Defaults = #{
-        port => 1883,
-        proto_ver => v5,
-        clean_start => false,
-        properties => #{'Session-Expiry-Interval' => 300}
-    },
-    Opts = emqx_utils_maps:deep_merge(Defaults, Opts0),
+start_client(Config, Opts0 = #{}) ->
+    Opts = emqx_utils_maps:deep_merge(?config(client_opts, Config), Opts0),
     ?tp(notice, "starting client", Opts),
     {ok, Client} = emqtt:start_link(maps:to_list(Opts)),
     emqx_common_test_helpers:on_exit(fun() -> catch emqtt:stop(Client) end),
     Client.
 
-start_connect_client(Opts = #{}) ->
-    Client = start_client(Opts),
+start_connect_client(Config, Opts = #{}) ->
+    Client = start_client(Config, Opts),
     ?assertMatch({ok, _}, emqtt:connect(Client)),
     Client.
 
@@ -704,7 +766,7 @@ ensure_dist() ->
 -spec cluster_spec(TCName :: atom(), Size :: non_neg_integer(), Config :: proplists:proplist()) ->
     [emqx_cth_cluster:nodespec()].
 cluster_spec(TCName, Size, Config) ->
-    EmqxConf = "broker.enable_linear_channel_registry = true\nbroker.enable_session_registry=false",
+    EmqxConf = ?config(emqx_conf, Config),
     NoCores = min(3, Size),
     NoReplicants = Size - NoCores,
     Cores = [
@@ -735,10 +797,10 @@ halt_node(Node) ->
 %%       4. (final) connected but exit due to a crash in broker.
 %% @see also wait_for_clients_conn_result/3
 %% @end
-spawn_test_client(ClientId, Port, CleanSession) ->
+spawn_test_client(ClientId, Port, CleanSession, TCConfig) ->
     Parent = self(),
     Fun = fun() ->
-        Client = start_client(#{
+        Client = start_client(TCConfig, #{
             clientid => ClientId,
             port => Port,
             clean_session => CleanSession
