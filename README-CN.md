@@ -28,10 +28,10 @@ EMQX 自 2013 年在 GitHub 发布开源版本以来，获得了来自 60 多个
 #### 使用 Docker 运行 EMQX
 
 ```
-docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx:latest
+docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx-enterprise:latest
 ```
 
-接下来请参考 [入门指南](https://docs.emqx.com/zh/emqx/latest/deploy/install-docker-ce.html) 开启您的 EMQX 之旅。
+接下来请参考 [入门指南](https://docs.emqx.com/zh/emqx/latest/deploy/install-docker.html) 开启您的 EMQX 之旅。
 
 #### 在 Kubernetes 上运行 EMQX 集群
 
@@ -39,9 +39,9 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p
 
 #### 更多安装方式
 
-您可以从 [emqx.com/zh/downloads-and-install/broker](https://www.emqx.com/zh/downloads-and-install/broker) 下载不同格式的 EMQX 安装包进行手动安装。
+您可以从 [emqx.com/zh/downloads-and-install/broker](https://www.emqx.com/zh/downloads-and-install/enterprise) 下载不同格式的 EMQX 安装包进行手动安装。
 
-也可以直接访问 [EMQX 安装文档](https://docs.emqx.com/zh/emqx/latest/deploy/install-open-source.html) 查看不同安装方式的操作步骤。
+也可以直接访问 [EMQX 安装文档](https://docs.emqx.com/zh/emqx/latest/deploy/install.html) 查看不同安装方式的操作步骤。
 
 ## 文档
 
