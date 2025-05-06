@@ -75,6 +75,22 @@ t_load_config(Config) ->
     ok = file:delete(EmptyFile),
     ok.
 
+t_remove_config(Config) ->
+    Conf0 = #{
+        <<"zones">> => #{<<"my-zone">> => #{<<"mqtt">> => #{<<"keepalive_multiplier">> => 10}}}
+    },
+    ConfBin0 = hocon_pp:do(Conf0, #{}),
+    ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
+    ok = emqx_conf_cli:conf(["load", "--replace", ConfFile0]),
+    %% Sanity check
+    ?assertMatch(
+        #{<<"mqtt">> := #{<<"keepalive_multiplier">> := 10}},
+        emqx_conf:get_raw([<<"zones">>, <<"my-zone">>])
+    ),
+    ?assertMatch(ok, emqx_conf_cli:conf(["remove", "zones.my-zone"])),
+    ?assertMatch(not_found, emqx_conf:get_raw([<<"zones">>, <<"my-zone">>], not_found)),
+    ok.
+
 t_conflict_mix_conf(Config) ->
     case emqx_release:edition() of
         ce ->

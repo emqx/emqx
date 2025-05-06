@@ -62,6 +62,8 @@ conf(["load", "--merge", Path]) ->
     load_config(Path, #{mode => merge});
 conf(["load", Path]) ->
     load_config(Path, #{mode => merge});
+conf(["remove", ConfPathStr]) ->
+    remove_config(ConfPathStr);
 conf(["cluster_sync" | Args]) ->
     admins(Args);
 conf(["reload", "--merge"]) ->
@@ -182,7 +184,8 @@ usage_conf() ->
         {"", "The current node will initiate a cluster wide config change"},
         {"", "transaction to sync the changes to other nodes in the cluster. "},
         {"", "NOTE: do not make runtime config changes during rolling upgrade."},
-        {"----------------------------------", "------------"}
+        {"----------------------------------", "------------"},
+        {"conf remove <conf-path>", "Removes a config path (e.g. `a.b.c`) from the current config."}
     ].
 
 usage_sync() ->
@@ -400,6 +403,18 @@ update_cluster_links(local, #{<<"cluster">> := #{<<"links">> := Links}}, Opts) -
     check_res(node(), <<"cluster.links">>, Res, Links, Opts);
 update_cluster_links(_, _, _) ->
     ok.
+
+remove_config(ConfPathStr) ->
+    ConfPath = hocon_util:split_path(ConfPathStr),
+    Res = emqx_conf:remove(ConfPath, ?OPTIONS),
+    case Res of
+        {error, #{reason := {badkey, BadRootKey}}} ->
+            emqx_ctl:warning("Root key ~s not found ~n", [BadRootKey]);
+        {error, Reason} ->
+            emqx_ctl:warning("Error: ~p~n", [Reason]);
+        {ok, _} ->
+            emqx_ctl:print("ok~n")
+    end.
 
 uninstall(ActionOrSource, Conf, #{mode := replace}) ->
     case maps:find(ActionOrSource, Conf) of
