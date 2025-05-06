@@ -61,7 +61,7 @@ emqx_mt_api {
         desc: "Kick all clients in namespace (async)"
         label: "Kick all clients in namespace (async)"
     }
-    bulk_delete_nss {
+    bulk_delete_ns {
         desc: "Bulk delete namespaces"
         label: "Bulk delete namespaces"
     }

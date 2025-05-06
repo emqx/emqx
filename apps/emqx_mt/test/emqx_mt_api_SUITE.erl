@@ -202,8 +202,8 @@ delete_managed_ns(Ns) ->
     ct:pal("delete managed ns result:\n  ~p", [Res]),
     Res.
 
-bulk_delete_nss(Nss) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "bulk_delete_nss"]),
+bulk_delete_ns(Nss) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "bulk_delete_ns"]),
     Body = #{<<"nss">> => Nss},
     Res = simple_request(delete, Path, Body),
     ct:pal("bulk delete nss result:\n  ~p", [Res]),
@@ -488,7 +488,7 @@ t_managed_namespaces_crud(_Config) ->
 
     ok.
 
-t_bulk_delete_nss(_Config) ->
+t_bulk_delete_ns(_Config) ->
     ?assertMatch({200, []}, list_managed_nss(#{})),
 
     Ns1 = <<"tns1">>,
@@ -503,14 +503,14 @@ t_bulk_delete_nss(_Config) ->
     ),
     {200, [Ns1, Ns2, Ns3]} = list_managed_nss(#{}),
 
-    ?assertMatch({204, _}, bulk_delete_nss([Ns3, Ns1])),
+    ?assertMatch({204, _}, bulk_delete_ns([Ns3, Ns1])),
     ?assertMatch({200, [Ns2]}, list_managed_nss(#{})),
 
     %% Idempotency
-    ?assertMatch({204, _}, bulk_delete_nss([Ns3, Ns1])),
+    ?assertMatch({204, _}, bulk_delete_ns([Ns3, Ns1])),
     ?assertMatch({200, [Ns2]}, list_managed_nss(#{})),
 
-    ?assertMatch({204, _}, bulk_delete_nss([Ns2])),
+    ?assertMatch({204, _}, bulk_delete_ns([Ns2])),
     ?assertMatch({200, []}, list_managed_nss(#{})),
 
     %% Simulate failure during side-effect execution.
@@ -539,7 +539,7 @@ t_bulk_delete_nss(_Config) ->
                     <<"hint">> := _,
                     <<"errors">> := #{Ns2 := <<"{aborted,mocked_error}">>}
                 }},
-                bulk_delete_nss([Ns1, Ns2, Ns3])
+                bulk_delete_ns([Ns1, Ns2, Ns3])
             ),
             ?assertMatch({200, [Ns2]}, list_managed_nss(#{}))
         end
