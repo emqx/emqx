@@ -149,7 +149,7 @@ async_delivery_info_frame(_Channel) ->
         port => 20020,
         max_payload => ?DEFAULT_MAX_PAYLOAD,
         proto => 0,
-        headers => 0,
+        headers => false,
         auth_required => false,
         tls_required => false,
         jetstream => false
@@ -376,7 +376,7 @@ process_connect(
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
--spec handle_in(emqx_nats_frame:frame() | {frame_error, any()}, channel()) ->
+-spec handle_in(nats_frame() | {frame_error, any()}, channel()) ->
     {ok, channel()}
     | {ok, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
@@ -891,7 +891,8 @@ err_frame_subscribe_denied(Subject) ->
     error_frame(Msg).
 
 error_frame(Msg) ->
-    #nats_frame{operation = ?OP_ERR, message = Msg}.
+    Msg1 = iolist_to_binary(Msg),
+    #nats_frame{operation = ?OP_ERR, message = Msg1}.
 
 frame2message(
     Frame,
@@ -937,10 +938,6 @@ process_pub_frame(Frame, Channel) ->
 %%--------------------------------------------------------------------
 %% Timer
 
-ensure_timer([Name], Channel) ->
-    ensure_timer(Name, Channel);
-ensure_timer([Name | Rest], Channel) ->
-    ensure_timer(Rest, ensure_timer(Name, Channel));
 ensure_timer(Name, Channel = #channel{timers = Timers}) ->
     TRef = maps:get(Name, Timers, undefined),
     Time = interval(Name, Channel),

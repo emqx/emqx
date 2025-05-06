@@ -1,0 +1,7 @@
+emqx_nats_schema {
+
+max_payload_size.desc:
+"""The maximum number of bytes of Payload allowed per NATS PUB/HPUB message"""
+
+}
+

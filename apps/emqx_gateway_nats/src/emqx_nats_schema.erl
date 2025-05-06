@@ -26,7 +26,7 @@ fields(protocol) ->
                 non_neg_integer(),
                 #{
                     default => ?DEFAULT_MAX_PAYLOAD,
-                    desc => ?DESC(nats_frame_max_payload_size)
+                    desc => ?DESC(max_payload_size)
                 }
             )}
     ].

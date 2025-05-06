@@ -94,3 +94,5 @@
 
 %% @doc The callback for process terminated
 -callback terminate(any(), channel()) -> ok.
+
+-export_type([conn_state/0, reply/0, replies/0]).

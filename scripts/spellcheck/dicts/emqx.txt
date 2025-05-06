@@ -182,6 +182,7 @@ multicasts
 namespace
 namespacing
 natively
+NATS
 nif
 NIF
 nodelay
