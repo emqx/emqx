@@ -13,6 +13,8 @@
 -define(CONNECTOR_NAME, <<"my_connector">>).
 
 parse_and_check_connector(InnerConfig) ->
+    %% To trigger schema injections
+    _ = emqx_conf_schema:roots(),
     emqx_bridge_v2_testlib:parse_and_check_connector(
         ?CONNECTOR_TYPE_BIN,
         ?CONNECTOR_NAME,
@@ -47,6 +49,24 @@ validation_test_() ->
                 parse_and_check_connector(
                     connector_config(#{
                         <<"account">> => <<"onlyaccid">>
+                    })
+                )
+            )},
+        {"both password and password file defined",
+            ?_assertThrow(
+                {_SchemaMod, [
+                    #{
+                        reason := <<
+                            "At most one of `password` or `private_key_path`"
+                            " must be set, but not both"
+                        >>,
+                        kind := validation_error
+                    }
+                ]},
+                parse_and_check_connector(
+                    connector_config(#{
+                        <<"password">> => <<"secret">>,
+                        <<"private_key_path">> => <<"also_defined">>
                     })
                 )
             )}
