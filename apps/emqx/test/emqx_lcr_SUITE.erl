@@ -185,7 +185,6 @@ t_takeover_race(init, Config) ->
     Nodes = start_cluster(?FUNCTION_NAME, Config, 6),
     [{cluster_nodes, Nodes} | Config].
 t_takeover_race(Config) ->
-    process_flag(trap_exit, true),
     ClientId = <<"client1">>,
     CleanSession = false,
     Nodes = ?config(cluster_nodes, Config),
@@ -243,10 +242,7 @@ t_takeover_race(Config) ->
     ],
 
     %% THEN: the last one (Client3) should never fail
-    ?assert(
-        Results == [{error, {session_taken_over, #{}}}, ok] orelse
-            Results == [ok, ok]
-    ),
+    ?assertMatch([_, ok], Results),
 
     %% THEN: Last connect wins.
     ok = ?retry(
@@ -263,7 +259,6 @@ t_takeover_timeout(init, Config) ->
     Nodes = start_cluster(?FUNCTION_NAME, Config, 6),
     [{cluster_nodes, Nodes} | Config].
 t_takeover_timeout(Config) ->
-    process_flag(trap_exit, true),
     ClientId = <<"client1">>,
     CleanSession = false,
     Nodes = ?config(cluster_nodes, Config),
@@ -338,7 +333,6 @@ t_lcr_cleanup_replicant(init, Config) ->
     Nodes = start_cluster(?FUNCTION_NAME, Config, 6),
     [{cluster_nodes, Nodes} | Config].
 t_lcr_cleanup_replicant(Config) ->
-    process_flag(trap_exit, true),
     ClientId = <<"client1">>,
     ClientsOnR1 = [<<"client11">>, <<"client12">>, <<"client13">>, <<"client14">>],
 
@@ -382,7 +376,7 @@ t_lcr_cleanup_replicant(Config) ->
     true = erlang:monitor_node(Replicant, true),
 
     %% WHEN: replicant node is down
-    emqx_cth_cluster:stop([Replicant]),
+    halt_node(Replicant),
 
     receive
         {nodedown, Replicant} ->
@@ -415,7 +409,6 @@ t_lcr_cleanup_core(init, Config) ->
     Nodes = start_cluster(ClusterSpec),
     [{cluster_nodes, Nodes}, {cluster_spec, ClusterSpec} | Config].
 t_lcr_cleanup_core(Config) ->
-    process_flag(trap_exit, true),
     ClientId = <<"client1">>,
     ClientsOnC1 = [<<"client11">>, <<"client12">>, <<"client13">>, <<"client14">>],
 
@@ -469,7 +462,7 @@ t_lcr_cleanup_core(Config) ->
     true = erlang:monitor_node(Core1, true),
 
     %% WHEN: core node is down
-    rpc:call(Core1, timer, apply_after, [1000, erlang, halt, [0]]),
+    halt_node(Core1),
 
     receive
         {nodedown, Core1} ->
@@ -518,6 +511,126 @@ t_lcr_cleanup_core(Config) ->
     ?assertMatch(
         {[[_], [_], [_], [_], [_], [_]], []},
         rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId3])
+    ).
+
+t_lcr_batch_cleanup(init, Config) ->
+    %% GIVEN: 5 nodes cluster with 2 replicants
+    Nodes = start_cluster(?FUNCTION_NAME, Config, 6),
+    [{cluster_nodes, Nodes} | Config].
+t_lcr_batch_cleanup(Config) ->
+    ClientsOnR1 = lists:map(
+        fun(N) ->
+            <<"client", (integer_to_binary(N))/binary>>
+        end,
+        lists:seq(1, 120)
+    ),
+
+    CleanSession = false,
+    Nodes = ?config(cluster_nodes, Config),
+
+    Replicant = lists:last(Nodes),
+    Port1 = get_mqtt_port(Replicant, tcp),
+
+    %% GIVEN: 120 Clients on replicant node
+    lists:foreach(
+        fun(C) ->
+            start_connect_client(#{
+                clientid => C,
+                port => Port1,
+                clean_session => CleanSession
+            })
+        end,
+        ClientsOnR1
+    ),
+
+    ok = ?retry(
+        _Interval = 100,
+        _NTimes = 10,
+        ?assertEqual(
+            {[120, 120, 120, 120, 120, 120], []},
+            rpc:multicall(Nodes, emqx_cm, global_chan_cnt, [])
+        )
+    ),
+
+    true = erlang:monitor_node(Replicant, true),
+    %% WHEN: replicant node is down
+    halt_node(Replicant),
+
+    receive
+        {nodedown, Replicant} ->
+            ok
+    end,
+
+    timer:sleep(1000),
+
+    %% THEN: eventually there should be no channels on all nodes
+    ?assertEqual(
+        {[0, 0, 0, 0, 0], [Replicant]},
+        rpc:multicall(Nodes, emqx_cm, global_chan_cnt, [])
+    ).
+
+t_massive_connect_race(init, Config) ->
+    %% GIVEN: 5 nodes cluster with 2 replicants
+    Nodes = start_cluster(?FUNCTION_NAME, Config, 5),
+    logger:set_module_level(emqtt, debug),
+    [{cluster_nodes, Nodes} | Config].
+t_massive_connect_race(Config) ->
+    ClientId = <<"client_massive_race">>,
+    ct:timetrap(10000),
+    Nodes = ?config(cluster_nodes, Config),
+    CleanSession = false,
+    Ports = lists:flatten(
+        lists:duplicate(
+            10,
+            lists:map(fun(Node) -> get_mqtt_port(Node, tcp) end, Nodes)
+        )
+    ),
+
+    %%% WHEN: number of clients connect with the same clientid all nodes in the cluster
+    Clients = [
+        begin
+            C = spawn_test_client(ClientId, Port, CleanSession),
+            timer:sleep(0),
+            C
+        end
+     || Port <- Ports
+    ],
+
+    Results = wait_for_clients_conn_result(Clients, 0, []),
+    ct:pal("Results: ~p", [Results]),
+    Connected = lists:filtermap(
+        fun
+            ({Pid, connected}) ->
+                {true, Pid};
+            ({Pid, {error, _}}) ->
+                receive
+                    {'EXIT', Pid, _} ->
+                        ok
+                end,
+                false;
+            (_) ->
+                false
+        end,
+        Results
+    ),
+    ct:pal("Connected: ~p", [Connected]),
+    ?assert(length(Connected) > 0),
+
+    case Connected of
+        [_] ->
+            ok;
+        _ ->
+            wait_for_clients_conn_result(Connected, 1, [])
+    end,
+
+    ok = ?retry(
+        _Interval = 100,
+        _NTimes = 10,
+        begin
+            {Res, []} = rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId]),
+            [_] = lists:usort(lists:flatten(Res)),
+            ok
+        end
     ).
 
 %% Helpers
@@ -608,3 +721,69 @@ cluster_spec(TCName, Size, Config) ->
     ],
     Cluster = Cores ++ Replicants,
     emqx_cth_cluster:mk_nodespecs(Cluster, #{work_dir => emqx_cth_suite:work_dir(TCName, Config)}).
+
+halt_node(Node) ->
+    rpc:call(Node, timer, apply_after, [10, erlang, halt, [0, [{flush, false}]]]).
+
+%% @doc spawn_test_client
+%%      Spawn a test client process which links to the testcase process.
+%%      Process terminates with final state or keep running with preliminary state.
+%%          (see below)
+%%       1. (preliminary/final) connect success with positive MQTT.CONNACK.
+%%       3. (final) connect fail with negative MQTT.CONNACK.
+%%       2. (final) connect success but then recv MQTT.disconnected by broker.
+%%       4. (final) connected but exit due to a crash in broker.
+%% @see also wait_for_clients_conn_result/3
+%% @end
+spawn_test_client(ClientId, Port, CleanSession) ->
+    Parent = self(),
+    Fun = fun() ->
+        Client = start_client(#{
+            clientid => ClientId,
+            port => Port,
+            clean_session => CleanSession
+        }),
+        case emqtt:connect(Client) of
+            {ok, _} ->
+                Parent ! {done, self(), connected},
+                receive
+                    {disconnected, ReasonCode, _Properties} ->
+                        Parent ! {disconnected, self(), ReasonCode}
+                end;
+            {error, _} = E ->
+                Parent ! {done, self(), E}
+        end
+    end,
+    spawn_link(Fun).
+
+%% @doc wait_for_clients_conn_result
+%%     Wait state reports from the test clients excluding the N clients
+%% @see also spawn_test_client/3
+%% @end
+wait_for_clients_conn_result(ClientPids, N, Acc) when length(ClientPids) =< N ->
+    Acc;
+wait_for_clients_conn_result(ClientPids, N, Acc) ->
+    {LeftPids, NewAcc} =
+        receive
+            {done, Pid, R} ->
+                %% emqtt:connect returns
+                true = lists:member(Pid, ClientPids),
+                {ClientPids -- [Pid], [{Pid, R} | Acc]};
+            {disconnected, Pid, R} ->
+                %% connected then MQTT.disconnected
+                receive
+                    {'EXIT', Pid, normal} ->
+                        ok
+                end,
+                {ClientPids -- [Pid], lists:keyreplace(Pid, 1, Acc, {Pid, {disconnected, R}})};
+            {'EXIT', Pid, R} when R =/= normal ->
+                %% abnormal EXITs during connect or after connected
+                case lists:member(Pid, ClientPids) of
+                    true ->
+                        {ClientPids -- [Pid], [{Pid, {exit, R}} | Acc]};
+                    false ->
+                        New = lists:keyreplace(Pid, 1, Acc, {Pid, {exit, R}}),
+                        {ClientPids, New}
+                end
+        end,
+    wait_for_clients_conn_result(LeftPids, N, NewAcc).
