@@ -37,9 +37,9 @@
 %% Reflects `emqx_variform:compiled/0` structure:
 -type topic_match_compiled() :: #{form := topic_match_spec(), _ => _}.
 -type topic_match_spec() ::
-    {topic_equal, emqx_types:words()}
-    | {topic_intersects, emqx_types:words()}
-    | {topic_subset_of, emqx_types:words()}.
+    {is_equal, emqx_types:words()}
+    | {is_subset_of, emqx_types:words()}
+    | {intersects, emqx_types:words()}.
 
 -define(PUBCAP_KEYS, [
     max_topic_levels,
@@ -175,12 +175,12 @@ eval_max_qos_allowed([], _) ->
 eval_topic_qos_rule(#{is_match := #{form := Match}, qos := QoS}, Topic) ->
     eval_topic_match(Match, Topic) andalso QoS.
 
-eval_topic_match({topic_equal, To}, Topic) ->
+eval_topic_match({is_equal, To}, Topic) ->
     emqx_topic:is_equal(Topic, To);
-eval_topic_match({topic_intersects, With}, Topic) ->
-    emqx_topic:intersection(Topic, With) =/= false;
-eval_topic_match({topic_subset_of, Of}, Topic) ->
-    emqx_topic:is_subset(Topic, Of).
+eval_topic_match({is_subset_of, Of}, Topic) ->
+    emqx_topic:is_subset(Topic, Of);
+eval_topic_match({intersects, With}, Topic) ->
+    emqx_topic:intersection(Topic, With) =/= false.
 
 get_caps(Zone) ->
     get_caps(?DEFAULT_CAPS_KEYS, Zone).

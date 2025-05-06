@@ -1907,10 +1907,10 @@ compile_topic_rule_match(Expression, Opts) ->
     %% Allow severely constrained variform expression as syntax for now, for
     %% simplicity and predictability.
     case compile_variform(Expression, Opts) of
-        Compiled = #{form := {call, TopicFn, [{var, "topic"}, {str, ArgStr}]}} when
-            TopicFn == "topic_equal";
-            TopicFn == "topic_intersects";
-            TopicFn == "topic_subset_of",
+        Compiled = #{form := {call, "topic." ++ TopicFn, [{str, ArgStr}]}} when
+            TopicFn == "is_equal";
+            TopicFn == "is_subset_of";
+            TopicFn == "intersects",
             ArgStr =/= ""
         ->
             Arg = unicode:characters_to_binary(ArgStr),

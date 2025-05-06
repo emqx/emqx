@@ -118,17 +118,17 @@ t_check_sub(_) ->
 t_check_sub_max_qos_rules(_) ->
     emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_0),
     emqx_config:put_zone_conf(default, [mqtt, subscription_max_qos_rules], [
-        mk_topic_qos_rule(topic_equal, "t/1/2/3", ?QOS_2),
-        mk_topic_qos_rule(topic_equal, "t/4/5/6", ?QOS_2),
-        mk_topic_qos_rule(topic_intersects, "dev/dev1/conf/#", ?QOS_1),
-        mk_topic_qos_rule(topic_intersects, "root/+", ?QOS_1)
+        mk_topic_qos_rule(is_equal, "t/1/2/3", ?QOS_2),
+        mk_topic_qos_rule(is_equal, "t/4/5/6", ?QOS_2),
+        mk_topic_qos_rule(intersects, "dev/dev1/conf/#", ?QOS_1),
+        mk_topic_qos_rule(intersects, "root/+", ?QOS_1)
     ]),
 
     emqx_config:put_zone_conf(?MODULE, [mqtt, max_qos_allowed], ?QOS_0),
     emqx_config:put_zone_conf(?MODULE, [mqtt, subscription_max_qos_rules], [
-        mk_topic_qos_rule(topic_subset_of, "dev/+/conf/#", ?QOS_2),
-        mk_topic_qos_rule(topic_intersects, "dev/dev2/+/#", ?QOS_1),
-        mk_topic_qos_rule(topic_subset_of, "root", ?QOS_2)
+        mk_topic_qos_rule(is_subset_of, "dev/+/conf/#", ?QOS_2),
+        mk_topic_qos_rule(intersects, "dev/dev2/+/#", ?QOS_1),
+        mk_topic_qos_rule(is_subset_of, "root", ?QOS_2)
     ]),
 
     CI1 = #{zone => default},
