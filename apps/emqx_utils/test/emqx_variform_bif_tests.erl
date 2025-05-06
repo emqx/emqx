@@ -78,7 +78,14 @@ system_test() ->
     EnvVal = erlang:atom_to_list(?FUNCTION_NAME),
     EnvNameBin = erlang:list_to_binary(EnvName),
     os:putenv("EMQXVAR_" ++ EnvName, EnvVal),
-    ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)).
+    try
+        ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)),
+        %% read from persistent_term
+        ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)),
+        ?assertEqual(<<"">>, emqx_variform_bif:getenv(<<"EMQXVAR_NOT_EXIST">>))
+    after
+        os:unsetenv("EMQXVAR_" ++ EnvName)
+    end.
 
 empty_val_test_() ->
     F = fun(X) -> emqx_variform_bif:is_empty_val(X) end,
@@ -99,4 +106,127 @@ bool_not_test_() ->
         ?_assertEqual(<<"true">>, Not(<<"false">>)),
         ?_assertEqual(true, Not(false)),
         ?_assertEqual(false, Not(true))
+    ].
+
+-define(ASSERT_BADARG(EXPR), ?_assertThrow(#{reason := badarg}, EXPR)).
+null_badarg_test_() ->
+    [
+        ?ASSERT_BADARG(emqx_variform_bif:lower(undefined)),
+        ?ASSERT_BADARG(emqx_variform_bif:lower(null)),
+        ?ASSERT_BADARG(emqx_variform_bif:ltrim(undefined)),
+        ?ASSERT_BADARG(emqx_variform_bif:ltrim(null)),
+        ?ASSERT_BADARG(emqx_variform_bif:ltrim(undefined, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:ltrim(null, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:reverse(undefined)),
+        ?ASSERT_BADARG(emqx_variform_bif:reverse(null)),
+        ?ASSERT_BADARG(emqx_variform_bif:rtrim(undefined)),
+        ?ASSERT_BADARG(emqx_variform_bif:rtrim(null)),
+        ?ASSERT_BADARG(emqx_variform_bif:rtrim(undefined, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:rtrim(null, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:rm_prefix(undefined, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:rm_prefix(null, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:strlen(undefined)),
+        ?ASSERT_BADARG(emqx_variform_bif:strlen(null)),
+        ?ASSERT_BADARG(emqx_variform_bif:substr(undefined, 1)),
+        ?ASSERT_BADARG(emqx_variform_bif:substr(null, 1)),
+        ?ASSERT_BADARG(emqx_variform_bif:substr(undefined, 1, 2)),
+        ?ASSERT_BADARG(emqx_variform_bif:substr(null, 1, 2)),
+        ?ASSERT_BADARG(emqx_variform_bif:trim(undefined)),
+        ?ASSERT_BADARG(emqx_variform_bif:trim(null)),
+        ?ASSERT_BADARG(emqx_variform_bif:trim(undefined, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:trim(null, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:upper(undefined)),
+        ?ASSERT_BADARG(emqx_variform_bif:upper(null)),
+        ?ASSERT_BADARG(emqx_variform_bif:split(undefined, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:split(null, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:split(undefined, <<"a">>, <<"notrim">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:split(null, <<"a">>, <<"notrim">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:tokens(undefined, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:tokens(null, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:tokens(undefined, <<"a">>, <<"nocrlf">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:tokens(null, <<"a">>, <<"nocrlf">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:pad(undefined, 1)),
+        ?ASSERT_BADARG(emqx_variform_bif:pad(null, 1)),
+        ?ASSERT_BADARG(emqx_variform_bif:pad(undefined, 1, <<"trailing">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:pad(null, 1, <<"trailing">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:pad(undefined, 1, <<"trailing">>, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:pad(null, 1, <<"trailing">>, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:replace(undefined, <<"a">>, <<"b">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:replace(null, <<"a">>, <<"b">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:replace(undefined, <<"a">>, <<"b">>, <<"all">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:replace(null, <<"a">>, <<"b">>, <<"all">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:regex_match(undefined, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:regex_match(null, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:regex_replace(undefined, <<"a">>, <<"b">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:regex_replace(null, <<"a">>, <<"b">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:regex_extract(undefined, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:regex_extract(null, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:ascii(undefined)),
+        ?ASSERT_BADARG(emqx_variform_bif:ascii(null)),
+        ?ASSERT_BADARG(emqx_variform_bif:find(undefined, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:find(null, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:find(undefined, <<"a">>, <<"trailing">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:find(null, <<"a">>, <<"trailing">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:unescape(undefined)),
+        ?ASSERT_BADARG(emqx_variform_bif:unescape(null)),
+        ?ASSERT_BADARG(emqx_variform_bif:hash_to_range(undefined, 1, 2)),
+        ?ASSERT_BADARG(emqx_variform_bif:hash_to_range(null, 1, 2)),
+        ?ASSERT_BADARG(emqx_variform_bif:map_to_range(undefined, 1, 10)),
+        ?ASSERT_BADARG(emqx_variform_bif:map_to_range(null, 1, 10)),
+        ?ASSERT_BADARG(emqx_variform_bif:hash(<<"sha1">>, null))
+    ].
+
+invalid_hash_algorithm_test() ->
+    ?assertThrow(
+        #{reason := unknown_hash_algorithm, algorithm := <<"unknown_algorithm">>},
+        emqx_variform_bif:hash(<<"unknown_algorithm">>, <<"a">>)
+    ).
+
+int2hexstr_test_() ->
+    [
+        ?_assertEqual(<<"0">>, emqx_variform_bif:int2hexstr(0)),
+        ?_assertEqual(<<"1">>, emqx_variform_bif:int2hexstr(1)),
+        ?_assertEqual(<<"A">>, emqx_variform_bif:int2hexstr(10)),
+        ?_assertEqual(<<"F">>, emqx_variform_bif:int2hexstr(15)),
+        ?_assertEqual(<<"10">>, emqx_variform_bif:int2hexstr(16)),
+        ?_assertEqual(<<"1A">>, emqx_variform_bif:int2hexstr(26))
+    ].
+
+atom_input_test_() ->
+    [
+        ?_assertEqual(<<"ATOM">>, emqx_variform_bif:upper('atom')),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:lower('ATOM')),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:ltrim('atom')),
+        ?_assertEqual(<<"tom">>, emqx_variform_bif:ltrim('atom', <<"a">>)),
+        ?_assertEqual(<<"mota">>, emqx_variform_bif:reverse('atom')),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:rtrim('atom')),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:rtrim('atom', <<"a">>)),
+        ?_assertEqual(<<"tom">>, emqx_variform_bif:rm_prefix('atom', <<"a">>)),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:rm_prefix('atom', <<"x">>)),
+        ?_assertEqual(4, emqx_variform_bif:strlen('atom')),
+        ?_assertEqual(<<"tom">>, emqx_variform_bif:substr('atom', 1)),
+        ?_assertEqual(<<"to">>, emqx_variform_bif:substr('atom', 1, 2)),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:trim('atom')),
+        ?_assertEqual(<<"tom">>, emqx_variform_bif:trim('atom', <<"a">>)),
+        ?_assertEqual([<<"tom">>], emqx_variform_bif:split('atom', <<"a">>)),
+        ?_assertEqual([<<>>, <<"tom">>], emqx_variform_bif:split('atom', <<"a">>, <<"notrim">>)),
+        ?_assertEqual([<<"tom">>], emqx_variform_bif:tokens('atom', <<"a">>)),
+        ?_assertEqual([<<"tom">>], emqx_variform_bif:tokens('atom', <<"a">>, <<"nocrlf">>)),
+        ?_assertEqual(<<"atom ">>, emqx_variform_bif:pad('atom', 5, <<"trailing">>)),
+        ?_assertEqual(<<"atomx">>, emqx_variform_bif:pad('atom', 5, <<"trailing">>, <<"x">>)),
+        ?_assertEqual(<<"btom">>, emqx_variform_bif:replace('atom', <<"a">>, <<"b">>)),
+        ?_assertEqual(<<"btom">>, emqx_variform_bif:replace('atom', <<"a">>, <<"b">>, <<"all">>)),
+        ?_assertEqual(true, emqx_variform_bif:regex_match('atom', <<"^atom$">>)),
+        ?_assertEqual(<<"btom">>, emqx_variform_bif:regex_replace('atom', <<"a">>, <<"b">>)),
+        ?_assertEqual([<<"atom">>], emqx_variform_bif:regex_extract('atom', <<"(atom)">>)),
+        ?_assertEqual(97, emqx_variform_bif:ascii(a)),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:find('atom', <<"a">>)),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:find('atom', <<"a">>, <<"trailing">>)),
+        ?_assertEqual(<<"atom">>, emqx_variform_bif:unescape('atom')),
+        ?_assert(is_binary(emqx_variform_bif:hash(sha, 'atom'))),
+        ?_assert(is_binary(emqx_variform_bif:hash(<<"sha256">>, 'atom'))),
+        ?_assert(is_integer(emqx_variform_bif:hash_to_range(sha, 1, 10))),
+        ?_assert(is_integer(emqx_variform_bif:map_to_range(sha, 1, 10))),
+        ?_assertEqual(<<"atom ">>, emqx_variform_bif:pad('atom', 5)),
+        ?_assertEqual(<<"atom  ">>, emqx_variform_bif:pad('atom', 6))
     ].

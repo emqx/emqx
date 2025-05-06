@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_retainer).
@@ -43,7 +31,7 @@
     on_session_subscribed/3,
     on_message_publish/1,
     post_config_update/5,
-    propagated_post_config_update/5
+    on_config_zones_updated/2
 ]).
 
 %% Internal APIs
@@ -97,7 +85,6 @@
 -type has_next() :: boolean().
 
 -define(CONTEXT_KEY, {?MODULE, context}).
--define(UPDATE_STATUS_INTERVAL, 5000).
 
 -callback create(hocon:config()) -> backend_state().
 -callback update(backend_state(), hocon:config()) -> ok | need_recreate.
@@ -158,31 +145,13 @@ on_message_publish(Msg) ->
 %%------------------------------------------------------------------------------
 
 post_config_update([retainer], _UpdateReq, NewConf, OldConf, _AppEnvs) ->
-    ok = call({update_config, NewConf, OldConf});
-post_config_update([mqtt, retain_available], _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
-    maybe_start(NewConf);
-post_config_update([zones, _, mqtt, retain_available], _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
-    maybe_start(NewConf).
+    ok = call({update_config, NewConf, OldConf}).
 
-propagated_post_config_update([mqtt, retain_available], _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
-    maybe_start(NewConf);
-propagated_post_config_update(
-    [zones, _, mqtt, retain_available], _UpdateReq, NewConf, _OldConf, _AppEnvs
-) ->
-    maybe_start(NewConf).
-
-%% Config update callbacks are called before the config is finally updated.
-%% So we immediately enable the retainer only if some zone enables the retained messages.
-%%
-%% When the retained messages are being disabled, it is challenging to calculate whether the retained messages
-%% will be disabled for all zones because the zones have quite complex logic of default value propagation.
-%% So, instead, we do nothing and rely on the periodical check, which will eventually stop the retainer if
-%% no one uses it.
-
-maybe_start(true) ->
-    call(start);
-maybe_start(_) ->
-    ok.
+on_config_zones_updated(_OldZones, NewZones) ->
+    case is_enabled(NewZones) of
+        true -> call(start);
+        false -> call(stop)
+    end.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -254,9 +223,12 @@ is_started() ->
 
 -spec is_enabled() -> boolean().
 is_enabled() ->
-    Zones = maps:keys(emqx_config:get([zones], #{})),
-    lists:any(fun is_enabled_for_zone/1, Zones) orelse
-        emqx_config:get([mqtt, retain_available]).
+    Zones = emqx_config:get([zones], #{}),
+    is_enabled(Zones).
+
+-spec is_enabled(emqx_config:config()) -> boolean().
+is_enabled(Zones) ->
+    lists:any(fun is_enabled_for_zone/1, maps:values(Zones)).
 
 %%------------------------------------------------------------------------------
 %% Internal APIs
@@ -294,8 +266,7 @@ with_backend(Fun) ->
 init([]) ->
     erlang:process_flag(trap_exit, true),
     emqx_conf:add_handler([retainer], ?MODULE),
-    emqx_conf:add_handler([mqtt, retain_available], ?MODULE),
-    emqx_conf:add_handler([zones, '?', mqtt, retain_available], ?MODULE),
+    ok = emqx_hooks:add('config.zones_updated', {?MODULE, on_config_zones_updated, []}, ?HP_LOWEST),
     State = new_state(),
     RetainerConfig = emqx:get_config([retainer]),
     {ok,
@@ -312,11 +283,13 @@ handle_call({update_config, _NewConf, _OldConf}, _From, #{is_started := false} =
     {reply, ok, State};
 handle_call({update_config, NewConf, OldConf}, _From, #{is_started := true} = State) ->
     State2 = update_config(State, NewConf, OldConf),
-    ok = emqx_retainer_dispatcher:refresh_limiter(NewConf),
-    ok = emqx_retainer_publisher:refresh_limits(NewConf),
+    ok = emqx_retainer_limiter:update(),
     {reply, ok, State2};
 handle_call(start, _From, #{is_started := IsStarted} = State0) ->
     State = update_status(State0, IsStarted, true),
+    {reply, ok, State};
+handle_call(stop, _From, #{is_started := IsStarted} = State0) ->
+    State = update_status(State0, IsStarted, false),
     {reply, ok, State};
 handle_call(is_started, _From, State = #{is_started := IsStarted}) ->
     {reply, IsStarted, State};
@@ -333,19 +306,13 @@ handle_info(
     IsStarted andalso start_clear_expired(),
     ClearInterval = emqx_conf:get([retainer, msg_clear_interval]),
     {noreply, State#{clear_timer := maybe_start_timer(ClearInterval, clear_expired)}};
-handle_info(update_status, #{is_started := IsStarted} = State0) ->
-    _ = erlang:send_after(?UPDATE_STATUS_INTERVAL, self(), update_status),
-    NeedStart = is_enabled(),
-    State = update_status(State0, IsStarted, NeedStart),
-    {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{is_started := IsStarted} = State) ->
     emqx_conf:remove_handler([retainer]),
-    emqx_conf:remove_handler([mqtt, retain_available]),
-    emqx_conf:remove_handler([zones, '?', mqtt, retain_available]),
+    emqx_hooks:del('config.zones_updated', {?MODULE, on_config_zones_updated}),
     IsStarted andalso stop_retainer(State),
     ok.
 
@@ -361,14 +328,13 @@ get_stop_publish_clear_msg() ->
 
 -spec new_state() -> state().
 new_state() ->
-    _ = erlang:send_after(?UPDATE_STATUS_INTERVAL, self(), update_status),
     #{
         is_started => false,
         clear_timer => undefined
     }.
 
-is_enabled_for_zone(Zone) ->
-    emqx_config:get_zone_conf(Zone, [mqtt, retain_available]).
+is_enabled_for_zone(ZoneConfig) ->
+    emqx_utils_maps:deep_get([mqtt, retain_available], ZoneConfig, false).
 
 -spec start_clear_expired() -> ok.
 start_clear_expired() ->

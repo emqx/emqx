@@ -11,6 +11,5 @@
     {modules, []},
     {mod, {emqx_connector_jwt_app, []}},
 
-    {licenses, ["Apache 2.0"]},
     {links, []}
 ]}.

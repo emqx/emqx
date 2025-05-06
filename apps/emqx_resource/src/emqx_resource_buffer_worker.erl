@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% This module implements async message sending, disk message queuing,
@@ -66,6 +54,9 @@
     reply_call_internal_buffer/3,
     handle_async_internal_buffer_reply/2
 ]).
+
+%% Internal exports for `emqx_resource`.
+-export([unhealthy_target_maybe_trigger_fallback_actions/3]).
 
 -export([clear_disk_queue_dir/2]).
 
@@ -1035,14 +1026,14 @@ reply_caller_defer_metrics(
 -spec reply_dropped(id(), queue_query(), {error, late_reply | request_expired}) -> ok.
 reply_dropped(
     Id,
-    ?QUERY(ReplyTo, _Req, _HasBeenSent, _ExpireAt, _RequestContext, _TraceCtx) = Query,
+    ?QUERY(ReplyTo, _Req, _HasBeenSent, _ExpireAt, RequestContext, _TraceCtx) = Query,
     Result
 ) ->
     maybe
         {Fn, Args, #{reply_dropped := true}} ?= ReplyTo,
         true ?= is_function(Fn) andalso is_list(Args),
         %% We want to avoid bumping metrics inside the buffer worker, since it's costly.
-        emqx_pool:async_submit(Fn, Args ++ [Result])
+        emqx_pool:async_submit(Fn, Args ++ [RequestContext#{?result => Result}])
     end,
     maybe_trigger_fallback_actions(Id, result_context([Query])),
     ok.
@@ -2556,6 +2547,27 @@ request_context(QueryOpts) ->
 -spec result_context([queue_query()]) -> query_result_context().
 result_context(Queries) ->
     #{?queries => Queries}.
+
+-doc """
+This an internal export to be used only in `emqx_resource` application in places where
+the request is dropped/fails before it even reaches the buffering layer (here).  An
+example of such situation is when the resource is deemed an "unhealthy target".
+""".
+-spec unhealthy_target_maybe_trigger_fallback_actions(
+    action_resource_id(), request(), query_opts()
+) ->
+    ok.
+unhealthy_target_maybe_trigger_fallback_actions(ConnResId, Req, QueryOpts0) ->
+    QueryOpts1 = ensure_timeout_query_opts(QueryOpts0, sync),
+    QueryOpts = ensure_expire_at(QueryOpts1),
+    ReplyFun = maps:get(async_reply_fun, QueryOpts, undefined),
+    HasBeenSent = false,
+    ExpireAt = maps:get(expire_at, QueryOpts),
+    RequestContext = request_context(QueryOpts),
+    TraceCtx = maps:get(trace_ctx, QueryOpts, undefined),
+    Query = ?QUERY(ReplyFun, Req, HasBeenSent, ExpireAt, RequestContext, TraceCtx),
+    ResultContext = result_context([Query]),
+    maybe_trigger_fallback_actions(ConnResId, ResultContext).
 
 %% Should be called for individual queries, not batches.
 %% `batch_reply_caller_defer_metrics' handles splitting a batch into individual result

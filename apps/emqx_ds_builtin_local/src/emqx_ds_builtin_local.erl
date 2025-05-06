@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_ds_builtin_local).
 
@@ -29,11 +17,12 @@
     close_db/1,
     add_generation/1,
     update_db_config/2,
+    shard_of/2,
     list_generations_with_lifetimes/1,
     drop_generation/2,
     drop_db/1,
     store_batch/3,
-    get_streams/3,
+    get_streams/4,
     get_delete_streams/3,
     make_iterator/4,
     make_delete_iterator/4,
@@ -116,7 +105,7 @@
         atomic_batches := boolean()
     }.
 
--type generation_rank() :: {shard(), emqx_ds_storage_layer:gen_id()}.
+-type slab() :: {shard(), emqx_ds_storage_layer:gen_id()}.
 
 -define(stream(SHARD, INNER), [2, SHARD | INNER]).
 -define(delete_stream(SHARD, INNER), [3, SHARD | INNER]).
@@ -186,7 +175,7 @@ update_db_config(DB, CreateOpts) ->
     ).
 
 -spec list_generations_with_lifetimes(emqx_ds:db()) ->
-    #{emqx_ds:generation_rank() => emqx_ds:generation_info()}.
+    #{emqx_ds:slab() => emqx_ds:slab_info()}.
 list_generations_with_lifetimes(DB) ->
     lists:foldl(
         fun(Shard, Acc) ->
@@ -207,7 +196,7 @@ list_generations_with_lifetimes(DB) ->
         emqx_ds_builtin_local_meta:shards(DB)
     ).
 
--spec drop_generation(emqx_ds:db(), generation_rank()) -> ok | {error, _}.
+-spec drop_generation(emqx_ds:db(), slab()) -> ok | {error, _}.
 drop_generation(DB, {Shard, GenId}) ->
     emqx_ds_storage_layer:drop_generation({DB, Shard}, GenId).
 
@@ -336,38 +325,45 @@ shard_of_operation(DB, #message{from = From, topic = Topic}, SerializeBy, _Optio
         clientid -> Key = From;
         topic -> Key = Topic
     end,
-    shard_of_key(DB, Key);
+    shard_of(DB, Key);
 shard_of_operation(DB, {_, #message_matcher{from = From, topic = Topic}}, SerializeBy, _Options) ->
     case SerializeBy of
         clientid -> Key = From;
         topic -> Key = Topic
     end,
-    shard_of_key(DB, Key).
+    shard_of(DB, Key).
 
-shard_of_key(DB, Key) ->
+shard_of(DB, Key) ->
     N = emqx_ds_builtin_local_meta:n_shards(DB),
     Hash = erlang:phash2(Key, N),
     integer_to_binary(Hash).
 
--spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
-    [{emqx_ds:stream_rank(), emqx_ds:ds_specific_stream()}].
-get_streams(DB, TopicFilter, StartTime) ->
-    Shards = emqx_ds_builtin_local_meta:shards(DB),
-    lists:flatmap(
+-spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time(), emqx_ds:get_streams_opts()) ->
+    emqx_ds:get_streams_result().
+get_streams(DB, TopicFilter, StartTime, Opts) ->
+    Shards =
+        case Opts of
+            #{shard := ReqShard} ->
+                [ReqShard];
+            _ ->
+                emqx_ds_builtin_local_meta:shards(DB)
+        end,
+    Results = lists:flatmap(
         fun(Shard) ->
             Streams = emqx_ds_storage_layer:get_streams(
                 {DB, Shard}, TopicFilter, timestamp_to_timeus(StartTime)
             ),
             lists:map(
-                fun({RankY, InnerStream}) ->
-                    Rank = {Shard, RankY},
-                    {Rank, ?stream(Shard, InnerStream)}
+                fun({Generation, InnerStream}) ->
+                    Slab = {Shard, Generation},
+                    {Slab, ?stream(Shard, InnerStream)}
                 end,
                 Streams
             )
         end,
         Shards
-    ).
+    ),
+    {Results, []}.
 
 -spec make_iterator(
     emqx_ds:db(), emqx_ds:ds_specific_stream(), emqx_ds:topic_filter(), emqx_ds:time()
@@ -398,7 +394,7 @@ update_iterator(ShardId, Iter0 = #{?tag := ?IT, ?enc := StorageIter0}, Key) ->
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter, N) ->
-    {ok, Ref} = emqx_ds_lib:with_worker(?MODULE, do_next, [DB, Iter, N]),
+    {ok, _, Ref} = emqx_ds_lib:with_worker(?MODULE, do_next, [DB, Iter, N]),
     receive
         {Ref, Result} ->
             Result
@@ -504,7 +500,7 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
 -spec delete_next(emqx_ds:db(), delete_iterator(), emqx_ds:delete_selector(), pos_integer()) ->
     emqx_ds:delete_next_result(emqx_ds:delete_iterator()).
 delete_next(DB, Iter, Selector, N) ->
-    {ok, Ref} = emqx_ds_lib:with_worker(?MODULE, do_delete_next, [DB, Iter, Selector, N]),
+    {ok, _, Ref} = emqx_ds_lib:with_worker(?MODULE, do_delete_next, [DB, Iter, Selector, N]),
     receive
         {Ref, Result} -> Result
     end.

@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_config).
 
@@ -21,6 +9,7 @@
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("hocon/include/hocon.hrl").
 
 -export([
     init_load/1,
@@ -482,7 +471,7 @@ do_check_config(SchemaMod, RawConf, Opts0) ->
     Opts = maps:merge(Opts0, Opts1),
     {AppEnvs, CheckedConf} =
         hocon_tconf:map_translate(SchemaMod, RawConf, Opts),
-    {AppEnvs, emqx_utils_maps:unsafe_atom_key_map(CheckedConf)}.
+    {AppEnvs, unsafe_atom_checked_hocon_key_map(CheckedConf)}.
 
 fill_defaults(RawConf) ->
     fill_defaults(RawConf, #{}).
@@ -665,14 +654,12 @@ backup_and_write(Path, Content) ->
 
 add_handlers() ->
     ok = emqx_config_logger:add_handler(),
-    ok = emqx_config_zones:add_handler(),
     emqx_sys_mon:add_handler(),
     emqx_persistent_message:add_handler(),
     ok.
 
 remove_handlers() ->
     ok = emqx_config_logger:remove_handler(),
-    ok = emqx_config_zones:remove_handler(),
     emqx_sys_mon:remove_handler(),
     ok.
 
@@ -735,7 +722,7 @@ do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
     NewValue = do_deep_put(Type, Putter, KeyPath, OldValue, DeepValue),
     Key = ?PERSIS_KEY(Type, RootName),
     persistent_term:put(Key, NewValue),
-    put_config_post_change_actions(Key, NewValue),
+    put_config_post_change_actions(Key, OldValue, NewValue),
     ok.
 
 do_deep_get(?CONF, AtomKeyPath, Map, Default) ->
@@ -835,19 +822,19 @@ maybe_init_default_zone() ->
                     Z2 ->
                         Z2#{default => #{}}
                 end,
-            GLD = zone_global_defaults(),
-            NewZones = maps:map(
-                fun(_ZoneName, ZoneVal) ->
-                    merge_with_global_defaults(GLD, ZoneVal)
-                end,
-                Zones
-            ),
+            NewZones = merge_zones_with_global_defaults(Zones),
             ?MODULE:put([zones], NewZones)
     end.
 
--spec merge_with_global_defaults(map(), map()) -> map().
-merge_with_global_defaults(GlobalDefaults, ZoneVal) ->
-    emqx_utils_maps:deep_merge(GlobalDefaults, ZoneVal).
+-spec merge_zones_with_global_defaults(map()) -> map().
+merge_zones_with_global_defaults(ZonesConfig) ->
+    Defaults = zone_global_defaults(),
+    maps:map(
+        fun(_ZoneName, ZoneVal) ->
+            emqx_utils_maps:deep_merge(Defaults, ZoneVal)
+        end,
+        ZonesConfig
+    ).
 
 %% @doc Update zones
 %%    when 1) zone updates, return *new* zones
@@ -857,15 +844,11 @@ merge_with_global_defaults(GlobalDefaults, ZoneVal) ->
     NewZoneVal :: map().
 maybe_update_zone([zones | T], ZonesValue, Value) ->
     %% note, do not write to PT, return *New value* instead
-    GLD = zone_global_defaults(),
     NewZonesValue0 = emqx_utils_maps:deep_put(T, ZonesValue, Value),
-    NewZonesValue1 = emqx_utils_maps:deep_merge(#{default => GLD}, NewZonesValue0),
-    maps:map(
-        fun(_ZoneName, ZoneValue) ->
-            merge_with_global_defaults(GLD, ZoneValue)
-        end,
-        NewZonesValue1
-    );
+    NewZonesValue1 = emqx_utils_maps:deep_merge(
+        #{default => zone_global_defaults()}, NewZonesValue0
+    ),
+    merge_zones_with_global_defaults(NewZonesValue1);
 maybe_update_zone([RootName | T], RootValue, Value) when is_atom(RootName) ->
     NewRootValue = emqx_utils_maps:deep_put(T, RootValue, Value),
     case is_zone_root(RootName) of
@@ -904,7 +887,7 @@ maybe_update_zone([RootName | T], RootValue, Value) when is_atom(RootName) ->
             ),
             ZonesKey = ?PERSIS_KEY(?CONF, zones),
             persistent_term:put(ZonesKey, NewZones),
-            put_config_post_change_actions(ZonesKey, NewZones)
+            put_config_post_change_actions(ZonesKey, ExistingZones, NewZones)
     end,
     NewRootValue.
 
@@ -941,14 +924,36 @@ rawconf_to_conf(SchemaModule, RawPath, RawValue) ->
     AtomPath = to_atom_conf_path(RawPath, {raise_error, maybe_update_zone_error}),
     emqx_utils_maps:deep_get(AtomPath, RawUserDefinedValues).
 
-%% When the global zone change, the zones is updated with the new global zone.
-%% The global zone's keys is too many,
-%% so we don't choose to write a global zone change emqx_config_handler callback to hook
-put_config_post_change_actions(?PERSIS_KEY(?CONF, zones), _Zones) ->
-    emqx_flapping:update_config(),
+% When the global zone changes, all zones are updated with the new global zone configuration.
+% However, since the global zone contains too many configuration keys,
+% we decided not to implement an emqx_config_handler callback to handle global zone changes.
+put_config_post_change_actions(?PERSIS_KEY(?CONF, zones), OldZones, NewZones) ->
+    _ = emqx_config_zones:post_update(OldZones, NewZones),
     ok;
-put_config_post_change_actions(_Key, _NewValue) ->
+put_config_post_change_actions(_Key, _OldValue, _NewValue) ->
     ok.
 
 config_files() ->
     application:get_env(emqx, config_files, []).
+
+unsafe_atom_checked_hocon_key_map(Map) ->
+    do_unsafe_atom_checked_hocon_key_map(Map).
+
+do_unsafe_atom_checked_hocon_key_map(Map) when is_map(Map) ->
+    maps:fold(
+        fun
+            (?COMPUTED = K, V, Acc) ->
+                %% Do not enter computed values
+                Acc#{K => V};
+            (K, V, Acc) when is_atom(K) ->
+                Acc#{K => do_unsafe_atom_checked_hocon_key_map(V)};
+            (K, V, Acc) when is_binary(K) ->
+                Acc#{binary_to_atom(K, utf8) => do_unsafe_atom_checked_hocon_key_map(V)}
+        end,
+        #{},
+        Map
+    );
+do_unsafe_atom_checked_hocon_key_map(List) when is_list(List) ->
+    lists:map(fun do_unsafe_atom_checked_hocon_key_map/1, List);
+do_unsafe_atom_checked_hocon_key_map(X) ->
+    X.

@@ -1,16 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_mgmt_api_data_backup_SUITE).
@@ -37,12 +26,7 @@
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 all() ->
-    case emqx_cth_suite:skip_if_oss() of
-        false ->
-            emqx_common_test_helpers:all(?MODULE);
-        True ->
-            True
-    end.
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Config.
@@ -208,6 +192,71 @@ t_export_bad_root_keys(Config) ->
     ),
     ok.
 
+%% Checks that we import schema registry serdes before schema validations / message
+%% transformations.
+%% Note: this test cannot reproduce the issue reliably even before the fix that introduced
+%% it.  It serves just as a canary for regressions, if it ever manages to catch it.
+t_schema_registry_import_order(Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    Auth = ?config(auth, Config),
+    SerdeName = <<"test">>,
+    SchemaSource = #{
+        <<"$schema">> => <<"http://json-schema.org/draft-06/schema#">>,
+        <<"type">> => <<"object">>
+    },
+    CreateParams = #{
+        type => json,
+        source => emqx_utils_json:encode(SchemaSource)
+    },
+    MTName = <<"mt">>,
+    PayloadSerde = #{
+        <<"type">> => <<"json">>,
+        <<"schema">> => SerdeName
+    },
+    Operation = emqx_message_transformation_http_api_SUITE:operation(
+        <<"payload.name">>, <<"concat(['hello'])">>
+    ),
+    Transformation = emqx_message_transformation_http_api_SUITE:transformation(
+        MTName, [Operation], #{
+            <<"payload_decoder">> => PayloadSerde,
+            <<"payload_encoder">> => PayloadSerde
+        }
+    ),
+    SVName = <<"sv">>,
+    Check = emqx_schema_validation_http_api_SUITE:schema_check(json, SerdeName),
+    Validation = emqx_schema_validation_http_api_SUITE:validation(SVName, [Check]),
+
+    ?ON(N1, begin
+        ok = emqx_schema_registry:add_schema(SerdeName, CreateParams),
+        emqx_message_transformation:insert(Transformation),
+        emqx_schema_validation:insert(Validation),
+
+        ok
+    end),
+    ExportBody = #{},
+    {200, #{<<"filename">> := Filepath}} = export_backup2(?NODE1_PORT, Auth, ExportBody),
+    %% Remove schema so it's absent when importing stuff back
+    ?ON(N1, ok = emqx_schema_registry:delete_schema(SerdeName)),
+    {ok, _} = import_backup(?NODE1_PORT, Auth, Filepath),
+    ok.
+
+t_exhook_backup(Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    Auth = ?config(auth, Config),
+    Name = <<"myhook">>,
+    ExhookConf = #{
+        <<"name">> => Name,
+        <<"url">> => <<"http://127.0.0.1">>
+    },
+    {ok, _} = ?ON(N1, emqx_exhook_mgr:update_config([exhook, servers], {add, ExhookConf})),
+    ExportBody = #{},
+    {200, #{<<"filename">> := Filepath}} = export_backup2(?NODE1_PORT, Auth, ExportBody),
+    {ok, _} = ?ON(N1, emqx_exhook_mgr:update_config([exhook, servers], {delete, Name})),
+    %% Need to explicitly load the commands because they are loaded by `emqx_machine'...
+    ?ON(N1, emqx_mgmt_cli:load()),
+    ?ON(N1, emqx_ctl:run_command(["data", "import", Filepath])),
+    ok.
+
 do_init_per_testcase(TC, Config) ->
     Cluster = [Core1, _Core2, Repl] = cluster(TC, Config),
     Auth = auth_header(Core1),
@@ -239,10 +288,26 @@ test_file_op(Method, Config) ->
             ?NODE2_PORT,
             Auth,
             maps:get(<<"filename">>, Node3Parsed),
-            [{<<"node">>, maps:get(<<"node">>, Node3Parsed)}]
+            [{<<"node">>, maps:get(<<"node">>, Node3Parsed)}],
+            #{return_all => true}
         )
     end,
-    ?assertMatch({ok, _}, F2()),
+    Res2 = F2(),
+    Code2 =
+        case Method of
+            get -> 200;
+            delete -> 204
+        end,
+    ?assertMatch({ok, {{_, Code2, _}, _, _}}, Res2),
+    {ok, {{_, Code2, _}, Headers2List, _}} = Res2,
+    case Method of
+        get ->
+            ?assertMatch(
+                #{"content-type" := "application/octet-stream"}, maps:from_list(Headers2List)
+            );
+        _ ->
+            ok
+    end,
     assert_second_call(Method, F2()),
 
     %% The same as above but nodes are switched
@@ -311,7 +376,14 @@ import_backup_test(Config, BackupName) ->
 assert_second_call(get, Res) ->
     ?assertMatch({ok, _}, Res);
 assert_second_call(delete, Res) ->
-    ?assertMatch({error, {_, 404, _}}, Res).
+    case Res of
+        {error, {_, 404, _}} ->
+            ok;
+        {error, {{_, 404, _}, _, _}} ->
+            ok;
+        _ ->
+            ct:fail("unexpected result: ~p", [Res])
+    end.
 
 export_cloud_backup(NodeApiPort, Auth) ->
     Body = #{
@@ -356,8 +428,11 @@ list_backups(NodeApiPort, Auth, Page, Limit) ->
     request(get, NodeApiPort, Path, [{<<"page">>, Page}, {<<"limit">>, Limit}], [], Auth).
 
 backup_file_op(Method, NodeApiPort, Auth, BackupName, QueryList) ->
+    backup_file_op(Method, NodeApiPort, Auth, BackupName, QueryList, _Opts = #{}).
+
+backup_file_op(Method, NodeApiPort, Auth, BackupName, QueryList, Opts) ->
     Path = ["data", "files", BackupName],
-    request(Method, NodeApiPort, Path, QueryList, [], Auth).
+    request(Method, NodeApiPort, Path, QueryList, [], Auth, Opts).
 
 upload_backup(NodeApiPort, Auth, BackupFilePath) ->
     Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "files"]),
@@ -386,9 +461,12 @@ request(Method, NodePort, PathParts, Body, Auth) ->
     request(Method, NodePort, PathParts, [], Body, Auth).
 
 request(Method, NodePort, PathParts, QueryList, Body, Auth) ->
+    request(Method, NodePort, PathParts, QueryList, Body, Auth, _Opts = #{}).
+
+request(Method, NodePort, PathParts, QueryList, Body, Auth, Opts) ->
     Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodePort), PathParts),
     Query = unicode:characters_to_list(uri_string:compose_query(QueryList)),
-    emqx_mgmt_api_test_util:request_api(Method, Path, Query, Auth, Body).
+    emqx_mgmt_api_test_util:request_api(Method, Path, Query, Auth, Body, Opts).
 
 cluster(TC, Config) ->
     Nodes = emqx_cth_cluster:start(
@@ -481,6 +559,20 @@ test_case_specific_apps_spec(TestCase) when
         emqx_auth,
         emqx_auth_mnesia,
         emqx_schema_registry
+    ];
+test_case_specific_apps_spec(TestCase) when
+    TestCase =:= t_schema_registry_import_order
+->
+    [
+        emqx_schema_registry,
+        emqx_schema_validation,
+        emqx_message_transformation
+    ];
+test_case_specific_apps_spec(TestCase) when
+    TestCase =:= t_exhook_backup
+->
+    [
+        emqx_exhook
     ];
 test_case_specific_apps_spec(_TC) ->
     [].

@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_telemetry_config).
@@ -19,7 +7,8 @@
 %% Public API
 -export([
     set_telemetry_status/1,
-    is_enabled/0
+    is_enabled/0,
+    set_default_status/1
 ]).
 
 %% emqx_config_handler callback
@@ -36,9 +25,33 @@
     is_official_version/0
 ]).
 
+%% @doc License control.
+set_default_status(IsEnable) ->
+    _ = application:set_env(emqx_telemetry, default_status, IsEnable),
+    case is_enabled() of
+        true ->
+            emqx_telemetry:start_reporting();
+        false ->
+            emqx_telemetry:stop_reporting()
+    end,
+    ok.
+
+%% @doc Check if telemetry is enabled.
 is_enabled() ->
-    IsOfficial = ?MODULE:is_official_version(),
-    emqx_conf:get([telemetry, enable], IsOfficial).
+    case emqx_conf:get([telemetry, enable], no_value) of
+        Bool when is_boolean(Bool) ->
+            %% Configured from config file to enable/disable telemetry
+            Bool;
+        no_value ->
+            case ?MODULE:is_official_version() of
+                true ->
+                    %% Control by license
+                    application:get_env(emqx_telemetry, default_status, false);
+                false ->
+                    %% For non-official version, telemetry is disabled
+                    false
+            end
+    end.
 
 on_server_start() ->
     emqx_conf:add_handler([telemetry], ?MODULE).

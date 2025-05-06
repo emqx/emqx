@@ -55,6 +55,8 @@ is_sensitive_key("security_token") -> true;
 is_sensitive_key(<<"security_token">>) -> true;
 is_sensitive_key(sp_private_key) -> true;
 is_sensitive_key(<<"sp_private_key">>) -> true;
+is_sensitive_key(private_key_password) -> true;
+is_sensitive_key(<<"private_key_password">>) -> true;
 is_sensitive_key(token) -> true;
 is_sensitive_key("token") -> true;
 is_sensitive_key(<<"token">>) -> true;

@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_license.hrl").
 
 -define(LIMIT, 10).
 
@@ -63,10 +64,13 @@ t_update_value(_Config) ->
     ).
 
 t_check_exceeded_25(_Config) ->
-    check_exceeded(25, 25).
+    Limit = ?NO_OVERSHOOT_SESSIONS_LIMIT,
+    check_exceeded(Limit, Limit).
 
 t_check_exceeded_26(_Config) ->
-    check_exceeded(26, erlang:round(26 * 1.1)).
+    Limit = ?NO_OVERSHOOT_SESSIONS_LIMIT + 1,
+    Factor = ?SESSIONS_LIMIT_OVERSHOOT_FACTOR,
+    check_exceeded(Limit, erlang:round(Limit * Factor)).
 
 check_exceeded(LimitInLicense, Limit) ->
     License = mk_license(integer_to_list(LimitInLicense)),
@@ -172,16 +176,30 @@ t_check_not_loaded(_Config) ->
     ?assertEqual({stop, {error, ?RC_QUOTA_EXCEEDED}}, check()).
 
 t_import_config(_Config) ->
-    %% Import to default license
+    %% Import default license
     ?assertMatch(
         {ok, #{root_key := license, changed := _}},
         emqx_license:import_config(#{<<"license">> => #{<<"key">> => <<"default">>}})
     ),
     ?assertEqual(default, emqx:get_config([license, key])),
-    ?assertMatch({ok, #{max_connections := 10}}, emqx_license_checker:limits()),
+    ?assertMatch(
+        {ok, #{max_sessions := ?DEFAULT_MAX_SESSIONS_LTYPE2}}, emqx_license_checker:limits()
+    ),
+
+    %% Import evaluation license
+    ?assertMatch(
+        {ok, #{root_key := license, changed := _}},
+        emqx_license:import_config(#{<<"license">> => #{<<"key">> => <<"evaluation">>}})
+    ),
+    ?assertEqual(evaluation, emqx:get_config([license, key])),
+    ?assertMatch(
+        {ok, #{max_sessions := ?DEFAULT_MAX_SESSIONS_CTYPE10}}, emqx_license_checker:limits()
+    ),
 
     %% Import to a new license
-    EncodedLicense = emqx_license_test_lib:make_license(#{max_connections => "100"}),
+    EncodedLicense = emqx_license_test_lib:make_license(#{
+        license_type => "1", max_sessions => "0", customer_type => "3"
+    }),
     ?assertMatch(
         {ok, #{root_key := license, changed := _}},
         emqx_license:import_config(
@@ -195,11 +213,28 @@ t_import_config(_Config) ->
             }
         )
     ),
-    ?assertMatch({ok, #{max_connections := 100}}, emqx_license_checker:limits()),
+    ?assertMatch(
+        {ok, #{max_sessions := ?DEFAULT_MAX_SESSIONS_CTYPE3}}, emqx_license_checker:limits()
+    ),
+    ?assertMatch(
+        #{type := <<"official">>, max_sessions := ?DEFAULT_MAX_SESSIONS_CTYPE3},
+        maps:from_list(emqx_license_checker:dump())
+    ),
     ?assertMatch(
         #{connection_low_watermark := 0.2, connection_high_watermark := 0.5},
         emqx:get_config([license])
     ).
+
+t_app_cannot_start_with_invalid_license(_Config) ->
+    meck:new(emqx_license, [passthrough, no_history]),
+    meck:expect(emqx_license, read_license, fun() -> {error, 'SINGLE_NODE_LICENSE'} end),
+    try
+        ?assertMatch(
+            {error, "SINGLE_NODE_LICENSE," ++ _}, emqx_license_app:start(normal, permanent)
+        )
+    after
+        meck:unload(emqx_license)
+    end.
 
 %%------------------------------------------------------------------------------
 %% Helpers

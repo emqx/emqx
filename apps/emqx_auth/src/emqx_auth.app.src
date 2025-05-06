@@ -12,7 +12,6 @@
     ]},
     {mod, {emqx_auth_app, []}},
     {env, []},
-    {licenses, ["Apache-2.0"]},
     {maintainers, ["EMQX Team <contact@emqx.io>"]},
     {links, [{"Homepage", "https://emqx.io/"}]}
 ]}.

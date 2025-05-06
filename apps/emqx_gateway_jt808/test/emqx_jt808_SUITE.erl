@@ -136,6 +136,13 @@ boot_apps(Case, JT808Conf, Config) ->
     timer:sleep(1000),
     Apps.
 
+update_jt808_with_idle_timeout(IdleTimeout) ->
+    Conf = emqx:get_raw_config([gateway, jt808]),
+    emqx_gateway_conf:update_gateway(
+        jt808,
+        Conf#{<<"idle_timeout">> => IdleTimeout}
+    ).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helper functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 gen_packet(Header, Body) ->
@@ -377,11 +384,35 @@ t_case01_auth(_) ->
 
     ok = gen_tcp:close(Socket).
 
+t_case01_update_not_restart_listener(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    update_jt808_with_idle_timeout(<<"20s">>),
+
+    % send heartbeat
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MC_HEARTBEAT,
+    MsgSn = 78,
+    Size = 0,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S1 = gen_packet(Header, <<>>),
+
+    ok = gen_tcp:send(Socket, S1),
+    %% assert: heartbeat can be received after gateway update
+    {ok, _} = gen_tcp:recv(Socket, 0, 500),
+
+    ok = gen_tcp:close(Socket).
+
 t_case02_anonymous_register_and_auth(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
 
-    {ok, AuthCode} = client_regi_procedure(Socket, <<>>),
-    ?assertEqual(AuthCode, <<>>),
+    DefaultAuthCode = <<"anonymous">>,
+    {ok, AuthCode} = client_regi_procedure(Socket, DefaultAuthCode),
+    ?assertEqual(AuthCode, DefaultAuthCode),
 
     ok = client_auth_procedure(Socket, AuthCode),
 
@@ -2805,6 +2836,67 @@ test_invalid_config(CreateOrUpdate, AnonymousAllowed) ->
         UpdateResult
     ).
 
+t_ignore_unsupported_frames_default(_Config) ->
+    %% default value is true
+    ?assertEqual(true, emqx_config:get([gateway, jt808, proto, ignore_unsupported_frames])),
+
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    %% send unsupported frame
+    ok = gen_tcp:send(Socket, unsupported_frame_packet()),
+    %% nothing to happen
+
+    %% send heartbeat
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MC_HEARTBEAT,
+    MsgSn = 78,
+    Size = 0,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S1 = gen_packet(Header, <<>>),
+
+    ok = gen_tcp:send(Socket, S1),
+    %% timer:sleep(200),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size2 = size(GenAckPacket),
+    MsgId2 = ?MS_GENERAL_RESPONSE,
+    MsgSn2 = 2,
+    Header2 =
+        <<MsgId2:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size2),
+            PhoneBCD/binary, MsgSn2:?WORD>>,
+    S2 = gen_packet(Header2, GenAckPacket),
+    ?assertEqual(S2, Packet),
+
+    ok = gen_tcp:close(Socket).
+
+t_ignore_unsupported_frames_set_to_false(_Config) ->
+    RawConfig = emqx_config:get_raw([gateway, jt808]),
+    RawConfig1 = emqx_utils_maps:deep_put(
+        [<<"proto">>, <<"ignore_unsupported_frames">>], RawConfig, false
+    ),
+    {ok, _} = emqx_gateway_conf:update_gateway(jt808, RawConfig1),
+
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    %% send unsupported frame
+    ok = gen_tcp:send(Socket, unsupported_frame_packet()),
+    %% socket should be closed
+    {error, closed} = gen_tcp:recv(Socket, 0, 1000),
+
+    ok = gen_tcp:close(Socket),
+
+    %% restore config
+    {ok, _} = emqx_gateway_conf:update_gateway(jt808, RawConfig),
+
+    ok.
+
 create_or_update(create, InvalidConfig) ->
     emqx_gateway_conf:load_gateway(jt808, InvalidConfig);
 create_or_update(update, InvalidConfig) ->
@@ -2851,3 +2943,12 @@ raw_jt808_config() ->
             },
         <<"retry_interval">> => <<"8s">>
     }.
+
+unsupported_frame_packet() ->
+    <<126, 2, 5, 0, 128, 1, 137, 112, 19, 0, 64, 1, 98, 72, 66, 77, 54, 48, 49, 67, 86, 77, 48, 49,
+        49, 77, 50, 50, 48, 50, 53, 45, 48, 49, 45, 49, 55, 253, 255, 2, 0, 255, 127, 0, 128, 80,
+        17, 1, 54, 69, 67, 56, 48, 48, 77, 0, 0, 0, 0, 0, 0, 0, 0, 0, 56, 54, 56, 48, 49, 57, 48,
+        55, 51, 55, 48, 52, 51, 56, 48, 52, 54, 48, 49, 49, 51, 56, 55, 49, 49, 48, 49, 53, 55, 52,
+        56, 57, 56, 54, 49, 49, 50, 52, 50, 51, 51, 48, 56, 49, 51, 49, 53, 55, 57, 53, 0, 0, 76,
+        67, 48, 68, 55, 52, 67, 52, 49, 80, 48, 50, 49, 49, 50, 54, 48, 4, 20, 164, 132, 0, 0, 0, 0,
+        66, 126>>.

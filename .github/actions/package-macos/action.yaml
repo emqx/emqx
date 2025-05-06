@@ -39,10 +39,14 @@ runs:
       run: |
         curl -LO https://cmake.org/files/v3.31/cmake-3.31.7-macos-universal.tar.gz
         tar -xzf cmake-3.31.7-macos-universal.tar.gz
-        sudo mv cmake-3.31.7-macos-universal/CMake.app/Contents/bin/cmake /usr/local/bin
+        sudo mv cmake-3.31.7-macos-universal/CMake.app/Contents/bin/cmake /usr/local/bin/
+        sudo mv cmake-3.31.7-macos-universal/CMake.app/Contents/share/cmake-3.31 /usr/local/share/
         sudo rm -rf cmake-3.31.7-macos-universal
+        export CMAKE_ROOT=/usr/local/share/cmake-3.31
+        echo "CMAKE_ROOT=/usr/local/share/cmake-3.31" >> $GITHUB_ENV
+        hash -r
         cmake --version
-    - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+    - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
       id: cache
       with:
         path: ~/.kerl/installations/${{ inputs.otp }}
@@ -73,6 +77,7 @@ runs:
         APPLE_DEVELOPER_IDENTITY: ${{ inputs.apple_developer_identity }}
         APPLE_DEVELOPER_ID_BUNDLE: ${{ inputs.apple_developer_id_bundle }}
         APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ inputs.apple_developer_id_bundle_password }}
+        QUICER_TLS_VER: openssl3
       run: |
         . ~/.kerl/installations/$OTP_VERSION/activate
         # inspect erl in PATH

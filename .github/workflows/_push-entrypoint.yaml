@@ -7,7 +7,7 @@ concurrency:
 on:
   push:
     tags:
-      - 'v*'
+      - 'e*'
     branches:
       - 'master'
       - 'release-5[0-9]'
@@ -69,7 +69,7 @@ jobs:
         shell: bash
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Detect emqx profile
+      - name: Parse git ref
         id: parse-git-ref
         run: |
           JSON="$(./scripts/parse-git-ref.sh $GITHUB_REF)"
@@ -125,7 +125,7 @@ jobs:
     uses: ./.github/workflows/build_slim_packages.yaml
 
   compile:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     container: ${{ needs.init.outputs.BUILDER }}
     needs:
       - init
@@ -133,7 +133,6 @@ jobs:
     strategy:
       matrix:
         profile:
-          - emqx
           - emqx-enterprise
 
     steps:
@@ -154,12 +153,12 @@ jobs:
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
           make ${PROFILE}-rel
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
           retention-days: 7
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: "${{ matrix.profile }}-schema-dump"
           path: |
@@ -174,7 +173,7 @@ jobs:
       - init
       - prepare
       - build_packages
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     permissions:
       actions: write
     steps:
@@ -182,17 +181,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh --repo ${{ github.repository }} workflow run performance_test.yaml -f version=${GITHUB_REF_NAME##[v|e]} 
+          gh --repo ${{ github.repository }} workflow run performance_test.yaml -f version=${GITHUB_REF_NAME##[v|e]}
   update_emqx_i18n:
     if: needs.prepare.outputs.release == 'true'
     needs:
       - prepare
       - compile
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     steps:
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2.0.2
         with:
           app-id: ${{ vars.AUTH_APP_ID }}
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
@@ -202,7 +201,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh --repo emqx/emqx-i18n workflow run sync-en-doc.yaml -f version=${GITHUB_REF_NAME##[v|e]} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
+          gh --repo emqx/emqx-i18n workflow run sync-and-translate.yaml -f version=${GITHUB_REF_NAME}
 
   run_emqx_app_tests:
     if: needs.prepare.outputs.release != 'true'
@@ -231,6 +230,7 @@ jobs:
       ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}
       ct-host: ${{ needs.prepare.outputs.ct-host }}
       ct-docker: ${{ needs.prepare.outputs.ct-docker }}
+    secrets: inherit
 
   run_conf_tests:
     if: needs.prepare.outputs.release != 'true'
@@ -252,3 +252,57 @@ jobs:
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
       ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}
+
+  update_public_broker:
+    if: needs.prepare.outputs.release == 'true'
+    needs:
+      - init
+      - prepare
+      - build_and_push_docker_images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from tag
+        id: extract_version
+        run: echo "version=${GITHUB_REF_NAME#e}" | tee -a $GITHUB_OUTPUT
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2.0.2
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Dispatch release event to emqx/public.broker.io
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/emqx/public.broker.io/dispatches \
+            -f "event_type=release" \
+            -F "client_payload[version]=${{ steps.extract_version.outputs.version }}"
+
+  trigger_regression_testing:
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() && contains(join(needs.*.result, ','), 'success') }}
+    needs:
+      - build_packages
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2.0.2
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Trigger EMQX Regression Testing Workflow
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        shell: bash
+        run: |
+          gh --repo emqx/emqx-qa workflow run regression_testing_emqx.yaml \
+            -f froms="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

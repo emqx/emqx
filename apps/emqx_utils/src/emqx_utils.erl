@@ -847,8 +847,8 @@ search(ExpectValue, KeyFunc, [Item | List]) ->
 %% The purpose of this function is to adapt to `Fun`s that return either a `[]`
 %% or a term, and to avoid costs of list construction and flattening when
 %% dealing with large lists.
--spec flattermap(Fun, [X]) -> [X] when
-    Fun :: fun((X) -> [X] | X).
+-spec flattermap(Fun, [X]) -> [Y] when
+    Fun :: fun((X) -> [Y] | Y).
 flattermap(_Fun, []) ->
     [];
 flattermap(Fun, [X | Xs]) ->

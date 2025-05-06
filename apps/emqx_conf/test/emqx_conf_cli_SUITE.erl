@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_conf_cli_SUITE).
 
@@ -87,6 +75,22 @@ t_load_config(Config) ->
     ok = file:delete(EmptyFile),
     ok.
 
+t_remove_config(Config) ->
+    Conf0 = #{
+        <<"zones">> => #{<<"my-zone">> => #{<<"mqtt">> => #{<<"keepalive_multiplier">> => 10}}}
+    },
+    ConfBin0 = hocon_pp:do(Conf0, #{}),
+    ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
+    ok = emqx_conf_cli:conf(["load", "--replace", ConfFile0]),
+    %% Sanity check
+    ?assertMatch(
+        #{<<"mqtt">> := #{<<"keepalive_multiplier">> := 10}},
+        emqx_conf:get_raw([<<"zones">>, <<"my-zone">>])
+    ),
+    ?assertMatch(ok, emqx_conf_cli:conf(["remove", "zones.my-zone"])),
+    ?assertMatch(not_found, emqx_conf:get_raw([<<"zones">>, <<"my-zone">>], not_found)),
+    ok.
+
 t_conflict_mix_conf(Config) ->
     case emqx_release:edition() of
         ce ->
@@ -105,7 +109,8 @@ t_conflict_mix_conf(Config) ->
                 <<"mechanism">> => <<"password_based">>,
                 %% password_hash_algorithm {name = sha256, salt_position = suffix}
                 <<"redis_type">> => <<"single">>,
-                <<"server">> => <<"127.0.0.1:6379">>
+                <<"server">> => <<"127.0.0.1:6379">>,
+                <<"precondition">> => <<>>
             },
             AuthN = #{<<"authentication">> => [Redis]},
             ConfBin = hocon_pp:do(AuthN, #{}),
@@ -114,8 +119,8 @@ t_conflict_mix_conf(Config) ->
             ok = emqx_conf_cli:conf(["load", "--replace", ConfFile]),
             [RedisRaw] = emqx_conf:get_raw([authentication]),
             ?assertEqual(
-                maps:to_list(Redis),
-                maps:to_list(maps:remove(<<"ssl">>, RedisRaw)),
+                lists:sort(maps:to_list(Redis)),
+                lists:sort(maps:to_list(maps:remove(<<"ssl">>, RedisRaw))),
                 {Redis, RedisRaw}
             ),
             %% change redis type from single to cluster

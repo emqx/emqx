@@ -56,7 +56,7 @@ auto_reconnect.label:
 """Auto Reconnect"""
 
 exchange.desc:
-"""The name of the RabbitMQ exchange where the messages will be sent. Supports templates (e.g.: `e-${payload.e}`)."""
+"""The name of the RabbitMQ exchange where the messages will be sent. Supports templates (e.g.: `e-${payload.e}`). Leave blank and configure `routing_key` to the specified Queue to use RabbitMQ's default Exchange."""
 
 exchange.label:
 """Exchange"""

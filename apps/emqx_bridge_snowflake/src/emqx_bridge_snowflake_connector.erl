@@ -75,7 +75,9 @@
     server := binary(),
     account := account(),
     username := binary(),
-    password := emqx_schema_secret:secret(),
+    password => emqx_schema_secret:secret(),
+    private_key_path => binary(),
+    private_key_password => emqx_schema_secret:secret(),
     dsn := binary(),
     pool_size := pos_integer(),
     proxy := none | proxy_config()
@@ -198,22 +200,22 @@ on_start(ConnResId, ConnConfig) ->
         server := Server,
         account := Account,
         username := Username,
-        password := Password,
         dsn := DSN,
         pool_size := PoolSize,
         proxy := ProxyConfig
     } = ConnConfig,
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SERVER_OPTS),
-    PoolOpts = [
+    Authn = mk_odbc_authn_opt(ConnConfig),
+    PoolOpts = lists:flatten([
+        Authn,
         {pool_size, PoolSize},
         {dsn, DSN},
         {account, Account},
         {server, Server},
         {username, Username},
-        {password, Password},
         {proxy, ProxyConfig},
         {on_disconnect, {?MODULE, disconnect, []}}
-    ],
+    ]),
     case emqx_resource_pool:start(ConnResId, ?MODULE, PoolOpts) of
         ok ->
             State = #{
@@ -300,12 +302,8 @@ on_query(
 ) when
     is_map_key(ActionResId, InstalledActions)
 ->
-    case InstalledActions of
-        %% #{ActionResId := #{mode := direct} = _ActionState} ->
-        %%     {ok, todo};
-        #{ActionResId := #{mode := aggregated} = ActionState} ->
-            run_aggregated_action([Data], ActionState)
-    end;
+    #{ActionResId := #{mode := aggregated} = ActionState} = InstalledActions,
+    run_aggregated_action([Data], ActionResId, ActionState);
 on_query(
     _ConnResId,
     #insert_report{action_res_id = ActionResId, opts = Opts},
@@ -323,13 +321,9 @@ on_query(_ConnResId, Query, _ConnState) ->
 on_batch_query(_ConnResId, [{ActionResId, _} | _] = Batch0, #{installed_actions := InstalledActions}) when
     is_map_key(ActionResId, InstalledActions)
 ->
-    case InstalledActions of
-        %% #{ActionResId := #{mode := direct} = _ActionState} ->
-        %%     {ok, todo};
-        #{ActionResId := #{mode := aggregated} = ActionState} ->
-            Batch = [Data || {_, Data} <- Batch0],
-            run_aggregated_action(Batch, ActionState)
-    end;
+    #{ActionResId := #{mode := aggregated} = ActionState} = InstalledActions,
+    Batch = [Data || {_, Data} <- Batch0],
+    run_aggregated_action(Batch, ActionResId, ActionState);
 on_batch_query(_ConnResId, Batch, _ConnState) ->
     {error, {unrecoverable_error, {bad_batch, Batch}}}.
 
@@ -350,8 +344,12 @@ insert_report(ActionResId, Opts) ->
 
 connect(Opts) ->
     ConnectStr = conn_str(Opts),
+    %% Note: we don't use `emqx_secret:wrap/1` here because its return type is opaque, and
+    %% dialyzer then complains that it's being fed to a function that doesn't expect
+    %% something opaque...
+    ConnectStrWrapped = fun() -> ConnectStr end,
     DriverOpts = proplists:get_value(driver_options, Opts, []),
-    odbc:connect(ConnectStr, DriverOpts).
+    odbc:connect(ConnectStrWrapped, DriverOpts).
 
 disconnect(ConnectionPid) ->
     odbc:disconnect(ConnectionPid).
@@ -810,8 +808,12 @@ ensure_common_action_destroyed(ActionResId) ->
     ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ActionResId),
     ok.
 
-run_aggregated_action(Batch, #{aggreg_id := AggregId}) ->
+run_aggregated_action(Batch, ActionResId, #{aggreg_id := AggregId}) ->
     Timestamp = erlang:system_time(second),
+    emqx_trace:rendered_action_template(ActionResId, #{
+        mode => aggregated,
+        records => Batch
+    }),
     case emqx_connector_aggregator:push_records(AggregId, Timestamp, Batch) of
         ok ->
             ok;
@@ -833,6 +835,10 @@ conn_str([{dsn, DSN} | Opts], Acc) ->
     conn_str(Opts, ["dsn=" ++ str(DSN) | Acc]);
 conn_str([{server, Server} | Opts], Acc) ->
     conn_str(Opts, ["server=" ++ str(Server) | Acc]);
+conn_str([{private_key_path, Path} | Opts], Acc) ->
+    conn_str(Opts, ["authenticator=SNOWFLAKE_JWT", "priv_key_file=" ++ str(Path) | Acc]);
+conn_str([{private_key_password, Password} | Opts], Acc) ->
+    conn_str(Opts, ["priv_key_file_pwd=" ++ str(emqx_secret:unwrap(Password)) | Acc]);
 conn_str([{account, Account} | Opts], Acc) ->
     conn_str(Opts, ["account=" ++ str(Account) | Acc]);
 conn_str([{username, Username} | Opts], Acc) ->
@@ -852,9 +858,19 @@ jwt_config(ActionResId, ActionConfig, ConnState) ->
         parameters := #{
             private_key := PrivateKeyPEM,
             pipe_user := PipeUser
-        }
+        } = Parameters
     } = ActionConfig,
-    PrivateJWK = jose_jwk:from_pem(emqx_secret:unwrap(PrivateKeyPEM)),
+    PrivateKeyPassword = maps:get(private_key_password, Parameters, undefined),
+    PrivateJWK =
+        case PrivateKeyPassword /= undefined of
+            true ->
+                jose_jwk:from_pem(
+                    emqx_secret:unwrap(PrivateKeyPassword),
+                    emqx_secret:unwrap(PrivateKeyPEM)
+                );
+            false ->
+                jose_jwk:from_pem(emqx_secret:unwrap(PrivateKeyPEM))
+        end,
     %% N.B.
     %% The account_identifier and user values must use all uppercase characters
     %% https://docs.snowflake.com/en/developer-guide/sql-api/authenticating#using-key-pair-authentication
@@ -1076,7 +1092,7 @@ check_snowpipe_user_permission(HTTPPool, ODBCPool, ActionState) ->
         {error, {ok, StatusCode, _}} ->
             Msg = iolist_to_binary([
                 <<"Error checking if configured snowpipe user has permissions.">>,
-                <<" HTTP Status Code:">>,
+                <<" HTTP Status Code: ">>,
                 integer_to_binary(StatusCode)
             ]),
             %% Not marking it as unhealthy because it could be spurious
@@ -1084,7 +1100,7 @@ check_snowpipe_user_permission(HTTPPool, ODBCPool, ActionState) ->
         {error, {ok, StatusCode, _, Body}} ->
             Msg = iolist_to_binary([
                 <<"Error checking if configured snowpipe user has permissions.">>,
-                <<" HTTP Status Code:">>,
+                <<" HTTP Status Code: ">>,
                 integer_to_binary(StatusCode),
                 <<"; Body: ">>,
                 Body
@@ -1171,6 +1187,18 @@ do_get_login_failure_details(ConnPid, RequestId) ->
     SQL = binary_to_list(SQL0),
     Timeout = 5_000,
     odbc:sql_query(ConnPid, SQL, Timeout).
+
+mk_odbc_authn_opt(#{private_key_path := <<Path/binary>>} = ConnConfig) ->
+    Password = maps:get(private_key_password, ConnConfig, undefined),
+    lists:flatten([
+        {private_key_path, Path},
+        [{private_key_password, Password} || Password /= undefined]
+    ]);
+mk_odbc_authn_opt(#{password := Password}) ->
+    [{password, Password}];
+mk_odbc_authn_opt(_ConnConfig) ->
+    %% Users can place password in `/etc/odbc.ini`.
+    [].
 
 %%------------------------------------------------------------------------------
 %% Tests

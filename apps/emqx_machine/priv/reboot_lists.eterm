@@ -39,6 +39,7 @@
             emqx,
             emqx_conf,
             emqx_utils,
+            emqx_license,
             emqx_durable_storage,
             emqx_ds_backends,
             emqx_http_lib,
@@ -80,12 +81,12 @@
             emqx_postgresql,
             emqx_plugins,
             quicer,
-            bcrypt
+            bcrypt,
+            emqx_telemetry
         ],
     %% must always be of type `load'
     ee_business_apps =>
         [
-            emqx_license,
             emqx_enterprise,
             emqx_opentelemetry,
             emqx_mt,
@@ -141,12 +142,8 @@
             emqx_bridge_disk_log,
             emqx_ds_shared_sub,
             emqx_auth_kerberos,
-            emqx_auth_ext,
             emqx_cluster_link,
             emqx_ds_builtin_raft,
             emqx_auth_cinfo
-        ],
-    %% must always be of type `load'
-    ce_business_apps =>
-        [emqx_telemetry]
+        ]
 }.

@@ -4,7 +4,7 @@
 
 OpenTSDB was written to address a common need: store, index and serve metrics collected from computer systems (network gear, operating systems, applications) at a large scale, and make this data easily accessible and graphable.
 
-OpenTSDB allows you to collect thousands of metrics from tens of thousands of hosts and applications, at a high rate (every few seconds). 
+OpenTSDB allows you to collect thousands of metrics from tens of thousands of hosts and applications, at a high rate (every few seconds).
 
 OpenTSDB will never delete or downsample data and can easily store hundreds of billions of data points.
 
@@ -29,8 +29,3 @@ The application is used to connect EMQX and OpenTSDB. User can create a rule and
 # Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-
-# License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).

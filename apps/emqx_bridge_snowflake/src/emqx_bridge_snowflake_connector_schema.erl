@@ -19,6 +19,10 @@
     desc/1
 ]).
 
+%% `emqx_schema_hooks' API
+-export([injected_fields/0]).
+-export([authn_mode_selection_validator/1]).
+
 %% `emqx_connector_examples' API
 -export([
     connector_examples/1
@@ -55,7 +59,7 @@ fields(connector_config) ->
     Fields = lists:map(
         fun
             ({Field, Sc}) when Field =:= username; Field =:= password ->
-                Override = #{type => hocon_schema:field_schema(Sc, type), required => true},
+                Override = #{type => hocon_schema:field_schema(Sc, type), required => false},
                 {Field, hocon_schema:override(Sc, Override)};
             ({Field, Sc}) ->
                 {Field, Sc}
@@ -75,6 +79,12 @@ fields(connector_config) ->
                 validator => fun account_id_validator/1
             })},
         {dsn, mk(binary(), #{required => true, desc => ?DESC("dsn")})},
+        {private_key_path, mk(binary(), #{required => false, desc => ?DESC("private_key_path")})},
+        {private_key_password,
+            emqx_schema_secret:mk(#{
+                required => false,
+                desc => ?DESC("private_key_password")
+            })},
         {proxy,
             mk(
                 hoconsc:union([none, hoconsc:ref(?MODULE, proxy_config)]),
@@ -90,6 +100,17 @@ fields(proxy_config) ->
         {port,
             mk(emqx_schema:port_number(), #{required => true, desc => ?DESC("proxy_config_port")})}
     ].
+
+injected_fields() ->
+    #{
+        'connectors.validators' => [fun ?MODULE:authn_mode_selection_validator/1]
+    }.
+
+authn_mode_selection_validator(#{<<"snowflake">> := SnowflakeConns}) ->
+    Iter = maps:iterator(SnowflakeConns),
+    do_authn_mode_selection_validator(maps:next(Iter));
+authn_mode_selection_validator(_) ->
+    ok.
 
 desc("config_connector") ->
     ?DESC("config_connector");
@@ -168,4 +189,18 @@ account_id_validator(AccountId) ->
             ok;
         _ ->
             {error, <<"Account identifier must be of form ORGID-ACCOUNTNAME">>}
+    end.
+
+do_authn_mode_selection_validator(none) ->
+    ok;
+do_authn_mode_selection_validator({_Name, Conf, Iter}) ->
+    case Conf of
+        #{<<"password">> := _, <<"private_key_path">> := _} ->
+            Msg = <<
+                "At most one of `password` or `private_key_path`"
+                " must be set, but not both"
+            >>,
+            {error, Msg};
+        _ ->
+            do_authn_mode_selection_validator(maps:next(Iter))
     end.

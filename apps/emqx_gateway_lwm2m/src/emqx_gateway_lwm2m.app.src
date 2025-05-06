@@ -6,6 +6,5 @@
     {applications, [kernel, stdlib, emqx, emqx_gateway, emqx_gateway_coap, xmerl]},
     {env, []},
     {modules, []},
-    {licenses, ["Apache 2.0"]},
     {links, []}
 ]}.

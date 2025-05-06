@@ -34,8 +34,9 @@
     purge/0,
     limits/0,
     print_warnings/1,
-    get_max_connections/1,
-    get_dynamic_max_connections/0
+    get_max_sessions/1,
+    get_dynamic_max_sessions/0,
+    no_violation/1
 ]).
 
 %% gen_server callbacks
@@ -50,7 +51,7 @@
 
 -define(LICENSE_TAB, emqx_license).
 
--type limits() :: #{max_connections := non_neg_integer() | ?ERR_EXPIRED | ?ERR_MAX_UPTIME}.
+-type limits() :: #{max_sessions := non_neg_integer() | ?ERR_EXPIRED | ?ERR_MAX_UPTIME}.
 -type license() :: emqx_license_parser:license().
 -type fetcher() :: fun(() -> {ok, license()} | {error, term()}).
 
@@ -98,23 +99,19 @@ purge() ->
 %%------------------------------------------------------------------------------
 
 init([LicenseFetcher, CheckInterval]) ->
-    case LicenseFetcher() of
-        {ok, License} ->
-            ?LICENSE_TAB = ets:new(?LICENSE_TAB, [
-                set, protected, named_table, {read_concurrency, true}
-            ]),
-            State0 = ensure_check_license_timer(#{
-                check_license_interval => CheckInterval,
-                license => License,
-                start_time => erlang:monotonic_time(seconds)
-            }),
-            State1 = ensure_refresh_timer(State0),
-            State = ensure_check_expiry_timer(State1),
-            ok = print_warnings(check_license(State)),
-            {ok, State};
-        {error, Reason} ->
-            {stop, Reason}
-    end.
+    {ok, License} = LicenseFetcher(),
+    ?LICENSE_TAB = ets:new(?LICENSE_TAB, [
+        set, protected, named_table, {read_concurrency, true}
+    ]),
+    State0 = ensure_check_license_timer(#{
+        check_license_interval => CheckInterval,
+        license => License,
+        start_time => erlang:monotonic_time(seconds)
+    }),
+    State1 = ensure_refresh_timer(State0),
+    State = ensure_check_expiry_timer(State1),
+    ok = print_warnings(check_license(State)),
+    {ok, State}.
 
 handle_call({update, License}, _From, #{license := Old} = State0) ->
     ok = expiry_early_alarm(License),
@@ -125,9 +122,9 @@ handle_call({update, License}, _From, #{license := Old} = State0) ->
 handle_call(dump, _From, #{license := License} = State) ->
     Dump0 = emqx_license_parser:dump(License),
     %% resolve the current dynamic limit
-    MaybeDynamic = get_max_connections(License),
-    Dump = lists:keyreplace(max_connections, 1, Dump0, {max_connections, MaybeDynamic}),
-    {reply, max_sessions(Dump), State};
+    MaybeDynamic = get_max_sessions(License),
+    Dump = lists:keyreplace(max_sessions, 1, Dump0, {max_sessions, MaybeDynamic}),
+    {reply, Dump, State};
 handle_call(expiry_epoch, _From, #{license := License} = State) ->
     ExpiryEpoch = date_to_expiry_epoch(emqx_license_parser:expiry_date(License)),
     {reply, ExpiryEpoch, State};
@@ -218,20 +215,59 @@ cancel_timer(State, Key) ->
             ok
     end.
 
+-spec no_violation(license()) -> ok | {error, atom()}.
+no_violation(License) ->
+    IsSingleNodeLicense = emqx_license_parser:is_single_node(License),
+    %% check only running nodes to allow once misconfigured cluster recover
+    IsClustered = length(emqx:cluster_nodes(running)) > 1,
+    case IsSingleNodeLicense andalso IsClustered of
+        true -> {error, 'SINGLE_NODE_LICENSE'};
+        false -> ok
+    end.
+
 check_license(#{license := License, start_time := StartTime} = _State) ->
     DaysLeft = days_left(License),
     IsOverdue = is_overdue(License, DaysLeft),
     IsMaxUptimeReached = is_max_uptime_reached(License, StartTime),
-    #{max_connections := MaxConn} =
+    #{max_sessions := MaxConn} =
         Limits = limits(License, #{
             is_overdue => IsOverdue,
             is_max_uptime_reached => IsMaxUptimeReached
         }),
     true = apply_limits(Limits),
+    ok = ensure_cluster_mode(License),
+    ok = ensure_telemetry_default_status(License),
     #{
+        warn_default => warn_community(License),
         warn_evaluation => warn_evaluation(License, IsOverdue, MaxConn),
         warn_expiry => {(DaysLeft < 0), -DaysLeft}
     }.
+
+ensure_cluster_mode(License) ->
+    case emqx_license_parser:is_single_node(License) of
+        true ->
+            ok = emqx_cluster:ensure_singleton_mode();
+        false ->
+            ok = emqx_cluster:ensure_normal_mode()
+    end.
+
+%% Enable telemetry when any of the following conditions are met:
+%% 1. License type is community (LTYPE=2)
+%% 2. Customer type is education  | non-profit (CTYPE=5)
+%% 3. Customer type is evaluation (CTYPE=10)
+%% 4. Customer type is developer (CTYPE=11)
+ensure_telemetry_default_status(License) ->
+    LType = emqx_license_parser:license_type(License),
+    CType = emqx_license_parser:customer_type(License),
+    EnableByDefault =
+        LType =:= ?COMMUNITY orelse
+            CType =:= ?EDUCATION_NONPROFIT_CUSTOMER orelse
+            CType =:= ?EVALUATION_CUSTOMER orelse
+            CType =:= ?DEVELOPER_CUSTOMER,
+    emqx_telemetry_config:set_default_status(EnableByDefault).
+
+warn_community(License) ->
+    emqx_license_parser:license_type(License) == ?COMMUNITY.
 
 warn_evaluation(License, false, MaxConn) ->
     {emqx_license_parser:customer_type(License) == ?EVALUATION_CUSTOMER, MaxConn};
@@ -240,35 +276,36 @@ warn_evaluation(_License, _IsOverdue, _MaxConn) ->
 
 limits(_License, #{is_overdue := true}) ->
     #{
-        max_connections => ?ERR_EXPIRED
+        max_sessions => ?ERR_EXPIRED
     };
 limits(_License, #{is_max_uptime_reached := true}) ->
     #{
-        max_connections => ?ERR_MAX_UPTIME
+        max_sessions => ?ERR_MAX_UPTIME
     };
 limits(License, #{}) ->
     #{
-        max_connections => get_max_connections(License)
+        max_sessions => get_max_sessions(License)
     }.
 
-%% @doc Return the max_connections limit defined in license.
+%% @doc Return the max_sessions limit defined in license.
 %% For business-critical type, it returns the dynamic value set in config.
--spec get_max_connections(license()) -> non_neg_integer().
-get_max_connections(License) ->
-    Max = emqx_license_parser:max_connections(License),
+-spec get_max_sessions(license()) -> non_neg_integer().
+get_max_sessions(License) ->
+    Max = emqx_license_parser:max_sessions(License),
     Dyn =
         case emqx_license_parser:customer_type(License) of
             ?BUSINESS_CRITICAL_CUSTOMER ->
-                min(get_dynamic_max_connections(), Max);
+                min(get_dynamic_max_sessions(), Max);
             _ ->
                 Max
         end,
     min(Max, Dyn).
 
-%% @doc Get the dynamic max_connections limit set in config.
+%% @doc Get the dynamic max_sessions limit set in config.
 %% It's only meaningful for business-critical license.
--spec get_dynamic_max_connections() -> non_neg_integer().
-get_dynamic_max_connections() ->
+-spec get_dynamic_max_sessions() -> non_neg_integer().
+get_dynamic_max_sessions() ->
+    %% For config backward compatibility, dynamic_max_connections is not renamed to dynamic_max_sesssions
     emqx_conf:get([license, dynamic_max_connections]).
 
 days_left(License) ->
@@ -321,9 +358,15 @@ expiry_early_alarm(License) ->
             ?OK(emqx_alarm:ensure_deactivated(license_expiry))
     end.
 
-print_warnings(Warnings) ->
-    ok = print_evaluation_warning(Warnings),
-    ok = print_expiry_warning(Warnings).
+print_warnings(State) ->
+    ok = print_community_warning(State),
+    ok = print_evaluation_warning(State),
+    ok = print_expiry_warning(State).
+
+print_community_warning(#{warn_default := true}) ->
+    io:format(?COMMUNITY_LICENSE_LOG);
+print_community_warning(_) ->
+    ok.
 
 print_evaluation_warning(#{warn_evaluation := {true, MaxConn}}) ->
     io:format(?EVALUATION_LOG, [MaxConn]);
@@ -334,10 +377,3 @@ print_expiry_warning(#{warn_expiry := {true, Days}}) ->
     io:format(?EXPIRY_LOG, [Days]);
 print_expiry_warning(_) ->
     ok.
-
-%% Add max_sessions but not replace max_connections for backward compatibility
-%% TODO(5.9): change max_connections to max_sessions
-max_sessions(InfoList) ->
-    {_, Max} = lists:keyfind(max_connections, 1, InfoList),
-    %% keep max_sessions to the end
-    InfoList ++ [{max_sessions, Max}].

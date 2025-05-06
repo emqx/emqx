@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_telemetry_SUITE).
@@ -122,11 +110,13 @@ init_per_testcase(t_authn_authz_info, Config) ->
 init_per_testcase(t_enable, Config) ->
     ok = meck:new(emqx_telemetry_config, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(emqx_telemetry_config, is_official_version, fun(_) -> true end),
+    emqx_telemetry_config:set_default_status(true),
     mock_httpc(),
     Config;
 init_per_testcase(t_send_after_enable, Config) ->
     ok = meck:new(emqx_telemetry_config, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(emqx_telemetry_config, is_official_version, fun(_) -> true end),
+    emqx_telemetry_config:set_default_status(true),
     mock_httpc(),
     Config;
 init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
@@ -233,7 +223,8 @@ t_node_uuid(_) ->
 
 t_cluster_uuid(Config) ->
     Node = proplists:get_value(n1, Config),
-    {ok, ClusterUUID0} = emqx_telemetry:get_cluster_uuid(),
+    {ok, ClusterUUID0} = emqx_telemetry:get_cluster_uuid(timer:seconds(10)),
+    ?assertEqual({ok, ClusterUUID0}, emqx_telemetry:get_cluster_uuid(timer:seconds(1))),
     {ok, ClusterUUID1} = emqx_telemetry_proto_v1:get_cluster_uuid(node()),
     ?assertEqual(ClusterUUID0, ClusterUUID1),
     {ok, NodeUUID0} = emqx_telemetry:get_node_uuid(),
@@ -778,7 +769,7 @@ start_peer(Name) ->
         fun
             (emqx) ->
                 application:set_env(emqx, boot_modules, []),
-                ekka:join(TestNode),
+                emqx_cluster:join(TestNode),
                 emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
                 ok;
             (_App) ->
@@ -812,12 +803,12 @@ stop_peer(Node) ->
 
 leave_cluster() ->
     try mnesia_hook:module_info(module) of
-        _ -> ekka:leave()
+        _ -> emqx_cluster:leave()
     catch
         _:_ ->
             %% We have to set the db_backend to mnesia even for `ekka:leave/0`!!
             application:set_env(mria, db_backend, mnesia),
-            ekka:leave()
+            emqx_cluster:leave()
     end.
 
 is_official_version(V) ->

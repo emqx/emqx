@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc This process is responsible for processing async poll requests
@@ -195,7 +183,7 @@
         %% Flow control:
         flowcontrol :: flowcontrol(),
         %%
-        rank :: emqx_ds:stream_rank(),
+        rank :: emqx_ds:slab(),
         stream :: _Stream,
         topic_filter :: emqx_ds:topic_filter(),
         start_key :: emqx_ds:message_key(),
@@ -306,7 +294,7 @@
     stream := Stream,
     topic_filter := event_topic_filter(),
     last_seen_key := emqx_ds:message_key(),
-    rank := emqx_ds:stream_rank()
+    rank := emqx_ds:slab()
 }.
 
 -callback unpack_iterator(dbshard(), _Iterator) ->
@@ -386,7 +374,7 @@ poll(_Node, _ReturnAddr, _Shard, _Iterator, #{timeout := _Timeout}) ->
 make_subtab(DBShard) ->
     ets:new(emqx_ds_beamformer_sub_tab, [
         set,
-        private,
+        public,
         {keypos, #sub_state.req_id},
         {heir, where(DBShard), ?heir_info}
     ]).
@@ -752,11 +740,14 @@ generation_event(DBShard) ->
     stuck_sub_tab :: ets:tid(),
     cbm :: module(),
     monitor_tab = ets:tid(),
-    %% List of subscription IDs waiting for dispatching to the
-    %% worker:
+    %% List of subscription states waiting for dispatching to the
+    %% workers. Subscription requests can be retained in this queue
+    %% while the workers are recovering from failure:
     pending = [] :: [sub_state()],
+    %% Storage for the ongoing ownership transfers:
+    inflight = gen_server:reqids_new() :: gen_server:request_id_collection(),
     %% Generation cache:
-    generations :: #{emqx_ds:generation_rank() => emqx_ds:generation_info()}
+    generations :: #{emqx_ds:slab() => emqx_ds:slab_info()}
 }).
 
 -type d() :: #d{}.
@@ -768,7 +759,11 @@ init([DBShard = {DB, Shard}, CBM]) ->
     process_flag(trap_exit, true),
     logger:update_process_metadata(#{dbshard => DBShard}),
     emqx_ds_builtin_metrics:init_for_beamformer(DB, Shard),
-    gproc_pool:new(emqx_ds_beamformer_catchup:pool(DBShard), hash, [{auto_size, true}]),
+    %% For catchup pool we don't expect high degree of batch sharing.
+    %% It's actually better to distribute subscriptions evenly.
+    gproc_pool:new(emqx_ds_beamformer_catchup:pool(DBShard), round_robin, [{auto_size, true}]),
+    %% RT pool uses hash of the stream to maximize batch sharing. It's
+    %% critical to use hash-based strategy here:
     gproc_pool:new(emqx_ds_beamformer_rt:pool(DBShard), hash, [{auto_size, true}]),
     logger:debug(#{
         msg => started_bf, shard => DBShard, cbm => CBM
@@ -795,8 +790,44 @@ init([DBShard = {DB, Shard}, CBM]) ->
 
 -spec handle_event(gen_statem:event_type(), _Event, state(), d()) ->
     gen_statem:event_handler_result(state()).
+handle_event(ET, Event, State, D0) ->
+    #d{dbshard = DBShard, inflight = Inflight0, pending = Pending} = D0,
+    case gen_server:check_response(Event, Inflight0, true) of
+        {Response, SubState, Inflight} ->
+            %% The event is result of `enqueue':
+            case Response of
+                {reply, ok} ->
+                    %% We've successfully delegated the subscription
+                    %% to the worker.
+                    D = D0#d{inflight = Inflight},
+                    {keep_state, D};
+                {error, {Reason, ServerRef}} ->
+                    %% This can only happen when the worker is down.
+                    %% Give it time to recover and reschedule request
+                    %% later.
+                    %%
+                    %% TODO: currently this will pause dispatching of
+                    %% subscriptions to *all* workers in the shard.
+                    %% Ideally, error handling should be more
+                    %% targeted.
+                    ?tp(
+                        error,
+                        emqx_ds_beamformer_delegate_error,
+                        #{shard => DBShard, worker => ServerRef, error => Reason}
+                    ),
+                    D = D0#d{inflight = Inflight, pending = [SubState | Pending]},
+                    {next_state, ?recovering, D}
+            end;
+        _ ->
+            %% Handle everything else:
+            do_handle_event(ET, Event, State, D0)
+    end.
+
+%% Handle all events that are not async gen_server replies
+-spec do_handle_event(gen_statem:event_type(), _Event, state(), d()) ->
+    gen_statem:event_handler_result(state()).
 %% Handle subscribe call:
-handle_event(
+do_handle_event(
     {call, From},
     #sub_req{client = Client, it = It, opts = Opts, mref = SubRef},
     State,
@@ -862,7 +893,7 @@ handle_event(
             {keep_state_and_data, {reply, From, Error}}
     end;
 %% Handle unsubscribe call:
-handle_event(
+do_handle_event(
     {call, From},
     #unsub_req{id = SubId},
     _State,
@@ -871,7 +902,7 @@ handle_event(
     {Ret, D} = remove_subscription(SubId, D0),
     {keep_state, D, {reply, From, Ret}};
 %% Handle disown request:
-handle_event(
+do_handle_event(
     cast,
     #disown_stuck_req{sub_state = SubState},
     _State,
@@ -891,7 +922,7 @@ handle_event(
     end,
     keep_state_and_data;
 %% Handle wakeup subscription call:
-handle_event(
+do_handle_event(
     {call, From},
     #wakeup_sub_req{id = SubId},
     State,
@@ -914,7 +945,7 @@ handle_event(
             {keep_state_and_data, Reply}
     end;
 %% Handle worker crash:
-handle_event(
+do_handle_event(
     info,
     {'ETS-TRANSFER', ETS, FromPid, ?heir_info},
     _State,
@@ -927,7 +958,7 @@ handle_event(
     ets:delete(ETS),
     {next_state, ?recovering, D};
 %% Handle recoverable errors:
-handle_event(
+do_handle_event(
     {call, From},
     #handle_recoverable_req{sub_states = SubStates},
     _State,
@@ -936,7 +967,7 @@ handle_event(
     ?tp(info, emqx_ds_beamformer_handle_recoverable, #{pid => From}),
     {next_state, ?recovering, D#d{pending = SubStates ++ Pending}};
 %% Handle unknown call:
-handle_event(
+do_handle_event(
     {call, From},
     Call,
     State,
@@ -949,7 +980,7 @@ handle_event(
     ),
     {keep_state_and_data, {reply, From, ?err_unrec({unknown_call, Call})}};
 %% Handle down event:
-handle_event(
+do_handle_event(
     info,
     {'DOWN', MRef, process, _Pid, _Info},
     _State,
@@ -965,21 +996,21 @@ handle_event(
             keep_state_and_data
     end;
 %% Set up state timeouts:
-handle_event(enter, _OldState, ?initializing, _D) ->
+do_handle_event(enter, _OldState, ?initializing, _D) ->
     {keep_state_and_data, {state_timeout, 0, ?init_timeout}};
-handle_event(enter, _OldState, ?busy, _D) ->
+do_handle_event(enter, _OldState, ?busy, _D) ->
     %% In `busy' state we try to hand over subscriptions to the
     %% workers as soon as possible:
     {keep_state_and_data, {state_timeout, 0, ?schedule_timeout}};
-handle_event(enter, _OldState, ?recovering, _D) ->
+do_handle_event(enter, _OldState, ?recovering, _D) ->
     %% In `recovering' state we delay handover to the worker to let
     %% the system stabilize:
     Cooldown = 1000,
     {keep_state_and_data, {state_timeout, Cooldown, ?schedule_timeout}};
-handle_event(enter, _OldState, _NewState, _D) ->
+do_handle_event(enter, _OldState, _NewState, _D) ->
     keep_state_and_data;
 %% Perform initialization:
-handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, _}}) ->
+do_handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, _}}) ->
     try emqx_ds:list_generations_with_lifetimes(DB) of
         Generations ->
             {next_state, ?busy, D#d{generations = Generations}}
@@ -987,20 +1018,15 @@ handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, 
         _:_ ->
             {keep_state_and_data, {state_timeout, 1000, ?init_timeout}}
     end;
-handle_event(_Kind, _Event, ?initializing, _D) ->
+do_handle_event(_Kind, _Event, ?initializing, _D) ->
     %% Ignore events until fulliy initialized:
     keep_state_and_data;
 %% Handover subscriptions to the workers:
-handle_event(state_timeout, ?schedule_timeout, _State, D0) ->
-    {Success, D} = do_schedule(D0),
-    NextState =
-        case Success of
-            true -> ?idle;
-            false -> ?recovering
-        end,
-    {next_state, NextState, D};
+do_handle_event(state_timeout, ?schedule_timeout, _State, D0) ->
+    D = do_schedule(D0),
+    {next_state, ?idle, D};
 %% Handle changes to the generations:
-handle_event(
+do_handle_event(
     cast,
     #generation_event{},
     _State,
@@ -1013,12 +1039,11 @@ handle_event(
     %% Notify the RT workers:
     _ = [emqx_ds_beamformer_rt:seal_generation(DBShard, I) || I <- Sealed],
     {keep_state, D#d{generations = Gens}};
-%% Unknown event:
-handle_event(EventType, Event, State, Data) ->
+do_handle_event(EventType, Event, State, D) ->
     ?tp(
         error,
         emqx_ds_beamformer_unknown_event,
-        #{event_type => EventType, state => State, data => Data, event => Event}
+        #{event_type => EventType, state => State, data => D, event => Event}
     ),
     keep_state_and_data.
 
@@ -1245,40 +1270,19 @@ diff_gens(_DBShard, Old, New) ->
         Old
     ).
 
-do_schedule(D = #d{dbshard = DBShard, pending = Pending}) ->
+do_schedule(D = #d{dbshard = DBShard, pending = Pending, inflight = Inflight0}) ->
     Pool = emqx_ds_beamformer_catchup:pool(DBShard),
-    %% Find the appropriate worker for the requests and group the requests:
-    ByWorker = maps:groups_from_list(
-        fun(#sub_state{stream = Stream}) ->
-            gproc_pool:pick_worker(Pool, Stream)
+    %% Distribute new subscriptions from the pending queue to the workers:
+    Inflight = lists:foldl(
+        fun(#sub_state{} = SubState, Acc) ->
+            %% Find the appropriate worker for the request.
+            Worker = gproc_pool:pick_worker(Pool),
+            emqx_ds_beamformer_catchup:enqueue(Worker, SubState, Acc)
         end,
+        Inflight0,
         Pending
     ),
-    %% Dispatch the subscribtions to the workers and collect ones that
-    %%  couldn't be dispatched for later retry:
-    Unmatched = maps:fold(
-        fun(Worker, Reqs, UnmatchedAcc) ->
-            case emqx_ds_beamformer_catchup:enqueue(Worker, Reqs) of
-                ok ->
-                    UnmatchedAcc;
-                Error ->
-                    %% TODO: currently enqueue cannot fail due to
-                    %% infinite timeout. However, sync call with an
-                    %% infinite timeout is a temporary solution. There
-                    %% should be a async ownership transfer protocol
-                    %% that doesn't block the caller.
-                    ?tp(
-                        error,
-                        emqx_ds_beamformer_delegate_error,
-                        #{shard => DBShard, worker => Worker, error => Error}
-                    ),
-                    Reqs ++ UnmatchedAcc
-            end
-        end,
-        [],
-        ByWorker
-    ),
-    {Unmatched =:= [], D#d{pending = Unmatched}}.
+    D#d{pending = [], inflight = Inflight}.
 
 remove_subscription(
     SubId, D = #d{dbshard = DBShard, stuck_sub_tab = SubTab, monitor_tab = MTab, pending = Pending}
@@ -1313,8 +1317,7 @@ send_out(DBShard = {DB, _}, Node, Pack, Destinations) ->
     }),
     case node() of
         Node ->
-            %% TODO: this may block the worker. Introduce a separate
-            %% worker for local fanout?
+            %% TODO: Introduce a separate worker for local fanout?
             emqx_ds_beamsplitter:dispatch_v2(DB, Pack, Destinations, #{});
         _ ->
             emqx_ds_beamsplitter_proto_v2:dispatch(DBShard, Node, DB, Pack, Destinations, #{})

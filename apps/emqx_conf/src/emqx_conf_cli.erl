@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_conf_cli).
@@ -54,10 +42,7 @@
 load() ->
     emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, [hidden]),
     emqx_ctl:register_command(?CONF, {?MODULE, conf}, []),
-    case emqx_release:edition() of
-        ee -> emqx_ctl:register_command(?AUDIT_MOD, {?MODULE, audit}, [hidden]);
-        ce -> ok
-    end,
+    emqx_ctl:register_command(?AUDIT_MOD, {?MODULE, audit}, [hidden]),
     ok.
 
 unload() ->
@@ -77,6 +62,8 @@ conf(["load", "--merge", Path]) ->
     load_config(Path, #{mode => merge});
 conf(["load", Path]) ->
     load_config(Path, #{mode => merge});
+conf(["remove", ConfPathStr]) ->
+    remove_config(ConfPathStr);
 conf(["cluster_sync" | Args]) ->
     admins(Args);
 conf(["reload", "--merge"]) ->
@@ -197,7 +184,8 @@ usage_conf() ->
         {"", "The current node will initiate a cluster wide config change"},
         {"", "transaction to sync the changes to other nodes in the cluster. "},
         {"", "NOTE: do not make runtime config changes during rolling upgrade."},
-        {"----------------------------------", "------------"}
+        {"----------------------------------", "------------"},
+        {"conf remove <conf-path>", "Removes a config path (e.g. `a.b.c`) from the current config."}
     ].
 
 usage_sync() ->
@@ -415,6 +403,18 @@ update_cluster_links(local, #{<<"cluster">> := #{<<"links">> := Links}}, Opts) -
     check_res(node(), <<"cluster.links">>, Res, Links, Opts);
 update_cluster_links(_, _, _) ->
     ok.
+
+remove_config(ConfPathStr) ->
+    ConfPath = hocon_util:split_path(ConfPathStr),
+    Res = emqx_conf:remove(ConfPath, ?OPTIONS),
+    case Res of
+        {error, #{reason := {badkey, BadRootKey}}} ->
+            emqx_ctl:warning("Root key ~s not found ~n", [BadRootKey]);
+        {error, Reason} ->
+            emqx_ctl:warning("Error: ~p~n", [Reason]);
+        {ok, _} ->
+            emqx_ctl:print("ok~n")
+    end.
 
 uninstall(ActionOrSource, Conf, #{mode := replace}) ->
     case maps:find(ActionOrSource, Conf) of
@@ -883,7 +883,7 @@ print_inconsistent(Conf, Fmt, Options) when Conf =/= #{} ->
     emqx_ctl:warning(Fmt, [Target, TargetTnxId, Key, Node, NodeTnxId]),
     NodeRawConf = emqx_conf_proto_v4:get_raw_config(Node, [Key]),
     TargetRawConf = emqx_conf_proto_v4:get_raw_config(Target, [Key]),
-    {TargetConf, NodeConf} =
+    {NodeConf, TargetConf} =
         maps:fold(
             fun(SubKey, _, {NewAcc, OldAcc}) ->
                 SubNew0 = maps:get(atom_to_binary(SubKey), NodeRawConf, undefined),

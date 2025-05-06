@@ -1,22 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%
-%% @doc
-%% This module converts authz rule fields obtained from
-%% external sources like database or API to the format
-%% accepted by emqx_authz_rule module.
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_rule_raw).
@@ -52,6 +35,10 @@
 %%            <<"clientid_re">> => <<"^client-[0-9]+$">>,
 %%            <<"username_re">> => <<"^user-[0-9]+$">>,
 %%            <<"ipaddr">> => <<"192.168.5.0/24">>
+%%            <<"zone">> => <<"zone1">>,
+%%            <<"zone_re">> => <<"^zone-[0-9]+$">>,
+%%            <<"listener">> => <<"tcp:default">>,
+%%            <<"listener_re">> => <<"^tcp:.*$">>,
 %%        },
 %%        ...
 %%    ],
@@ -243,24 +230,59 @@ validate_rule_who(RuleRaw) ->
 
 validate_rule_who([], WhoList) ->
     WhoList;
-validate_rule_who([{<<"username_re">>, UsernameReRaw} | Rest], WhoList) when
-    is_binary(UsernameReRaw)
-->
-    validate_rule_who(Rest, [{username, {re, UsernameReRaw}} | WhoList]);
-validate_rule_who([{<<"username_re">>, UsernameReRaw} | _Rest], _WhoList) ->
-    throw({invalid_username_re, UsernameReRaw});
-validate_rule_who([{<<"clientid_re">>, ClientIdReRaw} | Rest], WhoList) when
-    is_binary(ClientIdReRaw)
-->
-    validate_rule_who(Rest, [{clientid, {re, ClientIdReRaw}} | WhoList]);
-validate_rule_who([{<<"clientid_re">>, ClientIdReRaw} | _Rest], _WhoList) ->
-    throw({invalid_clientid_re, ClientIdReRaw});
-validate_rule_who([{<<"ipaddr">>, IpAddrRaw} | Rest], WhoList) when is_binary(IpAddrRaw) ->
-    validate_rule_who(Rest, [{ipaddr, binary_to_list(IpAddrRaw)} | WhoList]);
-validate_rule_who([{<<"ipaddr">>, IpAddrRaw} | _Rest], _WhoList) ->
-    throw({invalid_ipaddr, IpAddrRaw});
+validate_rule_who([{<<"username_re">>, UsernameReRaw} | Rest], WhoList) ->
+    validate_rule_who(Rest, [
+        {username, {re, validate(re, invalid_username_re, UsernameReRaw)}} | WhoList
+    ]);
+validate_rule_who([{<<"clientid_re">>, ClientIdReRaw} | Rest], WhoList) ->
+    validate_rule_who(Rest, [
+        {clientid, {re, validate(re, invalid_clientid_re, ClientIdReRaw)}} | WhoList
+    ]);
+validate_rule_who([{<<"zone">>, ZoneRaw} | Rest], WhoList) ->
+    validate_rule_who(Rest, [{zone, validate(str, invalid_zone, ZoneRaw)} | WhoList]);
+validate_rule_who([{<<"zone_re">>, ZoneReRaw} | Rest], WhoList) ->
+    validate_rule_who(Rest, [{zone, {re, validate(re, invalid_zone_re, ZoneReRaw)}} | WhoList]);
+validate_rule_who([{<<"listener">>, ListenerRaw} | Rest], WhoList) ->
+    validate_rule_who(Rest, [{listener, validate(str, invalid_listener, ListenerRaw)} | WhoList]);
+validate_rule_who([{<<"listener_re">>, ListenerReRaw} | Rest], WhoList) ->
+    validate_rule_who(Rest, [
+        {listener, {re, validate(re, invalid_listener_re, ListenerReRaw)}} | WhoList
+    ]);
+validate_rule_who([{<<"ipaddr">>, IpAddrRaw} | Rest], WhoList) ->
+    validate_rule_who(Rest, [{ipaddr, validate(ipaddr, invalid_ipaddr, IpAddrRaw)} | WhoList]);
 validate_rule_who([_ | Rest], WhoList) ->
+    %% Drop unknown fields (including username and clientid).
+    %% The "exact match (of username and clientid)" are deliberately dropped
+    %% here because they should be a part of the query parameters.
+    %% Adding them back is perhaps more complete in a sense, but it might become
+    %% a breaking change for existing users who happen to have been returning
+    %% username or clientid which do not match the current client.
     validate_rule_who(Rest, WhoList).
+
+validate(re, Invalid, Raw) ->
+    try
+        true = (is_binary(Raw) andalso size(Raw) > 0),
+        case re:compile(Raw) of
+            {ok, _} -> Raw;
+            {error, _} -> throw({Invalid, Raw})
+        end
+    catch
+        _:_ -> throw({Invalid, Raw})
+    end;
+validate(str, Invalid, Raw) ->
+    try
+        R = unicode:characters_to_binary(Raw),
+        true = (is_binary(R) andalso size(R) > 0),
+        R
+    catch
+        _:_ -> throw({Invalid, Raw})
+    end;
+validate(ipaddr, Invalid, Raw) ->
+    try
+        [_ | _] = unicode:characters_to_list(Raw)
+    catch
+        _:_ -> throw({Invalid, Raw})
+    end.
 
 format_action(Action) ->
     format_action(emqx_authz:feature_available(rich_actions), Action).
@@ -291,12 +313,26 @@ format_topic({eq, Topic}) when is_binary(Topic) ->
 format_topic(Topic) when is_binary(Topic) ->
     Topic.
 
-format_who(all) -> #{};
-format_who({username, {re, UsernameRe}}) -> #{username_re => UsernameRe};
-format_who({clientid, {re, ClientIdRe}}) -> #{clientid_re => ClientIdRe};
-format_who({ipaddr, IpAddr}) when is_list(IpAddr) -> #{ipaddr => list_to_binary(IpAddr)};
-format_who({'and', WhoList}) -> merge_maps(lists:map(fun format_who/1, WhoList));
-format_who(Who) -> throw({invalid_who, Who}).
+format_who(all) ->
+    #{};
+format_who({username, {re, UsernameRe}}) ->
+    #{username_re => UsernameRe};
+format_who({clientid, {re, ClientIdRe}}) ->
+    #{clientid_re => ClientIdRe};
+format_who({zone, {re, ZoneRe}}) ->
+    #{zone_re => ZoneRe};
+format_who({zone, Zone}) ->
+    #{zone => Zone};
+format_who({listener, {re, ListenerRe}}) ->
+    #{listener_re => ListenerRe};
+format_who({listener, Listener}) ->
+    #{listener => Listener};
+format_who({ipaddr, IpAddr}) when is_list(IpAddr) ->
+    #{ipaddr => unicode:characters_to_binary(IpAddr)};
+format_who({'and', WhoList}) ->
+    merge_maps(lists:map(fun format_who/1, WhoList));
+format_who(Who) ->
+    throw({invalid_who, Who}).
 
 merge_maps(Maps) ->
     lists:foldl(fun(Map, Acc) -> maps:merge(Acc, Map) end, #{}, Maps).

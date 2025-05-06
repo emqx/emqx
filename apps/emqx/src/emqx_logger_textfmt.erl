@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_logger_textfmt).
@@ -184,27 +172,58 @@ enrich_topic(Msg, _) ->
 
 try_encode_meta(Report, Config) ->
     lists:foldl(
-        fun(Meta, Acc) ->
-            try_encode_meta(Meta, Acc, Config)
+        fun({MetaKeyName, FmtFun}, Meta) ->
+            try_encode_meta(MetaKeyName, FmtFun, Meta, Config)
         end,
         Report,
-        [payload, packet]
+        [
+            {?FORMAT_META_KEY_PACKET, fun format_packet/2},
+            {?FORMAT_META_KEY_PAYLOAD, fun format_payload/2}
+        ] ++ need_truncate_log_metas()
     ).
 
-try_encode_meta(payload, #{payload := Payload} = Report, #{payload_encode := Encode}) ->
-    {Payload1, Encode1} = format_payload(Payload, Encode),
-    Report#{payload => Payload1, payload_encode => Encode1};
-try_encode_meta(packet, #{packet := Packet} = Report, #{payload_encode := Encode}) when
-    is_tuple(Packet)
-->
-    Report#{packet := try_format_unicode(emqx_packet:format(Packet, Encode))};
-try_encode_meta(_, Report, _Config) ->
-    Report.
+need_truncate_log_metas() ->
+    %% ?SLOG macro traced terms, meta key e.g.
+    [
+        {MetaKey, fun format_term/2}
+     || MetaKey <-
+            [
+                ?FORMAT_META_KEY_DATA,
+                ?FORMAT_META_KEY_SQL,
+                ?FORMAT_META_KEY_QUERY,
+                ?FORMAT_META_KEY_SEND_MESSAGE,
+                ?FORMAT_META_KEY_REQUESTS,
+                ?FORMAT_META_KEY_POINTS,
+                ?FORMAT_META_KEY_REQUEST,
+                ?FORMAT_META_KEY_COMMANDS,
+                ?FORMAT_META_KEY_BATCH_DATA_LIST
+            ]
+    ].
 
-format_payload(undefined, Type) ->
-    {"", Type};
-format_payload(Payload, Type) when is_binary(Payload) ->
-    {Payload1, Type1} = emqx_packet:format_payload(Payload, Type),
-    {try_format_unicode(Payload1), Type1};
-format_payload(Payload, Type) ->
-    {Payload, Type}.
+try_encode_meta(MetaKeyName, FmtFun, Report, PayloadFmtOpts) ->
+    case Report of
+        #{MetaKeyName := Value} ->
+            {FValue, NEncode} = FmtFun(Value, PayloadFmtOpts),
+            Report#{MetaKeyName => FValue, payload_encode => NEncode};
+        _ ->
+            Report
+    end.
+
+format_packet(undefined, #{payload_encode := Encode}) ->
+    {"", Encode};
+format_packet(Packet, #{payload_encode := Encode}) when is_tuple(Packet) ->
+    {try_format_unicode(emqx_packet:format(Packet, Encode)), Encode}.
+
+format_payload(undefined, #{payload_encode := Encode}) ->
+    {"", Encode};
+format_payload(Payload, #{payload_encode := Encode}) when is_binary(Payload) ->
+    {Payload1, Encode1} = emqx_packet:format_payload(Payload, Encode),
+    {try_format_unicode(Payload1), Encode1};
+format_payload(Payload, #{payload_encode := Encode}) ->
+    {Payload, Encode}.
+
+format_term(Term, #{payload_fmt_opts := PayloadFmtOpts} = _Config) ->
+    format_term(Term, PayloadFmtOpts);
+format_term(Term, #{payload_encode := _Encode} = Config) ->
+    {FTerm, #{payload_encode := Encode}} = emqx_trace_formatter:format_term(Term, Config),
+    {try_format_unicode(FTerm), Encode}.

@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_authn_redis_SUITE).
@@ -254,39 +242,74 @@ t_destroy(_Config) ->
     ).
 
 t_update(_Config) ->
+    %% Create with incorrect config
     CorrectConfig = raw_redis_auth_config(),
-    IncorrectConfig =
+    IncorrectConfig0 =
         CorrectConfig#{
             <<"cmd">> => <<"HMGET invalid_key:${username} password_hash salt is_superuser">>
         },
-
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, IncorrectConfig}
+        {create_authenticator, ?GLOBAL, IncorrectConfig0}
     ),
 
-    {error, not_authorized} = emqx_access_control:authenticate(
-        #{
-            username => <<"plain">>,
-            password => <<"plain">>,
-            listener => 'tcp:default',
-            protocol => mqtt
-        }
+    %% Authenticate with incorrect config, should deny since
+    %% the authenticator cannot find the data in redis
+    ?assertMatch(
+        {error, not_authorized},
+        emqx_access_control:authenticate(
+            #{
+                username => <<"plain">>,
+                password => <<"plain">>,
+                listener => 'tcp:default',
+                protocol => mqtt
+            }
+        )
     ),
 
-    % We update with config with correct query, provider should update and work properly
+    % Update with config with correct query, provider should update and work properly
     {ok, _} = emqx:update_config(
         ?PATH,
         {update_authenticator, ?GLOBAL, <<"password_based:redis">>, CorrectConfig}
     ),
+    ?assertMatch(
+        {ok, #{is_superuser := true}},
+        emqx_access_control:authenticate(
+            #{
+                username => <<"plain">>,
+                password => <<"plain">>,
+                listener => 'tcp:default',
+                protocol => mqtt
+            }
+        )
+    ),
 
-    {ok, _} = emqx_access_control:authenticate(
-        #{
-            username => <<"plain">>,
-            password => <<"plain">>,
-            listener => 'tcp:default',
-            protocol => mqtt
-        }
+    %% Try to change to incorrect (unparsable) config,
+    %% should deny to make the update
+    IncorrectConfig1 =
+        CorrectConfig#{
+            <<"cmd">> =>
+                <<"HMGET mqtt_user:${username} password_hash salt is_superuser unknown_field">>
+        },
+    ?assertMatch(
+        {error, {post_config_update, emqx_authn_config, {unknown_fields, [<<"unknown_field">>]}}},
+        emqx:update_config(
+            ?PATH,
+            {update_authenticator, ?GLOBAL, <<"password_based:redis">>, IncorrectConfig1}
+        )
+    ),
+
+    %% Authentication should still work since the config is not updated
+    ?assertMatch(
+        {ok, #{is_superuser := true}},
+        emqx_access_control:authenticate(
+            #{
+                username => <<"plain">>,
+                password => <<"plain">>,
+                listener => 'tcp:default',
+                protocol => mqtt
+            }
+        )
     ).
 
 t_node_cache(_Config) ->

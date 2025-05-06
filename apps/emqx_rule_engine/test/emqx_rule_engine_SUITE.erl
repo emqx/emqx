@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_rule_engine_SUITE).
@@ -97,6 +85,7 @@ groups() ->
             t_sqlparse_foreach_7,
             t_sqlparse_foreach_8,
             t_sqlparse_foreach_9,
+            t_sqlparse_foreach_10,
             t_sqlparse_case_when_1,
             t_sqlparse_case_when_2,
             t_sqlparse_case_when_3,
@@ -150,7 +139,8 @@ groups() ->
             t_rule_metrics_async_fail
         ]},
         {tracing, [], [
-            t_trace_rule_id
+            t_trace_rule_id,
+            t_trace_truncated
         ]},
         {command_line, [], [
             t_command_line_list_print_rule
@@ -318,6 +308,13 @@ init_per_testcase(t_events, Config) ->
 init_per_testcase(t_get_basic_usage_info_1, Config) ->
     meck:new(emqx_bridge, [passthrough, no_link, no_history]),
     meck:expect(emqx_bridge, lookup, fun(_Type, _Name) -> {ok, #{mocked => true}} end),
+    Config;
+init_per_testcase(Case, Config) when
+    Case =:= t_trace_rule_id orelse
+        Case =:= t_trace_truncated
+->
+    emqx_trace_SUITE:reload(),
+    ok = emqx_trace:clear(),
     Config;
 init_per_testcase(_TestCase, Config) ->
     Config.
@@ -2332,7 +2329,7 @@ t_sqlparse_foreach_1(_Config) ->
                 #{
                     sql => Sql6,
                     context => #{
-                        <<"payload">> => <<"{\"sensors\": [1, 2]}">>,
+                        payload => <<"{\"sensors\": [1, 2]}">>,
                         topic => <<"t/a">>
                     }
                 }
@@ -2350,7 +2347,7 @@ t_sqlparse_foreach_1(_Config) ->
                 #{
                     sql => Sql7,
                     context => #{
-                        <<"payload">> => <<"{\"sensors\": [1, 2]}">>,
+                        payload => <<"{\"sensors\": [1, 2]}">>,
                         topic => <<"t/a">>
                     }
                 }
@@ -2718,13 +2715,13 @@ t_sqlparse_foreach_9(_Config) ->
             }
         )
     ),
-    %% doesn't work if we don't decode it first
+    %% also work if we don't decode it first
     Sql2 =
         "foreach payload as p "
         "do p.ts as ts "
         "from \"t/#\" ",
     ?assertMatch(
-        {ok, []},
+        {ok, [#{<<"ts">> := 1451649600512}]},
         emqx_rule_sqltester:test(
             #{
                 sql => Sql2,
@@ -2733,6 +2730,29 @@ t_sqlparse_foreach_9(_Config) ->
         )
     ),
     ok.
+
+t_sqlparse_foreach_10(_Config) ->
+    Sql =
+        "foreach payload as item "
+        "do item.data as next_data "
+        "from \"t/#\" ",
+
+    ?assertMatch(
+        {ok, [
+            #{<<"next_data">> := <<"value1">>},
+            #{<<"next_data">> := <<"value2">>}
+        ]},
+        emqx_rule_sqltester:test(
+            #{
+                sql => Sql,
+                context =>
+                    #{
+                        payload => <<"[{\"data\": \"value1\"}, {\"data\": \"value2\"}]">>,
+                        topic => <<"t/a">>
+                    }
+            }
+        )
+    ).
 
 t_sqlparse_case_when_1(_Config) ->
     %% case-when-else clause
@@ -3865,7 +3885,6 @@ filesync(Name0, Type, Retry) ->
 
 t_trace_rule_id(_Config) ->
     %% Start MQTT Client
-    emqx_trace_SUITE:reload(),
     {ok, T} = emqtt:start_link(emqtt_client_config()),
     emqtt:connect(T),
     %% Create rules
@@ -3932,6 +3951,77 @@ t_trace_rule_id(_Config) ->
     ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-2">>),
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T).
+
+t_trace_truncated(_Config) ->
+    %% Start MQTT Client
+    {ok, T} = emqtt:start_link(emqtt_client_config()),
+    emqtt:connect(T),
+
+    %% Create rule
+    create_rule(
+        <<"test_rule_truncated">>,
+        <<"select 2 as rule_number from \"rule_2_topic\"">>
+    ),
+
+    %% Start tracing
+    ok = emqx_trace_handler:install(
+        #{
+            type => ruleid,
+            filter => <<"test_rule_truncated">>,
+            name => <<"CLI-RULE-3">>,
+            payload_encode => text,
+            %% limit 1 Byte to make truncated to "input: Encoded(text)=[...(xxx bytes)"
+            %% The only byte not truncated is the `[`         where is ^
+            payload_limit => 1,
+            formatter => text
+        },
+        all,
+        "tmp/rule_trace_truncated.log"
+    ),
+    emqx_trace:check(),
+    ok = filesync("CLI-RULE-3", ruleid),
+
+    %% Verify the tracing file exits
+    ?assert(filelib:is_regular("tmp/rule_trace_truncated.log")),
+
+    %% Get current traces
+    ?assertMatch(
+        [
+            #{
+                type := ruleid,
+                filter := <<"test_rule_truncated">>,
+                level := debug,
+                dst := "tmp/rule_trace_truncated.log",
+                name := <<"CLI-RULE-3">>
+            }
+        ],
+        emqx_trace_handler:running()
+    ),
+
+    %% Trigger rule, payload size bigger than payload_limit 20
+    emqtt:publish(T, <<"rule_2_topic">>, <<"{\"msg\":\"123456789012345678901234567890\"}">>),
+    ?retry(
+        100,
+        5,
+        begin
+            ok = filesync(<<"CLI-RULE-3">>, ruleid),
+            {ok, Bin} = file:read_file("tmp/rule_trace_truncated.log"),
+            ?assertNotEqual(
+                nomatch,
+                binary:match(Bin, [
+                    <<"input: Encoded(text)=[...(">>,
+                    <<"result: Encoded(text)=[...(">>
+                ])
+            )
+        end
+    ),
+
+    %% Stop tracing
+    ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-3">>),
+    ?assertEqual([], emqx_trace_handler:running()),
+    emqtt:disconnect(T),
+
+    ok.
 
 t_sqlselect_client_attr(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),

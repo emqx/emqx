@@ -12,16 +12,15 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 usage() {
     cat <<EOF
 $0 RELEASE_GIT_TAG [option]
-RELEASE_GIT_TAG is a 'v*' or 'e*' tag for example:
-  v5.1.1
-  e5.1.0-beta.6
+RELEASE_GIT_TAG is a 'e*' tag, for example:
+  e5.9.0-beta.6
 
 options:
   -h|--help:         Print this usage.
 
   -b|--base:         Specify the current release base branch, can be one of
-                     release-55
-                     release-56
+                     release-58
+                     release-59
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
@@ -36,7 +35,7 @@ options:
 For 5.X series the current working branch must be 'release-5X'
       --.--[  master  ]---------------------------.-----------.---
          \\                                      /
-          \`---[release-5X]----(v5.4.0 | e5.4.0)
+          \`---[release-5X]----------------e5.9.0
 EOF
 }
 
@@ -55,11 +54,6 @@ logmsg() {
 TAG="${1:-}"
 
 case "$TAG" in
-    v*)
-        TAG_PREFIX='v'
-        PROFILE='emqx'
-        SKIP_APPUP='yes'
-        ;;
     e*)
         TAG_PREFIX='e'
         PROFILE='emqx-enterprise'
@@ -141,6 +135,9 @@ rel_branch() {
         e5.8.*)
             echo 'release-58'
             ;;
+        e5.9.*)
+            echo 'release-59'
+            ;;
         *)
             logerr "Unsupported version tag $TAG"
             exit 1
@@ -151,11 +148,8 @@ rel_branch() {
 assert_profile() {
     local tag="$1"
     local allowed_prefix
-    if [ -f .emqx-platform ]; then
-        allowed_prefix='e'
-    else
-        allowed_prefix='v'
-    fi
+    # allow only 'e' tags for now
+    allowed_prefix='e'
     if [[ "${tag}" != "${allowed_prefix}"* ]]; then
         logerr "Expecting a '${allowed_prefix}' tag on this commit"
         exit 1
@@ -294,9 +288,6 @@ case "$TAG" in
         check_bpapi
         check_changelog
         ;;
-    v*)
-        check_changelog
-        ;;
 esac
 
 if [ "$DRYRUN" = 'yes' ]; then
@@ -304,10 +295,6 @@ if [ "$DRYRUN" = 'yes' ]; then
 else
     git tag "$TAG"
     logmsg "$TAG is created OK."
-    PUSH_TO="both emqx.git and emqx-platform.git!"
-    if [ -f .emqx-platform ]; then
-        PUSH_TO="emqx-platform.git but NOT emqx.git!"
-    fi
-    logwarn "Don't forget to push the tag to ${PUSH_TO}"
+    logwarn "Don't forget to push the tag to emqx.git:"
     echo "git push origin $TAG"
 fi

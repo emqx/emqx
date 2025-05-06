@@ -1,6 +1,6 @@
 {application, emqx_bridge_couchbase, [
     {description, "EMQX Enterprise Couchbase Bridge"},
-    {vsn, "0.1.2"},
+    {vsn, "0.1.3"},
     {registered, []},
     {applications, [
         kernel,

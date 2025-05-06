@@ -1,23 +1,8 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_mysql).
-
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx_auth/include/emqx_authz.hrl").
 
 -behaviour(emqx_authz_source).
 
@@ -31,6 +16,10 @@
     authorize/4
 ]).
 
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_auth/include/emqx_authz.hrl").
+-include("emqx_auth_mysql.hrl").
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -41,9 +30,9 @@
 create(#{query := SQL} = Source0) ->
     {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
+    ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source, ?AUTHZ_TYPE),
     Source#{
         annotations => #{
             id => ResourceId, tmpl_token => TmplToken, cache_key_template => CacheKeyTemplate
@@ -54,7 +43,7 @@ update(#{query := SQL} = Source0) ->
     {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    case emqx_authz_utils:update_resource(emqx_mysql, Source) of
+    case emqx_authz_utils:update_resource(emqx_mysql, Source, ?AUTHZ_TYPE) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

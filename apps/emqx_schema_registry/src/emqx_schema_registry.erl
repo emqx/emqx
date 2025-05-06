@@ -14,6 +14,7 @@
     start_link/0,
     add_schema/2,
     get_schema/1,
+    get_schema_raw_with_defaults/1,
     is_existing_type/1,
     is_existing_type/2,
     delete_schema/1,
@@ -39,6 +40,11 @@
 %% for testing
 -export([
     get_serde/1
+]).
+
+-export_type([
+    serde_type/0,
+    schema_name/0
 ]).
 
 %%-------------------------------------------------------------------------------------------------
@@ -96,6 +102,29 @@ get_schema(SchemaName) ->
             {error, not_found}
     end.
 
+get_schema_raw_with_defaults(Name) ->
+    try
+        emqx_config:get_raw(
+            [
+                ?CONF_KEY_ROOT_BIN,
+                <<"schemas">>,
+                schema_name_bin_to_atom(Name)
+            ],
+            undefined
+        )
+    of
+        undefined ->
+            {error, not_found};
+        Raw ->
+            RawConfWithDefaults = fill_schema_defaults(Raw),
+            {ok, RawConfWithDefaults}
+    catch
+        throw:#{reason := ?BAD_SCHEMA_NAME} ->
+            {error, not_found};
+        throw:not_found ->
+            {error, not_found}
+    end.
+
 -spec add_schema(schema_name(), schema()) -> ok | {error, term()}.
 add_schema(Name, Schema) ->
     RawSchema = emqx_utils_maps:binary_key_map(Schema),
@@ -140,7 +169,8 @@ init(_) ->
     {ok, State, {continue, {build_serdes, Schemas}}}.
 
 handle_continue({build_serdes, Schemas}, State) ->
-    do_build_serdes(Schemas),
+    Opts = #{initial_load => true},
+    do_build_serdes(Schemas, Opts),
     {noreply, State}.
 
 handle_call(_Call, _From, State) ->
@@ -179,12 +209,15 @@ create_tables() ->
     ok.
 
 do_build_serdes(Schemas) ->
+    do_build_serdes(Schemas, _Opts = #{}).
+
+do_build_serdes(Schemas, Opts) ->
     %% We build a special serde for the Sparkplug B payload. This serde is used
     %% by the rule engine functions sparkplug_decode/1 and sparkplug_encode/1.
     ok = maybe_build_sparkplug_b_serde(),
     %% TODO: use some kind of mutex to make each core build a
     %% different serde to avoid duplicate work.  Maybe ekka_locker?
-    maps:foreach(fun do_build_serde/2, Schemas),
+    maps:foreach(fun(Name, Serde) -> do_build_serde(Name, Serde, Opts) end, Schemas),
     ?tp(schema_registry_serdes_built, #{}).
 
 maybe_build_sparkplug_b_serde() ->
@@ -233,11 +266,24 @@ build_serdes([{Name, Params} | Rest], Acc0) ->
 build_serdes([], _Acc) ->
     ok.
 
-do_build_serde(Name, Serde) when not is_binary(Name) ->
-    do_build_serde(to_bin(Name), Serde);
-do_build_serde(Name, #{type := Type, source := Source}) ->
+do_build_serde(Name, Serde) ->
+    do_build_serde(Name, Serde, _Opts = #{}).
+
+do_build_serde(Name, Serde, Opts) when not is_binary(Name) ->
+    do_build_serde(to_bin(Name), Serde, Opts);
+do_build_serde(Name, #{type := external_http = Type, parameters := Params0}, Opts) ->
+    Params =
+        case maps:get(initial_load, Opts, false) of
+            true -> Params0#{async_start => true};
+            false -> Params0
+        end,
+    do_build_serde1(Name, Type, Params);
+do_build_serde(Name, #{type := Type, source := Source}, _Opts) ->
+    do_build_serde1(Name, Type, Source).
+
+do_build_serde1(Name, Type, Params) ->
     try
-        Serde = emqx_schema_registry_serde:make_serde(Type, Name, Source),
+        Serde = emqx_schema_registry_serde:make_serde(Type, Name, Params),
         true = ets:insert(?SERDE_TAB, Serde),
         ok
     catch
@@ -297,3 +343,15 @@ schema_name_bin_to_atom(Bin) ->
         error:badarg ->
             throw(not_found)
     end.
+
+fill_schema_defaults(RawConf) ->
+    Name = <<"schema_name">>,
+    RootConf = #{?CONF_KEY_ROOT_BIN => #{<<"schemas">> => #{Name => RawConf}}},
+    #{
+        ?CONF_KEY_ROOT_BIN := #{
+            <<"schemas">> := #{
+                Name := RawConfWithDefaults
+            }
+        }
+    } = emqx_config:fill_defaults(emqx_schema_registry_schema, RootConf, #{}),
+    RawConfWithDefaults.

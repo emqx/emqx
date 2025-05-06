@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_schema).
@@ -154,7 +142,9 @@
 
 -export([listeners/0]).
 -export([mkunion/2, mkunion/3]).
+-export([str/1]).
 -export([fill_defaults/2, fill_defaults_for_type/2]).
+-export([duration_ms_to_str/1, duration_ms_to_str/2]).
 
 -behaviour(hocon_schema).
 
@@ -219,7 +209,10 @@ roots(high) ->
         {listeners,
             sc(
                 ref("listeners"),
-                #{importance => ?IMPORTANCE_HIGH}
+                #{
+                    importance => ?IMPORTANCE_HIGH,
+                    desc => ?DESC("listeners_root_doc")
+                }
             )},
         {mqtt,
             sc(
@@ -399,7 +392,7 @@ fields("authz_cache") ->
             })}
     ];
 fields("mqtt") ->
-    mqtt_general() ++ mqtt_session();
+    mqtt_general() ++ mqtt_session() ++ mqtt_limiter();
 fields("zone") ->
     emqx_zone_schema:zones_without_default();
 fields("flapping_detect") ->
@@ -2037,17 +2030,6 @@ base_listener(Bind) ->
                     importance => ?IMPORTANCE_LOW
                 }
             )},
-        {"limiter",
-            sc(
-                ?R_REF(
-                    emqx_limiter_schema,
-                    listener_fields
-                ),
-                #{
-                    desc => ?DESC(base_listener_limiter),
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
         {"enable_authn",
             sc(
                 hoconsc:enum([true, false, quick_deny_anonymous]),
@@ -2056,7 +2038,7 @@ base_listener(Bind) ->
                     default => true
                 }
             )}
-    ] ++ emqx_limiter_schema:short_paths_fields().
+    ] ++ emqx_limiter_schema:fields(mqtt).
 
 %% @hidden Starting from 5.7, listeners.{TYPE}.{NAME}.zone is no longer hidden
 %% However, the root key 'zones' is still hidden because the fields' schema
@@ -2355,7 +2337,28 @@ common_ssl_opts_schema(Defaults, Type) ->
                     desc => ?DESC(common_ssl_opts_schema_hibernate_after)
                 }
             )}
-    ] ++ emqx_schema_hooks:list_injection_point('common_ssl_opts_schema').
+    ] ++ common_ssl_auth_ext_fields().
+
+common_ssl_auth_ext_fields() ->
+    [
+        {"partial_chain",
+            sc(
+                hoconsc:enum([true, false, two_cacerts_from_cacertfile, cacert_from_cacertfile]),
+                #{
+                    required => false,
+                    desc => ?DESC(common_ssl_opts_schema_partial_chain)
+                }
+            )},
+        {"verify_peer_ext_key_usage",
+            sc(
+                string(),
+                #{
+                    required => false,
+                    example => <<>>,
+                    desc => ?DESC(common_ssl_opts_verify_peer_ext_key_usage)
+                }
+            )}
+    ].
 
 %% @doc Make schema for SSL listener options.
 -spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
@@ -2409,7 +2412,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     typerefl:alias("string", any()),
                     #{
-                        default => <<"emqx_tls_psk:lookup">>,
+                        required => false,
                         converter => fun ?MODULE:user_lookup_fun_tr/2,
                         importance => ?IMPORTANCE_HIDDEN,
                         desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
@@ -2725,6 +2728,53 @@ to_duration_ms(Str) ->
             end
     end.
 
+-define(SECOND, 1000).
+-define(MINUTE, (?SECOND * 60)).
+-define(HOUR, (?MINUTE * 60)).
+-define(DAY, (?HOUR * 24)).
+-define(WEEK, (?DAY * 7)).
+-define(FORTNIGHT, (?WEEK * 2)).
+
+all_duration_units() ->
+    [
+        {?FORTNIGHT, <<"f">>},
+        {?WEEK, <<"w">>},
+        {?DAY, <<"d">>},
+        {?HOUR, <<"h">>},
+        {?MINUTE, <<"m">>},
+        {?SECOND, <<"s">>}
+    ].
+
+duration_ms_to_str(0) ->
+    <<"0ms">>;
+duration_ms_to_str(I) when is_integer(I) ->
+    duration_ms_to_str1(I, all_duration_units()).
+
+duration_ms_to_str(I, AllowedUnits0) when is_integer(I), is_list(AllowedUnits0) ->
+    AllUnits = all_duration_units(),
+    AllowedUnits = lists:filter(
+        fun({_UnitMS, UnitStr}) ->
+            lists:member(UnitStr, AllowedUnits0)
+        end,
+        AllUnits
+    ),
+    duration_ms_to_str1(I, AllowedUnits).
+
+duration_ms_to_str1(I, []) ->
+    <<(integer_to_binary(I))/binary, "ms">>;
+duration_ms_to_str1(I0, [{UnitMS, UnitStr} | _Rest]) when I0 rem UnitMS == 0 ->
+    I1 = I0 div UnitMS,
+    <<(integer_to_binary(I1))/binary, UnitStr/binary>>;
+duration_ms_to_str1(I, [_ | Rest]) ->
+    duration_ms_to_str1(I, Rest).
+
+-undef(SECOND).
+-undef(MINUTE).
+-undef(HOUR).
+-undef(DAY).
+-undef(WEEK).
+-undef(FORTNIGHT).
+
 -spec to_timeout_duration(Input) -> {ok, timeout_duration()} | {error, Input} when
     Input :: string() | binary().
 to_timeout_duration(Str) ->
@@ -2989,8 +3039,8 @@ parse_ka_int(Bin, Name, Min, Max) ->
             throw(#{reason => lists:flatten(Msg), value => I})
     end.
 
-user_lookup_fun_tr(undefined, Opts) ->
-    user_lookup_fun_tr(<<"emqx_tls_psk:lookup">>, Opts);
+user_lookup_fun_tr(undefined, _Opts) ->
+    undefined;
 user_lookup_fun_tr(Lookup, #{make_serializable := true}) ->
     fmt_user_lookup_fun(Lookup);
 user_lookup_fun_tr(Lookup, _) ->
@@ -4040,6 +4090,18 @@ mqtt_session() ->
                     default => <<"300s">>,
                     desc => ?DESC(mqtt_await_rel_timeout),
                     importance => ?IMPORTANCE_LOW
+                }
+            )}
+    ].
+
+mqtt_limiter() ->
+    [
+        {limiter,
+            sc(
+                ref(emqx_limiter_schema, mqtt),
+                #{
+                    required => {false, recursively},
+                    desc => ?DESC(mqtt_limiter)
                 }
             )}
     ].

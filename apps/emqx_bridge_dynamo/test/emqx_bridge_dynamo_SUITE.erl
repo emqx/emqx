@@ -153,14 +153,19 @@ common_init(ConfigT) ->
             % setup dynamo
             setup_dynamo(Config0),
             {Name, TDConf} = dynamo_config(BridgeType, Config0),
+            ConnectorConfig = connector_config(Config0),
+            ActionConfig = action_config(Config0),
             Config =
                 [
                     {apps, Apps},
                     {dynamo_config, TDConf},
                     {dynamo_bridge_type, BridgeType},
                     {dynamo_name, Name},
-                    {bridge_config, action_config(Config0)},
-                    {connector_config, connector_config(Config0)},
+                    {bridge_kind, action},
+                    {action_name, Name},
+                    {action_type, BridgeType},
+                    {action_config, ActionConfig},
+                    {connector_config, ConnectorConfig},
                     {proxy_host, ProxyHost},
                     {proxy_port, ProxyPort}
                     | Config0
@@ -624,6 +629,10 @@ t_action_sync_query(Config) ->
 t_action_start_stop(Config) ->
     StopTracePoint = dynamo_connector_on_stop,
     emqx_bridge_v2_testlib:t_start_stop(Config, StopTracePoint).
+
+t_rule_test_trace(Config) ->
+    Opts = #{},
+    emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
 
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8);

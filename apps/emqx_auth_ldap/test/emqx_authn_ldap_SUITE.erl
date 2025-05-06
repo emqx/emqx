@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_authn_ldap_SUITE).
 
@@ -70,29 +58,6 @@ end_per_suite(Config) ->
 %%------------------------------------------------------------------------------
 %% Tests
 %%------------------------------------------------------------------------------
-
-t_create_with_deprecated_cfg(_Config) ->
-    AuthConfig = deprecated_raw_ldap_auth_config(),
-
-    {ok, _} = emqx:update_config(
-        ?PATH,
-        {create_authenticator, ?GLOBAL, AuthConfig}
-    ),
-
-    {ok, [#{provider := emqx_authn_ldap, state := State}]} = emqx_authn_chains:list_authenticators(
-        ?GLOBAL
-    ),
-    ?assertMatch(
-        #{
-            method := #{
-                type := hash,
-                is_superuser_attribute := _,
-                password_attribute := "not_the_default_value"
-            }
-        },
-        State
-    ),
-    emqx_authn_test_lib:delete_config(?ResourceID).
 
 t_create(_Config) ->
     AuthConfig = raw_ldap_auth_config(),
@@ -181,7 +146,7 @@ t_authenticate_timeout_cause_reconnect(_Config) ->
         ),
         ok = wait_for_ldap_pid(1000),
         [#{id := ResourceID}] = emqx_resource_manager:list_all(),
-        ?retry(1_000, 10, {ok, connected} = emqx_resource_manager:health_check(ResourceID)),
+        ?retry(1_000, 20, {ok, connected} = emqx_resource_manager:health_check(ResourceID)),
         %% turn back to normal
         meck:expect(
             eldap,
@@ -367,19 +332,6 @@ raw_ldap_auth_config() ->
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"ldap">>,
         <<"server">> => ldap_server(),
-        <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
-        <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
-        <<"password">> => <<"public">>,
-        <<"pool_size">> => 8
-    }.
-
-deprecated_raw_ldap_auth_config() ->
-    #{
-        <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"ldap">>,
-        <<"server">> => ldap_server(),
-        <<"is_superuser_attribute">> => <<"isSuperuser">>,
-        <<"password_attribute">> => <<"not_the_default_value">>,
         <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
         <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
         <<"password">> => <<"public">>,

@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_dashboard_api).
@@ -49,6 +37,7 @@
 -define(ERROR_PWD_NOT_MATCH, 'ERROR_PWD_NOT_MATCH').
 -define(NOT_ALLOWED, 'NOT_ALLOWED').
 -define(BAD_REQUEST, 'BAD_REQUEST').
+-define(LOGIN_LOCKED, 'LOGIN_LOCKED').
 
 namespace() -> "dashboard".
 
@@ -66,7 +55,7 @@ paths() ->
     ].
 
 schema("/login") ->
-    ErrorCodes = [?BAD_USERNAME_OR_PWD, ?BAD_MFA_TOKEN],
+    ErrorCodes = [?BAD_USERNAME_OR_PWD, ?BAD_MFA_TOKEN, ?LOGIN_LOCKED],
     #{
         'operationId' => login,
         post => #{
@@ -204,18 +193,13 @@ user_fields() ->
     fields([username, role, description, backend]) ++ ee_user_fields().
 
 ee_user_fields() ->
-    case emqx_release:edition() of
-        ee ->
-            [
-                {mfa,
-                    mk(
-                        enum([none, disabled] ++ emqx_dashboard_mfa:supported_mechanisms()),
-                        #{desc => ?DESC(mfa_status), example => totp}
-                    )}
-            ];
-        _ ->
-            []
-    end.
+    [
+        {mfa,
+            mk(
+                enum([none, disabled] ++ emqx_dashboard_mfa:supported_mechanisms()),
+                #{desc => ?DESC(mfa_status), example => totp}
+            )}
+    ].
 
 field(username) ->
     {username,
@@ -277,6 +261,7 @@ login(post, #{body := Params}) ->
     case emqx_dashboard_admin:sign_token(Username, Password, MfaToken) of
         {ok, Result} ->
             ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),
+            ok = emqx_dashboard_login_lock:reset(Username),
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
             {200,
                 filter_result(Result#{
@@ -284,14 +269,22 @@ login(post, #{body := Params}) ->
                     license => #{edition => emqx_release:edition()}
                 })};
         {error, R} ->
+            ok = register_unsuccessful_login(Username, R),
             ?SLOG(info, #{msg => "dashboard_login_failed", username => Username, reason => R}),
-            %% check if this error was created by emqx_dashboard_mfa
-            case emqx_dashboard_mfa:is_mfa_error(R) of
-                true ->
-                    {401, ?BAD_MFA_TOKEN, R};
-                false ->
-                    {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
-            end
+            format_login_failed_error(R)
+    end.
+
+format_login_failed_error(Reason) ->
+    maybe
+        {is_mfa_error, false} ?= {is_mfa_error, emqx_dashboard_mfa:is_mfa_error(Reason)},
+        {is_login_locked_error, false} ?=
+            {is_login_locked_error, emqx_dashboard_login_lock:is_login_locked_error(Reason)},
+        {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
+    else
+        {is_mfa_error, true} ->
+            {401, ?BAD_MFA_TOKEN, Reason};
+        {is_login_locked_error, true} ->
+            {401, ?LOGIN_LOCKED, <<"Login locked">>}
     end.
 
 logout(_, #{
@@ -345,27 +338,43 @@ user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
         {error, Reason} ->
             {400, ?BAD_REQUEST, Reason}
     end;
-user(delete, #{bindings := #{username := Username0}, headers := Headers} = Req) ->
-    case Username0 == emqx_dashboard_admin:default_username() of
+user(delete, #{bindings := #{username := Username}} = Req) ->
+    DefaultUsername = emqx_dashboard_admin:default_username(),
+    case Username == DefaultUsername of
         true ->
+            handle_delete_default_admin(Req);
+        false ->
+            handle_delete_user(Req)
+    end.
+
+handle_delete_default_admin(#{bindings := #{username := Username0}} = Req) ->
+    AllAdminUsers = emqx_dashboard_admin:admin_users(),
+    OtherAdminUsers = lists:filter(fun(#{username := U}) -> U /= Username0 end, AllAdminUsers),
+    case OtherAdminUsers of
+        [_ | _] ->
+            %% There is at least one other admin user; we may delete the default user.
+            handle_delete_user(Req);
+        [] ->
+            %% There's no other admin user.
             ?SLOG(info, #{msg => "dashboard_delete_admin_user_failed", username => Username0}),
             Message = list_to_binary(io_lib:format("Cannot delete user ~p", [Username0])),
-            {400, ?NOT_ALLOWED, Message};
+            {400, ?NOT_ALLOWED, Message}
+    end.
+
+handle_delete_user(#{bindings := #{username := Username0}, headers := Headers} = Req) ->
+    Username = username(Req, Username0),
+    case is_self_auth(Username0, Headers) of
+        true ->
+            {400, ?NOT_ALLOWED, <<"Cannot delete self">>};
         false ->
-            Username = username(Req, Username0),
-            case is_self_auth(Username0, Headers) of
-                true ->
-                    {400, ?NOT_ALLOWED, <<"Cannot delete self">>};
-                false ->
-                    case emqx_dashboard_admin:remove_user(Username) of
-                        {error, Reason} ->
-                            {404, ?USER_NOT_FOUND, Reason};
-                        {ok, _} ->
-                            ?SLOG(info, #{
-                                msg => "dashboard_delete_admin_user", username => Username0
-                            }),
-                            {204}
-                    end
+            case emqx_dashboard_admin:remove_user(Username) of
+                {error, Reason} ->
+                    {404, ?USER_NOT_FOUND, Reason};
+                {ok, _} ->
+                    ?SLOG(info, #{
+                        msg => "dashboard_delete_admin_user", username => Username0
+                    }),
+                    {204}
             end
     end.
 
@@ -448,6 +457,11 @@ change_mfa(post, #{bindings := #{username := Username}, body := Settings}) ->
             ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
             {404, ?USER_NOT_FOUND, <<"User not found">>}
     end.
+
+register_unsuccessful_login(Username, <<"password_error">>) ->
+    emqx_dashboard_login_lock:register_unsuccessful_login(Username);
+register_unsuccessful_login(_, _) ->
+    ok.
 
 mk(Type, Props) ->
     hoconsc:mk(Type, Props).

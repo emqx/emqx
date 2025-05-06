@@ -212,6 +212,7 @@ action_config(ConnectorName, Config) ->
         <<"parameters">> => #{
             <<"retention_period">> => <<"infinity">>,
             <<"max_batch_bytes">> => <<"1MB">>,
+            <<"max_inflight">> => 100,
             <<"batch_size">> => 100,
             <<"strategy">> => <<"random">>,
             <<"buffer">> => #{
@@ -735,9 +736,10 @@ t_telemetry_metrics(Config) when is_list(Config) ->
                     }
                 }),
             emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                ct:sleep(500),
                 SendMessage(),
                 ?retry(
-                    100,
+                    500,
                     10,
                     ?assertMatch(
                         #{
@@ -777,7 +779,6 @@ t_telemetry_metrics(Config) when is_list(Config) ->
                     },
                     emqx_resource:get_metrics(ActionResId2)
                 ),
-                ct:sleep(20),
                 ok
             end),
             %% After connection is restored, the request is already expired
@@ -1053,10 +1054,11 @@ t_expired_rule_metrics(Config) when is_list(Config) ->
     %% Helper to ensure a message is enqueued before letting it be sent to Pulsar.
     Enqueue = fun() ->
         emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+            ct:sleep(500),
             emqx:publish(emqx_message:make(RuleTopic, <<"aaaaaaaaaaaaaa">>)),
             receive
                 enqueued -> ok
-            after 1_000 -> ct:fail("didn't enqueue message!")
+            after 5_000 -> ct:fail("didn't enqueue message!")
             end
         end)
     end,

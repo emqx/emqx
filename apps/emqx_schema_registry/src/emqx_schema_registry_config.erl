@@ -21,7 +21,7 @@
 ]).
 
 %% `emqx_config_handler' API
--export([post_config_update/5]).
+-export([pre_config_update/3, post_config_update/5]).
 
 %% `emqx_config_backup' API
 -behaviour(emqx_config_backup).
@@ -114,6 +114,14 @@ delete_external_registry(Name) ->
 %%------------------------------------------------------------------------------
 %% `emqx_config_handler' API
 %%------------------------------------------------------------------------------
+
+pre_config_update(?SCHEMA_CONF_PATH(Name), NewRawConf, _OldConf) ->
+    maybe
+        ok ?= validate_name(Name),
+        convert_certs(Name, NewRawConf)
+    end;
+pre_config_update(_Path, NewRawConf, _OldConf) ->
+    {ok, NewRawConf}.
 
 %% remove schema
 post_config_update(
@@ -284,3 +292,25 @@ handle_import_external_registries(Context0, NewConf, OldConf) ->
         Context0
     ),
     {ok, Context}.
+
+validate_name(Name) ->
+    try
+        _ = emqx_resource:validate_name(bin(Name)),
+        ok
+    catch
+        throw:Error ->
+            {error, Error}
+    end.
+
+bin(X) -> emqx_utils_conv:bin(X).
+
+convert_certs(Name, #{<<"parameters">> := #{<<"ssl">> := SSL} = Params0} = RawConf0) when
+    ?IS_TYPE_WITH_RESOURCE(RawConf0)
+->
+    CertsDir = filename:join(["schema_registry", "schemas", Name]),
+    maybe
+        {ok, NewSSL} ?= emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(CertsDir, SSL),
+        {ok, RawConf0#{<<"parameters">> := Params0#{<<"ssl">> := NewSSL}}}
+    end;
+convert_certs(_Name, RawConf) ->
+    {ok, RawConf}.

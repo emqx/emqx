@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_rule_engine).
@@ -223,11 +211,26 @@ get_rules_ordered_by_ts() ->
         get_rules()
     ).
 
--spec get_rules_for_topic(Topic :: binary()) -> [rule()].
+-spec get_rules_for_topic(Topic) ->
+    [
+        #{
+            rule => Rule,
+            trigger := Topic,
+            matched := TopicFilter
+        }
+    ]
+when
+    Topic :: binary(),
+    TopicFilter :: binary(),
+    Rule :: rule().
 get_rules_for_topic(Topic) ->
     [
-        Rule
-     || M <- emqx_topic_index:matches(Topic, ?RULE_TOPIC_INDEX, [unique]),
+        #{
+            rule => Rule,
+            trigger => Topic,
+            matched => join(MBinaryOrWords)
+        }
+     || {MBinaryOrWords, _} = M <- emqx_topic_index:matches(Topic, ?RULE_TOPIC_INDEX, [unique]),
         Rule <- lookup_rule(emqx_topic_index:get_id(M))
     ].
 
@@ -687,3 +690,8 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
         [] -> ok;
         _ -> {error, #{nonexistent_bridge_ids => NonExistentBridgeIds}}
     end.
+
+join(BinaryTF) when is_binary(BinaryTF) ->
+    BinaryTF;
+join(Words) when is_list(Words) ->
+    emqx_topic:join(Words).

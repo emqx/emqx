@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_rule_maps).
@@ -21,9 +9,7 @@
     nested_get/3,
     nested_put/3,
     range_gen/2,
-    range_get/3,
-    atom_key_map/1,
-    unsafe_atom_key_map/1
+    range_get/3
 ]).
 
 -include_lib("emqx/include/emqx_placeholder.hrl").
@@ -92,29 +78,29 @@ general_find(KeyOrIndex, Data, OrgData, Handler) when is_binary(Data) ->
         _:_ -> Handler(not_found)
     end;
 general_find({key, Key}, Map, _OrgData, Handler) when is_map(Map) ->
-    case maps:find(Key, Map) of
-        {ok, Val} ->
+    case Map of
+        #{Key := Val} ->
             Handler({found, {{key, Key}, Val}});
-        error when is_atom(Key) ->
+        _ when is_atom(Key) ->
             %% the map may have an equivalent binary-form key
             BinKey = atom_to_binary(Key),
-            case maps:find(BinKey, Map) of
-                {ok, Val} -> Handler({equivalent, {{key, BinKey}, Val}});
-                error -> Handler(not_found)
+            case Map of
+                #{BinKey := Val} -> Handler({equivalent, {{key, BinKey}, Val}});
+                #{} -> Handler(not_found)
             end;
-        error when is_binary(Key) ->
+        _ when is_binary(Key) ->
             %% the map may have an equivalent atom-form key
             try
                 AtomKey = list_to_existing_atom(binary_to_list(Key)),
-                case maps:find(AtomKey, Map) of
-                    {ok, Val} -> Handler({equivalent, {{key, AtomKey}, Val}});
-                    error -> Handler(not_found)
+                case Map of
+                    #{AtomKey := Val} -> Handler({equivalent, {{key, AtomKey}, Val}});
+                    #{} -> Handler(not_found)
                 end
             catch
                 error:badarg ->
                     Handler(not_found)
             end;
-        error ->
+        _ ->
             Handler(not_found)
     end;
 general_find({key, _Key}, _Map, _OrgData, Handler) ->
@@ -128,7 +114,7 @@ general_find({index, _}, List, _OrgData, Handler) when not is_list(List) ->
     Handler(not_found).
 
 do_put({key, Key}, Val, Map, _OrgData) when is_map(Map) ->
-    maps:put(Key, Val, Map);
+    Map#{Key => Val};
 do_put({key, Key}, Val, Data, _OrgData) when not is_map(Data) ->
     #{Key => Val};
 do_put({index, {const, Index}}, Val, List, _OrgData) ->
@@ -198,42 +184,3 @@ index(0, _) ->
 index(Index, _) when Index > 0 -> Index;
 index(Index, Len) when Index < 0 ->
     Len + Index + 1.
-
-%%%-------------------------------------------------------------------
-%%% atom key map
-%%%-------------------------------------------------------------------
-atom_key_map(BinKeyMap) when is_map(BinKeyMap) ->
-    maps:fold(
-        fun
-            (K, V, Acc) when is_binary(K) ->
-                Acc#{binary_to_existing_atom(K, utf8) => atom_key_map(V)};
-            (K, V, Acc) when is_list(K) ->
-                Acc#{list_to_existing_atom(K) => atom_key_map(V)};
-            (K, V, Acc) when is_atom(K) ->
-                Acc#{K => atom_key_map(V)}
-        end,
-        #{},
-        BinKeyMap
-    );
-atom_key_map(ListV) when is_list(ListV) ->
-    [atom_key_map(V) || V <- ListV];
-atom_key_map(Val) ->
-    Val.
-
-unsafe_atom_key_map(BinKeyMap) when is_map(BinKeyMap) ->
-    maps:fold(
-        fun
-            (K, V, Acc) when is_binary(K) ->
-                Acc#{binary_to_atom(K, utf8) => unsafe_atom_key_map(V)};
-            (K, V, Acc) when is_list(K) ->
-                Acc#{list_to_atom(K) => unsafe_atom_key_map(V)};
-            (K, V, Acc) when is_atom(K) ->
-                Acc#{K => unsafe_atom_key_map(V)}
-        end,
-        #{},
-        BinKeyMap
-    );
-unsafe_atom_key_map(ListV) when is_list(ListV) ->
-    [unsafe_atom_key_map(V) || V <- ListV];
-unsafe_atom_key_map(Val) ->
-    Val.

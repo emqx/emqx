@@ -10,7 +10,3 @@ Refer to [Rules engine](https://docs.emqx.com/en/enterprise/v5.0/data-integratio
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-## License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).

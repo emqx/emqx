@@ -30,22 +30,14 @@ fields(action) ->
             }
         )};
 fields(action_config) ->
-    emqx_resource_schema:override(
-        emqx_bridge_v2_schema:make_consumer_action_schema(
-            ?HOCON(
-                ?UNION(fun action_union_member_selector/1),
-                #{
-                    required => true, desc => ?DESC("action_parameters")
-                }
-            )
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        ?HOCON(
+            ?UNION(fun action_union_member_selector/1),
+            #{
+                required => true, desc => ?DESC("action_parameters")
+            }
         ),
-        [
-            {resource_opts,
-                ?HOCON(?R_REF(action_resource_opts), #{
-                    default => #{},
-                    desc => ?DESC(emqx_resource_schema, "resource_opts")
-                })}
-        ]
+        #{resource_opts_ref => ?R_REF(action_resource_opts)}
     );
 fields(action_resource_opts) ->
     lists:filter(
@@ -78,12 +70,12 @@ fields(action_update) ->
         require_alias()
         | http_common_opts()
     ];
-fields("post_bridge_v2") ->
-    emqx_bridge_schema:type_and_name_fields(elasticsearch) ++ fields(action_config);
-fields("put_bridge_v2") ->
-    fields(action_config);
-fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2").
+fields(Field) when
+    Field == "get_bridge_v2";
+    Field == "put_bridge_v2";
+    Field == "post_bridge_v2"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(action_config)).
 
 action_union_member_selector(all_union_members) ->
     [

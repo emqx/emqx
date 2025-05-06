@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_test_util).
 -compile(export_all).
@@ -86,8 +74,11 @@ uri(Host, Parts) ->
 
 %% compatible_mode will return as same as 'emqx_dashboard_api_test_helpers:request'
 request_api_with_body(Method, Url, Body) ->
+    request_api_with_body(Method, Url, auth_header_(), Body).
+
+request_api_with_body(Method, Url, AuthOrHeaders, Body) ->
     Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
-    request_api(Method, Url, [], auth_header_(), Body, Opts).
+    request_api(Method, Url, [], AuthOrHeaders, Body, Opts).
 
 request_api(Method, Url) ->
     request_api(Method, Url, auth_header_()).
@@ -111,11 +102,7 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, [], Opts) when
         (Method =:= delete) orelse
         (Method =:= trace)
 ->
-    NewUrl =
-        case QueryParams of
-            [] -> Url;
-            _ -> Url ++ "?" ++ build_query_string(QueryParams)
-        end,
+    NewUrl = append_query_params(Url, QueryParams),
     do_request_api(Method, {NewUrl, build_http_header(AuthOrHeaders)}, Opts);
 request_api(Method, Url, QueryParams, AuthOrHeaders, Body0, Opts) when
     (Method =:= post) orelse
@@ -124,11 +111,7 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body0, Opts) when
         (Method =:= delete)
 ->
     ContentType = maps:get('content-type', Opts, "application/json"),
-    NewUrl =
-        case QueryParams of
-            "" -> Url;
-            _ -> Url ++ "?" ++ QueryParams
-        end,
+    NewUrl = append_query_params(Url, QueryParams),
     Body =
         case Body0 of
             {raw, B} -> B;
@@ -139,6 +122,12 @@ request_api(Method, Url, QueryParams, AuthOrHeaders, Body0, Opts) when
         {NewUrl, build_http_header(AuthOrHeaders), ContentType, Body},
         maps:remove('content-type', Opts)
     ).
+
+append_query_params(Url, QueryParams) ->
+    case QueryParams of
+        "" -> Url;
+        _ -> Url ++ "?" ++ build_query_string(QueryParams)
+    end.
 
 do_request_api(Method, Request, Opts) ->
     ReturnAll = maps:get(return_all, Opts, false),
@@ -318,25 +307,39 @@ maybe_json_decode(X) ->
     end.
 
 simple_request(Method, Path, Params) ->
-    AuthHeader = auth_header_(),
-    simple_request(Method, Path, Params, AuthHeader).
+    simple_request(#{
+        method => Method,
+        url => Path,
+        body => Params
+    }).
 
-simple_request(Method, Path, Params, AuthHeader) ->
+simple_request(Method, Path, Body, AuthHeader) ->
+    simple_request(#{
+        method => Method,
+        url => Path,
+        body => Body,
+        auth_header => AuthHeader
+    }).
+
+simple_request(#{method := Method, url := Url} = Params) ->
     Opts = #{return_all => true},
-    case request_api(Method, Path, "", AuthHeader, Params, Opts) of
-        {ok, {{_, Status, _}, _Headers, Body0}} ->
-            Body = maybe_json_decode(Body0),
-            {Status, Body};
-        {error, {{_, Status, _}, _Headers, Body0}} ->
-            Body =
-                case emqx_utils_json:safe_decode(Body0) of
+    AuthHeader = emqx_utils_maps:get_lazy(auth_header, Params, fun auth_header_/0),
+    QueryParams = maps:get(query_params, Params, #{}),
+    Body = maps:get(body, Params, ""),
+    case request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
+        {ok, {{_, Status, _}, _Headers, RespBody0}} ->
+            RespBody = maybe_json_decode(RespBody0),
+            {Status, RespBody};
+        {error, {{_, Status, _}, _Headers, RespBody0}} ->
+            RespBody =
+                case emqx_utils_json:safe_decode(RespBody0) of
                     {ok, Decoded0 = #{<<"message">> := Msg0}} ->
                         Msg = maybe_json_decode(Msg0),
                         Decoded0#{<<"message">> := Msg};
                     {ok, Decoded0} ->
                         Decoded0;
                     {error, _} ->
-                        Body0
+                        RespBody0
                 end,
-            {Status, Body}
+            {Status, RespBody}
     end.

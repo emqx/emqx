@@ -1,22 +1,12 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -ifndef(EMQX_TRACE_HRL).
 -define(EMQX_TRACE_HRL, true).
 
 -define(TRACE, emqx_trace).
+
+-type trace_extra() :: #{formatter => text | json, payload_limit => integer()}.
 
 -record(?TRACE, {
     name :: binary() | undefined | '_',
@@ -30,7 +20,7 @@
         | '_',
     enable = true :: boolean() | '_',
     payload_encode = text :: hex | text | hidden | '_',
-    extra = #{formatter => text} :: #{formatter => text | json} | '_',
+    extra = #{formatter => text} :: trace_extra() | '_',
     start_at :: integer() | undefined | '_',
     end_at :: integer() | undefined | '_'
 }).
@@ -48,5 +38,38 @@
 ).
 
 -define(EMQX_TRACE_STOP_ACTION_MATCH, ?EMQX_TRACE_STOP_ACTION(_)).
+
+-define(MAX_PAYLOAD_FORMAT_SIZE, 1024).
+-define(TRUNCATED_PAYLOAD_SIZE, 100).
+
+-define(FORMAT_META_KEY_PACKET, packet).
+-define(FORMAT_META_KEY_PAYLOAD, payload).
+-define(FORMAT_META_KEY_PAYLOAD_BIN, <<"payload">>).
+-define(FORMAT_META_KEY_INPUT, input).
+-define(FORMAT_META_KEY_RESULT, result).
+
+%% Bridges SLOG tracing meta key
+%% data (rabbitmq, tablestore)
+%% sql (clickhouse)
+%% query (dynamodb, rocketmq, sqlserver, syskeeper)
+%% send_message (elasticsearch)
+%% requests (gcp_pubsub)
+%% points (greptimedb, influxdb)
+%% request (kinesis)
+%% commands (redis)
+%% batch_data_list (tablestore)
+-define(FORMAT_META_KEY_DATA, data).
+-define(FORMAT_META_KEY_SQL, sql).
+-define(FORMAT_META_KEY_QUERY, query).
+-define(FORMAT_META_KEY_SEND_MESSAGE, send_message).
+-define(FORMAT_META_KEY_REQUESTS, requests).
+-define(FORMAT_META_KEY_POINTS, points).
+-define(FORMAT_META_KEY_REQUEST, request).
+-define(FORMAT_META_KEY_COMMANDS, commands).
+-define(FORMAT_META_KEY_BATCH_DATA_LIST, batch_data_list).
+
+-define(TRUNCATED_IOLIST(PART, TRUNCATEDBYTES), [
+    PART, "...(", integer_to_list(TRUNCATEDBYTES), " bytes)"
+]).
 
 -endif.

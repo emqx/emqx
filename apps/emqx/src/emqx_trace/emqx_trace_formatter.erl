@@ -1,22 +1,13 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_trace_formatter).
 -include("emqx_mqtt.hrl").
+-include("emqx_trace.hrl").
 
 -export([format/2]).
+
+-export([format_term/2]).
 
 %% logger_formatter:config/0 is not exported.
 -type config() :: map().
@@ -28,7 +19,7 @@
     Config :: config().
 format(
     #{level := debug, meta := _Meta = #{trace_tag := _Tag}, msg := _Msg} = Entry,
-    #{payload_encode := PEncode}
+    #{payload_fmt_opts := PayloadFmtOpts}
 ) ->
     #{level := debug, meta := Meta = #{trace_tag := Tag}, msg := Msg} =
         emqx_logger_textfmt:evaluate_lazy_values(Entry),
@@ -40,52 +31,66 @@ format(
         end,
     ClientId = to_iolist(maps:get(clientid, Meta, "")),
     Peername = maps:get(peername, Meta, ""),
-    MetaBin = format_meta(Meta, PEncode),
+    MetaBin = format_meta(Meta, PayloadFmtOpts),
     Msg1 = to_iolist(Msg),
     Tag1 = to_iolist(Tag),
     [Time, " [", Tag1, "] ", ClientId, "@", Peername, Tns, " msg: ", Msg1, ", ", MetaBin, "\n"];
 format(Event, Config) ->
     emqx_logger_textfmt:format(Event, Config).
 
-format_meta_map(Meta, Encode) ->
-    format_meta_map(Meta, Encode, [
-        {packet, fun format_packet/2},
-        {payload, fun format_payload/2},
-        {<<"payload">>, fun format_payload/2}
-    ]).
+format_meta_map(Meta, PayloadFmtOpts) ->
+    format_meta_map(
+        Meta,
+        PayloadFmtOpts,
+        [
+            {?FORMAT_META_KEY_PACKET, fun format_packet/2},
+            {?FORMAT_META_KEY_PAYLOAD, fun format_payload/2},
+            {?FORMAT_META_KEY_PAYLOAD_BIN, fun format_payload/2}
+        ] ++ need_truncate_log_metas()
+    ).
 
-format_meta_map(Meta, _Encode, []) ->
+need_truncate_log_metas() ->
+    %% emqx_trace:rendered_action_template/2
+    [
+        {MetaKey, fun format_term/2}
+     || MetaKey <- [
+            ?FORMAT_META_KEY_INPUT,
+            ?FORMAT_META_KEY_RESULT
+        ]
+    ].
+
+format_meta_map(Meta, _PayloadFmtOpts, []) ->
     Meta;
-format_meta_map(Meta, Encode, [{Name, FormatFun} | Rest]) ->
+format_meta_map(Meta, PayloadFmtOpts, [{Name, FormatFun} | Rest]) ->
     case Meta of
         #{Name := Value} ->
             NewMeta =
-                case FormatFun(Value, Encode) of
+                case FormatFun(Value, PayloadFmtOpts) of
                     {NewValue, NewMeta0} ->
                         maps:merge(Meta#{Name => NewValue}, NewMeta0);
                     NewValue ->
                         Meta#{Name => NewValue}
                 end,
-            format_meta_map(NewMeta, Encode, Rest);
+            format_meta_map(NewMeta, PayloadFmtOpts, Rest);
         #{} ->
-            format_meta_map(Meta, Encode, Rest)
+            format_meta_map(Meta, PayloadFmtOpts, Rest)
     end.
 
-format_meta_data(Meta0, Encode) when is_map(Meta0) ->
-    Meta1 = format_meta_map(Meta0, Encode),
-    maps:map(fun(_K, V) -> format_meta_data(V, Encode) end, Meta1);
-format_meta_data(Meta, Encode) when is_list(Meta) ->
-    [format_meta_data(Item, Encode) || Item <- Meta];
-format_meta_data(Meta, Encode) when is_tuple(Meta) ->
+format_meta_data(Meta0, PayloadFmtOpts) when is_map(Meta0) ->
+    Meta1 = format_meta_map(Meta0, PayloadFmtOpts),
+    maps:map(fun(_K, V) -> format_meta_data(V, PayloadFmtOpts) end, Meta1);
+format_meta_data(Meta, PayloadFmtOpts) when is_list(Meta) ->
+    [format_meta_data(Item, PayloadFmtOpts) || Item <- Meta];
+format_meta_data(Meta, PayloadFmtOpts) when is_tuple(Meta) ->
     List = erlang:tuple_to_list(Meta),
-    FormattedList = [format_meta_data(Item, Encode) || Item <- List],
+    FormattedList = [format_meta_data(Item, PayloadFmtOpts) || Item <- List],
     erlang:list_to_tuple(FormattedList);
-format_meta_data(Meta, _Encode) ->
+format_meta_data(Meta, _PayloadFmtOpts) ->
     Meta.
 
-format_meta(Meta0, Encode) ->
+format_meta(Meta0, PayloadFmtOpts) ->
     Meta1 = maps:without([msg, tns, clientid, peername, trace_tag], Meta0),
-    Meta2 = format_meta_data(Meta1, Encode),
+    Meta2 = format_meta_data(Meta1, PayloadFmtOpts),
     kvs_to_iolist(lists:sort(fun compare_meta_kvs/2, maps:to_list(Meta2))).
 
 %% packet always goes first; payload always goes last
@@ -97,9 +102,9 @@ weight({K, _}) -> {1, K}.
 
 format_packet(undefined, _) ->
     "";
-format_packet(Packet, Encode) ->
+format_packet(Packet, PayloadFmtOpts) ->
     try
-        emqx_packet:format(Packet, Encode)
+        emqx_packet:format(Packet, PayloadFmtOpts)
     catch
         _:_ ->
             %% We don't want to crash if there is a field named packet with
@@ -107,13 +112,55 @@ format_packet(Packet, Encode) ->
             Packet
     end.
 
-format_payload(undefined, Type) ->
+format_payload(undefined, #{payload_encode := Type}) ->
     {"", #{payload_encode => Type}};
-format_payload(Payload, Type) when is_binary(Payload) ->
-    {Payload1, Type1} = emqx_packet:format_payload(Payload, Type),
+format_payload(Payload, PayloadFmtOpts) when is_binary(Payload) ->
+    {Payload1, Type1} = emqx_packet:format_payload(Payload, PayloadFmtOpts),
     {Payload1, #{payload_encode => Type1}};
-format_payload(Payload, Type) ->
+format_payload(Payload, #{payload_encode := Type}) ->
     {Payload, #{payload_encode => Type}}.
+
+format_term(undefined, #{payload_encode := Type}) ->
+    {"", #{payload_encode => Type}};
+format_term(Term, PayloadFmtOpts) ->
+    BinTerm = iolist_to_binary(to_iolist(Term)),
+    Type = maps:get(payload_encode, PayloadFmtOpts),
+    Limit = maps:get(truncate_above, PayloadFmtOpts, ?MAX_PAYLOAD_FORMAT_SIZE),
+    TruncateTo = maps:get(truncate_to, PayloadFmtOpts, ?TRUNCATED_PAYLOAD_SIZE),
+    {FTerm, #{payload_encode := Encode}} = format_truncated_term(Type, Limit, TruncateTo, BinTerm),
+    {[io_lib:format("Encoded(~s)=", [Encode]), FTerm], #{payload_encode => Encode}}.
+
+format_truncated_term(Type, Limit, TruncateTo, BinTerm) when
+    size(BinTerm) > Limit
+->
+    {NType, Part, TruncatedBytes} = truncate_term(Type, TruncateTo, BinTerm),
+    {?TRUNCATED_IOLIST(do_format_term(NType, Part), TruncatedBytes), #{payload_encode => NType}};
+format_truncated_term(Type, _Limit, _TruncateTo, Result) ->
+    %% truncate to itself size
+    {NType, _Part, _TruncatedBytes} = truncate_term(Type, size(Result), Result),
+    {do_format_term(NType, Result), #{payload_encode => NType}}.
+
+truncate_term(hex, Limit, Term) ->
+    %% <<Part:Limit/binary, Rest/binary>> = Payload,
+    %% {hex, Part, size(Rest)};
+    <<Part:Limit/binary, Rest/binary>> = Term,
+    {hex, Part, size(Rest)};
+truncate_term(text, Limit, Term) ->
+    case emqx_utils_fmt:find_complete_utf8_len(Limit, Term) of
+        {ok, Len} ->
+            <<Part:Len/binary, Rest/binary>> = Term,
+            {text, Part, size(Rest)};
+        error ->
+            %% not a valid utf8 string, force hex
+            <<Part:Limit/binary, Rest/binary>> = Term,
+            {hex, Part, size(Rest)}
+    end.
+
+do_format_term(text, Bytes) ->
+    %% utf8 ensured
+    Bytes;
+do_format_term(hex, Bytes) ->
+    binary:encode_hex(Bytes).
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);

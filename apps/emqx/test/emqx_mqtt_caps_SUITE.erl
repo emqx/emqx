@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_mqtt_caps_SUITE).
@@ -64,7 +52,7 @@ t_check_sub(_) ->
     emqx_config:put_zone_conf(default, [mqtt, wildcard_subscription], false),
     timer:sleep(50),
     ClientInfo = #{zone => default},
-    ok = emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts),
+
     ?assertEqual(
         {error, ?RC_TOPIC_FILTER_INVALID},
         emqx_mqtt_caps:check_sub(ClientInfo, <<"a/b/c/d">>, SubOpts)
@@ -79,4 +67,49 @@ t_check_sub(_) ->
             ClientInfo, #share{group = <<"group">>, topic = <<"topic">>}, SubOpts
         )
     ),
+
+    %% return `ok` when allowed origin sub-qos (max_qos_allowed >= sub-qos)
+    %% and `{ok, QoS}` when granted qos lower than origin sub-qos
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_0),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_0})
+    ),
+    ?assertEqual(
+        {ok, ?QOS_0},
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_1})
+    ),
+    ?assertEqual(
+        {ok, ?QOS_0},
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_2})
+    ),
+
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_1),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_0})
+    ),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_1})
+    ),
+    ?assertEqual(
+        {ok, ?QOS_1},
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_2})
+    ),
+
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_2),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_0})
+    ),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_1})
+    ),
+    ?assertEqual(
+        ok,
+        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_2})
+    ),
+
     emqx_config:put([zones], OldConf).

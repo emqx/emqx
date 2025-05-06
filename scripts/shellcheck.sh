@@ -5,6 +5,10 @@ set -euo pipefail
 target_files=()
 while IFS='' read -r line;
 do
+  # Skip .hcl files
+  if [[ "$line" == *.hcl ]]; then
+    continue
+  fi
   target_files+=("$line");
 done < <(git grep -r -l '^#!/\(bin/\|usr/bin/env bash\)' .)
 return_code=0

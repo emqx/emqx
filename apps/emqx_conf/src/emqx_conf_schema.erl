@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_conf_schema).
@@ -62,7 +50,7 @@
     emqx_authn_schema,
     emqx_authz_schema,
     emqx_auto_subscribe_schema,
-    {emqx_telemetry_schema, ce},
+    emqx_telemetry_schema,
     emqx_modules_schema,
     emqx_plugins_schema,
     emqx_dashboard_schema,
@@ -71,9 +59,8 @@
     emqx_rule_engine_schema,
     emqx_exhook_schema,
     emqx_psk_schema,
-    emqx_limiter_schema,
     emqx_slow_subs_schema,
-    {emqx_otel_schema, ee},
+    emqx_otel_schema,
     emqx_mgmt_api_key_schema
 ]).
 
@@ -87,8 +74,12 @@
     cannot_publish_to_topic_due_to_quota_exceeded,
     connection_rejected_due_to_license_limit_reached,
     connection_rejected_due_to_trial_license_uptime_limit,
-    connection_rejected_due_to_max_uptime_reached,
+    connection_rejected_due_to_license_expired,
+    listener_accept_throttled_due_to_quota_exceeded,
+    failed_to_consume_from_limiter,
+    failed_to_put_back_to_limiter,
     data_bridge_buffer_overflow,
+    dropped_qos0_msg,
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
     failed_to_fetch_crl,
@@ -97,6 +88,7 @@
     handle_resource_metrics_failed,
     retain_failed_for_payload_size_exceeded_limit,
     retain_failed_for_rate_exceeded_limit,
+    retained_dispatch_failed_for_rate_exceeded_limit,
     retained_delete_failed_for_rate_exceeded_limit,
     socket_receive_paused_by_rate_limit,
     %% ==== message transformation/validation ====
@@ -193,18 +185,7 @@ validate_durable_sessions_strategy(Conf) ->
     end.
 
 common_apps() ->
-    Edition = emqx_release:edition(),
-    lists:filtermap(
-        fun
-            ({N, E}) ->
-                case E =:= Edition of
-                    true -> {true, N};
-                    false -> false
-                end;
-            (N) when is_atom(N) -> {true, N}
-        end,
-        ?MERGED_CONFIGS
-    ).
+    ?MERGED_CONFIGS.
 
 fields("cluster") ->
     [

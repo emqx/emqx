@@ -35,8 +35,10 @@ emqx_authn_cinfo_schema {
       - `cert_subject`: the subject of the TLS certificate.
       - `cert_common_name`: the issuer of the TLS certificate.
       - `zone`: the config zone associated with the listener from which the client is accepted.
+
       If the expression(s) all yields the string value `'true'`, then the associated `result` is returned from this authenticator.
-      If any expression yields the other than `'true'`, then the current check is skipped."""
+      If any expression yields a value other than `'true'`, then the current check is skipped.
+      For example, to ensure client ID is always the same as TLS certificate CN, the expression can be `str_eq(clientid, cert_common_name)`."""
   }
 
   result {

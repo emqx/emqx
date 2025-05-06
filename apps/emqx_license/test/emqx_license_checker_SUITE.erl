@@ -103,7 +103,7 @@ t_update(_Config) ->
     #{} = emqx_license_checker:update(License),
 
     ?assertMatch(
-        {ok, #{max_connections := 123}},
+        {ok, #{max_sessions := 123}},
         emqx_license_checker:limits()
     ).
 
@@ -148,7 +148,7 @@ t_expired_trial(_Config) ->
     #{} = emqx_license_checker:update(License),
 
     ?assertMatch(
-        {ok, #{max_connections := ?ERR_EXPIRED}},
+        {ok, #{max_sessions := ?ERR_EXPIRED}},
         emqx_license_checker:limits()
     ).
 
@@ -173,7 +173,7 @@ t_max_uptime_reached(_Config) ->
     #{} = emqx_license_checker:update(License),
 
     ?assertMatch(
-        {ok, #{max_connections := ?ERR_MAX_UPTIME}},
+        {ok, #{max_sessions := ?ERR_MAX_UPTIME}},
         emqx_license_checker:limits()
     ),
 
@@ -201,7 +201,7 @@ t_overexpired_small_client(_Config) ->
     #{} = emqx_license_checker:update(License),
 
     ?assertMatch(
-        {ok, #{max_connections := expired}},
+        {ok, #{max_sessions := expired}},
         emqx_license_checker:limits()
     ).
 
@@ -227,7 +227,7 @@ t_overexpired_medium_client(_Config) ->
     #{} = emqx_license_checker:update(License),
 
     ?assertMatch(
-        {ok, #{max_connections := 123}},
+        {ok, #{max_sessions := 123}},
         emqx_license_checker:limits()
     ).
 
@@ -253,7 +253,7 @@ t_recently_expired_small_client(_Config) ->
     #{} = emqx_license_checker:update(License),
 
     ?assertMatch(
-        {ok, #{max_connections := 123}},
+        {ok, #{max_sessions := 123}},
         emqx_license_checker:limits()
     ).
 

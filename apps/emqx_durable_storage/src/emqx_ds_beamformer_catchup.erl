@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc This type of beamformer worker serves lagging subscriptions.
@@ -21,7 +9,7 @@
 -behaviour(gen_server).
 
 %% API:
--export([start_link/4, pool/1, enqueue/2]).
+-export([start_link/4, pool/1, enqueue/3]).
 
 %% behavior callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -41,7 +29,7 @@
 %% Type declarations
 %%================================================================================
 
--record(enqueue_req, {sub_states}).
+-record(enqueue_req, {sub_state}).
 -define(fulfill_loop, beamformer_fulfill_loop).
 -define(housekeeping_loop, housekeeping_loop).
 
@@ -74,10 +62,13 @@
 %% API functions
 %%================================================================================
 
--spec enqueue(pid(), [emqx_ds_beamformer:sub_state()]) ->
-    ok | {error, unrecoverable, stale} | emqx_ds:error(_).
-enqueue(Worker, SubStates) ->
-    gen_server:call(Worker, #enqueue_req{sub_states = SubStates}, infinity).
+%% Send an asynchronous subscription handover request to the worker.
+%% Incomplete requests are tracked in the reqid collection with labels
+%% equal to the subscription state.
+-spec enqueue(pid(), emqx_ds_beamformer:sub_state(), gen_server:request_id_collection()) ->
+    gen_server:request_id_collection().
+enqueue(Worker, SubState, ReqIdCollection) ->
+    gen_server:send_request(Worker, #enqueue_req{sub_state = SubState}, SubState, ReqIdCollection).
 
 -spec start_link(module(), _Shard, integer(), emqx_ds_beamformer:opts()) -> {ok, pid()}.
 start_link(Mod, ShardId, Name, Opts) ->
@@ -109,8 +100,8 @@ init([CBM, ShardId, Name, _Opts]) ->
     self() ! ?housekeeping_loop,
     {ok, S}.
 
-handle_call(#enqueue_req{sub_states = SubStates}, _From, S) ->
-    do_enqueue(SubStates, S),
+handle_call(#enqueue_req{sub_state = SubState}, _From, S) ->
+    do_enqueue(SubState, S),
     {reply, ok, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
@@ -182,17 +173,11 @@ handle_recoverable(#s{sub_tab = SubTab, queue = Queue, shard_id = DBShard}, Subs
         Subscribers
     ).
 
-do_enqueue(SubStates, #s{
+do_enqueue(SubState, #s{
     shard_id = DBShard, sub_tab = SubTab, queue = Queue
 }) ->
-    lists:foreach(
-        fun(SubS) ->
-            queue_push(Queue, SubS),
-            emqx_ds_beamformer:take_ownership(DBShard, SubTab, SubS)
-        end,
-        SubStates
-    ),
-    ensure_fulfill_loop().
+    queue_push(Queue, SubState),
+    emqx_ds_beamformer:take_ownership(DBShard, SubTab, SubState).
 
 fulfill(S0 = #s{queue = Queue, metrics_id = Metrics}) ->
     %% debug_pending(S),
@@ -272,7 +257,7 @@ do_fulfill(
 ) ->
     s().
 move_to_realtime(
-    S = #s{shard_id = DBShard, queue = Queue, pending_handovers = Handovers0},
+    S = #s{shard_id = DBShard, queue = Queue, pending_handovers = Handovers0, metrics_id = Metrics},
     Stream,
     TopicFilter,
     StartKey,
@@ -289,6 +274,7 @@ move_to_realtime(
                 end_key => EndKey,
                 req_id => Req#sub_state.req_id
             }),
+            emqx_ds_builtin_metrics:inc_handover(Metrics),
             %% Remove request the active queue, but keep it in the sub
             %% table for now:
             queue_drop(Queue, Req),
@@ -303,8 +289,9 @@ move_to_realtime(
 handover_complete(
     Reply,
     SubState = #sub_state{req_id = SubRef},
-    S = #s{shard_id = DBShard, sub_tab = SubTab, queue = Queue}
+    S = #s{shard_id = DBShard, sub_tab = SubTab, queue = Queue, metrics_id = Metrics}
 ) ->
+    emqx_ds_builtin_metrics:dec_handover(Metrics),
     case Reply of
         {reply, Result} ->
             ok;
@@ -440,6 +427,7 @@ queue_new() ->
 
 queue_push(Queue, SubState) ->
     ?tp(beamformer_push_catchup, #{req_id => SubState#sub_state.req_id}),
+    ensure_fulfill_loop(),
     ets:insert(Queue, {queue_key(SubState)}).
 
 %% @doc Get all requests that await data with given stream, topic

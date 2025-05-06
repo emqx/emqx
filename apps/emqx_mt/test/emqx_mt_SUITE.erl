@@ -36,7 +36,8 @@ init_per_suite(Config) ->
         [
             emqx,
             {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
-            emqx_mt
+            emqx_mt,
+            emqx_management
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -124,7 +125,7 @@ t_session_limit_exceeded(_Config) ->
         )
     ),
     ?assertEqual({ok, 1}, emqx_mt:count_clients(Ns)),
-    %% two reaons may race
+    %% two reasons may race
     try
         {ok, _} = connect(C2, Ns)
     catch

@@ -29,10 +29,10 @@ jobs:
       - name: Detect profile
         id: profile
         run: |
-          if git describe --tags --match '[v|e]*' --exact; then
-            REF=$(git describe --tags --match '[v|e]*' --exact)
+          if git describe --tags --match 'e*' --exact; then
+            REF=$(git describe --tags --match 'e*' --exact)
           else
-            echo "Only release tags matching '[v|e]*' are supported"
+            echo "Only release tags matching 'e*' are supported"
             exit 1
           fi
           case "$REF" in

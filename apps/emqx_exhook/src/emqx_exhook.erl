@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_exhook).
@@ -42,39 +30,42 @@ cast(Hookpoint, Req, [ServerName | More]) ->
     _ = emqx_exhook_server:call(
         Hookpoint,
         Req,
-        emqx_exhook_mgr:server(ServerName)
+        emqx_exhook_mgr:service(ServerName)
     ),
     cast(Hookpoint, Req, More).
 
 -spec call_fold(atom(), term(), function()) ->
     {ok, term()}
-    | {stop, term()}.
+    | {stop, term()}
+    | ignore.
 call_fold(Hookpoint, Req, AccFun) ->
     case emqx_exhook_mgr:running() of
         [] ->
             {stop, deny_action_result(Hookpoint, Req)};
         ServerNames ->
-            call_fold(Hookpoint, Req, AccFun, ServerNames)
+            call_fold(true, Hookpoint, Req, AccFun, ServerNames)
     end.
 
-call_fold(_, Req, _, []) ->
+call_fold(true, _, _Req, _, []) ->
+    ignore;
+call_fold(false, _, Req, _, []) ->
     {ok, Req};
-call_fold(Hookpoint, Req, AccFun, [ServerName | More]) ->
-    Server = emqx_exhook_mgr:server(ServerName),
+call_fold(IsIgnore, Hookpoint, Req, AccFun, [ServerName | More]) ->
+    Server = emqx_exhook_mgr:service(ServerName),
     case emqx_exhook_server:call(Hookpoint, Req, Server) of
         {ok, Resp} ->
             case AccFun(Req, Resp) of
                 {stop, NReq} ->
                     {stop, NReq};
                 {ok, NReq} ->
-                    call_fold(Hookpoint, NReq, AccFun, More);
-                _ ->
-                    call_fold(Hookpoint, Req, AccFun, More)
+                    call_fold(false, Hookpoint, NReq, AccFun, More);
+                ignore ->
+                    call_fold(IsIgnore, Hookpoint, Req, AccFun, More)
             end;
         _ ->
             case emqx_exhook_server:failed_action(Server) of
                 ignore ->
-                    call_fold(Hookpoint, Req, AccFun, More);
+                    call_fold(IsIgnore, Hookpoint, Req, AccFun, More);
                 deny ->
                     {stop, deny_action_result(Hookpoint, Req)}
             end

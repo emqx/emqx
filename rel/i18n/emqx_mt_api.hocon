@@ -1,8 +1,8 @@
 emqx_mt_api {
     ns_list {
         desc: """~
-            List all namespaces"
-            The namespace is sorted in lexicographical order,
+            List all namespaces
+            The namespaces are sorted in lexicographical order,
             so this API can be used for prefix based fuzzy search.~"""
         label: "List Namespaces"
     }
@@ -29,5 +29,36 @@ emqx_mt_api {
             The last client from the previous page.
             For the first page, use empty string.~"""
         label: "Last Client ID"
+    }
+    managed_ns_list {
+        desc: """~
+            List all managed namespaces
+            The namespaces are sorted in lexicographical order,
+            so this API can be used for prefix based fuzzy search.~"""
+        label: "List managed namespaces"
+    }
+    create_managed_ns {
+        desc: "Create managed namespace"
+        label: "Create managed namespace"
+    }
+    delete_ns {
+        desc: "Delete namespace. This will cause all the clients under this namespace to be kicked out asynchronously."
+        label: "Delete namespace"
+    }
+    get_managed_ns_config {
+        desc: "Get managed namespace configuration"
+        label: "Get managed namespace configuration"
+    }
+    update_managed_ns_config {
+        desc: "Update managed namespace configuration"
+        label: "Update managed namespace configuration"
+    }
+    bulk_import_configs {
+        desc: "Upsert namespace configurations in bulk"
+        label: "Upsert namespace configurations in bulk"
+    }
+    kick_all_clients {
+        desc: "Kick all clients in namespace (async)"
+        label: "Kick all clients in namespace (async)"
     }
 }

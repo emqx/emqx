@@ -24,15 +24,14 @@ license(["update", EncodedLicense]) ->
         {ok, Warnings} ->
             ok = print_warnings(Warnings),
             ok = ?PRINT_MSG("ok~n");
+        {error, Reason} when is_atom(Reason) ->
+            ?PRINT("Error: ~s~n", [Reason]);
         {error, Reason} ->
             ?PRINT("Error: ~p~n", [Reason])
     end;
 license(["info"]) ->
     lists:foreach(
         fun
-            ({max_connections, _V}) ->
-                %% max_sessions will be printed
-                ok;
             ({K, V}) when is_binary(V); is_atom(V); is_list(V) ->
                 ?PRINT("~-16s: ~s~n", [K, V]);
             ({K, V}) ->

@@ -26,7 +26,3 @@ For other options, see the [configuration](https://www.emqx.io/docs/en/v5.2/conf
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-## License
-
-See [LICENSE](../../APL.txt)

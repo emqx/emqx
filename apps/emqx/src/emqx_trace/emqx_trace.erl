@@ -1,27 +1,16 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_trace).
 
 -behaviour(gen_server).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
+-include("emqx.hrl").
+-include("logger.hrl").
+-include("emqx_trace.hrl").
+
 -include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
--include_lib("emqx/include/emqx_trace.hrl").
 
 -export([
     publish/1,
@@ -332,7 +321,8 @@ format(Traces) ->
             Map0 = maps:from_list(lists:zip(Fields, Values)),
             Extra = maps:get(extra, Map0, #{}),
             Formatter = maps:get(formatter, Extra, text),
-            Map1 = Map0#{formatter => Formatter},
+            PayloadLimit = maps:get(payload_limit, Extra, ?MAX_PAYLOAD_FORMAT_SIZE),
+            Map1 = Map0#{formatter => Formatter, payload_limit => PayloadLimit},
             maps:remove(extra, Map1)
         end,
         Traces
@@ -490,11 +480,13 @@ start_trace(Trace) ->
         extra = Extra
     } = Trace,
     Formatter = maps:get(formatter, Extra, text),
+    PayloadLimit = maps:get(payload_limit, Extra, ?MAX_PAYLOAD_FORMAT_SIZE),
     Who = #{
         name => Name,
         type => Type,
         filter => Filter,
         payload_encode => PayloadEncode,
+        payload_limit => PayloadLimit,
         formatter => Formatter
     },
     emqx_trace_handler:install(Who, debug, log_file(Name, Start)).
@@ -665,6 +657,12 @@ to_trace(#{formatter := Formatter} = Trace, Rec) ->
     to_trace(
         maps:remove(formatter, Trace),
         Rec#?TRACE{extra = Extra#{formatter => Formatter}}
+    );
+to_trace(#{payload_limit := PayloadLimit} = Trace, Rec) ->
+    Extra = Rec#?TRACE.extra,
+    to_trace(
+        maps:remove(payload_limit, Trace),
+        Rec#?TRACE{extra = Extra#{payload_limit => PayloadLimit}}
     );
 to_trace(_, Rec) ->
     {ok, Rec}.

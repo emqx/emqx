@@ -2,13 +2,12 @@
 {application, emqx_psk, [
     {description, "EMQX PSK"},
     % strict semver, bump manually!
-    {vsn, "5.0.8"},
+    {vsn, "5.0.9"},
     {modules, []},
     {registered, [emqx_psk_sup]},
     {applications, [kernel, stdlib]},
     {mod, {emqx_psk_app, []}},
     {env, []},
-    {licenses, ["Apache-2.0"]},
     {maintainers, ["EMQX Team <contact@emqx.io>"]},
     {links, [
         {"Homepage", "https://emqx.io/"},

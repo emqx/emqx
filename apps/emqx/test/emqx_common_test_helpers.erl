@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2019-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_common_test_helpers).
@@ -113,10 +101,10 @@
     stop_apps_ds/1,
     start_cluster_ds/3,
     stop_cluster_ds/1,
-    restart_node_ds/2,
-    is_platform/0,
-    skip_if_platform/0
+    restart_node_ds/2
 ]).
+
+-export([capture_io_format/1]).
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 
@@ -256,7 +244,6 @@ start_apps(Apps, SpecAppConfig, Opts) when is_function(SpecAppConfig) ->
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
     ok = start_ekka(),
-    ok = emqx_ratelimiter_SUITE:load_conf(),
     lists:foreach(fun(App) -> start_app(App, SpecAppConfig, Opts) end, [emqx | Apps]).
 
 load(App) ->
@@ -680,7 +667,6 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
             keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem"),
             hibernate_after => 30000
         },
-        limiter => #{},
         max_connections => 1024000,
         mountpoint => <<>>,
         zone => default
@@ -752,7 +738,8 @@ start_peer(Name, Opts) when is_map(Opts) ->
             Envs = [
                 {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
                 {"EMQX_NODE__COOKIE", Cookie},
-                {"EMQX_NODE__DATA_DIR", NodeDataDir}
+                {"EMQX_NODE__DATA_DIR", NodeDataDir},
+                {"EMQX_LICENSE__KEY", "evaluation"}
             ],
             emqx_cth_peer:start(Node, erl_flags(), Envs)
         end,
@@ -1446,32 +1433,6 @@ ensure_loaded(Mod) ->
 %% DS Test Helpers
 %%------------------------------------------------------------------------------
 
--ifdef(BUILD_WITH_FDB).
-is_platform() -> true.
-
-skip_if_platform() ->
-    {skip, platform_not_supported}.
-
-start_apps_ds(Config, ExtraApps, Opts) ->
-    emqx_fdb_ds_test_helpers:start_apps_simple(Config, ExtraApps, Opts).
-
-stop_apps_ds(Config) ->
-    emqx_fdb_ds_test_helpers:stop_apps(Config).
-
-start_cluster_ds(Config, N, Opts) ->
-    emqx_fdb_ds_test_helpers:start_cluster_simple(Config, N, Opts).
-
-stop_cluster_ds(Config) ->
-    emqx_fdb_ds_test_helpers:stop_cluster(Config).
-
-restart_node_ds(Node, NodeSpec) ->
-    emqx_fdb_ds_test_helpers:restart_node_simple(Node, NodeSpec).
--else.
-is_platform() -> false.
-
-skip_if_platform() ->
-    false.
-
 start_apps_ds(Config, ExtraApps, Opts) ->
     DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
@@ -1553,4 +1514,54 @@ wait_nodeup(Node) ->
         _Attempts0 = 50,
         pong = net_adm:ping(Node)
     ).
--endif.
+
+capture_io_format(Fn) ->
+    Owner = self(),
+    {GL, _} = spawn_monitor(fun() -> gl_sink(Owner, []) end),
+    {Runner, _} = spawn_monitor(fun() ->
+        group_leader(GL, self()),
+        exit({self(), result, Fn()})
+    end),
+    Result =
+        receive
+            {'DOWN', _, process, Runner, {_, result, Res}} ->
+                Res
+        after 1000 ->
+            exit(Runner, kill),
+            error(timeout)
+        end,
+    GL ! stop,
+    Prints =
+        receive
+            {'DOWN', _, process, GL, {_, prints, IoRequests}} ->
+                IoRequests
+        after 1000 ->
+            exit(GL, kill),
+            error(timeout)
+        end,
+    {Result, format_io_requests(Prints)}.
+
+gl_sink(Owner, Acc) ->
+    receive
+        {io_request, From, ReplyAs, Request} ->
+            From ! {io_reply, ReplyAs, ok},
+            gl_sink(Owner, [Request | Acc]);
+        stop ->
+            exit({self(), prints, lists:reverse(Acc)});
+        _ ->
+            gl_sink(Owner, Acc)
+    end.
+
+format_io_requests(IoRequests) ->
+    lists:map(
+        fun(Request) ->
+            case Request of
+                {put_chars, unicode, M, F, A} ->
+                    IoDat = apply(M, F, A),
+                    unicode:characters_to_binary(IoDat);
+                _ ->
+                    error({unknown_io_request, Request})
+            end
+        end,
+        IoRequests
+    ).

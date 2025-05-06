@@ -13,7 +13,7 @@ Version: %{_version}
 Release: 1%{?dist}
 Summary: emqx
 Group: System Environment/Daemons
-License: Apache License Version 2.0
+License: Business Source License 1.1
 URL: https://www.emqx.com
 BuildRoot: %{_tmppath}/%{_name}-%{_version}-root
 Provides: %{_name}

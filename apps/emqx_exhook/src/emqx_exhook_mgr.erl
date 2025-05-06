@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc Manage the server status and reload strategy
@@ -25,7 +13,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(SERVERS, [exhook, servers]).
--define(EXHOOK, [exhook]).
+-define(EXHOOK_ROOT, exhook).
+-define(EXHOOK, [?EXHOOK_ROOT]).
 
 %% APIs
 -export([start_link/0]).
@@ -44,7 +33,7 @@
 %% Helper funcs
 -export([
     running/0,
-    server/1,
+    service/1,
     hooks/1,
     init_ref_counter_table/0
 ]).
@@ -84,14 +73,15 @@
 
 -type status() ::
     connected
+    %% only for trying reload
     | connecting
     | disconnected
     | disabled.
 
 -type server() :: #{
-    status := status(),
-    timer := reference(),
-    order := integer(),
+    status => status(),
+    timer => undefined | reference(),
+    order => integer(),
     %% include the content of server_options
     atom() => any()
 }.
@@ -203,12 +193,12 @@ import_config(#{<<"exhook">> := #{<<"servers">> := Servers} = ExHook}) ->
         {ok, #{raw_config := #{<<"servers">> := NewRawServers}}} ->
             Changed = maps:get(changed, emqx_utils:diff_lists(NewRawServers, OldServers, KeyFun)),
             ChangedPaths = [?SERVERS ++ [Name] || {#{<<"name">> := Name}, _} <- Changed],
-            {ok, #{root_key => ?EXHOOK, changed => ChangedPaths}};
+            {ok, #{root_key => ?EXHOOK_ROOT, changed => ChangedPaths}};
         Error ->
-            {error, #{root_key => ?EXHOOK, reason => Error}}
+            {error, #{root_key => ?EXHOOK_ROOT, reason => Error}}
     end;
 import_config(_RawConf) ->
-    {ok, #{root_key => ?EXHOOK, changed => []}}.
+    {ok, #{root_key => ?EXHOOK_ROOT, changed => []}}.
 
 %%----------------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -229,7 +219,7 @@ load_all_servers(ServerL) ->
     load_all_servers(ServerL, #{}).
 
 load_all_servers([#{name := Name} = Options | More], Servers) ->
-    {_, Server} = do_load_server(options_to_server(Options)),
+    {_, Server} = do_load_server(opts_to_state(Options)),
     load_all_servers(More, Servers#{Name => Server});
 load_all_servers([], Servers) ->
     Servers.
@@ -257,7 +247,7 @@ handle_call(
     #{servers := Servers} = State
 ) ->
     {_, #{name := Name} = Conf} = emqx_config:check_config(?MODULE, RawConf),
-    {Result, Server} = do_load_server(options_to_server(Conf)),
+    {Result, Server} = do_load_server(opts_to_state(Conf)),
     Servers2 = Servers#{Name => Server},
     Servers3 = reorder(NewConfL, Servers2),
     {reply, Result, State#{servers := Servers3}};
@@ -302,7 +292,7 @@ handle_call(
     _From,
     #{servers := Servers} = State
 ) ->
-    Status = maps:map(fun(_Name, #{status := Status}) -> Status end, Servers),
+    Status = map_each_server(fun({Name, #{status := Status}}) -> {Name, Status} end, Servers),
     Metrics = emqx_exhook_metrics:servers_metrics(),
 
     Result = #{
@@ -340,10 +330,14 @@ handle_cast(_Msg, State) ->
 handle_info({timeout, _Ref, {reload, Name}}, State) ->
     {_, NState} = do_reload_server(Name, State),
     {noreply, NState};
-handle_info(refresh_tick, State) ->
+handle_info(refresh_tick, #{servers := Servers} = State) ->
     refresh_tick(),
     emqx_exhook_metrics:update(?REFRESH_INTERVAL),
-    {noreply, State};
+    NServers = map_each_server(
+        fun({Name, Server}) -> {Name, do_health_check(Server)} end,
+        Servers
+    ),
+    {noreply, State#{servers => NServers}};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -377,7 +371,7 @@ unload_exhooks() ->
 add_servers(Added, State) ->
     lists:foldl(
         fun(Conf = #{name := Name}, {ResAcc, StateAcc}) ->
-            case do_load_server(options_to_server(Conf)) of
+            case do_load_server(opts_to_state(Conf)) of
                 {ok, Server} ->
                     #{servers := Servers} = StateAcc,
                     Servers2 = Servers#{Name => Server},
@@ -390,14 +384,15 @@ add_servers(Added, State) ->
         Added
     ).
 
+-spec do_load_server(server()) -> {ok, server()} | {error, term()}.
 do_load_server(#{name := Name} = Server) ->
     case emqx_exhook_server:load(Name, Server) of
-        {ok, ServerState} ->
-            save(Name, ServerState),
+        {ok, ServiceState} ->
+            save(Name, ServiceState),
             {ok, Server#{status => connected}};
         disable ->
             {ok, set_disable(Server)};
-        {ErrorType, Reason} = Error ->
+        {ErrorType, Reason} ->
             ?SLOG(
                 error,
                 #{
@@ -410,7 +405,7 @@ do_load_server(#{name := Name} = Server) ->
                 load_error ->
                     {ok, ensure_reload_timer(Server)};
                 _ ->
-                    {Error, Server#{status => disconnected}}
+                    {ErrorType, Server#{status => disconnected}}
             end
     end.
 
@@ -441,7 +436,7 @@ do_unload_server(Name, #{servers := Servers} = State) ->
             State;
         Server ->
             clean_reload_timer(Server),
-            case server(Name) of
+            case service(Name) of
                 undefined ->
                     State;
                 Service ->
@@ -452,12 +447,29 @@ do_unload_server(Name, #{servers := Servers} = State) ->
             end
     end.
 
+-spec ensure_reload_timer(server()) -> server().
 ensure_reload_timer(#{name := Name, auto_reconnect := Intv} = Server) when is_integer(Intv) ->
-    clean_reload_timer(Server),
-    Ref = erlang:start_timer(Intv, self(), {reload, Name}),
-    Server#{status := connecting, timer := Ref};
+    maybe
+        true ?= expired_timer(Server),
+        %% otherwise, respect the running timer
+        %% NOTE: parallel health check and reload timer
+        %% should send te the current gen_server
+        Ref = erlang:start_timer(Intv, erlang:whereis(?MODULE), {reload, Name}),
+        %% mark status as connecting, the refresh_tick will check real conn states
+        Server#{status => connecting, timer => Ref}
+    else
+        false -> Server
+    end;
 ensure_reload_timer(Server) ->
-    Server#{status := disconnected}.
+    Server#{status => disconnected}.
+
+expired_timer(#{timer := undefined}) ->
+    true;
+expired_timer(#{timer := Timer}) ->
+    case erlang:read_timer(Timer) of
+        false -> true;
+        _RemainingTime -> false
+    end.
 
 -spec clean_reload_timer(server()) -> ok.
 clean_reload_timer(#{timer := undefined}) ->
@@ -465,6 +477,13 @@ clean_reload_timer(#{timer := undefined}) ->
 clean_reload_timer(#{timer := Timer}) ->
     _ = erlang:cancel_timer(Timer),
     ok.
+
+-spec cancel_reload_timer(server()) -> server().
+cancel_reload_timer(#{timer := undefined} = Server) ->
+    Server;
+cancel_reload_timer(#{timer := Timer} = Server) ->
+    _ = erlang:cancel_timer(Timer),
+    Server#{timer => undefined}.
 
 -spec do_move(binary(), position(), list(server_options())) -> list(server_options()).
 do_move(Name, Position, ConfL) ->
@@ -591,9 +610,10 @@ sort_name_by_order(Names, Orders) ->
     ).
 
 refresh_tick() ->
-    erlang:send_after(?REFRESH_INTERVAL, self(), ?FUNCTION_NAME).
+    erlang:send_after(?REFRESH_INTERVAL, erlang:whereis(?MODULE), ?FUNCTION_NAME).
 
-options_to_server(Options) ->
+-spec opts_to_state(server_options()) -> server().
+opts_to_state(Options) ->
     maps:merge(Options, #{status => disconnected, timer => undefined, order => 0}).
 
 update_servers(Servers, State) ->
@@ -603,8 +623,29 @@ update_servers(Servers, State) ->
 set_disable(Server) ->
     Server#{status := disabled, timer := undefined}.
 
+do_health_check(Server) ->
+    handle_health_check_res(
+        Server,
+        emqx_exhook_server:health_check(Server)
+    ).
+
+handle_health_check_res(Server, disable) ->
+    Server#{status => disabled};
+handle_health_check_res(Server, true) ->
+    (cancel_reload_timer(Server))#{status := connected};
+handle_health_check_res(#{status := connecting} = Server, false) ->
+    %% reload timer mark status to `connecting` but health check still failed
+    %% make sure reload timer is working and the mark status is `disconnected`
+    (ensure_reload_timer(Server))#{status => disconnected};
+handle_health_check_res(Server, false) ->
+    ensure_reload_timer(Server);
+handle_health_check_res(Server, skip) ->
+    %% skip the health check due to unsaved/reconnecting service
+    ensure_reload_timer(Server).
+
 %%----------------------------------------------------------------------------------------
 %% Server state persistent
+-spec save(server_name(), emqx_exhook_server:service()) -> ok.
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),
     persistent_term:put(?APP, lists:reverse([Name | Saved])),
@@ -628,7 +669,8 @@ unsave(Name) ->
 running() ->
     persistent_term:get(?APP, []).
 
-server(Name) ->
+-spec service(server_name()) -> emqx_exhook_server:service() | undefined.
+service(Name) ->
     case persistent_term:get({?APP, Name}, undefined) of
         undefined -> undefined;
         Service -> Service
@@ -649,7 +691,7 @@ update_order(Servers) ->
     persistent_term:put(?APP, Running2).
 
 hooks(Name) ->
-    case server(Name) of
+    case service(Name) of
         undefined ->
             [];
         Service ->
@@ -676,3 +718,6 @@ new_ssl_source(Source, undefined) ->
     Source;
 new_ssl_source(Source, SSL) ->
     Source#{<<"ssl">> => SSL}.
+
+map_each_server(Fun, Servers) ->
+    maps:from_list(emqx_utils:pmap(Fun, maps:to_list(Servers))).

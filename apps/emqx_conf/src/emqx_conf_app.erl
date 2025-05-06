@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_conf_app).
@@ -84,14 +72,14 @@ get_override_config_file() ->
 -define(DATA_DIRS, ["authz", "certs"]).
 
 sync_data_from_node() ->
-    Dir = emqx:data_dir(),
-    TargetDirs = lists:filter(
-        fun(Type) -> filelib:is_dir(filename:join(Dir, Type)) end, ?DATA_DIRS
-    ),
+    DataDir = emqx:data_dir(),
     Name = "data.zip",
-    case zip:zip(Name, TargetDirs, [memory, {cwd, Dir}]) of
-        {ok, {Name, Bin}} -> {ok, Bin};
-        {error, Reason} -> {error, Reason}
+    Files = traverse_and_collect_files(DataDir),
+    case zip:zip(Name, Files, [memory, {cwd, DataDir}]) of
+        {ok, {Name, Bin}} ->
+            {ok, Bin};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 %% ------------------------------------------------------------------------------
@@ -326,4 +314,37 @@ has_deprecated_file(#{conf := Conf} = Info) ->
             %% The old version don't have emqx_config:has_deprecated_file/0
             %% Conf is not empty if deprecated file is found.
             Conf =/= #{}
+    end.
+
+traverse_and_collect_files(DataDir) ->
+    SubDirs = lists:map(fun(D) -> filename:join(DataDir, D) end, ?DATA_DIRS),
+    Prefix = ensure_trailing_slash(DataDir),
+    do_traverse_and_collect_files(SubDirs, Prefix, _Acc = []).
+
+do_traverse_and_collect_files([] = _SubDirs, _Prefix, Acc) ->
+    Acc;
+do_traverse_and_collect_files([SubDir | Rest], Prefix, Acc0) ->
+    %% This function already drops any non-regular file, including symlinks.
+    Acc = filelib:fold_files(
+        SubDir,
+        _Regex = "",
+        _Recursive = true,
+        fun(Path0, Acc) ->
+            Path = to_data_dir_relative_path(Path0, Prefix),
+            [Path | Acc]
+        end,
+        Acc0
+    ),
+    do_traverse_and_collect_files(Rest, Prefix, Acc).
+
+%% Note: `Prefix' must end in `/'.
+to_data_dir_relative_path(Path, Prefix) ->
+    lists:flatten(string:replace(Path, Prefix, "", leading)).
+
+ensure_trailing_slash(DataDir) ->
+    case lists:suffix("/", DataDir) of
+        true ->
+            DataDir;
+        false ->
+            DataDir ++ "/"
     end.

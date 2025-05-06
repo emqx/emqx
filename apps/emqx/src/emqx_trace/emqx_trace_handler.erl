@@ -1,23 +1,12 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_trace_handler).
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("emqx_trace.hrl").
 
 -logger_header("[Tracer]").
 
@@ -48,6 +37,7 @@
     type := clientid | topic | ip_address,
     filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address(),
     payload_encode := text | hidden | hex,
+    payload_limit := non_neg_integer(),
     formatter => json | text
 }.
 
@@ -80,6 +70,7 @@ install(Name, Type, Filter, Level, LogFile, Formatter) ->
         filter => ensure_bin(Filter),
         name => ensure_bin(Name),
         payload_encode => payload_encode(),
+        payload_limit => ?MAX_PAYLOAD_FORMAT_SIZE,
         formatter => Formatter
     },
     install(Who, Level, LogFile).
@@ -197,11 +188,16 @@ filters(#{type := ip_address, filter := Filter, name := Name}) ->
 filters(#{type := ruleid, filter := Filter, name := Name}) ->
     [{ruleid, {fun ?MODULE:filter_ruleid/2, {ensure_bin(Filter), Name}}}].
 
-formatter(#{type := _Type, payload_encode := PayloadEncode, formatter := json}) ->
-    {emqx_trace_json_formatter, #{
-        payload_encode => PayloadEncode
-    }};
-formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
+formatter(#{
+    type := _Type, payload_encode := PayloadEncode, formatter := json, payload_limit := PayloadLimit
+}) ->
+    PayloadFmtOpts = #{
+        payload_encode => PayloadEncode,
+        truncate_above => PayloadLimit,
+        truncate_to => PayloadLimit
+    },
+    {emqx_trace_json_formatter, #{payload_fmt_opts => PayloadFmtOpts}};
+formatter(#{type := _Type, payload_encode := PayloadEncode, payload_limit := PayloadLimit}) ->
     {emqx_trace_formatter, #{
         %% template is for ?SLOG message not ?TRACE.
         %% XXX: Don't need to print the time field in logger_formatter due to we manually concat it
@@ -210,7 +206,11 @@ formatter(#{type := _Type, payload_encode := PayloadEncode}) ->
         single_line => true,
         max_size => unlimited,
         depth => unlimited,
-        payload_encode => PayloadEncode
+        payload_fmt_opts => #{
+            payload_encode => PayloadEncode,
+            truncate_above => PayloadLimit,
+            truncate_to => PayloadLimit
+        }
     }}.
 
 filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) ->

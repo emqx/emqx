@@ -15,12 +15,13 @@ cd -P -- "$(dirname -- "$0")/../"
 
 help() {
     echo
-    echo "$0 start|stop [-h|--help] [-n|--nodes <number>] [-c|--cores <number>] [-b|--boot <script>]"
+    echo "$0 start|stop [-h|--help] [-n|--nodes <number>] [-c|--cores <number>] [-b|--boot <script>] [-i|--interface <interface>]"
     echo
     echo "-h|--help: To display this usage info"
     echo "-n|--nodes: total number of nodes to start (default: 2)"
     echo "-c|--cores: number of core nodes to start (default: 2)"
     echo "-b|--boot: boot script (default: ./_build/emqx/rel/emqx/bin/emqx)"
+    echo "-i|--interface: Network interface (default: lo0)"
     echo "--no-cluster: don't create a cluster, just start separate nodes"
 }
 
@@ -37,6 +38,7 @@ PROFILE=${PROFILE:-emqx}
 BOOT_SCRIPT="./_build/${PROFILE}/rel/emqx/bin/emqx"
 NODES=2
 CORE_NODES=2
+NETDEV=lo0
 NO_CLUSTER=false
 
 while [ "$#" -gt 0 ]; do
@@ -55,6 +57,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         -b|--boot)
             BOOT_SCRIPT="$2"
+            shift 2
+            ;;
+        -i|--interface)
+            NETDEV="$2"
             shift 2
             ;;
         --no-cluster)
@@ -133,24 +139,35 @@ start_node() {
     eval "$cmd"
 }
 
-for id in "${CORE_IDS[@]}"; do
+netdev_up() {
+    local dev="$1"
+    local id="$2"
+    local addr="127.0.0.$id"
+
+    if [ "$(uname)" = "Linux" ]; then
+        dev="$dev:$id"
+        if [[ $id -eq  1 ]]; then
+            return
+        fi
+    else
+        dev="$dev alias"
+    fi
+
     set +e
-    if ! ifconfig lo0 alias "127.0.0.$id" up; then
-        echo "Failed to create an alias for loopback address 127.0.0.$id. Retrying with sudo."
+    if ! ifconfig "$dev" "$addr" up; then
+        echo "Failed to create an alias for loopback address $addr Retrying with sudo."
         set -e
-        sudo ifconfig lo0 alias "127.0.0.$id" up
+        sudo ifconfig "$dev" "$addr" up
     fi
     set -e
+}
+
+for id in "${CORE_IDS[@]}"; do
+    netdev_up "$NETDEV" "$id"
     start_node core "$id" &
 done
 
 for id in "${REPLICANT_IDS[@]}"; do
-    set +e
-    if ! ifconfig lo0 alias "127.0.0.$id" up; then
-        echo "Failed to create an alias for loopback address 127.0.0.$id. Retrying with sudo."
-        set -e
-        sudo ifconfig lo0 alias "127.0.0.$id" up
-    fi
-    set -e
+    netdev_up "$NETDEV" "$id"
     start_node replicant "$id" &
 done

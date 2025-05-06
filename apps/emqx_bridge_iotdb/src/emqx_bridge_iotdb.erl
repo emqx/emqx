@@ -172,13 +172,17 @@ desc(action_parameters) ->
 desc(action_parameters_data) ->
     ?DESC("action_parameters_data");
 desc(action_resource_opts) ->
-    "Action Resource Options";
+    ?DESC("action_resource_opts");
 desc("creation_opts") ->
-    "Creation Options";
+    ?DESC("creation_opts");
 desc(auth_basic) ->
-    "Basic Authentication";
-desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for IoTDB using `", string:to_upper(Method), "` method."];
+    ?DESC("auth_basic");
+desc("get") ->
+    ?DESC("desc_config_get");
+desc("put") ->
+    ?DESC("desc_config_put");
+desc("post") ->
+    ?DESC("desc_config_post");
 desc(_) ->
     undefined.
 

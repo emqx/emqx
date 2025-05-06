@@ -706,6 +706,9 @@ mqtt_await_rel_timeout.desc:
 mqtt_await_rel_timeout.label:
 """Max Awaiting PUBREL TIMEOUT"""
 
+mqtt_limiter.desc:
+"""MQTT related limiter configuration."""
+
 common_ssl_opts_schema_verify.desc:
 """Enable or disable peer verification."""
 
@@ -1015,12 +1018,12 @@ fields_tcp_opts_nolinger.label:
 
 fields_tcp_opts_keepalive.desc:
 """Enable TCP keepalive for MQTT connections over TCP or SSL.
-The value is three comma separated numbers in the format of 'Idle,Interval,Probes'
+Use three comma-separated numbers to configure (in seconds): 'Idle,Interval,Probes'
  - Idle: The number of seconds a connection needs to be idle before the server begins to send out keep-alive probes (Linux default 7200).
  - Interval: The number of seconds between TCP keep-alive probes (Linux default 75).
  - Probes: The maximum number of TCP keep-alive probes to send before giving up and killing the connection if no response is obtained from the other end (Linux default 9).
 For example "240,30,5" means: EMQX should start sending TCP keepalive probes after the connection is in idle for 240 seconds, and the probes are sent every 30 seconds until a response is received from the MQTT client, if it misses 5 consecutive responses, EMQX should close the connection.
-Default: 'none'"""
+Default: 'none', Set to 'none' to use OS default keepalive settings (still active, not disabled)."""
 
 fields_tcp_opts_keepalive.label:
 """TCP keepalive options"""
@@ -1404,6 +1407,49 @@ if 2 the path can be PEER, Intermediate-CA1, Intermediate-CA2, ROOT-CA."""
 common_ssl_opts_schema_depth.label:
 """CACert Depth"""
 
+common_ssl_opts_schema_partial_chain.desc:
+"""Enable or disable peer verification with partial_chain.
+When local verifies a peer certificate during the x509 path validation
+process, it constructs a certificate chain that starts with the peer
+certificate and ends with a trust anchor.
+By default, if it is set to `false`, the trust anchor is the
+Root CA, and the certificate chain must be complete.
+However, if the setting is set to `true` or `cacert_from_cacertfile`,
+the last certificate in `cacertfile` will be used as the trust anchor
+certificate (intermediate CA). This creates a partial chain
+in the path validation.
+Alternatively, if it is configured with `two_cacerts_from_cacertfile`,
+one of the last two certificates in `cacertfile` will be used as the
+trust anchor certificate, forming a partial chain. This option is
+particularly useful for intermediate CA certificate rotation.
+However, please note that it incurs some additional overhead, so it
+should only be used for certificate rotation purposes."""
+
+common_ssl_opts_schema_partial_chain.label:
+"""Partial chain"""
+
+common_ssl_opts_verify_peer_ext_key_usage.desc:
+"""Verify extended key usage in peer's certificate
+For additional peer certificate validation, the value defined here must present in the
+'Extended Key Usage' of peer certificate defined in
+[rfc5280](https://www.rfc-editor.org/rfc/rfc5280#section-4.2.1.12).
+
+Allowed values are
+- `clientAuth`
+- `serverAuth`
+- `codeSigning`
+- `emailProtection`
+- `timeStamping`
+- `ocspSigning`
+- raw OID, for example: "OID:1.3.6.1.5.5.7.3.2" means `id-pk 2` which is equivalent to `clientAuth`
+
+Comma-separated string is also supported for validating more than one key usages.
+
+For example, `"serverAuth,OID:1.3.6.1.5.5.7.3.2"`"""
+
+common_ssl_opts_verify_peer_ext_key_usage.label:
+"""Verify KeyUsage in cert"""
+
 sysmon_vm_long_gc.desc:
 """When an Erlang process spends long time to perform garbage collection, a warning level <code>long_gc</code> log is emitted,
 and an MQTT message is published to the system topic <code>$SYS/sysmon/long_gc</code>."""
@@ -1649,7 +1695,7 @@ durable_sessions_enable.desc:
 """Use durable storage for client sessions persistence.
 If enabled, sessions configured to outlive client connections, along with their corresponding messages, will be durably stored and survive broker downtime.
 
-:::warning
+::: warning
 Messages sent to the durable sessions are saved on disc.
 This inevitably limits the overall throughput of the system.
 :::"""
@@ -1726,6 +1772,8 @@ client_attrs_init_expression {
     - `clientid`: MQTT Client ID.
     - `username`: MQTT Client's username.
     - `user_property.{NAME}`: User properties in the CONNECT packet.
+    - `zone`: Listener's config zone.
+    - `listener`: The ID (like `tcp:default`) of the listener from which the client is connected.
     For TLS clients, connected directly or via proxy-protocol (v2) enabled load balancer,
     some extra variables can be used:
     - `cn`: Client's TLS certificate common name.
@@ -1816,9 +1864,20 @@ socket_tcp_keepalive.label:
     - Check if intra-cluster network bandwidth is reaching a maximum.~"""
   }
 
-config_backup_interval.label:
-"""Config Backup Interval"""
-config_backup_interval.desc:
-"""Interval at which backups to `cluster.hocon` are made.  Even if multiple configuration updates are made withing this interval, only one backup will be made with the current configuration."""
+  config_backup_interval {
+    label: "Config Backup Interval"
+    desc: """~
+      Interval at which backups to `cluster.hocon` are made.  Even if multiple configuration updates are made withing this interval, only one backup will be made with the current configuration.~"""
+  }
 
+  listeners_root_doc {
+    label: "Configure MQTT listeners"
+    desc: """~
+      Listener configurations are defined per transport type.
+      Each transport type contains a map associating listener names with their configurations.
+      By default, each transport type includes a listener named `default`, which is not explicitly configured within configuration files.
+      To remove a `default` listener, explicitly set its configuration like: `listeners.ws.default = marked_for_deletion`.
+
+      Alternatively, to disable a listener without removing its configuration, set the hidden `enable` field to `false`. For example: `listeners.tcp.my_listener.enable = false`.~"""
+  }
 }

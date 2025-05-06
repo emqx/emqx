@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_cm_registry_keeper_SUITE).
@@ -23,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_cm.hrl").
 
+-define(RETAIN_SECONS, 2).
 %%--------------------------------------------------------------------
 %% CT callbacks
 %%--------------------------------------------------------------------
@@ -30,7 +19,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    AppConfig = "broker.session_history_retain = 2s",
+    AppConfig = "broker.session_history_retain = " ++ integer_to_list(?RETAIN_SECONS) ++ "s",
     Apps = emqx_cth_suite:start(
         [{emqx, #{config => AppConfig}}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -67,13 +56,28 @@ t_cleanup_after_retain(_) ->
     %% simulate a DOWN message triggering a clean up from emqx_cm
     ok = emqx_cm_registry:unregister_channel({ClientId, Pid}),
     ok = emqx_cm_registry:unregister_channel({ClientId2, Pid}),
-    %% expect the channels to be around still
-    ?assertEqual(2, emqx_cm_registry_keeper:count(T0)),
-    ?assertEqual(2, emqx_cm_registry_keeper:count(0)),
-    %% and finally cleaned up after retain period
-    ?retry(_Interval = 1000, _Attempts = 4, begin
+    %% expect the channels to be eventually cleaned up after retain period
+    ?retry(_Interval = 1000, _Attempts = 5, begin
         ?assertEqual(0, emqx_cm_registry_keeper:count(T0)),
         ?assertEqual(0, emqx_cm_registry_keeper:count(0))
+    end),
+    ok.
+
+t_cleanup_chunk_interval(_) ->
+    Pid = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    N = 201,
+    ClientIds = lists:map(fun erlang:integer_to_binary/1, lists:seq(1, N)),
+    Channels = lists:map(fun(ClientId) -> {ClientId, Pid} end, ClientIds),
+    lists:foreach(fun emqx_cm_registry:register_channel/1, Channels),
+    ?assertEqual(N, emqx_cm_registry:table_size()),
+    exit(Pid, kill),
+    lists:foreach(fun emqx_cm_registry:unregister_channel/1, Channels),
+    ?retry(_Interval = 1000, _Attempts = 5, begin
+        ?assertEqual(0, emqx_cm_registry:table_size())
     end),
     ok.
 

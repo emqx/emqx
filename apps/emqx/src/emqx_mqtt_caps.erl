@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc MQTTv5 Capabilities
@@ -105,17 +93,17 @@ do_check_pub(_Flags, _Caps) ->
     emqx_types:topic() | emqx_types:share(),
     emqx_types:subopts()
 ) ->
-    ok_or_error(emqx_types:reason_code()).
+    ok
+    | {ok, emqx_types:reason_code()}
+    | {error, emqx_types:reason_code()}.
 check_sub(ClientInfo = #{zone := Zone}, Topic, SubOpts) ->
     Caps = emqx_config:get_zone_conf(Zone, [mqtt]),
     Flags = #{
-        %% TODO: qos check
-        %% (max_qos_allowed, Map) ->
-        %% max_qos_allowed => maps:get(max_qos_allowed, Caps, 2),
         topic_levels => emqx_topic:levels(Topic),
         is_wildcard => emqx_topic:wildcard(Topic),
         is_shared => erlang:is_record(Topic, share),
-        is_exclusive => maps:get(is_exclusive, SubOpts, false)
+        is_exclusive => maps:get(is_exclusive, SubOpts, false),
+        qos => maps:get(qos, SubOpts, 0)
     },
     do_check_sub(Flags, Caps, ClientInfo, Topic).
 
@@ -138,10 +126,12 @@ do_check_sub(#{is_exclusive := true}, #{exclusive_subscription := true}, ClientI
         _ ->
             ok
     end;
-%% for max_qos_allowed
-%% see: RC_GRANTED_QOS_0, RC_GRANTED_QOS_1, RC_GRANTED_QOS_2
-%% do_check_sub(_, _) ->
-%%     {ok, RC};
+do_check_sub(#{qos := QoS}, #{max_qos_allowed := MaxQoS}, _, _) when
+    QoS > MaxQoS
+->
+    %% Accepted, but with a lower QoS
+    %% see: ?RC_GRANTED_QOS_0, ?RC_GRANTED_QOS_1, ?RC_GRANTED_QOS_2
+    {ok, MaxQoS};
 do_check_sub(_Flags, _Caps, _, _) ->
     ok.
 

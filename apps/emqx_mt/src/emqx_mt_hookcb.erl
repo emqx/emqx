@@ -19,15 +19,18 @@
 -define(TRACE(MSG, META), ?TRACE("MULTI_TENANCY", MSG, META)).
 -define(SESSION_HOOK, {?MODULE, on_session_created, []}).
 -define(AUTHN_HOOK, {?MODULE, on_authenticate, []}).
+-define(LIMITER_HOOK, {emqx_mt_limiter, adjust_limiter, []}).
 
 register_hooks() ->
     ok = emqx_hooks:add('session.created', ?SESSION_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('client.authenticate', ?AUTHN_HOOK, ?HP_HIGHEST),
+    ok = emqx_hooks:add('channel.limiter_adjustment', ?LIMITER_HOOK, ?HP_HIGHEST),
     ok.
 
 unregister_hooks() ->
     ok = emqx_hooks:del('session.created', ?SESSION_HOOK),
     ok = emqx_hooks:del('client.authenticate', ?AUTHN_HOOK),
+    ok = emqx_hooks:del('channel.limiter_adjustment', ?LIMITER_HOOK),
     ok.
 
 on_session_created(
@@ -66,21 +69,24 @@ on_authenticate(
                             DefaultResult
                     end;
                 {error, not_found} ->
-                    %% TDOO: deny access when namespaces are managed by admin
-                    %% so far ns is created from client attributes
-                    %% case emqx_mt_config:is_managed_ns() of
-                    %%   true -> {stop, {error, not_auhorized}};
-                    %%   false -> DefaultResult
-                    %%  end
-                    ?TRACE("first_clientid_in_namespace", #{}),
-                    DefaultResult
+                    AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
+                    case AllowOnlyManagedNSs of
+                        true ->
+                            ?TRACE("deny_due_to_no_tenant_namespace", #{}),
+                            {stop, {error, not_authorized}};
+                        false ->
+                            ?TRACE("first_clientid_in_namespace", #{}),
+                            DefaultResult
+                    end
             end
     end;
 on_authenticate(_, DefaultResult) ->
-    %% TDOO: deny access when namespaces is mandatory
-    %% case emqx_mt_config:is_ns_mandatory() of
-    %%   true -> {stop, {error, not_auhorized}};
-    %%   false -> DefaultResult
-    %% end
-    ?TRACE("new_tenant_namespace", #{}),
-    DefaultResult.
+    AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
+    case AllowOnlyManagedNSs of
+        true ->
+            ?TRACE("deny_due_to_no_tenant_namespace", #{}),
+            {stop, {error, not_authorized}};
+        false ->
+            ?TRACE("no_tenant_namespace", #{}),
+            DefaultResult
+    end.

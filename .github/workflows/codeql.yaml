@@ -11,10 +11,11 @@ permissions:
 jobs:
   init:
     if: github.repository == 'emqx/emqx'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     outputs:
       BUILDER_master: ${{ steps.env.outputs.BUILDER_master }}
       BUILDER_release-58: ${{ steps.env.outputs.BUILDER_release-58 }}
+      BUILDER_release-59: ${{ steps.env.outputs.BUILDER_release-59 }}
 
     strategy:
       fail-fast: false
@@ -22,6 +23,7 @@ jobs:
         branch:
           - master
           - release-58
+          - release-59
 
     steps:
       - name: Checkout repository
@@ -37,7 +39,7 @@ jobs:
 
   analyze:
     if: github.repository == 'emqx/emqx'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
       actions: read
@@ -52,6 +54,7 @@ jobs:
         branch:
           - master
           - release-58
+          - release-59
         language:
           - cpp
           - python

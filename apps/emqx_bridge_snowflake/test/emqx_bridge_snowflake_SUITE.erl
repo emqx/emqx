@@ -338,6 +338,22 @@ private_key() ->
             list_to_binary(FileURI)
     end.
 
+private_key_path() ->
+    case os:getenv("SNOWFLAKE_PRIVATE_KEY_PATH") of
+        false ->
+            <<"/path/to/private.key">>;
+        Filepath ->
+            emqx_utils_conv:bin(Filepath)
+    end.
+
+private_key_password() ->
+    case os:getenv("SNOWFLAKE_PRIVATE_KEY_PASSWORD") of
+        false ->
+            <<"supersecret">>;
+        Password ->
+            emqx_utils_conv:bin(Password)
+    end.
+
 aggreg_id(Config) ->
     ActionName = ?config(action_name, Config),
     {?ACTION_TYPE_BIN, ActionName}.
@@ -660,6 +676,33 @@ t_aggreg_upload(Config) ->
         end
     ),
     ok.
+
+%% Happy path smoke test for aggregated mode upload, using password protected private key
+%% for ODBC connection and for action.
+t_aggreg_upload_encrypted_private_key(Config0) ->
+    Config1 = emqx_bridge_v2_testlib:proplist_update(
+        Config0,
+        connector_config,
+        fun(ConnConfig0) ->
+            ConnConfig1 = maps:remove(<<"password">>, ConnConfig0),
+            maps:merge(ConnConfig1, #{
+                <<"private_key_path">> => private_key_path(),
+                <<"private_key_password">> => private_key_password()
+            })
+        end
+    ),
+    Config = emqx_bridge_v2_testlib:proplist_update(
+        Config1,
+        action_config,
+        fun(ActionConfig0) ->
+            emqx_utils_maps:deep_put(
+                [<<"parameters">>, <<"private_key_password">>],
+                ActionConfig0,
+                private_key_password()
+            )
+        end
+    ),
+    t_aggreg_upload(Config).
 
 %% Checks that we flush any pending data when `process_complete' is called.
 t_aggreg_upload_flush_on_complete(Config) ->
@@ -1202,6 +1245,10 @@ t_wrong_snowpipe_user(Config) ->
         []
     ),
     ok.
+
+t_rule_test_trace(Config) ->
+    Opts = #{},
+    emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
 
 %% Todo: test scenarios
 %% * User error in rule definition; e.g.:

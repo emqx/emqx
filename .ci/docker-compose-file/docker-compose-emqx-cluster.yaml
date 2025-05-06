@@ -42,6 +42,7 @@ services:
     container_name: node1.emqx.io
     environment:
       - "EMQX_HOST=node1.emqx.io"
+      - "EMQX_LICENSE__KEY=evaluation"
     networks:
       emqx_bridge:
         aliases:
@@ -52,6 +53,7 @@ services:
     container_name: node2.emqx.io
     environment:
       - "EMQX_HOST=node2.emqx.io"
+      - "EMQX_LICENSE__KEY=evaluation"
     networks:
       emqx_bridge:
         aliases:

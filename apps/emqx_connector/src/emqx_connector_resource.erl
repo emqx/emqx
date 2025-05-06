@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_connector_resource).
 
@@ -155,7 +143,7 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
     %% without restarting the connector.
     %%
     Conf = Conf0#{connector_type => bin(Type), connector_name => bin(Name)},
-    case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf) of
+    case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf0) of
         false ->
             ?SLOG(info, #{
                 msg => "update connector",
@@ -179,7 +167,7 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
             end;
         true ->
             %% we don't need to recreate the connector if this config change is only to
-            %% toggole the config 'connector.{type}.{name}.enable'
+            %% toggle the config 'connector.{type}.{name}.enable'
             _ =
                 case maps:get(enable, Conf, true) of
                     true ->
@@ -355,14 +343,8 @@ safe_atom(Atom) when is_atom(Atom) -> Atom.
 
 parse_opts(Conf, Opts0) ->
     Opts1 = emqx_resource:fetch_creation_opts(Conf),
-    Opts2 = maps:merge(Opts1, Opts0),
-    Opts = override_start_after_created(Conf, Opts2),
+    Opts = maps:merge(Opts1, Opts0),
     set_no_buffer_workers(Opts).
-
-override_start_after_created(Config, Opts) ->
-    Enabled = maps:get(enable, Config, true),
-    StartAfterCreated = Enabled andalso maps:get(start_after_created, Opts, Enabled),
-    Opts#{start_after_created => StartAfterCreated}.
 
 set_no_buffer_workers(Opts) ->
     Opts#{spawn_buffer_workers => false}.

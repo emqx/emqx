@@ -50,6 +50,12 @@ jobs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
+    env:
+      BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      AFTER_REF: ${{ github.sha }}
+      MIX_ENV: emqx-enterprise
+      PROFILE: emqx-enterprise
+
 
     steps:
       - name: Install prerequisites
@@ -65,35 +71,9 @@ jobs:
       - name: Work around https://github.com/actions/checkout/issues/766
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run gitlint
-        env:
-          BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          AFTER_REF: ${{ github.sha }}
         run: gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
-      - name: Check changelog file path
-        env:
-          BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          AFTER_REF: ${{ github.sha }}
-        run: |
-          added_files=$(git diff --name-only --diff-filter=A "$BEFORE_REF" "$AFTER_REF")
-          error=0
-          for file in $added_files; do
-            # Only process files in the changes/ directory.
-            if [[ "$file" == changes/* ]]; then
-              base=$(basename "$file")
-              # If the filename starts with fix-, feat-, or perf- then enforce the naming pattern.
-              if [[ "$base" =~ ^(fix|feat|perf)- ]]; then
-                # The valid pattern is:
-                # changes/{ce|ee}/{fix|feat|perf}-PRNUMBER.en.md
-                if [[ ! "$file" =~ ^changes/(ce|ee)/(fix|feat|perf)-[0-9]+\.en\.md$ ]]; then
-                  echo "Error: '$file' does not follow the required pattern 'changes/{ce|ee}/{fix|feat|perf}-PRNUMBER.en.md'" >&2
-                  error=1
-                fi
-              fi
-            fi
-          done
-          if [ $error -ne 0 ]; then
-            exit 1
-          fi
+      - name: Check changelog file name pattern
+        run: ./scripts/check-changes-filename-pattern.sh
       - name: Run shellcheck
         run: ./scripts/shellcheck.sh
       - name: Run shell tests
@@ -117,16 +97,10 @@ jobs:
         run: |
           ./scripts/apps-version-check.sh
       - name: Setup mix
-        env:
-          MIX_ENV: emqx-enterprise
-          PROFILE: emqx-enterprise
         run: |
           # mix local.hex --force --if-missing && mix local.rebar --force --if-missing
           mix local.hex 2.0.6 --force --if-missing && mix local.rebar --force --if-missing
       - name: Check formatting
-        env:
-          MIX_ENV: emqx-enterprise
-          PROFILE: emqx-enterprise
         run: |
           ./scripts/check-format.sh
       - name: Run elvis check
@@ -145,7 +119,7 @@ jobs:
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
 
   compile:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral-xl","linux","x64"]') }}
+    runs-on: ubuntu-22.04
     container: ${{ needs.init.outputs.BUILDER }}
     needs:
       - init
@@ -153,7 +127,6 @@ jobs:
     strategy:
       matrix:
         profile:
-          - emqx
           - emqx-enterprise
 
     steps:
@@ -174,12 +147,12 @@ jobs:
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
           make ${PROFILE}-rel
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
           retention-days: 7
-      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: "${{ matrix.profile }}-schema-dump"
           path: |
@@ -214,6 +187,7 @@ jobs:
       ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
       ct-host: ${{ needs.sanity-checks.outputs.ct-host }}
       ct-docker: ${{ needs.sanity-checks.outputs.ct-docker }}
+    secrets: inherit
 
   static_checks:
     needs:
@@ -229,16 +203,6 @@ jobs:
     needs:
       - sanity-checks
     uses: ./.github/workflows/build_slim_packages.yaml
-
-  build_docker_emqx:
-    needs:
-      - init
-      - sanity-checks
-    uses: ./.github/workflows/build_and_push_docker_images.yaml
-    with:
-      profile: emqx
-      publish: false
-    secrets: inherit
 
   build_docker_emqx_enterprise:
     needs:
@@ -265,6 +229,15 @@ jobs:
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
 
+  run_boot_tests:
+    needs:
+      - init
+      - sanity-checks
+      - compile
+    uses: ./.github/workflows/run_boot_tests.yaml
+    with:
+      builder: ${{ needs.init.outputs.BUILDER }}
+
   check_deps_integrity:
     needs:
       - init
@@ -276,19 +249,17 @@ jobs:
   run_jmeter_tests:
     needs:
       - sanity-checks
-      - build_docker_emqx
+      - build_docker_emqx_enterprise
     uses: ./.github/workflows/run_jmeter_tests.yaml
 
   run_docker_tests:
     needs:
       - sanity-checks
-      - build_docker_emqx
       - build_docker_emqx_enterprise
     uses: ./.github/workflows/run_docker_tests.yaml
 
   run_helm_tests:
     needs:
       - sanity-checks
-      - build_docker_emqx
       - build_docker_emqx_enterprise
     uses: ./.github/workflows/run_helm_tests.yaml

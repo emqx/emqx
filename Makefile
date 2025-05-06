@@ -10,17 +10,18 @@ include env.sh
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.10.5
-export EMQX_EE_DASHBOARD_VERSION ?= e1.8.5
+export EMQX_DASHBOARD_VERSION ?= v1.10.6
+export EMQX_EE_DASHBOARD_VERSION ?= e1.9.0
 
 export EMQX_RELUP ?= true
 export EMQX_REL_FORM ?= tgz
 export QUICER_TLS_VER ?= sys
 
 -include default-profile.mk
-PROFILE ?= emqx
-REL_PROFILES := emqx emqx-enterprise
-PKG_PROFILES := emqx-pkg emqx-enterprise-pkg
+PROFILE ?= emqx-enterprise
+export PROFILE
+REL_PROFILES := emqx-enterprise
+PKG_PROFILES := emqx-enterprise-pkg
 PROFILES := $(REL_PROFILES) $(PKG_PROFILES) default
 
 CT_NODE_NAME ?= 'test@127.0.0.1'
@@ -93,7 +94,7 @@ ct: $(REBAR) merge-config
 .PHONY: static_checks
 static_checks:
 	@$(REBAR) as check do xref, dialyzer
-	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then $(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE); fi
+	@$(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
 
@@ -202,6 +203,7 @@ clean-all:
 	@rm -rf deps
 	@rm -rf _build
 	@rm -f emqx_dialyzer_*_plt
+	@rm -rf apps/emqx_dashboard/priv
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
@@ -233,7 +235,13 @@ $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
 .PHONY: $(REL_PROFILES:%=%-relup-downloads)
 define download-relup-packages
 $1-relup-downloads:
-	@if [ "$${EMQX_RELUP}" = "true" ]; then $(SCRIPTS)/relup-build/download-base-packages.sh $1; fi
+	@if [ "$(shell uname -s)" = "Darwin" ]; then \
+		echo "relup is not supported on macOS"; \
+	elif [ "$(EMQX_RELUP)" = "true" ]; then \
+		$(SCRIPTS)/relup-build/download-base-packages.sh $1; \
+	else \
+		echo "Skipping relup base packages download for $1"; \
+	fi
 endef
 ALL_ZIPS = $(REL_PROFILES)
 $(foreach zt,$(ALL_ZIPS),$(eval $(call download-relup-packages,$(zt))))
@@ -272,6 +280,7 @@ quickrun:
 	./dev -p $(PROFILE)
 
 ## Take the currently set PROFILE
+.PHONY: docker
 docker:
 	@$(BUILD) $(PROFILE) docker
 

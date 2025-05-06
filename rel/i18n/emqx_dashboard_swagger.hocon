@@ -1,0 +1,31 @@
+emqx_dashboard_swagger {
+
+page.desc: "Page number of the results to fetch."
+page.label: "Page"
+
+limit.desc: "Results per page"
+limit.label: "Limit"
+
+cursor.desc: "Opaque value representing the current iteration state."
+cursor.label: "Cursor"
+
+cursor_response.desc: "Opaque value representing the current iteration state."
+cursor_response.label: "Cursor"
+
+count.desc: """~
+    Total number of records matching the query.
+    Note: this field is present only if the query can be optimized and does not require a full table scan.~"""
+count.label: "Count"
+
+hasnext.desc: "Flag indicating whether there are more results available on next pages."
+hasnext.label: "Has Next"
+
+position.desc: """~
+    An opaque token that can then be in subsequent requests to get the next chunk of results: `?position={prev_response.meta.position}`.
+    It is used instead of `page` parameter to traverse highly volatile data. Can be omitted or set to `none` to get the first chunk of data.~"""
+position.label: "Position"
+
+start.desc: "The position of the current first element of the data collection."
+start.label: "Start"
+
+}

@@ -147,6 +147,7 @@ setup(#{sample_ratio := Ratio} = InitOpts) ->
             client_connect_disconnect,
             client_subscribe_unsubscribe,
             client_messaging,
+            trace_rule_engine,
             msg_trace_level,
             cluster_identifier
         ],
@@ -218,6 +219,27 @@ should_sample(
         with_cluster_id(Opts),
         otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
     };
+should_sample(
+    Ctx,
+    TraceId,
+    _Links,
+    SpanName,
+    _SpanKind,
+    Attributes,
+    Opts
+) when
+    SpanName =:= ?BROKER_RULE_ENGINE_APPLY orelse
+        SpanName =:= ?BROKER_RULE_ENGINE_ACTION
+->
+    Desicion =
+        parent_sampled(otel_tracer:current_span_ctx(Ctx)) orelse
+            decide_by_match_rule(Attributes, Opts) orelse
+            decide_by_traceid_ratio(TraceId, SpanName, Opts),
+    {
+        decide(Desicion),
+        with_cluster_id(Opts),
+        otel_span:tracestate(otel_tracer:current_span_ctx(Ctx))
+    };
 %% None Root Span, decide by Parent or Publish Response Tracing Level
 should_sample(
     Ctx,
@@ -279,6 +301,11 @@ event_enabled(SpanName, #{client_subscribe_unsubscribe := Boolean}) when
 event_enabled(SpanName, #{client_messaging := Boolean}) when
     SpanName =:= ?CLIENT_PUBLISH_SPAN_NAME orelse
         SpanName =:= ?BROKER_PUBLISH_SPAN_NAME
+->
+    Boolean;
+event_enabled(SpanName, #{trace_rule_engine := Boolean}) when
+    SpanName =:= ?BROKER_RULE_ENGINE_APPLY orelse
+        SpanName =:= ?BROKER_RULE_ENGINE_ACTION
 ->
     Boolean.
 

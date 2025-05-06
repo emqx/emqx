@@ -1,37 +1,8 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_ldap).
-
--include_lib("emqx/include/emqx_placeholder.hrl").
--include_lib("emqx/include/logger.hrl").
--include_lib("eldap/include/eldap.hrl").
-
 -behaviour(emqx_authz_source).
 
 %% AuthZ Callbacks
@@ -41,6 +12,11 @@
     destroy/1,
     authorize/4
 ]).
+
+-include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("eldap/include/eldap.hrl").
+-include("emqx_auth_ldap.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -54,7 +30,8 @@
     ?VAR_CERT_CN_NAME,
     ?VAR_CERT_SUBJECT,
     ?VAR_ZONE,
-    ?VAR_NS_CLIENT_ATTRS
+    ?VAR_NS_CLIENT_ATTRS,
+    ?VAR_LISTENER
 ]).
 
 %%------------------------------------------------------------------------------
@@ -62,14 +39,14 @@
 %%------------------------------------------------------------------------------
 
 create(Source0) ->
-    ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
+    ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
     Source = filter_placeholders(Source0),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_ldap, Source),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_ldap, Source, ?AUTHZ_TYPE),
     Annotations = new_annotations(#{id => ResourceId}, Source),
     Source#{annotations => Annotations}.
 
 update(Source) ->
-    case emqx_authz_utils:update_resource(emqx_ldap, Source) of
+    case emqx_authz_utils:update_resource(emqx_ldap, Source, ?AUTHZ_TYPE) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

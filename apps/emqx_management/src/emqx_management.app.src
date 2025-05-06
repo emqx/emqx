@@ -2,7 +2,7 @@
 {application, emqx_management, [
     {description, "EMQX Management API and CLI"},
     % strict semver, bump manually!
-    {vsn, "5.3.6"},
+    {vsn, "5.3.8"},
     {modules, []},
     {registered, [emqx_management_sup]},
     {applications, [
@@ -10,7 +10,6 @@
     ]},
     {mod, {emqx_mgmt_app, []}},
     {env, []},
-    {licenses, ["Apache-2.0"]},
     {maintainers, ["EMQX Team <contact@emqx.io>"]},
     {links, [
         {"Homepage", "https://emqx.io/"},

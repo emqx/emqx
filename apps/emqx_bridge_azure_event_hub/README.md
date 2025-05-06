@@ -24,7 +24,3 @@ Please see [Ingest Data into Azure Event Hub](https://www.emqx.io/docs/en/v5.0/d
 # Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-# License
-
-EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).

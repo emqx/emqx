@@ -133,15 +133,6 @@ if [ -z "${PROFILE+x}" ]; then
         apps/emqx_auth_http)
             export PROFILE='emqx-enterprise'
             ;;
-        apps/emqx_fdb*)
-            export PROFILE='emqx-platform'
-            ;;
-        apps/emqx_ds_fdb_backend)
-            export PROFILE='emqx-platform'
-            ;;
-        apps/emqx_event_history)
-            export PROFILE='emqx-platform'
-            ;;
         apps/*)
             if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
                 export PROFILE='emqx-enterprise'
@@ -295,13 +286,13 @@ for dep in ${CT_DEPS}; do
     esac
 done
 
-if [ "$SQLSERVER_ODBC_REQUEST" = 'yes' ]; then
+if [ "$SQLSERVER_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ]; then
     INSTALL_SQLSERVER_ODBC="./scripts/install-msodbc-driver.sh"
 else
     INSTALL_SQLSERVER_ODBC="echo 'msodbc driver not requested'"
 fi
 
-if [ "$SNOWFLAKE_ODBC_REQUEST" = 'yes' ]; then
+if [ "$SNOWFLAKE_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ]; then
     INSTALL_SNOWFLAKE_ODBC="./scripts/install-snowflake-driver.sh"
 else
     INSTALL_SNOWFLAKE_ODBC="echo 'snowflake driver not requested'"

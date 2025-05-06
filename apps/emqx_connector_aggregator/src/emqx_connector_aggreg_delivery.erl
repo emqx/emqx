@@ -194,7 +194,7 @@ handle_msg({system, From, Msg}, Delivery, Parent, Debug) ->
 handle_msg({'EXIT', Parent, Reason}, Delivery, Parent, Debug) ->
     system_terminate(Reason, Parent, Debug, Delivery);
 handle_msg(_Msg, Delivery, Parent, Debug) ->
-    ?MODULE:loop(Parent, Debug, Delivery).
+    ?MODULE:loop(Delivery, Parent, Debug).
 
 -spec system_continue(pid(), [sys:debug_option()], state()) -> no_return().
 system_continue(Parent, Debug, Delivery) ->

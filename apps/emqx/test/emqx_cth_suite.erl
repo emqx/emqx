@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc Common Test Helper / Running test suites
@@ -80,8 +68,6 @@
 
 %% "Unofficial" `emqx_config_handler' and `emqx_conf' APIs
 -export([schema_module/0, upgrade_raw_conf/1]).
-
--export([skip_if_oss/0]).
 
 -export_type([appspec/0]).
 -export_type([appspec_opts/0]).
@@ -434,7 +420,7 @@ work_dir(TCName, CTConfig) ->
 %% @doc Delete contents of the workdir.
 clean_work_dir(WorkDir) ->
     ct:pal("Cleaning workdir ~p", [WorkDir]),
-    case re:run(WorkDir, "_build/test/logs/") of
+    case re:run(WorkDir, "_build/.*test/logs/") of
         {match, _} ->
             file:del_dir_r(WorkDir);
         nomatch ->
@@ -468,8 +454,9 @@ stop_apps(Apps) ->
 
 %%
 
-verify_clean_suite_state(#{boot_type := restart}) ->
-    %% when testing node restart, we do not need to verify clean state
+verify_clean_suite_state(#{work_dir_dirty := true}) ->
+    %% Used by `emqx_cth_cluster:restart/1` that implies the work dir is dirty.
+    %% Use with care.
     ok;
 verify_clean_suite_state(#{work_dir := WorkDir}) ->
     {ok, []} = file:list_dir(WorkDir),
@@ -510,20 +497,4 @@ schema_module() ->
 
 %% "Unofficial" `emqx_conf' API
 upgrade_raw_conf(Conf) ->
-    case emqx_release:edition() of
-        ee ->
-            emqx_enterprise_schema:upgrade_raw_conf(Conf);
-        ce ->
-            emqx_conf_schema:upgrade_raw_conf(Conf)
-    end.
-
-skip_if_oss() ->
-    try emqx_release:edition() of
-        ee ->
-            false;
-        _ ->
-            {skip, not_supported_in_oss}
-    catch
-        error:undef ->
-            {skip, standalone_not_supported}
-    end.
+    emqx_enterprise_schema:upgrade_raw_conf(Conf).

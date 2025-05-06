@@ -851,3 +851,7 @@ t_reopen_log(Config) ->
     ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(Config)),
 
     ok.
+
+t_rule_test_trace(Config) ->
+    Opts = #{},
+    emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).

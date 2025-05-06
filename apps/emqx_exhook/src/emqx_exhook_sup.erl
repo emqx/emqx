@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_exhook_sup).
@@ -27,7 +15,8 @@
 
 -export([
     start_grpc_client_channel/3,
-    stop_grpc_client_channel/1
+    stop_grpc_client_channel/1,
+    grpc_client_channel_workers/1
 ]).
 
 -define(DEFAULT_TIMEOUT, 5000).
@@ -68,7 +57,7 @@ init([]) ->
 start_grpc_client_channel(Name, SvrAddr, Options) ->
     grpc_client_sup:create_channel_pool(Name, SvrAddr, Options).
 
--spec stop_grpc_client_channel(binary()) -> ok.
+-spec stop_grpc_client_channel(binary()) -> ok | {error, term()}.
 stop_grpc_client_channel(Name) ->
     %% Avoid crash due to hot-upgrade had unloaded
     %% grpc application
@@ -78,6 +67,10 @@ stop_grpc_client_channel(Name) ->
         _:_:_ ->
             ok
     end.
+
+-spec grpc_client_channel_workers(binary()) -> list().
+grpc_client_channel_workers(Name) ->
+    grpc_client_sup:workers(Name).
 
 %% Calculate the maximum timeout, which will help to shutdown the
 %% emqx_exhook_mgr process correctly.

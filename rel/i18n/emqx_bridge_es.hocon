@@ -42,7 +42,7 @@ config_target.label:
 """Target"""
 
 config_require_alias.desc:
-"""If true, the request’s actions must target an index alias. Defaults to false"""
+"""If true, the request's actions must target an index alias. Defaults to false"""
 config_require_alias.label:
 """Require Alias"""
 

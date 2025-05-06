@@ -107,16 +107,18 @@ is_match([CompiledExpr | CompiledExprs], Credential) ->
         {ok, <<"false">>} ->
             false;
         {ok, Other} ->
-            ?SLOG(debug, "clientinfo_auth_expression_yield_non_boolean", #{
+            ?SLOG(debug, #{
+                msg => "clientinfo_auth_expression_yield_non_boolean",
                 expr => emqx_variform:decompile(CompiledExpr),
                 yield => Other
             }),
             false;
         {error, Reason} ->
-            {error, #{
-                cause => "clientinfo_auth_expression_evaluation_error",
-                error => Reason
-            }}
+            ?SLOG(warning, #{
+                msg => "clientinfo_auth_expression_evaluation_error",
+                reason => Reason
+            }),
+            false
     end.
 
 destroy(_) ->

@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_mqtt_protocol_v5_SUITE).
@@ -239,6 +227,7 @@ t_connect_clean_start(Config) ->
 t_connect_clean_start_unresp_old_client(Config) ->
     ConnFun = ?config(conn_fun, Config),
     ClientID = atom_to_binary(?FUNCTION_NAME),
+    process_flag(trap_exit, true),
     %% GIVEN: a client with clean_start=true
     {ok, Client1} = emqtt:start_link([
         {clientid, ClientID},
@@ -261,6 +250,9 @@ t_connect_clean_start_unresp_old_client(Config) ->
     close_quic_conn_silently(ConnFun, Client1),
     %% THEN: the new client should connect successfully in time < connect_timeout
     {ok, _} = emqtt:ConnFun(Client2),
+    ok = emqtt:disconnect(Client2),
+    ?assertReceive({'EXIT', Client1, _}),
+    ?assertReceive({'EXIT', Client2, _}),
     ok.
 
 close_quic_conn_silently(quic_connect, Client) ->
@@ -444,11 +436,12 @@ t_connect_idle_timeout(Config) ->
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], IdleTimeout),
     SockOpts = [binary, {active, true}, {nodelay, true}],
     {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
+    ClientSockname = esockd:format(element(2, inet:sockname(Sock))),
     ok = gen_tcp:send(Sock, binary:part(iolist_to_binary(ConnectPacket), 0, 4)),
     ?assertReceive({tcp_closed, Sock}, IdleTimeout * 2),
     ?assertMatch(
-        {ok, #{reason := {shutdown, idle_timeout}}},
-        ?block_until(#{?snk_kind := terminate}, IdleTimeout)
+        {ok, #{reason := {shutdown, idle_timeout}, ?snk_meta := #{peername := ClientSockname}}},
+        ?block_until(#{?snk_kind := terminate, reason := {shutdown, idle_timeout}}, IdleTimeout)
     ).
 
 t_connect_emit_stats_timeout(init, Config) ->
@@ -615,13 +608,16 @@ t_connack_max_qos_allowed(init, Config) ->
 t_connack_max_qos_allowed('end', _Config) ->
     emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 2),
     ok.
+
 t_connack_max_qos_allowed(Config) ->
     ConnFun = ?config(conn_fun, Config),
     process_flag(trap_exit, true),
     Topic = nth(1, ?TOPICS),
 
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% max_qos_allowed = 0
-    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 0),
+    MaxQoSAllowed0 = 0,
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], MaxQoSAllowed0),
 
     {ok, Client1} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, Connack1} = emqtt:ConnFun(Client1),
@@ -629,11 +625,10 @@ t_connack_max_qos_allowed(Config) ->
     ?assertEqual(0, maps:get('Maximum-QoS', Connack1)),
 
     %% [MQTT-3.2.2-10]
-    {ok, _, [0]} = emqtt:subscribe(Client1, Topic, 0),
-    %% [MQTT-3.2.2-10]
-    {ok, _, [1]} = emqtt:subscribe(Client1, Topic, 1),
-    %% [MQTT-3.2.2-10]
-    {ok, _, [2]} = emqtt:subscribe(Client1, Topic, 2),
+    %% [MQTT-3.8.4-7]
+    {ok, _, [MaxQoSAllowed0]} = emqtt:subscribe(Client1, Topic, ?QOS_0),
+    {ok, _, [MaxQoSAllowed0]} = emqtt:subscribe(Client1, Topic, ?QOS_1),
+    {ok, _, [MaxQoSAllowed0]} = emqtt:subscribe(Client1, Topic, ?QOS_2),
 
     %% [MQTT-3.2.2-11]
     ?assertMatch(
@@ -656,8 +651,10 @@ t_connack_max_qos_allowed(Config) ->
     ?assertMatch({qos_not_supported, _}, Connack2),
     waiting_client_process_exit(Client2),
 
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% max_qos_allowed = 1
-    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 1),
+    MaxQoSAllowed1 = 1,
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], MaxQoSAllowed1),
 
     {ok, Client3} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, Connack3} = emqtt:ConnFun(Client3),
@@ -665,11 +662,10 @@ t_connack_max_qos_allowed(Config) ->
     ?assertEqual(1, maps:get('Maximum-QoS', Connack3)),
 
     %% [MQTT-3.2.2-10]
-    {ok, _, [0]} = emqtt:subscribe(Client3, Topic, 0),
-    %% [MQTT-3.2.2-10]
-    {ok, _, [1]} = emqtt:subscribe(Client3, Topic, 1),
-    %% [MQTT-3.2.2-10]
-    {ok, _, [2]} = emqtt:subscribe(Client3, Topic, 2),
+    %% [MQTT-3.8.4-7]
+    {ok, _, [?QOS_0]} = emqtt:subscribe(Client3, Topic, ?QOS_0),
+    {ok, _, [MaxQoSAllowed1]} = emqtt:subscribe(Client3, Topic, ?QOS_1),
+    {ok, _, [MaxQoSAllowed1]} = emqtt:subscribe(Client3, Topic, ?QOS_2),
 
     %% [MQTT-3.2.2-11]
     ?assertMatch(
@@ -692,13 +688,20 @@ t_connack_max_qos_allowed(Config) ->
     ?assertMatch({qos_not_supported, _}, Connack4),
     waiting_client_process_exit(Client4),
 
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% max_qos_allowed = 2
-    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], 2),
+    MaxQoSAllowed2 = 2,
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], MaxQoSAllowed2),
 
     {ok, Client5} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, Connack5} = emqtt:ConnFun(Client5),
     %% [MQTT-3.2.2-9]
     ?assertEqual(undefined, maps:get('Maximum-QoS', Connack5, undefined)),
+
+    {ok, _, [?QOS_0]} = emqtt:subscribe(Client5, Topic, ?QOS_0),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(Client5, Topic, ?QOS_1),
+    {ok, _, [?QOS_2]} = emqtt:subscribe(Client5, Topic, ?QOS_2),
+
     ok = emqtt:disconnect(Client5),
     waiting_client_process_exit(Client5),
 

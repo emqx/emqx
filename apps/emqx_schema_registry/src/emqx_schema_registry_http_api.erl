@@ -24,7 +24,13 @@
     '/schema_registry_external/registry/:name'/2
 ]).
 
+%% BPAPI RPC Targets
+-export([
+    lookup_resource_from_local_node_v1/2
+]).
+
 -define(TAGS, [<<"Schema Registry">>]).
+-define(BPAPI_NAME, emqx_schema_registry_http_api).
 
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' and `minirest_trails' API
@@ -238,8 +244,8 @@ schema("/schema_registry_external/registry/:name") ->
             {error, not_found} ->
                 case emqx_schema_registry:add_schema(Name, Params) of
                     ok ->
-                        {ok, Res} = emqx_schema_registry:get_schema(Name),
-                        {201, Res#{name => Name}};
+                        {ok, Res} = emqx_schema_registry:get_schema_raw_with_defaults(Name),
+                        {201, Res#{<<"name">> => Name}};
                     {error, Error} ->
                         ?BAD_REQUEST(Error)
                 end;
@@ -254,11 +260,13 @@ schema("/schema_registry_external/registry/:name") ->
     end.
 
 '/schema_registry/:name'(get, #{bindings := #{name := Name}}) ->
-    case emqx_schema_registry:get_schema(Name) of
+    case emqx_schema_registry:get_schema_raw_with_defaults(Name) of
         {error, not_found} ->
             ?NOT_FOUND(<<"Schema not found">>);
+        {ok, Schema} when ?IS_TYPE_WITH_RESOURCE(Schema) ->
+            add_resource_info(Name, Schema);
         {ok, Schema} ->
-            ?OK(Schema#{name => Name})
+            ?OK(Schema#{<<"name">> => Name})
     end;
 '/schema_registry/:name'(put, #{bindings := #{name := Name}, body := Params}) ->
     case emqx_schema_registry:get_schema(Name) of
@@ -267,8 +275,8 @@ schema("/schema_registry_external/registry/:name") ->
         {ok, _} ->
             case emqx_schema_registry:add_schema(Name, Params) of
                 ok ->
-                    {ok, Res} = emqx_schema_registry:get_schema(Name),
-                    ?OK(Res#{name => Name});
+                    {ok, Res} = emqx_schema_registry:get_schema_raw_with_defaults(Name),
+                    ?OK(Res#{<<"name">> => Name});
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
             end
@@ -447,6 +455,24 @@ param_path_external_registry_name() ->
         )}.
 
 %%-------------------------------------------------------------------------------------------------
+%% BPAPI RPC Targets
+%%-------------------------------------------------------------------------------------------------
+
+-spec lookup_resource_from_local_node_v1(serde_type(), schema_name()) ->
+    {ok, map()} | {error, not_found}.
+lookup_resource_from_local_node_v1(_Type, Name) ->
+    maybe
+        {ok, #serde{eval_context = #{resource_id := ResourceId}}} ?=
+            emqx_schema_registry:get_serde(Name),
+        {ok, ?SCHEMA_REGISTRY_RESOURCE_GROUP, #{status := Status}} ?=
+            emqx_resource:get_instance(ResourceId),
+        Formatted = #{status => Status},
+        {ok, Formatted}
+    else
+        _ -> {error, not_found}
+    end.
+
+%%-------------------------------------------------------------------------------------------------
 %% Internal fns
 %%-------------------------------------------------------------------------------------------------
 
@@ -491,4 +517,76 @@ with_external_registry(Name, FoundFn, NotFoundFn) ->
             FoundFn(Registry);
         {error, not_found} ->
             NotFoundFn()
+    end.
+
+add_resource_info(Name, SchemaConfig) ->
+    case lookup_resource_from_all_nodes(Name, SchemaConfig) of
+        {ok, NodeResources} ->
+            NodeStatus = nodes_status(NodeResources),
+            Status = aggregate_status(NodeStatus),
+            ?OK(SchemaConfig#{
+                <<"name">> => Name,
+                <<"status">> => Status,
+                <<"node_status">> => NodeStatus
+            });
+        {error, NodeErrors} ->
+            ?INTERNAL_ERROR(NodeErrors)
+    end.
+
+nodes_status(NodeResources) ->
+    lists:map(
+        fun({Node, Res}) -> {Node, maps:get(status, Res, undefined)} end,
+        maps:to_list(NodeResources)
+    ).
+
+aggregate_status(NodeStatus) ->
+    AllStatus = lists:map(fun({_Node, Status}) -> Status end, NodeStatus),
+    case lists:usort(AllStatus) of
+        [Status] ->
+            Status;
+        _ ->
+            inconsistent
+    end.
+
+lookup_resource_from_all_nodes(Name, SchemaConfig) ->
+    #{<<"type">> := Type} = SchemaConfig,
+    Nodes = nodes_supporting_bpapi_version(1),
+    Results = emqx_schema_registry_http_api_proto_v1:lookup_resource_from_all_nodes(
+        Nodes, Type, Name
+    ),
+    NodeResults = lists:zip(Nodes, Results),
+    sequence_node_results(NodeResults).
+
+nodes_supporting_bpapi_version(Vsn) ->
+    [
+        N
+     || N <- emqx:running_nodes(),
+        case emqx_bpapi:supported_version(N, ?BPAPI_NAME) of
+            undefined -> false;
+            NVsn when is_number(NVsn) -> NVsn >= Vsn
+        end
+    ].
+
+sequence_node_results(NodeResults) ->
+    {Ok, Error} =
+        lists:foldl(
+            fun
+                ({Node, {ok, {ok, Val}}}, {OkAcc, ErrAcc}) ->
+                    {OkAcc#{Node => Val}, ErrAcc};
+                ({Node, {ok, Error}}, {OkAcc, ErrAcc}) ->
+                    {OkAcc, ErrAcc#{Node => Error}};
+                ({Node, Error}, {OkAcc, ErrAcc}) ->
+                    {OkAcc, ErrAcc#{Node => Error}}
+            end,
+            {#{}, #{}},
+            NodeResults
+        ),
+    EmptyResults = map_size(Ok) == 0,
+    case map_size(Error) == 0 of
+        true when not EmptyResults ->
+            {ok, Ok};
+        true ->
+            {error, empty_results};
+        false ->
+            {error, Error}
     end.

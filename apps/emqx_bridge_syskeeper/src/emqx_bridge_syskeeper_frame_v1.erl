@@ -1,7 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% @doc EMQ X Bridge Sysk Frame version 1
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_syskeeper_frame_v1).

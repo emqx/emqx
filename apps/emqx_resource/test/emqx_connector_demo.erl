@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_connector_demo).
@@ -43,17 +31,54 @@
 
 -export([counter_loop/0, set_callback_mode/1]).
 
+%% Since we want to emulate an external configuration source (`emqx_config'), especially
+%% when calling `on_get_channels', we must update this "external" source independently
+%% from calling `on_{add,remove}_channel' to have a more accurate model of `emqx_config'.
+-export([
+    add_channel_emulate_config/4,
+    remove_channel_emulate_config/3,
+    clear_emulated_config/1
+]).
+
 %% callbacks for emqx_resource config schema
 -export([roots/0]).
 
 -define(CM_KEY, {?MODULE, callback_mode}).
 -define(PT_CHAN_KEY(CONN_RES_ID), {?MODULE, chans, CONN_RES_ID}).
 
+-define(IS_STATUS(ST),
+    ST =:= ?status_connecting; ST =:= ?status_connected; ST =:= ?status_disconnected
+).
+
 roots() ->
     [
         {name, fun name/1},
         {register, fun register/1}
     ].
+
+add_channel_emulate_config(ConnResId, ChanId, ChanConfig, Mode) ->
+    %% Update "external config"
+    do_add_channel(ConnResId, ChanId, ChanConfig),
+    case Mode of
+        sync ->
+            emqx_resource_manager:add_channel(ConnResId, ChanId, ChanConfig);
+        async ->
+            emqx_resource_manager:add_channel_async(ConnResId, ChanId, ChanConfig)
+    end.
+
+remove_channel_emulate_config(ConnResId, ChanId, Mode) ->
+    %% Update "external config"
+    do_remove_channel(ConnResId, ChanId),
+    case Mode of
+        sync ->
+            emqx_resource_manager:remove_channel(ConnResId, ChanId);
+        async ->
+            emqx_resource_manager:remove_channel_async(ConnResId, ChanId)
+    end.
+
+clear_emulated_config(ConnResId) ->
+    _ = persistent_term:erase(?PT_CHAN_KEY(ConnResId)),
+    ok.
 
 name(type) -> atom();
 name(required) -> true;
@@ -77,25 +102,49 @@ callback_mode() ->
 set_callback_mode(Mode) ->
     persistent_term:put(?CM_KEY, Mode).
 
-on_start(_InstId, #{create_error := true}) ->
+on_start(_ConnResId, #{create_error := true}) ->
     ?tp(connector_demo_start_error, #{}),
     error("some error");
-on_start(InstId, #{create_error := {delay, Delay, Agent}} = State0) ->
+on_start(ConnResId, #{create_error := {delay, Delay, Agent}} = Opts) ->
     ?tp(connector_demo_start_delay, #{}),
-    State = maps:remove(create_error, State0),
     case emqx_utils_agent:get_and_update(Agent, fun(St) -> {St, called} end) of
         not_called ->
-            emqx_resource:allocate_resource(InstId, i_should_be_deallocated, yep),
+            emqx_resource:allocate_resource(ConnResId, ?MODULE, i_should_be_deallocated, yep),
             timer:sleep(Delay),
-            on_start(InstId, State);
+            do_on_start(ConnResId, Opts);
         called ->
-            on_start(InstId, State)
+            do_on_start(ConnResId, Opts)
     end;
-on_start(InstId, #{name := Name} = Opts) ->
+on_start(ConnResId, #{start_resource_agent := Agent} = Opts) ->
+    case get_agent_action(Agent, start_resource) of
+        {ask, Pid} ->
+            Alias = alias([reply]),
+            ct:pal("~s on_start asking ~p how to proceed", [ConnResId, Pid]),
+            Pid ! {waiting_start_resource_result, Alias, ConnResId},
+            receive
+                {Alias, continue} ->
+                    ct:pal("~s on_start will continue", [ConnResId]),
+                    do_on_start(ConnResId, Opts);
+                {Alias, {error, _} = Error} ->
+                    ct:pal("~ps on_start will return ~p", [ConnResId, Error]),
+                    Error
+            end;
+        {notify, Pid, {error, _} = Error} ->
+            Pid ! {attempted_to_start_resource, ConnResId, Error},
+            Error;
+        continue ->
+            do_on_start(ConnResId, Opts);
+        {error, _} = Error ->
+            Error
+    end;
+on_start(ConnResId, Opts) ->
+    do_on_start(ConnResId, Opts).
+
+do_on_start(ConnResId, #{name := Name} = Opts) ->
     Register = maps:get(register, Opts, false),
     StopError = maps:get(stop_error, Opts, false),
     {ok, Opts#{
-        id => InstId,
+        id => ConnResId,
         stop_error => StopError,
         channels => #{},
         pid => spawn_counter_process(Name, Register)
@@ -111,8 +160,7 @@ on_stop(InstId, #{stop_error := {ask, HowToStop}} = State) ->
         continue ->
             on_stop(InstId, maps:remove(stop_error, State))
     end;
-on_stop(InstId, #{pid := Pid}) ->
-    persistent_term:erase(?PT_CHAN_KEY(InstId)),
+on_stop(_InstId, #{pid := Pid}) ->
     stop_counter_process(Pid).
 
 on_query(_InstId, get_state, State) ->
@@ -364,13 +412,20 @@ on_get_status(ConnResId, #{health_check_agent := Agent}) ->
     case get_agent_action(Agent, resource_health_check) of
         {ask, Pid} ->
             Alias = alias([reply]),
+            ct:pal("~s on_get_status asking ~p how to proceed", [ConnResId, Pid]),
             Pid ! {waiting_health_check_result, Alias, resource, ConnResId},
             receive
                 {Alias, Result} ->
+                    ct:pal("~s on_get_status will return ~p", [ConnResId, Result]),
                     Result
             end;
-        Result ->
-            Result
+        {notify, Pid, Status} when ?IS_STATUS(Status) ->
+            Pid ! {returning_resource_health_check_result, ConnResId, Status},
+            Status;
+        {Status, Msg} when ?IS_STATUS(Status) ->
+            {Status, Msg};
+        Status when ?IS_STATUS(Status) ->
+            Status
     end;
 on_get_status(_InstId, #{pid := Pid}) ->
     timer:sleep(300),
@@ -379,9 +434,19 @@ on_get_status(_InstId, #{pid := Pid}) ->
         false -> ?status_disconnected
     end.
 
+on_add_channel(ConnResId, #{add_channel_agent := Agent} = ConnSt0, ChanId, ChanCfg) ->
+    case get_agent_action(Agent, add_channel) of
+        {notify, Pid, continue} ->
+            Pid ! {attempted_to_add_channel, ConnResId, ChanId, ChanCfg},
+            do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg);
+        continue ->
+            do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg)
+    end;
 on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg) ->
+    do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg).
+
+do_on_add_channel(_ConnResId, ConnSt0, ChanId, ChanCfg) ->
     ConnSt = emqx_utils_maps:deep_put([channels, ChanId], ConnSt0, ChanCfg),
-    do_add_channel(ConnResId, ChanId, ChanCfg),
     ?tp(added_channel, #{}),
     {ok, ConnSt}.
 
@@ -399,6 +464,9 @@ on_remove_channel(ConnResId, #{remove_channel_agent := Agent} = ConnSt0, ChanId)
         {notify, Pid, {error, _} = Result} ->
             Pid ! {attempted_to_remove_channel, ConnResId, ChanId},
             Result;
+        {notify, Pid, continue} ->
+            Pid ! {attempted_to_remove_channel, ConnResId, ChanId},
+            do_on_remove_channel(ConnResId, ConnSt0, ChanId);
         continue ->
             do_on_remove_channel(ConnResId, ConnSt0, ChanId);
         {error, _} = Result ->
@@ -407,9 +475,8 @@ on_remove_channel(ConnResId, #{remove_channel_agent := Agent} = ConnSt0, ChanId)
 on_remove_channel(ConnResId, ConnSt0, ChanId) ->
     do_on_remove_channel(ConnResId, ConnSt0, ChanId).
 
-do_on_remove_channel(ConnResId, ConnSt0, ChanId) ->
+do_on_remove_channel(_ConnResId, ConnSt0, ChanId) ->
     ConnSt = emqx_utils_maps:deep_remove([channels, ChanId], ConnSt0),
-    do_remove_channel(ConnResId, ChanId),
     {ok, ConnSt}.
 
 on_get_channels(ConnResId) ->
@@ -613,8 +680,9 @@ make_random_reply(N) ->
     end.
 
 do_add_channel(ConnResId, ChanId, ChanCfg) ->
-    Chans = persistent_term:get(?PT_CHAN_KEY(ConnResId), []),
-    persistent_term:put(?PT_CHAN_KEY(ConnResId), [{ChanId, ChanCfg} | Chans]).
+    Chans0 = persistent_term:get(?PT_CHAN_KEY(ConnResId), []),
+    Chans = [{ChanId, ChanCfg} | lists:keydelete(ChanId, 1, Chans0)],
+    persistent_term:put(?PT_CHAN_KEY(ConnResId), Chans).
 
 do_remove_channel(ConnResId, ChanId) ->
     Chans = persistent_term:get(?PT_CHAN_KEY(ConnResId), []),

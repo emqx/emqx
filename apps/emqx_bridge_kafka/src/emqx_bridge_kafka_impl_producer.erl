@@ -95,7 +95,7 @@ on_start(InstId, Config) ->
         ssl => C(ssl)
     },
     ClientId = InstId,
-    emqx_resource:allocate_resource(InstId, ?kafka_client_id, ClientId),
+    emqx_resource:allocate_resource(InstId, ?MODULE, ?kafka_client_id, ClientId),
     ok = ensure_client(ClientId, Hosts, ClientConfig),
     %% Note: we must return `{error, _}' here if the client cannot connect so that the
     %% connector will immediately enter the `?status_disconnected' state, and then avoid
@@ -186,10 +186,10 @@ create_producers_for_bridge_v2(
                     )
             end,
             ok = emqx_resource:allocate_resource(
-                ConnResId, {?kafka_producers, ActionResId}, Producers
+                ConnResId, ?MODULE, {?kafka_producers, ActionResId}, Producers
             ),
             ok = emqx_resource:allocate_resource(
-                ConnResId, {?kafka_telemetry_id, ActionResId}, ActionResId
+                ConnResId, ?MODULE, {?kafka_telemetry_id, ActionResId}, ActionResId
             ),
             _ = maybe_install_wolff_telemetry_handlers(ActionResId),
             {ok, #{
@@ -582,7 +582,9 @@ on_kafka_ack(_Partition, message_too_large, ReplyFnAndArgs) ->
     %% wolff should bump the message 'dropped' counter with handle_telemetry_event/4.
     %% however 'dropped' is not mapped to EMQX metrics name
     %% so we reply error here
-    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, message_too_large}).
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, message_too_large});
+on_kafka_ack(_Partition, partition_lost, ReplyFnAndArgs) ->
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, partition_lost}).
 
 %% Note: since wolff client has its own replayq that is not managed by
 %% `emqx_resource_buffer_worker', we must avoid returning `disconnected' here.  Otherwise,
@@ -735,8 +737,11 @@ check_topic_status(ClientId, WolffClientPid, KafkaTopic) ->
     case wolff_client:check_topic_exists_with_client_pid(WolffClientPid, KafkaTopic) of
         ok ->
             ok;
-        {error, unknown_topic_or_partition} when KafkaTopic =:= ?PROBE_TOPIC_NAME ->
-            %% The probing topic is only used to check if metada request can be sent
+        {error, R} when
+            KafkaTopic =:= ?PROBE_TOPIC_NAME andalso
+                (R =:= unknown_topic_or_partition orelse R =:= topic_authorization_failed)
+        ->
+            %% The probing topic is only used to check if metadata request can be sent
             ok;
         {error, unknown_topic_or_partition} ->
             Msg = iolist_to_binary([<<"Unknown topic or partition: ">>, KafkaTopic]),

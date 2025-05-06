@@ -7,7 +7,7 @@ services:
 
   selenium:
     shm_size: '2gb'
-    image: ghcr.io/emqx/selenium-chrome:1.0.0
+    image: ghcr.io/emqx/selenium-chrome:1.0.2
     platform: linux/amd64
     volumes:
       - ./:/app

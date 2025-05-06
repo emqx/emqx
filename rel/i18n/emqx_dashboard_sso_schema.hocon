@@ -8,4 +8,11 @@ backend.desc:
 
 backend.label:
 """Backend Type"""
+
+sso_struct.desc:
+"""Dashboard Single Sign-On"""
+
+sso_struct.label:
+"""Dashboard Single Sign-On"""
+
 }

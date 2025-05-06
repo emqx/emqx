@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_v2).
 
@@ -25,6 +13,7 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("hocon/include/hocon.hrl").
 
 %% Note: this is strange right now, because it lives in `emqx_bridge_v2', but it shall be
 %% refactored into a new module/application with appropriate name.
@@ -68,6 +57,7 @@
     disable_enable/3,
     disable_enable/4,
     health_check/2,
+    health_check/3,
     send_message/4,
     query/4,
     start/2,
@@ -191,15 +181,18 @@ load() ->
 
 load_bridges(RootName) ->
     Bridges = emqx:get_config([RootName], #{}),
-    _ = emqx_utils:pmap(
-        fun({Type, Bridge}) ->
-            emqx_utils:pmap(
-                fun({Name, BridgeConf}) ->
-                    install_bridge_v2(RootName, Type, Name, BridgeConf)
-                end,
-                maps:to_list(Bridge),
-                infinity
-            )
+    emqx_utils:pforeach(
+        fun
+            ({?COMPUTED, _}) ->
+                ok;
+            ({Type, Bridge}) ->
+                emqx_utils:pmap(
+                    fun({Name, BridgeConf}) ->
+                        install_bridge_v2(RootName, Type, Name, BridgeConf)
+                    end,
+                    maps:to_list(Bridge),
+                    infinity
+                )
         end,
         maps:to_list(Bridges),
         infinity
@@ -216,15 +209,18 @@ unload() ->
 
 unload_bridges(ConfRootKey) ->
     Bridges = emqx:get_config([ConfRootKey], #{}),
-    _ = emqx_utils:pmap(
-        fun({Type, Bridge}) ->
-            emqx_utils:pmap(
-                fun({Name, BridgeConf}) ->
-                    uninstall_bridge_v2(ConfRootKey, Type, Name, BridgeConf)
-                end,
-                maps:to_list(Bridge),
-                infinity
-            )
+    emqx_utils:pforeach(
+        fun
+            ({?COMPUTED, _}) ->
+                ok;
+            ({Type, Bridge}) ->
+                emqx_utils:pmap(
+                    fun({Name, BridgeConf}) ->
+                        uninstall_bridge_v2(ConfRootKey, Type, Name, BridgeConf)
+                    end,
+                    maps:to_list(Bridge),
+                    infinity
+                )
         end,
         maps:to_list(Bridges),
         infinity
@@ -588,10 +584,11 @@ combine_connector_and_bridge_v2_config(
         ConnectorConfig ->
             ConnectorCreationOpts = emqx_resource:fetch_creation_opts(ConnectorConfig),
             BridgeV2CreationOpts = emqx_resource:fetch_creation_opts(BridgeV2Config),
-            CombinedCreationOpts = emqx_utils_maps:deep_merge(
+            CombinedCreationOpts0 = emqx_utils_maps:deep_merge(
                 ConnectorCreationOpts,
                 BridgeV2CreationOpts
             ),
+            CombinedCreationOpts = remove_connector_only_resource_opts(CombinedCreationOpts0),
             BridgeV2Config#{resource_opts => CombinedCreationOpts}
     catch
         _:_ ->
@@ -603,6 +600,9 @@ combine_connector_and_bridge_v2_config(
                 connector_name => ConnectorName
             }}
     end.
+
+remove_connector_only_resource_opts(ResourceOpts) ->
+    maps:without([start_after_created, start_timeout], ResourceOpts).
 
 %%====================================================================
 %% Operations
@@ -844,7 +844,8 @@ create_dry_run_helper(ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawCo
                 emqx_bridge_v2_schema,
                 #{make_serializable => false}
             ),
-            BridgeV2Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2Conf0),
+            BridgeV2Conf1 = maps:remove(?COMPUTED, BridgeV2Conf0),
+            BridgeV2Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2Conf1),
             AugmentedConf = augment_channel_config(
                 ConfRootKey,
                 BridgeV2Type,
@@ -897,13 +898,16 @@ load_message_publish_hook() ->
 
 load_message_publish_hook(Bridges) ->
     lists:foreach(
-        fun({Type, Bridge}) ->
-            lists:foreach(
-                fun({_Name, BridgeConf}) ->
-                    do_load_message_publish_hook(Type, BridgeConf)
-                end,
-                maps:to_list(Bridge)
-            )
+        fun
+            ({?COMPUTED, _}) ->
+                ok;
+            ({Type, Bridge}) ->
+                lists:foreach(
+                    fun({_Name, BridgeConf}) ->
+                        do_load_message_publish_hook(Type, BridgeConf)
+                    end,
+                    maps:to_list(Bridge)
+                )
         end,
         maps:to_list(Bridges)
     ).
@@ -958,14 +962,17 @@ send_to_matched_egress_bridges(Topic, Msg) ->
 get_matched_egress_bridges(Topic) ->
     Bridges = emqx:get_config([?ROOT_KEY_ACTIONS], #{}),
     maps:fold(
-        fun(BType, Conf, Acc0) ->
-            maps:fold(
-                fun(BName, BConf, Acc1) ->
-                    get_matched_bridge_id(BType, BConf, Topic, BName, Acc1)
-                end,
-                Acc0,
-                Conf
-            )
+        fun
+            (?COMPUTED, _, Acc) ->
+                Acc;
+            (BType, Conf, Acc0) ->
+                maps:fold(
+                    fun(BName, BConf, Acc1) ->
+                        get_matched_bridge_id(BType, BConf, Topic, BName, Acc1)
+                    end,
+                    Acc0,
+                    Conf
+                )
         end,
         [],
         Bridges
@@ -1181,10 +1188,10 @@ pre_config_update([ConfRootKey, Type, Name], Conf = #{}, _OldConf) when
     convert_from_connector(ConfRootKey, Type, Name, Conf);
 %% Batch updates actions when importing a configuration or executing a CLI command.
 %% Update succeeded even if the connector is not found, alarm in post_config_update
-pre_config_update([ConfRootKey], Conf = #{}, _OldConfs) when
+pre_config_update([ConfRootKey], Conf = #{}, OldConfs) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    {ok, convert_from_connectors(ConfRootKey, Conf)}.
+    {ok, convert_from_connectors(ConfRootKey, Conf, OldConfs)}.
 
 %% This top level handler will be triggered when the actions path is updated
 %% with calls to emqx_conf:update([actions], BridgesConf, #{}).
@@ -2042,13 +2049,15 @@ referenced_connectors_exist(BridgeType, ConnectorNameBin, BridgeName) ->
             ok
     end.
 
-convert_from_connectors(ConfRootKey, Conf) ->
+convert_from_connectors(ConfRootKey, Conf, OldRootConfig) ->
     maps:map(
         fun(ActionType, Actions) ->
             maps:map(
                 fun(ActionName, Action0) ->
                     Action1 = ensure_created_at(Action0),
-                    Action = ensure_last_modified_at(Action1),
+                    Action = ensure_last_modified_at(
+                        Action1, ActionType, ActionName, OldRootConfig
+                    ),
                     case convert_from_connector(ConfRootKey, ActionType, ActionName, Action) of
                         {ok, NewAction} -> NewAction;
                         {error, _} -> Action
@@ -2078,6 +2087,16 @@ convert_from_connector(ConfRootKey, Type, Name, Action = #{<<"connector">> := Co
 
 ensure_last_modified_at(RawConfig) ->
     RawConfig#{<<"last_modified_at">> => now_ms()}.
+
+ensure_last_modified_at(ChannelRawConfig, Type, Name, OldRootRawConfig) ->
+    case emqx_utils_maps:deep_get([Type, Name], OldRootRawConfig, undefined) of
+        #{<<"last_modified_at">> := _} = ChannelRawConfig ->
+            %% No changes
+            ChannelRawConfig;
+        _ ->
+            %% New config contains changes, or config lacks modification date
+            ensure_last_modified_at(ChannelRawConfig)
+    end.
 
 ensure_created_at(RawConfig) when is_map_key(<<"created_at">>, RawConfig) ->
     RawConfig;

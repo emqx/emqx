@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_SUITE).
 
@@ -56,19 +44,14 @@ init_per_group(persistence_disabled, Config) ->
         | Config
     ];
 init_per_group(persistence_enabled, Config) ->
-    case emqx_ds_test_helpers:skip_if_norepl() of
-        false ->
-            DurableSessionsOpts = #{
-                <<"enable">> => true,
-                <<"heartbeat_interval">> => <<"100ms">>,
-                <<"renew_streams_interval">> => <<"100ms">>
-            },
-            Opts = #{durable_sessions_opts => DurableSessionsOpts},
-            ExtraApps = [emqx_management],
-            emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, Opts);
-        Yes ->
-            Yes
-    end;
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"heartbeat_interval">> => <<"100ms">>,
+        <<"renew_streams_interval">> => <<"100ms">>
+    },
+    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    ExtraApps = [emqx_management],
+    emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, Opts);
 init_per_group(cm_registry_enabled, Config) ->
     [{emqx_config, "broker.enable_session_registry = true"} | Config];
 init_per_group(cm_registry_disabled, Config) ->

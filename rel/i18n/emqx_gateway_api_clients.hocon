@@ -37,7 +37,7 @@ node.desc:
 """Name of the node to which the client is connected"""
 
 awaiting_rel_cnt.desc:
-"""Number of awaiting acknowledge packet"""
+"""Number of awaiting acknowledge packets."""
 
 rap.desc:
 """Retain as Published option, enum: 0, 1"""
@@ -85,7 +85,7 @@ param_gte_connected_at.desc:
 """Match the client socket connected datetime greater than a certain value"""
 
 awaiting_rel_max.desc:
-"""Maximum allowed number of awaiting PUBREC packet"""
+"""Maximum allowed number of awaiting PUBREC packets."""
 
 param_like_username.desc:
 """Use sub-string to match client's username"""
@@ -196,7 +196,7 @@ param_proto_ver.desc:
 """Match the client's protocol version"""
 
 reductions.desc:
-"""Erlang reduction"""
+"""Erlang reductions"""
 
 param_gte_lifetime.desc:
 """Match the lwm2m client registered lifetime greater than a certain value"""

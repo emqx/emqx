@@ -176,7 +176,6 @@ count(ClusterName) ->
 
 -spec actor_init(cluster(), actor(), incarnation(), env()) -> {ok, state()}.
 actor_init(Cluster, Actor, Incarnation, Env = #{timestamp := Now}) ->
-    %% TODO: Rolling upgrade safety?
     case transaction(fun ?MODULE:mnesia_actor_init/4, [Cluster, Actor, Incarnation, Now]) of
         {ok, State} ->
             {ok, State};

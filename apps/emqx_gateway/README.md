@@ -77,7 +77,3 @@ your device protocol and integrate it with EMQX.
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-## License
-
-See [LICENSE](../../APL.txt)

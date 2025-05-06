@@ -21,6 +21,12 @@ jt808_up_topic.desc:
 jt808_dn_topic.desc:
 """The topic of the JT/T 808 protocol downstream message."""
 
+ignore_unsupported_frames.desc:
+"""Whether to ignore unsupported frames. <br/>
+- <code>true</code>, unsupported frames will be logged and ignored. <br/>
+- <code>false</code>, the gateway will disconnect the client when receiving an unsupported frame.<br/>
+The default value is true."""
+
 retry_interval.desc:
 """Re-send time interval"""
 

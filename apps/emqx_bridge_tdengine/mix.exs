@@ -23,7 +23,7 @@ defmodule EMQXBridgeTdengine.MixProject do
 
   def deps() do
     [
-      {:tdengine, github: "emqx/tdengine-client-erl", tag: "0.1.7"},
+      {:tdengine, github: "emqx/tdengine-client-erl", tag: "0.1.10"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

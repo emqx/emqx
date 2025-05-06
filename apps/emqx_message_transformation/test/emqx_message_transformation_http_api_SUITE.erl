@@ -413,6 +413,32 @@ protobuf_create_serde(SerdeName) ->
     on_exit(fun() -> ok = emqx_schema_registry:delete_schema(SerdeName) end),
     ok.
 
+external_http_create_serde(SerdeName) ->
+    {ok, Port} = emqx_schema_registry_http_api_SUITE:start_external_http_serde_server(),
+    URL = <<"http://127.0.0.1:", (integer_to_binary(Port))/binary, "/sr?qp=123">>,
+    Schema = #{
+        type => external_http,
+        parameters => #{
+            url => URL,
+            external_params => <<"xor">>,
+            headers => #{<<"extra">> => <<"headers">>},
+            request_timeout => 1_000,
+            max_retries => 1,
+            connect_timeout => 2_000,
+            pool_type => random,
+            pool_size => 2,
+            enable_pipelining => 100,
+            max_inactive => 1_000,
+            ssl => #{enable => false}
+        }
+    },
+    ok = emqx_schema_registry:add_schema(SerdeName, Schema),
+    on_exit(fun() -> ok = emqx_schema_registry:delete_schema(SerdeName) end),
+    ok.
+
+external_http_xor(Bin) ->
+    emqx_schema_registry_http_api_SUITE:xor_bin($z, Bin).
+
 %% Checks that the internal order in the registry/index matches expectation.
 assert_index_order(ExpectedOrder, Topic, Comment) ->
     ?assertEqual(
@@ -1480,6 +1506,29 @@ t_protobuf_bad_chain(_Config) ->
             ok
         end
     ),
+    ok.
+
+%% Smoke test for encoding/decoding using an external HTTP serde.
+t_external_http_serde(_Config) ->
+    SerdeName = <<"myserde">>,
+    external_http_create_serde(SerdeName),
+
+    Name1 = <<"foo">>,
+    Operation1 = operation(<<"payload">>, <<"concat([payload, ', world!'])">>),
+    PayloadSerde = #{<<"type">> => <<"external_http">>, <<"schema">> => SerdeName},
+    Transformation1 = transformation(Name1, [Operation1], #{
+        <<"payload_decoder">> => PayloadSerde,
+        <<"payload_encoder">> => PayloadSerde
+    }),
+    {201, _} = insert(Transformation1),
+
+    C = connect(<<"c1">>),
+    {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+
+    ok = publish(C, <<"t/1">>, {raw, external_http_xor(<<"hello">>)}),
+    {publish, #{payload := PayloadOut}} = ?assertReceive({publish, _}),
+    ?assertEqual(external_http_xor(<<"hello, world!">>), PayloadOut),
+
     ok.
 
 %% Tests that restoring a backup config works.

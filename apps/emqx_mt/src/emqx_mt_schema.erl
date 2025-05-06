@@ -7,6 +7,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include("emqx_mt.hrl").
 
 %% `hocon_schema' API
 -export([
@@ -20,7 +21,7 @@ namespace() -> emqx_mt.
 
 roots() ->
     [
-        {multi_tenancy, mk(ref("config"), #{importance => ?IMPORTANCE_MEDIUM})}
+        {?CONF_ROOT_KEY, mk(ref("config"), #{importance => ?IMPORTANCE_MEDIUM})}
     ].
 
 fields("config") ->
@@ -34,6 +35,15 @@ fields("config") ->
                     desc => ?DESC(default_max_sessions),
                     importance => ?IMPORTANCE_HIGH,
                     default => infinity
+                }
+            )},
+        {allow_only_managed_namespaces,
+            mk(
+                boolean(),
+                #{
+                    desc => ?DESC("allow_only_managed_namespaces"),
+                    importance => ?IMPORTANCE_HIGH,
+                    default => false
                 }
             )}
     ].

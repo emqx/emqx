@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_rule_events).
@@ -64,8 +52,7 @@
 -ifdef(TEST).
 -export([
     reason/1,
-    hook_fun/1,
-    printable_maps/1
+    hook_fun/1
 ]).
 -endif.
 
@@ -163,11 +150,11 @@ on_message_publish(Message = #message{topic = Topic}, _Conf) ->
             case emqx_rule_engine:get_rules_for_topic(Topic) of
                 [] ->
                     ok;
-                Rules ->
+                RichedRules ->
                     %% ENVs are the fields that can't be refereced by the SQL, but can be used
                     %% from actions. e.g. The 'headers' field in the internal record `#message{}`.
                     {Columns, Envs} = eventmsg_publish(Message),
-                    emqx_rule_runtime:apply_rules(Rules, Columns, Envs)
+                    emqx_rule_runtime:apply_rules(RichedRules, Columns, Envs)
             end
     end,
     {ok, Message}.
@@ -354,7 +341,9 @@ eventmsg_publish(
             topic => Topic,
             qos => QoS,
             flags => Flags,
-            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            pub_props => emqx_utils_maps:printable_props(
+                emqx_message:get_header(properties, Message, #{})
+            ),
             publish_received_at => Timestamp,
             client_attrs => emqx_message:get_header(client_attrs, Message, #{})
         },
@@ -434,7 +423,7 @@ eventmsg_connected(
             receive_maximum => RcvMax,
             expiry_interval => ExpiryInterval div 1000,
             is_bridge => IsBridge,
-            conn_props => printable_maps(ConnProps),
+            conn_props => emqx_utils_maps:printable_props(ConnProps),
             connected_at => ConnectedAt,
             client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
@@ -451,7 +440,8 @@ eventmsg_disconnected(
         sockname := SockName,
         proto_name := ProtoName,
         proto_ver := ProtoVer,
-        disconnected_at := DisconnectedAt
+        disconnected_at := DisconnectedAt,
+        connected_at := ConnectedAt
     },
     Reason
 ) ->
@@ -465,8 +455,11 @@ eventmsg_disconnected(
             sockname => ntoa(SockName),
             proto_name => ProtoName,
             proto_ver => ProtoVer,
-            disconn_props => printable_maps(maps:get(disconn_props, ConnInfo, #{})),
+            disconn_props => emqx_utils_maps:printable_props(
+                maps:get(disconn_props, ConnInfo, #{})
+            ),
             disconnected_at => DisconnectedAt,
+            connected_at => ConnectedAt,
             client_attrs => maps:get(client_attrs, ClientInfo, #{})
         },
         #{}
@@ -500,7 +493,7 @@ eventmsg_connack(
             proto_ver => ProtoVer,
             keepalive => Keepalive,
             expiry_interval => ExpiryInterval,
-            conn_props => printable_maps(ConnProps)
+            conn_props => emqx_utils_maps:printable_props(ConnProps)
         },
         #{}
     ).
@@ -581,7 +574,7 @@ eventmsg_sub_or_unsub(
             username => Username,
             peerhost => ntoa(PeerHost),
             peername => ntoa(PeerName),
-            PropKey => printable_maps(maps:get(PropKey, SubOpts, #{})),
+            PropKey => emqx_utils_maps:printable_props(maps:get(PropKey, SubOpts, #{})),
             topic => Topic,
             qos => QoS,
             client_attrs => maps:get(client_attrs, ClientInfo, #{})
@@ -615,7 +608,9 @@ eventmsg_dropped(
             topic => Topic,
             qos => QoS,
             flags => Flags,
-            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            pub_props => emqx_utils_maps:printable_props(
+                emqx_message:get_header(properties, Message, #{})
+            ),
             publish_received_at => Timestamp
         },
         #{headers => Headers}
@@ -647,7 +642,9 @@ eventmsg_transformation_failed(
             topic => Topic,
             qos => QoS,
             flags => Flags,
-            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            pub_props => emqx_utils_maps:printable_props(
+                emqx_message:get_header(properties, Message, #{})
+            ),
             publish_received_at => Timestamp
         },
         #{headers => Headers}
@@ -680,7 +677,9 @@ eventmsg_validation_failed(
             topic => Topic,
             qos => QoS,
             flags => Flags,
-            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            pub_props => emqx_utils_maps:printable_props(
+                emqx_message:get_header(properties, Message, #{})
+            ),
             publish_received_at => Timestamp
         },
         #{headers => Headers}
@@ -718,7 +717,9 @@ eventmsg_delivered(
             topic => Topic,
             qos => QoS,
             flags => Flags,
-            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            pub_props => emqx_utils_maps:printable_props(
+                emqx_message:get_header(properties, Message, #{})
+            ),
             publish_received_at => Timestamp
         },
         #{headers => Headers}
@@ -756,8 +757,12 @@ eventmsg_acked(
             topic => Topic,
             qos => QoS,
             flags => Flags,
-            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
-            puback_props => printable_maps(emqx_message:get_header(puback_props, Message, #{})),
+            pub_props => emqx_utils_maps:printable_props(
+                emqx_message:get_header(properties, Message, #{})
+            ),
+            puback_props => emqx_utils_maps:printable_props(
+                emqx_message:get_header(puback_props, Message, #{})
+            ),
             publish_received_at => Timestamp
         },
         #{headers => Headers}
@@ -797,7 +802,9 @@ eventmsg_delivery_dropped(
             topic => Topic,
             qos => QoS,
             flags => Flags,
-            pub_props => printable_maps(emqx_message:get_header(properties, Message, #{})),
+            pub_props => emqx_utils_maps:printable_props(
+                emqx_message:get_header(properties, Message, #{})
+            ),
             publish_received_at => Timestamp
         },
         #{headers => Headers}
@@ -824,10 +831,10 @@ apply_event(EventName, GenEventMsg, _Conf) ->
     case emqx_rule_engine:get_rules_for_topic(EventTopic) of
         [] ->
             ok;
-        Rules ->
+        RichedRules ->
             %% delay the generating of eventmsg after we have found some rules to apply
             {Columns, Envs} = GenEventMsg(),
-            emqx_rule_runtime:apply_rules(Rules, Columns, Envs)
+            emqx_rule_runtime:apply_rules(RichedRules, Columns, Envs)
     end.
 
 %%--------------------------------------------------------------------
@@ -1253,6 +1260,7 @@ columns_with_exam('client.disconnected') ->
         {<<"proto_name">>, <<"MQTT">>},
         {<<"proto_ver">>, 5},
         columns_example_props(disconn_props),
+        {<<"connected_at">>, erlang:system_time(millisecond)},
         {<<"disconnected_at">>, erlang:system_time(millisecond)},
         {<<"timestamp">>, erlang:system_time(millisecond)},
         {<<"node">>, node()},
@@ -1483,38 +1491,6 @@ event_topic('message.transformation_failed') -> <<"$events/message_transformatio
 event_topic('schema.validation_failed') -> <<"$events/schema_validation_failed">>;
 event_topic('delivery.dropped') -> <<"$events/delivery_dropped">>;
 event_topic('message.publish') -> <<"$events/message_publish">>.
-
-printable_maps(undefined) ->
-    #{};
-printable_maps(Headers) ->
-    maps:fold(
-        fun
-            (K, V0, AccIn) when K =:= peerhost; K =:= peername; K =:= sockname ->
-                AccIn#{K => ntoa(V0)};
-            ('User-Property', V0, AccIn) when is_list(V0) ->
-                AccIn#{
-                    %% The 'User-Property' field is for the convenience of querying properties
-                    %% using the '.' syntax, e.g. "SELECT 'User-Property'.foo as foo"
-                    %% However, this does not allow duplicate property keys. To allow
-                    %% duplicate keys, we have to use the 'User-Property-Pairs' field instead.
-                    'User-Property' => maps:from_list(V0),
-                    'User-Property-Pairs' => [
-                        #{
-                            key => Key,
-                            value => Value
-                        }
-                     || {Key, Value} <- V0
-                    ]
-                };
-            (_K, V, AccIn) when is_tuple(V) ->
-                %% internal headers
-                AccIn;
-            (K, V, AccIn) ->
-                AccIn#{K => V}
-        end,
-        #{'User-Property' => #{}},
-        Headers
-    ).
 
 ignore_sys_message(#message{flags = Flags}) ->
     ConfigRootKey = emqx_rule_engine_schema:namespace(),
