@@ -88,7 +88,7 @@
     non_empty_string/1,
     non_empty_array/1,
     validations/0,
-    naive_env_interpolate/1,
+    naive_env_interpolation/1,
     ensure_unicode_path/2,
     validate_server_ssl_opts/1,
     validate_tcp_keepalive/1,
@@ -3619,8 +3619,8 @@ default_listener(SSLListener) ->
             }
     end.
 
-naive_env_interpolate(MaybeEnv) ->
-    emqx_utils_schema:naive_env_interpolate(MaybeEnv).
+naive_env_interpolation(MaybeEnv) ->
+    emqx_utils_schema:naive_env_interpolation(MaybeEnv).
 
 %% The tombstone atom.
 tombstone() ->
