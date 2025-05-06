@@ -61,6 +61,13 @@ end_per_testcase(_, _Config) ->
     snabbkaffe:stop(),
     ok.
 
+update_gbt32960_with_idle_timeout(IdleTimeout) ->
+    Conf = emqx:get_raw_config([gateway, gbt32960]),
+    emqx_gateway_conf:update_gateway(
+        gbt32960,
+        Conf#{<<"idle_timeout">> => IdleTimeout}
+    ).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helper functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 encode(Cmd, Vin, Data) ->
@@ -208,6 +215,27 @@ t_case01_auth_expire(_Config) ->
         },
         5000
     ).
+
+t_case01_update_not_restart_listener(_Config) ->
+    {ok, Socket} = login_first(),
+
+    update_gbt32960_with_idle_timeout(<<"20s">>),
+
+    % REPORT data
+    % - if auth success, not send ack, but will forward to emqx
+    %
+    Time = <<16, 1, 1, 2, 59, 0>>,
+    VehicleState =
+        <<1:?BYTE, 1:?BYTE, 1:?BYTE, 2000:?WORD, 999999:?DWORD, 5000:?WORD, 15000:?WORD, 50:?BYTE,
+            1:?BYTE, 5:?BYTE, 6000:?WORD, 90:?BYTE, 0:?BYTE>>,
+    Data = <<Time/binary, 16#01, VehicleState/binary>>,
+    Packet = encode(?CMD_INFO_REPORT, <<"1G1BL52P7TR115520">>, Data),
+    ok = gen_tcp:send(Socket, Packet),
+    timer:sleep(200),
+    %% assert: message can be published after gateway update
+    {<<"gbt32960/1G1BL52P7TR115520/upstream/info">>, _PubMsg} = get_published_msg(),
+
+    ok.
 
 t_case02_reportinfo_0x01(_Config) ->
     % send VEHICLE LOGIN

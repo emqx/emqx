@@ -133,4 +133,445 @@ By specifying the `since` parameter, it can return the number of sessions that h
 get_sessions_count.label:
 """Count number of sessions"""
 
+not_implemented.desc:
+"""API not implemented"""
+not_implemented.label:
+"""Not Implemented"""
+
+invalid_parameter.desc:
+"""Invalid parameters"""
+invalid_parameter.label:
+"""Invalid parameter"""
+
+clientid_not_found.desc:
+"""Client ID not found"""
+clientid_not_found.label:
+"""Client ID not found"""
+
+bad_request.desc:
+"""Cannot handle this request."""
+bad_request.label:
+"""Bad Request"""
+
+since.desc:
+"""Include sessions expired after this time (UNIX Epoch in seconds precision)"""
+since.label:
+"""Since"""
+
+sessions_count.desc:
+"""Number of sessions"""
+sessions_count.label:
+"""Sessions Count"""
+
+bad_request.desc:
+"""Cannot handle this request."""
+bad_request.label:
+"""Bad Request"""
+
+node_name.desc:
+"""Node name"""
+node_name.label:
+"""Node name"""
+
+username.desc:
+"""User name, multiple values can be specified by repeating the parameter: username=u1&username=u2"""
+username.label:
+"""Username"""
+
+conn_state.desc:
+"""The current connection status of the client, the possible values are connected,idle,disconnected"""
+conn_state.label:
+"""Connection State"""
+
+clean_start.desc:
+"""Indicate whether the client is using a brand new session"""
+clean_start.label:
+"""Clean Start"""
+
+proto_ver.desc:
+"""Protocol version"""
+proto_ver.label:
+"""Protocol Version"""
+
+like_clientid.desc:
+"""Fuzzy search `clientid` as substring"""
+like_clientid.label:
+"""Like Client ID"""
+
+like_username.desc:
+"""Fuzzy search `username` as substring"""
+like_username.label:
+"""Like Username"""
+
+gte_created_at.desc:
+"""Search client session creation time by greater than or equal method, rfc3339 or timestamp(millisecond)"""
+gte_created_at.label:
+"""GTE Created At"""
+
+lte_created_at.desc:
+"""Search client session creation time by less than or equal method, rfc3339 or timestamp(millisecond)"""
+lte_created_at.label:
+"""LTE Created At"""
+
+gte_connected_at.desc:
+"""Search client connection creation time by greater than or equal method, rfc3339 or timestamp(epoch millisecond)"""
+gte_connected_at.label:
+"""GTE Connected At"""
+
+lte_connected_at.desc:
+"""Search client connection creation time by less than or equal method, rfc3339 or timestamp(epoch millisecond)"""
+lte_connected_at.label:
+"""LTE Connected At"""
+
+clientid.desc:
+"""Client ID"""
+clientid.label:
+"""Client ID"""
+
+awaiting_rel_cnt.desc:
+"""Number of awaiting PUBREC packets."""
+awaiting_rel_cnt.label:
+"""Awaiting PUBREC Count"""
+
+awaiting_rel_max.desc:
+"""Maximum allowed number of awaiting PUBREC packets."""
+awaiting_rel_max.label:
+"""Awaiting PUBREC Max"""
+
+clean_start.desc:
+"""Indicate whether the client is using a brand new session"""
+clean_start.label:
+"""Clean Start"""
+
+connected.desc:
+"""Whether the client is connected"""
+connected.label:
+"""Connected"""
+
+connected_at.desc:
+"""Session creation time, rfc3339 or timestamp(millisecond)"""
+connected_at.label:
+"""Connected At"""
+
+created_at.desc:
+"""Client session creation time, rfc3339 or timestamp(millisecond)"""
+created_at.label:
+"""Created At"""
+
+disconnected_at.desc:
+"""Client disconnection time, rfc3339 or timestamp(millisecond)
+It's Only valid and returned when connected is false"""
+disconnected_at.label:
+"""Disconnected At"""
+
+expiry_interval.desc:
+"""Session expiration interval, with the unit of second"""
+expiry_interval.label:
+"""Expiry Interval"""
+
+heap_size.desc:
+"""Erlang process heap size with the unit of byte"""
+heap_size.label:
+"""Heap Size"""
+
+inflight_cnt.desc:
+"""Current length of inflight"""
+inflight_cnt.label:
+"""Inflight Count"""
+
+inflight_max.desc:
+"""Maximum length of inflight"""
+inflight_max.label:
+"""Inflight Max"""
+
+ip_address.desc:
+"""Client's IP address"""
+ip_address.label:
+"""IP Address"""
+
+is_bridge.desc:
+"""Indicates whether the client is connected with the bridge flag set."""
+is_bridge.label:
+"""Is Bridge"""
+
+is_expired.desc:
+"""Indicates whether the client is expired"""
+is_expired.label:
+"""Is Expired"""
+
+keepalive.desc:
+"""Client's keepalive time, with the unit of second"""
+keepalive.label:
+"""Keepalive"""
+
+mailbox_len.desc:
+"""Erlang process mailbox size"""
+mailbox_len.label:
+"""Mailbox Length"""
+
+mqueue_dropped.desc:
+"""Number of messages dropped by the message queue due to exceeding the length"""
+mqueue_dropped.label:
+"""Mqueue Dropped"""
+
+mqueue_len.desc:
+"""Current length of send-buffer queue"""
+mqueue_len.label:
+"""Mqueue Length"""
+
+mqueue_max.desc:
+"""Maximum length of send-buffer queue"""
+mqueue_max.label:
+"""Mqueue Max"""
+
+mqueue_dropped.desc:
+"""Number of messages dropped by the message queue due to exceeding the length"""
+mqueue_dropped.label:
+"""Mqueue Dropped"""
+
+client_port.desc:
+"""Client's port"""
+client_port.label:
+"""Client Port"""
+
+proto_name.desc:
+"""Client protocol name"""
+proto_name.label:
+"""Protocol Name"""
+
+recv_cnt.desc:
+"""Number of TCP packets received"""
+recv_cnt.label:
+"""Received TCP Packets"""
+
+recv_msg.desc:
+"""Number of PUBLISH packets received"""
+recv_msg.label:
+"""Received Messages"""
+
+dropped.desc:
+"""Number of dropped PUBLISH packets"""
+dropped.label:
+"""Dropped Messages"""
+
+await_pubrel_timeout.desc:
+"""Number of PUBLISH packets dropped due to awaiting PUBREL timeout"""
+await_pubrel_timeout.label:
+"""Awaiting PUBREL Timeout"""
+
+recv_msg_qos0.desc:
+"""Number of PUBLISH QoS0 packets received"""
+recv_msg_qos0.label:
+"""Received QoS0 Messages"""
+
+recv_msg_qos1.desc:
+"""Number of PUBLISH QoS1 packets received"""
+recv_msg_qos1.label:
+"""Received QoS1 Messages"""
+
+recv_msg_qos2.desc:
+"""Number of PUBLISH QoS2 packets received"""
+recv_msg_qos2.label:
+"""Received QoS2 Messages"""
+
+recv_oct.desc:
+"""Number of bytes received"""
+recv_oct.label:
+"""Received Bytes"""
+
+recv_pkt.desc:
+"""Number of MQTT packets received"""
+recv_pkt.label:
+"""Received Packets"""
+
+reductions.desc:
+"""Erlang reductions"""
+reductions.label:
+"""Reductions"""
+
+send_cnt.desc:
+"""Number of TCP packets sent"""
+send_cnt.label:
+"""Sent TCP Packets"""
+
+send_msg.desc:
+"""Number of PUBLISH packets sent"""
+send_msg.label:
+"""Sent Messages"""
+
+send_msg_dropped.desc:
+"""Number of dropped PUBLISH packets"""
+send_msg_dropped.label:
+"""Dropped Messages"""
+
+send_msg_dropped_expired.desc:
+"""Number of dropped PUBLISH packets due to expired"""
+send_msg_dropped_expired.label:
+"""Dropped Messages Due to Expired"""
+
+send_msg_dropped_queue_full.desc:
+"""Number of dropped PUBLISH packets due to queue full"""
+send_msg_dropped_queue_full.label:
+"""Dropped Messages Due to Queue Full"""
+
+send_msg_dropped_too_large.desc:
+"""Number of dropped PUBLISH packets due to too large"""
+send_msg_dropped_too_large.label:
+"""Dropped Messages Due to Too Large"""
+
+send_msg_qos0.desc:
+"""Number of PUBLISH QoS0 packets sent"""
+send_msg_qos0.label:
+"""Sent QoS0 Messages"""
+
+send_msg_qos1.desc:
+"""Number of PUBLISH QoS1 packets sent"""
+send_msg_qos1.label:
+"""Sent QoS1 Messages"""
+
+send_msg_qos2.desc:
+"""Number of PUBLISH QoS2 packets sent"""
+send_msg_qos2.label:
+"""Sent QoS2 Messages"""
+
+send_oct.desc:
+"""Number of bytes sent"""
+send_oct.label:
+"""Sent Bytes"""
+
+send_pkt.desc:
+"""Number of MQTT packets sent"""
+send_pkt.label:
+"""Sent Packets"""
+
+subscriptions_cnt.desc:
+"""Number of subscriptions established by this client"""
+subscriptions_cnt.label:
+"""Subscriptions Count"""
+
+subscriptions_max.desc:
+"""Maximum number of subscriptions allowed by this client"""
+subscriptions_max.label:
+"""Subscriptions Max"""
+
+username.desc:
+"""User name of client when connecting"""
+username.label:
+"""Username"""
+
+mountpoint.desc:
+"""Topic mountpoint"""
+mountpoint.label:
+"""Mountpoint"""
+
+durable.desc:
+"""Session is durable"""
+durable.label:
+"""Durable"""
+
+n_streams.desc:
+"""Number of durable streams"""
+n_streams.label:
+"""Number of Durable Streams"""
+
+seqno_q1_comm.desc:
+"""Sequence number of the last PUBACK received from the client (Durable sessions only)"""
+seqno_q1_comm.label:
+"""Seqno Q1 Comm"""
+
+seqno_q1_dup.desc:
+"""Sequence number of the last QoS1 message sent to the client, that hasn't been acked (Durable sessions only)"""
+seqno_q1_dup.label:
+"""Seqno Q1 Dup"""
+
+seqno_q1_next.desc:
+"""Sequence number of the next QoS1 message to be sent to the client (Durable sessions only)"""
+seqno_q1_next.label:
+"""Seqno Q1 Next"""
+
+seqno_q2_comm.desc:
+"""Sequence number of the last PUBCOMP received from the client (Durable sessions only)"""
+seqno_q2_comm.label:
+"""Seqno Q2 Comm"""
+
+seqno_q2_dup.desc:
+"""Sequence number of the last QoS2 message sent to the client, that hasn't been acked (Durable sessions only)"""
+seqno_q2_dup.label:
+"""Seqno Q2 Dup"""
+
+seqno_q2_rec.desc:
+"""Sequence number of last PUBREC received from the client (Durable sessions only)"""
+seqno_q2_rec.label:
+"""Seqno Q2 Rec"""
+
+seqno_q2_next.desc:
+"""Sequence number of next QoS2 message to be added to the batch (Durable sessions only)"""
+seqno_q2_next.label:
+"""Seqno Q2 Next"""
+
+authz_cache_access.desc:
+"""Access type"""
+authz_cache_access.label:
+"""Access Type"""
+
+authz_cache_result.desc:
+"""Allow or deny"""
+authz_cache_result.label:
+"""Result"""
+
+authz_cache_topic.desc:
+"""Topic name"""
+authz_cache_topic.label:
+"""Topic Name"""
+
+authz_cache_updated_time.desc:
+"""Update time"""
+authz_cache_updated_time.label:
+"""Updated Time"""
+
+keepalive_interval.desc:
+"""Keepalive Interval"""
+keepalive_interval.label:
+"""Keepalive"""
+
+topic.desc:
+"""Topic name"""
+topic.label:
+"""Topic Name"""
+
+qos.desc:
+"""QoS"""
+qos.label:
+"""QoS"""
+
+nl.desc:
+"""No local"""
+nl.label:
+"""No Local"""
+
+rap.desc:
+"""Retain as published"""
+rap.label:
+"""Retain as Published"""
+
+rh.desc:
+"""Retain handling"""
+rh.label:
+"""Retain Handling"""
+
+requested_client_fields.desc:
+"""Comma separated list of client fields to return in the response"""
+requested_client_fields.label:
+"""Requested Client Fields"""
+
+payload_encoding.desc:
+"""Client's inflight/mqueue messages payload encoding."""
+payload_encoding.label:
+"""Payload Encoding"""
+
+max_payload_bytes.desc:
+"""Client's inflight/mqueue messages payload limit. The total payload size of all messages in the response will not exceed this value. Messages beyond the limit will be silently omitted in the response. The only exception to this rule is when the first message payload is already larger than the limit, in this case, the first message will be returned in the response."""
+max_payload_bytes.label:
+"""Max Payload Bytes"""
+
 }

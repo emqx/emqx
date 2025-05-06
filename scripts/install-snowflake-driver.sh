@@ -33,7 +33,7 @@ fi
 if [[ -f "${FILE}" && $(echo "$SHA256 *$FILE" | sha256sum -c) ]]; then
     echo "Snowflake ODBC driver package is already downloaded"
 else
-    apt-get -qq update && apt-get install -yqq curl
+    apt-get -qq update && env DEBIAN_FRONTEND=noninteractive apt-get install -yqq curl
     curl -fsSL -O --retry 5 "$URL"
     echo "$SHA256 *$FILE" | sha256sum -c
 fi

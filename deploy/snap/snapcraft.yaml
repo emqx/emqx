@@ -19,6 +19,7 @@ confinement: strict
 apps:
   emqx:
     command: bin/emqx foreground
+    stop-command: bin/emqx stop
     daemon: simple
     plugs:
       - network
@@ -40,3 +41,4 @@ parts:
     source: $PACKAGE_SOURCE
     stage-packages:
       - libsasl2-2
+      - libodbc2

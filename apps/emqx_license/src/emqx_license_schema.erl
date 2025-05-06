@@ -17,7 +17,6 @@
 -export([namespace/0, roots/0, fields/1, validations/0, desc/1, tags/0]).
 
 -export([
-    default_license/0,
     default_setting/0
 ]).
 
@@ -40,7 +39,7 @@ tags() ->
 fields(key_license) ->
     [
         {key, #{
-            type => hoconsc:union([default, binary()]),
+            type => hoconsc:union([default, evaluation, binary()]),
             default => <<"default">>,
             %% so it's not logged
             sensitive => true,
@@ -49,7 +48,7 @@ fields(key_license) ->
         }},
         %% This feature is not made GA yet, hence hidden.
         %% When license is issued to cutomer-type BUSINESS_CRITICAL (code 3)
-        %% This config is taken as the real max_connections limit.
+        %% This config is taken as the real max_sessions limit.
         {dynamic_max_connections, #{
             type => non_neg_integer(),
             default => default(dynamic_max_connections),
@@ -97,20 +96,6 @@ check_license_watermark(Conf) ->
             end
     end.
 
-%% @doc The default license key.
-%% This default license has 25 connections limit.
-%% Issued on 2024-04-18 and valid for 5 years (1825 days)
-%%
-%% NOTE: when updating a new key, below should be updated accordingly:
-%% - emqx_license_schema.hocon default connections limit
-%% - default(dynamic_max_connections) return value
-default_license() ->
-    <<
-        "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KdHJpYWwKMjAyNDA0MTgKMTgyNQoyNQo="
-        "."
-        "MEUCICMWWkfrvyMwQaQAOXEsEcs+d6+5uXc1BDxR7j25fRy4AiEAmblQ4p+FFmdsvnKgcRRkv1zj7PExmZKVk3mVcxH3fgw="
-    >>.
-
 %% @doc Exported for testing
 default_setting() ->
     Keys =
@@ -133,5 +118,5 @@ default(connection_low_watermark) ->
 default(connection_high_watermark) ->
     <<"80%">>;
 default(dynamic_max_connections) ->
-    %Must match the value encoded in default license.
-    ?DEFAULT_TRIAL_SESSIONS_LIMIT.
+    %% This config is only applicable to CTYPE3
+    ?DEFAULT_MAX_SESSIONS_CTYPE3.

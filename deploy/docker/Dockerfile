@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.4-4:1.17.3-27.2-2-debian12
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.5-2:1.18.3-27.2-3-debian12
 ARG RUN_FROM=debian:12-slim
 ARG SOURCE_TYPE=src # tgz
 
@@ -37,7 +37,8 @@ RUN mkdir -p /emqx-rel/emqx && \
       git config --global --add safe.directory '*' && \
       make ${PROFILE}-tgz && \
       tar zxf _packages/${PROFILE}/*.tar.gz -C /emqx-rel/emqx; \
-    fi
+    fi && \
+    rm -rf /emqx-rel/emqx/dynlibs
 
 FROM $RUN_FROM
 ARG EXTRA_DEPS=''

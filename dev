@@ -85,7 +85,7 @@ if [ -n "${EMQX_NODE_NAME:-}" ]; then
     export EMQX_NODE__NAME="${EMQX_NODE_NAME}"
 fi
 EMQX_NODE_NAME="${EMQX_NODE__NAME:-emqx@127.0.0.1}"
-PROFILE="${PROFILE:-emqx}"
+PROFILE="${PROFILE:-emqx-enterprise}"
 FORCE_COMPILE=0
 # Do not start using ekka epmd by default, so your IDE can connect to it
 EKKA_EPMD=0
@@ -161,9 +161,6 @@ case "${PROFILE}" in
     ee|emqx-enterprise)
         PROFILE='emqx-enterprise'
         ;;
-    pe|emqx-platform)
-        PROFILE='emqx-platform'
-        ;;
     ce-ex|emqx-elixir)
         export IS_ELIXIR=yes
         PROFILE='emqx'
@@ -183,7 +180,7 @@ case "${PROFILE}" in
     emqx|emqx-elixir)
         export SCHEMA_MOD='emqx_conf_schema'
         ;;
-    emqx-enterprise|emqx-enterprise-elixir|emqx-platform)
+    emqx-enterprise|emqx-enterprise-elixir)
         export SCHEMA_MOD='emqx_enterprise_schema'
         ;;
 esac
@@ -364,39 +361,12 @@ copy_other_conf_files() {
     cp apps/emqx_auth/etc/acl.conf "$EMQX_ETC_DIR"/
 }
 
-is_current_profile_app() {
-    local app="$1"
-    case "$app" in
-        *emqx_telemetry*)
-            if [ "$PROFILE" = 'emqx-enterprise' ]; then
-                return 1
-            else
-                return 0
-            fi
-            ;;
-        *)
-            if [ "$PROFILE" = 'emqx' ]; then
-                if [ -f "$app"/BSL.txt ]; then
-                    return 1
-                else
-                    return 0
-                fi
-            else
-                return 0
-            fi
-            ;;
-    esac
-}
-
 ## apps to load
 apps_to_load() {
     local apps csl
     apps="$(./scripts/find-apps.sh | xargs)"
     csl=""
     for app in $apps; do
-        if ! is_current_profile_app "$app"; then
-            continue
-        fi
         name="$(basename "$app")"
         if [ -z "$csl" ]; then
             csl="$name"

@@ -1,25 +1,8 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_authn_jwt).
-
--include_lib("emqx_auth/include/emqx_authn.hrl").
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
--include_lib("jose/include/jose_jwk.hrl").
 
 -export([
     create/2,
@@ -27,6 +10,12 @@
     authenticate/2,
     destroy/1
 ]).
+
+-include_lib("emqx_auth/include/emqx_authn.hrl").
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
+-include_lib("jose/include/jose_jwk.hrl").
+-include("emqx_auth_jwt.hrl").
 
 -define(ALLOWED_VARS, [
     ?VAR_CLIENTID,
@@ -173,7 +162,7 @@ create_authn_public_key(
     end.
 
 create_authn_public_key_with_jwks(Config) ->
-    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_TYPE),
     {ok, _Data} = emqx_resource:create_local(
         ResourceId,
         ?AUTHN_RESOURCE_GROUP,
@@ -224,13 +213,8 @@ do_create_jwk_from_public_key(PublicKey) ->
             jose_jwk:from_pem(iolist_to_binary(PublicKey))
     end.
 
-connector_opts(#{ssl := #{enable := Enable} = SSL} = Config) ->
-    SSLOpts =
-        case Enable of
-            true -> maps:without([enable], SSL);
-            false -> #{}
-        end,
-    Config#{ssl_opts => SSLOpts}.
+connector_opts(Config) ->
+    Config.
 
 may_decode_secret(false, Secret) ->
     Secret;

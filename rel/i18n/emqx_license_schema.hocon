@@ -19,31 +19,32 @@ dynamic_max_connections {
         This value cannot exceed the connections limit assigned in the license key."""
 }
 
-key_field.desc:
-"""This configuration parameter is designated for the license key and supports below input formats:
+key_field {
+    label: "License string"
+    desc: """~
+        This configuration parameter is designated for the license key and supports below input formats:
 
-- Direct Key: Enter the secret key directly as a string value.
-- File Path: Specify the path to a file that contains the secret key. Ensure the path starts with <code>file://</code>.
-- "default": Use string value <code>"default"</code> to apply the default trial license.
+        - Direct Key: Enter the secret key directly as a string value.
+        - File Path: Specify the path to a file that contains the secret key. Ensure the path starts with `file://`.
+        - "default": Use string value `default` to apply the default single-node community license.
+        - "evaluation": Use string value `evaluation` to apply the 25-connection limit evaluation license.
 
-Note: An invalid license key or an incorrect file path may prevent EMQX from starting successfully.
-If a file path is used, EMQX attempts to reload the license key from the file every 2 minutes.
-Any failure in reloading the license file will be recorded as an error level log message,
-and EMQX continues to apply the license loaded previously."""
+        Note: An invalid license key or an incorrect file path may prevent EMQX from starting successfully.
+        If a file path is used, EMQX attempts to reload the license key from the file every 2 minutes.
+        Any failure in reloading the license file will be recorded as an error level log message,
+        and EMQX continues to apply the license loaded previously."""
 
-key_field.label:
-"""License string"""
+}
 
-license_root.desc:
-"""Defines the EMQX Enterprise license.
+license_root {
+    label: "License"
+    desc: """~
+        Defines the EMQX Enterprise license.
 
-EMQX Enterprise is initially provided with a default trial license.
-This license, issued in April 2024, is valid for a period of 5 years.
-It supports up to 25 concurrent connections, catering to early-stage development and testing needs.
+        EMQX is initially provided with a default single-node community license.
+        The default license is not permitted for commercial use.
 
-For deploying EMQX Enterprise in a production environment, a different license is required. You can apply for a production license by visiting https://www.emqx.com/apply-licenses/emqx?version=5"""
-
-license_root.label:
-"""License"""
+        Apply for an official license here: https://www.emqx.com/apply-licenses/emqx?version=5~"""
+}
 
 }

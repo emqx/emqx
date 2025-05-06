@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_session_mem_SUITE).
@@ -40,7 +28,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     ok = meck:new(
-        [emqx_broker, emqx_hooks, emqx_session],
+        [emqx_broker, emqx_hooks, emqx_cm],
         [passthrough, no_history, no_link]
     ),
     ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
@@ -56,7 +44,7 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
-    meck:unload([emqx_broker, emqx_hooks]).
+    meck:unload().
 
 %%--------------------------------------------------------------------
 %% Test cases for session init
@@ -548,15 +536,15 @@ t_replay(_) ->
     Msg = emqx_message:make(clientid, ?QOS_1, <<"t1">>, <<"payload">>),
     Session2 = emqx_session_mem:enqueue(clientinfo(), [Msg], Session1),
     Pubs1 = [{I, emqx_message:set_flag(dup, M)} || {I, M} <- Pubs],
-    Pendings =
-        [Msg4, Msg5] = enrich(
-            [_D4 = delivery(?QOS_1, <<"t4">>), D5 = delivery(?QOS_2, <<"t5">>)],
-            Session1
-        ),
+    D4 = delivery(?QOS_1, <<"t4">>),
+    D5 = delivery(?QOS_2, <<"t5">>),
+    D6 = delivery(?QOS_1, <<"t6">>),
+    [Msg4, Msg5] = enrich([D4, D5], Session1),
     _ = self() ! D5,
-    _ = self() ! D6 = delivery(?QOS_1, <<"t6">>),
+    _ = self() ! D6,
     [Msg6] = enrich([D6], Session1),
-    {ok, ReplayPubs, Session3} = emqx_session_mem:replay(clientinfo(), Pendings, Session2),
+    ok = meck:expect(emqx_cm, takeover_session_end, fun(ReplayCtx) -> {ok, ReplayCtx} end),
+    {ok, ReplayPubs, Session3} = emqx_session_mem:replay(clientinfo(), [D4, D5], Session2),
     ?assertEqual(
         Pubs1 ++ [{3, Msg}, {4, Msg4}, {5, Msg5}, {6, Msg6}],
         remove_deliver_flag(ReplayPubs)

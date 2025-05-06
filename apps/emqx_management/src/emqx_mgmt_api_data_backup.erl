@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_mgmt_api_data_backup).
@@ -22,6 +10,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_utils/include/emqx_utils_api.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
@@ -270,9 +259,31 @@ data_import(post, #{body := #{<<"filename">> := Filename} = Body}) ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
             CoreNode = core_node(FileNode),
-            response(
+            case
                 emqx_mgmt_data_backup_proto_v1:import_file(CoreNode, FileNode, Filename, infinity)
-            )
+            of
+                {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} ->
+                    case DbErrs =:= #{} andalso ConfErrs =:= #{} of
+                        true ->
+                            {204};
+                        false ->
+                            DbErrs1 = emqx_mgmt_data_backup:format_db_errors(DbErrs),
+                            ConfErrs1 = emqx_mgmt_data_backup:format_conf_errors(ConfErrs),
+                            Msg = unicode:characters_to_binary(
+                                io_lib:format("~s", [DbErrs1 ++ ConfErrs1])
+                            ),
+                            {400, #{code => ?BAD_REQUEST, message => Msg}}
+                    end;
+                {badrpc, Reason} ->
+                    {500, #{
+                        code => ?SERVICE_UNAVAILABLE(Reason),
+                        message => emqx_mgmt_data_backup:format_error(Reason)
+                    }};
+                {error, Reason} ->
+                    {400, #{
+                        code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)
+                    }}
+            end
     end.
 
 core_node(FileNode) ->
@@ -317,8 +328,19 @@ data_file_by_name(Method, #{bindings := #{filename := Filename}, query_string :=
                     {404, #{
                         code => ?NOT_FOUND, message => emqx_mgmt_data_backup:format_error(not_found)
                     }};
-                Other ->
-                    response(Other)
+                ok ->
+                    ?NO_CONTENT;
+                {ok, BinContents} ->
+                    {200, #{<<"content-type">> => <<"application/octet-stream">>}, BinContents};
+                {error, Reason} ->
+                    {400, #{
+                        code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)
+                    }};
+                {badrpc, Reason} ->
+                    {500, #{
+                        code => ?SERVICE_UNAVAILABLE(Reason),
+                        message => emqx_mgmt_data_backup:format_error(Reason)
+                    }}
             end
     end.
 
@@ -339,23 +361,6 @@ safe_parse_node(#{<<"node">> := NodeBin}) ->
     end;
 safe_parse_node(_) ->
     node().
-
-response({ok, #{db_errors := DbErrs, config_errors := ConfErrs}}) ->
-    case DbErrs =:= #{} andalso ConfErrs =:= #{} of
-        true ->
-            {204};
-        false ->
-            DbErrs1 = emqx_mgmt_data_backup:format_db_errors(DbErrs),
-            ConfErrs1 = emqx_mgmt_data_backup:format_conf_errors(ConfErrs),
-            Msg = unicode:characters_to_binary(io_lib:format("~s", [DbErrs1 ++ ConfErrs1])),
-            {400, #{code => ?BAD_REQUEST, message => Msg}}
-    end;
-response({ok, Res}) ->
-    {200, Res};
-response(ok) ->
-    {204};
-response({error, Reason}) ->
-    {400, #{code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)}}.
 
 list_backup_files(Page, Limit) ->
     Start = Page * Limit - Limit + 1,

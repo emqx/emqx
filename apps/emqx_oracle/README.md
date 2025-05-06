@@ -8,7 +8,3 @@ So far it is only used to insert messages as data bridge.
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-## License
-
-See [BSL](./BSL.txt).

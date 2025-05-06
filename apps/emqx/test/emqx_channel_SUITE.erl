@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2019-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_channel_SUITE).
@@ -52,6 +40,23 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    %% Set up limiters for default listener
+    ok = emqx_limiter:create_listener_limiters('tcp:default', #{}),
+
+    %% Set up limiters for a listener with tight message rate limit
+    DefaultConf = emqx_config:get_listener_conf(tcp, default, []),
+    emqx_config:put_listener_conf(tcp, low_message_rate, [], DefaultConf),
+    {ok, MessagesRate} = emqx_limiter_schema:to_rate("1/s"),
+    ok = emqx_limiter:create_listener_limiters('tcp:low_message_rate', #{
+        messages_rate => MessagesRate
+    }),
+
+    %% Set up limiters for a listener with tight byte rate limit
+    emqx_config:put_listener_conf(tcp, low_byte_rate, [], DefaultConf),
+    {ok, BytesRate} = emqx_limiter_schema:to_rate("7/s"),
+    ok = emqx_limiter:create_listener_limiters('tcp:low_byte_rate', #{
+        bytes_rate => BytesRate
+    }),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -112,7 +117,7 @@ t_chan_caps(_) ->
 
 t_handle_in_connect_packet_success(_) ->
     IdleChannel = channel(#{conn_state => idle}),
-    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
+    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), IdleChannel),
     ClientInfo = emqx_channel:info(clientinfo, Channel),
     ?assertMatch(
@@ -167,7 +172,7 @@ t_handle_in_continue_auth(_) ->
     ConnInfo = emqx_channel:info(conninfo, Channel2),
     Channel3 = emqx_channel:set_field(conninfo, ConnInfo#{conn_props => Properties}, Channel2),
 
-    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _} =
+    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _} =
         emqx_channel:handle_in(
             ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties), Channel3
         ).
@@ -305,7 +310,7 @@ t_override_client_receive_maximum(_) ->
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0),
     C1 = channel(#{conn_state => idle}),
     ClientCapacity = 2,
-    {ok, [{event, connected}, _ConnAck], C2} =
+    {_Continue, [{event, connected}, _ConnAck], C2} =
         emqx_channel:handle_in(
             ?CONNECT_PACKET(connpkt(#{'Receive-Maximum' => ClientCapacity})),
             C1
@@ -459,7 +464,7 @@ t_handle_in_expected_packet(_) ->
 
 t_process_connect(_) ->
     mock_cm_open_session(),
-    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
+    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
         emqx_channel:post_process_connect(#{}, channel(#{conn_state => idle})).
 
 t_process_publish_qos0(_) ->
@@ -485,47 +490,56 @@ t_process_unsubscribe(_) ->
     {[?RC_SUCCESS], _Channel} = emqx_channel:post_process_unsubscribe(TopicFilters, #{}, channel()).
 
 t_quota_qos0(_) ->
-    esockd_limiter:start_link(),
-    add_bucket(),
+    timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    Chann = channel(#{conn_state => connected, quota => quota()}),
+    Chann = channel(
+        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
+            listener => {tcp, low_message_rate}
+        }
+    ),
     Pub = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
 
     Metric = 'messages.dropped.quota_exceeded',
     M1 = emqx_metrics:val(Metric),
+    ParentMetric = 'messages.dropped',
+    M2 = emqx_metrics:val(ParentMetric),
     {ok, Chann1} = emqx_channel:handle_in(Pub, Chann),
     {ok, Chann2} = emqx_channel:handle_in(Pub, Chann1),
     ?assertEqual(M1 + 1, emqx_metrics:val(Metric)),
-    timer:sleep(1000),
-    {ok, Chann3} = emqx_channel:handle_timeout(ref, expire_quota_limit, Chann2),
-    {ok, _} = emqx_channel:handle_in(Pub, Chann3),
+    ?assertEqual(M2 + 1, emqx_metrics:val(ParentMetric)),
+    timer:sleep(1200),
+    {ok, _} = emqx_channel:handle_in(Pub, Chann2),
     %% No longer exceeds quota
     ?assertEqual(M1 + 1, emqx_metrics:val(Metric)),
-
-    del_bucket(),
-    esockd_limiter:stop().
+    ?assertEqual(M2 + 1, emqx_metrics:val(ParentMetric)),
+    ok.
 
 t_quota_qos1(_) ->
-    esockd_limiter:start_link(),
-    add_bucket(),
+    timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    Chann = channel(#{conn_state => connected, quota => quota()}),
+    Chann = channel(
+        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
+            listener => {tcp, low_message_rate}
+        }
+    ),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     %% Quota per connections
     {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
     {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub, Chann1),
-    {ok, Chann3} = emqx_channel:handle_timeout(ref, expire_quota_limit, Chann2),
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann4} = emqx_channel:handle_in(Pub, Chann3),
+    timer:sleep(1200),
+    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub, Chann2),
     %% Quota in overall
-    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann4),
-    del_bucket(),
-    esockd_limiter:stop().
+    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann3),
+    ok.
 
 t_quota_qos2(_) ->
-    esockd_limiter:start_link(),
-    add_bucket(),
+    timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    Chann = channel(#{conn_state => connected, quota => quota()}),
+    Chann = channel(
+        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
+            listener => {tcp, low_message_rate}
+        }
+    ),
     Pub1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
     Pub2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
     Pub3 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 3, <<"payload">>),
@@ -533,12 +547,27 @@ t_quota_qos2(_) ->
     %% Quota per connections
     {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub1, Chann),
     {ok, ?PUBREC_PACKET(2, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub2, Chann1),
-    {ok, Chann3} = emqx_channel:handle_timeout(ref, expire_quota_limit, Chann2),
-    {ok, ?PUBREC_PACKET(3, ?RC_SUCCESS), Chann4} = emqx_channel:handle_in(Pub3, Chann3),
+    timer:sleep(1200),
+    {ok, ?PUBREC_PACKET(3, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub3, Chann2),
     %% Quota in overall
-    {ok, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub4, Chann4),
-    del_bucket(),
-    esockd_limiter:stop().
+    {ok, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub4, Chann3),
+    ok.
+
+t_quota_bytes(_) ->
+    timer:sleep(1200),
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
+    Chann = channel(clientinfo(#{listener => {tcp, low_byte_rate}}), #{conn_state => connected}, #{
+        listener => {tcp, low_byte_rate}
+    }),
+    Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
+    %% Quota per connections
+    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
+    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub, Chann1),
+    timer:sleep(1200),
+    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub, Chann2),
+    %% Quota in overall
+    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann3),
+    ok.
 
 t_mount_will_msg(_) ->
     Self = self(),
@@ -593,7 +622,7 @@ t_handle_out_publish_1(_) ->
         emqx_channel:handle_out(publish, [{1, Msg}], channel()).
 
 t_handle_out_connack_success(_) ->
-    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
+    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
         emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, #{}}, channel()),
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
@@ -601,7 +630,7 @@ t_handle_out_connack_response_information(_) ->
     mock_cm_open_session(),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
-    {ok,
+    {continue,
         [
             {event, connected},
             {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, #{'Response-Information' := test})}
@@ -615,7 +644,7 @@ t_handle_out_connack_not_response_information(_) ->
     mock_cm_open_session(),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
-    {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}], _} =
+    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}], _} =
         emqx_channel:handle_in(
             ?CONNECT_PACKET(connpkt(#{'Request-Response-Information' => 0})),
             IdleChannel
@@ -1023,7 +1052,8 @@ t_flapping_detect(_) ->
 
 channel() -> channel(#{}).
 channel(InitFields) -> channel(clientinfo(), InitFields).
-channel(ClientInfo, InitFields) ->
+channel(ClientInfo, InitFields) -> channel(ClientInfo, InitFields, #{}).
+channel(ClientInfo, InitFields, ListenerOpts) ->
     ConnInfo = #{
         peername => {{127, 0, 0, 1}, 3456},
         sockname => {{127, 0, 0, 1}, 1883},
@@ -1044,11 +1074,14 @@ channel(ClientInfo, InitFields) ->
         end,
         emqx_channel:init(
             ConnInfo,
-            #{
-                zone => default,
-                limiter => undefined,
-                listener => {tcp, default}
-            }
+            maps:merge(
+                #{
+                    zone => default,
+                    limiter => undefined,
+                    listener => {tcp, default}
+                },
+                ListenerOpts
+            )
         ),
         maps:merge(
             #{
@@ -1125,34 +1158,6 @@ mock_cm_open_session() ->
             {ok, #{session => session(), present => false}}
         end
     ).
-
-%% conn: 5/s; overall: 10/s
-quota() ->
-    emqx_limiter_container:get_limiter_by_types(?MODULE, [message_routing], limiter_cfg()).
-
-limiter_cfg() ->
-    Client = #{
-        rate => 5,
-        initial => 0,
-        burst => 0,
-        low_watermark => 1,
-        divisible => false,
-        max_retry_time => timer:seconds(5),
-        failure_strategy => force
-    },
-    #{
-        message_routing => bucket_cfg(),
-        client => #{message_routing => Client}
-    }.
-
-bucket_cfg() ->
-    #{rate => 10, initial => 0, burst => 0}.
-
-add_bucket() ->
-    emqx_limiter_server:add_bucket(?MODULE, message_routing, bucket_cfg()).
-
-del_bucket() ->
-    emqx_limiter_server:del_bucket(?MODULE, message_routing).
 
 v4(Channel) ->
     ConnInfo = emqx_channel:info(conninfo, Channel),

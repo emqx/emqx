@@ -16,6 +16,7 @@
 
 -module(emqx_utils_maps_tests).
 -include_lib("eunit/include/eunit.hrl").
+-include("../../emqx/include/emqx_mqtt.hrl").
 
 -import(emqx_utils_maps, [indent/3, unindent/2]).
 
@@ -176,3 +177,24 @@ map_indent_unindent_test_() ->
             unindent(b, #{a => #{c => 3}, b => #{a => #{d => 4}}})
         )
     ].
+
+printable_props_test() ->
+    Headers = #{
+        peerhost => {127, 0, 0, 1},
+        peername => {{127, 0, 0, 1}, 9980},
+        sockname => {{127, 0, 0, 1}, 1883},
+        redispatch_to => ?REDISPATCH_TO(<<"group">>, <<"sub/topic/+">>),
+        shared_dispatch_ack => {self(), ref}
+    },
+    Converted = emqx_utils_maps:printable_props(Headers),
+    ?assertMatch(
+        #{
+            peerhost := <<"127.0.0.1">>,
+            peername := <<"127.0.0.1:9980">>,
+            sockname := <<"127.0.0.1:1883">>
+        },
+        Converted
+    ),
+    ?assertNot(maps:is_key(redispatch_to, Converted)),
+    ?assertNot(maps:is_key(shared_dispatch_ack, Converted)),
+    ok.

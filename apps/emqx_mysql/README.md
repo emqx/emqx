@@ -8,7 +8,3 @@ It is used by the MySQL bridge to insert messages and by the `emqx_auth` applica
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-## License
-
-See [APL](../../APL.txt).

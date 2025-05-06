@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_listeners_SUITE).
@@ -20,6 +8,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -131,8 +120,7 @@ t_max_conns_tcp(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     Conf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
-        <<"max_connections">> => 4321,
-        <<"limiter">> => #{}
+        <<"max_connections">> => 4321
     },
     with_listener(tcp, maxconns, Conf, fun() ->
         ?assertEqual(
@@ -145,7 +133,6 @@ t_client_attr_as_mountpoint(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     ListenerConf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
-        <<"limiter">> => #{},
         <<"mountpoint">> => <<"groups/${client_attrs.ns}/">>
     },
     {ok, Compiled} = emqx_variform:compile("nth(1,tokens(clientid,'-'))"),
@@ -176,8 +163,7 @@ t_current_conns_tcp(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     Conf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
-        <<"max_connections">> => 42,
-        <<"limiter">> => #{}
+        <<"max_connections">> => 42
     },
     with_listener(tcp, curconns, Conf, fun() ->
         ?assertEqual(
@@ -190,7 +176,6 @@ t_tcp_frame_parsing_conn(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     Conf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
-        <<"limiter">> => #{},
         <<"parse_unit">> => <<"frame">>
     },
     with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
@@ -209,7 +194,6 @@ t_ssl_frame_parsing_conn(Config) ->
     Port = emqx_common_test_helpers:select_free_port(ssl),
     Conf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
-        <<"limiter">> => #{},
         <<"ssl_options">> => #{
             <<"cacertfile">> => filename:join(PrivDir, "ca.pem"),
             <<"certfile">> => filename:join(PrivDir, "server.pem"),
@@ -233,7 +217,6 @@ t_wss_conn(Config) ->
     Port = emqx_common_test_helpers:select_free_port(ssl),
     Conf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
-        <<"limiter">> => #{},
         <<"ssl_options">> => #{
             <<"cacertfile">> => filename:join(PrivDir, "ca.pem"),
             <<"certfile">> => filename:join(PrivDir, "server.pem"),
@@ -387,6 +370,73 @@ t_ssl_update_opts(Config) ->
         ok = emqtt:stop(C3)
     end).
 
+t_ssl_update_versions(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Name = ?FUNCTION_NAME,
+    Host = "127.0.0.1",
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Conf = #{
+        <<"enable">> => true,
+        <<"bind">> => format_bind({Host, Port}),
+        <<"ssl_options">> => #{
+            <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key"),
+            <<"verify">> => verify_none
+        }
+    },
+    ClientSSLOpts = [
+        {cacertfile, filename:join(PrivDir, "ca-next.pem")},
+        {verify, verify_peer},
+        {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
+    ],
+    with_listener(ssl, Name, Conf, fun() ->
+        %% Client connects successfully.
+        ct:pal("attempting successful connection"),
+        C1 = emqtt_connect_ssl(Host, Port, ClientSSLOpts),
+
+        %% Change the listener SSL configuration: force TLSv1.3.
+        ct:pal("updating config"),
+        {ok, _} = emqx:update_config(
+            [listeners, ssl, Name],
+            {update, #{
+                <<"ssl_options">> => #{
+                    <<"versions">> => [<<"tlsv1.3">>]
+                }
+            }}
+        ),
+
+        C2 = emqtt_connect_ssl(Host, Port, ClientSSLOpts),
+
+        %% Change the listener SSL configuration: require peer certificate.
+        {ok, _} = emqx:update_config(
+            [listeners, ssl, Name],
+            {update, #{
+                <<"ssl_options">> => #{
+                    <<"versions">> => [<<"tlsv1.2">>, <<"tlsv1.3">>],
+                    <<"verify">> => verify_peer,
+                    <<"fail_if_no_peer_cert">> => true,
+                    <<"client_renegotiation">> => false
+                }
+            }}
+        ),
+
+        C3 = emqtt_connect_ssl(Host, Port, [
+            {certfile, filename:join(PrivDir, "client.pem")},
+            {keyfile, filename:join(PrivDir, "client.key")}
+            | ClientSSLOpts
+        ]),
+
+        %% Both pre- and post-update clients should be alive.
+        ?assertEqual(pong, emqtt:ping(C1)),
+        ?assertEqual(pong, emqtt:ping(C2)),
+        ?assertEqual(pong, emqtt:ping(C3)),
+
+        ok = emqtt:stop(C1),
+        ok = emqtt:stop(C2),
+        ok = emqtt:stop(C3)
+    end).
+
 t_wss_update_opts(Config) ->
     PrivDir = ?config(priv_dir, Config),
     Host = "127.0.0.1",
@@ -447,6 +497,7 @@ t_wss_update_opts(Config) ->
         ]),
 
         %% Change the listener SSL configuration: require peer certificate.
+        ct:pal("updating config"),
         {ok, _} = emqx:update_config(
             [listeners, wss, Name],
             {update, #{
@@ -458,14 +509,31 @@ t_wss_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, certificate is now required.
-        ?assertError(
-            {ws_upgrade_failed, {closed, {error, {tls_alert, {certificate_required, _}}}}},
-            emqtt_connect_wss(Host, Port, [
-                {cacertfile, filename:join(PrivDir, "ca-next.pem")}
-                | ClientSSLOpts
-            ])
-        ),
+        ct:pal("asserting certificate required error"),
+        CertReqErr =
+            try
+                emqtt_connect_wss(Host, Port, [
+                    {cacertfile, filename:join(PrivDir, "ca-next.pem")}
+                    | ClientSSLOpts
+                ]),
+                {error, <<"didn't raise any errors!">>}
+            catch
+                error:Reason ->
+                    Reason
+            end,
+        case CertReqErr of
+            %% these errors may race
+            {ws_upgrade_failed, {closed, {error, {tls_alert, {certificate_required, _}}}}} ->
+                ok;
+            {ws_upgrade_failed, {error, {tls_alert, {certificate_required, _}}}} ->
+                ok;
+            {ws_upgrade_failed, {error, closed}} ->
+                ok;
+            _ ->
+                error({unexpected_error, CertReqErr})
+        end,
 
+        ct:pal("connecting client with new ca"),
         C3 = emqtt_connect_wss(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca-next.pem")},
             {certfile, filename:join(PrivDir, "client.pem")},
@@ -474,6 +542,7 @@ t_wss_update_opts(Config) ->
         ]),
 
         %% Both pre- and post-update clients should be alive.
+        ct:pal("checking clients are still alive"),
         ?assertEqual(pong, emqtt:ping(C1)),
         ?assertEqual(pong, emqtt:ping(C2)),
         ?assertEqual(pong, emqtt:ping(C3)),
@@ -489,6 +558,8 @@ t_quic_update_opts(Config) ->
     PrivDir = ?config(priv_dir, Config),
     Host = "127.0.0.1",
     Port = emqx_common_test_helpers:select_free_port(ListenerType),
+    ok = emqx_config:put_zone_conf(?FUNCTION_NAME, [mqtt, max_topic_levels], 2),
+
     Conf = #{
         <<"enable">> => true,
         <<"bind">> => format_bind({Host, Port}),
@@ -566,12 +637,13 @@ t_quic_update_opts(Config) ->
             | ClientSSLOpts
         ]),
 
-        %% Change the listener port
+        %% Change the listener port and zone
         NewPort = emqx_common_test_helpers:select_free_port(ListenerType),
         {ok, _} = emqx:update_config(
             [listeners, ListenerType, Name],
             {update, #{
-                <<"bind">> => format_bind({Host, NewPort})
+                <<"bind">> => format_bind({Host, NewPort}),
+                <<"zone">> => ?FUNCTION_NAME
             }}
         ),
 
@@ -600,6 +672,9 @@ t_quic_update_opts(Config) ->
         ?assertEqual(pong, emqtt:ping(C2)),
         ?assertEqual(pong, emqtt:ping(C3)),
         ?assertEqual(pong, emqtt:ping(C4)),
+
+        ?assertMatch({ok, _, [?RC_GRANTED_QOS_1]}, emqtt:subscribe(C1, <<"test/2/3">>, 1)),
+        ?assertMatch({ok, _, [?RC_UNSPECIFIED_ERROR]}, emqtt:subscribe(C4, <<"test/2/3">>, 1)),
 
         ok = emqtt:stop(C1),
         ok = emqtt:stop(C2),

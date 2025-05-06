@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_trace_SUITE).
 
@@ -97,6 +85,7 @@ t_base_create_delete(_Config) ->
             start_at => Now,
             end_at => Now + 30 * 60,
             payload_encode => text,
+            payload_limit => 1024,
             formatter => text
         }
     ],
@@ -333,20 +322,22 @@ t_client_huge_payload_truncated(_Config) ->
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     emqtt:ping(Client),
+    PayloadLimit = 1024,
     NormalPayload = iolist_to_binary(lists:duplicate(1024, "x")),
     Size1 = 1025,
-    TruncatedBytes1 = Size1 - ?TRUNCATED_PAYLOAD_SIZE,
+    TruncatedBytes1 = Size1 - PayloadLimit,
     HugePayload1 = iolist_to_binary(lists:duplicate(Size1, "y")),
     Size2 = 1024 * 10,
     HugePayload2 = iolist_to_binary(lists:duplicate(Size2, "z")),
-    TruncatedBytes2 = Size2 - ?TRUNCATED_PAYLOAD_SIZE,
+    TruncatedBytes2 = Size2 - PayloadLimit,
     ok = emqtt:publish(Client, <<"/test">>, #{}, NormalPayload, [{qos, 0}]),
     ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     {ok, _} = emqx_trace:create([
         {<<"name">>, <<"test_topic">>},
         {<<"type">>, topic},
         {<<"topic">>, <<"/test">>},
-        {<<"start_at">>, Now}
+        {<<"start_at">>, Now},
+        {<<"payload_limit">>, PayloadLimit}
     ]),
     ok = emqx_trace_handler_SUITE:filesync(<<"test_topic">>, topic),
     {ok, Bin} = file:read_file(emqx_trace:log_file(Name, Now)),

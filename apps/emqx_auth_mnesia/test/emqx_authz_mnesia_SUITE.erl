@@ -1,16 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_mnesia_SUITE).
@@ -199,7 +188,120 @@ t_authz(_Config) ->
             }
         },
         {ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>}
-    ).
+    ),
+    test_authz(
+        allow,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"zone">> => <<"zone1">>
+            }
+        },
+        {ClientInfo#{zone => zone1}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"zone">> => <<"zone1">>
+            }
+        },
+        {ClientInfo#{zone => zone2}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"zone_re">> => <<"^zone\\d+">>
+            }
+        },
+        {ClientInfo#{zone => zone1}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"zone_re">> => <<"^zone\\d+">>
+            }
+        },
+        {ClientInfo#{zone => other}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"listener">> => <<"tcp:default">>
+            }
+        },
+        {ClientInfo#{listener => 'tcp:default'}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"listener">> => <<"tcp:default">>
+            }
+        },
+        {ClientInfo#{listener => 'ws:default'}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"listener_re">> => <<"^tcp:">>
+            }
+        },
+        {ClientInfo#{listener => 'tcp:default'}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"listener_re">> => <<"^tcp:">>
+            }
+        },
+        {ClientInfo#{listener => 'ws:default'}, ?AUTHZ_PUBLISH, <<"t">>}
+    ),
+    ok.
 
 test_authz(Expected, ExpectedNoRichActions, {Who, Rule}, {ClientInfo, Action, Topic}) ->
     test_authz_with_rich_actions(true, Expected, {Who, Rule}, {ClientInfo, Action, Topic}),

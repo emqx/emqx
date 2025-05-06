@@ -125,6 +125,14 @@ sample_interval.desc:
 """How often to update metrics displayed in the dashboard.
 Note: `sample_interval` should be a divisor of 60, default is 10s."""
 
+hwmark_expire_time.desc: """~
+   Specifies the expiration interval for high watermark metrics, such as the session history high watermark (`sessions_hist_hwmark`).
+   A high watermark remains valid for the configured duration.
+   When it expires, the system scans the recorded values up to now and updates the high watermark to the highest observed value.
+   Note: it must be no more than 7 days (`7d`)~"""
+
+hwmark_expire_time.label: "High Watermark Expire Time"
+
 send_timeout.desc:
 """Send timeout for the socket."""
 
@@ -168,4 +176,35 @@ mfa_mechanism.label:
 mfa_mechanism.desc:
 """Multifactor authentication mechanism."""
 
+http_listener_settings.desc:
+"""Settings for the HTTP listener."""
+
+http_listener_settings.label:
+"""HTTP Listener Settings"""
+
+https_listener_settings.desc:
+"""Settings for the HTTPS listener."""
+
+https_listener_settings.label:
+"""HTTPS Listener Settings"""
+
+unsuccessful_login_max_attempts.desc:
+"""The maximum number of unsuccessful login attempts allowed for a user.
+After this number is reached within the configured time interval
+the user will be forbidden to login for a period of time"""
+
+unsuccessful_login_max_attempts.label:
+"""Unsuccessful login max attempts"""
+
+unsuccessful_login_lock_duration.desc:
+"""The duration of the lock period for a user after reaching the maximum number of unsuccessful login attempts."""
+
+unsuccessful_login_lock_duration.label:
+"""Login lock duration"""
+
+unsuccessful_login_interval.desc:
+"""The time interval for accumulating the number of unsuccessful login attempts."""
+
+unsuccessful_login_interval.label:
+"""Unsuccessful login accumulation time interval"""
 }

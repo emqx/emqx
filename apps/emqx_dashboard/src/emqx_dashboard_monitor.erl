@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_dashboard_monitor).
@@ -32,6 +20,7 @@
     handle_call/3,
     handle_cast/2,
     handle_info/2,
+    handle_continue/2,
     terminate/2,
     code_change/3
 ]).
@@ -61,6 +50,11 @@
     all_data/0
 ]).
 
+%% For testing
+-export([
+    merge_current_rate_cluster/1
+]).
+
 -define(TAB, ?MODULE).
 
 -define(ONE_SECOND, 1_000).
@@ -76,16 +70,24 @@
 -define(RETENTION_TIME, 7 * ?DAYS).
 -define(MAX_POSSIBLE_SAMPLES, 1440).
 -define(LOG(LEVEL, DATA), ?SLOG(LEVEL, DATA, #{tag => "DASHBOARD"})).
-
--record(state, {
-    last,
-    clean_timer,
-    extra = []
-}).
+-define(NO_WMARK, no_wmark).
+-define(HWMARK(T, P, V), {T, P, V}).
+-define(MAYBE_HWMARK(Condition, Hwmark),
+    case Condition of
+        true -> Hwmark;
+        false -> ?NO_WMARK
+    end
+).
 
 -record(emqx_monit, {
     time :: integer(),
     data :: map()
+}).
+
+-record(state, {
+    last :: #emqx_monit{},
+    clean_timer :: undefined | reference(),
+    extra = []
 }).
 
 create_tables() ->
@@ -117,7 +119,7 @@ samplers(NodeOrCluster, Latest) ->
     end.
 
 latest2time(infinity) -> 0;
-latest2time(Latest) -> erlang:system_time(millisecond) - (Latest * 1000).
+latest2time(Latest) -> now_ts() - (Latest * 1000).
 
 current_rate(all) ->
     current_rate_cluster();
@@ -157,9 +159,12 @@ current_rate_cluster() ->
     ),
     Failed =/= [] andalso
         ?LOG(badrpc_log_level(L1), #{msg => "failed_to_sample_current_rate", errors => Failed}),
-    Fun = fun({ok, Result}, Cluster) -> merge_cluster_rate(Result, Cluster) end,
-    Metrics = lists:foldl(Fun, #{}, L1),
+    Metrics = merge_current_rate_cluster(L1),
     {ok, adjust_synthetic_cluster_metrics(Metrics)}.
+
+merge_current_rate_cluster(L1) ->
+    Fun = fun({ok, Result}, Cluster) -> merge_cluster_rate(Result, Cluster) end,
+    lists:foldl(Fun, #{}, L1).
 
 %% -------------------------------------------------------------------------------------------------
 %% gen_server functions
@@ -168,18 +173,33 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
-    sample_timer(),
-    %% clean immediately
-    self() ! clean_expired,
-    {ok, #state{last = undefined, clean_timer = undefined, extra = []}}.
+    ok = start_sample_timer(),
+    Dummy = #emqx_monit{time = now_ts(), data = #{}},
+    {ok, #state{last = Dummy, clean_timer = undefined, extra = []}, {continue, initial_cleanup}}.
+
+handle_continue(initial_cleanup, State) ->
+    ok = clean(),
+    ok = inplace_downsample(),
+    {noreply, State#state{clean_timer = start_clean_timer()}, {continue, read_hwmark}};
+handle_continue(read_hwmark, State) ->
+    %% this is silly, but the table type is set to `set`, not `ordered_set`
+    %% so we need to sort the list by time and get the latest one
+    case all_data() of
+        [] ->
+            {noreply, State};
+        List ->
+            {Time, Data} = lists:last(List),
+            {noreply, State#state{last = #emqx_monit{time = Time, data = Data}}}
+    end.
 
 handle_call(current_rate, _From, State = #state{last = Last}) ->
-    NowTime = erlang:system_time(millisecond),
-    NowSamplers = sample(NowTime),
+    NowTime = now_ts(),
+    NowSamplers = take_sample(NowTime, Last, read_hwmark),
     Rate = cal_rate(NowSamplers, Last),
     NonRateValue = non_rate_value(),
-    Samples = maps:merge(Rate, NonRateValue),
-    {reply, {ok, Samples}, State};
+    Result1 = maps:merge(Rate, NonRateValue),
+    Result = format_hwmarks(Result1, NowSamplers),
+    {reply, {ok, Result}, State};
 handle_call(_Request, _From, State = #state{}) ->
     {reply, ok, State}.
 
@@ -187,16 +207,16 @@ handle_cast(_Request, State = #state{}) ->
     {noreply, State}.
 
 handle_info({sample, Time}, State = #state{last = Last}) ->
-    Now = sample(Time),
+    Now = take_sample(Time, Last, write_hwmark),
     {atomic, ok} = flush(Last, Now),
     ?tp(dashboard_monitor_flushed, #{}),
-    sample_timer(),
+    ok = start_sample_timer(),
     {noreply, State#state{last = Now}};
 handle_info(clean_expired, #state{clean_timer = TrefOld} = State) ->
     ok = maybe_cancel_timer(TrefOld),
-    clean(),
-    inplace_downsample(),
-    TrefNew = clean_timer(),
+    ok = clean(),
+    ok = inplace_downsample(),
+    TrefNew = start_clean_timer(),
     {noreply, State#state{clean_timer = TrefNew}};
 handle_info(_Info, State = #state{}) ->
     {noreply, State}.
@@ -210,13 +230,29 @@ code_change(_OldVsn, State = #state{}, _Extra) ->
 %% -------------------------------------------------------------------------------------------------
 %% Internal functions
 
+-spec all_data() -> [{integer(), map()}].
 all_data() ->
-    Fn = fun(#emqx_monit{time = Time, data = Data}, Acc) -> [{Time, Data} | Acc] end,
-    lists:keysort(1, ets:foldl(Fn, [], ?TAB)).
+    all_data(fun(_) -> true end, sort).
+
+-spec all_data(fun((integer()) -> boolean()), sort | no_sort) -> [{integer(), map()}].
+all_data(Pred, Sort) ->
+    Fn = fun(#emqx_monit{time = Time, data = Data}, Acc) ->
+        case Pred(Time) of
+            true -> [{Time, Data} | Acc];
+            false -> Acc
+        end
+    end,
+    All = ets:foldl(Fn, [], ?TAB),
+    case Sort of
+        sort ->
+            lists:keysort(1, All);
+        no_sort ->
+            All
+    end.
 
 inplace_downsample() ->
     All = all_data(),
-    Now = erlang:system_time(millisecond),
+    Now = now_ts(),
     Compacted = compact(Now, All),
     {Deletes, Writes} = compare(All, Compacted, [], []),
     {atomic, ok} = mria:transaction(
@@ -260,21 +296,20 @@ compare([{T0, _} | _] = All, [{T1, Data1} | Compacted], Deletes, Writes) when T0
 %% compact the data points to a smaller set of buckets
 %% Pre-condition: data fed to this function must be sorted chronologically.
 compact(Now, Data) ->
-    Gauges = gauges(),
-    compact(Now, Data, Gauges, []).
+    compact(Now, Data, []).
 
-compact(_Now, [], _Gauges, Acc) ->
+compact(_Now, [], Acc) ->
     lists:reverse(Acc);
-compact(Now, [{Time, Data} | Rest], Gauges, Acc) ->
+compact(Now, [{Time, Data} | Rest], Acc) ->
     Interval = sample_interval(Now - Time),
     Bucket = round_down(Time, Interval),
-    NewAcc = merge_to_bucket(Bucket, Data, Gauges, Acc),
-    compact(Now, Rest, Gauges, NewAcc).
+    NewAcc = merge_to_bucket(Bucket, Data, Acc),
+    compact(Now, Rest, NewAcc).
 
-merge_to_bucket(Bucket, Data, Gauges, [{Bucket, Data0} | Acc]) ->
-    NewData = merge_local_sampler_maps(Data0, Data, Gauges),
+merge_to_bucket(Bucket, Data, [{Bucket, Data0} | Acc]) ->
+    NewData = merge_local_sampler_maps(Data0, Data),
     [{Bucket, NewData} | Acc];
-merge_to_bucket(Bucket, Data, _Gauges, Acc) ->
+merge_to_bucket(Bucket, Data, Acc) ->
     [{Bucket, Data} | Acc].
 
 %% for testing
@@ -283,9 +318,8 @@ randomize(Count, Data) when is_map(Data) ->
     randomize(Count, Data, MaxAge).
 
 randomize(Count, Data, Age) when is_map(Data) andalso is_integer(Age) ->
-    Now = erlang:system_time(millisecond) - 1,
+    Now = now_ts() - 1,
     StartTs = Now - Age,
-    Gauges = gauges(),
     lists:foreach(
         fun(_) ->
             Ts = round_down(StartTs + rand:uniform(Age), timer:seconds(10)),
@@ -294,7 +328,7 @@ randomize(Count, Data, Age) when is_map(Data) andalso is_integer(Age) ->
                 [] ->
                     store(Record);
                 [#emqx_monit{data = D} = R] ->
-                    store(R#emqx_monit{data = merge_local_sampler_maps(Data, D, Gauges)})
+                    store(R#emqx_monit{data = merge_local_sampler_maps(Data, D)})
             end
         end,
         lists:seq(1, Count)
@@ -367,12 +401,12 @@ merge_samplers(SinceTime, Increment0, Base) ->
         end,
     maps:fold(fun merge_samplers_loop/3, Base, Increment).
 
-merge_samplers_loop(TS, Increment, Base) when is_map(Increment) ->
-    case maps:get(TS, Base, undefined) of
+merge_samplers_loop(Ts, Increment, Base) when is_map(Increment) ->
+    case maps:get(Ts, Base, undefined) of
         undefined ->
-            Base#{TS => Increment};
+            Base#{Ts => Increment};
         BaseSample when is_map(BaseSample) ->
-            Base#{TS => merge_sampler_maps(Increment, BaseSample)}
+            Base#{Ts => merge_sampler_maps(Increment, BaseSample)}
     end.
 
 merge_sampler_maps(M1, M2) when is_map(M1) andalso is_map(M2) ->
@@ -380,8 +414,8 @@ merge_sampler_maps(M1, M2) when is_map(M1) andalso is_map(M2) ->
     lists:foldl(Fun, M2, ?SAMPLER_LIST).
 
 %% `M1' is assumed to be newer data compared to anything `M2' has seen.
-merge_local_sampler_maps(M1, M2, Gauges) when is_map(M1) andalso is_map(M2) ->
-    Fun = fun(Key, Acc) -> merge_local_values(Key, M1, Acc, Gauges) end,
+merge_local_sampler_maps(M1, M2) when is_map(M1) andalso is_map(M2) ->
+    Fun = fun(Key, Acc) -> merge_local_values(Key, M1, Acc) end,
     lists:foldl(Fun, M2, ?SAMPLER_LIST).
 
 %% topics, subscriptions_durable and disconnected_durable_sessions are cluster synced
@@ -394,13 +428,10 @@ merge_values(disconnected_durable_sessions, M1, M2) ->
 merge_values(Key, M1, M2) ->
     sum_values(Key, M1, M2).
 
-merge_local_values(Key, M1, M2, Gauges) when
-    is_map_key(Key, Gauges) andalso
-        (is_map_key(Key, M1) orelse is_map_key(Key, M2))
-->
+merge_local_values(Key, M1, M2) when ?IS_PICK_NEWER(Key) ->
     %% First argument is assumed to be from a newer timestamp, so we keep the latest.
     M2#{Key => maps:get(Key, M1, maps:get(Key, M2, 0))};
-merge_local_values(Key, M1, M2, _Gauges) ->
+merge_local_values(Key, M1, M2) ->
     merge_values(Key, M1, M2).
 
 max_values(Key, M1, M2) when is_map_key(Key, M1) orelse is_map_key(Key, M2) ->
@@ -429,6 +460,8 @@ merge_cluster_rate(Node, Cluster) ->
                 NCluster#{shared_subscriptions => V};
             (license_quota, V, NCluster) ->
                 NCluster#{license_quota => V};
+            (sessions_hist_hwmark, V, NCluster) ->
+                max_hwmark(sessions_hist_hwmark, V, NCluster);
             %% for cluster sample, ignore node_uptime
             (node_uptime, _V, NCluster) ->
                 NCluster;
@@ -463,35 +496,28 @@ format(Data0) ->
     Data = lists:keysort(1, Data1),
     lists:map(fun({TimeStamp, V}) -> V#{time_stamp => TimeStamp} end, Data).
 
-cal_rate(_Now, undefined) ->
-    AllSamples = ?GAUGE_SAMPLER_LIST ++ maps:values(?DELTA_SAMPLER_RATE_MAP),
-    lists:foldl(fun(Key, Acc) -> Acc#{Key => 0} end, #{}, AllSamples);
 cal_rate(
     #emqx_monit{data = NowData, time = NowTime},
-    #emqx_monit{data = LastData, time = LastTime} = Last
+    #emqx_monit{data = LastData, time = LastTime}
 ) ->
-    case NowTime - LastTime of
-        0 ->
-            %% make sure: not divide by zero
-            timer:sleep(5),
-            NewSamplers = sample(erlang:system_time(millisecond)),
-            cal_rate(NewSamplers, Last);
-        TimeDelta ->
-            Filter = fun(Key, _) -> lists:member(Key, ?GAUGE_SAMPLER_LIST) end,
-            Gauge = maps:filter(Filter, NowData),
-            {_, _, _, Rate} =
-                lists:foldl(
-                    fun cal_rate_/2,
-                    {NowData, LastData, TimeDelta, Gauge},
-                    ?DELTA_SAMPLER_LIST
-                ),
-            Rate
-    end.
+    TimeDelta = NowTime - LastTime,
+    Filter = fun(Key, _) -> lists:member(Key, ?GAUGE_SAMPLER_LIST) end,
+    Gauge = maps:filter(Filter, NowData),
+    {_, _, _, Rate} =
+        lists:foldl(
+            fun cal_rate_/2,
+            {NowData, LastData, TimeDelta, Gauge},
+            ?DELTA_SAMPLER_LIST
+        ),
+    Rate.
 
 cal_rate_(Key, {Now, Last, TDelta, Res}) ->
     NewValue = maps:get(Key, Now),
-    LastValue = maps:get(Key, Last),
-    Rate = round((NewValue - LastValue) * 1000 / TDelta),
+    LastValue = maps:get(Key, Last, 0),
+    %% round up time delta to 1s, and value data to non-negative
+    %% 1. never divide by zero, or result in unreasonably high rate.
+    %% 2. never return negative rate.
+    Rate = round(max(NewValue - LastValue, 0) * 1000 / max(TDelta, 1000)),
     RateKey = maps:get(Key, ?DELTA_SAMPLER_RATE_MAP),
     {Now, Last, TDelta, Res#{RateKey => Rate}}.
 
@@ -564,8 +590,7 @@ downsample_local(SinceTs, TsDataMap) when map_size(TsDataMap) >= 2 ->
     TsList = ts_list(TsDataMap),
     Latest = lists:max(TsList),
     Interval = sample_interval(Latest - SinceTs),
-    Gauges = gauges(),
-    downsample_local_loop(TsList, Gauges, TsDataMap, Interval, #{});
+    downsample_local_loop(TsList, TsDataMap, Interval, #{});
 downsample_local(_Since, TsDataMap) ->
     TsDataMap.
 
@@ -584,26 +609,23 @@ downsample_loop([Ts | Rest], TsDataMap, Interval, Res) ->
     Agg = merge_sampler_maps(Inc, Agg0),
     downsample_loop(Rest, TsDataMap, Interval, Res#{Bucket => Agg}).
 
-downsample_local_loop([], _Gauges, _TsDataMap, _Interval, Res) ->
+downsample_local_loop([], _TsDataMap, _Interval, Res) ->
     Res;
-downsample_local_loop([Ts | Rest], Gauges, TsDataMap, Interval, Res) ->
+downsample_local_loop([Ts | Rest], TsDataMap, Interval, Res) ->
     Bucket = round_down(Ts, Interval),
     Agg0 = maps:get(Bucket, Res, #{}),
     Inc = maps:get(Ts, TsDataMap),
-    Agg = merge_local_sampler_maps(Inc, Agg0, Gauges),
-    downsample_local_loop(Rest, Gauges, TsDataMap, Interval, Res#{Bucket => Agg}).
+    Agg = merge_local_sampler_maps(Inc, Agg0),
+    downsample_local_loop(Rest, TsDataMap, Interval, Res#{Bucket => Agg}).
 
-gauges() ->
-    maps:from_keys(?GAUGE_SAMPLER_LIST, true).
-
-%% -------------------------------------------------------------------------------------------------
 %% timer
 
-sample_timer() ->
+start_sample_timer() ->
     {NextTime, Remaining} = next_interval(),
-    erlang:send_after(Remaining, self(), {sample, NextTime}).
+    _ = erlang:send_after(Remaining, self(), {sample, NextTime}),
+    ok.
 
-clean_timer() ->
+start_clean_timer() ->
     erlang:send_after(?CLEAN_EXPIRED_INTERVAL, self(), clean_expired).
 
 %% Per interval seconds.
@@ -613,7 +635,7 @@ clean_timer() ->
 %% Ensure that the monitor data of all nodes in the cluster are aligned in time
 next_interval() ->
     Interval = emqx_conf:get([dashboard, sample_interval], ?DEFAULT_SAMPLE_INTERVAL) * 1000,
-    Now = erlang:system_time(millisecond),
+    Now = now_ts(),
     NextTime = round_down(Now, Interval) + Interval,
     Remaining = NextTime - Now,
     {NextTime, Remaining}.
@@ -621,24 +643,103 @@ next_interval() ->
 %% -------------------------------------------------------------------------------------------------
 %% data
 
-sample(Time) ->
+take_sample(Time, LastHwmark, ReadOrWrite) ->
     Fun =
         fun(Key, Acc) ->
             Acc#{Key => getstats(Key)}
         end,
-    Data = lists:foldl(Fun, #{}, ?SAMPLER_LIST),
+    Data0 = lists:foldl(Fun, #{}, ?SAMPLER_LIST),
+    Data =
+        case ReadOrWrite of
+            read_hwmark ->
+                last_hwmark(LastHwmark, Data0);
+            write_hwmark ->
+                refresh_hwmark(Time, LastHwmark, Data0)
+        end,
     #emqx_monit{time = Time, data = Data}.
 
-flush(_Last = undefined, Now) ->
-    store(Now);
-flush(_Last = #emqx_monit{data = LastData}, Now = #emqx_monit{data = NowData}) ->
+%% Take hwmark data from the last sample.
+last_hwmark(#emqx_monit{data = LastHwmarks}, Data) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            case ?MAYBE_HWMARK(is_map_key(Key, LastHwmarks), maps:get(Key, LastHwmarks)) of
+                ?HWMARK(_, _, _) = Hwmark ->
+                    Acc#{Key => Hwmark};
+                _ ->
+                    Acc
+            end
+        end,
+        Data,
+        ?WATERMARK_SAMPLER_LIST
+    ).
+
+%% Refresh the hwmark data, prepare for writing to the database.
+refresh_hwmark(Time, #emqx_monit{data = LastHwmarks}, Data) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            Current = current_wmark(Key),
+            case Current =:= ?NO_WMARK of
+                true ->
+                    %% no hwmark for this key, e.g. disabled, ignore it
+                    Acc;
+                false ->
+                    Old = ?MAYBE_HWMARK(is_map_key(Key, LastHwmarks), maps:get(Key, LastHwmarks)),
+                    New = ?MAYBE_HWMARK(Current =/= ?NO_WMARK, ?HWMARK(Time, Current, Current)),
+                    Hwmark = do_refresh_hwmark(Key, Old, New),
+                    Acc#{Key => Hwmark}
+            end
+        end,
+        Data,
+        ?WATERMARK_SAMPLER_LIST
+    ).
+
+current_wmark(sessions_hist_hwmark) ->
+    case emqx_cm_registry:is_hist_enabled() of
+        true -> emqx_cm_registry:table_size();
+        false -> ?NO_WMARK
+    end.
+
+do_refresh_hwmark(
+    Key,
+    ?HWMARK(TPast, PPast, _VPast),
+    ?HWMARK(TNow, _PNow, VNow)
+) when VNow < PPast ->
+    %% Lower than peak, check if the peak is expired.
+    RetentionTime = emqx_conf:get([dashboard, hwmark_expire_time]),
+    ExpireAt = TNow - RetentionTime,
+    case TPast =< ExpireAt of
+        true ->
+            %% the old high watermark is expired,
+            %% scan the data since TPast to find the new peak time and value.
+            %% this needs to read all records from the database, but hopefully this is not so frequent.
+            All = all_data(fun(T) -> T > ExpireAt end, no_sort),
+            {PT, PV} = scan_hwmark(Key, All, TNow, VNow),
+            ?HWMARK(PT, PV, VNow);
+        false ->
+            %% keep the old peak time and value.
+            ?HWMARK(TPast, PPast, VNow)
+    end;
+do_refresh_hwmark(_Key, _Past, ?HWMARK(_, _, _) = Now) ->
+    Now.
+
+scan_hwmark(_Key, [], T, V) ->
+    {T, V};
+scan_hwmark(Key, [{T0, Data} | Rest], T, V) ->
+    case maps:get(Key, Data, ?NO_WMARK) of
+        ?HWMARK(_, _, V0) when (V0 > V) orelse (V0 =:= V andalso T0 > T) ->
+            scan_hwmark(Key, Rest, T0, V0);
+        _ ->
+            scan_hwmark(Key, Rest, T, V)
+    end.
+
+flush(#emqx_monit{data = LastData}, Now = #emqx_monit{data = NowData}) ->
     Store = Now#emqx_monit{data = delta(LastData, NowData)},
     store(Store).
 
 delta(LastData, NowData) ->
     Fun =
         fun(Key, Data) ->
-            Value = maps:get(Key, NowData) - maps:get(Key, LastData),
+            Value = maps:get(Key, NowData) - maps:get(Key, LastData, 0),
             Data#{Key => Value}
         end,
     lists:foldl(Fun, NowData, ?DELTA_SAMPLER_LIST).
@@ -654,7 +755,7 @@ clean() ->
     clean(?RETENTION_TIME).
 
 clean(Retention) ->
-    Now = erlang:system_time(millisecond),
+    Now = now_ts(),
     MS = ets:fun2ms(fun(#emqx_monit{time = T}) when Now - T > Retention -> T end),
     TsList = ets:select(?TAB, MS),
     {atomic, ok} =
@@ -741,7 +842,7 @@ non_rate_value() ->
 -if(?EMQX_RELEASE_EDITION == ee).
 license_quota() ->
     case emqx_license_checker:limits() of
-        {ok, #{max_connections := Quota}} ->
+        {ok, #{max_sessions := Quota}} ->
             #{license_quota => Quota};
         {error, no_license} ->
             #{license_quota => 0}
@@ -750,3 +851,34 @@ license_quota() ->
 license_quota() ->
     #{}.
 -endif.
+
+now_ts() ->
+    erlang:system_time(millisecond).
+
+%% make hwmark data JSON serializable.
+format_hwmarks(Result, #emqx_monit{data = Samplers}) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            case maps:get(Key, Samplers, ?NO_WMARK) of
+                ?HWMARK(T, P, V) ->
+                    Acc#{Key => #{peak_time => T, peak_value => P, current_value => V}};
+                _ ->
+                    Acc
+            end
+        end,
+        Result,
+        ?WATERMARK_SAMPLER_LIST
+    ).
+
+%% High watermarks are sampled on all nodes in different pace,
+%% we pick the max value from all nodes.
+max_hwmark(Key, ThisNode, Cluster) when not is_map_key(Key, Cluster) ->
+    Cluster#{Key => ThisNode};
+max_hwmark(Key, #{peak_time := T, peak_value := V} = ThisNode, Cluster) ->
+    #{peak_time := ClusterPT, peak_value := ClusterPV} = OtherNode = maps:get(Key, Cluster),
+    case V > ClusterPV orelse (V =:= ClusterPV andalso T > ClusterPT) of
+        true ->
+            Cluster#{Key => ThisNode};
+        false ->
+            Cluster#{Key => OtherNode}
+    end.

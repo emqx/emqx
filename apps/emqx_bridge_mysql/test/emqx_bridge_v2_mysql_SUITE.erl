@@ -1,16 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_v2_mysql_SUITE).
 
@@ -112,15 +101,16 @@ init_per_testcase(TestCase, Config) ->
     ],
     emqx_bridge_mysql_SUITE:connect_and_create_table(NConfig),
     ConnectorConfig = connector_config(Name, NConfig),
-    BridgeConfig = bridge_config(Name, Name),
+    ActionConfig = action_config(Name, Name),
     ok = snabbkaffe:start_trace(),
     [
+        {bridge_kind, action},
         {connector_type, proplists:get_value(connector_type, Config, ?CONNECTOR_TYPE)},
         {connector_name, Name},
         {connector_config, ConnectorConfig},
         {action_type, proplists:get_value(action_type, Config, ?ACTION_TYPE)},
         {action_name, Name},
-        {bridge_config, BridgeConfig}
+        {action_config, ActionConfig}
         | NConfig
     ].
 
@@ -154,7 +144,7 @@ connector_config(Name, Config) ->
             <<"username">> => Username,
             <<"password">> => iolist_to_binary(["file://", PassFile]),
             <<"resource_opts">> => #{
-                <<"health_check_interval">> => <<"15s">>,
+                <<"health_check_interval">> => <<"1s">>,
                 <<"start_after_created">> => true,
                 <<"start_timeout">> => <<"5s">>
             }
@@ -174,7 +164,7 @@ bad_sql() ->
         "VALUES (${payload}, FROM_UNIXTIME(${timestamp}/1000))"
     >>.
 
-bridge_config(Name, ConnectorId) ->
+action_config(Name, ConnectorId) ->
     InnerConfigMap0 =
         #{
             <<"enable">> => true,
@@ -187,7 +177,7 @@ bridge_config(Name, ConnectorId) ->
                 <<"batch_time">> => <<"0ms">>,
                 <<"buffer_mode">> => <<"memory_only">>,
                 <<"buffer_seg_bytes">> => <<"10MB">>,
-                <<"health_check_interval">> => <<"15s">>,
+                <<"health_check_interval">> => <<"1s">>,
                 <<"inflight_window">> => 100,
                 <<"max_buffer_bytes">> => <<"256MB">>,
                 <<"metrics_flush_interval">> => <<"1s">>,
@@ -249,7 +239,10 @@ t_create_via_http(Config) ->
     ok.
 
 t_on_get_status(Config) ->
-    emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}),
+    %% Depending on the exact way that the connection cut manifests, it may report as
+    %% connecting or disconnected (if `mysql_protocol:send_packet` crashes with `badmatch`
+    %% error...)
+    emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => [connecting, disconnected]}),
     ok.
 
 t_start_action_or_source_with_disabled_connector(Config) ->
@@ -390,3 +383,7 @@ t_timeout_disconnected_then_recover(Config) ->
         []
     ),
     ok.
+
+t_rule_test_trace(Config) ->
+    Opts = #{},
+    emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).

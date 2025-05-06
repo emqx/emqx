@@ -1,16 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_v2_api_SUITE).
@@ -65,6 +54,9 @@
 -define(ACTION_TYPE_2, ?SOURCE_TYPE).
 -define(KAFKA_BRIDGE(Name, Connector), ?RESOURCE(Name, ?ACTION_TYPE)#{
     <<"connector">> => Connector,
+    <<"fallback_actions">> => [
+        #{<<"kind">> => <<"republish">>, <<"args">> => #{<<"topic">> => <<Name/binary, "/fba">>}}
+    ],
     <<"kafka">> => #{
         <<"buffer">> => #{
             <<"memory_overload_protection">> => true,
@@ -744,6 +736,7 @@ summary_scenarios_setup(Config) ->
     #{
         type => Type,
         name => Name,
+        config => CreateConfig,
         summarize => Summarize
     }.
 
@@ -2027,4 +2020,52 @@ t_delete_when_dual_has_dependencies(Config) when is_list(Config) ->
             )
     end,
 
+    ok.
+
+%% Checks that we return configured fallback actions in API responses for a single action
+%% and for summary.
+t_fallback_actions_returned_info(matrix) ->
+    [
+        [single, actions],
+        [cluster, actions]
+    ];
+t_fallback_actions_returned_info(Config) ->
+    Opts = summary_scenarios_setup(Config),
+    #{
+        summarize := Summarize,
+        config := ActionConfig0,
+        name := ReferencedName,
+        type := Type
+    } = Opts,
+    ReferencingName = <<"action_that_uses_fallback">>,
+    ActionConfig = emqx_utils_maps:deep_merge(
+        ActionConfig0,
+        #{
+            <<"fallback_actions">> => [
+                #{<<"kind">> => <<"reference">>, <<"type">> => Type, <<"name">> => ReferencedName}
+            ]
+        }
+    ),
+    ?assertMatch(
+        {201, #{<<"fallback_actions">> := [#{<<"kind">> := <<"reference">>}]}},
+        create_action_api(ReferencingName, Type, ActionConfig)
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"name">> := ReferencingName,
+                <<"referenced_as_fallback_action_by">> := []
+            },
+            #{
+                <<"name">> := ReferencedName,
+                <<"referenced_as_fallback_action_by">> := [
+                    #{
+                        <<"type">> := Type,
+                        <<"name">> := ReferencingName
+                    }
+                ]
+            }
+        ]},
+        Summarize()
+    ),
     ok.

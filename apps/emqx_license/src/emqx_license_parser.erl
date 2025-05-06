@@ -1,7 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% @doc EMQX License Management.
 %%--------------------------------------------------------------------
 
 -module(emqx_license_parser).
@@ -30,9 +28,11 @@
     | ?LARGE_CUSTOMER
     | ?BUSINESS_CRITICAL_CUSTOMER
     | ?BYOC_CUSTOMER
-    | ?EVALUATION_CUSTOMER.
+    | ?EDUCATION_NONPROFIT_CUSTOMER
+    | ?EVALUATION_CUSTOMER
+    | ?DEVELOPER_CUSTOMER.
 
--type license_type() :: ?OFFICIAL | ?TRIAL.
+-type license_type() :: ?OFFICIAL | ?TRIAL | ?COMMUNITY.
 
 -type license() :: #{
     %% the parser module which parsed the license
@@ -60,14 +60,17 @@
     customer_type/1,
     license_type/1,
     expiry_date/1,
-    max_connections/1,
+    max_sessions/1,
     max_uptime_seconds/1,
-    is_business_critical/1
+    is_business_critical/1,
+    is_single_node/1
 ]).
 
 %% for testing purpose
 -export([
     default/0,
+    community/0,
+    evaluation/0,
     pubkey/0
 ]).
 
@@ -88,7 +91,7 @@
 
 -callback expiry_date(license_data()) -> calendar:date().
 
--callback max_connections(license_data()) -> non_neg_integer().
+-callback max_sessions(license_data()) -> non_neg_integer().
 
 -callback max_uptime_seconds(license_data()) -> non_neg_integer() | infinity.
 
@@ -97,7 +100,14 @@
 %%--------------------------------------------------------------------
 
 pubkey() -> ?PUBKEY.
-default() -> emqx_license_schema:default_license().
+evaluation() -> ?DEFAULT_EVALUATION_LICENSE_KEY.
+community() -> ?DEFAULT_COMMUNITY_LICENSE_KEY.
+-ifdef(TEST).
+%% Allow common tests to run without setting license key.
+default() -> evaluation().
+-else.
+default() -> community().
+-endif.
 
 %% @doc Parse license key.
 %% If the license key is prefixed with "file://path/to/license/file",
@@ -108,6 +118,8 @@ parse(Content) ->
 
 parse(<<"default">>, PubKey) ->
     parse(?MODULE:default(), PubKey);
+parse(<<"evaluation">>, PubKey) ->
+    parse(?MODULE:evaluation(), PubKey);
 parse(<<"file://", Path/binary>> = FileKey, PubKey) ->
     case file:read_file(Path) of
         {ok, Content} ->
@@ -154,9 +166,9 @@ expiry_date(#{module := Module, data := LicenseData}) ->
 max_uptime_seconds(#{module := Module, data := LicenseData}) ->
     Module:max_uptime_seconds(LicenseData).
 
--spec max_connections(license()) -> non_neg_integer().
-max_connections(#{module := Module, data := LicenseData}) ->
-    Module:max_connections(LicenseData).
+-spec max_sessions(license()) -> non_neg_integer().
+max_sessions(#{module := Module, data := LicenseData}) ->
+    Module:max_sessions(LicenseData).
 
 -spec is_business_critical(license() | raw_license()) -> boolean().
 is_business_critical(#{module := Module, data := LicenseData}) ->
@@ -164,6 +176,12 @@ is_business_critical(#{module := Module, data := LicenseData}) ->
 is_business_critical(Key) when is_binary(Key) ->
     {ok, License} = parse(Key),
     is_business_critical(License).
+
+%% @doc Check if the license is a single node license.
+%% currently, community license = single node license.
+-spec is_single_node(license()) -> boolean().
+is_single_node(License) ->
+    license_type(License) =:= ?COMMUNITY.
 
 %%--------------------------------------------------------------------
 %% Private functions

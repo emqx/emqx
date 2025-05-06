@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_dashboard).
@@ -28,7 +16,7 @@
 %% Authorization
 -export([authorize/1]).
 
--export([save_dispatch_eterm/1]).
+-export([save_dispatch_eterm/1, save_dispatch_eterm/2]).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
@@ -124,8 +112,12 @@ minirest_option(Options) ->
 
 %% save dispatch to priv dir.
 save_dispatch_eterm(SchemaMod) ->
+    save_dispatch_eterm(SchemaMod, _ConfigToMerge = #{}).
+
+save_dispatch_eterm(SchemaMod, ConfigToMerge) ->
     Dir = code:priv_dir(emqx_dashboard),
-    emqx_config:put([dashboard], #{i18n_lang => en, swagger_support => false}),
+    Config = maps:merge(ConfigToMerge, #{i18n_lang => en, swagger_support => false}),
+    emqx_config:put([dashboard], Config),
     os:putenv("SCHEMA_MOD", atom_to_list(SchemaMod)),
     DispatchFile = filename:join([Dir, ?DISPATCH_FILE]),
     io:format(user, "===< Generating: ~s~n", [DispatchFile]),
@@ -273,10 +265,7 @@ listener_name(Protocol) ->
 -dialyzer({no_match, [audit_log_fun/0]}).
 
 audit_log_fun() ->
-    case emqx_release:edition() of
-        ee -> emqx_dashboard_audit:log_fun();
-        ce -> undefined
-    end.
+    emqx_dashboard_audit:log_fun().
 
 -if(?EMQX_RELEASE_EDITION =/= ee).
 

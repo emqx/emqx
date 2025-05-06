@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_rule_engine_api_2_SUITE).
 
@@ -822,5 +810,158 @@ t_last_modified_at(_Config) ->
             ]
         }},
         list_rules()
+    ),
+    ok.
+
+%% This verifies that we don't attempt to transform keys in the `details' value of an
+%% alarm activated/deactivated rule test to atoms.
+t_alarm_details_with_unknown_atom_key(_Config) ->
+    Cases = [
+        #{
+            expected => #{code => 200},
+            hint => <<
+                "the original bug was that this failed with 500 when"
+                " trying to convert a binary to existing atom"
+            >>,
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"event_type">> => <<"alarm_activated">>,
+                            <<"name">> => <<"alarm_name">>,
+                            <<"details">> => #{
+                                <<"some_key_that_is_not_a_known_atom">> => <<"yes">>
+                            },
+                            <<"message">> => <<"boom">>,
+                            <<"activated_at">> => 1736512728666
+                        },
+                    <<"sql">> =>
+                        <<"SELECT\n  *\nFROM\n  \"$events/sys/alarm_activated\" ">>
+                }
+        },
+        #{
+            expected => #{code => 200},
+            hint => <<
+                "the original bug was that this failed with 500 when"
+                " trying to convert a binary to existing atom"
+            >>,
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"event_type">> => <<"alarm_deactivated">>,
+                            <<"name">> => <<"alarm_name">>,
+                            <<"details">> => #{
+                                <<"some_key_that_is_not_a_known_atom">> => <<"yes">>
+                            },
+                            <<"message">> => <<"boom">>,
+                            <<"activated_at">> => 1736512728666,
+                            <<"deactivated_at">> => 1736512828666
+                        },
+                    <<"sql">> =>
+                        <<"SELECT\n  *\nFROM\n  \"$events/sys/alarm_deactivated\" ">>
+                }
+        }
+    ],
+    Failures = lists:filtermap(fun do_t_rule_test_smoke/1, Cases),
+    ?assertEqual([], Failures),
+    ok.
+
+%% Verifies that we enrich the list response with status about the Actions in each rule,
+%% if available.
+t_action_details(Config) ->
+    ExtraAppSpecs = [
+        emqx_bridge_mqtt,
+        emqx_bridge
+    ],
+    ExtraApps = emqx_cth_suite:start_apps(
+        ExtraAppSpecs,
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    on_exit(fun() -> emqx_cth_suite:stop_apps(ExtraApps) end),
+
+    CreateBridge = fun(Name, MQTTPort) ->
+        emqx_bridge_v2_testlib:create_bridge_api([
+            {connector_type, <<"mqtt">>},
+            {connector_name, Name},
+            {connector_config,
+                emqx_bridge_mqtt_v2_publisher_SUITE:connector_config(#{
+                    <<"server">> => <<"127.0.0.1:", (integer_to_binary(MQTTPort))/binary>>
+                })},
+            {bridge_kind, action},
+            {action_type, <<"mqtt">>},
+            {action_name, Name},
+            {action_config,
+                emqx_bridge_mqtt_v2_publisher_SUITE:action_config(#{
+                    <<"connector">> => Name
+                })}
+        ])
+    end,
+    on_exit(fun emqx_bridge_v2_testlib:delete_all_bridges_and_connectors/0),
+    {ok, _} = CreateBridge(<<"a1">>, 1883),
+    %% Bad port: will be disconnected
+    {ok, _} = CreateBridge(<<"a2">>, 9999),
+
+    ?assertMatch(
+        {200, #{<<"data">> := []}},
+        list_rules([])
+    ),
+
+    ActionId1 = <<"mqtt:a1">>,
+    ActionId2 = <<"mqtt:a2">>,
+    %% This onw does not exist.
+    ActionId3 = <<"mqtt:a3">>,
+    {201, _} = create_rule(#{<<"id">> => <<"1">>, <<"actions">> => [ActionId1]}),
+    {201, _} = create_rule(#{<<"id">> => <<"2">>, <<"actions">> => [ActionId2]}),
+    {201, _} = create_rule(#{<<"id">> => <<"3">>, <<"actions">> => [ActionId2, ActionId1]}),
+    {201, _} = create_rule(#{<<"id">> => <<"4">>, <<"actions">> => [ActionId3]}),
+
+    ?assertMatch(
+        {200, #{
+            <<"data">> := [
+                #{
+                    <<"action_details">> := [
+                        #{
+                            <<"type">> := <<"mqtt">>,
+                            <<"name">> := <<"a3">>,
+                            <<"status">> := <<"not_found">>
+                        }
+                    ]
+                },
+                #{
+                    <<"action_details">> := [
+                        #{
+                            <<"type">> := <<"mqtt">>,
+                            <<"name">> := <<"a2">>,
+                            <<"status">> := <<"disconnected">>
+                        },
+                        #{
+                            <<"type">> := <<"mqtt">>,
+                            <<"name">> := <<"a1">>,
+                            <<"status">> := <<"connected">>
+                        }
+                    ]
+                },
+                #{
+                    <<"action_details">> := [
+                        #{
+                            <<"type">> := <<"mqtt">>,
+                            <<"name">> := <<"a2">>,
+                            <<"status">> := <<"disconnected">>
+                        }
+                    ]
+                },
+                #{
+                    <<"action_details">> := [
+                        #{
+                            <<"type">> := <<"mqtt">>,
+                            <<"name">> := <<"a1">>,
+                            <<"status">> := <<"connected">>
+                        }
+                    ]
+                }
+            ]
+        }},
+        list_rules([])
     ),
     ok.

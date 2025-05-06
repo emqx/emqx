@@ -1,16 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_rule_raw_SUITE).
@@ -170,7 +159,72 @@ t_format(_Config) ->
         emqx_authz_rule_raw:format_rule(
             {allow, {subscribe, [{qos, [1, 2]}, {retain, true}]}, [<<"a/b/c">>]}
         )
-    ).
+    ),
+    ?assertEqual(
+        #{
+            action => all,
+            permission => allow,
+            topic => [],
+            zone => <<"zone1">>
+        },
+        emqx_authz_rule_raw:format_rule(
+            {
+                allow,
+                {zone, <<"zone1">>},
+                all,
+                []
+            }
+        )
+    ),
+    ?assertEqual(
+        #{
+            action => all,
+            permission => allow,
+            topic => [],
+            zone_re => <<"^zone-[0-9]+$">>
+        },
+        emqx_authz_rule_raw:format_rule(
+            {
+                allow,
+                {zone, {re, <<"^zone-[0-9]+$">>}},
+                all,
+                []
+            }
+        )
+    ),
+    ?assertEqual(
+        #{
+            action => all,
+            permission => allow,
+            topic => [],
+            listener => <<"tcp:default">>
+        },
+        emqx_authz_rule_raw:format_rule(
+            {
+                allow,
+                {listener, <<"tcp:default">>},
+                all,
+                []
+            }
+        )
+    ),
+    ?assertEqual(
+        #{
+            action => all,
+            permission => allow,
+            topic => [],
+            listener_re => <<"^tcp:.*$">>
+        },
+        emqx_authz_rule_raw:format_rule(
+            {
+                allow,
+                {listener, {re, <<"^tcp:.*$">>}},
+                all,
+                []
+            }
+        )
+    ),
+    ok.
 
 t_format_no_rich_action(_Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, false),
@@ -180,6 +234,70 @@ t_format_no_rich_action(_Config) ->
     ?assertEqual(
         #{action => subscribe, permission => allow, topic => [<<"a/b/c">>]},
         emqx_authz_rule_raw:format_rule(Rule)
+    ).
+
+t_invalid_regex_rules(_Config) ->
+    Assert = fun(Rule, Invalid) ->
+        ?assertMatch({error, #{reason := Invalid}}, emqx_authz_rule_raw:parse_rule(Rule))
+    end,
+    Assert(
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"topics">> => [],
+            <<"action">> => <<"all">>,
+            <<"username_re">> => <<"(unmatched">>
+        },
+        invalid_username_re
+    ),
+    Assert(
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"topics">> => [],
+            <<"action">> => <<"all">>,
+            <<"clientid_re">> => <<"a{invalid)">>
+        },
+        invalid_clientid_re
+    ),
+    Assert(
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"topics">> => [],
+            <<"action">> => <<"all">>,
+            <<"zone_re">> => <<"[invalid">>
+        },
+        invalid_zone_re
+    ),
+    Assert(
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"topics">> => [],
+            <<"action">> => <<"all">>,
+            <<"listener_re">> => <<"">>
+        },
+        invalid_listener_re
+    ).
+
+t_invalid_string_rules(_Config) ->
+    Assert = fun(Rule, Invalid) ->
+        ?assertMatch({error, #{reason := Invalid}}, emqx_authz_rule_raw:parse_rule(Rule))
+    end,
+    Assert(
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"topics">> => [],
+            <<"action">> => <<"all">>,
+            <<"zone">> => <<"">>
+        },
+        invalid_zone
+    ),
+    Assert(
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"topics">> => [],
+            <<"action">> => <<"all">>,
+            <<"listener">> => <<"">>
+        },
+        invalid_listener
     ).
 
 %%--------------------------------------------------------------------

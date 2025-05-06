@@ -1,13 +1,12 @@
 {application, emqx_slow_subs, [
     {description, "EMQX Slow Subscribers Statistics"},
     % strict semver, bump manually!
-    {vsn, "1.0.8"},
+    {vsn, "1.0.9"},
     {modules, []},
     {registered, [emqx_slow_subs_sup]},
     {applications, [kernel, stdlib, emqx]},
     {mod, {emqx_slow_subs_app, []}},
     {env, []},
-    {licenses, ["Apache-2.0"]},
     {maintainers, ["EMQX Team <contact@emqx.io>"]},
     {links, []}
 ]}.

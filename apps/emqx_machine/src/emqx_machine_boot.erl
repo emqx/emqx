@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_machine_boot).
 
@@ -35,7 +23,7 @@
 -define(BASIC_REBOOT_APPS, [gproc, esockd, ranch, cowboy, emqx_durable_storage, emqx]).
 
 %% If any of these applications crash, the entire EMQX node shuts down:
--define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx]).
+-define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx, emqx_license]).
 
 %% These apps are optional, they may or may not be present in the
 %% release, depending on the build flags:
@@ -105,10 +93,15 @@ ensure_apps_started() ->
 
 start_one_app(App) ->
     ?SLOG(debug, #{msg => "starting_app", app => App}),
-    case application:ensure_all_started(App, restart_type(App)) of
+    Type = restart_type(App),
+    case application:ensure_all_started(App, Type) of
         {ok, Apps} ->
             ?SLOG(debug, #{msg => "started_apps", apps => Apps});
+        {error, Reason} when Type =:= permanent ->
+            %% log debug and wait for application_master to terminate the node
+            ?SLOG(debug, #{msg => "failed_to_start_app", app => App, reason => Reason});
         {error, Reason} ->
+            %% this is unexpected, fail loudly (this also results in a crash dump)
             ?SLOG(critical, #{msg => "failed_to_start_app", app => App, reason => Reason}),
             error({failed_to_start_app, App, Reason})
     end.
@@ -137,16 +130,9 @@ reboot_apps() ->
 basic_reboot_apps() ->
     #{
         common_business_apps := CommonBusinessApps,
-        ee_business_apps := EEBusinessApps,
-        ce_business_apps := CEBusinessApps
+        ee_business_apps := EEBusinessApps
     } = read_apps(),
-    EditionSpecificApps =
-        case emqx_release:edition() of
-            ee -> EEBusinessApps;
-            ce -> CEBusinessApps;
-            _ -> []
-        end,
-    BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
+    BusinessApps = CommonBusinessApps ++ EEBusinessApps,
     ?BASIC_REBOOT_APPS ++ (BusinessApps -- excluded_apps()).
 
 %% @doc Read business apps belonging to the current profile/edition.
@@ -191,12 +177,8 @@ runtime_deps() ->
         %% apps, we may apply the same tactic for `emqx_connector' and inject individual bridges
         %% as its dependencies.
         {emqx_connector, fun(App) -> lists:prefix("emqx_bridge_", atom_to_list(App)) end},
-        %% emqx_fdb_ds is an EE app
-        {emqx_durable_storage, emqx_fdb_ds},
         %% emqx_ds_builtin is an EE app
         {emqx_ds_backends, emqx_ds_builtin_raft},
-        %% emqx_ds_fdb_backend is an EE app
-        {emqx_ds_backends, emqx_ds_fdb_backend},
         {emqx_dashboard, emqx_license}
     ].
 

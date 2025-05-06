@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_clients_SUITE).
 -compile(export_all).
@@ -108,28 +96,23 @@ init_per_group(general, Config) ->
         | Config
     ];
 init_per_group(persistent_sessions, Config0) ->
-    case emqx_ds_test_helpers:skip_if_norepl() of
-        false ->
-            DurableSessionsOpts = #{
-                <<"enable">> => true,
-                <<"disconnected_session_count_refresh_interval">> => <<"100ms">>
-            },
-            Opts = #{durable_sessions_opts => DurableSessionsOpts},
-            AppSpecs = [emqx_management],
-            Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
-            ClusterSpecs = [
-                {emqx_mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
-                {emqx_mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
-            ],
-            Config = emqx_common_test_helpers:start_cluster_ds(Config0, ClusterSpecs, Opts),
-            [N1 | _] = ?config(cluster_nodes, Config),
-            [
-                {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
-                | Config
-            ];
-        Yes ->
-            Yes
-    end;
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"disconnected_session_count_refresh_interval">> => <<"100ms">>
+    },
+    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    AppSpecs = [emqx_management],
+    Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
+    ClusterSpecs = [
+        {emqx_mgmt_api_clients_SUITE1, #{apps => AppSpecs ++ [Dashboard]}},
+        {emqx_mgmt_api_clients_SUITE2, #{apps => AppSpecs}}
+    ],
+    Config = emqx_common_test_helpers:start_cluster_ds(Config0, ClusterSpecs, Opts),
+    [N1 | _] = ?config(cluster_nodes, Config),
+    [
+        {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
+        | Config
+    ];
 init_per_group(non_persistent_cluster, Config) ->
     AppSpecs = [
         emqx,

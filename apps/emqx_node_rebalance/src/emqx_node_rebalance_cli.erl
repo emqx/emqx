@@ -129,13 +129,14 @@ cli(_) ->
         [
             {
                 "rebalance start --evacuation \\\n"
-                "    [--wait-health-check Secs] \\\n"
-                "    [--redirect-to \"Host1:Port1 Host2:Port2 ...\"] \\\n"
-                "    [--conn-evict-rate CountPerSec] \\\n"
-                "    [--migrate-to \"node1@host1 node2@host2 ...\"] \\\n"
-                "    [--wait-takeover Secs] \\\n"
-                "    [--sess-evict-rate CountPerSec]",
-                "Start current node evacuation with optional server redirect to the specified servers"
+                "  [--wait-health-check Secs] \\\n"
+                "  [--redirect-to \"Host1 Host2 ..\"] \\\n"
+                "  [--conn-evict-rate CountPerSec] \\\n"
+                "  [--migrate-to \"emqx@h.1 emqx@h.2 ..\"] \\\n"
+                "  [--wait-takeover Secs] \\\n"
+                "  [--sess-evict-rate CountPerSec]",
+                "Start current node evacuation with optional\n"
+                "server redirect to the specified servers"
             },
 
             %% TODO: uncomment after we officially release the feature.
@@ -147,27 +148,28 @@ cli(_) ->
 
             {
                 "rebalance start \\\n"
-                "    [--nodes \"node1@host1 node2@host2\"] \\\n"
-                "    [--wait-health-check Secs] \\\n"
-                "    [--conn-evict-rate ConnPerSec] \\\n"
-                "    [--conn-evict-rpc-timeout Secs] \\\n"
-                "    [--abs-conn-threshold Count] \\\n"
-                "    [--rel-conn-threshold Fraction] \\\n"
-                "    [--wait-takeover Secs] \\\n"
-                "    [--sess-evict-rate CountPerSec] \\\n"
-                "    [--sess-evict-rpc-timeout Secs] \\\n"
-                "    [--abs-sess-threshold Count] \\\n"
-                "    [--rel-sess-threshold Fraction]",
-                "Start rebalance on the specified nodes using the current node as the coordinator"
+                "  [--nodes \"eqmx@h.1 emqx@h.2 ..\"] \\\n"
+                "  [--wait-health-check Secs] \\\n"
+                "  [--conn-evict-rate ConnPerSec] \\\n"
+                "  [--conn-evict-rpc-timeout Secs] \\\n"
+                "  [--abs-conn-threshold Count] \\\n"
+                "  [--rel-conn-threshold Fraction] \\\n"
+                "  [--wait-takeover Secs] \\\n"
+                "  [--sess-evict-rate CountPerSec] \\\n"
+                "  [--sess-evict-rpc-timeout Secs] \\\n"
+                "  [--abs-sess-threshold Count] \\\n"
+                "  [--rel-sess-threshold Fraction]",
+                "Start rebalance on the specified nodes\n"
+                "using the current node as the coordinator"
             },
 
             {"rebalance node-status", "Get current node rebalance status"},
 
-            {"rebalance node-status \"node1@host1\"", "Get remote node rebalance status"},
+            {"rebalance node-status \"emqx@h.1\"", "Get remote node rebalance status"},
 
             {"rebalance status",
-                "Get statuses of all current rebalance/evacuation processes across the cluster"},
-
+                "Get statuses of all current rebalance/evacuation\n"
+                "processes across the cluster"},
             {"rebalance stop", "Stop node rebalance"}
         ]
     ).

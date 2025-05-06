@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_dashboard_SUITE).
@@ -63,18 +51,19 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     _ = emqx_conf_schema:roots(),
     ok = emqx_dashboard_desc_cache:init(),
-    emqx_dashboard:save_dispatch_eterm(emqx_conf:schema_module()),
-    emqx_common_test_http:create_default_app(),
+    %% We must pass on the current config here, otherwise it would clobber normal
+    %% configuration keys such as default_password and default_username...
+    DashboardConfig = emqx_conf:get([dashboard]),
+    emqx_dashboard:save_dispatch_eterm(emqx_conf:schema_module(), DashboardConfig),
     [{suite_apps, SuiteApps} | Config].
 
 end_per_suite(Config) ->
-    emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 t_overview(_) ->
@@ -195,6 +184,48 @@ t_admin_delete_self_failed(_) ->
     Header2 = {"Authorization", Token},
     {error, {_, 401, _}} = request_dashboard(delete, api_path(["users", "username1"]), Header2),
     mnesia:clear_table(?ADMIN).
+
+%% This verifies that we can delete the default admin only if there is at least another
+%% admin username in the database.
+t_admin_delete_default_username(_TCConfig) ->
+    mnesia:clear_table(?ADMIN),
+    DefaultUsername = emqx_dashboard_admin:default_username(),
+    DefaultPassword = emqx_dashboard_admin:default_password(),
+    %% Sanity checks
+    ?assertNotEqual(<<"">>, DefaultUsername),
+    ?assertNotEqual(<<"">>, DefaultPassword),
+    {ok, #{}} = emqx_dashboard_admin:add_default_user(),
+    HeaderDefault = auth_header_(DefaultUsername, DefaultPassword),
+    ?assertMatch(
+        {error, {_, 400, _}},
+        request_dashboard(delete, api_path(["users", DefaultUsername]), HeaderDefault)
+    ),
+    NewAdmin = <<"newadmin">>,
+    NewPassword = <<"newadminpassword_123">>,
+    {ok, #{}} = emqx_dashboard_admin:add_user(
+        NewAdmin, NewPassword, ?ROLE_SUPERUSER, <<"description">>
+    ),
+    NewHeader = auth_header_(NewAdmin, NewPassword),
+    %% Now we can delete the default admin user
+    ?assertMatch(
+        {ok, _},
+        request_dashboard(delete, api_path(["users", DefaultUsername]), NewHeader)
+    ),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        request_dashboard(delete, api_path(["users", DefaultUsername]), NewHeader)
+    ),
+    %% Cannot delete self
+    ?assertMatch(
+        {error, {_, 400, _}},
+        request_dashboard(delete, api_path(["users", NewAdmin]), NewHeader)
+    ),
+    %% Restarting the application should not restore the default admin user
+    ?assertMatch([_], emqx_dashboard_admin:admin_users()),
+    ok = application:stop(emqx_dashboard),
+    ok = application:start(emqx_dashboard),
+    ?assertMatch([_], emqx_dashboard_admin:admin_users()),
+    ok.
 
 t_rest_api(_Config) ->
     mnesia:clear_table(?ADMIN),

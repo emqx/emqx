@@ -24,8 +24,3 @@ It implements the data bridge APIs for interacting with an Oracle Database Bridg
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).
-
-
-## License
-
-See [BSL](./BSL.txt).

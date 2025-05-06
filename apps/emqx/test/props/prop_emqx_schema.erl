@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(prop_emqx_schema).
@@ -42,6 +30,21 @@ parses_the_same(Value, Type1, Type2) ->
 %%--------------------------------------------------------------------
 %% Properties
 %%--------------------------------------------------------------------
+
+prop_duration_ms_to_str_roundtrip() ->
+    ?FORALL(
+        RawDuration,
+        emqx_proper_types:raw_duration(),
+        ?IMPLIES(
+            timeout_within_bounds(RawDuration),
+            begin
+                {ok, Parsed0} = parse(RawDuration, emqx_schema:duration_ms()),
+                Pretty = emqx_schema:duration_ms_to_str(Parsed0),
+                {ok, Parsed1} = parse(Pretty, emqx_schema:duration_ms()),
+                Parsed0 =:= Parsed1
+            end
+        )
+    ).
 
 prop_timeout_duration_refines_duration() ->
     ?FORALL(

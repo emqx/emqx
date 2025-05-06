@@ -1,16 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_rule_SUITE).
@@ -27,7 +16,7 @@
     username => <<"test">>,
     peerhost => {127, 0, 0, 1},
     zone => default,
-    listener => {tcp, default}
+    listener => 'tcp:default'
 }).
 
 all() ->
@@ -718,7 +707,34 @@ t_invalid_rule(_) ->
     ?assertThrow(
         #{reason := invalid_client_match_condition},
         emqx_authz_rule:compile({allow, who, all, ["topic/test"]})
-    ).
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_re_pattern, type := clientid},
+        emqx_authz_rule:compile({allow, {clientid, {re, "["}}, all, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_re_pattern, type := username},
+        emqx_authz_rule:compile({allow, {username, {re, "["}}, all, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_re_pattern, type := zone},
+        emqx_authz_rule:compile({allow, {zone, {re, "["}}, all, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_re_pattern, type := listener},
+        emqx_authz_rule:compile({allow, {listener, {re, "["}}, all, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        #{reason := invalid_re_pattern, type := {client_attr, "a"}},
+        emqx_authz_rule:compile({allow, {client_attr, "a", {re, "["}}, all, ["topic/test"]})
+    ),
+
+    ok.
 
 t_match_client_attr(_) ->
     Topic = <<"test/topic">>,

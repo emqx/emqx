@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_bridge_iotdb, [
     {description, "EMQX Enterprise Apache IoTDB Bridge"},
-    {vsn, "0.2.7"},
+    {vsn, "0.2.9"},
     {modules, [
         emqx_bridge_iotdb,
         emqx_bridge_iotdb_connector
@@ -17,7 +17,6 @@
         {emqx_action_info_modules, [emqx_bridge_iotdb_action_info]},
         {emqx_connector_info_modules, [emqx_bridge_iotdb_connector_info]}
     ]},
-    {licenses, ["Business Source License 1.1"]},
     {maintainers, ["EMQX Team <contact@emqx.io>"]},
     {links, [
         {"Homepage", "https://emqx.io/"},

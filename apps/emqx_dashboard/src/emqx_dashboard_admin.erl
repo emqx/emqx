@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc Web dashboard admin authentication with username and password.
@@ -34,6 +22,9 @@
     clear_mfa_state/1,
     set_mfa_state/2,
     get_mfa_state/1,
+    clear_login_lock/1,
+    set_login_lock/2,
+    get_login_lock/1,
     force_add_user/4,
     remove_user/1,
     update_user/3,
@@ -42,6 +33,7 @@
     change_password/3,
     enable_mfa/2,
     all_users/0,
+    admin_users/0,
     check/2,
     check/3
 ]).
@@ -71,7 +63,7 @@
 -endif.
 
 -ifdef(TEST).
--export([unsafe_update_user/1]).
+-export([unsafe_update_user/1, default_password/0]).
 -endif.
 
 -export_type([
@@ -146,13 +138,13 @@ get_mfa_enabled_state(Username) ->
     end.
 
 get_mfa_state(Username) ->
-    case ets:lookup(?ADMIN, Username) of
-        [#?ADMIN{extra = #{mfa_state := S}}] ->
+    case get_extra(Username) of
+        {ok, #{mfa_state := S}} ->
             {ok, S};
-        [_] ->
+        {ok, _} ->
             {error, no_mfa_state};
-        [] ->
-            {error, username_not_found}
+        {error, _} = Error ->
+            Error
     end.
 
 %% @doc Delete MFA state from user record.
@@ -162,13 +154,7 @@ clear_mfa_state(Username) ->
     return(Res).
 
 clear_mfa_state2(Username) ->
-    case mnesia:wread({?ADMIN, Username}) of
-        [] ->
-            mnesia:abort(<<"username_not_found">>);
-        [Admin] ->
-            Extra = Admin#?ADMIN.extra,
-            ok = mnesia:write(Admin#?ADMIN{extra = maps:without([mfa_state], Extra)})
-    end.
+    update_extra(Username, fun(Extra) -> maps:without([mfa_state], Extra) end).
 
 %% @doc Change `mfa_state' to `disabled'.
 disable_mfa(Username) ->
@@ -176,13 +162,7 @@ disable_mfa(Username) ->
     return(Res).
 
 disable_mfa2(Username) ->
-    case mnesia:wread({?ADMIN, Username}) of
-        [] ->
-            mnesia:abort(<<"username_not_found">>);
-        [Admin] ->
-            Extra = Admin#?ADMIN.extra,
-            ok = mnesia:write(Admin#?ADMIN{extra = Extra#{mfa_state => disabled}})
-    end.
+    update_extra(Username, fun(Extra) -> Extra#{mfa_state => disabled} end).
 
 %% @doc Enable MFA state.
 %% Return error if it's already enabled.
@@ -208,12 +188,46 @@ set_mfa_state(Username, MfaState) ->
     return(Res).
 
 set_mfa_state2(Username, MfaState) ->
+    update_extra(Username, fun(Extra) -> Extra#{mfa_state => MfaState} end).
+
+set_login_lock(Username, LockedUntil) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun set_login_lock2/2, [Username, LockedUntil]),
+    return(Res).
+
+set_login_lock2(Username, LockedUntil) ->
+    update_extra(Username, fun(Extra) -> Extra#{login_lock => LockedUntil} end).
+
+get_login_lock(Username) ->
+    case get_extra(Username) of
+        {ok, #{login_lock := LockedUntil}} ->
+            {ok, LockedUntil};
+        _ ->
+            not_found
+    end.
+
+clear_login_lock(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun clear_login_lock2/1, [Username]),
+    return(Res).
+
+clear_login_lock2(Username) ->
+    update_extra(Username, fun(Extra) -> maps:without([login_lock], Extra) end).
+
+%% @doc Management of `extra' field.
+
+update_extra(Username, Fun) ->
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
             mnesia:abort(<<"username_not_found">>);
-        [Admin] ->
-            Extra = Admin#?ADMIN.extra,
-            ok = mnesia:write(Admin#?ADMIN{extra = Extra#{mfa_state => MfaState}})
+        [#?ADMIN{extra = Extra0} = Admin] ->
+            ok = mnesia:write(Admin#?ADMIN{extra = Fun(Extra0)})
+    end.
+
+get_extra(Username) ->
+    case ets:lookup(?ADMIN, Username) of
+        [#?ADMIN{extra = Extra}] ->
+            {ok, Extra};
+        [] ->
+            {error, username_not_found}
     end.
 
 %% 0-9 or A-Z or a-z or $_
@@ -423,8 +437,11 @@ change_password(Username, OldPasswd, NewPasswd, MfaToken) ->
 %% @doc Change password from CLI.
 change_password_trusted(Username, Password) when is_binary(Username), is_binary(Password) ->
     case legal_password(Password) of
-        ok -> change_password_hash(Username, hash(Password));
-        Error -> Error
+        ok ->
+            ok = emqx_dashboard_login_lock:reset(Username),
+            change_password_hash(Username, hash(Password));
+        Error ->
+            Error
     end.
 
 change_password_hash(Username, PasswordHash) ->
@@ -472,24 +489,27 @@ lookup_user(Username) ->
 
 -spec all_users() -> [map()].
 all_users() ->
-    lists:map(
-        fun(
-            #?ADMIN{
-                username = Username,
-                description = Desc,
-                role = Role,
-                extra = Extra
-            }
-        ) ->
-            flatten_username(#{
-                username => Username,
-                description => Desc,
-                role => ensure_role(Role),
-                mfa => format_mfa(Extra)
-            })
-        end,
-        ets:tab2list(?ADMIN)
-    ).
+    lists:map(fun to_external_user/1, ets:tab2list(?ADMIN)).
+
+-spec admin_users() -> [map()].
+admin_users() ->
+    Ms = ets:fun2ms(fun(#?ADMIN{role = ?ROLE_SUPERUSER} = User) -> User end),
+    Admins = ets:select(?ADMIN, Ms),
+    lists:map(fun to_external_user/1, Admins).
+
+to_external_user(UserRecord) ->
+    #?ADMIN{
+        username = Username,
+        description = Desc,
+        role = Role,
+        extra = Extra
+    } = UserRecord,
+    flatten_username(#{
+        username => Username,
+        description => Desc,
+        role => ensure_role(Role),
+        mfa => format_mfa(Extra)
+    }).
 
 format_mfa(#{mfa_state := #{mechanism := Mechanism}}) -> Mechanism;
 format_mfa(#{mfa_state := disabled}) -> disabled;
@@ -616,6 +636,7 @@ sign_token(Username, Password) ->
 sign_token(Username, Password, MfaToken) ->
     ExpiredTime = emqx:get_config([dashboard, password_expired_time], 0),
     maybe
+        ok ?= emqx_dashboard_login_lock:verify(Username),
         {ok, User} ?= check(Username, Password, MfaToken),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
         {ok, Role, Token} ?= emqx_dashboard_token:sign(User, Password),
@@ -659,15 +680,27 @@ add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY
 add_default_user(Username, Password) ->
     case lookup_user(Username) of
         [] ->
-            case do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>) of
-                {error, ?USERNAME_ALREADY_EXISTS_ERROR} ->
-                    %% race condition: multiple nodes booting at the same time?
-                    {ok, default_user_exists};
-                Res ->
-                    Res
+            AllAdminUsers = admin_users(),
+            OtherAdminUsers = lists:filter(
+                fun(#{username := U}) -> U /= Username end, AllAdminUsers
+            ),
+            case OtherAdminUsers of
+                [_ | _] ->
+                    %% Other admins exist; no need to create default one.
+                    {ok, other_admins_exist};
+                [] ->
+                    do_add_default_user(Username, Password)
             end;
         _ ->
             {ok, default_user_exists}
+    end.
+
+do_add_default_user(Username, Password) ->
+    maybe
+        {error, ?USERNAME_ALREADY_EXISTS_ERROR} ?=
+            do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>),
+        %% race condition: multiple nodes booting at the same time?
+        {ok, default_user_exists}
     end.
 
 %% ensure the `role` is correct when it is directly read from the table

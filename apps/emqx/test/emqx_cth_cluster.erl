@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc Common Test Helper / Running tests in a cluster
@@ -41,7 +29,7 @@
 -export([start/1, start/2, restart/1]).
 -export([stop/1, stop_node/1]).
 
--export([start_bare_nodes/1, start_bare_nodes/2, join_cluster/2]).
+-export([join_cluster/2]).
 
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
@@ -89,27 +77,30 @@
     % Default: no (first core node is used to join to by default)
     join_to => node() | undefined,
 
+    %% Options that may affect `emqx_cth_peer:start{,_link}', such as `shutdown'.
+    start_opts => #{},
+
     %% Working directory
     %% If this directory is not empty, starting up the node applications will fail
     %% Default: "${ClusterOpts.work_dir}/${nodename}"
     work_dir => file:name()
 }}.
 
--spec start([nodespec()], ClusterOpts) ->
-    [node()]
-when
-    ClusterOpts :: #{
-        %% Working directory
-        %% Everything a test produces should go here. Each node's stuff should go in its
-        %% own directory.
-        work_dir := file:name()
-    }.
+-type opts() :: #{
+    %% Working directory
+    %% Everything a test produces should go here. Each node's stuff should go in its
+    %% own directory.
+    work_dir := file:name()
+}.
+
+-spec start([nodespec()], opts()) -> [node()].
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
     StartOpts = get_start_opts(ClusterOpts),
     emqx_common_test_helpers:clear_screen(),
     perform(start, NodeSpecs, StartOpts).
 
+-spec start(Complete :: [nodespec()]) -> [node()].
 start(NodeSpecs) ->
     emqx_common_test_helpers:clear_screen(),
     perform(start, NodeSpecs, _StartOpts = #{}).
@@ -171,6 +162,7 @@ wait_clustered([Node | Nodes] = All, Check, Deadline) ->
             wait_clustered(All, Check, Deadline)
     end.
 
+-spec restart(Complete :: [nodespec()] | nodespec()) -> [node()].
 restart(NodeSpecs = [_ | _]) ->
     Nodes = [maps:get(name, Spec) || Spec <- NodeSpecs],
     ct:pal("Stopping peer nodes: ~p", [Nodes]),
@@ -182,6 +174,7 @@ restart(NodeSpec = #{}) ->
 get_start_opts(ClusterOpts) ->
     maps:with([start_apps_timeout], ClusterOpts).
 
+-spec mk_nodespecs([nodespec()], opts()) -> Complete :: [nodespec()].
 mk_nodespecs(Nodes, ClusterOpts) ->
     NodeSpecs = lists:zipwith(
         fun(N, {Name, Opts}) -> mk_init_nodespec(N, Name, Opts, ClusterOpts) end,
@@ -215,6 +208,7 @@ mk_init_nodespec(N, Name, NodeOpts, ClusterOpts) ->
         role => core,
         apps => [],
         base_port => BasePort,
+        start_opts => maps:get(start_opts, ClusterOpts, #{}),
         work_dir => filename:join([WorkDir, Node])
     },
     maps:merge(Defaults, NodeOpts).
@@ -343,29 +337,29 @@ allocate_listener_ports(Types, Spec) ->
     lists:foldl(fun maps:merge/2, #{}, [allocate_listener_port(Type, Spec) || Type <- Types]).
 
 start_nodes_init(Specs, Timeout) ->
-    Names = lists:map(fun(#{name := Name}) -> Name end, Specs),
-    _Nodes = start_bare_nodes(Names, Timeout),
+    _Nodes = start_bare_nodes(Specs, Timeout),
     lists:foreach(fun node_init/1, Specs).
 
-start_bare_nodes(Names) ->
-    start_bare_nodes(Names, ?TIMEOUT_NODE_START_MS).
-
-start_bare_nodes(Names, Timeout) ->
+start_bare_nodes(Specs, Timeout) ->
     Args = erl_flags(),
     Envs = [],
     Waits = lists:map(
-        fun(Name) ->
+        fun(#{name := Name} = Spec) ->
             WaitTag = {boot_complete, Name},
             WaitBoot = {self(), WaitTag},
-            {ok, _} = emqx_cth_peer:start(Name, Args, Envs, WaitBoot),
+            Opts = peer_start_opts(Spec),
+            {ok, _} = emqx_cth_peer:start(Name, Args, Envs, WaitBoot, Opts),
             WaitTag
         end,
-        Names
+        Specs
     ),
     Deadline = deadline(Timeout),
     Nodes = wait_boot_complete(Waits, Deadline),
     lists:foreach(fun(Node) -> pong = net_adm:ping(Node) end, Nodes),
     Nodes.
+
+peer_start_opts(Spec) ->
+    maps:get(start_opts, Spec, #{}).
 
 deadline(Timeout) ->
     erlang:monotonic_time() + erlang:convert_time_unit(Timeout, millisecond, native).
@@ -426,7 +420,7 @@ load_apps(Node, #{apps := Apps}) ->
     erpc:call(Node, emqx_cth_suite, load_apps, [Apps]).
 
 start_apps_clustering(Act, Node, #{apps := Apps} = Spec) ->
-    SuiteOpts = (suite_opts(Spec))#{boot_type => Act},
+    SuiteOpts = suite_opts(Act, Spec),
     AppsClustering = [lists:keyfind(App, 1, Apps) || App <- ?APPS_CLUSTERING],
     _Started = erpc:call(Node, emqx_cth_suite, start, [AppsClustering, SuiteOpts]),
     ok.
@@ -443,8 +437,13 @@ start_apps(Node, #{apps := Apps} = Spec) ->
     end,
     ok.
 
-suite_opts(#{work_dir := WorkDir}) ->
-    #{work_dir => WorkDir}.
+suite_opts(restart, Spec) ->
+    maps:merge(#{work_dir_dirty => true}, suite_opts(Spec));
+suite_opts(_, Spec) ->
+    suite_opts(Spec).
+
+suite_opts(Spec) ->
+    maps:with([work_dir, work_dir_dirty], Spec).
 
 %% Returns 'true' if this node should appear in the cluster.
 maybe_join_cluster(restart, _Node, #{}) ->

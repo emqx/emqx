@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_cluster).
 
@@ -58,9 +46,9 @@ schema("/cluster") ->
             tags => [<<"Cluster">>],
             responses => #{
                 200 => [
-                    {name, ?HOCON(string(), #{desc => "Cluster name"})},
-                    {nodes, ?HOCON(?ARRAY(string()), #{desc => "Node name"})},
-                    {self, ?HOCON(string(), #{desc => "Self node name"})}
+                    {name, ?HOCON(string(), #{desc => ?DESC("cluster_name")})},
+                    {nodes, ?HOCON(?ARRAY(string()), #{desc => ?DESC("node_names")})},
+                    {self, ?HOCON(string(), #{desc => ?DESC("self_node_name")})}
                 ]
             }
         }
@@ -72,7 +60,7 @@ schema("/cluster/topology") ->
             desc => ?DESC(get_cluster_topology),
             tags => [<<"Cluster">>],
             responses => #{
-                200 => ?HOCON(?ARRAY(?REF(core_replicants)), #{desc => <<"Cluster topology">>})
+                200 => ?HOCON(?ARRAY(?REF(core_replicants)), #{desc => ?DESC("cluster_topology")})
             }
         }
     };
@@ -85,7 +73,7 @@ schema("/cluster/invitation") ->
             responses => #{
                 200 => ?HOCON(
                     ?REF(invitation_status),
-                    #{desc => <<"Get invitation progress created by async operation">>}
+                    #{desc => ?DESC("invitation_progress")}
                 )
             }
         }
@@ -137,7 +125,7 @@ fields(node) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => <<"node name">>,
+                    desc => ?DESC("node_name"),
                     example => <<"emqx2@127.0.0.1">>,
                     in => path,
                     validator => fun validate_node/1
@@ -149,12 +137,12 @@ fields(replicant_info) ->
         {node,
             ?HOCON(
                 atom(),
-                #{desc => <<"Replicant node name">>, example => <<"emqx-replicant@127.0.0.2">>}
+                #{desc => ?DESC("node_name"), example => <<"emqx-replicant@127.0.0.2">>}
             )},
         {streams,
             ?HOCON(
                 non_neg_integer(),
-                #{desc => <<"The number of RLOG (replicated log) streams">>, example => <<"10">>}
+                #{desc => ?DESC("replicated_log_streams"), example => <<"10">>}
             )}
     ];
 fields(core_replicants) ->
@@ -162,7 +150,7 @@ fields(core_replicants) ->
         {core_node,
             ?HOCON(
                 atom(),
-                #{desc => <<"Core node name">>, example => <<"emqx-core@127.0.0.1">>}
+                #{desc => ?DESC("node_name"), example => <<"emqx-core@127.0.0.1">>}
             )},
         {replicant_nodes, ?HOCON(?ARRAY(?REF(replicant_info)))}
     ];
@@ -171,7 +159,7 @@ fields(timeout) ->
         {timeout,
             ?HOCON(
                 non_neg_integer(),
-                #{desc => <<"Timeout in milliseconds">>, example => <<"15000">>}
+                #{desc => ?DESC("timeout"), example => <<"15000">>}
             )}
     ];
 fields(invitation_status) ->
@@ -179,17 +167,17 @@ fields(invitation_status) ->
         {succeed,
             ?HOCON(
                 ?ARRAY(?REF(node_invitation_succeed)),
-                #{desc => <<"A list of information about nodes which are successfully invited">>}
+                #{desc => ?DESC("node_invitation_succeed")}
             )},
         {in_progress,
             ?HOCON(
                 ?ARRAY(?REF(node_invitation_in_progress)),
-                #{desc => <<"A list of information about nodes that are processing invitations">>}
+                #{desc => ?DESC("node_invitation_in_progress")}
             )},
         {failed,
             ?HOCON(
                 ?ARRAY(?REF(node_invitation_failed)),
-                #{desc => <<"A list of information about nodes that failed to be invited">>}
+                #{desc => ?DESC("node_invitation_failed")}
             )}
     ];
 fields(node_invitation_failed) ->
@@ -198,7 +186,10 @@ fields(node_invitation_failed) ->
             {reason,
                 ?HOCON(
                     binary(),
-                    #{desc => <<"Failure reason">>, example => <<"Bad RPC to target node">>}
+                    #{
+                        desc => ?DESC("node_invitation_failed_reason"),
+                        example => <<"Bad RPC to target node">>
+                    }
                 )}
         ];
 fields(node_invitation_succeed) ->
@@ -208,7 +199,7 @@ fields(node_invitation_succeed) ->
                 ?HOCON(
                     binary(),
                     #{
-                        desc => <<"The time of the async invitation result is received">>,
+                        desc => ?DESC("node_invitation_succeed_finished_at"),
                         example => <<"2024-01-30T15:24:39.355+08:00">>
                     }
                 )}
@@ -218,13 +209,13 @@ fields(node_invitation_in_progress) ->
         {node,
             ?HOCON(
                 binary(),
-                #{desc => <<"Node name">>, example => <<"emqx2@127.0.0.1">>}
+                #{desc => ?DESC("node_name"), example => <<"emqx2@127.0.0.1">>}
             )},
         {started_at,
             ?HOCON(
                 binary(),
                 #{
-                    desc => <<"The time of the async invitation is started">>,
+                    desc => ?DESC("node_invitation_in_progress_started_at"),
                     example => <<"2024-01-30T15:24:39.355+08:00">>
                 }
             )}
@@ -324,7 +315,7 @@ get_invitation_status(get, _) ->
 
 force_leave(delete, #{bindings := #{node := Node0}}) ->
     Node = ekka_node:parse_name(binary_to_list(Node0)),
-    case ekka:force_leave(Node) of
+    case emqx_cluster:force_leave(Node) of
         ok ->
             {204};
         ignore ->
@@ -335,7 +326,7 @@ force_leave(delete, #{bindings := #{node := Node0}}) ->
 
 -spec join(node()) -> ok | ignore | {error, term()}.
 join(Node) ->
-    ekka:join(Node).
+    emqx_cluster:join(Node).
 
 -spec connected_replicants() -> [{atom(), node(), pid()}].
 connected_replicants() ->

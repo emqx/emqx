@@ -1,20 +1,10 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_resource_pool).
+
+-feature(maybe_expr, enable).
 
 -export([
     start/3,
@@ -22,7 +12,8 @@
     health_check_timeout/0,
     health_check_workers/2,
     health_check_workers/3,
-    health_check_workers/4
+    health_check_workers/4,
+    health_check_workers_optimistic/3
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -121,9 +112,50 @@ health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
             end
     end.
 
+-doc """
+Calls each work serially and stops at the first successful response.  Useful for resources
+that want to avoid doing too many requests, such as Kinesis Producer.
+
+`CheckFn` should return `ok` if it's successful, `{halt, Res}` if the check should end
+immediately with `Result`, `{error, Reason}` otherwise.
+""".
+health_check_workers_optimistic(PoolName, CheckFn, Timeout0) ->
+    Start = now_ms(),
+    Deadline = Start + Timeout0,
+    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    FoldFn =
+        fun(Worker, LastError) ->
+            maybe
+                Timeout = Deadline - now_ms(),
+                true ?= Timeout > 0 orelse {error, deadline},
+                {ok, Conn} ?= ecpool_worker:client(Worker),
+                true ?= is_process_alive(Conn),
+                try ecpool_worker:exec(Worker, CheckFn, Timeout) of
+                    ok ->
+                        {halt, ok};
+                    {halt, Result} ->
+                        {halt, Result};
+                    Error ->
+                        {cont, Error}
+                catch
+                    exit:{timeout, _} ->
+                        {cont, {error, timeout}};
+                    exit:timeout ->
+                        {cont, {error, timeout}}
+                end
+            else
+                {error, deadline} -> {halt, LastError};
+                _ -> {cont, LastError}
+            end
+        end,
+    emqx_utils:foldl_while(FoldFn, {error, no_worker_alive}, Workers).
+
 parse_reason({worker_start_failed, Reason}) ->
     Reason;
 parse_reason({worker_exit, Reason}) ->
     Reason;
 parse_reason(Reason) ->
     Reason.
+
+now_ms() ->
+    erlang:system_time(millisecond).

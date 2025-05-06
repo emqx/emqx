@@ -19,6 +19,7 @@ services:
       - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io]"
       - "EMQX_LISTENERS__TCP__DEFAULT__PROXY_PROTOCOL=false"
       - "EMQX_LISTENERS__WS__DEFAULT__PROXY_PROTOCOL=false"
+      - "EMQX_LICENSE__KEY=evaluation"
 
   emqx2:
     <<: *default-emqx
@@ -34,3 +35,4 @@ services:
       - "EMQX_CLUSTER__STATIC__SEEDS=[emqx@node1.emqx.io]"
       - "EMQX_LISTENERS__TCP__DEFAULT__PROXY_PROTOCOL=false"
       - "EMQX_LISTENERS__WS__DEFAULT__PROXY_PROTOCOL=false"
+      - "EMQX_LICENSE__KEY=evaluation"

@@ -80,7 +80,7 @@ on_start(ConnResId, Config) ->
     #{servers := Servers0, ssl := SSL} = Config,
     Servers = format_servers(Servers0),
     ClientId = make_client_id(ConnResId),
-    ok = emqx_resource:allocate_resource(ConnResId, ?pulsar_client_id, ClientId),
+    ok = emqx_resource:allocate_resource(ConnResId, ?MODULE, ?pulsar_client_id, ClientId),
     SSLOpts = emqx_tls_lib:to_client_opts(SSL),
     ConnectTimeout = maps:get(connect_timeout, Config, timer:seconds(10)),
     ClientOpts = #{
@@ -410,6 +410,7 @@ start_producer(ConnResId, ActionResId, ClientId, ClientOpts, Params) ->
         },
         compression := Compression,
         max_batch_bytes := MaxBatchBytes,
+        max_inflight := MaxInflight,
         pulsar_topic := PulsarTopic,
         retention_period := RetentionPeriod,
         send_buffer := SendBuffer,
@@ -431,7 +432,7 @@ start_producer(ConnResId, ActionResId, ClientId, ClientOpts, Params) ->
         replayq_offload_mode => OffloadMode,
         replayq_max_total_bytes => PerPartitionLimit,
         replayq_seg_bytes => SegmentBytes,
-        drop_if_highmem => MemOLP
+        drop_if_high_mem => MemOLP
     },
     ProducerName = producer_name(ConnResId, ActionResId),
     ?tp(pulsar_producer_capture_name, #{producer_name => ProducerName}),
@@ -441,6 +442,7 @@ start_producer(ConnResId, ActionResId, ClientId, ClientOpts, Params) ->
             compression => Compression,
             conn_opts => ConnOpts,
             max_batch_bytes => MaxBatchBytes,
+            max_inflight => MaxInflight,
             name => ProducerName,
             retention_period => RetentionPeriod,
             ssl_opts => SSLOpts,
@@ -452,6 +454,7 @@ start_producer(ConnResId, ActionResId, ClientId, ClientOpts, Params) ->
     ?tp(pulsar_producer_about_to_start_producers, #{producer_name => ProducerName}),
     ok = emqx_resource:allocate_resource(
         ConnResId,
+        ?MODULE,
         {?telemetry_handler_id, ActionResId},
         ActionResId
     ),
@@ -460,6 +463,7 @@ start_producer(ConnResId, ActionResId, ClientId, ClientOpts, Params) ->
         {ok, Producers} ->
             ok = emqx_resource:allocate_resource(
                 ConnResId,
+                ?MODULE,
                 {?pulsar_producers, ActionResId},
                 Producers
             ),

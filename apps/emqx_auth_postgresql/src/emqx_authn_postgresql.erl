@@ -1,24 +1,8 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_authn_postgresql).
-
--include_lib("emqx_auth/include/emqx_authn.hrl").
--include_lib("emqx/include/logger.hrl").
--include_lib("epgsql/include/epgsql.hrl").
 
 -behaviour(emqx_authn_provider).
 
@@ -34,6 +18,10 @@
 -compile(nowarn_export_all).
 -endif.
 
+-include_lib("emqx_auth/include/emqx_authn.hrl").
+-include_lib("epgsql/include/epgsql.hrl").
+-include("emqx_auth_postgresql.hrl").
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -42,18 +30,24 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
     {Config, State} = parse_config(Config0, ResourceId),
     {ok, _Data} = emqx_authn_utils:create_resource(
         ResourceId,
         emqx_postgresql,
-        Config
+        Config,
+        ?AUTHN_MECHANISM_BIN,
+        ?AUTHN_BACKEND_BIN
     ),
     {ok, State#{resource_id => ResourceId}}.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0, ResourceId),
-    case emqx_authn_utils:update_resource(emqx_postgresql, Config, ResourceId) of
+    case
+        emqx_authn_utils:update_resource(
+            emqx_postgresql, Config, ResourceId, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
+        )
+    of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

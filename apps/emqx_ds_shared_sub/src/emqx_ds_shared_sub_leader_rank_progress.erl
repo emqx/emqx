@@ -14,10 +14,10 @@
 ]).
 
 %% "shard"
--type rank_x() :: emqx_ds:rank_x().
+-type rank_x() :: emqx_ds:shard().
 
 %% "generation"
--type rank_y() :: emqx_ds:rank_y().
+-type rank_y() :: emqx_ds:generation().
 
 %% shard progress
 -type x_progress() :: #{
@@ -46,7 +46,7 @@
 -spec init() -> t().
 init() -> #{}.
 
--spec set_replayed(emqx_ds:stream_rank(), t()) -> t().
+-spec set_replayed(emqx_ds:slab(), t()) -> t().
 set_replayed({{RankX, RankY}, Stream}, State) ->
     case State of
         #{RankX := #{ys := #{RankY := #{Stream := false} = RankYStreams} = Ys0}} ->
@@ -66,8 +66,8 @@ set_replayed({{RankX, RankY}, Stream}, State) ->
             State
     end.
 
--spec add_streams([{emqx_ds:stream_rank(), emqx_ds:stream()}], t()) ->
-    {[{emqx_ds:stream_rank(), emqx_ds:stream()}], t()}.
+-spec add_streams([{emqx_ds:slab(), emqx_ds:stream()}], t()) ->
+    {[{emqx_ds:slab(), emqx_ds:stream()}], t()}.
 add_streams(StreamsWithRanks, State) ->
     SortedStreamsWithRanks = lists:sort(
         fun({{_RankX1, RankY1}, _Stream1}, {{_RankX2, RankY2}, _Stream2}) ->
@@ -88,7 +88,7 @@ add_streams(StreamsWithRanks, State) ->
         SortedStreamsWithRanks
     ).
 
--spec replayed_up_to(emqx_ds:rank_x(), t()) -> emqx_ds:rank_y().
+-spec replayed_up_to(emqx_ds:shard(), t()) -> emqx_ds:generation().
 replayed_up_to(RankX, State) ->
     case State of
         #{RankX := #{min_y := MinY}} ->

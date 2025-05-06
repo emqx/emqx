@@ -35,6 +35,16 @@ emqx_schema_validation_schema {
   check_protobuf_message_type.label:
   """Message name"""
 
+  check_external_http_type.desc:
+  """External HTTP schema check"""
+  check_external_http_type.label:
+  """External HTTP schema check"""
+
+  check_external_http_schema.desc:
+  """Schema name to use during check."""
+  check_external_http_schema.label:
+  """Schema name"""
+
   check_sql_type.desc:
   """Use rule-engine's SQL to validate the message. SQL here is the same as in rule-engine,
   just with the different that the `FROM` clause must be omitted.

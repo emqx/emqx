@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_persistent_messages_SUITE).
@@ -53,60 +41,41 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
-    case emqx_common_test_helpers:skip_if_platform() of
-        false ->
-            Cluster = cluster(),
-            Nodes = emqx_cth_cluster:start(Cluster, #{
-                work_dir => emqx_cth_suite:work_dir(TestCase, Config)
-            }),
-            _ = wait_shards_online(Nodes),
-            [{nodes, Nodes} | Config];
-        Yes ->
-            Yes
-    end;
+    ok = snabbkaffe:start_trace(),
+    Cluster = cluster(),
+    Nodes = emqx_cth_cluster:start(Cluster, #{
+        work_dir => emqx_cth_suite:work_dir(TestCase, Config)
+    }),
+    emqx_ds_raft_test_helpers:wait_db_bootstrapped(Nodes, ?PERSISTENT_MESSAGE_DB),
+    [{nodes, Nodes} | Config];
 init_per_testcase(t_message_gc = TestCase, Config) ->
-    case emqx_common_test_helpers:skip_if_platform() of
-        false ->
-            DurableSessonsOpts = #{<<"message_retention_period">> => <<"3s">>},
-            EMQXOpts = #{<<"durable_storage">> => #{<<"messages">> => #{<<"n_shards">> => 3}}},
-            Opts = #{durable_sessions_opts => DurableSessonsOpts, emqx_opts => EMQXOpts},
-            common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
-        Yes ->
-            Yes
-    end;
+    DurableSessonsOpts = #{<<"message_retention_period">> => <<"3s">>},
+    EMQXOpts = #{<<"durable_storage">> => #{<<"messages">> => #{<<"n_shards">> => 3}}},
+    Opts = #{durable_sessions_opts => DurableSessonsOpts, emqx_opts => EMQXOpts},
+    common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
 init_per_testcase(t_replication_options = TestCase, Config) ->
-    case emqx_common_test_helpers:skip_if_platform() of
-        false ->
-            EMQXOpts = #{
-                <<"durable_storage">> =>
+    EMQXOpts = #{
+        <<"durable_storage">> =>
+            #{
+                <<"messages">> =>
                     #{
-                        <<"messages">> =>
+                        <<"replication_options">> =>
                             #{
-                                <<"replication_options">> =>
-                                    #{
-                                        <<"resend_window">> => 60,
-                                        <<"snapshot_interval">> => 64,
-                                        <<"wal_compute_checksums">> => false,
-                                        <<"wal_max_batch_size">> => 1024,
-                                        <<"wal_max_size_bytes">> => 16000000,
-                                        <<"wal_sync_method">> => <<"datasync">>,
-                                        <<"wal_write_strategy">> => <<"o_sync">>
-                                    }
+                                <<"resend_window">> => 60,
+                                <<"snapshot_interval">> => 64,
+                                <<"wal_compute_checksums">> => false,
+                                <<"wal_max_batch_size">> => 1024,
+                                <<"wal_max_size_bytes">> => 16000000,
+                                <<"wal_sync_method">> => <<"datasync">>,
+                                <<"wal_write_strategy">> => <<"o_sync">>
                             }
                     }
-            },
-            Opts = #{emqx_opts => EMQXOpts},
-            common_init_per_testcase(TestCase, Config, Opts);
-        Yes ->
-            Yes
-    end;
+            }
+    },
+    Opts = #{emqx_opts => EMQXOpts},
+    common_init_per_testcase(TestCase, Config, Opts);
 init_per_testcase(t_message_gc_too_young = TestCase, Config) ->
-    case emqx_common_test_helpers:skip_if_platform() of
-        false ->
-            common_init_per_testcase(TestCase, Config, _Opts = #{});
-        Yes ->
-            Yes
-    end;
+    common_init_per_testcase(TestCase, Config, _Opts = #{});
 init_per_testcase(TestCase, Config) ->
     DurableSessonsOpts = #{
         <<"enable">> => true,
@@ -128,6 +97,7 @@ common_init_per_testcase(TestCase, Config, Opts0) ->
 end_per_testcase(t_session_subscription_iterators, Config) ->
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
+    ok = snabbkaffe:stop(),
     ok = emqx_cth_cluster:stop(Nodes);
 end_per_testcase(_TestCase, Config) ->
     emqx_common_test_helpers:call_janitor(60_000),
@@ -542,7 +512,7 @@ t_replication_options(_Config) ->
                 resend_window := 60
             }
         },
-        emqx_ds_replication_layer_meta:db_config(?PERSISTENT_MESSAGE_DB)
+        emqx_ds_builtin_raft_meta:db_config(?PERSISTENT_MESSAGE_DB)
     ),
     ?assertMatch(
         #{
@@ -630,13 +600,6 @@ cluster() ->
         {persistent_messages_SUITE1, Spec},
         {persistent_messages_SUITE2, Spec}
     ].
-
-wait_shards_online(Nodes = [Node | _]) ->
-    NShards = erpc:call(Node, emqx_ds_replication_layer_meta, n_shards, [?PERSISTENT_MESSAGE_DB]),
-    ?retry(500, 10, [?assertEqual(NShards, shards_online(N)) || N <- Nodes]).
-
-shards_online(Node) ->
-    length(erpc:call(Node, emqx_ds_builtin_raft_db_sup, which_shards, [?PERSISTENT_MESSAGE_DB])).
 
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),

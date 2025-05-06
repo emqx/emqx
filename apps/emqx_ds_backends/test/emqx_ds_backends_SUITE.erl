@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_ds_backends_SUITE).
 
@@ -623,8 +611,8 @@ t_sub_shard_down_notify(Config) ->
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             {ok, _Handle, MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
-            ?assertMatch(ok, emqx_ds:close_db(DB)),
-            ?assertMatch([MRef], collect_down_msgs())
+            ?assertEqual(ok, emqx_ds:close_db(DB)),
+            ?assertEqual([MRef], lists:usort(collect_down_msgs()))
         end,
         []
     ).
@@ -1035,28 +1023,10 @@ delete(DB, It0, Selector, BatchSize, Acc) ->
 all() ->
     [{group, Backend} || Backend <- backends()].
 
-exclude(emqx_ds_fdb_backend) ->
-    [
-        %% Atomic operations and preconditions are not supported:
-        t_09_atomic_store_batch,
-        t_11_batch_preconditions,
-        t_12_batch_precondition_conflicts,
-        %% Deletions are not supported at this moment:
-        t_smoke_delete_next,
-        %% FIXME: this test shouldn't pass for ANY backend (as
-        %% `update_config' call must not create a new generation by
-        %% itself), investigate why it does for builtins:
-        t_07_smoke_update_config
-    ];
-exclude(_) ->
-    [].
-
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    [{Backend, TCs -- exclude(Backend)} || Backend <- backends()].
+    [{Backend, TCs} || Backend <- backends()].
 
-init_per_group(emqx_fdb_ds, _Config) ->
-    {skip, fixme};
 init_per_group(emqx_ds_builtin_raft, Config) ->
     %% Raft backend is an odd one, as its main module is named
     %% `emqx_ds_replication_layer' for historical reasons:

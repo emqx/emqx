@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_exproto_SUITE).
@@ -77,6 +65,12 @@ suite() ->
     [{timetrap, {seconds, 30}}].
 
 groups() ->
+    UpdateCases = [
+        t_update_not_restart_listener
+    ],
+    DtlsUpdateCases = [
+        t_update_dtls_listener_have_to_restart
+    ],
     MainCases = [
         t_keepalive_timeout,
         t_mountpoint_echo,
@@ -89,10 +83,10 @@ groups() ->
         t_hook_message_delivered
     ],
     [
-        {tcp_listener, [sequence], MainCases},
-        {ssl_listener, [sequence], MainCases},
-        {udp_listener, [sequence], MainCases},
-        {dtls_listener, [sequence], MainCases},
+        {tcp_listener, [sequence], MainCases ++ UpdateCases},
+        {ssl_listener, [sequence], MainCases ++ UpdateCases},
+        {udp_listener, [sequence], MainCases ++ UpdateCases},
+        {dtls_listener, [sequence], MainCases ++ DtlsUpdateCases},
         {streaming_connection_handler, [sequence], MainCases},
         {https_grpc_server, [sequence], MainCases},
         {hostname_grpc_server, [sequence], MainCases}
@@ -165,6 +159,7 @@ init_per_group(GrpName, LisType, ServiceName, Scheme, Cfg) ->
     ].
 
 end_per_group(_, Cfg) ->
+    emqx_gateway:unload(exproto),
     ok = emqx_cth_suite:stop(proplists:get_value(apps, Cfg)),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
@@ -194,6 +189,13 @@ listener_confs(Type) ->
 
 default_config() ->
     ?CONF_DEFAULT.
+
+update_exproto_with_idle_timeout(IdleTimeout) ->
+    Conf = emqx:get_raw_config([gateway, exproto]),
+    emqx_gateway_conf:update_gateway(
+        exproto,
+        Conf#{<<"idle_timeout">> => IdleTimeout}
+    ).
 
 %%--------------------------------------------------------------------
 %% Tests cases
@@ -242,6 +244,55 @@ t_mountpoint_echo(Cfg) ->
         error(echo_not_running)
     end,
     close(Sock).
+
+t_update_not_restart_listener(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>
+    },
+    Password = <<"123456">>,
+
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(0),
+
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
+
+    update_exproto_with_idle_timeout(<<"20s">>),
+
+    SubBin = frame_subscribe(<<"t/dn">>, 1),
+    SubAckBin = frame_suback(0),
+
+    send(Sock, SubBin),
+    {ok, SubAckBin} = recv(Sock, 5000),
+
+    close(Sock).
+
+t_update_dtls_listener_have_to_restart(Cfg) ->
+    SockType = proplists:get_value(listener_type, Cfg),
+    Sock = open(SockType),
+
+    Client = #{
+        proto_name => <<"demo">>,
+        proto_ver => <<"v0.1">>,
+        clientid => <<"test_client_1">>
+    },
+    Password = <<"123456">>,
+
+    ConnBin = frame_connect(Client, Password),
+    ConnAckBin = frame_connack(0),
+
+    send(Sock, ConnBin),
+    {ok, ConnAckBin} = recv(Sock, 5000),
+
+    update_exproto_with_idle_timeout(<<"20s">>),
+
+    {error, closed} = recv(Sock, 5000),
+    ok.
 
 t_raw_publish(Cfg) ->
     SockType = proplists:get_value(listener_type, Cfg),

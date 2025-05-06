@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_cm_proto_v3).
@@ -71,16 +59,14 @@ get_chann_conn_mod(ClientId, ChanPid) ->
     | {living, _ConnMod :: atom(), emqx_cm:chan_pid(), emqx_session:session()}
     %% NOTE: v5.3.0
     | {living, _ConnMod :: atom(), emqx_session:session()}
-    | {expired | persistent, emqx_session:session()}
-    | {badrpc, _}.
+    | {expired | persistent, emqx_session:session()}.
 takeover_session(ClientId, ChanPid) ->
-    rpc:call(node(ChanPid), emqx_cm, takeover_session, [ClientId, ChanPid], ?T_TAKEOVER * 2).
+    erpc:call(node(ChanPid), emqx_cm, takeover_session, [ClientId, ChanPid], ?T_TAKEOVER * 2).
 
 -spec takeover_finish(module(), emqx_cm:chan_pid()) ->
     {ok, emqx_types:takeover_data()}
     | {ok, list(emqx_types:deliver())}
-    | {error, term()}
-    | {badrpc, _}.
+    | {error, term()}.
 takeover_finish(ConnMod, ChanPid) ->
     erpc:call(
         node(ChanPid),

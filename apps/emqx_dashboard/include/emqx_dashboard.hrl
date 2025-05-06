@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -include("emqx_dashboard_rbac.hrl").
 
@@ -93,24 +81,38 @@
     persisted => persisted_rate
 }).
 
--define(CURRENT_SAMPLE_NON_RATE,
-    [
-        node_uptime,
-        retained_msg_count,
-        shared_subscriptions
-    ] ++ ?LICENSE_QUOTA
-).
+-define(CURRENT_SAMPLE_NON_RATE, [
+    node_uptime,
+    retained_msg_count,
+    shared_subscriptions,
+    cluster_sessions,
+    license_quota
+]).
 
 -define(CLUSTERONLY_SAMPLER_LIST, [
     subscriptions_durable,
     disconnected_durable_sessions
 ]).
 
--if(?EMQX_RELEASE_EDITION == ee).
--define(LICENSE_QUOTA, [license_quota]).
--else.
--define(LICENSE_QUOTA, []).
--endif.
+%% record the max value over the history
+-define(WATERMARK_SAMPLER_LIST, [
+    %% sessions history high water mark is only recorded when
+    %% the config broker.session_history_retain > 0s
+    sessions_hist_hwmark
+]).
+
+%% Pick the newer value from the two maps when merging
+%% Keys are from ?WATERMARK_SAMPLER_LIST and ?GAUGE_SAMPLER_LIST
+%% test case is added to ensure no missing key in this macro
+-define(IS_PICK_NEWER(Key),
+    (Key =:= sessions_hist_hwmark orelse
+        Key =:= disconnected_durable_sessions orelse
+        Key =:= subscriptions_durable orelse
+        Key =:= subscriptions orelse
+        Key =:= topics orelse
+        Key =:= connections orelse
+        Key =:= live_connections)
+).
 
 %% use this atom to indicate no value provided from http request
 -define(NO_MFA_TOKEN, no_mfa_token).

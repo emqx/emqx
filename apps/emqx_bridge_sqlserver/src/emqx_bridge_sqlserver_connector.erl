@@ -19,6 +19,8 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-elvis([{elvis_text_style, line_length, #{skip_comments => whole_line}}]).
+
 %%====================================================================
 %% Exports
 %%====================================================================
@@ -257,6 +259,7 @@ on_start(
         {driver, Driver},
         {database, Database},
         {pool_size, PoolSize},
+        {auto_reconnect, 2},
         {on_disconnect, {?MODULE, disconnect, []}}
     ],
     ParsedServer = parse_server(Server),
@@ -303,8 +306,10 @@ on_remove_channel(_InstId, #{installed_channels := InstalledChannels} = OldState
 
 on_get_channel_status(InstanceId, ChannelId, #{installed_channels := Channels} = State) ->
     case maps:find(ChannelId, Channels) of
-        {ok, _} -> on_get_status(InstanceId, State);
-        error -> ?status_disconnected
+        {ok, _} ->
+            on_get_status(InstanceId, State);
+        error ->
+            ?status_disconnected
     end.
 
 on_get_channels(ResId) ->
@@ -361,12 +366,22 @@ on_format_query_result(Result) ->
     Result.
 
 on_get_status(_InstanceId, #{pool_name := PoolName} = ConnState) ->
-    Result = emqx_resource_pool:health_check_workers(
+    Results = emqx_resource_pool:health_check_workers(
         PoolName,
-        {?MODULE, do_get_status, []}
+        {?MODULE, do_get_status, []},
+        _Timeout = 5000,
+        #{return_values => true}
     ),
-    case Result of
-        true ->
+    status_result(Results, ConnState).
+
+status_result({error, timeout}, _ConnState) ->
+    {?status_connecting, <<"timeout_checking_connections">>};
+status_result({ok, []}, _ConnState) ->
+    %% ecpool will auto-restart after delay
+    {?status_connecting, <<"connection_pool_not_initialized">>};
+status_result({ok, Results}, ConnState) ->
+    case lists:filter(fun(S) -> S =/= ok end, Results) of
+        [] ->
             case validate_connected_instance_name(ConnState) of
                 ok ->
                     ?status_connected;
@@ -386,8 +401,8 @@ on_get_status(_InstanceId, #{pool_name := PoolName} = ConnState) ->
                     %% Could not infer instance name; assume ok
                     ?status_connected
             end;
-        false ->
-            ?status_connecting
+        [{error, Reason} | _] ->
+            {?status_connecting, Reason}
     end.
 
 format_instance_name(undefined) ->
@@ -402,18 +417,28 @@ format_instance_name(Name) ->
 -spec connect(Options :: list()) -> {ok, connection_reference()} | {error, term()}.
 connect(Options) ->
     ConnectStr = lists:concat(conn_str(Options, [])),
+    %% Note: we don't use `emqx_secret:wrap/1` here because its return type is opaque, and
+    %% dialyzer then complains that it's being fed to a function that doesn't expect
+    %% something opaque...
+    ConnectStrWrapped = fun() -> ConnectStr end,
     Opts = proplists:get_value(options, Options, []),
-    odbc:connect(ConnectStr, Opts).
+    odbc:connect(ConnectStrWrapped, Opts).
 
 -spec disconnect(connection_reference()) -> ok | {error, term()}.
 disconnect(ConnectionPid) ->
     odbc:disconnect(ConnectionPid).
 
--spec do_get_status(connection_reference()) -> Result :: boolean().
+-spec do_get_status(connection_reference()) -> ok | {error, term()}.
 do_get_status(Conn) ->
     case execute(Conn, <<"SELECT 1">>) of
-        {selected, [[]], [{1}]} -> true;
-        _ -> false
+        {selected, [[]], [{1}]} ->
+            ok;
+        Other ->
+            _ = disconnect(Conn),
+            {error, #{
+                cause => "unexpected_SELECT_1_result",
+                result => Other
+            }}
     end.
 
 get_servername(Conn) ->
@@ -501,6 +526,9 @@ do_query(ResourceId, Query, ApplyMode, State) ->
         end,
     handle_result(Result, ResourceId, Query).
 
+handle_result({error, {recoverable_error, _} = Reason} = Result, _ResourceId, _Query) ->
+    ?tp(sqlserver_connector_query_return, #{error => Reason}),
+    Result;
 handle_result({error, Reason}, ResourceId, Query) ->
     ?tp(sqlserver_connector_query_return, #{error => Reason}),
     ?SLOG(error, #{
@@ -526,13 +554,65 @@ worker_do_insert(Conn, SQL, #{resource_opts := ResourceOpts, pool_name := Resour
             {updated, _} ->
                 ok;
             {error, ErrStr} ->
-                ?SLOG(error, LogMeta#{msg => "invalid_request", reason => ErrStr}),
-                {error, {unrecoverable_error, {invalid_request, ErrStr}}}
+                IsConnectionClosedError = is_connection_closed_error(ErrStr),
+                IsConnectionBrokenError = is_connection_broken_error(ErrStr),
+                ErrStr1 =
+                    case is_table_or_view_not_found_error(ErrStr) of
+                        true ->
+                            <<"table_or_view_not_found">>;
+                        false ->
+                            ErrStr
+                    end,
+                {LogLevel, Err} =
+                    case IsConnectionClosedError orelse IsConnectionBrokenError of
+                        true ->
+                            {info, {recoverable_error, <<"connection_closed">>}};
+                        false ->
+                            {error, {unrecoverable_error, {invalid_request, ErrStr1}}}
+                    end,
+                ?SLOG(LogLevel, LogMeta#{msg => "invalid_request", reason => ErrStr1}),
+                {error, Err}
         end
     catch
         _Type:Reason:St ->
             ?SLOG(error, LogMeta#{msg => "invalid_request", reason => Reason, stacktrace => St}),
             {error, {unrecoverable_error, {invalid_request, Reason}}}
+    end.
+
+%% Potential race condition: if an insert request is made while the connection is being
+%% cut by the remote server, this error might be returned.
+%% References:
+%% https://learn.microsoft.com/en-us/sql/relational-databases/errors-events/mssqlserver-17194-database-engine-error?view=sql-server-ver16
+is_connection_closed_error(MsgStr) ->
+    case re:run(MsgStr, <<"0x2746[^0-9a-fA-F]?">>, [{capture, none}]) of
+        match ->
+            true;
+        nomatch ->
+            false
+    end.
+
+%% Potential race condition: if an insert request is made while the connection is being
+%% cut by the remote server, this error might be returned.
+%% References:
+%% https://learn.microsoft.com/en-us/sql/connect/odbc/connection-resiliency?view=sql-server-ver16
+is_connection_broken_error(MsgStr) ->
+    case re:run(MsgStr, <<"SQLSTATE IS: IMC0[1-6]">>, [{capture, none}]) of
+        match ->
+            true;
+        nomatch ->
+            false
+    end.
+
+%% https://learn.microsoft.com/en-us/sql/odbc/reference/appendixes/appendix-a-odbc-error-codes?view=sql-server-ver15
+%% In some occasions, non-printable bytes/chars may be returned in the error message,
+%% making it non-loggable.
+%% See also: https://emqx.atlassian.net/browse/EMQX-14171
+is_table_or_view_not_found_error(MsgStr) ->
+    case re:run(MsgStr, <<"SQLSTATE IS: 42S02">>, [{capture, none}]) of
+        match ->
+            true;
+        nomatch ->
+            false
     end.
 
 -spec execute(connection_reference(), sql()) ->
@@ -647,6 +727,8 @@ proc_msg(Tokens, Msg, #{undefined_vars_as_null := true}) ->
 proc_msg(Tokens, Msg, _) ->
     emqx_placeholder:proc_sqlserver_param_str(Tokens, Msg).
 
+to_bin(B) when is_binary(B) ->
+    B;
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8).
 
@@ -654,7 +736,9 @@ validate_connected_instance_name(#{server := ParsedServer} = ConnState) ->
     ExpectedInstanceName = maps:get(instance_name, ParsedServer, undefined),
     maybe
         {ok, InstanceName} ?= infer_instance_name(ConnState),
-        case InstanceName == ExpectedInstanceName of
+        InstanceName1 = emqx_maybe:apply(fun to_bin/1, InstanceName),
+        ExpectedInstanceName1 = emqx_maybe:apply(fun to_bin/1, ExpectedInstanceName),
+        case InstanceName1 == ExpectedInstanceName1 of
             true ->
                 ok;
             false ->

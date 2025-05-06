@@ -1,21 +1,10 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_external_trace).
 
 -include("emqx_mqtt.hrl").
+-include("logger.hrl").
 -include("emqx_external_trace.hrl").
 
 %% Legacy
@@ -99,6 +88,10 @@
     Packet :: emqx_types:packet()
 ) -> Res :: t_res().
 
+-callback apply_rule(attrs(), t_fun(), t_args()) -> t_res().
+
+-callback handle_action(attrs(), ?EXT_TRACE_START | ?EXT_TRACE_STOP, map()) -> t_res().
+
 %% --------------------------------------------------------------------
 %% Span enrichments APIs
 
@@ -115,6 +108,11 @@
 
 -callback set_status_error(unicode:unicode_binary()) -> ok.
 
+%% --------------------------------------------------------------------
+%% Helper APIs
+
+-callback with_action_metadata(map(), map()) -> t_res().
+
 -export([
     provider/0,
     register_provider/1,
@@ -127,7 +125,9 @@
     topic_attrs/1,
     authn_attrs/1,
     sub_authz_attrs/1,
-    disconnect_attrs/2
+    disconnect_attrs/2,
+    rule_attrs/1,
+    action_attrs/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -160,6 +160,15 @@ provider() ->
 %%--------------------------------------------------------------------
 %% Trace Attrs Helper
 %%--------------------------------------------------------------------
+
+-define(fallback_attrs(), fallback_attrs(?FUNCTION_NAME)).
+-define(wrap(EXPR),
+    try
+        EXPR
+    catch
+        _:_ -> ?fallback_attrs()
+    end
+).
 
 %% Client Channel info not be available before `process_connect/2`
 %% The initial attrs should be extracted from packet and update them during `process_connect/2`
@@ -199,32 +208,54 @@ connect_attrs(
         'client.will_topic' => WillTopic,
         'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
         'client.peername' => emqx_utils:ntoa(emqx_channel:info(peername, Channel))
-    }.
+    };
+connect_attrs(_, _) ->
+    ?fallback_attrs().
 
 basic_attrs(Channel) ->
-    #{
+    ?wrap(#{
         'client.clientid' => emqx_channel:info(clientid, Channel),
         'client.username' => emqx_channel:info(username, Channel)
-    }.
+    }).
 
 topic_attrs(?PACKET(?SUBSCRIBE, PktVar)) ->
-    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, emqx_packet:info(topic_filters, PktVar)),
-    #{
-        'client.subscribe.topics' => json_encode(lists:reverse(TFs)),
-        'client.subscribe.sub_opts' => json_encode(lists:reverse(SubOpts))
-    };
+    ?wrap(
+        begin
+            {TFs, SubOpts} = do_topic_filters_attrs(
+                subscribe, emqx_packet:info(topic_filters, PktVar)
+            ),
+            #{
+                'client.subscribe.topics' => json_encode(lists:reverse(TFs)),
+                'client.subscribe.sub_opts' => json_encode(lists:reverse(SubOpts))
+            }
+        end
+    );
 topic_attrs(?PACKET(?UNSUBSCRIBE, PktVar)) ->
-    {TFs, _} = do_topic_filters_attrs(unsubscribe, emqx_packet:info(topic_filters, PktVar)),
-    #{'client.unsubscribe.topics' => json_encode(TFs)};
+    ?wrap(
+        begin
+            {TFs, _} = do_topic_filters_attrs(unsubscribe, emqx_packet:info(topic_filters, PktVar)),
+            #{'client.unsubscribe.topics' => json_encode(TFs)}
+        end
+    );
 topic_attrs({subscribe, TopicFilters}) ->
-    {TFs, SubOpts} = do_topic_filters_attrs(subscribe, TopicFilters),
-    #{
-        'broker.subscribe.topics' => json_encode(lists:reverse(TFs)),
-        'broker.subscribe.sub_opts' => json_encode(lists:reverse(SubOpts))
-    };
+    ?wrap(
+        begin
+            {TFs, SubOpts} = do_topic_filters_attrs(subscribe, TopicFilters),
+            #{
+                'broker.subscribe.topics' => json_encode(lists:reverse(TFs)),
+                'broker.subscribe.sub_opts' => json_encode(lists:reverse(SubOpts))
+            }
+        end
+    );
 topic_attrs({unsubscribe, TopicFilters}) ->
-    {TFs, _} = do_topic_filters_attrs(unsubscribe, [TF || {TF, _} <- TopicFilters]),
-    #{'broker.unsubscribe.topics' => json_encode(TFs)}.
+    ?wrap(
+        begin
+            {TFs, _} = do_topic_filters_attrs(unsubscribe, [TF || {TF, _} <- TopicFilters]),
+            #{'broker.unsubscribe.topics' => json_encode(TFs)}
+        end
+    );
+topic_attrs(_) ->
+    ?fallback_attrs().
 
 do_topic_filters_attrs(subscribe, TopicFilters) ->
     {_TFs, _SubOpts} = lists:foldl(
@@ -245,32 +276,38 @@ authn_attrs({continue, _Properties, _Channel}) ->
     %% TODO
     #{};
 authn_attrs({ok, _Properties, Channel}) ->
-    #{
-        'client.connect.authn.result' => ok,
-        'client.connect.authn.is_superuser' => emqx_channel:info(is_superuser, Channel),
-        'client.connect.authn.expire_at' => emqx_channel:info(expire_at, Channel)
-    };
-authn_attrs({error, _Reason}) ->
-    #{
+    ?wrap(
+        #{
+            'client.connect.authn.result' => ok,
+            'client.connect.authn.is_superuser' => emqx_channel:info(is_superuser, Channel),
+            'client.connect.authn.expire_at' => emqx_channel:info(expire_at, Channel)
+        }
+    );
+authn_attrs({error, _Reason, _Channel}) ->
+    ?wrap(#{
         'client.connect.authn.result' => error,
         'client.connect.authn.failure_reason' => emqx_utils:readable_error_msg(_Reason)
-    }.
+    });
+authn_attrs(_) ->
+    ?fallback_attrs().
 
 sub_authz_attrs(CheckResult) ->
-    {TFs, AuthZRCs} = lists:foldl(
-        fun({{TopicFilter, _SubOpts}, RC}, {AccTFs, AccRCs}) ->
-            {[emqx_topic:maybe_format_share(TopicFilter) | AccTFs], [RC | AccRCs]}
-        end,
-        {[], []},
-        CheckResult
-    ),
-    #{
-        'authz.subscribe.topics' => json_encode(lists:reverse(TFs)),
-        'authz.subscribe.reason_codes' => json_encode(lists:reverse(AuthZRCs))
-    }.
+    ?wrap(begin
+        {TFs, AuthZRCs} = lists:foldl(
+            fun({{TopicFilter, _SubOpts}, RC}, {AccTFs, AccRCs}) ->
+                {[emqx_topic:maybe_format_share(TopicFilter) | AccTFs], [RC | AccRCs]}
+            end,
+            {[], []},
+            CheckResult
+        ),
+        #{
+            'authz.subscribe.topics' => json_encode(lists:reverse(TFs)),
+            'authz.subscribe.reason_codes' => json_encode(lists:reverse(AuthZRCs))
+        }
+    end).
 
 -define(ext_trace_disconnect_reason(Reason),
-    ?ext_trace_disconnect_reason(Reason, undefined)
+    ?wrap(?ext_trace_disconnect_reason(Reason, undefined))
 ).
 
 -define(ext_trace_disconnect_reason(Reason, Description), #{
@@ -292,7 +329,55 @@ disconnect_attrs(takeover, Channel) ->
 disconnect_attrs(takeover_kick, Channel) ->
     ?ext_trace_disconnect_reason(takenover_kick);
 disconnect_attrs(sock_closed, Channel) ->
-    ?ext_trace_disconnect_reason(sock_closed).
+    ?ext_trace_disconnect_reason(sock_closed);
+disconnect_attrs(_, _) ->
+    ?fallback_attrs().
+
+-define(MG(K, M), maps:get(K, M, undefined)).
+
+rule_attrs(#{rule := Rule} = RichedRule) ->
+    ?wrap(#{
+        'rule.id' => ?MG(id, Rule),
+        'rule.name' => ?MG(name, Rule),
+        'rule.created_at' => format_datetime(?MG(created_at, Rule)),
+        'rule.updated_at' => format_datetime(?MG(updated_at, Rule)),
+        'rule.description' => ?MG(description, Rule),
+        'rule.trigger' => ?MG(trigger, RichedRule),
+        'rule.matched' => ?MG(matched, RichedRule),
+        'client.clientid' => ?EXT_TRACE__RULE_INTERNAL_CLIENTID
+    });
+rule_attrs(_) ->
+    ?fallback_attrs().
+
+%% TODO: also rm `action.bridge_type' and `action.bridge_name' after bridge_v1 is deprecated
+action_attrs({bridge, BridgeType, BridgeName, ResId}) ->
+    #{
+        'action.type' => <<"bridge">>,
+        'action.bridge_type' => BridgeType,
+        'action.bridge_name' => BridgeName,
+        'action.resource_id' => ResId,
+        'client.clientid' => ?EXT_TRACE__ACTION_INTERNAL_CLIENTID
+    };
+action_attrs({bridge_v2, BridgeType, BridgeName}) ->
+    #{
+        'action.type' => <<"bridge_v2">>,
+        'action.bridge_type' => BridgeType,
+        'action.bridge_name' => BridgeName,
+        'client.clientid' => ?EXT_TRACE__ACTION_INTERNAL_CLIENTID
+    };
+action_attrs(#{mod := Mod, func := Func}) ->
+    #{
+        'action.type' => <<"function">>,
+        'action.function' => printable_function_name(Mod, Func),
+        'client.clientid' => ?EXT_TRACE__ACTION_INTERNAL_CLIENTID
+    };
+action_attrs(_) ->
+    ?fallback_attrs().
+
+fallback_attrs(FunctionName) ->
+    Msg = "failed_to_generate_trace_attribute",
+    ?SLOG(debug, #{msg => Msg, func => FunctionName}),
+    #{'fallback_attr.msg' => Msg}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -313,3 +398,16 @@ json_encode(Term) ->
 %% Properties is a map which may include 'User-Property' of key-value pairs
 json_encode_proplist(Properties) ->
     emqx_utils_json:encode_proplist(Properties).
+
+format_datetime(undefined) ->
+    undefined;
+format_datetime(Timestamp) ->
+    format_datetime(Timestamp, millisecond).
+
+format_datetime(Timestamp, Unit) ->
+    emqx_utils_calendar:epoch_to_rfc3339(Timestamp, Unit).
+
+printable_function_name(emqx_rule_actions, Func) ->
+    Func;
+printable_function_name(Mod, Func) ->
+    list_to_binary(lists:concat([Mod, ":", Func])).

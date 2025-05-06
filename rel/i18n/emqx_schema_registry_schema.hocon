@@ -20,6 +20,11 @@ json_type.desc: """~
 
 json_type.label: "JSON Schema"
 
+external_http_type.desc:
+"""External HTTP server."""
+external_http_type.label:
+"""External HTTP"""
+
 schema_description.desc:
 """A description for this schema."""
 
@@ -67,6 +72,32 @@ schema_type_json.desc:
 
 schema_type_json.label:
 """JSON Schema"""
+
+schema_type_external_http.desc:
+"""Must be `external_http` for External HTTP."""
+
+schema_type_external_http.label:
+"""External HTTP Schema"""
+
+external_http_params.label:
+"""External HTTP server parameters"""
+external_http_params.desc:
+"""Configure External HTTP schema server parameters."""
+
+external_http_url.label:
+"""URL"""
+external_http_url.desc:
+"""External HTTP schema server URL."""
+
+external_http_headers.label:
+"""Headers"""
+external_http_headers.desc:
+"""Headers to be sent to external HTTP schema server."""
+
+external_http_external_params.label:
+"""External parameters"""
+external_http_external_params.desc:
+"""A string that will be sent in every request body to external HTTP schema server."""
 
 confluent_schema_registry.label:
 """Confluent Schema Registry"""

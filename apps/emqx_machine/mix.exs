@@ -20,7 +20,11 @@ defmodule EMQXMachine.MixProject do
 
   # Run "mix help compile.app" to learn about applications
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_machine_app, []}]
+    [
+      extra_applications: UMP.extra_applications(),
+      included_applications: [:system_monitor],
+      mod: {:emqx_machine_app, []},
+    ]
   end
 
   def deps() do

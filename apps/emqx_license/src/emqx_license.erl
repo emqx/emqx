@@ -84,20 +84,20 @@ exec_config_update(Param) ->
 
 check(#{clientid := ClientId}, AckProps) ->
     case emqx_license_checker:limits() of
-        {ok, #{max_connections := ?ERR_EXPIRED}} ->
+        {ok, #{max_sessions := ?ERR_EXPIRED}} ->
             ?SLOG_THROTTLE(error, #{msg => connection_rejected_due_to_license_expired}, #{
                 tag => "LICENSE"
             }),
             {stop, {error, ?RC_QUOTA_EXCEEDED}};
-        {ok, #{max_connections := ?ERR_MAX_UPTIME}} ->
+        {ok, #{max_sessions := ?ERR_MAX_UPTIME}} ->
             ?SLOG_THROTTLE(
                 error, #{msg => connection_rejected_due_to_trial_license_uptime_limit}, #{
                     tag => "LICENSE"
                 }
             ),
             {stop, {error, ?RC_QUOTA_EXCEEDED}};
-        {ok, #{max_connections := MaxClients}} ->
-            case is_max_clients_exceeded(MaxClients) andalso is_new_client(ClientId) of
+        {ok, #{max_sessions := MaxSessions}} ->
+            case is_max_clients_exceeded(MaxSessions) andalso is_new_client(ClientId) of
                 true ->
                     ?SLOG_THROTTLE(
                         error,
@@ -163,7 +163,8 @@ del_license_hook() ->
 
 do_update({key, Content}, Conf) when is_binary(Content); is_list(Content) ->
     case emqx_license_parser:parse(Content) of
-        {ok, _License} ->
+        {ok, License} ->
+            ok = no_violation(License),
             Conf#{<<"key">> => Content};
         {error, Reason} ->
             erlang:throw(Reason)
@@ -183,6 +184,14 @@ do_update(NewConf, _PrevConf) ->
     #{<<"key">> := NewKey} = NewConf,
     do_update({key, NewKey}, NewConf).
 
+no_violation(License) ->
+    case emqx_license_checker:no_violation(License) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            throw(Reason)
+    end.
+
 %% Return 'true' if it is a client new to the cluster.
 %% A client is new when it cannot be found in session registry.
 is_new_client(ClientId) when ?IS_CLIENTID_TO_BE_ASSIGENED(ClientId) ->
@@ -193,10 +202,11 @@ is_new_client(ClientId) ->
     %% it's a new client if no live session is found
     [] =:= emqx_cm:lookup_channels(ClientId).
 
-is_max_clients_exceeded(MaxClients) when MaxClients =< ?DEFAULT_TRIAL_SESSIONS_LIMIT ->
+is_max_clients_exceeded(MaxClients) when MaxClients =< ?NO_OVERSHOOT_SESSIONS_LIMIT ->
     emqx_license_resources:cached_connection_count() >= MaxClients;
 is_max_clients_exceeded(MaxClients) ->
-    emqx_license_resources:cached_connection_count() >= erlang:round(MaxClients * 1.1).
+    Limit = MaxClients * ?SESSIONS_LIMIT_OVERSHOOT_FACTOR,
+    emqx_license_resources:cached_connection_count() >= erlang:round(Limit).
 
 read_license(#{key := Content}) ->
     emqx_license_parser:parse(Content).

@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_routing_SUITE).
@@ -64,28 +52,18 @@ init_per_group(routing_schema_v2, Config) ->
 init_per_group(batch_sync_on, Config) ->
     [{emqx_config, "broker.routing.batch_sync.enable_on = all"} | Config];
 init_per_group(batch_sync_replicants, Config) ->
-    case emqx_cth_suite:skip_if_oss() of
-        false ->
-            [{emqx_config, "broker.routing.batch_sync.enable_on = replicant"} | Config];
-        True ->
-            True
-    end;
+    [{emqx_config, "broker.routing.batch_sync.enable_on = replicant"} | Config];
 init_per_group(batch_sync_off, Config) ->
     [{emqx_config, "broker.routing.batch_sync.enable_on = none"} | Config];
 init_per_group(cluster, Config) ->
-    case emqx_cth_suite:skip_if_oss() of
-        false ->
-            WorkDir = emqx_cth_suite:work_dir(Config),
-            NodeSpecs = [
-                {emqx_routing_SUITE1, #{apps => [mk_emqx_appspec(1, Config)], role => core}},
-                {emqx_routing_SUITE2, #{apps => [mk_emqx_appspec(2, Config)], role => core}},
-                {emqx_routing_SUITE3, #{apps => [mk_emqx_appspec(3, Config)], role => replicant}}
-            ],
-            Nodes = emqx_cth_cluster:start(NodeSpecs, #{work_dir => WorkDir}),
-            [{cluster, Nodes} | Config];
-        True ->
-            True
-    end;
+    WorkDir = emqx_cth_suite:work_dir(Config),
+    NodeSpecs = [
+        {emqx_routing_SUITE1, #{apps => [mk_emqx_appspec(1, Config)], role => core}},
+        {emqx_routing_SUITE2, #{apps => [mk_emqx_appspec(2, Config)], role => core}},
+        {emqx_routing_SUITE3, #{apps => [mk_emqx_appspec(3, Config)], role => replicant}}
+    ],
+    Nodes = emqx_cth_cluster:start(NodeSpecs, #{work_dir => WorkDir}),
+    [{cluster, Nodes} | Config];
 init_per_group(GroupName, Config) when
     GroupName =:= single_batch_on;
     GroupName =:= single

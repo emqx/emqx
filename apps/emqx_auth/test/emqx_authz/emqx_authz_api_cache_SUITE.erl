@@ -1,16 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_api_cache_SUITE).
@@ -155,6 +144,21 @@ t_node_cache(_) ->
         emqx_utils_json:decode(MetricsData2)
     ),
     ok.
+
+%% Check that some default values are provided even if the config is not set
+t_node_cache_get(_Config) ->
+    RawConfig0 = emqx:get_raw_config([authorization]),
+    RawConfig1 = maps:without([<<"node_cache">>], RawConfig0),
+    {ok, _} = emqx:update_config([authorization], RawConfig1),
+
+    {ok, 200, CacheData0} = request(
+        get,
+        uri(["authorization", "node_cache"])
+    ),
+    ?assertMatch(
+        #{<<"enable">> := false},
+        emqx_utils_json:decode(CacheData0)
+    ).
 
 t_node_cache_reset(_) ->
     {ok, 204, _} = request(

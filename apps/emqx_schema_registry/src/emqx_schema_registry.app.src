@@ -1,6 +1,6 @@
 {application, emqx_schema_registry, [
     {description, "EMQX Schema Registry"},
-    {vsn, "0.3.6"},
+    {vsn, "0.3.7"},
     {registered, [emqx_schema_registry_sup]},
     {mod, {emqx_schema_registry_app, []}},
     {included_applications, [
@@ -13,7 +13,8 @@
         gpb,
         jesse,
         avlizer,
-        emqx
+        emqx,
+        emqx_bridge_http
     ]},
     {env, []},
     {modules, []},

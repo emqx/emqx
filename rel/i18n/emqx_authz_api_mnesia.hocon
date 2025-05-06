@@ -132,4 +132,49 @@ users_username_post.desc:
 users_username_post.label:
 """Add rule for 'username'"""
 
+ALREADY_EXISTS.desc:
+"""Authorization already exists."""
+ALREADY_EXISTS.label:
+"""Already exists"""
+
+bad_request_username.desc:
+"""Bad username or bad rule format."""
+bad_request_username.label:
+"""Bad request"""
+
+bad_request_clientid.desc:
+"""Bad clientid or bad rule format."""
+bad_request_clientid.label:
+"""Bad request"""
+
+NOT_FOUND.desc:
+"""Not Found"""
+NOT_FOUND.label:
+"""Not Found"""
+
+bad_request.desc:
+"""Bad rule schema."""
+bad_request.label:
+"""Bad request"""
+
+zone.desc:
+"""Zone name for filtering applied rules. For example: 'zone1', 'zone2', 'default'"""
+zone.label:
+"""Zone"""
+
+zone_re.desc:
+"""Zone regex for filtering applied rules. For example: 'zone[0-9]+', '^zone-.*$'"""
+zone_re.label:
+"""Zone regex"""
+
+listener.desc:
+"""Listener name for filtering applied rules. For example: 'tcp:default', 'ws:default'"""
+listener.label:
+"""Listener"""
+
+listener_re.desc:
+"""Listener regex for filtering applied rules. For example: '^tcp:.*$', '^ws:.*$'"""
+listener_re.label:
+"""Listener regex"""
+
 }

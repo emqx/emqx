@@ -1,16 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_resource_SUITE).
@@ -43,6 +32,10 @@ end).
 -define(fallback_actions, fallback_actions).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
+
+%%------------------------------------------------------------------------------
+%% CT Boilerplate
+%%------------------------------------------------------------------------------
 
 all() ->
     All0 = emqx_common_test_helpers:all(?MODULE),
@@ -98,7 +91,742 @@ end_per_suite(Config) ->
     ok.
 
 %%------------------------------------------------------------------------------
-%% Tests
+%% Helper fns
+%%------------------------------------------------------------------------------
+
+inc_counter_in_parallel(N) ->
+    inc_counter_in_parallel(N, {inc_counter, 1}, #{}).
+
+inc_counter_in_parallel(N, Opts0) ->
+    inc_counter_in_parallel(N, {inc_counter, 1}, Opts0).
+
+inc_counter_in_parallel(N, Query, Opts) ->
+    Parent = self(),
+    Pids = [
+        erlang:spawn(fun() ->
+            emqx_resource:query(?ID, maybe_apply(Query), maybe_apply(Opts)),
+            Parent ! {complete, self()}
+        end)
+     || _ <- lists:seq(1, N)
+    ],
+    [
+        receive
+            {complete, Pid} -> ok
+        after 1000 ->
+            ct:fail({wait_for_query_timeout, Pid})
+        end
+     || Pid <- Pids
+    ],
+    ok.
+
+inc_counter_in_parallel_increasing(N, StartN, Opts) ->
+    Parent = self(),
+    Pids = [
+        erlang:spawn(fun() ->
+            emqx_resource:query(?ID, {inc_counter, M}, maybe_apply(Opts)),
+            Parent ! {complete, self()}
+        end)
+     || M <- lists:seq(StartN, StartN + N - 1)
+    ],
+    [
+        receive
+            {complete, Pid} -> ok
+        after 1000 ->
+            ct:fail({wait_for_query_timeout, Pid})
+        end
+     || Pid <- Pids
+    ].
+
+maybe_apply(FunOrTerm) ->
+    maybe_apply(FunOrTerm, []).
+
+maybe_apply(Fun, Args) when is_function(Fun) ->
+    erlang:apply(Fun, Args);
+maybe_apply(Term, _Args) ->
+    Term.
+
+bin_config() ->
+    <<"\"name\": \"test_resource\"">>.
+
+config() ->
+    {ok, Config} = hocon:binary(bin_config()),
+    Config.
+
+tap_metrics(Line) ->
+    #{counters := C, gauges := G} = emqx_resource:get_metrics(?ID),
+    ct:pal("metrics (l. ~b): ~p", [Line, #{counters => C, gauges => G}]),
+    #{counters => C, gauges => G}.
+
+install_telemetry_handler(TestCase) ->
+    Tid = ets:new(TestCase, [ordered_set, public]),
+    HandlerId = TestCase,
+    TestPid = self(),
+    _ = telemetry:attach_many(
+        HandlerId,
+        emqx_resource_metrics:events(),
+        fun(EventName, Measurements, Metadata, _Config) ->
+            Data = #{
+                name => EventName,
+                measurements => Measurements,
+                metadata => Metadata
+            },
+            ets:insert(Tid, {erlang:monotonic_time(), Data}),
+            TestPid ! {telemetry, Data},
+            ok
+        end,
+        unused_config
+    ),
+    on_exit(fun() ->
+        telemetry:detach(HandlerId),
+        ets:delete(Tid)
+    end),
+    put({?MODULE, telemetry_table}, Tid),
+    Tid.
+
+wait_until_gauge_is(
+    GaugeName,
+    #{
+        expected_value := ExpectedValue,
+        timeout := Timeout,
+        max_events := MaxEvents
+    }
+) ->
+    Events = receive_all_events(GaugeName, Timeout, MaxEvents),
+    case length(Events) > 0 andalso lists:last(Events) of
+        #{measurements := #{gauge_set := ExpectedValue}} ->
+            ok;
+        #{measurements := #{gauge_set := Value}} ->
+            ct:fail(
+                "gauge ~p didn't reach expected value ~p; last value: ~p",
+                [GaugeName, ExpectedValue, Value]
+            );
+        false ->
+            ct:pal("no ~p gauge events received!", [GaugeName])
+    end.
+
+receive_all_events(EventName, Timeout) ->
+    receive_all_events(EventName, Timeout, _MaxEvents = 50, _Count = 0, _Acc = []).
+
+receive_all_events(EventName, Timeout, MaxEvents) ->
+    receive_all_events(EventName, Timeout, MaxEvents, _Count = 0, _Acc = []).
+
+receive_all_events(_EventName, _Timeout, MaxEvents, Count, Acc) when Count >= MaxEvents ->
+    lists:reverse(Acc);
+receive_all_events(EventName, Timeout, MaxEvents, Count, Acc) ->
+    receive
+        {telemetry, #{name := [_, _, EventName]} = Event} ->
+            ct:pal("telemetry event: ~p", [Event]),
+            receive_all_events(EventName, Timeout, MaxEvents, Count + 1, [Event | Acc])
+    after Timeout ->
+        lists:reverse(Acc)
+    end.
+
+wait_telemetry_event(EventName) ->
+    wait_telemetry_event(EventName, #{timeout => 5_000, n_events => 1}).
+
+wait_telemetry_event(
+    EventName,
+    Opts0
+) ->
+    DefaultOpts = #{timeout => 5_000, n_events => 1},
+    #{timeout := Timeout, n_events := NEvents} = maps:merge(DefaultOpts, Opts0),
+    wait_n_events(NEvents, Timeout, EventName).
+
+wait_n_events(NEvents, _Timeout, _EventName) when NEvents =< 0 ->
+    ok;
+wait_n_events(NEvents, Timeout, EventName) ->
+    TelemetryTable = get({?MODULE, telemetry_table}),
+    receive
+        {telemetry, #{name := [_, _, EventName]}} ->
+            wait_n_events(NEvents - 1, Timeout, EventName)
+    after Timeout ->
+        RecordedEvents = ets:tab2list(TelemetryTable),
+        ct:pal("recorded events: ~p", [RecordedEvents]),
+        error({timeout_waiting_for_telemetry, EventName})
+    end.
+
+assert_sync_retry_fail_then_succeed_inflight(Trace) ->
+    ?assert(
+        ?strict_causality(
+            #{?snk_kind := buffer_worker_flush_nack, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
+            Trace
+        )
+    ),
+    %% not strict causality because it might retry more than once
+    %% before restoring the resource health.
+    ?assert(
+        ?causality(
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_succeeded, ref := _Ref},
+            Trace
+        )
+    ),
+    ok.
+
+assert_async_retry_fail_then_succeed_inflight(Trace) ->
+    ?assert(
+        ?strict_causality(
+            #{?snk_kind := handle_async_reply, action := nack},
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
+            Trace
+        )
+    ),
+    %% not strict causality because it might retry more than once
+    %% before restoring the resource health.
+    ?assert(
+        ?causality(
+            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
+            #{?snk_kind := buffer_worker_retry_inflight_succeeded, ref := _Ref},
+            Trace
+        )
+    ),
+    ok.
+
+trace_between_span(Trace0, Marker) ->
+    {Trace1, [_ | _]} = ?split_trace_at(#{?snk_kind := Marker, ?snk_span := {complete, _}}, Trace0),
+    {[_ | _], [_ | Trace2]} = ?split_trace_at(#{?snk_kind := Marker, ?snk_span := start}, Trace1),
+    Trace2.
+
+wait_until_all_marked_as_retriable(NumExpected) when NumExpected =< 0 ->
+    ok;
+wait_until_all_marked_as_retriable(NumExpected) ->
+    Seen = #{},
+    do_wait_until_all_marked_as_retriable(NumExpected, Seen).
+
+do_wait_until_all_marked_as_retriable(NumExpected, _Seen) when NumExpected =< 0 ->
+    ok;
+do_wait_until_all_marked_as_retriable(NumExpected, Seen) ->
+    Res = ?block_until(
+        #{?snk_kind := buffer_worker_async_agent_down, ?snk_meta := #{pid := P}} when
+            not is_map_key(P, Seen),
+        10_000
+    ),
+    case Res of
+        {timeout, Evts} ->
+            ct:pal("events so far:\n  ~p", [Evts]),
+            ct:fail("timeout waiting for events");
+        {ok, #{num_affected := NumAffected, ?snk_meta := #{pid := Pid}}} ->
+            ct:pal("affected: ~p; pid: ~p", [NumAffected, Pid]),
+            case NumAffected >= NumExpected of
+                true ->
+                    ok;
+                false ->
+                    do_wait_until_all_marked_as_retriable(NumExpected - NumAffected, Seen#{
+                        Pid => true
+                    })
+            end
+    end.
+
+counter_metric_inc_fns() ->
+    Mod = emqx_resource_metrics,
+    [
+        fun Mod:Fn/1
+     || {Fn, 1} <- Mod:module_info(functions),
+        case string:find(atom_to_list(Fn), "_inc", trailing) of
+            "_inc" -> true;
+            _ -> false
+        end
+    ].
+
+gauge_metric_set_fns() ->
+    Mod = emqx_resource_metrics,
+    [
+        fun Mod:Fn/3
+     || {Fn, 3} <- Mod:module_info(functions),
+        case string:find(atom_to_list(Fn), "_set", trailing) of
+            "_set" -> true;
+            _ -> false
+        end
+    ].
+
+create(Id, Group, Type, Config) ->
+    create(Id, Group, Type, Config, #{}).
+
+create(Id, Group, Type, Config, Opts) ->
+    Res = emqx_resource:create_local(Id, Group, Type, Config, Opts),
+    on_exit(fun() -> emqx_resource:remove_local(Id) end),
+    case Type of
+        ?TEST_RESOURCE ->
+            on_exit(fun() -> emqx_connector_demo:clear_emulated_config(Id) end);
+        _ ->
+            ok
+    end,
+    Res.
+
+add_channel_emualte_config(ConnResId, ChanId, ChanConfig, Mode) ->
+    emqx_connector_demo:add_channel_emualte_config(ConnResId, ChanId, ChanConfig, Mode).
+
+remove_channel_emualte_config(ConnResId, ChanId, Mode) ->
+    emqx_connector_demo:remove_channel_emualte_config(ConnResId, ChanId, Mode).
+
+dryrun(Id, Type, Config) ->
+    TestPid = self(),
+    OnReady = fun(ResId) -> TestPid ! {resource_ready, ResId} end,
+    emqx_resource:create_dry_run_local(Id, Type, Config, OnReady).
+
+log_consistency_prop() ->
+    {"check state and cache consistency", fun ?MODULE:log_consistency_prop/1}.
+log_consistency_prop(Trace) ->
+    ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
+    ?assertEqual([], ?of_kind("inconsistent_cache", Trace)),
+    ok.
+
+connector_res_id(Name) ->
+    %% Needs to have this form to satifisfy internal, implicit requirements of
+    %% `emqx_resource_cache'.
+    <<"connector:ctype:", Name/binary>>.
+
+action_res_id(ConnResId) ->
+    %% Needs to have this form to satifisfy internal, implicit requirements of
+    %% `emqx_resource_cache'.
+    <<"action:atype:aname:", ConnResId/binary>>.
+
+add_channel(ConnResId, ChanId, Config) ->
+    do_add_channel(ConnResId, ChanId, Config, sync).
+
+add_channel_async(ConnResId, ChanId, Config) ->
+    do_add_channel(ConnResId, ChanId, Config, async).
+
+do_add_channel(ConnResId, ChanId, Config, Mode) ->
+    ok = emqx_resource:create_metrics(ChanId),
+    on_exit(fun() -> emqx_resource:clear_metrics(ChanId) end),
+    ResourceOpts = emqx_resource:fetch_creation_opts(Config),
+    on_exit(fun() -> emqx_resource_buffer_worker_sup:stop_workers(ChanId, ResourceOpts) end),
+    ok = emqx_resource_buffer_worker_sup:start_workers(ChanId, ResourceOpts),
+    emqx_connector_demo:add_channel_emulate_config(ConnResId, ChanId, Config, Mode).
+
+remove_channel(ConnResId, ChanId) ->
+    do_remove_channel(ConnResId, ChanId, sync).
+
+remove_channel_async(ConnResId, ChanId) ->
+    do_remove_channel(ConnResId, ChanId, async).
+
+do_remove_channel(ConnResId, ChanId, Mode) ->
+    emqx_connector_demo:remove_channel_emulate_config(ConnResId, ChanId, Mode).
+
+group_path(Config, Default) ->
+    case emqx_common_test_helpers:group_path(Config) of
+        [] -> Default;
+        Path -> Path
+    end.
+
+fallback_actions_batch_opts(no_batch) ->
+    #{
+        resource_opts => #{batch_time => 0, batch_size => 1},
+        n_reqs => 1
+    };
+fallback_actions_batch_opts(batch) ->
+    #{
+        resource_opts => #{batch_time => 100, batch_size => 100},
+        n_reqs => 10
+    }.
+
+fallback_action_query(ConnResId, ChanId, FallbackFn, Ctx, #{query_mode := async} = QueryOpts0) ->
+    AdjustQueryOptsFn = maps:get(adjust_query_opts, Ctx, fun(_Ctx, QO) -> QO end),
+    Alias = alias([reply]),
+    ReplyTo = {
+        fun(ReplyCallerContext) ->
+            Alias ! {Alias, ReplyCallerContext}
+        end,
+        [],
+        #{reply_dropped => true}
+    },
+    QueryOpts1 = maps:merge(
+        #{connector_resource_id => ConnResId},
+        QueryOpts0#{reply_to => ReplyTo}
+    ),
+    QueryOpts = AdjustQueryOptsFn(Ctx, QueryOpts1),
+    Req = #{q => ask, fn => FallbackFn, ctx => Ctx},
+    ct:pal("~p sending query\n  ~p", [self(), #{query_opts => QueryOpts, ctx => Ctx}]),
+    Res = emqx_resource:query(
+        ChanId,
+        {ChanId, Req},
+        QueryOpts
+    ),
+    case Res of
+        ok ->
+            ok;
+        {async_return, {ok, _Pid}} ->
+            %% Simple async queries do not massage the returned value to stip the
+            %% `{async_return, _}' tag.
+            ok
+    end,
+    ct:pal("~p waiting for reply", [self()]),
+    receive
+        {Alias, ReplyCallerContext} ->
+            ct:pal("~p received async reply:\n  ~p", [self(), ReplyCallerContext]),
+            case ReplyCallerContext of
+                #{result := Result} ->
+                    Result;
+                Result ->
+                    %% If expired, it's a simple tuple
+                    Result
+            end
+    after 1_000 -> ct:fail("~p timed out waiting for reply", [self()])
+    end;
+fallback_action_query(ConnResId, ChanId, FallbackFn, Ctx, #{query_mode := sync} = QueryOpts0) ->
+    AdjustQueryOptsFn = maps:get(adjust_query_opts, Ctx, fun(QO) -> QO end),
+    QueryOpts1 = maps:merge(
+        #{connector_resource_id => ConnResId},
+        QueryOpts0
+    ),
+    QueryOpts = AdjustQueryOptsFn(QueryOpts1),
+    Req = #{q => ask, fn => FallbackFn, ctx => Ctx},
+    ct:pal("~p sending query\n  ~p", [self(), #{query_opts => QueryOpts, ctx => Ctx}]),
+    emqx_resource:query(
+        ChanId,
+        {ChanId, Req},
+        QueryOpts
+    ).
+
+fallback_query_wait_async(N, RequestQueryKind, QueryOpts, Ctx) ->
+    #{
+        conn_res_id := ConnResId,
+        chan_id := ChanId,
+        mk_event_matcher := MkEventMatcher,
+        fallback_fn := FallbackFn
+    } = Ctx,
+    AssertExpectedCallMode = maps:get(assert_expected_callmode, Ctx, true),
+    ReqCtx = Ctx#{req_n => N},
+    case AssertExpectedCallMode of
+        true ->
+            ct:pal("~p sending request ~b", [self(), N]),
+            EventMatcher = MkEventMatcher(RequestQueryKind),
+            {Result, {ok, _}} =
+                snabbkaffe:wait_async_action(
+                    fun() ->
+                        fallback_action_query(
+                            ConnResId, ChanId, FallbackFn, ReqCtx, QueryOpts#{
+                                query_mode => RequestQueryKind
+                            }
+                        )
+                    end,
+                    EventMatcher,
+                    infinity
+                );
+        false ->
+            Result = fallback_action_query(
+                ConnResId, ChanId, FallbackFn, ReqCtx, QueryOpts#{
+                    query_mode => RequestQueryKind
+                }
+            )
+    end,
+    ct:pal("~p received reply ~b:\n  ~p", [self(), N, Result]),
+    Result.
+
+fallback_send_many(RequestQueryKind, Ctx) ->
+    #{n_reqs := NReqs} = Ctx,
+    BaseQueryOpts = maps:get(base_query_opts, Ctx),
+    QueryOpts0 = maps:get(query_opts, Ctx, #{}),
+    QueryOpts = emqx_utils_maps:deep_merge(BaseQueryOpts, QueryOpts0),
+    Results = emqx_utils:pmap(
+        fun(N) ->
+            fallback_query_wait_async(N, RequestQueryKind, QueryOpts, Ctx)
+        end,
+        lists:seq(1, NReqs)
+    ),
+    Results.
+
+assert_all_queries_triggered_fallbacks(Ctx) ->
+    #{n_reqs := NReqs} = Ctx,
+    lists:foreach(
+        fun(N) ->
+            ?assertReceive(
+                {fallback_called, #{n := 1, request := #{ctx := #{req_n := N}}}}
+            ),
+            ?assertReceive({fallback_called, #{n := 2, request := #{ctx := #{req_n := N}}}})
+        end,
+        lists:seq(1, NReqs)
+    ),
+    ?assertNotReceive({fallback_called, _}),
+    ok.
+
+merge_maps(Maps) ->
+    lists:foldl(fun emqx_utils_maps:deep_merge/2, #{}, Maps).
+
+%% Poor man's `timer:apply_after', prior to OTP 27.
+apply_after(Time, Fn) ->
+    spawn(fun() ->
+        timer:sleep(Time),
+        Fn()
+    end).
+
+fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch) ->
+    fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch, _Opts = #{}).
+
+-doc """"
+Options:
+  - `fallback_fn`: the function that will be called by the resource itself to trigger
+    the fallback actions.
+  - `assert_expected_callmode`: if true, asserts that the expected query mode in buffer
+    worker was called.
+  - `adjust_resource_config_fn`: a function that receives the default resource config for
+    this scenario and returns a new resource config.
+"""".
+fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch, Opts) ->
+    ChanResourceOptsOverride = maps:get(chan_resource_opts_override, Opts, #{}),
+    emqx_connector_demo:set_callback_mode(CallbackMode),
+    #{
+        resource_opts := ResourceOpts0,
+        n_reqs := NReqs
+    } = fallback_actions_batch_opts(ShouldBatch),
+    MkEventMatcher = fun(RequestQueryKind) ->
+        QMSummary = emqx_resource_manager:summarize_query_mode(ChanQueryMode, RequestQueryKind),
+        case {ShouldBatch, CallbackMode, QMSummary} of
+            {no_batch, always_sync, _} ->
+                ?match_event(#{?snk_kind := call_query});
+            {batch, always_sync, _} ->
+                ?match_event(#{?snk_kind := call_batch_query});
+            {no_batch, async_if_possible, #{is_simple := false, has_internal_buffer := false}} ->
+                ?match_event(#{?snk_kind := call_query_async});
+            {batch, async_if_possible, #{is_simple := false, has_internal_buffer := false}} ->
+                ?match_event(#{?snk_kind := call_batch_query_async});
+            {no_batch, async_if_possible, #{has_internal_buffer := true}} ->
+                ?match_event(#{?snk_kind := call_query_async});
+            {no_batch, async_if_possible, #{is_simple := true, requested_query_kind := sync}} ->
+                ?match_event(#{?snk_kind := call_query});
+            {no_batch, async_if_possible, #{is_simple := true, requested_query_kind := async}} ->
+                ?match_event(#{?snk_kind := call_query_async})
+        end
+    end,
+    ConnResId = connector_res_id(ConnName),
+    AdjustConnConfigFn = maps:get(adjust_conn_config_fn, Opts, fun(Cfg) -> Cfg end),
+    ConnConfig = AdjustConnConfigFn(#{name => test_resource}),
+    {ok, _} =
+        create(
+            ConnResId,
+            ?DEFAULT_RESOURCE_GROUP,
+            ?TEST_RESOURCE,
+            ConnConfig,
+            #{
+                health_check_interval => 100,
+                start_timeout => 100
+            }
+        ),
+    ChanId = action_res_id(ConnResId),
+    ChanResourceOpts = merge_maps([
+        #{
+            health_check_interval => 100,
+            worker_pool_size => 1
+        },
+        ResourceOpts0,
+        ChanResourceOptsOverride
+    ]),
+    ChanConfig = #{
+        force_query_mode => ChanQueryMode,
+        resource_opts => ChanResourceOpts
+    },
+    ok =
+        add_channel(
+            ConnResId,
+            ChanId,
+            ChanConfig
+        ),
+    FallbackFn = maps:get(
+        fallback_fn,
+        Opts,
+        fun(_Ctx) ->
+            {error, {unrecoverable_error, fallback_time}}
+        end
+    ),
+    TestPid = self(),
+    FallbackAction = fun(Ctx) ->
+        ct:pal("fallback triggered:\n  ~p", [Ctx]),
+        TestPid ! {fallback_called, Ctx},
+        ok
+    end,
+    MkFallback = fun(N) -> fun(Ctx) -> FallbackAction(Ctx#{n => N}) end end,
+    QueryOpts = #{
+        ?fallback_actions => [
+            MkFallback(1),
+            MkFallback(2)
+        ]
+    },
+    #{
+        base_query_opts => QueryOpts,
+        mk_fallback => MkFallback,
+        fallback_action => FallbackAction,
+        conn_res_id => ConnResId,
+        chan_id => ChanId,
+        mk_event_matcher => MkEventMatcher,
+        chan_resource_opts => ChanResourceOpts,
+        n_reqs => NReqs,
+        fallback_fn => FallbackFn
+    }.
+
+%%------------------------------------------------------------------------------
+%% Properties
+%%------------------------------------------------------------------------------
+
+%% Verifies that we compress operations for a given channel id that may happen to stack up
+%% while the resource manager process is stuck on a call.
+t_prop_compress_channel_operations(_Config) ->
+    ct:timetrap({seconds, 60}),
+    ?assert(
+        proper:quickcheck(prop_compress_channel_operations(), [{numtests, 100}, {to_file, user}])
+    ),
+    ok.
+
+prop_compress_channel_operations() ->
+    ?FORALL(
+        {ConnStatus, Commands},
+        {resource_status_gen(), list({range(1, 3), channel_op_gen()})},
+        begin
+            ConnResId = <<"connector:ctype:c">>,
+            AgentState0 = #{
+                resource_health_check => ConnStatus,
+                channel_health_check => connected
+            },
+            {ok, Agent} = emqx_utils_agent:start_link(AgentState0),
+            %% We mock the module so we may count the calls to add/remove channel
+            %% callbacks.
+            ok = meck:new(?TEST_RESOURCE, [passthrough]),
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        health_check_agent => Agent
+                    },
+                    #{
+                        health_check_interval => 100,
+                        start_timeout => 100
+                    }
+                ),
+            ?assertMatch({ok, ConnStatus}, emqx_resource:health_check(ConnResId)),
+            %% We suspend the process so operations are stacked on its mailbox.
+            Pid = emqx_resource_manager:where(ConnResId),
+            ok = sys:suspend(Pid),
+            lists:foreach(
+                fun(Command) -> exec_channel_operation(Command, ConnResId) end,
+                Commands
+            ),
+            %% Resume and let it process everything.
+            ok = sys:resume(Pid),
+            %% To force processing of the mailbox, and trigger channel ops.  Must go to
+            %% `?status_connected` to actually process state changing operations.
+            _ = emqx_utils_agent:get_and_update(Agent, fun(Old) ->
+                {unused, Old#{resource_health_check := connected}}
+            end),
+            ?retry(100, 10, ?assertMatch({ok, connected}, emqx_resource:health_check(ConnResId))),
+            {ok, InConfigChannelsList} = emqx_resource_manager:get_channels(ConnResId),
+            InConfigChannels = maps:from_list(InConfigChannelsList),
+            InStateChannels = emqx_resource_manager:get_channel_configs(ConnResId),
+            {ok, _Group, ResData} = emqx_resource_manager:lookup_cached(ConnResId),
+            History = meck:history(?TEST_RESOURCE),
+            ok = meck:unload(?TEST_RESOURCE),
+            ok = emqx_resource:remove_local(ConnResId),
+            emqx_connector_demo:clear_emulated_config(ConnResId),
+            ExpectedOps = process_commands_expectation(Commands),
+            ExpectedChannels = maps:filter(fun(_, V) -> V /= del end, ExpectedOps),
+            %% Even if not added yet to the resource state, the known channel configs must
+            %% be the latest received additions, or the channel should be absent from
+            %% installed channels.
+            HasExpectedConfigs = ExpectedChannels =:= InConfigChannels,
+            %% If the resource status is connected, then the channel must also be in the
+            %% connector resource state.
+            IsInExpectedResState = ExpectedChannels =:= InStateChannels,
+            %% We compress the operations so that operations that cancel out are not
+            %% executed needlessly.  We can only know which calls were made from the
+            %% callback module in the connected status.
+            ExpectedOpCount = map_size(ExpectedOps),
+            ActualOpCount = lists:sum([
+                1
+             || {_Pid, {?TEST_RESOURCE, Fn, _Args}, _Res} <- History,
+                lists:member(Fn, [on_add_channel, on_remove_channel])
+            ]),
+            IsCompressedAsExpected =
+                case ConnStatus of
+                    ?status_connected ->
+                        %% One op per distinct channel
+                        ExpectedOpCount =:= ActualOpCount;
+                    _ ->
+                        true
+                end,
+            ?WHENFAIL(
+                io:format(
+                    user,
+                    "Connector status:\n  ~s\n\n"
+                    "Commands:\n  ~p\n\n"
+                    "Expected Channels:\n  ~p\n\n"
+                    "Channels in config:\n  ~p\n\n"
+                    "Channels in state:\n  ~p\n\n"
+                    "Expected op count:\n  ~p\n\n"
+                    "Actual op count:\n  ~p\n\n"
+                    "Module call history:\n  ~p\n\n"
+                    "Resource:\n  ~p\n\n",
+                    [
+                        ConnStatus,
+                        Commands,
+                        ExpectedChannels,
+                        InConfigChannels,
+                        InStateChannels,
+                        ExpectedOpCount,
+                        ActualOpCount,
+                        History,
+                        ResData
+                    ]
+                ),
+                aggregate(
+                    [ConnStatus],
+                    aggregate(
+                        Commands,
+                        HasExpectedConfigs andalso
+                            IsInExpectedResState andalso
+                            IsCompressedAsExpected
+                    )
+                )
+            )
+        end
+    ).
+
+process_commands_expectation(Commands) ->
+    lists:foldl(
+        fun
+            ({N, {add, ChannelConf}}, ModelState) ->
+                ChannelId = channel_num_to_id(N),
+                ModelState#{ChannelId => ChannelConf};
+            ({N, del}, ModelState) ->
+                ChannelId = channel_num_to_id(N),
+                maps:remove(ChannelId, ModelState)
+        end,
+        #{},
+        Commands
+    ).
+
+channel_num_to_id(N) ->
+    <<"action:atype:", (integer_to_binary(N))/binary, ":connector:ctype:c">>.
+
+exec_channel_operation({N, {add, ChannelConf}}, ConnResId) ->
+    ChannelId = channel_num_to_id(N),
+    ok = add_channel_async(ConnResId, ChannelId, ChannelConf);
+exec_channel_operation({N, del}, ConnResId) ->
+    ChannelId = channel_num_to_id(N),
+    ok = remove_channel_async(ConnResId, ChannelId).
+
+channel_op_gen() ->
+    frequency([{2, add_channel_gen()}, {1, del}]).
+
+add_channel_gen() ->
+    ?LET(
+        HealthCheckInterval,
+        range(1, 10),
+        {add, #{resource_opts => #{health_check_interval => HealthCheckInterval}}}
+    ).
+
+resource_status_gen() ->
+    %% Stopped is a more special state, which is not entered automatically
+    oneof([
+        ?status_connected,
+        ?status_connecting,
+        ?status_disconnected
+    ]).
+
+%%------------------------------------------------------------------------------
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_list_types(_) ->
@@ -3399,7 +4127,7 @@ t_resource_and_channel_health_check_race(_Config) ->
             %%    state.
             ?tpal("2) Connector HC returns `disconnected'"),
             _ = emqx_utils_agent:get_and_update(Agent, fun(Old) ->
-                {Old, Old#{resource_health_check := connected}}
+                {Old, Old#{resource_health_check := {notify, Me, ?status_connected}}}
             end),
             {_, {ok, _}} =
                 ?wait_async_action(
@@ -3411,6 +4139,7 @@ t_resource_and_channel_health_check_race(_Config) ->
             ChanHCAlias1 ! {ChanHCAlias1, connected},
             %% 4) A new connector HC returns `connected'.
             ?tpal("4) A new connector HC returns `connected'"),
+            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
             ?assertMatch({ok, connected}, emqx_resource:health_check(ConnResId)),
             ?assertMatch(
                 #{status := connected}, emqx_resource:channel_health_check(ConnResId, ChanId)
@@ -3441,6 +4170,11 @@ t_dryrun_timeout_then_force_kill_during_stop(_Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
+            %% Important: we must use a resource id with this format so that the resouce
+            %% manager child spawned has `temporary` restart type instead of `transient`.
+            Id = ?PROBE_ID_NEW(),
+
+            %% Kill the caller process while it's blocked during an `on_stop` call.
             ?force_ordering(
                 #{?snk_kind := connector_demo_on_stop_will_delay},
                 #{?snk_kind := will_kill_request}
@@ -3448,7 +4182,9 @@ t_dryrun_timeout_then_force_kill_during_stop(_Config) ->
 
             %% Simulates a cowboy request process.
             {ok, StartAgent} = emqx_utils_agent:start_link(not_called),
-            {ok, StopAgent} = emqx_utils_agent:start_link({delay, 1_000}),
+            %% Note: this should be larger than `emqx_resource_manager:?T_OPERATION`.
+            StopDelay = 6_000,
+            {ok, StopAgent} = emqx_utils_agent:start_link({delay, StopDelay}),
             HowToStop = fun() ->
                 %% Delay only the first time, so test cleanup is faster.
                 Action = emqx_utils_agent:get_and_update(StopAgent, fun
@@ -3468,7 +4204,7 @@ t_dryrun_timeout_then_force_kill_during_stop(_Config) ->
             end,
             {Pid, MRef} = spawn_monitor(fun() ->
                 Res = dryrun(
-                    ?ID,
+                    Id,
                     ?TEST_RESOURCE,
                     #{
                         name => test_resource,
@@ -3504,6 +4240,9 @@ t_dryrun_timeout_then_force_kill_during_stop(_Config) ->
             ?assertEqual([], supervisor:which_children(emqx_resource_manager_sup)),
             %% Cache should be clean too
             ?assertEqual([], emqx_resource:list_instances()),
+            %% Deallocations should evenutally happen, when cache cleaner runs.
+
+            ?assertEqual(#{}, emqx_resource:get_allocated_resources(Id)),
 
             ok
         end,
@@ -3893,6 +4632,101 @@ t_fallback_actions_expired_internal_buffer(Config) when is_list(Config) ->
     ),
     ok.
 
+%% When a resource/channel is an "unhealthy target", messages do not even reach the
+%% buffering layer, where most of the fallback actions logic live.  So we have to deal
+%% with fallback actions outside it.
+t_fallback_actions_unhealthy_target(_Config) ->
+    ConnName = <<"fallback_actions_unhealthy_target">>,
+    ChanQueryMode = sync,
+    CallbackMode = always_sync,
+    ShouldBatch = no_batch,
+    ?check_trace(
+        begin
+            AgentState0 = #{
+                resource_health_check => ?status_connected,
+                channel_health_check =>
+                    {?status_disconnected, {unhealthy_target, <<"something is wrong">>}}
+            },
+            {ok, HCAgent} = emqx_utils_agent:start_link(AgentState0),
+            AdjustConnConfigFn = fun(Cfg) ->
+                Cfg#{health_check_agent => HCAgent}
+            end,
+            Opts = #{adjust_conn_config_fn => AdjustConnConfigFn},
+            Ctx0 = fallback_actions_basic_setup(
+                ConnName, ChanQueryMode, CallbackMode, ShouldBatch, Opts
+            ),
+            Ctx = Ctx0#{assert_expected_callmode => false},
+            ConnResId = maps:get(conn_res_id, Ctx),
+            ChanId = maps:get(chan_id, Ctx),
+            ?assertMatch(
+                #{
+                    status := ?status_disconnected,
+                    error := {unhealthy_target, <<"something is wrong">>}
+                },
+                emqx_resource:channel_health_check(ConnResId, ChanId)
+            ),
+            Results1 = fallback_send_many(sync, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+            ?assertMatch([?RESOURCE_ERROR(unhealthy_target)], Results1),
+
+            _ = emqx_utils_agent:get_and_update(HCAgent, fun(Old) ->
+                {unused, Old#{
+                    channel_health_check :=
+                        {?status_disconnected, unhealthy_target}
+                }}
+            end),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    #{
+                        status := ?status_disconnected,
+                        error := unhealthy_target
+                    },
+                    emqx_resource:channel_health_check(ConnResId, ChanId)
+                )
+            ),
+            Results2 = fallback_send_many(sync, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+            ?assertMatch([?RESOURCE_ERROR(unhealthy_target)], Results2),
+
+            _ = emqx_utils_agent:get_and_update(HCAgent, fun(Old) ->
+                {unused, Old#{
+                    %% Not entirely sure if this path is reached in reality, but adding this case
+                    %% to cover the corresponding code path in
+                    %% `emqx_resource_buffer_worker:call_query`.
+                    resource_health_check := {?status_connecting, unhealthy_target},
+
+                    channel_health_check := ?status_connected
+                }}
+            end),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    %% Connecting, because connector is not connected
+                    #{status := ?status_connecting},
+                    emqx_resource:channel_health_check(ConnResId, ChanId)
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {ok, ?status_connecting},
+                    emqx_resource:health_check(ConnResId)
+                )
+            ),
+            Results3 = fallback_send_many(sync, Ctx),
+            assert_all_queries_triggered_fallbacks(Ctx),
+            ?assertMatch([{error, {unrecoverable_error, unhealthy_target}}], Results3),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %% Checks that, if one removal from the state fails, it's periodically retried until it
 %% succeeds.  Adding the same `ChannelId' again should cancel such retries.
 t_retry_remove_channel(_Config) ->
@@ -3924,12 +4758,12 @@ t_retry_remove_channel(_Config) ->
             ChanId = <<"action:atype:aname:", ConnResId/binary>>,
             ct:pal("testing async retries"),
             ok =
-                emqx_resource_manager:add_channel(
+                add_channel(
                     ConnResId,
                     ChanId,
                     #{health_check_delay => 500}
                 ),
-            ok = emqx_resource_manager:remove_channel_async(ConnResId, ChanId),
+            ok = remove_channel_async(ConnResId, ChanId),
             RetryTimeout = 2_000,
             Timeout = RetryTimeout + 1_000,
             %% Should then retry asynchronously
@@ -3939,7 +4773,7 @@ t_retry_remove_channel(_Config) ->
                     Alias1 ! {Alias1, {error, oops_again}}
             after Timeout -> ct:fail("didn't retry removing channel async")
             end,
-            ?assertMatch({ok, [_]}, emqx_resource_manager:get_channels(ConnResId)),
+            ?assertMatch(#{ChanId := _}, emqx_resource_manager:get_channel_configs(ConnResId)),
             %% Now should try again, and we'll let it succeed.
             receive
                 {waiting_remove_channel_result, Alias2, ConnResId, ChanId} ->
@@ -3947,7 +4781,7 @@ t_retry_remove_channel(_Config) ->
                     Alias2 ! {Alias2, continue}
             after Timeout -> ct:fail("didn't retry removing channel async 2")
             end,
-            ?assertMatch({ok, []}, emqx_resource_manager:get_channels(ConnResId)),
+            ?assertEqual(#{}, emqx_resource_manager:get_channel_configs(ConnResId)),
             %% Now, let's see that adding the channel again while it's retrying to remove should
             %% cancel such timer.
             ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
@@ -3958,62 +4792,65 @@ t_retry_remove_channel(_Config) ->
             ct:pal("adding channel"),
             {ok, {ok, _}} =
                 ?wait_async_action(
-                    emqx_resource_manager:add_channel(
+                    add_channel(
                         ConnResId,
                         ChanId,
                         #{health_check_delay => 500}
                     ),
                     #{?snk_kind := added_channel}
                 ),
-            ?assertMatch({ok, [_]}, emqx_resource_manager:get_channels(ConnResId)),
+            ?assertMatch(#{ChanId := _}, emqx_resource_manager:get_channel_configs(ConnResId)),
             ct:pal("removing channel async"),
-            ok = emqx_resource_manager:remove_channel_async(ConnResId, ChanId),
+            ok = remove_channel_async(ConnResId, ChanId),
             ct:pal("waiting for attempt"),
             ?assertReceive({attempted_to_remove_channel, ConnResId, ChanId}, Timeout),
-            ?assertMatch({ok, [_]}, emqx_resource_manager:get_channels(ConnResId)),
+            ?assertMatch(#{ChanId := _}, emqx_resource_manager:get_channel_configs(ConnResId)),
             %% Now add again while the timer is going on.
             ct:pal("adding channel again"),
             ok =
-                emqx_resource_manager:add_channel(
+                add_channel(
                     ConnResId,
                     ChanId,
                     #{health_check_delay => 500}
                 ),
             %% Should stop trying to remove
             ?assertNotReceive({attempted_to_remove_channel, ConnResId, ChanId}, Timeout),
-            ?assertMatch({ok, [_]}, emqx_resource_manager:get_channels(ConnResId)),
+            ?assertMatch(#{ChanId := _}, emqx_resource_manager:get_channel_configs(ConnResId)),
             ok
         end,
         []
     ),
     ok.
 
-%%------------------------------------------------------------------------------
-%% Properties
-%%------------------------------------------------------------------------------
-
-%% Verifies that we compress operations for a given channel id that may happen to stack up
-%% while the resource manager process is stuck on a call.
-t_compress_channel_operations(_Config) ->
-    ?assert(
-        proper:quickcheck(prop_compress_channel_operations(), [{numtests, 100}, {to_file, user}])
-    ),
-    ok.
-
-prop_compress_channel_operations() ->
-    ?FORALL(
-        {ConnStatus, Commands},
-        {resource_status_gen(), list({range(1, 3), channel_op_gen()})},
+%% Checks that, if a channel is already installed, and we receive a remove and an add
+%% request (as happens in an config update operation), we do update the channel by
+%% removing and re-adding it with the new config to the resource state.
+t_compress_channel_operations_existing_channel() ->
+    [{matrix, true}].
+t_compress_channel_operations_existing_channel(matrix) ->
+    [[connected], [connecting], [disconnected]];
+t_compress_channel_operations_existing_channel(Config) when is_list(Config) ->
+    [ConnectorStatus] = group_path(Config, [connected]),
+    TestPid = self(),
+    ?check_trace(
         begin
             ConnResId = <<"connector:ctype:c">>,
+            {ok, ChanAgent} = emqx_utils_agent:start_link(#{
+                add_channel => [
+                    continue,
+                    {notify, TestPid, continue}
+                ],
+                remove_channel => [
+                    {notify, TestPid, {error, oops}},
+                    {notify, TestPid, continue}
+                ]
+            }),
             AgentState0 = #{
-                resource_health_check => ConnStatus,
+                resource_health_check => connected,
                 channel_health_check => connected
             },
-            {ok, Agent} = emqx_utils_agent:start_link(AgentState0),
-            %% We mock the module so we may count the calls to add/remove channel
-            %% callbacks.
-            ok = meck:new(?TEST_RESOURCE, [passthrough]),
+            {ok, HCAgent} = emqx_utils_agent:start_link(AgentState0),
+            ?tpal("creating connector resource"),
             {ok, _} =
                 create(
                     ConnResId,
@@ -4021,665 +4858,266 @@ prop_compress_channel_operations() ->
                     ?TEST_RESOURCE,
                     #{
                         name => test_resource,
-                        health_check_agent => Agent
+                        remove_channel_agent => ChanAgent,
+                        add_channel_agent => ChanAgent,
+                        health_check_agent => HCAgent
                     },
                     #{
                         health_check_interval => 100,
                         start_timeout => 100
                     }
                 ),
-            ?assertMatch({ok, ConnStatus}, emqx_resource:health_check(ConnResId)),
+            ?assertMatch({ok, connected}, emqx_resource:health_check(ConnResId)),
+
+            ChanId = action_res_id(ConnResId),
+
+            ?tpal("creating channel"),
+            HCInterval1 = 500,
+            ChanConfig1 = #{
+                enable => true,
+                resource_opts => #{health_check_interval => HCInterval1}
+            },
+            ok = add_channel(ConnResId, ChanId, ChanConfig1),
+            ?assertMatch(
+                #{status := connected, error := undefined},
+                emqx_resource:channel_health_check(ConnResId, ChanId)
+            ),
+            ?assertEqual(
+                #{ChanId => ChanConfig1},
+                emqx_resource_manager:get_channel_configs(ConnResId)
+            ),
+            ?assertEqual(
+                {ok, [{ChanId, ChanConfig1}]},
+                emqx_resource_manager:get_channels(ConnResId)
+            ),
+
+            %% Set desired connector resource status
+            ?tpal("changing connector status"),
+            _ = emqx_utils_agent:get_and_update(HCAgent, fun(Old) ->
+                {unused, Old#{resource_health_check := ConnectorStatus}}
+            end),
+            ?retry(
+                100, 10, ?assertMatch({ok, ConnectorStatus}, emqx_resource:health_check(ConnResId))
+            ),
+
             %% We suspend the process so operations are stacked on its mailbox.
+            ?tpal("suspending resource manager process"),
             Pid = emqx_resource_manager:where(ConnResId),
             ok = sys:suspend(Pid),
-            lists:foreach(
-                fun(Command) -> exec_channel_operation(Command, ConnResId) end,
-                Commands
+
+            %% We mock the module so we may count the calls to add/remove channel
+            %% callbacks.
+            on_exit(fun() -> meck:unload() end),
+            ok = meck:new(?TEST_RESOURCE, [passthrough]),
+
+            %% Stack config update ops in its mailbox
+            ?tpal("sending async channel operations"),
+            ok = remove_channel_async(ConnResId, ChanId),
+            HCInterval2 = HCInterval1 + 200,
+            ChanConfig2 = emqx_utils_maps:deep_put(
+                [resource_opts, health_check_interval],
+                ChanConfig1,
+                HCInterval2
             ),
-            %% Resume and let it process everything.
+            ok = add_channel_async(ConnResId, ChanId, ChanConfig2),
+
+            %% Restore connected status to connector so that it may actually modify
+            %% internal state, if not updated yet.
+            _ = emqx_utils_agent:get_and_update(HCAgent, fun(Old) ->
+                {unused, Old#{resource_health_check := connected}}
+            end),
+            %% Resume and make a call so that messages are processed
+            ?tpal("changing status and resuming resource manager process"),
             ok = sys:resume(Pid),
-            %% To force processing of the mailbox, and trigger channel ops.
-            ?assertMatch({ok, ConnStatus}, emqx_resource:health_check(ConnResId)),
-            Channels = emqx_resource_manager:get_channel_configs(ConnResId),
-            {ok, InStateChannelsList} = emqx_resource_manager:get_channels(ConnResId),
-            InStateChannels = maps:from_list(InStateChannelsList),
-            {ok, _Group, ResData} = emqx_resource_manager:lookup_cached(ConnResId),
-            History = meck:history(?TEST_RESOURCE),
-            ok = meck:unload(?TEST_RESOURCE),
-            ok = emqx_resource:remove_local(ConnResId),
-            ExpectedOps = process_commands_expectation(Commands),
-            ExpectedChannels = maps:filter(fun(_, V) -> V /= del end, ExpectedOps),
-            %% Even if not added yet to the resource state, the known channel configs must
-            %% be the latest received additions, or the channel should be absent from
-            %% installed channels.
-            HasExpectedConfigs = ExpectedChannels =:= Channels,
-            %% If the resource status is connected, then the channel must also be in the
-            %% connector resource state.
-            IsInExpectedResState =
-                case ConnStatus of
-                    ?status_connected ->
-                        ExpectedChannels =:= InStateChannels;
-                    _ ->
-                        true
-                end,
-            %% We compress the operations so that operations that cancel out are not
-            %% executed needlessly.  We can only know which calls were made from the
-            %% callback module in the connected status.
-            ExpectedOpCount = map_size(ExpectedOps),
-            ActualOpCount = lists:sum([
-                1
-             || {_Pid, {?TEST_RESOURCE, Fn, _Args}, _Res} <- History,
-                lists:member(Fn, [on_add_channel, on_remove_channel])
-            ]),
-            IsCompressedAsExpected =
-                case ConnStatus of
-                    ?status_connected ->
-                        %% One op per distinct channel
-                        ExpectedOpCount =:= ActualOpCount;
-                    _ ->
-                        true
-                end,
-            ?WHENFAIL(
-                io:format(
-                    user,
-                    "Connector status:\n  ~s\n\n"
-                    "Commands:\n  ~p\n\n"
-                    "Expected Channels:\n  ~p\n\n"
-                    "Channels:\n  ~p\n\n"
-                    "Channels in state:\n  ~p\n\n"
-                    "Expected op count:\n  ~p\n\n"
-                    "Actual op count:\n  ~p\n\n"
-                    "Module call history:\n  ~p\n\n"
-                    "Resource:\n  ~p\n\n",
-                    [
-                        ConnStatus,
-                        Commands,
-                        ExpectedChannels,
-                        Channels,
-                        InStateChannels,
-                        ExpectedOpCount,
-                        ActualOpCount,
-                        History,
-                        ResData
-                    ]
-                ),
-                aggregate(
-                    [ConnStatus],
-                    aggregate(
-                        Commands,
-                        HasExpectedConfigs andalso
-                            IsInExpectedResState andalso
-                            IsCompressedAsExpected
-                    )
+            ?retry(
+                100,
+                10,
+                ?assertMatch(
+                    {ok, connected},
+                    emqx_resource:health_check(ConnResId)
                 )
-            )
-        end
-    ).
-
-process_commands_expectation(Commands) ->
-    lists:foldl(
-        fun
-            ({N, {add, ChannelConf}}, ModelState) ->
-                ChannelId = channel_num_to_id(N),
-                ModelState#{ChannelId => ChannelConf};
-            ({N, del}, ModelState) ->
-                ChannelId = channel_num_to_id(N),
-                maps:remove(ChannelId, ModelState)
-        end,
-        #{},
-        Commands
-    ).
-
-channel_num_to_id(N) ->
-    <<"action:atype:", (integer_to_binary(N))/binary, ":connector:ctype:c">>.
-
-exec_channel_operation({N, {add, ChannelConf}}, ConnResId) ->
-    ChannelId = channel_num_to_id(N),
-    ok = emqx_resource_manager:add_channel_async(ConnResId, ChannelId, ChannelConf);
-exec_channel_operation({N, del}, ConnResId) ->
-    ChannelId = channel_num_to_id(N),
-    ok = emqx_resource_manager:remove_channel_async(ConnResId, ChannelId).
-
-channel_op_gen() ->
-    frequency([{2, add_channel_gen()}, {1, del}]).
-
-add_channel_gen() ->
-    ?LET(
-        HealthCheckInterval,
-        range(1, 10),
-        {add, #{resource_opts => #{health_check_interval => HealthCheckInterval}}}
-    ).
-
-resource_status_gen() ->
-    %% Stopped is a more special state, which is not entered automatically
-    oneof([
-        ?status_connected,
-        ?status_connecting,
-        ?status_disconnected
-    ]).
-
-%%------------------------------------------------------------------------------
-%% Helpers
-%%------------------------------------------------------------------------------
-
-inc_counter_in_parallel(N) ->
-    inc_counter_in_parallel(N, {inc_counter, 1}, #{}).
-
-inc_counter_in_parallel(N, Opts0) ->
-    inc_counter_in_parallel(N, {inc_counter, 1}, Opts0).
-
-inc_counter_in_parallel(N, Query, Opts) ->
-    Parent = self(),
-    Pids = [
-        erlang:spawn(fun() ->
-            emqx_resource:query(?ID, maybe_apply(Query), maybe_apply(Opts)),
-            Parent ! {complete, self()}
-        end)
-     || _ <- lists:seq(1, N)
-    ],
-    [
-        receive
-            {complete, Pid} -> ok
-        after 1000 ->
-            ct:fail({wait_for_query_timeout, Pid})
-        end
-     || Pid <- Pids
-    ],
-    ok.
-
-inc_counter_in_parallel_increasing(N, StartN, Opts) ->
-    Parent = self(),
-    Pids = [
-        erlang:spawn(fun() ->
-            emqx_resource:query(?ID, {inc_counter, M}, maybe_apply(Opts)),
-            Parent ! {complete, self()}
-        end)
-     || M <- lists:seq(StartN, StartN + N - 1)
-    ],
-    [
-        receive
-            {complete, Pid} -> ok
-        after 1000 ->
-            ct:fail({wait_for_query_timeout, Pid})
-        end
-     || Pid <- Pids
-    ].
-
-maybe_apply(FunOrTerm) ->
-    maybe_apply(FunOrTerm, []).
-
-maybe_apply(Fun, Args) when is_function(Fun) ->
-    erlang:apply(Fun, Args);
-maybe_apply(Term, _Args) ->
-    Term.
-
-bin_config() ->
-    <<"\"name\": \"test_resource\"">>.
-
-config() ->
-    {ok, Config} = hocon:binary(bin_config()),
-    Config.
-
-tap_metrics(Line) ->
-    #{counters := C, gauges := G} = emqx_resource:get_metrics(?ID),
-    ct:pal("metrics (l. ~b): ~p", [Line, #{counters => C, gauges => G}]),
-    #{counters => C, gauges => G}.
-
-install_telemetry_handler(TestCase) ->
-    Tid = ets:new(TestCase, [ordered_set, public]),
-    HandlerId = TestCase,
-    TestPid = self(),
-    _ = telemetry:attach_many(
-        HandlerId,
-        emqx_resource_metrics:events(),
-        fun(EventName, Measurements, Metadata, _Config) ->
-            Data = #{
-                name => EventName,
-                measurements => Measurements,
-                metadata => Metadata
-            },
-            ets:insert(Tid, {erlang:monotonic_time(), Data}),
-            TestPid ! {telemetry, Data},
-            ok
-        end,
-        unused_config
-    ),
-    on_exit(fun() ->
-        telemetry:detach(HandlerId),
-        ets:delete(Tid)
-    end),
-    put({?MODULE, telemetry_table}, Tid),
-    Tid.
-
-wait_until_gauge_is(
-    GaugeName,
-    #{
-        expected_value := ExpectedValue,
-        timeout := Timeout,
-        max_events := MaxEvents
-    }
-) ->
-    Events = receive_all_events(GaugeName, Timeout, MaxEvents),
-    case length(Events) > 0 andalso lists:last(Events) of
-        #{measurements := #{gauge_set := ExpectedValue}} ->
-            ok;
-        #{measurements := #{gauge_set := Value}} ->
-            ct:fail(
-                "gauge ~p didn't reach expected value ~p; last value: ~p",
-                [GaugeName, ExpectedValue, Value]
-            );
-        false ->
-            ct:pal("no ~p gauge events received!", [GaugeName])
-    end.
-
-receive_all_events(EventName, Timeout) ->
-    receive_all_events(EventName, Timeout, _MaxEvents = 50, _Count = 0, _Acc = []).
-
-receive_all_events(EventName, Timeout, MaxEvents) ->
-    receive_all_events(EventName, Timeout, MaxEvents, _Count = 0, _Acc = []).
-
-receive_all_events(_EventName, _Timeout, MaxEvents, Count, Acc) when Count >= MaxEvents ->
-    lists:reverse(Acc);
-receive_all_events(EventName, Timeout, MaxEvents, Count, Acc) ->
-    receive
-        {telemetry, #{name := [_, _, EventName]} = Event} ->
-            ct:pal("telemetry event: ~p", [Event]),
-            receive_all_events(EventName, Timeout, MaxEvents, Count + 1, [Event | Acc])
-    after Timeout ->
-        lists:reverse(Acc)
-    end.
-
-wait_telemetry_event(EventName) ->
-    wait_telemetry_event(EventName, #{timeout => 5_000, n_events => 1}).
-
-wait_telemetry_event(
-    EventName,
-    Opts0
-) ->
-    DefaultOpts = #{timeout => 5_000, n_events => 1},
-    #{timeout := Timeout, n_events := NEvents} = maps:merge(DefaultOpts, Opts0),
-    wait_n_events(NEvents, Timeout, EventName).
-
-wait_n_events(NEvents, _Timeout, _EventName) when NEvents =< 0 ->
-    ok;
-wait_n_events(NEvents, Timeout, EventName) ->
-    TelemetryTable = get({?MODULE, telemetry_table}),
-    receive
-        {telemetry, #{name := [_, _, EventName]}} ->
-            wait_n_events(NEvents - 1, Timeout, EventName)
-    after Timeout ->
-        RecordedEvents = ets:tab2list(TelemetryTable),
-        ct:pal("recorded events: ~p", [RecordedEvents]),
-        error({timeout_waiting_for_telemetry, EventName})
-    end.
-
-assert_sync_retry_fail_then_succeed_inflight(Trace) ->
-    ?assert(
-        ?strict_causality(
-            #{?snk_kind := buffer_worker_flush_nack, ref := _Ref},
-            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
-            Trace
-        )
-    ),
-    %% not strict causality because it might retry more than once
-    %% before restoring the resource health.
-    ?assert(
-        ?causality(
-            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
-            #{?snk_kind := buffer_worker_retry_inflight_succeeded, ref := _Ref},
-            Trace
-        )
-    ),
-    ok.
-
-assert_async_retry_fail_then_succeed_inflight(Trace) ->
-    ?assert(
-        ?strict_causality(
-            #{?snk_kind := handle_async_reply, action := nack},
-            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
-            Trace
-        )
-    ),
-    %% not strict causality because it might retry more than once
-    %% before restoring the resource health.
-    ?assert(
-        ?causality(
-            #{?snk_kind := buffer_worker_retry_inflight_failed, ref := _Ref},
-            #{?snk_kind := buffer_worker_retry_inflight_succeeded, ref := _Ref},
-            Trace
-        )
-    ),
-    ok.
-
-trace_between_span(Trace0, Marker) ->
-    {Trace1, [_ | _]} = ?split_trace_at(#{?snk_kind := Marker, ?snk_span := {complete, _}}, Trace0),
-    {[_ | _], [_ | Trace2]} = ?split_trace_at(#{?snk_kind := Marker, ?snk_span := start}, Trace1),
-    Trace2.
-
-wait_until_all_marked_as_retriable(NumExpected) when NumExpected =< 0 ->
-    ok;
-wait_until_all_marked_as_retriable(NumExpected) ->
-    Seen = #{},
-    do_wait_until_all_marked_as_retriable(NumExpected, Seen).
-
-do_wait_until_all_marked_as_retriable(NumExpected, _Seen) when NumExpected =< 0 ->
-    ok;
-do_wait_until_all_marked_as_retriable(NumExpected, Seen) ->
-    Res = ?block_until(
-        #{?snk_kind := buffer_worker_async_agent_down, ?snk_meta := #{pid := P}} when
-            not is_map_key(P, Seen),
-        10_000
-    ),
-    case Res of
-        {timeout, Evts} ->
-            ct:pal("events so far:\n  ~p", [Evts]),
-            ct:fail("timeout waiting for events");
-        {ok, #{num_affected := NumAffected, ?snk_meta := #{pid := Pid}}} ->
-            ct:pal("affected: ~p; pid: ~p", [NumAffected, Pid]),
-            case NumAffected >= NumExpected of
-                true ->
-                    ok;
-                false ->
-                    do_wait_until_all_marked_as_retriable(NumExpected - NumAffected, Seen#{
-                        Pid => true
-                    })
-            end
-    end.
-
-counter_metric_inc_fns() ->
-    Mod = emqx_resource_metrics,
-    [
-        fun Mod:Fn/1
-     || {Fn, 1} <- Mod:module_info(functions),
-        case string:find(atom_to_list(Fn), "_inc", trailing) of
-            "_inc" -> true;
-            _ -> false
-        end
-    ].
-
-gauge_metric_set_fns() ->
-    Mod = emqx_resource_metrics,
-    [
-        fun Mod:Fn/3
-     || {Fn, 3} <- Mod:module_info(functions),
-        case string:find(atom_to_list(Fn), "_set", trailing) of
-            "_set" -> true;
-            _ -> false
-        end
-    ].
-
-create(Id, Group, Type, Config) ->
-    emqx_resource:create_local(Id, Group, Type, Config, #{}).
-
-create(Id, Group, Type, Config, Opts) ->
-    Res = emqx_resource:create_local(Id, Group, Type, Config, Opts),
-    on_exit(fun() -> emqx_resource:remove_local(Id) end),
-    Res.
-
-dryrun(Id, Type, Config) ->
-    TestPid = self(),
-    OnReady = fun(ResId) -> TestPid ! {resource_ready, ResId} end,
-    emqx_resource:create_dry_run_local(Id, Type, Config, OnReady).
-
-log_consistency_prop() ->
-    {"check state and cache consistency", fun ?MODULE:log_consistency_prop/1}.
-log_consistency_prop(Trace) ->
-    ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
-    ?assertEqual([], ?of_kind("inconsistent_cache", Trace)),
-    ok.
-
-connector_res_id(Name) ->
-    %% Needs to have this form to satifisfy internal, implicit requirements of
-    %% `emqx_resource_cache'.
-    <<"connector:ctype:", Name/binary>>.
-
-action_res_id(ConnResId) ->
-    %% Needs to have this form to satifisfy internal, implicit requirements of
-    %% `emqx_resource_cache'.
-    <<"action:atype:aname:", ConnResId/binary>>.
-
-add_channel(ConnResId, ChanId, Config) ->
-    ok = emqx_resource:create_metrics(ChanId),
-    on_exit(fun() -> emqx_resource:clear_metrics(ChanId) end),
-    ResourceOpts = emqx_resource:fetch_creation_opts(Config),
-    on_exit(fun() -> emqx_resource_buffer_worker_sup:stop_workers(ChanId, ResourceOpts) end),
-    ok = emqx_resource_buffer_worker_sup:start_workers(ChanId, ResourceOpts),
-    emqx_resource_manager:add_channel(ConnResId, ChanId, Config).
-
-group_path(Config, Default) ->
-    case emqx_common_test_helpers:group_path(Config) of
-        [] -> Default;
-        Path -> Path
-    end.
-
-fallback_actions_batch_opts(no_batch) ->
-    #{
-        resource_opts => #{batch_time => 0, batch_size => 1},
-        n_reqs => 1
-    };
-fallback_actions_batch_opts(batch) ->
-    #{
-        resource_opts => #{batch_time => 100, batch_size => 100},
-        n_reqs => 10
-    }.
-
-fallback_action_query(ConnResId, ChanId, FallbackFn, Ctx, #{query_mode := async} = QueryOpts0) ->
-    AdjustQueryOptsFn = maps:get(adjust_query_opts, Ctx, fun(_Ctx, QO) -> QO end),
-    Alias = alias([reply]),
-    ReplyTo = {
-        fun(ReplyCallerContext) ->
-            Alias ! {Alias, ReplyCallerContext}
-        end,
-        [],
-        #{reply_dropped => true}
-    },
-    QueryOpts1 = maps:merge(
-        #{connector_resource_id => ConnResId},
-        QueryOpts0#{reply_to => ReplyTo}
-    ),
-    QueryOpts = AdjustQueryOptsFn(Ctx, QueryOpts1),
-    Req = #{q => ask, fn => FallbackFn, ctx => Ctx},
-    ct:pal("~p sending query\n  ~p", [self(), #{query_opts => QueryOpts, ctx => Ctx}]),
-    Res = emqx_resource:query(
-        ChanId,
-        {ChanId, Req},
-        QueryOpts
-    ),
-    case Res of
-        ok ->
-            ok;
-        {async_return, {ok, _Pid}} ->
-            %% Simple async queries do not massage the returned value to stip the
-            %% `{async_return, _}' tag.
-            ok
-    end,
-    ct:pal("~p waiting for reply", [self()]),
-    receive
-        {Alias, ReplyCallerContext} ->
-            ct:pal("~p received async reply:\n  ~p", [self(), ReplyCallerContext]),
-            case ReplyCallerContext of
-                #{result := Result} ->
-                    Result;
-                Result ->
-                    %% If expired, it's a simple tuple
-                    Result
-            end
-    after 1_000 -> ct:fail("~p timed out waiting for reply", [self()])
-    end;
-fallback_action_query(ConnResId, ChanId, FallbackFn, Ctx, #{query_mode := sync} = QueryOpts0) ->
-    AdjustQueryOptsFn = maps:get(adjust_query_opts, Ctx, fun(QO) -> QO end),
-    QueryOpts1 = maps:merge(
-        #{connector_resource_id => ConnResId},
-        QueryOpts0
-    ),
-    QueryOpts = AdjustQueryOptsFn(QueryOpts1),
-    Req = #{q => ask, fn => FallbackFn, ctx => Ctx},
-    ct:pal("~p sending query\n  ~p", [self(), #{query_opts => QueryOpts, ctx => Ctx}]),
-    emqx_resource:query(
-        ChanId,
-        {ChanId, Req},
-        QueryOpts
-    ).
-
-fallback_query_wait_async(N, RequestQueryKind, QueryOpts, Ctx) ->
-    #{
-        conn_res_id := ConnResId,
-        chan_id := ChanId,
-        mk_event_matcher := MkEventMatcher,
-        fallback_fn := FallbackFn
-    } = Ctx,
-    AssertExpectedCallMode = maps:get(assert_expected_callmode, Ctx, true),
-    ReqCtx = Ctx#{req_n => N},
-    case AssertExpectedCallMode of
-        true ->
-            ct:pal("~p sending request ~b", [self(), N]),
-            EventMatcher = MkEventMatcher(RequestQueryKind),
-            {Result, {ok, _}} =
-                snabbkaffe:wait_async_action(
-                    fun() ->
-                        fallback_action_query(
-                            ConnResId, ChanId, FallbackFn, ReqCtx, QueryOpts#{
-                                query_mode => RequestQueryKind
-                            }
-                        )
-                    end,
-                    EventMatcher,
-                    infinity
-                );
-        false ->
-            Result = fallback_action_query(
-                ConnResId, ChanId, FallbackFn, ReqCtx, QueryOpts#{
-                    query_mode => RequestQueryKind
-                }
-            )
-    end,
-    ct:pal("~p received reply ~b:\n  ~p", [self(), N, Result]),
-    Result.
-
-fallback_send_many(RequestQueryKind, Ctx) ->
-    #{n_reqs := NReqs} = Ctx,
-    BaseQueryOpts = maps:get(base_query_opts, Ctx),
-    QueryOpts0 = maps:get(query_opts, Ctx, #{}),
-    QueryOpts = emqx_utils_maps:deep_merge(BaseQueryOpts, QueryOpts0),
-    Results = emqx_utils:pmap(
-        fun(N) ->
-            fallback_query_wait_async(N, RequestQueryKind, QueryOpts, Ctx)
-        end,
-        lists:seq(1, NReqs)
-    ),
-    Results.
-
-assert_all_queries_triggered_fallbacks(Ctx) ->
-    #{n_reqs := NReqs} = Ctx,
-    lists:foreach(
-        fun(N) ->
-            ?assertReceive(
-                {fallback_called, #{n := 1, request := #{ctx := #{req_n := N}}}}
             ),
-            ?assertReceive({fallback_called, #{n := 2, request := #{ctx := #{req_n := N}}}})
+
+            %% Related to retry operation interval
+            ?tpal("waiting for channel removal attempts"),
+            Timeout = 3_000,
+            %% Should have tried at least once to remove...
+            ?assertReceive({attempted_to_remove_channel, ConnResId, ChanId}, Timeout),
+            %% ... and later succeeded (only retries if resource doesn't to disconnected,
+            %% in which case it'll attempt to remove only once)
+            case ConnectorStatus of
+                disconnected ->
+                    ok;
+                _ ->
+                    ?assertReceive({attempted_to_remove_channel, ConnResId, ChanId}, Timeout)
+            end,
+            ?assertReceive({attempted_to_add_channel, ConnResId, ChanId, ChanConfig2}, Timeout),
+
+            %% We must eventually observe the new configuration in the channel.
+            ?tpal("checking channels configs"),
+            ?retry(
+                200,
+                10,
+                ?assertEqual(
+                    #{ChanId => ChanConfig2},
+                    emqx_resource_manager:get_channel_configs(ConnResId)
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertEqual(
+                    {ok, [{ChanId, ChanConfig2}]},
+                    emqx_resource_manager:get_channels(ConnResId)
+                )
+            ),
+
+            ChanConfig2
         end,
-        lists:seq(1, NReqs)
+        [
+            log_consistency_prop(),
+            fun(FinalConfig, _Trace) ->
+                History = meck:history(?TEST_RESOURCE),
+                Calls = [
+                    {Fn, Args, Res}
+                 || {_Pid, {?TEST_RESOURCE, Fn, Args}, Res} <- History,
+                    lists:member(Fn, [on_add_channel, on_remove_channel])
+                ],
+                case ConnectorStatus of
+                    disconnected ->
+                        %% Depending on whether the channel operations are performed while
+                        %% still disconnected or when the resource reconnects, we may not
+                        %% see the first removal (for the latter case).
+                        case Calls of
+                            [
+                                {on_remove_channel, _, {error, _}},
+                                {on_add_channel, [_ConnResId, _ConnState, _ChanId, FinalConfig], _}
+                            ] ->
+                                ok;
+                            [
+                                {on_remove_channel, _, {error, _}},
+                                %% Retry
+                                {on_remove_channel, _, {ok, _}},
+                                {on_add_channel, [_ConnResId, _ConnState, _ChanId, FinalConfig], _}
+                            ] ->
+                                ok;
+                            _ ->
+                                error({"unexpected (disconnected) history", Calls})
+                        end;
+                    _ ->
+                        ?assertMatch(
+                            [
+                                {on_remove_channel, _, {error, _}},
+                                %% Retry
+                                {on_remove_channel, _, {ok, _}},
+                                {on_add_channel, [_ConnResId, _ConnState, _ChanId, ChanConfig], _}
+                            ] when ChanConfig == FinalConfig,
+                            Calls,
+                            #{final_config => FinalConfig}
+                        )
+                end,
+                ok
+            end
+        ]
     ),
-    ?assertNotReceive({fallback_called, _}),
     ok.
 
-merge_maps(Maps) ->
-    lists:foldl(fun emqx_utils_maps:deep_merge/2, #{}, Maps).
+%% Verifies that we do not perform connector resource health checks while in the
+%% `disconnected' state, so that a manual health check doesn't trigger an undue state
+%% change.
+t_health_check_while_resource_is_disconnected(_Config) ->
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            %% 1) Resource will start successfully and enter connected state.
+            ConnResId = <<"connector:ctype:c">>,
+            TestPid = self(),
+            StartAgentState0 = #{
+                start_resource => [
+                    continue,
+                    {notify, TestPid, {error, <<"fail once">>}},
+                    {ask, TestPid},
+                    continue
+                ]
+            },
+            HCAgentState = #{
+                resource_health_check => [
+                    {notify, TestPid, ?status_connected},
+                    {notify, TestPid, ?status_disconnected},
+                    {ask, TestPid},
+                    {notify, TestPid, ?status_connected}
+                ]
+            },
+            {ok, HCAgent} = emqx_utils_agent:start_link(HCAgentState),
+            {ok, StartAgent} = emqx_utils_agent:start_link(StartAgentState0),
+            ?tpal("creating connector resource"),
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        start_resource_agent => StartAgent,
+                        health_check_agent => HCAgent
+                    },
+                    #{
+                        health_check_interval => 100,
+                        start_timeout => 100,
+                        spawn_buffer_workers => false
+                    }
+                ),
+            ?tpal("waiting for first (successful) resource health check"),
+            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
 
-%% Poor man's `timer:apply_after', prior to OTP 27.
-apply_after(Time, Fn) ->
-    spawn(fun() ->
-        timer:sleep(Time),
-        Fn()
-    end).
+            %% 2) The resource then enters the disconnected state.  It'll try to restart at
+            %%    least once and fail.  Note that this may destroy some resources related
+            %%    to the connector state.  For example, calling `emqx_resource_pool:start'
+            %%    using an already started pool will make it stop such pool before
+            %%    restarting.  If the restart then fails, we are left with no pool.
+            ?tpal("waiting connector to be disconnected"),
+            ?assertReceive(
+                {returning_resource_health_check_result, ConnResId, ?status_disconnected}
+            ),
+            ?tpal("waiting connector to attempt and fail to restart"),
+            receive
+                {attempted_to_start_resource, ConnResId, {error, <<"fail once">>}} ->
+                    ok
+            after 500 ->
+                ct:fail("l. ~b: did not attempt a failed restart!", [?LINE])
+            end,
 
-fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch) ->
-    fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch, _Opts = #{}).
+            %% 3) While the resource manager process does not trigger health checks itself
+            %%    while `disconnected', an external caller might manyally trigger them.  In
+            %%    this case, this check will later return `connected', but before the
+            %%    resource has time to successfully restart its inner resource.
+            %%
+            %%    If we let this happen, the health check might return `connected', and the
+            %%    resource will incorrectly enter the `connected' state, without actually
+            %%    calling `on_start' and hence becoming corrupted (e.g. no pool).
+            %%
+            %%    After fixing the original issue (performing the health check while
+            %%    disconnected), manually calling the health check should return
+            %%    `disconnected' (the current state) before it's able to initialize its
+            %%    state.  Once initialized, it'll do its own normal health checks.
+            ?tpal("attempting manual resource health checks"),
+            ?assertMatch({ok, ?status_disconnected}, emqx_resource:health_check(ConnResId)),
+            ?assertMatch({ok, ?status_disconnected}, emqx_resource:health_check(ConnResId)),
+            %% Should not attempt health check before starting
+            ?assertNotReceive({waiting_health_check_result, _Alias, resource, ConnResId}),
+            ?tpal("waiting for resource to attempt another restart, which will succeed"),
+            {waiting_start_resource_result, Alias1, ConnResId} =
+                ?assertReceive({waiting_start_resource_result, _, ConnResId}),
+            Alias1 ! {Alias1, continue},
+            {waiting_health_check_result, Alias2, resource, ConnResId} =
+                ?assertReceive({waiting_health_check_result, _Alias, resource, ConnResId}),
+            Alias2 ! {Alias2, ?status_connected},
+            ?tpal("now it should return to normal"),
+            ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
+            ?assertMatch({ok, ?status_connected}, emqx_resource:health_check(ConnResId)),
 
-fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch, Opts) ->
-    ChanResourceOptsOverride = maps:get(chan_resource_opts_override, Opts, #{}),
-    emqx_connector_demo:set_callback_mode(CallbackMode),
-    #{
-        resource_opts := ResourceOpts0,
-        n_reqs := NReqs
-    } = fallback_actions_batch_opts(ShouldBatch),
-    MkEventMatcher = fun(RequestQueryKind) ->
-        QMSummary = emqx_resource_manager:summarize_query_mode(ChanQueryMode, RequestQueryKind),
-        case {ShouldBatch, CallbackMode, QMSummary} of
-            {no_batch, always_sync, _} ->
-                ?match_event(#{?snk_kind := call_query});
-            {batch, always_sync, _} ->
-                ?match_event(#{?snk_kind := call_batch_query});
-            {no_batch, async_if_possible, #{is_simple := false, has_internal_buffer := false}} ->
-                ?match_event(#{?snk_kind := call_query_async});
-            {batch, async_if_possible, #{is_simple := false, has_internal_buffer := false}} ->
-                ?match_event(#{?snk_kind := call_batch_query_async});
-            {no_batch, async_if_possible, #{has_internal_buffer := true}} ->
-                ?match_event(#{?snk_kind := call_query_async});
-            {no_batch, async_if_possible, #{is_simple := true, requested_query_kind := sync}} ->
-                ?match_event(#{?snk_kind := call_query});
-            {no_batch, async_if_possible, #{is_simple := true, requested_query_kind := async}} ->
-                ?match_event(#{?snk_kind := call_query_async})
-        end
-    end,
-    ConnResId = connector_res_id(ConnName),
-    {ok, _} =
-        create(
-            ConnResId,
-            ?DEFAULT_RESOURCE_GROUP,
-            ?TEST_RESOURCE,
-            #{name => test_resource},
-            #{
-                health_check_interval => 100,
-                start_timeout => 100
-            }
-        ),
-    ChanId = action_res_id(ConnResId),
-    ChanResourceOpts = merge_maps([
-        #{
-            health_check_interval => 100,
-            worker_pool_size => 1
-        },
-        ResourceOpts0,
-        ChanResourceOptsOverride
-    ]),
-    ok =
-        add_channel(
-            ConnResId,
-            ChanId,
-            #{
-                force_query_mode => ChanQueryMode,
-                resource_opts => ChanResourceOpts
-            }
-        ),
-    FallbackFn = maps:get(
-        fallback_fn,
-        Opts,
-        fun(_Ctx) ->
-            {error, {unrecoverable_error, fallback_time}}
-        end
+            ok
+        end,
+        [log_consistency_prop()]
     ),
-    TestPid = self(),
-    FallbackAction = fun(Ctx) ->
-        ct:pal("fallback triggered:\n  ~p", [Ctx]),
-        TestPid ! {fallback_called, Ctx},
-        ok
-    end,
-    MkFallback = fun(N) -> fun(Ctx) -> FallbackAction(Ctx#{n => N}) end end,
-    QueryOpts = #{
-        ?fallback_actions => [
-            MkFallback(1),
-            MkFallback(2)
-        ]
-    },
-    #{
-        base_query_opts => QueryOpts,
-        mk_fallback => MkFallback,
-        fallback_action => FallbackAction,
-        conn_res_id => ConnResId,
-        chan_id => ChanId,
-        mk_event_matcher => MkEventMatcher,
-        chan_resource_opts => ChanResourceOpts,
-        n_reqs => NReqs,
-        fallback_fn => FallbackFn
-    }.
+    ok.

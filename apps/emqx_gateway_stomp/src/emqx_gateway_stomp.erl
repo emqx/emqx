@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc The Stomp Gateway implement
@@ -42,9 +30,15 @@
     [
         normalize_config/1,
         start_listeners/4,
-        stop_listeners/2
+        stop_listeners/2,
+        update_gateway/5
     ]
 ).
+
+-define(MOD_CFG, #{
+    frame_mod => emqx_stomp_frame,
+    chann_mod => emqx_stomp_channel
+}).
 
 %%--------------------------------------------------------------------
 %% emqx_gateway_impl callbacks
@@ -58,13 +52,9 @@ on_gateway_load(
     Ctx
 ) ->
     Listeners = normalize_config(Config),
-    ModCfg = #{
-        frame_mod => emqx_stomp_frame,
-        chann_mod => emqx_stomp_channel
-    },
     case
         start_listeners(
-            Listeners, GwName, Ctx, ModCfg
+            Listeners, GwName, Ctx, ?MOD_CFG
         )
     of
         {ok, ListenerPids} ->
@@ -81,13 +71,11 @@ on_gateway_load(
             )
     end.
 
-on_gateway_update(Config, Gateway, GwState = #{ctx := Ctx}) ->
+on_gateway_update(Config, Gateway = #{config := OldConfig}, GwState = #{ctx := Ctx}) ->
     GwName = maps:get(name, Gateway),
     try
-        %% XXX: 1. How hot-upgrade the changes ???
-        %% XXX: 2. Check the New confs first before destroy old state???
-        on_gateway_unload(Gateway, GwState),
-        on_gateway_load(Gateway#{config => Config}, Ctx)
+        {ok, NewPids} = update_gateway(Config, OldConfig, GwName, Ctx, ?MOD_CFG),
+        {ok, NewPids, GwState}
     catch
         Class:Reason:Stk ->
             logger:error(

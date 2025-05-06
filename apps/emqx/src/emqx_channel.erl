@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2019-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% MQTT Channel
@@ -101,7 +89,7 @@
     %% Authentication Data Cache
     auth_cache :: option(map()),
     %% Quota checkers
-    quota :: emqx_limiter_container:container(),
+    quota :: emqx_limiter_client_container:t(),
     %% Timers
     timers :: #{atom() => disabled | option(reference())},
     %% Conn State
@@ -147,11 +135,16 @@
 -define(IS_CONNECTED_OR_REAUTHENTICATING(ConnState),
     ((ConnState == connected) orelse (ConnState == reauthenticating))
 ).
+
+%% Timers implemented by sessions
 -define(IS_COMMON_SESSION_TIMER(N),
     ((N == retry_delivery) orelse (N == expire_awaiting_rel))
 ).
+%% Timers implemented by sessions that need to be handled only when the client is connected
+-define(IS_COMMON_SESSION_ONLINE_TIMER(N),
+    (N == retry_delivery)
+).
 
--define(LIMITER_ROUTING, message_routing).
 -define(chan_terminating, chan_terminating).
 -define(normal, normal).
 -define(RAND_CLIENTID_BYTES, 16).
@@ -249,7 +242,6 @@ init(
     },
     #{
         zone := Zone,
-        limiter := LimiterCfg,
         listener := {Type, Listener}
     } = Opts
 ) ->
@@ -283,6 +275,9 @@ init(
     ),
     {NClientInfo, NConnInfo0} = take_conn_info_fields([ws_cookie, peersni], ClientInfo, ConnInfo),
     NConnInfo = maybe_quic_shared_state(NConnInfo0, Opts),
+
+    Limiter = emqx_limiter:create_channel_client_container(Zone, ListenerId),
+
     #channel{
         conninfo = NConnInfo,
         clientinfo = NClientInfo,
@@ -291,9 +286,7 @@ init(
             outbound => #{}
         },
         auth_cache = #{},
-        quota = emqx_limiter_container:get_limiter_by_types(
-            ListenerId, [?LIMITER_ROUTING], LimiterCfg
-        ),
+        quota = Limiter,
         timers = #{},
         conn_state = idle,
         takeover = false,
@@ -348,14 +341,16 @@ take_conn_info_fields(Fields, ClientInfo, ConnInfo) ->
 -spec handle_in(emqx_types:packet(), channel()) ->
     {ok, channel()}
     | {ok, replies(), channel()}
+    | {continue, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
     | {shutdown, Reason :: term(), replies(), channel()}.
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = ConnState}) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    %% TODO: trace these two cases
+    ?TRACE("MQTT", "unexpected_connect_packet", #{conn_state => ConnState}),
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?CONNECT_PACKET(), Channel = #channel{conn_state = connecting}) ->
+    ?TRACE("MQTT", "unexpected_connect_packet", #{conn_state => connecting}),
     handle_out(connack, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?PACKET(?CONNECT) = Packet, Channel) ->
     ?EXT_TRACE_CLIENT_CONNECT(
@@ -372,10 +367,15 @@ handle_in(
 ) ->
     try
         case {ReasonCode, ConnState} of
-            {?RC_CONTINUE_AUTHENTICATION, connecting} -> ok;
-            {?RC_CONTINUE_AUTHENTICATION, reauthenticating} -> ok;
-            {?RC_RE_AUTHENTICATE, connected} -> ok;
-            _ -> error(protocol_error)
+            {?RC_CONTINUE_AUTHENTICATION, connecting} ->
+                ok;
+            {?RC_CONTINUE_AUTHENTICATION, reauthenticating} ->
+                ok;
+            {?RC_RE_AUTHENTICATE, connected} ->
+                ok;
+            _ ->
+                ?TRACE("MQTT", "unexpected_auth_packet", #{conn_state => ConnState}),
+                error(protocol_error)
         end,
         case authenticate(Packet, Channel) of
             {ok, NProperties, NChannel} ->
@@ -397,6 +397,13 @@ handle_in(
                     {?RC_CONTINUE_AUTHENTICATION, NProperties},
                     NChannel#channel{conn_state = reauthenticating}
                 );
+            {error, NReasonCode, NChannel} ->
+                case ConnState of
+                    connecting ->
+                        handle_out(connack, NReasonCode, NChannel);
+                    _ ->
+                        handle_out(disconnect, NReasonCode, NChannel)
+                end;
             {error, NReasonCode} ->
                 case ConnState of
                     connecting ->
@@ -414,9 +421,10 @@ handle_in(
                     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel)
             end
     end;
-handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when
+handle_in(?PACKET(Type), Channel = #channel{conn_state = ConnState}) when
     ConnState =/= connected andalso ConnState =/= reauthenticating
 ->
+    ?TRACE("MQTT", "unexpected_packet", #{type => Type, conn_state => ConnState}),
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(?PUBLISH_PACKET(_QoS, _Topic, _PacketId) = Packet, Channel) ->
     case emqx_packet:check(Packet) of
@@ -427,6 +435,7 @@ handle_in(?PUBLISH_PACKET(_QoS, _Topic, _PacketId) = Packet, Channel) ->
                 [Packet]
             );
         {error, ReasonCode} ->
+            ?TRACE("MQTT", "invalid_publish_packet", #{reason => emqx_reason_codes:name(ReasonCode)}),
             handle_out(disconnect, ReasonCode, Channel)
     end;
 handle_in(
@@ -523,8 +532,10 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 fun run_conn_hooks/2,
                 fun check_connect/2,
                 fun enrich_client/2,
-                %% set_log_meta should happen after enrich_client
-                %% because client ID assign and override
+                %% `set_log_meta' should happen after `enrich_client'
+                %% because client ID assign and override.
+                %% Even though authentication may also inject new attributes, we call it
+                %% here so that next steps have more logger context, and call it again after auth.
                 fun set_log_meta/2,
                 fun check_banned/2,
                 fun count_flapping_event/2
@@ -546,8 +557,8 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                     post_process_connect(Properties, NChannel3);
                 {continue, Properties, NChannel2} ->
                     handle_out(auth, {?RC_CONTINUE_AUTHENTICATION, Properties}, NChannel2);
-                {error, ReasonCode} ->
-                    handle_out(connack, ReasonCode, NChannel1)
+                {error, ReasonCode, NChannel2} ->
+                    handle_out(connack, ReasonCode, NChannel2)
             end;
         {error, ReasonCode, NChannel} ->
             handle_out(connack, ReasonCode, NChannel)
@@ -556,17 +567,18 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
 post_process_connect(
     AckProps,
     Channel = #channel{
-        conninfo = ConnInfo,
-        clientinfo = ClientInfo,
+        conninfo = #{clean_start := CleanStart} = ConnInfo,
+        clientinfo = #{clientid := ClientId} = ClientInfo,
         will_msg = MaybeWillMsg
     }
 ) ->
-    #{clean_start := CleanStart} = ConnInfo,
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{session = Session},
             handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
         {ok, #{session := Session, present := true, replay := ReplayContext}} ->
+            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{
                 session = Session,
                 resuming = ReplayContext
@@ -621,16 +633,10 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     handle_out(disconnect, Rc, NChannel)
             end;
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
-            ?SLOG_THROTTLE(
-                warning,
-                #{
-                    msg => cannot_publish_to_topic_due_to_quota_exceeded,
-                    reason => emqx_reason_codes:name(Rc)
-                },
-                #{topic => Topic, tag => "AUTHZ"}
-            ),
+            ok = emqx_metrics:inc('packets.publish.quota_exceeded'),
             case QoS of
                 ?QOS_0 ->
+                    ok = emqx_metrics:inc('messages.dropped'),
                     ok = emqx_metrics:inc('messages.dropped.quota_exceeded'),
                     {ok, NChannel};
                 ?QOS_1 ->
@@ -688,8 +694,7 @@ do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
         disconnect ->
             handle_out(disconnect, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel);
         _ ->
-            NChannel = ensure_quota(Result, Channel),
-            {ok, NChannel}
+            {ok, Channel}
     end;
 do_publish(PacketId, Msg = #message{qos = ?QOS_1}, Channel) ->
     PubRes = emqx_broker:publish(Msg),
@@ -714,8 +719,7 @@ do_publish(
             RC = pubrec_reason_code(PubRes),
             NChannel0 = Channel#channel{session = NSession},
             NChannel1 = ensure_timer(expire_awaiting_rel, NChannel0),
-            NChannel2 = ensure_quota(PubRes, NChannel1),
-            handle_out(pubrec, {PacketId, RC}, NChannel2);
+            handle_out(pubrec, {PacketId, RC}, NChannel1);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ok = emqx_metrics:inc('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
@@ -724,28 +728,8 @@ do_publish(
             handle_out(disconnect, RC, Channel)
     end.
 
-do_finish_publish(PacketId, PubRes, RC, Channel) ->
-    NChannel = ensure_quota(PubRes, Channel),
-    handle_out(puback, {PacketId, RC}, NChannel).
-
-ensure_quota(_, Channel = #channel{quota = infinity}) ->
-    Channel;
-ensure_quota(PubRes, Channel = #channel{quota = Limiter}) ->
-    Cnt = lists:foldl(
-        fun
-            ({_, _, ok}, N) -> N + 1;
-            ({_, _, {ok, I}}, N) -> N + I;
-            (_, N) -> N
-        end,
-        1,
-        PubRes
-    ),
-    case emqx_limiter_container:check(Cnt, ?LIMITER_ROUTING, Limiter) of
-        {ok, NLimiter} ->
-            Channel#channel{quota = NLimiter};
-        {_, Intv, NLimiter} ->
-            ensure_timer(expire_quota_limit, Intv, Channel#channel{quota = NLimiter})
-    end.
+do_finish_publish(PacketId, _PubRes, RC, Channel) ->
+    handle_out(puback, {PacketId, RC}, Channel).
 
 -compile({inline, [pubrec_reason_code/1]}).
 pubrec_reason_code([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
@@ -925,27 +909,27 @@ do_subscribe(
     NTopicFilter = emqx_mountpoint:mount(MountPoint, TopicFilter),
     case emqx_session:subscribe(ClientInfo, NTopicFilter, SubOpts, Session) of
         {ok, NSession} ->
-            %% TODO && FIXME (EMQX-11216): QoS as ReasonCode(max granted QoS) for now
-            RC = QoS,
-            {RC, Channel#channel{session = NSession}};
-        {error, RC} ->
+            %% RC should be granted qos, rewrited by check_sub_caps/2
+            NRC = QoS,
+            {NRC, Channel#channel{session = NSession}};
+        {error, NRC} ->
             ?SLOG(
                 warning,
                 #{
                     msg => "cannot_subscribe_topic_filter",
-                    reason => emqx_reason_codes:text(RC)
+                    reason => emqx_reason_codes:text(NRC)
                 },
                 #{topic => NTopicFilter}
             ),
-            {RC, Channel}
+            {NRC, Channel}
     end.
 
 gen_reason_codes(TFChecked, TFSubedWitNhRC) ->
     do_gen_reason_codes([], TFChecked, TFSubedWitNhRC).
 
 %% Initial RC is `RC_SUCCESS | RC_NOT_AUTHORIZED`, generated by check_sub_authzs/2
-%% And then TF with `RC_SUCCESS` will passing through `process_subscribe/2` and
-%% NRC should override the initial RC.
+%% And then TF with `RC_SUCCESS` will be passing to `process_subscribe/2` and the qos will be NRC
+%% NRC should override the initial RC here.
 do_gen_reason_codes(Acc, [], []) ->
     lists:reverse(Acc);
 do_gen_reason_codes(
@@ -1355,27 +1339,8 @@ handle_out(Type, Data, Channel) ->
 
 return_connack(?CONNACK_PACKET(_RC, _SessPresent) = AckPacket, Channel) ->
     ?EXT_TRACE_ADD_ATTRS(#{'client.connack.reason_code' => _RC}),
-    do_return_connack(AckPacket, Channel).
-
-do_return_connack(AckPacket, Channel) ->
     Replies = [?REPLY_EVENT(connected), ?REPLY_CONNACK(AckPacket)],
-    case maybe_resume_session(Channel) of
-        ignore ->
-            {ok, Replies, Channel};
-        {ok, Publishes, NSession} ->
-            NChannel1 = Channel#channel{
-                resuming = false,
-                pendings = [],
-                session = NSession
-            },
-            {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
-            Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
-            %% NOTE
-            %% Session timers are not restored here, so there's a tiny chance that
-            %% the session becomes stuck, when it already has no place to track new
-            %% messages.
-            {ok, Replies ++ Outgoing, NChannel2}
-    end.
+    {continue, Replies, Channel}.
 
 %%--------------------------------------------------------------------
 %% Deliver publish: broker -> client
@@ -1455,14 +1420,26 @@ handle_call(discard, Channel) ->
         []
     );
 %% Session Takeover
-handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
-    reply(Session, Channel#channel{takeover = true});
+handle_call(
+    {takeover, 'begin'},
+    Channel = #channel{
+        session = Session,
+        clientinfo = #{clientid := ClientId}
+    }
+) ->
+    %% NOTE
+    %% Ensure channel has enough time left to react to takeover end call. At the same
+    %% time ensure that channel dies off reasonably quickly if no call will arrive.
+    Interval = interval(expire_takeover, Channel),
+    NChannel = reset_timer(expire_session, Interval, Channel),
+    ok = emqx_cm:unregister_channel(ClientId),
+    reply(Session, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},
     Channel = #channel{
         session = Session,
         pendings = Pendings,
-        conninfo = #{clientid := ClientId}
+        clientinfo = #{clientid := ClientId}
     }
 ) ->
     ?EXT_TRACE_BROKER_DISCONNECT(
@@ -1530,8 +1507,29 @@ handle_call(Req, Channel) ->
 %%--------------------------------------------------------------------
 
 -spec handle_info(Info :: term(), channel()) ->
-    ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
+    ok
+    | {ok, channel()}
+    | {ok, replies(), channel()}
+    | {shutdown, Reason :: term(), channel()}.
 
+handle_info(continue, Channel) ->
+    case maybe_resume_session(Channel) of
+        ignore ->
+            ok;
+        {ok, Publishes, NSession} ->
+            NChannel1 = Channel#channel{
+                resuming = false,
+                pendings = [],
+                session = NSession
+            },
+            {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
+            Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
+            %% NOTE
+            %% Session timers are not restored here, so there's a tiny chance that
+            %% the session becomes stuck, when it already has no place to track new
+            %% messages.
+            {ok, Outgoing, NChannel2}
+    end;
 handle_info({subscribe, TopicFilters}, Channel) ->
     ?EXT_TRACE_BROKER_SUBSCRIBE(
         ?EXT_TRACE_ATTR(
@@ -1688,7 +1686,8 @@ handle_timeout(
     _TRef,
     TimerName,
     Channel = #channel{conn_state = disconnected}
-) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
+) when ?IS_COMMON_SESSION_ONLINE_TIMER(TimerName) ->
+    %% Skip session timers that require a connected client
     {ok, Channel};
 handle_timeout(
     _TRef,
@@ -1730,18 +1729,6 @@ handle_timeout(
 ) ->
     (WillMsg =/= undefined) andalso publish_will_msg(Channel),
     {ok, clean_timer(TimerName, Channel#channel{will_msg = undefined})};
-handle_timeout(
-    _TRef,
-    expire_quota_limit = TimerName,
-    #channel{quota = Quota} = Channel
-) ->
-    case emqx_limiter_container:retry(?LIMITER_ROUTING, Quota) of
-        {_, Intv, Quota2} ->
-            Channel2 = ensure_timer(TimerName, Intv, Channel#channel{quota = Quota2}),
-            {ok, Channel2};
-        {_, Quota2} ->
-            {ok, clean_timer(TimerName, Channel#channel{quota = Quota2})}
-    end;
 handle_timeout(
     _TRef,
     connection_auth_expire,
@@ -1807,6 +1794,9 @@ interval(expire_awaiting_rel, #channel{session = Session}) ->
     emqx_session:info(await_rel_timeout, Session);
 interval(expire_session, #channel{conninfo = ConnInfo}) ->
     maps:get(expiry_interval, ConnInfo);
+interval(expire_takeover, #channel{}) ->
+    %% NOTE: Equivalent to 2 × `?T_TAKEOVER` for simplicity.
+    2 * 5_000;
 interval(will_message, #channel{will_msg = WillMsg}) ->
     timer:seconds(will_delay_interval(WillMsg)).
 
@@ -2082,13 +2072,17 @@ fix_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
     MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
     ClientInfo#{mountpoint := MountPoint1}.
 
+fix_mountpoint(_PipelineOutput, #channel{clientinfo = ClientInfo0} = Channel0) ->
+    ClientInfo = fix_mountpoint(ClientInfo0),
+    Channel = Channel0#channel{clientinfo = ClientInfo},
+    {ok, Channel}.
+
 %%--------------------------------------------------------------------
 %% Set log metadata
 
 set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInfo}) ->
     Username = maps:get(username, ClientInfo, undefined),
-    Attrs = maps:get(client_attrs, ClientInfo, #{}),
-    Tns0 = maps:get(?CLIENT_ATTR_NAME_TNS, Attrs, undefined),
+    Tns0 = get_tenant_namespace(ClientInfo),
     %% No need to add Tns to log metadata if it's aready a prefix is client ID
     %% Or if it's the username.
     Tns =
@@ -2103,6 +2097,10 @@ set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInf
     Meta = lists:filter(fun({_, V}) -> V =/= undefined andalso V =/= <<>> end, Meta0),
     emqx_logger:set_proc_metadata(maps:from_list(Meta)).
 
+get_tenant_namespace(ClientInfo) ->
+    Attrs = maps:get(client_attrs, ClientInfo, #{}),
+    maps:get(?CLIENT_ATTR_NAME_TNS, Attrs, undefined).
+
 %% clientid_override is an expression which is free to set tns as a prefix, suffix or whatsoever,
 %% but as a best-effort log metadata optimization, we only check for prefix
 is_clientid_namespaced(ClientId, Tns) when is_binary(Tns) andalso Tns =/= <<>> ->
@@ -2114,6 +2112,16 @@ is_clientid_namespaced(ClientId, Tns) when is_binary(Tns) andalso Tns =/= <<>> -
     end;
 is_clientid_namespaced(_ClientId, _Tns) ->
     false.
+
+%%--------------------------------------------------------------------
+%% Adjust limiter
+
+adjust_limiter(_ConnPkt, #channel{clientinfo = ClientInfo, quota = Limiter0} = Channel0) ->
+    #{zone := Zone, listener := ListenerId} = ClientInfo,
+    Tns = get_tenant_namespace(ClientInfo),
+    Context = #{zone => Zone, listener_id => ListenerId, tns => Tns},
+    Limiter = emqx_hooks:run_fold('channel.limiter_adjustment', [Context], Limiter0),
+    {ok, Channel0#channel{quota = Limiter}}.
 
 %%--------------------------------------------------------------------
 %% Check banned
@@ -2163,7 +2171,7 @@ authenticate(Packet, Channel) ->
                 {ok, _, _} -> ?EXT_TRACE_SET_STATUS_OK();
                 %% TODO: Enhanced AUTH
                 {continue, _, _} -> ok;
-                {error, _} -> ?EXT_TRACE_SET_STATUS_ERROR()
+                {error, _, _} -> ?EXT_TRACE_SET_STATUS_ERROR()
             end,
             Res
         end,
@@ -2191,14 +2199,14 @@ process_authenticate(
             auth_cache => AuthCache
         },
     Credential = maybe_add_cert(Credential0, Channel),
-    do_authenticate(Credential, Channel);
+    authentication_pipeline(Credential, Channel);
 process_authenticate(
     ?CONNECT_PACKET(#mqtt_packet_connect{password = Password}),
     #channel{clientinfo = ClientInfo} = Channel
 ) ->
     %% Auth with CONNECT packet for MQTT v3
     Credential = maybe_add_cert(ClientInfo#{password => Password}, Channel),
-    do_authenticate(Credential, Channel);
+    authentication_pipeline(Credential, Channel);
 process_authenticate(
     ?AUTH_PACKET(_, #{'Authentication-Method' := AuthMethod} = Properties),
     #channel{
@@ -2211,7 +2219,7 @@ process_authenticate(
     case emqx_mqtt_props:get('Authentication-Method', ConnProps, undefined) of
         AuthMethod ->
             AuthData = emqx_mqtt_props:get('Authentication-Data', Properties, undefined),
-            do_authenticate(
+            authentication_pipeline(
                 ClientInfo#{
                     auth_method => AuthMethod,
                     auth_data => AuthData,
@@ -2223,6 +2231,31 @@ process_authenticate(
             log_auth_failure("bad_authentication_method"),
             {error, ?RC_BAD_AUTHENTICATION_METHOD}
     end.
+
+authentication_pipeline(Credential, Channel) ->
+    %% Slightly adapted version of `emqx_utils:pipeline' because `do_authenticate/2' may
+    %% return `{continue, _, _}', which serves as a special short-circuit return value.
+    emqx_utils:foldl_while(
+        fun(Fn, {ok, OutputAcc, ChanAcc}) ->
+            case Fn(OutputAcc, ChanAcc) of
+                ok -> {cont, {ok, OutputAcc, ChanAcc}};
+                {ok, NewChan} -> {cont, {ok, OutputAcc, NewChan}};
+                {ok, NewOutput, NewChan} -> {cont, {ok, NewOutput, NewChan}};
+                {error, Reason} -> {halt, {error, Reason, ChanAcc}};
+                {error, Reason, NewChan} -> {halt, {error, Reason, NewChan}};
+                {continue, _Props, _Chan} = Res -> {halt, Res}
+            end
+        end,
+        {ok, Credential, Channel},
+        [
+            fun do_authenticate/2,
+            fun fix_mountpoint/2,
+            %% We call `set_log_meta' again here because authentication may have injected
+            %% different attributes.
+            fun set_log_meta/2,
+            fun adjust_limiter/2
+        ]
+    ).
 
 do_authenticate(
     #{auth_method := AuthMethod} = Credential,
@@ -2283,14 +2316,13 @@ merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_ma
     Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
     Attrs1 = maps:get(client_attrs, AuthResult0, #{}),
     Attrs = maps:merge(Attrs0, Attrs1),
-    NewClientInfo = maps:merge(
+    maps:merge(
         ClientInfo#{client_attrs => Attrs},
         AuthResult#{
             is_superuser => IsSuperuser,
             auth_expire_at => ExpireAt
         }
-    ),
-    fix_mountpoint(NewClientInfo).
+    ).
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias
@@ -2375,10 +2407,25 @@ packing_alias(Packet, Channel) ->
 %%--------------------------------------------------------------------
 %% Check quota state
 
-check_quota_exceeded(_, #channel{timers = Timers}) ->
-    case maps:get(expire_quota_limit, Timers, undefined) of
-        undefined -> ok;
-        _ -> {error, ?RC_QUOTA_EXCEEDED}
+check_quota_exceeded(
+    ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), #channel{quota = Quota} = Chann
+) ->
+    Result = emqx_limiter_client_container:try_consume(
+        Quota, [{bytes, erlang:byte_size(Payload)}, {messages, 1}]
+    ),
+    case Result of
+        {true, Quota2} ->
+            {ok, Chann#channel{quota = Quota2}};
+        {false, Quota2, Reason} ->
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => cannot_publish_to_topic_due_to_quota_exceeded,
+                    reason => Reason
+                },
+                #{topic => Topic, tag => "QUOTA"}
+            ),
+            {error, ?RC_QUOTA_EXCEEDED, Chann#channel{quota = Quota2}}
     end.
 
 %%--------------------------------------------------------------------
@@ -2536,7 +2583,8 @@ do_check_sub_authzs2(ClientInfo, [TopicFilter = {Topic, _SubOpts} | More], Acc) 
             emqx_topic:get_shared_real_topic(Topic)
         )
     of
-        %% TODO: support maximum QoS granted
+        %% TODO: support maximum QoS granted check by authz
+        %% for now, we only check sub caps for QoS granted
         %% MQTT-3.1.1 [MQTT-3.8.4-6] and MQTT-5.0 [MQTT-3.8.4-7]
         %% Not implemented yet:
         %% {allow, RC} -> do_check_sub_authzs(ClientInfo, More, [{TopicFilter, RC} | Acc]);
@@ -2565,6 +2613,18 @@ do_check_sub_caps(ClientInfo, [TopicFilter = {{Topic, SubOpts}, ?RC_SUCCESS} | M
     case emqx_mqtt_caps:check_sub(ClientInfo, Topic, SubOpts) of
         ok ->
             do_check_sub_caps(ClientInfo, More, [TopicFilter | Acc]);
+        {ok, MaxQoS} ->
+            ?SLOG(
+                debug,
+                #{
+                    msg => "subscribe_allowed_but_with_lower_granted_qos",
+                    reason => emqx_reason_codes:name(MaxQoS)
+                },
+                #{topic => Topic}
+            ),
+            do_check_sub_caps(ClientInfo, More, [
+                {{Topic, SubOpts#{qos => MaxQoS}}, ?RC_SUCCESS} | Acc
+            ]);
         {error, NRC} ->
             ?SLOG(
                 warning,
@@ -2866,6 +2926,8 @@ parse_raw_topic_filters(TopicFilters) ->
 %%--------------------------------------------------------------------
 %% Maybe & Ensure disconnected
 
+ensure_disconnected(_Reason, Channel = #channel{conn_state = disconnected}) ->
+    Channel;
 ensure_disconnected(
     Reason,
     Channel = #channel{

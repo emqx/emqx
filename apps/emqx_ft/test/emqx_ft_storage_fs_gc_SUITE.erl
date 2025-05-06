@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_ft_storage_fs_gc_SUITE).
@@ -194,6 +182,7 @@ t_gc_complete_transfers(_Config) ->
     ).
 
 t_gc_incomplete_transfers(_Config) ->
+    ct:timetrap({seconds, 120}),
     ok = set_gc_config(minimum_segments_ttl, 0),
     ok = set_gc_config(maximum_segments_ttl, 4),
     {local, Storage} = emqx_ft_storage:backend(),
@@ -234,7 +223,7 @@ t_gc_incomplete_transfers(_Config) ->
                 space = Space
             }
         } when Files == (?NSEGS(S1, SS1)) andalso Space > S1,
-        5000,
+        infinity,
         0
     ),
     % 4. Then the second one.
@@ -247,7 +236,7 @@ t_gc_incomplete_transfers(_Config) ->
                 space = Space
             }
         } when Files == (?NSEGS(S2, SS2)) andalso Space > S2,
-        5000,
+        infinity,
         0
     ),
     % 5. Then transfers 3 and 4 because 3rd has too big TTL and 4th has no specific TTL.
@@ -260,7 +249,7 @@ t_gc_incomplete_transfers(_Config) ->
                 space = Space
             }
         } when Files == (?NSEGS(S3, SS3) + ?NSEGS(S4, SS4)) andalso Space > S3 + S4,
-        5000,
+        infinity,
         0
     ).
 

@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_dashboard_schema).
 
@@ -28,6 +16,8 @@
     mfa_fields/0,
     https_converter/2
 ]).
+
+-define(DAYS_7, 7 * 24 * 60 * 60 * 1000).
 
 namespace() -> dashboard.
 roots() -> ["dashboard"].
@@ -49,6 +39,16 @@ fields("dashboard") ->
                     desc => ?DESC(sample_interval),
                     importance => ?IMPORTANCE_HIDDEN,
                     validator => fun validate_sample_interval/1
+                }
+            )},
+        {hwmark_expire_time,
+            ?HOCON(
+                emqx_schema:duration(),
+                #{
+                    default => <<"7d">>,
+                    desc => ?DESC(hwmark_expire_time),
+                    importance => ?IMPORTANCE_LOW,
+                    validator => fun validate_hwmark_expire_time/1
                 }
             )},
         {token_expired_time,
@@ -80,6 +80,36 @@ fields("dashboard") ->
                     deprecated => {since, "5.1.0"},
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {unsuccessful_login_max_attempts,
+            ?HOCON(
+                pos_integer(),
+                #{
+                    desc => ?DESC(unsuccessful_login_max_attempts),
+                    required => false,
+                    default => 5,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {unsuccessful_login_lock_duration,
+            ?HOCON(
+                emqx_schema:duration_s(),
+                #{
+                    desc => ?DESC(unsuccessful_login_lock_duration),
+                    required => false,
+                    default => <<"10m">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {unsuccessful_login_interval,
+            ?HOCON(
+                emqx_schema:duration_s(),
+                #{
+                    desc => ?DESC(unsuccessful_login_interval),
+                    required => false,
+                    default => <<"5m">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ] ++ ee_fields();
 fields("listeners") ->
@@ -88,7 +118,7 @@ fields("listeners") ->
             ?HOCON(
                 ?R_REF("http"),
                 #{
-                    desc => "TCP listeners",
+                    desc => ?DESC("http_listener_settings"),
                     required => {false, recursively}
                 }
             )},
@@ -96,7 +126,7 @@ fields("listeners") ->
             ?HOCON(
                 ?R_REF("https"),
                 #{
-                    desc => "SSL listeners",
+                    desc => ?DESC("ssl_listener_settings"),
                     required => {false, recursively},
                     converter => fun ?MODULE:https_converter/2
                 }
@@ -304,6 +334,16 @@ validate_sample_interval(Second) ->
             ok;
         false ->
             Msg = "must be between 1 and 60 and be a divisor of 60.",
+            {error, Msg}
+    end.
+
+%% Cannot allow >7d because dashboard monitor data is only kept for 7 days
+validate_hwmark_expire_time(ExpireTime) ->
+    case ExpireTime >= 1 andalso ExpireTime =< ?DAYS_7 of
+        true ->
+            ok;
+        false ->
+            Msg = "must be between 1s and 7d.",
             {error, Msg}
     end.
 

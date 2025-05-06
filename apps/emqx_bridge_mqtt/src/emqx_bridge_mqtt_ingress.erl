@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_mqtt_ingress).
@@ -83,7 +71,7 @@ subscribe_remote_topic(
     PoolSize,
     Name
 ) ->
-    case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, _LogWarn = true) of
+    case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, true) of
         true ->
             emqtt:subscribe(Pid, RemoteTopic, [{qos, QoS}, {nl, NoLocal}]);
         false ->
@@ -94,22 +82,24 @@ should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, LogWarn) ->
     IsFirstWorker = WorkerIdx == 1,
     case emqx_topic:parse(RemoteTopic) of
         {#share{} = _Filter, _SubOpts} ->
-            % NOTE: this is shared subscription, many workers may subscribe
+            %% NOTE: this is shared subscription, many workers may subscribe
             true;
-        {_Filter, #{}} when PoolSize > 1, IsFirstWorker, LogWarn ->
-            % NOTE: this is regular subscription, only one worker should subscribe
-            ?SLOG(warning, #{
-                msg => "mqtt_pool_size_ignored",
-                connector => Name,
-                reason =>
-                    "Remote topic filter is not a shared subscription, "
-                    "only a single connection will be used from the connection pool",
-                config_pool_size => PoolSize,
-                pool_size => PoolSize
-            }),
-            IsFirstWorker;
         {_Filter, #{}} ->
-            % NOTE: this is regular subscription, only one worker should subscribe
+            case PoolSize > 1 orelse IsFirstWorker orelse LogWarn of
+                true ->
+                    ?SLOG(warning, #{
+                        msg => "mqtt_pool_size_ignored",
+                        connector => Name,
+                        reason =>
+                            "Remote topic filter is not a shared subscription, "
+                            "only a single connection will be used from the connection pool",
+                        config_pool_size => PoolSize,
+                        pool_size => PoolSize
+                    });
+                false ->
+                    ok
+            end,
+            %% NOTE: this is regular subscription, only one worker should subscribe
             IsFirstWorker
     end.
 
@@ -161,7 +151,7 @@ unsubscribe_remote_topic(
 ) ->
     IndexTopic = to_index_topic(RemoteTopic),
     emqx_topic_index:delete(IndexTopic, ChannelId, TopicToHandlerIndex),
-    case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, _NoWarn = false) of
+    case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, false) of
         true ->
             case emqtt:unsubscribe(Pid, RemoteTopic) of
                 {ok, _Properties, _ReasonCodes} ->
@@ -320,32 +310,9 @@ import_msg(
         qos => QoS,
         dup => Dup,
         retain => Retain,
-        pub_props => printable_maps(Props),
+        pub_props => emqx_utils_maps:printable_props(Props),
         message_received_at => erlang:system_time(millisecond)
     }.
-
-printable_maps(undefined) ->
-    #{};
-printable_maps(Headers) ->
-    maps:fold(
-        fun
-            ('User-Property', V0, AccIn) when is_list(V0) ->
-                AccIn#{
-                    'User-Property' => maps:from_list(V0),
-                    'User-Property-Pairs' => [
-                        #{
-                            key => Key,
-                            value => Value
-                        }
-                     || {Key, Value} <- V0
-                    ]
-                };
-            (K, V0, AccIn) ->
-                AccIn#{K => V0}
-        end,
-        #{},
-        Headers
-    ).
 
 %% published from remote node over a MQTT connection
 to_broker_msg(Msg, Vars, undefined) ->

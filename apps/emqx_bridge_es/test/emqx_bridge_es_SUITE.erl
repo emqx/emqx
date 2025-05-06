@@ -1,16 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%% http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_es_SUITE).
@@ -106,11 +95,14 @@ check_send_message_with_action(Topic, ActionName, ConnectorName, Expect, Line) -
     timer:sleep(500),
     check_action_metrics(ActionName, ConnectorName, Expect, Line).
 
-send_message(Topic) ->
+mk_payload() ->
     Now = emqx_utils_calendar:now_to_rfc3339(microsecond),
     Doc = #{<<"name">> => <<"emqx">>, <<"release_date">> => Now},
     Index = <<"emqx-test-index">>,
-    Payload = emqx_utils_json:encode(#{doc => Doc, index => Index}),
+    emqx_utils_json:encode(#{doc => Doc, index => Index}).
+
+send_message(Topic) ->
+    Payload = mk_payload(),
 
     ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
     {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}]),
@@ -451,3 +443,23 @@ t_http_api_get(Config) ->
         emqx_bridge_v2_testlib:list_bridges_api()
     ),
     ok.
+
+t_rule_test_trace(Config) ->
+    ConnectorName = <<"t_rule_test_trace">>,
+    ActionName = <<"t_rule_test_trace">>,
+    ActionConfig = action(ConnectorName),
+    ConnectorConfig = connector_config(Config),
+    Opts = #{payload_fn => fun mk_payload/0},
+    emqx_bridge_v2_testlib:t_rule_test_trace(
+        [
+            {bridge_kind, action},
+            {connector_type, ?TYPE},
+            {connector_name, ConnectorName},
+            {connector_config, ConnectorConfig},
+            {action_type, ?TYPE},
+            {action_name, ActionName},
+            {action_config, ActionConfig}
+            | Config
+        ],
+        Opts
+    ).

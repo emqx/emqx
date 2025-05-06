@@ -3,9 +3,6 @@ emqx_authn_ldap_schema {
 ldap.desc:
 """Configuration of authenticator using LDAP as authentication data source."""
 
-ldap_deprecated.desc:
-"""This is a deprecated form, and you should avoid using it."""
-
 password_attribute.desc:
 """Indicates which attribute is used to represent the user's password."""
 

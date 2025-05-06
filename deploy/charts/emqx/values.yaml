@@ -85,7 +85,7 @@ extraVolumes: []
 #    secret:  fake-acl-conf
 
 # Containers that run before the creation of EMQX containers. They can contain utilities or setup scripts.
-initContainers: {}
+initContainers: []
   # - name: sysctl
   #   image: busybox
   #   securityContext:
@@ -169,7 +169,7 @@ service:
   ##    port: 1884
   ##    targetPort: 1884
   ##
-  customPorts: {}
+  customPorts: []
 
   ## Specify the nodePort(s) value for the LoadBalancer and NodePort service types.
   ## ref: https://kubernetes.io/docs/concepts/services-networking/service/#type-nodeport

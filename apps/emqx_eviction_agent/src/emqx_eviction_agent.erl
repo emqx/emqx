@@ -277,20 +277,20 @@ connection_count() ->
 
 channel_stream(any) ->
     emqx_utils_stream:map(
-        fun({ClientId, _, ConnInfo, ClientInfo}) ->
-            {ClientId, ConnInfo, ClientInfo}
+        fun({ClientId, ChanPid, _, ConnInfo, ClientInfo}) ->
+            {ClientId, ChanPid, ConnInfo, ClientInfo}
         end,
         emqx_cm:all_channels_stream(?CONN_MODULES)
     );
 channel_stream(RequiredConnState) ->
     WithRequiredConnStateStream =
         emqx_utils_stream:filter(
-            fun({_, ConnState, _, _}) -> RequiredConnState =:= ConnState end,
+            fun({_, _, ConnState, _, _}) -> RequiredConnState =:= ConnState end,
             emqx_cm:all_channels_stream(?CONN_MODULES)
         ),
     emqx_utils_stream:map(
-        fun({ClientId, _, ConnInfo, ClientInfo}) ->
-            {ClientId, ConnInfo, ClientInfo}
+        fun({ClientId, ChanPid, _, ConnInfo, ClientInfo}) ->
+            {ClientId, ChanPid, ConnInfo, ClientInfo}
         end,
         WithRequiredConnStateStream
     ).
@@ -347,10 +347,25 @@ do_evict_connections(ChanPidStream, ServerReference) ->
 
 do_evict_sessions(Nodes, ChannelStream) ->
     ok = emqx_utils_stream:foreach(
-        fun({ClientId, ConnInfo, ClientInfo}) ->
-            case is_session_evictable(ClientId) of
+        fun({ClientId, ChanPid, ConnInfo, ClientInfo}) ->
+            case is_session_evictable(ClientId, ChanPid) of
                 true ->
-                    evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo);
+                    EvictResult = evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo),
+                    case EvictResult of
+                        {error, {badrpc, _Reason}} ->
+                            ok;
+                        {ok, _} ->
+                            %% Successful eviction means that the session
+                            %% received and replied to {takeover, 'end'} message
+                            %% and so is currently terminating.
+                            %% We unregister the channel immediately to avoid another attempt
+                            %% to evict the same session if `emqx_cm` is under load and is slow.
+                            emqx_cm:unregister_channel(ClientId, ChanPid);
+                        {error, _} ->
+                            %% We do not want to retry evicting the same session
+                            %% on the next iteration; something wrong with it anyway.
+                            discard_session_channel(ClientId, ChanPid)
+                    end;
                 false ->
                     %% This should not happen normally.
                     %% But session may slip from the `emqx_cm_registry` due to cluster errors.
@@ -364,22 +379,23 @@ do_evict_sessions(Nodes, ChannelStream) ->
                     %% taken over by a reconnecting client, so it is already lost.
                     %%
                     %% Therefore, it is safe to just discard the session here.
-                    discard_session_channel(ClientId)
+                    discard_session_channel(ClientId, ChanPid)
             end
         end,
         ChannelStream
     ).
 
-is_session_evictable(ClientId) ->
-    emqx_cm_registry:lookup_channels(ClientId) =/= [].
+is_session_evictable(ClientId, ChanPid) ->
+    emqx_cm_registry:lookup_channels(ClientId) =/= [] andalso
+        is_process_alive(ChanPid).
 
-discard_session_channel(ClientId) ->
-    lists:foreach(
-        fun(ChanPid) ->
-            emqx_cm:discard_session(ClientId, ChanPid)
-        end,
-        emqx_cm:lookup_channels(local, ClientId)
-    ).
+discard_session_channel(ClientId, ChanPid) ->
+    _ = emqx_cm:discard_session(ClientId, ChanPid),
+    %% We do not wait for the channel to be unregistered by emqx_cm
+    %% * If emqx_cm is under load, this may happen late. We do not want a second attempt
+    %%   to evict the same channel.
+    %% * If the channel is already dead, this will make cleanup.
+    emqx_cm:unregister_channel(ClientId, ChanPid).
 
 evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo) ->
     Node = select_random(Nodes),
@@ -404,7 +420,7 @@ evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo) ->
                     reason => Reason
                 }
             ),
-            {error, Reason};
+            {error, {badrpc, Reason}};
         {error, {no_session, _}} = Error ->
             ?SLOG(
                 warning,
@@ -478,8 +494,8 @@ disconnect_channel(ChanPid, ServerReference) ->
 
 do_purge_sessions(Stream) ->
     ok = emqx_utils_stream:foreach(
-        fun({ClientId, _ConnInfo, _ClientInfo}) ->
-            emqx_cm:discard_session(ClientId)
+        fun({ClientId, ChanPid, _ConnInfo, _ClientInfo}) ->
+            discard_session_channel(ClientId, ChanPid)
         end,
         Stream
     ).

@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_hookpoints).
@@ -41,6 +29,7 @@
 -define(HOOKPOINTS, [
     'alarm.activated',
     'alarm.deactivated',
+    'channel.limiter_adjustment',
     'client.connect',
     'client.connack',
     'client.connected',
@@ -70,7 +59,8 @@
     'delivery.dropped',
     'delivery.completed',
     'cm.channel.unregistered',
-    'tls_handshake.psk_lookup'
+    'tls_handshake.psk_lookup',
+    'config.zones_updated'
 ]).
 
 %% Our template plugin used this hookpoints before its 5.1.0 version,
@@ -229,6 +219,16 @@ when
 }) ->
     callback_result().
 
+-callback 'channel.limiter_adjustment'(
+    #{
+        zone := emqx_types:zone(),
+        listener_id := emqx_listeners:listener_id(),
+        tns := undefined | binary()
+    },
+    emqx_limiter_client:t()
+) ->
+    fold_callback_result(emqx_limiter_client:t()).
+
 %% NOTE
 %% Executed out of channel process context
 -callback 'cm.channel.unregistered'(_ChanPid :: pid()) -> callback_result().
@@ -241,6 +241,11 @@ when
         | {error, term()}
         | normal
     ).
+
+%% NOTE
+%% Executed out of channel process context
+-callback 'config.zones_updated'(_Old :: emqx_config:config(), _New :: emqx_config:config()) ->
+    callback_result().
 
 %%-----------------------------------------------------------------------------
 %% API

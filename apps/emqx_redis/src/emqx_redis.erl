@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_redis).
 
@@ -144,8 +132,8 @@ on_start(InstId, Config0) ->
         ] ++ database(Config),
 
     State = #{pool_name => InstId, type => Type},
-    ok = emqx_resource:allocate_resource(InstId, type, Type),
-    ok = emqx_resource:allocate_resource(InstId, pool_name, InstId),
+    ok = emqx_resource:allocate_resource(InstId, ?MODULE, type, Type),
+    ok = emqx_resource:allocate_resource(InstId, ?MODULE, pool_name, InstId),
     case Type of
         cluster ->
             case eredis_cluster:start_pool(InstId, Opts) of

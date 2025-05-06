@@ -128,7 +128,7 @@ on_start(
         ssl_opts => SSLOpts
     },
 
-    ok = emqx_resource:allocate_resource(InstanceId, client_id, ClientId),
+    ok = emqx_resource:allocate_resource(InstanceId, ?MODULE, client_id, ClientId),
     create_producers_map(ClientId),
 
     case rocketmq:ensure_supervised_client(ClientId, Servers, ClientCfg) of
@@ -475,7 +475,7 @@ get_producers(ChannelId, InstanceId, ClientId, Topic, ProducerOpts) ->
             {ok, Producers} = rocketmq:ensure_supervised_producers(
                 ClientId, ProducerGroup, Topic, ProducerOpts2
             ),
-            ok = emqx_resource:allocate_resource(InstanceId, ProducerGroup, Producers),
+            ok = emqx_resource:allocate_resource(InstanceId, ?MODULE, ProducerGroup, Producers),
             ets:insert(ClientId, {ProducerGroup, Producers}),
             Producers
     end.

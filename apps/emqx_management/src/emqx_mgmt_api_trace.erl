@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_trace).
 
@@ -288,6 +276,21 @@ fields(trace) ->
                     "",
                 default => text
             })},
+        {payload_limit,
+            hoconsc:mk(
+                integer(),
+                #{
+                    desc =>
+                        ""
+                        "Determine the maximum bytes of the payload will be printed in the trace file.<br/>\n"
+                        "The truncated part will be displayed as '...' in the trace file.<br/>\n"
+                        "It's only effective when `payload_encode` is `hex` or `text`<br/>\n"
+                        "`0`: No limit<br/>\n"
+                        "Default is 1024 bytes<br/>\n"
+                        "",
+                    default => 1024
+                }
+            )},
         {start_at,
             hoconsc:mk(
                 emqx_utils_calendar:epoch_second(),

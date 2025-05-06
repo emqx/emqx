@@ -34,4 +34,14 @@ emqx_bridge_snowflake_connector_schema {
   proxy_config_port.desc:
   """Proxy port to use when connecting."""
 
+  private_key_path.label:
+  """Private Key Path"""
+  private_key_path.desc:
+  """Full file path to the private key to be used for the ODBC connection.  This path must be the same on all nodes of the cluster."""
+
+  private_key_password.label:
+  """Private Key Password"""
+  private_key_password.desc:
+  """Password to decrypt the private key.  Do not set this value if the private key is not encrypted."""
+
 }

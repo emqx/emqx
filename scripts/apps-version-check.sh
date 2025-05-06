@@ -27,12 +27,8 @@ is_allowed_non_strict() {
     local src_file="$1"
     local from="$2"
     local to="$3"
-    if [ -f .emqx-platform ]; then
-        log_red "ERROR: $src_file vsn bump from $from to $to"
-        return 1
-    fi
-    log_red "WARN: $src_file vsn bump from $from to $to"
-    return 0
+    log_red "ERROR: $src_file vsn bump from $from to $to"
+    return 1
 }
 
 APPS="$(./scripts/find-apps.sh)"

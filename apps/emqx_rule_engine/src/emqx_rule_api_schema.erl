@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_rule_api_schema).
@@ -105,8 +93,21 @@ fields("rule_info") ->
                     desc => ?DESC("ri_last_modified_at"),
                     example => "2021-12-24T15:00:44.153+08:00"
                 }
+            )},
+        {"action_details",
+            sc(
+                hoconsc:array(ref("action_details")),
+                #{
+                    desc => ?DESC("ri_action_details")
+                }
             )}
     ] ++ fields("rule_creation");
+fields("action_details") ->
+    [
+        {"type", sc(binary(), #{desc => ?DESC("ri_action_details_type")})},
+        {"name", sc(binary(), #{desc => ?DESC("ri_action_details_name")})},
+        {"status", sc(binary(), #{desc => ?DESC("ri_action_details_status")})}
+    ];
 fields("rule_metrics") ->
     [
         rule_id(),
