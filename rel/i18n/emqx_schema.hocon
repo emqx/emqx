@@ -134,9 +134,7 @@ For example, this list of rules can be used to force QoS 0 on subscriptions to t
 ]
 ```
 
-See _Max Subscription QoS Rules_ for more details.
-
-"""
+See _Max Subscription QoS Rules_ for more details."""
 
 mqtt_subscription_max_qos_rules.label:
 """Max Subscription QoS Rules"""
