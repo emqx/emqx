@@ -315,7 +315,7 @@ do_parse_args(unsub, [Sid], Rest, State) ->
     Frame = #nats_frame{operation = ?OP_UNSUB, message = Msg},
     {ok, Frame, Rest, reset(State)};
 do_parse_args(unsub, [Sid, MaxMsgs], Rest, State) ->
-    Msg = #{sid => Sid, max_msgs => MaxMsgs},
+    Msg = #{sid => Sid, max_msgs => binary_to_integer(MaxMsgs)},
     Frame = #nats_frame{operation = ?OP_UNSUB, message = Msg},
     {ok, Frame, Rest, reset(State)};
 do_parse_args(msg, [Subject, Sid, PayloadSize], Rest, State) ->

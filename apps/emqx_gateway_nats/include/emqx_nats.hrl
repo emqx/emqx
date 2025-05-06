@@ -132,32 +132,32 @@
 %% to proceed with the connection.
 -type nats_message_info() :: #{
     %% Server identification and versioning.
-    server_id := binary(),
-    server_name := binary(),
-    version := binary(),
+    server_id => binary(),
+    server_name => binary(),
+    version => binary(),
     %% Go version, no needed in an Erlang Gateway
-    %go := binary(),
+    %go => binary(),
     %% Server listening address.
-    host := binary(),
-    port := non_neg_integer(),
+    host => binary(),
+    port => non_neg_integer(),
     %% Maximum message size the server accepts.
-    max_payload := non_neg_integer(),
+    max_payload => non_neg_integer(),
     %% Server protocol version (e.g., 1 indicates support for features like echo suppression)
-    proto := non_neg_integer(),
+    proto => non_neg_integer(),
     %% Boolean indicating if the server supports message headers.
-    headers := boolean(),
+    headers => boolean(),
     %% authentication needed
-    auth_required := boolean(),
+    auth_required => boolean(),
     %% TLS mandatory,
-    tls_required := boolean(),
+    tls_required => boolean(),
     %% client certificate verification required
-    tls_verify := boolean(),
+    tls_verify => boolean(),
     %% List of other servers in the cluster the client can connect to.
-    connect_urls := list(),
+    connect_urls => list(),
     %% A random string used for NKey challenge-response authentication.
-    nonce := binary(),
+    nonce => binary(),
     %% Boolean indicating if the server has JetStream enabled.
-    jetstream := boolean(),
+    jetstream => boolean(),
     client_id => binary(),
     tls_available => boolean(),
     ws_connect_urls => list(),
@@ -207,25 +207,27 @@
 %% include a reply subject for request-reply patterns.
 -type nats_message_pub() :: #{
     %% Subject to publish to.
-    subject := binary(),
+    subject => binary(),
     %% Optional reply-to subject.
     reply_to => binary(),
     %% Optional headers, only apprence if the message type is hpub
     headers => list(),
+    %% Message payload size
+    payload_size => non_neg_integer(),
     %% Message payload.
-    payload := binary()
+    payload => binary()
 }.
 
 %% Subscribes the client to a specific subject or subject pattern
 %% (using wildcards). Can optionally join a queue group.
 -type nats_message_sub() :: #{
     %% <subject> to subscribe to
-    subject := binary(),
+    subject => binary(),
     %% optional <queue group> name
     queue_group => binary(),
     %% a unique client-generated Subscription ID (<sid>) used for message delivery and
     %% unsubscribing.
-    sid := binary()
+    sid => binary()
 }.
 
 %% Unsubscribes the client from a previously established
@@ -233,7 +235,7 @@
 %% messages to receive before automatically unsubscribing.
 -type nats_message_unsub() :: #{
     %% Subscription ID <sid>
-    sid := binary(),
+    sid => binary(),
     %%  optional <max_msgs> count
     max_msgs => non_neg_integer()
 }.
@@ -242,15 +244,17 @@
 %% a matching subscription.
 -type nats_message_msg() :: #{
     %% <subject> the message was published to
-    subject := binary(),
+    subject => binary(),
     %% the client's <sid> for the matching subscription,
-    sid := binary(),
+    sid => binary(),
     %% the optional <reply-to> subject from the publisher
     reply_to => binary(),
     %% Optional headers, only apprence if the message type is hmsg
     headers => list(),
+    %% Message payload size
+    payload_size => non_neg_integer(),
     %% Message payload
-    payload := binary()
+    payload => binary()
 }.
 
 -type nats_message_error() :: binary().
@@ -261,7 +265,8 @@
     | nats_message_pub()
     | nats_message_sub()
     | nats_message_unsub()
-    | nats_message_msg().
+    | nats_message_msg()
+    | nats_message_error().
 
 -record(nats_frame, {
     operation :: operation(),
