@@ -49,7 +49,7 @@ jobs:
       CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}
 
     steps:
-      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ matrix.profile }}
 
@@ -90,7 +90,7 @@ jobs:
       PROFILE: ${{ matrix.profile }}
 
     steps:
-      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ matrix.profile }}
       - name: extract artifact
@@ -162,7 +162,7 @@ jobs:
       CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-sg${{ matrix.suitegroup }}
 
     steps:
-      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ matrix.profile }}
       - name: extract artifact
@@ -211,7 +211,7 @@ jobs:
 
     steps:
       # download emqx-enterprise source code
-      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: emqx-enterprise
       - name: extract artifact
@@ -220,7 +220,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       # download coverdata artifacts
       - name: download coverdata
-        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: 'coverdata-*'
       - name: extract coverdata and move to _build/test/cover/
