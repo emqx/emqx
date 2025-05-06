@@ -88,7 +88,7 @@
     non_empty_string/1,
     non_empty_array/1,
     validations/0,
-    naive_env_interpolation/1,
+    naive_env_interpolate/1,
     ensure_unicode_path/2,
     validate_server_ssl_opts/1,
     validate_tcp_keepalive/1,
@@ -3619,68 +3619,8 @@ default_listener(SSLListener) ->
             }
     end.
 
-%% @doc This function helps to perform a naive string interpolation which
-%% only looks at the first segment of the string and tries to replace it.
-%% For example
-%%  "$MY_FILE_PATH"
-%%  "${MY_FILE_PATH}"
-%%  "$ENV_VARIABLE/sub/path"
-%%  "${ENV_VARIABLE}/sub/path"
-%%  "${ENV_VARIABLE}\sub\path" # windows
-%% This function returns undefined if the input is undefined
-%% otherwise always return string.
-naive_env_interpolation(undefined) ->
-    undefined;
-naive_env_interpolation(Bin) when is_binary(Bin) ->
-    naive_env_interpolation(unicode:characters_to_list(Bin, utf8));
-naive_env_interpolation("$" ++ Maybe = Original) ->
-    {Env, Tail} = split_path(Maybe),
-    case resolve_env(Env) of
-        {ok, Path} ->
-            filename:join([Path, Tail]);
-        error ->
-            ?SLOG(warning, #{
-                msg => "cannot_resolve_env_variable",
-                env => Env,
-                original => Original
-            }),
-            Original
-    end;
-naive_env_interpolation(Other) ->
-    Other.
-
-split_path(Path) ->
-    {Name0, Tail} = split_path(Path, []),
-    {string:trim(Name0, both, "{}"), Tail}.
-
-split_path([], Acc) ->
-    {lists:reverse(Acc), []};
-split_path([Char | Rest], Acc) when Char =:= $/ orelse Char =:= $\\ ->
-    {lists:reverse(Acc), string:trim(Rest, leading, "/\\")};
-split_path([Char | Rest], Acc) ->
-    split_path(Rest, [Char | Acc]).
-
-resolve_env(Name) ->
-    Value = os:getenv(Name),
-    case Value =/= false andalso Value =/= "" of
-        true ->
-            {ok, Value};
-        false ->
-            special_env(Name)
-    end.
-
--ifdef(TEST).
-%% when running tests, we need to mock the env variables
-special_env("EMQX_ETC_DIR") ->
-    {ok, filename:join([code:lib_dir(emqx), etc])};
-special_env("EMQX_LOG_DIR") ->
-    {ok, "log"};
-special_env(_Name) ->
-    %% only in tests
-    error.
--else.
-special_env(_Name) -> error.
--endif.
+naive_env_interpolate(MaybeEnv) ->
+    emqx_utils_schema:naive_env_interpolate(MaybeEnv).
 
 %% The tombstone atom.
 tombstone() ->
