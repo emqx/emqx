@@ -14,6 +14,8 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -388,15 +390,6 @@ receive_published(Line) ->
         ct:fail("publish not received, line ~b", [Line])
     end.
 
-wait_for_cluster_rpc(Node) ->
-    %% need to wait until the config handler is ready after
-    %% restarting during the cluster join.
-    ?retry(
-        _Sleep0 = 100,
-        _Attempts0 = 50,
-        true = is_pid(erpc:call(Node, erlang, whereis, [emqx_config_handler]))
-    ).
-
 protobuf_unique_cache_hit_spec(#{serde_type := protobuf} = Res, Trace) ->
     #{nodes := Nodes} = Res,
     CacheEvents0 = ?of_kind(
@@ -436,8 +429,71 @@ encode_then_decode(Serde, Payload, ExtraArgs) ->
     Encoded = eval_encode(Serde, [Payload | ExtraArgs]),
     eval_decode(Serde, [Encoded | ExtraArgs]).
 
+sparkplug_example_data_base64() ->
+    <<
+        "CPHh67HrMBIqChxjb3VudGVyX2dyb3VwMS9jb3VudGVyMV8xc2VjGPXh67HrMCACUKgD"
+        "EikKHGNvdW50ZXJfZ3JvdXAxL2NvdW50ZXIxXzVzZWMY9eHrseswIAJQVBIqCh1jb3Vu"
+        "dGVyX2dyb3VwMS9jb3VudGVyMV8xMHNlYxj14eux6zAgAlAqEigKG2NvdW50ZXJfZ3Jv"
+        "dXAxL2NvdW50ZXIxX3J1bhj14eux6zAgBVABEioKHWNvdW50ZXJfZ3JvdXAxL2NvdW50"
+        "ZXIxX3Jlc2V0GPXh67HrMCAFUAAYWA=="
+    >>.
+
+sparkplug_example_data() ->
+    #{
+        <<"metrics">> =>
+            [
+                #{
+                    <<"datatype">> => 2,
+                    <<"int_value">> => 424,
+                    <<"name">> => <<"counter_group1/counter1_1sec">>,
+                    <<"timestamp">> => 1678094561525
+                },
+                #{
+                    <<"datatype">> => 2,
+                    <<"int_value">> => 84,
+                    <<"name">> => <<"counter_group1/counter1_5sec">>,
+                    <<"timestamp">> => 1678094561525
+                },
+                #{
+                    <<"datatype">> => 2,
+                    <<"int_value">> => 42,
+                    <<"name">> => <<"counter_group1/counter1_10sec">>,
+                    <<"timestamp">> => 1678094561525
+                },
+                #{
+                    <<"datatype">> => 5,
+                    <<"int_value">> => 1,
+                    <<"name">> => <<"counter_group1/counter1_run">>,
+                    <<"timestamp">> => 1678094561525
+                },
+                #{
+                    <<"datatype">> => 5,
+                    <<"int_value">> => 0,
+                    <<"name">> => <<"counter_group1/counter1_reset">>,
+                    <<"timestamp">> => 1678094561525
+                }
+            ],
+        <<"seq">> => 88,
+        <<"timestamp">> => 1678094561521
+    }.
+
+wait_for_sparkplug_schema_registered() ->
+    ?retry(
+        100,
+        100,
+        [_] = ets:lookup(?SERDE_TAB, ?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME)
+    ).
+
+proto_file_path(File) ->
+    Base = code:lib_dir(emqx_schema_registry),
+    filename:join([Base, "test", "protobuf_data", File]).
+
+proto_file(File) ->
+    {ok, Contents} = file:read_file(proto_file_path(File)),
+    Contents.
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_unknown_calls(_Config) ->
@@ -902,61 +958,6 @@ t_import_config(_Config) ->
     ),
     ok.
 
-sparkplug_example_data_base64() ->
-    <<
-        "CPHh67HrMBIqChxjb3VudGVyX2dyb3VwMS9jb3VudGVyMV8xc2VjGPXh67HrMCACUKgD"
-        "EikKHGNvdW50ZXJfZ3JvdXAxL2NvdW50ZXIxXzVzZWMY9eHrseswIAJQVBIqCh1jb3Vu"
-        "dGVyX2dyb3VwMS9jb3VudGVyMV8xMHNlYxj14eux6zAgAlAqEigKG2NvdW50ZXJfZ3Jv"
-        "dXAxL2NvdW50ZXIxX3J1bhj14eux6zAgBVABEioKHWNvdW50ZXJfZ3JvdXAxL2NvdW50"
-        "ZXIxX3Jlc2V0GPXh67HrMCAFUAAYWA=="
-    >>.
-
-sparkplug_example_data() ->
-    #{
-        <<"metrics">> =>
-            [
-                #{
-                    <<"datatype">> => 2,
-                    <<"int_value">> => 424,
-                    <<"name">> => <<"counter_group1/counter1_1sec">>,
-                    <<"timestamp">> => 1678094561525
-                },
-                #{
-                    <<"datatype">> => 2,
-                    <<"int_value">> => 84,
-                    <<"name">> => <<"counter_group1/counter1_5sec">>,
-                    <<"timestamp">> => 1678094561525
-                },
-                #{
-                    <<"datatype">> => 2,
-                    <<"int_value">> => 42,
-                    <<"name">> => <<"counter_group1/counter1_10sec">>,
-                    <<"timestamp">> => 1678094561525
-                },
-                #{
-                    <<"datatype">> => 5,
-                    <<"int_value">> => 1,
-                    <<"name">> => <<"counter_group1/counter1_run">>,
-                    <<"timestamp">> => 1678094561525
-                },
-                #{
-                    <<"datatype">> => 5,
-                    <<"int_value">> => 0,
-                    <<"name">> => <<"counter_group1/counter1_reset">>,
-                    <<"timestamp">> => 1678094561525
-                }
-            ],
-        <<"seq">> => 88,
-        <<"timestamp">> => 1678094561521
-    }.
-
-wait_for_sparkplug_schema_registered() ->
-    ?retry(
-        100,
-        100,
-        [_] = ets:lookup(?SERDE_TAB, ?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME)
-    ).
-
 t_sparkplug_decode(_Config) ->
     SQL =
         <<
@@ -1021,4 +1022,450 @@ t_sparkplug_decode_encode_with_message_name(_Config) ->
     emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
     Res = receive_action_results(),
     ?assertMatch(#{data := ExpectedRuleOutput}, Res),
+    ok.
+
+%% Simple smoke, happy path test for adding a protobuf schema with bundle of files as
+%% sources, whose files need to be copied to emqx data dir.
+t_smoke_protobuf_bundle_file_conversion(_Config) ->
+    Name = <<"bundled">>,
+    Schema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"path">> => <<"nested/b.proto">>,
+                    <<"root">> => false,
+                    <<"contents">> => proto_file(<<"b.proto">>)
+                },
+                #{
+                    <<"path">> => <<"a.proto">>,
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"a.proto">>)
+                },
+                #{
+                    <<"path">> => <<"c.proto">>,
+                    <<"contents">> => proto_file(<<"c.proto">>)
+                }
+            ]
+        }
+    },
+    ?assertMatch(ok, emqx_schema_registry:add_schema(Name, Schema1)),
+    {ok, #{source := #{root_proto_path := Path1}}} = emqx_schema_registry:get_schema(Name),
+    ?assertEqual({ok, proto_file(<<"a.proto">>)}, file:read_file(Path1)),
+    %% Roundtrip
+    Data1 = #{
+        <<"name">> => <<"aaa">>,
+        <<"id">> => 1,
+        <<"bah">> => #{
+            <<"bah">> => <<"bah">>,
+            <<"boh">> => #{<<"boh">> => <<"boh">>}
+        }
+    },
+    EncodedData1 = emqx_schema_registry_serde:encode(Name, Data1, [<<"Person">>]),
+    ?assertEqual(Data1, emqx_schema_registry_serde:decode(Name, EncodedData1, [<<"Person">>])),
+    %% Update leaf schema; only c.proto's contents are changed.
+    Schema2 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"path">> => <<"nested/b.proto">>,
+                    <<"root">> => false,
+                    <<"contents">> => proto_file(<<"b.proto">>)
+                },
+                #{
+                    <<"path">> => <<"a.proto">>,
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"a.proto">>)
+                },
+                #{
+                    <<"path">> => <<"c.proto">>,
+                    <<"contents">> => proto_file(<<"c1.proto">>)
+                }
+            ]
+        }
+    },
+    ?assertMatch(ok, emqx_schema_registry:add_schema(Name, Schema2)),
+    Data2 = #{
+        <<"name">> => <<"aaa">>,
+        <<"id">> => 1,
+        <<"bah">> => #{
+            <<"bah">> => <<"bah">>,
+            <<"boh">> => #{<<"boh">> => 999}
+        }
+    },
+    EncodedData2 = emqx_schema_registry_serde:encode(Name, Data2, [<<"Person">>]),
+    ?assertEqual(Data2, emqx_schema_registry_serde:decode(Name, EncodedData2, [<<"Person">>])),
+    ok.
+
+%% Similar to `t_smoke_protobuf_bundle_file_conversion`, but with a cluster; checks cache
+%% hits and misses.
+t_smoke_protobuf_bundle_file_conversion_cluster(Config) ->
+    AppSpecs = [
+        emqx_conf,
+        emqx_rule_engine,
+        emqx_schema_registry
+    ],
+    ClusterSpec = [
+        {proto_bundle1, #{apps => AppSpecs}},
+        {proto_bundle2, #{apps => AppSpecs}}
+    ],
+    Name = <<"bundled">>,
+    Schema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"path">> => <<"nested/b.proto">>,
+                    <<"root">> => false,
+                    <<"contents">> => proto_file(<<"b.proto">>)
+                },
+                #{
+                    <<"path">> => <<"a.proto">>,
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"a.proto">>)
+                },
+                #{
+                    <<"path">> => <<"c.proto">>,
+                    <<"contents">> => proto_file(<<"c.proto">>)
+                }
+            ]
+        }
+    },
+    Nodes =
+        [N1 | _] = emqx_cth_cluster:start(
+            ClusterSpec,
+            #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+        ),
+    on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
+    Data1 = #{
+        <<"name">> => <<"aaa">>,
+        <<"id">> => 1,
+        <<"bah">> => #{
+            <<"bah">> => <<"bah">>,
+            <<"boh">> => #{<<"boh">> => <<"boh">>}
+        }
+    },
+    ?check_trace(
+        begin
+            ?ON(N1, ?assertMatch(ok, emqx_schema_registry:add_schema(Name, Schema1))),
+            lists:foreach(
+                fun(N) ->
+                    ok = ?ON(N, begin
+                        Res0 = emqx_schema_registry:get_serde(Name),
+                        ?assertMatch({ok, #serde{}}, Res0, #{node => N}),
+                        {ok, Serde} = Res0,
+                        ?assertEqual(
+                            Data1,
+                            encode_then_decode(Serde, Data1, [<<"Person">>]),
+                            #{node => N}
+                        ),
+                        ok
+                    end)
+                end,
+                Nodes
+            )
+        end,
+        [{"protobuf is only built on one node", fun ?MODULE:protobuf_unique_cache_hit_spec/2}]
+    ),
+    snabbkaffe:stop(),
+    ok.
+
+%% Simple smoke, happy path test for adding a protobuf schema with bundle of files as
+%% sources, already pointing to a correctly set up directory.
+t_smoke_protobuf_bundle_direct_path(_Config) ->
+    Name = <<"bundled">>,
+    Schema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"root_proto_path">> => proto_file_path(<<"c.proto">>)
+        }
+    },
+    ?assertMatch(ok, emqx_schema_registry:add_schema(Name, Schema1)),
+    {ok, #{source := #{root_proto_path := Path1}}} = emqx_schema_registry:get_schema(Name),
+    ?assertEqual(proto_file_path(<<"c.proto">>), Path1),
+    %% Roundtrip
+    Data1 = #{<<"boh">> => <<"boh">>},
+    EncodedData1 = emqx_schema_registry_serde:encode(Name, Data1, [<<"Boh">>]),
+    ?assertEqual(Data1, emqx_schema_registry_serde:decode(Name, EncodedData1, [<<"Boh">>])),
+    ok.
+
+%% A protobuf bundle with no files is invalid.
+t_protobuf_bundle_no_files(_Config) ->
+    Name = <<"bundled">>,
+    %% No files
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => []
+        }
+    },
+    ?assertMatch(
+        {error, {pre_config_update, _, <<"must have exactly one root file">>}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    ok.
+
+%% A protobuf bundle with no file marked as root is invalid.
+t_protobuf_bundle_no_roots(_Config) ->
+    Name = <<"bundled">>,
+    %% No files
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"path">> => <<"nested/b.proto">>,
+                    <<"root">> => false,
+                    <<"contents">> => proto_file(<<"b.proto">>)
+                },
+                #{
+                    <<"path">> => <<"c.proto">>,
+                    <<"contents">> => proto_file(<<"c.proto">>)
+                }
+            ]
+        }
+    },
+    ?assertMatch(
+        {error, {pre_config_update, _, <<"must have exactly one root file">>}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    ok.
+
+%% A protobuf bundle with multiple files marked as root is invalid.
+t_protobuf_bundle_multiple_roots(_Config) ->
+    Name = <<"bundled">>,
+    %% No files
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"path">> => <<"nested/b.proto">>,
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"b.proto">>)
+                },
+                #{
+                    <<"path">> => <<"c.proto">>,
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"c.proto">>)
+                }
+            ]
+        }
+    },
+    ?assertMatch(
+        {error, {pre_config_update, _, <<"must have exactly one root file">>}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    ok.
+
+%% A protobuf bundle with traversal attack is invalid.
+t_protobuf_bundle_traversal_attack(_Config) ->
+    Name = <<"bundled">>,
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"path">> => <<"pwn.proto">>,
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"traversal_attack.proto">>)
+                }
+            ]
+        }
+    },
+    ?assertMatch(
+        {error,
+            {pre_config_update, _,
+                {invalid_or_missing_imports, #{
+                    invalid := [_],
+                    missing := []
+                }}}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    ok.
+
+%% A protobuf bundle with a missing import is invalid.
+t_protobuf_bundle_missing_import(_Config) ->
+    Name = <<"bundled">>,
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"path">> => <<"missing.proto">>,
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"missing.proto">>)
+                }
+            ]
+        }
+    },
+    ?assertMatch(
+        {error,
+            {pre_config_update, _,
+                {invalid_or_missing_imports, #{
+                    invalid := [],
+                    missing := [_]
+                }}}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    ok.
+
+%% A protobuf bundle with traversal attack is invalid.
+t_protobuf_bundle_no_conversion_traversal_attack(_Config) ->
+    Name = <<"bundled">>,
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"root_proto_path">> => proto_file_path(<<"traversal_attack.proto">>)
+        }
+    },
+    ?assertMatch(
+        {error,
+            {pre_config_update, _,
+                {invalid_or_missing_imports, #{
+                    invalid := [_],
+                    missing := []
+                }}}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    ok.
+
+%% The destination path of a file must not contain `..`.
+t_protobuf_bundle_converted_name_traversal(_Config) ->
+    Name = <<"bundled">>,
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"path">> => <<"../traversal.proto">>,
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"a.proto">>)
+                }
+            ]
+        }
+    },
+    ?assertMatch(
+        {error, {pre_config_update, _, {bad_path, <<"../traversal.proto">>}}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    ok.
+
+%% Checks an update config request with invalid structure.
+t_protobuf_bundle_bad_file(_Config) ->
+    Name = <<"bundled">>,
+    %% Missing `contents`
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"root">> => true,
+                    <<"path">> => <<"a.proto">>
+                }
+            ]
+        }
+    },
+    ?assertMatch(
+        {error, {pre_config_update, _, {bad_file, #{}}}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    %% Missing `path`
+    BadSchema2 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"a.proto">>)
+                }
+            ]
+        }
+    },
+    ?assertMatch(
+        {error, {pre_config_update, _, {bad_file, #{}}}},
+        emqx_schema_registry:add_schema(Name, BadSchema2)
+    ),
+    ok.
+
+%% Path pointing to directory is invalid.
+t_protobuf_bundle_no_conversion_file_is_directory(_Config) ->
+    Name = <<"bundled">>,
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"root_proto_path">> => <<"/tmp">>
+        }
+    },
+    %% `gpb` detects it as "missing"
+    ?assertMatch(
+        {error,
+            {pre_config_update, _,
+                {invalid_or_missing_imports, #{
+                    invalid := [],
+                    missing := [_]
+                }}}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    ok.
+
+%% Path pointing to unreadable file is invalid.
+t_protobuf_bundle_no_conversion_unreadable(_Config) ->
+    Name = <<"bundled">>,
+    Path = <<"/tmp/unreadable">>,
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"root_proto_path">> => Path
+        }
+    },
+    file:change_mode(Path, 8#777),
+    ok = file:write_file(Path, <<"">>),
+    ok = file:change_mode(Path, 8#000),
+    %% `gpb` detects it as "missing"
+    ?assertMatch(
+        {error,
+            {pre_config_update, _,
+                {invalid_or_missing_imports, #{
+                    invalid := [],
+                    missing := [_]
+                }}}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    ok = file:change_mode(Path, 8#777),
+    ok = file:delete(Path),
+    ok.
+
+%% Not a bundle, but contains traversal attack
+t_protobuf_single_traversal_attack(_Config) ->
+    Name = <<"bundled">>,
+    BadSchema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => proto_file(<<"traversal_attack.proto">>)
+    },
+    ?assertMatch(
+        {error,
+            {pre_config_update, _,
+                {invalid_or_missing_imports, #{
+                    invalid := [_],
+                    missing := []
+                }}}},
+        emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
     ok.

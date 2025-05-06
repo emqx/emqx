@@ -115,10 +115,12 @@ delete_external_registry(Name) ->
 %% `emqx_config_handler' API
 %%------------------------------------------------------------------------------
 
-pre_config_update(?SCHEMA_CONF_PATH(Name), NewRawConf, _OldConf) ->
+pre_config_update(?SCHEMA_CONF_PATH(Name), RawConf0, _OldConf) ->
     maybe
         ok ?= validate_name(Name),
-        convert_certs(Name, NewRawConf)
+        {ok, RawConf1} ?= convert_certs(Name, RawConf0),
+        {ok, RawConf2} ?= convert_protobuf_bundle(Name, RawConf1),
+        validate_protobuf_imports_already_converted(RawConf2)
     end;
 pre_config_update(_Path, NewRawConf, _OldConf) ->
     {ok, NewRawConf}.
@@ -314,3 +316,152 @@ convert_certs(Name, #{<<"parameters">> := #{<<"ssl">> := SSL} = Params0} = RawCo
     end;
 convert_certs(_Name, RawConf) ->
     {ok, RawConf}.
+
+convert_protobuf_bundle(
+    Name,
+    #{
+        <<"type">> := <<"protobuf">>,
+        <<"source">> := #{
+            <<"type">> := <<"bundle">>,
+            <<"files">> := _
+        }
+    } = RawConf0
+) ->
+    do_convert_protobuf_bundle(Name, RawConf0);
+convert_protobuf_bundle(_Name, RawConf) ->
+    {ok, RawConf}.
+
+do_convert_protobuf_bundle(Name, RawConf0) ->
+    #{
+        <<"type">> := <<"protobuf">>,
+        <<"source">> := #{
+            <<"type">> := <<"bundle">>,
+            <<"files">> := Files
+        }
+    } = RawConf0,
+    maybe
+        {ok, RootFile, OtherFiles} ?= find_protobuf_bundle_root_file(Files),
+        ok ?= validate_protobuf_path(RootFile),
+        {ok, RootPath} ?= copy_protobuf_bundle_to_data_dir(Name, RootFile, OtherFiles),
+        ok ?= validate_protobuf_imports({path, RootPath}),
+        NewSource = #{
+            <<"type">> => <<"bundle">>,
+            <<"root_proto_path">> => RootPath
+        },
+        RawConf = RawConf0#{<<"source">> := NewSource},
+        {ok, RawConf}
+    else
+        {error, {invalid_or_missing_imports, _} = Reason} ->
+            delete_protobuf_bundle_data_dir(Name),
+            {error, Reason};
+        Error ->
+            Error
+    end.
+
+find_protobuf_bundle_root_file(Files) ->
+    {RootFiles, OtherFiles} =
+        lists:partition(
+            fun
+                (#{<<"root">> := true}) -> true;
+                (_) -> false
+            end,
+            Files
+        ),
+    case RootFiles of
+        [] ->
+            {error, <<"must have exactly one root file">>};
+        [_, _ | _] ->
+            {error, <<"must have exactly one root file">>};
+        [RootFile] ->
+            {ok, RootFile, OtherFiles}
+    end.
+
+protobuf_bundle_data_dir(Name) ->
+    DataDir = emqx:data_dir(),
+    filename:join([DataDir, "schemas", Name]).
+
+validate_protobuf_path(#{<<"path">> := Path}) ->
+    case filelib:safe_relative_path(Path, "") of
+        unsafe ->
+            {error, {bad_path, Path}};
+        _ ->
+            ok
+    end;
+validate_protobuf_path(BadFile) ->
+    {error, {bad_file, BadFile}}.
+
+%% If the config update request already points to existings files, we need to check them
+%% too.
+validate_protobuf_imports_already_converted(
+    #{
+        <<"type">> := <<"protobuf">>,
+        <<"source">> := #{
+            <<"type">> := <<"bundle">>,
+            <<"root_proto_path">> := RootPath
+        }
+    } = RawConfig
+) ->
+    maybe
+        ok ?= validate_protobuf_imports({path, RootPath}),
+        {ok, RawConfig}
+    end;
+validate_protobuf_imports_already_converted(
+    #{
+        <<"type">> := <<"protobuf">>,
+        <<"source">> := Source
+    } = RawConfig
+) when is_binary(Source) ->
+    maybe
+        ok ?= validate_protobuf_imports({raw, Source}),
+        {ok, RawConfig}
+    end;
+validate_protobuf_imports_already_converted(RawConfig) ->
+    {ok, RawConfig}.
+
+validate_protobuf_imports(SourceOrRootPath) ->
+    #{
+        missing := Missing,
+        invalid := Invalid
+    } = emqx_schema_registry_serde:protobuf_resolve_imports(SourceOrRootPath),
+    case {Missing, Invalid} of
+        {[], []} ->
+            ok;
+        _ ->
+            {error,
+                {invalid_or_missing_imports, #{
+                    missing => Missing,
+                    invalid => Invalid
+                }}}
+    end.
+
+delete_protobuf_bundle_data_dir(Name) ->
+    DataDir = protobuf_bundle_data_dir(Name),
+    _ = file:del_dir_r(DataDir),
+    ok.
+
+copy_protobuf_bundle_to_data_dir(Name, RootFile, OtherFiles) ->
+    DataDir = protobuf_bundle_data_dir(Name),
+    ok = filelib:ensure_path(DataDir),
+    %% Root file is validate earlier in the pipeline.
+    #{<<"path">> := RootPath0} = RootFile,
+    RootPath = filename:join([DataDir, RootPath0]),
+    ok = filelib:ensure_dir(RootPath),
+    SuccessRes = {ok, RootPath},
+    emqx_utils:foldl_while(
+        fun
+            (#{<<"path">> := Path0, <<"contents">> := Contents} = File, Acc) ->
+                case validate_protobuf_path(File) of
+                    {error, Reason} ->
+                        {halt, {error, Reason}};
+                    ok ->
+                        Path = filename:join([DataDir, Path0]),
+                        ok = filelib:ensure_dir(Path),
+                        ok = file:write_file(Path, Contents),
+                        {cont, Acc}
+                end;
+            (BadFile, _Acc) ->
+                {halt, {error, {bad_file, BadFile}}}
+        end,
+        SuccessRes,
+        [RootFile | OtherFiles]
+    ).
