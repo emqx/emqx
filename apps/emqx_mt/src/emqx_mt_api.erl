@@ -24,6 +24,7 @@
     '/mt/ns_list'/2,
     '/mt/managed_ns_list'/2,
     '/mt/bulk_import_configs'/2,
+    '/mt/bulk_delete_nss'/2,
     '/mt/ns/:ns'/2,
     '/mt/ns/:ns/config'/2,
     '/mt/ns/:ns/client_list'/2,
@@ -61,7 +62,8 @@ paths() ->
         "/mt/ns/:ns",
         "/mt/ns/:ns/config",
         "/mt/ns/:ns/kick_all_clients",
-        "/mt/bulk_import_configs"
+        "/mt/bulk_import_configs",
+        "/mt/bulk_delete_nss"
     ].
 
 schema("/mt/ns_list") ->
@@ -245,6 +247,24 @@ schema("/mt/bulk_import_configs") ->
                     500 => error_schema('INTERNAL_ERROR', "Some side-effects failed to execute")
                 }
         }
+    };
+schema("/mt/bulk_delete_nss") ->
+    #{
+        'operationId' => '/mt/bulk_delete_nss',
+        delete => #{
+            tags => ?TAGS,
+            summary => <<"Bulk delete namespaces">>,
+            description => ?DESC("bulk_delete_nss"),
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(bulk_delete_nss_in),
+                example_bulk_delete_nss_in()
+            ),
+            responses =>
+                #{
+                    204 => <<"">>,
+                    500 => error_schema('INTERNAL_ERROR', "Some side-effects failed to execute")
+                }
+        }
     }.
 
 param_path_ns() ->
@@ -319,6 +339,10 @@ fields(bulk_config_in) ->
         {ns, mk(binary(), #{})},
         {config, mk(ref(config_in), #{})}
     ];
+fields(bulk_delete_nss_in) ->
+    [
+        {nss, mk(hoconsc:array(binary()), #{})}
+    ];
 fields(config_out) ->
     %% At this moment, same schema as input
     fields(config_in);
@@ -386,6 +410,9 @@ error_schema(Code, Message) ->
 
 '/mt/ns/:ns/kick_all_clients'(post, #{bindings := #{ns := Ns}}) ->
     with_known_ns(Ns, fun() -> handle_kick_all_clients(Ns) end).
+
+'/mt/bulk_delete_nss'(delete, #{body := Params}) ->
+    handle_bulk_delete_nss(Params).
 
 %%-------------------------------------------------------------------------------------------------
 %% Handler implementations
@@ -468,6 +495,38 @@ handle_kick_all_clients(Ns) ->
             ?CONFLICT(<<"Kick process already underway">>)
     end.
 
+handle_bulk_delete_nss(#{nss := NSs}) ->
+    Errors =
+        lists:foldl(
+            fun(Ns, Acc) ->
+                case emqx_mt_config:delete_managed_ns(Ns) of
+                    ok ->
+                        Acc;
+                    {error, Reason} ->
+                        [{Ns, Reason} | Acc]
+                end
+            end,
+            [],
+            NSs
+        ),
+    case Errors of
+        [] ->
+            ?NO_CONTENT;
+        _ ->
+            Msg0 = ?ERROR_MSG(
+                'INTERNAL_ERROR',
+                <<"Failure while deleting one or more namespaces">>
+            ),
+            Msg = Msg0#{
+                hint => <<
+                    "Namespaces were deleted, but some necessary"
+                    " side-effects failed to execute; please check the logs"
+                >>,
+                errors => maps:from_list(Errors)
+            },
+            {500, Msg}
+    end.
+
 %%-------------------------------------------------------------------------------------------------
 %% helper functions
 %%-------------------------------------------------------------------------------------------------
@@ -534,6 +593,12 @@ example_bulk_configs_in() ->
                     }
                 }
             ]
+    }.
+
+example_bulk_delete_nss_in() ->
+    #{
+        <<"bulk_delete_nss">> =>
+            #{<<"nss">> => [<<"ns1">>, <<"ns2">>, <<"ns3">>]}
     }.
 
 example_limiter_out() ->

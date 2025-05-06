@@ -202,6 +202,13 @@ delete_managed_ns(Ns) ->
     ct:pal("delete managed ns result:\n  ~p", [Res]),
     Res.
 
+bulk_delete_nss(Nss) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "bulk_delete_nss"]),
+    Body = #{<<"nss">> => Nss},
+    Res = simple_request(delete, Path, Body),
+    ct:pal("bulk delete nss result:\n  ~p", [Res]),
+    Res.
+
 get_managed_ns_config(Ns) ->
     Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "config"]),
     Res = simple_request(get, Path, ""),
@@ -478,6 +485,65 @@ t_managed_namespaces_crud(_Config) ->
     ?assertMatch({200, []}, list_managed_nss(#{})),
     ?assertMatch({404, _}, get_managed_ns_config(Ns1)),
     ?assertMatch({404, _}, get_managed_ns_config(Ns2)),
+
+    ok.
+
+t_bulk_delete_nss(_Config) ->
+    ?assertMatch({200, []}, list_managed_nss(#{})),
+
+    Ns1 = <<"tns1">>,
+    Ns2 = <<"tns2">>,
+    Ns3 = <<"tns3">>,
+
+    lists:foreach(
+        fun(Ns) ->
+            {204, _} = create_managed_ns(Ns)
+        end,
+        [Ns1, Ns2, Ns3]
+    ),
+    {200, [Ns1, Ns2, Ns3]} = list_managed_nss(#{}),
+
+    ?assertMatch({204, _}, bulk_delete_nss([Ns3, Ns1])),
+    ?assertMatch({200, [Ns2]}, list_managed_nss(#{})),
+
+    %% Idempotency
+    ?assertMatch({204, _}, bulk_delete_nss([Ns3, Ns1])),
+    ?assertMatch({200, [Ns2]}, list_managed_nss(#{})),
+
+    ?assertMatch({204, _}, bulk_delete_nss([Ns2])),
+    ?assertMatch({200, []}, list_managed_nss(#{})),
+
+    %% Simulate failure during side-effect execution.
+    lists:foreach(
+        fun(Ns) ->
+            {204, _} = create_managed_ns(Ns)
+        end,
+        [Ns1, Ns2, Ns3]
+    ),
+
+    emqx_common_test_helpers:with_mock(
+        emqx_mt_state,
+        delete_managed_ns,
+        fun(Ns) ->
+            case Ns of
+                Ns2 ->
+                    %% actually impossible to have an aborted txn here?
+                    {error, {aborted, mocked_error}};
+                _ ->
+                    meck:passthrough([Ns])
+            end
+        end,
+        fun() ->
+            ?assertMatch(
+                {500, #{
+                    <<"hint">> := _,
+                    <<"errors">> := #{Ns2 := <<"{aborted,mocked_error}">>}
+                }},
+                bulk_delete_nss([Ns1, Ns2, Ns3])
+            ),
+            ?assertMatch({200, [Ns2]}, list_managed_nss(#{}))
+        end
+    ),
 
     ok.
 
