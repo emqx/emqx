@@ -1201,7 +1201,6 @@ reset_bytes_need_release() ->
 
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
 tick(TimeMs, #{db_shard := DBShard, latest := Latest}) ->
-    %% Leader = emqx_ds_builtin_raft_shard:lookup_leader(DB, Shard),
     {Timestamp, _} = ensure_monotonic_timestamp(timestamp_to_timeus(TimeMs), Latest),
     handle_custom_event(DBShard, Timestamp, ra_tick).
 
@@ -1320,6 +1319,7 @@ state_enter(MemberState, #{db_shard := {DB, Shard}, latest := Latest}) ->
         ds_ra_state_enter,
         #{db => DB, shard => Shard, latest => Latest, state => MemberState}
     ),
+    emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
     [].
 
 %%

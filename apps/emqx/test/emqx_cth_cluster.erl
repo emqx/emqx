@@ -93,6 +93,8 @@
     work_dir := file:name()
 }.
 
+-type bakedspec() :: #{atom() => _}.
+
 -spec start([nodespec()], opts()) -> [node()].
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
@@ -162,7 +164,7 @@ wait_clustered([Node | Nodes] = All, Check, Deadline) ->
             wait_clustered(All, Check, Deadline)
     end.
 
--spec restart(Complete :: [nodespec()] | nodespec()) -> [node()].
+-spec restart(Complete :: [bakedspec()] | bakedspec()) -> [node()].
 restart(NodeSpecs = [_ | _]) ->
     Nodes = [maps:get(name, Spec) || Spec <- NodeSpecs],
     ct:pal("Stopping peer nodes: ~p", [Nodes]),
@@ -174,7 +176,7 @@ restart(NodeSpec = #{}) ->
 get_start_opts(ClusterOpts) ->
     maps:with([start_apps_timeout], ClusterOpts).
 
--spec mk_nodespecs([nodespec()], opts()) -> Complete :: [nodespec()].
+-spec mk_nodespecs([nodespec()], opts()) -> [bakedspec()].
 mk_nodespecs(Nodes, ClusterOpts) ->
     NodeSpecs = lists:zipwith(
         fun(N, {Name, Opts}) -> mk_init_nodespec(N, Name, Opts, ClusterOpts) end,
@@ -477,10 +479,12 @@ stop(Nodes) ->
     _ = emqx_utils:pmap(fun stop_node/1, Nodes, ?TIMEOUT_NODE_STOP_S * 1000),
     ok.
 
-stop_node(Name) ->
+stop_node(Name) when is_atom(Name) ->
     Node = node_name(Name),
     when_cover_enabled(fun() -> ok = cover:flush([Node]) end),
-    ok = emqx_cth_peer:stop(Node).
+    ok = emqx_cth_peer:stop(Node);
+stop_node(#{name := Name}) ->
+    stop_node(Name).
 
 %% Ports
 

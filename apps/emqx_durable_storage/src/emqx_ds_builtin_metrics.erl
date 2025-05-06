@@ -274,26 +274,26 @@ prometheus_meta() ->
         ?DB_METRICS ++ ?BUFFER_METRICS ++ ?BEAMFORMER_METRICS
     ).
 
-prometheus_collect(NodeOrAggr) ->
+prometheus_collect(Labels0) ->
     collect_beamformer_metrics(
-        NodeOrAggr, collect_buffer_metrics(NodeOrAggr, collect_db_metrics(NodeOrAggr))
+        Labels0, collect_buffer_metrics(Labels0, collect_db_metrics(Labels0))
     ).
 
-collect_db_metrics(NodeOrAggr) ->
+collect_db_metrics(Labels0) ->
     Instances = [[{db, DB}] || {DB, _Backend} <- emqx_ds:which_dbs()],
-    collect(NodeOrAggr, Instances, #{}).
+    collect(Labels0, Instances, #{}).
 
-collect_buffer_metrics(NodeOrAggr, Acc) ->
+collect_buffer_metrics(Labels0, Acc) ->
     Instances = [[{db, DB}, {shard, Shard}] || {DB, Shard} <- emqx_ds_buffer:ls()],
-    collect(NodeOrAggr, Instances, Acc).
+    collect(Labels0, Instances, Acc).
 
-collect_beamformer_metrics(NodeOrAggr, Acc) ->
+collect_beamformer_metrics(Labels0, Acc) ->
     Instances = [
         [{db, DB}, {shard, Shard}, {type, Type}]
      || {DB, Shard} <- emqx_ds_buffer:ls(),
         Type <- [rt, catchup]
     ],
-    collect(NodeOrAggr, Instances, Acc).
+    collect(Labels0, Instances, Acc).
 
 %% This function returns the data in the following format:
 %% ```
@@ -307,18 +307,10 @@ collect_beamformer_metrics(NodeOrAggr, Acc) ->
 %%        ...
 %%  }
 %% '''
-%%
-%% If `NodeOrAggr' = `node' then node name is appended to the list of
-%% labels.
-collect(NodeOrAggr, Instances, Acc0) ->
+collect(Labels0, Instances, Acc0) ->
     lists:foldl(
         fun(Labels, Acc) ->
-            PromLabels =
-                case NodeOrAggr of
-                    node -> Labels;
-                    _ -> [{node, node()} | Labels]
-                end,
-            do_collect(metric_id(Labels), PromLabels, Acc)
+            do_collect(metric_id(Labels), Labels0 ++ Labels, Acc)
         end,
         Acc0,
         Instances

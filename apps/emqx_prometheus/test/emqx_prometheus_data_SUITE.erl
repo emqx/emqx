@@ -13,7 +13,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 %% erlfmt-ignore
--define(EMQX_CONF, <<"
+-define(EMQX_CONF_CONFIG, <<"
 authentication = [
   {
     backend = built_in_database
@@ -63,6 +63,17 @@ rule_engine {
 }
 ">>).
 
+%% erlfmt-ignore
+-define(EMQX_CONFIG, <<"
+durable_sessions {
+  enable = true
+}
+durable_storage.messages {
+  backend = builtin_raft
+  n_shards = 8
+}
+">>).
+
 all() ->
     lists:flatten([
         {group, '/prometheus/stats'},
@@ -97,22 +108,13 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    meck:new(emqx_retainer, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_retainer, retained_count, fun() -> 0 end),
-    meck:expect(
-        emqx_authz_file,
-        acl_conf_file,
-        fun() ->
-            emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
-        end
-    ),
     ok = emqx_prometheus_SUITE:maybe_meck_license(),
     emqx_prometheus_SUITE:start_mock_pushgateway(9091),
 
     Apps = emqx_cth_suite:start(
         lists:flatten([
-            emqx,
-            {emqx_conf, ?EMQX_CONF},
+            {emqx, ?EMQX_CONFIG},
+            {emqx_conf, ?EMQX_CONF_CONFIG},
             emqx_auth,
             emqx_auth_mnesia,
             emqx_rule_engine,
@@ -137,7 +139,6 @@ init_per_suite(Config) ->
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    meck:unload([emqx_retainer]),
     emqx_prometheus_SUITE:maybe_unmeck_license(),
     emqx_prometheus_SUITE:stop_mock_pushgateway(),
     emqx_cth_suite:stop(?config(apps, Config)),
@@ -169,27 +170,9 @@ init_per_group(_Group, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
-init_per_testcase(t_collect_prom_data, Config) ->
-    meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_utils, gen_id, fun() -> "fake" end),
-
-    meck:new(emqx, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(
-        emqx,
-        data_dir,
-        fun() ->
-            {data_dir, Data} = lists:keyfind(data_dir, 1, Config),
-            Data
-        end
-    ),
-    Config;
 init_per_testcase(_, Config) ->
     Config.
 
-end_per_testcase(t_collect_prom_data, _Config) ->
-    meck:unload(emqx_utils),
-    meck:unload(emqx),
-    ok;
 end_per_testcase(_, _Config) ->
     ok.
 
@@ -292,6 +275,9 @@ assert_stats_metric_labels([MetricName | R] = _Metric, Mode) ->
             )
     end.
 
+-define(is_time(BIN), binary_part(BIN, byte_size(BIN), -4) == <<"time">>).
+
+-define(meta(AGGRE), ?meta(AGGRE, AGGRE, AGGRE + 1)).
 -define(meta(NODE, AGGRE, UNAGGRE), #{
     ?PROM_DATA_MODE__NODE => NODE,
     ?PROM_DATA_MODE__ALL_NODES_AGGREGATED => AGGRE,
@@ -346,6 +332,36 @@ metric_meta(<<"emqx_connector_", _Tail/binary>>) -> ?meta(1, 1, 2);
 metric_meta(<<"emqx_schema_validation_", _Tail/binary>>) -> ?meta(1, 1, 2);
 %% `/prometheus/message_transformation`
 metric_meta(<<"emqx_message_transformation_", _Tail/binary>>) -> ?meta(1, 1, 2);
+%% DS metrics
+metric_meta(<<"emqx_ds_buffer_", Tail/binary>>) when ?is_time(Tail) -> ?meta(3);
+metric_meta(<<"emqx_ds_buffer_latency">>) -> ?meta(3);
+metric_meta(<<"emqx_ds_buffer_", _Tail/binary>>) -> ?meta(2);
+metric_meta(<<"emqx_ds_store_batch_time">>) -> ?meta(2);
+metric_meta(<<"emqx_ds_builtin_next_time">>) -> ?meta(2);
+metric_meta(<<"emqx_ds_subs_fanout_time">>) -> ?meta(2);
+metric_meta(<<"emqx_ds_subs_stuck_total">>) -> ?meta(1);
+metric_meta(<<"emqx_ds_subs_unstuck_total">>) -> ?meta(1);
+metric_meta(<<"emqx_ds_subs_request_sharing", _Tail/binary>>) -> ?meta(4);
+metric_meta(<<"emqx_ds_subs_", Tail/binary>>) when ?is_time(Tail) -> ?meta(4);
+metric_meta(<<"emqx_ds_subs", _Tail/binary>>) -> ?meta(3);
+metric_meta(<<"emqx_ds_storage", _Tail/binary>>) -> ?meta(1);
+%% DS Raft metrics
+metric_meta(<<"emqx_ds_raft_cluster_sites_num">>) -> ?meta(1, 1, 1);
+metric_meta(<<"emqx_ds_raft_db_sites_num">>) -> ?meta(2, 2, 2);
+metric_meta(<<"emqx_ds_raft_db_shards_online_num">>) -> ?meta(1);
+metric_meta(<<"emqx_ds_raft_db", _Tail/binary>>) -> ?meta(1, 1, 1);
+metric_meta(<<"emqx_ds_raft_shard_transitions">>) -> ?meta(4);
+metric_meta(<<"emqx_ds_raft_shard_transition_errors">>) -> ?meta(2);
+metric_meta(<<"emqx_ds_raft_shard_transition_queue_len">>) -> ?meta(3, 3, 3);
+metric_meta(<<"emqx_ds_raft_shard", _Tail/binary>>) -> ?meta(2, 2, 2);
+metric_meta(<<"emqx_ds_raft_snapshot_reads">>) -> ?meta(3);
+metric_meta(<<"emqx_ds_raft_snapshot_writes">>) -> ?meta(3);
+metric_meta(<<"emqx_ds_raft_snapshot", _Tail/binary>>) -> ?meta(2);
+metric_meta(<<"emqx_ds_raft_rasrv_state_changes">>) -> ?meta(3);
+metric_meta(<<"emqx_ds_raft_rasrv_replication_msgs">>) -> ?meta(3);
+metric_meta(<<"emqx_ds_raft_rasrv_index", _Tail/binary>>) -> ?meta(3);
+metric_meta(<<"emqx_ds_raft_rasrv", _Tail/binary>>) -> ?meta(2);
+metric_meta(<<"emqx_ds", _Tail/binary>>) -> ?meta(2);
 %% normal emqx metrics
 metric_meta(<<"emqx_", _Tail/binary>>) -> ?meta(0, 0, 1);
 metric_meta(_) -> #{}.

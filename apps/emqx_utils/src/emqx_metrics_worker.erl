@@ -573,12 +573,12 @@ handle_info(ticking, State = #state{rates = undefined}) ->
 handle_info(ticking, State = #state{name = Name, rates = Rates0, slides = Slides0}) ->
     Rates =
         maps:map(
-            fun(Id, RatesPerID) ->
+            fun(Id, RatesPerId) ->
                 maps:map(
                     fun(Metric, Rate) ->
                         calculate_rate(get(Name, Id, Metric), Rate)
                     end,
-                    RatesPerID
+                    RatesPerId
                 )
             end,
             Rates0
@@ -683,9 +683,9 @@ idx_metric(Name, Id, Type, Metric) ->
     maps:get(Metric, get_indexes(Name, Type, Id)).
 
 get_indexes(Name, Type, Id) ->
-    case maps:find(Id, get_pterm(Name)) of
-        {ok, #{Type := Indexes}} -> Indexes;
-        error -> #{}
+    case maps:get(Id, get_pterm(Name), #{}) of
+        #{Type := Indexes} -> Indexes;
+        #{} -> #{}
     end.
 
 get_pterm(Name) ->

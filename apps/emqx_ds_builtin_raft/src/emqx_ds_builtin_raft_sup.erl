@@ -81,12 +81,7 @@ set_gvar(DB, Key, Val) ->
 
 -spec get_gvar(emqx_ds:db(), _Key, Val) -> Val.
 get_gvar(DB, Key, Default) ->
-    case ets:lookup(?gvar_tab, {DB, Key}) of
-        [#gvar{v = Val}] ->
-            Val;
-        [] ->
-            Default
-    end.
+    ets:lookup_element(?gvar_tab, {DB, Key}, #gvar.v, Default).
 
 -spec clean_gvars(emqx_ds:db()) -> ok.
 clean_gvars(DB) ->
@@ -115,6 +110,7 @@ init(?top) ->
         type => worker,
         shutdown => 5000
     },
+    MetricsWorker = emqx_ds_builtin_raft_metrics:child_spec(),
     DBsSup = #{
         id => ?databases,
         start => {?MODULE, start_databases_sup, []},
@@ -123,14 +119,13 @@ init(?top) ->
         shutdown => infinity
     },
     _ = ets:new(?gvar_tab, [named_table, set, public, {keypos, #gvar.k}, {read_concurrency, true}]),
-    %%
     SupFlags = #{
         strategy => one_for_all,
         intensity => 1,
         period => 1,
         auto_shutdown => never
     },
-    {ok, {SupFlags, [MetadataServer, DBsSup]}};
+    {ok, {SupFlags, [MetadataServer, MetricsWorker, DBsSup]}};
 init(?databases) ->
     %% Children are added dynamically:
     SupFlags = #{
