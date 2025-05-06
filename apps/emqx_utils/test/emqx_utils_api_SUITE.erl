@@ -27,11 +27,10 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    [{apps, Apps} | Config].
+    Config.
 
-end_per_suite(Config) ->
-    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
+end_per_suite(_Config) ->
+    ok.
 
 init_per_testcase(_Case, Config) ->
     meck:new(?DUMMY, [non_strict]),

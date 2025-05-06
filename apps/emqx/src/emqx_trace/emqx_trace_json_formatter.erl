@@ -31,7 +31,7 @@ format(
     Time = emqx_utils_calendar:now_to_rfc3339(microsecond),
     LogMap2 = LogMap1#{time => Time},
     LogMap3 = prepare_log_data(LogMap2, PayloadFmtOpts),
-    [emqx_logger_jsonfmt:best_effort_json(LogMap3, [force_utf8]), "\n"].
+    [emqx_utils_json:best_effort_json(LogMap3, [force_utf8]), "\n"].
 
 %%%-----------------------------------------------------------------
 %%% Helper Functions

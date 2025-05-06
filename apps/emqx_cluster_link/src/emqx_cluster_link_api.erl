@@ -471,7 +471,7 @@ collect_all_status(NodeResults) ->
                     ({Node, #{status := S}}) ->
                         #{node => Node, status => S};
                     ({Node, Error0}) ->
-                        Error = emqx_logger_jsonfmt:best_effort_json(Error0),
+                        Error = emqx_utils_json:best_effort_json_obj(Error0),
                         #{node => Node, status => inconsistent, reason => Error}
                 end,
                 maps:to_list(NodeToData) ++ Errors
@@ -505,7 +505,7 @@ collect_single_status(NodeResults) ->
                 ({Node, {ok, {error, _}}}) ->
                     #{node => Node, status => ?status_disconnected};
                 ({Node, Error0}) ->
-                    Error = emqx_logger_jsonfmt:best_effort_json(Error0),
+                    Error = emqx_utils_json:best_effort_json_obj(Error0),
                     #{node => Node, status => inconsistent, reason => Error}
             end,
             NodeResults

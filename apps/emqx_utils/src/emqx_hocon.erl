@@ -79,9 +79,9 @@ format_error({_Schema, [#{kind := K} = First | Rest] = All}, Opts) when
         end,
     case Rest of
         [] ->
-            {ok, emqx_logger_jsonfmt:best_effort_json(Update(First), [])};
+            {ok, emqx_utils_json:best_effort_json(Update(First), [])};
         _ ->
-            {ok, emqx_logger_jsonfmt:best_effort_json(lists:map(Update, All), [])}
+            {ok, emqx_utils_json:best_effort_json(lists:map(Update, All), [])}
     end;
 format_error(_Other, _) ->
     false.
