@@ -72,7 +72,7 @@ init_per_group(quic, Config) ->
     [{conn_type, quic}, {port, 1884}, {conn_fun, quic_connect}, {group_apps, Apps} | Config];
 init_per_group(ws, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.ws.test { enable = true, bind = 8888 }"}],
+        [{emqx, "listeners.ws.test { enable = true, bind = 8888, max_connections = 100 }"}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{conn_type, ws}, {port, 8888}, {conn_fun, ws_connect}, {group_apps, Apps} | Config].
