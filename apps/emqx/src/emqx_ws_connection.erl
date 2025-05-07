@@ -247,57 +247,78 @@ check_origin_header(Req, #{listener := {Type, Listener}} = Opts) ->
     end.
 
 websocket_init([Req, Opts]) ->
-    #{zone := Zone, listener := {Type, Listener}} = Opts,
-    case check_max_connection(Type, Listener) of
-        allow ->
-            {Peername, PeerCert, PeerSNI} = get_peer_info(Type, Listener, Req, Opts),
-            Sockname = cowboy_req:sock(Req),
-            WsCookie = get_ws_cookie(Req),
-            ConnInfo = #{
-                socktype => ws,
-                peername => Peername,
-                sockname => Sockname,
-                peercert => PeerCert,
-                peersni => PeerSNI,
-                ws_cookie => WsCookie,
-                conn_mod => ?MODULE
-            },
-            MQTTPiggyback = get_ws_opts(Type, Listener, mqtt_piggyback),
-            FrameOpts = #{
-                strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-                max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
-            },
-            ParseState = emqx_frame:initial_parse_state(FrameOpts),
-            Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
-            Channel = emqx_channel:init(ConnInfo, Opts),
-            GcState = get_force_gc(Zone),
-            StatsTimer = get_stats_enable(Zone),
-            %% MQTT Idle Timeout
-            IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
-            IdleTimer = start_timer(IdleTimeout, idle_timeout),
-            _ = tune_heap_size(Channel),
-            emqx_logger:set_metadata_peername(esockd:format(Peername)),
-            {ok,
-                #state{
-                    peername = Peername,
-                    sockname = Sockname,
-                    sockstate = running,
-                    mqtt_piggyback = MQTTPiggyback,
-                    parse_state = ParseState,
-                    serialize = Serialize,
-                    channel = Channel,
-                    gc_state = GcState,
-                    postponed = [],
-                    stats_timer = StatsTimer,
-                    idle_timer = IdleTimer,
-                    zone = Zone,
-                    listener = {Type, Listener},
-                    extra = []
-                },
-                hibernate};
-        {denny, Reason} ->
-            {stop, Reason}
+    check_max_connection(Req, Opts).
+
+check_max_connection(Req, Opts = #{listener := {Type, Listener}}) ->
+    case emqx_config:get_listener_conf(Type, Listener, [max_connections]) of
+        infinity ->
+            init_connection(Type, Listener, Req, Opts);
+        Max ->
+            case get_current_connections(Req) of
+                N when N < Max ->
+                    init_connection(Type, Listener, Req, Opts);
+                N ->
+                    Reason = #{
+                        msg => "websocket_max_connections_limited",
+                        current => N,
+                        max => Max
+                    },
+                    ?SLOG(warning, Reason),
+                    {stop, Reason}
+            end
     end.
+
+get_current_connections(Req) ->
+    %% NOTE: Involves a gen:call to the connections supervisor.
+    RanchRef = maps:get(ref, Req),
+    RanchConnsSup = ranch_server:get_connections_sup(RanchRef),
+    proplists:get_value(active, supervisor:count_children(RanchConnsSup), 0).
+
+init_connection(Type, Listener, Req, Opts = #{zone := Zone}) ->
+    {Peername, PeerCert, PeerSNI} = get_peer_info(Type, Listener, Req, Opts),
+    Sockname = cowboy_req:sock(Req),
+    WsCookie = get_ws_cookie(Req),
+    ConnInfo = #{
+        socktype => ws,
+        peername => Peername,
+        sockname => Sockname,
+        peercert => PeerCert,
+        peersni => PeerSNI,
+        ws_cookie => WsCookie,
+        conn_mod => ?MODULE
+    },
+    MQTTPiggyback = get_ws_opts(Type, Listener, mqtt_piggyback),
+    FrameOpts = #{
+        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
+        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
+    },
+    ParseState = emqx_frame:initial_parse_state(FrameOpts),
+    Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
+    Channel = emqx_channel:init(ConnInfo, Opts),
+    GcState = get_force_gc(Zone),
+    StatsTimer = get_stats_enable(Zone),
+    %% MQTT Idle Timeout
+    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
+    IdleTimer = start_timer(IdleTimeout, idle_timeout),
+    _ = tune_heap_size(Channel),
+    emqx_logger:set_metadata_peername(esockd:format(Peername)),
+    State = #state{
+        peername = Peername,
+        sockname = Sockname,
+        sockstate = running,
+        mqtt_piggyback = MQTTPiggyback,
+        parse_state = ParseState,
+        serialize = Serialize,
+        channel = Channel,
+        gc_state = GcState,
+        postponed = [],
+        stats_timer = StatsTimer,
+        idle_timer = IdleTimer,
+        zone = Zone,
+        listener = {Type, Listener},
+        extra = []
+    },
+    {ok, State, hibernate}.
 
 tune_heap_size(Channel) ->
     case
@@ -906,27 +927,6 @@ get_peer(Req, #{listener := {Type, Listener}}) ->
         {Addr, list_to_integer(ClientPort)}
     catch
         _:_ -> {Addr, PeerPort}
-    end.
-
-check_max_connection(Type, Listener) ->
-    case emqx_config:get_listener_conf(Type, Listener, [max_connections]) of
-        infinity ->
-            allow;
-        Max ->
-            MatchSpec = [{#chan_conn{mod = emqx_ws_connection, _ = '_'}, [], [true]}],
-            Curr = ets:select_count(?CHAN_CONN_TAB, MatchSpec),
-            case Curr >= Max of
-                false ->
-                    allow;
-                true ->
-                    Reason = #{
-                        max => Max,
-                        current => Curr,
-                        msg => "websocket_max_connections_limited"
-                    },
-                    ?SLOG(warning, Reason),
-                    {denny, Reason}
-            end
     end.
 
 enrich_state(#{proto_ver := ProtoVer, parse_state := NParseState}, State) ->
