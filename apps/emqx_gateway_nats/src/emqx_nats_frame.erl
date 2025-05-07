@@ -30,7 +30,10 @@
 
 -define(INIT_STATE(S, B), #{state := init, buffer := B} = S).
 -define(ARGS_STATE(S, B), #{state := args, buffer := B} = S).
+-define(HEADERS_STATE(S, B), #{state := headers, buffer := B} = S).
 -define(PAYLOAD_STATE(S, B), #{state := payload, buffer := B} = S).
+
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -41,7 +44,7 @@ initial_parse_state(_) ->
         buffer => <<>>,
         %% TODO: support to parse HPUB and HMSG
         headers => false,
-        %% init | args | payload
+        %% init | args | headers | payload
         state => init,
         %% in parsing frame, the current frame is stored in iframe
         iframe => undefined
@@ -53,6 +56,9 @@ parse(Data0, ?INIT_STATE(State, Buffer)) ->
 parse(Data0, ?ARGS_STATE(State, Buffer)) ->
     Data = <<Buffer/binary, Data0/binary>>,
     parse_args(Data, State#{buffer => <<>>});
+parse(Data0, ?HEADERS_STATE(State, Buffer)) ->
+    Data = <<Buffer/binary, Data0/binary>>,
+    parse_headers(Data, State#{buffer => <<>>});
 parse(Data0, ?PAYLOAD_STATE(State, Buffer)) ->
     Data = <<Buffer/binary, Data0/binary>>,
     parse_payload(Data, State#{buffer => <<>>}).
@@ -173,6 +179,20 @@ serialize_message(?OP_PUB, Message) ->
         ReplyTo ->
             [Subject, " ", ReplyTo, " ", PayloadSize, "\r\n", Payload]
     end;
+serialize_message(?OP_HPUB, Message) ->
+    Subject = maps:get(subject, Message),
+    Headers = maps:get(headers, Message, #{}),
+    HeadersBin0 = serialize_headers(Headers),
+    HeadersBin = <<HeadersBin0/binary, "\r\n">>,
+    HeadersSize = integer_to_list(byte_size(HeadersBin)),
+    Payload = maps:get(payload, Message),
+    TotalSize = integer_to_list(byte_size(Payload) + byte_size(HeadersBin)),
+    case maps:get(reply_to, Message, undefined) of
+        undefined ->
+            [Subject, " ", HeadersSize, " ", TotalSize, "\r\n", HeadersBin, Payload];
+        ReplyTo ->
+            [Subject, " ", ReplyTo, " ", HeadersSize, " ", TotalSize, "\r\n", HeadersBin, Payload]
+    end;
 serialize_message(?OP_SUB, Message) ->
     Subject = maps:get(subject, Message),
     Sid = maps:get(sid, Message),
@@ -200,7 +220,45 @@ serialize_message(?OP_MSG, Message) ->
             [Subject, " ", Sid, " ", PayloadSize, "\r\n", Payload];
         ReplyTo ->
             [Subject, " ", Sid, " ", ReplyTo, " ", PayloadSize, "\r\n", Payload]
-    end.
+    end;
+serialize_message(?OP_HMSG, Message) ->
+    Subject = maps:get(subject, Message),
+    Sid = maps:get(sid, Message),
+    Headers = maps:get(headers, Message, #{}),
+    HeadersBin0 = serialize_headers(Headers),
+    HeadersBin = <<HeadersBin0/binary, "\r\n">>,
+    HeadersSize = integer_to_list(byte_size(HeadersBin)),
+    Payload = maps:get(payload, Message),
+    TotalSize = integer_to_list(byte_size(Payload) + byte_size(HeadersBin)),
+    case maps:get(reply_to, Message, undefined) of
+        undefined ->
+            [Subject, " ", Sid, " ", HeadersSize, " ", TotalSize, "\r\n", HeadersBin, Payload];
+        ReplyTo ->
+            [
+                Subject,
+                " ",
+                Sid,
+                " ",
+                ReplyTo,
+                " ",
+                HeadersSize,
+                " ",
+                TotalSize,
+                "\r\n",
+                HeadersBin,
+                Payload
+            ]
+    end;
+serialize_message(Op, _Message) ->
+    error({unknown_operation, Op}).
+
+serialize_headers(Headers) when is_map(Headers) ->
+    serialize_headers(maps:to_list(Headers), <<"NATS/1.0\r\n">>).
+
+serialize_headers([], Acc) ->
+    Acc;
+serialize_headers([{Key, Value} | Rest], Acc) ->
+    serialize_headers(Rest, <<Acc/binary, Key/binary, ": ", Value/binary, "\r\n">>).
 
 format(#nats_frame{operation = Op, message = undefined}) ->
     io_lib:format("~s", [Op]);
@@ -243,9 +301,9 @@ reply_to(_) ->
     error(badarg).
 
 headers(#nats_frame{operation = Op, message = M}) when ?HAS_HEADERS_OP(Op) ->
-    maps:get(headers, M, []);
+    maps:get(headers, M, #{});
 headers(_) ->
-    [].
+    #{}.
 
 payload(#nats_frame{operation = Op, message = M}) when ?HAS_PAYLOAD_OP(Op) ->
     maps:get(payload, M);
@@ -262,9 +320,16 @@ reset(State) ->
 to_args_state(State = #{state := init}, Op) ->
     State#{state => args, iframe => #nats_frame{operation = Op}}.
 
-to_payload_state(State = #{state := args, iframe := Frame0}, M0) ->
+to_payload_state(State = #{state := S, iframe := Frame0}, M0) when
+    S == args;
+    S == headers
+->
     Frame = Frame0#nats_frame{message = M0},
     State#{state => payload, iframe => Frame}.
+
+to_header_state(State = #{state := args, iframe := Frame0}, M0) ->
+    Frame = Frame0#nats_frame{message = M0},
+    State#{state => headers, iframe => Frame}.
 
 return_ping(Rest, State) ->
     {ok, #nats_frame{operation = ?OP_PING}, Rest, reset(State)}.
@@ -302,6 +367,25 @@ do_parse_args(pub, [Subject, PayloadSize], Rest, State) ->
 do_parse_args(pub, [Subject, ReplyTo, PayloadSize], Rest, State) ->
     M0 = #{subject => Subject, reply_to => ReplyTo, payload_size => binary_to_integer(PayloadSize)},
     parse_payload(Rest, to_payload_state(State, M0));
+do_parse_args(hpub, [Subject, HeadersSize0, TotalSize0], Rest, State) ->
+    HeadersSize = binary_to_integer(HeadersSize0),
+    TotalSize = binary_to_integer(TotalSize0),
+    M0 = #{
+        subject => Subject,
+        headers_size => HeadersSize,
+        payload_size => TotalSize - HeadersSize
+    },
+    parse_headers(Rest, to_header_state(State, M0));
+do_parse_args(hpub, [Subject, ReplyTo, HeadersSize0, TotalSize0], Rest, State) ->
+    HeadersSize = binary_to_integer(HeadersSize0),
+    TotalSize = binary_to_integer(TotalSize0),
+    M0 = #{
+        subject => Subject,
+        reply_to => ReplyTo,
+        headers_size => HeadersSize,
+        payload_size => TotalSize - HeadersSize
+    },
+    parse_headers(Rest, to_header_state(State, M0));
 do_parse_args(sub, [Subject, Sid], Rest, State) ->
     Msg = #{subject => Subject, sid => Sid},
     Frame = #nats_frame{operation = ?OP_SUB, message = Msg},
@@ -329,12 +413,72 @@ do_parse_args(msg, [Subject, Sid, ReplyTo, PayloadSize], Rest, State) ->
         payload_size => binary_to_integer(PayloadSize)
     },
     parse_payload(Rest, to_payload_state(State, M0));
+do_parse_args(hmsg, [Subject, Sid, HeadersSize0, TotalSize0], Rest, State) ->
+    HeadersSize = binary_to_integer(HeadersSize0),
+    TotalSize = binary_to_integer(TotalSize0),
+    M0 = #{
+        subject => Subject,
+        sid => Sid,
+        headers_size => HeadersSize,
+        payload_size => TotalSize - HeadersSize
+    },
+    parse_headers(Rest, to_header_state(State, M0));
+do_parse_args(hmsg, [Subject, Sid, ReplyTo, HeadersSize0, TotalSize0], Rest, State) ->
+    HeadersSize = binary_to_integer(HeadersSize0),
+    TotalSize = binary_to_integer(TotalSize0),
+    M0 = #{
+        subject => Subject,
+        sid => Sid,
+        reply_to => ReplyTo,
+        headers_size => HeadersSize,
+        payload_size => TotalSize - HeadersSize
+    },
+    parse_headers(Rest, to_header_state(State, M0));
 do_parse_args(_Op, _Args, _Rest, _State) ->
     error(invalid_args).
+
+parse_headers(
+    Data,
+    State = #{
+        state := headers,
+        iframe := #nats_frame{message = #{headers_size := HeadersSize} = Message0}
+    }
+) ->
+    %% The size of the headers section in bytes
+    %% including the \r\n\r\n delimiter before the payload.
+    Len = byte_size(Data),
+    case Len >= HeadersSize of
+        false ->
+            {more, State#{state => headers, buffer => Data}};
+        true ->
+            HeadersBin = binary:part(Data, 0, HeadersSize),
+            Headers = parse_headers_binary(HeadersBin),
+            Message1 = maps:remove(headers_size, Message0),
+            Message = Message1#{headers => Headers},
+            Rest0 = binary:part(Data, HeadersSize, Len - HeadersSize),
+            parse_payload(Rest0, to_payload_state(State, Message))
+    end.
+
+parse_headers_binary(<<"NATS/1.0\r\n", HeaderAndValuePart/binary>>) ->
+    case binary:split(HeaderAndValuePart, [<<"\r\n">>, <<": ">>, <<":">>], [global]) of
+        L when length(L) rem 2 == 0 ->
+            convert_header_list_to_map(L, #{});
+        _ ->
+            error(invalid_headers_binary)
+    end;
+parse_headers_binary(_) ->
+    error(unknown_header_version).
+
+%% End with [<<>>, <<>>] due to the header section is end with \r\n\r\n
+convert_header_list_to_map([<<>>, <<>>], Map) ->
+    Map;
+convert_header_list_to_map([Header, Value | Rest], Map) ->
+    convert_header_list_to_map(Rest, Map#{Header => Value}).
 
 parse_payload(
     Data,
     State = #{
+        state := payload,
         iframe := #nats_frame{message = #{payload_size := PayloadSize} = Message0} = Frame0
     }
 ) ->
@@ -343,7 +487,8 @@ parse_payload(
         false ->
             {more, State#{state => payload, buffer => Data}};
         true ->
-            Message = Message0#{payload => binary:part(Data, 0, PayloadSize)},
+            Message1 = maps:remove(payload_size, Message0),
+            Message = Message1#{payload => binary:part(Data, 0, PayloadSize)},
             Rest0 = binary:part(Data, PayloadSize + 2, Len - PayloadSize - 2),
             {ok, Frame0#nats_frame{message = Message}, Rest0, reset(State)}
     end.

@@ -212,10 +212,12 @@
     reply_to => binary(),
     %% Optional headers, only apprence if the message type is hpub
     headers => list(),
-    %% Message payload size
-    payload_size => non_neg_integer(),
     %% Message payload.
-    payload => binary()
+    payload => binary(),
+    %% Headers size, only used for parsing
+    headers_size => non_neg_integer(),
+    %% Payload size, only used for parsing
+    payload_size => non_neg_integer()
 }.
 
 %% Subscribes the client to a specific subject or subject pattern
@@ -250,11 +252,13 @@
     %% the optional <reply-to> subject from the publisher
     reply_to => binary(),
     %% Optional headers, only apprence if the message type is hmsg
-    headers => list(),
-    %% Message payload size
-    payload_size => non_neg_integer(),
+    headers => map(),
     %% Message payload
-    payload => binary()
+    payload => binary(),
+    %% Headers size, only used for parsing
+    headers_size => non_neg_integer(),
+    %% Payload size, only used for parsing
+    payload_size => non_neg_integer()
 }.
 
 -type nats_message_error() :: binary().
