@@ -43,14 +43,6 @@
 %% Export for CT
 -export([set_field/3]).
 
--import(
-    emqx_utils,
-    [
-        maybe_apply/2,
-        start_timer/2
-    ]
-).
-
 -record(state, {
     %% Peername of the ws connection
     peername :: emqx_types:peername(),
@@ -133,7 +125,7 @@ info(sockstate, #state{sockstate = SockSt}) ->
 info(channel, #state{channel = Channel}) ->
     emqx_channel:info(Channel);
 info(gc_state, #state{gc_state = GcSt}) ->
-    maybe_apply(fun emqx_gc:info/1, GcSt);
+    emqx_maybe:apply(fun emqx_gc:info/1, GcSt);
 info(postponed, #state{postponed = Postponed}) ->
     Postponed;
 info(stats_timer, #state{stats_timer = TRef}) ->
@@ -299,7 +291,7 @@ init_connection(Type, Listener, Req, Opts = #{zone := Zone}) ->
     StatsTimer = get_stats_enable(Zone),
     %% MQTT Idle Timeout
     IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
-    IdleTimer = start_timer(IdleTimeout, idle_timeout),
+    IdleTimer = emqx_utils:start_timer(IdleTimeout, idle_timeout),
     _ = tune_heap_size(Channel),
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
     State = #state{
@@ -815,7 +807,7 @@ ensure_stats_timer(
     }
 ) ->
     Timeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
-    State#state{stats_timer = start_timer(Timeout, emit_stats)};
+    State#state{stats_timer = emqx_utils:start_timer(Timeout, emit_stats)};
 ensure_stats_timer(State) ->
     %% Either already active, disabled or paused.
     State.
