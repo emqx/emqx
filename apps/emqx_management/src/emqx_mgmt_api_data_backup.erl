@@ -10,7 +10,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 

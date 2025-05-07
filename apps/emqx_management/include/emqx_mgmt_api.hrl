@@ -14,8 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQX_API_LIB_HRL).
--define(EMQX_API_LIB_HRL, true).
+-ifndef(EMQX_MGMT_API_LIB_HRL).
+-define(EMQX_MGMT_API_LIB_HRL, true).
 
 -define(ERROR_MSG(CODE, REASON), #{code => CODE, message => emqx_utils:readable_error_msg(REASON)}).
 

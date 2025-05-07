@@ -7,7 +7,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api.hrl").
 -include("emqx_mt.hrl").
 
 %% `minirest' and `minirest_trails' API

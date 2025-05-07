@@ -8,7 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge_proto.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -590,7 +590,7 @@ schema("/bridges_probe") ->
                     ?NO_CONTENT;
                 {error, #{kind := validation_error} = Reason0} ->
                     Reason = redact(Reason0),
-                    ?BAD_REQUEST('TEST_FAILED', emqx_utils_api:to_json(Reason));
+                    ?BAD_REQUEST('TEST_FAILED', emqx_mgmt_api_lib:to_json(Reason));
                 {error, Reason0} when not is_tuple(Reason0); element(1, Reason0) =/= 'exit' ->
                     Reason1 =
                         case Reason0 of
@@ -670,9 +670,9 @@ create_or_update_bridge(BridgeType0, BridgeName, Conf, HttpStatusCode) ->
         {ok, _} ->
             lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
         {error, {pre_config_update, _HandlerMod, Reason}} when is_map(Reason) ->
-            ?BAD_REQUEST(emqx_utils_api:to_json(redact(Reason)));
+            ?BAD_REQUEST(emqx_mgmt_api_lib:to_json(redact(Reason)));
         {error, Reason} when is_map(Reason) ->
-            ?BAD_REQUEST(emqx_utils_api:to_json(redact(Reason)))
+            ?BAD_REQUEST(emqx_mgmt_api_lib:to_json(redact(Reason)))
     end.
 
 get_metrics_from_local_node(BridgeType0, BridgeName) ->

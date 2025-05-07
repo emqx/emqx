@@ -13,7 +13,7 @@
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api.hrl").
 -include_lib("emqx/include/emqx_durable_session_metadata.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").

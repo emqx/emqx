@@ -7,7 +7,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/http_api.hrl").
--include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_cluster_link.hrl").
@@ -248,7 +248,7 @@ handle_create(Name, Params) ->
             ok = emqx_resource:validate_name(Name)
         catch
             throw:Error ->
-                ?BAD_REQUEST(emqx_utils_api:to_json(redact(Error)))
+                ?BAD_REQUEST(emqx_mgmt_api_lib:to_json(redact(Error)))
         end,
     case Check of
         ok ->
