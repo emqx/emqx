@@ -411,12 +411,12 @@ handle_in(Packet = ?PACKET(?OP_CONNECT), Channel) ->
             handle_out(connerr, {ReasonCode, ErrMsg}, NChannel)
     end;
 handle_in(
-    Frame = ?PACKET(?OP_PUB),
+    Frame = ?PACKET(Op),
     Channel = #channel{
         ctx = Ctx,
         clientinfo = ClientInfo
     }
-) ->
+) when Op =:= ?OP_PUB; Op =:= ?OP_HPUB ->
     Subject = emqx_nats_frame:subject(Frame),
     Topic = emqx_nats_topic:nats_to_mqtt(Subject),
     %% FIXME: replay to the sender
