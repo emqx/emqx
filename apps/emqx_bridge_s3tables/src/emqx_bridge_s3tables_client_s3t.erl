@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_iceberg_client_s3t).
+-module(emqx_bridge_s3tables_client_s3t).
 
 %% API
 -export([
@@ -19,7 +19,7 @@
 
 -include_lib("erlcloud/include/erlcloud_aws.hrl").
 -include_lib("emqx/include/logger.hrl").
--include("emqx_bridge_iceberg.hrl").
+-include("emqx_bridge_s3tables.hrl").
 
 -elvis([{elvis_style, atom_naming_convention, disable}]).
 
@@ -92,7 +92,7 @@ new(Params) ->
             host := Host,
             base_uri := BaseURI,
             base_path := BasePath
-        }} ?= emqx_bridge_iceberg_connector_schema:parse_base_endpoint(BaseEndpoint),
+        }} ?= emqx_bridge_s3tables_connector_schema:parse_base_endpoint(BaseEndpoint),
         {ok, AccountId} ?= infer_account_id(Params, AWSConfig),
         {ok, #{
             ?aws_config => AWSConfig,

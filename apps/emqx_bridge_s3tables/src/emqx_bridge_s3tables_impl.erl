@@ -1,4 +1,4 @@
--module(emqx_bridge_iceberg_impl).
+-module(emqx_bridge_s3tables_impl).
 
 -feature(maybe_expr, enable).
 
@@ -8,7 +8,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/emqx_trace.hrl").
--include("emqx_bridge_iceberg.hrl").
+-include("emqx_bridge_s3tables.hrl").
 -include_lib("emqx_connector_aggregator/include/emqx_connector_aggregator.hrl").
 
 %% `emqx_resource' API
@@ -47,7 +47,7 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--define(AGGREG_SUP, emqx_bridge_iceberg_sup).
+-define(AGGREG_SUP, emqx_bridge_s3tables_sup).
 
 %% Allocatable resources
 
@@ -152,7 +152,7 @@
     ?loaded_table := map(),
     ?n_attempt := non_neg_integer(),
     ?namespace := namespace(),
-    ?partition_spec := emqx_bridge_iceberg_logic:partition_spec_parsed(),
+    ?partition_spec := emqx_bridge_s3tables_logic:partition_spec_parsed(),
     ?partition_spec_id := integer(),
     ?s3_client := emqx_s3_client:client(),
     ?schema_id := integer(),
@@ -166,7 +166,7 @@
 
 -type aggreg_id() :: {binary(), binary()}.
 
--type iceberg_client() :: emqx_bridge_iceberg_client_s3t:t().
+-type iceberg_client() :: emqx_bridge_s3tables_client_s3t:t().
 -type location_client() :: map().
 
 -type write_metadata() :: emqx_connector_aggreg_container:write_metadata().
@@ -174,7 +174,7 @@
 -type namespace() :: binary().
 -type table_name() :: binary().
 
--type partition_key() :: emqx_bridge_iceberg_aggreg_partitioned:partition_key().
+-type partition_key() :: emqx_bridge_s3tables_aggreg_partitioned:partition_key().
 
 %%------------------------------------------------------------------------------
 %% `emqx_resource' API
@@ -182,7 +182,7 @@
 
 -spec resource_type() -> atom().
 resource_type() ->
-    iceberg.
+    s3tables.
 
 -spec callback_mode() -> callback_mode().
 callback_mode() ->
@@ -205,7 +205,7 @@ on_start(ConnResId, ConnConfig) ->
 -spec on_stop(connector_resource_id(), connector_state()) -> ok.
 on_stop(ConnResId, _ConnState) ->
     Res = emqx_s3_client_http:stop_pool(ConnResId),
-    ?tp("iceberg_connector_stop", #{instance_id => ConnResId}),
+    ?tp("s3tables_connector_stop", #{instance_id => ConnResId}),
     Res.
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
@@ -306,14 +306,14 @@ on_batch_query(_ConnResId, Queries, _ConnectorState) ->
 -spec load_and_memoize_schema_files() -> ok.
 load_and_memoize_schema_files() ->
     {ok, ScJSON} = file:read_file(
-        filename:join([code:lib_dir(emqx_bridge_iceberg), "priv", "manifest-file.avsc"])
+        filename:join([code:lib_dir(emqx_bridge_s3tables), "priv", "manifest-file.avsc"])
     ),
     Sc = avro:decode_schema(ScJSON),
     Header = avro_ocf:make_header(Sc),
     persistent_term:put(?MANIFEST_FILE_PT_KEY, #{schema => Sc, header => Header}),
     %% Entry schema varies with partition spec.
     {ok, EntryScJSONRaw} = file:read_file(
-        filename:join([code:lib_dir(emqx_bridge_iceberg), "priv", "manifest-entry.avsc"])
+        filename:join([code:lib_dir(emqx_bridge_s3tables), "priv", "manifest-entry.avsc"])
     ),
     EntryScJSON = emqx_utils_json:decode(EntryScJSONRaw),
     persistent_term:put(?MANIFEST_ENTRY_PT_KEY, #{json_schema => EntryScJSON}),
@@ -447,7 +447,7 @@ process_append(
                     #{PK := #{num_records := N0}} = WriteMetadata,
                     N = map_size(AccSt0),
                     Segments =
-                        emqx_bridge_iceberg_logic:partition_keys_to_segments(
+                        emqx_bridge_s3tables_logic:partition_keys_to_segments(
                             PK,
                             PartSpec
                         ),
@@ -506,7 +506,7 @@ process_complete(#{?inner_transfer := #single_transfer{}} = TransferState0) ->
     } = TransferState0,
     case emqx_s3_upload:complete(S3TransferState) of
         {ok, _S3Completed} ->
-            ?tp("iceberg_upload_manifests_enter", #{}),
+            ?tp("s3tables_upload_manifests_enter", #{}),
             upload_manifests(TransferState0);
         {error, Reason} ->
             _ = emqx_s3_upload:abort(S3TransferState),
@@ -524,7 +524,7 @@ process_complete(#{?inner_transfer := #partitioned_transfer{}} = TransferState0)
 %%------------------------------------------------------------------------------
 
 make_client(#{parameters := #{location_type := s3tables} = Params}) ->
-    emqx_bridge_iceberg_client_s3t:new(Params).
+    emqx_bridge_s3tables_client_s3t:new(Params).
 
 init_location_client(ConnResId, #{parameters := #{location_type := s3tables} = Params}) ->
     maybe
@@ -647,7 +647,7 @@ channel_status(_ConnResId, _ChanResId, ChanState) ->
 validate_table(Client, Namespace, Table) ->
     maybe
         {ok, LoadedTable} ?= load_table(Client, Namespace, Table),
-        emqx_bridge_iceberg_logic:parse_loaded_table(LoadedTable)
+        emqx_bridge_s3tables_logic:parse_loaded_table(LoadedTable)
     end.
 
 work_dir(Type, Name) ->
@@ -742,7 +742,7 @@ upload_manifests(TransferState) ->
     ManifestFileKey = mk_manifest_file_key(BasePath, NewSnapshotId, WriteUUID, NAttempt),
     %% TODO: handle errors
     ?SLOG(info, #{
-        msg => "iceberg_uploading_manifest_list",
+        msg => "s3tables_uploading_manifest_list",
         action => ActionResId,
         key => ManifestFileKey,
         snapshot_id => NewSnapshotId,
@@ -764,17 +764,17 @@ upload_manifests(TransferState) ->
         table => Table,
         table_uuid => TableUUID
     },
-    Request = emqx_bridge_iceberg_logic:compute_update_table_request(CommitContext),
+    Request = emqx_bridge_s3tables_logic:compute_update_table_request(CommitContext),
     %% todo: will need to abstract this once we support more locations...
     %% TODO: handle errors
-    ?tp("iceberg_about_to_commit", #{}),
-    Response = emqx_bridge_iceberg_client_s3t:update_table(Client, Namespace, Table, Request),
+    ?tp("s3tables_about_to_commit", #{}),
+    Response = emqx_bridge_s3tables_client_s3t:update_table(Client, Namespace, Table, Request),
     case Response of
         {ok, Result} ->
             {ok, Result};
         {error, conflict} ->
             ?SLOG(info, #{
-                msg => "iceberg_commit_conflict",
+                msg => "s3tables_commit_conflict",
                 action => ActionResId,
                 snapshot_id => NewSnapshotId,
                 num_attempt => NAttempt,
@@ -809,7 +809,7 @@ retry_upload_manifests(TransferState0) ->
             }
         } = LoadedTable} = load_table(Client, Namespace, Table),
     %% TODO: check if schema and partitions changed since start...
-    {ok, _} = emqx_bridge_iceberg_logic:parse_loaded_table(LoadedTable),
+    {ok, _} = emqx_bridge_s3tables_logic:parse_loaded_table(LoadedTable),
     TransferState = TransferState0#{
         ?loaded_table := LoadedTable,
         ?n_attempt := NAttempt,
@@ -819,7 +819,7 @@ retry_upload_manifests(TransferState0) ->
 
 %% TODO: will need to abstract this once we support more locations...
 load_table(Client, Namespace, Table) ->
-    emqx_bridge_iceberg_client_s3t:load_table(Client, Namespace, Table).
+    emqx_bridge_s3tables_client_s3t:load_table(Client, Namespace, Table).
 
 bin(X) -> emqx_utils_conv:bin(X).
 
@@ -833,7 +833,7 @@ mk_data_file_key(BasePath, ExtraSegments, N, WriteUUID, Ext) ->
     make_key(BasePath, ["data"] ++ ExtraSegments ++ [K]).
 
 %% N.B.: in the original pyiceberg implementation, there's no attempt number in the
-%% filename.  However, when running against real s3tables, it has the (as fas as I know)
+%% filename.  However, when running against real s3tables, it has the (as far as I know)
 %% undocumented behavior which is equivalent to having an implicit `If-None-Match` header
 %% in the `PutObject` request when uploading metadata, which means that retrying to upload
 %% the manifest entries/lists with the exact same key always fails.  Attempting to delete
@@ -855,12 +855,12 @@ now_ms() ->
 load_previous_manifest_file(S3Client, LoadedTable) ->
     maybe
         #{<<"manifest-list">> := ManifestListLocation} ?=
-            emqx_bridge_iceberg_logic:find_current_snapshot(LoadedTable, no_snapshot),
+            emqx_bridge_s3tables_logic:find_current_snapshot(LoadedTable, no_snapshot),
         #{base_path := Key} = parse_location(ManifestListLocation),
         %% TODO: retry on errors??
         {ok, #{content := PrevManifestBin}} ?= emqx_s3_client:get_object(S3Client, Key),
         #{schema := ManifestFileSc} = persistent_term:get(?MANIFEST_FILE_PT_KEY),
-        BlocksBin = emqx_bridge_iceberg_logic:prepare_previous_manifest_files(
+        BlocksBin = emqx_bridge_s3tables_logic:prepare_previous_manifest_files(
             PrevManifestBin, ManifestFileSc
         ),
         {ok, BlocksBin}
@@ -914,7 +914,7 @@ mk_container_opts_and_inner_transfer_state(#partitioned{fields = PartitionFields
     },
     ContainerOpts = #{
         type => custom,
-        module => emqx_bridge_iceberg_aggreg_partitioned,
+        module => emqx_bridge_s3tables_aggreg_partitioned,
         opts => PartContOpts
     },
     InnerTransferState = #partitioned_transfer{
@@ -983,7 +983,7 @@ do_process_complete_partitioned([PK | PKs], TransferState0) ->
             exit({upload_failed, {data_file, PK, Reason}})
     end;
 do_process_complete_partitioned([], TransferState0) ->
-    ?tp("iceberg_upload_manifests_enter", #{}),
+    ?tp("s3tables_upload_manifests_enter", #{}),
     upload_manifests(TransferState0).
 
 upload_manifest_entries(NewSnapshotId, #{?inner_transfer := #single_transfer{}} = TransferState) ->
@@ -1076,7 +1076,7 @@ do_upload_manifest_entries(
     ManifestEntryOCF = avro_ocf:make_ocf(ManifestEntryHeader, ManifestEntriesBins),
     %% TODO: handle errors
     ?SLOG(info, #{
-        msg => "iceberg_uploading_manifest_entry",
+        msg => "s3tables_uploading_manifest_entry",
         action => ActionResId,
         key => ManifestEntryKey,
         snapshot_id => NewSnapshotId,
@@ -1101,4 +1101,4 @@ partition_keys_to_record(PKs, PartitionFields) ->
 
 manifest_entry_avro_schema(PartSpec, IcebergSchema) ->
     #{json_schema := AvroSchemaJSON} = persistent_term:get(?MANIFEST_ENTRY_PT_KEY),
-    emqx_bridge_iceberg_logic:manifest_entry_avro_schema(PartSpec, AvroSchemaJSON, IcebergSchema).
+    emqx_bridge_s3tables_logic:manifest_entry_avro_schema(PartSpec, AvroSchemaJSON, IcebergSchema).

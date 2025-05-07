@@ -48,8 +48,6 @@ services:
   query:
     image: ghcr.io/emqx/spark-query:1.0.4
     container_name: query
-    # volumes:
-    #   - ./iceberg/query/:/server/
     networks:
       emqx_bridge:
     expose:

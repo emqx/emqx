@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_iceberg_app).
+-module(emqx_bridge_s3tables_app).
 
 -behaviour(application).
 
@@ -17,11 +17,11 @@
 %%------------------------------------------------------------------------------
 
 start(_StartType, _StartArgs) ->
-    emqx_bridge_iceberg_impl:load_and_memoize_schema_files(),
-    emqx_bridge_iceberg_sup:start_link().
+    emqx_bridge_s3tables_impl:load_and_memoize_schema_files(),
+    emqx_bridge_s3tables_sup:start_link().
 
 stop(_State) ->
-    emqx_bridge_iceberg_impl:forget_schema_files(),
+    emqx_bridge_s3tables_impl:forget_schema_files(),
     ok.
 
 %%------------------------------------------------------------------------------

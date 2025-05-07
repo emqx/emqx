@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_iceberg_aggreg_partitioned).
+-module(emqx_bridge_s3tables_aggreg_partitioned).
 
 -behaviour(emqx_connector_aggreg_container).
 
@@ -14,7 +14,7 @@
 
 -export_type([container/0, options/0, partition_key/0]).
 
--include("emqx_bridge_iceberg.hrl").
+-include("emqx_bridge_s3tables.hrl").
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -39,7 +39,7 @@
     partition_fields := [partition_field()]
 }.
 -type partition_key() :: null | binary() | integer().
--type partition_field() :: emqx_bridge_iceberg_logic:partition_field().
+-type partition_field() :: emqx_bridge_s3tables_logic:partition_field().
 -type partition_out() :: #{[partition_key()] => iodata()}.
 -type write_metadata() :: #{[partition_key()] => #{?num_records := pos_integer()}}.
 
@@ -89,7 +89,7 @@ close(#iceberg{partitions = Partitions}) ->
 %%------------------------------------------------------------------------------
 
 to_partition_keys(Record, PartitionFields) ->
-    case emqx_bridge_iceberg_logic:record_to_partition_keys(Record, PartitionFields) of
+    case emqx_bridge_s3tables_logic:record_to_partition_keys(Record, PartitionFields) of
         {ok, PKs} ->
             PKs;
         {error, Reason} ->

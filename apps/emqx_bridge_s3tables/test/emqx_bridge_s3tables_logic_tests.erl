@@ -1,21 +1,21 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_iceberg_logic_tests).
+-module(emqx_bridge_s3tables_logic_tests).
 
 -feature(maybe_expr, enable).
 
 -compile([nowarn_export_all, export_all]).
 
 -include_lib("eunit/include/eunit.hrl").
--include("../src/emqx_bridge_iceberg.hrl").
+-include("../src/emqx_bridge_s3tables.hrl").
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
 
 load_iceberg_schema(File) ->
-    BaseDir = code:lib_dir(emqx_bridge_iceberg),
+    BaseDir = code:lib_dir(emqx_bridge_s3tables),
     TestDataDir = filename:join([BaseDir, "test", "sample_iceberg_schemas"]),
     Filename = filename:join(TestDataDir, File),
     {ok, Bin} = file:read_file(Filename),
@@ -33,7 +33,7 @@ load_json_data(Dir, Ext) ->
     ).
 
 test_conversion(Input, Expected) ->
-    {ok, Output} = emqx_bridge_iceberg_logic:convert_iceberg_schema_to_avro(Input),
+    {ok, Output} = emqx_bridge_s3tables_logic:convert_iceberg_schema_to_avro(Input),
     ?assertEqual(
         Expected,
         Output,
@@ -84,7 +84,7 @@ rm_intersection(A, B) ->
     {A, B}.
 
 test_index_fields_by_id(IceSchema) ->
-    FieldIndex = emqx_bridge_iceberg_logic:index_fields_by_id(IceSchema),
+    FieldIndex = emqx_bridge_s3tables_logic:index_fields_by_id(IceSchema),
     %% ?debugFmt("index:\n  ~p\n", [FieldIndex]),
     Errors = maps:filter(
         fun
@@ -121,7 +121,7 @@ fmt(Fmt, Args) ->
 
 %% Returns table metadata for an empty table (no snapshots, single schema, by default).
 mk_loaded_table(Opts) ->
-    BaseDir = code:lib_dir(emqx_bridge_iceberg),
+    BaseDir = code:lib_dir(emqx_bridge_s3tables),
     File = maps:get(file, Opts, "empty_table.json"),
     Filename = filename:join([BaseDir, "test", "sample_metadata", File]),
     {ok, Raw} = file:read_file(Filename),
@@ -162,7 +162,7 @@ mk_loaded_table(Opts) ->
 
 manifest_file_avro_schema() ->
     {ok, ScJSON} = file:read_file(
-        filename:join([code:lib_dir(emqx_bridge_iceberg), "priv", "manifest-file.avsc"])
+        filename:join([code:lib_dir(emqx_bridge_s3tables), "priv", "manifest-file.avsc"])
     ),
     avro:decode_schema(ScJSON).
 
@@ -171,7 +171,7 @@ manifest_file_avro_schema() ->
 %%------------------------------------------------------------------------------
 
 avro_conversion_test_() ->
-    BaseDir = code:lib_dir(emqx_bridge_iceberg),
+    BaseDir = code:lib_dir(emqx_bridge_s3tables),
     TestDataDir = filename:join([BaseDir, "test", "sample_iceberg_schemas"]),
     SampleInputs = load_json_data(TestDataDir, "json"),
     ExpectedOutputs = load_json_data(TestDataDir, "avsc"),
@@ -196,7 +196,7 @@ avro_conversion_unsupported_type_test() ->
     LoadedTable = mk_loaded_table(#{schema => BadSchema}),
     ?assertEqual(
         {error, {unsupported_type, <<"foobar">>}},
-        emqx_bridge_iceberg_logic:parse_loaded_table(LoadedTable)
+        emqx_bridge_s3tables_logic:parse_loaded_table(LoadedTable)
     ),
     ok.
 
@@ -204,7 +204,7 @@ avro_conversion_unsupported_type_test() ->
 %% that, once indexed, all values are either a primitive type, or a map with a `type` key
 %% (struct, list or map).  All keys are field ids (ints).
 index_fields_by_id_test_() ->
-    BaseDir = code:lib_dir(emqx_bridge_iceberg),
+    BaseDir = code:lib_dir(emqx_bridge_s3tables),
     TestDataDir = filename:join([BaseDir, "test", "sample_iceberg_schemas"]),
     SampleInputs = load_json_data(TestDataDir, "json"),
     [
@@ -248,10 +248,10 @@ partition_keys_to_segments_test_() ->
                 Schema = MkSchema(Field),
                 LoadedTable = mk_loaded_table(#{schema => Schema, partition_spec => Spec}),
                 {ok, #{?partition_spec := #partitioned{fields = PartitionFields} = PartSpec}} =
-                    emqx_bridge_iceberg_logic:parse_loaded_table(LoadedTable),
-                case emqx_bridge_iceberg_logic:record_to_partition_keys(Record, PartitionFields) of
+                    emqx_bridge_s3tables_logic:parse_loaded_table(LoadedTable),
+                case emqx_bridge_s3tables_logic:record_to_partition_keys(Record, PartitionFields) of
                     {ok, PKs} ->
-                        Segments = emqx_bridge_iceberg_logic:partition_keys_to_segments(
+                        Segments = emqx_bridge_s3tables_logic:partition_keys_to_segments(
                             PKs, PartSpec
                         ),
                         ?assertEqual(Expected, Segments);
@@ -420,7 +420,7 @@ partition_keys_to_segments_test_() ->
             ?_test(begin
                 Schema = MkSchema(Field),
                 LoadedTable = mk_loaded_table(#{schema => Schema, partition_spec => Spec}),
-                ?assertEqual(Expected, emqx_bridge_iceberg_logic:parse_loaded_table(LoadedTable))
+                ?assertEqual(Expected, emqx_bridge_s3tables_logic:parse_loaded_table(LoadedTable))
             end)}
     end,
     UnsupportedTransformCases = [
@@ -480,7 +480,7 @@ transform_fns_test_() ->
     AllTransforms =
         lists:map(
             fun(TransformName) ->
-                {ok, TransformFn} = emqx_bridge_iceberg_logic:mk_transform_fn(TransformName),
+                {ok, TransformFn} = emqx_bridge_s3tables_logic:mk_transform_fn(TransformName),
                 {TransformName, TransformFn}
             end,
             [
@@ -587,26 +587,26 @@ find_current_schema_test_() ->
     [
         ?_assertMatch(
             {ok, #{<<"schema-id">> := SchemaId}},
-            emqx_bridge_iceberg_logic:find_current_schema(LoadedTable, SchemaId)
+            emqx_bridge_s3tables_logic:find_current_schema(LoadedTable, SchemaId)
         ),
         ?_assertMatch(
             {ok, #{<<"schema-id">> := SchemaId}},
-            emqx_bridge_iceberg_logic:find_current_schema(LoadedTableMultipleSchemas, SchemaId)
+            emqx_bridge_s3tables_logic:find_current_schema(LoadedTableMultipleSchemas, SchemaId)
         ),
         ?_assertMatch(
             {error, schema_not_found},
-            emqx_bridge_iceberg_logic:find_current_schema(LoadedTableBrokenSchema, UnknownSchemaId)
+            emqx_bridge_s3tables_logic:find_current_schema(LoadedTableBrokenSchema, UnknownSchemaId)
         ),
         ?_assertMatch(
             {error, schema_not_found},
-            emqx_bridge_iceberg_logic:find_current_schema(LoadedTable, UnknownSchemaId)
+            emqx_bridge_s3tables_logic:find_current_schema(LoadedTable, UnknownSchemaId)
         )
     ].
 
 find_partition_spec_test_() ->
     LoadedTable = mk_loaded_table(#{}),
     {ok, #{?iceberg_schema := IceSchema}} =
-        emqx_bridge_iceberg_logic:parse_loaded_table(LoadedTable),
+        emqx_bridge_s3tables_logic:parse_loaded_table(LoadedTable),
     SpecId = 0,
     UnknownSpecId = -999,
     LoadedTableBogusSpecId = emqx_utils_maps:deep_put(
@@ -622,19 +622,19 @@ find_partition_spec_test_() ->
     [
         ?_assertMatch(
             {ok, {SpecId, #unpartitioned{}}},
-            emqx_bridge_iceberg_logic:find_partition_spec(LoadedTableNotPartitioned, IceSchema)
+            emqx_bridge_s3tables_logic:find_partition_spec(LoadedTableNotPartitioned, IceSchema)
         ),
         ?_assertMatch(
             {ok, {SpecId, #partitioned{fields = [#{}]}}},
-            emqx_bridge_iceberg_logic:find_partition_spec(LoadedTable, IceSchema)
+            emqx_bridge_s3tables_logic:find_partition_spec(LoadedTable, IceSchema)
         ),
         ?_assertMatch(
             {error, partition_spec_not_found},
-            emqx_bridge_iceberg_logic:find_partition_spec(LoadedTableBogusSpecId, IceSchema)
+            emqx_bridge_s3tables_logic:find_partition_spec(LoadedTableBogusSpecId, IceSchema)
         ),
         ?_assertMatch(
             {error, invalid_spec},
-            emqx_bridge_iceberg_logic:find_partition_spec(LoadedTableBrokenSpec, IceSchema)
+            emqx_bridge_s3tables_logic:find_partition_spec(LoadedTableBrokenSpec, IceSchema)
         )
     ].
 
@@ -663,23 +663,23 @@ find_current_snapshot_test_() ->
     [
         ?_assertMatch(
             #{<<"snapshot-id">> := SnapshotId},
-            emqx_bridge_iceberg_logic:find_current_snapshot(LoadedTable, Default)
+            emqx_bridge_s3tables_logic:find_current_snapshot(LoadedTable, Default)
         ),
         ?_assertMatch(
             #{<<"snapshot-id">> := PreviousSnapshotId},
-            emqx_bridge_iceberg_logic:find_current_snapshot(LoadedTablePrevId, Default)
+            emqx_bridge_s3tables_logic:find_current_snapshot(LoadedTablePrevId, Default)
         ),
         ?_assertMatch(
             Default,
-            emqx_bridge_iceberg_logic:find_current_snapshot(LoadedTableEmpty, Default)
+            emqx_bridge_s3tables_logic:find_current_snapshot(LoadedTableEmpty, Default)
         ),
         ?_assertMatch(
             Default,
-            emqx_bridge_iceberg_logic:find_current_snapshot(LoadedTableEmptyNull, Default)
+            emqx_bridge_s3tables_logic:find_current_snapshot(LoadedTableEmptyNull, Default)
         ),
         ?_assertMatch(
             Default,
-            emqx_bridge_iceberg_logic:find_current_snapshot(LoadedTableUnknownSnapId, Default)
+            emqx_bridge_s3tables_logic:find_current_snapshot(LoadedTableUnknownSnapId, Default)
         )
     ].
 
@@ -758,7 +758,7 @@ parse_partition_field_bad_fields_test_() ->
                         ]
                     }
                 }},
-                emqx_bridge_iceberg_logic:parse_loaded_table(
+                emqx_bridge_s3tables_logic:parse_loaded_table(
                     MkLT(NestedStructsSchema, InnermostSourceId)
                 )
             )},
@@ -770,7 +770,7 @@ parse_partition_field_bad_fields_test_() ->
                     source_field_id := 999,
                     partition_field_name := <<"a">>
                 }},
-                emqx_bridge_iceberg_logic:parse_loaded_table(
+                emqx_bridge_s3tables_logic:parse_loaded_table(
                     MkLT(NestedSchema, _BadSourceId = 999)
                 )
             )},
@@ -784,7 +784,7 @@ parse_partition_field_bad_fields_test_() ->
                             source_field_id := SourceId,
                             partition_field_name := <<"a">>
                         }},
-                        emqx_bridge_iceberg_logic:parse_loaded_table(
+                        emqx_bridge_s3tables_logic:parse_loaded_table(
                             MkLT(NestedSchema, SourceId)
                         )
                     )}
@@ -795,13 +795,13 @@ parse_partition_field_bad_fields_test_() ->
 
 %% Checks that we transform bad manifest file schemas from Athena.
 prepare_previous_manifest_files_test() ->
-    BaseDir = code:lib_dir(emqx_bridge_iceberg),
+    BaseDir = code:lib_dir(emqx_bridge_s3tables),
     Dir = filename:join([BaseDir, "test", "sample_metadata"]),
     {ok, BadBin} = file:read_file(filename:join([Dir, "bad_athena_manifest_list.avro"])),
     ManifestFileSc = manifest_file_avro_schema(),
     %% Simply not throwing an error asserts the schema has been fixed.  Without fixing the
     %% original schema, this would break as required fields are missing.
-    FixedBins = emqx_bridge_iceberg_logic:prepare_previous_manifest_files(
+    FixedBins = emqx_bridge_s3tables_logic:prepare_previous_manifest_files(
         BadBin, ManifestFileSc
     ),
     ?assertMatch([_, _], FixedBins),
@@ -828,7 +828,7 @@ prepare_previous_manifest_files_test() ->
     ok.
 
 parse_base_endpoint_test_() ->
-    Parse = fun emqx_bridge_iceberg_connector_schema:parse_base_endpoint/1,
+    Parse = fun emqx_bridge_s3tables_connector_schema:parse_base_endpoint/1,
     [
         {"only hostname (defaults to https)",
             ?_assertMatch(

@@ -1,10 +1,10 @@
-defmodule EMQXBridgeIceberg.MixProject do
+defmodule EMQXBridgeS3Tables.MixProject do
   use Mix.Project
   alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
-      app: :emqx_bridge_iceberg,
+      app: :emqx_bridge_s3tables,
       version: "0.1.0",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
@@ -23,7 +23,7 @@ defmodule EMQXBridgeIceberg.MixProject do
   def application do
     [
       extra_applications: UMP.extra_applications(),
-      mod: {:emqx_bridge_iceberg_app, []}
+      mod: {:emqx_bridge_s3tables_app, []}
     ]
   end
 

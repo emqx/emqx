@@ -1,12 +1,12 @@
-emqx_bridge_iceberg_action_schema {
-  iceberg {
-    label: """Upload to Iceberg"""
+emqx_bridge_s3tables_action_schema {
+  s3tables {
+    label: """Upload to S3Tables"""
     desc:
-    """Action that takes incoming events and appends them to Iceberg table."""
+    """Action that takes incoming events and appends them to S3Tables."""
   }
 
   action_parameters {
-    label: """Iceberg action parameters"""
+    label: """S3Tables action parameters"""
     desc:
     """Set of parameters for the action."""
   }

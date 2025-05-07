@@ -2,13 +2,13 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_iceberg_action_schema).
+-module(emqx_bridge_s3tables_action_schema).
 
 -behaviour(hocon_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include("emqx_bridge_iceberg.hrl").
+-include("emqx_bridge_s3tables.hrl").
 
 %% `hocon_schema' API
 -export([
@@ -35,7 +35,7 @@
 %%------------------------------------------------------------------------------
 
 namespace() ->
-    "action_iceberg".
+    "action_s3tables".
 
 roots() ->
     [].
@@ -51,7 +51,7 @@ fields(action) ->
         mk(
             hoconsc:map(name, hoconsc:ref(?MODULE, ?ACTION_TYPE)),
             #{
-                desc => <<"Iceberg Action Config">>,
+                desc => <<"S3Tables Action Config">>,
                 required => false
             }
         )};
@@ -131,7 +131,7 @@ bridge_v2_examples(Method) ->
     [
         #{
             ?ACTION_TYPE_BIN => #{
-                summary => <<"Iceberg Action">>,
+                summary => <<"S3Tables Action">>,
                 value => action_example(Method)
             }
         }

@@ -1,20 +1,20 @@
-emqx_bridge_iceberg_connector_schema {
+emqx_bridge_s3tables_connector_schema {
   config_connector {
-    label: """Iceberg Connector Configuration"""
+    label: """S3tables Connector Configuration"""
     desc:
-    """Configuration for a connector to Iceberg tables."""
+    """Configuration for a connector to S3Tables tables."""
   }
 
   s3tables_connector_params {
     label: """S3Tables parameters"""
     desc:
-    """Parameters for Iceberg integration provided by S3Tables."""
+    """Parameters for S3Tables integration provided by S3Tables."""
   }
 
   parameters {
     label: """Parameters"""
     desc:
-    """Iceberg connection parameters."""
+    """S3Tables connection parameters."""
   }
 
   location_type_s3t {

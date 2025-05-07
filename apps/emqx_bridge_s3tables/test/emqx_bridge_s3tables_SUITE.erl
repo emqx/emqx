@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_iceberg_SUITE).
+-module(emqx_bridge_s3tables_SUITE).
 
 -feature(maybe_expr, enable).
 
@@ -12,7 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
--include("../src/emqx_bridge_iceberg.hrl").
+-include("../src/emqx_bridge_s3tables.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -59,7 +59,7 @@ init_per_suite(TCConfig) ->
         [
             emqx,
             emqx_conf,
-            emqx_bridge_iceberg,
+            emqx_bridge_s3tables,
             emqx_bridge,
             emqx_rule_engine,
             emqx_management,
@@ -180,7 +180,7 @@ make_client() ->
         base_endpoint => ?BASE_ENDPOINT,
         bucket => ?BUCKET
     },
-    {ok, Client} = emqx_bridge_iceberg_client_s3t:new(Params),
+    {ok, Client} = emqx_bridge_s3tables_client_s3t:new(Params),
     Client.
 
 %% Note: namespace is a list of strings.
@@ -196,7 +196,7 @@ create_namespace(Client, Namespace) ->
         query_params => [],
         payload => emqx_utils_json:encode(Payload)
     },
-    emqx_bridge_iceberg_client_s3t:do_request(Client, Context).
+    emqx_bridge_s3tables_client_s3t:do_request(Client, Context).
 
 %% Note: namespace is a list of strings.
 delete_namespace(Client, Namespace) ->
@@ -207,7 +207,7 @@ delete_namespace(Client, Namespace) ->
         query_params => [],
         payload => <<"">>
     },
-    emqx_bridge_iceberg_client_s3t:do_request(Client, Context).
+    emqx_bridge_s3tables_client_s3t:do_request(Client, Context).
 
 ensure_namespace_created(Client, Namespace) ->
     on_exit(fun() -> ensure_namespace_deleted(Client, Namespace) end),
@@ -251,7 +251,7 @@ create_table(Client, Namespace, Table, Schema, ExtraOpts) ->
         query_params => [],
         payload => emqx_utils_json:encode(Payload)
     },
-    emqx_bridge_iceberg_client_s3t:do_request(Client, Context).
+    emqx_bridge_s3tables_client_s3t:do_request(Client, Context).
 
 delete_table(Client, Namespace, Table) ->
     Context = #{
@@ -261,7 +261,7 @@ delete_table(Client, Namespace, Table) ->
         query_params => [],
         payload => <<"">>
     },
-    emqx_bridge_iceberg_client_s3t:do_request(Client, Context).
+    emqx_bridge_s3tables_client_s3t:do_request(Client, Context).
 
 ensure_table_created(Client, Namespace, Table, Schema, Opts) ->
     on_exit(fun() -> ensure_table_deleted(Client, Namespace, Table) end),
@@ -353,7 +353,7 @@ simple_payload_all(Overrides) ->
         <<"long">> => 12345678910,
         <<"int">> => 4321,
         %% Those become ints in binary form, and the byte size comes from
-        %% `emqx_bridge_iceberg_logic:decimal_required_bytes(Precision)`.
+        %% `emqx_bridge_s3tables_logic:decimal_required_bytes(Precision)`.
         %% ex: 1.234567E+9 (Precision=7) -> <<1234567:(4*8)/signed-big>>
         <<"decimal">> => base64:encode(<<123456_78:(4 * 8)/signed-big>>),
         <<"fixed">> => <<"123456789ABCDEF0">>
@@ -510,7 +510,7 @@ t_start_stop() ->
 t_start_stop(matrix) ->
     [[s3tables]];
 t_start_stop(Config) when is_list(Config) ->
-    emqx_bridge_v2_testlib:t_start_stop(Config, "iceberg_connector_stop").
+    emqx_bridge_v2_testlib:t_start_stop(Config, "s3tables_connector_stop").
 
 t_rule_action() ->
     TableExtraOptsFn = fun(TCConfig) ->
@@ -754,13 +754,13 @@ t_conflicting_transactions(Config) ->
         begin
             ?force_ordering(
                 #{?snk_kind := "concurrent_transactions_in_place"},
-                #{?snk_kind := "iceberg_about_to_commit"}
+                #{?snk_kind := "s3tables_about_to_commit"}
             ),
             TestPid = self(),
             spawn_link(fun() ->
                 {ok, SRef0} =
                     snabbkaffe:subscribe(
-                        ?match_event(#{?snk_kind := "iceberg_upload_manifests_enter"}),
+                        ?match_event(#{?snk_kind := "s3tables_upload_manifests_enter"}),
                         2,
                         infinity
                     ),
@@ -819,7 +819,7 @@ t_conflicting_transactions(Config) ->
 t_unsupported_type(Config) ->
     {201, _} = create_connector_api(Config, #{}),
     emqx_common_test_helpers:with_mock(
-        emqx_bridge_iceberg_client_s3t,
+        emqx_bridge_s3tables_client_s3t,
         load_table,
         fun(Client, Namespace, Table) ->
             {ok, Res} = meck:passthrough([Client, Namespace, Table]),
@@ -849,7 +849,7 @@ t_unsupported_type(Config) ->
 t_schema_not_found(Config) ->
     {201, _} = create_connector_api(Config, #{}),
     emqx_common_test_helpers:with_mock(
-        emqx_bridge_iceberg_client_s3t,
+        emqx_bridge_s3tables_client_s3t,
         load_table,
         fun(Client, Namespace, Table) ->
             {ok, Res} = meck:passthrough([Client, Namespace, Table]),
@@ -875,7 +875,7 @@ t_schema_not_found(Config) ->
 t_partition_spec_not_found(Config) ->
     {201, _} = create_connector_api(Config, #{}),
     emqx_common_test_helpers:with_mock(
-        emqx_bridge_iceberg_client_s3t,
+        emqx_bridge_s3tables_client_s3t,
         load_table,
         fun(Client, Namespace, Table) ->
             {ok, Res} = meck:passthrough([Client, Namespace, Table]),
@@ -901,7 +901,7 @@ t_partition_spec_not_found(Config) ->
 t_invalid_spec(Config) ->
     {201, _} = create_connector_api(Config, #{}),
     emqx_common_test_helpers:with_mock(
-        emqx_bridge_iceberg_client_s3t,
+        emqx_bridge_s3tables_client_s3t,
         load_table,
         fun(Client, Namespace, Table) ->
             {ok, Res} = meck:passthrough([Client, Namespace, Table]),
@@ -966,7 +966,7 @@ t_unsupported_format_version(Config) ->
 
     TestWithVsn = fun(Vsn) ->
         emqx_common_test_helpers:with_mock(
-            emqx_bridge_iceberg_client_s3t,
+            emqx_bridge_s3tables_client_s3t,
             load_table,
             fun(Client, Namespace, Table) ->
                 {ok, Res} = meck:passthrough([Client, Namespace, Table]),

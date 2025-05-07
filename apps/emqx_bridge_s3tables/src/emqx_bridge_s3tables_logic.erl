@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_iceberg_logic).
+-module(emqx_bridge_s3tables_logic).
 
 -feature(maybe_expr, enable).
 
@@ -29,7 +29,7 @@
 
 -export_type([partition_field/0, partition_spec_parsed/0]).
 
--include("emqx_bridge_iceberg.hrl").
+-include("emqx_bridge_s3tables.hrl").
 
 -elvis([{elvis_style, atom_naming_convention, disable}]).
 

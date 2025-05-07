@@ -162,7 +162,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by erlavro
       common_dep(:snappyer),
       common_dep(:crc32cer),
-      # transitive dependency of pulsar-client-erl, and direct dep in iceberg bridge
+      # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
       common_dep(:murmerl3)
     ]
   end
@@ -297,7 +297,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.7.0.3"}
 
-  # transitive dependency of pulsar-client-erl, and direct dep in iceberg bridge
+  # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
   def common_dep(:murmerl3),
     do: {:murmerl3, github: "emqx/murmerl3", tag: "0.1.0-emqx.1", override: true}
 

@@ -1,10 +1,10 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_iceberg_aggreg_partitioned_tests).
+-module(emqx_bridge_s3tables_aggreg_partitioned_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include("../src/emqx_bridge_iceberg.hrl").
+-include("../src/emqx_bridge_s3tables.hrl").
 
 -export([decode/1]).
 
@@ -42,7 +42,7 @@ new_opts() ->
             }
         ]
     },
-    LoadedTable = emqx_bridge_iceberg_logic_tests:mk_loaded_table(#{
+    LoadedTable = emqx_bridge_s3tables_logic_tests:mk_loaded_table(#{
         schema => Schema,
         partition_spec => PartitionSpec
     }),
@@ -50,7 +50,7 @@ new_opts() ->
         ?partition_spec := #partitioned{fields = PartitionFields},
         ?avro_schema := AvroSc
     }} =
-        emqx_bridge_iceberg_logic:parse_loaded_table(LoadedTable),
+        emqx_bridge_s3tables_logic:parse_loaded_table(LoadedTable),
     #{
         inner_container_opts => #{
             schema => AvroSc,
@@ -64,7 +64,7 @@ fill_close(Records, Container) ->
     {Output, Meta, ContainerFinal} =
         lists:foldl(
             fun(Record, {AccOut0, AccMeta0, AccCont}) ->
-                {O, M, C} = emqx_bridge_iceberg_aggreg_partitioned:fill([Record], AccCont),
+                {O, M, C} = emqx_bridge_s3tables_aggreg_partitioned:fill([Record], AccCont),
                 AccOut = maps:merge_with(fun(_PKs, A, B) -> [A | B] end, AccOut0, O),
                 AccMeta = merge_metas(AccMeta0, M),
                 {AccOut, AccMeta, C}
@@ -72,7 +72,7 @@ fill_close(Records, Container) ->
             {#{}, #{}, Container},
             Records
         ),
-    {Trailer, MetaFinal0} = emqx_bridge_iceberg_aggreg_partitioned:close(ContainerFinal),
+    {Trailer, MetaFinal0} = emqx_bridge_s3tables_aggreg_partitioned:close(ContainerFinal),
     MetaFinal = merge_metas(Meta, MetaFinal0),
     OutputFinal = maps:merge_with(fun(_PK, A, B) -> [A | B] end, Output, Trailer),
     {OutputFinal, MetaFinal}.
@@ -114,7 +114,7 @@ roundtrip_test() ->
         end,
         lists:seq(1, 10)
     ),
-    Container = emqx_bridge_iceberg_aggreg_partitioned:new(new_opts()),
+    Container = emqx_bridge_s3tables_aggreg_partitioned:new(new_opts()),
     ?assertMatch(
         {
             #{
@@ -146,7 +146,7 @@ roundtrip_test() ->
     ok.
 
 incompatible_partitioned_data_test() ->
-    Container = emqx_bridge_iceberg_aggreg_partitioned:new(new_opts()),
+    Container = emqx_bridge_s3tables_aggreg_partitioned:new(new_opts()),
     %% `bar` should be a string
     BadRecord = #{
         <<"bar">> => true,

@@ -2,11 +2,11 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_iceberg_action_info).
+-module(emqx_bridge_s3tables_action_info).
 
 -behaviour(emqx_action_info).
 
--include("emqx_bridge_iceberg.hrl").
+-include("emqx_bridge_s3tables.hrl").
 
 %% `emqx_action_info' API
 -export([
@@ -27,7 +27,7 @@ action_type_name() -> ?ACTION_TYPE.
 
 connector_type_name() -> ?CONNECTOR_TYPE.
 
-schema_module() -> emqx_bridge_iceberg_action_schema.
+schema_module() -> emqx_bridge_s3tables_action_schema.
 
 %%------------------------------------------------------------------------------
 %% Internal fns

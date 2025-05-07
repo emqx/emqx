@@ -1,8 +1,8 @@
-{application, emqx_bridge_iceberg, [
-    {description, "EMQX Enterprise Iceberg Bridge"},
+{application, emqx_bridge_s3tables, [
+    {description, "EMQX Enterprise S3tables Bridge"},
     {vsn, "1.0.0"},
     {registered, []},
-    {mod, {emqx_bridge_iceberg_app, []}},
+    {mod, {emqx_bridge_s3tables_app, []}},
     {applications, [
         kernel,
         stdlib,

@@ -141,7 +141,7 @@ on_stop(_InstId, _State = #{pool_name := PoolName}) ->
 on_get_status(_InstId, #{client_config := Config}) ->
     do_on_get_status(Config).
 
-%% Note: `emqx_bridge_iceberg_impl` reuses this functions.
+%% Note: `emqx_bridge_s3tables_impl` reuses this functions.
 do_on_get_status(Config) ->
     case emqx_s3_client:aws_config(Config) of
         {error, Reason} ->

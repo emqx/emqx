@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_iceberg_connector_schema).
+-module(emqx_bridge_s3tables_connector_schema).
 
 -feature(maybe_expr, enable).
 
@@ -10,7 +10,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include("emqx_bridge_iceberg.hrl").
+-include("emqx_bridge_s3tables.hrl").
 
 %% `hocon_schema' API
 -export([
@@ -39,7 +39,7 @@
 %%------------------------------------------------------------------------------
 
 namespace() ->
-    "connector_iceberg".
+    "connector_s3tables".
 
 roots() ->
     [].
@@ -104,8 +104,8 @@ desc(_Name) ->
 connector_examples(Method) ->
     [
         #{
-            <<"iceberg_s3t">> => #{
-                summary => <<"Iceberg Connector - S3Tables">>,
+            <<"s3t">> => #{
+                summary => <<"S3Tables Connector">>,
                 value => connector_example(Method, s3tables)
             }
         }

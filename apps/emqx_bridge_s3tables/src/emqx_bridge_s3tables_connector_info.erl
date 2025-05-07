@@ -2,11 +2,11 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_iceberg_connector_info).
+-module(emqx_bridge_s3tables_connector_info).
 
 -behaviour(emqx_connector_info).
 
--include("emqx_bridge_iceberg.hrl").
+-include("emqx_bridge_s3tables.hrl").
 
 %% `emqx_connector_info' API
 -export([
@@ -25,7 +25,7 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--define(SCHEMA_MOD, emqx_bridge_iceberg_connector_schema).
+-define(SCHEMA_MOD, emqx_bridge_s3tables_connector_schema).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -42,7 +42,7 @@ bridge_types() ->
     [?ACTION_TYPE].
 
 resource_callback_module() ->
-    emqx_bridge_iceberg_impl.
+    emqx_bridge_s3tables_impl.
 
 config_schema() ->
     {?CONNECTOR_TYPE,
@@ -55,7 +55,7 @@ config_schema() ->
                 )
             ),
             #{
-                desc => <<"Iceberg Connector Config">>,
+                desc => <<"S3Tables Connector Config">>,
                 required => false
             }
         )}.

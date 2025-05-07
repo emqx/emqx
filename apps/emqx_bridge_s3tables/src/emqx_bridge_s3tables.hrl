@@ -2,14 +2,14 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--ifndef(__EMQX_BRIDGE_ICEBERG_HRL__).
--define(__EMQX_BRIDGE_ICEBERG_HRL__, true).
+-ifndef(__EMQX_BRIDGE_S3TABLES_HRL__).
+-define(__EMQX_BRIDGE_S3TABLES_HRL__, true).
 
--define(CONNECTOR_TYPE, iceberg).
--define(CONNECTOR_TYPE_BIN, <<"iceberg">>).
+-define(CONNECTOR_TYPE, s3tables).
+-define(CONNECTOR_TYPE_BIN, <<"s3tables">>).
 
--define(ACTION_TYPE, iceberg).
--define(ACTION_TYPE_BIN, <<"iceberg">>).
+-define(ACTION_TYPE, s3tables).
+-define(ACTION_TYPE_BIN, <<"s3tables">>).
 
 -define(ROOT_AVRO_TYPE, <<"__root">>).
 
@@ -30,5 +30,5 @@
 -define(source_type, source_type).
 -define(transform_fn, transform_fn).
 
-%% END ifndef(__EMQX_BRIDGE_ICEBERG_HRL__)
+%% END ifndef(__EMQX_BRIDGE_S3TABLES_HRL__)
 -endif.
