@@ -29,6 +29,7 @@
 
 -define(SERVICE, s3tables).
 -define(SERVICE_STR, "s3tables").
+-define(V1, "v1").
 
 %% 30 s
 -define(DEFAULT_REQUEST_TIMEOUT, 30_000).
@@ -110,7 +111,7 @@ load_table(Client, Namespace, Table) ->
     Payload = <<"">>,
     Context = #{
         ?method => Method,
-        ?path_parts => [arn, "namespaces", Namespace, "tables", Table],
+        ?path_parts => [?V1, arn, "namespaces", Namespace, "tables", Table],
         ?query_params => [],
         ?payload => Payload
     },
@@ -131,7 +132,7 @@ update_table(Client, Namespace, Table, Payload) ->
     Method = post,
     Context = #{
         ?method => Method,
-        ?path_parts => [arn, "namespaces", Namespace, "tables", Table],
+        ?path_parts => [?V1, arn, "namespaces", Namespace, "tables", Table],
         ?query_params => [],
         ?payload => emqx_utils_json:encode(Payload)
     },

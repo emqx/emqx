@@ -20,10 +20,11 @@
 %% Defs
 %%------------------------------------------------------------------------------
 
+-define(V1, "v1").
 -define(ACCESS_KEY_ID, <<"admin">>).
 -define(SECRET_ACCESS_KEY, <<"password">>).
 -define(BUCKET, <<"testbucket">>).
--define(BASE_ENDPOINT, <<"http://iceberg-rest-proxy/v1">>).
+-define(BASE_ENDPOINT, <<"http://iceberg-rest-proxy">>).
 -define(QUERY_ENDPOINT, <<"http://query:8090">>).
 %% -define(S3_HOST, <<"minio">>).
 %% -define(S3_PORT, 9000).
@@ -191,7 +192,7 @@ create_namespace(Client, Namespace) ->
     },
     Context = #{
         method => post,
-        path_parts => [arn, "namespaces"],
+        path_parts => [?V1, arn, "namespaces"],
         headers => [{"content-type", "application/json"}],
         query_params => [],
         payload => emqx_utils_json:encode(Payload)
@@ -202,7 +203,7 @@ create_namespace(Client, Namespace) ->
 delete_namespace(Client, Namespace) ->
     Context = #{
         method => delete,
-        path_parts => [arn, "namespaces", Namespace],
+        path_parts => [?V1, arn, "namespaces", Namespace],
         headers => [],
         query_params => [],
         payload => <<"">>
@@ -246,7 +247,7 @@ create_table(Client, Namespace, Table, Schema, ExtraOpts) ->
     Payload = maps:merge(Payload0, ExtraOpts),
     Context = #{
         method => post,
-        path_parts => [arn, "namespaces", join_ns(Namespace), "tables"],
+        path_parts => [?V1, arn, "namespaces", join_ns(Namespace), "tables"],
         headers => [{"content-type", "application/json"}],
         query_params => [],
         payload => emqx_utils_json:encode(Payload)
@@ -256,7 +257,7 @@ create_table(Client, Namespace, Table, Schema, ExtraOpts) ->
 delete_table(Client, Namespace, Table) ->
     Context = #{
         method => delete,
-        path_parts => [arn, "namespaces", join_ns(Namespace), "tables", Table],
+        path_parts => [?V1, arn, "namespaces", join_ns(Namespace), "tables", Table],
         headers => [],
         query_params => [],
         payload => <<"">>

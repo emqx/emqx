@@ -44,7 +44,7 @@ emqx_bridge_s3tables_connector_schema {
   location_s3t_base_endpoint {
     label: """S3Tables Iceberg Endpoint"""
     desc:
-    """The S3Tables Iceberg API endpoint.  Typically, `https://s3tables.<REGION>.amazonaws.com/iceberg/v1`.  Note that it must contain the `/iceberg/v1` path, if applicable."""
+    """The S3Tables Iceberg API endpoint.  Typically, `https://s3tables.<REGION>.amazonaws.com/iceberg`.  Note that it must contain the `/iceberg` path, if applicable."""
   }
 
   s3_client {
