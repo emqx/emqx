@@ -208,7 +208,15 @@ shard_buffer_spec(DB, Shard, Options) ->
         type => worker
     }.
 
-shard_batch_serializer_spec(DB, Shard, Opts) ->
+shard_batch_serializer_spec(DB, Shard, #{store_kv := true}) ->
+    #{
+        id => {Shard, batch_serializer},
+        start => {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_local]},
+        shutdown => 5_000,
+        restart => permanent,
+        type => worker
+    };
+shard_batch_serializer_spec(DB, Shard, Opts = #{store_kv := false}) ->
     #{
         id => {Shard, batch_serializer},
         start => {emqx_ds_builtin_local_batch_serializer, start_link, [DB, Shard, Opts]},

@@ -56,7 +56,13 @@
     %% `emqx_ds_buffer':
     init_buffer/3,
     flush_buffer/4,
-    shard_of_operation/4
+    shard_of_operation/4,
+
+    %% Key-value transaction:
+    get_tx_serial/1,
+    prepare_kv_tx/5,
+    commit_kv_tx_batch/4,
+    update_tx_serial/3
 ]).
 
 %% Internal exports:
@@ -75,7 +81,7 @@
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
--include_lib("emqx_durable_storage/include/emqx_ds_storage_layer_tx.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds_builtin_tx.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -117,7 +123,7 @@
 
 -type slab() :: {shard(), emqx_ds_storage_layer:gen_id()}.
 
--type tx_context() :: emqx_ds_storage_layer_tx:ctx().
+-type tx_context() :: emqx_ds_optimistic_tx:ctx().
 
 -define(stream(SHARD, INNER), [2, SHARD | INNER]).
 -define(delete_stream(SHARD, INNER), [3, SHARD | INNER]).
@@ -245,21 +251,23 @@ new_kv_tx(DB, Options = #{shard := ShardOpt}) ->
                 Shard ->
                     ok
             end,
-            Now = emqx_ds_builtin_local_meta:current_timestamp(Shard),
-            emqx_ds_storage_layer_tx:new_kv_tx_ctx(DB, Shard, Options, Now);
+            TxSerial = get_tx_serial({DB, Shard}),
+            case emqx_ds_optimistic_tx:where(DB, Shard) of
+                Leader when is_pid(Leader) ->
+                    {ok,
+                        emqx_ds_optimistic_tx:new_kv_tx_ctx(
+                            DB, Shard, Leader, Options, TxSerial
+                        )};
+                undefined ->
+                    ?err_rec(leader_is_down)
+            end;
         _ ->
             ?err_unrec(database_does_not_support_transactions)
     end.
 
 -spec commit_tx(emqx_ds:db(), tx_context(), emqx_ds:kv_tx_ops()) -> emqx_ds:commit_result().
-commit_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
-    %% TODO: monitor batch serializer (?)
-    Ref = make_ref(),
-    TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
-    emqx_ds_builtin_local_batch_serializer:blob_tx(DB, #ds_tx{
-        ctx = Ctx, ops = Ops, from = self(), ref = Ref, meta = TRef
-    }),
-    Ref.
+commit_tx(DB, Ctx, Ops) ->
+    emqx_ds_optimistic_tx:commit_kv_tx(DB, Ctx, Ops).
 
 tx_commit_outcome(Reply) ->
     case Reply of
@@ -622,6 +630,40 @@ do_delete_next(
             {ok, end_of_stream};
         Error ->
             Error
+    end.
+
+%%================================================================================
+%% KV Transaction
+%%================================================================================
+
+-define(serial_key, <<"emqx_ds_builtin_local_tx_serial">>).
+
+get_tx_serial(DBShard) ->
+    case emqx_ds_storage_layer:fetch_global(DBShard, ?serial_key) of
+        {ok, <<Val:128>>} ->
+            Val;
+        not_found ->
+            0
+    end.
+
+update_tx_serial(DBShard, SerCtl, Serial) ->
+    case get_tx_serial(DBShard) of
+        SerCtl ->
+            emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => <<Serial:128>>}, #{}),
+            ok;
+        Val ->
+            ?err_unrec({serial_mismatch, SerCtl, Val})
+    end.
+
+prepare_kv_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
+    emqx_ds_storage_layer_kv:prepare_kv_tx(DBShard, Generation, SerialBin, Ops, Opts).
+
+commit_kv_tx_batch(DBShard, Generation, SerCtl, CookedBatch) ->
+    case get_tx_serial(DBShard) of
+        SerCtl ->
+            emqx_ds_storage_layer_kv:commit_batch(DBShard, Generation, CookedBatch, #{});
+        Val ->
+            ?err_unrec({serial_mismatch, SerCtl, Val})
     end.
 
 %%================================================================================

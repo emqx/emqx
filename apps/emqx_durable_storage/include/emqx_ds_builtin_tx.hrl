@@ -13,14 +13,13 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--ifndef(EMQX_DS_STORAGE_LAYER_TX_HRL).
--define(EMQX_DS_STORAGE_LAYER_TX_HRL, true).
+-ifndef(EMQX_DS_BUILTIN_TX_HRL).
+-define(EMQX_DS_BUILTIN_TX_HRL, true).
 
 -record(kv_tx_ctx, {
-    %% For convenience we store shard in the context (although it
-    %% somewhat violates API layering). We treat it as an opaque
-    %% object.
     shard :: emqx_ds:shard(),
+    leader :: pid(),
+    serial :: term(),
     %% Current generation. Used to guard against committing
     %% transactions that span multiple generations
     generation :: emqx_ds_storage_layer:generation(),

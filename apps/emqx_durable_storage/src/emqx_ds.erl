@@ -65,7 +65,9 @@
     binary_to_iterator/2,
 
     dirty_read/2,
-    fold_topic/4
+    tx_read/2,
+    fold_topic/4,
+    tx_fold_topic/4
 ]).
 
 -export_type([
@@ -369,6 +371,8 @@
     ?ds_tx_write => [kv_pair() | {topic(), ?ds_tx_serial}],
     %% Deletions:
     ?ds_tx_delete_topic => [topic_filter()],
+    %% Checked reads:
+    ?ds_tx_read => [topic_filter()],
     %% Preconditions:
     %%   List of objects that should be present in the database.
     ?ds_tx_expected => [kv_matcher()],
@@ -782,7 +786,9 @@ tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
 %%================================================================================
 
 %% Transaction process dictionary keys:
+-define(tx_ctx, emqx_ds_tx_ctx).
 -define(tx_ops_write, emqx_ds_tx_ctx_write).
+-define(tx_ops_read, emqx_ds_tx_ctx_read).
 -define(tx_ops_del_topic, emqx_ds_tx_ctx_del_topic).
 -define(tx_ops_assert_present, emqx_ds_tx_ctx_assert_present).
 -define(tx_ops_assert_absent, emqx_ds_tx_ctx_assert_absent).
@@ -894,11 +900,11 @@ trans(UserOpts = #{db := DB, shard := _}, Fun) ->
         retry_interval => 1_000
     },
     Opts = maps:merge(Defaults, UserOpts),
-    case is_trans() of
-        false ->
+    case tx_ctx() of
+        undefined ->
             #{retries := Retries} = Opts,
             trans(DB, Fun, Opts, Retries);
-        true ->
+        _ ->
             ?err_unrec(nested_transaction)
     end.
 
@@ -990,6 +996,13 @@ dirty_read(#{db := _} = Opts, TopicFilter) ->
     end,
     fold_topic(Fun, [], TopicFilter, Opts).
 
+%% @doc Return _all_ messages matching the topic-filter as a list. Transactionsal.
+-spec tx_read(db() | fold_options(), topic_filter()) ->
+    fold_result([kv_pair() | emqx_types:message()]).
+tx_read(Opts, TopicFilter) ->
+    tx_push_op(?tx_ops_read, TopicFilter),
+    dirty_read(Opts, TopicFilter).
+
 -spec fold_topic(
     fold_fun(Acc),
     Acc,
@@ -1054,6 +1067,16 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
             error(Errors)
     end.
 
+-spec tx_fold_topic(
+    fold_fun(Acc),
+    Acc,
+    topic_filter(),
+    fold_options()
+) -> fold_result(Acc).
+tx_fold_topic(Fun, Acc, TopicFilter, Opts) ->
+    tx_push_op(?tx_ops_read, TopicFilter),
+    fold_topic(Fun, Acc, TopicFilter, Opts).
+
 %%================================================================================
 %% Internal exports
 %%================================================================================
@@ -1103,6 +1126,7 @@ call_if_implemented(Mod, Fun, Args, Default) ->
     transaction_result(Ret).
 trans(DB, Fun, Opts, Retries) ->
     _ = put(?tx_ops_write, []),
+    _ = put(?tx_ops_read, []),
     _ = put(?tx_ops_del_topic, []),
     _ = put(?tx_ops_assert_present, []),
     _ = put(?tx_ops_assert_absent, []),
@@ -1113,9 +1137,11 @@ trans(DB, Fun, Opts, Retries) ->
     try
         case new_kv_tx(DB, Opts) of
             {ok, Ctx} ->
+                put(?tx_ctx, Ctx),
                 Ret = Fun(),
                 Tx = #{
                     ?ds_tx_write => erase(?tx_ops_write),
+                    ?ds_tx_read => erase(?tx_ops_read),
                     ?ds_tx_delete_topic => erase(?tx_ops_del_topic),
                     ?ds_tx_expected => erase(?tx_ops_assert_present),
                     ?ds_tx_unexpected => erase(?tx_ops_assert_absent)
@@ -1123,6 +1149,7 @@ trans(DB, Fun, Opts, Retries) ->
                 case Tx of
                     #{
                         ?ds_tx_write := [],
+                        ?ds_tx_read := [],
                         ?ds_tx_delete_topic := [],
                         ?ds_tx_expected := [],
                         ?ds_tx_unexpected := []
@@ -1157,19 +1184,16 @@ trans(DB, Fun, Opts, Retries) ->
             timer:sleep(RetryInterval),
             trans(DB, Fun, Opts, Retries - 1)
     after
+        _ = erase(?tx_ctx),
         _ = erase(?tx_ops_write),
+        _ = erase(?tx_ops_read),
         _ = erase(?tx_ops_del_topic),
         _ = erase(?tx_ops_assert_present),
         _ = erase(?tx_ops_assert_absent)
     end.
 
-is_trans() ->
-    case get(?tx_ops_write) of
-        undefined ->
-            false;
-        _ ->
-            true
-    end.
+tx_ctx() ->
+    get(?tx_ctx).
 
 tx_push_op(K, A) ->
     put(K, [A | get(K)]),

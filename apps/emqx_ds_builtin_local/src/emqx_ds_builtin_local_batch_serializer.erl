@@ -6,7 +6,7 @@
 -feature(maybe_expr, enable).
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
--include_lib("emqx_durable_storage/include/emqx_ds_storage_layer_tx.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds_builtin_tx.hrl").
 
 %% API
 -export([
@@ -151,7 +151,7 @@ prepare_kv_tx(
     #s{dbshard = DBShard = {DB, _}, serial = SerRef} = S,
     #kv_tx_ctx{generation = GenId} = Ctx,
     maybe
-        ok ?= emqx_ds_storage_layer_tx:verify_preconditions(DB, Ctx, Ops),
+        ok ?= emqx_ds_optimistic_tx:verify_preconditions(DB, Ctx, Ops),
         CommitSerial = term_to_binary(new_serial(DBShard, SerRef)),
         {ok, CookedBatch} ?=
             emqx_ds_storage_layer_kv:prepare_kv_tx(

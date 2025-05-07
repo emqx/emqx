@@ -329,7 +329,7 @@ open_tx(Generation, ClientId, Verify) ->
     binary() | undefined.
 guard(ClientId, Shard, Generation) ->
     case
-        emqx_ds:dirty_read(
+        emqx_ds:tx_read(
             #{db => ?DB, shard => Shard, generation => Generation},
             [?top_guard, ClientId]
         )
@@ -387,7 +387,7 @@ pmap_commit(
 -spec pmap_restore(atom(), emqx_ds:rank_x(), emqx_persistent_session_ds:id()) ->
     emqx_persistent_session_ds_state:pmap(_, _).
 pmap_restore(Name, Shard, ClientId) ->
-    Cache = emqx_ds:fold_topic(
+    Cache = emqx_ds:tx_fold_topic(
         fun(_Slab, _Stream, _DSKey, {Topic, Payload}, Acc) ->
             KeyBin = lists:last(Topic),
             {Key, Val} = deser_pmap_kv(Name, KeyBin, Payload),
