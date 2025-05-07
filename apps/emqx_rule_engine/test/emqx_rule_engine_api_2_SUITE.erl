@@ -124,7 +124,9 @@ create_rule(Overrides) ->
     Res = request(Method, Path, Params),
     case emqx_mgmt_api_test_util:simplify_result(Res) of
         {201, #{<<"id">> := RuleId}} = SRes ->
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+            on_exit(fun() ->
+                {ok, _} = emqx_conf:remove([rule_engine, rules, RuleId], #{override_to => cluster})
+            end),
             SRes;
         SRes ->
             SRes
@@ -510,6 +512,50 @@ t_rule_test_smoke(_Config) ->
     ?assertEqual([], FailedCases),
     ok.
 
+%% Checks the behavior of MQTT wildcards when used with events (`$events/#`,
+%% `$events/sys/+`, etc.).
+t_rule_test_wildcards(_Config) ->
+    Cases = [
+        #{
+            expected => #{code => 200},
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"event_type">> => <<"alarm_activated">>,
+                            <<"name">> => <<"alarm_name">>,
+                            <<"details">> => #{
+                                <<"some_key_that_is_not_a_known_atom">> => <<"yes">>
+                            },
+                            <<"message">> => <<"boom">>,
+                            <<"activated_at">> => 1736512728666
+                        },
+                    <<"sql">> => <<"SELECT\n  *\nFROM\n  \"$events/sys/+\"">>
+                }
+        },
+        #{
+            expected => #{code => 200},
+            input =>
+                #{
+                    <<"context">> =>
+                        #{
+                            <<"event_type">> => <<"alarm_deactivated">>,
+                            <<"name">> => <<"alarm_name">>,
+                            <<"details">> => #{
+                                <<"some_key_that_is_not_a_known_atom">> => <<"yes">>
+                            },
+                            <<"message">> => <<"boom">>,
+                            <<"activated_at">> => 1736512728666,
+                            <<"deactivated_at">> => 1736512728966
+                        },
+                    <<"sql">> => <<"SELECT\n  *\nFROM\n  \"$events/sys/+\"">>
+                }
+        }
+    ],
+    FailedCases = lists:filtermap(fun do_t_rule_test_smoke/1, Cases),
+    ?assertEqual([], FailedCases),
+    ok.
+
 %% validate check_schema is function with bad content_type
 t_rule_test_with_bad_content_type(_Config) ->
     Params =
@@ -673,7 +719,7 @@ t_create_rule_with_null_id(_Config) ->
     ok.
 
 %% Smoke tests for `$events/sys/alarm_activated' and `$events/sys/alarm_deactivated'.
-t_alarm_events(_Config) ->
+t_alarm_events(Config) ->
     TestPidBin = list_to_binary(pid_to_list(self())),
     {201, _} = create_rule(#{
         <<"id">> => <<"alarms">>,
@@ -689,6 +735,65 @@ t_alarm_events(_Config) ->
             }
         ]
     }),
+    do_t_alarm_events(Config).
+
+%% Smoke tests for `$events/sys/+'.
+t_alarm_events_plus(Config) ->
+    TestPidBin = list_to_binary(pid_to_list(self())),
+    {201, _} = create_rule(#{
+        <<"id">> => <<"alarms">>,
+        <<"sql">> => iolist_to_binary([
+            <<" select * from ">>,
+            <<" \"$events/sys/+\" ">>
+        ]),
+        <<"actions">> => [
+            #{
+                <<"function">> => <<?MODULE_STRING, ":spy_action">>,
+                <<"args">> => #{<<"pid">> => TestPidBin}
+            }
+        ]
+    }),
+    do_t_alarm_events(Config).
+
+%% Smoke tests for `$events/#'.
+t_alarm_events_hash(Config) ->
+    TestPidBin = list_to_binary(pid_to_list(self())),
+    RuleId = <<"alarms_hash">>,
+    {201, _} = create_rule(#{
+        <<"id">> => RuleId,
+        <<"sql">> => iolist_to_binary([
+            <<" select * from ">>,
+            <<" \"$events/#\" ">>
+        ]),
+        <<"actions">> => [
+            #{
+                <<"function">> => <<?MODULE_STRING, ":spy_action">>,
+                <<"args">> => #{<<"pid">> => TestPidBin}
+            }
+        ]
+    }),
+    do_t_alarm_events(Config),
+    %% Message publish shouldn't match `$events/#`, but can match other events such as
+    %% `$events/message_dropped`.
+    emqx:publish(emqx_message:make(<<"t">>, <<"hey">>)),
+    ?assertReceive(
+        {rule_called, #{
+            selected := #{event := 'message.dropped'},
+            envs := #{
+                metadata := #{
+                    matched := <<"$events/#">>,
+                    trigger := <<"$events/message_dropped">>
+                }
+            }
+        }}
+    ),
+    {ok, _} = emqx_conf:remove([rule_engine, rules, RuleId], #{override_to => cluster}),
+    %% Shouldn't match anymore.
+    emqx:publish(emqx_message:make(<<"t">>, <<"hey">>)),
+    ?assertNotReceive({rule_called, _}),
+    ok.
+
+do_t_alarm_events(_Config) ->
     AlarmName = <<"some_alarm">>,
     Details = #{more => details},
     Message = [<<"some">>, $\s | [<<"io">>, "list"]],

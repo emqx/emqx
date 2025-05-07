@@ -300,7 +300,7 @@ init_per_testcase(t_events, Config) ->
                     args => #{}
                 }
             ],
-            description => <<"to console and record triggered events">>
+            description => <<"to print and record triggered events">>
         }
     ),
     ?assertMatch(#{id := <<"rule:t_events">>}, Rule),
@@ -4180,7 +4180,7 @@ make_simple_rule(RuleId, SQL, Ts) when is_binary(RuleId) ->
     }.
 
 action_record_triggered_events(Data = #{event := EventName}, _Envs, _Args) ->
-    ct:pal("applying action_record_triggered_events: ~p", [Data]),
+    ct:pal("applying action_record_triggered_events:\n  ~p", [Data]),
     ets:insert(events_record_tab, {EventName, Data}).
 
 verify_event(EventName) ->

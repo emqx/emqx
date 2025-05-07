@@ -236,10 +236,10 @@ get_rules_for_topic(Topic) ->
 
 -spec get_rules_with_same_event(Topic :: binary()) -> [rule()].
 get_rules_with_same_event(Topic) ->
-    EventName = emqx_rule_events:event_name(Topic),
     [
         Rule
      || Rule = #{from := From} <- get_rules(),
+        EventName <- emqx_rule_events:match_event_names(Topic),
         lists:any(fun(T) -> is_of_event_name(EventName, T) end, From)
     ].
 
