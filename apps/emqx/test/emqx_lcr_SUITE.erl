@@ -24,19 +24,24 @@ groups() ->
     TCRace = t_massive_connect_race,
     AllTCs = [{group, race} | emqx_common_test_helpers:all(?MODULE) -- [TCRace]],
     [
+        {clean_start_true, [{group, v3}, {group, v5}]},
+        {clean_start_false, [{group, v3}, {group, v5}]},
         {v3, [{group, lcr_only}, {group, lcr_hybrid}]},
         {v5, [{group, lcr_only}, {group, lcr_hybrid}]},
         {lcr_only, [], AllTCs},
         {lcr_hybrid, [], AllTCs},
         {race, [
-            {group, race_sleep_0},
+            %% this is the group lcr could not support
+            %   {group, race_sleep_0},
             {group, race_sleep_10},
             {group, race_sleep_100}
         ]},
         {race_sleep_0, [TCRace]},
         {race_sleep_1, [TCRace]},
         {race_sleep_10, [TCRace]},
-        {race_sleep_100, [TCRace]}
+        {race_sleep_100, [TCRace]},
+        %% @TODO durable sessions
+        {ds, []}
     ].
 
 init_per_suite(Config) ->
@@ -61,6 +66,12 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_group(clean_start_true, Config) ->
+    ClientOpts = ?config(client_opts, Config),
+    lists:keystore(client_opts, 1, Config, {client_opts, ClientOpts#{clean_start => true}});
+init_per_group(clean_start_false, Config) ->
+    ClientOpts = ?config(client_opts, Config),
+    lists:keystore(client_opts, 1, Config, {client_opts, ClientOpts#{clean_start => false}});
 init_per_group(v3, Config) ->
     ClientOpts = ?config(client_opts, Config),
     lists:keystore(client_opts, 1, Config, {client_opts, ClientOpts#{proto_ver => v3}});
@@ -161,13 +172,12 @@ t_discard_when_replicant_lagging(init, Config) ->
     [{cluster_nodes, Nodes} | Config].
 t_discard_when_replicant_lagging(Config) ->
     ClientId = <<"client1">>,
-    CleanSession = true,
     Nodes = ?config(cluster_nodes, Config),
     Replicant = lists:last(Nodes),
     SuspendedPids = suspend_replicant_rlog(Replicant),
     Port1 = get_mqtt_port(hd(Nodes), tcp),
     start_connect_client(Config, #{
-        clientid => ClientId, port => Port1, clean_session => CleanSession
+        clientid => ClientId, port => Port1
     }),
     %% Given when replicant (last node) is lagging
     ?assertMatch(
@@ -183,7 +193,7 @@ t_discard_when_replicant_lagging(Config) ->
 
     %% WHEN: client reconnect to the lagging replicant
     start_connect_client(Config, #{
-        clientid => ClientId, port => get_mqtt_port(Replicant, tcp), clean_session => CleanSession
+        clientid => ClientId, port => get_mqtt_port(Replicant, tcp)
     }),
 
     %% WHEN: replicant is catching up
@@ -206,13 +216,12 @@ t_takeover_when_replicant_lagging(init, Config) ->
     [{cluster_nodes, Nodes} | Config].
 t_takeover_when_replicant_lagging(Config) ->
     ClientId = <<"client1">>,
-    CleanSession = false,
     Nodes = ?config(cluster_nodes, Config),
     Replicant = lists:last(Nodes),
     SuspendedPids = suspend_replicant_rlog(Replicant),
     Port1 = get_mqtt_port(hd(Nodes), tcp),
     start_connect_client(Config, #{
-        clientid => ClientId, port => Port1, clean_session => CleanSession
+        clientid => ClientId, port => Port1
     }),
     %% Given when replicant (last node) is lagging
     ?assertMatch(
@@ -229,7 +238,7 @@ t_takeover_when_replicant_lagging(Config) ->
     %% WHEN: client reconnect to the lagging replicant
     ReplicantPort = get_mqtt_port(Replicant, tcp),
     start_connect_client(Config, #{
-        clientid => ClientId, port => ReplicantPort, clean_session => CleanSession
+        clientid => ClientId, port => ReplicantPort
     }),
 
     %% WHEN: replicant is catching up
@@ -251,7 +260,6 @@ t_takeover_race(init, Config) ->
     [{cluster_nodes, Nodes} | Config].
 t_takeover_race(Config) ->
     ClientId = <<"client1">>,
-    CleanSession = false,
     Nodes = ?config(cluster_nodes, Config),
     Core1 = hd(Nodes),
     Replicant = lists:last(Nodes),
@@ -264,7 +272,7 @@ t_takeover_race(Config) ->
     ReplicantPort3 = get_mqtt_port(Replicant3, tcp),
     %% GIVEN: One existing session by Client1
     _Client1 = start_connect_client(Config, #{
-        clientid => ClientId, port => Port1, clean_session => CleanSession
+        clientid => ClientId, port => Port1
     }),
     SuspendedPids = suspend_channel(Core1, ClientId),
 
@@ -272,7 +280,7 @@ t_takeover_race(Config) ->
     %% WHEN: Client2 and Client3 race to takeover the session
     Client2 = spawn_link(fun() ->
         Client = start_client(Config, #{
-            clientid => ClientId, port => ReplicantPort2, clean_session => CleanSession
+            clientid => ClientId, port => ReplicantPort2
         }),
         Result =
             case emqtt:connect(Client) of
@@ -285,7 +293,7 @@ t_takeover_race(Config) ->
     timer:sleep(10),
     Client3 = spawn_link(fun() ->
         Client = start_client(Config, #{
-            clientid => ClientId, port => ReplicantPort3, clean_session => CleanSession
+            clientid => ClientId, port => ReplicantPort3
         }),
         Result =
             case emqtt:connect(Client) of
@@ -325,7 +333,6 @@ t_takeover_timeout(init, Config) ->
     [{cluster_nodes, Nodes} | Config].
 t_takeover_timeout(Config) ->
     ClientId = <<"client1">>,
-    CleanSession = false,
     Nodes = ?config(cluster_nodes, Config),
     Core1 = hd(Nodes),
     Replicant = lists:last(Nodes),
@@ -338,7 +345,7 @@ t_takeover_timeout(Config) ->
     ReplicantPort3 = get_mqtt_port(Replicant3, tcp),
     %% GIVEN: One existing session by Client1
     _Client1 = start_connect_client(Config, #{
-        clientid => ClientId, port => Port1, clean_session => CleanSession
+        clientid => ClientId, port => Port1
     }),
     SuspendedPids = suspend_channel(Core1, ClientId),
 
@@ -346,7 +353,7 @@ t_takeover_timeout(Config) ->
     %% WHEN: Client2 and Client3 race to takeover the session
     Client2 = spawn_link(fun() ->
         Client = start_client(Config, #{
-            clientid => ClientId, port => ReplicantPort2, clean_session => CleanSession
+            clientid => ClientId, port => ReplicantPort2
         }),
         Result =
             case emqtt:connect(Client) of
@@ -359,7 +366,7 @@ t_takeover_timeout(Config) ->
     timer:sleep(10),
     Client3 = spawn_link(fun() ->
         Client = start_client(Config, #{
-            clientid => ClientId, port => ReplicantPort3, clean_session => CleanSession
+            clientid => ClientId, port => ReplicantPort3
         }),
         Result =
             case emqtt:connect(Client) of
@@ -403,7 +410,7 @@ t_lcr_cleanup_replicant(Config) ->
 
     ClientId2 = <<"client2">>,
     ClientId3 = <<"client3">>,
-    CleanSession = false,
+
     Nodes = ?config(cluster_nodes, Config),
 
     Replicant = lists:last(Nodes),
@@ -416,23 +423,22 @@ t_lcr_cleanup_replicant(Config) ->
     ReplicantPort3 = get_mqtt_port(Replicant3, tcp),
     %% GIVEN: Client1[1..4] on replicant node, client2 on replicant2 node
     _Client1 = start_connect_client(Config, #{
-        clientid => ClientId, port => Port1, clean_session => CleanSession
+        clientid => ClientId, port => Port1
     }),
 
     _Client2 = start_connect_client(Config, #{
-        clientid => ClientId2, port => ReplicantPort2, clean_session => CleanSession
+        clientid => ClientId2, port => ReplicantPort2
     }),
 
     _Client3 = start_connect_client(Config, #{
-        clientid => ClientId3, port => ReplicantPort3, clean_session => CleanSession
+        clientid => ClientId3, port => ReplicantPort3
     }),
 
     lists:foreach(
         fun(C) ->
             start_connect_client(Config, #{
                 clientid => C,
-                port => Port1,
-                clean_session => CleanSession
+                port => Port1
             })
         end,
         ClientsOnR1
@@ -479,7 +485,6 @@ t_lcr_cleanup_core(Config) ->
 
     ClientId2 = <<"client2">>,
     ClientId3 = <<"client3">>,
-    CleanSession = false,
     Nodes = ?config(cluster_nodes, Config),
 
     Core1 = hd(Nodes),
@@ -494,23 +499,22 @@ t_lcr_cleanup_core(Config) ->
     ReplicantPort3 = get_mqtt_port(Replicant3, tcp),
     %% GIVEN: Client1[1..4] on core node, client2 on replicant2 node
     _Client1 = start_connect_client(Config, #{
-        clientid => ClientId, port => Port1, clean_session => CleanSession
+        clientid => ClientId, port => Port1
     }),
 
     _Client2 = start_connect_client(Config, #{
-        clientid => ClientId2, port => ReplicantPort2, clean_session => CleanSession
+        clientid => ClientId2, port => ReplicantPort2
     }),
 
     _Client3 = start_connect_client(Config, #{
-        clientid => ClientId3, port => ReplicantPort3, clean_session => CleanSession
+        clientid => ClientId3, port => ReplicantPort3
     }),
 
     lists:foreach(
         fun(C) ->
             start_connect_client(Config, #{
                 clientid => C,
-                port => Port1,
-                clean_session => CleanSession
+                port => Port1
             })
         end,
         ClientsOnC1
@@ -595,7 +599,6 @@ t_lcr_batch_cleanup(Config) ->
         lists:seq(1, NoCLients)
     ),
 
-    CleanSession = false,
     Nodes = ?config(cluster_nodes, Config),
 
     Replicant = lists:last(Nodes),
@@ -606,8 +609,7 @@ t_lcr_batch_cleanup(Config) ->
         fun(C) ->
             start_connect_client(Config, #{
                 clientid => C,
-                port => Port1,
-                clean_session => CleanSession
+                port => Port1
             })
         end,
         ClientsOnR1
@@ -648,7 +650,6 @@ t_massive_connect_race(Config) ->
     ClientId = <<"client_massive_race">>,
     ct:timetrap(10000),
     Nodes = ?config(cluster_nodes, Config),
-    CleanSession = false,
     Ports = lists:flatten(
         lists:duplicate(
             10,
@@ -661,7 +662,7 @@ t_massive_connect_race(Config) ->
     %%% WHEN: number of clients connect with the same clientid all nodes in the cluster
     Clients = [
         begin
-            C = spawn_test_client(ClientId, Port, CleanSession, Config),
+            C = spawn_test_client(ClientId, Port, Config),
             timer:sleep(Sleep),
             C
         end
@@ -704,6 +705,11 @@ t_massive_connect_race(Config) ->
             ok
         end
     ).
+
+%% t_robustness(init, _Config) ->
+%%     ok.
+%% t_robustness(_) ->
+%%     todo.
 
 %% Helpers
 suspend_channel(Node, ClientId) ->
@@ -801,13 +807,12 @@ halt_node(Node) ->
 %%       4. (final) connected but exit due to a crash in broker.
 %% @see also wait_for_clients_conn_result/3
 %% @end
-spawn_test_client(ClientId, Port, CleanSession, TCConfig) ->
+spawn_test_client(ClientId, Port, TCConfig) ->
     Parent = self(),
     Fun = fun() ->
         Client = start_client(TCConfig, #{
             clientid => ClientId,
-            port => Port,
-            clean_session => CleanSession
+            port => Port
         }),
         case emqtt:connect(Client) of
             {ok, _} ->

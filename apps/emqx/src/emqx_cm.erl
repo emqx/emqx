@@ -191,13 +191,7 @@ register_channel(ClientId, ChanPid, ConnInfo) when
     %% Note that: It maybe be called in a locked transaction.
     Chan = {ClientId, ChanPid},
     ok = emqx_cm_registry:register_channel(Chan),
-    case emqx_lcr:is_enabled() of
-        true ->
-            %% skip local register_channel_local
-            ok;
-        false ->
-            register_channel_local(ClientId, ChanPid, ConnInfo)
-    end.
+    register_channel_local(ClientId, ChanPid, ConnInfo).
 
 register_channel_local(ClientId, ChanPid, #{conn_mod := ConnMod, trpt_started_at := Vsn}) when
     is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
@@ -570,10 +564,13 @@ handle_stepdown_exception(Err, Reason, St, ConnMod, Pid, Action) ->
             ?tp(debug, "session_already_killed", Meta),
             {error, noproc};
         timeout ->
+            %% @FIXME: doesn't look correct.
+            %%  timeout could be caused by slow dist port or slow peer.
+            %%  So it cannot just be an issue on peer Pid.
+            %%  For LCR, we don't really need to kill it.
             ?tp(warning, "session_stepdown_request_timeout", Meta#{
                 stale_channel => stale_channel_info(Pid)
             }),
-            %% @FIXME: if Pid holds the Ekka lock, it leaves the lock in the cluster
             _ = exit(Pid, kill),
             {error, timeout};
         _ ->
@@ -772,18 +769,26 @@ lookup_channels(ClientId) ->
 -spec lookup_channels(local | global, emqx_types:clientid()) -> list(chan_pid()).
 lookup_channels(global, ClientId) ->
     case {emqx_cm_registry:is_enabled(), emqx_lcr:is_enabled()} of
-        {_, true} ->
-            lists:map(
-                fun emqx_lcr:ch_pid/1,
-                emqx_lcr:lookup_channels_d(ClientId)
-            );
+        {false, true} ->
+            lookup_lcr_channels(ClientId);
         {true, false} ->
             emqx_cm_registry:lookup_channels(ClientId);
+        {true, true} ->
+            lists:usort(
+                lookup_lcr_channels(ClientId) ++
+                    emqx_cm_registry:lookup_channels(ClientId)
+            );
         {false, false} ->
             lookup_channels(local, ClientId)
     end;
 lookup_channels(local, ClientId) ->
     [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, ClientId)].
+
+lookup_lcr_channels(ClientId) ->
+    lists:map(
+        fun emqx_lcr:ch_pid/1,
+        emqx_lcr:lookup_channels_d(ClientId)
+    ).
 
 -spec lookup_client(
     {clientid, emqx_types:clientid()}
