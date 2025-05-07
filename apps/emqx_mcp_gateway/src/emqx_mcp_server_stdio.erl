@@ -17,14 +17,13 @@
 -module(emqx_mcp_server_stdio).
 -include_lib("emqx/include/logger.hrl").
 
+-behaviour(emqx_mcp_server).
+
 -export([
     connect_server/1,
     unpack/2,
+    send_msg/2,
     handle_close/1
-]).
-
--export([
-    send_msg/2
 ]).
 
 -define(LINE_BYTES, 4096).

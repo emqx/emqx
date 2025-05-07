@@ -22,7 +22,7 @@
 
 start(_StartType, _StartArgs) ->
     Ret = emqx_mcp_gateway_sup:start_link(),
-    case emqx_conf:get([mcp], #{enable => false}) of
+    case emqx:get_config([mcp], #{enable => false}) of
         #{enable := true} -> emqx_mcp_gateway:enable();
         _ -> ok
     end,

@@ -138,17 +138,28 @@ on_message_publish(
             Credentials = #{username => maps:get(username, Headers, undefined)},
             send_initialize_request(Id, ServerName, McpClientId, Credentials, RawInitReq);
         {ok, #{type := json_rpc_request, method := Method, id := Id}} ->
-            emqx_mcp_message:json_rpc_error(
+            ErrMsg = emqx_mcp_message:json_rpc_error(
                 Id,
-                ?ERR_CODE(?ERR_UNEXPECTED_METHOD),
+                ?ERR_C_UNEXPECTED_METHOD,
                 ?ERR_UNEXPECTED_METHOD,
                 #{expected => <<"initialize">>, received => Method}
+            ),
+            emqx_mcp_message:publish_mcp_server_message(
+                ServerName, McpClientId, rpc, #{}, ErrMsg
             );
         {ok, Msg} ->
             ?SLOG(error, #{msg => unsupported_mcp_server_msg, rpc_msg => Msg});
         {error, #{reason := Reason} = Details} ->
             D = maps:remove(reason, Details),
-            emqx_mcp_message:json_rpc_error(0, ?ERR_CODE(Reason), Reason, D)
+            ErrCode =
+                case Reason of
+                    ?ERR_INVALID_JSON -> ?ERR_C_INVALID_JSON;
+                    ?ERR_MALFORMED_JSON_RPC -> ?ERR_C_MALFORMED_JSON_RPC
+                end,
+            ErrMsg = emqx_mcp_message:json_rpc_error(0, ErrCode, Reason, D),
+            emqx_mcp_message:publish_mcp_server_message(
+                ServerName, McpClientId, rpc, #{}, ErrMsg
+            )
     end,
     {ok, Message};
 on_message_publish(
@@ -219,7 +230,12 @@ on_message_publish(Message) ->
     {ok, Message}.
 
 on_session_subscribed(_, <<"$mcp-server/presence/", ServerIdAndName/binary>> = _Topic, _SubOpts) ->
-    {_, ServerNameFilter} = split_id_and_server_name(ServerIdAndName),
+    {_, ServerNameFilter} =
+        case string:split(ServerIdAndName, <<"/">>) of
+            [Id, ServerName] -> {Id, ServerName};
+            [ServerName] -> {undefined, ServerName};
+            _ -> throw({error, {invalid_server_name_filter, ServerIdAndName}})
+        end,
     maps:foreach(
         fun(_, #{enable := true, server_name := ServerName} = ServerConf) ->
             case emqx_topic:match(ServerName, ServerNameFilter) of

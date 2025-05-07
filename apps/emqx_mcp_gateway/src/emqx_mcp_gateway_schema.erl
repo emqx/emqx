@@ -201,5 +201,13 @@ validate_env(Env) when is_map(Env) ->
 
 desc(mcp) ->
     "MCP Gateway configuration";
+desc(broker_suggested_server_name) ->
+    "Broker suggested server name configuration";
+desc(stdio_server) ->
+    "STDIO server configuration";
+desc(http_server) ->
+    "HTTP server configuration";
+desc(internal_server) ->
+    "Internal server configuration";
 desc(_) ->
     undefined.

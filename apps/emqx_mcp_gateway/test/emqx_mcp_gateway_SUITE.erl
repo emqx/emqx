@@ -23,10 +23,38 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(SERVER_NAME, <<"test/calculator">>).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
+%%========================================================================
+%% Init
+%%========================================================================
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_mcp_gateway], #{
+    DataDir = ?config(data_dir, Config),
+    emqx_config:put(
+        [mcp],
+        #{
+            enable => true,
+            broker_suggested_server_name => #{
+                enable => true,
+                bootstrap_file => filename:join([DataDir, <<"server_names.csv">>])
+            },
+            servers => #{
+                calc => #{
+                    args => [
+                        filename:join([DataDir, <<"calculator.py">>])
+                    ],
+                    env => #{},
+                    command => <<"/tmp/venv-mcp/bin/python3">>,
+                    enable => true,
+                    server_name => ?SERVER_NAME,
+                    server_type => stdio
+                }
+            }
+        }
+    ),
+    Apps = emqx_cth_suite:start([emqx, emqx_ctl, emqx_mcp_gateway], #{
         work_dir => emqx_cth_suite:work_dir(Config)
     }),
     [{apps, Apps} | Config].
@@ -34,64 +62,135 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
+%%========================================================================
+%% Test cases
+%%========================================================================
 t_mcp_normal_msg_flow(_) ->
     true = emqx:is_running(node()),
-    {ok, C} = emqtt:start_link([{host, "localhost"}, {clientid, "myclient"}]),
+    McpClientId = <<"myclient">>,
+    {ok, C} = emqtt:start_link([
+        {host, "localhost"},
+        {clientid, McpClientId},
+        {proto_ver, v5}
+    ]),
     {ok, _} = emqtt:connect(C),
-    ClientId = <<"myclient">>,
-    Payload = <<"Hello World">>,
-    Topic = <<"mytopic">>,
-    Topic1 = <<"mytopic1">>,
-    Topic2 = <<"mytopic2">>,
-    Topic3 = <<"mytopic3">>,
-    emqx:subscribe(Topic, ClientId),
-    emqx:subscribe(Topic1, ClientId, #{qos => 1}),
-    emqx:subscribe(Topic2, ClientId, #{qos => 2}),
-    ct:sleep(100),
-    ?assertEqual([Topic2, Topic1, Topic], emqx:topics()),
-    ?assertEqual([self()], emqx:subscribers(Topic)),
-    ?assertEqual([self()], emqx:subscribers(Topic1)),
-    ?assertEqual([self()], emqx:subscribers(Topic2)),
 
-    ?assertEqual(
-        [
-            {Topic, #{nl => 0, qos => 0, rap => 0, rh => 0, subid => ClientId}},
-            {Topic1, #{nl => 0, qos => 1, rap => 0, rh => 0, subid => ClientId}},
-            {Topic2, #{nl => 0, qos => 2, rap => 0, rh => 0, subid => ClientId}}
-        ],
-        emqx:subscriptions(self())
+    %% Subscribe to the server presence topic
+    {ok, _, [1]} = emqtt:subscribe(C, <<"$mcp-server/presence/#">>, qos1),
+    ct:sleep(100),
+    {ServerId, ServerName} =
+        receive
+            {publish, Msg} ->
+                verify_server_presence_payload(maps:get(payload, Msg)),
+                <<"$mcp-server/presence/", SidName/binary>> = maps:get(topic, Msg),
+                split_id_and_server_name(SidName);
+            Msg ->
+                ct:fail({got_unexpected_message, Msg})
+        after 100 ->
+            ct:fail(no_message)
+        end,
+    ?assertEqual(?SERVER_NAME, ServerName),
+    RpcTopic = <<"$mcp-rpc-endpoint/", McpClientId/binary, "/", ServerName/binary>>,
+
+    %% Subscribe to the RPC topic
+    % dbg:tracer(),
+    % dbg:p(all, c),
+    % dbg:tpl(emqtt, parse_subopt, 1, cx),
+    {ok, _, [1]} = emqtt:subscribe(C, #{}, [{RpcTopic, [{qos, qos1}, {nl, true}]}]),
+    %% Initialize with the server
+    InitRequest = emqx_mcp_message:initialize_request(
+        #{
+            <<"name">> => <<"testClient">>,
+            <<"version">> => <<"1.0.0">>
+        },
+        #{
+            sampling => #{}, roots => #{listChanged => true}
+        }
     ),
-    ?assertEqual(true, emqx:subscribed(self(), Topic)),
-    ?assertEqual(true, emqx:subscribed(ClientId, Topic)),
-    ?assertEqual(true, emqx:subscribed(self(), Topic1)),
-    ?assertEqual(true, emqx:subscribed(ClientId, Topic1)),
-    ?assertEqual(true, emqx:subscribed(self(), Topic2)),
-    ?assertEqual(true, emqx:subscribed(ClientId, Topic2)),
-    ?assertEqual(false, emqx:subscribed(self(), Topic3)),
-    ?assertEqual(false, emqx:subscribed(ClientId, Topic3)),
-    emqx:publish(emqx_message:make(Topic, Payload)),
+    InitTopic = <<"$mcp-server/", ServerId/binary, "/", ServerName/binary>>,
+    emqtt:publish(C, InitTopic, InitRequest, qos1),
     receive
-        {deliver, Topic, #message{payload = Payload}} ->
-            ok
+        {publish, Msg1} ->
+            ?assertEqual(RpcTopic, maps:get(topic, Msg1)),
+            verify_initialize_response(maps:get(payload, Msg1));
+        Msg1 ->
+            ct:fail({got_unexpected_message, Msg1})
     after 100 ->
-        ct:fail("no_message")
+        ct:fail(no_message)
     end,
-    emqx:publish(emqx_message:make(Topic1, Payload)),
+
+    %% Send the initialized notification
+    InitNotif = emqx_mcp_message:initialized_notification(),
+    emqtt:publish(C, RpcTopic, InitNotif, qos1),
+
+    %% List tools
+    ListToolsRequest = emqx_mcp_message:json_rpc_request(2, <<"tools/list">>, #{}),
+    emqtt:publish(C, RpcTopic, ListToolsRequest, qos1),
     receive
-        {deliver, Topic1, #message{payload = Payload}} ->
-            ok
+        {publish, Msg2} ->
+            ?assertEqual(RpcTopic, maps:get(topic, Msg2)),
+            ?assertMatch(
+                {ok, #{
+                    id := 2,
+                    type := json_rpc_response,
+                    result := #{
+                        <<"tools">> := [
+                            #{
+                                <<"name">> := <<"add">>,
+                                <<"description">> := _,
+                                <<"inputSchema">> := #{}
+                            }
+                        ]
+                    }
+                }},
+                emqx_mcp_message:decode_rpc_msg(maps:get(payload, Msg2))
+            );
+        Msg2 ->
+            ct:fail({got_unexpected_message, Msg2})
     after 100 ->
-        ct:fail("no_message")
+        ct:fail(no_message)
     end,
-    emqx:publish(emqx_message:make(Topic2, Payload)),
-    receive
-        {deliver, Topic2, #message{payload = Payload}} ->
-            ok
-    after 100 ->
-        ct:fail("no_message")
-    end,
-    emqx:unsubscribe(Topic),
-    emqx:unsubscribe(Topic1),
-    emqx:unsubscribe(Topic2),
-    ct:sleep(20),
-    ?assertEqual([], emqx:topics()).
+
+    emqtt:disconnect(C).
+
+%%========================================================================
+%% Helper functions
+%%========================================================================
+split_id_and_server_name(Str) ->
+    %% Split the server ID and name from the topic
+    case string:split(Str, <<"/">>) of
+        [Id, ServerName] -> {Id, ServerName};
+        _ -> throw({error, {invalid_id_and_server_name, Str}})
+    end.
+
+verify_server_presence_payload(Payload) ->
+    Msg = emqx_mcp_message:decode_rpc_msg(Payload),
+    ?assertMatch(
+        {ok, #{type := json_rpc_notification, method := <<"notifications/server/online">>}}, Msg
+    ).
+
+verify_initialize_response(Payload) ->
+    Msg = emqx_mcp_message:decode_rpc_msg(Payload),
+    ?assertMatch(
+        {ok, #{
+            type := json_rpc_response,
+            result := #{
+                <<"capabilities">> := #{
+                    <<"experimental">> := #{},
+                    <<"prompts">> := #{<<"listChanged">> := false},
+                    <<"resources">> :=
+                        #{
+                            <<"listChanged">> := false,
+                            <<"subscribe">> := false
+                        },
+                    <<"tools">> := #{<<"listChanged">> := false}
+                },
+                <<"protocolVersion">> := <<"2024-11-05">>,
+                <<"serverInfo">> := #{
+                    <<"name">> := <<"Calculator">>,
+                    <<"version">> := <<"1.7.1">>
+                }
+            }
+        }},
+        Msg
+    ).

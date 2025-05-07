@@ -1,0 +1,46 @@
+emqx_mcp_gateway_schema {
+
+enable.desc:
+"""Enable the feature."""
+
+broker_suggested_server_name.desc:
+"""~
+Broker suggested server name.
+When the MCP over MQTT server connects to the Broker, the Broker can include a suggested server name in the CONNACK packet using the MCP-SERVER-NAME user property. This allows the MCP server to replace its original server name with the suggested server name.
+This feature can be used to maintain a unified server name structure across the entire system, avoiding issues such as naming conflicts or non-standard naming caused by the MCP server's own server name.~"""
+
+broker_suggested_server_name.label:
+"""Broker suggested server name"""
+
+servers.desc:
+"""MCP servers"""
+
+bootstrap_file.desc:
+"""~
+The preload file for server names. This file is in CSV format, and the server names within it will be loaded into the mnesia table when the MCP Gateway feature is started for the first time. After that, the file will be ignored, and server names can only be managed using the API."""
+
+bootstrap_file.label:
+"""Server name bootstrap file"""
+
+command.desc:
+"""Command line."""
+
+args.desc:
+"""Arguments of the command."""
+
+env.desc:
+"""Additional environment variables for the command."""
+
+module.desc:
+"""Module of the source code."""
+
+server_type.desc:
+"""MCP server type."""
+
+server_name.desc:
+"""MCP server name."""
+
+server_desc.desc:
+"""MCP server description."""
+
+}

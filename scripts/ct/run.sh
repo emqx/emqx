@@ -341,6 +341,11 @@ if [ "$DOCKER_USER" != "root" ]; then
           openssl rand -base64 -hex 16 > /.erlang.cookie && \
           chown $DOCKER_USER /.erlang.cookie && \
           chmod 0400 /.erlang.cookie && \
+          apt install python3-venv -y && \
+          python3 -m venv /tmp/venv-mcp && \
+          source /tmp/venv-mcp/bin/activate && \
+          python3 -m pip install --no-cache-dir --upgrade pip && \
+          python -m pip install "mcp[cli]" && \
           $INSTALL_SQLSERVER_ODBC && \
           $INSTALL_SNOWFLAKE_ODBC" || true
 fi

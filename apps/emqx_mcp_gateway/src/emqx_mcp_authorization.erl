@@ -20,5 +20,7 @@
     get_roles/1
 ]).
 
+get_roles(<<"test_server_name">>) ->
+    {ok, [<<"admin">>]};
 get_roles(_ServerName) ->
     {error, rbac_not_implemented}.

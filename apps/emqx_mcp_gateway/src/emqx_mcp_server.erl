@@ -47,7 +47,7 @@
 
 -type server_name() :: emqx_types:topic().
 -type mcp_client_id() :: emqx_types:clientid().
--type mcp_server_config() :: #{}.
+-type mcp_server_config() :: #{_ => _}.
 -type opts() :: #{}.
 -type config() :: #{
     name := atom(),
@@ -56,6 +56,7 @@
     mod := module(),
     opts => opts()
 }.
+
 -type mcp_msg_type() ::
     initialize
     | initialized
@@ -83,14 +84,25 @@
 -type mcp_state() :: map().
 
 -type loop_data() :: #{
+    name := atom(),
+    server_name := server_name(),
     mod := module(),
     mcp_server_conf := map(),
     opts := opts(),
     pending_requests := pending_requests(),
-    mcp_state := mcp_state(),
-    mcp_client_id := mcp_client_id(),
+    mcp_state => mcp_state(),
+    mcp_client_id => mcp_client_id(),
     init_caller => pid() | undefined
 }.
+
+-callback connect_server(mcp_server_config()) -> {ok, mcp_state()} | {error, Reason :: term()}.
+-callback unpack(mcp_state(), binary()) ->
+    {ok, binary(), mcp_state()}
+    | {more, mcp_state()}
+    | {stop, Reason :: term()}
+    | {error, Reason :: term()}.
+-callback send_msg(mcp_state(), binary()) -> {ok, mcp_state()} | {error, Reason :: term()}.
+-callback handle_close(mcp_state()) -> ok.
 
 -define(CLIENT_INFO, #{
     <<"name">> => <<"emqx-mcp-gateway">>,
@@ -172,8 +184,6 @@ idle(internal, connect_server, #{mod := Mod, mcp_server_conf := ServerConf} = Lo
             ?SLOG(error, #{msg => connect_server_failed, reason => Reason}),
             shutdown(#{error => Reason})
     end;
-idle(_EventType, _Event, _LoopData) ->
-    {keep_state_and_data, []};
 ?handle_common.
 
 -spec server_connected(enter | gen_statem:event_type(), state_name(), loop_data()) ->
@@ -285,13 +295,8 @@ server_initialized(
 server_initialized({call, From}, client_disconnected, #{
     mod := Mod, mcp_state := McpState
 }) ->
-    case Mod:handle_close(McpState) of
-        ok ->
-            {keep_state_and_data, [{reply, From, ok}]};
-        {error, Reason} ->
-            ?SLOG(error, #{msg => close_failed, reason => Reason}),
-            {keep_state_and_data, [{reply, From, {error, Reason}}]}
-    end;
+    Mod:handle_close(McpState),
+    shutdown(#{error => client_disconnected}, [{reply, From, ok}]);
 ?handle_common.
 
 terminate(_Reason, State, #{mod := Mod, mcp_state := McpState} = LoopData) ->
@@ -330,13 +335,15 @@ shutdown(ErrObj) ->
 
 shutdown(#{error := normal}, Actions) ->
     {stop, normal, Actions};
-shutdown(#{error := Error} = ErrObj, Actions) when is_atom(Error) ->
+shutdown(#{error := Error} = ErrObj, Actions) ->
     ?SLOG(warning, ErrObj#{msg => shutdown}),
     {stop, {shutdown, Error}, Actions}.
 
 %%==============================================================================
 %% Authorization
 %%==============================================================================
+authorize(#{username := <<"testuser">>}) ->
+    {error, unauthorized};
 authorize(_Credentials) ->
     ok.
 
