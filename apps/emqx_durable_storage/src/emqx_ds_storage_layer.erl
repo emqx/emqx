@@ -16,7 +16,6 @@
     store_batch/3,
     store_batch/4,
     prepare_batch/3,
-    prepare_kv_tx/6,
     commit_batch/3,
     dispatch_events/3,
 
@@ -81,7 +80,7 @@
 ]).
 
 %% internal exports:
--export([db_dir/1, base_dir/0]).
+-export([db_dir/1, base_dir/0, generation_get/2]).
 
 -export_type([
     gen_id/0,
@@ -486,49 +485,6 @@ batch_starts_at([{delete, #message_matcher{timestamp = Time}} | _]) ->
     Time;
 batch_starts_at([]) ->
     undefined.
-
-%% @doc Transform a transaction into a "cooked batch" that can
-%% be stored in the transaction log or transfered over the network.
--spec prepare_kv_tx(
-    dbshard(),
-    gen_id(),
-    emqx_ds:tx_serial(),
-    emqx_ds:kv_tx_ops(),
-    cooked_batch() | undefined,
-    batch_prepare_opts()
-) ->
-    {ok, cooked_batch()} | emqx_ds:error(_).
-prepare_kv_tx(Shard, GenId, TXSerial, Tx, OldBatch, Options) ->
-    case OldBatch of
-        undefined ->
-            Acc = [];
-        #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := Acc} ->
-            ok
-    end,
-    ?tp(emqx_ds_storage_layer_prepare_kv_tx, #{
-        shard => Shard, generation => GenId, batch => Tx, options => Options
-    }),
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            T0 = erlang:monotonic_time(microsecond),
-            Result =
-                case Mod:prepare_kv_tx(Shard, GenData, TXSerial, Tx, Options) of
-                    {ok, CookedBatch} ->
-                        {ok, #{
-                            ?tag => ?COOKED_BATCH,
-                            ?generation => GenId,
-                            ?enc => [CookedBatch | Acc]
-                        }};
-                    Error = {error, _, _} ->
-                        Error
-                end,
-            T1 = erlang:monotonic_time(microsecond),
-            %% TODO store->prepare
-            emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
-            Result;
-        not_found ->
-            ?err_unrec({storage_not_found, GenId})
-    end.
 
 %% @doc Commit cooked batch to the storage.
 %%

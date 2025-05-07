@@ -41,6 +41,7 @@
 -record(s, {
     dbshard :: emqx_ds_storage_layer:dbshard(),
     serial :: atomics:atomics_ref(),
+    %% Cooked transactions, in reversed order
     buffer = [],
     flush_timer :: undefined | reference()
 }).
@@ -115,7 +116,7 @@ commit_kv_batch(S, Txs) ->
         undefined ->
             ok;
         _ ->
-            ok = emqx_ds_storage_layer:commit_batch(DBShard, CookedBatch, #{list => true})
+            ok = emqx_ds_storage_layer_kv:commit_batch(DBShard, CookedBatch, #{})
     end,
     %% Dispatch events to event subscribers (FIXME):
     %% DispatchF = fun(Events) ->
@@ -153,11 +154,11 @@ prepare_kv_tx(
         ok ?= emqx_ds_storage_layer_tx:verify_preconditions(DB, Ctx, Ops),
         CommitSerial = term_to_binary(new_serial(DBShard, SerRef)),
         {ok, CookedBatch} ?=
-            emqx_ds_storage_layer:prepare_kv_tx(
-                DBShard, GenId, CommitSerial, Ops, CookedBatchAcc, #{}
+            emqx_ds_storage_layer_kv:prepare_kv_tx(
+                DBShard, GenId, CommitSerial, Ops, #{}
             ),
         Reply = ?ds_tx_commit_ok(Ref, Meta, CommitSerial),
-        prepare_kv_tx(S, Rest, CookedBatch, [{From, Reply} | Replies])
+        prepare_kv_tx(S, Rest, [CookedBatch | CookedBatchAcc], [{From, Reply} | Replies])
     else
         {error, Class, Error} ->
             From ! ?ds_tx_commit_error(Ref, Meta, Class, Error),

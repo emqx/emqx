@@ -33,19 +33,30 @@
 -include("emqx_ds.hrl").
 -include("emqx_ds_storage_layer_tx.hrl").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
 
+-type ctrie() :: term().
+
 -opaque ctx() :: #kv_tx_ctx{}.
+
+%% For simplicity we don't support full MQTT topic filtering. Only '#'
+%% type of wildcard is allowed. First '+' encountered is replaced with
+%% '#'.
+-type conflict_domain() :: [binary() | [] | '#'].
 
 %%================================================================================
 %% API functions
 %%================================================================================
 
--spec new_kv_tx_ctx(emqx_ds:db(), emqx_ds:shard(), emqx_ds:transaction_opts(), emqx_ds:time()) ->
+-spec new_kv_tx_ctx(emqx_ds:db(), emqx_ds:shard(), emqx_ds:transaction_opts(), emqx_ds:tx_serial()) ->
     ctx().
-new_kv_tx_ctx(DB, Shard, Options, _Now) ->
+new_kv_tx_ctx(DB, Shard, Options, _Serial) ->
     %% Add current generation as a guard to the context to make sure
     %% the transaction doesn't span multiple generations:
     {Generation, _} = emqx_ds_storage_layer:find_generation({DB, Shard}, current),
@@ -105,3 +116,99 @@ verify_preconditions(DB, #kv_tx_ctx{shard = Shard, generation = Gen}, Ops) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+%% @doc Replace all topic levels in a filter that follow a wildcard
+%% levels with '#'
+-spec topic_filter_to_conflict_domain(emqx_ds:topic_filter()) -> conflict_domain().
+topic_filter_to_conflict_domain(TF) ->
+    tf2cd(TF, []).
+
+tf2cd([], Acc) ->
+    lists:reverse(Acc);
+tf2cd(['#' | _], Acc) ->
+    lists:reverse(['#' | Acc]);
+tf2cd(['+' | _], Acc) ->
+    lists:reverse(['#' | Acc]);
+tf2cd([Const | Rest], Acc) ->
+    tf2cd(Rest, [Const | Acc]).
+
+%% @doc Create a conflict detection trie.
+-spec ctrie_new(emqx_ds:tx_serial()) -> ctrie().
+ctrie_new(_MinSerial) ->
+    error(not_implemented).
+
+%% @doc Insert conflict into the trie
+-spec ctrie_push(conflict_domain(), emqx_ds:tx_serial(), ctrie()) -> ctrie().
+ctrie_push(_CD, _Serial, _Ctrie) ->
+    error(not_implemented).
+
+%% @doc Check for the conflicts in the topic filter. Return `false' if
+%% there is no conflicts or `true' if there is a conflict, or serial
+%% is out of the tracking range.
+-spec ctrie_check(conflict_domain(), emqx_ds:tx_serial(), ctrie()) -> boolean().
+ctrie_check(_TopicFilter, _Serial, _Ctrie) ->
+    error(not_implemented).
+
+%% @doc Trunkate ctrie to the given size by deleting the oldest
+%% entries.
+-spec ctrie_trunk(pos_integer(), ctrie()) -> ctrie().
+ctrie_trunk(Length, _Ctrie) when Length > 0 ->
+    error(not_implemented).
+
+cd_match([], []) ->
+    true;
+cd_match(['#'], _) ->
+    true;
+cd_match(_, ['#']) ->
+    true;
+cd_match([A | L1], [A | L2]) ->
+    cd_match(L1, L2);
+cd_match(_, _) ->
+    false.
+
+%%================================================================================
+%% Tests
+%%================================================================================
+
+-ifdef(TEST).
+
+%% Reference implementation of the collision checker. It's simply the
+%% full list of operations.
+ctref_new(MinSerial) ->
+    {MinSerial, []}.
+
+ctref_push(CD, Serial, {MinSerial, CT0}) ->
+    CT = [{Serial, CD} | CT0],
+    {MinSerial, CT}.
+
+ctref_check(_CD, Serial, {MinSerial, _}) when Serial < MinSerial ->
+    true;
+ctref_check(CD, Serial, {_MinSerial, CT}) ->
+    Matches = [{S, D} || {S, D} <- CT, S >= Serial, cd_match(CD, D)],
+    case Matches of
+        [] ->
+            false;
+        _ ->
+            true
+    end.
+
+ctref_drop(MinSerial, {_, CT0}) ->
+    CT = [{S, D} || {S, D} <- CT0, S >= MinSerial],
+    {MinSerial, CT}.
+
+tf2cd_test() ->
+    ?assertEqual([], topic_filter_to_conflict_domain([])),
+    ?assertEqual(
+        [<<"foo">>, <<"bar">>],
+        topic_filter_to_conflict_domain([<<"foo">>, <<"bar">>])
+    ),
+    ?assertEqual(
+        [<<"foo">>, <<"bar">>],
+        topic_filter_to_conflict_domain([<<"foo">>, <<"bar">>, '+', <<"quux">>])
+    ),
+    ?assertEqual(
+        [<<"1">>, <<"2">>],
+        topic_filter_to_conflict_domain([<<"1">>, <<"2">>, '#'])
+    ).
+
+-endif.

@@ -16,19 +16,21 @@
 -module(emqx_ds_storage_layer_kv).
 
 %% API:
--export([]).
-
-%% behavior callbacks:
--export([]).
+-export([prepare_kv_tx/5, commit_batch/4]).
 
 %% internal exports:
 -export([]).
 
 -export_type([]).
 
+-include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_ds.hrl").
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type cooked_tx() :: term().
 
 -callback create(
     emqx_ds_storage_layer:dbshard(),
@@ -67,12 +69,12 @@
     emqx_ds:kv_tx_ops(),
     emqx_ds_storage_layer:batch_prepare_opts()
 ) ->
-    {ok, term()} | emqx_ds:error(_).
+    {ok, cooked_tx()} | emqx_ds:error(_).
 
 -callback commit_batch(
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
-    _CookedBatch,
+    [cooked_tx()],
     emqx_ds_storage_layer:batch_store_opts()
 ) -> ok | emqx_ds:error(_).
 
@@ -113,6 +115,52 @@
 %%================================================================================
 %% API functions
 %%================================================================================
+
+%% @doc Transform write and delete operations of a transaction into a
+%% "cooked batch" that can be stored in the transaction log or
+%% transfered over the network.
+-spec prepare_kv_tx(
+    emqx_ds_storage_layer:dbshard(),
+    emqx_ds_storage_layer:gen_id(),
+    emqx_ds:tx_serial(),
+    emqx_ds:kv_tx_ops(),
+    emqx_ds_storage_layer:batch_prepare_opts()
+) ->
+    {ok, cooked_tx()} | emqx_ds:error(_).
+prepare_kv_tx(DBShard, GenId, TXSerial, Tx, Options) ->
+    ?tp(emqx_ds_storage_layer_prepare_kv_tx, #{
+        shard => DBShard, generation => GenId, batch => Tx, options => Options
+    }),
+    case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
+        #{module := Mod, data := GenData} ->
+            T0 = erlang:monotonic_time(microsecond),
+            Result = Mod:prepare_kv_tx(DBShard, GenData, TXSerial, Tx, Options),
+            T1 = erlang:monotonic_time(microsecond),
+            %% TODO store->prepare
+            emqx_ds_builtin_metrics:observe_store_batch_time(DBShard, T1 - T0),
+            Result;
+        not_found ->
+            ?err_unrec({storage_not_found, GenId})
+    end.
+
+%% @doc Commit a collection of cooked KV transactions to the storage
+-spec commit_batch(
+    emqx_ds_storage_layer:dbshard(),
+    emqx_ds:generation(),
+    [cooked_tx()],
+    emqx_ds_storage_layer:batch_store_opts()
+) -> emqx_ds:store_batch_result().
+commit_batch(DBShard, GenId, CookedTransactions, Options) ->
+    case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
+        #{module := Mod, data := GenData} ->
+            T0 = erlang:monotonic_time(microsecond),
+            Result = Mod:commit_batch(DBShard, GenData, CookedTransactions, Options),
+            T1 = erlang:monotonic_time(microsecond),
+            emqx_ds_builtin_metrics:observe_store_batch_time(DBShard, T1 - T0),
+            Result;
+        not_found ->
+            ?err_unrec({storage_not_found, GenId})
+    end.
 
 %%================================================================================
 %% behavior callbacks
