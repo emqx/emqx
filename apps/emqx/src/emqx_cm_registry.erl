@@ -64,12 +64,7 @@ start_link() ->
 %% APIs
 %%--------------------------------------------------------------------
 count_local_d() ->
-    try
-        ets:info(?CHAN_REG_TAB, size)
-    catch
-        error:badarg ->
-            0
-    end.
+    mnesia:table_info(?CHAN_REG_TAB, size).
 
 %% @doc Is the global registry enabled?
 -spec is_enabled() -> boolean().

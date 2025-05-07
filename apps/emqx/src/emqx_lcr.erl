@@ -51,6 +51,8 @@ is_enabled() ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+-spec register_channel(emqx_types:clientinfo(), pid(), emqx_types:conninfo()) ->
+    ok | {error, any()}.
 register_channel(
     #{clientid := ClientId, predecessor := CachedMax},
     Pid,
@@ -63,6 +65,8 @@ register_channel(
     },
     do_register_channel(Ch, CachedMax).
 
+-spec unregister_channel({emqx_types:clientid(), pid()}, non_neg_integer()) ->
+    ok.
 unregister_channel({ClientId, ChanPid}, Vsn) ->
     Ch = #lcr_channel{
         id = ClientId,
@@ -72,10 +76,12 @@ unregister_channel({ClientId, ChanPid}, Vsn) ->
     mria:dirty_delete_object(?LCR_TAB, Ch),
     ok.
 
+-spec lookup_channels_d(emqx_types:clientid()) -> [lcr_channel()].
 lookup_channels_d(ClientId) ->
     mnesia:dirty_read(?LCR_TAB, ClientId).
 
 %% @doc dirty read local max channel
+-spec max_channel_d(emqx_types:clientid()) -> option(lcr_channel()).
 max_channel_d(ClientId) ->
     max_channel(lookup_channels_d(ClientId)).
 
@@ -93,22 +99,19 @@ max_channel(Channels) ->
             (_, Max) ->
                 Max
         end,
-        #lcr_channel{vsn = 0},
+        hd(Channels),
         Channels
     ).
 
+-spec ch_pid(option(lcr_channel())) -> option(pid()).
 ch_pid(undefined) ->
     undefined;
 ch_pid(#lcr_channel{pid = Pid}) ->
     Pid.
 
+-spec count_local_d() -> non_neg_integer().
 count_local_d() ->
-    try
-        ets:info(?LCR_TAB, size)
-    catch
-        error:badarg ->
-            0
-    end.
+    mnesia:table_info(?LCR_TAB, size).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -164,6 +167,7 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+-spec maybe_cleanup_channels(node()) -> ok.
 maybe_cleanup_channels(Node) ->
     case if_cleanup_channels(Node) of
         true ->
@@ -175,7 +179,6 @@ maybe_cleanup_channels(Node) ->
     end.
 
 do_cleanup_channels(Node) ->
-    ?tp(warning, lcr_do_cleanup_channels, #{self_node => node()}),
     TS = erlang:system_time(),
     MatchSpec = [
         {
@@ -185,9 +188,11 @@ do_cleanup_channels(Node) ->
         }
     ],
 
+    %% @TODO maybe use mnesia:match_delete/2
     mria:async_dirty(?LCR_SHARD, fun() ->
         do_cleanup_channels_cont(do_cleanup_channels_init(MatchSpec))
-    end).
+    end),
+    ok.
 
 do_cleanup_channels_init(MS) ->
     case mnesia:select(?LCR_TAB, MS, 200, write) of
@@ -221,6 +226,7 @@ do_cleanup_channels_cont(Cont0) ->
         end
     ).
 
+-spec if_cleanup_channels(node()) -> boolean().
 if_cleanup_channels(Node) ->
     case core =:= mria_rlog:role() of
         false ->

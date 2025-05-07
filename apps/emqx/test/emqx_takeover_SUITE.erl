@@ -56,9 +56,6 @@ tc_v5_only() ->
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:clear_screen(),
-    %% dbg:tracer(process, {fun dbg:dhandler/2,group_leader()}),
-    %% dbg:p(all, c),
-    %% dbg:tpl(emqx_cm,cx),
     Config.
 
 end_per_suite(_Config) ->

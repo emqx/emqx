@@ -24,7 +24,7 @@ introduced_in() ->
 all_channels_count(Nodes, Timeout) ->
     erpc:multicall(Nodes, emqx_eviction_agent, all_local_channels_count, [], Timeout).
 
-%% Changed in v4: emqx_types:conninfo().
+%% Changed in v4: emqx_types:conninfo() and emqx_types:conninfo()
 -spec evict_session_channel(
     node(),
     emqx_types:clientid(),
