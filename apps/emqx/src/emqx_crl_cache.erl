@@ -42,7 +42,7 @@
 -define(RETRY_TIMEOUT, 5_000).
 -define(MIN_REFRESH_PERIOD, timer:minutes(1)).
 -endif.
--define(DEFAULT_FAILURE_THRESHOLD, 10).
+-define(DEFAULT_FAILURE_THRESHOLD_MS, 60_000).
 -define(DEFAULT_REFRESH_INTERVAL, timer:minutes(15)).
 -define(DEFAULT_CACHE_CAPACITY, 100).
 -define(CONF_KEY_PATH, [crl_cache]).
@@ -59,7 +59,8 @@
     %% registered.
     cached_urls = sets:new([{version, 2}]) :: sets:set(url()),
     cache_capacity = 100 :: pos_integer(),
-    failures = #{} :: #{url() => pos_integer()},
+    %% Tracks time of first failure in a consecutive run of attempts to fetch.
+    failures = #{} :: #{url() => integer()},
     %% for future use
     extra = #{} :: map()
 }).
@@ -299,7 +300,7 @@ do_handle_refresh(State0, URL) ->
                 url => URL,
                 error => Error
             }),
-            State1 = inc_failure(State0, URL),
+            State1 = ensure_failure_time(State0, URL),
             case is_failure_threshold_exceeded(State1, URL) of
                 true ->
                     ?tp(warning, "crl_cache_evicted_url_due_to_failure_threshold", #{url => URL}),
@@ -317,14 +318,9 @@ do_handle_refresh(State0, URL) ->
             ensure_timer(URL, State1)
     end.
 
-inc_failure(State0, URL) ->
+ensure_failure_time(State0, URL) ->
     #state{failures = Failures0} = State0,
-    Failures = maps:update_with(
-        URL,
-        fun(N) -> N + 1 end,
-        1,
-        Failures0
-    ),
+    Failures = emqx_utils_maps:put_new(URL, now_ms(), Failures0),
     State0#state{failures = Failures}.
 
 clear_failure(State0, URL) ->
@@ -333,11 +329,15 @@ clear_failure(State0, URL) ->
     State0#state{failures = Failures}.
 
 is_failure_threshold_exceeded(State, URL) ->
-    FailureThreshold = emqx:get_config([crl_cache, failure_threshold], ?DEFAULT_FAILURE_THRESHOLD),
+    FailureThreshold = emqx:get_config(
+        [crl_cache, failure_threshold], ?DEFAULT_FAILURE_THRESHOLD_MS
+    ),
     #state{failures = Failures} = State,
-    case Failures of
-        #{URL := N} when N > FailureThreshold ->
-            true;
+    NowMS = now_ms(),
+    maybe
+        {ok, Start} ?= maps:find(URL, Failures),
+        NowMS >= Start + FailureThreshold
+    else
         _ ->
             false
     end.
@@ -346,3 +346,6 @@ to_string(B) when is_binary(B) ->
     binary_to_list(B);
 to_string(L) when is_list(L) ->
     L.
+
+now_ms() ->
+    erlang:system_time(millisecond).

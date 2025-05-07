@@ -125,7 +125,7 @@ init_per_testcase(t_evict_after_failure_threshold = TestCase, Config) ->
             {CRLPem, CRLDer} = read_crl(filename:join(DataDir, "intermediate-not-revoked.crl.pem")),
             ok = meck:new(emqx_crl_cache, [passthrough, no_history, no_link]),
             mock_success_http_response(CRLPem),
-            FailureThreshold = 3,
+            FailureThreshold = <<"1s">>,
             Apps = start_emqx_with_crl_cache(
                 #{
                     is_cached => true,
@@ -179,8 +179,8 @@ init_per_testcase(TestCase, Config) when
     ok = snabbkaffe:start_trace(),
     %% when running emqx standalone tests, we can't use those
     %% features.
-    case does_module_exist(emqx_mgmt) of
-        true ->
+    case emqx_common_test_helpers:is_standalone_test() of
+        false ->
             DataDir = ?config(data_dir, Config),
             CRLFile = filename:join([DataDir, "intermediate-revoked.crl.pem"]),
             {ok, CRLPem} = file:read_file(CRLFile),
@@ -209,7 +209,7 @@ init_per_testcase(TestCase, Config) when
                 {tc_apps, Apps}
                 | Config
             ];
-        false ->
+        true ->
             [{skip_does_not_apply, true} | Config]
     end;
 init_per_testcase(_TestCase, Config) ->
@@ -484,6 +484,9 @@ ensure_ssl_manager_alive() ->
         _Attempts0 = 50,
         true = is_pid(whereis(ssl_manager))
     ).
+
+now_ms() ->
+    erlang:system_time(millisecond).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -1217,7 +1220,6 @@ do_t_update_listener_enable_disable(Config) ->
 %% try and refresh it and flood logs.
 t_evict_after_failure_threshold(Config) ->
     CRLPem = ?config(crl_pem, Config),
-    FailureThreshold = ?config(failure_threshold, Config),
     ct:pal("checking failure threshold crossed"),
     Ref = get_crl_cache_table(),
     ?assertMatch([_], ets:tab2list(Ref)),
@@ -1248,14 +1250,24 @@ t_evict_after_failure_threshold(Config) ->
         ),
     ?assertReceive({http_get, <<?DEFAULT_URL>>}),
     %% Fail just before threshold
-    {ok, Agent} = emqx_utils_agent:start_link(FailureThreshold - 1),
+    {ok, Agent} = emqx_utils_agent:start_link(undefined),
     meck:expect(
         emqx_crl_cache,
         http_get,
         fun(URL, _HTTPTimeout) ->
             TestPid ! {http_get, URL},
-            Remaining = emqx_utils_agent:get_and_update(Agent, fun(N) -> {N, N - 1} end),
-            case Remaining < 0 of
+            FirstFailure = emqx_utils_agent:get_and_update(Agent, fun
+                (undefined) ->
+                    {undefined, now_ms()};
+                (T) ->
+                    {T, T}
+            end),
+            RefreshIntervalMS = 300,
+            FailureThresholdMS = 1_000,
+            case
+                is_integer(FirstFailure) andalso
+                    now_ms() >= FirstFailure + FailureThresholdMS - RefreshIntervalMS
+            of
                 true ->
                     TestPid ! succeeded,
                     {ok, {{"HTTP/1.0", 200, "OK"}, [], CRLPem}};
@@ -1265,13 +1277,16 @@ t_evict_after_failure_threshold(Config) ->
             end
         end
     ),
-    lists:foreach(fun(_) -> ?assertReceive(failed) end, lists:seq(1, FailureThreshold)),
+    %% At least one failure before succeeding
+    ?assertReceive(failed),
+    ?assertReceive(succeeded, 2_000),
     ?assertReceive(succeeded),
-    ?assertReceive(succeeded),
+    _ = ?drainMailbox(),
     %% Can fail again
-    emqx_utils_agent:get_and_update(Agent, fun(_N) -> {unused, FailureThreshold - 1} end),
-    lists:foreach(fun(_) -> ?assertReceive(failed) end, lists:seq(1, FailureThreshold)),
+    emqx_utils_agent:get_and_update(Agent, fun(_N) -> {unused, undefined} end),
+    ?assertReceive(failed),
+    ?assertReceive(succeeded, 2_000),
     ?assertReceive(succeeded),
-    ?assertReceive(succeeded),
+    _ = ?drainMailbox(),
 
     ok.

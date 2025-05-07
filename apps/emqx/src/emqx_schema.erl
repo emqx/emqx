@@ -579,9 +579,9 @@ fields("crl_cache") ->
             )},
         {failure_threshold,
             sc(
-                pos_integer(),
+                duration_ms(),
                 #{
-                    default => 10,
+                    default => <<"60s">>,
                     desc => ?DESC("crl_cache_failure_threshold")
                 }
             )},
