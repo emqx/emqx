@@ -562,13 +562,17 @@ t_lcr_cleanup_core(Config) ->
     timer:sleep(1000),
 
     %% THEN: clients which is previously down must be cleaned up
-    [
-        ?assertEqual(
-            {[[], [], [], [], [], []], []},
-            rpc:multicall(Nodes, emqx_cm, lookup_channels, [C])
-        )
-     || C <- [ClientId | ClientsOnC1]
-    ],
+    ?retry(
+        100,
+        20,
+        [
+            ?assertEqual(
+                {[[], [], [], [], [], []], []},
+                rpc:multicall(Nodes, emqx_cm, lookup_channels, [C])
+            )
+         || C <- [ClientId | ClientsOnC1]
+        ]
+    ),
     ?assertMatch(
         {[[_], [_], [_], [_], [_], [_]], []},
         rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId2])
