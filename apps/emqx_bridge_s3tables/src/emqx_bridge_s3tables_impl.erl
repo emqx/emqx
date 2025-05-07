@@ -32,7 +32,7 @@
 %% `emqx_connector_aggreg_delivery' API
 -export([
     init_transfer_state_and_container_opts/2,
-    process_append/3,
+    process_append/2,
     process_write/1,
     process_complete/1
 ]).
@@ -94,8 +94,14 @@
 -define(MANIFEST_ENTRY_PT_KEY, {?MODULE, manifest_entry}).
 -define(MANIFEST_FILE_PT_KEY, {?MODULE, manifest_file}).
 
--record(single_transfer, {data_file_key, data_size = 0, num_records = 0, state}).
--record(partitioned_transfer, {state}).
+-record(single_transfer, {
+    data_file_key,
+    data_size = 0,
+    num_records = 0,
+    container,
+    state
+}).
+-record(partitioned_transfer, {container, state}).
 
 -type connector_config() :: #{}.
 -type connector_state() :: #{
@@ -168,8 +174,6 @@
 
 -type iceberg_client() :: emqx_bridge_s3tables_client_s3t:t().
 -type location_client() :: map().
-
--type write_metadata() :: emqx_connector_aggreg_container:write_metadata().
 
 -type namespace() :: binary().
 -type table_name() :: binary().
@@ -391,12 +395,13 @@ init_transfer_state_and_container_opts(_Buffer, Opts) ->
         {ok, TransferState, ContainerOpts}
     end.
 
--spec process_append(
-    iodata() | #{[partition_key()] => iodata()}, write_metadata(), transfer_state()
-) ->
+-spec process_append([emqx_connector_aggregator:record()], transfer_state()) ->
     transfer_state().
-process_append(IOData, WriteMetadata, #{?inner_transfer := #single_transfer{}} = TransferState0) ->
-    #{num_records := N1} = WriteMetadata,
+process_append(
+    Records, #{?inner_transfer := #single_transfer{container = Container0}} = TransferState0
+) ->
+    {IOData, #{num_records := N1}, Container} =
+        emqx_bridge_s3tables_aggreg_avro:fill(Records, Container0),
     #{
         ?inner_transfer := #single_transfer{
             data_size = S0,
@@ -408,21 +413,22 @@ process_append(IOData, WriteMetadata, #{?inner_transfer := #single_transfer{}} =
     {ok, S3TransferState} = emqx_s3_upload:append(IOData, S3TransferState0),
     TransferState0#{
         ?inner_transfer := Inner0#single_transfer{
+            container = Container,
             data_size = S0 + S1,
             num_records = N0 + N1,
             state = S3TransferState
         }
     };
-process_append(
-    IOMap, WriteMetadata, #{?inner_transfer := #partitioned_transfer{}} = TransferState0
-) ->
+process_append(Records, #{?inner_transfer := #partitioned_transfer{}} = TransferState0) ->
     #{
         ?base_path := BasePath,
-        ?inner_transfer := #partitioned_transfer{state = PartSt0} = Inner0,
+        ?inner_transfer := #partitioned_transfer{container = Container0, state = PartSt0} = Inner0,
         ?partition_spec := PartSpec,
         ?s3_client := S3Client,
         ?write_uuid := WriteUUID
     } = TransferState0,
+    {IOMap, WriteMetadata, Container} =
+        emqx_bridge_s3tables_aggreg_partitioned:fill(Records, Container0),
     PartSt =
         maps:fold(
             fun
@@ -467,7 +473,10 @@ process_append(
             IOMap
         ),
     TransferState0#{
-        ?inner_transfer := Inner0#partitioned_transfer{state = PartSt}
+        ?inner_transfer := Inner0#partitioned_transfer{
+            container = Container,
+            state = PartSt
+        }
     }.
 
 -spec process_write(transfer_state()) ->
@@ -888,12 +897,16 @@ mk_container_opts_and_inner_transfer_state(#unpartitioned{}, Opts) ->
     } = Opts,
     {DataFileKey, S3TransferState} =
         init_inner_s3_transfer_state(BasePath, [], 0, S3Client, WriteUUID),
-    ContainerOpts = #{
-        type => avro,
+    InnerContainerOpts = #{
         schema => AvroSchema,
         root_type => ?ROOT_AVRO_TYPE
     },
+    Container = emqx_bridge_s3tables_aggreg_avro:new(InnerContainerOpts),
+    %% We manage the container here, since we require extra metadata that the
+    %% `emqx_connector_aggreg_container` API does not provide.
+    ContainerOpts = #{type => noop},
     InnerTransferState = #single_transfer{
+        container = Container,
         data_file_key = DataFileKey,
         data_size = 0,
         num_records = 0,
@@ -904,7 +917,7 @@ mk_container_opts_and_inner_transfer_state(#partitioned{fields = PartitionFields
     #{
         ?avro_schema := AvroSchema
     } = Opts,
-    PartContOpts = #{
+    InnerContainerOpts = #{
         inner_container_opts => #{
             type => avro,
             schema => AvroSchema,
@@ -912,12 +925,12 @@ mk_container_opts_and_inner_transfer_state(#partitioned{fields = PartitionFields
         },
         partition_fields => PartitionFields
     },
-    ContainerOpts = #{
-        type => custom,
-        module => emqx_bridge_s3tables_aggreg_partitioned,
-        opts => PartContOpts
-    },
+    Container = emqx_bridge_s3tables_aggreg_partitioned:new(InnerContainerOpts),
+    %% We manage the container here, since we require extra metadata that the
+    %% `emqx_connector_aggreg_container` API does not provide.
+    ContainerOpts = #{type => noop},
     InnerTransferState = #partitioned_transfer{
+        container = Container,
         state = #{}
     },
     {ContainerOpts, InnerTransferState}.

@@ -3,7 +3,11 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_s3tables_aggreg_partitioned).
 
--behaviour(emqx_connector_aggreg_container).
+-moduledoc """
+Container implementation for `emqx_connector_aggregator` (almost).
+
+Tracks one or more Avro files for different partition keys.
+""".
 
 %% `emqx_connector_aggreg_container' API
 -export([
@@ -32,7 +36,7 @@
     partitions :: #{[partition_key()] => avro_container()}
 }.
 
--type avro_container() :: emqx_connector_aggreg_avro:container().
+-type avro_container() :: emqx_bridge_s3tables_aggreg_avro:container().
 
 -type options() :: #{
     inner_container_opts := inner_container_opts(),
@@ -43,7 +47,7 @@
 -type partition_out() :: #{[partition_key()] => iodata()}.
 -type write_metadata() :: #{[partition_key()] => #{?num_records := pos_integer()}}.
 
--type inner_container_opts() :: emqx_connector_aggreg_avro:options().
+-type inner_container_opts() :: emqx_bridge_s3tables_aggreg_avro:options().
 
 %%------------------------------------------------------------------------------
 %% `emqx_connector_aggreg_container' API
@@ -75,7 +79,7 @@ fill(Records, #iceberg{} = Container0) ->
 close(#iceberg{partitions = Partitions}) ->
     maps:fold(
         fun(PK, Avro, {AccIO0, AccMeta0}) ->
-            {IOData, WriteMetadata} = emqx_connector_aggreg_avro:close(Avro),
+            {IOData, WriteMetadata} = emqx_bridge_s3tables_aggreg_avro:close(Avro),
             AccIO = AccIO0#{PK => IOData},
             AccMeta = AccMeta0#{PK => WriteMetadata},
             {AccIO, AccMeta}
@@ -105,7 +109,7 @@ fill_partitions(Partitions, Container0) ->
             ->
                 #{?num_records := N0} = WM0 = maps:get(PK, AccMeta0, #{?num_records => 0}),
                 #iceberg{partitions = #{PK := Avro0}} = AccCont0,
-                {IOData, #{?num_records := N1}, Avro} = emqx_connector_aggreg_avro:fill(
+                {IOData, #{?num_records := N1}, Avro} = emqx_bridge_s3tables_aggreg_avro:fill(
                     Records, Avro0
                 ),
                 AccIO = maps:update_with(PK, fun(IO0) -> [IO0 | IOData] end, IOData, AccIO0),
@@ -114,8 +118,8 @@ fill_partitions(Partitions, Container0) ->
                 {AccIO, AccMeta, AccCont};
             (PK, Records, {AccIO0, AccMeta0, #iceberg{partitions = Ps0} = AccCont0}) ->
                 %% New partition key
-                Avro0 = emqx_connector_aggreg_avro:new(InnerContainerOpts),
-                {IOData, #{?num_records := N1}, Avro} = emqx_connector_aggreg_avro:fill(
+                Avro0 = emqx_bridge_s3tables_aggreg_avro:new(InnerContainerOpts),
+                {IOData, #{?num_records := N1}, Avro} = emqx_bridge_s3tables_aggreg_avro:fill(
                     Records, Avro0
                 ),
                 AccIO = maps:put(PK, IOData, AccIO0),

@@ -63,10 +63,10 @@ fill_close(CSV, LRecords) ->
     string(fill_close_(CSV, LRecords)).
 
 fill_close_(CSV0, [Records | LRest]) ->
-    {Writes, _, CSV} = emqx_connector_aggreg_csv:fill(Records, CSV0),
+    {Writes, CSV} = emqx_connector_aggreg_csv:fill(Records, CSV0),
     [Writes | fill_close_(CSV, LRest)];
 fill_close_(CSV, []) ->
-    {Trailer, _} = emqx_connector_aggreg_csv:close(CSV),
+    Trailer = emqx_connector_aggreg_csv:close(CSV),
     [Trailer].
 
 string(Writes) ->

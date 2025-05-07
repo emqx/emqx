@@ -35,8 +35,6 @@
 
 -type column() :: binary().
 
--type write_metadata() :: emqx_connector_aggreg_container:write_metadata().
-
 %%
 
 -spec new(options()) -> container().
@@ -50,19 +48,19 @@ new(Opts) ->
     }.
 
 -spec fill([emqx_connector_aggregator:record()], container()) ->
-    {iodata(), write_metadata(), container()}.
+    {iodata(), container()}.
 fill(Records = [Record | _], CSV0 = #csv{columns = undefined}) ->
     Columns = mk_columns(Record, CSV0),
     Header = emit_header(Columns, CSV0),
-    {Writes, WriteMetadata, CSV} = fill(Records, CSV0#csv{columns = Columns}),
-    {[Header | Writes], WriteMetadata, CSV};
+    {Writes, CSV} = fill(Records, CSV0#csv{columns = Columns}),
+    {[Header | Writes], CSV};
 fill(Records, CSV) ->
     Writes = [emit_row(R, CSV) || R <- Records],
-    {Writes, #{}, CSV}.
+    {Writes, CSV}.
 
--spec close(container()) -> {iodata(), write_metadata()}.
+-spec close(container()) -> iodata().
 close(#csv{}) ->
-    {[], #{}}.
+    [].
 
 %%
 

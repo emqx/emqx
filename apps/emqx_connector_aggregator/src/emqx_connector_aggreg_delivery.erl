@@ -61,10 +61,8 @@ when
     ContainerOpts :: map().
 
 %% @doc Append data to the transfer before sending.  Usually should not fail.
--callback process_append(iodata() | term(), WriteMetadata, transfer_state()) ->
-    transfer_state()
-when
-    WriteMetadata :: map().
+-callback process_append(iodata() | term(), transfer_state()) ->
+    transfer_state().
 
 %% @doc Push appended transfer data to its destination (e.g.: upload a part of a
 %% multi-part upload).  May fail.
@@ -131,12 +129,9 @@ mk_container(#{type := csv, column_order := OrderOpt}) ->
 mk_container(#{type := json_lines}) ->
     Opts = #{},
     {emqx_connector_aggreg_json_lines, emqx_connector_aggreg_json_lines:new(Opts)};
-mk_container(#{type := avro, schema := Schema, root_type := RootType}) ->
-    Opts = #{
-        schema => Schema,
-        root_type => RootType
-    },
-    {emqx_connector_aggreg_avro, emqx_connector_aggreg_avro:new(Opts)};
+mk_container(#{type := noop}) ->
+    Opts = #{},
+    {emqx_connector_aggreg_noop, emqx_connector_aggreg_noop:new(Opts)};
 mk_container(#{type := custom, module := Mod, opts := Opts}) ->
     {Mod, Mod:new(Opts)}.
 
@@ -175,9 +170,9 @@ process_append_records(
         transfer = Transfer0
     }
 ) ->
-    {Writes, WriteMetadata, Container} =
+    {Writes, Container} =
         emqx_connector_aggreg_container:fill(ContainerMod, Records, Container0),
-    Transfer = Mod:process_append(Writes, WriteMetadata, Transfer0),
+    Transfer = Mod:process_append(Writes, Transfer0),
     Delivery#delivery{
         container = {ContainerMod, Container},
         transfer = Transfer,
@@ -202,8 +197,8 @@ process_complete(#delivery{
     container = {ContainerMod, Container},
     transfer = Transfer0
 }) ->
-    {Trailer, WriteMetadata} = emqx_connector_aggreg_container:close(ContainerMod, Container),
-    Transfer = Mod:process_append(Trailer, WriteMetadata, Transfer0),
+    Trailer = emqx_connector_aggreg_container:close(ContainerMod, Container),
+    Transfer = Mod:process_append(Trailer, Transfer0),
     case Mod:process_complete(Transfer) of
         {ok, Completed} ->
             ?tp(connector_aggreg_delivery_completed, #{action => Id, transfer => Completed}),

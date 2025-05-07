@@ -1,13 +1,16 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
+-module(emqx_bridge_s3tables_aggreg_avro).
 
-%% Avro OCF container implementation for `emqx_connector_aggregator`.
--module(emqx_connector_aggreg_avro).
+-moduledoc """
+Avro OCF container implementation for `emqx_connector_aggregator` (almost).
 
--behaviour(emqx_connector_aggreg_container).
+Does not quite match the API of `emqx_connector_aggregator`, though, because we need to
+keep track of extra metadata for each fill.
+""".
 
-%% `emqx_connector_aggreg_container' API
+%% Quasi-`emqx_connector_aggreg_container' API
 -export([
     new/1,
     fill/2,

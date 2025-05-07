@@ -5,7 +5,7 @@
 
 -export([new/2, fill/3, close/2]).
 
--export_type([container/0, new_opts/0, write_metadata/0]).
+-export_type([container/0, new_opts/0]).
 
 %%-----------------------------------------------------------------------------
 %% Type declarations
@@ -15,8 +15,6 @@
 
 -type new_opts() :: map().
 
--type write_metadata() :: map().
-
 %%-----------------------------------------------------------------------------
 %% Callbacks
 %%-----------------------------------------------------------------------------
@@ -24,11 +22,11 @@
 -callback new(new_opts()) -> container().
 
 -callback fill([emqx_connector_aggregator:record()], Container) ->
-    {iodata() | term(), write_metadata(), Container}
+    {iodata() | term(), Container}
 when
     Container :: container().
 
--callback close(container()) -> {iodata() | term(), write_metadata()}.
+-callback close(container()) -> iodata() | term().
 
 %%-----------------------------------------------------------------------------
 %% API
@@ -39,12 +37,12 @@ new(Mod, Opts) ->
     Mod:new(Opts).
 
 -spec fill(module(), [emqx_connector_aggregator:record()], Container) ->
-    {iodata() | term(), write_metadata(), Container}
+    {iodata() | term(), Container}
 when
     Container :: container().
 fill(Mod, Records, Container) ->
     Mod:fill(Records, Container).
 
--spec close(module(), container()) -> {iodata(), write_metadata()}.
+-spec close(module(), container()) -> iodata() | term().
 close(Mod, Container) ->
     Mod:close(Container).

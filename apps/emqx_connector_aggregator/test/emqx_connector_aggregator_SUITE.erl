@@ -49,7 +49,7 @@ init_transfer_state_and_container_opts(_Buffer, Opts) ->
     #{container := ContainerOpts} = Opts,
     {ok, #{opts => Opts}, ContainerOpts}.
 
-process_append(_IOData, _WriteMetadata, State) ->
+process_append(_IOData, State) ->
     State.
 
 process_write(State) ->

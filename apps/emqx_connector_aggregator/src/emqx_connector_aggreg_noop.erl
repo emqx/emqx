@@ -2,8 +2,8 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% JSON lines container implementation for `emqx_connector_aggregator`.
--module(emqx_connector_aggreg_json_lines).
+%% Avro OCF container implementation for `emqx_connector_aggregator`.
+-module(emqx_connector_aggreg_noop).
 
 -behaviour(emqx_connector_aggreg_container).
 
@@ -20,9 +20,9 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--record(jsonl, {}).
+-record(noop, {}).
 
--opaque container() :: #jsonl{}.
+-opaque container() :: #noop{}.
 
 -type options() :: #{}.
 
@@ -31,15 +31,14 @@
 %%------------------------------------------------------------------------------
 
 -spec new(options()) -> container().
-new(_Opts) ->
-    #jsonl{}.
+new(_) ->
+    #noop{}.
 
 -spec fill([emqx_connector_aggregator:record()], container()) ->
-    {iodata(), container()}.
-fill(Records, JSONL) ->
-    Output = lists:map(fun(Record) -> [emqx_utils_json:encode(Record), $\n] end, Records),
-    {Output, JSONL}.
+    {[emqx_connector_aggregator:record()], container()}.
+fill(Records, #noop{} = Container) ->
+    {Records, Container}.
 
--spec close(container()) -> iodata().
-close(#jsonl{}) ->
+-spec close(container()) -> nil().
+close(#noop{}) ->
     [].
