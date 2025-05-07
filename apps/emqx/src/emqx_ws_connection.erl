@@ -168,33 +168,26 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
 %%--------------------------------------------------------------------
 
 init(Req, #{listener := {Type, Listener}} = Opts) ->
-    %% WS Transport Idle Timeout
-    WsOpts = #{
-        compress => get_ws_opts(Type, Listener, compress),
-        deflate_opts => get_ws_opts(Type, Listener, deflate_opts),
-        max_frame_size => get_ws_opts(Type, Listener, max_frame_size),
-        idle_timeout => get_ws_opts(Type, Listener, idle_timeout),
-        validate_utf8 => get_ws_opts(Type, Listener, validate_utf8)
-    },
-    case check_origin_header(Req, Opts) of
+    WsOpts = get_ws_opts(Type, Listener),
+    case check_origin_header(Req, WsOpts) of
         {error, Reason} ->
             ?SLOG(error, #{msg => "invalid_origin_header", reason => Reason}),
-            {ok, cowboy_req:reply(403, Req), WsOpts};
+            {ok, cowboy_req:reply(403, Req), #{}};
         ok ->
             parse_sec_websocket_protocol(Req, Opts, WsOpts)
     end.
 
-parse_sec_websocket_protocol(Req, #{listener := {Type, Listener}} = Opts, WsOpts) ->
+parse_sec_websocket_protocol(Req, Opts, WsOpts) ->
+    #{
+        fail_if_no_subprotocol := FailIfNoSubprotocol,
+        supported_subprotocols := SupportedSubprotocols
+    } = WsOpts,
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
+        undefined when FailIfNoSubprotocol ->
+            {ok, cowboy_req:reply(400, Req), #{}};
         undefined ->
-            case get_ws_opts(Type, Listener, fail_if_no_subprotocol) of
-                true ->
-                    {ok, cowboy_req:reply(400, Req), WsOpts};
-                false ->
-                    {cowboy_websocket, Req, [Req, Opts], WsOpts}
-            end;
+            {cowboy_websocket, Req, [Req, Opts], cowboy_websocket_opts(WsOpts)};
         Subprotocols ->
-            SupportedSubprotocols = get_ws_opts(Type, Listener, supported_subprotocols),
             case pick_subprotocol(Subprotocols, SupportedSubprotocols) of
                 {ok, Subprotocol} ->
                     Resp = cowboy_req:set_resp_header(
@@ -202,11 +195,20 @@ parse_sec_websocket_protocol(Req, #{listener := {Type, Listener}} = Opts, WsOpts
                         Subprotocol,
                         Req
                     ),
-                    {cowboy_websocket, Resp, [Req, Opts], WsOpts};
+                    {cowboy_websocket, Resp, [Req, Opts], cowboy_websocket_opts(WsOpts)};
                 {error, no_supported_subprotocol} ->
-                    {ok, cowboy_req:reply(400, Req), WsOpts}
+                    {ok, cowboy_req:reply(400, Req), #{}}
             end
     end.
+
+cowboy_websocket_opts(WsOpts) ->
+    #{
+        compress => maps:get(compress, WsOpts),
+        deflate_opts => maps:get(deflate_opts, WsOpts),
+        max_frame_size => maps:get(max_frame_size, WsOpts),
+        idle_timeout => maps:get(idle_timeout, WsOpts),
+        validate_utf8 => maps:get(validate_utf8, WsOpts)
+    }.
 
 pick_subprotocol([], _SupportedSubprotocols) ->
     {error, no_supported_subprotocol};
@@ -218,25 +220,26 @@ pick_subprotocol([Subprotocol | Rest], SupportedSubprotocols) ->
             pick_subprotocol(Rest, SupportedSubprotocols)
     end.
 
-parse_header_fun_origin(Req, #{listener := {Type, Listener}}) ->
+parse_header_fun_origin(Req, #{
+    allow_origin_absence := AllowOriginAbsence,
+    check_origins := CheckOrigins
+}) ->
     case cowboy_req:header(<<"origin">>, Req) of
+        undefined when AllowOriginAbsence ->
+            ok;
         undefined ->
-            case get_ws_opts(Type, Listener, allow_origin_absence) of
-                true -> ok;
-                false -> {error, origin_header_cannot_be_absent}
-            end;
+            {error, origin_header_cannot_be_absent};
         Value ->
-            case lists:member(Value, get_ws_opts(Type, Listener, check_origins)) of
+            case lists:member(Value, CheckOrigins) of
                 true -> ok;
                 false -> {error, #{bad_origin => Value}}
             end
     end.
 
-check_origin_header(Req, #{listener := {Type, Listener}} = Opts) ->
-    case get_ws_opts(Type, Listener, check_origin_enable) of
-        true -> parse_header_fun_origin(Req, Opts);
-        false -> ok
-    end.
+check_origin_header(Req, #{check_origin_enable := true} = WsOpts) ->
+    parse_header_fun_origin(Req, WsOpts);
+check_origin_header(_Req, #{check_origin_enable := false}) ->
+    ok.
 
 websocket_init([Req, Opts]) ->
     check_max_connection(Req, Opts).
@@ -279,7 +282,7 @@ init_connection(Type, Listener, Req, Opts = #{zone := Zone}) ->
         ws_cookie => WsCookie,
         conn_mod => ?MODULE
     },
-    MQTTPiggyback = get_ws_opts(Type, Listener, mqtt_piggyback),
+    MQTTPiggyback = get_ws_opt(Type, Listener, mqtt_piggyback),
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
@@ -890,7 +893,7 @@ trigger(Event) -> erlang:send(self(), Event).
 
 get_peer(Req, #{listener := {Type, Listener}}) ->
     {PeerAddr, PeerPort} = cowboy_req:peer(Req),
-    AddrHeaderName = get_ws_header_opts(Type, Listener, proxy_address_header),
+    AddrHeaderName = get_ws_header_opt(Type, Listener, proxy_address_header),
     AddrHeader = cowboy_req:header(AddrHeaderName, Req, <<>>),
     ClientAddr =
         case string:tokens(binary_to_list(AddrHeader), ", ") of
@@ -906,7 +909,7 @@ get_peer(Req, #{listener := {Type, Listener}}) ->
             _ ->
                 PeerAddr
         end,
-    PortHeaderName = get_ws_header_opts(Type, Listener, proxy_port_header),
+    PortHeaderName = get_ws_header_opt(Type, Listener, proxy_port_header),
     PortHeader = cowboy_req:header(PortHeaderName, Req, <<>>),
     ClientPort =
         case string:tokens(binary_to_list(PortHeader), ", ") of
@@ -936,10 +939,13 @@ set_field(Name, Value, State) ->
     setelement(Pos + 1, State, Value).
 
 %% ensure lowercase letters in headers
-get_ws_header_opts(Type, Listener, Key) ->
-    iolist_to_binary(string:lowercase(get_ws_opts(Type, Listener, Key))).
+get_ws_header_opt(Type, Listener, Key) ->
+    iolist_to_binary(string:lowercase(get_ws_opt(Type, Listener, Key))).
 
-get_ws_opts(Type, Listener, Key) ->
+get_ws_opts(Type, Listener) ->
+    emqx_config:get_listener_conf(Type, Listener, [websocket]).
+
+get_ws_opt(Type, Listener, Key) ->
     emqx_config:get_listener_conf(Type, Listener, [websocket, Key]).
 
 get_active_n(Type, Listener) ->
