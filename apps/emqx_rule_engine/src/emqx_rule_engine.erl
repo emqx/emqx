@@ -74,7 +74,9 @@
 -export([
     get_external_function/1,
     register_external_functions/1,
-    register_external_functions/2
+    register_external_functions/2,
+    unregister_external_functions/1,
+    unregister_external_functions/2
 ]).
 
 -define(RULE_ENGINE, ?MODULE).
@@ -690,6 +692,22 @@ external_functions_specs(Module, Prefix) ->
         end,
         apply(Module, module_info, [exports])
     ).
+
+-spec unregister_external_functions(module() | list(atom())) -> ok.
+unregister_external_functions(Module) when is_atom(Module) ->
+    Specs = external_functions_specs(Module, ?DEFAULT_EXTERNAL_FUNCTION_PREFIX),
+    unregister_external_functions(Specs);
+unregister_external_functions(Specs) when is_list(Specs) ->
+    lists:foreach(fun unregister_external_function/1, Specs).
+
+unregister_external_functions(Module, Prefix) ->
+    Specs = external_functions_specs(Module, Prefix),
+    unregister_external_functions(Specs).
+
+unregister_external_function({FunctionRSName, {_Module, _FunctionName}}) ->
+    persistent_term:erase(?EXTERNAL_FUNCTION_PT_KEY(FunctionRSName));
+unregister_external_function(FunctionRSName) when is_atom(FunctionRSName) ->
+    persistent_term:erase(?EXTERNAL_FUNCTION_PT_KEY(FunctionRSName)).
 
 -spec get_external_function(atom()) -> {ok, module(), atom()} | {error, not_found}.
 get_external_function(FunctionRSName) ->

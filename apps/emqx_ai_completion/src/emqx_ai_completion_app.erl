@@ -21,5 +21,6 @@ start(_Type, _Args) ->
 
 -spec stop(term()) -> ok.
 stop(_State) ->
+    ok = emqx_rule_engine:unregister_external_functions(emqx_ai_completion),
     ok = emqx_ai_completion_config:unload(),
     ok.

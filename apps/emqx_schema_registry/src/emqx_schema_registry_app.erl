@@ -18,5 +18,6 @@ start(_StartType, _StartArgs) ->
     emqx_schema_registry_sup:start_link().
 
 stop(_State) ->
+    ok = emqx_rule_engine:unregister_external_functions(emqx_schema_registry_serde),
     ok = emqx_schema_registry_config:remove_handlers(),
     ok.
