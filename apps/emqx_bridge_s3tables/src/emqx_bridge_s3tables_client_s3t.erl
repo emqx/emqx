@@ -36,9 +36,7 @@
 
 -define(aws_config, aws_config).
 -define(account_id, account_id).
--define(bucket, bucket).
 -define(base_uri, base_uri).
--define(base_path, base_path).
 -define(host, host).
 -define(method, method).
 -define(headers, headers).
@@ -49,9 +47,9 @@
 -type client_opts() :: #{
     access_key_id := string(),
     secret_access_key := emqx_secret:t(binary()),
-    base_endpoint := string(),
-    bucket := string(),
-    account_id => string(),
+    base_endpoint := binary(),
+    bucket := binary(),
+    account_id => binary(),
     request_timeout => pos_integer(),
     any() => term()
 }.
@@ -61,8 +59,8 @@
     ?host := string(),
     ?base_uri := string(),
     ?base_path := [string()],
-    ?account_id := string(),
-    ?bucket := string()
+    ?account_id := binary(),
+    ?bucket := binary()
 }.
 
 -type namespace() :: string() | binary().
