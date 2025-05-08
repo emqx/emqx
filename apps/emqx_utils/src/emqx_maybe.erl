@@ -16,13 +16,12 @@
 
 -module(emqx_maybe).
 
--include_lib("emqx/include/types.hrl").
-
 -export([to_list/1]).
 -export([from_list/1]).
 -export([define/2]).
 -export([apply/2]).
 
+-type option(T) :: undefined | T.
 -type t(T) :: option(T).
 -export_type([t/1]).
 
