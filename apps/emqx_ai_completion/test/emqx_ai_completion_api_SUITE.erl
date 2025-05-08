@@ -201,9 +201,9 @@ t_crud(_Config) ->
         })
     ),
 
-    %% Fail to delete unknown completion profile
+    %% Succeed to delete unknown completion profile
     ?assertMatch(
-        {ok, 404, _},
+        {ok, 204},
         api_delete([ai, completion_profiles, <<"unknown-completion-profile">>])
     ),
 
@@ -223,9 +223,9 @@ t_crud(_Config) ->
         api_delete([ai, completion_profiles, <<"test-completion-profile">>])
     ),
 
-    %% Fail to delete unknown provider
+    %% Succeed to delete unknown provider
     ?assertMatch(
-        {ok, 404, _},
+        {ok, 204},
         api_delete([ai, providers, <<"unknown-provider">>])
     ),
 

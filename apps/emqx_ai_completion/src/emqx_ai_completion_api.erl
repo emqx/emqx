@@ -288,7 +288,7 @@ post_completion_profile_example() ->
 '/ai/providers'(get, _Params) ->
     {200, get_providers()};
 '/ai/providers'(post, #{body := NewProvider}) ->
-    update_providers({add, NewProvider}).
+    add_provider(NewProvider).
 
 '/ai/providers/:name'(get, #{bindings := #{name := Name}}) ->
     case get_provider(Name) of
@@ -298,14 +298,14 @@ post_completion_profile_example() ->
             {200, Provider}
     end;
 '/ai/providers/:name'(put, #{body := UpdatedProvider, bindings := #{name := Name}}) ->
-    update_providers({update, UpdatedProvider#{<<"name">> => Name}});
+    update_provider(UpdatedProvider#{<<"name">> => Name});
 '/ai/providers/:name'(delete, #{bindings := #{name := Name}}) ->
-    update_providers({delete, Name}).
+    delete_provider(Name).
 
 '/ai/completion_profiles'(get, _Params) ->
     {200, get_completion_profiles()};
 '/ai/completion_profiles'(post, #{body := NewCompletionProfile}) ->
-    update_completion_profiles({add, NewCompletionProfile}).
+    add_completion_profile(NewCompletionProfile).
 
 '/ai/completion_profiles/:name'(get, #{bindings := #{name := Name}}) ->
     case get_completion_profile(Name) of
@@ -317,9 +317,9 @@ post_completion_profile_example() ->
 '/ai/completion_profiles/:name'(put, #{
     body := UpdatedCompletionProfile, bindings := #{name := Name}
 }) ->
-    update_completion_profiles({update, UpdatedCompletionProfile#{<<"name">> => Name}});
+    update_completion_profile(UpdatedCompletionProfile#{<<"name">> => Name});
 '/ai/completion_profiles/:name'(delete, #{bindings := #{name := Name}}) ->
-    update_completion_profiles({delete, Name}).
+    delete_completion_profile(Name).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -394,11 +394,27 @@ get_completion_profiles() ->
 remove_provider_secret_fields(Provider) ->
     maps:without([<<"api_key">>], Provider).
 
-update_providers(Request) ->
-    wrap_update_error(emqx_ai_completion_config:update_providers_raw(Request)).
+update_provider(Provider) ->
+    wrap_update_error(emqx_ai_completion_config:update_providers_raw({update, Provider})).
 
-update_completion_profiles(Request) ->
-    wrap_update_error(emqx_ai_completion_config:update_completion_profiles_raw(Request)).
+add_provider(NewProvider) ->
+    wrap_update_error(emqx_ai_completion_config:update_providers_raw({add, NewProvider})).
+
+delete_provider(Name) ->
+    wrap_delete_error(emqx_ai_completion_config:update_providers_raw({delete, Name})).
+
+update_completion_profile(CompletionProfile) ->
+    wrap_update_error(
+        emqx_ai_completion_config:update_completion_profiles_raw({update, CompletionProfile})
+    ).
+
+add_completion_profile(NewCompletionProfile) ->
+    wrap_update_error(
+        emqx_ai_completion_config:update_completion_profiles_raw({add, NewCompletionProfile})
+    ).
+
+delete_completion_profile(Name) ->
+    wrap_delete_error(emqx_ai_completion_config:update_completion_profiles_raw({delete, Name})).
 
 wrap_update_error(ok) ->
     {204};
@@ -413,6 +429,13 @@ wrap_update_error({error, Reason}) ->
         code => 'SERVICE_UNAVAILABLE',
         message => emqx_utils:readable_error_msg(Reason)
     }}.
+
+wrap_delete_error({error, #{reason := provider_not_found}}) ->
+    {204};
+wrap_delete_error({error, #{reason := completion_profile_not_found}}) ->
+    {204};
+wrap_delete_error(Result) ->
+    wrap_update_error(Result).
 
 error_response(duplicate_provider_name) ->
     {'INVALID_CREDENTIAL', <<"Duplicate provider name">>};
