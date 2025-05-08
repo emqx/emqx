@@ -532,13 +532,40 @@ process_complete(#{?inner_transfer := #partitioned_transfer{}} = TransferState0)
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-make_client(#{parameters := #{location_type := s3tables} = Params}) ->
+make_client(#{parameters := #{base_endpoint := BaseEndpoint, bucket := Bucket} = Params}) when
+    is_binary(BaseEndpoint),
+    is_binary(Bucket)
+->
+    emqx_bridge_s3tables_client_s3t:new(Params);
+make_client(#{parameters := #{s3tables_arn := ARN} = Params0}) ->
+    {ok, #{
+        region := Region,
+        account_id := AccountId,
+        bucket := Bucket
+    }} = emqx_bridge_s3tables_connector_schema:parse_arn(ARN),
+    BaseEndpoint0 = [<<"https://s3tables.">>, Region, <<".amazonaws.com/iceberg">>],
+    BaseEndpoint = iolist_to_binary(BaseEndpoint0),
+    Params = Params0#{
+        account_id => AccountId,
+        bucket => Bucket,
+        base_endpoint => BaseEndpoint
+    },
     emqx_bridge_s3tables_client_s3t:new(Params).
 
-init_location_client(ConnResId, #{parameters := #{location_type := s3tables} = Params}) ->
+init_location_client(ConnResId, #{parameters := Params}) ->
     maybe
-        #{s3_client := S3Config0} = Params,
-        S3Config = S3Config0#{url_expire_time => 0},
+        #{
+            access_key_id := AccessKeyId,
+            secret_access_key := SecretAccessKey,
+            s3tables_arn := ARN,
+            s3_client := S3Config0
+        } = Params,
+        S3Config1 = S3Config0#{
+            access_key_id => iolist_to_list(AccessKeyId),
+            secret_access_key => SecretAccessKey,
+            url_expire_time => 0
+        },
+        S3Config = infer_s3_host_and_port(S3Config1, ARN),
         S3ClientConfig = emqx_s3_profile_conf:client_config(S3Config, ConnResId),
         _ = emqx_s3_client_http:stop_pool(ConnResId),
         ok ?= emqx_s3_client_http:start_pool(ConnResId, S3Config),
@@ -1115,3 +1142,15 @@ partition_keys_to_record(PKs, PartitionFields) ->
 manifest_entry_avro_schema(PartSpec, IcebergSchema) ->
     #{json_schema := AvroSchemaJSON} = persistent_term:get(?MANIFEST_ENTRY_PT_KEY),
     emqx_bridge_s3tables_logic:manifest_entry_avro_schema(PartSpec, AvroSchemaJSON, IcebergSchema).
+
+iolist_to_list(IOList) ->
+    binary_to_list(iolist_to_binary(IOList)).
+
+infer_s3_host_and_port(#{host := _, port := _} = S3Config, _ARN) ->
+    S3Config;
+infer_s3_host_and_port(S3Config0, ARN) ->
+    {ok, #{region := Region}} = emqx_bridge_s3tables_connector_schema:parse_arn(ARN),
+    Host0 = [<<"s3.">>, Region, <<".amazonaws.com">>],
+    Host = iolist_to_list(Host0),
+    Port = 443,
+    S3Config0#{host => Host, port => Port}.

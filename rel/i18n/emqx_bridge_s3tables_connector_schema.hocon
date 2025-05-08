@@ -17,12 +17,6 @@ emqx_bridge_s3tables_connector_schema {
     """S3Tables connection parameters."""
   }
 
-  location_type_s3t {
-    label: """S3Tables"""
-    desc:
-    """Iceberg integration provided by S3Tables."""
-  }
-
   location_s3t_access_key_id {
     label: """Access Key Id"""
     desc:
@@ -35,16 +29,10 @@ emqx_bridge_s3tables_connector_schema {
     """The secret access key of the S3Tables bucket."""
   }
 
-  location_s3t_bucket {
-    label: """S3Tables Bucket"""
+  location_s3t_arn {
+    label: """S3Tables ARN"""
     desc:
-    """The S3Tables bucket."""
-  }
-
-  location_s3t_base_endpoint {
-    label: """S3Tables Iceberg Endpoint"""
-    desc:
-    """The S3Tables Iceberg API endpoint.  Typically, `https://s3tables.<REGION>.amazonaws.com/iceberg`.  Note that it must contain the `/iceberg` path, if applicable."""
+    """The ARN of the S3Tables bucket to be used."""
   }
 
   s3_client {
@@ -52,7 +40,5 @@ emqx_bridge_s3tables_connector_schema {
     desc:
     """S3 connection parameters for reading and writing objects to S3Tables bucket."""
   }
-
-
 
 }

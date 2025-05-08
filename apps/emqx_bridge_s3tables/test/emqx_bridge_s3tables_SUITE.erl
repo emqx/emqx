@@ -128,16 +128,17 @@ connector_config_s3t(Overrides) ->
     %% TODO
     Defaults = #{
         <<"parameters">> => #{
-            <<"location_type">> => <<"s3tables">>,
             <<"account_id">> => <<"1234567890">>,
             <<"access_key_id">> => ?ACCESS_KEY_ID,
             <<"secret_access_key">> => ?SECRET_ACCESS_KEY,
             <<"base_endpoint">> => ?BASE_ENDPOINT,
             <<"bucket">> => ?BUCKET,
+            <<"s3tables_arn">> => iolist_to_binary([
+                <<"arn:aws:s3tables:sa-east-1:123456789012:bucket/">>,
+                ?BUCKET
+            ]),
             <<"request_timeout">> => <<"10s">>,
             <<"s3_client">> => #{
-                <<"access_key_id">> => ?ACCESS_KEY_ID,
-                <<"secret_access_key">> => ?SECRET_ACCESS_KEY,
                 <<"host">> => ?S3_HOST,
                 <<"port">> => ?S3_PORT
             }
@@ -506,19 +507,15 @@ with_failure(FailureType, Fn) ->
 %% Test cases
 %%------------------------------------------------------------------------------
 
-t_start_stop() ->
-    [{matrix, true}].
-t_start_stop(matrix) ->
-    [[s3tables]];
 t_start_stop(Config) when is_list(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, "s3tables_connector_stop").
 
 t_rule_action() ->
     TableExtraOptsFn = fun(TCConfig) ->
-        case group_path(TCConfig, [s3tables, batched, not_partitioned]) of
-            [_, _, not_partitioned] ->
+        case group_path(TCConfig, [batched, not_partitioned]) of
+            [_, not_partitioned] ->
                 #{};
-            [_, _, partitioned] ->
+            [_, partitioned] ->
                 #{<<"partition-spec">> => simple_schema1_partition_spec1()}
         end
     end,
@@ -528,13 +525,13 @@ t_rule_action() ->
     ].
 t_rule_action(matrix) ->
     [
-        [s3tables, batched, not_partitioned],
-        [s3tables, not_batched, not_partitioned],
-        [s3tables, batched, partitioned]
+        [batched, not_partitioned],
+        [not_batched, not_partitioned],
+        [batched, partitioned]
     ];
 t_rule_action(Config) when is_list(Config) ->
     ct:timetrap({seconds, 15}),
-    [_Location, IsBatched, IsPartitioned] = group_path(Config, [s3tables, batched, not_partitioned]),
+    [IsBatched, IsPartitioned] = group_path(Config, [batched, not_partitioned]),
     Ns = emqx_bridge_v2_testlib:get_value(namespace, Config),
     Table = emqx_bridge_v2_testlib:get_value(table, Config),
     RuleTopic = atom_to_binary(?FUNCTION_NAME),
@@ -715,15 +712,15 @@ t_conflicting_transactions() ->
     [{matrix, true}].
 t_conflicting_transactions(matrix) ->
     [
-        [s3tables, second_commit]
+        [second_commit]
         %% N.B.: the apache iceberg-rest fixture container is extremely buggy, and tends
         %% to crash and enter a corrupt state that does not recover without restarting the
         %% service/container when running this case...
-        %% , [s3tables, first_commit]
+        %% , [first_commit]
     ];
 t_conflicting_transactions(Config) ->
     ct:timetrap({seconds, 15}),
-    [_LocationProvider, Scenario] = group_path(Config, [s3tables, second_commit]),
+    [Scenario] = group_path(Config, [second_commit]),
     Ns = get_config(namespace, Config),
     Table = get_config(table, Config),
     {201, _} = create_connector_api(Config, #{}),

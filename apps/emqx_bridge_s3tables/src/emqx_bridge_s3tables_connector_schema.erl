@@ -27,7 +27,8 @@
 
 %% API
 -export([
-    parse_base_endpoint/1
+    parse_base_endpoint/1,
+    parse_arn/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -56,16 +57,13 @@ fields(connector_config) ->
     [
         {parameters,
             mk(
-                emqx_schema:mkunion(location_type, #{
-                    <<"s3tables">> => ref(s3tables_connector_params)
-                }),
+                ref(s3tables_connector_params),
                 #{required => true, desc => ?DESC("parameters")}
             )}
     ] ++
         emqx_connector_schema:resource_opts();
 fields(s3tables_connector_params) ->
     [
-        {location_type, mk(s3tables, #{required => true, desc => ?DESC("location_type_s3t")})},
         {account_id, mk(binary(), #{required => false, importance => ?IMPORTANCE_HIDDEN})},
         {access_key_id,
             mk(binary(), #{required => true, desc => ?DESC("location_s3t_access_key_id")})},
@@ -75,25 +73,51 @@ fields(s3tables_connector_params) ->
                     desc => ?DESC("location_s3t_secret_access_key")
                 }
             )},
-        {base_endpoint,
-            mk(binary(), #{required => true, desc => ?DESC("location_s3t_base_endpoint")})},
-        {bucket, mk(binary(), #{required => true, desc => ?DESC("location_s3t_bucket")})},
+        {base_endpoint, mk(binary(), #{required => false, importance => ?IMPORTANCE_HIDDEN})},
+        {bucket, mk(binary(), #{required => false, importance => ?IMPORTANCE_HIDDEN})},
+        {s3tables_arn,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC("location_s3t_arn"),
+                validator => fun s3tables_arn_validator/1
+            })},
         {request_timeout,
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"30s">>,
                 desc => ?DESC(emqx_bridge_http_connector, "request_timeout")
             })},
         {s3_client,
-            mk(hoconsc:ref(emqx_s3_schema, s3_client), #{
+            mk(ref(s3_client_params), #{
                 required => true, desc => ?DESC("s3_client")
             })}
-    ].
+    ];
+fields(s3_client_params) ->
+    Fields = emqx_s3_schema:fields(s3_client),
+    %% Access key and secret are the same as parent struct.
+    FieldsToRemove = [access_key_id, secret_access_key],
+    lists:filtermap(
+        fun
+            ({K, Sc}) when K == host; K == port ->
+                %% to please dialyzer...
+                Override = #{
+                    type => hocon_schema:field_schema(Sc, type),
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN
+                },
+                {true, {K, Override}};
+            ({K, _Sc}) ->
+                not lists:member(K, FieldsToRemove)
+        end,
+        Fields
+    ).
 
 desc(Name) when
     Name =:= "config_connector";
     Name =:= s3tables_connector_params
 ->
     ?DESC(Name);
+desc(s3_client_params) ->
+    ?DESC("s3_client");
 desc(_Name) ->
     undefined.
 
@@ -137,17 +161,11 @@ connector_example(put, s3tables = _LocationProvider) ->
         enable => true,
         description => <<"My connector">>,
         parameters => #{
-            location_type => <<"s3tables">>,
             access_key_id => <<"12345">>,
             secret_access_key => <<"******">>,
-            base_endpoint => <<"https://s3tables.sa-east-1.amazonaws.com/iceberg">>,
-            bucket => <<"my-s3tables-bucket">>,
+            s3tables_arn => <<"arn:aws:s3tables:sa-east-1:123456789012:bucket/mybucket">>,
             request_timeout => <<"10s">>,
             s3_client => #{
-                access_key_id => <<"12345">>,
-                secret_access_key => <<"******">>,
-                host => <<"s3.sa-east-1.amazonaws.com">>,
-                port => 443,
                 transport_options => #{
                     ssl => #{
                         enable => true,
@@ -199,6 +217,25 @@ parse_base_endpoint(Endpoint) ->
             {error, {bad_endpoint, Endpoint}}
     end.
 
+-spec parse_arn(binary()) ->
+    {ok, #{region := binary(), account_id := binary(), bucket := binary()}} | error.
+parse_arn(ARN) ->
+    RE = <<
+        "^arn:aws:s3tables:(?<region>[-a-z0-9]+):(?<account_id>[0-9]+):"
+        "bucket/(?<bucket>[-a-z0-9]+)$"
+    >>,
+    Res = re:run(
+        ARN,
+        RE,
+        [anchored, {capture, ["region", "account_id", "bucket"], binary}]
+    ),
+    case Res of
+        {match, [Region, AccountId, Bucket]} ->
+            {ok, #{region => Region, account_id => AccountId, bucket => Bucket}};
+        _ ->
+            error
+    end.
+
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
@@ -213,4 +250,16 @@ parse_uri(Endpoint) ->
     maybe
         #{scheme := undefined, authority := undefined} ?= emqx_utils_uri:parse(Endpoint),
         parse_uri(<<"https://", Endpoint/binary>>)
+    end.
+
+%% https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-buckets-naming.html
+s3tables_arn_validator(ARN) ->
+    case parse_arn(ARN) of
+        {ok, _} ->
+            ok;
+        error ->
+            {error, <<
+                "Invalid ARN; must be of form "
+                "arn:aws:s3tables:<REGION>:<ACCOUNTID>:bucket/<BUCKET>"
+            >>}
     end.
