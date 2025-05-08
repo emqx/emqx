@@ -10,7 +10,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_management/include/emqx_mgmt_api.hrl").
+-include_lib("emqx/include/http_api.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 

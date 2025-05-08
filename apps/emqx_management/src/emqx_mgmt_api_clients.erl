@@ -13,7 +13,7 @@
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_management/include/emqx_mgmt_api.hrl").
+-include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/emqx_durable_session_metadata.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -93,8 +93,8 @@
 
 -define(FORMAT_FUN, {?MODULE, format_channel_info}).
 
--define(CLIENTID_NOT_FOUND, #{
-    code => 'CLIENTID_NOT_FOUND',
+-define(CLIENTID_NOT_FOUND_OBJ, #{
+    code => ?CLIENTID_NOT_FOUND,
     message => <<"Client ID not found">>
 }).
 
@@ -225,7 +225,7 @@ schema("/clients/:clientid") ->
                     client_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND], ?DESC("clientid_not_found")
                 )
             }
         },
@@ -238,7 +238,7 @@ schema("/clients/:clientid") ->
             responses => #{
                 204 => <<"Kick out client successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -253,7 +253,7 @@ schema("/clients/:clientid/authorization/cache") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, authz_cache), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND], ?DESC("clientid_not_found")
                 )
             }
         },
@@ -264,7 +264,7 @@ schema("/clients/:clientid/authorization/cache") ->
             responses => #{
                 204 => <<"Clean client authz cache successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -281,7 +281,7 @@ schema("/clients/:clientid/subscriptions") ->
                     hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)), #{}
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -297,7 +297,7 @@ schema("/clients/:clientid/subscribe") ->
             responses => #{
                 200 => hoconsc:ref(emqx_mgmt_api_subscriptions, subscription),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -314,7 +314,7 @@ schema("/clients/:clientid/subscribe/bulk") ->
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -331,7 +331,7 @@ schema("/clients/:clientid/unsubscribe") ->
             responses => #{
                 204 => <<"Unsubscribe OK">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -348,7 +348,7 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
             responses => #{
                 204 => <<"Unsubscribe OK">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND], ?DESC("clientid_not_found")
                 )
             },
             log_meta => emqx_dashboard_audit:importance(low)
@@ -369,7 +369,7 @@ schema("/clients/:clientid/keepalive") ->
                     client_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND], ?DESC("clientid_not_found")
                 )
             }
         }
@@ -823,7 +823,7 @@ unsubscribe_batch(post, #{bindings := #{clientid := ClientId}, body := TopicInfo
 subscriptions(get, #{bindings := #{clientid := ClientId}}) ->
     case emqx_mgmt:list_client_subscriptions(ClientId) of
         {error, not_found} ->
-            {404, ?CLIENTID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND_OBJ};
         [] ->
             {200, []};
         {Node, Subs} ->
@@ -841,7 +841,7 @@ set_keepalive(put, #{bindings := #{clientid := ClientId}, body := Body}) ->
         {ok, Interval} ->
             case emqx_mgmt:set_keepalive(ClientId, Interval) of
                 ok -> lookup(#{clientid => ClientId});
-                {error, not_found} -> {404, ?CLIENTID_NOT_FOUND};
+                {error, not_found} -> {404, ?CLIENTID_NOT_FOUND_OBJ};
                 {error, Reason} -> {400, #{code => 'PARAM_ERROR', message => Reason}}
             end
     end.
@@ -1170,7 +1170,7 @@ do_local_ets_select_v1(#{} = Params, Acc) ->
 lookup(#{clientid := ClientId}) ->
     case emqx_mgmt:lookup_client({clientid, ClientId}, ?FORMAT_FUN) of
         [] ->
-            {404, ?CLIENTID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND_OBJ};
         ClientInfo ->
             {200, hd(ClientInfo)}
     end.
@@ -1178,7 +1178,7 @@ lookup(#{clientid := ClientId}) ->
 kickout(#{clientid := ClientId}) ->
     case emqx_mgmt:kickout_client(ClientId) of
         {error, not_found} ->
-            {404, ?CLIENTID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND_OBJ};
         _ ->
             {204}
     end.
@@ -1186,7 +1186,7 @@ kickout(#{clientid := ClientId}) ->
 get_authz_cache(#{clientid := ClientId}) ->
     case emqx_mgmt:list_authz_cache(ClientId) of
         {error, not_found} ->
-            {404, ?CLIENTID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND_OBJ};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
             {500, #{code => <<"UNKNOWN_ERROR">>, message => Message}};
@@ -1200,7 +1200,7 @@ clean_authz_cache(#{clientid := ClientId}) ->
         ok ->
             {204};
         {error, not_found} ->
-            {404, ?CLIENTID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND_OBJ};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
             {500, #{code => <<"UNKNOWN_ERROR">>, message => Message}}
@@ -1210,7 +1210,7 @@ subscribe(#{clientid := ClientId, topic := Topic} = Sub) ->
     Opts = maps:with([qos, nl, rap, rh], Sub),
     case do_subscribe(ClientId, Topic, Opts) of
         {error, channel_not_found} ->
-            {404, ?CLIENTID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND_OBJ};
         {error, invalid_subopts_nl} ->
             {400, #{
                 code => <<"INVALID_PARAMETER">>,
@@ -1240,7 +1240,7 @@ subscribe_batch(#{clientid := ClientId, topics := Topics}) ->
         end,
     case Result of
         [] ->
-            {404, ?CLIENTID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND_OBJ};
         _ ->
             ArgList = [
                 [ClientId, Topic, maps:with([qos, nl, rap, rh], Sub)]
@@ -1253,7 +1253,7 @@ unsubscribe(#{clientid := ClientId, topic := Topic}) ->
     {NTopic, _} = emqx_topic:parse(Topic),
     case do_unsubscribe(ClientId, Topic) of
         {error, channel_not_found} ->
-            {404, ?CLIENTID_NOT_FOUND};
+            {404, ?CLIENTID_NOT_FOUND_OBJ};
         {unsubscribe, [{UnSubedT, #{}}]} when
             (UnSubedT =:= NTopic) orelse (UnSubedT =:= Topic)
         ->
@@ -1293,7 +1293,7 @@ client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
                         ['INVALID_PARAMETER'], ?DESC("invalid_parameter")
                     ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['CLIENTID_NOT_FOUND', 'CLIENT_SHUTDOWN'], ?DESC("clientid_not_found")
+                    [?CLIENTID_NOT_FOUND, 'CLIENT_SHUTDOWN'], ?DESC("clientid_not_found")
                 ),
                 ?NOT_IMPLEMENTED => emqx_dashboard_swagger:error_codes(
                     ['NOT_IMPLEMENTED'], ?DESC("not_implemented")
@@ -1541,7 +1541,7 @@ list_client_msgs(MsgType, ClientId, QString) ->
         PagerParams = #{} ->
             case emqx_mgmt:list_client_msgs(MsgType, ClientId, PagerParams) of
                 {error, not_found} ->
-                    {404, ?CLIENTID_NOT_FOUND};
+                    {404, ?CLIENTID_NOT_FOUND_OBJ};
                 {error, shutdown} ->
                     {404, ?CLIENT_SHUTDOWN};
                 {error, not_implemented} ->

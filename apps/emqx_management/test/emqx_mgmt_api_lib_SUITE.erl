@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx_management/include/emqx_mgmt_api.hrl").
+-include_lib("emqx/include/http_api.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -define(DUMMY, dummy_module).

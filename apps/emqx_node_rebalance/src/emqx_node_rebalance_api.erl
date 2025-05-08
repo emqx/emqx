@@ -8,7 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_management/include/emqx_mgmt_api.hrl").
+-include_lib("emqx/include/http_api.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -46,10 +46,8 @@
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
--define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NODE_EVACUATING, 'NODE_EVACUATING').
 -define(RPC_ERROR, 'RPC_ERROR').
--define(NOT_FOUND, 'NOT_FOUND').
 -define(TAGS, [<<"Load Rebalance">>]).
 
 %%--------------------------------------------------------------------

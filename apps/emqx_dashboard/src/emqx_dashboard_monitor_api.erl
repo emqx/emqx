@@ -7,7 +7,7 @@
 -include("emqx_dashboard.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
--include_lib("emqx_management/include/emqx_mgmt_api.hrl").
+-include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -behaviour(minirest_api).
