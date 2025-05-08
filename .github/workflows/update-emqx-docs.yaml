@@ -17,7 +17,45 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       TAG: ${{ github.event_name == 'push' && github.ref_name || github.event.inputs.tag }}
+      PROFILE: emqx-enterprise
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.inputs.tag }}
+          fetch-depth: 0
+
+      - name: Compile
+        run: |
+          scripts/buildx.sh --profile $PROFILE --pkgtype rel
+
+      - name: Upload schema-dump artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: "{{ env.PROFILE }}-schema-dump"
+          path: |
+            env.sh
+            _build/docgen/${{ env.PROFILE }}/*.json
+            _build/docgen/${{ env.PROFILE }}/*.hocon
+          retention-days: 7
+
+      - name: Generate changelog
+        run: |
+          TAG_PATTERN=$(echo "${TAG:0:1}*")
+          PREV_TAG=$(git describe --abbrev=0 --tags --match "${TAG_PATTERN}" --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*' --exclude '*docker*' HEAD~1)
+
+          changes_dir=("changes/ce" "changes/ee")
+          while read -r file; do
+             tar --append --file=changes.tar $file
+          done < <(git diff --diff-filter=A --name-only "tags/${PREV_TAG}...HEAD" "${changes_dir[@]}")
+          gzip changes.tar
+
+      - name: Upload changes.tar.gz artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: changes
+          path: changes.tar.gz
+          retention-days: 7
+          
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2.0.2
@@ -26,49 +64,10 @@ jobs:
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      - name: Create PR in emqx/emqx-docs
+      - name: Trigger workflows in emqx/emqx-docs
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh --repo emqx/emqx-docs workflow run update-api-and-cfg-manual.yaml -f version=${GITHUB_REF_NAME##[v|e]} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
-
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          ref: ${{ env.TAG }}
-          fetch-depth: 0
-
-      - name: Detect emqx profile
-        id: parse-git-ref
-        run: |
-          JSON="$(./scripts/parse-git-ref.sh refs/tags/$TAG)"
-          PROFILE=$(echo "$JSON" | jq -cr '.profile')
-          echo "profile=$PROFILE" | tee -a $GITHUB_ENV
-          TAG_PATTERN=$(echo "${TAG:0:1}*")
-          PREV_TAG=$(git describe --abbrev=0 --tags --match "${TAG_PATTERN}" --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*' --exclude '*docker*' HEAD~1)
-          echo "PREV_TAG=$PREV_TAG" | tee -a $GITHUB_ENV
-
-      - name: Generate changelog
-        run: |
-          changes_dir=("changes/ce")
-          if [ "$PROFILE" == "emqx-enterprise" ]; then
-            changes_dir+=("changes/ee")
-          fi
-
-          while read -r file; do
-             tar --append --file=changes.tar $file
-          done < <(git diff --diff-filter=A --name-only "tags/${PREV_TAG}...HEAD" "${changes_dir[@]}")
-          gzip changes.tar
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: changes
-          path: changes.tar.gz
-          retention-days: 7
-          
-      - name: Trigger update-changelog workflow in emqx/emqx-docs
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
+          gh --repo emqx/emqx-docs workflow run update-api-and-cfg-manual.yaml -f version=${TAG##e} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
           gh --repo emqx/emqx-docs workflow run update-changelog.yaml -f version=${TAG} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
 
