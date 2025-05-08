@@ -125,7 +125,6 @@ connector_config(Overrides) ->
     connector_config_s3t(Overrides).
 
 connector_config_s3t(Overrides) ->
-    %% TODO
     Defaults = #{
         <<"parameters">> => #{
             <<"account_id">> => <<"1234567890">>,
@@ -150,7 +149,6 @@ connector_config_s3t(Overrides) ->
     emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
 
 action_config(Overrides) ->
-    %% TODO
     Defaults = #{
         <<"parameters">> => #{
             <<"aggregation">> => #{

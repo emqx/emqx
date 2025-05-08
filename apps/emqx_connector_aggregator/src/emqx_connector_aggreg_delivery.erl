@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 
 %% This module takes aggregated records from a buffer and delivers them to a blob storage
-%% backend, wrapped in a configurable container (though currently there's only CSV).
+%% backend, wrapped in a configurable general-purpose container.
 -module(emqx_connector_aggreg_delivery).
 
 -feature(maybe_expr, enable).

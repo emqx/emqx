@@ -1,3 +1,6 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
 -module(emqx_bridge_s3tables_impl).
 
 -feature(maybe_expr, enable).

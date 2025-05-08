@@ -1,9 +1,13 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
-%% Avro OCF container implementation for `emqx_connector_aggregator`.
 -module(emqx_connector_aggreg_noop).
+
+-moduledoc """
+No-op implementation for `emqx_connector_aggregator` which returns input records without
+any change.  Main purpose is to delegate handling the raw records to a transfer module
+that requires more intimate handling of the record and keeping of extra metadata.
+""".
 
 -behaviour(emqx_connector_aggreg_container).
 
