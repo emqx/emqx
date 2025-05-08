@@ -8,6 +8,11 @@
 
 -type callback_result() :: stop | any().
 -type fold_callback_result(Acc) :: {stop, Acc} | {ok, Acc} | stop | any().
+-type channel_data() :: #{
+    clientinfo := emqx_types:clientinfo(),
+    conninfo := emqx_types:conninfo(),
+    will_msg := emqx_types:message()
+}.
 
 -export_type([
     fold_callback_result/1,
@@ -42,6 +47,7 @@
     'client.unsubscribe',
     'client.timeout',
     'client.monitored_process_down',
+    'session.creating',
     'session.created',
     'session.subscribed',
     'session.unsubscribed',
@@ -161,6 +167,8 @@ when
     fold_callback_result(Replies)
 when
     Replies :: emqx_channel:replies().
+
+-callback 'session.creating'(channel_data()) -> fold_callback_result(channel_data()).
 
 -callback 'session.created'(emqx_types:clientinfo(), _SessionInfo :: emqx_types:infos()) ->
     callback_result().
