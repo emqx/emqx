@@ -1,7 +1,12 @@
 emqx_nats_schema {
 
+server_id.desc:
+"""Server ID"""
+
+server_name.desc:
+"""Server Name"""
+
 max_payload_size.desc:
 """The maximum number of bytes of Payload allowed per NATS PUB/HPUB message"""
 
 }
-

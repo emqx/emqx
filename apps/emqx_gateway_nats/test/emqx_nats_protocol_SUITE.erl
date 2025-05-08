@@ -12,8 +12,14 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(DEFAULT_CLIENT_OPTS, #{
-    host => "localhost",
+    host => "tcp://localhost",
     port => 4222,
+    verbose => false
+}).
+
+-define(DEFAULT_WS_CLIENT_OPTS, #{
+    host => "ws://localhost",
+    port => 4223,
     verbose => false
 }).
 
@@ -26,6 +32,9 @@
     "  listeners.tcp.default {\n"
     "    bind = 4222\n"
     "  }\n"
+    "  listeners.ws.default {\n"
+    "    bind = 4223\n"
+    "  }\n"
     "}\n"
 >>).
 
@@ -33,7 +42,14 @@
 %% CT Callbacks
 %%--------------------------------------------------------------------
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() -> [{group, tcp}, {group, ws}].
+
+groups() ->
+    CTs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {tcp, [], CTs},
+        {ws, [], CTs}
+    ].
 
 init_per_suite(Config) ->
     application:load(emqx_gateway_nats),
@@ -55,6 +71,14 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
 
+init_per_group(tcp, Config) ->
+    [{client_opts, ?DEFAULT_CLIENT_OPTS} | Config];
+init_per_group(ws, Config) ->
+    [{client_opts, ?DEFAULT_WS_CLIENT_OPTS} | Config].
+
+end_per_group(_Group, _Config) ->
+    ok.
+
 init_per_testcase(_TestCase, Config) ->
     snabbkaffe:start_trace(),
     Config.
@@ -67,8 +91,8 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test Cases
 %%--------------------------------------------------------------------
 
-t_connect(_Config) ->
-    ClientOpts = ?DEFAULT_CLIENT_OPTS,
+t_connect(Config) ->
+    ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     {ok, Msgs} = emqx_nats_client:receive_message(Client),
     ?assertMatch([#nats_frame{operation = ?OP_INFO}], Msgs),
@@ -78,8 +102,8 @@ t_connect(_Config) ->
     ?assertMatch([#nats_frame{operation = ?OP_PONG}], Msgs2),
     emqx_nats_client:stop(Client).
 
-t_verbose_mode(_Config) ->
-    ClientOpts = maps:merge(?DEFAULT_CLIENT_OPTS, #{verbose => true}),
+t_verbose_mode(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
 
     %% Test INFO message
@@ -184,8 +208,8 @@ t_verbose_mode(_Config) ->
 
     emqx_nats_client:stop(Client).
 
-t_ping_pong(_Config) ->
-    ClientOpts = ?DEFAULT_CLIENT_OPTS,
+t_ping_pong(Config) ->
+    ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     {ok, Msgs} = emqx_nats_client:receive_message(Client),
     ?assertMatch([#nats_frame{operation = ?OP_INFO}], Msgs),
@@ -195,8 +219,8 @@ t_ping_pong(_Config) ->
     ?assertMatch([#nats_frame{operation = ?OP_PONG}], Msgs2),
     emqx_nats_client:stop(Client).
 
-t_subscribe(_Config) ->
-    ClientOpts = ?DEFAULT_CLIENT_OPTS,
+t_subscribe(Config) ->
+    ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     {ok, Msgs} = emqx_nats_client:receive_message(Client),
     ?assertMatch([#nats_frame{operation = ?OP_INFO}], Msgs),
@@ -204,8 +228,8 @@ t_subscribe(_Config) ->
     ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>),
     emqx_nats_client:stop(Client).
 
-t_publish(_Config) ->
-    ClientOpts = ?DEFAULT_CLIENT_OPTS,
+t_publish(Config) ->
+    ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     {ok, Msgs} = emqx_nats_client:receive_message(Client),
     ?assertMatch([#nats_frame{operation = ?OP_INFO}], Msgs),
@@ -213,8 +237,8 @@ t_publish(_Config) ->
     ok = emqx_nats_client:publish(Client, <<"foo">>, <<"hello">>),
     emqx_nats_client:stop(Client).
 
-t_receive_message(_Config) ->
-    ClientOpts = ?DEFAULT_CLIENT_OPTS,
+t_receive_message(Config) ->
+    ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     {ok, Msgs} = emqx_nats_client:receive_message(Client),
     ?assertMatch([#nats_frame{operation = ?OP_INFO}], Msgs),
@@ -235,8 +259,8 @@ t_receive_message(_Config) ->
     ),
     emqx_nats_client:stop(Client).
 
-t_unsubscribe(_Config) ->
-    ClientOpts = ?DEFAULT_CLIENT_OPTS,
+t_unsubscribe(Config) ->
+    ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     {ok, Msgs} = emqx_nats_client:receive_message(Client),
     ?assertMatch([#nats_frame{operation = ?OP_INFO}], Msgs),
@@ -245,8 +269,8 @@ t_unsubscribe(_Config) ->
     ok = emqx_nats_client:unsubscribe(Client, <<"sid-1">>),
     emqx_nats_client:stop(Client).
 
-t_queue_group(_Config) ->
-    ClientOpts = maps:merge(?DEFAULT_CLIENT_OPTS, #{verbose => true}),
+t_queue_group(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
     {ok, Client1} = emqx_nats_client:start_link(ClientOpts),
     {ok, Client2} = emqx_nats_client:start_link(ClientOpts),
 

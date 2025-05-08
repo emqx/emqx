@@ -140,23 +140,31 @@ init(
     _ = async_delivery_info_frame(Channel),
     Channel.
 
-async_delivery_info_frame(_Channel) ->
+async_delivery_info_frame(Channel) ->
+    case Channel#channel.conninfo of
+        #{conn_mod := emqx_gateway_conn} ->
+            self() ! {outgoing, info_frame(Channel)},
+            ok;
+        _ ->
+            ok
+    end.
+
+info_frame(#channel{conninfo = ConnInfo}) ->
+    {SockHost, SockPort} = maps:get(sockname, ConnInfo),
     MsgContent = #{
         server_id => <<"example_server_id">>,
         server_name => <<"example_server_name">>,
         version => <<"0.1.0">>,
-        host => <<"0.0.0.0">>,
-        port => 20020,
+        host => list_to_binary(inet:ntoa(SockHost)),
+        port => SockPort,
         max_payload => ?DEFAULT_MAX_PAYLOAD,
         proto => 0,
-        headers => false,
+        headers => true,
         auth_required => false,
         tls_required => false,
         jetstream => false
     },
-    Frame = #nats_frame{operation = ?OP_INFO, message = MsgContent},
-    self() ! {outgoing, Frame},
-    ok.
+    #nats_frame{operation = ?OP_INFO, message = MsgContent}.
 
 setting_peercert_infos(NoSSL, ClientInfo) when
     NoSSL =:= nossl;
@@ -752,6 +760,9 @@ handle_info(
 handle_info(clean_authz_cache, Channel) ->
     ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
+handle_info(after_init, Channel) ->
+    %% XXX: Only used for ws/wss transport layer
+    {ok, {outgoing, info_frame(Channel)}, Channel};
 handle_info(Info, Channel) ->
     ?SLOG(error, #{
         msg => "unexpected_info",
