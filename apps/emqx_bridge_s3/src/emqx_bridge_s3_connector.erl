@@ -39,9 +39,6 @@
 -behaviour(emqx_template).
 -export([lookup/2]).
 
-%% Internal exports
--export([do_on_get_status/1]).
-
 -type config() :: #{
     access_key_id => string(),
     secret_access_key => emqx_secret:t(string()),
@@ -139,22 +136,7 @@ on_stop(_InstId, _State = #{pool_name := PoolName}) ->
 -spec on_get_status(_InstanceId :: resource_id(), state()) ->
     health_check_status().
 on_get_status(_InstId, #{client_config := Config}) ->
-    do_on_get_status(Config).
-
-%% Note: `emqx_bridge_s3tables_impl` reuses this functions.
-do_on_get_status(Config) ->
-    case emqx_s3_client:aws_config(Config) of
-        {error, Reason} ->
-            {?status_disconnected, emqx_s3_utils:map_error_details(Reason)};
-        AWSConfig ->
-            try erlcloud_s3:list_buckets(AWSConfig) of
-                Props when is_list(Props) ->
-                    ?status_connected
-            catch
-                error:Error ->
-                    {?status_disconnected, emqx_s3_utils:map_error_details(Error)}
-            end
-    end.
+    emqx_s3_client:get_status(Config).
 
 -spec on_add_channel(_InstanceId :: resource_id(), state(), channel_id(), channel_config()) ->
     {ok, state()} | {error, _Reason}.

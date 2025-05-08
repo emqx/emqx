@@ -8,9 +8,11 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("erlcloud/include/erlcloud_aws.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -export([
     create/2,
+    get_status/1,
 
     get_object/2,
 
@@ -101,6 +103,21 @@ create(Bucket, Config) ->
         url_expire_time => maps:get(url_expire_time, Config),
         headers => headers(Config)
     }.
+
+-spec get_status(config()) -> ?status_connected | {?status_disconnected, term()}.
+get_status(S3ClientConfig) ->
+    case aws_config(S3ClientConfig) of
+        {error, Reason} ->
+            {?status_disconnected, emqx_s3_utils:map_error_details(Reason)};
+        AWSConfig ->
+            try erlcloud_s3:list_buckets(AWSConfig) of
+                Props when is_list(Props) ->
+                    ?status_connected
+            catch
+                error:Error ->
+                    {?status_disconnected, emqx_s3_utils:map_error_details(Error)}
+            end
+    end.
 
 -spec put_object(client(), key(), iodata()) -> ok_or_error(term()).
 put_object(Client, Key, Value) ->

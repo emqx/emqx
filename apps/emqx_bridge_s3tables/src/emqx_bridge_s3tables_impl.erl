@@ -130,7 +130,7 @@ on_stop(ConnResId, _ConnState) ->
 on_get_status(
     _ConnResId, #{?location_client := #{?s3_client_config := S3ClientConfig}} = _ConnState
 ) ->
-    emqx_bridge_s3_connector:do_on_get_status(S3ClientConfig).
+    emqx_s3_client:get_status(S3ClientConfig).
 
 -spec on_get_channels(connector_resource_id()) ->
     [{action_resource_id(), channel_config()}].
