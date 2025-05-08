@@ -420,7 +420,7 @@ load_previous_manifest_file(S3Client, LoadedTable) ->
         %% TODO: retry on errors??
         {ok, #{content := PrevManifestBin}} ?= emqx_s3_client:get_object(S3Client, Key),
         #{schema := ManifestFileSc} = persistent_term:get(?MANIFEST_FILE_PT_KEY),
-        BlocksBin = emqx_bridge_s3tables_logic:prepare_previous_manifest_files(
+        BlocksBin = emqx_bridge_s3tables_logic:fix_previous_manifest_files(
             PrevManifestBin, ManifestFileSc
         ),
         {ok, BlocksBin}

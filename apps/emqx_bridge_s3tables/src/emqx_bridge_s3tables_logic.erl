@@ -21,7 +21,7 @@ Iceberg/S3Tables operations.
     partition_keys_to_segments/2,
     manifest_entry_avro_schema/3,
     record_to_partition_keys/2,
-    prepare_previous_manifest_files/2
+    fix_previous_manifest_files/2
 ]).
 
 -ifdef(TEST).
@@ -206,7 +206,13 @@ record_to_partition_keys(Record, PartitionFields) ->
             {error, {incompatible_value, TransformName, Value}}
     end.
 
-prepare_previous_manifest_files(PrevManifestBin, ManifestFileSc) ->
+-doc """
+Previous manifest files may contain bogus keys that do not match the correct schema.  This
+can cause subsequent encode operations to fail.
+
+This functions decodes them, renames weird keys, and re-encodes the manifest files.
+""".
+fix_previous_manifest_files(PrevManifestBin, ManifestFileSc) ->
     DecodeOpts = avro:make_decoder_options([{map_type, map}, {record_type, map}]),
     {_Header, _OldSchema, Blocks0} = avro_ocf:decode_binary(PrevManifestBin, DecodeOpts),
     Blocks = lists:map(fun maybe_rename_athena_keys/1, Blocks0),

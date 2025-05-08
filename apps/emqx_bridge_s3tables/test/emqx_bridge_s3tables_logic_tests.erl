@@ -794,14 +794,14 @@ parse_partition_field_bad_fields_test_() ->
     ]).
 
 %% Checks that we transform bad manifest file schemas from Athena.
-prepare_previous_manifest_files_test() ->
+fix_previous_manifest_files_test() ->
     BaseDir = code:lib_dir(emqx_bridge_s3tables),
     Dir = filename:join([BaseDir, "test", "sample_metadata"]),
     {ok, BadBin} = file:read_file(filename:join([Dir, "bad_athena_manifest_list.avro"])),
     ManifestFileSc = manifest_file_avro_schema(),
     %% Simply not throwing an error asserts the schema has been fixed.  Without fixing the
     %% original schema, this would break as required fields are missing.
-    FixedBins = emqx_bridge_s3tables_logic:prepare_previous_manifest_files(
+    FixedBins = emqx_bridge_s3tables_logic:fix_previous_manifest_files(
         BadBin, ManifestFileSc
     ),
     ?assertMatch([_, _], FixedBins),
