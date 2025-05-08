@@ -245,12 +245,12 @@ forget_schema_files() ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-make_client(#{parameters := #{base_endpoint := BaseEndpoint, bucket := Bucket} = Params}) when
+make_client(#{base_endpoint := BaseEndpoint, bucket := Bucket} = Params) when
     is_binary(BaseEndpoint),
     is_binary(Bucket)
 ->
     emqx_bridge_s3tables_client_s3t:new(Params);
-make_client(#{parameters := #{s3tables_arn := ARN} = Params0}) ->
+make_client(#{s3tables_arn := ARN} = Params0) ->
     {ok, #{
         region := Region,
         account_id := AccountId,
@@ -265,7 +265,7 @@ make_client(#{parameters := #{s3tables_arn := ARN} = Params0}) ->
     },
     emqx_bridge_s3tables_client_s3t:new(Params).
 
-init_location_client(ConnResId, #{parameters := Params}) ->
+init_location_client(ConnResId, Params) ->
     maybe
         #{
             access_key_id := AccessKeyId,

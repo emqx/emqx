@@ -55,15 +55,6 @@ fields("config_connector") ->
     emqx_connector_schema:common_fields() ++ fields(connector_config);
 fields(connector_config) ->
     [
-        {parameters,
-            mk(
-                ref(s3tables_connector_params),
-                #{required => true, desc => ?DESC("parameters")}
-            )}
-    ] ++
-        emqx_connector_schema:resource_opts();
-fields(s3tables_connector_params) ->
-    [
         {account_id, mk(binary(), #{required => false, importance => ?IMPORTANCE_HIDDEN})},
         {access_key_id,
             mk(binary(), #{required => true, desc => ?DESC("location_s3t_access_key_id")})},
@@ -90,7 +81,8 @@ fields(s3tables_connector_params) ->
             mk(ref(s3_client_params), #{
                 required => true, desc => ?DESC("s3_client")
             })}
-    ];
+    ] ++
+        emqx_connector_schema:resource_opts();
 fields(s3_client_params) ->
     Fields = emqx_s3_schema:fields(s3_client),
     %% Access key and secret are the same as parent struct.
@@ -111,11 +103,8 @@ fields(s3_client_params) ->
         Fields
     ).
 
-desc(Name) when
-    Name =:= "config_connector";
-    Name =:= s3tables_connector_params
-->
-    ?DESC(Name);
+desc("config_connector") ->
+    ?DESC("config_connector");
 desc(s3_client_params) ->
     ?DESC("s3_client");
 desc(_Name) ->
@@ -160,23 +149,21 @@ connector_example(put, s3tables = _LocationProvider) ->
     #{
         enable => true,
         description => <<"My connector">>,
-        parameters => #{
-            access_key_id => <<"12345">>,
-            secret_access_key => <<"******">>,
-            s3tables_arn => <<"arn:aws:s3tables:sa-east-1:123456789012:bucket/mybucket">>,
-            request_timeout => <<"10s">>,
-            s3_client => #{
-                transport_options => #{
-                    ssl => #{
-                        enable => true,
-                        verify => <<"verify_peer">>
-                    },
-                    connect_timeout => <<"1s">>,
-                    request_timeout => <<"60s">>,
-                    pool_size => 4,
-                    max_retries => 1,
-                    enable_pipelining => 1
-                }
+        access_key_id => <<"12345">>,
+        secret_access_key => <<"******">>,
+        s3tables_arn => <<"arn:aws:s3tables:sa-east-1:123456789012:bucket/mybucket">>,
+        request_timeout => <<"10s">>,
+        s3_client => #{
+            transport_options => #{
+                ssl => #{
+                    enable => true,
+                    verify => <<"verify_peer">>
+                },
+                connect_timeout => <<"1s">>,
+                request_timeout => <<"60s">>,
+                pool_size => 4,
+                max_retries => 1,
+                enable_pipelining => 1
             }
         },
         resource_opts => #{

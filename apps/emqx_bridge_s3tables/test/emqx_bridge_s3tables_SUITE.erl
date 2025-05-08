@@ -126,21 +126,19 @@ connector_config(Overrides) ->
 
 connector_config_s3t(Overrides) ->
     Defaults = #{
-        <<"parameters">> => #{
-            <<"account_id">> => <<"1234567890">>,
-            <<"access_key_id">> => ?ACCESS_KEY_ID,
-            <<"secret_access_key">> => ?SECRET_ACCESS_KEY,
-            <<"base_endpoint">> => ?BASE_ENDPOINT,
-            <<"bucket">> => ?BUCKET,
-            <<"s3tables_arn">> => iolist_to_binary([
-                <<"arn:aws:s3tables:sa-east-1:123456789012:bucket/">>,
-                ?BUCKET
-            ]),
-            <<"request_timeout">> => <<"10s">>,
-            <<"s3_client">> => #{
-                <<"host">> => ?S3_HOST,
-                <<"port">> => ?S3_PORT
-            }
+        <<"account_id">> => <<"1234567890">>,
+        <<"access_key_id">> => ?ACCESS_KEY_ID,
+        <<"secret_access_key">> => ?SECRET_ACCESS_KEY,
+        <<"base_endpoint">> => ?BASE_ENDPOINT,
+        <<"bucket">> => ?BUCKET,
+        <<"s3tables_arn">> => iolist_to_binary([
+            <<"arn:aws:s3tables:sa-east-1:123456789012:bucket/">>,
+            ?BUCKET
+        ]),
+        <<"request_timeout">> => <<"10s">>,
+        <<"s3_client">> => #{
+            <<"host">> => ?S3_HOST,
+            <<"port">> => ?S3_PORT
         },
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
@@ -924,10 +922,8 @@ t_invalid_spec(Config) ->
 %%   * connection refused
 t_error_loading_table_while_adding_channel(Config) ->
     {201, _} = create_connector_api(Config, #{
-        <<"parameters">> => #{
-            <<"base_endpoint">> => <<"http://toxiproxy:8181/v1">>,
-            <<"request_timeout">> => <<"700ms">>
-        }
+        <<"base_endpoint">> => <<"http://toxiproxy:8181/v1">>,
+        <<"request_timeout">> => <<"700ms">>
     }),
     with_failure(timeout, fun() ->
         ?assertMatch(
