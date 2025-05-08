@@ -79,6 +79,18 @@ t_crud(_Config) ->
         })
     ),
 
+    %% Succeed to fetch provider
+    ?assertMatch(
+        {ok, 200, #{<<"name">> := <<"test-provider">>, <<"type">> := <<"openai">>}},
+        api_get([ai, providers, <<"test-provider">>])
+    ),
+
+    %% Fail to fetch non-existent provider
+    ?assertMatch(
+        {ok, 404, _},
+        api_get([ai, providers, <<"non-existent-provider">>])
+    ),
+
     %% Succeed to fetch providers
     ?assertMatch(
         {ok, 200, [
@@ -134,6 +146,18 @@ t_crud(_Config) ->
             provider_name => <<"test-provider">>,
             model => <<"gpt-4o">>
         })
+    ),
+
+    %% Succeed to fetch completion profile by name
+    ?assertMatch(
+        {ok, 200, #{<<"name">> := <<"test-completion-profile">>, <<"type">> := <<"openai">>}},
+        api_get([ai, completion_profiles, <<"test-completion-profile">>])
+    ),
+
+    %% Fail to fetch non-existent completion profile
+    ?assertMatch(
+        {ok, 404, _},
+        api_get([ai, completion_profiles, <<"non-existent-completion-profile">>])
     ),
 
     %% Succeed to fetch completion profiles

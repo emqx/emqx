@@ -6,6 +6,9 @@ ai_providers_list.desc:
 ai_providers_create.desc:
 """Create provider entry for an AI provider."""
 
+ai_providers_get.desc:
+"""Get provider entry for an AI provider."""
+
 ai_providers_update.desc:
 """Update provider entry for an AI provider."""
 
@@ -17,6 +20,9 @@ ai_completion_profiles_list.desc:
 
 ai_completion_profiles_create.desc:
 """Create AI completion profile."""
+
+ai_completion_profiles_get.desc:
+"""Get AI completion profile."""
 
 ai_completion_profiles_update.desc:
 """Update AI completion profile."""
