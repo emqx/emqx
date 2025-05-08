@@ -65,18 +65,15 @@ resolve_env(Name) ->
         true ->
             {ok, Value};
         false ->
-            special_env(Name)
+            resolve_special_env(Name)
     end.
 
--ifdef(TEST).
-%% when running tests, we need to mock the env variables
-special_env("EMQX_ETC_DIR") ->
+%% Special vars used in default config values.
+%% Need to resolve them to relative dir if not set for tests.
+%% In production code, they are always set from bin/emqx.
+resolve_special_env("EMQX_ETC_DIR") ->
     {ok, filename:join([code:lib_dir(emqx), etc])};
-special_env("EMQX_LOG_DIR") ->
+resolve_special_env("EMQX_LOG_DIR") ->
     {ok, "log"};
-special_env(_Name) ->
-    %% only in tests
+resolve_special_env(_Name) ->
     error.
--else.
-special_env(_Name) -> error.
--endif.
