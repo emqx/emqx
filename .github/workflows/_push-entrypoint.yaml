@@ -152,19 +152,10 @@ jobs:
           echo "export PROFILE=${PROFILE}" | tee -a env.sh
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
-          make ${PROFILE}-rel
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
-          retention-days: 7
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: "${{ matrix.profile }}-schema-dump"
-          path: |
-            env.sh
-            _build/docgen/${{ matrix.profile }}/*.json
-            _build/docgen/${{ matrix.profile }}/*.hocon
           retention-days: 7
 
   performance_test:
