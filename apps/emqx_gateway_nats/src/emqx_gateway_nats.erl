@@ -12,7 +12,8 @@
 -gateway(#{
     name => nats,
     callback_module => ?MODULE,
-    config_schema_module => emqx_nats_schema
+    config_schema_module => emqx_nats_schema,
+    edition => ee
 }).
 
 %% callback_module must implement the emqx_gateway_impl behaviour

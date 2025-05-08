@@ -725,7 +725,7 @@ ranch_opts(Type, ListenOn, Opts) ->
     }.
 
 ws_opts(Opts, Conf) ->
-    ConnMod = maps:get(connection_mod, Conf, emqx_gateway_conn),
+    ConnMod = maps:get(connection_mod, Conf, emqx_gateway_conn_ws),
     WsPaths = [
         {emqx_utils_maps:deep_get([websocket, path], Opts, "") ++ "/[...]", ConnMod, Conf}
     ],

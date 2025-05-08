@@ -485,7 +485,16 @@ listeners_schema(?R_REF(_Mod, tcp_udp_listeners)) ->
         ])
     );
 listeners_schema(?R_REF(_Mod, ws_listeners)) ->
-    hoconsc:array(hoconsc:union([ref(ws_listener), ref(wss_listener)])).
+    hoconsc:array(hoconsc:union([ref(ws_listener), ref(wss_listener)]));
+listeners_schema(?R_REF(_Mod, tcp_ws_listeners)) ->
+    hoconsc:array(
+        hoconsc:union([
+            ref(tcp_listener),
+            ref(ssl_listener),
+            ref(ws_listener),
+            ref(wss_listener)
+        ])
+    ).
 
 listener_schema() ->
     hoconsc:union([

@@ -120,9 +120,9 @@ receive_message(Client, Count, Timeout) ->
 
 -spec init(options()) -> {ok, state()}.
 init([Options]) ->
-    Host = maps:get(host, Options, "localhost"),
+    Host = maps:get(host, Options, "tcp://localhost"),
     Port = maps:get(port, Options, 4222),
-    {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {active, true}]),
+    {ok, Socket} = connect(Host, Port),
     ParseState = emqx_nats_frame:initial_parse_state(undefined),
     {ok, #{
         socket => Socket,
@@ -139,39 +139,33 @@ handle_call(connect, _From, #{socket := Socket} = State) ->
             {reply, {error, not_ready}, State};
         true ->
             ConnectFrame = #nats_frame{operation = ?OP_CONNECT, message = connect_opts(State)},
-            Bin = serialize_pkt(ConnectFrame),
-            ok = gen_tcp:send(Socket, Bin),
+            send_msg(Socket, ConnectFrame),
             {reply, ok, State}
     end;
 handle_call(ping, _From, #{socket := Socket} = State) ->
     PingFrame = #nats_frame{operation = ?OP_PING},
-    Bin = serialize_pkt(PingFrame),
-    ok = gen_tcp:send(Socket, Bin),
+    send_msg(Socket, PingFrame),
     {reply, ok, State};
 handle_call({subscribe, Subject, Sid}, _From, #{socket := Socket} = State) ->
     SubFrame = #nats_frame{operation = ?OP_SUB, message = #{subject => Subject, sid => Sid}},
-    Bin = serialize_pkt(SubFrame),
-    ok = gen_tcp:send(Socket, Bin),
+    send_msg(Socket, SubFrame),
     {reply, ok, State};
 handle_call({subscribe, Subject, Sid, Queue}, _From, #{socket := Socket} = State) ->
     SubFrame = #nats_frame{
         operation = ?OP_SUB, message = #{subject => Subject, sid => Sid, queue_group => Queue}
     },
-    Bin = serialize_pkt(SubFrame),
-    ok = gen_tcp:send(Socket, Bin),
+    send_msg(Socket, SubFrame),
     {reply, ok, State};
 handle_call({unsubscribe, Sid}, _From, #{socket := Socket} = State) ->
     UnsubFrame = #nats_frame{operation = ?OP_UNSUB, message = #{sid => Sid}},
-    Bin = serialize_pkt(UnsubFrame),
-    ok = gen_tcp:send(Socket, Bin),
+    send_msg(Socket, UnsubFrame),
     {reply, ok, State};
 handle_call({publish, Subject, ReplyTo, Payload}, _From, #{socket := Socket} = State) ->
     PubFrame = #nats_frame{
         operation = ?OP_PUB,
         message = #{subject => Subject, reply_to => ReplyTo, payload => Payload}
     },
-    Bin = serialize_pkt(PubFrame),
-    ok = gen_tcp:send(Socket, Bin),
+    send_msg(Socket, PubFrame),
     {reply, ok, State};
 handle_call({receive_message, Count, Timeout}, From, #{message_queue := Queue} = State) ->
     case length(Queue) >= Count of
@@ -195,17 +189,20 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info({tcp, Socket, Data}, #{socket := Socket} = State) ->
-    handle_tcp_data(Data, State);
+handle_info({tcp, _Socket, Data}, State) ->
+    handle_incoming_data(Data, State);
 handle_info({tcp_closed, Socket}, #{socket := Socket} = State) ->
     {stop, normal, State};
 handle_info({tcp_error, Socket, Reason}, #{socket := Socket} = State) ->
     {stop, Reason, State};
-handle_info(_Info, State) ->
+handle_info({gun_ws, _ConnPid, _StreamRef, {_Type, Msg}}, State) ->
+    handle_incoming_data(Msg, State);
+handle_info(Info, State) ->
+    ct:pal("[nats-client] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{socket := Socket}) ->
-    gen_tcp:close(Socket),
+    close(Socket),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -215,14 +212,14 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-handle_tcp_data(Data, #{parse_state := ParseState, message_queue := Queue} = State) ->
+handle_incoming_data(Data, #{parse_state := ParseState, message_queue := Queue} = State) ->
     case emqx_nats_frame:parse(Data, ParseState) of
         {ok, Frame, Rest, NewParseState} ->
             State1 = process_parsed_frame(Frame, State#{
                 parse_state => NewParseState, message_queue => Queue
             }),
             State2 = handle_message_with_state(Frame, State1),
-            handle_tcp_data(Rest, State2);
+            handle_incoming_data(Rest, State2);
         {more, NewParseState} ->
             {noreply, State#{parse_state => NewParseState}}
     end.
@@ -231,8 +228,7 @@ process_parsed_frame(?PACKET(?OP_INFO, ServerInfo), State) ->
     State#{connected_server_info => ServerInfo};
 process_parsed_frame(?PACKET(?OP_PING), State = #{socket := Socket}) ->
     PongFrame = #nats_frame{operation = ?OP_PONG},
-    Bin = serialize_pkt(PongFrame),
-    ok = gen_tcp:send(Socket, Bin),
+    send_msg(Socket, PongFrame),
     State;
 process_parsed_frame(_Frame, State) ->
     State.
@@ -256,8 +252,8 @@ is_server_ready(#{socket := Socket, connected_server_info := ServerInfo}) ->
         undefined ->
             false;
         _ ->
-            case inet:peername(Socket) of
-                {ok, {_, _}} ->
+            case peername(Socket) of
+                {ok, _} ->
                     true;
                 _ ->
                     false
@@ -278,3 +274,58 @@ serialize_pkt(Frame) ->
         Frame,
         emqx_nats_frame:serialize_opts()
     ).
+
+%%--------------------------------------------------------------------
+%% Socket and Websocket
+%%--------------------------------------------------------------------
+
+connect("tcp://" ++ Host, Port) ->
+    {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {active, true}]),
+    {ok, {tcp, Socket}};
+connect("ws://" ++ Host, Port) ->
+    Timeout = 5000,
+    ConnOpts = #{connect_timeout => 5000},
+    case gun:open(Host, Port, ConnOpts) of
+        {ok, ConnPid} ->
+            {ok, _} = gun:await_up(ConnPid, Timeout),
+            case upgrade(ConnPid, Timeout) of
+                {ok, StreamRef} -> {ok, {ws, {ConnPid, StreamRef}}};
+                Error -> Error
+            end;
+        Error ->
+            Error
+    end.
+
+upgrade(ConnPid, Timeout) ->
+    Path = binary_to_list(<<"/nats">>),
+    WsHeaders = [{<<"cache-control">>, <<"no-cache">>}],
+    StreamRef = gun:ws_upgrade(ConnPid, Path, WsHeaders, #{
+        protocols => [{<<"NATS">>, gun_ws_h}]
+    }),
+    receive
+        {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], _Headers} ->
+            {ok, StreamRef};
+        {gun_response, ConnPid, _, _, Status, Headers} ->
+            {error, {ws_upgrade_failed, Status, Headers}};
+        {gun_error, ConnPid, StreamRef, Reason} ->
+            {error, {ws_upgrade_failed, Reason}}
+    after Timeout ->
+        {error, timeout}
+    end.
+
+peername({tcp, Socket}) ->
+    inet:peername(Socket);
+peername({ws, {_ConnPid, _StreamRef}}) ->
+    {ok, ok}.
+
+send_msg({tcp, Socket}, Frame) ->
+    Bin = serialize_pkt(Frame),
+    ok = gen_tcp:send(Socket, Bin);
+send_msg({ws, {ConnPid, StreamRef}}, Frame) ->
+    Bin = serialize_pkt(Frame),
+    gun:ws_send(ConnPid, StreamRef, {text, Bin}).
+
+close({tcp, Socket}) ->
+    gen_tcp:close(Socket);
+close({ws, {ConnPid, _StreamRef}}) ->
+    gun:shutdown(ConnPid).
