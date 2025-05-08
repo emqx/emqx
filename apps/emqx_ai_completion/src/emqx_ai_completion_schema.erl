@@ -58,7 +58,7 @@ fields(provider) ->
             mk(binary(), #{
                 required => true,
                 desc => ?DESC(provider_name),
-                validator => fun emqx_schema:non_empty_string/1
+                validator => fun validate_name/1
             })},
         {type,
             mk(hoconsc:enum([openai, anthropic]), #{
@@ -106,7 +106,7 @@ fields(openai_completion_profile) ->
             mk(binary(), #{
                 required => true,
                 desc => ?DESC(completion_profile_name),
-                validator => fun emqx_schema:non_empty_string/1
+                validator => fun validate_name/1
             })},
         {type, mk(openai, #{default => openai, required => true, desc => ?DESC(type)})},
         {provider_name, mk(binary(), #{required => true, desc => ?DESC(provider_name)})},
@@ -123,7 +123,7 @@ fields(anthropic_completion_profile) ->
             mk(binary(), #{
                 required => true,
                 desc => ?DESC(completion_profile_name),
-                validator => fun emqx_schema:non_empty_string/1
+                validator => fun validate_name/1
             })},
         {type, mk(anthropic, #{default => anthropic, required => true, desc => ?DESC(type)})},
         {provider_name, mk(binary(), #{required => true, desc => ?DESC(provider_name)})},
@@ -134,9 +134,9 @@ fields(anthropic_completion_profile) ->
         {system_prompt,
             mk(binary(), #{required => false, default => <<>>, desc => ?DESC(system_prompt)})},
         {model,
-            mk(enum(['claude-3-5-sonnet-20240620', 'claude-3-5-haiku-20240307']), #{
+            mk(binary(), #{
                 required => false,
-                default => 'claude-3-5-sonnet-20240620',
+                default => <<"claude-3-5-sonnet-20240620">>,
                 desc => ?DESC(model)
             })},
         {max_tokens,
@@ -220,3 +220,6 @@ without_fields(FieldNames, Fields) ->
         end,
         Fields
     ).
+
+validate_name(Name) ->
+    emqx_resource:validate_name(Name).
