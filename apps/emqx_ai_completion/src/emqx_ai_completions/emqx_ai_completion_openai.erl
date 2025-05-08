@@ -16,7 +16,16 @@
 %% API
 %%------------------------------------------------------------------------------
 
-call(#{model := Model, system_prompt := SystemPrompt, provider := Provider}, Data, Options) ->
+call(
+    #{
+        name := Name,
+        model := Model,
+        system_prompt := SystemPrompt,
+        provider := #{name := ProviderName} = Provider
+    },
+    Data,
+    Options
+) ->
     Prompt = maps:get(prompt, Options, SystemPrompt),
     Client = create_client(Provider),
     Request = #{
@@ -32,12 +41,16 @@ call(#{model := Model, system_prompt := SystemPrompt, provider := Provider}, Dat
     case emqx_ai_completion_client:api_post(Client, {chat, completions}, Request) of
         {ok, #{<<"choices">> := [#{<<"message">> := #{<<"content">> := Content}}]}} ->
             ?tp(debug, emqx_ai_completion_result, #{
-                result => Content
+                result => Content,
+                provider => ProviderName,
+                completion_profile => Name
             }),
             Content;
         {error, Reason} ->
             ?tp(error, emqx_ai_completion_error, #{
-                reason => Reason
+                reason => Reason,
+                provider => ProviderName,
+                completion_profile => Name
             }),
             <<"">>
     end.

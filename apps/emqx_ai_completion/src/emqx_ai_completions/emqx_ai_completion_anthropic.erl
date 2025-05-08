@@ -19,10 +19,11 @@
 
 call(
     #{
+        name := Name,
         model := Model,
         system_prompt := SystemPrompt,
         max_tokens := MaxTokens,
-        provider := Provider,
+        provider := #{name := ProviderName} = Provider,
         anthropic_version := AnthropicVersion
     },
     Data,
@@ -44,12 +45,16 @@ call(
     case emqx_ai_completion_client:api_post(Client, messages, Request) of
         {ok, #{<<"content">> := [#{<<"type">> := <<"text">>, <<"text">> := Result} | _]}} ->
             ?tp(debug, emqx_ai_completion_result, #{
-                result => Result
+                result => Result,
+                provider => ProviderName,
+                completion_profile => Name
             }),
             Result;
         {error, Reason} ->
             ?tp(error, emqx_ai_completion_error, #{
-                reason => Reason
+                reason => Reason,
+                provider => ProviderName,
+                completion_profile => Name
             }),
             <<"">>
     end.
