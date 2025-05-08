@@ -93,7 +93,7 @@ t_trigger_max_records(Config) ->
                 container => ContainerOpts,
                 upload_options => #{}
             },
-            {ok, _Sup} = emqx_connector_aggreg_upload_sup:start_link(
+            {ok, Sup} = emqx_connector_aggreg_upload_sup:start_link(
                 AggregId, AggregOpts, DeliveryOpts
             ),
             Timestamp = now_ms(),
@@ -106,6 +106,7 @@ t_trigger_max_records(Config) ->
                     #{?snk_kind := connector_aggreg_delivery_completed}
                 )
             ),
+            gen_server:stop(Sup),
             ok
         end,
         []
