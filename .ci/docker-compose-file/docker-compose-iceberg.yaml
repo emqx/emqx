@@ -95,16 +95,22 @@ services:
         aliases:
           - minio.net
           - warehouse.minio.net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9001/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     # ports:
     #   - 9001:9001
     #   - 9000:9000
     command: ["server", "/data", "--console-address", ":9001"]
 
-  mc:
+  minio-warehouse-init:
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     image: quay.io/minio/mc:RELEASE.2025-03-12T17-29-24Z
-    container_name: mc
+    container_name: minio-warehouse-init
     networks:
       emqx_bridge:
     environment:
