@@ -577,6 +577,14 @@ fields("crl_cache") ->
                     desc => ?DESC("crl_cache_refresh_http_timeout")
                 }
             )},
+        {failure_threshold,
+            sc(
+                duration_ms(),
+                #{
+                    default => <<"60s">>,
+                    desc => ?DESC("crl_cache_failure_threshold")
+                }
+            )},
         {capacity,
             sc(
                 pos_integer(),
