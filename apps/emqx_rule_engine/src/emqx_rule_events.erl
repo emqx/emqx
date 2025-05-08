@@ -127,13 +127,8 @@ unload() ->
         event_names()
     ).
 
-unload(Topic) ->
-    lists:foreach(
-        fun(HookPoint) ->
-            emqx_hooks:del(HookPoint, {?MODULE, hook_fun_name(HookPoint)})
-        end,
-        match_event_names(Topic)
-    ).
+unload(EventName) ->
+    emqx_hooks:del(EventName, {?MODULE, hook_fun_name(EventName)}).
 
 %%--------------------------------------------------------------------
 %% Callbacks

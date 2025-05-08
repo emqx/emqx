@@ -138,6 +138,12 @@ update_rule(Id, Params) ->
     Res = request(Method, Path, Params),
     emqx_mgmt_api_test_util:simplify_result(Res).
 
+delete_rule(RuleId) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => emqx_mgmt_api_test_util:api_path(["rules", RuleId])
+    }).
+
 list_rules() ->
     Method = get,
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
@@ -842,6 +848,45 @@ do_t_alarm_events(_Config) ->
     emqx_alarm:safe_deactivate(AlarmName),
     ?assertNotReceive({rule_called, _}),
 
+    ok.
+
+%% Checks that, when removing a rule with a wildcard, we remove the hook function for each
+%% event for which such rule is the last referencing one.
+t_remove_rule_with_wildcard(_Config) ->
+    %% This only hooks on `'message.publish'`.
+    RuleId1 = <<"simple">>,
+    {201, _} = create_rule(#{
+        <<"id">> => RuleId1,
+        <<"sql">> => iolist_to_binary([
+            <<" select * from ">>,
+            <<" \"concrete/topic\" ">>
+        ]),
+        <<"actions">> => []
+    }),
+    %% This hooks on all `$events/#`
+    RuleId2 = <<"all">>,
+    {201, _} = create_rule(#{
+        <<"id">> => RuleId2,
+        <<"sql">> => iolist_to_binary([
+            <<" select * from ">>,
+            <<" \"$events/#\" ">>
+        ]),
+        <<"actions">> => []
+    }),
+    Events = ['message.publish' | emqx_rule_events:match_event_names(<<"$events/#">>)],
+    ListRuleHooks = fun() ->
+        [
+            E
+         || E <- Events,
+            {callback, {emqx_rule_events, _, _}, _, _} <- emqx_hooks:lookup(E)
+        ]
+    end,
+    ?assertEqual(lists:sort(Events), lists:sort(ListRuleHooks())),
+    {204, _} = delete_rule(RuleId2),
+    %% Should have cleared up all hooks but `'message.publish'``.
+    ?assertMatch(['message.publish'], ListRuleHooks()),
+    {204, _} = delete_rule(RuleId1),
+    ?assertMatch([], ListRuleHooks()),
     ok.
 
 %% Smoke tests for `last_modified_at' field when creating/updating a rule.
