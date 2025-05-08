@@ -15,7 +15,8 @@ image:
   ##
   # pullSecrets:
   # - myRegistryKeySecretName
-
+statefulSet:
+  additionalAnnotations: {}
 serviceAccount:
   # Specifies whether a service account should be created
   # If set false, means you need create service account by yourself

@@ -4,8 +4,6 @@ English | [简体中文](./README-CN.md) | [Русский](./README-RU.md)
 
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen&label=Release)](https://github.com/emqx/emqx/releases)
 [![Build Status](https://github.com/emqx/emqx/actions/workflows/_push-entrypoint.yaml/badge.svg)](https://github.com/emqx/emqx/actions/workflows/_push-entrypoint.yaml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx?label=Docker%20Pulls)](https://hub.docker.com/r/emqx/emqx)
-[![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/emqx/emqx?label=OpenSSF%20Scorecard&style=flat)](https://securityscorecards.dev/viewer/?uri=github.com/emqx/emqx)
 [![Slack](https://img.shields.io/badge/Slack-EMQ-39AE85?logo=slack)](https://slack-invite.emqx.io/)
 [![Discord](https://img.shields.io/discord/931086341838622751?label=Discord&logo=discord)](https://discord.gg/xYGf3fQnES)
 [![X](https://img.shields.io/badge/Follow-EMQ-1DA1F2?logo=x)](https://x.com/EMQTech)
@@ -31,27 +29,18 @@ The simplest way to set up EMQX is to create a managed deployment with EMQX Clou
 #### Run EMQX using Docker
 
 ```
-docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx:latest
+docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx-enterprise:latest
 ```
 
-Next, please follow the [Install EMQX Using Docker](https://docs.emqx.com/en/emqx/latest/deploy/install-docker-ce.html) guide for further instructions.
+Next, please follow the [Install EMQX Using Docker](https://docs.emqx.com/en/emqx/latest/deploy/install-docker.html) guide for further instructions.
 
 #### Run EMQX cluster on Kubernetes
 
 Please consult official [EMQX Operator](https://docs.emqx.com/en/emqx-operator/latest/getting-started/getting-started.html) documentation for details.
 
-#### Run EMQX on macOS
-
-EMQX is available as core [Homebrew](https://brew.sh/) package.
-
-```
-brew install emqx
-emqx start
-```
-
 #### More installation options
 
-If you prefer to install and manage EMQX yourself, you can download the latest version from [the official site](https://www.emqx.com/en/downloads-and-install/broker).
+If you prefer to install and manage EMQX yourself, you can download the latest version from [the official site](https://www.emqx.com/en/downloads-and-install/enterprise).
 
 For more installation options, see the [EMQX installation documentation](https://docs.emqx.com/en/emqx/latest/deploy/install.html)
 
@@ -129,7 +118,7 @@ Below is the matrix supported rolling upgrade paths since 5.0.
 
 See release notes for detailed information.
 
-| From\To  | 5.1  | 5.2  | 5.3  | 5.4  | 5.5  | 5.6  | 5.7  | 5.8  | 5.9?  | 5.10? | 6.0?  |
+| From\To  | 5.1  | 5.2  | 5.3  | 5.4  | 5.5  | 5.6  | 5.7  | 5.8  | 5.9   | 5.10? | 6.0?  |
 |----------|------|------|------|------|------|------|------|------|-------|-------|-------|
 | 5.0      | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ⚠️[1]  | ❌[2] | ❌[2] |
 | 5.1      | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅   | ✅    | ❌[2] | ❌[2] |
@@ -140,7 +129,7 @@ See release notes for detailed information.
 | 5.6      |      |      |      |      |      | ✅   | ✅   | ✅   | ✅    | ✅    | 🔄    |
 | 5.7      |      |      |      |      |      |      | ✅   | ✅   | ✅    | ✅    | 🔄    |
 | 5.8      |      |      |      |      |      |      |      | ✅   | ✅    | ✅    | 🔄    |
-| 5.9?     |      |      |      |      |      |      |      |      | ✅    | ✅    | ✅    |
+| 5.9      |      |      |      |      |      |      |      |      | ✅    | ✅    | ✅    |
 | 5.10?    |      |      |      |      |      |      |      |      |       | ✅    | ✅    |
 | 6.0?     |      |      |      |      |      |      |      |      |       |       | ✅    |
 
