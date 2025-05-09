@@ -260,12 +260,9 @@ drain_down(Cnt, Acc) ->
 %% `ok': There is nothing out of the ordinary.
 %% `shutdown': Some numbers (message queue length hit the limit),
 %%             hence shutdown for greater good (system stability).
-%% [FIXME] cross-dependency on `emqx_types`.
--spec check_oom(emqx_types:oom_policy()) -> ok | {shutdown, term()}.
 check_oom(Policy) ->
     check_oom(self(), Policy).
 
--spec check_oom(pid(), emqx_types:oom_policy()) -> ok | {shutdown, term()}.
 check_oom(_Pid, #{enable := false}) ->
     ok;
 check_oom(Pid, #{
@@ -321,11 +318,8 @@ proc_name(Mod, Id) ->
     list_to_atom(lists:concat([Mod, "_", Id])).
 
 %% Get Proc's Stats.
-%% [FIXME] cross-dependency on `emqx_types`.
--spec proc_stats() -> emqx_types:stats().
 proc_stats() -> proc_stats(self()).
 
--spec proc_stats(pid()) -> emqx_types:stats().
 proc_stats(Pid) ->
     case
         process_info(Pid, [

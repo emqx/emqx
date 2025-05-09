@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_utils_api).
+-module(emqx_mgmt_api_lib).
 
 -export([
     to_json/1,
@@ -22,7 +22,7 @@
     with_node_or_cluster/2
 ]).
 
--include("emqx_utils_api.hrl").
+-include_lib("emqx/include/http_api.hrl").
 
 -define(NODE_NOT_FOUND(NODE), ?NOT_FOUND(<<"Node not found: ", NODE/binary>>)).
 

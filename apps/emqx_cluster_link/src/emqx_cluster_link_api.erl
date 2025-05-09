@@ -7,7 +7,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/http_api.hrl").
--include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_cluster_link.hrl").
@@ -248,7 +248,7 @@ handle_create(Name, Params) ->
             ok = emqx_resource:validate_name(Name)
         catch
             throw:Error ->
-                ?BAD_REQUEST(emqx_utils_api:to_json(redact(Error)))
+                ?BAD_REQUEST(emqx_mgmt_api_lib:to_json(redact(Error)))
         end,
     case Check of
         ok ->
@@ -471,7 +471,7 @@ collect_all_status(NodeResults) ->
                     ({Node, #{status := S}}) ->
                         #{node => Node, status => S};
                     ({Node, Error0}) ->
-                        Error = emqx_logger_jsonfmt:best_effort_json(Error0),
+                        Error = emqx_utils_json:best_effort_json_obj(Error0),
                         #{node => Node, status => inconsistent, reason => Error}
                 end,
                 maps:to_list(NodeToData) ++ Errors
@@ -505,7 +505,7 @@ collect_single_status(NodeResults) ->
                 ({Node, {ok, {error, _}}}) ->
                     #{node => Node, status => ?status_disconnected};
                 ({Node, Error0}) ->
-                    Error = emqx_logger_jsonfmt:best_effort_json(Error0),
+                    Error = emqx_utils_json:best_effort_json_obj(Error0),
                     #{node => Node, status => inconsistent, reason => Error}
             end,
             NodeResults
