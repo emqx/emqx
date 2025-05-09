@@ -149,22 +149,33 @@ async_delivery_info_frame(Channel) ->
             ok
     end.
 
-info_frame(#channel{conninfo = ConnInfo}) ->
+info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
     {SockHost, SockPort} = maps:get(sockname, ConnInfo),
+    {ok, Vsn} = application:get_key(emqx_gateway_nats, vsn),
     MsgContent = #{
-        server_id => <<"example_server_id">>,
-        server_name => <<"example_server_name">>,
-        version => <<"0.1.0">>,
+        server_id => emqx_conf:get([gateway, nats, server_id]),
+        server_name => emqx_conf:get([gateway, nats, server_name]),
+        version => list_to_binary(Vsn),
         host => list_to_binary(inet:ntoa(SockHost)),
         port => SockPort,
-        max_payload => ?DEFAULT_MAX_PAYLOAD,
+        max_payload => emqx_conf:get([gateway, nats, protocol, max_payload_size]),
         proto => 0,
         headers => true,
-        auth_required => false,
+        auth_required => is_auth_required(ClientInfo),
         tls_required => false,
         jetstream => false
     },
     #nats_frame{operation = ?OP_INFO, message = MsgContent}.
+
+is_auth_required(#{enable_authn := false}) ->
+    false;
+is_auth_required(#{enable_authn := true}) ->
+    case emqx_conf:get([gateway, nats, authentication], undefined) of
+        undefined ->
+            false;
+        _ ->
+            true
+    end.
 
 setting_peercert_infos(NoSSL, ClientInfo) when
     NoSSL =:= nossl;
@@ -427,8 +438,6 @@ handle_in(
 ) when Op =:= ?OP_PUB; Op =:= ?OP_HPUB ->
     Subject = emqx_nats_frame:subject(Frame),
     Topic = emqx_nats_topic:nats_to_mqtt(Subject),
-    %% FIXME: replay to the sender
-    %ReplyTo = emqx_nats_frame:reply_to(Frame),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, ?AUTHZ_PUBLISH, Topic) of
         deny ->
             handle_out(error, err_frame_publish_denied(Subject), Channel);
@@ -807,6 +816,7 @@ handle_deliver(
 ) ->
     Frames0 = lists:foldl(
         fun({_, _, Message}, Acc) ->
+            ReplyTo = emqx_message:get_header(reply_to, Message),
             Topic = emqx_message:topic(Message),
             case find_sub_by_topic(Topic, Subs) of
                 {SId, _Topic, Subject, _SubOpts} ->
@@ -821,6 +831,7 @@ handle_deliver(
                     MsgContent = #{
                         subject => Subject,
                         sid => SId,
+                        reply_to => ReplyTo,
                         payload => emqx_message:payload(NMessage)
                     },
                     Frame = #nats_frame{
@@ -922,6 +933,7 @@ frame2message(
     Topic = emqx_nats_topic:nats_to_mqtt(Subject),
     Payload = emqx_nats_frame:payload(Frame),
     Headers = emqx_nats_frame:headers(Frame),
+    ReplyTo = emqx_nats_frame:reply_to(Frame),
     QoS =
         case is_verbose_mode(Channel) of
             true -> 1;
@@ -929,16 +941,22 @@ frame2message(
         end,
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
     %% Pass-through of custom headers on the sending side
-    NMsg = emqx_message:set_headers(
-        #{
-            proto_ver => ProtoVer,
-            protocol => Protocol,
-            username => Username,
-            peerhost => PeerHost,
-            nats_headers => Headers
-        },
-        Msg
-    ),
+    Headers0 = #{
+        proto_ver => ProtoVer,
+        protocol => Protocol,
+        username => Username,
+        peerhost => PeerHost,
+        nats_headers => Headers,
+        reply_to => ReplyTo
+    },
+    Headers1 =
+        case ReplyTo of
+            undefined ->
+                Headers0;
+            _ ->
+                Headers0#{reply_to => ReplyTo}
+        end,
+    NMsg = emqx_message:set_headers(Headers1, Msg),
     emqx_mountpoint:mount(Mountpoint, NMsg).
 
 process_pub_frame(Frame, Channel) ->

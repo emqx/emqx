@@ -15,8 +15,16 @@ namespace() -> "gateway".
 
 fields(nats) ->
     [
-        {server_id, sc(binary(), #{desc => ?DESC(server_id)})},
-        {server_name, sc(binary(), #{desc => ?DESC(server_name)})},
+        {server_id,
+            sc(binary(), #{
+                desc => ?DESC(server_id),
+                default => <<"emqx_nats_gateway">>
+            })},
+        {server_name,
+            sc(binary(), #{
+                desc => ?DESC(server_name),
+                default => <<"emqx_nats_gateway">>
+            })},
         {protocol, sc(ref(protocol))},
         {mountpoint, emqx_gateway_schema:mountpoint()},
         {listeners, sc(ref(tcp_ws_listeners), #{})}
