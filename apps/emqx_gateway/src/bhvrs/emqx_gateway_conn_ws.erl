@@ -463,7 +463,11 @@ handle_call(From, Req, State = #state{chann_mod = ChannMod, channel = Channel}) 
             return(State#state{channel = NChannel});
         {shutdown, Reason, Reply, NChannel} ->
             gen_server:reply(From, Reply),
-            shutdown(Reason, State#state{channel = NChannel})
+            shutdown(Reason, State#state{channel = NChannel});
+        {shutdown, Reason, Reply, Packet, NChannel} ->
+            gen_server:reply(From, Reply),
+            NState = postpone({outgoing, Packet}, State#state{channel = NChannel}),
+            shutdown(Reason, NState)
     end.
 
 %%--------------------------------------------------------------------

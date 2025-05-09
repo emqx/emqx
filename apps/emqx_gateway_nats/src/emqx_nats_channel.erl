@@ -440,7 +440,7 @@ handle_in(
     Topic = emqx_nats_topic:nats_to_mqtt(Subject),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, ?AUTHZ_PUBLISH, Topic) of
         deny ->
-            handle_out(error, err_frame_publish_denied(Subject), Channel);
+            handle_out(error, err_msg_publish_denied(Subject), Channel);
         allow ->
             process_pub_frame(Frame, Channel)
     end;
@@ -506,7 +506,7 @@ handle_in(
             ]),
             handle_out(error, ErrMsg, NChannel);
         {error, acl_denied, NChannel} ->
-            handle_out(error, err_frame_subscribe_denied(Subject), NChannel)
+            handle_out(error, err_msg_subscribe_denied(Subject), NChannel)
     end;
 handle_in(
     Frame = ?PACKET(?OP_UNSUB),
@@ -904,13 +904,11 @@ shutdown(Reason, AckFrame, Channel) ->
 shutdown_and_reply(Reason, Reply, OutPkt, Channel) ->
     {shutdown, Reason, Reply, OutPkt, Channel}.
 
-err_frame_publish_denied(Subject) ->
-    Msg = io_lib:format("Permissions Violation for Publish to ~s", [Subject]),
-    error_frame(Msg).
+err_msg_publish_denied(Subject) ->
+    iolist_to_binary(io_lib:format("Permissions Violation for Publish to ~s", [Subject])).
 
-err_frame_subscribe_denied(Subject) ->
-    Msg = io_lib:format("Permissions Violation for Subscription to ~s", [Subject]),
-    error_frame(Msg).
+err_msg_subscribe_denied(Subject) ->
+    iolist_to_binary(io_lib:format("Permissions Violation for Subscription to ~s", [Subject])).
 
 error_frame(Msg) ->
     Msg1 = iolist_to_binary(Msg),

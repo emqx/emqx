@@ -99,11 +99,11 @@ publish(Client, Subject, ReplyTo, Payload) ->
 
 -spec receive_message(client()) -> {ok, [map()]}.
 receive_message(Client) ->
-    receive_message(Client, 1, 1000).
+    receive_message(Client, 1, 5000).
 
 -spec receive_message(client(), pos_integer()) -> {ok, [map()]}.
 receive_message(Client, Count) ->
-    receive_message(Client, Count, 1000).
+    receive_message(Client, Count, 5000).
 
 -spec receive_message(client(), pos_integer(), timeout()) -> {ok, [map()]} | {error, busy}.
 receive_message(Client, Count, Timeout) ->
@@ -197,6 +197,8 @@ handle_info({tcp_error, _Socket, _Reason}, State) ->
     {stop, normal, State};
 handle_info({gun_ws, _ConnPid, _StreamRef, {_Type, Msg}}, State) ->
     handle_incoming_data(Msg, State);
+handle_info({gun_down, _ConnPid, ws, _, _}, State = #{message_queue := Queue}) ->
+    {noreply, State#{message_queue => Queue ++ [tcp_closed]}};
 handle_info(Info, State) ->
     ct:pal("[nats-client] unexpected info: ~p", [Info]),
     {noreply, State}.

@@ -272,3 +272,62 @@ list_gateway_auth_users(Gateway) ->
     Path = io_lib:format("/gateways/~ts/authentication/users", [Gateway]),
     {200, #{data := Users}} = request(get, Path),
     Users.
+
+%% Example:
+%% update_authz_file_rule(<<"""
+%%     {allow,{username,{re,"^dashboard$"}}}.
+%%     {deny,all}.
+%% """>)
+update_authz_file_rule(Rules) when is_binary(Rules) ->
+    Req = #{
+        <<"type">> => <<"file">>,
+        <<"enable">> => true,
+        <<"rules">> => Rules
+    },
+    Path = "/authorization/sources/file",
+    {204, _} = request(put, Path, Req),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Gateway Client Management Helpers
+%%--------------------------------------------------------------------
+
+get_gateway_client(Gateway, ClientId) ->
+    Path = io_lib:format("/gateways/~ts/clients/~ts", [Gateway, ClientId]),
+    {200, Client} = request(get, Path),
+    Client.
+
+kick_gateway_client(Gateway, ClientId) ->
+    Path = io_lib:format("/gateways/~ts/clients/~ts", [Gateway, ClientId]),
+    {204, _} = request(delete, Path),
+    ok.
+
+list_gateway_clients(Gateway) ->
+    Path = io_lib:format("/gateways/~ts/clients", [Gateway]),
+    {200, #{data := Clients}} = request(get, Path),
+    Clients.
+
+get_gateway_client_subscriptions(Gateway, ClientId) ->
+    Path = io_lib:format("/gateways/~ts/clients/~ts/subscriptions", [Gateway, ClientId]),
+    {200, Subscriptions} = request(get, Path),
+    Subscriptions.
+
+create_gateway_client_subscription(Gateway, ClientId, Topic) ->
+    Path = io_lib:format("/gateways/~ts/clients/~ts/subscriptions", [Gateway, ClientId]),
+    Body = #{topic => Topic},
+    case request(post, Path, Body) of
+        {201, _} ->
+            ok;
+        {400, _} = Err ->
+            Err
+    end.
+
+delete_gateway_client_subscription(Gateway, ClientId, Topic0) ->
+    Topic = cow_qs:urlencode(Topic0),
+    Path = io_lib:format("/gateways/~ts/clients/~ts/subscriptions/~ts", [Gateway, ClientId, Topic]),
+    case request(delete, Path) of
+        {204, _} ->
+            ok;
+        {400, _} = Err ->
+            Err
+    end.
