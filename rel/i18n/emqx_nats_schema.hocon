@@ -9,4 +9,10 @@ server_name.desc:
 max_payload_size.desc:
 """The maximum number of bytes of Payload allowed per NATS PUB/HPUB message"""
 
+ws_listener.desc:
+"""Websocket Listener"""
+
+wss_listener.desc:
+"""Websocket over TLS Listener"""
+
 }

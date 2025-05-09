@@ -42,8 +42,18 @@ fields(protocol) ->
     ];
 fields(tcp_ws_listeners) ->
     [
-        {ws, sc(map(name, ref(ws_listener)), #{})},
-        {wss, sc(map(name, ref(wss_listener)), #{})}
+        {ws,
+            sc(
+                map(name, ref(ws_listener)),
+                #{
+                    desc => ?DESC(ws_listener)
+                }
+            )},
+        {wss,
+            sc(
+                map(name, ref(wss_listener)),
+                #{desc => ?DESC(wss_listener)}
+            )}
     ] ++
         emqx_gateway_schema:fields(tcp_listeners);
 fields(ws_listener) ->
@@ -68,9 +78,9 @@ desc(protocol) ->
     "A group of settings for NATS Server.";
 desc(tcp_ws_listeners) ->
     "The NATS gateway accepts TCP and Websocket connections.";
-desc(ws) ->
+desc(ws_listener) ->
     "Websocket listener";
-desc(wss) ->
+desc(wss_listener) ->
     "Websocket over TLS listener";
 desc(websocket) ->
     "Websocket options";
