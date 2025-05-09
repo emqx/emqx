@@ -32,7 +32,8 @@
     stop_listener/3,
     restart_listener/1,
     restart_listener/3,
-    has_enabled_listener_conf_by_type/1
+    has_enabled_listener_conf_by_type/1,
+    wait_listener_stopped/1
 ]).
 
 -export([
@@ -48,7 +49,7 @@
 -export([format_bind/1]).
 
 -ifdef(TEST).
--export([certs_dir/2, wait_listener_stopped/1]).
+-export([certs_dir/2]).
 -endif.
 
 -export_type([listener_id/0]).

@@ -88,6 +88,27 @@ end_per_testcase(_TestCase, _Config) ->
     ok.
 
 %%--------------------------------------------------------------------
+%% Helper Functions
+%%--------------------------------------------------------------------
+
+enable_auth() ->
+    emqx_gateway_test_utils:enable_gateway_auth(<<"nats">>).
+
+disable_auth() ->
+    emqx_gateway_test_utils:disable_gateway_auth(<<"nats">>).
+
+create_test_user() ->
+    User = #{
+        user_id => <<"test_user">>,
+        password => <<"password">>,
+        is_superuser => false
+    },
+    emqx_gateway_test_utils:add_gateway_auth_user(<<"nats">>, User).
+
+delete_test_user() ->
+    emqx_gateway_test_utils:delete_gateway_auth_user(<<"nats">>, <<"test_user">>).
+
+%%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
 
@@ -341,3 +362,174 @@ t_reply_to(Config) ->
 
     emqx_nats_client:stop(Publisher),
     emqx_nats_client:stop(Subscriber).
+
+t_auth_success(Config) ->
+    ok = enable_auth(),
+    ok = create_test_user(),
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            user => <<"test_user">>,
+            pass => <<"password">>,
+            verbose => true
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_INFO,
+            message = _Message
+        },
+        InfoMsg
+    ),
+    Message = InfoMsg#nats_frame.message,
+    ?assert(maps:get(<<"auth_required">>, Message) =:= true),
+
+    %% Connect with credentials
+    ok = emqx_nats_client:connect(Client),
+    {ok, [ConnectAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        ConnectAck
+    ),
+
+    %% Test basic operations after successful authentication
+    ok = emqx_nats_client:ping(Client),
+    {ok, [PongMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_PONG
+        },
+        PongMsg
+    ),
+
+    emqx_nats_client:stop(Client),
+    ok = delete_test_user(),
+    ok = disable_auth().
+
+t_auth_failure(Config) ->
+    ok = enable_auth(),
+    ok = create_test_user(),
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            user => <<"test_user">>,
+            pass => <<"wrong_password">>,
+            verbose => true
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_INFO,
+            message = _Message
+        },
+        InfoMsg
+    ),
+    Message = InfoMsg#nats_frame.message,
+    ?assert(maps:get(<<"auth_required">>, Message) =:= true),
+
+    %% Connect with wrong credentials
+    ok = emqx_nats_client:connect(Client),
+    {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_ERR,
+            message = <<"Login Failed: bad_username_or_password">>
+        },
+        ErrorMsg
+    ),
+
+    {ok, [tcp_closed]} = emqx_nats_client:receive_message(Client),
+
+    emqx_nats_client:stop(Client),
+    ok = delete_test_user(),
+    ok = disable_auth().
+
+t_auth_dynamic_enable_disable(Config) ->
+    %% Start with auth disabled
+    ok = disable_auth(),
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{verbose => true}
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [InfoMsg1]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_INFO,
+            message = _Message1
+        },
+        InfoMsg1
+    ),
+    Message1 = InfoMsg1#nats_frame.message,
+    ?assert(maps:get(<<"auth_required">>, Message1) =:= false),
+
+    %% Connect without credentials (should succeed)
+    ok = emqx_nats_client:connect(Client),
+    {ok, [ConnectAck1]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        ConnectAck1
+    ),
+
+    %% Enable auth and create test user
+    ok = enable_auth(),
+    ok = create_test_user(),
+    {ok, Client2} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [InfoMsg2]} = emqx_nats_client:receive_message(Client2),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_INFO,
+            message = _Message2
+        },
+        InfoMsg2
+    ),
+    Message2 = InfoMsg2#nats_frame.message,
+    ?assert(maps:get(<<"auth_required">>, Message2) =:= true),
+
+    %% Try to connect without credentials (should fail)
+    ok = emqx_nats_client:connect(Client2),
+    {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client2),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_ERR,
+            message = <<"Login Failed: not_authorized">>
+        },
+        ErrorMsg
+    ),
+
+    %% Disable auth again
+    ok = delete_test_user(),
+    ok = disable_auth(),
+    {ok, Client3} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [InfoMsg3]} = emqx_nats_client:receive_message(Client3),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_INFO,
+            message = _Message3
+        },
+        InfoMsg3
+    ),
+    Message3 = InfoMsg3#nats_frame.message,
+    ?assert(maps:get(<<"auth_required">>, Message3) =:= false),
+
+    %% Connect without credentials (should succeed again)
+    ok = emqx_nats_client:connect(Client3),
+    {ok, [ConnectAck2]} = emqx_nats_client:receive_message(Client3),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        ConnectAck2
+    ),
+
+    emqx_nats_client:stop(Client),
+    emqx_nats_client:stop(Client2),
+    emqx_nats_client:stop(Client3).
