@@ -288,7 +288,7 @@ process_write(#{?inner_transfer := #single_transfer{}} = TransferState0) ->
             process_write(TransferState);
         {error, Reason} ->
             _ = emqx_s3_upload:abort(S3TransferState0),
-            {error, Reason}
+            {error, {data_file, Reason}}
     end;
 process_write(#{?inner_transfer := #partitioned_transfer{}} = TransferState0) ->
     #{
@@ -463,7 +463,7 @@ do_process_write_partitioned([PK | PKs], TransferState0) ->
                 St0
             ),
             %% TODO: prettify partition key
-            {error, {PK, Reason}}
+            {error, {data_file, PK, Reason}}
     end;
 do_process_write_partitioned([], TransferState) ->
     {ok, TransferState}.

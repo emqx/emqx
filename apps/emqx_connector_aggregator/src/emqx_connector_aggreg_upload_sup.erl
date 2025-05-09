@@ -14,6 +14,9 @@
     start_delivery_proc/3
 ]).
 
+%% Only for tests
+-export([list_deliveries/1]).
+
 -behaviour(supervisor).
 -export([init/1]).
 
@@ -34,6 +37,11 @@ start_delivery(Name, Buffer) ->
 
 start_delivery_proc(Name, DeliveryOpts, Buffer) ->
     emqx_connector_aggreg_delivery:start_link(Name, Buffer, DeliveryOpts).
+
+%% Only for tests
+
+list_deliveries(Name) ->
+    supervisor:which_children(?SUPREF(Name)).
 
 %%
 

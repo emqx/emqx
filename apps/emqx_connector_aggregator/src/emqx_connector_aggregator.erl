@@ -208,8 +208,10 @@ handle_call(take_error, _From, St0) ->
     {MaybeError, St} = handle_take_error(St0),
     {reply, MaybeError, St}.
 
-handle_cast({close_buffer, Timestamp}, St) ->
-    {noreply, handle_close_buffer(Timestamp, St)};
+handle_cast({close_buffer, Timestamp}, St0) ->
+    St = handle_close_buffer(Timestamp, St0),
+    ?tp("connector_aggregator_close_buffer_async_done", #{}),
+    {noreply, St};
 handle_cast({rotate_buffer, FD}, St0) ->
     ?tp("connector_aggregator_cast_rotate_buffer_received", #{}),
     St = handle_rotate_buffer(FD, St0),
