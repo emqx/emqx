@@ -225,3 +225,50 @@ collect_emqx_hooks_calls(Acc) ->
         meck:unload(emqx_hooks),
         L
     end.
+
+%%--------------------------------------------------------------------
+%% Gateway Authentication Helpers
+%%--------------------------------------------------------------------
+
+enable_gateway_auth(Gateway) ->
+    AuthConf = #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>,
+        password_hash_algorithm => #{
+            name => <<"sha256">>,
+            salt_position => <<"prefix">>
+        }
+    },
+    Path = io_lib:format("/gateways/~ts/authentication", [Gateway]),
+    {201, _} = request(post, Path, AuthConf),
+    ok.
+
+disable_gateway_auth(Gateway) ->
+    Path = io_lib:format("/gateways/~ts/authentication", [Gateway]),
+    {204, _} = request(delete, Path),
+    ok.
+
+get_gateway_auth(Gateway) ->
+    Path = io_lib:format("/gateways/~ts/authentication", [Gateway]),
+    {200, Conf} = request(get, Path),
+    Conf.
+
+add_gateway_auth_user(Gateway, User) ->
+    Path = io_lib:format("/gateways/~ts/authentication/users", [Gateway]),
+    {201, _} = request(post, Path, User),
+    ok.
+
+delete_gateway_auth_user(Gateway, Username) ->
+    Path = io_lib:format("/gateways/~ts/authentication/users/~ts", [Gateway, Username]),
+    {204, _} = request(delete, Path),
+    ok.
+
+get_gateway_auth_user(Gateway, Username) ->
+    Path = io_lib:format("/gateways/~ts/authentication/users/~ts", [Gateway, Username]),
+    {200, User} = request(get, Path),
+    User.
+
+list_gateway_auth_users(Gateway) ->
+    Path = io_lib:format("/gateways/~ts/authentication/users", [Gateway]),
+    {200, #{data := Users}} = request(get, Path),
+    Users.

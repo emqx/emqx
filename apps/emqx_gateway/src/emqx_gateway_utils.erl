@@ -464,6 +464,9 @@ update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg) when ?IS_COWB
     ok = ranch:suspend_listener(Name),
     ok = ranch:set_transport_options(Name, RanchOpts),
     ok = ranch:set_protocol_options(Name, WsOpts),
+    %% NOTE: ranch:suspend_listener/1 will close the listening socket,
+    %% so we need to wait for the listener to be stopped.
+    ok = emqx_listeners:wait_listener_stopped(ListenOn),
     ranch:resume_listener(Name).
 
 diff_listeners(NewListeners, OldListeners) ->
