@@ -34,6 +34,7 @@
     get_rules/0,
     get_rules_for_topic/1,
     get_rules_with_same_event/1,
+    get_enriched_rules_with_matching_event/1,
     get_rule_ids_by_action/1,
     get_rule_ids_by_bridge_action/1,
     get_rule_ids_by_bridge_source/1,
@@ -242,6 +243,31 @@ get_rules_with_same_event(Topic) ->
         EventName <- emqx_rule_events:match_event_names(Topic),
         lists:any(fun(T) -> is_of_event_name(EventName, T) end, From)
     ].
+
+-spec get_enriched_rules_with_matching_event(EventName :: atom()) ->
+    [
+        #{
+            rule => Rule,
+            trigger := Topic,
+            matched := TopicFilter
+        }
+    ]
+when
+    Topic :: binary(),
+    TopicFilter :: binary(),
+    Rule :: rule().
+get_enriched_rules_with_matching_event(EventName) ->
+    lists:usort([
+        #{
+            rule => Rule,
+            trigger => emqx_rule_events:event_topic(EventName),
+            matched => Topic
+        }
+     || Rule = #{from := Topics} <- get_rules(),
+        Topic <- Topics,
+        EventNameOther <- emqx_rule_events:match_event_names(Topic),
+        EventNameOther == EventName
+    ]).
 
 -spec get_rules_with_matching_event(EventName :: atom()) -> [rule()].
 get_rules_with_matching_event(EventName) ->
