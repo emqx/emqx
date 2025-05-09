@@ -11,6 +11,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -28,6 +30,15 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
+    ok.
+
+init_per_testcase(_TestCase, Config) ->
+    ok = snabbkaffe:start_trace(),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    ok = snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -93,9 +104,10 @@ t_trigger_max_records(Config) ->
                 container => ContainerOpts,
                 upload_options => #{}
             },
-            {ok, _Sup} = emqx_connector_aggreg_upload_sup:start_link(
+            {ok, Sup} = emqx_connector_aggreg_upload_sup:start_link(
                 AggregId, AggregOpts, DeliveryOpts
             ),
+            on_exit(fun() -> gen_server:stop(Sup) end),
             Timestamp = now_ms(),
             Records = lists:duplicate(MaxRecords, #{}),
             %% Should immediately trigger a delivery process to be kicked off.
@@ -140,9 +152,10 @@ t_concurrent_close_buffer_and_next_buffer(Config) ->
                 container => ContainerOpts,
                 upload_options => #{}
             },
-            {ok, _Sup} = emqx_connector_aggreg_upload_sup:start_link(
+            {ok, Sup} = emqx_connector_aggreg_upload_sup:start_link(
                 AggregId, AggregOpts, DeliveryOpts
             ),
+            on_exit(fun() -> gen_server:stop(Sup) end),
             AggregatorPid = emqx_connector_aggregator:where(AggregId),
             ?assert(is_pid(AggregatorPid)),
             MRef = monitor(process, AggregatorPid),

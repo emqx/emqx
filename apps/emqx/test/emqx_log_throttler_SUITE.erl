@@ -20,9 +20,8 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    %% This test suite can't be run in standalone tests (without emqx_conf)
-    case emqx_common_test_helpers:ensure_loaded(emqx_conf) of
-        true ->
+    case emqx_common_test_helpers:is_standalone_test() of
+        false ->
             Apps = emqx_cth_suite:start(
                 [
                     {emqx_conf, #{
@@ -40,7 +39,7 @@ init_per_suite(Config) ->
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
             [{suite_apps, Apps} | Config];
-        false ->
+        true ->
             {skip, standalone_not_supported}
     end.
 
