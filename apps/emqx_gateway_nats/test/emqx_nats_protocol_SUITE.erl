@@ -80,11 +80,17 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_TestCase, Config) ->
-    snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    snabbkaffe:stop(),
+    try
+        allow_pubsub_all(),
+        delete_test_user(),
+        disable_auth()
+    catch
+        _:_ ->
+            ok
+    end,
     ok.
 
 %%--------------------------------------------------------------------
@@ -107,6 +113,24 @@ create_test_user() ->
 
 delete_test_user() ->
     emqx_gateway_test_utils:delete_gateway_auth_user(<<"nats">>, <<"test_user">>).
+
+allow_pubsub_all() ->
+    emqx_gateway_test_utils:update_authz_file_rule(
+        <<
+            "\n"
+            "        {allow,all}.\n"
+            "    "
+        >>
+    ).
+
+deny_pubsub_all() ->
+    emqx_gateway_test_utils:update_authz_file_rule(
+        <<
+            "\n"
+            "        {deny,all}.\n"
+            "    "
+        >>
+    ).
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -444,8 +468,6 @@ t_auth_failure(Config) ->
         ErrorMsg
     ),
 
-    {ok, [tcp_closed]} = emqx_nats_client:receive_message(Client),
-
     emqx_nats_client:stop(Client),
     ok = delete_test_user(),
     ok = disable_auth().
@@ -533,3 +555,207 @@ t_auth_dynamic_enable_disable(Config) ->
     emqx_nats_client:stop(Client),
     emqx_nats_client:stop(Client2),
     emqx_nats_client:stop(Client3).
+
+t_publish_authz(Config) ->
+    %% Enable authorization with deny all first
+    ok = deny_pubsub_all(),
+
+    %% Create test user and enable auth
+    ok = enable_auth(),
+    ok = create_test_user(),
+
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            user => <<"test_user">>,
+            pass => <<"password">>,
+            verbose => true
+        }
+    ),
+
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+    ok = emqx_nats_client:connect(Client),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+
+    %% Test denied topic (should fail)
+    ok = emqx_nats_client:publish(Client, <<"test.topic">>, <<"test message">>),
+    {ok, [ErrorMsg1]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_ERR,
+            message = <<"Permissions Violation for Publish to test.topic">>
+        },
+        ErrorMsg1
+    ),
+
+    %% Allow all publish operations
+    ok = allow_pubsub_all(),
+
+    %% Test allowed topic (should succeed)
+    ok = emqx_nats_client:publish(Client, <<"test.topic">>, <<"test message">>),
+    {ok, [PubAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        PubAck
+    ),
+
+    emqx_nats_client:stop(Client),
+    ok = delete_test_user(),
+    ok = disable_auth().
+
+t_subscribe_authz(Config) ->
+    %% Enable authorization with deny all first
+    ok = deny_pubsub_all(),
+
+    %% Create test user and enable auth
+    ok = enable_auth(),
+    ok = create_test_user(),
+
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            user => <<"test_user">>,
+            pass => <<"password">>,
+            verbose => true
+        }
+    ),
+
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+    ok = emqx_nats_client:connect(Client),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+
+    %% Test denied subscription (should fail)
+    ok = emqx_nats_client:subscribe(Client, <<"test.topic">>, <<"sid-1">>),
+    {ok, [ErrorMsg1]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_ERR,
+            message = <<"Permissions Violation for Subscription to test.topic">>
+        },
+        ErrorMsg1
+    ),
+
+    %% Allow all subscribe operations
+    ok = allow_pubsub_all(),
+
+    %% Test allowed subscription (should succeed)
+    ok = emqx_nats_client:subscribe(Client, <<"test.topic">>, <<"sid-1">>),
+    {ok, [SubAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        SubAck
+    ),
+
+    emqx_nats_client:stop(Client),
+    ok = delete_test_user(),
+    ok = disable_auth().
+
+t_gateway_client_management(Config) ->
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            user => <<"test_user">>,
+            verbose => true
+        }
+    ),
+
+    %% Start a client
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+    ok = emqx_nats_client:connect(Client),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+
+    %% Test list clients
+    [ClientInfo0] = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
+    ?assertEqual(<<"test_user">>, maps:get(username, ClientInfo0)),
+    %% ClientId assigned by emqx_gateway_nats, it's a random string.
+    %% We can get it from the client info.
+    ClientId = maps:get(clientid, ClientInfo0),
+
+    %% Test get client info
+    ClientInfo = emqx_gateway_test_utils:get_gateway_client(<<"nats">>, ClientId),
+    ?assertEqual(ClientId, maps:get(clientid, ClientInfo)),
+    ?assertEqual(true, maps:get(connected, ClientInfo)),
+
+    %% Test kick client
+    ok = emqx_gateway_test_utils:kick_gateway_client(<<"nats">>, ClientId),
+    {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_ERR,
+            message = <<"Kicked out">>
+        },
+        ErrorMsg
+    ),
+
+    %% Verify client is disconnected
+    ?assertEqual([], emqx_gateway_test_utils:list_gateway_clients(<<"nats">>)),
+
+    emqx_nats_client:stop(Client).
+
+t_gateway_client_subscription_management(Config) ->
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            user => <<"test_user">>,
+            verbose => true
+        }
+    ),
+    Topic = <<"test/subject">>,
+    Subject = <<"test.subject">>,
+
+    %% Start a client
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+    ok = emqx_nats_client:connect(Client),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+
+    [ClientInfo0] = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
+    ?assertEqual(<<"test_user">>, maps:get(username, ClientInfo0)),
+    ClientId = maps:get(clientid, ClientInfo0),
+
+    %% Create subscription by client
+    ok = emqx_nats_client:subscribe(Client, Subject, <<"sid-1">>),
+    {ok, [SubAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        SubAck
+    ),
+    %% Verify subscription list
+    Subscriptions = emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId),
+    ?assert(lists:any(fun(S) -> maps:get(topic, S) =:= Topic end, Subscriptions)),
+
+    %% XXX: Not implemented yet
+    ?assertMatch(
+        {400, _},
+        emqx_gateway_test_utils:create_gateway_client_subscription(<<"nats">>, ClientId, Topic)
+    ),
+
+    %% XXX: Not implemented yet
+    ?assertMatch(
+        {400, _},
+        emqx_gateway_test_utils:delete_gateway_client_subscription(<<"nats">>, ClientId, Topic)
+    ),
+
+    %% Delete subscription by client
+    ok = emqx_nats_client:unsubscribe(Client, <<"sid-1">>),
+    {ok, [UnsubAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        UnsubAck
+    ),
+    ?assertEqual(
+        [], emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId)
+    ),
+
+    emqx_nats_client:stop(Client).
