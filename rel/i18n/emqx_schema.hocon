@@ -1561,6 +1561,11 @@ crl_cache_refresh_interval.desc:
 crl_cache_refresh_interval.label:
 """CRL Cache Refresh Interval"""
 
+crl_cache_failure_threshold.desc:
+"""Failure Threshold"""
+crl_cache_failure_threshold.label:
+"""Specifies the maximum time period that a URL can continuously fail to refresh before it is evicted from the system."""
+
 mqtt_listener_proxy_protocol.desc:
 """Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed behind HAProxy or Nginx.<br/>
 See: https://www.haproxy.com/blog/haproxy/proxy-protocol/"""

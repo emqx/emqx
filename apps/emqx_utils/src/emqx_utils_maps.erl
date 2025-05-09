@@ -35,6 +35,7 @@
     jsonable_map/2,
     key_comparer/1,
     put_if/4,
+    put_new/3,
     rename/3,
     safe_atom_key_map/1,
     unindent/2,
@@ -317,6 +318,11 @@ put_if(Acc, K, V, true) ->
     Acc#{K => V};
 put_if(Acc, _K, _V, false) ->
     Acc.
+
+put_new(K, _V, M) when is_map_key(K, M) ->
+    M;
+put_new(K, V, M) ->
+    maps:put(K, V, M).
 
 rename(OldKey, NewKey, Map) ->
     case maps:find(OldKey, Map) of
