@@ -78,4 +78,28 @@ checkout_timeout.desc:
 checkout_timeout.label:
 """Checkout Timeout"""
 
+ai.desc:
+"""AI functions settings."""
+
+ai.label:
+"""AI"""
+
+provider.desc:
+"""AI provider."""
+
+provider.label:
+"""Provider"""
+
+openai_completion_profile.desc:
+"""AI completion profile for OpenAI."""
+
+openai_completion_profile.label:
+"""OpenAI Completion Profile"""
+
+anthropic_completion_profile.desc:
+"""AI completion profile for Anthropic."""
+
+anthropic_completion_profile.label:
+"""Anthropic Completion Profile"""
+
 }

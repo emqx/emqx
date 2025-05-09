@@ -111,7 +111,7 @@ fields(openai_completion_profile) ->
         {type, mk(openai, #{default => openai, required => true, desc => ?DESC(type)})},
         {provider_name, mk(binary(), #{required => true, desc => ?DESC(provider_name)})},
         {system_prompt, mk(binary(), #{default => <<>>, desc => ?DESC(system_prompt)})},
-        {model, mk(enum(['gpt-4o', 'gpt-4o-mini']), #{default => 'gpt-4o', desc => ?DESC(model)})}
+        {model, mk(binary(), #{default => <<"gpt-4o">>, desc => ?DESC(model)})}
     ];
 fields(openai_completion_profile_api_get) ->
     fields(openai_completion_profile);
@@ -148,19 +148,13 @@ fields(anthropic_completion_profile_api_put) ->
     without_fields([name], fields(anthropic_completion_profile)).
 
 desc(ai) ->
-    "AI functions settings.";
-desc(provider_api_put) ->
-    "AI provider used in HTTP API.";
+    ?DESC(ai);
 desc(provider) ->
-    "AI provider.";
-desc(openai_completion_profile_api) ->
-    "AI completion profile for OpenAI used in HTTP API.";
+    ?DESC(provider);
 desc(openai_completion_profile) ->
-    "AI completion profile for OpenAI.";
-desc(anthropic_completion_profile_api) ->
-    "AI completion profile for Anthropic used in HTTP API.";
+    ?DESC(openai_completion_profile);
 desc(anthropic_completion_profile) ->
-    "AI completion profile for Anthropic.";
+    ?DESC(anthropic_completion_profile);
 desc(_) ->
     undefined.
 
