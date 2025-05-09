@@ -4,11 +4,16 @@
 
 -module(emqx_ai_completion_config).
 
+-behaviour(emqx_config_backup).
 -behaviour(emqx_config_handler).
 
 -export([load/0, unload/0]).
 
+%% emqx_config_handler
 -export([pre_config_update/3, post_config_update/5]).
+
+%% emqx_config_backup
+-export([import_config/1]).
 
 -export([
     get_provider/1,
@@ -447,3 +452,50 @@ update_by_key(Key, Value, Entry, Entries) ->
         {Left, [OldEntry | Right]} ->
             {ok, OldEntry, Left ++ [Entry | Right]}
     end.
+
+%%--------------------------------------------------------------------
+%% emqx_config_backup callbacks
+%%--------------------------------------------------------------------
+
+import_config(#{<<"ai">> := AI}) ->
+    Providers = maps:get(<<"providers">>, AI, []),
+    CompletionProfilesToImport = maps:get(<<"completion_profiles">>, AI, []),
+    NewProviders = merge_by_names(get_providers_raw(), Providers),
+    NewCompletionProfiles = merge_by_names(
+        get_completion_profiles_raw(), CompletionProfilesToImport
+    ),
+    ProviderImportResult = import_ai_entries([ai, providers], NewProviders),
+    CompletionProfileImportResult = import_ai_entries(
+        [ai, completion_profiles], NewCompletionProfiles
+    ),
+    combine_results([ProviderImportResult, CompletionProfileImportResult]);
+import_config(_RawConf) ->
+    {ok, #{root_key => ai, changed => []}}.
+
+import_ai_entries(ConfigPath, Entries) ->
+    case emqx_conf:update(ConfigPath, Entries, #{override_to => cluster}) of
+        {ok, _} ->
+            {ok, #{root_key => ai, changed => [ConfigPath]}};
+        {error, Error} ->
+            {error, #{root_key => ai, reason => Error}}
+    end.
+
+merge_by_names(Old, New) ->
+    NewNames = sets:from_list([Name || #{<<"name">> := Name} <- New], [{version, 2}]),
+    OldToKeep = lists:filter(
+        fun(#{<<"name">> := Name}) -> not sets:is_element(Name, NewNames) end, Old
+    ),
+    OldToKeep ++ New.
+
+combine_results(Results0) ->
+    Results1 = lists:foldr(
+        fun
+            ({ok, OkRes}, {OkAcc, ErrAcc}) ->
+                {[OkRes | OkAcc], ErrAcc};
+            ({error, ErrRes}, {OkAcc, ErrAcc}) ->
+                {OkAcc, [ErrRes | ErrAcc]}
+        end,
+        {[], []},
+        Results0
+    ),
+    {results, Results1}.
