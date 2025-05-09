@@ -14,6 +14,46 @@
     format_action/1
 ]).
 
+-type authz_result() :: allow | deny.
+-type authorize_hook_result() ::
+    #{
+        result := authz_result(),
+        from := term()
+    }.
+
+-type authn_result() :: #{
+    is_superuser => boolean(),
+    client_attrs => #{binary() => binary()},
+    expire_at => non_neg_integer(),
+    %% Authentication may return ACL rules that will reside in client info
+    %% for the later use in authorizers. See emqx_authz_client_info module.
+    acl => term()
+}.
+
+%% Returned as 'Authentication-Data' property to the client.
+-type authn_data() :: binary().
+
+%% Stash for several-step authentication.
+-type authn_cache() :: map().
+
+-type authenticate_hook_result() ::
+    ignore
+    | ok
+    | {ok, authn_result()}
+    | {ok, authn_result(), authn_data()}
+    | {continue, authn_cache()}
+    | {continue, authn_data(), authn_cache()}
+    | {error, term()}.
+
+-export_type([
+    authenticate_hook_result/0,
+    authorize_hook_result/0,
+    authn_result/0,
+    authn_data/0,
+    authn_cache/0,
+    authz_result/0
+]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -41,10 +81,10 @@ end).
 %%--------------------------------------------------------------------
 
 -spec authenticate(emqx_types:clientinfo()) ->
-    {ok, map()}
-    | {ok, map(), binary()}
-    | {continue, map()}
-    | {continue, binary(), map()}
+    {ok, authn_result()}
+    | {ok, authn_result(), authn_data()}
+    | {continue, authn_cache()}
+    | {continue, authn_data(), authn_cache()}
     | {error, not_authorized}.
 authenticate(Credential) ->
     %% pre-hook quick authentication or
@@ -90,7 +130,7 @@ authenticate(Credential) ->
 
 %% @doc Check Authorization
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic()) ->
-    allow | deny.
+    authz_result().
 authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic) ->
     case binary:split(Data, <<"/">>) of
         [_, Topic] ->

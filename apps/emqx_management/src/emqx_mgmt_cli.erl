@@ -151,7 +151,7 @@ cluster(["status"]) ->
     emqx_ctl:print("Cluster status: ~p~n", [cluster_info()]);
 cluster(["status", "--json"]) ->
     Info = sort_map_list_fields(cluster_info()),
-    emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Info)]);
+    emqx_ctl:print("~ts~n", [emqx_utils_json:best_effort_json(Info)]);
 cluster(["discovery", "enable"]) ->
     enable_autocluster();
 cluster(["core", "rebalance", "plan"]) ->

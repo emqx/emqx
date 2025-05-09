@@ -257,13 +257,13 @@ nodes(get, _Params) ->
     list_nodes(#{}).
 
 node(get, #{bindings := #{node := NodeName}}) ->
-    emqx_utils_api:with_node(NodeName, to_ok_result_fun(fun get_node/1)).
+    with_node(NodeName, to_ok_result_fun(fun get_node/1)).
 
 node_metrics(get, #{bindings := #{node := NodeName}}) ->
-    emqx_utils_api:with_node(NodeName, to_ok_result_fun(fun emqx_mgmt:get_metrics/1)).
+    with_node(NodeName, to_ok_result_fun(fun emqx_mgmt:get_metrics/1)).
 
 node_stats(get, #{bindings := #{node := NodeName}}) ->
-    emqx_utils_api:with_node(NodeName, to_ok_result_fun(fun emqx_mgmt:get_stats/1)).
+    with_node(NodeName, to_ok_result_fun(fun emqx_mgmt:get_stats/1)).
 
 %%--------------------------------------------------------------------
 %% api apply
@@ -300,3 +300,6 @@ to_ok_result_fun(Fun) when is_function(Fun) ->
 
 not_found() ->
     emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Node not found">>).
+
+with_node(Name, Fn) ->
+    emqx_mgmt_api_lib:with_node(Name, Fn).

@@ -1,5 +1,17 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc HOCON schema help module
@@ -67,9 +79,9 @@ format_error({_Schema, [#{kind := K} = First | Rest] = All}, Opts) when
         end,
     case Rest of
         [] ->
-            {ok, emqx_logger_jsonfmt:best_effort_json(Update(First), [])};
+            {ok, emqx_utils_json:best_effort_json(Update(First), [])};
         _ ->
-            {ok, emqx_logger_jsonfmt:best_effort_json(lists:map(Update, All), [])}
+            {ok, emqx_utils_json:best_effort_json(lists:map(Update, All), [])}
     end;
 format_error(_Other, _) ->
     false.

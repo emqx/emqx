@@ -173,7 +173,15 @@ json_basic() ->
     oneof([true, false, null, number(), json_string()]).
 
 latin_atom() ->
-    emqx_proper_types:limited_latin_atom().
+    limited_latin_atom().
+
+limited_latin_atom() ->
+    oneof([
+        'abc_atom',
+        '0123456789',
+        'ABC-ATOM',
+        'abc123ABC'
+    ]).
 
 json_string() -> utf8().
 
