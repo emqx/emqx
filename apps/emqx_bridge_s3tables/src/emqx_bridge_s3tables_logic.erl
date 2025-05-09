@@ -28,7 +28,9 @@ Iceberg/S3Tables operations.
 -export([
     index_fields_by_id/1,
     mk_transform_fn/1,
-    find_partition_spec/2
+    find_partition_spec/2,
+    transform_result_type/2,
+    parse_format_version/1
 ]).
 -endif.
 
