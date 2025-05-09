@@ -5,8 +5,6 @@
 
 -feature(maybe_expr, enable).
 
--behaviour(emqx_rule_funcs).
-
 -include("emqx_schema_registry.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -14,11 +12,23 @@
 %% API
 -export([
     make_serde/3,
-    handle_rule_function/2,
     schema_check/3,
     is_existing_type/1,
     is_existing_type/2,
     destroy/1
+]).
+
+%% Rule SQL functions
+-export([
+    rsf_sparkplug_decode/1,
+    rsf_sparkplug_encode/1,
+    rsf_schema_decode/1,
+    rsf_schema_encode/1,
+    rsf_schema_check/1,
+    rsf_avro_encode/1,
+    rsf_avro_decode/1,
+    rsf_schema_encode_and_tag/1,
+    rsf_schema_decode_tagged/1
 ]).
 
 %% Tests
@@ -59,6 +69,77 @@
 -export_type([serde_type/0]).
 
 %%------------------------------------------------------------------------------
+%% Rule SQL functions
+%%------------------------------------------------------------------------------
+
+rsf_sparkplug_decode([Data]) ->
+    rsf_schema_decode(
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data, <<"Payload">>]
+    );
+rsf_sparkplug_decode([Data | MoreArgs]) ->
+    rsf_schema_decode(
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data | MoreArgs]
+    ).
+
+rsf_sparkplug_encode([Term]) ->
+    rsf_schema_encode(
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term, <<"Payload">>]
+    );
+rsf_sparkplug_encode([Term | MoreArgs]) ->
+    rsf_schema_encode(
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
+    ).
+
+rsf_schema_decode([SchemaId, Data | MoreArgs]) ->
+    decode(SchemaId, Data, MoreArgs);
+rsf_schema_decode(Args) ->
+    error({args_count_error, {schema_decode, Args}}).
+
+rsf_schema_encode([SchemaId, Term | MoreArgs]) ->
+    %% encode outputs iolists, but when the rule actions process those
+    %% it might wrongly encode them as JSON lists, so we force them to
+    %% binaries here.
+    IOList = encode(SchemaId, Term, MoreArgs),
+    iolist_to_binary(IOList);
+rsf_schema_encode(Args) ->
+    error({args_count_error, {schema_encode, Args}}).
+
+rsf_schema_check([SchemaId, Data | MoreArgs]) ->
+    schema_check(SchemaId, Data, MoreArgs).
+
+rsf_avro_encode([RegistryName, Data | Args]) ->
+    case emqx_schema_registry_external:encode(RegistryName, Data, Args, #{tag => false}) of
+        {ok, Encoded} ->
+            Encoded;
+        {error, Reason} ->
+            error(Reason)
+    end.
+
+rsf_avro_decode([RegistryName, Data | Args]) ->
+    case emqx_schema_registry_external:decode(RegistryName, Data, Args, #{}) of
+        {ok, Decoded} ->
+            Decoded;
+        {error, Reason} ->
+            error(Reason)
+    end.
+
+rsf_schema_encode_and_tag([OurSchemaName, RegistryName, Data | Args]) ->
+    case handle_schema_encode_and_tag(OurSchemaName, RegistryName, Data, Args) of
+        {ok, Encoded} ->
+            Encoded;
+        {error, Reason} ->
+            error(Reason)
+    end.
+
+rsf_schema_decode_tagged([RegistryName, Data | Args]) ->
+    case emqx_schema_registry_external:decode(RegistryName, Data, Args, #{}) of
+        {ok, Decoded} ->
+            Decoded;
+        {error, Reason} ->
+            error(Reason)
+    end.
+
+%%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
@@ -75,72 +156,6 @@ is_existing_type(SchemaName, Path) ->
     else
         _ -> false
     end.
-
--spec handle_rule_function(atom(), list()) -> any() | {error, no_match_for_function}.
-handle_rule_function(sparkplug_decode, [Data]) ->
-    handle_rule_function(
-        schema_decode,
-        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data, <<"Payload">>]
-    );
-handle_rule_function(sparkplug_decode, [Data | MoreArgs]) ->
-    handle_rule_function(
-        schema_decode,
-        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data | MoreArgs]
-    );
-handle_rule_function(sparkplug_encode, [Term]) ->
-    handle_rule_function(
-        schema_encode,
-        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term, <<"Payload">>]
-    );
-handle_rule_function(sparkplug_encode, [Term | MoreArgs]) ->
-    handle_rule_function(
-        schema_encode,
-        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
-    );
-handle_rule_function(schema_decode, [SchemaId, Data | MoreArgs]) ->
-    decode(SchemaId, Data, MoreArgs);
-handle_rule_function(schema_decode, Args) ->
-    error({args_count_error, {schema_decode, Args}});
-handle_rule_function(schema_encode, [SchemaId, Term | MoreArgs]) ->
-    %% encode outputs iolists, but when the rule actions process those
-    %% it might wrongly encode them as JSON lists, so we force them to
-    %% binaries here.
-    IOList = encode(SchemaId, Term, MoreArgs),
-    iolist_to_binary(IOList);
-handle_rule_function(schema_encode, Args) ->
-    error({args_count_error, {schema_encode, Args}});
-handle_rule_function(schema_check, [SchemaId, Data | MoreArgs]) ->
-    schema_check(SchemaId, Data, MoreArgs);
-handle_rule_function(avro_encode, [RegistryName, Data | Args]) ->
-    case emqx_schema_registry_external:encode(RegistryName, Data, Args, #{tag => false}) of
-        {ok, Encoded} ->
-            Encoded;
-        {error, Reason} ->
-            error(Reason)
-    end;
-handle_rule_function(avro_decode, [RegistryName, Data | Args]) ->
-    case emqx_schema_registry_external:decode(RegistryName, Data, Args, _Opts = #{}) of
-        {ok, Decoded} ->
-            Decoded;
-        {error, Reason} ->
-            error(Reason)
-    end;
-handle_rule_function(schema_encode_and_tag, [OurSchemaName, RegistryName, Data | Args]) ->
-    case handle_schema_encode_and_tag(OurSchemaName, RegistryName, Data, Args) of
-        {ok, Encoded} ->
-            Encoded;
-        {error, Reason} ->
-            error(Reason)
-    end;
-handle_rule_function(schema_decode_tagged, [RegistryName, Data | Args]) ->
-    case emqx_schema_registry_external:decode(RegistryName, Data, Args, _Opts = #{}) of
-        {ok, Decoded} ->
-            Decoded;
-        {error, Reason} ->
-            error(Reason)
-    end;
-handle_rule_function(_, _) ->
-    {error, no_match_for_function}.
 
 -spec schema_check(schema_name(), decoded_data() | encoded_data(), [term()]) -> decoded_data().
 schema_check(SerdeName, Data, VarArgs) when is_list(VarArgs), is_binary(Data) ->

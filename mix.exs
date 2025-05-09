@@ -386,6 +386,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_schema_registry,
       :emqx_schema_validation,
       :emqx_message_transformation,
+      :emqx_ai_completion,
       :emqx_enterprise,
       :emqx_bridge_kinesis,
       :emqx_bridge_azure_event_hub,
