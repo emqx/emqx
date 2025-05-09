@@ -18,6 +18,7 @@
     unload/1,
     event_names/0,
     event_name/1,
+    match_event_names/1,
     event_topics_enum/0,
     event_topic/1,
     eventmsg_publish/1
@@ -65,6 +66,7 @@ event_names() ->
         'client.connected',
         'client.disconnected',
         'client.connack',
+        'client.check_authn_complete',
         'client.check_authz_complete',
         'session.subscribed',
         'session.unsubscribed',
@@ -85,6 +87,7 @@ event_topics_enum() ->
         '$events/client_connected',
         '$events/client_disconnected',
         '$events/client_connack',
+        '$events/client_check_authn_complete',
         '$events/client_check_authz_complete',
         '$events/session_subscribed',
         '$events/session_unsubscribed',
@@ -106,10 +109,14 @@ reload() ->
     ).
 
 load(Topic) ->
-    HookPoint = event_name(Topic),
-    HookFun = hook_fun_name(HookPoint),
-    emqx_hooks:put(
-        HookPoint, {?MODULE, HookFun, [#{event_topic => Topic}]}, ?HP_RULE_ENGINE
+    lists:foreach(
+        fun(HookPoint) ->
+            HookFun = hook_fun_name(HookPoint),
+            emqx_hooks:put(
+                HookPoint, {?MODULE, HookFun, [#{event_topic => Topic}]}, ?HP_RULE_ENGINE
+            )
+        end,
+        match_event_names(Topic)
     ).
 
 unload() ->
@@ -120,9 +127,8 @@ unload() ->
         event_names()
     ).
 
-unload(Topic) ->
-    HookPoint = event_name(Topic),
-    emqx_hooks:del(HookPoint, {?MODULE, hook_fun_name(HookPoint)}).
+unload(EventName) ->
+    emqx_hooks:del(EventName, {?MODULE, hook_fun_name(EventName)}).
 
 %%--------------------------------------------------------------------
 %% Callbacks
@@ -1456,6 +1462,21 @@ ntoa(undefined) ->
 ntoa(IpOrIpPort) ->
     iolist_to_binary(emqx_utils:ntoa(IpOrIpPort)).
 
+match_event_names(<<"$events/", _/binary>> = TopicFilter) ->
+    lists:filtermap(
+        fun(TopicAtom) ->
+            Topic = atom_to_binary(TopicAtom),
+            case emqx_topic:match(Topic, TopicFilter) of
+                true -> {true, event_name(Topic)};
+                false -> false
+            end
+        end,
+        event_topics_enum()
+    );
+match_event_names(Topic) ->
+    [event_name(Topic)].
+
+%% Remember to update `event_names` when adding a new topic here.
 event_name(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_name(<<"$events/sys/alarm_activated">>) -> 'alarm.activated';
 event_name(<<"$events/sys/alarm_deactivated">>) -> 'alarm.deactivated';
@@ -1474,6 +1495,7 @@ event_name(<<"$events/schema_validation_failed">>) -> 'schema.validation_failed'
 event_name(<<"$events/delivery_dropped">>) -> 'delivery.dropped';
 event_name(_) -> 'message.publish'.
 
+%% Remember to update `event_names` when adding a new topic here.
 event_topic(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_topic('alarm.activated') -> <<"$events/sys/alarm_activated">>;
 event_topic('alarm.deactivated') -> <<"$events/sys/alarm_deactivated">>;

@@ -236,12 +236,22 @@ get_rules_for_topic(Topic) ->
 
 -spec get_rules_with_same_event(Topic :: binary()) -> [rule()].
 get_rules_with_same_event(Topic) ->
-    EventName = emqx_rule_events:event_name(Topic),
     [
         Rule
      || Rule = #{from := From} <- get_rules(),
+        EventName <- emqx_rule_events:match_event_names(Topic),
         lists:any(fun(T) -> is_of_event_name(EventName, T) end, From)
     ].
+
+-spec get_rules_with_matching_event(EventName :: atom()) -> [rule()].
+get_rules_with_matching_event(EventName) ->
+    lists:usort([
+        Rule
+     || Rule = #{from := Topics} <- get_rules(),
+        Topic <- Topics,
+        EventNameOther <- emqx_rule_events:match_event_names(Topic),
+        EventNameOther == EventName
+    ]).
 
 -spec get_rule_ids_by_action(action_name()) -> [rule_id()].
 get_rule_ids_by_action(BridgeId) when is_binary(BridgeId) ->
@@ -340,16 +350,20 @@ reset_metrics_for_rule(Id, _Opts) ->
 
 unload_hooks_for_rule(#{id := Id, from := Topics}) ->
     lists:foreach(
-        fun(Topic) ->
-            case get_rules_with_same_event(Topic) of
+        fun(EventName) ->
+            case get_rules_with_matching_event(EventName) of
                 %% we are now deleting the last rule
                 [#{id := Id0}] when Id0 == Id ->
-                    emqx_rule_events:unload(Topic);
+                    emqx_rule_events:unload(EventName);
                 _ ->
                     ok
             end
         end,
-        Topics
+        lists:usort([
+            EventName
+         || Topic <- Topics,
+            EventName <- emqx_rule_events:match_event_names(Topic)
+        ])
     ).
 
 %%----------------------------------------------------------------------------------------
