@@ -19,7 +19,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("../../emqx/include/emqx_placeholder.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).

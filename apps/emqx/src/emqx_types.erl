@@ -230,17 +230,9 @@
 -type subscriber() :: {pid(), subid()}.
 -type payload() :: binary() | iodata().
 -type message() :: #message{}.
--type flag() :: sys | dup | retain | atom().
--type flags() :: #{flag() := boolean()}.
--type headers() :: #{
-    proto_ver => proto_ver(),
-    protocol => protocol(),
-    username => username(),
-    peerhost => peerhost(),
-    properties => properties(),
-    allow_publish => boolean(),
-    atom() => term()
-}.
+-type flag() :: emqx_utils_types:flag().
+-type flags() :: emqx_utils_types:flags().
+-type headers() :: emqx_utils_types:headers().
 
 -type banned() :: #banned{}.
 -type banned_who() ::
