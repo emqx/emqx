@@ -37,7 +37,7 @@
 
 %% `emqx_connector_aggreg_delivery' API
 -export([
-    init_transfer_state/2,
+    init_transfer_state_and_container_opts/2,
     process_append/2,
     process_write/1,
     process_complete/1
@@ -118,6 +118,7 @@
 -type driver_state() :: _.
 
 -type transfer_opts() :: #{
+    container := map(),
     upload_options := #{
         action := binary(),
         blob := emqx_template:t(),
@@ -295,10 +296,11 @@ do_list_blobs(DriverState, Container) ->
 %% `emqx_connector_aggreg_delivery' API
 %%------------------------------------------------------------------------------
 
--spec init_transfer_state(buffer(), transfer_opts()) ->
-    transfer_state().
-init_transfer_state(Buffer, Opts) ->
+-spec init_transfer_state_and_container_opts(buffer(), transfer_opts()) ->
+    {ok, transfer_state(), map()}.
+init_transfer_state_and_container_opts(Buffer, Opts) ->
     #{
+        container := ContainerOpts,
         upload_options := #{
             action := ActionName,
             blob := BlobTemplate,
@@ -310,7 +312,7 @@ init_transfer_state(Buffer, Opts) ->
         }
     } = Opts,
     Blob = mk_blob_name_key(Buffer, ActionName, BlobTemplate),
-    #{
+    TransferState = #{
         blob => Blob,
         buffer => [],
         buffer_size => 0,
@@ -322,7 +324,8 @@ init_transfer_state(Buffer, Opts) ->
         num_blocks => 0,
         driver_state => DriverState,
         started => false
-    }.
+    },
+    {ok, TransferState, ContainerOpts}.
 
 mk_blob_name_key(Buffer, ActionName, BlobTemplate) ->
     emqx_template:render_strict(BlobTemplate, {?MODULE, {ActionName, Buffer}}).

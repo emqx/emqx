@@ -45,8 +45,9 @@ end_per_testcase(_TestCase, _Config) ->
 %% `emqx_connector_aggreg_delivery' API
 %%------------------------------------------------------------------------------
 
-init_transfer_state(_Buffer, Opts) ->
-    #{opts => Opts}.
+init_transfer_state_and_container_opts(_Buffer, Opts) ->
+    #{container := ContainerOpts} = Opts,
+    {ok, #{opts => Opts}, ContainerOpts}.
 
 process_append(_IOData, State) ->
     State.

@@ -34,7 +34,8 @@
 new(_Opts) ->
     #jsonl{}.
 
--spec fill([emqx_connector_aggregator:record()], container()) -> {iodata(), container()}.
+-spec fill([emqx_connector_aggregator:record()], container()) ->
+    {iodata(), container()}.
 fill(Records, JSONL) ->
     Output = lists:map(fun(Record) -> [emqx_utils_json:encode(Record), $\n] end, Records),
     {Output, JSONL}.

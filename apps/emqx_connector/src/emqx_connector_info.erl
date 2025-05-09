@@ -79,6 +79,7 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_gcp_pubsub_producer_connector_info,
         emqx_bridge_greptimedb_connector_info,
         emqx_bridge_hstreamdb_connector_info,
+        emqx_bridge_s3tables_connector_info,
         emqx_bridge_influxdb_connector_info,
         emqx_bridge_iotdb_connector_info,
         emqx_bridge_kafka_consumer_connector_info,

@@ -3,8 +3,10 @@
 %%--------------------------------------------------------------------
 
 %% This module takes aggregated records from a buffer and delivers them to a blob storage
-%% backend, wrapped in a configurable container (though currently there's only CSV).
+%% backend, wrapped in a configurable general-purpose container.
 -module(emqx_connector_aggreg_delivery).
+
+-feature(maybe_expr, enable).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_connector_aggregator.hrl").
@@ -51,11 +53,16 @@
 -type transfer_state() :: term().
 
 %% @doc Initialize the transfer state, such as blob storage path, transfer options, client
-%% credentials, etc. .
--callback init_transfer_state(buffer(), map()) -> transfer_state().
+%% credentials, etc. .  Also returns options to initialize container, if dynamic settings
+%% are needed.
+-callback init_transfer_state_and_container_opts(buffer(), map()) ->
+    {ok, transfer_state(), ContainerOpts} | {error, term()}
+when
+    ContainerOpts :: map().
 
 %% @doc Append data to the transfer before sending.  Usually should not fail.
--callback process_append(iodata(), transfer_state()) -> transfer_state().
+-callback process_append(iodata() | term(), transfer_state()) ->
+    transfer_state().
 
 %% @doc Push appended transfer data to its destination (e.g.: upload a part of a
 %% multi-part upload).  May fail.
@@ -76,28 +83,35 @@ start_link(Id, Buffer, Opts) ->
 init(Parent, Id, Buffer, Opts) ->
     ?tp(connector_aggreg_delivery_started, #{action => Id, buffer => Buffer}),
     Reader = open_buffer(Buffer),
-    Delivery = init_delivery(Id, Reader, Buffer, Opts#{action => Id}),
-    _ = erlang:process_flag(trap_exit, true),
-    ok = proc_lib:init_ack({ok, self()}),
-    loop(Delivery, Parent, []).
+    case init_delivery(Id, Reader, Buffer, Opts#{action => Id}) of
+        {ok, Delivery} ->
+            _ = erlang:process_flag(trap_exit, true),
+            ok = proc_lib:init_ack({ok, self()}),
+            loop(Delivery, Parent, []);
+        {error, Reason} ->
+            proc_lib:init_ack({error, {failed_to_initialize, Reason}}),
+            exit(Reason)
+    end.
 
 init_delivery(
     Id,
     Reader,
     Buffer,
-    Opts = #{
-        container := ContainerOpts,
-        callback_module := Mod
-    }
+    Opts = #{callback_module := Mod}
 ) ->
-    #delivery{
-        id = Id,
-        callback_module = Mod,
-        container = mk_container(ContainerOpts),
-        reader = Reader,
-        transfer = Mod:init_transfer_state(Buffer, Opts),
-        empty = true
-    }.
+    maybe
+        {ok, Transfer, ContainerOpts} ?=
+            Mod:init_transfer_state_and_container_opts(Buffer, Opts),
+        Delivery = #delivery{
+            id = Id,
+            callback_module = Mod,
+            container = mk_container(ContainerOpts),
+            reader = Reader,
+            transfer = Transfer,
+            empty = true
+        },
+        {ok, Delivery}
+    end.
 
 open_buffer(#buffer{filename = Filename}) ->
     case file:open(Filename, [read, binary, raw]) of
@@ -114,7 +128,12 @@ mk_container(#{type := csv, column_order := OrderOpt}) ->
     {emqx_connector_aggreg_csv, emqx_connector_aggreg_csv:new(#{column_order => ColumnOrder})};
 mk_container(#{type := json_lines}) ->
     Opts = #{},
-    {emqx_connector_aggreg_json_lines, emqx_connector_aggreg_json_lines:new(Opts)}.
+    {emqx_connector_aggreg_json_lines, emqx_connector_aggreg_json_lines:new(Opts)};
+mk_container(#{type := noop}) ->
+    Opts = #{},
+    {emqx_connector_aggreg_noop, emqx_connector_aggreg_noop:new(Opts)};
+mk_container(#{type := custom, module := Mod, opts := Opts}) ->
+    {Mod, Mod:new(Opts)}.
 
 %%
 
@@ -151,7 +170,8 @@ process_append_records(
         transfer = Transfer0
     }
 ) ->
-    {Writes, Container} = emqx_connector_aggreg_container:fill(ContainerMod, Records, Container0),
+    {Writes, Container} =
+        emqx_connector_aggreg_container:fill(ContainerMod, Records, Container0),
     Transfer = Mod:process_append(Writes, Transfer0),
     Delivery#delivery{
         container = {ContainerMod, Container},

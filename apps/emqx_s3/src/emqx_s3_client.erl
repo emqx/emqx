@@ -8,9 +8,13 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("erlcloud/include/erlcloud_aws.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -export([
     create/2,
+    get_status/1,
+
+    get_object/2,
 
     put_object/3,
     put_object/4,
@@ -42,11 +46,13 @@
     config/0
 ]).
 
+-elvis([{elvis_style, max_anonymous_function_arity, disable}]).
+
 -type headers() :: #{binary() | string() => iodata()}.
 -type erlcloud_headers() :: list({string(), iodata()}).
 
 -type bucket() :: string().
--type key() :: string().
+-type key() :: string() | binary().
 -type part_number() :: non_neg_integer().
 -type upload_id() :: string().
 -type etag() :: string().
@@ -76,6 +82,11 @@
     headers => headers()
 }.
 
+-type get_object_response() :: #{
+    content := binary(),
+    atom() => term()
+}.
+
 -type s3_options() :: proplists:proplist().
 
 -define(DEFAULT_MAX_RETRIES, 2).
@@ -93,13 +104,28 @@ create(Bucket, Config) ->
         headers => headers(Config)
     }.
 
+-spec get_status(config()) -> ?status_connected | {?status_disconnected, term()}.
+get_status(S3ClientConfig) ->
+    case aws_config(S3ClientConfig) of
+        {error, Reason} ->
+            {?status_disconnected, emqx_s3_utils:map_error_details(Reason)};
+        AWSConfig ->
+            try erlcloud_s3:list_buckets(AWSConfig) of
+                Props when is_list(Props) ->
+                    ?status_connected
+            catch
+                error:Error ->
+                    {?status_disconnected, emqx_s3_utils:map_error_details(Error)}
+            end
+    end.
+
 -spec put_object(client(), key(), iodata()) -> ok_or_error(term()).
 put_object(Client, Key, Value) ->
     put_object(Client, Key, #{}, Value).
 
 -spec put_object(client(), key(), upload_options(), iodata()) -> ok_or_error(term()).
 put_object(
-    #{bucket := Bucket, headers := BaseHeaders, aws_config := AwsConfig = #aws_config{}},
+    #{bucket := Bucket, headers := BaseHeaders, aws_config := AWSConfig = #aws_config{}},
     Key,
     UploadOpts,
     Content
@@ -107,7 +133,7 @@ put_object(
     ECKey = erlcloud_key(Key),
     ECOpts = erlcloud_upload_options(UploadOpts),
     Headers = join_headers(BaseHeaders, maps:get(headers, UploadOpts, undefined)),
-    try erlcloud_s3:put_object(Bucket, ECKey, Content, ECOpts, Headers, AwsConfig) of
+    try erlcloud_s3:put_object(Bucket, ECKey, Content, ECOpts, Headers, AWSConfig) of
         Props when is_list(Props) ->
             ok
     catch
@@ -118,16 +144,28 @@ put_object(
 put_object(#{aws_config := {error, Reason}}, _Key, _UploadOpts, _Content) ->
     {error, {config_error, Reason}}.
 
+-spec get_object(client(), key()) -> ok_or_error(get_object_response(), term()).
+get_object(#{bucket := Bucket, aws_config := AWSConfig = #aws_config{}}, Key) ->
+    ECKey = erlcloud_key(Key),
+    try erlcloud_s3:get_object(Bucket, ECKey, AWSConfig) of
+        Props when is_list(Props) ->
+            {ok, maps:from_list(Props)}
+    catch
+        error:{aws_error, Reason} ->
+            ?SLOG(debug, #{msg => "get_object_fail", key => Key, reason => Reason}),
+            {error, Reason}
+    end.
+
 -spec start_multipart(client(), key(), upload_options()) -> ok_or_error(upload_id(), term()).
 start_multipart(
-    #{bucket := Bucket, headers := BaseHeaders, aws_config := AwsConfig = #aws_config{}},
+    #{bucket := Bucket, headers := BaseHeaders, aws_config := AWSConfig = #aws_config{}},
     Key,
     UploadOpts
 ) ->
     ECKey = erlcloud_key(Key),
     ECOpts = erlcloud_upload_options(UploadOpts),
     Headers = join_headers(BaseHeaders, maps:get(headers, UploadOpts, undefined)),
-    case erlcloud_s3:start_multipart(Bucket, ECKey, ECOpts, Headers, AwsConfig) of
+    case erlcloud_s3:start_multipart(Bucket, ECKey, ECOpts, Headers, AWSConfig) of
         {ok, Props} ->
             UploadId = response_property('uploadId', Props),
             ?tp(s3_client_multipart_started, #{
@@ -146,7 +184,7 @@ start_multipart(#{aws_config := {error, Reason}}, _Key, _UploadOpts) ->
 -spec upload_part(client(), key(), upload_id(), part_number(), iodata()) ->
     ok_or_error(etag(), term()).
 upload_part(
-    #{bucket := Bucket, headers := Headers, aws_config := AwsConfig = #aws_config{}},
+    #{bucket := Bucket, headers := Headers, aws_config := AWSConfig = #aws_config{}},
     Key,
     UploadId,
     PartNumber,
@@ -154,7 +192,7 @@ upload_part(
 ) ->
     case
         erlcloud_s3:upload_part(
-            Bucket, erlcloud_key(Key), UploadId, PartNumber, Value, Headers, AwsConfig
+            Bucket, erlcloud_key(Key), UploadId, PartNumber, Value, Headers, AWSConfig
         )
     of
         {ok, Props} ->
@@ -168,14 +206,14 @@ upload_part(#{aws_config := {error, Reason}}, _Key, _UploadId, _PartNumber, _Val
 
 -spec complete_multipart(client(), key(), upload_id(), [etag()]) -> ok_or_error(term()).
 complete_multipart(
-    #{bucket := Bucket, headers := Headers, aws_config := AwsConfig = #aws_config{}},
+    #{bucket := Bucket, headers := Headers, aws_config := AWSConfig = #aws_config{}},
     Key,
     UploadId,
     ETags
 ) ->
     case
         erlcloud_s3:complete_multipart(
-            Bucket, erlcloud_key(Key), UploadId, ETags, Headers, AwsConfig
+            Bucket, erlcloud_key(Key), UploadId, ETags, Headers, AWSConfig
         )
     of
         ok ->
@@ -194,11 +232,11 @@ complete_multipart(#{aws_config := {error, Reason}}, _Key, _UploadId, _ETags) ->
 
 -spec abort_multipart(client(), key(), upload_id()) -> ok_or_error(term()).
 abort_multipart(
-    #{bucket := Bucket, headers := Headers, aws_config := AwsConfig = #aws_config{}},
+    #{bucket := Bucket, headers := Headers, aws_config := AWSConfig = #aws_config{}},
     Key,
     UploadId
 ) ->
-    case erlcloud_s3:abort_multipart(Bucket, erlcloud_key(Key), UploadId, [], Headers, AwsConfig) of
+    case erlcloud_s3:abort_multipart(Bucket, erlcloud_key(Key), UploadId, [], Headers, AWSConfig) of
         ok ->
             ?tp(s3_client_multipart_aborted, #{
                 bucket => Bucket,
@@ -214,8 +252,8 @@ abort_multipart(#{aws_config := {error, Reason}}, _Key, _UploadId) ->
     {error, {config_error, Reason}}.
 
 -spec list(client(), s3_options()) -> ok_or_error(proplists:proplist(), term()).
-list(#{bucket := Bucket, aws_config := AwsConfig = #aws_config{}}, Options) ->
-    try erlcloud_s3:list_objects(Bucket, Options, AwsConfig) of
+list(#{bucket := Bucket, aws_config := AWSConfig = #aws_config{}}, Options) ->
+    try erlcloud_s3:list_objects(Bucket, Options, AWSConfig) of
         Result -> {ok, Result}
     catch
         error:{aws_error, Reason} ->
@@ -226,12 +264,12 @@ list(#{aws_config := {error, Reason}}, _Options) ->
     {error, {config_error, Reason}}.
 
 -spec uri(client(), key()) -> iodata().
-uri(#{bucket := Bucket, aws_config := AwsConfig, url_expire_time := ExpireTime}, Key) ->
-    erlcloud_s3:make_presigned_v4_url(ExpireTime, Bucket, get, erlcloud_key(Key), [], AwsConfig).
+uri(#{bucket := Bucket, aws_config := AWSConfig, url_expire_time := ExpireTime}, Key) ->
+    erlcloud_s3:make_presigned_v4_url(ExpireTime, Bucket, get, erlcloud_key(Key), [], AWSConfig).
 
 -spec format(client()) -> term().
-format(#{aws_config := AwsConfig} = Client) ->
-    Client#{aws_config => AwsConfig#aws_config{secret_access_key = "***"}}.
+format(#{aws_config := AWSConfig} = Client) ->
+    Client#{aws_config => AWSConfig#aws_config{secret_access_key = "***"}}.
 
 %%--------------------------------------------------------------------
 %% Internal functions

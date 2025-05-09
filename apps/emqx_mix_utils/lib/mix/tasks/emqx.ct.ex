@@ -43,6 +43,8 @@ defmodule Mix.Tasks.Emqx.Ct do
     maybe_start_cover()
     if cover_enabled?(), do: cover_compile_files()
 
+    EMQX.Mix.Utils.clear_screen()
+
     results = :ct.run_test(
       abort_if_missing_suites: true,
       auto_compile: false,

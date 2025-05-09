@@ -19,6 +19,9 @@ nl_at_eof() {
         *.jks)
             return
             ;;
+        *.avro)
+            return
+            ;;
     esac
     local lastbyte
     lastbyte="$(tail -c 1 "$file" 2>&1)"
