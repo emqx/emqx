@@ -211,7 +211,7 @@ fields(ban) ->
                 desc => ?DESC(until),
                 required => false,
                 default => infinity,
-                example => <<"2021-10-25T21:53:47+08:00">>
+                example => <<"2030-11-11T10:24:00+08:00">>
             })}
     ].
 
