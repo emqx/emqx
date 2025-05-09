@@ -13,6 +13,9 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include("../src/emqx_bridge_s3tables.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("erlcloud/include/erlcloud_aws.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -21,6 +24,7 @@
 %%------------------------------------------------------------------------------
 
 -define(V1, "v1").
+-define(ACCOUNT_ID, <<"123456789012">>).
 -define(ACCESS_KEY_ID, <<"admin">>).
 -define(SECRET_ACCESS_KEY, <<"password">>).
 -define(BUCKET, <<"testbucket">>).
@@ -59,7 +63,11 @@ init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
-            emqx_conf,
+            {emqx_conf, #{
+                config => #{
+                    <<"mqtt">> => #{<<"max_packet_size">> => <<"10MB">>}
+                }
+            }},
             emqx_bridge_s3tables,
             emqx_bridge,
             emqx_rule_engine,
@@ -122,17 +130,16 @@ connector_config() ->
     connector_config(_Overrides = #{}).
 
 connector_config(Overrides) ->
-    connector_config_s3t(Overrides).
-
-connector_config_s3t(Overrides) ->
     Defaults = #{
-        <<"account_id">> => <<"1234567890">>,
+        <<"account_id">> => ?ACCOUNT_ID,
         <<"access_key_id">> => ?ACCESS_KEY_ID,
         <<"secret_access_key">> => ?SECRET_ACCESS_KEY,
         <<"base_endpoint">> => ?BASE_ENDPOINT,
         <<"bucket">> => ?BUCKET,
         <<"s3tables_arn">> => iolist_to_binary([
-            <<"arn:aws:s3tables:sa-east-1:123456789012:bucket/">>,
+            <<"arn:aws:s3tables:sa-east-1:">>,
+            ?ACCOUNT_ID,
+            <<":bucket/">>,
             ?BUCKET
         ]),
         <<"request_timeout">> => <<"10s">>,
@@ -342,6 +349,38 @@ simple_schema1_partition_spec1() ->
         ]
     }.
 
+simple_schema1_partition_spec2() ->
+    #{
+        <<"spec-id">> => 1,
+        <<"fields">> => [
+            #{
+                <<"field-id">> => 1001,
+                <<"source-id">> => 1,
+                <<"name">> => <<"str">>,
+                <<"transform">> => <<"bucket[3]">>
+            },
+            #{
+                <<"field-id">> => 1002,
+                <<"source-id">> => 5,
+                <<"name">> => <<"int">>,
+                <<"transform">> => <<"identity">>
+            }
+        ]
+    }.
+
+simple_schema1_partition_spec3() ->
+    #{
+        <<"spec-id">> => 1,
+        <<"fields">> => [
+            #{
+                <<"field-id">> => 1002,
+                <<"source-id">> => 5,
+                <<"name">> => <<"int">>,
+                <<"transform">> => <<"identity">>
+            }
+        ]
+    }.
+
 simple_payload_all() ->
     simple_payload_all(_Overrides = #{}).
 
@@ -499,6 +538,40 @@ reset_proxy() ->
 with_failure(FailureType, Fn) ->
     emqx_common_test_helpers:with_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn).
 
+aggreg_id(Config) ->
+    ActionName = ?config(action_name, Config),
+    {?ACTION_TYPE_BIN, ActionName}.
+
+now_s() ->
+    erlang:system_time(second).
+
+wait_until_no_more_deliveries(AggregId, TimeoutMS) ->
+    %% Force rotation
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx_connector_aggregator:tick(AggregId, now_s() + 9999999),
+            #{?snk_kind := "connector_aggregator_close_buffer_async_done"}
+        ),
+    Sleep = 100,
+    Attempts = TimeoutMS div Sleep,
+    ?retry(
+        Sleep,
+        Attempts,
+        ?assertEqual([], emqx_connector_aggreg_upload_sup:list_deliveries(AggregId))
+    ).
+
+parallel_publish(RuleTopic, Payloads) ->
+    emqx_utils:pforeach(
+        fun(P0) ->
+            {ok, C} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
+            {ok, _} = emqtt:connect(C),
+            P = emqx_utils_json:encode(P0),
+            ?assertMatch({ok, _}, emqtt:publish(C, RuleTopic, P, [{qos, 2}])),
+            ok = emqtt:stop(C)
+        end,
+        Payloads
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -541,16 +614,7 @@ t_rule_action(Config) when is_list(Config) ->
     PublishFn = fun(Context) ->
         Payloads = lists:map(fun(_) -> simple_payload_all() end, lists:seq(1, NumPayloads)),
         ct:pal("publishing payloads"),
-        emqx_utils:pforeach(
-            fun(P0) ->
-                {ok, C} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
-                {ok, _} = emqtt:connect(C),
-                P = emqx_utils_json:encode(P0),
-                ?assertMatch({ok, _}, emqtt:publish(C, RuleTopic, P, [{qos, 2}])),
-                ok = emqtt:stop(C)
-            end,
-            Payloads
-        ),
+        parallel_publish(RuleTopic, Payloads),
         ct:pal("published payloads"),
         Context#{payloads => Payloads}
     end,
@@ -1054,6 +1118,498 @@ t_write_after_delete(Config) ->
         ok
     end),
 
+    ok.
+
+%% Here, in the test cases, we need to use emulator container for S3{,Tables}, hence we
+%% pass the base endpoints directly as hidden parameters.  This test cases checks the
+%% normal, production code path of inferring AWS endpoints from the provided S3Tables ARN.
+t_start_connector_only_with_arn(Config0) ->
+    Config = emqx_bridge_v2_testlib:proplist_update(Config0, connector_config, fun(Old) ->
+        Cfg = maps:without([<<"account_id">>, <<"bucket">>, <<"base_endpoint">>], Old),
+        maps:update_with(
+            <<"s3_client">>,
+            fun(S3Client0) ->
+                S3Client = maps:without([<<"host">>, <<"port">>], S3Client0),
+                emqx_utils_maps:deep_merge(
+                    S3Client,
+                    #{<<"transport_options">> => #{<<"ssl">> => #{<<"enable">> => true}}}
+                )
+            end,
+            Cfg
+        )
+    end),
+    on_exit(fun meck:unload/0),
+    ok = meck:new(emqx_bridge_s3tables_client_s3t, [passthrough]),
+    ok = meck:new(emqx_s3_profile_conf, [passthrough]),
+    {201, _} = create_connector_api(Config, #{}),
+    ?assertMatch(
+        [
+            #{
+                base_endpoint := <<"https://s3tables.sa-east-1.amazonaws.com/iceberg">>,
+                account_id := ?ACCOUNT_ID,
+                bucket := ?BUCKET
+            }
+        ],
+        [
+            In
+         || {_Pid, {_Mod, new, [In]}, _Out} <- meck:history(emqx_bridge_s3tables_client_s3t)
+        ]
+    ),
+    ?assertMatch(
+        [
+            #{
+                host := "s3.sa-east-1.amazonaws.com",
+                port := 443
+            }
+        ],
+        [
+            In
+         || {_Pid, {_Mod, client_config, [In, _ResId]}, _Out} <- meck:history(emqx_s3_profile_conf)
+        ]
+    ),
+    ok.
+
+t_aggreg_upload_restart_corrupted(Config0) ->
+    MaxRecords = 10,
+    BatchSize = MaxRecords div 2,
+    Config = emqx_bridge_v2_testlib:proplist_update(Config0, action_config, fun(Old) ->
+        emqx_utils_maps:deep_merge(
+            Old,
+            #{<<"parameters">> => #{<<"aggregation">> => #{<<"max_records">> => MaxRecords}}}
+        )
+    end),
+    Ns = get_config(namespace, Config),
+    Table = get_config(table, Config),
+    RuleTopic = atom_to_binary(?FUNCTION_NAME),
+    MakeMessageFn = fun(N) ->
+        Payload = emqx_utils_json:encode(simple_payload_all(#{<<"int">> => N})),
+        emqx_message:make(<<"clientid">>, RuleTopic, Payload)
+    end,
+    MessageCheckFn = fun(Context) ->
+        #{
+            messages_before := Messages1,
+            messages_after := Messages2
+        } = Context,
+        wait_until_no_more_deliveries(aggreg_id(Config), 5_000),
+        Rows = scan_table(Ns, Table),
+        ct:pal("rows:\n  ~p", [Rows]),
+        NRows = length(Rows),
+        Expected = [
+            begin
+                #{<<"str">> := Str} = emqx_utils_json:decode(Payload),
+                Str
+            end
+         || #message{payload = Payload} <-
+                lists:sublist(Messages1, max(0, NRows - BatchSize)) ++ Messages2
+        ],
+        ct:pal("produced at most:\n  ~p", [Expected]),
+        RowsStr = lists:map(fun(#{<<"col_str">> := S}) -> S end, Rows),
+        ?assert(NRows > BatchSize, #{
+            at_most => Expected,
+            rows => RowsStr,
+            n_rows => NRows,
+            batch_size => BatchSize
+        }),
+        ok
+    end,
+    Opts = #{
+        aggreg_id => aggreg_id(Config),
+        batch_size => BatchSize,
+        rule_sql => rule_sql_for_schema1(RuleTopic),
+        make_message_fn => MakeMessageFn,
+        message_check_fn => MessageCheckFn
+    },
+    ct:timetrap({seconds, 10}),
+    emqx_bridge_v2_testlib:t_aggreg_upload_restart_corrupted(Config, Opts).
+
+%% This exercises the code path where multiple writes are done to the aggregated buffer,
+%% so that there are multiple corresponding reads with seen partition keys.
+t_multiple_buffer_writes() ->
+    TableExtraOptsFn = fun(_TCConfig) ->
+        #{<<"partition-spec">> => simple_schema1_partition_spec1()}
+    end,
+    [
+        {table_extra_opts_fn, TableExtraOptsFn}
+    ].
+t_multiple_buffer_writes(Config) ->
+    Ns = get_config(namespace, Config),
+    Table = get_config(table, Config),
+    RuleTopic = atom_to_binary(?FUNCTION_NAME),
+    {201, _} = create_connector_api(Config, #{}),
+    {201, _} = create_action_api(Config, #{
+        %% Force records to be written one-by-one.
+        <<"resource_opts">> => #{
+            <<"batch_size">> => 1
+        }
+    }),
+    {ok, _} = create_rule_for_schema1(Config, RuleTopic),
+    NumPayloads = 3,
+    Payloads = lists:map(
+        fun(N) ->
+            %% Repeat some of the partition keys.
+            M = N rem 2,
+            simple_payload_all(#{
+                <<"str">> => integer_to_binary(M),
+                <<"int">> => M
+            })
+        end,
+        lists:seq(1, NumPayloads)
+    ),
+    ct:pal("publishing payloads"),
+    parallel_publish(RuleTopic, Payloads),
+    ct:pal("published payloads"),
+    ?block_until(
+        #{?snk_kind := connector_aggreg_delivery_completed, transfer := T} when
+            T /= empty
+    ),
+    ct:pal("scanning table"),
+    Rows = scan_table(Ns, Table),
+    ?assertEqual(NumPayloads, length(Rows), #{rows => Rows}),
+    ExpectedPartitions0 = lists:map(
+        fun(P) -> maps:with([<<"str">>, <<"int">>], P) end,
+        Payloads
+    ),
+    ExpectedPartitions = lists:usort(ExpectedPartitions0),
+    ?assertMatch(
+        #{
+            <<"from-data">> := ExpectedPartitions,
+            <<"from-meta">> := ExpectedPartitions
+        },
+        get_table_partitions(Ns, Table),
+        #{expected_partitions => ExpectedPartitions}
+    ),
+    ok.
+
+%% For code coverage: multi-part uploads are only triggered if the accumulated data
+%% surpasses the minimum part size (5 MB).
+t_multipart_upload() ->
+    TableExtraOptsFn = fun(TCConfig) ->
+        case group_path(TCConfig, [not_partitioned]) of
+            [not_partitioned] ->
+                #{};
+            [partitioned] ->
+                #{<<"partition-spec">> => simple_schema1_partition_spec2()}
+        end
+    end,
+    [
+        {matrix, true},
+        {table_extra_opts_fn, TableExtraOptsFn}
+    ].
+t_multipart_upload(matrix) ->
+    [
+        [not_partitioned],
+        [partitioned]
+    ];
+t_multipart_upload(Config) ->
+    ct:timetrap({seconds, 10}),
+    %% 5MB
+    MinPartSize = 5_242_880,
+    Ns = get_config(namespace, Config),
+    Table = get_config(table, Config),
+    RuleTopic = atom_to_binary(?FUNCTION_NAME),
+    {201, _} = create_connector_api(Config, #{}),
+    {201, _} = create_action_api(Config, #{}),
+    {ok, _} = create_rule_for_schema1(Config, RuleTopic),
+    NumPayloads = 3,
+    BigPayload = binary:copy(<<"a">>, MinPartSize + 1),
+    Payloads = lists:map(
+        fun(_) -> simple_payload_all(#{<<"str">> => BigPayload}) end,
+        lists:seq(1, NumPayloads)
+    ),
+    ct:pal("publishing payloads"),
+    parallel_publish(RuleTopic, Payloads),
+    ct:pal("published payloads"),
+    wait_until_no_more_deliveries(aggreg_id(Config), 5_000),
+    ?block_until(
+        #{?snk_kind := connector_aggreg_delivery_completed, transfer := T} when
+            T /= empty
+    ),
+    Rows = scan_table(Ns, Table),
+    ?assertEqual(
+        NumPayloads,
+        length(Rows),
+        #{rows => lists:map(fun(R) -> R#{<<"col_str">> := <<"<...snip...>">>} end, Rows)}
+    ),
+    ok.
+
+%% For code coverage: check behavior of failures during upload, in `process_write`.
+t_upload_failure_during_process_write() ->
+    TableExtraOptsFn = fun(TCConfig) ->
+        case group_path(TCConfig, [not_partitioned]) of
+            [not_partitioned] ->
+                #{};
+            [partitioned] ->
+                #{<<"partition-spec">> => simple_schema1_partition_spec3()}
+        end
+    end,
+    [
+        {matrix, true},
+        {table_extra_opts_fn, TableExtraOptsFn}
+    ].
+t_upload_failure_during_process_write(matrix) ->
+    [
+        [not_partitioned],
+        [partitioned]
+    ];
+t_upload_failure_during_process_write(Config) ->
+    do_t_upload_data_file_failure(_S3UploadFnName = write, Config).
+
+%% For code coverage: check behavior of failures during upload, in `process_complete`.
+t_upload_failure_during_process_complete() ->
+    TableExtraOptsFn = fun(TCConfig) ->
+        case group_path(TCConfig, [not_partitioned]) of
+            [not_partitioned] ->
+                #{};
+            [partitioned] ->
+                #{<<"partition-spec">> => simple_schema1_partition_spec3()}
+        end
+    end,
+    [
+        {matrix, true},
+        {table_extra_opts_fn, TableExtraOptsFn}
+    ].
+t_upload_failure_during_process_complete(matrix) ->
+    [
+        [not_partitioned],
+        [partitioned]
+    ];
+t_upload_failure_during_process_complete(Config) ->
+    do_t_upload_data_file_failure(_S3UploadFnName = complete, Config).
+
+do_t_upload_data_file_failure(S3UploadFnName, Config) ->
+    [IsPartitioned] = group_path(Config, [partitioned]),
+    RuleTopic = atom_to_binary(?FUNCTION_NAME),
+    {201, _} = create_connector_api(Config, #{}),
+    {201, _} = create_action_api(Config, #{}),
+    {ok, _} = create_rule_for_schema1(Config, RuleTopic),
+    NumPayloads = 3,
+    NumPKs = NumPayloads,
+    Payloads = lists:map(
+        fun(N) -> simple_payload_all(#{<<"int">> => N}) end,
+        lists:seq(1, NumPayloads)
+    ),
+    NSuccessesBeforeFailure =
+        case IsPartitioned of
+            partitioned ->
+                NumPKs - 1;
+            not_partitioned ->
+                0
+        end,
+    {ok, Agent} = emqx_utils_agent:start_link(NSuccessesBeforeFailure),
+    ct:pal("publishing payloads"),
+    ct:timetrap({seconds, 5}),
+    emqx_common_test_helpers:with_mock(
+        emqx_s3_upload,
+        S3UploadFnName,
+        fun(S3TransferState) ->
+            case emqx_utils_agent:get_and_update(Agent, fun(N) -> {N, N - 1} end) =< 0 of
+                true ->
+                    {error, <<"mocked error">>};
+                false ->
+                    meck:passthrough([S3TransferState])
+            end
+        end,
+        #{meck_opts => [passthrough]},
+        fun() ->
+            parallel_publish(RuleTopic, Payloads),
+            ct:pal("published payloads"),
+            ?block_until(#{?snk_kind := "aggregated_buffer_delivery_failed"}),
+            case IsPartitioned of
+                partitioned ->
+                    %% Must rollback each inner s3 transfer, one for each PK
+                    ?assertEqual(
+                        lists:duplicate(NumPKs, ok),
+                        [
+                            ok
+                         || {_Pid, {_Mod, abort, _In}, _Out} <- meck:history(emqx_s3_upload)
+                        ]
+                    );
+                not_partitioned ->
+                    ?assertEqual(
+                        [ok],
+                        [
+                            ok
+                         || {_Pid, {_Mod, abort, _In}, _Out} <- meck:history(emqx_s3_upload)
+                        ]
+                    )
+            end
+        end
+    ),
+    case IsPartitioned of
+        not_partitioned ->
+            ?assertMatch(
+                #{
+                    error :=
+                        {unhealthy_target, #{
+                            phase := data_file,
+                            reason := <<"mocked error">>
+                        }},
+                    status := ?status_disconnected
+                },
+                emqx_bridge_v2_testlib:health_check_channel(Config)
+            );
+        partitioned ->
+            ?assertMatch(
+                #{
+                    error :=
+                        {unhealthy_target, #{
+                            phase := data_file,
+                            partition_key := _PK,
+                            reason := <<"mocked error">>
+                        }},
+                    status := ?status_disconnected
+                },
+                emqx_bridge_v2_testlib:health_check_channel(Config)
+            )
+    end,
+    ok.
+
+t_bad_arn(Config) ->
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"Invalid ARN; must be of form `arn:", _/binary>>
+            }
+        }},
+        create_connector_api(Config, #{
+            <<"s3tables_arn">> => <<"bad_arn">>
+        })
+    ),
+    ok.
+
+t_upload_manifest_entry_failure(Config) ->
+    RuleTopic = atom_to_binary(?FUNCTION_NAME),
+    {201, _} = create_connector_api(Config, #{}),
+    {201, _} = create_action_api(Config, #{}),
+    {ok, _} = create_rule_for_schema1(Config, RuleTopic),
+    NumPayloads = 3,
+    Payloads = lists:map(
+        fun(N) -> simple_payload_all(#{<<"int">> => N}) end,
+        lists:seq(1, NumPayloads)
+    ),
+    ct:pal("publishing payloads"),
+    ct:timetrap({seconds, 5}),
+    emqx_common_test_helpers:with_mock(
+        emqx_s3_client,
+        put_object,
+        fun(_S3Client, _Key, _Data) ->
+            {error, <<"mocked error">>}
+        end,
+        #{meck_opts => [passthrough]},
+        fun() ->
+            parallel_publish(RuleTopic, Payloads),
+            ct:pal("published payloads"),
+            ?block_until(#{?snk_kind := "aggregated_buffer_delivery_failed"}),
+            ?assertMatch(
+                #{
+                    error :=
+                        {unhealthy_target, #{
+                            phase := manifest_entry,
+                            reason := <<"mocked error">>
+                        }},
+                    status := ?status_disconnected
+                },
+                emqx_bridge_v2_testlib:health_check_channel(Config)
+            )
+        end
+    ),
+    ok.
+
+t_upload_manifest_file_list_failure(Config) ->
+    RuleTopic = atom_to_binary(?FUNCTION_NAME),
+    {201, _} = create_connector_api(Config, #{}),
+    {201, _} = create_action_api(Config, #{}),
+    {ok, _} = create_rule_for_schema1(Config, RuleTopic),
+    NumPayloads = 3,
+    Payloads = lists:map(
+        fun(N) -> simple_payload_all(#{<<"int">> => N}) end,
+        lists:seq(1, NumPayloads)
+    ),
+    ct:pal("publishing payloads"),
+    ct:timetrap({seconds, 5}),
+    emqx_common_test_helpers:with_mock(
+        emqx_s3_client,
+        put_object,
+        fun(S3Client, Key, Data) ->
+            case re:run(Key, <<"metadata/snap-">>, [global, {capture, none}]) of
+                match ->
+                    {error, <<"mocked error">>};
+                nomatch ->
+                    meck:passthrough([S3Client, Key, Data])
+            end
+        end,
+        #{meck_opts => [passthrough]},
+        fun() ->
+            parallel_publish(RuleTopic, Payloads),
+            ct:pal("published payloads"),
+            ?block_until(#{?snk_kind := "aggregated_buffer_delivery_failed"}),
+            ?assertMatch(
+                #{
+                    error :=
+                        {unhealthy_target, #{
+                            phase := manifest_file_list,
+                            reason := <<"mocked error">>
+                        }},
+                    status := ?status_disconnected
+                },
+                emqx_bridge_v2_testlib:health_check_channel(Config)
+            )
+        end
+    ),
+    ok.
+
+t_commit_failure(Config) ->
+    RuleTopic = atom_to_binary(?FUNCTION_NAME),
+    {201, _} = create_connector_api(Config, #{}),
+    {201, _} = create_action_api(Config, #{}),
+    {ok, _} = create_rule_for_schema1(Config, RuleTopic),
+    NumPayloads = 3,
+    Payloads = lists:map(
+        fun(N) -> simple_payload_all(#{<<"int">> => N}) end,
+        lists:seq(1, NumPayloads)
+    ),
+    ct:pal("publishing payloads"),
+    ct:timetrap({seconds, 5}),
+    emqx_common_test_helpers:with_mock(
+        erlcloud_retry,
+        request,
+        fun(AWSConfig, AWSRequest, ResultFn) ->
+            case AWSRequest of
+                #aws_request{service = s3tables, method = post} ->
+                    %% Currently only call that matches this clause is commit.
+                    RespHeaders = [],
+                    RespBody = <<"{\"mocked\":true}">>,
+                    AWSRequest#aws_request{
+                        response_type = error,
+                        error_type = aws,
+                        response_status = 403,
+                        response_status_line = "Forbidden",
+                        response_body = RespBody,
+                        response_headers = RespHeaders
+                    };
+                _ ->
+                    meck:passthrough([AWSConfig, AWSRequest, ResultFn])
+            end
+        end,
+        #{meck_opts => [passthrough]},
+        fun() ->
+            parallel_publish(RuleTopic, Payloads),
+            ct:pal("published payloads"),
+            ?block_until(#{?snk_kind := "aggregated_buffer_delivery_failed"}),
+            ?assertMatch(
+                #{
+                    error :=
+                        {unhealthy_target, #{
+                            phase := commit,
+                            reason := {http_error, 403, "Forbidden", <<"{\"mocked\":true}">>, []}
+                        }},
+                    status := ?status_disconnected
+                },
+                emqx_bridge_v2_testlib:health_check_channel(Config)
+            )
+        end
+    ),
     ok.
 
 %% More test ideas:

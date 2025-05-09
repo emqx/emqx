@@ -121,6 +121,8 @@ desc(Name) when
     Name =:= parameters
 ->
     ?DESC(Name);
+desc(action_resource_opts) ->
+    ?DESC(emqx_resource_schema, "creation_opts");
 desc(_Name) ->
     undefined.
 

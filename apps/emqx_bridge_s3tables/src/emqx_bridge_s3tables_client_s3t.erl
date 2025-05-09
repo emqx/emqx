@@ -45,6 +45,7 @@
 -define(payload, payload).
 
 -type client_opts() :: #{
+    account_id := binary(),
     access_key_id := string(),
     secret_access_key := emqx_secret:t(binary()),
     base_endpoint := binary(),
@@ -73,6 +74,7 @@
 -spec new(client_opts()) -> {ok, t()} | {error, term()}.
 new(Params) ->
     #{
+        account_id := AccountId,
         access_key_id := AccessKeyId,
         secret_access_key := SecretAccessKey0,
         base_endpoint := BaseEndpoint,
@@ -92,7 +94,6 @@ new(Params) ->
             base_uri := BaseURI,
             base_path := BasePath
         }} ?= emqx_bridge_s3tables_connector_schema:parse_base_endpoint(BaseEndpoint),
-        {ok, AccountId} ?= infer_account_id(Params, AWSConfig),
         {ok, #{
             ?aws_config => AWSConfig,
             ?host => Host,
@@ -273,26 +274,6 @@ mk_arn(request, Client) ->
 mk_arn(sign, Client) ->
     ARN = mk_arn(request, Client),
     erlcloud_http:url_encode(ARN).
-
-infer_account_id(#{account_id := AccountId}, _AWSConfig) when AccountId /= undefined ->
-    {ok, str(AccountId)};
-infer_account_id(_Params, AWSConfig) ->
-    %% Should we try replace `sts_host` with inferred region from base endpoint for faster
-    %% request?
-    try erlcloud_sts:get_caller_identity(AWSConfig) of
-        {ok, Props} ->
-            {account, AccountId} = lists:keyfind(account, 1, Props),
-            {ok, AccountId}
-    catch
-        Kind:Error:Stacktrace ->
-            ?SLOG(warning, #{
-                msg => "failed_to_infer_account_id",
-                connector_type => ?CONNECTOR_TYPE,
-                reason => {Kind, Error},
-                stacktrace => Stacktrace
-            }),
-            {error, {failed_to_infer_account_id, {Kind, Error}}}
-    end.
 
 str(X) -> emqx_utils_conv:str(X).
 

@@ -288,7 +288,8 @@ process_write(#{?inner_transfer := #single_transfer{}} = TransferState0) ->
             process_write(TransferState);
         {error, Reason} ->
             _ = emqx_s3_upload:abort(S3TransferState0),
-            {error, Reason}
+            Error = #{phase => data_file, reason => Reason},
+            {error, Error}
     end;
 process_write(#{?inner_transfer := #partitioned_transfer{}} = TransferState0) ->
     #{
@@ -309,7 +310,8 @@ process_complete(#{?inner_transfer := #single_transfer{}} = TransferState0) ->
             upload_manifests(TransferState0);
         {error, Reason} ->
             _ = emqx_s3_upload:abort(S3TransferState),
-            exit({upload_failed, {data_file, Reason}})
+            Error = #{phase => data_file, reason => Reason},
+            exit({upload_failed, Error})
     end;
 process_complete(#{?inner_transfer := #partitioned_transfer{}} = TransferState0) ->
     #{
@@ -404,7 +406,8 @@ do_process_complete_partitioned([PK | PKs], TransferState0) ->
                 St0
             ),
             %% TODO: prettify partition key
-            exit({upload_failed, {data_file, PK, Reason}})
+            Error = #{phase => data_file, partition_key => PK, reason => Reason},
+            exit({upload_failed, Error})
     end;
 do_process_complete_partitioned([], TransferState0) ->
     ?tp("s3tables_upload_manifests_enter", #{}),
@@ -463,7 +466,8 @@ do_process_write_partitioned([PK | PKs], TransferState0) ->
                 St0
             ),
             %% TODO: prettify partition key
-            {error, {PK, Reason}}
+            Error = #{phase => data_file, partition_key => PK, reason => Reason},
+            {error, Error}
     end;
 do_process_write_partitioned([], TransferState) ->
     {ok, TransferState}.
@@ -528,16 +532,22 @@ upload_manifests(TransferState) ->
     ManifestFileBin = [ManifestFileBin0 | PrevManifestListBin],
     ManifestFileOCF = avro_ocf:make_ocf(ManifestFileHeader, ManifestFileBin),
     ManifestFileKey = mk_manifest_file_key(BasePath, NewSnapshotId, WriteUUID, NAttempt),
-    %% TODO: handle errors
     ?SLOG(info, #{
-        msg => "s3tables_uploading_manifest_list",
+        msg => "s3tables_uploading_manifest_file_list",
         action => ActionResId,
         key => ManifestFileKey,
         snapshot_id => NewSnapshotId,
         record_count => NumRecords
     }),
-    ok = emqx_s3_client:put_object(S3Client, ManifestFileKey, ManifestFileOCF),
+    case emqx_s3_client:put_object(S3Client, ManifestFileKey, ManifestFileOCF) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            Error = #{phase => manifest_file_list, reason => Reason},
+            exit({upload_failed, Error})
+    end,
 
+    %% Commit
     ManifestFileS3Path = make_s3_path(Bucket, ManifestFileKey),
     CommitContext = #{
         data_size => ManifestSize,
@@ -553,8 +563,6 @@ upload_manifests(TransferState) ->
         table_uuid => TableUUID
     },
     Request = emqx_bridge_s3tables_logic:compute_update_table_request(CommitContext),
-    %% todo: will need to abstract this once we support more locations...
-    %% TODO: handle errors
     ?tp("s3tables_about_to_commit", #{}),
     Response = emqx_bridge_s3tables_client_s3t:update_table(Client, Namespace, Table, Request),
     case Response of
@@ -569,8 +577,9 @@ upload_manifests(TransferState) ->
                 write_uuid => WriteUUID
             }),
             retry_upload_manifests(TransferState);
-        {error, Reason} ->
-            exit({upload_failed, {commit, Reason}})
+        {error, Reason1} ->
+            Error1 = #{phase => commit, reason => Reason1},
+            exit({upload_failed, Error1})
     end.
 
 retry_upload_manifests(TransferState0) ->
@@ -668,7 +677,6 @@ do_upload_manifest_entries(
                     ?data_size := DataSize,
                     ?num_records := NumRecords
                 } = St,
-                %% todo: will need to abstract this once we support more locations...
                 DataS3Path = make_s3_path(Bucket, DataFileKey),
                 Partition = partition_keys_to_record(PKs, PartitionFields),
                 ManifestEntry = #{
@@ -701,13 +709,18 @@ do_upload_manifest_entries(
         snapshot_id => NewSnapshotId,
         record_count => NumRecords
     }),
-    ok = emqx_s3_client:put_object(S3Client, ManifestEntryKey, ManifestEntryOCF),
-    ManifestSize = iolist_size(ManifestEntryOCF),
-    #{
-        key => ManifestEntryKey,
-        size => ManifestSize,
-        num_records => NumRecords
-    }.
+    case emqx_s3_client:put_object(S3Client, ManifestEntryKey, ManifestEntryOCF) of
+        ok ->
+            ManifestSize = iolist_size(ManifestEntryOCF),
+            #{
+                key => ManifestEntryKey,
+                size => ManifestSize,
+                num_records => NumRecords
+            };
+        {error, Reason} ->
+            Error = #{phase => manifest_entry, reason => Reason},
+            exit({upload_failed, Error})
+    end.
 
 partition_keys_to_record(PKs, PartitionFields) ->
     lists:foldl(

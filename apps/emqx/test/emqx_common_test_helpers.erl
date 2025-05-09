@@ -69,7 +69,7 @@
 ]).
 
 -export([clear_screen/0]).
--export([with_mock/4]).
+-export([with_mock/4, with_mock/5]).
 -export([
     on_exit/1,
     call_janitor/0,
@@ -1007,7 +1007,11 @@ clear_screen() ->
     end.
 
 with_mock(Mod, FnName, MockedFn, Fun) ->
-    ok = meck:new(Mod, [no_link, no_history, passthrough]),
+    with_mock(Mod, FnName, MockedFn, _Opts = #{}, Fun).
+
+with_mock(Mod, FnName, MockedFn, Opts, Fun) ->
+    MeckOpts = maps:get(meck_opts, Opts, [no_link, no_history, passthrough]),
+    ok = meck:new(Mod, MeckOpts),
     ok = meck:expect(Mod, FnName, MockedFn),
     try
         Fun()
