@@ -300,3 +300,44 @@ t_queue_group(Config) ->
 
     emqx_nats_client:stop(Client1),
     emqx_nats_client:stop(Client2).
+
+t_reply_to(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Publisher} = emqx_nats_client:start_link(ClientOpts),
+    {ok, Subscriber} = emqx_nats_client:start_link(ClientOpts),
+
+    %% Connect both clients
+    {ok, [_]} = emqx_nats_client:receive_message(Publisher),
+    {ok, [_]} = emqx_nats_client:receive_message(Subscriber),
+    ok = emqx_nats_client:connect(Publisher),
+    ok = emqx_nats_client:connect(Subscriber),
+    {ok, [_]} = emqx_nats_client:receive_message(Publisher),
+    {ok, [_]} = emqx_nats_client:receive_message(Subscriber),
+
+    %% Subscribe to the subject
+    ok = emqx_nats_client:subscribe(Subscriber, <<"test.subject">>, <<"sid-1">>),
+    {ok, [_]} = emqx_nats_client:receive_message(Subscriber),
+
+    %% Publish message with reply-to
+    ReplyTo = <<"reply.subject">>,
+    Payload = <<"test payload">>,
+    ok = emqx_nats_client:publish(Publisher, <<"test.subject">>, ReplyTo, Payload),
+    {ok, [_]} = emqx_nats_client:receive_message(Publisher),
+
+    %% Receive message and verify reply-to
+    {ok, [Msg]} = emqx_nats_client:receive_message(Subscriber),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_MSG,
+            message = #{
+                subject := <<"test.subject">>,
+                sid := <<"sid-1">>,
+                reply_to := ReplyTo,
+                payload := Payload
+            }
+        },
+        Msg
+    ),
+
+    emqx_nats_client:stop(Publisher),
+    emqx_nats_client:stop(Subscriber).
