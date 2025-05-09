@@ -111,7 +111,15 @@ fields(avro) ->
 fields(protobuf) ->
     [
         {type, mk(?protobuf, #{required => true, desc => ?DESC("schema_type_protobuf")})}
-        | common_fields(binary())
+        | common_fields(hoconsc:union([binary(), ref(protobuf_bundle_source)]))
+    ];
+fields(protobuf_bundle_source) ->
+    [
+        {type, mk(bundle, #{required => true, desc => ?DESC("protobuf_source_bundle_type")})},
+        {root_proto_path,
+            mk(binary(), #{
+                required => true, desc => ?DESC("protobuf_source_bundle_root_proto_path")
+            })}
     ];
 fields(json) ->
     [
@@ -245,6 +253,8 @@ desc(confluent_schema_registry) ->
     ?DESC("confluent_schema_registry");
 desc(confluent_schema_registry_auth_basic) ->
     ?DESC("confluent_schema_registry_auth");
+desc(protobuf_bundle_source) ->
+    ?DESC("protobuf_source_bundle_type");
 desc(_) ->
     undefined.
 

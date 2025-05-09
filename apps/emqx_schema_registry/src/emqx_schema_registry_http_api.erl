@@ -19,10 +19,13 @@
 
 -export([
     '/schema_registry'/2,
+    '/schema_registry_protobuf/bundle'/2,
     '/schema_registry/:name'/2,
     '/schema_registry_external'/2,
     '/schema_registry_external/registry/:name'/2
 ]).
+
+-export([validate_protobuf_bundle_request/2]).
 
 %% BPAPI RPC Targets
 -export([
@@ -44,6 +47,7 @@ api_spec() ->
 paths() ->
     [
         "/schema_registry",
+        "/schema_registry_protobuf/bundle",
         "/schema_registry/:name",
         "/schema_registry_external",
         "/schema_registry_external/registry/:name"
@@ -84,6 +88,47 @@ schema("/schema_registry") ->
                             post_examples()
                         ),
                     400 => error_schema('ALREADY_EXISTS', "Schema already exists")
+                }
+        }
+    };
+schema("/schema_registry_protobuf/bundle") ->
+    #{
+        'operationId' => '/schema_registry_protobuf/bundle',
+        filter => fun ?MODULE:validate_protobuf_bundle_request/2,
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Upload a Protobuf bundle for a new schema">>,
+            description => ?DESC("protobuf_bundle_create"),
+            'requestBody' => protobuf_bundle_request_body(),
+            responses =>
+                #{
+                    201 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            ?R_REF(emqx_schema_registry_schema, "post_protobuf"),
+                            post_examples()
+                        ),
+                    400 => emqx_dashboard_swagger:error_codes(
+                        [
+                            'ALREADY_EXISTS',
+                            'BAD_FORM_DATA'
+                        ]
+                    )
+                }
+        },
+        put => #{
+            tags => ?TAGS,
+            summary => <<"Upload a Protobuf bundle for an existing schema">>,
+            description => ?DESC("protobuf_bundle_update"),
+            'requestBody' => protobuf_bundle_request_body(),
+            responses =>
+                #{
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            ?R_REF(emqx_schema_registry_schema, "put_protobuf"),
+                            put_examples()
+                        ),
+                    404 => error_schema('NOT_FOUND', "Schema not found"),
+                    400 => emqx_dashboard_swagger:error_codes(['BAD_FORM_DATA'])
                 }
         }
     };
@@ -222,6 +267,50 @@ schema("/schema_registry_external/registry/:name") ->
         }
     }.
 
+protobuf_bundle_request_body() ->
+    #{
+        content => #{
+            'multipart/form-data' => #{
+                schema => #{
+                    type => object,
+                    properties => #{
+                        name => #{type => string, format => binary},
+                        root_proto_file => #{type => string, format => binary},
+                        description => #{type => string, format => binary},
+                        bundle => #{type => string, format => binary}
+                    }
+                },
+                encoding => #{bundle => #{'contentType' => 'application/gzip'}}
+            }
+        }
+    }.
+
+validate_protobuf_bundle_request(#{body := #{} = Body} = Params0, _Meta) ->
+    maybe
+        {ok, Name} ?= find_or(<<"name">>, Body, <<"Missing `name`">>),
+        ok ?= safe_validate_name(Name),
+        {ok, RootFile} ?= find_or(<<"root_proto_file">>, Body, <<"Missing `root_proto_file`">>),
+        {ok, RootPath} ?= validate_root_filename(RootFile),
+        Description = maps:get(<<"description">>, Body, <<"">>),
+        {ok, Bundle} ?= find_or(<<"bundle">>, Body, <<"Missing `bundle`">>),
+        [{_Filename, Bin}] ?= maps:to_list(maps:without([type], Bundle)),
+        ok ?= validate_gzip_magic_number(Bin),
+        Params = Params0#{
+            name => Name,
+            description => Description,
+            root_proto_path => RootPath,
+            bundle => Bin
+        },
+        {ok, Params}
+    else
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason);
+        _ ->
+            bad_protobuf_bundle_error()
+    end;
+validate_protobuf_bundle_request(_Params, _Meta) ->
+    bad_protobuf_bundle_error().
+
 %%-------------------------------------------------------------------------------------------------
 %% API
 %%-------------------------------------------------------------------------------------------------
@@ -250,7 +339,7 @@ schema("/schema_registry_external/registry/:name") ->
                         ?BAD_REQUEST(Error)
                 end;
             {ok, _} ->
-                ?BAD_REQUEST('ALREADY_EXISTS', <<"Schema already exists">>)
+                schema_already_exists_error()
         end
     catch
         throw:#{kind := Kind, reason := Reason} ->
@@ -269,10 +358,9 @@ schema("/schema_registry_external/registry/:name") ->
             ?OK(Schema#{<<"name">> => Name})
     end;
 '/schema_registry/:name'(put, #{bindings := #{name := Name}, body := Params}) ->
-    case emqx_schema_registry:get_schema(Name) of
-        {error, not_found} ->
-            ?NOT_FOUND(<<"Schema not found">>);
-        {ok, _} ->
+    with_schema(
+        Name,
+        fun() ->
             case emqx_schema_registry:add_schema(Name, Params) of
                 ok ->
                     {ok, Res} = emqx_schema_registry:get_schema_raw_with_defaults(Name),
@@ -280,19 +368,49 @@ schema("/schema_registry_external/registry/:name") ->
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
             end
-    end;
+        end,
+        fun schema_not_found_error/0
+    );
 '/schema_registry/:name'(delete, #{bindings := #{name := Name}}) ->
-    case emqx_schema_registry:get_schema(Name) of
-        {error, not_found} ->
-            ?NOT_FOUND(<<"Schema not found">>);
-        {ok, _} ->
+    with_schema(
+        Name,
+        fun() ->
             case emqx_schema_registry:delete_schema(Name) of
                 ok ->
                     ?NO_CONTENT;
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
             end
-    end.
+        end,
+        fun schema_not_found_error/0
+    ).
+
+'/schema_registry_protobuf/bundle'(post, #{name := Name} = Params) ->
+    with_schema(
+        Name,
+        fun schema_already_exists_error/0,
+        fun() ->
+            case handle_upload_protobuf_bundle(Params) of
+                {ok, Res} ->
+                    ?CREATED(Res);
+                {error, Reason} ->
+                    ?BAD_REQUEST(Reason)
+            end
+        end
+    );
+'/schema_registry_protobuf/bundle'(put, #{name := Name} = Params) ->
+    with_schema(
+        Name,
+        fun() ->
+            case handle_upload_protobuf_bundle(Params) of
+                {ok, Res} ->
+                    ?OK(Res);
+                {error, Reason} ->
+                    ?BAD_REQUEST(Reason)
+            end
+        end,
+        fun schema_not_found_error/0
+    ).
 
 %% External registries
 '/schema_registry_external'(get, _Params) ->
@@ -590,3 +708,107 @@ sequence_node_results(NodeResults) ->
         false ->
             {error, Error}
     end.
+
+handle_upload_protobuf_bundle(Params) ->
+    #{
+        name := Name,
+        bundle := Archive
+    } = Params,
+    maybe
+        {ok, Contents} ?= extract_tar_gz(Archive),
+        UpdateReq = prepare_config_update_request(Contents, Params),
+        ok ?= emqx_schema_registry:add_schema(Name, UpdateReq),
+        {ok, Res} = emqx_schema_registry:get_schema_raw_with_defaults(Name),
+        {ok, Res#{<<"name">> => Name}}
+    end.
+
+bad_protobuf_bundle_error() ->
+    {400, #{
+        code => 'BAD_FORM_DATA',
+        message =>
+            <<"form-data should be `name=@schema-name;bundle=@filename.tar.gz`">>
+    }}.
+
+schema_not_found_error() ->
+    ?NOT_FOUND(<<"Schema not found">>).
+
+schema_already_exists_error() ->
+    ?BAD_REQUEST('ALREADY_EXISTS', <<"Schema already exists">>).
+
+find_or(Key, Map, Error) ->
+    maybe
+        error ?= maps:find(Key, Map),
+        {error, Error}
+    end.
+
+safe_validate_name(Name) ->
+    try
+        emqx_resource:validate_name(Name)
+    catch
+        throw:#{reason := Reason} ->
+            {error, Reason}
+    end.
+
+validate_root_filename(Filename) ->
+    case filename:split(Filename) of
+        [F] when
+            F == <<".">>;
+            F == <<"..">>;
+            F == <<"/">>
+        ->
+            {error, <<"Invalid root filename">>};
+        [F] ->
+            {ok, F};
+        _ ->
+            {error, <<"Invalid root filename; must not be nested in any directory">>}
+    end.
+
+validate_gzip_magic_number(<<16#1f, 16#8b, _/bitstring>>) ->
+    ok;
+validate_gzip_magic_number(_) ->
+    {error, <<"Not a valid gzip file">>}.
+
+with_schema(Name, FoundFn, NotFoundFn) ->
+    case emqx_schema_registry:get_schema(Name) of
+        {error, not_found} ->
+            NotFoundFn();
+        {ok, _Schema} when is_function(FoundFn, 0) ->
+            FoundFn()
+    end.
+
+extract_tar_gz(Archive) ->
+    maybe
+        {error, Reason} ?= erl_tar:extract({binary, Archive}, [compressed, memory]),
+        {error, {bad_tar_gz, Reason}}
+    end.
+
+bin(X) -> emqx_utils_conv:bin(X).
+str(X) -> emqx_utils_conv:str(X).
+
+prepare_config_update_request(Contents, Params) ->
+    #{
+        description := Description,
+        root_proto_path := RootPath
+    } = Params,
+    RootPathStr = str(RootPath),
+    Files = lists:map(
+        fun({Filename, Bin}) ->
+            protobuf_bundle_file_of(Filename, Bin, RootPathStr)
+        end,
+        Contents
+    ),
+    #{
+        <<"type">> => <<"protobuf">>,
+        <<"description">> => Description,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => Files
+        }
+    }.
+
+protobuf_bundle_file_of(Filename, Bin, RootPathStr) ->
+    #{
+        <<"path">> => bin(Filename),
+        <<"contents">> => Bin,
+        <<"root">> => Filename == RootPathStr
+    }.

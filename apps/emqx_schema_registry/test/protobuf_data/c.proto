@@ -1,0 +1,3 @@
+message Boh {
+  required string boh = 1;
+}
