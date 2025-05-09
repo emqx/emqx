@@ -269,7 +269,7 @@ print_keys(Keys) ->
     emqx_ctl:print("~1p~n", [[binary_to_existing_atom(K) || K <- SortKeys]]).
 
 print(Json) ->
-    emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Json)]).
+    emqx_ctl:print("~ts~n", [emqx_utils_json:best_effort_json(Json)]).
 
 print_hocon(Hocon) when is_map(Hocon) ->
     emqx_ctl:print("~ts~n", [hocon_pp:do(Hocon, #{})]);

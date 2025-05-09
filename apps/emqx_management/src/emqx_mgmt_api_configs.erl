@@ -336,7 +336,7 @@ configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode} = QS}, _Req) 
             {200};
         %% bad hocon format
         {error, Errors} ->
-            Msg = emqx_logger_jsonfmt:best_effort_json_obj(#{errors => Errors}),
+            Msg = emqx_utils_json:best_effort_json_obj(#{errors => Errors}),
             {400, #{<<"content-type">> => <<"text/plain">>}, Msg}
     end.
 

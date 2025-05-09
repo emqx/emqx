@@ -8,7 +8,6 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqtt/include/emqtt.hrl").
 
 %% APIs
 -export([parse_action/1]).
