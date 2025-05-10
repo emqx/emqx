@@ -124,6 +124,44 @@ mqtt_max_qos_allowed.desc:
 mqtt_max_qos_allowed.label:
 """Max QoS"""
 
+mqtt_subscription_max_qos_rules.desc:
+"""Maximum Subscription QoS allowance rules. Useful to limit QoS level requested by the client in a `SUBSCRIBE` packet. Take precedence over `max_qos_allowed` option, which then acts as the default when no rule applies.
+
+For example, this list of rules can be used to force QoS 0 on subscriptions to topic filter `#` and to any topic filter that "falls into" `notification/+/#` topic filter (e.g. `notification/foo/bar/#`):
+```
+[ { is_match = "topic.is_equal('#')", qos = 0 }
+  { is_match = "topic.is_subset_of('notification/+/#')", qos = 0 }
+]
+```
+
+See _Max Subscription QoS Rules_ for more details."""
+
+mqtt_subscription_max_qos_rules.label:
+"""Max Subscription QoS Rules"""
+
+topic_qos_rule_match.desc:
+"""Expression evaluated over the given topic (or topic filter) to decide if the rule applies.
+Follows `topic.<topic-predicate>('<topic-argument>')` syntax where `<topic-argument>` is a string containing literal topic filter. Following topic predicates are allowed:
+
+* `is_equal`
+
+    Given topic or topic filter is simply equal to the argument.
+
+* `is_subset_of`
+
+    Tests if given topic filter effectively covers a subset of topics that are covered by the topic filter in the argument.
+
+    For example, if topic in question is `t/conf/+` then `topic.is_subset_of('t/+/#')` is _true_ but `topic.is_subset_of('t/conf/+/+')` is _false_.
+
+* `intersects`
+
+    Set of topics covered by given topic intersects with set of topics covered by the topic filter in the argument.
+
+    For example, if topic is `t/conf/+` then `topic.intersects('t/+/1337')` is _true_ but `topic.intersects('t/+')` is _false_.""" 
+
+topic_qos_rule_match.label:
+"""Topic Match"""
+
 fields_mqtt_quic_listener_max_binding_stateless_operations.desc:
 """The maximum number of stateless operations that may be queued on a binding at any one time. Default: 100"""
 
