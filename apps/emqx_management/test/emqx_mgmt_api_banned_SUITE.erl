@@ -207,6 +207,16 @@ t_create_failed(_Config) ->
         who => <<"127.0.0.1">>
     },
     ?assertEqual(BadRequest, create_banned(Expired)),
+
+    %% return all to include the error message
+    {error, {_, _, JsonBody}} = create_banned(Expired, _ReturnAll = true),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := <<"Cannot create expired banned", _/binary>>
+        },
+        emqx_utils_json:decode(JsonBody)
+    ),
     ok.
 
 %% validate check_schema is true with bad content_type
@@ -380,9 +390,16 @@ list_banned(Params) ->
     end.
 
 create_banned(Banned) ->
+    create_banned(Banned, false).
+
+create_banned(Banned, ReturnAll) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["banned"]),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Banned) of
+    case
+        emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Banned, #{
+            return_all => ReturnAll
+        })
+    of
         {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
     end.
