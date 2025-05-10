@@ -177,13 +177,14 @@ handle_event(enter, _OldState, ?pending, #d{flush_interval = T}) ->
 handle_event(enter, _, _, _) ->
     keep_state_and_data;
 handle_event(cast, Tx, State, D0) ->
+    Timeout = {timeout, 1, ?timeout_flush},
     case handle_tx(D0, Tx) of
         {ok, D} ->
             case State of
                 ?idle ->
-                    {next_state, ?pending, D};
+                    {next_state, ?pending, D, Timeout};
                 _ ->
-                    {keep_state, D}
+                    {keep_state, D, Timeout}
             end;
         aborted ->
             keep_state_and_data
@@ -207,7 +208,16 @@ handle_event(ET, Event, State, _D) ->
 %% Internal functions
 %%================================================================================
 
-handle_tx(D = #d{dbshard = DBShard, cbm = CBM, serial = Serial, gens = Gens}, Tx) ->
+handle_tx(
+    D = #d{
+        dbshard = DBShard,
+        cbm = CBM,
+        serial = Serial,
+        serial_control = SafeToReadSerial,
+        gens = Gens
+    },
+    Tx
+) ->
     #ds_tx{ctx = #kv_tx_ctx{generation = Gen}} = Tx,
     case Gens of
         #{Gen := GS0} ->
@@ -215,10 +225,11 @@ handle_tx(D = #d{dbshard = DBShard, cbm = CBM, serial = Serial, gens = Gens}, Tx
         #{} ->
             GS0 = #gen_data{dirty = emqx_ds_tx_conflict_trie:new(Serial, infinity)}
     end,
-    case try_commit(DBShard, Gen, CBM, Serial + 1, Tx, GS0) of
+    PresumedCommitSerial = Serial + 1,
+    case try_commit(DBShard, Gen, CBM, SafeToReadSerial, PresumedCommitSerial, Tx, GS0) of
         {ok, GS} ->
             {ok, D#d{
-                serial = Serial + 1,
+                serial = PresumedCommitSerial,
                 gens = Gens#{Gen => GS}
             }};
         aborted ->
@@ -229,7 +240,8 @@ try_commit(
     DBShard,
     Gen,
     CBM,
-    Serial,
+    SafeToReadSerial,
+    PresumedCommitSerial,
     Tx,
     GS = #gen_data{dirty = Dirty0, buffer = Buff, pending_replies = Pending}
 ) ->
@@ -240,19 +252,19 @@ try_commit(
         ref = Ref,
         meta = Meta
     } = Tx,
-    #kv_tx_ctx{serial = TxSerial} = Ctx,
+    #kv_tx_ctx{serial = TxStartSerial} = Ctx,
     maybe
-        ok ?= check_conflicts(Dirty0, TxSerial, Ops),
+        ok ?= check_conflicts(Dirty0, TxStartSerial, SafeToReadSerial, Ops),
         ok ?= verify_preconditions(DBShard, Gen, Ops),
         {ok, CookedTx} ?=
             CBM:prepare_kv_tx(
-                DBShard, Gen, serial_bin(Serial), Ops, #{}
+                DBShard, Gen, serial_bin(PresumedCommitSerial), Ops, #{}
             ),
-        Dirty = update_dirty(Serial, Ops, Dirty0),
+        Dirty = update_dirty(PresumedCommitSerial, Ops, Dirty0),
         {ok, GS#gen_data{
             dirty = Dirty,
             buffer = [CookedTx | Buff],
-            pending_replies = [{From, Ref, Meta, Serial} | Pending]
+            pending_replies = [{From, Ref, Meta, PresumedCommitSerial} | Pending]
         }}
     else
         {error, Class, Error} ->
@@ -285,6 +297,7 @@ update_dirty(Serial, Ops, Dirty0) ->
 flush(D = #d{dbshard = DBShard, cbm = CBM, serial_control = SerCtl, serial = Serial, gens = Gens0}) ->
     Gens = maps:map(
         fun(Gen, GS = #gen_data{buffer = Buf, pending_replies = Replies, dirty = Dirty}) ->
+            %% logger:warning("flushing ~p", [Buf]),
             case CBM:commit_kv_tx_batch(DBShard, Gen, SerCtl, Buf) of
                 ok ->
                     [
@@ -325,28 +338,33 @@ rotate(D = #d{gens = Gens0}) ->
     ),
     D#d{gens = Gens}.
 
-check_conflicts(Dirty, TxSerial, Ops) ->
-    %% Verify normal reads and also make sure we don't read buffered
-    %% data while verifying preconditions:
-    Topics =
-        [
-            maps:get(?ds_tx_read, Ops, []),
-            maps:get(?ds_tx_unexpected, Ops, []),
-            [Topic || {Topic, _} <- maps:get(?ds_tx_expected, Ops, [])]
-        ],
+check_conflicts(Dirty, TxStartSerial, SafeToReadSerial, Ops) ->
+    maybe
+        ok ?= do_check_conflicts(Dirty, TxStartSerial, maps:get(?ds_tx_read, Ops, [])),
+        %% Deletion of topics involves scanning of the storage. We
+        %% can't do it when there is potentially buffered data:
+        ok ?= do_check_conflicts(Dirty, SafeToReadSerial, maps:get(?ds_tx_delete_topic, Ops, [])),
+        %% Verifying precondition requires reading from the storage
+        %% too. Make sure we don't ignore the cache:
+        ok ?= do_check_conflicts(Dirty, SafeToReadSerial, maps:get(?ds_tx_unexpected, Ops, [])),
+        ExpectedTopics = [Topic || {Topic, _} <- maps:get(?ds_tx_expected, Ops, [])],
+        ok ?= do_check_conflicts(Dirty, SafeToReadSerial, ExpectedTopics)
+    end.
+
+do_check_conflicts(Dirty, Serial, Topics) ->
     Errors = lists:foldl(
         fun(ReadTF, Acc) ->
             case
                 emqx_ds_tx_conflict_trie:is_dirty(
                     emqx_ds_tx_conflict_trie:topic_filter_to_conflict_domain(ReadTF),
-                    TxSerial,
+                    Serial,
                     Dirty
                 )
             of
                 false ->
                     Acc;
                 true ->
-                    [ReadTF | Acc]
+                    [{ReadTF, Serial} | Acc]
             end
         end,
         [],

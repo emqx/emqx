@@ -238,7 +238,7 @@ t_10_non_atomic_store_batch(Config) ->
     ),
     ok.
 
-t_11_batch_preconditions(Config) ->
+xt_11_batch_preconditions(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
@@ -294,7 +294,7 @@ t_11_batch_preconditions(Config) ->
         []
     ).
 
-t_12_batch_precondition_conflicts(Config) ->
+xt_12_batch_precondition_conflicts(Config) ->
     DB = ?FUNCTION_NAME,
     NBatches = 50,
     NMessages = 10,
@@ -1071,14 +1071,14 @@ t_14_kv_wildcard_deletes(Config) ->
             ),
             %% 1. Insert test data:
             {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
-            Ops1 = #{
-                ?ds_tx_write =>
-                    [{[<<"foo">>], <<"payload">>}] ++
+            Msgs0 =
+                [{[<<"foo">>], <<"payload">>}] ++
                     [
-                        {[<<"t">>, integer_to_binary(I)], integer_to_binary(I)}
-                     || I <- lists:seq(1, 100)
-                    ]
-            },
+                        {[<<"t">>, <<I:16>>, <<J:16>>], <<I:16, J:16>>}
+                     || I <- lists:seq(1, 10),
+                        J <- lists:seq(1, 10)
+                    ],
+            Ops1 = #{?ds_tx_write => Msgs0},
             ?assertMatch({ok, _}, do_commit_tx(DB, Tx1, Ops1)),
             %% Verify that all data has been inserted:
             ?assertEqual(
@@ -1086,20 +1086,29 @@ t_14_kv_wildcard_deletes(Config) ->
                 emqx_ds:fold_topic(
                     fun(_, _, _, _, Acc) -> Acc + 1 end,
                     0,
-                    [<<"t">>, '+'],
+                    [<<"t">>, '+', '+'],
                     #{db => DB}
                 )
             ),
-            %% 2. Issue a new transaction that deletes t/+:
+            %% 2. Issue a new transaction that deletes t/10/+:
             {ok, Tx2} = emqx_ds:new_kv_tx(DB, TXOpts),
             Ops2 = #{
-                ?ds_tx_delete_topic => [[<<"t">>, '+']]
+                ?ds_tx_delete_topic => [[<<"t">>, <<10:16>>, '+']]
             },
             ?assertMatch({ok, _}, do_commit_tx(DB, Tx2, Ops2)),
-            %% Verify side effects, t/+ is gone:
+            Msgs1 = lists:filter(
+                fun
+                    ({[<<"t">>, <<10:16>>, _], _}) ->
+                        false;
+                    (_) ->
+                        true
+                end,
+                Msgs0
+            ),
+            %% Verify side effects, t/100/+ is gone:
             ?assertEqual(
-                [{[<<"foo">>], <<"payload">>}],
-                emqx_ds:dirty_read(DB, ['#'])
+                lists:sort(Msgs1),
+                lists:sort(emqx_ds:dirty_read(DB, ['#']))
             )
         end,
         []

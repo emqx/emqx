@@ -251,7 +251,7 @@ new_kv_tx(DB, Options = #{shard := ShardOpt}) ->
                 Shard ->
                     ok
             end,
-            TxSerial = get_tx_serial({DB, Shard}),
+            TxSerial = get_tx_serial({DB, Shard}) + 1,
             case emqx_ds_optimistic_tx:where(DB, Shard) of
                 Leader when is_pid(Leader) ->
                     {ok,

@@ -128,6 +128,7 @@
     hash :: wildcard_hash()
 }).
 
+%-define(DEBUG2, true).
 -ifdef(DEBUG2).
 -include_lib("snabbkaffe/include/trace.hrl").
 -define(dbg(K, A), ?tp(notice, K, A)).
@@ -583,6 +584,9 @@ fold_step(
         end,
     case Result of
         {error, invalid_iterator} ->
+            ?dbg(?MODULE_STRING "_step_limit", #{
+                level => Level
+            }),
             none;
         {ok, Key, Blob} ->
             case match_key(StaticIdx, Level, Hash, Key) of

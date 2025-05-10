@@ -190,6 +190,7 @@ prepare_kv_tx(DBShard, S, TXID, Ops, _Options) ->
     DT = maps:get(?ds_tx_delete_topic, Ops, []),
     try
         OperationsCooked = cook_blob_deletes(DBShard, S, DT, cook_blob_writes(S, TXID, W, [])),
+        %% logger:warning("OHAYO: ~p", [OperationsCooked]),
         {ok, #{
             ?cooked_msg_ops => OperationsCooked,
             ?cooked_lts_ops => emqx_ds_gen_skipstream_lts:pop_lts_persist_ops()
@@ -224,8 +225,10 @@ cook_blob_deletes(DBShard, S, Topics, Acc0) ->
     ).
 
 cook_blob_deletes1(DBShard, S, TopicFilter, Acc0) ->
+    logger:warning("Cook dels ~p~n~p", [TopicFilter, Acc0]),
     lists:foldl(
         fun(Stream, Acc) ->
+            %% logger:warning("Cook dels1 ~p ~p", [TopicFilter, Stream]),
             {ok, #it{static_index = Static, compressed_tf = Varying, last_key = LK}} = make_iterator(
                 DBShard, S, Stream, TopicFilter, 0
             ),
@@ -236,7 +239,9 @@ cook_blob_deletes1(DBShard, S, TopicFilter, Acc0) ->
     ).
 
 cook_blob_deletes2(GS, Static, Varying, LSK, Acc0) ->
+    logger:warning("Cook dels2.0 ~p/~p lsk=~p~nacc=~p", [Static, Varying, LSK, Acc0]),
     Fun = fun(_TopicStructure, _DSKey, Var, _Val, Acc) ->
+        logger:warning("Cook dels2 ~p", [Var]),
         [?cooked_msg_op(Static, Var, ?cooked_delete) | Acc]
     end,
     Interval = {'[', LSK, infinity},

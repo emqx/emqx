@@ -8,6 +8,7 @@
 -module(emqx_ds).
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %% Management API:
 -export([
@@ -1169,7 +1170,18 @@ trans(DB, Fun, Opts, Retries) ->
                                                 {atomic, CommitTXId, Ret};
                                             ?err_unrec(_) = Err ->
                                                 Err;
-                                            ?err_rec(_) when Retries > 0 ->
+                                            ?err_rec(Reason) when Retries > 0 ->
+                                                ?tp(
+                                                    warning,
+                                                    emqx_ds_tx_retry,
+                                                    #{
+                                                        db => DB,
+                                                        tx_fun => Fun,
+                                                        opts => Opts,
+                                                        retries => Retries,
+                                                        reason => Reason
+                                                    }
+                                                ),
                                                 timer:sleep(RetryInterval),
                                                 trans(DB, Fun, Opts, Retries - 1);
                                             Err ->

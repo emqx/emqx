@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc A property-based testcase that verifies durable session state
@@ -108,7 +96,7 @@ seqno() ->
     range(1, 100).
 
 stream_id() ->
-    {range(1, 3), oneof([#{}, {}])}.
+    {range(1, 10), oneof([#{}, {}])}.
 
 subscription_gen() ->
     ?LET(
@@ -327,7 +315,7 @@ command(S) ->
                 %% Key-value:
                 {3, {call, ?MODULE, gen_put, [session_id(S), put_req()]}},
                 {1, {call, ?MODULE, gen_get, get_req(S)}},
-                {2, {call, ?MODULE, gen_del, del_req(S)}},
+                {3, {call, ?MODULE, gen_del, del_req(S)}},
 
                 %% Getters:
                 %% FIXME:
@@ -475,17 +463,17 @@ get_metadata(SessionId, {MetaKey, Fun}) ->
     apply(emqx_persistent_session_ds_state, Fun, [get_state(SessionId)]).
 
 gen_put(SessionId, {Idx, Fun, Key, Value}) ->
-    ct:pal("*** ~p(~p, ~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, Idx, Key, Value]),
+    ct:pal("*** ~p(~p, ~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key, Value]),
     S = apply(emqx_persistent_session_ds_state, Fun, [Key, Value, get_state(SessionId)]),
     put_state(SessionId, S).
 
 gen_del(SessionId, {Idx, Fun, Key}) ->
-    ct:pal("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, Idx, Key]),
+    ct:pal("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
     S = apply(emqx_persistent_session_ds_state, Fun, [Key, get_state(SessionId)]),
     put_state(SessionId, S).
 
 gen_get(SessionId, {Idx, Fun, Key}) ->
-    ct:pal("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, Idx, Key]),
+    ct:pal("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
     apply(emqx_persistent_session_ds_state, Fun, [Key, get_state(SessionId)]).
 
 iterate_sessions(BatchSize) ->
@@ -547,3 +535,6 @@ format_state(undefined) ->
     undefined;
 format_state(Rec) ->
     emqx_persistent_session_ds_state:format(Rec).
+
+pmap_name(Idx) ->
+    lists:nth(Idx - 1, record_info(fields, s)).

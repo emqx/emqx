@@ -660,8 +660,8 @@ t_state_fuzz(init, Config) ->
     start_local(?FUNCTION_NAME, [{cleanup, Cleanup} | Config]).
 t_state_fuzz(_Config) ->
     NTests = 100,
-    MaxSize = 100,
-    NCommandsFactor = 3,
+    MaxSize = 300,
+    NCommandsFactor = 10,
     Mod = emqx_persistent_session_ds_state_fuzzer,
     ?run_prop(
         #{

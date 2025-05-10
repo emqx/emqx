@@ -70,6 +70,8 @@ push(
             }
     end.
 
+%% @doc Return `false' if there are no entries with **greater** serial
+%% in the tracked conflict range.
 -spec is_dirty(conflict_domain(), emqx_ds:tx_serial(), t()) -> boolean().
 is_dirty(
     _CD,
@@ -134,7 +136,7 @@ check_dirty(CD, Serial, Trie) ->
                 false;
             Prefix ->
                 Fun = fun(_Key, KeySerial, Acc) ->
-                    Acc orelse (KeySerial >= Serial)
+                    Acc orelse (KeySerial > Serial)
                 end,
                 fold_keys_with_prefix(Fun, Prefix, Trie, false)
         end
@@ -144,7 +146,7 @@ check_dirty(CD, Serial, Trie) ->
 
 compare_domain_serial(CD, Serial, Trie) ->
     case gb_trees:lookup(CD, Trie) of
-        {value, Val} when Val >= Serial ->
+        {value, Val} when Val > Serial ->
             true;
         _ ->
             false
@@ -247,10 +249,10 @@ is_dirty0_test() ->
 
 %% Test is_dirty on a trie without wildcards:
 is_dirty1_test() ->
-    D1 = {[<<1>>], 1},
-    D2 = {[<<1>>, <<2>>], 2},
-    D3 = {[<<2>>], 3},
-    D4 = {[], 4},
+    D1 = {[<<1>>], 2},
+    D2 = {[<<1>>, <<2>>], 3},
+    D3 = {[<<2>>], 4},
+    D4 = {[], 5},
     Trie = mk_test_trie(0, [D1, D2, D3, D4]),
     %% Non-existent domains:
     ?clean([<<3>>], 1, Trie),
@@ -281,9 +283,9 @@ is_dirty1_test() ->
     ?clean(['#'], 5, rotate(Trie)).
 
 is_dirty2_test() ->
-    D1 = {[<<1>>], 1},
-    D2 = {[<<1>>, <<2>>, '#'], 2},
-    D3 = {[<<2>>, '#'], 3},
+    D1 = {[<<1>>], 2},
+    D2 = {[<<1>>, <<2>>, '#'], 3},
+    D3 = {[<<2>>, '#'], 4},
     Trie = mk_test_trie(0, [D1, D2, D3]),
     %% Non-existent domains:
     ?clean([<<3>>], 1, Trie),
