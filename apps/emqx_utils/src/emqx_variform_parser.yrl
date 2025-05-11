@@ -22,6 +22,9 @@ Rootsymbol
 %% Root expression: function call or variable or a boolean
 expr -> call_or_var : '$1'.
 expr -> boolean: element(3, '$1').
+expr -> integer: {integer, element(3, '$1')}.
+expr -> float: {float, element(3, '$1')}.
+expr -> string : {str, element(3, '$1')}.
 
 %% Function call or variable
 call_or_var -> identifier '(' ')' : {call, element(3, '$1'), []}.
@@ -38,9 +41,6 @@ args -> args ',' arg : '$1' ++ ['$3'].
 %% Arguments can be expressions, arrays, numbers, strings or booleans
 arg -> expr : '$1'.
 arg -> array : '$1'.
-arg -> integer: {integer, element(3, '$1')}.
-arg -> float: {float, element(3, '$1')}.
-arg -> string : {str, element(3, '$1')}.
 
 Erlang code.
 
