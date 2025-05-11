@@ -143,7 +143,7 @@ config(t_expression_compile_error) ->
         mechanism = cinfo,
         checks = [
           {
-            is_match = \"1\"
+            is_match = \".\"
             result = allow
           }
         ]
