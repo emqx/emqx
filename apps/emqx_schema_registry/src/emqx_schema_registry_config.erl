@@ -27,6 +27,10 @@
 -behaviour(emqx_config_backup).
 -export([import_config/1]).
 
+-ifdef(TEST).
+-export([protobuf_bundle_data_dir/1]).
+-endif.
+
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------

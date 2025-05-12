@@ -492,6 +492,33 @@ proto_file(File) ->
     {ok, Contents} = file:read_file(proto_file_path(File)),
     Contents.
 
+%% Emulate `init_load`, since our CTH doesn't actually perform that.
+emulate_emqx_conf_init_load(NewNode, SeedNode) ->
+    ?ON(SeedNode, ok = emqx_config_backup_manager:flush()),
+    ?ON(NewNode, begin
+        Res = emqx_conf_app:sync_cluster_conf(),
+        ct:pal("Synced config:\n  ~p", [Res]),
+        DataDir = emqx:data_dir(),
+        Path = filename:join([DataDir, "configs", "cluster.hocon"]),
+        {ok, Contents0} = file:read_file(Path),
+        ok = file:write_file(Path, [
+            Contents0,
+            <<"node.cookie = cookie \n">>,
+            [
+                <<"node.data_dir = \"">>,
+                DataDir,
+                <<"\" \n">>
+            ]
+        ]),
+
+        SchemaMod = emqx_enterprise_schema,
+        ok = application:stop(emqx_schema_registry),
+        ok = emqx_config:init_load(SchemaMod),
+        ok = application:start(emqx_schema_registry)
+    end).
+
+str(X) -> emqx_utils_conv:str(X).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -1467,5 +1494,116 @@ t_protobuf_single_traversal_attack(_Config) ->
                     missing := []
                 }}}},
         emqx_schema_registry:add_schema(Name, BadSchema1)
+    ),
+    ok.
+
+%% Checks that we sync the `data/schemas/protobuf` directory when a new node joins an
+%% existing cluster.
+t_protobuf_bundle_cluster_sync_join_later(Config) ->
+    AppSpecs = [
+        emqx,
+        emqx_conf,
+        emqx_rule_engine,
+        emqx_schema_registry,
+        emqx_management
+    ],
+    ClusterSpec = [
+        {proto_sync1, #{apps => AppSpecs}},
+        {proto_sync2, #{apps => AppSpecs}}
+    ],
+    [N1Spec, N2Spec] = emqx_cth_cluster:mk_nodespecs(
+        ClusterSpec,
+        #{
+            work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+            %% Call `init:stop' instead of `erlang:halt/0' for clean mnesia
+            %% shutdown and restart
+            shutdown => 5_000
+        }
+    ),
+    {Names0, _} = lists:unzip(ClusterSpec),
+    Nodes = lists:map(fun emqx_cth_cluster:node_name/1, Names0),
+    on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
+    [N1, N2] = emqx_cth_cluster:start([N1Spec, N2Spec]),
+    ok = emqx_cth_cluster:stop([N2]),
+
+    %% Create schema on existing cluster
+    Name = <<"bundled">>,
+    Schema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"path">> => <<"nested/b.proto">>,
+                    <<"root">> => false,
+                    <<"contents">> => proto_file(<<"b.proto">>)
+                },
+                #{
+                    <<"path">> => <<"a.proto">>,
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"a.proto">>)
+                },
+                #{
+                    <<"path">> => <<"c.proto">>,
+                    <<"contents">> => proto_file(<<"c.proto">>)
+                }
+            ]
+        }
+    },
+    ?ON(N1, ?assertMatch(ok, emqx_schema_registry:add_schema(Name, Schema1))),
+
+    %% Now, `N2` joins the cluster.  It must sync the already unpacked bundle.
+    ct:pal("(re)starting other node"),
+    [N2] = emqx_cth_cluster:restart([N2Spec]),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emulate_emqx_conf_init_load(N2, N1),
+            #{?snk_kind := schema_registry_serdes_built}
+        ),
+
+    Data1 = #{
+        <<"name">> => <<"aaa">>,
+        <<"id">> => 1,
+        <<"bah">> => #{
+            <<"bah">> => <<"bah">>,
+            <<"boh">> => #{<<"boh">> => <<"boh">>}
+        }
+    },
+    lists:foreach(
+        fun(N) ->
+            ok = ?ON(N, begin
+                Res0 = emqx_schema_registry:get_serde(Name),
+                ?assertMatch({ok, #serde{}}, Res0, #{node => N}),
+                {ok, Serde} = Res0,
+                ?assertEqual(
+                    Data1,
+                    encode_then_decode(Serde, Data1, [<<"Person">>]),
+                    #{node => N}
+                ),
+                ok
+            end)
+        end,
+        Nodes
+    ),
+    SchemaFiles = ?ON(N2, begin
+        SchemaDir = str(emqx_schema_registry_config:protobuf_bundle_data_dir(Name)),
+        filelib:fold_files(
+            SchemaDir,
+            _Regex = "",
+            _Recursive = true,
+            fun(Path0, Acc) ->
+                Path = lists:flatten(string:replace(Path0, SchemaDir ++ "/", "", leading)),
+                [Path | Acc]
+            end,
+            []
+        )
+    end),
+    ?assertEqual(
+        [
+            "a.proto",
+            "c.proto",
+            "nested/b.proto"
+        ],
+        lists:sort(SchemaFiles)
     ),
     ok.
