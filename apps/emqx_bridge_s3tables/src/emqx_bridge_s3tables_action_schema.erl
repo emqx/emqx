@@ -63,7 +63,8 @@ fields(?ACTION_TYPE) ->
                 required => true,
                 desc => ?DESC("parameters")
             }
-        )
+        ),
+        #{resource_opts_ref => ref(action_resource_opts)}
     );
 fields(action_parameters) ->
     [
