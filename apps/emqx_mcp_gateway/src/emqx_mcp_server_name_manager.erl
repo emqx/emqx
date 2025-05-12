@@ -19,13 +19,29 @@
 -feature(maybe_expr, enable).
 
 -behaviour(gen_server).
+-behaviour(emqx_db_backup).
 
 -include_lib("emqx/include/logger.hrl").
 
--export([create_tables/0]).
+%% Mnesia Tab APIs
+-export([
+    table_name/0,
+    init_tables/0,
+    create_tables/0,
+    backup_tables/0
+]).
 
 %% API
--export([start_link/0, load_from_csv/1, get_server_name/1]).
+-export([
+    start_link/0
+]).
+
+-export([
+    load_from_csv/1,
+    get_server_name/1,
+    add_server_name/2,
+    delete_server_name/1
+]).
 
 %% gen_server callbacks
 -export([
@@ -38,22 +54,30 @@
     code_change/3
 ]).
 
+-export([match_all_spec/0, fuzzy_filter_fun/1, run_fuzzy_filter/2, format_server_name/1]).
+
 %% Types
 -define(SERVER, ?MODULE).
--define(MCP_SERVER_NAME_TAB, emqx_mcp_server_name).
+-define(TAB, emqx_mcp_server_name).
 
 -record(mcp_server_name, {
-    username :: binary(),
-    server_name :: binary(),
-    meta = #{} :: map()
+    username :: binary() | '_',
+    server_name :: binary() | '_',
+    meta = #{} :: map() | '_'
 }).
+
+table_name() -> ?TAB.
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
+-spec init_tables() -> ok.
+init_tables() ->
+    ok = mria:wait_for_tables(create_tables()).
+
 create_tables() ->
     ok = mria:create_table(
-        ?MCP_SERVER_NAME_TAB,
+        ?TAB,
         [
             {type, ordered_set},
             {storage, disc_copies},
@@ -62,7 +86,12 @@ create_tables() ->
             {attributes, record_info(fields, mcp_server_name)}
         ]
     ),
-    [?MCP_SERVER_NAME_TAB].
+    [?TAB].
+
+%%------------------------------------------------------------------------------
+%% Data backup
+%%------------------------------------------------------------------------------
+backup_tables() -> {<<"mcp_server_name">>, [?TAB]}.
 
 %%--------------------------------------------------------------------
 %% API
@@ -71,12 +100,19 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 get_server_name(Username) ->
-    case mnesia:dirty_read(?MCP_SERVER_NAME_TAB, Username) of
+    case mnesia:dirty_read(?TAB, Username) of
         [] ->
             {error, not_found};
         [#mcp_server_name{server_name = ServerName}] ->
             {ok, ServerName}
     end.
+
+add_server_name(Username, ServerName) ->
+    Record = #mcp_server_name{username = Username, server_name = ServerName},
+    mria:dirty_write(?TAB, Record).
+
+delete_server_name(Username) ->
+    mria:dirty_delete(?TAB, Username).
 
 init([]) ->
     {ok, #{}, {continue, load_server_names}}.
@@ -111,7 +147,7 @@ load_server_names() ->
         #{enable := false} ->
             ok;
         #{enable := true, bootstrap_file := FileName} when is_binary(FileName) ->
-            case mnesia:dirty_first(?MCP_SERVER_NAME_TAB) of
+            case mnesia:dirty_first(?TAB) of
                 '$end_of_table' ->
                     %% No data in the table, load from CSV
                     File = emqx_schema:naive_env_interpolation(FileName),
@@ -146,7 +182,7 @@ load_from_stream(Stream) ->
         ServerNameRecords = [format_line(Line) || Line <- Lines],
         lists:foreach(
             fun(Record) ->
-                mnesia:dirty_write(?MCP_SERVER_NAME_TAB, Record)
+                mria:dirty_write(?TAB, Record)
             end,
             ServerNameRecords
         )
@@ -162,3 +198,26 @@ format_line(#{<<"username">> := Username, <<"server_name">> := ServerName}) ->
     };
 format_line(Line) ->
     throw({error, {invalid_line_format, Line}}).
+
+match_all_spec() ->
+    [{#mcp_server_name{_ = '_'}, [], ['$_']}].
+
+%% Fuzzy username funcs
+fuzzy_filter_fun([]) ->
+    undefined;
+fuzzy_filter_fun(Fuzzy) ->
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
+
+run_fuzzy_filter(_, []) ->
+    true;
+run_fuzzy_filter(
+    E = #mcp_server_name{username = Username},
+    [{username, like, UsernameSubStr} | Fuzzy]
+) ->
+    binary:match(Username, UsernameSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
+
+format_server_name(#mcp_server_name{username = Username, server_name = ServerName}) ->
+    #{
+        username => Username,
+        server_name => ServerName
+    }.

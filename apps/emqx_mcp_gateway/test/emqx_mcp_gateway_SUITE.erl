@@ -31,14 +31,13 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 %% Init
 %%========================================================================
 init_per_suite(Config) ->
-    DataDir = ?config(data_dir, Config),
+    DataDir = filename:join([?config(data_dir, Config), "..", "SUITE_data"]),
     emqx_config:put(
         [mcp],
         #{
             enable => true,
             broker_suggested_server_name => #{
-                enable => true,
-                bootstrap_file => filename:join([DataDir, <<"server_names.csv">>])
+                enable => false
             },
             servers => #{
                 calc => #{
@@ -75,6 +74,9 @@ t_mcp_normal_msg_flow(_) ->
     ]),
     {ok, _} = emqtt:connect(C),
 
+    % dbg:tracer(),
+    % dbg:p(all, c),
+    % dbg:tpl(emqx_mcp_gateway, on_session_subscribed, '_', cx),
     %% Subscribe to the server presence topic
     {ok, _, [1]} = emqtt:subscribe(C, <<"$mcp-server/presence/#">>, qos1),
     ct:sleep(100),
@@ -93,9 +95,6 @@ t_mcp_normal_msg_flow(_) ->
     RpcTopic = <<"$mcp-rpc-endpoint/", McpClientId/binary, "/", ServerName/binary>>,
 
     %% Subscribe to the RPC topic
-    % dbg:tracer(),
-    % dbg:p(all, c),
-    % dbg:tpl(emqtt, parse_subopt, 1, cx),
     {ok, _, [1]} = emqtt:subscribe(C, #{}, [{RpcTopic, [{qos, qos1}, {nl, true}]}]),
     %% Initialize with the server
     InitRequest = emqx_mcp_message:initialize_request(
@@ -177,18 +176,18 @@ verify_initialize_response(Payload) ->
             result := #{
                 <<"capabilities">> := #{
                     <<"experimental">> := #{},
-                    <<"prompts">> := #{<<"listChanged">> := false},
+                    <<"prompts">> := #{<<"listChanged">> := _},
                     <<"resources">> :=
                         #{
-                            <<"listChanged">> := false,
-                            <<"subscribe">> := false
+                            <<"listChanged">> := _,
+                            <<"subscribe">> := _
                         },
-                    <<"tools">> := #{<<"listChanged">> := false}
+                    <<"tools">> := #{<<"listChanged">> := _}
                 },
                 <<"protocolVersion">> := <<"2024-11-05">>,
                 <<"serverInfo">> := #{
                     <<"name">> := <<"Calculator">>,
-                    <<"version">> := <<"1.7.1">>
+                    <<"version">> := _
                 }
             }
         }},

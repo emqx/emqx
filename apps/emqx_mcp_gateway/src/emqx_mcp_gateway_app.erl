@@ -21,6 +21,8 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
+    emqx_conf:add_handler([mcp], emqx_mcp_gateway),
+    emqx_conf:add_handler([mcp, servers, '?'], emqx_mcp_gateway),
     Ret = emqx_mcp_gateway_sup:start_link(),
     case emqx:get_config([mcp], #{enable => false}) of
         #{enable := true} -> emqx_mcp_gateway:enable();
@@ -30,6 +32,8 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     emqx_mcp_gateway:disable(),
+    emqx_conf:remove_handler([mcp]),
+    emqx_conf:remove_handler([mcp, servers, '?']),
     ok.
 
 %% internal functions

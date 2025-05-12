@@ -34,7 +34,7 @@ fields(mcp) ->
                 boolean(),
                 #{
                     desc => ?DESC(enable),
-                    default => true
+                    default => false
                 }
             )},
         {broker_suggested_server_name,
@@ -46,7 +46,8 @@ fields(mcp) ->
             )},
         {servers,
             ?HOCON(
-                ?MAP(name, ?UNION([?REF(stdio_server), ?REF(http_server), ?REF(internal_server)])),
+                %?MAP(name, ?UNION([?REF(stdio_server), ?REF(http_server), ?REF(internal_server)])),
+                ?MAP(name, ?UNION([?REF(stdio_server)])),
                 #{
                     desc => ?DESC(servers),
                     default => #{}
@@ -68,7 +69,8 @@ fields(broker_suggested_server_name) ->
                 binary(),
                 #{
                     desc => ?DESC(bootstrap_file),
-                    required => false
+                    required => false,
+                    example => <<"/tmp/emqx_mcp_server_name.csv">>
                 }
             )}
     ];
@@ -81,7 +83,8 @@ fields(stdio_server) ->
                     #{
                         desc => ?DESC(command),
                         validator => fun ?MODULE:validate_cmd/1,
-                        required => true
+                        required => true,
+                        example => <<"/path/to/venv/bin/python3">>
                     }
                 )},
             {args,
@@ -89,7 +92,8 @@ fields(stdio_server) ->
                     ?ARRAY(binary()),
                     #{
                         desc => ?DESC(args),
-                        default => []
+                        default => [],
+                        example => [<<"/tmp/weather.py">>]
                     }
                 )},
             {env,
@@ -98,7 +102,8 @@ fields(stdio_server) ->
                     #{
                         desc => ?DESC(env),
                         validator => fun ?MODULE:validate_env/1,
-                        default => #{}
+                        default => #{},
+                        example => #{<<"VAR1">> => <<"1">>}
                     }
                 )}
         ];
@@ -110,7 +115,8 @@ fields(http_server) ->
                     binary(),
                     #{
                         desc => ?DESC(emqx_authn_http_schema, url),
-                        required => true
+                        required => true,
+                        example => <<"http://example.com:8080">>
                     }
                 )},
             {request_timeout,
@@ -138,7 +144,8 @@ fields(internal_server) ->
                     binary(),
                     #{
                         desc => ?DESC(module),
-                        required => true
+                        required => true,
+                        example => <<"demo_internal_mcp_server">>
                     }
                 )}
         ].
@@ -158,7 +165,7 @@ common_server_confs(Type) ->
                 Type,
                 #{
                     desc => ?DESC(server_type),
-                    default => true
+                    required => true
                 }
             )},
         {server_name,
@@ -166,7 +173,8 @@ common_server_confs(Type) ->
                 binary(),
                 #{
                     desc => ?DESC(server_name),
-                    required => true
+                    required => true,
+                    example => <<"type/sub-type/demo">>
                 }
             )},
         {server_desc,

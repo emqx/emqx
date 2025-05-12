@@ -1,0 +1,51 @@
+emqx_mcp_gateway_api {
+
+mcp_server_list_api.desc:
+"""List all configured MCP servers."""
+
+mcp_server_list_api_response.desc:
+"""An array of the MCP servers"""
+
+mcp_server_post_api.desc:
+"""Create an MCP server"""
+
+mcp_server_get_api.desc:
+"""Get the configuration of an MCP server by ID"""
+
+mcp_server_put_api.desc:
+"""Update the configuration of an MCP server by ID"""
+
+mcp_server_delete_api.desc:
+"""Delete an MCP server by ID"""
+
+mcp_server_name_list_api.desc:
+"""List broker suggested MCP server names"""
+
+mcp_server_name_list_api_response.desc:
+"""An array of the broker suggested MCP server names"""
+
+qs_like_username.desc:
+"""The query string that matches the MQTT username of the MCP server"""
+
+mcp_server_name_post_api.desc:
+"""Add a broker suggested MCP server name"""
+
+mcp_server_name_get_api.desc:
+"""Get the broker suggested MCP server name of an MQTT username"""
+
+mcp_server_name_put_api.desc:
+"""Update the broker suggested MCP server name of an MQTT username"""
+
+mcp_server_name_delete_api.desc:
+"""Delete the broker suggested MCP server name of an MQTT username"""
+
+mcp_server_conf_id.desc:
+"""Configuration ID of the MCP server"""
+
+mqtt_username.desc:
+"""MQTT username"""
+
+mcp_server_name.desc:
+"""MCP server name"""
+
+}

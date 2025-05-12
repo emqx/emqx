@@ -1,5 +1,4 @@
 -define(MCP_VERSION, <<"2024-11-05">>).
--define(TAB_MCP_READY_SERVERS, emqx_mcp_ready_servers).
 -define(INIT_TIMEOUT, 5_000).
 -define(RPC_TIMEOUT, 5_000).
 -define(MCP_SERVER_ID(NAME),
@@ -26,3 +25,5 @@
     RPC =:= list_tools;
     RPC =:= send_roots_list_changed
 ).
+
+-define(TAG, "MCP_GATEWAY").

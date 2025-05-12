@@ -23,7 +23,6 @@
 -export([
     enable/0,
     disable/0,
-    list/0,
     post_config_update/5
 ]).
 
@@ -39,12 +38,19 @@
 %%==============================================================================
 %% Config update
 %%==============================================================================
-post_config_update(_KeyPath, _UpdateReq, #{enable := false}, _OldConf, _AppEnvs) ->
+post_config_update([mcp], _UpdateReq, #{enable := false}, _OldConf, _AppEnvs) ->
     ?SLOG(debug, #{msg => "disabling_mcp_gateway"}),
     disable();
-post_config_update(_KeyPath, _UpdateReq, #{enable := true} = _NewConf, _OldConf, _AppEnvs) ->
+post_config_update([mcp], _UpdateReq, #{enable := true} = _NewConf, _OldConf, _AppEnvs) ->
     ?SLOG(debug, #{msg => "enabling_mcp_gateway"}),
-    enable().
+    enable();
+post_config_update([mcp, servers, Id], '$remove', undefined, OldConf, _AppEnvs) ->
+    ?SLOG(debug, #{msg => "remove mcp server", id => Id}),
+    ServerName = maps:get(server_name, OldConf),
+    stop_mcp_server(ServerName);
+post_config_update([mcp, servers, Id], _UpdateReq, NewConf, _OldConf, _AppEnvs) ->
+    ?SLOG(debug, #{msg => "add or update mcp server", id => Id}),
+    start_mcp_server(Id, NewConf).
 
 %%==============================================================================
 %% APIs
@@ -52,19 +58,14 @@ post_config_update(_KeyPath, _UpdateReq, #{enable := true} = _NewConf, _OldConf,
 enable() ->
     start_mcp_servers(emqx:get_config([mcp, servers])),
     register_hook(),
-    emqx_conf:add_handler([mcp], emqx_mcp_gateway),
     emqx_ctl:register_command(mcp, {emqx_mcp_gateway_cli, cmd}).
 
 disable() ->
     unregister_hook(),
-    emqx_conf:remove_handler([mcp]),
     emqx_ctl:unregister_command(mcp),
     stop_mcp_servers(),
     %% Restart the dispatcher to clean up the state
     emqx_mcp_server_dispatcher:restart().
-
-list() ->
-    emqx:get_raw_config([mcp], []).
 
 %%==============================================================================
 %% Hooks
@@ -299,23 +300,28 @@ unhook(HookPoint, MFA) ->
 %%==============================================================================
 start_mcp_servers(Servers) ->
     %% Start all MCP servers
-    maps:foreach(
-        fun(Name, #{enable := true} = ServerConf) ->
-            #{server_type := SType, server_name := ServerName} = ServerConf,
-            Conf = #{
-                name => Name,
-                server_name => ServerName,
-                server_conf => maps:without([server_type, enable], ServerConf),
-                mod => mcp_server_callback_module(SType),
-                opts => #{}
-            },
-            ok = emqx_mcp_server_dispatcher:start_server_pool(Conf)
-        end,
-        Servers
-    ).
+    maps:foreach(fun start_mcp_server/2, Servers).
+
+start_mcp_server(
+    Name, #{enable := true, server_type := SType, server_name := ServerName} = ServerConf
+) ->
+    Conf = #{
+        name => Name,
+        server_name => ServerName,
+        server_conf => maps:without([server_type, enable], ServerConf),
+        mod => mcp_server_callback_module(SType),
+        opts => #{}
+    },
+    ok = emqx_mcp_server_dispatcher:stop_servers(ServerName),
+    ok = emqx_mcp_server_dispatcher:start_listening_servers(Conf);
+start_mcp_server(_Name, #{enable := false}) ->
+    ok.
 
 stop_mcp_servers() ->
     emqx_mcp_server:stop_supervised_all().
+
+stop_mcp_server(ServerName) ->
+    emqx_mcp_server_dispatcher:stop_servers(ServerName).
 
 mcp_server_callback_module(stdio) ->
     emqx_mcp_server_stdio;
