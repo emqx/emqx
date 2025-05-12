@@ -442,7 +442,7 @@ delete_protobuf_bundle_data_dir(Name) ->
 copy_protobuf_bundle_to_data_dir(Name, RootFile, OtherFiles) ->
     DataDir = protobuf_bundle_data_dir(Name),
     ok = filelib:ensure_path(DataDir),
-    %% Root file is validate earlier in the pipeline.
+    %% Root file is validated earlier in the pipeline.
     #{<<"path">> := RootPath0} = RootFile,
     RootPath = filename:join([DataDir, RootPath0]),
     ok = filelib:ensure_dir(RootPath),
