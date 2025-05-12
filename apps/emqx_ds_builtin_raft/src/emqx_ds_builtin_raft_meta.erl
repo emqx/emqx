@@ -48,10 +48,11 @@
     forget_node/1,
     assign_db_sites/2,
     modify_db_sites/2,
+    db_sites/1,
+    db_target_sites/1,
     replica_set_transitions/2,
     claim_transition/3,
     update_replica_set/3,
-    db_sites/1,
     target_set/2
 ]).
 
@@ -498,11 +499,18 @@ assign_db_sites(DB, Sites) ->
 modify_db_sites(DB, Transitions) ->
     transaction(fun ?MODULE:modify_db_sites_trans/2, [DB, Transitions]).
 
-%% @doc List the sites the DB is replicated across.
+%% @doc List the sites the DB is currently replicated across.
 -spec db_sites(emqx_ds:db()) -> [site()].
 db_sites(DB) ->
     Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
     list_sites(Recs).
+
+%% @doc List the sites the DB should be replicated across, once transitions
+%% are completed. If no transitions are pending, equivalent to `db_sites/1`.
+-spec db_target_sites(emqx_ds:db()) -> [site()].
+db_target_sites(DB) ->
+    Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
+    list_target_sites(Recs).
 
 %% @doc List the sequence of transitions that should be conducted in order to
 %% bring the set of replicas for a DB shard in line with the target set.
