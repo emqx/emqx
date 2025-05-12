@@ -378,7 +378,7 @@ find_protobuf_bundle_root_file(Files) ->
 
 protobuf_bundle_data_dir(Name) ->
     DataDir = emqx:data_dir(),
-    filename:join([DataDir, "schemas", Name]).
+    filename:join([DataDir, "schemas", "proto", Name]).
 
 validate_protobuf_path(#{<<"path">> := Path}) ->
     case filelib:safe_relative_path(Path, "") of
