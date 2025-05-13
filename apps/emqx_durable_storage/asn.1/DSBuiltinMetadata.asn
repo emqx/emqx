@@ -52,4 +52,9 @@ BEGIN
     generation INTEGER,
     inner SLIterator
   }
+
+  It ::= CHOICE {
+    endOfStream NULL,
+    value Iterator
+  }
 END

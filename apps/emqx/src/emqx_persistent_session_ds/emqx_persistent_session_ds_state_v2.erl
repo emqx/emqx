@@ -458,47 +458,47 @@ pmap_topic(Name, ClientId, Key) ->
         end,
     [?top_data, ClientId, X, Key].
 
-%% ser_pmap_key(?metadata, MetaKey, _Val) ->
-%%     atom_to_binary(MetaKey, latin1);
-%% ser_pmap_key(?streams, Key, _Val) ->
-%%     ser_stream_key(Key);
-%% ser_pmap_key(?subscriptions, Topic, _Val) ->
-%%     'DurableSession':encode('TopicFilter', wrap_topic(Topic));
-%% ser_pmap_key(?seqnos, Track, _Val) ->
-%%     ?assert(Track < 255),
-%%     <<Track:8>>;
+ser_pmap_key(?metadata, MetaKey, _Val) ->
+    atom_to_binary(MetaKey, latin1);
+ser_pmap_key(?streams, Key, _Val) ->
+    ser_stream_key(Key);
+ser_pmap_key(?subscriptions, Topic, _Val) ->
+    'DurableSession':encode('TopicFilter', wrap_topic(Topic));
+ser_pmap_key(?seqnos, Track, _Val) ->
+    ?assert(Track < 255),
+    <<Track:8>>;
 ser_pmap_key(_, Key, _Val) ->
     term_to_binary(Key).
 
-%% deser_pmap_key(?metadata, Key) ->
-%%     binary_to_atom(Key, latin1);
-%% deser_pmap_key(?streams, Bin) ->
-%%     deser_stream_key(Bin);
-%% deser_pmap_key(?subscriptions, Key) ->
-%%     unwrap_topic('DurableSession':decode('TopicFilter', Key));
-%% deser_pmap_key(?seqnos, Bin) ->
-%%     <<Track:8>> = Bin,
-%%     Track;
+deser_pmap_key(?metadata, Key) ->
+    binary_to_atom(Key, latin1);
+deser_pmap_key(?streams, Bin) ->
+    deser_stream_key(Bin);
+deser_pmap_key(?subscriptions, Key) ->
+    unwrap_topic('DurableSession':decode('TopicFilter', Key));
+deser_pmap_key(?seqnos, Bin) ->
+    <<Track:8>> = Bin,
+    Track;
 deser_pmap_key(_, Key) ->
     binary_to_term(Key).
 
 %% Payload (de)serialization:
 
-%% ser_payload(?streams, _Key, SRS) ->
-%%     ser_srs(SRS);
-%% ser_payload(?subscriptions, _Key, Sub) ->
-%%     ser_sub(Sub);
-%% ser_payload(?subscription_states, _Key, SState) ->
-%%     ser_sub_state(SState);
+ser_payload(?streams, _Key, SRS) ->
+    ser_srs(SRS);
+ser_payload(?subscriptions, _Key, Sub) ->
+    ser_sub(Sub);
+ser_payload(?subscription_states, _Key, SState) ->
+    ser_sub_state(SState);
 ser_payload(_Name, _Key, Val) ->
     term_to_binary(Val).
 
-%% deser_payload(?streams, Bin) ->
-%%     deser_srs(Bin);
-%% deser_payload(?subscriptions, Bin) ->
-%%     deser_sub(Bin);
-%% deser_payload(?subscription_states, Bin) ->
-%%     deser_sub_state(Bin);
+deser_payload(?streams, Bin) ->
+    deser_srs(Bin);
+deser_payload(?subscriptions, Bin) ->
+    deser_sub(Bin);
+deser_payload(?subscription_states, Bin) ->
+    deser_sub_state(Bin);
 deser_payload(_, Bin) ->
     binary_to_term(Bin).
 

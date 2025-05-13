@@ -1448,6 +1448,8 @@ binary_to_stream(_DB, Bin) ->
         {Shard, ?stream_v2(GenId, Inner)}
     end.
 
+iterator_to_binary(_, _, end_of_stream) ->
+    'DSBuiltinMetadata':encode('It', {endOfStream, 'NULL'});
 iterator_to_binary(_DB, Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     %% FIXME:
     InnerRec =
@@ -1466,29 +1468,33 @@ iterator_to_binary(_DB, Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inne
         generation = GenId,
         inner = InnerRec
     },
-    'DSBuiltinMetadata':encode('Iterator', Rec).
+    'DSBuiltinMetadata':encode('It', {value, Rec}).
 
 binary_to_iterator(_DB, Bin) ->
-    maybe
-        {ok, Rec} ?= 'DSBuiltinMetadata':decode('Iterator', Bin),
-        #'Iterator'{
-            shard = Shard,
-            generation = GenId,
-            inner = InnerRec
-        } = Rec,
-        %% FIXME:
-        Inner =
-            case InnerRec of
-                %% Legacy cases:
-                {reference, ReferenceBin} ->
-                    binary_to_term(ReferenceBin);
-                {skipstreamLtsV1, It} ->
-                    emqx_ds_storage_skipstream_lts:asn1_to_iterator(It);
-                %% Future cases:
-                _ ->
-                    InnerRec
-            end,
-        {Shard, #{?tag => ?IT, ?generation => GenId, ?enc => Inner}}
+    case 'DSBuiltinMetadata':decode('It', Bin) of
+        {ok, {endOfStream, _}} ->
+            end_of_stream;
+        {ok,
+            {value, #'Iterator'{
+                shard = Shard,
+                generation = GenId,
+                inner = InnerRec
+            }}} ->
+            %% FIXME:
+            Inner =
+                case InnerRec of
+                    %% Legacy cases:
+                    {reference, ReferenceBin} ->
+                        binary_to_term(ReferenceBin);
+                    {skipstreamLtsV1, It} ->
+                        emqx_ds_storage_skipstream_lts:asn1_to_iterator(It);
+                    %% Future cases:
+                    _ ->
+                        InnerRec
+                end,
+            {Shard, #{?tag => ?IT, ?generation => GenId, ?enc => Inner}};
+        Err ->
+            Err
     end.
 
 filter_layout_db_opts(Options) ->
