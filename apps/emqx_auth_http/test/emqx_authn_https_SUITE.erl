@@ -46,12 +46,12 @@ init_per_testcase(_Case, Config) ->
         [authentication],
         ?GLOBAL
     ),
-    {ok, _} = emqx_authn_http_test_server:start_link(?HTTPS_PORT, ?HTTPS_PATH, server_ssl_opts()),
-    ok = emqx_authn_http_test_server:set_handler(fun cowboy_handler/2),
+    {ok, _} = emqx_utils_http_test_server:start_link(?HTTPS_PORT, ?HTTPS_PATH, server_ssl_opts()),
+    ok = emqx_utils_http_test_server:set_handler(fun cowboy_handler/2),
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    ok = emqx_authn_http_test_server:stop().
+    ok = emqx_utils_http_test_server:stop().
 
 %%------------------------------------------------------------------------------
 %% Tests
