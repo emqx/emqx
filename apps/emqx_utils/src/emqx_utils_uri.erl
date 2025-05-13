@@ -196,7 +196,7 @@ request_base(URIString) when is_list(URIString) orelse is_binary(URIString) ->
 -doc """
 Join a base URL/path and a path/query string.
 
-The difficulti is that by default, we cannot treat HTTP paths
+The difficulty is that by default, we cannot treat HTTP paths
 as "file" or "resource" paths, because an HTTP server may handle paths like
 "/a/b/c/", "/a/b/c" and "/a//b/c" differently.
 
@@ -208,7 +208,7 @@ Note that both arguments are allowed to be iodata().
 """.
 -spec join_path(iodata(), iodata()) -> iodata().
 join_path(Base, Path) ->
-    case is_start_with_question_mark(Path) of
+    case starts_with_question_mark(Path) of
         true ->
             [Base, Path];
         false ->
@@ -286,47 +286,58 @@ format_query(Query) -> [$?, Query].
 format_fragment(undefined) -> <<>>;
 format_fragment(Fragment) -> [$#, Fragment].
 
-is_start_with_question_mark([$? | _]) ->
-    true;
-is_start_with_question_mark(<<$?, _/binary>>) ->
-    true;
-is_start_with_question_mark(_) ->
-    false.
-
-without_starting_slash(Path) ->
-    case do_without_starting_slash(Path) of
-        empty -> <<>>;
-        Other -> Other
+starts_with_question_mark(Path) ->
+    case take_first(Path) of
+        {$?, _} -> true;
+        _ -> false
     end.
 
-do_without_starting_slash([]) ->
-    empty;
-do_without_starting_slash(<<>>) ->
-    empty;
-do_without_starting_slash([$/ | Rest]) ->
-    Rest;
-do_without_starting_slash([C | _Rest] = Path) when is_integer(C) andalso C =/= $/ ->
-    Path;
-do_without_starting_slash(<<$/, Rest/binary>>) ->
-    Rest;
-do_without_starting_slash(<<C, _Rest/binary>> = Path) when is_integer(C) andalso C =/= $/ ->
-    Path;
-%% On actual lists the recursion should very quickly exhaust
-do_without_starting_slash([El | Rest]) ->
-    case do_without_starting_slash(El) of
-        empty -> do_without_starting_slash(Rest);
-        ElRest -> [ElRest | Rest]
+without_starting_slash(Path) ->
+    case take_first(Path) of
+        {$/, Rest} ->
+            Rest;
+        _ ->
+            Path
     end.
 
 without_trailing_slash(Path) ->
-    case iolist_to_binary(Path) of
-        <<>> ->
-            <<>>;
-        B ->
-            case binary:last(B) of
-                $/ -> binary_part(B, 0, byte_size(B) - 1);
-                _ -> B
-            end
+    case take_last(Path) of
+        {$/, Rest} ->
+            Rest;
+        _ ->
+            Path
+    end.
+
+take_first([]) ->
+    empty;
+take_first(<<>>) ->
+    empty;
+take_first([C | Rest]) when is_integer(C) ->
+    {C, Rest};
+take_first(<<C, Rest/binary>>) ->
+    {C, Rest};
+take_first([<<>> | Rest]) ->
+    take_first(Rest);
+%% On actual lists the recursion should very quickly exhaust
+take_first([El | Rest]) ->
+    case take_first(El) of
+        {C, ElRest} -> {C, [ElRest | Rest]};
+        empty -> take_first(Rest)
+    end.
+
+take_last([]) ->
+    empty;
+take_last(<<>>) ->
+    empty;
+take_last(B) when is_binary(B) ->
+    {binary:last(B), binary_part(B, 0, byte_size(B) - 1)};
+take_last(C) when is_integer(C) ->
+    {C, []};
+%% On actual lists the recursion should very quickly exhaust
+take_last([El | Rest]) ->
+    case take_last(Rest) of
+        {C, RestPrefix} -> {C, [El | RestPrefix]};
+        empty -> take_last(El)
     end.
 
 -ifdef(TEST).
@@ -488,9 +499,17 @@ join_path_test_() ->
         ?_assert(
             iolists_equal(
                 "abc/cde",
-                join_path([["a"], <<"b">>, <<"c">>, [<<"/">>]], [
-                    [[[], [], <<>>], <<>>, [], <<"c">>], <<"d">>, <<"e">>
-                ])
+                join_path(
+                    [
+                        [[[], [], <<>>], <<>>, [], "a", [[], [], <<>>], <<>>, []],
+                        <<"b">>,
+                        <<"c">>,
+                        [<<"/">>]
+                    ],
+                    [
+                        [[[], [], <<>>], <<>>, [], <<"c">>], <<"d">>, <<"e">>
+                    ]
+                )
             )
         ),
 
@@ -514,7 +533,8 @@ join_path_test_() ->
         ?_assert(iolists_equal("abc///cde/", join_path("abc//", "//cde/"))),
         ?_assert(iolists_equal("abc?v=1", join_path("abc", "?v=1"))),
         ?_assert(iolists_equal("abc?v=1", join_path("abc", <<"?v=1">>))),
-        ?_assert(iolists_equal("abc/?v=1", join_path("abc/", <<"?v=1">>)))
+        ?_assert(iolists_equal("abc/?v=1", join_path("abc/", <<"?v=1">>))),
+        ?_assert(iolists_equal("abc?v=1", join_path("abc", [[<<>>, [[]]], ["?v=1"]])))
     ].
 
 is_prefix(Prefix, Binary) ->
