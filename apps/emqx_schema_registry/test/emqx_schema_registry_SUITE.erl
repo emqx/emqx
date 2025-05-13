@@ -519,6 +519,31 @@ emulate_emqx_conf_init_load(NewNode, SeedNode) ->
 
 str(X) -> emqx_utils_conv:str(X).
 
+list_schema_files(Name) ->
+    SchemaDir = str(emqx_schema_registry_config:protobuf_bundle_data_dir(Name)),
+    filelib:fold_files(
+        SchemaDir,
+        _Regex = "",
+        _Recursive = true,
+        fun(Path0, Acc) ->
+            Path = lists:flatten(string:replace(Path0, SchemaDir ++ "/", "", leading)),
+            [Path | Acc]
+        end,
+        []
+    ).
+
+export_backup() ->
+    URL = emqx_mgmt_api_test_util:api_path(["data", "export"]),
+    simple_request(#{method => post, url => URL, body => {raw, <<>>}}).
+
+import_backup(BackupName) ->
+    URL = emqx_mgmt_api_test_util:api_path(["data", "import"]),
+    Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
+    simple_request(#{method => post, url => URL, body => Body}).
+
+simple_request(Opts) ->
+    emqx_mgmt_api_test_util:simple_request(Opts).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -1585,19 +1610,7 @@ t_protobuf_bundle_cluster_sync_join_later(Config) ->
         end,
         Nodes
     ),
-    SchemaFiles = ?ON(N2, begin
-        SchemaDir = str(emqx_schema_registry_config:protobuf_bundle_data_dir(Name)),
-        filelib:fold_files(
-            SchemaDir,
-            _Regex = "",
-            _Recursive = true,
-            fun(Path0, Acc) ->
-                Path = lists:flatten(string:replace(Path0, SchemaDir ++ "/", "", leading)),
-                [Path | Acc]
-            end,
-            []
-        )
-    end),
+    SchemaFiles = ?ON(N2, list_schema_files(Name)),
     ?assertEqual(
         [
             "a.proto",
@@ -1606,4 +1619,60 @@ t_protobuf_bundle_cluster_sync_join_later(Config) ->
         ],
         lists:sort(SchemaFiles)
     ),
+    ok.
+
+%% Checks that we back up the `data/schemas/protobuf` directory when exporting a config
+%% backup.
+t_protobuf_bundle_backup_export_import(_Config) ->
+    Name = <<"bundled">>,
+    Schema1 = #{
+        <<"type">> => <<"protobuf">>,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"files">> => [
+                #{
+                    <<"path">> => <<"nested/b.proto">>,
+                    <<"root">> => false,
+                    <<"contents">> => proto_file(<<"b.proto">>)
+                },
+                #{
+                    <<"path">> => <<"a.proto">>,
+                    <<"root">> => true,
+                    <<"contents">> => proto_file(<<"a.proto">>)
+                },
+                #{
+                    <<"path">> => <<"c.proto">>,
+                    <<"contents">> => proto_file(<<"c.proto">>)
+                }
+            ]
+        }
+    },
+    ok = emqx_schema_registry:add_schema(Name, Schema1),
+    {200, #{<<"filename">> := BackupName}} = export_backup(),
+
+    ok = emqx_schema_registry:delete_schema(Name),
+    %% Ensure there are no lingering files (they are actually deleted by delete schema above)
+    SchemaDir = emqx_schema_registry_config:protobuf_bundle_data_dir(Name),
+    ?assertMatch({error, enoent}, file:del_dir_r(SchemaDir)),
+
+    ?assertMatch({204, _}, import_backup(BackupName)),
+    ?assertEqual(
+        [
+            "a.proto",
+            "c.proto",
+            "nested/b.proto"
+        ],
+        lists:sort(list_schema_files(Name))
+    ),
+    Data1 = #{
+        <<"name">> => <<"aaa">>,
+        <<"id">> => 1,
+        <<"bah">> => #{
+            <<"bah">> => <<"bah">>,
+            <<"boh">> => #{<<"boh">> => <<"boh">>}
+        }
+    },
+    EncodedData1 = emqx_schema_registry_serde:encode(Name, Data1, [<<"Person">>]),
+    ?assertEqual(Data1, emqx_schema_registry_serde:decode(Name, EncodedData1, [<<"Person">>])),
+
     ok.
