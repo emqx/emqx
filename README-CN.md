@@ -111,10 +111,10 @@ EMQX Cloud：[docs.emqx.com/zh/cloud/latest/](https://docs.emqx.com/zh/cloud/lat
 ## 社区
 
 - 访问 [EMQ 问答社区](https://askemq.com/) 以获取帮助，也可以分享您的想法或项目。
-- 报告 Bug：[GitHub Issues](https://github.com/emqx/emqx/issues)。
-- Discord：[EMQX Discord 服务器](https://discord.gg/xYGf3fQnES)。
 - 添加小助手微信号 `emqmkt`，加入 EMQ 微信技术交流群。
+- 加入我们的 [Discord](https://discord.gg/xYGf3fQnES)，参于实时讨论。
 - 关注我们的 [Bilibili](https://space.bilibili.com/522222081)，获取最新物联网技术分享。
+- 报告 Bug：[GitHub Issues](https://github.com/emqx/emqx/issues)。
 - 关注我们的 [微博](https://weibo.com/emqtt) 或 [X (原 Twitter)](https://x.com/EMQTech)，获取 EMQ 最新资讯。
 - 订阅我们的 [YouTube 频道](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q) (英文) 或 [EMQ 中文 YouTube 频道](https://www.youtube.com/channel/UCir_r04HIsLjf2qqyZ4A8Cg)。
 
@@ -177,7 +177,7 @@ _build/emqx/rel/emqx/bin/emqx console
 | 5.10?    |      |      |      |      |      |      |      |      |       | ✅    | ✅    |
 | 6.0?     |      |      |      |      |      |      |      |      |       |       | ✅    |
 
-- [1] 升级前应从配置文件（`etc/emqx.conf` 和 `data/configs/cluster-override.conf`）中删除旧的限流器配置。
+- [1] 升级前应从配置文件（`etc/emqx.conf` 和 `data/configs/cluster-override.conf`）中删除旧的 limiter 配置。
 - [2] 5.4 版本之前的路由表将被删除。请先升级到 5.9 版本，然后在升级到 5.10 或更高版本之前执行一次全集群重启（非滚动重启）。
 
 ## 许可证
