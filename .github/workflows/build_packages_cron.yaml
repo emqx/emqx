@@ -22,7 +22,7 @@ jobs:
       matrix:
         profile:
           - ['emqx-enterprise', 'master']
-          - ['emqx-enterprise', 'release-59']
+          - ['emqx-enterprise', 'release-510']
         os:
           - ubuntu22.04
           - amzn2023
@@ -79,7 +79,7 @@ jobs:
           - emqx-enterprise
         branch:
           - master
-          - release-59
+          - release-510
         os:
           - macos-15
 
