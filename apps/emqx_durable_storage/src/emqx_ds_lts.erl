@@ -84,9 +84,13 @@
     %% Simple spec that maps level (depth) to a threshold.
     %% For example, `{simple, {inf, 20}}` means that 0th level has infinite
     %% threshold while all other levels' threshold is 20.
-    {simple, tuple()}.
+    {simple, tuple()}
+    %% Callback function:
+    | {mf, module(), atom()}.
 
--type threshold_fun() :: fun((non_neg_integer()) -> non_neg_integer()).
+-type parent_token() :: root | '+' | binary().
+
+-type threshold_fun() :: fun((_Depth :: non_neg_integer(), parent_token()) -> non_neg_integer()).
 
 -type persist_callback() :: fun((_Key, _Val) -> ok).
 
@@ -150,7 +154,7 @@ trie_create(UserOpts) ->
                 StaticKeySize = 16,
                 true
         end,
-    Trie = ets:new(trie, [{keypos, #trans.key}, set, public]),
+    Trie = ets:new(trie, [{keypos, #trans.key}, set, public, {read_concurrency, true}]),
     Stats = ets:new(stats, [{keypos, 1}, set, public]),
     #trie{
         persist = Persist,
@@ -227,9 +231,9 @@ topic_key(Trie, ThresholdFun, [<<"$", _/bytes>> | _] = Tokens) ->
     %% Using a special root only when the topic and the filter start with $<X>
     %% prevents special topics from matching with + or # pattern, but not with
     %% $<X>/+ or $<X>/# pattern. See also `match_topics/2`.
-    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX_SPECIAL, Tokens, [], []);
+    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX_SPECIAL, Tokens, root, [], []);
 topic_key(Trie, ThresholdFun, Tokens) ->
-    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX, Tokens, [], []).
+    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX, Tokens, root, [], []).
 
 %% @doc Return an exisiting topic key if it exists.
 -spec lookup_topic_key(trie(), [level()]) -> {ok, msg_storage_key()} | undefined.
@@ -337,9 +341,11 @@ info(Trie) ->
 -spec threshold_fun(threshold_spec()) -> threshold_fun().
 threshold_fun({simple, Thresholds}) ->
     S = tuple_size(Thresholds),
-    fun(Depth) ->
+    fun(Depth, _Parent) ->
         element(min(Depth + 1, S), Thresholds)
-    end.
+    end;
+threshold_fun({mf, Mod, Fun}) ->
+    fun Mod:Fun/2.
 
 %%%%%%%% Topic compression %%%%%%%%%%
 
@@ -522,7 +528,7 @@ do_lookup_topic_key(Trie, State, [Tok | Rest], Varying) ->
             undefined
     end.
 
-do_topic_key(Trie, _, _, State, [], Tokens, Varying) ->
+do_topic_key(Trie, _, _, State, [], _Parent, Tokens, Varying) ->
     %% We reached the end of topic. Assert: Trie node that corresponds
     %% to EOT cannot be a wildcard.
     {Updated, false, Static} = trie_next_(Trie, State, ?EOT),
@@ -534,9 +540,9 @@ do_topic_key(Trie, _, _, State, [], Tokens, Varying) ->
                 trie_insert(Trie, rlookup, Static, lists:reverse(Tokens))
         end,
     {Static, lists:reverse(Varying)};
-do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Tokens, Varying0) ->
+do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Parent, Tokens, Varying0) ->
     % TODO: it's not necessary to call it every time.
-    Threshold = ThresholdFun(Depth),
+    Threshold = ThresholdFun(Depth, Parent),
     {NChildren, IsWildcard, NextState} = trie_next_(Trie, State, Tok),
     Varying =
         case IsWildcard of
@@ -559,7 +565,16 @@ do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Tokens, Varying0) -
             true -> ?PLUS;
             false -> Tok
         end,
-    do_topic_key(Trie, ThresholdFun, Depth + 1, NextState, Rest, [TokOrWildcard | Tokens], Varying).
+    do_topic_key(
+        Trie,
+        ThresholdFun,
+        Depth + 1,
+        NextState,
+        Rest,
+        TokOrWildcard,
+        [TokOrWildcard | Tokens],
+        Varying
+    ).
 
 %% @doc Has side effects! Inserts missing elements.
 -spec trie_next_(trie(), state(), binary() | ?EOT) -> {New, IsWildcard, state()} when
@@ -778,8 +793,8 @@ topic_key_test() ->
     T = trie_create(),
     try
         Threshold = 4,
-        ThresholdFun = fun(0) -> 1000;
-                          (_) -> Threshold
+        ThresholdFun = fun(0, _Parent) -> 1000;
+                          (_, _Parent) -> Threshold
                        end,
         %% Test that bottom layer threshold is high:
         lists:foreach(
@@ -829,8 +844,8 @@ topic_match_test() ->
     T = trie_create(),
     try
         Threshold = 2,
-        ThresholdFun = fun(0) -> 1000;
-                          (_) -> Threshold
+        ThresholdFun = fun(0, _Parent) -> 1000;
+                          (_, _Parent) -> Threshold
                        end,
         {S1, []} = test_key(T, ThresholdFun, [1]),
         {S11, []} = test_key(T, ThresholdFun, [1, 1]),
@@ -879,8 +894,8 @@ topic_match_test() ->
 rlookup_test() ->
     T = trie_create(#{reverse_lookups => true}),
     Threshold = 2,
-    ThresholdFun = fun(0) -> 1000;
-                      (_) -> Threshold
+    ThresholdFun = fun(0, _Parent) -> 1000;
+                      (_, _Parent) -> Threshold
                    end,
     {S1, []} = test_key(T, ThresholdFun, [1]),
     {S11, []} = test_key(T, ThresholdFun, [1, 1]),
@@ -930,8 +945,8 @@ updated_topics_test() ->
     end,
     Threshold = 2,
     ThresholdFun = fun
-        (0) -> 1000;
-        (_) -> Threshold
+        (0, _) -> 1000;
+        (_, _) -> Threshold
     end,
     %% Singleton topics:
     test_key(T, ThresholdFun, [1]),
@@ -970,8 +985,8 @@ updated_topics_test() ->
 n_topics_test() ->
     Threshold = 3,
     ThresholdFun = fun
-        (0) -> 1000;
-        (_) -> Threshold
+        (0, _) -> 1000;
+        (_, _) -> Threshold
     end,
 
     T = trie_create(#{reverse_lookups => true}),
@@ -1054,8 +1069,8 @@ paths_test() ->
     T = trie_create(),
     Threshold = 4,
     ThresholdFun = fun
-        (0) -> 1000;
-        (_) -> Threshold
+        (0, _) -> 1000;
+        (_, _) -> Threshold
     end,
     PathsToInsert =
         [

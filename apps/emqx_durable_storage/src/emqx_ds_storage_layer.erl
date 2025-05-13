@@ -73,19 +73,21 @@
 ]).
 
 %% internal exports:
--export([db_dir/1, base_dir/0]).
+-export([db_dir/1, base_dir/0, generation_get/2]).
 
 -export_type([
     gen_id/0,
     generation/0,
+    generation_data/0,
     batch/0,
+    batch_prepare_opts/0,
     cf_refs/0,
     stream/0,
     delete_stream/0,
     stream_v1/0,
     iterator/0,
     delete_iterator/0,
-    shard_id/0,
+    dbshard/0,
     options/0,
     prototype/0,
     cooked_batch/0,
@@ -129,7 +131,7 @@
     {emqx_ds_storage_reference, emqx_ds_storage_reference:options()}
     | {emqx_ds_storage_bitfield_lts, emqx_ds_storage_bitfield_lts:options()}.
 
--type shard_id() :: {emqx_ds:db(), binary()}.
+-type dbshard() :: {emqx_ds:db(), binary()}.
 
 -type cf_ref() :: {string(), rocksdb:cf_handle()}.
 -type cf_refs() :: [cf_ref()].
@@ -158,7 +160,10 @@
         %% writes are in general unsafe but require much less resources, i.e. with RocksDB
         %% non-durable (WAL-less) writes do not usually involve _any_ disk I/O.
         %% Default: `true'.
-        durable => boolean()
+        durable => boolean(),
+        %% Whether the argument is a list of cooked batches instead of
+        %% a single batch. Default: `false'.
+        list => boolean()
     }.
 
 %% Options affecting how batches should be prepared.
@@ -256,7 +261,8 @@
 %% See `emqx_ds:db_opts()`.
 -define(STORAGE_LAYOUT_DB_OPTS, [
     append_only,
-    atomic_batches
+    atomic_batches,
+    store_kv
 ]).
 
 -define(GLOBAL(K), <<"G/", K/binary>>).
@@ -275,7 +281,7 @@
 %% Create the new schema given generation id and the options.
 %% Create rocksdb column families.
 -callback create(
-    shard_id(),
+    dbshard(),
     rocksdb:db_handle(),
     gen_id(),
     Options :: map(),
@@ -285,15 +291,15 @@
     {_Schema, cf_refs()}.
 
 %% Open the existing schema
--callback open(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), _Schema) ->
+-callback open(dbshard(), rocksdb:db_handle(), gen_id(), cf_refs(), _Schema) ->
     generation_data().
 
 %% Delete the schema and data
--callback drop(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), generation_data()) ->
+-callback drop(dbshard(), rocksdb:db_handle(), gen_id(), cf_refs(), generation_data()) ->
     ok | {error, _Reason}.
 
 -callback prepare_batch(
-    shard_id(),
+    dbshard(),
     generation_data(),
     [{emqx_ds:time(), emqx_types:message()}, ...],
     batch_store_opts()
@@ -301,39 +307,39 @@
     {ok, term()} | emqx_ds:error(_).
 
 -callback commit_batch(
-    shard_id(),
+    dbshard(),
     generation_data(),
-    _CookedBatch,
+    _CookedBatch | [_CookedBatch],
     batch_store_opts()
 ) -> ok | emqx_ds:error(_).
 
 -callback get_streams(
-    shard_id(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
+    dbshard(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
     [_Stream].
 
 -callback get_delete_streams(
-    shard_id(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
+    dbshard(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
     [_Stream].
 
 -callback make_iterator(
-    shard_id(), generation_data(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()
+    dbshard(), generation_data(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
     emqx_ds:make_iterator_result(_Iterator).
 
 -callback make_delete_iterator(
-    shard_id(), generation_data(), _DeleteStream, emqx_ds:topic_filter(), emqx_ds:time()
+    dbshard(), generation_data(), _DeleteStream, emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
     emqx_ds:make_delete_iterator_result(_Iterator).
 
 -callback next(
-    shard_id(), generation_data(), Iter, pos_integer(), emqx_ds:time(), _IsCurrent :: boolean()
+    dbshard(), generation_data(), Iter, pos_integer(), emqx_ds:time(), _IsCurrent :: boolean()
 ) ->
     {ok, Iter, [emqx_types:message()]} | {ok, end_of_stream} | {error, _}.
 
 -callback delete_next(
-    shard_id(),
+    dbshard(),
     generation_data(),
     DeleteIterator,
     emqx_ds:delete_selector(),
@@ -346,16 +352,16 @@
     | emqx_ds:error(_).
 
 %% Lookup a single message, for preconditions to work.
--callback lookup_message(shard_id(), generation_data(), emqx_ds_precondition:matcher()) ->
+-callback lookup_message(dbshard(), generation_data(), emqx_ds_precondition:matcher()) ->
     emqx_types:message() | not_found | emqx_ds:error(_).
 
--callback handle_event(shard_id(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
+-callback handle_event(dbshard(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
     [CustomEvent].
 
 %% Stream event API:
 
 -callback batch_events(
-    shard_id(),
+    dbshard(),
     generation_data(),
     _CookedBatch
 ) -> [_Stream].
@@ -378,22 +384,22 @@
 -record(call_flush, {}).
 -record(call_take_snapshot, {}).
 
--spec drop_shard(shard_id()) -> ok.
+-spec drop_shard(dbshard()) -> ok.
 drop_shard(Shard) ->
     ok = rocksdb:destroy(db_dir(Shard), []).
 
 %% @doc This is a convenicence wrapper that combines `prepare' and
 %% `commit' operations.
--spec store_batch(shard_id(), batch(), batch_store_opts()) ->
+-spec store_batch(dbshard(), batch(), batch_store_opts()) ->
     emqx_ds:store_batch_result().
-store_batch(Shard, Messages, Options) ->
+store_batch(Shard, Batch, Options) ->
     DispatchF = fun(_) -> ok end,
-    store_batch(Shard, Messages, Options, DispatchF).
+    store_batch(Shard, Batch, Options, DispatchF).
 
 %% @doc This is a convenicence wrapper that combines `prepare',
 %% `commit' and `dispatch_events' operations.
 -spec store_batch(
-    shard_id(),
+    dbshard(),
     batch(),
     batch_store_opts(),
     event_dispatch_f()
@@ -420,7 +426,7 @@ store_batch(Shard, Batch, Options, DispatchF) ->
 %%
 %% The underlying storage layout MAY use timestamp as a unique message
 %% ID.
--spec prepare_batch(shard_id(), batch(), batch_prepare_opts()) ->
+-spec prepare_batch(dbshard(), batch(), batch_prepare_opts()) ->
     {ok, cooked_batch()} | ignore | emqx_ds:error(_).
 prepare_batch(Shard, Batch, Options) ->
     %% NOTE
@@ -465,7 +471,7 @@ batch_starts_at([]) ->
 %% The underlying storage layout must guarantee that this operation is
 %% idempotent.
 -spec commit_batch(
-    shard_id(),
+    dbshard(),
     cooked_batch(),
     batch_store_opts()
 ) -> emqx_ds:store_batch_result().
@@ -478,7 +484,7 @@ commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := Cooke
     Result.
 
 -spec dispatch_events(
-    shard_id(),
+    dbshard(),
     cooked_batch(),
     event_dispatch_f()
 ) -> ok.
@@ -489,7 +495,7 @@ dispatch_events(
     Events = Mod:batch_events(Shard, GenData, CookedBatch),
     DispatchF([?stream_v2(GenId, InnerStream) || InnerStream <- Events]).
 
--spec get_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+-spec get_streams(dbshard(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), stream()}].
 get_streams(Shard, TopicFilter, StartTime) ->
     Gens = generations_since(Shard, StartTime),
@@ -512,7 +518,7 @@ get_streams(Shard, TopicFilter, StartTime) ->
         Gens
     ).
 
--spec get_delete_streams(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+-spec get_delete_streams(dbshard(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [delete_stream()].
 get_delete_streams(Shard, TopicFilter, StartTime) ->
     Gens = generations_since(Shard, StartTime),
@@ -535,7 +541,7 @@ get_delete_streams(Shard, TopicFilter, StartTime) ->
         Gens
     ).
 
--spec make_iterator(shard_id(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+-spec make_iterator(dbshard(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(
     Shard, ?stream_v2(GenId, Stream), TopicFilter, StartTime
@@ -556,7 +562,7 @@ make_iterator(
             {error, unrecoverable, generation_not_found}
     end.
 
--spec make_delete_iterator(shard_id(), delete_stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+-spec make_delete_iterator(dbshard(), delete_stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_delete_iterator_result(delete_iterator()).
 make_delete_iterator(
     Shard, ?delete_stream(GenId, Stream), TopicFilter, StartTime
@@ -577,7 +583,7 @@ make_delete_iterator(
             {error, unrecoverable, generation_not_found}
     end.
 
--spec update_iterator(shard_id(), iterator(), emqx_ds:message_key()) ->
+-spec update_iterator(dbshard(), iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
 update_iterator(
     Shard,
@@ -604,7 +610,7 @@ update_iterator(
 generation(#{?tag := ?IT, ?generation := GenId}) ->
     GenId.
 
--spec next(shard_id(), iterator(), pos_integer(), emqx_ds:time()) ->
+-spec next(dbshard(), iterator(), pos_integer(), emqx_ds:time()) ->
     emqx_ds:next_result(iterator()).
 next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, BatchSize, Now) ->
     case generation_get(Shard, GenId) of
@@ -699,7 +705,7 @@ iterator_match_context(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner
     end.
 
 -spec delete_next(
-    shard_id(), delete_iterator(), emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()
+    dbshard(), delete_iterator(), emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()
 ) ->
     emqx_ds:delete_next_result(delete_iterator()).
 delete_next(
@@ -738,7 +744,7 @@ delete_next(
 %% `atomic` option, it is atomic by default: either all of pairs are persisted, or none
 %% at all. Writes are durable by default, but this is optional, see `batch_store_opts()`
 %% for details.
--spec store_global(shard_id(), _KVs :: #{binary() => binary()}, batch_store_opts()) ->
+-spec store_global(dbshard(), _KVs :: #{binary() => binary()}, batch_store_opts()) ->
     ok | emqx_ds:error(_).
 store_global(ShardId, KVs, Options) ->
     #{db := DB} = get_schema_runtime(ShardId),
@@ -759,7 +765,7 @@ store_global(ShardId, KVs, Options) ->
 
 %% @doc Retrieve a value for a single key from the storage written there previously by
 %% `store_global/3`.
--spec fetch_global(shard_id(), _Key :: binary()) ->
+-spec fetch_global(dbshard(), _Key :: binary()) ->
     {ok, _Value :: binary()} | not_found | emqx_ds:error(_).
 fetch_global(ShardId, K) ->
     #{db := DB} = get_schema_runtime(ShardId),
@@ -773,18 +779,18 @@ fetch_global(ShardId, K) ->
             {error, unrecoverable, {rocksdb, Reason}}
     end.
 
--spec update_config(shard_id(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
+-spec update_config(dbshard(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
     ok | {error, overlaps_existing_generations}.
 update_config(ShardId, Since, Options) ->
     Call = #call_update_config{since = Since, options = Options},
     gen_server:call(?REF(ShardId), Call, infinity).
 
--spec add_generation(shard_id(), emqx_ds:time()) ->
+-spec add_generation(dbshard(), emqx_ds:time()) ->
     ok | {error, overlaps_existing_generations}.
 add_generation(ShardId, Since) ->
     gen_server:call(?REF(ShardId), #call_add_generation{since = Since}, infinity).
 
--spec lookup_message(shard_id(), emqx_ds_precondition:matcher()) ->
+-spec lookup_message(dbshard(), emqx_ds_precondition:matcher()) ->
     emqx_types:message() | not_found | emqx_ds:error(_).
 lookup_message(ShardId, Matcher = #message_matcher{timestamp = Time}) ->
     case generation_at(ShardId, Time) of
@@ -794,16 +800,16 @@ lookup_message(ShardId, Matcher = #message_matcher{timestamp = Time}) ->
             not_found
     end.
 
--spec list_generations_with_lifetimes(shard_id()) ->
+-spec list_generations_with_lifetimes(dbshard()) ->
     #{gen_id() => gen_info()}.
 list_generations_with_lifetimes(ShardId) ->
     gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
 
--spec drop_generation(shard_id(), gen_id()) -> ok | {error, _}.
+-spec drop_generation(dbshard(), gen_id()) -> ok | {error, _}.
 drop_generation(ShardId, GenId) ->
     gen_server:call(?REF(ShardId), #call_drop_generation{gen_id = GenId}, infinity).
 
--spec find_generation(shard_id(), current | _At :: emqx_ds:time()) ->
+-spec find_generation(dbshard(), current | _At :: emqx_ds:time()) ->
     {gen_id(), gen_info()} | not_found.
 find_generation(ShardId, current) ->
     GenId = generation_current(ShardId),
@@ -812,7 +818,7 @@ find_generation(ShardId, current) ->
 find_generation(ShardId, AtTime) ->
     generation_at(ShardId, AtTime).
 
--spec shard_info(shard_id(), status) -> running | down.
+-spec shard_info(dbshard(), status) -> running | down.
 shard_info(ShardId, status) ->
     try get_schema_runtime(ShardId) of
         #{} -> running
@@ -820,11 +826,11 @@ shard_info(ShardId, status) ->
         error:badarg -> down
     end.
 
--spec flush(shard_id()) -> ok | {error, _}.
+-spec flush(dbshard()) -> ok | {error, _}.
 flush(ShardId) ->
     gen_server:call(?REF(ShardId), #call_flush{}, infinity).
 
--spec take_snapshot(shard_id()) -> {ok, emqx_ds_storage_snapshot:reader()} | {error, _Reason}.
+-spec take_snapshot(dbshard()) -> {ok, emqx_ds_storage_snapshot:reader()} | {error, _Reason}.
 take_snapshot(ShardId) ->
     case gen_server:call(?REF(ShardId), #call_take_snapshot{}, infinity) of
         {ok, Dir} ->
@@ -833,7 +839,7 @@ take_snapshot(ShardId) ->
             Error
     end.
 
--spec accept_snapshot(shard_id()) -> {ok, emqx_ds_storage_snapshot:writer()} | {error, _Reason}.
+-spec accept_snapshot(dbshard()) -> {ok, emqx_ds_storage_snapshot:writer()} | {error, _Reason}.
 accept_snapshot(ShardId) ->
     ok = drop_shard(ShardId),
     handle_accept_snapshot(ShardId).
@@ -842,13 +848,13 @@ accept_snapshot(ShardId) ->
 %% gen_server for the shard
 %%================================================================================
 
--spec start_link(shard_id(), emqx_ds:create_db_opts()) ->
+-spec start_link(dbshard(), emqx_ds:create_db_opts()) ->
     {ok, pid()}.
 start_link(Shard = {_, _}, Options) ->
     gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
 
 -record(s, {
-    shard_id :: shard_id(),
+    shard_id :: dbshard(),
     db :: rocksdb:db_handle(),
     db_opts :: emqx_ds:db_opts(),
     cf_refs :: cf_refs(),
@@ -997,7 +1003,7 @@ terminate(_Reason, #s{db = DB, shard_id = ShardId}) ->
 %% Internal functions
 %%================================================================================
 
--spec clear_all_checkpoints(shard_id()) -> ok.
+-spec clear_all_checkpoints(dbshard()) -> ok.
 clear_all_checkpoints(ShardId) ->
     CheckpointBaseDir = checkpoints_dir(ShardId),
     ok = filelib:ensure_path(CheckpointBaseDir),
@@ -1014,7 +1020,7 @@ clear_all_checkpoints(ShardId) ->
         CheckpointDirs
     ).
 
--spec open_shard(shard_id(), rocksdb:db_handle(), cf_refs(), shard_schema()) ->
+-spec open_shard(dbshard(), rocksdb:db_handle(), cf_refs(), shard_schema()) ->
     shard().
 open_shard(ShardId, DB, CFRefs, ShardSchema) ->
     %% Transform generation schemas to generation runtime data:
@@ -1140,7 +1146,7 @@ handle_drop_generation(S0, GenId) ->
     S = S1#s{cf_refs = CFRefs},
     {ok, S}.
 
--spec open_generation(shard_id(), rocksdb:db_handle(), cf_refs(), gen_id(), generation_schema()) ->
+-spec open_generation(dbshard(), rocksdb:db_handle(), cf_refs(), gen_id(), generation_schema()) ->
     generation().
 open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
     ?tp(debug, ds_open_generation, #{gen_id => GenId, schema => GenSchema}),
@@ -1148,7 +1154,7 @@ open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
     RuntimeData = Mod:open(ShardId, DB, GenId, CFRefs, Schema),
     GenSchema#{data => RuntimeData}.
 
--spec create_new_shard_schema(shard_id(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts()) ->
+-spec create_new_shard_schema(dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts()) ->
     {shard_schema(), cf_refs()}.
 create_new_shard_schema(ShardId, DB, CFRefs, Options = #{storage := Prototype}) ->
     ?tp(notice, ds_create_new_shard_schema, #{shard => ShardId, prototype => Prototype}),
@@ -1163,7 +1169,7 @@ create_new_shard_schema(ShardId, DB, CFRefs, Options = #{storage := Prototype}) 
     {Schema, NewCFRefs ++ CFRefs}.
 
 -spec new_generation(
-    shard_id(),
+    dbshard(),
     rocksdb:db_handle(),
     shard_schema(),
     shard() | undefined,
@@ -1208,7 +1214,7 @@ commit_metadata(#s{shard_id = ShardId, schema = Schema, shard = Runtime, db = DB
     ok = put_schema_persistent(DB, Schema),
     put_schema_runtime(ShardId, Runtime).
 
--spec rocksdb_open(shard_id(), options()) ->
+-spec rocksdb_open(dbshard(), options()) ->
     {ok, rocksdb:db_handle(), cf_refs()} | {error, _TODO}.
 rocksdb_open(Shard, Options) ->
     DBOptions = [
@@ -1253,15 +1259,15 @@ rocksdb_open(Shard, Options) ->
 base_dir() ->
     application:get_env(?APP, db_data_dir, emqx:data_dir()).
 
--spec db_dir(shard_id()) -> file:filename().
+-spec db_dir(dbshard()) -> file:filename().
 db_dir({DB, ShardId}) ->
     filename:join([base_dir(), DB, binary_to_list(ShardId)]).
 
--spec checkpoints_dir(shard_id()) -> file:filename().
+-spec checkpoints_dir(dbshard()) -> file:filename().
 checkpoints_dir({DB, ShardId}) ->
     filename:join([base_dir(), DB, checkpoints, binary_to_list(ShardId)]).
 
--spec checkpoint_dir(shard_id(), _Name :: file:name()) -> file:filename().
+-spec checkpoint_dir(dbshard(), _Name :: file:name()) -> file:filename().
 checkpoint_dir(ShardId, Name) ->
     filename:join([checkpoints_dir(ShardId), Name]).
 
@@ -1322,7 +1328,7 @@ handle_accept_snapshot(ShardId) ->
     Dir = db_dir(ShardId),
     emqx_ds_storage_snapshot:new_writer(Dir).
 
--spec handle_event(shard_id(), emqx_ds:time(), Event) -> [Event].
+-spec handle_event(dbshard(), emqx_ds:time(), Event) -> [Event].
 handle_event(Shard, Time, ?storage_event(GenId, Event)) ->
     case generation_get(Shard, GenId) of
         not_found ->
@@ -1362,13 +1368,13 @@ cf_handle(Name, CFRefs) ->
 %% Schema access
 %%--------------------------------------------------------------------------------
 
--spec generation_current(shard_id()) -> gen_id().
+-spec generation_current(dbshard()) -> gen_id().
 generation_current(Shard) ->
     #{current_generation := Current} = get_schema_runtime(Shard),
     Current.
 
 %% TODO: remove me
--spec generation_at(shard_id(), emqx_ds:time()) -> {gen_id(), generation()} | not_found.
+-spec generation_at(dbshard(), emqx_ds:time()) -> {gen_id(), generation()} | not_found.
 generation_at(Shard, Time) ->
     Schema = #{current_generation := Current} = get_schema_runtime(Shard),
     generation_at(Time, Current, Schema).
@@ -1386,7 +1392,7 @@ generation_at(Time, GenId, Schema) ->
             not_found
     end.
 
--spec generation_get(shard_id(), gen_id()) -> generation() | not_found.
+-spec generation_get(dbshard(), gen_id()) -> generation() | not_found.
 generation_get(Shard, GenId) ->
     case get_schema_runtime(Shard) of
         #{?GEN_KEY(GenId) := GenData} ->
@@ -1395,7 +1401,7 @@ generation_get(Shard, GenId) ->
             not_found
     end.
 
--spec generations_since(shard_id(), emqx_ds:time()) -> [gen_id()].
+-spec generations_since(dbshard(), emqx_ds:time()) -> [gen_id()].
 generations_since(Shard, Since) ->
     Schema = #{current_generation := Current} = get_schema_runtime(Shard),
     list_generations_since(Schema, Current, Since).
@@ -1429,16 +1435,16 @@ format_state(#s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema, 
 
 -define(PERSISTENT_TERM(SHARD), {emqx_ds_storage_layer, SHARD}).
 
--spec get_schema_runtime(shard_id()) -> shard().
+-spec get_schema_runtime(dbshard()) -> shard().
 get_schema_runtime(Shard = {_, _}) ->
     persistent_term:get(?PERSISTENT_TERM(Shard)).
 
--spec put_schema_runtime(shard_id(), shard()) -> ok.
+-spec put_schema_runtime(dbshard(), shard()) -> ok.
 put_schema_runtime(Shard = {_, _}, RuntimeSchema) ->
     persistent_term:put(?PERSISTENT_TERM(Shard), RuntimeSchema),
     ok.
 
--spec erase_schema_runtime(shard_id()) -> ok.
+-spec erase_schema_runtime(dbshard()) -> ok.
 erase_schema_runtime(Shard) ->
     persistent_term:erase(?PERSISTENT_TERM(Shard)),
     ok.

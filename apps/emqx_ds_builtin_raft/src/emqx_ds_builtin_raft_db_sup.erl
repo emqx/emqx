@@ -61,17 +61,17 @@
 start_db(DB, Opts) ->
     start_link_sup(#?db_sup{db = DB}, Opts).
 
--spec start_shard(emqx_ds_storage_layer:shard_id()) ->
+-spec start_shard(emqx_ds_storage_layer:dbshard()) ->
     supervisor:startchild_ret().
 start_shard({DB, Shard}) ->
     supervisor:start_child(?via(#?shards_sup{db = DB}), shard_spec(DB, Shard)).
 
--spec start_egress(emqx_ds_storage_layer:shard_id()) ->
+-spec start_egress(emqx_ds_storage_layer:dbshard()) ->
     supervisor:startchild_ret().
 start_egress({DB, Shard}) ->
     supervisor:start_child(?via(#?egress_sup{db = DB}), egress_spec(DB, Shard)).
 
--spec stop_shard(emqx_ds_storage_layer:shard_id()) -> ok | {error, not_found}.
+-spec stop_shard(emqx_ds_storage_layer:dbshard()) -> ok | {error, not_found}.
 stop_shard({DB, Shard}) ->
     Sup = ?via(#?shards_sup{db = DB}),
     case supervisor:terminate_child(Sup, Shard) of
@@ -81,29 +81,29 @@ stop_shard({DB, Shard}) ->
             {error, Reason}
     end.
 
--spec shard_info(emqx_ds_storage_layer:shard_id(), ready) -> boolean() | down.
+-spec shard_info(emqx_ds_storage_layer:dbshard(), ready) -> boolean() | down.
 shard_info(ShardId = {DB, Shard}, Info) ->
     case sentinel_alive(ShardId) of
         true -> emqx_ds_builtin_raft_shard:shard_info(DB, Shard, Info);
         false -> down
     end.
 
--spec terminate_storage(emqx_ds_storage_layer:shard_id()) -> ok | {error, _Reason}.
+-spec terminate_storage(emqx_ds_storage_layer:dbshard()) -> ok | {error, _Reason}.
 terminate_storage({DB, Shard}) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
     supervisor:terminate_child(Sup, {Shard, storage}).
 
--spec restart_storage(emqx_ds_storage_layer:shard_id()) -> {ok, _Child} | {error, _Reason}.
+-spec restart_storage(emqx_ds_storage_layer:dbshard()) -> {ok, _Child} | {error, _Reason}.
 restart_storage({DB, Shard}) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
     supervisor:restart_child(Sup, {Shard, storage}).
 
--spec ensure_shard(emqx_ds_storage_layer:shard_id()) ->
+-spec ensure_shard(emqx_ds_storage_layer:dbshard()) ->
     ok | {error, _Reason}.
 ensure_shard(Shard) ->
     ensure_started(start_shard(Shard)).
 
--spec ensure_egress(emqx_ds_storage_layer:shard_id()) ->
+-spec ensure_egress(emqx_ds_storage_layer:dbshard()) ->
     ok | {error, _Reason}.
 ensure_egress(Shard) ->
     ensure_started(start_egress(Shard)).
@@ -233,11 +233,11 @@ start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
 start_link_sup(Id, Options) ->
     supervisor:start_link(?via(Id), ?MODULE, {Id, Options}).
 
--spec start_link_sentinel(emqx_ds_storage_layer:shard_id()) -> {ok, pid()}.
+-spec start_link_sentinel(emqx_ds_storage_layer:dbshard()) -> {ok, pid()}.
 start_link_sentinel(Id) ->
     proc_lib:start_link(?MODULE, init_sentinel, [self(), Id]).
 
--spec init_sentinel(pid(), emqx_ds_storage_layer:shard_id()) -> no_return().
+-spec init_sentinel(pid(), emqx_ds_storage_layer:dbshard()) -> no_return().
 init_sentinel(Parent, Id) ->
     Name = ?name(#?shard_sentinel{shardid = Id}),
     gproc:reg(Name),
