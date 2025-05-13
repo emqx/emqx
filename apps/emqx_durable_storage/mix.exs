@@ -13,6 +13,8 @@ defmodule EMQXDurableStorage.MixProject do
       # used by our `compile.asn1` compiler
       asn1_srcs: [
         %{src: "./asn.1/DurableMessage.asn",
+          compile_opts: [:per, :noobj, outdir: ~c"gen_src"]},
+        %{src: "./asn.1/DSBuiltinMetadata.asn",
           compile_opts: [:per, :noobj, outdir: ~c"gen_src"]}
       ],
       deps_path: "../../deps",

@@ -1,0 +1,60 @@
+--------------------------------------------------------------------------
+-- Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+--------------------------------------------------------------------------
+
+-- A collection of ASN.1 definitions encoding various types related to
+-- the builtin backends that may at some point end up stored
+-- persistently on disk.
+DSBuiltinMetadata DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  -- Common definitions
+  TopicWords ::= SEQUENCE OF OCTET STRING
+
+  -- Layout-specific storage layer definitions
+  --   emqx_ds_storage_reference
+  SLReferenceStream ::= NULL
+  --   We encode iterator as term_to_binary. Reference layout is not
+  --   built for efficiency anyways
+  SLReferenceIt ::= OCTET STRING
+
+  --   emqx_ds_storage_skipstream_lts
+  SLSkipstreamLtsV1Stream ::= OCTET STRING
+
+  SLSkipstreamV1It ::= SEQUENCE {
+    static OCTET STRING,
+    lastKey INTEGER,
+    compressedTf OCTET STRING
+  }
+
+  -- Common storage layer definitions
+  SLStream ::= CHOICE {
+    reference SLReferenceStream,
+    skipstreamLtsV1 SLSkipstreamLtsV1Stream,
+    ...
+  }
+
+  --   Iterator:
+  SLIterator ::= CHOICE {
+    reference SLReferenceIt,
+    skipstreamLtsV1 SLSkipstreamV1It,
+    ...
+  }
+
+  -- Top level (local and Raft)
+  Stream ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER,
+    inner SLStream
+  }
+
+  Iterator ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER,
+    inner SLIterator
+  }
+
+  It ::= CHOICE {
+    endOfStream NULL,
+    value Iterator
+  }
+END

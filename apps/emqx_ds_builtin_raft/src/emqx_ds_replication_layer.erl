@@ -231,6 +231,8 @@ open_db(DB, CreateOpts0) ->
     %% Rename `append_only' flag to `force_monotonic_timestamps':
     AppendOnly = maps:get(append_only, CreateOpts0),
     CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
+    maps:get(store_kv, CreateOpts0) andalso
+        error(store_kv_is_not_supported_by_this_backend),
     case emqx_ds_builtin_raft_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;
@@ -1283,7 +1285,7 @@ scan_stream(DBShard = {DB, Shard}, Stream, TopicFilter, StartMsg, BatchSize) ->
         end
     ).
 
--spec update_iterator(emqx_ds_storage_layer:shard_id(), iterator(), emqx_ds:message_key()) ->
+-spec update_iterator(emqx_ds_storage_layer:dbshard(), iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
 update_iterator(ShardId, OldIter, DSKey) ->
     #{?tag := ?IT, ?enc := Inner0} = OldIter,

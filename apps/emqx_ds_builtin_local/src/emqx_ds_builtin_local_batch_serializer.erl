@@ -72,7 +72,7 @@ db_config(#{db := DB}) ->
     emqx_ds_builtin_local_meta:db_config(DB).
 
 -spec do_store_batch_atomic(
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:dbshard(),
     emqx_ds:dsbatch(),
     emqx_ds_builtin_local:db_opts(),
     emqx_ds:message_store_opts()
