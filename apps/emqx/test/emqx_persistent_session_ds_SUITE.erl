@@ -666,19 +666,20 @@ t_state_fuzz(_Config) ->
     ?run_prop(
         #{
             proper => #{
-                timeout => 30_000,
+                timeout => 3_000_000,
                 numtests => NTests,
                 max_size => MaxSize,
                 start_size => MaxSize,
                 max_shrinks => 0
             }
         },
-        ?FORALL(
+        ?forall_trace(
             Cmds,
             proper_statem:more_commands(
                 NCommandsFactor,
                 commands(Mod)
             ),
+            #{timetrap => 5_000 * length(Cmds) + 10_000},
             try
                 %% Initialize the system and run commands:
                 Mod:init(self()),
@@ -687,13 +688,19 @@ t_state_fuzz(_Config) ->
                 ),
                 %% Print debug information:
                 ct:pal("*** Result:~n~p", [Result]),
-                ct:pal("*** Model state:~n~p", [State]),
-                ct:pal("*** SUT cache:~n~p", [Mod:sut_state()]),
-                ct:pal("*** DB state:~n~p", [emqx_ds:dirty_read(sessions, ['#'])]),
-                Result =:= ok
+                case Result of
+                    ok ->
+                        ok;
+                    _ ->
+                        ct:pal("*** Model state:~n~p", [State]),
+                        ct:pal("*** SUT cache:~n~p", [Mod:sut_state()]),
+                        ct:pal("*** DB state:~n~p", [emqx_ds:dirty_read(sessions, ['#'])]),
+                        error(Result)
+                end
             after
                 Mod:clean()
-            end
+            end,
+            []
         )
     ).
 

@@ -202,12 +202,16 @@ print_session(SessionId) ->
 
 -spec format(t()) -> map().
 format(Rec = #{?id := Id}) ->
-    maps:fold(
+    Pmaps = maps:fold(
         fun(MapKey, #pmap{cache = Val}, Acc) ->
             Acc#{MapKey => Val}
         end,
         #{?id => Id},
         maps:without([?id, ?dirty, ?guard, ?checkpoint_ref, ?last_id], Rec)
+    ),
+    maps:merge(
+        Pmaps,
+        maps:with([?dirty, ?guard, ?checkpoint_ref], Rec)
     ).
 
 -spec list_sessions() -> [emqx_persistent_session_ds:id()].
@@ -267,7 +271,6 @@ on_commit_reply(_, _) ->
 
 -spec create_new(emqx_persistent_session_ds:id()) -> t().
 create_new(SessionId) ->
-    delete(SessionId),
     #{
         ?id => SessionId,
         ?guard => undefined,
@@ -697,7 +700,10 @@ gen_del(Field, Key, Rec) ->
     check_sequence(Rec),
     #{?id := SessionId, Field := PMap0} = Rec,
     PMap = pmap_del(SessionId, Key, PMap0),
-    Rec#{Field := PMap}.
+    Rec#{
+        Field := PMap,
+        ?set_dirty
+    }.
 
 gen_size(Field, Rec) ->
     check_sequence(Rec),

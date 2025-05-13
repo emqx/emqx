@@ -8,7 +8,7 @@
 -module(emqx_ds_tx_conflict_trie).
 
 %% API:
--export([topic_filter_to_conflict_domain/1, new/2, push/3, rotate/1, is_dirty/3]).
+-export([topic_filter_to_conflict_domain/1, new/2, push/3, rotate/1, is_dirty/3, print/1]).
 
 -export_type([t/0, conflict_domain/0]).
 
@@ -36,6 +36,14 @@
 %%================================================================================
 %% API functions
 %%================================================================================
+
+-spec print(t()) -> map().
+print(#conflict_tree{min_serial = Min, max_serial = Max, old_trie = Old, trie = Current}) ->
+    #{
+        range => {Min, Max},
+        old => gb_trees:to_list(Old),
+        current => gb_trees:to_list(Current)
+    }.
 
 %% @doc Replace all topic levels in a filter that follow a wildcard
 %% levels with '#'

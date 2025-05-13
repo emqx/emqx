@@ -84,8 +84,8 @@
 -define(pending, pending).
 
 %% Timeouts
+%%   Flush pending transactions to the storage:
 -define(timeout_flush, timout_flush).
--define(timeout_rotate, timeout_rotate).
 
 -record(gen_data, {
     dirty :: emqx_ds_tx_conflict_trie:t(),
@@ -100,8 +100,9 @@
     cbm,
     flush_interval,
     rotate_interval,
+    last_rotate_ts,
     serial,
-    serial_control,
+    committed_serial,
     gens = #{} :: #{emqx_ds:generation() => gen_data()}
 }).
 
@@ -136,12 +137,13 @@ new_kv_tx_ctx(DB, Shard, Leader, Options, Serial) ->
         opts = Options
     }.
 
-commit_kv_tx(_DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
+commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
+    ?tp(emqx_ds_optimistic_tx_commit_begin, #{db => DB, ctx => Ctx, ops => Ops}),
     #kv_tx_ctx{leader = Leader} = Ctx,
     Ref = monitor(process, Leader),
     %% Note: currently timer is not canceled when commit abort is
     %% signalled via the monitor message (i.e. when the leader process
-    %% is down). In this case the caller will receive double `DOWN'.
+    %% is down). In this case the caller _will_ receive double `DOWN'.
     %% There's no trivial way to fix it. It's up to the client to
     %% track the pending transactions and ignore unexpected commit
     %% notifications.
@@ -161,25 +163,29 @@ callback_mode() ->
 init([DB, Shard, CBM]) ->
     RI = 5_000,
     Serial = CBM:get_tx_serial({DB, Shard}),
-    schedule_rotation(RI),
     {ok, ?idle, #d{
         dbshard = {DB, Shard},
         cbm = CBM,
         rotate_interval = RI,
+        last_rotate_ts = erlang:monotonic_time(millisecond),
         %% FIXME: hardcode
         flush_interval = 10,
         serial = Serial,
-        serial_control = Serial
+        committed_serial = Serial
     }}.
 
 handle_event(enter, _OldState, ?pending, #d{flush_interval = T}) ->
+    %% Schedule unconditional flush after the given interval:
     {keep_state_and_data, {state_timeout, T, ?timeout_flush}};
 handle_event(enter, _, _, _) ->
     keep_state_and_data;
-handle_event(cast, Tx, State, D0) ->
-    Timeout = {timeout, 1, ?timeout_flush},
+handle_event(cast, Tx = #ds_tx{}, State, D0) ->
+    %% Enqueue transaction commit:
     case handle_tx(D0, Tx) of
         {ok, D} ->
+            %% Schedule early flush if the shard is idle:
+            IdleInterval = 1,
+            Timeout = {timeout, IdleInterval, ?timeout_flush},
             case State of
                 ?idle ->
                     {next_state, ?pending, D, Timeout};
@@ -190,12 +196,10 @@ handle_event(cast, Tx, State, D0) ->
             keep_state_and_data
     end;
 handle_event(ET, ?timeout_flush, _State, D0) when ET =:= state_timeout; ET =:= timeout ->
-    D = flush(D0),
+    %% Execute flush. After flushing the buffer it's safe to rotate
+    %% the conflict tree.
+    D = maybe_rotate(flush(D0)),
     {next_state, ?idle, D};
-handle_event(info, ?timeout_rotate, _State, D0 = #d{rotate_interval = RI}) ->
-    D = rotate(D0),
-    schedule_rotation(RI),
-    {keep_state, D};
 handle_event(ET, Event, State, _D) ->
     ?tp(
         error,
@@ -213,12 +217,22 @@ handle_tx(
         dbshard = DBShard,
         cbm = CBM,
         serial = Serial,
-        serial_control = SafeToReadSerial,
+        committed_serial = SafeToReadSerial,
         gens = Gens
     },
     Tx
 ) ->
-    #ds_tx{ctx = #kv_tx_ctx{generation = Gen}} = Tx,
+    #ds_tx{ref = TxRef, ctx = #kv_tx_ctx{generation = Gen}} = Tx,
+    ?tp(
+        emqx_ds_optimistic_tx_commit_received,
+        #{
+            shard => DBShard,
+            serial => Serial,
+            committed_serial => SafeToReadSerial,
+            ref => TxRef,
+            tx => Tx
+        }
+    ),
     case Gens of
         #{Gen := GS0} ->
             ok;
@@ -228,6 +242,7 @@ handle_tx(
     PresumedCommitSerial = Serial + 1,
     case try_commit(DBShard, Gen, CBM, SafeToReadSerial, PresumedCommitSerial, Tx, GS0) of
         {ok, GS} ->
+            ?tp(emqx_ds_optimistic_tx_commit_pending, #{ref => TxRef}),
             {ok, D#d{
                 serial = PresumedCommitSerial,
                 gens = Gens#{Gen => GS}
@@ -268,6 +283,13 @@ try_commit(
         }}
     else
         {error, Class, Error} ->
+            ?tp(
+                debug,
+                emqx_ds_optimistic_tx_commit_abort,
+                #{
+                    ref => Ref, ec => Class, reason => Error, stage => prepare
+                }
+            ),
             reply_error(From, Ref, Meta, Class, Error),
             aborted
     end.
@@ -294,10 +316,17 @@ update_dirty(Serial, Ops, Dirty0) ->
         maps:get(?ds_tx_write, Ops, [])
     ).
 
-flush(D = #d{dbshard = DBShard, cbm = CBM, serial_control = SerCtl, serial = Serial, gens = Gens0}) ->
+flush(
+    D = #d{dbshard = DBShard, cbm = CBM, committed_serial = SerCtl, serial = Serial, gens = Gens0}
+) ->
     Gens = maps:map(
         fun(Gen, GS = #gen_data{buffer = Buf, pending_replies = Replies, dirty = Dirty}) ->
-            %% logger:warning("flushing ~p", [Buf]),
+            ?tp(emqx_ds_optimistic_tx_flush, #{
+                shard => DBShard,
+                generation => Gen,
+                buffer => Buf,
+                conflict_tree => emqx_ds_tx_conflict_trie:print(Dirty)
+            }),
             case CBM:commit_kv_tx_batch(DBShard, Gen, SerCtl, Buf) of
                 ok ->
                     [
@@ -320,12 +349,20 @@ flush(D = #d{dbshard = DBShard, cbm = CBM, serial_control = SerCtl, serial = Ser
     ),
     ok = CBM:update_tx_serial(DBShard, SerCtl, Serial),
     D#d{
-        serial_control = Serial,
+        committed_serial = Serial,
         gens = Gens
     }.
 
 serial_bin(A) ->
     <<A:128>>.
+
+maybe_rotate(D = #d{rotate_interval = RI, last_rotate_ts = LastRotTS}) ->
+    case erlang:monotonic_time(millisecond) - LastRotTS > RI of
+        true ->
+            rotate(D);
+        false ->
+            D
+    end.
 
 rotate(D = #d{gens = Gens0}) ->
     Gens = maps:map(
@@ -336,7 +373,10 @@ rotate(D = #d{gens = Gens0}) ->
         end,
         Gens0
     ),
-    D#d{gens = Gens}.
+    D#d{
+        gens = Gens,
+        last_rotate_ts = erlang:monotonic_time(millisecond)
+    }.
 
 check_conflicts(Dirty, TxStartSerial, SafeToReadSerial, Ops) ->
     maybe
@@ -422,13 +462,10 @@ lookup_kv(DBShard, GenId, Topic) ->
 tx_timeout_msg(Ref) ->
     ?ds_tx_commit_error(Ref, undefined, unrecoverable, timeout).
 
-schedule_rotation(Interval) ->
-    erlang:send_after(Interval, self(), ?timeout_rotate).
-
 reply_success(From, Ref, Meta, Serial) ->
     ?tp(
-        emqx_ds_optimistic_tx_reply,
-        #{client => From, ref => Ref, meta => Meta, success => Serial}
+        emqx_ds_optimistic_tx_commit_success,
+        #{client => From, ref => Ref, meta => Meta, serial => Serial}
     ),
     From ! ?ds_tx_commit_ok(Ref, Meta, serial_bin(Serial)),
     ok.
@@ -436,8 +473,8 @@ reply_success(From, Ref, Meta, Serial) ->
 reply_error(From, Ref, Meta, Class, Error) ->
     ?tp(
         debug,
-        emqx_ds_optimistic_tx_reply,
-        #{client => From, ref => Ref, meta => Meta, Class => Error}
+        emqx_ds_optimistic_tx_commit_abort,
+        #{client => From, ref => Ref, meta => Meta, ec => Class, reason => Error, stage => final}
     ),
     From ! ?ds_tx_commit_error(Ref, Meta, Class, Error),
     ok.

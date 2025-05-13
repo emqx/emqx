@@ -13,6 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/src/emqx_persistent_session_ds/session_internals.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -20,6 +21,8 @@
 
 -define(tab, ?MODULE).
 
+%% Model state of the session.
+%%
 %% Note: here `committed' != `dirty'. It means "has been committed at
 %% least once since the creation", and it's used by the iteration
 %% test.
@@ -30,9 +33,11 @@
     seqnos = #{},
     streams = #{},
     ranks = #{},
+    awaiting_rel = #{},
     committed = false
 }).
 
+%% Model state:
 -type state() :: #{emqx_persistent_session_ds:id() => #s{}}.
 
 %%================================================================================
@@ -43,13 +48,16 @@
 %% Generators
 %%================================================================================
 
--define(n_sessions, 3).
+-define(n_sessions, 10).
 
 shard_gen() ->
     oneof([<<"0">>, <<"1">>, <<"100">>]).
 
 session_id() ->
     oneof([integer_to_binary(I) || I <- lists:seq(1, ?n_sessions)]).
+
+existing_session_id(S) ->
+    oneof(maps:keys(S)).
 
 topic() ->
     oneof([<<"foo">>, <<"bar">>, <<"foo/#">>, <<"//+/#">>, <<"#">>]).
@@ -89,9 +97,6 @@ get_metadata() ->
         {created_at, get_created_at}
     ]).
 
-seqno_track() ->
-    range(0, 1).
-
 seqno() ->
     range(1, 100).
 
@@ -116,18 +121,12 @@ uniq_id() ->
 
 %% Proper generator for subscription states.
 sub_state_gen() ->
-    SubOpts =
-        ?LET(
-            {NL, QoS, RaP, SubId},
-            {boolean(), range(?QOS_0, ?QOS_2), boolean(), integer()},
-            #{nl => NL, qos => QoS, rap => RaP, subid => SubId}
-        ),
     oneof(
         [
             %% Without optional fields:
             ?LET(
                 {Par, UQ, SO},
-                {uniq_id(), boolean(), SubOpts},
+                {uniq_id(), boolean(), emqx_proper_types:subopts()},
                 #{
                     parent_subscription => Par,
                     upgrade_qos => UQ,
@@ -137,7 +136,7 @@ sub_state_gen() ->
             %% With "superseded by" field:
             ?LET(
                 {Par, UQ, SO, SB},
-                {uniq_id(), boolean(), SubOpts, uniq_id()},
+                {uniq_id(), boolean(), emqx_proper_types:subopts(), uniq_id()},
                 #{
                     parent_subscription => Par,
                     upgrade_qos => UQ,
@@ -148,7 +147,7 @@ sub_state_gen() ->
             %% With share topic filter:
             ?LET(
                 {Par, UQ, SO, STF},
-                {uniq_id(), boolean(), SubOpts, share_tf()},
+                {uniq_id(), boolean(), emqx_proper_types:subopts(), share_tf()},
                 #{
                     parent_subscription => Par,
                     upgrade_qos => UQ,
@@ -180,7 +179,7 @@ srs_gen() ->
         sub_state_id = uniq_id()
     }.
 
-seqno_type_gen() ->
+seqno_track_gen() ->
     oneof([
         ?committed(?QOS_1),
         ?committed(?QOS_2),
@@ -209,7 +208,7 @@ put_req() ->
         %% Seqnos
         ?LET(
             {SeqNoType, SeqNo},
-            {seqno_type_gen(), non_neg_integer()},
+            {seqno_track_gen(), non_neg_integer()},
             {#s.seqnos, put_seqno, SeqNoType, SeqNo}
         ),
         %% Stream
@@ -223,6 +222,12 @@ put_req() ->
             {RankKey, Rank},
             {{uniq_id(), shard_gen()}, integer()},
             {#s.ranks, put_rank, RankKey, Rank}
+        ),
+        %% Awaiting rel:
+        ?LET(
+            {PacketId, Timestamp},
+            {emqx_proper_types:packet_id(), integer()},
+            {#s.awaiting_rel, put_awaiting_rel, PacketId, Timestamp}
         )
     ]).
 
@@ -231,7 +236,9 @@ put_req() ->
 %% the pmap. Returns index of the pmap in #s, session id and the pmap
 %% key.
 pmap_type_and_key(S) ->
-    Recs = [#s.subscriptions, #s.subscription_states, #s.seqnos, #s.streams, #s.ranks],
+    Recs = [
+        #s.subscriptions, #s.subscription_states, #s.seqnos, #s.streams, #s.ranks, #s.awaiting_rel
+    ],
     ?LET(
         {SessId, Idx},
         {session_id(S), oneof(Recs)},
@@ -259,7 +266,8 @@ get_req(S) ->
                     #s.subscription_states -> get_subscription_state;
                     #s.seqnos -> get_seqno;
                     #s.streams -> get_stream;
-                    #s.ranks -> get_rank
+                    #s.ranks -> get_rank;
+                    #s.awaiting_rel -> get_awaiting_rel
                 end, Key}
         ]
     ).
@@ -276,7 +284,8 @@ del_req(S) ->
                     #s.subscriptions -> del_subscription;
                     #s.subscription_states -> del_subscription_state;
                     #s.streams -> del_stream;
-                    #s.ranks -> del_rank
+                    #s.ranks -> del_rank;
+                    #s.awaiting_rel -> del_awaiting_rel
                 end, Key}
         ]
     ).
@@ -304,7 +313,7 @@ command(S) ->
                 %% Global CRUD operations:
                 {1, {call, ?MODULE, create_new, [session_id()]}},
                 {1, {call, ?MODULE, delete, [session_id(S)]}},
-                {5, {call, ?MODULE, reopen, [session_id(S)]}},
+                {5, {call, ?MODULE, graceful_takeover, [session_id(S)]}},
                 {2, {call, ?MODULE, commit, [session_id(S)]}},
                 {2, {call, ?MODULE, async_checkpoint, [session_id(S)]}},
 
@@ -314,7 +323,7 @@ command(S) ->
 
                 %% Key-value:
                 {3, {call, ?MODULE, gen_put, [session_id(S), put_req()]}},
-                {1, {call, ?MODULE, gen_get, get_req(S)}},
+                {5, {call, ?MODULE, gen_get, get_req(S)}},
                 {3, {call, ?MODULE, gen_del, del_req(S)}},
 
                 %% Getters:
@@ -359,9 +368,9 @@ postcondition(S, {call, ?MODULE, gen_get, [SessionId, {Idx, Fun, Key}]}, Result)
         #{session_id => SessionId, key => Key, 'fun' => Fun}
     ),
     true;
-postcondition(_S, {call, ?MODULE, reopen, Args}, Result) ->
+postcondition(_S, {call, ?MODULE, graceful_takeover, Args}, Result) ->
     {Saved, Restored} = Result,
-    ?assertEqual(
+    assert_state_eq(
         format_state(Saved),
         format_state(Restored),
         #{msg => inconsistent_state_after_restore, args => Args}
@@ -413,71 +422,65 @@ initial_state() ->
 %%================================================================================
 
 create_new(SessionId) ->
-    ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
-    S = emqx_persistent_session_ds_state:create_new(SessionId),
-    put_state(
-        SessionId,
-        emqx_persistent_session_ds_state:commit(S, #{lifetime => new, sync => true})
-    ).
+    print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
+    S = emqx_persistent_session_ds_state:commit(
+        emqx_persistent_session_ds_state:create_new(SessionId),
+        #{lifetime => new, sync => true}
+    ),
+    put_state(SessionId, S).
 
 delete(SessionId) ->
-    ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
+    print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
     emqx_persistent_session_ds_state:delete(SessionId),
     ets:delete(?tab, SessionId).
 
 commit(SessionId) ->
-    ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
+    print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
     put_state(
         SessionId,
-        emqx_persistent_session_ds_state:commit(get_state(SessionId), #{
-            lifetime => up, sync => true
-        })
+        do_commit(SessionId, #{lifetime => up, sync => true})
     ).
 
 async_checkpoint(SessionId) ->
-    ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
+    print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
     put_state(
         SessionId,
-        emqx_persistent_session_ds_state:commit(get_state(SessionId), #{
-            lifetime => up, sync => false
-        })
+        do_commit(SessionId, #{lifetime => up, sync => false})
     ).
 
-reopen(SessionId) ->
-    ct:pal("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
-    _ = emqx_persistent_session_ds_state:commit(
-        get_state(SessionId),
-        #{lifetime => takeover, sync => true}
-    ),
-    {ok, S} = emqx_persistent_session_ds_state:open(SessionId),
+graceful_takeover(SessionId) ->
+    print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
+    PrevS = do_commit(SessionId, #{lifetime => terminate, sync => true}),
+    {ok, S} = do_takeover(SessionId),
+    _ = put_state(SessionId, S),
     %% Return a tuple containing previous and new state:
-    {put_state(SessionId, S), S}.
+    {PrevS, S}.
 
 put_metadata(SessionId, {MetaKey, Fun, Value}) ->
-    ct:pal("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, MetaKey, Value]),
+    print_cmd("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, MetaKey, Value]),
     S = apply(emqx_persistent_session_ds_state, Fun, [Value, get_state(SessionId)]),
     put_state(SessionId, S).
 
 get_metadata(SessionId, {MetaKey, Fun}) ->
-    ct:pal("*** ~p(~p, ~p)", [?FUNCTION_NAME, SessionId, MetaKey]),
+    print_cmd("*** ~p(~p, ~p)", [?FUNCTION_NAME, SessionId, MetaKey]),
     apply(emqx_persistent_session_ds_state, Fun, [get_state(SessionId)]).
 
 gen_put(SessionId, {Idx, Fun, Key, Value}) ->
-    ct:pal("*** ~p(~p, ~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key, Value]),
+    print_cmd("*** ~p(~p, ~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key, Value]),
     S = apply(emqx_persistent_session_ds_state, Fun, [Key, Value, get_state(SessionId)]),
     put_state(SessionId, S).
 
 gen_del(SessionId, {Idx, Fun, Key}) ->
-    ct:pal("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
+    print_cmd("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
     S = apply(emqx_persistent_session_ds_state, Fun, [Key, get_state(SessionId)]),
     put_state(SessionId, S).
 
 gen_get(SessionId, {Idx, Fun, Key}) ->
-    ct:pal("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
+    print_cmd("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
     apply(emqx_persistent_session_ds_state, Fun, [Key, get_state(SessionId)]).
 
 iterate_sessions(BatchSize) ->
-    ct:pal("*** ~p(~p)", [?FUNCTION_NAME, BatchSize]),
+    print_cmd("*** ~p(~p)", [?FUNCTION_NAME, BatchSize]),
     Fun = fun F(It0) ->
         case emqx_persistent_session_ds_state:session_iterator_next(It0, BatchSize) of
             {[], _} ->
@@ -491,6 +494,69 @@ iterate_sessions(BatchSize) ->
 %%================================================================================
 %% Misc.
 %%================================================================================
+
+do_commit(SessionId, Opts) ->
+    S = get_state(SessionId),
+    ?tp_span(
+        test_commit,
+        #{id => SessionId, s => S, opts => Opts},
+        %% Commit previous state normally:
+        emqx_persistent_session_ds_state:commit(S, Opts)
+    ).
+
+do_takeover(SessionId) ->
+    ?tp_span(
+        test_takeover,
+        #{sessid => SessionId},
+        maybe
+            {ok, S} ?= emqx_persistent_session_ds_state:open(SessionId),
+            {ok, emqx_persistent_session_ds_state:commit(S, #{lifetime => takeover, sync => true})}
+        end
+    ).
+
+assert_state_eq(Expected, Got, Comment) ->
+    ExcludeFields = [dirty, guard, checkpoint_ref],
+    case maps:without(ExcludeFields, Expected) =:= maps:without(ExcludeFields, Got) of
+        true ->
+            ok;
+        false ->
+            Diff = diff_maps(Expected, Got),
+            ct:pal(
+                error,
+                "*** States are not equal:~n"
+                " Expected:~n   ~p~n"
+                " Got:~n   ~p~n"
+                " Diff:~n   ~p~n"
+                " Comment: ~p",
+                [Expected, Got, Diff, Comment]
+            ),
+            error(Comment)
+    end.
+
+diff_maps(Expected, Got) ->
+    Fields = lists:usort(maps:keys(Expected) ++ maps:keys(Got)),
+    lists:foldl(
+        fun(Key, Acc) ->
+            case {Expected, Got} of
+                {#{Key := V}, #{Key := V}} ->
+                    Acc;
+                {#{Key := Ve}, #{Key := Vg}} ->
+                    Acc#{
+                        Key =>
+                            #{
+                                expected => Ve,
+                                got => Vg
+                            }
+                    };
+                {#{Key := Ve}, _} ->
+                    #{expected => Ve};
+                {_, #{Key := Vg}} ->
+                    #{got => Vg}
+            end
+        end,
+        #{},
+        Fields
+    ).
 
 update(SessionId, Key, Fun, S) ->
     maps:update_with(
@@ -538,3 +604,8 @@ format_state(Rec) ->
 
 pmap_name(Idx) ->
     lists:nth(Idx - 1, record_info(fields, s)).
+
+print_cmd(Fmt, Args) ->
+    Str = lists:flatten(io_lib:format(Fmt, Args)),
+    ?tp(Str, #{}),
+    ct:pal(Str).

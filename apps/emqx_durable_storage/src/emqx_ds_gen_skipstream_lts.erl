@@ -128,10 +128,9 @@
     hash :: wildcard_hash()
 }).
 
-%-define(DEBUG2, true).
 -ifdef(DEBUG2).
 -include_lib("snabbkaffe/include/trace.hrl").
--define(dbg(K, A), ?tp(notice, K, A)).
+-define(dbg(K, A), ?tp(K, A)).
 -else.
 -define(dbg(K, A), ok).
 -endif.
@@ -549,10 +548,12 @@ fold_loop(Ctx, SK0, BatchSize, Op, Acc0) ->
             ?dbg(skipstream_loop_result, #{r => none}),
             inc_counter(?DS_SKIPSTREAM_LTS_EOS),
             {ok, SK0, Acc0};
-        {seek, SK} when is_atom(UpperEndpoint), SK >= UpperEndpoint ->
+        {seek, SK} when is_binary(UpperEndpoint), SK >= UpperEndpoint ->
+            %% Iteration reached the upper endpoint:
+            ?dbg(skipstream_loop_seek_upper, #{to => SK, upper => UpperEndpoint}),
             {ok, SK0, Acc0};
         {seek, SK} ->
-            ?dbg(skipstream_loop_result, #{r => seek, sk => SK}),
+            ?dbg(skipstream_loop_seek, #{r => seek, sk => SK}),
             fold_loop(Ctx, SK, BatchSize, {seek, SK}, Acc0);
         {ok, SK, CompressedTopic, DSKey, Val} ->
             ?dbg(skipstream_loop_result, #{r => ok, sk => SK, key => DSKey}),

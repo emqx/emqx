@@ -159,8 +159,14 @@ commit(
                 %% Generate a new guard if needed:
                 NewGuard andalso
                     write_guard(ClientId, ?ds_tx_serial),
-                %% Ensure continuity of the session:
-                assert_guard(ClientId, Guard0),
+                case Lifetime of
+                    new ->
+                        %% Drop the old session state:
+                        del_session_tx(ClientId);
+                    _ ->
+                        %% Ensure continuity of the session:
+                        assert_guard(ClientId, Guard0)
+                end,
                 Rec0#{
                     ?metadata := pmap_commit(ClientId, Metadata),
                     ?subscriptions := pmap_commit(ClientId, Subs),
@@ -190,7 +196,9 @@ commit(
         ->
             %% Don't interrupt graceful channel shut down even when
             %% the guard is invalidated:
-            ?tp(warning, ?sessds_takeover_conflict, #{id => ClientId, conflict => Conflict}),
+            ?tp(warning, ?sessds_takeover_conflict, #{
+                id => ClientId, conflict => Conflict, channel => self()
+            }),
             Rec0;
         {error, Class, Reason} ->
             error(
@@ -236,17 +244,7 @@ set_offline_info(Generation, ClientId, Data) ->
 -spec delete(emqx_ds:generation(), emqx_persistent_session_ds_state:t()) -> ok.
 delete(
     Generation,
-    #{
-        ?id := ClientId,
-        ?guard := Guard,
-        ?metadata := Metadata,
-        ?subscriptions := Subs,
-        ?subscription_states := SubStates,
-        ?streams := Streams,
-        ?seqnos := SeqNos,
-        ?ranks := Ranks,
-        ?awaiting_rel := AwaitingRels
-    }
+    #{?guard := Guard, ?id := ClientId}
 ) ->
     Opts = #{
         db => ?DB, shard => {auto, ClientId}, generation => Generation, timeout => trans_timeout()
@@ -255,20 +253,23 @@ delete(
         emqx_ds:trans(
             Opts,
             fun() ->
-                pmap_delete(ClientId, Metadata),
-                pmap_delete(ClientId, Subs),
-                pmap_delete(ClientId, SubStates),
-                pmap_delete(ClientId, Streams),
-                pmap_delete(ClientId, SeqNos),
-                pmap_delete(ClientId, Ranks),
-                pmap_delete(ClientId, AwaitingRels),
-                emqx_ds:tx_del_topic([?top_offline_info, ClientId]),
+                del_session_tx(ClientId),
 
                 assert_guard(ClientId, Guard),
                 delete_guard(ClientId)
             end
         ),
     ok.
+
+del_session_tx(ClientId) ->
+    pmap_delete(ClientId, ?metadata),
+    pmap_delete(ClientId, ?subscriptions),
+    pmap_delete(ClientId, ?subscription_states),
+    pmap_delete(ClientId, ?seqnos),
+    pmap_delete(ClientId, ?streams),
+    pmap_delete(ClientId, ?ranks),
+    pmap_delete(ClientId, ?awaiting_rel),
+    emqx_ds:tx_del_topic([?top_offline_info, ClientId]).
 
 %% @doc LTS trie wildcard threshold function
 lts_threshold_cb(0, _Parent) ->
@@ -412,10 +413,12 @@ pmap_restore(Name, Shard, ClientId) ->
     }.
 
 -spec pmap_delete(
-    emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:pmap(_, _)
+    emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:pmap(_, _) | atom()
 ) ->
     ok.
 pmap_delete(ClientId, #pmap{name = Name}) ->
+    pmap_delete(ClientId, Name);
+pmap_delete(ClientId, Name) when is_atom(Name) ->
     emqx_ds:tx_del_topic(pmap_topic(Name, ClientId, '+')).
 
 %% == Operations over PMap KV pairs ==
