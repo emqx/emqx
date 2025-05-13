@@ -116,7 +116,7 @@ terminate(_Reason, _State) ->
 
 on_start_auth(authn_http) ->
     %% start test server
-    {ok, _} = emqx_authn_http_test_server:start_link(?AUTHN_HTTP_PORT, ?AUTHN_HTTP_PATH),
+    {ok, _} = emqx_utils_http_test_server:start_link(?AUTHN_HTTP_PORT, ?AUTHN_HTTP_PATH),
     timer:sleep(1000),
 
     %% set authn for gateway
@@ -145,12 +145,12 @@ on_start_auth(authn_http) ->
         end,
         {ok, Req, State}
     end,
-    emqx_authn_http_test_server:set_handler(Handler),
+    emqx_utils_http_test_server:set_handler(Handler),
 
     timer:sleep(500);
 on_start_auth(authz_http) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
-    {ok, _} = emqx_authz_http_test_server:start_link(?AUTHZ_HTTP_PORT, ?AUTHZ_HTTP_PATH),
+    {ok, _} = emqx_utils_http_test_server:start_link(?AUTHZ_HTTP_PORT, ?AUTHZ_HTTP_PATH),
 
     %% TODO set authz for gateway
     ok = emqx_authz_test_lib:setup_config(
@@ -173,7 +173,7 @@ on_start_auth(authz_http) ->
         end,
         {ok, Req, State}
     end,
-    ok = emqx_authz_http_test_server:set_handler(Handler),
+    ok = emqx_utils_http_test_server:set_handler(Handler),
     timer:sleep(500).
 
 on_stop_auth(authn_http) ->
@@ -182,9 +182,9 @@ on_stop_auth(authn_http) ->
         {204, _} = request(delete, Path)
     end,
     lists:foreach(Delete, ?GATEWAYS),
-    ok = emqx_authn_http_test_server:stop();
+    ok = emqx_utils_http_test_server:stop();
 on_stop_auth(authz_http) ->
-    ok = emqx_authz_http_test_server:stop().
+    ok = emqx_utils_http_test_server:stop().
 
 %%------------------------------------------------------------------------------
 %% Configs
