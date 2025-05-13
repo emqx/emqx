@@ -23,7 +23,7 @@ defmodule EMQXBridgeKinesis.MixProject do
 
   def deps() do
     [
-      {:erlcloud, github: "emqx/erlcloud", tag: "3.7.0.3"},
+      UMP.common_dep(:erlcloud),
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

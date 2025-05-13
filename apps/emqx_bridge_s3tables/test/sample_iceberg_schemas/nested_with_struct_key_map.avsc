@@ -1,0 +1,201 @@
+{
+  "type": "record",
+  "fields": [
+    {
+      "name": "foo",
+      "field-id": 1,
+      "type": "string"
+    },
+    {
+      "name": "bar",
+      "field-id": 2,
+      "type": "int"
+    },
+    {
+      "name": "baz",
+      "field-id": 3,
+      "type": [
+        "null",
+        "boolean"
+      ],
+      "default": null
+    },
+    {
+      "name": "qux",
+      "field-id": 4,
+      "type": {
+        "type": "array",
+        "element-id": 5,
+        "items": "string"
+      }
+    },
+    {
+      "name": "quux",
+      "field-id": 6,
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "k7_v8",
+          "fields": [
+            {
+              "name": "key",
+              "type": "string",
+              "field-id": 7
+            },
+            {
+              "name": "value",
+              "type": {
+                "type": "array",
+                "items": {
+                  "type": "record",
+                  "name": "k9_v10",
+                  "fields": [
+                    {
+                      "name": "key",
+                      "type": "string",
+                      "field-id": 9
+                    },
+                    {
+                      "name": "value",
+                      "type": "int",
+                      "field-id": 10
+                    }
+                  ]
+                },
+                "logicalType": "map"
+              },
+              "field-id": 8
+            }
+          ]
+        },
+        "logicalType": "map"
+      }
+    },
+    {
+      "name": "location",
+      "field-id": 11,
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "k18_v19",
+          "fields": [
+            {
+              "name": "key",
+              "type": {
+                "type": "record",
+                "name": "k18",
+                "fields": [
+                  {
+                    "name": "address",
+                    "field-id": 21,
+                    "type": "string"
+                  },
+                  {
+                    "name": "city",
+                    "field-id": 22,
+                    "type": "string"
+                  },
+                  {
+                    "name": "zip",
+                    "field-id": 23,
+                    "type": "int"
+                  }
+                ]
+              },
+              "field-id": 18
+            },
+            {
+              "name": "value",
+              "type": {
+                "type": "record",
+                "name": "v19",
+                "fields": [
+                  {
+                    "name": "latitude",
+                    "field-id": 13,
+                    "type": "float"
+                  },
+                  {
+                    "name": "longitude",
+                    "field-id": 14,
+                    "type": "float"
+                  }
+                ]
+              },
+              "field-id": 19
+            }
+          ]
+        },
+        "logicalType": "map"
+      }
+    },
+    {
+      "name": "person",
+      "field-id": 15,
+      "type": [
+        "null",
+        {
+          "type": "record",
+          "fields": [
+            {
+              "name": "name",
+              "field-id": 16,
+              "type": [
+                "null",
+                "string"
+              ],
+              "default": null
+            },
+            {
+              "name": "age",
+              "field-id": 17,
+              "type": "int"
+            }
+          ],
+          "name": "r15"
+        }
+      ],
+      "default": null
+    },
+    {
+      "name": "points",
+      "field-id": 24,
+      "type": [
+        "null",
+        {
+          "type": "array",
+          "element-id": 25,
+          "items": {
+            "type": "record",
+            "fields": [
+              {
+                "name": "x",
+                "field-id": 26,
+                "type": "long"
+              },
+              {
+                "name": "y",
+                "field-id": 27,
+                "type": "long"
+              }
+            ],
+            "name": "r25"
+          }
+        }
+      ],
+      "default": null
+    },
+    {
+      "name": "float",
+      "field-id": 28,
+      "type": "float"
+    },
+    {
+      "name": "double",
+      "field-id": 29,
+      "type": "double"
+    }
+  ]
+}

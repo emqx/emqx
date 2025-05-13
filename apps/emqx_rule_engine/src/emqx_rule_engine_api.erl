@@ -8,7 +8,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx/include/http_api.hrl").
 
 -behaviour(minirest_api).
 
@@ -433,7 +433,7 @@ param_path_id() ->
         begin
             case emqx_rule_sqltester:apply_rule(RuleId, CheckedParams) of
                 {ok, Result} ->
-                    {200, emqx_logger_jsonfmt:best_effort_json_obj(Result)};
+                    {200, emqx_utils_json:best_effort_json_obj(Result)};
                 {error, {parse_error, Reason}} ->
                     {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}};
                 {error, nomatch} ->

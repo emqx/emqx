@@ -1,0 +1,42 @@
+{
+  "type": "record",
+  "fields": [
+    {
+      "field-id": 1,
+      "name": "outer",
+      "default": null,
+      "type": [
+        "null",
+        {
+          "type": "record",
+          "name": "r1",
+          "fields": [
+            {
+              "field-id": 2,
+              "name": "inner",
+              "default": null,
+              "type": [
+                "null",
+                {
+                  "type": "record",
+                  "name": "r2",
+                  "fields": [
+                    {
+                      "field-id": 3,
+                      "name": "innermost",
+                      "default": null,
+                      "type": [
+                        "null",
+                        "int"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

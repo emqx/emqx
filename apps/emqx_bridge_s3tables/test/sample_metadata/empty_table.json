@@ -1,0 +1,64 @@
+{
+  "metadata-location": "s3://warehouse/testns/t/metadata/00000-9f621696-1afe-4f0e-be5a-b2991b79997e.metadata.json",
+  "metadata": {
+    "format-version": 2,
+    "table-uuid": "11796102-1aea-4273-a13c-986e86971cfe",
+    "location": "s3://warehouse/testns/t",
+    "last-sequence-number": 0,
+    "last-updated-ms": 1745506398940,
+    "last-column-id": 2,
+    "current-schema-id": 0,
+    "schemas": [
+      {
+        "type": "struct",
+        "schema-id": 0,
+        "fields": [
+          {
+            "id": 1,
+            "name": "bar",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "id": 2,
+            "name": "baz",
+            "required": false,
+            "type": "int"
+          }
+        ]
+      }
+    ],
+    "default-spec-id": 0,
+    "partition-specs": [
+      {
+        "spec-id": 0,
+        "fields": [
+          {
+            "name": "baz",
+            "transform": "identity",
+            "source-id": 2,
+            "field-id": 1000
+          }
+        ]
+      }
+    ],
+    "last-partition-id": 1000,
+    "default-sort-order-id": 0,
+    "sort-orders": [
+      {
+        "order-id": 0,
+        "fields": []
+      }
+    ],
+    "properties": {
+      "write.parquet.compression-codec": "zstd"
+    },
+    "current-snapshot-id": -1,
+    "refs": {},
+    "snapshots": [],
+    "statistics": [],
+    "partition-statistics": [],
+    "snapshot-log": [],
+    "metadata-log": []
+  }
+}

@@ -72,8 +72,11 @@
 
 %% For setting and getting extra rule engine SQL functions module
 -export([
-    extra_functions_module/0,
-    set_extra_functions_module/1
+    get_external_function/1,
+    register_external_functions/1,
+    register_external_functions/2,
+    unregister_external_functions/1,
+    unregister_external_functions/2
 ]).
 
 -define(RULE_ENGINE, ?MODULE).
@@ -97,6 +100,9 @@
 ]).
 
 -define(RATE_METRICS, ['matched']).
+
+-define(DEFAULT_EXTERNAL_FUNCTION_PREFIX, 'rsf_').
+-define(EXTERNAL_FUNCTION_PT_KEY(NAME), {?MODULE, external_function, NAME}).
 
 -type action_name() :: binary() | #{function := binary()}.
 -type bridge_action_id() :: binary().
@@ -236,12 +242,22 @@ get_rules_for_topic(Topic) ->
 
 -spec get_rules_with_same_event(Topic :: binary()) -> [rule()].
 get_rules_with_same_event(Topic) ->
-    EventName = emqx_rule_events:event_name(Topic),
     [
         Rule
      || Rule = #{from := From} <- get_rules(),
+        EventName <- emqx_rule_events:match_event_names(Topic),
         lists:any(fun(T) -> is_of_event_name(EventName, T) end, From)
     ].
+
+-spec get_rules_with_matching_event(EventName :: atom()) -> [rule()].
+get_rules_with_matching_event(EventName) ->
+    lists:usort([
+        Rule
+     || Rule = #{from := Topics} <- get_rules(),
+        Topic <- Topics,
+        EventNameOther <- emqx_rule_events:match_event_names(Topic),
+        EventNameOther == EventName
+    ]).
 
 -spec get_rule_ids_by_action(action_name()) -> [rule_id()].
 get_rule_ids_by_action(BridgeId) when is_binary(BridgeId) ->
@@ -340,16 +356,20 @@ reset_metrics_for_rule(Id, _Opts) ->
 
 unload_hooks_for_rule(#{id := Id, from := Topics}) ->
     lists:foreach(
-        fun(Topic) ->
-            case get_rules_with_same_event(Topic) of
+        fun(EventName) ->
+            case get_rules_with_matching_event(EventName) of
                 %% we are now deleting the last rule
                 [#{id := Id0}] when Id0 == Id ->
-                    emqx_rule_events:unload(Topic);
+                    emqx_rule_events:unload(EventName);
                 _ ->
                     ok
             end
         end,
-        Topics
+        lists:usort([
+            EventName
+         || Topic <- Topics,
+            EventName <- emqx_rule_events:match_event_names(Topic)
+        ])
     ).
 
 %%----------------------------------------------------------------------------------------
@@ -624,23 +644,74 @@ get_egress_bridges(Actions) ->
         Actions
     ).
 
-%% For allowing an external application to add extra "built-in" functions to the
-%% rule engine SQL like language. The module set by
-%% set_extra_functions_module/1 should export a function called
-%% handle_rule_function with two parameters (the first being an atom for the
-%% the function name and the second a list of arguments). The function should
-%% should return the result or {error, no_match_for_function} if it cannot
-%% handle the function. See '$handle_undefined_function' in the emqx_rule_funcs
-%% module. See also callback function declaration in emqx_rule_funcs.erl.
+-doc """
+`register_external_function` allows an external applications to add extra \"built-in\" functions.
 
--spec extra_functions_module() -> module() | undefined.
-extra_functions_module() ->
-    persistent_term:get({?MODULE, extra_functions}, undefined).
+`register_external_functions(mymodule)` will register all functions in `mymodule`
+of the form `rsf_FUNCTION_NAME/1` under the name `FUNCTION_NAME` in the rule engine.
 
--spec set_extra_functions_module(module()) -> ok.
-set_extra_functions_module(Mod) ->
-    persistent_term:put({?MODULE, extra_functions}, Mod),
-    ok.
+The `rsf_` prefix (stands for \"rule SQL function\") may be specified directly:
+```
+register_external_functions(mymodule, 'my_prefix_').
+```
+
+Also, the functions may be registered individually:
+```
+register_external_functions([{myfunction, {mymodule, my_actual_function}}]).
+```
+""".
+-spec register_external_functions(module() | list({atom(), {module(), atom()}})) -> ok.
+register_external_functions(Module) when is_atom(Module) ->
+    Specs = external_functions_specs(Module, ?DEFAULT_EXTERNAL_FUNCTION_PREFIX),
+    register_external_functions(Specs);
+register_external_functions(Specs) when is_list(Specs) ->
+    lists:foreach(fun register_external_function/1, Specs).
+
+register_external_functions(Module, Prefix) ->
+    Specs = external_functions_specs(Module, Prefix),
+    register_external_functions(Specs).
+
+register_external_function({FunctionRSName, {Module, FunctionName}}) ->
+    persistent_term:put(?EXTERNAL_FUNCTION_PT_KEY(FunctionRSName), {ok, Module, FunctionName}).
+
+external_functions_specs(Module, Prefix) ->
+    PrefixBin = atom_to_binary(Prefix, utf8),
+    PrefixLen = byte_size(PrefixBin),
+    lists:filtermap(
+        fun
+            ({FunctionName, 1}) ->
+                case atom_to_binary(FunctionName, utf8) of
+                    <<PrefixBin:PrefixLen/binary, FunctionRSNameBin/binary>> ->
+                        FunctionRSName = binary_to_atom(FunctionRSNameBin, utf8),
+                        {true, {FunctionRSName, {Module, FunctionName}}};
+                    _ ->
+                        false
+                end;
+            (_) ->
+                false
+        end,
+        apply(Module, module_info, [exports])
+    ).
+
+-spec unregister_external_functions(module() | list(atom())) -> ok.
+unregister_external_functions(Module) when is_atom(Module) ->
+    Specs = external_functions_specs(Module, ?DEFAULT_EXTERNAL_FUNCTION_PREFIX),
+    unregister_external_functions(Specs);
+unregister_external_functions(Specs) when is_list(Specs) ->
+    lists:foreach(fun unregister_external_function/1, Specs).
+
+unregister_external_functions(Module, Prefix) ->
+    Specs = external_functions_specs(Module, Prefix),
+    unregister_external_functions(Specs).
+
+unregister_external_function({FunctionRSName, {_Module, _FunctionName}}) ->
+    persistent_term:erase(?EXTERNAL_FUNCTION_PT_KEY(FunctionRSName));
+unregister_external_function(FunctionRSName) when is_atom(FunctionRSName) ->
+    persistent_term:erase(?EXTERNAL_FUNCTION_PT_KEY(FunctionRSName)).
+
+-spec get_external_function(atom()) -> {ok, module(), atom()} | {error, not_found}.
+get_external_function(FunctionRSName) ->
+    persistent_term:get(?EXTERNAL_FUNCTION_PT_KEY(FunctionRSName), {error, not_found}).
 
 %% Checks whether the referenced bridges in actions all exist.  If there are non-existent
 %% ones, the rule shouldn't be allowed to be enabled.

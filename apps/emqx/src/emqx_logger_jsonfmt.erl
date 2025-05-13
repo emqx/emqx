@@ -19,9 +19,6 @@
 
 -export([format/2]).
 
-%% For CLI HTTP API outputs
--export([best_effort_json/1, best_effort_json/2, best_effort_json_obj/1]).
-
 %% For emqx_trace_json_formatter
 -export([format_msg/3]).
 
@@ -48,21 +45,6 @@
 }.
 
 -define(IS_STRING(String), (is_list(String) orelse is_binary(String))).
-
-%% @doc Format a list() or map() to JSON object.
-%% This is used for CLI result prints,
-%% or HTTP API result formatting.
-%% The JSON object is pretty-printed.
-%% NOTE: do not use this function for logging.
-best_effort_json(Input) ->
-    best_effort_json(Input, [pretty, force_utf8]).
-best_effort_json(Input, Opts) ->
-    JsonReady = best_effort_json_obj(Input),
-    emqx_utils_json:encode(JsonReady, Opts).
-
-best_effort_json_obj(Input) ->
-    Config = #{depth => unlimited, single_line => true, chars_limit => unlimited},
-    best_effort_json_obj(Input, Config).
 
 -spec format(logger:log_event(), config()) -> iodata().
 format(#{level := _Level, msg := _Msg, meta := _Meta} = Entry, Config0) when is_map(Config0) ->
@@ -146,51 +128,7 @@ format_msg({report, Report}, #{report_cb := Fun}, Config) when is_function(Fun, 
             }
     end;
 format_msg({Fmt, Args}, _Meta, Config) ->
-    do_format_msg(Fmt, Args, Config).
-
-do_format_msg(Format0, Args, #{
-    depth := Depth,
-    single_line := SingleLine,
-    chars_limit := Limit
-}) ->
-    Opts = chars_limit_to_opts(Limit),
-    Format1 = io_lib:scan_format(Format0, Args),
-    Format = reformat(Format1, Depth, SingleLine),
-    Text0 = io_lib:build_text(Format, Opts),
-    Text =
-        case SingleLine of
-            true -> re:replace(Text0, ",?\r?\n\s*", ", ", [{return, list}, global, unicode]);
-            false -> Text0
-        end,
-    trim(unicode:characters_to_binary(Text, utf8)).
-
-chars_limit_to_opts(unlimited) -> [];
-chars_limit_to_opts(Limit) -> [{chars_limit, Limit}].
-
-%% Get rid of the leading spaces.
-%% leave alone the trailing spaces.
-trim(<<$\s, Rest/binary>>) -> trim(Rest);
-trim(Bin) -> Bin.
-
-reformat(Format, unlimited, false) ->
-    Format;
-reformat([#{control_char := C} = M | T], Depth, true) when C =:= $p ->
-    [limit_depth(M#{width => 0}, Depth) | reformat(T, Depth, true)];
-reformat([#{control_char := C} = M | T], Depth, true) when C =:= $P ->
-    [M#{width => 0} | reformat(T, Depth, true)];
-reformat([#{control_char := C} = M | T], Depth, Single) when C =:= $p; C =:= $w ->
-    [limit_depth(M, Depth) | reformat(T, Depth, Single)];
-reformat([H | T], Depth, Single) ->
-    [H | reformat(T, Depth, Single)];
-reformat([], _, _) ->
-    [].
-
-limit_depth(M0, unlimited) ->
-    M0;
-limit_depth(#{control_char := C0, args := Args} = M0, Depth) ->
-    %To uppercase.
-    C = C0 - ($a - $A),
-    M0#{control_char := C, args := Args ++ [Depth]}.
+    emqx_utils_log:format(Fmt, Args, Config).
 
 add_default_config(Config0) ->
     Default = #{single_line => true},
@@ -199,72 +137,6 @@ add_default_config(Config0) ->
 
 get_depth(undefined) -> error_logger:get_format_depth();
 get_depth(S) -> max(5, S).
-
-best_effort_unicode(Input, Config) ->
-    try unicode:characters_to_binary(Input, utf8) of
-        B when is_binary(B) -> B;
-        _ -> do_format_msg("~p", [Input], Config)
-    catch
-        _:_ ->
-            do_format_msg("~p", [Input], Config)
-    end.
-
-best_effort_json_obj(List, Config) when is_list(List) ->
-    try
-        json_obj(convert_tuple_list_to_map(List), Config)
-    catch
-        _:_ ->
-            [json(I, Config) || I <- List]
-    end;
-best_effort_json_obj(Map, Config) ->
-    try
-        json_obj(Map, Config)
-    catch
-        _:_ ->
-            do_format_msg("~p", [Map], Config)
-    end.
-
-%% This function will throw if the list do not only contain tuples or if there
-%% are duplicate keys.
-convert_tuple_list_to_map(List) ->
-    %% Crash if this is not a tuple list
-    CandidateMap = maps:from_list(List),
-    %% Crash if there are duplicates
-    NumberOfItems = length(List),
-    NumberOfItems = maps:size(CandidateMap),
-    CandidateMap.
-
-json(A, _) when is_atom(A) -> A;
-json(I, _) when is_integer(I) -> I;
-json(F, _) when is_float(F) -> F;
-json(P, C) when is_pid(P) -> json(pid_to_list(P), C);
-json(P, C) when is_port(P) -> json(port_to_list(P), C);
-json(F, C) when is_function(F) -> json(erlang:fun_to_list(F), C);
-json(B, Config) when is_binary(B) ->
-    best_effort_unicode(B, Config);
-json(M, Config) when is_list(M), is_tuple(hd(M)), tuple_size(hd(M)) =:= 2 ->
-    best_effort_json_obj(M, Config);
-json(L, Config) when is_list(L) ->
-    case lists:all(fun erlang:is_binary/1, L) of
-        true ->
-            %% string array
-            L;
-        false ->
-            try unicode:characters_to_binary(L, utf8) of
-                B when is_binary(B) -> B;
-                _ -> [json(I, Config) || I <- L]
-            catch
-                _:_ ->
-                    [json(I, Config) || I <- L]
-            end
-    end;
-json(Map, Config) when is_map(Map) ->
-    best_effort_json_obj(Map, Config);
-json({'$array$', List}, Config) when is_list(List) ->
-    [json(I, Config) || I <- List];
-json(Term, Config) ->
-    do_format_msg("~p", [Term], Config).
-
 json_obj_root(Data0, Config) ->
     Time = maps:get(time, Data0, undefined),
     Level = maps:get(level, Data0, undefined),
@@ -280,13 +152,13 @@ json_obj_root(Data0, Config) ->
             undefined ->
                 undefined;
             _ ->
-                json(Msg1, Config)
+                emqx_utils_json:format(Msg1, Config)
         end,
     MFA = emqx_utils:format_mfal(Data0, Config),
     Data =
         maps:fold(
             fun(K, V, D) ->
-                {K1, V1} = json_kv(K, V, Config),
+                {K1, V1} = emqx_utils_json:json_kv(K, V, Config),
                 [{K1, V1} | D]
             end,
             [],
@@ -312,35 +184,6 @@ format_ts(Ts, #{timestamp_format := rfc3339, time_offset := Offset}) when is_int
 format_ts(Ts, _Config) ->
     % auto | epoch
     Ts.
-
-json_obj(Data, Config) ->
-    maps:fold(
-        fun(K, V, D) ->
-            {K1, V1} = json_kv(K, V, Config),
-            maps:put(K1, V1, D)
-        end,
-        maps:new(),
-        Data
-    ).
-
-json_kv(K0, V, Config) ->
-    K = json_key(K0),
-    case is_map(V) of
-        true -> {K, best_effort_json_obj(V, Config)};
-        false -> {K, json(V, Config)}
-    end.
-
-json_key(A) when is_atom(A) -> json_key(atom_to_binary(A, utf8));
-json_key(Term) ->
-    try unicode:characters_to_binary(Term, utf8) of
-        OK when is_binary(OK) andalso OK =/= <<>> ->
-            OK;
-        _ ->
-            throw({badkey, Term})
-    catch
-        _:_ ->
-            throw({badkey, Term})
-    end.
 
 -ifdef(TEST).
 
@@ -373,7 +216,7 @@ filter(Map) ->
     Keys = lists:filter(
         fun(K) ->
             try
-                json_key(K),
+                emqx_utils_json:json_key(K),
                 true
             catch
                 throw:{badkey, _} -> false
@@ -427,54 +270,6 @@ p_config() ->
         ]
     ).
 
-%% NOTE: pretty-printing format is asserted in the test
-%% This affects the CLI output format, consult the team before changing
-%% the format.
-best_effort_json_test() ->
-    ?assertEqual(
-        <<"{\n  \n}">>,
-        best_effort_json([])
-    ),
-    ?assertEqual(
-        <<"{\n  \"key\" : [\n    \n  ]\n}">>,
-        best_effort_json(#{key => []})
-    ),
-    ?assertEqual(
-        <<"[\n  {\n    \"key\" : [\n      \n    ]\n  }\n]">>,
-        best_effort_json([#{key => []}])
-    ),
-    %% List is IO Data
-    ?assertMatch(
-        #{<<"what">> := <<"hej\n">>},
-        emqx_utils_json:decode(emqx_logger_jsonfmt:best_effort_json(#{what => [<<"hej">>, 10]}))
-    ),
-    %% Force list to be interpreted as an array
-    ?assertMatch(
-        #{<<"what">> := [<<"hej">>, 10]},
-        emqx_utils_json:decode(
-            emqx_logger_jsonfmt:best_effort_json(#{what => {'$array$', [<<"hej">>, 10]}})
-        )
-    ),
-    %% IO Data inside an array
-    ?assertMatch(
-        #{<<"what">> := [<<"hej">>, 10, <<"hej\n">>]},
-        emqx_utils_json:decode(
-            emqx_logger_jsonfmt:best_effort_json(#{
-                what => {'$array$', [<<"hej">>, 10, [<<"hej">>, 10]]}
-            })
-        )
-    ),
-    %% Array inside an array
-    ?assertMatch(
-        #{<<"what">> := [<<"hej">>, 10, [<<"hej">>, 10]]},
-        emqx_utils_json:decode(
-            emqx_logger_jsonfmt:best_effort_json(#{
-                what => {'$array$', [<<"hej">>, 10, {'$array$', [<<"hej">>, 10]}]}
-            })
-        )
-    ),
-    ok.
-
 config() ->
     #{
         chars_limit => unlimited,
@@ -490,8 +285,8 @@ make_log(Report) ->
     }.
 
 ensure_json_output_test() ->
-    JSON = format(make_log({report, #{foo => bar}}), config()),
-    ?assert(is_map(emqx_utils_json:decode(JSON))),
+    Json = format(make_log({report, #{foo => bar}}), config()),
+    ?assert(is_map(emqx_utils_json:decode(Json))),
     ok.
 
 chars_limit_not_applied_on_raw_map_fields_test() ->
@@ -502,8 +297,8 @@ chars_limit_not_applied_on_raw_map_fields_test() ->
     Config = Config0#{
         chars_limit => Limit
     },
-    JSON = format(make_log({report, #{foo => LongStr}}), Config),
-    #{<<"foo">> := LongStr1} = emqx_utils_json:decode(JSON),
+    Json = format(make_log({report, #{foo => LongStr}}), Config),
+    #{<<"foo">> := LongStr1} = emqx_utils_json:decode(Json),
     ?assertEqual(Len, size(LongStr1)),
     ok.
 
@@ -515,20 +310,9 @@ chars_limit_applied_on_format_result_test() ->
     Config = Config0#{
         chars_limit => Limit
     },
-    JSON = format(make_log({string, LongStr}), Config),
-    #{<<"msg">> := LongStr1} = emqx_utils_json:decode(JSON),
+    Json = format(make_log({string, LongStr}), Config),
+    #{<<"msg">> := LongStr1} = emqx_utils_json:decode(Json),
     ?assertEqual(Limit, size(LongStr1)),
     ok.
-
-string_array_test() ->
-    Array = #{<<"arr">> => [<<"a">>, <<"b">>]},
-    Encoded = emqx_utils_json:encode(json(Array, config())),
-    ?assertEqual(Array, emqx_utils_json:decode(Encoded)).
-
-iolist_test() ->
-    Iolist = #{iolist => ["a", ["b"]]},
-    Concat = #{<<"iolist">> => <<"ab">>},
-    Encoded = emqx_utils_json:encode(json(Iolist, config())),
-    ?assertEqual(Concat, emqx_utils_json:decode(Encoded)).
 
 -endif.

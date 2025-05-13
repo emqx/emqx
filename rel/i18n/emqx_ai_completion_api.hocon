@@ -1,0 +1,33 @@
+emqx_ai_completion_api {
+
+ai_providers_list.desc:
+"""List AI provider providers."""
+
+ai_providers_create.desc:
+"""Create provider entry for an AI provider."""
+
+ai_providers_get.desc:
+"""Get provider entry for an AI provider."""
+
+ai_providers_update.desc:
+"""Update provider entry for an AI provider."""
+
+ai_providers_delete.desc:
+"""Delete provider entry for an AI provider."""
+
+ai_completion_profiles_list.desc:
+"""List all AI completion profiles."""
+
+ai_completion_profiles_create.desc:
+"""Create AI completion profile."""
+
+ai_completion_profiles_get.desc:
+"""Get AI completion profile."""
+
+ai_completion_profiles_update.desc:
+"""Update AI completion profile."""
+
+ai_completion_profiles_delete.desc:
+"""Delete AI completion profile"""
+
+}

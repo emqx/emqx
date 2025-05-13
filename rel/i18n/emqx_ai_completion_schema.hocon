@@ -1,0 +1,105 @@
+emqx_ai_completion_schema {
+
+type.desc:
+"""Type of AI provider: OpenAI or Anthropic."""
+
+type.label:
+"""AI Provider Type"""
+
+api_key.desc:
+"""API key for the AI provider."""
+
+api_key.label:
+"""API Key"""
+
+provider_name.desc:
+"""Name of the provider."""
+
+provider_name.label:
+"""Provider Name"""
+
+system_prompt.desc:
+"""System prompt for the AI completion."""
+
+system_prompt.label:
+"""System Prompt"""
+
+model.desc:
+"""Model to use for the AI completion."""
+
+model.label:
+"""Model"""
+
+anthropic_version.desc:
+"""Version of the Anthropic API to use."""
+
+anthropic_version.label:
+"""Anthropic Version"""
+
+max_tokens.desc:
+"""Maximum number of tokens to generate."""
+
+max_tokens.label:
+"""Max Tokens"""
+
+completion_profile_name.desc:
+"""Name of the completion profile."""
+
+completion_profile_name.label:
+"""Completion Profile Name"""
+
+providers.desc:
+"""List of AI provider providers."""
+
+providers.label:
+"""Providers"""
+
+completion_profiles.desc:
+"""List of AI completion profiles."""
+
+completion_profiles.label:
+"""Completion Profiles"""
+
+connect_timeout.desc:
+"""Connect timeout to the AI provider."""
+
+connect_timeout.label:
+"""Connect Timeout"""
+
+recv_timeout.desc:
+"""Receive timeout to the AI provider."""
+
+recv_timeout.label:
+"""Receive Timeout"""
+
+checkout_timeout.desc:
+"""Timeout for the checkout from connection pool for a request to the AI provider."""
+
+checkout_timeout.label:
+"""Checkout Timeout"""
+
+ai.desc:
+"""AI functions settings."""
+
+ai.label:
+"""AI"""
+
+provider.desc:
+"""AI provider."""
+
+provider.label:
+"""Provider"""
+
+openai_completion_profile.desc:
+"""AI completion profile for OpenAI."""
+
+openai_completion_profile.label:
+"""OpenAI Completion Profile"""
+
+anthropic_completion_profile.desc:
+"""AI completion profile for Anthropic."""
+
+anthropic_completion_profile.label:
+"""Anthropic Completion Profile"""
+
+}

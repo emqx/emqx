@@ -129,7 +129,7 @@ ensure_disabled(NameVsn, LogFun) ->
 to_json([]) ->
     <<"[]">>;
 to_json(Input) ->
-    emqx_logger_jsonfmt:best_effort_json(Input).
+    emqx_utils_json:best_effort_json(Input).
 
 print(NameVsn, Res, LogFun, Action) ->
     Obj = #{

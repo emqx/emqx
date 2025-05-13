@@ -19,8 +19,8 @@ options:
   -h|--help:         Print this usage.
 
   -b|--base:         Specify the current release base branch, can be one of
-                     release-58
                      release-59
+                     release-510
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
@@ -137,6 +137,9 @@ rel_branch() {
             ;;
         e5.9.*)
             echo 'release-59'
+            ;;
+        e5.10.*)
+            echo 'release-510'
             ;;
         *)
             logerr "Unsupported version tag $TAG"

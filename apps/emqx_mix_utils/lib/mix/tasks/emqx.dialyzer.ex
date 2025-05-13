@@ -21,6 +21,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       Mix.Tasks.Emqx.Ct,
       Mix.Tasks.Emqx.Eunit,
       Mix.Tasks.Emqx.Proper,
+      Mix.Tasks.Emqx.Cover,
       Mix.Tasks.Compile.Grpc,
       Mix.Tasks.Compile.CopySrcs,
     ]
@@ -80,6 +81,8 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       umbrella_files: umbrella_files,
       files: files,
     }
+
+    EMQX.Mix.Utils.clear_screen()
 
     try do
       case mode do

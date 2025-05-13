@@ -47,7 +47,8 @@ new(Opts) ->
         quoting_mp = MP
     }.
 
--spec fill([emqx_connector_aggregator:record()], container()) -> {iodata(), container()}.
+-spec fill([emqx_connector_aggregator:record()], container()) ->
+    {iodata(), container()}.
 fill(Records = [Record | _], CSV0 = #csv{columns = undefined}) ->
     Columns = mk_columns(Record, CSV0),
     Header = emit_header(Columns, CSV0),

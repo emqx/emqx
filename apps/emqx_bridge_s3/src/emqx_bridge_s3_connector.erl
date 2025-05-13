@@ -28,7 +28,7 @@
 
 -behaviour(emqx_connector_aggreg_delivery).
 -export([
-    init_transfer_state/2,
+    init_transfer_state_and_container_opts/2,
     process_append/2,
     process_write/1,
     process_complete/1,
@@ -136,18 +136,7 @@ on_stop(_InstId, _State = #{pool_name := PoolName}) ->
 -spec on_get_status(_InstanceId :: resource_id(), state()) ->
     health_check_status().
 on_get_status(_InstId, #{client_config := Config}) ->
-    case emqx_s3_client:aws_config(Config) of
-        {error, Reason} ->
-            {?status_disconnected, map_error_details(Reason)};
-        AWSConfig ->
-            try erlcloud_s3:list_buckets(AWSConfig) of
-                Props when is_list(Props) ->
-                    ?status_connected
-            catch
-                error:Error ->
-                    {?status_disconnected, map_error_details(Error)}
-            end
-    end.
+    emqx_s3_client:get_status(Config).
 
 -spec on_add_channel(_InstanceId :: resource_id(), state(), channel_id(), channel_config()) ->
     {ok, state()} | {error, _Reason}.
@@ -266,7 +255,7 @@ channel_status(#{mode := aggregated, aggreg_id := AggregId, bucket := Bucket}, S
 check_bucket_accessible(Bucket, #{client_config := Config}) ->
     case emqx_s3_client:aws_config(Config) of
         {error, Reason} ->
-            throw({unhealthy_target, map_error_details(Reason)});
+            throw({unhealthy_target, emqx_s3_utils:map_error_details(Reason)});
         AWSConfig ->
             try erlcloud_s3:list_objects(Bucket, [{max_keys, 1}], AWSConfig) of
                 Props when is_list(Props) ->
@@ -275,7 +264,7 @@ check_bucket_accessible(Bucket, #{client_config := Config}) ->
                 error:{aws_error, {http_error, 404, _, _Reason}} ->
                     throw({unhealthy_target, "Bucket does not exist"});
                 error:Error ->
-                    throw({unhealthy_target, map_error_details(Error)})
+                    throw({unhealthy_target, emqx_s3_utils:map_error_details(Error)})
             end
     end.
 
@@ -285,7 +274,7 @@ check_aggreg_upload_errors(AggregId) ->
             %% TODO
             %% This approach means that, for example, 3 upload failures will cause
             %% the channel to be marked as unhealthy for 3 consecutive health checks.
-            throw({unhealthy_target, map_error_details(Error)});
+            throw({unhealthy_target, emqx_s3_utils:map_error_details(Error)});
         [] ->
             ok
     end.
@@ -319,7 +308,7 @@ on_batch_query(InstId, [{Tag, Data0} | Rest], #{channels := Channels}) ->
 
 run_simple_upload(
     InstId,
-    ChannelID,
+    ChannelId,
     Data,
     #{
         bucket := BucketTemplate,
@@ -333,7 +322,7 @@ run_simple_upload(
     Client = emqx_s3_client:create(Bucket, Config),
     Key = render_key(KeyTemplate, Data),
     Content = render_content(ContentTemplate, Data),
-    emqx_trace:rendered_action_template(ChannelID, #{
+    emqx_trace:rendered_action_template(ChannelId, #{
         bucket => Bucket,
         key => Key,
         content => #emqx_trace_format_func_data{
@@ -353,9 +342,9 @@ run_simple_upload(
             {error, map_error(Reason)}
     end.
 
-run_aggregated_upload(InstId, ChannelID, Records, #{aggreg_id := AggregId}) ->
+run_aggregated_upload(InstId, ChannelId, Records, #{aggreg_id := AggregId}) ->
     Timestamp = erlang:system_time(second),
-    emqx_trace:rendered_action_template(ChannelID, #{
+    emqx_trace:rendered_action_template(ChannelId, #{
         mode => aggregated,
         records => Records
     }),
@@ -368,7 +357,7 @@ run_aggregated_upload(InstId, ChannelID, Records, #{aggreg_id := AggregId}) ->
     end.
 
 map_error(Error) ->
-    {map_error_class(Error), map_error_details(Error)}.
+    {map_error_class(Error), emqx_s3_utils:map_error_details(Error)}.
 
 map_error_class({s3_error, _, _}) ->
     unrecoverable_error;
@@ -381,21 +370,6 @@ map_error_class({http_error, Status, _, _}) when Status >= 500 ->
     recoverable_error;
 map_error_class(_Error) ->
     unrecoverable_error.
-
-map_error_details({s3_error, Code, Message}) ->
-    emqx_utils:format("S3 error: ~s ~s", [Code, Message]);
-map_error_details({aws_error, Error}) ->
-    map_error_details(Error);
-map_error_details({socket_error, Reason}) ->
-    emqx_utils:format("Socket error: ~s", [emqx_utils:readable_error_msg(Reason)]);
-map_error_details({http_error, _, _, _} = Error) ->
-    emqx_utils:format("AWS error: ~s", [map_aws_error_details(Error)]);
-map_error_details({failed_to_obtain_credentials, Error}) ->
-    emqx_utils:format("Unable to obtain AWS credentials: ~s", [map_error_details(Error)]);
-map_error_details({upload_failed, Error}) ->
-    map_error_details(Error);
-map_error_details(Error) ->
-    Error.
 
 render_bucket(Template, Data) ->
     case emqx_template:render(Template, {emqx_jsonish, Data}) of
@@ -418,45 +392,20 @@ render_content(Template, Data) ->
 iolist_to_string(IOList) ->
     unicode:characters_to_list(IOList).
 
-%%
-
--include_lib("xmerl/include/xmerl.hrl").
-
--spec map_aws_error_details(_AWSError) ->
-    unicode:chardata().
-map_aws_error_details({http_error, _Status, _, Body}) ->
-    try xmerl_scan:string(unicode:characters_to_list(Body), [{quiet, true}]) of
-        {Error = #xmlElement{name = 'Error'}, _} ->
-            map_aws_error_details(Error);
-        _ ->
-            Body
-    catch
-        exit:_ ->
-            Body
-    end;
-map_aws_error_details(#xmlElement{content = Content}) ->
-    Code = extract_xml_text(lists:keyfind('Code', #xmlElement.name, Content)),
-    Message = extract_xml_text(lists:keyfind('Message', #xmlElement.name, Content)),
-    [Code, $:, $\s | Message].
-
-extract_xml_text(#xmlElement{content = Content}) ->
-    [Fragment || #xmlText{value = Fragment} <- Content];
-extract_xml_text(false) ->
-    [].
-
 %% `emqx_connector_aggreg_delivery` APIs
 
--spec init_transfer_state(buffer(), map()) -> emqx_s3_upload:t().
-init_transfer_state(Buffer, Opts) ->
+-spec init_transfer_state_and_container_opts(buffer(), map()) -> {ok, emqx_s3_upload:t(), map()}.
+init_transfer_state_and_container_opts(Buffer, Opts) ->
     #{
         bucket := Bucket,
         upload_options := UploadOpts,
+        container := ContainerOpts,
         client_config := Config,
         uploader_config := UploaderConfig
     } = Opts,
     Client = emqx_s3_client:create(Bucket, Config),
     Key = mk_object_key(Buffer, Opts),
-    emqx_s3_upload:new(Client, Key, UploadOpts, UploaderConfig).
+    {ok, emqx_s3_upload:new(Client, Key, UploadOpts, UploaderConfig), ContainerOpts}.
 
 mk_object_key(Buffer, #{action := AggregId, key := Template}) ->
     emqx_template:render_strict(Template, {?MODULE, {AggregId, Buffer}}).

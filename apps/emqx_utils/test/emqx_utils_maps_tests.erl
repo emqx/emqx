@@ -16,7 +16,6 @@
 
 -module(emqx_utils_maps_tests).
 -include_lib("eunit/include/eunit.hrl").
--include("../../emqx/include/emqx_mqtt.hrl").
 
 -import(emqx_utils_maps, [indent/3, unindent/2]).
 
@@ -183,7 +182,7 @@ printable_props_test() ->
         peerhost => {127, 0, 0, 1},
         peername => {{127, 0, 0, 1}, 9980},
         sockname => {{127, 0, 0, 1}, 1883},
-        redispatch_to => ?REDISPATCH_TO(<<"group">>, <<"sub/topic/+">>),
+        redispatch_to => {<<"group">>, <<"sub/topic/+">>},
         shared_dispatch_ack => {self(), ref}
     },
     Converted = emqx_utils_maps:printable_props(Headers),
