@@ -9,8 +9,13 @@
 
 -include_lib("emqx_ft/include/emqx_ft_storage_fs.hrl").
 -include_lib("stdlib/include/assert.hrl").
--include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("common_test/include/ct.hrl").
+
+-define(tpal(MSG), begin
+    ct:pal(MSG),
+    ?tp(notice, MSG, #{})
+end).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -183,74 +188,83 @@ t_gc_complete_transfers(_Config) ->
 
 t_gc_incomplete_transfers(_Config) ->
     ct:timetrap({seconds, 120}),
-    ok = set_gc_config(minimum_segments_ttl, 0),
-    ok = set_gc_config(maximum_segments_ttl, 4),
-    {local, Storage} = emqx_ft_storage:backend(),
-    Transfers = [
-        {
-            {<<"client43"/utf8>>, <<"file-🦕"/utf8>>},
-            #{name => "dog.cur", segments_ttl => 1},
-            emqx_ft_content_gen:new({?LINE, S1 = 123}, SS1 = 32)
-        },
-        {
-            {<<"client44">>, <<"file-🦖"/utf8>>},
-            #{name => "dog.ico", segments_ttl => 2},
-            emqx_ft_content_gen:new({?LINE, S2 = 456}, SS2 = 64)
-        },
-        {
-            {<<"client1337">>, <<"file-🦀"/utf8>>},
-            #{name => "dog.jpg", segments_ttl => 3000},
-            emqx_ft_content_gen:new({?LINE, S3 = 7890}, SS3 = 128)
-        },
-        {
-            {<<"client31337">>, <<"file-⏳"/utf8>>},
-            #{name => "dog.jpg"},
-            emqx_ft_content_gen:new({?LINE, S4 = 1230}, SS4 = 256)
-        }
-    ],
-    % 1. Start transfers, send all the segments but don't trigger completion.
-    _ = emqx_utils:pmap(fun(Transfer) -> start_transfer(Storage, Transfer) end, Transfers),
-    % 2. Enable periodic GC every 0.5 seconds.
-    ok = set_gc_config(interval, 500),
-    ok = emqx_ft_storage_fs_gc:reset(),
-    % 3. First we need the first transfer to be collected.
-    {ok, _} = ?block_until(
-        #{
-            ?snk_kind := garbage_collection,
-            stats := #gcstats{
-                files = Files,
-                directories = 4,
-                space = Space
-            }
-        } when Files == (?NSEGS(S1, SS1)) andalso Space > S1,
-        infinity,
-        0
-    ),
-    % 4. Then the second one.
-    {ok, _} = ?block_until(
-        #{
-            ?snk_kind := garbage_collection,
-            stats := #gcstats{
-                files = Files,
-                directories = 4,
-                space = Space
-            }
-        } when Files == (?NSEGS(S2, SS2)) andalso Space > S2,
-        infinity,
-        0
-    ),
-    % 5. Then transfers 3 and 4 because 3rd has too big TTL and 4th has no specific TTL.
-    {ok, _} = ?block_until(
-        #{
-            ?snk_kind := garbage_collection,
-            stats := #gcstats{
-                files = Files,
-                directories = 4 * 2,
-                space = Space
-            }
-        } when Files == (?NSEGS(S3, SS3) + ?NSEGS(S4, SS4)) andalso Space > S3 + S4,
-        infinity,
-        0
+    ?check_trace(
+        #{timetrap => 119_000},
+        begin
+            ok = set_gc_config(minimum_segments_ttl, 0),
+            ok = set_gc_config(maximum_segments_ttl, 4),
+            {local, Storage} = emqx_ft_storage:backend(),
+            Transfers = [
+                {
+                    {<<"client43"/utf8>>, <<"file-🦕"/utf8>>},
+                    #{name => "dog.cur", segments_ttl => 1},
+                    emqx_ft_content_gen:new({?LINE, S1 = 123}, SS1 = 32)
+                },
+                {
+                    {<<"client44">>, <<"file-🦖"/utf8>>},
+                    #{name => "dog.ico", segments_ttl => 2},
+                    emqx_ft_content_gen:new({?LINE, S2 = 456}, SS2 = 64)
+                },
+                {
+                    {<<"client1337">>, <<"file-🦀"/utf8>>},
+                    #{name => "dog.jpg", segments_ttl => 3000},
+                    emqx_ft_content_gen:new({?LINE, S3 = 7890}, SS3 = 128)
+                },
+                {
+                    {<<"client31337">>, <<"file-⏳"/utf8>>},
+                    #{name => "dog.jpg"},
+                    emqx_ft_content_gen:new({?LINE, S4 = 1230}, SS4 = 256)
+                }
+            ],
+            % 1. Start transfers, send all the segments but don't trigger completion.
+            _ = emqx_utils:pmap(fun(Transfer) -> start_transfer(Storage, Transfer) end, Transfers),
+            % 2. Enable periodic GC every 0.5 seconds.
+            ok = set_gc_config(interval, 500),
+            ok = emqx_ft_storage_fs_gc:reset(),
+            % 3. First we need the first transfer to be collected.
+            ?tpal("waiting for first garbage collection"),
+            {ok, _} = ?block_until(
+                #{
+                    ?snk_kind := garbage_collection,
+                    stats := #gcstats{
+                        files = Files,
+                        directories = 4,
+                        space = Space
+                    }
+                } when Files == (?NSEGS(S1, SS1)) andalso Space > S1,
+                infinity,
+                0
+            ),
+            % 4. Then the second one.
+            ?tpal("waiting for second garbage collection"),
+            {ok, _} = ?block_until(
+                #{
+                    ?snk_kind := garbage_collection,
+                    stats := #gcstats{
+                        files = Files,
+                        directories = 4,
+                        space = Space
+                    }
+                } when Files == (?NSEGS(S2, SS2)) andalso Space > S2,
+                infinity,
+                0
+            ),
+            % 5. Then transfers 3 and 4 because 3rd has too big TTL and 4th has no specific TTL.
+            ?tpal("waiting for third garbage collection"),
+            {ok, _} = ?block_until(
+                #{
+                    ?snk_kind := garbage_collection,
+                    stats := #gcstats{
+                        files = Files,
+                        directories = 4 * 2,
+                        space = Space
+                    }
+                } when Files == (?NSEGS(S3, SS3) + ?NSEGS(S4, SS4)) andalso Space > S3 + S4,
+                infinity,
+                0
+            )
+        end,
+        []
     ).
 
 t_gc_repeated_transfer(_Config) ->
