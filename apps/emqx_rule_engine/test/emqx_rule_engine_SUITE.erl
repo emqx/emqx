@@ -107,6 +107,7 @@ groups() ->
         ]},
         {events, [], [
             t_events,
+            t_events_legacy,
             t_event_client_disconnected_normal,
             t_event_client_disconnected_kicked,
             t_event_client_disconnected_discarded,
@@ -153,57 +154,51 @@ groups() ->
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        lists:flatten([
+        [
             emqx,
             emqx_conf,
             emqx_rule_engine,
             emqx_auth,
             emqx_bridge,
-            [
-                {emqx_schema_validation, #{
-                    config => #{
-                        <<"schema_validation">> => #{
-                            <<"validations">> => [
-                                #{
-                                    <<"name">> => <<"v1">>,
-                                    <<"topics">> => [<<"sv/fail">>],
-                                    <<"strategy">> => <<"all_pass">>,
-                                    <<"failure_action">> => <<"drop">>,
-                                    <<"checks">> => [
-                                        #{
-                                            <<"type">> => <<"sql">>,
-                                            <<"sql">> => <<"select 1 where false">>
-                                        }
-                                    ]
-                                }
-                            ]
-                        }
+            {emqx_schema_validation, #{
+                config => #{
+                    <<"schema_validation">> => #{
+                        <<"validations">> => [
+                            #{
+                                <<"name">> => <<"v1">>,
+                                <<"topics">> => [<<"sv/fail">>],
+                                <<"strategy">> => <<"all_pass">>,
+                                <<"failure_action">> => <<"drop">>,
+                                <<"checks">> => [
+                                    #{
+                                        <<"type">> => <<"sql">>,
+                                        <<"sql">> => <<"select 1 where false">>
+                                    }
+                                ]
+                            }
+                        ]
                     }
-                }}
-             || is_ee()
-            ],
-            [
-                {emqx_message_transformation, #{
-                    config => #{
-                        <<"message_transformation">> => #{
-                            <<"transformations">> => [
-                                #{
-                                    <<"name">> => <<"t1">>,
-                                    <<"topics">> => <<"mt/fail">>,
-                                    <<"failure_action">> => <<"drop">>,
-                                    <<"payload_decoder">> => #{<<"type">> => <<"json">>},
-                                    <<"payload_encoder">> => #{<<"type">> => <<"json">>},
-                                    <<"operations">> => []
-                                }
-                            ]
-                        }
+                }
+            }},
+            {emqx_message_transformation, #{
+                config => #{
+                    <<"message_transformation">> => #{
+                        <<"transformations">> => [
+                            #{
+                                <<"name">> => <<"t1">>,
+                                <<"topics">> => <<"mt/fail">>,
+                                <<"failure_action">> => <<"drop">>,
+                                <<"payload_decoder">> => #{<<"type">> => <<"json">>},
+                                <<"payload_encoder">> => #{<<"type">> => <<"json">>},
+                                <<"operations">> => []
+                            }
+                        ]
                     }
-                }}
-             || is_ee()
-            ],
+                }
+            }},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
-        ]),
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
@@ -276,6 +271,38 @@ end_per_group(_Groupname, Config) ->
 init_per_testcase(t_events, Config) ->
     init_events_counters(),
     SQL =
+        "SELECT * FROM \"$events/client/connected\", "
+        "\"$events/client/disconnected\", "
+        "\"$events/client/connack\", "
+        "\"$events/auth/check_authz_complete\", "
+        "\"$events/auth/check_authn_complete\", "
+        "\"$events/session/subscribed\", "
+        "\"$events/session/unsubscribed\", "
+        "\"$events/message/acked\", "
+        "\"$events/message/delivered\", "
+        "\"$events/message/dropped\", "
+        "\"$events/message/delivery_dropped\", "
+        "\"$events/schema_validation/failed\", "
+        "\"$events/message_transformation/failed\", "
+        "\"t1\"",
+    {ok, Rule} = emqx_rule_engine:create_rule(
+        #{
+            id => <<"rule:t_events">>,
+            sql => SQL,
+            actions => [
+                #{
+                    function => <<"emqx_rule_engine_SUITE:action_record_triggered_events">>,
+                    args => #{}
+                }
+            ],
+            description => <<"to print and record triggered events">>
+        }
+    ),
+    ?assertMatch(#{id := <<"rule:t_events">>}, Rule),
+    [{hook_points_rules, Rule} | Config];
+init_per_testcase(t_events_legacy, Config) ->
+    init_events_counters(),
+    SQL =
         "SELECT * FROM \"$events/client_connected\", "
         "\"$events/client_disconnected\", "
         "\"$events/client_connack\", "
@@ -320,6 +347,11 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_events, Config) ->
+    ets:delete(events_record_tab),
+    ok = delete_rule(?config(hook_points_rules, Config)),
+    emqx_common_test_helpers:call_janitor(),
+    ok;
+end_per_testcase(t_events_legacy, Config) ->
     ets:delete(events_record_tab),
     ok = delete_rule(?config(hook_points_rules, Config)),
     emqx_common_test_helpers:call_janitor(),
@@ -855,7 +887,52 @@ t_json_payload_decoding(_Config) ->
 
     ok.
 
+%% Test new events (namespaced).
 t_events(_Config) ->
+    {ok, Client} = emqtt:start_link(
+        [
+            {username, <<"u_event">>},
+            {clientid, <<"c_event">>},
+            {proto_ver, v5},
+            {properties, #{'Session-Expiry-Interval' => 60}}
+        ]
+    ),
+    {ok, Client2} = emqtt:start_link(
+        [
+            {username, <<"u_event2">>},
+            {clientid, <<"c_event2">>},
+            {proto_ver, v5},
+            {properties, #{'Session-Expiry-Interval' => 60}}
+        ]
+    ),
+    ct:pal("====== verify $events/client/connected, $events/client/connack"),
+    client_connected(Client, Client2),
+    ct:pal("====== verify $events/message/dropped"),
+    message_dropped(Client),
+    ct:pal("====== verify $events/session/subscribed"),
+    session_subscribed(Client2),
+    ct:pal("====== verify t1"),
+    message_publish(Client),
+    ct:pal("====== verify $events/schema_validation/failed"),
+    schema_validation_failed(Client),
+    ct:pal("====== verify $events/message_transformation/failed"),
+    message_transformation_failed(Client),
+    ct:pal("====== verify $events/message/delivery_dropped"),
+    delivery_dropped(Client),
+    ct:pal("====== verify $events/message/delivered"),
+    message_delivered(Client),
+    ct:pal("====== verify $events/message/acked"),
+    message_acked(Client),
+    ct:pal("====== verify $events/session/unsubscribed"),
+    session_unsubscribed(Client2),
+    ct:pal("====== verify $events/client/disconnected"),
+    client_disconnected(Client, Client2),
+    ct:pal("====== verify $events/client/connack"),
+    client_connack_failed(),
+    ok.
+
+%% Tests old event topics (non-namespaced).
+t_events_legacy(_Config) ->
     {ok, Client} = emqtt:start_link(
         [
             {username, <<"u_event">>},
@@ -880,13 +957,10 @@ t_events(_Config) ->
     session_subscribed(Client2),
     ct:pal("====== verify t1"),
     message_publish(Client),
-    is_ee() andalso
-        begin
-            ct:pal("====== verify $events/schema_validation_failed"),
-            schema_validation_failed(Client),
-            ct:pal("====== verify $events/message_transformation_failed"),
-            message_transformation_failed(Client)
-        end,
+    ct:pal("====== verify $events/schema_validation_failed"),
+    schema_validation_failed(Client),
+    ct:pal("====== verify $events/message_transformation_failed"),
+    message_transformation_failed(Client),
     ct:pal("====== verify $events/delivery_dropped"),
     delivery_dropped(Client),
     ct:pal("====== verify $events/message_delivered"),

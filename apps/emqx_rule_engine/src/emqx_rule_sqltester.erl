@@ -87,7 +87,11 @@ test(#{sql := Sql, context := Context}) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
             Topic = get_in_topic(Context),
-            EventTopics = emqx_rule_sqlparser:select_from(Select),
+            EventTopics0 = emqx_rule_sqlparser:select_from(Select),
+            EventTopics = lists:flatmap(
+                fun emqx_rule_events:expand_legacy_event_topics/1,
+                EventTopics0
+            ),
             case match_any(Topic, EventTopics) of
                 {ok, Filter} ->
                     test_rule(riched_rule(rule(Sql, Select, EventTopics), Topic, Filter), Context);
