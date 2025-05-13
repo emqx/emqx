@@ -1,0 +1,44 @@
+emqx_bridge_s3tables_connector_schema {
+  config_connector {
+    label: """S3tables Connector Configuration"""
+    desc:
+    """Configuration for a connector to S3Tables tables."""
+  }
+
+  s3tables_connector_params {
+    label: """S3Tables parameters"""
+    desc:
+    """Parameters for S3Tables integration provided by S3Tables."""
+  }
+
+  parameters {
+    label: """Parameters"""
+    desc:
+    """S3Tables connection parameters."""
+  }
+
+  location_s3t_access_key_id {
+    label: """Access Key Id"""
+    desc:
+    """The access key ID of the S3Tables bucket."""
+  }
+
+  location_s3t_secret_access_key {
+    label: """Secret Access Key"""
+    desc:
+    """The secret access key of the S3Tables bucket."""
+  }
+
+  location_s3t_arn {
+    label: """S3Tables ARN"""
+    desc:
+    """The ARN of the S3Tables bucket to be used."""
+  }
+
+  s3_client {
+    label: """S3 Client Params"""
+    desc:
+    """S3 connection parameters for reading and writing objects to S3Tables bucket."""
+  }
+
+}

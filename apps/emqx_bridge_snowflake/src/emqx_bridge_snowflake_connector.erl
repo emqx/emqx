@@ -48,7 +48,7 @@
 
 %% `emqx_connector_aggreg_delivery' API
 -export([
-    init_transfer_state/2,
+    init_transfer_state_and_container_opts/2,
     process_append/2,
     process_write/1,
     process_complete/1
@@ -440,11 +440,11 @@ handle_stage_file_result({error, Reason} = Error, Context) ->
 %% `emqx_connector_aggreg_delivery' API
 %%------------------------------------------------------------------------------
 
--spec init_transfer_state(buffer(), transfer_opts()) ->
-    transfer_state().
-init_transfer_state(Buffer, Opts) ->
+-spec init_transfer_state_and_container_opts(buffer(), transfer_opts()) ->
+    {ok, transfer_state(), map()}.
+init_transfer_state_and_container_opts(Buffer, Opts) ->
     #{
-        container := #{type := ContainerType},
+        container := #{type := ContainerType} = ContainerOpts,
         upload_options := #{
             action := ActionName,
             database := Database,
@@ -463,7 +463,7 @@ init_transfer_state(Buffer, Opts) ->
     FilenameTemplate = emqx_template:parse(
         <<"${buffer_datetime}_${buffer_seq}_${seq_no}.${container_type}">>
     ),
-    #{
+    TransferState = #{
         action_name => ActionName,
 
         buffer_seq => BufferSeq,
@@ -488,7 +488,8 @@ init_transfer_state(Buffer, Opts) ->
 
         max_block_size => MaxBlockSize,
         min_block_size => MinBlockSize
-    }.
+    },
+    {ok, TransferState, ContainerOpts}.
 
 -spec process_append(iodata(), transfer_state()) ->
     transfer_state().

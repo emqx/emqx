@@ -1,0 +1,166 @@
+{
+  "type": "record",
+  "fields": [
+    {
+      "name": "boolean",
+      "field-id": 1,
+      "type": "boolean"
+    },
+    {
+      "name": "integer",
+      "field-id": 2,
+      "type": "int"
+    },
+    {
+      "name": "long",
+      "field-id": 3,
+      "type": "long"
+    },
+    {
+      "name": "float",
+      "field-id": 4,
+      "type": "float"
+    },
+    {
+      "name": "double",
+      "field-id": 5,
+      "type": "double"
+    },
+    {
+      "name": "decimal",
+      "field-id": 6,
+      "type": {
+        "type": "fixed",
+        "size": 14,
+        "logicalType": "decimal",
+        "precision": 32,
+        "scale": 3,
+        "name": "decimal_32_3"
+      }
+    },
+    {
+      "name": "date",
+      "field-id": 7,
+      "type": {
+        "type": "int",
+        "logicalType": "date"
+      }
+    },
+    {
+      "name": "time",
+      "field-id": 8,
+      "type": {
+        "type": "long",
+        "logicalType": "time-micros"
+      }
+    },
+    {
+      "name": "timestamp",
+      "field-id": 9,
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-micros",
+        "adjust-to-utc": false
+      }
+    },
+    {
+      "name": "timestamptz",
+      "field-id": 10,
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-micros",
+        "adjust-to-utc": true
+      }
+    },
+    {
+      "name": "string",
+      "field-id": 11,
+      "type": "string"
+    },
+    {
+      "name": "uuid",
+      "field-id": 12,
+      "type": {
+        "type": "fixed",
+        "size": 16,
+        "logicalType": "uuid",
+        "name": "uuid_fixed"
+      }
+    },
+    {
+      "name": "fixed",
+      "field-id": 14,
+      "type": {
+        "type": "fixed",
+        "size": 12,
+        "name": "fixed_12"
+      }
+    },
+    {
+      "name": "binary",
+      "field-id": 13,
+      "type": "bytes"
+    },
+    {
+      "name": "list",
+      "field-id": 15,
+      "type": {
+        "type": "array",
+        "element-id": 16,
+        "items": "string"
+      }
+    },
+    {
+      "name": "map",
+      "field-id": 17,
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "k18_v19",
+          "fields": [
+            {
+              "name": "key",
+              "type": "string",
+              "field-id": 18
+            },
+            {
+              "name": "value",
+              "type": "int",
+              "field-id": 19
+            }
+          ]
+        },
+        "logicalType": "map"
+      }
+    },
+    {
+      "name": "struct",
+      "field-id": 20,
+      "type": [
+        "null",
+        {
+          "type": "record",
+          "fields": [
+            {
+              "name": "inner_string",
+              "field-id": 21,
+              "type": [
+                "null",
+                "string"
+              ],
+              "default": null
+            },
+            {
+              "name": "inner_int",
+              "field-id": 22,
+              "type": "int"
+            }
+          ],
+          "name": "r20"
+        }
+      ],
+      "default": null
+    }
+  ]
+}

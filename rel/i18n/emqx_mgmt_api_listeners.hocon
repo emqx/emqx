@@ -50,5 +50,68 @@ restart_on_all_nodes.desc:
 restart_on_all_nodes.label:
 """Restart listener"""
 
+max_connections {
+    desc: "Maximum number of connections configured for a listener."
+    label: "Max Connections"
+}
+
+current_connections {
+    desc: "Current number of connections."
+    label: "Current Connections"
+}
+
+node_name {
+    desc: "Node Name",
+    label: "Node Name"
+}
+
+listener_type {
+    desc: "Type of the listener (tcp, ssl, ws, wss, quic)"
+    label: "Listener Type"
+}
+
+listener_id {
+    desc: "The identifier of the listener, in the format of {type}:{name}, e.g. 'tcp:default', 'ssl:default', etc."
+    label: "Listener ID"
+}
+
+listener_enable {
+    desc: "Whether the listener is enabled."
+    label: "Enable"
+}
+
+listener_ids {
+    desc: "List of listener identifiers."
+    label: "Listener IDs"
+}
+listener_id_count {
+    desc: "Number of nodes where this listener is running."
+    label: "Node Count"
+}
+
+listener_name {
+    desc: "Name of the listener."
+    label: "Listener Name"
+}
+
+listener_bind_addr {
+    desc: "The IP address and port that the listener binds to."
+    label: "Bind Address"
+}
+
+listener_acceptors {
+    desc: "Number of acceptors for a listener."
+    label: "Acceptors"
+}
+
+listener_running_status {
+    desc: "Running status of the listener. Can be 'true', 'false' or 'inconsistent' when nodes have different running status."
+    label: "Running Status"
+}
+
+listener_status {
+    desc: "Status of the listener. 'true' for running, otherwise 'false'."
+    label: "Listener Status"
+}
 
 }

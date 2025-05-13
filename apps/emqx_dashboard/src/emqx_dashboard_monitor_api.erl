@@ -7,7 +7,7 @@
 -include("emqx_dashboard.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
--include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -behaviour(minirest_api).
@@ -155,7 +155,7 @@ fields_current(Names) ->
 monitor(get, #{query_string := QS, bindings := Bindings}) ->
     Latest = maps:get(<<"latest">>, QS, infinity),
     RawNode = maps:get(node, Bindings, <<"all">>),
-    emqx_utils_api:with_node_or_cluster(RawNode, dashboard_samplers_fun(Latest));
+    emqx_mgmt_api_lib:with_node_or_cluster(RawNode, dashboard_samplers_fun(Latest));
 monitor(delete, _) ->
     Nodes = emqx:running_nodes(),
     Results = emqx_dashboard_proto_v2:clear_table(Nodes),
@@ -178,7 +178,7 @@ dashboard_samplers_fun(Latest) ->
 
 monitor_current(get, #{bindings := Bindings}) ->
     RawNode = maps:get(node, Bindings, <<"all">>),
-    case emqx_utils_api:with_node_or_cluster(RawNode, fun current_rate/1) of
+    case emqx_mgmt_api_lib:with_node_or_cluster(RawNode, fun current_rate/1) of
         ?OK(Rates) ->
             ?OK(maybe_reject_cluster_only_metrics(RawNode, Rates));
         Error ->

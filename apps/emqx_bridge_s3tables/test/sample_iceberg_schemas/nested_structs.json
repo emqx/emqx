@@ -1,0 +1,29 @@
+{
+  "type": "struct",
+  "schema-id": 1,
+  "fields": [
+    {
+      "id": 1,
+      "name": "outer",
+      "type": {
+        "type": "struct",
+        "fields": [
+          {
+            "id": 2,
+            "name": "inner",
+            "type": {
+              "type": "struct",
+              "fields": [
+                {
+                  "id": 3,
+                  "name": "innermost",
+                  "type": "int"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

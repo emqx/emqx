@@ -58,18 +58,10 @@ jobs:
         run: |
           set -euxo pipefail
           git fetch origin
-          BASE_BRANCH="$(git branch --remotes --list 'origin/release-5?' | sort -r | head -n 1 | cut -d '/' -f 2)"
+          BASE_BRANCH="$(git branch --remotes --list 'origin/release-5?' 'origin/release-5??' | sort -rV | head -n 1 | cut -d '/' -f 2)"
           NEW_BRANCH="bump-${EMQX_NAME}-dashboard-version-$(date +"%Y%m%d-%H%M%S")"
           git checkout -b ${NEW_BRANCH} --track origin/${BASE_BRANCH}
-
-          case "${EMQX_NAME}" in
-            emqx)
-              sed -i "s|EMQX_DASHBOARD_VERSION ?= .*|EMQX_DASHBOARD_VERSION ?= ${DASHBOARD_VERSION}|" Makefile
-              ;;
-            emqx-enterprise)
-              sed -i "s|EMQX_EE_DASHBOARD_VERSION ?= .*|EMQX_EE_DASHBOARD_VERSION ?= ${DASHBOARD_VERSION}|" Makefile
-              ;;
-          esac
+          sed -i "s|EMQX_EE_DASHBOARD_VERSION ?= .*|EMQX_EE_DASHBOARD_VERSION ?= ${DASHBOARD_VERSION}|" Makefile
           git add Makefile
           git commit -m "chore: bump dashboard version"
           git push origin ${NEW_BRANCH}:${NEW_BRANCH}

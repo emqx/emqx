@@ -78,7 +78,12 @@ schema("/listeners") ->
                 {type,
                     ?HOCON(
                         ?ENUM(listeners_type()),
-                        #{desc => "Listener type", in => query, required => false, example => tcp}
+                        #{
+                            desc => ?DESC(listener_type),
+                            in => query,
+                            required => false,
+                            example => tcp
+                        }
                     )}
             ],
             responses => #{
@@ -194,7 +199,7 @@ fields(listener_id) ->
     [
         {id,
             ?HOCON(atom(), #{
-                desc => "Listener id",
+                desc => ?DESC(listener_id),
                 example => 'tcp:demo',
                 validator => fun validate_id/1,
                 required => true,
@@ -205,32 +210,33 @@ fields(node) ->
     [
         {"node",
             ?HOCON(atom(), #{
-                desc => "Node name",
+                desc => ?DESC(node_name),
                 example => "emqx@127.0.0.1",
                 in => path
             })}
     ];
 fields(listener_type_status) ->
     [
-        {type, ?HOCON(?ENUM(listeners_type()), #{desc => "Listener type", required => true})},
-        {enable, ?HOCON(boolean(), #{desc => "Listener enable", required => true})},
-        {ids, ?HOCON(?ARRAY(string()), #{desc => "Listener Ids", required => true})},
+        {type, ?HOCON(?ENUM(listeners_type()), #{desc => ?DESC(listener_type), required => true})},
+        {enable, ?HOCON(boolean(), #{desc => ?DESC("listener_enable"), required => true})},
+        {ids, ?HOCON(?ARRAY(string()), #{desc => ?DESC("listener_ids"), required => true})},
         {status, ?HOCON(?R_REF(status))},
         {node_status, ?HOCON(?ARRAY(?R_REF(node_status)))}
     ];
 fields(listener_id_status) ->
     fields(listener_id) ++
         [
-            {type, ?HOCON(?ENUM(listeners_type()), #{desc => "Listener type", required => true})},
-            {name, ?HOCON(string(), #{desc => "Listener name", required => true})},
-            {enable, ?HOCON(boolean(), #{desc => "Listener enable", required => true})},
-            {number, ?HOCON(typerefl:pos_integer(), #{desc => "ListenerId counter"})},
+            {type,
+                ?HOCON(?ENUM(listeners_type()), #{desc => ?DESC(listener_type), required => true})},
+            {name, ?HOCON(string(), #{desc => ?DESC("listener_name"), required => true})},
+            {enable, ?HOCON(boolean(), #{desc => ?DESC("listener_enable"), required => true})},
+            {number, ?HOCON(typerefl:pos_integer(), #{desc => ?DESC("listener_id_count")})},
             {bind,
                 ?HOCON(
                     emqx_schema:ip_port(),
-                    #{desc => "Listener bind addr", required => true}
+                    #{desc => ?DESC("listener_bind_addr"), required => true}
                 )},
-            {acceptors, ?HOCON(typerefl:pos_integer(), #{desc => "ListenerId acceptors"})},
+            {acceptors, ?HOCON(typerefl:pos_integer(), #{desc => ?DESC("listener_acceptors")})},
             {status, ?HOCON(?R_REF(status))},
             {node_status, ?HOCON(?ARRAY(?R_REF(node_status)))}
         ];
@@ -239,17 +245,17 @@ fields(status) ->
         {running,
             ?HOCON(
                 hoconsc:union([inconsistent, boolean()]),
-                #{desc => "Listener running status", required => true}
+                #{desc => ?DESC("listener_running_status"), required => true}
             )},
         {max_connections,
-            ?HOCON(hoconsc:union([infinity, integer()]), #{desc => "Max connections"})},
-        {current_connections, ?HOCON(non_neg_integer(), #{desc => "Current connections"})}
+            ?HOCON(hoconsc:union([infinity, integer()]), #{desc => ?DESC(max_connections)})},
+        {current_connections, ?HOCON(non_neg_integer(), #{desc => ?DESC(current_connections)})}
     ];
 fields(node_status) ->
     [
         {"node",
             ?HOCON(atom(), #{
-                desc => "Node name",
+                desc => ?DESC(node_name),
                 example => "emqx@127.0.0.1"
             })},
         {status, ?HOCON(?R_REF(status))}
@@ -323,18 +329,22 @@ listeners_info(Opts) ->
                 ref => ?R_REF(Ref),
                 listener_type => ListenerType,
                 schema => [
-                    {type, ?HOCON(?ENUM([TypeAtom]), #{desc => "Listener type", required => true})},
-                    {running, ?HOCON(boolean(), #{desc => "Listener status", required => false})},
+                    {type,
+                        ?HOCON(?ENUM([TypeAtom]), #{
+                            desc => ?DESC("listener_type"), required => true
+                        })},
+                    {running,
+                        ?HOCON(boolean(), #{desc => ?DESC("listener_status"), required => false})},
                     {id,
                         ?HOCON(atom(), #{
-                            desc => "Listener id",
+                            desc => ?DESC("listener_id"),
                             required => true,
                             validator => fun validate_id/1
                         })},
                     {current_connections,
                         ?HOCON(
                             non_neg_integer(),
-                            #{desc => "Current connections", required => false}
+                            #{desc => ?DESC("current_connections"), required => false}
                         )}
                     | Fields3
                 ]
@@ -849,7 +859,7 @@ listener_struct_with_name(Type) ->
         BaseSchema,
         {name,
             ?HOCON(binary(), #{
-                desc => "Listener name",
+                desc => ?DESC("listener_name"),
                 required => true
             })}
     ).

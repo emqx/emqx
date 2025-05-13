@@ -6,7 +6,7 @@ set -euo pipefail
 
 # NOTE: PROFILE_STR may not be exactly PROFILE (emqx or emqx-enterprise)
 # it might be with suffix such as -pkg etc.
-PROFILE_STR="${1}"
+PROFILE_STR="${1:-emqx-enterprise}"
 
 case "$PROFILE_STR" in
     *enterprise*)
@@ -25,7 +25,7 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 # generate merged config files and English translation of the desc (desc.en.hocon)
 ./scripts/merge-config.escript
 
-I18N_REPO_BRANCH="v$(./pkg-vsn.sh "${PROFILE_STR}" | tr -d '.' | cut -c 1-2)"
+I18N_REPO_BRANCH="v$(./pkg-vsn.sh "${PROFILE_STR}" | cut -d'.' -f1,2 | tr -d '.')"
 
 DOWNLOAD_I18N_TRANSLATIONS=${DOWNLOAD_I18N_TRANSLATIONS:-true}
 # download desc (i18n) translations

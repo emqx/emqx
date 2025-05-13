@@ -404,9 +404,9 @@ create_connector_api(Config) ->
     create_connector_api(Config, _Overrides = #{}).
 
 create_connector_api(Config, Overrides) ->
-    ConnectorConfig0 = ?config(connector_config, Config),
-    ConnectorName = ?config(connector_name, Config),
-    ConnectorType = ?config(connector_type, Config),
+    ConnectorConfig0 = get_value(connector_config, Config),
+    ConnectorName = get_value(connector_name, Config),
+    ConnectorType = get_value(connector_type, Config),
     ConnectorConfig = emqx_utils_maps:deep_merge(ConnectorConfig0, Overrides),
     create_connector_api(ConnectorName, ConnectorType, ConnectorConfig).
 
@@ -982,12 +982,20 @@ t_rule_action(TCConfig, Opts) ->
             Context#{payload => Payload}
         end
     ),
+    RuleCreationOpts = maps:with([sql, rule_topic], Opts),
+    CreateBridgeFn = maps:get(create_bridge_fn, Opts, fun() ->
+        ?assertMatch({ok, _}, create_bridge_api(TCConfig))
+    end),
     ?check_trace(
         begin
             #{type := Type} = get_common_values(TCConfig),
-            ?assertMatch({ok, _}, create_bridge_api(TCConfig)),
-            RuleTopic = emqx_topic:join([<<"test">>, emqx_utils_conv:bin(Type)]),
-            {ok, _} = create_rule_and_action_http(Type, RuleTopic, TCConfig),
+            CreateBridgeFn(),
+            RuleTopic = maps:get(
+                rule_topic,
+                RuleCreationOpts,
+                emqx_topic:join([<<"test">>, emqx_utils_conv:bin(Type)])
+            ),
+            {ok, _} = create_rule_and_action_http(Type, RuleTopic, TCConfig, RuleCreationOpts),
             ResourceId = resource_id(TCConfig),
             ?retry(
                 _Sleep = 1_000,
@@ -1430,9 +1438,13 @@ t_aggreg_upload_restart_corrupted(TCConfig, Opts) ->
             ct:pal("published second batch"),
 
             %% Wait until the delivery is completed.
-            {ok, _} = ?block_until(#{
-                ?snk_kind := connector_aggreg_delivery_completed, action := AggregId
-            }),
+            {ok, _} = ?block_until(
+                #{
+                    ?snk_kind := connector_aggreg_delivery_completed,
+                    action := AggregId,
+                    transfer := T
+                } when T /= empty
+            ),
             ct:pal("delivery completed"),
 
             MessageCheckFn(Context3)
@@ -1736,3 +1748,26 @@ auth_header() ->
     end.
 
 bin(X) -> emqx_utils_conv:bin(X).
+
+common_connector_resource_opts() ->
+    #{
+        <<"health_check_interval">> => <<"1s">>,
+        <<"start_after_created">> => true,
+        <<"start_timeout">> => <<"5s">>
+    }.
+
+common_action_resource_opts() ->
+    #{
+        <<"batch_size">> => 1,
+        <<"batch_time">> => <<"0ms">>,
+        <<"buffer_mode">> => <<"memory_only">>,
+        <<"buffer_seg_bytes">> => <<"10MB">>,
+        <<"health_check_interval">> => <<"1s">>,
+        <<"inflight_window">> => 100,
+        <<"max_buffer_bytes">> => <<"256MB">>,
+        <<"metrics_flush_interval">> => <<"1s">>,
+        <<"query_mode">> => <<"sync">>,
+        <<"request_ttl">> => <<"15s">>,
+        <<"resume_interval">> => <<"1s">>,
+        <<"worker_pool_size">> => 1
+    }.

@@ -30,10 +30,10 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:ensure_loaded(emqx_conf) of
-        true ->
-            Config;
+    case emqx_common_test_helpers:is_standalone_test() of
         false ->
+            Config;
+        true ->
             {skip, standalone_not_supported}
     end.
 

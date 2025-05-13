@@ -1,0 +1,50 @@
+emqx_bridge_s3tables_action_schema {
+  s3tables {
+    label: """Upload to S3Tables"""
+    desc:
+    """Action that takes incoming events and appends them to S3Tables."""
+  }
+
+  action_parameters {
+    label: """S3Tables action parameters"""
+    desc:
+    """Set of parameters for the action."""
+  }
+
+  s3_upload {
+    label: """S3 upload parameters"""
+    desc:
+    """Set of parameters to control S3 uploads."""
+  }
+
+  aggregation {
+    label: """Aggregation parameters"""
+    desc:
+    """Set of parameters governing the aggregation process."""
+  }
+
+  aggregation_interval {
+    label: """Time interval"""
+    desc:
+    """Amount of time events will be aggregated in a single file on each node before uploading."""
+  }
+
+  aggregation_max_records {
+    label: """Maximum number of records"""
+    desc:
+    """Number of records (events) allowed per each aggregated file. Each aggregated upload will contain no more than that number of events, but may contain less."""
+  }
+
+  namespace {
+    label: """Namespace"""
+    desc:
+    """Namespace to be used, with its parts joined by dots.  For example: `my.namespace`."""
+  }
+
+  table {
+    label: """Table"""
+    desc:
+    """Table to be used with this action."""
+  }
+
+}

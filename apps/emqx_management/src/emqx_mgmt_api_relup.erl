@@ -462,7 +462,7 @@ validate_name(Name) ->
     end.
 
 '/relup/status/:node'(get, #{bindings := #{node := NodeNameStr}}) ->
-    emqx_utils_api:with_node(
+    emqx_mgmt_api_lib:with_node(
         NodeNameStr,
         fun
             (Node) when node() =:= Node ->
@@ -479,7 +479,7 @@ validate_name(Name) ->
 
 '/relup/upgrade/:node'(post, #{bindings := #{node := NodeNameStr}}) ->
     ?ASSERT_PKG_READY(
-        emqx_utils_api:with_node(
+        emqx_mgmt_api_lib:with_node(
             NodeNameStr,
             fun
                 (Node) when node() =:= Node ->

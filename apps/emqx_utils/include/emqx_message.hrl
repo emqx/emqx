@@ -25,15 +25,15 @@
     %% Message from
     from :: atom() | binary(),
     %% Message flags
-    flags = #{} :: emqx_types:flags(),
+    flags = #{} :: emqx_utils_types:flags(),
     %% Message headers. May contain any metadata. e.g. the
     %% protocol version number, username, peerhost or
     %% the PUBLISH properties (MQTT 5.0).
-    headers = #{} :: emqx_types:headers(),
+    headers = #{} :: emqx_utils_types:headers(),
     %% Topic that the message is published to
-    topic :: emqx_types:topic(),
+    topic :: binary(),
     %% Message Payload
-    payload :: emqx_types:payload(),
+    payload :: iodata(),
     %% Timestamp (Unit: millisecond)
     timestamp :: integer(),
     %% Miscellaneous extensions, currently used for OpenTelemetry context propagation

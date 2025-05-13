@@ -21,10 +21,12 @@
 
 -callback new(new_opts()) -> container().
 
--callback fill([emqx_connector_aggregator:record()], Container) -> {iodata(), Container} when
+-callback fill([emqx_connector_aggregator:record()], Container) ->
+    {iodata() | term(), Container}
+when
     Container :: container().
 
--callback close(container()) -> iodata().
+-callback close(container()) -> iodata() | term().
 
 %%-----------------------------------------------------------------------------
 %% API
@@ -34,11 +36,13 @@
 new(Mod, Opts) ->
     Mod:new(Opts).
 
--spec fill(module(), [emqx_connector_aggregator:record()], Container) -> {iodata(), Container} when
+-spec fill(module(), [emqx_connector_aggregator:record()], Container) ->
+    {iodata() | term(), Container}
+when
     Container :: container().
 fill(Mod, Records, Container) ->
     Mod:fill(Records, Container).
 
--spec close(module(), container()) -> iodata().
+-spec close(module(), container()) -> iodata() | term().
 close(Mod, Container) ->
     Mod:close(Container).

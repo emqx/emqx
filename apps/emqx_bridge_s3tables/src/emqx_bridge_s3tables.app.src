@@ -1,0 +1,17 @@
+{application, emqx_bridge_s3tables, [
+    {description, "EMQX Enterprise S3tables Bridge"},
+    {vsn, "1.0.0"},
+    {registered, []},
+    {mod, {emqx_bridge_s3tables_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_resource,
+        emqx_s3,
+        emqx_connector_aggregator
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.
