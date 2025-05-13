@@ -782,7 +782,7 @@ t_fuzz(_Config) ->
     %% development:
     NTests = 100,
     MaxSize = 300,
-    NCommandsFactor = 3,
+    NCommandsFactor = 2,
     ?run_prop(
         #{
             proper => #{
@@ -819,8 +819,7 @@ t_fuzz(_Config) ->
                 ct:log(info, "*** Session state:~n  ~p~n", [
                     emqx_persistent_session_ds_fuzzer:sut_state()
                 ]),
-                %% TODO: this is for debugging, remove:
-                ct:log(info, "*** Persistent session DB:~n  ~p~n", [
+                ct:log(debug, "*** Persistent session DB:~n  ~p~n", [
                     emqx_ds:dirty_read(sessions, ['#'])
                 ]),
                 ct:log("*** Result:~n  ~p~n", [Result]),

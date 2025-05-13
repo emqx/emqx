@@ -45,12 +45,19 @@ print(#conflict_tree{min_serial = Min, max_serial = Max, old_trie = Old, trie = 
         current => gb_trees:to_list(Current)
     }.
 
-%% @doc Replace all topic levels in a filter that follow a wildcard
-%% levels with '#'
+%% @doc Translate topic filter to conflict domain. This function
+%% replaces all topic levels following a wildcard (+ or #) with #
 -spec topic_filter_to_conflict_domain(emqx_ds:topic_filter()) -> conflict_domain().
 topic_filter_to_conflict_domain(TF) ->
     tf2cd(TF, []).
 
+%% @doc Create a new conflict tracking trie.
+%%
+%% @param MinSerial Transaction serial at the time of creation.
+%%
+%% @param RotateEvery Automatically rotate the trie when the tracked
+%% serial interval reaches this value. Atom `infinity' disable
+%% automatic rotation.
 -spec new(emqx_ds:tx_serial(), pos_integer() | infinity) -> t().
 new(MinSerial, RotateEvery) when RotateEvery > 0; RotateEvery =:= infinity ->
     #conflict_tree{
@@ -60,6 +67,7 @@ new(MinSerial, RotateEvery) when RotateEvery > 0; RotateEvery =:= infinity ->
         old_max_serial = MinSerial
     }.
 
+%% @doc Add a new conflict domain to the trie.
 -spec push(conflict_domain(), emqx_ds:tx_serial(), t()) -> t().
 push(
     CD,
@@ -78,8 +86,9 @@ push(
             }
     end.
 
-%% @doc Return `false' if there are no entries with **greater** serial
-%% in the tracked conflict range.
+%% @doc Return `false' if there are no entries with serial **greater**
+%% than `Serial' in the tracked conflict range. Otherwise, return
+%% `true'.
 -spec is_dirty(conflict_domain(), emqx_ds:tx_serial(), t()) -> boolean().
 is_dirty(
     _CD,
@@ -96,6 +105,11 @@ is_dirty(
     check_dirty(CD, Serial, Trie) orelse
         check_dirty(CD, Serial, OldTrie).
 
+%% @doc This function is used to reduce size of the trie by removing old
+%% conflicts.
+%%
+%% It moves `current' trie to `old', empties the current trie, and
+%% shrinks the tracked interval.
 -spec rotate(t()) -> t().
 rotate(S = #conflict_tree{old_max_serial = OldMax, max_serial = Max, trie = Trie}) ->
     S#conflict_tree{
@@ -290,6 +304,7 @@ is_dirty1_test() ->
     ?clean(['#'], 5, Trie),
     ?clean(['#'], 5, rotate(Trie)).
 
+%% Test is_dirty on a trie with wildcards:
 is_dirty2_test() ->
     D1 = {[<<1>>], 2},
     D2 = {[<<1>>, <<2>>, '#'], 3},
