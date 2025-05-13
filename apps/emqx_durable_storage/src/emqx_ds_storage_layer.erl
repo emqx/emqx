@@ -1473,7 +1473,7 @@ iterator_to_binary(_DB, Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inne
 binary_to_iterator(_DB, Bin) ->
     case 'DSBuiltinMetadata':decode('It', Bin) of
         {ok, {endOfStream, _}} ->
-            end_of_stream;
+            {ok, end_of_stream};
         {ok,
             {value, #'Iterator'{
                 shard = Shard,
@@ -1492,7 +1492,7 @@ binary_to_iterator(_DB, Bin) ->
                     _ ->
                         InnerRec
                 end,
-            {Shard, #{?tag => ?IT, ?generation => GenId, ?enc => Inner}};
+            {ok, Shard, #{?tag => ?IT, ?generation => GenId, ?enc => Inner}};
         Err ->
             Err
     end.

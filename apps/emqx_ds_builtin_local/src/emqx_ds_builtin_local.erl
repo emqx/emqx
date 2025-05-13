@@ -582,13 +582,19 @@ binary_to_stream(DB, Bin) ->
         {ok, ?stream(Shard, Inner)}
     end.
 
+iterator_to_binary(DB, end_of_stream) ->
+    emqx_ds_storage_layer:iterator_to_binary(DB, undefined, end_of_stream);
 iterator_to_binary(DB, #{?tag := ?IT, ?shard := Shard, ?enc := Inner}) ->
     emqx_ds_storage_layer:iterator_to_binary(DB, Shard, Inner).
 
 binary_to_iterator(DB, Bin) ->
-    maybe
-        {Shard, Inner} ?= emqx_ds_storage_layer:binary_to_iterator(DB, Bin),
-        {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Inner}}
+    case emqx_ds_storage_layer:binary_to_iterator(DB, Bin) of
+        {ok, end_of_stream} = EOS ->
+            EOS;
+        {ok, Shard, Inner} ->
+            {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Inner}};
+        Err ->
+            Err
     end.
 
 %%================================================================================
