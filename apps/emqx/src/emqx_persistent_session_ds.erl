@@ -1512,32 +1512,36 @@ update_seqno(
 ) ->
     %% TODO: we pass a bogus message into the hook:
     Msg = emqx_message:make(SessionId, <<>>, <<>>),
-    SeqNo = packet_id_to_seqno(PacketId, S0),
     case Track of
         puback ->
             QoS = ?QOS_1,
-            SeqNoKey = ?committed(?QOS_1),
-            Result = emqx_persistent_session_ds_inflight:puback(SeqNo, Inflight0);
+            SeqNoKey = ?committed(?QOS_1);
         pubcomp ->
             QoS = ?QOS_2,
-            SeqNoKey = ?committed(?QOS_2),
-            Result = emqx_persistent_session_ds_inflight:pubcomp(SeqNo, Inflight0);
+            SeqNoKey = ?committed(?QOS_2);
         pubrec ->
             QoS = ?QOS_2,
-            SeqNoKey = ?rec,
-            Result = emqx_persistent_session_ds_inflight:pubrec(SeqNo, Inflight0)
+            SeqNoKey = ?rec
     end,
+    TrackSeqNo = emqx_persistent_session_ds_state:get_seqno(SeqNoKey, S0),
+    PacketSeqNo = packet_id_to_seqno(PacketId, TrackSeqNo),
+    Result =
+        case Track of
+            puback -> emqx_persistent_session_ds_inflight:puback(PacketSeqNo, Inflight0);
+            pubcomp -> emqx_persistent_session_ds_inflight:pubcomp(PacketSeqNo, Inflight0);
+            pubrec -> emqx_persistent_session_ds_inflight:pubrec(PacketSeqNo, Inflight0)
+        end,
     case Result of
         {ok, Inflight} when Track =:= pubrec ->
-            S = put_seqno(SeqNoKey, SeqNo, S0),
+            S = put_seqno(SeqNoKey, PacketSeqNo, S0),
             Session = Session0#{inflight := Inflight, s := S},
             {ok, Msg, schedule_delivery(Session)};
         {ok, Inflight1} ->
             {UnblockedStreams, S1, SchedS} =
                 emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
-                    QoS, SeqNo, S0, SchedS0
+                    QoS, PacketSeqNo, S0, SchedS0
                 ),
-            S2 = put_seqno(SeqNoKey, SeqNo, S1),
+            S2 = put_seqno(SeqNoKey, PacketSeqNo, S1),
             {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
                 S2, SharedSubS0, UnblockedStreams
             ),
@@ -1568,9 +1572,9 @@ update_seqno(
                 #{
                     track => Track,
                     packet_id => PacketId,
-                    packet_seqno => SeqNo,
+                    packet_seqno => PacketSeqNo,
                     expected => Expected,
-                    track_seqno => emqx_persistent_session_ds_state:get_seqno(SeqNoKey, S0)
+                    track_seqno => TrackSeqNo
                 }
             ),
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
@@ -1590,17 +1594,16 @@ update_seqno(
 
 %% Reconstruct session counter by adding most significant bits from
 %% the current counter to the packet id:
--spec packet_id_to_seqno(emqx_types:packet_id(), emqx_persistent_session_ds_state:t()) ->
+-spec packet_id_to_seqno(emqx_types:packet_id(), seqno()) ->
     seqno().
-packet_id_to_seqno(PacketId, S) ->
-    NextSeqNo = emqx_persistent_session_ds_state:get_seqno(?next(packet_id_to_qos(PacketId)), S),
+packet_id_to_seqno(PacketId, NextSeqNo) ->
     Epoch = NextSeqNo bsr ?EPOCH_BITS,
     SeqNo = (Epoch bsl ?EPOCH_BITS) + (PacketId band ?PACKET_ID_MASK),
-    case SeqNo =< NextSeqNo of
+    case SeqNo < NextSeqNo of
         true ->
-            SeqNo;
+            SeqNo + ?EPOCH_SIZE;
         false ->
-            SeqNo - ?EPOCH_SIZE
+            SeqNo
     end.
 
 -spec inc_seqno(?QOS_1 | ?QOS_2, seqno()) -> emqx_types:packet_id().
@@ -1621,9 +1624,6 @@ seqno_to_packet_id(?QOS_1, SeqNo) ->
     SeqNo band ?PACKET_ID_MASK;
 seqno_to_packet_id(?QOS_2, SeqNo) ->
     SeqNo band ?PACKET_ID_MASK bor ?EPOCH_SIZE.
-
-packet_id_to_qos(PacketId) ->
-    PacketId bsr ?EPOCH_BITS + 1.
 
 seqno_diff(QoS, A, B, S) ->
     seqno_diff(
@@ -1888,7 +1888,7 @@ next_seqno_gen() ->
     ?LET(
         {Epoch, Offset},
         {non_neg_integer(), range(0, ?EPOCH_SIZE)},
-        Epoch bsl ?EPOCH_BITS + Offset
+        (Epoch bsl ?EPOCH_BITS) + Offset
     ).
 
 %%%% Property-based tests:
@@ -1954,18 +1954,7 @@ seqno_diff_prop() ->
 seqno_proper_test_() ->
     Props = [packet_id_to_seqno_prop(), inc_seqno_prop(), seqno_diff_prop()],
     Opts = [{numtests, 1000}, {to_file, user}],
-    {timeout, 30,
-        {setup,
-            fun() ->
-                meck:new(emqx_persistent_session_ds_state, [no_history]),
-                ok = meck:expect(emqx_persistent_session_ds_state, get_seqno, fun(_Track, SeqNo) ->
-                    SeqNo
-                end)
-            end,
-            fun(_) ->
-                meck:unload(emqx_persistent_session_ds_state)
-            end,
-            [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}}.
+    {timeout, 30, [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}.
 
 apply_n_times(0, _Fun, A) ->
     A;
