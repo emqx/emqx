@@ -1,17 +1,5 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
 %%--------------------------------------------------------------------
 
 %% @doc This module serves the same role as `emqx_ds_buffer', but it's
@@ -80,6 +68,7 @@
 -define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
 
 %% States
+-define(leader(SUBSTATE), {leader, SUBSTATE}).
 -define(idle, idle).
 -define(pending, pending).
 
@@ -163,7 +152,7 @@ callback_mode() ->
 init([DB, Shard, CBM]) ->
     RI = 5_000,
     Serial = CBM:get_tx_serial({DB, Shard}),
-    {ok, ?idle, #d{
+    {ok, ?leader(?idle), #d{
         dbshard = {DB, Shard},
         cbm = CBM,
         rotate_interval = RI,
@@ -174,12 +163,12 @@ init([DB, Shard, CBM]) ->
         committed_serial = Serial
     }}.
 
-handle_event(enter, _OldState, ?pending, #d{flush_interval = T}) ->
+handle_event(enter, _OldState, ?leader(?pending), #d{flush_interval = T}) ->
     %% Schedule unconditional flush after the given interval:
     {keep_state_and_data, {state_timeout, T, ?timeout_flush}};
 handle_event(enter, _, _, _) ->
     keep_state_and_data;
-handle_event(cast, Tx = #ds_tx{}, State, D0) ->
+handle_event(cast, Tx = #ds_tx{}, ?leader(State), D0) ->
     %% Enqueue transaction commit:
     case handle_tx(D0, Tx) of
         {ok, D} ->
@@ -188,18 +177,21 @@ handle_event(cast, Tx = #ds_tx{}, State, D0) ->
             Timeout = {timeout, IdleInterval, ?timeout_flush},
             case State of
                 ?idle ->
-                    {next_state, ?pending, D, Timeout};
+                    {next_state, ?leader(?pending), D, Timeout};
                 _ ->
                     {keep_state, D, Timeout}
             end;
         aborted ->
             keep_state_and_data
     end;
-handle_event(ET, ?timeout_flush, _State, D0) when ET =:= state_timeout; ET =:= timeout ->
+handle_event(cast, #ds_tx{from = From, ref = Ref, meta = Meta}, _Other, _) ->
+    reply_error(From, Ref, Meta, recoverable, not_the_leader),
+    keep_state_and_data;
+handle_event(ET, ?timeout_flush, ?leader(_State), D0) when ET =:= state_timeout; ET =:= timeout ->
     %% Execute flush. After flushing the buffer it's safe to rotate
     %% the conflict tree.
     D = maybe_rotate(flush(D0)),
-    {next_state, ?idle, D};
+    {next_state, ?leader(?idle), D};
 handle_event(ET, Event, State, _D) ->
     ?tp(
         error,
