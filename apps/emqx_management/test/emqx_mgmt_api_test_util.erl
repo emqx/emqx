@@ -191,7 +191,7 @@ api_path_without_base_path(Parts) ->
 join_http_path([]) ->
     [];
 join_http_path([Part | Rest]) ->
-    lists:foldl(fun(P, Acc) -> emqx_bridge_http_connector:join_paths(Acc, P) end, Part, Rest).
+    lists:foldl(fun(P, Acc) -> emqx_utils_uri:join_path(Acc, P) end, Part, Rest).
 
 %% Usage:
 %% upload_request(<<"site.com/api/upload">>, <<"path/to/file.png">>,

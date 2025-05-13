@@ -18,6 +18,12 @@ provider_name.desc:
 provider_name.label:
 """Provider Name"""
 
+base_url.desc:
+"""Base URL for the AI provider API endpoint."""
+
+base_url.label:
+"""Base URL"""
+
 system_prompt.desc:
 """System prompt for the AI completion."""
 

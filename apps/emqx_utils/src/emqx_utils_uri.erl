@@ -14,11 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% This module provides a loose parser for URIs.
-%% The standard library's `uri_string' module is strict and does not allow
-%% to parse invalid URIs, like templates: `http://example.com/${username}'.
-
 -module(emqx_utils_uri).
+
+-moduledoc """
+This module provides a loose parser for URIs and some helper functions to work
+with URIs.
+
+The standard library's `uri_string' module is strict and does not allow
+to parse invalid URIs, like URI templates, i.e URIs of the form `http://example.com/${username}'.
+""".
 
 -export([parse/1, format/1]).
 
@@ -32,6 +36,10 @@
     fragment/1,
     base_url/1,
     request_base/1
+]).
+
+-export([
+    join_path/2
 ]).
 
 -type scheme() :: binary().
@@ -185,6 +193,28 @@ request_base(URI) when is_map(URI) ->
 request_base(URIString) when is_list(URIString) orelse is_binary(URIString) ->
     request_base(parse(URIString)).
 
+-doc """
+Join a base URL/path and a path/query string.
+
+The difficulty is that by default, we cannot treat HTTP paths
+as "file" or "resource" paths, because an HTTP server may handle paths like
+"/a/b/c/", "/a/b/c" and "/a//b/c" differently.
+
+So we try to avoid unnecessary path normalization.
+
+See also: `join_path_test_/0`
+
+Note that both arguments are allowed to be iodata().
+""".
+-spec join_path(iodata(), iodata()) -> iodata().
+join_path(Base, Path) ->
+    case starts_with_question_mark(Path) of
+        true ->
+            [Base, Path];
+        false ->
+            [without_trailing_slash(Base), $/, without_starting_slash(Path)]
+    end.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -256,8 +286,65 @@ format_query(Query) -> [$?, Query].
 format_fragment(undefined) -> <<>>;
 format_fragment(Fragment) -> [$#, Fragment].
 
+starts_with_question_mark(Path) ->
+    case take_first(Path) of
+        {$?, _} -> true;
+        _ -> false
+    end.
+
+without_starting_slash(Path) ->
+    case take_first(Path) of
+        {$/, Rest} ->
+            Rest;
+        _ ->
+            Path
+    end.
+
+without_trailing_slash(Path) ->
+    case take_last(Path) of
+        {$/, Rest} ->
+            Rest;
+        _ ->
+            Path
+    end.
+
+take_first([]) ->
+    empty;
+take_first(<<>>) ->
+    empty;
+take_first([C | Rest]) when is_integer(C) ->
+    {C, Rest};
+take_first(<<C, Rest/binary>>) ->
+    {C, Rest};
+take_first([<<>> | Rest]) ->
+    take_first(Rest);
+%% On actual lists the recursion should very quickly exhaust
+take_first([El | Rest]) ->
+    case take_first(El) of
+        {C, ElRest} -> {C, [ElRest | Rest]};
+        empty -> take_first(Rest)
+    end.
+
+take_last([]) ->
+    empty;
+take_last(<<>>) ->
+    empty;
+take_last(B) when is_binary(B) ->
+    {binary:last(B), binary_part(B, 0, byte_size(B) - 1)};
+take_last(C) when is_integer(C) ->
+    {C, []};
+%% On actual lists the recursion should very quickly exhaust
+take_last([El | Rest]) ->
+    case take_last(Rest) of
+        {C, RestPrefix} -> {C, [El | RestPrefix]};
+        empty -> take_last(El)
+    end.
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+iolists_equal(L1, L2) ->
+    iolist_to_binary(L1) =:= iolist_to_binary(L2).
 
 -define(URLS, [
     "https://www.example.com/page",
@@ -381,6 +468,73 @@ request_target_test_() ->
             {error, {unsupported_scheme, <<"ftp">>}},
             request_base(parse("ftp://localhost"))
         )
+    ].
+
+join_path_test_() ->
+    [
+        ?_assert(iolists_equal("abc/cde", join_path("abc", "cde"))),
+        ?_assert(iolists_equal("abc/cde", join_path(<<"abc">>, <<"cde">>))),
+        ?_assert(
+            iolists_equal(
+                "abc/cde",
+                join_path([["a"], <<"b">>, <<"c">>], [
+                    [[[], <<>>], <<>>, <<"c">>], <<"d">>, <<"e">>
+                ])
+            )
+        ),
+
+        ?_assert(iolists_equal("abc/cde", join_path("abc", "/cde"))),
+        ?_assert(iolists_equal("abc/cde", join_path(<<"abc">>, <<"/cde">>))),
+        ?_assert(
+            iolists_equal(
+                "abc/cde",
+                join_path([["a"], <<"b">>, <<"c">>], [
+                    [<<>>, [[], <<>>], <<"/c">>], <<"d">>, <<"e">>
+                ])
+            )
+        ),
+
+        ?_assert(iolists_equal("abc/cde", join_path("abc/", "cde"))),
+        ?_assert(iolists_equal("abc/cde", join_path(<<"abc/">>, <<"cde">>))),
+        ?_assert(
+            iolists_equal(
+                "abc/cde",
+                join_path(
+                    [
+                        [[[], [], <<>>], <<>>, [], "a", [[], [], <<>>], <<>>, []],
+                        <<"b">>,
+                        <<"c">>,
+                        [<<"/">>]
+                    ],
+                    [
+                        [[[], [], <<>>], <<>>, [], <<"c">>], <<"d">>, <<"e">>
+                    ]
+                )
+            )
+        ),
+
+        ?_assert(iolists_equal("abc/cde", join_path("abc/", "/cde"))),
+        ?_assert(iolists_equal("abc/cde", join_path(<<"abc/">>, <<"/cde">>))),
+        ?_assert(
+            iolists_equal(
+                "abc/cde",
+                join_path([["a"], <<"b">>, <<"c">>, [<<"/">>]], [
+                    [[[], <<>>], <<>>, [[$/]], <<"c">>], <<"d">>, <<"e">>
+                ])
+            )
+        ),
+
+        ?_assert(iolists_equal("/", join_path("", ""))),
+        ?_assert(iolists_equal("/cde", join_path("", "cde"))),
+        ?_assert(iolists_equal("/cde", join_path("", "/cde"))),
+        ?_assert(iolists_equal("/cde", join_path("/", "cde"))),
+        ?_assert(iolists_equal("/cde", join_path("/", "/cde"))),
+        ?_assert(iolists_equal("//cde/", join_path("/", "//cde/"))),
+        ?_assert(iolists_equal("abc///cde/", join_path("abc//", "//cde/"))),
+        ?_assert(iolists_equal("abc?v=1", join_path("abc", "?v=1"))),
+        ?_assert(iolists_equal("abc?v=1", join_path("abc", <<"?v=1">>))),
+        ?_assert(iolists_equal("abc/?v=1", join_path("abc/", <<"?v=1">>))),
+        ?_assert(iolists_equal("abc?v=1", join_path("abc", [[<<>>, [[]]], ["?v=1"]])))
     ].
 
 is_prefix(Prefix, Binary) ->
