@@ -750,7 +750,7 @@ parse_partition_field_bad_fields_test_() ->
                                 ?id := 1001,
                                 ?name := <<"a">>,
                                 ?raw := #{},
-                                ?result_type := #{},
+                                ?result_type := _,
                                 ?source_type := #{},
                                 ?get_fn := _,
                                 ?transform_fn := _
@@ -886,3 +886,112 @@ parse_base_endpoint_test_() ->
                 Parse(<<"htt:/aaa\naaa">>)
             )}
     ].
+
+transform_result_type_test_() ->
+    Identity = <<"identity">>,
+    IdentityCases = [
+        {"str, direct", Identity, <<"string">>, {ok, <<"string">>}},
+        {"str, nested field", Identity, #{<<"id">> => 1, <<"type">> => <<"string">>},
+            {ok, <<"string">>}},
+        {"timestamp_ns, nested field", Identity, #{<<"id">> => 1, <<"type">> => <<"timestamp_ns">>},
+            {ok, #{
+                <<"type">> => <<"long">>,
+                <<"logicalType">> => <<"timestamp-nanos">>,
+                <<"adjust-to-utc">> => false
+            }}}
+    ],
+    Void = <<"void">>,
+    VoidCases = [
+        {"str, direct", Void, <<"string">>, {ok, <<"string">>}},
+        {"str, nested field", Void, #{<<"id">> => 1, <<"type">> => <<"string">>},
+            {ok, <<"string">>}},
+        {"int, direct", Void, <<"int">>, {ok, <<"int">>}},
+        {"int, nested field", Void, #{<<"id">> => 1, <<"type">> => <<"int">>}, {ok, <<"int">>}}
+    ],
+    Bucket3 = <<"bucket[3]">>,
+    BucketCases = [
+        {"str, direct", Bucket3, <<"string">>, {ok, <<"int">>}},
+        {"str, nested field", Bucket3, #{<<"id">> => 1, <<"type">> => <<"string">>},
+            {ok, <<"int">>}},
+        {"int, direct", Bucket3, <<"int">>, {ok, <<"int">>}},
+        {"int, nested field", Bucket3, #{<<"id">> => 1, <<"type">> => <<"int">>}, {ok, <<"int">>}}
+    ],
+    MkCase = fun({Name, Transform, SourceIcebergType, Expected}) ->
+        {
+            fmt("~s, ~s", [Transform, Name]),
+            ?_assertEqual(
+                Expected,
+                emqx_bridge_s3tables_logic:transform_result_type(
+                    Transform,
+                    SourceIcebergType
+                )
+            )
+        }
+    end,
+    Cases = lists:map(
+        MkCase,
+        lists:concat([
+            IdentityCases,
+            VoidCases,
+            BucketCases
+        ])
+    ),
+    lists:flatten([
+        Cases,
+        {"unsupported transform",
+            ?_assertEqual(
+                {error,
+                    {unsupported_transform, <<"foobar">>, #{
+                        <<"id">> => 1, <<"type">> => <<"anything">>
+                    }}},
+                emqx_bridge_s3tables_logic:transform_result_type(
+                    <<"foobar">>,
+                    #{<<"id">> => 1, <<"type">> => <<"anything">>}
+                )
+            )}
+    ]).
+
+parse_format_version_test_() ->
+    MkTable = fun(Vsn) ->
+        LoadedTable = mk_loaded_table(#{}),
+        case Vsn of
+            undefined ->
+                emqx_utils_maps:deep_remove([<<"metadata">>, <<"format-version">>], LoadedTable);
+            _ ->
+                emqx_utils_maps:deep_put([<<"metadata">>, <<"format-version">>], LoadedTable, Vsn)
+        end
+    end,
+    [
+        {"version 2",
+            ?_assertEqual(
+                {ok, 2},
+                emqx_bridge_s3tables_logic:parse_format_version(MkTable(2))
+            )},
+        {"version 1",
+            ?_assertEqual(
+                {error, {unsupported_format_version, 1}},
+                emqx_bridge_s3tables_logic:parse_format_version(MkTable(1))
+            )},
+        {"version 3",
+            ?_assertEqual(
+                {error, {unsupported_format_version, 3}},
+                emqx_bridge_s3tables_logic:parse_format_version(MkTable(3))
+            )},
+        {"no version",
+            ?_assertEqual(
+                {error, {bad_metadata, no_format_version}},
+                emqx_bridge_s3tables_logic:parse_format_version(MkTable(undefined))
+            )}
+    ].
+
+human_readable_partition_value_unsupported_value_test() ->
+    %% Not relevant for the check
+    IceType = <<"anything">>,
+    BadValue = make_ref(),
+    ?assertThrow(
+        {unsupported_value, BadValue, IceType},
+        emqx_bridge_s3tables_logic:human_readable_partition_value(
+            BadValue,
+            IceType
+        )
+    ).

@@ -247,6 +247,6 @@ s3tables_arn_validator(ARN) ->
         error ->
             {error, <<
                 "Invalid ARN; must be of form "
-                "arn:aws:s3tables:<REGION>:<ACCOUNTID>:bucket/<BUCKET>"
+                "`arn:aws:s3tables:<REGION>:<ACCOUNTID>:bucket/<BUCKET>`"
             >>}
     end.

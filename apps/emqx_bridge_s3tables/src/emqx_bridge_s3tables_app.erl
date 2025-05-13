@@ -22,6 +22,7 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     emqx_bridge_s3tables_impl:forget_schema_files(),
+    emqx_bridge_s3tables_logic:forget_required_bytes(),
     ok.
 
 %%------------------------------------------------------------------------------

@@ -63,7 +63,8 @@ fields(?ACTION_TYPE) ->
                 required => true,
                 desc => ?DESC("parameters")
             }
-        )
+        ),
+        #{resource_opts_ref => ref(action_resource_opts)}
     );
 fields(action_parameters) ->
     [
@@ -120,6 +121,8 @@ desc(Name) when
     Name =:= parameters
 ->
     ?DESC(Name);
+desc(action_resource_opts) ->
+    ?DESC(emqx_resource_schema, "creation_opts");
 desc(_Name) ->
     undefined.
 

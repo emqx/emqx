@@ -1438,9 +1438,13 @@ t_aggreg_upload_restart_corrupted(TCConfig, Opts) ->
             ct:pal("published second batch"),
 
             %% Wait until the delivery is completed.
-            {ok, _} = ?block_until(#{
-                ?snk_kind := connector_aggreg_delivery_completed, action := AggregId
-            }),
+            {ok, _} = ?block_until(
+                #{
+                    ?snk_kind := connector_aggreg_delivery_completed,
+                    action := AggregId,
+                    transfer := T
+                } when T /= empty
+            ),
             ct:pal("delivery completed"),
 
             MessageCheckFn(Context3)

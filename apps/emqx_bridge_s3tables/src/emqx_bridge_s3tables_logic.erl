@@ -24,11 +24,16 @@ Iceberg/S3Tables operations.
     fix_previous_manifest_files/2
 ]).
 
+-export([forget_required_bytes/0]).
+
 -ifdef(TEST).
 -export([
     index_fields_by_id/1,
     mk_transform_fn/1,
-    find_partition_spec/2
+    find_partition_spec/2,
+    transform_result_type/2,
+    parse_format_version/1,
+    human_readable_partition_value/2
 ]).
 -endif.
 
@@ -530,11 +535,20 @@ iceberg_type_to_avro(<<"binary">>) ->
 iceberg_type_to_avro(Type) ->
     throw({unsupported_type, Type}).
 
+iceberg_type_to_primitive_avro(#{<<"id">> := _, <<"type">> := T}) ->
+    iceberg_type_to_avro(T);
+iceberg_type_to_primitive_avro(T) ->
+    %% Assuming it's a binary primitive
+    T.
+
 memoized_required_bytes() ->
     maybe
         undefined ?= persistent_term:get(?REQUIRED_BYTES_PT_KEY, undefined),
         memoize_required_bytes()
     end.
+
+forget_required_bytes() ->
+    persistent_term:erase(?REQUIRED_BYTES_PT_KEY).
 
 %% See `pyiceberg.utils.decimal.decimal_required_bytes`.
 memoize_required_bytes() ->
@@ -734,14 +748,14 @@ Returns the resulting Iceberg type after the partition transform function is app
 value.
 """.
 transform_result_type(<<"identity">>, SourceIceType) ->
-    {ok, SourceIceType};
+    {ok, iceberg_type_to_primitive_avro(SourceIceType)};
 transform_result_type(<<"void">>, SourceIceType) ->
-    {ok, SourceIceType};
+    {ok, iceberg_type_to_primitive_avro(SourceIceType)};
 transform_result_type(<<"bucket[", _/binary>>, _SourceIceType) ->
     {ok, <<"int">>};
 %% TODO
-transform_result_type(TransformName, _SourceIceType) ->
-    {error, {unsupported_transform, TransformName}}.
+transform_result_type(TransformName, SourceIceType) ->
+    {error, {unsupported_transform, TransformName, SourceIceType}}.
 
 mk_transform_fn(<<"identity">>) ->
     {ok, fmap(fun(X) -> X end)};
@@ -839,7 +853,7 @@ human_readable_partition_value(X, IceType) ->
 
 do_manifest_entry_avro_schema(PartitionFields, AvroScJSON, IcebergSchema) ->
     AvroPartitionFields = lists:map(
-        fun(#{id := Id, name := N, source_type := #{<<"type">> := T}}) ->
+        fun(#{?id := Id, ?name := N, ?result_type := T}) ->
             #{
                 <<"field-id">> => Id,
                 <<"name">> => N,
