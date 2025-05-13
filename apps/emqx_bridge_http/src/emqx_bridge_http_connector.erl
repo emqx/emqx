@@ -43,7 +43,7 @@
 %% for other http-like connectors.
 -export([redact_request/1]).
 
--export([validate_method/1, join_paths/2, formalize_request/2, transform_result/1]).
+-export([validate_method/1, formalize_request/2, transform_result/1]).
 
 -define(DEFAULT_PIPELINE_SIZE, 100).
 -define(DEFAULT_REQUEST_TIMEOUT_MS, 30_000).
@@ -736,7 +736,7 @@ process_request_and_action(Request, ActionState, Msg) ->
     Path =
         case PathSuffix of
             "" -> PathPrefix;
-            _ -> join_paths(PathPrefix, PathSuffix)
+            _ -> emqx_utils_uri:join_path(PathPrefix, PathSuffix)
         end,
 
     ActionHaders = maps:get(headers, ActionState),
@@ -817,67 +817,9 @@ formalize_request(Method, BasePath, {Path, Headers, _Body}) when
 ->
     formalize_request(Method, BasePath, {Path, Headers});
 formalize_request(_Method, BasePath, {Path, Headers, Body}) ->
-    {join_paths(BasePath, Path), Headers, Body};
+    {emqx_utils_uri:join_path(BasePath, Path), Headers, Body};
 formalize_request(_Method, BasePath, {Path, Headers}) ->
-    {join_paths(BasePath, Path), Headers}.
-
-%% By default, we cannot treat HTTP paths as "file" or "resource" paths,
-%% because an HTTP server may handle paths like
-%% "/a/b/c/", "/a/b/c" and "/a//b/c" differently.
-%%
-%% So we try to avoid unnecessary path normalization.
-%%
-%% See also: `join_paths_test_/0`
-join_paths(Path1, Path2) ->
-    case is_start_with_question_mark(Path2) of
-        true ->
-            [Path1, Path2];
-        false ->
-            [without_trailing_slash(Path1), $/, without_starting_slash(Path2)]
-    end.
-
-is_start_with_question_mark([$? | _]) ->
-    true;
-is_start_with_question_mark(<<$?, _/binary>>) ->
-    true;
-is_start_with_question_mark(_) ->
-    false.
-
-without_starting_slash(Path) ->
-    case do_without_starting_slash(Path) of
-        empty -> <<>>;
-        Other -> Other
-    end.
-
-do_without_starting_slash([]) ->
-    empty;
-do_without_starting_slash(<<>>) ->
-    empty;
-do_without_starting_slash([$/ | Rest]) ->
-    Rest;
-do_without_starting_slash([C | _Rest] = Path) when is_integer(C) andalso C =/= $/ ->
-    Path;
-do_without_starting_slash(<<$/, Rest/binary>>) ->
-    Rest;
-do_without_starting_slash(<<C, _Rest/binary>> = Path) when is_integer(C) andalso C =/= $/ ->
-    Path;
-%% On actual lists the recursion should very quickly exhaust
-do_without_starting_slash([El | Rest]) ->
-    case do_without_starting_slash(El) of
-        empty -> do_without_starting_slash(Rest);
-        ElRest -> [ElRest | Rest]
-    end.
-
-without_trailing_slash(Path) ->
-    case iolist_to_binary(Path) of
-        <<>> ->
-            <<>>;
-        B ->
-            case binary:last(B) of
-                $/ -> binary_part(B, 0, byte_size(B) - 1);
-                _ -> B
-            end
-    end.
+    {emqx_utils_uri:join_path(BasePath, Path), Headers}.
 
 to_bin(Bin) when is_binary(Bin) ->
     Bin;
@@ -1004,9 +946,6 @@ clientid(Msg) -> maps:get(clientid, Msg, undefined).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-iolists_equal(L1, L2) ->
-    iolist_to_binary(L1) =:= iolist_to_binary(L2).
-
 redact_test_() ->
     TestData = #{
         headers => [
@@ -1016,64 +955,6 @@ redact_test_() ->
     },
     [
         ?_assertNotEqual(TestData, redact(TestData))
-    ].
-
-join_paths_test_() ->
-    [
-        ?_assert(iolists_equal("abc/cde", join_paths("abc", "cde"))),
-        ?_assert(iolists_equal("abc/cde", join_paths(<<"abc">>, <<"cde">>))),
-        ?_assert(
-            iolists_equal(
-                "abc/cde",
-                join_paths([["a"], <<"b">>, <<"c">>], [
-                    [[[], <<>>], <<>>, <<"c">>], <<"d">>, <<"e">>
-                ])
-            )
-        ),
-
-        ?_assert(iolists_equal("abc/cde", join_paths("abc", "/cde"))),
-        ?_assert(iolists_equal("abc/cde", join_paths(<<"abc">>, <<"/cde">>))),
-        ?_assert(
-            iolists_equal(
-                "abc/cde",
-                join_paths([["a"], <<"b">>, <<"c">>], [
-                    [<<>>, [[], <<>>], <<"/c">>], <<"d">>, <<"e">>
-                ])
-            )
-        ),
-
-        ?_assert(iolists_equal("abc/cde", join_paths("abc/", "cde"))),
-        ?_assert(iolists_equal("abc/cde", join_paths(<<"abc/">>, <<"cde">>))),
-        ?_assert(
-            iolists_equal(
-                "abc/cde",
-                join_paths([["a"], <<"b">>, <<"c">>, [<<"/">>]], [
-                    [[[], [], <<>>], <<>>, [], <<"c">>], <<"d">>, <<"e">>
-                ])
-            )
-        ),
-
-        ?_assert(iolists_equal("abc/cde", join_paths("abc/", "/cde"))),
-        ?_assert(iolists_equal("abc/cde", join_paths(<<"abc/">>, <<"/cde">>))),
-        ?_assert(
-            iolists_equal(
-                "abc/cde",
-                join_paths([["a"], <<"b">>, <<"c">>, [<<"/">>]], [
-                    [[[], <<>>], <<>>, [[$/]], <<"c">>], <<"d">>, <<"e">>
-                ])
-            )
-        ),
-
-        ?_assert(iolists_equal("/", join_paths("", ""))),
-        ?_assert(iolists_equal("/cde", join_paths("", "cde"))),
-        ?_assert(iolists_equal("/cde", join_paths("", "/cde"))),
-        ?_assert(iolists_equal("/cde", join_paths("/", "cde"))),
-        ?_assert(iolists_equal("/cde", join_paths("/", "/cde"))),
-        ?_assert(iolists_equal("//cde/", join_paths("/", "//cde/"))),
-        ?_assert(iolists_equal("abc///cde/", join_paths("abc//", "//cde/"))),
-        ?_assert(iolists_equal("abc?v=1", join_paths("abc", "?v=1"))),
-        ?_assert(iolists_equal("abc?v=1", join_paths("abc", <<"?v=1">>))),
-        ?_assert(iolists_equal("abc/?v=1", join_paths("abc/", <<"?v=1">>)))
     ].
 
 -endif.

@@ -65,6 +65,13 @@ fields(provider) ->
                 default => openai, required => true, desc => ?DESC(type)
             })},
         {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})},
+        {base_url,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC(base_url),
+                validator => fun emqx_schema:non_empty_string/1,
+                default => <<"https://api.openai.com/v1">>
+            })},
         {transport_options,
             mk(ref(transport_options), #{
                 default => #{},
