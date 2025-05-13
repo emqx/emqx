@@ -11,6 +11,7 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(tpal(MSG), begin
     ct:pal(MSG),
@@ -52,6 +53,100 @@ end_per_testcase(_TC, Config) ->
     ok = snabbkaffe:stop(),
     ok = emqx_cth_suite:stop_apps(?config(tc_apps, Config)),
     ok.
+
+%%
+
+now_ms() ->
+    erlang:system_time(millisecond).
+
+spy_gc_stats() ->
+    TestPid = self(),
+    meck:new(emqx_ft_storage_fs_gc, [passthrough, no_history]),
+    meck:expect(
+        emqx_ft_storage_fs_gc,
+        maybe_report,
+        fun(Stats, Storage) ->
+            case Stats of
+                #gcstats{errors = Errors} when map_size(Errors) > 0 ->
+                    ok;
+                _ ->
+                    TestPid ! {gc_report, Stats}
+            end,
+            meck:passthrough([Stats, Storage])
+        end
+    ).
+
+wait_until_gc_stats_reached(Opts) ->
+    #{timeout := Timeout} = Opts,
+    NowMS = now_ms(),
+    Deadline = NowMS + Timeout,
+    Acc0 = #{files => 0, directories => 0, space => 0},
+    Acc = maps:get(surplus, Opts, Acc0),
+    do_wait_until_gc_stats_reached(Opts#{deadline => Deadline}, Acc).
+
+do_wait_until_gc_stats_reached(Opts, Acc0) ->
+    #{
+        files := DesiredFiles,
+        directories := DesiredDirectories,
+        space := DesiredSpace,
+        deadline := Deadline
+    } = Opts,
+    #{
+        files := FilesAcc0,
+        directories := DirectoriesAcc0,
+        space := SpaceAcc0
+    } = Acc0,
+    ReachedFiles = FilesAcc0 >= DesiredFiles,
+    ReachedDirectories = DirectoriesAcc0 >= DesiredDirectories,
+    ReachedSpace = SpaceAcc0 >= DesiredSpace,
+    NowMS = now_ms(),
+    ReachedDeadline = NowMS >= Deadline,
+    Timeout = Deadline - NowMS,
+    case ReachedFiles andalso ReachedDirectories andalso ReachedSpace of
+        true ->
+            %% Might have collected more than we expected for this step, but counts
+            %% towards remaining test assertion steps.
+            FilesSurplus = FilesAcc0 - DesiredFiles,
+            DirectoriesSurplus = DirectoriesAcc0 - DesiredDirectories,
+            SpaceSurplus = SpaceAcc0 - DesiredSpace,
+            {ok, #{
+                files => FilesSurplus,
+                directories => DirectoriesSurplus,
+                space => SpaceSurplus
+            }};
+        false when ReachedDeadline ->
+            ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
+            gc_stats_deadline_error(Opts, Acc0);
+        false ->
+            receive
+                {gc_report, #gcstats{files = F, directories = D, space = S}} ->
+                    ct:pal("received gc stats:\n  ~p", [
+                        #{
+                            files => F,
+                            directories => D,
+                            space => S
+                        }
+                    ]),
+                    Acc = Acc0#{
+                        files := F + FilesAcc0,
+                        directories := D + DirectoriesAcc0,
+                        space := S + SpaceAcc0
+                    },
+                    do_wait_until_gc_stats_reached(Opts, Acc)
+            after Timeout ->
+                ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
+                gc_stats_deadline_error(Opts, Acc0)
+            end
+    end.
+
+gc_stats_deadline_error(Opts, Acc) ->
+    error(
+        {deadline_reached, #{
+            step => maps:get(step, Opts, undefined),
+            desired => maps:with([files, directories, space], Opts),
+            accumulated => Acc
+        }}
+    ).
 
 %%
 
@@ -188,6 +283,7 @@ t_gc_complete_transfers(_Config) ->
 
 t_gc_incomplete_transfers(_Config) ->
     ct:timetrap({seconds, 120}),
+    spy_gc_stats(),
     ?check_trace(
         #{timetrap => 119_000},
         begin
@@ -223,46 +319,33 @@ t_gc_incomplete_transfers(_Config) ->
             ok = emqx_ft_storage_fs_gc:reset(),
             % 3. First we need the first transfer to be collected.
             ?tpal("waiting for first garbage collection"),
-            {ok, _} = ?block_until(
-                #{
-                    ?snk_kind := garbage_collection,
-                    stats := #gcstats{
-                        files = Files,
-                        directories = 4,
-                        space = Space
-                    }
-                } when Files == (?NSEGS(S1, SS1)) andalso Space > S1,
-                infinity,
-                0
-            ),
+            {ok, Surplus1} = wait_until_gc_stats_reached(#{
+                step => first,
+                files => ?NSEGS(S1, SS1),
+                space => S1,
+                directories => 4,
+                timeout => 40_000
+            }),
             % 4. Then the second one.
             ?tpal("waiting for second garbage collection"),
-            {ok, _} = ?block_until(
-                #{
-                    ?snk_kind := garbage_collection,
-                    stats := #gcstats{
-                        files = Files,
-                        directories = 4,
-                        space = Space
-                    }
-                } when Files == (?NSEGS(S2, SS2)) andalso Space > S2,
-                infinity,
-                0
-            ),
+            {ok, Surplus2} = wait_until_gc_stats_reached(#{
+                step => second,
+                surplus => Surplus1,
+                files => ?NSEGS(S2, SS2),
+                space => S2,
+                directories => 4,
+                timeout => 40_000
+            }),
             % 5. Then transfers 3 and 4 because 3rd has too big TTL and 4th has no specific TTL.
             ?tpal("waiting for third garbage collection"),
-            {ok, _} = ?block_until(
-                #{
-                    ?snk_kind := garbage_collection,
-                    stats := #gcstats{
-                        files = Files,
-                        directories = 4 * 2,
-                        space = Space
-                    }
-                } when Files == (?NSEGS(S3, SS3) + ?NSEGS(S4, SS4)) andalso Space > S3 + S4,
-                infinity,
-                0
-            )
+            {ok, _} = wait_until_gc_stats_reached(#{
+                step => third,
+                surplus => Surplus2,
+                files => ?NSEGS(S3, SS3) + ?NSEGS(S4, SS4),
+                space => S3 + S4,
+                directories => 4 * 2,
+                timeout => 40_000
+            })
         end,
         []
     ).
