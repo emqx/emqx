@@ -4,7 +4,6 @@
 
 -module(emqx_mgmt).
 
--include("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -118,6 +117,8 @@
             })
     end
 ).
+
+-define(DEFAULT_ROW_LIMIT, 100).
 
 %%--------------------------------------------------------------------
 %% Node Info

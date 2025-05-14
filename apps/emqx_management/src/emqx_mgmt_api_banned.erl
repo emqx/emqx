@@ -10,7 +10,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
--include("emqx_mgmt.hrl").
 
 -behaviour(minirest_api).
 

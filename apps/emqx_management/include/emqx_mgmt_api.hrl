@@ -2,8 +2,8 @@
 %% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--ifndef(EMQX_HTTP_API_HRL).
--define(EMQX_HTTP_API_HRL, true).
+-ifndef(EMQX_MGMT_API_HRL).
+-define(EMQX_MGMT_API_HRL, true).
 
 %% HTTP API Auth
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').

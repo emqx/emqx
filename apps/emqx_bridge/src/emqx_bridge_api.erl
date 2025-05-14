@@ -8,7 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge_proto.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").

@@ -19,7 +19,7 @@
 -export([save_dispatch_eterm/1, save_dispatch_eterm/2]).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
 -dialyzer({[no_opaque, no_match, no_return], [init_cache_dispatch/2, start_listeners/1]}).
 
