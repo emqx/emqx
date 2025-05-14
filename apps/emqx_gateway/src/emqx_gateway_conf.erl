@@ -665,9 +665,9 @@ pre_load_authentications(NewConf, OldConf) ->
                     case maps:get(?AUTHN_BIN, NewGwConf, undefined) of
                         undefined ->
                             NewGwConf;
-                        AuthN ->
+                        Authn ->
                             {ok, #{GwName := #{?AUTHN_BIN := NAuthN}}} =
-                                pre_config_update(?GATEWAY, {add_authn, GwName, AuthN}, OldConf),
+                                pre_config_update(?GATEWAY, {add_authn, GwName, Authn}, OldConf),
                             maps:put(?AUTHN_BIN, NAuthN, NewGwConf)
                     end;
                 OldAuthN ->

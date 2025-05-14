@@ -449,7 +449,7 @@ takeover_session(GwName, ClientId) ->
             }),
             lists:foreach(
                 fun(StalePid) ->
-                    catch discard_session(GwName, ClientId, StalePid)
+                    discard_session(GwName, ClientId, StalePid)
                 end,
                 StalePids
             ),
