@@ -41,4 +41,10 @@ emqx_bridge_s3tables_connector_schema {
     """S3 connection parameters for reading and writing objects to S3Tables bucket."""
   }
 
+  s3_client_transport_options {
+    label: """S3 Client Transport Options"""
+    desc:
+    """Options for the HTTP transport layer used by the S3 client."""
+  }
+
 }

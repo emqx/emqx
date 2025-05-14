@@ -145,7 +145,10 @@ connector_config(Overrides) ->
         <<"request_timeout">> => <<"10s">>,
         <<"s3_client">> => #{
             <<"host">> => ?S3_HOST,
-            <<"port">> => ?S3_PORT
+            <<"port">> => ?S3_PORT,
+            <<"transport_options">> => #{
+                <<"ssl">> => #{<<"enable">> => false}
+            }
         },
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
