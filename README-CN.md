@@ -16,11 +16,11 @@ EMQX 是全球最具扩展性和可靠性的 MQTT 平台，专为高性能、高
 
 如果您想了解我们为何做出此更改，请阅读此[博客文章](https://www.emqx.com/zh/news/emqx-adopts-business-source-license)。
 
-有关 BSL 1.1 的更多详细信息，请参阅[许可证](#License)部分。
+有关 BSL 1.1 的更多详细信息，请参阅[许可证](#许可证)部分。
 
 ## 核心功能
 
-EMQX 为现代连接系统提供了一套强大的功能：
+EMQX 为新一代物联网系统提供了一系列强大的功能：
 
 ### 全面的协议支持
 
@@ -70,7 +70,7 @@ EMQX 为现代连接系统提供了一套强大的功能：
 
 ### 试用 EMQX Cloud
 
-设置 EMQX 最简单的方法是使用 EMQX Cloud 创建一个全托管的部署。您可以[免费试用 EMQX Cloud](https://www.emqx.com/zh/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud.emqx.com/console/deployments/0?oper=new)。
+使用 EMQX 最简单的方式是在 EMQX Cloud 创建一个全托管的部署。您可以[免费试用 EMQX Cloud](https://www.emqx.com/zh/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud.emqx.com/console/deployments/0?oper=new)。
 
 - [EMQX Serverless](https://www.emqx.com/zh/cloud/serverless-mqtt)
 - [EMQX Dedicated](https://www.emqx.com/zh/cloud/dedicated)
