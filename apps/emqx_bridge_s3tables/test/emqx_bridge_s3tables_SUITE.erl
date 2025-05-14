@@ -1397,7 +1397,7 @@ do_t_upload_data_file_failure(S3UploadFnName, Config) ->
         end,
     {ok, Agent} = emqx_utils_agent:start_link(NSuccessesBeforeFailure),
     ct:pal("publishing payloads"),
-    ct:timetrap({seconds, 5}),
+    ct:timetrap({seconds, 15}),
     emqx_common_test_helpers:with_mock(
         emqx_s3_upload,
         S3UploadFnName,

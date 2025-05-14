@@ -74,7 +74,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --ci)
             IS_CI='yes'
-            UP='up --quiet-pull'
+            UP='up --wait --quiet-pull'
             shift 1
             ;;
         --)
