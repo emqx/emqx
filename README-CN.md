@@ -106,8 +106,8 @@ docker run -d --name emqx \
 
 ## 文档
 
-EMQX (本地部署)：[docs.emqx.com/zh/emqx/latest/](https://docs.emqx.com/zh/emqx/latest/)。
-EMQX Cloud：[docs.emqx.com/zh/cloud/latest/](https://docs.emqx.com/zh/cloud/latest/)。
+- EMQX (本地部署)：[docs.emqx.com/zh/emqx/latest/](https://docs.emqx.com/zh/emqx/latest/)。
+- EMQX Cloud：[docs.emqx.com/zh/cloud/latest/](https://docs.emqx.com/zh/cloud/latest/)。
 
 ## 贡献
 

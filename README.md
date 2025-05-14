@@ -116,9 +116,8 @@ For more installation options, see the [EMQX installation documentation](https:/
 
 ## Documentation
 
-EMQX self-hosted: [docs.emqx.com/en/emqx/latest](https://docs.emqx.com/en/emqx/latest/).
-
-EMQX Cloud: [docs.emqx.com/en/cloud/latest](https://docs.emqx.com/en/cloud/latest/).
+- EMQX self-hosted: [docs.emqx.com/en/emqx/latest](https://docs.emqx.com/en/emqx/latest/).
+- EMQX Cloud: [docs.emqx.com/en/cloud/latest](https://docs.emqx.com/en/cloud/latest/).
 
 ## Contributing
 
