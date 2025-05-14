@@ -162,45 +162,75 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
 init(Req, #{listener := {Type, Listener}} = Opts) ->
     WsOpts = get_ws_opts(Type, Listener),
     case check_origin_header(Req, WsOpts) of
+        ok ->
+            check_max_connections(Type, Listener, Req, Opts, WsOpts);
         {error, Reason} ->
             ?SLOG(error, #{msg => "invalid_origin_header", reason => Reason}),
-            {ok, cowboy_req:reply(403, Req), #{}};
-        ok ->
-            parse_sec_websocket_protocol(Req, Opts, WsOpts)
+            {ok, cowboy_req:reply(403, Req), #{}}
     end.
 
-parse_sec_websocket_protocol(Req, Opts, WsOpts) ->
+check_max_connections(Type, Listener, Req, Opts, WsOpts) ->
+    case emqx_config:get_listener_conf(Type, Listener, [max_connections]) of
+        infinity ->
+            check_sec_websocket_protocol(Type, Listener, Req, Opts, WsOpts);
+        Max ->
+            case get_current_connections(Req) of
+                N when N < Max ->
+                    check_sec_websocket_protocol(Type, Listener, Req, Opts, WsOpts);
+                N ->
+                    Reason = #{
+                        msg => "websocket_max_connections_limited",
+                        current => N,
+                        max => Max
+                    },
+                    ?SLOG(warning, Reason),
+                    {stop, Reason}
+            end
+    end.
+
+check_sec_websocket_protocol(Type, Listener, Req, Opts, WsOpts) ->
+    Header = <<"sec-websocket-protocol">>,
     #{
         fail_if_no_subprotocol := FailIfNoSubprotocol,
         supported_subprotocols := SupportedSubprotocols
     } = WsOpts,
-    case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
-        undefined when FailIfNoSubprotocol ->
-            {ok, cowboy_req:reply(400, Req), #{}};
+    case cowboy_req:parse_header(Header, Req) of
+        undefined when not FailIfNoSubprotocol ->
+            upgrade(Type, Listener, Req, Opts, WsOpts);
         undefined ->
-            {cowboy_websocket, Req, [Req, Opts], cowboy_websocket_opts(WsOpts)};
+            {ok, cowboy_req:reply(400, Req), #{}};
         Subprotocols ->
             case pick_subprotocol(Subprotocols, SupportedSubprotocols) of
                 {ok, Subprotocol} ->
-                    Resp = cowboy_req:set_resp_header(
-                        <<"sec-websocket-protocol">>,
-                        Subprotocol,
-                        Req
-                    ),
-                    {cowboy_websocket, Resp, [Req, Opts], cowboy_websocket_opts(WsOpts)};
+                    NReq = cowboy_req:set_resp_header(Header, Subprotocol, Req),
+                    upgrade(Type, Listener, NReq, Opts, WsOpts);
                 {error, no_supported_subprotocol} ->
                     {ok, cowboy_req:reply(400, Req), #{}}
             end
     end.
 
-cowboy_websocket_opts(WsOpts) ->
-    #{
+upgrade(Type, Listener, Req, Opts, WsOpts) ->
+    {Peername, PeerCert, PeerSNI} = get_peer_info(Type, Listener, Req, Opts),
+    Sockname = cowboy_req:sock(Req),
+    WsCookie = get_ws_cookie(Req),
+    ConnInfo = #{
+        socktype => ws,
+        peername => Peername,
+        sockname => Sockname,
+        peercert => PeerCert,
+        peersni => PeerSNI,
+        ws_cookie => WsCookie,
+        conn_mod => ?MODULE
+    },
+    CowboyWsOpts = #{
+        active_n => get_active_n(Type, Listener),
         compress => maps:get(compress, WsOpts),
         deflate_opts => maps:get(deflate_opts, WsOpts),
         max_frame_size => maps:get(max_frame_size, WsOpts),
         idle_timeout => maps:get(idle_timeout, WsOpts),
         validate_utf8 => maps:get(validate_utf8, WsOpts)
-    }.
+    },
+    {cowboy_websocket_linger, Req, [ConnInfo, Opts], CowboyWsOpts}.
 
 pick_subprotocol([], _SupportedSubprotocols) ->
     {error, no_supported_subprotocol};
@@ -233,27 +263,8 @@ check_origin_header(Req, #{check_origin_enable := true} = WsOpts) ->
 check_origin_header(_Req, #{check_origin_enable := false}) ->
     ok.
 
-websocket_init([Req, Opts]) ->
-    check_max_connection(Req, Opts).
-
-check_max_connection(Req, Opts = #{listener := {Type, Listener}}) ->
-    case emqx_config:get_listener_conf(Type, Listener, [max_connections]) of
-        infinity ->
-            init_connection(Type, Listener, Req, Opts);
-        Max ->
-            case get_current_connections(Req) of
-                N when N < Max ->
-                    init_connection(Type, Listener, Req, Opts);
-                N ->
-                    Reason = #{
-                        msg => "websocket_max_connections_limited",
-                        current => N,
-                        max => Max
-                    },
-                    ?SLOG(warning, Reason),
-                    {stop, Reason}
-            end
-    end.
+websocket_init([ConnInfo, Opts]) ->
+    init_connection(ConnInfo, Opts).
 
 get_current_connections(Req) ->
     %% NOTE: Involves a gen:call to the connections supervisor.
@@ -261,19 +272,10 @@ get_current_connections(Req) ->
     RanchConnsSup = ranch_server:get_connections_sup(RanchRef),
     proplists:get_value(active, supervisor:count_children(RanchConnsSup), 0).
 
-init_connection(Type, Listener, Req, Opts = #{zone := Zone}) ->
-    {Peername, PeerCert, PeerSNI} = get_peer_info(Type, Listener, Req, Opts),
-    Sockname = cowboy_req:sock(Req),
-    WsCookie = get_ws_cookie(Req),
-    ConnInfo = #{
-        socktype => ws,
-        peername => Peername,
-        sockname => Sockname,
-        peercert => PeerCert,
-        peersni => PeerSNI,
-        ws_cookie => WsCookie,
-        conn_mod => ?MODULE
-    },
+init_connection(
+    ConnInfo = #{peername := Peername, sockname := Sockname},
+    Opts = #{listener := {Type, Listener}, zone := Zone}
+) ->
     MQTTPiggyback = get_ws_opt(Type, Listener, mqtt_piggyback),
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
