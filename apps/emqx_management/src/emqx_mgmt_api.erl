@@ -425,8 +425,8 @@ mark_complete(QueryState, Complete) ->
 do_query(Node, QueryState) when Node =:= node() ->
     do_select(Node, QueryState);
 do_query(Node, QueryState) ->
-    case
-        catch rpc:call(
+    try
+        rpc:call(
             Node,
             ?MODULE,
             do_query,
@@ -435,8 +435,9 @@ do_query(Node, QueryState) ->
         )
     of
         {badrpc, _} = R -> {error, R};
-        {'EXIT', _} = R -> {error, R};
         Ret -> Ret
+    catch
+        _Class:Error -> {error, Error}
     end.
 
 do_select(
