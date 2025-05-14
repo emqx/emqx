@@ -171,9 +171,8 @@ trie_create() ->
 
 -spec destroy(trie()) -> ok.
 destroy(#trie{trie = Trie, stats = Stats}) ->
-    catch ets:delete(Trie),
-    catch ets:delete(Stats),
-    ok.
+    emqx_ds_lib:ets_delete(Trie),
+    emqx_ds_lib:ets_delete(Stats).
 
 %% @doc Restore trie from a dump
 -spec trie_restore(options(), dump()) -> trie().
@@ -1017,19 +1016,26 @@ n_topics_test() ->
 
 -define(keys_history, topic_key_history).
 
-%% erlfmt-ignore
 assert_match_topics(Trie, Filter0, Expected) ->
-    Filter = lists:map(fun(I) when is_integer(I) -> integer_to_binary(I);
-                          (I) -> I
-                       end,
-                       Filter0),
+    Filter = lists:map(
+        fun
+            (I) when is_integer(I) -> integer_to_binary(I);
+            (I) -> I
+        end,
+        Filter0
+    ),
     Matched = match_topics(Trie, Filter),
-    ?assertMatch( #{missing := [], unexpected := []}
-                , #{ missing    => Expected -- Matched
-                   , unexpected => Matched -- Expected
-                   }
-                , Filter
-                ).
+    ?assertMatch(
+        #{
+            missing := [],
+            unexpected := []
+        },
+        #{
+            missing => Expected -- Matched,
+            unexpected => Matched -- Expected
+        },
+        Filter
+    ).
 
 %% erlfmt-ignore
 test_key(Trie, Threshold, Topic0) ->

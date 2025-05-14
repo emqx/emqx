@@ -7,7 +7,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 %% API:
--export([with_worker/3, terminate/3, send_after/3, cancel_timer/2]).
+-export([with_worker/3, terminate/3, send_after/3, cancel_timer/2, ets_delete/1]).
 
 %% internal exports:
 -export([]).
@@ -67,6 +67,15 @@ cancel_timer(TRef, TimeoutMsg) ->
             ok
     after 0 ->
         ok
+    end.
+
+%% @doc A non-throwing version of ets:delete
+ets_delete(Tid) ->
+    try
+        ets:delete(Tid)
+    catch
+        _:_ ->
+            ok
     end.
 
 %%================================================================================
