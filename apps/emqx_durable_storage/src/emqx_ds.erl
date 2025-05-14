@@ -897,7 +897,7 @@ trans(UserOpts = #{db := DB, shard := _}, Fun) ->
     case tx_ctx() of
         undefined ->
             #{retries := Retries} = Opts,
-            trans(DB, Fun, Opts, Retries);
+            trans_maybe_retry(DB, Fun, Opts, Retries);
         _ ->
             ?err_unrec(nested_transaction)
     end.
@@ -1141,23 +1141,45 @@ call_if_implemented(Mod, Fun, Args, Default) ->
             Default
     end.
 
--spec trans(
+-spec trans_maybe_retry(
     db(),
     fun(() -> Ret),
     transaction_opts(),
     non_neg_integer()
 ) ->
     transaction_result(Ret).
-trans(DB, Fun, Opts, Retries) ->
+trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval}, Retries) ->
+    case trans_inner(DB, Fun, Opts) of
+        ?err_rec(Reason) when Retries > 0 ->
+            ?tp(
+                warning,
+                emqx_ds_tx_retry,
+                #{
+                    db => DB,
+                    tx_fun => Fun,
+                    opts => Opts,
+                    retries => Retries,
+                    reason => Reason
+                }
+            ),
+            timer:sleep(RetryInterval),
+            trans_maybe_retry(DB, Fun, Opts, Retries - 1);
+        Other ->
+            Other
+    end.
+
+-spec trans_inner(
+    db(),
+    fun(() -> Ret),
+    transaction_opts()
+) ->
+    transaction_result(Ret).
+trans_inner(DB, Fun, Opts) ->
     _ = put(?tx_ops_write, []),
     _ = put(?tx_ops_read, []),
     _ = put(?tx_ops_del_topic, []),
     _ = put(?tx_ops_assert_present, []),
     _ = put(?tx_ops_assert_absent, []),
-    #{
-        sync := IsSync,
-        retry_interval := RetryInterval
-    } = Opts,
     try
         case new_kv_tx(DB, Opts) of
             {ok, Ctx} ->
@@ -1182,42 +1204,14 @@ trans(DB, Fun, Opts, Retries) ->
                         {nop, Ret};
                     _ ->
                         Ref = commit_tx(DB, Ctx, Tx),
-                        case IsSync of
-                            false ->
-                                {async, Ref, Ret};
-                            true ->
-                                receive
-                                    ?ds_tx_commit_reply(Ref, Reply) ->
-                                        case tx_commit_outcome(DB, Ref, Reply) of
-                                            {ok, CommitTXId} ->
-                                                {atomic, CommitTXId, Ret};
-                                            ?err_unrec(_) = Err ->
-                                                Err;
-                                            ?err_rec(Reason) when Retries > 0 ->
-                                                ?tp(
-                                                    warning,
-                                                    emqx_ds_tx_retry,
-                                                    #{
-                                                        db => DB,
-                                                        tx_fun => Fun,
-                                                        opts => Opts,
-                                                        retries => Retries,
-                                                        reason => Reason
-                                                    }
-                                                ),
-                                                timer:sleep(RetryInterval),
-                                                trans(DB, Fun, Opts, Retries - 1);
-                                            Err ->
-                                                Err
-                                        end
-                                end
-                        end
-                end
+                        trans_maybe_wait_outcome(DB, Ref, Ret, Opts)
+                end;
+            Err ->
+                Err
         end
     catch
-        ?tx_reset when Retries > 0 ->
-            timer:sleep(RetryInterval),
-            trans(DB, Fun, Opts, Retries - 1)
+        ?tx_reset ->
+            ?err_rec(?tx_reset)
     after
         _ = erase(?tx_ctx),
         _ = erase(?tx_ops_write),
@@ -1226,6 +1220,19 @@ trans(DB, Fun, Opts, Retries) ->
         _ = erase(?tx_ops_assert_present),
         _ = erase(?tx_ops_assert_absent)
     end.
+
+trans_maybe_wait_outcome(DB, Ref, Ret, #{sync := true}) ->
+    receive
+        ?ds_tx_commit_reply(Ref, Reply) ->
+            case tx_commit_outcome(DB, Ref, Reply) of
+                {ok, CommitTXId} ->
+                    {atomic, CommitTXId, Ret};
+                Err ->
+                    Err
+            end
+    end;
+trans_maybe_wait_outcome(_DB, Ref, Ret, #{sync := false}) ->
+    {async, Ref, Ret}.
 
 tx_ctx() ->
     get(?tx_ctx).
