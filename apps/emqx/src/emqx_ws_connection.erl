@@ -306,6 +306,7 @@ init_connection(
         listener = {Type, Listener},
         extra = []
     },
+    init_gc_metrics(),
     {ok, State, hibernate}.
 
 tune_heap_size(Channel) ->
@@ -390,16 +391,9 @@ websocket_handle({Frame, _}, State) ->
 
 websocket_info({call, From, Req}, State) ->
     handle_call(From, Req, State);
-websocket_info({rate_limit, Which}, State) ->
-    case Which of
-        incoming ->
-            Cnt = emqx_pd:reset_counter(incoming_pubs),
-            Oct = emqx_pd:reset_counter(incoming_bytes);
-        outgoing ->
-            Cnt = emqx_pd:reset_counter(outgoing_pubs),
-            Oct = emqx_pd:reset_counter(outgoing_bytes)
-    end,
-    check_oom(run_gc(Cnt, Oct, State));
+websocket_info({gc, Which}, State = #state{listener = {Type, Listener}}) ->
+    Metrics = rotate_gc_metrics(Which, get_active_n(Type, Listener)),
+    check_oom(run_gc(Metrics, State));
 websocket_info(
     Deliver = {deliver, _Topic, _Msg},
     State = #state{listener = {Type, Listener}}
@@ -509,7 +503,52 @@ handle_timeout(TRef, TMsg, State) ->
 %% Run GC, Check OOM
 %%--------------------------------------------------------------------
 
-run_gc(Cnt, Oct, State = #state{gc_state = GcSt}) ->
+init_gc_metrics() ->
+    erlang:put(last_recv_cnt, 0),
+    erlang:put(last_recv_oct, 0),
+    erlang:put(last_send_cnt, 0),
+    erlang:put(last_send_oct, 0),
+    erlang:put(gc_recv_cnt, 0),
+    erlang:put(gc_send_cnt, 0).
+
+rotate_gc_metrics(incoming, ActiveN) ->
+    RecvCnt = emqx_pd:get_counter(recv_cnt),
+    RecvOct = emqx_pd:get_counter(recv_oct),
+    _ = erlang:put(gc_recv_cnt, RecvCnt + ActiveN),
+    RecvCntLast = erlang:put(last_recv_cnt, RecvCnt),
+    RecvOctLast = erlang:put(last_recv_oct, RecvOct),
+    Cnt = RecvCnt - RecvCntLast,
+    Oct = RecvOct - RecvOctLast,
+    {Cnt, Oct};
+rotate_gc_metrics(outgoing, ActiveN) ->
+    SendCnt = emqx_pd:get_counter(send_cnt),
+    SendOct = emqx_pd:get_counter(send_oct),
+    _ = erlang:put(gc_send_cnt, SendCnt + ActiveN),
+    SendCntLast = erlang:put(last_send_cnt, SendCnt),
+    SendOctLast = erlang:put(last_send_oct, SendOct),
+    Cnt = SendCnt - SendCntLast,
+    Oct = SendOct - SendOctLast,
+    {Cnt, Oct}.
+
+trigger_gc_incoming() ->
+    case emqx_pd:get_counter(recv_cnt) > erlang:get(gc_recv_cnt) of
+        true ->
+            erlang:erase(gc_recv_cnt),
+            self() ! {gc, incoming};
+        false ->
+            false
+    end.
+
+trigger_gc_outgoing() ->
+    case emqx_pd:get_counter(send_cnt) > erlang:get(gc_send_cnt) of
+        true ->
+            erlang:erase(gc_send_cnt),
+            self() ! {gc, outgoing};
+        false ->
+            false
+    end.
+
+run_gc({Cnt, Oct}, State = #state{gc_state = GcSt}) ->
     case ?ENABLED(GcSt) andalso emqx_gc:run(Cnt, Oct, GcSt) of
         false -> State;
         {_IsGC, GcSt1} -> State#state{gc_state = GcSt1}
@@ -591,15 +630,10 @@ update_state_on_parse_error(_, State) ->
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
-handle_incoming(Packets, State = #state{listener = {Type, Listener}}) ->
-    Result = commands(handle_incoming_packets(Packets, {[], State})),
-    case emqx_pd:get_counter(incoming_pubs) > get_active_n(Type, Listener) of
-        true ->
-            self() ! {rate_limit, incoming},
-            Result;
-        false ->
-            Result
-    end.
+handle_incoming(Packets, State) ->
+    Result = handle_incoming_packets(Packets, {[], State}),
+    _ = trigger_gc_incoming(),
+    commands(Result).
 
 handle_incoming_packets([Packet = #mqtt_packet{} | Packets], ResAcc) ->
     ?TRACE("WS-MQTT", "mqtt_packet_received", #{packet => Packet}),
@@ -682,14 +716,14 @@ handle_outgoing(Packets, State = #state{channel = _Channel}) ->
     ),
     Frames.
 
-do_handle_outgoing(Packets, State = #state{listener = {Type, Listener}}) ->
+do_handle_outgoing(Packets, State) ->
     Frames = serialize_and_inc_stats(Packets, State),
-    case emqx_pd:get_counter(outgoing_pubs) > get_active_n(Type, Listener) of
-        true ->
-            self() ! {rate_limit, outgoing};
-        false ->
-            State
+    case is_list(Packets) of
+        true -> Cnt = length(Packets);
+        _ -> Cnt = 1
     end,
+    ok = inc_sent_stats(Cnt, framelist_bytesize(Frames, 0)),
+    _ = trigger_gc_outgoing(),
     Frames.
 
 serialize_and_inc_stats(Packets, #state{serialize = Serialize, mqtt_piggyback = Piggyback}) ->
@@ -730,9 +764,15 @@ serialize_packet_and_inc_stats(Packet, Serialize) ->
         Data ->
             ?TRACE("WS-MQTT", "mqtt_packet_sent", #{packet => Packet}),
             ok = inc_outgoing_stats(Packet),
-            ok = inc_sent_stats(1, iolist_size(Data)),
             Data
     end.
+
+framelist_bytesize([{binary, Data} | Rest], Oct) ->
+    framelist_bytesize(Rest, Oct + iolist_size(Data));
+framelist_bytesize([], Oct) ->
+    Oct;
+framelist_bytesize({binary, Data}, Oct) ->
+    Oct + iolist_size(Data).
 
 %%--------------------------------------------------------------------
 %% Inc incoming/outgoing stats
@@ -743,59 +783,54 @@ serialize_packet_and_inc_stats(Packet, Serialize) ->
         inc_recv_stats/2,
         inc_incoming_stats/1,
         inc_outgoing_stats/1,
-        inc_sent_stats/2
+        inc_sent_stats/2,
+        inc_qos_stats/2
     ]}
 ).
 
 inc_recv_stats(Cnt, Oct) ->
-    inc_counter(incoming_bytes, Oct),
-    inc_counter(recv_cnt, Cnt),
-    inc_counter(recv_oct, Oct),
+    _ = emqx_pd:inc_counter(recv_cnt, Cnt),
+    _ = emqx_pd:inc_counter(recv_oct, Oct),
     emqx_metrics:inc('bytes.received', Oct).
 
 inc_incoming_stats(Packet = ?PACKET(Type)) ->
     _ = emqx_pd:inc_counter(recv_pkt, 1),
-    case Type of
-        ?PUBLISH ->
-            inc_counter(recv_msg, 1),
-            inc_qos_stats(recv_msg, Packet),
-            inc_counter(incoming_pubs, 1);
-        _ ->
-            ok
-    end,
+    _ =
+        case Type of
+            ?PUBLISH ->
+                _ = emqx_pd:inc_counter(recv_msg, 1),
+                inc_qos_stats(recv_msg, Packet);
+            _ ->
+                ok
+        end,
     emqx_metrics:inc_recv(Packet).
 
 inc_outgoing_stats({error, message_too_large}) ->
-    inc_counter('send_msg.dropped', 1),
-    inc_counter('send_msg.dropped.too_large', 1);
+    _ = emqx_pd:inc_counter('send_msg.dropped', 1),
+    _ = emqx_pd:inc_counter('send_msg.dropped.too_large', 1);
 inc_outgoing_stats(Packet = ?PACKET(Type)) ->
-    inc_counter(send_pkt, 1),
-    case Type of
-        ?PUBLISH ->
-            inc_counter(send_msg, 1),
-            inc_counter(outgoing_pubs, 1),
-            inc_qos_stats(send_msg, Packet);
-        _ ->
-            ok
-    end,
+    _ = emqx_pd:inc_counter(send_pkt, 1),
+    _ =
+        case Type of
+            ?PUBLISH ->
+                _ = emqx_pd:inc_counter(send_msg, 1),
+                inc_qos_stats(send_msg, Packet);
+            _ ->
+                ok
+        end,
     emqx_metrics:inc_sent(Packet).
 
 inc_sent_stats(Cnt, Oct) ->
-    inc_counter(outgoing_bytes, Oct),
-    inc_counter(send_cnt, Cnt),
-    inc_counter(send_oct, Oct),
+    _ = emqx_pd:inc_counter(send_cnt, Cnt),
+    _ = emqx_pd:inc_counter(send_oct, Oct),
     emqx_metrics:inc('bytes.sent', Oct).
-
-inc_counter(Name, Value) ->
-    _ = emqx_pd:inc_counter(Name, Value),
-    ok.
 
 inc_qos_stats(Type, Packet) ->
     case inc_qos_stats_key(Type, emqx_packet:qos(Packet)) of
         undefined ->
             ignore;
         Key ->
-            inc_counter(Key, 1)
+            emqx_pd:inc_counter(Key, 1)
     end.
 
 inc_qos_stats_key(send_msg, ?QOS_0) -> 'send_msg.qos0';
