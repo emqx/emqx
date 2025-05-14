@@ -1,5 +1,3 @@
-English | [简体中文](./README-CN.md) | [Русский](./README-RU.md)
-
 # EMQX
 
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen&label=Release)](https://github.com/emqx/emqx/releases)
@@ -10,35 +8,105 @@ English | [简体中文](./README-CN.md) | [Русский](./README-RU.md)
 [![YouTube](https://img.shields.io/badge/Subscribe-EMQ-FF0000?logo=youtube)](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q)
 
 
-EMQX is the world's most scalable [MQTT broker](https://www.emqx.com/en/blog/the-ultimate-guide-to-mqtt-broker-comparison) with a high performance that connects 100M+ IoT devices in 1 cluster, while maintaining 1M message per second throughput and sub-millisecond latency.
+EMQX is the world's most scalable and reliable MQTT platform, designed for high-performance, reliable, and secure IoT data infrastructure. It supports MQTT 5.0, 3.1.1, and 3.1, as well as other protocols like MQTT-SN, CoAP, LwM2M, and MQTT over QUIC. EMQX enables you to connect millions of IoT devices, process and route messages in real time, and integrate with a wide range of backend data systems. It's ideal for applications in AI, IoT, Industrial IoT (IIoT), connected vehicles, smart cities, and beyond.
 
-EMQX supports multiple open standard protocols like MQTT, HTTP, QUIC, and WebSocket. It’s 100% compliant with MQTT 5.0 and 3.x standard, and secures bi-directional communication with MQTT over TLS/SSL and various authentication mechanisms.
+**Starting from v5.9.0, EMQX has unified all features from the previous Open Source and Enterprise editions into a single, powerful offering with the Business Source License (BSL) 1.1.**
 
-With the built-in powerful SQL-based [rules engine](https://www.emqx.com/en/solutions/iot-rule-engine), EMQX can extract, filter, enrich and transform IoT data in real-time. In addition, it ensures high availability and horizontal scalability with a masterless distributed architecture, and provides ops-friendly user experience and great observability.
+If you want to understand why we made the change, please read this [blog post](https://www.emqx.com/en/news/emqx-adopts-business-source-license).
 
-EMQX boasts more than 20K+ enterprise users across 60+ countries and regions, connecting 250M+ IoT devices worldwide, and is trusted by over 1000 customers in mission-critical scenarios of IoT, IIoT, connected vehicles, and more, including over 70 Fortune 500 companies like HPE, VMware, Verifone, SAIC Volkswagen, and Ericsson.
+Please go to the [License](#License) section for more details about BSL 1.1.
 
-For more information, please visit [EMQX homepage](https://www.emqx.com/en).
+## Key Features
 
-## Get Started
+EMQX delivers a powerful set of capabilities for modern connected systems:
 
-#### Run EMQX in the Cloud
+### Comprehensive Protocol Support
 
-The simplest way to set up EMQX is to create a managed deployment with EMQX Cloud. You can [try EMQX Cloud for free](https://www.emqx.com/en/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud-intl.emqx.com/console/deployments/0?oper=new), no credit card required.
+- Full MQTT v5.0, v3.1.1, and v3.1 support.
+- [MQTT over QUIC](https://docs.emqx.com/en/emqx/latest/mqtt-over-quic/introduction.html): Leverage the benefits of QUIC for faster connection establishment, reduced head-of-line blocking, and seamless connection migration.
+- Support for other IoT protocols like [LwM2M](https://docs.emqx.com/en/emqx/latest/gateway/lwm2m.html), [CoAP](https://docs.emqx.com/en/emqx/latest/gateway/coap.html), [MQTT-SN](https://docs.emqx.com/en/emqx/latest/gateway/mqttsn.html), and more through [gateways](https://docs.emqx.com/en/emqx/latest/gateway/gateway.html).
 
-#### Run EMQX using Docker
+### Massive Scalability & High Availability
+
+- [Connect](https://www.emqx.com/en/solutions/iot-device-connectivity) 100M+ of concurrent MQTT clients with a single cluster.
+- [Process](https://www.emqx.com/en/solutions/reliable-mqtt-messaging) millions of messages per second with sub-millisecond latency.
+- [Masterless clustering](https://docs.emqx.com/en/emqx/latest/deploy/cluster/introduction.html) for high availability and fault tolerance.
+- Seamless global communication with [EMQX Cluster Linking](https://www.emqx.com/en/solutions/cluster-linking).
+
+### Powerful Rule Engine & Data Integration
+
+- SQL-based [Rule Engine](https://www.emqx.com/en/solutions/mqtt-data-processing) to process, transform, enrich, and filter in-flight data.
+- Seamless data bridging and [integration](https://www.emqx.com/en/solutions/mqtt-data-integration) with 50+ cloud services and enterprise systems, including:
+  - **Message Queues**: [Kafka](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-kafka.html), [RabbitMQ](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-rabbitmq.html), [Pulsar](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-pulsar.html), [RocketMQ](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-rocketmq.html), etc.
+  - **Databases**: [PostgreSQL](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-pgsql.html), [MySQL](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-mysql.html), [MongoDB](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-mongodb.html), [Redis](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-redis.html), [ClickHouse](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-clickhouse.html), [InfluxDB](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-influxdb.html), etc.
+  - **Cloud Services**: [AWS Kinesis](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-kinesis.html), [GCP Pub/Sub](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-gcp-pubsub.html), [Azure Event](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-azure-event-hub.html), [Confluent Cloud](https://docs.emqx.com/en/emqx/latest/data-integration/confluent-sink.html),  and more.
+- [Webhook](https://docs.emqx.com/en/emqx/latest/data-integration/webhook.html) support for easy integration with custom services.
+
+### [Flow Designer](https://docs.emqx.com/en/emqx/latest/flow-designer/introduction.html)
+
+- Drag‑and‑drop canvas to orchestrate real‑time data pipelines with zero code, using nodes for rules, integrations, and AI tasks.
+
+### [Smart Data Hub](https://docs.emqx.com/en/cloud/latest/data_hub/smart_data_hub.html)
+
+- [Schema Registry](https://docs.emqx.com/en/cloud/latest/data_hub/schema_registry.html): Define, store, and manage data schemas to ensure consistency.
+- [Schema Validation](https://docs.emqx.com/en/cloud/latest/data_hub/schema_validation.html): Validate incoming data against registered schemas to maintain data integrity.
+- [Message Transformation](https://docs.emqx.com/en/cloud/latest/data_hub/message_transformation.html): Convert data between different formats and structures to facilitate seamless integration.
+
+### [AI Processing & Integration](https://www.emqx.com/en/solutions/artificial-intelligence):
+
+- Native AI processing capabilities for IoT data streams.
+- Integration with popular AI services.
+- Support for AI-driven decision making at the edge or in the cloud.
+
+### Robust [Security](https://www.emqx.com/en/solutions/mqtt-security)
+
+- [Secure connections](https://docs.emqx.com/en/emqx/latest/network/overview.html) with TLS/SSL and WSS.
+- Flexible [authentication](https://docs.emqx.com/en/emqx/latest/access-control/authn/authn.html) mechanisms: username/password, JWT, PSK, X.509 certificates, etc.
+- Granular access control with [ACLs](https://docs.emqx.com/en/emqx/latest/access-control/authz/authz.html).
+- Integration with external authentication databases ([LDAP](https://docs.emqx.com/en/emqx/latest/access-control/authn/ldap.html), [SQL](https://docs.emqx.com/en/emqx/latest/access-control/authn/postgresql.html), [Redis](https://docs.emqx.com/en/emqx/latest/access-control/authn/redis.html)).
+
+### Advanced Observability & Management:
+
+- Comprehensive monitoring with [Prometheus](https://docs.emqx.com/en/emqx/latest/observability/prometheus.html), [Grafana](https://grafana.com/grafana/dashboards/17446-emqx/), [Datadog](https://docs.emqx.com/en/emqx/latest/observability/datadog.html), and [OpenTelemetry](https://docs.emqx.com/en/emqx/latest/observability/opentelemetry/opentelemetry.html).
+- Detailed logging and [tracing](https://docs.emqx.com/en/emqx/latest/observability/tracer.html) capabilities.
+- User-friendly [Dashboard](https://docs.emqx.com/en/emqx/latest/dashboard/introduction.html) for cluster overview and management.
+- Rich [HTTP API](https://docs.emqx.com/en/emqx/latest/admin/api.html) for automation and third-party integration.
+
+### Extensibility
+
+- [Plugin](https://docs.emqx.com/en/emqx/latest/extensions/plugins.html) architecture for extending functionality.
+- [Hooks](https://docs.emqx.com/en/emqx/latest/extensions/hooks.html) for customizing behavior at various points in the message lifecycle.
+
+### Unified Experience:
+
+- With the BSL 1.1 license (from v5.9.0), all features, including those previously exclusive to the enterprise edition, are available to all developers.
+
+## Quick Start
+
+### Try EMQX Cloud
+
+The simplest way to set up EMQX is to create a managed deployment with EMQX Cloud. You can [try EMQX Cloud for free](https://www.emqx.com/en/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud-intl.emqx.com/console/deployments/0?oper=new).
+
+- [EMQX Serverless](https://www.emqx.com/en/cloud/serverless-mqtt)
+- [EMQX Dedicated](https://www.emqx.com/en/cloud/dedicated)
+- [EMQX BYOC](https://www.emqx.com/en/cloud/byoc)
+
+### Run a single node using Docker
 
 ```
-docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx-enterprise:latest
+docker run -d --name emqx \
+  -p 1883:1883 -p 8083:8083 -p 8084:8084 \
+  -p 8883:8883 -p 18083:18083 \
+  emqx/emqx-enterprise:latest
 ```
 
 Next, please follow the [Install EMQX Using Docker](https://docs.emqx.com/en/emqx/latest/deploy/install-docker.html) guide for further instructions.
 
-#### Run EMQX cluster on Kubernetes
+### Run EMQX cluster on Kubernetes
 
-Please consult official [EMQX Operator](https://docs.emqx.com/en/emqx-operator/latest/getting-started/getting-started.html) documentation for details.
+Please refer to the official [EMQX Operator](https://docs.emqx.com/en/emqx-operator/latest/getting-started/getting-started.html) documentation for details.
 
-#### More installation options
+### Download EMQX
 
 If you prefer to install and manage EMQX yourself, you can download the latest version from [the official site](https://www.emqx.com/en/downloads-and-install/enterprise).
 
@@ -46,9 +114,8 @@ For more installation options, see the [EMQX installation documentation](https:/
 
 ## Documentation
 
-The EMQX documentation is available at [docs.emqx.com/en/emqx/latest](https://docs.emqx.com/en/emqx/latest/).
-
-The EMQX Cloud documentation is available at [docs.emqx.com/en/cloud/latest](https://docs.emqx.com/en/cloud/latest/).
+- EMQX self-hosted: [docs.emqx.com/en/emqx/latest](https://docs.emqx.com/en/emqx/latest/).
+- EMQX Cloud: [docs.emqx.com/en/cloud/latest](https://docs.emqx.com/en/cloud/latest/).
 
 ## Contributing
 
@@ -56,45 +123,33 @@ Please see our [contributing guide](./CONTRIBUTING.md).
 
 For more organised improvement proposals, you can send pull requests to [EIP](https://github.com/emqx/eip).
 
-## Get Involved
+## Community
 
-- Follow [@EMQTech on Twitter](https://twitter.com/EMQTech).
-- Join our [Slack](https://slack-invite.emqx.io/).
-- If you have a specific question, check out our [discussion forums](https://github.com/emqx/emqx/discussions).
-- For general discussions, join us on the [official Discord](https://discord.gg/xYGf3fQnES) team.
-- Keep updated on [EMQX YouTube](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q) by subscribing.
+- Follow us on: [X](https://x.com/EMQTech), [YouTube](https://www.youtube.com/channel/UC5FjR77ErAxvZENEWzQaO5Q).
+- Ask Questions: [GitHub Discussions](https://github.com/emqx/emqx/discussions) or [EMQX Community Slack]((https://slack-invite.emqx.io/)).
+- Report Bugs: [GitHub Issues](https://github.com/emqx/emqx/issues).
+- Discord: [EMQX Discord Server](https://discord.gg/x55DZXE).
 
 ## Resources
 
-- [MQTT client programming](https://www.emqx.com/en/blog/category/mqtt-programming)
-
-  A series of blogs to help developers get started quickly with MQTT in PHP, Node.js, Python, Golang, and other programming languages.
-
-- [MQTT SDKs](https://www.emqx.com/en/mqtt-client-sdk)
-
-  We have selected popular MQTT client SDKs in various programming languages and provided code examples to help you quickly understand the use of MQTT clients.
-
-- [MQTTX](https://mqttx.app/)
-
-  An elegant cross-platform MQTT 5.0 client tool that provides desktop, command line, and web to help you develop and debug MQTT services and applications faster.
-
-- [Internet of Vehicles](https://www.emqx.com/en/blog/category/internet-of-vehicles)
-
-  Build a reliable, efficient, and industry-specific IoV platform based on EMQ's practical experience, from theoretical knowledge such as protocol selection to practical operations like platform architecture design.
+- EMQX Website: [emqx.com](https://www.emqx.com/)
+- EMQX Blog: [emqx.com/en/blog](https://www.emqx.com/en/blog)
+- MQTT Client Programming: [Tutorials](https://www.emqx.com/en/blog/category/mqtt-programming)
+- MQTT SDKs: [Popular SDKs](https://www.emqx.com/en/mqtt-client-sdk)
+- MQTT Tool: [MQTTX](https://mqttx.app/)
 
 ## Build From Source
 
-The `master` branch tracks the latest version 5. For version 4.4 checkout the `main-v4.4` branch.
+The master branch tracks the latest version 5.
 
-* EMQX 4.4 requires OTP 24.
-* EMQX 5.0 ~ 5.3 can be built with OTP 24 or 25.
-* EMQX 5.4 and newer can be built with OTP 25 or 26.
+- EMQX 5.4 and newer can be built with OTP 25 or 26
+- EMQX 5.9+ can be built with OTP 27
 
 ```bash
 git clone https://github.com/emqx/emqx.git
 cd emqx
 make
-_build/emqx/rel/emqx/bin/emqx console
+_build/emqx-enterprise/rel/emqx/bin/emqx console
 ```
 
 For 4.2 or earlier versions, release has to be built from another repo.
@@ -138,4 +193,16 @@ See release notes for detailed information.
 
 ## License
 
-See [LICENSE](./LICENSE).
+### Important License Update
+
+Effective from version **5.9.0**, EMQX has transitioned from Apache 2.0 to the Business Source License (BSL) 1.1.
+
+### License Requirement for Clustering (v5.9.0+)
+
+Starting with EMQX v5.9.0, due to the license change and the unification of all features, deploying an EMQX cluster (more than 1 node) requires a license file to be loaded.
+
+Please refer to the following resources for details on license acquisition, application, and the specifics of the BSL 1.1.
+
+- **News**: [EMQX Adopts Business Source License](https://www.emqx.com/en/news/emqx-adopts-business-source-license)
+- **Blog**: [Adopting Business Source License to Accelerate MQTT and AI Innovation](https://www.emqx.com/en/blog/adopting-business-source-license-to-accelerate-mqtt-and-ai-innovation)
+- **FAQ**: [EMQX License FAQ](https://www.emqx.com/en/content/license-faq)
