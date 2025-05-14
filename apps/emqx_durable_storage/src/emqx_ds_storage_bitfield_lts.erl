@@ -284,7 +284,7 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
     ok.
 drop(_Shard, DBHandle, GenId, CFRefs, #s{trie = Trie, gvars = GVars}) ->
     emqx_ds_lts:destroy(Trie),
-    catch ets:delete(GVars),
+    emqx_ds_lib:ets_delete(GVars),
     {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
     {_, TrieCF} = lists:keyfind(trie_cf(GenId), 1, CFRefs),
     ok = rocksdb:drop_column_family(DBHandle, DataCF),
@@ -337,7 +337,7 @@ commit_batch(
     ok;
 commit_batch(
     _ShardId,
-    #s{db = DB, data = DataCF, trie = Trie, trie_cf = TrieCF, gvars = Gvars},
+    #s{db = DB, data = DataCF, trie = Trie, trie_cf = TrieCF, gvars = GVars},
     #{?cooked_lts_ops := LtsOps, ?cooked_msg_ops := Operations, ?cooked_ts := MaxTs},
     Options
 ) ->
@@ -363,7 +363,7 @@ commit_batch(
     ),
     Result = rocksdb:write_batch(DB, Batch, write_batch_opts(Options)),
     rocksdb:release_batch(Batch),
-    ets:insert(Gvars, {?IDLE_DETECT, false, MaxTs}),
+    ets:insert(GVars, {?IDLE_DETECT, false, MaxTs}),
     %% NOTE
     %% Strictly speaking, `{error, incomplete}` is a valid result but should be impossible to
     %% observe until there's `{no_slowdown, true}` in write options.
@@ -597,7 +597,8 @@ lookup_message(
     #message_matcher{topic = Topic, timestamp = Timestamp}
 ) ->
     Key = lookup_key(S, Timestamp, Topic),
-    case is_binary(Key) andalso rocksdb:get(DB, CF, Key, _ReadOpts = []) of
+    ReadOpts = [],
+    case is_binary(Key) andalso rocksdb:get(DB, CF, Key, ReadOpts) of
         {ok, Blob} ->
             deserialize(Blob);
         not_found ->
@@ -611,7 +612,7 @@ lookup_message(
 handle_event(_ShardId, #s{epoch_readable = any}, _Time, tick) ->
     %% No need for idle tracking.
     [];
-handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
+handle_event(_ShardId, State = #s{gvars = GVars}, Time, tick) ->
     %% If the last message was published more than one epoch ago, and
     %% the shard remains idle, we need to advance safety cutoff
     %% interval to make sure the last epoch becomes visible to the
@@ -623,7 +624,7 @@ handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
     %%
     %% This operation is latched to avoid publishing events on every
     %% tick.
-    case ets:lookup(Gvars, ?IDLE_DETECT) of
+    case ets:lookup(GVars, ?IDLE_DETECT) of
         [{?IDLE_DETECT, Latch, LastWrittenTs}] ->
             ok;
         [] ->
@@ -634,7 +635,7 @@ handle_event(_ShardId, State = #s{gvars = Gvars}, Time, tick) ->
         false when ?EPOCH(State, Time) > ?EPOCH(State, LastWrittenTs) + 1 ->
             %% Note: + 1 above delays the event by one epoch to add a
             %% safety margin.
-            ets:insert(Gvars, {?IDLE_DETECT, true, LastWrittenTs}),
+            ets:insert(GVars, {?IDLE_DETECT, true, LastWrittenTs}),
             [dummy_event];
         _ ->
             []
@@ -726,9 +727,9 @@ prepare_loop_context(DB, CF, TopicIndex, StartTime, SafeCutoffTime, Varying, Key
         filter => Filter
     }.
 
-next_loop(_ITHandle, _KeyMapper, _Filter, _Cutoff, It, Acc, 0) ->
+next_loop(_ITHandle, _Keymapper, _Filter, _Cutoff, It, Acc, 0) ->
     {ok, It, lists:reverse(Acc)};
-next_loop(ITHandle, KeyMapper, Filter, Cutoff, It0, Acc0, N0) ->
+next_loop(ITHandle, Keymapper, Filter, Cutoff, It0, Acc0, N0) ->
     #{?tag := ?IT, ?last_seen_key := Key0} = It0,
     case emqx_ds_bitmask_keymapper:bin_increment(Filter, Key0) of
         overflow ->
@@ -740,17 +741,17 @@ next_loop(ITHandle, KeyMapper, Filter, Cutoff, It0, Acc0, N0) ->
             case rocksdb:iterator_move(ITHandle, {seek, Key1}) of
                 {ok, Key, Val} ->
                     {N, It, Acc} = traverse_interval(
-                        ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It0, Acc0, N0
+                        ITHandle, Keymapper, Filter, Cutoff, Key, Val, It0, Acc0, N0
                     ),
-                    next_loop(ITHandle, KeyMapper, Filter, Cutoff, It, Acc, N);
+                    next_loop(ITHandle, Keymapper, Filter, Cutoff, It, Acc, N);
                 {error, invalid_iterator} ->
                     {ok, It0, lists:reverse(Acc0)}
             end
     end.
 
-traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It0, Acc0, N) ->
+traverse_interval(ITHandle, Keymapper, Filter, Cutoff, Key, Val, It0, Acc0, N) ->
     It = It0#{?last_seen_key := Key},
-    Timestamp = emqx_ds_bitmask_keymapper:bin_key_to_coord(KeyMapper, Key, ?DIM_TS),
+    Timestamp = emqx_ds_bitmask_keymapper:bin_key_to_coord(Keymapper, Key, ?DIM_TS),
     case
         emqx_ds_bitmask_keymapper:bin_checkmask(Filter, Key) andalso
             check_timestamp(Cutoff, It, Timestamp)
@@ -760,10 +761,10 @@ traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It0, Acc0, N) -
             case check_message(It, Msg) of
                 true ->
                     Acc = [{Key, Msg} | Acc0],
-                    traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, It, Acc, N - 1);
+                    traverse_interval(ITHandle, Keymapper, Filter, Cutoff, It, Acc, N - 1);
                 false ->
                     inc_counter(?DS_BITFIELD_LTS_COLLISION_COUNTER),
-                    traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, It, Acc0, N)
+                    traverse_interval(ITHandle, Keymapper, Filter, Cutoff, It, Acc0, N)
             end;
         overflow ->
             {0, It0, Acc0};
@@ -771,13 +772,13 @@ traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It0, Acc0, N) -
             {N, It, Acc0}
     end.
 
-traverse_interval(_ITHandle, _KeyMapper, _Filter, _Cutoff, It, Acc, 0) ->
+traverse_interval(_ITHandle, _Keymapper, _Filter, _Cutoff, It, Acc, 0) ->
     {0, It, Acc};
-traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, It, Acc, N) ->
+traverse_interval(ITHandle, Keymapper, Filter, Cutoff, It, Acc, N) ->
     inc_counter(?DS_BITFIELD_LTS_NEXT_COUNTER),
     case rocksdb:iterator_move(ITHandle, next) of
         {ok, Key, Val} ->
-            traverse_interval(ITHandle, KeyMapper, Filter, Cutoff, Key, Val, It, Acc, N);
+            traverse_interval(ITHandle, Keymapper, Filter, Cutoff, Key, Val, It, Acc, N);
         {error, invalid_iterator} ->
             {0, It, Acc}
     end.
@@ -826,7 +827,7 @@ delete_traverse_interval(LoopContext0) ->
         storage_iter := It0,
         current_key := Key,
         current_val := Val,
-        keymapper := KeyMapper,
+        keymapper := Keymapper,
         filter := Filter,
         safe_cutoff_time := Cutoff,
         selector := Selector,
@@ -837,7 +838,7 @@ delete_traverse_interval(LoopContext0) ->
         remaining := Remaining0
     } = LoopContext0,
     It = It0#{?last_seen_key := Key},
-    Timestamp = emqx_ds_bitmask_keymapper:bin_key_to_coord(KeyMapper, Key, ?DIM_TS),
+    Timestamp = emqx_ds_bitmask_keymapper:bin_key_to_coord(Keymapper, Key, ?DIM_TS),
     case
         emqx_ds_bitmask_keymapper:bin_checkmask(Filter, Key) andalso
             check_timestamp(Cutoff, It, Timestamp)
@@ -904,23 +905,23 @@ check_timestamp(_Cutoff, #{?start_time := StartTime}, Timestamp) ->
 check_message(#{?topic_filter := TopicFilter}, #message{topic = Topic}) ->
     emqx_topic:match(emqx_topic:tokens(Topic), TopicFilter).
 
-format_key(KeyMapper, Key) ->
-    Vec = [integer_to_list(I, 16) || I <- emqx_ds_bitmask_keymapper:key_to_vector(KeyMapper, Key)],
+format_key(Keymapper, Key) ->
+    Vec = [integer_to_list(I, 16) || I <- emqx_ds_bitmask_keymapper:key_to_vector(Keymapper, Key)],
     lists:flatten(io_lib:format("~.16B (~s)", [Key, string:join(Vec, ",")])).
 
 -spec make_key(s(), emqx_ds:time(), emqx_types:topic()) -> {binary(), [binary()]}.
-make_key(#s{keymappers = KeyMappers, trie = Trie, threshold_fun = TFun}, Timestamp, Topic) ->
+make_key(#s{keymappers = Keymappers, trie = Trie, threshold_fun = TFun}, Timestamp, Topic) ->
     Tokens = emqx_topic:words(Topic),
     {TopicIndex, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Tokens),
-    KeyBin = make_key(KeyMappers, Timestamp, TopicIndex, Varying),
+    KeyBin = make_key(Keymappers, Timestamp, TopicIndex, Varying),
     {KeyBin, Varying}.
 
 -spec lookup_key(s(), emqx_ds:time(), emqx_types:topic()) -> binary() | undefined.
-lookup_key(#s{keymappers = KeyMappers, trie = Trie}, Timestamp, Topic) ->
+lookup_key(#s{keymappers = Keymappers, trie = Trie}, Timestamp, Topic) ->
     Tokens = emqx_topic:words(Topic),
     case emqx_ds_lts:lookup_topic_key(Trie, Tokens) of
         {ok, {TopicIndex, Varying}} ->
-            make_key(KeyMappers, Timestamp, TopicIndex, Varying);
+            make_key(Keymappers, Timestamp, TopicIndex, Varying);
         undefined ->
             undefined
     end.
@@ -932,10 +933,10 @@ lookup_key(#s{keymappers = KeyMappers, trie = Trie}, Timestamp, Topic) ->
     [emqx_ds_lts:varying()]
 ) ->
     binary().
-make_key(KeyMappers, Timestamp, TopicIndex, Varying) ->
+make_key(Keymappers, Timestamp, TopicIndex, Varying) ->
     VaryingHashes = [hash_topic_level(I) || I <- Varying],
-    KeyMapper = array:get(length(Varying), KeyMappers),
-    map_key(KeyMapper, TopicIndex, Timestamp, VaryingHashes).
+    Keymapper = array:get(length(Varying), Keymappers),
+    map_key(Keymapper, TopicIndex, Timestamp, VaryingHashes).
 
 -spec map_key(
     emqx_ds_bitmask_keymapper:keymapper(),
@@ -944,11 +945,11 @@ make_key(KeyMappers, Timestamp, TopicIndex, Varying) ->
     [non_neg_integer()]
 ) ->
     binary().
-map_key(KeyMapper, TopicIndex, Timestamp, Varying) ->
+map_key(Keymapper, TopicIndex, Timestamp, Varying) ->
     Vector = [TopicIndex, Timestamp | Varying],
     emqx_ds_bitmask_keymapper:key_to_bitstring(
-        KeyMapper,
-        emqx_ds_bitmask_keymapper:vector_to_key(KeyMapper, Vector)
+        Keymapper,
+        emqx_ds_bitmask_keymapper:vector_to_key(Keymapper, Vector)
     ).
 
 hash_topic_level('') ->
@@ -1016,13 +1017,13 @@ restore_trie(TopicIndexBytes, DB, CF) ->
         push_lts_persist_op(Key, Val),
         ok
     end,
-    {ok, IT} = rocksdb:iterator(DB, CF, []),
+    {ok, It} = rocksdb:iterator(DB, CF, []),
     try
-        Dump = read_persisted_trie(IT, rocksdb:iterator_move(IT, first)),
+        Dump = read_persisted_trie(It, rocksdb:iterator_move(It, first)),
         TrieOpts = #{persist_callback => PersistCallback, static_key_bits => TopicIndexBytes * 8},
         emqx_ds_lts:trie_restore(TrieOpts, Dump)
     after
-        rocksdb:iterator_close(IT)
+        rocksdb:iterator_close(It)
     end.
 
 -spec copy_previous_trie(rocksdb:db_handle(), rocksdb:cf_handle(), emqx_ds_lts:trie()) ->
@@ -1039,12 +1040,12 @@ copy_previous_trie(DB, TrieCF, TriePrev) ->
     rocksdb:release_batch(Batch),
     Result.
 
-read_persisted_trie(IT, {ok, KeyB, ValB}) ->
+read_persisted_trie(It, {ok, KeyB, ValB}) ->
     [
         {binary_to_term(KeyB), binary_to_term(ValB)}
-        | read_persisted_trie(IT, rocksdb:iterator_move(IT, next))
+        | read_persisted_trie(It, rocksdb:iterator_move(It, next))
     ];
-read_persisted_trie(_IT, {error, invalid_iterator}) ->
+read_persisted_trie(_It, {error, invalid_iterator}) ->
     [].
 
 inc_counter(Counter) ->

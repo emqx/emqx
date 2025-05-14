@@ -16,6 +16,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
