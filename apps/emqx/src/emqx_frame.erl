@@ -215,6 +215,8 @@ parse_bodyless_packet(#mqtt_packet_header{type = Type}) ->
 -spec append_body(iodata(), binary()) -> iodata().
 append_body(Acc, <<>>) ->
     Acc;
+append_body(<<>>, Bytes) ->
+    Bytes;
 append_body(Acc, Bytes) when is_binary(Acc) andalso byte_size(Acc) < 1024 ->
     <<Acc/binary, Bytes/binary>>;
 append_body(Acc, Bytes) ->
