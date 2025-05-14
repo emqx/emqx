@@ -16,7 +16,6 @@
 
 -define(INTERNAL_ERROR, 'INTERNAL_ERROR').
 -define(EXCEED_LIMIT, 'EXCEED_LIMIT').
--define(BAD_REQUEST, 'BAD_REQUEST').
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").

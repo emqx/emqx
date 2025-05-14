@@ -12,8 +12,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 
--define(AUTHN_ID, <<"mechanism:cinfo">>).
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 

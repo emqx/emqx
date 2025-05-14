@@ -15,7 +15,6 @@
 ]).
 
 -define(TIMEOUT, 500).
--define(BACKUP_TIMEOUT, 15_000).
 
 introduced_in() ->
     "e5.0.0".

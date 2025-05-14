@@ -10,14 +10,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(GP(S), begin
-    S,
-    receive
-        {fmt, P} -> P;
-        O -> O
-    end
-end).
-
 %% The config with json format for mqtt-sn gateway
 -define(CONF_MQTTSN,
     "\n"

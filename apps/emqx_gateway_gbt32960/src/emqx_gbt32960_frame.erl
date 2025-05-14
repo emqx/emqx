@@ -20,7 +20,7 @@
     is_message/1
 ]).
 
--define(FLAG, 1 / binary).
+% -define(FLAG, 1 / binary).
 -define(BYTE, 8 / big - integer).
 -define(WORD, 16 / big - integer).
 -define(DWORD, 32 / big - integer).

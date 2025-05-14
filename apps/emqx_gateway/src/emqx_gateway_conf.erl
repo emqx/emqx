@@ -67,7 +67,6 @@
 -type map_or_err() :: {ok, map()} | {error, term()}.
 -type listener_ref() :: {ListenerType :: atom_or_bin(), ListenerName :: atom_or_bin()}.
 
--define(IS_SSL(T), (T == <<"ssl_options">> orelse T == <<"dtls_options">>)).
 -define(IGNORE_KEYS, [<<"listeners">>, ?AUTHN_BIN]).
 
 %%----------------------------------------------------------------------------------------

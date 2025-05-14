@@ -18,7 +18,6 @@
 
 -define(INVALID_SVR_PRINCIPAL, <<"not-exists/erlang.emqx.nett@KDC.EMQX.NET">>).
 
--define(SVR_HOST, "erlang.emqx.net").
 -define(SVR_PRINCIPAL, <<"mqtt/erlang.emqx.net@KDC.EMQX.NET">>).
 -define(SVR_KEYTAB_FILE, <<"/var/lib/secret/erlang.keytab">>).
 

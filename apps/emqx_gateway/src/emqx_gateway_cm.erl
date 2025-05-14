@@ -93,7 +93,6 @@
 -type options() :: list(option()).
 
 -define(T_KICK, 5000).
--define(T_GET_INFO, 5000).
 -define(T_TAKEOVER, 15000).
 -define(DEFAULT_BATCH_SIZE, 10000).
 

@@ -85,8 +85,6 @@
 -define(BSL, $\\).
 -define(COLON, $:).
 
--define(IS_ESC(Ch), Ch == ?CR; Ch == ?LF; Ch == ?BSL; Ch == ?COLON).
-
 -record(parser_state, {
     cmd,
     headers = [],

@@ -16,7 +16,6 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
-%%-define(PROPTEST(M,F), true = proper:quickcheck(M:F())).
 -define(TMP_RULEID, atom_to_binary(?FUNCTION_NAME)).
 
 all() ->
