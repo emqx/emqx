@@ -12,8 +12,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(BASE_CONF, #{}).
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 

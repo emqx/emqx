@@ -22,11 +22,6 @@
 
 -include("emqx_release.hrl").
 
-%% TODO: delete
--ifndef(EMQX_RELEASE_EDITION).
--define(EMQX_RELEASE_EDITION, ee).
--endif.
-
 -define(EMQX_DESCS,
     case get_flavor() of
         official -> "EMQX Enterprise";

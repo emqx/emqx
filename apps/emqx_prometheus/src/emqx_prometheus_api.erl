@@ -44,8 +44,6 @@
 -export([lookup_from_local_nodes/3]).
 
 -define(TAGS, [<<"Monitor">>]).
--define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
--define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
 
 namespace() -> undefined.
 

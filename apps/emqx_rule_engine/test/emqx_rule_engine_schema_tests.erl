@@ -56,16 +56,6 @@ parse(Hocon) ->
 check(Conf) when is_map(Conf) ->
     hocon_tconf:check_plain(emqx_rule_engine_schema, Conf).
 
--define(validation_error(Reason, Value),
-    {emqx_rule_engine_schema, [
-        #{
-            kind := validation_error,
-            reason := Reason,
-            value := Value
-        }
-    ]}
-).
-
 -define(ok_config(Cfg), #{
     <<"rule_engine">> :=
         #{

@@ -66,7 +66,6 @@
 
 -define(MG(K, MAP), maps:get(K, MAP)).
 -define(MG(K, MAP, DEFAULT), maps:get(K, MAP, DEFAULT)).
--define(MG0(K, MAP), maps:get(K, MAP, 0)).
 
 -define(C(K, L), proplists:get_value(K, L, 0)).
 

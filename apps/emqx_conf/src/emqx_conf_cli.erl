@@ -32,7 +32,6 @@
 -define(MESSAGE_TRANSFORMATION_CONF_ROOT_BIN, <<"message_transformation">>).
 -define(CONNECTORS_CONF_ROOT_BIN, <<"connectors">>).
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
--define(TIMEOUT, 30000).
 
 %% All 'cluster.*' keys, except for 'cluster.link', should also be treated as read-only.
 -define(READONLY_ROOT_KEYS, [rpc, node]).
