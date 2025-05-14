@@ -23,54 +23,61 @@ EMQX 是全球最具扩展性和可靠性的 MQTT 平台，专为高性能、高
 EMQX 为新一代物联网系统提供了一系列强大的功能：
 
 ### 全面的协议支持
-
 - 完全支持 MQTT v5.0、v3.1.1 和 v3.1。
-- MQTT over QUIC：利用 QUIC 的优势实现更快的连接建立、减少队头阻塞以及无缝的连接迁移。
-- 通过网关支持 LwM2M、CoAP、MQTT-SN 等其他物联网协议。
+- [MQTT over QUIC](https://docs.emqx.com/zh/emqx/latest/mqtt-over-quic/introduction.html)：利用 QUIC 的优势实现更快的连接建立、减少队头阻塞以及无缝的连接迁移。
+- 通过[网关](https://docs.emqx.com/zh/emqx/latest/gateway/gateway.html)支持 [LwM2M](https://docs.emqx.com/zh/emqx/latest/gateway/lwm2m.html)、[CoAP](https://docs.emqx.com/zh/emqx/latest/gateway/coap.html)、[MQTT-SN](https://docs.emqx.com/zh/emqx/latest/gateway/mqttsn.html) 等其他物联网协议。
 
 ### 海量扩展与高可用性
-
-- 单集群支持连接超过 1 亿的并发 MQTT 客户端。
-- 以亚毫秒级延迟每秒处理数百万条消息。
-- 无主集群实现高可用性和容错能力。
+- 单集群支持[连接](https://www.emqx.com/zh/solutions/iot-device-connectivity)超过 1 亿的并发 MQTT 客户端。
+- 以亚毫秒级延迟每秒[处理](https://www.emqx.com/zh/solutions/reliable-mqtt-messaging)数百万条消息。
+- [无主集群](https://docs.emqx.com/zh/emqx/latest/deploy/cluster/introduction.html)实现高可用性和容错能力。
+- 通过 [EMQX Cluster Linking](https://www.emqx.com/zh/solutions/cluster-linking) 实现无缝的全球通信。
 
 ### 强大的规则引擎与数据集成
+- 基于 SQL 的[规则引擎](https://www.emqx.com/zh/solutions/mqtt-data-processing)用于处理、转换、丰富和过滤动态数据。
+- 与 50 多种云服务和企业系统无缝桥接和[集成](https://www.emqx.com/zh/solutions/mqtt-data-integration)数据，包括：
+    - **消息队列**：[Kafka](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-kafka.html)、[RabbitMQ](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-rabbitmq.html)、[Pulsar](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-pulsar.html)、[RocketMQ](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-rocketmq.html) 等。
+    - **数据库**：[PostgreSQL](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-pgsql.html)、[MySQL](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-mysql.html)、[MongoDB](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-mongodb.html)、[Redis](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-redis.html)、[ClickHouse](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-clickhouse.html)、[InfluxDB](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-influxdb.html) 等。
+    - **云服务**：[AWS Kinesis](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-kinesis.html)、[GCP Pub/Sub](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-gcp-pubsub.html)、[Azure Event Hubs](https://docs.emqx.com/zh/emqx/latest/data-integration/data-bridge-azure-event-hub.html)、[Confluent Cloud](https://docs.emqx.com/zh/emqx/latest/data-integration/confluent-sink.html) 等。
+- [Webhook](https://docs.emqx.com/zh/emqx/latest/data-integration/webhook.html) 支持，方便与自定义服务集成。
 
-- 基于 SQL 的规则引擎，用于处理、转换、丰富和过滤动态数据。
-- 与 50 多种云服务和企业系统无缝桥接和集成数据，包括：
-    - **消息队列**：Kafka、RabbitMQ、Pulsar、RocketMQ 等。
-    - **数据库**：PostgreSQL、MySQL、MongoDB、Redis、ClickHouse、InfluxDB 等。
-    - **云服务**：AWS Kinesis、GCP Pub/Sub、Azure Event Hubs、Confluent Cloud 等。
-- Webhook 支持，方便与自定义服务集成。
+### [Flow Designer](https://docs.emqx.com/zh/emqx/latest/flow-designer/introduction.html)
+- 拖放式画布，使用节点进行规则、集成和 AI 任务，无需编写代码即可编排实时数据流。
 
-### 可靠的安全保障
+### [Smart Data Hub](https://docs.emqx.com/zh/cloud/latest/data_hub/smart_data_hub.html)
+- [Schema Registry (模式注册表)](https://docs.emqx.com/zh/cloud/latest/data_hub/schema_registry.html)：定义、存储和管理数据模式以确保一致性。
+- [Schema Validation (模式验证)](https://docs.emqx.com/zh/cloud/latest/data_hub/schema_validation.html)：根据注册的模式验证传入数据以维护数据完整性。
+- [Message Transformation (消息转换)](https://docs.emqx.com/zh/cloud/latest/data_hub/message_transformation.html)：在不同格式和结构之间转换数据以促进无缝集成。
 
-- 使用 TLS/SSL 和 WSS 的安全连接。
-- 灵活的身份验证机制：用户名/密码、JWT、PSK、X.509 证书等。
-- 使用 ACL 进行精细的访问控制。
-- 与外部身份验证数据库（LDAP、SQL、NoSQL）集成。
+### [AI 处理与集成](https://www.emqx.com/zh/solutions/artificial-intelligence):
+- 针对物联网数据流的原生 AI 处理能力。
+- 与流行的 AI 服务集成。
+- 支持在边缘或云端进行 AI 驱动的决策。
+
+### 可靠的[安全保障](https://www.emqx.com/zh/solutions/mqtt-security)
+- 使用 TLS/SSL 和 WSS 的[安全连接](https://docs.emqx.com/zh/emqx/latest/network/overview.html)。
+- 灵活的[身份验证](https://docs.emqx.com/zh/emqx/latest/access-control/authn/authn.html)机制：用户名/密码、JWT、PSK、X.509 证书等。
+- 使用 [ACL](https://docs.emqx.com/zh/emqx/latest/access-control/authz/authz.html) 进行精细的访问控制。
+- 与外部身份验证数据库（[LDAP](https://docs.emqx.com/zh/emqx/latest/access-control/authn/ldap.html)、[SQL](https://docs.emqx.com/zh/emqx/latest/access-control/authn/postgresql.html)、[Redis](https://docs.emqx.com/zh/emqx/latest/access-control/authn/redis.html)）集成。
 
 ### 先进的可观察性与管理
-
-- 通过 Prometheus、Grafana 和 OpenTelemetry 进行全面监控。
-- 详细的日志记录和追踪功能。
-- 用户友好的 Dashboard，用于集群概览和管理。
-- 丰富的 HTTP API，用于自动化和第三方集成。
+- 通过 [Prometheus](https://docs.emqx.com/zh/emqx/latest/observability/prometheus.html)、[Grafana](https://grafana.com/grafana/dashboards/17446-emqx/)、[Datadog](https://docs.emqx.com/zh/emqx/latest/observability/datadog.html) 和 [OpenTelemetry](https://docs.emqx.com/zh/emqx/latest/observability/opentelemetry/opentelemetry.html) 进行全面监控。
+- 详细的日志记录和[追踪](https://docs.emqx.com/zh/emqx/latest/observability/tracer.html)功能。
+- 用户友好的 [Dashboard](https://docs.emqx.com/zh/emqx/latest/dashboard/introduction.html)，用于集群概览和管理。
+- 丰富的 [HTTP API](https://docs.emqx.com/zh/emqx/latest/admin/api.html)，用于自动化和第三方集成。
 
 ### 可扩展性
-
-- 用于扩展功能的插件架构。
-- 用于在消息生命周期各个点自定义行为的钩子 (Hooks)。
+- 用于扩展功能的[插件](https://docs.emqx.com/zh/emqx/latest/extensions/plugins.html)架构。
+- 用于在消息生命周期各个点自定义行为的[钩子 (Hooks)](https://docs.emqx.com/zh/emqx/latest/extensions/hooks.html)。
 
 ### 统一体验
-
 - 采用 BSL 1.1 许可证（从 v5.9.0 开始），所有功能（包括以前企业版独有的功能）均对所有开发者可用。
 
 ## 快速开始
 
 ### 试用 EMQX Cloud
 
-使用 EMQX 最简单的方式是在 EMQX Cloud 创建一个全托管的部署。您可以[免费试用 EMQX Cloud](https://www.emqx.com/zh/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud.emqx.com/console/deployments/0?oper=new)。
+使用 EMQX 最简单的方式是在 EMQX Cloud 创建一个全托管的部署。您可以[免费试用 EMQX Cloud](https://www.emqx.com/zh/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud.emqx.com/console/deployments/0?oper=new)，无需绑定信用卡。
 
 - [EMQX Serverless](https://www.emqx.com/zh/cloud/serverless-mqtt)
 - [EMQX Dedicated](https://www.emqx.com/zh/cloud/dedicated)
@@ -111,6 +118,7 @@ EMQX Cloud：[docs.emqx.com/zh/cloud/latest/](https://docs.emqx.com/zh/cloud/lat
 ## 社区
 
 - 访问 [EMQ 问答社区](https://askemq.com/) 以获取帮助，也可以分享您的想法或项目。
+- 提问：[GitHub Discussions](https://github.com/emqx/emqx/discussions) 或 [EMQX Community Slack](https://slack-invite.emqx.io/)。
 - 添加小助手微信号 `emqmkt`，加入 EMQ 微信技术交流群。
 - 加入我们的 [Discord](https://discord.gg/xYGf3fQnES)，参于实时讨论。
 - 关注我们的 [Bilibili](https://space.bilibili.com/522222081)，获取最新物联网技术分享。

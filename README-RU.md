@@ -1,4 +1,4 @@
-[Английский](./README.md) | [简体中文](./README-CN.md) | Русский
+[English](./README.md) | [简体中文](./README-CN.md) | Русский
 
 # EMQX
 
@@ -24,42 +24,59 @@ EMQX предоставляет мощный набор возможностей
 ### Комплексная поддержка протоколов
 
 - Полная поддержка MQTT v5.0, v3.1.1 и v3.1.
-- MQTT через QUIC: используйте преимущества QUIC для более быстрого установления соединения, уменьшения блокировки начала очереди и бесшовной миграции соединения.
-- Поддержка других протоколов IoT, таких как LwM2M, CoAP, MQTT-SN и других, через шлюзы.
+- [MQTT через QUIC](https://docs.emqx.com/en/emqx/latest/mqtt-over-quic/introduction.html): используйте преимущества QUIC для более быстрого установления соединения, уменьшения блокировки начала очереди и бесшовной миграции соединения.
+- Поддержка других протоколов IoT, таких как [LwM2M](https://docs.emqx.com/en/emqx/latest/gateway/lwm2m.html), [CoAP](https://docs.emqx.com/en/emqx/latest/gateway/coap.html), [MQTT-SN](https://docs.emqx.com/en/emqx/latest/gateway/mqttsn.html) и других, через [шлюзы](https://docs.emqx.com/en/emqx/latest/gateway/gateway.html).
 
 ### Масштабируемость и высокая доступность
 
-- Подключение более 100 миллионов одновременных MQTT-клиентов к одному кластеру.
-- Обработка миллионов сообщений в секунду с задержкой менее миллисекунды.
-- Кластеризация без ведущего узла для высокой доступности и отказоустойчивости.
+- [Подключение](https://www.emqx.com/en/solutions/iot-device-connectivity) более 100 миллионов одновременных MQTT-клиентов к одному кластеру.
+- [Обработка](https://www.emqx.com/en/solutions/reliable-mqtt-messaging) миллионов сообщений в секунду с задержкой менее миллисекунды.
+- [Кластеризация без ведущего узла](https://docs.emqx.com/en/emqx/latest/deploy/cluster/introduction.html) для высокой доступности и отказоустойчивости.
+- Бесшовная глобальная связь с помощью [EMQX Cluster Linking](https://www.emqx.com/en/solutions/cluster-linking).
 
 ### Мощный механизм правил и интеграция данных
 
-- Механизм правил на основе SQL для обработки, преобразования, обогащения и фильтрации данных в реальном времени.
-- Бесшовная передача данных и интеграция с более чем 50 облачными сервисами и корпоративными системами, включая:
-  - **Очереди сообщений**: Kafka, RabbitMQ, Pulsar, RocketMQ и т. д.
-  - **Базы данных**: PostgreSQL, MySQL, MongoDB, Redis, ClickHouse, InfluxDB и т. д.
-  - **Облачные сервисы**: AWS Kinesis, GCP Pub/Sub, Azure Event, Confluent Cloud и другие.
-- Поддержка веб-хуков для простой интеграции с пользовательскими сервисами.
+- [Механизм правил](https://www.emqx.com/en/solutions/mqtt-data-processing) на основе SQL для обработки, преобразования, обогащения и фильтрации данных в реальном времени.
+- Бесшовная передача данных и [интеграция](https://www.emqx.com/en/solutions/mqtt-data-integration) с более чем 50 облачными сервисами и корпоративными системами, включая:
+  - **Очереди сообщений**: [Kafka](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-kafka.html), [RabbitMQ](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-rabbitmq.html), [Pulsar](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-pulsar.html), [RocketMQ](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-rocketmq.html) и т. д.
+  - **Базы данных**: [PostgreSQL](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-pgsql.html), [MySQL](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-mysql.html), [MongoDB](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-mongodb.html), [Redis](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-redis.html), [ClickHouse](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-clickhouse.html), [InfluxDB](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-influxdb.html) и т. д.
+  - **Облачные сервисы**: [AWS Kinesis](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-kinesis.html), [GCP Pub/Sub](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-gcp-pubsub.html), [Azure Event](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-azure-event-hub.html), [Confluent Cloud](https://docs.emqx.com/en/emqx/latest/data-integration/confluent-sink.html) и другие.
+- Поддержка [веб-хуков](https://docs.emqx.com/en/emqx/latest/data-integration/webhook.html) для простой интеграции с пользовательскими сервисами.
 
-### Надежная защита
+### [Flow Designer](https://docs.emqx.com/en/emqx/latest/flow-designer/introduction.html)
 
-- Безопасные соединения с использованием TLS/SSL и WSS.
-- Гибкие механизмы аутентификации: имя пользователя/пароль, JWT, PSK, сертификаты X.509 и т. д.
-- Гибкий контроль доступа с помощью ACL.
-- Интеграция с внешними базами данных аутентификации (LDAP, SQL, NoSQL).
+- Канвас с возможностью перетаскивания элементов для оркестрации потоков данных в реальном времени без написания кода, с использованием узлов для правил, интеграций и задач ИИ.
+
+### [Smart Data Hub](https://docs.emqx.com/en/cloud/latest/data_hub/smart_data_hub.html)
+
+- [Реестр схем (Schema Registry)](https://docs.emqx.com/en/cloud/latest/data_hub/schema_registry.html): Определяйте, храните и управляйте схемами данных для обеспечения их согласованности.
+- [Проверка схем (Schema Validation)](https://docs.emqx.com/en/cloud/latest/data_hub/schema_validation.html): Проверяйте входящие данные на соответствие зарегистрированным схемам для поддержания целостности данных.
+- [Преобразование сообщений (Message Transformation)](https://docs.emqx.com/en/cloud/latest/data_hub/message_transformation.html): Конвертируйте данные между различными форматами и структурами для облегчения бесшовной интеграции.
+
+### [Обработка и интеграция с ИИ (AI Processing & Integration)](https://www.emqx.com/en/solutions/artificial-intelligence):
+
+- Встроенные возможности обработки данных IoT потоков с помощью ИИ.
+- Интеграция с популярными сервисами ИИ.
+- Поддержка принятия решений на основе ИИ на периферии или в облаке.
+
+### Надежная [защита](https://www.emqx.com/en/solutions/mqtt-security)
+
+- [Безопасные соединения](https://docs.emqx.com/en/emqx/latest/network/overview.html) с использованием TLS/SSL и WSS.
+- Гибкие механизмы [аутентификации](https://docs.emqx.com/en/emqx/latest/access-control/authn/authn.html): имя пользователя/пароль, JWT, PSK, сертификаты X.509 и т. д.
+- Детальный контроль доступа с помощью [ACL](https://docs.emqx.com/en/emqx/latest/access-control/authz/authz.html).
+- Интеграция с внешними базами данных аутентификации ([LDAP](https://docs.emqx.com/en/emqx/latest/access-control/authn/ldap.html), [SQL](https://docs.emqx.com/en/emqx/latest/access-control/authn/postgresql.html), [Redis](https://docs.emqx.com/en/emqx/latest/access-control/authn/redis.html)).
 
 ### Расширенные возможности наблюдаемости и управления:
 
-- Комплексный мониторинг с помощью Prometheus, Grafana и OpenTelemetry.
-- Подробные возможности ведения журналов и трассировки.
-- Удобная панель управления для обзора и управления кластером.
-- Богатый HTTP API для автоматизации и интеграции со сторонними системами.
+- Комплексный мониторинг с помощью [Prometheus](https://docs.emqx.com/en/emqx/latest/observability/prometheus.html), [Grafana](https://grafana.com/grafana/dashboards/17446-emqx/), [Datadog](https://docs.emqx.com/en/emqx/latest/observability/datadog.html) и [OpenTelemetry](https://docs.emqx.com/en/emqx/latest/observability/opentelemetry/opentelemetry.html).
+- Подробные возможности ведения журналов и [трассировки](https://docs.emqx.com/en/emqx/latest/observability/tracer.html).
+- Удобная [панель управления (Dashboard)](https://docs.emqx.com/en/emqx/latest/dashboard/introduction.html) для обзора и управления кластером.
+- Богатый [HTTP API](https://docs.emqx.com/en/emqx/latest/admin/api.html) для автоматизации и интеграции со сторонними системами.
 
 ### Расширяемость
 
-- Возможность использования плагинов для расширения функциональности.
-- Хуки для настройки поведения на различных этапах жизненного цикла сообщения.
+- Архитектура [плагинов](https://docs.emqx.com/en/emqx/latest/extensions/plugins.html) для расширения функциональности.
+- [Хуки (Hooks)](https://docs.emqx.com/en/emqx/latest/extensions/hooks.html) для настройки поведения на различных этапах жизненного цикла сообщения.
 
 ### Полный функционал для всех:
 
