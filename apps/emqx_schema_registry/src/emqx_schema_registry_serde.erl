@@ -41,6 +41,9 @@
     eval_encode/2
 ]).
 
+%% Internal exports for `emqx_schema_registry_config`.
+-export([protobuf_resolve_imports/1]).
+
 -elvis([{elvis_style, no_match_in_condition, disable}]).
 
 %%------------------------------------------------------------------------------
@@ -386,6 +389,17 @@ protobuf_serde_mod_name(Name) ->
 %% `Source' should be `string()' due to `gpb_compile:string/3', but it does work fine with
 %% binaries...
 %% -spec protobuf_cache_key(schema_name(), schema_source()) -> {schema_name(), fingerprint()}.
+protobuf_cache_key(Name, #{type := bundle, root_proto_path := RootPath}) ->
+    #{valid := Sources0} = protobuf_resolve_imports({path, RootPath}),
+    Sources1 = lists:map(
+        fun(Path) ->
+            {ok, Contents} = file:read_file(Path),
+            Contents
+        end,
+        Sources0
+    ),
+    Sources = lists:sort(Sources1),
+    {Name, erlang:system_info(otp_release), erlang:md5(Sources)};
 protobuf_cache_key(Name, Source) ->
     {Name, erlang:system_info(otp_release), erlang:md5(Source)}.
 
@@ -439,23 +453,109 @@ lazy_generate_protobuf_code_trans(Name, SerdeMod0, Source) ->
             end
     end.
 
+generate_protobuf_code(SerdeMod, #{type := bundle, root_proto_path := RootPath0}) ->
+    RootPath = str(RootPath0),
+    maybe
+        true ?= filelib:is_file(RootPath) orelse {error, {not_a_file, RootPath}},
+        {ok, RootSource} ?= file:read_file(RootPath),
+        BaseDir = filename:dirname(RootPath),
+        ImportFetcherFn = fun(Path) -> protobuf_bundle_import_fetcher(Path, BaseDir) end,
+        gpb_compile:string(
+            SerdeMod,
+            %% Binaries work too, but we convert to list to please dialyzer due to
+            %% imprecise typespec...
+            str(RootSource),
+            [
+                {i, BaseDir},
+                {import_fetcher, ImportFetcherFn}
+                | base_protobuf_opts()
+            ]
+        )
+    end;
 generate_protobuf_code(SerdeMod, Source) ->
+    ImportFetcherFn = fun(_) -> {error, forbidden_single_file_import} end,
     gpb_compile:string(
         SerdeMod,
         Source,
         [
-            binary,
-            strings_as_binaries,
-            {maps, true},
-            %% Fixme: currently, some bug in `gpb' prevents this
-            %% option from working with `oneof' types...  We're then
-            %% forced to use atom key maps.
-            %% {maps_key_type, binary},
-            {maps_oneof, flat},
-            {verify, always},
-            {maps_unset_optional, omitted}
+            {import_fetcher, ImportFetcherFn}
+            | base_protobuf_opts()
         ]
     ).
+
+base_protobuf_opts() ->
+    [
+        binary,
+        strings_as_binaries,
+        {maps, true},
+        %% Fixme: currently, some bug in `gpb' prevents this
+        %% option from working with `oneof' types...  We're then
+        %% forced to use atom key maps.
+        %% {maps_key_type, binary},
+        {maps_oneof, flat},
+        {verify, always},
+        {maps_unset_optional, omitted}
+    ].
+
+protobuf_bundle_import_fetcher(Path0, BaseDir) ->
+    maybe
+        ok ?= protobuf_validate_path(Path0, BaseDir),
+        from_file
+    end.
+
+protobuf_validate_path(Path0, BaseDir0) ->
+    BaseDir = str(BaseDir0),
+    Path1 = str(Path0),
+    Path2 = lists:flatten(string:replace(Path1, BaseDir ++ "/", "", leading)),
+    maybe
+        {ok, Path3} ?= gpb_compile:locate_import(Path2, [{i, BaseDir}]),
+        Path = lists:flatten(string:replace(Path3, BaseDir ++ "/", "", leading)),
+        Rel = filelib:safe_relative_path(Path, BaseDir),
+        true ?= Rel /= unsafe orelse {error, {unsafe_import, Path}},
+        ok
+    else
+        {error, {import_not_found, P, _}} ->
+            {error, {import_not_found, P}};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+-spec protobuf_resolve_imports({path, file:filename()} | {raw, binary()}) ->
+    #{
+        invalid := [file:filename()],
+        valid := [file:filename()],
+        missing := [file:filename()]
+    }.
+protobuf_resolve_imports(SourceOrRootPath) ->
+    {BaseDir, Results} = protobuf_list_imports(SourceOrRootPath),
+    Missing = proplists:get_value(missing, Results, []),
+    Sources0 = proplists:get_value(sources, Results, []),
+    Sources1 = lists:filter(fun(S) -> S /= from_input_string end, Sources0),
+    {ValidSources, InvalidSources} =
+        lists:partition(
+            fun(Path) ->
+                case protobuf_validate_path(Path, BaseDir) of
+                    ok ->
+                        true;
+                    _ ->
+                        false
+                end
+            end,
+            Sources1
+        ),
+    #{
+        invalid => InvalidSources,
+        valid => ValidSources,
+        missing => Missing
+    }.
+
+protobuf_list_imports({path, RootPath0}) ->
+    RootPath = str(RootPath0),
+    BaseDir0 = filename:dirname(RootPath),
+    BaseDir = str(BaseDir0),
+    {BaseDir, gpb_compile:list_io(RootPath, [{i, BaseDir}])};
+protobuf_list_imports({raw, Source}) ->
+    {"", gpb_compile:string_list_io(_Mod = undefined, str(Source), [])}.
 
 -spec load_code(module(), string(), binary()) -> ok.
 load_code(SerdeMod, SerdeModFileName, ModBinary) ->
@@ -647,3 +747,5 @@ append_query(Path, <<"">>) ->
     Path;
 append_query(Path, Query) ->
     [Path, $?, Query].
+
+str(X) -> emqx_utils_conv:str(X).

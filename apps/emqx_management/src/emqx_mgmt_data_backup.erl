@@ -858,12 +858,13 @@ upgrade_raw_conf(SchemaMod, RawConf) ->
             RawConf
     end.
 
-read_data_files(RawConf) ->
+read_data_files(RawConf0) ->
     DataDir = bin(emqx:data_dir()),
     {ok, Cwd} = file:get_cwd(),
     AbsDataDir = bin(filename:join(Cwd, DataDir)),
-    RawConf1 = emqx_authz:maybe_read_files(RawConf),
-    emqx_utils_maps:deep_convert(RawConf1, fun read_data_file/4, [DataDir, AbsDataDir]).
+    RawConf1 = emqx_authz:maybe_read_files(RawConf0),
+    RawConf2 = emqx_schema_registry_config:prepare_protobuf_files_for_export(RawConf1),
+    emqx_utils_maps:deep_convert(RawConf2, fun read_data_file/4, [DataDir, AbsDataDir]).
 
 -define(dir_pattern(_Dir_), <<_Dir_:(byte_size(_Dir_))/binary, _/binary>>).
 
