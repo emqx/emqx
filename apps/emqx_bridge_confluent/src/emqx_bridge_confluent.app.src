@@ -1,12 +1,14 @@
 {application, emqx_bridge_confluent, [
     {description, "EMQX Enterprise Confluent Connector and Action"},
-    {vsn, "0.2.2"},
+    {vsn, "0.2.3"},
     {registered, []},
     {applications, [
         kernel,
         stdlib,
         emqx_resource,
         telemetry,
+        erlcloud,
+        brod_oauth,
         wolff
     ]},
     {env, [

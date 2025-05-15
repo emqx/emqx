@@ -1,12 +1,14 @@
 {application, emqx_bridge_azure_event_hub, [
     {description, "EMQX Enterprise Azure Event Hub Bridge"},
-    {vsn, "0.2.2"},
+    {vsn, "0.2.3"},
     {registered, []},
     {applications, [
         kernel,
         stdlib,
         emqx_resource,
         telemetry,
+        erlcloud,
+        brod_oauth,
         wolff
     ]},
     {env, [
