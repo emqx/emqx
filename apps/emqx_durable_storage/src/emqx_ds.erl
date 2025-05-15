@@ -302,8 +302,8 @@
         %% The whole batch must be crafted so that it belongs to a single shard (if
         %% applicable to the backend).
         atomic_batches => boolean(),
-        %% Whether the DB stores values of type `#message{}' or raw
-        %% binaries.
+        %% Whether the DB stores values of type `#message{}' or
+        %% key-value pairs of raw binaries.
         store_kv => boolean(),
         %% Backend-specific options:
         _ => _

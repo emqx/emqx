@@ -52,7 +52,7 @@ check_schema(verbatim) ->
 check_schema(_) ->
     {error, "Unknown schema type"}.
 
--spec serialize(schema(), tuple()) -> binary().
+-spec serialize(schema(), emqx_types:message() | binary()) -> binary().
 serialize(v1, Msg) ->
     serialize_v1(Msg);
 serialize(asn1, Msg) ->
@@ -60,7 +60,7 @@ serialize(asn1, Msg) ->
 serialize(verbatim, Blob) ->
     Blob.
 
--spec deserialize(schema(), binary()) -> tuple().
+-spec deserialize(schema(), binary()) -> emqx_types:message() | binary().
 deserialize(v1, Blob) ->
     deserialize_v1(Blob);
 deserialize(asn1, Blob) ->
