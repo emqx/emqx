@@ -385,15 +385,18 @@ on_get_status(
     case do_get_status(PoolName, Timeout) of
         ok ->
             ?status_connected;
+        {error, timeout} ->
+            {?status_connecting, <<"health check timeout">>};
         {error, Reason} ->
             {?status_disconnected, Reason}
     end.
 
 do_get_status(PoolName, Timeout) ->
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    Fn = fun(Conn) -> clickhouse:detailed_status(Conn, infinity) end,
     DoPerWorker =
         fun(Worker) ->
-            case ecpool_worker:exec(Worker, fun clickhouse:detailed_status/1, Timeout) of
+            case ecpool_worker:exec(Worker, Fn, Timeout) of
                 ok ->
                     ok;
                 {error, Reason} = Error ->
