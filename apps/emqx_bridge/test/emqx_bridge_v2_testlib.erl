@@ -1747,6 +1747,10 @@ auth_header() ->
             emqx_mgmt_api_test_util:auth_header_()
     end.
 
+clean_aggregator_data_dirs() ->
+    Dir = filename:join([emqx:data_dir(), bridge]),
+    file:del_dir_r(Dir).
+
 bin(X) -> emqx_utils_conv:bin(X).
 
 common_connector_resource_opts() ->

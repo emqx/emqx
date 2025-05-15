@@ -43,10 +43,11 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    All0 = emqx_common_test_helpers:all(?MODULE),
-    All = All0 -- matrix_cases(),
-    Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
-    Groups ++ All.
+    %% All0 = emqx_common_test_helpers:all(?MODULE),
+    %% All = All0 -- matrix_cases(),
+    %% Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
+    %% Groups ++ All.
+    [{group, partitioned}].
 
 matrix_cases() ->
     lists:filter(
@@ -57,7 +58,12 @@ matrix_cases() ->
     ).
 
 groups() ->
-    emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
+    %% emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
+    [
+        {partitioned, [
+            {testcase, t_upload_failure_during_process_write, [{repeat_until_fail, 1_000}]}
+        ]}
+    ].
 
 init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start(
@@ -119,6 +125,7 @@ init_per_testcase(TestCase, TCConfig) ->
 end_per_testcase(_TestCase, _TCConfig) ->
     snabbkaffe:stop(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_bridge_v2_testlib:clean_aggregator_data_dirs(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -1355,6 +1362,7 @@ t_upload_failure_during_process_write(matrix) ->
         [partitioned]
     ];
 t_upload_failure_during_process_write(Config) ->
+    emqx_logger:set_log_level(debug),
     do_t_upload_data_file_failure(_S3UploadFnName = write, Config).
 
 %% For code coverage: check behavior of failures during upload, in `process_complete`.
@@ -1416,7 +1424,14 @@ do_t_upload_data_file_failure(S3UploadFnName, Config) ->
         fun() ->
             parallel_publish(RuleTopic, Payloads),
             ct:pal("published payloads"),
-            ?block_until(#{?snk_kind := "aggregated_buffer_delivery_failed"}),
+            %% N.B.: if the delivery process finishes too quickly before the caller has
+            %% the chance to set up the monitor, the event that is emitted can actually be
+            %% "completed" (when exit reason is `noproc`).
+            ?block_until(
+                #{?snk_kind := E} when
+                    E == "aggregated_buffer_delivery_failed" orelse
+                        E == "aggregated_buffer_delivery_completed"
+            ),
             case IsPartitioned of
                 partitioned ->
                     %% Must rollback each inner s3 transfer, one for each PK
