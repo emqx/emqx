@@ -42,11 +42,30 @@
     lagging :: boolean() | undefined
 }).
 
+-define(ds_tx_commit_reply(REF, REPLY), REPLY = {'DOWN', REF, _, _, _}).
+
+%% Helper macros for generating transaction commit messages (internal
+%% macros, for use in the backends). `META' argument can be used by
+%% the backend to store arbitrary data.
+-define(ds_tx_commit_ok(REF, META, SERIAL), {'DOWN', REF, ok, META, SERIAL}).
+-define(ds_tx_commit_error(REF, META, ERROR_CLASS, INFO),
+    {'DOWN', REF, {error, ERROR_CLASS}, META, INFO}
+).
+
 -record(new_stream_event, {
     subref :: emqx_ds_new_streams:watch()
 }).
 
 -define(err_rec(E), {error, recoverable, E}).
 -define(err_unrec(E), {error, unrecoverable, E}).
+
+%% Transaction
+-define(ds_tx_serial, tx_serial).
+
+-define(ds_tx_write, w).
+-define(ds_tx_delete_topic, dt).
+-define(ds_tx_read, r).
+-define(ds_tx_expected, e).
+-define(ds_tx_unexpected, u).
 
 -endif.

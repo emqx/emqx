@@ -22,7 +22,7 @@
     update_iterator/4,
     next/6,
     delete_next/7,
-    lookup_message/3,
+    lookup_message/4,
 
     unpack_iterator/3,
     scan_stream/8,
@@ -31,7 +31,12 @@
     message_match_context/5,
     iterator_match_context/3,
 
-    batch_events/3
+    batch_events/3,
+
+    stream_to_asn1/1,
+    asn1_to_stream/1,
+    iterator_to_asn1/1,
+    asn1_to_iterator/1
 ]).
 
 %% internal exports:
@@ -46,6 +51,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds.hrl").
 -include("emqx_ds_metrics.hrl").
+-include("../gen_src/DSBuiltinMetadata.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -511,7 +517,8 @@ delete_next(Shard, S, It0, Selector, BatchSize, Now, IsCurrent) ->
 lookup_message(
     Shard,
     S = #s{db = DB, data_cf = CF, trie = Trie},
-    #message_matcher{topic = Topic, timestamp = Timestamp}
+    Topic,
+    Timestamp
 ) ->
     case emqx_ds_lts:lookup_topic_key(Trie, words(Topic)) of
         {ok, {StaticIdx, Varying}} ->
@@ -524,13 +531,33 @@ lookup_message(
                     Msg = deserialize(S, Val),
                     enrich(Shard, S, TopicStructure, DSKey, Msg);
                 not_found ->
-                    not_found;
+                    undefined;
                 {error, Reason} ->
                     ?err_unrec({rocksdb, Reason})
             end;
         undefined ->
-            not_found
+            undefined
     end.
+
+stream_to_asn1(#stream{static_index = Static}) ->
+    {skipstreamLtsV1, Static}.
+
+asn1_to_stream({skipstreamLtsV1, Static}) ->
+    #stream{static_index = Static}.
+
+iterator_to_asn1(#it{static_index = Static, last_key = LSK, compressed_tf = CTF}) ->
+    {skipstreamLtsV1, #'SLSkipstreamV1It'{
+        static = Static,
+        lastKey = LSK,
+        compressedTf = CTF
+    }}.
+
+asn1_to_iterator(#'SLSkipstreamV1It'{static = Static, lastKey = LSK, compressedTf = CTF}) ->
+    #it{
+        static_index = Static,
+        last_key = LSK,
+        compressed_tf = CTF
+    }.
 
 %%================================================================================
 %% Internal exports

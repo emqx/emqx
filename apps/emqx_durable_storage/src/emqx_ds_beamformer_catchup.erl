@@ -84,6 +84,7 @@ pool(Shard) ->
 
 init([CBM, ShardId, Name, _Opts]) ->
     process_flag(trap_exit, true),
+    %% FIXME: remove this and other similar lines
     logger:update_process_metadata(#{dbshard => ShardId, name => Name}),
     %% Attach this worker to the pool:
     gproc_pool:add_worker(pool(ShardId), Name),
@@ -141,12 +142,15 @@ handle_info(Info, S0 = #s{pending_handovers = Handovers0, sub_tab = SubTab}) ->
                 {ok, SubState} ->
                     handover_complete(Response, SubState, S);
                 undefined ->
+                    ?tp(warning, wait_as_sec_that, #{ref => SubRef, response => Response}),
                     ok
             end,
             {noreply, S};
         no_request ->
+            ?tp(warning, no_request, #{i => Info}),
             {noreply, S0};
         no_reply ->
+            ?tp(warning, no_reply, #{i => Info}),
             {noreply, S0}
     end.
 
@@ -307,6 +311,11 @@ handover_complete(
             %% Race condition: new data has been added. Add the
             %% request back to the active queue, so it can be
             %% retried:
+            ?tp(
+                warning,
+                ohayo_stale_stuff,
+                #{dbshard => DBShard}
+            ),
             queue_push(Queue, SubState);
         ?err_rec(Reason) ->
             ?tp(

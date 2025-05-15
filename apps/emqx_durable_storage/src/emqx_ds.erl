@@ -8,6 +8,7 @@
 -module(emqx_ds).
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %% Management API:
 -export([
@@ -27,8 +28,11 @@
 %% Message storage API:
 -export([store_batch/2, store_batch/3]).
 
+%% Transactional API (low-level):
+-export([new_kv_tx/2, commit_tx/3]).
+
 %% Message replay API:
--export([get_streams/3, make_iterator/4, next/3]).
+-export([get_streams/3, get_streams/4, make_iterator/4, next/3]).
 -export([subscribe/3, unsubscribe/2, suback/3, subscription_info/2]).
 
 %% Message delete API:
@@ -38,6 +42,34 @@
 -export([count/1]).
 -export([timestamp_us/0]).
 -export([topic_words/1]).
+
+%% Transaction API:
+-export([
+    %% General "high-level" transaction API
+    trans/2,
+    tx_commit_outcome/3,
+    reset_trans/0,
+
+    %% Key-value functions:
+    tx_kv_write/2,
+    tx_del_topic/1,
+    tx_kv_assert_present/2,
+    tx_kv_assert_absent/1
+]).
+
+%% Utility functions:
+-export([
+    stream_to_binary/2,
+    binary_to_stream/2,
+
+    iterator_to_binary/2,
+    binary_to_iterator/2,
+
+    dirty_read/2,
+    tx_read/2,
+    fold_topic/4,
+    tx_fold_topic/4
+]).
 
 -export_type([
     create_db_opts/0,
@@ -85,7 +117,15 @@
     subscription_handle/0,
     sub_ref/0,
     sub_info/0,
-    sub_seqno/0
+    sub_seqno/0,
+
+    kv_pair/0,
+    kv_matcher/0,
+
+    kv_tx_context/0,
+    transaction_opts/0,
+    kv_tx_ops/0,
+    commit_result/0
 ]).
 
 %%================================================================================
@@ -119,6 +159,10 @@
 
 -type deletion() :: {delete, message_matcher('_')}.
 
+-type kv_pair() :: {topic(), binary()}.
+
+-type kv_matcher() :: {message_key(), binary() | '_'}.
+
 %% Precondition.
 %% Fails whole batch if the storage already has the matching message (`if_exists'),
 %% or does not yet have (`unless_exists'). Here "matching" means that it either
@@ -127,8 +171,9 @@
 %% Useful to construct batches with "compare-and-set" semantics.
 %% Note: backends may not support this, but if they do only DBs with `atomic_batches'
 %% enabled are expected to support preconditions in batches.
--type precondition() ::
-    {if_exists | unless_exists, message_matcher(iodata() | '_')}.
+-type precondition(A) :: {if_exists | unless_exists, A}.
+
+-type precondition() :: precondition(message_matcher('_')).
 
 -type shard() :: term().
 
@@ -150,7 +195,7 @@
 -type get_streams_result() ::
     {
         _Streams :: [{slab(), stream()}],
-        _Errors :: [{shard(), emqx_ds:error(_)}]
+        _Errors :: [{shard(), error(_)}]
     }.
 
 -opaque stream() :: ds_specific_stream().
@@ -198,6 +243,8 @@
 %% Each message must have unique timestamp.
 %% Earliest possible timestamp is 0.
 -type time() :: non_neg_integer().
+
+-type tx_serial() :: binary().
 
 -type message_store_opts() ::
     #{
@@ -261,6 +308,9 @@
         %% The whole batch must be crafted so that it belongs to a single shard (if
         %% applicable to the backend).
         atomic_batches => boolean(),
+        %% Whether the DB stores values of type `#message{}' or raw
+        %% binaries.
+        store_kv => boolean(),
         %% Backend-specific options:
         _ => _
     }.
@@ -268,7 +318,8 @@
 -type db_opts() :: #{
     %% See respective `create_db_opts()` fields.
     append_only => boolean(),
-    atomic_batches => boolean()
+    atomic_batches => boolean(),
+    store_kv => boolean()
 }.
 
 %% obsolete
@@ -292,8 +343,8 @@
 
 -type sub_info() ::
     #{
-        seqno := emqx_ds:sub_seqno(),
-        acked := emqx_ds:sub_seqno(),
+        seqno := sub_seqno(),
+        acked := sub_seqno(),
         window := non_neg_integer(),
         stuck := boolean(),
         atom() => _
@@ -305,12 +356,96 @@
     until := time() | undefined
 }.
 
+%% Subscription:
 -type subscription_handle() :: term().
 
 -type sub_ref() :: reference().
 
 -type sub_seqno() :: non_neg_integer().
 
+%% Low-level transaction types:
+-type kv_tx_context() :: term().
+-type tx_context() :: term().
+
+-type kv_tx_ops() :: #{
+    %% Write operations:
+    ?ds_tx_write => [kv_pair() | {topic(), ?ds_tx_serial}],
+    %% Deletions:
+    ?ds_tx_delete_topic => [topic_filter()],
+    %% Checked reads:
+    ?ds_tx_read => [topic_filter()],
+    %% Preconditions:
+    %%   List of objects that should be present in the database.
+    ?ds_tx_expected => [kv_matcher()],
+    %%   List of objects that should NOT be present in the database.
+    ?ds_tx_unexpected => [topic()]
+}.
+
+%% TODO:
+-type tx_ops() :: #{}.
+
+-type transaction_opts() :: #{
+    db := db(),
+    %% Specifies shard of transaction. If set to `{auto, Term}' then
+    %% the shard is derived automatically by calling
+    %% `shard_of(DB, Term)'.
+    shard := shard() | {auto, _},
+
+    %% If not specified, the last generation will be used:
+    generation => generation(),
+
+    %% Options that govern retry of recoverable errors:
+    retries => non_neg_integer(),
+    timeout => timeout(),
+    sync => boolean(),
+    retry_interval => non_neg_integer()
+}.
+
+-type transaction_result(Ret) ::
+    {atomic, tx_serial(), Ret}
+    | {nop, Ret}
+    | {async, reference(), Ret}
+    | error(_).
+
+-type commit_result() :: {ok, tx_serial()} | error(_).
+
+-type fold_fun(Acc) :: fun(
+    (
+        slab(),
+        stream(),
+        message_key(),
+        emqx_types:message() | kv_pair(),
+        Acc
+    ) -> Acc
+).
+
+-type fold_options() ::
+    #{
+        db := db(),
+        errors => crash | report,
+        batch_size => pos_integer(),
+        start_time => time(),
+        shard => shard(),
+        generation => generation()
+    }.
+
+-record(fold_ctx, {
+    db :: db(),
+    tf :: topic_filter(),
+    start_time :: time(),
+    batch_size :: pos_integer(),
+    errors :: crash | report
+}).
+
+-type fold_ctx() :: #fold_ctx{}.
+
+-type fold_error() ::
+    {shard, shard(), error(_)}
+    | {stream, slab(), stream(), error(_)}.
+
+-type fold_result(R) :: {R, [fold_error()]} | R.
+
+%% Internal:
 -define(persistent_term(DB), {emqx_ds_db_backend, DB}).
 
 -define(module(DB), (persistent_term:get(?persistent_term(DB)))).
@@ -338,6 +473,7 @@
 
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
 
+%% Synchronous read API:
 -callback get_streams(db(), topic_filter(), time(), get_streams_opts()) -> get_streams_result().
 
 -callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
@@ -345,6 +481,7 @@
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
 
+%% Deletion API:
 -callback get_delete_streams(db(), topic_filter(), time()) -> [ds_specific_delete_stream()].
 
 -callback make_delete_iterator(db(), ds_specific_delete_stream(), topic_filter(), time()) ->
@@ -353,7 +490,27 @@
 -callback delete_next(db(), DeleteIterator, delete_selector(), pos_integer()) ->
     delete_next_result(DeleteIterator).
 
+-callback stream_to_binary(db(), ds_specific_stream()) -> binary().
+
+-callback binary_to_stream(db(), binary()) -> {ok, ds_specific_stream()} | {error, _}.
+
+-callback iterator_to_binary(db(), ds_specific_iterator()) -> binary().
+
+-callback binary_to_iterator(db(), binary()) -> {ok, ds_specific_iterator()} | {error, _}.
+
+%% Statistics API:
 -callback count(db()) -> non_neg_integer().
+
+%% Blob transaction API:
+-callback new_kv_tx(db(), transaction_opts()) ->
+    {ok, kv_tx_context()} | error(_).
+
+-callback commit_tx
+    (db(), kv_tx_context(), kv_tx_ops()) -> reference();
+    (db(), tx_context(), tx_ops()) -> reference().
+
+-callback tx_commit_outcome({'DOWN', reference(), _, _, _}) ->
+    commit_result().
 
 -optional_callbacks([
     list_generations_with_lifetimes/1,
@@ -378,14 +535,25 @@ register_backend(Name, Module) ->
 %% @doc Different DBs are completely independent from each other. They
 %% could represent something like different tenants.
 -spec open_db(db(), create_db_opts()) -> ok.
-open_db(DB, Opts = #{backend := Backend}) ->
+open_db(DB, UserOpts) ->
+    Opts = #{backend := Backend} = set_db_defaults(UserOpts),
+    %% Sanity checks:
+    case Opts of
+        #{store_kv := true, append_only := true} ->
+            %% Blobs don't have a builtin timestamp field, so we
+            %% cannot set it automatically:
+            error({incompatible_options, [store_kv, append_only]});
+        _ ->
+            ok
+    end,
+    %% Call backend:
     case persistent_term:get({emqx_ds_backend_module, Backend}, undefined) of
         undefined ->
             error({no_such_backend, Backend});
         Module ->
             persistent_term:put(?persistent_term(DB), Module),
             emqx_ds_sup:register_db(DB, Backend),
-            ?module(DB):open_db(DB, set_db_defaults(Opts))
+            ?module(DB):open_db(DB, Opts)
     end.
 
 -spec close_db(db()) -> ok.
@@ -585,6 +753,331 @@ count(DB) ->
     Mod = ?module(DB),
     call_if_implemented(Mod, count, [DB], {error, not_implemented}).
 
+%% @hidden Low-level transaction API. Obtain context for an optimistic
+%% transaction that allows to execute a set of operations atomically.
+-spec new_kv_tx(db(), transaction_opts()) -> {ok, kv_tx_context()} | error(_).
+new_kv_tx(DB, Opts = #{shard := _, timeout := _}) ->
+    ?module(DB):new_kv_tx(DB, Opts).
+
+%% @hidden Low-level transaction API. Try to commit a set of
+%% operations executed in a given transaction context. This function
+%% returns immediately.
+%%
+%% Outcome of the transaction is sent to the process that created
+%% `TxContext' as a message.
+%%
+%% This message matches `?ds_tx_commit_reply(Ref, Reply)' macro from
+%% `emqx_ds.hrl'. Reply should be passed to `tx_commit_outcome'
+%% function.
+-spec commit_tx
+    (db(), kv_tx_context(), kv_tx_ops()) -> reference();
+    (db(), tx_context(), tx_ops()) -> reference().
+commit_tx(DB, TxContext, TxOps) ->
+    ?module(DB):commit_tx(DB, TxContext, TxOps).
+
+%% @doc Process asynchronous DS transaction commit reply and return
+%% the outcome of commit.
+-spec tx_commit_outcome(db(), reference(), term()) ->
+    commit_result().
+tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
+    ?module(DB):tx_commit_outcome(Reply).
+
+%%================================================================================
+%% Utility functions
+%%================================================================================
+
+%% Transaction process dictionary keys:
+-define(tx_ctx, emqx_ds_tx_ctx).
+-define(tx_ops_write, emqx_ds_tx_ctx_write).
+-define(tx_ops_read, emqx_ds_tx_ctx_read).
+-define(tx_ops_del_topic, emqx_ds_tx_ctx_del_topic).
+-define(tx_ops_assert_present, emqx_ds_tx_ctx_assert_present).
+-define(tx_ops_assert_absent, emqx_ds_tx_ctx_assert_absent).
+
+%% Transaction throws:
+-define(tx_reset, emqx_ds_tx_reset).
+
+%% @doc Execute a function in the environment where writes, deletes
+%% and asserts are deferred, and then committed atomically.
+%%
+%% == Order of operations ==
+%%
+%% When transaction commits, its side effects may be applied in an
+%% order different from their execution in the transaction fun.
+%%
+%% The following is guaranteed, though:
+%%
+%% 1. Preconditions are checked first
+%%
+%% 2. Deletions are applied (in any order)
+%%
+%% 3. Finally, writes are applied (in any order)
+%%
+%% == Limitations ==
+%%
+%% - Transactions can't span multiple shards.
+%%
+%% - This function is not as sophisticated as, say, mnesia. In
+%% particular, transaction side effects become visible _eventually_
+%% after the successful commit.
+%%
+%% - Currently this API is supported only for DBs created with
+%% `store_kv' = `true'.
+%%
+%% - Transaction API is entirely optimistic, and it's not at all
+%% optimized to handle conflicts. When DS _suspects_ a potential
+%% conflict, it refuses to commit any or all transactions involved in
+%% it. If a lot of conflicts is expected, it's up to user to create an
+%% external locking mechanism.
+%%
+%% == Options ==
+%%
+%% - `db': name of the database
+%%
+%% - `shard': Specify the shard directly. If set to `{auto, Term}',
+%% then the shard is derived by calling `shard_of(DB, Term)'.
+%%
+%% - `generation': Specify generation for the transaction. If omitted,
+%% current generation is assumed.
+%%
+%% - `sync': If set to `false', this function will return immediately
+%% without waiting for commit. Commit outcome will be sent as a
+%% message. `true' by default.
+%%
+%% - `timeout': sets timeout waiting for the commit.
+%%
+%%   + If set to a positive integer, function may return
+%%     `{error, unrecoverable, timeout}'.
+%%
+%% - `retries': Automatically retry the transaction if commit results
+%% in a recoverable error. This option specifies number of retries. 0
+%% by default. This option has no effect when `sync' = `false'.
+%%
+%% - `retry_interval': set pause between the retries.
+%%
+%% == Return values ==
+%%
+%% - When transaction doesn't have any side effects (writes, deletes
+%% or asserts), `{nop, Ret}' is returned regardless of other factors.
+%% `Ret' is the return value of the transaction fun.
+%%
+%% - When `timeout' option is set `async', this function returns
+%% `{async, Ref, Ret}' tuple where `Ref' is a reference. Result of the
+%% commit is sent to the caller asynchronously as a message that
+%% should be matched using `?tx_commit_reply(Ref, Reply)' macro. This
+%% macro binds `Reply' to a variable that should be passed to
+%% `emqx_ds:check_commit_reply' function to get the outcome of the
+%% async commit. For example:
+%%
+%% ```
+%% {async, Ref, Ret} = emqx_ds:trans(#{sync => false}, Fun),
+%% receive
+%%   ?tx_commit_reply(Ref, Reply) ->
+%%      CommitOutcome = emqx_ds:tx_commit_outcome(Ref, Reply)
+%% end.
+%% '''
+%%
+%% WARNING: `?tx_commit_reply(Ref, Reply)' has the same structure as a
+%% monitor 'DOWN' message. Therefore, in a selective receive or
+%% `gen_*' callbacks it should be matched before other 'DOWN'
+%% messages. Also, indiscriminate flushing such messages must be
+%% avoided.
+%%
+%% - Otherwise, `{atomic, Serial, Ret}' tuple is returned on
+%% successful commit. `Serial' is a shard-unique monotonically
+%% increasing token identifying the transaction.
+%%
+%% - Errors are returned as usual for DS.
+-spec trans(
+    transaction_opts(),
+    fun(() -> Ret)
+) ->
+    transaction_result(Ret).
+trans(UserOpts = #{db := DB, shard := _}, Fun) ->
+    Defaults = #{
+        timeout => 5_000,
+        sync => true,
+        retries => 0,
+        retry_interval => 1_000
+    },
+    Opts = maps:merge(Defaults, UserOpts),
+    case tx_ctx() of
+        undefined ->
+            #{retries := Retries} = Opts,
+            trans(DB, Fun, Opts, Retries);
+        _ ->
+            ?err_unrec(nested_transaction)
+    end.
+
+%% @doc Schedule a transactional write of a given value to the topic.
+%% Value can be a binary or `?ds_tx_serial'. The latter is substituted
+%% with the transaction serial.
+-spec tx_kv_write(topic(), binary() | ?ds_tx_serial) -> ok.
+tx_kv_write(Topic, Value) ->
+    case is_topic(Topic) andalso (is_binary(Value) orelse Value =:= ?ds_tx_serial) of
+        true ->
+            tx_push_op(?tx_ops_write, {Topic, Value});
+        false ->
+            error(badarg)
+    end.
+
+%% @doc Schedule a transactional deletion of all values stored in
+%% topics matching the filter. Deletion is performed on the latest
+%% version of the data.
+-spec tx_del_topic(topic_filter()) -> ok.
+tx_del_topic(TopicFilter) ->
+    case is_topic_filter(TopicFilter) of
+        true ->
+            tx_push_op(?tx_ops_del_topic, TopicFilter);
+        false ->
+            error(badarg)
+    end.
+
+%% @doc Add a transaction precondition that asserts presence of the
+%% given value in the topic.
+%%
+%% This operation is considered side effect.
+-spec tx_kv_assert_present(topic(), binary() | '_') -> ok.
+tx_kv_assert_present(Topic, Value) ->
+    case is_topic(Topic) andalso (Value =:= '_' orelse is_binary(Value)) of
+        true ->
+            tx_push_op(?tx_ops_assert_present, {Topic, Value});
+        false ->
+            error(badarg)
+    end.
+
+%% @doc Add a transaction precondition that asserts absense of value
+%% in the topic.
+%%
+%% This operation is considered side effect.
+-spec tx_kv_assert_absent(topic()) -> ok.
+tx_kv_assert_absent(Topic) ->
+    case is_topic(Topic) of
+        true ->
+            tx_push_op(?tx_ops_assert_absent, Topic);
+        false ->
+            error(badarg)
+    end.
+
+%% @doc Restart `trans'
+-spec reset_trans() -> no_return().
+reset_trans() ->
+    throw(?tx_reset).
+
+%% @doc Serialize stream to a compact binary representation.
+-spec stream_to_binary(db(), stream()) -> {ok, binary()} | {error, _}.
+stream_to_binary(DB, Stream) ->
+    ?module(DB):stream_to_binary(DB, Stream).
+
+%% @doc Deserialize stream from a binary produced by
+%% `stream_to_binary'.
+-spec binary_to_stream(db(), binary()) -> {ok, stream()} | {error, _}.
+binary_to_stream(DB, Bin) ->
+    ?module(DB):binary_to_stream(DB, Bin).
+
+%% @doc Serialize iterator to a compact binary representation.
+-spec iterator_to_binary(db(), stream()) -> {ok, binary()} | {error, _}.
+iterator_to_binary(DB, Stream) ->
+    ?module(DB):iterator_to_binary(DB, Stream).
+
+%% @doc Deserialize iterator from a binary produced by
+%% `iterator_to_binary'.
+-spec binary_to_iterator(db(), binary()) -> {ok, stream()} | {error, _}.
+binary_to_iterator(DB, Bin) ->
+    ?module(DB):binary_to_iterator(DB, Bin).
+
+%% @doc Return _all_ messages matching the topic-filter as a list.
+-spec dirty_read(db() | fold_options(), topic_filter()) ->
+    fold_result([kv_pair() | emqx_types:message()]).
+dirty_read(DB, TopicFilter) when is_atom(DB) ->
+    dirty_read(#{db => DB}, TopicFilter);
+dirty_read(#{db := _} = Opts, TopicFilter) ->
+    Fun = fun(_Slab, _Stream, _DSKey, Object, Acc) ->
+        [Object | Acc]
+    end,
+    fold_topic(Fun, [], TopicFilter, Opts).
+
+%% @doc Return _all_ messages matching the topic-filter as a list. Transactionsal.
+-spec tx_read(db() | fold_options(), topic_filter()) ->
+    fold_result([kv_pair() | emqx_types:message()]).
+tx_read(Opts, TopicFilter) ->
+    tx_push_op(?tx_ops_read, TopicFilter),
+    dirty_read(Opts, TopicFilter).
+
+-spec fold_topic(
+    fold_fun(Acc),
+    Acc,
+    topic_filter(),
+    fold_options()
+) -> fold_result(Acc).
+fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
+    %% Merge config and make fold context:
+    Defaults = #{
+        batch_size => 100,
+        generation => '_',
+        errors => crash,
+        start_time => 0
+    },
+    #{
+        batch_size := BatchSize,
+        generation := GenerationMatcher,
+        errors := ErrorHandling,
+        start_time := StartTime
+    } = maps:merge(Defaults, UserOpts),
+    Ctx = #fold_ctx{
+        db = DB,
+        tf = TopicFilter,
+        start_time = StartTime,
+        batch_size = BatchSize,
+        errors = ErrorHandling
+    },
+    %% Get streams:
+    GetStreamOpts =
+        case UserOpts of
+            #{shard := ReqShard} -> #{shard => ReqShard};
+            _ -> #{}
+        end,
+    {Streams, ShardErrors0} = get_streams(DB, TopicFilter, StartTime, GetStreamOpts),
+    ShardErrors = [{shard, Shard, Err} || {Shard, Err} <- ShardErrors0],
+    %% Create iterators:
+    {Iterators, Errors} =
+        lists:foldl(
+            fun({Slab = {_, Generation}, Stream}, {Acc, ErrAcc}) ->
+                case
+                    (GenerationMatcher =:= '_' orelse GenerationMatcher =:= Generation) andalso
+                        make_iterator(DB, Stream, TopicFilter, StartTime)
+                of
+                    false ->
+                        {Acc, ErrAcc};
+                    {ok, It} ->
+                        {[{Slab, Stream, It} | Acc], ErrAcc};
+                    Err ->
+                        {Acc, [{stream, Slab, Stream, Err} | ErrAcc]}
+                end
+            end,
+            {[], ShardErrors},
+            Streams
+        ),
+    %% Fold over data:
+    case {Errors, ErrorHandling} of
+        {_, report} ->
+            {fold_streams(Fun, AccIn, Iterators, Ctx), Errors};
+        {[], crash} ->
+            fold_streams(Fun, AccIn, Iterators, Ctx);
+        {_, crash} ->
+            error(Errors)
+    end.
+
+-spec tx_fold_topic(
+    fold_fun(Acc),
+    Acc,
+    topic_filter(),
+    fold_options()
+) -> fold_result(Acc).
+tx_fold_topic(Fun, Acc, TopicFilter, Opts) ->
+    tx_push_op(?tx_ops_read, TopicFilter),
+    fold_topic(Fun, Acc, TopicFilter, Opts).
+
 %%================================================================================
 %% Internal exports
 %%================================================================================
@@ -603,10 +1096,17 @@ topic_words(Bin) -> emqx_topic:words(Bin).
 %% Internal functions
 %%================================================================================
 
+set_db_defaults(Opts = #{store_kv := true}) ->
+    Defaults = #{
+        append_only => false,
+        atomic_batches => true
+    },
+    maps:merge(Defaults, Opts);
 set_db_defaults(Opts) ->
     Defaults = #{
         append_only => true,
-        atomic_batches => false
+        atomic_batches => false,
+        store_kv => false
     },
     maps:merge(Defaults, Opts).
 
@@ -617,3 +1117,144 @@ call_if_implemented(Mod, Fun, Args, Default) ->
         false ->
             Default
     end.
+
+-spec trans(
+    db(),
+    fun(() -> Ret),
+    transaction_opts(),
+    non_neg_integer()
+) ->
+    transaction_result(Ret).
+trans(DB, Fun, Opts, Retries) ->
+    _ = put(?tx_ops_write, []),
+    _ = put(?tx_ops_read, []),
+    _ = put(?tx_ops_del_topic, []),
+    _ = put(?tx_ops_assert_present, []),
+    _ = put(?tx_ops_assert_absent, []),
+    #{
+        sync := IsSync,
+        retry_interval := RetryInterval
+    } = Opts,
+    try
+        case new_kv_tx(DB, Opts) of
+            {ok, Ctx} ->
+                put(?tx_ctx, Ctx),
+                Ret = Fun(),
+                Tx = #{
+                    ?ds_tx_write => erase(?tx_ops_write),
+                    ?ds_tx_read => erase(?tx_ops_read),
+                    ?ds_tx_delete_topic => erase(?tx_ops_del_topic),
+                    ?ds_tx_expected => erase(?tx_ops_assert_present),
+                    ?ds_tx_unexpected => erase(?tx_ops_assert_absent)
+                },
+                case Tx of
+                    #{
+                        ?ds_tx_write := [],
+                        ?ds_tx_read := [],
+                        ?ds_tx_delete_topic := [],
+                        ?ds_tx_expected := [],
+                        ?ds_tx_unexpected := []
+                    } ->
+                        %% Nothing to commit
+                        {nop, Ret};
+                    _ ->
+                        Ref = commit_tx(DB, Ctx, Tx),
+                        case IsSync of
+                            false ->
+                                {async, Ref, Ret};
+                            true ->
+                                receive
+                                    ?ds_tx_commit_reply(Ref, Reply) ->
+                                        case tx_commit_outcome(DB, Ref, Reply) of
+                                            {ok, CommitTXId} ->
+                                                {atomic, CommitTXId, Ret};
+                                            ?err_unrec(_) = Err ->
+                                                Err;
+                                            ?err_rec(Reason) when Retries > 0 ->
+                                                ?tp(
+                                                    warning,
+                                                    emqx_ds_tx_retry,
+                                                    #{
+                                                        db => DB,
+                                                        tx_fun => Fun,
+                                                        opts => Opts,
+                                                        retries => Retries,
+                                                        reason => Reason
+                                                    }
+                                                ),
+                                                timer:sleep(RetryInterval),
+                                                trans(DB, Fun, Opts, Retries - 1);
+                                            Err ->
+                                                Err
+                                        end
+                                end
+                        end
+                end
+        end
+    catch
+        ?tx_reset when Retries > 0 ->
+            timer:sleep(RetryInterval),
+            trans(DB, Fun, Opts, Retries - 1)
+    after
+        _ = erase(?tx_ctx),
+        _ = erase(?tx_ops_write),
+        _ = erase(?tx_ops_read),
+        _ = erase(?tx_ops_del_topic),
+        _ = erase(?tx_ops_assert_present),
+        _ = erase(?tx_ops_assert_absent)
+    end.
+
+tx_ctx() ->
+    get(?tx_ctx).
+
+tx_push_op(K, A) ->
+    put(K, [A | get(K)]),
+    ok.
+
+-spec fold_streams(
+    fold_fun(Acc), Acc, [{slab(), stream(), iterator()}], fold_ctx()
+) -> Acc.
+fold_streams(_Fun, Acc, [], _Ctx) ->
+    Acc;
+fold_streams(Fun, Acc0, [{Slab, Stream, It} | Rest], Ctx) ->
+    Acc = fold_iterator(Fun, Acc0, Slab, Stream, It, Ctx),
+    fold_streams(Fun, Acc, Rest, Ctx).
+
+-spec fold_iterator(
+    fold_fun(Acc), Acc, slab(), stream(), iterator(), fold_ctx()
+) -> Acc.
+fold_iterator(Fun, Acc0, Slab, Stream, It0, Ctx) ->
+    #fold_ctx{db = DB, batch_size = BatchSize} = Ctx,
+    case next(DB, It0, BatchSize) of
+        {ok, _It, []} ->
+            Acc0;
+        {ok, end_of_stream} ->
+            Acc0;
+        {ok, It, Batch} ->
+            Acc = lists:foldl(
+                fun({MsgKey, Msg}, A) ->
+                    Fun(Slab, Stream, MsgKey, Msg, A)
+                end,
+                Acc0,
+                Batch
+            ),
+            fold_iterator(Fun, Acc, Slab, Stream, It, Ctx)
+    end.
+
+is_topic([]) ->
+    true;
+is_topic([B | Rest]) when is_binary(B) ->
+    is_topic(Rest);
+is_topic(_) ->
+    false.
+
+is_topic_filter([]) ->
+    true;
+is_topic_filter(['#']) ->
+    true;
+is_topic_filter(['+' | Rest]) ->
+    is_topic_filter(Rest);
+is_topic_filter([B | Rest]) when is_binary(B) ->
+    is_topic_filter(Rest);
+is_topic_filter(_) ->
+    false.
