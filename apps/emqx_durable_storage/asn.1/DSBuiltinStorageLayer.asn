@@ -1,0 +1,20 @@
+--------------------------------------------------------------------------
+-- Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+--------------------------------------------------------------------------
+
+DSBuiltinStorageLayer DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  EXPORTS ALL;
+
+  Stream ::= CHOICE {
+    reference DSBuiltinSLReference.Stream,
+    skipstreamV1 DSBuiltinSLSkipstreamV1.Stream,
+    ...
+  }
+
+  Iterator ::= CHOICE {
+    reference DSBuiltinSLReference.Iterator,
+    skipstreamV1 DSBuiltinSLSkipstreamV1.Iterator,
+    ...
+  }
+END

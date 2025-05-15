@@ -156,7 +156,7 @@ open(
             trie => Trie,
             serialization_schema => SSchema,
             get_topic => fun(StreamKey, _Val) ->
-                {ok, Varying} = 'DSBuiltinMetadata':decode('TopicWords', StreamKey),
+                {ok, Varying} = decode_stream_key(StreamKey),
                 Varying
             end,
             wildcard_hash_bytes => WCBytes
@@ -404,9 +404,14 @@ get_streams(Trie, TopicFilter) ->
 
 %%%%%%%% Keys %%%%%%%%%%
 
+%% TODO: https://github.com/erlang/otp/issues/9841
+-dialyzer({nowarn_function, [stream_key/1, decode_stream_key/1]}).
 stream_key(Varying) ->
-    {ok, StreamKey} = 'DSBuiltinMetadata':encode('TopicWords', Varying),
+    {ok, StreamKey} = 'DSMetadataCommon':encode('TopicWords', Varying),
     StreamKey.
+
+decode_stream_key(StreamKey) ->
+    'DSMetadataCommon':decode('TopicWords', StreamKey).
 
 %%%%%%%% Column families %%%%%%%%%%
 
