@@ -97,28 +97,10 @@ fields(s3_client_params) ->
                     importance => ?IMPORTANCE_HIDDEN
                 },
                 {true, {K, hocon_schema:override(Sc, Override)}};
-            ({transport_options = K, Sc}) ->
-                Override = #{type => ref(s3_client_transport_options)},
-                {true, {K, hocon_schema:override(Sc, Override)}};
             ({K, _Sc}) ->
                 not lists:member(K, FieldsToRemove)
         end,
         Fields
-    );
-fields(s3_client_transport_options) ->
-    lists:map(
-        fun
-            ({ssl = K, Sc}) ->
-                Override = #{
-                    %% to please dialyzer...
-                    type => hocon_schema:field_schema(Sc, type),
-                    default => #{<<"enable">> => true}
-                },
-                {K, hocon_schema:override(Sc, Override)};
-            ({K, Sc}) ->
-                {K, Sc}
-        end,
-        emqx_s3_schema:fields(transport_options)
     ).
 
 desc("config_connector") ->
