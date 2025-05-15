@@ -1,0 +1,13 @@
+--------------------------------------------------------------------------
+-- Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+--------------------------------------------------------------------------
+
+-- Metadata definitions for emqx_ds_storage_reference module
+DSBuiltinSLReference DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  EXPORTS ALL;
+
+  Stream ::= NULL
+
+  Iterator ::= OCTET STRING
+END
