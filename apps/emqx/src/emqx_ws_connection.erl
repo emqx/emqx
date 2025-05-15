@@ -657,9 +657,16 @@ order_shutdown(Reason, FrameAcc, State) ->
     {[{shutdown, Reason} | FrameAcc], State#state{sockstate = shutdown}}.
 
 handle_close(#{cause := Cause}) when is_atom(Cause) ->
-    {close, Cause};
+    {close, iodata(Cause)};
 handle_close(Reason) ->
-    {close, Reason}.
+    {close, iodata(Reason)}.
+
+iodata(X) when is_atom(X) ->
+    atom_to_binary(X);
+iodata(X) when is_list(X) ->
+    X;
+iodata(X) when is_binary(X) ->
+    X.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
