@@ -153,7 +153,6 @@ close_db(DB) ->
 
 -spec add_generation(emqx_ds:db()) -> ok | {error, _}.
 add_generation(DB) ->
-    %% FIXME: execute this in the serializer's context
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     Errors = lists:filtermap(
         fun(Shard) ->
