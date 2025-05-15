@@ -7,8 +7,6 @@
         stdlib,
         emqx_resource,
         telemetry,
-        erlcloud,
-        brod_oauth,
         wolff
     ]},
     {env, [

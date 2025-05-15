@@ -302,7 +302,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:murmerl3, github: "emqx/murmerl3", tag: "0.1.0-emqx.1", override: true}
 
   def common_dep(:brod_oauth),
-    do: {:brod_oauth, github: "emqx/brod_oauth", tag: "v0.1.0"}
+    do: {:brod_oauth, "0.1.1"}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK

@@ -28,8 +28,6 @@ defmodule EMQXBridgeAzureEventHub.MixProject do
       UMP.common_dep(:brod_gssapi),
       UMP.common_dep(:brod),
       UMP.common_dep(:snappyer),
-      UMP.common_dep(:erlcloud),
-      UMP.common_dep(:brod_oauth),
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
