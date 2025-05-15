@@ -23,7 +23,7 @@
     get_streams/4,
     make_iterator/5,
     next/6,
-    lookup_message/4,
+    lookup/3,
 
     batch_events/3
 ]).
@@ -36,8 +36,11 @@
 
 -export_type([schema/0, s/0]).
 
+-elvis([{elvis_style, atom_naming_convention, disable}]).
+
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds.hrl").
+-include("../gen_src/DSBuiltinSLSkipstreamKV.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -85,10 +88,10 @@
 
 -type s() :: #s{}.
 
--record(kv_stream, {
-    static_index :: emqx_ds_lts:static_key()
-}).
+-define(asn1name, skipstreamKV).
+-define(stream(STATIC), {?asn1name, STATIC}).
 
+%% Internal iterator
 -record(it, {
     static_index :: emqx_ds_lts:static_key(),
     %% Key of the last visited message:
@@ -216,7 +219,7 @@ cook_blob_deletes(DBShard, S, Topics, Acc0) ->
 cook_blob_deletes1(DBShard, S, TopicFilter, Acc0) ->
     lists:foldl(
         fun(Stream, Acc) ->
-            {ok, #it{static_index = Static, compressed_tf = Varying, last_key = LK}} = make_iterator(
+            {ok, #it{static_index = Static, compressed_tf = Varying, last_key = LK}} = make_internal_iterator(
                 DBShard, S, Stream, TopicFilter, 0
             ),
             cook_blob_deletes2(S#s.gs, Static, Varying, LK, Acc)
@@ -320,7 +323,7 @@ batch_events(
             (?cooked_msg_op(_Static, _Varying, ?cooked_delete), Acc) ->
                 Acc;
             (?cooked_msg_op(Static, _Varying, _ValBlob), Acc) ->
-                maps:put(#kv_stream{static_index = Static}, 1, Acc)
+                maps:put(?stream(Static), 1, Acc)
         end,
         #{},
         Payloads
@@ -330,10 +333,41 @@ batch_events(
 get_streams(_Shard, #s{trie = Trie}, TopicFilter, _) ->
     get_streams(Trie, TopicFilter).
 
-make_iterator(
+make_iterator(Shard, S, Stream, TopicFilter, StartPos) ->
+    maybe
+        {ok, It} ?= make_internal_iterator(Shard, S, Stream, TopicFilter, StartPos),
+        {ok, it2ext(It)}
+    end.
+
+next(Shard, S, It0, BatchSize, _Now, _IsCurrent) ->
+    case next_internal(Shard, S, ext2it(It0), BatchSize) of
+        {ok, It, Batch} ->
+            {ok, it2ext(It), Batch};
+        Other ->
+            Other
+    end.
+
+lookup(_Shard, #s{trie = Trie, gs = GS}, Topic) ->
+    maybe
+        {ok, {Static, Varying}} ?= emqx_ds_lts:lookup_topic_key(Trie, Topic),
+        StreamKey = stream_key(Varying),
+        {ok, _DSKey, Value} ?=
+            emqx_ds_gen_skipstream_lts:lookup_message(GS, Static, StreamKey),
+        {ok, Value}
+    end.
+
+%%================================================================================
+%% Internal exports
+%%================================================================================
+
+%%================================================================================
+%% Internal functions
+%%================================================================================
+
+make_internal_iterator(
     _Shard,
     #s{trie = Trie},
-    #kv_stream{static_index = StaticIdx},
+    ?stream(StaticIdx),
     TopicFilter,
     StartPos
 ) ->
@@ -357,7 +391,7 @@ make_iterator(
         compressed_tf = CompressedTF
     }}.
 
-next(_DBShard, #s{gs = GS}, ItSeed, BatchSize, _, _) ->
+next_internal(_DBShard, #s{gs = GS}, ItSeed, BatchSize) ->
     Fun = fun(TopicStructure, DSKey, Varying, Val, Acc) ->
         Topic = emqx_ds_lts:decompress_topic(TopicStructure, Varying),
         [{DSKey, {Topic, Val}} | Acc]
@@ -372,32 +406,10 @@ next(_DBShard, #s{gs = GS}, ItSeed, BatchSize, _, _) ->
             Err
     end.
 
-lookup_message(
-    _Shard,
-    #s{trie = Trie, gs = GS},
-    Topic,
-    _Timestamp
-) ->
-    maybe
-        {ok, {Static, Varying}} ?= emqx_ds_lts:lookup_topic_key(Trie, Topic),
-        StreamKey = stream_key(Varying),
-        {ok, _DSKey, Value} ?=
-            emqx_ds_gen_skipstream_lts:lookup_message(GS, Static, StreamKey),
-        {ok, {Topic, Value}}
-    end.
-
-%%================================================================================
-%% Internal exports
-%%================================================================================
-
-%%================================================================================
-%% Internal functions
-%%================================================================================
-
 get_streams(Trie, TopicFilter) ->
     lists:map(
         fun({Static, _Varying}) ->
-            #kv_stream{static_index = Static}
+            ?stream(Static)
         end,
         emqx_ds_lts:match_topics(Trie, TopicFilter)
     ).
@@ -424,6 +436,23 @@ data_cf(GenId) ->
 -spec trie_cf(emqx_ds_storage_layer:gen_id()) -> [char()].
 trie_cf(GenId) ->
     "emqx_ds_storage_kv_skipstream_lts_trie" ++ integer_to_list(GenId).
+
+%%%%%%%% External iterator format %%%%%%%%%%
+
+%% @doc Transform iterator from/to the external serializable representation
+it2ext(#it{static_index = Static, last_key = LastKey, compressed_tf = Varying}) ->
+    {?asn1name, #'Iterator'{
+        static = Static,
+        lastKey = LastKey,
+        topicFilter = emqx_ds_lib:tf_to_asn1(Varying)
+    }}.
+
+ext2it({?asn1name, #'Iterator'{static = Static, lastKey = LastKey, topicFilter = Varying}}) ->
+    #it{
+        static_index = Static,
+        last_key = LastKey,
+        compressed_tf = emqx_ds_lib:asn1_to_tf(Varying)
+    }.
 
 %%================================================================================
 %% Tests
