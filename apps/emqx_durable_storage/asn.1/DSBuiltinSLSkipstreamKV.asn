@@ -1,0 +1,17 @@
+--------------------------------------------------------------------------
+-- Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+--------------------------------------------------------------------------
+
+DSBuiltinSLSkipstreamKV DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  EXPORTS ALL;
+  IMPORTS TopicFilter FROM DSMetadataCommon;
+
+  Stream ::= OCTET STRING
+
+  Iterator ::= SEQUENCE {
+    static OCTET STRING,
+    lastKey OCTET STRING,
+    topicFilter TopicFilter
+  }
+END

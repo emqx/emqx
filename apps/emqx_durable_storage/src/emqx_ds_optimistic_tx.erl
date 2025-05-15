@@ -408,17 +408,17 @@ do_check_conflicts(Dirty, Serial, Topics) ->
 verify_preconditions(DBShard, GenId, Ops) ->
     %% Verify expected values:
     Unrecoverable0 = lists:foldl(
-        fun({Topic, ValueMatcher}, Acc) ->
+        fun({Topic, ExpectedValue}, Acc) ->
             case lookup_kv(DBShard, GenId, Topic) of
-                {ok, {_, Value}} when
-                    ValueMatcher =:= '_';
-                    ValueMatcher =:= Value
+                {ok, Value} when
+                    ExpectedValue =:= '_';
+                    ExpectedValue =:= Value
                 ->
                     Acc;
-                {ok, {_, Value}} ->
-                    [#{topic => Topic, expected => ValueMatcher, got => Value} | Acc];
+                {ok, Value} ->
+                    [#{topic => Topic, expected => ExpectedValue, got => Value} | Acc];
                 undefined ->
-                    [#{topic => Topic, expected => ValueMatcher, got => undefined} | Acc]
+                    [#{topic => Topic, expected => ExpectedValue, got => undefined} | Acc]
             end
         end,
         [],
