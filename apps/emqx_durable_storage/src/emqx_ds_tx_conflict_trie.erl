@@ -58,7 +58,7 @@ topic_filter_to_conflict_domain(TF) ->
 %% @param MinSerial Transaction serial at the time of creation.
 %%
 %% @param RotateEvery Automatically rotate the trie when the tracked
-%% serial interval reaches this value. Atom `infinity' disable
+%% serial interval reaches this value. Atom `infinity' disables
 %% automatic rotation.
 -spec new(emqx_ds_optimistic_tx:serial(), pos_integer() | infinity) -> t().
 new(MinSerial, RotateEvery) when

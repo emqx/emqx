@@ -83,6 +83,13 @@
 ) ->
     emqx_ds:make_iterator_result(_Iterator).
 
+-callback lookup(
+    emqx_ds_storage_layer:dbshard(),
+    emqx_ds_storage_layer:generation_data(),
+    emqx_ds:topic()
+) ->
+    {ok, binary()} | undefined.
+
 -callback next(
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
@@ -157,7 +164,7 @@ lookup_kv(DBShard, Generation, Topic) ->
         not_found ->
             ?err_unrec(generation_not_found);
         #{module := Mod, data := GenData} ->
-            Mod:lookup_message(DBShard, GenData, Topic, 0)
+            Mod:lookup(DBShard, GenData, Topic)
     end.
 
 %%================================================================================
