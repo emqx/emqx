@@ -151,6 +151,7 @@ t_demo_install_start_stop_uninstall({'end', _Config}) ->
     ok;
 t_demo_install_start_stop_uninstall(Config) ->
     NameVsn = proplists:get_value(name_vsn, Config),
+    NameVsnBin = bin(NameVsn),
     #{
         release_name := ReleaseName,
         vsn := PluginVsn
@@ -167,9 +168,10 @@ t_demo_install_start_stop_uninstall(Config) ->
     ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
     ?assert(is_app_running(map_sets)),
     %% start (idempotent)
-    ok = emqx_plugins:ensure_started(bin(NameVsn)),
+    ok = emqx_plugins:ensure_started(NameVsnBin),
     ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
     ?assert(is_app_running(map_sets)),
+    ?assertEqual([NameVsnBin], emqx_plugins:list_active()),
 
     %% running app can not be un-installed
     ?assertMatch(
@@ -184,7 +186,7 @@ t_demo_install_start_stop_uninstall(Config) ->
     ?assert(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
     ?assert(is_app_loaded(map_sets)),
     %% stop (idempotent)
-    ok = emqx_plugins:ensure_stopped(bin(NameVsn)),
+    ok = emqx_plugins:ensure_stopped(NameVsnBin),
     ?assertNot(is_app_running(?EMQX_PLUGIN_APP_NAME)),
     ?assertNot(is_app_running(map_sets)),
     ?assert(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
@@ -205,6 +207,7 @@ t_demo_install_start_stop_uninstall(Config) ->
     ?assertNot(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
     ?assertNot(is_app_loaded(map_sets)),
     ?assertEqual([], emqx_plugins:list()),
+    ?assertEqual([], emqx_plugins:list_active()),
     ?assertMatch([<<"[]">>], emqx_plugins_cli:list(fun(_, L) -> L end)),
     ok.
 
