@@ -90,13 +90,13 @@ fields(s3_client_params) ->
     lists:filtermap(
         fun
             ({K, Sc}) when K == host; K == port ->
-                %% to please dialyzer...
                 Override = #{
+                    %% to please dialyzer...
                     type => hocon_schema:field_schema(Sc, type),
                     required => false,
                     importance => ?IMPORTANCE_HIDDEN
                 },
-                {true, {K, Override}};
+                {true, {K, hocon_schema:override(Sc, Override)}};
             ({K, _Sc}) ->
                 not lists:member(K, FieldsToRemove)
         end,
@@ -107,6 +107,8 @@ desc("config_connector") ->
     ?DESC("config_connector");
 desc(s3_client_params) ->
     ?DESC("s3_client");
+desc(s3_client_transport_options) ->
+    ?DESC("s3_client_transport_options");
 desc(_Name) ->
     undefined.
 
