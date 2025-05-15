@@ -116,7 +116,6 @@
     sub_seqno/0,
 
     kv_pair/0,
-    kv_matcher/0,
 
     tx_serial/0,
     kv_tx_context/0,
@@ -158,8 +157,6 @@
 -type deletion() :: {delete, message_matcher('_')}.
 
 -type kv_pair() :: {topic(), binary()}.
-
--type kv_matcher() :: {message_key(), binary() | '_'}.
 
 %% Precondition.
 %% Fails whole batch if the storage already has the matching message (`if_exists'),
@@ -373,7 +370,7 @@
     ?ds_tx_read => [topic_filter()],
     %% Preconditions:
     %%   List of objects that should be present in the database.
-    ?ds_tx_expected => [kv_matcher()],
+    ?ds_tx_expected => [{topic(), binary() | '_'}],
     %%   List of objects that should NOT be present in the database.
     ?ds_tx_unexpected => [topic()]
 }.
@@ -390,7 +387,7 @@
     shard := shard() | {auto, _},
 
     %% If not specified, the last generation will be used:
-    generation => generation(),
+    generation := generation(),
 
     %% Options that govern retry of recoverable errors:
     retries => non_neg_integer(),
@@ -825,28 +822,28 @@ tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
 %%
 %% == Options ==
 %%
-%% - `db': name of the database
+%% - `db': name of the database. Mandatory.
 %%
 %% - `shard': Specify the shard directly. If set to `{auto, Term}',
 %% then the shard is derived by calling `shard_of(DB, Term)'.
+%% Mandatory.
 %%
-%% - `generation': Specify generation for the transaction. If omitted,
-%% current generation is assumed.
+%% - `generation': Specify generation for the transaction. Mandatory.
 %%
 %% - `sync': If set to `false', this function will return immediately
 %% without waiting for commit. Commit outcome will be sent as a
 %% message. `true' by default.
 %%
-%% - `timeout': sets timeout waiting for the commit.
-%%
-%%   + If set to a positive integer, function may return
-%%     `{error, unrecoverable, timeout}'.
+%% - `timeout': sets timeout waiting for the commit in milliseconds.
+%% If set to a positive integer, function may return `{error,
+%% unrecoverable, timeout}'. Default is 5s.
 %%
 %% - `retries': Automatically retry the transaction if commit results
 %% in a recoverable error. This option specifies number of retries. 0
 %% by default. This option has no effect when `sync' = `false'.
 %%
-%% - `retry_interval': set pause between the retries.
+%% - `retry_interval': set pause between the retries in milliseconds.
+%% Default = 1s.
 %%
 %% == Return values ==
 %%
@@ -886,7 +883,7 @@ tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
     fun(() -> Ret)
 ) ->
     transaction_result(Ret).
-trans(UserOpts = #{db := DB, shard := _}, Fun) ->
+trans(UserOpts = #{db := DB, shard := _, generation := _}, Fun) ->
     Defaults = #{
         timeout => 5_000,
         sync => true,
@@ -1152,7 +1149,7 @@ trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval}, Retries) -
     case trans_inner(DB, Fun, Opts) of
         ?err_rec(Reason) when Retries > 0 ->
             ?tp(
-                warning,
+                debug,
                 emqx_ds_tx_retry,
                 #{
                     db => DB,
