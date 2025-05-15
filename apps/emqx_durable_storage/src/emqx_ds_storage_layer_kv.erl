@@ -95,7 +95,11 @@
     emqx_ds_storage_layer:generation_data(),
     Iter,
     pos_integer(),
-    %% FIXME: remove
+    %% TODO: Currently calls to kv layouts are still dispatched
+    %% through `emqx_ds_storage_layer' and carry some extra
+    %% parameters. Fixing it is not super trivial and not very useful,
+    %% except from aesthetics perspective, so there are some useless
+    %% parameters.
     _,
     _
 ) ->
