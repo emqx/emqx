@@ -10,7 +10,6 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
--include("emqx_mgmt.hrl").
 
 -behaviour(minirest_api).
 
@@ -262,7 +261,8 @@ list_banned([], [], Params) ->
     {200, Response};
 list_banned([{As, '=:=', Who}], [], Params) ->
     maybe
-        Key = {As, _Who1} ?= emqx_banned:parse_who(#{<<"as">> => As, <<"who">> => Who}),
+        {As, Who1} ?= emqx_banned:parse_who(#{<<"as">> => As, <<"who">> => Who}),
+        Key = {As, Who1},
         Result = emqx_banned:look_up(Key),
         MetaIn = emqx_mgmt_api:parse_pager_params(Params),
         {200, #{

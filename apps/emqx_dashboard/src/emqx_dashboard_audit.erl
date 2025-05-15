@@ -5,7 +5,7 @@
 -module(emqx_dashboard_audit).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_management/include/emqx_mgmt_api.hrl").
 %% API
 -export([log/2, log_fun/0, importance/1]).
 

@@ -6,7 +6,7 @@
     {modules, []},
     {registered, [emqx_management_sup]},
     {applications, [
-        kernel, stdlib, emqx_plugins, minirest, emqx, emqx_ctl, emqx_bridge_http, emqx_http_lib
+        kernel, stdlib, emqx_plugins, minirest, emqx, emqx_ctl, emqx_http_lib
     ]},
     {mod, {emqx_mgmt_app, []}},
     {env, []},
