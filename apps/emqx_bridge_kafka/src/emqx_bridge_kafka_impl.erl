@@ -31,6 +31,10 @@ make_client_id(BridgeType0, BridgeName0) ->
 
 sasl(none) ->
     undefined;
+sasl(msk_iam) ->
+    {callback, brod_oauth, #{
+        token_callback => fun emqx_bridge_kafka_msk_iam_authn:token_callback/1
+    }};
 sasl(#{mechanism := Mechanism, username := Username, password := Secret}) ->
     {Mechanism, Username, Secret};
 sasl(#{
