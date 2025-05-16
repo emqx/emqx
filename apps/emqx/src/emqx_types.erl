@@ -163,6 +163,7 @@
     receive_maximum => non_neg_integer(),
     expiry_interval => non_neg_integer(),
     atom() => term()
+    % trpt_started_at => integer(),
 }.
 -type clientinfo() :: #{
     zone := option(zone()),
@@ -180,9 +181,10 @@
     anonymous => boolean(),
     cn => binary(),
     dn => binary(),
+    %% Following fields are never used in RPC calls.
     %% Extra client attributes, commented out for bpapi spec backward compatibility.
-    %% This field is never used in RPC calls.
     %% client_attrs => client_attrs(),
+    %% predecessor => emqx_lcr:lcr_channel(),
     atom() => term()
 }.
 -type client_attrs() :: #{binary() => binary()}.

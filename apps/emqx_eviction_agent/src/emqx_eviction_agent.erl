@@ -35,7 +35,8 @@
 -export([
     all_local_channels_count/0,
     evict_session_channel/3,
-    do_evict_session_channel_v3/4
+    do_evict_session_channel_v3/4,
+    do_evict_session_channel_v4/4
 ]).
 
 -behaviour(gen_server).
@@ -485,6 +486,17 @@ do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, MaybeWillMsg) ->
         }
     ),
     Result.
+
+%% RPC target for `emqx_eviction_agent_proto_v4'
+-spec do_evict_session_channel_v4(
+    emqx_types:clientid(),
+    emqx_types:conninfo(),
+    emqx_types:clientinfo(),
+    emqx_maybe:t(emqx_types:message())
+) -> supervisor:startchild_ret().
+do_evict_session_channel_v4(ClientId, ConnInfo, ClientInfo, MaybeWillMsg) ->
+    true = maps:is_key(trpt_started_at, ConnInfo),
+    do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, MaybeWillMsg).
 
 disconnect_channel(ChanPid, ServerReference) ->
     ChanPid !
