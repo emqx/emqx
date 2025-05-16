@@ -48,7 +48,7 @@
 -callback get_tx_serial({emqx_ds:db(), emqx_ds:shard()}) -> serial().
 
 -callback prepare_kv_tx(
-    {emqx_ds:db(), emqx_ds:shard()}, emqx_ds:generation(), binary(), emqx_ds:kv_tx_ops(), _
+    {emqx_ds:db(), emqx_ds:shard()}, emqx_ds:generation(), binary(), emqx_ds:tx_ops(), _
 ) ->
     {ok, _CookedTx}
     | emqx_ds:error(_).
@@ -296,7 +296,7 @@ update_dirty(Serial, Ops, Dirty0) ->
     ),
     %% Mark written topics as dirty:
     lists:foldl(
-        fun({TF, _Val}, Acc) ->
+        fun({TF, _TS, _Val}, Acc) ->
             emqx_ds_tx_conflict_trie:push(TF, Serial, Acc)
         end,
         Dirty1,
@@ -374,9 +374,10 @@ check_conflicts(Dirty, TxStartSerial, SafeToReadSerial, Ops) ->
         ok ?= do_check_conflicts(Dirty, SafeToReadSerial, maps:get(?ds_tx_delete_topic, Ops, [])),
         %% Verifying precondition requires reading from the storage
         %% too. Make sure we don't ignore the cache:
-        ok ?= do_check_conflicts(Dirty, SafeToReadSerial, maps:get(?ds_tx_unexpected, Ops, [])),
-        ExpectedTopics = [Topic || {Topic, _} <- maps:get(?ds_tx_expected, Ops, [])],
-        ok ?= do_check_conflicts(Dirty, SafeToReadSerial, ExpectedTopics)
+        ExpectedTopics = [Topic || {Topic, _, _} <- maps:get(?ds_tx_expected, Ops, [])],
+        ok ?= do_check_conflicts(Dirty, SafeToReadSerial, ExpectedTopics),
+        UnexpectedTopics = [Topic || {Topic, _} <- maps:get(?ds_tx_unexpected, Ops, [])],
+        ok ?= do_check_conflicts(Dirty, SafeToReadSerial, UnexpectedTopics)
     end.
 
 do_check_conflicts(Dirty, Serial, Topics) ->
@@ -408,17 +409,20 @@ do_check_conflicts(Dirty, Serial, Topics) ->
 verify_preconditions(DBShard, GenId, Ops) ->
     %% Verify expected values:
     Unrecoverable0 = lists:foldl(
-        fun({Topic, ExpectedValue}, Acc) ->
-            case lookup_kv(DBShard, GenId, Topic) of
+        fun({Topic, Time, ExpectedValue}, Acc) ->
+            case lookup(DBShard, GenId, Topic, Time) of
                 {ok, Value} when
                     ExpectedValue =:= '_';
                     ExpectedValue =:= Value
                 ->
                     Acc;
                 {ok, Value} ->
-                    [#{topic => Topic, expected => ExpectedValue, got => Value} | Acc];
+                    [#{topic => Topic, expected => ExpectedValue, ts => Time, got => Value} | Acc];
                 undefined ->
-                    [#{topic => Topic, expected => ExpectedValue, got => undefined} | Acc]
+                    [
+                        #{topic => Topic, expected => ExpectedValue, ts => Time, got => undefined}
+                        | Acc
+                    ]
             end
         end,
         [],
@@ -426,12 +430,12 @@ verify_preconditions(DBShard, GenId, Ops) ->
     ),
     %% Verify unexpected values:
     Unrecoverable = lists:foldl(
-        fun(Topic, Acc) ->
-            case lookup_kv(DBShard, GenId, Topic) of
+        fun({Topic, Time}, Acc) ->
+            case lookup(DBShard, GenId, Topic, Time) of
                 undefined ->
                     Acc;
                 {ok, Value} ->
-                    [#{topic => Topic, unexpected => Value} | Acc]
+                    [#{topic => Topic, ts => Time, unexpected => Value} | Acc]
             end
         end,
         Unrecoverable0,
@@ -444,8 +448,8 @@ verify_preconditions(DBShard, GenId, Ops) ->
             ?err_unrec({precondition_failed, Unrecoverable})
     end.
 
-lookup_kv(DBShard, GenId, Topic) ->
-    emqx_ds_storage_layer_kv:lookup_kv(DBShard, GenId, Topic).
+lookup(DBShard, GenId, Topic, Time) ->
+    emqx_ds_storage_layer_ttv:lookup(DBShard, GenId, Topic, Time).
 
 tx_timeout_msg(Ref) ->
     ?ds_tx_commit_error(Ref, undefined, unrecoverable, timeout).
