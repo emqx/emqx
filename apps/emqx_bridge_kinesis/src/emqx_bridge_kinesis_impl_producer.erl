@@ -4,6 +4,8 @@
 
 -module(emqx_bridge_kinesis_impl_producer).
 
+-feature(maybe_expr, enable).
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -45,7 +47,9 @@
 ]).
 
 -export([
-    connect/1
+    connect/1,
+    do_connector_health_check/1,
+    do_channel_health_check/2
 ]).
 
 %%-------------------------------------------------------------------------------------------------
@@ -94,37 +98,43 @@ on_stop(InstanceId, _State) ->
     ?status_connected
     | ?status_disconnected
     | {?status_disconnected, state(), {unhealthy_target, string()}}.
-on_get_status(_InstanceId, #{pool_name := _Pool} = State) ->
-    do_get_status(State, []).
-
--spec do_get_status(state(), nil() | [_Stream]) -> _.
-do_get_status(#{pool_name := Pool}, StreamArgs) ->
+on_get_status(_InstanceId, #{pool_name := Pool} = _State) ->
     case
-        emqx_resource_pool:health_check_workers(
+        emqx_resource_pool:health_check_workers_optimistic(
             Pool,
-            {emqx_bridge_kinesis_connector_client, connection_status, StreamArgs},
-            ?HEALTH_CHECK_TIMEOUT,
-            #{return_values => true}
+            {?MODULE, do_connector_health_check, []},
+            ?HEALTH_CHECK_TIMEOUT
         )
     of
-        {ok, Values} ->
-            AllOk = lists:all(fun(S) -> S =:= {ok, ?status_connected} end, Values),
-            case AllOk of
-                true ->
-                    ?status_connected;
-                false ->
-                    Unhealthy = lists:any(fun(S) -> S =:= {error, unhealthy_target} end, Values),
-                    case Unhealthy of
-                        true -> {?status_disconnected, {unhealthy_target, ?TOPIC_MESSAGE}};
-                        false -> ?status_disconnected
-                    end
-            end;
+        ok ->
+            ?status_connected;
+        {error, {error, {nxdomain = Posix, _}}} ->
+            {error, emqx_utils:explain_posix(Posix)};
+        {error, {error, {econnrefused = Posix, _}}} ->
+            {error, emqx_utils:explain_posix(Posix)};
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "kinesis_producer_get_status_failed",
+                msg => "kinesis_producer_connector_get_status_failed",
                 reason => Reason
             }),
-            ?status_disconnected
+            {?status_disconnected, Reason}
+    end.
+
+do_connector_health_check(WorkerPid) ->
+    maybe
+        {ok, connected} ?=
+            emqx_bridge_kinesis_connector_client:connection_status(WorkerPid),
+        ok
+    end.
+
+do_channel_health_check(WorkerPid, StreamName) ->
+    case emqx_bridge_kinesis_connector_client:connection_status(WorkerPid, StreamName) of
+        {ok, connected} ->
+            ok;
+        {error, unhealthy_target} ->
+            {halt, {error, unhealthy_target}};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 on_add_channel(
@@ -170,12 +180,29 @@ on_get_channel_status(
     _ResId,
     ChannelId,
     #{
-        pool_name := _PoolName,
+        pool_name := Pool,
         installed_channels := Channels
-    } = State
+    } = _State
 ) ->
     #{stream_name := StreamName} = maps:get(ChannelId, Channels),
-    do_get_status(State, [StreamName]).
+    case
+        emqx_resource_pool:health_check_workers_optimistic(
+            Pool,
+            {?MODULE, do_channel_health_check, [StreamName]},
+            ?HEALTH_CHECK_TIMEOUT
+        )
+    of
+        ok ->
+            ?status_connected;
+        {error, unhealthy_target} ->
+            {?status_disconnected, {unhealthy_target, ?TOPIC_MESSAGE}};
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "kinesis_producer_channel_get_status_failed",
+                reason => Reason
+            }),
+            {?status_disconnected, Reason}
+    end.
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
