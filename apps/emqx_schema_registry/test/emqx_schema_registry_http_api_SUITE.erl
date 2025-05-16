@@ -885,6 +885,22 @@ t_smoke_test_external_registry_confluent(_Config) ->
         #{expected => Expected4}
     ),
 
+    %% Update external schema config with obfuscated password to simulate frontend.
+    %% Should not clobber password.
+    UpdateParams1 = emqx_utils_maps:deep_merge(
+        Params1,
+        #{<<"auth">> => #{<<"password">> => ?REDACTED}}
+    ),
+    ?assertMatch({200, _}, update_external_registry(Name1, UpdateParams1)),
+    PassFn = emqx_config:get([
+        schema_registry,
+        external,
+        binary_to_atom(Name1),
+        auth,
+        password
+    ]),
+    ?assertEqual(<<"mypass">>, PassFn()),
+
     ok.
 
 %% Smoke test for registering and using an external HTTP serde.

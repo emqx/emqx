@@ -445,11 +445,12 @@ validate_protobuf_bundle_request(_Params, _Meta) ->
         end,
         not_found()
     );
-'/schema_registry_external/registry/:name'(put, #{bindings := #{name := Name}, body := Params}) ->
+'/schema_registry_external/registry/:name'(put, #{bindings := #{name := Name}, body := NewParams0}) ->
     with_external_registry(
         Name,
-        fun() ->
-            case emqx_schema_registry_config:upsert_external_registry(Name, Params) of
+        fun(CurrentParams) ->
+            NewParams = emqx_utils:deobfuscate(NewParams0, CurrentParams),
+            case emqx_schema_registry_config:upsert_external_registry(Name, NewParams) of
                 {ok, Registry} ->
                     ?OK(external_registry_out(Registry));
                 {error, Reason} ->
