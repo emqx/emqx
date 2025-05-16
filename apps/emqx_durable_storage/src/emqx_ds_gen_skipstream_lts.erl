@@ -69,10 +69,10 @@
     trie_cf :: rocksdb:cf_handle(),
     trie :: emqx_ds_lts:trie(),
     serialization_schema :: emqx_ds_msg_serializer:schema(),
-    %% A callback that returns varying parts of the topic from stream
-    %% key or deserialized message. It's used to check for hash
-    %% collisions.
-    get_topic :: fun((stream_key(), _) -> emqx_ds:topic()),
+    %% A callback that decomposes stream key and value to varying
+    %% parts of the topic (used to check for hash collisions),
+    %% timestamp and payload:
+    decompose :: fun((stream_key(), _) -> emqx_ds:ttv()),
     %% Number of bytes per wildcard topic level:
     hash_bytes :: pos_integer()
 }).
@@ -100,7 +100,14 @@
 }.
 
 -type fold_fun(Acc) :: fun(
-    (emqx_ds_lts:learned_structure(), emqx_ds:message_key(), emqx_ds:topic(), _Value, Acc) -> Acc
+    (
+        emqx_ds_lts:learned_structure(),
+        emqx_ds:message_key(),
+        emqx_ds:topic(),
+        emqx_ds:time(),
+        _Value,
+        Acc
+    ) -> Acc
 ).
 
 %% Fold loop context:
@@ -211,7 +218,7 @@ copy_previous_trie(RocksDB, TrieCF, TriePrev) ->
     trie_cf := rocksdb:cf_handle(),
     trie := emqx_ds_lts:trie(),
     serialization_schema := emqx_ds_msg_serializer:schema(),
-    get_topic := fun((stream_key(), deser_value()) -> emqx_ds:topic()),
+    decompose := fun((stream_key(), deser_value()) -> emqx_ds:topic()),
     wildcard_hash_bytes := pos_integer()
 }) ->
     s().
@@ -223,7 +230,7 @@ open(
         trie_cf := TrieCF,
         trie := Trie,
         serialization_schema := SerSchema,
-        get_topic := GetTopic,
+        decompose := Decompose,
         wildcard_hash_bytes := HashBytes
     }
 ) ->
@@ -234,7 +241,7 @@ open(
         trie_cf = TrieCF,
         trie = Trie,
         serialization_schema = SerSchema,
-        get_topic = GetTopic,
+        decompose = Decompose,
         hash_bytes = HashBytes
     }.
 
@@ -573,11 +580,13 @@ fold_loop(Ctx, SK0, BatchSize, Op, Acc0) ->
         {seek, SK} ->
             ?dbg(skipstream_loop_seek, #{r => seek, sk => SK}),
             fold_loop(Ctx, SK, BatchSize, {seek, SK}, Acc0);
-        {ok, SK, CompressedTopic, DSKey, Val} ->
+        {ok, SK, CompressedTopic, DSKey, Timestamp, Val} ->
             ?dbg(skipstream_loop_result, #{r => ok, sk => SK, key => DSKey}),
             case Ctx#fold_ctx.lower_endpoint < SK of
                 true ->
-                    Acc = Fun(Ctx#fold_ctx.topic_structure, DSKey, CompressedTopic, Val, Acc0),
+                    Acc = Fun(
+                        Ctx#fold_ctx.topic_structure, DSKey, CompressedTopic, Timestamp, Val, Acc0
+                    ),
                     fold_loop(Ctx, SK, BatchSize - 1, next, Acc);
                 false ->
                     fold_loop(Ctx, SK, BatchSize, next, Acc0)
@@ -585,7 +594,7 @@ fold_loop(Ctx, SK0, BatchSize, Op, Acc0) ->
     end.
 
 fold_step(
-    S = #s{get_topic = GetTopic},
+    S = #s{decompose = Decompose},
     StaticIdx,
     CompressedTF,
     [#l{hash = Hash, handle = IH, n = Level} | Iterators],
@@ -629,11 +638,11 @@ fold_step(
                             %% message for hash collisions and return
                             %% value:
                             Val = deserialize(S, Blob),
-                            CompressedTopic = GetTopic(NextSK, Val),
+                            {CompressedTopic, Timestamp, Payload} = Decompose(NextSK, Val),
                             case emqx_topic:match(CompressedTopic, CompressedTF) of
                                 true ->
                                     inc_counter(?DS_SKIPSTREAM_LTS_HIT),
-                                    {ok, NextSK, CompressedTopic, Key, Val};
+                                    {ok, NextSK, CompressedTopic, Key, Timestamp, Payload};
                                 false ->
                                     %% Hash collision. Advance to the
                                     %% next key:

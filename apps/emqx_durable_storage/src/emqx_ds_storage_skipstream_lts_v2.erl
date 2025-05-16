@@ -2,13 +2,13 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc This module implements a key-value storage layout based on the
-%% "skipstream" indexing + LTS.
+%% @doc This module implements a storage layout based on the
+%% "skipstream" indexing + LTS suitable for storing KV pairs.
 %%
 %% NOTE: Varying topic levels are used as the stream key.
--module(emqx_ds_storage_kv_skipstream_lts).
+-module(emqx_ds_storage_skipstream_lts_v2).
 
--behaviour(emqx_ds_storage_layer_kv).
+-behaviour(emqx_ds_storage_layer_ttv).
 
 %% API:
 -export([]).
@@ -18,12 +18,12 @@
     create/6,
     open/5,
     drop/5,
-    prepare_kv_tx/5,
+    prepare_tx/5,
     commit_batch/4,
     get_streams/4,
     make_iterator/5,
     next/6,
-    lookup/3,
+    lookup/4,
 
     batch_events/3
 ]).
@@ -36,18 +36,16 @@
 
 -export_type([schema/0, s/0]).
 
--elvis([{elvis_style, atom_naming_convention, disable}]).
-
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds.hrl").
--include("../gen_src/DSBuiltinSLSkipstreamKV.hrl").
+-include("../gen_src/DSBuiltinSLSkipstreamV2.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--elvis([{elvis_style, nesting_level, disable}]).
--elvis([{elvis_style, no_if_expression, disable}]).
+-elvis([{elvis_style, atom_naming_convention, disable}]).
+-elvis([{elvis_style, max_anonymous_function_arity, disable}]).
 
 %%================================================================================
 %% Type declarations
@@ -59,17 +57,17 @@
 -define(cooked_lts_ops, 7).
 %%   Payload:
 -define(cooked_delete, 100).
--define(cooked_msg_op(STATIC, VARYING, VALUE),
-    {STATIC, VARYING, VALUE}
+-define(cooked_msg_op(STATIC, VARYING, TS, VALUE),
+    {STATIC, VARYING, TS, VALUE}
 ).
 
 %% Permanent state:
 -type schema() ::
     #{
+        timestamp_bytes := non_neg_integer(),
         %% Number of index key bytes allocated for the hash of topic level.
         wildcard_hash_bytes := pos_integer(),
         serialization_schema := emqx_ds_msg_serializer:schema(),
-        with_guid := boolean(),
         lts_threshold_spec => emqx_ds_lts:threshold_spec()
     }.
 
@@ -82,13 +80,14 @@
     trie :: emqx_ds_lts:trie(),
     trie_cf :: rocksdb:cf_handle(),
     serialization_schema :: emqx_ds_msg_serializer:schema(),
+    ts_bytes :: non_neg_integer(),
     gs :: emqx_ds_gen_skipstream_lts:s(),
     threshold_fun :: emqx_ds_lts:threshold_fun()
 }).
 
 -type s() :: #s{}.
 
--define(asn1name, skipstreamKV).
+-define(asn1name, skipstreamV2).
 -define(stream(STATIC), {?asn1name, STATIC}).
 
 %% Internal iterator
@@ -99,10 +98,6 @@
     %% Compressed topic filter:
     compressed_tf :: [emqx_ds_lts:level() | '+']
 }).
-
-%% Last Seen Key placeholder that is used to indicate that the
-%% iterator points at the beginning of the topic.
--define(lsk_begin, <<>>).
 
 %%================================================================================
 %% API functions
@@ -115,6 +110,7 @@
 create(_ShardId, DBHandle, GenId, Schema0, SPrev, _DBOpts) ->
     Defaults = #{
         wildcard_hash_bytes => 8,
+        timestamp_bytes => 8,
         topic_index_bytes => 8,
         serialization_schema => verbatim,
         lts_threshold_spec => ?DEFAULT_LTS_THRESHOLD
@@ -142,6 +138,7 @@ open(
     CFRefs,
     Schema = #{
         topic_index_bytes := TIBytes,
+        timestamp_bytes := TSB,
         wildcard_hash_bytes := WCBytes,
         serialization_schema := SSchema
     }
@@ -158,9 +155,9 @@ open(
             trie_cf => TrieCF,
             trie => Trie,
             serialization_schema => SSchema,
-            get_topic => fun(StreamKey, _Val) ->
-                {ok, Varying} = decode_stream_key(StreamKey),
-                Varying
+            decompose => fun(StreamKey, Val) ->
+                {Varying, TS} = decompose_stream_key(TSB, StreamKey),
+                {Varying, TS, Val}
             end,
             wildcard_hash_bytes => WCBytes
         }
@@ -170,6 +167,7 @@ open(
         trie_cf = TrieCF,
         trie = Trie,
         gs = GS,
+        ts_bytes = TSB,
         serialization_schema = SSchema,
         threshold_fun = emqx_ds_lts:threshold_fun(ThresholdSpec)
     }.
@@ -177,7 +175,7 @@ open(
 drop(_ShardId, _DBHandle, _GenId, _CFRefs, #s{gs = GS}) ->
     emqx_ds_gen_skipstream_lts:drop(GS).
 
-prepare_kv_tx(DBShard, S, TXID, Ops, _Options) ->
+prepare_tx(DBShard, S, TXID, Ops, _Options) ->
     _ = emqx_ds_gen_skipstream_lts:pop_lts_persist_ops(),
     W = maps:get(?ds_tx_write, Ops, []),
     DT = maps:get(?ds_tx_delete_topic, Ops, []),
@@ -194,7 +192,7 @@ prepare_kv_tx(DBShard, S, TXID, Ops, _Options) ->
 
 cook_blob_writes(_, _TXID, [], Acc) ->
     lists:reverse(Acc);
-cook_blob_writes(S = #s{serialization_schema = SSchema}, TXID, [{Topic, Value0} | Rest], Acc) ->
+cook_blob_writes(S = #s{serialization_schema = SSchema}, TXID, [{Topic, TS, Value0} | Rest], Acc) ->
     #s{trie = Trie, threshold_fun = TFun} = S,
     {Static, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Topic),
     Value =
@@ -205,7 +203,7 @@ cook_blob_writes(S = #s{serialization_schema = SSchema}, TXID, [{Topic, Value0} 
                 Value0
         end,
     Bin = emqx_ds_msg_serializer:serialize(SSchema, Value),
-    cook_blob_writes(S, TXID, Rest, [?cooked_msg_op(Static, Varying, Bin) | Acc]).
+    cook_blob_writes(S, TXID, Rest, [?cooked_msg_op(Static, Varying, TS, Bin) | Acc]).
 
 cook_blob_deletes(DBShard, S, Topics, Acc0) ->
     lists:foldl(
@@ -229,8 +227,8 @@ cook_blob_deletes1(DBShard, S, TopicFilter, Acc0) ->
     ).
 
 cook_blob_deletes2(GS, Static, Varying, LSK, Acc0) ->
-    Fun = fun(_TopicStructure, _DSKey, Var, _Val, Acc) ->
-        [?cooked_msg_op(Static, Var, ?cooked_delete) | Acc]
+    Fun = fun(_TopicStructure, _DSKey, Var, TS, _Val, Acc) ->
+        [?cooked_msg_op(Static, Var, TS, ?cooked_delete) | Acc]
     end,
     Interval = {'[', LSK, infinity},
     %% Note: we don't reverse the batch here.
@@ -246,7 +244,7 @@ cook_blob_deletes2(GS, Static, Varying, LSK, Acc0) ->
 
 commit_batch(
     ShardId,
-    #s{db = DB, trie_cf = TrieCF, trie = Trie, gs = GS},
+    #s{db = DB, trie_cf = TrieCF, trie = Trie, gs = GS, ts_bytes = TSB},
     Input,
     Options
 ) ->
@@ -279,8 +277,8 @@ commit_batch(
         lists:foreach(
             fun(#{?cooked_msg_ops := Operations}) ->
                 lists:foreach(
-                    fun(?cooked_msg_op(Static, Varying, Op)) ->
-                        StreamKey = stream_key(Varying),
+                    fun(?cooked_msg_op(Static, Varying, TS, Op)) ->
+                        StreamKey = make_stream_key(TSB, TS, Varying),
                         case Op of
                             Payload when is_binary(Payload) ->
                                 emqx_ds_gen_skipstream_lts:batch_put(
@@ -320,9 +318,9 @@ batch_events(
 ) ->
     EventMap = lists:foldl(
         fun
-            (?cooked_msg_op(_Static, _Varying, ?cooked_delete), Acc) ->
+            (?cooked_msg_op(_Static, _Varying, _TS, ?cooked_delete), Acc) ->
                 Acc;
-            (?cooked_msg_op(Static, _Varying, _ValBlob), Acc) ->
+            (?cooked_msg_op(Static, _Varying, _TS, _ValBlob), Acc) ->
                 maps:put(?stream(Static), 1, Acc)
         end,
         #{},
@@ -347,10 +345,10 @@ next(Shard, S, It0, BatchSize, _Now, _IsCurrent) ->
             Other
     end.
 
-lookup(_Shard, #s{trie = Trie, gs = GS}, Topic) ->
+lookup(_Shard, #s{trie = Trie, gs = GS, ts_bytes = TSB}, Topic, Time) ->
     maybe
         {ok, {Static, Varying}} ?= emqx_ds_lts:lookup_topic_key(Trie, Topic),
-        StreamKey = stream_key(Varying),
+        StreamKey = make_stream_key(TSB, Time, Varying),
         {ok, _DSKey, Value} ?=
             emqx_ds_gen_skipstream_lts:lookup_message(GS, Static, StreamKey),
         {ok, Value}
@@ -366,7 +364,7 @@ lookup(_Shard, #s{trie = Trie, gs = GS}, Topic) ->
 
 make_internal_iterator(
     _Shard,
-    #s{trie = Trie},
+    #s{trie = Trie, ts_bytes = TSB},
     ?stream(StaticIdx),
     TopicFilter,
     StartPos
@@ -376,15 +374,7 @@ make_internal_iterator(
     }),
     {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
     CompressedTF = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
-    case StartPos of
-        beginning ->
-            LastSK = ?lsk_begin;
-        0 ->
-            %% FIXME, don't translate it here.
-            LastSK = ?lsk_begin;
-        LastSK when is_binary(LastSK) ->
-            ok
-    end,
+    LastSK = <<StartPos:(TSB * 8)>>,
     {ok, #it{
         static_index = StaticIdx,
         last_key = LastSK,
@@ -392,9 +382,9 @@ make_internal_iterator(
     }}.
 
 next_internal(_DBShard, #s{gs = GS}, ItSeed, BatchSize) ->
-    Fun = fun(TopicStructure, DSKey, Varying, Val, Acc) ->
+    Fun = fun(TopicStructure, DSKey, Varying, TS, Val, Acc) ->
         Topic = emqx_ds_lts:decompress_topic(TopicStructure, Varying),
-        [{DSKey, {Topic, Val}} | Acc]
+        [{DSKey, {Topic, TS, Val}} | Acc]
     end,
     #it{static_index = Static, compressed_tf = Varying, last_key = LSK} = ItSeed,
     Interval = {'(', LSK, infinity},
@@ -417,25 +407,27 @@ get_streams(Trie, TopicFilter) ->
 %%%%%%%% Keys %%%%%%%%%%
 
 %% TODO: https://github.com/erlang/otp/issues/9841
--dialyzer({nowarn_function, [stream_key/1, decode_stream_key/1]}).
-stream_key(Varying) ->
-    {ok, StreamKey} = 'DSMetadataCommon':encode('TopicWords', Varying),
-    StreamKey.
+-dialyzer({nowarn_function, [make_stream_key/3, decompose_stream_key/2]}).
+make_stream_key(TSB, Time, Varying) ->
+    {ok, VaryingBin} = 'DSMetadataCommon':encode('TopicWords', Varying),
+    <<Time:(TSB * 8), VaryingBin/binary>>.
 
-decode_stream_key(StreamKey) ->
-    'DSMetadataCommon':decode('TopicWords', StreamKey).
+decompose_stream_key(TSB, StreamKey) ->
+    <<TS:(TSB * 8), VaryingBin/binary>> = StreamKey,
+    {ok, Varying} = 'DSMetadataCommon':decode('TopicWords', VaryingBin),
+    {Varying, TS}.
 
 %%%%%%%% Column families %%%%%%%%%%
 
 %% @doc Generate a column family ID for the MQTT messages
 -spec data_cf(emqx_ds_storage_layer:gen_id()) -> [char()].
 data_cf(GenId) ->
-    "emqx_ds_storage_kv_skipstream_lts_data" ++ integer_to_list(GenId).
+    "emqx_ds_storage_skipstream_lts_v2_data" ++ integer_to_list(GenId).
 
 %% @doc Generate a column family ID for the trie
 -spec trie_cf(emqx_ds_storage_layer:gen_id()) -> [char()].
 trie_cf(GenId) ->
-    "emqx_ds_storage_kv_skipstream_lts_trie" ++ integer_to_list(GenId).
+    "emqx_ds_storage_skipstream_lts_v2_trie" ++ integer_to_list(GenId).
 
 %%%%%%%% External iterator format %%%%%%%%%%
 

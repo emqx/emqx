@@ -16,7 +16,7 @@
 
 -record(ds_tx, {
     ctx :: emqx_ds_optimistic_tx:ctx(),
-    ops :: emqx_ds:kv_tx_ops() | emqx_ds:tx_ops(),
+    ops :: emqx_ds:tx_ops() | emqx_ds:tx_ops(),
     from :: pid() | reference(),
     ref :: reference(),
     meta :: term()
