@@ -41,7 +41,7 @@ STOP='no'
 IS_CI='no'
 SQLSERVER_ODBC_REQUEST='no'
 SNOWFLAKE_ODBC_REQUEST='no'
-UP='up'
+UP='up --wait'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
