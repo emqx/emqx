@@ -184,7 +184,7 @@ check_max_connections(Type, Listener, Req, Opts, WsOpts) ->
                         max => Max
                     },
                     ?SLOG(warning, Reason),
-                    {stop, Reason}
+                    {ok, cowboy_req:reply(429, Req), #{}}
             end
     end.
 
