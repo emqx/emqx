@@ -45,23 +45,40 @@
 
 -type serial() :: integer().
 
--callback get_tx_serial({emqx_ds:db(), emqx_ds:shard()}) -> serial().
+-type batch() :: {emqx_ds:generation(), [_CookedTx]}.
 
--callback prepare_kv_tx(
-    {emqx_ds:db(), emqx_ds:shard()}, emqx_ds:generation(), binary(), emqx_ds:tx_ops(), _
+%% Get the last committed transaction ID. Called during initialization
+%% of the optimistic_tx leader.
+-callback otx_get_tx_serial({emqx_ds:db(), emqx_ds:shard()}) -> serial().
+
+%% Cook a raw transaction into a data structure that will be stored in
+%% the buffer until flush.
+-callback otx_prepare_tx(
+    {emqx_ds:db(), emqx_ds:shard()},
+    emqx_ds:generation(),
+    _SerialBin :: binary(),
+    emqx_ds:tx_ops(),
+    _
 ) ->
-    {ok, _CookedTx}
-    | emqx_ds:error(_).
+    {ok, _CookedTx} | emqx_ds:error(_).
 
--callback commit_kv_tx_batch({emqx_ds:db(), emqx_ds:shard()}, emqx_ds:generation(), serial(), [
-    _CookedTx
-]) ->
-    ok
-    | emqx_ds:error(_).
+%% Flush the buffer of cooked transactions
+-callback otx_commit_tx_batch(
+    {emqx_ds:db(), emqx_ds:shard()},
+    _OldSerial :: serial(),
+    _NewSerial :: serial(),
+    batch()
+) ->
+    ok | emqx_ds:error(_).
 
--callback update_tx_serial({emqx_ds:db(), emqx_ds:shard()}, serial(), serial()) ->
-    ok
-    | emqx_ds:error(_).
+%% Get the conflict tracking interval from the DB config.
+-callback otx_cfg_conflict_tracking_interval(emqx_ds:db()) -> pos_integer().
+
+%% Get the maximum flush interval from the DB config.
+-callback otx_cfg_flush_interval(emqx_ds:db()) -> pos_integer().
+
+%% Get idle flush interval from the DB config.
+-callback otx_cfg_idle_flush_interval(emqx_ds:db()) -> pos_integer().
 
 -type ctx() :: #kv_tx_ctx{}.
 
@@ -85,15 +102,19 @@
 
 -type gen_data() :: #gen_data{}.
 
+-type generations() :: #{emqx_ds:generation() => gen_data()}.
+
 -record(d, {
-    dbshard,
-    cbm,
-    flush_interval,
-    rotate_interval,
+    db :: emqx_ds:db(),
+    shard :: emqx_ds:shard(),
+    cbm :: module(),
+    flush_interval :: pos_integer(),
+    idle_flush_interval :: pos_integer(),
+    rotate_interval :: pos_integer(),
     last_rotate_ts,
-    serial,
-    committed_serial,
-    gens = #{} :: #{emqx_ds:generation() => gen_data()}
+    serial :: non_neg_integer(),
+    committed_serial :: non_neg_integer(),
+    gens = #{} :: generations()
 }).
 
 %%================================================================================
@@ -145,16 +166,16 @@ callback_mode() ->
     [handle_event_function, state_enter].
 
 init([DB, Shard, CBM]) ->
-    RI = 5_000,
-    Serial = CBM:get_tx_serial({DB, Shard}),
+    Serial = CBM:otx_get_tx_serial({DB, Shard}),
     {ok, ?leader(?idle), #d{
-        dbshard = {DB, Shard},
+        db = DB,
+        shard = Shard,
         cbm = CBM,
-        rotate_interval = RI,
+        rotate_interval = CBM:otx_cfg_conflict_tracking_interval(DB),
         last_rotate_ts = erlang:monotonic_time(millisecond),
-        %% FIXME: hardcode
-        flush_interval = 10,
-        serial = Serial,
+        flush_interval = CBM:otx_cfg_flush_interval(DB),
+        idle_flush_interval = CBM:otx_cfg_idle_flush_interval(DB),
+        serial = Serial + 1,
         committed_serial = Serial
     }}.
 
@@ -201,7 +222,8 @@ handle_event(ET, Event, State, _D) ->
 
 handle_tx(
     D = #d{
-        dbshard = DBShard,
+        db = DB,
+        shard = Shard,
         cbm = CBM,
         serial = Serial,
         committed_serial = SafeToReadSerial,
@@ -209,6 +231,7 @@ handle_tx(
     },
     Tx
 ) ->
+    DBShard = {DB, Shard},
     #ds_tx{ref = TxRef, ctx = #kv_tx_ctx{generation = Gen}} = Tx,
     ?tp(
         emqx_ds_optimistic_tx_commit_received,
@@ -259,7 +282,7 @@ try_commit(
         ok ?= check_conflicts(Dirty0, TxStartSerial, SafeToReadSerial, Ops),
         ok ?= verify_preconditions(DBShard, Gen, Ops),
         {ok, CookedTx} ?=
-            CBM:prepare_kv_tx(
+            CBM:otx_prepare_tx(
                 DBShard, Gen, serial_bin(PresumedCommitSerial), Ops, #{}
             ),
         Dirty = update_dirty(PresumedCommitSerial, Ops, Dirty0),
@@ -304,42 +327,61 @@ update_dirty(Serial, Ops, Dirty0) ->
     ).
 
 flush(
-    D = #d{dbshard = DBShard, cbm = CBM, committed_serial = SerCtl, serial = Serial, gens = Gens0}
+    D = #d{
+        db = DB, shard = Shard, cbm = CBM, committed_serial = SerCtl, serial = Serial, gens = Gens0
+    }
 ) ->
-    Gens = maps:map(
-        fun(Gen, GS = #gen_data{buffer = Buf, pending_replies = Replies, dirty = Dirty}) ->
-            ?tp(emqx_ds_optimistic_tx_flush, #{
-                shard => DBShard,
-                generation => Gen,
-                buffer => Buf,
-                conflict_tree => emqx_ds_tx_conflict_trie:print(Dirty)
-            }),
+    DBShard = {DB, Shard},
+    ?tp(debug, emqx_ds_optimistic_tx_flush, #{db => DB, shard => Shard}),
+    Batch = make_batch(Gens0),
+    Result = CBM:otx_commit_tx_batch(DBShard, SerCtl, Serial, Batch),
+    Gens = clean_buffers_and_reply(Result, Gens0),
+    case Result of
+        ok ->
+            D#d{
+                committed_serial = Serial,
+                gens = Gens,
+                flush_interval = CBM:otx_cfg_flush_interval(DB),
+                idle_flush_interval = CBM:otx_cfg_idle_flush_interval(DB)
+            };
+        _ ->
+            exit({flush_failed, #{db => DB, shard => Shard, result => Result}})
+    end.
+
+-spec make_batch(generations()) -> batch().
+make_batch(Generations) ->
+    maps:fold(
+        fun(Generation, #gen_data{buffer = Buf}, Acc) ->
+            [{Generation, Buf} | Acc]
+        end,
+        [],
+        Generations
+    ).
+
+-spec clean_buffers_and_reply(ok | emqx_ds:error(_), generations()) -> generations().
+clean_buffers_and_reply(Reply, Generations) ->
+    maps:map(
+        fun(_, GenData = #gen_data{pending_replies = Waiting}) ->
             _ =
-                case CBM:commit_kv_tx_batch(DBShard, Gen, SerCtl, Buf) of
+                case Reply of
                     ok ->
                         [
                             reply_success(From, Ref, Meta, CommitSerial)
-                         || {From, Ref, Meta, CommitSerial} <- Replies
+                         || {From, Ref, Meta, CommitSerial} <- Waiting
                         ];
                     {error, Class, Err} ->
                         [
                             reply_error(From, Ref, Meta, Class, Err)
-                         || {From, Ref, Meta, _CommitSerial} <- Replies
+                         || {From, Ref, Meta, _CommitSerial} <- Waiting
                         ]
                 end,
-            GS#gen_data{
-                dirty = Dirty,
+            GenData#gen_data{
                 buffer = [],
                 pending_replies = []
             }
         end,
-        Gens0
-    ),
-    ok = CBM:update_tx_serial(DBShard, SerCtl, Serial),
-    D#d{
-        committed_serial = Serial,
-        gens = Gens
-    }.
+        Generations
+    ).
 
 serial_bin(A) ->
     <<A:128>>.
@@ -352,7 +394,7 @@ maybe_rotate(D = #d{rotate_interval = RI, last_rotate_ts = LastRotTS}) ->
             D
     end.
 
-rotate(D = #d{gens = Gens0}) ->
+rotate(D = #d{db = DB, cbm = CBM, gens = Gens0}) ->
     Gens = maps:map(
         fun(_, GS = #gen_data{dirty = Dirty}) ->
             GS#gen_data{
@@ -363,7 +405,8 @@ rotate(D = #d{gens = Gens0}) ->
     ),
     D#d{
         gens = Gens,
-        last_rotate_ts = erlang:monotonic_time(millisecond)
+        last_rotate_ts = erlang:monotonic_time(millisecond),
+        rotate_interval = CBM:otx_cfg_conflict_tracking_interval(DB)
     }.
 
 check_conflicts(Dirty, TxStartSerial, SafeToReadSerial, Ops) ->

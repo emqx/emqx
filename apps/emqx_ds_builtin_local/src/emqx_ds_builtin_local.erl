@@ -53,12 +53,13 @@
     flush_buffer/4,
     shard_of_operation/4,
 
-    %% Common transaction API:
-    get_tx_serial/1,
-    %% Key-value transaction:
-    prepare_kv_tx/5,
-    commit_kv_tx_batch/4,
-    update_tx_serial/3
+    %% optimistic_tx
+    otx_get_tx_serial/1,
+    otx_prepare_tx/5,
+    otx_commit_tx_batch/4,
+    otx_cfg_flush_interval/1,
+    otx_cfg_idle_flush_interval/1,
+    otx_cfg_conflict_tracking_interval/1
 ]).
 
 %% Internal exports:
@@ -253,7 +254,7 @@ new_kv_tx(DB, Options = #{shard := ShardOpt}) ->
                 _ ->
                     {Generation, _} = emqx_ds_storage_layer:find_generation({DB, Shard}, current)
             end,
-            TxSerial = get_tx_serial({DB, Shard}),
+            TxSerial = otx_get_tx_serial({DB, Shard}),
             case emqx_ds_optimistic_tx:where(DB, Shard) of
                 Leader when is_pid(Leader) ->
                     {ok,
@@ -614,12 +615,12 @@ do_delete_next(
     end.
 
 %%================================================================================
-%% KV Transaction
+%% Optimistic TX
 %%================================================================================
 
 -define(serial_key, <<"emqx_ds_builtin_local_tx_serial">>).
 
-get_tx_serial(DBShard) ->
+otx_get_tx_serial(DBShard) ->
     case emqx_ds_storage_layer:fetch_global(DBShard, ?serial_key) of
         {ok, <<Val:128>>} ->
             Val;
@@ -627,28 +628,43 @@ get_tx_serial(DBShard) ->
             0
     end.
 
-update_tx_serial(DBShard, SerCtl, Serial) ->
-    case get_tx_serial(DBShard) of
-        SerCtl ->
-            emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => <<Serial:128>>}, #{});
-        Val ->
-            ?err_unrec({serial_mismatch, SerCtl, Val})
-    end.
-
-prepare_kv_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
+otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
     emqx_ds_storage_layer_ttv:prepare_tx(DBShard, Generation, SerialBin, Ops, Opts).
 
-commit_kv_tx_batch(DBShard, Generation, SerCtl, CookedBatch) ->
-    case get_tx_serial(DBShard) of
+otx_commit_tx_batch(DBShard, SerCtl, Serial, Batches) ->
+    case otx_get_tx_serial(DBShard) of
         SerCtl ->
-            emqx_ds_storage_layer_ttv:commit_batch(DBShard, Generation, CookedBatch, #{});
+            do_commit_tx_batches(DBShard, Serial, Batches);
         Val ->
             ?err_unrec({serial_mismatch, SerCtl, Val})
     end.
+
+otx_cfg_flush_interval(_DB) ->
+    %% FIXME:
+    1_000.
+
+otx_cfg_idle_flush_interval(_DB) ->
+    %% FIXME:
+    1.
+
+otx_cfg_conflict_tracking_interval(_DB) ->
+    %% FIXME:
+    5_000.
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+do_commit_tx_batches(DBShard, Serial, []) ->
+    %% Write down the new serial:
+    emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => <<Serial:128>>}, #{});
+do_commit_tx_batches(DBShard, Serial, [{Generation, Batch} | Rest]) ->
+    case emqx_ds_storage_layer_ttv:commit_batch(DBShard, Generation, Batch, #{}) of
+        ok ->
+            do_commit_tx_batches(DBShard, Serial, Rest);
+        Err ->
+            Err
+    end.
 
 timestamp_to_timeus(TimestampMs) ->
     TimestampMs * 1000.
