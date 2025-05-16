@@ -211,7 +211,7 @@ fields(ban) ->
                 desc => ?DESC(until),
                 required => false,
                 default => infinity,
-                example => <<"2021-10-25T21:53:47+08:00">>
+                example => <<"2030-11-11T10:24:00+08:00">>
             })}
     ].
 
@@ -262,7 +262,7 @@ list_banned([], [], Params) ->
     {200, Response};
 list_banned([{As, '=:=', Who}], [], Params) ->
     maybe
-        Key = {As, _Who1} ?= emqx_banned:parse_who(#{<<"as">> => As, <<"who">> => Who}),
+        Key = {As, _} ?= emqx_banned:parse_who(#{<<"as">> => As, <<"who">> => Who}),
         Result = emqx_banned:look_up(Key),
         MetaIn = emqx_mgmt_api:parse_pager_params(Params),
         {200, #{

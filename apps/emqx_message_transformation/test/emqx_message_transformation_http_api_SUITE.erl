@@ -713,6 +713,35 @@ t_smoke_test_2(_Config) ->
     ),
     ok.
 
+t_const_vars(_Config) ->
+    Name1 = <<"constvars">>,
+    Operations = [
+        operation(qos, <<"1">>),
+        operation(topic, <<"'t/2'">>),
+        operation(retain, <<"true">>)
+    ],
+    Transformation1 = transformation(Name1, Operations),
+    {201, _} = insert(Transformation1),
+    C = connect(<<"c1">>),
+    %% rap => retain as published
+    {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>, [{qos, 1}, {rap, true}]),
+    {200, _} = update(Transformation1),
+    ok = publish(
+        C,
+        <<"t/1">>,
+        #{p => #{<<"hello">> => <<"world">>}},
+        _QosPub = 0
+    ),
+    ?assertReceive(
+        {publish, #{
+            qos := 1,
+            retain := true,
+            topic := <<"t/2">>
+        }}
+    ),
+    unlink(C),
+    ok.
+
 t_crud(_Config) ->
     ?assertMatch({200, []}, list()),
 
