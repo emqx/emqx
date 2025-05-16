@@ -115,7 +115,7 @@
         %% Equivalent to `append_only' from `emqx_ds:create_db_opts':
         force_monotonic_timestamps := boolean(),
         atomic_batches := boolean(),
-        store_kv := boolean()
+        store_ttv := boolean()
     }.
 
 -type slab() :: {shard(), emqx_ds_storage_layer:gen_id()}.
@@ -240,7 +240,7 @@ store_batch(DB, Batch, Opts) ->
     {ok, tx_context()} | emqx_ds:error(_).
 new_kv_tx(DB, Options = #{shard := ShardOpt}) ->
     case emqx_ds_builtin_local_meta:db_config(DB) of
-        #{atomic_batches := true, store_kv := true} ->
+        #{atomic_batches := true, store_ttv := true} ->
             case ShardOpt of
                 {auto, Owner} ->
                     Shard = shard_of(DB, Owner);

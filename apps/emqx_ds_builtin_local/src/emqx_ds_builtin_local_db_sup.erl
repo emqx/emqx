@@ -208,7 +208,7 @@ shard_buffer_spec(DB, Shard, Options) ->
         type => worker
     }.
 
-shard_batch_serializer_spec(DB, Shard, #{store_kv := true}) ->
+shard_batch_serializer_spec(DB, Shard, #{store_ttv := true}) ->
     #{
         id => {Shard, batch_serializer},
         start => {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_local]},
@@ -216,7 +216,7 @@ shard_batch_serializer_spec(DB, Shard, #{store_kv := true}) ->
         restart => permanent,
         type => worker
     };
-shard_batch_serializer_spec(DB, Shard, Opts = #{store_kv := false}) ->
+shard_batch_serializer_spec(DB, Shard, Opts = #{store_ttv := false}) ->
     #{
         id => {Shard, batch_serializer},
         start => {emqx_ds_builtin_local_batch_serializer, start_link, [DB, Shard, Opts]},
@@ -225,7 +225,7 @@ shard_batch_serializer_spec(DB, Shard, Opts = #{store_kv := false}) ->
         type => worker
     }.
 
-shard_beamformers_spec(_DB, _Shard, #{store_kv := true}) ->
+shard_beamformers_spec(_DB, _Shard, #{store_ttv := true}) ->
     %% Currently subscribe API is not supported for KV
     [];
 shard_beamformers_spec(DB, Shard, _Opts) ->
