@@ -287,5 +287,11 @@
     "listen": "0.0.0.0:27017",
     "upstream": "mongo:27017",
     "enabled": true
+  },
+  {
+    "name": "clickhouse",
+    "listen": "0.0.0.0:8123",
+    "upstream": "clickhouse:8123",
+    "enabled": true
   }
 ]

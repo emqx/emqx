@@ -7,15 +7,23 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--define(CLICKHOUSE_HOST, "clickhouse").
--define(CLICKHOUSE_PORT, "8123").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% See comment in
 %% apps/emqx_bridge_clickhouse/test/emqx_bridge_clickhouse_connector_SUITE.erl for how to
 %% run this without bringing up the whole CI infrastucture
+
+-define(CLICKHOUSE_HOST, "clickhouse").
+-define(CLICKHOUSE_PORT, "8123").
+
+-define(TYPE, <<"clickhouse">>).
+
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "clickhouse").
 
 %%------------------------------------------------------------------------------
 %% Common Test Setup, Teardown and Testcase List
@@ -89,10 +97,13 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_, Config) ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT),
     reset_table(Config),
     Config.
 
 end_per_testcase(_, Config) ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     reset_table(Config),
     ok.
 
@@ -193,6 +204,32 @@ make_bridge(Config, Overrides) ->
         BridgeConfig
     ),
     emqx_bridge_resource:bridge_id(Type, Name).
+
+connector_config(_Config) ->
+    Name = <<"clickhouse">>,
+    InnerConfigMap = #{
+        <<"enable">> => true,
+        <<"connect_timeout">> => <<"1s">>,
+        <<"database">> => <<"mqtt">>,
+        <<"username">> => <<"default">>,
+        <<"password">> => <<"public">>,
+        <<"pool_size">> => 1,
+        <<"url">> => <<"toxiproxy:8123">>,
+        <<"resource_opts">> => emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    emqx_bridge_v2_testlib:parse_and_check_connector(?TYPE, Name, InnerConfigMap).
+
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+    ).
+
+get_connector_api(Config) ->
+    Type = emqx_bridge_v2_testlib:get_value(connector_type, Config),
+    Name = emqx_bridge_v2_testlib:get_value(connector_name, Config),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
 
 delete_bridge() ->
     Type = <<"clickhouse">>,
@@ -418,6 +455,37 @@ t_send_simple_batch_alternative_format(Config) ->
             batch_value_separator => <<"">>
         }
     ).
+
+%% Checks that we handle timeouts during health checks
+t_connector_health_check_timeout(Config) ->
+    ConnectorConfig = [
+        {connector_type, ?TYPE},
+        {connector_name, atom_to_binary(?FUNCTION_NAME)},
+        {connector_config, connector_config(Config)}
+    ],
+    %% Create the connector without problems
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(ConnectorConfig, #{}),
+    %% Now wait until a health check fails
+    emqx_common_test_helpers:with_failure(
+        timeout,
+        ?PROXY_NAME,
+        ?PROXY_HOST,
+        ?PROXY_PORT,
+        fun() ->
+            ?retry(
+                1_000,
+                5,
+                ?assertMatch(
+                    {200, #{
+                        <<"status">> := <<"connecting">>,
+                        <<"status_reason">> := <<"health check timeout">>
+                    }},
+                    get_connector_api(ConnectorConfig)
+                )
+            )
+        end
+    ),
+    ok.
 
 send_simple_batch_helper(Config, BridgeConfigExt) ->
     BridgeConf = maps:merge(
