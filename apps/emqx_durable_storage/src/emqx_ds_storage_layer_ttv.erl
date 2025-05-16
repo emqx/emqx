@@ -1,10 +1,10 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ds_storage_layer_kv).
+-module(emqx_ds_storage_layer_ttv).
 
 %% API:
--export([prepare_kv_tx/5, commit_batch/4, lookup_kv/3]).
+-export([prepare_tx/5, commit_batch/4, lookup/4]).
 
 %% internal exports:
 -export([]).
@@ -50,11 +50,11 @@
 ) ->
     ok | {error, _Reason}.
 
--callback prepare_kv_tx(
+-callback prepare_tx(
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
     emqx_ds:tx_serial(),
-    emqx_ds:kv_tx_ops(),
+    emqx_ds:tx_ops(),
     emqx_ds_storage_layer:batch_prepare_opts()
 ) ->
     {ok, cooked_tx()} | emqx_ds:error(_).
@@ -70,7 +70,7 @@
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
     emqx_ds:topic_filter(),
-    _Time
+    emqx_ds:time()
 ) ->
     [_Stream].
 
@@ -79,14 +79,15 @@
     emqx_ds_storage_layer:generation_data(),
     _Stream,
     emqx_ds:topic_filter(),
-    beginning | emqx_ds:message_key()
+    emqx_ds:time()
 ) ->
     emqx_ds:make_iterator_result(_Iterator).
 
 -callback lookup(
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
-    emqx_ds:topic()
+    emqx_ds:topic(),
+    emqx_ds:time()
 ) ->
     {ok, binary()} | undefined.
 
@@ -103,7 +104,7 @@
     _,
     _
 ) ->
-    {ok, Iter, [emqx_ds:kv_pair()]} | emqx_ds:error(_).
+    {ok, Iter, [emqx_ds:ttv()]} | emqx_ds:error(_).
 
 -callback batch_events(
     emqx_ds_storage_layer:dbshard(),
@@ -118,22 +119,22 @@
 %% @doc Transform write and delete operations of a transaction into a
 %% "cooked batch" that can be stored in the transaction log or
 %% transfered over the network.
--spec prepare_kv_tx(
+-spec prepare_tx(
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:gen_id(),
     emqx_ds:tx_serial(),
-    emqx_ds:kv_tx_ops(),
+    emqx_ds:tx_ops(),
     emqx_ds_storage_layer:batch_prepare_opts()
 ) ->
     {ok, cooked_tx()} | emqx_ds:error(_).
-prepare_kv_tx(DBShard, GenId, TXSerial, Tx, Options) ->
+prepare_tx(DBShard, GenId, TXSerial, Tx, Options) ->
     ?tp(emqx_ds_storage_layer_prepare_kv_tx, #{
         shard => DBShard, generation => GenId, batch => Tx, options => Options
     }),
     case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
         #{module := Mod, data := GenData} ->
             T0 = erlang:monotonic_time(microsecond),
-            Result = Mod:prepare_kv_tx(DBShard, GenData, TXSerial, Tx, Options),
+            Result = Mod:prepare_tx(DBShard, GenData, TXSerial, Tx, Options),
             T1 = erlang:monotonic_time(microsecond),
             %% TODO store->prepare
             emqx_ds_builtin_metrics:observe_store_batch_time(DBShard, T1 - T0),
@@ -161,14 +162,16 @@ commit_batch(DBShard, GenId, CookedTransactions, Options) ->
             ?err_unrec({storage_not_found, GenId})
     end.
 
--spec lookup_kv(emqx_ds_storage_layer:dbshard(), emqx_ds:generation(), emqx_ds:topic()) ->
-    {ok, emqx_ds:kv_pair()} | undefined | emqx_ds:error(_).
-lookup_kv(DBShard, Generation, Topic) ->
+-spec lookup(
+    emqx_ds_storage_layer:dbshard(), emqx_ds:generation(), emqx_ds:topic(), emqx_ds:time()
+) ->
+    {ok, emqx_ds:ttv()} | undefined | emqx_ds:error(_).
+lookup(DBShard, Generation, Topic, Time) ->
     case emqx_ds_storage_layer:generation_get(DBShard, Generation) of
         not_found ->
             ?err_unrec(generation_not_found);
         #{module := Mod, data := GenData} ->
-            Mod:lookup(DBShard, GenData, Topic)
+            Mod:lookup(DBShard, GenData, Topic, Time)
     end.
 
 %%================================================================================

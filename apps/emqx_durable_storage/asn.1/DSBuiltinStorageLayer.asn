@@ -9,14 +9,14 @@ BEGIN
   Stream ::= CHOICE {
     reference DSBuiltinSLReference.Stream,
     skipstreamV1 DSBuiltinSLSkipstreamV1.Stream,
-    skipstreamKV DSBuiltinSLSkipstreamKV.Stream,
+    skipstreamV2 DSBuiltinSLSkipstreamV2.Stream,
     ...
   }
 
   Iterator ::= CHOICE {
     reference DSBuiltinSLReference.Iterator,
     skipstreamV1 DSBuiltinSLSkipstreamV1.Iterator,
-    skipstreamKV DSBuiltinSLSkipstreamKV.Iterator,
+    skipstreamV2 DSBuiltinSLSkipstreamV2.Iterator,
     ...
   }
 END

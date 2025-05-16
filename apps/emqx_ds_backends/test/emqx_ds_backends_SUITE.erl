@@ -987,7 +987,7 @@ t_13_smoke_kv_tx(Config) ->
             %% Open the database
             Opts = maps:merge(opts(Config), #{
                 store_kv => true,
-                storage => {emqx_ds_storage_kv_skipstream_lts, #{}}
+                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
             }),
             ?assertMatch(
                 ok,
@@ -1001,9 +1001,9 @@ t_13_smoke_kv_tx(Config) ->
             }),
             Ops1 = #{
                 ?ds_tx_write => [
-                    {[<<"foo">>], <<"payload0">>},
-                    {[<<"t">>, <<"1">>], <<"payload1">>},
-                    {[<<"t">>, <<"2">>], <<"payload2">>}
+                    {[<<"foo">>], 0, <<"payload0">>},
+                    {[<<"t">>, <<"1">>], 0, <<"payload1">>},
+                    {[<<"t">>, <<"2">>], 0, <<"payload2">>}
                 ]
             },
             %% Commit:
@@ -1014,19 +1014,19 @@ t_13_smoke_kv_tx(Config) ->
 
             %% Verify side effects of the transaction:
             ?assertEqual(
-                [{[<<"t">>, <<"1">>], <<"payload1">>}],
+                [{[<<"t">>, <<"1">>], 0, <<"payload1">>}],
                 emqx_ds:dirty_read(DB, [<<"t">>, <<"1">>])
             ),
             ?assertEqual(
-                [{[<<"t">>, <<"2">>], <<"payload2">>}],
+                [{[<<"t">>, <<"2">>], 0, <<"payload2">>}],
                 emqx_ds:dirty_read(DB, [<<"t">>, <<"2">>])
             ),
             %%   All topics together:
             ?assertEqual(
                 [
-                    {[<<"foo">>], <<"payload0">>},
-                    {[<<"t">>, <<"1">>], <<"payload1">>},
-                    {[<<"t">>, <<"2">>], <<"payload2">>}
+                    {[<<"foo">>], 0, <<"payload0">>},
+                    {[<<"t">>, <<"1">>], 0, <<"payload1">>},
+                    {[<<"t">>, <<"2">>], 0, <<"payload2">>}
                 ],
                 lists:sort(emqx_ds:dirty_read(DB, ['#']))
             ),
@@ -1042,10 +1042,10 @@ t_13_smoke_kv_tx(Config) ->
             },
             ?assertMatch({ok, _Serial}, do_commit_tx(DB, Tx2, Ops2)),
             %% Verify that data in t/2 is gone:
-            ?assertMatch(
+            ?assertEqual(
                 [
-                    {[<<"foo">>], <<"payload0">>},
-                    {[<<"t">>, <<"1">>], <<"payload1">>}
+                    {[<<"foo">>], 0, <<"payload0">>},
+                    {[<<"t">>, <<"1">>], 0, <<"payload1">>}
                 ],
                 lists:sort(emqx_ds:dirty_read(DB, ['#']))
             )
@@ -1063,7 +1063,10 @@ t_14_kv_wildcard_deletes(Config) ->
             %% Open the database
             Opts = maps:merge(opts(Config), #{
                 store_kv => true,
-                storage => {emqx_ds_storage_kv_skipstream_lts, #{}}
+                storage =>
+                    {emqx_ds_storage_skipstream_lts_v2, #{
+                        timestamp_bytes => 0
+                    }}
             }),
             ?assertMatch(
                 ok,
@@ -1072,9 +1075,9 @@ t_14_kv_wildcard_deletes(Config) ->
             %% 1. Insert test data:
             {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
             Msgs0 =
-                [{[<<"foo">>], <<"payload">>}] ++
+                [{[<<"foo">>], 0, <<"payload">>}] ++
                     [
-                        {[<<"t">>, <<I:16>>, <<J:16>>], <<I:16, J:16>>}
+                        {[<<"t">>, <<I:16>>, <<J:16>>], 0, <<I:16, J:16>>}
                      || I <- lists:seq(1, 10),
                         J <- lists:seq(1, 10)
                     ],
@@ -1098,7 +1101,7 @@ t_14_kv_wildcard_deletes(Config) ->
             ?assertMatch({ok, _}, do_commit_tx(DB, Tx2, Ops2)),
             Msgs1 = lists:filter(
                 fun
-                    ({[<<"t">>, <<10:16>>, _], _}) ->
+                    ({[<<"t">>, <<10:16>>, _], _, _}) ->
                         false;
                     (_) ->
                         true
@@ -1125,7 +1128,7 @@ t_15_kv_write_serial(Config) ->
             %% Open the database
             Opts = maps:merge(opts(Config), #{
                 store_kv => true,
-                storage => {emqx_ds_storage_kv_skipstream_lts, #{}}
+                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
             }),
             ?assertMatch(
                 ok,
@@ -1134,19 +1137,19 @@ t_15_kv_write_serial(Config) ->
             %% 1. Insert test data:
             {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
             Ops = #{
-                ?ds_tx_write => [{Topic, ?ds_tx_serial}]
+                ?ds_tx_write => [{Topic, 0, ?ds_tx_serial}]
             },
             {ok, Serial1} = do_commit_tx(DB, Tx1, Ops),
             %% Verify that foo is set to Serial:
             ?assertEqual(
-                [{Topic, Serial1}],
+                [{Topic, 0, Serial1}],
                 emqx_ds:dirty_read(DB, Topic)
             ),
             %% Repeat the procedure and make sure serial increases
             {ok, Tx2} = emqx_ds:new_kv_tx(DB, TXOpts),
             {ok, Serial2} = do_commit_tx(DB, Tx2, Ops),
             ?assertEqual(
-                [{Topic, Serial2}],
+                [{Topic, 0, Serial2}],
                 emqx_ds:dirty_read(DB, Topic)
             ),
             ?assert(Serial2 > Serial1, [Serial2, Serial1])
@@ -1164,7 +1167,7 @@ t_16_kv_preconditions(Config) ->
             %% Open the database
             Opts = maps:merge(opts(Config), #{
                 store_kv => true,
-                storage => {emqx_ds_storage_kv_skipstream_lts, #{}}
+                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
             }),
             ?assertMatch(
                 ok,
@@ -1173,7 +1176,7 @@ t_16_kv_preconditions(Config) ->
             %% 1. Insert test data:
             {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
             Ops1 = #{
-                ?ds_tx_write => [{Topic1, <<"payload0">>}]
+                ?ds_tx_write => [{Topic1, 0, <<"payload0">>}]
             },
             ?assertMatch({ok, _}, do_commit_tx(DB, Tx1, Ops1)),
 
@@ -1181,26 +1184,26 @@ t_16_kv_preconditions(Config) ->
             {ok, Tx2} = emqx_ds:new_kv_tx(DB, TXOpts),
             Ops2 = #{
                 ?ds_tx_expected => [
-                    {Topic1, '_'},
-                    {Topic1, <<"payload0">>}
+                    {Topic1, 0, '_'},
+                    {Topic1, 0, <<"payload0">>}
                 ],
-                ?ds_tx_unexpected => [Topic2],
-                ?ds_tx_write => [{Topic1, <<"payload1">>}]
+                ?ds_tx_unexpected => [{Topic2, 0}],
+                ?ds_tx_write => [{Topic1, 0, <<"payload1">>}]
             },
             ?assertMatch(
                 {ok, _},
                 do_commit_tx(DB, Tx2, Ops2)
             ),
             ?assertEqual(
-                [{Topic1, <<"payload1">>}],
+                [{Topic1, 0, <<"payload1">>}],
                 emqx_ds:dirty_read(DB, ['#'])
             ),
 
             %% 3. Precondiction fail, unexpected message:
             {ok, Tx3} = emqx_ds:new_kv_tx(DB, TXOpts),
             Ops3 = #{
-                ?ds_tx_unexpected => [Topic1],
-                ?ds_tx_write => [{Topic1, <<"fail">>}]
+                ?ds_tx_unexpected => [{Topic1, 0}],
+                ?ds_tx_write => [{Topic1, 0, <<"fail">>}]
             },
             ?assertMatch(
                 ?err_unrec({precondition_failed, _}),
@@ -1210,8 +1213,8 @@ t_16_kv_preconditions(Config) ->
             %% 4 Preconditions, fail, expected message not found:
             {ok, Tx4} = emqx_ds:new_kv_tx(DB, TXOpts),
             Ops4 = #{
-                ?ds_tx_expected => [{Topic2, '_'}],
-                ?ds_tx_write => [{Topic2, <<"fail">>}]
+                ?ds_tx_expected => [{Topic2, 0, '_'}],
+                ?ds_tx_write => [{Topic2, 0, <<"fail">>}]
             },
             ?assertMatch(
                 ?err_unrec({precondition_failed, _}),
@@ -1221,8 +1224,8 @@ t_16_kv_preconditions(Config) ->
             %% 5 Preconditions, fail, value is different:
             {ok, Tx5} = emqx_ds:new_kv_tx(DB, TXOpts),
             Ops5 = #{
-                ?ds_tx_expected => [{Topic1, <<"payload0">>}],
-                ?ds_tx_write => [{Topic1, <<"fail">>}]
+                ?ds_tx_expected => [{Topic1, 0, <<"payload0">>}],
+                ?ds_tx_write => [{Topic1, 0, <<"fail">>}]
             },
             ?assertMatch(
                 ?err_unrec(
@@ -1236,7 +1239,7 @@ t_16_kv_preconditions(Config) ->
             %% Verify that side effects of failed transactions weren't
             %% applied:
             ?assertEqual(
-                [{Topic1, <<"payload1">>}],
+                [{Topic1, 0, <<"payload1">>}],
                 emqx_ds:dirty_read(DB, ['#'])
             )
         end,
@@ -1252,7 +1255,10 @@ t_17_tx_wrapper(Config) ->
             %% Open the database
             Opts = maps:merge(opts(Config), #{
                 store_kv => true,
-                storage => {emqx_ds_storage_kv_skipstream_lts, #{}}
+                storage =>
+                    {emqx_ds_storage_skipstream_lts_v2, #{
+                        timestamp_bytes => 0
+                    }}
             }),
             ?assertMatch(
                 ok,
@@ -1279,16 +1285,16 @@ t_17_tx_wrapper(Config) ->
                 emqx_ds:trans(
                     TXOpts,
                     fun() ->
-                        emqx_ds:tx_kv_write([<<"foo">>], <<"1">>),
-                        emqx_ds:tx_kv_write([<<"t">>, <<"1">>], <<"2">>)
+                        emqx_ds:tx_ttv_write([<<"foo">>], 0, <<"1">>),
+                        emqx_ds:tx_ttv_write([<<"t">>, <<"1">>], 0, <<"2">>)
                     end
                 )
             ),
             ?assertEqual(PD, lists:sort(get())),
             ?assertEqual(
                 [
-                    {[<<"foo">>], <<"1">>},
-                    {[<<"t">>, <<"1">>], <<"2">>}
+                    {[<<"foo">>], 0, <<"1">>},
+                    {[<<"t">>, <<"1">>], 0, <<"2">>}
                 ],
                 lists:sort(emqx_ds:dirty_read(DB, ['#']))
             ),
@@ -1305,7 +1311,7 @@ t_17_tx_wrapper(Config) ->
             ?assertEqual(PD, lists:sort(get())),
             ?assertEqual(
                 [
-                    {[<<"t">>, <<"1">>], <<"2">>}
+                    {[<<"t">>, <<"1">>], 0, <<"2">>}
                 ],
                 lists:sort(emqx_ds:dirty_read(DB, ['#']))
             )
@@ -1325,7 +1331,7 @@ t_18_async_trans(Config) ->
             %% Open the database
             Opts = maps:merge(opts(Config), #{
                 store_kv => true,
-                storage => {emqx_ds_storage_kv_skipstream_lts, #{}}
+                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
             }),
             ?assertMatch(
                 ok,
@@ -1336,7 +1342,7 @@ t_18_async_trans(Config) ->
                 emqx_ds:trans(
                     TXOpts,
                     fun() ->
-                        emqx_ds:tx_kv_write([<<"foo">>], ?ds_tx_serial),
+                        emqx_ds:tx_ttv_write([<<"foo">>], 0, ?ds_tx_serial),
                         hello
                     end
                 ),
@@ -1347,7 +1353,7 @@ t_18_async_trans(Config) ->
             end,
             ?assertEqual(
                 [
-                    {[<<"foo">>], Serial1}
+                    {[<<"foo">>], 0, Serial1}
                 ],
                 lists:sort(emqx_ds:dirty_read(DB, ['#']))
             ),
@@ -1356,8 +1362,8 @@ t_18_async_trans(Config) ->
                 emqx_ds:trans(
                     TXOpts,
                     fun() ->
-                        emqx_ds:tx_kv_write([<<"foo">>], ?ds_tx_serial),
-                        emqx_ds:tx_kv_assert_present([<<"bar">>], '_'),
+                        emqx_ds:tx_ttv_write([<<"foo">>], 0, ?ds_tx_serial),
+                        emqx_ds:tx_ttv_assert_present([<<"bar">>], 0, '_'),
                         there
                     end
                 ),
@@ -1388,7 +1394,7 @@ t_18_async_trans(Config) ->
                 emqx_ds:trans(
                     TXOpts#{timeout => 0},
                     fun() ->
-                        emqx_ds:tx_kv_write([<<"foo">>], ?ds_tx_serial)
+                        emqx_ds:tx_ttv_write([<<"foo">>], 0, ?ds_tx_serial)
                     end
                 ),
             %% Wait for timeout

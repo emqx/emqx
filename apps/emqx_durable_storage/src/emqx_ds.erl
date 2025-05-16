@@ -55,10 +55,10 @@
     tx_read/2,
 
     %% Key-value functions:
-    tx_kv_write/2,
+    tx_ttv_write/3,
     tx_del_topic/1,
-    tx_kv_assert_present/2,
-    tx_kv_assert_absent/1
+    tx_ttv_assert_present/3,
+    tx_ttv_assert_absent/2
 ]).
 
 %% Utility functions:
@@ -115,12 +115,11 @@
     sub_info/0,
     sub_seqno/0,
 
-    kv_pair/0,
+    ttv/0,
 
     tx_serial/0,
     kv_tx_context/0,
     transaction_opts/0,
-    kv_tx_ops/0,
     tx_ops/0,
     commit_result/0
 ]).
@@ -156,7 +155,11 @@
 
 -type deletion() :: {delete, message_matcher('_')}.
 
--type kv_pair() :: {topic(), binary()}.
+-type value() :: binary().
+
+%% Topic-Time-Value triple. It's used as a less MQTT-specific payload
+%% wrapper.
+-type ttv() :: {topic(), time(), value()}.
 
 %% Precondition.
 %% Fails whole batch if the storage already has the matching message (`if_exists'),
@@ -361,23 +364,19 @@
 -type kv_tx_context() :: term().
 -type tx_context() :: term().
 
--type kv_tx_ops() :: #{
+-type tx_ops() :: #{
     %% Write operations:
-    ?ds_tx_write => [kv_pair() | {topic(), ?ds_tx_serial}],
+    ?ds_tx_write => [ttv() | {topic(), time(), ?ds_tx_serial}],
     %% Deletions:
     ?ds_tx_delete_topic => [topic_filter()],
     %% Checked reads:
     ?ds_tx_read => [topic_filter()],
     %% Preconditions:
     %%   List of objects that should be present in the database.
-    ?ds_tx_expected => [{topic(), binary() | '_'}],
+    ?ds_tx_expected => [{topic(), time(), binary() | '_'}],
     %%   List of objects that should NOT be present in the database.
-    ?ds_tx_unexpected => [topic()]
+    ?ds_tx_unexpected => [{topic(), time()}]
 }.
-
-%% TODO: eventually we should add transactional API for message
-%% storages.
--type tx_ops() :: #{}.
 
 -type transaction_opts() :: #{
     db := db(),
@@ -409,7 +408,7 @@
         slab(),
         stream(),
         message_key(),
-        emqx_types:message() | kv_pair(),
+        emqx_types:message() | ttv(),
         Acc
     ) -> Acc
 ).
@@ -493,7 +492,7 @@
     {ok, kv_tx_context()} | error(_).
 
 -callback commit_tx
-    (db(), kv_tx_context(), kv_tx_ops()) -> reference();
+    (db(), kv_tx_context(), tx_ops()) -> reference();
     (db(), tx_context(), tx_ops()) -> reference().
 
 -callback tx_commit_outcome({'DOWN', reference(), _, _, _}) ->
@@ -759,7 +758,7 @@ new_kv_tx(DB, Opts = #{shard := _, timeout := _}) ->
 %% `emqx_ds.hrl'. Reply should be passed to `tx_commit_outcome'
 %% function.
 -spec commit_tx
-    (db(), kv_tx_context(), kv_tx_ops()) -> reference();
+    (db(), kv_tx_context(), tx_ops()) -> reference();
     (db(), tx_context(), tx_ops()) -> reference().
 commit_tx(DB, TxContext, TxOps) ->
     ?module(DB):commit_tx(DB, TxContext, TxOps).
@@ -902,11 +901,14 @@ trans(UserOpts = #{db := DB, shard := _, generation := _}, Fun) ->
 %% @doc Schedule a transactional write of a given value to the topic.
 %% Value can be a binary or `?ds_tx_serial'. The latter is substituted
 %% with the transaction serial.
--spec tx_kv_write(topic(), binary() | ?ds_tx_serial) -> ok.
-tx_kv_write(Topic, Value) ->
-    case is_topic(Topic) andalso (is_binary(Value) orelse Value =:= ?ds_tx_serial) of
+-spec tx_ttv_write(topic(), time(), binary() | ?ds_tx_serial) -> ok.
+tx_ttv_write(Topic, Time, Value) ->
+    case
+        is_topic(Topic) andalso is_integer(Time) andalso
+            (is_binary(Value) orelse Value =:= ?ds_tx_serial)
+    of
         true ->
-            tx_push_op(?tx_ops_write, {Topic, Value});
+            tx_push_op(?tx_ops_write, {Topic, Time, Value});
         false ->
             error(badarg)
     end.
@@ -932,11 +934,11 @@ tx_del_topic(TopicFilter) ->
 %%
 %% @param Expected value (binary) or atom `_' that matches presence of
 %% any value.
--spec tx_kv_assert_present(topic(), binary() | '_') -> ok.
-tx_kv_assert_present(Topic, Value) ->
-    case is_topic(Topic) andalso (Value =:= '_' orelse is_binary(Value)) of
+-spec tx_ttv_assert_present(topic(), time(), binary() | '_') -> ok.
+tx_ttv_assert_present(Topic, Time, Value) ->
+    case is_topic(Topic) andalso is_integer(Time) andalso (Value =:= '_' orelse is_binary(Value)) of
         true ->
-            tx_push_op(?tx_ops_assert_present, {Topic, Value});
+            tx_push_op(?tx_ops_assert_present, {Topic, Time, Value});
         false ->
             error(badarg)
     end.
@@ -945,9 +947,9 @@ tx_kv_assert_present(Topic, Value) ->
 %% in the topic.
 %%
 %% This operation is considered side effect.
--spec tx_kv_assert_absent(topic()) -> ok.
-tx_kv_assert_absent(Topic) ->
-    case is_topic(Topic) of
+-spec tx_ttv_assert_absent(topic(), time()) -> ok.
+tx_ttv_assert_absent(Topic, Time) ->
+    case is_topic(Topic) andalso is_integer(Time) of
         true ->
             tx_push_op(?tx_ops_assert_absent, Topic);
         false ->
@@ -961,7 +963,7 @@ reset_trans() ->
 
 %% @doc Return _all_ messages matching the topic-filter as a list.
 -spec dirty_read(db() | fold_options(), topic_filter()) ->
-    fold_result([kv_pair() | emqx_types:message()]).
+    fold_result([ttv() | emqx_types:message()]).
 dirty_read(DB, TopicFilter) when is_atom(DB) ->
     dirty_read(#{db => DB}, TopicFilter);
 dirty_read(#{db := _} = Opts, TopicFilter) ->
@@ -975,7 +977,7 @@ dirty_read(#{db := _} = Opts, TopicFilter) ->
 %%
 %% This operation is considered a side effect.
 -spec tx_read(db() | fold_options(), topic_filter()) ->
-    fold_result([kv_pair() | emqx_types:message()]).
+    fold_result([ttv() | emqx_types:message()]).
 tx_read(Opts, TopicFilter) ->
     tx_push_op(?tx_ops_read, TopicFilter),
     dirty_read(Opts, TopicFilter).

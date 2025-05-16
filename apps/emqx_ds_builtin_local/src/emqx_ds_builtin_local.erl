@@ -267,7 +267,7 @@ new_kv_tx(DB, Options = #{shard := ShardOpt}) ->
             ?err_unrec(database_does_not_support_transactions)
     end.
 
--spec commit_tx(emqx_ds:db(), tx_context(), emqx_ds:kv_tx_ops()) -> reference().
+-spec commit_tx(emqx_ds:db(), tx_context(), emqx_ds:tx_ops()) -> reference().
 commit_tx(DB, Ctx, Ops) ->
     emqx_ds_optimistic_tx:commit_kv_tx(DB, Ctx, Ops).
 
@@ -636,12 +636,12 @@ update_tx_serial(DBShard, SerCtl, Serial) ->
     end.
 
 prepare_kv_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
-    emqx_ds_storage_layer_kv:prepare_kv_tx(DBShard, Generation, SerialBin, Ops, Opts).
+    emqx_ds_storage_layer_ttv:prepare_tx(DBShard, Generation, SerialBin, Ops, Opts).
 
 commit_kv_tx_batch(DBShard, Generation, SerCtl, CookedBatch) ->
     case get_tx_serial(DBShard) of
         SerCtl ->
-            emqx_ds_storage_layer_kv:commit_batch(DBShard, Generation, CookedBatch, #{});
+            emqx_ds_storage_layer_ttv:commit_batch(DBShard, Generation, CookedBatch, #{});
         Val ->
             ?err_unrec({serial_mismatch, SerCtl, Val})
     end.
