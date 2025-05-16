@@ -124,7 +124,7 @@
 -define(SHARD_RPC(DB, SHARD, NODE, BODY),
     case
         emqx_ds_builtin_raft_shard:servers(
-            DB, SHARD, application:get_env(emqx_ds_builtin_raft, reads, leader_preferred)
+            DB, SHARD, rpc_target_preference(DB)
         )
     of
         [{_, NODE} | _] ->
@@ -146,6 +146,7 @@
     #{
         backend := builtin_raft,
         storage := emqx_ds_storage_layer:prototype(),
+        reads => leader_preferred | local_preferred | undefined,
         n_shards => pos_integer(),
         n_sites => pos_integer(),
         replication_factor => pos_integer(),
@@ -1336,6 +1337,15 @@ clientid_size(ClientID) when is_binary(ClientID) ->
     byte_size(ClientID);
 clientid_size(ClientID) ->
     erlang:external_size(ClientID).
+
+-spec rpc_target_preference(emqx_ds:db()) -> leader_preferred | local_preferred | undefined.
+rpc_target_preference(DB) ->
+    case emqx_ds_builtin_raft_meta:db_config(DB) of
+        #{reads := ReadFrom} ->
+            ReadFrom;
+        #{} ->
+            leader_preferred
+    end.
 
 -ifdef(TEST).
 
