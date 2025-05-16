@@ -231,8 +231,8 @@ open_db(DB, CreateOpts0) ->
     %% Rename `append_only' flag to `force_monotonic_timestamps':
     AppendOnly = maps:get(append_only, CreateOpts0),
     CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
-    maps:get(store_kv, CreateOpts0) andalso
-        error(store_kv_is_not_supported_by_this_backend),
+    maps:get(store_ttv, CreateOpts0) andalso
+        error(store_ttv_is_not_supported_by_this_backend),
     case emqx_ds_builtin_raft_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;

@@ -306,8 +306,8 @@
         %% applicable to the backend).
         atomic_batches => boolean(),
         %% Whether the DB stores values of type `#message{}' or
-        %% key-value pairs of raw binaries.
-        store_kv => boolean(),
+        %% topic-time-value triples.
+        store_ttv => boolean(),
         %% Backend-specific options:
         _ => _
     }.
@@ -316,7 +316,7 @@
     %% See respective `create_db_opts()` fields.
     append_only => boolean(),
     atomic_batches => boolean(),
-    store_kv => boolean()
+    store_ttv => boolean()
 }.
 
 %% obsolete
@@ -525,10 +525,10 @@ open_db(DB, UserOpts) ->
     Opts = #{backend := Backend} = set_db_defaults(UserOpts),
     %% Sanity checks:
     case Opts of
-        #{store_kv := true, append_only := true} ->
+        #{store_ttv := true, append_only := true} ->
             %% Key-value pairs don't have a builtin timestamp field,
             %% so we cannot set it automatically:
-            error({incompatible_options, [store_kv, append_only]});
+            error({incompatible_options, [store_ttv, append_only]});
         _ ->
             ok
     end,
@@ -692,7 +692,7 @@ next(DB, Iter, BatchSize) ->
 %% - `lagging' flag is an implementation-defined indicator that the
 %% subscription is currently reading old data.
 %%
-%% WARNING: this API is not supported by DBs with `store_kv' = `true'.
+%% WARNING: this API is not supported by DBs with `store_ttv' = `true'.
 -spec subscribe(db(), iterator(), sub_opts()) ->
     {ok, subscription_handle(), sub_ref()} | error(_).
 subscribe(DB, Iterator, SubOpts) ->
@@ -811,7 +811,7 @@ tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
 %% transaction environment.
 %%
 %% - Currently this API is supported only for DBs created with
-%% `store_kv' = `true'.
+%% `store_ttv' = `true'.
 %%
 %% - Transaction API is entirely optimistic, and it's not at all
 %% optimized to handle conflicts. When DS _suspects_ a potential
@@ -1118,7 +1118,7 @@ topic_words(Bin) -> emqx_topic:words(Bin).
 %% Internal functions
 %%================================================================================
 
-set_db_defaults(Opts = #{store_kv := true}) ->
+set_db_defaults(Opts = #{store_ttv := true}) ->
     Defaults = #{
         append_only => false,
         atomic_batches => true
@@ -1128,7 +1128,7 @@ set_db_defaults(Opts) ->
     Defaults = #{
         append_only => true,
         atomic_batches => false,
-        store_kv => false
+        store_ttv => false
     },
     maps:merge(Defaults, Opts).
 

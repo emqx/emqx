@@ -262,7 +262,7 @@
 -define(STORAGE_LAYOUT_DB_OPTS, [
     append_only,
     atomic_batches,
-    store_kv
+    store_ttv
 ]).
 
 -define(GLOBAL(K), <<"G/", K/binary>>).

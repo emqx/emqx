@@ -986,7 +986,7 @@ t_13_smoke_kv_tx(Config) ->
         begin
             %% Open the database
             Opts = maps:merge(opts(Config), #{
-                store_kv => true,
+                store_ttv => true,
                 storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
             }),
             ?assertMatch(
@@ -1062,7 +1062,7 @@ t_14_kv_wildcard_deletes(Config) ->
         begin
             %% Open the database
             Opts = maps:merge(opts(Config), #{
-                store_kv => true,
+                store_ttv => true,
                 storage =>
                     {emqx_ds_storage_skipstream_lts_v2, #{
                         timestamp_bytes => 0
@@ -1127,7 +1127,7 @@ t_15_kv_write_serial(Config) ->
         begin
             %% Open the database
             Opts = maps:merge(opts(Config), #{
-                store_kv => true,
+                store_ttv => true,
                 storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
             }),
             ?assertMatch(
@@ -1166,7 +1166,7 @@ t_16_kv_preconditions(Config) ->
         begin
             %% Open the database
             Opts = maps:merge(opts(Config), #{
-                store_kv => true,
+                store_ttv => true,
                 storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
             }),
             ?assertMatch(
@@ -1254,7 +1254,7 @@ t_17_tx_wrapper(Config) ->
         begin
             %% Open the database
             Opts = maps:merge(opts(Config), #{
-                store_kv => true,
+                store_ttv => true,
                 storage =>
                     {emqx_ds_storage_skipstream_lts_v2, #{
                         timestamp_bytes => 0
@@ -1330,7 +1330,7 @@ t_18_async_trans(Config) ->
         begin
             %% Open the database
             Opts = maps:merge(opts(Config), #{
-                store_kv => true,
+                store_ttv => true,
                 storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
             }),
             ?assertMatch(
