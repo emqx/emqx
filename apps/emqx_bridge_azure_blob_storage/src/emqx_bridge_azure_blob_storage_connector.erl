@@ -40,7 +40,8 @@
     init_transfer_state_and_container_opts/2,
     process_append/2,
     process_write/1,
-    process_complete/1
+    process_complete/1,
+    process_terminate/1
 ]).
 
 %% `emqx_template' API
@@ -429,6 +430,11 @@ process_complete(TransferState) ->
         {error, Reason} ->
             exit({upload_failed, Reason})
     end.
+
+-spec process_terminate(transfer_state()) -> ok.
+process_terminate(_TransferState) ->
+    %% todo: delete uploaded blocks?
+    ok.
 
 %%------------------------------------------------------------------------------
 %% `emqx_template' API

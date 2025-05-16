@@ -51,7 +51,8 @@
     init_transfer_state_and_container_opts/2,
     process_append/2,
     process_write/1,
-    process_complete/1
+    process_complete/1,
+    process_terminate/1
 ]).
 
 %% API
@@ -623,6 +624,11 @@ process_complete(TransferState0) ->
                 exit({upload_failed, Res})
         end
     end.
+
+-spec process_terminate(transfer_state()) -> ok.
+process_terminate(_TransferState) ->
+    %% todo: cleanup staged files?
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
