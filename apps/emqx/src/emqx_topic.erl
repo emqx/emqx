@@ -10,6 +10,7 @@
 -export([
     match/2,
     match_any/2,
+    is_equal/2,
     validate/1,
     validate/2,
     levels/1,
@@ -102,6 +103,16 @@ match_tokens(_, ['#']) ->
     true;
 match_tokens(_, _) ->
     false.
+
+-spec is_equal(T, T) -> boolean() when T :: topic() | words().
+is_equal(T1, T2) when is_binary(T1) andalso is_binary(T2) ->
+    T1 =:= T2;
+is_equal(T1, T2) when is_list(T1) andalso is_list(T2) ->
+    T1 =:= T2;
+is_equal(T1, T2) when is_list(T1) ->
+    join(T1) =:= T2;
+is_equal(T1, T2) when is_list(T2) ->
+    join(T2) =:= T1.
 
 %% @doc Finds an intersection between two topics, two filters or a topic and a filter.
 %% The function is commutative: reversing parameters doesn't affect the returned value.
