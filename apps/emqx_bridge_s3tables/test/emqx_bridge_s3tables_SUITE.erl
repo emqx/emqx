@@ -1420,16 +1420,22 @@ do_t_upload_data_file_failure(S3UploadFnName, Config) ->
             case IsPartitioned of
                 partitioned ->
                     %% Must rollback each inner s3 transfer, one for each PK
+                    %% Aborts at least once for each PK; may abort more than once if
+                    %% `process_terminate` is called.
                     ?assertEqual(
                         lists:duplicate(NumPKs, ok),
-                        [
-                            ok
-                         || {_Pid, {_Mod, abort, _In}, _Out} <- meck:history(emqx_s3_upload)
-                        ]
+                        lists:sublist(
+                            [
+                                ok
+                             || {_Pid, {_Mod, abort, _In}, _Out} <- meck:history(emqx_s3_upload)
+                            ],
+                            NumPKs
+                        )
                     );
                 not_partitioned ->
-                    ?assertEqual(
-                        [ok],
+                    %% `process_terminated` may also trigger an abort.
+                    ?assertMatch(
+                        [ok | _],
                         [
                             ok
                          || {_Pid, {_Mod, abort, _In}, _Out} <- meck:history(emqx_s3_upload)

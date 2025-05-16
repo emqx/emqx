@@ -78,6 +78,9 @@ when
 %% the transfer.
 -callback process_complete(transfer_state()) -> {ok, term()}.
 
+%% @doc Clean up any resources when the process finishes abnormally.  Result is ignored.
+-callback process_terminate(transfer_state()) -> any().
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
