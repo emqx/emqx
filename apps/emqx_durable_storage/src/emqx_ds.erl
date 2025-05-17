@@ -307,6 +307,9 @@
         atomic_batches => boolean(),
         %% Whether the DB stores values of type `#message{}' or
         %% topic-time-value triples.
+        %%
+        %% NOTE: this flag is meant to be temporary. Eventually the
+        %% APIs should converge.
         store_ttv => boolean(),
         %% Backend-specific options:
         _ => _
@@ -385,7 +388,6 @@
     %% `shard_of(DB, Term)'.
     shard := shard() | {auto, _},
 
-    %% If not specified, the last generation will be used:
     generation := generation(),
 
     %% Options that govern retry of recoverable errors:
@@ -526,8 +528,8 @@ open_db(DB, UserOpts) ->
     %% Sanity checks:
     case Opts of
         #{store_ttv := true, append_only := true} ->
-            %% Key-value pairs don't have a builtin timestamp field,
-            %% so we cannot set it automatically:
+            %% Currently `append_only' semantic is not supported for
+            %% TTV databases.
             error({incompatible_options, [store_ttv, append_only]});
         _ ->
             ok
@@ -850,11 +852,12 @@ tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
 %% or asserts), `{nop, Ret}' is returned regardless of other factors.
 %% `Ret' is the return value of the transaction fun.
 %%
-%% - When `timeout' option is set `async', this function returns
-%% `{async, Ref, Ret}' tuple where `Ref' is a reference. Result of the
-%% commit is sent to the caller asynchronously as a message that
-%% should be matched using `?tx_commit_reply(Ref, Reply)' macro. This
-%% macro binds `Reply' to a variable that should be passed to
+%% - When `sync' option is set to `false', this function returns
+%% `{async, Ref, Ret}' tuple where `Ref' is a reference and `Ret' is
+%% return value of the transaction fun. Result of the commit is sent
+%% to the caller asynchronously as a message that should be matched
+%% using `?tx_commit_reply(Ref, Reply)' macro. This macro binds
+%% `Reply' to a variable that should be passed to
 %% `emqx_ds:check_commit_reply' function to get the outcome of the
 %% async commit. For example:
 %%
@@ -872,11 +875,14 @@ tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
 %% messages. Also, indiscriminate flushing such messages must be
 %% avoided.
 %%
-%% - Otherwise, `{atomic, Serial, Ret}' tuple is returned on
+%% - If `sync' is `true', `{atomic, Serial, Ret}' tuple is returned on
 %% successful commit. `Serial' is a shard-unique monotonically
 %% increasing token identifying the transaction.
 %%
 %% - Errors are returned as usual for DS.
+%%
+%% - Precondition failures result in
+%% `{error, unrecoverable, {precondition_failed, _}}' commit outcome.
 -spec trans(
     transaction_opts(),
     fun(() -> Ret)
@@ -901,6 +907,9 @@ trans(UserOpts = #{db := DB, shard := _, generation := _}, Fun) ->
 %% @doc Schedule a transactional write of a given value to the topic.
 %% Value can be a binary or `?ds_tx_serial'. The latter is substituted
 %% with the transaction serial.
+%%
+%% NOTE: topics used in TTV interface are not MQTT topics: they don't
+%% have to be proper unicode and levels can contain slashes.
 -spec tx_ttv_write(topic(), time(), binary() | ?ds_tx_serial) -> ok.
 tx_ttv_write(Topic, Time, Value) ->
     case
@@ -916,6 +925,8 @@ tx_ttv_write(Topic, Time, Value) ->
 %% @doc Schedule a transactional deletion of all values stored in
 %% topics matching the filter. Deletion is performed on the latest
 %% version of the data.
+%%
+%% NOTE: Use <<>> instead of '' for empty topic levels
 -spec tx_del_topic(topic_filter()) -> ok.
 tx_del_topic(TopicFilter) ->
     case is_topic_filter(TopicFilter) of
@@ -994,7 +1005,7 @@ tx_read(Opts, TopicFilter) ->
 %%
 %% - DSKey: message key in the stream
 %%
-%% - Payload: either `#message' record or key-value pair {K, V}
+%% - Payload: either `#message' record or {Topic, Time, Value} triple.
 %%
 %% - Acc: accumulator
 %%
@@ -1281,9 +1292,7 @@ is_topic_filter([]) ->
     true;
 is_topic_filter(['#']) ->
     true;
-is_topic_filter(['+' | Rest]) ->
-    is_topic_filter(Rest);
-is_topic_filter([B | Rest]) when is_binary(B) ->
+is_topic_filter([L | Rest]) when is_binary(L); L =:= '+' ->
     is_topic_filter(Rest);
 is_topic_filter(_) ->
     false.

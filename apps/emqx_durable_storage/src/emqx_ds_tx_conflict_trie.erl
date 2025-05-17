@@ -5,6 +5,8 @@
 %% @doc This module implements a data structure for storing
 %% information about recent updates. It is used to reject transactions
 %% that may potentially read dirty data.
+%%
+%% For simplicity, it doesn't support topic matching with '+'.
 -module(emqx_ds_tx_conflict_trie).
 
 %% API:
@@ -84,7 +86,7 @@ push(
         true ->
             push(CD, Serial, rotate(S));
         false ->
-            WildcardPrefix = wildcard_prefix(CD),
+            WildcardPrefix = static_prefix(CD),
             S#conflict_tree{
                 max_serial = Serial,
                 trie = do_push(WildcardPrefix, CD, Serial, Trie)
@@ -158,7 +160,7 @@ check_dirty(CD, Serial, Trie) ->
             ),
         %% 3. If CD is itself a wildcard we need to check all
         %% subdomains in the trie:
-        case wildcard_prefix(CD) of
+        case static_prefix(CD) of
             false ->
                 false;
             Prefix ->
@@ -203,16 +205,22 @@ do_fold_keys_with_prefix(Fun, Prefix, It0, Acc0) ->
             end
     end.
 
-wildcard_prefix(L) ->
-    wc_prefix(L, []).
+%% Return "static" part of the wildcard conflict domain or `false' for
+%% non-wildcard domains.
+-spec static_prefix(conflict_domain()) -> [binary()] | false.
+static_prefix(L) ->
+    static_prefix(L, []).
 
-wc_prefix([], _Acc) ->
+static_prefix([], _Acc) ->
     false;
-wc_prefix(['#'], Acc) ->
+static_prefix(['#'], Acc) ->
     lists:reverse(Acc);
-wc_prefix([A | L], Acc) ->
-    wc_prefix(L, [A | Acc]).
+static_prefix([A | L], Acc) ->
+    static_prefix(L, [A | Acc]).
 
+%% Return all wildcard conflict domains that match the given conflict
+%% domain.
+-spec wc_prefixes(conflict_domain()) -> [conflict_domain()].
 wc_prefixes(CD) ->
     wc_prefixes(CD, [], []).
 
@@ -233,6 +241,20 @@ wc_prefixes(Suffix, PrefixAcc, Acc) ->
 
 -ifdef(TEST).
 
+-define(dirty(CD, SERIAL, TRIE),
+    ?assertMatch(
+        true,
+        is_dirty(CD, SERIAL, TRIE)
+    )
+).
+
+-define(clean(CD, SERIAL, TRIE),
+    ?assertMatch(
+        false,
+        is_dirty(CD, SERIAL, TRIE)
+    )
+).
+
 tf2cd_test() ->
     ?assertEqual([], topic_filter_to_conflict_domain([])),
     ?assertEqual(
@@ -247,20 +269,6 @@ tf2cd_test() ->
         [<<1>>, <<2>>, '#'],
         topic_filter_to_conflict_domain([<<1>>, <<2>>, '#'])
     ).
-
--define(dirty(CD, SERIAL, TRIE),
-    ?assertMatch(
-        true,
-        is_dirty(CD, SERIAL, TRIE)
-    )
-).
-
--define(clean(CD, SERIAL, TRIE),
-    ?assertMatch(
-        false,
-        is_dirty(CD, SERIAL, TRIE)
-    )
-).
 
 %% Test is_dirty on an empty trie:
 is_dirty0_test() ->
@@ -345,15 +353,6 @@ is_dirty2_test() ->
     ?dirty(['#'], 3, rotate(Trie)),
     ?clean(['#'], 4, Trie),
     ?clean(['#'], 4, rotate(Trie)).
-
-mk_test_trie(Min, L) ->
-    lists:foldl(
-        fun({Dom, Serial}, Acc) ->
-            push(Dom, Serial, Acc)
-        end,
-        new(Min, infinity),
-        L
-    ).
 
 wc_prefixes_test() ->
     ?assertEqual(
@@ -497,5 +496,14 @@ rotate_test() ->
     ?assertEqual(4, T5#conflict_tree.old_max_serial),
     ?assertEqual(6, T5#conflict_tree.max_serial),
     ok.
+
+mk_test_trie(Min, L) ->
+    lists:foldl(
+        fun({Dom, Serial}, Acc) ->
+            push(Dom, Serial, Acc)
+        end,
+        new(Min, infinity),
+        L
+    ).
 
 -endif.
