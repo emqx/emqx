@@ -29,7 +29,8 @@
 
     new_kv_tx_ctx/5,
     new_kv_tx_ctx/6,
-    commit_kv_tx/3
+    commit_kv_tx/3,
+    tx_commit_outcome/1
 ]).
 
 %% Behaviour callbacks
@@ -152,7 +153,7 @@
 
 -spec where(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 where(DB, Shard) ->
-    gproc:whereis_name(?name(DB, Shard)).
+    global:whereis_name(?name(DB, Shard)).
 
 -spec stop(emqx_ds:db(), emqx_ds:shard()) -> ok.
 stop(DB, Shard) ->
@@ -226,6 +227,22 @@ commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
         ctx = Ctx, ops = Ops, from = self(), ref = Ref, meta = TRef
     }),
     Ref.
+
+-spec tx_commit_outcome(term()) -> {ok, emqx_ds:tx_serial()} | emqx_ds:error(_).
+tx_commit_outcome(Reply) ->
+    case Reply of
+        ?ds_tx_commit_ok(Ref, TRef, Serial) ->
+            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+            {ok, Serial};
+        ?ds_tx_commit_error(Ref, TRef, Class, Info) ->
+            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+            {error, Class, Info};
+        {'DOWN', _Ref, Type, Object, Info} ->
+            %% This is likely a real monitor message. It doesn't contain TRef,
+            %% so the caller will receive the timeout message after the fact.
+            %% There's not much we can do about it.
+            ?err_unrec({Type, Object, Info})
+    end.
 
 %%================================================================================
 %% Behavior callbacks

@@ -38,4 +38,9 @@
     shard, server, ref
 }).
 
+%% Tx
+-define(prev_serial, 2).
+-define(serial, 3).
+-define(batches, 4).
+
 -endif.

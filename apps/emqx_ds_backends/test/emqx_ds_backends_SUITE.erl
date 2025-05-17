@@ -1456,24 +1456,9 @@ all() ->
     [{group, Backend} || Backend <- backends()].
 
 groups() ->
-    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    TCs = emqx_common_test_helpers:all(?MODULE),
     lists:map(
         fun(Backend) ->
-            TCs =
-                case Backend of
-                    emqx_ds_builtin_local ->
-                        AllTCs;
-                    _ ->
-                        AllTCs --
-                            [
-                                t_13_smoke_kv_tx,
-                                t_14_kv_wildcard_deletes,
-                                t_15_kv_write_serial,
-                                t_16_kv_preconditions,
-                                t_17_tx_wrapper,
-                                t_18_async_trans
-                            ]
-                end,
             {Backend, TCs}
         end,
         backends()
