@@ -175,6 +175,36 @@ uid: mqttuser0009 \\test\\
 isSuperuser: TRUE
 userPassword: {SHA}awxXARLqWYx+xy0677D/TLjlyHA=
 
+objectClass: top
+dn:uid=mqttuser0010,ou=testdevice,dc=emqx,dc=io
+objectClass: mqttUser
+objectClass: mqttDevice
+objectClass: mqttSecurity
+uid: mqttuser0010
+mqttAccountName:: IHNvbWUgdmFsdWUg
+isSuperuser: TRUE
+userPassword: {SHA}awxXARLqWYx+xy0677D/TLjlyHA=
+
+objectClass: top
+dn:uid=mqttuser0011,ou=testdevice,dc=emqx,dc=io
+objectClass: mqttUser
+objectClass: mqttDevice
+objectClass: mqttSecurity
+uid: mqttuser0011
+mqttAccountName: some value
+isSuperuser: TRUE
+userPassword: {SHA}awxXARLqWYx+xy0677D/TLjlyHA=
+
+objectClass: top
+dn:uid=mqttuser0012,ou=testdevice,dc=emqx,dc=io
+objectClass: mqttUser
+objectClass: mqttDevice
+objectClass: mqttSecurity
+uid: mqttuser0012
+mqttAccountName: =a=b,c=d
+isSuperuser: TRUE
+userPassword: {SHA}awxXARLqWYx+xy0677D/TLjlyHA=
+
 ## Try to test with base DN 'ou=dashboard,dc=emqx,dc=io'
 ## with a filter ugroup=group1
 ## this should return 2 users in the query and fail the test

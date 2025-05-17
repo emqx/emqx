@@ -48,13 +48,41 @@ fields(hash_method) ->
         {is_superuser_attribute, is_superuser_attribute()}
     ];
 fields(bind_method) ->
-    [{type, method_type(bind)}] ++ emqx_ldap:fields(bind_opts).
+    [
+        {type, method_type(bind)},
+        {bind_password,
+            ?HOCON(
+                binary(),
+                #{
+                    desc => ?DESC(bind_password),
+                    default => <<"${password}">>,
+                    example => <<"${password}">>,
+                    sensitive => true,
+                    validator => fun emqx_schema:non_empty_string/1
+                }
+            )}
+    ].
 
 common_fields() ->
     [
         {mechanism, emqx_authn_schema:mechanism(?AUTHN_MECHANISM)},
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
-        {query_timeout, fun query_timeout/1}
+        {query_timeout, fun query_timeout/1},
+        {base_dn,
+            ?HOCON(binary(), #{
+                desc => ?DESC(base_dn),
+                required => true,
+                example => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
+                validator => fun dn_validator/1
+            })},
+        {filter,
+            ?HOCON(binary(), #{
+                desc => ?DESC(filter),
+                default => <<"(objectClass=mqttUser)">>,
+                example => <<"(& (objectClass=mqttUser) (uid=${username}))">>,
+                validator => fun filter_validator/1,
+                converter => fun filter_converter/2
+            })}
     ] ++
         emqx_authn_schema:common_fields() ++
         emqx_ldap:fields(config).
@@ -113,3 +141,21 @@ query_timeout(type) -> emqx_schema:timeout_duration_ms();
 query_timeout(desc) -> ?DESC(?FUNCTION_NAME);
 query_timeout(default) -> <<"5s">>;
 query_timeout(_) -> undefined.
+
+filter_converter(Filter, _Opts) ->
+    case string:empty(Filter) of
+        true -> <<"(objectClass=mqttUser)">>;
+        false -> Filter
+    end.
+
+filter_validator(Filter) ->
+    maybe
+        {ok, _} ?= emqx_ldap_filter:parse(Filter),
+        ok
+    end.
+
+dn_validator(Dn) ->
+    maybe
+        {ok, _} ?= emqx_ldap_dn:parse(Dn),
+        ok
+    end.
