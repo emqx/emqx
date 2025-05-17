@@ -124,7 +124,7 @@
 -define(SHARD_RPC(DB, SHARD, NODE, BODY),
     case
         emqx_ds_builtin_raft_shard:servers(
-            DB, SHARD, application:get_env(emqx_ds_builtin_raft, reads, leader_preferred)
+            DB, SHARD, rpc_target_preference(DB)
         )
     of
         [{_, NODE} | _] ->
@@ -146,6 +146,7 @@
     #{
         backend := builtin_raft,
         storage := emqx_ds_storage_layer:prototype(),
+        reads => leader_preferred | local_preferred | undefined,
         n_shards => pos_integer(),
         n_sites => pos_integer(),
         replication_factor => pos_integer(),
@@ -231,6 +232,8 @@ open_db(DB, CreateOpts0) ->
     %% Rename `append_only' flag to `force_monotonic_timestamps':
     AppendOnly = maps:get(append_only, CreateOpts0),
     CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
+    maps:get(store_ttv, CreateOpts0) andalso
+        error(store_ttv_is_not_supported_by_this_backend),
     case emqx_ds_builtin_raft_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;
@@ -1283,7 +1286,7 @@ scan_stream(DBShard = {DB, Shard}, Stream, TopicFilter, StartMsg, BatchSize) ->
         end
     ).
 
--spec update_iterator(emqx_ds_storage_layer:shard_id(), iterator(), emqx_ds:message_key()) ->
+-spec update_iterator(emqx_ds_storage_layer:dbshard(), iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
 update_iterator(ShardId, OldIter, DSKey) ->
     #{?tag := ?IT, ?enc := Inner0} = OldIter,
@@ -1334,6 +1337,15 @@ clientid_size(ClientID) when is_binary(ClientID) ->
     byte_size(ClientID);
 clientid_size(ClientID) ->
     erlang:external_size(ClientID).
+
+-spec rpc_target_preference(emqx_ds:db()) -> leader_preferred | local_preferred | undefined.
+rpc_target_preference(DB) ->
+    case emqx_ds_builtin_raft_meta:db_config(DB) of
+        #{reads := ReadFrom} ->
+            ReadFrom;
+        #{} ->
+            leader_preferred
+    end.
 
 -ifdef(TEST).
 

@@ -36,6 +36,10 @@
     suback/3,
     subscription_info/2,
 
+    new_kv_tx/2,
+    commit_tx/3,
+    tx_commit_outcome/1,
+
     %% `beamformer':
     unpack_iterator/2,
     scan_stream/5,
@@ -47,7 +51,15 @@
     %% `emqx_ds_buffer':
     init_buffer/3,
     flush_buffer/4,
-    shard_of_operation/4
+    shard_of_operation/4,
+
+    %% optimistic_tx
+    otx_get_tx_serial/1,
+    otx_prepare_tx/5,
+    otx_commit_tx_batch/4,
+    otx_cfg_flush_interval/1,
+    otx_cfg_idle_flush_interval/1,
+    otx_cfg_conflict_tracking_interval/1
 ]).
 
 %% Internal exports:
@@ -66,6 +78,7 @@
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds_builtin_tx.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -102,10 +115,13 @@
         poll_workers_per_shard => pos_integer(),
         %% Equivalent to `append_only' from `emqx_ds:create_db_opts':
         force_monotonic_timestamps := boolean(),
-        atomic_batches := boolean()
+        atomic_batches := boolean(),
+        store_ttv := boolean()
     }.
 
 -type slab() :: {shard(), emqx_ds_storage_layer:gen_id()}.
+
+-type tx_context() :: emqx_ds_optimistic_tx:ctx().
 
 -define(stream(SHARD, INNER), [2, SHARD | INNER]).
 -define(delete_stream(SHARD, INNER), [3, SHARD | INNER]).
@@ -221,6 +237,56 @@ store_batch(DB, Batch, Opts) ->
             store_batch_buffered(DB, Batch, Opts)
     end.
 
+-spec new_kv_tx(emqx_ds:db(), emqx_ds:transaction_opts()) ->
+    {ok, tx_context()} | emqx_ds:error(_).
+new_kv_tx(DB, Options = #{shard := ShardOpt}) ->
+    case emqx_ds_builtin_local_meta:db_config(DB) of
+        #{atomic_batches := true, store_ttv := true} ->
+            case ShardOpt of
+                {auto, Owner} ->
+                    Shard = shard_of(DB, Owner);
+                Shard ->
+                    ok
+            end,
+            case Options of
+                #{generation := Generation} ->
+                    ok;
+                _ ->
+                    {Generation, _} = emqx_ds_storage_layer:find_generation({DB, Shard}, current)
+            end,
+            TxSerial = otx_get_tx_serial({DB, Shard}),
+            case emqx_ds_optimistic_tx:where(DB, Shard) of
+                Leader when is_pid(Leader) ->
+                    {ok,
+                        emqx_ds_optimistic_tx:new_kv_tx_ctx(
+                            DB, Shard, Generation, Leader, Options, TxSerial
+                        )};
+                undefined ->
+                    ?err_rec(leader_is_down)
+            end;
+        _ ->
+            ?err_unrec(database_does_not_support_transactions)
+    end.
+
+-spec commit_tx(emqx_ds:db(), tx_context(), emqx_ds:tx_ops()) -> reference().
+commit_tx(DB, Ctx, Ops) ->
+    emqx_ds_optimistic_tx:commit_kv_tx(DB, Ctx, Ops).
+
+tx_commit_outcome(Reply) ->
+    case Reply of
+        ?ds_tx_commit_ok(Ref, TRef, Serial) ->
+            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+            {ok, Serial};
+        ?ds_tx_commit_error(Ref, TRef, Class, Info) ->
+            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+            {error, Class, Info};
+        {'DOWN', _Ref, Type, Object, Info} ->
+            %% This is likely a real monitor message. It doesn't contain TRef,
+            %% so the caller will receive the timeout message after the fact.
+            %% There's not much we can do about it.
+            ?err_unrec({Type, Object, Info})
+    end.
+
 store_batch_buffered(DB, Messages, Opts) ->
     try
         emqx_ds_buffer:store_batch(DB, Messages, Opts)
@@ -237,7 +303,7 @@ store_batch_atomic(DB, Batch, Opts) ->
         [] ->
             ok;
         [_ | _] ->
-            {error, unrecoverable, atomic_batch_spans_multiple_shards}
+            ?err_unrec(atomic_batch_spans_multiple_shards)
     end.
 
 shards_of_batch(DB, #dsbatch{operations = Operations, preconditions = Preconditions}) ->
@@ -331,7 +397,9 @@ shard_of_operation(DB, {_, #message_matcher{from = From, topic = Topic}}, Serial
         clientid -> Key = From;
         topic -> Key = Topic
     end,
-    shard_of(DB, Key).
+    shard_of(DB, Key);
+shard_of_operation(_DB, #ds_tx{ctx = #kv_tx_ctx{shard = Shard}}, _SerializeBy, _Options) ->
+    Shard.
 
 shard_of(DB, Key) ->
     N = emqx_ds_builtin_local_meta:n_shards(DB),
@@ -547,8 +615,56 @@ do_delete_next(
     end.
 
 %%================================================================================
+%% Optimistic TX
+%%================================================================================
+
+-define(serial_key, <<"emqx_ds_builtin_local_tx_serial">>).
+
+otx_get_tx_serial(DBShard) ->
+    case emqx_ds_storage_layer:fetch_global(DBShard, ?serial_key) of
+        {ok, <<Val:128>>} ->
+            Val;
+        not_found ->
+            0
+    end.
+
+otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
+    emqx_ds_storage_layer_ttv:prepare_tx(DBShard, Generation, SerialBin, Ops, Opts).
+
+otx_commit_tx_batch(DBShard, SerCtl, Serial, Batches) ->
+    case otx_get_tx_serial(DBShard) of
+        SerCtl ->
+            do_commit_tx_batches(DBShard, Serial, Batches);
+        Val ->
+            ?err_unrec({serial_mismatch, SerCtl, Val})
+    end.
+
+otx_cfg_flush_interval(_DB) ->
+    %% FIXME:
+    1_000.
+
+otx_cfg_idle_flush_interval(_DB) ->
+    %% FIXME:
+    1.
+
+otx_cfg_conflict_tracking_interval(_DB) ->
+    %% FIXME:
+    5_000.
+
+%%================================================================================
 %% Internal functions
 %%================================================================================
+
+do_commit_tx_batches(DBShard, Serial, []) ->
+    %% Write down the new serial:
+    emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => <<Serial:128>>}, #{});
+do_commit_tx_batches(DBShard, Serial, [{Generation, Batch} | Rest]) ->
+    case emqx_ds_storage_layer_ttv:commit_batch(DBShard, Generation, Batch, #{}) of
+        ok ->
+            do_commit_tx_batches(DBShard, Serial, Rest);
+        Err ->
+            Err
+    end.
 
 timestamp_to_timeus(TimestampMs) ->
     TimestampMs * 1000.
@@ -557,6 +673,9 @@ timeus_to_timestamp(undefined) ->
     undefined;
 timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
+
+tx_timeout_msg(Ref) ->
+    ?ds_tx_commit_error(Ref, undefined, unrecoverable, timeout).
 
 %%================================================================================
 %% Common test options
