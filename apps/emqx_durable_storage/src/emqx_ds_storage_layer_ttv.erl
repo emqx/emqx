@@ -165,6 +165,7 @@ commit_batch(DBShard, GenId, CookedTransactions, Options) ->
             ?err_unrec({storage_not_found, GenId})
     end.
 
+%% @doc Lookup a single value matching a concrete topic and timestamp
 -spec lookup(
     emqx_ds_storage_layer:dbshard(), emqx_ds:generation(), emqx_ds:topic(), emqx_ds:time()
 ) ->
