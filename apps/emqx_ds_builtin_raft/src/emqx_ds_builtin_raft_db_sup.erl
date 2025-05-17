@@ -18,7 +18,10 @@
     terminate_storage/1,
     restart_storage/1,
     ensure_shard/1,
-    ensure_egress/1
+    ensure_egress/1,
+
+    start_optimistic_tx_leader/2,
+    stop_optimistic_tx_leader/2
 ]).
 -export([which_dbs/0, which_shards/1]).
 
@@ -142,10 +145,36 @@ get_shard_workers(DB) ->
     ),
     maps:from_list(L).
 
+-spec start_optimistic_tx_leader(emqx_ds:db(), emqx_ds:shard()) -> ok | {error, _}.
+start_optimistic_tx_leader(DB, Shard) ->
+    Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
+    case supervisor:start_child(Sup, shard_optimistic_tx_spec(DB, Shard)) of
+        {ok, _} ->
+            ok;
+        {ok, _, _} ->
+            ok;
+        {error, {already_started, _}} ->
+            ok;
+        Err ->
+            Err
+    end.
+
+-spec stop_optimistic_tx_leader(emqx_ds:db(), emqx_ds:shard()) -> ok.
+stop_optimistic_tx_leader(DB, Shard) ->
+    Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
+    Child = {Shard, optimistic_tx},
+    case supervisor:terminate_child(Sup, Child) of
+        ok ->
+            supervisor:delete_child(Sup, Child);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 %%================================================================================
 %% behaviour callbacks
 %%================================================================================
 
+%% erlfmt-ignore
 init({#?db_sup{db = DB}, DefaultOpts}) ->
     %% Spec for the top-level supervisor for the database:
     logger:notice("Starting DS DB ~p", [DB]),
@@ -190,12 +219,11 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         period => 100
     },
     Opts = emqx_ds_builtin_raft_meta:db_config(DB),
-    Children = [
-        shard_storage_spec(DB, Shard, Opts),
-        shard_replication_spec(DB, Shard, Opts),
-        shard_beamformers_spec(DB, Shard),
-        shard_sentinel_spec(DB, Shard)
-    ],
+    Children =
+        [shard_storage_spec(DB, Shard, Opts),
+         shard_replication_spec(DB, Shard, Opts)] ++
+         shard_beamformers_spec(DB, Shard, Opts) ++
+        [shard_sentinel_spec(DB, Shard)],
     {ok, {SupFlags, Children}}.
 
 start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
@@ -306,19 +334,35 @@ egress_spec(DB, Shard) ->
         type => worker
     }.
 
-shard_beamformers_spec(DB, Shard) ->
+shard_beamformers_spec(_DB, _Shard, #{store_ttv := true}) ->
+    %% TODO: Currently beamformer is not compatible with TTV-style
+    %% storage.
+    [];
+shard_beamformers_spec(DB, Shard, #{store_ttv := false}) ->
     %% TODO: don't hardcode value
     BeamformerOpts = #{
         n_workers => 5
     },
+    [
+        #{
+            id => {Shard, beamformers},
+            type => supervisor,
+            shutdown => infinity,
+            start =>
+                {emqx_ds_beamformer_sup, start_link, [
+                    emqx_ds_replication_layer, {DB, Shard}, BeamformerOpts
+                ]}
+        }
+    ].
+
+shard_optimistic_tx_spec(DB, Shard) ->
     #{
-        id => {Shard, beamformers},
+        id => {Shard, optimistic_tx},
         type => supervisor,
-        shutdown => infinity,
+        shutdown => 5_000,
+        restart => transient,
         start =>
-            {emqx_ds_beamformer_sup, start_link, [
-                emqx_ds_replication_layer, {DB, Shard}, BeamformerOpts
-            ]}
+            {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_replication_layer]}
     }.
 
 shard_sentinel_spec(DB, Shard) ->

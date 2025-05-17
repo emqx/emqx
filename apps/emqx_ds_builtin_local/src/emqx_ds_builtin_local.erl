@@ -259,19 +259,7 @@ commit_tx(DB, Ctx, Ops) ->
     emqx_ds_optimistic_tx:commit_kv_tx(DB, Ctx, Ops).
 
 tx_commit_outcome(Reply) ->
-    case Reply of
-        ?ds_tx_commit_ok(Ref, TRef, Serial) ->
-            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
-            {ok, Serial};
-        ?ds_tx_commit_error(Ref, TRef, Class, Info) ->
-            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
-            {error, Class, Info};
-        {'DOWN', _Ref, Type, Object, Info} ->
-            %% This is likely a real monitor message. It doesn't contain TRef,
-            %% so the caller will receive the timeout message after the fact.
-            %% There's not much we can do about it.
-            ?err_unrec({Type, Object, Info})
-    end.
+    emqx_ds_optimistic_tx:tx_commit_outcome(Reply).
 
 store_batch_buffered(DB, Messages, Opts) ->
     try
@@ -622,10 +610,18 @@ otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
 otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Batches) ->
     case otx_get_tx_serial(DB, Shard, leader) of
         {ok, SerCtl} ->
-            emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{}),
-            %% Update serial:
-            emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => <<Serial:128>>}, #{}),
-            emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial);
+            maybe
+                %% First, update the leader serial to avoid duplicated
+                %% serials, should the following calls fail:
+                ok ?=
+                    emqx_ds_storage_layer:store_global(
+                        DBShard, #{?serial_key => <<Serial:128>>}, #{}
+                    ),
+                %% Commit data:
+                ok ?= emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{}),
+                %% Finally, update read serial:
+                emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial)
+            end;
         Val ->
             ?err_unrec({serial_mismatch, SerCtl, Val})
     end.
@@ -656,9 +652,6 @@ timeus_to_timestamp(undefined) ->
     undefined;
 timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
-
-tx_timeout_msg(Ref) ->
-    ?ds_tx_commit_error(Ref, undefined, unrecoverable, timeout).
 
 %%================================================================================
 %% Common test options
