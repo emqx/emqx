@@ -115,6 +115,7 @@
     sub_info/0,
     sub_seqno/0,
 
+    value/0,
     ttv/0,
 
     tx_serial/0,

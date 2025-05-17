@@ -92,7 +92,7 @@
     emqx_ds:topic(),
     emqx_ds:time()
 ) ->
-    {ok, binary()} | undefined.
+    {ok, emqx_ds:value()} | undefined | emqx_ds:error(_).
 
 -callback next(
     emqx_ds_storage_layer:dbshard(),
@@ -169,7 +169,7 @@ commit_batch(DBShard, GenId, CookedTransactions, Options) ->
 -spec lookup(
     emqx_ds_storage_layer:dbshard(), emqx_ds:generation(), emqx_ds:topic(), emqx_ds:time()
 ) ->
-    {ok, emqx_ds:ttv()} | undefined | emqx_ds:error(_).
+    {ok, emqx_ds:value()} | undefined | emqx_ds:error(_).
 lookup(DBShard, Generation, Topic, Time) ->
     case emqx_ds_storage_layer:generation_get(DBShard, Generation) of
         not_found ->

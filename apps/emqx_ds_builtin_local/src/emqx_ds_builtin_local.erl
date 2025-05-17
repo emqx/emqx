@@ -57,6 +57,7 @@
     otx_get_tx_serial/1,
     otx_prepare_tx/5,
     otx_commit_tx_batch/4,
+    otx_lookup_ttv/4,
     otx_cfg_flush_interval/1,
     otx_cfg_idle_flush_interval/1,
     otx_cfg_conflict_tracking_interval/1
@@ -638,6 +639,9 @@ otx_commit_tx_batch(DBShard, SerCtl, Serial, Batches) ->
         Val ->
             ?err_unrec({serial_mismatch, SerCtl, Val})
     end.
+
+otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
+    emqx_ds_storage_layer_ttv:lookup(DBShard, GenId, Topic, Timestamp).
 
 otx_cfg_flush_interval(_DB) ->
     %% FIXME:
