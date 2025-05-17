@@ -90,6 +90,16 @@
 ) ->
     ok | emqx_ds:error(_).
 
+%% Lookup a value identified by topic and timestamp. This callback is
+%% executed only on the leader node.
+-callback otx_lookup_ttv(
+    {emqx_ds:db(), emqx_ds:shard()},
+    emqx_ds:generation(),
+    emqx_ds:topic(),
+    emqx_ds:time()
+) ->
+    {ok, emqx_ds:value()} | undefined | emqx_ds:error(_).
+
 %% Get the conflict tracking interval from the DB config.
 -callback otx_cfg_conflict_tracking_interval(emqx_ds:db()) -> pos_integer().
 
@@ -299,7 +309,7 @@ try_commit(
     #kv_tx_ctx{serial = TxStartSerial} = Ctx,
     maybe
         ok ?= check_conflicts(Dirty0, TxStartSerial, SafeToReadSerial, Ops),
-        ok ?= verify_preconditions(DBShard, Gen, Ops),
+        ok ?= verify_preconditions(DBShard, CBM, Gen, Ops),
         {ok, CookedTx} ?=
             CBM:otx_prepare_tx(
                 DBShard, Gen, serial_bin(PresumedCommitSerial), Ops, #{}
@@ -468,11 +478,11 @@ do_check_conflicts(Dirty, Serial, Topics) ->
             ?err_rec({read_conflict, Errors})
     end.
 
-verify_preconditions(DBShard, GenId, Ops) ->
+verify_preconditions(DBShard, CBM, GenId, Ops) ->
     %% Verify expected values:
     Unrecoverable0 = lists:foldl(
         fun({Topic, Time, ExpectedValue}, Acc) ->
-            case lookup(DBShard, GenId, Topic, Time) of
+            case CBM:otx_lookup_ttv(DBShard, GenId, Topic, Time) of
                 {ok, Value} when
                     ExpectedValue =:= '_';
                     ExpectedValue =:= Value
@@ -493,7 +503,7 @@ verify_preconditions(DBShard, GenId, Ops) ->
     %% Verify unexpected values:
     Unrecoverable = lists:foldl(
         fun({Topic, Time}, Acc) ->
-            case lookup(DBShard, GenId, Topic, Time) of
+            case CBM:otx_lookup_ttv(DBShard, GenId, Topic, Time) of
                 undefined ->
                     Acc;
                 {ok, Value} ->
@@ -509,9 +519,6 @@ verify_preconditions(DBShard, GenId, Ops) ->
         _ ->
             ?err_unrec({precondition_failed, Unrecoverable})
     end.
-
-lookup(DBShard, GenId, Topic, Time) ->
-    emqx_ds_storage_layer_ttv:lookup(DBShard, GenId, Topic, Time).
 
 tx_timeout_msg(Ref) ->
     ?ds_tx_commit_error(Ref, undefined, unrecoverable, timeout).
