@@ -1,6 +1,9 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
+
+%% @doc An alternative storage layer interface that works with
+%% Topic-Time-Value triples instead of `#message' records.
 -module(emqx_ds_storage_layer_ttv).
 
 %% API:

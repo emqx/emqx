@@ -18,7 +18,7 @@ defmodule EMQXDurableStorage.MixProject do
                            "DSBuiltinSLSkipstreamKV",
                            "DSBuiltinStorageLayer"
                           ],
-               do: %{src: "./asn.1/" ++ i ++ ".asn",
+               do: %{src: "./asn.1/#{i}.asn",
                      compile_opts: [:per, :noobj, outdir: ~c"gen_src"]
                     },
       deps_path: "../../deps",
