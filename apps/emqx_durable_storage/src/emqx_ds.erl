@@ -1073,7 +1073,7 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
     {Streams, ShardErrors0} = get_streams(DB, TopicFilter, StartTime, GetStreamOpts),
     ShardErrors = [{shard, Shard, Err} || {Shard, Err} <- ShardErrors0],
     %% Create iterators:
-    {Iterators, Errors} =
+    {Iterators, MakeIteratorErrors} =
         lists:foldl(
             fun({Slab = {_, Generation}, Stream}, {Acc, ErrAcc}) ->
                 case
@@ -1092,13 +1092,22 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
             Streams
         ),
     %% Fold over data:
+    case MakeIteratorErrors =/= [] andalso ErrorHandling =:= crash of
+        true ->
+            %% Don't bother scanning the data, we already failed:
+            Result = undefined,
+            Errors = MakeIteratorErrors;
+        false ->
+            {Result, Errors} = fold_streams(Fun, AccIn, MakeIteratorErrors, Iterators, Ctx)
+    end,
+    %% Return result:
     case {Errors, ErrorHandling} of
-        {_, report} ->
-            {fold_streams(Fun, AccIn, Iterators, Ctx), Errors};
         {[], crash} ->
-            fold_streams(Fun, AccIn, Iterators, Ctx);
+            Result;
         {_, crash} ->
-            error(Errors)
+            error(Errors);
+        {_, report} ->
+            {Result, Errors}
     end.
 
 -spec tx_fold_topic(
@@ -1252,24 +1261,24 @@ tx_push_op(K, A) ->
     ok.
 
 -spec fold_streams(
-    fold_fun(Acc), Acc, [{slab(), stream(), iterator()}], fold_ctx()
-) -> Acc.
-fold_streams(_Fun, Acc, [], _Ctx) ->
-    Acc;
-fold_streams(Fun, Acc0, [{Slab, Stream, It} | Rest], Ctx) ->
-    Acc = fold_iterator(Fun, Acc0, Slab, Stream, It, Ctx),
-    fold_streams(Fun, Acc, Rest, Ctx).
+    fold_fun(Acc), Acc, [error(_)], [{slab(), stream(), iterator()}], fold_ctx()
+) -> {Acc, [fold_error()]}.
+fold_streams(_Fun, Acc, AccErrors, [], _Ctx) ->
+    {Acc, AccErrors};
+fold_streams(Fun, Acc0, AccErrors0, [{Slab, Stream, It} | Rest], Ctx) ->
+    {Acc, AccErrors} = fold_iterator(Fun, Acc0, AccErrors0, Slab, Stream, It, Ctx),
+    fold_streams(Fun, Acc, AccErrors, Rest, Ctx).
 
 -spec fold_iterator(
-    fold_fun(Acc), Acc, slab(), stream(), iterator(), fold_ctx()
-) -> Acc.
-fold_iterator(Fun, Acc0, Slab, Stream, It0, Ctx) ->
+    fold_fun(Acc), Acc, [error(_)], slab(), stream(), iterator(), fold_ctx()
+) -> {Acc, [fold_error()]}.
+fold_iterator(Fun, Acc0, AccErrors, Slab, Stream, It0, Ctx) ->
     #fold_ctx{db = DB, batch_size = BatchSize} = Ctx,
     case next(DB, It0, BatchSize) of
         {ok, _It, []} ->
-            Acc0;
+            {Acc0, AccErrors};
         {ok, end_of_stream} ->
-            Acc0;
+            {Acc0, AccErrors};
         {ok, It, Batch} ->
             Acc = lists:foldl(
                 fun({MsgKey, Msg}, A) ->
@@ -1278,7 +1287,9 @@ fold_iterator(Fun, Acc0, Slab, Stream, It0, Ctx) ->
                 Acc0,
                 Batch
             ),
-            fold_iterator(Fun, Acc, Slab, Stream, It, Ctx)
+            fold_iterator(Fun, Acc, AccErrors, Slab, Stream, It, Ctx);
+        Err ->
+            {Acc0, [{stream, Slab, Stream, Err} | AccErrors]}
     end.
 
 is_topic([]) ->
