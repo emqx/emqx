@@ -2,9 +2,28 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc This module serves the same role as `emqx_ds_buffer', but it's
-%% suited for transactions. Also, it runs on the leader node as
-%% opposed to the buffer.
+%% @doc This module implements a per-shard singleton process
+%% facilitating optimistic transactions.
+%%
+%% It has two modes: leader and follower. At most one shard leader
+%% should exist in the EMQX cluster.
+%%
+%% == Leader ==
+%% Optimistic transaction leader tracks recent writes and verifies
+%% transactions from the clients. Transactions containing reads that
+%% may race with the recently updated topics are rejected. Valid
+%% transactions are "cooked" and added to the buffer.
+%%
+%% Buffer is periodically flushed in a single call the backend.
+%%
+%% Leader also keeps the transaction serial.
+%%
+%% Potential split brain situations are handled optimistically: the
+%% backend can reject flush request.
+%%
+%% == Follower ==
+%%
+%% When in follower mode, this process maintains the local metadata.
 -module(emqx_ds_optimistic_tx).
 
 -behaviour(gen_statem).
@@ -58,11 +77,11 @@
     emqx_ds:generation(),
     _SerialBin :: binary(),
     emqx_ds:tx_ops(),
-    _
+    _MiscOpts :: map()
 ) ->
     {ok, _CookedTx} | emqx_ds:error(_).
 
-%% Flush the buffer of cooked transactions
+%% Commit a batch of cooked transactions to the storage.
 -callback otx_commit_tx_batch(
     {emqx_ds:db(), emqx_ds:shard()},
     _OldSerial :: serial(),

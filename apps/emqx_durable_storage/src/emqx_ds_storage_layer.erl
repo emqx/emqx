@@ -160,10 +160,7 @@
         %% writes are in general unsafe but require much less resources, i.e. with RocksDB
         %% non-durable (WAL-less) writes do not usually involve _any_ disk I/O.
         %% Default: `true'.
-        durable => boolean(),
-        %% Whether the argument is a list of cooked batches instead of
-        %% a single batch. Default: `false'.
-        list => boolean()
+        durable => boolean()
     }.
 
 %% Options affecting how batches should be prepared.
