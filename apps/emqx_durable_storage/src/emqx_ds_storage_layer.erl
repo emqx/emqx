@@ -73,7 +73,7 @@
 ]).
 
 %% internal exports:
--export([db_dir/1, base_dir/0, generation_get/2]).
+-export([db_dir/1, base_dir/0, generation_get/2, get_gvars/1]).
 
 -export_type([
     gen_id/0,
@@ -245,7 +245,9 @@
     %% Generations:
     ?GEN_KEY(gen_id()) => GenData,
     %% DB handle (runtime only).
-    db => rocksdb:db_handle()
+    db => rocksdb:db_handle(),
+    %% Runtime global variables
+    gvars => ets:tid()
 }.
 
 %% Shard schema (persistent):
@@ -1030,7 +1032,10 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
         end,
         ShardSchema
     ),
-    Shard#{db => DB}.
+    Shard#{
+        db => DB,
+        gvars => ets:new(emqx_ds_storage_layer_gvars, [set, public, {read_concurrency, true}])
+    }.
 
 -spec handle_add_generation(server_state(), emqx_ds:time()) ->
     server_state() | {error, overlaps_existing_generations}.
@@ -1435,6 +1440,11 @@ format_state(#s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema, 
 -spec get_schema_runtime(dbshard()) -> shard().
 get_schema_runtime(Shard = {_, _}) ->
     persistent_term:get(?PERSISTENT_TERM(Shard)).
+
+-spec get_gvars(dbshard()) -> ets:tid().
+get_gvars(DBShard) ->
+    #{gvars := GVars} = get_schema_runtime(DBShard),
+    GVars.
 
 -spec put_schema_runtime(dbshard(), shard()) -> ok.
 put_schema_runtime(Shard = {_, _}, RuntimeSchema) ->
