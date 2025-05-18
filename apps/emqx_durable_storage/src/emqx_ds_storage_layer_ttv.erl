@@ -7,7 +7,13 @@
 -module(emqx_ds_storage_layer_ttv).
 
 %% API:
--export([prepare_tx/5, commit_batch/4, lookup/4]).
+-export([
+    prepare_tx/5,
+    commit_batch/4,
+    lookup/4,
+    get_read_tx_serial/1,
+    set_read_tx_serial/2
+]).
 
 %% internal exports:
 -export([]).
@@ -115,6 +121,8 @@
     _CookedBatch
 ) -> [_Stream].
 
+-define(tx_serial_gvar, tx_serial).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -177,6 +185,22 @@ lookup(DBShard, Generation, Topic, Time) ->
         #{module := Mod, data := GenData} ->
             Mod:lookup(DBShard, GenData, Topic, Time)
     end.
+
+-spec get_read_tx_serial(emqx_ds_storage_layer:dbshard()) ->
+    {ok, emqx_ds_optimistic_tx:serial()} | undefined.
+get_read_tx_serial(DBShard) ->
+    GVars = emqx_ds_storage_layer:get_gvars(DBShard),
+    case ets:lookup(GVars, ?tx_serial_gvar) of
+        [{_, Serial}] ->
+            {ok, Serial};
+        [] ->
+            undefined
+    end.
+
+-spec set_read_tx_serial(emqx_ds_storage_layer:dbshard(), emqx_ds_optimistic_tx:serial()) -> ok.
+set_read_tx_serial(DBShard, Serial) ->
+    GVars = emqx_ds_storage_layer:get_gvars(DBShard),
+    ets:insert(GVars, {?tx_serial_gvar, Serial}).
 
 %%================================================================================
 %% behavior callbacks

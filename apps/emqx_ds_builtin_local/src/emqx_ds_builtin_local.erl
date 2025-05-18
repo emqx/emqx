@@ -606,12 +606,14 @@ do_delete_next(
 
 -define(serial_key, <<"emqx_ds_builtin_local_tx_serial">>).
 
-otx_get_tx_serial(DB, Shard, _LeaderOrReader) ->
+otx_get_tx_serial(DB, Shard, reader) ->
+    emqx_ds_storage_layer_ttv:get_read_tx_serial({DB, Shard});
+otx_get_tx_serial(DB, Shard, leader) ->
     case emqx_ds_storage_layer:fetch_global({DB, Shard}, ?serial_key) of
         {ok, <<Val:128>>} ->
-            Val;
+            {ok, Val};
         not_found ->
-            0
+            {ok, 0}
     end.
 
 otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
@@ -619,8 +621,9 @@ otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
 
 otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Batches) ->
     case otx_get_tx_serial(DB, Shard, leader) of
-        SerCtl ->
-            do_commit_tx_batches(DBShard, Serial, Batches);
+        {ok, SerCtl} ->
+            do_commit_tx_batches(DBShard, Serial, Batches),
+            ok;
         Val ->
             ?err_unrec({serial_mismatch, SerCtl, Val})
     end.
@@ -646,7 +649,8 @@ otx_cfg_conflict_tracking_interval(_DB) ->
 
 do_commit_tx_batches(DBShard, Serial, []) ->
     %% Write down the new serial:
-    emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => <<Serial:128>>}, #{});
+    emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => <<Serial:128>>}, #{}),
+    emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial);
 do_commit_tx_batches(DBShard, Serial, [{Generation, Batch} | Rest]) ->
     case emqx_ds_storage_layer_ttv:commit_batch(DBShard, Generation, Batch, #{}) of
         ok ->
