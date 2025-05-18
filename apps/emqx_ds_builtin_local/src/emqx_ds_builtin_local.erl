@@ -54,7 +54,7 @@
     shard_of_operation/4,
 
     %% optimistic_tx
-    otx_get_tx_serial/1,
+    otx_get_tx_serial/3,
     otx_prepare_tx/5,
     otx_commit_tx_batch/4,
     otx_lookup_ttv/4,
@@ -606,8 +606,8 @@ do_delete_next(
 
 -define(serial_key, <<"emqx_ds_builtin_local_tx_serial">>).
 
-otx_get_tx_serial(DBShard) ->
-    case emqx_ds_storage_layer:fetch_global(DBShard, ?serial_key) of
+otx_get_tx_serial(DB, Shard, _LeaderOrReader) ->
+    case emqx_ds_storage_layer:fetch_global({DB, Shard}, ?serial_key) of
         {ok, <<Val:128>>} ->
             Val;
         not_found ->
@@ -617,8 +617,8 @@ otx_get_tx_serial(DBShard) ->
 otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
     emqx_ds_storage_layer_ttv:prepare_tx(DBShard, Generation, SerialBin, Ops, Opts).
 
-otx_commit_tx_batch(DBShard, SerCtl, Serial, Batches) ->
-    case otx_get_tx_serial(DBShard) of
+otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Batches) ->
+    case otx_get_tx_serial(DB, Shard, leader) of
         SerCtl ->
             do_commit_tx_batches(DBShard, Serial, Batches);
         Val ->
