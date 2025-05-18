@@ -9,7 +9,7 @@
 %% API:
 -export([
     prepare_tx/5,
-    commit_batch/4,
+    commit_batch/3,
     lookup/4,
     get_read_tx_serial/1,
     set_read_tx_serial/2
@@ -154,25 +154,6 @@ prepare_tx(DBShard, GenId, TXSerial, Tx, Options) ->
             ?err_unrec({storage_not_found, GenId})
     end.
 
-%% @doc Commit a collection of cooked KV transactions to the storage
--spec commit_batch(
-    emqx_ds_storage_layer:dbshard(),
-    emqx_ds:generation(),
-    [cooked_tx()],
-    emqx_ds_storage_layer:batch_store_opts()
-) -> emqx_ds:store_batch_result().
-commit_batch(DBShard, GenId, CookedTransactions, Options) ->
-    case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
-        #{module := Mod, data := GenData} ->
-            T0 = erlang:monotonic_time(microsecond),
-            Result = Mod:commit_batch(DBShard, GenData, CookedTransactions, Options),
-            T1 = erlang:monotonic_time(microsecond),
-            emqx_ds_builtin_metrics:observe_store_batch_time(DBShard, T1 - T0),
-            Result;
-        not_found ->
-            ?err_unrec({storage_not_found, GenId})
-    end.
-
 %% @doc Lookup a single value matching a concrete topic and timestamp
 -spec lookup(
     emqx_ds_storage_layer:dbshard(), emqx_ds:generation(), emqx_ds:topic(), emqx_ds:time()
@@ -200,7 +181,23 @@ get_read_tx_serial(DBShard) ->
 -spec set_read_tx_serial(emqx_ds_storage_layer:dbshard(), emqx_ds_optimistic_tx:serial()) -> ok.
 set_read_tx_serial(DBShard, Serial) ->
     GVars = emqx_ds_storage_layer:get_gvars(DBShard),
-    ets:insert(GVars, {?tx_serial_gvar, Serial}).
+    ets:insert(GVars, {?tx_serial_gvar, Serial}),
+    ok.
+
+-spec commit_batch(
+    emqx_ds_storage_layer:dbshard(),
+    [{emqx_ds:generation(), [cooked_tx()]}],
+    emqx_ds_storage_layer:batch_store_opts()
+) -> emqx_ds:store_batch_result().
+commit_batch(DBShard, [{Generation, GenBatches} | Rest], Opts) ->
+    case do_commit_batch(DBShard, Generation, GenBatches, Opts) of
+        ok ->
+            commit_batch(DBShard, Rest, Opts);
+        Err ->
+            Err
+    end;
+commit_batch(_, [], _) ->
+    ok.
 
 %%================================================================================
 %% behavior callbacks
@@ -213,3 +210,23 @@ set_read_tx_serial(DBShard, Serial) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+%% @doc Commit a collection of cooked transactions that all belong to
+%% the same generation to the storage
+-spec do_commit_batch(
+    emqx_ds_storage_layer:dbshard(),
+    emqx_ds:generation(),
+    [cooked_tx()],
+    emqx_ds_storage_layer:batch_store_opts()
+) -> emqx_ds:store_batch_result().
+do_commit_batch(DBShard, GenId, CookedTransactions, Options) ->
+    case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
+        #{module := Mod, data := GenData} ->
+            T0 = erlang:monotonic_time(microsecond),
+            Result = Mod:commit_batch(DBShard, GenData, CookedTransactions, Options),
+            T1 = erlang:monotonic_time(microsecond),
+            emqx_ds_builtin_metrics:observe_store_batch_time(DBShard, T1 - T0),
+            Result;
+        not_found ->
+            ?err_unrec({storage_not_found, GenId})
+    end.

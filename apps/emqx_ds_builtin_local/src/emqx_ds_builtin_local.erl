@@ -622,8 +622,10 @@ otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
 otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Batches) ->
     case otx_get_tx_serial(DB, Shard, leader) of
         {ok, SerCtl} ->
-            do_commit_tx_batches(DBShard, Serial, Batches),
-            ok;
+            emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{}),
+            %% Update serial:
+            emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => <<Serial:128>>}, #{}),
+            emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial);
         Val ->
             ?err_unrec({serial_mismatch, SerCtl, Val})
     end.
@@ -646,18 +648,6 @@ otx_cfg_conflict_tracking_interval(_DB) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-do_commit_tx_batches(DBShard, Serial, []) ->
-    %% Write down the new serial:
-    emqx_ds_storage_layer:store_global(DBShard, #{?serial_key => <<Serial:128>>}, #{}),
-    emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial);
-do_commit_tx_batches(DBShard, Serial, [{Generation, Batch} | Rest]) ->
-    case emqx_ds_storage_layer_ttv:commit_batch(DBShard, Generation, Batch, #{}) of
-        ok ->
-            do_commit_tx_batches(DBShard, Serial, Rest);
-        Err ->
-            Err
-    end.
 
 timestamp_to_timeus(TimestampMs) ->
     TimestampMs * 1000.
