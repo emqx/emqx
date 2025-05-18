@@ -240,7 +240,7 @@ store_batch(DB, Batch, Opts) ->
 
 -spec new_kv_tx(emqx_ds:db(), emqx_ds:transaction_opts()) ->
     {ok, tx_context()} | emqx_ds:error(_).
-new_kv_tx(DB, Options = #{shard := ShardOpt}) ->
+new_kv_tx(DB, Options = #{shard := ShardOpt, generation := Generation}) ->
     case emqx_ds_builtin_local_meta:db_config(DB) of
         #{atomic_batches := true, store_ttv := true} ->
             case ShardOpt of
@@ -249,22 +249,7 @@ new_kv_tx(DB, Options = #{shard := ShardOpt}) ->
                 Shard ->
                     ok
             end,
-            case Options of
-                #{generation := Generation} ->
-                    ok;
-                _ ->
-                    {Generation, _} = emqx_ds_storage_layer:find_generation({DB, Shard}, current)
-            end,
-            TxSerial = otx_get_tx_serial({DB, Shard}),
-            case emqx_ds_optimistic_tx:where(DB, Shard) of
-                Leader when is_pid(Leader) ->
-                    {ok,
-                        emqx_ds_optimistic_tx:new_kv_tx_ctx(
-                            DB, Shard, Generation, Leader, Options, TxSerial
-                        )};
-                undefined ->
-                    ?err_rec(leader_is_down)
-            end;
+            emqx_ds_optimistic_tx:new_kv_tx_ctx(?MODULE, DB, Shard, Generation, Options);
         _ ->
             ?err_unrec(database_does_not_support_transactions)
     end.
