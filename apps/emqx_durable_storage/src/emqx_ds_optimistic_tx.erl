@@ -65,7 +65,7 @@
 %% called by the leader during the startup. In this case it should
 %% correspond to the serial of the last committed transaction in the
 %% shard.
--callback otx_get_tx_serial({emqx_ds:db(), emqx_ds:shard()}) -> serial().
+-callback otx_get_tx_serial(emqx_ds:db(), emqx_ds:shard(), leader | reader) -> serial().
 
 %% Cook a raw transaction into a data structure that will be stored in
 %% the buffer until flush.
@@ -151,8 +151,25 @@
 where(DB, Shard) ->
     gproc:whereis_name(?name(DB, Shard)).
 
+-spec stop(emqx_ds:db(), emqx_ds:shard()) -> ok.
+stop(DB, Shard) ->
+    case global:whereis_name(?name(DB, Shard)) of
+        Pid when is_pid(Pid) ->
+            MRef = monitor(process, Pid),
+            exit(Pid, shutdown),
+            receive
+                {'DOWN', MRef, process, Pid, _} ->
+                    ok
+            after 5_000 ->
+                error(timeout_waiting_for_down)
+            end;
+        undefined ->
+            ok
+    end.
+
 -spec start_link(emqx_ds:db(), emqx_ds:shard(), module()) -> {ok, pid()}.
 start_link(DB, Shard, CBM) ->
+    stop(DB, Shard),
     gen_statem:start_link(?via(DB, Shard), ?MODULE, [DB, Shard, CBM], []).
 
 -spec new_kv_tx_ctx(
@@ -167,7 +184,7 @@ new_kv_tx_ctx(CBM, DB, Shard, Generation, Opts) ->
                 Generation,
                 Leader,
                 Opts,
-                CBM:otx_get_tx_serial({DB, Shard})
+                CBM:otx_get_tx_serial(DB, Shard, reader)
             ),
             {ok, Ctx};
         _ ->
@@ -213,8 +230,11 @@ callback_mode() ->
 
 init([DB, Shard, CBM]) ->
     erlang:process_flag(trap_exit, true),
-    Serial = CBM:otx_get_tx_serial({DB, Shard}),
-    {ok, ?leader(?idle), #d{
+    Serial = CBM:otx_get_tx_serial(DB, Shard, leader),
+    %% Issue an empty transaction to verify the serial and trigger
+    %% update of serial on the replicas:
+    ok = CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, []),
+    D = #d{
         db = DB,
         shard = Shard,
         cbm = CBM,
@@ -224,7 +244,8 @@ init([DB, Shard, CBM]) ->
         idle_flush_interval = CBM:otx_cfg_idle_flush_interval(DB),
         serial = Serial + 1,
         committed_serial = Serial
-    }}.
+    },
+    {ok, ?leader(?idle), D}.
 
 terminate(_Reason, _State, _D) ->
     ok.
