@@ -1057,7 +1057,7 @@ t_13_smoke_kv_tx(Config) ->
 %% API
 t_14_kv_wildcard_deletes(Config) ->
     DB = ?FUNCTION_NAME,
-    TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity},
+    TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     ?check_trace(
         begin
             %% Open the database
@@ -1121,7 +1121,7 @@ t_14_kv_wildcard_deletes(Config) ->
 %% transaction serial.
 t_15_kv_write_serial(Config) ->
     DB = ?FUNCTION_NAME,
-    TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity},
+    TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     Topic = [<<"foo">>],
     ?check_trace(
         begin
@@ -1159,7 +1159,7 @@ t_15_kv_write_serial(Config) ->
 
 t_16_kv_preconditions(Config) ->
     DB = ?FUNCTION_NAME,
-    TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity},
+    TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     Topic1 = [<<"foo">>],
     Topic2 = [<<"bar">>],
     ?check_trace(
@@ -1337,6 +1337,7 @@ t_18_async_trans(Config) ->
                 ok,
                 emqx_ds_open_db(DB, Opts)
             ),
+            timer:sleep(100),
             %% 1. Successful async write transaction:
             {async, Ref1, hello} =
                 emqx_ds:trans(

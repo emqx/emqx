@@ -65,7 +65,8 @@
 %% called by the leader during the startup. In this case it should
 %% correspond to the serial of the last committed transaction in the
 %% shard.
--callback otx_get_tx_serial(emqx_ds:db(), emqx_ds:shard(), leader | reader) -> serial().
+-callback otx_get_tx_serial(emqx_ds:db(), emqx_ds:shard(), leader | reader) ->
+    {ok, serial()} | undefined.
 
 %% Cook a raw transaction into a data structure that will be stored in
 %% the buffer until flush.
@@ -112,11 +113,13 @@
 -define(via(DB, SHARD), {via, global, ?name(DB, SHARD)}).
 
 %% States
+-define(initial, initial).
 -define(leader(SUBSTATE), {leader, SUBSTATE}).
 -define(idle, idle).
 -define(pending, pending).
 
 %% Timeouts
+-define(timeout_initialize, timeout_initialize).
 %%   Flush pending transactions to the storage:
 -define(timeout_flush, timout_flush).
 
@@ -138,8 +141,8 @@
     idle_flush_interval :: pos_integer(),
     rotate_interval :: pos_integer(),
     last_rotate_ts,
-    serial :: non_neg_integer(),
-    committed_serial :: non_neg_integer(),
+    serial :: non_neg_integer() | undefined,
+    committed_serial :: non_neg_integer() | undefined,
     gens = #{} :: generations()
 }).
 
@@ -176,17 +179,20 @@ start_link(DB, Shard, CBM) ->
     module(), emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), emqx_ds:transaction_opts()
 ) -> {ok, ctx()} | emqx_ds:error(_).
 new_kv_tx_ctx(CBM, DB, Shard, Generation, Opts) ->
-    case global:whereis_name(?name(DB, Shard)) of
-        Leader when is_pid(Leader) ->
-            Ctx = new_kv_tx_ctx(
-                DB,
-                Shard,
-                Generation,
-                Leader,
-                Opts,
-                CBM:otx_get_tx_serial(DB, Shard, reader)
-            ),
-            {ok, Ctx};
+    maybe
+        Leader = global:whereis_name(?name(DB, Shard)),
+        true ?= is_pid(Leader),
+        {ok, Serial} ?= CBM:otx_get_tx_serial(DB, Shard, reader),
+        Ctx = new_kv_tx_ctx(
+            DB,
+            Shard,
+            Generation,
+            Leader,
+            Opts,
+            Serial
+        ),
+        {ok, Ctx}
+    else
         _ ->
             ?err_rec(leader_down)
     end.
@@ -230,10 +236,6 @@ callback_mode() ->
 
 init([DB, Shard, CBM]) ->
     erlang:process_flag(trap_exit, true),
-    Serial = CBM:otx_get_tx_serial(DB, Shard, leader),
-    %% Issue an empty transaction to verify the serial and trigger
-    %% update of serial on the replicas:
-    ok = CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, []),
     D = #d{
         db = DB,
         shard = Shard,
@@ -241,11 +243,9 @@ init([DB, Shard, CBM]) ->
         rotate_interval = CBM:otx_cfg_conflict_tracking_interval(DB),
         last_rotate_ts = erlang:monotonic_time(millisecond),
         flush_interval = CBM:otx_cfg_flush_interval(DB),
-        idle_flush_interval = CBM:otx_cfg_idle_flush_interval(DB),
-        serial = Serial + 1,
-        committed_serial = Serial
+        idle_flush_interval = CBM:otx_cfg_idle_flush_interval(DB)
     },
-    {ok, ?leader(?idle), D}.
+    {ok, ?initial, D, {state_timeout, 0, ?timeout_initialize}}.
 
 terminate(_Reason, _State, _D) ->
     ok.
@@ -255,6 +255,10 @@ handle_event(enter, _OldState, ?leader(?pending), #d{flush_interval = T}) ->
     {keep_state_and_data, {state_timeout, T, ?timeout_flush}};
 handle_event(enter, _, _, _) ->
     keep_state_and_data;
+handle_event(state_timeout, ?timeout_initialize, ?initial, D) ->
+    async_init(D);
+handle_event(_, _, ?initial, _) ->
+    {keep_state_and_data, postpone};
 handle_event(cast, Tx = #ds_tx{}, ?leader(State), D0) ->
     %% Enqueue transaction commit:
     case handle_tx(D0, Tx) of
@@ -290,6 +294,16 @@ handle_event(ET, Event, State, _D) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
+    {ok, Serial} = CBM:otx_get_tx_serial(DB, Shard, leader),
+    %% Issue an empty transaction to verify the serial and trigger
+    %% update of serial on the replicas:
+    ok = CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, []),
+    {next_state, ?leader(?idle), D#d{
+        serial = Serial + 1,
+        committed_serial = Serial
+    }}.
 
 handle_tx(
     D = #d{
