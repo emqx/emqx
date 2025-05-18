@@ -3,12 +3,9 @@
 %%--------------------------------------------------------------------
 
 %% @doc This module implements a per-shard singleton process
-%% facilitating optimistic transactions.
+%% facilitating optimistic transactions. This process is dynamically
+%% spawned on the leader node.
 %%
-%% It has two modes: leader and follower. At most one shard leader
-%% should exist in the EMQX cluster.
-%%
-%% == Leader ==
 %% Optimistic transaction leader tracks recent writes and verifies
 %% transactions from the clients. Transactions containing reads that
 %% may race with the recently updated topics are rejected. Valid
@@ -20,10 +17,6 @@
 %%
 %% Potential split brain situations are handled optimistically: the
 %% backend can reject flush request.
-%%
-%% == Follower ==
-%%
-%% When in follower mode, this process maintains the local metadata.
 -module(emqx_ds_optimistic_tx).
 
 -behaviour(gen_statem).
@@ -34,6 +27,7 @@
 
     where/2,
 
+    new_kv_tx_ctx/5,
     new_kv_tx_ctx/6,
     commit_kv_tx/3
 ]).
@@ -41,6 +35,7 @@
 %% Behaviour callbacks
 -export([
     init/1,
+    terminate/3,
     handle_event/4,
     callback_mode/0
 ]).
@@ -66,8 +61,10 @@
 
 -type batch() :: {emqx_ds:generation(), [_CookedTx]}.
 
-%% Get the last committed transaction ID. Called during initialization
-%% of the optimistic_tx leader.
+%% Get the last committed transaction ID on the local replica. Also
+%% called by the leader during the startup. In this case it should
+%% correspond to the serial of the last committed transaction in the
+%% shard.
 -callback otx_get_tx_serial({emqx_ds:db(), emqx_ds:shard()}) -> serial().
 
 %% Cook a raw transaction into a data structure that will be stored in
@@ -111,8 +108,8 @@
 
 -type ctx() :: #kv_tx_ctx{}.
 
--define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
--define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
+-define(name(DB, SHARD), {?MODULE, DB, SHARD}).
+-define(via(DB, SHARD), {via, global, ?name(DB, SHARD)}).
 
 %% States
 -define(leader(SUBSTATE), {leader, SUBSTATE}).
@@ -159,6 +156,26 @@ start_link(DB, Shard, CBM) ->
     gen_statem:start_link(?via(DB, Shard), ?MODULE, [DB, Shard, CBM], []).
 
 -spec new_kv_tx_ctx(
+    module(), emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), emqx_ds:transaction_opts()
+) -> {ok, ctx()} | emqx_ds:error(_).
+new_kv_tx_ctx(CBM, DB, Shard, Generation, Opts) ->
+    case global:whereis_name(?name(DB, Shard)) of
+        Leader when is_pid(Leader) ->
+            Ctx = new_kv_tx_ctx(
+                DB,
+                Shard,
+                Generation,
+                Leader,
+                Opts,
+                CBM:otx_get_tx_serial({DB, Shard})
+            ),
+            {ok, Ctx};
+        _ ->
+            ?err_rec(leader_down)
+    end.
+
+%% @doc Create a transaction context.
+-spec new_kv_tx_ctx(
     emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), pid(), emqx_ds:transaction_opts(), serial()
 ) ->
     ctx().
@@ -195,6 +212,7 @@ callback_mode() ->
     [handle_event_function, state_enter].
 
 init([DB, Shard, CBM]) ->
+    erlang:process_flag(trap_exit, true),
     Serial = CBM:otx_get_tx_serial({DB, Shard}),
     {ok, ?leader(?idle), #d{
         db = DB,
@@ -207,6 +225,9 @@ init([DB, Shard, CBM]) ->
         serial = Serial + 1,
         committed_serial = Serial
     }}.
+
+terminate(_Reason, _State, _D) ->
+    ok.
 
 handle_event(enter, _OldState, ?leader(?pending), #d{flush_interval = T}) ->
     %% Schedule unconditional flush after the given interval:
