@@ -98,9 +98,7 @@
     otx_prepare_tx/5,
     otx_commit_tx_batch/4,
     otx_lookup_ttv/4,
-    otx_cfg_flush_interval/1,
-    otx_cfg_idle_flush_interval/1,
-    otx_cfg_conflict_tracking_interval/1
+    otx_get_runtime_config/1
 ]).
 
 -ifdef(TEST).
@@ -174,7 +172,9 @@
         replication_options => _TODO :: #{},
         %% Equivalent to `append_only' from `emqx_ds:create_db_opts'
         force_monotonic_timestamps => boolean(),
-        atomic_batches => boolean()
+        atomic_batches => boolean(),
+        %% Optimistic transaction:
+        transaction => emqx_ds_optimistic_tx:runtime_config()
     }.
 
 %% This enapsulates the stream entity from the replication level.
@@ -257,7 +257,17 @@ list_shards(DB) ->
 open_db(DB, CreateOpts0) ->
     %% Rename `append_only' flag to `force_monotonic_timestamps':
     AppendOnly = maps:get(append_only, CreateOpts0),
-    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
+    CreateOpts1 = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
+    CreateOpts = emqx_utils_maps:deep_merge(
+        #{
+            transaction => #{
+                flush_interval => 1_000,
+                idle_flush_interval => 1,
+                conflict_window => 5_000
+            }
+        },
+        CreateOpts1
+    ),
     case emqx_ds_builtin_raft_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;
@@ -668,17 +678,9 @@ otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Batches) ->
 otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
     emqx_ds_storage_layer_ttv:lookup(DBShard, GenId, Topic, Timestamp).
 
-otx_cfg_flush_interval(_DB) ->
-    %% FIXME:
-    1_000.
-
-otx_cfg_idle_flush_interval(_DB) ->
-    %% FIXME:
-    1.
-
-otx_cfg_conflict_tracking_interval(_DB) ->
-    %% FIXME:
-    5_000.
+otx_get_runtime_config(DB) ->
+    #{transaction := Val} = emqx_ds_builtin_raft_meta:db_config(DB),
+    Val.
 
 %%================================================================================
 %% Internal exports (RPC targets)

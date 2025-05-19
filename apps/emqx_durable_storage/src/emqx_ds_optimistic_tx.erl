@@ -43,7 +43,8 @@
 
 -export_type([
     ctx/0,
-    serial/0
+    serial/0,
+    runtime_config/0
 ]).
 
 -include("emqx_ds.hrl").
@@ -99,14 +100,15 @@
 ) ->
     {ok, emqx_ds:value()} | undefined | emqx_ds:error(_).
 
+%% Configuration that can be changed in the runtime.
+-type runtime_config() :: #{
+    flush_interval := non_neg_integer(),
+    idle_flush_interval := non_neg_integer(),
+    conflict_window := pos_integer()
+}.
+
 %% Get the conflict tracking interval from the DB config.
--callback otx_cfg_conflict_tracking_interval(emqx_ds:db()) -> pos_integer().
-
-%% Get the maximum flush interval from the DB config.
--callback otx_cfg_flush_interval(emqx_ds:db()) -> pos_integer().
-
-%% Get idle flush interval from the DB config.
--callback otx_cfg_idle_flush_interval(emqx_ds:db()) -> pos_integer().
+-callback otx_get_runtime_config(emqx_ds:db()) -> runtime_config().
 
 -type ctx() :: #kv_tx_ctx{}.
 
@@ -253,14 +255,17 @@ callback_mode() ->
 
 init([DB, Shard, CBM]) ->
     erlang:process_flag(trap_exit, true),
+    #{flush_interval := FI, idle_flush_interval := IFI, conflict_window := CW} = CBM:otx_get_runtime_config(
+        DB
+    ),
     D = #d{
         db = DB,
         shard = Shard,
         cbm = CBM,
-        rotate_interval = CBM:otx_cfg_conflict_tracking_interval(DB),
+        rotate_interval = CW,
         last_rotate_ts = erlang:monotonic_time(millisecond),
-        flush_interval = CBM:otx_cfg_flush_interval(DB),
-        idle_flush_interval = CBM:otx_cfg_idle_flush_interval(DB)
+        flush_interval = FI,
+        idle_flush_interval = IFI
     },
     {ok, ?initial, D, {state_timeout, 0, ?timeout_initialize}}.
 
@@ -438,13 +443,17 @@ flush(
     Batch = make_batch(Gens0),
     Result = CBM:otx_commit_tx_batch(DBShard, SerCtl, Serial, Batch),
     Gens = clean_buffers_and_reply(Result, Gens0),
+    #{flush_interval := FI, idle_flush_interval := IFI, conflict_window := CW} = CBM:otx_get_runtime_config(
+        DB
+    ),
     case Result of
         ok ->
             D#d{
                 committed_serial = Serial,
                 gens = Gens,
-                flush_interval = CBM:otx_cfg_flush_interval(DB),
-                idle_flush_interval = CBM:otx_cfg_idle_flush_interval(DB)
+                flush_interval = FI,
+                idle_flush_interval = IFI,
+                rotate_interval = CW
             };
         _ ->
             exit({flush_failed, #{db => DB, shard => Shard, result => Result}})
@@ -496,7 +505,7 @@ maybe_rotate(D = #d{rotate_interval = RI, last_rotate_ts = LastRotTS}) ->
             D
     end.
 
-rotate(D = #d{db = DB, cbm = CBM, gens = Gens0}) ->
+rotate(D = #d{gens = Gens0}) ->
     Gens = maps:map(
         fun(_, GS = #gen_data{dirty = Dirty}) ->
             GS#gen_data{
@@ -507,8 +516,7 @@ rotate(D = #d{db = DB, cbm = CBM, gens = Gens0}) ->
     ),
     D#d{
         gens = Gens,
-        last_rotate_ts = erlang:monotonic_time(millisecond),
-        rotate_interval = CBM:otx_cfg_conflict_tracking_interval(DB)
+        last_rotate_ts = erlang:monotonic_time(millisecond)
     }.
 
 check_conflicts(Dirty, TxStartSerial, SafeToReadSerial, Ops) ->
