@@ -304,6 +304,72 @@ t_receive_message(Config) ->
     ),
     emqx_nats_client:stop(Client).
 
+'t_receive_message_with_wildcard_*'(Config) ->
+    ClientOpts = ?config(client_opts, Config),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    ?assertMatch([#nats_frame{operation = ?OP_INFO}], Msgs),
+    ok = emqx_nats_client:connect(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo.*">>, <<"sid-1">>),
+    ok = emqx_nats_client:publish(Client, <<"foo.bar">>, <<"hello">>),
+    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_MSG,
+            message = #{
+                subject := <<"foo.bar">>,
+                sid := <<"sid-1">>,
+                payload := <<"hello">>
+            }
+        },
+        Msg
+    ),
+    emqx_nats_client:stop(Client).
+
+'t_receive_message_with_wildcard_>'(Config) ->
+    ClientOpts = ?config(client_opts, Config),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    ?assertMatch([#nats_frame{operation = ?OP_INFO}], Msgs),
+    ok = emqx_nats_client:connect(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo.>">>, <<"sid-1">>),
+    ok = emqx_nats_client:publish(Client, <<"foo.bar.baz">>, <<"hello">>),
+    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_MSG,
+            message = #{
+                subject := <<"foo.bar.baz">>,
+                sid := <<"sid-1">>,
+                payload := <<"hello">>
+            }
+        },
+        Msg
+    ),
+    emqx_nats_client:stop(Client).
+
+'t_receive_message_with_wildcard_combined_*_>'(Config) ->
+    ClientOpts = ?config(client_opts, Config),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    ?assertMatch([#nats_frame{operation = ?OP_INFO}], Msgs),
+    ok = emqx_nats_client:connect(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"*.bar.>">>, <<"sid-1">>),
+    ok = emqx_nats_client:publish(Client, <<"foo.bar.cato.delta">>, <<"hello">>),
+    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_MSG,
+            message = #{
+                subject := <<"foo.bar.cato.delta">>,
+                sid := <<"sid-1">>,
+                payload := <<"hello">>
+            }
+        },
+        Msg
+    ),
+    emqx_nats_client:stop(Client).
+
 t_unsubscribe(Config) ->
     ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),

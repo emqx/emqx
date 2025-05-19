@@ -19,13 +19,14 @@
 %% MQTT wildcards: + matches a single level, # matches all remaining levels
 -spec nats_to_mqtt(binary()) -> binary().
 nats_to_mqtt(<<>>) ->
-    error(badarg);
+    <<>>;
 nats_to_mqtt(Subject) ->
     case binary:last(Subject) of
         $> ->
             %% Convert NATS '>' to MQTT '#'
             Base = binary:part(Subject, 0, byte_size(Subject) - 1),
-            <<(binary:replace(Base, <<".">>, <<"/">>, [global]))/binary, "#">>;
+            BaseMqtt = nats_to_mqtt(Base),
+            <<BaseMqtt/binary, "#">>;
         _ ->
             %% Convert NATS '*' to MQTT '+'
             Parts = binary:split(Subject, <<".">>, [global]),
@@ -39,13 +40,14 @@ nats_to_mqtt(Subject) ->
 %% NATS wildcards: * matches a single token, > matches all remaining tokens
 -spec mqtt_to_nats(binary()) -> binary().
 mqtt_to_nats(<<>>) ->
-    error(badarg);
+    <<>>;
 mqtt_to_nats(Topic) ->
     case binary:last(Topic) of
         $# ->
             %% Convert MQTT '#' to NATS '>'
             Base = binary:part(Topic, 0, byte_size(Topic) - 1),
-            <<(binary:replace(Base, <<"/">>, <<".">>, [global]))/binary, ">">>;
+            BaseNats = mqtt_to_nats(Base),
+            <<BaseNats/binary, ">">>;
         _ ->
             %% Convert MQTT '+' to NATS '*'
             Parts = binary:split(Topic, <<"/">>, [global]),

@@ -50,9 +50,10 @@ t_nats_to_mqtt(_) ->
     %% Multiple wildcards
     ?assertEqual(<<"+/+/+">>, emqx_nats_topic:nats_to_mqtt(<<"*.*.*">>)),
     ?assertEqual(<<"foo/+/bar/+">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar.*">>)),
+    ?assertEqual(<<"foo/+/bar/#">>, emqx_nats_topic:nats_to_mqtt(<<"foo.*.bar.>">>)),
 
     %% Edge cases
-    ?assertError(badarg, emqx_nats_topic:nats_to_mqtt(<<"">>)).
+    ?assertEqual(<<>>, emqx_nats_topic:nats_to_mqtt(<<"">>)).
 
 t_mqtt_to_nats(_) ->
     %% Basic conversion
@@ -70,9 +71,10 @@ t_mqtt_to_nats(_) ->
     %% Multiple wildcards
     ?assertEqual(<<"*.*.*">>, emqx_nats_topic:mqtt_to_nats(<<"+/+/+">>)),
     ?assertEqual(<<"foo.*.bar.*">>, emqx_nats_topic:mqtt_to_nats(<<"foo/+/bar/+">>)),
+    ?assertEqual(<<"foo.*.bar.>">>, emqx_nats_topic:mqtt_to_nats(<<"foo/+/bar/#">>)),
 
     %% Edge cases
-    ?assertError(badarg, emqx_nats_topic:mqtt_to_nats(<<"">>)).
+    ?assertEqual(<<>>, emqx_nats_topic:mqtt_to_nats(<<"">>)).
 
 t_validate_nats_subject(_) ->
     %% Valid subjects

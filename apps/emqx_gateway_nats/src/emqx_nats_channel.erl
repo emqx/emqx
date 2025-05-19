@@ -815,11 +815,10 @@ handle_deliver(
     }
 ) ->
     Frames0 = lists:foldl(
-        fun({_, _, Message}, Acc) ->
+        fun({deliver, SubTopic, Message}, Acc) ->
             ReplyTo = emqx_message:get_header(reply_to, Message),
-            Topic = emqx_message:topic(Message),
-            case find_sub_by_topic(Topic, Subs) of
-                {SId, _Topic, Subject, _SubOpts} ->
+            case find_sub_by_topic(SubTopic, Subs) of
+                {SId, _Topic, _Subject, _SubOpts} ->
                     Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
                     metrics_inc('messages.delivered', Channel),
                     NMessage = run_hooks_without_metrics(
@@ -829,7 +828,7 @@ handle_deliver(
                         Message1
                     ),
                     MsgContent = #{
-                        subject => Subject,
+                        subject => emqx_nats_topic:mqtt_to_nats(emqx_message:topic(NMessage)),
                         sid => SId,
                         reply_to => ReplyTo,
                         payload => emqx_message:payload(NMessage)
@@ -843,7 +842,8 @@ handle_deliver(
                     ?SLOG(error, #{
                         msg => "dropped_message_due_to_subscription_not_found",
                         message => Message,
-                        topic => emqx_message:topic(Message)
+                        matched_subscription_topic => SubTopic,
+                        message_topic => emqx_message:topic(Message)
                     }),
                     metrics_inc('delivery.dropped', Channel),
                     metrics_inc('delivery.dropped.no_subid', Channel),
