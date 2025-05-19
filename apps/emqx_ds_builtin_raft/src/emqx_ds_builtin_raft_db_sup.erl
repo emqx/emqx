@@ -148,16 +148,7 @@ get_shard_workers(DB) ->
 -spec start_optimistic_tx_leader(emqx_ds:db(), emqx_ds:shard()) -> ok | {error, _}.
 start_optimistic_tx_leader(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
-    case supervisor:start_child(Sup, shard_optimistic_tx_spec(DB, Shard)) of
-        {ok, _} ->
-            ok;
-        {ok, _, _} ->
-            ok;
-        {error, {already_started, _}} ->
-            ok;
-        Err ->
-            Err
-    end.
+    ensure_started(supervisor:start_child(Sup, shard_optimistic_tx_spec(DB, Shard))).
 
 -spec stop_optimistic_tx_leader(emqx_ds:db(), emqx_ds:shard()) -> ok.
 stop_optimistic_tx_leader(DB, Shard) ->

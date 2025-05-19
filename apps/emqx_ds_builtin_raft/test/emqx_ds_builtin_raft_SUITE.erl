@@ -143,7 +143,7 @@ t_shards_allocation(Config) ->
     [_SpecLost, Spec | _] = ?config(specs, Config),
     [Node] = emqx_cth_cluster:restart(Spec),
     emqx_ds_raft_test_helpers:assert_db_open([Node], DB, Opts),
-    %% FIXME: Manually forget the lost node.
+    %% Forget the lost node.
     ?ON(Node, emqx_ds_builtin_raft_meta:forget_node(NodeLost)),
     ?retry(
         5_000,
