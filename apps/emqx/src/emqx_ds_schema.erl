@@ -321,6 +321,36 @@ fields(layout_builtin_reference) ->
                     desc => ?DESC(layout_builtin_reference_type)
                 }
             )}
+    ];
+fields(optimistic_transaction) ->
+    [
+        {flush_interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "5s",
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(ds_otx_flush_interval)
+                }
+            )},
+        {idle_flush_interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "1ms",
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(ds_otx_flush_interval)
+                }
+            )},
+        {conflict_window,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "5s",
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(ds_otx_flush_interval)
+                }
+            )}
     ].
 
 common_builtin_fields(basic) ->
