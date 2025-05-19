@@ -94,7 +94,9 @@
 
 -behaviour(emqx_ds_optimistic_tx).
 -export([
-    otx_get_tx_serial/3,
+    otx_get_tx_serial/2,
+    otx_get_leader/2,
+    otx_become_leader/2,
     otx_prepare_tx/5,
     otx_commit_tx_batch/4,
     otx_lookup_ttv/4,
@@ -244,6 +246,7 @@
 -type timestamp_us() :: non_neg_integer().
 
 -define(gv_timestamp(SHARD), {gv_timestamp, SHARD}).
+-define(gv_otx_leader_pid(SHARD), {gv_otx_leader_pid, SHARD}).
 
 %%================================================================================
 %% API functions
@@ -551,7 +554,7 @@ current_timestamp(DB, Shard) ->
     {ok, tx_context()} | emqx_ds:error(_).
 new_kv_tx(DB, Options = #{shard := ShardOpt, generation := Generation}) ->
     case emqx_ds_builtin_raft_meta:db_config(DB) of
-        #{atomic_batches := true, store_ttv := true} ->
+        #{store_ttv := true} ->
             case ShardOpt of
                 {auto, Owner} ->
                     Shard = shard_of(DB, Owner);
@@ -647,13 +650,25 @@ shards_of_batch(_DB, [], Acc) ->
 %% emqx_ds_optimistic_tx callbacks
 %%================================================================================
 
--spec otx_get_tx_serial(emqx_ds:db(), emqx_ds:shard(), leader | reader) ->
-    {ok, emqx_ds_optimistic_tx:serial()} | undefined.
-otx_get_tx_serial(DB, Shard, reader) ->
-    emqx_ds_storage_layer_ttv:get_read_tx_serial({DB, Shard});
-otx_get_tx_serial(DB, Shard, leader) ->
-    Command = #{?tag => get_tx_serial},
-    ra_command(DB, Shard, Command, 0).
+otx_get_tx_serial(DB, Shard) ->
+    emqx_ds_storage_layer_ttv:get_read_tx_serial({DB, Shard}).
+
+otx_get_leader(DB, Shard) ->
+    emqx_ds_builtin_raft_sup:get_gvar(DB, ?gv_otx_leader_pid(Shard), undefined).
+
+otx_become_leader(DB, Shard) ->
+    Command = #{?tag => new_otx_leader, ?otx_leader_pid => self()},
+    %% FIXME: this is probably not the right way to do it:
+    Leader = emqx_ds_builtin_raft_shard:server_info(
+        leader,
+        emqx_ds_builtin_raft_shard:local_server(DB, Shard)
+    ),
+    case ra:process_command([Leader], Command, 5_000) of
+        {ok, Serial, _Leader} ->
+            {ok, Serial};
+        Err ->
+            Err
+    end.
 
 -spec otx_prepare_tx(
     {emqx_ds:db(), emqx_ds:shard()},
@@ -1216,19 +1231,6 @@ apply(
     {State#{latest => Latest}, ok, Effects};
 apply(
     _RaftMeta,
-    #{?tag := get_tx_serial},
-    State
-) ->
-    Result =
-        case State of
-            #{tx_serial := Serial} ->
-                {ok, Serial};
-            _ ->
-                undefined
-        end,
-    {State, Result};
-apply(
-    _RaftMeta,
     #{
         ?tag := commit_tx_batch,
         ?prev_serial := SerCtl,
@@ -1245,7 +1247,31 @@ apply(
             {State#{tx_serial := Serial}, ok};
         false ->
             {State, ?err_unrec({serial_mismatch, SerCtl, ExpectedSerial})}
-    end.
+    end;
+apply(
+    _RaftMeta,
+    #{
+        ?tag := new_otx_leader,
+        ?otx_leader_pid := Pid
+    },
+    State = #{db_shard := DBShard, tx_serial := Serial}
+) ->
+    set_otx_leader(DBShard, Pid),
+    {State#{otx_leader_pid => Pid}, Serial};
+apply(
+    _RaftMeta,
+    {down, Pid, _Term},
+    State = #{db_shard := {DB, Shard}}
+) ->
+    ?tp(debug, dsrepl_monitored_process_down, State#{db => DB, shard => Shard, pid => Pid}),
+    Effects =
+        case State of
+            #{otx_leader_pid := Pid} ->
+                start_otx_leader(DB, Shard);
+            _ ->
+                []
+        end,
+    {State, ok, Effects}.
 
 assign_timestamps(DB, Latest, Messages) ->
     ForceMonotonic = force_monotonic_timestamps(DB),
@@ -1459,25 +1485,54 @@ handle_custom_event(DBShard, Latest, Event) ->
 set_ts({DB, Shard}, TS) ->
     emqx_ds_builtin_raft_sup:set_gvar(DB, ?gv_timestamp(Shard), TS).
 
+set_otx_leader({DB, Shard}, Pid) ->
+    ?tp(info, dsrepl_set_otx_leader, #{db => DB, shard => Shard, pid => Pid}),
+    emqx_ds_builtin_raft_sup:set_gvar(DB, ?gv_otx_leader_pid(Shard), Pid).
+
 %%
 
 -spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
-state_enter(MemberState, #{db_shard := {DB, Shard}, latest := Latest}) ->
+state_enter(MemberState, State = #{db_shard := {DB, Shard}}) ->
     ?tp(
-        info,
+        debug,
         ds_ra_state_enter,
-        #{db => DB, shard => Shard, latest => Latest, state => MemberState}
+        State#{state => MemberState}
     ),
     emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
+    set_cache(MemberState, State),
     case MemberState of
         leader ->
-            ok = emqx_ds_builtin_raft_db_sup:start_optimistic_tx_leader(DB, Shard);
+            start_otx_leader(DB, Shard);
         _ ->
-            _ = emqx_ds_builtin_raft_db_sup:stop_optimistic_tx_leader(DB, Shard)
-    end,
-    [].
+            _ = emqx_ds_builtin_raft_db_sup:stop_optimistic_tx_leader(DB, Shard),
+            []
+    end.
 
 %%
+
+start_otx_leader(DB, Shard) ->
+    {ok, Pid} = emqx_ds_builtin_raft_db_sup:start_optimistic_tx_leader(DB, Shard),
+    ?tp(debug, dsraft_started_otx_leader, #{db => DB, shard => Shard, pid => Pid}),
+    [{monitor, process, Pid}].
+
+set_cache(MemberState, State = #{db_shard := DBShard, latest := Latest}) when
+    MemberState =:= leader; MemberState =:= follower
+->
+    set_ts(DBShard, Latest),
+    case State of
+        #{tx_serial := Serial} ->
+            emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial);
+        #{} ->
+            ok
+    end,
+    case State of
+        #{otx_leader_pid := Pid} ->
+            set_otx_leader(DBShard, Pid);
+        #{} ->
+            ok
+    end;
+set_cache(_, _) ->
+    ok.
 
 approx_message_size(#message{from = ClientID, topic = Topic, payload = Payload}) ->
     %% NOTE: Overhead here is basically few empty maps + 8-byte message id.

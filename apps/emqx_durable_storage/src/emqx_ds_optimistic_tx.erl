@@ -28,7 +28,6 @@
     where/2,
 
     new_kv_tx_ctx/5,
-    new_kv_tx_ctx/6,
     commit_kv_tx/3,
     tx_commit_outcome/1
 ]).
@@ -63,11 +62,8 @@
 
 -type batch() :: {emqx_ds:generation(), [_CookedTx]}.
 
-%% Get the last committed transaction ID on the local replica. Also
-%% called by the leader during the startup. In this case it should
-%% correspond to the serial of the last committed transaction in the
-%% shard.
--callback otx_get_tx_serial(emqx_ds:db(), emqx_ds:shard(), leader | reader) ->
+%% Get the last committed transaction ID on the local replica
+-callback otx_get_tx_serial(emqx_ds:db(), emqx_ds:shard()) ->
     {ok, serial()} | undefined.
 
 %% Cook a raw transaction into a data structure that will be stored in
@@ -107,13 +103,20 @@
     conflict_window := pos_integer()
 }.
 
-%% Get the conflict tracking interval from the DB config.
+%% Executed by the leader when it updates its runtime config
 -callback otx_get_runtime_config(emqx_ds:db()) -> runtime_config().
+
+%% Executed in the leader process when it attempts to step up.
+-callback otx_become_leader(emqx_ds:db(), emqx_ds:shard()) ->
+    {ok, serial()} | {error, _}.
+
+%% Executed by the readers
+-callback otx_get_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 
 -type ctx() :: #kv_tx_ctx{}.
 
--define(name(DB, SHARD), {?MODULE, DB, SHARD}).
--define(via(DB, SHARD), {via, global, ?name(DB, SHARD)}).
+-define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
+-define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
 
 %% States
 -define(initial, initial).
@@ -155,27 +158,10 @@
 
 -spec where(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 where(DB, Shard) ->
-    global:whereis_name(?name(DB, Shard)).
-
--spec stop(emqx_ds:db(), emqx_ds:shard()) -> ok.
-stop(DB, Shard) ->
-    case global:whereis_name(?name(DB, Shard)) of
-        Pid when is_pid(Pid) ->
-            MRef = monitor(process, Pid),
-            exit(Pid, shutdown),
-            receive
-                {'DOWN', MRef, process, Pid, _} ->
-                    ok
-            after 5_000 ->
-                error(timeout_waiting_for_down)
-            end;
-        undefined ->
-            ok
-    end.
+    gproc:where(?name(DB, Shard)).
 
 -spec start_link(emqx_ds:db(), emqx_ds:shard(), module()) -> {ok, pid()}.
 start_link(DB, Shard, CBM) ->
-    stop(DB, Shard),
     gen_statem:start_link(?via(DB, Shard), ?MODULE, [DB, Shard, CBM], []).
 
 -spec new_kv_tx_ctx(
@@ -183,36 +169,21 @@ start_link(DB, Shard, CBM) ->
 ) -> {ok, ctx()} | emqx_ds:error(_).
 new_kv_tx_ctx(CBM, DB, Shard, Generation, Opts) ->
     maybe
-        Leader = global:whereis_name(?name(DB, Shard)),
+        Leader = CBM:otx_get_leader(DB, Shard),
         true ?= is_pid(Leader),
-        {ok, Serial} ?= CBM:otx_get_tx_serial(DB, Shard, reader),
-        Ctx = new_kv_tx_ctx(
-            DB,
-            Shard,
-            Generation,
-            Leader,
-            Opts,
-            Serial
-        ),
+        {ok, Serial} ?= CBM:otx_get_tx_serial(DB, Shard),
+        Ctx = #kv_tx_ctx{
+            shard = Shard,
+            leader = Leader,
+            serial = Serial,
+            generation = Generation,
+            opts = Opts
+        },
         {ok, Ctx}
     else
         _ ->
             ?err_rec(leader_down)
     end.
-
-%% @doc Create a transaction context.
--spec new_kv_tx_ctx(
-    emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), pid(), emqx_ds:transaction_opts(), serial()
-) ->
-    ctx().
-new_kv_tx_ctx(_DB, Shard, Generation, Leader, Options, Serial) ->
-    #kv_tx_ctx{
-        shard = Shard,
-        leader = Leader,
-        serial = Serial,
-        generation = Generation,
-        opts = Options
-    }.
 
 commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
     ?tp(emqx_ds_optimistic_tx_commit_begin, #{db => DB, ctx => Ctx, ops => Ops}),
@@ -255,9 +226,12 @@ callback_mode() ->
 
 init([DB, Shard, CBM]) ->
     erlang:process_flag(trap_exit, true),
-    #{flush_interval := FI, idle_flush_interval := IFI, conflict_window := CW} = CBM:otx_get_runtime_config(
-        DB
-    ),
+    logger:update_process_metadata(#{db => DB, shard => Shard}),
+    #{
+        flush_interval := FI,
+        idle_flush_interval := IFI,
+        conflict_window := CW
+    } = CBM:otx_get_runtime_config(DB),
     D = #d{
         db = DB,
         shard = Shard,
@@ -269,9 +243,12 @@ init([DB, Shard, CBM]) ->
     },
     {ok, ?initial, D, {state_timeout, 0, ?timeout_initialize}}.
 
-terminate(_Reason, _State, _D) ->
+terminate(Reason, State, _Data) ->
+    ?tp(debug, ds_otx_terminate, #{state => State, reason => Reason}),
     ok.
 
+handle_event(info, {'EXIT', _, _Reason}, _State, _Data) ->
+    {stop, shutdown};
 handle_event(enter, _OldState, ?leader(?pending), #d{flush_interval = T}) ->
     %% Schedule unconditional flush after the given interval:
     {keep_state_and_data, {state_timeout, T, ?timeout_flush}};
@@ -279,7 +256,8 @@ handle_event(enter, _, _, _) ->
     keep_state_and_data;
 handle_event(state_timeout, ?timeout_initialize, ?initial, D) ->
     async_init(D);
-handle_event(_, _, ?initial, _) ->
+handle_event(ET, Evt, ?initial, _) ->
+    ?tp(warning, unexpected_event_in_initial_state, #{ET => Evt}),
     {keep_state_and_data, postpone};
 handle_event(cast, Tx = #ds_tx{}, ?leader(State), D0) ->
     %% Enqueue transaction commit:
@@ -318,14 +296,17 @@ handle_event(ET, Event, State, _D) ->
 %%================================================================================
 
 async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
-    {ok, Serial} = CBM:otx_get_tx_serial(DB, Shard, leader),
-    %% Issue an empty transaction to verify the serial and trigger
-    %% update of serial on the replicas:
-    ok = CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, []),
-    {next_state, ?leader(?idle), D#d{
-        serial = Serial + 1,
-        committed_serial = Serial
-    }}.
+    case CBM:otx_become_leader(DB, Shard) of
+        {ok, Serial} ->
+            ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard}),
+            {next_state, ?leader(?idle), D#d{
+                serial = Serial,
+                committed_serial = Serial
+            }};
+        Err ->
+            ?tp(error, ds_optimistic_leader_init_fail, #{reason => Err}),
+            {stop, shutdown}
+    end.
 
 handle_tx(
     D = #d{
@@ -439,7 +420,7 @@ flush(
     }
 ) ->
     DBShard = {DB, Shard},
-    ?tp(debug, emqx_ds_optimistic_tx_flush, #{db => DB, shard => Shard}),
+    ?tp(debug, emqx_ds_optimistic_tx_flush, #{}),
     Batch = make_batch(Gens0),
     Result = CBM:otx_commit_tx_batch(DBShard, SerCtl, Serial, Batch),
     Gens = clean_buffers_and_reply(Result, Gens0),

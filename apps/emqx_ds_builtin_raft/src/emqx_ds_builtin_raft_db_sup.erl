@@ -145,10 +145,17 @@ get_shard_workers(DB) ->
     ),
     maps:from_list(L).
 
--spec start_optimistic_tx_leader(emqx_ds:db(), emqx_ds:shard()) -> ok | {error, _}.
+-spec start_optimistic_tx_leader(emqx_ds:db(), emqx_ds:shard()) ->
+    {ok, pid()} | {error, _}.
 start_optimistic_tx_leader(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
-    ensure_started(supervisor:start_child(Sup, shard_optimistic_tx_spec(DB, Shard))).
+    _ = stop_optimistic_tx_leader(DB, Shard),
+    case supervisor:start_child(Sup, shard_optimistic_tx_spec(DB, Shard)) of
+        {ok, Pid} ->
+            {ok, Pid};
+        Err ->
+            Err
+    end.
 
 -spec stop_optimistic_tx_leader(emqx_ds:db(), emqx_ds:shard()) -> ok.
 stop_optimistic_tx_leader(DB, Shard) ->
@@ -156,7 +163,9 @@ stop_optimistic_tx_leader(DB, Shard) ->
     Child = {Shard, optimistic_tx},
     case supervisor:terminate_child(Sup, Child) of
         ok ->
-            supervisor:delete_child(Sup, Child);
+            %% This child is temporary so there's no need to delete
+            %% it.
+            ok;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -350,8 +359,8 @@ shard_optimistic_tx_spec(DB, Shard) ->
     #{
         id => {Shard, optimistic_tx},
         type => supervisor,
-        shutdown => 5_000,
-        restart => transient,
+        shutdown => brutal_kill,
+        restart => temporary,
         start =>
             {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_replication_layer]}
     }.
