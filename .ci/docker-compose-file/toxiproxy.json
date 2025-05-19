@@ -289,6 +289,12 @@
     "enabled": true
   },
   {
+    "name": "doris-fe",
+    "listen": "0.0.0.0:9030",
+    "upstream": "doris-fe:9030",
+    "enabled": true
+  },
+  {
     "name": "clickhouse",
     "listen": "0.0.0.0:8123",
     "upstream": "clickhouse:8123",

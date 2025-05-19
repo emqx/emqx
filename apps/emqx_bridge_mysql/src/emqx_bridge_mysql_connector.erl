@@ -23,12 +23,42 @@
     on_stop/2
 ]).
 
+-export_type([connector_state/0]).
+
+%%========================================================================================
+%% Type definitiions
+%%========================================================================================
+
+-type connector_state() :: #{
+    connector_state := emqx_mysql:state(),
+    channels := #{action_resource_id() => map()}
+}.
+
 %%========================================================================================
 %% `emqx_resource' API
 %%========================================================================================
 resource_type() -> emqx_mysql:resource_type().
 
 callback_mode() -> emqx_mysql:callback_mode().
+
+-spec on_start(binary(), hocon:config()) ->
+    {ok, connector_state()} | {error, _}.
+on_start(InstanceId, Config) ->
+    case emqx_mysql:on_start(InstanceId, Config) of
+        {ok, ConnectorState} ->
+            State = #{
+                connector_state => ConnectorState,
+                channels => #{}
+            },
+            {ok, State};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+on_stop(InstanceId, _State = #{connector_state := ConnectorState}) ->
+    ok = emqx_mysql:on_stop(InstanceId, ConnectorState),
+    ?tp(mysql_connector_stopped, #{instance_id => InstanceId}),
+    ok.
 
 on_add_channel(
     _InstanceId,
@@ -128,25 +158,6 @@ on_remove_channel(
     {ok, NewState};
 on_remove_channel(_InstanceId, State, _ChannelId) ->
     {ok, State}.
-
--spec on_start(binary(), hocon:config()) ->
-    {ok, #{connector_state := emqx_mysql:state(), channels := map()}} | {error, _}.
-on_start(InstanceId, Config) ->
-    case emqx_mysql:on_start(InstanceId, Config) of
-        {ok, ConnectorState} ->
-            State = #{
-                connector_state => ConnectorState,
-                channels => #{}
-            },
-            {ok, State};
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-on_stop(InstanceId, _State = #{connector_state := ConnectorState}) ->
-    ok = emqx_mysql:on_stop(InstanceId, ConnectorState),
-    ?tp(mysql_connector_stopped, #{instance_id => InstanceId}),
-    ok.
 
 %%========================================================================================
 %% Helper fns

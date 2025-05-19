@@ -282,6 +282,9 @@ for dep in ${CT_DEPS}; do
         iceberg)
             FILES+=( '.ci/docker-compose-file/docker-compose-iceberg.yaml' )
             ;;
+        doris)
+            FILES+=( '.ci/docker-compose-file/docker-compose-doris.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
