@@ -25,6 +25,11 @@
     connector_examples/1
 ]).
 
+%% `emqx_connector' API
+-export([
+    pre_config_update/4
+]).
+
 %% API
 -export([
     parse_base_endpoint/1,
@@ -224,6 +229,25 @@ parse_arn(ARN) ->
         _ ->
             error
     end.
+
+%%------------------------------------------------------------------------------
+%% `emqx_connector' API
+%%------------------------------------------------------------------------------
+
+pre_config_update(
+    Path,
+    _Name,
+    #{<<"s3_client">> := #{<<"transport_options">> := TransportOpts} = S3Conf} = Conf,
+    _ConfOld
+) ->
+    case emqx_connector_ssl:convert_certs(filename:join(Path), TransportOpts) of
+        {ok, NTransportOpts} ->
+            {ok, Conf#{<<"s3_client">> := S3Conf#{<<"transport_options">> := NTransportOpts}}};
+        {error, Error} ->
+            {error, Error}
+    end;
+pre_config_update(_Path, _Name, Conf, _ConfOld) ->
+    {ok, Conf}.
 
 %%------------------------------------------------------------------------------
 %% Internal fns

@@ -1621,6 +1621,49 @@ t_commit_failure(Config) ->
     ),
     ok.
 
+%% Checks that we convert TLS certificates in the connector configuration and move then to
+%% EMQX managed file paths.
+t_convert_connector_tls_certs(Config) ->
+    ConnectorName = emqx_bridge_v2_testlib:get_value(connector_name, Config),
+    ReadCert = fun(File) ->
+        Dir = code:lib_dir(emqx),
+        Path = filename:join([Dir, <<"etc">>, <<"certs">>, File]),
+        {ok, Contents} = file:read_file(Path),
+        Contents
+    end,
+    DataDir = emqx:data_dir(),
+    ExpectedPrefix = iolist_to_binary(
+        filename:join([DataDir, "certs", "connectors", ?CONNECTOR_TYPE_BIN, ConnectorName])
+    ),
+    ExpectedPrefixSize = byte_size(ExpectedPrefix),
+    ?assertMatch(
+        {201, #{
+            <<"s3_client">> := #{
+                <<"transport_options">> := #{
+                    <<"ssl">> := #{
+                        <<"certfile">> := <<ExpectedPrefix:ExpectedPrefixSize/binary, _/binary>>,
+                        <<"keyfile">> := <<ExpectedPrefix:ExpectedPrefixSize/binary, _/binary>>
+                    }
+                }
+            }
+        }},
+        create_connector_api(Config, #{
+            <<"s3_client">> => #{
+                <<"transport_options">> => #{
+                    <<"ssl">> => #{
+                        %% N.B.: `emqx_tls_lib` conversion is not triggered if TLS is not
+                        %% enabled...
+                        <<"enable">> => true,
+                        <<"certfile">> => ReadCert(<<"client-cert.pem">>),
+                        <<"keyfile">> => ReadCert(<<"client-key.pem">>)
+                    }
+                }
+            }
+        }),
+        #{expected_prefix => ExpectedPrefix}
+    ),
+    ok.
+
 %% More test ideas:
 %%   * Concurrent schema change during upload.
 %%   * Timeout/connection error when loading schema for the first time or when retrying
