@@ -2588,7 +2588,7 @@ maybe_trigger_fallback_actions(Id, #{
             _ExpireAt,
             #{?fallback_actions := [_ | _] = FallbackActions} = RequestContext,
             TraceCtx
-        )
+        ) = Query
     ]
 }) ->
     QueryOpts0 = maps:with([?reply_to], RequestContext),
@@ -2601,11 +2601,13 @@ maybe_trigger_fallback_actions(Id, #{
         query_mode => async,
         trace_ctx => TraceCtx
     },
-    lists:foreach(
+    emqx_utils:pforeach(
         fun(FallbackAction) ->
+            set_rule_id_trace_meta_data(Query),
             trigger_fallback_action(Id, FallbackAction, Req, QueryOpts)
         end,
-        FallbackActions
+        FallbackActions,
+        infinity
     ),
     ok;
 maybe_trigger_fallback_actions(_Id, _ResultContext) ->
@@ -2642,7 +2644,20 @@ trigger_fallback_action(Id, #{kind := reference, type := Type, name := Name}, Re
     end;
 trigger_fallback_action(Id, #{kind := republish, args := #{?COMPUTED := Args}}, Req, _QueryOpts) ->
     try
-        _ = emqx_rule_actions:republish(Req, Req, Args),
+        ProcessMetadata =
+            maybe
+                undefined ?= logger:get_process_metadata(),
+                #{}
+            end,
+        %% Using separate process to avoid tampering too much with current process
+        %% metadata.
+        emqx_utils:nolink_apply(fun() ->
+            %% This simulates what `emqx_rule_runtime:do_handle_action2` does.
+            RuleActionInfo = #{mod => emqx_rule_actions, func => republish, args => Args},
+            logger:update_process_metadata(ProcessMetadata#{action_id => RuleActionInfo}),
+            _ = emqx_rule_actions:republish(Req, Req, Args),
+            ok
+        end),
         ok
     catch
         K:E ->

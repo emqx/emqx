@@ -744,10 +744,18 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
     Params = emqx_utils_maps:deep_merge(Params0, Overrides),
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = auth_header(),
+    ReqOpts = maps:get(req_opts, Opts, #{}),
     ct:pal("rule action params: ~p", [Params]),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
+    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, ReqOpts) of
         {ok, Res0} ->
-            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
+            Res =
+                #{<<"id">> := RuleId} =
+                case Res0 of
+                    {_, _, Body0} ->
+                        emqx_utils_json:decode(Body0);
+                    _ ->
+                        emqx_utils_json:decode(Res0)
+                end,
             AuthHeaderGetter = get_auth_header_getter(),
             on_exit(fun() ->
                 set_auth_header_getter(AuthHeaderGetter),
@@ -1522,15 +1530,19 @@ This is done by the frontend via:
 """.
 t_rule_test_trace(Config, Opts) ->
     #{
-        type := ActionType,
-        name := ActionName
+        type := ActionType0,
+        name := ActionName0
     } = get_common_values(Config),
+    ActionName = bin(ActionName0),
+    ActionType = bin(ActionType0),
+    ct:print(asciiart:visible($+, "testing primary action success", [])),
     ?tpal("creating connector and actions"),
     {201, #{<<"status">> := <<"connected">>}} =
         simplify_result(create_connector_api(Config)),
     FallbackActionName = <<ActionName/binary, "_fallback">>,
     {201, #{<<"status">> := <<"connected">>}} =
         simplify_result(create_action_api([{action_name, FallbackActionName} | Config])),
+    RepublishTopicFallback = <<"fallback/republish">>,
     {201, #{<<"status">> := <<"connected">>}} =
         simplify_result(
             create_action_api(Config, #{
@@ -1539,13 +1551,49 @@ t_rule_test_trace(Config, Opts) ->
                         <<"kind">> => <<"reference">>,
                         <<"type">> => bin(ActionType),
                         <<"name">> => FallbackActionName
+                    },
+                    #{
+                        <<"kind">> => <<"republish">>,
+                        <<"args">> => #{
+                            <<"topic">> => RepublishTopicFallback,
+                            <<"qos">> => 1,
+                            <<"retain">> => false,
+                            <<"payload">> => <<"${.}">>,
+                            <<"mqtt_properties">> => #{},
+                            <<"user_properties">> => <<"${pub_props.'User-Property'}">>,
+                            <<"direct_dispatch">> => false
+                        }
                     }
                 ]
             })
         ),
     ?tpal("creating rule"),
     RuleTopic = <<"rule/test/trace">>,
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(ActionType, RuleTopic, Config),
+    BridgeId = emqx_bridge_resource:bridge_id(ActionType, ActionName),
+    RepublishTopicPrimary = <<"primary/republish">>,
+    RuleOpts = #{
+        req_opts => #{return_all => true},
+        overrides => #{
+            actions => [
+                BridgeId,
+                #{
+                    <<"function">> => <<"republish">>,
+                    <<"args">> => #{
+                        <<"topic">> => RepublishTopicPrimary,
+                        <<"qos">> => 1,
+                        <<"retain">> => false,
+                        <<"payload">> => <<"${.}">>,
+                        <<"mqtt_properties">> => #{},
+                        <<"user_properties">> => <<"${pub_props.'User-Property'}">>,
+                        <<"direct_dispatch">> => false
+                    }
+                }
+            ]
+        }
+    },
+    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(
+        ActionType, RuleTopic, Config, RuleOpts
+    ),
 
     Context0 = #{},
     PreTestFn = maps:get(pre_test_fn, Opts, fun(Context) -> Context end),
@@ -1577,27 +1625,88 @@ t_rule_test_trace(Config, Opts) ->
     ?tpal("calling post-test fn"),
     Context2 = PostTestFn(Context1#{payload => Payload}),
 
+    %% Actions may be evaluated concurrently; so we sort them to have deterministic test
+    %% results.
+    EventSorter = fun(#{<<"msg">> := TypeA} = EventA, #{<<"msg">> := TypeB} = EventB) ->
+        AIA0 = emqx_utils_maps:deep_get([<<"meta">>, <<"action_info">>], EventA, undefined),
+        AIB0 = emqx_utils_maps:deep_get([<<"meta">>, <<"action_info">>], EventB, undefined),
+        ActionInfo = fun(AI) ->
+            case AI of
+                #{<<"type">> := T, <<"name">> := N} ->
+                    {1, T, N};
+                #{<<"func">> := F, <<"args">> := #{<<"topic">> := T}} ->
+                    {2, F, T};
+                _ ->
+                    {3, AI}
+            end
+        end,
+        AIA = ActionInfo(AIA0),
+        AIB = ActionInfo(AIB0),
+        {TypeA, AIA} =< {TypeB, AIB}
+    end,
+    ToSequence = fun(#{<<"msg">> := Msg} = Event) ->
+        case Event of
+            #{<<"meta">> := #{<<"action_info">> := #{<<"name">> := N, <<"type">> := T}}} ->
+                #{msg => Msg, name => N, type => T};
+            #{<<"meta">> := #{<<"action_info">> := #{<<"args">> := #{<<"topic">> := T}}}} ->
+                #{msg => Msg, topic => T};
+            _ ->
+                #{msg => Msg}
+        end
+    end,
+
     AssertLogFn = maps:get(assert_log_fn, Opts, fun(TraceNameIn) ->
         {ok, LogLines0} = get_test_trace_log(TraceNameIn),
-        LogLines = lists:filter(
+        LogLines1 = lists:filter(
             fun(#{<<"msg">> := Msg}) ->
                 lists:member(Msg, [
                     <<"rule_activated">>,
                     <<"bridge_action">>,
                     <<"action_template_rendered">>,
+                    <<"republish_message">>,
                     <<"action_success">>
                 ])
             end,
             LogLines0
         ),
+        LogLines = lists:sort(EventSorter, LogLines1),
+        Sequence = lists:map(ToSequence, LogLines),
         ?assertMatch(
             [
-                #{<<"msg">> := <<"rule_activated">>},
+                %% One success event for Primary Action, one for republish
+                #{<<"msg">> := <<"action_success">>},
+                #{<<"msg">> := <<"action_success">>},
+                #{
+                    <<"msg">> := <<"action_template_rendered">>,
+                    %% The action itself
+                    <<"meta">> := #{
+                        <<"action_info">> := #{
+                            <<"name">> := ActionName,
+                            <<"type">> := ActionType
+                        }
+                    }
+                },
+                #{
+                    <<"msg">> := <<"action_template_rendered">>,
+                    %% The republish "action"
+                    <<"meta">> := #{<<"action_info">> := #{<<"func">> := <<"republish">>}}
+                },
                 #{<<"msg">> := <<"bridge_action">>},
-                #{<<"msg">> := <<"action_template_rendered">>},
-                #{<<"msg">> := <<"action_success">>}
+                #{
+                    <<"msg">> := <<"republish_message">>,
+                    <<"meta">> := #{
+                        <<"action_info">> := #{
+                            <<"func">> := <<"republish">>,
+                            <<"args">> := #{
+                                <<"topic">> := RepublishTopicPrimary
+                            }
+                        }
+                    }
+                },
+                #{<<"msg">> := <<"rule_activated">>}
             ],
-            LogLines
+            LogLines,
+            #{sequence => Sequence}
         )
     end),
     ?tpal("checking logs"),
@@ -1605,30 +1714,37 @@ t_rule_test_trace(Config, Opts) ->
     ?tpal("logs ok"),
     {204, _} = stop_rule_test_trace(TraceName),
 
-    ?tpal("calling clenaup fn"),
+    ?tpal("calling cleanup fn"),
     CleanupFn = maps:get(cleanup_fn, Opts, fun(Context) -> Context end),
     Context3 = CleanupFn(Context2),
 
     %% Now we test fallback action traces
+    ct:print(asciiart:visible($+, "testing primary action failure with fallbacks", [])),
     ?tpal("starting fallback action test trace"),
     {200, #{<<"name">> := TraceNameErr}} = start_rule_test_trace(RuleId),
     AssertFallbackLogFn = maps:get(assert_fallback_log_fn, Opts, fun(TraceNameIn) ->
         {ok, LogLines0} = get_test_trace_log(TraceNameIn),
-        LogLines = lists:filter(
+        LogLines1 = lists:filter(
             fun(#{<<"msg">> := Msg}) ->
                 lists:member(Msg, [
                     <<"rule_activated">>,
                     <<"bridge_action">>,
                     <<"action_template_rendered">>,
+                    <<"republish_message">>,
                     <<"action_success">>
                 ])
             end,
             LogLines0
         ),
+        LogLines = lists:sort(EventSorter, LogLines1),
+        Sequence = lists:map(ToSequence, LogLines),
         ?assertMatch(
             [
-                #{<<"msg">> := <<"rule_activated">>},
-                #{<<"msg">> := <<"bridge_action">>},
+                %% Only one `action_success`, which comes from rule runtime evaluating the
+                %% republish action contained in the rule.
+                #{<<"msg">> := <<"action_success">>},
+                %% Both the primary and fallback render their payloads, and so does the
+                %% primary (rule) and fallback action republish actions.
                 #{
                     <<"msg">> := <<"action_template_rendered">>,
                     <<"meta">> := #{
@@ -1644,10 +1760,52 @@ t_rule_test_trace(Config, Opts) ->
                             <<"name">> := FallbackActionName
                         }
                     }
-                }
-                %% No `action_success` event; this is logged in rule runtime
+                },
+                #{
+                    <<"msg">> := <<"action_template_rendered">>,
+                    <<"meta">> := #{
+                        <<"action_info">> := #{
+                            <<"func">> := <<"republish">>,
+                            <<"args">> := #{<<"topic">> := RepublishTopicFallback}
+                        }
+                    }
+                },
+                #{
+                    <<"msg">> := <<"action_template_rendered">>,
+                    <<"meta">> := #{
+                        <<"action_info">> := #{
+                            <<"func">> := <<"republish">>,
+                            <<"args">> := #{<<"topic">> := RepublishTopicPrimary}
+                        }
+                    }
+                },
+                #{<<"msg">> := <<"bridge_action">>},
+                #{
+                    <<"msg">> := <<"republish_message">>,
+                    <<"meta">> := #{
+                        <<"action_info">> := #{
+                            <<"func">> := <<"republish">>,
+                            <<"args">> := #{
+                                <<"topic">> := RepublishTopicFallback
+                            }
+                        }
+                    }
+                },
+                #{
+                    <<"msg">> := <<"republish_message">>,
+                    <<"meta">> := #{
+                        <<"action_info">> := #{
+                            <<"func">> := <<"republish">>,
+                            <<"args">> := #{
+                                <<"topic">> := RepublishTopicPrimary
+                            }
+                        }
+                    }
+                },
+                #{<<"msg">> := <<"rule_activated">>}
             ],
-            LogLines
+            LogLines,
+            #{sequence => Sequence}
         )
     end),
     {ok, {_ConnResId, PrimaryActionResId}} =
