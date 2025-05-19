@@ -9,6 +9,7 @@
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_ds_builtin_tx.hrl").
 
 %% Management API:
 -export([
@@ -365,7 +366,10 @@
 -type sub_seqno() :: non_neg_integer().
 
 %% Low-level transaction types:
--type kv_tx_context() :: term().
+
+%% TODO: currently all backends use the same definition of context.
+%% This may change in the future.
+-opaque kv_tx_context() :: emqx_ds_optimistic_tx:ctx().
 -type tx_context() :: term().
 
 -type tx_ops() :: #{
@@ -747,7 +751,7 @@ count(DB) ->
 %% @hidden Low-level transaction API. Obtain context for an optimistic
 %% transaction that allows to execute a set of operations atomically.
 -spec new_kv_tx(db(), transaction_opts()) -> {ok, kv_tx_context()} | error(_).
-new_kv_tx(DB, Opts = #{shard := _, timeout := _}) ->
+new_kv_tx(DB, Opts) ->
     ?module(DB):new_kv_tx(DB, Opts).
 
 %% @hidden Low-level transaction API. Try to commit a set of
@@ -778,6 +782,7 @@ tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
 %%================================================================================
 
 %% Transaction process dictionary keys:
+-define(tx_ctx_db, emqx_ds_tx_db).
 -define(tx_ctx, emqx_ds_tx_ctx).
 -define(tx_ops_write, emqx_ds_tx_ctx_write).
 -define(tx_ops_read, emqx_ds_tx_ctx_read).
@@ -988,11 +993,20 @@ dirty_read(#{db := _} = Opts, TopicFilter) ->
 %% matching the topic-filter as a list.
 %%
 %% This operation is considered a side effect.
--spec tx_read(db() | fold_options(), topic_filter()) ->
+%%
+%% NOTE: Transactional reads are always limited to the shard and
+%% generation of the surrounding transaction.
+-spec tx_read(fold_options(), topic_filter()) ->
     fold_result([ttv() | emqx_types:message()]).
-tx_read(Opts, TopicFilter) ->
-    tx_push_op(?tx_ops_read, TopicFilter),
-    dirty_read(Opts, TopicFilter).
+tx_read(UserOpts, TopicFilter) ->
+    case tx_ctx() of
+        #kv_tx_ctx{shard = Shard, generation = Generation} ->
+            Opts = UserOpts#{db => tx_ctx_db(), shard => Shard, generation => Generation},
+            tx_push_op(?tx_ops_read, TopicFilter),
+            dirty_read(Opts, TopicFilter);
+        undefined ->
+            error(not_a_transaction)
+    end.
 
 %% @doc A helper function for iterating over values in the storage
 %% matching the topic filter. It is a wrapper over `get_streams',
@@ -1195,6 +1209,7 @@ trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval}, Retries) -
 ) ->
     transaction_result(Ret).
 trans_inner(DB, Fun, Opts) ->
+    _ = put(?tx_ctx_db, DB),
     _ = put(?tx_ops_write, []),
     _ = put(?tx_ops_read, []),
     _ = put(?tx_ops_del_topic, []),
@@ -1233,6 +1248,7 @@ trans_inner(DB, Fun, Opts) ->
         ?tx_reset ->
             ?err_rec(?tx_reset)
     after
+        _ = erase(?tx_ctx_db),
         _ = erase(?tx_ctx),
         _ = erase(?tx_ops_write),
         _ = erase(?tx_ops_read),
@@ -1256,6 +1272,9 @@ trans_maybe_wait_outcome(_DB, Ref, Ret, #{sync := false}) ->
 
 tx_ctx() ->
     get(?tx_ctx).
+
+tx_ctx_db() ->
+    get(?tx_ctx_db).
 
 tx_push_op(K, A) ->
     put(K, [A | get(K)]),
