@@ -346,6 +346,32 @@ t_queue_group(Config) ->
     emqx_nats_client:stop(Client1),
     emqx_nats_client:stop(Client2).
 
+t_queue_group_with_empty_string(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+
+    ok = emqx_nats_client:connect(Client),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+
+    %% Subscribe to the empty string queue group treated as no queue group
+    ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>, <<>>),
+    {ok, [SubAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        SubAck
+    ),
+
+    [ClientInfo0] = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
+    ClientId = maps:get(clientid, ClientInfo0),
+
+    Subscriptions = emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId),
+    ?assert(lists:any(fun(S) -> maps:get(topic, S) =:= <<"foo">> end, Subscriptions)),
+
+    emqx_nats_client:stop(Client).
+
 t_reply_to(Config) ->
     ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
     {ok, Publisher} = emqx_nats_client:start_link(ClientOpts),
@@ -709,7 +735,8 @@ t_gateway_client_subscription_management(Config) ->
     ),
     Topic = <<"test/subject">>,
     Subject = <<"test.subject">>,
-
+    QueueSubject = <<"test.subject.queue">>,
+    Queue = <<"queue-1">>,
     %% Start a client
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     {ok, [_]} = emqx_nats_client:receive_message(Client),
@@ -729,9 +756,20 @@ t_gateway_client_subscription_management(Config) ->
         },
         SubAck
     ),
+
+    %% Create queue subscription by client
+    ok = emqx_nats_client:subscribe(Client, QueueSubject, <<"sid-2">>, Queue),
+    {ok, [SubAck2]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        SubAck2
+    ),
+
     %% Verify subscription list
     Subscriptions = emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId),
-    ?assert(lists:any(fun(S) -> maps:get(topic, S) =:= Topic end, Subscriptions)),
+    ?assertEqual(2, length(Subscriptions)),
 
     %% XXX: Not implemented yet
     ?assertMatch(
@@ -754,6 +792,16 @@ t_gateway_client_subscription_management(Config) ->
         },
         UnsubAck
     ),
+    %% Delete queue subscription by client
+    ok = emqx_nats_client:unsubscribe(Client, <<"sid-2">>),
+    {ok, [UnsubAck2]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        UnsubAck2
+    ),
+
     ?assertEqual(
         [], emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId)
     ),

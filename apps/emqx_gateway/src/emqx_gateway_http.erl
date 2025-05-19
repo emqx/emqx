@@ -330,7 +330,8 @@ list_client_subscriptions(GwName, ClientId) ->
             {ok,
                 lists:map(
                     fun({Topic, SubOpts}) ->
-                        SubOpts#{topic => Topic}
+                        Topic1 = emqx_topic:maybe_format_share(Topic),
+                        SubOpts#{topic => Topic1}
                     end,
                     Subs
                 )}

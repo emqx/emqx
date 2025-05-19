@@ -391,7 +391,13 @@ do_parse_args(sub, [Subject, Sid], Rest, State) ->
     Frame = #nats_frame{operation = ?OP_SUB, message = Msg},
     {ok, Frame, Rest, reset(State)};
 do_parse_args(sub, [Subject, QGroup, Sid], Rest, State) ->
-    Msg = #{subject => Subject, sid => Sid, queue_group => QGroup},
+    Msg =
+        case QGroup of
+            <<>> ->
+                #{subject => Subject, sid => Sid};
+            QGroup ->
+                #{subject => Subject, sid => Sid, queue_group => QGroup}
+        end,
     Frame = #nats_frame{operation = ?OP_SUB, message = Msg},
     {ok, Frame, Rest, reset(State)};
 do_parse_args(unsub, [Sid], Rest, State) ->
