@@ -121,4 +121,34 @@ layout_builtin_reference.desc:
 layout_builtin_reference_type.label: "Layout type"
 layout_builtin_reference_type.desc: "Reference layout type."
 
+optimistic_transaction.label: "Transaction"
+optimistic_transaction.desc:
+  """~
+  Transaction settings for built-in durable storage backends.~"""
+
+builtin_optimistic_transaction.label: "Transaction settings"
+builtin_optimistic_transaction.desc: "Transaction settings."
+
+otx_flush_interval.label: "Transaction flush interval"
+otx_flush_interval.desc:
+  """~
+  Specifies the maximum time operations may linger in the buffer before they are committed to the storage.~"""
+
+otx_idle_flush_interval.label: "Idle transaction flush interval"
+otx_idle_flush_interval.desc:
+  """~
+  If shard doesn't receive new transactions within this period, the buffer is flushed early.~"""
+
+otx_conflict_window.label: "Conflict tracking window"
+otx_conflict_window.desc:
+  """~
+  Builtin durable storage backends track recent updates over a period of time known as the conflict tracking window.
+
+  Transactions that started earlier than the beginning of the window are automatically rejected.
+  So, effectively, this parameter limits the time the transactions can run.
+
+  Higher values reduce the risk of rejecting transactions due to long run time, but may increase RAM demands.
+
+  This value should be greater than the flush interval.~"""
+
 }
