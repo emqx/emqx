@@ -227,6 +227,7 @@ callback_mode() ->
 init([DB, Shard, CBM]) ->
     erlang:process_flag(trap_exit, true),
     logger:update_process_metadata(#{db => DB, shard => Shard}),
+    ?tp(info, ds_otx_start, #{db => DB, shard => Shard}),
     #{
         flush_interval := FI,
         idle_flush_interval := IFI,
@@ -244,8 +245,16 @@ init([DB, Shard, CBM]) ->
     {ok, ?initial, D, {state_timeout, 0, ?timeout_initialize}}.
 
 terminate(Reason, State, _Data) ->
-    ?tp(debug, ds_otx_terminate, #{state => State, reason => Reason}),
-    ok.
+    Level =
+        case Reason =:= normal orelse Reason =:= shutdown of
+            true ->
+                info;
+            false ->
+                %% Sleep some to prevent a hot restart loop
+                timer:sleep(1_000),
+                error
+        end,
+    ?tp(Level, ds_otx_terminate, #{state => State, reason => Reason}).
 
 handle_event(info, {'EXIT', _, _Reason}, _State, _Data) ->
     {stop, shutdown};
@@ -296,16 +305,18 @@ handle_event(ET, Event, State, _D) ->
 %%================================================================================
 
 async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
-    case CBM:otx_become_leader(DB, Shard) of
-        {ok, Serial} ->
-            ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard}),
-            {next_state, ?leader(?idle), D#d{
-                serial = Serial,
-                committed_serial = Serial
-            }};
+    maybe
+        {ok, Serial} ?= CBM:otx_become_leader(DB, Shard),
+        %% Issue a dummy transaction to trigger metadata update:
+        ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, []),
+        ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard}),
+        {next_state, ?leader(?idle), D#d{
+            serial = Serial,
+            committed_serial = Serial
+        }}
+    else
         Err ->
-            ?tp(error, ds_optimistic_leader_init_fail, #{reason => Err}),
-            {stop, shutdown}
+            {stop, {init_failed, Err}}
     end.
 
 handle_tx(

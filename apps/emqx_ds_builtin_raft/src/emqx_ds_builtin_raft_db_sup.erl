@@ -20,8 +20,8 @@
     ensure_shard/1,
     ensure_egress/1,
 
-    start_optimistic_tx_leader/2,
-    stop_optimistic_tx_leader/2
+    start_shard_leader_sup/2,
+    stop_shard_leader_sup/2
 ]).
 -export([which_dbs/0, which_shards/1]).
 
@@ -49,12 +49,14 @@
 -define(egress_sup, emqx_ds_builtin_raft_db_egress_sup).
 -define(shard_sup, emqx_ds_builtin_raft_db_shard_sup).
 -define(shard_sentinel, emqx_ds_builtin_raft_db_shard_sentinel).
+-define(shard_leader_sup, emqx_ds_builtin_raft_db_shard_leader_sup).
 
 -record(?db_sup, {db}).
 -record(?shards_sup, {db}).
 -record(?egress_sup, {db}).
 -record(?shard_sup, {db, shard}).
 -record(?shard_sentinel, {shardid}).
+-record(?shard_leader_sup, {db, shard}).
 
 %%================================================================================
 %% API functions
@@ -145,27 +147,29 @@ get_shard_workers(DB) ->
     ),
     maps:from_list(L).
 
--spec start_optimistic_tx_leader(emqx_ds:db(), emqx_ds:shard()) ->
+%% @doc Start a supervisor for processes that should only run on the
+%% shard leader.
+-spec start_shard_leader_sup(emqx_ds:db(), emqx_ds:shard()) ->
     {ok, pid()} | {error, _}.
-start_optimistic_tx_leader(DB, Shard) ->
+start_shard_leader_sup(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
-    _ = stop_optimistic_tx_leader(DB, Shard),
-    case supervisor:start_child(Sup, shard_optimistic_tx_spec(DB, Shard)) of
+    _ = stop_shard_leader_sup(DB, Shard),
+    case supervisor:start_child(Sup, shard_leader_spec(DB, Shard)) of
         {ok, Pid} ->
             {ok, Pid};
         Err ->
             Err
     end.
 
--spec stop_optimistic_tx_leader(emqx_ds:db(), emqx_ds:shard()) -> ok.
-stop_optimistic_tx_leader(DB, Shard) ->
+%% @doc Shut down the leader-specific processes when the node loses
+%% leader status
+-spec stop_shard_leader_sup(emqx_ds:db(), emqx_ds:shard()) -> ok.
+stop_shard_leader_sup(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
-    Child = {Shard, optimistic_tx},
+    Child = ?shard_leader_sup,
     case supervisor:terminate_child(Sup, Child) of
         ok ->
-            %% This child is temporary so there's no need to delete
-            %% it.
-            ok;
+            supervisor:delete_child(Sup, Child);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -224,6 +228,18 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
          shard_replication_spec(DB, Shard, Opts)] ++
          shard_beamformers_spec(DB, Shard, Opts) ++
         [shard_sentinel_spec(DB, Shard)],
+    {ok, {SupFlags, Children}};
+init({#?shard_leader_sup{db = DB, shard = Shard}, _}) ->
+    %% Spec for a temporary supervisor that runs on the node only when
+    %% it happens to be the raft leader for the shard.
+    SupFlags = #{
+                 strategy => one_for_all,
+                 intensity => 10,
+                 period => 100
+                },
+    Children = [
+                shard_optimistic_tx_spec(DB, Shard)
+               ],
     {ok, {SupFlags, Children}}.
 
 start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
@@ -298,6 +314,20 @@ shard_spec(DB, Shard) ->
         type => supervisor
     }.
 
+shard_leader_spec(DB, Shard) ->
+    %% Note: ra machines have some rudimentary facilities for process
+    %% supervision, however they aren't very reliable and/or easy to
+    %% use. Since some features will break if the leader-specific
+    %% processes die while the node assumes leadership, we address
+    %% this problem using a traditional supervisor.
+    #{
+        id => ?shard_leader_sup,
+        start => {?MODULE, start_link_sup, [#?shard_leader_sup{db = DB, shard = Shard}, []]},
+        shutdown => infinity,
+        restart => transient,
+        type => supervisor
+    }.
+
 shard_storage_spec(DB, Shard, Opts) ->
     #{
         id => {Shard, storage},
@@ -357,10 +387,10 @@ shard_beamformers_spec(DB, Shard, #{store_ttv := false}) ->
 
 shard_optimistic_tx_spec(DB, Shard) ->
     #{
-        id => {Shard, optimistic_tx},
+        id => optimistic_tx,
         type => supervisor,
-        shutdown => brutal_kill,
-        restart => temporary,
+        shutdown => 1_000,
+        restart => permanent,
         start =>
             {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_replication_layer]}
     }.

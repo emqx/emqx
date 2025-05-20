@@ -234,7 +234,10 @@
     latest := timestamp_us(),
 
     %% Transaction serial.
-    tx_serial => emqx_ds_optimistic_tx:serial()
+    tx_serial => emqx_ds_optimistic_tx:serial(),
+
+    %% Pid of the OTX leader process:
+    otx_leader_pid => pid() | undefined
 }.
 
 %% Command. Each command is an entry in the replication log.
@@ -1087,7 +1090,12 @@ ra_drop_shard(DB, Shard) ->
 
 -spec init(_Args :: map()) -> ra_state().
 init(#{db := DB, shard := Shard}) ->
-    #{db_shard => {DB, Shard}, latest => 0, tx_serial => 0}.
+    #{
+        db_shard => {DB, Shard},
+        latest => 0,
+        tx_serial => 0,
+        otx_leader_pid => undefined
+    }.
 
 -spec apply(ra_machine:command_meta_data(), ra_command(), ra_state()) ->
     {ra_state(), _Reply, _Effects}.
@@ -1257,21 +1265,15 @@ apply(
     State = #{db_shard := DBShard, tx_serial := Serial}
 ) ->
     set_otx_leader(DBShard, Pid),
-    {State#{otx_leader_pid => Pid}, Serial};
-apply(
-    _RaftMeta,
-    {down, Pid, _Term},
-    State = #{db_shard := {DB, Shard}}
-) ->
-    ?tp(debug, dsrepl_monitored_process_down, State#{db => DB, shard => Shard, pid => Pid}),
-    Effects =
-        case State of
-            #{otx_leader_pid := Pid} ->
-                start_otx_leader(DB, Shard);
-            _ ->
-                []
-        end,
-    {State, ok, Effects}.
+    {State#{otx_leader_pid => Pid}, Serial}.
+
+start_otx_leader(DB, Shard) ->
+    ?tp_span(
+        warning,
+        dsrepl_start_otx_leader,
+        #{db => DB, shard => Shard},
+        emqx_ds_builtin_raft_db_sup:start_shard_leader_sup(DB, Shard)
+    ).
 
 assign_timestamps(DB, Latest, Messages) ->
     ForceMonotonic = force_monotonic_timestamps(DB),
@@ -1494,26 +1496,22 @@ set_otx_leader({DB, Shard}, Pid) ->
 -spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
 state_enter(MemberState, State = #{db_shard := {DB, Shard}}) ->
     ?tp(
-        debug,
+        warning,
         ds_ra_state_enter,
         State#{state => MemberState}
     ),
     emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
     set_cache(MemberState, State),
-    case MemberState of
-        leader ->
-            start_otx_leader(DB, Shard);
-        _ ->
-            _ = emqx_ds_builtin_raft_db_sup:stop_optimistic_tx_leader(DB, Shard),
-            []
-    end.
+    _ =
+        case MemberState of
+            leader ->
+                start_otx_leader(DB, Shard);
+            _ ->
+                emqx_ds_builtin_raft_db_sup:stop_shard_leader_sup(DB, Shard)
+        end,
+    [].
 
 %%
-
-start_otx_leader(DB, Shard) ->
-    {ok, Pid} = emqx_ds_builtin_raft_db_sup:start_optimistic_tx_leader(DB, Shard),
-    ?tp(debug, dsraft_started_otx_leader, #{db => DB, shard => Shard, pid => Pid}),
-    [{monitor, process, Pid}].
 
 set_cache(MemberState, State = #{db_shard := DBShard, latest := Latest}) when
     MemberState =:= leader; MemberState =:= follower
