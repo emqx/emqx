@@ -22,7 +22,9 @@
 %% `minirest' handlers
 -export([
     '/mt/ns_list'/2,
+    '/mt/ns_list_details'/2,
     '/mt/managed_ns_list'/2,
+    '/mt/managed_ns_list_details'/2,
     '/mt/bulk_import_configs'/2,
     '/mt/bulk_delete_ns'/2,
     '/mt/ns/:ns'/2,
@@ -53,7 +55,9 @@ api_spec() ->
 paths() ->
     [
         "/mt/ns_list",
+        "/mt/ns_list_details",
         "/mt/managed_ns_list",
+        "/mt/managed_ns_list_details",
         "/mt/ns/:ns/client_list",
         "/mt/ns/:ns/client_count",
         "/mt/ns/:ns",
@@ -80,6 +84,27 @@ schema("/mt/ns_list") ->
                         emqx_dashboard_swagger:schema_with_examples(
                             array(binary()),
                             example_ns_list()
+                        )
+                }
+        }
+    };
+schema("/mt/ns_list_details") ->
+    #{
+        'operationId' => '/mt/ns_list_details',
+        get => #{
+            tags => ?TAGS,
+            summary => <<"List Namespaces with extra details">>,
+            description => ?DESC("ns_list_details"),
+            parameters => [
+                last_ns_in_query(),
+                limit_in_query()
+            ],
+            responses =>
+                #{
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            array(ref(ns_with_details_out)),
+                            example_ns_list_details()
                         )
                 }
         }
@@ -139,6 +164,27 @@ schema("/mt/managed_ns_list") ->
                         emqx_dashboard_swagger:schema_with_examples(
                             array(binary()),
                             example_ns_list()
+                        )
+                }
+        }
+    };
+schema("/mt/managed_ns_list_details") ->
+    #{
+        'operationId' => '/mt/managed_ns_list_details',
+        get => #{
+            tags => ?TAGS,
+            summary => <<"List managed namespaces with extra details">>,
+            description => ?DESC("managed_ns_list_details"),
+            parameters => [
+                last_ns_in_query(),
+                limit_in_query()
+            ],
+            responses =>
+                #{
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            array(ref(ns_with_details_out)),
+                            example_ns_list_details()
                         )
                 }
         }
@@ -350,6 +396,11 @@ fields(limiter_options) ->
     [
         {rate, mk(emqx_limiter_schema:rate_type(), #{})},
         {burst, mk(emqx_limiter_schema:burst_type(), #{})}
+    ];
+fields(ns_with_details_out) ->
+    [
+        {name, mk(binary(), #{})},
+        {creation_date, mk(integer(), #{})}
     ].
 
 error_schema(Code, Message) ->
@@ -365,6 +416,13 @@ error_schema(Code, Message) ->
     LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
     ?OK(emqx_mt:list_ns(LastNs, Limit)).
+
+'/mt/ns_list_details'(get, Params) ->
+    QS = maps:get(query_string, Params, #{}),
+    LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
+    Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
+    Details = emqx_mt:list_ns_details(LastNs, Limit),
+    ?OK(lists:map(fun ns_details_out/1, Details)).
 
 '/mt/ns/:ns/client_list'(get, #{bindings := #{ns := Ns}} = Params) ->
     QS = maps:get(query_string, Params, #{}),
@@ -386,6 +444,13 @@ error_schema(Code, Message) ->
     LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
     Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
     ?OK(emqx_mt:list_managed_ns(LastNs, Limit)).
+
+'/mt/managed_ns_list_details'(get, Params) ->
+    QS = maps:get(query_string, Params, #{}),
+    LastNs = maps:get(<<"last_ns">>, QS, ?MIN_NS),
+    Limit = maps:get(<<"limit">>, QS, ?DEFAULT_PAGE_SIZE),
+    Details = emqx_mt:list_managed_ns_details(LastNs, Limit),
+    ?OK(lists:map(fun ns_details_out/1, Details)).
 
 '/mt/ns/:ns'(post, #{bindings := #{ns := Ns}}) ->
     handle_create_managed_ns(Ns);
@@ -541,6 +606,24 @@ example_ns_list() ->
             }
     }.
 
+example_ns_list_details() ->
+    #{
+        <<"list">> =>
+            #{
+                summary => <<"List">>,
+                value => [
+                    #{
+                        <<"name">> => <<"ns1">>,
+                        <<"created_at">> => 1747917753
+                    },
+                    #{
+                        <<"name">> => <<"ns2">>,
+                        <<"created_at">> => 1747917754
+                    }
+                ]
+            }
+    }.
+
 example_client_list() ->
     #{
         <<"list">> =>
@@ -645,6 +728,24 @@ limiter_config_out(Unit0, LimiterConfig) ->
         end,
         LimiterConfig
     ).
+
+ns_details_out(Details0) ->
+    Details = undefined_to_null(Details0),
+    emqx_utils_maps:binary_key_map(Details).
+
+undefined_to_null(M) when is_map(M) ->
+    maps:map(
+        fun(_K, V) ->
+            undefined_to_null(V)
+        end,
+        M
+    );
+undefined_to_null(Xs) when is_list(Xs) ->
+    lists:map(fun undefined_to_null/1, Xs);
+undefined_to_null(undefined) ->
+    null;
+undefined_to_null(X) ->
+    X.
 
 with_known_managed_ns(Ns, Fn) ->
     case emqx_mt_config:is_known_managed_ns(Ns) of
