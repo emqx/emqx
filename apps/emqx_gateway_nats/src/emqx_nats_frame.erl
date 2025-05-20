@@ -173,6 +173,7 @@ serialize_message(?OP_PUB, Message) ->
     Subject = maps:get(subject, Message),
     Payload = maps:get(payload, Message),
     PayloadSize = integer_to_list(byte_size(Payload)),
+    ok = validate_non_wildcard_subject(Subject),
     case maps:get(reply_to, Message, undefined) of
         undefined ->
             [Subject, " ", PayloadSize, "\r\n", Payload];
@@ -187,6 +188,7 @@ serialize_message(?OP_HPUB, Message) ->
     HeadersSize = integer_to_list(byte_size(HeadersBin)),
     Payload = maps:get(payload, Message),
     TotalSize = integer_to_list(byte_size(Payload) + byte_size(HeadersBin)),
+    ok = validate_non_wildcard_subject(Subject),
     case maps:get(reply_to, Message, undefined) of
         undefined ->
             [Subject, " ", HeadersSize, " ", TotalSize, "\r\n", HeadersBin, Payload];
@@ -196,6 +198,7 @@ serialize_message(?OP_HPUB, Message) ->
 serialize_message(?OP_SUB, Message) ->
     Subject = maps:get(subject, Message),
     Sid = maps:get(sid, Message),
+    ok = validate_subject(Subject),
     case maps:get(queue_group, Message, undefined) of
         undefined ->
             [Subject, " ", Sid];
@@ -215,6 +218,7 @@ serialize_message(?OP_MSG, Message) ->
     Sid = maps:get(sid, Message),
     Payload = maps:get(payload, Message),
     PayloadSize = integer_to_list(byte_size(Payload)),
+    ok = validate_non_wildcard_subject(Subject),
     case maps:get(reply_to, Message, undefined) of
         undefined ->
             [Subject, " ", Sid, " ", PayloadSize, "\r\n", Payload];
@@ -362,12 +366,15 @@ pre_do_parse_args(Op, Line, Rest, State) ->
     do_parse_args(Op, Args, Rest, State).
 
 do_parse_args(pub, [Subject, PayloadSize], Rest, State) ->
+    ok = validate_non_wildcard_subject(Subject),
     M0 = #{subject => Subject, payload_size => binary_to_integer(PayloadSize)},
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(pub, [Subject, ReplyTo, PayloadSize], Rest, State) ->
+    ok = validate_non_wildcard_subject(Subject),
     M0 = #{subject => Subject, reply_to => ReplyTo, payload_size => binary_to_integer(PayloadSize)},
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(hpub, [Subject, HeadersSize0, TotalSize0], Rest, State) ->
+    ok = validate_non_wildcard_subject(Subject),
     HeadersSize = binary_to_integer(HeadersSize0),
     TotalSize = binary_to_integer(TotalSize0),
     M0 = #{
@@ -377,6 +384,7 @@ do_parse_args(hpub, [Subject, HeadersSize0, TotalSize0], Rest, State) ->
     },
     parse_headers(Rest, to_header_state(State, M0));
 do_parse_args(hpub, [Subject, ReplyTo, HeadersSize0, TotalSize0], Rest, State) ->
+    ok = validate_non_wildcard_subject(Subject),
     HeadersSize = binary_to_integer(HeadersSize0),
     TotalSize = binary_to_integer(TotalSize0),
     M0 = #{
@@ -387,10 +395,12 @@ do_parse_args(hpub, [Subject, ReplyTo, HeadersSize0, TotalSize0], Rest, State) -
     },
     parse_headers(Rest, to_header_state(State, M0));
 do_parse_args(sub, [Subject, Sid], Rest, State) ->
+    ok = validate_subject(Subject),
     Msg = #{subject => Subject, sid => Sid},
     Frame = #nats_frame{operation = ?OP_SUB, message = Msg},
     {ok, Frame, Rest, reset(State)};
 do_parse_args(sub, [Subject, QGroup, Sid], Rest, State) ->
+    ok = validate_subject(Subject),
     Msg =
         case QGroup of
             <<>> ->
@@ -505,4 +515,22 @@ split_to_first_linefeed(Bin) when is_binary(Bin) ->
             {binary:part(Bin, 0, Pos), binary:part(Bin, Pos + 2, byte_size(Bin) - Pos - 2)};
         nomatch ->
             false
+    end.
+
+validate_non_wildcard_subject(Subject) ->
+    case emqx_nats_topic:validate_nats_subject(Subject) of
+        {ok, false} ->
+            ok;
+        {ok, true} ->
+            error({invalid_subject, wildcard_subject_not_allowed_in_pub_message});
+        {error, Reason} ->
+            error({invalid_subject, Reason})
+    end.
+
+validate_subject(Subject) ->
+    case emqx_nats_topic:validate_nats_subject(Subject) of
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            error({invalid_subject, Reason})
     end.

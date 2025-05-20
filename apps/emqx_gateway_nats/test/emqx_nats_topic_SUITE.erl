@@ -77,17 +77,34 @@ t_mqtt_to_nats(_) ->
     ?assertEqual(<<>>, emqx_nats_topic:mqtt_to_nats(<<"">>)).
 
 t_validate_nats_subject(_) ->
-    %% Valid subjects
-    ?assertEqual(ok, emqx_nats_topic:validate_nats_subject(<<"foo">>)),
-    ?assertEqual(ok, emqx_nats_topic:validate_nats_subject(<<"foo.bar">>)),
-    ?assertEqual(ok, emqx_nats_topic:validate_nats_subject(<<"foo.*.bar">>)),
-    ?assertEqual(ok, emqx_nats_topic:validate_nats_subject(<<"foo.>">>)),
-    ?assertEqual(ok, emqx_nats_topic:validate_nats_subject(<<"foo-bar">>)),
-    ?assertEqual(ok, emqx_nats_topic:validate_nats_subject(<<"foo_bar">>)),
+    %% Valid subjects without wildcards
+    ?assertEqual({ok, false}, emqx_nats_topic:validate_nats_subject(<<"foo">>)),
+    ?assertEqual({ok, false}, emqx_nats_topic:validate_nats_subject(<<"foo.bar">>)),
+    ?assertEqual({ok, false}, emqx_nats_topic:validate_nats_subject(<<"foo.bar.baz">>)),
+    ?assertEqual({ok, false}, emqx_nats_topic:validate_nats_subject(<<"foo-bar">>)),
+    ?assertEqual({ok, false}, emqx_nats_topic:validate_nats_subject(<<"foo_bar">>)),
+    ?assertEqual({ok, false}, emqx_nats_topic:validate_nats_subject(<<"foo@bar">>)),
+    ?assertEqual({ok, false}, emqx_nats_topic:validate_nats_subject(<<"中文"/utf8>>)),
+
+    %% Valid subjects with wildcards
+    ?assertEqual({ok, true}, emqx_nats_topic:validate_nats_subject(<<"foo.*">>)),
+    ?assertEqual({ok, true}, emqx_nats_topic:validate_nats_subject(<<"*.bar">>)),
+    ?assertEqual({ok, true}, emqx_nats_topic:validate_nats_subject(<<"foo.*.baz">>)),
+    ?assertEqual({ok, true}, emqx_nats_topic:validate_nats_subject(<<"foo.>">>)),
+    ?assertEqual({ok, true}, emqx_nats_topic:validate_nats_subject(<<"*.>">>)),
+    ?assertEqual({ok, true}, emqx_nats_topic:validate_nats_subject(<<"中文.*.>"/utf8>>)),
 
     %% Invalid subjects
     ?assertEqual({error, empty_subject}, emqx_nats_topic:validate_nats_subject(<<"">>)),
     ?assertEqual({error, starts_with_dot}, emqx_nats_topic:validate_nats_subject(<<".foo">>)),
     ?assertEqual({error, ends_with_dot}, emqx_nats_topic:validate_nats_subject(<<"foo.">>)),
     ?assertEqual({error, consecutive_dots}, emqx_nats_topic:validate_nats_subject(<<"foo..bar">>)),
-    ?assertEqual({error, invalid_characters}, emqx_nats_topic:validate_nats_subject(<<"foo$bar">>)).
+    ?assertEqual(
+        {error, special_chars_in_middle}, emqx_nats_topic:validate_nats_subject(<<"foo bar">>)
+    ),
+    ?assertEqual(
+        {error, special_chars_in_middle}, emqx_nats_topic:validate_nats_subject(<<"foo.>.bar">>)
+    ),
+    ?assertEqual(
+        {error, special_chars_in_middle}, emqx_nats_topic:validate_nats_subject(<<"foo.>bar">>)
+    ).

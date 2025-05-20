@@ -65,50 +65,54 @@ convert_mqtt_wildcard(<<"+">>) -> <<"*">>;
 convert_mqtt_wildcard(Part) -> Part.
 
 %% @doc Validate NATS subject
-%% NATS subject rules:
-%% 1. Cannot be empty
-%% 2. Cannot start or end with '.'
-%% 3. Cannot contain consecutive '.'
-%% 4. Cannot contain wildcards in the middle
-%% 5. Can only contain: a-z, A-Z, 0-9, '_', '-', '.', '*', '>'
--spec validate_nats_subject(binary()) -> ok | {error, term()}.
+%% Subject names are case-sensitive. They must be non-empty UTF-8
+%% strings and cannot contain null characters, whitespace, or the
+%% special characters . (period), * (asterisk), and > (greater than sign).
+%% By convention, subject names starting with $ (e.g., $SYS., $JS.API., $KV.)
+%% are reserved for NATS system use.
+-spec validate_nats_subject(binary()) -> {ok, boolean()} | {error, term()}.
 validate_nats_subject(<<>>) ->
     {error, empty_subject};
 validate_nats_subject(Subject) ->
-    case binary:match(Subject, <<"..">>) of
-        nomatch ->
-            validate_nats_subject_chars(Subject);
+    case validate_utf8_char(Subject) of
+        false ->
+            {error, invalid_utf8_string};
         _ ->
-            {error, consecutive_dots}
-    end.
-
-validate_nats_subject_chars(Subject) ->
-    case binary:first(Subject) of
-        $. ->
-            {error, starts_with_dot};
-        _ ->
-            case binary:last(Subject) of
-                $. -> {error, ends_with_dot};
-                _ -> validate_nats_subject_wildcards(Subject)
+            Tokens = binary:split(Subject, <<".">>, [global]),
+            case validate_nats_subject_tokens(Tokens, 0, false) of
+                true -> {ok, true};
+                false -> {ok, false};
+                {error, Error} -> {error, Error}
             end
     end.
 
-validate_nats_subject_wildcards(Subject) ->
-    case binary:split(Subject, <<">">>, [global]) of
-        [Subject] ->
-            validate_nats_subject_chars_only(Subject);
-        _ ->
-            validate_nats_subject_trailing_wildcard(Subject)
+validate_nats_subject_tokens([], _Lv, HasWildcard) ->
+    HasWildcard;
+validate_nats_subject_tokens([<<">">>], _Lv, _HasWildcard) ->
+    true;
+validate_nats_subject_tokens([<<>>], _Lv, _HasWildcard) ->
+    {error, ends_with_dot};
+validate_nats_subject_tokens([<<>> | Rest], Lv, _HasWildcard) when length(Rest) > 0 ->
+    case Lv of
+        0 -> {error, starts_with_dot};
+        _ -> {error, consecutive_dots}
+    end;
+validate_nats_subject_tokens([<<"*">> | Rest], Lv, _HasWildcard) ->
+    validate_nats_subject_tokens(Rest, Lv + 1, true);
+validate_nats_subject_tokens([Token | Rest], Lv, HasWildcard) ->
+    case re:run(Token, "[ \\*\\>\\.]") of
+        {match, _} -> {error, special_chars_in_middle};
+        nomatch -> validate_nats_subject_tokens(Rest, Lv + 1, HasWildcard)
     end.
 
-validate_nats_subject_trailing_wildcard(Subject) ->
-    case binary:last(Subject) of
-        $> -> validate_nats_subject_chars_only(Subject);
-        _ -> {error, invalid_wildcard_position}
-    end.
-
-validate_nats_subject_chars_only(Subject) ->
-    case re:run(Subject, "^[a-zA-Z0-9_\\-\\.\\*\\>]+$") of
-        nomatch -> {error, invalid_characters};
-        _ -> ok
-    end.
+validate_utf8_char(<<>>) ->
+    true;
+validate_utf8_char(<<H/utf8, _Rest/binary>>) when
+    H >= 16#00, H =< 16#1F;
+    H >= 16#7F, H =< 16#9F
+->
+    false;
+validate_utf8_char(<<_H/utf8, Rest/binary>>) ->
+    validate_utf8_char(Rest);
+validate_utf8_char(<<_BadUtf8, _Rest/binary>>) ->
+    false.
