@@ -305,7 +305,9 @@ prefix_collect_helpful_family(Callback, Prefix, MetricsTypeAndHelp, Metrics) ->
         fun({Name, Type, Help}) ->
             %% Using `create_mf/4` that doesn't call back into `collect_metrics/2.`
             PromName = [Prefix, atom_to_binary(Name)],
-            Callback(prometheus_model_helpers:create_mf(PromName, Help, Type, ?MG(Name, Metrics)))
+            Callback(
+                prometheus_model_helpers:create_mf(PromName, Help, Type, ?MG(Name, Metrics, []))
+            )
         end,
         MetricsTypeAndHelp
     ).
