@@ -49,7 +49,7 @@
     %% Channel State
     conn_state :: emqx_gateway_channel:conn_state(),
     %% Subscriptions
-    subscriptions = [],
+    subscriptions :: [subscription()],
     %% Timer
     timers :: #{atom() => disable | undefined | reference()},
     %% Transaction
@@ -58,6 +58,14 @@
 
 -type channel() :: #channel{}.
 -type replies() :: emqx_gateway_channel:replies().
+
+-type subscription() :: #{
+    sid => binary(),
+    mounted_topic => binary(),
+    subject => binary(),
+    max_msgs => non_neg_integer() | infinity,
+    sub_opts => map()
+}.
 
 -define(TIMER_TABLE, #{
     keepalive_send_timer => keepalive_send,
@@ -135,7 +143,8 @@ init(
         clientinfo_override = Override,
         timers = #{},
         transaction = #{},
-        conn_state = idle
+        conn_state = idle,
+        subscriptions = []
     },
     _ = async_delivery_info_frame(Channel),
     Channel.
@@ -498,7 +507,14 @@ handle_in(
                     ),
                     handle_out(error, ErrMsg, NChannel);
                 [{MountedTopic, SubOpts} | _] ->
-                    NSubs = [{SId, MountedTopic, Subject, SubOpts} | Subs],
+                    Subscription = #{
+                        sid => SId,
+                        mounted_topic => MountedTopic,
+                        subject => Subject,
+                        max_msgs => infinity,
+                        sub_opts => SubOpts
+                    },
+                    NSubs = [Subscription | Subs],
                     NChannel1 = NChannel#channel{subscriptions = NSubs},
                     ?SLOG(info, #{
                         msg => "client_subscribe_success",
@@ -522,38 +538,17 @@ handle_in(
 handle_in(
     Frame = ?PACKET(?OP_UNSUB),
     Channel = #channel{
-        ctx = Ctx,
-        clientinfo =
-            ClientInfo =
-                #{mountpoint := Mountpoint},
         subscriptions = Subs
     }
 ) ->
     SId = emqx_nats_frame:sid(Frame),
-    case lists:keyfind(SId, 1, Subs) of
-        {SId, MountedTopic, Subject, _SubOpts} ->
-            Topic = emqx_mountpoint:unmount(Mountpoint, MountedTopic),
-            %% XXX: eval the return topics?
-            _ = run_hooks(
-                Ctx,
-                'client.unsubscribe',
-                [ClientInfo, #{}],
-                [{Topic, #{}}]
-            ),
-            ok = emqx_broker:unsubscribe(MountedTopic),
-            _ = run_hooks(
-                Ctx,
-                'session.unsubscribed',
-                [ClientInfo, MountedTopic, #{}]
-            ),
-            ?SLOG(info, #{
-                msg => "client_unsubscribe_success",
-                subject => Subject,
-                sid => SId,
-                topic => MountedTopic
-            }),
-            Channel1 = Channel#channel{subscriptions = lists:keydelete(SId, 1, Subs)},
-            handle_out(ok, [{event, updated}], Channel1);
+    MaxMsgs = emqx_nats_frame:max_msgs(Frame),
+    case find_sub_by_sid(SId, Subs) of
+        #{} when MaxMsgs =:= 0 ->
+            handle_out(ok, [{event, updated}], do_unsubscribe(SId, Channel));
+        #{} when MaxMsgs > 0 ->
+            NSubs = update_sub_max_msgs(SId, MaxMsgs, Subs),
+            handle_out(ok, [], Channel#channel{subscriptions = NSubs});
         false ->
             ?SLOG(info, #{
                 msg => "ignore_unsubscribe_for_unknown_sid",
@@ -561,9 +556,8 @@ handle_in(
             }),
             handle_out(ok, [], Channel)
     end;
-%% FIXME: How to ack a frame ???
 handle_in(Frame = ?PACKET(?OP_OK), Channel) ->
-    ?SLOG(warning, #{
+    ?SLOG(info, #{
         msg => "ignore_all_ok_frames",
         function => "handle_in/2",
         frame => Frame
@@ -613,13 +607,13 @@ check_subscribed_status(
     }
 ) ->
     MountedTopic = emqx_mountpoint:mount(Mountpoint, ParsedTopic),
-    case lists:keyfind(SId, 1, Subs) of
-        {SId, _MountedTopic, Subject, _} ->
+    case find_sub_by_sid(SId, Subs) of
+        #{subject := Subject} ->
             {error, {subscription_id_inused, {SId, Subject}}};
         false ->
-            case lists:keyfind(MountedTopic, 2, Subs) of
-                {_OtherSId, MountedTopic, Subject, _} ->
-                    {error, {topic_already_subscribed, {SId, Subject}}};
+            case find_sub_by_topic(MountedTopic, Subs) of
+                #{sid := OtherSId, subject := Subject} ->
+                    {error, {topic_already_subscribed, {OtherSId, Subject}}};
                 false ->
                     ok
             end
@@ -663,6 +657,40 @@ do_subscribe(
     run_hooks(Ctx, 'session.subscribed', [ClientInfo, MountedTopic, SubOpts]),
     do_subscribe(More, Channel, [{MountedTopic, SubOpts} | Acc]).
 
+do_unsubscribe(
+    SId,
+    Channel = #channel{
+        ctx = Ctx,
+        clientinfo = ClientInfo,
+        subscriptions = Subs
+    }
+) ->
+    Mountpoint = maps:get(mountpoint, ClientInfo),
+    case find_sub_by_sid(SId, Subs) of
+        #{mounted_topic := MountedTopic, subject := Subject} ->
+            Topic = emqx_mountpoint:unmount(Mountpoint, MountedTopic),
+            _ = run_hooks(
+                Ctx,
+                'client.unsubscribe',
+                [ClientInfo, #{}],
+                [{Topic, #{}}]
+            ),
+            ok = emqx_broker:unsubscribe(MountedTopic),
+            _ = run_hooks(
+                Ctx,
+                'session.unsubscribed',
+                [ClientInfo, MountedTopic, #{}]
+            ),
+            ?SLOG(info, #{
+                msg => "client_unsubscribe_success",
+                subject => Subject,
+                sid => SId,
+                topic => MountedTopic
+            }),
+            Channel#channel{subscriptions = remove_sub_by_sid(SId, Subs)};
+        false ->
+            Channel
+    end.
 %%--------------------------------------------------------------------
 %% Handle outgoing packet
 %%--------------------------------------------------------------------
@@ -714,7 +742,7 @@ handle_out(ok, Replies, Channel) ->
 handle_call(subscriptions, _From, Channel = #channel{subscriptions = Subs}) ->
     %% Reply :: [{emqx_types:topic(), emqx_types:subopts()}]
     NSubs = lists:map(
-        fun({_SubId, Topic, _Subject, SubOpts}) ->
+        fun(#{mounted_topic := Topic, sub_opts := SubOpts}) ->
             {Topic, SubOpts}
         end,
         Subs
@@ -825,11 +853,11 @@ handle_deliver(
         subscriptions = Subs
     }
 ) ->
-    Frames0 = lists:foldl(
-        fun({deliver, SubTopic, Message}, Acc) ->
+    {Frames0, NSubs} = lists:foldl(
+        fun({deliver, SubTopic, Message}, {FrameAcc, SubsAcc}) ->
             ReplyTo = emqx_message:get_header(reply_to, Message),
-            case find_sub_by_topic(SubTopic, Subs) of
-                {SId, _Topic, _Subject, _SubOpts} ->
+            case find_sub_by_topic(SubTopic, SubsAcc) of
+                #{sid := SId, max_msgs := MaxMsgs} when MaxMsgs > 0 ->
                     Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
                     metrics_inc('messages.delivered', Channel),
                     NMessage = run_hooks_without_metrics(
@@ -848,7 +876,11 @@ handle_deliver(
                         operation = ?OP_MSG,
                         message = MsgContent
                     },
-                    [Frame | Acc];
+                    {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
+                #{max_msgs := 0} ->
+                    metrics_inc('delivery.dropped', Channel),
+                    metrics_inc('delivery.dropped.max_msgs', Channel),
+                    {FrameAcc, SubsAcc};
                 false ->
                     ?SLOG(error, #{
                         msg => "dropped_message_due_to_subscription_not_found",
@@ -858,13 +890,26 @@ handle_deliver(
                     }),
                     metrics_inc('delivery.dropped', Channel),
                     metrics_inc('delivery.dropped.no_subid', Channel),
-                    Acc
+                    {FrameAcc, SubsAcc}
             end
         end,
-        [],
+        {[], Subs},
         Delivers
     ),
-    {ok, [{outgoing, lists:reverse(Frames0)}], Channel}.
+    %% Unsubscribe from subscriptions that have reached max_msgs
+    Channel1 = Channel#channel{subscriptions = NSubs},
+    Channel2 = lists:foldl(
+        fun
+            (#{max_msgs := 0, sid := SId}, Acc) ->
+                do_unsubscribe(SId, Acc);
+            (_, Acc) ->
+                Acc
+        end,
+        Channel1,
+        NSubs
+    ),
+
+    {ok, [{outgoing, lists:reverse(Frames0)}, {event, updated}], Channel2}.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
@@ -1031,9 +1076,47 @@ is_verbose_mode(_Channel = #channel{conninfo = #{conn_params := ConnParams}}) ->
 
 find_sub_by_topic(_Topic, []) ->
     false;
-find_sub_by_topic(Topic, [E = {_, Topic, _, _} | _]) ->
+find_sub_by_topic(Topic, [E = #{mounted_topic := Topic} | _]) ->
     E;
-find_sub_by_topic(Topic, [E = {_, {share, _Group, Topic}, _, _} | _]) ->
+find_sub_by_topic(Topic, [E = #{mounted_topic := {share, _Group, Topic}} | _]) ->
     E;
-find_sub_by_topic(Topic, [{_, _, _, _} | Rest]) ->
+find_sub_by_topic(Topic, [_ | Rest]) ->
     find_sub_by_topic(Topic, Rest).
+
+find_sub_by_sid(_SId, []) ->
+    false;
+find_sub_by_sid(SId, [E = #{sid := SId} | _]) ->
+    E;
+find_sub_by_sid(SId, [_ | Rest]) ->
+    find_sub_by_sid(SId, Rest).
+
+remove_sub_by_sid(SId, Subs) ->
+    lists:filter(fun(#{sid := Id}) -> SId =/= Id end, Subs).
+
+update_sub_max_msgs(SId, MaxMsgs, Subs) ->
+    lists:map(
+        fun
+            (#{sid := Id} = Sub) when SId =:= Id ->
+                Sub#{max_msgs => MaxMsgs};
+            (Sub) ->
+                Sub
+        end,
+        Subs
+    ).
+
+reduce_sub_max_msgs(SId, Subs) ->
+    lists:map(
+        fun
+            (#{sid := Id, max_msgs := MaxMsgs} = Sub) when SId =:= Id andalso MaxMsgs > 0 ->
+                Sub#{max_msgs := checked_sub_max_msgs(MaxMsgs)};
+            (Sub) ->
+                Sub
+        end,
+        Subs
+    ).
+
+checked_sub_max_msgs(Max) ->
+    case Max of
+        infinity -> infinity;
+        _ -> Max - 1
+    end.

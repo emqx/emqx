@@ -17,6 +17,7 @@
     subscribe/3,
     subscribe/4,
     unsubscribe/2,
+    unsubscribe/3,
     publish/3,
     publish/4,
     receive_message/1,
@@ -89,6 +90,10 @@ subscribe(Client, Subject, Sid, Queue) ->
 unsubscribe(Client, Sid) ->
     gen_server:call(Client, {unsubscribe, Sid}).
 
+-spec unsubscribe(client(), binary(), pos_integer()) -> ok.
+unsubscribe(Client, Sid, MaxMsgs) when is_integer(MaxMsgs) andalso MaxMsgs > 0 ->
+    gen_server:call(Client, {unsubscribe, Sid, MaxMsgs}).
+
 -spec publish(client(), binary(), binary()) -> ok.
 publish(Client, Subject, Payload) ->
     publish(Client, Subject, undefined, Payload).
@@ -158,6 +163,10 @@ handle_call({subscribe, Subject, Sid, Queue}, _From, #{socket := Socket} = State
     {reply, ok, State};
 handle_call({unsubscribe, Sid}, _From, #{socket := Socket} = State) ->
     UnsubFrame = #nats_frame{operation = ?OP_UNSUB, message = #{sid => Sid}},
+    send_msg(Socket, UnsubFrame),
+    {reply, ok, State};
+handle_call({unsubscribe, Sid, MaxMsgs}, _From, #{socket := Socket} = State) ->
+    UnsubFrame = #nats_frame{operation = ?OP_UNSUB, message = #{sid => Sid, max_msgs => MaxMsgs}},
     send_msg(Socket, UnsubFrame),
     {reply, ok, State};
 handle_call({publish, Subject, ReplyTo, Payload}, _From, #{socket := Socket} = State) ->

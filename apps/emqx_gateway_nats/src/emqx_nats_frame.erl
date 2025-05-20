@@ -25,7 +25,8 @@
     queue_group/1,
     reply_to/1,
     headers/1,
-    payload/1
+    payload/1,
+    max_msgs/1
 ]).
 
 -define(INIT_STATE(S, B), #{state := init, buffer := B} = S).
@@ -312,6 +313,11 @@ headers(_) ->
 payload(#nats_frame{operation = Op, message = M}) when ?HAS_PAYLOAD_OP(Op) ->
     maps:get(payload, M);
 payload(_) ->
+    error(badarg).
+
+max_msgs(#nats_frame{operation = ?OP_UNSUB, message = M}) ->
+    maps:get(max_msgs, M, 0);
+max_msgs(_) ->
     error(badarg).
 
 %%--------------------------------------------------------------------

@@ -380,6 +380,58 @@ t_unsubscribe(Config) ->
     ok = emqx_nats_client:unsubscribe(Client, <<"sid-1">>),
     emqx_nats_client:stop(Client).
 
+t_unsubscribe_with_max_msgs(Config) ->
+    Username = <<"unsub_user">>,
+    ClientOpts = maps:merge(?config(client_opts, Config), #{
+        verbose => true,
+        user => Username
+    }),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+
+    [ClientInfo] = find_client_by_username(Username),
+    ClientId = maps:get(clientid, ClientInfo),
+
+    ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>),
+    recv_ok_frame(Client),
+
+    ?assertMatch(
+        [#{topic := <<"foo">>}],
+        emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId)
+    ),
+
+    ok = emqx_nats_client:unsubscribe(Client, <<"sid-1">>, 1),
+    recv_ok_frame(Client),
+
+    ok = emqx_nats_client:publish(Client, <<"foo">>, <<"hello1">>),
+    recv_ok_frame(Client),
+
+    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_MSG,
+            message = #{
+                subject := <<"foo">>,
+                sid := <<"sid-1">>,
+                payload := <<"hello1">>
+            }
+        },
+        Msg
+    ),
+
+    ok = emqx_nats_client:publish(Client, <<"foo">>, <<"hello2">>),
+    recv_ok_frame(Client),
+
+    {ok, []} = emqx_nats_client:receive_message(Client, 1000),
+
+    ?assertEqual(
+        [], emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId)
+    ),
+    emqx_nats_client:stop(Client).
+
 t_queue_group(Config) ->
     ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
     {ok, Client1} = emqx_nats_client:start_link(ClientOpts),
@@ -873,3 +925,33 @@ t_gateway_client_subscription_management(Config) ->
     ),
 
     emqx_nats_client:stop(Client).
+
+%%--------------------------------------------------------------------
+%% Utils
+
+recv_ok_frame(Client) ->
+    {ok, [Frame]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_OK
+        },
+        Frame
+    ).
+
+recv_info_frame(Client) ->
+    {ok, [Frame]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_INFO
+        },
+        Frame
+    ).
+
+find_client_by_username(Username) ->
+    ClientInfos = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
+    lists:filter(
+        fun(ClientInfo) ->
+            maps:get(username, ClientInfo) =:= Username
+        end,
+        ClientInfos
+    ).
