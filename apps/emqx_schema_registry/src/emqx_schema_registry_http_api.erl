@@ -274,13 +274,18 @@ protobuf_bundle_request_body() ->
                 schema => #{
                     type => object,
                     properties => #{
-                        name => #{type => string, format => binary},
-                        root_proto_file => #{type => string, format => binary},
-                        description => #{type => string, format => binary},
+                        name => #{type => string},
+                        root_proto_file => #{type => string},
+                        description => #{type => string},
                         bundle => #{type => string, format => binary}
                     }
                 },
-                encoding => #{bundle => #{'contentType' => 'application/gzip'}}
+                encoding => #{
+                    name => #{'contentType' => 'text/plain'},
+                    root_proto_file => #{'contentType' => 'text/plain'},
+                    description => #{'contentType' => 'text/plain'},
+                    bundle => #{'contentType' => 'application/gzip'}
+                }
             }
         }
     }.
