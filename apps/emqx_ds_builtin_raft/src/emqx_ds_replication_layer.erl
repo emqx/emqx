@@ -1249,8 +1249,7 @@ apply(
 ) ->
     case SerCtl =:= ExpectedSerial of
         true ->
-            %% FIXME: better error handling? durable => false?
-            ok = emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{}),
+            ok = emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{durable => false}),
             emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
             {State#{tx_serial := Serial}, ok};
         false ->
