@@ -334,7 +334,7 @@ fields(optimistic_transaction) ->
                 #{
                     default => "5s",
                     importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(ds_otx_flush_interval)
+                    desc => ?DESC(otx_flush_interval)
                 }
             )},
         {idle_flush_interval,
@@ -343,7 +343,7 @@ fields(optimistic_transaction) ->
                 #{
                     default => "1ms",
                     importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(ds_otx_flush_interval)
+                    desc => ?DESC(otx_idle_flush_interval)
                 }
             )},
         {conflict_window,
@@ -352,7 +352,7 @@ fields(optimistic_transaction) ->
                 #{
                     default => "5s",
                     importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(ds_otx_flush_interval)
+                    desc => ?DESC(otx_conflict_window)
                 }
             )}
     ].
@@ -391,7 +391,7 @@ common_builtin_fields(basic) ->
                 ref(optimistic_transaction),
                 #{
                     importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(ds_optimistic_transaction)
+                    desc => ?DESC(builtin_optimistic_transaction)
                 }
             )}
     ];
@@ -447,6 +447,8 @@ desc(layout_builtin_wildcard_optimized_v2) ->
     ?DESC(layout_builtin_wildcard_optimized);
 desc(layout_builtin_reference) ->
     ?DESC(layout_builtin_reference);
+desc(optimistic_transaction) ->
+    ?DESC(optimistic_transaction);
 desc(_) ->
     undefined.
 
