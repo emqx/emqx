@@ -9,6 +9,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
     start_link/0,
@@ -189,8 +190,7 @@ safe_execute({M, F, A}, Args) ->
         Result -> Result
     catch
         Error:Reason:Stacktrace ->
-            ?SLOG(error, #{
-                msg => "hook_callback_exception",
+            ?tp(error, "hook_callback_exception", #{
                 exception => Error,
                 reason => Reason,
                 stacktrace => Stacktrace,
