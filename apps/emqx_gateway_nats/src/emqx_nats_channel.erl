@@ -162,7 +162,8 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
         proto => 0,
         headers => true,
         auth_required => is_auth_required(ClientInfo),
-        tls_required => false,
+        tls_handshake_first => false,
+        tls_required => is_tls_required(maps:get(listener, ClientInfo)),
         jetstream => false
     },
     #nats_frame{operation = ?OP_INFO, message = MsgContent}.
@@ -175,6 +176,16 @@ is_auth_required(#{enable_authn := true}) ->
             false;
         _ ->
             true
+    end.
+
+is_tls_required(ListenerId) ->
+    case emqx_gateway_utils:parse_listener_id(ListenerId) of
+        {_, <<"ssl">>, _} ->
+            true;
+        {_, <<"wss">>, _} ->
+            true;
+        _ ->
+            false
     end.
 
 setting_peercert_infos(NoSSL, ClientInfo) when
