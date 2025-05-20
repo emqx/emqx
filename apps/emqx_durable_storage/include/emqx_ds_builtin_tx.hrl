@@ -8,8 +8,6 @@
     shard :: emqx_ds:shard(),
     leader :: pid(),
     serial :: term(),
-    %% Current generation. Used to guard against committing
-    %% transactions that span multiple generations
     generation :: emqx_ds:generation(),
     opts :: emqx_ds:transaction_opts()
 }).
@@ -17,7 +15,7 @@
 -record(ds_tx, {
     ctx :: emqx_ds_optimistic_tx:ctx(),
     ops :: emqx_ds:tx_ops() | emqx_ds:tx_ops(),
-    from :: pid() | reference(),
+    from :: pid(),
     ref :: reference(),
     meta :: term()
 }).

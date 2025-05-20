@@ -52,7 +52,9 @@
     reset_trans/0,
 
     %% Transaction reading:
+    tx_fold_topic/3,
     tx_fold_topic/4,
+    tx_read/1,
     tx_read/2,
 
     %% Key-value functions:
@@ -942,15 +944,19 @@ tx_del_topic(TopicFilter) ->
             error(badarg)
     end.
 
-%% @doc Add a transaction precondition that asserts presence of the
-%% given value in the topic.
+%% @doc Add a transaction precondition that asserts presence of an
+%% object with a certain value in the given topic and with the given
+%% timestamp. If object is absent or its value is different, the whole
+%% transaction is aborted.
 %%
 %% This operation is considered side effect.
 %%
-%% @param Topic is used the key
+%% @param Topic Topic of the object
 %%
-%% @param Expected value (binary) or atom `_' that matches presence of
-%% any value.
+%% @param Time Timestamp of the object
+%%
+%% @param Value Expected value (binary) or atom `_' that works as a
+%% wildcard.
 -spec tx_ttv_assert_present(topic(), time(), binary() | '_') -> ok.
 tx_ttv_assert_present(Topic, Time, Value) ->
     case is_topic(Topic) andalso is_integer(Time) andalso (Value =:= '_' orelse is_binary(Value)) of
@@ -960,8 +966,8 @@ tx_ttv_assert_present(Topic, Time, Value) ->
             error(badarg)
     end.
 
-%% @doc Add a transaction precondition that asserts absense of value
-%% in the topic.
+%% @doc Inverse of `tx_ttv_assert_present'. Add a transaction
+%% precondition that asserts _absense_ of value in the topic.
 %%
 %% This operation is considered side effect.
 -spec tx_ttv_assert_absent(topic(), time()) -> ok.
@@ -984,10 +990,7 @@ reset_trans() ->
 dirty_read(DB, TopicFilter) when is_atom(DB) ->
     dirty_read(#{db => DB}, TopicFilter);
 dirty_read(#{db := _} = Opts, TopicFilter) ->
-    Fun = fun(_Slab, _Stream, _DSKey, Object, Acc) ->
-        [Object | Acc]
-    end,
-    fold_topic(Fun, [], TopicFilter, Opts).
+    fold_topic(fun dirty_read_topic_fun/5, [], TopicFilter, Opts).
 
 %% @doc Transactional version of `dirty_read/2'. Return _all_ messages
 %% matching the topic-filter as a list.
@@ -996,17 +999,18 @@ dirty_read(#{db := _} = Opts, TopicFilter) ->
 %%
 %% NOTE: Transactional reads are always limited to the shard and
 %% generation of the surrounding transaction.
+%%
+%% WARNING: This operation conflicts with _any_ write to the topics
+%% matching the filter.
 -spec tx_read(fold_options(), topic_filter()) ->
     fold_result([ttv() | emqx_types:message()]).
-tx_read(UserOpts, TopicFilter) ->
-    case tx_ctx() of
-        #kv_tx_ctx{shard = Shard, generation = Generation} ->
-            Opts = UserOpts#{db => tx_ctx_db(), shard => Shard, generation => Generation},
-            tx_push_op(?tx_ops_read, TopicFilter),
-            dirty_read(Opts, TopicFilter);
-        undefined ->
-            error(not_a_transaction)
-    end.
+tx_read(Opts, TopicFilter) ->
+    tx_fold_topic(fun dirty_read_topic_fun/5, [], TopicFilter, Opts).
+
+%% @equiv tx_read(#{}, TopicFilter)
+-spec tx_read(topic_filter()) -> [ttv() | emqx_types:message()].
+tx_read(TopicFilter) ->
+    tx_read(#{}, TopicFilter).
 
 %% @doc A helper function for iterating over values in the storage
 %% matching the topic filter. It is a wrapper over `get_streams',
@@ -1125,15 +1129,40 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
             {Result, Errors}
     end.
 
+%% @doc Transactional version of `fold_topic'. Performs fold over
+%% _all_ messages matching the topic-filter in the shard and
+%% generation specified by the surrounding transaction.
+%%
+%% This operation is considered a side effect.
+%%
+%% WARNING: This operation conflicts with _any_ write to the topics
+%% matching the filter.
 -spec tx_fold_topic(
     fold_fun(Acc),
     Acc,
     topic_filter(),
     fold_options()
 ) -> fold_result(Acc).
-tx_fold_topic(Fun, Acc, TopicFilter, Opts) ->
-    tx_push_op(?tx_ops_read, TopicFilter),
-    fold_topic(Fun, Acc, TopicFilter, Opts).
+tx_fold_topic(Fun, Acc, TopicFilter, UserOpts) ->
+    case tx_ctx() of
+        #kv_tx_ctx{shard = Shard, generation = Generation} ->
+            %% Here we simply ignore and overwrite db, shard and
+            %% generation provided from UserOpts.
+            Opts = UserOpts#{db => tx_ctx_db(), shard => Shard, generation => Generation},
+            tx_push_op(?tx_ops_read, TopicFilter),
+            fold_topic(Fun, Acc, TopicFilter, Opts);
+        undefined ->
+            error(not_a_transaction)
+    end.
+
+%% @equiv tx_fold_topic(Fun, Acc, TopicFilter, #{})
+-spec tx_fold_topic(
+    fold_fun(Acc),
+    Acc,
+    topic_filter()
+) -> Acc.
+tx_fold_topic(Fun, Acc, TopicFilter) ->
+    tx_fold_topic(Fun, Acc, TopicFilter, #{}).
 
 %%================================================================================
 %% Internal exports
@@ -1209,16 +1238,16 @@ trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval}, Retries) -
 ) ->
     transaction_result(Ret).
 trans_inner(DB, Fun, Opts) ->
-    _ = put(?tx_ctx_db, DB),
-    _ = put(?tx_ops_write, []),
-    _ = put(?tx_ops_read, []),
-    _ = put(?tx_ops_del_topic, []),
-    _ = put(?tx_ops_assert_present, []),
-    _ = put(?tx_ops_assert_absent, []),
     try
         case new_kv_tx(DB, Opts) of
             {ok, Ctx} ->
-                put(?tx_ctx, Ctx),
+                _ = put(?tx_ctx_db, DB),
+                _ = put(?tx_ctx, Ctx),
+                _ = put(?tx_ops_write, []),
+                _ = put(?tx_ops_read, []),
+                _ = put(?tx_ops_del_topic, []),
+                _ = put(?tx_ops_assert_present, []),
+                _ = put(?tx_ops_assert_absent, []),
                 Ret = Fun(),
                 Tx = #{
                     ?ds_tx_write => erase(?tx_ops_write),
@@ -1327,3 +1356,6 @@ is_topic_filter([L | Rest]) when is_binary(L); L =:= '+' ->
     is_topic_filter(Rest);
 is_topic_filter(_) ->
     false.
+
+dirty_read_topic_fun(_Slab, _Stream, _DSKey, Object, Acc) ->
+    [Object | Acc].

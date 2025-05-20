@@ -13,7 +13,9 @@
 %%
 %% Buffer is periodically flushed in a single call the backend.
 %%
-%% Leader also keeps the transaction serial.
+%% Leader is also tasked with keeping and incrementing the transaction
+%% serial for the pending transactions. The latest serial is committed
+%% to the storage together with the batches.
 %%
 %% Potential split brain situations are handled optimistically: the
 %% backend can reject flush request.

@@ -77,7 +77,7 @@ cancel_timer(TRef, TimeoutMsg) ->
         ok
     end.
 
-%% @doc A non-throwing version of ets:delete
+%% @doc A non-throwing version of `ets:delete/1'
 ets_delete(Tid) ->
     try
         ets:delete(Tid)
