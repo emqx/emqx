@@ -5,6 +5,9 @@ on:
       tag:
         required: true
         type: string
+    secrets:
+      AUTH_APP_PRIVATE_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       tag:

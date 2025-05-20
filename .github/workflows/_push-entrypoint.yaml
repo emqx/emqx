@@ -255,6 +255,7 @@ jobs:
     uses: ./.github/workflows/update-emqx-docs.yaml
     with:
       tag: ${{ github.ref_name }}
+    secrets: inherit
 
   update_public_broker:
     if: needs.prepare.outputs.release == 'true'
