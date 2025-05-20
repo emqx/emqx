@@ -103,48 +103,7 @@ fi
 
 ERLANG_CONTAINER='erlang'
 DOCKER_CT_ENVS_FILE="${WHICH_APP}/docker-ct"
-
-if [ -f "${WHICH_APP}/BSL.txt" ]; then
-    if [ -n "${PROFILE:-}" ] && [ "${PROFILE}" != 'emqx-enterprise' ]; then
-        echo "bad_profile: PROFILE=${PROFILE} will not work for app ${WHICH_APP}"
-        exit 1
-    fi
-fi
-
-if [ -z "${PROFILE+x}" ]; then
-    case "${WHICH_APP}" in
-        apps/emqx)
-            export PROFILE='emqx-enterprise'
-            ;;
-        apps/emqx_bridge)
-            export PROFILE='emqx-enterprise'
-            ;;
-        # emqx_connector test suite is using kafka bridge which is only available in emqx-enterprise
-        apps/emqx_connector)
-            export PROFILE='emqx-enterprise'
-            ;;
-        apps/emqx_dashboard)
-            export PROFILE='emqx-enterprise'
-            ;;
-        apps/emqx_rule_engine)
-            export PROFILE='emqx-enterprise'
-            ;;
-        # emqx_auth_http has scram:http support which is only available in emqx-enterprise
-        apps/emqx_auth_http)
-            export PROFILE='emqx-enterprise'
-            ;;
-        apps/*)
-            if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
-                export PROFILE='emqx-enterprise'
-            else
-                export PROFILE='emqx'
-            fi
-            ;;
-        *)
-            export PROFILE="${PROFILE:-emqx}"
-            ;;
-    esac
-fi
+PROFILE='emqx-enterprise'
 
 if [ -f "$DOCKER_CT_ENVS_FILE" ]; then
     # shellcheck disable=SC2002
