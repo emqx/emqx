@@ -247,6 +247,7 @@ enrich_conninfo(
         expiry_interval => 0,
         conn_props => #{},
         receive_maximum => 0,
+        no_responders => maps:get(no_responders, ConnParams, 0),
         conn_params => ConnParams
     },
     {ok, Channel#channel{conninfo = NConnInfo}}.

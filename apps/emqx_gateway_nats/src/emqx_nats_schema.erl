@@ -67,9 +67,12 @@ fields(wss_listener) ->
     ] ++
         emqx_gateway_schema:wss_listener();
 fields(websocket) ->
-    DefaultPath = <<"/nats">>,
-    SubProtocols = <<"NATS/1.0, NATS">>,
-    emqx_gateway_schema:ws_opts(DefaultPath, SubProtocols).
+    Override = #{
+        path => <<>>,
+        fail_if_no_subprotocol => false,
+        supported_subprotocols => <<"NATS/1.0, NATS">>
+    },
+    emqx_gateway_schema:ws_opts(Override).
 
 desc(nats) ->
     "The NATS protocol gateway provides EMQX with the ability to access NATS\n"

@@ -376,6 +376,10 @@ check_origin_header(Req, Opts) ->
 websocket_init([_Req, _Opts, State]) ->
     return(State#state{postponed = [after_init]}).
 
+websocket_handle({binary, Data}, State) when is_list(Data) ->
+    websocket_handle({text, iolist_to_binary(Data)}, State);
+websocket_handle({binary, Data}, State) when is_binary(Data) ->
+    websocket_handle({text, Data}, State);
 websocket_handle({text, Data}, State) when is_list(Data) ->
     websocket_handle({text, iolist_to_binary(Data)}, State);
 websocket_handle({text, Data}, State) ->
@@ -508,9 +512,16 @@ handle_info(Info, State) ->
 %% Handle timeout
 %%--------------------------------------------------------------------
 
-handle_timeout(TRef, keepalive, State) when is_reference(TRef) ->
-    RecvOct = emqx_pd:get_counter(recv_oct),
-    handle_timeout(TRef, {keepalive, RecvOct}, State);
+handle_timeout(TRef, Keepalive, State) when
+    Keepalive =:= keepalive;
+    Keepalive =:= keepalive_send
+->
+    StatVal =
+        case Keepalive of
+            keepalive -> emqx_pd:get_counter(recv_oct);
+            keepalive_send -> emqx_pd:get_counter(send_oct)
+        end,
+    handle_timeout(TRef, {Keepalive, StatVal}, State);
 handle_timeout(
     TRef,
     emit_stats,
@@ -638,8 +649,8 @@ handle_outgoing(Packets, State = #state{active_n = ActiveN, piggyback = Piggybac
         end,
     {
         case Piggyback of
-            single -> [{text, IoData}];
-            multiple -> lists:map(fun(Bin) -> {text, Bin} end, IoData)
+            single -> [{binary, IoData}];
+            multiple -> lists:map(fun(Bin) -> {binary, Bin} end, IoData)
         end,
         ensure_stats_timer(NState)
     }.

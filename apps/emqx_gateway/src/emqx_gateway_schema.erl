@@ -41,7 +41,7 @@
 
 -export([mountpoint/0, mountpoint/1, gateway_common_options/0, gateway_schema/1, gateway_names/0]).
 
--export([ws_listener/0, wss_listener/0, ws_opts/2]).
+-export([ws_listener/0, wss_listener/0, ws_opts/1]).
 
 namespace() -> gateway.
 
@@ -121,9 +121,7 @@ fields(wss_listener) ->
     emqx_gateway_schema:wss_listener() ++
         [{websocket, sc(ref(websocket), #{})}];
 fields(websocket) ->
-    DefaultPath = <<>>,
-    SubProtocols = <<>>,
-    emqx_gateway_schema:ws_opts(DefaultPath, SubProtocols);
+    emqx_gateway_schema:ws_opts(#{});
 fields(udp_listener) ->
     [
         %% some special configs for udp listener
@@ -288,15 +286,13 @@ wss_listener() ->
                 )}
         ].
 
-ws_opts(DefaultPath, DefaultSubProtocols) when
-    is_binary(DefaultPath), is_binary(DefaultSubProtocols)
-->
+ws_opts(Override) when is_map(Override) ->
     [
         {"path",
             sc(
                 string(),
                 #{
-                    default => DefaultPath,
+                    default => maps:get(path, Override, <<>>),
                     desc => ?DESC(fields_ws_opts_path)
                 }
             )},
@@ -336,7 +332,7 @@ ws_opts(DefaultPath, DefaultSubProtocols) when
             sc(
                 boolean(),
                 #{
-                    default => true,
+                    default => maps:get(fail_if_no_subprotocol, Override, false),
                     desc => ?DESC(fields_ws_opts_fail_if_no_subprotocol)
                 }
             )},
@@ -344,7 +340,7 @@ ws_opts(DefaultPath, DefaultSubProtocols) when
             sc(
                 emqx_schema:comma_separated_list(),
                 #{
-                    default => DefaultSubProtocols,
+                    default => maps:get(supported_subprotocols, Override, <<>>),
                     desc => ?DESC(fields_ws_opts_supported_subprotocols)
                 }
             )},

@@ -308,7 +308,7 @@ connect("ws://" ++ Host, Port) ->
     end.
 
 upgrade(ConnPid, Timeout) ->
-    Path = binary_to_list(<<"/nats">>),
+    Path = binary_to_list(<<"/">>),
     WsHeaders = [{<<"cache-control">>, <<"no-cache">>}],
     StreamRef = gun:ws_upgrade(ConnPid, Path, WsHeaders, #{
         protocols => [{<<"NATS">>, gun_ws_h}]
