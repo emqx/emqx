@@ -426,6 +426,7 @@ handle_in(
     ?PACKET(?OP_CONNECT),
     Channel = #channel{conn_state = connected}
 ) ->
+    %% TODO: Double connect request to update the conn params
     {error, unexpected_connect, Channel};
 handle_in(Packet = ?PACKET(?OP_CONNECT), Channel) ->
     case
@@ -974,7 +975,7 @@ error_frame(Msg) ->
 frame2message(
     Frame,
     Channel = #channel{
-        conninfo = #{proto_ver := ProtoVer},
+        conninfo = ConnInfo,
         clientinfo = #{
             protocol := Protocol,
             clientid := ClientId,
@@ -984,6 +985,7 @@ frame2message(
         }
     }
 ) ->
+    ProtoVer = maps:get(proto_ver, ConnInfo, <<"1">>),
     Subject = emqx_nats_frame:subject(Frame),
     Topic = emqx_nats_topic:nats_to_mqtt(Subject),
     Payload = emqx_nats_frame:payload(Frame),
@@ -1073,7 +1075,9 @@ metrics_inc(Name, #channel{ctx = Ctx}) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 is_verbose_mode(_Channel = #channel{conninfo = #{conn_params := ConnParams}}) ->
-    maps:get(<<"verbose">>, ConnParams, false).
+    maps:get(<<"verbose">>, ConnParams, true);
+is_verbose_mode(_) ->
+    true.
 
 find_sub_by_topic(_Topic, []) ->
     false;
