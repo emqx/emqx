@@ -68,11 +68,11 @@
     data_cf :: rocksdb:cf_handle(),
     trie_cf :: rocksdb:cf_handle(),
     trie :: emqx_ds_lts:trie(),
-    serialization_schema :: emqx_ds_msg_serializer:schema(),
+    deserialize :: fun((binary()) -> deser_value()),
     %% A callback that decomposes stream key and value to varying
     %% parts of the topic (used to check for hash collisions),
     %% timestamp and payload:
-    decompose :: fun((stream_key(), _) -> emqx_ds:ttv()),
+    decompose :: fun((stream_key(), deser_value()) -> emqx_ds:ttv()),
     %% Number of bytes per wildcard topic level:
     hash_bytes :: pos_integer()
 }).
@@ -217,7 +217,7 @@ copy_previous_trie(RocksDB, TrieCF, TriePrev) ->
     data_cf := rocksdb:cf_handle(),
     trie_cf := rocksdb:cf_handle(),
     trie := emqx_ds_lts:trie(),
-    serialization_schema := emqx_ds_msg_serializer:schema(),
+    deserialize := fun((binary()) -> deser_value()),
     decompose := fun((stream_key(), deser_value()) -> emqx_ds:topic()),
     wildcard_hash_bytes := pos_integer()
 }) ->
@@ -229,7 +229,7 @@ open(
         data_cf := DataCF,
         trie_cf := TrieCF,
         trie := Trie,
-        serialization_schema := SerSchema,
+        deserialize := Deserialize,
         decompose := Decompose,
         wildcard_hash_bytes := HashBytes
     }
@@ -240,7 +240,7 @@ open(
         data_cf = DataCF,
         trie_cf = TrieCF,
         trie = Trie,
-        serialization_schema = SerSchema,
+        deserialize = Deserialize,
         decompose = Decompose,
         hash_bytes = HashBytes
     }.
@@ -757,10 +757,10 @@ hash_topic_level(TopicLevel) ->
 %% Serialization
 
 deserialize(
-    #s{serialization_schema = SSchema},
+    #s{deserialize = Deserialize},
     Blob
 ) ->
-    emqx_ds_msg_serializer:deserialize(SSchema, Blob).
+    Deserialize(Blob).
 
 -ifdef(TEST).
 

@@ -67,7 +67,6 @@
         timestamp_bytes := non_neg_integer(),
         %% Number of index key bytes allocated for the hash of topic level.
         wildcard_hash_bytes := pos_integer(),
-        serialization_schema := emqx_ds_msg_serializer:schema(),
         lts_threshold_spec => emqx_ds_lts:threshold_spec()
     }.
 
@@ -79,7 +78,6 @@
     db :: rocksdb:db_handle(),
     trie :: emqx_ds_lts:trie(),
     trie_cf :: rocksdb:cf_handle(),
-    serialization_schema :: emqx_ds_msg_serializer:schema(),
     ts_bytes :: non_neg_integer(),
     gs :: emqx_ds_gen_skipstream_lts:s(),
     threshold_fun :: emqx_ds_lts:threshold_fun()
@@ -112,11 +110,9 @@ create(_ShardId, DBHandle, GenId, Schema0, SPrev, _DBOpts) ->
         wildcard_hash_bytes => 8,
         timestamp_bytes => 8,
         topic_index_bytes => 8,
-        serialization_schema => verbatim,
         lts_threshold_spec => ?DEFAULT_LTS_THRESHOLD
     },
     Schema = maps:merge(Defaults, Schema0),
-    ok = emqx_ds_msg_serializer:check_schema(maps:get(serialization_schema, Schema)),
     DataCFName = data_cf(GenId),
     TrieCFName = trie_cf(GenId),
     {ok, DataCFHandle} = rocksdb:create_column_family(DBHandle, DataCFName, []),
@@ -139,8 +135,7 @@ open(
     Schema = #{
         topic_index_bytes := TIBytes,
         timestamp_bytes := TSB,
-        wildcard_hash_bytes := WCBytes,
-        serialization_schema := SSchema
+        wildcard_hash_bytes := WCBytes
     }
 ) ->
     {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
@@ -154,7 +149,7 @@ open(
             data_cf => DataCF,
             trie_cf => TrieCF,
             trie => Trie,
-            serialization_schema => SSchema,
+            deserialize => fun(Bin) -> Bin end,
             decompose => fun(StreamKey, Val) ->
                 {Varying, TS} = decompose_stream_key(TSB, StreamKey),
                 {Varying, TS, Val}
@@ -168,7 +163,6 @@ open(
         trie = Trie,
         gs = GS,
         ts_bytes = TSB,
-        serialization_schema = SSchema,
         threshold_fun = emqx_ds_lts:threshold_fun(ThresholdSpec)
     }.
 
@@ -192,7 +186,7 @@ prepare_tx(DBShard, S, TXID, Ops, _Options) ->
 
 cook_blob_writes(_, _TXID, [], Acc) ->
     lists:reverse(Acc);
-cook_blob_writes(S = #s{serialization_schema = SSchema}, TXID, [{Topic, TS, Value0} | Rest], Acc) ->
+cook_blob_writes(S = #s{}, TXID, [{Topic, TS, Value0} | Rest], Acc) ->
     #s{trie = Trie, threshold_fun = TFun} = S,
     {Static, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Topic),
     Value =
@@ -202,8 +196,7 @@ cook_blob_writes(S = #s{serialization_schema = SSchema}, TXID, [{Topic, TS, Valu
             _ when is_binary(Value0) ->
                 Value0
         end,
-    Bin = emqx_ds_msg_serializer:serialize(SSchema, Value),
-    cook_blob_writes(S, TXID, Rest, [?cooked_msg_op(Static, Varying, TS, Bin) | Acc]).
+    cook_blob_writes(S, TXID, Rest, [?cooked_msg_op(Static, Varying, TS, Value) | Acc]).
 
 cook_blob_deletes(DBShard, S, Topics, Acc0) ->
     lists:foldl(
