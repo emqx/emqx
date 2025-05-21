@@ -98,7 +98,7 @@
     emqx_ds:topic(),
     emqx_ds:time()
 ) ->
-    {ok, emqx_ds:value()} | undefined | emqx_ds:error(_).
+    {ok, binary()} | undefined | emqx_ds:error(_).
 
 -callback next(
     emqx_ds_storage_layer:dbshard(),
@@ -158,7 +158,7 @@ prepare_tx(DBShard, GenId, TXSerial, Tx, Options) ->
 -spec lookup(
     emqx_ds_storage_layer:dbshard(), emqx_ds:generation(), emqx_ds:topic(), emqx_ds:time()
 ) ->
-    {ok, emqx_ds:value()} | undefined | emqx_ds:error(_).
+    {ok, binary()} | undefined | emqx_ds:error(_).
 lookup(DBShard, Generation, Topic, Time) ->
     case emqx_ds_storage_layer:generation_get(DBShard, Generation) of
         not_found ->
