@@ -1,18 +1,31 @@
 emqx_nats_schema {
 
+nats.desc:
+"""The NATS protocol gateway provides EMQX with the ability to access NATS\n"
+(Neural Autonomic Transport System) protocol."""
+
 server_id.desc:
-"""Server ID"""
+"""Server ID."""
 
 server_name.desc:
-"""Server Name"""
+"""Server Name."""
+
+protocol.desc:
+"""A group of settings for NATS Server protocol."""
 
 max_payload_size.desc:
-"""The maximum number of bytes of Payload allowed per NATS PUB/HPUB message"""
+"""The maximum number of bytes of Payload allowed per NATS PUB/HPUB message."""
+
+tcp_ws_listeners.desc:
+"""The gateway's Websocket listener adopts the same structure as the MQTT Websocket listener."""
 
 ws_listener.desc:
-"""Websocket Listener"""
+"""Websocket Listener."""
 
 wss_listener.desc:
-"""Websocket over TLS Listener"""
+"""Websocket over TLS Listener."""
+
+websocket.desc:
+"""websocket Options."""
 
 }

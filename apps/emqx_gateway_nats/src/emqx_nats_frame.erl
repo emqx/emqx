@@ -43,7 +43,6 @@
 initial_parse_state(_) ->
     #{
         buffer => <<>>,
-        %% TODO: support to parse HPUB and HMSG
         headers => false,
         %% init | args | headers | payload
         state => init,

@@ -75,18 +75,17 @@ fields(websocket) ->
     emqx_gateway_schema:ws_opts(Override).
 
 desc(nats) ->
-    "The NATS protocol gateway provides EMQX with the ability to access NATS\n"
-    "(Neural Autonomic Transport System) protocol.";
+    ?DESC(nats);
 desc(protocol) ->
-    "A group of settings for NATS Server.";
+    ?DESC(protocol);
 desc(tcp_ws_listeners) ->
-    "The NATS gateway accepts TCP and Websocket connections.";
+    ?DESC(tcp_ws_listeners);
 desc(ws_listener) ->
-    "Websocket listener";
+    ?DESC(ws_listener);
 desc(wss_listener) ->
-    "Websocket over TLS listener";
+    ?DESC(wss_listener);
 desc(websocket) ->
-    "Websocket options";
+    ?DESC(websocket);
 desc(_) ->
     undefined.
 
