@@ -8,7 +8,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx_cm.hrl").
--include_lib("emqx/include/emqx_lcr.hrl").
+-include_lib("emqx/include/emqx_lsr.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -41,19 +41,19 @@
 suite() -> [{timetrap, {minutes, 2}}].
 
 all() ->
-    [{group, lcr}, {group, lcr_off}].
+    [{group, lsr}, {group, lsr_off}].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {lcr, [], TCs},
-        {lcr_off, [], TCs}
+        {lsr, [], TCs},
+        {lsr_off, [], TCs}
     ].
 
-init_per_group(lcr, Config) ->
+init_per_group(lsr, Config) ->
     emqx_config:put([broker, enable_linear_channel_registry], true),
     Config;
-init_per_group(lcr_off, Config) ->
+init_per_group(lsr_off, Config) ->
     emqx_config:put([broker, enable_linear_channel_registry], false),
     Config.
 
@@ -73,7 +73,7 @@ end_per_suite(Config) ->
 
 open_session(CleanStart, ClientInfo0, ConnInfo) ->
     ClientInfo =
-        case emqx_lcr:is_enabled() of
+        case emqx_lsr:is_enabled() of
             true ->
                 ClientInfo0#{predecessor => undefined};
             _ ->
@@ -158,7 +158,7 @@ t_open_session(_) ->
         open_session(true, ClientInfo, ConnInfo),
     ?assertEqual(100, emqx_session:info(inflight_max, Session1)),
 
-    case emqx_lcr:is_enabled() of
+    case emqx_lsr:is_enabled() of
         false ->
             {ok, #{session := Session2, present := false}} =
                 open_session(true, ClientInfo, ConnInfo),
@@ -558,7 +558,7 @@ spawn_dummy_chann(Mod, Count) ->
 client(ClientId) ->
     client(ClientId, undefined).
 client(ClientId, Pid, #{trpt_started_at := TS} = _ConnInfo) ->
-    Pred = #lcr_channel{id = ClientId, pid = Pid, vsn = TS},
+    Pred = #lsr_channel{id = ClientId, pid = Pid, vsn = TS},
     client(ClientId, Pred).
 client(ClientId, Pred) ->
     case emqx:get_config([broker, enable_linear_channel_registry]) of

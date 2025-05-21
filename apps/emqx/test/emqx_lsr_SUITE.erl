@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_lcr_SUITE).
+-module(emqx_lsr_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -26,12 +26,12 @@ groups() ->
     [
         {clean_start_true, [{group, v3}, {group, v5}]},
         {clean_start_false, [{group, v3}, {group, v5}]},
-        {v3, [{group, lcr_only}, {group, lcr_hybrid}]},
-        {v5, [{group, lcr_only}, {group, lcr_hybrid}]},
-        {lcr_only, [], AllTCs},
-        {lcr_hybrid, [], AllTCs},
+        {v3, [{group, lsr_only}, {group, lsr_hybrid}]},
+        {v5, [{group, lsr_only}, {group, lsr_hybrid}]},
+        {lsr_only, [], AllTCs},
+        {lsr_hybrid, [], AllTCs},
         {race, [
-            %% this is the group lcr could not support
+            %% this is the group lsr could not support
             %   {group, race_sleep_0},
             {group, race_sleep_10},
             {group, race_sleep_100}
@@ -78,10 +78,10 @@ init_per_group(v3, Config) ->
 init_per_group(v5, Config) ->
     ClientOpts = ?config(client_opts, Config),
     lists:keystore(client_opts, 1, Config, {client_opts, ClientOpts#{proto_ver => v5}});
-init_per_group(lcr_only, Config) ->
+init_per_group(lsr_only, Config) ->
     Conf = "broker.enable_linear_channel_registry = true\nbroker.enable_session_registry=false",
     lists:keystore(emqx_conf, 1, Config, {emqx_conf, Conf});
-init_per_group(lcr_hybrid, Config) ->
+init_per_group(lsr_hybrid, Config) ->
     Conf = "broker.enable_linear_channel_registry = true\nbroker.enable_session_registry=true",
     lists:keystore(emqx_conf, 1, Config, {emqx_conf, Conf});
 init_per_group(race_sleep_0, Config) ->
@@ -400,11 +400,11 @@ t_takeover_timeout(Config) ->
         end
     ).
 
-t_lcr_cleanup_replicant(init, Config) ->
+t_lsr_cleanup_replicant(init, Config) ->
     %% GIVEN: 5 nodes cluster with 2 replicants
     Nodes = start_cluster(?FUNCTION_NAME, Config, 6),
     [{cluster_nodes, Nodes} | Config].
-t_lcr_cleanup_replicant(Config) ->
+t_lsr_cleanup_replicant(Config) ->
     ClientId = <<"client1">>,
     ClientsOnR1 = [<<"client11">>, <<"client12">>, <<"client13">>, <<"client14">>],
 
@@ -455,7 +455,7 @@ t_lcr_cleanup_replicant(Config) ->
     end,
 
     timer:sleep(1000),
-    %% THEN: lcr of client1[1..4] should be cleaned up
+    %% THEN: lsr of client1[1..4] should be cleaned up
     %%%      while client2 and client3 remains
     [
         ?assertEqual(
@@ -473,13 +473,13 @@ t_lcr_cleanup_replicant(Config) ->
         rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId3])
     ).
 
-t_lcr_cleanup_core(init, Config) ->
+t_lsr_cleanup_core(init, Config) ->
     %% GIVEN: 5 nodes cluster with 2 replicants
     ClusterSize = 6,
     ClusterSpec = cluster_spec(?FUNCTION_NAME, ClusterSize, Config),
     Nodes = start_cluster(ClusterSpec),
     [{cluster_nodes, Nodes}, {cluster_spec, ClusterSpec} | Config].
-t_lcr_cleanup_core(Config) ->
+t_lsr_cleanup_core(Config) ->
     ClientId = <<"client1">>,
     ClientsOnC1 = [<<"client11">>, <<"client12">>, <<"client13">>, <<"client14">>],
 
@@ -547,7 +547,7 @@ t_lcr_cleanup_core(Config) ->
         ?assertMatch(
             {[[_], [_], [_], [_], [_]], [Core1]},
             %rpc:multicall(Nodes, emqx_cm, lookup_channels, [C]))
-            rpc:multicall(Nodes, ets, lookup, [emqx_lcr, C])
+            rpc:multicall(Nodes, ets, lookup, [emqx_lsr, C])
         )
      || C <- [ClientId | ClientsOnC1]
     ],
@@ -586,11 +586,11 @@ t_lcr_cleanup_core(Config) ->
         rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId3])
     ).
 
-t_lcr_batch_cleanup(init, Config) ->
+t_lsr_batch_cleanup(init, Config) ->
     %% GIVEN: 5 nodes cluster with 2 replicants
     Nodes = start_cluster(?FUNCTION_NAME, Config, 6),
     [{cluster_nodes, Nodes} | Config].
-t_lcr_batch_cleanup(Config) ->
+t_lsr_batch_cleanup(Config) ->
     NoCLients = 400,
     ClientsOnR1 = lists:map(
         fun(N) ->
@@ -725,7 +725,7 @@ suspend_replicant_rlog(TargetNode) ->
             ok = rpc:call(node(UpstreamPid), sys, suspend, [UpstreamPid]),
             UpstreamPid
         end,
-        [?CM_SHARD, ?LCR_SHARD]
+        [?CM_SHARD, ?LSR_SHARD]
     ).
 
 unsuspend_remote_pids(Pids) ->
