@@ -1285,8 +1285,8 @@ t_17_tx_wrapper(Config) ->
                 emqx_ds:trans(
                     TXOpts,
                     fun() ->
-                        emqx_ds:tx_ttv_write([<<"foo">>], 0, <<"1">>),
-                        emqx_ds:tx_ttv_write([<<"t">>, <<"1">>], 0, <<"2">>)
+                        emqx_ds:tx_write({[<<"foo">>], 0, <<"1">>}),
+                        emqx_ds:tx_write({[<<"t">>, <<"1">>], 0, <<"2">>})
                     end
                 )
             ),
@@ -1343,7 +1343,7 @@ t_18_async_trans(Config) ->
                 emqx_ds:trans(
                     TXOpts,
                     fun() ->
-                        emqx_ds:tx_ttv_write([<<"foo">>], 0, ?ds_tx_serial),
+                        emqx_ds:tx_write({[<<"foo">>], 0, ?ds_tx_serial}),
                         hello
                     end
                 ),
@@ -1363,7 +1363,7 @@ t_18_async_trans(Config) ->
                 emqx_ds:trans(
                     TXOpts,
                     fun() ->
-                        emqx_ds:tx_ttv_write([<<"foo">>], 0, ?ds_tx_serial),
+                        emqx_ds:tx_write({[<<"foo">>], 0, ?ds_tx_serial}),
                         emqx_ds:tx_ttv_assert_present([<<"bar">>], 0, '_'),
                         there
                     end
@@ -1395,7 +1395,7 @@ t_18_async_trans(Config) ->
                 emqx_ds:trans(
                     TXOpts#{timeout => 0},
                     fun() ->
-                        emqx_ds:tx_ttv_write([<<"foo">>], 0, ?ds_tx_serial)
+                        emqx_ds:tx_write({[<<"foo">>], 0, ?ds_tx_serial})
                     end
                 ),
             %% Wait for timeout
