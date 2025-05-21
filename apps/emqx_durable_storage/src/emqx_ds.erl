@@ -103,6 +103,9 @@
 
     error/1,
 
+    fold_options/0,
+    tx_fold_options/0,
+
     ds_specific_stream/0,
     ds_specific_iterator/0,
     ds_specific_delete_stream/0,
@@ -425,11 +428,19 @@
 -type fold_options() ::
     #{
         db := db(),
+        shard => shard(),
+        generation => generation(),
+
         errors => crash | report,
         batch_size => pos_integer(),
-        start_time => time(),
-        shard => shard(),
-        generation => generation()
+        start_time => time()
+    }.
+
+-type tx_fold_options() ::
+    #{
+        errors => crash | report,
+        batch_size => pos_integer(),
+        start_time => time()
     }.
 
 -record(fold_ctx, {
@@ -1002,7 +1013,7 @@ dirty_read(#{db := _} = Opts, TopicFilter) ->
 %%
 %% WARNING: This operation conflicts with _any_ write to the topics
 %% matching the filter.
--spec tx_read(fold_options(), topic_filter()) ->
+-spec tx_read(tx_fold_options(), topic_filter()) ->
     fold_result([ttv() | emqx_types:message()]).
 tx_read(Opts, TopicFilter) ->
     tx_fold_topic(fun dirty_read_topic_fun/5, [], TopicFilter, Opts).
@@ -1141,13 +1152,11 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
     fold_fun(Acc),
     Acc,
     topic_filter(),
-    fold_options()
+    tx_fold_options()
 ) -> fold_result(Acc).
 tx_fold_topic(Fun, Acc, TopicFilter, UserOpts) ->
     case tx_ctx() of
         #kv_tx_ctx{shard = Shard, generation = Generation} ->
-            %% Here we simply ignore and overwrite db, shard and
-            %% generation provided from UserOpts.
             Opts = UserOpts#{db => tx_ctx_db(), shard => Shard, generation => Generation},
             tx_push_op(?tx_ops_read, TopicFilter),
             fold_topic(Fun, Acc, TopicFilter, Opts);

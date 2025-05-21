@@ -47,26 +47,20 @@ check_schema(v1) ->
     ok;
 check_schema(asn1) ->
     ok;
-check_schema(verbatim) ->
-    ok;
 check_schema(_) ->
     {error, "Unknown schema type"}.
 
--spec serialize(schema(), emqx_types:message() | binary()) -> binary().
+-spec serialize(schema(), emqx_types:message()) -> binary().
 serialize(v1, Msg) ->
     serialize_v1(Msg);
 serialize(asn1, Msg) ->
-    serialize_asn1(Msg);
-serialize(verbatim, Blob) ->
-    Blob.
+    serialize_asn1(Msg).
 
--spec deserialize(schema(), binary()) -> emqx_types:message() | binary().
+-spec deserialize(schema(), binary()) -> emqx_types:message().
 deserialize(v1, Blob) ->
     deserialize_v1(Blob);
 deserialize(asn1, Blob) ->
-    deserialize_asn1(Blob);
-deserialize(verbatim, Blob) ->
-    Blob.
+    deserialize_asn1(Blob).
 
 %%================================================================================
 %% Internal functions
