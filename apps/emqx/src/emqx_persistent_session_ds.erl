@@ -27,7 +27,6 @@
 
 -include("emqx_mqtt.hrl").
 
--include("emqx_session.hrl").
 -include("emqx_persistent_session_ds/session_internals.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
@@ -154,6 +153,7 @@
 %% state.
 -type subscription() :: #{
     id := subscription_id(),
+    mode := emqx_persistent_session_ds_subs:mode(),
     start_time := emqx_ds:time(),
     current_state := emqx_persistent_session_ds_subs:subscription_state_id(),
     subopts := map()
@@ -406,18 +406,31 @@ subscribe(
 subscribe(
     TopicFilter,
     SubOpts,
-    Session0 = #{stream_scheduler_s := SchedS0}
+    Session0
 ) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
-        {ok, S1, Subscription} ->
-            {_NewSLSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_subscribe(
-                TopicFilter, Subscription, S1, SchedS0
-            ),
-            Session = Session0#{s := S, stream_scheduler_s := SchedS},
+        {_Ok, S1, Subscription} ->
+            Session = subscribed(TopicFilter, Subscription, Session0#{s := S1}),
+            {ok, commit(Session)};
+        {recreated, S1, Subscription, Subscription0 = #{mode := Mode0}} ->
+            Session1 = Session0#{s := S1},
+            Session2 = unsubscribed(TopicFilter, Subscription0, Session1),
+            Session = subscribed(TopicFilter, Subscription, Session2),
+            %% Upgraded from direct subscription, drain potential duplicates:
+            Mode0 == direct andalso drain_transient(TopicFilter),
             {ok, commit(Session)};
         Error = {error, _} ->
             Error
     end.
+
+subscribed(TopicFilter, #{mode := durable} = Subscription, Session0) ->
+    #{s := S0, stream_scheduler_s := SchedS0} = Session0,
+    {_NewSLSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_subscribe(
+        TopicFilter, Subscription, S0, SchedS0
+    ),
+    Session0#{s := S, stream_scheduler_s := SchedS};
+subscribed(_TopicFilter, #{mode := direct}, Session) ->
+    Session.
 
 -spec unsubscribe(topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
@@ -445,18 +458,25 @@ unsubscribe(
     end;
 unsubscribe(
     TopicFilter,
-    Session0 = #{id := SessionId, s := S0, stream_scheduler_s := SchedS0}
+    Session0 = #{id := SessionId, s := S0}
 ) ->
     case emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
-        {ok, S1, #{id := SubId, subopts := SubOpts}} ->
-            {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
-                TopicFilter, SubId, S1, SchedS0
-            ),
-            Session = Session0#{s := S, stream_scheduler_s := SchedS},
-            {ok, commit(clear_buffer(SubId, Session)), SubOpts};
+        {ok, S1, Subscription = #{subopts := SubOpts}} ->
+            Session = unsubscribed(TopicFilter, Subscription, Session0#{s := S1}),
+            {ok, commit(Session), SubOpts};
         Error = {error, _} ->
             Error
     end.
+
+unsubscribed(TopicFilter, #{mode := durable, id := SubId}, Session0) ->
+    #{s := S0, stream_scheduler_s := SchedS0} = Session0,
+    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
+        TopicFilter, SubId, S0, SchedS0
+    ),
+    Session = Session0#{s := S, stream_scheduler_s := SchedS},
+    clear_buffer(SubId, Session);
+unsubscribed(_TopicFilter, #{mode := direct}, Session) ->
+    Session.
 
 -spec get_subscription(topic_filter(), session()) ->
     emqx_types:subopts() | undefined.
@@ -612,7 +632,8 @@ pubcomp(ClientInfo, PacketId, Session0) ->
     {ok, replies(), session()}.
 deliver(ClientInfo, Delivers, Session0) ->
     %% Durable sessions still have to handle some transient messages.
-    %% For example, retainer sends messages to the session directly.
+    %% For example, retainer and direct subscriptions send messages to the
+    %% session directly.
     Session = lists:foldl(
         fun(Msg, Acc) -> enqueue_transient(ClientInfo, Msg, Acc) end, Session0, Delivers
     ),
@@ -713,9 +734,16 @@ shared_sub_opts(SessionId) ->
 
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
-replay(ClientInfo, [], Session0 = #{s := S0}) ->
-    Streams = emqx_persistent_session_ds_stream_scheduler:find_replay_streams(S0),
-    Session = replay_streams(Session0#{replay := Streams}, ClientInfo),
+replay(
+    ClientInfo,
+    [],
+    Session0 = #{id := SessionId, s := S0, stream_scheduler_s := SchedS0}
+) ->
+    ok = emqx_persistent_session_ds_subs:on_session_replay(SessionId, S0),
+    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_replay(S0, SchedS0),
+    Streams = emqx_persistent_session_ds_stream_scheduler:find_replay_streams(S),
+    Session1 = Session0#{s := S, stream_scheduler_s := SchedS, replay := Streams},
+    Session = replay_streams(Session1, ClientInfo),
     {ok, [], Session}.
 
 replay_streams(Session0 = #{replay := [{StreamKey, SRS0} | Rest]}, ClientInfo) ->
@@ -1245,6 +1273,12 @@ enqueue_transient(
         s := S
     }.
 
+drain_transient(Topic) ->
+    receive
+        {deliver, Topic, _Msg} -> drain_transient(Topic)
+    after 0 -> ok
+    end.
+
 %%--------------------------------------------------------------------
 %% Inflight management
 %%--------------------------------------------------------------------
@@ -1360,8 +1394,8 @@ do_drain_buffer_of_stream(
     emqx_types:conninfo(),
     emqx_session:conf()
 ) -> session().
-create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
-    {S1, SchedS} = emqx_persistent_session_ds_stream_scheduler:init(S0),
+create_session(IsNew, ClientID, S1, ConnInfo, Conf) ->
+    SchedS = emqx_persistent_session_ds_stream_scheduler:new(),
     Buffer = emqx_persistent_session_ds_buffer:new(),
     Inflight = emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo)),
     %% Create or init shared subscription state:

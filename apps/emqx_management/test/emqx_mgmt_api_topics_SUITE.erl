@@ -228,7 +228,7 @@ t_persistent_topics(_Config) ->
     ClientPersistent1 = client(SessionId1, PersistentOpts),
     ClientPersistent2 = client(SessionId2, PersistentOpts),
     _ = [
-        ?assertMatch({ok, _, _}, emqtt:subscribe(Client, Topic))
+        ?assertMatch({ok, _, [1]}, emqtt:subscribe(Client, Topic, _QoS = 1))
      || {Client, Topics} <- [
             {Client1, [<<"t/client/mem">>, <<"t/+">>]},
             {Client2, [<<"t/client/mem">>, <<"t/+">>]},
