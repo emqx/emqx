@@ -11,7 +11,7 @@
 %% may race with the recently updated topics are rejected. Valid
 %% transactions are "cooked" and added to the buffer.
 %%
-%% Buffer is periodically flushed in a single call the backend.
+%% Buffer is periodically flushed in a single call to the backend.
 %%
 %% Leader is also tasked with keeping and incrementing the transaction
 %% serial for the pending transactions. The latest serial is committed
@@ -270,12 +270,11 @@ handle_event(state_timeout, ?timeout_initialize, ?initial, D) ->
 handle_event(ET, Evt, ?initial, _) ->
     ?tp(warning, unexpected_event_in_initial_state, #{ET => Evt}),
     {keep_state_and_data, postpone};
-handle_event(cast, Tx = #ds_tx{}, ?leader(State), D0) ->
+handle_event(cast, Tx = #ds_tx{}, ?leader(State), D0 = #d{idle_flush_interval = IdleInterval}) ->
     %% Enqueue transaction commit:
     case handle_tx(D0, Tx) of
         {ok, D} ->
             %% Schedule early flush if the shard is idle:
-            IdleInterval = 1,
             Timeout = {timeout, IdleInterval, ?timeout_flush},
             case State of
                 ?idle ->
