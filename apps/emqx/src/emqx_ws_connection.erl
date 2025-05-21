@@ -592,10 +592,6 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {more, NParseState} ->
             {Packets, State#state{parse_state = NParseState}};
-        {Packet = ?CONNECT_PACKET(ConnPkt), Rest, NParseState} ->
-            Serialize = emqx_frame:serialize_opts(ConnPkt),
-            NState = State#state{parse_state = NParseState, serialize = Serialize},
-            parse_incoming(Rest, [Packet | Packets], cancel_idle_timer(NState));
         {Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet | Packets], NState)
@@ -630,7 +626,15 @@ update_state_on_parse_error(_, State) ->
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
+handle_incoming(Packets = [?CONNECT_PACKET(ConnPkt) | _], State) ->
+    Serialize = emqx_frame:serialize_opts(ConnPkt),
+    NState = cancel_idle_timer(State#state{serialize = Serialize}),
+    do_handle_incoming(Packets, NState);
 handle_incoming(Packets, State) ->
+    do_handle_incoming(Packets, State).
+
+-compile({inline, [do_handle_incoming/2]}).
+do_handle_incoming(Packets, State) ->
     Result = handle_incoming_packets(Packets, {[], State}),
     _ = trigger_gc_incoming(),
     commands(Result).
@@ -640,6 +644,7 @@ handle_incoming_packets([Packet = #mqtt_packet{} | Packets], ResAcc) ->
     ok = inc_incoming_stats(Packet),
     handle_incoming_packets(Packets, with_channel(handle_in, [Packet], ResAcc));
 handle_incoming_packets([FrameError], ResAcc) ->
+    %% NOTE: If there was a frame parsing error, it always goes last in the list.
     with_channel(handle_in, [FrameError], ResAcc);
 handle_incoming_packets([], ResAcc) ->
     ResAcc.
