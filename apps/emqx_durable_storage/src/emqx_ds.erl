@@ -58,7 +58,7 @@
     tx_read/2,
 
     %% Key-value functions:
-    tx_ttv_write/3,
+    tx_write/1,
     tx_del_topic/1,
     tx_ttv_assert_present/3,
     tx_ttv_assert_absent/2
@@ -929,8 +929,8 @@ trans(UserOpts = #{db := DB, shard := _, generation := _}, Fun) ->
 %%
 %% NOTE: topics used in TTV interface are not MQTT topics: they don't
 %% have to be proper unicode and levels can contain slashes.
--spec tx_ttv_write(topic(), time(), binary() | ?ds_tx_serial) -> ok.
-tx_ttv_write(Topic, Time, Value) ->
+-spec tx_write({topic(), time(), binary() | ?ds_tx_serial}) -> ok.
+tx_write({Topic, Time, Value}) ->
     case
         is_topic(Topic) andalso is_integer(Time) andalso
             (is_binary(Value) orelse Value =:= ?ds_tx_serial)
