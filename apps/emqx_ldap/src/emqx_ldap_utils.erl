@@ -14,8 +14,8 @@ Split a string by a separator character, ignoring escaped separators.
 ## Examples
 
 ```erlang
-emqx_ldap_utils:split("a*\**b", "*").
-% ["a", "*", "b"]
+emqx_ldap_utils:split("a*\\**b", "*").
+% ["a", "\\*", "b"]
 
 ```
 """.

@@ -15,7 +15,7 @@
 -define(LDAP_DEFAULT_PORT, 389).
 
 -define(PATH, [authentication]).
--define(ResourceID, <<"password_based:ldap">>).
+-define(AUTHN_ID, <<"password_based:ldap">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -67,27 +67,22 @@ t_create(_Config) ->
     ),
 
     {ok, [#{provider := emqx_authn_ldap}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
-    emqx_authn_test_lib:delete_config(?ResourceID).
+    emqx_authn_test_lib:delete_config(?AUTHN_ID).
 
 t_create_invalid(_Config) ->
     AuthConfig = raw_ldap_auth_config(),
 
     InvalidConfigs =
         [
-            AuthConfig#{<<"server">> => <<"unknownhost:3333">>},
-            AuthConfig#{<<"password">> => <<"wrongpass">>}
+            AuthConfig#{<<"base_dn">> => <<"outestdevice,dcemqx,dc=io">>},
+            AuthConfig#{<<"filter">> => <<"(cn=${username}">>}
         ],
 
     lists:foreach(
         fun(Config) ->
-            {ok, _} = emqx:update_config(
+            {error, _Error} = emqx:update_config(
                 ?PATH,
                 {create_authenticator, ?GLOBAL, Config}
-            ),
-            emqx_authn_test_lib:delete_config(?ResourceID),
-            ?assertEqual(
-                {error, {not_found, {chain, ?GLOBAL}}},
-                emqx_authn_chains:list_authenticators(?GLOBAL)
             )
         end,
         InvalidConfigs
@@ -95,75 +90,73 @@ t_create_invalid(_Config) ->
 
 t_authenticate_timeout_cause_reconnect(_Config) ->
     TestPid = self(),
-    meck:new(eldap, [non_strict, no_link, passthrough]),
-    try
-        %% cause eldap process to be killed
-        meck:expect(
-            eldap,
-            search,
-            fun
-                (Pid, [{base, <<"uid=mqttuser0007", _/binary>>} | _]) ->
+    meck:new(eldap, [non_strict, passthrough]),
+    %% cause eldap process to be killed
+    meck:expect(
+        eldap,
+        search,
+        fun(Pid, SearchOptions) ->
+            BaseDN = iolist_to_binary(proplists:get_value(base, SearchOptions, <<>>)),
+            case BaseDN of
+                <<"uid=mqttuser0007", _/binary>> ->
                     TestPid ! {eldap_pid, Pid},
                     {error, {gen_tcp_error, timeout}};
-                (Pid, Args) ->
-                    meck:passthrough([Pid, Args])
+                _ ->
+                    meck:passthrough([Pid, SearchOptions])
             end
-        ),
+        end
+    ),
+    Credentials = fun(Username) ->
+        #{
+            username => Username,
+            password => Username,
+            listener => 'tcp:default',
+            protocol => mqtt
+        }
+    end,
 
-        Credentials = fun(Username) ->
-            #{
-                username => Username,
-                password => Username,
-                listener => 'tcp:default',
-                protocol => mqtt
-            }
-        end,
+    SpecificConfigParams = #{},
+    Result = {ok, #{is_superuser => true}},
 
-        SpecificConfigParams = #{},
-        Result = {ok, #{is_superuser => true}},
+    Timeout = 1000,
+    Config0 = raw_ldap_auth_config(),
+    Config = Config0#{
+        <<"pool_size">> => 1,
+        <<"request_timeout">> => Timeout
+    },
+    AuthConfig = maps:merge(Config, SpecificConfigParams),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, AuthConfig}
+    ),
 
-        Timeout = 1000,
-        Config0 = raw_ldap_auth_config(),
-        Config = Config0#{
-            <<"pool_size">> => 1,
-            <<"request_timeout">> => Timeout
-        },
-        AuthConfig = maps:merge(Config, SpecificConfigParams),
-        {ok, _} = emqx:update_config(
-            ?PATH,
-            {create_authenticator, ?GLOBAL, AuthConfig}
-        ),
-
-        %% 0006 is a disabled user
-        ?assertEqual(
-            {error, user_disabled},
-            emqx_access_control:authenticate(Credentials(<<"mqttuser0006">>))
-        ),
-        ?assertEqual(
-            {error, not_authorized},
-            emqx_access_control:authenticate(Credentials(<<"mqttuser0007">>))
-        ),
-        ok = wait_for_ldap_pid(1000),
-        [#{id := ResourceID}] = emqx_resource_manager:list_all(),
-        ?retry(1_000, 20, {ok, connected} = emqx_resource_manager:health_check(ResourceID)),
-        %% turn back to normal
-        meck:expect(
-            eldap,
-            search,
-            2,
-            fun(Pid2, Query) ->
-                meck:passthrough([Pid2, Query])
-            end
-        ),
-        %% expect eldap process to be restarted
-        ?assertEqual(Result, emqx_access_control:authenticate(Credentials(<<"mqttuser0007">>))),
-        emqx_authn_test_lib:delete_authenticators(
-            [authentication],
-            ?GLOBAL
-        )
-    after
-        meck:unload(eldap)
-    end.
+    %% 0006 is a disabled user
+    ?assertEqual(
+        {error, user_disabled},
+        emqx_access_control:authenticate(Credentials(<<"mqttuser0006">>))
+    ),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_access_control:authenticate(Credentials(<<"mqttuser0007">>))
+    ),
+    ok = wait_for_ldap_pid(1000),
+    [#{id := ResourceID}] = emqx_resource_manager:list_all(),
+    ?retry(1_000, 20, {ok, connected} = emqx_resource_manager:health_check(ResourceID)),
+    %% turn back to normal
+    meck:expect(
+        eldap,
+        search,
+        2,
+        fun(Pid2, Query) ->
+            meck:passthrough([Pid2, Query])
+        end
+    ),
+    %% expect eldap process to be restarted
+    ?assertEqual(Result, emqx_access_control:authenticate(Credentials(<<"mqttuser0007">>))),
+    emqx_authn_test_lib:delete_authenticators(
+        [authentication],
+        ?GLOBAL
+    ).
 
 wait_for_ldap_pid(After) ->
     receive
@@ -372,7 +365,7 @@ user_seeds() ->
         New(<<"mqttuser0007">>, <<"mqttuser0007">>, {ok, #{is_superuser => true}}),
         New(<<"mqttuser0008 (test)">>, <<"mqttuser0008 (test)">>, {ok, #{is_superuser => true}}),
         New(
-            <<"mqttuser0009 \\\\test\\\\">>,
+            <<"mqttuser0009 \\test\\">>,
             <<"mqttuser0009 \\\\test\\\\">>,
             {ok, #{is_superuser => true}}
         ),

@@ -67,23 +67,9 @@ common_fields() ->
     [
         {mechanism, emqx_authn_schema:mechanism(?AUTHN_MECHANISM)},
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
-        {query_timeout, fun query_timeout/1},
-        {base_dn,
-            ?HOCON(binary(), #{
-                desc => ?DESC(base_dn),
-                required => true,
-                example => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
-                validator => fun dn_validator/1
-            })},
-        {filter,
-            ?HOCON(binary(), #{
-                desc => ?DESC(filter),
-                default => <<"(objectClass=mqttUser)">>,
-                example => <<"(& (objectClass=mqttUser) (uid=${username}))">>,
-                validator => fun filter_validator/1,
-                converter => fun filter_converter/2
-            })}
+        {query_timeout, fun query_timeout/1}
     ] ++
+        emqx_ldap:fields(search_options) ++
         emqx_authn_schema:common_fields() ++
         emqx_ldap:fields(config).
 
@@ -141,21 +127,3 @@ query_timeout(type) -> emqx_schema:timeout_duration_ms();
 query_timeout(desc) -> ?DESC(?FUNCTION_NAME);
 query_timeout(default) -> <<"5s">>;
 query_timeout(_) -> undefined.
-
-filter_converter(Filter, _Opts) ->
-    case string:empty(Filter) of
-        true -> <<"(objectClass=mqttUser)">>;
-        false -> Filter
-    end.
-
-filter_validator(Filter) ->
-    maybe
-        {ok, _} ?= emqx_ldap_filter:parse(Filter),
-        ok
-    end.
-
-dn_validator(Dn) ->
-    maybe
-        {ok, _} ?= emqx_ldap_dn:parse(Dn),
-        ok
-    end.

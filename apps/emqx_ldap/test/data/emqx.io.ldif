@@ -166,42 +166,18 @@ uid: mqttuser0008 (test)
 isSuperuser: TRUE
 userPassword: {SHA}FCzJLOp66OwsZ9DQzXSxdTd9c0U=
 
+## This user's password is `mqttuser0009 \\test\\`, i.e
+## it has _double_ backslashes around the `test` string.
+## The username is `mqttuser0009 \test\`, i.e with _single_
+## backslashes.
+## Note that these single backslashes are escaped in the dn
+## and not escaped in the uid field specification.
 objectClass: top
 dn:uid=mqttuser0009 \\test\\,ou=testdevice,dc=emqx,dc=io
 objectClass: mqttUser
 objectClass: mqttDevice
 objectClass: mqttSecurity
-uid: mqttuser0009 \\test\\
-isSuperuser: TRUE
-userPassword: {SHA}awxXARLqWYx+xy0677D/TLjlyHA=
-
-objectClass: top
-dn:uid=mqttuser0010,ou=testdevice,dc=emqx,dc=io
-objectClass: mqttUser
-objectClass: mqttDevice
-objectClass: mqttSecurity
-uid: mqttuser0010
-mqttAccountName:: IHNvbWUgdmFsdWUg
-isSuperuser: TRUE
-userPassword: {SHA}awxXARLqWYx+xy0677D/TLjlyHA=
-
-objectClass: top
-dn:uid=mqttuser0011,ou=testdevice,dc=emqx,dc=io
-objectClass: mqttUser
-objectClass: mqttDevice
-objectClass: mqttSecurity
-uid: mqttuser0011
-mqttAccountName: some value
-isSuperuser: TRUE
-userPassword: {SHA}awxXARLqWYx+xy0677D/TLjlyHA=
-
-objectClass: top
-dn:uid=mqttuser0012,ou=testdevice,dc=emqx,dc=io
-objectClass: mqttUser
-objectClass: mqttDevice
-objectClass: mqttSecurity
-uid: mqttuser0012
-mqttAccountName: =a=b,c=d
+uid: mqttuser0009 \test\
 isSuperuser: TRUE
 userPassword: {SHA}awxXARLqWYx+xy0677D/TLjlyHA=
 

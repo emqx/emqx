@@ -105,7 +105,9 @@ Although the DN is passed as a string in LDAP protocol, we parse it:
 %% API functions
 %%--------------------------------------------------------------------
 
--spec parse(string()) -> {ok, ldap_dn()} | {error, term()}.
+-spec parse(string() | binary()) -> {ok, ldap_dn()} | {error, term()}.
+parse(DN) when is_binary(DN) ->
+    parse(binary_to_list(DN));
 parse(DN) ->
     try
         {ok, #ldap_dn{dn = parse_dn(DN)}}
@@ -114,9 +116,9 @@ parse(DN) ->
             {error, Reason}
     end.
 
--spec to_string(ldap_dn()) -> iodata().
+-spec to_string(ldap_dn()) -> string().
 to_string(#ldap_dn{dn = DN}) ->
-    lists:join(",", lists:map(fun rdn_to_string/1, DN)).
+    lists:flatten(lists:join(",", lists:map(fun rdn_to_string/1, DN))).
 
 -spec mapfold_values(fun((ValueType, Acc) -> {NewValueType, Acc}), Acc, ldap_dn(ValueType)) ->
     {ldap_dn(NewValueType), Acc}.

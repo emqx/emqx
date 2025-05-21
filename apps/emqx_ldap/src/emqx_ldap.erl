@@ -57,7 +57,25 @@ fields(config) ->
     ];
 fields(ssl) ->
     Schema = emqx_schema:client_ssl_opts_schema(#{}),
-    lists:keydelete("user_lookup_fun", 1, Schema).
+    lists:keydelete("user_lookup_fun", 1, Schema);
+fields(search_options) ->
+    [
+        {base_dn,
+            ?HOCON(binary(), #{
+                desc => ?DESC(base_dn),
+                required => true,
+                example => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
+                validator => fun dn_validator/1
+            })},
+        {filter,
+            ?HOCON(binary(), #{
+                desc => ?DESC(filter),
+                default => <<"(objectClass=mqttUser)">>,
+                example => <<"(& (objectClass=mqttUser) (uid=${username}))">>,
+                validator => fun filter_validator/1,
+                converter => fun filter_converter/2
+            })}
+    ].
 
 desc(ssl) ->
     ?DESC(emqx_connector_schema_lib, "ssl");
@@ -72,6 +90,24 @@ ensure_username(required) ->
     true;
 ensure_username(Field) ->
     emqx_connector_schema_lib:username(Field).
+
+filter_converter(Filter, _Opts) ->
+    case re:run(Filter, "^\\s+$") of
+        nomatch -> Filter;
+        _ -> <<"(objectClass=mqttUser)">>
+    end.
+
+filter_validator(Filter) ->
+    maybe
+        {ok, _} ?= emqx_ldap_filter:parse(Filter),
+        ok
+    end.
+
+dn_validator(DN) ->
+    maybe
+        {ok, _} ?= emqx_ldap_dn:parse(DN),
+        ok
+    end.
 
 %%--------------------------------------------------------------------
 %% API

@@ -61,7 +61,9 @@ We implement a more loose filter format, more like used by openldap's ldapsearch
 %% API
 %%--------------------------------------------------------------------
 
--spec parse(string()) -> {ok, ldap_search_filter()} | {error, term()}.
+-spec parse(string() | binary()) -> {ok, ldap_search_filter()} | {error, term()}.
+parse(Filter) when is_binary(Filter) ->
+    parse(binary_to_list(Filter));
 parse(Filter) ->
     maybe
         {ok, ParsedFilter} ?= emqx_ldap_filter_parser:scan_and_parse(Filter),
