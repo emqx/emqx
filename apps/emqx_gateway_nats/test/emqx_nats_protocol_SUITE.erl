@@ -531,6 +531,65 @@ t_reply_to(Config) ->
     emqx_nats_client:stop(Publisher),
     emqx_nats_client:stop(Subscriber).
 
+t_reply_to_with_no_responders(Config) ->
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            verbose => true,
+            no_responders => true,
+            headers => true
+        }
+    ),
+
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+
+    ok = emqx_nats_client:subscribe(Client, <<"reply.*">>, <<"sid-1">>),
+    recv_ok_frame(Client),
+
+    ok = emqx_nats_client:publish(
+        Client, <<"test.subject">>, <<"reply.subject">>, <<"test payload">>
+    ),
+    recv_ok_frame(Client),
+
+    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_HMSG,
+            message = #{
+                subject := <<"reply.subject">>,
+                sid := <<"sid-1">>,
+                headers := #{<<"code">> := 503}
+            }
+        },
+        Msg
+    ),
+    emqx_nats_client:stop(Client).
+
+t_no_responders_must_work_with_headers(Config) ->
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            verbose => true,
+            no_responders => true,
+            headers => false
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    {ok, [ConnectAck]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_ERR
+        },
+        ConnectAck
+    ),
+    emqx_nats_client:stop(Client).
+
 t_auth_success(Config) ->
     ok = enable_auth(),
     ok = create_test_user(),

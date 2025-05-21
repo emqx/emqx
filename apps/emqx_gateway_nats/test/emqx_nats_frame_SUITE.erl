@@ -226,6 +226,32 @@ t_hmsg_with_reply_to(_Config) ->
         emqx_nats_frame:headers(Frame)
     ).
 
+t_hmsg_with_no_responders(_Config) ->
+    State = emqx_nats_frame:initial_parse_state(#{}),
+    Subject = <<"test.subject">>,
+    Sid = <<"123">>,
+    ReplyTo = <<"reply.subject">>,
+    Headers = <<"NATS/1.0 503\r\n\r\n">>,
+    HeadersSize = integer_to_binary(byte_size(Headers)),
+    Payload = <<>>,
+    TotalSize = integer_to_binary(byte_size(Payload) + byte_size(Headers)),
+    HmsgFrame =
+        <<"HMSG ", Subject/binary, " ", Sid/binary, " ", ReplyTo/binary, " ", HeadersSize/binary,
+            " ", TotalSize/binary, "\r\n", Headers/binary, Payload/binary, "\r\n">>,
+
+    {ok, Frame, Rest, _} = emqx_nats_frame:parse(HmsgFrame, State),
+    ?assertEqual(?OP_HMSG, emqx_nats_frame:type(Frame)),
+    ?assertEqual(<<>>, Rest),
+    ?assertEqual(Subject, emqx_nats_frame:subject(Frame)),
+    ?assertEqual(ReplyTo, emqx_nats_frame:reply_to(Frame)),
+    ?assertEqual(Payload, emqx_nats_frame:payload(Frame)),
+    ?assertMatch(
+        #{<<"code">> := 503},
+        emqx_nats_frame:headers(Frame)
+    ),
+    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, #{})),
+    ?assertEqual(HmsgFrame, Serialized).
+
 t_invalid_headers(_Config) ->
     State = emqx_nats_frame:initial_parse_state(#{}),
     Subject = <<"test.subject">>,

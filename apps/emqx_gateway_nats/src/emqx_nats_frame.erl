@@ -258,7 +258,15 @@ serialize_message(Op, _Message) ->
     error({unknown_operation, Op}).
 
 serialize_headers(Headers) when is_map(Headers) ->
-    serialize_headers(maps:to_list(Headers), <<"NATS/1.0\r\n">>).
+    HeaderPrefix =
+        case maps:get(<<"code">>, Headers, false) of
+            false ->
+                <<"NATS/1.0\r\n">>;
+            503 ->
+                %% Only 503 is supported for the no_responders fast fail
+                <<"NATS/1.0 503\r\n">>
+        end,
+    serialize_headers(maps:to_list(maps:remove(<<"code">>, Headers)), HeaderPrefix).
 
 serialize_headers([], Acc) ->
     Acc;
@@ -481,15 +489,29 @@ parse_headers(
             parse_payload(Rest0, to_payload_state(State, Message))
     end.
 
-parse_headers_binary(<<"NATS/1.0\r\n", HeaderAndValuePart/binary>>) ->
+parse_headers_binary(Bin) ->
+    {Headers0, HeaderAndValuePart} = parse_headers_version_and_code(Bin),
     case binary:split(HeaderAndValuePart, [<<"\r\n">>, <<": ">>, <<":">>], [global]) of
         L when length(L) rem 2 == 0 ->
-            convert_header_list_to_map(L, #{});
+            convert_header_list_to_map(L, Headers0);
         _ ->
             error(invalid_headers_binary)
-    end;
-parse_headers_binary(_) ->
-    error(unknown_header_version).
+    end.
+
+parse_headers_version_and_code(Bin) ->
+    case binary:split(Bin, [<<"\r\n">>]) of
+        [VersionAndCode, HeaderAndValuePart] ->
+            case binary:split(VersionAndCode, [<<" ">>]) of
+                [<<"NATS/1.0">>, Code] ->
+                    {#{<<"code">> => binary_to_integer(Code)}, HeaderAndValuePart};
+                [<<"NATS/1.0">>] ->
+                    {#{}, HeaderAndValuePart};
+                _ ->
+                    error(invalid_headers_binary)
+            end;
+        _ ->
+            error(invalid_headers_binary)
+    end.
 
 %% End with [<<>>, <<>>] due to the header section is end with \r\n\r\n
 convert_header_list_to_map([<<>>, <<>>], Map) ->

@@ -235,6 +235,20 @@ stats(#channel{subscriptions = Subs}) ->
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
+check_no_responders(
+    #nats_frame{operation = ?OP_CONNECT, message = ConnParams}, _Channel
+) ->
+    NoResponders = maps:get(<<"no_responders">>, ConnParams, false),
+    Headers = maps:get(<<"headers">>, ConnParams, false),
+    case {NoResponders, Headers} of
+        {false, _} ->
+            ok;
+        {true, false} ->
+            {error, no_responders_required_headers_support};
+        {true, true} ->
+            ok
+    end.
+
 enrich_conninfo(
     #nats_frame{operation = ?OP_CONNECT, message = ConnParams},
     Channel = #channel{conninfo = ConnInfo}
@@ -432,6 +446,7 @@ handle_in(Packet = ?PACKET(?OP_CONNECT), Channel) ->
     case
         emqx_utils:pipeline(
             [
+                fun check_no_responders/2,
                 fun enrich_conninfo/2,
                 fun enrich_clientinfo/2,
                 fun assign_clientid_to_conninfo/2,
@@ -1018,8 +1033,36 @@ frame2message(
 
 process_pub_frame(Frame, Channel) ->
     Msg = frame2message(Frame, Channel),
-    _ = emqx_broker:publish(Msg),
-    handle_out(ok, [], Channel).
+    ReplyToSubject = emqx_nats_frame:reply_to(Frame),
+    PubResult = emqx_broker:publish(Msg),
+    Replies = no_responders_fastfails(PubResult, ReplyToSubject, Channel),
+    handle_out(ok, Replies, Channel).
+
+no_responders_fastfails([], ReplyToSubject, Channel = #channel{conninfo = ConnInfo}) when
+    is_binary(ReplyToSubject)
+->
+    ConnParams = maps:get(conn_params, ConnInfo, #{}),
+    NoResponders = maps:get(<<"no_responders">>, ConnParams, false),
+    Sub = match_subs_by_subject(ReplyToSubject, Channel),
+    case {NoResponders, Sub} of
+        {true, #{sid := SId}} ->
+            Hmsg = #nats_frame{
+                operation = ?OP_HMSG,
+                message = #{
+                    sid => SId,
+                    subject => ReplyToSubject,
+                    headers => #{
+                        <<"code">> => 503
+                    },
+                    payload => <<>>
+                }
+            },
+            [{outgoing, Hmsg}];
+        {_, _} ->
+            []
+    end;
+no_responders_fastfails(_, _, _) ->
+    [].
 
 %%--------------------------------------------------------------------
 %% Timer
@@ -1094,6 +1137,27 @@ find_sub_by_sid(SId, [E = #{sid := SId} | _]) ->
     E;
 find_sub_by_sid(SId, [_ | Rest]) ->
     find_sub_by_sid(SId, Rest).
+
+match_subs_by_subject(
+    Subject,
+    #channel{
+        subscriptions = Subs,
+        clientinfo = #{mountpoint := Mountpoint}
+    }
+) ->
+    Topic0 = emqx_nats_topic:nats_to_mqtt(Subject),
+    Topic1 = emqx_mountpoint:mount(Mountpoint, Topic0),
+    match_sub_by_topic(Topic1, Subs).
+
+match_sub_by_topic(_, []) ->
+    false;
+match_sub_by_topic(Topic, [E = #{mounted_topic := TopicFilter} | Rest]) ->
+    case emqx_topic:match(Topic, TopicFilter) of
+        true ->
+            E;
+        false ->
+            match_sub_by_topic(Topic, Rest)
+    end.
 
 remove_sub_by_sid(SId, Subs) ->
     lists:filter(fun(#{sid := Id}) -> SId =/= Id end, Subs).

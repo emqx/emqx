@@ -272,13 +272,16 @@ is_server_ready(#{socket := Socket, connected_server_info := ServerInfo}) ->
     end.
 
 connect_opts(#{options := Options, connected_server_info := _ServerInfo}) ->
-    #{
+    Opts = #{
         verbose => maps:get(verbose, Options, false),
         pedantic => maps:get(pedantic, Options, false),
         tls_required => maps:get(tls_required, Options, false),
         user => maps:get(user, Options, undefined),
-        pass => maps:get(pass, Options, undefined)
-    }.
+        pass => maps:get(pass, Options, undefined),
+        no_responders => maps:get(no_responders, Options, undefined),
+        headers => maps:get(headers, Options, undefined)
+    },
+    maps:filter(fun(_, V) -> V =/= undefined end, Opts).
 
 serialize_pkt(Frame) ->
     emqx_nats_frame:serialize_pkt(
