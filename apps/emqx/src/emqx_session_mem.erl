@@ -220,11 +220,11 @@ open(ClientInfo, ConnInfo, _MaybeWillMsg, Conf) ->
     end.
 
 do_open(#{predecessor := undefined}) ->
-    %% For emqx_lcr
+    %% For emqx_lsr
     none;
 do_open(#{clientid := ClientId, predecessor := Predecessor}) ->
-    %% For emqx_lcr
-    PredecessorPid = emqx_lcr:ch_pid(Predecessor),
+    %% For emqx_lsr
+    PredecessorPid = emqx_lsr:ch_pid(Predecessor),
     emqx_cm:takeover_session_begin(ClientId, PredecessorPid);
 do_open(#{clientid := ClientId}) ->
     %% For emqx_cm_registry

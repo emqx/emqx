@@ -11,7 +11,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
--include("emqx_lcr.hrl").
+-include("emqx_lsr.hrl").
 -include("emqx_external_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -40,7 +40,7 @@
 -export([
     open_session/4,
     open_session_with_predecessor/5,
-    open_session_lcr/3,
+    open_session_lsr/3,
     discard_session/1,
     discard_session/2,
     takeover_session_begin/1,
@@ -178,8 +178,8 @@ insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
 %% the conn_mod first for taking up the clientid access right.
 %% @end
 register_channel(#{clientid := ClientId, predecessor := _} = ClientInfo, ChanPid, ConnInfo) ->
-    %% used by lcr only.
-    case emqx_lcr:register_channel(ClientInfo, ChanPid, ConnInfo) of
+    %% used by lsr only.
+    case emqx_lsr:register_channel(ClientInfo, ChanPid, ConnInfo) of
         ok ->
             register_channel_local(ClientId, ChanPid, ConnInfo);
         {error, _} = Err ->
@@ -243,8 +243,8 @@ do_unregister_channel_local({_ClientId, ChanPid} = Chan) ->
 do_unregister_channel_global(Chan, Vsn) ->
     emqx_cm_registry:is_enabled() andalso
         emqx_cm_registry:unregister_channel(Chan),
-    emqx_lcr:is_enabled() andalso
-        emqx_lcr:unregister_channel(Chan, Vsn).
+    emqx_lsr:is_enabled() andalso
+        emqx_lsr:unregister_channel(Chan, Vsn).
 
 %% @doc Get info of a channel.
 -spec get_chan_info(emqx_types:clientid()) -> option(emqx_types:infos()).
@@ -312,9 +312,9 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     end.
 
 global_chan_cnt() ->
-    case emqx_lcr:is_enabled() of
+    case emqx_lsr:is_enabled() of
         true ->
-            emqx_lcr:count_local_d();
+            emqx_lsr:count_local_d();
         false ->
             emqx_cm_registry:count_local_d()
     end.
@@ -334,10 +334,10 @@ global_chan_cnt() ->
     | {error, Reason :: term()}.
 
 open_session(CleanStart, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
-    case emqx_lcr:is_enabled() of
+    case emqx_lsr:is_enabled() of
         true ->
             Retries = 3,
-            Predecessor = emqx_lcr:max_channel_d(ClientId),
+            Predecessor = emqx_lsr:max_channel_d(ClientId),
             open_session_with_predecessor(Predecessor, ClientInfo, ConnInfo, MaybeWillMsg, Retries);
         false ->
             open_session_with_cm_locker(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg)
@@ -368,14 +368,14 @@ open_session_with_cm_locker(
 open_session_with_predecessor(_Predecessor, _ClientInfo, _ConnInfo, _MaybeWillMsg, Retries) when
     Retries < 0
 ->
-    {error, ?lcr_err_max_retries};
+    {error, ?lsr_err_max_retries};
 open_session_with_predecessor(Predecessor, ClientInfo0, ConnInfo, MaybeWillMsg, Retries) ->
     ClientInfo = ClientInfo0#{predecessor => Predecessor},
-    {ok, Res} = open_session_lcr(ClientInfo, ConnInfo, MaybeWillMsg),
+    {ok, Res} = open_session_lsr(ClientInfo, ConnInfo, MaybeWillMsg),
     case emqx_cm:register_channel(ClientInfo, self(), ConnInfo) of
         ok ->
             {ok, Res};
-        {error, {?lcr_err_restart_takeover, NewPredecessor, _CachedMax, _MyVsn}} ->
+        {error, {?lsr_err_restart_takeover, NewPredecessor, _CachedMax, _MyVsn}} ->
             %% retries ...
             %% @TODO will Predecessor be undefined?
             ?FUNCTION_NAME(NewPredecessor, ClientInfo, ConnInfo, MaybeWillMsg, Retries - 1);
@@ -383,16 +383,16 @@ open_session_with_predecessor(Predecessor, ClientInfo0, ConnInfo, MaybeWillMsg, 
             E
     end.
 
-open_session_lcr(
+open_session_lsr(
     #{clientid := ClientId, predecessor := Predecessor} = ClientInfo,
     #{clean_start := true} = ConnInfo,
     MaybeWillMsg
 ) ->
-    ok = discard_session(ClientId, emqx_lcr:ch_pid(Predecessor)),
+    ok = discard_session(ClientId, emqx_lsr:ch_pid(Predecessor)),
     ok = emqx_session:destroy(ClientInfo, ConnInfo),
     Session = emqx_session:create(ClientInfo, ConnInfo, MaybeWillMsg),
     {ok, #{session => Session, present => false}};
-open_session_lcr(ClientInfo, #{clean_start := false} = ConnInfo, MaybeWillMsg) ->
+open_session_lsr(ClientInfo, #{clean_start := false} = ConnInfo, MaybeWillMsg) ->
     case emqx_session:open(ClientInfo, ConnInfo, MaybeWillMsg) of
         {true, Session, ReplayContext} ->
             {ok, #{session => Session, present => true, replay => ReplayContext}};
@@ -567,7 +567,7 @@ handle_stepdown_exception(Err, Reason, St, ConnMod, Pid, Action) ->
             %% @FIXME: doesn't look correct.
             %%  timeout could be caused by slow dist port or slow peer.
             %%  So it cannot just be an issue on peer Pid.
-            %%  For LCR, we don't really need to kill it.
+            %%  For LSR, we don't really need to kill it.
             ?tp(warning, "session_stepdown_request_timeout", Meta#{
                 stale_channel => stale_channel_info(Pid)
             }),
@@ -768,14 +768,14 @@ lookup_channels(ClientId) ->
 %% @doc Lookup local or global channels.
 -spec lookup_channels(local | global, emqx_types:clientid()) -> list(chan_pid()).
 lookup_channels(global, ClientId) ->
-    case {emqx_cm_registry:is_enabled(), emqx_lcr:is_enabled()} of
+    case {emqx_cm_registry:is_enabled(), emqx_lsr:is_enabled()} of
         {false, true} ->
-            lookup_lcr_channels(ClientId);
+            lookup_lsr_channels(ClientId);
         {true, false} ->
             emqx_cm_registry:lookup_channels(ClientId);
         {true, true} ->
             lists:usort(
-                lookup_lcr_channels(ClientId) ++
+                lookup_lsr_channels(ClientId) ++
                     emqx_cm_registry:lookup_channels(ClientId)
             );
         {false, false} ->
@@ -784,10 +784,10 @@ lookup_channels(global, ClientId) ->
 lookup_channels(local, ClientId) ->
     [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, ClientId)].
 
-lookup_lcr_channels(ClientId) ->
+lookup_lsr_channels(ClientId) ->
     lists:map(
-        fun emqx_lcr:ch_pid/1,
-        emqx_lcr:lookup_channels_d(ClientId)
+        fun emqx_lsr:ch_pid/1,
+        emqx_lsr:lookup_channels_d(ClientId)
     ).
 
 -spec lookup_client(

@@ -273,7 +273,7 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
 takeover_kick(#{predecessor := undefined}) ->
     ok;
 takeover_kick(#{predecessor := Predecessor, clientid := ClientID}) ->
-    PredecessorPid = emqx_lcr:ch_pid(Predecessor),
+    PredecessorPid = emqx_lsr:ch_pid(Predecessor),
     ok = emqx_cm:takeover_kick(ClientID, PredecessorPid);
 takeover_kick(#{clientid := ClientID}) ->
     %% NOTE

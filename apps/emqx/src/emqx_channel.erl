@@ -6,7 +6,7 @@
 -module(emqx_channel).
 
 -include("emqx.hrl").
--include("emqx_lcr.hrl").
+-include("emqx_lsr.hrl").
 -include("emqx_channel.hrl").
 -include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
@@ -587,11 +587,11 @@ post_process_connect(
             handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
             handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
-        {error, ?lcr_err_max_retries} ->
-            ?SLOG(error, #{msg => "failed_to_open_session", reason => ?lcr_err_max_retries}),
+        {error, ?lsr_err_max_retries} ->
+            ?SLOG(error, #{msg => "failed_to_open_session", reason => ?lsr_err_max_retries}),
             handle_out(connack, ?RC_SERVER_BUSY, Channel);
-        {error, ?lcr_err_channel_outdated} ->
-            ?SLOG(error, #{msg => "failed_to_open_session", reason => ?lcr_err_channel_outdated}),
+        {error, ?lsr_err_channel_outdated} ->
+            ?SLOG(error, #{msg => "failed_to_open_session", reason => ?lsr_err_channel_outdated}),
             handle_out(connack, ?RC_SESSION_TAKEN_OVER, Channel);
         {error, Reason} ->
             ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),

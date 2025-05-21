@@ -1,17 +1,17 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_lcr).
+-module(emqx_lsr).
 
 -behaviour(gen_server).
 
 -include("emqx.hrl").
--include_lib("emqx/include/emqx_lcr.hrl").
+-include_lib("emqx/include/emqx_lsr.hrl").
 -include("types.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--export_type([lcr_channel/0]).
+-export_type([lsr_channel/0]).
 
 -export([
     start_link/0,
@@ -37,9 +37,9 @@
     code_change/3
 ]).
 
--define(LCR_TAB, ?MODULE).
+-define(LSR_TAB, ?MODULE).
 
--type lcr_channel() :: #lcr_channel{}.
+-type lsr_channel() :: #lsr_channel{}.
 
 %%% API
 
@@ -58,7 +58,7 @@ register_channel(
     Pid,
     #{trpt_started_at := TsMs}
 ) ->
-    Ch = #lcr_channel{
+    Ch = #lsr_channel{
         id = ClientId,
         pid = Pid,
         vsn = TsMs
@@ -68,31 +68,31 @@ register_channel(
 -spec unregister_channel({emqx_types:clientid(), pid()}, non_neg_integer()) ->
     ok.
 unregister_channel({ClientId, ChanPid}, Vsn) ->
-    Ch = #lcr_channel{
+    Ch = #lsr_channel{
         id = ClientId,
         pid = ChanPid,
         vsn = Vsn
     },
-    mria:dirty_delete_object(?LCR_TAB, Ch),
+    mria:dirty_delete_object(?LSR_TAB, Ch),
     ok.
 
--spec lookup_channels_d(emqx_types:clientid()) -> [lcr_channel()].
+-spec lookup_channels_d(emqx_types:clientid()) -> [lsr_channel()].
 lookup_channels_d(ClientId) ->
-    mnesia:dirty_read(?LCR_TAB, ClientId).
+    mnesia:dirty_read(?LSR_TAB, ClientId).
 
 %% @doc dirty read local max channel
--spec max_channel_d(emqx_types:clientid()) -> option(lcr_channel()).
+-spec max_channel_d(emqx_types:clientid()) -> option(lsr_channel()).
 max_channel_d(ClientId) ->
     max_channel(lookup_channels_d(ClientId)).
 
 %% @doc find last channel with the highest version
--spec max_channel([lcr_channel()]) -> option(lcr_channel()).
+-spec max_channel([lsr_channel()]) -> option(lsr_channel()).
 max_channel([]) ->
     undefined;
 max_channel(Channels) ->
     lists:foldl(
         fun
-            (#lcr_channel{vsn = Vsn, pid = Pid} = This, #lcr_channel{vsn = Max}) when
+            (#lsr_channel{vsn = Vsn, pid = Pid} = This, #lsr_channel{vsn = Max}) when
                 Vsn > Max andalso is_pid(Pid)
             ->
                 This;
@@ -103,29 +103,29 @@ max_channel(Channels) ->
         Channels
     ).
 
--spec ch_pid(option(lcr_channel())) -> option(pid()).
+-spec ch_pid(option(lsr_channel())) -> option(pid()).
 ch_pid(undefined) ->
     undefined;
-ch_pid(#lcr_channel{pid = Pid}) ->
+ch_pid(#lsr_channel{pid = Pid}) ->
     Pid.
 
 -spec count_local_d() -> non_neg_integer().
 count_local_d() ->
-    mnesia:table_info(?LCR_TAB, size).
+    mnesia:table_info(?LSR_TAB, size).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    SHARD = ?LCR_SHARD,
+    SHARD = ?LSR_SHARD,
     mria_config:set_dirty_shard(SHARD, true),
-    ok = mria:create_table(?LCR_TAB, [
+    ok = mria:create_table(?LSR_TAB, [
         {type, bag},
-        {rlog_shard, ?LCR_SHARD},
+        {rlog_shard, ?LSR_SHARD},
         {storage, ram_copies},
-        {record_name, lcr_channel},
-        {attributes, record_info(fields, lcr_channel)},
+        {record_name, lsr_channel},
+        {attributes, record_info(fields, lsr_channel)},
         {storage_properties, [
             {ets, [
                 {read_concurrency, true},
@@ -148,11 +148,11 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
-    ?tp(warning, lcr_mnesia_down, #{self_node => node(), down_node => Node}),
+    ?tp(warning, lsr_mnesia_down, #{self_node => node(), down_node => Node}),
     maybe_cleanup_channels(Node),
     {noreply, State};
 handle_info({membership, {node, down, Node}}, State) ->
-    ?tp(warning, lcr_node_down, #{self_node => node(), down_node => Node}),
+    ?tp(warning, lsr_node_down, #{self_node => node(), down_node => Node}),
     maybe_cleanup_channels(Node),
     {noreply, State};
 handle_info({membership, _Event}, State) ->
@@ -171,10 +171,10 @@ code_change(_OldVsn, State, _Extra) ->
 maybe_cleanup_channels(Node) ->
     case if_cleanup_channels(Node) of
         true ->
-            ?tp(warning, lcr_node_down_cleanup, #{self_node => node(), down_node => Node}),
+            ?tp(warning, lsr_node_down_cleanup, #{self_node => node(), down_node => Node}),
             do_cleanup_channels(Node);
         false ->
-            ?tp(debug, lcr_node_down_no_cleanup, #{self_node => node(), down_node => Node}),
+            ?tp(debug, lsr_node_down_no_cleanup, #{self_node => node(), down_node => Node}),
             ok
     end.
 
@@ -182,24 +182,24 @@ do_cleanup_channels(Node) ->
     TS = erlang:system_time(),
     MatchSpec = [
         {
-            #lcr_channel{pid = '$1', vsn = '$2', _ = '_'},
+            #lsr_channel{pid = '$1', vsn = '$2', _ = '_'},
             _Match = [{'andalso', {'<', '$2', TS}, {'==', {node, '$1'}, Node}}],
             _Return = ['$_']
         }
     ],
 
     %% @TODO maybe use mnesia:match_delete/2
-    mria:async_dirty(?LCR_SHARD, fun() ->
+    mria:async_dirty(?LSR_SHARD, fun() ->
         do_cleanup_channels_cont(do_cleanup_channels_init(MatchSpec))
     end),
     ok.
 
 do_cleanup_channels_init(MS) ->
-    case mnesia:select(?LCR_TAB, MS, 200, write) of
+    case mnesia:select(?LSR_TAB, MS, 200, write) of
         {Matched, Cont} ->
             lists:foreach(
                 fun(Obj) ->
-                    mnesia:delete_object(?LCR_TAB, Obj, write)
+                    mnesia:delete_object(?LSR_TAB, Obj, write)
                 end,
                 Matched
             ),
@@ -216,7 +216,7 @@ do_cleanup_channels_cont(Cont0) ->
             {Matched, Cont} ->
                 lists:foreach(
                     fun(Obj) ->
-                        mnesia:delete_object(?LCR_TAB, Obj, write)
+                        mnesia:delete_object(?LSR_TAB, Obj, write)
                     end,
                     Matched
                 ),
@@ -247,25 +247,25 @@ if_cleanup_channels(Node) ->
     end.
 
 %% Internals
-do_register_channel(#lcr_channel{id = ClientId, vsn = MyVsn} = Ch, CachedMax) ->
+do_register_channel(#lsr_channel{id = ClientId, vsn = MyVsn} = Ch, CachedMax) ->
     Res = mria:transaction(
-        ?LCR_SHARD,
+        ?LSR_SHARD,
         fun() ->
             %% Read from source of truth
-            OtherChannels = mnesia:read(?LCR_TAB, ClientId, write),
+            OtherChannels = mnesia:read(?LSR_TAB, ClientId, write),
             case max_channel(OtherChannels) of
                 undefined ->
-                    mnesia:write(?LCR_TAB, Ch, write),
+                    mnesia:write(?LSR_TAB, Ch, write),
                     ok;
                 CachedMax ->
                     %% took over or discarded the correct version
-                    mnesia:write(?LCR_TAB, Ch, write),
+                    mnesia:write(?LSR_TAB, Ch, write),
                     ok;
-                #lcr_channel{vsn = LatestVsn} when LatestVsn > MyVsn ->
-                    mnesia:abort(?lcr_err_channel_outdated);
-                #lcr_channel{} = NewerChannel ->
+                #lsr_channel{vsn = LatestVsn} when LatestVsn > MyVsn ->
+                    mnesia:abort(?lsr_err_channel_outdated);
+                #lsr_channel{} = NewerChannel ->
                     %% Takeover from wrong session, abort and restart
-                    mnesia:abort({?lcr_err_restart_takeover, NewerChannel, CachedMax, MyVsn})
+                    mnesia:abort({?lsr_err_restart_takeover, NewerChannel, CachedMax, MyVsn})
             end
         end
     ),
