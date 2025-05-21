@@ -148,6 +148,8 @@
     headers => boolean(),
     %% authentication needed
     auth_required => boolean(),
+    %% TLS handshake first
+    tls_handshake_first => boolean(),
     %% TLS mandatory,
     tls_required => boolean(),
     %% client certificate verification required

@@ -1,8 +1,7 @@
 emqx_nats_schema {
 
 nats.desc:
-"""The NATS protocol gateway provides EMQX with the ability to access NATS\n"
-(Neural Autonomic Transport System) protocol."""
+"""The NATS gateway provides EMQX with the ability to access NATS protocol."""
 
 server_id.desc:
 """Server ID."""
@@ -26,6 +25,6 @@ wss_listener.desc:
 """Websocket over TLS Listener."""
 
 websocket.desc:
-"""websocket Options."""
+"""Websocket Options."""
 
 }

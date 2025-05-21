@@ -445,7 +445,7 @@ handle_in(
             ErrMsg = io_lib:format("Failed to check no responders: ~ts", [Reason]),
             handle_out(error, ErrMsg, Channel);
         ok ->
-            Channel1 = enrich_conninfo(Packet, Channel),
+            {ok, Channel1} = enrich_conninfo(Packet, Channel),
             handle_out(ok, [{event, updated}], Channel1)
     end;
 handle_in(
