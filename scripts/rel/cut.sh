@@ -111,33 +111,6 @@ done
 rel_branch() {
     local tag="$1"
     case "$tag" in
-        v5.5.*)
-            echo 'release-55'
-            ;;
-        e5.5.*)
-            echo 'release-55'
-            ;;
-        v5.6.*)
-            echo 'release-56'
-            ;;
-        e5.6.*)
-            echo 'release-56'
-            ;;
-        v5.7.*)
-            echo 'release-57'
-            ;;
-        e5.7.*)
-            echo 'release-57'
-            ;;
-        v5.8.*)
-            echo 'release-58'
-            ;;
-        e5.8.*)
-            echo 'release-58'
-            ;;
-        e5.9.*)
-            echo 'release-59'
-            ;;
         e5.10.*)
             echo 'release-510'
             ;;
