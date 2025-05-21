@@ -495,7 +495,7 @@ do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, MaybeWillMsg) ->
     emqx_maybe:t(emqx_types:message())
 ) -> supervisor:startchild_ret().
 do_evict_session_channel_v4(ClientId, ConnInfo, ClientInfo, MaybeWillMsg) ->
-    true = maps:is_key(trpt_started_at, ConnInfo),
+    true = maps:is_key(transport_started_at, ConnInfo),
     do_evict_session_channel_v3(ClientId, ConnInfo, ClientInfo, MaybeWillMsg).
 
 disconnect_channel(ChanPid, ServerReference) ->

@@ -56,7 +56,7 @@ start_link() ->
 register_channel(
     #{clientid := ClientId, predecessor := CachedMax},
     Pid,
-    #{trpt_started_at := TsMs}
+    #{transport_started_at := TsMs}
 ) ->
     Ch = #lsr_channel{
         id = ClientId,

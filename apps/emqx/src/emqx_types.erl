@@ -163,7 +163,7 @@
     receive_maximum => non_neg_integer(),
     expiry_interval => non_neg_integer(),
     atom() => term()
-    % trpt_started_at => integer(),
+    % transport_started_at => integer(),
 }.
 -type clientinfo() :: #{
     zone := option(zone()),
