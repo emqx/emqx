@@ -187,7 +187,10 @@ prepare_tx(DBShard, S, TXID, Ops, _Options) ->
 cook_blob_writes(_, _TXID, [], Acc) ->
     lists:reverse(Acc);
 cook_blob_writes(S = #s{}, TXID, [{Topic, TS, Value0} | Rest], Acc) ->
-    #s{trie = Trie, threshold_fun = TFun} = S,
+    #s{trie = Trie, threshold_fun = TFun, ts_bytes = TSB} = S,
+    %% Verify that TS fits in the TSB:
+    TS < (1 bsl (8 * TSB)) orelse
+        throw({unrecoverable, {timestamp_is_too_large, TS}}),
     {Static, Varying} = emqx_ds_lts:topic_key(Trie, TFun, Topic),
     Value =
         case Value0 of
