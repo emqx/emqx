@@ -121,8 +121,8 @@
     sub_info/0,
     sub_seqno/0,
 
-    value/0,
     ttv/0,
+    payload/0,
 
     tx_serial/0,
     kv_tx_context/0,
@@ -162,11 +162,8 @@
 
 -type deletion() :: {delete, message_matcher('_')}.
 
--type value() :: binary().
-
-%% Topic-Time-Value triple. It's used as a less MQTT-specific payload
-%% wrapper.
--type ttv() :: {topic(), time(), value()}.
+%% Topic-Time-Value triple. It's used as the basic storage unit.
+-type ttv() :: {topic(), time(), binary()}.
 
 %% Precondition.
 %% Fails whole batch if the storage already has the matching message (`if_exists'),
@@ -415,12 +412,13 @@
 
 -type commit_result() :: {ok, tx_serial()} | error(_).
 
+-type payload() :: emqx_types:message() | ttv().
+
 -type fold_fun(Acc) :: fun(
     (
         slab(),
         stream(),
-        message_key(),
-        emqx_types:message() | ttv(),
+        payload(),
         Acc
     ) -> Acc
 ).
@@ -997,11 +995,11 @@ reset_trans() ->
 
 %% @doc Return _all_ messages matching the topic-filter as a list.
 -spec dirty_read(db() | fold_options(), topic_filter()) ->
-    fold_result([ttv() | emqx_types:message()]).
+    fold_result([payload()]).
 dirty_read(DB, TopicFilter) when is_atom(DB) ->
     dirty_read(#{db => DB}, TopicFilter);
 dirty_read(#{db := _} = Opts, TopicFilter) ->
-    fold_topic(fun dirty_read_topic_fun/5, [], TopicFilter, Opts).
+    fold_topic(fun dirty_read_topic_fun/4, [], TopicFilter, Opts).
 
 %% @doc Transactional version of `dirty_read/2'. Return _all_ messages
 %% matching the topic-filter as a list.
@@ -1014,12 +1012,12 @@ dirty_read(#{db := _} = Opts, TopicFilter) ->
 %% WARNING: This operation conflicts with _any_ write to the topics
 %% matching the filter.
 -spec tx_read(tx_fold_options(), topic_filter()) ->
-    fold_result([ttv() | emqx_types:message()]).
+    fold_result([payload()]).
 tx_read(Opts, TopicFilter) ->
-    tx_fold_topic(fun dirty_read_topic_fun/5, [], TopicFilter, Opts).
+    tx_fold_topic(fun dirty_read_topic_fun/4, [], TopicFilter, Opts).
 
 %% @equiv tx_read(#{}, TopicFilter)
--spec tx_read(topic_filter()) -> [ttv() | emqx_types:message()].
+-spec tx_read(topic_filter()) -> [payload()].
 tx_read(TopicFilter) ->
     tx_read(#{}, TopicFilter).
 
@@ -1339,8 +1337,8 @@ fold_iterator(Fun, Acc0, AccErrors, Slab, Stream, It0, Ctx) ->
             {Acc0, AccErrors};
         {ok, It, Batch} ->
             Acc = lists:foldl(
-                fun({MsgKey, Msg}, A) ->
-                    Fun(Slab, Stream, MsgKey, Msg, A)
+                fun({_MsgKey, Msg}, A) ->
+                    Fun(Slab, Stream, Msg, A)
                 end,
                 Acc0,
                 Batch
@@ -1366,5 +1364,5 @@ is_topic_filter([L | Rest]) when is_binary(L); L =:= '+' ->
 is_topic_filter(_) ->
     false.
 
-dirty_read_topic_fun(_Slab, _Stream, _DSKey, Object, Acc) ->
+dirty_read_topic_fun(_Slab, _Stream, Object, Acc) ->
     [Object | Acc].

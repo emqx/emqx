@@ -96,7 +96,7 @@
     emqx_ds:topic(),
     emqx_ds:time()
 ) ->
-    {ok, emqx_ds:value()} | undefined | emqx_ds:error(_).
+    {ok, binary()} | undefined | emqx_ds:error(_).
 
 %% Configuration that can be changed in the runtime.
 -type runtime_config() :: #{

@@ -1087,7 +1087,7 @@ t_14_kv_wildcard_deletes(Config) ->
             ?assertEqual(
                 100,
                 emqx_ds:fold_topic(
-                    fun(_, _, _, _, Acc) -> Acc + 1 end,
+                    fun(_Slab, _Stream, _Obj, Acc) -> Acc + 1 end,
                     0,
                     [<<"t">>, '+', '+'],
                     #{db => DB}
