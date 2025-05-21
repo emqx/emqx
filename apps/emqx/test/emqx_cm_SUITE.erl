@@ -22,7 +22,7 @@
             peercert => nossl,
             conn_mod => emqx_connection,
             receive_maximum => 100,
-            trpt_started_at => erlang:system_time()
+            transport_started_at => erlang:system_time()
         }
 }).
 
@@ -409,7 +409,7 @@ t_discard_session_race(_) ->
             #{conninfo := ConnInfo0} = ?ChanInfo,
             ConnInfo = ConnInfo0#{
                 conn_mod := emqx_ws_connection,
-                trpt_started_at => erlang:system_time()
+                transport_started_at => erlang:system_time()
             },
             {Pid, Ref} = spawn_monitor(fun() ->
                 receive
@@ -557,7 +557,7 @@ spawn_dummy_chann(Mod, Count) ->
 
 client(ClientId) ->
     client(ClientId, undefined).
-client(ClientId, Pid, #{trpt_started_at := TS} = _ConnInfo) ->
+client(ClientId, Pid, #{transport_started_at := TS} = _ConnInfo) ->
     Pred = #lsr_channel{id = ClientId, pid = Pid, vsn = TS},
     client(ClientId, Pred).
 client(ClientId, Pred) ->
@@ -571,7 +571,7 @@ client(ClientId, Pred) ->
 %% For testing
 stamp_ver(#{conninfo := ConnInfo} = ChanInfo) when is_map(ConnInfo) ->
     ChanInfo#{conninfo := stamp_ver(ConnInfo)};
-stamp_ver(#{trpt_started_at := OldTs} = ConnInfo) when is_map(ConnInfo) ->
-    ConnInfo#{trpt_started_at := OldTs + 1};
+stamp_ver(#{transport_started_at := OldTs} = ConnInfo) when is_map(ConnInfo) ->
+    ConnInfo#{transport_started_at := OldTs + 1};
 stamp_ver(ConnInfo) when is_map(ConnInfo) ->
-    ConnInfo#{trpt_started_at => erlang:system_time()}.
+    ConnInfo#{transport_started_at => erlang:system_time()}.

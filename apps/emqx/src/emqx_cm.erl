@@ -193,7 +193,7 @@ register_channel(ClientId, ChanPid, ConnInfo) when
     ok = emqx_cm_registry:register_channel(Chan),
     register_channel_local(ClientId, ChanPid, ConnInfo).
 
-register_channel_local(ClientId, ChanPid, #{conn_mod := ConnMod, trpt_started_at := Vsn}) when
+register_channel_local(ClientId, ChanPid, #{conn_mod := ConnMod, transport_started_at := Vsn}) when
     is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
 ->
     Chan = {ClientId, ChanPid},
@@ -207,10 +207,10 @@ register_channel_local(ClientId, ChanPid, #{conn_mod := ConnMod, trpt_started_at
     ok;
 register_channel_local(ClientId, ChanPid, ConnInfo) ->
     %% For backward compatibility.
-    %% when trpt_started_at is absent, that means it is a call from older EMQX version
+    %% when transport_started_at is absent, that means it is a call from older EMQX version
     %% where the connected time must be known, but defaults to 0 for safty.
     TS = maps:get(connected_at, ConnInfo, 0),
-    register_channel_local(ClientId, ChanPid, ConnInfo#{trpt_started_at => TS}).
+    register_channel_local(ClientId, ChanPid, ConnInfo#{transport_started_at => TS}).
 
 %% @doc Unregister a channel.
 -spec unregister_channel(emqx_types:clientid()) -> ok.

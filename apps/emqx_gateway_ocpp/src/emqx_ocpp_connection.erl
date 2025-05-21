@@ -253,7 +253,7 @@ init_state_and_channel([Req, Opts, _WsOpts], _State = undefined) ->
         sockname => Sockname,
         peercert => Peercert,
         ws_cookie => WsCookie,
-        trpt_started_at => erlang:system_time(),
+        transport_started_at => erlang:system_time(),
         conn_mod => ?MODULE
     },
     Limiter = undefined,

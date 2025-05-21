@@ -303,7 +303,7 @@ conninfo(OldConnInfo) ->
             expiry_interval,
             connected_at,
             disconnected_at,
-            trpt_started_at,
+            transport_started_at,
             keepalive
         ],
         OldConnInfo
