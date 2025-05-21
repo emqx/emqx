@@ -9,8 +9,6 @@
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-bin(X) -> emqx_utils_conv:bin(X).
-
 parse_and_check(InnerConfigs) ->
     RootBin = <<"multi_tenancy">>,
     RawConf = #{RootBin => InnerConfigs},
