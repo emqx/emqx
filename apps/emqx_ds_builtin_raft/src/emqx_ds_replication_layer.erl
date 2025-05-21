@@ -661,16 +661,16 @@ otx_get_leader(DB, Shard) ->
 
 otx_become_leader(DB, Shard) ->
     Command = #{?tag => new_otx_leader, ?otx_leader_pid => self()},
-    %% FIXME: this is probably not the right way to do it:
-    Leader = emqx_ds_builtin_raft_shard:server_info(
-        leader,
-        emqx_ds_builtin_raft_shard:local_server(DB, Shard)
-    ),
-    case ra:process_command([Leader], Command, 5_000) of
-        {ok, Serial, _Leader} ->
-            {ok, Serial};
-        Err ->
-            Err
+    case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader) of
+        [Leader] ->
+            case ra:process_command(Leader, Command, 5_000) of
+                {ok, Serial, _Leader} ->
+                    {ok, Serial};
+                Err ->
+                    ?err_unrec({raft, Err})
+            end;
+        [] ->
+            ?err_rec(leader_unavailable)
     end.
 
 -spec otx_prepare_tx(
@@ -691,7 +691,19 @@ otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Batches) ->
         ?serial => Serial,
         ?batches => Batches
     },
-    ra_command(DB, Shard, Command, 0).
+    case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader) of
+        [Leader] ->
+            case ra:process_command(Leader, Command, 5_000) of
+                {ok, ok, _Leader} ->
+                    ok;
+                {ok, Err, _Leader} ->
+                    Err;
+                Err ->
+                    ?err_unrec({raft, Err})
+            end;
+        [] ->
+            ?err_rec(leader_unavailable)
+    end.
 
 otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
     emqx_ds_storage_layer_ttv:lookup(DBShard, GenId, Topic, Timestamp).
