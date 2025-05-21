@@ -18,7 +18,7 @@
 -include_lib("emqx/include/bpapi.hrl").
 
 introduced_in() ->
-    "5.9.2".
+    "5.10.0".
 
 -spec all_channels_count([node()], timeout()) -> emqx_rpc:erpc_multicall(non_neg_integer()).
 all_channels_count(Nodes, Timeout) ->
