@@ -51,10 +51,10 @@ groups() ->
     ].
 
 init_per_group(lsr, Config) ->
-    emqx_config:put([broker, enable_linear_channel_registry], true),
+    emqx_config:put([broker, enable_linear_session_registry], true),
     Config;
 init_per_group(lsr_off, Config) ->
-    emqx_config:put([broker, enable_linear_channel_registry], false),
+    emqx_config:put([broker, enable_linear_session_registry], false),
     Config.
 
 end_per_group(_, _Config) ->
@@ -561,7 +561,7 @@ client(ClientId, Pid, #{transport_started_at := TS} = _ConnInfo) ->
     Pred = #lsr_channel{id = ClientId, pid = Pid, vsn = TS},
     client(ClientId, Pred).
 client(ClientId, Pred) ->
-    case emqx:get_config([broker, enable_linear_channel_registry]) of
+    case emqx:get_config([broker, enable_linear_session_registry]) of
         true ->
             #{clientid => ClientId, predecessor => Pred};
         false ->
