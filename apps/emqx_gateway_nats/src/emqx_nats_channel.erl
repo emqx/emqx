@@ -47,7 +47,7 @@
     %% ClientInfo override specs
     clientinfo_override :: map(),
     %% Channel State
-    conn_state :: emqx_gateway_channel:conn_state(),
+    conn_state :: emqx_gateway_channel:conn_state() | anonymous,
     %% Subscriptions
     subscriptions :: [subscription()],
     %% Timer
@@ -81,17 +81,14 @@
 
 -define(TRANS_TIMEOUT, 60000).
 
--define(DEFAULT_OVERRIDE,
-    %% Generate clientid by default
-    #{
-        clientid => <<"">>,
-        username => <<"${Packet.user}">>,
-        password => <<"${Packet.pass}">>
-    }
-).
+-define(DEFAULT_OVERRIDE, #{
+    username => <<"${Packet.user}">>,
+    password => <<"${Packet.pass}">>
+}).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 -define(RAND_CLIENTID_BYETS, 16).
+-define(ALLOW_PUB_SUB(S), (S =:= connected orelse S =:= anonymous)).
 
 %%--------------------------------------------------------------------
 %% Init the channel
@@ -122,7 +119,7 @@ init(
             peerhost => PeerHost,
             peername => PeerName,
             sockport => SockPort,
-            clientid => undefined,
+            clientid => emqx_utils:rand_id(?RAND_CLIENTID_BYETS),
             username => undefined,
             is_bridge => false,
             is_superuser => false,
@@ -146,16 +143,27 @@ init(
         conn_state = idle,
         subscriptions = []
     },
-    _ = async_delivery_info_frame(Channel),
-    Channel.
+    Channel1 = init_conn_state(Channel),
+    trigger_post_init(Channel1).
 
-async_delivery_info_frame(Channel) ->
+trigger_post_init(Channel) ->
     case Channel#channel.conninfo of
         #{conn_mod := emqx_gateway_conn} ->
-            self() ! {outgoing, info_frame(Channel)},
-            ok;
+            self() ! {timeout, undefined, post_init},
+            Channel;
         _ ->
-            ok
+            Channel
+    end.
+
+init_conn_state(Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
+    case is_auth_required(ClientInfo) of
+        false ->
+            NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
+            ClientId = maps:get(clientid, ClientInfo),
+            emqx_logger:set_metadata_clientid(ClientId),
+            Channel#channel{conninfo = NConnInfo, conn_state = anonymous};
+        true ->
+            Channel
     end.
 
 info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
@@ -294,7 +302,6 @@ enrich_clientinfo(
     ),
     {ok, _, ClientInfo2} = emqx_utils:pipeline(
         [
-            fun maybe_assign_clientid/2,
             %% FIXME: CALL After authentication successfully
             fun fix_mountpoint/2
         ],
@@ -331,14 +338,6 @@ feedvar(Override, ConnParams, ConnInfo, ClientInfo) ->
 write_clientinfo(Override, ClientInfo) ->
     Override1 = maps:with([username, password, clientid], Override),
     maps:merge(ClientInfo, Override1).
-
-maybe_assign_clientid(_Packet, ClientInfo = #{clientid := ClientId}) when
-    ClientId == undefined;
-    ClientId == <<>>
-->
-    {ok, ClientInfo#{clientid => emqx_utils:rand_id(?RAND_CLIENTID_BYETS)}};
-maybe_assign_clientid(_Packet, ClientInfo) ->
-    {ok, ClientInfo}.
 
 fix_mountpoint(_Packet, #{mountpoint := undefined}) ->
     ok;
@@ -437,12 +436,22 @@ process_connect(
     | {shutdown, Reason :: term(), replies(), channel()}.
 
 handle_in(
-    ?PACKET(?OP_CONNECT),
+    Packet = ?PACKET(?OP_CONNECT),
     Channel = #channel{conn_state = connected}
 ) ->
-    %% TODO: Double connect request to update the conn params
-    {error, unexpected_connect, Channel};
-handle_in(Packet = ?PACKET(?OP_CONNECT), Channel) ->
+    %% Update conn_params if received double connect packet
+    case check_no_responders(Packet, Channel) of
+        {error, Reason} ->
+            ErrMsg = io_lib:format("Failed to check no responders: ~ts", [Reason]),
+            handle_out(error, ErrMsg, Channel);
+        ok ->
+            Channel1 = enrich_conninfo(Packet, Channel),
+            handle_out(ok, [{event, updated}], Channel1)
+    end;
+handle_in(
+    Packet = ?PACKET(?OP_CONNECT),
+    Channel = #channel{conn_state = ConnState}
+) when ConnState =:= anonymous; ConnState =:= idle ->
     case
         emqx_utils:pipeline(
             [
@@ -452,8 +461,6 @@ handle_in(Packet = ?PACKET(?OP_CONNECT), Channel) ->
                 fun assign_clientid_to_conninfo/2,
                 fun run_conn_hooks/2,
                 fun set_log_meta/2,
-                %% TODO: How to implement the banned in the gateway instance?
-                %, fun check_banned/2
                 fun auth_connect/2
             ],
             Packet,
@@ -470,9 +477,10 @@ handle_in(
     Frame = ?PACKET(Op),
     Channel = #channel{
         ctx = Ctx,
-        clientinfo = ClientInfo
+        clientinfo = ClientInfo,
+        conn_state = ConnState
     }
-) when Op =:= ?OP_PUB; Op =:= ?OP_HPUB ->
+) when (Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB) andalso ?ALLOW_PUB_SUB(ConnState) ->
     Subject = emqx_nats_frame:subject(Frame),
     Topic = emqx_nats_topic:nats_to_mqtt(Subject),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, ?AUTHZ_PUBLISH, Topic) of
@@ -486,9 +494,10 @@ handle_in(
     Channel = #channel{
         ctx = Ctx,
         subscriptions = Subs,
-        clientinfo = ClientInfo
+        clientinfo = ClientInfo,
+        conn_state = ConnState
     }
-) ->
+) when ?ALLOW_PUB_SUB(ConnState) ->
     SId = emqx_nats_frame:sid(Frame),
     Subject = emqx_nats_frame:subject(Frame),
     Topic = emqx_nats_topic:nats_to_mqtt(Subject),
@@ -555,9 +564,10 @@ handle_in(
 handle_in(
     Frame = ?PACKET(?OP_UNSUB),
     Channel = #channel{
-        subscriptions = Subs
+        subscriptions = Subs,
+        conn_state = ConnState
     }
-) ->
+) when ?ALLOW_PUB_SUB(ConnState) ->
     SId = emqx_nats_frame:sid(Frame),
     MaxMsgs = emqx_nats_frame:max_msgs(Frame),
     case find_sub_by_sid(SId, Subs) of
@@ -573,6 +583,11 @@ handle_in(
             }),
             handle_out(ok, [], Channel)
     end;
+handle_in(
+    ?PACKET(Op),
+    Channel
+) when Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB; Op =:= ?OP_SUB orelse Op =:= ?OP_UNSUB ->
+    handle_out(error, <<"Must be connected to publish or subscribe">>, Channel);
 handle_in(Frame = ?PACKET(?OP_OK), Channel) ->
     ?SLOG(info, #{
         msg => "ignore_all_ok_frames",
@@ -804,14 +819,10 @@ handle_info(
 handle_info(
     {sock_closed, Reason},
     Channel = #channel{
-        conn_state = connected,
+        conn_state = ConnState,
         clientinfo = _ClientInfo
     }
-) ->
-    %% XXX: Flapping detect ???
-    %% How to get the flapping detect policy ???
-    %emqx_zone:enable_flapping_detect(Zone)
-    %    andalso emqx_flapping:detect(ClientInfo),
+) when ?ALLOW_PUB_SUB(ConnState) ->
     NChannel = ensure_disconnected(Reason, Channel),
     shutdown(Reason, NChannel);
 handle_info(
@@ -826,14 +837,17 @@ handle_info(clean_authz_cache, Channel) ->
     ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
 handle_info(after_init, Channel) ->
-    %% XXX: Only used for ws/wss transport layer
-    {ok, {outgoing, info_frame(Channel)}, Channel};
+    handle_after_init(Channel);
 handle_info(Info, Channel) ->
     ?SLOG(error, #{
         msg => "unexpected_info",
         info => Info
     }),
     {ok, Channel}.
+
+handle_after_init(Channel) ->
+    Replies = [{outgoing, info_frame(Channel)}],
+    {ok, Replies, Channel}.
 
 %%--------------------------------------------------------------------
 %% Ensure disconnected
@@ -843,16 +857,22 @@ ensure_disconnected(
     Channel = #channel{
         ctx = Ctx,
         conninfo = ConnInfo,
-        clientinfo = ClientInfo
+        clientinfo = ClientInfo,
+        conn_state = ConnState
     }
 ) ->
-    NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
-    ok = run_hooks(
-        Ctx,
-        'client.disconnected',
-        [ClientInfo, Reason, NConnInfo]
-    ),
-    Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
+    case ConnState of
+        connected ->
+            NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
+            ok = run_hooks(
+                Ctx,
+                'client.disconnected',
+                [ClientInfo, Reason, NConnInfo]
+            ),
+            Channel#channel{conninfo = NConnInfo, conn_state = disconnected};
+        _ ->
+            Channel#channel{conn_state = disconnected}
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
@@ -937,6 +957,8 @@ handle_deliver(
     | {ok, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}.
 
+handle_timeout(_, post_init, Channel) ->
+    handle_after_init(Channel);
 handle_timeout(
     _TRef,
     {keepalive_send, _NewVal},

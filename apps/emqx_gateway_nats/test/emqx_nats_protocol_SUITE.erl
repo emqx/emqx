@@ -859,6 +859,60 @@ t_subscribe_authz(Config) ->
     ok = delete_test_user(),
     ok = disable_auth().
 
+t_optional_connect_request(Config) ->
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            verbose => true
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+
+    emqx_nats_client:subscribe(Client, <<"test.topic">>, <<"sid-1">>),
+    recv_ok_frame(Client),
+
+    emqx_nats_client:publish(Client, <<"test.topic">>, <<"test message">>),
+    recv_ok_frame(Client),
+
+    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_MSG,
+            message = _Message
+        },
+        Msg
+    ),
+
+    emqx_nats_client:unsubscribe(Client, <<"sid-1">>),
+    recv_ok_frame(Client),
+
+    emqx_nats_client:stop(Client).
+
+t_optional_connect_request_only_work_authn_disabled(Config) ->
+    enable_auth(),
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            verbose => true
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+
+    ok = emqx_nats_client:publish(Client, <<"test.topic">>, <<"test message">>),
+    {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_ERR,
+            message = _
+        },
+        ErrorMsg
+    ),
+
+    emqx_nats_client:stop(Client),
+    disable_auth().
+
 t_gateway_client_management(Config) ->
     ClientOpts = maps:merge(
         ?config(client_opts, Config),
@@ -896,9 +950,6 @@ t_gateway_client_management(Config) ->
         },
         ErrorMsg
     ),
-
-    %% Verify client is disconnected
-    ?assertEqual([], emqx_gateway_test_utils:list_gateway_clients(<<"nats">>)),
 
     emqx_nats_client:stop(Client).
 
