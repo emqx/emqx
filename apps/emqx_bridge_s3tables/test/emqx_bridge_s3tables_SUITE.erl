@@ -234,6 +234,8 @@ ensure_namespace_deleted(Client, Namespace) ->
     case delete_namespace(Client, Namespace) of
         {ok, _} ->
             ct:pal("namespace ~p deleted", [Namespace]),
+            %% See Note [Flaky iceberg-rest-fixtures]
+            ct:sleep(200),
             ok;
         {error, {http_error, 404, _, _, _}} ->
             ct:pal("namespace ~p already gone", [Namespace]),
@@ -276,6 +278,11 @@ ensure_table_created(Client, Namespace, Table, Schema, Opts) ->
     case create_table(Client, Namespace, Table, Schema, Opts) of
         {ok, _} ->
             ct:pal("table ~p.~p created", [Namespace, Table]),
+            %% Note [Flaky iceberg-rest-fixtures]
+            %% This is an attempt to circumvent buggy iceberg-rest container, which
+            %% frequently breaks and starts returning 500 responses, internally due to `no
+            %% such table: iceberg_tables`.
+            ct:sleep(200),
             ok;
         {error, {http_error, 409, _, _, _}} ->
             ct:pal("table ~p.~p already exists", [Namespace, Table]),

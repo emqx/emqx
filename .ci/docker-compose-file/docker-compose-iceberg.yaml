@@ -88,6 +88,9 @@ services:
       retries: 5
     # ports:
     #   - 8181:8181
+    command: ["java",
+              "-Dorg.slf4j.simpleLogger.defaultLogLevel=DEBUG",
+              "-jar", "iceberg-rest-adapter.jar"]
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
