@@ -661,16 +661,16 @@ otx_get_leader(DB, Shard) ->
 
 otx_become_leader(DB, Shard) ->
     Command = #{?tag => new_otx_leader, ?otx_leader_pid => self()},
-    case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader) of
-        [Leader] ->
+    case local_raft_leader(DB, Shard) of
+        unknown ->
+            ?err_rec(leader_unavailable);
+        Leader ->
             case ra:process_command(Leader, Command, 5_000) of
                 {ok, Serial, _Leader} ->
                     {ok, Serial};
                 Err ->
                     ?err_unrec({raft, Err})
-            end;
-        [] ->
-            ?err_rec(leader_unavailable)
+            end
     end.
 
 -spec otx_prepare_tx(
@@ -689,10 +689,13 @@ otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Batches) ->
         ?tag => commit_tx_batch,
         ?prev_serial => SerCtl,
         ?serial => Serial,
-        ?batches => Batches
+        ?batches => Batches,
+        ?otx_leader_pid => self()
     },
-    case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader) of
-        [Leader] ->
+    case local_raft_leader(DB, Shard) of
+        unknown ->
+            ?err_rec(leader_unavailable);
+        Leader ->
             case ra:process_command(Leader, Command, 5_000) of
                 {ok, ok, _Leader} ->
                     ok;
@@ -700,9 +703,7 @@ otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Batches) ->
                     Err;
                 Err ->
                     ?err_unrec({raft, Err})
-            end;
-        [] ->
-            ?err_rec(leader_unavailable)
+            end
     end.
 
 otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
@@ -1255,17 +1256,20 @@ apply(
         ?tag := commit_tx_batch,
         ?prev_serial := SerCtl,
         ?serial := Serial,
-        ?batches := Batches
+        ?batches := Batches,
+        ?otx_leader_pid := From
     },
-    State = #{db_shard := DBShard, tx_serial := ExpectedSerial}
+    State = #{db_shard := DBShard, tx_serial := ExpectedSerial, otx_leader_pid := Leader}
 ) ->
-    case SerCtl =:= ExpectedSerial of
-        true ->
+    case From of
+        Leader when SerCtl =:= ExpectedSerial ->
             ok = emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{durable => false}),
             emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
             {State#{tx_serial := Serial}, ok};
-        false ->
-            {State, ?err_unrec({serial_mismatch, SerCtl, ExpectedSerial})}
+        Leader ->
+            {State, ?err_unrec({serial_mismatch, SerCtl, ExpectedSerial})};
+        _ ->
+            {State, ?err_unrec({not_the_leader, #{got => From, expect => Leader}})}
     end;
 apply(
     _RaftMeta,
@@ -1562,6 +1566,16 @@ rpc_target_preference(DB) ->
         #{} ->
             leader_preferred
     end.
+
+%% @doc This internal function is used by the OTX leader process to
+%% communicate with the Raft machine.
+-spec local_raft_leader(emqx_ds:db(), emqx_ds:shard()) ->
+    ra:server_id() | unknown.
+local_raft_leader(DB, Shard) ->
+    emqx_ds_builtin_raft_shard:server_info(
+        leader,
+        emqx_ds_builtin_raft_shard:local_server(DB, Shard)
+    ).
 
 -ifdef(TEST).
 
