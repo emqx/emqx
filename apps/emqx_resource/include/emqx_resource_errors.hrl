@@ -6,3 +6,5 @@
     {error, {resource_error, #{reason => Reason, msg => Msg}}}
 ).
 -define(RESOURCE_ERROR_M(Reason, Msg), {error, {resource_error, #{reason := Reason, msg := Msg}}}).
+
+-define(not_added_yet_error_atom, not_added_yet).
