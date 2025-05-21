@@ -995,7 +995,7 @@ t_subscribe_actions(Config) ->
 %% Unsubsctibe Unsuback
 %%--------------------------------------------------------------------
 
-t_unscbsctibe(Config) ->
+t_unsubscribe(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic1 = nth(1, ?TOPICS),
     Topic2 = nth(2, ?TOPICS),
