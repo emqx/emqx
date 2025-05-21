@@ -993,6 +993,7 @@ t_13_smoke_kv_tx(Config) ->
                 ok,
                 emqx_ds_open_db(DB, Opts)
             ),
+            timer:sleep(100),
             %% 1. Start a write-only transaction to create some data:
             {ok, Tx1} = emqx_ds:new_kv_tx(DB, #{
                 generation => 1,
@@ -1072,6 +1073,7 @@ t_14_kv_wildcard_deletes(Config) ->
                 ok,
                 emqx_ds_open_db(DB, Opts)
             ),
+            timer:sleep(100),
             %% 1. Insert test data:
             {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
             Msgs0 =
@@ -1134,6 +1136,7 @@ t_15_kv_write_serial(Config) ->
                 ok,
                 emqx_ds_open_db(DB, Opts)
             ),
+            timer:sleep(100),
             %% 1. Insert test data:
             {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
             Ops = #{
@@ -1173,6 +1176,7 @@ t_16_kv_preconditions(Config) ->
                 ok,
                 emqx_ds_open_db(DB, Opts)
             ),
+            timer:sleep(100),
             %% 1. Insert test data:
             {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
             Ops1 = #{
