@@ -11,6 +11,7 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_mt_sup:start_link(),
     ok = emqx_mt_hookcb:register_hooks(),
+    ok = emqx_mt_config:load(),
     {ok, Sup}.
 
 stop(_State) ->

@@ -9,6 +9,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
     start_link/0,
@@ -189,8 +190,7 @@ safe_execute({M, F, A}, Args) ->
         Result -> Result
     catch
         Error:Reason:Stacktrace ->
-            ?SLOG(error, #{
-                msg => "hook_callback_exception",
+            ?tp(error, "hook_callback_exception", #{
                 exception => Error,
                 reason => Reason,
                 stacktrace => Stacktrace,
@@ -220,15 +220,15 @@ init([]) ->
     {ok, #{}}.
 
 handle_call({add, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, State) ->
+    Callbacks = lookup(HookPoint),
+    Existing = lists:any(
+        fun(#callback{action = {M0, F0, _}}) ->
+            M0 =:= M andalso F0 =:= F
+        end,
+        Callbacks
+    ),
     Reply =
-        case
-            lists:any(
-                fun(#callback{action = {M0, F0, _}}) ->
-                    M0 =:= M andalso F0 =:= F
-                end,
-                Callbacks = lookup(HookPoint)
-            )
-        of
+        case Existing of
             true -> {error, already_exists};
             false -> insert_hook(HookPoint, add_callback(Callback, Callbacks))
         end,
