@@ -53,6 +53,11 @@ We implement a more loose filter format, more like used by openldap's ldapsearch
     {extensible, [{type, attribute()} | {'dnAttributes', boolean()} | {'matchingRule', string()}],
         ValueType}.
 
+-doc """
+Term that may be used as filter in the `eldap:search/2` call.
+""".
+-type eldap_filter() :: term().
+
 -export_type([
     ldap_search_filter/0, ldap_search_filter/1
 ]).
@@ -70,29 +75,34 @@ parse(Filter) ->
         {ok, #ldap_search_filter{filter = ParsedFilter}}
     end.
 
--spec to_eldap(ldap_search_filter()) -> eldap:filter().
+-spec to_eldap(ldap_search_filter()) -> eldap_filter().
 to_eldap(#ldap_search_filter{filter = Filter}) ->
-    to_eldap(Filter);
-to_eldap({extensible, ExtensibleOpts, Value}) ->
+    do_to_eldap(Filter).
+
+%% NOTE
+%% Ignoring dialyzer warnings due to an eldap bug:
+%% https://github.com/erlang/otp/pull/9859
+-dialyzer({nowarn_function, do_to_eldap/1}).
+do_to_eldap({extensible, ExtensibleOpts, Value}) ->
     eldap:'extensibleMatch'(Value, ExtensibleOpts);
-to_eldap({substring, Attribute, SubstringOpts}) ->
+do_to_eldap({substring, Attribute, SubstringOpts}) ->
     eldap:substrings(Attribute, SubstringOpts);
-to_eldap({equal, Attribute, Value}) ->
+do_to_eldap({equal, Attribute, Value}) ->
     eldap:'equalityMatch'(Attribute, Value);
-to_eldap({approx, Attribute, Value}) ->
+do_to_eldap({approx, Attribute, Value}) ->
     eldap:'approxMatch'(Attribute, Value);
-to_eldap({'greaterOrEqual', Attribute, Value}) ->
+do_to_eldap({'greaterOrEqual', Attribute, Value}) ->
     eldap:'greaterOrEqual'(Attribute, Value);
-to_eldap({'lessOrEqual', Attribute, Value}) ->
+do_to_eldap({'lessOrEqual', Attribute, Value}) ->
     eldap:'lessOrEqual'(Attribute, Value);
-to_eldap({present, Attribute}) ->
+do_to_eldap({present, Attribute}) ->
     eldap:present(Attribute);
-to_eldap({'and', Filters}) ->
-    eldap:'and'([to_eldap(Filter) || Filter <- Filters]);
-to_eldap({'or', Filters}) ->
-    eldap:'or'([to_eldap(Filter) || Filter <- Filters]);
-to_eldap({'not', Filter}) ->
-    eldap:'not'(to_eldap(Filter)).
+do_to_eldap({'and', Filters}) ->
+    eldap:'and'([do_to_eldap(Filter) || Filter <- Filters]);
+do_to_eldap({'or', Filters}) ->
+    eldap:'or'([do_to_eldap(Filter) || Filter <- Filters]);
+do_to_eldap({'not', Filter}) ->
+    eldap:'not'(do_to_eldap(Filter)).
 
 -spec mapfold_values(
     fun((ValueType, Acc) -> {NewValueType, Acc}),
@@ -101,12 +111,13 @@ to_eldap({'not', Filter}) ->
 ) ->
     {ldap_search_filter(NewValueType), Acc}.
 mapfold_values(Fun, Acc0, #ldap_search_filter{filter = Filter0}) ->
-    {Filter1, Acc1} = mapfold_values(Fun, Acc0, Filter0),
-    {#ldap_search_filter{filter = Filter1}, Acc1};
-mapfold_values(Fun, Acc0, {extensible, ExtensibleOpts, Value0}) ->
+    {Filter1, Acc1} = do_mapfold_values(Fun, Acc0, Filter0),
+    {#ldap_search_filter{filter = Filter1}, Acc1}.
+
+do_mapfold_values(Fun, Acc0, {extensible, ExtensibleOpts, Value0}) ->
     {Value1, Acc1} = Fun(Value0, Acc0),
     {{extensible, ExtensibleOpts, Value1}, Acc1};
-mapfold_values(Fun, Acc0, {substring, Attribute, SubstringOpts}) ->
+do_mapfold_values(Fun, Acc0, {substring, Attribute, SubstringOpts}) ->
     {NewOpts, Acc1} = lists:mapfoldl(
         fun({Type, Value}, Acc) ->
             {NewValue, NewAcc} = Fun(Value, Acc),
@@ -116,38 +127,38 @@ mapfold_values(Fun, Acc0, {substring, Attribute, SubstringOpts}) ->
         SubstringOpts
     ),
     {{substring, Attribute, NewOpts}, Acc1};
-mapfold_values(Fun, Acc0, {equal, Attribute, Value0}) ->
+do_mapfold_values(Fun, Acc0, {equal, Attribute, Value0}) ->
     {Value1, Acc1} = Fun(Value0, Acc0),
     {{equal, Attribute, Value1}, Acc1};
-mapfold_values(Fun, Acc0, {approx, Attribute, Value0}) ->
+do_mapfold_values(Fun, Acc0, {approx, Attribute, Value0}) ->
     {Value1, Acc1} = Fun(Value0, Acc0),
     {{approx, Attribute, Value1}, Acc1};
-mapfold_values(Fun, Acc0, {'greaterOrEqual', Attribute, Value0}) ->
+do_mapfold_values(Fun, Acc0, {'greaterOrEqual', Attribute, Value0}) ->
     {Value1, Acc1} = Fun(Value0, Acc0),
     {{'greaterOrEqual', Attribute, Value1}, Acc1};
-mapfold_values(Fun, Acc0, {'lessOrEqual', Attribute, Value0}) ->
+do_mapfold_values(Fun, Acc0, {'lessOrEqual', Attribute, Value0}) ->
     {Value1, Acc1} = Fun(Value0, Acc0),
     {{'lessOrEqual', Attribute, Value1}, Acc1};
-mapfold_values(_Fun, Acc0, {present, Attribute}) ->
+do_mapfold_values(_Fun, Acc0, {present, Attribute}) ->
     {present, Attribute, Acc0};
-mapfold_values(Fun, Acc0, {'and', Filters0}) ->
+do_mapfold_values(Fun, Acc0, {'and', Filters0}) ->
     {Filters1, Acc1} = lists:mapfoldl(
         fun(Filter, Acc) ->
-            mapfold_values(Fun, Acc, Filter)
+            do_mapfold_values(Fun, Acc, Filter)
         end,
         Acc0,
         Filters0
     ),
     {{'and', Filters1}, Acc1};
-mapfold_values(Fun, Acc0, {'or', Filters0}) ->
+do_mapfold_values(Fun, Acc0, {'or', Filters0}) ->
     {Filters1, Acc1} = lists:mapfoldl(
         fun(Filter, Acc) ->
-            mapfold_values(Fun, Acc, Filter)
+            do_mapfold_values(Fun, Acc, Filter)
         end,
         Acc0,
         Filters0
     ),
     {{'or', Filters1}, Acc1};
-mapfold_values(Fun, Acc0, {'not', Filter0}) ->
-    {Filter1, Acc1} = mapfold_values(Fun, Acc0, Filter0),
+do_mapfold_values(Fun, Acc0, {'not', Filter0}) ->
+    {Filter1, Acc1} = do_mapfold_values(Fun, Acc0, Filter0),
     {{'not', Filter1}, Acc1}.

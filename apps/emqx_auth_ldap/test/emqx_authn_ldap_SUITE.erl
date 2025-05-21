@@ -170,7 +170,6 @@ wait_for_ldap_pid(After) ->
 t_authenticate(_Config) ->
     ok = lists:foreach(
         fun(Sample) ->
-            ct:pal("test_user_auth sample: ~p", [Sample]),
             test_user_auth(Sample)
         end,
         user_seeds()
@@ -183,6 +182,9 @@ test_user_auth(#{
 }) ->
     AuthConfig = maps:merge(raw_ldap_auth_config(), SpecificConfigParams),
 
+    ct:pal("test_user_auth~ncredentials: ~p~nconfig: ~p~nresult: ~p", [
+        Credentials0, AuthConfig, Result
+    ]),
     {ok, _} = emqx:update_config(
         ?PATH,
         {create_authenticator, ?GLOBAL, AuthConfig}
@@ -389,7 +391,12 @@ user_seeds() ->
             <<"mqttuser0003">>,
             {error, not_authorized},
             #{<<"filter">> => <<"(memberOf=cn=nonexists,ou=Groups,dc=emqx,dc=io)">>}
-        )
+        ),
+        New4(<<"mqttuser0007">>, <<"mqttuser0007">>, {ok, #{is_superuser => true}}, #{
+            <<"filter">> =>
+                %% evaluates to true
+                <<"(& (!(uid=mqttuser000999)) (|(!(uid=mqttuser000999)) (uid=mqttuser000999)))">>
+        })
         | Valid
     ].
 

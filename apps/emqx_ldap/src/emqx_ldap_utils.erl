@@ -19,7 +19,7 @@ emqx_ldap_utils:split("a*\\**b", "*").
 
 ```
 """.
--spec split(string(), string()) -> [string()].
+-spec split(string(), char()) -> [string()].
 split(String, SepChar) ->
     split(String, SepChar, "", []).
 
