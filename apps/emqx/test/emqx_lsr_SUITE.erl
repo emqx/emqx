@@ -79,10 +79,10 @@ init_per_group(v5, Config) ->
     ClientOpts = ?config(client_opts, Config),
     lists:keystore(client_opts, 1, Config, {client_opts, ClientOpts#{proto_ver => v5}});
 init_per_group(lsr_only, Config) ->
-    Conf = "broker.enable_linear_channel_registry = true\nbroker.enable_session_registry=false",
+    Conf = "broker.enable_linear_session_registry = true\nbroker.enable_session_registry=false",
     lists:keystore(emqx_conf, 1, Config, {emqx_conf, Conf});
 init_per_group(lsr_hybrid, Config) ->
-    Conf = "broker.enable_linear_channel_registry = true\nbroker.enable_session_registry=true",
+    Conf = "broker.enable_linear_session_registry = true\nbroker.enable_session_registry=true",
     lists:keystore(emqx_conf, 1, Config, {emqx_conf, Conf});
 init_per_group(race_sleep_0, Config) ->
     lists:keystore(race_sleep, 1, Config, {race_sleep, 0});

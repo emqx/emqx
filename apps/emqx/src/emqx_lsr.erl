@@ -45,7 +45,7 @@
 
 -spec is_enabled() -> boolean().
 is_enabled() ->
-    emqx:get_config([broker, enable_linear_channel_registry], false).
+    emqx:get_config([broker, enable_linear_session_registry], false).
 
 -spec start_link() -> startlink_ret().
 start_link() ->
