@@ -62,9 +62,8 @@ authenticate(
     end.
 
 %% To be compatible with v4.x
-is_enabled(Password, #eldap_entry{attributes = Attributes} = Entry, State) ->
-    IsEnabled = get_lower_bin_value(?ISENABLED_ATTR, Attributes, "true"),
-    case emqx_authn_utils:to_bool(IsEnabled) of
+is_enabled(Password, Entry, State) ->
+    case emqx_auth_ldap_utils:get_bool_attribute(?ISENABLED_ATTR, Entry, true) of
         true ->
             ensure_password(Password, Entry, State);
         _ ->
@@ -160,8 +159,8 @@ verify_password(Algorithm, LDAPPasswordType, LDAPPassword, Salt, Position, Passw
     end.
 
 is_superuser(Entry, #{method := #{is_superuser_attribute := Attr}} = _State) ->
-    Value = get_lower_bin_value(Attr, Entry#eldap_entry.attributes, "false"),
-    #{is_superuser => emqx_authn_utils:to_bool(Value)}.
+    IsSuperuser = emqx_auth_ldap_utils:get_bool_attribute(Attr, Entry, false),
+    #{is_superuser => IsSuperuser}.
 
 safe_base64_decode(Data) ->
     try
@@ -170,10 +169,6 @@ safe_base64_decode(Data) ->
         _:Reason ->
             {error, {invalid_base64_data, Reason}}
     end.
-
-get_lower_bin_value(Key, Proplists, Default) ->
-    [Value | _] = get_value(Key, Proplists, [Default]),
-    to_binary(string:to_lower(Value)).
 
 to_binary(Value) ->
     erlang:list_to_binary(Value).

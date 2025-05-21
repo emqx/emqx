@@ -4,12 +4,15 @@
 
 -module(emqx_auth_ldap_utils).
 
+-include_lib("eldap/include/eldap.hrl").
+
 -export([
     render_base_dn/2,
     render_filter/2,
     render_password/2,
     parse_filter/2,
-    parse_dn/2
+    parse_dn/2,
+    get_bool_attribute/3
 ]).
 
 %%------------------------------------------------------------------------------
@@ -63,9 +66,26 @@ parse_dn(DN, AllowedVars) ->
         {ok, DNTemplate, AllUsedVars}
     end.
 
+get_bool_attribute(Attribute, #eldap_entry{attributes = Attributes}, Default) ->
+    case get_attribute_value(Attribute, Attributes) of
+        undefined ->
+            Default;
+        Value ->
+            BinValue = list_to_binary(string:to_lower(Value)),
+            emqx_authn_utils:to_bool(BinValue)
+    end.
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+get_attribute_value(Key, Proplists) ->
+    case proplists:get_value(Key, Proplists, undefined) of
+        [Value | _] ->
+            Value;
+        undefined ->
+            undefined
+    end.
 
 iodata_to_str(Iodata) ->
     binary_to_list(iolist_to_binary(Iodata)).

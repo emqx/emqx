@@ -346,11 +346,11 @@ user_seeds() ->
             Normal
         ),
     [
-        New(<<"mqttuser0008 (test)">>, <<"mqttuser0008 (test)">>, {ok, #{is_superuser => false}}),
+        New(<<"mqttuser0008 (test)">>, <<"mqttuser0008 (test)">>, {ok, #{is_superuser => true}}),
         New(
             <<"mqttuser0009 \\test\\">>,
             <<"mqttuser0009 \\\\test\\\\">>,
-            {ok, #{is_superuser => false}}
+            {ok, #{is_superuser => true}}
         ),
         %% Not exists
         New(<<"notexists">>, <<"notexists">>, {error, not_authorized}),
