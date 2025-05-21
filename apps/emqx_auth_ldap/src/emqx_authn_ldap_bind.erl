@@ -41,14 +41,17 @@ do_authenticate(
         resource_id := ResourceId,
         password_template := PasswordTemplate,
         base_dn_template := BaseDNTemplate,
-        filter_template := FilterTemplate
+        filter_template := FilterTemplate,
+        method := #{
+            is_superuser_attribute := IsSuperuserAttribute
+        }
     } = _State
 ) ->
     BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
     Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
     Result = emqx_resource:simple_sync_query(
         ResourceId,
-        {query, BaseDN, Filter, [{attributes, []}, {timeout, Timeout}]}
+        {query, BaseDN, Filter, [{attributes, [IsSuperuserAttribute]}, {timeout, Timeout}]}
     ),
     case Result of
         {ok, []} ->
@@ -62,8 +65,10 @@ do_authenticate(
                 )
             of
                 {ok, #{result := ok}} ->
-                    %% TODO: take is_superuser_attribute from Entry
-                    {ok, #{is_superuser => false}};
+                    IsSuperuser = emqx_auth_ldap_utils:get_bool_attribute(
+                        IsSuperuserAttribute, Entry, false
+                    ),
+                    {ok, #{is_superuser => IsSuperuser}};
                 {ok, #{result := 'invalidCredentials'}} ->
                     ?TRACE_AUTHN_PROVIDER(info, "ldap_bind_failed", #{
                         resource => ResourceId,

@@ -50,6 +50,7 @@ fields(hash_method) ->
 fields(bind_method) ->
     [
         {type, method_type(bind)},
+        {is_superuser_attribute, is_superuser_attribute()},
         {bind_password,
             ?HOCON(
                 binary(),
