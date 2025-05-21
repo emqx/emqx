@@ -1268,7 +1268,7 @@ apply(
 
 start_otx_leader(DB, Shard) ->
     ?tp_span(
-        warning,
+        debug,
         dsrepl_start_otx_leader,
         #{db => DB, shard => Shard},
         emqx_ds_builtin_raft_db_sup:start_shard_leader_sup(DB, Shard)
@@ -1495,7 +1495,7 @@ set_otx_leader({DB, Shard}, Pid) ->
 -spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
 state_enter(MemberState, State = #{db_shard := {DB, Shard}}) ->
     ?tp(
-        warning,
+        debug,
         ds_ra_state_enter,
         State#{state => MemberState}
     ),
