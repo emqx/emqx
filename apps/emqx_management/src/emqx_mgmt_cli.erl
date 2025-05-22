@@ -899,7 +899,7 @@ data(["export" | Args]) ->
             emqx_ctl:print("[error] Data export failed, reason: ~p.~n", [Reason1])
     end;
 data(["import", Filename]) ->
-    case emqx_mgmt_data_backup:import(Filename, ?DATA_BACKUP_OPTS) of
+    case emqx_mgmt_data_backup:import_local(Filename, ?DATA_BACKUP_OPTS) of
         {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} when
             map_size(DbErrs) =:= 0, map_size(ConfErrs) =:= 0
         ->
