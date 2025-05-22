@@ -117,6 +117,10 @@ is_dirty(
 %%
 %% It moves `current' trie to `old', empties the current trie, and
 %% shrinks the tracked interval.
+%%
+%% From practical standpoint it means that any transaction that
+%% started earlier than the beginning of the conflict window is
+%% unconditionally considered conflicting and is rejected.
 -spec rotate(t()) -> t().
 rotate(S = #conflict_tree{old_max_serial = OldMax, max_serial = Max, trie = Trie}) ->
     S#conflict_tree{
