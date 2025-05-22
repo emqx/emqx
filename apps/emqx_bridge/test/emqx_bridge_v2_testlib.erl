@@ -1929,3 +1929,8 @@ common_action_resource_opts() ->
         <<"resume_interval">> => <<"1s">>,
         <<"worker_pool_size">> => 1
     }.
+
+clean_aggregated_upload_work_dir() ->
+    Dir = filename:join([emqx:data_dir(), bridge]),
+    _ = file:del_dir_r(Dir),
+    ok.

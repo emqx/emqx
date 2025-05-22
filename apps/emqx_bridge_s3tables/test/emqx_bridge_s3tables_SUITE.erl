@@ -50,14 +50,23 @@ all() ->
 
 matrix_cases() ->
     lists:filter(
-        fun(TestCase) ->
-            get_tc_prop(TestCase, matrix, false)
+        fun
+            ({testcase, TestCase, _Opts}) ->
+                get_tc_prop(TestCase, matrix, false);
+            (TestCase) ->
+                get_tc_prop(TestCase, matrix, false)
         end,
         emqx_common_test_helpers:all(?MODULE)
     ).
 
 groups() ->
     emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
+
+flaky_tests() ->
+    #{
+        t_conflicting_transactions => 5,
+        t_multipart_upload => 3
+    }.
 
 init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start(
@@ -116,10 +125,17 @@ init_per_testcase(TestCase, TCConfig) ->
         | TCConfig
     ].
 
-end_per_testcase(_TestCase, _TCConfig) ->
+end_per_testcase(_TestCase, TCConfig) ->
     snabbkaffe:stop(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    case ?config(tc_status, TCConfig) of
+        {failed, _} ->
+            restart_server();
+        _ ->
+            ok
+    end,
     emqx_common_test_helpers:call_janitor(),
+    emqx_bridge_v2_testlib:clean_aggregated_upload_work_dir(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -582,6 +598,28 @@ parallel_publish(RuleTopic, Payloads) ->
         Payloads
     ).
 
+-doc """
+The `iceberg-rest-fixture` container is quite buggy, and some test cases might randomly
+make it enter a corrupt state where it no longer serves any requests.
+
+This functions nudges the parent process of the server to restart it and ensure we start
+the next test from a clean slate.
+
+See also Note [Flaky iceberg-rest-fixtures]
+""".
+restart_server() ->
+    ct:pal("restart iceberg server..."),
+    URI = "http://iceberg-rest:8191/restart",
+    {ok, {{_, 204, _}, _, _}} =
+        httpc:request(
+            post,
+            {URI, [], "application/json", <<"">>},
+            [],
+            [{body_format, binary}]
+        ),
+    ct:pal("restarted iceberg server."),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -782,11 +820,11 @@ t_conflicting_transactions() ->
     [{matrix, true}].
 t_conflicting_transactions(matrix) ->
     [
-        [second_commit]
+        [second_commit],
         %% N.B.: the apache iceberg-rest fixture container is extremely buggy, and tends
         %% to crash and enter a corrupt state that does not recover without restarting the
         %% service/container when running this case...
-        %% , [first_commit]
+        [first_commit]
     ];
 t_conflicting_transactions(Config) ->
     ct:timetrap({seconds, 15}),
