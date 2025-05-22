@@ -317,6 +317,24 @@ t_ee_to_ce_backup(Config) ->
             ok
     end.
 
+t_tar_outside_backup_dir(Config) ->
+    BackupFileName = filename:join(?config(priv_dir, Config), "tar_outside_backup_dir.tar.gz"),
+    Meta = unicode:characters_to_binary(
+        hocon_pp:do(#{edition => emqx_release:edition(), version => emqx_release:version()}, #{})
+    ),
+    ok = erl_tar:create(
+        BackupFileName,
+        [
+            {"tar_outside_backup_dir/../../cluster.hocon", <<>>},
+            {"tar_outside_backup_dir/META.hocon", Meta}
+        ],
+        [compressed]
+    ),
+    {error, Message} = emqx_mgmt_data_backup:import_local(BackupFileName),
+    ?assert(
+        string:str(Message, "The path points above the current working directory") > 0
+    ).
+
 t_no_backup_file(_Config) ->
     ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(not_found)),
     ?assertEqual(
