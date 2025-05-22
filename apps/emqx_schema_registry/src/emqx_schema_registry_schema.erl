@@ -242,7 +242,7 @@ fields(api_node_status) ->
 fields("put_avro") ->
     fields(avro);
 fields("put_protobuf") ->
-    fields(protobuf);
+    proplists:delete(name, fields("post_protobuf"));
 fields("put_json") ->
     fields(json);
 fields("put_external_http") ->
@@ -251,6 +251,23 @@ fields("post_external_http") ->
     Fields = fields("get_external_http"),
     GetOnlyFields = [node_status, status],
     lists:filter(fun({Field, _Sc}) -> not lists:member(Field, GetOnlyFields) end, Fields);
+fields("post_protobuf") ->
+    Fields0 = fields(protobuf),
+    Fields = lists:map(
+        fun
+            ({source = K, Sc}) ->
+                %% We have a dedicated endpoint for uploading bundles.
+                Override = #{type => binary()},
+                {K, hocon_schema:override(Sc, Override)};
+            (Field) ->
+                Field
+        end,
+        Fields0
+    ),
+    [
+        {name, mk(binary(), #{required => true, desc => ?DESC("schema_name")})}
+        | Fields
+    ];
 fields("post_" ++ Type) ->
     fields("get_" ++ Type).
 
@@ -312,7 +329,7 @@ api_schema("get") ->
 api_schema("post") ->
     hoconsc:union(union_member_selector_api("post"));
 api_schema("put") ->
-    hoconsc:union(fun union_member_selector/1).
+    hoconsc:union(union_member_selector_api("put")).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
