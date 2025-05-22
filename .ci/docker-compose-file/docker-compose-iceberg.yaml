@@ -72,7 +72,7 @@ services:
       - ./iceberg/nginx-rewrite-proxy.conf:/etc/nginx/conf.d/default.conf
 
   iceberg-rest:
-    image: apache/iceberg-rest-fixture:1.8.1
+    image: apache/iceberg-rest-fixture:1.9.0
     container_name: iceberg-rest
     networks:
       emqx_bridge:
