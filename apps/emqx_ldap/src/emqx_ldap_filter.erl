@@ -18,6 +18,7 @@ We implement a more loose filter format, more like used by openldap's ldapsearch
 -export([
     parse/1,
     mapfold_values/3,
+    map_values/2,
     to_eldap/1
 ]).
 
@@ -113,6 +114,21 @@ do_to_eldap({'not', Filter}) ->
 mapfold_values(Fun, Acc0, #ldap_search_filter{filter = Filter0}) ->
     {Filter1, Acc1} = do_mapfold_values(Fun, Acc0, Filter0),
     {#ldap_search_filter{filter = Filter1}, Acc1}.
+
+-spec map_values(
+    fun((ValueType) -> NewValueType),
+    ldap_search_filter(ValueType)
+) ->
+    ldap_search_filter(NewValueType).
+map_values(Fun, LDAPSearchFilter0) ->
+    {LDAPSearchFilter, undefined} = mapfold_values(
+        fun(Value, Acc) ->
+            {Fun(Value), Acc}
+        end,
+        undefined,
+        LDAPSearchFilter0
+    ),
+    LDAPSearchFilter.
 
 do_mapfold_values(Fun, Acc0, {extensible, ExtensibleOpts, Value0}) ->
     {Value1, Acc1} = Fun(Value0, Acc0),

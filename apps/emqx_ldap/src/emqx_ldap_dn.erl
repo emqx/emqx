@@ -20,6 +20,7 @@ Although the DN is passed as a string in LDAP protocol, we parse it:
 -export([
     parse/1,
     mapfold_values/3,
+    map_values/2,
     to_string/1
 ]).
 
@@ -143,6 +144,21 @@ mapfold_values(Fun, Acc0, #ldap_dn{dn = DN}) ->
         DN
     ),
     {#ldap_dn{dn = NewDN}, NewAcc}.
+
+-spec map_values(
+    fun((ValueType) -> NewValueType),
+    ldap_dn(ValueType)
+) ->
+    ldap_dn(NewValueType).
+map_values(Fun, LDAPDN0) ->
+    {LDAPDN, undefined} = mapfold_values(
+        fun(Value, Acc) ->
+            {Fun(Value), Acc}
+        end,
+        undefined,
+        LDAPDN0
+    ),
+    LDAPDN.
 
 %%--------------------------------------------------------------------
 %% Internal functions

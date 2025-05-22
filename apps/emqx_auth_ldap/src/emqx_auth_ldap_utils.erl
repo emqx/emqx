@@ -17,24 +17,20 @@
 %%------------------------------------------------------------------------------
 
 render_base_dn(BaseDNTemplate, Credential) ->
-    {DN, undefined} = emqx_ldap_dn:mapfold_values(
-        fun(Value, Acc) ->
-            {iodata_to_str(emqx_auth_template:render_str_for_raw(Value, Credential)), Acc}
+    emqx_ldap_dn:map_values(
+        fun(Value) ->
+            iodata_to_str(emqx_auth_template:render_str_for_raw(Value, Credential))
         end,
-        undefined,
         BaseDNTemplate
-    ),
-    DN.
+    ).
 
 render_filter(FilterTemplate, Credential) ->
-    {Filter, undefined} = emqx_ldap_filter:mapfold_values(
-        fun(Value, Acc) ->
-            {iodata_to_str(emqx_auth_template:render_str_for_raw(Value, Credential)), Acc}
+    emqx_ldap_filter:map_values(
+        fun(Value) ->
+            iodata_to_str(emqx_auth_template:render_str_for_raw(Value, Credential))
         end,
-        undefined,
         FilterTemplate
-    ),
-    Filter.
+    ).
 
 render_password(PasswordTemplate, Credential) ->
     iodata_to_str(emqx_auth_template:render_str_for_raw(PasswordTemplate, Credential)).
