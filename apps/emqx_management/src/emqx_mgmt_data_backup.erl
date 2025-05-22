@@ -13,6 +13,8 @@
     export/1,
     import/1,
     import/2,
+    import_local/1,
+    import_local/2,
     format_error/1
 ]).
 
@@ -89,16 +91,6 @@
 ]).
 
 -define(DEFAULT_OPTS, #{}).
--define(tar(_FileName_), _FileName_ ++ ?TAR_SUFFIX).
--define(fmt_tar_err(_Expr_),
-    fun() ->
-        case _Expr_ of
-            {error, _Reason_} -> {error, erl_tar:format_error(_Reason_)};
-            _Other_ -> _Other_
-        end
-    end()
-).
--define(backup_path(_FileName_), filename:join(root_backup_dir(), _FileName_)).
 
 -type backup_file_info() :: #{
     filename := binary(),
@@ -237,66 +229,98 @@ parse_export_request(Params) ->
             {error, {bad_table_sets, InvalidSetNames}}
     end.
 
+-doc """
+This function is called from CLI.
+Tries to interpret the backup file path as a full local backup file path,
+and on fail tries to install from backup data directory.
+""".
+-spec import_local(file:filename_all()) -> import_res().
+import_local(BackupFilePath) ->
+    import_local(BackupFilePath, ?DEFAULT_OPTS).
+
+-spec import_local(file:filename_all(), map()) -> import_res().
+import_local(BackupFilePath, Opts) ->
+    case import_from_path(BackupFilePath, Opts) of
+        {error, not_found} ->
+            case import(BackupFilePath, Opts) of
+                {error, bad_backup_name} ->
+                    {error, not_found};
+                Res ->
+                    Res
+            end;
+        Res ->
+            Res
+    end.
+
+-doc """
+This function is called from CLI.
+Backup file is manually placed somewhere in the local file system.
+""".
+-spec import_from_path(file:filename_all(), map()) -> import_res().
+import_from_path(BackupFilePath, Opts) ->
+    maybe
+        ok ?= validate_import_allowed(),
+        ok ?= validate_file_exists(BackupFilePath),
+        do_import(str(BackupFilePath), Opts)
+    end.
+
+-doc """
+This function is called from API.
+It receives file name of the backup file in the backup data folder.
+Backup file should be previously created by `upload/2` function.
+""".
 -spec import(file:filename_all()) -> import_res().
 import(BackupFileName) ->
     import(BackupFileName, ?DEFAULT_OPTS).
 
 -spec import(file:filename_all(), map()) -> import_res().
 import(BackupFileName, Opts) ->
-    case is_import_allowed() of
-        true ->
-            case lookup_file(str(BackupFileName)) of
-                {ok, FilePath} ->
-                    do_import(FilePath, Opts);
-                Err ->
-                    Err
-            end;
-        false ->
-            {error, not_core_node}
+    maybe
+        ok ?= validate_import_allowed(),
+        {ok, BackupFilePath} ?= backup_path(BackupFileName),
+        ok ?= validate_file_exists(BackupFilePath),
+        do_import(BackupFilePath, Opts)
     end.
 
+-doc """
+This function is an RPC target and is called from the API handler.
+It runs on a core node.
+
+`FileNode` is the node to take backup file from.
+""".
 -spec maybe_copy_and_import(node(), file:filename_all()) -> import_res().
-maybe_copy_and_import(FileNode, BackupFileName) when FileNode =:= node() ->
-    import(BackupFileName, #{});
 maybe_copy_and_import(FileNode, BackupFileName) ->
-    %% The file can be already present locally
-    case filelib:is_file(?backup_path(str(BackupFileName))) of
-        true ->
-            import(BackupFileName, #{});
-        false ->
-            copy_and_import(FileNode, BackupFileName)
+    maybe
+        ok ?= maybe_copy(FileNode, BackupFileName),
+        import(BackupFileName, #{})
     end.
 
 -spec read_file(file:filename_all()) ->
     {ok, #{filename => file:filename_all(), file => binary()}} | {error, _}.
 read_file(BackupFileName) ->
-    BackupFileNameStr = str(BackupFileName),
-    case validate_backup_name(BackupFileNameStr) of
-        ok ->
-            maybe_not_found(file:read_file(?backup_path(BackupFileName)));
-        Err ->
-            Err
+    maybe
+        {ok, FilePath} ?= backup_path(BackupFileName),
+        maybe_not_found(file:read_file(FilePath))
     end.
 
 -spec delete_file(file:filename_all()) -> ok | {error, _}.
 delete_file(BackupFileName) ->
-    BackupFileNameStr = str(BackupFileName),
-    case validate_backup_name(BackupFileNameStr) of
-        ok ->
-            maybe_not_found(file:delete(?backup_path(BackupFileName)));
-        Err ->
-            Err
+    maybe
+        {ok, FilePath} ?= backup_path(BackupFileName),
+        maybe_not_found(file:delete(FilePath))
     end.
 
 -spec upload(file:filename_all(), binary()) -> ok | {error, _}.
 upload(BackupFileName, BackupFileContent) ->
-    BackupFileNameStr = str(BackupFileName),
-    FilePath = ?backup_path(BackupFileNameStr),
-    case filelib:is_file(FilePath) of
-        true ->
-            {error, {already_exists, BackupFileNameStr}};
-        false ->
-            do_upload(BackupFileNameStr, BackupFileContent)
+    maybe
+        {ok, FilePath} ?= backup_path(BackupFileName),
+        BackupDir = backup_dir(FilePath),
+        case filelib:is_file(FilePath) of
+            true ->
+                {error, {already_exists, BackupFileName}};
+            false ->
+                do_upload(FilePath, BackupDir, BackupFileContent)
+        end
     end.
 
 -spec list_files() -> [backup_file_info()].
@@ -320,9 +344,12 @@ list_files() ->
         end,
     lists:filtermap(Filter, backup_files()).
 
+-spec backup_files() -> [file:filename()].
 backup_files() ->
-    filelib:wildcard(?backup_path("*" ++ ?TAR_SUFFIX)).
+    {ok, Pattern} = backup_path("*" ++ ?TAR_SUFFIX),
+    filelib:wildcard(Pattern).
 
+-spec format_error(atom()) -> string() | term().
 format_error(not_core_node) ->
     str(
         io_lib:format(
@@ -356,10 +383,12 @@ format_error({already_exists, BackupFileName}) ->
 format_error(Reason) ->
     Reason.
 
+-spec format_conf_errors(map()) -> list().
 format_conf_errors(Errors) ->
     Opts = #{print_fun => fun io_lib:format/2},
     maps:values(maps:map(conf_error_formatter(Opts), Errors)).
 
+-spec format_db_errors(map()) -> list().
 format_db_errors(Errors) ->
     Opts = #{print_fun => fun io_lib:format/2},
     maps:values(
@@ -373,32 +402,36 @@ format_db_errors(Errors) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-copy_and_import(FileNode, BackupFileName) ->
-    case emqx_mgmt_data_backup_proto_v1:read_file(FileNode, BackupFileName, infinity) of
-        {ok, BackupFileContent} ->
-            case upload(BackupFileName, BackupFileContent) of
-                ok ->
-                    import(BackupFileName, #{});
-                Err ->
-                    Err
-            end;
-        Err ->
-            Err
+maybe_copy(FileNode, _BackupFileName) when FileNode =:= node() ->
+    ok;
+maybe_copy(FileNode, BackupFileName) ->
+    maybe
+        {ok, FilePath} ?= backup_path(BackupFileName),
+        %% The file can be already present locally.
+        case filelib:is_regular(FilePath) of
+            true ->
+                ok;
+            false ->
+                copy(FileNode, BackupFileName)
+        end
     end.
 
-%% compatibility with import API that uses lookup_file/1 and returns `not_found` reason
+copy(FileNode, BackupFileName) ->
+    maybe
+        {ok, BackupFileContent} ?=
+            emqx_mgmt_data_backup_proto_v1:read_file(FileNode, BackupFileName, infinity),
+        ok = upload(BackupFileName, BackupFileContent)
+    end.
+
 maybe_not_found({error, enoent}) ->
     {error, not_found};
 maybe_not_found(Other) ->
     Other.
 
-do_upload(BackupFileNameStr, BackupFileContent) ->
-    FilePath = ?backup_path(BackupFileNameStr),
-    BackupDir = ?backup_path(filename:basename(BackupFileNameStr, ?TAR_SUFFIX)),
+do_upload(BackupFilePath, BackupDir, BackupFileContent) ->
     try
-        ok = validate_backup_name(BackupFileNameStr),
-        ok = file:write_file(FilePath, BackupFileContent),
-        ok = extract_backup(FilePath),
+        ok = file:write_file(BackupFilePath, BackupFileContent),
+        ok = extract_backup(BackupFilePath),
         {ok, _} = validate_backup(BackupDir),
         HoconFileName = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
         case filelib:is_regular(HoconFileName) of
@@ -415,10 +448,10 @@ do_upload(BackupFileNameStr, BackupFileContent) ->
     catch
         error:{badmatch, {error, Reason}}:Stack ->
             ?SLOG(error, #{msg => "emqx_data_upload_failed", reason => Reason, stacktrace => Stack}),
-            _ = file:delete(FilePath),
+            _ = file:delete(BackupFilePath),
             {error, Reason};
         Class:Reason:Stack ->
-            _ = file:delete(FilePath),
+            _ = file:delete(BackupFilePath),
             ?SLOG(error, #{
                 msg => "emqx_data_upload_failed",
                 exception => Class,
@@ -441,14 +474,14 @@ prepare_new_backup(Opts) ->
     ),
     BackupDir = maps:get(out_dir, Opts, root_backup_dir()),
     BackupName = filename:join(BackupDir, BackupBaseName),
-    BackupTarName = ?tar(BackupName),
+    BackupTarName = tar(BackupName),
     maybe_print("Exporting data to ~p...~n", [BackupTarName], Opts),
-    {ok, TarDescriptor} = ?fmt_tar_err(erl_tar:open(BackupTarName, [write, compressed])),
+    {ok, TarDescriptor} = format_tar_error(erl_tar:open(BackupTarName, [write, compressed])),
     {BackupName, TarDescriptor}.
 
 do_export(BackupName, TarDescriptor, Opts) ->
     BackupBaseName = filename:basename(BackupName),
-    BackupTarName = ?tar(BackupName),
+    BackupTarName = tar(BackupName),
     Meta = #{
         version => emqx_release:version(),
         edition => emqx_release:edition()
@@ -456,10 +489,10 @@ do_export(BackupName, TarDescriptor, Opts) ->
     MetaBin = bin(hocon_pp:do(Meta, #{})),
     MetaFileName = filename:join(BackupBaseName, ?META_FILENAME),
 
-    ok = ?fmt_tar_err(erl_tar:add(TarDescriptor, MetaBin, MetaFileName, [])),
+    ok = format_tar_error(erl_tar:add(TarDescriptor, MetaBin, MetaFileName, [])),
     ok = export_cluster_hocon(TarDescriptor, BackupBaseName, Opts),
     ok = export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts),
-    ok = ?fmt_tar_err(erl_tar:close(TarDescriptor)),
+    ok = format_tar_error(erl_tar:close(TarDescriptor)),
     {ok, #file_info{
         size = Size,
         ctime = CTime
@@ -483,7 +516,7 @@ export_cluster_hocon(TarDescriptor, BackupBaseName, Opts) ->
     RawConf = TransformFn(RawConf2),
     RawConfBin = bin(hocon_pp:do(RawConf, #{})),
     NameInArchive = filename:join(BackupBaseName, ?CLUSTER_HOCON_FILENAME),
-    ok = ?fmt_tar_err(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, [])).
+    ok = format_tar_error(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, [])).
 
 export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts) ->
     maybe_print("Exporting built-in database...~n", [], Opts),
@@ -505,7 +538,7 @@ export_mnesia_tab(TarDescriptor, TabName, BackupName, BackupBaseName, Opts) ->
     maybe_print("Exporting ~p database table...~n", [TabName], Opts),
     {ok, MnesiaBackupName} = do_export_mnesia_tab(TabName, BackupName),
     NameInArchive = mnesia_backup_name(BackupBaseName, TabName),
-    ok = ?fmt_tar_err(erl_tar:add(TarDescriptor, MnesiaBackupName, NameInArchive, [])),
+    ok = format_tar_error(erl_tar:add(TarDescriptor, MnesiaBackupName, NameInArchive, [])),
     _ = file:delete(MnesiaBackupName),
     ok.
 
@@ -542,8 +575,17 @@ modules_with_mnesia_tabs_to_backup() ->
 mnesia_backup_name(Path, TabName) ->
     filename:join([Path, ?BACKUP_MNESIA_DIR, atom_to_list(TabName)]).
 
-is_import_allowed() ->
-    mria_rlog:role() =:= core.
+validate_import_allowed() ->
+    case mria_rlog:role() of
+        core -> ok;
+        _ -> {error, not_core_node}
+    end.
+
+validate_file_exists(FilePath) ->
+    case filelib:is_regular(FilePath) of
+        true -> ok;
+        false -> {error, not_found}
+    end.
 
 validate_backup(BackupDir) ->
     case hocon:files([filename:join(BackupDir, ?META_FILENAME)]) of
@@ -611,12 +653,12 @@ parse_version_no_patch(VersionBin) ->
             {error, invalid_version}
     end.
 
-do_import(BackupFileName, Opts) ->
-    BackupDir = ?backup_path(filename:basename(BackupFileName, ?TAR_SUFFIX)),
-    maybe_print("Importing data from ~p...~n", [BackupFileName], Opts),
+do_import(BackupFilePath, Opts) ->
+    BackupDir = backup_dir(BackupFilePath),
+    maybe_print("Importing data from ~p...~n", [BackupFilePath], Opts),
     try
-        ok = validate_backup_name(BackupFileName),
-        ok = extract_backup(BackupFileName),
+        ok = validate_backup_basename(BackupFilePath),
+        ok = extract_backup(BackupFilePath),
         {ok, _} = validate_backup(BackupDir),
         ConfErrors = import_cluster_hocon(BackupDir, Opts),
         MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
@@ -808,14 +850,14 @@ migrate_mnesia_backup(MnesiaBackupFileName, Mod, Acc) ->
             {error, no_migrator}
     end.
 
-extract_backup(BackupFileName) ->
-    BackupDir = root_backup_dir(),
-    ok = validate_filenames(BackupFileName),
-    ?fmt_tar_err(erl_tar:extract(BackupFileName, [{cwd, BackupDir}, compressed])).
+extract_backup(BackupFilePath) ->
+    RootBackupDir = root_backup_dir(),
+    ok = validate_filenames(BackupFilePath),
+    format_tar_error(erl_tar:extract(BackupFilePath, [{cwd, RootBackupDir}, compressed])).
 
-validate_filenames(BackupFileName) ->
-    {ok, FileNames} = ?fmt_tar_err(erl_tar:table(BackupFileName, [compressed])),
-    BackupName = filename:basename(BackupFileName, ?TAR_SUFFIX),
+validate_filenames(BackupFilePath) ->
+    {ok, FileNames} = format_tar_error(erl_tar:table(BackupFilePath, [compressed])),
+    BackupName = filename:basename(BackupFilePath, ?TAR_SUFFIX),
     IsValid = lists:all(
         fun(FileName) ->
             [Root | _] = filename:split(FileName),
@@ -1015,32 +1057,6 @@ bin(Data) when is_atom(Data) ->
 bin(Data) ->
     unicode:characters_to_binary(Data).
 
-validate_backup_name(FileName) ->
-    BaseName = filename:basename(FileName, ?TAR_SUFFIX),
-    ValidName = BaseName ++ ?TAR_SUFFIX,
-    case filename:basename(FileName) of
-        ValidName -> ok;
-        _ -> {error, bad_backup_name}
-    end.
-
-lookup_file(FileName) ->
-    case filelib:is_regular(FileName) of
-        true ->
-            {ok, FileName};
-        false ->
-            %% Only lookup by basename, don't allow to lookup by file path
-            case FileName =:= filename:basename(FileName) of
-                true ->
-                    FilePath = ?backup_path(FileName),
-                    case filelib:is_file(FilePath) of
-                        true -> {ok, FilePath};
-                        false -> {error, not_found}
-                    end;
-                false ->
-                    {error, not_found}
-            end
-    end.
-
 root_backup_dir() ->
     Dir = filename:join(emqx:data_dir(), ?ROOT_BACKUP_DIR),
     ok = ensure_path(Dir),
@@ -1126,3 +1142,35 @@ build_table_set_to_tables_mapping() ->
         #{},
         Mods
     ).
+
+tar(FileName) ->
+    FileName ++ ?TAR_SUFFIX.
+
+format_tar_error(Expr) ->
+    case Expr of
+        {error, Reason} -> {error, erl_tar:format_error(Reason)};
+        Other -> Other
+    end.
+
+validate_backup_basename(BackupFilePath) ->
+    BaseNameNoExt = filename:basename(BackupFilePath, ?TAR_SUFFIX),
+    BaseName = filename:basename(BackupFilePath),
+    case BaseName =:= BaseNameNoExt ++ ?TAR_SUFFIX of
+        true -> ok;
+        false -> {error, bad_backup_name}
+    end.
+
+backup_dir(BackupFilePath) ->
+    BaseName = filename:basename(BackupFilePath, ?TAR_SUFFIX),
+    filename:join(root_backup_dir(), BaseName).
+
+backup_path(FileName) when is_binary(FileName) ->
+    backup_path(str(FileName));
+backup_path(FileName) when is_list(FileName) ->
+    maybe
+        [FileName] ?= filename:split(FileName),
+        ok ?= validate_backup_basename(FileName),
+        {ok, filename:join(root_backup_dir(), FileName)}
+    else
+        _ -> {error, bad_backup_name}
+    end.
