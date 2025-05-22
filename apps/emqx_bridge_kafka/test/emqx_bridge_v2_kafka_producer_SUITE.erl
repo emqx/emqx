@@ -1834,6 +1834,7 @@ t_msk_iam_authn(Config) ->
     %% try and exercise most of the code.
     mock_iam_metadata_v2_calls(),
     ok = meck:new(emqx_bridge_kafka_msk_iam_authn, [passthrough]),
+    TestPid = self(),
     emqx_common_test_helpers:with_mock(
         kpro_lib,
         send_and_recv,
@@ -1842,7 +1843,8 @@ t_msk_iam_authn(Config) ->
                 #kpro_req{api = sasl_handshake} ->
                     #{error_code => no_error};
                 #kpro_req{api = sasl_authenticate} ->
-                    #{error_code => no_error, session_lifetime_ms => 99999};
+                    TestPid ! sasl_auth,
+                    #{error_code => no_error, session_lifetime_ms => 2_000};
                 _ ->
                     meck:passthrough([Req, Sock, Mod, ClientId, Timeout])
             end
@@ -1852,9 +1854,26 @@ t_msk_iam_authn(Config) ->
                 {201, #{<<"status">> := <<"connected">>}},
                 create_connector_api(ConnectorParams)
             ),
-            %% Must have called our callback
+            %% Must have called our callback once
             ?assertMatch(
                 [{_, {_, token_callback, _}, {ok, #{token := <<_/binary>>}}}],
+                meck:history(emqx_bridge_kafka_msk_iam_authn)
+            ),
+            receive
+                sasl_auth -> ok
+            after 0 -> ct:fail("the impossible has happened!?")
+            end,
+            %% Should renew auth after according to `session_lifetime_ms`.
+            ct:pal("waiting for renewal"),
+            receive
+                sasl_auth -> ok
+            after 3_000 -> ct:fail("did not renew sasl auth")
+            end,
+            ?assertMatch(
+                [
+                    {_, {_, token_callback, _}, {ok, #{token := A}}},
+                    {_, {_, token_callback, _}, {ok, #{token := B}}}
+                ] when A /= B,
                 meck:history(emqx_bridge_kafka_msk_iam_authn)
             )
         end
