@@ -948,7 +948,7 @@ fields("ws_opts") ->
             )},
         {"supported_subprotocols",
             sc(
-                comma_separated_list(),
+                comma_separated_binary(),
                 #{
                     default => <<"mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5">>,
                     desc => ?DESC(fields_ws_opts_supported_subprotocols)
