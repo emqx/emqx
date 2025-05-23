@@ -155,7 +155,7 @@
 -type subscription() :: #{
     id := subscription_id(),
     start_time := emqx_ds:time(),
-    restart_time => emqx_ds:time(),
+    mode => emqx_persistent_session_ds_subs:subscription_mode(),
     current_state := emqx_persistent_session_ds_subs:subscription_state_id(),
     subopts := map()
 }.
@@ -722,9 +722,8 @@ shared_sub_opts(SessionId) ->
     {ok, replies(), session()}.
 replay(ClientInfo, [], Session0) ->
     #{id := SessionId, s := S0, stream_scheduler_s := SchedS0} = Session0,
-    {S1, SchedS1} = emqx_persistent_session_ds_stream_scheduler:on_session_replay(S0, SchedS0),
-    {S2, Outcomes} = emqx_persistent_session_ds_subs:on_session_replay(SessionId, S1),
-    {S, SchedS} = lists:foldl(
+    {S1, Outcomes} = emqx_persistent_session_ds_subs:on_session_replay(SessionId, S0),
+    {S2, SchedS1} = lists:foldl(
         fun({downgrade, direct, TopicFilter, #{id := SubId}}, {SAcc, SchedSAcc}) ->
             %% Subscription was downgraded, notify the stream scheduler:
             emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
@@ -734,16 +733,21 @@ replay(ClientInfo, [], Session0) ->
                 SchedSAcc
             )
         end,
-        {S2, SchedS1},
+        {S1, SchedS0},
         Outcomes
     ),
+    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_session_replay(S2, SchedS1),
     Streams = emqx_persistent_session_ds_stream_scheduler:find_replay_streams(S),
     Session1 = Session0#{
         s := S,
         stream_scheduler_s := SchedS,
         replay := Streams
     },
-    Session = replay_streams(Session1, ClientInfo),
+    case Outcomes of
+        [] -> Session2 = Session1;
+        _ -> Session2 = commit(Session1)
+    end,
+    Session = replay_streams(Session2, ClientInfo),
     {ok, [], Session}.
 
 replay_streams(Session0 = #{replay := [{StreamKey, SRS0} | Rest]}, ClientInfo) ->

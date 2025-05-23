@@ -313,8 +313,9 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
             TopicFilter = emqx_ds:topic_words(TopicFilterBin),
             Subscription = emqx_persistent_session_ds_subs:lookup(TopicFilterBin, S0),
             %% Renew streams:
+            #{start_time := StartTime} = Subscription,
             try
-                StreamMap = get_streams(TopicFilter, subscription_start_from(Subscription)),
+                StreamMap = get_streams(TopicFilter, StartTime),
                 {NewSRSIds, S, SubS} = renew_streams(
                     S0, TopicFilter, Subscription, StreamMap, SubS0
                 ),
@@ -522,7 +523,7 @@ gc(S) ->
 
 -spec on_subscribe(
     emqx_types:topic(),
-    emqx_persistent_session_ds:subscription(),
+    emqx_persistent_session_ds_subs:subscription(),
     emqx_persistent_session_ds_state:t(),
     t()
 ) ->
@@ -682,7 +683,7 @@ init_for_subscription(
     S0,
     SchedS0 = #s{new_stream_subs = NewStreamSubs, sub_metadata = SubMetadata}
 ) ->
-    #{id := SubId} = Subscription,
+    #{id := SubId, start_time := StartTime} = Subscription,
     TopicFilter = emqx_ds:topic_words(TopicFilterBin),
     %% Start watching the streams immediately:
     NewStreamsWatch = watch_streams(TopicFilter),
@@ -692,7 +693,7 @@ init_for_subscription(
         new_streams_watch = NewStreamsWatch
     },
     %% Renew streams:
-    StreamMap = get_streams(TopicFilter, subscription_start_from(Subscription)),
+    StreamMap = get_streams(TopicFilter, StartTime),
     {NewSRSIds, S, SubState} = renew_streams(
         S0, TopicFilter, Subscription, StreamMap, SubState0
     ),
@@ -1078,13 +1079,12 @@ to_BQ12(Key, SRS, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
         emqx_persistent_session_ds_state:t()
     }.
 make_iterator(TopicFilter, Subscription, RankX, RankY, Stream, S) ->
-    #{id := SubId, current_state := CurrentSubState} = Subscription,
+    #{id := SubId, start_time := StartTime, current_state := CurrentSubState} = Subscription,
     Key = {SubId, Stream},
-    StartFrom = subscription_start_from(Subscription),
-    case emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartFrom) of
+    case emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime) of
         {ok, Iterator} ->
             ?tp(?sessds_stream_state_trans, #{
-                key => Key, to => r, from => p, start_time => StartFrom
+                key => Key, to => r, from => p, start_time => StartTime
             }),
             NewStreamState = #srs{
                 rank_x = RankX,
@@ -1171,11 +1171,6 @@ find_ds_sub(Predicate, It0) ->
         none ->
             undefined
     end.
-
-subscription_start_from(#{restart_time := RestartTime}) ->
-    RestartTime;
-subscription_start_from(#{start_time := StartTime}) ->
-    StartTime.
 
 %%--------------------------------------------------------------------------------
 %% Block queue
