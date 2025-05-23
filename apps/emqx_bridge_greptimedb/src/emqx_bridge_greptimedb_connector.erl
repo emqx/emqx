@@ -236,13 +236,14 @@ roots() ->
     ].
 
 fields("connector") ->
-    [server_field()] ++
+    [server_field(), ttl_field()] ++
         credentials_fields() ++
         emqx_connector_schema_lib:ssl_fields();
 %% ============ begin: schema for old bridge configs ============
 fields(common) ->
     [
         server_field(),
+        ttl_field(),
         precision_field()
     ];
 fields(greptimedb) ->
@@ -265,6 +266,13 @@ precision_field() ->
 
 server_field() ->
     {server, server()}.
+
+ttl_field() ->
+    {ttl,
+        mk(binary(), #{
+            required => false,
+            desc => ?DESC("ttl")
+        })}.
 
 server() ->
     Meta = #{
@@ -378,6 +386,11 @@ client_config(
         server := Server
     }
 ) ->
+    Hints =
+        case maps:find(ttl, Config) of
+            {ok, TimeToLive} -> #{<<"ttl">> => TimeToLive};
+            _ -> #{}
+        end,
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?GREPTIMEDB_HOST_OPTIONS),
     [
         {endpoints, [{http, str(Host), Port}]},
@@ -385,6 +398,7 @@ client_config(
         {pool, InstId},
         {pool_type, random},
         {auto_reconnect, ?AUTO_RECONNECT_S},
+        {grpc_hints, Hints},
         {grpc_opts, grpc_opts()}
     ] ++ protocol_config(Config).
 

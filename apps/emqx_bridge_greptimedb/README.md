@@ -17,7 +17,7 @@ Just like the InfluxDB data bridge but have some different parameters. Below are
   - `server`: The IPv4 or IPv6 address or the hostname to connect to.
   - `dbname`: The GreptimeDB database name.
   - `write_syntax`: Like the `write_syntax` in `InfluxDB` conf, it's the conf of InfluxDB line protocol to write data points. It is a text-based format that provides the measurement, tag set, field set, and timestamp of a data point, and placeholder supported.
-
+  - `ttl`: The time-to-live setting for automatically created tables. For more information about TTL, please read [the documentation](https://docs.greptime.com/reference/sql/create#create-a-table-with-ttl).
 
 # Contributing - [Mandatory]
 Please see our [contributing.md](../../CONTRIBUTING.md).
