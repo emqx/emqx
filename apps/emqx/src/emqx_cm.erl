@@ -172,7 +172,7 @@ insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
     ok.
 
 %% @doc Register a channel with pid and conn_mod, globally and locally.
-%% It maybe called twice for two global registration backends.
+%% It may be called twice for two global registration backends.
 %% There is a Race-Condition on one node or cluster when many connections
 %% login to Broker with the same clientid. We should register it and save
 %% the conn_mod first for taking up the clientid access right.
@@ -188,7 +188,7 @@ register_channel(#{clientid := ClientId, predecessor := _} = ClientInfo, ChanPid
 register_channel(ClientId, ChanPid, ConnInfo) when
     is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
 ->
-    %% Note that: It maybe be called in a locked transaction.
+    %% Note that: It may be called in a locked transaction.
     Chan = {ClientId, ChanPid},
     ok = emqx_cm_registry:register_channel(Chan),
     register_channel_local(ClientId, ChanPid, ConnInfo).
@@ -208,7 +208,7 @@ register_channel_local(ClientId, ChanPid, #{conn_mod := ConnMod, transport_start
 register_channel_local(ClientId, ChanPid, ConnInfo) ->
     %% For backward compatibility.
     %% when transport_started_at is absent, that means it is a call from older EMQX version
-    %% where the connected time must be known, but defaults to 0 for safty.
+    %% where the connected time must be known, but defaults to 0 for safety.
     TS = maps:get(connected_at, ConnInfo, 0),
     register_channel_local(ClientId, ChanPid, ConnInfo#{transport_started_at => TS}).
 
@@ -787,7 +787,7 @@ lookup_channels(local, ClientId) ->
 lookup_lsr_channels(ClientId) ->
     lists:map(
         fun emqx_lsr:ch_pid/1,
-        emqx_lsr:lookup_channels_d(ClientId)
+        emqx_lsr:dirty_lookup_channels(ClientId)
     ).
 
 -spec lookup_client(
