@@ -86,10 +86,7 @@
 
 %% session table operations
 -export([sync/1]).
--ifndef(STORE_STATE_IN_DS).
 -export([create_tables/0]).
-%% END ifndef(STORE_STATE_IN_DS).
--endif.
 
 %% internal export used by session GC process
 -export([destroy_session/1]).
@@ -161,7 +158,7 @@
 
 -type shared_sub_state() :: term().
 
--define(TIMER_DRAIN_INFLIGHT, timer_drain_inflight).
+-define(FLAG_DRAIN_INFLIGHT, flag_drain_inflight).
 -define(TIMER_COMMIT, timer_commit).
 -define(TIMER_RETRY_REPLAY, timer_retry_replay).
 
@@ -186,12 +183,12 @@
     s := emqx_persistent_session_ds_state:t(),
     %% Shared subscription state:
     shared_sub_s := shared_sub_state(),
-    %% Buffer accumulates poll replies received from the DS, that
-    %% could not be immediately added to the inflight due to stream
-    %% blocking. Buffered messages have not been seen by the client.
-    %% Therefore, they (and their iterators) are entirely ephemeral
-    %% and are lost when the client disconnets. Session restarts with
-    %% an empty buffer.
+    %% Buffer accumulates batches received from the DS, that could not
+    %% be immediately added to the inflight due to stream blocking.
+    %% Buffered messages have not been seen by the client. Therefore,
+    %% they (and their iterators) are entirely ephemeral and are lost
+    %% when the client disconnets. Session restarts with an empty
+    %% buffer.
     buffer := emqx_persistent_session_ds_buffer:t(),
     %% Inflight represents a sequence of outgoing messages with
     %% assigned packet IDs. Some of these messages MAY have been seen
@@ -208,7 +205,7 @@
     %% List of stream replay states to be added to the inflight.
     replay := [{_StreamKey, stream_state()}, ...] | undefined,
     %% Flags:
-    ?TIMER_DRAIN_INFLIGHT := boolean(),
+    ?FLAG_DRAIN_INFLIGHT := boolean(),
     %% Timers:
     ?TIMER_RETRY_REPLAY := timer_state(),
     ?TIMER_COMMIT := timer_state()
@@ -256,7 +253,7 @@
     session().
 create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     State = ensure_new_session_state(ClientID, ClientInfo, ConnInfo, MaybeWillMsg),
-    create_session(true, ClientID, State, ConnInfo, Conf).
+    create_session(new, ClientID, State, ConnInfo, Conf).
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
@@ -272,7 +269,7 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
         false ->
             false;
         State ->
-            Session = create_session(false, ClientID, State, ConnInfo, Conf),
+            Session = create_session(takeover, ClientID, State, ConnInfo, Conf),
             {true, do_expire(ClientInfo, Session), []}
     end.
 
@@ -399,7 +396,7 @@ subscribe(
     case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
         {ok, S, SharedSubS} ->
             Session = Session0#{s := S, shared_sub_s := SharedSubS},
-            {ok, commit(Session)};
+            {ok, async_checkpoint(Session)};
         Error = {error, _} ->
             Error
     end;
@@ -414,7 +411,7 @@ subscribe(
                 TopicFilter, Subscription, S1, SchedS0
             ),
             Session = Session0#{s := S, stream_scheduler_s := SchedS},
-            {ok, commit(Session)};
+            {ok, async_checkpoint(Session)};
         Error = {error, _} ->
             Error
     end.
@@ -439,7 +436,7 @@ unsubscribe(
             Session = Session0#{
                 s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS
             },
-            {ok, commit(clear_buffer(SubId, Session)), SubOpts};
+            {ok, async_checkpoint(clear_buffer(SubId, Session)), SubOpts};
         Error = {error, _} ->
             Error
     end;
@@ -453,7 +450,7 @@ unsubscribe(
                 TopicFilter, SubId, S1, SchedS0
             ),
             Session = Session0#{s := S, stream_scheduler_s := SchedS},
-            {ok, commit(clear_buffer(SubId, Session)), SubOpts};
+            {ok, async_checkpoint(clear_buffer(SubId, Session)), SubOpts};
         Error = {error, _} ->
             Error
     end.
@@ -624,7 +621,7 @@ deliver(ClientInfo, Delivers, Session0) ->
 
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
-handle_timeout(_ClientInfo, ?TIMER_DRAIN_INFLIGHT, Session0) ->
+handle_timeout(_ClientInfo, ?FLAG_DRAIN_INFLIGHT, Session0) ->
     %% This particular piece of code is responsible for sending
     %% messages queued up in the inflight to the client:
     {Publishes, Session} = drain_inflight(Session0),
@@ -633,7 +630,7 @@ handle_timeout(ClientInfo, ?TIMER_RETRY_REPLAY, Session0) ->
     Session = replay_streams(Session0, ClientInfo),
     {ok, [], ensure_state_commit_timer(Session)};
 handle_timeout(_ClientInfo, ?TIMER_COMMIT, Session) ->
-    {ok, [], commit(Session)};
+    {ok, [], async_checkpoint(Session)};
 handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
     expire(ClientInfo, Session);
 handle_timeout(
@@ -677,28 +674,35 @@ handle_info(
     ),
     Session#{s := S, stream_scheduler_s := SchedS};
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
-    Session = commit(Session0),
+    Session = commit(Session0, #{lifetime => up, sync => true}),
     From ! Ref,
     Session;
 handle_info(
-    Msg = {'DOWN', _, _, _, _},
-    Session = #{s := S, stream_scheduler_s := SchedS0, buffer := Buf0},
+    Info,
+    Session = #{s := S0, stream_scheduler_s := SchedS0, buffer := Buf0},
     _ClientInfo
 ) ->
-    %% Handle potential subscription DS crash:
-    case emqx_persistent_session_ds_stream_scheduler:handle_down(Msg, S, SchedS0) of
+    %% Handle all the other messages.
+    %%
+    %% Is it a state commit reply?
+    case emqx_persistent_session_ds_state:on_commit_reply(Info, S0) of
         ignore ->
-            Session;
-        {drop_buffer, StreamKey, SchedS} ->
-            Buf = emqx_persistent_session_ds_buffer:drop_stream(StreamKey, Buf0),
-            Session#{
-                stream_scheduler_s := SchedS,
-                buffer := Buf
-            }
-    end;
-handle_info(Msg, Session, _ClientInfo) ->
-    ?tp(warning, ?sessds_unknown_message, #{message => Msg}),
-    Session.
+            %% No. Is it a DS subscription crash then?
+            case emqx_persistent_session_ds_stream_scheduler:handle_down(Info, S0, SchedS0) of
+                ignore ->
+                    ?tp(warning, ?sessds_unknown_message, #{message => Info}),
+                    Session;
+                {drop_buffer, StreamKey, SchedS} ->
+                    Buf = emqx_persistent_session_ds_buffer:drop_stream(StreamKey, Buf0),
+                    Session#{
+                        stream_scheduler_s := SchedS,
+                        buffer := Buf
+                    }
+            end;
+        S ->
+            %% Yes, session checkpoint just completed.
+            ensure_state_commit_timer(Session#{s := S})
+    end.
 
 %%--------------------------------------------------------------------
 %% Shared subscription outgoing messages
@@ -874,13 +878,13 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
                 S2
         end,
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_disconnect(S3, SharedSubS0),
-    {shutdown, commit(Session#{s := S, shared_sub_s := SharedSubS})}.
+    {shutdown, async_checkpoint(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
 terminate(Reason, Session = #{s := S0, id := Id}) ->
     _ = maybe_set_will_message_timer(Session),
     S = finalize_last_alive_at(S0),
-    _ = commit(Session#{s := S}, #{terminate => true}),
+    _ = commit(Session#{s := S}, #{lifetime => terminate, sync => true}),
     ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
     ok.
 
@@ -934,11 +938,8 @@ get_client_subscription(ClientID, TopicFilter) ->
 %% Session tables operations
 %%--------------------------------------------------------------------
 
--ifndef(STORE_STATE_IN_DS).
 create_tables() ->
-    emqx_persistent_session_ds_state:create_tables().
-%% END ifndef(STORE_STATE_IN_DS).
--endif.
+    emqx_persistent_session_ds_state:open_db(emqx_ds_schema:session_config()).
 
 %% @doc Force commit of the transient state to persistent storage
 sync(ClientID) ->
@@ -1053,10 +1054,11 @@ session_drop(SessionId, Reason) ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-set_clientinfo(ClientInfo0, S) ->
-    %% Remove unnecessary fields from the clientinfo:
-    ClientInfo = maps:without([cn, dn, auth_result], ClientInfo0),
-    emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S).
+set_clientinfo(_ClientInfo0, S) ->
+    %% %% Remove unnecessary fields from the clientinfo:
+    %% ClientInfo = maps:without([cn, dn, auth_result], ClientInfo0),
+    %% emqx_persistent_session_ds_state:set_clientinfo(ClientInfo, S).
+    S.
 
 %%--------------------------------------------------------------------
 %% Normal replay:
@@ -1259,7 +1261,7 @@ drain_inflight(Session0 = #{inflight := Inflight0, s := S0, stream_scheduler_s :
         DSSubacks
     ),
     Session = ensure_state_commit_timer(
-        Session0#{inflight := Inflight, s := S, ?TIMER_DRAIN_INFLIGHT := false}
+        Session0#{inflight := Inflight, s := S, ?FLAG_DRAIN_INFLIGHT := false}
     ),
     {Publishes, Session}.
 
@@ -1304,7 +1306,7 @@ drain_buffer(Session0, ClientInfo, BufferIterator) ->
     end.
 
 %% @doc Move batches from a specified stream's buffer to the inflight.
-%% This function is called when the client unblock the stream by
+%% This function is called when the client unblocks the stream by
 %% acking a message.
 -spec drain_buffer_of_stream(
     emqx_persistent_session_ds_stream_scheduler:stream_key(),
@@ -1354,27 +1356,27 @@ do_drain_buffer_of_stream(
 %%--------------------------------------------------------------------------------
 
 -spec create_session(
-    boolean(),
+    emqx_persistent_session_ds_state:lifetime(),
     emqx_types:clientid(),
     emqx_persistent_session_ds_state:t(),
     emqx_types:conninfo(),
     emqx_session:conf()
 ) -> session().
-create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
+create_session(Lifetime, ClientID, S0, ConnInfo, Conf) ->
     {S1, SchedS} = emqx_persistent_session_ds_stream_scheduler:init(S0),
     Buffer = emqx_persistent_session_ds_buffer:new(),
     Inflight = emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo)),
     %% Create or init shared subscription state:
-    case IsNew of
-        false ->
+    case Lifetime of
+        new ->
+            S2 = S1,
+            SharedSubS = emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(ClientID));
+        _ ->
             {ok, S2, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(
                 S1, shared_sub_opts(ClientID)
-            );
-        true ->
-            S2 = S1,
-            SharedSubS = emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(ClientID))
+            )
     end,
-    S = emqx_persistent_session_ds_state:commit(S2, #{ensure_new => IsNew}),
+    S = emqx_persistent_session_ds_state:commit(S2, #{lifetime => Lifetime, sync => true}),
     #{
         id => ClientID,
         s => S,
@@ -1384,7 +1386,7 @@ create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
         props => Conf,
         stream_scheduler_s => SchedS,
         replay => undefined,
-        ?TIMER_DRAIN_INFLIGHT => false,
+        ?FLAG_DRAIN_INFLIGHT => false,
         ?TIMER_COMMIT => undefined,
         ?TIMER_RETRY_REPLAY => undefined
     }.
@@ -1398,10 +1400,10 @@ create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
 %%
 %% - When the client releases a packet ID (via PUBACK or PUBCOMP)
 -spec schedule_delivery(session()) -> session().
-schedule_delivery(Session = #{?TIMER_DRAIN_INFLIGHT := false}) ->
-    self() ! {timeout, make_ref(), {emqx_session, ?TIMER_DRAIN_INFLIGHT}},
-    Session#{?TIMER_DRAIN_INFLIGHT := true};
-schedule_delivery(Session = #{?TIMER_DRAIN_INFLIGHT := true}) ->
+schedule_delivery(Session = #{?FLAG_DRAIN_INFLIGHT := false}) ->
+    self() ! {timeout, make_ref(), {emqx_session, ?FLAG_DRAIN_INFLIGHT}},
+    Session#{?FLAG_DRAIN_INFLIGHT := true};
+schedule_delivery(Session = #{?FLAG_DRAIN_INFLIGHT := true}) ->
     Session.
 
 -spec receive_maximum(conninfo()) -> pos_integer().
@@ -1510,32 +1512,36 @@ update_seqno(
 ) ->
     %% TODO: we pass a bogus message into the hook:
     Msg = emqx_message:make(SessionId, <<>>, <<>>),
-    SeqNo = packet_id_to_seqno(PacketId, S0),
     case Track of
         puback ->
             QoS = ?QOS_1,
-            SeqNoKey = ?committed(?QOS_1),
-            Result = emqx_persistent_session_ds_inflight:puback(SeqNo, Inflight0);
+            SeqNoKey = ?committed(?QOS_1);
         pubcomp ->
             QoS = ?QOS_2,
-            SeqNoKey = ?committed(?QOS_2),
-            Result = emqx_persistent_session_ds_inflight:pubcomp(SeqNo, Inflight0);
+            SeqNoKey = ?committed(?QOS_2);
         pubrec ->
             QoS = ?QOS_2,
-            SeqNoKey = ?rec,
-            Result = emqx_persistent_session_ds_inflight:pubrec(SeqNo, Inflight0)
+            SeqNoKey = ?rec
     end,
+    TrackSeqNo = emqx_persistent_session_ds_state:get_seqno(SeqNoKey, S0),
+    PacketSeqNo = packet_id_to_seqno(PacketId, TrackSeqNo),
+    Result =
+        case Track of
+            puback -> emqx_persistent_session_ds_inflight:puback(PacketSeqNo, Inflight0);
+            pubcomp -> emqx_persistent_session_ds_inflight:pubcomp(PacketSeqNo, Inflight0);
+            pubrec -> emqx_persistent_session_ds_inflight:pubrec(PacketSeqNo, Inflight0)
+        end,
     case Result of
         {ok, Inflight} when Track =:= pubrec ->
-            S = put_seqno(SeqNoKey, SeqNo, S0),
+            S = put_seqno(SeqNoKey, PacketSeqNo, S0),
             Session = Session0#{inflight := Inflight, s := S},
             {ok, Msg, schedule_delivery(Session)};
         {ok, Inflight1} ->
             {UnblockedStreams, S1, SchedS} =
                 emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
-                    QoS, SeqNo, S0, SchedS0
+                    QoS, PacketSeqNo, S0, SchedS0
                 ),
-            S2 = put_seqno(SeqNoKey, SeqNo, S1),
+            S2 = put_seqno(SeqNoKey, PacketSeqNo, S1),
             {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
                 S2, SharedSubS0, UnblockedStreams
             ),
@@ -1566,9 +1572,9 @@ update_seqno(
                 #{
                     track => Track,
                     packet_id => PacketId,
-                    packet_seqno => SeqNo,
+                    packet_seqno => PacketSeqNo,
                     expected => Expected,
-                    track_seqno => emqx_persistent_session_ds_state:get_seqno(SeqNoKey, S0)
+                    track_seqno => TrackSeqNo
                 }
             ),
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
@@ -1588,17 +1594,16 @@ update_seqno(
 
 %% Reconstruct session counter by adding most significant bits from
 %% the current counter to the packet id:
--spec packet_id_to_seqno(emqx_types:packet_id(), emqx_persistent_session_ds_state:t()) ->
+-spec packet_id_to_seqno(emqx_types:packet_id(), seqno()) ->
     seqno().
-packet_id_to_seqno(PacketId, S) ->
-    NextSeqNo = emqx_persistent_session_ds_state:get_seqno(?next(packet_id_to_qos(PacketId)), S),
+packet_id_to_seqno(PacketId, NextSeqNo) ->
     Epoch = NextSeqNo bsr ?EPOCH_BITS,
     SeqNo = (Epoch bsl ?EPOCH_BITS) + (PacketId band ?PACKET_ID_MASK),
-    case SeqNo =< NextSeqNo of
+    case SeqNo < NextSeqNo of
         true ->
-            SeqNo;
+            SeqNo + ?EPOCH_SIZE;
         false ->
-            SeqNo - ?EPOCH_SIZE
+            SeqNo
     end.
 
 -spec inc_seqno(?QOS_1 | ?QOS_2, seqno()) -> emqx_types:packet_id().
@@ -1619,9 +1624,6 @@ seqno_to_packet_id(?QOS_1, SeqNo) ->
     SeqNo band ?PACKET_ID_MASK;
 seqno_to_packet_id(?QOS_2, SeqNo) ->
     SeqNo band ?PACKET_ID_MASK bor ?EPOCH_SIZE.
-
-packet_id_to_qos(PacketId) ->
-    PacketId bsr ?EPOCH_BITS + 1.
 
 seqno_diff(QoS, A, B, S) ->
     seqno_diff(
@@ -1780,7 +1782,7 @@ maybe_update_sub_state_id(SRS = #srs{sub_state_id = SSID0}, S) ->
         #{} = SubState ->
             {SRS, SubState};
         undefined ->
-            error({unknown_state_id, SRS})
+            error({unknown_state_id, SRS, S})
     end.
 
 -spec ensure_timer(timer(), non_neg_integer(), session()) -> session().
@@ -1801,21 +1803,23 @@ set_timer(Timer, Time, Session) ->
 %% Session commit, maintenance and batch jobs
 %%--------------------------------------------------------------------
 
-commit(Session) ->
-    commit(Session, _Opts = #{}).
+async_checkpoint(Session) ->
+    commit(Session, #{lifetime => up, sync => false}).
 
-commit(Session = #{s := S0}, Opts) ->
-    ?tp(debug, ?sessds_commit, #{}),
+commit(Session0 = #{s := S0}, Opts) ->
+    ?tp(?sessds_commit, #{s => S0, opts => Opts}),
     S1 = emqx_persistent_session_ds_subs:gc(emqx_persistent_session_ds_stream_scheduler:gc(S0)),
     S = emqx_persistent_session_ds_state:commit(S1, Opts),
-    cancel_state_commit_timer(Session#{s := S}).
+    Session = Session0#{s := S},
+    cancel_state_commit_timer(Session).
 
 -spec ensure_state_commit_timer(session()) -> session().
 ensure_state_commit_timer(#{s := S} = Session) ->
-    case emqx_persistent_session_ds_state:is_dirty(S) of
-        true ->
+    Dirty = emqx_persistent_session_ds_state:is_dirty(S),
+    case emqx_persistent_session_ds_state:checkpoint_ref(S) of
+        undefined when Dirty ->
             ensure_timer(?TIMER_COMMIT, commit_interval(), Session);
-        false ->
+        _ ->
             Session
     end.
 
@@ -1884,7 +1888,7 @@ next_seqno_gen() ->
     ?LET(
         {Epoch, Offset},
         {non_neg_integer(), range(0, ?EPOCH_SIZE)},
-        Epoch bsl ?EPOCH_BITS + Offset
+        (Epoch bsl ?EPOCH_BITS) + Offset
     ).
 
 %%%% Property-based tests:
@@ -1950,18 +1954,7 @@ seqno_diff_prop() ->
 seqno_proper_test_() ->
     Props = [packet_id_to_seqno_prop(), inc_seqno_prop(), seqno_diff_prop()],
     Opts = [{numtests, 1000}, {to_file, user}],
-    {timeout, 30,
-        {setup,
-            fun() ->
-                meck:new(emqx_persistent_session_ds_state, [no_history]),
-                ok = meck:expect(emqx_persistent_session_ds_state, get_seqno, fun(_Track, SeqNo) ->
-                    SeqNo
-                end)
-            end,
-            fun(_) ->
-                meck:unload(emqx_persistent_session_ds_state)
-            end,
-            [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}}.
+    {timeout, 30, [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}.
 
 apply_n_times(0, _Fun, A) ->
     A;

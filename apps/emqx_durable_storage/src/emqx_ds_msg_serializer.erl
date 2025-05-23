@@ -20,6 +20,7 @@
 
 -elvis([{elvis_style, atom_naming_convention, disable}]).
 -include("../gen_src/DurableMessage.hrl").
+-include("../gen_src/DSBuiltinMetadata.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -47,20 +48,26 @@ check_schema(v1) ->
     ok;
 check_schema(asn1) ->
     ok;
+check_schema(blob) ->
+    ok;
 check_schema(_) ->
     {error, "Unknown schema type"}.
 
--spec serialize(schema(), emqx_types:message()) -> binary().
+-spec serialize(schema(), tuple()) -> binary().
 serialize(v1, Msg) ->
     serialize_v1(Msg);
 serialize(asn1, Msg) ->
-    serialize_asn1(Msg).
+    serialize_asn1(Msg);
+serialize(blob, Blob) ->
+    Blob.
 
--spec deserialize(schema(), binary()) -> emqx_types:message().
+-spec deserialize(schema(), binary()) -> tuple().
 deserialize(v1, Blob) ->
     deserialize_v1(Blob);
 deserialize(asn1, Blob) ->
-    deserialize_asn1(Blob).
+    deserialize_asn1(Blob);
+deserialize(blob, Blob) ->
+    Blob.
 
 %%================================================================================
 %% Internal functions
@@ -104,7 +111,7 @@ value_v1_to_message({Id, Qos, From, Flags, Headers, Topic, Payload, Timestamp, E
     }.
 
 %%--------------------------------------------------------------------------------
-%% Encoding based on ASN1.
+%% Message encoding based on ASN1.
 %%--------------------------------------------------------------------------------
 
 serialize_asn1(#message{

@@ -52,12 +52,12 @@
 start_db(DB, Opts) ->
     start_link_sup(#?db_sup{db = DB}, Opts).
 
--spec start_shard(emqx_ds_storage_layer:shard_id()) ->
+-spec start_shard(emqx_ds_storage_layer:dbshard()) ->
     supervisor:startchild_ret().
 start_shard({DB, Shard}) ->
     supervisor:start_child(?via(#?shards_sup{db = DB}), shard_spec(DB, Shard)).
 
--spec stop_shard(emqx_ds_storage_layer:shard_id()) -> ok | {error, not_found}.
+-spec stop_shard(emqx_ds_storage_layer:dbshard()) -> ok | {error, not_found}.
 stop_shard({DB, Shard}) ->
     Sup = ?via(#?shards_sup{db = DB}),
     case supervisor:terminate_child(Sup, Shard) of
@@ -67,17 +67,17 @@ stop_shard({DB, Shard}) ->
             {error, Reason}
     end.
 
--spec terminate_storage(emqx_ds_storage_layer:shard_id()) -> ok | {error, _Reason}.
+-spec terminate_storage(emqx_ds_storage_layer:dbshard()) -> ok | {error, _Reason}.
 terminate_storage({DB, Shard}) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
     supervisor:terminate_child(Sup, {Shard, storage}).
 
--spec restart_storage(emqx_ds_storage_layer:shard_id()) -> {ok, _Child} | {error, _Reason}.
+-spec restart_storage(emqx_ds_storage_layer:dbshard()) -> {ok, _Child} | {error, _Reason}.
 restart_storage({DB, Shard}) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
     supervisor:restart_child(Sup, {Shard, storage}).
 
--spec ensure_shard(emqx_ds_storage_layer:shard_id()) ->
+-spec ensure_shard(emqx_ds_storage_layer:dbshard()) ->
     ok | {error, _Reason}.
 ensure_shard(Shard) ->
     ensure_started(start_shard(Shard)).
@@ -148,8 +148,8 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Children = [
         shard_storage_spec(DB, Shard, Opts),
         shard_buffer_spec(DB, Shard, Opts),
-        shard_batch_serializer_spec(DB, Shard, Opts),
-        shard_beamformers_spec(DB, Shard, Opts)
+        shard_batch_serializer_spec(DB, Shard, Opts)
+        | shard_beamformers_spec(DB, Shard, Opts)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -208,7 +208,15 @@ shard_buffer_spec(DB, Shard, Options) ->
         type => worker
     }.
 
-shard_batch_serializer_spec(DB, Shard, Opts) ->
+shard_batch_serializer_spec(DB, Shard, #{store_kv := true}) ->
+    #{
+        id => {Shard, batch_serializer},
+        start => {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_local]},
+        shutdown => 5_000,
+        restart => permanent,
+        type => worker
+    };
+shard_batch_serializer_spec(DB, Shard, Opts = #{store_kv := false}) ->
     #{
         id => {Shard, batch_serializer},
         start => {emqx_ds_builtin_local_batch_serializer, start_link, [DB, Shard, Opts]},
@@ -217,17 +225,22 @@ shard_batch_serializer_spec(DB, Shard, Opts) ->
         type => worker
     }.
 
+shard_beamformers_spec(_DB, _Shard, #{store_kv := true}) ->
+    %% Currently subscribe API is not supported for KV
+    [];
 shard_beamformers_spec(DB, Shard, _Opts) ->
     BeamformerOpts = #{n_workers => emqx_ds_beamformer:cfg_workers_per_shard()},
-    #{
-        id => {Shard, beamformers},
-        type => supervisor,
-        shutdown => infinity,
-        start =>
-            {emqx_ds_beamformer_sup, start_link, [
-                emqx_ds_builtin_local, {DB, Shard}, BeamformerOpts
-            ]}
-    }.
+    [
+        #{
+            id => {Shard, beamformers},
+            type => supervisor,
+            shutdown => infinity,
+            start =>
+                {emqx_ds_beamformer_sup, start_link, [
+                    emqx_ds_builtin_local, {DB, Shard}, BeamformerOpts
+                ]}
+        }
+    ].
 
 ensure_started(Res) ->
     case Res of

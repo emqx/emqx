@@ -30,7 +30,7 @@
     update_iterator/4,
     next/6,
     delete_next/7,
-    lookup_message/3,
+    lookup_message/4,
 
     unpack_iterator/3,
     scan_stream/8,
@@ -219,12 +219,12 @@ delete_next(_Shard, #s{db = DB, cf = CF}, It0, Selector, BatchSize, _Now, IsCurr
             {ok, It, NumDeleted, NumIterated}
     end.
 
-lookup_message(_ShardId, S = #s{db = DB, cf = CF}, #message_matcher{timestamp = TS, topic = Topic}) ->
+lookup_message(_ShardId, S = #s{db = DB, cf = CF}, Topic, TS) ->
     case rocksdb:get(DB, CF, db_key(S, TS, Topic), []) of
         {ok, Val} ->
-            decode_message(Val);
+            {ok, decode_message(Val)};
         not_found ->
-            not_found;
+            undefined;
         {error, Reason} ->
             {error, unrecoverable, Reason}
     end.
