@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     all_channels_count/2,
 
@@ -19,6 +20,9 @@
 
 introduced_in() ->
     "5.7.0".
+
+deprecated_since() ->
+    "5.10.0".
 
 -spec all_channels_count([node()], timeout()) -> emqx_rpc:erpc_multicall(non_neg_integer()).
 all_channels_count(Nodes, Timeout) ->

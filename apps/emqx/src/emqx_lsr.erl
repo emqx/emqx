@@ -16,7 +16,7 @@
 -export([
     start_link/0,
     is_enabled/0,
-    lookup_channels_d/1,
+    dirty_lookup_channels/1,
     max_channel_d/1,
     register_channel/3,
     unregister_channel/2,
@@ -76,14 +76,14 @@ unregister_channel({ClientId, ChanPid}, Vsn) ->
     mria:dirty_delete_object(?LSR_TAB, Ch),
     ok.
 
--spec lookup_channels_d(emqx_types:clientid()) -> [lsr_channel()].
-lookup_channels_d(ClientId) ->
+-spec dirty_lookup_channels(emqx_types:clientid()) -> [lsr_channel()].
+dirty_lookup_channels(ClientId) ->
     mnesia:dirty_read(?LSR_TAB, ClientId).
 
 %% @doc dirty read local max channel
 -spec max_channel_d(emqx_types:clientid()) -> option(lsr_channel()).
 max_channel_d(ClientId) ->
-    max_channel(lookup_channels_d(ClientId)).
+    max_channel(dirty_lookup_channels(ClientId)).
 
 %% @doc find last channel with the highest version
 -spec max_channel([lsr_channel()]) -> option(lsr_channel()).

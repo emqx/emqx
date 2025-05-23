@@ -9,12 +9,12 @@
 -define(lsr_err_restart_takeover, lsr_err_restart_takeover).
 
 -record(lsr_channel, {
-    id :: lsr_session_id(),
+    id :: emqx_types:clientid(),
+    % '$1' for match spec
     pid :: pid() | '$1',
+    % '$2' for match spec
     vsn :: integer() | undefined | '$2'
 }).
-
--type lsr_session_id() :: emqx_types:clientid().
 
 %% EMQX_LSR_HRL
 -endif.
