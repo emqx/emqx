@@ -18,6 +18,8 @@
 
 -include("emqx_persistent_message.hrl").
 
+-define(PROP_SUBID, 'Subscription-Identifier').
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -263,8 +265,175 @@ t_qos0_only_many_streams(_Config) ->
         emqtt:stop(Pub)
     end.
 
-get_session_inflight(ConnPid) ->
-    emqx_connection:info({channel, {session, inflight}}, sys:get_state(ConnPid)).
+%% Smoke test QoS0 and QoS1/2 subscriptions coexisting in a durable session.
+%% Verifies that such subscriptions follow relevant MQTT Spec requirements and provide
+%% message ordering guarantees corresponding to the mechanism they operate through:
+%% publishing order for "direct" QoS0 subsctipions and per-topic publishing order for
+%% DS-based QoS1/2 subscriptions.
+t_mixed_qos_subscriptions(_Config) ->
+    CPub = connect(<<"mixed_qos_subscriptions:pub">>, true, 0),
+    CSub = connect(<<"mixed_qos_subscriptions:sub">>, true, 30),
+    try
+        %% Subscribe to overlapping topics using different QoS levels:
+        SIDQ1 = 32#Q1,
+        SIDQ0 = 32#Q0,
+        %% This should turn into durable mode subscription.
+        {ok, _, [?RC_GRANTED_QOS_1]} =
+            emqtt:subscribe(CSub, #{?PROP_SUBID => SIDQ1}, <<"t/+">>, qos1),
+        %% This should turn into simpler, direct mode subscription.
+        {ok, _, [?RC_GRANTED_QOS_0]} =
+            emqtt:subscribe(CSub, #{?PROP_SUBID => SIDQ0}, <<"t/#">>, qos0),
+        %% Verify that respective routes end up in different tables:
+        ?assertEqual([<<"t/+">>], emqx_persistent_session_ds_router:topics()),
+        ?assertEqual([<<"t/#">>], emqx_router:topics()),
+        %% Publish a bunch of messages:
+        Messages = [
+            {<<"t/level/1">>, <<"0">>, 2},
+            {<<"t/1">>, <<"1">>, 2},
+            {<<"t/level/2">>, <<"2">>, 1},
+            {<<"/t">>, <<"XXX">>, 0},
+            {<<"t/2">>, <<"3">>, 0},
+            {<<"t/level/1">>, <<"4">>, 0},
+            {<<"t/1">>, <<"5">>, 0}
+        ],
+        [emqtt:publish(CPub, Topic, Payload, Qos) || {Topic, Payload, Qos} <- Messages],
+        Received = receive_messages(9),
+        %% QoS 0 messages preserve relative publishing order.
+        ?assertMatch(
+            [
+                #{topic := <<"t/level/1">>, payload := <<"0">>},
+                #{topic := <<"t/1">>, payload := <<"1">>},
+                #{topic := <<"t/level/2">>, payload := <<"2">>},
+                #{topic := <<"t/2">>, payload := <<"3">>},
+                #{topic := <<"t/level/1">>, payload := <<"4">>},
+                #{topic := <<"t/1">>, payload := <<"5">>}
+            ],
+            [M || M = #{properties := #{?PROP_SUBID := SID}} <- Received, SID == SIDQ0],
+            Received
+        ),
+        %% QoS 1/2 messages preserve only per-topic publishing order.
+        ?assertMatch(
+            [
+                #{qos := 1, topic := <<"t/1">>, payload := <<"1">>},
+                #{qos := 0, topic := <<"t/1">>, payload := <<"5">>},
+                #{qos := 0, topic := <<"t/2">>, payload := <<"3">>}
+            ],
+            group_by(
+                topic,
+                [M || M = #{properties := #{?PROP_SUBID := SID}} <- Received, SID == SIDQ1]
+            ),
+            Received
+        ),
+        ?assertNotReceive(_),
+        %% Only messages matching `SIDQ1` subscription should have ended up in DS.
+        ?assertMatch(
+            [
+                #message{qos = 2, topic = <<"t/1">>, payload = <<"1">>},
+                #message{qos = 0, topic = <<"t/2">>, payload = <<"3">>},
+                #message{qos = 0, topic = <<"t/1">>, payload = <<"5">>}
+            ],
+            lists:keysort(
+                #message.payload,
+                emqx_ds_test_helpers:consume(?PERSISTENT_MESSAGE_DB, ['#'])
+            )
+        )
+    after
+        lists:foreach(fun emqtt:stop/1, [CPub, CSub])
+    end.
+
+%% Verify that QoS0 "direct" subcsriptions can be turned into QoS1/2 DS-based
+%% subscriptions in a durable session and vice versa, and subscriptions survive
+%% client reconnects regardless of the mechanism.
+t_mixed_qos_subscription_upgrade_downgrade(_Config) ->
+    ok = snabbkaffe:start_trace(),
+    CIDSub = <<"mixed_qos_subscription_upgrade_downgrade:sub">>,
+    CPub = connect(<<"mixed_qos_subscription_upgrade_downgrade:pub">>, true, 0),
+    CSub1 = connect(CIDSub, true, 30),
+    try
+        %% This should turn into durable mode subscription.
+        {ok, _, [?RC_GRANTED_QOS_1]} =
+            emqtt:subscribe(CSub1, #{?PROP_SUBID => 1}, <<"t/+">>, qos1),
+        %% This should turn into direct mode subscription.
+        {ok, _, [?RC_GRANTED_QOS_0]} =
+            emqtt:subscribe(CSub1, #{?PROP_SUBID => 2}, <<"t/#">>, qos0),
+        %% Publish a bunch of messages:
+        [
+            emqtt:publish(CPub, Topic, Payload, Qos)
+         || {Topic, Payload, Qos} <- [
+                {<<"t/level/1">>, <<"0">>, 2},
+                {<<"t/1">>, <<"1">>, 2},
+                {<<"t/level/1">>, <<"2">>, 1},
+                {<<"t/1">>, <<"3">>, 0}
+            ]
+        ],
+        %% Receive them back:
+        Received0 = receive_messages(2 + 4),
+        ?assertNotReceive(_),
+        %% Downgrade QoS1 subscription:
+        {ok, _, [?RC_GRANTED_QOS_0]} =
+            emqtt:subscribe(CSub1, #{?PROP_SUBID => 1}, <<"t/+">>, qos0),
+        %% Upgrade QoS0 subscription:
+        {ok, _, [?RC_GRANTED_QOS_1]} =
+            emqtt:subscribe(CSub1, #{?PROP_SUBID => 2}, <<"t/#">>, qos1),
+        %% Simulate subscriber going offline for some time:
+        ok = emqtt:disconnect(CSub1),
+        %% Publish a bunch of messages:
+        [
+            emqtt:publish(CPub, Topic, Payload, Qos)
+         || {Topic, Payload, Qos} <- [
+                {<<"t/level/1">>, <<"4">>, 2},
+                {<<"t/1">>, <<"5">>, 1},
+                {<<"t/level/1">>, <<"6">>, 0},
+                {<<"t/1">>, <<"7">>, 0}
+            ]
+        ],
+        %% Reconnect and see what we got:
+        CSub2 = connect(CIDSub, false, 30),
+        ok = timer:sleep(1000),
+        Received1 = receive_messages(4),
+        Received = Received0 ++ Received1,
+        ?assertNotReceive(_),
+        ReceivedS1 = [M || M = #{properties := #{?PROP_SUBID := 1}} <- Received],
+        ReceivedS2 = [M || M = #{properties := #{?PROP_SUBID := 2}} <- Received],
+        %% Subscription 1 messages preserve per-topic publishing order.
+        %% We expect not to receive any messages after downgrade.
+        ?assertMatch(
+            [
+                #{client_pid := CSub1, qos := 1, topic := <<"t/1">>, payload := <<"1">>},
+                #{client_pid := CSub1, qos := 0, topic := <<"t/1">>, payload := <<"3">>}
+            ],
+            ReceivedS1,
+            Received
+        ),
+        %% Subscription 2 messages preserve publishing order before upgrade,
+        %% per-topic publishing order after upgrade.
+        ?assertMatch(
+            [
+                #{qos := 0, topic := <<"t/level/1">>, payload := <<"0">>},
+                #{qos := 0, topic := <<"t/1">>, payload := <<"1">>},
+                #{qos := 0, topic := <<"t/level/1">>, payload := <<"2">>},
+                #{qos := 0, topic := <<"t/1">>, payload := <<"3">>}
+            ],
+            [M || M = #{client_pid := C} <- ReceivedS2, C == CSub1],
+            Received
+        ),
+        ?assertMatch(
+            [
+                #{topic := <<"t/1">>, payload := <<"5">>},
+                #{topic := <<"t/1">>, payload := <<"7">>},
+                #{topic := <<"t/level/1">>, payload := <<"4">>},
+                #{topic := <<"t/level/1">>, payload := <<"6">>}
+            ],
+            group_by(topic, [M || M = #{client_pid := C} <- ReceivedS2, C == CSub2]),
+            Received
+        ),
+        %% Verify that respective routes switched places:
+        ?assertEqual([<<"t/+">>], emqx_router:topics()),
+        ?assertEqual([<<"t/#">>], emqx_persistent_session_ds_router:topics()),
+        ok = emqtt:disconnect(CSub2)
+    after
+        emqtt:stop(CPub)
+    end.
 
 t_publish_as_persistent(_Config) ->
     Sub = connect(<<?MODULE_STRING "1">>, true, 30),
