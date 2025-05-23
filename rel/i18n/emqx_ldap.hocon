@@ -29,9 +29,4 @@ request_timeout.desc:
 request_timeout.label:
 """Request Timeout"""
 
-bind_password.desc:
-"""The template for password to bind."""
-
-bind_password.label:
-"""Bind Password"""
 }

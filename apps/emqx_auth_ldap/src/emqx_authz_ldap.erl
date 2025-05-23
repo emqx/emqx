@@ -38,20 +38,23 @@
 %% AuthZ Callbacks
 %%------------------------------------------------------------------------------
 
-create(Source0) ->
+create(Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
-    Source = filter_placeholders(Source0),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_ldap, Source, ?AUTHZ_TYPE),
     Annotations = new_annotations(#{id => ResourceId}, Source),
-    Source#{annotations => Annotations}.
-
-update(Source) ->
-    case emqx_authz_utils:update_resource(emqx_ldap, Source, ?AUTHZ_TYPE) of
+    case emqx_authz_utils:create_resource(ResourceId, emqx_ldap_connector, Source, ?AUTHZ_TYPE) of
+        {ok, _} ->
+            Source#{annotations => Annotations};
         {error, Reason} ->
-            error({load_config_error, Reason});
-        {ok, Id} ->
-            Annotations = new_annotations(#{id => Id}, Source),
-            Source#{annotations => Annotations}
+            error({load_config_error, Reason})
+    end.
+
+update(#{annotations := #{id := ResourceId}} = Source) ->
+    Annotations = new_annotations(#{id => ResourceId}, Source),
+    case emqx_authz_utils:update_resource(emqx_ldap_connector, Source, ?AUTHZ_TYPE) of
+        {ok, _ResourceId} ->
+            Source#{annotations => Annotations};
+        {error, Reason} ->
+            error({load_config_error, Reason})
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -63,13 +66,23 @@ authorize(
     Topic,
     #{
         query_timeout := QueryTimeout,
-        annotations := #{id := ResourceId, cache_key_template := CacheKeyTemplate} = Annotations
+        annotations := #{
+            id := ResourceId,
+            cache_key_template := CacheKeyTemplate,
+            base_dn_template := BaseDNTemplate,
+            filter_template := FilterTemplate
+        } = Annotations
     }
 ) ->
     Attrs = select_attrs(Action, Annotations),
     CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate, Attrs),
+    Query = fun() ->
+        BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Client),
+        Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Client),
+        {query, BaseDN, Filter, [{attributes, Attrs}, {timeout, QueryTimeout}]}
+    end,
     Result = emqx_authz_utils:cached_simple_sync_query(
-        CacheKey, ResourceId, {query, Client, Attrs, QueryTimeout}
+        CacheKey, ResourceId, Query
     ),
     case Result of
         {ok, []} ->
@@ -97,13 +110,23 @@ do_authorize(_Action, _Topic, [], _Entry) ->
     nomatch.
 
 new_annotations(Init, #{base_dn := BaseDN, filter := Filter} = Source) ->
-    BaseDNVars = emqx_auth_template:placeholder_vars_from_str(BaseDN),
-    FilterVars = emqx_auth_template:placeholder_vars_from_str(Filter),
-    CacheKeyTemplate = emqx_auth_template:cache_key_template(BaseDNVars ++ FilterVars),
-    State = maps:with(
-        [query_timeout, publish_attribute, subscribe_attribute, all_attribute], Source
-    ),
-    maps:merge(Init, State#{cache_key_template => CacheKeyTemplate}).
+    maybe
+        {ok, BaseDNTemplate, BaseDNVars} ?= emqx_auth_ldap_utils:parse_dn(BaseDN, ?ALLOWED_VARS),
+        {ok, FilterTemplate, FilterVars} ?=
+            emqx_auth_ldap_utils:parse_filter(Filter, ?ALLOWED_VARS),
+        CacheKeyTemplate = emqx_auth_template:cache_key_template(BaseDNVars ++ FilterVars),
+        State = maps:with(
+            [query_timeout, publish_attribute, subscribe_attribute, all_attribute], Source
+        ),
+        maps:merge(Init, State#{
+            cache_key_template => CacheKeyTemplate,
+            base_dn_template => BaseDNTemplate,
+            filter_template => FilterTemplate
+        })
+    else
+        {error, Reason} ->
+            error({load_config_error, Reason})
+    end.
 
 select_attrs(#{action_type := publish}, #{publish_attribute := Pub, all_attribute := All}) ->
     [Pub, All];
@@ -117,8 +140,3 @@ match_topic(Target, Topics) ->
         end,
         Topics
     ).
-
-filter_placeholders(#{base_dn := BaseDN0, filter := Filter0} = Config) ->
-    BaseDN = emqx_auth_template:escape_disallowed_placeholders_str(BaseDN0, ?ALLOWED_VARS),
-    Filter = emqx_auth_template:escape_disallowed_placeholders_str(Filter0, ?ALLOWED_VARS),
-    Config#{base_dn => BaseDN, filter => Filter}.

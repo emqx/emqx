@@ -13,7 +13,7 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("eldap/include/eldap.hrl").
 
--define(LDAP_RESOURCE_MOD, emqx_ldap).
+-define(LDAP_RESOURCE_MOD, emqx_ldap_connector).
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).
 -define(LDAP_HOST, ?PROXY_HOST).
@@ -78,10 +78,11 @@ t_lifecycle(Config) ->
     ).
 
 perform_lifecycle_check(ResourceId, InitialConfig) ->
+    PoolName = ResourceId,
     {ok, #{config := CheckedConfig}} =
-        emqx_resource:check_config(?LDAP_RESOURCE_MOD, InitialConfig),
+        emqx_resource:check_config(emqx_ldap, InitialConfig),
     {ok, #{
-        state := #{pool_name := PoolName} = State,
+        state := State,
         status := InitialStatus
     }} = emqx_resource:create_local(
         ResourceId,
@@ -156,7 +157,7 @@ t_get_status(Config) ->
     ProxyName = proxy_name(Config),
 
     {ok, #{config := CheckedConfig}} = emqx_resource:check_config(
-        ?LDAP_RESOURCE_MOD, ldap_config(Config)
+        emqx_ldap, ldap_config(Config)
     ),
     {ok, _} = emqx_resource:create_local(
         ResourceId,
@@ -188,8 +189,6 @@ ldap_config(Config) ->
             "    password = public\n"
             "    pool_size = 8\n"
             "    server = \"~s:~b\"\n"
-            "    base_dn=\"uid=${username},ou=testdevice,dc=emqx,dc=io\"\n"
-            "    filter =\"(objectClass=mqttUser)\"\n"
             "    ~ts\n"
             "",
             [?LDAP_HOST, port(Config), ssl(Config)]
@@ -200,19 +199,20 @@ ldap_config(Config) ->
     #{<<"config">> => LDConfig}.
 
 test_query_no_attr() ->
-    {query, data()}.
+    {query, base(), filter(), []}.
 
 test_query_with_attr() ->
-    {query, data(), ["mqttAccountName"]}.
+    {query, base(), filter(), [{attributes, ["mqttAccountName"]}]}.
 
 test_query_with_attr_and_timeout() ->
-    {query, data(), ["mqttAccountName"], 5000}.
+    {query, base(), filter(), [{attributes, ["mqttAccountName"]}, {timeout, 5000}]}.
 
 test_query_not_exists() ->
-    {query, #{username => <<"not_exists">>}}.
+    {query, "uid=not_exists,ou=testdevice,dc=emqx,dc=io", filter(), []}.
 
-data() ->
-    #{username => <<"mqttuser0001">>}.
+base() -> "uid=mqttuser0001,ou=testdevice,dc=emqx,dc=io".
+
+filter() -> "(objectClass=mqttUser)".
 
 port(tcp) -> 389;
 port(ssl) -> 636;
