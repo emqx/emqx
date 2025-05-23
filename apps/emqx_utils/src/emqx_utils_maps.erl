@@ -29,6 +29,7 @@
     deep_remove/2,
     diff_maps/2,
     get_lazy/3,
+    group_by/2,
     if_only_to_toggle_enable/2,
     indent/3,
     jsonable_map/1,
@@ -366,6 +367,13 @@ get_lazy(Key, Map, DefFn) ->
         {ok, Val} -> Val;
         error -> DefFn()
     end.
+
+%% @doc Group list of maps by value associated with a given key.
+%% Groups appear in the order of the value of the grouping key.
+-spec group_by(K, [#{K := V}]) -> [#{K := V}].
+group_by(K, Maps) ->
+    Values = lists:usort([maps:get(K, M) || M <- Maps]),
+    [M || V <- Values, M <- Maps, map_get(K, M) =:= V].
 
 % @doc Convert a mqtt prop map to a map that can be printed as JSON.
 % The map is converted to a map with atom keys and JSONable values.
