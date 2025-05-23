@@ -167,6 +167,7 @@ init_conn_state(Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}
 info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
     {SockHost, SockPort} = maps:get(sockname, ConnInfo),
     {ok, Vsn} = application:get_key(emqx_gateway_nats, vsn),
+    {TlsRequired, TlsVerify} = tls_required_and_verify(maps:get(listener, ClientInfo)),
     MsgContent = #{
         server_id => emqx_conf:get([gateway, nats, server_id]),
         server_name => emqx_conf:get([gateway, nats, server_name]),
@@ -178,7 +179,8 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
         headers => true,
         auth_required => is_auth_required(ClientInfo),
         tls_handshake_first => false,
-        tls_required => is_tls_required(maps:get(listener, ClientInfo)),
+        tls_required => TlsRequired,
+        tls_verify => TlsVerify,
         jetstream => false
     },
     #nats_frame{operation = ?OP_INFO, message = MsgContent}.
@@ -193,14 +195,18 @@ is_auth_required(#{enable_authn := true}) ->
             true
     end.
 
-is_tls_required(ListenerId) ->
+tls_required_and_verify(ListenerId) ->
+    F = fun(T, N) ->
+        emqx_conf:get([gateway, nats, listeners, T, N, ssl_options, verify], verify_none) =:=
+            verify_peer
+    end,
     case emqx_gateway_utils:parse_listener_id(ListenerId) of
-        {_, <<"ssl">>, _} ->
-            true;
-        {_, <<"wss">>, _} ->
-            true;
+        {_, <<"ssl">>, Name} ->
+            {true, F("ssl", Name)};
+        {_, <<"wss">>, Name} ->
+            {true, F("wss", Name)};
         _ ->
-            false
+            {false, false}
     end.
 
 setting_peercert_infos(NoSSL, ClientInfo) when
@@ -367,6 +373,7 @@ auth_connect(
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
             ?SLOG(warning, #{
+                tag => ?TAG,
                 msg => "client_login_failed",
                 clientid => ClientId,
                 username => Username,
@@ -418,6 +425,7 @@ process_connect(
             handle_out(connected, [], Channel#channel{session = Session});
         {error, Reason} ->
             ?SLOG(error, #{
+                tag => ?TAG,
                 msg => "failed_to_open_session",
                 reason => Reason
             }),
@@ -543,6 +551,7 @@ handle_in(
                     NSubs = [Subscription | Subs],
                     NChannel1 = NChannel#channel{subscriptions = NSubs},
                     ?SLOG(info, #{
+                        tag => ?TAG,
                         msg => "client_subscribe_success",
                         subject => Subject,
                         sid => SId,
@@ -578,6 +587,7 @@ handle_in(
             handle_out(ok, [], Channel#channel{subscriptions = NSubs});
         false ->
             ?SLOG(info, #{
+                tag => ?TAG,
                 msg => "ignore_unsubscribe_for_unknown_sid",
                 sid => SId
             }),
@@ -590,6 +600,7 @@ handle_in(
     handle_out(error, <<"Must be connected to publish or subscribe">>, Channel);
 handle_in(Frame = ?PACKET(?OP_OK), Channel) ->
     ?SLOG(info, #{
+        tag => ?TAG,
         msg => "ignore_all_ok_frames",
         function => "handle_in/2",
         frame => Frame
@@ -605,6 +616,7 @@ handle_in(?PACKET(?OP_PONG), Channel) ->
     {ok, Channel1};
 handle_in(Msg, Channel) ->
     ?SLOG(error, #{
+        tag => ?TAG,
         msg => "unexpected_msg",
         function => "handle_in/2",
         message => Msg
@@ -714,6 +726,7 @@ do_unsubscribe(
                 [ClientInfo, MountedTopic, #{}]
             ),
             ?SLOG(info, #{
+                tag => ?TAG,
                 msg => "client_unsubscribe_success",
                 subject => Subject,
                 sid => SId,
@@ -789,6 +802,7 @@ handle_call(discard, _From, Channel) ->
     shutdown_and_reply(discarded, ok, Frame, Channel);
 handle_call(Req, _From, Channel) ->
     ?SLOG(error, #{
+        tag => ?TAG,
         msg => "unexpected_call",
         call => Req
     }),
@@ -798,6 +812,7 @@ handle_call(Req, _From, Channel) ->
     ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
 handle_cast(Req, Channel) ->
     ?SLOG(error, #{
+        tag => ?TAG,
         msg => "unexpected_cast",
         cast => Req
     }),
@@ -840,6 +855,7 @@ handle_info(after_init, Channel) ->
     handle_after_init(Channel);
 handle_info(Info, Channel) ->
     ?SLOG(error, #{
+        tag => ?TAG,
         msg => "unexpected_info",
         info => Info
     }),
@@ -920,6 +936,7 @@ handle_deliver(
                     {FrameAcc, SubsAcc};
                 false ->
                     ?SLOG(error, #{
+                        tag => ?TAG,
                         msg => "dropped_message_due_to_subscription_not_found",
                         message => Message,
                         matched_subscription_topic => SubTopic,

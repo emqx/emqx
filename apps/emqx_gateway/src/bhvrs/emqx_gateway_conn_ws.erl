@@ -117,6 +117,8 @@
     {elvis_style, invalid_dynamic_call, #{ignore => [emqx_gateway_conn_ws]}}
 ]).
 
+-define(TAG, "GW-WSCONN").
+
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
@@ -202,7 +204,7 @@ init(Req, Opts) ->
     },
     case check_origin_header(Req, Opts) of
         {error, Message} ->
-            ?SLOG(error, #{msg => "invaild_origin_header", reason => Message}),
+            ?SLOG(error, #{tag => ?TAG, msg => "invaild_origin_header", reason => Message}),
             {ok, cowboy_req:reply(403, Req), WsOpts};
         ok ->
             do_init(Req, Opts, WsOpts)
@@ -233,10 +235,11 @@ init_state_and_channel([Req, Opts, _WsOpts], _State = undefined) ->
             cowboy_req:parse_cookies(Req)
         catch
             error:badarg ->
-                ?SLOG(error, #{msg => "bad_cookie"}),
+                ?SLOG(error, #{tag => ?TAG, msg => "bad_cookie"}),
                 undefined;
             Error:Reason ->
                 ?SLOG(error, #{
+                    tag => ?TAG,
                     msg => "failed_to_parse_cookie",
                     error => Error,
                     reason => Reason
@@ -383,7 +386,7 @@ websocket_handle({binary, Data}, State) when is_binary(Data) ->
 websocket_handle({text, Data}, State) when is_list(Data) ->
     websocket_handle({text, iolist_to_binary(Data)}, State);
 websocket_handle({text, Data}, State) ->
-    ?SLOG(debug, #{msg => "raw_bin_received", bin => Data}),
+    ?SLOG(debug, #{tag => ?TAG, msg => "raw_bin_received", bin => Data}),
     ok = inc_recv_stats(1, iolist_size(Data)),
     NState = ensure_stats_timer(State),
     return(parse_incoming(Data, NState));
@@ -395,7 +398,7 @@ websocket_handle({Frame, _}, State) when Frame =:= ping; Frame =:= pong ->
     return(State);
 websocket_handle({Frame, _}, State) ->
     %% TODO: should not close the ws connection
-    ?SLOG(error, #{msg => "unexpected_frame", frame => Frame}),
+    ?SLOG(error, #{tag => ?TAG, msg => "unexpected_frame", frame => Frame}),
     shutdown(unexpected_ws_frame, State).
 
 websocket_info({call, From, Req}, State) ->
@@ -440,7 +443,7 @@ websocket_info(Info, State) ->
 websocket_close({_, ReasonCode, _Payload}, State) when is_integer(ReasonCode) ->
     websocket_close(ReasonCode, State);
 websocket_close(Reason, State) ->
-    ?SLOG(debug, #{msg => "websocket_closed", reason => Reason}),
+    ?SLOG(debug, #{tag => ?TAG, msg => "websocket_closed", reason => Reason}),
     handle_info({sock_closed, Reason}, State).
 
 terminate(Reason, _Req, #state{chann_mod = ChannMod, channel = Channel}) ->
@@ -481,7 +484,7 @@ handle_call(From, Req, State = #state{chann_mod = ChannMod, channel = Channel}) 
 handle_info({connack, ConnAck}, State) ->
     return(enqueue(ConnAck, State));
 handle_info({close, Reason}, State) ->
-    ?SLOG(debug, #{msg => "force_to_close_socket", reason => Reason}),
+    ?SLOG(debug, #{tag => ?TAG, msg => "force_to_close_socket", reason => Reason}),
     return(enqueue({close, Reason}, State));
 handle_info({event, connected}, State = #state{chann_mod = ChannMod, channel = Channel}) ->
     Ctx = ChannMod:info(ctx, Channel),
@@ -580,6 +583,7 @@ parse_incoming(Data, State = #state{frame_mod = FrameMod, parse_state = ParseSta
             ?SLOG(
                 error,
                 #{
+                    tag => ?TAG,
                     msg => "parse_failed",
                     data => Data,
                     reason => Reason,
@@ -668,6 +672,7 @@ serialize_and_inc_stats_fun(#state{
                 ?SLOG(
                     warning,
                     #{
+                        tag => ?TAG,
                         msg => "discarded_frame",
                         reason => "message_too_large",
                         frame => FrameMod:format(Packet)
@@ -676,7 +681,7 @@ serialize_and_inc_stats_fun(#state{
                 ok = inc_outgoing_stats(Ctx, FrameMod, {error, message_too_large}),
                 <<>>;
             Data ->
-                ?SLOG(debug, #{msg => "raw_bin_sent", bin => Data}),
+                ?SLOG(debug, #{tag => ?TAG, msg => "raw_bin_sent", bin => Data}),
                 ok = inc_outgoing_stats(Ctx, FrameMod, Packet),
                 Data
         end

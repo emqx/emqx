@@ -327,7 +327,10 @@
 
 %% Default max payload size
 
-% 1MB
+%% 1MB
 -define(DEFAULT_MAX_PAYLOAD, 1048576).
+
+%% Log Tag
+-define(TAG, "GW-NATS").
 
 -endif.
