@@ -86,6 +86,7 @@ connector_config(Name, _Config) ->
             <<"access_key_id">> => maps:get(<<"access_key_id">>, BaseConf),
             <<"secret_access_key">> => maps:get(<<"secret_access_key">>, BaseConf),
             <<"transport_options">> => #{
+                <<"ssl">> => #{<<"enable">> => false},
                 <<"headers">> => #{
                     <<"content-type">> => <<?CONTENT_TYPE>>
                 },

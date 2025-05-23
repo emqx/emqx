@@ -255,7 +255,11 @@ socket_nodelay.label:
 """No Delay"""
 
 authentication.desc:
-"""Authentication configs."""
+"""~Authentication configs.
+- <code>none</code>: no authentication.
+- <code>msk_iam</code>: use [MSK IAM authentication](https://docs.aws.amazon.com/msk/latest/developerguide/security-iam.html).  Note: this only works when EMQX is running on an EC2 instance.
+- <code>basic auth</code>: simple username and password authentication.
+- <code>kerberos</code>: use Kerberos GSSAPI authentication.~"""
 
 authentication.label:
 """Authentication"""

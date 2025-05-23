@@ -1,0 +1,17 @@
+emqx_bridge_doris_connector_schema {
+
+  config_connector {
+    label: """Doris Connector Configuration"""
+    desc:
+    """Configuration for a connector to Doris tables."""
+  }
+
+  server {
+    label: "Server Host"
+    desc:
+    """The IPv4 or IPv6 address or the hostname to connect to.<br/>
+    A host entry has the following form: `Host[:Port]`.<br/>
+    The Doris default port 9030 is used if `[:Port]` is not specified."""
+  }
+
+}

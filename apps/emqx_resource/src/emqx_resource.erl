@@ -376,14 +376,14 @@ query(ResId, Request, QueryOpts) ->
             emqx_resource_metrics:matched_inc(ResId),
             emqx_resource_metrics:dropped_resource_stopped_inc(ResId),
             emqx_resource_buffer_worker:unhealthy_target_maybe_trigger_fallback_actions(
-                ResId, Request, QueryOpts
+                ResId, Request, "unhealthy_target", #{}, QueryOpts
             ),
             ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
         {ok, {_, {unhealthy_target, Message}}} ->
             emqx_resource_metrics:matched_inc(ResId),
             emqx_resource_metrics:dropped_resource_stopped_inc(ResId),
             emqx_resource_buffer_worker:unhealthy_target_maybe_trigger_fallback_actions(
-                ResId, Request, QueryOpts
+                ResId, Request, "unhealthy_target", #{reason => Message}, QueryOpts
             ),
             ?RESOURCE_ERROR(unhealthy_target, Message);
         {ok, {simple_async, _}} ->
@@ -412,6 +412,16 @@ query(ResId, Request, QueryOpts) ->
             );
         {ok, {sync, _}} ->
             emqx_resource_buffer_worker:sync_query(ResId, Request, QueryOpts);
+        {ok, {async, ?not_added_yet_error_atom}} ->
+            %% Since the request is async and the action has not yet been added to the
+            %% state, the message will be cast into the void, and will not trigger any
+            %% trace events that someone may be expecting...  So we trigger them here and
+            %% now...
+            emqx_resource_buffer_worker:unhealthy_target_maybe_trigger_fallback_actions(
+                ResId, Request, "action_not_added_yet", #{}, QueryOpts
+            ),
+            %% ... and still cast the message in the void, to keep counters consistent.
+            emqx_resource_buffer_worker:async_query(ResId, Request, QueryOpts);
         {ok, {async, _}} ->
             emqx_resource_buffer_worker:async_query(ResId, Request, QueryOpts)
     end.

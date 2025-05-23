@@ -58,6 +58,24 @@ t_crud(_Config) ->
         {ok, 400, _},
         api_post([ai, providers], #{<<"foo">> => <<"bar">>})
     ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([ai, providers], #{
+            name => <<"test-provider">>,
+            type => <<"openai">>,
+            api_key => <<"test-api-key">>,
+            base_url => <<"ftp://api.openai.com/v1">>
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([ai, providers], #{
+            name => <<"test-provider">>,
+            type => <<"openai">>,
+            api_key => <<"test-api-key">>,
+            base_url => <<"http://{}">>
+        })
+    ),
 
     %% Create valid providers
     ?assertMatch(
@@ -65,7 +83,8 @@ t_crud(_Config) ->
         api_post([ai, providers], #{
             name => <<"test-provider">>,
             type => <<"openai">>,
-            api_key => <<"test-api-key">>
+            api_key => <<"test-api-key">>,
+            base_url => <<"https://api.openai.com/v1">>
         })
     ),
 

@@ -608,7 +608,9 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
     {{ok, _}, {ok, [_]}} =
         wait_for_events(
             fun() -> emqtt:ConnFun(ConnPid1) end,
-            [emqx_cm_connected_client_count_inc]
+            [emqx_cm_connected_client_count_inc],
+            1000,
+            1000
         ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% abnormal exit of channel process

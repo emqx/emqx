@@ -15,8 +15,6 @@
 
 -define(TYPE, <<"pulsar">>).
 -define(APPS, [emqx_conf, emqx_resource, emqx_bridge, emqx_rule_engine, emqx_bridge_pulsar]).
--define(RULE_TOPIC, "pulsar/rule").
--define(RULE_TOPIC_BIN, <<?RULE_TOPIC>>).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate

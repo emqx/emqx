@@ -6,6 +6,13 @@ emqx_mt_api {
             so this API can be used for prefix based fuzzy search.~"""
         label: "List Namespaces"
     }
+    ns_list_details {
+        desc: """~
+            List all namespaces, along with some extra details.
+            The namespaces are sorted in lexicographical order,
+            so this API can be used for prefix based fuzzy search.~"""
+        label: "List Namespaces with extra details"
+    }
     client_list {
         desc: "List all clients in a namespace"
         label: "List Clients"
@@ -36,6 +43,13 @@ emqx_mt_api {
             The namespaces are sorted in lexicographical order,
             so this API can be used for prefix based fuzzy search.~"""
         label: "List managed namespaces"
+    }
+    managed_ns_list_details {
+        desc: """~
+            List all managed namespaces with extra details.
+            The namespaces are sorted in lexicographical order,
+            so this API can be used for prefix based fuzzy search.~"""
+        label: "List managed namespaces with extra details"
     }
     create_managed_ns {
         desc: "Create managed namespace"

@@ -52,7 +52,7 @@ init_per_testcase(t_bad_response = TestCase, Config) ->
     init_per_testcase(common, [{tc_apps, TCApps} | Config]);
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
-    {ok, _} = emqx_authz_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
+    {ok, _} = emqx_utils_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
     Config.
 
 end_per_testcase(t_bad_response, Config) ->
@@ -63,7 +63,7 @@ end_per_testcase(_TestCase, _Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, true),
     ok = emqx_authz_test_lib:enable_node_cache(false),
     try
-        ok = emqx_authz_http_test_server:stop()
+        ok = emqx_utils_http_test_server:stop()
     catch
         exit:noproc ->
             ok
@@ -157,7 +157,7 @@ t_response_handling(_Config) ->
 
     %% the server cannot be reached; should skip to the next
     %% authorizer in the chain.
-    ok = emqx_authz_http_test_server:stop(),
+    ok = emqx_utils_http_test_server:stop(),
 
     ?check_trace(
         ?assertEqual(
@@ -875,7 +875,7 @@ raw_http_authz_config() ->
     }.
 
 setup_handler_and_config(Handler, Config) ->
-    ok = emqx_authz_http_test_server:set_handler(Handler),
+    ok = emqx_utils_http_test_server:set_handler(Handler),
     ok = emqx_authz_test_lib:setup_config(
         raw_http_authz_config(),
         Config

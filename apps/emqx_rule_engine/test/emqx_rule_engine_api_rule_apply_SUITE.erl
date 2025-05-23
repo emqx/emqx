@@ -11,7 +11,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(CONF_DEFAULT, <<"rule_engine {rules {}}">>).
 -define(REPUBLISH_TOPIC, <<"rule_apply_test_SUITE">>).
 
 all() ->

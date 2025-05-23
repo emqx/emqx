@@ -59,6 +59,15 @@ services:
       --ipv6
       --bind_ip_all
 
+  mongosharded_setup_done:
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
+    networks:
+      - emqx_bridge
+    restart: no
+    depends_on:
+      mongosharded_client:
+        condition: service_completed_successfully
+
   mongosharded_client:
     image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     container_name: mongosharded_client
@@ -68,6 +77,7 @@ services:
       - mongosharded1
       - mongosharded2
       - mongosharded3
+    restart: on-failure:3
     command:
       - /bin/bash
       - -c

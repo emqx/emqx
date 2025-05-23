@@ -18,10 +18,6 @@
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_mgmt_util, [bad_request/0]).
 
--define(APP, emqx_slow_subs).
--define(APP_NAME, <<"emqx_slow_subs">>).
--define(DEFAULT_RPC_TIMEOUT, timer:seconds(5)).
-
 namespace() -> "slow_subscribers_statistics".
 
 api_spec() ->

@@ -93,7 +93,7 @@ init_per_testcase(Case, Config) ->
         [authentication],
         ?GLOBAL
     ),
-    {ok, _} = emqx_authn_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
+    {ok, _} = emqx_utils_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
     try
         ?MODULE:Case(init, Config)
     catch
@@ -110,7 +110,7 @@ end_per_testcase(Case, Config) ->
     end,
     _ = emqx_auth_cache:reset(?AUTHN_CACHE),
     ok = emqx_authn_test_lib:enable_node_cache(false),
-    ok = emqx_authn_http_test_server:stop().
+    ok = emqx_utils_http_test_server:stop().
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -190,7 +190,7 @@ perform_user_auth(SpecificConfgParams, Handler, Credentials) ->
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
-    ok = emqx_authn_http_test_server:set_handler(Handler),
+    ok = emqx_utils_http_test_server:set_handler(Handler),
 
     Result = emqx_access_control:authenticate(Credentials),
 
@@ -202,7 +202,7 @@ perform_user_auth(SpecificConfgParams, Handler, Credentials) ->
     Result.
 
 t_authenticate_path_placeholders(_Config) ->
-    ok = emqx_authn_http_test_server:set_handler(
+    ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req =
                 case cowboy_req:path(Req0) of
@@ -281,7 +281,7 @@ t_no_value_for_placeholder(_Config) ->
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
-    ok = emqx_authn_http_test_server:set_handler(Handler),
+    ok = emqx_utils_http_test_server:set_handler(Handler),
 
     Credentials = maps:without([cert_subject, cert_common_name, cert_pem], ?CREDENTIALS),
 
@@ -336,7 +336,7 @@ t_destroy(_Config) ->
     Headers = #{<<"content-type">> => <<"application/json">>},
     Response = ?SERVER_RESPONSE_JSON(allow),
 
-    ok = emqx_authn_http_test_server:set_handler(
+    ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req = cowboy_req:reply(200, Headers, Response, Req0),
             {ok, Req, State}
@@ -383,7 +383,7 @@ t_update(_Config) ->
     Headers = #{<<"content-type">> => <<"application/json">>},
     Response = ?SERVER_RESPONSE_JSON(allow),
 
-    ok = emqx_authn_http_test_server:set_handler(
+    ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req = cowboy_req:reply(200, Headers, Response, Req0),
             {ok, Req, State}
@@ -408,7 +408,7 @@ t_update(_Config) ->
 
 t_update_precondition(_Config) ->
     %% always allow
-    ok = emqx_authn_http_test_server:set_handler(
+    ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req = cowboy_req:reply(
                 200,
@@ -503,7 +503,7 @@ t_node_cache(_Config) ->
             end,
         {ok, Req, State}
     end,
-    ok = emqx_authn_http_test_server:set_handler(Handler),
+    ok = emqx_utils_http_test_server:set_handler(Handler),
 
     %% We authenticate twice, the second time should be cached
     Credentials = maps:merge(?CREDENTIALS, #{
@@ -602,7 +602,7 @@ test_is_superuser({Kind, ExpectedValue, ServerResponse}) ->
                     ?SERVER_RESPONSE_URLENCODE(allow, ServerResponse)}
         end,
 
-    ok = emqx_authn_http_test_server:set_handler(
+    ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req = cowboy_req:reply(
                 200,
@@ -642,7 +642,7 @@ t_ignore_allow_deny(_Config) ->
     lists:foreach(fun test_ignore_allow_deny/1, Checks).
 
 test_ignore_allow_deny({ExpectedValue, ServerResponse}) ->
-    ok = emqx_authn_http_test_server:set_handler(
+    ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req = cowboy_req:reply(
                 200,
@@ -674,7 +674,7 @@ t_acl(_Config) ->
         ?PATH,
         {create_authenticator, ?GLOBAL, Config}
     ),
-    ok = emqx_authn_http_test_server:set_handler(
+    ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req = cowboy_req:reply(
                 200,
@@ -745,7 +745,7 @@ t_auth_expire(_Config) ->
             end
         end}
     ],
-    ok = emqx_authn_http_test_server:set_handler(
+    ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             QS = cowboy_req:parse_qs(Req0),
             {_, Username} = lists:keyfind(<<"username">>, 1, QS),
@@ -801,7 +801,7 @@ t_precondition_check_listener_id(_Config) ->
         {create_authenticator, ?GLOBAL, Config1}
     ),
 
-    ok = emqx_authn_http_test_server:set_handler(
+    ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req = cowboy_req:reply(
                 200,
@@ -884,7 +884,7 @@ t_precondition_check_cert_cn(_Config) ->
         {create_authenticator, ?GLOBAL, Config1}
     ),
 
-    ok = emqx_authn_http_test_server:set_handler(
+    ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req = cowboy_req:reply(
                 200,

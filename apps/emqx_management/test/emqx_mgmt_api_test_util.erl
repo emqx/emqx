@@ -161,6 +161,25 @@ simplify_result(Res) ->
             {Status, Body}
     end.
 
+simplify_decode_result(Res) ->
+    case Res of
+        {ok, {{_, Status, _}, _Headers, RespBody0}} ->
+            RespBody = maybe_json_decode(RespBody0),
+            {Status, RespBody};
+        {error, {{_, Status, _}, _Headers, RespBody0}} ->
+            RespBody =
+                case emqx_utils_json:safe_decode(RespBody0) of
+                    {ok, Decoded0 = #{<<"message">> := Msg0}} ->
+                        Msg = maybe_json_decode(Msg0),
+                        Decoded0#{<<"message">> := Msg};
+                    {ok, Decoded0} ->
+                        Decoded0;
+                    {error, _} ->
+                        RespBody0
+                end,
+            {Status, RespBody}
+    end.
+
 auth_header_() ->
     emqx_common_test_http:default_auth_header().
 
@@ -191,7 +210,7 @@ api_path_without_base_path(Parts) ->
 join_http_path([]) ->
     [];
 join_http_path([Part | Rest]) ->
-    lists:foldl(fun(P, Acc) -> emqx_bridge_http_connector:join_paths(Acc, P) end, Part, Rest).
+    lists:foldl(fun(P, Acc) -> emqx_utils_uri:join_path(Acc, P) end, Part, Rest).
 
 %% Usage:
 %% upload_request(<<"site.com/api/upload">>, <<"path/to/file.png">>,
@@ -215,7 +234,25 @@ when
     RequestData :: list(),
     AuthorizationToken :: binary().
 upload_request(URL, FilePath, Name, MimeType, RequestData, AuthorizationToken) ->
-    Method = post,
+    upload_request(#{
+        url => URL,
+        filepath_to_upload => FilePath,
+        file_parameter_name => Name,
+        mime_type => MimeType,
+        other_params => RequestData,
+        auth_token => AuthorizationToken
+    }).
+
+upload_request(Params) ->
+    #{
+        url := URL,
+        filepath_to_upload := FilePath,
+        file_parameter_name := Name,
+        mime_type := MimeType,
+        other_params := RequestData,
+        auth_token := AuthorizationToken
+    } = Params,
+    Method = maps:get(method, Params, post),
     Filename = filename:basename(FilePath),
     {ok, Data} = file:read_file(FilePath),
     Boundary = emqx_utils:rand_id(32),
@@ -326,20 +363,5 @@ simple_request(#{method := Method, url := Url} = Params) ->
     AuthHeader = emqx_utils_maps:get_lazy(auth_header, Params, fun auth_header_/0),
     QueryParams = maps:get(query_params, Params, #{}),
     Body = maps:get(body, Params, ""),
-    case request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
-        {ok, {{_, Status, _}, _Headers, RespBody0}} ->
-            RespBody = maybe_json_decode(RespBody0),
-            {Status, RespBody};
-        {error, {{_, Status, _}, _Headers, RespBody0}} ->
-            RespBody =
-                case emqx_utils_json:safe_decode(RespBody0) of
-                    {ok, Decoded0 = #{<<"message">> := Msg0}} ->
-                        Msg = maybe_json_decode(Msg0),
-                        Decoded0#{<<"message">> := Msg};
-                    {ok, Decoded0} ->
-                        Decoded0;
-                    {error, _} ->
-                        RespBody0
-                end,
-            {Status, RespBody}
-    end.
+    Res = request_api(Method, Url, QueryParams, AuthHeader, Body, Opts),
+    simplify_decode_result(Res).

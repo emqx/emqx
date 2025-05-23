@@ -20,7 +20,7 @@
     is_message/1
 ]).
 
--define(FLAG, 1 / binary).
+% -define(FLAG, 1 / binary).
 -define(BYTE, 8 / big - integer).
 -define(WORD, 16 / big - integer).
 -define(DWORD, 32 / big - integer).
@@ -634,10 +634,10 @@ parse_upgrade_feild(Param) ->
 serialize_pkt(Frame, _Opts) ->
     serialize(Frame).
 
-serialize(#frame{cmd = Cmd, ack = Ack, vin = Vin, encrypt = Encrypt, data = Data, rawdata = RawData}) ->
+serialize(#frame{cmd = Cmd, ack = Ack, vin = VIN, encrypt = Encrypt, data = Data, rawdata = RawData}) ->
     Encrypted = encipher(serialize_data(Cmd, Ack, RawData, Data), Encrypt),
     Len = byte_size(Encrypted),
-    Stream = <<Cmd:?BYTE, Ack:?BYTE, Vin:17/binary, Encrypt:?BYTE, Len:?WORD, Encrypted/binary>>,
+    Stream = <<Cmd:?BYTE, Ack:?BYTE, VIN:17/binary, Encrypt:?BYTE, Len:?WORD, Encrypted/binary>>,
     Crc = cal_check(Stream, byte_size(Stream), undefined),
     <<"##", Stream/binary, Crc:?BYTE>>.
 

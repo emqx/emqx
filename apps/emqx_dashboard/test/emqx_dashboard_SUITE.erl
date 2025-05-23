@@ -26,9 +26,6 @@
 
 -define(BASE_PATH, "/api/v5").
 
--define(APP_DASHBOARD, emqx_dashboard).
--define(APP_MANAGEMENT, emqx_management).
-
 -define(OVERVIEWS, [
     "alarms",
     "banned",

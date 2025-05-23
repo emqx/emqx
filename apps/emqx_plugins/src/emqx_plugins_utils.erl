@@ -10,6 +10,7 @@
 
 -export([
     parse_name_vsn/1,
+    make_name_vsn_binary/2,
     make_name_vsn_string/2
 ]).
 
@@ -21,8 +22,11 @@ parse_name_vsn(NameVsn) when is_list(NameVsn) ->
         _ -> error(bad_name_vsn)
     end.
 
+make_name_vsn_binary(Name, Vsn) ->
+    iolist_to_binary([Name, "-", Vsn]).
+
 make_name_vsn_string(Name, Vsn) ->
-    binary_to_list(iolist_to_binary([Name, "-", Vsn])).
+    binary_to_list(make_name_vsn_binary(Name, Vsn)).
 
 -ifdef(TEST).
 

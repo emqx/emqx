@@ -16,8 +16,6 @@
 
 -include("emqx_persistent_message.hrl").
 
--define(DURABLE_SESSION_STATE, emqx_persistent_session).
-
 %%--------------------------------------------------------------------
 %% SUITE boilerplate
 %%--------------------------------------------------------------------

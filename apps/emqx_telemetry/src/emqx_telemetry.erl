@@ -290,17 +290,7 @@ nodes_uuid() ->
     ).
 
 active_plugins() ->
-    lists:foldl(
-        fun
-            (#{running_status := running} = Plugin, Acc) ->
-                #{<<"name">> := Name, <<"rel_vsn">> := Vsn} = Plugin,
-                [iolist_to_binary([Name, "-", Vsn]) | Acc];
-            (_, Acc) ->
-                Acc
-        end,
-        [],
-        emqx_plugins:list()
-    ).
+    emqx_plugins:list_active().
 
 num_clients() ->
     emqx_stats:getstat('live_connections.count').

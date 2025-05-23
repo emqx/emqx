@@ -29,7 +29,7 @@ fields("config") ->
         {default_max_sessions,
             mk(
                 hoconsc:union(
-                    [infinity, non_neg_integer()]
+                    [infinity, pos_integer()]
                 ),
                 #{
                     desc => ?DESC(default_max_sessions),

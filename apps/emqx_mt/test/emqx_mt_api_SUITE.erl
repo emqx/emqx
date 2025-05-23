@@ -158,6 +158,10 @@ list_nss(QueryParams) ->
     URL = url("ns_list"),
     simple_request(#{method => get, url => URL, query_params => QueryParams}).
 
+list_nss_details(QueryParams) ->
+    URL = url("ns_list_details"),
+    simple_request(#{method => get, url => URL, query_params => QueryParams}).
+
 maybe_json_decode(X) ->
     case emqx_utils_json:safe_decode(X) of
         {ok, Decoded} -> Decoded;
@@ -190,11 +194,18 @@ list_managed_nss(QueryParams) ->
     URL = emqx_mgmt_api_test_util:api_path(["mt", "managed_ns_list"]),
     simple_request(#{method => get, url => URL, query_params => QueryParams}).
 
+list_managed_nss_details(QueryParams) ->
+    URL = emqx_mgmt_api_test_util:api_path(["mt", "managed_ns_list_details"]),
+    simple_request(#{method => get, url => URL, query_params => QueryParams}).
+
 create_managed_ns(Ns) ->
     Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns]),
     Res = simple_request(post, Path, ""),
     ct:pal("create managed ns result:\n  ~p", [Res]),
     Res.
+
+delete_ns(Ns) ->
+    delete_managed_ns(Ns).
 
 delete_managed_ns(Ns) ->
     Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns]),
@@ -1188,5 +1199,59 @@ t_backup_export_and_import(_Config) ->
     end),
     {400, #{<<"message">> := Msg}} = import_backup(BackupName),
     ?assertEqual(match, re:run(Msg, <<"mocked_error">>, [global, {capture, none}])),
+
+    ok.
+
+%% Smoke tests for checking that we assign creation times for namespaces.
+t_creation_date(_Config) ->
+    ct:pal("implicit namespace"),
+    Ns1 = <<"ins1">>,
+    ClientId1 = ?NEW_CLIENTID(1),
+    {Pid1, {ok, _}} =
+        ?wait_async_action(
+            connect(ClientId1, Ns1),
+            #{?snk_kind := multi_tenant_client_added}
+        ),
+    stop_client(Pid1),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"name">> := Ns1,
+                <<"created_at">> := I
+            }
+        ]} when is_integer(I),
+        list_nss_details(#{})
+    ),
+    {204, _} = delete_ns(Ns1),
+
+    ct:pal("managed namespace"),
+    Ns2 = <<"mns1">>,
+    {204, _} = create_managed_ns(Ns2),
+    ClientId2 = ?NEW_CLIENTID(2),
+    {Pid2, {ok, _}} =
+        ?wait_async_action(
+            connect(ClientId2, Ns2),
+            #{?snk_kind := multi_tenant_client_added}
+        ),
+    stop_client(Pid2),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"name">> := Ns2,
+                <<"created_at">> := I
+            }
+        ]} when is_integer(I),
+        list_nss_details(#{})
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"name">> := Ns2,
+                <<"created_at">> := I
+            }
+        ]} when is_integer(I),
+        list_managed_nss_details(#{})
+    ),
+    {204, _} = delete_managed_ns(Ns2),
 
     ok.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # This script helps to build release artifacts.
-# arg1: profile, e.g. emqx | emqx-enterprise
+# arg1: profile, e.g. emqx-enterprise
 # arg2: artifact, e.g. rel | relup | tgz | pkg
 
 set -euo pipefail
@@ -133,9 +133,6 @@ make_docs() {
     case "$(is_enterprise "$PROFILE")" in
         'yes')
             SCHEMA_MODULE='emqx_enterprise_schema'
-            ;;
-        'no')
-            SCHEMA_MODULE='emqx_conf_schema'
             ;;
     esac
     prepare_erl_libs "_build/$PROFILE/checkouts"
@@ -335,16 +332,6 @@ docker_cleanup() {
     [ -f ./.dockerignore.bak ] && mv ./.dockerignore.bak ./.dockerignore >/dev/null || true
 }
 
-function is_ecr_and_enterprise() {
-  local registry="$1"
-  local profile="$2"
-  if [[ "$registry" == public.ecr.aws* ]] && [[ "$profile" == *enterprise* ]]; then
-    return 0
-  else
-    return 1
-  fi
-}
-
 ## Build the default docker image based on debian 12.
 make_docker() {
     # shellcheck disable=SC1091
@@ -367,6 +354,7 @@ make_docker() {
     if [[ "$PROFILE" = *-elixir ]]; then
         SUFFIX="-elixir"
     fi
+
     local DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
     local DOCKER_REGISTRIES=( )
     IFS=',' read -ra DOCKER_REGISTRY_ARR <<< "$DOCKER_REGISTRY"
@@ -374,12 +362,31 @@ make_docker() {
         # append to DOCKER_REGISTRIES
         DOCKER_REGISTRIES+=("$r")
     done
+
     local DOCKER_ORG="${DOCKER_ORG:-emqx}"
-    local EMQX_BASE_DOCKER_TAG="${DOCKER_ORG}/${PROFILE%%-elixir}"
-    local default_tag="${EMQX_BASE_DOCKER_TAG}:${PKG_VSN}${SUFFIX}"
-    local EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-$default_tag}"
+    local default_base_tag="${DOCKER_ORG}/${PROFILE%%-elixir}"
+
+    local EMQX_BASE_IMAGE_TAG="${EMQX_BASE_IMAGE_TAG:-$default_base_tag}"
+    local DOCKER_IMAGE_BASE_TAGS=( "${EMQX_BASE_IMAGE_TAG}" )
+    IFS=',' read -ra DOCKER_IMAGE_BASE_TAGS_ARR <<< "${EMQX_EXTRA_BASE_IMAGE_TAGS:-}"
+    for t in "${DOCKER_IMAGE_BASE_TAGS_ARR[@]}"; do
+        DOCKER_IMAGE_BASE_TAGS+=("$t")
+    done
+
+    DOCKER_IMAGE_TAGS=( )
+    for r in "${DOCKER_REGISTRIES[@]}"; do
+      for t in "${DOCKER_IMAGE_BASE_TAGS[@]}"; do
+        DOCKER_IMAGE_TAGS+=( "$r/$t:${PKG_VSN}${SUFFIX}" )
+        if [ "${DOCKER_LATEST:-false}" = true ]; then
+          DOCKER_IMAGE_TAGS+=( "$r/$t:latest${SUFFIX}" )
+          DOCKER_IMAGE_TAGS+=( "$r/$t:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}" )
+          DOCKER_IMAGE_TAGS+=( "$r/$t:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}" )
+        fi
+      done
+    done
+
     local EDITION=Enterprise
-    local LICENSE='(Apache-2.0 AND BSL-1.1)'
+    local LICENSE='BSL-1.1'
     local PRODUCT_URL='https://emqx.com/en/products/emqx'
     local PRODUCT_DESCRIPTION='Official docker image for EMQX Enterprise, an enterprise MQTT platform at scale.'
     local DOCUMENTATION_URL='https://docs.emqx.com/en/emqx/latest/'
@@ -413,25 +420,15 @@ make_docker() {
        --pull
     )
     :> ./.emqx_docker_image_tags
-    for r in "${DOCKER_REGISTRIES[@]}"; do
-        DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_IMAGE_TAG}")
-        echo "$r/${EMQX_IMAGE_TAG}" >> ./.emqx_docker_image_tags
+    for t in "${DOCKER_IMAGE_TAGS[@]}"; do
+        DOCKER_BUILDX_ARGS+=(--tag "${t}")
+        echo "${t}" >> ./.emqx_docker_image_tags
     done
     if [ "${DOCKER_BUILD_NOCACHE:-false}" = true ]; then
         DOCKER_BUILDX_ARGS+=(--no-cache)
     fi
     if [ "${SUFFIX}" = '-elixir' ]; then
         DOCKER_BUILDX_ARGS+=(--label org.opencontainers.image.elixir.version="${ELIXIR_VSN}")
-    fi
-    if [ "${DOCKER_LATEST:-false}" = true ]; then
-        for r in "${DOCKER_REGISTRIES[@]}"; do
-          DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}")
-          echo "$r/${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}" >> ./.emqx_docker_image_tags
-          DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}")
-          echo "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}" >> ./.emqx_docker_image_tags
-          DOCKER_BUILDX_ARGS+=(--tag "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}")
-          echo "$r/${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}" >> ./.emqx_docker_image_tags
-        done
     fi
     if [ "${DOCKER_PLATFORMS:-default}" != 'default' ]; then
         DOCKER_BUILDX_ARGS+=(--platform "${DOCKER_PLATFORMS}")

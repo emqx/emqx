@@ -25,18 +25,6 @@ t_mod_hook_fun(_) ->
     ),
     ?assertError({invalid_event, foo}, emqx_rule_events:hook_fun(foo)).
 
-t_event_name_topic_conversion(_) ->
-    Events = emqx_rule_events:event_names() -- ['message.publish'],
-    Topics = [atom_to_binary(A) || A <- emqx_rule_events:event_topics_enum()],
-    Zip = lists:zip(Events, Topics),
-    lists:foreach(
-        fun({Event, Topic}) ->
-            ?assertEqual(Event, emqx_rule_events:event_name(Topic), #{topic => Topic}),
-            ?assertEqual(Topic, emqx_rule_events:event_topic(Event), #{event => Event})
-        end,
-        Zip
-    ).
-
 t_special_events_name_topic_conversion(_) ->
     Bridge = <<"$bridges/foo:bar">>,
     AdHoc = <<"foo/bar">>,
@@ -51,6 +39,7 @@ t_special_events_name_topic_conversion(_) ->
 t_event_topics_enum_and_names_consistency(_Config) ->
     EventInfos = emqx_rule_events:event_info(),
     EventNames = emqx_rule_events:event_names(),
+    %% Note: these contain only new (namespaced) topics in them.
     EventTopics = lists:map(fun atom_to_binary/1, emqx_rule_events:event_topics_enum()),
     EITopics0 = lists:map(fun(#{event := Topic}) -> Topic end, EventInfos),
     %% Explicitly absent; not handled when matching events for common hooks.
@@ -59,7 +48,22 @@ t_event_topics_enum_and_names_consistency(_Config) ->
     MissingFromEventTopics = EITopics -- EventTopics,
     MissingFromEventNames = EINames -- EventNames,
     MissingNamesFromEventInfos = EventNames -- (EINames ++ ['message.publish']),
-    MissingTopicsFromEventInfos = EventTopics -- EITopics,
+    LegacyEventTopics = [
+        <<"$events/client_connected">>,
+        <<"$events/client_disconnected">>,
+        <<"$events/client_connack">>,
+        <<"$events/client_check_authn_complete">>,
+        <<"$events/client_check_authz_complete">>,
+        <<"$events/session_subscribed">>,
+        <<"$events/session_unsubscribed">>,
+        <<"$events/message_delivered">>,
+        <<"$events/message_acked">>,
+        <<"$events/message_dropped">>,
+        <<"$events/delivery_dropped">>,
+        <<"$events/message_transformation_failed">>,
+        <<"$events/schema_validation_failed">>
+    ],
+    MissingTopicsFromEventInfos = EventTopics -- (EITopics ++ LegacyEventTopics),
     Missing = #{
         missing_from_event_topics => MissingFromEventTopics,
         missing_from_event_names => MissingFromEventNames,

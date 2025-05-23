@@ -41,8 +41,8 @@ services:
     volumes:
       - ./elastic:/usr/share/elasticsearch/config/certs
       - esdata01:/usr/share/elasticsearch/data
-    ports:
-      - 9200:9200
+    # ports:
+    #   - 9200:9200
     environment:
       - node.name=es01
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
@@ -72,35 +72,35 @@ services:
     networks:
       - emqx_bridge
 
-  kibana:
-    depends_on:
-      es01:
-        condition: service_healthy
-    image: public.ecr.aws/elastic/kibana:${ELASTIC_TAG}
-    volumes:
-      - ./elastic:/usr/share/kibana/config/certs
-      - kibanadata:/usr/share/kibana/data
-    ports:
-      - 5601:5601
-    environment:
-      - SERVERNAME=kibana
-      - ELASTICSEARCH_HOSTS=https://es01:9200
-      - ELASTICSEARCH_USERNAME=kibana_system
-      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
-      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
-    mem_limit: 1073741824
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
-        ]
-      interval: 10s
-      timeout: 10s
-      retries: 120
-    restart: always
-    networks:
-      - emqx_bridge
+  # kibana:
+  #   depends_on:
+  #     es01:
+  #       condition: service_healthy
+  #   image: public.ecr.aws/elastic/kibana:${ELASTIC_TAG}
+  #   volumes:
+  #     - ./elastic:/usr/share/kibana/config/certs
+  #     - kibanadata:/usr/share/kibana/data
+  #   # ports:
+  #   #   - 5601:5601
+  #   environment:
+  #     - SERVERNAME=kibana
+  #     - ELASTICSEARCH_HOSTS=https://es01:9200
+  #     - ELASTICSEARCH_USERNAME=kibana_system
+  #     - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+  #     - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+  #   mem_limit: 1073741824
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
+  #       ]
+  #     interval: 10s
+  #     timeout: 10s
+  #     retries: 120
+  #   restart: always
+  #   networks:
+  #     - emqx_bridge
 
 volumes:
   esdata01:

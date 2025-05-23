@@ -37,29 +37,23 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_ai_completion_test_helpers:unmock_ai_client(),
     ok = emqx_rule_engine:delete_rule(?RULE_ID),
     ok = emqx_ai_completion_test_helpers:clean_completion_profiles(),
-    ok = emqx_ai_completion_test_helpers:clean_providers().
+    ok = emqx_ai_completion_test_helpers:clean_providers(),
+    ok = emqx_ai_completion_provider_mock:stop().
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_completion(_Config) ->
+t_openai_completion(_Config) ->
     %% Setup completion profiles
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"type">> => <<"openai">>,
             <<"name">> => <<"openai-provider">>,
-            <<"api_key">> => <<"sk-proj-1234567890">>
-        }}
-    ),
-    ok = emqx_ai_completion_config:update_providers_raw(
-        {add, #{
-            <<"type">> => <<"anthropic">>,
-            <<"name">> => <<"anthropic-provider">>,
-            <<"api_key">> => <<"sk-ant-api03-1234567890">>
+            <<"api_key">> => <<"sk-proj-1234567890">>,
+            <<"base_url">> => <<"http://localhost:33330/v1">>
         }}
     ),
     ok = emqx_ai_completion_config:update_completion_profiles_raw(
@@ -71,6 +65,56 @@ t_completion(_Config) ->
             <<"system_prompt">> => <<"pls do something">>
         }}
     ),
+    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_chat_completion),
+    %% Setup republish rule
+    RepublishTopic = <<"republish/ai_completion">>,
+    Params = #{
+        id => ?RULE_ID,
+        sql =>
+            <<
+                "SELECT\n"
+                "  ai_completion('openai-profile', 'some prompt', payload) as result_openai_1,\n"
+                "  ai_completion('openai-profile', payload) as result_openai_2\n"
+                "FROM\n"
+                "  't/#'"
+            >>,
+        enable => true,
+        actions => [
+            #{
+                function => <<"republish">>,
+                args =>
+                    #{
+                        topic => RepublishTopic,
+                        qos => 0,
+                        retain => false,
+                        payload => <<"${result_openai_1}-${result_openai_2}">>,
+                        mqtt_properties => #{},
+                        user_properties => #{},
+                        direct_dispatch => false
+                    }
+            }
+        ]
+    },
+    {ok, _} = emqx_rule_engine:create_rule(Params),
+
+    %% Verify rule is triggered correctly
+    verify_republish(
+        <<"t/1">>,
+        <<"hello">>,
+        RepublishTopic,
+        <<"some completion-some completion">>
+    ).
+
+t_anthropic_completion(_Config) ->
+    %% Setup completion profiles
+    ok = emqx_ai_completion_config:update_providers_raw(
+        {add, #{
+            <<"type">> => <<"anthropic">>,
+            <<"name">> => <<"anthropic-provider">>,
+            <<"api_key">> => <<"sk-ant-api03-1234567890">>,
+            <<"base_url">> => <<"http://localhost:33330/v1">>
+        }}
+    ),
     ok = emqx_ai_completion_config:update_completion_profiles_raw(
         {add, #{
             <<"name">> => <<"anthropic-profile">>,
@@ -80,10 +124,7 @@ t_completion(_Config) ->
             <<"system_prompt">> => <<"pls do something else">>
         }}
     ),
-    %% Mock actual API client
-    %% TODO:
-    %% Use container with OpenAI/Anthropic compatible API
-    ok = emqx_ai_completion_test_helpers:mock_ai_client(<<"some completion">>),
+    ok = emqx_ai_completion_provider_mock:start_link(33330, anthropic_messages),
 
     %% Setup republish rule
     RepublishTopic = <<"republish/ai_completion">>,
@@ -92,8 +133,6 @@ t_completion(_Config) ->
         sql =>
             <<
                 "SELECT\n"
-                "  ai_completion('openai-profile', 'some prompt', payload) as result_openai_1,\n"
-                "  ai_completion('openai-profile', payload) as result_openai_2,\n"
                 "  ai_completion('anthropic-profile', 'some prompt', payload) as result_anthropic_1,\n"
                 "  ai_completion('anthropic-profile', payload) as result_anthropic_2\n"
                 "FROM\n"
@@ -108,10 +147,7 @@ t_completion(_Config) ->
                         topic => RepublishTopic,
                         qos => 0,
                         retain => false,
-                        payload => <<
-                            "${result_openai_1}-${result_openai_2}-"
-                            "${result_anthropic_1}-${result_anthropic_2}"
-                        >>,
+                        payload => <<"${result_anthropic_1}-${result_anthropic_2}">>,
                         mqtt_properties => #{},
                         user_properties => #{},
                         direct_dispatch => false
@@ -121,18 +157,30 @@ t_completion(_Config) ->
     },
     {ok, _} = emqx_rule_engine:create_rule(Params),
 
-    %% Publish message to trigger rule
+    %% Verify rule is triggered correctly
+    verify_republish(
+        <<"t/1">>,
+        <<"hello">>,
+        RepublishTopic,
+        <<"some completion-some completion">>
+    ).
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
+verify_republish(Topic, Payload, ExpectedRepublishTopic, ExpectedRepublishPayload) ->
     {ok, C} = emqtt:start_link(),
     {ok, _} = emqtt:connect(C),
-    {ok, _, _} = emqtt:subscribe(C, RepublishTopic, 0),
-    emqtt:publish(C, <<"t/1">>, <<"hello">>),
+    {ok, _, _} = emqtt:subscribe(C, ExpectedRepublishTopic, 0),
+    emqtt:publish(C, Topic, Payload),
 
     %% Verify rule is triggered
     receive
-        {publish, #{payload := Payload}} ->
+        {publish, #{payload := ReceivedPayload}} ->
             ?assertEqual(
-                <<"some completion-some completion-some completion-some completion">>,
-                Payload
+                ExpectedRepublishPayload,
+                ReceivedPayload
             )
     after 1000 ->
         ct:fail("message not republished")

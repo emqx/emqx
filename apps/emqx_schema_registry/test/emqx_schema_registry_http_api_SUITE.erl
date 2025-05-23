@@ -282,6 +282,36 @@ update_schema(Name, Params) ->
             Error
     end.
 
+create_schema_protobuf_bundle(Params) ->
+    do_create_or_update_schema_protobuf_bundle(Params#{method => post}).
+
+update_schema_protobuf_bundle(Params) ->
+    do_create_or_update_schema_protobuf_bundle(Params#{method => put}).
+
+do_create_or_update_schema_protobuf_bundle(Params) ->
+    #{
+        name := Name,
+        file := Filename,
+        root_proto_path := RootPath,
+        method := Method
+    } = Params,
+    Description = maps:get(description, Params, undefined),
+    URL = uri(["schema_registry_protobuf", "bundle"]),
+    Res = emqx_mgmt_api_test_util:upload_request(#{
+        url => URL,
+        filepath_to_upload => Filename,
+        file_parameter_name => <<"bundle">>,
+        mime_type => <<"application/octet-stream">>,
+        other_params => lists:flatten([
+            {<<"name">>, Name},
+            {<<"root_proto_file">>, RootPath},
+            [{<<"description">>, Description} || Description /= undefined]
+        ]),
+        auth_token => emqx_mgmt_api_test_util:auth_header_(),
+        method => Method
+    }),
+    emqx_mgmt_api_test_util:simplify_decode_result(Res).
+
 delete_schema(Name) ->
     case request({delete, Name}) of
         {ok, Code, Res} ->
@@ -855,6 +885,22 @@ t_smoke_test_external_registry_confluent(_Config) ->
         #{expected => Expected4}
     ),
 
+    %% Update external schema config with obfuscated password to simulate frontend.
+    %% Should not clobber password.
+    UpdateParams1 = emqx_utils_maps:deep_merge(
+        Params1,
+        #{<<"auth">> => #{<<"password">> => ?REDACTED}}
+    ),
+    ?assertMatch({200, _}, update_external_registry(Name1, UpdateParams1)),
+    PassFn = emqx_config:get([
+        schema_registry,
+        external,
+        binary_to_atom(Name1),
+        auth,
+        password
+    ]),
+    ?assertEqual(<<"mypass">>, PassFn()),
+
     ok.
 
 %% Smoke test for registering and using an external HTTP serde.
@@ -1058,5 +1104,62 @@ t_external_http_serde_ssl(_Config) ->
         }},
         create_schema(Params),
         #{data_dir => DataDir}
+    ),
+    ok.
+
+t_protobuf_bundle(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    BundleFilename1 = filename:join([PrivDir, "bundle.tar.gz"]),
+    FileList1 = [
+        {"a.proto", emqx_schema_registry_SUITE:proto_file(<<"a.proto">>)},
+        {"nested/b.proto", emqx_schema_registry_SUITE:proto_file(<<"b.proto">>)},
+        {"c.proto", emqx_schema_registry_SUITE:proto_file(<<"c.proto">>)}
+    ],
+    on_exit(fun() -> file:delete(BundleFilename1) end),
+    ok = erl_tar:create(BundleFilename1, FileList1, [compressed]),
+    Name = <<"myserde">>,
+    Description = <<"my bundle">>,
+    %% Create
+    ?assertMatch(
+        {201, #{
+            <<"name">> := Name,
+            <<"type">> := <<"protobuf">>,
+            <<"description">> := Description,
+            <<"source">> := #{
+                <<"type">> := <<"bundle">>,
+                <<"root_proto_path">> := <<_/binary>>
+            }
+        }},
+        create_schema_protobuf_bundle(#{
+            name => Name,
+            file => BundleFilename1,
+            description => Description,
+            root_proto_path => <<"a.proto">>
+        })
+    ),
+    %% Update
+    BundleFilename2 = filename:join([PrivDir, "bundle2.tar.gz"]),
+    FileList2 = [
+        {"some.proto", emqx_schema_registry_SUITE:proto_file(<<"c.proto">>)}
+    ],
+    on_exit(fun() -> file:delete(BundleFilename2) end),
+    ok = erl_tar:create(BundleFilename2, FileList2, [compressed]),
+    Description2 = <<"new description">>,
+    ?assertMatch(
+        {200, #{
+            <<"name">> := Name,
+            <<"type">> := <<"protobuf">>,
+            <<"description">> := Description2,
+            <<"source">> := #{
+                <<"type">> := <<"bundle">>,
+                <<"root_proto_path">> := <<_/binary>>
+            }
+        }},
+        update_schema_protobuf_bundle(#{
+            name => Name,
+            file => BundleFilename2,
+            description => Description2,
+            root_proto_path => <<"some.proto">>
+        })
     ),
     ok.

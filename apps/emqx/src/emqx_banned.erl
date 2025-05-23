@@ -146,7 +146,9 @@ parse(Params) ->
                     }};
                 false ->
                     ErrorReason =
-                        io_lib:format("Cannot create expired banned, ~p to ~p", [At, Until]),
+                        iolist_to_binary(
+                            io_lib:format("Cannot create expired banned, ~p to ~p", [At, Until])
+                        ),
                     {error, ErrorReason}
             end
     end.

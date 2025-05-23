@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("kafka_protocol/include/kpro.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -226,9 +227,12 @@ source_config(Overrides0) ->
     emqx_utils_maps:deep_merge(CommonConfig, Overrides).
 
 create_connector_api(Config) ->
+    create_connector_api(Config, _Overrides = #{}).
+
+create_connector_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_connector_api(
-            Config
+            Config, Overrides
         )
     ).
 
@@ -590,5 +594,44 @@ t_pretty_api_dry_run_reason(Config) ->
             ok
         end,
         []
+    ),
+    ok.
+
+%% Exercises the code path where we use MSK IAM authentication.
+%% Unfortunately, there seems to be no good way to accurately test this as it would
+%% require running this in an EC2 instance to pass, and also to have a Kafka cluster
+%% configured to use MSK IAM authentication.
+t_msk_iam_authn(Config) ->
+    %% We mock the innermost call with the SASL authentication made by the OAuth plugin to
+    %% try and exercise most of the code.
+    emqx_bridge_v2_kafka_producer_SUITE:mock_iam_metadata_v2_calls(),
+    ok = meck:new(emqx_bridge_kafka_msk_iam_authn, [passthrough]),
+    emqx_common_test_helpers:with_mock(
+        kpro_lib,
+        send_and_recv,
+        fun(Req, Sock, Mod, ClientId, Timeout) ->
+            case Req of
+                #kpro_req{api = sasl_handshake} ->
+                    #{error_code => no_error};
+                #kpro_req{api = sasl_authenticate} ->
+                    #{error_code => no_error, session_lifetime_ms => 99999};
+                _ ->
+                    meck:passthrough([Req, Sock, Mod, ClientId, Timeout])
+            end
+        end,
+        fun() ->
+            ?assertMatch(
+                {201, #{<<"status">> := <<"connected">>}},
+                create_connector_api(
+                    Config,
+                    #{<<"authentication">> => <<"msk_iam">>}
+                )
+            ),
+            %% Must have called our callback
+            ?assertMatch(
+                [{_, {_, token_callback, _}, {ok, #{token := <<_/binary>>}}}],
+                meck:history(emqx_bridge_kafka_msk_iam_authn)
+            )
+        end
     ),
     ok.

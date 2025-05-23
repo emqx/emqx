@@ -788,7 +788,7 @@ t_alarm_events_hash(Config) ->
             envs := #{
                 metadata := #{
                     matched := <<"$events/#">>,
-                    trigger := <<"$events/message_dropped">>
+                    trigger := <<"$events/message/dropped">>
                 }
             }
         }}

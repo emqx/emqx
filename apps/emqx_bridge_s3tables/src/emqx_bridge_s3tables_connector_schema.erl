@@ -25,6 +25,11 @@
     connector_examples/1
 ]).
 
+%% `emqx_connector' API
+-export([
+    pre_config_update/4
+]).
+
 %% API
 -export([
     parse_base_endpoint/1,
@@ -90,13 +95,13 @@ fields(s3_client_params) ->
     lists:filtermap(
         fun
             ({K, Sc}) when K == host; K == port ->
-                %% to please dialyzer...
                 Override = #{
+                    %% to please dialyzer...
                     type => hocon_schema:field_schema(Sc, type),
                     required => false,
                     importance => ?IMPORTANCE_HIDDEN
                 },
-                {true, {K, Override}};
+                {true, {K, hocon_schema:override(Sc, Override)}};
             ({K, _Sc}) ->
                 not lists:member(K, FieldsToRemove)
         end,
@@ -107,6 +112,8 @@ desc("config_connector") ->
     ?DESC("config_connector");
 desc(s3_client_params) ->
     ?DESC("s3_client");
+desc(s3_client_transport_options) ->
+    ?DESC("s3_client_transport_options");
 desc(_Name) ->
     undefined.
 
@@ -222,6 +229,25 @@ parse_arn(ARN) ->
         _ ->
             error
     end.
+
+%%------------------------------------------------------------------------------
+%% `emqx_connector' API
+%%------------------------------------------------------------------------------
+
+pre_config_update(
+    Path,
+    _Name,
+    #{<<"s3_client">> := #{<<"transport_options">> := TransportOpts} = S3Conf} = Conf,
+    _ConfOld
+) ->
+    case emqx_connector_ssl:convert_certs(filename:join(Path), TransportOpts) of
+        {ok, NTransportOpts} ->
+            {ok, Conf#{<<"s3_client">> := S3Conf#{<<"transport_options">> := NTransportOpts}}};
+        {error, Error} ->
+            {error, Error}
+    end;
+pre_config_update(_Path, _Name, Conf, _ConfOld) ->
+    {ok, Conf}.
 
 %%------------------------------------------------------------------------------
 %% Internal fns

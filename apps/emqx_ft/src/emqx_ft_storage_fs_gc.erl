@@ -28,6 +28,9 @@
 -export([handle_cast/2]).
 -export([handle_info/2]).
 
+%% Internal export only for testing/spying events
+-export([maybe_report/2]).
+
 -record(st, {
     next_gc_timer :: option(reference()),
     last_gc :: option(gcstats())
@@ -95,7 +98,7 @@ handle_info({timeout, TRef, collect}, St = #st{next_gc_timer = TRef}) ->
 
 do_collect_transfer(Storage, Transfer, Node, St = #st{}) when Node == node() ->
     Stats = try_collect_transfer(Storage, Transfer, complete, init_gcstats()),
-    ok = maybe_report(Stats, St),
+    ok = ?MODULE:maybe_report(Stats, St),
     ok;
 do_collect_transfer(_Storage, _Transfer, _Node, _St = #st{}) ->
     % TODO
@@ -117,7 +120,7 @@ maybe_collect_garbage(CalledAt, St = #st{last_gc = #gcstats{finished_at = Finish
 do_collect_garbage(St = #st{}) ->
     emqx_ft_storage:with_storage_type(local, fun(Storage) ->
         Stats = collect_garbage(Storage),
-        ok = maybe_report(Stats, Storage),
+        ok = ?MODULE:maybe_report(Stats, Storage),
         St#st{last_gc = Stats}
     end).
 

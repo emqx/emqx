@@ -1,0 +1,15 @@
+{application, emqx_bridge_doris, [
+    {description, "EMQX Enterprise Doris Bridge"},
+    {vsn, "1.0.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_resource,
+        emqx_bridge_mysql
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

@@ -182,6 +182,7 @@ t_switch_exporter(_Config) ->
                     <<"host">> => <<"https://localhost">>,
                     <<"port">> => 9000,
                     <<"transport_options">> => #{
+                        <<"ssl">> => #{<<"enable">> => false},
                         <<"ipv6_probe">> => false
                     }
                 }

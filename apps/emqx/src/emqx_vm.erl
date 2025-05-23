@@ -132,33 +132,6 @@
     wordsize
 ]).
 
--define(SOCKET_OPTS, [
-    active,
-    broadcast,
-    buffer,
-    delay_send,
-    dontroute,
-    exit_on_close,
-    header,
-    high_watermark,
-    ipv6_v6only,
-    keepalive,
-    linger,
-    low_watermark,
-    mode,
-    nodelay,
-    packet,
-    packet_size,
-    priority,
-    read_packets,
-    recbuf,
-    reuseaddr,
-    send_timeout,
-    send_timeout_close,
-    sndbuf,
-    tos
-]).
-
 schedulers() ->
     erlang:system_info(schedulers).
 

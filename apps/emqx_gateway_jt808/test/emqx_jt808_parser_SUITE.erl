@@ -11,15 +11,12 @@
 
 -define(LOGT(Format, Args), ct:print("TEST_SUITE: " ++ Format, Args)).
 
--define(FRM_FLAG, 16#7e:8).
 -define(RESERVE, 0).
 -define(NO_FRAGMENT, 0).
--define(WITH_FRAGMENT, 1).
 -define(NO_ENCRYPT, 0).
 -define(MSG_SIZE(X), X:10 / big - integer).
 
 -define(word, 16 / big - integer).
--define(dword, 32 / big - integer).
 
 -include_lib("eunit/include/eunit.hrl").
 

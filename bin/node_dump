@@ -49,18 +49,25 @@ done
 
 # Collect system info:
 {
-    collect "$RUNNER_BIN_DIR"/emqx_ctl broker
+    collect "$RUNNER_BIN_DIR"/emqx ctl broker
     collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:sys_info()'"
 
     collect uname -a
     collect uptime
-    collect free
+    case "$(uname -s)" in
+      Linux)
+        collect free
+        ;;
+      Darwin)
+        collect vm_stat
+        ;;
+    esac
     collect netstat -tnl
 
-    collect "$RUNNER_BIN_DIR"/emqx_ctl plugins list
+    collect "$RUNNER_BIN_DIR"/emqx ctl plugins list
 
-    collect "$RUNNER_BIN_DIR"/emqx_ctl vm all
-    collect "$RUNNER_BIN_DIR"/emqx_ctl listeners
+    collect "$RUNNER_BIN_DIR"/emqx ctl vm all
+    collect "$RUNNER_BIN_DIR"/emqx ctl listeners
 } > "${SYSINFO}"
 
 # Collect information about the configuration:
@@ -70,7 +77,7 @@ done
 
 # Collect license info:
 {
-    collect "$RUNNER_BIN_DIR"/emqx_ctl license info
+    collect "$RUNNER_BIN_DIR"/emqx ctl license info
 } > "${LICENSE_INFO}"
 
 # Pack files

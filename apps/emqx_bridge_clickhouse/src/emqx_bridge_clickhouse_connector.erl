@@ -213,7 +213,7 @@ callback_mode() -> always_sync.
 -spec on_start(resource_id(), clickhouse_config()) -> {ok, state()} | {error, _}.
 
 on_start(
-    InstanceID,
+    InstanceId,
     #{
         url := URL,
         database := DB,
@@ -223,7 +223,7 @@ on_start(
 ) ->
     ?SLOG(info, #{
         msg => "starting_clickhouse_connector",
-        connector => InstanceID,
+        connector => InstanceId,
         config => emqx_utils:redact(Config)
     }),
     Options = [
@@ -233,15 +233,15 @@ on_start(
         {database, DB},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize},
-        {pool, InstanceID}
+        {pool, InstanceId}
     ],
     try
         State = #{
             channels => #{},
-            pool_name => InstanceID,
+            pool_name => InstanceId,
             connect_timeout => ConnectTimeout
         },
-        case emqx_resource_pool:start(InstanceID, ?MODULE, Options) of
+        case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
             ok ->
                 {ok, State};
             {error, Reason} ->
@@ -344,12 +344,12 @@ connect(Options) ->
 
 -spec on_stop(resource_id(), resource_state()) -> term().
 
-on_stop(InstanceID, _State) ->
+on_stop(InstanceId, _State) ->
     ?SLOG(info, #{
         msg => "stopping clickouse connector",
-        connector => InstanceID
+        connector => InstanceId
     }),
-    emqx_resource_pool:stop(InstanceID).
+    emqx_resource_pool:stop(InstanceId).
 
 %% -------------------------------------------------------------------
 %% channel related emqx_resouce callbacks
@@ -379,21 +379,24 @@ on_get_channels(InstanceId) ->
 %% -------------------------------------------------------------------
 
 on_get_status(
-    _InstanceID,
+    _InstanceId,
     #{pool_name := PoolName, connect_timeout := Timeout}
 ) ->
     case do_get_status(PoolName, Timeout) of
         ok ->
             ?status_connected;
+        {error, timeout} ->
+            {?status_connecting, <<"health check timeout">>};
         {error, Reason} ->
             {?status_disconnected, Reason}
     end.
 
 do_get_status(PoolName, Timeout) ->
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    Fn = fun(Conn) -> clickhouse:detailed_status(Conn, infinity) end,
     DoPerWorker =
         fun(Worker) ->
-            case ecpool_worker:exec(Worker, fun clickhouse:detailed_status/1, Timeout) of
+            case ecpool_worker:exec(Worker, Fn, Timeout) of
                 ok ->
                     ok;
                 {error, Reason} = Error ->

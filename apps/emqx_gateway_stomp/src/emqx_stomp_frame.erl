@@ -85,8 +85,6 @@
 -define(BSL, $\\).
 -define(COLON, $:).
 
--define(IS_ESC(Ch), Ch == ?CR; Ch == ?LF; Ch == ?BSL; Ch == ?COLON).
-
 -record(parser_state, {
     cmd,
     headers = [],
@@ -381,16 +379,16 @@ format({frame_error, _Reason} = Error) ->
 format(Frame) ->
     serialize_pkt(Frame, #{}).
 
-is_message(#stomp_frame{command = CMD}) when
-    CMD == ?CMD_SEND;
-    CMD == ?CMD_MESSAGE
+is_message(#stomp_frame{command = Cmd}) when
+    Cmd == ?CMD_SEND;
+    Cmd == ?CMD_MESSAGE
 ->
     true;
 is_message(_) ->
     false.
 
-type(#stomp_frame{command = CMD}) ->
-    type(CMD);
+type(#stomp_frame{command = Cmd}) ->
+    type(Cmd);
 type(?CMD_STOMP) ->
     connect;
 type(?CMD_CONNECT) ->

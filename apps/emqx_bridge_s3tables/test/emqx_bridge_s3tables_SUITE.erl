@@ -50,14 +50,23 @@ all() ->
 
 matrix_cases() ->
     lists:filter(
-        fun(TestCase) ->
-            get_tc_prop(TestCase, matrix, false)
+        fun
+            ({testcase, TestCase, _Opts}) ->
+                get_tc_prop(TestCase, matrix, false);
+            (TestCase) ->
+                get_tc_prop(TestCase, matrix, false)
         end,
         emqx_common_test_helpers:all(?MODULE)
     ).
 
 groups() ->
     emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
+
+flaky_tests() ->
+    #{
+        t_conflicting_transactions => 5,
+        t_multipart_upload => 3
+    }.
 
 init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start(
@@ -116,10 +125,17 @@ init_per_testcase(TestCase, TCConfig) ->
         | TCConfig
     ].
 
-end_per_testcase(_TestCase, _TCConfig) ->
+end_per_testcase(_TestCase, TCConfig) ->
     snabbkaffe:stop(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    case ?config(tc_status, TCConfig) of
+        {failed, _} ->
+            restart_server();
+        _ ->
+            ok
+    end,
     emqx_common_test_helpers:call_janitor(),
+    emqx_bridge_v2_testlib:clean_aggregated_upload_work_dir(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -145,7 +161,10 @@ connector_config(Overrides) ->
         <<"request_timeout">> => <<"10s">>,
         <<"s3_client">> => #{
             <<"host">> => ?S3_HOST,
-            <<"port">> => ?S3_PORT
+            <<"port">> => ?S3_PORT,
+            <<"transport_options">> => #{
+                <<"ssl">> => #{<<"enable">> => false}
+            }
         },
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
@@ -231,6 +250,8 @@ ensure_namespace_deleted(Client, Namespace) ->
     case delete_namespace(Client, Namespace) of
         {ok, _} ->
             ct:pal("namespace ~p deleted", [Namespace]),
+            %% See Note [Flaky iceberg-rest-fixtures]
+            ct:sleep(200),
             ok;
         {error, {http_error, 404, _, _, _}} ->
             ct:pal("namespace ~p already gone", [Namespace]),
@@ -272,6 +293,11 @@ ensure_table_created(Client, Namespace, Table, Schema, Opts) ->
     on_exit(fun() -> ensure_table_deleted(Client, Namespace, Table) end),
     case create_table(Client, Namespace, Table, Schema, Opts) of
         {ok, _} ->
+            %% Note [Flaky iceberg-rest-fixtures]
+            %% This is an attempt to circumvent buggy iceberg-rest container, which
+            %% frequently breaks and starts returning 500 responses, internally due to `no
+            %% such table: iceberg_tables`.
+            ct:sleep(200),
             ct:pal("table ~p.~p created", [Namespace, Table]),
             ok;
         {error, {http_error, 409, _, _, _}} ->
@@ -572,6 +598,28 @@ parallel_publish(RuleTopic, Payloads) ->
         Payloads
     ).
 
+-doc """
+The `iceberg-rest-fixture` container is quite buggy, and some test cases might randomly
+make it enter a corrupt state where it no longer serves any requests.
+
+This functions nudges the parent process of the server to restart it and ensure we start
+the next test from a clean slate.
+
+See also Note [Flaky iceberg-rest-fixtures]
+""".
+restart_server() ->
+    ct:pal("restart iceberg server..."),
+    URI = "http://iceberg-rest:8191/restart",
+    {ok, {{_, 204, _}, _, _}} =
+        httpc:request(
+            post,
+            {URI, [], "application/json", <<"">>},
+            [],
+            [{body_format, binary}]
+        ),
+    ct:pal("restarted iceberg server."),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -772,11 +820,11 @@ t_conflicting_transactions() ->
     [{matrix, true}].
 t_conflicting_transactions(matrix) ->
     [
-        [second_commit]
+        [second_commit],
         %% N.B.: the apache iceberg-rest fixture container is extremely buggy, and tends
         %% to crash and enter a corrupt state that does not recover without restarting the
         %% service/container when running this case...
-        %% , [first_commit]
+        [first_commit]
     ];
 t_conflicting_transactions(Config) ->
     ct:timetrap({seconds, 15}),
@@ -1397,7 +1445,7 @@ do_t_upload_data_file_failure(S3UploadFnName, Config) ->
         end,
     {ok, Agent} = emqx_utils_agent:start_link(NSuccessesBeforeFailure),
     ct:pal("publishing payloads"),
-    ct:timetrap({seconds, 5}),
+    ct:timetrap({seconds, 15}),
     emqx_common_test_helpers:with_mock(
         emqx_s3_upload,
         S3UploadFnName,
@@ -1417,16 +1465,22 @@ do_t_upload_data_file_failure(S3UploadFnName, Config) ->
             case IsPartitioned of
                 partitioned ->
                     %% Must rollback each inner s3 transfer, one for each PK
+                    %% Aborts at least once for each PK; may abort more than once if
+                    %% `process_terminate` is called.
                     ?assertEqual(
                         lists:duplicate(NumPKs, ok),
-                        [
-                            ok
-                         || {_Pid, {_Mod, abort, _In}, _Out} <- meck:history(emqx_s3_upload)
-                        ]
+                        lists:sublist(
+                            [
+                                ok
+                             || {_Pid, {_Mod, abort, _In}, _Out} <- meck:history(emqx_s3_upload)
+                            ],
+                            NumPKs
+                        )
                     );
                 not_partitioned ->
-                    ?assertEqual(
-                        [ok],
+                    %% `process_terminated` may also trigger an abort.
+                    ?assertMatch(
+                        [ok | _],
                         [
                             ok
                          || {_Pid, {_Mod, abort, _In}, _Out} <- meck:history(emqx_s3_upload)
@@ -1609,6 +1663,49 @@ t_commit_failure(Config) ->
                 emqx_bridge_v2_testlib:health_check_channel(Config)
             )
         end
+    ),
+    ok.
+
+%% Checks that we convert TLS certificates in the connector configuration and move then to
+%% EMQX managed file paths.
+t_convert_connector_tls_certs(Config) ->
+    ConnectorName = emqx_bridge_v2_testlib:get_value(connector_name, Config),
+    ReadCert = fun(File) ->
+        Dir = code:lib_dir(emqx),
+        Path = filename:join([Dir, <<"etc">>, <<"certs">>, File]),
+        {ok, Contents} = file:read_file(Path),
+        Contents
+    end,
+    DataDir = emqx:data_dir(),
+    ExpectedPrefix = iolist_to_binary(
+        filename:join([DataDir, "certs", "connectors", ?CONNECTOR_TYPE_BIN, ConnectorName])
+    ),
+    ExpectedPrefixSize = byte_size(ExpectedPrefix),
+    ?assertMatch(
+        {201, #{
+            <<"s3_client">> := #{
+                <<"transport_options">> := #{
+                    <<"ssl">> := #{
+                        <<"certfile">> := <<ExpectedPrefix:ExpectedPrefixSize/binary, _/binary>>,
+                        <<"keyfile">> := <<ExpectedPrefix:ExpectedPrefixSize/binary, _/binary>>
+                    }
+                }
+            }
+        }},
+        create_connector_api(Config, #{
+            <<"s3_client">> => #{
+                <<"transport_options">> => #{
+                    <<"ssl">> => #{
+                        %% N.B.: `emqx_tls_lib` conversion is not triggered if TLS is not
+                        %% enabled...
+                        <<"enable">> => true,
+                        <<"certfile">> => ReadCert(<<"client-cert.pem">>),
+                        <<"keyfile">> => ReadCert(<<"client-key.pem">>)
+                    }
+                }
+            }
+        }),
+        #{expected_prefix => ExpectedPrefix}
     ),
     ok.
 

@@ -11,6 +11,10 @@
 -export([sync_data_from_node/0]).
 -export([unset_config_loaded/0]).
 
+-ifdef(TEST).
+-export([sync_cluster_conf/0]).
+-endif.
+
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_conf.hrl").
 
@@ -69,7 +73,7 @@ get_override_config_file() ->
             end
     end.
 
--define(DATA_DIRS, ["authz", "certs"]).
+-define(DATA_DIRS, ["authz", "certs", "schemas"]).
 
 sync_data_from_node() ->
     DataDir = emqx:data_dir(),

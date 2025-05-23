@@ -11,6 +11,7 @@
 
 -export([
     list_ns/2,
+    list_ns_details/2,
     is_known_ns/1,
     count_clients/1,
     evict_ccache/0,
@@ -30,6 +31,7 @@
 %% Managed namespaces
 -export([
     list_managed_ns/2,
+    list_managed_ns_details/2,
     create_managed_ns/1,
     delete_managed_ns/1,
     is_known_managed_ns/1,
@@ -85,7 +87,7 @@
 %% Value is for future use.
 -record(?NS_TAB, {
     ns :: tns(),
-    value = [] :: term()
+    value = #{} :: term()
 }).
 
 %% Mria table to store the client records.
@@ -97,7 +99,7 @@
 -record(?RECORD_TAB, {
     key :: ?RECORD_KEY(tns(), clientid(), pid()),
     node :: node(),
-    extra = [] :: nil()
+    extra = #{} :: nil()
 }).
 
 %% Mria table to store the number of clients in each namespace.
@@ -128,6 +130,7 @@
 -define(limiter, limiter).
 
 -type tns() :: emqx_mt:tns().
+-type tns_details() :: emqx_mt:tns_details().
 -type clientid() :: emqx_types:clientid().
 
 %%------------------------------------------------------------------------------
@@ -197,6 +200,34 @@ do_list_ns(Table, LastNs, Limit) ->
             [Ns | do_list_ns(Table, Ns, Limit - 1)]
     end.
 
+%% @doc List namespaces with extra details.
+%% The second argument is the last namespace from the previous page.
+%% The third argument is the number of namespaces to return.
+-spec list_ns_details(tns(), pos_integer()) -> [tns_details()].
+list_ns_details(LastNs, Limit) ->
+    do_list_ns_details(?NS_TAB, LastNs, Limit).
+
+do_list_ns_details(_Table, _LastNs, 0) ->
+    [];
+do_list_ns_details(Table, LastNs, Limit) ->
+    case ets:next_lookup(Table, LastNs) of
+        '$end_of_table' ->
+            [];
+        {Ns, [Rec]} ->
+            Details = get_ns_details(Table, Rec),
+            [Details | do_list_ns_details(Table, Ns, Limit - 1)]
+    end.
+
+get_ns_details(?NS_TAB, #?NS_TAB{ns = Ns, value = []}) ->
+    %% Old record, since it's not a map.
+    #{name => Ns, created_at => undefined};
+get_ns_details(?NS_TAB, #?NS_TAB{ns = Ns, value = #{} = Extra}) ->
+    CreatedAt = maps:get(created_at, Extra, undefined),
+    #{name => Ns, created_at => CreatedAt};
+get_ns_details(?CONFIG_TAB, #?CONFIG_TAB{key = Ns, extra = #{} = Extra}) ->
+    CreatedAt = maps:get(created_at, Extra, undefined),
+    #{name => Ns, created_at => CreatedAt}.
+
 -doc """
 List managed namespaces.
 
@@ -207,6 +238,17 @@ The third argument is the number of namespaces to return.
 -spec list_managed_ns(tns(), pos_integer()) -> [tns()].
 list_managed_ns(LastNs, Limit) ->
     do_list_ns(?CONFIG_TAB, LastNs, Limit).
+
+-doc """
+List managed namespaces with extra details.
+
+The second argument is the last namespace from the previous page.
+
+The third argument is the number of namespaces to return.
+""".
+-spec list_managed_ns_details(tns(), pos_integer()) -> [tns_details()].
+list_managed_ns_details(LastNs, Limit) ->
+    do_list_ns_details(?CONFIG_TAB, LastNs, Limit).
 
 fold_managed_nss(Fn, Acc) ->
     do_fold_managed_nss(ets:first(?CONFIG_TAB), Fn, Acc).
@@ -336,7 +378,9 @@ ensure_ns_added(Ns) ->
         true ->
             ok;
         false ->
-            ok = mria:dirty_write(?NS_TAB, #?NS_TAB{ns = Ns})
+            NowS = now_s(),
+            Extra = #{created_at => NowS},
+            ok = mria:dirty_write(?NS_TAB, #?NS_TAB{ns = Ns, value = Extra})
     end.
 
 %% @doc delete a client.
@@ -463,7 +507,8 @@ create_managed_ns_txn(Ns) ->
                 true ->
                     {error, table_is_full};
                 false ->
-                    Rec = #?CONFIG_TAB{key = Ns, configs = #{}},
+                    Extra = #{created_at => now_s()},
+                    Rec = #?CONFIG_TAB{key = Ns, configs = #{}, extra = Extra},
                     ok = mnesia:write(?CONFIG_TAB, Rec, write),
                     ok
             end;
@@ -523,3 +568,6 @@ bulk_update_root_configs_txn(Entries) ->
         Entries
     ),
     {ok, Changes}.
+
+now_s() ->
+    erlang:system_time(second).

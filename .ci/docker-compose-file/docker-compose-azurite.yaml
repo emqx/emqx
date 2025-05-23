@@ -10,7 +10,7 @@ services:
     networks:
       - emqx_bridge
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:10000"]
+      test: ["CMD", "nc", "-zv", "127.0.0.1", "10000"]
       interval: 30s
       timeout: 5s
       retries: 4

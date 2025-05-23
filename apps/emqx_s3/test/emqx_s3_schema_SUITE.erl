@@ -29,7 +29,7 @@ t_minimal_config(_Config) ->
                 #{
                     connect_timeout := 15000,
                     pool_size := 8,
-                    ssl := #{enable := false}
+                    ssl := #{enable := true}
                 }
         },
         emqx_s3_schema:translate(#{

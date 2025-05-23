@@ -72,6 +72,7 @@ base_raw_config(tcp) ->
         <<"max_part_size">> => <<"10MB">>,
         <<"transport_options">> =>
             #{
+                <<"ssl">> => #{<<"enable">> => false},
                 <<"request_timeout">> => <<"2s">>
             }
     };

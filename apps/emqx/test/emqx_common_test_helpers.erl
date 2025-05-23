@@ -1356,7 +1356,14 @@ matrix_to_groups(Module, Cases) ->
         Cases
     ).
 
-add_case_matrix(Module, TestCase, Acc0) ->
+add_case_matrix(Module, TestCase0, Acc0) ->
+    TestCase =
+        case TestCase0 of
+            {testcase, TestCase1, _Opts} ->
+                TestCase1;
+            _ ->
+                TestCase0
+        end,
     {MaybeRootGroup, Matrix} =
         case Module:TestCase(matrix) of
             {RootGroup0, Matrix0} ->
@@ -1368,9 +1375,9 @@ add_case_matrix(Module, TestCase, Acc0) ->
         fun(Row, Acc) ->
             case MaybeRootGroup of
                 undefined ->
-                    add_group(Row, Acc, TestCase);
+                    add_group(Row, Acc, TestCase0);
                 RootGroup ->
-                    add_group([RootGroup | Row], Acc, TestCase)
+                    add_group([RootGroup | Row], Acc, TestCase0)
             end
         end,
         Acc0,

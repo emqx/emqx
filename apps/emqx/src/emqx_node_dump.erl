@@ -21,6 +21,8 @@ app_env_dump() ->
 
 censor([]) ->
     [];
+censor([{{env, cowboy_swagger, global_spec}, _} | Rest]) ->
+    censor(Rest);
 censor([{{env, App, Key}, Val} | Rest]) ->
     [{{env, App, Key}, censor([Key, App], Val)} | censor(Rest)];
 censor([_ | Rest]) ->

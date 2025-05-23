@@ -19,6 +19,7 @@
     event_names/0,
     event_name/1,
     match_event_names/1,
+    expand_legacy_event_topics/1,
     event_topics_enum/0,
     event_topic/1,
     eventmsg_publish/1
@@ -79,11 +80,24 @@ event_names() ->
         'delivery.dropped'
     ].
 
-%% for documentation purposes
 event_topics_enum() ->
     [
         '$events/sys/alarm_activated',
         '$events/sys/alarm_deactivated',
+        '$events/client/connected',
+        '$events/client/disconnected',
+        '$events/client/connack',
+        '$events/auth/check_authn_complete',
+        '$events/auth/check_authz_complete',
+        '$events/session/subscribed',
+        '$events/session/unsubscribed',
+        '$events/message/delivered',
+        '$events/message/acked',
+        '$events/message/dropped',
+        '$events/message/delivery_dropped',
+        '$events/message_transformation/failed',
+        '$events/schema_validation/failed',
+        %% Topics below are kept for backwards compatibility.
         '$events/client_connected',
         '$events/client_disconnected',
         '$events/client_connack',
@@ -94,9 +108,9 @@ event_topics_enum() ->
         '$events/message_delivered',
         '$events/message_acked',
         '$events/message_dropped',
+        '$events/delivery_dropped',
         '$events/message_transformation_failed',
-        '$events/schema_validation_failed',
-        '$events/delivery_dropped'
+        '$events/schema_validation_failed'
         % '$events/message_publish' % not possible to use in SELECT FROM
     ].
 
@@ -833,8 +847,7 @@ with_basic_columns(EventName, Columns, Envs) when is_map(Columns) ->
 %% rules applying
 %%--------------------------------------------------------------------
 apply_event(EventName, GenEventMsg, _Conf) ->
-    EventTopic = event_topic(EventName),
-    case emqx_rule_engine:get_rules_for_topic(EventTopic) of
+    case emqx_rule_engine:get_enriched_rules_with_matching_event(EventName) of
         [] ->
             ok;
         RichedRules ->
@@ -922,14 +935,14 @@ event_info_message_deliver() ->
         'message.delivered',
         {<<"message delivered">>, <<"消息已投递"/utf8>>},
         {<<"message delivered">>, <<"消息已投递"/utf8>>},
-        <<"SELECT * FROM \"$events/message_delivered\" WHERE topic =~ 't/#'">>
+        <<"SELECT * FROM \"$events/message/delivered\" WHERE topic =~ 't/#'">>
     ).
 event_info_message_acked() ->
     event_info_common(
         'message.acked',
         {<<"message acked">>, <<"消息应答"/utf8>>},
         {<<"message acked">>, <<"消息应答"/utf8>>},
-        <<"SELECT * FROM \"$events/message_acked\" WHERE topic =~ 't/#'">>
+        <<"SELECT * FROM \"$events/message/acked\" WHERE topic =~ 't/#'">>
     ).
 event_info_message_dropped() ->
     event_info_common(
@@ -937,7 +950,7 @@ event_info_message_dropped() ->
         {<<"message routing-drop">>, <<"消息转发丢弃"/utf8>>},
         {<<"messages are discarded during routing, usually because there are no subscribers">>,
             <<"消息在转发的过程中被丢弃，一般是由于没有订阅者"/utf8>>},
-        <<"SELECT * FROM \"$events/message_dropped\" WHERE topic =~ 't/#'">>
+        <<"SELECT * FROM \"$events/message/dropped\" WHERE topic =~ 't/#'">>
     ).
 event_info_delivery_dropped() ->
     event_info_common(
@@ -945,56 +958,56 @@ event_info_delivery_dropped() ->
         {<<"message delivery-drop">>, <<"消息投递丢弃"/utf8>>},
         {<<"messages are discarded during delivery, i.e. because the message queue is full">>,
             <<"消息在投递的过程中被丢弃，比如由于消息队列已满"/utf8>>},
-        <<"SELECT * FROM \"$events/delivery_dropped\" WHERE topic =~ 't/#'">>
+        <<"SELECT * FROM \"$events/message/delivery_dropped\" WHERE topic =~ 't/#'">>
     ).
 event_info_client_connected() ->
     event_info_common(
         'client.connected',
         {<<"client connected">>, <<"连接建立"/utf8>>},
         {<<"client connected">>, <<"连接建立"/utf8>>},
-        <<"SELECT * FROM \"$events/client_connected\"">>
+        <<"SELECT * FROM \"$events/client/connected\"">>
     ).
 event_info_client_disconnected() ->
     event_info_common(
         'client.disconnected',
         {<<"client disconnected">>, <<"连接断开"/utf8>>},
         {<<"client disconnected">>, <<"连接断开"/utf8>>},
-        <<"SELECT * FROM \"$events/client_disconnected\"">>
+        <<"SELECT * FROM \"$events/client/disconnected\"">>
     ).
 event_info_client_connack() ->
     event_info_common(
         'client.connack',
         {<<"client connack">>, <<"连接确认"/utf8>>},
         {<<"client connack">>, <<"连接确认"/utf8>>},
-        <<"SELECT * FROM \"$events/client_connack\"">>
+        <<"SELECT * FROM \"$events/client/connack\"">>
     ).
 event_info_client_check_authz_complete() ->
     event_info_common(
         'client.check_authz_complete',
         {<<"client check authz complete">>, <<"授权结果"/utf8>>},
         {<<"client check authz complete">>, <<"授权结果"/utf8>>},
-        <<"SELECT * FROM \"$events/client_check_authz_complete\"">>
+        <<"SELECT * FROM \"$events/auth/check_authz_complete\"">>
     ).
 event_info_client_check_authn_complete() ->
     event_info_common(
         'client.check_authn_complete',
         {<<"client check authn complete">>, <<"认证结果"/utf8>>},
         {<<"client check authn complete">>, <<"认证结果"/utf8>>},
-        <<"SELECT * FROM \"$events/client_check_authn_complete\"">>
+        <<"SELECT * FROM \"$events/auth/check_authn_complete\"">>
     ).
 event_info_session_subscribed() ->
     event_info_common(
         'session.subscribed',
         {<<"session subscribed">>, <<"会话订阅完成"/utf8>>},
         {<<"session subscribed">>, <<"会话订阅完成"/utf8>>},
-        <<"SELECT * FROM \"$events/session_subscribed\" WHERE topic =~ 't/#'">>
+        <<"SELECT * FROM \"$events/session/subscribed\" WHERE topic =~ 't/#'">>
     ).
 event_info_session_unsubscribed() ->
     event_info_common(
         'session.unsubscribed',
         {<<"session unsubscribed">>, <<"会话取消订阅完成"/utf8>>},
         {<<"session unsubscribed">>, <<"会话取消订阅完成"/utf8>>},
-        <<"SELECT * FROM \"$events/session_unsubscribed\" WHERE topic =~ 't/#'">>
+        <<"SELECT * FROM \"$events/session/unsubscribed\" WHERE topic =~ 't/#'">>
     ).
 event_info_bridge_mqtt() ->
     event_info_common(
@@ -1274,7 +1287,7 @@ columns_with_exam('client.disconnected') ->
     ];
 columns_with_exam('client.connack') ->
     [
-        {<<"event">>, 'client.connected'},
+        {<<"event">>, 'client.connack'},
         {<<"reason_code">>, success},
         {<<"clientid">>, <<"c_emqx">>},
         {<<"username">>, <<"u_emqx">>},
@@ -1307,7 +1320,7 @@ columns_with_exam('client.check_authz_complete') ->
     ];
 columns_with_exam('client.check_authn_complete') ->
     [
-        {<<"event">>, 'client.check_authz_complete'},
+        {<<"event">>, 'client.check_authn_complete'},
         {<<"clientid">>, <<"c_emqx">>},
         {<<"username">>, <<"u_emqx">>},
         {<<"peername">>, <<"192.168.0.10:56431">>},
@@ -1476,10 +1489,60 @@ match_event_names(<<"$events/", _/binary>> = TopicFilter) ->
 match_event_names(Topic) ->
     [event_name(Topic)].
 
+-doc """
+Existing rules may reference legacy (non-namepsace) event topics (e.g.:
+`$events/client_connected` instead of `$events/client/connected`).  In rule testing, we
+may need to expand such legacy topics to the newer versions so that the rule matches
+during testing.
+""".
+expand_legacy_event_topics(<<"$events/client_connected">> = Legacy) ->
+    [Legacy, <<"$events/client/connected">>];
+expand_legacy_event_topics(<<"$events/client_disconnected">> = Legacy) ->
+    [Legacy, <<"$events/client/disconnected">>];
+expand_legacy_event_topics(<<"$events/client_connack">> = Legacy) ->
+    [Legacy, <<"$events/client/connack">>];
+expand_legacy_event_topics(<<"$events/client_check_authz_complete">> = Legacy) ->
+    [Legacy, <<"$events/auth/check_authz_complete">>];
+expand_legacy_event_topics(<<"$events/client_check_authn_complete">> = Legacy) ->
+    [Legacy, <<"$events/auth/check_authn_complete">>];
+expand_legacy_event_topics(<<"$events/session_subscribed">> = Legacy) ->
+    [Legacy, <<"$events/session/subscribed">>];
+expand_legacy_event_topics(<<"$events/session_unsubscribed">> = Legacy) ->
+    [Legacy, <<"$events/session/unsubscribed">>];
+expand_legacy_event_topics(<<"$events/message_delivered">> = Legacy) ->
+    [Legacy, <<"$events/message/delivered">>];
+expand_legacy_event_topics(<<"$events/message_acked">> = Legacy) ->
+    [Legacy, <<"$events/message/acked">>];
+expand_legacy_event_topics(<<"$events/message_dropped">> = Legacy) ->
+    [Legacy, <<"$events/message/dropped">>];
+expand_legacy_event_topics(<<"$events/delivery_dropped">> = Legacy) ->
+    [Legacy, <<"$events/message/delivery_dropped">>];
+expand_legacy_event_topics(<<"$events/message_transformation_failed">> = Legacy) ->
+    [Legacy, <<"$events/message_transformation/failed">>];
+expand_legacy_event_topics(<<"$events/schema_validation_failed">> = Legacy) ->
+    [Legacy, <<"$events/schema_validation/failed">>];
+expand_legacy_event_topics(EventTopic) ->
+    %% Not a legacy event topic.
+    [EventTopic].
+
 %% Remember to update `event_names` when adding a new topic here.
 event_name(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_name(<<"$events/sys/alarm_activated">>) -> 'alarm.activated';
 event_name(<<"$events/sys/alarm_deactivated">>) -> 'alarm.deactivated';
+event_name(<<"$events/client/connected">>) -> 'client.connected';
+event_name(<<"$events/client/disconnected">>) -> 'client.disconnected';
+event_name(<<"$events/client/connack">>) -> 'client.connack';
+event_name(<<"$events/auth/check_authz_complete">>) -> 'client.check_authz_complete';
+event_name(<<"$events/auth/check_authn_complete">>) -> 'client.check_authn_complete';
+event_name(<<"$events/session/subscribed">>) -> 'session.subscribed';
+event_name(<<"$events/session/unsubscribed">>) -> 'session.unsubscribed';
+event_name(<<"$events/message/delivered">>) -> 'message.delivered';
+event_name(<<"$events/message/acked">>) -> 'message.acked';
+event_name(<<"$events/message/dropped">>) -> 'message.dropped';
+event_name(<<"$events/message/delivery_dropped">>) -> 'delivery.dropped';
+event_name(<<"$events/message_transformation/failed">>) -> 'message.transformation_failed';
+event_name(<<"$events/schema_validation/failed">>) -> 'schema.validation_failed';
+%% Topics below are kept for backwards compatibility.
 event_name(<<"$events/client_connected">>) -> 'client.connected';
 event_name(<<"$events/client_disconnected">>) -> 'client.disconnected';
 event_name(<<"$events/client_connack">>) -> 'client.connack';
@@ -1493,25 +1556,27 @@ event_name(<<"$events/message_dropped">>) -> 'message.dropped';
 event_name(<<"$events/message_transformation_failed">>) -> 'message.transformation_failed';
 event_name(<<"$events/schema_validation_failed">>) -> 'schema.validation_failed';
 event_name(<<"$events/delivery_dropped">>) -> 'delivery.dropped';
+%% Actually not publicly exposed as an event topic, but here for legacy reasons.
 event_name(_) -> 'message.publish'.
 
 %% Remember to update `event_names` when adding a new topic here.
 event_topic(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_topic('alarm.activated') -> <<"$events/sys/alarm_activated">>;
 event_topic('alarm.deactivated') -> <<"$events/sys/alarm_deactivated">>;
-event_topic('client.connected') -> <<"$events/client_connected">>;
-event_topic('client.disconnected') -> <<"$events/client_disconnected">>;
-event_topic('client.connack') -> <<"$events/client_connack">>;
-event_topic('client.check_authz_complete') -> <<"$events/client_check_authz_complete">>;
-event_topic('client.check_authn_complete') -> <<"$events/client_check_authn_complete">>;
-event_topic('session.subscribed') -> <<"$events/session_subscribed">>;
-event_topic('session.unsubscribed') -> <<"$events/session_unsubscribed">>;
-event_topic('message.delivered') -> <<"$events/message_delivered">>;
-event_topic('message.acked') -> <<"$events/message_acked">>;
-event_topic('message.dropped') -> <<"$events/message_dropped">>;
-event_topic('message.transformation_failed') -> <<"$events/message_transformation_failed">>;
-event_topic('schema.validation_failed') -> <<"$events/schema_validation_failed">>;
-event_topic('delivery.dropped') -> <<"$events/delivery_dropped">>;
+event_topic('client.connected') -> <<"$events/client/connected">>;
+event_topic('client.disconnected') -> <<"$events/client/disconnected">>;
+event_topic('client.connack') -> <<"$events/client/connack">>;
+event_topic('client.check_authz_complete') -> <<"$events/auth/check_authz_complete">>;
+event_topic('client.check_authn_complete') -> <<"$events/auth/check_authn_complete">>;
+event_topic('session.subscribed') -> <<"$events/session/subscribed">>;
+event_topic('session.unsubscribed') -> <<"$events/session/unsubscribed">>;
+event_topic('message.delivered') -> <<"$events/message/delivered">>;
+event_topic('message.acked') -> <<"$events/message/acked">>;
+event_topic('message.dropped') -> <<"$events/message/dropped">>;
+event_topic('delivery.dropped') -> <<"$events/message/delivery_dropped">>;
+event_topic('message.transformation_failed') -> <<"$events/message_transformation/failed">>;
+event_topic('schema.validation_failed') -> <<"$events/schema_validation/failed">>;
+%% Actually not publicly exposed as an event topic, but here for legacy reasons.
 event_topic('message.publish') -> <<"$events/message_publish">>.
 
 ignore_sys_message(#message{flags = Flags}) ->

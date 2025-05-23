@@ -6,14 +6,10 @@
 
 -behaviour(application).
 
--define(APP, emqx_management).
-
 -export([
     start/2,
     stop/1
 ]).
-
--include("emqx_mgmt.hrl").
 
 start(_Type, _Args) ->
     ok = mria:wait_for_tables(emqx_mgmt_auth:create_tables()),

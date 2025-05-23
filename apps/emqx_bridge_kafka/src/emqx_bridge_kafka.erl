@@ -678,9 +678,17 @@ kafka_connector_config_fields() ->
                 desc => ?DESC(metadata_request_timeout)
             })},
         {authentication,
-            mk(hoconsc:union([none, ref(auth_username_password), ref(auth_gssapi_kerberos)]), #{
-                default => none, desc => ?DESC("authentication")
-            })},
+            mk(
+                hoconsc:union([
+                    none,
+                    msk_iam,
+                    ref(auth_username_password),
+                    ref(auth_gssapi_kerberos)
+                ]),
+                #{
+                    default => none, desc => ?DESC("authentication")
+                }
+            )},
         {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})},
         {health_check_topic,
             mk(binary(), #{

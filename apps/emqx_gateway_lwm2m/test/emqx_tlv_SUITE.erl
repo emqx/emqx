@@ -7,8 +7,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(LOGT(Format, Args), logger:debug("TEST_SUITE: " ++ Format, Args)).
-
 -include("emqx_lwm2m.hrl").
 -include("../../emqx_gateway_coap/include/emqx_coap.hrl").
 -include_lib("eunit/include/eunit.hrl").

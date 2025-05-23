@@ -13,7 +13,6 @@
 -include_lib("jose/include/jose_jwt.hrl").
 -include_lib("jose/include/jose_jws.hrl").
 
--define(ACTION_TYPE, gcp_pubsub_producer).
 -define(ACTION_TYPE_BIN, <<"gcp_pubsub_producer">>).
 -define(CONNECTOR_TYPE, gcp_pubsub_producer).
 -define(CONNECTOR_TYPE_BIN, <<"gcp_pubsub_producer">>).

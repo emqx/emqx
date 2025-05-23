@@ -56,7 +56,7 @@
 ]).
 
 %% Internal exports for `emqx_resource`.
--export([unhealthy_target_maybe_trigger_fallback_actions/3]).
+-export([unhealthy_target_maybe_trigger_fallback_actions/5]).
 
 -export([clear_disk_queue_dir/2]).
 
@@ -178,7 +178,7 @@ sync_query(Id, Request, Opts0) ->
     emqx_resource_metrics:matched_inc(Id),
     pick_call(Id, PickKey, #query{request = Request, query_opts = Opts}, Timeout).
 
--spec async_query(id(), request(), query_opts()) -> Result :: term().
+-spec async_query(id(), request(), query_opts()) -> ok | {error, term()}.
 async_query(Id, Request, Opts0) ->
     ?tp(async_query, #{id => Id, request => Request, query_opts => Opts0}),
     Opts1 = ensure_timeout_query_opts(Opts0, async),
@@ -2550,14 +2550,25 @@ result_context(Queries) ->
 
 -doc """
 This an internal export to be used only in `emqx_resource` application in places where
-the request is dropped/fails before it even reaches the buffering layer (here).  An
-example of such situation is when the resource is deemed an "unhealthy target".
+the request is dropped/fails before it even reaches the buffering layer (here).
+
+An example of such situation is when the resource is deemed an "unhealthy target".
+
+Another situation we might want to trigger this is when the query mode is async and the
+action is not yet added to the resource state.  In this case, the message will be cast
+into the void.
 """.
 -spec unhealthy_target_maybe_trigger_fallback_actions(
-    action_resource_id(), request(), query_opts()
+    action_resource_id(),
+    request(),
+    _ErrTagMsg :: string(),
+    _ExtraTraceCtx :: map(),
+    query_opts()
 ) ->
     ok.
-unhealthy_target_maybe_trigger_fallback_actions(ConnResId, Req, QueryOpts0) ->
+unhealthy_target_maybe_trigger_fallback_actions(
+    ActionResId, Req, ErrTagMsg, ExtraTraceCtx, QueryOpts0
+) ->
     QueryOpts1 = ensure_timeout_query_opts(QueryOpts0, sync),
     QueryOpts = ensure_expire_at(QueryOpts1),
     ReplyFun = maps:get(async_reply_fun, QueryOpts, undefined),
@@ -2567,7 +2578,16 @@ unhealthy_target_maybe_trigger_fallback_actions(ConnResId, Req, QueryOpts0) ->
     TraceCtx = maps:get(trace_ctx, QueryOpts, undefined),
     Query = ?QUERY(ReplyFun, Req, HasBeenSent, ExpireAt, RequestContext, TraceCtx),
     ResultContext = result_context([Query]),
-    maybe_trigger_fallback_actions(ConnResId, ResultContext).
+    emqx_utils:nolink_apply(fun() ->
+        set_rule_id_trace_meta_data(Query),
+        logger:update_process_metadata(#{action_id => ActionResId}),
+        ?TRACE(
+            "QUERY",
+            ErrTagMsg,
+            ExtraTraceCtx
+        )
+    end),
+    maybe_trigger_fallback_actions(ActionResId, ResultContext).
 
 %% Should be called for individual queries, not batches.
 %% `batch_reply_caller_defer_metrics' handles splitting a batch into individual result
@@ -2588,7 +2608,7 @@ maybe_trigger_fallback_actions(Id, #{
             _ExpireAt,
             #{?fallback_actions := [_ | _] = FallbackActions} = RequestContext,
             TraceCtx
-        )
+        ) = Query
     ]
 }) ->
     QueryOpts0 = maps:with([?reply_to], RequestContext),
@@ -2601,11 +2621,13 @@ maybe_trigger_fallback_actions(Id, #{
         query_mode => async,
         trace_ctx => TraceCtx
     },
-    lists:foreach(
+    emqx_utils:pforeach(
         fun(FallbackAction) ->
+            set_rule_id_trace_meta_data(Query),
             trigger_fallback_action(Id, FallbackAction, Req, QueryOpts)
         end,
-        FallbackActions
+        FallbackActions,
+        infinity
     ),
     ok;
 maybe_trigger_fallback_actions(_Id, _ResultContext) ->
@@ -2642,7 +2664,20 @@ trigger_fallback_action(Id, #{kind := reference, type := Type, name := Name}, Re
     end;
 trigger_fallback_action(Id, #{kind := republish, args := #{?COMPUTED := Args}}, Req, _QueryOpts) ->
     try
-        _ = emqx_rule_actions:republish(Req, Req, Args),
+        ProcessMetadata =
+            maybe
+                undefined ?= logger:get_process_metadata(),
+                #{}
+            end,
+        %% Using separate process to avoid tampering too much with current process
+        %% metadata.
+        emqx_utils:nolink_apply(fun() ->
+            %% This simulates what `emqx_rule_runtime:do_handle_action2` does.
+            RuleActionInfo = #{mod => emqx_rule_actions, func => republish, args => Args},
+            logger:update_process_metadata(ProcessMetadata#{action_id => RuleActionInfo}),
+            _ = emqx_rule_actions:republish(Req, Req, Args),
+            ok
+        end),
         ok
     catch
         K:E ->

@@ -8,6 +8,7 @@
 -behaviour(gen_statem).
 
 -include("emqx_resource.hrl").
+-include("emqx_resource_errors.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
@@ -69,7 +70,7 @@
 %% Type definitions
 %%------------------------------------------------------------------------------
 
--define(not_added_yet, {?MODULE, not_added_yet}).
+-define(not_added_yet, {?MODULE, ?not_added_yet_error_atom}).
 -define(add_channel_failed(REASON), {?MODULE, add_channel_failed, REASON}).
 
 % State record
@@ -2093,7 +2094,7 @@ status_to_error(_) ->
     {error, undefined}.
 
 %% Compatibility
-external_error(?not_added_yet) -> not_added_yet;
+external_error(?not_added_yet) -> ?not_added_yet_error_atom;
 external_error(?add_channel_failed(Reason)) -> external_error(Reason);
 external_error({error, Reason}) -> Reason;
 external_error(Other) -> Other.

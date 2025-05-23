@@ -9,6 +9,7 @@
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -behaviour(gen_server).
 
@@ -251,8 +252,7 @@ safe_handle_update_request(ConfInfo) ->
             {error, Reason};
         Error:Reason:ST ->
             ConfInfo1 = maps:remove([handlers, update_req], conf_info_to_map(ConfInfo)),
-            ?SLOG(error, #{
-                msg => "update_config_failed",
+            ?tp(error, "update_config_failed", #{
                 exception => Error,
                 reason => Reason,
                 conf_change_info => ConfInfo1,

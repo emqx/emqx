@@ -823,7 +823,9 @@ maybe_unwrap(RpcMulticallResult) ->
 redact(Term) ->
     emqx_utils:redact(Term).
 
-maybe_focus_on_request_connector(Reason0, Type, Name) ->
+maybe_focus_on_request_connector(Reason0, Type0, Name0) ->
+    Type = bin(Type0),
+    Name = bin(Name0),
     case Reason0 of
         #{value := #{Type := #{Name := Val}}} ->
             Reason0#{value := Val};

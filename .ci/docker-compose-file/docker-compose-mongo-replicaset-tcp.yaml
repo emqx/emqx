@@ -53,6 +53,15 @@ services:
       --bind_ip_all
       --replSet rs0
 
+  mongo_rs_setup_done:
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
+    networks:
+      - emqx_bridge
+    restart: no
+    depends_on:
+      mongo_rs_client:
+        condition: service_completed_successfully
+
   mongo_rs_client:
     image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     container_name: mongo_rs_client
@@ -62,6 +71,7 @@ services:
       - mongo1
       - mongo2
       - mongo3
+    restart: on-failure:3
     command:
       - /bin/bash
       - -c

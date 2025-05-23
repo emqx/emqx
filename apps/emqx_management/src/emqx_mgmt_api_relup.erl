@@ -38,7 +38,6 @@
 -define(EXAM_VSN1, <<"5.8.0">>).
 -define(EXAM_VSN2, <<"5.8.1">>).
 -define(EXAM_VSN3, <<"5.8.2">>).
--define(EXAM_PACKAGE_NAME_2, <<"emqx_relup-5.8.1.tar.gz">>).
 -define(EXAM_PACKAGE_NAME_3, <<"emqx_relup-5.8.2.tar.gz">>).
 
 -define(ASSERT_PKG_READY(EXPR),

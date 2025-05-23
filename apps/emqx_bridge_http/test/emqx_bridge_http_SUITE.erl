@@ -19,7 +19,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
--define(ACTION_TYPE, http).
 -define(BRIDGE_TYPE, emqx_bridge_http_test_lib:bridge_type()).
 -define(BRIDGE_NAME, emqx_bridge_http_test_lib:bridge_name()).
 
