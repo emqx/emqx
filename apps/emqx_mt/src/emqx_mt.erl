@@ -8,8 +8,12 @@
 -export([
     list_ns/0,
     list_ns/2,
+    list_ns_details/0,
+    list_ns_details/2,
     list_managed_ns/0,
     list_managed_ns/2,
+    list_managed_ns_details/0,
+    list_managed_ns_details/2,
     list_clients/1,
     list_clients/2,
     list_clients/3,
@@ -17,11 +21,15 @@
     immediate_node_clear/1
 ]).
 
--export_type([tns/0]).
+-export_type([tns/0, tns_details/0]).
 
 -include("emqx_mt.hrl").
 
 -type tns() :: binary().
+-type tns_details() :: #{
+    name := tns(),
+    created_at := integer() | undefined
+}.
 -type clientid() :: emqx_types:clientid().
 
 %% @doc List clients of the given namespace.
@@ -62,6 +70,19 @@ list_ns(LastNs, Limit) ->
     emqx_mt_state:list_ns(LastNs, Limit).
 
 -doc """
+List first page of known namespaces with extra details.
+
+Default page size is 100.
+""".
+-spec list_ns_details() -> [tns_details()].
+list_ns_details() ->
+    list_ns_details(?MIN_NS, ?DEFAULT_PAGE_SIZE).
+
+-spec list_ns_details(tns(), non_neg_integer()) -> [tns_details()].
+list_ns_details(LastNs, Limit) ->
+    emqx_mt_state:list_ns_details(LastNs, Limit).
+
+-doc """
 List first page of managed namespaces.
 
 Default page size is 100.
@@ -78,6 +99,25 @@ The second argument is the number of managed namespaces to return.
 -spec list_managed_ns(tns(), non_neg_integer()) -> [tns()].
 list_managed_ns(LastNs, Limit) ->
     emqx_mt_state:list_managed_ns(LastNs, Limit).
+
+-doc """
+List first page of managed namespaces with extra details.
+
+Default page size is 100.
+""".
+-spec list_managed_ns_details() -> [tns_details()].
+list_managed_ns_details() ->
+    list_managed_ns_details(?MIN_NS, ?DEFAULT_PAGE_SIZE).
+
+-doc """
+List managed namespaces with extra detals skipping the last namespace from the previous
+page.
+
+The second argument is the number of managed namespaces to return.
+""".
+-spec list_managed_ns_details(tns(), non_neg_integer()) -> [tns_details()].
+list_managed_ns_details(LastNs, Limit) ->
+    emqx_mt_state:list_managed_ns_details(LastNs, Limit).
 
 %% @doc Immediately clear session records of the given node.
 %% If a node is down, the records of the node will be cleared after a delay.

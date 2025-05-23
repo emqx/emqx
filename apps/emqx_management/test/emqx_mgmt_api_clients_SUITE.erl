@@ -20,7 +20,6 @@
 -define(HTTP400, {"HTTP/1.1", 400, "Bad Request"}).
 -define(HTTP404, {"HTTP/1.1", 404, "Not Found"}).
 
--define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 -define(assertContainsClientids(RES, EXPECTED), assert_contains_clientids(RES, EXPECTED, ?LINE)).
 
 -define(CLIENTID(SUFFIX), <<(atom_to_binary(?FUNCTION_NAME))/binary, "_", SUFFIX/binary>>).

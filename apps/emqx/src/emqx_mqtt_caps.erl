@@ -29,20 +29,6 @@
     exclusive_subscription => boolean()
 }.
 
--define(PUBCAP_KEYS, [
-    max_topic_levels,
-    max_qos_allowed,
-    retain_available
-]).
-
--define(SUBCAP_KEYS, [
-    max_topic_levels,
-    max_qos_allowed,
-    wildcard_subscription,
-    shared_subscription,
-    exclusive_subscription
-]).
-
 -define(DEFAULT_CAPS_KEYS, [
     max_packet_size,
     max_clientid_len,

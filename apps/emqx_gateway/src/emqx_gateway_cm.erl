@@ -93,7 +93,6 @@
 -type options() :: list(option()).
 
 -define(T_KICK, 5000).
--define(T_GET_INFO, 5000).
 -define(T_TAKEOVER, 15000).
 -define(DEFAULT_BATCH_SIZE, 10000).
 
@@ -450,7 +449,7 @@ takeover_session(GwName, ClientId) ->
             }),
             lists:foreach(
                 fun(StalePid) ->
-                    catch discard_session(GwName, ClientId, StalePid)
+                    discard_session(GwName, ClientId, StalePid)
                 end,
                 StalePids
             ),

@@ -295,8 +295,8 @@ t_complex_template(_) ->
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential1, State)).
 
 t_jwks_renewal(_Config) ->
-    {ok, _} = emqx_authn_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
-    ok = emqx_authn_http_test_server:set_handler(fun jwks_handler/2),
+    {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
+    ok = emqx_utils_http_test_server:set_handler(fun jwks_handler/2),
 
     PrivateKey = test_rsa_key(private),
     Payload0 = #{<<"username">> => <<"myuser">>},
@@ -399,12 +399,12 @@ t_jwks_renewal(_Config) ->
     ),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State2)),
-    ok = emqx_authn_http_test_server:stop().
+    ok = emqx_utils_http_test_server:stop().
 
 t_jwks_custom_headers(_Config) ->
-    {ok, _} = emqx_authn_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
-    on_exit(fun() -> ok = emqx_authn_http_test_server:stop() end),
-    ok = emqx_authn_http_test_server:set_handler(jwks_handler_spy()),
+    {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
+    on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
+    ok = emqx_utils_http_test_server:set_handler(jwks_handler_spy()),
 
     Endpoint = iolist_to_binary("https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH),
     Config0 = #{
@@ -493,8 +493,8 @@ t_jwks_custom_headers(_Config) ->
 
 %% @doc verify that the authenticator state is actually updated when we update its config
 t_jwks_config_update(_Config) ->
-    {ok, _} = emqx_authn_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
-    ok = emqx_authn_http_test_server:set_handler(fun jwks_handler/2),
+    {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
+    ok = emqx_utils_http_test_server:set_handler(fun jwks_handler/2),
 
     PrivateKey = test_rsa_key(private),
     Payload0 = #{<<"username">> => <<"myuser">>},
@@ -548,7 +548,7 @@ t_jwks_config_update(_Config) ->
     %% The authentication should be correctly updated
     %% and authenticate the request
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State1)),
-    ok = emqx_authn_http_test_server:stop().
+    ok = emqx_utils_http_test_server:stop().
 
 %% Verifies that we correctly set the `customize_hostname_check' TLS option, so that we
 %% may connect to servers whose certificate uses wildcards.

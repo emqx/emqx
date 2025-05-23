@@ -14,6 +14,7 @@
     bridge_types/0,
     resource_callback_module/0,
     config_schema/0,
+    config_transform_module/0,
     schema_module/0,
     api_schema/1
 ]).
@@ -61,6 +62,9 @@ config_schema() ->
         )}.
 
 schema_module() ->
+    ?SCHEMA_MOD.
+
+config_transform_module() ->
     ?SCHEMA_MOD.
 
 api_schema(Method) ->

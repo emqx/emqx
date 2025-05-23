@@ -15,7 +15,8 @@
 %% Server API
 -export([
     start_link/3,
-    server_info/2
+    server_info/2,
+    server_metrics/1
 ]).
 
 %% Static server configuration
@@ -23,7 +24,10 @@
     shard_servers/2,
     known_shard_servers/2,
     shard_server/3,
-    local_server/2
+    local_server/2,
+    %% Caching
+    cache_shard_servers/2,
+    clear_cache/2
 ]).
 
 %% Dynamic server location API
@@ -140,6 +144,15 @@ server_name(DB, Shard, Site) ->
     DBBin = atom_to_binary(DB),
     binary_to_atom(<<"ds_", DBBin/binary, Shard/binary, "_", Site/binary>>).
 
+-spec cache_shard_servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> ok.
+cache_shard_servers(DB, Shard) ->
+    Servers = shard_servers(DB, Shard),
+    persistent_term:put(?PTERM(DB, Shard, servers), Servers).
+
+-spec clear_cache(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> boolean().
+clear_cache(DB, Shard) ->
+    persistent_term:erase(?PTERM(DB, Shard, servers)).
+
 %%
 
 %% @doc Return list of servers for the shard, taking into account runtime information
@@ -219,7 +232,7 @@ get_local_server(DB, Shard) ->
     memoize(fun local_server/2, [DB, Shard]).
 
 get_shard_servers(DB, Shard) ->
-    maps:get(servers, emqx_ds_builtin_raft_shard_allocator:shard_meta(DB, Shard)).
+    persistent_term:get(?PTERM(DB, Shard, servers)).
 
 local_site() ->
     emqx_ds_builtin_raft_meta:this_site().
@@ -424,6 +437,24 @@ force_forget_server(_Server, []) ->
     %% situation will likely be handled by `add_local_server/3` first.
     ok.
 
+-spec server_metrics(server()) ->
+    #{atom() => integer()} | undefined.
+server_metrics(Server) ->
+    %% NOTE:
+    %% Hooking into non-public `ra` APIs. Be careful when upgrading.
+    ra_counters:counters(Server, [
+        commands,
+        msgs_sent,
+        dropped_sends,
+        term,
+        last_applied,
+        commit_index,
+        last_written_index,
+        snapshot_index,
+        snapshots_written,
+        commit_latency
+    ]).
+
 -spec server_info
     (readiness, server()) -> ready | {unready, _Details} | unknown;
     (leader, server()) -> server() | unknown;
@@ -590,7 +621,7 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
     ClusterName = cluster_name(DB, Shard),
     LocalServer = local_server(DB, Shard),
     Servers = known_shard_servers(DB, Shard),
-    MutableConfig = #{tick_timeout => 100},
+    MutableConfig = #{},
     case ra:restart_server(DB, LocalServer, MutableConfig) of
         {error, name_not_registered} ->
             UID = server_uid(DB, Shard),

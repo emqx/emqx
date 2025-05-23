@@ -1,7 +1,7 @@
 {application, emqx_slow_subs, [
     {description, "EMQX Slow Subscribers Statistics"},
     % strict semver, bump manually!
-    {vsn, "1.0.9"},
+    {vsn, "1.0.10"},
     {modules, []},
     {registered, [emqx_slow_subs_sup]},
     {applications, [kernel, stdlib, emqx]},

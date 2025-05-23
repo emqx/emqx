@@ -53,11 +53,28 @@
 
 -define(BAD_SCHEMA_NAME, <<"bad_schema_name">>).
 
+-type schema_config_req() :: schema() | protobuf_bundle_req().
+
 -type schema() :: #{
     type := serde_type(),
     source := binary(),
     description => binary()
 }.
+
+%% #{
+%%     <<"type">> => <<"protobuf">>,
+%%     <<"source">> => #{
+%%         <<"type">> => <<"bundle">>,
+%%         <<"files">> => [
+%%             #{
+%%                 <<"root">> => true,
+%%                 <<"path">> => <<"some.proto">>,
+%%                 <<"contents">> => <<"message Bah {...">>
+%%             }
+%%         ]
+%%     }
+%% }
+-type protobuf_bundle_req() :: map().
 
 %%-------------------------------------------------------------------------------------------------
 %% API
@@ -125,7 +142,7 @@ get_schema_raw_with_defaults(Name) ->
             {error, not_found}
     end.
 
--spec add_schema(schema_name(), schema()) -> ok | {error, term()}.
+-spec add_schema(schema_name(), schema_config_req()) -> ok | {error, term()}.
 add_schema(Name, Schema) ->
     RawSchema = emqx_utils_maps:binary_key_map(Schema),
     Res = emqx_conf:update(

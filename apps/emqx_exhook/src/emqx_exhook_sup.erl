@@ -19,8 +19,6 @@
     grpc_client_channel_workers/1
 ]).
 
--define(DEFAULT_TIMEOUT, 5000).
-
 -define(CHILD(Mod, Type, Args, Timeout), #{
     id => Mod,
     start => {Mod, start_link, Args},

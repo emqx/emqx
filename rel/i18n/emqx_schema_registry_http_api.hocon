@@ -39,6 +39,12 @@ desc_schema_registry_api_put.desc:
 desc_schema_registry_api_put.label:
 """Update schema"""
 
+protobuf_bundle_create.desc:
+"""Upload a Protobuf bundle for a new schema"""
+
+protobuf_bundle_update.desc:
+"""Upload a Protobuf bundle for an existing schema"""
+
 external_registry_list.desc:
 """List external schema registries"""
 
@@ -53,5 +59,6 @@ external_registry_create.desc:
 
 external_registry_update.desc:
 """Update external schema registry"""
+
 
 }

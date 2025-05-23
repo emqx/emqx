@@ -224,12 +224,6 @@ create_producers_for_bridge_v2(
 on_stop(InstanceId, _State) ->
     AllocatedResources = emqx_resource:get_allocated_resources(InstanceId),
     ClientId = maps:get(?kafka_client_id, AllocatedResources, undefined),
-    case ClientId of
-        undefined ->
-            ok;
-        ClientId ->
-            deallocate_client(ClientId)
-    end,
     maps:foreach(
         fun
             ({?kafka_producers, _BridgeV2Id}, Producers) ->
@@ -241,6 +235,12 @@ on_stop(InstanceId, _State) ->
         end,
         AllocatedResources
     ),
+    case ClientId of
+        undefined ->
+            ok;
+        ClientId ->
+            deallocate_client(ClientId)
+    end,
     ?tp(kafka_producer_stopped, #{instance_id => InstanceId}),
     ok.
 

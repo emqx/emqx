@@ -199,9 +199,20 @@ coalesce_test_() ->
         end}
     ].
 
-boolean_literal_test_() ->
+literal_test_() ->
     [
         ?_assertEqual({ok, <<"true">>}, render("true", #{})),
+        ?_assertEqual({ok, <<"0">>}, render("0", #{})),
+        ?_assertEqual({ok, <<"1.1">>}, render(<<"1.1">>, #{})),
+        ?_assertEqual({ok, <<"0.1">>}, render(<<"1.0e-1">>, #{})),
+        ?_assertEqual({ok, <<"0.011">>}, render(<<"1.1e-2">>, #{})),
+        ?_assertEqual({ok, <<"">>}, render(<<"''">>, #{})),
+        ?_assertEqual({ok, <<"string">>}, render(<<"'string'">>, #{})),
+        ?_assertEqual({ok, <<"string">>}, render(<<"\"string\"">>, #{}))
+    ].
+
+boolean_literal_test_() ->
+    [
         ?_assertEqual({ok, <<"T">>}, render("iif(true,'T','F')", #{}))
     ].
 
@@ -283,11 +294,7 @@ compare_numbers_test_() ->
 
 syntax_error_test_() ->
     [
-        {"empty expression", fun() -> ?assertMatch(?SYNTAX_ERROR, render("", #{})) end},
-        {"const string single quote", fun() -> ?assertMatch(?SYNTAX_ERROR, render("'a'", #{})) end},
-        {"const string double quote", fun() ->
-            ?assertMatch(?SYNTAX_ERROR, render(<<"\"a\"">>, #{}))
-        end}
+        {"empty expression", fun() -> ?assertMatch(?SYNTAX_ERROR, render("", #{})) end}
     ].
 
 maps_test_() ->

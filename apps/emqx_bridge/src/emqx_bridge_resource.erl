@@ -52,7 +52,6 @@
 ).
 
 -define(ROOT_KEY_ACTIONS, actions).
--define(ROOT_KEY_SOURCES, sources).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(BridgeType) when is_binary(BridgeType) ->

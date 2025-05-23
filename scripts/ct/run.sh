@@ -41,7 +41,7 @@ STOP='no'
 IS_CI='no'
 SQLSERVER_ODBC_REQUEST='no'
 SNOWFLAKE_ODBC_REQUEST='no'
-UP='up'
+UP='up --wait'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -74,7 +74,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --ci)
             IS_CI='yes'
-            UP='up --quiet-pull'
+            UP='up --wait --quiet-pull'
             shift 1
             ;;
         --)
@@ -281,6 +281,9 @@ for dep in ${CT_DEPS}; do
             ;;
         iceberg)
             FILES+=( '.ci/docker-compose-file/docker-compose-iceberg.yaml' )
+            ;;
+        doris)
+            FILES+=( '.ci/docker-compose-file/docker-compose-doris.yaml' )
             ;;
         *)
             echo "unknown_ct_dependency $dep"

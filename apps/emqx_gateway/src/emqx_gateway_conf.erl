@@ -67,7 +67,6 @@
 -type map_or_err() :: {ok, map()} | {error, term()}.
 -type listener_ref() :: {ListenerType :: atom_or_bin(), ListenerName :: atom_or_bin()}.
 
--define(IS_SSL(T), (T == <<"ssl_options">> orelse T == <<"dtls_options">>)).
 -define(IGNORE_KEYS, [<<"listeners">>, ?AUTHN_BIN]).
 
 %%----------------------------------------------------------------------------------------
@@ -666,9 +665,9 @@ pre_load_authentications(NewConf, OldConf) ->
                     case maps:get(?AUTHN_BIN, NewGwConf, undefined) of
                         undefined ->
                             NewGwConf;
-                        AuthN ->
+                        Authn ->
                             {ok, #{GwName := #{?AUTHN_BIN := NAuthN}}} =
-                                pre_config_update(?GATEWAY, {add_authn, GwName, AuthN}, OldConf),
+                                pre_config_update(?GATEWAY, {add_authn, GwName, Authn}, OldConf),
                             maps:put(?AUTHN_BIN, NAuthN, NewGwConf)
                     end;
                 OldAuthN ->

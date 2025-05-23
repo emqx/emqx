@@ -109,9 +109,40 @@ fields(avro) ->
         | common_fields(emqx_schema:json_binary())
     ];
 fields(protobuf) ->
+    Fields0 = common_fields(binary()),
+    Fields1 = proplists:delete(source, Fields0),
     [
-        {type, mk(?protobuf, #{required => true, desc => ?DESC("schema_type_protobuf")})}
-        | common_fields(binary())
+        {type, mk(?protobuf, #{required => true, desc => ?DESC("schema_type_protobuf")})},
+        {source,
+            mk(
+                hoconsc:union([binary(), ref(protobuf_bundle_source)]),
+                #{
+                    required => true,
+                    desc => ?DESC("schema_source"),
+                    validator => fun protobuf_source_validator/1
+                }
+            )}
+        | Fields1
+    ];
+fields(protobuf_bundle_source) ->
+    [
+        {type, mk(bundle, #{required => true, desc => ?DESC("protobuf_source_bundle_type")})},
+        {files,
+            mk(
+                hoconsc:array(ref(protobuf_bundle_source_file)),
+                #{required => false, importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {root_proto_path,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("protobuf_source_bundle_root_proto_path")
+            })}
+    ];
+fields(protobuf_bundle_source_file) ->
+    [
+        {path, mk(binary(), #{required => true})},
+        {root, mk(boolean(), #{default => false})},
+        {contents, mk(binary(), #{required => true})}
     ];
 fields(json) ->
     [
@@ -211,7 +242,7 @@ fields(api_node_status) ->
 fields("put_avro") ->
     fields(avro);
 fields("put_protobuf") ->
-    fields(protobuf);
+    proplists:delete(name, fields("post_protobuf"));
 fields("put_json") ->
     fields(json);
 fields("put_external_http") ->
@@ -220,6 +251,23 @@ fields("post_external_http") ->
     Fields = fields("get_external_http"),
     GetOnlyFields = [node_status, status],
     lists:filter(fun({Field, _Sc}) -> not lists:member(Field, GetOnlyFields) end, Fields);
+fields("post_protobuf") ->
+    Fields0 = fields(protobuf),
+    Fields = lists:map(
+        fun
+            ({source = K, Sc}) ->
+                %% We have a dedicated endpoint for uploading bundles.
+                Override = #{type => binary()},
+                {K, hocon_schema:override(Sc, Override)};
+            (Field) ->
+                Field
+        end,
+        Fields0
+    ),
+    [
+        {name, mk(binary(), #{required => true, desc => ?DESC("schema_name")})}
+        | Fields
+    ];
 fields("post_" ++ Type) ->
     fields("get_" ++ Type).
 
@@ -245,6 +293,8 @@ desc(confluent_schema_registry) ->
     ?DESC("confluent_schema_registry");
 desc(confluent_schema_registry_auth_basic) ->
     ?DESC("confluent_schema_registry_auth");
+desc(protobuf_bundle_source) ->
+    ?DESC("protobuf_source_bundle_type");
 desc(_) ->
     undefined.
 
@@ -279,7 +329,7 @@ api_schema("get") ->
 api_schema("post") ->
     hoconsc:union(union_member_selector_api("post"));
 api_schema("put") ->
-    hoconsc:union(fun union_member_selector/1).
+    hoconsc:union(union_member_selector_api("put")).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -308,7 +358,7 @@ refs(_) ->
     Expected = lists:join(" | ", [atom_to_list(T) || T <- supported_serde_types()]),
     throw(#{
         field_name => type,
-        expected => Expected
+        expected => iolist_to_binary(Expected)
     }).
 
 refs_api(Method) ->
@@ -330,3 +380,18 @@ refs_api(_Method, _) ->
         field_name => type,
         expected => Expected
     }).
+
+protobuf_source_validator(Bin) when is_binary(Bin) ->
+    ok;
+protobuf_source_validator(#{} = RawConf) ->
+    HasRootPath = is_map_key(<<"root_proto_path">>, RawConf),
+    HasFiles = is_map_key(<<"files">>, RawConf),
+    case {HasRootPath, HasFiles} of
+        {false, false} ->
+            %% `files` is hidden and used by config import only.
+            {error, <<"Must specify `root_proto_path`.">>};
+        _ ->
+            %% Even if both are defined, `files` will overwrite root path later when
+            %% converted, so it's fine.
+            ok
+    end.

@@ -17,7 +17,8 @@
     push_records/3,
     tick/2,
     take_error/1,
-    buffer_to_map/1
+    buffer_to_map/1,
+    delivery_exit/3
 ]).
 
 -behaviour(gen_server).
@@ -51,6 +52,8 @@
 -define(VSN, 1).
 -define(REF(NAME), {n, l, {?MODULE, NAME}}).
 -define(SRVREF(NAME), {via, gproc, ?REF(NAME)}).
+
+-record(delivery_exit, {pid, reason}).
 
 %%
 
@@ -93,6 +96,9 @@ buffer_to_map(#buffer{} = Buffer) ->
         filename => Buffer#buffer.filename,
         max_records => Buffer#buffer.max_records
     }.
+
+delivery_exit(Name, DeliveryPid, Reason) ->
+    gen_server:cast(?SRVREF(Name), #delivery_exit{pid = DeliveryPid, reason = Reason}).
 
 %%
 
@@ -156,7 +162,7 @@ send_close_buffer(Name, Timestamp) ->
     tab :: ets:tid() | undefined,
     buffer :: buffer() | undefined,
     queued :: buffer() | undefined,
-    deliveries = #{} :: #{reference() => buffer()},
+    deliveries = #{} :: #{pid() => buffer()},
     errors = queue:new() :: queue:queue(_Error),
     interval :: emqx_schema:duration_s(),
     max_records :: pos_integer(),
@@ -218,11 +224,8 @@ handle_cast({rotate_buffer, FD}, St0) ->
     {noreply, St};
 handle_cast(enqueue_delivery, St0) ->
     {noreply, handle_queued_buffer(St0)};
-handle_cast(_Cast, St) ->
-    {noreply, St}.
-
-handle_info({'DOWN', MRef, _, Pid, Reason}, St0 = #st{name = Name, deliveries = Ds0}) ->
-    case maps:take(MRef, Ds0) of
+handle_cast(#delivery_exit{pid = Pid, reason = Reason}, #st{name = Name, deliveries = Ds0} = St0) ->
+    case maps:take(Pid, Ds0) of
         {Buffer, Ds} ->
             St = St0#st{deliveries = Ds},
             {noreply, handle_delivery_exit(Buffer, Reason, St)};
@@ -235,6 +238,9 @@ handle_info({'DOWN', MRef, _, Pid, Reason}, St0 = #st{name = Name, deliveries = 
             }),
             {noreply, St0}
     end;
+handle_cast(_Cast, St) ->
+    {noreply, St}.
+
 handle_info(_Msg, St) ->
     {noreply, St}.
 
@@ -420,8 +426,7 @@ trigger_enqueue_delivery() ->
 enqueue_delivery(Buffer, St = #st{name = Name, deliveries = Ds}) ->
     case emqx_connector_aggreg_upload_sup:start_delivery(Name, Buffer) of
         {ok, Pid} ->
-            MRef = erlang:monitor(process, Pid),
-            St#st{deliveries = Ds#{MRef => Buffer}};
+            St#st{deliveries = Ds#{Pid => Buffer}};
         {error, _} = Error ->
             handle_delivery_exit(Buffer, Error, St)
     end.

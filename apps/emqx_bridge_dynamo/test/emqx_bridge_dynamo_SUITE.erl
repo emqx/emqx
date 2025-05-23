@@ -233,7 +233,7 @@ action_config(Config) ->
             },
         <<"resource_opts">> =>
             #{
-                <<"health_check_interval">> => <<"15s">>,
+                <<"health_check_interval">> => <<"1s">>,
                 <<"inflight_window">> => 100,
                 <<"max_buffer_bytes">> => <<"256MB">>,
                 <<"request_ttl">> => <<"45s">>,
@@ -258,7 +258,7 @@ connector_config(Config) ->
         <<"pool_size">> => 8,
         <<"resource_opts">> =>
             #{
-                <<"health_check_interval">> => <<"15s">>,
+                <<"health_check_interval">> => <<"1s">>,
                 <<"start_timeout">> => <<"5s">>
             }
     }.

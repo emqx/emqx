@@ -4,6 +4,8 @@
 
 -module(emqx_ai_completion_client).
 
+-include_lib("emqx/include/logger.hrl").
+
 -export([
     new/1,
     api_get/2,
@@ -15,8 +17,7 @@
 -type transport_options() :: emqx_ai_completion_config:transport_options().
 
 -type options() :: #{
-    host := binary(),
-    base_path := binary(),
+    base_url := binary(),
     headers := [{binary(), emqx_secret:t(binary())}],
     transport_options := transport_options()
 }.
@@ -25,8 +26,7 @@
 
 -record(state, {
     headers :: [{binary(), emqx_secret:t(binary())}],
-    host :: binary(),
-    base_path :: binary(),
+    base_url :: binary(),
     transport_options :: transport_options()
 }).
 
@@ -38,14 +38,12 @@
 
 -spec new(options()) -> t().
 new(#{
-    host := Host,
-    base_path := BasePath,
+    base_url := BaseUrl,
     headers := Headers,
     transport_options := TransportOptions
 }) ->
     #state{
-        host = Host,
-        base_path = BasePath,
+        base_url = BaseUrl,
         headers = Headers,
         transport_options = TransportOptions
     }.
@@ -97,8 +95,8 @@ handle_result({ok, Code, _Headers, ClientRef}) ->
 handle_result({error, Reason}) ->
     {error, Reason}.
 
-api_url(State, Path) when is_binary(Path) ->
-    <<(api_url_base(State))/binary, Path/binary>>;
+api_url(#state{base_url = BaseUrl}, Path) when is_binary(Path) ->
+    iolist_to_binary(emqx_utils_uri:join_path(BaseUrl, Path));
 api_url(State, Path) when is_list(Path) ->
     api_url(State, iolist_to_binary(Path));
 api_url(State, Path) when is_atom(Path) ->
@@ -107,9 +105,6 @@ api_url(State, Path0) when is_tuple(Path0) ->
     Path1 = [bin(Segment) || Segment <- tuple_to_list(Path0)],
     Path = lists:join("/", Path1),
     api_url(State, iolist_to_binary(Path)).
-
-api_url_base(#state{host = Host, base_path = BasePath}) ->
-    <<"https://", Host/binary, BasePath/binary>>.
 
 headers(#state{headers = Headers}) ->
     [eval_header(Header) || Header <- Headers].

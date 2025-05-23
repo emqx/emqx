@@ -67,11 +67,8 @@
 %% Macros
 %%--------------------------------------------------------------------
 
--define(METRIC_NAME_PREFIX, "emqx_auth_").
-
 -define(MG(K, MAP), maps:get(K, MAP)).
 -define(MG0(K, MAP), maps:get(K, MAP, 0)).
--define(PG0(K, PROPLISTS), proplists:get_value(K, PROPLISTS, 0)).
 
 %%--------------------------------------------------------------------
 %% Collector API

@@ -44,7 +44,6 @@
 -define(PROC_INFO_KEYS, [message_queue_len, memory, reductions]).
 -define(ALARM_SENT(REASON), {alarm_sent, REASON}).
 -define(ALL_ALARM_REASONS, [conn_congestion]).
--define(WONT_CLEAR_IN, 60000).
 
 maybe_alarm_conn_congestion(Socket, Transport, Channel) ->
     case is_alarm_enabled(Channel) of

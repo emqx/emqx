@@ -24,8 +24,6 @@
 %% API functions
 %%================================================================================
 
--define(SERVER, ?MODULE).
-
 -spec start_link(emqx_ds:db()) -> {ok, pid()}.
 start_link(DB) ->
     gen_server:start_link(?MODULE, [DB], []).
