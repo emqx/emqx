@@ -1,7 +1,7 @@
 emqx_nats_schema {
 
 nats.desc:
-"""The NATS gateway provides EMQX with the ability to access NATS protocol."""
+"""The NATS gateway provides EMQX with the ability to accept connections from NATS clients."""
 
 server_id.desc:
 """Server ID."""
