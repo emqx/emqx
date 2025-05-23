@@ -1508,7 +1508,20 @@ Advantages of Disabling<br/>
 - Improved Performance: Without the overhead of maintaining a global registry, the node can process client connections faster."""
 
 broker_enable_linear_session_registry.desc:
-"""Enable Linearizable Session Registry for correctness."""
+"""Enable the Linearizable Session Registry (LSR) for improved correctness. Default: false.
+
+In real-world scenarios, a client may establish multiple network connections to the same or different nodes in the cluster due to repeated reconnection attempts.
+This feature ensures that the most recent client connection attempt is prioritized and accepted, rather than being rejected in favor of older connections.
+It assumes that client-to-broker network latency is typically greater than the time synchronization differences between EMQX nodes.
+
+LSR is designed to replace the legacy session registry controlled by the 'enable_session_registry' option.
+
+To enable LSR on a fresh installation, it is recommended to disable the legacy session registry:
+<code>broker.enable_linear_session_registry = true
+broker.enable_session_registry = false</code>
+
+During a rolling upgrade, where this feature might not yet be supported on all nodes, you may need to enable both options temporarily.
+After the upgrade is complete, you should disable 'enable_session_registry' to fully transition to LSR."""
 
 broker_session_history_retain.desc:
 """The duration to retain the session registration history. Setting this to a value greater than `0s` will increase memory usage and impact peformance.
