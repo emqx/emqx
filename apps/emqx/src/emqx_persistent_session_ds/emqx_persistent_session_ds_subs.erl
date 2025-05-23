@@ -167,11 +167,7 @@ new_subscription(TopicFilter, SubOpts, SessionId, #{upgrade_qos := UpgradeQoS}, 
 create_subscription(TopicFilter, SubOpts, UpgradeQoS, S0) ->
     {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
     {SStateId, S2} = emqx_persistent_session_ds_state:new_id(S1),
-    SState = #{
-        parent_subscription => SubId,
-        upgrade_qos => UpgradeQoS,
-        subopts => SubOpts
-    },
+    SState = mk_subscription_state(SubId, SubOpts, UpgradeQoS),
     Subscription = #{
         id => SubId,
         current_state => SStateId,
@@ -181,22 +177,31 @@ create_subscription(TopicFilter, SubOpts, UpgradeQoS, S0) ->
     S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Subscription, S3),
     {S, Subscription}.
 
+mk_subscription_state(SubId, SubOpts, UpgradeQoS) ->
+    SState = #{
+        parent_subscription => SubId,
+        upgrade_qos => UpgradeQoS,
+        subopts => SubOpts
+    },
+    case desired_subscription_mode(SubOpts) of
+        %% Subscriptions are assumed to be durable by default:
+        durable -> SState;
+        %% Explicitly mark as direct to differentiate from existing subscriptions:
+        direct -> SState#{mode => direct}
+    end.
+
 update_subscription(TopicFilter, SubOpts, Sub0, SessionId, #{upgrade_qos := UpgradeQoS}, S0) ->
     #{id := SubId, current_state := SStateId0} = Sub0,
     OldSState = emqx_persistent_session_ds_state:get_subscription_state(SStateId0, S0),
     case OldSState of
-        #{parent_subscription := SubId, subopts := SubOpts} ->
+        #{parent_subscription := SubId, subopts := SubOpts, upgrade_qos := UpgradeQoS} ->
             %% Client resubscribed with the same parameters:
             Mode = sstate_subscription_mode(OldSState),
             {ok, Mode, S0, Sub0};
         OldSState ->
             %% Subsription parameters changed:
             DesiredMode = desired_subscription_mode(SubOpts),
-            SState0 = #{
-                parent_subscription => SubId,
-                upgrade_qos => UpgradeQoS,
-                subopts => SubOpts
-            },
+            SState0 = mk_subscription_state(SubId, SubOpts, UpgradeQoS),
             case sstate_subscription_mode(OldSState) of
                 DesiredMode ->
                     %% No change in subscription mode:
@@ -296,22 +301,20 @@ on_session_replay(SessionId, S0) ->
     ).
 
 restart_subscription(TopicFilter, Sub0 = #{current_state := SStateId}, SessionId, S0) ->
-    SState = emqx_persistent_session_ds_state:get_subscription_state(SStateId, S0),
-    DesiredMode = desired_subscription_mode(maps:get(subopts, SState)),
-    case SState of
-        #{mode := durable} when DesiredMode =:= direct ->
+    SState =
+        #{subopts := SubOpts} =
+        emqx_persistent_session_ds_state:get_subscription_state(SStateId, S0),
+    DesiredMode = desired_subscription_mode(SubOpts),
+    case sstate_subscription_mode(SState) of
+        durable when DesiredMode =:= direct ->
             %% Downgrade from durable to direct is now possible:
             S = downgrade_subscription(TopicFilter, SState, SessionId, S0),
             {{downgrade, DesiredMode, TopicFilter, Sub0}, S};
-        #{subopts := SubOpts} ->
-            case desired_subscription_mode(SubOpts) of
-                direct ->
-                    %% Restore the subscription in the broker:
-                    ok = add_route(direct, SessionId, TopicFilter, SubOpts);
-                durable ->
-                    %% Nothing to do:
-                    ok
-            end,
+        direct ->
+            %% Restore the subscription in the broker:
+            ok = add_route(direct, SessionId, TopicFilter, SubOpts);
+        durable ->
+            %% Nothing to do:
             ok
     end.
 
