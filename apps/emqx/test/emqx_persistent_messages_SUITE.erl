@@ -664,8 +664,7 @@ receive_messages(Count, Msgs, Timeout) ->
     end.
 
 group_by(K, Maps) ->
-    Values = lists:usort([maps:get(K, M) || M <- Maps]),
-    [M || V <- Values, M <- Maps, map_get(K, M) =:= V].
+    emqx_ds_test_helpers:group_by(K, Maps).
 
 publish(Node, Message) ->
     erpc:call(Node, emqx, publish, [Message]).

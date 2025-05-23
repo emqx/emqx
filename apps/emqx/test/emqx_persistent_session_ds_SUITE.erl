@@ -295,7 +295,10 @@ t_storage_generations(Config) ->
             [
                 #{topic := <<"t/1">>, payload := <<"4">>},
                 #{topic := <<"t/2">>, payload := <<"5">>}
-            ] = emqx_common_test_helpers:wait_publishes(2, 5_000)
+            ] = emqx_ds_test_helpers:group_by(
+                topic,
+                emqx_common_test_helpers:wait_publishes(2, 5_000)
+            )
         end,
         [fun check_stream_state_transitions/1]
     ),
