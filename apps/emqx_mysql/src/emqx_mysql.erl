@@ -96,7 +96,8 @@ on_start(
         ssl := SSL
     } = Config
 ) ->
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?MYSQL_HOST_OPTIONS),
+    ParseServerOpts = maps:get(parse_server_opts, Config, ?MYSQL_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ParseServerOpts),
     ?SLOG(info, #{
         msg => "starting_mysql_connector",
         connector => InstId,
@@ -109,18 +110,19 @@ on_start(
             false ->
                 []
         end,
+    Password = maps:get(password, Config, undefined),
+    BasicCapabilities = maps:get(basic_capabilities, Config, #{}),
     Options =
-        maybe_add_password_opt(
-            maps:get(password, Config, undefined),
-            [
-                {host, Host},
-                {port, Port},
-                {user, Username},
-                {database, DB},
-                {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
-                {pool_size, PoolSize}
-            ]
-        ),
+        lists:flatten([
+            [{password, Password} || Password /= undefined],
+            {basic_capabilities, BasicCapabilities},
+            {host, Host},
+            {port, Port},
+            {user, Username},
+            {database, DB},
+            {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
+            {pool_size, PoolSize}
+        ]),
     State = parse_prepare_sql(Config),
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
@@ -132,11 +134,6 @@ on_start(
             ),
             {error, Reason}
     end.
-
-maybe_add_password_opt(undefined, Options) ->
-    Options;
-maybe_add_password_opt(Password, Options) ->
-    [{password, Password} | Options].
 
 on_stop(InstId, _State) ->
     ?SLOG(info, #{
