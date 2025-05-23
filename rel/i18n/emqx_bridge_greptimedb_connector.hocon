@@ -22,7 +22,7 @@ ttl.desc:
 """The time-to-live setting for automatically created tables in GreptimeDB."""
 
 ttl.label:
-"""Table data TTL"""
+"""Table Data TTL"""
 
 precision.desc:
 """GreptimeDB time precision."""
