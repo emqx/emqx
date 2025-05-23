@@ -24,10 +24,19 @@
     max_topic_levels => integer(),
     max_qos_allowed => emqx_types:qos(),
     retain_available => boolean(),
+    subscription_max_qos_rules => [topic_qos_rule()],
     wildcard_subscription => boolean(),
     shared_subscription => boolean(),
     exclusive_subscription => boolean()
 }.
+
+%% See "topic_qos_rule" struct in `emqx_schema`:
+-type topic_qos_rule() ::
+    #{topic := topic_predicate(), qos := emqx_types:qos()}.
+
+-type topic_predicate() ::
+    #{matches => emqx_types:topic()}
+    | #{equals => emqx_types:topic()}.
 
 -define(DEFAULT_CAPS_KEYS, [
     max_packet_size,
@@ -112,6 +121,19 @@ do_check_sub(#{is_exclusive := true}, #{exclusive_subscription := true}, ClientI
         _ ->
             ok
     end;
+do_check_sub(
+    #{qos := QoS},
+    #{subscription_max_qos_rules := Rules = [_ | _], max_qos_allowed := FallbackMaxQoS},
+    _,
+    TopicIn
+) ->
+    Topic = emqx_topic:words(emqx_topic:get_shared_real_topic(TopicIn)),
+    MaxQoS = emqx_maybe:define(eval_max_qos_allowed(Rules, Topic), FallbackMaxQoS),
+    case QoS > MaxQoS of
+        %% Accepted, but with a lower QoS
+        true -> {ok, MaxQoS};
+        false -> ok
+    end;
 do_check_sub(#{qos := QoS}, #{max_qos_allowed := MaxQoS}, _, _) when
     QoS > MaxQoS
 ->
@@ -120,6 +142,30 @@ do_check_sub(#{qos := QoS}, #{max_qos_allowed := MaxQoS}, _, _) when
     {ok, MaxQoS};
 do_check_sub(_Flags, _Caps, _, _) ->
     ok.
+
+%% @doc Evaluates Topic->QoS rules on a "real" topic, stripped from `$share/...`
+%% components (if any).
+eval_max_qos_allowed([Rule | Rest], Topic) ->
+    case eval_topic_qos_rule(Rule, Topic) of
+        QoS when is_integer(QoS) ->
+            QoS;
+        false ->
+            eval_max_qos_allowed(Rest, Topic)
+    end;
+eval_max_qos_allowed([], _) ->
+    undefined.
+
+eval_topic_qos_rule(#{topic := Predicate, qos := QoS}, Topic) ->
+    eval_topic_predicate(Predicate, Topic) andalso QoS.
+
+eval_topic_predicate(#{matches := TopicFilter}, Topic) ->
+    %% NOTE
+    %% In SUBSCRIBE context, `Topic` here is also a Topic Filter.
+    %% Using regular `emqx_topic:match/2` can produce results one may find a bit confusing.
+    %% E.g. `emqx_topic:match(<<"t/#">>, <<"t/+">>) = true`.
+    emqx_topic:match(Topic, TopicFilter);
+eval_topic_predicate(#{equals := To}, Topic) ->
+    emqx_topic:is_equal(Topic, To).
 
 get_caps(Zone) ->
     get_caps(?DEFAULT_CAPS_KEYS, Zone).

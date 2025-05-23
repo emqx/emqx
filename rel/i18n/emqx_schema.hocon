@@ -124,6 +124,37 @@ mqtt_max_qos_allowed.desc:
 mqtt_max_qos_allowed.label:
 """Max QoS"""
 
+mqtt_subscription_max_qos_rules.desc:
+"""Maximum Subscription QoS allowance rules. Useful to limit QoS level requested by the client in a `SUBSCRIBE` packet. Take precedence over `max_qos_allowed` option, which then acts as the default when no rule applies.
+
+For example, this list of rules can be used to force QoS 0 on subscriptions to topic filter `#` and to any topic filter that matches `notification/+/#` topic filter (e.g. `notification/foo/bar/#`):
+```
+[ { topic = { equals = "#" }, qos = 0 }
+  { topic = { matches = "notification/+/#" }, qos = 0 }
+]
+```"""
+
+mqtt_subscription_max_qos_rules.label:
+"""Max Subscription QoS Rules"""
+
+topic_predicate.desc:
+"""Predicate evaluated over the given topic (or topic filter) to decide if the rule applies.
+
+Following topic predicates are defined:
+
+* `{ equals = "t/foo/bar" }`
+
+    Given topic or topic filter is simply equal to the value.
+
+* `{ matches = "t/foo/#" }`
+
+    Tests if given topic filter effectively matches the topic filter in the value.
+
+    Note that matching a topic filter to a topic filter might produce unusual results. For example, given topic filter `t/foo/#` predicate `{ matches = "t/foo/+" }` evaluates to _true_."""
+
+topic_predicate.label:
+"""Topic Predicate"""
+
 fields_mqtt_quic_listener_max_binding_stateless_operations.desc:
 """The maximum number of stateless operations that may be queued on a binding at any one time. Default: 100"""
 
