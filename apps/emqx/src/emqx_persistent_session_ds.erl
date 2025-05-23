@@ -155,6 +155,7 @@
 -type subscription() :: #{
     id := subscription_id(),
     start_time := emqx_ds:time(),
+    restart_time => emqx_ds:time(),
     current_state := emqx_persistent_session_ds_subs:subscription_state_id(),
     subopts := map()
 }.
@@ -409,11 +410,17 @@ subscribe(
     Session0 = #{stream_scheduler_s := SchedS0}
 ) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
-        {ok, S1, Subscription} ->
+        {Ok, durable, S1, Subscription} when Ok == ok; Ok == upgrade ->
             {_NewSLSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_subscribe(
                 TopicFilter, Subscription, S1, SchedS0
             ),
             Session = Session0#{s := S, stream_scheduler_s := SchedS},
+            %% If the subscription was upgraded, flush any matching transient messages
+            %% coming directly from the broker:
+            Ok == upgrade andalso flush_transient(TopicFilter),
+            {ok, commit(Session)};
+        {ok, direct, S, _Subscription} ->
+            Session = Session0#{s := S},
             {ok, commit(Session)};
         Error = {error, _} ->
             Error
@@ -713,9 +720,30 @@ shared_sub_opts(SessionId) ->
 
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
-replay(ClientInfo, [], Session0 = #{s := S0}) ->
-    Streams = emqx_persistent_session_ds_stream_scheduler:find_replay_streams(S0),
-    Session = replay_streams(Session0#{replay := Streams}, ClientInfo),
+replay(ClientInfo, [], Session0) ->
+    #{id := SessionId, s := S0, stream_scheduler_s := SchedS0} = Session0,
+    {S1, SchedS1} = emqx_persistent_session_ds_stream_scheduler:on_session_replay(S0, SchedS0),
+    {S2, Outcomes} = emqx_persistent_session_ds_subs:on_session_replay(SessionId, S1),
+    {S, SchedS} = lists:foldl(
+        fun({downgrade, direct, TopicFilter, #{id := SubId}}, {SAcc, SchedSAcc}) ->
+            %% Subscription was downgraded, notify the stream scheduler:
+            emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
+                TopicFilter,
+                SubId,
+                SAcc,
+                SchedSAcc
+            )
+        end,
+        {S2, SchedS1},
+        Outcomes
+    ),
+    Streams = emqx_persistent_session_ds_stream_scheduler:find_replay_streams(S),
+    Session1 = Session0#{
+        s := S,
+        stream_scheduler_s := SchedS,
+        replay := Streams
+    },
+    Session = replay_streams(Session1, ClientInfo),
     {ok, [], Session}.
 
 replay_streams(Session0 = #{replay := [{StreamKey, SRS0} | Rest]}, ClientInfo) ->
@@ -1245,6 +1273,15 @@ enqueue_transient(
         s := S
     }.
 
+%% @doc Flushes any transient non-retained messages that were delivered
+%% to the given topic filter.
+flush_transient(TopicFilter) ->
+    receive
+        {deliver, TopicFilter, #message{headers = #{retained := false}}} ->
+            flush_transient(TopicFilter)
+    after 0 -> ok
+    end.
+
 %%--------------------------------------------------------------------
 %% Inflight management
 %%--------------------------------------------------------------------
@@ -1361,20 +1398,20 @@ do_drain_buffer_of_stream(
     emqx_session:conf()
 ) -> session().
 create_session(IsNew, ClientID, S0, ConnInfo, Conf) ->
-    {S1, SchedS} = emqx_persistent_session_ds_stream_scheduler:init(S0),
+    SchedS = emqx_persistent_session_ds_stream_scheduler:new(),
     Buffer = emqx_persistent_session_ds_buffer:new(),
     Inflight = emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo)),
     %% Create or init shared subscription state:
     case IsNew of
         false ->
-            {ok, S2, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(
-                S1, shared_sub_opts(ClientID)
+            {ok, S1, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(
+                S0, shared_sub_opts(ClientID)
             );
         true ->
-            S2 = S1,
+            S1 = S0,
             SharedSubS = emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(ClientID))
     end,
-    S = emqx_persistent_session_ds_state:commit(S2, #{ensure_new => IsNew}),
+    S = emqx_persistent_session_ds_state:commit(S1, #{ensure_new => IsNew}),
     #{
         id => ClientID,
         s => S,
