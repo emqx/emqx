@@ -15,29 +15,50 @@
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
 authenticate(
-    #{password := _Password} = Credential0,
+    Credential,
+    #{cache_key_template := CacheKeyTemplate} = State
+) ->
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
+    emqx_auth_cache:with_cache(?AUTHN_CACHE, CacheKey, fun() ->
+        case do_authenticate(Credential, State) of
+            {error, _} = Error ->
+                {nocache, Error};
+            Result ->
+                {cache, Result}
+        end
+    end).
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
+do_authenticate(
+    Credential,
     #{
         query_timeout := Timeout,
         resource_id := ResourceId,
-        cache_key_template := CacheKeyTemplate
+        password_template := PasswordTemplate,
+        base_dn_template := BaseDNTemplate,
+        filter_template := FilterTemplate
     } = _State
 ) ->
-    Credential = emqx_auth_template:rename_client_info_vars(Credential0),
-    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
-    Result = emqx_authn_utils:cached_simple_sync_query(
-        CacheKey,
+    BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
+    Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
+    Result = emqx_resource:simple_sync_query(
         ResourceId,
-        {query, Credential, [], Timeout}
+        {query, BaseDN, Filter, [{attributes, []}, {timeout, Timeout}]}
     ),
     case Result of
         {ok, []} ->
             ignore;
         {ok, [Entry]} ->
+            Password = emqx_auth_ldap_utils:render_password(PasswordTemplate, Credential),
             case
                 emqx_resource:simple_sync_query(
                     ResourceId,
-                    {bind, Entry#eldap_entry.object_name, Credential}
+                    {bind, Entry#eldap_entry.object_name, Password}
                 )
             of
                 {ok, #{result := ok}} ->

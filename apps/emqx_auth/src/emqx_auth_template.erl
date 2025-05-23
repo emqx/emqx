@@ -20,6 +20,7 @@
     render_deep_for_url/2,
     render_deep_for_raw/2,
     render_str/2,
+    render_str_for_raw/2,
     render_urlencoded_str/2,
     render_sql_params/2,
     render_strict/2,
@@ -211,6 +212,16 @@ render_str(Template, Credential) ->
         #{var_trans => fun to_string/2}
     ),
     unicode:characters_to_binary(String).
+
+render_str_for_raw(Template, Credential) ->
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {String, _Errors} = emqx_template:render(
+        Template,
+        rename_client_info_vars(Credential),
+        #{var_trans => fun to_string_for_raw/2}
+    ),
+    String.
 
 render_urlencoded_str(Template, Credential) ->
     % NOTE
