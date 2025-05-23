@@ -6,6 +6,7 @@
 -module(emqx_channel).
 
 -include("emqx.hrl").
+-include("emqx_lsr.hrl").
 -include("emqx_channel.hrl").
 -include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
@@ -586,11 +587,16 @@ post_process_connect(
             handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
             handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
+        {error, ?lsr_err_max_retries} ->
+            ?SLOG(error, #{msg => "failed_to_open_session", reason => ?lsr_err_max_retries}),
+            handle_out(connack, ?RC_SERVER_BUSY, Channel);
+        {error, ?lsr_err_channel_outdated} ->
+            ?SLOG(error, #{msg => "failed_to_open_session", reason => ?lsr_err_channel_outdated}),
+            handle_out(connack, ?RC_SESSION_TAKEN_OVER, Channel);
         {error, Reason} ->
             ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
-
 %%--------------------------------------------------------------------
 %% Process Publish
 %%--------------------------------------------------------------------
@@ -1432,7 +1438,7 @@ handle_call(
     %% time ensure that channel dies off reasonably quickly if no call will arrive.
     Interval = interval(expire_takeover, Channel),
     NChannel = reset_timer(expire_session, Interval, Channel),
-    ok = emqx_cm:unregister_channel(ClientId),
+    ok = emqx_cm:unregister_channel(ClientId, self()),
     reply(Session, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},
