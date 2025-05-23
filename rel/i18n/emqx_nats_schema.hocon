@@ -9,6 +9,13 @@ server_id.desc:
 server_name.desc:
 """Server Name."""
 
+default_heartbeat_interval.desc:
+"""Default heartbeat interval for server-to-client PING messages. Default: 30."""
+
+heartbeat_wait_timeout.desc:
+"""Heartbeat timeout threshold. The server will mark a client as offline
+if no heartbeat response is received within this period. Default: 5s."""
+
 protocol.desc:
 """A group of settings for NATS Server protocol."""
 

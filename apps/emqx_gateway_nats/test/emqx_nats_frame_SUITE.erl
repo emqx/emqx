@@ -15,12 +15,31 @@
 %% CT Callbacks
 %%--------------------------------------------------------------------
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    [
+        {group, lower_header},
+        {group, upper_header}
+    ].
+
+groups() ->
+    CTs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {lower_header, [], CTs},
+        {upper_header, [], CTs}
+    ].
 
 init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    ok.
+
+init_per_group(lower_header, Config) ->
+    [{serialize_opts, #{use_lower_header => true}} | Config];
+init_per_group(upper_header, Config) ->
+    [{serialize_opts, #{use_lower_header => false}} | Config].
+
+end_per_group(_Group, _Config) ->
     ok.
 
 %%--------------------------------------------------------------------
@@ -226,7 +245,8 @@ t_hmsg_with_reply_to(_Config) ->
         emqx_nats_frame:headers(Frame)
     ).
 
-t_hmsg_with_no_responders(_Config) ->
+t_hmsg_with_no_responders(Config) ->
+    SOpts = ?config(serialize_opts, Config),
     State = emqx_nats_frame:initial_parse_state(#{}),
     Subject = <<"test.subject">>,
     Sid = <<"123">>,
@@ -235,10 +255,16 @@ t_hmsg_with_no_responders(_Config) ->
     HeadersSize = integer_to_binary(byte_size(Headers)),
     Payload = <<>>,
     TotalSize = integer_to_binary(byte_size(Payload) + byte_size(Headers)),
+    HmsgFrame0 =
+        <<Subject/binary, " ", Sid/binary, " ", ReplyTo/binary, " ", HeadersSize/binary, " ",
+            TotalSize/binary, "\r\n", Headers/binary, Payload/binary, "\r\n">>,
     HmsgFrame =
-        <<"HMSG ", Subject/binary, " ", Sid/binary, " ", ReplyTo/binary, " ", HeadersSize/binary,
-            " ", TotalSize/binary, "\r\n", Headers/binary, Payload/binary, "\r\n">>,
-
+        case SOpts of
+            #{use_lower_header := true} ->
+                <<"hmsg ", HmsgFrame0/binary>>;
+            _ ->
+                <<"HMSG ", HmsgFrame0/binary>>
+        end,
     {ok, Frame, Rest, _} = emqx_nats_frame:parse(HmsgFrame, State),
     ?assertEqual(?OP_HMSG, emqx_nats_frame:type(Frame)),
     ?assertEqual(<<>>, Rest),
@@ -249,7 +275,7 @@ t_hmsg_with_no_responders(_Config) ->
         #{<<"code">> := 503},
         emqx_nats_frame:headers(Frame)
     ),
-    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, #{})),
+    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, SOpts)),
     ?assertEqual(HmsgFrame, Serialized).
 
 t_invalid_headers(_Config) ->
@@ -404,7 +430,8 @@ t_invalid_state_transition(_Config) ->
 %% Serialization Tests
 %%--------------------------------------------------------------------
 
-t_serialize_hpub(_Config) ->
+t_serialize_hpub(Config) ->
+    SOpts = ?config(serialize_opts, Config),
     Message = #{
         subject => <<"test.subject">>,
         headers => #{
@@ -414,7 +441,7 @@ t_serialize_hpub(_Config) ->
         payload => <<"test payload">>
     },
     Frame = #nats_frame{operation = ?OP_HPUB, message = Message},
-    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, #{})),
+    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, SOpts)),
 
     % Parse the serialized frame
     State = emqx_nats_frame:initial_parse_state(#{}),
@@ -430,7 +457,8 @@ t_serialize_hpub(_Config) ->
         emqx_nats_frame:headers(ParsedFrame)
     ).
 
-t_serialize_hmsg(_Config) ->
+t_serialize_hmsg(Config) ->
+    SOpts = ?config(serialize_opts, Config),
     Message = #{
         subject => <<"test.subject">>,
         sid => <<"123">>,
@@ -441,7 +469,7 @@ t_serialize_hmsg(_Config) ->
         payload => <<"test payload">>
     },
     Frame = #nats_frame{operation = ?OP_HMSG, message = Message},
-    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, #{})),
+    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, SOpts)),
 
     % Parse the serialized frame
     State = emqx_nats_frame:initial_parse_state(#{}),
@@ -458,7 +486,8 @@ t_serialize_hmsg(_Config) ->
         emqx_nats_frame:headers(ParsedFrame)
     ).
 
-t_serialize_hpub_with_reply_to(_Config) ->
+t_serialize_hpub_with_reply_to(Config) ->
+    SOpts = ?config(serialize_opts, Config),
     Message = #{
         subject => <<"test.subject">>,
         reply_to => <<"reply.subject">>,
@@ -469,7 +498,7 @@ t_serialize_hpub_with_reply_to(_Config) ->
         payload => <<"test payload">>
     },
     Frame = #nats_frame{operation = ?OP_HPUB, message = Message},
-    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, #{})),
+    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, SOpts)),
 
     % Parse the serialized frame
     State = emqx_nats_frame:initial_parse_state(#{}),
@@ -486,7 +515,8 @@ t_serialize_hpub_with_reply_to(_Config) ->
         emqx_nats_frame:headers(ParsedFrame)
     ).
 
-t_serialize_hmsg_with_reply_to(_Config) ->
+t_serialize_hmsg_with_reply_to(Config) ->
+    SOpts = ?config(serialize_opts, Config),
     Message = #{
         subject => <<"test.subject">>,
         sid => <<"123">>,
@@ -498,7 +528,7 @@ t_serialize_hmsg_with_reply_to(_Config) ->
         payload => <<"test payload">>
     },
     Frame = #nats_frame{operation = ?OP_HMSG, message = Message},
-    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, #{})),
+    Serialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, SOpts)),
 
     % Parse the serialized frame
     State = emqx_nats_frame:initial_parse_state(#{}),
@@ -516,7 +546,160 @@ t_serialize_hmsg_with_reply_to(_Config) ->
         emqx_nats_frame:headers(ParsedFrame)
     ).
 
-t_serialize_parse_roundtrip(_Config) ->
+t_serialize_parse_roundtrip(Config) ->
+    SOpts = ?config(serialize_opts, Config),
+    % Test CONNECT roundtrip
+    ConnectMessage = #{
+        <<"verbose">> => true,
+        <<"pedantic">> => false,
+        <<"tls_required">> => false
+    },
+    ConnectFrame = #nats_frame{operation = ?OP_CONNECT, message = ConnectMessage},
+    ConnectSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(ConnectFrame, SOpts)),
+
+    % Parse CONNECT
+    State1 = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, ParsedConnectFrame, Rest1, _} = emqx_nats_frame:parse(ConnectSerialized, State1),
+
+    % Verify CONNECT roundtrip
+    ?assertEqual(ConnectMessage, emqx_nats_frame:message(ParsedConnectFrame)),
+    ?assertEqual(<<>>, Rest1),
+
+    % Test INFO roundtrip
+    InfoMessage = #{
+        <<"server_id">> => <<"test">>,
+        <<"version">> => <<"1.0.0">>
+    },
+    InfoFrame = #nats_frame{operation = ?OP_INFO, message = InfoMessage},
+    InfoSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(InfoFrame, SOpts)),
+
+    % Parse INFO
+    State2 = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, ParsedInfoFrame, Rest2, _} = emqx_nats_frame:parse(InfoSerialized, State2),
+
+    % Verify INFO roundtrip
+    ?assertEqual(InfoMessage, emqx_nats_frame:message(ParsedInfoFrame)),
+    ?assertEqual(<<>>, Rest2),
+
+    % Test PUB roundtrip
+    PubMessage = #{
+        subject => <<"test.subject">>,
+        reply_to => <<"reply.subject">>,
+        payload => <<"test payload">>
+    },
+    PubFrame = #nats_frame{operation = ?OP_PUB, message = PubMessage},
+    PubSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(PubFrame, SOpts)),
+
+    % Parse PUB
+    State3 = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, ParsedPubFrame, Rest3, _} = emqx_nats_frame:parse(PubSerialized, State3),
+
+    % Verify PUB roundtrip
+    ?assertEqual(PubMessage, emqx_nats_frame:message(ParsedPubFrame)),
+    ?assertEqual(<<>>, Rest3),
+
+    % Test SUB roundtrip
+    SubMessage = #{
+        subject => <<"test.subject">>,
+        sid => <<"123">>,
+        queue_group => <<"group1">>
+    },
+    SubFrame = #nats_frame{operation = ?OP_SUB, message = SubMessage},
+    SubSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(SubFrame, SOpts)),
+
+    % Parse SUB
+    State4 = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, ParsedSubFrame, Rest4, _} = emqx_nats_frame:parse(SubSerialized, State4),
+
+    % Verify SUB roundtrip
+    ?assertEqual(SubMessage, emqx_nats_frame:message(ParsedSubFrame)),
+    ?assertEqual(<<>>, Rest4),
+
+    % Test UNSUB roundtrip
+    UnsubMessage = #{
+        sid => <<"123">>,
+        max_msgs => 10
+    },
+    UnsubFrame = #nats_frame{operation = ?OP_UNSUB, message = UnsubMessage},
+    UnsubSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(UnsubFrame, SOpts)),
+
+    % Parse UNSUB
+    State5 = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, ParsedUnsubFrame, Rest5, _} = emqx_nats_frame:parse(UnsubSerialized, State5),
+
+    % Verify UNSUB roundtrip
+    ?assertEqual(UnsubMessage, emqx_nats_frame:message(ParsedUnsubFrame)),
+    ?assertEqual(<<>>, Rest5),
+
+    % Test MSG roundtrip
+    MsgMessage = #{
+        subject => <<"test.subject">>,
+        sid => <<"123">>,
+        reply_to => <<"reply.subject">>,
+        payload => <<"test payload">>
+    },
+    MsgFrame = #nats_frame{operation = ?OP_MSG, message = MsgMessage},
+    MsgSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(MsgFrame, SOpts)),
+
+    % Parse MSG
+    State6 = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, ParsedMsgFrame, Rest6, _} = emqx_nats_frame:parse(MsgSerialized, State6),
+
+    % Verify MSG roundtrip
+    ?assertEqual(MsgMessage, emqx_nats_frame:message(ParsedMsgFrame)),
+    ?assertEqual(<<>>, Rest6),
+
+    % Test PING roundtrip
+    PingFrame = #nats_frame{operation = ?OP_PING},
+    PingSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(PingFrame, SOpts)),
+
+    % Parse PING
+    State7 = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, ParsedPingFrame, Rest7, _} = emqx_nats_frame:parse(PingSerialized, State7),
+
+    % Verify PING roundtrip
+    ?assertEqual(?OP_PING, emqx_nats_frame:type(ParsedPingFrame)),
+    ?assertEqual(<<>>, Rest7),
+
+    % Test PONG roundtrip
+    PongFrame = #nats_frame{operation = ?OP_PONG},
+    PongSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(PongFrame, SOpts)),
+
+    % Parse PONG
+    State8 = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, ParsedPongFrame, Rest8, _} = emqx_nats_frame:parse(PongSerialized, State8),
+
+    % Verify PONG roundtrip
+    ?assertEqual(?OP_PONG, emqx_nats_frame:type(ParsedPongFrame)),
+    ?assertEqual(<<>>, Rest8),
+
+    % Test OK roundtrip
+    OkFrame = #nats_frame{operation = ?OP_OK},
+    OkSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(OkFrame, SOpts)),
+
+    % Parse OK
+    State9 = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, ParsedOkFrame, Rest9, _} = emqx_nats_frame:parse(OkSerialized, State9),
+
+    % Verify OK roundtrip
+    ?assertEqual(?OP_OK, emqx_nats_frame:type(ParsedOkFrame)),
+    ?assertEqual(<<>>, Rest9),
+
+    % Test ERR roundtrip
+    ErrMessage = <<"Invalid subject">>,
+    ErrFrame = #nats_frame{operation = ?OP_ERR, message = ErrMessage},
+    ErrSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(ErrFrame, SOpts)),
+
+    % Parse ERR
+    State10 = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, ParsedErrFrame, Rest10, _} = emqx_nats_frame:parse(ErrSerialized, State10),
+
+    % Verify ERR roundtrip
+    ?assertEqual(ErrMessage, emqx_nats_frame:message(ParsedErrFrame)),
+    ?assertEqual(<<>>, Rest10).
+
+t_serialize_parse_roundtrip_2(Config) ->
+    SOpts = ?config(serialize_opts, Config),
     % Test HPUB roundtrip
     HpubMessage = #{
         subject => <<"test.subject">>,
@@ -528,7 +711,7 @@ t_serialize_parse_roundtrip(_Config) ->
         payload => <<"test payload">>
     },
     HpubFrame = #nats_frame{operation = ?OP_HPUB, message = HpubMessage},
-    HpubSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(HpubFrame, #{})),
+    HpubSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(HpubFrame, SOpts)),
 
     % Parse HPUB
     State1 = emqx_nats_frame:initial_parse_state(#{}),
@@ -550,7 +733,7 @@ t_serialize_parse_roundtrip(_Config) ->
         payload => <<"test payload">>
     },
     HmsgFrame = #nats_frame{operation = ?OP_HMSG, message = HmsgMessage},
-    HmsgSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(HmsgFrame, #{})),
+    HmsgSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(HmsgFrame, SOpts)),
 
     % Parse HMSG
     State2 = emqx_nats_frame:initial_parse_state(#{}),
@@ -560,7 +743,8 @@ t_serialize_parse_roundtrip(_Config) ->
     ?assertEqual(HmsgMessage, emqx_nats_frame:message(ParsedHmsgFrame)),
     ?assertEqual(<<>>, Rest2).
 
-t_serialize_empty_headers(_Config) ->
+t_serialize_empty_headers(Config) ->
+    SOpts = ?config(serialize_opts, Config),
     % Test HPUB with empty headers
     HpubMessage = #{
         subject => <<"test.subject">>,
@@ -568,7 +752,7 @@ t_serialize_empty_headers(_Config) ->
         payload => <<"test payload">>
     },
     HpubFrame = #nats_frame{operation = ?OP_HPUB, message = HpubMessage},
-    HpubSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(HpubFrame, #{})),
+    HpubSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(HpubFrame, SOpts)),
 
     % Parse HPUB
     State1 = emqx_nats_frame:initial_parse_state(#{}),
@@ -586,7 +770,7 @@ t_serialize_empty_headers(_Config) ->
         payload => <<"test payload">>
     },
     HmsgFrame = #nats_frame{operation = ?OP_HMSG, message = HmsgMessage},
-    HmsgSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(HmsgFrame, #{})),
+    HmsgSerialized = iolist_to_binary(emqx_nats_frame:serialize_pkt(HmsgFrame, SOpts)),
 
     % Parse HMSG
     State2 = emqx_nats_frame:initial_parse_state(#{}),
@@ -595,3 +779,57 @@ t_serialize_empty_headers(_Config) ->
     % Verify HMSG with empty headers
     ?assertEqual(HmsgMessage, emqx_nats_frame:message(ParsedHmsgFrame)),
     ?assertEqual(<<>>, Rest2).
+
+t_multiple_frames(_Config) ->
+    Bin1 = <<"CONNECT {\"verbose\":true}\r\n">>,
+    Bin2 = <<"PING\r\n">>,
+    Bin3 = <<"SUB test.subject sid1\r\n">>,
+    Bin4 = <<"PUB test.subject 5\r\n">>,
+    Bin5 = <<"hello\r\n">>,
+
+    Bin = <<Bin1/binary, Bin2/binary, Bin3/binary, Bin4/binary>>,
+    State = emqx_nats_frame:initial_parse_state(#{}),
+    {ok, Frame1, Rest1, State1} = emqx_nats_frame:parse(Bin, State),
+    ?assertEqual(?OP_CONNECT, emqx_nats_frame:type(Frame1)),
+    ?assertEqual(#{<<"verbose">> => true}, emqx_nats_frame:message(Frame1)),
+
+    {ok, Frame2, Rest2, State2} = emqx_nats_frame:parse(Rest1, State1),
+    ?assertEqual(?OP_PING, emqx_nats_frame:type(Frame2)),
+
+    {ok, Frame3, Rest3, State3} = emqx_nats_frame:parse(Rest2, State2),
+    ?assertEqual(?OP_SUB, emqx_nats_frame:type(Frame3)),
+    ?assertEqual(<<"test.subject">>, emqx_nats_frame:subject(Frame3)),
+    ?assertEqual(<<"sid1">>, emqx_nats_frame:sid(Frame3)),
+
+    {more, State4} = emqx_nats_frame:parse(Rest3, State3),
+    {ok, Frame4, Rest4, _} = emqx_nats_frame:parse(Bin5, State4),
+    ?assertEqual(?OP_PUB, emqx_nats_frame:type(Frame4)),
+    ?assertEqual(<<"test.subject">>, emqx_nats_frame:subject(Frame4)),
+    ?assertEqual(<<"hello">>, emqx_nats_frame:payload(Frame4)),
+    ?assertEqual(<<>>, Rest4).
+
+t_multiple_frames_with_more(_Config) ->
+    Data1 = <<"PUB">>,
+    Data2 = <<" test.subject">>,
+    Data3 = <<" 5\r\n">>,
+    Data4 = <<"hel">>,
+    Data5 = <<"lo\r\n">>,
+
+    State = emqx_nats_frame:initial_parse_state(#{}),
+    {more, S1} = emqx_nats_frame:parse(Data1, State),
+    {more, S2} = emqx_nats_frame:parse(Data2, S1),
+    {more, S3} = emqx_nats_frame:parse(Data3, S2),
+    {more, S4} = emqx_nats_frame:parse(Data4, S3),
+    {ok, Frame5, Rest5, _} = emqx_nats_frame:parse(Data5, S4),
+    ?assertEqual(?OP_PUB, emqx_nats_frame:type(Frame5)),
+    ?assertEqual(<<>>, Rest5).
+
+t_format_frame(_Config) ->
+    PingFrame = #nats_frame{operation = ?OP_PING},
+    SubFrame = #nats_frame{
+        operation = ?OP_SUB,
+        message = #{}
+    },
+    _ = emqx_nats_frame:format(PingFrame),
+    _ = emqx_nats_frame:format(SubFrame),
+    ok.

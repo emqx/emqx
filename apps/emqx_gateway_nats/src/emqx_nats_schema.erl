@@ -25,6 +25,22 @@ fields(nats) ->
                 desc => ?DESC(server_name),
                 default => <<"emqx_nats_gateway">>
             })},
+        {default_heartbeat_interval,
+            sc(
+                emqx_schema:duration(),
+                #{
+                    desc => ?DESC(default_heartbeat_interval),
+                    default => <<"30s">>
+                }
+            )},
+        {heartbeat_wait_timeout,
+            sc(
+                emqx_schema:duration(),
+                #{
+                    desc => ?DESC(heartbeat_wait_timeout),
+                    default => <<"5s">>
+                }
+            )},
         {protocol, sc(ref(protocol))},
         {mountpoint, emqx_gateway_schema:mountpoint()},
         {listeners, sc(ref(tcp_ws_listeners), #{})}
@@ -85,9 +101,7 @@ desc(ws_listener) ->
 desc(wss_listener) ->
     ?DESC(wss_listener);
 desc(websocket) ->
-    ?DESC(websocket);
-desc(_) ->
-    undefined.
+    ?DESC(websocket).
 
 %%--------------------------------------------------------------------
 %% internal functions

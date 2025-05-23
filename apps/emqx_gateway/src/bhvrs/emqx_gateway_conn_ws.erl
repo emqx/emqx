@@ -594,6 +594,8 @@ parse_incoming(Data, State = #state{frame_mod = FrameMod, parse_state = ParseSta
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
+handle_incoming({frame_error, Reason}, State) ->
+    with_channel(handle_frame_error, [Reason], State);
 handle_incoming(
     Packet,
     State = #state{

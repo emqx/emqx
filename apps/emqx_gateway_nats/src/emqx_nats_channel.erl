@@ -75,11 +75,9 @@
     connection_expire_timer => connection_expire
 }).
 
--define(KEEPALIVE_SEND_INTERVAL, 25000).
+-define(KEEPALIVE_SEND_INTERVAL, 30000).
 
--define(KEEPALIVE_RECV_INTERVAL, 15000).
-
--define(TRANS_TIMEOUT, 60000).
+-define(KEEPALIVE_RECV_INTERVAL, 5000).
 
 -define(DEFAULT_OVERRIDE, #{
     username => <<"${Packet.user}">>,
@@ -265,7 +263,9 @@ enrich_conninfo(
         proto_name => <<"NATS">>,
         proto_ver => <<"1">>,
         clean_start => true,
-        keepalive => ?KEEPALIVE_SEND_INTERVAL,
+        keepalive => emqx_conf:get(
+            [gateway, nats, default_heartbeat_interval], ?KEEPALIVE_SEND_INTERVAL
+        ),
         expiry_interval => 0,
         conn_props => #{},
         receive_maximum => 0,
@@ -1116,10 +1116,10 @@ cancel_timer(Name, Channel = #channel{timers = Timers}) ->
             Channel#channel{timers = maps:remove(Name, Timers)}
     end.
 
-interval(keepalive_send_timer, _) ->
-    ?KEEPALIVE_SEND_INTERVAL;
+interval(keepalive_send_timer, #channel{conninfo = ConnInfo}) ->
+    maps:get(keepalive, ConnInfo, ?KEEPALIVE_SEND_INTERVAL);
 interval(keepalive_recv_timer, _) ->
-    ?KEEPALIVE_RECV_INTERVAL.
+    emqx_conf:get([gateway, nats, heartbeat_wait_timeout], ?KEEPALIVE_RECV_INTERVAL).
 
 %%--------------------------------------------------------------------
 %% Helper functions

@@ -35,6 +35,10 @@
     code_change/3
 ]).
 
+-export([
+    send_invalid_frame/2
+]).
+
 -type client() :: pid().
 -type options() :: #{
     host => string() | inet:ip_address(),
@@ -43,7 +47,9 @@
     pass => binary() | undefined,
     verbose => boolean(),
     pedantic => boolean(),
-    tls_required => boolean()
+    tls_required => boolean(),
+    %% Client's own options
+    auto_respond_ping => boolean()
 }.
 -type state() :: #{
     socket => inet:socket(),
@@ -119,6 +125,10 @@ receive_message(Client, Count, Timeout) ->
             {ok, []}
     end.
 
+-spec send_invalid_frame(client(), binary()) -> ok.
+send_invalid_frame(Client, Data) ->
+    gen_server:call(Client, {send_invalid_frame, Data}).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -139,14 +149,9 @@ init([Options]) ->
     }}.
 
 handle_call(connect, _From, #{socket := Socket} = State) ->
-    case is_server_ready(State) of
-        false ->
-            {reply, {error, not_ready}, State};
-        true ->
-            ConnectFrame = #nats_frame{operation = ?OP_CONNECT, message = connect_opts(State)},
-            send_msg(Socket, ConnectFrame),
-            {reply, ok, State}
-    end;
+    ConnectFrame = #nats_frame{operation = ?OP_CONNECT, message = connect_opts(State)},
+    send_msg(Socket, ConnectFrame),
+    {reply, ok, State};
 handle_call(ping, _From, #{socket := Socket} = State) ->
     PingFrame = #nats_frame{operation = ?OP_PING},
     send_msg(Socket, PingFrame),
@@ -192,6 +197,9 @@ handle_call({receive_message, Count, Timeout}, From, #{message_queue := Queue} =
                     {reply, {error, busy}, State}
             end
     end;
+handle_call({send_invalid_frame, Data}, _From, #{socket := Socket} = State) ->
+    send_data(Socket, Data),
+    {reply, ok, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -237,10 +245,15 @@ handle_incoming_data(Data, #{parse_state := ParseState, message_queue := Queue} 
 
 process_parsed_frame(?PACKET(?OP_INFO, ServerInfo), State) ->
     State#{connected_server_info => ServerInfo};
-process_parsed_frame(?PACKET(?OP_PING), State = #{socket := Socket}) ->
-    PongFrame = #nats_frame{operation = ?OP_PONG},
-    send_msg(Socket, PongFrame),
-    State;
+process_parsed_frame(?PACKET(?OP_PING), State = #{socket := Socket, options := Options}) ->
+    case maps:get(auto_respond_ping, Options, true) of
+        true ->
+            PongFrame = #nats_frame{operation = ?OP_PONG},
+            send_msg(Socket, PongFrame),
+            State;
+        false ->
+            State
+    end;
 process_parsed_frame(_Frame, State) ->
     State.
 
@@ -258,20 +271,7 @@ handle_message_with_state(Frame, #{message_queue := Queue} = State) ->
             State#{message_queue => NewQueue}
     end.
 
-is_server_ready(#{socket := Socket, connected_server_info := ServerInfo}) ->
-    case ServerInfo of
-        undefined ->
-            false;
-        _ ->
-            case peername(Socket) of
-                {ok, _} ->
-                    true;
-                _ ->
-                    false
-            end
-    end.
-
-connect_opts(#{options := Options, connected_server_info := _ServerInfo}) ->
+connect_opts(#{options := Options}) ->
     Opts = #{
         verbose => maps:get(verbose, Options, false),
         pedantic => maps:get(pedantic, Options, false),
@@ -327,17 +327,17 @@ upgrade(ConnPid, Timeout) ->
         {error, timeout}
     end.
 
-peername({tcp, Socket}) ->
-    inet:peername(Socket);
-peername({ws, {_ConnPid, _StreamRef}}) ->
-    {ok, ok}.
-
 send_msg({tcp, Socket}, Frame) ->
     Bin = serialize_pkt(Frame),
     ok = gen_tcp:send(Socket, Bin);
 send_msg({ws, {ConnPid, StreamRef}}, Frame) ->
     Bin = serialize_pkt(Frame),
     gun:ws_send(ConnPid, StreamRef, {text, Bin}).
+
+send_data({tcp, Socket}, Data) ->
+    ok = gen_tcp:send(Socket, Data);
+send_data({ws, {ConnPid, StreamRef}}, Data) ->
+    gun:ws_send(ConnPid, StreamRef, {text, Data}).
 
 close({tcp, Socket}) ->
     gen_tcp:close(Socket);

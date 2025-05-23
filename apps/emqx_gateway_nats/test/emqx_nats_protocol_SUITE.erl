@@ -26,6 +26,8 @@
 -define(CONF_DEFAULT, <<
     "\n"
     "gateway.nats {\n"
+    "  default_heartbeat_interval = 1s\n"
+    "  heartbeat_wait_timeout = 1s\n"
     "  protocol {\n"
     "    max_payload_size = 1024\n"
     "  }\n"
@@ -913,6 +915,61 @@ t_optional_connect_request_only_work_authn_disabled(Config) ->
     emqx_nats_client:stop(Client),
     disable_auth().
 
+t_server_to_client_ping(Config) ->
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            verbose => true,
+            auto_respond_ping => false
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+
+    %% waiting ping message
+    timer:sleep(1000),
+    {ok, [PingMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_PING
+        },
+        PingMsg
+    ),
+    %% waiting for timeout and disconnect
+    timer:sleep(1500),
+    {ok, [DisconnectMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_ERR
+        },
+        DisconnectMsg
+    ),
+    emqx_nats_client:stop(Client).
+
+t_invalid_frame(Config) ->
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            verbose => true
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:send_invalid_frame(Client, <<"invalid frame">>),
+    {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_ERR
+        },
+        ErrorMsg
+    ),
+    emqx_nats_client:stop(Client).
+
 t_gateway_client_management(Config) ->
     ClientOpts = maps:merge(
         ?config(client_opts, Config),
@@ -1035,6 +1092,10 @@ t_gateway_client_subscription_management(Config) ->
     ),
 
     emqx_nats_client:stop(Client).
+
+t_schema_coverage(_Config) ->
+    _ = emqx_nats_schema:fields(wss_listener),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Utils

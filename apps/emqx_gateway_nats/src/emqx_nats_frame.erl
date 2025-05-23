@@ -146,8 +146,9 @@ is_prefix_of_any(Data, Ops) ->
 serialize_opts() ->
     #{}.
 
-serialize_pkt(#nats_frame{operation = Op, message = Message}, _Opts) ->
-    Bin1 = serialize_operation(Op),
+serialize_pkt(#nats_frame{operation = Op, message = Message}, Opts) ->
+    UseLowerHeader = maps:get(use_lower_header, Opts, false),
+    Bin1 = serialize_operation(Op, UseLowerHeader),
     case Message of
         undefined ->
             [Bin1, "\r\n"];
@@ -156,12 +157,18 @@ serialize_pkt(#nats_frame{operation = Op, message = Message}, _Opts) ->
             [Bin1, " ", Bin2, "\r\n"]
     end.
 
-serialize_operation(?OP_OK) ->
+serialize_operation(?OP_OK, _UseLowerHeader = false) ->
     [?OP_RAW_OK];
-serialize_operation(?OP_ERR) ->
+serialize_operation(?OP_OK, _UseLowerHeader = true) ->
+    [?OP_RAW_OK_L];
+serialize_operation(?OP_ERR, _UseLowerHeader = false) ->
     [?OP_RAW_ERR];
-serialize_operation(Op) when is_atom(Op) ->
-    [string:to_upper(atom_to_list(Op))].
+serialize_operation(?OP_ERR, _UseLowerHeader = true) ->
+    [?OP_RAW_ERR_L];
+serialize_operation(Op, _UseLowerHeader = false) when is_atom(Op) ->
+    [string:to_upper(atom_to_list(Op))];
+serialize_operation(Op, _UseLowerHeader = true) ->
+    [string:to_lower(atom_to_list(Op))].
 
 serialize_message(?OP_INFO, Message) ->
     [emqx_utils_json:encode(Message)];
