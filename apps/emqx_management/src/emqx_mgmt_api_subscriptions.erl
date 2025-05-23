@@ -237,7 +237,7 @@ do_subscriptions_query_persistent(#{<<"page">> := Page, <<"limit">> := Limit} = 
     ),
     SubMap = fun enrich_dssub/1,
     SubPred = fun(Sub) ->
-        Sub =/= undefined andalso
+        Sub =/= undefined andalso dssub_durable(Sub) andalso
             compare_optional(<<"topic">>, QString, fun dssub_topic/1, Sub) andalso
             compare_optional(<<"clientid">>, QString, fun dssub_session_id/1, Sub) andalso
             compare_optional(<<"qos">>, QString, fun dssub_qos/1, Sub) andalso
@@ -284,6 +284,9 @@ dssub_subopts({_SessionID, _Topic, Sub}) ->
 dssub_qos(DSSub) ->
     maps:get(qos, dssub_subopts(DSSub), undefined).
 
+dssub_durable({_SessionID, _Topic, Sub}) ->
+    maps:get(mode, Sub, durable) =:= durable.
+
 dssub_to_subscription(DSSub = {SessionID, Topic, _}) ->
     Sub = #{
         topic => emqx_topic:maybe_format_share(Topic),
@@ -303,11 +306,11 @@ dssub_to_subscription(DSSub = {SessionID, Topic, _}) ->
             Sub
     end.
 
-enrich_dssub({SessionId, Topic}) ->
+enrich_dssub({SessionID, Topic}) ->
     %% TODO: Suboptimal, especially with DS-backed session storage.
-    case emqx_persistent_session_ds:get_client_subscription(SessionId, Topic) of
+    case emqx_persistent_session_ds:get_client_subscription(SessionID, Topic) of
         Subscription = #{} ->
-            {SessionId, Topic, Subscription};
+            {SessionID, Topic, Subscription};
         undefined ->
             undefined
     end.
