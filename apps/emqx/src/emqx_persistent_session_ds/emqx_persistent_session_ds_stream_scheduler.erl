@@ -100,7 +100,8 @@
 
 %% API:
 -export([
-    init/1,
+    new/0,
+    on_session_replay/2,
     on_subscribe/4,
     on_unsubscribe/4,
     on_new_stream_event/3,
@@ -212,14 +213,18 @@
 %% API functions
 %%================================================================================
 
--spec init(emqx_persistent_session_ds_state:t()) -> {emqx_persistent_session_ds_state:t(), t()}.
-init(S0) ->
-    SchedS0 = #s{
+-spec new() -> t().
+new() ->
+    #s{
         bq1 = gb_trees:empty(),
         bq2 = gb_trees:empty()
-    },
+    }.
+
+-spec on_session_replay(emqx_persistent_session_ds_state:t(), t()) ->
+    {emqx_persistent_session_ds_state:t(), t()}.
+on_session_replay(S0, SchedS0) ->
     %% Initialize per-subscription records:
-    {S, SchedS1} = emqx_persistent_session_ds_subs:fold_private_subscriptions(
+    {S, SchedS1} = emqx_persistent_session_ds_subs:fold(
         fun(TopicFilterBin, Subscription, {AccS0, AccSchedS0}) ->
             {_NewSRSIds, AccS, AccSchedS} = init_for_subscription(
                 TopicFilterBin, Subscription, AccS0, AccSchedS0
@@ -227,7 +232,8 @@ init(S0) ->
             {AccS, AccSchedS}
         end,
         {S0, SchedS0},
-        S0
+        S0,
+        []
     ),
     %% Subscribe to new messages:
     ActiveStreams = find_active_streams(S),
@@ -305,11 +311,9 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
             #{TopicFilterBin := SubS0} = SubsMetadata,
             ?tp(?sessds_sched_new_stream_event, #{ref => Ref, topic => TopicFilterBin}),
             TopicFilter = emqx_ds:topic_words(TopicFilterBin),
-            Subscription =
-                #{start_time := StartTime} = emqx_persistent_session_ds_state:get_subscription(
-                    TopicFilterBin, S0
-                ),
+            Subscription = emqx_persistent_session_ds_subs:lookup(TopicFilterBin, S0),
             %% Renew streams:
+            #{start_time := StartTime} = Subscription,
             try
                 StreamMap = get_streams(TopicFilter, StartTime),
                 {NewSRSIds, S, SubS} = renew_streams(
@@ -536,6 +540,7 @@ on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{sub_metadata = Subs}
     end.
 
 %% @doc Makes stream scheduler forget about a subscription.
+%% This operation is idempotent.
 %%
 %% Side effects:
 %%
@@ -554,21 +559,22 @@ on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{sub_metadata = Subs}
 on_unsubscribe(
     Topic, SubId, S0, SchedS0 = #s{new_stream_subs = Watches0, sub_metadata = Subs}
 ) ->
-    SchedS1 =
-        case Topic of
-            TopicFilterBin when is_binary(TopicFilterBin) ->
-                #{TopicFilterBin := SubS} = Subs,
-                #sub_metadata{new_streams_watch = Ref} = SubS,
-                %% Unsubscribe from new stream notifications:
-                Watches = unwatch_streams(TopicFilterBin, Ref, Watches0),
-                SchedS0#s{
-                    new_stream_subs = Watches,
-                    sub_metadata = maps:remove(TopicFilterBin, Subs)
-                };
-            #share{} ->
-                %% Metadata for shared topics is managed elsewhere:
-                SchedS0
-        end,
+    case Subs of
+        #{Topic := SubS} when is_binary(Topic) ->
+            #sub_metadata{new_streams_watch = Ref} = SubS,
+            %% Unsubscribe from new stream notifications:
+            Watches = unwatch_streams(Topic, Ref, Watches0),
+            SchedS1 = SchedS0#s{
+                new_stream_subs = Watches,
+                sub_metadata = maps:remove(Topic, Subs)
+            };
+        #{} when is_binary(Topic) ->
+            %% No subscription metadata for this topic:
+            SchedS1 = SchedS0;
+        #{} when is_record(Topic, share) ->
+            %% Metadata for shared topics is managed elsewhere:
+            SchedS1 = SchedS0
+    end,
     %% NOTE: this function only marks streams for deletion, but
     %% it doesn't outright delete them.
     %%
@@ -666,7 +672,7 @@ handle_retry(S0, SchedS0 = #s{retry = Actions}) ->
 %% 4. Mark new streams as ready
 -spec init_for_subscription(
     emqx_types:topic(),
-    emqx_persistent_session_ds_subs:subscription(),
+    emqx_persistent_session_ds:subscription(),
     emqx_persistent_session_ds_state:t(),
     t()
 ) ->
@@ -720,7 +726,7 @@ init_for_subscription(
 -spec renew_streams(
     emqx_persistent_session_ds_state:t(),
     emqx_ds:topic_filter(),
-    emqx_persistent_session_ds_subs:subscription(),
+    emqx_persistent_session_ds:subscription(),
     stream_map(),
     sub_metadata()
 ) ->
@@ -1210,23 +1216,29 @@ runtime_state_invariants(ModelState, #{s := S, stream_scheduler_s := SchedS}) ->
 offline_state_invariants(_ModelState, #{s := S}) ->
     invariant_active_streams_y_ranks(S).
 
-%% Verify that each active topic subscription has a new stream watch:
+%% Verify that each active durable topic subscription has a new stream watch:
 invariant_new_stream_subscriptions(#{subs := Subs}, #s{
     new_stream_subs = Watches, sub_metadata = SubStates
 }) ->
-    ExpectedTopics = lists:sort(maps:keys(Subs)),
+    ExpectedTopics = lists:sort(
+        [
+            Topic
+         || {Topic, SubOpts = #{qos := QoS}} <- maps:to_list(Subs),
+            QoS > ?QOS_0 orelse maps:get(durable, SubOpts, false)
+        ]
+    ),
     ?defer_assert(
         ?assertEqual(
             ExpectedTopics,
             lists:sort(maps:keys(SubStates)),
-            "There's a 1:1 relationship between subscribed topics and the scheduler's new stream watches"
+            "There's a 1:1 relationship between durable subscriptions and the scheduler's new stream watches"
         )
     ),
     ?defer_assert(
         ?assertEqual(
             ExpectedTopics,
             lists:sort(maps:values(Watches)),
-            "There's a 1:1 relationship between subscribed topics and the values of scheduler's watch reference => topic lookup table"
+            "There's a 1:1 relationship between durable subscriptions and the values of scheduler's watch reference => topic lookup table"
         )
     ),
     true.

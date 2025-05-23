@@ -295,7 +295,7 @@ t_storage_generations(Config) ->
             [
                 #{topic := <<"t/1">>, payload := <<"4">>},
                 #{topic := <<"t/2">>, payload := <<"5">>}
-            ] = emqx_common_test_helpers:wait_publishes(2, 5_000)
+            ] = emqx_utils_maps:group_by(topic, emqx_common_test_helpers:wait_publishes(2, 5_000))
         end,
         [fun check_stream_state_transitions/1]
     ),
@@ -317,12 +317,6 @@ t_session_subscription_idempotency(Config) ->
                 _NEvents0 = 1,
                 #{?snk_kind := will_restart_node},
                 _Guard0 = true
-            ),
-            ?force_ordering(
-                #{?snk_kind := restarted_node},
-                _NEvents1 = 1,
-                #{?snk_kind := persistent_session_ds_open_iterators, ?snk_span := start},
-                _Guard1 = true
             ),
 
             spawn_link(fun() -> restart_node(Node1, Node1Spec) end),
@@ -346,10 +340,7 @@ t_session_subscription_idempotency(Config) ->
             {ok, _} = emqtt:connect(Client1),
             ?tp(notice, "subscribing 2", #{}),
             {ok, _, [2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
-
-            ok = emqtt:stop(Client1),
-
-            ok
+            ok = stop_and_commit(Client1)
         end,
         [
             fun(_Trace) ->
@@ -384,12 +375,6 @@ t_session_unsubscription_idempotency(Config) ->
                 #{?snk_kind := will_restart_node},
                 _Guard0 = true
             ),
-            ?force_ordering(
-                #{?snk_kind := restarted_node},
-                _NEvents1 = 1,
-                #{?snk_kind := persistent_session_ds_subscription_route_delete, ?snk_span := start},
-                _Guard1 = true
-            ),
 
             spawn_link(fun() -> restart_node(Node1, Node1Spec) end),
 
@@ -415,16 +400,7 @@ t_session_unsubscription_idempotency(Config) ->
             ?tp(notice, "subscribing 2", #{}),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
             ?tp(notice, "unsubscribing 2", #{}),
-            {{ok, _, [?RC_SUCCESS]}, {ok, _}} =
-                ?wait_async_action(
-                    emqtt:unsubscribe(Client1, SubTopicFilter),
-                    #{
-                        ?snk_kind := persistent_session_ds_subscription_route_delete,
-                        ?snk_span := {complete, _}
-                    },
-                    15_000
-                ),
-
+            {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(Client1, SubTopicFilter),
             ok = stop_and_commit(Client1)
         end,
         [
