@@ -49,7 +49,8 @@ translate_builtin_raft(
         backend := builtin_raft,
         n_shards := NShards,
         n_sites := NSites,
-        replication_factor := ReplFactor
+        replication_factor := ReplFactor,
+        transaction := Transaction
     }
 ) ->
     %% NOTE: Undefined if `basic` schema is in use.
@@ -60,13 +61,15 @@ translate_builtin_raft(
         n_sites => NSites,
         replication_factor => ReplFactor,
         replication_options => maps:get(replication_options, Backend, #{}),
-        storage => emqx_maybe:apply(fun translate_layout/1, Layout)
+        storage => emqx_maybe:apply(fun translate_layout/1, Layout),
+        transaction => Transaction
     }.
 
 translate_builtin_local(
     Backend = #{
         backend := builtin_local,
-        n_shards := NShards
+        n_shards := NShards,
+        transaction := Transaction
     }
 ) ->
     %% NOTE: Undefined if `basic` schema is in use.
@@ -78,7 +81,8 @@ translate_builtin_local(
         n_shards => NShards,
         storage => emqx_maybe:apply(fun translate_layout/1, Layout),
         poll_workers_per_shard => NPollers,
-        poll_batch_size => BatchSize
+        poll_batch_size => BatchSize,
+        transaction => Transaction
     }.
 
 %%================================================================================
@@ -321,6 +325,36 @@ fields(layout_builtin_reference) ->
                     desc => ?DESC(layout_builtin_reference_type)
                 }
             )}
+    ];
+fields(optimistic_transaction) ->
+    [
+        {flush_interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "5s",
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(otx_flush_interval)
+                }
+            )},
+        {idle_flush_interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "1ms",
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(otx_idle_flush_interval)
+                }
+            )},
+        {conflict_window,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "5s",
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(otx_conflict_window)
+                }
+            )}
     ].
 
 common_builtin_fields(basic) ->
@@ -350,6 +384,14 @@ common_builtin_fields(basic) ->
                 #{
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(builtin_write_buffer)
+                }
+            )},
+        {transaction,
+            sc(
+                ref(optimistic_transaction),
+                #{
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(builtin_optimistic_transaction)
                 }
             )}
     ];
@@ -405,6 +447,8 @@ desc(layout_builtin_wildcard_optimized_v2) ->
     ?DESC(layout_builtin_wildcard_optimized);
 desc(layout_builtin_reference) ->
     ?DESC(layout_builtin_reference);
+desc(optimistic_transaction) ->
+    ?DESC(optimistic_transaction);
 desc(_) ->
     undefined.
 

@@ -38,4 +38,10 @@
     shard, server, ref
 }).
 
+%% Tx
+-define(prev_serial, 2).
+-define(serial, 3).
+-define(batches, 4).
+-define(otx_leader_pid, 5).
+
 -endif.

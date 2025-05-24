@@ -30,8 +30,7 @@
 
 -ifdef(TEST).
 -export([
-    parse_spec_ref/3,
-    components/2
+    parse_spec_ref/3
 ]).
 -endif.
 

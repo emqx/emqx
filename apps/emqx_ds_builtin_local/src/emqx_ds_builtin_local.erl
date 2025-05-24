@@ -36,6 +36,10 @@
     suback/3,
     subscription_info/2,
 
+    new_kv_tx/2,
+    commit_tx/3,
+    tx_commit_outcome/1,
+
     %% `beamformer':
     unpack_iterator/2,
     scan_stream/5,
@@ -47,7 +51,16 @@
     %% `emqx_ds_buffer':
     init_buffer/3,
     flush_buffer/4,
-    shard_of_operation/4
+    shard_of_operation/4,
+
+    %% optimistic_tx
+    otx_get_tx_serial/2,
+    otx_get_leader/2,
+    otx_become_leader/2,
+    otx_prepare_tx/5,
+    otx_commit_tx_batch/4,
+    otx_lookup_ttv/4,
+    otx_get_runtime_config/1
 ]).
 
 %% Internal exports:
@@ -66,6 +79,7 @@
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds_builtin_tx.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -97,15 +111,21 @@
 -type db_opts() ::
     #{
         backend := builtin_local,
+        store_ttv := boolean(),
         storage := emqx_ds_storage_layer:prototype(),
+
         n_shards := pos_integer(),
         poll_workers_per_shard => pos_integer(),
         %% Equivalent to `append_only' from `emqx_ds:create_db_opts':
         force_monotonic_timestamps := boolean(),
-        atomic_batches := boolean()
+        atomic_batches := boolean(),
+        %% Optimistic transaction:
+        transaction => emqx_ds_optimistic_tx:runtime_config()
     }.
 
 -type slab() :: {shard(), emqx_ds_storage_layer:gen_id()}.
+
+-type tx_context() :: emqx_ds_optimistic_tx:ctx().
 
 -define(stream(SHARD, INNER), [2, SHARD | INNER]).
 -define(delete_stream(SHARD, INNER), [3, SHARD | INNER]).
@@ -122,7 +142,17 @@
 open_db(DB, CreateOpts0) ->
     %% Rename `append_only' flag to `force_monotonic_timestamps':
     AppendOnly = maps:get(append_only, CreateOpts0),
-    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
+    CreateOpts1 = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
+    CreateOpts = emqx_utils_maps:deep_merge(
+        #{
+            transaction => #{
+                flush_interval => 1_000,
+                idle_flush_interval => 1,
+                conflict_window => 5_000
+            }
+        },
+        CreateOpts1
+    ),
     case emqx_ds_builtin_local_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
             ok;
@@ -221,6 +251,29 @@ store_batch(DB, Batch, Opts) ->
             store_batch_buffered(DB, Batch, Opts)
     end.
 
+-spec new_kv_tx(emqx_ds:db(), emqx_ds:transaction_opts()) ->
+    {ok, tx_context()} | emqx_ds:error(_).
+new_kv_tx(DB, Options = #{shard := ShardOpt, generation := Generation}) ->
+    case emqx_ds_builtin_local_meta:db_config(DB) of
+        #{atomic_batches := true, store_ttv := true} ->
+            case ShardOpt of
+                {auto, Owner} ->
+                    Shard = shard_of(DB, Owner);
+                Shard ->
+                    ok
+            end,
+            emqx_ds_optimistic_tx:new_kv_tx_ctx(?MODULE, DB, Shard, Generation, Options);
+        _ ->
+            ?err_unrec(database_does_not_support_transactions)
+    end.
+
+-spec commit_tx(emqx_ds:db(), tx_context(), emqx_ds:tx_ops()) -> reference().
+commit_tx(DB, Ctx, Ops) ->
+    emqx_ds_optimistic_tx:commit_kv_tx(DB, Ctx, Ops).
+
+tx_commit_outcome(Reply) ->
+    emqx_ds_optimistic_tx:tx_commit_outcome(Reply).
+
 store_batch_buffered(DB, Messages, Opts) ->
     try
         emqx_ds_buffer:store_batch(DB, Messages, Opts)
@@ -237,7 +290,7 @@ store_batch_atomic(DB, Batch, Opts) ->
         [] ->
             ok;
         [_ | _] ->
-            {error, unrecoverable, atomic_batch_spans_multiple_shards}
+            ?err_unrec(atomic_batch_spans_multiple_shards)
     end.
 
 shards_of_batch(DB, #dsbatch{operations = Operations, preconditions = Preconditions}) ->
@@ -331,7 +384,9 @@ shard_of_operation(DB, {_, #message_matcher{from = From, topic = Topic}}, Serial
         clientid -> Key = From;
         topic -> Key = Topic
     end,
-    shard_of(DB, Key).
+    shard_of(DB, Key);
+shard_of_operation(_DB, #ds_tx{ctx = #kv_tx_ctx{shard = Shard}}, _SerializeBy, _Options) ->
+    Shard.
 
 shard_of(DB, Key) ->
     N = emqx_ds_builtin_local_meta:n_shards(DB),
@@ -547,6 +602,50 @@ do_delete_next(
     end.
 
 %%================================================================================
+%% Optimistic TX
+%%================================================================================
+
+-define(serial_key, <<"emqx_ds_builtin_local_tx_serial">>).
+
+otx_get_tx_serial(DB, Shard) ->
+    emqx_ds_storage_layer_ttv:get_read_tx_serial({DB, Shard}).
+
+otx_become_leader(DB, Shard) ->
+    get_tx_persistent_serial(DB, Shard).
+
+otx_get_leader(DB, Shard) ->
+    emqx_ds_optimistic_tx:where(DB, Shard).
+
+otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
+    emqx_ds_storage_layer_ttv:prepare_tx(DBShard, Generation, SerialBin, Ops, Opts).
+
+otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Batches) ->
+    case get_tx_persistent_serial(DB, Shard) of
+        {ok, SerCtl} ->
+            maybe
+                %% First, update the leader serial to avoid duplicated
+                %% serials, should the following calls fail:
+                ok ?=
+                    emqx_ds_storage_layer:store_global(
+                        DBShard, #{?serial_key => <<Serial:128>>}, #{}
+                    ),
+                %% Commit data:
+                ok ?= emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{}),
+                %% Finally, update read serial:
+                emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial)
+            end;
+        Val ->
+            ?err_unrec({serial_mismatch, SerCtl, Val})
+    end.
+
+otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
+    emqx_ds_storage_layer_ttv:lookup(DBShard, GenId, Topic, Timestamp).
+
+otx_get_runtime_config(DB) ->
+    #{transaction := Val} = emqx_ds_builtin_local_meta:db_config(DB),
+    Val.
+
+%%================================================================================
 %% Internal functions
 %%================================================================================
 
@@ -557,6 +656,14 @@ timeus_to_timestamp(undefined) ->
     undefined;
 timeus_to_timestamp(TimestampUs) ->
     TimestampUs div 1000.
+
+get_tx_persistent_serial(DB, Shard) ->
+    case emqx_ds_storage_layer:fetch_global({DB, Shard}, ?serial_key) of
+        {ok, <<Val:128>>} ->
+            {ok, Val};
+        not_found ->
+            {ok, 0}
+    end.
 
 %%================================================================================
 %% Common test options

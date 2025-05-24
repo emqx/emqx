@@ -104,7 +104,7 @@ value_v1_to_message({Id, Qos, From, Flags, Headers, Topic, Payload, Timestamp, E
     }.
 
 %%--------------------------------------------------------------------------------
-%% Encoding based on ASN1.
+%% Message encoding based on ASN1.
 %%--------------------------------------------------------------------------------
 
 serialize_asn1(#message{
@@ -284,7 +284,7 @@ asn1_std_prop(Key, Map) ->
 
 asn1_decode_headers(
     #'StdHeaders'{
-        protoVer = ProtoVer, peerhost = Peerhost, peername = Peername, username = Username
+        protoVer = ProtoVer, peerhost = PeerHost, peername = PeerName, username = Username
     },
     StdProperties
 ) ->
@@ -294,9 +294,9 @@ asn1_decode_headers(
             asn1_NOVALUE -> M0;
             {Protocol, Ver} -> M0#{protocol => Protocol, proto_ver => Ver}
         end,
-    M2 = asn1_add_optional(peername, decode_ip_port(16, Peername), M1),
+    M2 = asn1_add_optional(peername, decode_ip_port(16, PeerName), M1),
     M3 =
-        case decode_ip_port(0, Peerhost) of
+        case decode_ip_port(0, PeerHost) of
             asn1_NOVALUE -> M2;
             {PeerIP, _} -> M2#{peerhost => PeerIP}
         end,
