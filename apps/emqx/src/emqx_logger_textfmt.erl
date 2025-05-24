@@ -211,6 +211,8 @@ try_encode_meta(MetaKeyName, FmtFun, Report, PayloadFmtOpts) ->
 
 format_packet(undefined, #{payload_encode := Encode}) ->
     {"", Encode};
+format_packet(Packet, #{payload_encode := Encode}) when is_list(Packet); is_binary(Packet) ->
+    {try_format_unicode(Packet), Encode};
 format_packet(Packet, #{payload_encode := Encode}) when is_tuple(Packet) ->
     {try_format_unicode(emqx_packet:format(Packet, Encode)), Encode}.
 

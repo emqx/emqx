@@ -1,0 +1,37 @@
+emqx_nats_schema {
+
+nats.desc:
+"""The NATS gateway provides EMQX with the ability to accept connections from NATS clients."""
+
+server_id.desc:
+"""Server ID."""
+
+server_name.desc:
+"""Server Name."""
+
+default_heartbeat_interval.desc:
+"""Default heartbeat interval for server-to-client PING messages. Default: 30."""
+
+heartbeat_wait_timeout.desc:
+"""Heartbeat timeout threshold. The server will mark a client as offline
+if no heartbeat response is received within this period. Default: 5s."""
+
+protocol.desc:
+"""A group of settings for NATS Server protocol."""
+
+max_payload_size.desc:
+"""The maximum number of bytes of Payload allowed per NATS PUB/HPUB message."""
+
+tcp_ws_listeners.desc:
+"""The gateway's Websocket listener adopts the same structure as the MQTT Websocket listener."""
+
+ws_listener.desc:
+"""Websocket Listener."""
+
+wss_listener.desc:
+"""Websocket over TLS Listener."""
+
+websocket.desc:
+"""Websocket Options."""
+
+}

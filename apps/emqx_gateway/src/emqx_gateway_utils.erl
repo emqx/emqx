@@ -16,7 +16,8 @@
     emqx_gateway_lwm2m,
     emqx_gateway_mqttsn,
     emqx_gateway_ocpp,
-    emqx_gateway_stomp
+    emqx_gateway_stomp,
+    emqx_gateway_nats
 ]).
 
 -export([
@@ -463,6 +464,9 @@ update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg) when ?IS_COWB
     ok = ranch:suspend_listener(Name),
     ok = ranch:set_transport_options(Name, RanchOpts),
     ok = ranch:set_protocol_options(Name, WsOpts),
+    %% NOTE: ranch:suspend_listener/1 will close the listening socket,
+    %% so we need to wait for the listener to be stopped.
+    ok = emqx_listeners:wait_listener_stopped(ListenOn),
     ranch:resume_listener(Name).
 
 diff_listeners(NewListeners, OldListeners) ->
@@ -724,7 +728,7 @@ ranch_opts(Type, ListenOn, Opts) ->
     }.
 
 ws_opts(Opts, Conf) ->
-    ConnMod = maps:get(connection_mod, Conf, emqx_gateway_conn),
+    ConnMod = maps:get(connection_mod, Conf, emqx_gateway_conn_ws),
     WsPaths = [
         {emqx_utils_maps:deep_get([websocket, path], Opts, "") ++ "/[...]", ConnMod, Conf}
     ],

@@ -303,14 +303,19 @@ do_listeners_cluster_status(Listeners) ->
     ).
 
 current_listener_status(Type, Id, _ListenOn) when Type =:= ws; Type =:= wss ->
-    Info = ranch:info(Id),
-    Conns = proplists:get_value(all_connections, Info, 0),
-    Running =
-        case proplists:get_value(status, Info) of
-            running -> true;
-            _ -> false
-        end,
-    {Running, Conns};
+    try
+        Info = ranch:info(Id),
+        Conns = proplists:get_value(all_connections, Info, 0),
+        Running =
+            case proplists:get_value(status, Info) of
+                running -> true;
+                _ -> false
+            end,
+        {Running, Conns}
+    catch
+        error:badarg ->
+            {false, 0}
+    end;
 current_listener_status(_Type, Id, ListenOn) ->
     try esockd:get_current_connections({Id, ListenOn}) of
         Int -> {true, Int}
