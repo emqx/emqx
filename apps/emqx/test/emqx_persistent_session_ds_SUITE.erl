@@ -14,6 +14,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include("../src/emqx_persistent_session_ds/session_internals.hrl").
 
 -include("emqx_persistent_message.hrl").
@@ -21,6 +22,8 @@
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 -define(SETUP_MOD, ?MODULE).
+
+-define(PROP_SUBID, 'Subscription-Identifier').
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -496,6 +499,167 @@ t_subscription_state_change(Config) ->
         end,
         [fun check_stream_state_transitions/1]
     ).
+
+%% Smoke test QoS0 and QoS1/2 subscriptions coexisting in a durable session.
+%% Verifies that such subscriptions follow relevant MQTT Spec requirements and provide
+%% message ordering guarantees corresponding to the mechanism they operate through:
+%% publishing order for "direct" QoS0 subsctipions and per-topic publishing order for
+%% DS-based QoS1/2 subscriptions.
+t_mixed_qos_subscriptions(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_mixed_qos_subscriptions(_Config) ->
+    CPub = start_connect_client(#{clientid => <<"mixed_qos_subscriptions:pub">>}),
+    CSub = start_connect_client(#{clientid => <<"mixed_qos_subscriptions:sub">>}),
+    %% Subscribe to overlapping topics using different QoS levels:
+    %% This should turn into durable mode subscription:
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(CSub, #{?PROP_SUBID => 1}, <<"t/+">>, qos1),
+    %% This should turn into simpler, direct mode subscription:
+    {ok, _, [?RC_GRANTED_QOS_0]} = emqtt:subscribe(CSub, #{?PROP_SUBID => 2}, <<"t/#">>, qos0),
+    %% Verify that respective routes end up in different tables:
+    ?assertEqual([<<"t/+">>], emqx_persistent_session_ds_router:topics()),
+    ?assertEqual([<<"t/#">>], emqx_router:topics()),
+    %% Publish a bunch of messages:
+    Messages = [
+        {<<"t/level/1">>, <<"0">>, 2},
+        {<<"t/1">>, <<"1">>, 2},
+        {<<"t/level/2">>, <<"2">>, 1},
+        {<<"/t">>, <<"XXX">>, 0},
+        {<<"t/2">>, <<"3">>, 0},
+        {<<"t/level/1">>, <<"4">>, 0},
+        {<<"t/1">>, <<"5">>, 0}
+    ],
+    [emqtt:publish(CPub, Topic, Payload, Qos) || {Topic, Payload, Qos} <- Messages],
+    %% We expect 9 messages, 3 for Subscription 1 and 6 for Subscription 2.
+    NExpected = 9,
+    Received = emqx_common_test_helpers:wait_publishes(NExpected, 5_000),
+    %% QoS 0 messages preserve relative publishing order.
+    ?assertMatch(
+        [
+            #{topic := <<"t/level/1">>, payload := <<"0">>},
+            #{topic := <<"t/1">>, payload := <<"1">>},
+            #{topic := <<"t/level/2">>, payload := <<"2">>},
+            #{topic := <<"t/2">>, payload := <<"3">>},
+            #{topic := <<"t/level/1">>, payload := <<"4">>},
+            #{topic := <<"t/1">>, payload := <<"5">>}
+        ],
+        [M || M = #{properties := #{?PROP_SUBID := SID}} <- Received, SID == 2],
+        Received
+    ),
+    %% QoS 1/2 messages preserve only per-topic publishing order.
+    ?assertMatch(
+        [
+            #{qos := 1, topic := <<"t/1">>, payload := <<"1">>},
+            #{qos := 0, topic := <<"t/1">>, payload := <<"5">>},
+            #{qos := 0, topic := <<"t/2">>, payload := <<"3">>}
+        ],
+        emqx_ds_test_helpers:group_by(
+            topic,
+            [M || M = #{properties := #{?PROP_SUBID := SID}} <- Received, SID == 1]
+        ),
+        Received
+    ),
+    ?assertNotReceive(_),
+    %% Only messages matching subscription Subscription 1 should have ended up in DS.
+    ?assertMatch(
+        [
+            #message{qos = 2, topic = <<"t/1">>, payload = <<"1">>},
+            #message{qos = 0, topic = <<"t/2">>, payload = <<"3">>},
+            #message{qos = 0, topic = <<"t/1">>, payload = <<"5">>}
+        ],
+        lists:keysort(
+            #message.payload,
+            emqx_ds_test_helpers:consume(?PERSISTENT_MESSAGE_DB, ['#'])
+        )
+    ).
+
+%% Verify that QoS0 "direct" subscriptions can be turned into QoS1/2 DS-based
+%% subscriptions in a durable session and vice versa, and subscriptions survive
+%% client reconnects regardless of the mechanism.
+t_mixed_qos_subscription_mode_switch(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_mixed_qos_subscription_mode_switch(_Config) ->
+    CIDSub = <<"mixed_qos_subscription_mode_switch:sub">>,
+    CPub = start_connect_client(#{clientid => <<"mixed_qos_subscription_mode_switch:pub">>}),
+    CSub1 = start_connect_client(#{clientid => CIDSub, clean_start => true}),
+    %% This should turn into durable mode subscription.
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(CSub1, #{?PROP_SUBID => 1}, <<"t/+">>, qos1),
+    %% This should turn into direct mode subscription.
+    {ok, _, [?RC_GRANTED_QOS_0]} = emqtt:subscribe(CSub1, #{?PROP_SUBID => 2}, <<"t/#">>, qos0),
+    %% Publish a bunch of messages:
+    [
+        emqtt:publish(CPub, Topic, Payload, Qos)
+     || {Topic, Payload, Qos} <- [
+            {<<"t/level/1">>, <<"0">>, 2},
+            {<<"t/1">>, <<"1">>, 2},
+            {<<"t/level/1">>, <<"2">>, 1},
+            {<<"t/1">>, <<"3">>, 0}
+        ]
+    ],
+    %% Receive them back:
+    Received0 = emqx_common_test_helpers:wait_publishes(2 + 4, 5_000),
+    ?assertNotReceive(_),
+    %% Switch QoS1 subscription to QoS0:
+    {ok, _, [?RC_GRANTED_QOS_0]} = emqtt:subscribe(CSub1, #{?PROP_SUBID => 1}, <<"t/+">>, qos0),
+    %% Switch QoS0 subscription to QoS1:
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(CSub1, #{?PROP_SUBID => 2}, <<"t/#">>, qos1),
+    %% Simulate subscriber going offline for some time:
+    ok = emqtt:disconnect(CSub1),
+    %% Publish a bunch of messages:
+    [
+        emqtt:publish(CPub, Topic, Payload, Qos)
+     || {Topic, Payload, Qos} <- [
+            {<<"t/level/1">>, <<"4">>, 2},
+            {<<"t/1">>, <<"5">>, 1},
+            {<<"t/level/1">>, <<"6">>, 0},
+            {<<"t/1">>, <<"7">>, 0}
+        ]
+    ],
+    %% Reconnect and see what we got:
+    CSub2 = start_connect_client(#{clientid => CIDSub, clean_start => false}),
+    Received1 = emqx_common_test_helpers:wait_publishes(4, 5_000),
+    Received = Received0 ++ Received1,
+    ?assertNotReceive(_),
+    ReceivedS1 = [M || M = #{properties := #{?PROP_SUBID := 1}} <- Received],
+    ReceivedS2 = [M || M = #{properties := #{?PROP_SUBID := 2}} <- Received],
+    %% Subscription 1 messages preserve per-topic publishing order.
+    %% We expect not to receive any messages after downgrade.
+    ?assertMatch(
+        [
+            #{client_pid := CSub1, qos := 1, topic := <<"t/1">>, payload := <<"1">>},
+            #{client_pid := CSub1, qos := 0, topic := <<"t/1">>, payload := <<"3">>}
+        ],
+        ReceivedS1,
+        Received
+    ),
+    %% Subscription 2 messages preserve publishing order before upgrade,
+    %% per-topic publishing order after upgrade.
+    ?assertMatch(
+        [
+            #{qos := 0, topic := <<"t/level/1">>, payload := <<"0">>},
+            #{qos := 0, topic := <<"t/1">>, payload := <<"1">>},
+            #{qos := 0, topic := <<"t/level/1">>, payload := <<"2">>},
+            #{qos := 0, topic := <<"t/1">>, payload := <<"3">>}
+        ],
+        [M || M = #{client_pid := C} <- ReceivedS2, C == CSub1],
+        Received
+    ),
+    ?assertMatch(
+        [
+            #{topic := <<"t/1">>, payload := <<"5">>},
+            #{topic := <<"t/1">>, payload := <<"7">>},
+            #{topic := <<"t/level/1">>, payload := <<"4">>},
+            #{topic := <<"t/level/1">>, payload := <<"6">>}
+        ],
+        emqx_ds_test_helpers:group_by(
+            topic,
+            [M || M = #{client_pid := C} <- ReceivedS2, C == CSub2]
+        ),
+        Received
+    ),
+    %% Verify that respective routes switched places:
+    ?assertEqual([<<"t/+">>], emqx_router:topics()),
+    ?assertEqual([<<"t/#">>], emqx_persistent_session_ds_router:topics()),
+    ok = emqtt:disconnect(CSub2).
 
 %% This testcase verifies the lifetimes of session's subscriptions to
 %% new stream events.
