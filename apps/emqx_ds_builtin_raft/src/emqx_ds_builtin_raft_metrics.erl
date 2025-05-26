@@ -452,7 +452,7 @@ local_shards(Labels) ->
 
 -spec local_shards(emqx_ds:db(), _Labels0 :: [label()]) -> metrics().
 local_shards(DB, Labels) ->
-    Shards = emqx_ds_builtin_raft_shard_allocator:shards(DB),
+    Shards = emqx_ds_builtin_raft_meta:shards(DB),
     ShardsActive = emqx_ds_builtin_raft_db_sup:which_shards(DB),
     gather_metrics(
         fun(Shard) ->
