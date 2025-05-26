@@ -241,10 +241,17 @@ do_unregister_channel_local({_ClientId, ChanPid} = Chan) ->
 
 %% @doc cluster wide global channel unregistration
 do_unregister_channel_global(Chan, Vsn) ->
-    emqx_cm_registry:is_enabled() andalso
-        emqx_cm_registry:unregister_channel(Chan),
-    emqx_lsr:is_enabled() andalso
-        emqx_lsr:unregister_channel(Chan, Vsn).
+    case emqx_lsr:mode() of
+        enabled ->
+            emqx_lsr:unregister_channel(Chan, Vsn);
+        disabled ->
+            emqx_cm_registry:is_enabled() andalso
+                emqx_cm_registry:unregister_channel(Chan);
+        migration_enabled ->
+            emqx_lsr:unregister_channel(Chan, Vsn),
+            emqx_cm_registry:is_enabled() andalso
+                emqx_cm_registry:unregister_channel(Chan)
+    end.
 
 %% @doc Get info of a channel.
 -spec get_chan_info(emqx_types:clientid()) -> option(emqx_types:infos()).
@@ -312,11 +319,13 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     end.
 
 global_chan_cnt() ->
-    case emqx_lsr:is_enabled() of
-        true ->
+    case emqx_lsr:mode() of
+        enabled ->
             emqx_lsr:count_local_d();
-        false ->
-            emqx_cm_registry:count_local_d()
+        disabled ->
+            emqx_cm_registry:count_local_d();
+        migration_enabled ->
+            emqx_cm_registry:count_local_d() + emqx_lsr:count_local_d()
     end.
 
 %% @doc Open a session.
@@ -768,18 +777,23 @@ lookup_channels(ClientId) ->
 %% @doc Lookup local or global channels.
 -spec lookup_channels(local | global, emqx_types:clientid()) -> list(chan_pid()).
 lookup_channels(global, ClientId) ->
-    case {emqx_cm_registry:is_enabled(), emqx_lsr:is_enabled()} of
-        {false, true} ->
+    case {emqx_cm_registry:is_enabled(), emqx_lsr:mode()} of
+        {false, disabled} ->
+            %% Fallback to local
+            lookup_channels(local, ClientId);
+        {false, enabled} ->
             lookup_lsr_channels(ClientId);
-        {true, false} ->
+        {false, migration_enabled} ->
+            lookup_lsr_channels(ClientId);
+        {true, disabled} ->
             emqx_cm_registry:lookup_channels(ClientId);
-        {true, true} ->
+        {true, enabled} ->
+            lookup_lsr_channels(ClientId);
+        {true, migration_enabled} ->
             lists:usort(
                 lookup_lsr_channels(ClientId) ++
                     emqx_cm_registry:lookup_channels(ClientId)
-            );
-        {false, false} ->
-            lookup_channels(local, ClientId)
+            )
     end;
 lookup_channels(local, ClientId) ->
     [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, ClientId)].

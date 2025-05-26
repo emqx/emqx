@@ -15,6 +15,7 @@
 
 -export([
     start_link/0,
+    mode/0,
     is_enabled/0,
     dirty_lookup_channels/1,
     max_channel_d/1,
@@ -45,7 +46,15 @@
 
 -spec is_enabled() -> boolean().
 is_enabled() ->
-    emqx:get_config([broker, enable_linear_session_registry], false).
+    case mode() of
+        enabled -> true;
+        migration_enabled -> true;
+        disabled -> false
+    end.
+
+-spec mode() -> enabled | disabled | migration_enabled.
+mode() ->
+    emqx:get_config([broker, linear_session_registry], disabled).
 
 -spec start_link() -> startlink_ret().
 start_link() ->

@@ -1258,13 +1258,13 @@ fields("broker") ->
                     desc => ?DESC(broker_enable_session_registry)
                 }
             )},
-        {enable_linear_session_registry,
+        {linear_session_registry,
             sc(
-                boolean(),
+                hoconsc:enum([enabled, disabled, migration_enabled]),
                 #{
-                    default => false,
+                    default => disabled,
                     importance => ?IMPORTANCE_HIGH,
-                    desc => ?DESC(broker_enable_linear_session_registry)
+                    desc => ?DESC(broker_linear_session_registry)
                 }
             )},
         {session_history_retain,

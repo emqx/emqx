@@ -26,10 +26,10 @@ groups() ->
     [
         {clean_start_true, [{group, v3}, {group, v5}]},
         {clean_start_false, [{group, v3}, {group, v5}]},
-        {v3, [{group, lsr_only}, {group, lsr_hybrid}]},
-        {v5, [{group, lsr_only}, {group, lsr_hybrid}]},
+        {v3, [{group, lsr_only}, {group, lsr_migration}]},
+        {v5, [{group, lsr_only}, {group, lsr_migration}]},
         {lsr_only, [], AllTCs},
-        {lsr_hybrid, [], AllTCs},
+        {lsr_migration, [], AllTCs},
         {race, [
             %% this is the group lsr could not support
             %   {group, race_sleep_0},
@@ -79,10 +79,10 @@ init_per_group(v5, Config) ->
     ClientOpts = ?config(client_opts, Config),
     lists:keystore(client_opts, 1, Config, {client_opts, ClientOpts#{proto_ver => v5}});
 init_per_group(lsr_only, Config) ->
-    Conf = "broker.enable_linear_session_registry = true\nbroker.enable_session_registry=false",
+    Conf = "broker.linear_session_registry = enabled",
     lists:keystore(emqx_conf, 1, Config, {emqx_conf, Conf});
-init_per_group(lsr_hybrid, Config) ->
-    Conf = "broker.enable_linear_session_registry = true\nbroker.enable_session_registry=true",
+init_per_group(lsr_migration, Config) ->
+    Conf = "broker.linear_session_registry = migration_enabled",
     lists:keystore(emqx_conf, 1, Config, {emqx_conf, Conf});
 init_per_group(race_sleep_0, Config) ->
     lists:keystore(race_sleep, 1, Config, {race_sleep, 0});
@@ -568,7 +568,7 @@ t_lsr_cleanup_core(Config) ->
     %% THEN: clients which is previously down must be cleaned up
     ?retry(
         100,
-        20,
+        50,
         [
             ?assertEqual(
                 {[[], [], [], [], [], []], []},
@@ -591,12 +591,12 @@ t_lsr_batch_cleanup(init, Config) ->
     Nodes = start_cluster(?FUNCTION_NAME, Config, 6),
     [{cluster_nodes, Nodes} | Config].
 t_lsr_batch_cleanup(Config) ->
-    NoCLients = 400,
+    NoClients = 400,
     ClientsOnR1 = lists:map(
         fun(N) ->
             <<"client", (integer_to_binary(N))/binary>>
         end,
-        lists:seq(1, NoCLients)
+        lists:seq(1, NoClients)
     ),
 
     Nodes = ?config(cluster_nodes, Config),
@@ -615,11 +615,19 @@ t_lsr_batch_cleanup(Config) ->
         ClientsOnR1
     ),
 
+    Counts =
+        case ?config(tc_group_properties, Config) of
+            [{name, lsr_migration}] ->
+                %% double counting
+                NoClients * 2;
+            _ ->
+                NoClients
+        end,
     ok = ?retry(
-        _Interval = 100,
+        _Interval = 500,
         _NTimes = 10,
         ?assertEqual(
-            {[400, 400, 400, 400, 400, 400], []},
+            {lists:duplicate(6, Counts), []},
             rpc:multicall(Nodes, emqx_cm, global_chan_cnt, [])
         )
     ),

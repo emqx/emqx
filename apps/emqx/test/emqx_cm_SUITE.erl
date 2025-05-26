@@ -51,10 +51,10 @@ groups() ->
     ].
 
 init_per_group(lsr, Config) ->
-    emqx_config:put([broker, enable_linear_session_registry], true),
+    emqx_config:put([broker, linear_session_registry], enabled),
     Config;
 init_per_group(lsr_off, Config) ->
-    emqx_config:put([broker, enable_linear_session_registry], false),
+    emqx_config:put([broker, linear_session_registry], disabled),
     Config.
 
 end_per_group(_, _Config) ->
@@ -73,11 +73,11 @@ end_per_suite(Config) ->
 
 open_session(CleanStart, ClientInfo0, ConnInfo) ->
     ClientInfo =
-        case emqx_lsr:is_enabled() of
-            true ->
-                ClientInfo0#{predecessor => undefined};
+        case emqx_lsr:mode() of
+            disabled ->
+                ClientInfo0;
             _ ->
-                ClientInfo0
+                ClientInfo0#{predecessor => undefined}
         end,
     emqx_cm:open_session(CleanStart, ClientInfo, stamp_ver(ConnInfo), _WillMsg = undefined).
 
@@ -561,11 +561,13 @@ client(ClientId, Pid, #{transport_started_at := TS} = _ConnInfo) ->
     Pred = #lsr_channel{id = ClientId, pid = Pid, vsn = TS},
     client(ClientId, Pred).
 client(ClientId, Pred) ->
-    case emqx:get_config([broker, enable_linear_session_registry]) of
-        true ->
+    case emqx:get_config([broker, linear_session_registry]) of
+        enabled ->
             #{clientid => ClientId, predecessor => Pred};
-        false ->
-            ClientId
+        disabled ->
+            ClientId;
+        migration_enabled ->
+            #{clientid => ClientId, predecessor => Pred}
     end.
 
 %% For testing
