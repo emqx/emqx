@@ -131,7 +131,7 @@ fold(Fun, Acc0, S, Includes) ->
     emqx_types:subopts(),
     emqx_persistent_session_ds:session()
 ) ->
-    {ok | upgrade, subscription_mode(), emqx_persistent_session_ds_state:t(), subscription()}
+    {ok | mode_changed, subscription_mode(), emqx_persistent_session_ds_state:t(), subscription()}
     | {error, ?RC_QUOTA_EXCEEDED}.
 on_subscribe(TopicFilter, SubOpts, #{id := SessionId, s := S0, props := Props}) ->
     #{max_subscriptions := MaxSubscriptions} = Props,
@@ -209,7 +209,7 @@ update_subscription(TopicFilter, SubOpts, Sub0, SessionId, #{upgrade_qos := Upgr
                         update_subscription_state(TopicFilter, Sub0, OldSState, SState0, S0),
                     Ret = {ok, DesiredMode, S, Sub};
                 durable when DesiredMode =:= direct ->
-                    %% Downgrade from durable to direct is not possible when the session
+                    %% Switch from durable to direct is not possible when the session
                     %% is active. Subscription will remain durable while the client is
                     %% connected.
                     SState = SState0#{mode => durable},
@@ -217,7 +217,7 @@ update_subscription(TopicFilter, SubOpts, Sub0, SessionId, #{upgrade_qos := Upgr
                         update_subscription_state(TopicFilter, Sub0, OldSState, SState, S0),
                     Ret = {ok, durable, S, Sub};
                 direct when DesiredMode =:= durable ->
-                    %% Upgrade from direct to durable is possible.
+                    %% Switch from direct to durable is possible.
                     %% The client however is not expecting to see any messages from the past,
                     %% so we need to recreate the subscription.
                     S1 = delete_subscription(TopicFilter, S0),
@@ -225,13 +225,13 @@ update_subscription(TopicFilter, SubOpts, Sub0, SessionId, #{upgrade_qos := Upgr
                     %% Immediate side-effects:
                     ok = add_route(durable, SessionId, TopicFilter, SubOpts),
                     ok = delete_route(direct, SessionId, TopicFilter),
-                    Ret = {upgrade, durable, S, Sub}
+                    Ret = {mode_changed, durable, S, Sub}
             end,
             ?tp(persistent_session_ds_subscription_updated, #{
                 topic_filter => TopicFilter,
                 session => SessionId,
                 mode => element(2, Ret),
-                upgrade => element(1, Ret) =:= upgrade
+                mode_changed => element(1, Ret) =:= mode_changed
             }),
             Ret
     end.
@@ -275,15 +275,15 @@ on_unsubscribe(SessionId, TopicFilter, S0) ->
 delete_subscription(TopicFilter, S0) ->
     emqx_persistent_session_ds_state:del_subscription(TopicFilter, S0).
 
-%% @doc Restart (and potentially downgrade) subscriptions during session replay.
+%% @doc Restart (and potentially perform mode switch) subscriptions during session replay.
 %% 1. Resubscribes to the broker for direct subscriptions.
-%% 2. Downgrades durable QoS0 subscriptions to direct subscriptions.
-%% Returns a list of events, which currently includes only subscription downgrades.
+%% 2. Replaces durable QoS0 subscriptions with direct ones.
+%% Returns a list of events, which currently includes only subscription mode changes.
 %% To be called before the stream scheduler is initialized.
 -spec on_session_replay(emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:t()) ->
     {emqx_persistent_session_ds_state:t(), [Event]}
 when
-    Event :: {downgrade, subscription_mode(), TopicFilter, subscription()},
+    Event :: {mode_changed, subscription_mode(), TopicFilter, _Old :: subscription()},
     TopicFilter :: emqx_persistent_session_ds:topic_filter().
 on_session_replay(SessionId, S0) ->
     fold(
@@ -307,9 +307,9 @@ restart_subscription(TopicFilter, Sub0 = #{current_state := SStateId}, SessionId
     DesiredMode = desired_subscription_mode(SubOpts),
     case sstate_subscription_mode(SState) of
         durable when DesiredMode =:= direct ->
-            %% Downgrade from durable to direct is now possible:
-            S = downgrade_subscription(TopicFilter, SState, SessionId, S0),
-            {{downgrade, DesiredMode, TopicFilter, Sub0}, S};
+            %% Switch from durable to direct is now possible:
+            S = change_to_direct(TopicFilter, SState, SessionId, S0),
+            {{mode_changed, DesiredMode, TopicFilter, Sub0}, S};
         direct ->
             %% Restore the subscription in the broker:
             ok = add_route(direct, SessionId, TopicFilter, SubOpts);
@@ -318,11 +318,11 @@ restart_subscription(TopicFilter, Sub0 = #{current_state := SStateId}, SessionId
             ok
     end.
 
-downgrade_subscription(TopicFilter, SState, SessionId, S0) ->
+change_to_direct(TopicFilter, SState, SessionId, S0) ->
     #{subopts := SubOpts, upgrade_qos := UpgradeQoS} = SState,
     S1 = delete_subscription(TopicFilter, S0),
     {S, _} = create_subscription(TopicFilter, SubOpts, UpgradeQoS, S1),
-    ?tp(persistent_session_ds_subscription_downgraded, #{
+    ?tp(persistent_session_ds_subscription_mode_changed, #{
         topic_filter => TopicFilter,
         session => SessionId,
         mode => desired_subscription_mode(SubOpts)

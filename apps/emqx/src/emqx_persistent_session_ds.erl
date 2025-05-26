@@ -410,14 +410,14 @@ subscribe(
     Session0 = #{stream_scheduler_s := SchedS0}
 ) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
-        {Ok, durable, S1, Subscription} when Ok == ok; Ok == upgrade ->
+        {Ok, durable, S1, Subscription} when Ok == ok; Ok == mode_changed ->
             {_NewSLSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_subscribe(
                 TopicFilter, Subscription, S1, SchedS0
             ),
             Session = Session0#{s := S, stream_scheduler_s := SchedS},
-            %% If the subscription was upgraded, flush any matching transient messages
+            %% If the subscription mode was changed, flush any matching transient messages
             %% coming directly from the broker:
-            Ok == upgrade andalso flush_transient(TopicFilter),
+            Ok == mode_changed andalso flush_transient(TopicFilter),
             {ok, commit(Session)};
         {ok, direct, S, _Subscription} ->
             Session = Session0#{s := S},
@@ -722,10 +722,10 @@ shared_sub_opts(SessionId) ->
     {ok, replies(), session()}.
 replay(ClientInfo, [], Session0) ->
     #{id := SessionId, s := S0, stream_scheduler_s := SchedS0} = Session0,
-    {S1, Outcomes} = emqx_persistent_session_ds_subs:on_session_replay(SessionId, S0),
+    {S1, Events} = emqx_persistent_session_ds_subs:on_session_replay(SessionId, S0),
     {S2, SchedS1} = lists:foldl(
-        fun({downgrade, direct, TopicFilter, #{id := SubId}}, {SAcc, SchedSAcc}) ->
-            %% Subscription was downgraded, notify the stream scheduler:
+        fun({mode_changed, direct, TopicFilter, #{id := SubId}}, {SAcc, SchedSAcc}) ->
+            %% Subscription mode was changed, notify the stream scheduler:
             emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
                 TopicFilter,
                 SubId,
@@ -734,7 +734,7 @@ replay(ClientInfo, [], Session0) ->
             )
         end,
         {S1, SchedS0},
-        Outcomes
+        Events
     ),
     {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_session_replay(S2, SchedS1),
     Streams = emqx_persistent_session_ds_stream_scheduler:find_replay_streams(S),
@@ -743,7 +743,7 @@ replay(ClientInfo, [], Session0) ->
         stream_scheduler_s := SchedS,
         replay := Streams
     },
-    case Outcomes of
+    case Events of
         [] -> Session2 = Session1;
         _ -> Session2 = commit(Session1)
     end,

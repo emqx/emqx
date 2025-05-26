@@ -344,10 +344,10 @@ t_mixed_qos_subscriptions(_Config) ->
 %% Verify that QoS0 "direct" subcsriptions can be turned into QoS1/2 DS-based
 %% subscriptions in a durable session and vice versa, and subscriptions survive
 %% client reconnects regardless of the mechanism.
-t_mixed_qos_subscription_upgrade_downgrade(_Config) ->
+t_mixed_qos_subscription_mode_switch(_Config) ->
     ok = snabbkaffe:start_trace(),
-    CIDSub = <<"mixed_qos_subscription_upgrade_downgrade:sub">>,
-    CPub = connect(<<"mixed_qos_subscription_upgrade_downgrade:pub">>, true, 0),
+    CIDSub = <<"mixed_qos_subscription_mode_switch:sub">>,
+    CPub = connect(<<"mixed_qos_subscription_mode_switch:pub">>, true, 0),
     CSub1 = connect(CIDSub, true, 30),
     try
         %% This should turn into durable mode subscription.
@@ -369,10 +369,10 @@ t_mixed_qos_subscription_upgrade_downgrade(_Config) ->
         %% Receive them back:
         Received0 = receive_messages(2 + 4),
         ?assertNotReceive(_),
-        %% Downgrade QoS1 subscription:
+        %% Switch QoS1 subscription to QoS0:
         {ok, _, [?RC_GRANTED_QOS_0]} =
             emqtt:subscribe(CSub1, #{?PROP_SUBID => 1}, <<"t/+">>, qos0),
-        %% Upgrade QoS0 subscription:
+        %% Switch QoS0 subscription to QoS1:
         {ok, _, [?RC_GRANTED_QOS_1]} =
             emqtt:subscribe(CSub1, #{?PROP_SUBID => 2}, <<"t/#">>, qos1),
         %% Simulate subscriber going offline for some time:
