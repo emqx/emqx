@@ -167,8 +167,8 @@ init_conn_state(Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}
 info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
     {SockHost, SockPort} = maps:get(sockname, ConnInfo),
     {ok, Vsn} = application:get_key(emqx_gateway_nats, vsn),
-    {TlsRequired, TlsVerify} = tls_required_and_verify(maps:get(listener, ClientInfo)),
-    MsgContent = #{
+    TlsOptions = tls_required_and_verify(maps:get(listener, ClientInfo)),
+    MsgContent = TlsOptions#{
         server_id => emqx_conf:get([gateway, nats, server_id]),
         server_name => emqx_conf:get([gateway, nats, server_name]),
         version => list_to_binary(Vsn),
@@ -178,9 +178,6 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
         proto => 0,
         headers => true,
         auth_required => is_auth_required(ClientInfo),
-        tls_handshake_first => false,
-        tls_required => TlsRequired,
-        tls_verify => TlsVerify,
         jetstream => false
     },
     #nats_frame{operation = ?OP_INFO, message = MsgContent}.
@@ -201,12 +198,17 @@ tls_required_and_verify(ListenerId) ->
             verify_peer
     end,
     case emqx_gateway_utils:parse_listener_id(ListenerId) of
-        {_, <<"ssl">>, Name} ->
-            {true, F("ssl", Name)};
-        {_, <<"wss">>, Name} ->
-            {true, F("wss", Name)};
+        {_, Type, Name} when Type =:= <<"ssl">>; Type =:= <<"wss">> ->
+            %% XXX: Now, we not support to upgrade a TCP connection to TLS,
+            %%      so we hardcode the tls_handshake_first to true.
+            %% ref: https://docs.nats.io/running-a-nats-service/configuration/securing_nats/tls#tls-first-handshake
+            #{
+                tls_handshake_first => true,
+                tls_required => true,
+                tls_verify => F(Type, Name)
+            };
         _ ->
-            {false, false}
+            #{tls_required => false}
     end.
 
 setting_peercert_infos(NoSSL, ClientInfo) when
