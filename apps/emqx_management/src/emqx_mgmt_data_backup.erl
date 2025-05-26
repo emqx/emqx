@@ -318,12 +318,9 @@ delete_file(BackupFileName) ->
 upload(BackupFileName, BackupFileContent) ->
     maybe
         {ok, FilePath} ?= backup_path(BackupFileName),
-        BackupDir = backup_dir(FilePath),
         case filelib:is_file(FilePath) of
-            true ->
-                {error, {already_exists, BackupFileName}};
-            false ->
-                do_upload(FilePath, BackupDir, BackupFileContent)
+            true -> {error, {already_exists, BackupFileName}};
+            false -> do_upload(FilePath, BackupFileContent)
         end
     end.
 
@@ -375,6 +372,8 @@ format_error(not_found) ->
     "backup file not found";
 format_error(bad_backup_name) ->
     "invalid backup name: file name must have " ?TAR_SUFFIX " extension";
+format_error(unsafe_backup_name) ->
+    "unsafe backup name";
 format_error({unsupported_version, ImportVersion}) ->
     str(
         io_lib:format(
@@ -424,7 +423,7 @@ copy(FileNode, BackupFileName) ->
     maybe
         {ok, BackupFileContent} ?=
             emqx_mgmt_data_backup_proto_v1:read_file(FileNode, BackupFileName, infinity),
-        ok = upload(BackupFileName, BackupFileContent)
+        ok ?= upload(BackupFileName, BackupFileContent)
     end.
 
 maybe_not_found({error, enoent}) ->
@@ -432,39 +431,51 @@ maybe_not_found({error, enoent}) ->
 maybe_not_found(Other) ->
     Other.
 
-do_upload(BackupFilePath, BackupDir, BackupFileContent) ->
+do_upload(BackupFilePath, BackupFileContent) ->
     try
-        ok = file:write_file(BackupFilePath, BackupFileContent),
-        ok = extract_backup(BackupFilePath),
-        {ok, _} = validate_backup(BackupDir),
-        HoconFileName = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
-        case filelib:is_regular(HoconFileName) of
-            true ->
-                {ok, RawConf} = hocon:files([HoconFileName]),
-                RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf),
-                {ok, _} = validate_cluster_hocon(RawConf1),
-                ok;
-            false ->
-                %% cluster.hocon can be missing in the backup
-                ok
-        end,
-        ?SLOG(info, #{msg => "emqx_data_upload_success"})
+        maybe
+            {ok, BackupDir} ?= backup_dir(BackupFilePath),
+            ok ?= file:write_file(BackupFilePath, BackupFileContent),
+            ok ?= extract_backup(BackupFilePath),
+            {ok, _} ?= validate_backup(BackupDir),
+            HoconFileName = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
+            ok ?=
+                case filelib:is_regular(HoconFileName) of
+                    true ->
+                        maybe
+                            {ok, RawConf} ?= hocon:files([HoconFileName]),
+                            RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf),
+                            {ok, _} ?= validate_cluster_hocon(RawConf1),
+                            ok
+                        end;
+                    false ->
+                        %% cluster.hocon can be missing in the backup
+                        ok
+                end,
+            ?SLOG(info, #{msg => "emqx_data_upload_success"})
+        else
+            {error, Error} ->
+                ?SLOG(error, #{
+                    msg => "emqx_data_upload_failed",
+                    reason => Error,
+                    backup_file_path => BackupFilePath
+                }),
+                _ = file:delete(BackupFilePath),
+                {error, Error}
+        end
     catch
-        error:{badmatch, {error, Reason}}:Stack ->
-            ?SLOG(error, #{msg => "emqx_data_upload_failed", reason => Reason, stacktrace => Stack}),
-            _ = file:delete(BackupFilePath),
-            {error, Reason};
         Class:Reason:Stack ->
             _ = file:delete(BackupFilePath),
             ?SLOG(error, #{
                 msg => "emqx_data_upload_failed",
+                backup_file_path => BackupFilePath,
                 exception => Class,
                 reason => Reason,
                 stacktrace => Stack
             }),
             {error, Reason}
     after
-        file:del_dir_r(BackupDir)
+        cleanup_backup_dir(BackupFilePath)
     end.
 
 prepare_new_backup(Opts) ->
@@ -658,30 +669,38 @@ parse_version_no_patch(VersionBin) ->
     end.
 
 do_import(BackupFilePath, Opts) ->
-    BackupDir = backup_dir(BackupFilePath),
     maybe_print("Importing data from ~p...~n", [BackupFilePath], Opts),
     try
-        ok = validate_backup_basename(BackupFilePath),
-        ok = extract_backup(BackupFilePath),
-        {ok, _} = validate_backup(BackupDir),
-        ConfErrors = import_cluster_hocon(BackupDir, Opts),
-        MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
-        ?SLOG(info, #{msg => "emqx_data_import_success"}),
-        {ok, #{db_errors => MnesiaErrors, config_errors => ConfErrors}}
+        maybe
+            {ok, BackupDir} ?= backup_dir(BackupFilePath),
+            ok ?= validate_backup_basename(BackupFilePath),
+            ok ?= extract_backup(BackupFilePath),
+            {ok, _} ?= validate_backup(BackupDir),
+            ConfErrors ?= import_cluster_hocon(BackupDir, Opts),
+            MnesiaErrors ?= import_mnesia_tabs(BackupDir, Opts),
+            ?SLOG(info, #{msg => "emqx_data_import_success"}),
+            {ok, #{db_errors => MnesiaErrors, config_errors => ConfErrors}}
+        else
+            {error, Error} ->
+                ?SLOG(error, #{
+                    msg => "emqx_data_import_failed",
+                    reason => Error,
+                    backup_file_path => BackupFilePath
+                }),
+                {error, Error}
+        end
     catch
-        error:{badmatch, {error, Reason}}:Stack ->
-            ?SLOG(error, #{msg => "emqx_data_import_failed", reason => Reason, stacktrace => Stack}),
-            {error, Reason};
         Class:Reason:Stack ->
             ?SLOG(error, #{
                 msg => "emqx_data_import_failed",
+                backup_file_path => BackupFilePath,
                 exception => Class,
                 reason => Reason,
                 stacktrace => Stack
             }),
             {error, Reason}
     after
-        file:del_dir_r(BackupDir)
+        cleanup_backup_dir(BackupFilePath)
     end.
 
 import_mnesia_tabs(BackupDir, Opts) ->
@@ -855,23 +874,31 @@ migrate_mnesia_backup(MnesiaBackupFileName, Mod, Acc) ->
     end.
 
 extract_backup(BackupFilePath) ->
+    ?SLOG(error, #{msg => "extract_backup", backup_file_path => BackupFilePath}),
     RootBackupDir = root_backup_dir(),
-    ok = validate_filenames(BackupFilePath),
-    format_tar_error(erl_tar:extract(BackupFilePath, [{cwd, RootBackupDir}, compressed])).
+    maybe
+        ok ?= validate_filenames(BackupFilePath),
+        ?SLOG(error, #{
+            msg => "extracting_backup", backup => BackupFilePath, root_backup_dir => RootBackupDir
+        }),
+        format_tar_error(erl_tar:extract(BackupFilePath, [{cwd, RootBackupDir}, compressed]))
+    end.
 
 validate_filenames(BackupFilePath) ->
-    {ok, FileNames} = format_tar_error(erl_tar:table(BackupFilePath, [compressed])),
-    BackupName = filename:basename(BackupFilePath, ?TAR_SUFFIX),
-    IsValid = lists:all(
-        fun(FileName) ->
-            [Root | _] = filename:split(FileName),
-            Root =:= BackupName
-        end,
-        FileNames
-    ),
-    case IsValid of
-        true -> ok;
-        false -> {error, bad_archive_dir}
+    maybe
+        {ok, FileNames} ?= format_tar_error(erl_tar:table(BackupFilePath, [compressed])),
+        BackupName = filename:basename(BackupFilePath, ?TAR_SUFFIX),
+        IsValid = lists:all(
+            fun(FileName) ->
+                [Root | _] = filename:split(FileName),
+                Root =:= BackupName
+            end,
+            FileNames
+        ),
+        case IsValid of
+            true -> ok;
+            false -> {error, bad_archive_dir}
+        end
     end.
 
 import_cluster_hocon(BackupDir, Opts) ->
@@ -1165,7 +1192,11 @@ validate_backup_basename(BackupFilePath) ->
 
 backup_dir(BackupFilePath) ->
     BaseName = filename:basename(BackupFilePath, ?TAR_SUFFIX),
-    filename:join(root_backup_dir(), BaseName).
+    RootBackupDir = root_backup_dir(),
+    case filelib:safe_relative_path(BaseName, RootBackupDir) of
+        unsafe -> {error, unsafe_backup_name};
+        _ -> {ok, filename:join(RootBackupDir, BaseName)}
+    end.
 
 backup_path(FileName) when is_binary(FileName) ->
     backup_path(str(FileName));
@@ -1176,4 +1207,10 @@ backup_path(FileName) when is_list(FileName) ->
         {ok, filename:join(root_backup_dir(), FileName)}
     else
         _ -> {error, bad_backup_name}
+    end.
+
+cleanup_backup_dir(BackupFilePath) ->
+    maybe
+        {ok, BackupDir} ?= backup_dir(BackupFilePath),
+        file:del_dir_r(BackupDir)
     end.

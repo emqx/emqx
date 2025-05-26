@@ -351,6 +351,28 @@ t_tar_outside_backup_dir(Config) ->
         string:str(Message, "The path points above the current working directory") > 0
     ).
 
+t_unsafe_backup_name(Config) ->
+    {ok, #{filename := Filename}} = emqx_mgmt_data_backup:export(),
+    ?assert(filelib:is_regular(Filename)),
+    BackupFileName = filename:join(?config(priv_dir, Config), "...tar.gz"),
+    Meta = unicode:characters_to_binary(
+        hocon_pp:do(#{edition => emqx_release:edition(), version => emqx_release:version()}, #{})
+    ),
+    ok = erl_tar:create(
+        BackupFileName,
+        [
+            {"../cluster.hocon", <<>>},
+            {"../META.hocon", Meta}
+        ],
+        [compressed]
+    ),
+    {ok, BackupFileContent} = file:read_file(BackupFileName),
+    ?assertEqual(
+        {error, unsafe_backup_name},
+        emqx_mgmt_data_backup:upload(filename:basename(BackupFileName), BackupFileContent)
+    ),
+    ?assert(filelib:is_regular(Filename)).
+
 t_no_backup_file(_Config) ->
     ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(not_found)),
     ?assertEqual(
