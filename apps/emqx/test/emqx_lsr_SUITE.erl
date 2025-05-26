@@ -351,31 +351,9 @@ t_takeover_timeout(Config) ->
 
     Parent = self(),
     %% WHEN: Client2 and Client3 race to takeover the session
-    Client2 = spawn_link(fun() ->
-        Client = start_client(Config, #{
-            clientid => ClientId, port => ReplicantPort2
-        }),
-        Result =
-            case emqtt:connect(Client) of
-                {ok, _} -> ok;
-                {error, {session_taken_over, _} = E} -> E
-            end,
-        Parent ! {done, self(), Result}
-    end),
-
-    timer:sleep(10),
-    Client3 = spawn_link(fun() ->
-        Client = start_client(Config, #{
-            clientid => ClientId, port => ReplicantPort3
-        }),
-        Result =
-            case emqtt:connect(Client) of
-                {ok, _} -> ok;
-                {error, {session_taken_over, _}} = E -> E
-            end,
-        Parent ! {done, self(), Result}
-    end),
-    timer:sleep(10),
+    Client2 = spawn_link(?MODULE, client_proc, [ClientId, ReplicantPort2, Config, Parent]),
+    timer:sleep(20),
+    Client3 = spawn_link(?MODULE, client_proc, [ClientId, ReplicantPort3, Config, Parent]),
 
     Results = [
         receive
@@ -387,6 +365,8 @@ t_takeover_timeout(Config) ->
     ],
     unsuspend_remote_pids(SuspendedPids),
 
+    Client3 ! stop,
+    Client2 ! stop,
     %% THEN: the last one (Client3) should never fail
     ?assertMatch([_, ok], Results),
 
@@ -866,3 +846,19 @@ wait_for_clients_conn_result(ClientPids, N, Acc) ->
                 end
         end,
     wait_for_clients_conn_result(LeftPids, N, NewAcc).
+
+client_proc(ClientId, Port, Config, Parent) ->
+    Client = start_client(Config, #{
+        clientid => ClientId, port => Port
+    }),
+    Result =
+        case emqtt:connect(Client) of
+            {ok, _} -> ok;
+            {error, {session_taken_over, _} = E} -> E
+        end,
+    Parent ! {done, self(), Result},
+    receive
+        stop -> ok
+    after 6000 ->
+        exit(client_proc_timeout)
+    end.
