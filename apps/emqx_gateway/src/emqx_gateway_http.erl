@@ -73,7 +73,8 @@
 -elvis([
     {elvis_style, god_modules, disable},
     {elvis_style, no_nested_try_catch, disable},
-    {elvis_style, invalid_dynamic_call, disable}
+    {elvis_style, invalid_dynamic_call, disable},
+    {elvis_style, no_catch_expressions, disable}
 ]).
 
 -define(DEFAULT_CALL_TIMEOUT, 15000).
@@ -330,7 +331,8 @@ list_client_subscriptions(GwName, ClientId) ->
             {ok,
                 lists:map(
                     fun({Topic, SubOpts}) ->
-                        SubOpts#{topic => Topic}
+                        Topic1 = emqx_topic:maybe_format_share(Topic),
+                        SubOpts#{topic => Topic1}
                     end,
                     Subs
                 )}

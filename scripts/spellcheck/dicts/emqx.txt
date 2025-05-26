@@ -124,6 +124,7 @@ hocon
 HOCON
 hoconsc
 hostname
+HPUB
 hrecord
 hRecord
 Hrecord
@@ -182,6 +183,7 @@ multicasts
 namespace
 namespacing
 natively
+NATS
 nif
 NIF
 nodelay
