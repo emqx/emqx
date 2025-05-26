@@ -1228,7 +1228,7 @@ trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval}, Retries) -
                     db => DB,
                     tx_fun => Fun,
                     opts => Opts,
-                    retries => Retries,
+                    attempts_left => Retries,
                     reason => Reason
                 }
             ),

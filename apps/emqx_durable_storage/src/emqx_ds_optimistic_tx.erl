@@ -595,7 +595,7 @@ verify_preconditions(DBShard, CBM, GenId, Ops) ->
     end.
 
 tx_timeout_msg(Ref) ->
-    ?ds_tx_commit_error(Ref, undefined, unrecoverable, timeout).
+    ?ds_tx_commit_error(Ref, undefined, unrecoverable, commit_timeout).
 
 reply_success(From, Ref, Meta, Serial) ->
     ?tp(
