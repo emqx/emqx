@@ -16,6 +16,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("kafka_protocol/include/kpro.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -333,6 +334,9 @@ create_connector(Name, Config) ->
     on_exit(fun() -> emqx_connector:remove(?TYPE, Name) end),
     Res.
 
+create_connector_api(ConnectorParams) ->
+    simplify_result(emqx_bridge_v2_testlib:create_connector_api(ConnectorParams)).
+
 create_action(Name, Config) ->
     Res = emqx_bridge_v2_testlib:create_kind_api([
         {bridge_kind, action},
@@ -409,6 +413,33 @@ with_brokers_down(Config, Fun) ->
     emqx_common_test_helpers:with_failure(
         down, ProxyName1, ProxyHost, ProxyPort, fun() ->
             emqx_common_test_helpers:with_failure(down, ProxyName2, ProxyHost, ProxyPort, Fun)
+        end
+    ).
+
+mock_iam_metadata_v2_calls() ->
+    ok = meck:new(erlcloud_ec2_meta, [passthrough]),
+    ok = meck:expect(
+        erlcloud_ec2_meta,
+        get_metadata_v2_session_token,
+        fun(_Cfg) -> {ok, <<"mocked token">>} end
+    ),
+    ok = meck:expect(
+        erlcloud_ec2_meta,
+        get_instance_metadata_v2,
+        fun(Path, _Cfg, _Opts) ->
+            case Path of
+                "placement/region" ->
+                    {ok, <<"sa-east-1">>};
+                "iam/security-credentials/" ->
+                    {ok, <<"mocked_role\n">>};
+                "iam/security-credentials/mocked_role" ->
+                    Resp = #{
+                        <<"AccessKeyId">> => <<"mockedkeyid">>,
+                        <<"SecretAccessKey">> => <<"mockedsecretkey">>,
+                        <<"Token">> => <<"mockedtoken">>
+                    },
+                    {ok, emqx_utils_json:encode(Resp)}
+            end
         end
     ).
 
@@ -1774,4 +1805,77 @@ t_fallback_actions(Config) when is_list(Config) ->
 
     ?assertReceive({deliver, RepublishTopic, #message{payload = Payload}}),
 
+    ok.
+
+%% Exercises the code path where we use MSK IAM authentication.
+%% Unfortunately, there seems to be no good way to accurately test this as it would
+%% require running this in an EC2 instance to pass, and also to have a Kafka cluster
+%% configured to use MSK IAM authentication.
+t_msk_iam_authn(Config) ->
+    Type = proplists:get_value(type, Config, ?TYPE),
+    ConnectorName = proplists:get_value(connector_name, Config, <<"c">>),
+    ConnectorConfig0 = proplists:get_value(
+        connector_config, Config, connector_config()
+    ),
+    ConnectorConfig = emqx_bridge_v2_testlib:parse_and_check_connector(
+        Type,
+        ConnectorName,
+        emqx_utils_maps:deep_merge(
+            ConnectorConfig0,
+            #{<<"authentication">> => <<"msk_iam">>}
+        )
+    ),
+    ConnectorParams = [
+        {connector_config, ConnectorConfig},
+        {connector_name, ConnectorName},
+        {connector_type, Type}
+    ],
+    %% We mock the innermost call with the SASL authentication made by the OAuth plugin to
+    %% try and exercise most of the code.
+    mock_iam_metadata_v2_calls(),
+    ok = meck:new(emqx_bridge_kafka_msk_iam_authn, [passthrough]),
+    TestPid = self(),
+    emqx_common_test_helpers:with_mock(
+        kpro_lib,
+        send_and_recv,
+        fun(Req, Sock, Mod, ClientId, Timeout) ->
+            case Req of
+                #kpro_req{api = sasl_handshake} ->
+                    #{error_code => no_error};
+                #kpro_req{api = sasl_authenticate} ->
+                    TestPid ! sasl_auth,
+                    #{error_code => no_error, session_lifetime_ms => 2_000};
+                _ ->
+                    meck:passthrough([Req, Sock, Mod, ClientId, Timeout])
+            end
+        end,
+        fun() ->
+            ?assertMatch(
+                {201, #{<<"status">> := <<"connected">>}},
+                create_connector_api(ConnectorParams)
+            ),
+            %% Must have called our callback once
+            ?assertMatch(
+                [{_, {_, token_callback, _}, {ok, #{token := <<_/binary>>}}}],
+                meck:history(emqx_bridge_kafka_msk_iam_authn)
+            ),
+            receive
+                sasl_auth -> ok
+            after 0 -> ct:fail("the impossible has happened!?")
+            end,
+            %% Should renew auth after according to `session_lifetime_ms`.
+            ct:pal("waiting for renewal"),
+            receive
+                sasl_auth -> ok
+            after 3_000 -> ct:fail("did not renew sasl auth")
+            end,
+            ?assertMatch(
+                [
+                    {_, {_, token_callback, _}, {ok, #{token := A}}},
+                    {_, {_, token_callback, _}, {ok, #{token := B}}}
+                ] when A /= B,
+                meck:history(emqx_bridge_kafka_msk_iam_authn)
+            )
+        end
+    ),
     ok.

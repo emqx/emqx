@@ -55,7 +55,8 @@
     restart/1,
     list/0,
     list/1,
-    list/2
+    list/2,
+    list_active/0
 ]).
 
 %% Plugin config APIs
@@ -378,6 +379,23 @@ restart(NameVsn) ->
         {error, Reason} -> {error, Reason}
     end.
 
+%% @doc Return Name-Vsn list of currently running plugins.
+-spec list_active() -> [binary()].
+list_active() ->
+    lists:sort(
+        lists:foldl(
+            fun
+                (#{running_status := running} = Plugin, Acc) ->
+                    #{name := Name, rel_vsn := Vsn} = Plugin,
+                    [name_vsn(Name, Vsn) | Acc];
+                (_, Acc) ->
+                    Acc
+            end,
+            [],
+            list()
+        )
+    ).
+
 %% @doc List all installed plugins.
 %% Including the ones that are installed, but not enabled in config.
 -spec list() -> [emqx_plugins_info:t()].
@@ -535,7 +553,7 @@ do_list([], All) ->
     All;
 do_list([#{name_vsn := NameVsn} | Rest], All) ->
     SplitF = fun(#{name := Name, rel_vsn := Vsn}) ->
-        bin([Name, "-", Vsn]) =/= bin(NameVsn)
+        name_vsn(Name, Vsn) =/= bin(NameVsn)
     end,
     case lists:splitwith(SplitF, All) of
         {_, []} ->
@@ -932,3 +950,6 @@ bin_key(Term) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+name_vsn(Name, Vsn) ->
+    emqx_plugins_utils:make_name_vsn_binary(Name, Vsn).

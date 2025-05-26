@@ -65,6 +65,13 @@ fields(provider) ->
                 default => openai, required => true, desc => ?DESC(type)
             })},
         {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})},
+        {base_url,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC(base_url),
+                validator => fun validate_url/1,
+                default => <<"https://api.openai.com/v1">>
+            })},
         {transport_options,
             mk(ref(transport_options), #{
                 default => #{},
@@ -217,3 +224,13 @@ without_fields(FieldNames, Fields) ->
 
 validate_name(Name) ->
     emqx_resource:validate_name(Name).
+
+validate_url(URL) ->
+    case uri_string:parse(URL) of
+        #{scheme := <<"http">>} ->
+            ok;
+        #{scheme := <<"https">>} ->
+            ok;
+        _ ->
+            throw("bad_base_url")
+    end.

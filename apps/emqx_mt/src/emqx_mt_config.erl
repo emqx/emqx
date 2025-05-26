@@ -11,6 +11,8 @@
 
 %% API
 -export([
+    load/0,
+
     get_max_sessions/1,
     get_allow_only_managed_namespaces/0,
     set_allow_only_managed_namespaces/1,
@@ -107,7 +109,7 @@ get_max_sessions(Ns) ->
         {ok, #{?session := #{?max_sessions := Max}}} ?= get_managed_ns_config(Ns),
         Max
     else
-        _ -> emqx_config:get([multi_tenancy, default_max_sessions])
+        _ -> emqx_config:get([multi_tenancy, default_max_sessions], infinity)
     end.
 
 -doc """
@@ -116,7 +118,7 @@ namespaces to connect
 """.
 -spec get_allow_only_managed_namespaces() -> boolean().
 get_allow_only_managed_namespaces() ->
-    emqx_config:get([multi_tenancy, allow_only_managed_namespaces]).
+    emqx_config:get([multi_tenancy, allow_only_managed_namespaces], false).
 
 -doc """
 When `allow_only_managed_namespaces = true`, we don't allow clients from non-managed
@@ -246,6 +248,38 @@ cleanup_managed_ns_configs_v1(Ns, ConfigsList) ->
 ) -> ok.
 cleanup_managed_ns_configs_v1(Ns, ConfigsList, _ClusterRPCOpts) ->
     do_cleanup_managed_ns_configs(Ns, ConfigsList).
+
+-doc """
+Used to initialize state when the node (re)starts.
+""".
+load() ->
+    %% N.B. this is very similar to `on_backup_table_imported`, with the difference that
+    %% this executes the side-effects locally only.
+    Errors =
+        emqx_mt_state:fold_managed_nss(
+            fun(#{ns := Ns, configs := Configs}, Acc) ->
+                Diffs = #{added => Configs, changed => #{}},
+                SideEffects = compute_config_update_side_effects(Diffs, Ns),
+                {ok, Errors} = execute_side_effects_v1(SideEffects),
+                case Errors of
+                    [] ->
+                        Acc;
+                    _ ->
+                        Acc#{Ns => Errors}
+                end
+            end,
+            #{}
+        ),
+    case map_size(Errors) == 0 of
+        true ->
+            ok;
+        false ->
+            ?SLOG(warning, #{
+                msg => "errors_while_loading_mt_config",
+                errors => Errors
+            }),
+            ok
+    end.
 
 %%------------------------------------------------------------------------------
 %% `emqx_config_backup' API

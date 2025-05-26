@@ -123,7 +123,7 @@ defmodule Mix.Tasks.Emqx.Ct do
       :emqx_common_test_helpers,
       :emqx_bridge_testlib,
       :emqx_bridge_v2_testlib,
-      :emqx_authn_http_test_server,
+      :emqx_utils_http_test_server,
     ])
   end
 

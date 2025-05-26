@@ -246,8 +246,8 @@ pre_config_update(_, {delete, _Backend}, undefined) ->
 pre_config_update(_, {delete, _Backend}, _OldConf) ->
     {ok, null}.
 
-post_config_update(_, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
-    _ = on_config_update(UpdateReq, NewConf),
+post_config_update(Path, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
+    _ = on_config_update(Path, UpdateReq, NewConf),
     ok.
 
 propagated_post_config_update(
@@ -269,7 +269,7 @@ propagated_post_config_update(
             Error
     end.
 
-on_config_update({update, Backend, _RawConfig}, Config) ->
+on_config_update(_Path, {update, Backend, _RawConfig}, Config) ->
     Provider = provider(Backend),
     case lookup(Backend) of
         undefined ->
@@ -290,7 +290,7 @@ on_config_update({update, Backend, _RawConfig}, Config) ->
                 end
             )
     end;
-on_config_update({delete, Backend}, _NewConf) ->
+on_config_update(_Path, {delete, Backend}, _NewConf) ->
     case lookup(Backend) of
         undefined ->
             on_backend_updated(Backend, {error, not_exists}, undefined);
@@ -303,7 +303,11 @@ on_config_update({delete, Backend}, _NewConf) ->
                     ets:delete(?MOD_TAB, Backend)
                 end
             )
-    end.
+    end;
+on_config_update([dashboard, sso, BackendAtom] = Path, '$remove', Undefined) ->
+    on_config_update(Path, {delete, BackendAtom}, Undefined);
+on_config_update(_Path, _Req, _Conf) ->
+    ok.
 
 lookup(Backend) ->
     case ets:lookup(?MOD_TAB, Backend) of

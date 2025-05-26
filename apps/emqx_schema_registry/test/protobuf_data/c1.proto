@@ -1,0 +1,3 @@
+message Boh {
+  required int32 boh = 1;
+}

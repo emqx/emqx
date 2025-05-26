@@ -1,0 +1,15 @@
+emqx_bridge_doris_action_schema {
+
+  doris {
+    label: """Doris Action"""
+    desc:
+    """Action to interact with a Doris Connector."""
+  }
+
+  action_parameters {
+    label: "Action Parameters"
+    desc:
+    """Additional parameters specific to this action type"""
+  }
+
+}

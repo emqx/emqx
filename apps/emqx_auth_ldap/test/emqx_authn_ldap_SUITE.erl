@@ -13,7 +13,6 @@
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
--define(LDAP_RESOURCE, <<"emqx_authn_ldap_SUITE">>).
 
 -define(PATH, [authentication]).
 -define(ResourceID, <<"password_based:ldap">>).

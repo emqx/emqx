@@ -53,7 +53,7 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     Url1 =
         case Path of
             <<>> -> Url;
-            _ -> iolist_to_binary(emqx_bridge_http_connector:join_paths(Url, Path))
+            _ -> iolist_to_binary(emqx_utils_uri:join_path(Url, Path))
         end,
 
     BridgeV1Config4#{

@@ -16,7 +16,8 @@
     init_transfer_state_and_container_opts/2,
     process_append/2,
     process_write/1,
-    process_complete/1
+    process_complete/1,
+    process_terminate/1
 ]).
 
 -include("emqx_bridge_s3tables.hrl").
@@ -319,6 +320,20 @@ process_complete(#{?inner_transfer := #partitioned_transfer{}} = TransferState0)
     } = TransferState0,
     PKs = maps:keys(ParSt0),
     do_process_complete_partitioned(PKs, TransferState0).
+
+-spec process_terminate(transfer_state()) -> ok.
+process_terminate(#{?inner_transfer := #single_transfer{} = TransferState}) ->
+    #single_transfer{state = S3TransferState} = TransferState,
+    _ = emqx_s3_upload:abort(S3TransferState),
+    ok;
+process_terminate(#{?inner_transfer := #partitioned_transfer{} = TransferState}) ->
+    #partitioned_transfer{state = St} = TransferState,
+    maps:foreach(
+        fun(_PK, #{?s3_transfer_state := S3TransferState}) ->
+            _ = emqx_s3_upload:abort(S3TransferState)
+        end,
+        St
+    ).
 
 %%------------------------------------------------------------------------------
 %% Internal fns

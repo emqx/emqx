@@ -45,6 +45,8 @@ init_per_testcase(Case, Config) ->
 end_per_testcase(Case, Config) ->
     ?MODULE:Case({'end', Config}).
 
+bin(X) -> iolist_to_binary(X).
+
 t_add({init, Config}) ->
     Config;
 t_add({'end', _Config}) ->
@@ -163,4 +165,16 @@ t_mfa(_) ->
     ),
     ok.
 
-bin(X) -> iolist_to_binary(X).
+t_remove_inexistent({init, Config}) ->
+    Config;
+t_remove_inexistent({'end', _Config}) ->
+    ok;
+t_remove_inexistent(Config) when is_list(Config) ->
+    ?check_trace(
+        ?assertEqual(ok, emqx_conf_cli:conf(["remove", "dashboard.sso.saml"])),
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(["update_config_failed"], Trace)),
+            ok
+        end
+    ),
+    ok.

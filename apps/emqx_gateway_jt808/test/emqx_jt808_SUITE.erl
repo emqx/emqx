@@ -14,10 +14,8 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(FRM_FLAG, 16#7e:8).
 -define(RESERVE, 0).
 -define(NO_FRAGMENT, 0).
--define(WITH_FRAGMENT, 1).
 -define(NO_ENCRYPT, 0).
 -define(MSG_SIZE(X), X:10 / big - integer).
 

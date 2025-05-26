@@ -1,0 +1,33 @@
+services:
+  doris-fe:
+    image: apache/doris:fe-2.1.9
+    ## N.B. 2025-05-19
+    ## Doris 3.0.5 is problematic to run locally in dev machines, and possibly in CI.  It
+    ## seems to require cgroups v1 to run inside docker, and that may be absent from dev
+    ## machines / CI.  Also, 2.1.9 is currently the stable version.
+    # image: apache/doris:fe-3.0.5
+    container_name: doris-fe
+    hostname: fe
+    environment:
+     - FE_SERVERS=fe1:172.100.239.10:9010
+     - FE_ID=1
+    networks:
+      emqx_bridge:
+        ipv4_address: 172.100.239.10
+  doris-be:
+    image: apache/doris:be-2.1.9
+    ## N.B. 2025-05-19
+    ## Doris 3.0.5 is problematic to run locally in dev machines, and possibly in CI.  It
+    ## seems to require cgroups v1 to run inside docker, and that may be absent from dev
+    ## machines / CI.  Also, 2.1.9 is currently the stable version.
+    # image: apache/doris:be-3.0.5
+    hostname: be
+    container_name: doris-be
+    environment:
+     - FE_SERVERS=fe1:172.100.239.10:9010
+     - BE_ADDR=172.100.239.11:9050
+    depends_on:
+      - doris-fe
+    networks:
+      emqx_bridge:
+        ipv4_address: 172.100.239.11

@@ -1,0 +1,6 @@
+import "c.proto";
+
+message Bah {
+  required string bah = 1;
+  optional Boh boh = 2;
+}

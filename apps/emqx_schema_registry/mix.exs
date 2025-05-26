@@ -7,6 +7,9 @@ defmodule EMQXSchemaRegistry.MixProject do
       app: :emqx_schema_registry,
       version: "0.1.0",
       build_path: "../../_build",
+      compilers: Mix.compilers() ++ [:copy_srcs],
+      # used by our `Mix.Tasks.Compile.CopySrcs` compiler
+      extra_dirs: extra_dirs(),
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
@@ -31,5 +34,14 @@ defmodule EMQXSchemaRegistry.MixProject do
       UMP.common_dep(:gpb, runtime: true),
       {:avlizer, github: "emqx/avlizer", tag: "0.5.1.1"},
     ]
+  end
+
+  defp extra_dirs() do
+    dirs = []
+    if UMP.test_env?() do
+      ["test" | dirs]
+    else
+      dirs
+    end
   end
 end

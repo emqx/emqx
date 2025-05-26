@@ -73,6 +73,16 @@ schema_type_json.desc:
 schema_type_json.label:
 """JSON Schema"""
 
+protobuf_source_bundle_type.label:
+"""Protobuf Bundle"""
+protobuf_source_bundle_type.desc:
+"""Protobuf bundle file (`.tar.gz`) containing one or more Protobuf files."""
+
+protobuf_source_bundle_root_proto_path.label:
+"""Root Protobuf file path"""
+protobuf_source_bundle_root_proto_path.desc:
+"""Name of the root Protobuf file for this schema.  Must reside at the root of the bundle (i.e., not nested in any directory)."""
+
 schema_type_external_http.desc:
 """Must be `external_http` for External HTTP."""
 

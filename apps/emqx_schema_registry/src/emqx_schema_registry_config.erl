@@ -26,6 +26,11 @@
 %% `emqx_config_backup' API
 -behaviour(emqx_config_backup).
 -export([import_config/1]).
+-export([prepare_protobuf_files_for_export/1]).
+
+-ifdef(TEST).
+-export([protobuf_bundle_data_dir/1]).
+-endif.
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -115,11 +120,21 @@ delete_external_registry(Name) ->
 %% `emqx_config_handler' API
 %%------------------------------------------------------------------------------
 
-pre_config_update(?SCHEMA_CONF_PATH(Name), NewRawConf, _OldConf) ->
-    maybe
-        ok ?= validate_name(Name),
-        convert_certs(Name, NewRawConf)
+pre_config_update(?SCHEMA_CONF_PATH(Name), RawConf0, _OldConf) ->
+    BundleDir = protobuf_bundle_data_dir(Name),
+    TmpDir = mk_temp_dir(BundleDir),
+    try
+        maybe
+            {ok, RawConf, SideEffect} ?=
+                handle_one_schema_pre_config_update(Name, RawConf0, TmpDir),
+            SideEffect(),
+            {ok, RawConf}
+        end
+    after
+        file:del_dir_r(TmpDir)
     end;
+pre_config_update([?CONF_KEY_ROOT], NewRawConf, _OldConf) ->
+    handle_import_root_pre_config_update(NewRawConf);
 pre_config_update(_Path, NewRawConf, _OldConf) ->
     {ok, NewRawConf}.
 
@@ -132,6 +147,7 @@ post_config_update(
     _AppEnvs
 ) ->
     emqx_schema_registry:async_delete_serdes([Name]),
+    delete_protobuf_bundle_data_dir(Name),
     ok;
 %% add or update schema
 post_config_update(
@@ -208,6 +224,14 @@ import_config(#{?CONF_KEY_ROOT_BIN := RawConf0}) ->
     end;
 import_config(_RawConf) ->
     {ok, #{root_key => ?CONF_KEY_ROOT, changed => []}}.
+
+prepare_protobuf_files_for_export(
+    #{?CONF_KEY_ROOT_BIN := #{<<"schemas">> := Schemas0} = SR0} = RawConf0
+) ->
+    Schemas = prepare_protobuf_files_for_export1(Schemas0),
+    RawConf0#{<<"schema_registry">> := SR0#{<<"schemas">> := Schemas}};
+prepare_protobuf_files_for_export(RawConf) ->
+    RawConf.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -313,4 +337,297 @@ convert_certs(Name, #{<<"parameters">> := #{<<"ssl">> := SSL} = Params0} = RawCo
         {ok, RawConf0#{<<"parameters">> := Params0#{<<"ssl">> := NewSSL}}}
     end;
 convert_certs(_Name, RawConf) ->
+    {ok, RawConf}.
+
+convert_protobuf_bundle(
+    Name,
+    #{
+        <<"type">> := <<"protobuf">>,
+        <<"source">> := #{
+            <<"type">> := <<"bundle">>,
+            <<"files">> := _
+        }
+    } = RawConf0,
+    TmpDir
+) ->
+    do_convert_protobuf_bundle(Name, RawConf0, TmpDir);
+convert_protobuf_bundle(_Name, RawConf, _TmpDir) ->
+    SideEffect = fun() -> ok end,
+    {ok, RawConf, _TmpRootPath = undefined, SideEffect}.
+
+do_convert_protobuf_bundle(Name, RawConf0, TmpDir) ->
+    #{
+        <<"type">> := <<"protobuf">>,
+        <<"source">> := #{
+            <<"type">> := <<"bundle">>,
+            <<"files">> := Files
+        }
+    } = RawConf0,
+    maybe
+        {ok, RootFile, OtherFiles} ?= find_protobuf_bundle_root_file(Files),
+        ok ?= validate_protobuf_path(RootFile),
+        do_convert_protobuf_bundle1(Name, RawConf0, RootFile, OtherFiles, TmpDir)
+    end.
+
+do_convert_protobuf_bundle1(Name, RawConf0, RootFile, OtherFiles, TmpDir) ->
+    maybe
+        {ok, RootPath, TmpRootPath, SideEffect} ?=
+            copy_protobuf_bundle_to_data_dir(Name, RootFile, OtherFiles, TmpDir),
+        ok ?= validate_protobuf_imports({path, TmpRootPath}),
+        NewSource = #{
+            <<"type">> => <<"bundle">>,
+            <<"root_proto_path">> => RootPath
+        },
+        RawConf = RawConf0#{<<"source">> := NewSource},
+        {ok, RawConf, TmpRootPath, SideEffect}
+    end.
+
+find_protobuf_bundle_root_file(Files) ->
+    {RootFiles, OtherFiles} =
+        lists:partition(
+            fun
+                (#{<<"root">> := true}) -> true;
+                (_) -> false
+            end,
+            Files
+        ),
+    case RootFiles of
+        [] ->
+            {error, <<"must have exactly one root file">>};
+        [_, _ | _] ->
+            {error, <<"must have exactly one root file">>};
+        [RootFile] ->
+            {ok, RootFile, OtherFiles}
+    end.
+
+protobuf_bundle_data_dir(Name) ->
+    DataDir = emqx:data_dir(),
+    filename:join([DataDir, "schemas", "proto", Name]).
+
+validate_protobuf_path(#{<<"path">> := Path}) ->
+    case filelib:safe_relative_path(Path, "") of
+        unsafe ->
+            {error, {bad_path, Path}};
+        _ ->
+            ok
+    end;
+validate_protobuf_path(BadFile) ->
+    {error, {bad_file, BadFile}}.
+
+%% If the config update request already points to existings files, we need to check them
+%% too.
+validate_protobuf_imports_already_converted(
+    #{
+        <<"type">> := <<"protobuf">>,
+        <<"source">> := #{
+            <<"type">> := <<"bundle">>,
+            <<"root_proto_path">> := RootPath0
+        }
+    } = RawConfig,
+    TmpRootPath
+) ->
+    RootPath =
+        case TmpRootPath of
+            undefined ->
+                %% We didn't just convert input files.
+                RootPath0;
+            _ ->
+                %% Just converted files that are in temporary path awaiting to be
+                %% moved to final destination.
+                TmpRootPath
+        end,
+    maybe
+        ok ?= validate_protobuf_imports({path, RootPath}),
+        {ok, RawConfig}
+    end;
+validate_protobuf_imports_already_converted(
+    #{
+        <<"type">> := <<"protobuf">>,
+        <<"source">> := Source
+    } = RawConfig,
+    _TmpRootPath
+) when is_binary(Source) ->
+    maybe
+        ok ?= validate_protobuf_imports({raw, Source}),
+        {ok, RawConfig}
+    end;
+validate_protobuf_imports_already_converted(RawConfig, _TmpRootPath) ->
+    {ok, RawConfig}.
+
+validate_protobuf_imports(SourceOrRootPath) ->
+    #{
+        missing := Missing,
+        invalid := Invalid
+    } = emqx_schema_registry_serde:protobuf_resolve_imports(SourceOrRootPath),
+    case {Missing, Invalid} of
+        {[], []} ->
+            ok;
+        _ ->
+            {error,
+                {invalid_or_missing_imports, #{
+                    missing => Missing,
+                    invalid => Invalid
+                }}}
+    end.
+
+delete_protobuf_bundle_data_dir(Name) ->
+    DataDir = protobuf_bundle_data_dir(Name),
+    _ = file:del_dir_r(DataDir),
+    ok.
+
+copy_protobuf_bundle_to_data_dir(Name, RootFile, OtherFiles, TmpDir) ->
+    DataDir = protobuf_bundle_data_dir(Name),
+    ok = filelib:ensure_path(DataDir),
+    %% Root file is validated earlier in the pipeline.
+    #{<<"path">> := RootPath0} = RootFile,
+    RootPath = filename:join([DataDir, RootPath0]),
+    TmpRootPath = filename:join([TmpDir, RootPath0]),
+    ok = filelib:ensure_dir(RootPath),
+    SideEffect = fun() -> replace_directory(TmpDir, DataDir) end,
+    SuccessRes = {ok, RootPath, TmpRootPath, SideEffect},
+    emqx_utils:foldl_while(
+        fun
+            (#{<<"path">> := Path0, <<"contents">> := Contents} = File, Acc) ->
+                case validate_protobuf_path(File) of
+                    {error, Reason} ->
+                        {halt, {error, Reason}};
+                    ok ->
+                        Path = filename:join([TmpDir, Path0]),
+                        %% Note: `Path0` may contain nested directories.
+                        ok = filelib:ensure_dir(Path),
+                        ok = file:write_file(Path, Contents),
+                        {cont, Acc}
+                end;
+            (BadFile, _Acc) ->
+                {halt, {error, {bad_file, BadFile}}}
+        end,
+        SuccessRes,
+        [RootFile | OtherFiles]
+    ).
+
+-doc """
+Creates a new temporary directory with a random name given a desired final directory.
+""".
+mk_temp_dir(BaseDir) ->
+    RandomSuffix = emqx_utils:rand_id(10),
+    Name = filename:basename(BaseDir),
+    DirName = filename:dirname(BaseDir),
+    TmpName0 = iolist_to_binary([Name, "-", RandomSuffix]),
+    TmpName = filename:join([DirName, TmpName0]),
+    ok = filelib:ensure_path(TmpName),
+    TmpName.
+
+%% If the destination directory exists, rename it to something random, move the temporary
+%% dir to its place, delete original dir.  Otherwise, just move temporary dir to final
+%% destination.
+replace_directory(NewTmpDir, DestinationDir) ->
+    case filelib:is_dir(DestinationDir) of
+        true ->
+            DestinationDirSegs0 = filename:split(DestinationDir),
+            [DestinationDirBaseName0 | RevSegs] = lists:reverse(DestinationDirSegs0),
+            RandId = emqx_utils:rand_id(10),
+            DestinationDirBaseName = iolist_to_binary([DestinationDirBaseName0, "-", RandId]),
+            DestinationDirSegs = lists:reverse([DestinationDirBaseName | RevSegs]),
+            DestinationDirTmp = filename:join(DestinationDirSegs),
+            ok = file:rename(DestinationDir, DestinationDirTmp),
+            ok = file:rename(NewTmpDir, DestinationDir),
+            ok = file:del_dir_r(DestinationDirTmp);
+        false ->
+            ok = file:rename(NewTmpDir, DestinationDir)
+    end.
+
+prepare_protobuf_files_for_export1(Schemas0) ->
+    maps:map(
+        fun
+            (Name, #{<<"type">> := <<"protobuf">>, <<"source">> := Source0} = Sc0) ->
+                Source = prepare_protobuf_files_for_export2(Source0, Name),
+                Sc0#{<<"source">> := Source};
+            (_Name, Schema) ->
+                Schema
+        end,
+        Schemas0
+    ).
+
+str(X) -> emqx_utils_conv:str(X).
+
+strip_leading_dir(Path0, Dir0) ->
+    Path = str(Path0),
+    Dir = str(Dir0),
+    lists:flatten(string:replace(Path, Dir ++ "/", "", leading)).
+
+prepare_protobuf_files_for_export2(#{<<"type">> := <<"bundle">>} = Source0, Name) ->
+    #{<<"root_proto_path">> := RootPath} = Source0,
+    #{valid := Valid} = emqx_schema_registry_serde:protobuf_resolve_imports({path, RootPath}),
+    RootName = str(filename:basename(RootPath)),
+    %% todo: warn about missing/invalid files?
+    SchemaDir = protobuf_bundle_data_dir(Name),
+    Files =
+        lists:map(
+            fun(Path0) ->
+                {ok, Contents} = file:read_file(Path0),
+                Path = strip_leading_dir(Path0, SchemaDir),
+                #{
+                    <<"path">> => Path,
+                    <<"root">> => Path == RootName,
+                    <<"contents">> => Contents
+                }
+            end,
+            Valid
+        ),
+    #{
+        <<"type">> => <<"bundle">>,
+        <<"files">> => Files
+    };
+prepare_protobuf_files_for_export2(Source, _Name) ->
+    Source.
+
+handle_one_schema_pre_config_update(Name, RawConf0, TmpDir) ->
+    maybe
+        ok ?= validate_name(Name),
+        {ok, RawConf1} ?= convert_certs(Name, RawConf0),
+        {ok, RawConf2, TmpRootPath, SideEffect} ?= convert_protobuf_bundle(Name, RawConf1, TmpDir),
+        {ok, RawConf3} ?= validate_protobuf_imports_already_converted(RawConf2, TmpRootPath),
+        {ok, RawConf3, SideEffect}
+    end.
+
+handle_import_root_pre_config_update(#{<<"schemas">> := Schemas0} = RawConf0) ->
+    Res =
+        emqx_utils:foldl_while(
+            fun({Name, Sc0}, {ok, ScAcc0, SideEffectAcc0, CleanupAcc0}) ->
+                BundleDir = protobuf_bundle_data_dir(Name),
+                TmpDir = mk_temp_dir(BundleDir),
+                case handle_one_schema_pre_config_update(Name, Sc0, TmpDir) of
+                    {ok, Sc, SideEffect} ->
+                        ScAcc = ScAcc0#{Name => Sc},
+                        SideEffectAcc = fun() ->
+                            SideEffectAcc0(),
+                            SideEffect()
+                        end,
+                        CleanupAcc = fun() ->
+                            CleanupAcc0(),
+                            file:del_dir_r(TmpDir)
+                        end,
+                        {cont, {ok, ScAcc, SideEffectAcc, CleanupAcc}};
+                    {error, Reason} ->
+                        CleanupAcc = fun() ->
+                            CleanupAcc0(),
+                            file:del_dir_r(TmpDir)
+                        end,
+                        {halt, {error, Reason, CleanupAcc}}
+                end
+            end,
+            {ok, #{}, fun() -> ok end, fun() -> ok end},
+            maps:to_list(Schemas0)
+        ),
+    case Res of
+        {ok, Schemas, SideEffect, Cleanup} ->
+            RawConf = RawConf0#{<<"schemas">> := Schemas},
+            SideEffect(),
+            Cleanup(),
+            {ok, RawConf};
+        {error, Reason, Cleanup} ->
+            Cleanup(),
+            {error, Reason}
+    end;
+handle_import_root_pre_config_update(RawConf) ->
     {ok, RawConf}.
