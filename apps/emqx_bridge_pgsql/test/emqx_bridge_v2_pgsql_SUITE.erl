@@ -26,6 +26,10 @@
 -define(CONNECTOR_TYPE, pgsql).
 -define(CONNECTOR_TYPE_BIN, <<"pgsql">>).
 
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "pgsql_tcp").
+
 -import(emqx_common_test_helpers, [on_exit/1]).
 -import(emqx_utils_conv, [bin/1]).
 
@@ -50,6 +54,7 @@ groups() ->
 init_per_suite(Config) ->
     PostgresHost = os:getenv("PGSQL_TCP_HOST", "toxiproxy"),
     PostgresPort = list_to_integer(os:getenv("PGSQL_TCP_PORT", "5432")),
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT),
     case emqx_common_test_helpers:is_tcp_server_available(PostgresHost, PostgresPort) of
         true ->
             Apps = emqx_cth_suite:start(
@@ -155,6 +160,7 @@ init_per_testcase(TestCase, Config) ->
     ].
 
 end_per_testcase(_Testcase, Config) ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT),
     case proplists:get_bool(skip_does_not_apply, Config) of
         true ->
             ok;
@@ -237,8 +243,11 @@ make_message() ->
     }.
 
 create_connector_api(Config) ->
+    create_connector_api(Config, _Overrides = #{}).
+
+create_connector_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
-        emqx_bridge_v2_testlib:create_connector_api(Config)
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
     ).
 
 create_action_api(Config, Overrides) ->
@@ -246,8 +255,20 @@ create_action_api(Config, Overrides) ->
         emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
     ).
 
+get_connector_api(Config) ->
+    Type = emqx_bridge_v2_testlib:get_value(connector_type, Config),
+    Name = emqx_bridge_v2_testlib:get_value(connector_name, Config),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
+
+with_failure(FailureType, Fn) ->
+    emqx_common_test_helpers:with_failure(
+        FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn
+    ).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_start_stop(Config) ->
@@ -424,5 +445,50 @@ t_bad_datetime_param(Config) ->
             emqx:publish(emqx_message:make(RuleTopic, Payload)),
             #{?snk_kind := "postgres_bad_param_error"}
         )
+    ),
+    ok.
+
+%% Checks that we trigger a full reconnection if the health check times out, by declaring
+%% the connector `?status_disconnected`.  We choose to do this because there have been
+%% issues where the connection process does not die and the connection itself unusable.
+t_reconnect_on_connector_health_check_timeout(Config) ->
+    {201, _} = create_connector_api(
+        Config,
+        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"750ms">>}}
+    ),
+    ?assertMatch(
+        {200, #{<<"status">> := <<"connected">>}},
+        get_connector_api(Config)
+    ),
+    meck:new(epgsql, [passthrough]),
+    with_failure(timeout, fun() ->
+        ?retry(
+            750,
+            5,
+            ?assertMatch(
+                {200, #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"status_reason">> := <<"health_check_timeout">>
+                }},
+                get_connector_api(Config)
+            )
+        )
+    end),
+    %% Recovery
+    ?retry(
+        750,
+        5,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_connector_api(Config)
+        )
+    ),
+    %% Should have triggered a reconnection
+    ?assertMatch(
+        [_ | _],
+        [
+            1
+         || {_, {_, connect, _}, _} <- meck:history(epgsql)
+        ]
     ),
     ok.

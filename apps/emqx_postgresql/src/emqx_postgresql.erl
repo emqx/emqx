@@ -519,23 +519,52 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
             {error, {unrecoverable_error, invalid_request}}
     end.
 
-on_get_status(_InstId, #{pool_name := PoolName} = State) ->
-    case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
-        true ->
-            case do_check_prepares(State) of
-                ok ->
-                    ?status_connected;
-                {error, undefined_table} ->
-                    %% return error indicating that we are connected but the target table
-                    %% is not created
-                    {?status_disconnected, unhealthy_target}
+on_get_status(_InstId, #{pool_name := PoolName} = ConnState) ->
+    Res = emqx_resource_pool:health_check_workers(
+        PoolName,
+        fun ?MODULE:do_get_status/1,
+        emqx_resource_pool:health_check_timeout(),
+        #{return_values => true}
+    ),
+    case Res of
+        {ok, []} ->
+            {?status_connecting, <<"connection_pool_not_initialized">>};
+        {ok, Results} ->
+            Errors =
+                lists:filter(
+                    fun
+                        ({ok, _, _}) ->
+                            false;
+                        (_) ->
+                            true
+                    end,
+                    Results
+                ),
+            case Errors of
+                [] -> on_get_status_prepares(ConnState);
+                [{error, Reason} | _] -> {?status_disconnected, Reason};
+                [Reason | _] -> {?status_disconnected, Reason}
             end;
-        false ->
-            ?status_connecting
+        {error, timeout} ->
+            %% We trigger a full reconnection if the health check times out, by declaring
+            %% the connector `?status_disconnected`.  We choose to do this because there
+            %% have been issues where the connection process does not die and the
+            %% connection itself unusable.
+            {?status_disconnected, <<"health_check_timeout">>}
+    end.
+
+on_get_status_prepares(ConnState) ->
+    case do_check_prepares(ConnState) of
+        ok ->
+            ?status_connected;
+        {error, undefined_table} ->
+            %% return error indicating that we are connected but the target table
+            %% is not created
+            {?status_disconnected, {unhealthy_target, undefined_table}}
     end.
 
 do_get_status(Conn) ->
-    ok == element(1, epgsql:squery(Conn, "SELECT count(1) AS T")).
+    epgsql:squery(Conn, "SELECT count(1) AS T").
 
 do_check_prepares(
     #{
