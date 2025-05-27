@@ -1251,7 +1251,7 @@ apply(
     Effects = handle_custom_event(DBShard, Latest, CustomEvent),
     {State#{latest => Latest}, ok, Effects};
 apply(
-    _RaftMeta,
+    RaftMeta,
     #{
         ?tag := commit_tx_batch,
         ?prev_serial := SerCtl,
@@ -1259,18 +1259,34 @@ apply(
         ?batches := Batches,
         ?otx_leader_pid := From
     },
-    State = #{db_shard := DBShard, tx_serial := ExpectedSerial, otx_leader_pid := Leader}
+    State0 = #{db_shard := DBShard, tx_serial := ExpectedSerial, otx_leader_pid := Leader}
 ) ->
     case From of
         Leader when SerCtl =:= ExpectedSerial ->
-            ok = emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{durable => false}),
-            emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
-            {State#{tx_serial := Serial}, ok};
+            case emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{durable => false}) of
+                ok ->
+                    emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
+                    State = State0#{tx_serial := Serial},
+                    Result = ok,
+                    Effects = try_release_log({Serial, length(Batches)}, RaftMeta, State);
+                Err = ?err_unrec(_) ->
+                    State = State0,
+                    Result = Err,
+                    Effects = []
+            end;
         Leader ->
-            {State, ?err_unrec({serial_mismatch, SerCtl, ExpectedSerial})};
+            %% Leader pid matches, but not the serial:
+            State = State0,
+            Result = ?err_unrec({serial_mismatch, SerCtl, ExpectedSerial}),
+            Effects = [];
         _ ->
-            {State, ?err_unrec({not_the_leader, #{got => From, expect => Leader}})}
-    end;
+            %% Leader mismatch:
+            State = State0,
+            Result = ?err_unrec({not_the_leader, #{got => From, expect => Leader}}),
+            Effects = []
+    end,
+    Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
+    {State, Result, Effects};
 apply(
     _RaftMeta,
     #{
