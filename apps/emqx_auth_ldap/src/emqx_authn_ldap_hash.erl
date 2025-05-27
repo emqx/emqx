@@ -12,8 +12,8 @@
 -define(ISENABLED_ATTR, "isEnabled").
 -define(VALID_ALGORITHMS, [md5, ssha, sha, sha256, sha384, sha512]).
 %% TODO
-%% 1. Supports more salt algorithms, SMD5 SSHA 256/384/512
-%% 2. Supports https://datatracker.ietf.org/doc/html/rfc3112
+%% 1. Support more salt algorithms, SMD5 SSHA 256/384/512
+%% 2. Support https://datatracker.ietf.org/doc/html/rfc3112
 
 -export([
     authenticate/2
@@ -25,7 +25,7 @@
 %% APIs
 %%------------------------------------------------------------------------------
 authenticate(
-    #{password := Password} = Credential0,
+    #{password := Password} = Credential,
     #{
         method := #{
             password_attribute := PasswordAttr,
@@ -33,16 +33,20 @@ authenticate(
         },
         query_timeout := Timeout,
         resource_id := ResourceId,
-        cache_key_template := CacheKeyTemplate
+        cache_key_template := CacheKeyTemplate,
+        base_dn_template := BaseDNTemplate,
+        filter_template := FilterTemplate
     } = State
 ) ->
-    Credential = emqx_auth_template:rename_client_info_vars(Credential0),
     CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
-    Result = emqx_authn_utils:cached_simple_sync_query(
-        CacheKey,
-        ResourceId,
-        {query, Credential, [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR], Timeout}
-    ),
+    BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
+    Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
+    Query = fun() ->
+        {query, BaseDN, Filter, [
+            {attributes, [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR]}, {timeout, Timeout}
+        ]}
+    end,
+    Result = emqx_authn_utils:cached_simple_sync_query(CacheKey, ResourceId, Query),
     case Result of
         {ok, []} ->
             ignore;
@@ -57,10 +61,9 @@ authenticate(
             ignore
     end.
 
-%% To compatible v4.x
-is_enabled(Password, #eldap_entry{attributes = Attributes} = Entry, State) ->
-    IsEnabled = get_lower_bin_value(?ISENABLED_ATTR, Attributes, "true"),
-    case emqx_authn_utils:to_bool(IsEnabled) of
+%% To be compatible with v4.x
+is_enabled(Password, Entry, State) ->
+    case emqx_auth_ldap_utils:get_bool_attribute(?ISENABLED_ATTR, Entry, true) of
         true ->
             ensure_password(Password, Entry, State);
         _ ->
@@ -156,8 +159,8 @@ verify_password(Algorithm, LDAPPasswordType, LDAPPassword, Salt, Position, Passw
     end.
 
 is_superuser(Entry, #{method := #{is_superuser_attribute := Attr}} = _State) ->
-    Value = get_lower_bin_value(Attr, Entry#eldap_entry.attributes, "false"),
-    #{is_superuser => emqx_authn_utils:to_bool(Value)}.
+    IsSuperuser = emqx_auth_ldap_utils:get_bool_attribute(Attr, Entry, false),
+    #{is_superuser => IsSuperuser}.
 
 safe_base64_decode(Data) ->
     try
@@ -166,10 +169,6 @@ safe_base64_decode(Data) ->
         _:Reason ->
             {error, {invalid_base64_data, Reason}}
     end.
-
-get_lower_bin_value(Key, Proplists, Default) ->
-    [Value | _] = get_value(Key, Proplists, [Default]),
-    to_binary(string:to_lower(Value)).
 
 to_binary(Value) ->
     erlang:list_to_binary(Value).

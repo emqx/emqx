@@ -500,6 +500,45 @@ t_replication_metrics(Config) ->
         ?ON(N1, emqx_ds_builtin_raft_metrics:local_shards([]))
     ).
 
+%% Verify that not-yet-fully-started DS DB (e.g. due to insufficient number of
+%% sites) does not interfere with metrics reporting.
+t_uninitialized_db_metrics(init, Config) ->
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+    Nodes = emqx_cth_cluster:start(
+        [{t_uninitialized_db_metrics1, #{apps => Apps}}],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    ok = snabbkaffe:start_trace(),
+    [{nodes, Nodes} | Config];
+t_uninitialized_db_metrics('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)),
+    ok = snabbkaffe:stop().
+
+t_uninitialized_db_metrics(Config) ->
+    %% Initialize DB requesting at least 2 sites.
+    %% Shard allocatation won't happen because there's only 1 site.
+    [N1] = ?config(nodes, Config),
+    Opts = opts(#{n_shards => 2, n_sites => 2}),
+    ok = ?ON(N1, emqx_ds:open_db(?DB, Opts)),
+    %% Metrics should still be reported cleanly.
+    ?assertMatch(
+        #{
+            db_sites_num := [
+                {[{status, current}, {db, ?DB}], 0},
+                {[{status, assigned}, {db, ?DB}], 0}
+            ]
+        },
+        ?ON(N1, emqx_ds_builtin_raft_metrics:dbs())
+    ),
+    ?assertMatch(
+        #{db_shards_online_num := [{[{db, ?DB}], 0}]},
+        ?ON(N1, emqx_ds_builtin_raft_metrics:local_dbs([]))
+    ),
+    ?assertEqual(
+        #{},
+        ?ON(N1, emqx_ds_builtin_raft_metrics:local_shards([]))
+    ).
+
 %%
 
 suite() -> [{timetrap, {seconds, 60}}].

@@ -486,6 +486,7 @@ peer_to_port({_, Port}) ->
     Port.
 
 conn_state_to_connected(connected) -> true;
+conn_state_to_connected(anonymous) -> true;
 conn_state_to_connected(_) -> false.
 
 %%--------------------------------------------------------------------

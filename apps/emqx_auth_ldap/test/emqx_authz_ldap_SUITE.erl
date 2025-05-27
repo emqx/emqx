@@ -79,7 +79,7 @@ t_create_invalid(_Config) ->
     [_] = emqx_authz:lookup().
 
 t_node_cache(_Config) ->
-    ClientInfo = #{username => <<"mqttuser0001">>, cert_common_name => <<"mqttUser">>},
+    ClientInfo = #{username => <<"mqttuser0001">>, cn => <<"mqttUser">>},
     Case = #{
         name => cache_publish,
         client_info => ClientInfo,
@@ -116,7 +116,7 @@ t_node_cache(_Config) ->
     ),
     emqx_authz_test_lib:run_checks(
         Case#{
-            checks => [{allow, ?AUTHZ_PUBLISH, <<"mqttuser0001/pub/1">>}],
+            checks => [{deny, ?AUTHZ_PUBLISH, <<"mqttuser0001/pub/1">>}],
             client_info => ClientInfo#{cn => <<"mqttUser1">>}
         }
     ),

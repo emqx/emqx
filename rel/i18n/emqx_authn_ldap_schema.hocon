@@ -33,4 +33,10 @@ method.desc:
 method_type.desc:
 """Authentication method type."""
 
+bind_password.desc:
+"""The template for password to bind."""
+
+bind_password.label:
+"""Bind Password"""
+
 }

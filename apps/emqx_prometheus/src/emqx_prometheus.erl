@@ -72,6 +72,14 @@
 
 -define(HTTP_OPTIONS, [{autoredirect, true}, {timeout, 60000}]).
 
+-define(SAFELY(EXPR, ELSE),
+    (try
+        EXPR
+    catch
+        _:_ -> ELSE
+    end)
+).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -1139,11 +1147,11 @@ cluster_rpc_data(Mode) ->
     Labels =
         case Mode of
             ?PROM_DATA_MODE__NODE -> [];
-            _ -> [{node, node(self())}]
+            _ -> [{node, node()}]
         end,
-    DataFun = fun() -> emqx_cluster_rpc:get_current_tnx_id() end,
+    Value = ?SAFELY(emqx_cluster_rpc:get_current_tnx_id(), undefined),
     #{
-        emqx_conf_sync_txid => [{Labels, catch_all(DataFun)}]
+        emqx_conf_sync_txid => [{Labels, Value}]
     }.
 
 mria_data(Mode) ->
@@ -1158,10 +1166,7 @@ mria_data(Role, Mode) ->
     lists:foldl(
         fun({Name, _Type, MetricK}, AccIn) ->
             %% TODO: only report shards that are up
-            DataFun = fun() -> get_shard_metrics(Mode, MetricK) end,
-            AccIn#{
-                Name => catch_all(DataFun)
-            }
+            AccIn#{Name => ?SAFELY(get_shard_metrics(Mode, MetricK), [])}
         end,
         #{},
         mria_metric_meta(Role)
@@ -1170,10 +1175,8 @@ mria_data(Role, Mode) ->
 get_shard_metrics(Mode, MetricK) ->
     Labels =
         case Mode of
-            node ->
-                [];
-            _ ->
-                [{node, node(self())}]
+            ?PROM_DATA_MODE__NODE -> [];
+            _ -> [{node, node()}]
         end,
     [
         {[{shard, Shard} | Labels], get_shard_metric(MetricK, Shard)}
@@ -1188,13 +1191,6 @@ get_shard_metric(Metric, Shard) ->
             Value;
         _ ->
             undefined
-    end.
-
-catch_all(DataFun) ->
-    try
-        DataFun()
-    catch
-        _:_ -> undefined
     end.
 
 %%--------------------------------------------------------------------

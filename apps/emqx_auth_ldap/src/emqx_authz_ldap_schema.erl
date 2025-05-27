@@ -37,6 +37,7 @@ fields(ldap) ->
                     }
                 )}
         ] ++
+        emqx_ldap:fields(search_options) ++
         emqx_ldap:fields(config).
 
 desc(ldap) ->

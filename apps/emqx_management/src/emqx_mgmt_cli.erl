@@ -925,7 +925,7 @@ data(["export" | Args]) ->
             emqx_ctl:print("[error] Data export failed, reason: ~p.~n", [Reason1])
     end;
 data(["import", Filename]) ->
-    case emqx_mgmt_data_backup:import(Filename, ?DATA_BACKUP_OPTS) of
+    case emqx_mgmt_data_backup:import_local(Filename, ?DATA_BACKUP_OPTS) of
         {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} when
             map_size(DbErrs) =:= 0, map_size(ConfErrs) =:= 0
         ->
@@ -974,8 +974,6 @@ collect_data_export_args(Args, _Acc) ->
 
 %%--------------------------------------------------------------------
 %% @doc Durable storage
-
--if(?EMQX_RELEASE_EDITION == ee).
 
 ds(Cmd) ->
     case emqx_mgmt_api_ds:is_enabled() of
@@ -1054,16 +1052,6 @@ ds_cluster_leave_safeguards() ->
         [] -> [];
         false -> []
     end.
-
--else.
-
-ds(_Cmd) ->
-    emqx_ctl:usage([{"ds", "DS CLI is not available in this edition of EMQX"}]).
-
-ds_cluster_leave_safeguards() ->
-    [].
-
--endif.
 
 %%--------------------------------------------------------------------
 %% Dump ETS
