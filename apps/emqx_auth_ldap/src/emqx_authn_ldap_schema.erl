@@ -48,7 +48,21 @@ fields(hash_method) ->
         {is_superuser_attribute, is_superuser_attribute()}
     ];
 fields(bind_method) ->
-    [{type, method_type(bind)}] ++ emqx_ldap:fields(bind_opts).
+    [
+        {type, method_type(bind)},
+        {is_superuser_attribute, is_superuser_attribute()},
+        {bind_password,
+            ?HOCON(
+                binary(),
+                #{
+                    desc => ?DESC(bind_password),
+                    default => <<"${password}">>,
+                    example => <<"${password}">>,
+                    sensitive => true,
+                    validator => fun emqx_schema:non_empty_string/1
+                }
+            )}
+    ].
 
 common_fields() ->
     [
@@ -56,6 +70,7 @@ common_fields() ->
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
         {query_timeout, fun query_timeout/1}
     ] ++
+        emqx_ldap:fields(search_options) ++
         emqx_authn_schema:common_fields() ++
         emqx_ldap:fields(config).
 

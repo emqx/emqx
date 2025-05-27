@@ -163,7 +163,8 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:snappyer),
       common_dep(:crc32cer),
       # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
-      common_dep(:murmerl3)
+      common_dep(:murmerl3),
+      common_dep(:unicode_util_compat)
     ]
   end
 
@@ -304,6 +305,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:brod_oauth),
     do: {:brod_oauth, "0.1.1"}
 
+  def common_dep(:unicode_util_compat),
+    do: {:unicode_util_compat, "0.7.1", override: true}
+
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
   # These should be removed once we fully migrate to mix
@@ -401,6 +405,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_gateway_gbt32960,
       :emqx_gateway_ocpp,
       :emqx_gateway_jt808,
+      :emqx_gateway_nats,
       :emqx_bridge_syskeeper,
       :emqx_ds_shared_sub,
       :emqx_cluster_link,
