@@ -1,6 +1,6 @@
 {application, emqx_postgresql, [
     {description, "EMQX PostgreSQL Database Connector"},
-    {vsn, "0.2.7"},
+    {vsn, "0.2.8"},
     {registered, []},
     {applications, [
         kernel,
