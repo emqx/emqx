@@ -162,7 +162,8 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:erlavro),
       # in conflict by erlavro
       common_dep(:snappyer),
-      common_dep(:crc32cer)
+      common_dep(:crc32cer),
+      common_dep(:unicode_util_compat)
     ]
   end
 
@@ -290,6 +291,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:crc32cer), do: {:crc32cer, "0.1.12", override: true}
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
   def common_dep(:erlavro), do: {:erlavro, github: "emqx/erlavro", tag: "2.10.0", override: true}
+
+  def common_dep(:unicode_util_compat),
+    do: {:unicode_util_compat, "0.7.1", override: true}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
