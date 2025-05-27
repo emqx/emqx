@@ -45,7 +45,7 @@ init_per_suite(Config) ->
             }),
             {ok, _Data} = emqx_authn_utils:create_resource(
                 ?LDAP_RESOURCE,
-                emqx_ldap,
+                emqx_ldap_connector,
                 ldap_config(),
                 ?AUTHN_MECHANISM_BIN,
                 ?AUTHN_BACKEND_BIN
@@ -103,7 +103,6 @@ t_create_invalid(_Config) ->
     ).
 
 t_authenticate(_Config) ->
-    ct:print("user_seeds: ~p", [user_seeds()]),
     ok = lists:foreach(
         fun(Sample) ->
             ct:pal("test_user_auth sample: ~p", [Sample]),
@@ -339,17 +338,20 @@ user_seeds() ->
         lists:seq(1, 5)
     ),
 
-    %% TODO: should be 'true' for IsSuperuser
-    Specials = [{<<"mqttuser0008 (test)">>, false}, {<<"mqttuser0009 \\\\test\\\\">>, false}],
-
     Valid =
         lists:map(
             fun({Username, IsSuperuser}) ->
                 New(Username, Username, {ok, #{is_superuser => IsSuperuser}})
             end,
-            Normal ++ Specials
+            Normal
         ),
     [
+        New(<<"mqttuser0008 (test)">>, <<"mqttuser0008 (test)">>, {ok, #{is_superuser => false}}),
+        New(
+            <<"mqttuser0009 \\test\\">>,
+            <<"mqttuser0009 \\\\test\\\\">>,
+            {ok, #{is_superuser => false}}
+        ),
         %% Not exists
         New(<<"notexists">>, <<"notexists">>, {error, not_authorized}),
         %% Wrong Password
