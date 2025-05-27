@@ -23,13 +23,24 @@ all() ->
 groups() ->
     TCRace = t_massive_connect_race,
     AllTCs = [{group, race} | emqx_common_test_helpers:all(?MODULE) -- [TCRace]],
+
+    %% testcases fails if LSR disabled
+    LegacyBugs = [
+        t_discard_when_replicant_lagging,
+        %% LSR only
+        t_lsr_cleanup_core,
+        t_takeover_race,
+        t_takeover_timeout,
+        t_takeover_when_replicant_lagging
+    ],
     [
         {clean_start_true, [{group, v3}, {group, v5}]},
         {clean_start_false, [{group, v3}, {group, v5}]},
-        {v3, [{group, lsr_only}, {group, lsr_migration}]},
-        {v5, [{group, lsr_only}, {group, lsr_migration}]},
-        {lsr_only, [], AllTCs},
-        {lsr_migration, [], AllTCs},
+        {v3, [{group, lsr_disabled}, {group, lsr_enabled}, {group, lsr_migration}]},
+        {v5, [{group, lsr_disabled}, {group, lsr_enabled}, {group, lsr_migration}]},
+        {lsr_enabled, [], AllTCs},
+        {lsr_disabled, [], AllTCs -- LegacyBugs},
+        {lsr_migration, [], AllTCs -- LegacyBugs},
         {race, [
             %% this is the group lsr could not support
             %   {group, race_sleep_0},
@@ -78,8 +89,11 @@ init_per_group(v3, Config) ->
 init_per_group(v5, Config) ->
     ClientOpts = ?config(client_opts, Config),
     lists:keystore(client_opts, 1, Config, {client_opts, ClientOpts#{proto_ver => v5}});
-init_per_group(lsr_only, Config) ->
+init_per_group(lsr_enabled, Config) ->
     Conf = "broker.linear_session_registry = enabled",
+    lists:keystore(emqx_conf, 1, Config, {emqx_conf, Conf});
+init_per_group(lsr_disabled, Config) ->
+    Conf = "broker.linear_session_registry = disabled",
     lists:keystore(emqx_conf, 1, Config, {emqx_conf, Conf});
 init_per_group(lsr_migration, Config) ->
     Conf = "broker.linear_session_registry = migration_enabled",
@@ -165,6 +179,69 @@ t_replicant_2(Config) ->
                 rpc:multicall(Nodes, emqx_cm, lookup_channels, [ClientId])
         )
     ).
+
+t_mode(init, Config) ->
+    %% GIVEN: 5 nodes cluster with 2 replicants
+    Nodes = start_cluster(?FUNCTION_NAME, Config, 5),
+    [{cluster_nodes, Nodes} | Config].
+t_mode(Config) ->
+    ClientId = <<"client1">>,
+    Nodes = ?config(cluster_nodes, Config),
+    Port1 = get_mqtt_port(lists:last(Nodes), tcp),
+    %% WHEN: client connected to the cluster via replicant node
+    start_connect_client(Config, #{clientid => ClientId, port => Port1}),
+    %% THEN: correct table are written according to the mode
+
+    case proplists:get_value(name, ?config(tc_group_properties, Config)) of
+        lsr_enabled ->
+            ?assertMatch(
+                {[[Pid], [Pid], [Pid], [Pid], [Pid]], []},
+                ?retry(
+                    _Interval = 100,
+                    _NTimes = 10,
+                    {[[Pid], [Pid], [Pid], [Pid], [Pid]], []} =
+                        rpc:multicall(Nodes, emqx_lsr, dirty_lookup_channels, [ClientId])
+                )
+            ),
+            ?assertMatch(
+                {[[], [], [], [], []], []},
+                ?retry(
+                    _Interval = 100,
+                    _NTimes = 10,
+                    {[[], [], [], [], []], []} =
+                        rpc:multicall(Nodes, emqx_cm_registry, lookup_channels, [ClientId])
+                )
+            );
+        lsr_disabled ->
+            ?assertMatch(
+                {[[], [], [], [], []], []},
+                ?retry(
+                    _Interval = 100,
+                    _NTimes = 10,
+                    {[[], [], [], [], []], []} =
+                        rpc:multicall(Nodes, emqx_lsr, dirty_lookup_channels, [ClientId])
+                )
+            );
+        lsr_migration ->
+            ?assertMatch(
+                {[[Pid], [Pid], [Pid], [Pid], [Pid]], []},
+                ?retry(
+                    _Interval = 100,
+                    _NTimes = 10,
+                    {[[Pid], [Pid], [Pid], [Pid], [Pid]], []} =
+                        rpc:multicall(Nodes, emqx_cm_registry, lookup_channels, [ClientId])
+                )
+            ),
+            ?assertMatch(
+                {[[Pid], [Pid], [Pid], [Pid], [Pid]], []},
+                ?retry(
+                    _Interval = 100,
+                    _NTimes = 10,
+                    {[[Pid], [Pid], [Pid], [Pid], [Pid]], []} =
+                        rpc:multicall(Nodes, emqx_lsr, dirty_lookup_channels, [ClientId])
+                )
+            )
+    end.
 
 t_discard_when_replicant_lagging(init, Config) ->
     %% GIVEN: 5 nodes cluster with 2 replicants
@@ -522,12 +599,11 @@ t_lsr_cleanup_core(Config) ->
 
     timer:sleep(1000),
 
-    %% THEN: all clients should be cleaned.
+    %% THEN: Clients are not cleaned.
     [
         ?assertMatch(
             {[[_], [_], [_], [_], [_]], [Core1]},
-            %rpc:multicall(Nodes, emqx_cm, lookup_channels, [C]))
-            rpc:multicall(Nodes, ets, lookup, [emqx_lsr, C])
+            rpc:multicall(Nodes, emqx_cm, lookup_channels, [C])
         )
      || C <- [ClientId | ClientsOnC1]
     ],

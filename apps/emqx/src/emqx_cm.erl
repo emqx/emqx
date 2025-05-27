@@ -181,6 +181,8 @@ register_channel(#{clientid := ClientId, predecessor := _} = ClientInfo, ChanPid
     %% used by lsr only.
     case emqx_lsr:register_channel(ClientInfo, ChanPid, ConnInfo) of
         ok ->
+            emqx_lsr:mode() =:= migration_enabled andalso
+                emqx_cm_registry:register_channel({ClientId, ChanPid}),
             register_channel_local(ClientId, ChanPid, ConnInfo);
         {error, _} = Err ->
             Err
@@ -349,7 +351,9 @@ open_session(CleanStart, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWi
             Predecessor = emqx_lsr:max_channel_d(ClientId),
             open_session_with_predecessor(Predecessor, ClientInfo, ConnInfo, MaybeWillMsg, Retries);
         false ->
-            open_session_with_cm_locker(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg)
+            Res = open_session_with_cm_locker(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg),
+            ok = register_channel(ClientId, self(), ConnInfo),
+            Res
     end.
 
 open_session_with_cm_locker(
@@ -381,7 +385,7 @@ open_session_with_predecessor(_Predecessor, _ClientInfo, _ConnInfo, _MaybeWillMs
 open_session_with_predecessor(Predecessor, ClientInfo0, ConnInfo, MaybeWillMsg, Retries) ->
     ClientInfo = ClientInfo0#{predecessor => Predecessor},
     {ok, Res} = open_session_lsr(ClientInfo, ConnInfo, MaybeWillMsg),
-    case emqx_cm:register_channel(ClientInfo, self(), ConnInfo) of
+    case register_channel(ClientInfo, self(), ConnInfo) of
         ok ->
             {ok, Res};
         {error, {?lsr_err_restart_takeover, NewPredecessor, _CachedMax, _MyVsn}} ->

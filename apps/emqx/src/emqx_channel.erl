@@ -569,17 +569,15 @@ post_process_connect(
     AckProps,
     Channel = #channel{
         conninfo = #{clean_start := CleanStart} = ConnInfo,
-        clientinfo = #{clientid := ClientId} = ClientInfo,
+        clientinfo = ClientInfo,
         will_msg = MaybeWillMsg
     }
 ) ->
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
-            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{session = Session},
             handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
         {ok, #{session := Session, present := true, replay := ReplayContext}} ->
-            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{
                 session = Session,
                 resuming = ReplayContext
