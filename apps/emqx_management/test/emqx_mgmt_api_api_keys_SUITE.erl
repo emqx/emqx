@@ -56,6 +56,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    application:ensure_all_started(hackney),
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
@@ -67,7 +68,8 @@ init_per_suite(Config) ->
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
+    application:stop(hackney).
 
 t_bootstrap_file(_) ->
     TestPath = <<"/api/v5/status">>,
@@ -406,12 +408,22 @@ t_authorize(_Config) ->
     BanPath = emqx_mgmt_api_test_util:api_path(["banned"]),
     ApiKeyPath = emqx_mgmt_api_test_util:api_path(["api_key"]),
     UserPath = emqx_mgmt_api_test_util:api_path(["users"]),
+    DeleteUserPath1 = emqx_mgmt_api_test_util:api_path(["users", "some_user"]),
+    DeleteUserPath2 = [emqx_mgmt_api_test_util:api_path([""]), "./users/some_user"],
 
     {ok, _Status} = emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, BanPath, KeyError)),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, BanPath, SecretError)),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, UserPath, BasicHeader)),
-    {error, {{"HTTP/1.1", 401, "Unauthorized"}, _Headers, Body}} =
+
+    ?assertEqual(
+        Unauthorized, emqx_mgmt_api_test_util:request_api(delete, DeleteUserPath1, BasicHeader)
+    ),
+    %% We make request with hackney to avoid path normalization made by httpc.
+    {ok, Code, _Headers0, _Body0} = hackney:request(delete, DeleteUserPath2, [BasicHeader], <<>>),
+    ?assertEqual(401, Code),
+
+    {error, {{"HTTP/1.1", 401, "Unauthorized"}, _Headers1, Body1}} =
         emqx_mgmt_api_test_util:request_api(
             get,
             ApiKeyPath,
@@ -425,7 +437,7 @@ t_authorize(_Config) ->
             <<"code">> := <<"API_KEY_NOT_ALLOW">>,
             <<"message">> := _
         },
-        emqx_utils_json:decode(Body, [return_maps])
+        emqx_utils_json:decode(Body1, [return_maps])
     ),
 
     ?assertMatch(
