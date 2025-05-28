@@ -178,8 +178,8 @@ message_diff_options(Fields) ->
 %% @doc Group list of maps by value associated with a given key.
 %% Groups appear in the order of the value of the grouping key, relative order
 %% inside each group is preserved.
--spec group_by(K, [#{K := V}]) -> [#{K := V}].
-group_by(K, Maps) ->
+-spec group_maps_by(K, [#{K := V}]) -> #{K := [V]}.
+group_maps_by(K, Maps) ->
     Values = lists:usort([maps:get(K, M) || M <- Maps]),
     [M || V <- Values, M <- Maps, map_get(K, M) =:= V].
 

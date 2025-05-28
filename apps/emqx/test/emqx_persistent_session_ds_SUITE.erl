@@ -298,7 +298,7 @@ t_storage_generations(Config) ->
             [
                 #{topic := <<"t/1">>, payload := <<"4">>},
                 #{topic := <<"t/2">>, payload := <<"5">>}
-            ] = emqx_ds_test_helpers:group_by(
+            ] = emqx_ds_test_helpers:group_maps_by(
                 topic,
                 emqx_common_test_helpers:wait_publishes(2, 5_000)
             )
@@ -552,7 +552,7 @@ t_mixed_qos_subscriptions(_Config) ->
             #{qos := 0, topic := <<"t/1">>, payload := <<"5">>},
             #{qos := 0, topic := <<"t/2">>, payload := <<"3">>}
         ],
-        emqx_ds_test_helpers:group_by(
+        emqx_ds_test_helpers:group_maps_by(
             topic,
             [M || M = #{properties := #{?PROP_SUBID := SID}} <- Received, SID == 1]
         ),
@@ -650,7 +650,7 @@ t_mixed_qos_subscription_mode_switch(_Config) ->
             #{topic := <<"t/level/1">>, payload := <<"4">>},
             #{topic := <<"t/level/1">>, payload := <<"6">>}
         ],
-        emqx_ds_test_helpers:group_by(
+        emqx_ds_test_helpers:group_maps_by(
             topic,
             [M || M = #{client_pid := C} <- ReceivedS2, C == CSub2]
         ),

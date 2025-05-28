@@ -239,7 +239,7 @@ t_qos0_only_many_streams(_Config) ->
                 #{topic := <<"t/2">>, payload := <<"foo">>},
                 #{topic := <<"t/2">>, payload := <<"bar">>}
             ],
-            group_by(topic, receive_messages(3))
+            group_maps_by(topic, receive_messages(3))
         ),
         [
             emqtt:publish(Pub, Topic, Payload, ?QOS_1)
@@ -255,7 +255,7 @@ t_qos0_only_many_streams(_Config) ->
                 #{topic := <<"t/3">>, payload := <<"foo">>},
                 #{topic := <<"t/3">>, payload := <<"bar">>}
             ],
-            group_by(topic, receive_messages(3))
+            group_maps_by(topic, receive_messages(3))
         ),
         ?assertNotReceive(_)
     after
@@ -491,8 +491,8 @@ receive_messages(Count, Msgs, Timeout) ->
         Msgs
     end.
 
-group_by(K, Maps) ->
-    emqx_ds_test_helpers:group_by(K, Maps).
+group_maps_by(K, Maps) ->
+    emqx_ds_test_helpers:group_maps_by(K, Maps).
 
 publish(Node, Message) ->
     erpc:call(Node, emqx, publish, [Message]).
