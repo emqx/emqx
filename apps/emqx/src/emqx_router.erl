@@ -75,8 +75,7 @@
 
 -export([
     get_schema_vsn/0,
-    init_schema/0,
-    deinit_schema/0
+    init_schema/0
 ]).
 
 -export_type([dest/0]).
@@ -84,6 +83,10 @@
 
 -type group() :: binary().
 -type dest() :: node() | {group(), node()}.
+
+%% Storage schema.
+%% * `v2` is current implementation.
+%% * `v1` is no longer supported since 5.10.
 -type schemavsn() :: v1 | v2.
 
 %% Operation :: {add, ...} | {delete, ...}.
@@ -485,65 +488,32 @@ match_to_route(M) ->
     #route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.
 
 %%--------------------------------------------------------------------
-%% Routing table type
+%% Legacy routing schema
 %% --------------------------------------------------------------------
-
--define(PT_SCHEMA_VSN, {?MODULE, schemavsn}).
 
 %% @doc Get the schema version in use.
 %% BPAPI RPC Target @ emqx_router_proto
 -spec get_schema_vsn() -> schemavsn().
 get_schema_vsn() ->
-    persistent_term:get(?PT_SCHEMA_VSN).
+    v2.
 
 -spec init_schema() -> ok.
 init_schema() ->
-    ok = mria:wait_for_tables([?ROUTE_TAB, ?ROUTE_TAB_FILTERS]),
-    ok = emqx_trie:wait_for_tables(),
-    ConfSchema = emqx_config:get([broker, routing, storage_schema]),
-    {ClusterSchema, ClusterState} = discover_cluster_schema_vsn(),
-    Schema = choose_schema_vsn(ConfSchema, ClusterSchema, ClusterState),
-    ok = persistent_term:put(?PT_SCHEMA_VSN, Schema),
-    case Schema =:= ConfSchema of
-        true ->
-            ?SLOG(info, #{
-                msg => "routing_schema_used",
-                schema => Schema
-            });
-        false ->
-            ?SLOG(notice, #{
-                msg => "configured_routing_schema_ignored",
-                schema_in_use => Schema,
-                configured => ConfSchema,
-                reason =>
-                    "Could not use configured routing storage schema because "
-                    "cluster is already running with a different schema."
-            })
-    end.
-
--spec deinit_schema() -> ok.
-deinit_schema() ->
-    _ = persistent_term:erase(?PT_SCHEMA_VSN),
-    ok.
+    ClusterState = discover_cluster_schema_vsn(),
+    verify_cluster_schema_vsn(ClusterState).
 
 -spec discover_cluster_schema_vsn() ->
-    {schemavsn() | undefined, _State :: [{node(), schemavsn() | undefined, _Details}]}.
+    _ClusterState :: [{node(), schemavsn() | unknown, _Details}].
 discover_cluster_schema_vsn() ->
     discover_cluster_schema_vsn(emqx:running_nodes() -- [node()]).
 
--spec discover_cluster_schema_vsn([node()]) ->
-    {schemavsn() | undefined, _State :: [{node(), schemavsn() | undefined, _Details}]}.
 discover_cluster_schema_vsn([]) ->
-    %% single node
-    {undefined, []};
+    [];
 discover_cluster_schema_vsn(Nodes) ->
-    Responses = lists:zipwith(
+    lists:zipwith(
         fun
             (Node, {ok, Schema}) ->
                 {Node, Schema, configured};
-            (Node, {error, {exception, undef, _Stacktrace}}) ->
-                %% No such function on the remote node, assuming it doesn't know about v2 routing.
-                {Node, v1, legacy};
             (Node, {error, {exception, badarg, _Stacktrace}}) ->
                 %% Likely, persistent term is not defined yet.
                 {Node, unknown, starting};
@@ -552,97 +522,67 @@ discover_cluster_schema_vsn(Nodes) ->
         end,
         Nodes,
         emqx_router_proto_v1:get_routing_schema_vsn(Nodes)
-    ),
-    case lists:usort([Vsn || {_Node, Vsn, _} <- Responses, Vsn /= unknown]) of
-        [Vsn] when Vsn =:= v1; Vsn =:= v2 ->
-            {Vsn, Responses};
-        [] ->
-            ?SLOG(warning, #{
-                msg => "cluster_routing_schema_discovery_failed",
-                responses => Responses,
-                reason =>
-                    "Could not determine configured routing storage schema in peer nodes."
-            }),
-            {undefined, Responses};
-        [_ | _] ->
-            Desc = schema_conflict_reason(config, Responses),
-            io:format(standard_error, "Error: ~ts~n", [Desc]),
-            ?SLOG(critical, #{
-                msg => "conflicting_routing_schemas_in_cluster",
-                responses => Responses,
-                description => Desc
-            }),
-            error(conflicting_routing_schemas_configured_in_cluster)
-    end.
+    ).
 
--spec choose_schema_vsn(
-    schemavsn(),
-    _ClusterSchema :: schemavsn() | undefined,
-    _ClusterState :: [{node(), schemavsn() | undefined, _Details}]
-) -> schemavsn().
-choose_schema_vsn(ConfSchema, ClusterSchema, State) ->
-    case detect_table_schema_vsn() of
-        [] ->
-            %% No records in the tables, use schema configured in the cluster if any,
-            %% otherwise use configured.
-            emqx_maybe:define(ClusterSchema, ConfSchema);
-        [Schema] when Schema =:= ClusterSchema ->
-            %% Table contents match configured schema in the cluster.
-            Schema;
-        [Schema] when ClusterSchema =:= undefined ->
-            %% There are existing records following some schema, we have to use it.
-            Schema;
-        _Conflicting when ClusterSchema =/= undefined ->
-            %% There are existing records in both v1 and v2 schema,
-            %% we have to use what the peer nodes agreed on.
-            %% because it could be THIS node which caused the cnoflict.
-            %%
-            %% The stale records will be left-over, but harmless
-            Desc =
-                "Conflicting schema version detected for routing records, but "
-                "all the peer nodes are running the same version, so this node "
-                "will use the same schema but discard the harmless stale records. "
-                "This warning will go away after the next full cluster (non-rolling) restart.",
-            ?SLOG(warning, #{
-                msg => "conflicting_routing_storage_detected",
-                resolved => ClusterSchema,
-                description => Desc
-            }),
-            ClusterSchema;
-        _Conflicting ->
-            Desc = schema_conflict_reason(records, State),
-            io:format(standard_error, "Error: ~ts~n", [Desc]),
-            ?SLOG(critical, #{
-                msg => "conflicting_routing_storage_in_cluster",
-                description => Desc
-            }),
-            error(conflicting_routing_schemas_detected_in_cluster)
-    end.
+-spec verify_cluster_schema_vsn(_ClusterState :: [{node(), schemavsn() | unknown, _Details}]) ->
+    ok.
+verify_cluster_schema_vsn(ClusterState) ->
+    Versions = lists:usort([Vsn || {_Node, Vsn, _} <- ClusterState, Vsn /= unknown]),
+    verify_cluster_schema_vsn(Versions, ClusterState).
 
-schema_conflict_reason(Type, State) ->
-    Observe =
-        case Type of
-            config ->
-                "Peer nodes have route storage schema resolved into conflicting versions.\n";
-            records ->
-                "There are conflicting routing records found.\n"
-        end,
+verify_cluster_schema_vsn([], []) ->
+    %% Only this node in the cluster.
+    ok;
+verify_cluster_schema_vsn([v2], _) ->
+    %% Every other node uses v2 schema.
+    ok;
+verify_cluster_schema_vsn([], ClusterState = [_ | _]) ->
+    ?SLOG(warning, #{
+        msg => "cluster_routing_schema_discovery_failed",
+        responses => ClusterState,
+        reason => "Could not determine configured routing storage schema in peer nodes."
+    }),
+    %% Ok to start?
+    %% The only risk is full cluster restart, other nodes are < 5.10 *and* have
+    %% storage schema force configured to v1.
+    ok;
+verify_cluster_schema_vsn([v1], ClusterState) ->
+    %% Every other node uses v1 schema.
+    Desc = unsupported_schema_reason(ClusterState),
+    io:format(standard_error, "Error: ~ts~n", [Desc]),
+    ?SLOG(critical, #{
+        msg => "unsupported_routing_schemas_in_cluster",
+        responses => ClusterState,
+        description => Desc
+    }),
+    error(conflicting_routing_schemas_configured_in_cluster);
+verify_cluster_schema_vsn([_ | _], ClusterState) ->
+    Desc = schema_conflict_reason(ClusterState),
+    io:format(standard_error, "Error: ~ts~n", [Desc]),
+    ?SLOG(critical, #{
+        msg => "conflicting_routing_schemas_in_cluster",
+        responses => ClusterState,
+        description => Desc
+    }),
+    error(conflicting_routing_schemas_configured_in_cluster).
+
+unsupported_schema_reason(_State) ->
+    "Peer nodes are running unsupported legacy (v1) route storage schema."
+    "\nThis node cannot boot before the cluster is upgraded to use current (v2) "
+    "storage schema."
+    "\n"
+    "\nSituation requires manual intervention:"
+    "\n1. Upgrade all nodes to 5.10.0 or newer."
+    "\n2. Remove `broker.routing.storage_schema` option from applicable "
+    "configuration files, if present."
+    "\n3. Stop ALL running nodes, then restart them one by one.".
+
+schema_conflict_reason(State) ->
     Cause =
+        "Peer nodes have route storage schema resolved into conflicting versions.\n"
         "\nThis was caused by a race-condition when the cluster was rolling upgraded "
         "from an older version to 5.4.0, 5.4.1, 5.5.0 or 5.5.1."
         "\nThis node cannot boot before the conflicts are resolved.\n",
-    Observe ++ Cause ++ mk_conflict_resolution_action(State).
-
-detect_table_schema_vsn() ->
-    lists:flatten([
-        [v1 || _NonEmptyTrieIndex = not emqx_trie:empty()],
-        [v2 || _NonEmptyFilterTab = not is_empty(?ROUTE_TAB_FILTERS)]
-    ]).
-
-is_empty(Tab) ->
-    ets:first(Tab) =:= '$end_of_table'.
-
-mk_conflict_resolution_action(State) ->
     NodesV1 = [Node || {Node, v1, _} <- State],
     NodesUnknown = [Node || {Node, unknown, _} <- State],
     Format =
@@ -665,7 +605,7 @@ mk_conflict_resolution_action(State) ->
         "It is strongly advised to include them in the manual resolution procedure as well.",
     Message = io_lib:format(Format, [NodesV1]),
     MessageUnknown = [io_lib:format(FormatUnkown, [NodesUnknown]) || NodesUnknown =/= []],
-    unicode:characters_to_list([Message, "\n", MessageUnknown]).
+    Cause ++ unicode:characters_to_list([Message, "\n", MessageUnknown]).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
