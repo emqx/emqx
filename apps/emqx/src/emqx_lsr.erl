@@ -165,7 +165,8 @@ handle_info({membership, {mnesia, down, Node}}, State) ->
     {noreply, State};
 handle_info({membership, {node, down, Node}}, State) ->
     ?tp(warning, lsr_node_down, #{self_node => node(), down_node => Node}),
-    maybe_cleanup_channels(Node),
+    not mnesia_recover:has_mnesia_down(Node) andalso
+        maybe_cleanup_channels(Node),
     {noreply, State};
 handle_info({membership, _Event}, State) ->
     {noreply, State};
