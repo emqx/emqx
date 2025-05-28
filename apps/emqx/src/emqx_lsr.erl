@@ -19,7 +19,7 @@
     is_enabled/0,
     dirty_lookup_channels/1,
     max_channel_d/1,
-    register_channel/3,
+    register_channel/4,
     unregister_channel/2,
     count_local_d/0,
     do_cleanup_channels/1
@@ -60,12 +60,15 @@ mode() ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec register_channel(emqx_types:clientinfo(), pid(), emqx_types:conninfo()) ->
+-spec register_channel(
+    emqx_types:clientid(), pid(), emqx_types:conninfo(), non_neg_integer() | undefined
+) ->
     ok | {error, any()}.
 register_channel(
-    #{clientid := ClientId, predecessor := CachedMax},
+    ClientId,
     Pid,
-    #{transport_started_at := TsMs}
+    #{transport_started_at := TsMs},
+    CachedMax
 ) ->
     Ch = #lsr_channel{
         id = ClientId,

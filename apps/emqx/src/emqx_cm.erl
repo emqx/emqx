@@ -171,29 +171,42 @@ insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
     ?tp(debug, insert_channel_info, #{clientid => ClientId}),
     ok.
 
+%% @private
 %% @doc Register a channel with pid and conn_mod, globally and locally.
-%% It may be called twice for two global registration backends.
 %% There is a Race-Condition on one node or cluster when many connections
 %% login to Broker with the same clientid. We should register it and save
 %% the conn_mod first for taking up the clientid access right.
 %% @end
-register_channel(#{clientid := ClientId, predecessor := _} = ClientInfo, ChanPid, ConnInfo) ->
-    %% used by lsr only.
-    case emqx_lsr:register_channel(ClientInfo, ChanPid, ConnInfo) of
+register_channel(ClientId, ChanPid, ConnInfo) ->
+    register_channel(ClientId, ChanPid, ConnInfo, undefined).
+
+-spec register_channel(
+    emqx_types:clientid(), pid(), emqx_types:conninfo(), option(emqx_lsr:lsr_channel())
+) ->
+    ok | {error, any()}.
+register_channel(ClientId, ChanPid, ConnInfo, Predecessor) ->
+    case maybe_register_channel_globally(ClientId, ChanPid, ConnInfo, Predecessor) of
         ok ->
-            emqx_lsr:mode() =:= migration_enabled andalso
-                emqx_cm_registry:register_channel({ClientId, ChanPid}),
-            register_channel_local(ClientId, ChanPid, ConnInfo);
+            ok = register_channel_local(ClientId, ChanPid, ConnInfo),
+            ok;
         {error, _} = Err ->
             Err
-    end;
-register_channel(ClientId, ChanPid, ConnInfo) when
-    is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
-->
-    %% Note that: It may be called in a locked transaction.
-    Chan = {ClientId, ChanPid},
-    ok = emqx_cm_registry:register_channel(Chan),
-    register_channel_local(ClientId, ChanPid, ConnInfo).
+    end.
+
+maybe_register_channel_globally(ClientId, ChanPid, ConnInfo, Predecessor) ->
+    maybe_register_channel_globally(emqx_lsr:mode(), ClientId, ChanPid, ConnInfo, Predecessor).
+
+maybe_register_channel_globally(enabled, ClientId, ChanPid, ConnInfo, Predecessor) ->
+    emqx_lsr:register_channel(ClientId, ChanPid, ConnInfo, Predecessor);
+maybe_register_channel_globally(disabled, ClientId, ChanPid, _ConnInfo, _Predecessor) ->
+    emqx_cm_registry:register_channel({ClientId, ChanPid});
+maybe_register_channel_globally(migration_enabled, ClientId, ChanPid, ConnInfo, Predecessor) ->
+    case emqx_lsr:register_channel(ClientId, ChanPid, ConnInfo, Predecessor) of
+        ok ->
+            emqx_cm_registry:register_channel({ClientId, ChanPid});
+        Other ->
+            Other
+    end.
 
 register_channel_local(ClientId, ChanPid, #{conn_mod := ConnMod, transport_started_at := Vsn}) when
     is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
@@ -222,15 +235,9 @@ unregister_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
 -spec unregister_channel(emqx_types:clientid(), pid()) -> ok.
 unregister_channel(ClientId, ChanPid) when ?IS_CLIENTID(ClientId) ->
     %% @TODO this local get could be removed if caller provides the vsn
-    try ets:lookup_element(?CHAN_CONN_TAB, ChanPid, #chan_conn.vsn) of
-        Vsn ->
-            do_unregister_channel({ClientId, ChanPid}, Vsn)
-    catch
-        error:badarg ->
-            ok
-    end.
+    Vsn = ets:lookup_element(?CHAN_CONN_TAB, ChanPid, #chan_conn.vsn, undefined),
+    do_unregister_channel({ClientId, ChanPid}, Vsn).
 
-%% @private
 do_unregister_channel(Chan, Vsn) ->
     _ = do_unregister_channel_global(Chan, Vsn),
     do_unregister_channel_local(Chan).
@@ -320,6 +327,7 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
         error:badarg -> false
     end.
 
+-spec global_chan_cnt() -> non_neg_integer().
 global_chan_cnt() ->
     case emqx_lsr:mode() of
         enabled ->
@@ -330,7 +338,8 @@ global_chan_cnt() ->
             emqx_cm_registry:count_local_d() + emqx_lsr:count_local_d()
     end.
 
-%% @doc Open a session.
+%% @doc Open a session and also register it in global channel/session registry
+%%      returns ``{ok, _}` iff both open and register success.
 -spec open_session(
     _CleanStart :: boolean(),
     emqx_types:clientinfo(),
@@ -377,15 +386,17 @@ open_session_with_cm_locker(
         end
     end).
 
-%% @doc Open channel with predecessor and retires.
+%% @doc Open session with predecessor and retires.
 open_session_with_predecessor(_Predecessor, _ClientInfo, _ConnInfo, _MaybeWillMsg, Retries) when
     Retries < 0
 ->
     {error, ?lsr_err_max_retries};
-open_session_with_predecessor(Predecessor, ClientInfo0, ConnInfo, MaybeWillMsg, Retries) ->
+open_session_with_predecessor(
+    Predecessor, #{clientid := ClientId} = ClientInfo0, ConnInfo, MaybeWillMsg, Retries
+) ->
     ClientInfo = ClientInfo0#{predecessor => Predecessor},
     {ok, Res} = open_session_lsr(ClientInfo, ConnInfo, MaybeWillMsg),
-    case register_channel(ClientInfo, self(), ConnInfo) of
+    case register_channel(ClientId, self(), ConnInfo, Predecessor) of
         ok ->
             {ok, Res};
         {error, {?lsr_err_restart_takeover, NewPredecessor, _CachedMax, _MyVsn}} ->
@@ -802,6 +813,7 @@ lookup_channels(global, ClientId) ->
 lookup_channels(local, ClientId) ->
     [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, ClientId)].
 
+-spec lookup_lsr_channels(emqx_types:clientid()) -> list(chan_pid()).
 lookup_lsr_channels(ClientId) ->
     lists:map(
         fun emqx_lsr:ch_pid/1,

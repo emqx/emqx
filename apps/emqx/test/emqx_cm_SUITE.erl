@@ -8,7 +8,6 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx_cm.hrl").
--include_lib("emqx/include/emqx_lsr.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -21,8 +20,7 @@
             sockname => {{127, 0, 0, 1}, 1883},
             peercert => nossl,
             conn_mod => emqx_connection,
-            receive_maximum => 100,
-            transport_started_at => erlang:system_time()
+            receive_maximum => 100
         }
 }).
 
@@ -40,25 +38,7 @@
 %%--------------------------------------------------------------------
 suite() -> [{timetrap, {minutes, 2}}].
 
-all() ->
-    [{group, lsr}, {group, lsr_off}].
-
-groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
-    [
-        {lsr, [], TCs},
-        {lsr_off, [], TCs}
-    ].
-
-init_per_group(lsr, Config) ->
-    emqx_config:put([broker, linear_session_registry], enabled),
-    Config;
-init_per_group(lsr_off, Config) ->
-    emqx_config:put([broker, linear_session_registry], disabled),
-    Config.
-
-end_per_group(_, _Config) ->
-    ok.
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
@@ -71,35 +51,25 @@ end_per_suite(Config) ->
 %% Helper fns
 %%--------------------------------------------------------------------
 
-open_session(CleanStart, ClientInfo0, ConnInfo) ->
-    ClientInfo =
-        case emqx_lsr:mode() of
-            disabled ->
-                ClientInfo0;
-            _ ->
-                ClientInfo0#{predecessor => undefined}
-        end,
-    emqx_cm:open_session(CleanStart, ClientInfo, stamp_ver(ConnInfo), _WillMsg = undefined).
+open_session(CleanStart, ClientInfo, ConnInfo) ->
+    emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, _WillMsg = undefined).
 
 %%--------------------------------------------------------------------
 %% TODO: Add more test cases
 %%--------------------------------------------------------------------
 
 t_reg_unreg_channel(_) ->
-    ChanInfo = ?ChanInfo,
-    ClientId = <<"clientid_reg_unreg">>,
-    #{conninfo := ConnInfo} = ChanInfo,
-    ok = emqx_cm:register_channel(client(ClientId), self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(ClientId, ChanInfo, []),
-    ?assertEqual([self()], emqx_cm:lookup_channels(ClientId)),
-    ok = emqx_cm:unregister_channel(ClientId),
-    ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
+    #{conninfo := ConnInfo} = ?ChanInfo,
+    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, []),
+    ?assertEqual([self()], emqx_cm:lookup_channels(<<"clientid">>)),
+    ok = emqx_cm:unregister_channel(<<"clientid">>),
+    ?assertEqual([], emqx_cm:lookup_channels(<<"clientid">>)).
 
 t_get_set_chan_info(_) ->
-    ChanInfo = ?ChanInfo,
-    Info = #{conninfo := ConnInfo} = ChanInfo,
-    ok = emqx_cm:register_channel(client(<<"clientid">>), self(), ConnInfo),
-    ok = emqx_cm:insert_channel_info(<<"clientid">>, ChanInfo, []),
+    Info = #{conninfo := ConnInfo} = ?ChanInfo,
+    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
+    ok = emqx_cm:insert_channel_info(<<"clientid">>, ?ChanInfo, []),
 
     ?assertEqual(Info, emqx_cm:get_chan_info(<<"clientid">>)),
     Info1 = Info#{proto_ver => 5},
@@ -116,7 +86,7 @@ t_get_set_chan_info(_) ->
 t_get_set_chan_stats(_) ->
     Stats = [{recv_oct, 10}, {send_oct, 8}],
     Info = #{conninfo := ConnInfo} = ?ChanInfo,
-    ok = emqx_cm:register_channel(client(<<"clientid">>), self(), ConnInfo),
+    ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
     ok = emqx_cm:insert_channel_info(<<"clientid">>, Info, Stats),
 
     ?assertEqual(Stats, emqx_cm:get_chan_stats(<<"clientid">>)),
@@ -151,22 +121,15 @@ t_open_session(_) ->
         peercert => nossl,
         conn_mod => emqx_connection,
         expiry_interval => 0,
-        receive_maximum => 100,
-        clean_start => true
+        receive_maximum => 100
     },
     {ok, #{session := Session1, present := false}} =
         open_session(true, ClientInfo, ConnInfo),
     ?assertEqual(100, emqx_session:info(inflight_max, Session1)),
+    {ok, #{session := Session2, present := false}} =
+        open_session(true, ClientInfo, ConnInfo),
+    ?assertEqual(100, emqx_session:info(inflight_max, Session2)),
 
-    case emqx_lsr:is_enabled() of
-        false ->
-            {ok, #{session := Session2, present := false}} =
-                open_session(true, ClientInfo, ConnInfo),
-            ?assertEqual(100, emqx_session:info(inflight_max, Session2));
-        true ->
-            %% unsupported
-            skip
-    end,
     emqx_cm:unregister_channel(<<"clientid">>),
     ok = meck:unload(emqx_connection).
 
@@ -189,8 +152,7 @@ t_open_session_race_condition(_) ->
         peercert => nossl,
         conn_mod => emqx_connection,
         expiry_interval => 0,
-        receive_maximum => 100,
-        clean_start => true
+        receive_maximum => 100
     },
 
     Parent = self(),
@@ -200,7 +162,6 @@ t_open_session_race_condition(_) ->
         Parent ! OpenR,
         case OpenR of
             {ok, _} ->
-                _ = emqx_cm:register_channel(client(ClientId), self(), stamp_ver(ConnInfo)),
                 receive
                     {'$gen_call', From, discard} ->
                         gen_server:reply(From, ok),
@@ -367,9 +328,9 @@ test_stepdown_session(Action, Reason) ->
         end,
     {Pid1, _} = spawn_monitor(FakeSessionFun),
     {Pid2, _} = spawn_monitor(FakeSessionFun),
-    ok = emqx_cm:register_channel(client(ClientId), Pid1, ConnInfo),
-    _ = emqx_cm:register_channel(client(ClientId), Pid1, ConnInfo),
-    ok = emqx_cm:register_channel(client(ClientId, Pid1, ConnInfo), Pid2, stamp_ver(ConnInfo)),
+    ok = emqx_cm:register_channel(ClientId, Pid1, ConnInfo),
+    ok = emqx_cm:register_channel(ClientId, Pid1, ConnInfo),
+    ok = emqx_cm:register_channel(ClientId, Pid2, ConnInfo),
     ?assertEqual(lists:sort([Pid1, Pid2]), lists:sort(emqx_cm:lookup_channels(ClientId))),
     case Reason of
         noproc ->
@@ -407,16 +368,13 @@ t_discard_session_race(_) ->
         #{timetrap => 60000},
         begin
             #{conninfo := ConnInfo0} = ?ChanInfo,
-            ConnInfo = ConnInfo0#{
-                conn_mod := emqx_ws_connection,
-                transport_started_at => erlang:system_time()
-            },
+            ConnInfo = ConnInfo0#{conn_mod := emqx_ws_connection},
             {Pid, Ref} = spawn_monitor(fun() ->
                 receive
                     stop -> exit(normal)
                 end
             end),
-            ok = emqx_cm:register_channel(client(ClientId), Pid, ConnInfo),
+            ok = emqx_cm:register_channel(ClientId, Pid, ConnInfo),
             Pid ! stop,
             receive
                 {'DOWN', Ref, process, Pid, normal} -> ok
@@ -432,7 +390,7 @@ t_takeover_session(_) ->
     none = emqx_cm:takeover_session_begin(ClientId),
     Parent = self(),
     ChanPid = erlang:spawn_link(fun() ->
-        ok = emqx_cm:register_channel(client(ClientId), self(), ConnInfo),
+        ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
         Parent ! registered,
         receive
             {'$gen_call', From1, {takeover, 'begin'}} ->
@@ -468,7 +426,7 @@ t_takeover_session_process_gone(_) ->
                 meck:passthrough([Pid, What, Args])
         end
     ),
-    ok = emqx_cm:register_channel(client(ClientIDTcp), self(), ConnInfo),
+    ok = emqx_cm:register_channel(ClientIDTcp, self(), ConnInfo),
     none = emqx_cm:takeover_session_begin(ClientIDTcp),
     meck:expect(
         emqx_connection,
@@ -480,7 +438,7 @@ t_takeover_session_process_gone(_) ->
                 meck:passthrough([Pid, What, Args])
         end
     ),
-    ok = emqx_cm:register_channel(client(ClientIDWs), self(), ConnInfo),
+    ok = emqx_cm:register_channel(ClientIDWs, self(), ConnInfo),
     none = emqx_cm:takeover_session_begin(ClientIDWs),
     meck:expect(
         emqx_connection,
@@ -492,7 +450,7 @@ t_takeover_session_process_gone(_) ->
                 meck:passthrough([Pid, What, Args])
         end
     ),
-    ok = emqx_cm:register_channel(client(ClientIDRpc), self(), ConnInfo),
+    ok = emqx_cm:register_channel(ClientIDRpc, self(), ConnInfo),
     none = emqx_cm:takeover_session_begin(ClientIDRpc),
     emqx_cm:unregister_channel(ClientIDTcp),
     emqx_cm:unregister_channel(ClientIDWs),
@@ -518,13 +476,13 @@ t_live_connection_stream(_) ->
     Chans2 = spawn_dummy_chann(emqx_ws_connection, 50),
     lists:foreach(
         fun({ClientId, Pid, ChanInfo}) ->
-            ok = emqx_cm:register_channel(client(ClientId), Pid, ChanInfo)
+            ok = emqx_cm:register_channel(ClientId, Pid, ChanInfo)
         end,
         Chans1
     ),
     lists:foreach(
         fun({ClientId, Pid, ChanInfo}) ->
-            ok = emqx_cm:register_channel(client(ClientId), Pid, ChanInfo)
+            ok = emqx_cm:register_channel(ClientId, Pid, ChanInfo)
         end,
         Chans2
     ),
@@ -554,26 +512,3 @@ spawn_dummy_chann(Mod, Count) ->
         end,
         lists:seq(1, Count)
     ).
-
-client(ClientId) ->
-    client(ClientId, undefined).
-client(ClientId, Pid, #{transport_started_at := TS} = _ConnInfo) ->
-    Pred = #lsr_channel{id = ClientId, pid = Pid, vsn = TS},
-    client(ClientId, Pred).
-client(ClientId, Pred) ->
-    case emqx:get_config([broker, linear_session_registry]) of
-        enabled ->
-            #{clientid => ClientId, predecessor => Pred};
-        disabled ->
-            ClientId;
-        migration_enabled ->
-            #{clientid => ClientId, predecessor => Pred}
-    end.
-
-%% For testing
-stamp_ver(#{conninfo := ConnInfo} = ChanInfo) when is_map(ConnInfo) ->
-    ChanInfo#{conninfo := stamp_ver(ConnInfo)};
-stamp_ver(#{transport_started_at := OldTs} = ConnInfo) when is_map(ConnInfo) ->
-    ConnInfo#{transport_started_at := OldTs + 1};
-stamp_ver(ConnInfo) when is_map(ConnInfo) ->
-    ConnInfo#{transport_started_at => erlang:system_time()}.
