@@ -45,6 +45,12 @@ health_check_interval.desc:
 health_check_interval.label:
 """Health Check Interval"""
 
+health_check_timeout.desc:
+"""Health check timeout.  If a health check call takes more than this time to return a result, the resource is deemed disconnected."""
+
+health_check_timeout.label:
+"""Health Check Timeout"""
+
 inflight_window.desc:
 """Query inflight window. When query_mode is set to async, this config has to be set to 1 if messages from the same MQTT client have to be strictly ordered."""
 

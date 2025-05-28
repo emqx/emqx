@@ -585,6 +585,7 @@ resource_opts_ref(Module, RefName, ConverterFun) ->
 common_resource_opts_subfields() ->
     [
         health_check_interval,
+        health_check_timeout,
         start_after_created,
         start_timeout
     ].

@@ -1910,6 +1910,7 @@ bin(X) -> emqx_utils_conv:bin(X).
 common_connector_resource_opts() ->
     #{
         <<"health_check_interval">> => <<"1s">>,
+        <<"health_check_timeout">> => <<"30s">>,
         <<"start_after_created">> => true,
         <<"start_timeout">> => <<"5s">>
     }.
@@ -1921,6 +1922,7 @@ common_action_resource_opts() ->
         <<"buffer_mode">> => <<"memory_only">>,
         <<"buffer_seg_bytes">> => <<"10MB">>,
         <<"health_check_interval">> => <<"1s">>,
+        <<"health_check_timeout">> => <<"30s">>,
         <<"inflight_window">> => 100,
         <<"max_buffer_bytes">> => <<"256MB">>,
         <<"metrics_flush_interval">> => <<"1s">>,
