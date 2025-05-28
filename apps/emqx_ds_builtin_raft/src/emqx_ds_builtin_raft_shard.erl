@@ -167,13 +167,24 @@ clear_cache(DB, Shard) ->
 %%    makes results more deterministic. Caller that doesn't care about that can shuffle
 %%    the results by itself.
 -spec servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), Order) -> [server()] when
-    Order :: leader_preferred | local_preferred | undefined.
+    Order :: leader_preferred | local_preferred | leader | undefined.
 servers(DB, Shard, leader_preferred) ->
     get_servers_leader_preferred(DB, Shard);
 servers(DB, Shard, local_preferred) ->
     get_servers_local_preferred(DB, Shard);
+servers(DB, Shard, leader) ->
+    get_servers_leader_only(DB, Shard);
 servers(DB, Shard, _Order = undefined) ->
     get_shard_servers(DB, Shard).
+
+get_servers_leader_only(DB, Shard) ->
+    ClusterName = get_cluster_name(DB, Shard),
+    case ra_leaderboard:lookup_leader(ClusterName) of
+        Leader when Leader /= undefined ->
+            [Leader];
+        undefined ->
+            []
+    end.
 
 get_servers_leader_preferred(DB, Shard) ->
     ClusterName = get_cluster_name(DB, Shard),

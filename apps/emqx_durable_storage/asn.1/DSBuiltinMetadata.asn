@@ -1,0 +1,28 @@
+--------------------------------------------------------------------------
+-- Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+--------------------------------------------------------------------------
+
+-- A collection of ASN.1 definitions encoding various types related to
+-- the builtin backends that may at some point end up stored
+-- persistently on disk.
+DSBuiltinMetadata DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  -- Top level (Local and Raft)
+  Stream ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER,
+    inner DSBuiltinStorageLayer.Stream
+  }
+
+  Iterator ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER,
+    inner DSBuiltinStorageLayer.Iterator
+  }
+
+  -- Encoding of iterator or end_of_stream
+  ReplayPosition ::= CHOICE {
+    endOfStream NULL,
+    value Iterator
+  }
+END

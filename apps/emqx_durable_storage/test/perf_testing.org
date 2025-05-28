@@ -1,0 +1,811 @@
+#+TITLE: Performance testing of DS optimistic transactions
+#+PROPERTY: header-args :eval no-export :exports both
+#+PROPERTY: header-args:sh :results output drawer :dir /docker:root@dev-cluster-emqx1-1:/opt/emqx
+#+PROPERTY: header-args:erlang :tangle ../src/emqx_ds_otx_test.erl
+#+PROPERTY: header-args:python :session *python*
+#+PROPERTY: header-args:elisp :exports none
+#+STARTUP: hideblocks
+#+LATEX_HEADER: \usepackage{graphicx}
+#+LATEX_HEADER: \lstset{basicstyle=\fontsize{8}{8}}
+
+
+* Traffic generator
+
+This file contains an embedded traffic generator that starts an ensemble of processes on different nodes that run a specified function.
+
+Scenarios implemented with this generator have two general variables: =N= and =Nnodes=.
+
+#+begin_src erlang :exports none
+%% Generated file, do not edit
+-module(emqx_ds_otx_test).
+
+-behavior(supervisor).
+
+%% API:
+-export([l/0, create_db/1, test_dbs/0, create_dbs/0, counter_test/1, owned_counter_test/1]).
+
+%% Test setup and supervisor callbacks:
+-export([init/1, start_worker/6, worker_entrypoint/5]).
+
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+
+-define(MRIA_SHARD, otx_test_shard).
+
+-define(with_metric(METRIC, BODY), with_metric(METRIC, fun() -> BODY end)).
+
+%% Reload code
+l() ->
+    erpc:multicall(
+        [node() | nodes()],
+        fun() ->
+            ok = code:atomic_load([?MODULE]),
+            code:purge(?MODULE)
+        end
+    ).
+#+end_src
+
+* Test setup
+
+#+begin_src elisp :exports none
+;; Run something in a docker container, async
+(defun my-run-in-docker (erl)
+  (async-shell-command (concat
+                        "docker exec dev-cluster-emqx1-1 bin/emqx eval "
+                        (prin1-to-string erl))))
+#+end_src
+
+#+RESULTS:
+: my-run-in-docker
+
+
+#+begin_src erlang :export no
+create_db(UserOpts = #{db := DB, type := ds}) ->
+    DB = maps:get(db, UserOpts, t),
+    Defaults = #{
+        backend => builtin_raft,
+        store_ttv => true,
+        n_shards => 16,
+        replication_options => #{},
+        n_sites => 5,
+        replication_factor => 5,
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}},
+        transaction => #{flush_interval => 10, idle_flush_interval => 1, conflict_window => 10_000},
+        reads => local_preferred
+    },
+    Opts = emqx_utils_maps:deep_merge(Defaults, maps:remove(db, UserOpts)),
+    multicall(fun() -> emqx_ds:open_db(DB, Opts) end);
+create_db(UserOpts = #{db := DB, type := mria}) ->
+    Opts = maps:merge(
+        #{type => ordered_set, storage => rocksdb_copies, rlog_shard => ?MRIA_SHARD},
+        maps:without([db, rlog_shard, type], UserOpts)
+    ),
+    multicall(
+        fun() ->
+            ok = mria:create_table(DB, maps:to_list(Opts)),
+            ok = mria:wait_for_tables([DB])
+        end
+    ).
+#+end_src
+
+Create a standard set of test databases with different parameters:
+
+#+begin_src erlang
+test_dbs() ->
+  [ #{type => mria, db => md, storage => disc_copies}
+  , #{type => mria, db => mr, storage => rocksdb_copies}
+  , #{type => ds, db => d3l, replication_factor => 3, reads => local_preferred}
+  %% TODO: Excluded due to some weird outliers
+  %% , #{type => ds, db => d3L, replication_factor => 3, reads => leader_preferred}
+  , #{type => ds, db => d5l, replication_factor => 5, reads => local_preferred}
+  , #{type => ds, db => d5L, replication_factor => 5, reads => leader_preferred}
+  ].
+
+create_dbs() ->
+  [create_db(I) || I <- test_dbs()].
+#+end_src
+
+#+begin_src elisp :exports none
+(my-run-in-docker "emqx_ds_otx_test:create_dbs()")
+#+end_src
+
+
+#+RESULTS:
+: #<window 17 on *Async Shell Command*>
+
+* Data processing
+** Histogram
+
+Subroutines to create histograms:
+
+#+begin_src python :exports none
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import math
+
+def mgroups(df):
+    """Group data by measurement type"""
+    # Measurement types:
+    mtypes = df.columns.to_list()
+    mtypes.pop()
+    # Group data by measurement type:
+    return df.groupby(mtypes, sort=False)
+
+# Style of hisogram where plots are overlayed
+def histogram_vs_overlayed(df, title):
+    """Calculate a histogram for each measurement type, then plot them all overlayed"""
+    plt.figure(dpi=200)
+    plt.title(title)
+    bins = np.linspace(df['Val'].min(), df['Val'].max(), 100)
+    plt.xlabel('Transaction Time, μS')
+    plt.ylabel('Frequency')
+    grps = mgroups(df),
+    for i in mgroups(df):
+        counts, bin_edges = np.histogram(i[1]['Val'], bins=50)
+        label=','.join(map(str, i[0]))
+        plt.hist(bin_edges[:-1], bins=bins, weights=counts, alpha=1, label=label, linewidth=1, histtype='step')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.legend()
+    fn = title + ".png"
+    plt.savefig(fn)
+    return fn
+
+# Style of histogram with subplots
+def histogram_vs_separate(df, title):
+    # Measurement types:
+    mtypes = df.columns.to_list()
+    mtypes.pop()
+    # Use the same bins for everything:
+    bins = np.linspace(df['Val'].min(), df['Val'].max(), 100)
+    # Plot it
+    df.hist(column='Val', grid=True, by=mtypes, sharex=True, sharey=True, bins=bins, histtype='stepfilled')
+    plt.tight_layout()
+    fn = title + ".hist.png"
+    plt.savefig(fn)
+    return fn
+
+def histogram_vs(df, title):
+    plt.close()
+    #return histogram_vs_overlayed(df, title)
+    return histogram_vs_separate(df, title)
+
+def boxplot_vs(df, title):
+    plt.close()
+    fn = title + ".bp.png"
+    df.boxplot(column='Val', by='DB', flierprops=dict(marker='.', markersize=2), whis=(0, 100))
+    plt.savefig(fn)
+    return fn
+#+end_src
+
+#+RESULTS:
+: None
+
+** Load data
+CSV file generation by the loadgen:
+
+#+begin_src erlang
+open_csv(Experiment, ColumnNames) ->
+    Filename = filename:join(emqx:data_dir(), Experiment ++ ".csv"),
+    IsNew = not filelib:is_file(Filename),
+    {ok, FD} = file:open(Filename, [append]),
+    %% Insert CSV header:
+    IsNew andalso
+        io:format(FD, "~s;Metric;Val~n", [lists:join(";", ColumnNames)]),
+    FD.
+#+end_src
+
+Delete old data:
+
+#+begin_src sh :results ignore
+rm /opt/emqx/data/*.csv
+#+end_src
+
+#+RESULTS:
+:results:
+:end:
+
+Copy CSVs from docker and parse it:
+
+#+begin_src python :results discard
+import pandas as pd
+import os
+
+os.system("docker cp dev-cluster-emqx1-1:/opt/emqx/data/counter.csv .")
+df_cntr = pd.read_csv('counter.csv', sep=';')
+
+os.system("docker cp dev-cluster-emqx1-1:/opt/emqx/data/owned_counter.csv .")
+df_ocntr = pd.read_csv('owned_counter.csv', sep=';')
+#+end_src
+
+#+RESULTS:
+
+* Test scenarios
+
+** Naive counter increment
+
+A naive and inefficient implementation of counter increment by reading data from the DB, incrementing it and writing it back.
+
+Below is implementation for DS:
+
+#+begin_src erlang
+do_inc_counter(MyId, Opts = #{type := ds}) ->
+  TxOpts = maps:with([db, timeout, retries, retry_interval], Opts),
+  Result = emqx_ds:trans(
+             TxOpts#{shard => {auto, MyId}, generation => 1},
+             fun() ->
+                 Key = [<<"cnt">>, <<MyId:64>>],
+                 case emqx_ds:tx_read(Key) of
+                   [{_, _, <<Val:64>>}] ->
+                     ok;
+                   [] ->
+                     Val = 0
+                 end,
+                 emqx_ds:tx_write({Key, 0, <<(Val + 1):64>>})
+             end
+            ),
+  case Result of
+    {atomic, _, _} ->
+      ok;
+    _ ->
+      Result
+  end;
+#+end_src
+
+And for Mria:
+
+#+begin_src erlang
+do_inc_counter(MyId, #{type := mria, db := DB}) ->
+    Result = mria:transaction(
+        ?MRIA_SHARD,
+        fun() ->
+            Key = {<<"cnt">>, MyId},
+            case mnesia:read(DB, Key) of
+                [{DB, _, <<Val:64>>}] ->
+                    ok;
+                [] ->
+                    Val = 0
+            end,
+            mnesia:write({DB, Key, <<(Val + 1):64>>})
+        end
+    ),
+    case Result of
+        {atomic, _} ->
+            ok;
+        _ ->
+            Result
+    end.
+#+end_src
+
+Test itself:
+
+#+begin_src erlang
+inc_counter_loop(MyId, Opts = #{sleep := Sleep}, State) ->
+  ok = ?with_metric(t, do_inc_counter(MyId, Opts)),
+  (Sleep > 0) andalso timer:sleep(Sleep),
+  State.
+
+counter_test(UserOpts = #{db := DB, type := _}) ->
+  Defaults = #{ repeats => 1
+              , n => 1
+              , sleep => 0
+              , n_nodes => 1
+              , retries => 10
+              , retry_interval => 10
+              },
+  #{ sleep := Sleep
+   , n := N
+   , n_nodes := NNodes
+   , repeats := Repeats
+   , retries := TxRetries
+   } = Opts = maps:merge(Defaults, UserOpts),
+  io:format("Cleanup..."),
+  clear_table(Opts),
+  timer:sleep(1000),
+  Success = exec_test(Opts,
+                      fun inc_counter_loop/3,
+                      "counter",
+                      ["DB", "N", "Nnodes", "Sleep", "Retries"],
+                      [DB, N, NNodes, Sleep, TxRetries]
+                     ),
+  case Success of
+    true ->
+      io:format("Verifying results...~n"),
+      ExpectedValue = <<(NNodes * Repeats):64>>,
+      verify_counters(Opts, ExpectedValue);
+    false ->
+      io:format("Run wasn't successful...~n"),
+      false
+  end;
+counter_test(UserOpts) ->
+  [?FUNCTION_NAME(maps:merge(UserOpts, maps:with([db, type], I))) || I <- test_dbs()].
+#+end_src
+
+Verification of counter values:
+
+#+begin_src erlang
+
+verify_counters(#{db := _DB, n := _N, type := mria}, _ExpectedVal) ->
+    io:format("Ignored~n"),
+    ok;
+verify_counters(#{db := DB, n := N, type := ds}, ExpectedVal) ->
+    timer:sleep(2000),
+    NVerified = emqx_ds:fold_topic(
+        fun(_Slab, _Stream, {Topic, _, Bin}, Acc) ->
+            case Bin of
+                ExpectedVal ->
+                    Acc + 1;
+                Other ->
+                    io:format("Mismatch for topic ~p, got ~p expected ~p~n", [
+                        Topic, Other, ExpectedVal
+                    ]),
+                    Acc + 1
+            end
+        end,
+        0,
+        [<<"cnt">>, '+'],
+        #{db => DB}
+    ),
+    case NVerified of
+        N ->
+            ok;
+        _ ->
+            io:format("Number of counters is ~p, expected ~p~n", [NVerified, N])
+    end.
+#+end_src
+
+
+#+RESULTS:
+: #<buffer *perf-test*>
+
+*** 1k parallel workers, no sleep, no conflicts
+
+#+begin_src elisp :exports none
+(my-run-in-docker "emqx_ds_otx_test:l(), emqx_ds_otx_test:counter_test(#{n => 1000, repeats => 100, test_timeout => 60_000}), all_done.")
+#+end_src
+
+#+RESULTS:
+: #<window 54 on *Async Shell Command*>
+
+
+#+begin_src python :results file
+c1ks0 = df_cntr[(df_cntr['Nnodes'] == 1) & (df_cntr['N'] == 1000) & (df_cntr['Sleep'] == 0)]
+histogram_vs(c1ks0, "1k naive counters, no sleep")
+#+end_src
+
+#+RESULTS:
+[[file:1k naive counters, no sleep.hist.png]]
+
+#+begin_src python :results file
+boxplot_vs(c1ks0, "1k naive counters, no sleep")
+#+end_src
+
+#+RESULTS:
+[[file:1k naive counters, no sleep.bp.png]]
+
+#+begin_src python :results value table
+mgroups(fdf).count()
+#+end_src
+
+#+RESULTS:
+|   |
+
+*** 10k parallel workers, no sleep, no conflicts
+
+#+begin_src elisp :exports none
+(my-run-in-docker "emqx_ds_otx_test:l(), emqx_ds_otx_test:counter_test(#{n => 10000, repeats => 100, test_timeout => 300_000}), all_done.")
+#+end_src
+
+#+RESULTS:
+: #<window 54 on *Async Shell Command*>
+
+
+#+begin_src python :results file
+c10ks0 = df_cntr[(df_cntr['Nnodes'] == 1) & (df_cntr['N'] == 10000) & (df_cntr['Sleep'] == 0)]
+histogram_vs(c10ks0, "10k naive counters, no sleep")
+#+end_src
+
+#+RESULTS:
+[[file:10k naive counters, no sleep.hist.png]]
+
+
+#+begin_src python :results file
+boxplot_vs(c10ks0, "10k naive counters, no sleep")
+#+end_src
+
+#+RESULTS:
+[[file:10k naive counters, no sleep.bp.png]]
+
+
+*** 10k parallel workers, sleep 30ms, no conflicts
+
+#+begin_src elisp :exports none
+(my-run-in-docker "emqx_ds_otx_test:l(), emqx_ds_otx_test:counter_test(#{n => 10000, repeats => 30, sleep => 30, test_timeout => 300_000}), all_done.")
+#+end_src
+
+#+RESULTS:
+: #<window 54 on *Async Shell Command*>
+
+
+#+begin_src python :results file
+c10ks30 = df_cntr[(df_cntr['Nnodes'] == 1) & (df_cntr['N'] == 10000) & (df_cntr['Sleep'] == 30)]
+histogram_vs(c10ks30, "10k naive counters, 30ms sleep")
+#+end_src
+
+#+RESULTS:
+[[file:10k naive counters, 30ms sleep.hist.png]]
+
+
+#+begin_src python :results file
+boxplot_vs(c10ks30, "10k naive counters, 30ms sleep")
+#+end_src
+
+#+RESULTS:
+[[file:10k naive counters, 30ms sleep.bp.png]]
+
+
+** Owned counter increment
+
+Reading data from DB, processing it and writing it back is not the best approach.
+
+Take ownership over counter:
+
+#+begin_src erlang
+do_own_counter(MyId, Opts = #{type := ds}) ->
+  TxOpts = maps:with([db, timeout, retries, retry_interval], Opts),
+  Result = emqx_ds:trans(
+             TxOpts#{shard => {auto, MyId}, generation => 1},
+             fun() ->
+                 emqx_ds:tx_write({[<<"g">>, <<MyId:64>>], 0, ?ds_tx_serial}),
+                 case emqx_ds:tx_read([<<"d">>, <<MyId:64>>]) of
+                   [{_, _, <<Val:64>>}] ->
+                     Val;
+                   [] ->
+                     0
+                 end
+             end),
+    case Result of
+      {atomic, Guard, Val} ->
+        {ok, Guard, Val};
+      _ ->
+        Result
+    end;
+do_own_counter(MyId, Opts = #{type := mria}) ->
+    #{db := DB} = Opts,
+    Guard = make_ref(),
+    Result = mria:transaction(
+        ?MRIA_SHARD,
+        fun() ->
+            mnesia:write({DB, {g, MyId}, Guard}),
+            case mnesia:read(DB, {d, MyId}) of
+                [{DB, _, <<Val:64>>}] ->
+                    Val;
+                _ ->
+                    0
+            end
+        end
+    ),
+    case Result of
+        {atomic, Val} ->
+            {ok, Guard, Val};
+        _ ->
+            Result
+    end.
+#+end_src
+
+Increment owned counter:
+
+#+begin_src erlang
+do_inc_owned_counter(MyId, Val0, Guard, Opts = #{type := ds}) ->
+  TxOpts = maps:with([db, timeout, retries, retry_interval], Opts),
+  Result = emqx_ds:trans(
+             TxOpts#{shard => {auto, MyId}, generation => 1},
+             fun() ->
+                 Val = Val0 + 1,
+                 emqx_ds:tx_ttv_assert_present([<<"g">>, <<MyId:64>>], 0, Guard),
+                 emqx_ds:tx_write({[<<"cnt">>, <<MyId:64>>], 0, <<Val:64>>}),
+                 {ok, Val}
+             end),
+  case Result of
+    {atomic, _, Ret} ->
+      Ret;
+    ?err_unrec({precondition_failed, _}) ->
+      lost_ownership;
+    _ ->
+      Result
+  end;
+do_inc_owned_counter(MyId, Val0, Guard, Opts = #{type := mria}) ->
+  Val = Val0 + 1,
+  #{db := DB} = Opts,
+  Result = mria:transaction(
+             ?MRIA_SHARD,
+             fun() ->
+                 case mnesia:read(DB, {g, MyId}) of
+                   [{DB, _, Guard}] ->
+                     mnesia:write({DB, {cnt, MyId}, <<Val:64>>}),
+                     {ok, Val};
+                   _ ->
+                     lost_ownership
+                 end
+             end),
+    case Result of
+        {atomic, R} ->
+            R;
+        _ ->
+            Result
+    end.
+#+end_src
+
+Test itself:
+
+#+begin_src erlang
+inc_owned_counter_loop(MyId, Opts, S0) ->
+  case S0 of
+    undefined ->
+      {ok, Guard, Val0} = ?with_metric(o, do_own_counter(MyId, Opts));
+    {Guard, Val0} ->
+      ok
+  end,
+  {ok, Val} = ?with_metric(i, do_inc_owned_counter(MyId, Val0, Guard, Opts)),
+  {Guard, Val}.
+
+owned_counter_test(UserOpts = #{db := DB, type := _}) ->
+  Defaults = #{ repeats => 1
+              , n => 1
+              , n_nodes => 1
+              , timeout => 10_000
+              , retries => 10
+              },
+  Opts = #{n := N, n_nodes := NNodes, repeats := Repeats, retries := TxRetries} = maps:merge(Defaults, UserOpts),
+  io:format("Cleanup..."),
+  clear_table(Opts),
+  timer:sleep(1000),
+  Success = exec_test(Opts,
+                      fun inc_owned_counter_loop/3,
+                      "owned_counter",
+                      ["DB", "N", "Nnodes", "Retries"],
+                      [DB, N, NNodes, TxRetries]
+                     ),
+  case Success of
+    true ->
+      io:format("Verifying results...~n"),
+      ExpectedValue = <<(NNodes * Repeats):64>>,
+      verify_counters(Opts, ExpectedValue);
+    false ->
+      io:format("Run wasn't successful...~n"),
+      false
+  end;
+owned_counter_test(UserOpts) ->
+  [?FUNCTION_NAME(maps:merge(UserOpts, maps:with([db, type], I))) || I <- test_dbs()].
+#+end_src
+
+*** 10k parallel workers, no conflicts
+
+#+begin_src elisp :exports none
+(my-run-in-docker "emqx_ds_otx_test:l(), emqx_ds_otx_test:owned_counter_test(#{n => 10000, repeats => 100, test_timeout => 300_000}), all_done.")
+#+end_src
+
+#+RESULTS:
+: #<window 54 on *Async Shell Command*>
+
+Increment:
+#+begin_src python :results file
+owc10ki = df_ocntr[(df_ocntr['Nnodes'] == 1) & (df_ocntr['N'] == 10000) & (df_ocntr['Metric'] == 'i')]
+histogram_vs(owc10ki, "10k owned counters, no conflicts, increment")
+#+end_src
+
+#+RESULTS:
+[[file:10k owned counters, no conflicts, increment.hist.png]]
+
+#+begin_src python :results file :exports result
+boxplot_vs(owc10ki, "10k owned counters, no conflicts, increment")
+#+end_src
+
+#+RESULTS:
+[[file:10k owned counters, no conflicts, increment.bp.png]]
+
+
+#+begin_src python :results file
+owc10ko = df_ocntr[(df_ocntr['Nnodes'] == 1) & (df_ocntr['N'] == 10000) & (df_ocntr['Metric'] == 'o')]
+histogram_vs(owc10ko, "10k owned counters, no conflicts, own")
+#+end_src
+
+#+RESULTS:
+[[file:10k owned counters, no conflicts, own.hist.png]]
+
+* Appendix A: Test harness
+
+#+begin_src erlang :exports none
+
+%%-----------------------------------------------------------------------------------------------------------
+%% Test harness
+%%-----------------------------------------------------------------------------------------------------------
+
+-record(s,
+        { success = true :: boolean(),
+          csv_fd :: file:iodevice(),
+          csv_prefix :: binary(),
+          t0 :: integer(),
+          mref :: reference() | undefined,
+          timeout :: timeout()
+        }).
+
+%% 1. Start a supervision tree with `n_nodes' copies on random nodes
+%% in the cluster for each integer between 1 and 'n'.
+%%
+%% 2. Once all processes are ready, execute `Fun' in each of them
+%%
+%% 3. Wait until all processes are done.
+-spec exec_test(
+    #{
+        n := pos_integer(),
+        n_nodes => pos_integer(),
+        available_nodes => [node()],
+        test_timeout => timeout(),
+        repeats => pos_integer()
+    },
+    fun((_MyId :: pos_integer(), _Opts :: map(), Acc | undefined) -> Acc),
+    string(),
+    list(),
+    list()
+) ->
+    boolean().
+exec_test(UserOpts, Fun, ExperimentName, ColumNames, MeasurementFields) ->
+    CSV = open_csv(ExperimentName, ColumNames),
+    Defaults = #{
+        available_nodes => [node() | nodes()],
+        n_nodes => 1,
+        test_timeout => infinity
+    },
+    #{test_timeout := TestTimeout} = Opts = maps:merge(Defaults, UserOpts),
+    DatapointPrefix = lists:join(";", [io_lib:format("~p", [I]) || I <- MeasurementFields]),
+    %% Spawn a temporary process that will be monitored by all worker
+    %% processes. Its termination signals start of the test:
+    Trigger = spawn_link(fun() ->
+        receive
+            pull -> ok
+        end
+    end),
+    %% Start the workers:
+    {ok, Top} = supervisor:start_link(?MODULE, {top, Fun, Opts, self(), Trigger}),
+    io:format("Ensemble is ready: ~p~n", [Top]),
+    MRef = monitor(process, Top),
+    unlink(Top),
+    %% Now when the setup is complete, let's broadcast that it's time
+    %% to start the test:
+    Trigger ! pull,
+    %% Start collecting messages until supervisor terminates:
+    Success = collect_replies(#s{ csv_fd = CSV
+                                , csv_prefix = iolist_to_binary(DatapointPrefix)
+                                , t0 = erlang:system_time(microsecond)
+                                , mref = MRef
+                                , timeout = TestTimeout
+                                }),
+    %% Shutdown the sup in case of timeout:
+    exit(Top, shutdown),
+    file:close(CSV),
+    Success.
+
+collect_replies(S = #s{timeout = Timeout, mref = MRef, t0 = T0, csv_fd = FD, csv_prefix = Prefix}) ->
+  receive
+    {'DOWN', MRef, process, _, _} ->
+      %% Supervisor has stopped, everything's done:
+      T1 = erlang:system_time(microsecond),
+      io:format("Complete in ~p s~n", [(T1 - T0) / 1_000_000]),
+      %% Wait a little more to collect the rest of the messages:
+      collect_replies(S#s{timeout = 100});
+    {metric, M, Val} ->
+      io:format(FD, "~s;~p;~p~n", [Prefix, M, Val]),
+      collect_replies(S);
+    {fail, _} ->
+      collect_replies(S#s{success = false})
+  after Timeout ->
+      S#s.success
+  end.
+
+report_metric(Metric, Val) ->
+  get(parent) ! {metric, Metric, Val}.
+
+report_fail(Reason) ->
+  get(parent) ! {fail, Reason}.
+
+%%-----------------------------------------------------------------------------------------------------------
+%% Supervisor
+%%-----------------------------------------------------------------------------------------------------------
+
+init({top, Fun, Opts = #{n := N}, Parent, Trigger}) ->
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 10,
+        period => 1,
+        auto_shutdown => all_significant
+    },
+    Children = [
+        #{
+            id => I,
+            type => supervisor,
+            shutdown => infinity,
+            restart => temporary,
+            start => {supervisor, start_link, [?MODULE, {worker, Fun, Opts, Parent, Trigger, I}]},
+            significant => true
+        }
+     || I <- lists:seq(1, N)
+    ],
+    {ok, {SupFlags, Children}};
+init({worker, Fun, Opts, Parent, Trigger, MyId}) ->
+    #{n_nodes := NNodes, available_nodes := NodeAvail} = Opts,
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 10,
+        period => 1,
+        auto_shutdown => all_significant
+    },
+    {Nodes, _} = lists:split(NNodes, shuffle(NodeAvail)),
+    Children = [
+        #{
+            id => Node,
+            type => worker,
+            restart => temporary,
+            start => {?MODULE, start_worker, [Node, Fun, Opts, MyId, Parent, Trigger]},
+            shutdown => 100,
+            significant => true
+        }
+     || Node <- Nodes
+    ],
+    {ok, {SupFlags, Children}}.
+
+start_worker(Node, Fun, Opts, N, Parent, Trigger) ->
+    Pid = proc_lib:spawn_link(Node, ?MODULE, worker_entrypoint, [Fun, Opts, N, Parent, Trigger]),
+    {ok, Pid}.
+
+worker_entrypoint(Fun, Opts = #{repeats := Repeats}, MyId, Parent, Trigger) ->
+    MRef = monitor(process, Trigger),
+    put(parent, Parent),
+    receive
+        {'DOWN', MRef, process, Trigger, _} ->
+            try
+              lists:foldl(
+                fun(_, Acc) -> Fun(MyId, Opts, Acc) end,
+                undefined,
+                lists:seq(1, Repeats)
+               )
+            catch EC:Err:Stack ->
+                logger:error("Test worker ~p failed with reason ~p:~p~nStack: ~p", [MyId, EC, Err, Stack]),
+                report_fail({EC, Err})
+            end
+    end.
+
+shuffle(L) ->
+    {_, Ret} = lists:unzip(lists:sort([{rand:uniform(), I} || I <- L])),
+    Ret.
+
+clear_table(#{type := mria, db := DB}) ->
+    mria:clear_table(DB);
+clear_table(#{type := ds, db := DB}) ->
+    maps:foreach(
+        fun({Shard, Gen}, _Val) ->
+            {atomic, _, _} = emqx_ds:trans(
+                #{db => DB, generation => Gen, shard => Shard},
+                fun() ->
+                    emqx_ds:tx_del_topic(['#'])
+                end
+            )
+        end,
+        emqx_ds:list_generations_with_lifetimes(DB)
+    ).
+
+multicall(Fun) ->
+  Nodes = [node() | nodes()],
+  {_, []} = rpc:multicall(Nodes, erlang, apply, [Fun, []]),
+  ok.
+
+with_metric(Metric, Fun) ->
+  T0 = erlang:system_time(microsecond),
+  try
+    Fun()
+  after
+    T1 = erlang:system_time(microsecond),
+    report_metric(Metric, T1 - T0)
+  end.
+#+end_src

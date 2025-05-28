@@ -1,0 +1,17 @@
+--------------------------------------------------------------------------
+-- Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+--------------------------------------------------------------------------
+
+DSBuiltinSLSkipstreamV1 DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  EXPORTS ALL;
+
+    --   emqx_ds_storage_skipstream_lts
+  Stream ::= OCTET STRING
+
+  Iterator ::= SEQUENCE {
+    static OCTET STRING,
+    lastKey INTEGER,
+    compressedTf OCTET STRING
+  }
+END

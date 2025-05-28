@@ -1005,7 +1005,7 @@ topic_level_bin(TL) -> TL.
 %%%%%%%% LTS %%%%%%%%%%
 
 -spec restore_trie(
-    emqx_ds_storage_layer:shard_id(), pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()
+    emqx_ds_storage_layer:dbshard(), pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()
 ) -> emqx_ds_lts:trie().
 restore_trie(Shard, StaticIdxBytes, DB, CF) ->
     PersistCallback = fun(Key, Val) ->
