@@ -26,6 +26,9 @@
 is_sensitive_key(account_key) -> true;
 is_sensitive_key("account_key") -> true;
 is_sensitive_key(<<"account_key">>) -> true;
+is_sensitive_key(api_key) -> true;
+is_sensitive_key("api_key") -> true;
+is_sensitive_key(<<"api_key">>) -> true;
 is_sensitive_key(aws_secret_access_key) -> true;
 is_sensitive_key("aws_secret_access_key") -> true;
 is_sensitive_key(<<"aws_secret_access_key">>) -> true;
