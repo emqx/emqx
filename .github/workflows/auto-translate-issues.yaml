@@ -1,0 +1,69 @@
+name: Translate Chinese Issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'The issue number to translate'
+        required: true
+        type: string
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write # Grant permission to edit issues
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    env:
+      ISSUE_NUMBER: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.issue_number || github.event.issue.number }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Call Translation Script
+        id: translate
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Attempting to translate issue ${{ env.ISSUE_NUMBER }} in repository ${{ github.repository }}..."
+          TRANSLATED_OUTPUT=$(scripts/translate.sh ${{ github.repository }} $ISSUE_NUMBER)
+
+          if [[ "$TRANSLATED_OUTPUT" == "NO_TRANSLATION_NEEDED" || "$TRANSLATED_OUTPUT" == Error:* ]]; then
+            echo "status=SKIPPED" >> $GITHUB_OUTPUT
+            echo "message=$TRANSLATED_OUTPUT" >> $GITHUB_OUTPUT
+            echo "Skipping: $TRANSLATED_OUTPUT"
+          else
+            TRANSLATED_TITLE=$(echo "$TRANSLATED_OUTPUT" | head -n 1)
+            # Use tail -n +2 to get *everything* from the second line onwards
+            TRANSLATED_BODY=$(echo "$TRANSLATED_OUTPUT" | tail -n +2)
+
+            echo "status=SUCCESS" >> $GITHUB_OUTPUT
+            echo "title=$TRANSLATED_TITLE" >> $GITHUB_OUTPUT
+            echo "body<<EOF" >> $GITHUB_OUTPUT
+            echo "$TRANSLATED_BODY" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "Translation successful."
+          fi
+
+      - name: Update Issue with Translation
+        if: steps.translate.outputs.status == 'SUCCESS'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+          NEW_TITLE: ${{ steps.translate.outputs.title }}
+          NEW_BODY: ${{ steps.translate.outputs.body }}
+        run: |
+          echo "Updating issue $ISSUE_NUMBER..."
+          echo "$NEW_BODY" > body.txt
+          echo -e "\n\n---\n*This issue was automatically translated from Chinese.*" >> body.txt
+
+          gh issue edit $ISSUE_NUMBER --title "$NEW_TITLE" --body-file body.txt
+          echo "Issue $ISSUE_NUMBER updated."
+
+      - name: Log Skipped or Failed Translation
+        if: steps.translate.outputs.status == 'SKIPPED'
+        run: |
+          echo "Translation skipped or an error occurred: ${{ steps.translate.outputs.message }}"
