@@ -277,12 +277,8 @@ pick(Topic) ->
 mria_batch_run(v2, Batch) ->
     maps:fold(
         fun({Topic, Dest}, Op, Errors) ->
-            case mria_batch_operation_v2(batch_get_action(Op), Topic, Dest) of
-                ok ->
-                    Errors;
-                Error ->
-                    Errors#{{Topic, Dest} => Error}
-            end
+            ok = mria_batch_operation_v2(batch_get_action(Op), Topic, Dest),
+            Errors
         end,
         #{},
         Batch
