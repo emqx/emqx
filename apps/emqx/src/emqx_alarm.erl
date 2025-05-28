@@ -215,7 +215,7 @@ to_rfc3339(Timestamp) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM, ?TRIE]),
+    ok = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM]),
     deactivate_all_alarms(),
     process_flag(trap_exit, true),
     State = #{?worker => start_worker()},

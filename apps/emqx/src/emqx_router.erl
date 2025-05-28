@@ -181,43 +181,23 @@ do_add_route(Topic) when is_binary(Topic) ->
 -spec do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_add_route(Topic, Dest) when is_binary(Topic) ->
     ok = emqx_router_helper:monitor(Dest),
-    mria_insert_route(get_schema_vsn(), Topic, Dest, single).
-
-mria_insert_route(v2, Topic, Dest, Ctx) ->
-    mria_insert_route_v2(Topic, Dest, Ctx);
-mria_insert_route(v1, Topic, Dest, Ctx) ->
-    mria_insert_route_v1(Topic, Dest, Ctx).
+    mria_insert_route_v2(Topic, Dest, single).
 
 %% @doc Take a real topic (not filter) as input, return the matching topics and topic
 %% filters associated with route destination.
 -spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
 match_routes(Topic) when is_binary(Topic) ->
-    match_routes(get_schema_vsn(), Topic).
-
-match_routes(v2, Topic) ->
-    match_routes_v2(Topic);
-match_routes(v1, Topic) ->
-    match_routes_v1(Topic).
+    match_routes_v2(Topic).
 
 %% @doc Take a topic or filter as input, and return the existing routes with exactly
 %% this topic or filter.
 -spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
 lookup_routes(Topic) ->
-    lookup_routes(get_schema_vsn(), Topic).
-
-lookup_routes(v2, Topic) ->
-    lookup_routes_v2(Topic);
-lookup_routes(v1, Topic) ->
-    lookup_routes_v1(Topic).
+    lookup_routes_v2(Topic).
 
 -spec has_route(emqx_types:topic(), dest()) -> boolean().
 has_route(Topic, Dest) ->
-    has_route(get_schema_vsn(), Topic, Dest).
-
-has_route(v2, Topic, Dest) ->
-    has_route_v2(Topic, Dest);
-has_route(v1, Topic, Dest) ->
-    has_route_v1(Topic, Dest).
+    has_route_v2(Topic, Dest).
 
 -spec delete_route(emqx_types:topic()) -> ok | {error, term()}.
 delete_route(Topic) when is_binary(Topic) ->
@@ -233,32 +213,14 @@ do_delete_route(Topic) when is_binary(Topic) ->
 
 -spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, Dest) ->
-    mria_delete_route(get_schema_vsn(), Topic, Dest, single).
-
-mria_delete_route(v2, Topic, Dest, Ctx) ->
-    mria_delete_route_v2(Topic, Dest, Ctx);
-mria_delete_route(v1, Topic, Dest, Ctx) ->
-    mria_delete_route_v1(Topic, Dest, Ctx).
+    mria_delete_route_v2(Topic, Dest, single).
 
 -spec do_batch(batch()) -> #{batch_route() => _Error}.
 do_batch(Batch) ->
-    mria_batch(get_schema_vsn(), Batch).
-
-mria_batch(v2, Batch) ->
-    mria_batch_v2(Batch);
-mria_batch(v1, Batch) ->
-    mria_batch_v1(Batch).
+    mria_batch_v2(Batch).
 
 mria_batch_v2(Batch) ->
     mria:async_dirty(?ROUTE_SHARD, fun ?MODULE:mria_batch_run/2, [v2, Batch]).
-
-mria_batch_v1(Batch) ->
-    case mria:transaction(?ROUTE_SHARD, fun ?MODULE:mria_batch_run/2, [v1, Batch]) of
-        {atomic, Result} ->
-            Result;
-        Error ->
-            Error
-    end.
 
 batch_get_action(Op) ->
     element(1, Op).
@@ -266,30 +228,15 @@ batch_get_action(Op) ->
 -spec stream(_Spec :: {_TopicPat, _DestPat}) ->
     emqx_utils_stream:stream(emqx_types:route()).
 stream(MatchSpec) ->
-    stream(get_schema_vsn(), MatchSpec).
-
-stream(v2, MatchSpec) ->
-    stream_v2(MatchSpec);
-stream(v1, MatchSpec) ->
-    stream_v1(MatchSpec).
+    stream_v2(MatchSpec).
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
-    topics(get_schema_vsn()).
-
-topics(v2) ->
-    list_topics_v2();
-topics(v1) ->
-    list_topics_v1().
+    list_topics_v2().
 
 -spec stats(n_routes) -> non_neg_integer().
 stats(Item) ->
-    stats(get_schema_vsn(), Item).
-
-stats(v2, Item) ->
-    get_stats_v2(Item);
-stats(v1, Item) ->
-    get_stats_v1(Item).
+    get_stats_v2(Item).
 
 %% @doc Print routes to a topic
 -spec print_routes(emqx_types:topic()) -> ok.
@@ -303,25 +250,15 @@ print_routes(Topic) ->
 
 -spec cleanup_routes(node()) -> ok.
 cleanup_routes(NodeOrExtDest) ->
-    cleanup_routes(get_schema_vsn(), NodeOrExtDest).
-
-cleanup_routes(v2, NodeOrExtDest) ->
-    cleanup_routes_v2(NodeOrExtDest);
-cleanup_routes(v1, NodeOrExtDest) ->
-    cleanup_routes_v1(NodeOrExtDest).
+    cleanup_routes_v2(NodeOrExtDest).
 
 -spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
-    fold_routes(get_schema_vsn(), foldl, FoldFun, AccIn).
+    fold_routes_v2(foldl, FoldFun, AccIn).
 
 -spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldr_routes(FoldFun, AccIn) ->
-    fold_routes(get_schema_vsn(), foldr, FoldFun, AccIn).
-
-fold_routes(v2, FunName, FoldFun, AccIn) ->
-    fold_routes_v2(FunName, FoldFun, AccIn);
-fold_routes(v1, FunName, FoldFun, AccIn) ->
-    fold_routes_v1(FunName, FoldFun, AccIn).
+    fold_routes_v2(foldr, FoldFun, AccIn).
 
 call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).
@@ -334,10 +271,10 @@ pick(Topic) ->
 %%--------------------------------------------------------------------
 
 -spec mria_batch_run(schemavsn(), batch()) -> #{batch_route() => _Error}.
-mria_batch_run(SchemaVsn, Batch) ->
+mria_batch_run(v2, Batch) ->
     maps:fold(
         fun({Topic, Dest}, Op, Errors) ->
-            case mria_batch_operation(SchemaVsn, batch_get_action(Op), Topic, Dest) of
+            case mria_batch_operation_v2(batch_get_action(Op), Topic, Dest) of
                 ok ->
                     Errors;
                 Error ->
@@ -348,118 +285,10 @@ mria_batch_run(SchemaVsn, Batch) ->
         Batch
     ).
 
-mria_batch_operation(SchemaVsn, add, Topic, Dest) ->
-    mria_insert_route(SchemaVsn, Topic, Dest, batch);
-mria_batch_operation(SchemaVsn, delete, Topic, Dest) ->
-    mria_delete_route(SchemaVsn, Topic, Dest, batch).
-
-%%--------------------------------------------------------------------
-%% Schema v1
-%% --------------------------------------------------------------------
-
-mria_insert_route_v1(Topic, Dest, Ctx) ->
-    Route = #route{topic = Topic, dest = Dest},
-    case emqx_topic:wildcard(Topic) of
-        true ->
-            mria_route_tab_insert_update_trie(Route, Ctx);
-        false ->
-            mria_route_tab_insert(Route, Ctx)
-    end.
-
-mria_route_tab_insert_update_trie(Route, single) ->
-    emqx_router_utils:maybe_trans(
-        fun emqx_router_utils:insert_trie_route/2,
-        [?ROUTE_TAB, Route],
-        ?ROUTE_SHARD
-    );
-mria_route_tab_insert_update_trie(Route, batch) ->
-    emqx_router_utils:insert_trie_route(?ROUTE_TAB, Route).
-
-mria_route_tab_insert(Route, single) ->
-    mria:dirty_write(?ROUTE_TAB, Route);
-mria_route_tab_insert(Route, batch) ->
-    mnesia:write(?ROUTE_TAB, Route, write).
-
-mria_delete_route_v1(Topic, Dest, Ctx) ->
-    Route = #route{topic = Topic, dest = Dest},
-    case emqx_topic:wildcard(Topic) of
-        true ->
-            mria_route_tab_delete_update_trie(Route, Ctx);
-        false ->
-            mria_route_tab_delete(Route, Ctx)
-    end.
-
-mria_route_tab_delete_update_trie(Route, single) ->
-    emqx_router_utils:maybe_trans(
-        fun emqx_router_utils:delete_trie_route/2,
-        [?ROUTE_TAB, Route],
-        ?ROUTE_SHARD
-    );
-mria_route_tab_delete_update_trie(Route, batch) ->
-    emqx_router_utils:delete_trie_route(?ROUTE_TAB, Route).
-
-mria_route_tab_delete(Route, single) ->
-    mria:dirty_delete_object(?ROUTE_TAB, Route);
-mria_route_tab_delete(Route, batch) ->
-    mnesia:delete_object(?ROUTE_TAB, Route, write).
-
-match_routes_v1(Topic) ->
-    lookup_route_tab(Topic) ++
-        lists:flatmap(fun lookup_route_tab/1, match_global_trie(Topic)).
-
-match_global_trie(Topic) ->
-    case emqx_trie:empty() of
-        true -> [];
-        false -> emqx_trie:match(Topic)
-    end.
-
-lookup_routes_v1(Topic) ->
-    lookup_route_tab(Topic).
-
-lookup_route_tab(Topic) ->
-    ets:lookup(?ROUTE_TAB, Topic).
-
-has_route_v1(Topic, Dest) ->
-    has_route_tab_entry(Topic, Dest).
-
-has_route_tab_entry(Topic, Dest) ->
-    [] =/= ets:match(?ROUTE_TAB, #route{topic = Topic, dest = Dest}).
-
-cleanup_routes_v1(NodeOrExtDest) ->
-    ?with_fallback(
-        lists:foreach(
-            fun(Pattern) ->
-                throw_unsupported(mria:match_delete(?ROUTE_TAB, make_route_rec_pat(Pattern)))
-            end,
-            ?dest_patterns(NodeOrExtDest)
-        ),
-        cleanup_routes_v1_fallback(NodeOrExtDest)
-    ).
-
-cleanup_routes_v1_fallback(NodeOrExtDest) ->
-    Patterns = [make_route_rec_pat(P) || P <- ?dest_patterns(NodeOrExtDest)],
-    mria:transaction(?ROUTE_SHARD, fun() ->
-        [
-            mnesia:delete_object(?ROUTE_TAB, Route, write)
-         || Pat <- Patterns,
-            Route <- mnesia:match_object(?ROUTE_TAB, Pat, write)
-        ]
-    end).
-
-stream_v1(Spec) ->
-    mk_route_stream(?ROUTE_TAB, Spec).
-
-list_topics_v1() ->
-    list_route_tab_topics().
-
-get_stats_v1(n_routes) ->
-    emqx_maybe:define(ets:info(?ROUTE_TAB, size), 0).
-
-list_route_tab_topics() ->
-    mnesia:dirty_all_keys(?ROUTE_TAB).
-
-fold_routes_v1(FunName, FoldFun, AccIn) ->
-    ets:FunName(FoldFun, AccIn, ?ROUTE_TAB).
+mria_batch_operation_v2(add, Topic, Dest) ->
+    mria_insert_route_v2(Topic, Dest, batch);
+mria_batch_operation_v2(delete, Topic, Dest) ->
+    mria_delete_route_v2(Topic, Dest, batch).
 
 %%--------------------------------------------------------------------
 %% Schema v2
@@ -491,6 +320,16 @@ mria_delete_route_v2(Topic, Dest, Ctx) ->
             mria_route_tab_delete(#route{topic = Topic, dest = Dest}, Ctx)
     end.
 
+mria_route_tab_insert(Route, single) ->
+    mria:dirty_write(?ROUTE_TAB, Route);
+mria_route_tab_insert(Route, batch) ->
+    mnesia:write(?ROUTE_TAB, Route, write).
+
+mria_route_tab_delete(Route, single) ->
+    mria:dirty_delete_object(?ROUTE_TAB, Route);
+mria_route_tab_delete(Route, batch) ->
+    mnesia:delete_object(?ROUTE_TAB, Route, write).
+
 mria_filter_tab_delete(K, single) ->
     mria:dirty_delete(?ROUTE_TAB_FILTERS, K);
 mria_filter_tab_delete(K, batch) ->
@@ -499,6 +338,9 @@ mria_filter_tab_delete(K, batch) ->
 match_routes_v2(Topic) ->
     lookup_route_tab(Topic) ++
         [match_to_route(M) || M <- match_filters(Topic)].
+
+lookup_route_tab(Topic) ->
+    ets:lookup(?ROUTE_TAB, Topic).
 
 match_filters(Topic) ->
     emqx_topic_index:matches(Topic, ?ROUTE_TAB_FILTERS, []).
@@ -519,6 +361,9 @@ has_route_v2(Topic, Dest) ->
         false ->
             has_route_tab_entry(Topic, Dest)
     end.
+
+has_route_tab_entry(Topic, Dest) ->
+    [] =/= ets:match(?ROUTE_TAB, #route{topic = Topic, dest = Dest}).
 
 cleanup_routes_v2(NodeOrExtDest) ->
     ?with_fallback(
@@ -616,6 +461,9 @@ list_topics_v2() ->
     Pat = #routeidx{entry = '$1'},
     Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?ROUTE_TAB_FILTERS, Pat)],
     list_route_tab_topics() ++ Filters.
+
+list_route_tab_topics() ->
+    mnesia:dirty_all_keys(?ROUTE_TAB).
 
 get_stats_v2(n_routes) ->
     NTopics = emqx_maybe:define(ets:info(?ROUTE_TAB, size), 0),

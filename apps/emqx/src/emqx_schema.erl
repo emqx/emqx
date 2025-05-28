@@ -1333,7 +1333,9 @@ fields("broker_routing") ->
                 #{
                     default => v2,
                     'readOnly' => true,
-                    desc => ?DESC(broker_routing_storage_schema)
+                    desc => ?DESC(broker_routing_storage_schema),
+                    deprecated => {since, "5.9.0"},
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"batch_sync",
