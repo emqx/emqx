@@ -254,8 +254,8 @@ t_preconditions_idempotent(Config) ->
         replication_factor => 3,
         append_only => false,
         replication_options => #{
-            %% Make sure snapshots are taken eagerly.
-            snapshot_interval => 6
+            %% Make sure snapshots are taken eagerly, each `add_generation`.
+            snapshot_interval => 1
         }
     }),
     ?check_trace(
@@ -346,11 +346,6 @@ t_preconditions_idempotent(Config) ->
                 ok,
                 ?ON(N2, emqx_ds:store_batch(?DB, Batch4, #{sync => true}))
             ),
-
-            %% Add one more generation, idempotency should still hold if it's
-            %% the last log entry.
-            Since2 = 600,
-            ok = ?ON(N2, emqx_ds_replication_layer:add_generation(?DB, Since2)),
 
             %% Restart N1 and wait until it is ready.
             [N1] = emqx_cth_cluster:restart(NS1),

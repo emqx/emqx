@@ -11,22 +11,22 @@ defmodule EMQXDurableStorage.MixProject do
       erlc_options: UMP.erlc_options(),
       erlc_paths: ["gen_src" | UMP.erlc_paths()],
       # used by our `compile.asn1` compiler
-      asn1_srcs: for i <- ["DurableMessage",
-                           "DSBuiltinMetadata",
-                           "DSBuiltinSLReference",
-                           "DSBuiltinSLSkipstreamV1",
-                           "DSBuiltinSLSkipstreamKV",
-                           "DSBuiltinStorageLayer"
-                          ],
-               do: %{src: "./asn.1/#{i}.asn",
-                     compile_opts: [:per, :noobj, outdir: ~c"gen_src"]
-                    },
+      asn1_srcs: asn1_srcs(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
+  end
+
+  def asn1_srcs() do
+    "./asn.1/*.asn"
+    |> Path.wildcard()
+    |> Enum.map(fn src ->
+      %{src: src,
+        compile_opts: [:per, :noobj, outdir: ~c"gen_src"]}
+    end)
   end
 
   # Run "mix help compile.app" to learn about applications

@@ -1402,7 +1402,7 @@ t_18_async_trans(Config) ->
             receive
                 ?ds_tx_commit_reply(Ref3, Reply3) ->
                     ?assertMatch(
-                        {error, unrecoverable, timeout},
+                        {error, unrecoverable, commit_timeout},
                         emqx_ds:tx_commit_outcome(DB, Ref3, Reply3)
                     )
             end
