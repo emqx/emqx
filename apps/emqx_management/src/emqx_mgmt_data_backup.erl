@@ -676,8 +676,8 @@ do_import(BackupFilePath, Opts) ->
             ok ?= validate_backup_basename(BackupFilePath),
             ok ?= extract_backup(BackupFilePath),
             {ok, _} ?= validate_backup(BackupDir),
-            ConfErrors ?= import_cluster_hocon(BackupDir, Opts),
-            MnesiaErrors ?= import_mnesia_tabs(BackupDir, Opts),
+            {ok, ConfErrors} ?= import_cluster_hocon(BackupDir, Opts),
+            MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
             ?SLOG(info, #{msg => "emqx_data_import_success"}),
             {ok, #{db_errors => MnesiaErrors, config_errors => ConfErrors}}
         else
@@ -905,20 +905,22 @@ import_cluster_hocon(BackupDir, Opts) ->
     HoconFileName = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
     case filelib:is_regular(HoconFileName) of
         true ->
-            {ok, RawConf} = hocon:files([HoconFileName]),
-            RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf),
-            {ok, _} = validate_cluster_hocon(RawConf1),
-            maybe_print("Importing cluster configuration...~n", [], Opts),
-            %% At this point, when all validations have been passed, we want to log errors (if any)
-            %% but proceed with the next items, instead of aborting the whole import operation
-            do_import_conf(RawConf1, Opts);
+            maybe
+                {ok, RawConf} ?= hocon:files([HoconFileName]),
+                RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf),
+                {ok, _} ?= validate_cluster_hocon(RawConf1),
+                maybe_print("Importing cluster configuration...~n", [], Opts),
+                %% At this point, when all validations have been passed, we want to log errors (if any)
+                %% but proceed with the next items, instead of aborting the whole import operation
+                {ok, do_import_conf(RawConf1, Opts)}
+            end;
         false ->
             maybe_print("No cluster configuration to be imported.~n", [], Opts),
             ?SLOG(info, #{
                 msg => "no_backup_hocon_config_to_import",
                 backup => BackupDir
             }),
-            #{}
+            {ok, #{}}
     end.
 
 upgrade_raw_conf(SchemaMod, RawConf) ->
