@@ -624,7 +624,7 @@ create_external_http_resource(Name, Params) ->
         max_retries := MaxRetries,
         connect_timeout := ConnectTimeout,
         request_timeout := RequestTimeout,
-        headers := Headers,
+        headers := Headers0,
         pool_type := PoolType,
         pool_size := PoolSize,
         external_params := ExternalParams
@@ -643,6 +643,7 @@ create_external_http_resource(Name, Params) ->
         spawn_buffer_workers => false,
         query_mode => simple_sync
     },
+    Headers = Headers0#{<<"content-type">> => <<"application/json">>},
     {ok, _} = emqx_resource:create_local(
         ResourceId,
         ?SCHEMA_REGISTRY_RESOURCE_GROUP,

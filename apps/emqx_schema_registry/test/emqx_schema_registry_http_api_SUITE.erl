@@ -458,6 +458,7 @@ external_http_handler(Req0, State) ->
             <<"opts">> := ExtraOpts,
             <<"payload">> := PayloadB64
         }} ?= emqx_utils_json:safe_decode(Body),
+        ?assertEqual(<<"application/json">>, cowboy_req:header(<<"content-type">>, Req0)),
         {ok, Payload} ?= decode_base64(PayloadB64),
         {ok, RespBody} ?= exec_external_http_serde(EncodeOrDecode, ExtraOpts, Payload),
         RespBodyB64 = base64:encode(RespBody),
