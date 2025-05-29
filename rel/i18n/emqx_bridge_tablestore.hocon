@@ -81,8 +81,8 @@ It can either be a static value or a placeholder like `${payload.is_int}`.~"""
 
 tablestore_fields_isbinary.label:
 """Is Binary"""
-tablestore_fields_isbinary.desc:
-"""~Whether try to write binary values as `binary` type. Defaults to `false`, means that write binary values as strings.
+tablestore_fields_isbinary.desc:"""~
+Whether try to write binary values as `binary` type. Defaults to `false`, means that write binary values as strings.
 It can either be a static value or a placeholder like `${payload.is_binary}`.~"""
 
 storage_model_type.label:
