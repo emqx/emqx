@@ -207,6 +207,7 @@ greptimedb_config(grpcv1 = Type, GreptimedbHost, GreptimedbPort, Config) ->
             "  dbname = public\n"
             "  username = greptime_user\n"
             "  password = greptime_pwd\n"
+            "  ttl      = \"3 years\"\n"
             "  precision = ns\n"
             "  write_syntax = \"~s\"\n"
             "  resource_opts = {\n"
@@ -302,6 +303,10 @@ send_message(Config, Payload) ->
     Resp.
 
 query_by_clientid(Topic, ClientId, Config) ->
+    Sql = <<"select * from \"", Topic/binary, "\" where clientid='", ClientId/binary, "'">>,
+    query_by_sql(Config, Sql).
+
+query_by_sql(Config, Sql) ->
     GreptimedbHost = ?config(greptimedb_host, Config),
     GreptimedbPort = ?config(greptimedb_http_port, Config),
     EHttpcPoolName = ?config(ehttpc_pool_name, Config),
@@ -323,7 +328,7 @@ query_by_clientid(Topic, ClientId, Config) ->
         {"Authorization", "Basic Z3JlcHRpbWVfdXNlcjpncmVwdGltZV9wd2Q="},
         {"Content-Type", "application/x-www-form-urlencoded"}
     ],
-    Body = <<"sql=select * from \"", Topic/binary, "\" where clientid='", ClientId/binary, "'">>,
+    Body = <<"sql=", Sql/binary>>,
     {ok, StatusCode, _Headers, RawBody0} =
         ehttpc:request(
             EHttpcPoolName,
@@ -436,7 +441,8 @@ t_start_ok(Config) ->
                 sync ->
                     ?assertMatch({ok, _}, send_message(Config, SentData))
             end,
-            PersistedData = query_by_clientid(atom_to_binary(?FUNCTION_NAME), ClientId, Config),
+            Topic = atom_to_binary(?FUNCTION_NAME),
+            PersistedData = query_by_clientid(Topic, ClientId, Config),
             Expected = #{
                 bool => true,
                 int_value => -123,
@@ -445,6 +451,13 @@ t_start_ok(Config) ->
                 payload => emqx_utils_json:encode(Payload)
             },
             assert_persisted_data(ClientId, Expected, PersistedData),
+
+            %% assert table options
+            Sql =
+                <<"SELECT create_options FROM information_schema.tables WHERE table_name='",
+                    Topic/binary, "'">>,
+            TableOpts = query_by_sql(Config, Sql),
+            ?assertEqual(<<"ttl=3years">>, maps:get(<<"create_options">>, TableOpts)),
             ok
         end,
         fun(Trace0) ->

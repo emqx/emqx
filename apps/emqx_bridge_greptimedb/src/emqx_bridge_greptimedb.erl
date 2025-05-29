@@ -86,6 +86,7 @@ bridge_v1_values(_Method) ->
         username => <<"example_username">>,
         password => <<"******">>,
         dbname => <<"example_db">>,
+        ttl => <<"3 years">>,
         server => <<"127.0.0.1:4001">>,
         ssl => #{enable => false}
     }.
