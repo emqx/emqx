@@ -39,19 +39,19 @@ authenticate(
     } = State
 ) ->
     CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
-    BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
-    Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
     Query = fun() ->
-        {query, BaseDN, Filter, [
-            {attributes, [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR]}, {timeout, Timeout}
-        ]}
+        BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
+        Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
+        AclAttributes = emqx_authn_ldap_acl:acl_attributes(State),
+        Attributes = [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR | AclAttributes],
+        {query, BaseDN, Filter, [{attributes, Attributes}, {timeout, Timeout}]}
     end,
     Result = emqx_authn_utils:cached_simple_sync_query(CacheKey, ResourceId, Query),
     case Result of
         {ok, []} ->
             ignore;
         {ok, [Entry]} ->
-            is_enabled(Password, Entry, State);
+            do_authenticate(Password, Entry, State);
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "ldap_query_failed", #{
                 resource => ResourceId,
@@ -61,13 +61,20 @@ authenticate(
             ignore
     end.
 
-%% To be compatible with v4.x
-is_enabled(Password, Entry, State) ->
-    case emqx_auth_ldap_utils:get_bool_attribute(?ISENABLED_ATTR, Entry, true) of
-        true ->
-            ensure_password(Password, Entry, State);
-        _ ->
-            {error, user_disabled}
+do_authenticate(Password, Entry, #{resource_id := ResourceId} = State) ->
+    maybe
+        %% To be compatible with v4.x
+        ok ?= verify_user_enabled(Entry),
+        ok ?= ensure_password(Password, Entry, State),
+        {ok, AclFields} ?= emqx_authn_ldap_acl:acl_from_entry(State, Entry),
+        {ok, maps:merge(AclFields, is_superuser(Entry, State))}
+    else
+        {error, Reason} ->
+            ?TRACE_AUTHN_PROVIDER(error, "ldap_authentication_failed", #{
+                resource => ResourceId,
+                reason => Reason
+            }),
+            {error, bad_username_or_password}
     end.
 
 ensure_password(
@@ -153,7 +160,7 @@ verify_password(Algorithm, LDAPPasswordType, LDAPPassword, Salt, Position, Passw
     PasswordHash = hash_password(Algorithm, Salt, Position, Password),
     case compare_password(LDAPPasswordType, LDAPPassword, PasswordHash) of
         true ->
-            {ok, is_superuser(Entry, State)};
+            ok;
         _ ->
             {error, bad_username_or_password}
     end.
@@ -185,3 +192,11 @@ compare_password(hash, LDAPPasswordHash, PasswordHash) ->
     emqx_passwd:compare_secure(LDAPPasswordHash, PasswordHash);
 compare_password(base64, Base64HashData, PasswordHash) ->
     emqx_passwd:compare_secure(Base64HashData, base64:encode(PasswordHash)).
+
+verify_user_enabled(Entry) ->
+    case emqx_auth_ldap_utils:get_bool_attribute(?ISENABLED_ATTR, Entry, true) of
+        true ->
+            ok;
+        _ ->
+            {error, user_disabled}
+    end.
