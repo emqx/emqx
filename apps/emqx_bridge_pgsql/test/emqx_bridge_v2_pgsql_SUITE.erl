@@ -20,6 +20,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(BRIDGE_TYPE, pgsql).
 -define(BRIDGE_TYPE_BIN, <<"pgsql">>).
@@ -490,5 +491,52 @@ t_reconnect_on_connector_health_check_timeout(Config) ->
             1
          || {_, {_, connect, _}, _} <- meck:history(epgsql)
         ]
+    ),
+    ok.
+
+%% Similar to `t_reconnect_on_connector_health_check_timeout`, but the timeout occurs in
+%% the `check_prepares` call.
+t_reconnect_on_connector_health_check_timeout_check_prepares(Config) ->
+    {201, _} = create_connector_api(
+        Config,
+        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"750ms">>}}
+    ),
+    ?assertMatch(
+        {200, #{<<"status">> := <<"connected">>}},
+        get_connector_api(Config)
+    ),
+    TestPid = self(),
+    emqx_common_test_helpers:with_mock(
+        emqx_postgresql,
+        on_get_status_prepares,
+        fun(_ConnState) ->
+            TestPid ! get_prepares_called,
+            timer:sleep(infinity)
+        end,
+        fun() ->
+            ?retry(
+                750,
+                5,
+                ?assertMatch(
+                    {200, #{
+                        <<"status">> := <<"disconnected">>,
+                        <<"status_reason">> := <<"resource_health_check_timed_out">>
+                    }},
+                    get_connector_api(Config)
+                )
+            )
+        end
+    ),
+    ?assertReceive(get_prepares_called),
+    %% Recovery
+    ?retry(
+        750,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"status">> := <<"connected">>
+            }},
+            get_connector_api(Config)
+        )
     ),
     ok.
