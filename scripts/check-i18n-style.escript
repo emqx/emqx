@@ -82,7 +82,9 @@ check_desc(Name, _) ->
     die("~s: no 'desc'~n", [Name]).
 
 check_desc_string(Name, <<>>) ->
-    logerr("~s: empty string~n", [Name]);
+    logerr("~s: empty string", [Name]);
+check_desc_string(Name, <<"~", _/binary>> = Line) ->
+    logerr("~s: \"~s\" is a bad multi-line string? '~~' must be followed by NL", [Name, Line]);
 check_desc_string(Name, BinStr) ->
     Str = unicode:characters_to_list(BinStr, utf8),
     Err = fun(Reason) ->
@@ -109,6 +111,8 @@ check_desc_string(Name, BinStr) ->
             Err("remove trailing <br/>");
         ">/ rb<" ++ _ ->
             Err("remove trailing <br />");
+        [$~ | _] ->
+            Err("unpairdd '~\"\"\"' for multi-line stirng?");
         _ ->
             ok
     end.
