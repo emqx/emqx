@@ -112,7 +112,7 @@ check_desc_string(Name, BinStr) ->
         ">/ rb<" ++ _ ->
             Err("remove trailing <br />");
         [$~ | _] ->
-            Err("unpairdd '~\"\"\"' for multi-line stirng?");
+            Err("unpaired '~\"\"\"' for multi-line string?");
         _ ->
             ok
     end.
