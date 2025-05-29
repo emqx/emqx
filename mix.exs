@@ -161,7 +161,8 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:erlavro),
       # in conflict by erlavro
       common_dep(:snappyer),
-      common_dep(:crc32cer)
+      common_dep(:crc32cer),
+      common_dep(:unicode_util_compat)
     ]
   end
 
@@ -240,7 +241,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.3", override: true}
 
   def common_dep(:minirest),
-    do: {:minirest, github: "emqx/minirest", tag: "1.4.4", override: true}
+    do: {:minirest, github: "emqx/minirest", tag: "1.4.7", override: true}
 
   # maybe forbid to fetch quicer
   def common_dep(:emqtt),
@@ -293,6 +294,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:erlavro) do
     {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-1", override: true}
   end
+
+  def common_dep(:unicode_util_compat),
+    do: {:unicode_util_compat, "0.7.1", override: true}
 
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
