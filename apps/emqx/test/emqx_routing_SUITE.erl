@@ -15,19 +15,12 @@
 
 all() ->
     [
-        {group, routing_schema_v1},
-        {group, routing_schema_v2},
-        t_routing_schema_switch_v1,
-        t_routing_schema_switch_v2,
-        t_routing_schema_consistent_clean_cluster
-    ].
-
-groups() ->
-    GroupVsn = [
         {group, batch_sync_on},
         {group, batch_sync_replicants},
         {group, batch_sync_off}
-    ],
+    ].
+
+groups() ->
     ClusterTCs = [
         t_cluster_routing,
         t_slow_rlog_routing_consistency
@@ -35,8 +28,6 @@ groups() ->
     SingleTCs = [t_concurrent_routing_updates],
     BatchSyncTCs = lists:duplicate(5, t_concurrent_routing_updates_with_errors),
     [
-        {routing_schema_v1, [], GroupVsn},
-        {routing_schema_v2, [], GroupVsn},
         {batch_sync_on, [], [{group, cluster}, {group, single_batch_on}]},
         {batch_sync_replicants, [], [{group, cluster}, {group, single}]},
         {batch_sync_off, [], [{group, cluster}, {group, single}]},
@@ -45,10 +36,6 @@ groups() ->
         {single, [], SingleTCs}
     ].
 
-init_per_group(routing_schema_v1, Config) ->
-    [{emqx_config, "broker.routing.storage_schema = v1"} | Config];
-init_per_group(routing_schema_v2, Config) ->
-    [{emqx_config, "broker.routing.storage_schema = v2"} | Config];
 init_per_group(batch_sync_on, Config) ->
     [{emqx_config, "broker.routing.batch_sync.enable_on = all"} | Config];
 init_per_group(batch_sync_replicants, Config) ->
@@ -120,16 +107,12 @@ mk_genrpc_appspec() ->
         override_env => [{port_discovery, stateless}]
     }}.
 
-mk_config(N, ConfigOrVsn) ->
+mk_config(N, Config) ->
     emqx_cth_suite:merge_config(
-        mk_config_broker(ConfigOrVsn),
+        mk_config_broker(Config),
         mk_config_listeners(N)
     ).
 
-mk_config_broker(v1) ->
-    "broker.routing.storage_schema = v1";
-mk_config_broker(v2) ->
-    "broker.routing.storage_schema = v2";
 mk_config_broker(CTConfig) ->
     string:join(proplists:get_all_values(emqx_config, CTConfig), "\n").
 
@@ -391,134 +374,6 @@ mixin(L, Into) ->
     L ++ Into.
 
 %%
-
-t_routing_schema_switch_v1(Config) ->
-    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
-    t_routing_schema_switch(_From = v2, _To = v1, WorkDir).
-
-t_routing_schema_switch_v2(Config) ->
-    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
-    t_routing_schema_switch(_From = v1, _To = v2, WorkDir).
-
-t_routing_schema_switch(VFrom, VTo, WorkDir) ->
-    % Start first node with routing schema VTo (e.g. v1)
-    [Node1] = emqx_cth_cluster:start(
-        [
-            {routing_schema_switch1, #{
-                apps => [mk_genrpc_appspec(), mk_emqx_appspec(1, VTo)]
-            }}
-        ],
-        #{work_dir => WorkDir}
-    ),
-    % Ensure there's at least 1 route on Node1
-    C1 = start_client(Node1),
-    ok = subscribe(C1, <<"a/+/c">>),
-    ok = subscribe(C1, <<"d/e/f/#">>),
-    % Start rest of nodes with routing schema VFrom (e.g. v2)
-    [Node2, Node3] = emqx_cth_cluster:start(
-        [
-            {routing_schema_switch2, #{
-                apps => [mk_genrpc_appspec(), mk_emqx_appspec(2, VFrom)],
-                base_port => 20000,
-                join_to => Node1
-            }},
-            {routing_schema_switch3, #{
-                apps => [mk_genrpc_appspec(), mk_emqx_appspec(3, VFrom)],
-                base_port => 20100,
-                join_to => Node1
-            }}
-        ],
-        #{work_dir => WorkDir}
-    ),
-    Nodes = [Node1, Node2, Node3],
-    try
-        % Verify that new nodes switched to schema v1/v2 in presence of v1/v2 routes respectively
-        ?assertEqual(
-            [{ok, VTo}, {ok, VTo}, {ok, VTo}],
-            erpc:multicall(Nodes, emqx_router, get_schema_vsn, [])
-        ),
-        % Wait for all nodes to agree on cluster state
-        ?retry(
-            500,
-            10,
-            ?assertMatch(
-                [{ok, [Node1, Node2, Node3]}],
-                lists:usort(erpc:multicall(Nodes, emqx, running_nodes, []))
-            )
-        ),
-        % Verify that routing works as expected
-        C2 = start_client(Node2),
-        ok = subscribe(C2, <<"a/+/d">>),
-        C3 = start_client(Node3),
-        ok = subscribe(C3, <<"d/e/f/#">>),
-        {ok, _} = publish(C1, <<"a/b/d">>, <<"hey-newbies">>),
-        {ok, _} = publish(C2, <<"a/b/c">>, <<"hi">>),
-        {ok, _} = publish(C3, <<"d/e/f/42">>, <<"hello">>),
-        ?assertReceive({pub, C2, #{topic := <<"a/b/d">>, payload := <<"hey-newbies">>}}),
-        ?assertReceive({pub, C1, #{topic := <<"a/b/c">>, payload := <<"hi">>}}),
-        ?assertReceive({pub, C1, #{topic := <<"d/e/f/42">>, payload := <<"hello">>}}),
-        ?assertReceive({pub, C3, #{topic := <<"d/e/f/42">>, payload := <<"hello">>}}),
-        ?assertNotReceive(_),
-        ok = emqtt:stop(C1),
-        ok = emqtt:stop(C2),
-        ok = emqtt:stop(C3)
-    after
-        ok = emqx_cth_cluster:stop(Nodes)
-    end.
-
-t_routing_schema_consistent_clean_cluster(Config) ->
-    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
-    % Start first node with routing schema v1
-    [Node1] = emqx_cth_cluster:start(
-        [
-            {routing_schema_consistent1, #{
-                apps => [mk_genrpc_appspec(), mk_emqx_appspec(1, v1)]
-            }}
-        ],
-        #{work_dir => WorkDir}
-    ),
-    % Start rest of nodes with routing schema v2
-    NodesRest = emqx_cth_cluster:start(
-        [
-            {routing_schema_consistent2, #{
-                apps => [mk_genrpc_appspec(), mk_emqx_appspec(2, v2)],
-                base_port => 20000,
-                join_to => Node1
-            }},
-            {routing_schema_consistent3, #{
-                apps => [mk_genrpc_appspec(), mk_emqx_appspec(3, v2)],
-                base_port => 20100,
-                join_to => Node1
-            }}
-        ],
-        #{work_dir => WorkDir}
-    ),
-    Nodes = [Node1 | NodesRest],
-    try
-        % Verify that cluser is still on v1
-        ?assertEqual(
-            [{ok, v1} || _ <- Nodes],
-            erpc:multicall(Nodes, emqx_router, get_schema_vsn, [])
-        ),
-        % Wait for all nodes to agree on cluster state
-        ?retry(
-            500,
-            10,
-            ?assertEqual(
-                [{ok, Nodes} || _ <- Nodes],
-                erpc:multicall(Nodes, emqx, running_nodes, [])
-            )
-        ),
-        C1 = start_client(Node1),
-        C2 = start_client(hd(NodesRest)),
-        ok = subscribe(C2, <<"t/#">>),
-        {ok, _} = publish(C1, <<"t/a/b/c">>, <<"yayconsistency">>),
-        ?assertReceive({pub, C2, #{topic := <<"t/a/b/c">>, payload := <<"yayconsistency">>}}),
-        ok = emqtt:stop(C1),
-        ok = emqtt:stop(C2)
-    after
-        ok = emqx_cth_cluster:stop(Nodes)
-    end.
 
 t_slow_rlog_routing_consistency(init, Config) ->
     [Core1, _Core2, _Replicant] = ?config(cluster, Config),

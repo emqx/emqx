@@ -1,0 +1,1 @@
+Configuration option `broker.routing.storage_schema` is now deprecated and ignored. Legacy `v1` routing storage schema is no longer supported, and EMQX will refuse to start in a cluster running running older versions that still use it.

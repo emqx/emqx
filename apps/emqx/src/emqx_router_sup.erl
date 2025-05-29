@@ -13,8 +13,7 @@
 start_link() ->
     %% Init and log routing table type
     ok = mria:wait_for_tables(
-        emqx_trie:create_trie() ++
-            emqx_router:create_tables() ++
+        emqx_router:create_tables() ++
             emqx_router_helper:create_tables()
     ),
     ok = emqx_router:init_schema(),
