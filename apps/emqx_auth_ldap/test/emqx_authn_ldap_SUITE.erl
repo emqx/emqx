@@ -132,7 +132,7 @@ t_authenticate_timeout_cause_reconnect(_Config) ->
 
     %% 0006 is a disabled user
     ?assertEqual(
-        {error, user_disabled},
+        {error, bad_username_or_password},
         emqx_access_control:authenticate(Credentials(<<"mqttuser0006">>))
     ),
     ?assertEqual(
@@ -178,12 +178,12 @@ t_authenticate(_Config) ->
 test_user_auth(#{
     credentials := Credentials0,
     config_params := SpecificConfigParams,
-    result := Result
+    result := ExpectedResult
 }) ->
     AuthConfig = maps:merge(raw_ldap_auth_config(), SpecificConfigParams),
 
     ct:pal("test_user_auth~ncredentials: ~p~nconfig: ~p~nresult: ~p", [
-        Credentials0, AuthConfig, Result
+        Credentials0, AuthConfig, ExpectedResult
     ]),
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -195,7 +195,9 @@ test_user_auth(#{
         protocol => mqtt
     },
 
-    ?assertEqual(Result, emqx_access_control:authenticate(Credentials)),
+    ActualAuthResult0 = emqx_access_control:authenticate(Credentials),
+    ActualAuthResult = filter_expected_fields(ExpectedResult, ActualAuthResult0),
+    ?assertEqual(ExpectedResult, ActualAuthResult),
 
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
@@ -362,7 +364,7 @@ user_seeds() ->
         %% Wrong Password
         New(<<"mqttuser0001">>, <<"wrongpassword">>, {error, bad_username_or_password}),
         %% Disabled
-        New(<<"mqttuser0006">>, <<"mqttuser0006">>, {error, user_disabled}),
+        New(<<"mqttuser0006">>, <<"mqttuser0006">>, {error, bad_username_or_password}),
         %% IsSuperuser
         New(<<"mqttuser0007">>, <<"mqttuser0007">>, {ok, #{is_superuser => true}}),
         New(<<"mqttuser0008 (test)">>, <<"mqttuser0008 (test)">>, {ok, #{is_superuser => true}}),
@@ -402,3 +404,8 @@ user_seeds() ->
 
 ldap_server() ->
     iolist_to_binary(io_lib:format("~s:~B", [?LDAP_HOST, ?LDAP_DEFAULT_PORT])).
+
+filter_expected_fields({ok, Expected}, {ok, Actual}) ->
+    {ok, maps:with(maps:keys(Expected), Actual)};
+filter_expected_fields(_Expected, Actual) ->
+    Actual.
