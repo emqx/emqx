@@ -66,8 +66,6 @@
     code_change/3
 ]).
 
--import(emqx_utils_ets, [lookup_value/2, lookup_value/3]).
-
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -805,3 +803,13 @@ regular_sync_route(add, Topic) ->
     emqx_router:do_add_route(Topic, node());
 regular_sync_route(delete, Topic) ->
     emqx_router:do_delete_route(Topic, node()).
+
+%%
+
+-compile({inline, [lookup_value/2, lookup_value/3]}).
+
+lookup_value(Tab, Key) ->
+    ets:lookup_element(Tab, Key, 2, undefined).
+
+lookup_value(Tab, Key, Def) ->
+    ets:lookup_element(Tab, Key, 2, Def).
