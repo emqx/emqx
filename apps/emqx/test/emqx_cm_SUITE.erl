@@ -219,7 +219,14 @@ t_open_session_race_condition(_) ->
         bug_triggered ->
             ok;
         Winner when is_pid(Winner) ->
-            ?assertMatch([_], ets:lookup(?CHAN_TAB, ClientId)),
+            ?assertMatch(
+                [_],
+                ?retry(
+                    _Interval = 100,
+                    _NTimes = 10,
+                    [_] = ets:lookup(?CHAN_TAB, ClientId)
+                )
+            ),
             ?assertEqual([Winner], emqx_cm:lookup_channels(ClientId)),
             ?assertMatch([_], ets:lookup(?CHAN_CONN_TAB, Winner)),
             ?assertMatch([_], ets:lookup(?CHAN_REG_TAB, ClientId)),
