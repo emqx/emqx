@@ -43,7 +43,12 @@
 -export([disable_prepared_statements/0]).
 
 %% for ecpool workers usage
--export([do_get_status/1, prepare_sql_to_conn/2, get_reconnect_callback_signature/1]).
+-export([
+    do_get_status/1,
+    prepare_sql_to_conn/2,
+    get_reconnect_callback_signature/1,
+    on_get_status_prepares/1
+]).
 
 -define(PGSQL_HOST_OPTIONS, #{
     default_port => ?PGSQL_DEFAULT_PORT
@@ -529,9 +534,12 @@ on_get_status(_InstId, #{pool_name := PoolName} = ConnState) ->
                     Results
                 ),
             case Errors of
-                [] -> on_get_status_prepares(ConnState);
-                [{error, Reason} | _] -> {?status_disconnected, Reason};
-                [Reason | _] -> {?status_disconnected, Reason}
+                [] ->
+                    do_on_get_status_prepares(ConnState);
+                [{error, Reason} | _] ->
+                    {?status_disconnected, Reason};
+                [Reason | _] ->
+                    {?status_disconnected, Reason}
             end;
         {error, timeout} ->
             %% We trigger a full reconnection if the health check times out, by declaring
@@ -539,6 +547,18 @@ on_get_status(_InstId, #{pool_name := PoolName} = ConnState) ->
             %% have been issues where the connection process does not die and the
             %% connection itself unusable.
             {?status_disconnected, <<"health_check_timeout">>}
+    end.
+
+do_on_get_status_prepares(ConnState) ->
+    %% TODO: this is a hot patch; when merging to 5.10, we have a new
+    %% `resource_opts.health_check_timeout` that supersedes the need for this, which
+    %% should be dropped.
+    Fn = fun() -> ?MODULE:on_get_status_prepares(ConnState) end,
+    try
+        emqx_utils:nolink_apply(Fn, emqx_resource_pool:health_check_timeout())
+    catch
+        exit:timeout ->
+            {?status_disconnected, <<"resource_health_check_timed_out">>}
     end.
 
 on_get_status_prepares(ConnState) ->

@@ -674,6 +674,14 @@ t_crud(Config) ->
     ok.
 
 t_empty_sparkplug(_Config) ->
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {ok, _},
+            emqx_schema_registry:get_serde(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME)
+        )
+    ),
     ?check_trace(
         begin
             SQL = <<
