@@ -147,6 +147,7 @@ unregister_channel2(#channel{chid = ClientId} = Record) ->
 -spec lookup_channels(emqx_types:clientid()) -> list(pid()).
 lookup_channels(ClientId) ->
     Chans = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
+    %% @NOTE: remote node PID is always "alive".
     [ChanPid || #channel{pid = ChanPid} <- Chans, is_pid_alive(ChanPid) =/= false].
 
 %% Return 'true' or 'false' if it's a local pid.

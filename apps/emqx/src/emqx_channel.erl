@@ -1431,12 +1431,27 @@ handle_call(
         clientinfo = #{clientid := ClientId}
     }
 ) ->
-    %% NOTE
-    %% Ensure channel has enough time left to react to takeover end call. At the same
-    %% time ensure that channel dies off reasonably quickly if no call will arrive.
-    Interval = interval(expire_takeover, Channel),
-    NChannel = reset_timer(expire_session, Interval, Channel),
-    ok = emqx_cm:unregister_channel(ClientId, self()),
+    NChannel =
+        case emqx_lsr:is_enabled() of
+            false ->
+                %% @FIXME:
+                %%   1. unregister too early if {takeover, 'end'} fails. e.g. timeout
+                %%   2. double unregister channel, as emqx_cm will also clean it.
+                %%   3. session should stay if {takeover, 'end'} did not happen otherwise
+                %%      we partly lost session data of the client.
+                %%   4. abuse 'expire_session' casues wrong RC in mqtt.DISCONNECT PACKET
+                %%      and triggers will_msg publishing which it should not.
+                %% NOTE
+                %% Ensure channel has enough time left to react to takeover end call. At the same
+                %% time ensure that channel dies off reasonably quickly if no call will arrive.
+                ok = emqx_cm:unregister_channel(ClientId, self()),
+                Interval = interval(expire_takeover, Channel),
+                reset_timer(expire_session, Interval, Channel);
+            true ->
+                %% In LCR, a channel could be taken over 'begin' mutiple times but only 'end' once
+                %% this is designed to handle the race from mutiple channels of the same client.
+                Channel
+        end,
     reply(Session, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},
