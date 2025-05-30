@@ -54,7 +54,6 @@ init_per_testcase(_TestCase, Config) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
     Config.
 end_per_testcase(_TestCase, _Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, true),
     ok = emqx_authz_test_lib:enable_node_cache(false),
     ok = drop_table(),
     ok.
@@ -206,7 +205,6 @@ cases() ->
         },
         #{
             name => qos_retain_in_query_result,
-            features => [rich_actions],
             setup => [
                 "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
                 "permission VARCHAR(255), action VARCHAR(255),"
@@ -257,7 +255,6 @@ cases() ->
         },
         #{
             name => qos_retain_in_query_result_as_integer,
-            features => [rich_actions],
             setup => [
                 "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
                 "permission VARCHAR(255), action VARCHAR(255),"
@@ -280,7 +277,6 @@ cases() ->
         },
         #{
             name => retain_in_query_result_as_boolean,
-            features => [rich_actions],
             setup => [
                 "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), permission VARCHAR(255),"
                 " action VARCHAR(255), retain_b BOOLEAN)",
@@ -333,7 +329,6 @@ cases() ->
         },
         #{
             name => null_retain_qos,
-            features => [rich_actions],
             setup => [
                 "CREATE TABLE acl(qos VARCHAR(255), retain VARCHAR(255),"
                 " topic VARCHAR(255), permission VARCHAR(255), action VARCHAR(255))",
