@@ -60,6 +60,7 @@
 
 %% Internal exports.
 -export([worker_resource_health_check/1, worker_channel_health_check/2]).
+-export([do_worker_channel_health_check/3, do_worker_resource_health_check/1]).
 -export([wait_for_ready/2]).
 
 -ifdef(TEST).
@@ -1438,6 +1439,22 @@ set_label(_Label) -> ok.
 %% separated so it can be spec'ed and placate dialyzer tantrums...
 -spec worker_resource_health_check(data()) -> no_return().
 worker_resource_health_check(Data) ->
+    ResourceHCTimeout = get_resource_health_check_timeout(Data),
+    Fn = fun() ->
+        %% To trick dialyzer...
+        apply(?MODULE, do_worker_resource_health_check, [Data])
+    end,
+    try
+        emqx_utils:nolink_apply(Fn, ResourceHCTimeout)
+    catch
+        exit:timeout ->
+            exit({ok, {?status_disconnected, <<"resource_health_check_timed_out">>}})
+    end.
+
+%% Defined as a standalone function so that dialyzer doesn't complain that it only
+%% terminates with explicit exception....
+-spec do_worker_resource_health_check(data()) -> no_return().
+do_worker_resource_health_check(Data) ->
     set_label(iolist_to_binary([Data#data.id, "-health-check"])),
     HCRes = emqx_resource:call_health_check(Data#data.id, Data#data.mod, Data#data.state),
     exit({ok, HCRes}).
@@ -1743,15 +1760,32 @@ abort_retry_update_channel_action(ChannelId) ->
 abort_retry_add_channel_action(ChannelId) ->
     cancel_generic_timeout_action(#retry_add_channel{channel_id = ChannelId}).
 
+get_resource_health_check_timeout(Data) ->
+    Field = health_check_timeout,
+    Default = ?HEALTHCHECK_TIMEOUT,
+    ChannelId = undefined,
+    ConfigSources = [Data#data.config, #{resource_opts => Data#data.opts}],
+    get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data).
+
+get_channel_health_check_timeout(ChannelId, ConfigSources, Data) ->
+    Field = health_check_timeout,
+    Default = ?HEALTHCHECK_TIMEOUT,
+    get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data).
+
 get_channel_health_check_interval(ChannelId, ConfigSources, Data) ->
+    Field = health_check_interval,
+    Default = ?HEALTHCHECK_INTERVAL,
+    get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data).
+
+get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data) ->
     emqx_utils:foldl_while(
         fun
-            (#{resource_opts := #{health_check_interval := HCInterval}}, _Acc) ->
+            (#{resource_opts := #{Field := HCInterval}}, _Acc) ->
                 {halt, HCInterval};
             (_, Acc) ->
                 {cont, Acc}
         end,
-        ?HEALTHCHECK_INTERVAL,
+        Default,
         ConfigSources ++
             [emqx_utils_maps:deep_get([ChannelId, config], Data#data.added_channels, #{})]
     ).
@@ -1854,9 +1888,29 @@ spawn_channel_health_check_worker(#data{} = Data, ChannelId) ->
 %% separated so it can be spec'ed and placate dialyzer tantrums...
 -spec worker_channel_health_check(data(), channel_id()) -> no_return().
 worker_channel_health_check(Data, ChannelId) ->
-    #data{id = ResId, mod = Mod, state = State, added_channels = Channels} = Data,
+    #data{added_channels = Channels} = Data,
     ChannelStatus = maps:get(ChannelId, Channels, #{}),
     ChannelConfig = maps:get(config, ChannelStatus, undefined),
+    ChanHCTimeout = get_channel_health_check_timeout(ChannelId, [ChannelConfig], Data),
+    Fn = fun() ->
+        %% To trick dialyzer...
+        apply(?MODULE, do_worker_channel_health_check, [Data, ChannelId, ChannelConfig])
+    end,
+    try
+        emqx_utils:nolink_apply(Fn, ChanHCTimeout)
+    catch
+        exit:timeout ->
+            Res = {?status_disconnected, <<"resource_health_check_timed_out">>},
+            ChanStatus = channel_status(Res, ChannelConfig),
+            exit({ok, ChanStatus})
+    end.
+
+%% Defined as a standalone function so that dialyzer doesn't complain that it only
+%% terminates with explicit exception....
+-spec do_worker_channel_health_check(data(), channel_id(), map()) -> no_return().
+do_worker_channel_health_check(Data, ChannelId, ChannelConfig) ->
+    #data{id = ResId, mod = Mod, state = State} = Data,
+    set_label(iolist_to_binary([ChannelId, "-health-check"])),
     RawStatus = emqx_resource:call_channel_health_check(ResId, ChannelId, Mod, State),
     exit({ok, channel_status(RawStatus, ChannelConfig)}).
 
