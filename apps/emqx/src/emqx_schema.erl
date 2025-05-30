@@ -1263,7 +1263,7 @@ fields("broker") ->
                 hoconsc:enum([enabled, disabled, migration_enabled]),
                 #{
                     default => disabled,
-                    importance => ?IMPORTANCE_HIGH,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(broker_linear_session_registry)
                 }
             )},
