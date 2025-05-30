@@ -42,4 +42,88 @@ max_memory.desc:
 max_memory.label:
 """Max Memory Usage"""
 
+rate.desc:
+"""The latest increment rate of the counter during the last sample interval."""
+
+rate.label:
+"""Rate"""
+
+rate_max.desc:
+"""The maximum increment rate of the counter since the node started."""
+
+rate_max.label:
+"""Maximum Rate"""
+
+rate_last5m.desc:
+"""The average increment rate of the counter during the last 5 minutes."""
+
+rate_last5m.label:
+"""Rate Last 5min"""
+
+counter_value.desc:
+"""The value of the increment"""
+
+counter_value.label:
+"""Counter Value"""
+
+counter_rate.desc:
+"""The increment speeds of the counter."""
+
+counter_rate.label:
+"""Counter Rate"""
+
+metric_hits.desc:
+"""Statistics about cache hits, including the total number of hits and hit rates."""
+
+metric_hits.label:
+"""Cache Hit Statistics"""
+
+metric_misses.desc:
+"""Statistics about cache misses, including the total number of misses and miss rates."""
+
+metric_misses.label:
+"""Cache Miss Statistics"""
+
+metric_inserts.desc:
+"""Statistics about cache insertions, including the total number of insertions and insertion rates."""
+
+metric_inserts.label:
+"""Cache Insert Statistics"""
+s
+metric_size.desc:
+"""The current number of entries in the cache table."""
+
+metric_size.label:
+"""Cache Size"""
+
+metric_memory.desc:
+"""The current memory usage of the cache table in bytes."""
+
+metric_memory.label:
+"""Cache Memory Usage"""
+
+status_metrics.desc:
+"""The metrics of the authentication cache."""
+
+status_metrics.label:
+"""Authentication Cache Metrics"""
+
+status_node_metrics.desc:
+"""The metrics of the authentication cache for each node."""
+
+status_node_metrics.label:
+"""Node Authentication Cache Metrics"""
+
+node.desc:
+"""The name of the node."""
+
+node.label:
+"""Node Name"""
+
+metrics.desc:
+"""The metrics of the authentication cache."""
+
+metrics.label:
+"""Authentication Cache Metrics"""
+
 }
