@@ -629,10 +629,10 @@ next_state(S, _Ret, {call, ?MODULE, consume, _}) ->
 next_state(S, _Ret, {call, ?MODULE, add_generation, _}) ->
     S;
 %% Subscribe/unsubscribe topics:
-next_state(S = #{subs := Subs0}, _Ret, {call, ?MODULE, subscribe, [Topic, QoS]}) ->
-    Subs = Subs0#{Topic => #{qos => QoS}},
+next_state(S = #{subs := Subs}, _Ret, {call, ?MODULE, subscribe, [Topic, QoS]}) ->
+    Sub = #{qos => QoS},
     S#{
-        subs := Subs
+        subs := Subs#{Topic => Sub}
     };
 next_state(S = #{subs := Subs0}, _Ret, {call, ?MODULE, unsubscribe, [Topic]}) ->
     Subs = maps:remove(Topic, Subs0),

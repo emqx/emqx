@@ -69,8 +69,8 @@ t_publish_api({init, Config}) ->
         }
     ),
     {ok, _} = emqtt:connect(Client),
-    {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC1),
-    {ok, _, [0]} = emqtt:subscribe(Client, ?TOPIC2),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client, ?TOPIC1, ?QOS_1),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client, ?TOPIC2, ?QOS_1),
     [{client, Client} | Config];
 t_publish_api({'end', Config}) ->
     Client = ?config(client, Config),
@@ -367,7 +367,7 @@ t_publish_offline_api({init, Config}) ->
         }
     ),
     {ok, _} = emqtt:connect(Client),
-    {ok, _, [0]} = emqtt:subscribe(Client, ?OFFLINE_TOPIC),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client, ?OFFLINE_TOPIC, ?QOS_1),
     _ = emqtt:stop(Client),
     Config;
 t_publish_offline_api({'end', _Config}) ->
