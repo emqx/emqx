@@ -34,8 +34,6 @@
     restart/2,
     start/2,
     stop/1,
-    health_check/1,
-    channel_health_check/2,
     add_channel/3,
     add_channel/4,
     remove_channel/2,
@@ -67,6 +65,11 @@
 %% Internal exports.
 -export([worker_resource_health_check/1, worker_channel_health_check/2]).
 
+%% N.B.: This ONLY for tests or initializing the channel; actual health checks should be
+%% triggered by timers in the process.  Avoid doing manual health checks in other
+%% situations.
+-export([health_check/1, channel_health_check/2]).
+
 -ifdef(TEST).
 -export([stop/2]).
 -endif.
@@ -97,13 +100,17 @@
     hc_workers = #{
         resource => #{},
         channel => #{
-            ongoing => #{}
+            ongoing => #{},
+            kicked_off => #{}
         }
     } :: #{
         resource := #{pid() => true},
         channel := #{
             pid() => channel_id(),
-            ongoing := #{channel_id() => channel_status_map()}
+            ongoing := #{channel_id() => channel_status_map()},
+            %% Tracks periodic timers already set, so that when connector health check
+            %% returns it doesn't need to kick these off.
+            kicked_off := #{channel_id() => true}
         }
     },
     %% Callers waiting on health check
@@ -441,10 +448,14 @@ list_all() ->
 list_group(Group) ->
     emqx_resource_cache:group_ids(Group).
 
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
 -spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(ResId) ->
     safe_call(ResId, health_check, ?T_OPERATION).
 
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
 -spec channel_health_check(resource_id(), channel_id()) ->
     #{status := resource_status(), error := term()}.
 channel_health_check(ResId, ChannelId) ->
@@ -686,11 +697,11 @@ handle_event({call, From}, lookup, _State, #data{group = Group} = Data) ->
 handle_event({call, From}, health_check, ?state_stopped, _Data) ->
     Actions = [{reply, From, {error, resource_is_stopped}}],
     {keep_state_and_data, Actions};
+handle_event({call, From}, health_check, _State, Data) ->
+    handle_manual_resource_health_check(From, Data);
 handle_event({call, From}, {channel_health_check, _}, ?state_stopped, _Data) ->
     Actions = [{reply, From, {error, resource_is_stopped}}],
     {keep_state_and_data, Actions};
-handle_event({call, From}, health_check, _State, Data) ->
-    handle_manual_resource_health_check(From, Data);
 handle_event({call, From}, {channel_health_check, ChannelId}, _State, Data) ->
     handle_manual_channel_health_check(From, Data, ChannelId);
 %%--------------------------
@@ -1194,6 +1205,8 @@ handle_not_connected_and_not_connecting_remove_channel(From, ChannelId, Data) ->
     _ = maybe_clear_alarm(IsDryRun, ChannelId),
     {keep_state, update_state(NewData), [{reply, From, ok}]}.
 
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
 handle_manual_resource_health_check(From, Data0 = #data{hc_workers = #{resource := HCWorkers}}) when
     map_size(HCWorkers) > 0
 ->
@@ -1324,9 +1337,19 @@ continue_resource_health_check_not_connected(NewStatus, Data0) ->
             {next_state, ?state_disconnected, Data, Actions}
     end.
 
+%% N.B.: This ONLY for tests or initializing the channel; actual health checks should be
+%% triggered by timers in the process.  Avoid doing manual health checks in other
+%% situations.
 handle_manual_channel_health_check(From, #data{state = undefined}, _ChannelId) ->
     {keep_state_and_data, [
         {reply, From, channel_error_status(resource_disconnected)}
+    ]};
+handle_manual_channel_health_check(From, #data{status = Status}, _ChannelId) when
+    Status /= ?status_connected
+->
+    %% We only perform channel health checks when the resource is connected.
+    {keep_state_and_data, [
+        {reply, From, channel_error_status(resource_not_connected)}
     ]};
 handle_manual_channel_health_check(
     From,
@@ -1354,16 +1377,35 @@ handle_manual_channel_health_check(
     {keep_state, Data};
 handle_manual_channel_health_check(
     From,
-    #data{added_channels = Channels} = _Data,
+    #data{
+        added_channels = Channels,
+        hc_pending_callers = #{channel := CPending0} = Pending0
+    } = Data0,
     ChannelId
 ) when
     is_map_key(ChannelId, Channels)
 ->
-    %% No ongoing health check: reply with current status.
-    StatusMap = maps:get(ChannelId, Channels),
-    {keep_state_and_data, [
-        {reply, From, to_external_channel_status(StatusMap)}
-    ]};
+    %% No ongoing health check
+    ChannelStatusMap = maps:get(ChannelId, Channels),
+    case is_channel_apt_for_health_check(ChannelStatusMap) of
+        true ->
+            CPending = maps:update_with(
+                ChannelId,
+                fun(OtherCallers) ->
+                    [From | OtherCallers]
+                end,
+                [From],
+                CPending0
+            ),
+            Pending = Pending0#{channel := CPending},
+            Data1 = Data0#data{hc_pending_callers = Pending},
+            Data = start_channel_health_check(Data1, ChannelId),
+            {keep_state, Data};
+        false ->
+            {keep_state_and_data, [
+                {reply, From, to_external_channel_status(ChannelStatusMap)}
+            ]}
+    end;
 handle_manual_channel_health_check(
     From,
     _Data,
@@ -1532,11 +1574,12 @@ get_channel_health_check_interval(ChannelId, ConfigSources, Data) ->
 -spec trigger_health_check_for_added_channels(data()) -> data().
 trigger_health_check_for_added_channels(Data0 = #data{hc_workers = HCWorkers0}) ->
     #{
-        channel := #{ongoing := Ongoing0}
+        channel := #{ongoing := Ongoing0, kicked_off := KickedOff0}
     } = HCWorkers0,
     NewOngoing = maps:filter(
         fun(ChannelId, OldStatus) ->
             (not is_map_key(ChannelId, Ongoing0)) andalso
+                (not is_map_key(ChannelId, KickedOff0)) andalso
                 is_channel_apt_for_health_check(OldStatus)
         end,
         Data0#data.added_channels
@@ -1593,7 +1636,15 @@ handle_start_channel_health_check(Data0, ChannelId) ->
 
 -spec start_channel_health_check(data(), channel_id()) -> data().
 start_channel_health_check(
-    #data{added_channels = AddedChannels, hc_workers = #{channel := #{ongoing := CHCOngoing0}}} =
+    #data{
+        added_channels = AddedChannels,
+        hc_workers = #{
+            channel := #{
+                ongoing := CHCOngoing0,
+                kicked_off := CHCKickedOff0
+            }
+        }
+    } =
         Data0,
     ChannelId
 ) when
@@ -1603,7 +1654,12 @@ start_channel_health_check(
     WorkerPid = spawn_channel_health_check_worker(Data0, ChannelId),
     ChannelStatus = maps:get(ChannelId, AddedChannels),
     CHCOngoing = CHCOngoing0#{ChannelId => ChannelStatus},
-    CHCWorkers = CHCWorkers0#{WorkerPid => ChannelId, ongoing := CHCOngoing},
+    CHCKickedOff = CHCKickedOff0#{ChannelId => true},
+    CHCWorkers = CHCWorkers0#{
+        WorkerPid => ChannelId,
+        ongoing := CHCOngoing,
+        kicked_off := CHCKickedOff
+    },
     HCWorkers = HCWorkers0#{channel := CHCWorkers},
     Data0#data{hc_workers = HCWorkers};
 start_channel_health_check(Data, _ChannelId) ->
@@ -2039,7 +2095,7 @@ abort_all_channel_health_checks(Data0) ->
         end,
         CHCWorkers
     ),
-    HCWorkers = HCWorkers0#{channel := #{ongoing => #{}}},
+    HCWorkers = HCWorkers0#{channel := #{ongoing => #{}, kicked_off => #{}}},
     Pending = Pending0#{channel := #{}},
     Data0#data{
         hc_workers = HCWorkers,
@@ -2069,10 +2125,17 @@ map_take_or(Map, Key, Default) ->
 
 abort_health_checks_for_channel(Data0, ChannelId) ->
     #data{
-        hc_workers = #{channel := #{ongoing := Ongoing0} = CHCWorkers0} = HCWorkers0,
+        hc_workers =
+            #{
+                channel := #{
+                    ongoing := Ongoing0,
+                    kicked_off := KickedOff0
+                } = CHCWorkers0
+            } = HCWorkers0,
         hc_pending_callers = #{channel := CPending0} = Pending0
     } = Data0,
     Ongoing = maps:remove(ChannelId, Ongoing0),
+    KickedOff = maps:remove(ChannelId, KickedOff0),
     {Callers, CPending} = map_take_or(CPending0, ChannelId, []),
     lists:foreach(
         fun(From) ->
@@ -2094,7 +2157,12 @@ abort_health_checks_for_channel(Data0, ChannelId) ->
         CHCWorkers0,
         CHCWorkers0
     ),
-    HCWorkers = HCWorkers0#{channel := CHCWorkers#{ongoing := Ongoing}},
+    HCWorkers = HCWorkers0#{
+        channel := CHCWorkers#{
+            ongoing := Ongoing,
+            kicked_off := KickedOff
+        }
+    },
     Pending = Pending0#{channel := CPending},
     Data0#data{
         hc_workers = HCWorkers,
