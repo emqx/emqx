@@ -125,7 +125,8 @@
 -ifdef(TEST).
 -export([
     runtime_state_invariants/2,
-    offline_state_invariants/2
+    offline_state_invariants/2,
+    assert_runtime_durable_subscription/3
 ]).
 -endif.
 
@@ -1204,9 +1205,8 @@ bq_push(Primary, B = #block{}, BQ) ->
     emqx_persistent_session_ds_fuzzer:model_state(), #{s := map(), scheduler_state_s := t()}
 ) ->
     boolean().
-runtime_state_invariants(ModelState, #{s := S, stream_scheduler_s := SchedS}) ->
-    invariant_new_stream_subscriptions(ModelState, SchedS) and
-        invariant_active_streams_y_ranks(S) and
+runtime_state_invariants(_ModelState, #{s := S, stream_scheduler_s := SchedS}) ->
+    invariant_active_streams_y_ranks(S) and
         invariant_ds_subscriptions(S, SchedS).
 
 -spec offline_state_invariants(
@@ -1216,32 +1216,28 @@ runtime_state_invariants(ModelState, #{s := S, stream_scheduler_s := SchedS}) ->
 offline_state_invariants(_ModelState, #{s := S}) ->
     invariant_active_streams_y_ranks(S).
 
-%% Verify that each active durable topic subscription has a new stream watch:
-invariant_new_stream_subscriptions(#{subs := Subs}, #s{
-    new_stream_subs = Watches, sub_metadata = SubStates
-}) ->
-    ExpectedTopics = lists:sort(
-        [
-            Topic
-         || {Topic, SubOpts = #{qos := QoS}} <- maps:to_list(Subs),
-            QoS > ?QOS_0 orelse maps:get(durable, SubOpts, false)
-        ]
-    ),
-    ?defer_assert(
-        ?assertEqual(
-            ExpectedTopics,
-            lists:sort(maps:keys(SubStates)),
-            "There's a 1:1 relationship between durable subscriptions and the scheduler's new stream watches"
-        )
-    ),
-    ?defer_assert(
-        ?assertEqual(
-            ExpectedTopics,
-            lists:sort(maps:values(Watches)),
-            "There's a 1:1 relationship between durable subscriptions and the values of scheduler's watch reference => topic lookup table"
-        )
-    ),
-    true.
+%% Assert that durable topic subscription is represented in the scheduler's state:
+assert_runtime_durable_subscription(Topic, _SubOpts, #{stream_scheduler_s := SchedS}) ->
+    #s{new_stream_subs = Watches, sub_metadata = SubStates} = SchedS,
+    case SubStates of
+        #{Topic := _} ->
+            Acc1 = [];
+        _ ->
+            Acc1 = [
+                "There's a 1:1 relationship between durable subscriptions and "
+                "the scheduler's new stream watches"
+            ]
+    end,
+    case [T || {_, T} <- maps:to_list(Watches), T =:= Topic] of
+        [Topic] ->
+            Acc2 = [];
+        [] ->
+            Acc2 = [
+                "There's a 1:1 relationship between durable subscriptions and "
+                "the values of scheduler's watch reference => topic lookup table"
+            ]
+    end,
+    Acc1 ++ Acc2.
 
 %% Verify that each active stream has a DS subscription:
 invariant_ds_subscriptions(#{streams := Streams}, #s{ds_subs = DSSubs}) ->

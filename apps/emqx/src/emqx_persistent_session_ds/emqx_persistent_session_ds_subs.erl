@@ -31,7 +31,8 @@
 
 -ifdef(TEST).
 -export([
-    state_invariants/2
+    runtime_state_invariants/2,
+    offline_state_invariants/2
 ]).
 -endif.
 
@@ -512,7 +513,41 @@ now_ms() ->
 
 -ifdef(TEST).
 
--spec state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) -> boolean().
+-spec runtime_state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) ->
+    boolean().
+runtime_state_invariants(ModelState = #{subs := ModelSubs}, State) ->
+    true = state_invariants(ModelState, State),
+    maps:foreach(
+        fun(TopicFilter, SubOpts) ->
+            AssertDurable = assert_runtime_durable_subscription(TopicFilter, SubOpts, State),
+            AssertDirect = assert_runtime_direct_subscription(TopicFilter, SubOpts, State),
+            if
+                AssertDurable == [] ->
+                    true;
+                AssertDirect == [] ->
+                    true;
+                true ->
+                    ?defer_assert(
+                        ?assertEqual(
+                            "For each model subscription there should be either a direct or "
+                            "durable broker subscription",
+                            {TopicFilter, SubOpts},
+                            {"Failed assertions", AssertDurable ++ AssertDirect}
+                        )
+                    )
+            end
+        end,
+        ModelSubs
+    ),
+    true.
+
+-spec offline_state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) ->
+    boolean().
+offline_state_invariants(ModelState = #{subs := ModelSubs}, State) ->
+    state_invariants(ModelState, State).
+
+-spec state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) ->
+    boolean().
 state_invariants(#{subs := ModelSubs}, #{s := S}) ->
     #{subscriptions := Subs, subscription_states := SStates} = S,
     ?defer_assert(
@@ -536,5 +571,43 @@ state_invariants(#{subs := ModelSubs}, #{s := S}) ->
         ModelSubs
     ),
     true.
+
+assert_runtime_durable_subscription(Topic, SubOpts, State) ->
+    case emqx_persistent_session_ds_router:lookup_routes(Topic) of
+        [_Route] ->
+            Acc1 = [];
+        _ ->
+            Acc1 = [
+                "There's 1:1 relationship between durable subscriptions and "
+                "persistent routes"
+            ]
+    end,
+    Acc2 = emqx_persistent_session_ds_stream_scheduler:assert_runtime_durable_subscription(
+        Topic,
+        SubOpts,
+        State
+    ),
+    Acc1 ++ Acc2.
+
+assert_runtime_direct_subscription(Topic, _SubOpts, #{id := SessionId}) ->
+    case emqx_router:lookup_routes(Topic) of
+        [_Route] ->
+            Acc1 = [];
+        _ ->
+            Acc1 = [
+                "There's 1:1 relationship between direct subscriptions and "
+                "broker routes"
+            ]
+    end,
+    case emqx_broker:subscribed(SessionId, Topic) of
+        true ->
+            Acc2 = [];
+        false ->
+            Acc2 = [
+                "There's 1:1 relationship between direct subscriptions and "
+                "broker subscribers"
+            ]
+    end,
+    Acc1 ++ Acc2.
 
 -endif.

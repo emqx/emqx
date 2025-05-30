@@ -2082,11 +2082,11 @@ tprop_seqnos(Trace) ->
 %% @doc Check invariantss for a living session
 runtime_state_invariants(ModelState, Session) ->
     emqx_persistent_session_ds_stream_scheduler:runtime_state_invariants(ModelState, Session) and
-        emqx_persistent_session_ds_subs:state_invariants(ModelState, Session).
+        emqx_persistent_session_ds_subs:runtime_state_invariants(ModelState, Session).
 
 %% @doc Check invariants for a saved session state
 offline_state_invariants(ModelState, Session) ->
     emqx_persistent_session_ds_stream_scheduler:offline_state_invariants(ModelState, Session) and
-        emqx_persistent_session_ds_subs:state_invariants(ModelState, Session).
+        emqx_persistent_session_ds_subs:offline_state_invariants(ModelState, Session).
 
 -endif.
