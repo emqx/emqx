@@ -15,8 +15,7 @@
     desc/1,
     source_refs/0,
     select_union_member/2,
-    namespace/0,
-    acl_fields/0
+    namespace/0
 ]).
 
 namespace() -> "authz".

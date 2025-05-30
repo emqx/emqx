@@ -117,14 +117,38 @@ password_attribute() ->
     ).
 
 acl_fields() ->
-    emqx_authz_ldap_schema:acl_fields() ++
-        [
-            {acl_ttl_attribute,
-                ?HOCON(string(), #{
-                    desc => ?DESC(acl_ttl_attribute),
-                    default => <<"mqttAclTtl">>
-                })}
-        ].
+    [
+        {acl_ttl_attribute,
+            ?HOCON(string(), #{
+                desc => ?DESC(acl_ttl_attribute),
+                example => <<"mqttAclTtl">>,
+                required => false
+            })},
+        {publish_attribute,
+            ?HOCON(string(), #{
+                desc => ?DESC(publish_attribute),
+                example => <<"mqttPublishTopic">>,
+                required => false
+            })},
+        {subscribe_attribute,
+            ?HOCON(string(), #{
+                desc => ?DESC(subscribe_attribute),
+                example => <<"mqttSubscriptionTopic">>,
+                required => false
+            })},
+        {all_attribute,
+            ?HOCON(string(), #{
+                desc => ?DESC(all_attribute),
+                example => <<"mqttPubSubTopic">>,
+                required => false
+            })},
+        {acl_rule_attribute,
+            ?HOCON(string(), #{
+                desc => ?DESC(acl_rule_attribute),
+                example => <<"mqttAclRule">>,
+                required => false
+            })}
+    ].
 
 is_superuser_attribute() ->
     ?HOCON(

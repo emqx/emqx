@@ -49,7 +49,7 @@ do_authenticate(
 ) ->
     BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
     Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
-    AclAttributes = emqx_authn_ldap_acl:acl_attributes(State),
+    AclAttributes = emqx_auth_ldap_acl:acl_attributes(State),
     Result = emqx_resource:simple_sync_query(
         ResourceId,
         {query, BaseDN, Filter, [
@@ -103,7 +103,7 @@ format_authentication_result(
     IsSuperuser = emqx_auth_ldap_utils:get_bool_attribute(
         IsSuperuserAttribute, Entry, false
     ),
-    case emqx_authn_ldap_acl:acl_from_entry(State, Entry) of
+    case emqx_auth_ldap_acl:acl_from_entry(State, Entry) of
         {ok, AclFields} ->
             {ok, AclFields#{is_superuser => IsSuperuser}};
         {error, Reason} ->

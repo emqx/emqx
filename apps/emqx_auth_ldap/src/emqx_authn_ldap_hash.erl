@@ -42,7 +42,7 @@ authenticate(
     Query = fun() ->
         BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
         Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
-        AclAttributes = emqx_authn_ldap_acl:acl_attributes(State),
+        AclAttributes = emqx_auth_ldap_acl:acl_attributes(State),
         Attributes = [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR | AclAttributes],
         {query, BaseDN, Filter, [{attributes, Attributes}, {timeout, Timeout}]}
     end,
@@ -66,7 +66,7 @@ do_authenticate(Password, Entry, #{resource_id := ResourceId} = State) ->
         %% To be compatible with v4.x
         ok ?= verify_user_enabled(Entry),
         ok ?= ensure_password(Password, Entry, State),
-        {ok, AclFields} ?= emqx_authn_ldap_acl:acl_from_entry(State, Entry),
+        {ok, AclFields} ?= emqx_auth_ldap_acl:acl_from_entry(State, Entry),
         {ok, maps:merge(AclFields, is_superuser(Entry, State))}
     else
         {error, Reason} ->

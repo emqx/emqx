@@ -72,7 +72,7 @@ parse_config(
         CacheKeyTemplate = emqx_auth_template:cache_key_template(
             lists:uniq(BaseDNVars ++ FilterVars ++ PasswordVars)
         ),
-        Attributes = maps:with(
+        ACLAttributeNames = maps:with(
             [
                 publish_attribute,
                 subscribe_attribute,
@@ -84,7 +84,7 @@ parse_config(
         ),
         {ok,
             maps:merge(
-                Attributes,
+                ACLAttributeNames,
                 #{
                     query_timeout => QueryTimeout,
                     method => Method,
