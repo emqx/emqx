@@ -21,7 +21,7 @@
     max_channel_d/1,
     register_channel/4,
     unregister_channel/2,
-    count_local_d/0,
+    count_dirty/0,
     do_cleanup_channels/1
 ]).
 
@@ -121,8 +121,8 @@ ch_pid(undefined) ->
 ch_pid(#lsr_channel{pid = Pid}) ->
     Pid.
 
--spec count_local_d() -> non_neg_integer().
-count_local_d() ->
+-spec count_dirty() -> non_neg_integer().
+count_dirty() ->
     mnesia:table_info(?LSR_TAB, size).
 
 %%--------------------------------------------------------------------

@@ -37,7 +37,7 @@
     do_cleanup_channels/1
 ]).
 
--export([count_local_d/0]).
+-export([count_dirty/0]).
 
 -ifdef(TEST).
 %% For testing only
@@ -63,7 +63,8 @@ start_link() ->
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
-count_local_d() ->
+-spec count_dirty() -> non_neg_integer().
+count_dirty() ->
     mnesia:table_info(?CHAN_REG_TAB, size).
 
 %% @doc Is the global registry enabled?

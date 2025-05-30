@@ -222,8 +222,8 @@ register_channel_local(ClientId, ChanPid, #{conn_mod := ConnMod, transport_start
     ok;
 register_channel_local(ClientId, ChanPid, ConnInfo) ->
     %% For backward compatibility.
-    %% when transport_started_at is absent, that means it is a call from older EMQX version
-    %% where the connected time must be known, but defaults to 0 for safety.
+    %% when `transport_started_at` is absent, that means it is a call from older EMQX version
+    %% where the MQTT connected time (`connected_at`) must be known, but defaults to 0 for safety.
     TS = maps:get(connected_at, ConnInfo, 0),
     register_channel_local(ClientId, ChanPid, ConnInfo#{transport_started_at => TS}).
 
@@ -331,11 +331,12 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
 global_chan_cnt() ->
     case emqx_lsr:mode() of
         enabled ->
-            emqx_lsr:count_local_d();
+            emqx_lsr:count_dirty();
         disabled ->
-            emqx_cm_registry:count_local_d();
+            emqx_cm_registry:count_dirty();
         migration_enabled ->
-            emqx_cm_registry:count_local_d() + emqx_lsr:count_local_d()
+            %% It is inaccurate anyway...
+            emqx_cm_registry:count_dirty() + emqx_lsr:count_dirty()
     end.
 
 %% @doc Open a session and also register it in global channel/session registry
