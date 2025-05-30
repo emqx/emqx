@@ -19,6 +19,10 @@
 ]).
 
 -export([
+    t_metrics/1
+]).
+
+-export([
     t_trace/1,
     t_trace_disabled/1,
     t_trace_all/1,
@@ -92,8 +96,9 @@ groups() ->
         t_log
     ],
 
-    %% TODO: Add metrics test cases
-    MetricsGroups = [],
+    MetricsCases = [
+        t_metrics
+    ],
 
     TraceConnTypeGroups = [
         {group, tcp},
@@ -127,8 +132,8 @@ groups() ->
     ],
     FeatureGroups = [
         {group, logs},
-        {group, traces},
-        {group, metrics}
+        {group, metrics},
+        {group, traces}
     ],
     [
         {otel_tcp, FeatureGroups},
@@ -136,8 +141,8 @@ groups() ->
 
         %% FeatureGroups
         {logs, LogsCases},
+        {metrics, MetricsCases},
         {traces, TraceConnTypeGroups},
-        {metrics, MetricsGroups},
 
         %% TraceConnTypeGroups
         {tcp, TraceGroups},
@@ -171,7 +176,8 @@ init_per_group(otel_tcp = Group, Config) ->
     [
         {group_otel_conn_type, Group},
         {otel_collector_url, OtelCollectorURL},
-        {logs_exporter_file_path, logs_exporter_file_path(Group, Config)}
+        {logs_exporter_file_path, logs_exporter_file_path(Group, Config)},
+        {metrics_exporter_file_path, metrics_exporter_file_path(Group, Config)}
         | Config
     ];
 init_per_group(otel_tls = Group, Config) ->
@@ -181,7 +187,8 @@ init_per_group(otel_tls = Group, Config) ->
     [
         {group_otel_conn_type, Group},
         {otel_collector_url, OtelCollectorURL},
-        {logs_exporter_file_path, logs_exporter_file_path(Group, Config)}
+        {logs_exporter_file_path, logs_exporter_file_path(Group, Config)},
+        {metrics_exporter_file_path, metrics_exporter_file_path(Group, Config)}
         | Config
     ];
 init_per_group(Group, Config) when ?CONN_TYPE_GROUP(Group) ->
@@ -246,6 +253,9 @@ end_per_testcase(_TC, Config) ->
 logs_exporter_file_path(Group, Config) ->
     filename:join([project_dir(Config), logs_exporter_filename(Group)]).
 
+metrics_exporter_file_path(Group, Config) ->
+    filename:join([project_dir(Config), metrics_exporter_filename(Group)]).
+
 project_dir(Config) ->
     filename:join(
         lists:takewhile(
@@ -255,9 +265,14 @@ project_dir(Config) ->
     ).
 
 logs_exporter_filename(otel_tcp) ->
-    ".ci/docker-compose-file/otel/otel-collector.json";
+    ".ci/docker-compose-file/otel/otel_tcp_emqx_log.json";
 logs_exporter_filename(otel_tls) ->
-    ".ci/docker-compose-file/otel/otel-collector-tls.json".
+    ".ci/docker-compose-file/otel/otel_tls_emqx_log.json".
+
+metrics_exporter_filename(otel_tcp) ->
+    ".ci/docker-compose-file/otel/otel_tcp_emqx_metrics.json";
+metrics_exporter_filename(otel_tls) ->
+    ".ci/docker-compose-file/otel/otel_tls_emqx_metrics.json".
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -291,7 +306,36 @@ t_log(Config) ->
             ?LINE,
             fun() ->
                 {ok, Logs} = file:read_file(?config(logs_exporter_file_path, Config)),
-                binary:match(Logs, Id) =/= nomatch andalso binary:match(Logs, Id1) =/= nomatch
+                (binary:match(Logs, Id) =/= nomatch) andalso (binary:match(Logs, Id1) =/= nomatch)
+            end,
+            10_000
+        )
+    ).
+
+%% ====================
+%% Metrics cases
+
+t_metrics(Config) ->
+    MetricsConf = #{
+        <<"metrics">> => #{
+            <<"enable">> => true,
+            <<"scheduled_delay">> => <<"1000ms">>
+        },
+        <<"exporter">> => exporter_conf(Config)
+    },
+    {ok, _} = emqx_conf:update(?CONF_PATH, MetricsConf, #{override_to => cluster}),
+
+    ct:sleep(1500),
+
+    ?assertEqual(
+        ok,
+        emqx_common_test_helpers:wait_for(
+            ?FUNCTION_NAME,
+            ?LINE,
+            fun() ->
+                {ok, Metrics} = file:read_file(?config(metrics_exporter_file_path, Config)),
+                (size(Metrics) > 0) andalso
+                    (binary:match(Metrics, <<"\"mnesia.tm.mailbox.size\"">>) =/= nomatch)
             end,
             10_000
         )
