@@ -25,7 +25,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
--include_lib("emqx/src/bpapi/emqx_bpapi.hrl").
+-include("./bpapi/emqx_bpapi.hrl").
 
 %% API
 -export([

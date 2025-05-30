@@ -48,6 +48,10 @@
 -define(CM_KEY, {?MODULE, callback_mode}).
 -define(PT_CHAN_KEY(CONN_RES_ID), {?MODULE, chans, CONN_RES_ID}).
 
+-define(IS_STATUS(ST),
+    ST =:= ?status_connecting; ST =:= ?status_connected; ST =:= ?status_disconnected
+).
+
 roots() ->
     [
         {name, fun name/1},
@@ -327,6 +331,9 @@ on_get_status(ConnResId, #{health_check_agent := Agent}) ->
                 {Alias, Result} ->
                     Result
             end;
+        {notify, Pid, Status} when ?IS_STATUS(Status) ->
+            Pid ! {returning_resource_health_check_result, ConnResId, Status},
+            Status;
         Result ->
             Result
     end;
@@ -359,6 +366,9 @@ on_get_channel_status(ConnResId, ChanId, #{health_check_agent := Agent}) ->
                 {Alias, Result} ->
                     Result
             end;
+        {notify, Pid, Status} when ?IS_STATUS(Status) ->
+            Pid ! {returning_channel_health_check_result, ConnResId, ChanId, Status},
+            Status;
         Result ->
             Result
     end;
