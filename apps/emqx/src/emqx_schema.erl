@@ -1289,6 +1289,15 @@ fields("broker") ->
                     desc => ?DESC(broker_enable_session_registry)
                 }
             )},
+        {linear_session_registry,
+            sc(
+                hoconsc:enum([enabled, disabled, migration_enabled]),
+                #{
+                    default => disabled,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    desc => ?DESC(broker_linear_session_registry)
+                }
+            )},
         {session_history_retain,
             sc(
                 duration_s(),
