@@ -357,8 +357,7 @@ t_cli(_Config) ->
 
 t_lookup_by_username_jwt(_Config) ->
     User = bin(["user-", integer_to_list(random_num())]),
-    Pwd = bin("t_password" ++ integer_to_list(random_num())),
-    emqx_dashboard_token:sign(#?ADMIN{username = User}, Pwd),
+    emqx_dashboard_token:sign(#?ADMIN{username = User}),
     ?assertMatch(
         [#?ADMIN_JWT{username = User}],
         emqx_dashboard_token:lookup_by_username(User)
@@ -371,8 +370,7 @@ t_lookup_by_username_jwt(_Config) ->
 
 t_clean_expired_jwt(_Config) ->
     User = bin(["user-", integer_to_list(random_num())]),
-    Pwd = bin("t_password" ++ integer_to_list(random_num())),
-    emqx_dashboard_token:sign(#?ADMIN{username = User}, Pwd),
+    emqx_dashboard_token:sign(#?ADMIN{username = User}),
     [#?ADMIN_JWT{username = User, exptime = ExpTime}] =
         emqx_dashboard_token:lookup_by_username(User),
     ok = emqx_dashboard_token:clean_expired_jwt(_Now1 = ExpTime),
