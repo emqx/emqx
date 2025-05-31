@@ -56,8 +56,6 @@
 -export([
     disable_enable/3,
     disable_enable/4,
-    health_check/2,
-    health_check/3,
     send_message/4,
     query/4,
     start/2,
@@ -88,6 +86,8 @@
 -export([
     id/2,
     id/3,
+    health_check/2,
+    health_check/3,
     source_id/3,
     source_hookpoint/1,
     bridge_v1_is_valid/2,
@@ -771,11 +771,15 @@ query_opts(ActionOrSourceType, Config) ->
     Mod = emqx_connector_resource:connector_to_resource_type(ConnectorType),
     emqx_resource:get_query_opts(Mod, Config).
 
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
 -spec health_check(BridgeType :: term(), BridgeName :: term()) ->
     #{status := emqx_resource:resource_status(), error := term()} | {error, Reason :: term()}.
 health_check(BridgeType, BridgeName) ->
     health_check(?ROOT_KEY_ACTIONS, BridgeType, BridgeName).
 
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
 health_check(ConfRootKey, BridgeType, BridgeName) ->
     case lookup_conf(ConfRootKey, BridgeType, BridgeName) of
         #{
