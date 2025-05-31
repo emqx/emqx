@@ -9,7 +9,7 @@
 -export([create_tables/0]).
 
 -export([
-    sign/2,
+    sign/1,
     verify/2,
     lookup/1,
     owner/1,
@@ -41,10 +41,6 @@
 
 %%--------------------------------------------------------------------
 %% jwt function
--spec sign(User :: dashboard_user(), Password :: binary()) ->
-    {ok, dashboard_user_role(), Token :: binary()} | {error, Reason :: term()}.
-sign(User, Password) ->
-    do_sign(User, Password).
 
 -spec verify(_, Token :: binary()) ->
     Result ::
@@ -89,12 +85,11 @@ create_tables() ->
     ]),
     [?TAB].
 
-%%--------------------------------------------------------------------
-%% jwt apply
-do_sign(#?ADMIN{username = Username} = User, Password) ->
+-spec sign(User :: dashboard_user()) ->
+    {ok, dashboard_user_role(), Token :: binary()}.
+sign(#?ADMIN{username = Username} = User) ->
     ExpTime = jwt_expiration_time(),
-    Salt = salt(),
-    JWK = jwk(Username, Password, Salt),
+    JWK = jwk(),
     JWS = #{
         <<"alg">> => <<"HS256">>
     },
@@ -159,11 +154,8 @@ owner(Token) ->
         {atomic, []} -> {error, not_found}
     end.
 
-jwk(?SSO_USERNAME(Backend, Name), Password, Salt) ->
-    BackendBin = erlang:atom_to_binary(Backend),
-    jwk(<<BackendBin/binary, "-", Name/binary>>, Password, Salt);
-jwk(Username, Password, Salt) ->
-    Key = crypto:hash(sha, <<Salt/binary, Username/binary, Password/binary>>),
+jwk() ->
+    Key = crypto:strong_rand_bytes(32),
     #{
         <<"kty">> => <<"oct">>,
         <<"k">> => jose_base64url:encode(Key)
