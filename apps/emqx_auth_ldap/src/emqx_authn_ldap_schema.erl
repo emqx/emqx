@@ -70,6 +70,7 @@ common_fields() ->
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
         {query_timeout, fun query_timeout/1}
     ] ++
+        acl_fields() ++
         emqx_ldap:fields(search_options) ++
         emqx_authn_schema:common_fields() ++
         emqx_ldap:fields(config).
@@ -114,6 +115,16 @@ password_attribute() ->
             default => <<"userPassword">>
         }
     ).
+
+acl_fields() ->
+    emqx_authz_ldap_schema:acl_fields() ++
+        [
+            {acl_ttl_attribute,
+                ?HOCON(string(), #{
+                    desc => ?DESC(acl_ttl_attribute),
+                    default => <<"mqttAclTtl">>
+                })}
+        ].
 
 is_superuser_attribute() ->
     ?HOCON(

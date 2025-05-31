@@ -13,6 +13,10 @@
     authorize/4
 ]).
 
+-export([
+    entry_rules/2
+]).
+
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("eldap/include/eldap.hrl").
@@ -74,12 +78,12 @@ authorize(
         } = Annotations
     }
 ) ->
-    Attrs = select_attrs(Action, Annotations),
-    CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate, Attrs),
+    ACLAttrs = acl_attributes(Annotations),
+    CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate),
     Query = fun() ->
         BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Client),
         Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Client),
-        {query, BaseDN, Filter, [{attributes, Attrs}, {timeout, QueryTimeout}]}
+        {query, BaseDN, Filter, [{attributes, ACLAttrs}, {timeout, QueryTimeout}]}
     end,
     Result = emqx_authz_utils:cached_simple_sync_query(
         CacheKey, ResourceId, Query
@@ -88,7 +92,17 @@ authorize(
         {ok, []} ->
             nomatch;
         {ok, [Entry]} ->
-            do_authorize(Action, Topic, Attrs, Entry);
+            case entry_rules(Annotations, Entry) of
+                {ok, ACLRules} ->
+                    emqx_authz_rule:matches(Client, Action, Topic, ACLRules);
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "invalid_acl_rules",
+                        reason => Reason,
+                        ldap_entry => Entry
+                    }),
+                    nomatch
+            end;
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "ldap_query_failed",
@@ -98,16 +112,37 @@ authorize(
             nomatch
     end.
 
-do_authorize(Action, Topic, [Attr | T], Entry) ->
-    Topics = proplists:get_value(Attr, Entry#eldap_entry.attributes, []),
-    case match_topic(Topic, Topics) of
-        true ->
-            {matched, allow};
-        false ->
-            do_authorize(Action, Topic, T, Entry)
-    end;
-do_authorize(_Action, _Topic, [], _Entry) ->
-    nomatch.
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
+
+entry_rules(
+    #{
+        acl_rule_attribute := ACLRuleAttr,
+        all_attribute := AllAttr,
+        publish_attribute := PublishAttr,
+        subscribe_attribute := SubscribeAttr
+    },
+    Entry
+) ->
+    %% Legacy rules
+    RawRulesPubSub = raw_whitelist_rules(<<"all">>, get_attr_values(AllAttr, Entry)),
+    RawRulesPublish = raw_whitelist_rules(<<"pub">>, get_attr_values(PublishAttr, Entry)),
+    RawRulesSubscribe = raw_whitelist_rules(<<"sub">>, get_attr_values(SubscribeAttr, Entry)),
+    maybe
+        %% JSON-encoded raw rules
+        {ok, RawRules} ?= decode_acl_rules(get_attr_values(ACLRuleAttr, Entry)),
+        RawRulesAll = lists:concat([RawRulesPubSub, RawRulesPublish, RawRulesSubscribe, RawRules]),
+        {ok, ACLRules} ?= parse_and_compile_acl_rules(RawRulesAll),
+        {ok, ACLRules}
+    else
+        {error, _} = Error ->
+            Error
+    end.
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
 
 new_annotations(Init, #{base_dn := BaseDN, filter := Filter} = Source) ->
     maybe
@@ -116,7 +151,14 @@ new_annotations(Init, #{base_dn := BaseDN, filter := Filter} = Source) ->
             emqx_auth_ldap_utils:parse_filter(Filter, ?ALLOWED_VARS),
         CacheKeyTemplate = emqx_auth_template:cache_key_template(BaseDNVars ++ FilterVars),
         State = maps:with(
-            [query_timeout, publish_attribute, subscribe_attribute, all_attribute], Source
+            [
+                query_timeout,
+                publish_attribute,
+                subscribe_attribute,
+                all_attribute,
+                acl_rule_attribute
+            ],
+            Source
         ),
         maps:merge(Init, State#{
             cache_key_template => CacheKeyTemplate,
@@ -128,15 +170,60 @@ new_annotations(Init, #{base_dn := BaseDN, filter := Filter} = Source) ->
             error({load_config_error, Reason})
     end.
 
-select_attrs(#{action_type := publish}, #{publish_attribute := Pub, all_attribute := All}) ->
-    [Pub, All];
-select_attrs(_, #{subscribe_attribute := Sub, all_attribute := All}) ->
-    [Sub, All].
+acl_attributes(#{
+    acl_rule_attribute := ACLRuleAttr,
+    all_attribute := AllAttr,
+    publish_attribute := PublishAttr,
+    subscribe_attribute := SubscribeAttr
+}) ->
+    [ACLRuleAttr, AllAttr, PublishAttr, SubscribeAttr].
 
-match_topic(Target, Topics) ->
-    lists:any(
-        fun(Topic) ->
-            emqx_topic:match(Target, erlang:list_to_binary(Topic))
-        end,
-        Topics
-    ).
+raw_whitelist_rules(_Action, []) ->
+    [];
+raw_whitelist_rules(Action, Topics) ->
+    [
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => Action,
+            <<"topics">> => [list_to_binary(Topic) || Topic <- Topics]
+        }
+    ].
+
+get_attr_values(AttrName, #eldap_entry{attributes = Attrs}) ->
+    proplists:get_value(AttrName, Attrs, []).
+
+parse_and_compile_acl_rules(ACLRulesRaw) ->
+    try emqx_authz_rule_raw:parse_and_compile_rules(ACLRulesRaw) of
+        Rules -> {ok, Rules}
+    catch
+        throw:Reason ->
+            ?SLOG(warning, #{
+                msg => "invalid_acl_rules_raw",
+                rules => ACLRulesRaw,
+                reason => Reason
+            }),
+            {error, Reason}
+    end.
+
+decode_acl_rules(JSONs) ->
+    decode_acl_rules(JSONs, []).
+
+decode_acl_rules([], Acc) ->
+    {ok, lists:concat(lists:reverse(Acc))};
+decode_acl_rules([JSON | JSONRest], Acc) ->
+    case emqx_utils_json:safe_decode(JSON) of
+        {ok, ACLRuleRaw} ->
+            decode_acl_rules(JSONRest, [wrap_as_list(ACLRuleRaw) | Acc]);
+        {error, Reason} = Error ->
+            ?SLOG(warning, #{
+                msg => "invalid_acl_rule_json",
+                json => JSON,
+                reason => Reason
+            }),
+            Error
+    end.
+
+wrap_as_list(L) when is_list(L) ->
+    L;
+wrap_as_list(L) ->
+    [L].
