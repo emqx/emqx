@@ -29,8 +29,7 @@ init_per_testcase(TestCase, Config) ->
     [{tc_apps, Apps} | Config].
 
 end_per_testcase(_TestCase, Config) ->
-    emqx_cth_suite:stop(?config(tc_apps, Config)),
-    _ = emqx_authz:set_feature_available(rich_actions, true).
+    emqx_cth_suite:stop(?config(tc_apps, Config)).
 
 %%------------------------------------------------------------------------------
 %% Testcases

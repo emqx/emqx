@@ -183,8 +183,6 @@
 
 -define(AUTHZ_RESOURCE_GROUP, <<"authz">>).
 
--define(AUTHZ_FEATURES, [rich_actions]).
-
 -define(DEFAULT_RULE_QOS, [0, 1, 2]).
 -define(DEFAULT_RULE_RETAIN, all).
 

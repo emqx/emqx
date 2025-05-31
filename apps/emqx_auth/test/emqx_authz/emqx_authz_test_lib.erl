@@ -101,19 +101,8 @@ base_client_info() ->
 client_info(Overrides) ->
     maps:merge(base_client_info(), Overrides).
 
-enable_features(Case) ->
-    Features = maps:get(features, Case, []),
-    lists:foreach(
-        fun(Feature) ->
-            Enable = lists:member(Feature, Features),
-            emqx_authz:set_feature_available(Feature, Enable)
-        end,
-        ?AUTHZ_FEATURES
-    ).
-
 run_checks(#{checks := Checks} = Case) ->
     _ = setup_default_permission(Case),
-    _ = enable_features(Case),
     ClientInfoOverrides = maps:get(client_info, Case, #{}),
     ClientInfo = client_info(ClientInfoOverrides),
     lists:foreach(

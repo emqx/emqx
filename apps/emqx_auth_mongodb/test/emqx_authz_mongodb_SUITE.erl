@@ -71,7 +71,6 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, true),
     ok = emqx_authz_test_lib:enable_node_cache(false),
     ok = reset_samples(),
     ok = mc_worker_api:disconnect(?MONGO_CLIENT).
@@ -239,7 +238,6 @@ cases() ->
         },
         #{
             name => invalid_rich_rules,
-            features => [rich_actions],
             records => [
                 #{
                     <<"action">> => <<"publish">>,
@@ -328,7 +326,6 @@ cases() ->
         },
         #{
             name => qos_retain_in_query_result,
-            features => [rich_actions],
             records => [
                 #{
                     <<"username">> => <<"username">>,

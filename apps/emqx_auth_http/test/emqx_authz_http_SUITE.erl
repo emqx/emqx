@@ -60,7 +60,6 @@ end_per_testcase(t_bad_response, Config) ->
     emqx_cth_suite:stop_apps(TCApps),
     end_per_testcase(common, Config);
 end_per_testcase(_TestCase, _Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, true),
     ok = emqx_authz_test_lib:enable_node_cache(false),
     try
         ok = emqx_utils_http_test_server:stop()
@@ -356,44 +355,6 @@ t_json_body(_Config) ->
         zone => default,
         listener => 'tcp:default'
     },
-
-    ?assertEqual(
-        allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>)
-    ).
-
-t_no_rich_actions(_Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, false),
-
-    ok = setup_handler_and_config(
-        fun(Req0, State) ->
-            ?assertEqual(
-                <<"/authz/users/">>,
-                cowboy_req:path(Req0)
-            ),
-
-            {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
-
-            %% No interpolation if rich_actions is disabled
-            ?assertMatch(
-                #{
-                    <<"qos">> := <<"${qos}">>,
-                    <<"retain">> := <<"${retain}">>
-                },
-                emqx_utils_json:decode(RawBody)
-            ),
-            {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
-        end,
-        #{
-            <<"method">> => <<"post">>,
-            <<"body">> => #{
-                <<"qos">> => <<"${qos}">>,
-                <<"retain">> => <<"${retain}">>
-            }
-        }
-    ),
-
-    ClientInfo = emqx_authz_test_lib:base_client_info(),
 
     ?assertEqual(
         allow,

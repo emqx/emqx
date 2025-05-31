@@ -44,10 +44,7 @@
     ?VAR_ACCESS,
     ?VAR_NS_CLIENT_ATTRS,
     ?VAR_ZONE,
-    ?VAR_LISTENER
-]).
-
--define(ALLOWED_VARS_RICH_ACTIONS, [
+    ?VAR_LISTENER,
     ?VAR_QOS,
     ?VAR_RETAIN
 ]).
@@ -170,15 +167,15 @@ parse_config(
 ) ->
     Annotations = maps:get(annotations, Conf, #{}),
     {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
-    {BasePathVars, BasePathTemplate} = emqx_auth_template:parse_str(Path, allowed_vars()),
+    {BasePathVars, BasePathTemplate} = emqx_auth_template:parse_str(Path, ?ALLOWED_VARS),
     {BaseQueryVars, BaseQueryTemplate} = emqx_auth_template:parse_deep(
         cow_qs:parse_qs(Query),
-        allowed_vars()
+        ?ALLOWED_VARS
     ),
     {BodyVars, BodyTemplate} =
         emqx_auth_template:parse_deep(
             emqx_utils_maps:binary_key_map(maps:get(body, Conf, #{})),
-            allowed_vars()
+            ?ALLOWED_VARS
         ),
     Headers = maps:to_list(emqx_auth_http_utils:transform_header_name(Headers0)),
     {HeadersVars, HeadersTemplate} = emqx_authn_utils:parse_deep(Headers),
@@ -207,11 +204,3 @@ add_legacy_access_var(#{action := publish} = Vars) ->
     Vars#{access => ?LEGACY_PUBLISH_ACTION};
 add_legacy_access_var(Vars) ->
     Vars.
-
-allowed_vars() ->
-    allowed_vars(emqx_authz:feature_available(rich_actions)).
-
-allowed_vars(true) ->
-    ?ALLOWED_VARS ++ ?ALLOWED_VARS_RICH_ACTIONS;
-allowed_vars(false) ->
-    ?ALLOWED_VARS.

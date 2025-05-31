@@ -157,21 +157,14 @@ validate_rule_action_type(S) when S =:= <<"sub">> orelse S =:= <<"subscribe">> -
 validate_rule_action_type(<<"all">>) -> all;
 validate_rule_action_type(ActionRaw) -> throw({invalid_action, ActionRaw}).
 
-validate_rule_action(ActionType, RuleRaw) ->
-    validate_rule_action(emqx_authz:feature_available(rich_actions), ActionType, RuleRaw).
-
-%% rich_actions disabled
-validate_rule_action(false, ActionType, _RuleRaw) ->
-    ActionType;
-%% rich_actions enabled
-validate_rule_action(true, publish, RuleRaw) ->
+validate_rule_action(publish, RuleRaw) ->
     Qos = validate_rule_qos(maps:get(<<"qos">>, RuleRaw, ?DEFAULT_RULE_QOS)),
     Retain = validate_rule_retain(maps:get(<<"retain">>, RuleRaw, <<"all">>)),
     {publish, [{qos, Qos}, {retain, Retain}]};
-validate_rule_action(true, subscribe, RuleRaw) ->
+validate_rule_action(subscribe, RuleRaw) ->
     Qos = validate_rule_qos(maps:get(<<"qos">>, RuleRaw, ?DEFAULT_RULE_QOS)),
     {subscribe, [{qos, Qos}]};
-validate_rule_action(true, all, RuleRaw) ->
+validate_rule_action(all, RuleRaw) ->
     Qos = validate_rule_qos(maps:get(<<"qos">>, RuleRaw, ?DEFAULT_RULE_QOS)),
     Retain = validate_rule_retain(maps:get(<<"retain">>, RuleRaw, <<"all">>)),
     {all, [{qos, Qos}, {retain, Retain}]}.
@@ -284,24 +277,11 @@ validate(ipaddr, Invalid, Raw) ->
         _:_ -> throw({Invalid, Raw})
     end.
 
-format_action(Action) ->
-    format_action(emqx_authz:feature_available(rich_actions), Action).
-
-%% rich_actions disabled
-format_action(false, Action) when is_atom(Action) ->
+format_action(Action) when is_atom(Action) ->
     #{
         action => Action
     };
-format_action(false, {ActionType, _Opts}) ->
-    #{
-        action => ActionType
-    };
-%% rich_actions enabled
-format_action(true, Action) when is_atom(Action) ->
-    #{
-        action => Action
-    };
-format_action(true, {ActionType, Opts}) ->
+format_action({ActionType, Opts}) ->
     #{
         action => ActionType,
         qos => proplists:get_value(qos, Opts, ?DEFAULT_RULE_QOS),

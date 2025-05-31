@@ -35,11 +35,6 @@
     get_enabled_authzs/0
 ]).
 
--export([
-    feature_available/1,
-    set_feature_available/2
-]).
-
 -export([pre_config_update/4, post_config_update/5]).
 
 -export([
@@ -673,20 +668,6 @@ maybe_convert_sources(
     RawConf#{?CONF_NS_BINARY => AuthRawConf#{<<"sources">> => Sources1}};
 maybe_convert_sources(RawConf, _Fun) ->
     RawConf.
-
-%%------------------------------------------------------------------------------
-%% Extended Features
-%%------------------------------------------------------------------------------
-
--define(DEFAULT_RICH_ACTIONS, true).
-
--define(FEATURE_KEY(_NAME_), {?MODULE, _NAME_}).
-
-feature_available(rich_actions) ->
-    persistent_term:get(?FEATURE_KEY(rich_actions), ?DEFAULT_RICH_ACTIONS).
-
-set_feature_available(Feature, Enable) when is_boolean(Enable) ->
-    persistent_term:put(?FEATURE_KEY(Feature), Enable).
 
 %%------------------------------------------------------------------------------
 %% Internal function
