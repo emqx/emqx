@@ -64,9 +64,6 @@
     start/2,
     restart/1,
     restart/2,
-    %% verify if the resource is working normally
-    health_check/1,
-    channel_health_check/2,
     get_channels/1,
     %% set resource status to disconnected
     set_resource_status_connecting/1,
@@ -145,6 +142,10 @@
 ]).
 
 -export([is_dry_run/1]).
+
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
+-export([health_check/1, channel_health_check/2]).
 
 -export_type([
     query_mode/0,
@@ -443,10 +444,14 @@ restart(ResId, Opts) ->
 stop(ResId) ->
     emqx_resource_manager:stop(ResId).
 
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
 -spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(ResId) ->
     emqx_resource_manager:health_check(ResId).
 
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
 -spec channel_health_check(resource_id(), channel_id()) ->
     #{status := resource_status(), error := term()}.
 channel_health_check(ResId, ChannelId) ->
