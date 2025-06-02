@@ -45,4 +45,9 @@ provider.desc:
 fallback_methods.desc:
 """Some providers do not provide all the method items in the provider configuration, set this value as a fallback for those items."""
 
+
+OIDC.desc:
+"""OpenID Connect (OIDC) is an identity layer built on top of the OAuth 2.0 protocol. It allows clients to verify the identity of end-users based on the authentication performed by an authorization server."""
+OIDC.label: "OIDC"
+
 }
