@@ -381,20 +381,14 @@ default_appspec(emqx_conf, SuiteOpts) ->
             ok = emqx_common_test_helpers:copy_acl_conf()
         end
     };
-default_appspec(emqx_dashboard, _SuiteOpts) ->
-    #{
-        after_start => fun() ->
-            true = emqx_dashboard_listener:is_ready(infinity)
-        end
-    };
-default_appspec(emqx_schema_registry, _SuiteOpts) ->
-    #{schema_mod => emqx_schema_registry_schema, config => #{}};
-default_appspec(emqx_schema_validation, _SuiteOpts) ->
-    #{schema_mod => emqx_schema_validation_schema, config => #{}};
-default_appspec(emqx_message_transformation, _SuiteOpts) ->
-    #{schema_mod => emqx_message_transformation_schema, config => #{}};
-default_appspec(emqx_ds_shared_sub, _SuiteOpts) ->
-    #{schema_mod => emqx_ds_shared_sub_schema, config => #{}};
+default_appspec(App, _SuiteOpts) when
+    App == emqx_schema_registry;
+    App == emqx_schema_validation;
+    App == emqx_message_transformation;
+    App == emqx_ds_shared_sub
+->
+    %% NOTE: Start those apps with default configuration.
+    #{config => #{}};
 default_appspec(_, _) ->
     #{}.
 
