@@ -386,13 +386,14 @@ assert_persisted_data(ClientId, Expected, PersistedData) ->
             (int_value, ExpectedValue) ->
                 ?assertMatch(
                     ExpectedValue,
-                    maps:get(ClientIdIntKey, PersistedData)
+                    maps:get(ClientIdIntKey, PersistedData, not_found),
+                    #{persisted => PersistedData}
                 );
             (Key, ExpectedValue) ->
                 ?assertMatch(
                     ExpectedValue,
-                    maps:get(atom_to_binary(Key), PersistedData),
-                    #{expected => ExpectedValue}
+                    maps:get(atom_to_binary(Key), PersistedData, not_found),
+                    #{persisted => PersistedData}
                 )
         end,
         Expected
