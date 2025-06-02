@@ -15,4 +15,7 @@ filter.desc:
 filter.label:
 """Filter"""
 
+LDAP.desc:
+"""LDAP (Lightweight Directory Access Protocol) is a protocol for accessing and managing directory information services over a network. It can be used as a Single Sign-On (SSO) provider to authenticate users by binding to the LDAP server with their credentials."""
+LDAP.label: "LDAP"
 }
