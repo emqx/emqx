@@ -195,8 +195,8 @@ vm_stats() ->
     cpu_stats() ++
         [
             {run_queue, vm_stats('run.queue')},
-            {mnesia_tm_mailbox_size, emqx_broker_mon:get_mnesia_tm_mailbox_size()},
-            {broker_pool_max_mailbox_size, emqx_broker_mon:get_broker_pool_max_mailbox_size()},
+            {mnesia_tm_mailbox_size, vm_stats('mnesia.tm.mailbox.size')},
+            {broker_pool_max_mailbox_size, vm_stats('broker.pool.max.mailbox.size')},
             {total_memory, MemTotal},
             {used_memory, erlang:round(MemTotal * MemUsedRatio)}
         ].
@@ -220,14 +220,18 @@ vm_stats('cpu') ->
         _ ->
             [{cpu_use, 0}, {cpu_idle, 0}]
     end;
+vm_stats('run.queue') ->
+    erlang:statistics(run_queue);
+vm_stats('mnesia.tm.mailbox.size') ->
+    emqx_broker_mon:get_mnesia_tm_mailbox_size();
+vm_stats('broker.pool.max.mailbox.size') ->
+    emqx_broker_mon:get_broker_pool_max_mailbox_size();
 vm_stats('total.memory') ->
     {_, MemTotal} = get_sys_memory(),
     MemTotal;
 vm_stats('used.memory') ->
     {MemUsedRatio, MemTotal} = get_sys_memory(),
-    erlang:round(MemTotal * MemUsedRatio);
-vm_stats('run.queue') ->
-    erlang:statistics(run_queue).
+    erlang:round(MemTotal * MemUsedRatio).
 
 %%--------------------------------------------------------------------
 %% Brokers
