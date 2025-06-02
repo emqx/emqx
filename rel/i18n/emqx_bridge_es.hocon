@@ -52,8 +52,7 @@ config_routing.label:
 """Routing"""
 
 config_doc_as_upsert.desc:
-"""Instead of sending a partial doc plus an upsert doc,
-you can set `doc_as_upsert` to `true` to use the contents of doc as the upsert value."""
+"""When set to `true`, the document will be used as the upsert value - meaning it will be inserted if it doesn't exist, or updated if it does."""
 config_doc_as_upsert.label:
 """doc_as_upsert"""
 
