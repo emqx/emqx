@@ -53,7 +53,7 @@ config_routing.label:
 
 config_doc_as_upsert.desc:
 """Instead of sending a partial doc plus an upsert doc,
-you can set doc_as_upsert to true to use the contents of doc as the upsert value."""
+you can set `doc_as_upsert` to `true` to use the contents of doc as the upsert value."""
 config_doc_as_upsert.label:
 """doc_as_upsert"""
 
@@ -141,5 +141,17 @@ action_resource_opts.desc:
 
 action_resource_opts.label:
 """Resource Options"""
+
+create.desc:
+"""Insert a new doc record."""
+create.label: "Create"
+
+delete.desc:
+"""Delete a doc record."""
+delete.label: "Delete"
+
+update.desc:
+"""Update an existing document or insert a new document if it doesn't exist (when `doc_as_upsert` is `true`)."""
+update.label: "Update"
 
 }
