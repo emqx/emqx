@@ -51,7 +51,6 @@ end_per_suite(Config) ->
 init_per_testcase(_TestCase, Config) ->
     Config.
 end_per_testcase(_TestCase, _Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, true),
     ok.
 
 t_compile(_) ->
@@ -173,23 +172,6 @@ t_compile(_) ->
     ),
 
     ok.
-
-t_compile_ce(_Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, false),
-
-    ?assertThrow(
-        #{reason := invalid_authorization_action},
-        emqx_authz_rule:compile(
-            {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
-        )
-    ),
-
-    ?assertEqual(
-        {allow, {username, {eq, <<"test">>}}, all, [[<<"topic">>, <<"test">>]]},
-        emqx_authz_rule:compile(
-            {allow, {username, "test"}, all, ["topic/test"]}
-        )
-    ).
 
 t_match(_) ->
     ?assertEqual(

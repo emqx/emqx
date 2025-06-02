@@ -40,7 +40,6 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, true),
     ok = emqx_authz_mnesia:purge_rules().
 
 %%------------------------------------------------------------------------------
@@ -52,14 +51,12 @@ t_authz(_Config) ->
 
     test_authz(
         allow,
-        allow,
         {all, #{
             <<"permission">> => <<"allow">>, <<"action">> => <<"subscribe">>, <<"topic">> => <<"t">>
         }},
         {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>}
     ),
     test_authz(
-        allow,
         allow,
         {{username, <<"username">>}, #{
             <<"permission">> => <<"allow">>,
@@ -70,7 +67,6 @@ t_authz(_Config) ->
     ),
     test_authz(
         allow,
-        allow,
         {{username, <<"username">>}, #{
             <<"permission">> => <<"allow">>,
             <<"action">> => <<"subscribe">>,
@@ -79,7 +75,6 @@ t_authz(_Config) ->
         {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/${username}">>}
     ),
     test_authz(
-        deny,
         deny,
         {{username, <<"username">>}, #{
             <<"permission">> => <<"allow">>,
@@ -90,7 +85,6 @@ t_authz(_Config) ->
     ),
     test_authz(
         allow,
-        allow,
         {{clientid, <<"clientid">>}, #{
             <<"permission">> => <<"allow">>,
             <<"action">> => <<"subscribe">>,
@@ -99,7 +93,6 @@ t_authz(_Config) ->
         {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/${username}">>}
     ),
     test_authz(
-        allow,
         allow,
         {{clientid, <<"clientid">>}, #{
             <<"permission">> => <<"allow">>,
@@ -111,7 +104,6 @@ t_authz(_Config) ->
     ),
     test_authz(
         deny,
-        deny,
         {{clientid, <<"clientid">>}, #{
             <<"permission">> => <<"allow">>,
             <<"action">> => <<"subscribe">>,
@@ -121,7 +113,6 @@ t_authz(_Config) ->
         {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>}
     ),
     test_authz(
-        allow,
         allow,
         {{clientid, <<"clientid">>}, #{
             <<"permission">> => <<"allow">>,
@@ -135,7 +126,6 @@ t_authz(_Config) ->
     ),
     test_authz(
         deny,
-        deny,
         {{clientid, <<"clientid">>}, #{
             <<"permission">> => <<"allow">>,
             <<"action">> => <<"subscribe">>,
@@ -145,7 +135,6 @@ t_authz(_Config) ->
         {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>}
     ),
     test_authz(
-        allow,
         allow,
         {
             {clientid, <<"clientid">>},
@@ -161,7 +150,6 @@ t_authz(_Config) ->
     ),
     test_authz(
         deny,
-        allow,
         {
             {clientid, <<"clientid">>},
             #{
@@ -176,7 +164,6 @@ t_authz(_Config) ->
     ),
     test_authz(
         deny,
-        allow,
         {
             {clientid, <<"clientid">>},
             #{
@@ -191,7 +178,6 @@ t_authz(_Config) ->
     ),
     test_authz(
         allow,
-        allow,
         {
             {clientid, <<"clientid">>},
             #{
@@ -204,7 +190,6 @@ t_authz(_Config) ->
         {ClientInfo#{zone => zone1}, ?AUTHZ_PUBLISH, <<"t">>}
     ),
     test_authz(
-        deny,
         deny,
         {
             {clientid, <<"clientid">>},
@@ -219,7 +204,6 @@ t_authz(_Config) ->
     ),
     test_authz(
         allow,
-        allow,
         {
             {clientid, <<"clientid">>},
             #{
@@ -232,7 +216,6 @@ t_authz(_Config) ->
         {ClientInfo#{zone => zone1}, ?AUTHZ_PUBLISH, <<"t">>}
     ),
     test_authz(
-        deny,
         deny,
         {
             {clientid, <<"clientid">>},
@@ -247,7 +230,6 @@ t_authz(_Config) ->
     ),
     test_authz(
         allow,
-        allow,
         {
             {clientid, <<"clientid">>},
             #{
@@ -260,7 +242,6 @@ t_authz(_Config) ->
         {ClientInfo#{listener => 'tcp:default'}, ?AUTHZ_PUBLISH, <<"t">>}
     ),
     test_authz(
-        deny,
         deny,
         {
             {clientid, <<"clientid">>},
@@ -275,7 +256,6 @@ t_authz(_Config) ->
     ),
     test_authz(
         allow,
-        allow,
         {
             {clientid, <<"clientid">>},
             #{
@@ -288,7 +268,6 @@ t_authz(_Config) ->
         {ClientInfo#{listener => 'tcp:default'}, ?AUTHZ_PUBLISH, <<"t">>}
     ),
     test_authz(
-        deny,
         deny,
         {
             {clientid, <<"clientid">>},
@@ -303,20 +282,11 @@ t_authz(_Config) ->
     ),
     ok.
 
-test_authz(Expected, ExpectedNoRichActions, {Who, Rule}, {ClientInfo, Action, Topic}) ->
-    test_authz_with_rich_actions(true, Expected, {Who, Rule}, {ClientInfo, Action, Topic}),
-    test_authz_with_rich_actions(
-        false, ExpectedNoRichActions, {Who, Rule}, {ClientInfo, Action, Topic}
-    ).
-
-test_authz_with_rich_actions(
-    RichActionsEnabled, Expected, {Who, Rule}, {ClientInfo, Action, Topic}
-) ->
-    ct:pal("Test authz rich_actions:~p~nwho:~p~nrule:~p~nattempt:~p~nexpected ~p", [
-        RichActionsEnabled, Who, Rule, {ClientInfo, Action, Topic}, Expected
+test_authz(Expected, {Who, Rule}, {ClientInfo, Action, Topic}) ->
+    ct:pal("Test authz~nwho:~p~nrule:~p~nattempt:~p~nexpected ~p", [
+        Who, Rule, {ClientInfo, Action, Topic}, Expected
     ]),
     try
-        _ = emqx_authz:set_feature_available(rich_actions, RichActionsEnabled),
         ok = emqx_authz_mnesia:store_rules(Who, [Rule]),
         ?assertEqual(Expected, emqx_access_control:authorize(ClientInfo, Action, Topic))
     after

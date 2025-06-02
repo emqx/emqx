@@ -16,17 +16,13 @@ all() ->
 init_per_testcase(_TestCase, Config) ->
     Config.
 end_per_testcase(_TestCase, _Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, true),
     ok.
 
 t_parse_ok(_Config) ->
     lists:foreach(
         fun({Expected, RuleRaw}) ->
-            _ = emqx_authz:set_feature_available(rich_actions, true),
             ct:pal("Raw rule: ~p~nExpected: ~p~n", [RuleRaw, Expected]),
-            ?assertEqual({ok, Expected}, emqx_authz_rule_raw:parse_rule(RuleRaw)),
-            _ = emqx_authz:set_feature_available(rich_actions, false),
-            ?assertEqual({ok, simple_rule(Expected)}, emqx_authz_rule_raw:parse_rule(RuleRaw))
+            ?assertEqual({ok, Expected}, emqx_authz_rule_raw:parse_rule(RuleRaw))
         end,
         ok_cases()
     ).
@@ -54,7 +50,6 @@ t_composite_who(_Config) ->
     ).
 
 t_parse_error(_Config) ->
-    emqx_authz:set_feature_available(rich_actions, true),
     lists:foreach(
         fun(RuleRaw) ->
             ?assertMatch(
@@ -63,27 +58,6 @@ t_parse_error(_Config) ->
             )
         end,
         error_cases() ++ error_rich_action_cases()
-    ),
-
-    %% without rich actions some fields are not parsed, so they are not errors when invalid
-    _ = emqx_authz:set_feature_available(rich_actions, false),
-    lists:foreach(
-        fun(RuleRaw) ->
-            ?assertMatch(
-                {error, _},
-                emqx_authz_rule_raw:parse_rule(RuleRaw)
-            )
-        end,
-        error_cases()
-    ),
-    lists:foreach(
-        fun(RuleRaw) ->
-            ?assertMatch(
-                {ok, _},
-                emqx_authz_rule_raw:parse_rule(RuleRaw)
-            )
-        end,
-        error_rich_action_cases()
     ).
 
 t_format(_Config) ->
@@ -225,16 +199,6 @@ t_format(_Config) ->
         )
     ),
     ok.
-
-t_format_no_rich_action(_Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, false),
-
-    Rule = {allow, all, {subscribe, [{qos, [1, 2]}, {retain, true}]}, [<<"a/b/c">>]},
-
-    ?assertEqual(
-        #{action => subscribe, permission => allow, topic => [<<"a/b/c">>]},
-        emqx_authz_rule_raw:format_rule(Rule)
-    ).
 
 t_invalid_regex_rules(_Config) ->
     Assert = fun(Rule, Invalid) ->
