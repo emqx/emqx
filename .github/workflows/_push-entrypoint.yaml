@@ -253,8 +253,6 @@ jobs:
       - prepare
       - build_and_push_docker_images
     uses: ./.github/workflows/update-emqx-docs.yaml
-    with:
-      tag: ${{ github.ref_name }}
     secrets: inherit
 
   update_public_broker:
