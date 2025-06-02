@@ -4,23 +4,21 @@
 -module(emqx_dashboard_listener).
 
 -behaviour(emqx_config_handler).
+-behaviour(gen_server).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
+-export([start_link/0, regenerate_dispatch/0]).
+
+%% emqx_config_handler API
 -export([add_handler/0, remove_handler/0]).
 -export([pre_config_update/3, post_config_update/5]).
--export([regenerate_minirest_dispatch/0]).
--export([delay_job/1]).
 
--behaviour(gen_server).
-
--export([start_link/0, is_ready/1]).
-
+%% gen_server callbacks
 -export([
     init/1,
-    handle_continue/2,
     handle_call/3,
     handle_cast/2,
     handle_info/2,
@@ -28,43 +26,50 @@
     code_change/3
 ]).
 
-is_ready(Timeout) ->
-    try
-        ready =:= gen_server:call(?MODULE, is_ready, Timeout)
-    catch
-        exit:{timeout, _} ->
-            false
-    end.
+%%--------------------------------------------------------------------
+%% gen_server messages
+%%--------------------------------------------------------------------
+
+-record(regenerate_dispatch, {}).
+-record(update_listeners, {
+    old_listeners :: emqx_dashboard:listener_configs(),
+    new_listeners :: emqx_dashboard:listener_configs()
+}).
+
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+regenerate_dispatch() ->
+    gen_server:cast(?MODULE, #regenerate_dispatch{}).
+
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
+
 init([]) ->
     erlang:process_flag(trap_exit, true),
     ok = add_handler(),
-    {ok, undefined, {continue, regenerate_dispatch}}.
+    {ok, #{}}.
 
-handle_continue(regenerate_dispatch, _State) ->
-    %% initialize the swagger dispatches
-    ready = regenerate_minirest_dispatch(),
-    {noreply, ready, hibernate}.
-
-handle_call(is_ready, _From, State) ->
-    {reply, State, State, hibernate};
 handle_call(_Request, _From, State) ->
-    {reply, ok, State, hibernate}.
+    {reply, {error, not_implemented}, State, hibernate}.
 
+handle_cast(#regenerate_dispatch{}, State) ->
+    ok = wait_for_config_update(),
+    {ok, _} = do_regenerate_dispatch(),
+    {noreply, State, hibernate};
+handle_cast(#update_listeners{old_listeners = OldListeners, new_listeners = NewListeners}, State) ->
+    ok = wait_for_config_update(),
+    ok = emqx_dashboard:stop_listeners(OldListeners),
+    ok = emqx_dashboard:start_listeners(NewListeners),
+    {noreply, State, hibernate};
 handle_cast(_Request, State) ->
     {noreply, State, hibernate}.
 
-handle_info(regenerate, _State) ->
-    NewState = regenerate_minirest_dispatch(),
-    {noreply, NewState, hibernate};
-handle_info({update_listeners, OldListeners, NewListeners}, _State) ->
-    ok = emqx_dashboard:stop_listeners(OldListeners),
-    ok = emqx_dashboard:start_listeners(NewListeners),
-    NewState = regenerate_minirest_dispatch(),
-    {noreply, NewState, hibernate};
 handle_info(_Info, State) ->
     {noreply, State, hibernate}.
 
@@ -75,26 +80,9 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%% generate dispatch is very slow, takes about 1s.
-regenerate_minirest_dispatch() ->
-    %% optvar:read waits for the var to be set
-    Names = emqx_dashboard:wait_for_listeners(),
-    {Time, ok} = timer:tc(fun() -> do_regenerate_minirest_dispatch(Names) end),
-    Lang = emqx:get_config([dashboard, i18n_lang]),
-    ?tp(info, regenerate_minirest_dispatch, #{
-        elapsed => erlang:convert_time_unit(Time, microsecond, millisecond),
-        listeners => Names,
-        i18n_lang => Lang
-    }),
-    ready.
-
-do_regenerate_minirest_dispatch(Names) ->
-    lists:foreach(
-        fun(Name) ->
-            ok = minirest:update_dispatch(Name)
-        end,
-        Names
-    ).
+%%--------------------------------------------------------------------
+%% emqx_config_handler API
+%%--------------------------------------------------------------------
 
 add_handler() ->
     Roots = emqx_dashboard_schema:roots(),
@@ -117,6 +105,30 @@ pre_config_update(_Path, UpdateConf0, RawConf) ->
     NewConf = emqx_utils_maps:deep_merge(RawConf, UpdateConf),
     ensure_ssl_cert(NewConf).
 
+post_config_update(_, {change_i18n_lang, _}, _NewConf, _OldConf, _AppEnvs) ->
+    regenerate_dispatch();
+post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
+    SwaggerSupport = diff_swagger_support(NewConf, OldConf),
+    OldHttp = get_listener(http, OldConf),
+    OldHttps = get_listener(https, OldConf),
+    NewHttp = get_listener(http, NewConf),
+    NewHttps = get_listener(https, NewConf),
+    {StopHttp, StartHttp} = diff_listeners(http, OldHttp, NewHttp, SwaggerSupport),
+    {StopHttps, StartHttps} = diff_listeners(https, OldHttps, NewHttps, SwaggerSupport),
+    Stop = maps:merge(StopHttp, StopHttps),
+    Start = maps:merge(StartHttp, StartHttps),
+    update_listeners(Stop, Start).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+update_listeners(Stop, Start) ->
+    gen_server:cast(?MODULE, #update_listeners{old_listeners = Stop, new_listeners = Start}).
+
+do_regenerate_dispatch() ->
+    emqx_dashboard:update_dispatch().
+
 -define(SENSITIVE_PASSWORD, <<"******">>).
 
 remove_sensitive_data(Conf0) ->
@@ -133,26 +145,6 @@ remove_sensitive_data(Conf0) ->
         _ ->
             Conf1
     end.
-
-post_config_update(_, {change_i18n_lang, _}, _NewConf, _OldConf, _AppEnvs) ->
-    delay_job(regenerate);
-post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
-    SwaggerSupport = diff_swagger_support(NewConf, OldConf),
-    OldHttp = get_listener(http, OldConf),
-    OldHttps = get_listener(https, OldConf),
-    NewHttp = get_listener(http, NewConf),
-    NewHttps = get_listener(https, NewConf),
-    {StopHttp, StartHttp} = diff_listeners(http, OldHttp, NewHttp, SwaggerSupport),
-    {StopHttps, StartHttps} = diff_listeners(https, OldHttps, NewHttps, SwaggerSupport),
-    Stop = maps:merge(StopHttp, StopHttps),
-    Start = maps:merge(StartHttp, StartHttps),
-    delay_job({update_listeners, Stop, Start}).
-
-%% in post_config_update, the config is not yet persisted to persistent_term
-%% so we need to delegate the listener update to the gen_server a bit later
-delay_job(Msg) ->
-    _ = erlang:send_after(500, ?MODULE, Msg),
-    ok.
 
 get_listener(Type, Conf) ->
     emqx_utils_maps:deep_get([listeners, Type], Conf, undefined).
@@ -189,3 +181,11 @@ ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"bind">> := Bind} = Ht
     end;
 ensure_ssl_cert(Conf) ->
     {ok, Conf}.
+
+%% NOTE: some requests for dashboard update may be issued from pre/post_config_update hooks.
+%% We should wait for the config update to be completed before performing the requested updates.
+%% We do this by calling emqx_config_handler's gen_server which performs pre/post_config_update hooks.
+%% Having got a reply from the gen_server, we can be sure that the config update is completed.
+wait_for_config_update() ->
+    _ = emqx_config_handler:info(),
+    ok.

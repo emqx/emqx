@@ -8,6 +8,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
@@ -31,16 +32,13 @@ end_per_suite(Config) ->
 
 t_change_i18n_lang(_Config) ->
     ?check_trace(
-        begin
-            ok = change_i18n_lang(zh),
-            {ok, _} = ?block_until(#{?snk_kind := regenerate_minirest_dispatch}, 10_000),
-            ok
-        end,
-        fun(ok, Trace) ->
-            ?assertMatch([#{i18n_lang := zh}], ?of_kind(regenerate_minirest_dispatch, Trace))
-        end
-    ),
-    ok.
+        {_, {ok, _}} = ?wait_async_action(
+            change_i18n_lang(zh),
+            #{?snk_kind := regenerate_dispatch, i18n_lang := zh},
+            10_000
+        ),
+        []
+    ).
 
 change_i18n_lang(Lang) ->
     {ok, _} = emqx_conf:update([dashboard], {change_i18n_lang, Lang}, #{}),
