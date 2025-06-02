@@ -169,8 +169,7 @@ create_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
             {ok, {Status, Headers, Body0}} ->
                 ActionType = emqx_bridge_lib:upgrade_type(BridgeType),
                 erpc:multicall(emqx:running_nodes(), fun() ->
-                    _ = emqx_bridge_v2_testlib:kickoff_action_health_check(ActionType, BridgeName),
-                    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(ActionType, BridgeName)
+                    kickoff_health_check(ActionType, BridgeName)
                 end),
                 {ok, {Status, Headers, emqx_utils_json:decode(Body0)}};
             Error ->
@@ -198,8 +197,7 @@ update_bridge_api(Config, Overrides) ->
             {ok, {_Status, _Headers, Body0}} ->
                 ActionType = emqx_bridge_lib:upgrade_type(BridgeType),
                 erpc:multicall(emqx:running_nodes(), fun() ->
-                    _ = emqx_bridge_v2_testlib:kickoff_action_health_check(ActionType, Name),
-                    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(ActionType, Name)
+                    kickoff_health_check(ActionType, Name)
                 end),
                 {ok, emqx_utils_json:decode(Body0)};
             Error ->
@@ -540,3 +538,15 @@ t_on_get_status(Config, Opts) ->
         ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
     ),
     ok.
+
+kickoff_health_check(<<"mqtt">> = Type, Name) ->
+    _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(Type, Name),
+    ok;
+kickoff_health_check(Type, Name) ->
+    case binary:match(Type, <<"consumer">>) of
+        nomatch ->
+            emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name);
+        _ ->
+            emqx_bridge_v2_testlib:kickoff_source_health_check(Type, Name)
+    end.
