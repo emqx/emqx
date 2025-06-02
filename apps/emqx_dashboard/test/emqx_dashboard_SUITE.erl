@@ -97,7 +97,7 @@ t_dashboard_restart(Config) ->
     application:start(emqx_dashboard),
     Name = 'http:dashboard',
     t_overview(Config),
-    [{'_', [], Rules}] = Dispatch = persistent_term:get(Name),
+    [{'_', [], Rules}] = persistent_term:get(Name),
     %% complete dispatch has more than 150 rules.
     ?assertNotMatch([{[], [], cowboy_static, _} | _], Rules),
     ?assert(erlang:length(Rules) > 150),
