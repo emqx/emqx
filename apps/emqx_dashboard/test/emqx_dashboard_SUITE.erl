@@ -19,6 +19,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_dashboard.hrl").
 
@@ -54,10 +55,6 @@ init_per_suite(Config) ->
     ),
     _ = emqx_conf_schema:roots(),
     ok = emqx_dashboard_desc_cache:init(),
-    %% We must pass on the current config here, otherwise it would clobber normal
-    %% configuration keys such as default_password and default_username...
-    DashboardConfig = emqx_conf:get([dashboard]),
-    emqx_dashboard:save_dispatch_eterm(emqx_conf:schema_module(), DashboardConfig),
     [{suite_apps, SuiteApps} | Config].
 
 end_per_suite(Config) ->
@@ -97,53 +94,24 @@ t_dashboard_restart(Config) ->
     application:start(emqx_dashboard),
     Name = 'http:dashboard',
     t_overview(Config),
-    [{'_', [], Rules}] = persistent_term:get(Name),
+    [{'_', [], Rules}] = BaseDispatch = persistent_term:get(Name),
+
     %% complete dispatch has more than 150 rules.
     ?assertNotMatch([{[], [], cowboy_static, _} | _], Rules),
     ?assert(erlang:length(Rules) > 150),
-    CheckRules = fun(Tag) ->
-        [{'_', [], NewRules}] = persistent_term:get(Name, Tag),
-        ?assertEqual(length(Rules), length(NewRules), Tag),
-        ?assertEqual(lists:sort(Rules), lists:sort(NewRules), Tag)
-    end,
-    ?check_trace(
-        ?wait_async_action(
-            begin
-                ok = application:stop(emqx_dashboard),
-                CheckRules(step_0),
-                ok = application:start(emqx_dashboard),
-                %% After we restart the dashboard, the dispatch rules should be the same.
-                CheckRules(step_1)
-            end,
-            #{?snk_kind := regenerate_minirest_dispatch},
-            30_000
-        ),
-        fun(Trace) ->
-            ?assertMatch([#{i18n_lang := en}], ?of_kind(regenerate_minirest_dispatch, Trace)),
-            %% The dispatch is updated after being regenerated.
-            CheckRules(step_2)
-        end
-    ),
+
+    %% After we restart the dashboard, the dispatch rules should be the same.
+    ok = application:stop(emqx_dashboard),
+    assert_same_dispatch(BaseDispatch, Name, step_0),
+    ok = application:start(emqx_dashboard),
+    assert_same_dispatch(BaseDispatch, Name, step_1),
     t_overview(Config),
-    ?check_trace(
-        ?wait_async_action(
-            begin
-                %% erase to mock the initial dashboard startup.
-                persistent_term:erase(Name),
-                ok = application:stop(emqx_dashboard),
-                ok = application:start(emqx_dashboard),
-                ct:sleep(800),
-                %% regenerate the dispatch rules again
-                CheckRules(step_3)
-            end,
-            #{?snk_kind := regenerate_minirest_dispatch},
-            30_000
-        ),
-        fun(Trace) ->
-            ?assertMatch([#{i18n_lang := en}], ?of_kind(regenerate_minirest_dispatch, Trace)),
-            CheckRules(step_4)
-        end
-    ),
+
+    %% erase to mock the initial dashboard startup.
+    persistent_term:erase(Name),
+    ok = application:stop(emqx_dashboard),
+    ok = application:start(emqx_dashboard),
+    assert_same_dispatch(BaseDispatch, Name, step_2),
     t_overview(Config),
     ok.
 
@@ -295,48 +263,41 @@ t_swagger_json(_Config) ->
 
 t_disable_swagger_json(_Config) ->
     Url = ?HOST ++ "/api-docs/index.html",
-
     ?assertMatch(
         {ok, {{"HTTP/1.1", 200, "OK"}, __, _}},
         httpc:request(get, {Url, []}, [], [{body_format, binary}])
     ),
     DashboardCfg = emqx:get_raw_config([dashboard]),
-
     ?check_trace(
-        ?wait_async_action(
+        {_, {ok, _}} = ?wait_async_action(
             begin
                 DashboardCfg2 = DashboardCfg#{<<"swagger_support">> => false},
                 emqx:update_config([dashboard], DashboardCfg2)
             end,
-            #{?snk_kind := regenerate_minirest_dispatch},
-            30_000
+            #{?snk_kind := regenerate_dispatch, i18n_lang := en},
+            3_000
         ),
-        fun(Trace) ->
-            ?assertMatch([#{i18n_lang := en}], ?of_kind(regenerate_minirest_dispatch, Trace)),
-            ?assertMatch(
-                {ok, {{"HTTP/1.1", 404, "Not Found"}, _, _}},
-                httpc:request(get, {Url, []}, [], [{body_format, binary}])
-            )
-        end
+        []
+    ),
+    ?assertMatch(
+        {ok, {{"HTTP/1.1", 404, "Not Found"}, _, _}},
+        httpc:request(get, {Url, []}, [], [{body_format, binary}])
     ),
     ?check_trace(
-        ?wait_async_action(
+        {_, {ok, _}} = ?wait_async_action(
             begin
                 DashboardCfg3 = DashboardCfg#{<<"swagger_support">> => true},
                 emqx:update_config([dashboard], DashboardCfg3)
             end,
-            #{?snk_kind := regenerate_minirest_dispatch},
-            30_000
+            #{?snk_kind := regenerate_dispatch, i18n_lang := en},
+            3_000
         ),
-        fun(Trace) ->
-            ?assertMatch([#{i18n_lang := en}], ?of_kind(regenerate_minirest_dispatch, Trace)),
-            ?assertMatch(
-                {ok, {{"HTTP/1.1", 200, "OK"}, __, _}},
-                httpc:request(get, {Url, []}, [], [{body_format, binary}])
-            )
-        end
+        []
     ),
-    ok.
+    ?assertMatch(
+        {ok, {{"HTTP/1.1", 200, "OK"}, _, _}},
+        httpc:request(get, {Url, []}, [], [{body_format, binary}])
+    ).
 
 t_cli(_Config) ->
     [mria:dirty_delete(?ADMIN, Admin) || Admin <- mnesia:dirty_all_keys(?ADMIN)],
@@ -479,6 +440,10 @@ api_path(Parts) ->
 
 json(Data) ->
     emqx_utils_json:decode(Data).
+
+assert_same_dispatch([{'_', [], BaseRoutes}], Name, Tag) ->
+    [{'_', [], NewRoutes}] = persistent_term:get(Name, Tag),
+    snabbkaffe_diff:assert_lists_eq(BaseRoutes, NewRoutes, #{comment => Tag}).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 filter_req(Req) ->

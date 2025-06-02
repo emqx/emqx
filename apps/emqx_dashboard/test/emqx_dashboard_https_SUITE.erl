@@ -59,21 +59,21 @@ t_update_conf(_Config) ->
         )
     ),
     ?assertEqual(Client1, Client2),
+    Raw1 = emqx_utils_maps:deep_put(
+        [<<"listeners">>, <<"https">>, <<"bind">>], Raw, 0
+    ),
     ?check_trace(
-        begin
-            Raw1 = emqx_utils_maps:deep_put(
-                [<<"listeners">>, <<"https">>, <<"bind">>], Raw, 0
-            ),
+        {_, {ok, _}} = ?wait_async_action(
             ?assertMatch({ok, _}, emqx:update_config([<<"dashboard">>], Raw1)),
-            ?assertEqual(Raw1, emqx:get_raw_config([<<"dashboard">>])),
-            {ok, _} = ?block_until(#{?snk_kind := regenerate_minirest_dispatch}, 10000),
-            ok
-        end,
-        fun(ok, Trace) ->
+            #{?snk_kind := regenerate_dispatch},
+            1000
+        ),
+        fun(Trace) ->
             %% Don't start new listener, so is empty
-            ?assertMatch([#{listeners := []}], ?of_kind(regenerate_minirest_dispatch, Trace))
+            ?assertMatch([#{listeners := []}], ?of_kind(regenerate_dispatch, Trace))
         end
     ),
+    ?assertEqual(Raw1, emqx:get_raw_config([<<"dashboard">>])),
     {ok, Client3} = emqx_dashboard_SUITE:request_dashboard(
         get, http_api_path(["clients"]), Headers
     ),
@@ -88,19 +88,19 @@ t_update_conf(_Config) ->
     ),
     %% reset
     ?check_trace(
-        begin
+        {_, {ok, _}} = ?wait_async_action(
             ?assertMatch({ok, _}, emqx:update_config([<<"dashboard">>], Raw)),
-            ?assertEqual(Raw, emqx:get_raw_config([<<"dashboard">>])),
-            {ok, _} = ?block_until(#{?snk_kind := regenerate_minirest_dispatch}, 10000),
-            ok
-        end,
-        fun(ok, Trace) ->
+            #{?snk_kind := regenerate_dispatch},
+            1000
+        ),
+        fun(Trace) ->
             %% start new listener('https:dashboard')
             ?assertMatch(
-                [#{listeners := ['https:dashboard']}], ?of_kind(regenerate_minirest_dispatch, Trace)
+                [#{listeners := ['https:dashboard']}], ?of_kind(regenerate_dispatch, Trace)
             )
         end
     ),
+    ?assertEqual(Raw, emqx:get_raw_config([<<"dashboard">>])),
     {ok, Client1} = emqx_dashboard_SUITE:request_dashboard(
         get, https_api_path(["clients"]), Headers
     ),
