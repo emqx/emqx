@@ -1,6 +1,8 @@
 certs
 hostname
 hosts
-otel-collector.json
-otel-collector-tls.json
+otel_tcp_emqx_log.json
+otel_tls_emqx_log.json
+otel_tcp_emqx_metrics.json
+otel_tls_emqx_metrics.json
 resolv.conf

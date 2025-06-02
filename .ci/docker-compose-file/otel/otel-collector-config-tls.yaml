@@ -21,8 +21,10 @@ exporters:
       insecure: true
   debug:
     verbosity: detailed
-  file:
-    path: /etc/otel-collector-tls.json
+  file/log:
+    path: /etc/otel_tls_emqx_log.json
+  file/metrics:
+    path: /etc/otel_tls_emqx_metrics.json
 
 
 processors:
@@ -45,8 +47,8 @@ service:
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging]
+      exporters: [logging, file/metrics]
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging, file]
+      exporters: [logging, file/log]

@@ -491,6 +491,9 @@ on_get_channel_status(ConnResId, ChanId, #{health_check_agent := Agent}) ->
                 {Alias, Result} ->
                     Result
             end;
+        {notify, Pid, Status} when ?IS_STATUS(Status) ->
+            Pid ! {returning_channel_health_check_result, ConnResId, ChanId, Status},
+            Status;
         Result ->
             Result
     end;
