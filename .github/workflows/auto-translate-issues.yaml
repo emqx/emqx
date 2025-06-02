@@ -17,7 +17,7 @@ jobs:
   translate:
     runs-on: ubuntu-latest
     steps:
-    - uses: emqx/translate-issue-action@ad0fb7225a7da9972c18c628136bbf724dae9622 # v1.0.2
+    - uses: emqx/translate-issue-action@59470e9ed84de890a81a4a3ac10d0a45a2ed5d03 # v1.0.2
       with:
         issue_number: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.issue_number || github.event.issue.number }}
         gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
