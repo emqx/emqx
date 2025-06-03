@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_dashboard_listener).
+-module(emqx_dashboard_listener_config).
 
 -behaviour(emqx_config_handler).
 -behaviour(gen_server).

@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_dashboard_listener_SUITE).
+-module(emqx_dashboard_listener_config_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
