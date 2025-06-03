@@ -20,6 +20,9 @@
     delete_external_registry/1
 ]).
 
+%% Internal exports for application
+-export([protobuf_bundle_data_dir/1]).
+
 %% `emqx_config_handler' API
 -export([pre_config_update/3, post_config_update/5]).
 
@@ -27,10 +30,6 @@
 -behaviour(emqx_config_backup).
 -export([import_config/1]).
 -export([prepare_protobuf_files_for_export/1]).
-
--ifdef(TEST).
--export([protobuf_bundle_data_dir/1]).
--endif.
 
 %%------------------------------------------------------------------------------
 %% Type declarations
