@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_dashboard_listener_SUITE).
+-module(emqx_dashboard_listener_config_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
