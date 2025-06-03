@@ -71,6 +71,8 @@ mqttSubscriptionTopic: mqttuser0002/sub/#
 mqttPubSubTopic: mqttuser0002/pubsub/1
 mqttPubSubTopic: mqttuser0002/pubsub/+
 mqttPubSubTopic: mqttuser0002/pubsub/#
+mqttAclRule: [{"permission": "allow", "action": "pub", "topic": "mqttuser0002/rawrule1/1"}]
+mqttAclRule: {"permission": "allow", "action": "pub", "topic": "mqttuser0002/rawrule2/#"}
 userPassword:: e1NTSEF9bjlYZHRvRzRRL1RRM1RRRjRZK2toSmJNQkg0cVhqNE0=
 
 ## create user mqttuser0003

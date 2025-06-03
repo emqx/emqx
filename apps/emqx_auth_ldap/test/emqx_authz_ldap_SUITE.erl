@@ -125,7 +125,7 @@ t_node_cache(_Config) ->
 cases() ->
     [
         #{
-            name => simpe_publish,
+            name => simple_publish,
             client_info => #{username => <<"mqttuser0001">>},
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"mqttuser0001/pub/1">>},
@@ -134,7 +134,7 @@ cases() ->
             ]
         },
         #{
-            name => simpe_subscribe,
+            name => simple_subscribe,
             client_info => #{username => <<"mqttuser0001">>},
             checks => [
                 {allow, ?AUTHZ_SUBSCRIBE, <<"mqttuser0001/sub/1">>},
@@ -144,7 +144,7 @@ cases() ->
         },
 
         #{
-            name => simpe_pubsub,
+            name => simple_pubsub,
             client_info => #{username => <<"mqttuser0001">>},
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"mqttuser0001/pubsub/1">>},
@@ -158,12 +158,22 @@ cases() ->
         },
 
         #{
-            name => simpe_unmatched,
+            name => simple_unmatched,
             client_info => #{username => <<"mqttuser0001">>},
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"mqttuser0001/req/mqttuser0001/+">>},
                 {deny, ?AUTHZ_PUBLISH, <<"mqttuser0001/req/mqttuser0002/+">>},
                 {deny, ?AUTHZ_SUBSCRIBE, <<"mqttuser0001/req/+/mqttuser0002">>}
+            ]
+        },
+
+        #{
+            name => simple_raw_rule,
+            client_info => #{username => <<"mqttuser0002">>},
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"mqttuser0002/rawrule1/1">>},
+                {allow, ?AUTHZ_PUBLISH, <<"mqttuser0002/rawrule2/2">>},
+                {deny, ?AUTHZ_PUBLISH, <<"mqttuser0002/rawrule3/3">>}
             ]
         }
     ].
