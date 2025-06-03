@@ -22,8 +22,8 @@
     stop_listeners/1,
     stop_listeners/0,
     list_listeners/0,
-    update_dispatch/0,
-    listeners_status/0
+    listeners_status/0,
+    regenerate_dispatch_after_config_update/0
 ]).
 
 %% Authorization
@@ -33,8 +33,6 @@
 -include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
--dialyzer({[no_opaque, no_match, no_return], [start_listeners/1]}).
 
 -define(EMQX_MIDDLE, emqx_dashboard_middleware).
 
@@ -58,7 +56,7 @@ stop_listeners() ->
 -spec start_listeners(listener_configs()) ->
     ok | {error, [listener_name()]}.
 start_listeners(Listeners) ->
-    {ok, _} = application:ensure_all_started(minirest),
+    %% NOTE
     %% Before starting the listeners, we do not generate the full dispatch upfront,
     %% because the listeners may fail to start and the generation may appear useless.
     InitDispatch = init_dispatch(),
@@ -79,6 +77,7 @@ start_listeners(Listeners) ->
                         ]),
                         {[Name | OkAcc], ErrAcc};
                     {error, _Reason} ->
+                        %% NOTE
                         %% Don't record the reason because minirest already does(too much logs noise).
                         {OkAcc, [Name | ErrAcc]}
                 end
@@ -86,7 +85,7 @@ start_listeners(Listeners) ->
             {[], []},
             listeners(ensure_ssl_cert(Listeners))
         ),
-    ok = update_dispatch(OkListeners),
+    ok = emqx_dashboard_dispatch:regenerate_dispatch(OkListeners),
     case ErrListeners of
         [] ->
             ok;
@@ -110,12 +109,6 @@ stop_listeners(Listeners) ->
         listeners(Listeners)
     ).
 
--spec update_dispatch() -> {ok, [listener_name()]}.
-update_dispatch() ->
-    #{started := Started} = listeners_status(),
-    ok = update_dispatch(Started),
-    {ok, Started}.
-
 -spec listeners_status() -> #{started := [listener_name()], stopped := [listener_name()]}.
 listeners_status() ->
     ListenerNames = [
@@ -124,6 +117,11 @@ listeners_status() ->
     ],
     {Started, Stopped} = lists:partition(fun is_listener_started/1, ListenerNames),
     #{started => Started, stopped => Stopped}.
+
+-spec regenerate_dispatch_after_config_update() -> ok.
+regenerate_dispatch_after_config_update() ->
+    #{started := Listeners} = listeners_status(),
+    ok = emqx_dashboard_dispatch:regenerate_dispatch_after_config_update(Listeners).
 
 %%--------------------------------------------------------------------
 %% internal
@@ -135,22 +133,6 @@ is_listener_started(Name) ->
     catch
         error:badarg -> false
     end.
-
-update_dispatch(ListenerNames) ->
-    {Time, ok} = timer:tc(fun() ->
-        lists:foreach(
-            fun(Name) ->
-                ok = minirest:update_dispatch(Name)
-            end,
-            ListenerNames
-        )
-    end),
-    ?tp(error, regenerate_dispatch, #{
-        elapsed => erlang:convert_time_unit(Time, microsecond, millisecond),
-        i18n_lang => emqx:get_config([dashboard, i18n_lang]),
-        listeners => ListenerNames
-    }),
-    ok.
 
 init_dispatch() ->
     static_dispatch() ++ dynamic_dispatch().
