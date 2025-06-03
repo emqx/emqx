@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_dashboard_listener).
+-module(emqx_dashboard_listener_config).
 
 -behaviour(emqx_config_handler).
 -behaviour(gen_server).
