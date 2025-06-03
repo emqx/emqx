@@ -44,7 +44,6 @@ prep_stop(_State) ->
         emqx_listeners:stop().
 
 stop(_State) ->
-    ok = emqx_router:deinit_schema(),
     ok.
 
 -define(CONFIG_LOADER, config_loader).

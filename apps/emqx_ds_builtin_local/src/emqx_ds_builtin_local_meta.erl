@@ -46,7 +46,7 @@
 %% node restarts.
 -define(TS_TAB, emqx_ds_builtin_local_timestamp_tab).
 -record(?TS_TAB, {
-    id :: emqx_ds_storage_layer:shard_id(),
+    id :: emqx_ds_storage_layer:dbshard(),
     latest :: integer()
 }).
 
@@ -117,11 +117,11 @@ db_config(DB) ->
             error({no_such_db, DB})
     end.
 
--spec set_current_timestamp(emqx_ds_storage_layer:shard_id(), emqx_ds:time()) -> ok.
+-spec set_current_timestamp(emqx_ds_storage_layer:dbshard(), emqx_ds:time()) -> ok.
 set_current_timestamp(ShardId, Time) ->
     mria:dirty_write(?TS_TAB, #?TS_TAB{id = ShardId, latest = Time}).
 
--spec current_timestamp(emqx_ds_storage_layer:shard_id()) -> emqx_ds:time() | undefined.
+-spec current_timestamp(emqx_ds_storage_layer:dbshard()) -> emqx_ds:time() | undefined.
 current_timestamp(ShardId) ->
     case mnesia:dirty_read(?TS_TAB, ShardId) of
         [#?TS_TAB{latest = Latest}] ->
@@ -130,7 +130,7 @@ current_timestamp(ShardId) ->
             undefined
     end.
 
--spec ensure_monotonic_timestamp(emqx_ds_storage_layer:shard_id()) -> emqx_ds:time().
+-spec ensure_monotonic_timestamp(emqx_ds_storage_layer:dbshard()) -> emqx_ds:time().
 ensure_monotonic_timestamp(ShardId) ->
     mria:dirty_update_counter({?TS_TAB, ShardId}, 1).
 

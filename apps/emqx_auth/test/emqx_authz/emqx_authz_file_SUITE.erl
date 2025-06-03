@@ -40,8 +40,7 @@ init_per_testcase(TestCase, Config) ->
     [{tc_apps, Apps} | Config].
 
 end_per_testcase(_TestCase, Config) ->
-    emqx_cth_suite:stop(?config(tc_apps, Config)),
-    _ = emqx_authz:set_feature_available(rich_actions, true).
+    emqx_cth_suite:stop(?config(tc_apps, Config)).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -259,7 +258,7 @@ t_zone_in_topic_template(_Config) ->
     ),
     ok.
 
-t_rich_actions(_Config) ->
+t_extended_actions(_Config) ->
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 
     ok = setup_config(?RAW_SOURCE#{
@@ -280,18 +279,6 @@ t_rich_actions(_Config) ->
     ?assertEqual(
         deny,
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>)
-    ).
-
-t_no_rich_actions(_Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, false),
-    ?assertMatch(
-        {error, {pre_config_update, emqx_authz, #{reason := invalid_authorization_action}}},
-        emqx_authz:update(?CMD_REPLACE, [
-            ?RAW_SOURCE#{
-                <<"rules">> =>
-                    <<"{allow, {user, \"username\"}, {publish, [{qos, 1}, {retain, false}]}, [\"t\"]}.">>
-            }
-        ])
     ).
 
 t_superuser(_Config) ->

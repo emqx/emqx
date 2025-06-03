@@ -254,6 +254,85 @@ t_crud(_Config) ->
         api_delete([ai, providers, <<"test-provider">>])
     ).
 
+t_api_key_redact(_Config) ->
+    ?assertMatch(
+        {ok, 204},
+        api_post([ai, providers], #{
+            name => <<"test-provider">>,
+            type => <<"openai">>,
+            api_key => <<"test-api-key">>,
+            base_url => <<"https://api.openai.com/v1">>
+        })
+    ),
+
+    %% Check that the API key is redacted
+    ?assertMatch(
+        {ok, 200, #{<<"name">> := <<"test-provider">>, <<"api_key">> := <<"******">>}},
+        api_get([ai, providers, <<"test-provider">>])
+    ),
+    ?assertMatch(
+        {ok, 200, [#{<<"name">> := <<"test-provider">>, <<"api_key">> := <<"******">>}]},
+        api_get([ai, providers])
+    ),
+
+    %% Update the provider with the redacted API key
+    ?assertMatch(
+        {ok, 204},
+        api_put([ai, providers, <<"test-provider">>], #{
+            type => <<"openai">>,
+            base_url => <<"https://api.openai.com/v2">>,
+            api_key => <<"******">>
+        })
+    ),
+
+    %% Check that the API key remained the same
+    {ok, #{
+        name := <<"test-provider">>,
+        api_key := ApiKey0,
+        base_url := <<"https://api.openai.com/v2">>
+    }} =
+        emqx_ai_completion_config:get_provider(<<"test-provider">>),
+    ?assertEqual(<<"test-api-key">>, emqx_secret:unwrap(ApiKey0)),
+    ?assertMatch(
+        [
+            #{
+                <<"name">> := <<"test-provider">>,
+                <<"api_key">> := <<"test-api-key">>,
+                <<"base_url">> := <<"https://api.openai.com/v2">>
+            }
+        ],
+        emqx_ai_completion_config:get_providers_raw()
+    ),
+
+    %% Now update the provider with a new API key
+    ?assertMatch(
+        {ok, 204},
+        api_put([ai, providers, <<"test-provider">>], #{
+            type => <<"openai">>,
+            base_url => <<"https://api.openai.com/v3">>,
+            api_key => <<"new-test-api-key">>
+        })
+    ),
+
+    %% Check that the API key is actually updated
+    {ok, #{
+        name := <<"test-provider">>,
+        api_key := ApiKey1,
+        base_url := <<"https://api.openai.com/v3">>
+    }} =
+        emqx_ai_completion_config:get_provider(<<"test-provider">>),
+    ?assertEqual(<<"new-test-api-key">>, emqx_secret:unwrap(ApiKey1)),
+    ?assertMatch(
+        [
+            #{
+                <<"name">> := <<"test-provider">>,
+                <<"api_key">> := <<"new-test-api-key">>,
+                <<"base_url">> := <<"https://api.openai.com/v3">>
+            }
+        ],
+        emqx_ai_completion_config:get_providers_raw()
+    ).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

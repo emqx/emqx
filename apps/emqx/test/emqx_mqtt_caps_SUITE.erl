@@ -20,8 +20,13 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
+init_per_testcase(_TC, Config) ->
+    [{pre_zone_conf, emqx:get_config([zones], #{})} | Config].
+
+end_per_testcase(_TC, Config) ->
+    emqx_config:put([zones], proplists:get_value(pre_zone_conf, Config)).
+
 t_check_pub(_) ->
-    OldConf = emqx:get_config([zones], #{}),
     emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_1),
     emqx_config:put_zone_conf(default, [mqtt, retain_available], false),
     timer:sleep(50),
@@ -35,11 +40,9 @@ t_check_pub(_) ->
     ?assertEqual(
         {error, ?RC_RETAIN_NOT_SUPPORTED},
         emqx_mqtt_caps:check_pub(default, PubFlags2)
-    ),
-    emqx_config:put([zones], OldConf).
+    ).
 
 t_check_sub(_) ->
-    OldConf = emqx:get_config([zones], #{}),
     SubOpts = #{
         rh => 0,
         rap => 0,
@@ -110,6 +113,36 @@ t_check_sub(_) ->
     ?assertEqual(
         ok,
         emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{qos => ?QOS_2})
-    ),
+    ).
 
-    emqx_config:put([zones], OldConf).
+t_check_sub_max_qos_rules(_) ->
+    emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], ?QOS_0),
+    emqx_config:put_zone_conf(default, [mqtt, subscription_max_qos_rules], [
+        mk_topic_qos_rule(equals, "t/1/2/3", ?QOS_2),
+        mk_topic_qos_rule(equals, "t/4/5/6", ?QOS_2),
+        mk_topic_qos_rule(matches, "dev/+/conf/#", ?QOS_1),
+        mk_topic_qos_rule(matches, "root/+", ?QOS_1)
+    ]),
+
+    CI = #{zone => default},
+    SubOpts = #{
+        rh => 0,
+        rap => 0,
+        nl => 0,
+        qos => ?QOS_2
+    },
+    %% No match, fallback:
+    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI, <<"topic">>, SubOpts)),
+    %% Verify equality works as expected:
+    ?assertMatch(ok = _QOS_2, emqx_mqtt_caps:check_sub(CI, <<"t/4/5/6">>, SubOpts)),
+    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI, <<"t/1/2/+">>, SubOpts)),
+    %% Verify match works as expected:
+    ?assertMatch({ok, ?QOS_1}, emqx_mqtt_caps:check_sub(CI, <<"dev/foo/conf/+">>, SubOpts)),
+    ?assertMatch({ok, ?QOS_1}, emqx_mqtt_caps:check_sub(CI, <<"root/#">>, SubOpts)),
+    ?assertMatch({ok, ?QOS_0}, emqx_mqtt_caps:check_sub(CI, <<"root/+/+">>, SubOpts)).
+
+mk_topic_qos_rule(Pred, Topic, QoS) ->
+    #{
+        topic => #{Pred => iolist_to_binary(Topic)},
+        qos => QoS
+    }.

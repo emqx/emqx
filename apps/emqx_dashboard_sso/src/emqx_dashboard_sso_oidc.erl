@@ -159,7 +159,7 @@ fields(login) ->
     ].
 
 desc(oidc) ->
-    "OIDC";
+    ?DESC("OIDC");
 desc(client_file_jwks) ->
     ?DESC(client_file_jwks);
 desc(_) ->

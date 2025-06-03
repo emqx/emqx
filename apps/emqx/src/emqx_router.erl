@@ -75,8 +75,7 @@
 
 -export([
     get_schema_vsn/0,
-    init_schema/0,
-    deinit_schema/0
+    init_schema/0
 ]).
 
 -export_type([dest/0]).
@@ -84,6 +83,10 @@
 
 -type group() :: binary().
 -type dest() :: node() | {group(), node()}.
+
+%% Storage schema.
+%% * `v2` is current implementation.
+%% * `v1` is no longer supported since 5.10.
 -type schemavsn() :: v1 | v2.
 
 %% Operation :: {add, ...} | {delete, ...}.
@@ -181,43 +184,23 @@ do_add_route(Topic) when is_binary(Topic) ->
 -spec do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_add_route(Topic, Dest) when is_binary(Topic) ->
     ok = emqx_router_helper:monitor(Dest),
-    mria_insert_route(get_schema_vsn(), Topic, Dest, single).
-
-mria_insert_route(v2, Topic, Dest, Ctx) ->
-    mria_insert_route_v2(Topic, Dest, Ctx);
-mria_insert_route(v1, Topic, Dest, Ctx) ->
-    mria_insert_route_v1(Topic, Dest, Ctx).
+    mria_insert_route_v2(Topic, Dest, single).
 
 %% @doc Take a real topic (not filter) as input, return the matching topics and topic
 %% filters associated with route destination.
 -spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
 match_routes(Topic) when is_binary(Topic) ->
-    match_routes(get_schema_vsn(), Topic).
-
-match_routes(v2, Topic) ->
-    match_routes_v2(Topic);
-match_routes(v1, Topic) ->
-    match_routes_v1(Topic).
+    match_routes_v2(Topic).
 
 %% @doc Take a topic or filter as input, and return the existing routes with exactly
 %% this topic or filter.
 -spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
 lookup_routes(Topic) ->
-    lookup_routes(get_schema_vsn(), Topic).
-
-lookup_routes(v2, Topic) ->
-    lookup_routes_v2(Topic);
-lookup_routes(v1, Topic) ->
-    lookup_routes_v1(Topic).
+    lookup_routes_v2(Topic).
 
 -spec has_route(emqx_types:topic(), dest()) -> boolean().
 has_route(Topic, Dest) ->
-    has_route(get_schema_vsn(), Topic, Dest).
-
-has_route(v2, Topic, Dest) ->
-    has_route_v2(Topic, Dest);
-has_route(v1, Topic, Dest) ->
-    has_route_v1(Topic, Dest).
+    has_route_v2(Topic, Dest).
 
 -spec delete_route(emqx_types:topic()) -> ok | {error, term()}.
 delete_route(Topic) when is_binary(Topic) ->
@@ -233,32 +216,14 @@ do_delete_route(Topic) when is_binary(Topic) ->
 
 -spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, Dest) ->
-    mria_delete_route(get_schema_vsn(), Topic, Dest, single).
-
-mria_delete_route(v2, Topic, Dest, Ctx) ->
-    mria_delete_route_v2(Topic, Dest, Ctx);
-mria_delete_route(v1, Topic, Dest, Ctx) ->
-    mria_delete_route_v1(Topic, Dest, Ctx).
+    mria_delete_route_v2(Topic, Dest, single).
 
 -spec do_batch(batch()) -> #{batch_route() => _Error}.
 do_batch(Batch) ->
-    mria_batch(get_schema_vsn(), Batch).
-
-mria_batch(v2, Batch) ->
-    mria_batch_v2(Batch);
-mria_batch(v1, Batch) ->
-    mria_batch_v1(Batch).
+    mria_batch_v2(Batch).
 
 mria_batch_v2(Batch) ->
     mria:async_dirty(?ROUTE_SHARD, fun ?MODULE:mria_batch_run/2, [v2, Batch]).
-
-mria_batch_v1(Batch) ->
-    case mria:transaction(?ROUTE_SHARD, fun ?MODULE:mria_batch_run/2, [v1, Batch]) of
-        {atomic, Result} ->
-            Result;
-        Error ->
-            Error
-    end.
 
 batch_get_action(Op) ->
     element(1, Op).
@@ -266,30 +231,15 @@ batch_get_action(Op) ->
 -spec stream(_Spec :: {_TopicPat, _DestPat}) ->
     emqx_utils_stream:stream(emqx_types:route()).
 stream(MatchSpec) ->
-    stream(get_schema_vsn(), MatchSpec).
-
-stream(v2, MatchSpec) ->
-    stream_v2(MatchSpec);
-stream(v1, MatchSpec) ->
-    stream_v1(MatchSpec).
+    stream_v2(MatchSpec).
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
-    topics(get_schema_vsn()).
-
-topics(v2) ->
-    list_topics_v2();
-topics(v1) ->
-    list_topics_v1().
+    list_topics_v2().
 
 -spec stats(n_routes) -> non_neg_integer().
 stats(Item) ->
-    stats(get_schema_vsn(), Item).
-
-stats(v2, Item) ->
-    get_stats_v2(Item);
-stats(v1, Item) ->
-    get_stats_v1(Item).
+    get_stats_v2(Item).
 
 %% @doc Print routes to a topic
 -spec print_routes(emqx_types:topic()) -> ok.
@@ -303,25 +253,15 @@ print_routes(Topic) ->
 
 -spec cleanup_routes(node()) -> ok.
 cleanup_routes(NodeOrExtDest) ->
-    cleanup_routes(get_schema_vsn(), NodeOrExtDest).
-
-cleanup_routes(v2, NodeOrExtDest) ->
-    cleanup_routes_v2(NodeOrExtDest);
-cleanup_routes(v1, NodeOrExtDest) ->
-    cleanup_routes_v1(NodeOrExtDest).
+    cleanup_routes_v2(NodeOrExtDest).
 
 -spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
-    fold_routes(get_schema_vsn(), foldl, FoldFun, AccIn).
+    fold_routes_v2(foldl, FoldFun, AccIn).
 
 -spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldr_routes(FoldFun, AccIn) ->
-    fold_routes(get_schema_vsn(), foldr, FoldFun, AccIn).
-
-fold_routes(v2, FunName, FoldFun, AccIn) ->
-    fold_routes_v2(FunName, FoldFun, AccIn);
-fold_routes(v1, FunName, FoldFun, AccIn) ->
-    fold_routes_v1(FunName, FoldFun, AccIn).
+    fold_routes_v2(foldr, FoldFun, AccIn).
 
 call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).
@@ -334,132 +274,20 @@ pick(Topic) ->
 %%--------------------------------------------------------------------
 
 -spec mria_batch_run(schemavsn(), batch()) -> #{batch_route() => _Error}.
-mria_batch_run(SchemaVsn, Batch) ->
+mria_batch_run(v2, Batch) ->
     maps:fold(
         fun({Topic, Dest}, Op, Errors) ->
-            case mria_batch_operation(SchemaVsn, batch_get_action(Op), Topic, Dest) of
-                ok ->
-                    Errors;
-                Error ->
-                    Errors#{{Topic, Dest} => Error}
-            end
+            ok = mria_batch_operation_v2(batch_get_action(Op), Topic, Dest),
+            Errors
         end,
         #{},
         Batch
     ).
 
-mria_batch_operation(SchemaVsn, add, Topic, Dest) ->
-    mria_insert_route(SchemaVsn, Topic, Dest, batch);
-mria_batch_operation(SchemaVsn, delete, Topic, Dest) ->
-    mria_delete_route(SchemaVsn, Topic, Dest, batch).
-
-%%--------------------------------------------------------------------
-%% Schema v1
-%% --------------------------------------------------------------------
-
-mria_insert_route_v1(Topic, Dest, Ctx) ->
-    Route = #route{topic = Topic, dest = Dest},
-    case emqx_topic:wildcard(Topic) of
-        true ->
-            mria_route_tab_insert_update_trie(Route, Ctx);
-        false ->
-            mria_route_tab_insert(Route, Ctx)
-    end.
-
-mria_route_tab_insert_update_trie(Route, single) ->
-    emqx_router_utils:maybe_trans(
-        fun emqx_router_utils:insert_trie_route/2,
-        [?ROUTE_TAB, Route],
-        ?ROUTE_SHARD
-    );
-mria_route_tab_insert_update_trie(Route, batch) ->
-    emqx_router_utils:insert_trie_route(?ROUTE_TAB, Route).
-
-mria_route_tab_insert(Route, single) ->
-    mria:dirty_write(?ROUTE_TAB, Route);
-mria_route_tab_insert(Route, batch) ->
-    mnesia:write(?ROUTE_TAB, Route, write).
-
-mria_delete_route_v1(Topic, Dest, Ctx) ->
-    Route = #route{topic = Topic, dest = Dest},
-    case emqx_topic:wildcard(Topic) of
-        true ->
-            mria_route_tab_delete_update_trie(Route, Ctx);
-        false ->
-            mria_route_tab_delete(Route, Ctx)
-    end.
-
-mria_route_tab_delete_update_trie(Route, single) ->
-    emqx_router_utils:maybe_trans(
-        fun emqx_router_utils:delete_trie_route/2,
-        [?ROUTE_TAB, Route],
-        ?ROUTE_SHARD
-    );
-mria_route_tab_delete_update_trie(Route, batch) ->
-    emqx_router_utils:delete_trie_route(?ROUTE_TAB, Route).
-
-mria_route_tab_delete(Route, single) ->
-    mria:dirty_delete_object(?ROUTE_TAB, Route);
-mria_route_tab_delete(Route, batch) ->
-    mnesia:delete_object(?ROUTE_TAB, Route, write).
-
-match_routes_v1(Topic) ->
-    lookup_route_tab(Topic) ++
-        lists:flatmap(fun lookup_route_tab/1, match_global_trie(Topic)).
-
-match_global_trie(Topic) ->
-    case emqx_trie:empty() of
-        true -> [];
-        false -> emqx_trie:match(Topic)
-    end.
-
-lookup_routes_v1(Topic) ->
-    lookup_route_tab(Topic).
-
-lookup_route_tab(Topic) ->
-    ets:lookup(?ROUTE_TAB, Topic).
-
-has_route_v1(Topic, Dest) ->
-    has_route_tab_entry(Topic, Dest).
-
-has_route_tab_entry(Topic, Dest) ->
-    [] =/= ets:match(?ROUTE_TAB, #route{topic = Topic, dest = Dest}).
-
-cleanup_routes_v1(NodeOrExtDest) ->
-    ?with_fallback(
-        lists:foreach(
-            fun(Pattern) ->
-                throw_unsupported(mria:match_delete(?ROUTE_TAB, make_route_rec_pat(Pattern)))
-            end,
-            ?dest_patterns(NodeOrExtDest)
-        ),
-        cleanup_routes_v1_fallback(NodeOrExtDest)
-    ).
-
-cleanup_routes_v1_fallback(NodeOrExtDest) ->
-    Patterns = [make_route_rec_pat(P) || P <- ?dest_patterns(NodeOrExtDest)],
-    mria:transaction(?ROUTE_SHARD, fun() ->
-        [
-            mnesia:delete_object(?ROUTE_TAB, Route, write)
-         || Pat <- Patterns,
-            Route <- mnesia:match_object(?ROUTE_TAB, Pat, write)
-        ]
-    end).
-
-stream_v1(Spec) ->
-    mk_route_stream(?ROUTE_TAB, Spec).
-
-list_topics_v1() ->
-    list_route_tab_topics().
-
-get_stats_v1(n_routes) ->
-    emqx_maybe:define(ets:info(?ROUTE_TAB, size), 0).
-
-list_route_tab_topics() ->
-    mnesia:dirty_all_keys(?ROUTE_TAB).
-
-fold_routes_v1(FunName, FoldFun, AccIn) ->
-    ets:FunName(FoldFun, AccIn, ?ROUTE_TAB).
+mria_batch_operation_v2(add, Topic, Dest) ->
+    mria_insert_route_v2(Topic, Dest, batch);
+mria_batch_operation_v2(delete, Topic, Dest) ->
+    mria_delete_route_v2(Topic, Dest, batch).
 
 %%--------------------------------------------------------------------
 %% Schema v2
@@ -491,6 +319,16 @@ mria_delete_route_v2(Topic, Dest, Ctx) ->
             mria_route_tab_delete(#route{topic = Topic, dest = Dest}, Ctx)
     end.
 
+mria_route_tab_insert(Route, single) ->
+    mria:dirty_write(?ROUTE_TAB, Route);
+mria_route_tab_insert(Route, batch) ->
+    mnesia:write(?ROUTE_TAB, Route, write).
+
+mria_route_tab_delete(Route, single) ->
+    mria:dirty_delete_object(?ROUTE_TAB, Route);
+mria_route_tab_delete(Route, batch) ->
+    mnesia:delete_object(?ROUTE_TAB, Route, write).
+
 mria_filter_tab_delete(K, single) ->
     mria:dirty_delete(?ROUTE_TAB_FILTERS, K);
 mria_filter_tab_delete(K, batch) ->
@@ -499,6 +337,9 @@ mria_filter_tab_delete(K, batch) ->
 match_routes_v2(Topic) ->
     lookup_route_tab(Topic) ++
         [match_to_route(M) || M <- match_filters(Topic)].
+
+lookup_route_tab(Topic) ->
+    ets:lookup(?ROUTE_TAB, Topic).
 
 match_filters(Topic) ->
     emqx_topic_index:matches(Topic, ?ROUTE_TAB_FILTERS, []).
@@ -519,6 +360,9 @@ has_route_v2(Topic, Dest) ->
         false ->
             has_route_tab_entry(Topic, Dest)
     end.
+
+has_route_tab_entry(Topic, Dest) ->
+    [] =/= ets:match(?ROUTE_TAB, #route{topic = Topic, dest = Dest}).
 
 cleanup_routes_v2(NodeOrExtDest) ->
     ?with_fallback(
@@ -617,6 +461,9 @@ list_topics_v2() ->
     Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?ROUTE_TAB_FILTERS, Pat)],
     list_route_tab_topics() ++ Filters.
 
+list_route_tab_topics() ->
+    mnesia:dirty_all_keys(?ROUTE_TAB).
+
 get_stats_v2(n_routes) ->
     NTopics = emqx_maybe:define(ets:info(?ROUTE_TAB, size), 0),
     NWildcards = emqx_maybe:define(ets:info(?ROUTE_TAB_FILTERS, size), 0),
@@ -637,65 +484,32 @@ match_to_route(M) ->
     #route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.
 
 %%--------------------------------------------------------------------
-%% Routing table type
+%% Legacy routing schema
 %% --------------------------------------------------------------------
-
--define(PT_SCHEMA_VSN, {?MODULE, schemavsn}).
 
 %% @doc Get the schema version in use.
 %% BPAPI RPC Target @ emqx_router_proto
 -spec get_schema_vsn() -> schemavsn().
 get_schema_vsn() ->
-    persistent_term:get(?PT_SCHEMA_VSN).
+    v2.
 
 -spec init_schema() -> ok.
 init_schema() ->
-    ok = mria:wait_for_tables([?ROUTE_TAB, ?ROUTE_TAB_FILTERS]),
-    ok = emqx_trie:wait_for_tables(),
-    ConfSchema = emqx_config:get([broker, routing, storage_schema]),
-    {ClusterSchema, ClusterState} = discover_cluster_schema_vsn(),
-    Schema = choose_schema_vsn(ConfSchema, ClusterSchema, ClusterState),
-    ok = persistent_term:put(?PT_SCHEMA_VSN, Schema),
-    case Schema =:= ConfSchema of
-        true ->
-            ?SLOG(info, #{
-                msg => "routing_schema_used",
-                schema => Schema
-            });
-        false ->
-            ?SLOG(notice, #{
-                msg => "configured_routing_schema_ignored",
-                schema_in_use => Schema,
-                configured => ConfSchema,
-                reason =>
-                    "Could not use configured routing storage schema because "
-                    "cluster is already running with a different schema."
-            })
-    end.
-
--spec deinit_schema() -> ok.
-deinit_schema() ->
-    _ = persistent_term:erase(?PT_SCHEMA_VSN),
-    ok.
+    ClusterState = discover_cluster_schema_vsn(),
+    verify_cluster_schema_vsn(ClusterState).
 
 -spec discover_cluster_schema_vsn() ->
-    {schemavsn() | undefined, _State :: [{node(), schemavsn() | undefined, _Details}]}.
+    _ClusterState :: [{node(), schemavsn() | unknown, _Details}].
 discover_cluster_schema_vsn() ->
     discover_cluster_schema_vsn(emqx:running_nodes() -- [node()]).
 
--spec discover_cluster_schema_vsn([node()]) ->
-    {schemavsn() | undefined, _State :: [{node(), schemavsn() | undefined, _Details}]}.
 discover_cluster_schema_vsn([]) ->
-    %% single node
-    {undefined, []};
+    [];
 discover_cluster_schema_vsn(Nodes) ->
-    Responses = lists:zipwith(
+    lists:zipwith(
         fun
             (Node, {ok, Schema}) ->
                 {Node, Schema, configured};
-            (Node, {error, {exception, undef, _Stacktrace}}) ->
-                %% No such function on the remote node, assuming it doesn't know about v2 routing.
-                {Node, v1, legacy};
             (Node, {error, {exception, badarg, _Stacktrace}}) ->
                 %% Likely, persistent term is not defined yet.
                 {Node, unknown, starting};
@@ -704,97 +518,67 @@ discover_cluster_schema_vsn(Nodes) ->
         end,
         Nodes,
         emqx_router_proto_v1:get_routing_schema_vsn(Nodes)
-    ),
-    case lists:usort([Vsn || {_Node, Vsn, _} <- Responses, Vsn /= unknown]) of
-        [Vsn] when Vsn =:= v1; Vsn =:= v2 ->
-            {Vsn, Responses};
-        [] ->
-            ?SLOG(warning, #{
-                msg => "cluster_routing_schema_discovery_failed",
-                responses => Responses,
-                reason =>
-                    "Could not determine configured routing storage schema in peer nodes."
-            }),
-            {undefined, Responses};
-        [_ | _] ->
-            Desc = schema_conflict_reason(config, Responses),
-            io:format(standard_error, "Error: ~ts~n", [Desc]),
-            ?SLOG(critical, #{
-                msg => "conflicting_routing_schemas_in_cluster",
-                responses => Responses,
-                description => Desc
-            }),
-            error(conflicting_routing_schemas_configured_in_cluster)
-    end.
+    ).
 
--spec choose_schema_vsn(
-    schemavsn(),
-    _ClusterSchema :: schemavsn() | undefined,
-    _ClusterState :: [{node(), schemavsn() | undefined, _Details}]
-) -> schemavsn().
-choose_schema_vsn(ConfSchema, ClusterSchema, State) ->
-    case detect_table_schema_vsn() of
-        [] ->
-            %% No records in the tables, use schema configured in the cluster if any,
-            %% otherwise use configured.
-            emqx_maybe:define(ClusterSchema, ConfSchema);
-        [Schema] when Schema =:= ClusterSchema ->
-            %% Table contents match configured schema in the cluster.
-            Schema;
-        [Schema] when ClusterSchema =:= undefined ->
-            %% There are existing records following some schema, we have to use it.
-            Schema;
-        _Conflicting when ClusterSchema =/= undefined ->
-            %% There are existing records in both v1 and v2 schema,
-            %% we have to use what the peer nodes agreed on.
-            %% because it could be THIS node which caused the cnoflict.
-            %%
-            %% The stale records will be left-over, but harmless
-            Desc =
-                "Conflicting schema version detected for routing records, but "
-                "all the peer nodes are running the same version, so this node "
-                "will use the same schema but discard the harmless stale records. "
-                "This warning will go away after the next full cluster (non-rolling) restart.",
-            ?SLOG(warning, #{
-                msg => "conflicting_routing_storage_detected",
-                resolved => ClusterSchema,
-                description => Desc
-            }),
-            ClusterSchema;
-        _Conflicting ->
-            Desc = schema_conflict_reason(records, State),
-            io:format(standard_error, "Error: ~ts~n", [Desc]),
-            ?SLOG(critical, #{
-                msg => "conflicting_routing_storage_in_cluster",
-                description => Desc
-            }),
-            error(conflicting_routing_schemas_detected_in_cluster)
-    end.
+-spec verify_cluster_schema_vsn(_ClusterState :: [{node(), schemavsn() | unknown, _Details}]) ->
+    ok.
+verify_cluster_schema_vsn(ClusterState) ->
+    Versions = lists:usort([Vsn || {_Node, Vsn, _} <- ClusterState, Vsn /= unknown]),
+    verify_cluster_schema_vsn(Versions, ClusterState).
 
-schema_conflict_reason(Type, State) ->
-    Observe =
-        case Type of
-            config ->
-                "Peer nodes have route storage schema resolved into conflicting versions.\n";
-            records ->
-                "There are conflicting routing records found.\n"
-        end,
+verify_cluster_schema_vsn([], []) ->
+    %% Only this node in the cluster.
+    ok;
+verify_cluster_schema_vsn([v2], _) ->
+    %% Every other node uses v2 schema.
+    ok;
+verify_cluster_schema_vsn([], ClusterState = [_ | _]) ->
+    ?SLOG(warning, #{
+        msg => "cluster_routing_schema_discovery_failed",
+        responses => ClusterState,
+        reason => "Could not determine configured routing storage schema in peer nodes."
+    }),
+    %% Ok to start?
+    %% The only risk is full cluster restart, other nodes are < 5.10 *and* have
+    %% storage schema force configured to v1.
+    ok;
+verify_cluster_schema_vsn([v1], ClusterState) ->
+    %% Every other node uses v1 schema.
+    Desc = unsupported_schema_reason(ClusterState),
+    io:format(standard_error, "Error: ~ts~n", [Desc]),
+    ?SLOG(critical, #{
+        msg => "unsupported_routing_schemas_in_cluster",
+        responses => ClusterState,
+        description => Desc
+    }),
+    error(conflicting_routing_schemas_configured_in_cluster);
+verify_cluster_schema_vsn([_ | _], ClusterState) ->
+    Desc = schema_conflict_reason(ClusterState),
+    io:format(standard_error, "Error: ~ts~n", [Desc]),
+    ?SLOG(critical, #{
+        msg => "conflicting_routing_schemas_in_cluster",
+        responses => ClusterState,
+        description => Desc
+    }),
+    error(conflicting_routing_schemas_configured_in_cluster).
+
+unsupported_schema_reason(_State) ->
+    "Peer nodes are running unsupported legacy (v1) route storage schema."
+    "\nThis node cannot boot before the cluster is upgraded to use current (v2) "
+    "storage schema."
+    "\n"
+    "\nSituation requires manual intervention:"
+    "\n1. Upgrade all nodes to 5.10.0 or newer."
+    "\n2. Remove `broker.routing.storage_schema` option from applicable "
+    "configuration files, if present."
+    "\n3. Stop ALL running nodes, then restart them one by one.".
+
+schema_conflict_reason(State) ->
     Cause =
+        "Peer nodes have route storage schema resolved into conflicting versions.\n"
         "\nThis was caused by a race-condition when the cluster was rolling upgraded "
         "from an older version to 5.4.0, 5.4.1, 5.5.0 or 5.5.1."
         "\nThis node cannot boot before the conflicts are resolved.\n",
-    Observe ++ Cause ++ mk_conflict_resolution_action(State).
-
-detect_table_schema_vsn() ->
-    lists:flatten([
-        [v1 || _NonEmptyTrieIndex = not emqx_trie:empty()],
-        [v2 || _NonEmptyFilterTab = not is_empty(?ROUTE_TAB_FILTERS)]
-    ]).
-
-is_empty(Tab) ->
-    ets:first(Tab) =:= '$end_of_table'.
-
-mk_conflict_resolution_action(State) ->
     NodesV1 = [Node || {Node, v1, _} <- State],
     NodesUnknown = [Node || {Node, unknown, _} <- State],
     Format =
@@ -817,7 +601,7 @@ mk_conflict_resolution_action(State) ->
         "It is strongly advised to include them in the manual resolution procedure as well.",
     Message = io_lib:format(Format, [NodesV1]),
     MessageUnknown = [io_lib:format(FormatUnkown, [NodesUnknown]) || NodesUnknown =/= []],
-    unicode:characters_to_list([Message, "\n", MessageUnknown]).
+    Cause ++ unicode:characters_to_list([Message, "\n", MessageUnknown]).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

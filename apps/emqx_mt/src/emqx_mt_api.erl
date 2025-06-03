@@ -400,7 +400,7 @@ fields(limiter_options) ->
 fields(ns_with_details_out) ->
     [
         {name, mk(binary(), #{})},
-        {creation_date, mk(integer(), #{})}
+        {created_at, mk(integer(), #{})}
     ].
 
 error_schema(Code, Message) ->

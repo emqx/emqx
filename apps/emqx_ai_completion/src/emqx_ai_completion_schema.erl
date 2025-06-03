@@ -104,7 +104,7 @@ fields(transport_options) ->
             })}
     ];
 fields(provider_api_get) ->
-    without_fields([api_key], fields(provider));
+    fields(provider);
 fields(provider_api_put) ->
     without_fields([name], fields(provider));
 fields(openai_completion_profile) ->

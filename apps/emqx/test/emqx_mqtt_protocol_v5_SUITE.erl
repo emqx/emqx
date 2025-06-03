@@ -72,7 +72,7 @@ init_per_group(quic, Config) ->
     [{conn_type, quic}, {port, 1884}, {conn_fun, quic_connect}, {group_apps, Apps} | Config];
 init_per_group(ws, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.ws.test { enable = true, bind = 8888 }"}],
+        [{emqx, "listeners.ws.test { enable = true, bind = 8888, max_connections = 100 }"}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{conn_type, ws}, {port, 8888}, {conn_fun, ws_connect}, {group_apps, Apps} | Config].
@@ -146,6 +146,13 @@ clean_retained(Topic, Config) ->
     {ok, _} = emqtt:ConnFun(Clean),
     {ok, _} = emqtt:publish(Clean, Topic, #{}, <<"">>, [{qos, ?QOS_1}, {retain, true}]),
     ok = emqtt:disconnect(Clean).
+
+check_zone_config(ConfString) ->
+    Fields = [{zone, hoconsc:mk(hoconsc:ref(emqx_schema, "zone"))}],
+    Schema = #{roots => Fields},
+    {ok, RawConf} = hocon:binary(unicode:characters_to_binary(ConfString)),
+    {_, Conf} = emqx_config:check_config(Schema, #{<<"zone">> => RawConf}),
+    maps:get(zone, Conf).
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -991,11 +998,51 @@ t_subscribe_actions(Config) ->
         {nth(2, ?TOPICS), qos2}
     ]),
     ok = emqtt:disconnect(Client1).
+
+t_subscribe_max_qos_allowed(init, Config) ->
+    Config;
+t_subscribe_max_qos_allowed('end', _Config) ->
+    emqx_config:put_zone_conf(default, [], check_zone_config(_Default = "")).
+
+t_subscribe_max_qos_allowed(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+
+    #{mqtt := MQTTConf} = check_zone_config(
+        "mqtt {"
+        "\n max_qos_allowed = 2"
+        "\n subscription_max_qos_rules = ["
+        "\n   { topic { equals = \"t\" }, qos = 1 }"
+        "\n   { topic { matches = \"glob/+/#\" }, qos = 0 }"
+        "\n ] }"
+    ),
+
+    emqx_config:put_zone_conf(default, [mqtt], MQTTConf),
+
+    {ok, Client1} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Client1),
+
+    ?assertMatch(
+        {ok, _, [?RC_GRANTED_QOS_1]},
+        emqtt:subscribe(Client1, <<"t">>, ?QOS_2)
+    ),
+    ?assertMatch(
+        {ok, _, [
+            ?RC_GRANTED_QOS_0,
+            ?RC_GRANTED_QOS_2
+        ]},
+        emqtt:subscribe(Client1, #{}, [
+            {<<"glob/sub/topic/#">>, [{qos, 1}]},
+            {<<"t/+">>, [{qos, 2}]}
+        ])
+    ),
+
+    ok = emqtt:disconnect(Client1).
+
 %%--------------------------------------------------------------------
 %% Unsubsctibe Unsuback
 %%--------------------------------------------------------------------
 
-t_unscbsctibe(Config) ->
+t_unsubscribe(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic1 = nth(1, ?TOPICS),
     Topic2 = nth(2, ?TOPICS),

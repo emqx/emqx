@@ -23,8 +23,6 @@
     restart/2,
     start/2,
     stop/1,
-    health_check/1,
-    channel_health_check/2,
     add_channel/3,
     add_channel/4,
     add_channel_async/3,
@@ -60,7 +58,13 @@
 
 %% Internal exports.
 -export([worker_resource_health_check/1, worker_channel_health_check/2]).
+-export([do_worker_channel_health_check/3, do_worker_resource_health_check/1]).
 -export([wait_for_ready/2]).
+
+%% N.B.: This ONLY for tests or initializing the channel; actual health checks should be
+%% triggered by timers in the process.  Avoid doing manual health checks in other
+%% situations.
+-export([health_check/1, channel_health_check/2]).
 
 -ifdef(TEST).
 -export([stop/2, summarize_query_mode/2]).
@@ -92,13 +96,17 @@
     hc_workers = #{
         resource => #{},
         channel => #{
-            ongoing => #{}
+            ongoing => #{},
+            kicked_off => #{}
         }
     } :: #{
         resource := #{pid() => true},
         channel := #{
             pid() => channel_id(),
-            ongoing := #{channel_id() => channel_status_map()}
+            ongoing := #{channel_id() => channel_status_map()},
+            %% Tracks periodic timers already set, so that when connector health check
+            %% returns it doesn't need to kick these off.
+            kicked_off := #{channel_id() => true}
         }
     },
     %% Callers waiting on health check
@@ -474,10 +482,14 @@ list_all() ->
 list_group(Group) ->
     emqx_resource_cache:group_ids(Group).
 
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
 -spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(ResId) ->
     safe_call(ResId, #manual_resource_health_check{}, ?T_OPERATION).
 
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
 -spec channel_health_check(resource_id(), channel_id()) ->
     #{status := resource_status(), error := term()}.
 channel_health_check(ResId, ChannelId) ->
@@ -755,9 +767,6 @@ handle_event({call, From}, lookup, _State, #data{group = Group} = Data) ->
 handle_event({call, From}, #manual_resource_health_check{}, ?state_stopped, _Data) ->
     Actions = [{reply, From, {error, resource_is_stopped}}],
     {keep_state_and_data, Actions};
-handle_event({call, From}, {channel_health_check, _}, ?state_stopped, _Data) ->
-    Actions = [{reply, From, {error, resource_is_stopped}}],
-    {keep_state_and_data, Actions};
 handle_event({call, From}, #manual_resource_health_check{}, ?state_disconnected, _Data) ->
     %% We must not perform health checks while disconnected, since the resource state
     %% might not be correctly initialized (in case of restarts), and a spurious successful
@@ -767,6 +776,9 @@ handle_event({call, From}, #manual_resource_health_check{}, ?state_disconnected,
     {keep_state_and_data, Actions};
 handle_event({call, From}, #manual_resource_health_check{}, _State, Data) ->
     handle_manual_resource_health_check(From, Data);
+handle_event({call, From}, {channel_health_check, _}, ?state_stopped, _Data) ->
+    Actions = [{reply, From, {error, resource_is_stopped}}],
+    {keep_state_and_data, Actions};
 handle_event({call, From}, {channel_health_check, ChannelId}, _State, Data) ->
     handle_manual_channel_health_check(From, Data, ChannelId);
 %%--------------------------
@@ -1387,6 +1399,8 @@ handle_update_channel(From, ChannelId, ChannelConfig, Data0) ->
             handle_add_channel(From, Data1, ChannelId, ChannelConfig)
     end.
 
+%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
+%% process.  Avoid doing manual health checks outside tests.
 handle_manual_resource_health_check(From, Data0 = #data{hc_workers = #{resource := HCWorkers}}) when
     map_size(HCWorkers) > 0
 ->
@@ -1438,6 +1452,22 @@ set_label(_Label) -> ok.
 %% separated so it can be spec'ed and placate dialyzer tantrums...
 -spec worker_resource_health_check(data()) -> no_return().
 worker_resource_health_check(Data) ->
+    ResourceHCTimeout = get_resource_health_check_timeout(Data),
+    Fn = fun() ->
+        %% To trick dialyzer...
+        apply(?MODULE, do_worker_resource_health_check, [Data])
+    end,
+    try
+        emqx_utils:nolink_apply(Fn, ResourceHCTimeout)
+    catch
+        exit:timeout ->
+            exit({ok, {?status_disconnected, <<"resource_health_check_timed_out">>}})
+    end.
+
+%% Defined as a standalone function so that dialyzer doesn't complain that it only
+%% terminates with explicit exception....
+-spec do_worker_resource_health_check(data()) -> no_return().
+do_worker_resource_health_check(Data) ->
     set_label(iolist_to_binary([Data#data.id, "-health-check"])),
     HCRes = emqx_resource:call_health_check(Data#data.id, Data#data.mod, Data#data.state),
     exit({ok, HCRes}).
@@ -1522,9 +1552,28 @@ continue_resource_health_check_not_connected(NewStatus, Data0) ->
             {next_state, ?state_disconnected, Data, Actions}
     end.
 
+%% N.B.: This ONLY for tests or initializing the channel; actual health checks should be
+%% triggered by timers in the process.  Avoid doing manual health checks in other
+%% situations.
 handle_manual_channel_health_check(From, #data{state = undefined}, _ChannelId) ->
     {keep_state_and_data, [
         {reply, From, channel_error_status(resource_disconnected)}
+    ]};
+handle_manual_channel_health_check(
+    From,
+    #data{
+        added_channels = Channels,
+        status = Status
+    },
+    ChannelId
+) when
+    is_map_key(ChannelId, Channels),
+    Status /= ?status_connected
+->
+    %% We only perform channel health checks when the resource is connected.
+    ChannelStatusMap = maps:get(ChannelId, Channels),
+    {keep_state_and_data, [
+        {reply, From, to_external_channel_status(ChannelStatusMap)}
     ]};
 handle_manual_channel_health_check(
     From,
@@ -1552,16 +1601,35 @@ handle_manual_channel_health_check(
     {keep_state, Data};
 handle_manual_channel_health_check(
     From,
-    #data{added_channels = Channels} = _Data,
+    #data{
+        added_channels = Channels,
+        hc_pending_callers = #{channel := CPending0} = Pending0
+    } = Data0,
     ChannelId
 ) when
     is_map_key(ChannelId, Channels)
 ->
-    %% No ongoing health check: reply with current status.
-    StatusMap = maps:get(ChannelId, Channels),
-    {keep_state_and_data, [
-        {reply, From, to_external_channel_status(StatusMap)}
-    ]};
+    %% No ongoing health check
+    ChannelStatusMap = maps:get(ChannelId, Channels),
+    case is_channel_apt_for_health_check(ChannelStatusMap) of
+        true ->
+            CPending = maps:update_with(
+                ChannelId,
+                fun(OtherCallers) ->
+                    [From | OtherCallers]
+                end,
+                [From],
+                CPending0
+            ),
+            Pending = Pending0#{channel := CPending},
+            Data1 = Data0#data{hc_pending_callers = Pending},
+            Data = start_channel_health_check(Data1, ChannelId),
+            {keep_state, Data};
+        false ->
+            {keep_state_and_data, [
+                {reply, From, to_external_channel_status(ChannelStatusMap)}
+            ]}
+    end;
 handle_manual_channel_health_check(
     From,
     _Data,
@@ -1743,15 +1811,32 @@ abort_retry_update_channel_action(ChannelId) ->
 abort_retry_add_channel_action(ChannelId) ->
     cancel_generic_timeout_action(#retry_add_channel{channel_id = ChannelId}).
 
+get_resource_health_check_timeout(Data) ->
+    Field = health_check_timeout,
+    Default = ?HEALTHCHECK_TIMEOUT,
+    ChannelId = undefined,
+    ConfigSources = [Data#data.config, #{resource_opts => Data#data.opts}],
+    get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data).
+
+get_channel_health_check_timeout(ChannelId, ConfigSources, Data) ->
+    Field = health_check_timeout,
+    Default = ?HEALTHCHECK_TIMEOUT,
+    get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data).
+
 get_channel_health_check_interval(ChannelId, ConfigSources, Data) ->
+    Field = health_check_interval,
+    Default = ?HEALTHCHECK_INTERVAL,
+    get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data).
+
+get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data) ->
     emqx_utils:foldl_while(
         fun
-            (#{resource_opts := #{health_check_interval := HCInterval}}, _Acc) ->
+            (#{resource_opts := #{Field := HCInterval}}, _Acc) ->
                 {halt, HCInterval};
             (_, Acc) ->
                 {cont, Acc}
         end,
-        ?HEALTHCHECK_INTERVAL,
+        Default,
         ConfigSources ++
             [emqx_utils_maps:deep_get([ChannelId, config], Data#data.added_channels, #{})]
     ).
@@ -1761,11 +1846,12 @@ get_channel_health_check_interval(ChannelId, ConfigSources, Data) ->
 -spec trigger_health_check_for_added_channels(data()) -> data().
 trigger_health_check_for_added_channels(Data0 = #data{hc_workers = HCWorkers0}) ->
     #{
-        channel := #{ongoing := Ongoing0}
+        channel := #{ongoing := Ongoing0, kicked_off := KickedOff0}
     } = HCWorkers0,
     NewOngoing = maps:filter(
         fun(ChannelId, OldStatus) ->
             (not is_map_key(ChannelId, Ongoing0)) andalso
+                (not is_map_key(ChannelId, KickedOff0)) andalso
                 is_channel_apt_for_health_check(OldStatus)
         end,
         Data0#data.added_channels
@@ -1831,7 +1917,15 @@ handle_start_channel_health_check(Data0, ChannelId) ->
 
 -spec start_channel_health_check(data(), channel_id()) -> data().
 start_channel_health_check(
-    #data{added_channels = AddedChannels, hc_workers = #{channel := #{ongoing := CHCOngoing0}}} =
+    #data{
+        added_channels = AddedChannels,
+        hc_workers = #{
+            channel := #{
+                ongoing := CHCOngoing0,
+                kicked_off := CHCKickedOff0
+            }
+        }
+    } =
         Data0,
     ChannelId
 ) when
@@ -1841,7 +1935,12 @@ start_channel_health_check(
     WorkerPid = spawn_channel_health_check_worker(Data0, ChannelId),
     ChannelStatus = maps:get(ChannelId, AddedChannels),
     CHCOngoing = CHCOngoing0#{ChannelId => ChannelStatus},
-    CHCWorkers = CHCWorkers0#{WorkerPid => ChannelId, ongoing := CHCOngoing},
+    CHCKickedOff = CHCKickedOff0#{ChannelId => true},
+    CHCWorkers = CHCWorkers0#{
+        WorkerPid => ChannelId,
+        ongoing := CHCOngoing,
+        kicked_off := CHCKickedOff
+    },
     HCWorkers = HCWorkers0#{channel := CHCWorkers},
     Data0#data{hc_workers = HCWorkers};
 start_channel_health_check(Data, _ChannelId) ->
@@ -1854,9 +1953,29 @@ spawn_channel_health_check_worker(#data{} = Data, ChannelId) ->
 %% separated so it can be spec'ed and placate dialyzer tantrums...
 -spec worker_channel_health_check(data(), channel_id()) -> no_return().
 worker_channel_health_check(Data, ChannelId) ->
-    #data{id = ResId, mod = Mod, state = State, added_channels = Channels} = Data,
+    #data{added_channels = Channels} = Data,
     ChannelStatus = maps:get(ChannelId, Channels, #{}),
     ChannelConfig = maps:get(config, ChannelStatus, undefined),
+    ChanHCTimeout = get_channel_health_check_timeout(ChannelId, [ChannelConfig], Data),
+    Fn = fun() ->
+        %% To trick dialyzer...
+        apply(?MODULE, do_worker_channel_health_check, [Data, ChannelId, ChannelConfig])
+    end,
+    try
+        emqx_utils:nolink_apply(Fn, ChanHCTimeout)
+    catch
+        exit:timeout ->
+            Res = {?status_disconnected, <<"resource_health_check_timed_out">>},
+            ChanStatus = channel_status(Res, ChannelConfig),
+            exit({ok, ChanStatus})
+    end.
+
+%% Defined as a standalone function so that dialyzer doesn't complain that it only
+%% terminates with explicit exception....
+-spec do_worker_channel_health_check(data(), channel_id(), map()) -> no_return().
+do_worker_channel_health_check(Data, ChannelId, ChannelConfig) ->
+    #data{id = ResId, mod = Mod, state = State} = Data,
+    set_label(iolist_to_binary([ChannelId, "-health-check"])),
     RawStatus = emqx_resource:call_channel_health_check(ResId, ChannelId, Mod, State),
     exit({ok, channel_status(RawStatus, ChannelConfig)}).
 
@@ -2303,7 +2422,7 @@ abort_all_channel_health_checks(Data0) ->
         end,
         CHCWorkers
     ),
-    HCWorkers = HCWorkers0#{channel := #{ongoing => #{}}},
+    HCWorkers = HCWorkers0#{channel := #{ongoing => #{}, kicked_off => #{}}},
     Pending = Pending0#{channel := #{}},
     Data0#data{
         hc_workers = HCWorkers,
@@ -2333,10 +2452,17 @@ map_take_or(Map, Key, Default) ->
 
 abort_health_checks_for_channel(Data0, ChannelId) ->
     #data{
-        hc_workers = #{channel := #{ongoing := Ongoing0} = CHCWorkers0} = HCWorkers0,
+        hc_workers =
+            #{
+                channel := #{
+                    ongoing := Ongoing0,
+                    kicked_off := KickedOff0
+                } = CHCWorkers0
+            } = HCWorkers0,
         hc_pending_callers = #{channel := CPending0} = Pending0
     } = Data0,
     Ongoing = maps:remove(ChannelId, Ongoing0),
+    KickedOff = maps:remove(ChannelId, KickedOff0),
     {Callers, CPending} = map_take_or(CPending0, ChannelId, []),
     lists:foreach(
         fun(From) ->
@@ -2358,7 +2484,12 @@ abort_health_checks_for_channel(Data0, ChannelId) ->
         CHCWorkers0,
         CHCWorkers0
     ),
-    HCWorkers = HCWorkers0#{channel := CHCWorkers#{ongoing := Ongoing}},
+    HCWorkers = HCWorkers0#{
+        channel := CHCWorkers#{
+            ongoing := Ongoing,
+            kicked_off := KickedOff
+        }
+    },
     Pending = Pending0#{channel := CPending},
     Data0#data{
         hc_workers = HCWorkers,

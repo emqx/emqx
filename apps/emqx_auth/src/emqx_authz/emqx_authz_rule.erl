@@ -175,21 +175,18 @@ compile(BadRule) ->
         value => BadRule
     }).
 
-compile_action(Action) ->
-    compile_action(emqx_authz:feature_available(rich_actions), Action).
-
 -define(IS_ACTION_WITH_RETAIN(Action), (Action =:= publish orelse Action =:= all)).
 
-compile_action(_RichActionsOn, subscribe) ->
+compile_action(subscribe) ->
     subscribe;
-compile_action(_RichActionsOn, Action) when ?IS_ACTION_WITH_RETAIN(Action) ->
+compile_action(Action) when ?IS_ACTION_WITH_RETAIN(Action) ->
     Action;
-compile_action(true = _RichActionsOn, {subscribe, Opts}) when is_list(Opts) ->
+compile_action({subscribe, Opts}) when is_list(Opts) ->
     #{
         action_type => subscribe,
         qos => qos_from_opts(Opts)
     };
-compile_action(true = _RichActionsOn, {Action, Opts}) when
+compile_action({Action, Opts}) when
     ?IS_ACTION_WITH_RETAIN(Action) andalso is_list(Opts)
 ->
     #{
@@ -197,7 +194,7 @@ compile_action(true = _RichActionsOn, {Action, Opts}) when
         qos => qos_from_opts(Opts),
         retain => retain_from_opts(Opts)
     };
-compile_action(_RichActionsOn, Action) ->
+compile_action(Action) ->
     throw(#{
         reason => invalid_authorization_action,
         value => Action

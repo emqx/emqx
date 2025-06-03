@@ -307,6 +307,11 @@ handover_complete(
             %% Race condition: new data has been added. Add the
             %% request back to the active queue, so it can be
             %% retried:
+            ?tp(
+                notice,
+                failed_to_promote_iterator_to_rt,
+                #{dbshard => DBShard}
+            ),
             queue_push(Queue, SubState);
         ?err_rec(Reason) ->
             ?tp(

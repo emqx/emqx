@@ -179,13 +179,15 @@ format_epoch(Epoch) ->
 list() ->
     to_map(ets:match_object(?APP, #?APP{_ = '_'})).
 
-authorize(<<"/api/v5/users", _/binary>>, _Req, _ApiKey, _ApiSecret) ->
+authorize(#{module := emqx_dashboard_api, function := user}, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>, <<"users">>};
-authorize(<<"/api/v5/api_key", _/binary>>, _Req, _ApiKey, _ApiSecret) ->
-    {error, <<"not_allowed">>, <<"api_key">>};
-authorize(<<"/api/v5/logout", _/binary>>, _Req, _ApiKey, _ApiSecret) ->
+authorize(#{module := emqx_dashboard_api, function := users}, _Req, _ApiKey, _ApiSecret) ->
+    {error, <<"not_allowed">>, <<"users">>};
+authorize(#{module := emqx_dashboard_api, function := logout}, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>, <<"logout">>};
-authorize(_Path, Req, ApiKey, ApiSecret) ->
+authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->
+    {error, <<"not_allowed">>, <<"api_key">>};
+authorize(_HandlerInfo, Req, ApiKey, ApiSecret) ->
     Now = erlang:system_time(second),
     case find_by_api_key(ApiKey) of
         {ok, true, ExpiredAt, SecretHash, Role} when ExpiredAt >= Now ->

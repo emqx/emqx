@@ -16,6 +16,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource_buffer_worker_internal.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx_resource/include/emqx_resource_runtime.hrl").
 
 -define(TEST_RESOURCE, emqx_connector_demo).
 -define(ID, <<"id">>).
@@ -354,11 +355,11 @@ create(Id, Group, Type, Config, Opts) ->
     end,
     Res.
 
-add_channel_emualte_config(ConnResId, ChanId, ChanConfig, Mode) ->
-    emqx_connector_demo:add_channel_emualte_config(ConnResId, ChanId, ChanConfig, Mode).
+add_channel_emulate_config(ConnResId, ChanId, ChanConfig, Mode) ->
+    emqx_connector_demo:add_channel_emulate_config(ConnResId, ChanId, ChanConfig, Mode).
 
-remove_channel_emualte_config(ConnResId, ChanId, Mode) ->
-    emqx_connector_demo:remove_channel_emualte_config(ConnResId, ChanId, Mode).
+remove_channel_emulate_config(ConnResId, ChanId, Mode) ->
+    emqx_connector_demo:remove_channel_emulate_config(ConnResId, ChanId, Mode).
 
 dryrun(Id, Type, Config) ->
     TestPid = self(),
@@ -5116,6 +5117,213 @@ t_health_check_while_resource_is_disconnected(_Config) ->
             ?assertReceive({returning_resource_health_check_result, ConnResId, ?status_connected}),
             ?assertMatch({ok, ?status_connected}, emqx_resource:health_check(ConnResId)),
 
+            ok
+        end,
+        [log_consistency_prop()]
+    ),
+    ok.
+
+%% Context: https://emqx.atlassian.net/browse/EMQX-14337
+%% Original bug: upon returning, the resource/connector health check would unconditionally
+%% trigger health checks for channels, even if they had already established their own
+%% periodic timers after their first trigger.
+t_independent_channel_health_check_interval(_Config) ->
+    ?check_trace(
+        begin
+            TestPid = self(),
+            AgentState0 = #{
+                resource_health_check => {notify, TestPid, ?status_connected},
+                channel_health_check => {notify, TestPid, ?status_connected}
+            },
+            {ok, Agent} = emqx_utils_agent:start_link(AgentState0),
+            ConnName = <<"cname">>,
+            %% Needs to have this form to satifisfy internal, implicit requirements of
+            %% `emqx_resource_cache'.
+            ConnResId = <<"connector:ctype:", ConnName/binary>>,
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        health_check_agent => Agent
+                    },
+                    #{
+                        health_check_interval => 100,
+                        start_timeout => 100
+                    }
+                ),
+            %% Needs to have this form to satifisfy internal, implicit requirements of
+            %% `emqx_resource_cache'.
+            ChanId = <<"action:atype:aname:", ConnResId/binary>>,
+            ok =
+                emqx_resource_manager:add_channel(
+                    ConnResId,
+                    ChanId,
+                    #{
+                        resource_opts => #{
+                            %% Using a huge interval so that it does not
+                            %% repeat during the test
+                            health_check_interval => 1_000_000
+                        }
+                    }
+                ),
+            ?assertMatch(
+                {ok, #rt{
+                    st_err = #{status := ?status_connected},
+                    channel_status = ?status_connected
+                }},
+                emqx_resource_cache:get_runtime(ChanId)
+            ),
+            %% Upon entering `?status_connected` for the first time, the connector/resource
+            %% will kick off the channel health check.  After that, the channel manages its
+            %% own interval with generic statem timers, and should not be triggered again
+            %% by the more frequent connector health checks.
+            ?assertReceive({returning_resource_health_check_result, _, _}),
+            ?assertReceive({returning_channel_health_check_result, _, _, _}),
+            %% N.B.: without async add channel, there is a second health check performed.
+            ?assertReceive({returning_channel_health_check_result, _, _, _}),
+            %% Should not perform other channel health checks for a long time now.
+            ?assertNotReceive({returning_channel_health_check_result, _, _, _}),
+            %% Resource health checks should continue quite frequently.
+            ?assertReceive({returning_resource_health_check_result, _, _}),
+            ok
+        end,
+        [log_consistency_prop()]
+    ),
+    ok.
+
+%% Checks that we impose a timeout on resource (connector) health checks.
+t_resource_health_check_timeout(_Config) ->
+    ?check_trace(
+        begin
+            TestPid = self(),
+            %% Succeed at first, and then hang indefinitely
+            HCAgentState = #{
+                resource_health_check => [
+                    ?status_connected,
+                    {ask, TestPid}
+                ]
+            },
+            {ok, HCAgent} = emqx_utils_agent:start_link(HCAgentState),
+            %% Same thing for start: we want the restarts to fail.  Otherwise, it'll enter
+            %% `?status_connecting` when it attempts to restart and succeed after being
+            %% `?status_disconnected`.
+            StartAgentState0 = #{
+                start_resource => [
+                    continue,
+                    {ask, TestPid},
+                    {error, <<"won't restart!">>}
+                ]
+            },
+            {ok, StartAgent} = emqx_utils_agent:start_link(StartAgentState0),
+            ConnName = atom_to_binary(?FUNCTION_NAME),
+            ConnResId = connector_res_id(ConnName),
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        start_resource_agent => StartAgent,
+                        health_check_agent => HCAgent
+                    },
+                    #{
+                        health_check_interval => 100,
+                        health_check_timeout => 750,
+                        start_timeout => 100
+                    }
+                ),
+            %% Immediately after creatin is `?status_connected`
+            ?assertMatch(
+                {ok, _, #{status := ?status_connected}},
+                emqx_resource_manager:lookup_cached(ConnResId)
+            ),
+            %% After that, HC will hang, but abort after timeout.
+            ?assertReceive({waiting_health_check_result, _Alias, resource, ConnResId}, 1_000),
+            %% It'll then attempt to restart.  We want it to fail so it doesn't become
+            %% `?status_connecting`.
+            {waiting_start_resource_result, Alias, ConnResId} =
+                ?assertReceive({waiting_start_resource_result, _, ConnResId}),
+            Alias ! {Alias, {error, <<"won't restart!">>}},
+            %% After those failures, status should be `?status_disconnected`
+            ?assertMatch(
+                {ok, _, #{
+                    status := ?status_disconnected,
+                    error := <<"resource_health_check_timed_out">>
+                }},
+                emqx_resource_manager:lookup_cached(ConnResId)
+            ),
+            ok
+        end,
+        [log_consistency_prop()]
+    ),
+    ok.
+
+%% Checks that we impose a timeout on channel (action/source) health checks.
+t_channel_health_check_timeout(_Config) ->
+    ?check_trace(
+        begin
+            TestPid = self(),
+            ConnName = atom_to_binary(?FUNCTION_NAME),
+            ConnResId = connector_res_id(ConnName),
+            HCAgentState = #{
+                resource_health_check => ?status_connected,
+                %% Succeed at first, and then hang indefinitely
+                channel_health_check => [
+                    ?status_connected,
+                    {ask, TestPid}
+                ]
+            },
+            {ok, HCAgent} = emqx_utils_agent:start_link(HCAgentState),
+            ConnName = atom_to_binary(?FUNCTION_NAME),
+            ConnResId = connector_res_id(ConnName),
+            {ok, _} =
+                create(
+                    ConnResId,
+                    ?DEFAULT_RESOURCE_GROUP,
+                    ?TEST_RESOURCE,
+                    #{
+                        name => test_resource,
+                        health_check_agent => HCAgent
+                    },
+                    #{
+                        health_check_interval => 100,
+                        start_timeout => 100
+                    }
+                ),
+            ChanId = action_res_id(ConnResId),
+            ok =
+                add_channel(
+                    ConnResId,
+                    ChanId,
+                    #{
+                        resource_opts => #{
+                            health_check_interval => 100,
+                            health_check_timeout => 750
+                        }
+                    }
+                ),
+            %% Immediately after creatin is `?status_connected`
+            ?assertMatch(
+                {ok, #rt{channel_status = ?status_connected}},
+                emqx_resource_cache:get_runtime(ChanId)
+            ),
+            %% After that, HC will hang, but abort after timeout.  Since the
+            %% resource/connector is healthy, this should retry.
+            ?assertReceive(
+                {waiting_health_check_result, _Alias, channel, ConnResId, ChanId}, 1_000
+            ),
+            ?assertReceive(
+                {waiting_health_check_result, _Alias, channel, ConnResId, ChanId}, 1_000
+            ),
+            %% After those failures, status should be `?status_disconnected`
+            ?assertMatch(
+                {ok, #rt{channel_status = ?status_disconnected}},
+                emqx_resource_cache:get_runtime(ChanId)
+            ),
             ok
         end,
         [log_consistency_prop()]

@@ -186,7 +186,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.22.1", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.0", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.14.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.3", override: true}
@@ -206,7 +206,8 @@ defmodule EMQXUmbrella.MixProject do
       {:grpc,
        github: "emqx/grpc-erl", tag: "0.7.2", override: true, system_env: emqx_app_system_env()}
 
-  def common_dep(:cowboy), do: {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true}
+  def common_dep(:cowboy),
+    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-1", override: true}
 
   def common_dep(:hackney),
     do: {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true}
@@ -225,7 +226,7 @@ defmodule EMQXUmbrella.MixProject do
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.4", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}
-  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.2", override: true}
+  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.3", override: true}
 
   def common_dep(:system_monitor),
     do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.6"}
@@ -243,7 +244,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.3", override: true}
 
   def common_dep(:minirest),
-    do: {:minirest, github: "emqx/minirest", tag: "1.4.4", override: true}
+    do: {:minirest, github: "emqx/minirest", tag: "1.4.7", override: true}
 
   # maybe forbid to fetch quicer
   def common_dep(:emqtt),
@@ -261,7 +262,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
 
   def common_dep(:cowlib),
-    do: {:cowlib, "2.13.0", override: true}
+    do: {:cowlib, "2.14.0", override: true}
 
   def common_dep(:snabbkaffe),
     do: {

@@ -12,7 +12,7 @@
 -define(SUPERVISOR, emqx_otel_sup).
 
 start_otel(Conf) ->
-    Spec = emqx_otel_sup:worker_spec(?MODULE, Conf),
+    Spec = ?SUPERVISOR:worker_spec(?MODULE, Conf),
     assert_started(supervisor:start_child(?SUPERVISOR, Spec)).
 
 stop_otel() ->
@@ -249,6 +249,10 @@ normalize_name(cpu_idle) ->
     'cpu.idle';
 normalize_name(run_queue) ->
     'run.queue';
+normalize_name(mnesia_tm_mailbox_size) ->
+    'mnesia.tm.mailbox.size';
+normalize_name(broker_pool_max_mailbox_size) ->
+    'broker.pool.max.mailbox.size';
 normalize_name(total_memory) ->
     'total.memory';
 normalize_name(used_memory) ->

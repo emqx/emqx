@@ -6,6 +6,7 @@
 
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -40,14 +41,6 @@ init_per_suite(_Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
-    ok = snabbkaffe:start_trace(),
-    Cluster = cluster(),
-    Nodes = emqx_cth_cluster:start(Cluster, #{
-        work_dir => emqx_cth_suite:work_dir(TestCase, Config)
-    }),
-    emqx_ds_raft_test_helpers:wait_db_bootstrapped(Nodes, ?PERSISTENT_MESSAGE_DB),
-    [{nodes, Nodes} | Config];
 init_per_testcase(t_message_gc = TestCase, Config) ->
     DurableSessonsOpts = #{<<"message_retention_period">> => <<"3s">>},
     EMQXOpts = #{<<"durable_storage">> => #{<<"messages">> => #{<<"n_shards">> => 3}}},
@@ -94,11 +87,6 @@ common_init_per_testcase(TestCase, Config, Opts0) ->
     },
     emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts).
 
-end_per_testcase(t_session_subscription_iterators, Config) ->
-    Nodes = ?config(nodes, Config),
-    emqx_common_test_helpers:call_janitor(60_000),
-    ok = snabbkaffe:stop(),
-    ok = emqx_cth_cluster:stop(Nodes);
 end_per_testcase(_TestCase, Config) ->
     emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_common_test_helpers:stop_apps_ds(Config).
@@ -194,59 +182,6 @@ t_messages_persisted_2(_Config) ->
 
     ok.
 
-%% TODO: test quic and ws too
-t_session_subscription_iterators(Config) ->
-    [Node1, _Node2] = ?config(nodes, Config),
-    Port = get_mqtt_port(Node1, tcp),
-    Topic = <<"t/topic">>,
-    SubTopicFilter = <<"t/+">>,
-    AnotherTopic = <<"u/another-topic">>,
-    ClientId = <<"myclientid">>,
-    ?check_trace(
-        begin
-            [
-                Payload1,
-                Payload2,
-                Payload3,
-                Payload4
-            ] = lists:map(
-                fun(N) -> <<"hello", (integer_to_binary(N))/binary>> end,
-                lists:seq(1, 4)
-            ),
-            ct:pal("starting"),
-            Client = connect(#{
-                clientid => ClientId,
-                port => Port,
-                properties => #{'Session-Expiry-Interval' => 300}
-            }),
-            ct:pal("publishing 1"),
-            Message1 = emqx_message:make(Topic, Payload1),
-            publish(Node1, Message1),
-            ct:pal("subscribing 1"),
-            {ok, _, [2]} = emqtt:subscribe(Client, SubTopicFilter, qos2),
-            ct:pal("publishing 2"),
-            Message2 = emqx_message:make(Topic, Payload2),
-            publish(Node1, Message2),
-            % TODO: no incoming publishes at the moment
-            % [_] = receive_messages(1),
-            ct:pal("subscribing 2"),
-            {ok, _, [1]} = emqtt:subscribe(Client, SubTopicFilter, qos1),
-            ct:pal("publishing 3"),
-            Message3 = emqx_message:make(Topic, Payload3),
-            publish(Node1, Message3),
-            % [_] = receive_messages(1),
-            ct:pal("publishing 4"),
-            Message4 = emqx_message:make(AnotherTopic, Payload4),
-            publish(Node1, Message4),
-            emqtt:stop(Client),
-            #{
-                messages => [Message1, Message2, Message3, Message4]
-            }
-        end,
-        []
-    ),
-    ok.
-
 t_qos0(_Config) ->
     Sub = connect(<<?MODULE_STRING "1">>, true, 30),
     Pub = connect(<<?MODULE_STRING "2">>, true, 0),
@@ -276,10 +211,8 @@ t_qos0_only_many_streams(_Config) ->
     ClientId = <<?MODULE_STRING "_sub">>,
     Sub = connect(ClientId, true, 30),
     Pub = connect(<<?MODULE_STRING "_pub">>, true, 0),
-    [ConnPid] = emqx_cm:lookup_channels(ClientId),
     try
         {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, [{qos, 1}]),
-
         [
             emqtt:publish(Pub, Topic, Payload, ?QOS_1)
          || {Topic, Payload} <- [
@@ -292,9 +225,6 @@ t_qos0_only_many_streams(_Config) ->
             [_, _, _],
             receive_messages(3)
         ),
-
-        Inflight0 = get_session_inflight(ConnPid),
-
         [
             emqtt:publish(Pub, Topic, Payload, ?QOS_1)
          || {Topic, Payload} <- [
@@ -305,17 +235,12 @@ t_qos0_only_many_streams(_Config) ->
         ],
         ?assertMatch(
             [
-                #{payload := P1},
-                #{payload := P2},
-                #{payload := P3}
-            ] when
-                (P1 == <<"foo">> andalso P2 == <<"bar">> andalso P3 == <<"baz">>) orelse
-                    (P1 == <<"baz">> andalso P2 == <<"foo">> andalso P3 == <<"bar">>) orelse
-                    (P1 == <<"foo">> andalso P2 == <<"baz">> andalso P3 == <<"bar">>),
-
-            receive_messages(3)
+                #{topic := <<"t/1">>, payload := <<"baz">>},
+                #{topic := <<"t/2">>, payload := <<"foo">>},
+                #{topic := <<"t/2">>, payload := <<"bar">>}
+            ],
+            group_maps_by(topic, receive_messages(3))
         ),
-
         [
             emqtt:publish(Pub, Topic, Payload, ?QOS_1)
          || {Topic, Payload} <- [
@@ -326,31 +251,17 @@ t_qos0_only_many_streams(_Config) ->
         ],
         ?assertMatch(
             [
-                #{payload := P1},
-                #{payload := P2},
-                #{payload := P3}
-            ] when
-                (P1 == <<"foo">> andalso P2 == <<"bar">> andalso P3 == <<"baz">>) orelse
-                    (P1 == <<"baz">> andalso P2 == <<"foo">> andalso P3 == <<"bar">>) orelse
-                    (P1 == <<"foo">> andalso P2 == <<"baz">> andalso P3 == <<"bar">>),
-
-            receive_messages(3)
+                #{topic := <<"t/2">>, payload := <<"baz">>},
+                #{topic := <<"t/3">>, payload := <<"foo">>},
+                #{topic := <<"t/3">>, payload := <<"bar">>}
+            ],
+            group_maps_by(topic, receive_messages(3))
         ),
-
-        Inflight1 = get_session_inflight(ConnPid),
-
-        %% TODO: Kinda stupid way to verify that the runtime state is not growing.
-        ?assert(
-            erlang:external_size(Inflight1) - erlang:external_size(Inflight0) < 16,
-            Inflight1
-        )
+        ?assertNotReceive(_)
     after
         emqtt:stop(Sub),
         emqtt:stop(Pub)
     end.
-
-get_session_inflight(ConnPid) ->
-    emqx_connection:info({channel, {session, inflight}}, sys:get_state(ConnPid)).
 
 t_publish_as_persistent(_Config) ->
     Sub = connect(<<?MODULE_STRING "1">>, true, 30),
@@ -579,6 +490,9 @@ receive_messages(Count, Msgs, Timeout) ->
     after Timeout ->
         Msgs
     end.
+
+group_maps_by(K, Maps) ->
+    emqx_ds_test_helpers:group_maps_by(K, Maps).
 
 publish(Node, Message) ->
     erpc:call(Node, emqx, publish, [Message]).

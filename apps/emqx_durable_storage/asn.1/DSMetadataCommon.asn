@@ -1,0 +1,18 @@
+--------------------------------------------------------------------------
+-- Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+--------------------------------------------------------------------------
+
+-- A collection of ASN.1 definitions encoding common types
+DSMetadataCommon DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  EXPORTS ALL;
+  TopicWords ::= SEQUENCE OF OCTET STRING
+
+  TopicFilterWord ::= CHOICE {
+    const OCTET STRING,
+    plus NULL,
+    hash NULL
+  }
+
+  TopicFilter ::= SEQUENCE OF TopicFilterWord
+END

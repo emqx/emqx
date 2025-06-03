@@ -57,4 +57,7 @@ update_telemetry_status_api.label:
 uuid.desc:
 """Get UUID"""
 
+telemetry_not_enabled.desc:
+"""Telemetry is currently not enabled"""
+
 }

@@ -59,7 +59,7 @@ query_timeout(default) -> <<"5s">>;
 query_timeout(_) -> undefined.
 
 desc(ldap) ->
-    "LDAP";
+    ?DESC("LDAP");
 desc(_) ->
     undefined.
 

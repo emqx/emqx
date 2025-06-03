@@ -28,4 +28,9 @@ position.label: "Position"
 start.desc: "The position of the current first element of the data collection."
 start.label: "Start"
 
+bad_request.desc: "Invalid request."
+bad_request.label: "Bad Request"
+
+error_codes.desc: "Possible error reason codes for invalid requests."
+error_codes.label: "Error Codes"
 }

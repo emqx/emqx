@@ -14,7 +14,7 @@
 ]).
 
 %% Authorization
--export([authorize/1]).
+-export([authorize/2]).
 
 -export([save_dispatch_eterm/1, save_dispatch_eterm/2]).
 
@@ -270,14 +270,14 @@ audit_log_fun() ->
 -if(?EMQX_RELEASE_EDITION =/= ee).
 
 %% dialyzer complains about the `unauthorized_role' clause...
--dialyzer({no_match, [authorize/1, api_key_authorize/3]}).
+-dialyzer({no_match, [authorize/2, api_key_authorize/4]}).
 
 -endif.
 
-authorize(Req) ->
+authorize(Req, HandlerInfo) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->
-            api_key_authorize(Req, Username, Password);
+            api_key_authorize(Req, HandlerInfo, Username, Password);
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Req, Token) of
                 {ok, Username} ->
@@ -308,9 +308,8 @@ return_unauthorized(Code, Message) ->
 listeners() ->
     emqx_conf:get([dashboard, listeners], #{}).
 
-api_key_authorize(Req, Key, Secret) ->
-    Path = cowboy_req:path(Req),
-    case emqx_mgmt_auth:authorize(Path, Req, Key, Secret) of
+api_key_authorize(Req, HandlerInfo, Key, Secret) ->
+    case emqx_mgmt_auth:authorize(HandlerInfo, Req, Key, Secret) of
         ok ->
             {ok, #{auth_type => api_key, source => Key}};
         {error, <<"not_allowed">>, Resource} ->

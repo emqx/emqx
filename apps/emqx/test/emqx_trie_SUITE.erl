@@ -11,6 +11,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(TRIE, emqx_trie).
+
 all() ->
     [
         {group, compact},
@@ -36,6 +38,7 @@ init_per_suite(Config) ->
         [{emqx, #{override_env => [{boot_modules, [broker]}]}}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    ok = mria:wait_for_tables(emqx_trie:create_trie()),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->

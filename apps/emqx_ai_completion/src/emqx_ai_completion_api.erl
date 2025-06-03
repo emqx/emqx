@@ -257,8 +257,11 @@ put_provider_example() ->
 
 get_provider_example() ->
     maps:merge(
-        #{<<"name">> => <<"my_provider">>},
-        put_provider_example()
+        put_provider_example(),
+        #{
+            <<"name">> => <<"my_provider">>,
+            <<"api_key">> => <<"******">>
+        }
     ).
 
 post_provider_example() ->
@@ -286,29 +289,29 @@ post_completion_profile_example() ->
 %%--------------------------------------------------------------------
 
 '/ai/providers'(get, _Params) ->
-    {200, get_providers()};
+    {200, get_providers_for_output()};
 '/ai/providers'(post, #{body := NewProvider}) ->
     add_provider(NewProvider).
 
 '/ai/providers/:name'(get, #{bindings := #{name := Name}}) ->
-    case get_provider(Name) of
+    case get_provider_for_output(Name) of
         not_found ->
             {404, #{code => 'NOT_FOUND', message => <<"Provider not found">>}};
         Provider ->
             {200, Provider}
     end;
 '/ai/providers/:name'(put, #{body := UpdatedProvider, bindings := #{name := Name}}) ->
-    update_provider(UpdatedProvider#{<<"name">> => Name});
+    update_provider(Name, UpdatedProvider#{<<"name">> => Name});
 '/ai/providers/:name'(delete, #{bindings := #{name := Name}}) ->
     delete_provider(Name).
 
 '/ai/completion_profiles'(get, _Params) ->
-    {200, get_completion_profiles()};
+    {200, get_completion_profiles_for_output()};
 '/ai/completion_profiles'(post, #{body := NewCompletionProfile}) ->
     add_completion_profile(NewCompletionProfile).
 
 '/ai/completion_profiles/:name'(get, #{bindings := #{name := Name}}) ->
-    case get_completion_profile(Name) of
+    case get_completion_profile_for_output(Name) of
         not_found ->
             {404, #{code => 'NOT_FOUND', message => <<"Completion profile not found">>}};
         CompletionProfile ->
@@ -325,22 +328,26 @@ post_completion_profile_example() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-get_providers() ->
-    emqx_schema:fill_defaults_for_type(
-        hoconsc:array(emqx_ai_completion_schema:provider_sctype_api(get)),
-        get_providers_raw()
+get_providers_for_output() ->
+    lists:map(
+        fun format_provider_for_output/1,
+        emqx_ai_completion_config:get_providers_raw()
     ).
 
-get_provider(Name) ->
+get_provider_for_output(Name) ->
     case get_provider_raw(Name) of
         not_found ->
             not_found;
         ProviderRaw ->
-            emqx_schema:fill_defaults_for_type(
-                emqx_ai_completion_schema:provider_sctype_api(get),
-                ProviderRaw
-            )
+            format_provider_for_output(ProviderRaw)
     end.
+
+format_provider_for_output(ProviderRaw) ->
+    emqx_schema:fill_defaults_for_type(
+        emqx_ai_completion_schema:provider_sctype_api(get),
+        ProviderRaw
+    ),
+    emqx_utils:redact(ProviderRaw).
 
 get_provider_raw(Name) ->
     ProvidersRaw = [
@@ -350,26 +357,17 @@ get_provider_raw(Name) ->
     ],
     case ProvidersRaw of
         [ProviderRaw] ->
-            remove_provider_secret_fields(ProviderRaw);
+            ProviderRaw;
         _ ->
             not_found
     end.
 
-get_providers_raw() ->
-    lists:map(
-        fun remove_provider_secret_fields/1,
-        emqx_ai_completion_config:get_providers_raw()
-    ).
-
-get_completion_profile(Name) ->
+get_completion_profile_for_output(Name) ->
     case get_completion_profile_raw(Name) of
         not_found ->
             not_found;
         CompletionProfileRaw ->
-            emqx_schema:fill_defaults_for_type(
-                emqx_ai_completion_schema:completion_profile_sctype_api(get),
-                CompletionProfileRaw
-            )
+            format_completion_profile_for_output(CompletionProfileRaw)
     end.
 
 get_completion_profile_raw(Name) ->
@@ -385,17 +383,28 @@ get_completion_profile_raw(Name) ->
             not_found
     end.
 
-get_completion_profiles() ->
-    emqx_schema:fill_defaults_for_type(
-        hoconsc:array(emqx_ai_completion_schema:completion_profile_sctype_api(get)),
+get_completion_profiles_for_output() ->
+    lists:map(
+        fun format_completion_profile_for_output/1,
         emqx_ai_completion_config:get_completion_profiles_raw()
     ).
 
-remove_provider_secret_fields(Provider) ->
-    maps:without([<<"api_key">>], Provider).
+format_completion_profile_for_output(CompletionProfileRaw) ->
+    emqx_schema:fill_defaults_for_type(
+        emqx_ai_completion_schema:completion_profile_sctype_api(get),
+        CompletionProfileRaw
+    ).
 
-update_provider(Provider) ->
-    wrap_update_error(emqx_ai_completion_config:update_providers_raw({update, Provider})).
+update_provider(Name, NewProvider0) ->
+    wrap_update_error(
+        case get_provider_raw(Name) of
+            OldProvider when is_map(OldProvider) ->
+                NewProvider = emqx_utils:deobfuscate(NewProvider0, OldProvider),
+                emqx_ai_completion_config:update_providers_raw({update, NewProvider});
+            not_found ->
+                {error, #{reason => provider_not_found}}
+        end
+    ).
 
 add_provider(NewProvider) ->
     wrap_update_error(emqx_ai_completion_config:update_providers_raw({add, NewProvider})).
