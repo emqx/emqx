@@ -117,11 +117,13 @@ create_tabs() ->
     ok = emqx_utils_ets:new(?SUBOPTION, [ordered_set | TabOpts]),
 
     %% Subscription: SubPid -> TopicFilter1, TopicFilter2, TopicFilter3, ...
-    %% duplicate_bag: o(1) insert
+    %% duplicate_bag: O(1) insert
     ok = emqx_utils_ets:new(?SUBSCRIPTION, [duplicate_bag | TabOpts]),
 
-    %% Subscriber: Topic -> SubPid1, SubPid2, SubPid3, ...
-    %% bag: o(n) insert:(
+    %% Subscriber: Topic -> SubPid1, SubPid2, SubPid3, ..., ShardPid1, ...
+    %% bag: O(n) insert
+    %% However, the factor is small: high-fanout topics are _sharded_ into
+    %% buckets of constant length (e.g. 1024).
     ok = emqx_utils_ets:new(?SUBSCRIBER, [bag | TabOpts]).
 
 %%------------------------------------------------------------------------------
@@ -165,9 +167,7 @@ with_subid(SubId, SubOpts) ->
     maps:put(subid, SubId, SubOpts).
 
 do_subscribe(Topic, SubPid, SubOpts) when is_binary(Topic) ->
-    %% FIXME: subscribe shard bug
-    %% https://emqx.atlassian.net/browse/EMQX-10214
-    I = emqx_broker_helper:get_sub_shard(SubPid, Topic),
+    I = emqx_broker_helper:assign_sub_shard(Topic),
     true = ets:insert(?SUBOPTION, {{Topic, SubPid}, with_shard_idx(I, SubOpts)}),
     Sync = call(pick({Topic, I}), {subscribe, Topic, SubPid, I}),
     case Sync of
@@ -217,8 +217,8 @@ do_unsubscribe(Topic, SubPid, SubOpts) ->
 -spec do_unsubscribe_regular(emqx_types:topic(), pid(), emqx_types:subopts()) ->
     ok.
 do_unsubscribe_regular(Topic, SubPid, SubOpts) ->
-    _ = emqx_broker_helper:reclaim_seq(Topic),
     I = maps:get(shard, SubOpts, 0),
+    _ = emqx_broker_helper:unassign_sub_shard(Topic, I),
     case I of
         0 -> emqx_exclusive_subscription:unsubscribe(Topic, SubOpts);
         _ -> ok

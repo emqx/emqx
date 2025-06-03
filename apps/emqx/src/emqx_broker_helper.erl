@@ -18,7 +18,9 @@
     register_sub/2,
     lookup_subid/1,
     lookup_subpid/1,
-    get_sub_shard/2,
+    assign_sub_shard/1,
+    unassign_sub_shard/2,
+    shard_capacity/0,
     create_seq/1,
     reclaim_seq/1
 ]).
@@ -48,7 +50,9 @@
 -define(SUBID, emqx_subid).
 -define(SUBMON, emqx_submon).
 -define(SUBSEQ, emqx_subseq).
--define(SHARD, 1024).
+
+-define(SHARD_CAPACITY, 1024).
+-define(SHARD_REFILL, 768).
 
 -define(BATCH_SIZE, 1000).
 
@@ -76,17 +80,53 @@ lookup_subid(SubPid) when is_pid(SubPid) ->
 lookup_subpid(SubId) ->
     emqx_utils_ets:lookup_value(?SUBID, SubId).
 
--spec get_sub_shard(pid(), emqx_types:topic()) -> non_neg_integer().
-get_sub_shard(SubPid, Topic) ->
-    case create_seq(Topic) of
-        Seq when Seq =< ?SHARD -> 0;
-        _ -> erlang:phash2(SubPid, shards_num()) + 1
+-spec assign_sub_shard(emqx_types:topic()) -> non_neg_integer().
+assign_sub_shard(Topic) ->
+    Ix = ets:lookup_element(?HELPER, Topic, 2, 0),
+    Shard = {Topic, Ix},
+    case ets:update_counter(?HELPER, Shard, {2, 1}, {'_', 0}) of
+        N when N =< ?SHARD_CAPACITY ->
+            Ix;
+        _ ->
+            %% Subject to races.
+            ets:update_counter(?HELPER, Topic, {2, 1, Ix + 1, Ix + 1}, Shard),
+            Ix
     end.
 
--spec shards_num() -> pos_integer().
-shards_num() ->
-    %% Dynamic sharding later...
-    ets:lookup_element(?HELPER, shards, 2).
+-spec unassign_sub_shard(emqx_types:topic(), non_neg_integer()) -> _Left :: non_neg_integer().
+unassign_sub_shard(Topic, ShardIx) when is_integer(ShardIx) ->
+    Shard = {Topic, ShardIx},
+    case ets:update_counter(?HELPER, Shard, {2, -1, 0, 0}, {'_', 1}) of
+        N when N =< ?SHARD_REFILL ->
+            %% Shard is a candidate for refilling.
+            case ets:lookup_element(?HELPER, Topic, 2, 0) of
+                Ix when Ix > ShardIx ->
+                    %% Current shard is higher.
+                    %% Switch down to this shard.
+                    Spec = [
+                        {
+                            {Topic, '$1'},
+                            [{'>', '$1', ShardIx}],
+                            [{const, {Topic, ShardIx}}]
+                        }
+                    ],
+                    _NR = ets:select_replace(?HELPER, Spec);
+                Ix when Ix < ShardIx andalso N =:= 0 ->
+                    %% Current shard is lower.
+                    %% This one is empty, likely not going to be filled soon.
+                    ets:delete(?HELPER, {Shard, 0});
+                _ ->
+                    %% Current shard is either this or lower.
+                    ok
+            end,
+            N;
+        N ->
+            N
+    end.
+
+-spec shard_capacity() -> pos_integer().
+shard_capacity() ->
+    ?SHARD_CAPACITY.
 
 -spec create_seq(emqx_types:topic()) -> emqx_sequence:seqid().
 create_seq(Topic) ->
@@ -140,9 +180,7 @@ table_size(Tab) when is_atom(Tab) -> ets:info(Tab, size).
 init([]) ->
     process_flag(message_queue_data, off_heap),
     %% Helper table
-    ok = emqx_utils_ets:new(?HELPER, [{read_concurrency, true}]),
-    %% Shards: CPU * 32
-    true = ets:insert(?HELPER, {shards, emqx_vm:schedulers() * 32}),
+    ok = emqx_utils_ets:new(?HELPER, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% SubSeq: Topic -> SeqId
     ok = emqx_sequence:create(?SUBSEQ),
     %% SubId: SubId -> SubPid

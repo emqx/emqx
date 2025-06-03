@@ -26,13 +26,6 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
-init_per_testcase(_TestCase, Config) ->
-    emqx_broker_helper:start_link(),
-    Config.
-
-end_per_testcase(_TestCase, Config) ->
-    Config.
-
 t_lookup_subid(_) ->
     ?assertEqual(undefined, emqx_broker_helper:lookup_subid(self())),
     emqx_broker_helper:register_sub(self(), <<"clientid">>),
@@ -65,16 +58,78 @@ t_shard_seq(_) ->
     emqx_broker_helper:reclaim_seq(TestTopic),
     ?assertEqual([], ets:lookup(emqx_subseq, TestTopic)).
 
-t_shards_num(_) ->
-    ?assertEqual(emqx_vm:schedulers() * 32, emqx_broker_helper:shards_num()).
-
-t_get_sub_shard(_) ->
-    ?assertEqual(0, emqx_broker_helper:get_sub_shard(self(), <<"topic">>)).
-
-t_terminate(_) ->
-    ?assertEqual(ok, gen_server:stop(emqx_broker_helper)).
-
 t_uncovered_func(_) ->
     gen_server:call(emqx_broker_helper, test),
     gen_server:cast(emqx_broker_helper, test),
     emqx_broker_helper ! test.
+
+t_shard_assignment_concurrent(_) ->
+    Topic = <<"t/shard/assign">>,
+    SCapacity = emqx_broker_helper:shard_capacity(),
+    %% Run 15 concurrent workers
+    NWorkers = 15,
+    %% ...performing 1000 operations each
+    NOperations = 1000,
+    %% ...with assign-to-unassign ratio per each worker:
+    Ratios = [{IWorker, floor(math:sqrt(IWorker))} || IWorker <- lists:seq(1, NWorkers)],
+    %% ...which amounts to this ratio of live assignments in the end (lower bound):
+    RLive = lists:sum([(NA - NU) / (NA + NU) || {NA, NU} <- Ratios]) / NWorkers,
+    Worker = fun
+        Worker(WRatio = {NA, NU}, N, Hist) when N < NOperations ->
+            case N rem (NA + NU) of
+                %% Operation is 'assign':
+                X when X < NA ->
+                    I = emqx_broker_helper:assign_sub_shard(Topic),
+                    NHist = maps:update_with(I, fun(C) -> C + 1 end, 1, Hist);
+                %% Operation is 'unassign':
+                _ when map_size(Hist) > 0 ->
+                    %% Pick shard to unassign pseudo-randomly:
+                    R = N rem maps:size(Hist),
+                    I = lists:nth(R + 1, maps:keys(Hist)),
+                    _ = emqx_broker_helper:unassign_sub_shard(Topic, I),
+                    NHist = Hist;
+                %% Operation is 'unassign', but there's no shard to unassign:
+                _ ->
+                    NHist = Hist
+            end,
+            Worker(WRatio, N + 1, NHist);
+        Worker(_WRatio, _, Hist) ->
+            exit(Hist)
+    end,
+    %% Spawn workers:
+    Workers = [erlang:spawn_monitor(fun() -> Worker(WRatio, 0, #{}) end) || WRatio <- Ratios],
+    %% Collect histograms of #{IShard => NAssignments}:
+    Hists = [
+        receive
+            {'DOWN', MRef, process, Pid, Hist} ->
+                #{} = Hist
+        end
+     || {Pid, MRef} <- Workers
+    ],
+    %% Aggregate histograms:
+    AccHist = lists:foldl(
+        fun(Hist, Acc) -> maps:merge_with(fun(_, C, CAcc) -> C + CAcc end, Hist, Acc) end,
+        #{},
+        Hists
+    ),
+    %% At most `NWorkers` shards have ever been assigned:
+    ?assertNotMatch(
+        #{(NWorkers - 1) := _NAssignments},
+        AccHist
+    ),
+    %% Shards are assigned sequentially:
+    ?assertEqual(
+        %% NOTE
+        %% Assertion is non-strict, e.g. it allows [1, 3, 2] sequence of assignments.
+        %% Strict one is much harder to construct while the benefit is insignificant.
+        lists:seq(0, maps:size(AccHist) - 1),
+        lists:sort(maps:keys(AccHist))
+    ),
+    %% Assigments should have no more than a "small tail" of non-optimal shard assigments,
+    %% when compared against an optimal assigment:
+    OptimalLastShard = floor(RLive * NWorkers * NOperations / SCapacity),
+    ?assertMatch(
+        NAssignments when NAssignments < SCapacity * 1.5,
+        lists:sum([N || {Shard, N} <- maps:to_list(AccHist), Shard > OptimalLastShard]),
+        AccHist
+    ).
