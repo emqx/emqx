@@ -10,7 +10,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
--export([start_link/0, regenerate_dispatch/0]).
+-export([start_link/0]).
 
 %% emqx_config_handler API
 -export([add_handler/0, remove_handler/0]).
@@ -22,15 +22,13 @@
     handle_call/3,
     handle_cast/2,
     handle_info/2,
-    terminate/2,
-    code_change/3
+    terminate/2
 ]).
 
 %%--------------------------------------------------------------------
 %% gen_server messages
 %%--------------------------------------------------------------------
 
--record(regenerate_dispatch, {}).
 -record(update_listeners, {
     old_listeners :: emqx_dashboard:listener_configs(),
     new_listeners :: emqx_dashboard:listener_configs()
@@ -42,9 +40,6 @@
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
-
-regenerate_dispatch() ->
-    gen_server:cast(?MODULE, #regenerate_dispatch{}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -58,10 +53,6 @@ init([]) ->
 handle_call(_Request, _From, State) ->
     {reply, {error, not_implemented}, State, hibernate}.
 
-handle_cast(#regenerate_dispatch{}, State) ->
-    ok = wait_for_config_update(),
-    {ok, _} = do_regenerate_dispatch(),
-    {noreply, State, hibernate};
 handle_cast(#update_listeners{old_listeners = OldListeners, new_listeners = NewListeners}, State) ->
     ok = wait_for_config_update(),
     ok = emqx_dashboard:stop_listeners(OldListeners),
@@ -76,9 +67,6 @@ handle_info(_Info, State) ->
 terminate(_Reason, _State) ->
     ok = remove_handler(),
     ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% emqx_config_handler API
@@ -106,7 +94,7 @@ pre_config_update(_Path, UpdateConf0, RawConf) ->
     ensure_ssl_cert(NewConf).
 
 post_config_update(_, {change_i18n_lang, _}, _NewConf, _OldConf, _AppEnvs) ->
-    regenerate_dispatch();
+    emqx_dashboard:regenerate_dispatch_after_config_update();
 post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     SwaggerSupport = diff_swagger_support(NewConf, OldConf),
     OldHttp = get_listener(http, OldConf),
@@ -117,17 +105,14 @@ post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     {StopHttps, StartHttps} = diff_listeners(https, OldHttps, NewHttps, SwaggerSupport),
     Stop = maps:merge(StopHttp, StopHttps),
     Start = maps:merge(StartHttp, StartHttps),
-    update_listeners(Stop, Start).
+    update_listeners_after_config_update(Stop, Start).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-update_listeners(Stop, Start) ->
+update_listeners_after_config_update(Stop, Start) ->
     gen_server:cast(?MODULE, #update_listeners{old_listeners = Stop, new_listeners = Start}).
-
-do_regenerate_dispatch() ->
-    emqx_dashboard:update_dispatch().
 
 -define(SENSITIVE_PASSWORD, <<"******">>).
 

@@ -338,13 +338,15 @@ t_stats_no_auth_api(_) ->
         _ ->
             ok
     end,
-    {ok, _} = emqx_dashboard:update_dispatch(),
+    #{started := Started} = emqx_dashboard:listeners_status(),
+    ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
     Headers = accept_json_header(),
     request_stats(Headers, []).
 
 t_stats_auth_api(_) ->
     {ok, _} = emqx:update_config([prometheus, enable_basic_auth], true),
-    {ok, _} = emqx_dashboard:update_dispatch(),
+    #{started := Started} = emqx_dashboard:listeners_status(),
+    ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Headers = [Auth | accept_json_header()],
     request_stats(Headers, Auth),
