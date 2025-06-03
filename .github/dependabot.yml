@@ -20,13 +20,3 @@ updates:
       actions-package-macos:
         patterns:
           - "*"
-  - package-ecosystem: github-actions
-    directory: "/.github/actions/prepare-jmeter/" # All subdirectories outside of "/.github/workflows" must be explicitly included.
-    reviewers:
-      - "emqx/emqx-review-board"
-    schedule:
-      interval: weekly
-    groups:
-      actions-prepare-jmeter:
-        patterns:
-          - "*"
