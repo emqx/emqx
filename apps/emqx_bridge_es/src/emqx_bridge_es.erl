@@ -48,7 +48,7 @@ fields(action_resource_opts) ->
     );
 fields(action_create) ->
     [
-        action(create),
+        action_field(create, ?DESC(create)),
         index(),
         id(false),
         doc(),
@@ -58,10 +58,10 @@ fields(action_create) ->
         | http_common_opts()
     ];
 fields(action_delete) ->
-    [action(delete), index(), id(true), routing() | http_common_opts()];
+    [action_field(delete, ?DESC(delete)), index(), id(true), routing() | http_common_opts()];
 fields(action_update) ->
     [
-        action(update),
+        action_field(update, ?DESC(update)),
         index(),
         id(true),
         doc(),
@@ -103,13 +103,13 @@ action_union_member_selector({value, Value}) ->
             })
     end.
 
-action(Action) ->
+action_field(Action, Desc) ->
     {action,
         ?HOCON(
             Action,
             #{
                 required => true,
-                desc => atom_to_binary(Action)
+                desc => Desc
             }
         )}.
 

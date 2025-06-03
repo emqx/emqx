@@ -222,8 +222,10 @@ schema_with_examples(Type, Examples) ->
     hoconsc:mk(Type, #{examples => #{<<"examples">> => Examples}}).
 
 -spec error_codes(list(atom())) -> hocon_schema:fields().
+error_codes(['BAD_REQUEST']) ->
+    error_codes(['BAD_REQUEST'], ?DESC("bad_request"));
 error_codes(Codes) ->
-    error_codes(Codes, <<"Error code to troubleshoot problems.">>).
+    error_codes(Codes, ?DESC("error_codes")).
 
 -spec error_codes(nonempty_list(atom()), binary() | {desc, module(), term()}) ->
     hocon_schema:fields().
@@ -589,7 +591,7 @@ meta_to_spec(Meta, Module, Options) ->
     {RequestBody, Refs2} = request_body(maps:get('requestBody', Meta, []), Module, Options),
     {Responses, Refs3} = responses(maps:get(responses, Meta, #{}), Module, Options),
     {
-        generate_method_desc(to_spec(Meta, Params, RequestBody, Responses), Options),
+        generate_method_desc(to_spec(Meta, Params, RequestBody, Responses), Options, Module),
         lists:usort(Refs1 ++ Refs2 ++ Refs3)
     }.
 
@@ -600,13 +602,13 @@ to_spec(Meta, Params, RequestBody, Responses) ->
     Spec = to_spec(Meta, Params, [], Responses),
     maps:put('requestBody', RequestBody, Spec).
 
-generate_method_desc(Spec = #{desc := _Desc}, Options) ->
-    Spec1 = trans_description(maps:remove(desc, Spec), Spec, Options),
+generate_method_desc(Spec = #{desc := _Desc}, Options, Module) ->
+    Spec1 = trans_description(maps:remove(desc, Spec), Spec, Options, Module),
     trans_tags(Spec1);
-generate_method_desc(Spec = #{description := _Desc}, Options) ->
-    Spec1 = trans_description(Spec, Spec, Options),
+generate_method_desc(Spec = #{description := _Desc}, Options, Module) ->
+    Spec1 = trans_description(Spec, Spec, Options, Module),
     trans_tags(Spec1);
-generate_method_desc(Spec, _Options) ->
+generate_method_desc(Spec, _Options, _Module) ->
     trans_tags(Spec).
 
 trans_tags(Spec = #{tags := Tags}) ->
@@ -640,7 +642,7 @@ parameters(Params, Module, Options) ->
                             Type
                         ),
                         Spec1 = trans_required(Spec0, Required, In),
-                        Spec2 = trans_description(Spec1, Type, Options),
+                        Spec2 = trans_description(Spec1, Type, Options, Module),
                         {[Spec2 | Acc], Refs ++ RefsAcc}
                 end
             end,
@@ -685,7 +687,7 @@ trans_required(Spec, true, _) -> Spec#{required => true};
 trans_required(Spec, _, path) -> Spec#{required => true};
 trans_required(Spec, _, _) -> Spec.
 
-trans_description(Spec, Hocon, Options) ->
+trans_description(Spec, Hocon, Options, Module) ->
     Desc =
         case desc_struct(Hocon) of
             undefined ->
@@ -693,7 +695,7 @@ trans_description(Spec, Hocon, Options) ->
             ?DESC(_, _) = Struct ->
                 get_i18n(<<"desc">>, Struct, undefined, Options);
             Text ->
-                maybe_warn_missing_desc(Hocon, Text),
+                maybe_warn_missing_desc(Hocon, Text, Module),
                 to_bin(Text)
         end,
     case Desc =:= undefined of
@@ -704,12 +706,12 @@ trans_description(Spec, Hocon, Options) ->
             Spec#{description => Desc1}
     end.
 
-maybe_warn_missing_desc(Hocon, Text) ->
+maybe_warn_missing_desc(Hocon, Text, Module) ->
     case os:getenv("WARN_MISSING_DESC") of
         "1" when Text =/= <<>> ->
-            io:format(user, "Missing-api-translation: ~s~n", [Text]);
+            io:format(user, "~p Missing-api-translation: ~s~n", [Module, Text]);
         "1" ->
-            io:format(user, "Missing-api-translation: ~0p~n", [Hocon]);
+            io:format(user, "~p Missing-api-translation: ~0p~n", [Module, Hocon]);
         _ ->
             ok
     end.
@@ -782,7 +784,7 @@ responses(Responses, Module, Options) ->
     {Spec, Refs}.
 
 response(Status, ?DESC(_Mod, _Id) = Schema, {Acc, RefsAcc, Module, Options}) ->
-    Desc = trans_description(#{}, #{desc => Schema}, Options),
+    Desc = trans_description(#{}, #{desc => Schema}, Options, Module),
     {Acc#{integer_to_binary(Status) => Desc}, RefsAcc, Module, Options};
 response(Status, Bin, {Acc, RefsAcc, Module, Options}) when is_binary(Bin) ->
     {Acc#{integer_to_binary(Status) => #{description => Bin}}, RefsAcc, Module, Options};
@@ -811,7 +813,7 @@ response(Status, Schema, {Acc, RefsAcc, Module, Options}) ->
             Hocon = hocon_schema:field_schema(Schema, type),
             Examples = hocon_schema:field_schema(Schema, examples),
             {Spec, Refs} = hocon_schema_to_spec(Hocon, Module),
-            Init = trans_description(#{}, Schema, Options),
+            Init = trans_description(#{}, Schema, Options, Module),
             Content = content(Spec, Examples),
             {
                 Acc#{integer_to_binary(Status) => Init#{<<"content">> => Content}},
@@ -821,7 +823,7 @@ response(Status, Schema, {Acc, RefsAcc, Module, Options}) ->
             };
         false ->
             {Props, Refs} = parse_object(Schema, Module, Options),
-            Init = trans_description(#{}, Schema, Options),
+            Init = trans_description(#{}, Schema, Options, Module),
             Content = Init#{<<"content">> => content(Props)},
             {Acc#{integer_to_binary(Status) => Content}, Refs ++ RefsAcc, Module, Options}
     end.
@@ -974,7 +976,7 @@ parse_object_loop([{Name, Hocon} | Rest], Module, Options, Props, Required, Refs
             SchemaToSpec = get_schema_converter(Options),
             Init = maps:remove(
                 summary,
-                trans_description(Init0, Hocon, Options)
+                trans_description(Init0, Hocon, Options, Module)
             ),
             {Prop, Refs1} = SchemaToSpec(HoconType, Module),
             NewRequiredAcc =

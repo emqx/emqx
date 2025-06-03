@@ -102,29 +102,32 @@ t_error(_Config) ->
                 }
             }
     },
-    Error404 = #{
-        <<"content">> =>
-            #{
-                <<"application/json">> => #{
-                    <<"schema">> => #{
-                        <<"type">> => object,
-                        <<"properties">> =>
-                            [
-                                {<<"code">>, #{enum => ['Not-Found'], type => string}},
-                                {<<"message">>, #{
-                                    description => <<"Error code to troubleshoot problems.">>,
-                                    type => string
-                                }}
-                            ]
-                    }
-                }
-            }
-    },
     {OperationId, Spec, Refs, #{}} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Response = maps:get(responses, maps:get(get, Spec)),
     ?assertEqual(Error400, maps:get(<<"400">>, Response)),
-    ?assertEqual(Error404, maps:get(<<"404">>, Response)),
+    ?assertMatch(
+        #{
+            <<"content">> :=
+                #{
+                    <<"application/json">> := #{
+                        <<"schema">> := #{
+                            <<"type">> := object,
+                            <<"properties">> :=
+                                [
+                                    {<<"code">>, #{enum := ['Not-Found'], type := string}},
+                                    {<<"message">>, #{
+                                        description := _,
+                                        type := string
+                                    }}
+                                ]
+                        }
+                    }
+                }
+        },
+
+        maps:get(<<"404">>, Response)
+    ),
     ?assertEqual(#{}, maps:without([<<"400">>, <<"404">>], Response)),
     ?assertEqual([], Refs),
     ok.
