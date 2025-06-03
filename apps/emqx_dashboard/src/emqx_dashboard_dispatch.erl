@@ -105,8 +105,8 @@ do_regenerate_dispatch(ListenerNames) ->
             ListenerNames
         )
     end),
-    ?tp(error, regenerate_dispatch, #{
-        elapsed => erlang:convert_time_unit(Time, microsecond, millisecond),
+    ?tp(info, regenerate_dispatch, #{
+        elapsed_ms => erlang:convert_time_unit(Time, microsecond, millisecond),
         i18n_lang => emqx:get_config([dashboard, i18n_lang]),
         listeners => ListenerNames
     }),
