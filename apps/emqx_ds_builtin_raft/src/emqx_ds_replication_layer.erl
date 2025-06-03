@@ -98,7 +98,7 @@
     otx_get_leader/2,
     otx_become_leader/2,
     otx_prepare_tx/5,
-    otx_commit_tx_batch/4,
+    otx_commit_tx_batch/5,
     otx_lookup_ttv/4,
     otx_get_runtime_config/1
 ]).
@@ -666,8 +666,8 @@ otx_become_leader(DB, Shard) ->
             ?err_rec(leader_unavailable);
         Leader ->
             case ra:process_command(Leader, Command, 5_000) of
-                {ok, Serial, _Leader} ->
-                    {ok, Serial};
+                {ok, {Serial, Timestamp}, _Leader} ->
+                    {ok, Serial, Timestamp};
                 Err ->
                     ?err_unrec({raft, Err})
             end
@@ -684,11 +684,12 @@ otx_become_leader(DB, Shard) ->
 otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
     emqx_ds_storage_layer_ttv:prepare_tx(DBShard, Generation, SerialBin, Ops, Opts).
 
-otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Batches) ->
+otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
     Command = #{
         ?tag => commit_tx_batch,
         ?prev_serial => SerCtl,
         ?serial => Serial,
+        ?otx_timestamp => Timestamp,
         ?batches => Batches,
         ?otx_leader_pid => self()
     },
@@ -1256,6 +1257,7 @@ apply(
         ?tag := commit_tx_batch,
         ?prev_serial := SerCtl,
         ?serial := Serial,
+        ?otx_timestamp := Timestamp,
         ?batches := Batches,
         ?otx_leader_pid := From
     },
@@ -1266,7 +1268,7 @@ apply(
             case emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{durable => false}) of
                 ok ->
                     emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
-                    State = State0#{tx_serial := Serial},
+                    State = State0#{tx_serial := Serial, latest := Timestamp},
                     Result = ok,
                     Effects = try_release_log({Serial, length(Batches)}, RaftMeta, State);
                 Err = ?err_unrec(_) ->
@@ -1293,10 +1295,11 @@ apply(
         ?tag := new_otx_leader,
         ?otx_leader_pid := Pid
     },
-    State = #{db_shard := DBShard, tx_serial := Serial}
+    State = #{db_shard := DBShard, tx_serial := Serial, latest := Timestamp}
 ) ->
     set_otx_leader(DBShard, Pid),
-    {State#{otx_leader_pid => Pid}, Serial}.
+    Reply = {Serial, Timestamp},
+    {State#{otx_leader_pid => Pid}, Reply}.
 
 start_otx_leader(DB, Shard) ->
     ?tp_span(

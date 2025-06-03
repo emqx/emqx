@@ -1410,6 +1410,84 @@ t_18_async_trans(Config) ->
         []
     ).
 
+%% Verify timestamp monotonicity:
+t_20_tx_monotonic_ts(Config) ->
+    DB = ?FUNCTION_NAME,
+    TXOpts = #{db => DB, shard => {auto, <<"me">>}, generation => 1, retries => 10},
+    ?check_trace(
+        begin
+            %% Open the database
+            Opts = maps:merge(opts(Config), #{
+                store_ttv => true,
+                storage =>
+                    {emqx_ds_storage_skipstream_lts_v2, #{
+                        timestamp_bytes => 64
+                    }}
+            }),
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts)
+            ),
+            {atomic, _, TransTS} =
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({[], ?ds_tx_ts_monotonic, <<0>>}),
+                        emqx_ds:tx_write({[], ?ds_tx_ts_monotonic, <<1>>}),
+                        emqx_ds:tx_write({[], ?ds_tx_ts_monotonic, <<2>>}),
+                        erlang:system_time(microsecond)
+                    end
+                ),
+            timer:sleep(100),
+            %% Verify that the data has been written:
+            Data = lists:sort(emqx_ds:dirty_read(DB, [])),
+            ?assertMatch(
+                [
+                    {[], _, <<0>>},
+                    {[], _, <<1>>},
+                    {[], _, <<2>>}
+                ],
+                Data
+            ),
+            %% Verify that the assigned timestamp are within the expected range:
+            lists:foreach(
+                fun({_, TS, _}) ->
+                    ?assert(
+                        abs(TS - TransTS) < 1_000_000,
+                        #{ts => TS, now => TransTS}
+                    )
+                end,
+                Data
+            ),
+            %% Reopen DB and append messages:
+            ?assertMatch(
+                ok,
+                emqx_ds:close_db(DB)
+            ),
+            ?assertMatch(
+                ok,
+                emqx_ds:open_db(DB, Opts)
+            ),
+            {atomic, _, _} =
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({[<<>>], ?ds_tx_ts_monotonic, <<4>>})
+                    end
+                ),
+            timer:sleep(100),
+            %% Verify that the timestamp is still increasing (note:
+            %% this condition is unlikely to fail...):
+            TSBefore = lists:max([TS || {_, TS, _} <- Data]),
+            [{_, TSAfterReopen, _}] = emqx_ds:dirty_read(DB, [<<>>]),
+            ?assert(
+                TSAfterReopen > TSBefore,
+                #{before => TSBefore, after_ => TSAfterReopen}
+            )
+        end,
+        []
+    ).
+
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.

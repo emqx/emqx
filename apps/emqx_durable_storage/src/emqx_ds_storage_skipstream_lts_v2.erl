@@ -186,8 +186,15 @@ prepare_tx(DBShard, S, TXID, Ops, _Options) ->
 
 cook_blob_writes(_, _TXID, [], Acc) ->
     lists:reverse(Acc);
-cook_blob_writes(S = #s{}, TXID, [{Topic, TS, Value0} | Rest], Acc) ->
+cook_blob_writes(S = #s{}, TXID, [{Topic, TS0, Value0} | Rest], Acc) ->
     #s{trie = Trie, threshold_fun = TFun, ts_bytes = TSB} = S,
+    %% Get the timestamp:
+    case TS0 of
+        ?ds_tx_ts_monotonic ->
+            TS = emqx_ds_optimistic_tx:get_monotonic_timestamp();
+        TS when is_integer(TS) ->
+            ok
+    end,
     %% Verify that TS fits in the TSB:
     TS < (1 bsl (8 * TSB)) orelse
         throw({unrecoverable, {timestamp_is_too_large, TS}}),
