@@ -127,7 +127,7 @@ update_push_gateway(Prometheus) ->
     end.
 
 update_auth(#{enable_basic_auth := New}, #{enable_basic_auth := Old}) when New =/= Old ->
-    emqx_dashboard_listener:regenerate_dispatch(),
+    emqx_dashboard:regenerate_dispatch_after_config_update(),
     ok;
 update_auth(_, _) ->
     ok.
