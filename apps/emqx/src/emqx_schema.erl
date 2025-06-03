@@ -2703,15 +2703,6 @@ authz_fields() ->
 keys(Parent, Conf) ->
     [binary_to_list(B) || B <- maps:keys(conf_get(Parent, Conf, #{}))].
 
--spec ceiling(number()) -> integer().
-ceiling(X) ->
-    T = erlang:trunc(X),
-    case (X - T) of
-        Neg when Neg < 0 -> T;
-        Pos when Pos > 0 -> T + 1;
-        _ -> T
-    end.
-
 %% types
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
@@ -2748,7 +2739,7 @@ to_duration(Str) ->
 to_duration_s(Str) ->
     case hocon_postprocess:duration(Str) of
         D when is_number(D) ->
-            {ok, ceiling(D / 1000)};
+            {ok, erlang:ceil(D / 1000)};
         _ ->
             case to_integer(Str) of
                 {ok, I} -> {ok, I};
@@ -2761,7 +2752,7 @@ to_duration_s(Str) ->
 to_duration_ms(Str) ->
     case hocon_postprocess:duration(Str) of
         D when is_number(D) ->
-            {ok, ceiling(D)};
+            {ok, erlang:ceil(D)};
         _ ->
             case to_integer(Str) of
                 {ok, I} -> {ok, I};
