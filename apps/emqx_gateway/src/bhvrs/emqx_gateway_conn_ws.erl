@@ -224,7 +224,7 @@ do_init(Req, Opts, WsOpts) ->
         {error, Reason, _State} ->
             {ok, cowboy_req:reply(400, #{}, to_bin(Reason), Req), WsOpts};
         {ok, [Resp, Opts, WsOpts], NState} ->
-            {cowboy_websocket, Resp, [Req, Opts, NState], WsOpts}
+            {cowboy_websocket_linger, Resp, [Req, Opts, NState], WsOpts}
     end.
 
 init_state_and_channel([Req, Opts, _WsOpts], _State = undefined) ->

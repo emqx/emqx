@@ -12,15 +12,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(
-    emqx_ws_connection,
-    [
-        websocket_handle/2,
-        websocket_info/2,
-        websocket_close/2
-    ]
-).
-
 -define(ws_conn, emqx_ws_connection).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -44,12 +35,9 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_sub_protocols_mqtt,
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_pingreq_before_connected,
-    TestCase =/= t_ws_non_check_origin
+    TestCase =/= t_ws_non_check_origin,
+    TestCase =/= t_header
 ->
-    %% Meck Cm
-    ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
-    ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
     ok = meck:expect(cowboy_req, header, fun(_, _, _) -> <<>> end),
@@ -70,13 +58,10 @@ end_per_testcase(TestCase, _Config) when
     TestCase =/= t_ws_sub_protocols_mqtt,
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_non_check_origin,
-    TestCase =/= t_ws_pingreq_before_connected
+    TestCase =/= t_ws_pingreq_before_connected,
+    TestCase =/= t_header
 ->
-    meck:unload([
-        emqx_cm,
-        cowboy_req
-    ]),
-    ok;
+    meck:unload([cowboy_req]);
 end_per_testcase(_, Config) ->
     Config.
 
@@ -103,36 +88,31 @@ set_ws_opts(Key, Val) ->
     emqx_config:put_listener_conf(ws, default, [websocket, Key], Val).
 
 t_header(_) ->
-    ok = meck:expect(
-        cowboy_req,
-        header,
-        fun
-            (<<"x-forwarded-for">>, _, _) -> <<"100.100.100.100, 99.99.99.99">>;
-            (<<"x-forwarded-port">>, _, _) -> <<"1000">>
-        end
-    ),
+    set_ws_opts(fail_if_no_subprotocol, false),
     set_ws_opts(proxy_address_header, <<"x-forwarded-for">>),
     set_ws_opts(proxy_port_header, <<"x-forwarded-port">>),
-    {ok, St, _} = ?ws_conn:websocket_init([
-        #{},
+    {_Module, _Req, [ConnInfo, _], _ModOpts} = ?ws_conn:init(
+        #{
+            peer => {{127, 0, 0, 1}, 3456},
+            sock => {{127, 0, 0, 1}, 54321},
+            cert => undefined,
+            headers => #{
+                <<"x-forwarded-for">> => <<"100.100.100.100, 99.99.99.99">>,
+                <<"x-forwarded-port">> => <<"1000">>
+            }
+        },
         #{
             zone => default,
-            limiter => undefined,
             listener => {ws, default}
         }
-    ]),
-    WsPid = spawn(fun() ->
-        receive
-            {call, From, info} ->
-                gen_server:reply(From, ?ws_conn:info(St))
-        end
-    end),
-    #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
-    #{
-        socktype := ws,
-        peername := {{100, 100, 100, 100}, 1000},
-        sockstate := running
-    } = SockInfo.
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{100, 100, 100, 100}, 1000}
+        },
+        ConnInfo
+    ).
 
 t_info_channel(_) ->
     #{conn_state := connected} = ?ws_conn:info(channel, st()).
@@ -141,11 +121,6 @@ t_info_gc_state(_) ->
     GcSt = emqx_gc:init(#{count => 10, bytes => 1000}),
     GcInfo = ?ws_conn:info(gc_state, st(#{gc_state => GcSt})),
     ?assertEqual(#{cnt => {10, 10}, oct => {1000, 1000}}, GcInfo).
-
-t_info_postponed(_) ->
-    ?assertEqual([], ?ws_conn:info(postponed, st())),
-    St = ?ws_conn:postpone({active, false}, st()),
-    ?assertEqual([{active, false}], ?ws_conn:info(postponed, St)).
 
 t_stats(_) ->
     WsPid = spawn(fun() ->
@@ -280,54 +255,58 @@ t_ws_non_check_origin(_) ->
         })
     ).
 
-t_init(_) ->
-    Opts = #{listener => {ws, default}, zone => default, limiter => undefined},
-    ok = meck:expect(cowboy_req, parse_header, fun(_, req) -> undefined end),
-    ok = meck:expect(cowboy_req, reply, fun(_, Req) -> Req end),
-    {ok, req, _} = ?ws_conn:init(req, Opts),
-    ok = meck:expect(cowboy_req, parse_header, fun(_, req) -> [<<"mqtt">>] end),
-    ok = meck:expect(cowboy_req, set_resp_header, fun(_, <<"mqtt">>, req) -> resp end),
-    {cowboy_websocket, resp, [req, Opts], _} = ?ws_conn:init(req, Opts).
-
 t_websocket_handle_binary(_) ->
-    {ok, _} = websocket_handle({binary, <<>>}, st()),
-    {ok, _} = websocket_handle({binary, [<<>>]}, st()),
-    {ok, _} = websocket_handle({binary, <<192, 0>>}, st()),
-    receive
-        {incoming, ?PACKET(?PINGREQ)} -> ok
-    after 0 -> error(expect_incoming_pingreq)
-    end.
+    {ok, _} = ?ws_conn:websocket_handle({binary, <<>>}, st()),
+    {ok, _} = ?ws_conn:websocket_handle({binary, [<<>>]}, st()),
+    {[{binary, Frame}], _} = ?ws_conn:websocket_handle({binary, <<192, 0>>}, st()),
+    ?assertEqual(
+        iolist_to_binary(Frame),
+        iolist_to_binary(emqx_frame:serialize(?PACKET(?PINGRESP)))
+    ).
+
+t_websocket_handle_packet_order(_) ->
+    Publishes = [
+        ?PUBLISH_PACKET(?QOS_1, <<"t/q1">>, 1, <<"P1">>),
+        ?PUBLISH_PACKET(?QOS_2, <<"t/q2">>, 2, <<"P2">>)
+    ],
+    <<Frag1:2/bytes, Frag2/bytes>> =
+        iolist_to_binary([emqx_frame:serialize(P, ?MQTT_PROTO_V5) || P <- Publishes]),
+    {ok, St1} = ?ws_conn:websocket_handle({binary, Frag1}, st()),
+    {[{binary, Frame1}, {binary, Frame2}], _} = ?ws_conn:websocket_handle({binary, Frag2}, St1),
+    ?assertEqual(
+        iolist_to_binary(Frame1),
+        iolist_to_binary(emqx_frame:serialize(?PUBACK_PACKET(1)))
+    ),
+    ?assertEqual(
+        iolist_to_binary(Frame2),
+        iolist_to_binary(emqx_frame:serialize(?PUBREC_PACKET(2)))
+    ).
 
 t_websocket_handle_ping(_) ->
-    {ok, St} = websocket_handle(ping, St = st()),
-    {ok, St} = websocket_handle({ping, <<>>}, St).
+    {ok, St} = ?ws_conn:websocket_handle(ping, St = st()),
+    {ok, St} = ?ws_conn:websocket_handle({ping, <<>>}, St).
 
 t_websocket_handle_pong(_) ->
-    {ok, St} = websocket_handle(pong, St = st()),
-    {ok, St} = websocket_handle({pong, <<>>}, St).
+    {ok, St} = ?ws_conn:websocket_handle(pong, St = st()),
+    {ok, St} = ?ws_conn:websocket_handle({pong, <<>>}, St).
 
 t_websocket_handle_bad_frame(_) ->
-    {[{shutdown, unexpected_ws_frame}], _St} = websocket_handle({badframe, <<>>}, st()).
+    {[{shutdown, unexpected_ws_frame}], _St} = ?ws_conn:websocket_handle({badframe, <<>>}, st()).
 
 t_websocket_info_call(_) ->
     From = {make_ref(), self()},
     Call = {call, From, badreq},
-    {ok, _St} = websocket_info(Call, st()).
+    {ok, _St} = ?ws_conn:websocket_info(Call, st()).
 
 t_websocket_info_rate_limit(_) ->
-    {ok, _} = websocket_info({cast, rate_limit}, st()),
-    ok = timer:sleep(1),
-    receive
-        {check_gc, Cnt, Oct} ->
-            ?assertEqual(0, Cnt),
-            ?assertEqual(0, Oct)
-    after 0 -> error(expect_check_gc)
-    end.
+    St0 = st(),
+    {ok, St1} = ?ws_conn:websocket_info({gc, incoming}, St0),
+    {ok, _St} = ?ws_conn:websocket_info({gc, outgoing}, St1).
 
 t_websocket_info_cast(_) ->
-    {ok, _St} = websocket_info({cast, msg}, st()).
+    {ok, _St} = ?ws_conn:websocket_info({cast, msg}, st()).
 
-t_websocket_info_incoming(_) ->
+t_websocket_incoming(_) ->
     ok = emqx_broker:subscribe(<<"#">>, <<?MODULE_STRING>>),
     ConnPkt = #mqtt_packet_connect{
         proto_name = <<"MQTT">>,
@@ -340,79 +319,73 @@ t_websocket_info_incoming(_) ->
         username = <<"username">>,
         password = <<"passwd">>
     },
-    {[{binary, IoData1}, {close, protocol_error}], St1} =
-        websocket_info({incoming, ?CONNECT_PACKET(ConnPkt)}, st()),
+    {[{binary, IoData1}, {close, <<"protocol_error">>}], St1} =
+        ?ws_conn:handle_incoming([?CONNECT_PACKET(ConnPkt)], st()),
     ?assertEqual(<<224, 2, ?RC_PROTOCOL_ERROR, 0>>, iolist_to_binary(IoData1)),
     %% PINGREQ
     {[{binary, IoData2}], St2} =
-        websocket_info({incoming, ?PACKET(?PINGREQ)}, St1),
+        ?ws_conn:handle_incoming([?PACKET(?PINGREQ)], St1),
     ?assertEqual(<<208, 0>>, iolist_to_binary(IoData2)),
     %% PUBLISH with property
     Publish = ?PUBLISH_PACKET(
         ?QOS_1, <<"t">>, 1, #{'User-Property' => [{<<"k">>, <<"v">>}]}, <<"payload">>
     ),
-    {[{binary, IoData3}], St3} = websocket_info({incoming, Publish}, St2),
+    {[{binary, IoData3}], St3} = ?ws_conn:handle_incoming([Publish], St2),
     ?assertEqual(<<64, 4, 0, 1, 0, 0>>, iolist_to_binary(IoData3)),
     %% frame_error
-    Cause = invalid_property_code,
-    FrameError = {frame_error, #{cause => Cause, property_code => 16#2B}},
+    FrameError = {frame_error, #{cause => invalid_property_code, property_code => 16#2B}},
     %% cowboy_websocket's close reason must be an atom to avoid crashing the sender process.
     %% ensure the cause is atom
     {[{binary, IoData4}, {close, CauseReq}], _St4} =
-        websocket_info({incoming, FrameError}, St3),
+        ?ws_conn:handle_incoming([FrameError], St3),
     ?assertEqual(<<224, 2, ?RC_MALFORMED_PACKET, 0>>, iolist_to_binary(IoData4)),
-    ?assertEqual(Cause, CauseReq).
+    ?assertEqual(<<"invalid_property_code">>, CauseReq).
 
 t_websocket_info_check_gc(_) ->
     Stats = #{cnt => 10, oct => 1000},
-    {ok, _St} = websocket_info({check_gc, Stats}, st()).
+    {ok, _St} = ?ws_conn:websocket_info({check_gc, Stats}, st()).
 
 t_websocket_info_deliver(_) ->
     Msg0 = emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"">>),
     Msg1 = emqx_message:make(clientid, ?QOS_1, <<"t">>, <<"">>),
     self() ! {deliver, <<"#">>, Msg1},
     {[{binary, _Pub1}, {binary, _Pub2}], _St} =
-        websocket_info({deliver, <<"#">>, Msg0}, st()).
+        ?ws_conn:websocket_info({deliver, <<"#">>, Msg0}, st()).
 
 t_websocket_info_timeout_keepalive(_) ->
-    {ok, _St} = websocket_info({timeout, make_ref(), keepalive}, st()).
+    {ok, _St} = ?ws_conn:websocket_info({timeout, make_ref(), keepalive}, st()).
 
 t_websocket_info_timeout_emit_stats(_) ->
     Ref = make_ref(),
     St = st(#{stats_timer => Ref}),
-    {ok, St1} = websocket_info({timeout, Ref, emit_stats}, St),
+    {ok, St1} = ?ws_conn:websocket_info({timeout, Ref, emit_stats}, St),
     ?assertEqual(undefined, ?ws_conn:info(stats_timer, St1)).
 
 t_websocket_info_timeout_retry(_) ->
-    {ok, _St} = websocket_info({timeout, make_ref(), retry_delivery}, st()).
+    {ok, _St} = ?ws_conn:websocket_info({timeout, make_ref(), retry_delivery}, st()).
 
 t_websocket_info_close(_) ->
-    {[{close, _}], _St} = websocket_info({close, sock_error}, st()).
-
-t_websocket_info_shutdown(_) ->
-    {[{shutdown, reason}], _St} = websocket_info({shutdown, reason}, st()).
+    {[{shutdown, sock_error}], _St} = ?ws_conn:websocket_info({sock_closed, sock_error}, st()).
 
 t_websocket_info_stop(_) ->
-    {[{shutdown, normal}], _St} = websocket_info({stop, normal}, st()).
+    {[{shutdown, normal}], _St} = ?ws_conn:websocket_info({stop, normal}, st()).
 
 t_websocket_close(_) ->
-    {[{shutdown, badframe}], _St} = websocket_close(badframe, st()).
+    {[{shutdown, badframe}], _St} = ?ws_conn:websocket_close(badframe, st()).
 
-t_handle_info_connack(_) ->
+t_handle_channel_connack(_) ->
     ConnAck = ?CONNACK_PACKET(?RC_SUCCESS),
     {[{binary, IoData}], _St} =
-        ?ws_conn:handle_info({connack, ConnAck}, st()),
+        ?ws_conn:handle_replies({connack, ConnAck}, [], st()),
     ?assertEqual(<<32, 2, 0, 0>>, iolist_to_binary(IoData)).
 
-t_handle_info_close(_) ->
-    {[{close, _}], _St} = ?ws_conn:handle_info({close, protocol_error}, st()).
+t_handle_channel_close(_) ->
+    {[{close, _}], _St} = ?ws_conn:handle_replies({close, protocol_error}, [], st()).
 
 t_handle_info_event(_) ->
-    ok = meck:expect(emqx_cm, register_channel, fun(_, _, _) -> ok end),
-    ok = meck:expect(emqx_cm, insert_channel_info, fun(_, _, _) -> ok end),
-    {ok, _} = ?ws_conn:handle_info({event, connected}, st()),
-    {ok, _} = ?ws_conn:handle_info({event, disconnected}, st()),
-    {ok, _} = ?ws_conn:handle_info({event, updated}, st()).
+    _ = ?ws_conn:handle_event({event, connected}, st()),
+    _ = ?ws_conn:handle_event({event, disconnected}, st()),
+    _ = ?ws_conn:handle_event({event, updated}, st()).
 
 t_handle_timeout_idle_timeout(_) ->
     TRef = make_ref(),
@@ -433,7 +406,7 @@ t_parse_incoming(_) ->
     {Packets, St} = ?ws_conn:parse_incoming(<<48, 3>>, [], st()),
     {Packets1, _} = ?ws_conn:parse_incoming(<<0, 1, 116>>, Packets, St),
     Packet = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>),
-    ?assertMatch([{incoming, Packet}], Packets1).
+    ?assertEqual([Packet], Packets1).
 
 t_parse_incoming_order(_) ->
     Packet1 = ?PUBLISH_PACKET(?QOS_0, <<"t1">>, undefined, <<>>),
@@ -441,27 +414,20 @@ t_parse_incoming_order(_) ->
     Bin1 = emqx_frame:serialize(Packet1),
     Bin2 = emqx_frame:serialize(Packet2),
     {Packets1, _} = ?ws_conn:parse_incoming(erlang:iolist_to_binary([Bin1, Bin2]), [], st()),
-    ?assertMatch([{incoming, Packet1}, {incoming, Packet2}], Packets1).
+    ?assertEqual([Packet1, Packet2], Packets1).
 
 t_parse_incoming_frame_error(_) ->
     {Packets, _St} = ?ws_conn:parse_incoming(<<3, 2, 1, 0>>, [], st()),
-
     ?assertMatch(
-        [
-            {incoming,
-                {frame_error, #{
-                    header_type := _,
-                    cause := malformed_packet
-                }}}
-        ],
+        [{frame_error, #{header_type := _, cause := malformed_packet}}],
         Packets
     ).
 
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
     Serialize = #{version => 5, max_size => 16#FFFF, strict_mode => false},
-    {[{binary, IoData}, {close, bad_qos}], _St} =
-        ?ws_conn:handle_incoming(FrameError, st(#{serialize => Serialize})),
+    {[{binary, IoData}, {close, <<"bad_qos">>}], _St} =
+        ?ws_conn:handle_incoming([FrameError], st(#{serialize => Serialize})),
     ?assertEqual(<<224, 2, 129, 0>>, iolist_to_binary(IoData)).
 
 t_handle_outgoing(_) ->
@@ -469,35 +435,37 @@ t_handle_outgoing(_) ->
         ?PUBLISH_PACKET(?QOS_1, <<"t1">>, 1, <<"payload">>),
         ?PUBLISH_PACKET(?QOS_2, <<"t2">>, 2, <<"payload">>)
     ],
-    {[{binary, IoData1}, {binary, IoData2}], _St} = ?ws_conn:handle_outgoing(Packets, st()),
+    [{binary, IoData1}, {binary, IoData2}] = ?ws_conn:handle_outgoing(Packets, st()),
     ?assert(is_binary(iolist_to_binary(IoData1))),
     ?assert(is_binary(iolist_to_binary(IoData2))).
 
 t_run_gc(_) ->
     GcSt = emqx_gc:init(#{count => 10, bytes => 100}),
     WsSt = st(#{gc_state => GcSt}),
-    ?ws_conn:run_gc(100, 10000, WsSt).
-
-t_enqueue(_) ->
-    Packet = ?PUBLISH_PACKET(?QOS_0),
-    St = ?ws_conn:enqueue(Packet, st()),
-    [Packet] = ?ws_conn:info(postponed, St).
-
-t_shutdown(_) ->
-    {[{shutdown, closed}], _St} = ?ws_conn:shutdown(closed, st()).
+    ?ws_conn:run_gc({100, 10000}, WsSt).
 
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
 
+conninfo() ->
+    #{
+        socktype => ws,
+        peername => {{127, 0, 0, 1}, 3456},
+        sockname => {{127, 0, 0, 1}, 18083},
+        sockport => 18083,
+        peercert => undefined,
+        peersni => undefined,
+        conn_mod => ?ws_conn
+    }.
+
 st() -> st(#{}).
 st(InitFields) when is_map(InitFields) ->
     {ok, St, _} = ?ws_conn:websocket_init([
-        #{},
+        conninfo(),
         #{
             zone => default,
-            listener => {ws, default},
-            limiter => undefined
+            listener => {ws, default}
         }
     ]),
     maps:fold(

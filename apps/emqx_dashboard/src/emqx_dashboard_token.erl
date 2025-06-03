@@ -163,7 +163,7 @@ jwk(?SSO_USERNAME(Backend, Name), Password, Salt) ->
     BackendBin = erlang:atom_to_binary(Backend),
     jwk(<<BackendBin/binary, "-", Name/binary>>, Password, Salt);
 jwk(Username, Password, Salt) ->
-    Key = crypto:hash(md5, <<Salt/binary, Username/binary, Password/binary>>),
+    Key = crypto:hash(sha, <<Salt/binary, Username/binary, Password/binary>>),
     #{
         <<"kty">> => <<"oct">>,
         <<"k">> => jose_base64url:encode(Key)

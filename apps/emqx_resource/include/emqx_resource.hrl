@@ -151,6 +151,10 @@
 -define(HEALTHCHECK_INTERVAL_RAW, <<"15s">>).
 
 %% milliseconds
+-define(HEALTHCHECK_TIMEOUT, 60_000).
+-define(HEALTHCHECK_TIMEOUT_RAW, <<"60s">>).
+
+%% milliseconds
 -define(DEFAULT_METRICS_FLUSH_INTERVAL, 5_000).
 -define(DEFAULT_METRICS_FLUSH_INTERVAL_RAW, <<"5s">>).
 

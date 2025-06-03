@@ -978,6 +978,438 @@ t_sub_catchup_unrecoverable(Config) ->
         []
     ).
 
+%% Verify functionality of the low-level transaction API.
+t_13_smoke_kv_tx(Config) ->
+    DB = ?FUNCTION_NAME,
+    Owner = <<"test_clientid">>,
+    ?check_trace(
+        begin
+            %% Open the database
+            Opts = maps:merge(opts(Config), #{
+                store_ttv => true,
+                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+            }),
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts)
+            ),
+            %% 1. Start a write-only transaction to create some data:
+            {ok, Tx1} = emqx_ds:new_kv_tx(DB, #{
+                generation => 1,
+                shard => emqx_ds:shard_of(DB, Owner),
+                timeout => infinity
+            }),
+            Ops1 = #{
+                ?ds_tx_write => [
+                    {[<<"foo">>], 0, <<"payload0">>},
+                    {[<<"t">>, <<"1">>], 0, <<"payload1">>},
+                    {[<<"t">>, <<"2">>], 0, <<"payload2">>}
+                ]
+            },
+            %% Commit:
+            ?assertMatch(
+                {ok, _Serial},
+                do_commit_tx(DB, Tx1, Ops1)
+            ),
+
+            %% Verify side effects of the transaction:
+            ?assertEqual(
+                [{[<<"t">>, <<"1">>], 0, <<"payload1">>}],
+                emqx_ds:dirty_read(DB, [<<"t">>, <<"1">>])
+            ),
+            ?assertEqual(
+                [{[<<"t">>, <<"2">>], 0, <<"payload2">>}],
+                emqx_ds:dirty_read(DB, [<<"t">>, <<"2">>])
+            ),
+            %%   All topics together:
+            ?assertEqual(
+                [
+                    {[<<"foo">>], 0, <<"payload0">>},
+                    {[<<"t">>, <<"1">>], 0, <<"payload1">>},
+                    {[<<"t">>, <<"2">>], 0, <<"payload2">>}
+                ],
+                lists:sort(emqx_ds:dirty_read(DB, ['#']))
+            ),
+
+            %% 2. Create a transaction that deletes one of the topics:
+            {ok, Tx2} = emqx_ds:new_kv_tx(DB, #{
+                generation => 1,
+                shard => {auto, Owner},
+                timeout => infinity
+            }),
+            Ops2 = #{
+                ?ds_tx_delete_topic => [[<<"t">>, <<"2">>]]
+            },
+            ?assertMatch({ok, _Serial}, do_commit_tx(DB, Tx2, Ops2)),
+            %% Verify that data in t/2 is gone:
+            ?assertEqual(
+                [
+                    {[<<"foo">>], 0, <<"payload0">>},
+                    {[<<"t">>, <<"1">>], 0, <<"payload1">>}
+                ],
+                lists:sort(emqx_ds:dirty_read(DB, ['#']))
+            )
+        end,
+        []
+    ).
+
+%% Verify correctness of wildcard topic deletions in the transactional
+%% API
+t_14_kv_wildcard_deletes(Config) ->
+    DB = ?FUNCTION_NAME,
+    TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
+    ?check_trace(
+        begin
+            %% Open the database
+            Opts = maps:merge(opts(Config), #{
+                store_ttv => true,
+                storage =>
+                    {emqx_ds_storage_skipstream_lts_v2, #{
+                        timestamp_bytes => 0
+                    }}
+            }),
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts)
+            ),
+            %% 1. Insert test data:
+            {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
+            Msgs0 =
+                [{[<<"foo">>], 0, <<"payload">>}] ++
+                    [
+                        {[<<"t">>, <<I:16>>, <<J:16>>], 0, <<I:16, J:16>>}
+                     || I <- lists:seq(1, 10),
+                        J <- lists:seq(1, 10)
+                    ],
+            Ops1 = #{?ds_tx_write => Msgs0},
+            ?assertMatch({ok, _}, do_commit_tx(DB, Tx1, Ops1)),
+            %% Verify that all data has been inserted:
+            ?assertEqual(
+                100,
+                emqx_ds:fold_topic(
+                    fun(_Slab, _Stream, _Obj, Acc) -> Acc + 1 end,
+                    0,
+                    [<<"t">>, '+', '+'],
+                    #{db => DB}
+                )
+            ),
+            %% 2. Issue a new transaction that deletes t/10/+:
+            {ok, Tx2} = emqx_ds:new_kv_tx(DB, TXOpts),
+            Ops2 = #{
+                ?ds_tx_delete_topic => [[<<"t">>, <<10:16>>, '+']]
+            },
+            ?assertMatch({ok, _}, do_commit_tx(DB, Tx2, Ops2)),
+            Msgs1 = lists:filter(
+                fun
+                    ({[<<"t">>, <<10:16>>, _], _, _}) ->
+                        false;
+                    (_) ->
+                        true
+                end,
+                Msgs0
+            ),
+            %% Verify side effects, t/100/+ is gone:
+            ?assertEqual(
+                lists:sort(Msgs1),
+                lists:sort(emqx_ds:dirty_read(DB, ['#']))
+            )
+        end,
+        []
+    ).
+
+%% Verify that `?ds_tx_serial' is properly substituted with the
+%% transaction serial.
+t_15_kv_write_serial(Config) ->
+    DB = ?FUNCTION_NAME,
+    TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
+    Topic = [<<"foo">>],
+    ?check_trace(
+        begin
+            %% Open the database
+            Opts = maps:merge(opts(Config), #{
+                store_ttv => true,
+                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+            }),
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts)
+            ),
+            %% 1. Insert test data:
+            {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
+            Ops = #{
+                ?ds_tx_write => [{Topic, 0, ?ds_tx_serial}]
+            },
+            {ok, Serial1} = do_commit_tx(DB, Tx1, Ops),
+            %% Verify that foo is set to Serial:
+            ?assertEqual(
+                [{Topic, 0, Serial1}],
+                emqx_ds:dirty_read(DB, Topic)
+            ),
+            %% Repeat the procedure and make sure serial increases
+            {ok, Tx2} = emqx_ds:new_kv_tx(DB, TXOpts),
+            {ok, Serial2} = do_commit_tx(DB, Tx2, Ops),
+            ?assertEqual(
+                [{Topic, 0, Serial2}],
+                emqx_ds:dirty_read(DB, Topic)
+            ),
+            ?assert(Serial2 > Serial1, [Serial2, Serial1])
+        end,
+        []
+    ).
+
+t_16_kv_preconditions(Config) ->
+    DB = ?FUNCTION_NAME,
+    TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
+    Topic1 = [<<"foo">>],
+    Topic2 = [<<"bar">>],
+    ?check_trace(
+        begin
+            %% Open the database
+            Opts = maps:merge(opts(Config), #{
+                store_ttv => true,
+                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+            }),
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts)
+            ),
+            %% 1. Insert test data:
+            {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
+            Ops1 = #{
+                ?ds_tx_write => [{Topic1, 0, <<"payload0">>}]
+            },
+            ?assertMatch({ok, _}, do_commit_tx(DB, Tx1, Ops1)),
+
+            %% 2. Preconditions, successful.
+            {ok, Tx2} = emqx_ds:new_kv_tx(DB, TXOpts),
+            Ops2 = #{
+                ?ds_tx_expected => [
+                    {Topic1, 0, '_'},
+                    {Topic1, 0, <<"payload0">>}
+                ],
+                ?ds_tx_unexpected => [{Topic2, 0}],
+                ?ds_tx_write => [{Topic1, 0, <<"payload1">>}]
+            },
+            ?assertMatch(
+                {ok, _},
+                do_commit_tx(DB, Tx2, Ops2)
+            ),
+            ?assertEqual(
+                [{Topic1, 0, <<"payload1">>}],
+                emqx_ds:dirty_read(DB, ['#'])
+            ),
+
+            %% 3. Precondiction fail, unexpected message:
+            {ok, Tx3} = emqx_ds:new_kv_tx(DB, TXOpts),
+            Ops3 = #{
+                ?ds_tx_unexpected => [{Topic1, 0}],
+                ?ds_tx_write => [{Topic1, 0, <<"fail">>}]
+            },
+            ?assertMatch(
+                ?err_unrec({precondition_failed, _}),
+                do_commit_tx(DB, Tx3, Ops3)
+            ),
+
+            %% 4 Preconditions, fail, expected message not found:
+            {ok, Tx4} = emqx_ds:new_kv_tx(DB, TXOpts),
+            Ops4 = #{
+                ?ds_tx_expected => [{Topic2, 0, '_'}],
+                ?ds_tx_write => [{Topic2, 0, <<"fail">>}]
+            },
+            ?assertMatch(
+                ?err_unrec({precondition_failed, _}),
+                do_commit_tx(DB, Tx4, Ops4)
+            ),
+
+            %% 5 Preconditions, fail, value is different:
+            {ok, Tx5} = emqx_ds:new_kv_tx(DB, TXOpts),
+            Ops5 = #{
+                ?ds_tx_expected => [{Topic1, 0, <<"payload0">>}],
+                ?ds_tx_write => [{Topic1, 0, <<"fail">>}]
+            },
+            ?assertMatch(
+                ?err_unrec(
+                    {precondition_failed, [
+                        #{expected := <<"payload0">>, got := <<"payload1">>, topic := Topic1}
+                    ]}
+                ),
+                do_commit_tx(DB, Tx5, Ops5)
+            ),
+
+            %% Verify that side effects of failed transactions weren't
+            %% applied:
+            ?assertEqual(
+                [{Topic1, 0, <<"payload1">>}],
+                emqx_ds:dirty_read(DB, ['#'])
+            )
+        end,
+        []
+    ).
+
+%% Verify basic functions of the high-level transaction wrapper:
+t_17_tx_wrapper(Config) ->
+    DB = ?FUNCTION_NAME,
+    TXOpts = #{db => DB, shard => {auto, <<"me">>}, generation => 1},
+    ?check_trace(
+        begin
+            %% Open the database
+            Opts = maps:merge(opts(Config), #{
+                store_ttv => true,
+                storage =>
+                    {emqx_ds_storage_skipstream_lts_v2, #{
+                        timestamp_bytes => 0
+                    }}
+            }),
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts)
+            ),
+            %% Transaction wrapper uses process dictionary to store
+            %% pending ops. Make the snapshot of the PD to make sure
+            %% no garbage is left behind:
+            PD = lists:sort(get()),
+            %% 1. Empty transaction:
+            ?assertEqual(
+                {nop, hello},
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        hello
+                    end
+                )
+            ),
+            ?assertEqual(PD, lists:sort(get())),
+            %% 2. Write transaction:
+            ?assertMatch(
+                {atomic, Serial, ok} when is_binary(Serial),
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({[<<"foo">>], 0, <<"1">>}),
+                        emqx_ds:tx_write({[<<"t">>, <<"1">>], 0, <<"2">>})
+                    end
+                )
+            ),
+            ?assertEqual(PD, lists:sort(get())),
+            ?assertEqual(
+                [
+                    {[<<"foo">>], 0, <<"1">>},
+                    {[<<"t">>, <<"1">>], 0, <<"2">>}
+                ],
+                lists:sort(emqx_ds:dirty_read(DB, ['#']))
+            ),
+            %% 3. Delete transaction:
+            ?assertMatch(
+                {atomic, _Serial, ok},
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_del_topic([<<"foo">>])
+                    end
+                )
+            ),
+            ?assertEqual(PD, lists:sort(get())),
+            ?assertEqual(
+                [
+                    {[<<"t">>, <<"1">>], 0, <<"2">>}
+                ],
+                lists:sort(emqx_ds:dirty_read(DB, ['#']))
+            )
+        end,
+        []
+    ).
+
+%% Verify properties of asynchronous transaction commit
+t_18_async_trans(Config) ->
+    DB = ?FUNCTION_NAME,
+    Timeout = 1_000,
+    TXOpts = #{
+        db => DB, shard => {auto, <<"me">>}, sync => false, timeout => Timeout, generation => 1
+    },
+    ?check_trace(
+        begin
+            %% Open the database
+            Opts = maps:merge(opts(Config), #{
+                store_ttv => true,
+                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+            }),
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts)
+            ),
+            timer:sleep(100),
+            %% 1. Successful async write transaction:
+            {async, Ref1, hello} =
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({[<<"foo">>], 0, ?ds_tx_serial}),
+                        hello
+                    end
+                ),
+            %% Wait for commit and verify side effects:
+            receive
+                ?ds_tx_commit_reply(Ref1, Reply1) ->
+                    {ok, Serial1} = emqx_ds:tx_commit_outcome(DB, Ref1, Reply1)
+            end,
+            ?assertEqual(
+                [
+                    {[<<"foo">>], 0, Serial1}
+                ],
+                lists:sort(emqx_ds:dirty_read(DB, ['#']))
+            ),
+            %% 2. Verify error handling (preconditions)
+            {async, Ref2, there} =
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({[<<"foo">>], 0, ?ds_tx_serial}),
+                        emqx_ds:tx_ttv_assert_present([<<"bar">>], 0, '_'),
+                        there
+                    end
+                ),
+            %% Wait for the commit outcome:
+            receive
+                ?ds_tx_commit_reply(Ref2, Reply2) ->
+                    ?assertMatch(
+                        {error, unrecoverable,
+                            {precondition_failed, [
+                                #{
+                                    expected := '_',
+                                    got := undefined,
+                                    topic := [<<"bar">>]
+                                }
+                            ]}},
+                        emqx_ds:tx_commit_outcome(DB, Ref2, Reply2)
+                    )
+            end,
+            %% 3. Verify absence of stray unexpected messages, such as
+            %% timeouts.
+            timer:sleep(Timeout * 2),
+            ?assertMatch([], mailbox()),
+
+            %% 4. Timeout (there's a miniscule chance of committing
+            %% before the timeout of 0 which might make this case
+            %% unstable)
+            {async, Ref3, ok} =
+                emqx_ds:trans(
+                    TXOpts#{timeout => 0},
+                    fun() ->
+                        emqx_ds:tx_write({[<<"foo">>], 0, ?ds_tx_serial})
+                    end
+                ),
+            %% Wait for timeout
+            receive
+                ?ds_tx_commit_reply(Ref3, Reply3) ->
+                    ?assertMatch(
+                        {error, unrecoverable, commit_timeout},
+                        emqx_ds:tx_commit_outcome(DB, Ref3, Reply3)
+                    )
+            end
+        end,
+        []
+    ).
+
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.
@@ -1025,7 +1457,12 @@ all() ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    [{Backend, TCs} || Backend <- backends()].
+    lists:map(
+        fun(Backend) ->
+            {Backend, TCs}
+        end,
+        backends()
+    ).
 
 init_per_group(emqx_ds_builtin_raft, Config) ->
     %% Raft backend is an odd one, as its main module is named
@@ -1160,3 +1597,21 @@ create_wildcard(DB, Prefix) ->
         is_integer(Until)
     ],
     ?assertMatch(ok, emqx_ds:drop_generation(DB, GenToDel)).
+
+%% Manual sync wrapper for the low-level DS transaction API.
+do_commit_tx(DB, Ctx, Ops) ->
+    Ref = emqx_ds:commit_tx(DB, Ctx, Ops),
+    ?assert(is_reference(Ref)),
+    receive
+        ?ds_tx_commit_reply(Ref, Reply) ->
+            emqx_ds:tx_commit_outcome(DB, Ref, Reply)
+    after 5_000 ->
+        error({timeout, mailbox()})
+    end.
+
+mailbox() ->
+    receive
+        A -> [A | mailbox()]
+    after 0 ->
+        []
+    end.

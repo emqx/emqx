@@ -56,7 +56,7 @@ schema("/telemetry/status") ->
                 responses =>
                     #{
                         200 => status_schema(?DESC(update_telemetry_status_api)),
-                        400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                        400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST])
                     }
             }
     };
@@ -71,7 +71,7 @@ schema("/telemetry/data") ->
                     #{
                         200 => mk(ref(?MODULE, telemetry), #{desc => ?DESC(get_telemetry_data_api)}),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND], <<"Telemetry is not enabled">>
+                            [?NOT_FOUND], ?DESC("telemetry_not_enabled")
                         )
                     }
             }

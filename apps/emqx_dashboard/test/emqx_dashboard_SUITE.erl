@@ -110,7 +110,7 @@ t_dashboard_restart(Config) ->
         ?wait_async_action(
             begin
                 ok = application:stop(emqx_dashboard),
-                ?assertEqual(Dispatch, persistent_term:get(Name)),
+                CheckRules(step_0),
                 ok = application:start(emqx_dashboard),
                 %% After we restart the dashboard, the dispatch rules should be the same.
                 CheckRules(step_1)

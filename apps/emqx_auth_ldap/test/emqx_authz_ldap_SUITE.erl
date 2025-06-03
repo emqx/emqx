@@ -50,7 +50,6 @@ init_per_testcase(_TestCase, Config) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
     Config.
 end_per_testcase(_TestCase, _Config) ->
-    _ = emqx_authz:set_feature_available(rich_actions, true),
     ok = emqx_authz_test_lib:enable_node_cache(false),
     ok.
 

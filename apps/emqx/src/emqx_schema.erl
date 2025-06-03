@@ -395,6 +395,37 @@ fields("mqtt") ->
     mqtt_general() ++ mqtt_session() ++ mqtt_limiter();
 fields("zone") ->
     emqx_zone_schema:zones_without_default();
+fields("topic_qos_rule") ->
+    [
+        {topic,
+            sc(topic_predicate_type(), #{
+                required => true,
+                desc => ?DESC(topic_predicate),
+                importance => ?IMPORTANCE_HIGH
+            })},
+        {qos,
+            sc(qos(), #{
+                required => true,
+                desc => ?DESC(mqtt_max_qos_allowed),
+                importance => ?IMPORTANCE_HIGH
+            })}
+    ];
+fields("topic_predicate_matches") ->
+    [
+        {matches,
+            sc(binary(), #{
+                required => true,
+                importance => ?IMPORTANCE_HIGH
+            })}
+    ];
+fields("topic_predicate_equals") ->
+    [
+        {equals,
+            sc(binary(), #{
+                required => true,
+                importance => ?IMPORTANCE_HIGH
+            })}
+    ];
 fields("flapping_detect") ->
     [
         {"enable",
@@ -948,7 +979,7 @@ fields("ws_opts") ->
             )},
         {"supported_subprotocols",
             sc(
-                comma_separated_list(),
+                comma_separated_binary(),
                 #{
                     default => <<"mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5">>,
                     desc => ?DESC(fields_ws_opts_supported_subprotocols)
@@ -1333,7 +1364,9 @@ fields("broker_routing") ->
                 #{
                     default => v2,
                     'readOnly' => true,
-                    desc => ?DESC(broker_routing_storage_schema)
+                    desc => ?DESC(broker_routing_storage_schema),
+                    deprecated => {since, "5.9.0"},
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"batch_sync",
@@ -3968,6 +4001,15 @@ mqtt_session() ->
                     importance => ?IMPORTANCE_LOW
                 }
             )},
+        {"subscription_max_qos_rules",
+            sc(
+                hoconsc:array(?R_REF("topic_qos_rule")),
+                #{
+                    required => false,
+                    desc => ?DESC(mqtt_subscription_max_qos_rules),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"mqueue_priorities",
             sc(
                 hoconsc:union([disabled, map()]),
@@ -4059,6 +4101,23 @@ default_mem_check_interval() ->
         true -> <<"60s">>;
         false -> disabled
     end.
+
+topic_predicate_type() ->
+    hoconsc:union(
+        fun
+            (all_union_members) ->
+                [
+                    ?R_REF("topic_predicate_matches"),
+                    ?R_REF("topic_predicate_equals")
+                ];
+            ({value, V}) when is_map_key(matches, V); is_map_key(<<"matches">>, V) ->
+                [?R_REF("topic_predicate_matches")];
+            ({value, V}) when is_map_key(equals, V); is_map_key(<<"equals">>, V) ->
+                [?R_REF("topic_predicate_equals")];
+            (_) ->
+                []
+        end
+    ).
 
 description_schema() ->
     sc(

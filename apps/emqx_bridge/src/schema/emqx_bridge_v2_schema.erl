@@ -123,7 +123,7 @@ action_values(Method, ActionType, ConnectorType, ActionValues) ->
             description => <<"My example ", ActionTypeBin/binary, " action">>,
             connector => <<ConnectorTypeBin/binary, "_connector">>,
             resource_opts => #{
-                health_check_interval => "30s"
+                health_check_interval => <<"30s">>
             }
         },
         [
@@ -466,6 +466,7 @@ common_action_resource_opts_subfields() ->
         buffer_mode,
         buffer_seg_bytes,
         health_check_interval,
+        health_check_timeout,
         inflight_window,
         max_buffer_bytes,
         metrics_flush_interval,
@@ -478,6 +479,7 @@ common_action_resource_opts_subfields() ->
 common_source_resource_opts_subfields() ->
     [
         health_check_interval,
+        health_check_timeout,
         resume_interval
     ].
 

@@ -2,31 +2,33 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc This module can be used by DS backends for notifying processes
-%% about new streams. It's not a replacement for `emqx_ds:get_streams'
-%% function, it's only meant to optimize its usage.
-%%
-%% `emqx_ds_new_streams' module tries to avoid waking up subscribers
-%% too often. It's done like this:
-%%
-%% This module keeps a list of subscriptions, records that have an
-%% "active" flag. Whenever it receives a notification about a new
-%% stream, it matches all active subscriptions' topic-filters against
-%% the topic-filter of the event, and sets `active' flags for every
-%% match.
-%%
-%% Independently, it runs a loop that searches for subscriptions with
-%% `active' flag set to `true', and sends events to their owners.
-%% After sending the event, it resets the flag to `false'.
-%%
-%% Dispatching the events is done in chunks (configurable by
-%% `emqx_durable_storage.new_streams_batch_size' application
-%% environment variable), with a cooldown in between (configurable by
-%% `emqx_durable_storage.new_streams_cooldown').
-%%
-%% This is done to avoid a storm of `emqx_ds:get_streams' calls from
-%% the clients.
 -module(emqx_ds_new_streams).
+
+-doc """
+This module can be used by DS backends for notifying processes about
+new streams. It's not a replacement for `emqx_ds:get_streams`
+function, it's only meant to optimize its usage.
+
+This module tries to avoid waking up subscribers too often. It's done
+like this:
+
+This module keeps a list of subscriptions, records that have an
+"active" flag. Whenever it receives a notification about a new stream,
+it matches all active subscriptions' topic-filters against the
+topic-filter of the event, and sets `active` flags for every match.
+
+Independently, it runs a loop that searches for subscriptions with
+`active` flag set to `true`, and sends events to their owners. After
+sending the event, it resets the flag to `false`.
+
+Dispatching the events is done in chunks (configurable by
+`emqx_durable_storage.new_streams_batch_size` application environment
+variable), with a cooldown in between (configurable by
+`emqx_durable_storage.new_streams_cooldown`).
+
+This is done to avoid a storm of `emqx_ds:get_streams` calls from
+the clients.
+""".
 
 -behaviour(gen_statem).
 
@@ -102,44 +104,59 @@
 where(DB) ->
     gproc:where({n, l, {?MODULE, DB}}).
 
-%% @doc Process that calls this function will receive messages of type
-%% `#new_stream_event{subref = Ref}' when new streams matching the
-%% topic filters are created in the durable storage.
-%%
-%% Note: this function is not idempotent.
+-doc """
+Process that calls this function will receive messages of type
+`#new_stream_event{subref = Ref}` when new streams matching the topic
+filters are created in the durable storage.
+
+NOTE: this function is not idempotent.
+""".
 -spec watch(emqx_ds:db(), emqx_ds:topic_filter()) -> {ok, watch()} | {error, badarg}.
 watch(DB, TopicFilter) ->
     gen_server:call(?via(DB), #watch_req{topic_filter = TopicFilter}).
 
+-doc """
+Remove the subscription.
+""".
 -spec unwatch(emqx_ds:db(), watch()) -> ok.
 unwatch(DB, Ref) ->
     gen_statem:call(?via(DB), #unwatch_req{ref = Ref}).
 
-%% @doc Broadcast notification about appearance of new stream(s) to
-%% all nodes.
+-doc """
+Broadcast notification about appearance of new stream(s) to
+all nodes.
+""".
+-doc #{title => <<"Backend API">>}.
 -spec notify_new_stream(emqx_ds:db(), emqx_ds:topic_filter()) -> ok.
 notify_new_stream(DB, TF) ->
     emqx_ds_new_streams_proto_v1:notify([node() | nodes()], DB, TF).
 
-%% @doc Send notification about appearancoe of new streams to local
-%% processes.
+-doc """
+Send notification about appearancoe of new streams to local processes.
+""".
+-doc #{title => <<"Backend API">>}.
 -spec local_notify_new_stream(emqx_ds:db(), emqx_ds:topic_filter()) -> ok.
 local_notify_new_stream(DB, TF) ->
     gen_statem:cast(?via(DB), #notify_req{topic_filter = TF}).
 
-%% @doc Backend can use this function when it's uncertain that
-%% notifications were delivered or what streams are new. This can
-%% happen, for example, after the backend restarts.
-%%
-%% This function will notify ALL subscribers on all nodes.
+-doc """
+Backend can use this function when it's uncertain that notifications
+were delivered or what streams are new. This can happen, for example,
+after the backend restarts.
+
+This function will notify ALL subscribers on all nodes.
+""".
+-doc #{title => <<"Backend API">>}.
 -spec set_dirty(emqx_ds:db()) -> ok.
 set_dirty(DB) ->
     emqx_ds_new_streams_proto_v1:set_dirty([node() | nodes()], DB).
 
-%% @doc Used in cases when it's uncertain what streams were seen by
-%% the subscribers, e.g. after restart of the shard. It will
-%% gracefully notify subscribers about changes to _all_ stream on the
-%% local node.
+-doc """
+Used in cases when it's uncertain what streams were seen by the
+subscribers, e.g. after restart of the shard. It will gracefully
+notify subscribers about changes to _all_ stream on the local node.
+""".
+-doc #{title => <<"Backend API">>}.
 -spec local_set_dirty(emqx_ds:db()) -> ok.
 local_set_dirty(DB) ->
     gen_statem:cast(?via(DB), #notify_req{topic_filter = ['#']}).

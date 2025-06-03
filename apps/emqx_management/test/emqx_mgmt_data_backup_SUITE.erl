@@ -45,8 +45,7 @@
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 all() ->
-    [t_unsafe_backup_name].
-% emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Config.

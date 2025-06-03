@@ -404,6 +404,7 @@ t_create_webhook_v1_bridges_api(Config) ->
                             <<"resource_opts">> =>
                                 #{
                                     <<"health_check_interval">> => <<"15s">>,
+                                    <<"health_check_timeout">> => <<"60s">>,
                                     <<"start_after_created">> => true,
                                     <<"start_timeout">> => <<"5s">>
                                 },

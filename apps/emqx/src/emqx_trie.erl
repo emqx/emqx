@@ -6,6 +6,8 @@
 
 -include("emqx.hrl").
 
+-define(TRIE, emqx_trie).
+
 %% Mnesia bootstrap
 -export([
     create_trie/0,

@@ -31,10 +31,10 @@
 %% Definitions
 %%--------------------------------------------------------------------
 
--define(CREDENTIAL_PT_KEY, {?MODULE, ai_providers}).
+-define(PROVIDER_PT_KEY, {?MODULE, ai_providers}).
 -define(COMPLETION_PROFILE_PT_KEY, {?MODULE, ai_completion_profiles}).
 
--define(CREDENTIAL_CONFIG_PATH, [ai, providers]).
+-define(PROVIDER_CONFIG_PATH, [ai, providers]).
 -define(COMPLETION_PROFILE_CONFIG_PATH, [ai, completion_profiles]).
 
 %%--------------------------------------------------------------------
@@ -110,16 +110,16 @@
 
 -spec load() -> ok.
 load() ->
-    ok = emqx_config_handler:add_handler(?CREDENTIAL_CONFIG_PATH, ?MODULE),
+    ok = emqx_config_handler:add_handler(?PROVIDER_CONFIG_PATH, ?MODULE),
     ok = emqx_config_handler:add_handler(?COMPLETION_PROFILE_CONFIG_PATH, ?MODULE),
     ok = cache_providers(),
     ok = cache_completion_profiles().
 
 -spec unload() -> ok.
 unload() ->
-    _ = persistent_term:erase(?CREDENTIAL_PT_KEY),
+    _ = persistent_term:erase(?PROVIDER_PT_KEY),
     _ = persistent_term:erase(?COMPLETION_PROFILE_PT_KEY),
-    ok = emqx_config_handler:remove_handler(?CREDENTIAL_CONFIG_PATH),
+    ok = emqx_config_handler:remove_handler(?PROVIDER_CONFIG_PATH),
     ok = emqx_config_handler:remove_handler(?COMPLETION_PROFILE_CONFIG_PATH).
 
 %% Config handler callbacks
@@ -128,7 +128,7 @@ unload() ->
 %% Provider update
 %%
 pre_config_update(
-    ?CREDENTIAL_CONFIG_PATH, {add, #{<<"name">> := Name} = Provider}, OldProviders
+    ?PROVIDER_CONFIG_PATH, {add, #{<<"name">> := Name} = Provider}, OldProviders
 ) ->
     case find_provider(Name, OldProviders) of
         {error, #{reason := provider_not_found}} ->
@@ -140,20 +140,20 @@ pre_config_update(
             }}
     end;
 pre_config_update(
-    ?CREDENTIAL_CONFIG_PATH, {update, #{<<"name">> := Name} = Provider}, OldProviders
+    ?PROVIDER_CONFIG_PATH, {update, #{<<"name">> := Name} = Provider}, OldProviders
 ) ->
     maybe
         {ok, OldProvider, NewProviders} ?= update_provider(Name, Provider, OldProviders),
         ok ?= validate_provider_update(OldProvider, Provider),
         {ok, NewProviders}
     end;
-pre_config_update(?CREDENTIAL_CONFIG_PATH, {delete, Name}, OldProviders) ->
+pre_config_update(?PROVIDER_CONFIG_PATH, {delete, Name}, OldProviders) ->
     maybe
         {ok, OldProvider, NewProviders} ?= remove_provider(Name, OldProviders),
         ok ?= validate_provider_not_used(OldProvider),
         {ok, NewProviders}
     end;
-pre_config_update(?CREDENTIAL_CONFIG_PATH, NewProviders, _OldProviders) when
+pre_config_update(?PROVIDER_CONFIG_PATH, NewProviders, _OldProviders) when
     is_list(NewProviders)
 ->
     validate_provider_presence(NewProviders, get_completion_profiles_raw());
@@ -198,7 +198,7 @@ pre_config_update(_Path, Request, _OldConf) ->
         config => Request
     }}.
 
-post_config_update(?CREDENTIAL_CONFIG_PATH, _Request, NewConf, _OldConf, _AppEnvs) ->
+post_config_update(?PROVIDER_CONFIG_PATH, _Request, NewConf, _OldConf, _AppEnvs) ->
     ok = cache_providers(NewConf);
 post_config_update(?COMPLETION_PROFILE_CONFIG_PATH, _Request, NewConf, _OldConf, _AppEnvs) ->
     ok = cache_completion_profiles(NewConf).
@@ -212,7 +212,7 @@ post_config_update(?COMPLETION_PROFILE_CONFIG_PATH, _Request, NewConf, _OldConf,
     | {error, term()}.
 update_providers_raw(Request) ->
     wrap_config_update_error(
-        emqx_conf:update(?CREDENTIAL_CONFIG_PATH, Request, #{override_to => cluster})
+        emqx_conf:update(?PROVIDER_CONFIG_PATH, Request, #{override_to => cluster})
     ).
 
 -spec get_providers_raw() -> [raw_provider()].
@@ -235,7 +235,7 @@ get_completion_profiles_raw() ->
 
 -spec get_provider(provider_name()) -> {ok, provider()} | not_found.
 get_provider(Name) ->
-    case persistent_term:get(?CREDENTIAL_PT_KEY, #{}) of
+    case persistent_term:get(?PROVIDER_PT_KEY, #{}) of
         #{Name := Provider} ->
             {ok, Provider};
         _ ->
@@ -263,7 +263,7 @@ get_completion_profile(Name) ->
 %% Cache management
 
 cache_providers() ->
-    cache_providers(emqx_config:get(?CREDENTIAL_CONFIG_PATH, [])).
+    cache_providers(emqx_config:get(?PROVIDER_CONFIG_PATH, [])).
 
 cache_providers(Config) ->
     Providers = maps:from_list(
@@ -274,7 +274,7 @@ cache_providers(Config) ->
             Config
         )
     ),
-    persistent_term:put(?CREDENTIAL_PT_KEY, Providers).
+    persistent_term:put(?PROVIDER_PT_KEY, Providers).
 
 cache_completion_profiles() ->
     cache_completion_profiles(emqx_config:get(?COMPLETION_PROFILE_CONFIG_PATH, [])).

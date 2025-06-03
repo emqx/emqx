@@ -18,7 +18,15 @@ defmodule EMQXDsBackends.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications()]
+    [
+      extra_applications: UMP.extra_applications(),
+      env: [
+        available_backends: [
+          :emqx_ds_builtin_local,
+          :emqx_ds_builtin_raft,
+        ]
+      ]
+    ]
   end
 
   def deps() do

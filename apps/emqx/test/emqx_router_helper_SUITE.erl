@@ -44,22 +44,16 @@ groups() ->
     ],
     [
         {smoke, [], SmokeTCs},
-        {cleanup, [], [
-            {group, routing_schema_v1},
-            {group, routing_schema_v2}
-        ]},
+        {cleanup, [], SchemaTCs},
         {cluster, [], ClusterTCs},
-        {cluster_replicant, [], ClusterReplicantTCs},
-        {routing_schema_v1, [], SchemaTCs},
-        {routing_schema_v2, [], SchemaTCs}
+        {cluster_replicant, [], ClusterReplicantTCs}
     ].
 
 init_per_group(GroupName, Config) when
     GroupName == smoke;
+    GroupName == cleanup;
     GroupName == cluster;
-    GroupName == cluster_replicant;
-    GroupName == routing_schema_v1;
-    GroupName == routing_schema_v2
+    GroupName == cluster_replicant
 ->
     WorkDir = emqx_cth_suite:work_dir(Config),
     AppSpecs = [
@@ -76,10 +70,9 @@ init_per_group(_GroupName, Config) ->
 
 end_per_group(GroupName, Config) when
     GroupName == smoke;
+    GroupName == cleanup;
     GroupName == cluster;
-    GroupName == cluster_replicant;
-    GroupName == routing_schema_v1;
-    GroupName == routing_schema_v2
+    GroupName == cluster_replicant
 ->
     ok = emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(fallback, _Config) ->
@@ -88,14 +81,8 @@ end_per_group(fallback, _Config) ->
 end_per_group(_GroupName, _Config) ->
     ok.
 
-mk_config(emqx, routing_schema_v1) ->
+mk_config(emqx, cleanup) ->
     #{
-        config => "broker.routing.storage_schema = v1",
-        override_env => [{boot_modules, [broker]}]
-    };
-mk_config(emqx, routing_schema_v2) ->
-    #{
-        config => "broker.routing.storage_schema = v2",
         override_env => [{boot_modules, [broker]}]
     };
 mk_config(mria, cluster_replicant) ->
