@@ -517,9 +517,3 @@ mongo_username() ->
 
 mongo_password() ->
     iolist_to_binary(os:getenv("MONGO_PASSWORD", "")).
-
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).
