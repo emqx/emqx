@@ -1932,6 +1932,13 @@ common_action_resource_opts() ->
         <<"worker_pool_size">> => 1
     }.
 
+common_source_resource_opts() ->
+    #{
+        <<"health_check_interval">> => <<"1s">>,
+        <<"health_check_timeout">> => <<"30s">>,
+        <<"resume_interval">> => <<"1s">>
+    }.
+
 clean_aggregated_upload_work_dir() ->
     Dir = filename:join([emqx:data_dir(), bridge]),
     _ = file:del_dir_r(Dir),
