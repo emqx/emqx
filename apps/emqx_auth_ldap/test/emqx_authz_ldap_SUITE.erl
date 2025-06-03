@@ -25,7 +25,8 @@ init_per_suite(Config) ->
             Apps = emqx_cth_suite:start(
                 [
                     emqx,
-                    emqx_conf,
+                    {emqx_conf,
+                        "authorization.no_match = deny, authorization.cache.enable = false"},
                     emqx_auth,
                     emqx_auth_ldap
                 ],
@@ -168,7 +169,7 @@ cases() ->
         },
 
         #{
-            name => simple_raw_rule,
+            name => raw_rule,
             client_info => #{username => <<"mqttuser0002">>},
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"mqttuser0002/rawrule1/1">>},
@@ -204,9 +205,3 @@ setup_config(SpecialParams) ->
 
 ldap_server() ->
     iolist_to_binary(io_lib:format("~s:~B", [?LDAP_HOST, ?LDAP_DEFAULT_PORT])).
-
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).

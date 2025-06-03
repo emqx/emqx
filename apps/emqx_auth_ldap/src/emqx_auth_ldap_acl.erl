@@ -53,7 +53,13 @@
 acl_attributes(Config) ->
     maps:values(
         maps:with(
-            [acl_rule_attribute, all_attribute, publish_attribute, subscribe_attribute],
+            [
+                acl_rule_attribute,
+                all_attribute,
+                publish_attribute,
+                subscribe_attribute,
+                acl_ttl_attribute
+            ],
             Config
         )
     ).
@@ -96,7 +102,7 @@ entry_rules(Config, Entry) ->
     PubSubAttrName = maps:get(all_attribute, Config, undefined),
     PublishAttrName = maps:get(publish_attribute, Config, undefined),
     SubscribeAttrName = maps:get(subscribe_attribute, Config, undefined),
-    ACLRuleAttrName = maps:get(acl_rule_attribute, Config, undefined),
+    AclRuleAttrName = maps:get(acl_rule_attribute, Config, undefined),
 
     %% Legacy rules with whitelist topics as attribute values
     RawRulesPubSub = raw_whitelist_rules(<<"all">>, get_attr_values(PubSubAttrName, Entry)),
@@ -104,10 +110,10 @@ entry_rules(Config, Entry) ->
     RawRulesSubscribe = raw_whitelist_rules(<<"sub">>, get_attr_values(SubscribeAttrName, Entry)),
     maybe
         %% JSON-encoded raw rules (`emqx_authz_rule_raw`) as attribute values
-        {ok, RawRules} ?= decode_acl_rules(get_attr_values(ACLRuleAttrName, Entry)),
+        {ok, RawRules} ?= decode_acl_rules(get_attr_values(AclRuleAttrName, Entry)),
         RawRulesAll = lists:concat([RawRulesPubSub, RawRulesPublish, RawRulesSubscribe, RawRules]),
-        {ok, ACLRules} ?= parse_and_compile_acl_rules(RawRulesAll),
-        {ok, ACLRules}
+        {ok, AclRules} ?= parse_and_compile_acl_rules(RawRulesAll),
+        {ok, AclRules}
     else
         {error, _} = Error ->
             Error
@@ -149,14 +155,14 @@ get_attr_values(undefined, _Entry) ->
 get_attr_values(AttrName, #eldap_entry{attributes = Attrs}) ->
     proplists:get_value(AttrName, Attrs, []).
 
-parse_and_compile_acl_rules(ACLRulesRaw) ->
-    try emqx_authz_rule_raw:parse_and_compile_rules(ACLRulesRaw) of
+parse_and_compile_acl_rules(AclRulesRaw) ->
+    try emqx_authz_rule_raw:parse_and_compile_rules(AclRulesRaw) of
         Rules -> {ok, Rules}
     catch
         throw:Reason ->
             ?SLOG(warning, #{
                 msg => "invalid_acl_rules_raw",
-                rules => ACLRulesRaw,
+                rules => AclRulesRaw,
                 reason => Reason
             }),
             {error, Reason}
@@ -169,8 +175,8 @@ decode_acl_rules([], Acc) ->
     {ok, lists:concat(lists:reverse(Acc))};
 decode_acl_rules([JSON | JSONRest], Acc) ->
     case emqx_utils_json:safe_decode(JSON) of
-        {ok, ACLRuleRaw} ->
-            decode_acl_rules(JSONRest, [wrap_as_list(ACLRuleRaw) | Acc]);
+        {ok, AclRuleRaw} ->
+            decode_acl_rules(JSONRest, [wrap_as_list(AclRuleRaw) | Acc]);
         {error, Reason} = Error ->
             ?SLOG(warning, #{
                 msg => "invalid_acl_rule_json",

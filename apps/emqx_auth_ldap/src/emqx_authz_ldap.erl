@@ -74,12 +74,12 @@ authorize(
         } = Annotations
     }
 ) ->
-    ACLAttrs = emqx_auth_ldap_acl:acl_attributes(Annotations),
+    AclAttrs = emqx_auth_ldap_acl:acl_attributes(Annotations),
     CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate),
     Query = fun() ->
         BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Client),
         Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Client),
-        {query, BaseDN, Filter, [{attributes, ACLAttrs}, {timeout, QueryTimeout}]}
+        {query, BaseDN, Filter, [{attributes, AclAttrs}, {timeout, QueryTimeout}]}
     end,
     Result = emqx_authz_utils:cached_simple_sync_query(
         CacheKey, ResourceId, Query
@@ -89,8 +89,8 @@ authorize(
             nomatch;
         {ok, [Entry]} ->
             case emqx_auth_ldap_acl:entry_rules(Annotations, Entry) of
-                {ok, ACLRules} ->
-                    emqx_authz_rule:matches(Client, Action, Topic, ACLRules);
+                {ok, AclRules} ->
+                    emqx_authz_rule:matches(Client, Action, Topic, AclRules);
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "invalid_acl_rules",
