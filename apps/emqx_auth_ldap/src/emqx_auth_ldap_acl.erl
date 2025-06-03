@@ -22,7 +22,8 @@
     all_attribute => attribute_name(),
     publish_attribute => attribute_name(),
     subscribe_attribute => attribute_name(),
-    acl_ttl_attribute => attribute_name()
+    acl_ttl_attribute => attribute_name(),
+    _ => _
 }.
 
 -type ldap_entry() :: #eldap_entry{}.

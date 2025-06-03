@@ -126,25 +126,25 @@ acl_fields() ->
             })},
         {publish_attribute,
             ?HOCON(string(), #{
-                desc => ?DESC(publish_attribute),
+                desc => ?DESC(emqx_authz_ldap_schema, publish_attribute),
                 example => <<"mqttPublishTopic">>,
                 required => false
             })},
         {subscribe_attribute,
             ?HOCON(string(), #{
-                desc => ?DESC(subscribe_attribute),
+                desc => ?DESC(emqx_authz_ldap_schema, subscribe_attribute),
                 example => <<"mqttSubscriptionTopic">>,
                 required => false
             })},
         {all_attribute,
             ?HOCON(string(), #{
-                desc => ?DESC(all_attribute),
+                desc => ?DESC(emqx_authz_ldap_schema, all_attribute),
                 example => <<"mqttPubSubTopic">>,
                 required => false
             })},
         {acl_rule_attribute,
             ?HOCON(string(), #{
-                desc => ?DESC(acl_rule_attribute),
+                desc => ?DESC(emqx_authz_ldap_schema, acl_rule_attribute),
                 example => <<"mqttAclRule">>,
                 required => false
             })}
