@@ -5296,7 +5296,7 @@ t_channel_health_check_timeout(_Config) ->
                 ),
             ChanId = action_res_id(ConnResId),
             ok =
-                add_channel(
+                add_channel_emulate_config(
                     ConnResId,
                     ChanId,
                     #{
@@ -5304,12 +5304,17 @@ t_channel_health_check_timeout(_Config) ->
                             health_check_interval => 100,
                             health_check_timeout => 750
                         }
-                    }
+                    },
+                    async
                 ),
-            %% Immediately after creatin is `?status_connected`
-            ?assertMatch(
-                {ok, #rt{channel_status = ?status_connected}},
-                emqx_resource_cache:get_runtime(ChanId)
+            %% Immediately after creating is `?status_connected`
+            ?retry(
+                100,
+                5,
+                ?assertMatch(
+                    {ok, #rt{channel_status = ?status_connected}},
+                    emqx_resource_cache:get_runtime(ChanId)
+                )
             ),
             %% After that, HC will hang, but abort after timeout.  Since the
             %% resource/connector is healthy, this should retry.
