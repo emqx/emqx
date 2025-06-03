@@ -670,6 +670,14 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
+handle_cast({dispatch, Topic, I, Msg}, State) ->
+    lists:foreach(
+        fun(SubPid) ->
+            do_dispatch2(SubPid, Topic, Msg)
+        end,
+        subscribers({shard, Topic, I})
+    ),
+    {noreply, State};
 handle_cast({subscribed, Topic, shard, _I}, State) ->
     %% Do not need to 'maybe add' (i.e. to check if the route exists).
     %% It was already checked that this shard is newely added.
@@ -750,13 +758,13 @@ do_dispatch2(SubPid, Topic, Msg) when is_pid(SubPid) ->
             0
     end;
 do_dispatch2({shard, I}, Topic, Msg) ->
-    lists:foldl(
-        fun(SubPid, N) ->
-            N + do_dispatch2(SubPid, Topic, Msg)
-        end,
-        0,
-        subscribers({shard, Topic, I})
-    ).
+    %% Dispatching to sharded subscribers concurrently + asynchronously.
+    %% Ordering guarantees should still hold:
+    %% * Each subscriber is part of exactly one shard.
+    %% * Each topic-shard is always dispatched through the same process.
+    cast(pick({Topic, I}), {dispatch, Topic, I, Msg}),
+    %% Assuming shard is non-empty.
+    1.
 
 %%
 

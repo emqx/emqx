@@ -8,6 +8,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -362,28 +363,31 @@ t_shared_subscribe_3(_) ->
     emqtt:disconnect(ConnPid),
     emqtt:disconnect(ConnPid2).
 
-t_shard({init, Config}) ->
-    ok = meck:new(emqx_broker_helper, [passthrough, no_history]),
-    ok = meck:expect(emqx_broker_helper, assign_sub_shard, fun(_) -> 1 end),
-    ok = meck:expect(emqx_broker_helper, unassign_sub_shard, fun(_, _) -> ok end),
-    emqx_broker:subscribe(<<"topic">>, <<"clientid">>),
+t_fanout({init, Config}) ->
     Config;
-t_shard(Config) when is_list(Config) ->
-    ct:sleep(100),
+t_fanout({'end', _Config}) ->
+    ok;
+t_fanout(_Config) ->
+    NSubscribers = 2500,
+    Subscribers = [
+        spawn_link(fun() ->
+            ClientID = integer_to_binary(I),
+            ok = emqx_broker:subscribe(<<"topic">>, ClientID),
+            ?assertReceive({deliver, <<"topic">>, #message{payload = <<"hello">>}}, 5000)
+        end)
+     || I <- lists:seq(1, NSubscribers)
+    ],
+    ?retry(
+        200,
+        10,
+        NSubscribers = emqx_stats:getstat('suboptions.count')
+    ),
     emqx_broker:safe_publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
-    ?assert(
-        receive
-            {deliver, <<"topic">>, #message{payload = <<"hello">>}} ->
-                true;
-            _ ->
-                false
-        after 100 ->
-            false
-        end
-    );
-t_shard({'end', _Config}) ->
-    emqx_broker:unsubscribe(<<"topic">>),
-    ok = meck:unload(emqx_broker_helper).
+    ?retry(
+        200,
+        10,
+        false = lists:any(fun erlang:is_process_alive/1, Subscribers)
+    ).
 
 %% persistent sessions, when gone, do not contribute to connected
 %% client count
