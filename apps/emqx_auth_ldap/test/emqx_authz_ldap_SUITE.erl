@@ -53,11 +53,6 @@ end_per_testcase(_TestCase, _Config) ->
     ok = emqx_authz_test_lib:enable_node_cache(false),
     ok.
 
-set_special_configs(emqx_authz) ->
-    ok = emqx_authz_test_lib:reset_authorizers();
-set_special_configs(_) ->
-    ok.
-
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------

@@ -59,11 +59,6 @@ end_per_testcase(_TestCase, _Config) ->
     ok = drop_table(),
     ok.
 
-set_special_configs(emqx_auth) ->
-    ok = emqx_authz_test_lib:reset_authorizers();
-set_special_configs(_) ->
-    ok.
-
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
