@@ -222,7 +222,7 @@ tx_commit_outcome(Reply) ->
             %% This is likely a real monitor message. It doesn't contain TRef,
             %% so the caller will receive the timeout message after the fact.
             %% There's not much we can do about it.
-            ?err_unrec({Type, Object, Info})
+            ?err_rec({Type, Object, Info})
     end.
 
 %% NOTE: should be called in the optimistic_tx process.
