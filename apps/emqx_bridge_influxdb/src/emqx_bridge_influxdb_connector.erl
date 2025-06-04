@@ -690,11 +690,16 @@ lines_to_points(_, [], Points, ErrorPoints) ->
             %% ignore trans succeeded points
             {error, ErrorPoints}
     end;
-lines_to_points(Data, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, ErrorPointsAcc) when
+lines_to_points(
+    Data,
+    [#{timestamp := Ts, precision := Precision} = Item | Rest],
+    ResultPointsAcc,
+    ErrorPointsAcc
+) when
     is_list(Ts)
 ->
     TransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    case parse_timestamp(emqx_placeholder:proc_tmpl(Ts, Data, TransOptions)) of
+    case parse_timestamp(emqx_placeholder:proc_tmpl(Ts, Data, TransOptions), Precision) of
         {ok, TsInt} ->
             Item1 = Item#{timestamp => TsInt},
             continue_lines_to_points(Data, Item1, Rest, ResultPointsAcc, ErrorPointsAcc);
@@ -703,25 +708,47 @@ lines_to_points(Data, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, Error
                 {error, {bad_timestamp, BadTs}} | ErrorPointsAcc
             ])
     end;
-lines_to_points(Data, [#{timestamp := Ts} = Item | Rest], ResultPointsAcc, ErrorPointsAcc) when
+lines_to_points(
+    Data,
+    [#{timestamp := Ts, precision := Precision} = Item | Rest],
+    ResultPointsAcc,
+    ErrorPointsAcc
+) when
     is_integer(Ts)
 ->
-    continue_lines_to_points(Data, Item, Rest, ResultPointsAcc, ErrorPointsAcc).
+    continue_lines_to_points(
+        Data,
+        Item#{timestamp => maybe_convert_time_unit(Ts, Precision)},
+        Rest,
+        ResultPointsAcc,
+        ErrorPointsAcc
+    ).
 
-parse_timestamp([TsInt]) when is_integer(TsInt) ->
-    {ok, TsInt};
-parse_timestamp([TsBin]) ->
+parse_timestamp([undefined], {_From, To} = _Precision) ->
+    %% used ${timestamp} or keep it blank. but the `timestamp` field not present in RULE SQL
+    {ok, maybe_convert_time_unit(emqx_message:timestamp_now(), {ms, To})};
+parse_timestamp([TsInt], Precision) when is_integer(TsInt) ->
+    {ok, maybe_convert_time_unit(TsInt, Precision)};
+parse_timestamp([TsBin], Precision) ->
     try
-        {ok, binary_to_integer(TsBin)}
+        {ok, maybe_convert_time_unit(binary_to_integer(TsBin), Precision)}
     catch
         _:_ ->
             {error, {non_integer_timestamp, TsBin}}
     end;
-parse_timestamp(InvalidTs) ->
+parse_timestamp(InvalidTs, _) ->
     %% The timestamp field must be a single integer or a single placeholder. i.e. the
     %%   following is not allowed:
     %%   - weather,location=us-midwest,season=summer temperature=82 ${timestamp}00
     {error, {unsupported_placeholder_usage_for_timestamp, InvalidTs}}.
+
+maybe_convert_time_unit(Ts, {FromPrecision, ToPrecision}) ->
+    erlang:convert_time_unit(Ts, time_unit(FromPrecision), time_unit(ToPrecision)).
+
+time_unit(s) -> second;
+time_unit(ms) -> millisecond;
+time_unit(us) -> microsecond;
+time_unit(ns) -> nanosecond.
 
 continue_lines_to_points(Data, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
     case line_to_point(Data, Item) of
@@ -739,8 +766,7 @@ line_to_point(
         measurement := Measurement,
         tags := Tags,
         fields := Fields,
-        timestamp := Ts,
-        precision := Precision
+        timestamp := Ts
     } = Item
 ) ->
     {_, EncodedTags, _} = maps:fold(fun maps_config_to_data/3, {Data, #{}, ?set_tag}, Tags),
@@ -749,16 +775,8 @@ line_to_point(
         measurement => emqx_placeholder:proc_tmpl(Measurement, Data),
         tags => EncodedTags,
         fields => EncodedFields,
-        timestamp => maybe_convert_time_unit(Ts, Precision)
+        timestamp => Ts
     }).
-
-maybe_convert_time_unit(Ts, {FromPrecision, ToPrecision}) ->
-    erlang:convert_time_unit(Ts, time_unit(FromPrecision), time_unit(ToPrecision)).
-
-time_unit(s) -> second;
-time_unit(ms) -> millisecond;
-time_unit(us) -> microsecond;
-time_unit(ns) -> nanosecond.
 
 maps_config_to_data(K, V, {Data, Res, SetType}) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
