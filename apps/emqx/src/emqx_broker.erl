@@ -744,13 +744,8 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
 %% Don't dispatch to share subscriber here.
 %% we do it in `emqx_shared_sub.erl` with configured strategy
 do_dispatch_chans(Topic, Msg, [SubPid | Rest], N) ->
-    case erlang:is_process_alive(SubPid) of
-        true ->
-            SubPid ! {deliver, Topic, Msg},
-            do_dispatch_chans(Topic, Msg, Rest, N + 1);
-        false ->
-            do_dispatch_chans(Topic, Msg, Rest, N)
-    end;
+    SubPid ! {deliver, Topic, Msg},
+    do_dispatch_chans(Topic, Msg, Rest, N + 1);
 do_dispatch_chans(_Topic, _Msg, [], N) ->
     N.
 
