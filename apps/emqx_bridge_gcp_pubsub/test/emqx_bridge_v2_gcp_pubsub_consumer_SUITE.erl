@@ -103,11 +103,11 @@ source_config(Overrides0) ->
                 #{
                     <<"topic">> => <<"my-topic">>
                 },
-            <<"resource_opts">> => #{
-                <<"health_check_interval">> => <<"1s">>,
-                <<"request_ttl">> => <<"1s">>,
-                <<"resume_interval">> => <<"1s">>
-            }
+            <<"resource_opts">> =>
+                maps:merge(
+                    emqx_bridge_v2_testlib:common_source_resource_opts(),
+                    #{<<"request_ttl">> => <<"1s">>}
+                )
         },
     maps:merge(CommonConfig, Overrides).
 

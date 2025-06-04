@@ -246,21 +246,27 @@ upload_request(URL, FilePath, Name, MimeType, RequestData, AuthorizationToken) -
 upload_request(Params) ->
     #{
         url := URL,
-        filepath_to_upload := FilePath,
-        file_parameter_name := Name,
         mime_type := MimeType,
         other_params := RequestData,
         auth_token := AuthorizationToken
     } = Params,
     Method = maps:get(method, Params, post),
-    Filename = filename:basename(FilePath),
-    {ok, Data} = file:read_file(FilePath),
+    Files =
+        case Params of
+            #{files := Files0} ->
+                %% Assert
+                true = lists:all(fun({_ParamName, _Filename, _Data}) -> true end, Files0),
+                Files0;
+            #{filepath_to_upload := FilePath, file_parameter_name := ParamName} ->
+                %% legacy
+                Filename = filename:basename(FilePath),
+                {ok, Data} = file:read_file(FilePath),
+                [{ParamName, Filename, Data}]
+        end,
     Boundary = emqx_utils:rand_id(32),
     RequestBody = format_multipart_formdata(
-        Data,
         RequestData,
-        Name,
-        [Filename],
+        Files,
         MimeType,
         Boundary
     ),
@@ -282,16 +288,14 @@ upload_request(Params) ->
     inets:start(),
     httpc:request(Method, {URL, Headers, ContentType, RequestBody}, HTTPOptions, Options).
 
--spec format_multipart_formdata(Data, Params, Name, FileNames, MimeType, Boundary) ->
+-spec format_multipart_formdata(Params, Files, MimeType, Boundary) ->
     binary()
 when
-    Data :: binary(),
-    Params :: list(),
-    Name :: binary(),
-    FileNames :: list(),
+    Params :: [{binary() | string(), binary() | string()}],
+    Files :: [{_ParamName :: binary(), _Filename :: binary(), _Data :: binary()}],
     MimeType :: binary(),
     Boundary :: binary().
-format_multipart_formdata(Data, Params, Name, FileNames, MimeType, Boundary) ->
+format_multipart_formdata(Params, Files, MimeType, Boundary) ->
     StartBoundary = erlang:iolist_to_binary([<<"--">>, Boundary]),
     LineSeparator = <<"\r\n">>,
     WithParams = lists:foldl(
@@ -313,15 +317,15 @@ format_multipart_formdata(Data, Params, Name, FileNames, MimeType, Boundary) ->
         Params
     ),
     WithPaths = lists:foldl(
-        fun(FileName, Acc) ->
+        fun({ParamName, Filename, Data}, Acc) ->
             erlang:iolist_to_binary([
                 Acc,
                 StartBoundary,
                 LineSeparator,
                 <<"Content-Disposition: form-data; name=\"">>,
-                Name,
+                ParamName,
                 <<"\"; filename=\"">>,
-                FileName,
+                Filename,
                 <<"\"">>,
                 LineSeparator,
                 <<"Content-Type: ">>,
@@ -333,7 +337,7 @@ format_multipart_formdata(Data, Params, Name, FileNames, MimeType, Boundary) ->
             ])
         end,
         WithParams,
-        FileNames
+        Files
     ),
     erlang:iolist_to_binary([WithPaths, StartBoundary, <<"--">>, LineSeparator]).
 

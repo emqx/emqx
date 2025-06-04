@@ -95,6 +95,7 @@ fields(source_parameters) ->
 fields(source_resource_opts) ->
     Fields = [
         health_check_interval,
+        health_check_timeout,
         %% the workers pull the messages
         request_ttl,
         resume_interval
@@ -111,7 +112,6 @@ fields(source_resource_opts) ->
 %% Connector fields
 %%=========================================
 fields("config_connector") ->
-    %% FIXME
     emqx_connector_schema:common_fields() ++
         connector_config_fields();
 fields(connector_resource_opts) ->
