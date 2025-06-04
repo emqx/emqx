@@ -290,7 +290,34 @@ protobuf_bundle_request_body() ->
         }
     }.
 
-validate_protobuf_bundle_request(#{body := #{} = Body} = Params0, _Meta) ->
+validate_protobuf_bundle_request(#{body := #{<<"bundle">> := _}} = Params0, #{method := put}) ->
+    validate_protobuf_bundle_request_with_bundle(Params0);
+validate_protobuf_bundle_request(#{body := #{} = Body} = Params0, #{method := put}) ->
+    %% Update only root proto file and/or description.
+    maybe
+        {ok, Name} ?= find_or(<<"name">>, Body, <<"Missing `name`">>),
+        ok ?= safe_validate_name(Name),
+        {ok, RootFile} ?= find_or(<<"root_proto_file">>, Body, <<"Missing `root_proto_file`">>),
+        {ok, RootPath} ?= validate_root_filename(RootFile),
+        Description = maps:get(<<"description">>, Body, <<"">>),
+        Params = Params0#{
+            name => Name,
+            description => Description,
+            root_proto_path => RootPath
+        },
+        {ok, Params}
+    else
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason);
+        _ ->
+            bad_protobuf_bundle_error()
+    end;
+validate_protobuf_bundle_request(#{body := #{}} = Params0, _Meta) ->
+    validate_protobuf_bundle_request_with_bundle(Params0);
+validate_protobuf_bundle_request(_Params, _Meta) ->
+    bad_protobuf_bundle_error().
+
+validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
     maybe
         {ok, Name} ?= find_or(<<"name">>, Body, <<"Missing `name`">>),
         ok ?= safe_validate_name(Name),
@@ -312,9 +339,7 @@ validate_protobuf_bundle_request(#{body := #{} = Body} = Params0, _Meta) ->
             ?BAD_REQUEST(Reason);
         _ ->
             bad_protobuf_bundle_error()
-    end;
-validate_protobuf_bundle_request(_Params, _Meta) ->
-    bad_protobuf_bundle_error().
+    end.
 
 %%-------------------------------------------------------------------------------------------------
 %% API
@@ -403,13 +428,31 @@ validate_protobuf_bundle_request(_Params, _Meta) ->
             end
         end
     );
-'/schema_registry_protobuf/bundle'(put, #{name := Name} = Params) ->
+'/schema_registry_protobuf/bundle'(put, #{name := Name, bundle := _} = Params) ->
     with_schema(
         Name,
         fun() ->
             case handle_upload_protobuf_bundle(Params) of
                 {ok, Res} ->
                     ?OK(Res);
+                {error, Reason} ->
+                    ?BAD_REQUEST(Reason)
+            end
+        end,
+        fun schema_not_found_error/0
+    );
+'/schema_registry_protobuf/bundle'(put, #{name := Name} = Params) ->
+    %% Updating only root file and/or description
+    with_schema(
+        Name,
+        fun() ->
+            case handle_update_protobuf_bundle_no_bundle(Params) of
+                {ok, Res} ->
+                    ?OK(Res);
+                {error, {pre_config_update, _, {invalid_or_missing_imports, Details}}} ->
+                    Msg0 = ?ERROR_MSG('BAD_REQUEST', invalid_or_missing_imports),
+                    Msg = maps:merge(Msg0, Details),
+                    {400, Msg};
                 {error, Reason} ->
                     ?BAD_REQUEST(Reason)
             end
@@ -722,7 +765,16 @@ handle_upload_protobuf_bundle(Params) ->
     } = Params,
     maybe
         {ok, Contents} ?= extract_tar_gz(Archive),
-        UpdateReq = prepare_config_update_request(Contents, Params),
+        UpdateReq = prepare_protobuf_bundle_config_update_request(Contents, Params),
+        ok ?= emqx_schema_registry:add_schema(Name, UpdateReq),
+        {ok, Res} = emqx_schema_registry:get_schema_raw_with_defaults(Name),
+        {ok, Res#{<<"name">> => Name}}
+    end.
+
+handle_update_protobuf_bundle_no_bundle(Params) ->
+    #{name := Name} = Params,
+    maybe
+        UpdateReq = prepare_protobuf_bundle_config_update_request_no_bundle(Params),
         ok ?= emqx_schema_registry:add_schema(Name, UpdateReq),
         {ok, Res} = emqx_schema_registry:get_schema_raw_with_defaults(Name),
         {ok, Res#{<<"name">> => Name}}
@@ -791,7 +843,7 @@ extract_tar_gz(Archive) ->
 bin(X) -> emqx_utils_conv:bin(X).
 str(X) -> emqx_utils_conv:str(X).
 
-prepare_config_update_request(Contents, Params) ->
+prepare_protobuf_bundle_config_update_request(Contents, Params) ->
     #{
         description := Description,
         root_proto_path := RootPath
@@ -809,6 +861,23 @@ prepare_config_update_request(Contents, Params) ->
         <<"source">> => #{
             <<"type">> => <<"bundle">>,
             <<"files">> => Files
+        }
+    }.
+
+prepare_protobuf_bundle_config_update_request_no_bundle(Params) ->
+    #{
+        name := Name,
+        description := Description,
+        root_proto_path := RootPath0
+    } = Params,
+    DataDir = emqx_schema_registry_config:protobuf_bundle_data_dir(Name),
+    RootPath = filename:join([DataDir, RootPath0]),
+    #{
+        <<"type">> => <<"protobuf">>,
+        <<"description">> => Description,
+        <<"source">> => #{
+            <<"type">> => <<"bundle">>,
+            <<"root_proto_path">> => RootPath
         }
     }.
 
