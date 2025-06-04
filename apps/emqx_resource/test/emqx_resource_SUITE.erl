@@ -5158,7 +5158,7 @@ t_independent_channel_health_check_interval(_Config) ->
             %% `emqx_resource_cache'.
             ChanId = <<"action:atype:aname:", ConnResId/binary>>,
             ok =
-                emqx_resource_manager:add_channel(
+                add_channel_emulate_config(
                     ConnResId,
                     ChanId,
                     #{
@@ -5167,22 +5167,25 @@ t_independent_channel_health_check_interval(_Config) ->
                             %% repeat during the test
                             health_check_interval => 1_000_000
                         }
-                    }
+                    },
+                    async
                 ),
-            ?assertMatch(
-                {ok, #rt{
-                    st_err = #{status := ?status_connected},
-                    channel_status = ?status_connected
-                }},
-                emqx_resource_cache:get_runtime(ChanId)
+            ?retry(
+                100,
+                5,
+                ?assertMatch(
+                    {ok, #rt{
+                        st_err = #{status := ?status_connected},
+                        channel_status = ?status_connected
+                    }},
+                    emqx_resource_cache:get_runtime(ChanId)
+                )
             ),
             %% Upon entering `?status_connected` for the first time, the connector/resource
             %% will kick off the channel health check.  After that, the channel manages its
             %% own interval with generic statem timers, and should not be triggered again
             %% by the more frequent connector health checks.
             ?assertReceive({returning_resource_health_check_result, _, _}),
-            ?assertReceive({returning_channel_health_check_result, _, _, _}),
-            %% N.B.: without async add channel, there is a second health check performed.
             ?assertReceive({returning_channel_health_check_result, _, _, _}),
             %% Should not perform other channel health checks for a long time now.
             ?assertNotReceive({returning_channel_health_check_result, _, _, _}),

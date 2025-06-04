@@ -291,7 +291,7 @@ update_schema_protobuf_bundle(Params) ->
 do_create_or_update_schema_protobuf_bundle(Params) ->
     #{
         name := Name,
-        file := Filename,
+        files := Files,
         root_proto_path := RootPath,
         method := Method
     } = Params,
@@ -299,8 +299,7 @@ do_create_or_update_schema_protobuf_bundle(Params) ->
     URL = uri(["schema_registry_protobuf", "bundle"]),
     Res = emqx_mgmt_api_test_util:upload_request(#{
         url => URL,
-        filepath_to_upload => Filename,
-        file_parameter_name => <<"bundle">>,
+        files => Files,
         mime_type => <<"application/octet-stream">>,
         other_params => lists:flatten([
             {<<"name">>, Name},
@@ -1126,6 +1125,7 @@ t_protobuf_bundle(Config) ->
     ],
     on_exit(fun() -> file:delete(BundleFilename1) end),
     ok = erl_tar:create(BundleFilename1, FileList1, [compressed]),
+    {ok, Data1} = file:read_file(BundleFilename1),
     Name = <<"myserde">>,
     Description = <<"my bundle">>,
     %% Create
@@ -1141,7 +1141,7 @@ t_protobuf_bundle(Config) ->
         }},
         create_schema_protobuf_bundle(#{
             name => Name,
-            file => BundleFilename1,
+            files => [{<<"bundle">>, BundleFilename1, Data1}],
             description => Description,
             root_proto_path => <<"a.proto">>
         })
@@ -1153,6 +1153,7 @@ t_protobuf_bundle(Config) ->
     ],
     on_exit(fun() -> file:delete(BundleFilename2) end),
     ok = erl_tar:create(BundleFilename2, FileList2, [compressed]),
+    {ok, Data2} = file:read_file(BundleFilename2),
     Description2 = <<"new description">>,
     ?assertMatch(
         {200, #{
@@ -1166,7 +1167,91 @@ t_protobuf_bundle(Config) ->
         }},
         update_schema_protobuf_bundle(#{
             name => Name,
-            file => BundleFilename2,
+            files => [{<<"bundle">>, BundleFilename2, Data2}],
+            description => Description2,
+            root_proto_path => <<"some.proto">>
+        })
+    ),
+    ok.
+
+%% Checks that we can update an existing bundle by changing only the root proto file and
+%% description.
+t_protobuf_bundle_update_without_bundle(Config) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    Description1 = <<"my bundle">>,
+    %% Does not exist yet.
+    ?assertMatch(
+        {404, _},
+        update_schema_protobuf_bundle(#{
+            name => Name,
+            files => [],
+            description => Description1,
+            root_proto_path => <<"some.proto">>
+        })
+    ),
+    %% Create as usual
+    PrivDir = ?config(priv_dir, Config),
+    BundleFilename = filename:join([PrivDir, "bundle.tar.gz"]),
+    FileList = [
+        {"a.proto", emqx_schema_registry_SUITE:proto_file(<<"a.proto">>)},
+        {"nested/b.proto", emqx_schema_registry_SUITE:proto_file(<<"b.proto">>)},
+        {"c.proto", emqx_schema_registry_SUITE:proto_file(<<"c.proto">>)}
+    ],
+    on_exit(fun() -> file:delete(BundleFilename) end),
+    ok = erl_tar:create(BundleFilename, FileList, [compressed]),
+    {ok, Data} = file:read_file(BundleFilename),
+    ?assertMatch(
+        {201, _},
+        create_schema_protobuf_bundle(#{
+            name => Name,
+            files => [{<<"bundle">>, BundleFilename, Data}],
+            description => Description1,
+            root_proto_path => <<"a.proto">>
+        })
+    ),
+    %% Update only description and root proto file
+    Description2 = <<"my new bundle">>,
+    Res2 = update_schema_protobuf_bundle(#{
+        name => Name,
+        files => [],
+        description => Description2,
+        %% Different file, in the bundle
+        root_proto_path => <<"c.proto">>
+    }),
+    ?assertMatch(
+        {200, #{
+            <<"name">> := Name,
+            <<"type">> := <<"protobuf">>,
+            <<"description">> := Description2,
+            <<"source">> := #{
+                <<"type">> := <<"bundle">>,
+                <<"root_proto_path">> := <<_/binary>>
+            }
+        }},
+        Res2
+    ),
+    {200, #{<<"source">> := #{<<"root_proto_path">> := RootPath2}}} = Res2,
+    ?assertEqual(match, re:run(RootPath2, <<"c\\.proto">>, [{capture, none}])),
+    %% Bad root proto path
+    ?assertMatch(
+        {400, #{
+            <<"message">> := <<"Invalid root filename; must not be nested in any directory">>
+        }},
+        update_schema_protobuf_bundle(#{
+            name => Name,
+            files => [],
+            description => Description2,
+            root_proto_path => <<"nested/b.proto">>
+        })
+    ),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := <<"invalid_or_missing_imports">>,
+            <<"missing">> := [_]
+        }},
+        update_schema_protobuf_bundle(#{
+            name => Name,
+            files => [],
             description => Description2,
             root_proto_path => <<"some.proto">>
         })
