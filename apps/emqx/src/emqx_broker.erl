@@ -660,7 +660,7 @@ handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
                     {subscribed, Topic, shard, I},
                     sync_route(add, Topic, #{})
                 ),
-                [{Topic, {shard, I}} | Recs];
+                [{{shard, Topic}, I} | Recs];
             true ->
                 Recs
         end,
@@ -671,12 +671,10 @@ handle_call(Req, _From, State) ->
     {reply, ignored, State}.
 
 handle_cast({dispatch, Topic, I, Msg}, State) ->
-    lists:foreach(
-        fun(SubPid) ->
-            do_dispatch2(SubPid, Topic, Msg)
-        end,
-        subscribers({shard, Topic, I})
-    ),
+    TDisp = ?BROKER_INSTR_TS(),
+    _ = do_dispatch_chans(Topic, Msg, subscribers({shard, Topic, I}), 0),
+    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_delay_us, ?US(TDisp - Msg#message.extra)),
+    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_lat_us, ?US_SINCE(TDisp)),
     {noreply, State};
 handle_cast({subscribed, Topic, shard, _I}, State) ->
     %% Do not need to 'maybe add' (i.e. to check if the route exists).
@@ -694,7 +692,7 @@ handle_cast({unsubscribed, Topic, SubPid, I}, State) ->
     true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
     case ets:member(?SUBSCRIBER, {shard, Topic, I}) of
         false ->
-            ets:delete_object(?SUBSCRIBER, {Topic, {shard, I}}),
+            ets:delete_object(?SUBSCRIBER, {{shard, Topic}, I}),
             %% Do not attempt to delete any routes here,
             %% let it be handled only by the same pool worker per topic (0 shard),
             %% so that all route deletes are serialized.
@@ -730,13 +728,9 @@ code_change(_OldVsn, State, _Extra) ->
 do_dispatch2(Topic, #delivery{message = MsgIn}) ->
     ?BROKER_INSTR_TS(T0),
     ?BROKER_INSTR_BIND(Msg, MsgIn, MsgIn#message{extra = T0}),
-    DispN = lists:foldl(
-        fun(Sub, N) ->
-            N + do_dispatch2(Sub, Topic, Msg)
-        end,
-        0,
-        subscribers(Topic)
-    ),
+    Shards = lookup_value(?SUBSCRIBER, {shard, Topic}, []),
+    DispN0 = do_dispatch_shards(Topic, Msg, Shards, 0),
+    DispN = do_dispatch_chans(Topic, Msg, subscribers(Topic), DispN0),
     ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
     case DispN of
         0 ->
@@ -749,22 +743,27 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
 
 %% Don't dispatch to share subscriber here.
 %% we do it in `emqx_shared_sub.erl` with configured strategy
-do_dispatch2(SubPid, Topic, Msg) when is_pid(SubPid) ->
+do_dispatch_chans(Topic, Msg, [SubPid | Rest], N) ->
     case erlang:is_process_alive(SubPid) of
         true ->
             SubPid ! {deliver, Topic, Msg},
-            1;
+            do_dispatch_chans(Topic, Msg, Rest, N + 1);
         false ->
-            0
+            do_dispatch_chans(Topic, Msg, Rest, N)
     end;
-do_dispatch2({shard, I}, Topic, Msg) ->
+do_dispatch_chans(_Topic, _Msg, [], N) ->
+    N.
+
+do_dispatch_shards(Topic, Msg, [I | Rest], N) ->
     %% Dispatching to sharded subscribers concurrently + asynchronously.
     %% Ordering guarantees should still hold:
     %% * Each subscriber is part of exactly one shard.
     %% * Each topic-shard is always dispatched through the same process.
     cast(pick({Topic, I}), {dispatch, Topic, I, Msg}),
     %% Assuming shard is non-empty.
-    1.
+    do_dispatch_shards(Topic, Msg, Rest, N + 1);
+do_dispatch_shards(_Topic, _Msg, [], N) ->
+    N.
 
 %%
 
