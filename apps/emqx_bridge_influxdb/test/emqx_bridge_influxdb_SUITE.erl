@@ -754,6 +754,60 @@ t_const_timestamp(Config) ->
     TimeReturned = pad_zero(TimeReturned0),
     ?assertEqual(TsStr, TimeReturned).
 
+t_empty_timestamp(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    ?assertMatch(
+        {ok, _},
+        create_bridge(
+            Config,
+            #{
+                <<"write_syntax">> =>
+                    <<
+                        "mqtt,clientid=${clientid}"
+                        " "
+                        "foo=${payload.foo}i,"
+                        "foo1=${payload.foo},"
+                        "foo2=\"${payload.foo}\","
+                        "foo3=\"${payload.foo}somestr\","
+                        "bar=5i,baz0=1.1,baz1=\"a\",baz2=\"ai\",baz3=\"au\",baz4=\"1u\""
+                        " "
+                        "${timestamp}"
+                    >>
+            }
+        )
+    ),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Payload = #{<<"foo">> => 123},
+    %% NOTE:
+    %% no timestamp field from rulesql and SentData
+    %% will use the current system time(ms)
+    SentData = #{
+        <<"clientid">> => ClientId,
+        <<"topic">> => atom_to_binary(?FUNCTION_NAME),
+        <<"payload">> => Payload
+    },
+    case QueryMode of
+        async ->
+            ?assertMatch(ok, send_message(Config, SentData));
+        sync ->
+            ?assertMatch({ok, 204, _}, send_message(Config, SentData))
+    end,
+    ct:sleep(1500),
+    PersistedData = query_by_clientid(ClientId, Config),
+    Expected = #{
+        foo => {<<"123">>, <<"long">>},
+        foo1 => {<<"123">>, <<"double">>},
+        foo2 => {<<"123">>, <<"string">>},
+        foo3 => {<<"123somestr">>, <<"string">>},
+        bar => {<<"5">>, <<"long">>},
+        baz0 => {<<"1.1">>, <<"double">>},
+        baz1 => {<<"a">>, <<"string">>},
+        baz2 => {<<"ai">>, <<"string">>},
+        baz3 => {<<"au">>, <<"string">>},
+        baz4 => {<<"1u">>, <<"string">>}
+    },
+    assert_persisted_data(ClientId, Expected, PersistedData).
+
 %% influxdb returns timestamps without trailing zeros such as
 %% "2023-02-28T17:21:51.63678163Z"
 %% while the standard should be
