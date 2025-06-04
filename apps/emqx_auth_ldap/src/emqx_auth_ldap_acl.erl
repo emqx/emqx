@@ -112,7 +112,7 @@ entry_rules(Config, Entry) ->
     maybe
         %% JSON-encoded raw rules (`emqx_authz_rule_raw`) as attribute values
         {ok, RawRules} ?= decode_acl_rules(get_attr_values(AclRuleAttrName, Entry)),
-        RawRulesAll = lists:concat([RawRulesPubSub, RawRulesPublish, RawRulesSubscribe, RawRules]),
+        RawRulesAll = lists:append([RawRulesPubSub, RawRulesPublish, RawRulesSubscribe, RawRules]),
         {ok, AclRules} ?= parse_and_compile_acl_rules(RawRulesAll),
         {ok, AclRules}
     else
@@ -173,7 +173,7 @@ decode_acl_rules(JSONs) ->
     decode_acl_rules(JSONs, []).
 
 decode_acl_rules([], Acc) ->
-    {ok, lists:concat(lists:reverse(Acc))};
+    {ok, lists:append(lists:reverse(Acc))};
 decode_acl_rules([JSON | JSONRest], Acc) ->
     case emqx_utils_json:safe_decode(JSON) of
         {ok, AclRuleRaw} ->
