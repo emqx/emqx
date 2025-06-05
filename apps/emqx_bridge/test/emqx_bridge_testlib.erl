@@ -168,10 +168,7 @@ create_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headers, Body0}} ->
                 ActionType = emqx_bridge_lib:upgrade_type(BridgeType),
-                erpc:multicall(emqx:running_nodes(), fun() ->
-                    _ = emqx_bridge_v2_testlib:kickoff_action_health_check(ActionType, BridgeName),
-                    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(ActionType, BridgeName)
-                end),
+                ok = kickoff_health_check(ActionType, BridgeName),
                 {ok, {Status, Headers, emqx_utils_json:decode(Body0)}};
             Error ->
                 Error
@@ -197,10 +194,7 @@ update_bridge_api(Config, Overrides) ->
         case emqx_mgmt_api_test_util:request_api(put, Path, "", AuthHeader, Params, Opts) of
             {ok, {_Status, _Headers, Body0}} ->
                 ActionType = emqx_bridge_lib:upgrade_type(BridgeType),
-                erpc:multicall(emqx:running_nodes(), fun() ->
-                    _ = emqx_bridge_v2_testlib:kickoff_action_health_check(ActionType, Name),
-                    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(ActionType, Name)
-                end),
+                ok = kickoff_health_check(ActionType, Name),
                 {ok, emqx_utils_json:decode(Body0)};
             Error ->
                 Error
@@ -539,4 +533,34 @@ t_on_get_status(Config, Opts) ->
         _Attempts = 20,
         ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
     ),
+    ok.
+
+kickoff_health_check(Type, Name) ->
+    Nodes = emqx:running_nodes(),
+    Results = erpc:multicall(Nodes, fun() -> do_kickoff_health_check(Type, Name) end),
+    Failed = lists:filter(
+        fun
+            ({_Node, {ok, ok}}) -> false;
+            (_) -> true
+        end,
+        lists:zip(Nodes, Results)
+    ),
+    Failed =:= [] orelse error(Failed),
+    ok.
+
+do_kickoff_health_check(Type, Name) when is_atom(Type) ->
+    do_kickoff_health_check(atom_to_binary(Type), Name);
+do_kickoff_health_check(Type, Name) when is_list(Type) ->
+    do_kickoff_health_check(list_to_binary(Type), Name);
+do_kickoff_health_check(<<"mqtt">> = Type, Name) ->
+    _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
+    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(Type, Name),
+    ok;
+do_kickoff_health_check(Type, Name) ->
+    case binary:match(Type, <<"consumer">>) of
+        nomatch ->
+            emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name);
+        _ ->
+            emqx_bridge_v2_testlib:kickoff_source_health_check(Type, Name)
+    end,
     ok.
