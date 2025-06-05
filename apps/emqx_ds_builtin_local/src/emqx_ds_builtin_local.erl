@@ -58,7 +58,7 @@
     otx_get_leader/2,
     otx_become_leader/2,
     otx_prepare_tx/5,
-    otx_commit_tx_batch/4,
+    otx_commit_tx_batch/5,
     otx_lookup_ttv/4,
     otx_get_runtime_config/1
 ]).
@@ -611,7 +611,14 @@ otx_get_tx_serial(DB, Shard) ->
     emqx_ds_storage_layer_ttv:get_read_tx_serial({DB, Shard}).
 
 otx_become_leader(DB, Shard) ->
-    get_tx_persistent_serial(DB, Shard).
+    {ok, Serial} = get_tx_persistent_serial(DB, Shard),
+    case current_timestamp({DB, Shard}) of
+        undefined ->
+            Timestamp = 0;
+        Timestamp when is_integer(Timestamp) ->
+            ok
+    end,
+    {ok, Serial, Timestamp}.
 
 otx_get_leader(DB, Shard) ->
     emqx_ds_optimistic_tx:where(DB, Shard).
@@ -619,7 +626,7 @@ otx_get_leader(DB, Shard) ->
 otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
     emqx_ds_storage_layer_ttv:prepare_tx(DBShard, Generation, SerialBin, Ops, Opts).
 
-otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Batches) ->
+otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
     case get_tx_persistent_serial(DB, Shard) of
         {ok, SerCtl} ->
             maybe

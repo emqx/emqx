@@ -31,7 +31,9 @@
 
     new_kv_tx_ctx/5,
     commit_kv_tx/3,
-    tx_commit_outcome/1
+    tx_commit_outcome/1,
+
+    get_monotonic_timestamp/0
 ]).
 
 %% Behaviour callbacks
@@ -84,6 +86,7 @@
     {emqx_ds:db(), emqx_ds:shard()},
     _OldSerial :: serial(),
     _NewSerial :: serial(),
+    _NewTimestamp :: emqx_ds:time(),
     batch()
 ) ->
     ok | emqx_ds:error(_).
@@ -110,7 +113,7 @@
 
 %% Executed in the leader process when it attempts to step up.
 -callback otx_become_leader(emqx_ds:db(), emqx_ds:shard()) ->
-    {ok, serial()} | {error, _}.
+    {ok, serial(), emqx_ds:time()} | {error, _}.
 
 %% Executed by the readers
 -callback otx_get_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
@@ -150,9 +153,12 @@
     rotate_interval :: pos_integer(),
     last_rotate_ts,
     serial :: non_neg_integer() | undefined,
+    timestamp :: emqx_ds:time() | undefined,
     committed_serial :: non_neg_integer() | undefined,
     gens = #{} :: generations()
 }).
+
+-define(ds_tx_monotonic_ts, ds_tx_monotonic_ts).
 
 %%================================================================================
 %% API functions
@@ -216,8 +222,15 @@ tx_commit_outcome(Reply) ->
             %% This is likely a real monitor message. It doesn't contain TRef,
             %% so the caller will receive the timeout message after the fact.
             %% There's not much we can do about it.
-            ?err_unrec({Type, Object, Info})
+            ?err_rec({Type, Object, Info})
     end.
+
+%% NOTE: should be called in the optimistic_tx process.
+-spec get_monotonic_timestamp() -> emqx_ds:time().
+get_monotonic_timestamp() ->
+    TS = max(get(?ds_tx_monotonic_ts) + 1, erlang:system_time(microsecond)),
+    put(?ds_tx_monotonic_ts, TS),
+    TS.
 
 %%================================================================================
 %% Behavior callbacks
@@ -307,12 +320,13 @@ handle_event(ET, Event, State, _D) ->
 
 async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
     maybe
-        {ok, Serial} ?= CBM:otx_become_leader(DB, Shard),
+        {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
         %% Issue a dummy transaction to trigger metadata update:
-        ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, []),
-        ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard}),
+        ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
+        ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
         {next_state, ?leader(?idle), D#d{
             serial = Serial,
+            timestamp = Timestamp,
             committed_serial = Serial
         }}
     else
@@ -327,6 +341,7 @@ handle_tx(
         cbm = CBM,
         serial = Serial,
         committed_serial = SafeToReadSerial,
+        timestamp = Timestamp,
         gens = Gens
     },
     Tx
@@ -350,12 +365,14 @@ handle_tx(
             GS0 = #gen_data{dirty = emqx_ds_tx_conflict_trie:new(Serial, infinity)}
     end,
     PresumedCommitSerial = Serial + 1,
+    put(?ds_tx_monotonic_ts, Timestamp),
     case try_commit(DBShard, Gen, CBM, SafeToReadSerial, PresumedCommitSerial, Tx, GS0) of
         {ok, GS} ->
             ?tp(emqx_ds_optimistic_tx_commit_pending, #{ref => TxRef}),
             {ok, D#d{
                 serial = PresumedCommitSerial,
-                gens = Gens#{Gen => GS}
+                gens = Gens#{Gen => GS},
+                timestamp = erase(?ds_tx_monotonic_ts)
             }};
         aborted ->
             aborted
@@ -428,13 +445,19 @@ update_dirty(Serial, Ops, Dirty0) ->
 
 flush(
     D = #d{
-        db = DB, shard = Shard, cbm = CBM, committed_serial = SerCtl, serial = Serial, gens = Gens0
+        db = DB,
+        shard = Shard,
+        cbm = CBM,
+        committed_serial = SerCtl,
+        serial = Serial,
+        gens = Gens0,
+        timestamp = Timestamp
     }
 ) ->
     DBShard = {DB, Shard},
     ?tp(debug, emqx_ds_optimistic_tx_flush, #{}),
     Batch = make_batch(Gens0),
-    Result = CBM:otx_commit_tx_batch(DBShard, SerCtl, Serial, Batch),
+    Result = CBM:otx_commit_tx_batch(DBShard, SerCtl, Serial, Timestamp, Batch),
     Gens = clean_buffers_and_reply(Result, Gens0),
     #{flush_interval := FI, idle_flush_interval := IFI, conflict_window := CW} = CBM:otx_get_runtime_config(
         DB

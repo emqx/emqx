@@ -61,6 +61,7 @@
 
 %% Transaction
 -define(ds_tx_serial, tx_serial).
+-define(ds_tx_ts_monotonic, tx_ts_monotonic).
 
 -define(ds_tx_write, w).
 -define(ds_tx_delete_topic, dt).

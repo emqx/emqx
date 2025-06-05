@@ -380,7 +380,7 @@ Options for the `subscribe` API.
 
 -type tx_ops() :: #{
     %% Write operations:
-    ?ds_tx_write => [ttv() | {topic(), time(), ?ds_tx_serial}],
+    ?ds_tx_write => [{topic(), time() | ?ds_tx_ts_monotonic, binary() | ?ds_tx_serial}],
     %% Deletions:
     ?ds_tx_delete_topic => [topic_filter()],
     %% Checked reads:
@@ -1038,6 +1038,10 @@ Schedule a transactional write of a given value to the topic. Value
 can be a binary or `?ds_tx_serial`. The latter is replaced with the
 transaction serial.
 
+If time is set to a special value `?ds_tx_ts_monotonic`, then at the
+time of the commit timestamp of the record will be replaced with a
+unique, monotonically increasing timestamp (in microseconds).
+
 NOTE: topics used in TTV interface are not MQTT topics: they don't
 have to be proper unicode and levels can contain slashes.
 
@@ -1046,7 +1050,8 @@ have to be proper unicode and levels can contain slashes.
 -spec tx_write({topic(), time(), binary() | ?ds_tx_serial}) -> ok.
 tx_write({Topic, Time, Value}) ->
     case
-        is_topic(Topic) andalso is_integer(Time) andalso
+        is_topic(Topic) andalso
+            (is_integer(Time) orelse Time =:= ?ds_tx_ts_monotonic) andalso
             (is_binary(Value) orelse Value =:= ?ds_tx_serial)
     of
         true ->
@@ -1422,7 +1427,7 @@ trans_inner(DB, Fun, Opts) ->
                 _ = put(?tx_ops_assert_absent, []),
                 Ret = Fun(),
                 Tx = #{
-                    ?ds_tx_write => erase(?tx_ops_write),
+                    ?ds_tx_write => lists:reverse(erase(?tx_ops_write)),
                     ?ds_tx_read => erase(?tx_ops_read),
                     ?ds_tx_delete_topic => erase(?tx_ops_del_topic),
                     ?ds_tx_expected => erase(?tx_ops_assert_present),
