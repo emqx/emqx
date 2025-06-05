@@ -119,7 +119,7 @@ t_info(_) ->
     ?assertMatch(
         #{
             peername := {{127, 0, 0, 1}, 3456},
-            sockname := {{127, 0, 0, 1}, 1883},
+            sockname := {{127, 0, 0, 1}, 18083},
             sockstate := idle,
             socktype := tcp
         },

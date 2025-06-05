@@ -78,10 +78,6 @@
     transport :: esockd:transport(),
     %% TCP/TLS Socket
     socket :: esockd:socket() | emqx_quic_stream:socket(),
-    %% Peername of the connection
-    peername :: emqx_types:peername(),
-    %% Sockname of the connection
-    sockname :: emqx_types:peername(),
     %% Sock State
     sockstate :: emqx_types:sockstate(),
     %% Packet parser / serializer
@@ -198,10 +194,10 @@ info(Keys, State) when is_list(Keys) ->
     [{Key, info(Key, State)} || Key <- Keys];
 info(socktype, #state{transport = Transport, socket = Socket}) ->
     Transport:type(Socket);
-info(peername, #state{peername = Peername}) ->
-    Peername;
-info(sockname, #state{sockname = Sockname}) ->
-    Sockname;
+info(peername, #state{channel = Channel}) ->
+    emqx_channel:info(peername, Channel);
+info(sockname, #state{channel = Channel}) ->
+    emqx_channel:info(sockname, Channel);
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
@@ -321,8 +317,6 @@ init_state(
     #state{
         transport = Transport,
         socket = Socket,
-        peername = Peername,
-        sockname = Sockname,
         sockstate = idle,
         parser = Parser,
         serialize = Serialize,
@@ -345,11 +339,12 @@ run_loop(
     State = #state{
         transport = Transport,
         socket = Socket,
-        peername = Peername,
+        channel = Channel,
         listener = Listener,
         zone = Zone
     }
 ) ->
+    Peername = emqx_channel:info(peername, Channel),
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
     ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     emqx_utils:tune_heap_size(ShutdownPolicy),
