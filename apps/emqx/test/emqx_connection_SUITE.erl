@@ -272,7 +272,7 @@ t_handle_call(_) ->
 
 t_handle_timeout(_) ->
     TRef = make_ref(),
-    State = st(#{idle_timer => TRef, stats_timer => TRef}),
+    State = st(#{stats_timer => TRef}),
     ?assertMatch(
         {stop, {shutdown, idle_timeout}, _NState},
         emqx_connection:handle_timeout(TRef, idle_timeout, State)
@@ -289,8 +289,8 @@ t_handle_timeout(_) ->
     ?assertMatch({ok, _NState}, emqx_connection:handle_timeout(TRef, undefined, State)).
 
 t_parse_incoming(_) ->
-    ?assertMatch({[], _NState}, emqx_connection:parse_incoming(<<>>, st())),
-    ?assertMatch({[], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, st())).
+    ?assertMatch({0, [], _NState}, emqx_connection:parse_incoming(<<>>, st())),
+    ?assertMatch({0, [], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, st())).
 
 t_next_incoming_msgs(_) ->
     ?assertEqual(
@@ -582,11 +582,12 @@ st() -> st(#{}, #{}).
 st(InitFields) when is_map(InitFields) ->
     st(InitFields, #{}).
 st(InitFields, ChannelFields) when is_map(InitFields) ->
-    St = emqx_connection:init_state(emqx_transport, sock, #{
+    St0 = emqx_connection:init_state(emqx_transport, sock, #{
         zone => default,
         limiter => undefined,
         listener => {tcp, default}
     }),
+    St = emqx_connection:set_field(stats_timer, {idle, make_ref()}, St0),
     maps:fold(
         fun(N, V, S) -> emqx_connection:set_field(N, V, S) end,
         emqx_connection:set_field(channel, channel(ChannelFields), St),
