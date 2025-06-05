@@ -1754,10 +1754,6 @@ handle_timeout(TRef, Msg, Channel) ->
 %% Ensure timers
 %%--------------------------------------------------------------------
 
-ensure_timer([Name], Channel) ->
-    ensure_timer(Name, Channel);
-ensure_timer([Name | Rest], Channel) ->
-    ensure_timer(Rest, ensure_timer(Name, Channel));
 ensure_timer(Name, Channel = #channel{timers = Timers}) ->
     TRef = maps:get(Name, Timers, undefined),
     Time = interval(Name, Channel),
