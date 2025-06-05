@@ -671,8 +671,8 @@ handle_call(Req, _From, State) ->
     {reply, ignored, State}.
 
 handle_cast({dispatch, Topic, I, Msg}, State) ->
-    TDisp = ?BROKER_INSTR_TS(),
-    _ = do_dispatch_chans(Topic, Msg, subscribers({shard, Topic, I}), 0),
+    ?BROKER_INSTR_TS(TDisp),
+    _ = do_dispatch_chans({deliver, Topic, Msg}, subscribers({shard, Topic, I}), 0),
     ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_delay_us, ?US(TDisp - Msg#message.extra)),
     ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_lat_us, ?US_SINCE(TDisp)),
     {noreply, State};
@@ -730,7 +730,7 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
     ?BROKER_INSTR_BIND(Msg, MsgIn, MsgIn#message{extra = T0}),
     Shards = lookup_value(?SUBSCRIBER, {shard, Topic}, []),
     DispN0 = do_dispatch_shards(Topic, Msg, Shards, 0),
-    DispN = do_dispatch_chans(Topic, Msg, subscribers(Topic), DispN0),
+    DispN = do_dispatch_chans({deliver, Topic, Msg}, subscribers(Topic), DispN0),
     ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
     case DispN of
         0 ->
@@ -743,10 +743,10 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
 
 %% Don't dispatch to share subscriber here.
 %% we do it in `emqx_shared_sub.erl` with configured strategy
-do_dispatch_chans(Topic, Msg, [SubPid | Rest], N) ->
-    SubPid ! {deliver, Topic, Msg},
-    do_dispatch_chans(Topic, Msg, Rest, N + 1);
-do_dispatch_chans(_Topic, _Msg, [], N) ->
+do_dispatch_chans(Deliver, [SubPid | Rest], N) ->
+    SubPid ! Deliver,
+    do_dispatch_chans(Deliver, Rest, N + 1);
+do_dispatch_chans(_Deliver, [], N) ->
     N.
 
 do_dispatch_shards(Topic, Msg, [I | Rest], N) ->
