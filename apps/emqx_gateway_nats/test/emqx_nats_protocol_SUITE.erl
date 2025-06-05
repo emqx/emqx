@@ -134,6 +134,18 @@ deny_pubsub_all() ->
         >>
     ).
 
+update_nats_with_clientinfo_override(ClientInfoOverride) ->
+    DefaultOverride = #{
+        <<"username">> => <<"${Packet.user}">>,
+        <<"password">> => <<"${Packet.pass}">>
+    },
+    ClientInfoOverride1 = maps:merge(DefaultOverride, ClientInfoOverride),
+    Conf = emqx:get_raw_config([gateway, nats]),
+    emqx_gateway_conf:update_gateway(
+        nats,
+        Conf#{<<"clientinfo_override">> => ClientInfoOverride1}
+    ).
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
@@ -727,7 +739,7 @@ t_auth_dynamic_enable_disable(Config) ->
     ?assertMatch(
         #nats_frame{
             operation = ?OP_ERR,
-            message = <<"Login Failed: not_authorized">>
+            message = <<"Login Failed: bad_username_or_password">>
         },
         ErrorMsg
     ),
@@ -1090,6 +1102,28 @@ t_gateway_client_subscription_management(Config) ->
     ?assertEqual(
         [], emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId)
     ),
+
+    emqx_nats_client:stop(Client).
+
+t_clientinfo_override_with_empty_clientid(Config) ->
+    update_nats_with_clientinfo_override(#{<<"clientid">> => <<>>}),
+
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            user => <<"test_user">>,
+            pass => <<"password">>,
+            verbose => true
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+    ok = emqx_nats_client:connect(Client),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+
+    [ClientInfo] = find_client_by_username(<<"test_user">>),
+    ?assertNotEqual(undefined, maps:get(clientid, ClientInfo)),
+    ?assertNotEqual(<<>>, maps:get(clientid, ClientInfo)),
 
     emqx_nats_client:stop(Client).
 
