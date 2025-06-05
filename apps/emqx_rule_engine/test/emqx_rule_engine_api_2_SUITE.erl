@@ -156,6 +156,12 @@ get_rule(Id) ->
     Res = request(Method, Path, _Params = ""),
     emqx_mgmt_api_test_util:simplify_result(Res).
 
+simulate_rule(Id, Params) ->
+    Method = post,
+    Path = emqx_mgmt_api_test_util:api_path(["rules", Id, "test"]),
+    Res = request(Method, Path, Params),
+    emqx_mgmt_api_test_util:simplify_result(Res).
+
 sources_sql(Sources) ->
     Froms = iolist_to_binary(lists:join(<<", ">>, lists:map(fun source_from/1, Sources))),
     <<"select * from ", Froms/binary>>.
@@ -173,6 +179,45 @@ spy_action(Selected, Envs, #{pid := TestPidBin}) ->
 event_type(EventTopic) ->
     EventAtom = emqx_rule_events:event_name(EventTopic),
     emqx_rule_api_schema:event_to_event_type(EventAtom).
+
+fmt(Template, Context) ->
+    Parsed = emqx_template:parse(Template),
+    iolist_to_binary(emqx_template:render_strict(Parsed, Context)).
+
+do_rule_simulation_simple(Case) ->
+    #{
+        topic := Topic,
+        context := Context,
+        expected := Expected
+    } = Case,
+    SQL = fmt(<<"select * from \"${topic}\" ">>, #{topic => Topic}),
+    {201, #{<<"id">> := Id}} = create_rule(#{<<"sql">> => SQL}),
+    Params = #{
+        <<"context">> => Context,
+        <<"stop_action_after_template_rendering">> => false
+    },
+    {Code, Resp} = simulate_rule(Id, Params),
+    maybe
+        {ok, ExpectedCode} ?= maps:find(code, Expected),
+        true ?= ExpectedCode == Code,
+        false
+    else
+        _ ->
+            {true, #{
+                expected => Expected,
+                hint => maps:get(hint, Case, <<>>),
+                input => Context,
+                got => {Code, Resp}
+            }}
+    end.
+
+client_connected_context() ->
+    #{
+        <<"clientid">> => <<"c_emqx">>,
+        <<"event_type">> => <<"client_connected">>,
+        <<"peername">> => <<"127.0.0.1:64001">>,
+        <<"username">> => <<"u_emqx">>
+    }.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -1114,4 +1159,18 @@ t_action_details(Config) ->
         }},
         list_rules([])
     ),
+    ok.
+
+%% Checks that `/rules/:id/test` does not reply with 412 (no match) when the rule uses
+%% legacy event topics.
+t_rule_simulation_legacy_topics(_Config) ->
+    Cases = [
+        #{
+            topic => <<"$events/client_connected">>,
+            context => client_connected_context(),
+            expected => #{code => 200}
+        }
+    ],
+    Failures = lists:filtermap(fun do_rule_simulation_simple/1, Cases),
+    ?assertEqual([], Failures),
     ok.
