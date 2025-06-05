@@ -107,7 +107,7 @@
     to_timeout_duration/1,
     to_timeout_duration_s/1,
     to_timeout_duration_ms/1,
-    mk_duration/2,
+    mk_duration/1,
     to_bytesize/1,
     to_wordsize/1,
     to_percent/1,
@@ -2713,15 +2713,9 @@ ref(StructName) -> hoconsc:ref(?MODULE, StructName).
 
 ref(Module, StructName) -> hoconsc:ref(Module, StructName).
 
-mk_duration(Desc, OverrideMeta) ->
+mk_duration(OverrideMeta) ->
     DefaultMeta = #{
-        desc => Desc ++
-            " Time interval is a string that contains a number followed by time unit:<br/>"
-            "- `ms` for milliseconds,\n"
-            "- `s` for seconds,\n"
-            "- `m` for minutes,\n"
-            "- `h` for hours;\n<br/>"
-            "or combination of whereof: `1h5m0s`"
+        desc => ?DESC("duration")
     },
     hoconsc:mk(typerefl:alias("string", duration()), maps:merge(DefaultMeta, OverrideMeta)).
 

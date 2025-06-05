@@ -129,16 +129,17 @@ fields("server_configs") ->
                     desc => ?DESC("clean_start")
                 }
             )},
-        {keepalive, mk_duration("MQTT Keepalive.", #{default => <<"160s">>})},
+        {keepalive, emqx_schema:mk_duration(#{default => <<"160s">>})},
         {connect_timeout,
             mk(emqx_schema:timeout_duration_s(), #{
                 default => <<"10s">>, desc => ?DESC("connect_timeout")
             })},
         {retry_interval,
-            mk_duration(
-                "Message retry interval. Delay for the MQTT bridge to retry sending the QoS1/QoS2 "
-                "messages in case of ACK not received.",
-                #{default => <<"15s">>}
+            emqx_schema:mk_duration(
+                #{
+                    default => <<"15s">>,
+                    desc => ?DESC("retry_interval")
+                }
             )},
         {max_inflight,
             mk(
@@ -515,9 +516,6 @@ static_clientid_validate_clientids_length(Ids) ->
         false ->
             ok
     end.
-
-mk_duration(Desc, Opts) ->
-    emqx_schema:mk_duration(Desc, Opts).
 
 mk(Type, Opts) ->
     hoconsc:mk(Type, Opts).

@@ -1916,4 +1916,14 @@ socket_tcp_keepalive.label:
 
       Alternatively, to disable a listener without removing its configuration, set the hidden `enable` field to `false`. For example: `listeners.tcp.my_listener.enable = false`.~"""
   }
+  duration {
+    label: "Duration"
+    desc: """~
+      Time interval is a string that contains a number followed by time unit:
+        - `ms` for milliseconds
+        - `s` for seconds
+        - `m` for minutes
+        - `h` for hours
+      or combination of whereof: `1h5m0s`~"""
+  }
 }
