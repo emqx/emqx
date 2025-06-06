@@ -38,6 +38,7 @@
 {emqx_eviction_agent,1}.
 {emqx_eviction_agent,2}.
 {emqx_eviction_agent,3}.
+{emqx_eviction_agent,4}.
 {emqx_exhook,1}.
 {emqx_ft_storage_exporter_fs,1}.
 {emqx_ft_storage_fs,1}.
