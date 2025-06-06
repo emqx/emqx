@@ -230,4 +230,7 @@ connect_timeout.label:
 connect_timeout.desc:
 """Timeout for connecting to the remote broker.  The connection worker process is blocked up to this amount of time when attempting the initial connection."""
 
+retry_interval.label: "Retry Interval"
+retry_interval.desc: "Delay for the MQTT bridge to retry sending the QoS1/QoS2 messages in case of ACK not received."
+
 }

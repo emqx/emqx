@@ -107,7 +107,7 @@
     to_timeout_duration/1,
     to_timeout_duration_s/1,
     to_timeout_duration_ms/1,
-    mk_duration/2,
+    mk_duration/1,
     to_bytesize/1,
     to_wordsize/1,
     to_percent/1,
@@ -2703,15 +2703,6 @@ authz_fields() ->
 keys(Parent, Conf) ->
     [binary_to_list(B) || B <- maps:keys(conf_get(Parent, Conf, #{}))].
 
--spec ceiling(number()) -> integer().
-ceiling(X) ->
-    T = erlang:trunc(X),
-    case (X - T) of
-        Neg when Neg < 0 -> T;
-        Pos when Pos > 0 -> T + 1;
-        _ -> T
-    end.
-
 %% types
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
@@ -2722,15 +2713,9 @@ ref(StructName) -> hoconsc:ref(?MODULE, StructName).
 
 ref(Module, StructName) -> hoconsc:ref(Module, StructName).
 
-mk_duration(Desc, OverrideMeta) ->
+mk_duration(OverrideMeta) ->
     DefaultMeta = #{
-        desc => Desc ++
-            " Time interval is a string that contains a number followed by time unit:<br/>"
-            "- `ms` for milliseconds,\n"
-            "- `s` for seconds,\n"
-            "- `m` for minutes,\n"
-            "- `h` for hours;\n<br/>"
-            "or combination of whereof: `1h5m0s`"
+        desc => ?DESC("duration")
     },
     hoconsc:mk(typerefl:alias("string", duration()), maps:merge(DefaultMeta, OverrideMeta)).
 
@@ -2748,7 +2733,7 @@ to_duration(Str) ->
 to_duration_s(Str) ->
     case hocon_postprocess:duration(Str) of
         D when is_number(D) ->
-            {ok, ceiling(D / 1000)};
+            {ok, erlang:ceil(D / 1000)};
         _ ->
             case to_integer(Str) of
                 {ok, I} -> {ok, I};
@@ -2761,7 +2746,7 @@ to_duration_s(Str) ->
 to_duration_ms(Str) ->
     case hocon_postprocess:duration(Str) of
         D when is_number(D) ->
-            {ok, ceiling(D)};
+            {ok, erlang:ceil(D)};
         _ ->
             case to_integer(Str) of
                 {ok, I} -> {ok, I};

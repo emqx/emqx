@@ -50,4 +50,8 @@ max_inflight.desc:
 
 max_inflight.label:
 """Max Inflight Message"""
+
+retry_interval.label: "Retry Interval"
+retry_interval.desc: "Delay for the MQTT bridge to retry sending the QoS1/QoS2 messages in case of ACK not received."
+
 }
