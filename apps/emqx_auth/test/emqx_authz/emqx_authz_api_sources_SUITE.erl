@@ -734,9 +734,3 @@ get_sources(Result) ->
     maps:get(<<"sources">>, emqx_utils_json:decode(Result)).
 
 data_dir() -> emqx:data_dir().
-
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).

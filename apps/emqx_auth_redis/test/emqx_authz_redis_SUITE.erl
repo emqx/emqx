@@ -401,12 +401,6 @@ redis_config() ->
         ssl => #{enable => false}
     }.
 
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).
-
 create_redis_resource() ->
     {ok, _} = emqx_resource:create_local(
         ?REDIS_RESOURCE,

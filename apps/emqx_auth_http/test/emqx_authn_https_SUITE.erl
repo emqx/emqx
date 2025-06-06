@@ -141,12 +141,6 @@ raw_https_auth_config(SpecificSSLOpts) ->
         <<"ssl">> => maps:merge(SSLOpts, SpecificSSLOpts)
     }.
 
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).
-
 cert_path(FileName) ->
     Dir = code:lib_dir(emqx_auth),
     filename:join([Dir, <<"test/data/certs">>, FileName]).

@@ -842,12 +842,6 @@ setup_handler_and_config(Handler, Config) ->
         Config
     ).
 
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).
-
 get_metrics() ->
     Metrics = emqx_metrics_worker:get_metrics(authz_metrics, http),
     lists:foldl(

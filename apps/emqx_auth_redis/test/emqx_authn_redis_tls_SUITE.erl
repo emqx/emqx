@@ -136,9 +136,3 @@ raw_redis_auth_config(SpecificSSLOpts) ->
 
 redis_server() ->
     iolist_to_binary(io_lib:format("~s:~b", [?REDIS_HOST, ?REDIS_TLS_PORT])).
-
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).

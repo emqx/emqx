@@ -60,6 +60,7 @@ destroy(_Source) -> ok.
 %%
 %%    [{
 %%        Permission :: emqx_authz_rule:permission_resolution(),
+%%        Who :: emqx_authz_rule:who_condition(),
 %%        Action :: emqx_authz_rule:action_condition(),
 %%        Topics :: emqx_authz_rule:topic_condition()
 %%     }]
@@ -85,7 +86,10 @@ destroy(_Source) -> ok.
 %%
 %%            %% true | false | all | 0 | 1 | <<"true">> | ...
 %%            %% only for pub action
-%%            <<"retain">> => true
+%%            <<"retain">> => true,
+%%
+%%            ....
+%%            %% See `emqx_authz_rule_raw' for more fields
 %%        },
 %%        ...
 %%    ]

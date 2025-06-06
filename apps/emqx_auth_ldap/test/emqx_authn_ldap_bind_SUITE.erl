@@ -114,7 +114,7 @@ t_authenticate(_Config) ->
 test_user_auth(#{
     credentials := Credentials0,
     config_params := SpecificConfigParams,
-    result := Result
+    result := ExpectedResult
 }) ->
     AuthConfig = maps:merge(raw_ldap_auth_config(), SpecificConfigParams),
 
@@ -128,7 +128,10 @@ test_user_auth(#{
         protocol => mqtt
     },
 
-    ?assertEqual(Result, emqx_access_control:authenticate(Credentials)),
+    %% Compare only the fields that are present in the expected result
+    ActualAuthResult0 = emqx_access_control:authenticate(Credentials),
+    ActualAuthResult = filter_expected_fields(ExpectedResult, ActualAuthResult0),
+    ?assertEqual(ExpectedResult, ActualAuthResult),
 
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
@@ -364,3 +367,8 @@ ldap_server() ->
 
 ldap_config() ->
     emqx_ldap_SUITE:ldap_config([]).
+
+filter_expected_fields({ok, Expected}, {ok, Actual}) ->
+    {ok, maps:with(maps:keys(Expected), Actual)};
+filter_expected_fields(_Expected, Actual) ->
+    Actual.

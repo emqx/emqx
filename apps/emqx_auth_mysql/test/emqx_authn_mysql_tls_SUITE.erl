@@ -143,9 +143,3 @@ raw_mysql_auth_config(SpecificSSLOpts) ->
 
 mysql_server() ->
     iolist_to_binary(io_lib:format("~s", [?MYSQL_HOST])).
-
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).

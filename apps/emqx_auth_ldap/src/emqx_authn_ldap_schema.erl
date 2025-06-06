@@ -70,6 +70,7 @@ common_fields() ->
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
         {query_timeout, fun query_timeout/1}
     ] ++
+        acl_fields() ++
         emqx_ldap:fields(search_options) ++
         emqx_authn_schema:common_fields() ++
         emqx_ldap:fields(config).
@@ -114,6 +115,40 @@ password_attribute() ->
             default => <<"userPassword">>
         }
     ).
+
+acl_fields() ->
+    [
+        {acl_ttl_attribute,
+            ?HOCON(string(), #{
+                desc => ?DESC(acl_ttl_attribute),
+                example => <<"mqttAclTtl">>,
+                required => false
+            })},
+        {publish_attribute,
+            ?HOCON(string(), #{
+                desc => ?DESC(emqx_authz_ldap_schema, publish_attribute),
+                example => <<"mqttPublishTopic">>,
+                required => false
+            })},
+        {subscribe_attribute,
+            ?HOCON(string(), #{
+                desc => ?DESC(emqx_authz_ldap_schema, subscribe_attribute),
+                example => <<"mqttSubscriptionTopic">>,
+                required => false
+            })},
+        {all_attribute,
+            ?HOCON(string(), #{
+                desc => ?DESC(emqx_authz_ldap_schema, all_attribute),
+                example => <<"mqttPubSubTopic">>,
+                required => false
+            })},
+        {acl_rule_attribute,
+            ?HOCON(string(), #{
+                desc => ?DESC(emqx_authz_ldap_schema, acl_rule_attribute),
+                example => <<"mqttAclRule">>,
+                required => false
+            })}
+    ].
 
 is_superuser_attribute() ->
     ?HOCON(

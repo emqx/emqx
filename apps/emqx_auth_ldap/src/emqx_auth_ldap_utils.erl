@@ -12,7 +12,8 @@
     render_password/2,
     parse_filter/2,
     parse_dn/2,
-    get_bool_attribute/3
+    get_bool_attribute/3,
+    get_bin_attribute/3
 ]).
 
 %%------------------------------------------------------------------------------
@@ -73,6 +74,14 @@ get_bool_attribute(Attribute, #eldap_entry{attributes = Attributes}, Default) ->
         Value ->
             BinValue = list_to_binary(string:to_lower(Value)),
             emqx_authn_utils:to_bool(BinValue)
+    end.
+
+get_bin_attribute(Attribute, #eldap_entry{attributes = Attributes}, Default) ->
+    case get_attribute_value(Attribute, Attributes) of
+        undefined ->
+            Default;
+        Value ->
+            iolist_to_binary(Value)
     end.
 
 %%------------------------------------------------------------------------------

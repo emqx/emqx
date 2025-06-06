@@ -55,7 +55,7 @@ authenticate(Credential, #{method := #{type := bind}} = State) ->
     emqx_authn_ldap_bind:authenticate(Credential, State).
 
 parse_config(
-    #{base_dn := BaseDN, filter := Filter, query_timeout := QueryTimeout, method := Method}
+    #{base_dn := BaseDN, filter := Filter, query_timeout := QueryTimeout, method := Method} = Config
 ) ->
     maybe
         {PasswordVars, PasswordTemplate} =
@@ -72,12 +72,26 @@ parse_config(
         CacheKeyTemplate = emqx_auth_template:cache_key_template(
             lists:uniq(BaseDNVars ++ FilterVars ++ PasswordVars)
         ),
-        {ok, #{
-            query_timeout => QueryTimeout,
-            method => Method,
-            cache_key_template => CacheKeyTemplate,
-            base_dn_template => BaseDNTemplate,
-            filter_template => FilterTemplate,
-            password_template => PasswordTemplate
-        }}
+        AclAttributeNames = maps:with(
+            [
+                publish_attribute,
+                subscribe_attribute,
+                all_attribute,
+                acl_rule_attribute,
+                acl_ttl_attribute
+            ],
+            Config
+        ),
+        {ok,
+            maps:merge(
+                AclAttributeNames,
+                #{
+                    query_timeout => QueryTimeout,
+                    method => Method,
+                    cache_key_template => CacheKeyTemplate,
+                    base_dn_template => BaseDNTemplate,
+                    filter_template => FilterTemplate,
+                    password_template => PasswordTemplate
+                }
+            )}
     end.
