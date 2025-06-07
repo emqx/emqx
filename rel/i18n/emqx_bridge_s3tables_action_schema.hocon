@@ -47,4 +47,34 @@ emqx_bridge_s3tables_action_schema {
     """Table to be used with this action."""
   }
 
+  aggregation_container {
+    label: """Data File Format"""
+    desc:
+    """Options for configuring the data file format to be used."""
+  }
+
+  container_avro {
+    label: """Avro Data File"""
+    desc:
+    """Use Avro for encoding data files."""
+  }
+
+  container_parquet {
+    label: """Parquet Data File"""
+    desc:
+    """Use Parquet for encoding data files."""
+  }
+
+  container_type_avro {
+    label: """Avro Data File"""
+    desc:
+    """Use Avro for encoding data files."""
+  }
+
+  container_type_parquet {
+    label: """Parquet Data File"""
+    desc:
+    """Use Parquet for encoding data files."""
+  }
+
 }

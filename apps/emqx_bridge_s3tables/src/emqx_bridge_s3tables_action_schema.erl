@@ -88,7 +88,7 @@ fields(s3_upload) ->
 fields(aggregation) ->
     [
         {time_interval,
-            hoconsc:mk(
+            mk(
                 emqx_schema:duration_s(),
                 #{
                     required => false,
@@ -97,15 +97,34 @@ fields(aggregation) ->
                 }
             )},
         {max_records,
-            hoconsc:mk(
+            mk(
                 pos_integer(),
                 #{
                     required => false,
                     default => 100_000,
                     desc => ?DESC("aggregation_max_records")
                 }
+            )},
+        {container,
+            mk(
+                emqx_schema:mkunion(
+                    type,
+                    #{
+                        <<"avro">> => ref(container_avro),
+                        <<"parquet">> => ref(container_parquet)
+                    },
+                    avro
+                ),
+                #{
+                    default => #{<<"type">> => <<"avro">>},
+                    desc => ?DESC("aggregation_container")
+                }
             )}
     ];
+fields(container_avro) ->
+    [{type, mk(avro, #{desc => ?DESC("container_type_avro")})}];
+fields(container_parquet) ->
+    [{type, mk(parquet, #{desc => ?DESC("container_type_parquet")})}];
 fields(action_resource_opts) ->
     %% NOTE: This action benefits from generous batching defaults.
     emqx_bridge_v2_schema:action_resource_opts_fields([
@@ -118,6 +137,8 @@ desc(Name) when
     Name =:= action_parameters;
     Name =:= aggregation;
     Name =:= s3_upload;
+    Name =:= container_avro;
+    Name =:= container_parquet;
     Name =:= parameters
 ->
     ?DESC(Name);

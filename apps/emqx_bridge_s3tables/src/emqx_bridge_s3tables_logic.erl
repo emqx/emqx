@@ -104,6 +104,7 @@ parse_loaded_table(LoadedTable) ->
         {ok, {PartitionSpecId, PartSpec}} ?= find_partition_spec(LoadedTable, IceSchema),
         {ok, #{
             ?avro_schema => AvroSchema,
+            ?avro_schema_json => AvroSchema1,
             ?iceberg_schema => IceSchema,
             ?loaded_table => LoadedTable,
             ?partition_spec => PartSpec,

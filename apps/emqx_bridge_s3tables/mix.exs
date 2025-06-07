@@ -32,6 +32,7 @@ defmodule EMQXBridgeS3Tables.MixProject do
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector_aggregator, in_umbrella: true},
       {:emqx_s3, in_umbrella: true},
+      {:parquer, github: "emqx/parquer", tag: "0.1.0"},
       UMP.common_dep(:erlcloud),
       UMP.common_dep(:murmerl3),
     ]

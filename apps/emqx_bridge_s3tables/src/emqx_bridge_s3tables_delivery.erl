@@ -39,6 +39,7 @@
 %% Manifest constants
 -define(DATA_FILE_CONTENT_DATA, 0).
 -define(DATA_FILE_FORMAT_AVRO, <<"AVRO">>).
+-define(DATA_FILE_FORMAT_PARQUET, <<"PARQUET">>).
 -define(MANIFEST_ENTRY_STATUS_ADDED, 1).
 -define(MANIFEST_LIST_CONTENT_DATA, 0).
 
@@ -81,17 +82,22 @@
     upload_options := #{
         ?action_res_id := action_resource_id(),
         ?client := iceberg_client(),
+        ?container_type := container_type(),
         ?location_client := location_client(),
         ?namespace := namespace(),
-        ?table := table_name()
+        ?table := table_name(),
+        ?writer_opts := map()
     }
 }.
+
+-type container_type() :: avro | parquet.
 
 -type transfer_state() :: #{
     ?action_res_id := action_resource_id(),
     ?base_path := binary(),
     ?bucket := binary(),
     ?client := iceberg_client(),
+    ?container_type := container_type(),
     ?iceberg_schema := map(),
     ?inner_transfer := inner_transfer(),
     ?loaded_table := map(),
@@ -131,15 +137,18 @@ init_transfer_state_and_container_opts(_Buffer, Opts) ->
         upload_options := #{
             ?action_res_id := ActionResId,
             ?client := Client,
+            ?container_type := ContainerType,
             ?location_client := #{?s3_client_config := S3ClientConfig},
             ?namespace := Namespace,
-            ?table := Table
+            ?table := Table,
+            ?writer_opts := WriterOpts
         }
     } = Opts,
     maybe
         {ok, #{
             ?loaded_table := LoadedTable,
             ?avro_schema := AvroSchema,
+            ?avro_schema_json := AvroSchemaJSON,
             ?iceberg_schema := IcebergSchema,
             ?partition_spec := PartSpec,
             ?partition_spec_id := PartitionSpecId
@@ -158,9 +167,12 @@ init_transfer_state_and_container_opts(_Buffer, Opts) ->
         S3Client = emqx_s3_client:create(binary_to_list(Bucket), S3ClientConfig),
         InnerOpts = #{
             ?avro_schema => AvroSchema,
+            ?avro_schema_json => AvroSchemaJSON,
             ?base_path => BasePath,
+            ?container_type => ContainerType,
             ?s3_client => S3Client,
-            ?write_uuid => WriteUUID
+            ?write_uuid => WriteUUID,
+            ?writer_opts => WriterOpts
         },
         {ContainerOpts, InnerTransferState} =
             mk_container_opts_and_inner_transfer_state(PartSpec, InnerOpts),
@@ -169,6 +181,7 @@ init_transfer_state_and_container_opts(_Buffer, Opts) ->
             ?base_path => BasePath,
             ?bucket => Bucket,
             ?client => Client,
+            ?container_type => ContainerType,
             ?iceberg_schema => IcebergSchema,
             ?inner_transfer => InnerTransferState,
             ?loaded_table => LoadedTable,
@@ -192,7 +205,7 @@ process_append(
     Records, #{?inner_transfer := #single_transfer{container = Container0}} = TransferState0
 ) ->
     {IOData, #{num_records := N1}, Container} =
-        emqx_bridge_s3tables_aggreg_avro:fill(Records, Container0),
+        emqx_bridge_s3tables_aggreg_unpartitioned:fill(Records, Container0),
     #{
         ?inner_transfer := #single_transfer{
             data_size = S0,
@@ -213,6 +226,7 @@ process_append(
 process_append(Records, #{?inner_transfer := #partitioned_transfer{}} = TransferState0) ->
     #{
         ?base_path := BasePath,
+        ?container_type := ContainerType,
         ?inner_transfer := #partitioned_transfer{container = Container0, state = PartSt0} = Inner0,
         ?partition_spec := PartSpec,
         ?s3_client := S3Client,
@@ -249,7 +263,9 @@ process_append(Records, #{?inner_transfer := #partitioned_transfer{}} = Transfer
                             PartSpec
                         ),
                     {DataFileKey, S3TransferState0} =
-                        init_inner_s3_transfer_state(BasePath, Segments, N, S3Client, WriteUUID),
+                        init_inner_s3_transfer_state(
+                            BasePath, Segments, N, S3Client, WriteUUID, ContainerType
+                        ),
                     S1 = iolist_size(IOData),
                     {ok, S3TransferState} = emqx_s3_upload:append(IOData, S3TransferState0),
                     St = #{
@@ -276,19 +292,14 @@ process_write(#{?inner_transfer := #single_transfer{}} = TransferState0) ->
     #{
         ?inner_transfer := #single_transfer{state = S3TransferState0} = Inner0
     } = TransferState0,
-    case emqx_s3_upload:write(S3TransferState0) of
+    case do_s3_upload_write(S3TransferState0) of
         {ok, S3TransferState} ->
             TransferState = TransferState0#{
                 ?inner_transfer := Inner0#single_transfer{state = S3TransferState}
             },
             {ok, TransferState};
-        {cont, S3TransferState} ->
-            TransferState = TransferState0#{
-                ?inner_transfer := Inner0#single_transfer{state = S3TransferState}
-            },
-            process_write(TransferState);
-        {error, Reason} ->
-            _ = emqx_s3_upload:abort(S3TransferState0),
+        {error, Reason, S3TransferState} ->
+            _ = emqx_s3_upload:abort(S3TransferState),
             Error = #{phase => data_file, reason => Reason},
             {error, Error}
     end;
@@ -303,14 +314,28 @@ process_write(#{?inner_transfer := #partitioned_transfer{}} = TransferState0) ->
     {ok, term()} | no_return().
 process_complete(#{?inner_transfer := #single_transfer{}} = TransferState0) ->
     #{
-        ?inner_transfer := #single_transfer{state = S3TransferState}
+        ?inner_transfer := #single_transfer{
+            container = Container,
+            state = S3TransferState0
+        } = Inner0
     } = TransferState0,
-    case emqx_s3_upload:complete(S3TransferState) of
-        {ok, _S3Completed} ->
-            ?tp("s3tables_upload_manifests_enter", #{}),
-            upload_manifests(TransferState0);
+    IOData = emqx_bridge_s3tables_aggreg_unpartitioned:close(Container),
+    maybe
+        ok ?= do_process_one_complete(IOData, S3TransferState0),
+        ?tp("s3tables_upload_manifests_enter", #{}),
+        TransferState = TransferState0#{
+            ?inner_transfer := Inner0#single_transfer{
+                data_size = Inner0#single_transfer.data_size + iolist_size(IOData)
+            }
+        },
+        upload_manifests(TransferState)
+    else
+        {error, Reason, S3TransferState2} ->
+            _ = emqx_s3_upload:abort(S3TransferState2),
+            Error = #{phase => data_file, reason => Reason},
+            exit({upload_failed, Error});
         {error, Reason} ->
-            _ = emqx_s3_upload:abort(S3TransferState),
+            _ = emqx_s3_upload:abort(S3TransferState0),
             Error = #{phase => data_file, reason => Reason},
             exit({upload_failed, Error})
     end;
@@ -348,18 +373,15 @@ uuid4() ->
 
 mk_container_opts_and_inner_transfer_state(#unpartitioned{}, Opts) ->
     #{
-        ?avro_schema := AvroSchema,
         ?base_path := BasePath,
+        ?container_type := ContainerType,
         ?s3_client := S3Client,
         ?write_uuid := WriteUUID
     } = Opts,
     {DataFileKey, S3TransferState} =
-        init_inner_s3_transfer_state(BasePath, [], 0, S3Client, WriteUUID),
-    InnerContainerOpts = #{
-        schema => AvroSchema,
-        root_type => ?ROOT_AVRO_TYPE
-    },
-    Container = emqx_bridge_s3tables_aggreg_avro:new(InnerContainerOpts),
+        init_inner_s3_transfer_state(BasePath, [], 0, S3Client, WriteUUID, ContainerType),
+    InnerContainerOpts = container_opts(Opts),
+    Container = emqx_bridge_s3tables_aggreg_unpartitioned:new(InnerContainerOpts),
     %% We manage the container here, since we require extra metadata that the
     %% `emqx_connector_aggreg_container` API does not provide.
     ContainerOpts = #{type => noop},
@@ -372,18 +394,11 @@ mk_container_opts_and_inner_transfer_state(#unpartitioned{}, Opts) ->
     },
     {ContainerOpts, InnerTransferState};
 mk_container_opts_and_inner_transfer_state(#partitioned{fields = PartitionFields}, Opts) ->
-    #{
-        ?avro_schema := AvroSchema
-    } = Opts,
-    InnerContainerOpts = #{
-        inner_container_opts => #{
-            type => avro,
-            schema => AvroSchema,
-            root_type => ?ROOT_AVRO_TYPE
-        },
+    InnerContainerOpts = container_opts(Opts),
+    Container = emqx_bridge_s3tables_aggreg_partitioned:new(#{
+        inner_container_opts => InnerContainerOpts,
         partition_fields => PartitionFields
-    },
-    Container = emqx_bridge_s3tables_aggreg_partitioned:new(InnerContainerOpts),
+    }),
     %% We manage the container here, since we require extra metadata that the
     %% `emqx_connector_aggreg_container` API does not provide.
     ContainerOpts = #{type => noop},
@@ -393,10 +408,10 @@ mk_container_opts_and_inner_transfer_state(#partitioned{fields = PartitionFields
     },
     {ContainerOpts, InnerTransferState}.
 
-init_inner_s3_transfer_state(BasePath, Segments, N, S3Client, WriteUUID) ->
+init_inner_s3_transfer_state(BasePath, Segments, N, S3Client, WriteUUID, ContainerType) ->
     %% fixme: might need fixing if using partitions and if
     %% `write.object-storage.partitioned-paths` is true (default is true).....
-    DataFileKey = mk_data_file_key(BasePath, Segments, N, WriteUUID, "avro"),
+    DataFileKey = mk_data_file_key(BasePath, Segments, N, WriteUUID, ContainerType),
     %% todo: make configurable?
     S3UploaderConfig = #{
         min_part_size => 5 * ?MEGABYTE,
@@ -408,11 +423,36 @@ init_inner_s3_transfer_state(BasePath, Segments, N, S3Client, WriteUUID) ->
 
 do_process_complete_partitioned([PK | PKs], TransferState0) ->
     #{?inner_transfer := #partitioned_transfer{} = ParSt0} = TransferState0,
-    #partitioned_transfer{state = #{PK := #{?s3_transfer_state := S3TransferState0}} = St0} =
-        ParSt0,
-    case emqx_s3_upload:complete(S3TransferState0) of
-        {ok, _S3Completed} ->
-            do_process_complete_partitioned(PKs, TransferState0);
+    #partitioned_transfer{
+        state =
+            #{
+                PK := #{
+                    ?data_size := DataSize0,
+                    ?s3_transfer_state := S3TransferState0
+                } = PKSt0
+            } = St0,
+        container = Container
+    } = ParSt0,
+    IOData = emqx_bridge_s3tables_aggreg_partitioned:close(Container, PK),
+    case do_process_one_complete(IOData, S3TransferState0) of
+        ok ->
+            DataSize1 = iolist_size(IOData),
+            TransferState1 = TransferState0#{
+                ?inner_transfer := ParSt0#partitioned_transfer{
+                    state = St0#{PK := PKSt0#{?data_size := DataSize0 + DataSize1}}
+                }
+            },
+            do_process_complete_partitioned(PKs, TransferState1);
+        {error, Reason, S3TransferState1} ->
+            maps:foreach(
+                fun(_PK, #{?s3_transfer_state := S3TransferState}) ->
+                    _ = emqx_s3_upload:abort(S3TransferState)
+                end,
+                St0#{PK := PKSt0#{?s3_transfer_state := S3TransferState1}}
+            ),
+            %% TODO: prettify partition key
+            Error = #{phase => data_file, partition_key => PK, reason => Reason},
+            exit({upload_failed, Error});
         {error, Reason} ->
             maps:foreach(
                 fun(_PK, #{?s3_transfer_state := S3TransferState}) ->
@@ -680,6 +720,7 @@ do_upload_manifest_entries(
         ?action_res_id := ActionResId,
         ?base_path := BasePath,
         ?bucket := Bucket,
+        ?container_type := ContainerType,
         ?n_attempt := NAttempt,
         ?s3_client := S3Client,
         ?write_uuid := WriteUUID
@@ -701,7 +742,8 @@ do_upload_manifest_entries(
                         <<"content">> => ?DATA_FILE_CONTENT_DATA,
                         <<"partition">> => Partition,
                         <<"file_path">> => DataS3Path,
-                        <<"file_format">> => ?DATA_FILE_FORMAT_AVRO,
+                        <<"file_format">> =>
+                            container_type_to_manifest_entry_file_format(ContainerType),
                         <<"record_count">> => NumRecords,
                         <<"file_size_in_bytes">> => DataSize
                     }
@@ -752,7 +794,8 @@ make_key(<<"">>, Segments) ->
 make_key(BasePath, Segments) ->
     filename:join([BasePath | Segments]).
 
-mk_data_file_key(BasePath, ExtraSegments, N, WriteUUID, Ext) ->
+mk_data_file_key(BasePath, ExtraSegments, N, WriteUUID, ContainerType) ->
+    Ext = atom_to_binary(ContainerType),
     K = iolist_to_binary(["00000-", bin(N), "-", WriteUUID, ".", Ext]),
     make_key(BasePath, ["data"] ++ ExtraSegments ++ [K]).
 
@@ -789,3 +832,53 @@ split_ns(Namespace) ->
 manifest_entry_avro_schema(PartSpec, IcebergSchema) ->
     #{json_schema := AvroSchemaJSON} = persistent_term:get(?MANIFEST_ENTRY_PT_KEY),
     emqx_bridge_s3tables_logic:manifest_entry_avro_schema(PartSpec, AvroSchemaJSON, IcebergSchema).
+
+do_s3_upload_write(S3TransferState0) ->
+    maybe
+        {cont, S3TransferState} ?= emqx_s3_upload:write(S3TransferState0),
+        do_s3_upload_write(S3TransferState)
+    else
+        {error, Reason} ->
+            {error, Reason, S3TransferState0};
+        {ok, S3TransferState1} ->
+            {ok, S3TransferState1}
+    end.
+
+do_process_one_complete(IOData, S3TransferState0) ->
+    maybe
+        {ok, S3TransferState1} ?= emqx_s3_upload:append(IOData, S3TransferState0),
+        {ok, S3TransferState} ?= do_s3_upload_write(S3TransferState1),
+        {ok, _} ?= emqx_s3_upload:complete(S3TransferState),
+        ok
+    end.
+
+container_opts(DeliveryOpts) ->
+    #{
+        ?avro_schema := AvroSchema,
+        ?avro_schema_json := AvroSchemaJSON,
+        ?container_type := ContainerType,
+        ?writer_opts := WriterOpts
+    } = DeliveryOpts,
+    InnerContainerOpts =
+        case ContainerType of
+            avro ->
+                #{
+                    schema => AvroSchema,
+                    root_type => ?ROOT_AVRO_TYPE
+                };
+            parquet ->
+                ParquetSchema = parquer_schema_avro:from_avro(AvroSchemaJSON),
+                #{
+                    schema => ParquetSchema,
+                    writer_opts => WriterOpts
+                }
+        end,
+    #{
+        type => ContainerType,
+        writer_opts => InnerContainerOpts
+    }.
+
+container_type_to_manifest_entry_file_format(avro) ->
+    ?DATA_FILE_FORMAT_AVRO;
+container_type_to_manifest_entry_file_format(parquet) ->
+    ?DATA_FILE_FORMAT_PARQUET.

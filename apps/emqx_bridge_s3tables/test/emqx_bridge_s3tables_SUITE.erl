@@ -107,6 +107,7 @@ init_per_testcase(TestCase, TCConfig) ->
     ActionConfig = action_config(#{
         <<"connector">> => ConnectorName,
         <<"parameters">> => #{
+            <<"aggregation">> => #{<<"container">> => container_opts(TCConfig)},
             <<"namespace">> => Ns,
             <<"table">> => Table
         }
@@ -195,6 +196,31 @@ action_config(Overrides) ->
     },
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
     emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+get_matrix_prop(TCConfig, Alternatives, Default) ->
+    GroupPath = group_path(TCConfig, [Default]),
+    case lists:filter(fun(G) -> lists:member(G, Alternatives) end, GroupPath) of
+        [] ->
+            Default;
+        [Opt] ->
+            Opt
+    end.
+
+container_opts(TCConfig) ->
+    case get_matrix_prop(TCConfig, [parquet, avro], avro) of
+        avro ->
+            #{<<"type">> => <<"avro">>};
+        parquet ->
+            #{<<"type">> => <<"parquet">>}
+    end.
+
+is_partitioned(TCConfig) ->
+    case get_matrix_prop(TCConfig, [partitioned, not_partitioned], not_partitioned) of
+        partitioned ->
+            true;
+        not_partitioned ->
+            false
+    end.
 
 make_client() ->
     Params = #{
@@ -629,10 +655,10 @@ t_start_stop(Config) when is_list(Config) ->
 
 t_rule_action() ->
     TableExtraOptsFn = fun(TCConfig) ->
-        case group_path(TCConfig, [batched, not_partitioned]) of
-            [_, not_partitioned] ->
+        case is_partitioned(TCConfig) of
+            false ->
                 #{};
-            [_, partitioned] ->
+            true ->
                 #{<<"partition-spec">> => simple_schema1_partition_spec1()}
         end
     end,
@@ -642,13 +668,15 @@ t_rule_action() ->
     ].
 t_rule_action(matrix) ->
     [
-        [batched, not_partitioned],
-        [not_batched, not_partitioned],
-        [batched, partitioned]
+        [batched, not_partitioned, avro],
+        [not_batched, not_partitioned, avro],
+        [batched, partitioned, avro],
+        [not_batched, not_partitioned, parquet],
+        [batched, partitioned, parquet]
     ];
 t_rule_action(Config) when is_list(Config) ->
     ct:timetrap({seconds, 15}),
-    [IsBatched, IsPartitioned] = group_path(Config, [batched, not_partitioned]),
+    [IsBatched, IsPartitioned, _] = group_path(Config, [batched, not_partitioned, avro]),
     Ns = emqx_bridge_v2_testlib:get_value(namespace, Config),
     Table = emqx_bridge_v2_testlib:get_value(table, Config),
     RuleTopic = atom_to_binary(?FUNCTION_NAME),

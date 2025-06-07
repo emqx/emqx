@@ -6,13 +6,17 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("../src/emqx_bridge_s3tables.hrl").
 
--export([decode/1]).
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
+
+-define(QUERY_ENDPOINT, <<"http://query:8090">>).
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-new_opts() ->
+new_opts(Opts) ->
     Schema = #{
         <<"type">> => <<"struct">>,
         <<"schema-id">> => 0,
@@ -48,15 +52,34 @@ new_opts() ->
     }),
     {ok, #{
         ?partition_spec := #partitioned{fields = PartitionFields},
-        ?avro_schema := AvroSc
+        ?avro_schema := AvroSc,
+        ?avro_schema_json := AvroScJSON
     }} =
         emqx_bridge_s3tables_logic:parse_loaded_table(LoadedTable),
+    ContainerType = maps:get(type, Opts),
+    InnerContainerOpts = innert_container_opts(ContainerType, AvroSc, AvroScJSON),
     #{
-        inner_container_opts => #{
-            schema => AvroSc,
-            root_type => ?ROOT_AVRO_TYPE
-        },
+        inner_container_opts => InnerContainerOpts,
         partition_fields => PartitionFields
+    }.
+
+innert_container_opts(avro, AvroSc, _AvroScJSON) ->
+    #{
+        type => avro,
+        writer_opts =>
+            #{
+                schema => AvroSc,
+                root_type => ?ROOT_AVRO_TYPE
+            }
+    };
+innert_container_opts(parquet, _AvroSc, AvroScJSON) ->
+    ParquetSchema = parquer_schema_avro:from_avro(AvroScJSON),
+    #{
+        type => parquet,
+        writer_opts => #{
+            schema => ParquetSchema,
+            writer_opts => #{}
+        }
     }.
 
 fill_close(Records, Container) ->
@@ -72,12 +95,11 @@ fill_close(Records, Container) ->
             {#{}, #{}, Container},
             Records
         ),
-    {Trailer, MetaFinal0} = emqx_bridge_s3tables_aggreg_partitioned:close(ContainerFinal),
-    MetaFinal = merge_metas(Meta, MetaFinal0),
+    Trailer = emqx_bridge_s3tables_aggreg_partitioned:close(ContainerFinal),
     OutputFinal = maps:merge_with(fun(_PK, A, B) -> [A | B] end, Output, Trailer),
-    {OutputFinal, MetaFinal}.
+    {OutputFinal, Meta}.
 
-decode(OutputsPerPKs) ->
+decode(OutputsPerPKs, #{type := avro}) ->
     maps:map(
         fun(_PKs, IOData) ->
             DecodeOpts = avro:make_decoder_options([{map_type, map}, {record_type, map}]),
@@ -85,11 +107,18 @@ decode(OutputsPerPKs) ->
             Blocks
         end,
         OutputsPerPKs
+    );
+decode(OutputsPerPKs, #{type := parquet}) ->
+    maps:map(
+        fun(_PKs, IOData) ->
+            read_parquet(IOData)
+        end,
+        OutputsPerPKs
     ).
 
-roundtrip(Records, Container) ->
+roundtrip(Records, Container, Opts) ->
     {OutputsPerPKS, Meta} = fill_close(Records, Container),
-    {decode(OutputsPerPKS), Meta}.
+    {decode(OutputsPerPKS, Opts), Meta}.
 
 merge_metas(A, B) ->
     maps:merge_with(
@@ -100,11 +129,28 @@ merge_metas(A, B) ->
         B
     ).
 
+read_parquet(Raw) ->
+    Method = post,
+    URI = iolist_to_binary(lists:join("/", [?QUERY_ENDPOINT, "read-parquet"])),
+    {ok, {{_, 200, _}, _, Body}} =
+        httpc:request(Method, {URI, [], "application/octet-stream", Raw}, [], [
+            {body_format, binary}
+        ]),
+    emqx_utils_json:decode(Body).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
 
-roundtrip_test() ->
+roundtrip_test_() ->
+    [
+        %% We can't run this parquet unit test in CI because we need a separate "oracle"
+        %% container to read the data back...
+        %% {"parquet", ?_test(test_roundtrip(#{type => parquet}))},
+        {"avro", ?_test(test_roundtrip(#{type => avro}))}
+    ].
+
+test_roundtrip(Opts) ->
     Records = lists:map(
         fun(N) ->
             #{
@@ -114,7 +160,7 @@ roundtrip_test() ->
         end,
         lists:seq(1, 10)
     ),
-    Container = emqx_bridge_s3tables_aggreg_partitioned:new(new_opts()),
+    Container = emqx_bridge_s3tables_aggreg_partitioned:new(new_opts(Opts)),
     ?assertMatch(
         {
             #{
@@ -141,12 +187,12 @@ roundtrip_test() ->
                 [2] := #{?num_records := 4}
             }
         },
-        roundtrip(Records, Container)
+        roundtrip(Records, Container, Opts)
     ),
     ok.
 
 incompatible_partitioned_data_test() ->
-    Container = emqx_bridge_s3tables_aggreg_partitioned:new(new_opts()),
+    Container = emqx_bridge_s3tables_aggreg_partitioned:new(new_opts(#{type => avro})),
     %% `bar` should be a string
     BadRecord = #{
         <<"bar">> => true,
