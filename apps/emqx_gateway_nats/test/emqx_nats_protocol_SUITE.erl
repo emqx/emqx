@@ -1127,6 +1127,28 @@ t_clientinfo_override_with_empty_clientid(Config) ->
 
     emqx_nats_client:stop(Client).
 
+t_clientinfo_override_with_prefix_and_empty_clientid(Config) ->
+    update_nats_with_clientinfo_override(#{<<"clientid">> => <<"prefix-${Packet.clientid}">>}),
+
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            user => <<"test_user">>,
+            pass => <<"password">>,
+            verbose => true
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+    ok = emqx_nats_client:connect(Client),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+
+    [ClientInfo] = find_client_by_username(<<"test_user">>),
+    ?assertNotEqual(undefined, maps:get(clientid, ClientInfo)),
+    ?assertEqual(<<"prefix-">>, maps:get(clientid, ClientInfo)),
+
+    emqx_nats_client:stop(Client).
+
 t_schema_coverage(_Config) ->
     _ = emqx_nats_schema:fields(wss_listener),
     ok.
