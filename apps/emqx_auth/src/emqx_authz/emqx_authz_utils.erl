@@ -13,12 +13,14 @@
 -export([
     cleanup_resources/0,
     make_resource_id/1,
-    create_resource/4,
-    update_resource/3,
+    create_resource/2,
+    update_resource/2,
     remove_resource/1,
     update_config/2,
     vars_for_rule_query/2,
-    do_authorize/6
+    authorize_with_row/6,
+    init_state/2,
+    resource_config/2
 ]).
 
 -export([
@@ -41,39 +43,56 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-create_resource(ResourceId, Module, Config, Type) ->
-    Result = emqx_resource:create_local(
-        ResourceId,
-        ?AUTHZ_RESOURCE_GROUP,
-        Module,
-        Config,
-        ?DEFAULT_RESOURCE_OPTS(Type)
-    ),
-    start_resource_if_enabled(Result, ResourceId, Config).
+create_resource(
+    ConnectorModule,
+    #{resource_id := ResourceId, type := Type, resource_config := ResourceConfig} = State
+) ->
+    maybe
+        {ok, _} ?=
+            emqx_resource:create_local(
+                ResourceId,
+                ?AUTHZ_RESOURCE_GROUP,
+                ConnectorModule,
+                ResourceConfig,
+                ?DEFAULT_RESOURCE_OPTS(Type)
+            ),
+        ok = start_stop_resource(State)
+    else
+        {error, Reason} ->
+            error({create_resource_error, Reason})
+    end.
 
-update_resource(Module, #{annotations := #{id := ResourceId}} = Config, Type) ->
-    Result =
-        case
+update_resource(
+    ConnectorModule,
+    #{resource_id := ResourceId, type := Type, resource_config := ResourceConfig} = State
+) ->
+    maybe
+        {ok, _} ?=
             emqx_resource:recreate_local(
                 ResourceId,
-                Module,
-                Config,
+                ConnectorModule,
+                ResourceConfig,
                 ?DEFAULT_RESOURCE_OPTS(Type)
-            )
-        of
-            {ok, _} -> {ok, ResourceId};
-            {error, Reason} -> {error, Reason}
-        end,
-    start_resource_if_enabled(Result, ResourceId, Config).
+            ),
+        ok = start_stop_resource(State),
+        ok
+    else
+        {error, Reason} ->
+            error({update_resource_error, Reason})
+    end.
 
 remove_resource(ResourceId) ->
     emqx_resource:remove_local(ResourceId).
 
-start_resource_if_enabled({ok, _} = Result, ResourceId, #{enable := true}) ->
+resource_config(WithoutFields, Source) ->
+    maps:without([enable, type] ++ WithoutFields, Source).
+
+start_stop_resource(#{resource_id := ResourceId, enable := true}) ->
     _ = emqx_resource:start(ResourceId),
-    Result;
-start_resource_if_enabled(Result, _ResourceId, _Config) ->
-    Result.
+    ok;
+start_stop_resource(#{resource_id := ResourceId, enable := false}) ->
+    _ = emqx_resource:stop(ResourceId),
+    ok.
 
 cleanup_resources() ->
     lists:foreach(
@@ -122,19 +141,7 @@ content_type(Headers) when is_list(Headers) ->
         <<"application/json">>
     ).
 
--spec parse_rule_from_row([binary()], [binary()] | map()) ->
-    {ok, emqx_authz_rule:rule()} | {error, term()}.
-parse_rule_from_row(_ColumnNames, RuleMap = #{}) ->
-    case emqx_authz_rule_raw:parse_rule(RuleMap) of
-        {ok, {Permission, Who, Action, Topics}} ->
-            {ok, emqx_authz_rule:compile({Permission, Who, Action, Topics})};
-        {error, Reason} ->
-            {error, Reason}
-    end;
-parse_rule_from_row(ColumnNames, Row) ->
-    RuleMap = maps:from_list(lists:zip(ColumnNames, to_list(Row))),
-    parse_rule_from_row(ColumnNames, RuleMap).
-
+-spec vars_for_rule_query(emqx_types:clientinfo(), emqx_types:pubsub()) -> map().
 vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->
     Client#{
         action => PubSub,
@@ -142,19 +149,23 @@ vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->
         retain => maps:get(retain, Action, false)
     }.
 
+-spec cached_simple_sync_query(
+    emqx_auth_cache:cache_key(),
+    emqx_resource:resource_id(),
+    _Request :: term()
+) -> term().
 cached_simple_sync_query(CacheKey, ResourceID, Query) ->
     emqx_auth_utils:cached_simple_sync_query(?AUTHZ_CACHE, CacheKey, ResourceID, Query).
 
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-to_list(Tuple) when is_tuple(Tuple) ->
-    tuple_to_list(Tuple);
-to_list(List) when is_list(List) ->
-    List.
-
-do_authorize(Type, Client, Action, Topic, ColumnNames, Row) ->
+-spec authorize_with_row(
+    emqx_authz_source:source_type(),
+    emqx_types:clientinfo(),
+    emqx_types:pubsub(),
+    emqx_types:topic(),
+    [binary()] | undefined,
+    [binary()] | map()
+) -> nomatch | {matched, allow | deny | ignore}.
+authorize_with_row(Type, Client, Action, Topic, ColumnNames, Row) ->
     try
         maybe
             {ok, Rule} ?= parse_rule_from_row(ColumnNames, Row),
@@ -172,6 +183,36 @@ do_authorize(Type, Client, Action, Topic, ColumnNames, Row) ->
             log_match_rule_error(Type, Row, Reason1),
             nomatch
     end.
+
+-spec init_state(emqx_authz_source:source(), map()) -> emqx_authz_source:source_state().
+init_state(#{type := Type, enable := Enable} = _Source, Values) ->
+    maps:merge(
+        #{
+            type => Type,
+            enable => Enable
+        },
+        Values
+    ).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+parse_rule_from_row(_ColumnNames, RuleMap = #{}) ->
+    case emqx_authz_rule_raw:parse_rule(RuleMap) of
+        {ok, {Permission, Who, Action, Topics}} ->
+            {ok, emqx_authz_rule:compile({Permission, Who, Action, Topics})};
+        {error, Reason} ->
+            {error, Reason}
+    end;
+parse_rule_from_row(ColumnNames, Row) ->
+    RuleMap = maps:from_list(lists:zip(ColumnNames, to_list(Row))),
+    parse_rule_from_row(ColumnNames, RuleMap).
+
+to_list(Tuple) when is_tuple(Tuple) ->
+    tuple_to_list(Tuple);
+to_list(List) when is_list(List) ->
+    List.
 
 log_match_rule_error(Type, Row, Reason0) ->
     Msg0 = #{

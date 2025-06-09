@@ -3,12 +3,13 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_redis).
+
 -behaviour(emqx_authz_source).
 
 %% AuthZ Callbacks
 -export([
     create/1,
-    update/1,
+    update/2,
     destroy/1,
     authorize/4
 ]).
@@ -24,39 +25,28 @@
 
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
-create(#{cmd := CmdStr} = Source) ->
-    {Vars, CmdTemplate} = parse_cmd(CmdStr),
-    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
+create(Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source, ?AUTHZ_TYPE),
-    Source#{
-        annotations => #{id => ResourceId, cache_key_template => CacheKeyTemplate},
-        cmd_template => CmdTemplate
-    }.
+    State = new_state(ResourceId, Source),
+    ok = emqx_authz_utils:create_resource(emqx_redis, State),
+    State.
 
-update(#{cmd := CmdStr} = Source) ->
-    {Vars, CmdTemplate} = parse_cmd(CmdStr),
-    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    case emqx_authz_utils:update_resource(emqx_redis, Source, ?AUTHZ_TYPE) of
-        {error, Reason} ->
-            error({load_config_error, Reason});
-        {ok, Id} ->
-            Source#{
-                annotations => #{id => Id, cache_key_template => CacheKeyTemplate},
-                cmd_template => CmdTemplate
-            }
-    end.
+update(#{resource_id := ResourceId} = _State, Source) ->
+    State = new_state(ResourceId, Source),
+    ok = emqx_authz_utils:update_resource(emqx_redis, State),
+    State.
 
-destroy(#{annotations := #{id := Id}}) ->
-    emqx_authz_utils:remove_resource(Id).
+destroy(#{resource_id := ResourceId}) ->
+    emqx_authz_utils:remove_resource(ResourceId).
 
 authorize(
     Client,
     Action,
     Topic,
     #{
+        resource_id := ResourceId,
         cmd_template := CmdTemplate,
-        annotations := #{id := ResourceId, cache_key_template := CacheKeyTemplate}
+        cache_key_template := CacheKeyTemplate
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
@@ -75,6 +65,23 @@ authorize(
             nomatch
     end.
 
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+new_state(ResourceId, #{cmd := CmdStr} = Source) ->
+    {Vars, CmdTemplate} = parse_cmd(CmdStr),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
+    ResourceConfig = emqx_authz_utils:resource_config(
+        [cmd], Source
+    ),
+    emqx_authz_utils:init_state(Source, #{
+        resource_config => ResourceConfig,
+        resource_id => ResourceId,
+        cmd_template => CmdTemplate,
+        cache_key_template => CacheKeyTemplate
+    }).
+
 do_authorize(_Client, _Action, _Topic, []) ->
     nomatch;
 do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail]) ->
@@ -88,7 +95,11 @@ do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail]) ->
                     },
                     RuleMap0
                 ),
-            case emqx_authz_utils:do_authorize(redis, Client, Action, Topic, undefined, RuleMap) of
+            case
+                emqx_authz_utils:authorize_with_row(
+                    redis, Client, Action, Topic, undefined, RuleMap
+                )
+            of
                 nomatch ->
                     do_authorize(Client, Action, Topic, Tail);
                 {matched, Permission} ->

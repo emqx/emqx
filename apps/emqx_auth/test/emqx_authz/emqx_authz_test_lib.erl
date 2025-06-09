@@ -34,7 +34,8 @@ reset_authorizers(Nomatch, CacheEnabled) ->
 
 setup_config(BaseConfig, SpecialParams) ->
     Config = maps:merge(BaseConfig, SpecialParams),
-    case emqx_authz:update(?CMD_REPLACE, [Config]) of
+    Res = emqx_authz:update(?CMD_REPLACE, [Config]),
+    case Res of
         {ok, _} -> ok;
         {error, Reason} -> {error, Reason}
     end.
@@ -49,7 +50,7 @@ register_fake_sources(SourceTypes) ->
 
 deregister_sources() ->
     {BuiltInTypes, _} = lists:unzip(?BUILTIN_SOURCES),
-    SourceTypes = emqx_authz_source_registry:get(),
+    SourceTypes = emqx_authz_source_registry:registered_types(),
     lists:foreach(
         fun(Type) ->
             emqx_authz_source_registry:unregister(Type)

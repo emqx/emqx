@@ -183,7 +183,7 @@ parse_config(
     State = #{
         method => Method,
         path => Path,
-        headers => HeadersTemplate,
+        headers_template => HeadersTemplate,
         base_path_template => BasePathTemplate,
         base_query_template => BaseQueryTemplate,
         body_template => BodyTemplate,

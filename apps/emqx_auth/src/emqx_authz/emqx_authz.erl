@@ -7,8 +7,6 @@
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
--dialyzer({nowarn_function, [authz_module/1]}).
-
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
@@ -22,8 +20,8 @@
     init/0,
     deinit/0,
     format_for_api/1,
-    lookup/0,
-    lookup/1,
+    lookup_states/0,
+    lookup_state/1,
     move/2,
     reorder/1,
     update/2,
@@ -32,15 +30,13 @@
     authorize/5,
     authorize_deny/4,
     %% for telemetry information
-    get_enabled_authzs/0
+    get_enabled_authzs/0,
+    %% for API
+    maybe_read_source_files/1
 ]).
 
+%% Config update hooks
 -export([pre_config_update/4, post_config_update/5]).
-
--export([
-    maybe_read_source_files/1,
-    maybe_read_source_files_safe/1
-]).
 
 %% Data backup
 -export([
@@ -53,11 +49,14 @@
 
 -type default_result() :: allow | deny.
 
--type authz_result_value() :: #{result := allow | deny, from => _}.
+-type authz_result_value() :: #{result := allow | deny, from => atom()}.
 -type authz_result() :: {stop, authz_result_value()} | {ok, authz_result_value()} | ignore.
 
--type source() :: emqx_authz_source:source().
--type sources() :: [source()].
+-type raw_source() :: emqx_config:raw_config().
+-type source() :: emqx_config:config().
+-type source_state() :: emqx_authz_source:source_state().
+-type source_states() :: [source_state()].
+-type type() :: atom().
 
 -define(METRIC_SUPERUSER, 'authorization.superuser').
 -define(METRIC_ALLOW, 'authorization.matched.allow').
@@ -96,7 +95,7 @@ are_all_providers_registered() ->
     try
         _ = lists:foreach(
             fun(Type) ->
-                _ = emqx_authz_source_registry:get(Type)
+                _ = emqx_authz_source_registry:module(Type)
             end,
             configured_types()
         ),
@@ -119,16 +118,16 @@ register_builtin_sources() ->
 
 configured_types() ->
     lists:map(
-        fun(#{type := Type}) -> Type end,
-        emqx_conf:get(?CONF_KEY_PATH, [])
+        fun(Source) -> type(Source) end,
+        emqx:get_config(?CONF_KEY_PATH, [])
     ).
 
 install_sources(true) ->
     ok = init_metrics(client_info_source()),
-    Sources = emqx_conf:get(?CONF_KEY_PATH, []),
-    ok = check_dup_types(Sources),
-    NSources = create_sources(Sources),
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [NSources]}, ?HP_AUTHZ),
+    Sources = emqx:get_config(?CONF_KEY_PATH, []),
+    ok = check_dup_types_for_sources(Sources),
+    SourceStates = create_sources(Sources),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authorize, [SourceStates]}, ?HP_AUTHZ),
     ok = emqx_hooks:del('client.authorize', {?MODULE, authorize_deny});
 install_sources(false) ->
     ok.
@@ -140,13 +139,13 @@ deinit() ->
     emqx_conf:remove_handler(?ROOT_KEY),
     emqx_authz_utils:cleanup_resources().
 
-lookup() ->
-    {_M, _F, [A]} = find_action_in_hooks(),
-    A.
+lookup_states() ->
+    {?MODULE, authorize, [SourceStates]} = find_authz_action_in_hooks(),
+    SourceStates.
 
-lookup(Type) ->
-    {Source, _Front, _Rear} = take(Type),
-    Source.
+lookup_state(Type) ->
+    {SourceState, _Front, _Rear} = split_states_by_type(to_type(Type)),
+    SourceState.
 
 merge(NewConf) ->
     emqx_authz_utils:update_config(?ROOT_KEY, {?CMD_MERGE, NewConf}).
@@ -154,33 +153,33 @@ merge(NewConf) ->
 merge_local(NewConf, Opts) ->
     emqx:update_config(?ROOT_KEY, {?CMD_MERGE, NewConf}, Opts).
 
-move(Type, ?CMD_MOVE_BEFORE(Before)) ->
+move(Type, ?CMD_MOVE_BEFORE(BeforeType)) ->
     emqx_authz_utils:update_config(
-        ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))}
+        ?CONF_KEY_PATH, {?CMD_MOVE, to_type(Type), ?CMD_MOVE_BEFORE(to_type(BeforeType))}
     );
-move(Type, ?CMD_MOVE_AFTER(After)) ->
+move(Type, ?CMD_MOVE_AFTER(AfterType)) ->
     emqx_authz_utils:update_config(
-        ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_AFTER(type(After))}
+        ?CONF_KEY_PATH, {?CMD_MOVE, to_type(Type), ?CMD_MOVE_AFTER(to_type(AfterType))}
     );
 move(Type, Position) ->
     emqx_authz_utils:update_config(
-        ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), Position}
+        ?CONF_KEY_PATH, {?CMD_MOVE, to_type(Type), Position}
     ).
 
-reorder(SourcesOrder) ->
-    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_REORDER, SourcesOrder}).
+reorder(Types) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {?CMD_REORDER, Types}).
 
-update({?CMD_REPLACE, Type}, Sources) ->
-    emqx_authz_utils:update_config(?CONF_KEY_PATH, {{?CMD_REPLACE, type(Type)}, Sources});
-update({?CMD_DELETE, Type}, Sources) ->
-    emqx_authz_utils:update_config(?CONF_KEY_PATH, {{?CMD_DELETE, type(Type)}, Sources});
+update({?CMD_REPLACE, Type}, Source) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {{?CMD_REPLACE, to_type(Type)}, Source});
+update({?CMD_DELETE, Type}, Source) ->
+    emqx_authz_utils:update_config(?CONF_KEY_PATH, {{?CMD_DELETE, to_type(Type)}, Source});
 update(Cmd, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
 
-pre_config_update(Path, Cmd, Sources, ClusterRpcOpts) ->
-    try do_pre_config_update(Path, Cmd, Sources, ClusterRpcOpts) of
+pre_config_update(Path, Cmd, OldConf, ClusterRpcOpts) ->
+    try do_pre_config_update(Path, Cmd, OldConf, ClusterRpcOpts) of
         {error, Reason} -> {error, Reason};
-        NSources -> {ok, NSources}
+        NewConf -> {ok, NewConf}
     catch
         throw:Reason ->
             ?SLOG(info, #{
@@ -224,22 +223,22 @@ do_pre_config_update({?CMD_MOVE, _, _} = Cmd, Sources, _Opts) ->
     do_move(Cmd, Sources);
 do_pre_config_update({?CMD_PREPEND, Source}, Sources, _Opts) ->
     NSource = maybe_write_source_files(Source),
-    NSources = [NSource] ++ Sources,
-    ok = check_dup_types(NSources),
+    NSources = [NSource | Sources],
+    ok = check_dup_types_for_sources(NSources),
     NSources;
 do_pre_config_update({?CMD_APPEND, Source}, Sources, _Opts) ->
     NSource = maybe_write_source_files(Source),
     NSources = Sources ++ [NSource],
-    ok = check_dup_types(NSources),
+    ok = check_dup_types_for_sources(NSources),
     NSources;
 do_pre_config_update({{?CMD_REPLACE, Type}, Source}, Sources, _Opts) ->
     NSource = maybe_write_source_files(Source),
-    {_Old, Front, Rear} = take(Type, Sources),
+    {_Old, Front, Rear} = split_by_type(Type, Sources),
     NSources = Front ++ [NSource | Rear],
-    ok = check_dup_types(NSources),
+    ok = check_dup_types_for_sources(NSources),
     NSources;
 do_pre_config_update({{?CMD_DELETE, Type}, _Source}, Sources, Opts) ->
-    case type_take(Type, Sources) of
+    case take_by_type(Type, Sources) of
         not_found ->
             case emqx_cluster_rpc:is_initiator(Opts) of
                 true -> throw({not_found_source, Type});
@@ -251,147 +250,143 @@ do_pre_config_update({{?CMD_DELETE, Type}, _Source}, Sources, Opts) ->
 do_pre_config_update({?CMD_REPLACE, Sources}, _OldSources, _Opts) ->
     %% overwrite the entire config!
     NSources = lists:map(fun maybe_write_source_files/1, Sources),
-    ok = check_dup_types(NSources),
+    ok = check_dup_types_for_sources(NSources),
     NSources;
-do_pre_config_update({?CMD_REORDER, NewSourcesOrder}, OldSources, _Opts) ->
-    reorder_sources(NewSourcesOrder, OldSources);
+do_pre_config_update({?CMD_REORDER, Types}, OldSources, _Opts) ->
+    reorder_sources(Types, OldSources);
 do_pre_config_update({Op, Source}, Sources, _Opts) ->
     throw({bad_request, #{op => Op, source => Source, sources => Sources}}).
 
-post_config_update(_, _, undefined, _OldSource, _AppEnvs) ->
+post_config_update(_, _, undefined, _OldConf, _AppEnvs) ->
     ok;
-post_config_update(Path, Cmd, NewSources, _OldSource, _AppEnvs) ->
-    Actions = do_post_config_update(Path, Cmd, NewSources),
-    ok = update_authz_chain(Actions),
+post_config_update(Path, Cmd, NewConf, _OldConf, _AppEnvs) ->
+    NewSourceStates = do_post_config_update(Path, Cmd, NewConf),
+    ok = update_authz_chain(NewSourceStates),
     ok = emqx_authz_cache:drain_cache().
 
 do_post_config_update(?CONF_KEY_PATH, {?CMD_MOVE, _Type, _Where} = Cmd, _Sources) ->
-    do_move(Cmd, lookup());
-do_post_config_update(?CONF_KEY_PATH, {?CMD_PREPEND, RawNewSource}, Sources) ->
-    TypeName = type(RawNewSource),
-    NewSources = create_sources([get_source_by_type(TypeName, Sources)]),
-    NewSources ++ lookup();
-do_post_config_update(?CONF_KEY_PATH, {?CMD_APPEND, RawNewSource}, Sources) ->
-    NewSources = create_sources([get_source_by_type(type(RawNewSource), Sources)]),
-    lookup() ++ NewSources;
-do_post_config_update(?CONF_KEY_PATH, {{?CMD_REPLACE, Type}, RawNewSource}, Sources) ->
-    OldSources = lookup(),
-    {OldSource, Front, Rear} = take(Type, OldSources),
-    NewSource = get_source_by_type(type(RawNewSource), Sources),
-    InitedSources = update_source(type(RawNewSource), OldSource, NewSource),
-    Front ++ [InitedSources] ++ Rear;
-do_post_config_update(?CONF_KEY_PATH, {{?CMD_DELETE, Type}, _RawNewSource}, _Sources) ->
-    OldInitedSources = lookup(),
-    case type_take(Type, OldInitedSources) of
+    do_move(Cmd, lookup_states());
+do_post_config_update(?CONF_KEY_PATH, {?CMD_PREPEND, NewSource}, Sources) ->
+    Type = type(NewSource),
+    [NewSourceState] = create_sources([get_source_by_type(Type, Sources)]),
+    [NewSourceState | lookup_states()];
+do_post_config_update(?CONF_KEY_PATH, {?CMD_APPEND, NewSource}, Sources) ->
+    [NewSourceState] = create_sources([get_source_by_type(type(NewSource), Sources)]),
+    lookup_states() ++ [NewSourceState];
+do_post_config_update(?CONF_KEY_PATH, {{?CMD_REPLACE, Type}, _NewSource}, Sources) ->
+    OldSourceStates = lookup_states(),
+    {OldSourceState, Front, Rear} = split_by_type(Type, OldSourceStates),
+    NewSource = get_source_by_type(Type, Sources),
+    NewSourceState = update_source(Type, OldSourceState, NewSource),
+    Front ++ [NewSourceState] ++ Rear;
+do_post_config_update(?CONF_KEY_PATH, {{?CMD_DELETE, Type}, _NewSource}, _Sources) ->
+    OldSourceStates = lookup_states(),
+    case take_by_type(Type, OldSourceStates) of
         not_found ->
-            OldInitedSources;
-        {Found, NSources} ->
-            ok = ensure_deleted(Found, #{clear_metric => true}),
-            NSources
+            OldSourceStates;
+        {FoundSourceState, NSourceStates} ->
+            ok = ensure_deleted(FoundSourceState, #{clear_metric => true}),
+            NSourceStates
     end;
-do_post_config_update(?CONF_KEY_PATH, {?CMD_REPLACE, _RawNewSources}, Sources) ->
+do_post_config_update(?CONF_KEY_PATH, {?CMD_REPLACE, _NewSources}, Sources) ->
     overwrite_entire_sources(Sources);
-do_post_config_update(?CONF_KEY_PATH, {?CMD_REORDER, NewSourcesOrder}, _Sources) ->
-    OldSources = lookup(),
+do_post_config_update(?CONF_KEY_PATH, {?CMD_REORDER, RawTypes}, _Sources) ->
+    OldSourceStates = lookup_states(),
     lists:map(
-        fun(Type) ->
-            Type1 = type(Type),
-            {value, Val} = lists:search(fun(S) -> type(S) =:= Type1 end, OldSources),
-            Val
+        fun(RawType) ->
+            Type = to_type(RawType),
+            {value, SourceState} = lists:search(
+                fun(SSt) -> type(SSt) =:= Type end, OldSourceStates
+            ),
+            SourceState
         end,
-        NewSourcesOrder
+        RawTypes
     );
 do_post_config_update(?ROOT_KEY, Conf, Conf) ->
-    #{sources := Sources} = Conf,
-    Sources;
+    lookup_states();
 do_post_config_update(?ROOT_KEY, _Conf, NewConf) ->
     #{sources := NewSources} = NewConf,
     overwrite_entire_sources(NewSources).
 
 overwrite_entire_sources(Sources) ->
-    PrevSources = lookup(),
-    #{
-        removed := Removed,
-        added := Added,
-        identical := Identical,
-        changed := Changed
-    } = emqx_utils:diff_lists(Sources, PrevSources, fun type/1),
-    lists:foreach(
-        fun(S) -> ensure_deleted(S, #{clear_metric => true}) end,
-        Removed
+    PrevSourceStates = lookup_states(),
+    PrevTypes = sets:from_list(lists:map(fun type/1, PrevSourceStates), [{version, 2}]),
+    NewTypes = sets:from_list(lists:map(fun type/1, Sources), [{version, 2}]),
+    RemovedTypes = sets:subtract(PrevTypes, NewTypes),
+    AddedTypes = sets:subtract(NewTypes, PrevTypes),
+
+    %% Remove sources
+    RemovedSourceStates = lists:filter(
+        fun(SourceState) -> sets:is_element(type(SourceState), RemovedTypes) end,
+        PrevSourceStates
     ),
-    AddedSources = create_sources(Added),
-    ChangedSources = lists:map(
-        fun({Old, New}) ->
-            update_source(type(New), Old, New)
-        end,
-        Changed
+    ok = lists:foreach(
+        fun(SourceState) -> ensure_deleted(SourceState, #{clear_metric => true}) end,
+        RemovedSourceStates
     ),
-    New = Identical ++ AddedSources ++ ChangedSources,
-    lists:map(
-        fun(Type) ->
-            SearchFun = fun(S) -> type(S) =:= type(Type) end,
-            {value, Val} = lists:search(SearchFun, New),
-            Val
+
+    %% Construct the new source states
+    %% NOTE
+    %% It's important to preserve the order of the passed Sources
+    SourceStates = lists:map(
+        fun(Source) ->
+            Type = type(Source),
+            case sets:is_element(Type, AddedTypes) of
+                true ->
+                    [State] = create_sources([Source]),
+                    State;
+                false ->
+                    {value, PrevSourceState} = lists:search(
+                        fun(SSt) -> type(SSt) =:= Type end, PrevSourceStates
+                    ),
+                    update_source(Type, PrevSourceState, Source)
+            end
         end,
         Sources
-    ).
+    ),
+    SourceStates.
 
 %% @doc do source move
-do_move({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, Sources) ->
-    {Source, Front, Rear} = take(Type, Sources),
-    [Source | Front] ++ Rear;
-do_move({?CMD_MOVE, Type, ?CMD_MOVE_REAR}, Sources) ->
-    {Source, Front, Rear} = take(Type, Sources),
-    Front ++ Rear ++ [Source];
-do_move({?CMD_MOVE, Type, ?CMD_MOVE_BEFORE(Before)}, Sources) ->
-    {S1, Front1, Rear1} = take(Type, Sources),
-    {S2, Front2, Rear2} = take(Before, Front1 ++ Rear1),
-    Front2 ++ [S1, S2] ++ Rear2;
-do_move({?CMD_MOVE, Type, ?CMD_MOVE_AFTER(After)}, Sources) ->
-    {S1, Front1, Rear1} = take(Type, Sources),
-    {S2, Front2, Rear2} = take(After, Front1 ++ Rear1),
-    Front2 ++ [S2, S1] ++ Rear2.
+do_move({?CMD_MOVE, Type, ?CMD_MOVE_FRONT}, SourceStates) ->
+    {SourceState, Front, Rear} = split_by_type(Type, SourceStates),
+    [SourceState | Front] ++ Rear;
+do_move({?CMD_MOVE, Type, ?CMD_MOVE_REAR}, SourceStates) ->
+    {SourceState, Front, Rear} = split_by_type(Type, SourceStates),
+    Front ++ Rear ++ [SourceState];
+do_move({?CMD_MOVE, Type, ?CMD_MOVE_BEFORE(Before)}, SourceStates) ->
+    {SourceState1, Front1, Rear1} = split_by_type(Type, SourceStates),
+    {SourceState2, Front2, Rear2} = split_by_type(Before, Front1 ++ Rear1),
+    Front2 ++ [SourceState1, SourceState2] ++ Rear2;
+do_move({?CMD_MOVE, Type, ?CMD_MOVE_AFTER(After)}, SourceStates) ->
+    {SourceState1, Front1, Rear1} = split_by_type(Type, SourceStates),
+    {SourceState2, Front2, Rear2} = split_by_type(After, Front1 ++ Rear1),
+    Front2 ++ [SourceState2, SourceState1] ++ Rear2.
 
 ensure_deleted(#{enable := false}, _) ->
     ok;
-ensure_deleted(Source, #{clear_metric := ClearMetric}) ->
-    TypeName = type(Source),
-    ensure_resource_deleted(Source),
-    ClearMetric andalso emqx_metrics_worker:clear_metrics(authz_metrics, TypeName).
-
-ensure_resource_deleted(#{type := Type} = Source) ->
+ensure_deleted(SourceState, #{clear_metric := ClearMetric}) ->
+    Type = type(SourceState),
     Module = authz_module(Type),
-    Module:destroy(Source).
+    Module:destroy(SourceState),
+    ClearMetric andalso emqx_metrics_worker:clear_metrics(authz_metrics, Type).
 
-check_dup_types(Sources) ->
-    check_dup_types(Sources, []).
+%% Called for both sources and raw sources
+check_dup_types_for_sources(Sources) ->
+    check_dup_types([type(S) || S <- Sources]).
 
-check_dup_types([], _Checked) ->
-    ok;
-check_dup_types([Source | Sources], Checked) ->
-    %% the input might be raw or type-checked result, so lookup both 'type' and <<"type">>
-    %% TODO: check: really?
-    Type =
-        case maps:get(<<"type">>, Source, maps:get(type, Source, undefined)) of
-            undefined ->
-                %% this should never happen if the value is type checked by honcon schema
-                throw({bad_source_input, Source});
-            Type0 ->
-                type(Type0)
-        end,
-    case lists:member(Type, Checked) of
-        true ->
-            %% we have made it clear not to support more than one authz instance for each type
-            throw({duplicated_authz_source_type, Type});
-        false ->
-            check_dup_types(Sources, [Type | Checked])
+check_dup_types(Types) ->
+    Duplicates = lists:uniq(Types -- lists:uniq(Types)),
+    case Duplicates of
+        [] ->
+            ok;
+        _ ->
+            throw({duplicated_authz_source_type, Duplicates})
     end.
 
 create_sources(Sources) ->
     {_Enabled, Disabled} = lists:partition(fun(#{enable := Enable}) -> Enable end, Sources),
     case Disabled =/= [] of
-        true -> ?SLOG(info, #{msg => "disabled_sources_ignored", sources => Disabled});
+        true -> ?SLOG(info, #{msg => "disabled_sources", sources => Disabled});
         false -> ok
     end,
     ok = lists:foreach(fun init_metrics/1, Sources),
@@ -401,20 +396,20 @@ create_source(#{type := Type} = Source) ->
     Module = authz_module(Type),
     Module:create(Source).
 
-update_source(Type, OldSource, NewSource) ->
+update_source(Type, OldSourceState, NewSource) ->
     Module = authz_module(Type),
-    Module:update(maps:merge(OldSource, NewSource)).
+    Module:update(OldSourceState, NewSource).
 
 init_metrics(Source) ->
-    TypeName = type(Source),
-    case emqx_metrics_worker:has_metrics(authz_metrics, TypeName) of
+    Type = type(Source),
+    case emqx_metrics_worker:has_metrics(authz_metrics, Type) of
         %% Don't reset the metrics if it already exists
         true ->
             ok;
         false ->
             emqx_metrics_worker:create_metrics(
                 authz_metrics,
-                TypeName,
+                Type,
                 [total, allow, deny, nomatch, ignore],
                 [total]
             )
@@ -457,10 +452,10 @@ authorize_deny(
     emqx_types:pubsub(),
     emqx_types:topic(),
     default_result(),
-    sources()
+    source_states()
 ) ->
     authz_result().
-authorize(#{username := Username} = Client, PubSub, Topic, _DefaultResult, Sources) ->
+authorize(#{username := Username} = Client, PubSub, Topic, _DefaultResult, SourceStates) ->
     case maps:get(is_superuser, Client, false) of
         true ->
             ?tp(authz_skipped, #{reason => client_is_superuser, action => PubSub}),
@@ -472,19 +467,19 @@ authorize(#{username := Username} = Client, PubSub, Topic, _DefaultResult, Sourc
             emqx_metrics:inc(?METRIC_SUPERUSER),
             {stop, #{result => allow, from => superuser}};
         false ->
-            authorize_non_superuser(Client, PubSub, Topic, Sources)
+            authorize_non_superuser(Client, PubSub, Topic, SourceStates)
     end.
 
-authorize_non_superuser(Client, PubSub, Topic, Sources) ->
-    case do_authorize(Client, PubSub, Topic, sources_with_defaults(Sources)) of
-        {{matched, allow}, AuthzSource} ->
-            emqx_metrics_worker:inc(authz_metrics, AuthzSource, allow),
+authorize_non_superuser(Client, PubSub, Topic, SourceStates) ->
+    case do_authorize(Client, PubSub, Topic, source_states_with_defaults(SourceStates)) of
+        {{matched, allow}, MatchedType} ->
+            emqx_metrics_worker:inc(authz_metrics, MatchedType, allow),
             emqx_metrics:inc(?METRIC_ALLOW),
-            {stop, #{result => allow, from => source_for_logging(AuthzSource, Client)}};
-        {{matched, deny}, AuthzSource} ->
-            emqx_metrics_worker:inc(authz_metrics, AuthzSource, deny),
+            {stop, #{result => allow, from => source_for_logging(MatchedType, Client)}};
+        {{matched, deny}, MatchedType} ->
+            emqx_metrics_worker:inc(authz_metrics, MatchedType, deny),
             emqx_metrics:inc(?METRIC_DENY),
-            {stop, #{result => deny, from => source_for_logging(AuthzSource, Client)}};
+            {stop, #{result => deny, from => source_for_logging(MatchedType, Client)}};
         nomatch ->
             ?tp(authz_non_superuser, #{result => nomatch}),
             emqx_metrics:inc(?METRIC_NOMATCH),
@@ -499,16 +494,17 @@ source_for_logging(Type, _) ->
 
 do_authorize(_Client, _Action, _Topic, []) ->
     nomatch;
-do_authorize(Client, Action, Topic, [#{enable := false} | Tail]) ->
-    do_authorize(Client, Action, Topic, Tail);
+do_authorize(Client, Action, Topic, [#{enable := false} = _SourceState | SourceStates]) ->
+    do_authorize(Client, Action, Topic, SourceStates);
 do_authorize(
     #{
         username := Username
     } = Client,
     Action = ?authz_action(_PubSub),
     Topic,
-    [Connector = #{type := Type} | Tail]
+    [SourceState | SourceStates]
 ) ->
+    Type = type(SourceState),
     Module = authz_module(Type),
     emqx_metrics_worker:inc(authz_metrics, Type, total),
     Result = ?EXT_TRACE_CLIENT_AUTHZ_BACKEND(
@@ -522,7 +518,7 @@ do_authorize(
         }),
         fun() ->
             Result0 =
-                try Module:authorize(Client, Action, Topic, Connector) of
+                try Module:authorize(Client, Action, Topic, SourceState) of
                     Res ->
                         ok = inc_metrics(Type, Res),
                         ok = log_trace(Res, Type, Module, Username, Topic, Action),
@@ -547,13 +543,13 @@ do_authorize(
 
     case Result of
         error ->
-            do_authorize(Client, Action, Topic, Tail);
+            do_authorize(Client, Action, Topic, SourceStates);
         nomatch ->
-            do_authorize(Client, Action, Topic, Tail);
+            do_authorize(Client, Action, Topic, SourceStates);
         ignore ->
-            do_authorize(Client, Action, Topic, Tail);
+            do_authorize(Client, Action, Topic, SourceStates);
         {matched, ignore} ->
-            do_authorize(Client, Action, Topic, Tail);
+            do_authorize(Client, Action, Topic, SourceStates);
         {matched, _Permission} = Matched ->
             {Matched, Type}
     end.
@@ -628,7 +624,7 @@ format_result({matched, deny}) ->
 -endif.
 
 get_enabled_authzs() ->
-    lists:usort([Type || #{type := Type, enable := true} <- lookup()]).
+    lists:usort([Type || #{type := Type, enable := true} <- lookup_states()]).
 
 %%------------------------------------------------------------------------------
 %% Data backup
@@ -670,31 +666,38 @@ maybe_convert_sources(RawConf, _Fun) ->
     RawConf.
 
 %%------------------------------------------------------------------------------
-%% Internal function
+%% Helper functions
 %%------------------------------------------------------------------------------
 
 client_info_source() ->
-    emqx_authz_client_info:create(
-        #{type => client_info, enable => true}
-    ).
+    #{type => client_info, enable => true}.
 
-sources_with_defaults(Sources) ->
-    [client_info_source() | Sources].
+client_info_source_state() ->
+    emqx_authz_client_info:create(client_info_source()).
 
-take(Type) -> take(Type, lookup()).
+source_states_with_defaults(SourceStates) ->
+    [client_info_source_state() | SourceStates].
 
-%% Take the source of give type, the sources list is split into two parts
+take_by_type(Type, Sources) ->
+    try split_by_type(Type, Sources) of
+        {Found, Front, Rear} -> {Found, Front ++ Rear}
+    catch
+        throw:{type_not_found, Type} -> not_found
+    end.
+
+split_states_by_type(Type) -> split_by_type(Type, lookup_states()).
+
+%% Take the source/ of give type, the sources list is split into two parts
 %% front part and rear part.
-take(Type, Sources) ->
-    Expect = type(Type),
-    case lists:splitwith(fun(T) -> type(T) =/= Expect end, Sources) of
+split_by_type(Type, Values) ->
+    case lists:splitwith(fun(Value) -> type(Value) =/= Type end, Values) of
         {_Front, []} ->
-            throw({not_found_source, Type});
+            throw({type_not_found, Type});
         {Front, [Found | Rear]} ->
             {Found, Front, Rear}
     end.
 
-find_action_in_hooks() ->
+find_authz_action_in_hooks() ->
     Actions = lists:filtermap(
         fun(Callback) ->
             case emqx_hooks:callback_action(Callback) of
@@ -709,7 +712,7 @@ find_action_in_hooks() ->
             ?SLOG(error, #{
                 msg => "authz_not_initialized",
                 configured_types => configured_types(),
-                registered_types => emqx_authz_source_registry:get()
+                registered_types => emqx_authz_source_registry:registered_types()
             }),
             error(authz_not_initialized);
         [Action] ->
@@ -719,21 +722,35 @@ find_action_in_hooks() ->
 authz_module(Type) ->
     emqx_authz_source_registry:module(Type).
 
-type(#{type := Type}) ->
-    type(Type);
+-spec type(source() | raw_source() | source_state()) -> type().
+%% Extracts type from source raw config
 type(#{<<"type">> := Type}) ->
-    type(Type);
-type(Type) when is_atom(Type) orelse is_binary(Type) ->
-    emqx_authz_source_registry:get(Type).
+    to_type(Type);
+%% Extracts type from source or source_state
+type(#{type := Type}) ->
+    to_type(Type).
 
-format_for_api(Source) ->
-    Type = type(Source),
+%% Converts to authorizer type and validates it
+to_type(Type) when is_atom(Type) ->
+    _Module = emqx_authz_source_registry:module(Type),
+    Type;
+to_type(TypeBin) when is_binary(TypeBin) ->
+    try binary_to_existing_atom(TypeBin, utf8) of
+        Type ->
+            to_type(Type)
+    catch
+        error:badarg ->
+            throw({unknown_authz_source_type, TypeBin})
+    end.
+
+format_for_api(RawSource) ->
+    Type = type(RawSource),
     Mod = authz_module(Type),
     try
-        Mod:format_for_api(Source)
+        Mod:format_for_api(RawSource)
     catch
         error:undef ->
-            Source
+            RawSource
     end.
 
 maybe_write_source_files(Source) ->
@@ -755,21 +772,6 @@ maybe_read_source_files(Source) ->
             Source
     end.
 
-maybe_read_source_files_safe(Source0) ->
-    try maybe_read_source_files(Source0) of
-        Source1 ->
-            {ok, Source1}
-    catch
-        Error:Reason:Stacktrace ->
-            ?SLOG(error, #{
-                msg => "error_when_reading_source_files",
-                exception => Error,
-                reason => Reason,
-                stacktrace => Stacktrace
-            }),
-            {error, Reason}
-    end.
-
 maybe_write_certs(#{<<"type">> := Type, <<"ssl">> := SSL = #{}} = Source) ->
     case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(ssl_file_path(Type), SSL) of
         {ok, NSSL} ->
@@ -785,23 +787,24 @@ ssl_file_path(Type) ->
     filename:join(["authz", Type]).
 
 get_source_by_type(Type, Sources) ->
-    {Source, _Front, _Rear} = take(Type, Sources),
+    {Source, _} = take_by_type(Type, Sources),
     Source.
 
 %% @doc put hook with (maybe) initialized new source and old sources
-update_authz_chain(Actions) ->
-    emqx_hooks:put('client.authorize', {?MODULE, authorize, [Actions]}, ?HP_AUTHZ).
+update_authz_chain(SourceStates) ->
+    emqx_hooks:put('client.authorize', {?MODULE, authorize, [SourceStates]}, ?HP_AUTHZ).
 
 merge_sources(OriginConf, NewConf) ->
     {OriginSource, NewSources} =
         lists:foldl(
-            fun(Old = #{<<"type">> := Type}, {OriginAcc, NewAcc}) ->
-                case type_take(Type, NewAcc) of
+            fun(OldSource, {OriginAcc, NewAcc}) ->
+                Type = type(OldSource),
+                case take_by_type(Type, NewAcc) of
                     not_found ->
-                        {[Old | OriginAcc], NewAcc};
-                    {New, NewAcc1} ->
-                        MergeSource = emqx_utils_maps:deep_merge(Old, New),
-                        {[MergeSource | OriginAcc], NewAcc1}
+                        {[OldSource | OriginAcc], NewAcc};
+                    {NewSource, NewAcc1} ->
+                        MergedSource = emqx_utils_maps:deep_merge(OldSource, NewSource),
+                        {[MergedSource | OriginAcc], NewAcc1}
                 end
             end,
             {[], get_sources(NewConf)},
@@ -813,17 +816,11 @@ get_sources(Conf) ->
     Default = [emqx_authz_schema:default_authz()],
     maps:get(<<"sources">>, Conf, Default).
 
-type_take(Type, Sources) ->
-    try take(Type, Sources) of
-        {Found, Front, Rear} -> {Found, Front ++ Rear}
-    catch
-        throw:{not_found_source, Type} -> not_found
-    end.
-
-reorder_sources(NewOrder, OldSources) ->
-    NewOrder1 = lists:map(fun type/1, NewOrder),
+%% Works with raw configs
+reorder_sources(RawTypes, OldSources) ->
+    Types = lists:map(fun to_type/1, RawTypes),
     OldSourcesWithTypes = [{type(Source), Source} || Source <- OldSources],
-    reorder_sources(NewOrder1, OldSourcesWithTypes, [], []).
+    reorder_sources(Types, OldSourcesWithTypes, [], []).
 
 reorder_sources([], [] = _RemSourcesWithTypes, ReorderedSources, [] = _NotFoundTypes) ->
     lists:reverse(ReorderedSources);

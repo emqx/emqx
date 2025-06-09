@@ -16,7 +16,7 @@
 %% APIs
 -export([
     create/1,
-    update/1,
+    update/2,
     destroy/1,
     authorize/4
 ]).
@@ -35,11 +35,12 @@
 %% emqx_authz callbacks
 %%--------------------------------------------------------------------
 
+%% NOTE: No state is needed for this source, just configuration.
 create(Source) ->
-    Source.
+    emqx_authz_utils:init_state(Source, #{}).
 
-update(Source) ->
-    Source.
+update(_State, Source) ->
+    create(Source).
 
 destroy(_Source) -> ok.
 
