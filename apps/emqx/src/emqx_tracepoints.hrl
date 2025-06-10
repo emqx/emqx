@@ -21,6 +21,7 @@
 -define(sessds_open_session, sessds_open_session).
 -define(sessds_ensure_new, sessds_ensure_new).
 -define(sessds_commit, sessds_commit).
+-define(sessds_commit_failure, sessds_commit_failure).
 
 -define(sessds_update_srs_ssid, sessds_update_srs_ssid).
 -define(sessds_do_enqueue, sessds_do_enqueue).
@@ -44,5 +45,7 @@
 -define(sessds_sched_unsubscribe, sessds_sched_unsubscribe).
 -define(sessds_unexpected_ds_batch, sessds_unexpected_ds_batch).
 -define(sessds_sub_down, sessds_sub_down).
+
+-define(sessds_takeover_conflict, sessds_takeover_conflict).
 
 -endif.

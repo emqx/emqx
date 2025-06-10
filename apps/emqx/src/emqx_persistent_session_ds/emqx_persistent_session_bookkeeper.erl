@@ -87,15 +87,16 @@ get_disconnected_session_count() ->
 %%------------------------------------------------------------------------------
 
 init(_Opts) ->
-    case emqx_persistent_message:is_persistence_enabled() of
-        true ->
-            State = #{
-                tab => ets:new(?tab, [named_table, set, protected, {keypos, #stat_field.name}])
-            },
-            {ok, State, {continue, #tally_subs{}}};
-        false ->
-            ignore
-    end.
+    ignore.
+%% case emqx_persistent_message:is_persistence_enabled() of
+%%     true ->
+%%         State = #{
+%%             tab => ets:new(?tab, [named_table, set, protected, {keypos, #stat_field.name}])
+%%         },
+%%         {ok, State, {continue, #tally_subs{}}};
+%%     false ->
+%%         ignore
+%% end.
 
 handle_continue(#tally_subs{}, State0) ->
     State = tally_persistent_subscriptions(State0),

@@ -136,9 +136,6 @@
 %% Proper generators
 %%--------------------------------------------------------------------
 
-qos() ->
-    range(?QOS_0, ?QOS_2).
-
 %% @doc Static part of the client configuration. It is merged with the
 %% randomly generated part.
 %% erlfmt-ignore
@@ -186,7 +183,7 @@ message(MsgSeqNo, #{subs := Subs}) ->
     Topics = [{Freq, T} || {Freq, Topics} <- TopicFreq, T <- Topics],
     ?LET(
         {Topic, From, QoS},
-        {frequency(Topics), oneof(?publishers), qos()},
+        {frequency(Topics), oneof(?publishers), emqx_proper_types:qos()},
         #message{
             id = <<>>,
             qos = QoS,
@@ -220,7 +217,7 @@ publish_(S = #{message_seqno := SeqNo}) ->
 subscribe_() ->
     ?LET(
         {Topic, QoS},
-        {oneof(?topics), qos()},
+        {oneof(?topics), emqx_proper_types:qos()},
         {call, ?MODULE, subscribe, [Topic, QoS]}
     ).
 
@@ -559,11 +556,7 @@ command(S = #{connected := Conn, has_data := HasData, subs := Subs}) ->
     HasSubs = maps:size(Subs) > 0,
     %% Commands that are executed in any state:
     Common =
-         %% FIXME: Currently takeover may lead to state corruption due
-         %% to serialization problems. `|| not Conn]` effectively
-         %% disables takeover. This condition should be removed when
-         %% takeover is fixed.
-         [{1,  connect_(S)}                     || not Conn] ++
+         [{1,  connect_(S)}] ++
          [{2,  {call, ?MODULE, add_generation, []}},
           %% Publish some messages occasionally even when there are no
           %% subs:

@@ -182,7 +182,7 @@ session_open(Node, ClientId) ->
 force_last_alive_at(ClientId, Time) ->
     {ok, S0} = emqx_persistent_session_ds_state:open(ClientId),
     S = emqx_persistent_session_ds_state:set_last_alive_at(Time, S0),
-    _ = emqx_persistent_session_ds_state:commit(S),
+    _ = emqx_persistent_session_ds_state:async_checkpoint(S),
     ok.
 
 stop_and_commit(Client) ->
@@ -786,6 +786,133 @@ t_replay_deleted_generation(_Config) ->
         []
     ).
 
+%% @doc This stateful property-based testcase verifies consistency of
+%% commiting and restoring the session state. It creates a chain of
+%% random state changes (writes and deletes), as well as commit and
+%% restore actions and verifies that the session state is consistent
+%% with the model.
+t_state_fuzz(init, Config) ->
+    meck:new(emqx_ds, [passthrough, no_history]),
+    meck:expect(emqx_ds, stream_to_binary, fun(_, A) -> {ok, term_to_binary(A)} end),
+    meck:expect(emqx_ds, binary_to_stream, fun(_, A) -> {ok, binary_to_term(A)} end),
+    meck:expect(emqx_ds, iterator_to_binary, fun(_, A) -> {ok, term_to_binary(A)} end),
+    meck:expect(emqx_ds, binary_to_iterator, fun(_, A) -> {ok, binary_to_term(A)} end),
+    Cleanup = fun() ->
+        meck:unload(emqx_ds)
+    end,
+    start_local(?FUNCTION_NAME, [{cleanup, Cleanup} | Config]).
+t_state_fuzz(_Config) ->
+    NTests = 100,
+    MaxSize = 300,
+    NCommandsFactor = 10,
+    Mod = emqx_persistent_session_ds_state_fuzzer,
+    ?run_prop(
+        #{
+            proper => #{
+                timeout => 3_000_000,
+                numtests => NTests,
+                max_size => MaxSize,
+                start_size => MaxSize,
+                max_shrinks => 0
+            }
+        },
+        ?forall_trace(
+            Cmds,
+            proper_statem:more_commands(
+                NCommandsFactor,
+                commands(Mod)
+            ),
+            #{timetrap => 5_000 * length(Cmds) + 10_000},
+            try
+                %% Initialize the system and run commands:
+                Mod:init(self()),
+                {_History, State, Result} = run_commands(
+                    emqx_persistent_session_ds_state_fuzzer, Cmds
+                ),
+                %% Print debug information:
+                ct:pal("*** Result:~n~p", [Result]),
+                case Result of
+                    ok ->
+                        ok;
+                    _ ->
+                        ct:pal("*** Model state:~n~p", [State]),
+                        ct:pal("*** SUT cache:~n~p", [Mod:sut_state()]),
+                        ct:pal("*** DB state:~n~p", [emqx_ds:dirty_read(sessions, ['#'])]),
+                        error(Result)
+                end
+            after
+                Mod:clean()
+            end,
+            []
+        )
+    ).
+
+%% @doc This testcase verifies that in a situation where multiple
+%% actors compete for the state of the same client ID. Only one actor
+%% can sucessfully commit the session.
+%%
+%% Note: commiting a session that hasn't changed any data with
+%% `lifetime => up' is a NOP, so the actors have to occasionally make
+%% some changes to get kicked out after being taken over.
+t_state_commit_conflict(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_state_commit_conflict(_Config) ->
+    ?check_trace(
+        begin
+            Id = <<"clientid">>,
+            %% 1. Start from the empty state simultaneously:
+            A1 = emqx_persistent_session_ds_state:create_new(Id),
+            B1 = emqx_persistent_session_ds_state:create_new(Id),
+            %%   Commit the A (should succeed):
+            A2 = emqx_persistent_session_ds_state:commit(A1, #{lifetime => new}),
+            %%   Now B should not be able to commit:
+            ?assertError(
+                {failed_to_commit_session, _},
+                emqx_persistent_session_ds_state:commit(B1, #{lifetime => new})
+            ),
+            %%   A is still the owner:
+            {0, A3} = emqx_persistent_session_ds_state:new_id(A2),
+            A4 = emqx_persistent_session_ds_state:commit(A3, #{lifetime => up}),
+            %% 2. Now C takes over the session. It should invalidate A's
+            %% claim.
+            {ok, C1} = emqx_persistent_session_ds_state:open(Id),
+            C2 = emqx_persistent_session_ds_state:commit(C1, #{lifetime => takeover}),
+            %%   A loses:
+            {1, A5} = emqx_persistent_session_ds_state:new_id(A4),
+            ?assertError(
+                {failed_to_commit_session, _},
+                emqx_persistent_session_ds_state:commit(A5, #{lifetime => up})
+            ),
+            %% 3. Now we emulate the situation where C went down gracefully,
+            %% and D and E take over simulataneously:
+            {1, C3} = emqx_persistent_session_ds_state:new_id(C2),
+            _ = emqx_persistent_session_ds_state:commit(C3, #{lifetime => terminate}),
+            {ok, D1} = emqx_persistent_session_ds_state:open(Id),
+            {ok, E1} = emqx_persistent_session_ds_state:open(Id),
+            %%   E commits first:
+            {2, E2} = emqx_persistent_session_ds_state:new_id(E1),
+            E3 = emqx_persistent_session_ds_state:commit(E2, #{lifetime => takeover}),
+            %%   D loses:
+            ?assertError(
+                {failed_to_commit_session, _},
+                emqx_persistent_session_ds_state:commit(D1, #{lifetime => takeover})
+            ),
+            %% 4. Verify that commit with `lifetime => terminate'
+            %% doesn't crash even when inconsistency is detected.
+            %%
+            %%   F takes over:
+            {ok, F1} = emqx_persistent_session_ds_state:open(Id),
+            _F2 = emqx_persistent_session_ds_state:commit(F1, #{lifetime => takeover}),
+            %%   E tries to commit, it silently fails with a warning:
+            {3, E4} = emqx_persistent_session_ds_state:new_id(E3),
+            _ = emqx_persistent_session_ds_state:commit(E4, #{lifetime => terminate}),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(?sessds_takeover_conflict, Trace))
+        end
+    ).
+
 t_fuzz(init, Config) ->
     start_local(?FUNCTION_NAME, Config).
 t_fuzz(_Config) ->
@@ -796,9 +923,9 @@ t_fuzz(_Config) ->
     %% values to avoid blowing up CI. Hence it's recommended to
     %% increase the max_size and numtests when doing local
     %% development:
-    NTests = 10,
-    MaxSize = 100,
-    NCommandsFactor = 1,
+    NTests = 100,
+    MaxSize = 300,
+    NCommandsFactor = 2,
     ?run_prop(
         #{
             proper => #{
@@ -834,6 +961,9 @@ t_fuzz(_Config) ->
                 ct:log(info, "*** Model state:~n  ~p~n", [State]),
                 ct:log(info, "*** Session state:~n  ~p~n", [
                     emqx_persistent_session_ds_fuzzer:sut_state()
+                ]),
+                ct:log(debug, "*** Persistent session DB:~n  ~p~n", [
+                    emqx_ds:dirty_read(sessions, ['#'])
                 ]),
                 ct:log("*** Result:~n  ~p~n", [Result]),
                 Result =:= ok orelse error(Result)
