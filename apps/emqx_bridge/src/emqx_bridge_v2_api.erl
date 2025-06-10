@@ -265,7 +265,7 @@ schema("/actions") ->
         'operationId' => '/actions',
         get => #{
             tags => [<<"actions">>],
-            summary => <<"List bridges">>,
+            summary => <<"List Actions">>,
             description => ?DESC("desc_api1"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -276,7 +276,7 @@ schema("/actions") ->
         },
         post => #{
             tags => [<<"actions">>],
-            summary => <<"Create bridge">>,
+            summary => <<"Create Action">>,
             description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_post_request(),
@@ -339,7 +339,7 @@ schema("/actions/:id/metrics") ->
         'operationId' => '/actions/:id/metrics',
         get => #{
             tags => [<<"actions">>],
-            summary => <<"Get action metrics">>,
+            summary => <<"Get Action Metrics">>,
             description => ?DESC("desc_bridge_metrics"),
             parameters => [param_path_id()],
             responses => #{
@@ -353,7 +353,7 @@ schema("/actions/:id/metrics/reset") ->
         'operationId' => '/actions/:id/metrics/reset',
         put => #{
             tags => [<<"actions">>],
-            summary => <<"Reset action metrics">>,
+            summary => <<"Reset Action Metrics">>,
             description => ?DESC("desc_api6"),
             parameters => [param_path_id()],
             responses => #{
@@ -368,7 +368,7 @@ schema("/actions/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"actions">>],
-                summary => <<"Enable or disable bridge">>,
+                summary => <<"Enable or Disable Action">>,
                 desc => ?DESC("desc_enable_bridge"),
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
@@ -384,7 +384,7 @@ schema("/actions/:id/:operation") ->
         'operationId' => '/actions/:id/:operation',
         post => #{
             tags => [<<"actions">>],
-            summary => <<"Manually start a bridge">>,
+            summary => <<"Manually Start an Action">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
@@ -406,7 +406,7 @@ schema("/nodes/:node/actions/:id/:operation") ->
         'operationId' => '/nodes/:node/actions/:id/:operation',
         post => #{
             tags => [<<"actions">>],
-            summary => <<"Manually start a bridge on a given node">>,
+            summary => <<"Manually Start an Action on a Given Node">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
@@ -428,7 +428,7 @@ schema("/actions_probe") ->
         post => #{
             tags => [<<"actions">>],
             desc => ?DESC("desc_api9"),
-            summary => <<"Test creating bridge">>,
+            summary => <<"Test Creating Action">>,
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_ACTIONS)
@@ -444,7 +444,7 @@ schema("/actions_summary") ->
         'operationId' => '/actions_summary',
         get => #{
             tags => [<<"actions">>],
-            summary => <<"Summarize actions">>,
+            summary => <<"Summarize Actions">>,
             description => ?DESC("actions_summary"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -460,14 +460,14 @@ schema("/action_types") ->
         get => #{
             tags => [<<"actions">>],
             desc => ?DESC("desc_api10"),
-            summary => <<"List available action types">>,
+            summary => <<"List Available Action Types">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     array(emqx_bridge_v2_schema:action_types_sc()),
                     #{
                         <<"types">> =>
                             #{
-                                summary => <<"Action types">>,
+                                summary => <<"Action Types">>,
                                 value => emqx_bridge_v2_schema:action_types()
                             }
                     }
@@ -483,7 +483,7 @@ schema("/sources") ->
         'operationId' => '/sources',
         get => #{
             tags => [<<"sources">>],
-            summary => <<"List sources">>,
+            summary => <<"List Sources">>,
             description => ?DESC("desc_api1"),
             responses => #{
                 %% FIXME: examples
@@ -495,7 +495,7 @@ schema("/sources") ->
         },
         post => #{
             tags => [<<"sources">>],
-            summary => <<"Create source">>,
+            summary => <<"Create Source">>,
             description => ?DESC("desc_api2"),
             %% FIXME: examples
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -513,7 +513,7 @@ schema("/sources/:id") ->
         'operationId' => '/sources/:id',
         get => #{
             tags => [<<"sources">>],
-            summary => <<"Get source">>,
+            summary => <<"Get Source">>,
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
             responses => #{
@@ -523,7 +523,7 @@ schema("/sources/:id") ->
         },
         put => #{
             tags => [<<"sources">>],
-            summary => <<"Update source">>,
+            summary => <<"Update Source">>,
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -539,7 +539,7 @@ schema("/sources/:id") ->
         },
         delete => #{
             tags => [<<"sources">>],
-            summary => <<"Delete source">>,
+            summary => <<"Delete Source">>,
             description => ?DESC("desc_api5"),
             parameters => [param_path_id(), param_qs_delete_cascade()],
             responses => #{
@@ -559,7 +559,7 @@ schema("/sources/:id/metrics") ->
         'operationId' => '/sources/:id/metrics',
         get => #{
             tags => [<<"sources">>],
-            summary => <<"Get source metrics">>,
+            summary => <<"Get Source Metrics">>,
             description => ?DESC("desc_bridge_metrics"),
             parameters => [param_path_id()],
             responses => #{
@@ -573,7 +573,7 @@ schema("/sources/:id/metrics/reset") ->
         'operationId' => '/sources/:id/metrics/reset',
         put => #{
             tags => [<<"sources">>],
-            summary => <<"Reset source metrics">>,
+            summary => <<"Reset Source Metrics">>,
             description => ?DESC("desc_api6"),
             parameters => [param_path_id()],
             responses => #{
@@ -588,7 +588,7 @@ schema("/sources/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"sources">>],
-                summary => <<"Enable or disable bridge">>,
+                summary => <<"Enable or Disable Source">>,
                 desc => ?DESC("desc_enable_bridge"),
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
@@ -604,7 +604,7 @@ schema("/sources/:id/:operation") ->
         'operationId' => '/sources/:id/:operation',
         post => #{
             tags => [<<"sources">>],
-            summary => <<"Manually start a bridge">>,
+            summary => <<"Manually Start a Source">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
@@ -624,7 +624,7 @@ schema("/nodes/:node/sources/:id/:operation") ->
         'operationId' => '/nodes/:node/sources/:id/:operation',
         post => #{
             tags => [<<"sources">>],
-            summary => <<"Manually start a bridge on a given node">>,
+            summary => <<"Manually Start a Source on a Given Node">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
@@ -646,7 +646,7 @@ schema("/sources_probe") ->
         post => #{
             tags => [<<"sources">>],
             desc => ?DESC("desc_api9"),
-            summary => <<"Test creating bridge">>,
+            summary => <<"Test Creating Source">>,
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_SOURCES)
@@ -662,7 +662,7 @@ schema("/sources_summary") ->
         'operationId' => '/sources_summary',
         get => #{
             tags => [<<"sources">>],
-            summary => <<"Summarize sources">>,
+            summary => <<"Summarize Sources">>,
             description => ?DESC("sources_summary"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -678,7 +678,7 @@ schema("/source_types") ->
         get => #{
             tags => [<<"sources">>],
             desc => ?DESC("desc_api11"),
-            summary => <<"List available source types">>,
+            summary => <<"List Available Source Types">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     array(emqx_bridge_v2_schema:source_types_sc()),
