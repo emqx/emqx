@@ -106,7 +106,6 @@ on_start(
     SslOpts =
         case maps:get(enable, SSL) of
             true ->
-                %% [{ssl, emqx_tls_lib:to_client_opts(SSL) ++ [{middlebox_comp_mode, false}]}];
                 [{ssl, emqx_tls_lib:to_client_opts(SSL)}];
             false ->
                 []
