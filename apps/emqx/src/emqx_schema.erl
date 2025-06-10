@@ -2566,6 +2566,15 @@ client_ssl_opts_schema(Defaults) ->
                         desc => ?DESC(client_ssl_opts_schema_enable)
                     }
                 )},
+            {"middlebox_comp_mode",
+                sc(
+                    boolean(),
+                    #{
+                        required => false,
+                        default => true,
+                        desc => ?DESC(client_ssl_opts_schema_middlebox_comp_mode)
+                    }
+                )},
             {"server_name_indication",
                 sc(
                     hoconsc:union([disable, string()]),

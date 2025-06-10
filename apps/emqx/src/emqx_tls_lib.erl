@@ -675,6 +675,7 @@ to_client_opts(Type, Opts = #{enable := true}) ->
                     {password, fun conf_get_password/2},
                     {depth, fun conf_get_opt/2},
                     {verify, fun conf_get_opt/2},
+                    {middlebox_comp_mode, fun conf_get_opt/2, #{omit_if => true}},
                     {server_name_indication, fun conf_get_sni/2},
                     {customize_hostname_check, customize_hostname_check(Verify)},
                     {reuse_sessions, fun conf_get_opt/2, #{omit_if => true}},

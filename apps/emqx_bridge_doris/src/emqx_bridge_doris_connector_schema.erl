@@ -61,15 +61,36 @@ fields(connector_config) ->
                         desc => ?DESC("server")
                     },
                     {K, hocon_schema:override(Sc, Override)};
+                ({ssl = K, Sc}) ->
+                    Override = #{type => hoconsc:ref(?MODULE, ssl)},
+                    {K, hocon_schema:override(Sc, Override)};
                 (Field) ->
                     Field
             end,
             emqx_mysql:fields(config)
         ),
-    Fields ++ emqx_connector_schema:resource_opts().
+    Fields ++ emqx_connector_schema:resource_opts();
+fields(ssl) ->
+    Fields0 = emqx_schema:fields("ssl_client_opts"),
+    lists:map(
+        fun
+            ({"middlebox_comp_mode" = K, Sc}) ->
+                Override = #{
+                    %% to please dialyzer...
+                    type => hocon_schema:field_schema(Sc, type),
+                    default => false
+                },
+                {K, hocon_schema:override(Sc, Override)};
+            (Field) ->
+                Field
+        end,
+        Fields0
+    ).
 
 desc("config_connector") ->
     ?DESC("config_connector");
+desc(ssl) ->
+    ?DESC(emqx_connector_schema_lib, "ssl");
 desc(_Name) ->
     undefined.
 
