@@ -1,6 +1,6 @@
 {application, emqx_bridge_influxdb, [
     {description, "EMQX Enterprise InfluxDB Bridge"},
-    {vsn, "0.2.7"},
+    {vsn, "0.2.8"},
     {registered, []},
     {applications, [
         kernel,
