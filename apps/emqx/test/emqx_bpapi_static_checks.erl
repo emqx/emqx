@@ -119,12 +119,23 @@ check_compat(DumpFilenames) ->
     Dumps = lists:map(
         fun(FN) ->
             {ok, [Dump]} = file:consult(FN),
-            Dump#{release => filename:basename(FN)}
+            Dump#{release => filename_to_release(FN)}
         end,
         DumpFilenames
     ),
     [check_compat(I, J) || I <- Dumps, J <- Dumps],
     erase(bpapi_ok).
+
+filename_to_release(FN) ->
+    Basename = filename:basename(FN),
+    lists:flatmap(
+        fun
+            ("master") -> [master];
+            ("bpapi" ++ _) -> [];
+            (VsnComp) -> [list_to_integer(VsnComp)]
+        end,
+        string:split(Basename, ".", all)
+    ).
 
 %% Note: sets nok flag
 -spec check_compat(fulldump(), fulldump()) -> ok.
