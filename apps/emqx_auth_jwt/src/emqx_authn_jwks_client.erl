@@ -16,8 +16,7 @@
 ]).
 
 -export([
-    get_jwks/1,
-    update/2
+    get_jwks/1
 ]).
 
 %% gen_server callbacks
@@ -43,9 +42,6 @@ stop(Pid) ->
 get_jwks(Pid) ->
     gen_server:call(Pid, get_cached_jwks, 5000).
 
-update(Pid, Opts) ->
-    gen_server:call(Pid, {update, Opts}, 5000).
-
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -56,9 +52,6 @@ init([Opts]) ->
 
 handle_call(get_cached_jwks, _From, #{jwks := JWKS} = State) ->
     {reply, {ok, JWKS}, State};
-handle_call({update, Opts}, _From, _State) ->
-    NewState = handle_options(Opts),
-    {reply, ok, refresh_jwks(NewState)};
 handle_call(_Req, _From, State) ->
     {reply, ok, State}.
 

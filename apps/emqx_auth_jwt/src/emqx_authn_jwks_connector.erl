@@ -52,15 +52,7 @@ on_query(InstId, get_jwks, #{pool_name := PoolName}) ->
         _ ->
             ok
     end,
-    Result;
-on_query(_InstId, {update, Opts}, #{pool_name := PoolName}) ->
-    lists:foreach(
-        fun({_, Worker}) ->
-            ok = ecpool_worker:exec(Worker, {emqx_authn_jwks_client, update, [Opts]}, infinity)
-        end,
-        ecpool:workers(PoolName)
-    ),
-    ok.
+    Result.
 
 on_get_status(_InstId, #{pool_name := PoolName}) ->
     case emqx_resource_pool:health_check_workers(PoolName, fun health_check/1) of
