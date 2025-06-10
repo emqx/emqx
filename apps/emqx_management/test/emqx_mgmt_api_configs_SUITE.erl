@@ -1,4 +1,4 @@
-%%--------------------------------------------------------------------
+%%-------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_configs_SUITE).
@@ -415,6 +415,7 @@ t_create_webhook_v1_bridges_api(Config) ->
                                     <<"enable">> => true,
                                     <<"hibernate_after">> => <<"5s">>,
                                     <<"log_level">> => <<"notice">>,
+                                    <<"middlebox_comp_mode">> => true,
                                     <<"reuse_sessions">> => true,
                                     <<"secure_renegotiate">> => true,
                                     <<"verify">> => <<"verify_none">>,
