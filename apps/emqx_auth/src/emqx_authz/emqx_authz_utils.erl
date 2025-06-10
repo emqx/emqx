@@ -43,6 +43,7 @@
 %% APIs
 %%--------------------------------------------------------------------
 
+-spec create_resource(module(), map()) -> ok | no_return().
 create_resource(
     ConnectorModule,
     #{resource_id := ResourceId, type := Type, resource_config := ResourceConfig} = State
@@ -56,12 +57,13 @@ create_resource(
                 ResourceConfig,
                 ?DEFAULT_RESOURCE_OPTS(Type)
             ),
-        ok = start_stop_resource(State)
+        ok ?= start_resource_if_enabled(State)
     else
         {error, Reason} ->
             error({create_resource_error, Reason})
     end.
 
+-spec update_resource(module(), map()) -> ok | no_return().
 update_resource(
     ConnectorModule,
     #{resource_id := ResourceId, type := Type, resource_config := ResourceConfig} = State
@@ -74,36 +76,40 @@ update_resource(
                 ResourceConfig,
                 ?DEFAULT_RESOURCE_OPTS(Type)
             ),
-        ok = start_stop_resource(State),
-        ok
+        ok ?= start_resource_if_enabled(State)
     else
         {error, Reason} ->
             error({update_resource_error, Reason})
     end.
 
+-spec remove_resource(emqx_resource:resource_id()) -> ok.
 remove_resource(ResourceId) ->
     emqx_resource:remove_local(ResourceId).
 
+-spec resource_config([atom()], map()) -> map().
 resource_config(WithoutFields, Source) ->
     maps:without([enable, type] ++ WithoutFields, Source).
 
-start_stop_resource(#{resource_id := ResourceId, enable := true}) ->
-    _ = emqx_resource:start(ResourceId),
-    ok;
-start_stop_resource(#{resource_id := ResourceId, enable := false}) ->
-    _ = emqx_resource:stop(ResourceId),
+-spec start_resource_if_enabled(map()) -> ok | {error, term()}.
+start_resource_if_enabled(#{resource_id := ResourceId, enable := true}) ->
+    emqx_resource:start(ResourceId);
+start_resource_if_enabled(#{resource_id := _ResourceId, enable := false}) ->
     ok.
 
+-spec cleanup_resources() -> ok.
 cleanup_resources() ->
     lists:foreach(
         fun emqx_resource:remove_local/1,
         emqx_resource:list_group_instances(?AUTHZ_RESOURCE_GROUP)
     ).
 
+-spec make_resource_id(term()) -> emqx_resource:resource_id().
 make_resource_id(Name) ->
     NameBin = iolist_to_binary(["authz:", emqx_utils_conv:bin(Name)]),
     emqx_resource:generate_id(NameBin).
 
+-spec update_config(emqx_utils_maps:config_key_path(), emqx_config:update_request()) ->
+    {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_config(Path, ConfigRequest) ->
     emqx_conf:update(Path, ConfigRequest, #{
         rawconf_with_defaults => true,
@@ -125,11 +131,6 @@ parse_http_resp_body(<<"application/json", _/binary>>, Body) ->
     end;
 parse_http_resp_body(ContentType = <<_/binary>>, _Body) ->
     {error, <<"unsupported content-type: ", ContentType/binary>>}.
-
-result(#{<<"result">> := <<"allow">>}) -> allow;
-result(#{<<"result">> := <<"deny">>}) -> deny;
-result(#{<<"result">> := <<"ignore">>}) -> ignore;
-result(_) -> error.
 
 -spec content_type(cow_http:headers()) -> binary().
 content_type(Headers) when is_list(Headers) ->
@@ -197,6 +198,11 @@ init_state(#{type := Type, enable := Enable} = _Source, Values) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+result(#{<<"result">> := <<"allow">>}) -> allow;
+result(#{<<"result">> := <<"deny">>}) -> deny;
+result(#{<<"result">> := <<"ignore">>}) -> ignore;
+result(_) -> error.
 
 parse_rule_from_row(_ColumnNames, RuleMap = #{}) ->
     case emqx_authz_rule_raw:parse_rule(RuleMap) of

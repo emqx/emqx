@@ -11,6 +11,8 @@
 -export([
     create_resource/5,
     update_resource/5,
+    init_state/2,
+    resource_config/2,
     check_password_from_selected_map/3,
     parse_deep/1,
     parse_str/1,
@@ -35,29 +37,57 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-create_resource(ResourceId, Module, Config, Mechanism, Backend) ->
-    OwnerId = owner_id(Mechanism, Backend),
-    Result = emqx_resource:create_local(
-        ResourceId,
-        ?AUTHN_RESOURCE_GROUP,
-        Module,
-        Config,
-        ?DEFAULT_RESOURCE_OPTS(OwnerId)
-    ),
-    start_resource_if_enabled(Result, ResourceId, Config).
+create_resource(Module, ResourceConfig, #{resource_id := ResourceId} = State, Mechanism, Backend) ->
+    maybe
+        OwnerId = owner_id(Mechanism, Backend),
+        {ok, _} ?=
+            emqx_resource:create_local(
+                ResourceId,
+                ?AUTHN_RESOURCE_GROUP,
+                Module,
+                ResourceConfig,
+                ?DEFAULT_RESOURCE_OPTS(OwnerId)
+            ),
+        ok = start_resource_if_enabled(State, Mechanism, Backend)
+    end.
 
-update_resource(Module, Config, ResourceId, Mechanism, Backend) ->
-    OwnerId = owner_id(Mechanism, Backend),
-    Result = emqx_resource:recreate_local(
-        ResourceId, Module, Config, ?DEFAULT_RESOURCE_OPTS(OwnerId)
-    ),
-    start_resource_if_enabled(Result, ResourceId, Config).
+update_resource(Module, ResourceConfig, #{resource_id := ResourceId} = State, Mechanism, Backend) ->
+    maybe
+        OwnerId = owner_id(Mechanism, Backend),
+        {ok, _} ?=
+            emqx_resource:recreate_local(
+                ResourceId, Module, ResourceConfig, ?DEFAULT_RESOURCE_OPTS(OwnerId)
+            ),
+        start_resource_if_enabled(State, Mechanism, Backend)
+    end.
 
-start_resource_if_enabled({ok, _} = Result, ResourceId, #{enable := true}) ->
-    _ = emqx_resource:start(ResourceId),
-    Result;
-start_resource_if_enabled(Result, _ResourceId, _Config) ->
-    Result.
+start_resource_if_enabled(#{resource_id := ResourceId, enable := true}, Mechanism, Backend) ->
+    case emqx_resource:start(ResourceId) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_start_authn_resource",
+                resource_id => ResourceId,
+                reason => Reason,
+                mechanism => Mechanism,
+                backend => Backend
+            }),
+            ok
+    end;
+start_resource_if_enabled(#{resource_id := _ResourceId, enable := false}, _Mechanism, _Backend) ->
+    ok.
+
+init_state(#{enable := Enable} = _Source, Values) ->
+    maps:merge(
+        #{
+            enable => Enable
+        },
+        Values
+    ).
+
+resource_config(WithoutFields, Config) ->
+    maps:without([enable] ++ WithoutFields, Config).
 
 parse_deep(Template) -> emqx_auth_template:parse_deep(Template, ?AUTHN_DEFAULT_ALLOWED_VARS).
 

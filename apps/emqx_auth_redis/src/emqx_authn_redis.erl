@@ -25,27 +25,31 @@ create(_AuthenticatorID, Config) ->
 
 create(Config0) ->
     maybe
-        {ok, Config, State} ?= parse_config(Config0),
         ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
-        {ok, _} ?=
+        {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
+        ok ?=
             emqx_authn_utils:create_resource(
-                ResourceId,
                 emqx_redis,
-                Config,
+                ResourceConfig,
+                State,
                 ?AUTHN_MECHANISM_BIN,
                 ?AUTHN_BACKEND_BIN
             ),
-        {ok, State#{resource_id => ResourceId}}
+        {ok, State}
     end.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     maybe
-        {ok, Config, State} ?= parse_config(Config0),
-        {ok, _} ?=
+        {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
+        ok ?=
             emqx_authn_utils:update_resource(
-                emqx_redis, Config, ResourceId, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
+                emqx_redis,
+                ResourceConfig,
+                State,
+                ?AUTHN_MECHANISM_BIN,
+                ?AUTHN_BACKEND_BIN
             ),
-        {ok, State#{resource_id => ResourceId}}
+        {ok, State}
     end.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -108,21 +112,28 @@ authenticate(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-parse_config(
+create_state(
+    ResourceId,
     #{
         cmd := CmdStr,
         password_hash_algorithm := Algorithm
     } = Config
 ) ->
-    case parse_cmd(CmdStr) of
-        {ok, Vars, Cmd} ->
-            ok = emqx_authn_password_hashing:init(Algorithm),
-            ok = emqx_authn_utils:ensure_apps_started(Algorithm),
-            State = maps:with([password_hash_algorithm, salt_position], Config),
-            CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-            {ok, Config, State#{cmd => Cmd, cache_key_template => CacheKeyTemplate}};
-        {error, _} = Error ->
-            Error
+    maybe
+        {ok, Vars, Cmd} ?= parse_cmd(CmdStr),
+        ok = emqx_authn_password_hashing:init(Algorithm),
+        ok = emqx_authn_utils:ensure_apps_started(Algorithm),
+        CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
+        State = emqx_authn_utils:init_state(Config, #{
+            password_hash_algorithm => Algorithm,
+            cmd => Cmd,
+            cache_key_template => CacheKeyTemplate,
+            resource_id => ResourceId
+        }),
+        ResourceConfig = emqx_authn_utils:resource_config(
+            [cmd, password_hash_algorithm], Config
+        ),
+        {ok, ResourceConfig, State}
     end.
 
 parse_cmd(CmdStr) ->

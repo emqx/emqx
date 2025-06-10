@@ -14,7 +14,7 @@
 ]).
 
 -export([
-    with_validated_config/2,
+    create_state/2,
     generate_request/2,
     request_for_log/2,
     response_for_log/1,
@@ -36,38 +36,34 @@
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(Config0) ->
-    with_validated_config(Config0, fun(Config, State) ->
+create(Config) ->
+    maybe
         ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
-        % {Config, State} = parse_config(Config0),
-        {ok, _Data} = emqx_authn_utils:create_resource(
-            ResourceId,
-            emqx_bridge_http_connector,
-            Config,
-            ?AUTHN_MECHANISM_BIN,
-            ?AUTHN_BACKEND_BIN
-        ),
-        {ok, State#{resource_id => ResourceId}}
-    end).
-
-update(Config0, #{resource_id := ResourceId} = _State) ->
-    with_validated_config(Config0, fun(Config, NState) ->
-        % {Config, NState} = parse_config(Config0),
-        case
-            emqx_authn_utils:update_resource(
+        {ok, ResourceConfig, State} ?= create_state(ResourceId, Config),
+        ok ?=
+            emqx_authn_utils:create_resource(
                 emqx_bridge_http_connector,
-                Config,
-                ResourceId,
+                ResourceConfig,
+                State,
                 ?AUTHN_MECHANISM_BIN,
                 ?AUTHN_BACKEND_BIN
-            )
-        of
-            {error, Reason} ->
-                error({load_config_error, Reason});
-            {ok, _} ->
-                {ok, NState#{resource_id => ResourceId}}
-        end
-    end).
+            ),
+        {ok, State}
+    end.
+
+update(Config0, #{resource_id := ResourceId} = _State) ->
+    maybe
+        {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
+        ok ?=
+            emqx_authn_utils:update_resource(
+                emqx_bridge_http_connector,
+                ResourceConfig,
+                State,
+                ?AUTHN_MECHANISM_BIN,
+                ?AUTHN_BACKEND_BIN
+            ),
+        {ok, State}
+    end.
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
@@ -122,18 +118,16 @@ destroy(#{resource_id := ResourceId}) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-with_validated_config(Config, Fun) ->
+create_state(ResourceId, Config) ->
     Pipeline = [
         fun check_ssl_opts/1,
         fun normalize_headers/1,
         fun check_method_headers/1,
         fun parse_config/1
     ],
-    case emqx_utils:pipeline(Pipeline, Config, undefined) of
-        {ok, NConfig, ProviderState} ->
-            Fun(NConfig, ProviderState);
-        {error, Reason, _} ->
-            {error, Reason}
+    maybe
+        {ok, ResourceConfig, State} ?= emqx_utils:pipeline(Pipeline, Config, undefined),
+        {ok, ResourceConfig, State#{resource_id => ResourceId}}
     end.
 
 check_ssl_opts(#{url := <<"https://", _/binary>>, ssl := #{enable := false}}) ->
@@ -180,7 +174,7 @@ parse_config(
     {HeadersVars, HeadersTemplate} = emqx_authn_utils:parse_deep(maps:to_list(Headers)),
     Vars = BasePathVars ++ BaseQueryVars ++ BodyVars ++ HeadersVars,
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    State = #{
+    State = emqx_authn_utils:init_state(Config, #{
         method => Method,
         path => Path,
         headers_template => HeadersTemplate,
@@ -190,13 +184,15 @@ parse_config(
         cache_key_template => CacheKeyTemplate,
         request_timeout => RequestTimeout,
         url => RawUrl
+    }),
+    ResourceConfig0 = emqx_authn_utils:resource_config(
+        [method, url, headers, request_timeout], Config
+    ),
+    ResourceConfig = ResourceConfig0#{
+        request_base => RequestBase,
+        pool_type => random
     },
-    {ok,
-        Config#{
-            request_base => RequestBase,
-            pool_type => random
-        },
-        State}.
+    {ok, ResourceConfig, State}.
 
 generate_request(Credential, State) ->
     emqx_auth_http_utils:generate_request(State, Credential).
