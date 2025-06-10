@@ -1,0 +1,45 @@
+## N.B.
+## At the time of writing (2025-06-10), mixing plain TCP and TLS enabled FEs is buggy
+## (Doris issue? driver issue?), in executing a prepared statement which contain
+## `FROM_UNIX(${timestamp} / 1000)` and maybe other expressions fails bizarrely if the
+## request goes to a secondary FE.  If the request goes to a primary/master FE, it works,
+## be it a plain TCP or a TLS enabled FE.  Hence, for now, we spin up two "clusters" for
+## testing.
+services:
+  doris-fe-tls:
+    image: apache/doris:fe-2.1.9
+    ## N.B. 2025-05-19
+    ## Doris 3.0.5 is problematic to run locally in dev machines, and possibly in CI.  It
+    ## seems to require cgroups v1 to run inside docker, and that may be absent from dev
+    ## machines / CI.  Also, 2.1.9 is currently the stable version.
+    # image: apache/doris:fe-3.0.5
+    container_name: doris-fe-tls
+    hostname: fe1-tls
+    environment:
+     - FE_SERVERS=fe1-tls:172.100.239.20:9010
+     - FE_ID=1
+    networks:
+      emqx_bridge:
+        ipv4_address: 172.100.239.20
+    volumes:
+      - ./doris/fe-tls-entrypoint.sh:/opt/misc/fe-tls-entrypoint.sh
+    entrypoint:
+      - bash
+      - /opt/misc/fe-tls-entrypoint.sh
+  doris-be-tls:
+    image: apache/doris:be-2.1.9
+    ## N.B. 2025-05-19
+    ## Doris 3.0.5 is problematic to run locally in dev machines, and possibly in CI.  It
+    ## seems to require cgroups v1 to run inside docker, and that may be absent from dev
+    ## machines / CI.  Also, 2.1.9 is currently the stable version.
+    # image: apache/doris:be-3.0.5
+    hostname: be-tls
+    container_name: doris-be-tls
+    environment:
+     - FE_SERVERS=fe1-tls:172.100.239.20:9010
+     - BE_ADDR=172.100.239.21:9050
+    depends_on:
+      - doris-fe-tls
+    networks:
+      emqx_bridge:
+        ipv4_address: 172.100.239.21

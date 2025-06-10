@@ -22,10 +22,13 @@
 %% Defs
 %%------------------------------------------------------------------------------
 
--define(HOST, <<"toxiproxy">>).
--define(PORT, 9030).
+-define(HOST_PLAIN, <<"toxiproxy">>).
+-define(HOST_TLS, <<"toxiproxy">>).
+-define(PORT_PLAIN, 9030).
+-define(PORT_TLS, 9130).
 -define(USERNAME, <<"root">>).
 -define(PROXY_NAME, "doris-fe").
+-define(PROXY_NAME_TLS, "doris-fe-tls").
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).
 
@@ -66,8 +69,7 @@ init_per_suite(TCConfig) ->
     [
         {apps, Apps},
         {proxy_host, ?PROXY_HOST},
-        {proxy_port, ?PROXY_PORT},
-        {proxy_name, ?PROXY_NAME}
+        {proxy_port, ?PROXY_PORT}
         | TCConfig
     ].
 
@@ -81,14 +83,22 @@ init_per_testcase(TestCase, TCConfig) ->
     reset_proxy(),
     Path = group_path(TCConfig, no_groups),
     ct:print(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    IsTLS = is_tls(TCConfig),
+    {Port, ProxyName} =
+        case IsTLS of
+            true -> {?PORT_TLS, ?PROXY_NAME_TLS};
+            false -> {?PORT_PLAIN, ?PROXY_NAME}
+        end,
+    Host = host(TCConfig),
+    Server = server(Host, Port),
     ConnectorName = atom_to_binary(TestCase),
-    ConnectorConfig = connector_config(),
+    ConnectorConfig = connector_config(#{<<"server">> => Server}),
     ActionName = ConnectorName,
     ActionConfig = action_config(#{
         <<"connector">> => ConnectorName
     }),
-    create_database(),
-    create_table(),
+    create_database(TCConfig),
+    create_table(TCConfig),
     snabbkaffe:start_trace(),
     [
         {bridge_kind, action},
@@ -97,20 +107,40 @@ init_per_testcase(TestCase, TCConfig) ->
         {connector_config, ConnectorConfig},
         {action_type, ?ACTION_TYPE},
         {action_name, ActionName},
-        {action_config, ActionConfig}
+        {action_config, ActionConfig},
+        {proxy_name, ProxyName}
         | TCConfig
     ].
 
-end_per_testcase(_TestCase, _TCConfig) ->
+end_per_testcase(_TestCase, TCConfig) ->
     snabbkaffe:stop(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
-    drop_table(),
+    drop_table(TCConfig),
     ok.
+
+is_tls(TCConfig) ->
+    case [tls || tls <- group_path(TCConfig, [])] of
+        [] ->
+            false;
+        _ ->
+            true
+    end.
+
+host(TCConfig) when is_list(TCConfig) -> host(is_tls(TCConfig));
+host(_IsTLS = true) -> ?HOST_TLS;
+host(_IsTLS = false) -> ?HOST_PLAIN.
+
+port(TCConfig) when is_list(TCConfig) -> port(is_tls(TCConfig));
+port(_IsTLS = true) -> ?PORT_TLS;
+port(_IsTLS = false) -> ?PORT_PLAIN.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+server(Host, Port) ->
+    iolist_to_binary(io_lib:format("~s:~b", [Host, Port])).
 
 connector_config() ->
     connector_config(_Overrides = #{}).
@@ -119,7 +149,7 @@ connector_config(Overrides) ->
     Defaults = #{
         <<"enable">> => true,
         <<"database">> => <<"mqtt">>,
-        <<"server">> => iolist_to_binary(io_lib:format("~s:~b", [?HOST, ?PORT])),
+        <<"server">> => server(?HOST_PLAIN, ?PORT_PLAIN),
         <<"pool_size">> => 8,
         <<"username">> => ?USERNAME,
         <<"resource_opts">> =>
@@ -177,10 +207,10 @@ action_sql() ->
         " FROM_UNIXTIME(${timestamp}/1000))"
     >>.
 
-eval_query(SQL) ->
+eval_query(SQL, TCConfig) ->
     Opts = #{
-        host => binary_to_list(?HOST),
-        port => ?PORT,
+        host => emqx_utils_conv:str(host(TCConfig)),
+        port => port(TCConfig),
         user => ?USERNAME,
         basic_capabilities => #{?CLIENT_TRANSACTIONS => false}
     },
@@ -189,22 +219,30 @@ eval_query(SQL) ->
     mysql:stop(C),
     Res.
 
-create_database() ->
-    ok = eval_query(["create database if not exists mqtt"]).
+create_database(TCConfig) ->
+    ok = eval_query(["create database if not exists mqtt"], TCConfig).
 
-create_table() ->
-    ok = eval_query(["use mqtt; ", create_table_ddl()]).
+create_table(TCConfig) ->
+    ok = eval_query(["use mqtt; ", create_table_ddl()], TCConfig).
 
-drop_table() ->
-    ok = eval_query(["use mqtt; drop table t_mqtt_msg"]).
+drop_table(TCConfig) ->
+    ok = eval_query(["use mqtt; drop table t_mqtt_msg"], TCConfig).
 
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
 
+t_start_stop() ->
+    [{matrix, true}].
+t_start_stop(matrix) ->
+    [[plain], [tls]];
 t_start_stop(Config) when is_list(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, "doris_connector_stop").
 
+t_on_get_status() ->
+    [{matrix, true}].
+t_on_get_status(matrix) ->
+    [[plain], [tls]];
 t_on_get_status(Config) when is_list(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => [connecting, disconnected]}).
 
@@ -212,13 +250,17 @@ t_rule_test_trace(Config) ->
     Opts = #{},
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
 
-t_rule_action(Config) ->
+t_rule_action() ->
+    [{matrix, true}].
+t_rule_action(matrix) ->
+    [[plain], [tls]];
+t_rule_action(Config) when is_list(Config) ->
     PostPublishFn = fun(Context) ->
         #{rule_topic := RuleTopic, payload := Payload} = Context,
         QoS = 2,
         ?assertMatch(
             {ok, _ColNames, [[_MsgId, RuleTopic, QoS, Payload, {{_, _, _}, {_, _, _}}]]},
-            eval_query(<<"use mqtt; select * from t_mqtt_msg">>)
+            eval_query(<<"use mqtt; select * from t_mqtt_msg">>, Config)
         )
     end,
     Opts = #{
