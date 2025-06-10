@@ -6,6 +6,7 @@
 -module(emqx_channel).
 
 -include("emqx.hrl").
+-include("emqx_lsr.hrl").
 -include("emqx_channel.hrl").
 -include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
@@ -568,17 +569,15 @@ post_process_connect(
     AckProps,
     Channel = #channel{
         conninfo = #{clean_start := CleanStart} = ConnInfo,
-        clientinfo = #{clientid := ClientId} = ClientInfo,
+        clientinfo = ClientInfo,
         will_msg = MaybeWillMsg
     }
 ) ->
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
-            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{session = Session},
             handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
         {ok, #{session := Session, present := true, replay := ReplayContext}} ->
-            ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
             NChannel = Channel#channel{
                 session = Session,
                 resuming = ReplayContext
@@ -586,11 +585,16 @@ post_process_connect(
             handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
             handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
+        {error, ?lsr_err_max_retries} ->
+            ?SLOG(debug, #{msg => "failed_to_open_session", reason => ?lsr_err_max_retries}),
+            handle_out(connack, ?RC_SERVER_BUSY, Channel);
+        {error, ?lsr_err_channel_outdated} ->
+            ?SLOG(debug, #{msg => "failed_to_open_session", reason => ?lsr_err_channel_outdated}),
+            handle_out(connack, ?RC_SESSION_TAKEN_OVER, Channel);
         {error, Reason} ->
             ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
-
 %%--------------------------------------------------------------------
 %% Process Publish
 %%--------------------------------------------------------------------
@@ -1427,12 +1431,27 @@ handle_call(
         clientinfo = #{clientid := ClientId}
     }
 ) ->
-    %% NOTE
-    %% Ensure channel has enough time left to react to takeover end call. At the same
-    %% time ensure that channel dies off reasonably quickly if no call will arrive.
-    Interval = interval(expire_takeover, Channel),
-    NChannel = reset_timer(expire_session, Interval, Channel),
-    ok = emqx_cm:unregister_channel(ClientId),
+    NChannel =
+        case emqx_lsr:is_enabled() of
+            false ->
+                %% @FIXME:
+                %%   1. unregister too early if {takeover, 'end'} fails. e.g. timeout
+                %%   2. double unregister channel, as emqx_cm will also clean it.
+                %%   3. session should stay if {takeover, 'end'} did not happen otherwise
+                %%      we partly lost session data of the client.
+                %%   4. abuse 'expire_session' casues wrong RC in mqtt.DISCONNECT PACKET
+                %%      and triggers will_msg publishing which it should not.
+                %% NOTE
+                %% Ensure channel has enough time left to react to takeover end call. At the same
+                %% time ensure that channel dies off reasonably quickly if no call will arrive.
+                ok = emqx_cm:unregister_channel(ClientId, self()),
+                Interval = interval(expire_takeover, Channel),
+                reset_timer(expire_session, Interval, Channel);
+            true ->
+                %% In LCR, a channel could be taken over 'begin' mutiple times but only 'end' once
+                %% this is designed to handle the race from mutiple channels of the same client.
+                Channel
+        end,
     reply(Session, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},
