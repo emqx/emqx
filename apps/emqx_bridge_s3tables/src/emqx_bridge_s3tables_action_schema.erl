@@ -124,7 +124,27 @@ fields(aggregation) ->
 fields(container_avro) ->
     [{type, mk(avro, #{desc => ?DESC("container_type_avro")})}];
 fields(container_parquet) ->
-    [{type, mk(parquet, #{desc => ?DESC("container_type_parquet")})}];
+    [
+        {type, mk(parquet, #{desc => ?DESC("container_type_parquet")})},
+        {write_old_list_structure,
+            mk(boolean(), #{default => false, importance => ?IMPORTANCE_HIDDEN})},
+        {enable_dictionary, mk(boolean(), #{default => false, importance => ?IMPORTANCE_HIDDEN})},
+        {default_compression,
+            mk(
+                hoconsc:enum([none, zstd, snappy]),
+                #{default => zstd, importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {data_page_header_version,
+            mk(
+                hoconsc:enum([1, 2]),
+                #{default => 2, importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {max_row_group_bytes,
+            mk(
+                emqx_schema:bytesize(),
+                #{default => <<"1MB">>, desc => ?DESC("container_parquet_max_row_group_bytes")}
+            )}
+    ];
 fields(action_resource_opts) ->
     %% NOTE: This action benefits from generous batching defaults.
     emqx_bridge_v2_schema:action_resource_opts_fields([

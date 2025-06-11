@@ -170,6 +170,7 @@ init_transfer_state_and_container_opts(_Buffer, Opts) ->
             ?avro_schema_json => AvroSchemaJSON,
             ?base_path => BasePath,
             ?container_type => ContainerType,
+            ?loaded_table => LoadedTable,
             ?s3_client => S3Client,
             ?write_uuid => WriteUUID,
             ?writer_opts => WriterOpts
@@ -856,8 +857,9 @@ container_opts(DeliveryOpts) ->
     #{
         ?avro_schema := AvroSchema,
         ?avro_schema_json := AvroSchemaJSON,
+        ?loaded_table := LoadedTable,
         ?container_type := ContainerType,
-        ?writer_opts := WriterOpts
+        ?writer_opts := WriterOpts0
     } = DeliveryOpts,
     InnerContainerOpts =
         case ContainerType of
@@ -869,8 +871,13 @@ container_opts(DeliveryOpts) ->
             parquet ->
                 %% The payloads must conform to 3-level lists
                 %% https://iceberg.apache.org/spec/#parquet
-                Opts = #{write_old_list_structure => false},
+                Opts = maps:with([write_old_list_structure], WriterOpts0),
                 ParquetSchema = parquer_schema_avro:from_avro(AvroSchemaJSON, Opts),
+                DefaultCompression = parquet_get_default_compression(LoadedTable, WriterOpts0),
+                CompressionOpts = #{},
+                WriterOpts = WriterOpts0#{
+                    default_compression := {DefaultCompression, CompressionOpts}
+                },
                 #{
                     schema => ParquetSchema,
                     writer_opts => WriterOpts
@@ -880,6 +887,20 @@ container_opts(DeliveryOpts) ->
         type => ContainerType,
         writer_opts => InnerContainerOpts
     }.
+
+parquet_get_default_compression(LoadedTable, WriterOpts) ->
+    maybe
+        #{
+            <<"metadata">> := #{
+                <<"properties">> :=
+                    #{<<"write.parquet.compression-codec">> := CodecBin}
+            }
+        } ?= LoadedTable,
+        true ?= lists:member(CodecBin, [<<"zstd">>, <<"none">>, <<"snappy">>]),
+        binary_to_existing_atom(CodecBin)
+    else
+        _ -> maps:get(default_compression, WriterOpts, zstd)
+    end.
 
 container_type_to_manifest_entry_file_format(avro) ->
     ?DATA_FILE_FORMAT_AVRO;

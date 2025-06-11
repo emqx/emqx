@@ -77,4 +77,10 @@ emqx_bridge_s3tables_action_schema {
     """Use Parquet for encoding data files."""
   }
 
+  container_parquet_max_row_group_bytes {
+    label: """Parquet Max Row Group Bytes"""
+    desc:
+    """The size above which row groups are flushed.  The actual triggering of row group flushes uses estimates of the buffered data sizes, since the actual output may differ in size from the raw input data size."""
+  }
+
 }
