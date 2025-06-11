@@ -20,6 +20,7 @@
 
 start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_cluster_rpc:create_tables()),
+    _ = emqx_config:create_tables(),
     try
         ok = init_conf()
     catch
