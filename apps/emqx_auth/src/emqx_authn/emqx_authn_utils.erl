@@ -66,7 +66,9 @@ start_resource_if_enabled(#{resource_id := ResourceId, enable := true}, Mechanis
         ok ->
             ok;
         {error, Reason} ->
-            ?SLOG(error, #{
+            %% NOTE
+            %% we allow creation of resources that cannot be started
+            ?SLOG(warning, #{
                 msg => "failed_to_start_authn_resource",
                 resource_id => ResourceId,
                 reason => Reason,
