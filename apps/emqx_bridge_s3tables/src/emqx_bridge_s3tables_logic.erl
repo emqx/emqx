@@ -387,13 +387,19 @@ iceberg_type_to_avro(#{<<"type">> := <<"list">>} = IceType) ->
     ElementIceType = maps:get(<<"element">>, IceType),
     ElementType0 = iceberg_type_to_avro(ElementIceType),
     ElementId = maps:get(<<"element-id">>, IceType),
-    ElementType =
+    ElementType1 =
         case ElementType0 of
             #{<<"type">> := <<"record">>} ->
                 Name = <<"r", (integer_to_binary(ElementId))/binary>>,
                 ElementType0#{<<"name">> => Name};
             _ ->
                 ElementType0
+        end,
+    ElementRequired = maps:get(<<"element-required">>, IceType, true),
+    ElementType =
+        case ElementRequired of
+            true -> ElementType1;
+            false -> [<<"null">>, ElementType1]
         end,
     #{
         <<"type">> => <<"array">>,

@@ -867,7 +867,10 @@ container_opts(DeliveryOpts) ->
                     root_type => ?ROOT_AVRO_TYPE
                 };
             parquet ->
-                ParquetSchema = parquer_schema_avro:from_avro(AvroSchemaJSON),
+                %% The payloads must conform to 3-level lists
+                %% https://iceberg.apache.org/spec/#parquet
+                Opts = #{write_old_list_structure => false},
+                ParquetSchema = parquer_schema_avro:from_avro(AvroSchemaJSON, Opts),
                 #{
                     schema => ParquetSchema,
                     writer_opts => WriterOpts
