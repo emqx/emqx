@@ -21,12 +21,12 @@ jobs:
   update_emqx_docs:
     runs-on: ubuntu-22.04
     env:
-      TAG: ${{ github.event.inputs.tag }}
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || inputs.tag }}
       PROFILE: emqx-enterprise
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event.inputs.tag }}
+          ref: ${{ env.TAG }}
           fetch-depth: 0
 
       - name: Compile
