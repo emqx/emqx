@@ -25,8 +25,6 @@
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
 
--import(emqx_schema, [mk_duration/2]).
-
 namespace() -> "authz".
 
 type() -> ?AUTHZ_TYPE.
@@ -82,8 +80,10 @@ http_common_fields() ->
     [
         {url, fun url/1},
         {request_timeout,
-            mk_duration("Request timeout", #{
-                required => false, default => <<"30s">>, desc => ?DESC(request_timeout)
+            emqx_schema:mk_duration(#{
+                required => false,
+                default => <<"30s">>,
+                desc => ?DESC(request_timeout)
             })},
         {body, ?HOCON(hoconsc:map(name, binary()), #{required => false, desc => ?DESC(body)})}
     ] ++

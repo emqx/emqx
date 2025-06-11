@@ -664,7 +664,6 @@ setup_t_export_cloud_subset_scenario() ->
         #{override_to => cluster}
     ),
     ok = emqx_dashboard:start_listeners(),
-    ready = emqx_dashboard_listener:regenerate_minirest_dispatch(),
     {ok, _} = emqx_license:update_key(<<"default">>),
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"some_admin">>,

@@ -7,7 +7,7 @@ services:
     ## machines / CI.  Also, 2.1.9 is currently the stable version.
     # image: apache/doris:fe-3.0.5
     container_name: doris-fe
-    hostname: fe
+    hostname: fe1
     environment:
      - FE_SERVERS=fe1:172.100.239.10:9010
      - FE_ID=1

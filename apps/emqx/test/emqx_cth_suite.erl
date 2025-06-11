@@ -358,12 +358,6 @@ default_appspec(emqx_conf, SuiteOpts) ->
             ok = emqx_common_test_helpers:copy_acl_conf()
         end
     };
-default_appspec(emqx_dashboard, _SuiteOpts) ->
-    #{
-        after_start => fun() ->
-            true = emqx_dashboard_listener:is_ready(infinity)
-        end
-    };
 default_appspec(App, _SuiteOpts) when
     App == emqx_schema_registry;
     App == emqx_schema_validation;

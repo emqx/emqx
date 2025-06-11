@@ -8,6 +8,7 @@
 -compile(export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(NAME, 'https:dashboard').
@@ -28,22 +29,30 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) -> Config.
-end_per_suite(_Config) -> emqx_mgmt_api_test_util:end_suite([emqx_management]).
+end_per_suite(_Config) -> ok.
 
-init_per_testcase(_TestCase, Config) -> Config.
-end_per_testcase(_TestCase, _Config) -> emqx_mgmt_api_test_util:end_suite([emqx_management]).
+init_per_testcase(Case, Config) ->
+    emqx_common_test_helpers:init_per_testcase(?MODULE, Case, Config).
+end_per_testcase(_TestCase, Config) ->
+    emqx_common_test_helpers:end_per_testcase(?MODULE, _TestCase, Config).
 
-t_update_conf(_Config) ->
-    Conf = #{
-        dashboard => #{
-            listeners => #{
-                https => #{bind => 18084, ssl_options => #{depth => 5}},
-                http => #{bind => 18083}
+t_update_conf(init, Config) ->
+    DashboardConf = #{
+        <<"dashboard">> => #{
+            <<"listeners">> => #{
+                <<"https">> => #{<<"bind">> => 18084, <<"ssl_options">> => #{<<"depth">> => 5}},
+                <<"http">> => #{<<"bind">> => 18083}
             }
         }
     },
-    emqx_common_test_helpers:load_config(emqx_dashboard_schema, Conf),
-    emqx_mgmt_api_test_util:init_suite([emqx_management], fun(X) -> X end),
+    Apps = emqx_cth_suite_start(?FUNCTION_NAME, DashboardConf, Config),
+    [{apps, Apps} | Config];
+t_update_conf('end', Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
+
+t_update_conf(_Config) ->
     Headers = emqx_dashboard_SUITE:auth_header_(),
     {ok, Client1} = emqx_dashboard_SUITE:request_dashboard(
         get, https_api_path(["clients"]), Headers
@@ -59,21 +68,21 @@ t_update_conf(_Config) ->
         )
     ),
     ?assertEqual(Client1, Client2),
+    Raw1 = emqx_utils_maps:deep_put(
+        [<<"listeners">>, <<"https">>, <<"bind">>], Raw, 0
+    ),
     ?check_trace(
-        begin
-            Raw1 = emqx_utils_maps:deep_put(
-                [<<"listeners">>, <<"https">>, <<"bind">>], Raw, 0
-            ),
+        {_, {ok, _}} = ?wait_async_action(
             ?assertMatch({ok, _}, emqx:update_config([<<"dashboard">>], Raw1)),
-            ?assertEqual(Raw1, emqx:get_raw_config([<<"dashboard">>])),
-            {ok, _} = ?block_until(#{?snk_kind := regenerate_minirest_dispatch}, 10000),
-            ok
-        end,
-        fun(ok, Trace) ->
+            #{?snk_kind := regenerate_dispatch},
+            1000
+        ),
+        fun(Trace) ->
             %% Don't start new listener, so is empty
-            ?assertMatch([#{listeners := []}], ?of_kind(regenerate_minirest_dispatch, Trace))
+            ?assertMatch([#{listeners := []}], ?of_kind(regenerate_dispatch, Trace))
         end
     ),
+    ?assertEqual(Raw1, emqx:get_raw_config([<<"dashboard">>])),
     {ok, Client3} = emqx_dashboard_SUITE:request_dashboard(
         get, http_api_path(["clients"]), Headers
     ),
@@ -88,19 +97,19 @@ t_update_conf(_Config) ->
     ),
     %% reset
     ?check_trace(
-        begin
+        {_, {ok, _}} = ?wait_async_action(
             ?assertMatch({ok, _}, emqx:update_config([<<"dashboard">>], Raw)),
-            ?assertEqual(Raw, emqx:get_raw_config([<<"dashboard">>])),
-            {ok, _} = ?block_until(#{?snk_kind := regenerate_minirest_dispatch}, 10000),
-            ok
-        end,
-        fun(ok, Trace) ->
+            #{?snk_kind := regenerate_dispatch},
+            1000
+        ),
+        fun(Trace) ->
             %% start new listener('https:dashboard')
             ?assertMatch(
-                [#{listeners := ['https:dashboard']}], ?of_kind(regenerate_minirest_dispatch, Trace)
+                [#{listeners := ['https:dashboard']}], ?of_kind(regenerate_dispatch, Trace)
             )
         end
     ),
+    ?assertEqual(Raw, emqx:get_raw_config([<<"dashboard">>])),
     {ok, Client1} = emqx_dashboard_SUITE:request_dashboard(
         get, https_api_path(["clients"]), Headers
     ),
@@ -109,17 +118,28 @@ t_update_conf(_Config) ->
     ),
     emqx_mgmt_api_test_util:end_suite([emqx_management]).
 
+t_default_ssl_cert(init, Config) ->
+    DashboardConf = #{
+        <<"dashboard">> => #{
+            <<"listeners">> => #{
+                <<"https">> => #{<<"bind">> => 18084}
+            }
+        }
+    },
+    Apps = emqx_cth_suite_start(?FUNCTION_NAME, DashboardConf, Config),
+    [{apps, Apps} | Config];
+t_default_ssl_cert('end', Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps).
 t_default_ssl_cert(_Config) ->
-    Conf = #{dashboard => #{listeners => #{https => #{bind => 18084}}}},
-    validate_https(Conf, 512, default_ssl_cert(), verify_none),
-    ok.
+    validate_https(512, default_ssl_cert(), verify_none).
 
-t_compatibility_ssl_cert(_Config) ->
+t_compatibility_ssl_cert(init, Config) ->
     MaxConnection = 1000,
-    Conf = #{
-        dashboard => #{
-            listeners => #{
-                https => #{
+    DashboardConf = #{
+        <<"dashboard">> => #{
+            <<"listeners">> => #{
+                <<"https">> => #{
                     bind => 18084,
                     cacertfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cacert.pem">>),
                     certfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cert.pem">>),
@@ -129,69 +149,103 @@ t_compatibility_ssl_cert(_Config) ->
             }
         }
     },
-    validate_https(Conf, MaxConnection, default_ssl_cert(), verify_none),
+    Apps = emqx_cth_suite_start(?FUNCTION_NAME, DashboardConf, Config),
+    [{apps, Apps}, {max_connection, MaxConnection} | Config];
+t_compatibility_ssl_cert('end', Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
+t_compatibility_ssl_cert(Config) ->
+    MaxConnection = ?config(max_connection, Config),
+    validate_https(MaxConnection, default_ssl_cert(), verify_none).
 
-t_normal_ssl_cert(_Config) ->
+t_normal_ssl_cert(init, Config) ->
     MaxConnection = 1024,
-    Conf = #{
-        dashboard => #{
-            listeners => #{
-                https => #{
-                    bind => 18084,
-                    ssl_options => #{
-                        cacertfile => naive_env_interpolation(
+    DashboardConf = #{
+        <<"dashboard">> => #{
+            <<"listeners">> => #{
+                <<"https">> => #{
+                    <<"bind">> => 18084,
+                    <<"ssl_options">> => #{
+                        <<"cacertfile">> => naive_env_interpolation(
                             <<"${EMQX_ETC_DIR}/certs/cacert.pem">>
                         ),
-                        certfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cert.pem">>),
-                        keyfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/key.pem">>),
-                        depth => 5
+                        <<"certfile">> => naive_env_interpolation(
+                            <<"${EMQX_ETC_DIR}/certs/cert.pem">>
+                        ),
+                        <<"keyfile">> => naive_env_interpolation(
+                            <<"${EMQX_ETC_DIR}/certs/key.pem">>
+                        ),
+                        <<"depth">> => 5
                     },
-                    max_connections => MaxConnection
+                    <<"max_connections">> => MaxConnection
                 }
             }
         }
     },
-    validate_https(Conf, MaxConnection, default_ssl_cert(), verify_none),
+    Apps = emqx_cth_suite_start(?FUNCTION_NAME, DashboardConf, Config),
+    [{apps, Apps}, {max_connection, MaxConnection} | Config];
+t_normal_ssl_cert('end', Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
+t_normal_ssl_cert(Config) ->
+    MaxConnection = ?config(max_connection, Config),
+    validate_https(MaxConnection, default_ssl_cert(), verify_none).
 
-t_verify_cacertfile(_Config) ->
+t_verify_cacertfile(init, Config) ->
     MaxConnection = 1024,
+    DashboardConf = #{
+        <<"dashboard">> => #{
+            <<"listeners">> => #{
+                <<"https">> => #{
+                    <<"bind">> => 18084,
+                    <<"ssl_options">> => #{<<"cacertfile">> => <<"">>},
+                    <<"max_connections">> => MaxConnection
+                }
+            }
+        }
+    },
+    Apps = emqx_cth_suite_start(?FUNCTION_NAME, DashboardConf, Config),
+    [{apps, Apps}, {max_connection, MaxConnection}, {dashboard_conf, DashboardConf} | Config];
+t_verify_cacertfile('end', Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
+t_verify_cacertfile(Config) ->
+    MaxConnection = ?config(max_connection, Config),
     DefaultSSLCert = default_ssl_cert(),
     SSLCert = DefaultSSLCert#{cacertfile => <<"">>},
-    %% default #{verify => verify_none}
-    Conf = #{
-        dashboard => #{
-            listeners => #{
-                https => #{
-                    bind => 18084,
-                    cacertfile => <<"">>,
-                    max_connections => MaxConnection
-                }
-            }
-        }
-    },
-    validate_https(Conf, MaxConnection, SSLCert, verify_none),
+
+    %% validate with default #{verify => verify_none}
+    validate_https(MaxConnection, SSLCert, verify_none),
+
     %% verify_peer but cacertfile is empty
+    DashboardConf0 = ?config(dashboard_conf, Config),
     VerifyPeerConf1 = emqx_utils_maps:deep_put(
-        [dashboard, listeners, https, verify],
-        Conf,
-        verify_peer
+        [<<"dashboard">>, <<"listeners">>, <<"https">>, <<"ssl_options">>, <<"verify">>],
+        DashboardConf0,
+        <<"verify_peer">>
     ),
-    emqx_common_test_helpers:load_config(emqx_dashboard_schema, VerifyPeerConf1),
+    {ok, _} = emqx:update_config([<<"dashboard">>], maps:get(<<"dashboard">>, VerifyPeerConf1)),
+    ok = emqx_dashboard:stop_listeners(),
     ?assertMatch({error, [?NAME]}, emqx_dashboard:start_listeners()),
+
     %% verify_peer and cacertfile is ok.
     VerifyPeerConf2 = emqx_utils_maps:deep_put(
-        [dashboard, listeners, https, cacertfile],
+        [<<"dashboard">>, <<"listeners">>, <<"https">>, <<"ssl_options">>, <<"cacertfile">>],
         VerifyPeerConf1,
         naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cacert.pem">>)
     ),
+    {ok, _} = emqx:update_config([<<"dashboard">>], maps:get(<<"dashboard">>, VerifyPeerConf2)),
+    ok = emqx_dashboard:stop_listeners(),
+    ok = emqx_dashboard:start_listeners(),
     %% we always test client with verify_none and no client cert is sent
     %% since the server is configured with verify_peer
     %% hence the expected observation on the client side is an error
     ErrorReason =
         try
-            validate_https(VerifyPeerConf2, MaxConnection, DefaultSSLCert, verify_peer)
+            validate_https(MaxConnection, DefaultSSLCert, verify_peer)
         catch
             error:{https_client_error, Reason} ->
                 Reason
@@ -206,30 +260,43 @@ t_verify_cacertfile(_Config) ->
             throw({unexpected, Other})
     end.
 
-t_bad_certfile(_Config) ->
-    Conf = #{
-        dashboard => #{
-            listeners => #{
-                https => #{
-                    bind => 18084,
-                    certfile => <<"${EMQX_ETC_DIR}/certs/not_found_cert.pem">>
+t_bad_certfile(init, Config) ->
+    erlang:process_flag(trap_exit, true),
+    DashboardConf = #{
+        <<"dashboard">> => #{
+            <<"listeners">> => #{
+                <<"https">> => #{
+                    <<"bind">> => 18084,
+                    <<"certfile">> => <<"${EMQX_ETC_DIR}/certs/not_found_cert.pem">>
                 }
             }
         }
     },
-    emqx_common_test_helpers:load_config(emqx_dashboard_schema, Conf),
-    ?assertMatch({error, [?NAME]}, emqx_dashboard:start_listeners()),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_management,
+            {emqx_dashboard, #{
+                config => DashboardConf,
+                start => false
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    [{apps, Apps} | Config];
+t_bad_certfile('end', Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
+t_bad_certfile(_Config) ->
+    ?assertMatch(
+        {error, {emqx_dashboard, {[?NAME], _}}},
+        application:ensure_all_started(emqx_dashboard)
+    ).
 
-validate_https(Conf, MaxConnection, SSLCert, Verify) ->
-    emqx_common_test_helpers:load_config(emqx_dashboard_schema, Conf),
-    emqx_mgmt_api_test_util:init_suite([emqx_management], fun(X) -> X end),
-    try
-        assert_ranch_options(MaxConnection, SSLCert, Verify),
-        assert_https_request()
-    after
-        emqx_mgmt_api_test_util:end_suite([emqx_management])
-    end.
+validate_https(MaxConnection, SSLCert, Verify) ->
+    assert_ranch_options(MaxConnection, SSLCert, Verify),
+    assert_https_request().
 
 assert_ranch_options(MaxConnections0, SSLCert, Verify) ->
     Middlewares = [emqx_dashboard_middleware, cowboy_router, cowboy_handler],
@@ -320,3 +387,13 @@ default_ssl_cert() ->
         certfile => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
         keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>
     }.
+
+emqx_cth_suite_start(Case, DashboardConf, Config) ->
+    emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard(DashboardConf)
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Case, Config)}
+    ).

@@ -366,6 +366,14 @@ verification check."""
 client_ssl_opts_schema_server_name_indication.label:
 """Server Name Indication"""
 
+client_ssl_opts_schema_middlebox_comp_mode.desc:
+"""~
+Configures the middle box compatibility mode for a TLS-1.3 connection.
+
+A significant number of middle boxes misbehave when a TLS-1.3 connection is negotiated. Implementations can increase the chance of making connections through those middle boxes by adapting the TLS-1.3 handshake to resemble that of a TLS-1.2 handshake.~"""
+client_ssl_opts_schema_middlebox_comp_mode.label:
+"""Middlebox compatibility mode"""
+
 fields_mqtt_quic_listener_retry_memory_limit.desc:
 """The percentage of available memory usable for handshake connections before stateless retry is used. Calculated as `N/65535`. Default: 65"""
 
@@ -1915,5 +1923,15 @@ socket_tcp_keepalive.label:
       To remove a `default` listener, explicitly set its configuration like: `listeners.ws.default = marked_for_deletion`.
 
       Alternatively, to disable a listener without removing its configuration, set the hidden `enable` field to `false`. For example: `listeners.tcp.my_listener.enable = false`.~"""
+  }
+  duration {
+    label: "Duration"
+    desc: """~
+      Time interval is a string that contains a number followed by time unit:
+        - `ms` for milliseconds
+        - `s` for seconds
+        - `m` for minutes
+        - `h` for hours
+      or combination of whereof: `1h5m0s`~"""
   }
 }

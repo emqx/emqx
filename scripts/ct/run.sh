@@ -242,7 +242,8 @@ for dep in ${CT_DEPS}; do
             FILES+=( '.ci/docker-compose-file/docker-compose-iceberg.yaml' )
             ;;
         doris)
-            FILES+=( '.ci/docker-compose-file/docker-compose-doris.yaml' )
+            FILES+=( '.ci/docker-compose-file/docker-compose-doris.yaml'
+                     '.ci/docker-compose-file/docker-compose-doris-tls.yaml' )
             ;;
         *)
             echo "unknown_ct_dependency $dep"

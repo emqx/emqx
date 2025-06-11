@@ -295,6 +295,12 @@
     "enabled": true
   },
   {
+    "name": "doris-fe-tls",
+    "listen": "0.0.0.0:9130",
+    "upstream": "doris-fe-tls:9030",
+    "enabled": true
+  },
+  {
     "name": "clickhouse",
     "listen": "0.0.0.0:8123",
     "upstream": "clickhouse:8123",

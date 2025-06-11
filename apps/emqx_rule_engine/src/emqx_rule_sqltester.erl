@@ -34,7 +34,11 @@ do_apply_rule(
     }
 ) ->
     InTopic = get_in_topic(Context),
-    Topics = maps:get(from, Rule, []),
+    Topics0 = maps:get(from, Rule, []),
+    Topics = lists:flatmap(
+        fun emqx_rule_events:expand_legacy_event_topics/1,
+        Topics0
+    ),
     case match_any(InTopic, Topics) of
         {ok, Filter} ->
             do_apply_matched_rule(

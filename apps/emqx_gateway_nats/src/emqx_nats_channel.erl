@@ -335,17 +335,35 @@ feedvar(Override, ConnParams, ConnInfo, ClientInfo) ->
         'ClientInfo' => ClientInfo,
         'Packet' => ConnParams
     },
+    Trans = fun(V) ->
+        case V of
+            undefined -> undefined;
+            V -> emqx_utils_conv:bin(V)
+        end
+    end,
     maps:map(
         fun(_K, V) ->
             Tokens = emqx_placeholder:preproc_tmpl(V),
-            emqx_placeholder:proc_tmpl(Tokens, Envs)
+            case
+                emqx_placeholder:proc_tmpl(Tokens, Envs, #{return => rawlist, var_trans => Trans})
+            of
+                [undefined] -> undefined;
+                L -> list_to_binary(L)
+            end
         end,
         Override
     ).
 
 write_clientinfo(Override, ClientInfo) ->
     Override1 = maps:with([username, password, clientid], Override),
-    maps:merge(ClientInfo, Override1).
+    Override2 =
+        case maps:get(clientid, Override1, undefined) of
+            Empty when Empty =:= undefined; Empty =:= <<>> ->
+                maps:remove(clientid, Override1);
+            _ ->
+                Override1
+        end,
+    maps:merge(ClientInfo, Override2).
 
 fix_mountpoint(_Packet, #{mountpoint := undefined}) ->
     ok;
