@@ -692,13 +692,6 @@ parse_utf8_pair(<<LenK:16/big, Key:LenK/binary, Rest/binary>>, _StrictMode) ->
         parsed_key => Key,
         remaining_bytes_length => byte_size(Rest)
     });
-parse_utf8_pair(Bin, _StrictMode) when
-    4 > byte_size(Bin)
-->
-    ?PARSE_ERR(#{
-        cause => user_property_not_enough_bytes,
-        total_bytes => byte_size(Bin)
-    });
 parse_utf8_pair(Bin, _StrictMode) ->
     ?PARSE_ERR(#{
         cause => malformated_user_property,
