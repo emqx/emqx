@@ -92,12 +92,10 @@ paths() ->
 error_schema(Code, Message) ->
     error_schema(Code, Message, _ExtraFields = []).
 
-error_schema(Code, Message, ExtraFields) when is_atom(Code) ->
-    error_schema([Code], Message, ExtraFields);
-error_schema(Codes, Message, ExtraFields) when is_list(Message) ->
-    error_schema(Codes, list_to_binary(Message), ExtraFields);
-error_schema(Codes, Message, ExtraFields) when is_list(Codes) andalso is_binary(Message) ->
-    ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, Message).
+error_schema(Code, DESC, ExtraFields) when is_atom(Code) ->
+    error_schema([Code], DESC, ExtraFields);
+error_schema(Codes, DESC, ExtraFields) when is_list(Codes) andalso is_tuple(DESC) ->
+    ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, DESC).
 
 get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
@@ -307,7 +305,7 @@ schema("/bridges") ->
             ),
             responses => #{
                 201 => get_response_body_schema(),
-                400 => error_schema('ALREADY_EXISTS', "Bridge already exists")
+                400 => error_schema('ALREADY_EXISTS', ?DESC("bridge_already_exists"))
             }
         }
     };
@@ -321,7 +319,7 @@ schema("/bridges/:id") ->
             parameters => [param_path_id()],
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Bridge not found")
+                404 => error_schema('NOT_FOUND', ?DESC("bridge_not_found"))
             }
         },
         put => #{
@@ -335,8 +333,8 @@ schema("/bridges/:id") ->
             ),
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Bridge not found"),
-                400 => error_schema('BAD_REQUEST', "Update bridge failed")
+                404 => error_schema('NOT_FOUND', ?DESC("bridge_not_found")),
+                400 => error_schema('BAD_REQUEST', ?DESC("update_bridge_failed"))
             }
         },
         delete => #{
@@ -345,14 +343,14 @@ schema("/bridges/:id") ->
             description => ?DESC("desc_api5"),
             parameters => [param_path_id()],
             responses => #{
-                204 => <<"Bridge deleted">>,
+                204 => ?DESC("OK"),
                 400 => error_schema(
                     'BAD_REQUEST',
-                    "Cannot delete bridge while active rules are defined for this bridge",
-                    [{rules, mk(array(string()), #{desc => "Dependent Rule IDs"})}]
+                    ?DESC("dependent_rules_error_msg"),
+                    [{rules, mk(array(string()), #{desc => ?DESC("dependent_rules_ids")})}]
                 ),
-                404 => error_schema('NOT_FOUND', "Bridge not found"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                404 => error_schema('NOT_FOUND', ?DESC("bridge_not_found")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -366,7 +364,7 @@ schema("/bridges/:id/metrics") ->
             parameters => [param_path_id()],
             responses => #{
                 200 => emqx_bridge_schema:metrics_fields(),
-                404 => error_schema('NOT_FOUND', "Bridge not found")
+                404 => error_schema('NOT_FOUND', ?DESC("bridge_not_found"))
             }
         }
     };
@@ -379,8 +377,8 @@ schema("/bridges/:id/metrics/reset") ->
             description => ?DESC("desc_api6"),
             parameters => [param_path_id()],
             responses => #{
-                204 => <<"Reset success">>,
-                404 => error_schema('NOT_FOUND', "Bridge not found")
+                204 => ?DESC("OK"),
+                404 => error_schema('NOT_FOUND', ?DESC("bridge_not_found"))
             }
         }
     };
@@ -395,10 +393,10 @@ schema("/bridges/:id/enable/:enable") ->
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
                     #{
-                        204 => <<"Success">>,
-                        400 => error_schema('BAD_REQUEST', non_compat_bridge_msg()),
-                        404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
-                        503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                        204 => ?DESC("OK"),
+                        400 => error_schema('BAD_REQUEST', ?DESC("non_compat_bridge_msg")),
+                        404 => error_schema('NOT_FOUND', ?DESC("bridge_not_found")),
+                        503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
                     }
             }
     };
@@ -414,13 +412,11 @@ schema("/bridges/:id/:operation") ->
                 param_path_operation_cluster()
             ],
             responses => #{
-                204 => <<"Operation success">>,
-                400 => error_schema(
-                    'BAD_REQUEST', "Problem with configuration of external service"
-                ),
-                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
-                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                204 => ?DESC("OK"),
+                400 => error_schema('BAD_REQUEST', ?DESC("operation_failed")),
+                404 => error_schema('NOT_FOUND', ?DESC("bridge_not_found")),
+                501 => error_schema('NOT_IMPLEMENTED', ?DESC("not_implemented")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -437,14 +433,11 @@ schema("/nodes/:node/bridges/:id/:operation") ->
                 param_path_operation_on_node()
             ],
             responses => #{
-                204 => <<"Operation success">>,
-                400 => error_schema(
-                    'BAD_REQUEST',
-                    "Problem with configuration of external service or bridge not enabled"
-                ),
-                404 => error_schema('NOT_FOUND', "Bridge or node not found or invalid operation"),
-                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                204 => ?DESC("OK"),
+                400 => error_schema('BAD_REQUEST', ?DESC("operation_failed")),
+                404 => error_schema('NOT_FOUND', ?DESC("bridge_not_found")),
+                501 => error_schema('NOT_IMPLEMENTED', ?DESC("not_implemented")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -460,8 +453,8 @@ schema("/bridges_probe") ->
                 bridge_info_examples(post)
             ),
             responses => #{
-                204 => <<"Test bridge OK">>,
-                400 => error_schema(['TEST_FAILED'], "bridge test failed")
+                204 => ?DESC("OK"),
+                400 => error_schema(['TEST_FAILED'], ?DESC("bridge_test_failed"))
             }
         }
     }.
@@ -1153,7 +1146,7 @@ redact(Term) ->
     emqx_utils:redact(Term).
 
 non_compat_bridge_msg() ->
-    <<"bridge already exists as non Bridge V1 compatible action">>.
+    <<"Bridge already exists as non v1 compatible action or source.">>.
 
 upgrade_type(Type) ->
     emqx_bridge_lib:upgrade_type(Type).

@@ -97,4 +97,30 @@ desc_param_path_operation_on_node.desc:
 desc_param_path_operation_on_node.label:
 """Node Operation"""
 
+bridge_already_exists.desc:
+"""Bridge already exists."""
+
+bridge_not_found.desc:
+"""Bridge not found. Or invalid operation"""
+
+update_bridge_failed.desc:
+"""Failed to update bridge configuration."""
+
+OK.desc: "OK"
+
+dependent_rules_error_msg.desc:
+"""Cannot delete bridge while active rules are defined for this bridge."""
+
+service_unavailable.desc:
+"""Service is temporarily not available."""
+
+non_compat_bridge_msg.desc:
+"""Bridge already exists as non v1 compatible action or source."""
+
+operation_failed.desc:
+"""Operation failed due to problem with the external resource."""
+
+bridge_test_failed.desc:
+"""Failed to test bridge configuration."""
+
 }
