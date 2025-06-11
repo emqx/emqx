@@ -685,11 +685,16 @@ parse_utf8_pair(<<LenK:16/big, _Key:LenK/binary, LenV:16/big, Rest/binary>>, _St
         parsed_value_length => LenV,
         remaining_bytes_length => byte_size(Rest)
     });
-parse_utf8_pair(Bin, _StrictMode) when
-    4 > byte_size(Bin)
-->
+parse_utf8_pair(<<LenK:16/big, Key:LenK/binary, Rest/binary>>, _StrictMode) ->
     ?PARSE_ERR(#{
-        cause => user_property_not_enough_bytes,
+        cause => malformed_user_property_missing_value,
+        parsed_key_length => LenK,
+        parsed_key => Key,
+        remaining_bytes_length => byte_size(Rest)
+    });
+parse_utf8_pair(Bin, _StrictMode) ->
+    ?PARSE_ERR(#{
+        cause => malformated_user_property,
         total_bytes => byte_size(Bin)
     }).
 
