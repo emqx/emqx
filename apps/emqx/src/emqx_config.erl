@@ -22,6 +22,7 @@
     fill_defaults/2,
     fill_defaults/3,
     save_configs/5,
+    save_configs_mnesia/5,
     save_to_app_env/1,
     save_to_config_map/2,
     save_to_override_conf/3,
@@ -32,7 +33,9 @@
 
 -export([
     get_root/1,
-    get_root_raw/1
+    get_root_raw/1,
+    get_root_mnesia/2,
+    get_root_raw_mnesia/2
 ]).
 
 -export([get_default_value/1]).
@@ -40,6 +43,8 @@
 -export([
     get/1,
     get/2,
+    get_mnesia/2,
+    get_mnesia/3,
     find/1,
     find_raw/1,
     put/1,
@@ -52,6 +57,8 @@
 -export([
     get_raw/1,
     get_raw/2,
+    get_raw_mnesia/2,
+    get_raw_mnesia/3,
     put_raw/1,
     put_raw/2
 ]).
@@ -81,9 +88,11 @@
     remove_handlers/0
 ]).
 
+-export([create_tables/0]).
 -export([ensure_atom_conf_path/2]).
 -export([load_config_files/2]).
 -export([upgrade_raw_conf/2]).
+-export([seed_defaults_for_all_roots_mnesia/2, erase_namespace_configs_mnesia/1]).
 
 -ifdef(TEST).
 -export([erase_all/0, backup_and_write/2, cluster_hocon_file/0, base_hocon_file/0]).
@@ -95,6 +104,7 @@
 -define(CONF, conf).
 -define(RAW_CONF, raw_conf).
 -define(PERSIS_SCHEMA_MODS, {?MODULE, schema_mods}).
+-define(PERSIS_SCHEMA_MODS_MNESIA, {?MODULE, schema_mods, mnesia}).
 -define(PERSIS_KEY(TYPE, ROOT), {?MODULE, TYPE, ROOT}).
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
@@ -125,7 +135,8 @@
     %%   defaults to `true`
     persistent => boolean(),
     override_to => local | cluster,
-    lazy_evaluator => fun((function()) -> term())
+    lazy_evaluator => fun((function()) -> term()),
+    namespace => binary()
 }.
 -type update_args() :: {update_cmd(), Opts :: update_opts()}.
 -type update_stage() :: pre_config_update | post_config_update.
@@ -145,15 +156,76 @@
 
 -type runtime_config_key_path() :: [atom()].
 
+-spec create_tables() -> [mnesia:table()].
+create_tables() ->
+    ok = mria:create_table(?CONFIG_TAB, [
+        {type, ordered_set},
+        {rlog_shard, ?COMMON_SHARD},
+        {storage, disc_copies},
+        {record_name, ?CONFIG_TAB},
+        {attributes, record_info(fields, ?CONFIG_TAB)}
+    ]),
+    Tables = [?CONFIG_TAB],
+    ok = mria:wait_for_tables(Tables),
+    Tables.
+
 %% @doc For the given path, get root value enclosed in a single-key map.
 -spec get_root(emqx_utils_maps:config_key_path()) -> map().
 get_root([RootName | _]) ->
     #{RootName => do_get(?CONF, [RootName], #{})}.
 
+get_root_mnesia([RootName | _], Namespace) ->
+    #{bin(RootName) => do_get_mnesia([RootName], Namespace, {value, #{}})}.
+
 %% @doc For the given path, get raw root value enclosed in a single-key map.
 %% key is ensured to be binary.
 get_root_raw([RootName | _]) ->
     #{bin(RootName) => get_raw([RootName], #{})}.
+
+get_root_raw_mnesia([RootName | _], Namespace) ->
+    #{bin(RootName) => do_get_raw_mnesia([RootName], Namespace, {value, #{}})}.
+
+do_get_mnesia([Root | KeyRest] = KeyPath, Namespace, DefaultAction) ->
+    RootBin = bin(Root),
+    case mnesia:dirty_read(?CONFIG_TAB, {Namespace, RootBin}) of
+        [#?CONFIG_TAB{checked_value = #{} = RawConfig}] when DefaultAction == error ->
+            deep_get_mnesia(Root, KeyRest, RawConfig);
+        [#?CONFIG_TAB{checked_value = #{} = RawConfig}] ->
+            {value, Default} = DefaultAction,
+            emqx_utils_maps:deep_get(KeyRest, RawConfig, Default);
+        _ ->
+            case DefaultAction of
+                error ->
+                    error({config_not_found, KeyPath});
+                {value, Default} ->
+                    Default
+            end
+    end.
+
+do_get_raw_mnesia([Root | KeyRest] = KeyPath, Namespace, DefaultAction) ->
+    RootBin = bin(Root),
+    case mnesia:dirty_read(?CONFIG_TAB, {Namespace, RootBin}) of
+        [#?CONFIG_TAB{raw_value = #{} = RawConfig}] when DefaultAction == error ->
+            deep_get_mnesia(RootBin, KeyRest, RawConfig);
+        [#?CONFIG_TAB{raw_value = #{} = RawConfig}] ->
+            {value, Default} = DefaultAction,
+            emqx_utils_maps:deep_get(KeyRest, RawConfig, Default);
+        _ ->
+            case DefaultAction of
+                error ->
+                    error({config_not_found, KeyPath});
+                {value, Default} ->
+                    Default
+            end
+    end.
+
+deep_get_mnesia(Root, KeyPath, Config) ->
+    try
+        emqx_utils_maps:deep_get(KeyPath, Config)
+    catch
+        error:{config_not_found, _} ->
+            error({config_not_found, [Root | KeyPath]})
+    end.
 
 %% @doc Get a config value for the given path.
 %% The path should at least include root config name.
@@ -162,6 +234,14 @@ get(KeyPath) -> do_get(?CONF, KeyPath).
 
 -spec get(runtime_config_key_path(), term()) -> term().
 get(KeyPath, Default) -> do_get(?CONF, KeyPath, Default).
+
+get_mnesia(KeyPath0, Namespace) when is_binary(Namespace) ->
+    KeyPath = emqx_config:ensure_atom_conf_path(KeyPath0, {raise_error, config_not_found}),
+    do_get_mnesia(KeyPath, Namespace, error).
+
+get_mnesia(KeyPath0, Namespace, Default) when is_binary(Namespace) ->
+    KeyPath = emqx_config:ensure_atom_conf_path(KeyPath0, {raise_error, config_not_found}),
+    do_get_mnesia(KeyPath, Namespace, {value, Default}).
 
 -spec find(runtime_config_key_path()) ->
     {ok, term()} | {not_found, emqx_utils_maps:config_key_path(), term()}.
@@ -284,6 +364,14 @@ get_raw([Root | _] = KeyPath, Default) when is_binary(Root) -> do_get_raw(KeyPat
 get_raw([Root | T], Default) -> get_raw([bin(Root) | T], Default);
 get_raw([], Default) -> do_get_raw([], Default).
 
+get_raw_mnesia([_Root | _] = KeyPath0, Namespace) ->
+    KeyPath = lists:map(fun bin/1, KeyPath0),
+    do_get_raw_mnesia(KeyPath, Namespace, error).
+
+get_raw_mnesia([_Root | _] = KeyPath0, Namespace, Default) ->
+    KeyPath = lists:map(fun bin/1, KeyPath0),
+    do_get_raw_mnesia(KeyPath, Namespace, {value, Default}).
+
 -spec put_raw(map()) -> ok.
 put_raw(Config) ->
     maps:fold(
@@ -379,6 +467,49 @@ fill_defaults_for_all_roots(SchemaMod, RawConf0) ->
         MissingRoots
     ),
     fill_defaults(RawConf).
+
+seed_defaults_for_all_roots_mnesia(SchemaMod, Namespace) when is_binary(Namespace) ->
+    RootSchemas = hocon_schema:roots(SchemaMod),
+    AllowedMnesiaRoots = mnesia_config_allowed_roots(),
+    RawConf0 = lists:foldl(
+        fun({BinRootName, {_RootName, Schema}}, Acc) ->
+            case maps:get(BinRootName, AllowedMnesiaRoots, false) of
+                true ->
+                    Acc#{BinRootName => seed_default(Schema)};
+                false ->
+                    Acc
+            end
+        end,
+        #{},
+        RootSchemas
+    ),
+    RawConf = fill_defaults(RawConf0),
+    {_AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
+    Opts = #{},
+    {atomic, ok} = mria:transaction(?COMMON_SHARD, fun() ->
+        lists:foreach(
+            fun(RootKeyAtom) ->
+                RootKeyBin = atom_to_binary(RootKeyAtom, utf8),
+                %% Checked conf may contain root keys that are not allowed.
+                maybe
+                    {ok, OneRawConf} ?= maps:find(RootKeyBin, RawConf),
+                    OneCheckedConf = maps:get(RootKeyAtom, CheckedConf),
+                    save_configs_mnesia_tx(Namespace, RootKeyBin, OneCheckedConf, OneRawConf, Opts)
+                end
+            end,
+            maps:keys(CheckedConf)
+        )
+    end),
+    ok.
+
+erase_namespace_configs_mnesia(Namespace) when is_binary(Namespace) ->
+    MS = erlang:make_tuple(
+        record_info(size, ?CONFIG_TAB),
+        '_',
+        [{#?CONFIG_TAB.root_key, {Namespace, '_'}}]
+    ),
+    _ = mria:match_delete(?CONFIG_TAB, MS),
+    ok.
 
 %% So far, this can only return true when testing.
 %% e.g. when testing an app, we need to load its config first
@@ -571,11 +702,16 @@ save_schema_mod_and_names(SchemaMod) ->
         names => lists:usort(OldNames ++ RootNames)
     }).
 
+mnesia_config_allowed_roots() ->
+    Roots = emqx_schema_hooks:list_injection_point('config.allowed_mnesia_roots', []),
+    maps:from_keys(Roots, true).
+
 -ifdef(TEST).
 erase_all() ->
     Names = get_root_names(),
     lists:foreach(fun erase/1, Names),
-    persistent_term:erase(?PERSIS_SCHEMA_MODS).
+    persistent_term:erase(?PERSIS_SCHEMA_MODS),
+    persistent_term:erase(?PERSIS_SCHEMA_MODS_MNESIA).
 -endif.
 
 -spec get_schema_mod() -> #{binary() => atom()}.
@@ -601,6 +737,34 @@ save_configs(AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
     ok = save_to_override_conf(HasDeprecatedFile, OverrideConf, Opts),
     save_to_app_env(AppEnvs),
     save_to_config_map(Conf, RawConf).
+
+save_configs_mnesia(Namespace, RootKey, Conf, RawConf, Opts) when is_binary(Namespace) ->
+    RootKeyBin = bin(RootKey),
+    {atomic, ok} = mria:transaction(?COMMON_SHARD, fun() ->
+        save_configs_mnesia_tx(Namespace, RootKeyBin, Conf, RawConf, Opts)
+    end),
+    ok.
+
+save_configs_mnesia_tx(Namespace, RootKeyBin, Conf, RawConf, _Opts) when
+    is_binary(Namespace),
+    is_binary(RootKeyBin)
+->
+    Key = {Namespace, RootKeyBin},
+    Rec =
+        case mnesia:read(?CONFIG_TAB, Key, write) of
+            [] ->
+                #?CONFIG_TAB{
+                    root_key = Key,
+                    raw_value = RawConf,
+                    checked_value = Conf
+                };
+            [Rec0] ->
+                Rec0#?CONFIG_TAB{
+                    raw_value = RawConf,
+                    checked_value = Conf
+                }
+        end,
+    ok = mnesia:write(?CONFIG_TAB, Rec, write).
 
 %% we ignore kernel app env,
 %% because the old app env will be used in emqx_config_logger:post_config_update/5
