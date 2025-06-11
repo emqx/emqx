@@ -10,43 +10,50 @@
     stop_listeners/1,
     stop_listeners/0,
     list_listeners/0,
-    wait_for_listeners/0
+    listeners_status/0,
+    regenerate_dispatch_after_config_update/0
 ]).
 
 %% Authorization
 -export([authorize/2]).
 
--export([save_dispatch_eterm/1, save_dispatch_eterm/2]).
-
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
--dialyzer({[no_opaque, no_match, no_return], [init_cache_dispatch/2, start_listeners/1]}).
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(EMQX_MIDDLE, emqx_dashboard_middleware).
--define(DISPATCH_FILE, "dispatch.eterm").
+
+-type listener_name() :: atom().
+-type listener_configs() :: #{listener_name() => emqx_config:config()}.
+
+-export_type([listener_name/0, listener_configs/0]).
 
 %%--------------------------------------------------------------------
 %% Start/Stop Listeners
 %%--------------------------------------------------------------------
 
+-spec start_listeners() -> ok | {error, [listener_name()]}.
 start_listeners() ->
     start_listeners(listeners()).
 
+-spec stop_listeners() -> ok.
 stop_listeners() ->
     stop_listeners(listeners()).
 
+-spec start_listeners(listener_configs()) ->
+    ok | {error, [listener_name()]}.
 start_listeners(Listeners) ->
-    {ok, _} = application:ensure_all_started(minirest),
-    SwaggerSupport = emqx:get_config([dashboard, swagger_support], true),
-    InitDispatch = dispatch(),
+    %% NOTE
+    %% Before starting the listeners, we do not generate the full dispatch upfront,
+    %% because the listeners may fail to start and the generation may appear useless.
+    InitDispatch = init_dispatch(),
     {OkListeners, ErrListeners} =
         lists:foldl(
             fun({Name, Protocol, Bind, RanchOptions, ProtoOpts}, {OkAcc, ErrAcc}) ->
-                ok = init_cache_dispatch(Name, InitDispatch),
                 Options = #{
                     dispatch => InitDispatch,
-                    swagger_support => SwaggerSupport,
+                    swagger_support => emqx:get_config([dashboard, swagger_support], true),
                     protocol => Protocol,
                     protocol_options => ProtoOpts
                 },
@@ -58,6 +65,7 @@ start_listeners(Listeners) ->
                         ]),
                         {[Name | OkAcc], ErrAcc};
                     {error, _Reason} ->
+                        %% NOTE
                         %% Don't record the reason because minirest already does(too much logs noise).
                         {OkAcc, [Name | ErrAcc]}
                 end
@@ -65,13 +73,57 @@ start_listeners(Listeners) ->
             {[], []},
             listeners(ensure_ssl_cert(Listeners))
         ),
+    ok = emqx_dashboard_dispatch:regenerate_dispatch(OkListeners),
     case ErrListeners of
         [] ->
-            optvar:set(emqx_dashboard_listeners_ready, OkListeners),
             ok;
         _ ->
             {error, ErrListeners}
     end.
+
+-spec stop_listeners(listener_configs()) -> ok.
+stop_listeners(Listeners) ->
+    lists:foreach(
+        fun({Name, _, Bind, _, _}) ->
+            case minirest:stop(Name) of
+                ok ->
+                    ?ULOG("Stop listener ~ts on ~ts successfully.~n", [
+                        Name, emqx_listeners:format_bind(Bind)
+                    ]);
+                {error, not_found} ->
+                    ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, bind => Bind})
+            end
+        end,
+        listeners(Listeners)
+    ).
+
+-spec listeners_status() -> #{started := [listener_name()], stopped := [listener_name()]}.
+listeners_status() ->
+    ListenerNames = [
+        Name
+     || {Name, _Protocol, _Bind, _RanchOptions, _ProtoOpts} <- list_listeners()
+    ],
+    {Started, Stopped} = lists:partition(fun is_listener_started/1, ListenerNames),
+    #{started => Started, stopped => Stopped}.
+
+-spec regenerate_dispatch_after_config_update() -> ok.
+regenerate_dispatch_after_config_update() ->
+    #{started := Listeners} = listeners_status(),
+    ok = emqx_dashboard_dispatch:regenerate_dispatch_after_config_update(Listeners).
+
+%%--------------------------------------------------------------------
+%% internal
+%%--------------------------------------------------------------------
+
+is_listener_started(Name) ->
+    try ranch_server:get_listener_sup(Name) of
+        _ -> true
+    catch
+        error:badarg -> false
+    end.
+
+init_dispatch() ->
+    static_dispatch() ++ dynamic_dispatch().
 
 minirest_option(Options) ->
     Authorization = {?MODULE, authorize},
@@ -109,75 +161,6 @@ minirest_option(Options) ->
             swagger_support => true
         },
     maps:merge(Base, Options).
-
-%% save dispatch to priv dir.
-save_dispatch_eterm(SchemaMod) ->
-    save_dispatch_eterm(SchemaMod, _ConfigToMerge = #{}).
-
-save_dispatch_eterm(SchemaMod, ConfigToMerge) ->
-    Dir = code:priv_dir(emqx_dashboard),
-    Config = maps:merge(ConfigToMerge, #{i18n_lang => en, swagger_support => false}),
-    emqx_config:put([dashboard], Config),
-    os:putenv("SCHEMA_MOD", atom_to_list(SchemaMod)),
-    DispatchFile = filename:join([Dir, ?DISPATCH_FILE]),
-    io:format(user, "===< Generating: ~s~n", [DispatchFile]),
-    #{dispatch := Dispatch} = generate_dispatch(),
-    IoData = io_lib:format("~p.~n", [Dispatch]),
-    ok = file:write_file(DispatchFile, IoData),
-    {ok, [SaveDispatch]} = file:consult(DispatchFile),
-    SaveDispatch =/= Dispatch andalso erlang:error("bad dashboard dispatch.eterm file generated"),
-    ok.
-
-stop_listeners(Listeners) ->
-    optvar:unset(emqx_dashboard_listeners_ready),
-    [
-        begin
-            case minirest:stop(Name) of
-                ok ->
-                    ?ULOG("Stop listener ~ts on ~ts successfully.~n", [
-                        Name, emqx_listeners:format_bind(Bind)
-                    ]);
-                {error, not_found} ->
-                    ?SLOG(warning, #{msg => "stop_listener_failed", name => Name, bind => Bind})
-            end
-        end
-     || {Name, _, Bind, _, _} <- listeners(Listeners)
-    ],
-    ok.
-
-wait_for_listeners() ->
-    optvar:read(emqx_dashboard_listeners_ready).
-
-%%--------------------------------------------------------------------
-%% internal
-%%--------------------------------------------------------------------
-
-init_cache_dispatch(Name, Dispatch0) ->
-    Dispatch1 = [{_, _, Rules}] = trails:single_host_compile(Dispatch0),
-    FileName = filename:join(code:priv_dir(emqx_dashboard), ?DISPATCH_FILE),
-    Dispatch2 =
-        case file:consult(FileName) of
-            {ok, [[{Host, Path, CacheRules}]]} ->
-                Trails = trails:trails([{cowboy_swagger_handler, #{server => 'http:dashboard'}}]),
-                [{_, _, SwaggerRules}] = trails:single_host_compile(Trails),
-                [{Host, Path, CacheRules ++ SwaggerRules ++ Rules}];
-            {error, _} ->
-                Dispatch1
-        end,
-    persistent_term:put(Name, Dispatch2).
-
-generate_dispatch() ->
-    Options = #{
-        dispatch => [],
-        swagger_support => false,
-        protocol => http,
-        protocol_options => proto_opts(#{})
-    },
-    Minirest = minirest_option(Options),
-    minirest:generate_dispatch(Minirest).
-
-dispatch() ->
-    static_dispatch() ++ dynamic_dispatch().
 
 apps() ->
     [
