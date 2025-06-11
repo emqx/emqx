@@ -639,7 +639,7 @@ sign_token(Username, Password, MfaToken) ->
         ok ?= emqx_dashboard_login_lock:verify(Username),
         {ok, User} ?= check(Username, Password, MfaToken),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
-        {ok, Role, Token} ?= emqx_dashboard_token:sign(User, Password),
+        {ok, Role, Token} ?= emqx_dashboard_token:sign(User),
         {ok, Result#{role => Role, token => Token}}
     end.
 
