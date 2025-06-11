@@ -39,4 +39,10 @@ bind_password.desc:
 bind_password.label:
 """Bind Password"""
 
+acl_ttl_attribute.desc:
+"""Indicates which attribute is used to represent the ACL TTL."""
+
+acl_ttl_attribute.label:
+"""ACL TTL Attribute"""
+
 }

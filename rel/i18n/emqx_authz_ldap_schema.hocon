@@ -18,6 +18,12 @@ all_attribute.desc:
 all_attribute.label:
 """All Attribute"""
 
+acl_rule_attribute.desc:
+"""Indicates which attribute is used to represent the JSON-encoded ACL rules."""
+
+acl_rule_attribute.label:
+"""ACL Rules Attribute"""
+
 query_timeout.desc:
 """Timeout for the LDAP query."""
 

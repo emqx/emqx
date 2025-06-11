@@ -664,9 +664,3 @@ pgsql_config() ->
         server => pgsql_server(),
         ssl => #{enable => false}
     }.
-
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).

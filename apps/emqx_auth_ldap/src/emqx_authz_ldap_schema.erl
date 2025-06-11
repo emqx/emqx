@@ -24,10 +24,8 @@ type() -> ?AUTHZ_TYPE.
 
 fields(ldap) ->
     emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
+        acl_fields() ++
         [
-            {publish_attribute, attribute_meta(publish_attribute, <<"mqttPublishTopic">>)},
-            {subscribe_attribute, attribute_meta(subscribe_attribute, <<"mqttSubscriptionTopic">>)},
-            {all_attribute, attribute_meta(all_attribute, <<"mqttPubSubTopic">>)},
             {query_timeout,
                 ?HOCON(
                     emqx_schema:timeout_duration_ms(),
@@ -39,6 +37,14 @@ fields(ldap) ->
         ] ++
         emqx_ldap:fields(search_options) ++
         emqx_ldap:fields(config).
+
+acl_fields() ->
+    [
+        {publish_attribute, attribute_meta(publish_attribute, <<"mqttPublishTopic">>)},
+        {subscribe_attribute, attribute_meta(subscribe_attribute, <<"mqttSubscriptionTopic">>)},
+        {all_attribute, attribute_meta(all_attribute, <<"mqttPubSubTopic">>)},
+        {acl_rule_attribute, attribute_meta(acl_rule_attribute, <<"mqttAclRule">>)}
+    ].
 
 desc(ldap) ->
     ?DESC("ldap_struct");
