@@ -1,6 +1,6 @@
 services:
   jaeger-all-in-one:
-    image: jaegertracing/all-in-one:1.51.0
+    image: jaegertracing/all-in-one:1.70.0
     container_name: jaeger.emqx.net
     hostname: jaeger.emqx.net
     networks:
@@ -12,7 +12,7 @@ services:
 
   # Collector
   otel-collector:
-    image: otel/opentelemetry-collector:0.90.0
+    image: otel/opentelemetry-collector-contrib:0.128.0
     container_name: otel-collector.emqx.net
     hostname: otel-collector.emqx.net
     networks:
@@ -36,7 +36,7 @@ services:
 
 # Collector
   otel-collector-tls:
-    image: otel/opentelemetry-collector:0.90.0
+    image: otel/opentelemetry-collector-contrib:0.128.0
     container_name: otel-collector-tls.emqx.net
     hostname: otel-collector-tls.emqx.net
     networks:
