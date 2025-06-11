@@ -123,7 +123,7 @@ desc_param_path_operation_on_node.label:
 OK.desc = "OK"
 
 source_test_failed.desc:
-"""Failed to test action configuration."""
+"""Failed to test source configuration."""
 
 source_not_found.desc:
 """Source not found."""
