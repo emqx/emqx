@@ -76,7 +76,7 @@ update_resource(
                 ResourceConfig,
                 ?DEFAULT_RESOURCE_OPTS(Type)
             ),
-        ok ?= start_resource_if_enabled(State)
+        ok = start_resource_if_enabled(State)
     else
         {error, Reason} ->
             error({update_resource_error, Reason})
@@ -91,8 +91,21 @@ resource_config(WithoutFields, Source) ->
     maps:without([enable, type] ++ WithoutFields, Source).
 
 -spec start_resource_if_enabled(map()) -> ok | {error, term()}.
-start_resource_if_enabled(#{resource_id := ResourceId, enable := true}) ->
-    emqx_resource:start(ResourceId);
+start_resource_if_enabled(#{resource_id := ResourceId, enable := true, type := Type}) ->
+    case emqx_resource:start(ResourceId) of
+        ok ->
+            ok;
+        %% NOTE
+        %% we allow creation of resources that cannot be started
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_start_authz_resource",
+                resource_id => ResourceId,
+                reason => Reason,
+                type => Type
+            }),
+            ok
+    end;
 start_resource_if_enabled(#{resource_id := _ResourceId, enable := false}) ->
     ok.
 

@@ -34,10 +34,9 @@ reset_authorizers(Nomatch, CacheEnabled) ->
 
 setup_config(BaseConfig, SpecialParams) ->
     Config = maps:merge(BaseConfig, SpecialParams),
-    Res = emqx_authz:update(?CMD_REPLACE, [Config]),
-    case Res of
-        {ok, _} -> ok;
-        {error, Reason} -> {error, Reason}
+    maybe
+        {ok, _} ?= emqx_authz:update(?CMD_REPLACE, [Config]),
+        ok
     end.
 
 register_fake_sources(SourceTypes) ->
