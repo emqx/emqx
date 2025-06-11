@@ -34,6 +34,11 @@ exporter_endpoint.desc:
 """The target URL to which the exporter is going to send Open Telemetry signal data."""
 exporter_endpoint.label: "Exporter Endpoint"
 
+exporter_headers.desc:
+"""HTTP headers to be sent with the OpenTelemetry signal data.
+The headers are a map with header names as keys."""
+exporter_headers.label: "Exporter Headers"
+
 exporter_protocol.desc: "The transport protocol of Open Telemetry Exporter"
 exporter_protocol.label: "Exporter Protocol"
 

@@ -70,12 +70,14 @@ remove_otel_log_handler() ->
 otel_exporter(ExporterConf) ->
     #{
         endpoint := Endpoint,
+        headers := Headers,
         protocol := Proto,
         ssl_options := SSLOpts
     } = ExporterConf,
     {?OTEL_EXPORTER, #{
         endpoint => Endpoint,
         protocol => Proto,
+        headers => header_opts(Headers),
         ssl_options => ssl_opts(Endpoint, SSLOpts)
     }}.
 
@@ -179,6 +181,22 @@ ssl_opts(Endpoint, SSLOpts) ->
         false ->
             []
     end.
+
+header_opts(Headers) ->
+    lists:reverse(
+        maps:fold(
+            fun(Key, Value, AccIn) ->
+                [{bin(Key), bin(Value)} | AccIn]
+            end,
+            [],
+            Headers
+        )
+    ).
+
+bin(A) when is_atom(A) ->
+    atom_to_binary(A);
+bin(L) when is_list(L); is_binary(L) ->
+    iolist_to_binary(L).
 
 is_ssl(<<"https://", _/binary>>) ->
     true;
