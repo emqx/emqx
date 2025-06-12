@@ -167,22 +167,25 @@
         {
           "type": "array",
           "element-id": 25,
-          "items": {
-            "type": "record",
-            "fields": [
-              {
-                "name": "x",
-                "field-id": 26,
-                "type": "long"
-              },
-              {
-                "name": "y",
-                "field-id": 27,
-                "type": "long"
-              }
-            ],
-            "name": "r25"
-          }
+          "items": [
+            "null",
+            {
+              "type": "record",
+              "fields": [
+                {
+                  "name": "x",
+                  "field-id": 26,
+                  "type": "long"
+                },
+                {
+                  "name": "y",
+                  "field-id": 27,
+                  "type": "long"
+                }
+              ],
+              "name": "r25"
+            }
+          ]
         }
       ],
       "default": null

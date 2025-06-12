@@ -32,6 +32,12 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
   @excluded_mods_from_warnings (
     [
       :DurableMessage,
+      :DSBuiltinMetadata,
+      :DSBuiltinSLReference,
+      :DSBuiltinSLSkipstreamV1,
+      :DSBuiltinSLSkipstreamV2,
+      :DSBuiltinStorageLayer,
+      :DSMetadataCommon,
     ]
     |> MapSet.new(&to_string/1)
     |> MapSet.union(@excluded_mods)
