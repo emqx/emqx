@@ -91,8 +91,8 @@ get_status(get, Params) ->
     running_status(iolist_to_binary(Format)).
 
 running_status(Format) ->
-    case emqx_dashboard_listener:is_ready(timer:seconds(20)) of
-        true ->
+    case emqx_dashboard:listeners_status() of
+        #{stopped := []} ->
             AppStatus = application_status(),
             Body = do_get_status(AppStatus, Format),
             StatusCode =
@@ -110,7 +110,7 @@ running_status(Format) ->
                 <<"retry-after">> => <<"15">>
             },
             {StatusCode, Headers, iolist_to_binary(Body)};
-        false ->
+        _ ->
             {503, #{<<"retry-after">> => <<"15">>}, <<>>}
     end.
 

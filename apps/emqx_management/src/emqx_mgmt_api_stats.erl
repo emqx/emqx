@@ -51,7 +51,7 @@ schema("/stats") ->
                                 array(ref(?MODULE, per_node_data)),
                                 ref(?MODULE, aggregated_data)
                             ]),
-                            #{desc => <<"List stats ok">>}
+                            #{desc => ?DESC("api_rsp_200")}
                         )
                     }
             }
@@ -63,7 +63,7 @@ fields(aggregate) ->
             mk(
                 boolean(),
                 #{
-                    desc => <<"Calculation aggregate for all nodes">>,
+                    desc => ?DESC("aggregate"),
                     in => query,
                     required => false,
                     example => false
@@ -111,7 +111,7 @@ fields(per_node_data) ->
     [
         {node,
             mk(string(), #{
-                desc => <<"Node name">>,
+                desc => ?DESC("node_name"),
                 example => <<"emqx@127.0.0.1">>
             })},
         stats_schema(

@@ -574,9 +574,3 @@ mysql_config() ->
         server => <<?MYSQL_HOST>>,
         ssl => #{enable => false}
     }.
-
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).

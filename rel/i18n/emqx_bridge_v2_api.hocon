@@ -120,4 +120,45 @@ desc_param_path_operation_on_node.desc:
 desc_param_path_operation_on_node.label:
 """Node Operation"""
 
+OK.desc = "OK"
+
+source_test_failed.desc:
+"""Failed to test source configuration."""
+
+source_not_found.desc:
+"""Source not found."""
+
+actions_already_exists.desc:
+"""Action already exists."""
+
+update_action_failed.desc:
+"""Failed to update action configuration."""
+
+update_source_failed.desc:
+"""Failed to update source configuration."""
+
+service_unavailable.desc:
+"""Service unavailable."""
+
+dependent_rules_error_msg.desc:
+"""Cannot delete action while active rules are defined for this action."""
+
+dependent_rules_ids.desc:
+"""The IDs of rules that depend on this action."""
+
+action_not_found.desc:
+"""Action not found."""
+
+operation_failed.desc:
+"""Operation failed due to problem with the external resource."""
+
+not_implemented.desc:
+"""This operation is not supported."""
+
+action_test_failed.desc:
+"""Failed to test action configuration."""
+
+source_already_exists.desc:
+"""Source already exists."""
+
 }

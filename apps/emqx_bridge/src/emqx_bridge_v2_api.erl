@@ -133,10 +133,8 @@ error_schema(Code, Message) ->
 
 error_schema(Code, Message, ExtraFields) when is_atom(Code) ->
     error_schema([Code], Message, ExtraFields);
-error_schema(Codes, Message, ExtraFields) when is_list(Message) ->
-    error_schema(Codes, list_to_binary(Message), ExtraFields);
-error_schema(Codes, Message, ExtraFields) when is_list(Codes) andalso is_binary(Message) ->
-    ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, Message).
+error_schema(Codes, DESC, ExtraFields) when is_list(Codes) andalso is_tuple(DESC) ->
+    ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, DESC).
 
 actions_get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
@@ -267,7 +265,7 @@ schema("/actions") ->
         'operationId' => '/actions',
         get => #{
             tags => [<<"actions">>],
-            summary => <<"List bridges">>,
+            summary => <<"List Actions">>,
             description => ?DESC("desc_api1"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -278,7 +276,7 @@ schema("/actions") ->
         },
         post => #{
             tags => [<<"actions">>],
-            summary => <<"Create bridge">>,
+            summary => <<"Create Action">>,
             description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_post_request(),
@@ -286,7 +284,7 @@ schema("/actions") ->
             ),
             responses => #{
                 201 => actions_get_response_body_schema(),
-                400 => error_schema('ALREADY_EXISTS', "Bridge already exists")
+                400 => error_schema('ALREADY_EXISTS', ?DESC("action_already_exists"))
             }
         }
     };
@@ -295,17 +293,17 @@ schema("/actions/:id") ->
         'operationId' => '/actions/:id',
         get => #{
             tags => [<<"actions">>],
-            summary => <<"Get bridge">>,
+            summary => <<"Get Action">>,
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
             responses => #{
                 200 => actions_get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Bridge not found")
+                404 => error_schema('NOT_FOUND', ?DESC("action_not_found"))
             }
         },
         put => #{
             tags => [<<"actions">>],
-            summary => <<"Update bridge">>,
+            summary => <<"Update Action">>,
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -314,25 +312,25 @@ schema("/actions/:id") ->
             ),
             responses => #{
                 200 => actions_get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Bridge not found"),
-                400 => error_schema('BAD_REQUEST', "Update bridge failed"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                404 => error_schema('NOT_FOUND', ?DESC("action_not_found")),
+                400 => error_schema('BAD_REQUEST', ?DESC("update_action_failed")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         },
         delete => #{
             tags => [<<"actions">>],
-            summary => <<"Delete bridge">>,
+            summary => <<"Delete Action">>,
             description => ?DESC("desc_api5"),
             parameters => [param_path_id(), param_qs_delete_cascade()],
             responses => #{
-                204 => <<"Bridge deleted">>,
+                204 => ?DESC("OK"),
                 400 => error_schema(
                     'BAD_REQUEST',
-                    "Cannot delete bridge while active rules are defined for this bridge",
-                    [{rules, mk(array(string()), #{desc => "Dependent Rule IDs"})}]
+                    ?DESC("dependent_rules_error_msg"),
+                    [{rules, mk(array(string()), #{desc => ?DESC("dependent_rules_ids")})}]
                 ),
-                404 => error_schema('NOT_FOUND', "Bridge not found"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                404 => error_schema('NOT_FOUND', ?DESC("action_not_found")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -341,12 +339,12 @@ schema("/actions/:id/metrics") ->
         'operationId' => '/actions/:id/metrics',
         get => #{
             tags => [<<"actions">>],
-            summary => <<"Get action metrics">>,
+            summary => <<"Get Action Metrics">>,
             description => ?DESC("desc_bridge_metrics"),
             parameters => [param_path_id()],
             responses => #{
                 200 => emqx_bridge_schema:metrics_fields(),
-                404 => error_schema('NOT_FOUND', "Action not found")
+                404 => error_schema('NOT_FOUND', ?DESC("action_not_found"))
             }
         }
     };
@@ -355,12 +353,12 @@ schema("/actions/:id/metrics/reset") ->
         'operationId' => '/actions/:id/metrics/reset',
         put => #{
             tags => [<<"actions">>],
-            summary => <<"Reset action metrics">>,
+            summary => <<"Reset Action Metrics">>,
             description => ?DESC("desc_api6"),
             parameters => [param_path_id()],
             responses => #{
-                204 => <<"Reset success">>,
-                404 => error_schema('NOT_FOUND', "Action not found")
+                204 => ?DESC("OK"),
+                404 => error_schema('NOT_FOUND', ?DESC("action_not_found"))
             }
         }
     };
@@ -370,16 +368,14 @@ schema("/actions/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"actions">>],
-                summary => <<"Enable or disable bridge">>,
+                summary => <<"Enable or Disable Action">>,
                 desc => ?DESC("desc_enable_bridge"),
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
                     #{
-                        204 => <<"Success">>,
-                        404 => error_schema(
-                            'NOT_FOUND', "Bridge not found or invalid operation"
-                        ),
-                        503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                        204 => ?DESC("OK"),
+                        404 => error_schema('NOT_FOUND', ?DESC("action_not_found")),
+                        503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
                     }
             }
     };
@@ -388,20 +384,20 @@ schema("/actions/:id/:operation") ->
         'operationId' => '/actions/:id/:operation',
         post => #{
             tags => [<<"actions">>],
-            summary => <<"Manually start a bridge">>,
+            summary => <<"Manually Start an Action">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
                 param_path_operation_cluster()
             ],
             responses => #{
-                204 => <<"Operation success">>,
+                204 => ?DESC("OK"),
                 400 => error_schema(
-                    'BAD_REQUEST', "Problem with configuration of external service"
+                    'BAD_REQUEST', ?DESC("operation_failed")
                 ),
-                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
-                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                404 => error_schema('NOT_FOUND', ?DESC("action_not_found")),
+                501 => error_schema('NOT_IMPLEMENTED', ?DESC("not_implemented")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -410,7 +406,7 @@ schema("/nodes/:node/actions/:id/:operation") ->
         'operationId' => '/nodes/:node/actions/:id/:operation',
         post => #{
             tags => [<<"actions">>],
-            summary => <<"Manually start a bridge on a given node">>,
+            summary => <<"Manually Start an Action on a Given Node">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
@@ -418,16 +414,11 @@ schema("/nodes/:node/actions/:id/:operation") ->
                 param_path_operation_on_node()
             ],
             responses => #{
-                204 => <<"Operation success">>,
-                400 => error_schema(
-                    'BAD_REQUEST',
-                    "Problem with configuration of external service or bridge not enabled"
-                ),
-                404 => error_schema(
-                    'NOT_FOUND', "Bridge or node not found or invalid operation"
-                ),
-                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                204 => ?DESC("OK"),
+                400 => error_schema('BAD_REQUEST', ?DESC("operation_failed")),
+                404 => error_schema('NOT_FOUND', ?DESC("action_not_found")),
+                501 => error_schema('NOT_IMPLEMENTED', ?DESC("not_implemented")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -437,14 +428,14 @@ schema("/actions_probe") ->
         post => #{
             tags => [<<"actions">>],
             desc => ?DESC("desc_api9"),
-            summary => <<"Test creating bridge">>,
+            summary => <<"Test Creating Action">>,
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_ACTIONS)
             ),
             responses => #{
-                204 => <<"Test bridge OK">>,
-                400 => error_schema(['TEST_FAILED'], "bridge test failed")
+                204 => ?DESC("OK"),
+                400 => error_schema(['TEST_FAILED'], ?DESC("action_test_failed"))
             }
         }
     };
@@ -453,7 +444,7 @@ schema("/actions_summary") ->
         'operationId' => '/actions_summary',
         get => #{
             tags => [<<"actions">>],
-            summary => <<"Summarize actions">>,
+            summary => <<"Summarize Actions">>,
             description => ?DESC("actions_summary"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -469,14 +460,14 @@ schema("/action_types") ->
         get => #{
             tags => [<<"actions">>],
             desc => ?DESC("desc_api10"),
-            summary => <<"List available action types">>,
+            summary => <<"List Available Action Types">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     array(emqx_bridge_v2_schema:action_types_sc()),
                     #{
                         <<"types">> =>
                             #{
-                                summary => <<"Action types">>,
+                                summary => <<"Action Types">>,
                                 value => emqx_bridge_v2_schema:action_types()
                             }
                     }
@@ -492,7 +483,7 @@ schema("/sources") ->
         'operationId' => '/sources',
         get => #{
             tags => [<<"sources">>],
-            summary => <<"List sources">>,
+            summary => <<"List Sources">>,
             description => ?DESC("desc_api1"),
             responses => #{
                 %% FIXME: examples
@@ -504,7 +495,7 @@ schema("/sources") ->
         },
         post => #{
             tags => [<<"sources">>],
-            summary => <<"Create source">>,
+            summary => <<"Create Source">>,
             description => ?DESC("desc_api2"),
             %% FIXME: examples
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -513,7 +504,7 @@ schema("/sources") ->
             ),
             responses => #{
                 201 => sources_get_response_body_schema(),
-                400 => error_schema('ALREADY_EXISTS', "Source already exists")
+                400 => error_schema('ALREADY_EXISTS', ?DESC("source_already_exists"))
             }
         }
     };
@@ -522,17 +513,17 @@ schema("/sources/:id") ->
         'operationId' => '/sources/:id',
         get => #{
             tags => [<<"sources">>],
-            summary => <<"Get source">>,
+            summary => <<"Get Source">>,
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
             responses => #{
                 200 => sources_get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Source not found")
+                404 => error_schema('NOT_FOUND', ?DESC("source_not_found"))
             }
         },
         put => #{
             tags => [<<"sources">>],
-            summary => <<"Update source">>,
+            summary => <<"Update Source">>,
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -541,25 +532,25 @@ schema("/sources/:id") ->
             ),
             responses => #{
                 200 => sources_get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Source not found"),
-                400 => error_schema('BAD_REQUEST', "Update source failed"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                404 => error_schema('NOT_FOUND', ?DESC("source_not_found")),
+                400 => error_schema('BAD_REQUEST', ?DESC("update_source_failed")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         },
         delete => #{
             tags => [<<"sources">>],
-            summary => <<"Delete source">>,
+            summary => <<"Delete Source">>,
             description => ?DESC("desc_api5"),
             parameters => [param_path_id(), param_qs_delete_cascade()],
             responses => #{
-                204 => <<"Source deleted">>,
+                204 => ?DESC("OK"),
                 400 => error_schema(
                     'BAD_REQUEST',
-                    "Cannot delete bridge while active rules are defined for this source",
-                    [{rules, mk(array(string()), #{desc => "Dependent Rule IDs"})}]
+                    ?DESC("dependent_rules_error_msg"),
+                    [{rules, mk(array(string()), #{desc => ?DESC("dependent_rules_ids")})}]
                 ),
-                404 => error_schema('NOT_FOUND', "Source not found"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                404 => error_schema('NOT_FOUND', ?DESC("source_not_found")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -568,12 +559,12 @@ schema("/sources/:id/metrics") ->
         'operationId' => '/sources/:id/metrics',
         get => #{
             tags => [<<"sources">>],
-            summary => <<"Get source metrics">>,
+            summary => <<"Get Source Metrics">>,
             description => ?DESC("desc_bridge_metrics"),
             parameters => [param_path_id()],
             responses => #{
                 200 => emqx_bridge_schema:metrics_fields(),
-                404 => error_schema('NOT_FOUND', "Source not found")
+                404 => error_schema('NOT_FOUND', ?DESC("source_not_found"))
             }
         }
     };
@@ -582,12 +573,12 @@ schema("/sources/:id/metrics/reset") ->
         'operationId' => '/sources/:id/metrics/reset',
         put => #{
             tags => [<<"sources">>],
-            summary => <<"Reset source metrics">>,
+            summary => <<"Reset Source Metrics">>,
             description => ?DESC("desc_api6"),
             parameters => [param_path_id()],
             responses => #{
-                204 => <<"Reset success">>,
-                404 => error_schema('NOT_FOUND', "Source not found")
+                204 => ?DESC("OK"),
+                404 => error_schema('NOT_FOUND', ?DESC("source_not_found"))
             }
         }
     };
@@ -597,16 +588,14 @@ schema("/sources/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"sources">>],
-                summary => <<"Enable or disable bridge">>,
+                summary => <<"Enable or Disable Source">>,
                 desc => ?DESC("desc_enable_bridge"),
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
                     #{
-                        204 => <<"Success">>,
-                        404 => error_schema(
-                            'NOT_FOUND', "Bridge not found or invalid operation"
-                        ),
-                        503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                        204 => ?DESC("OK"),
+                        404 => error_schema('NOT_FOUND', ?DESC("source_not_found")),
+                        503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
                     }
             }
     };
@@ -615,20 +604,18 @@ schema("/sources/:id/:operation") ->
         'operationId' => '/sources/:id/:operation',
         post => #{
             tags => [<<"sources">>],
-            summary => <<"Manually start a bridge">>,
+            summary => <<"Manually Start a Source">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
                 param_path_operation_cluster()
             ],
             responses => #{
-                204 => <<"Operation success">>,
-                400 => error_schema(
-                    'BAD_REQUEST', "Problem with configuration of external service"
-                ),
-                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
-                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                204 => ?DESC("OK"),
+                400 => error_schema('BAD_REQUEST', ?DESC("operation_failed")),
+                404 => error_schema('NOT_FOUND', ?DESC("source_not_found")),
+                501 => error_schema('NOT_IMPLEMENTED', ?DESC("not_implemented")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -637,7 +624,7 @@ schema("/nodes/:node/sources/:id/:operation") ->
         'operationId' => '/nodes/:node/sources/:id/:operation',
         post => #{
             tags => [<<"sources">>],
-            summary => <<"Manually start a bridge on a given node">>,
+            summary => <<"Manually Start a Source on a Given Node">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
@@ -645,16 +632,11 @@ schema("/nodes/:node/sources/:id/:operation") ->
                 param_path_operation_on_node()
             ],
             responses => #{
-                204 => <<"Operation success">>,
-                400 => error_schema(
-                    'BAD_REQUEST',
-                    "Problem with configuration of external service or bridge not enabled"
-                ),
-                404 => error_schema(
-                    'NOT_FOUND', "Bridge or node not found or invalid operation"
-                ),
-                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                204 => ?DESC("OK"),
+                400 => error_schema('BAD_REQUEST', ?DESC("operation_failed")),
+                404 => error_schema('NOT_FOUND', ?DESC("source_not_found")),
+                501 => error_schema('NOT_IMPLEMENTED', ?DESC("not_implemented")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -664,14 +646,14 @@ schema("/sources_probe") ->
         post => #{
             tags => [<<"sources">>],
             desc => ?DESC("desc_api9"),
-            summary => <<"Test creating bridge">>,
+            summary => <<"Test Creating Source">>,
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_SOURCES)
             ),
             responses => #{
-                204 => <<"Test bridge OK">>,
-                400 => error_schema(['TEST_FAILED'], "bridge test failed")
+                204 => ?DESC("OK"),
+                400 => error_schema(['TEST_FAILED'], ?DESC("source_test_failed"))
             }
         }
     };
@@ -680,7 +662,7 @@ schema("/sources_summary") ->
         'operationId' => '/sources_summary',
         get => #{
             tags => [<<"sources">>],
-            summary => <<"Summarize sources">>,
+            summary => <<"Summarize Sources">>,
             description => ?DESC("sources_summary"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -696,7 +678,7 @@ schema("/source_types") ->
         get => #{
             tags => [<<"sources">>],
             desc => ?DESC("desc_api11"),
-            summary => <<"List available source types">>,
+            summary => <<"List Available Source Types">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     array(emqx_bridge_v2_schema:source_types_sc()),

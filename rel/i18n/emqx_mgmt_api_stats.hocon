@@ -5,4 +5,13 @@ emqx_stats.desc:
 emqx_stats.label:
 """EMQX stats"""
 
+api_rsp_200.desc: "OK"
+api_rsp_200.label: "OK"
+
+aggregate.desc: "Set to 'true' to aggregate data from cluster nodes."
+aggregate.label: "Aggregate"
+
+node_name.label: "EMQX Node Name"
+node_name.desc: "EMQX node name. For example, emqx@172.18.0.2"
+
 }

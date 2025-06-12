@@ -28,12 +28,12 @@ jobs:
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       with:
         repository: emqx/tf-emqx-performance-test
-        ref: v0.3.2
+        ref: v0.4.1
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
       with:
-        terraform_version: 1.6.4
+        terraform_version: 1.11.2
         terraform_wrapper: false
 
     - uses: actions/setup-python@v5
@@ -90,7 +90,6 @@ jobs:
 
         echo "${{ secrets.EMQX_ENTERPRISE_LICENSE }}" > emqx5.lic
         cat ${{ matrix.scenario }}.env >> "$GITHUB_ENV"
-        echo '{}' > slack-payload.json
 
         terraform init
         set +e
@@ -111,12 +110,6 @@ jobs:
         path: |
           ${{ steps.infra.outputs.ssh_key_path }}
 
-    - name: Report failure
-      if: failure()
-      run: |
-        jq -n '[{"color": "#ff0000", "fields": [{"title": "Failed to provision infrastructure", "short": false}]}]' > attachments.json
-        jq -n --argjson attachments "$(<attachments.json)" '{"attachments": $attachments}' > slack-payload.json
-
     - name: Run benchmark
       if: success()
       id: benchmark
@@ -126,7 +119,6 @@ jobs:
 
         export TMPDIR=$(mktemp -d)
         echo "TMPDIR=$TMPDIR" >> $GITHUB_ENV
-        echo '[]' > attachments.json
 
         PERIOD=1m scripts/summary.sh
 
@@ -136,30 +128,52 @@ jobs:
         if [ $(echo "$MEM_CORE_1 > $INITIAL_RAM_BASELINE * (1 + $ALLOWED_DEVIATION_CPU_RAM)" | bc -l) -eq 1 ] \
         || [ $(echo "$MEM_CORE_2 > $INITIAL_RAM_BASELINE * (1 + $ALLOWED_DEVIATION_CPU_RAM)" | bc -l) -eq 1 ]; then
           success=1
-          jq --arg mem1 "$MEM_CORE_1" --arg mem2 "$MEM_CORE_2" '. += [{"color": "#ff0000", "fields": [{"title": "Initial RAM usage is too high", "short": false, "value": "Core 1: \($mem1)%\nCore 2: \($mem2)%"}]}]' \
-            attachments.json 1<> attachments.json
         fi
 
         EMQX_API_URL=$(terraform output -raw emqx_dashboard_url)
+
         ansible loadgen -m command -a 'systemctl start loadgen' --become --limit 'loadgen-emqtt_bench-1.*'
         echo "Waiting for subscribers to connect"
         subs=0
-        while [ $subs -lt 10000 ]; do
+        attempts=30
+        while [ $attempts -gt 0 ]; do
           curl -s -u perftest:perftest "$EMQX_API_URL/api/v5/monitor_current" > "$TMPDIR/monitor_current.json"
           subs=$(jq -r '.subscriptions' "$TMPDIR/monitor_current.json")
+          if [ $subs -ge 10000 ]; then
+            echo "Subscribers connected: $subs"
+            break
+          fi
           sleep 1
+          attempts=$((attempts - 1))
         done
+        if [ $subs -lt 10000 ]; then
+          echo "Failed to connect enough subscribers, exiting"
+          exit 1
+        fi
+
         ansible loadgen -m command -a 'systemctl start loadgen' --become --limit 'loadgen-emqtt_bench-2.*'
         echo "Waiting for publishers to connect"
-        conns=$(jq -r '.live_connections' "$TMPDIR/monitor_current.json")
-        while [ $conns -lt 20000 ]; do
+        conns=0
+        attempts=30
+        while [ $attempts -gt 0 ]; do
           curl -s -u perftest:perftest "$EMQX_API_URL/api/v5/monitor_current" > "$TMPDIR/monitor_current.json"
           conns=$(jq -r '.live_connections' "$TMPDIR/monitor_current.json")
+          if [ $conns -ge 20000 ]; then
+            echo "Publishers connected. Total live connections: $conns"
+            break
+          fi
           sleep 1
+          attempts=$((attempts - 1))
         done
+        if [ $conns -lt 20000 ]; then
+          echo "Failed to connect enough publishers, exiting"
+          exit 1
+        fi
         echo "All clients connected, sleep for $DURATION seconds"
+
         sleep $DURATION
-        PERIOD="${DURATION}s" scripts/summary.sh | tee -a $GITHUB_STEP_SUMMARY
+        PERIOD="${DURATION}s" scripts/summary.sh
+        cat summary.md >> $GITHUB_STEP_SUMMARY
 
         echo "success=$success" >> $GITHUB_OUTPUT
 
@@ -182,8 +196,6 @@ jobs:
         if [ $(echo "$CPU_CORE_1 > $CPU_BASELINE * (1 + $ALLOWED_DEVIATION_CPU_RAM)" | bc -l) -eq 1 ] \
         || [ $(echo "$CPU_CORE_2 > $CPU_BASELINE * (1 + $ALLOWED_DEVIATION_CPU_RAM)" | bc -l) -eq 1 ]; then
           success=1
-          jq --arg cpu1 "$CPU_CORE_1" --arg cpu2 "$CPU_CORE_2" '. += [{"color": "#ff0000", "fields": [{"title": "CPU utilization was too high", "short": false, "value": "Core 1: \($cpu1)%\nCore 2: \($cpu2)%"}]}]' \
-            attachments.json 1<> attachments.json
           echo "* CPU utilization was too high: Core 1: $CPU_CORE_1%, Core 2: $CPU_CORE_2%" >> $GITHUB_STEP_SUMMARY
         fi
 
@@ -193,8 +205,6 @@ jobs:
         if [ $(echo "$MEM_CORE_1 > $RAM_BASELINE * (1 + $ALLOWED_DEVIATION_CPU_RAM)" | bc -l) -eq 1 ] \
         || [ $(echo "$MEM_CORE_2 > $RAM_BASELINE * (1 + $ALLOWED_DEVIATION_CPU_RAM)" | bc -l) -eq 1 ]; then
           success=1
-          jq --arg mem1 "$MEM_CORE_1" --arg mem2 "$MEM_CORE_2" '. += [{"color": "#ff0000", "fields": [{"title": "RAM usage was too high", "short": false, "value": "Core 1: \($mem1)%\nCore 2: \($mem2)%"}]}]' \
-            attachments.json 1<> attachments.json
           echo "* RAM usage was too high: Core 1: $MEM_CORE_1%, Core 2: $MEM_CORE_2%" >> $GITHUB_STEP_SUMMARY
         fi
 
@@ -204,34 +214,16 @@ jobs:
         if [ $(echo "$RECEIVED_MSG_RATE < $RECEIVED_MSG_RATE_BASELINE * (1 - $ALLOWED_DEVIATION_MSG_RATE)" | bc -l) -eq 1 ] \
         || [ $(echo "$SENT_MSG_RATE < $SENT_MSG_RATE_BASELINE * (1 - $ALLOWED_DEVIATION_MSG_RATE)" | bc -l) -eq 1 ]; then
           success=1
-          jq --arg received_msg_rate "$RECEIVED_MSG_RATE" --arg sent_msg_rate "$SENT_MSG_RATE" \
-            '. += [{"color": "#ff0000", "fields": [{"title": "Message rate was too low", "short": false, "value": "Received message rate: \($received_msg_rate)\nSent message rate: \($sent_msg_rate)"}]}]' \
-            attachments.json 1<> attachments.json
           echo "* Message rate was too low: Received message rate: $RECEIVED_MSG_RATE, Sent message rate: $SENT_MSG_RATE" >> $GITHUB_STEP_SUMMARY
         fi
 
         MESSAGES_DROPPED=$(jq -r '.messages_dropped' $TMPDIR/emqx_metrics.json)
         if [ $(echo "$MESSAGES_DROPPED > 100" | bc) -eq 1 ]; then
           success=1
-          jq --arg dropped "$MESSAGES_DROPPED" '. += [{"color": "#ff0000", "fields": [{"title": "Too many dropped messages", "short": false, "value": "Dropped: \($dropped)"}]}]' \
-            attachments.json 1<> attachments.json
           echo "* Too many dropped messages: $MESSAGES_DROPPED" >> $GITHUB_STEP_SUMMARY
         fi
 
-        jq -n --argjson attachments "$(<attachments.json)" '{"attachments": $attachments}' > slack-payload.json
-
         exit $success
-
-    - name: Post to Slack
-      if: failure()
-      uses: slackapi/slack-github-action@b0fa283ad8fea605de13dc3f449259339835fc52 # v2.1.0
-      env:
-        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-      with:
-        channel-id: ${{ secrets.SLACK_PERFTEST_CHANNEL_ID }}
-        slack-message: "EMQX performance test ${{ matrix.scenario }} failed. <${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}|Workflow Run>"
-        payload-file-path: slack-payload.json
-        payload-file-path-parsed: false
 
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       if: failure()

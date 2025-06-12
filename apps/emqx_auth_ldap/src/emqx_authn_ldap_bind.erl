@@ -45,30 +45,30 @@ do_authenticate(
         method := #{
             is_superuser_attribute := IsSuperuserAttribute
         }
-    } = _State
+    } = State
 ) ->
     BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
     Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
+    AclAttributes = emqx_auth_ldap_acl:acl_attributes(State),
     Result = emqx_resource:simple_sync_query(
         ResourceId,
-        {query, BaseDN, Filter, [{attributes, [IsSuperuserAttribute]}, {timeout, Timeout}]}
+        {query, BaseDN, Filter, [
+            {attributes, [IsSuperuserAttribute | AclAttributes]}, {timeout, Timeout}
+        ]}
     ),
     case Result of
         {ok, []} ->
             ignore;
-        {ok, [Entry]} ->
+        {ok, [#eldap_entry{object_name = ObjectName} = Entry]} ->
             Password = emqx_auth_ldap_utils:render_password(PasswordTemplate, Credential),
             case
                 emqx_resource:simple_sync_query(
                     ResourceId,
-                    {bind, Entry#eldap_entry.object_name, Password}
+                    {bind, ObjectName, Password}
                 )
             of
                 {ok, #{result := ok}} ->
-                    IsSuperuser = emqx_auth_ldap_utils:get_bool_attribute(
-                        IsSuperuserAttribute, Entry, false
-                    ),
-                    {ok, #{is_superuser => IsSuperuser}};
+                    format_authentication_result(State, Entry);
                 {ok, #{result := 'invalidCredentials'}} ->
                     ?TRACE_AUTHN_PROVIDER(info, "ldap_bind_failed", #{
                         resource => ResourceId,
@@ -89,4 +89,27 @@ do_authenticate(
                 reason => Reason
             }),
             ignore
+    end.
+
+format_authentication_result(
+    #{
+        resource_id := ResourceId,
+        method := #{
+            is_superuser_attribute := IsSuperuserAttribute
+        }
+    } = State,
+    Entry
+) ->
+    IsSuperuser = emqx_auth_ldap_utils:get_bool_attribute(
+        IsSuperuserAttribute, Entry, false
+    ),
+    case emqx_auth_ldap_acl:acl_from_entry(State, Entry) of
+        {ok, AclFields} ->
+            {ok, AclFields#{is_superuser => IsSuperuser}};
+        {error, Reason} ->
+            ?TRACE_AUTHN_PROVIDER(error, "ldap_bind_invalid_acl_rules", #{
+                resource => ResourceId,
+                reason => Reason
+            }),
+            {error, bad_username_or_password}
     end.

@@ -552,7 +552,16 @@ str(X) -> emqx_utils_conv:str(X).
 strip_leading_dir(Path0, Dir0) ->
     Path = str(Path0),
     Dir = str(Dir0),
-    lists:flatten(string:replace(Path, Dir ++ "/", "", leading)).
+    do_strip_leading_dir(filename:split(Path), filename:split(Dir)).
+
+do_strip_leading_dir(["." | PathSegs], PrefixSegs) ->
+    do_strip_leading_dir(PathSegs, PrefixSegs);
+do_strip_leading_dir(PathSegs, ["." | PrefixSegs]) ->
+    do_strip_leading_dir(PathSegs, PrefixSegs);
+do_strip_leading_dir([X | PathSegs], [X | PrefixSegs]) ->
+    do_strip_leading_dir(PathSegs, PrefixSegs);
+do_strip_leading_dir(PathSegs, _PrefixSegs) ->
+    filename:join(PathSegs).
 
 prepare_protobuf_files_for_export2(#{<<"type">> := <<"bundle">>} = Source0, Name) ->
     #{<<"root_proto_path">> := RootPath} = Source0,

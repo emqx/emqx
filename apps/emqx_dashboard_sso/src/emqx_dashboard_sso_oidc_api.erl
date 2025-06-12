@@ -203,7 +203,7 @@ ensure_user_exists(_Cfg, <<"undefined">>) ->
 ensure_user_exists(Cfg, Username) ->
     case emqx_dashboard_admin:lookup_user(?BACKEND, Username) of
         [User] ->
-            case emqx_dashboard_token:sign(User, <<>>) of
+            case emqx_dashboard_token:sign(User) of
                 {ok, Role, Token} ->
                     {ok, login_redirect_target(Cfg, Username, Role, Token)};
                 Error ->

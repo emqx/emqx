@@ -37,7 +37,8 @@ groups() ->
             t_parse_cont,
             t_parse_frame_too_large,
             t_parse_frame_malformed_variable_byte_integer,
-            t_parse_malformed_utf8_string
+            t_parse_malformed_utf8_string,
+            t_parse_bad_v5_publish_packet
         ]},
         {connect, [parallel], [
             t_serialize_parse_v3_connect,
@@ -156,6 +157,34 @@ t_parse_malformed_utf8_string(_) ->
             98, 108, 105, 99>>,
     ParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     ?ASSERT_FRAME_THROW(utf8_string_invalid, emqx_frame:parse(MalformedPacket, ParseState)).
+
+%% Case found by fuzzying with defensics.
+t_parse_bad_v5_publish_packet(_) ->
+    BadInput = iolist_to_binary([
+        <<48, 57, 0, 6>>,
+        %% Topic: `test/1`
+        <<116, 101, 115, 116, 47, 49>>,
+        %% Wrong variable byte integer length for properties ends up cutting the property
+        %% value out. Parsed length is 9.
+        <<9, 38>>,
+        %% Bad user-property here, due to wrong length above.
+        <<0, 6, 115, 97, 109, 112, 108, 101>>,
+        %% Rest of packet
+        <<0, 18, 84, 104, 105, 115, 32, 105, 115, 32, 97, 110, 32, 101, 120, 97, 109, 112, 108, 101,
+            84, 104, 105, 115, 32, 105, 115, 32, 112, 108, 97, 99, 101, 104, 111, 108, 100, 101,
+            114>>
+    ]),
+    ParseState = emqx_frame:initial_parse_state(#{version => 5}),
+    ?ASSERT_FRAME_THROW(
+        #{
+            cause := malformed_user_property_missing_value,
+            parsed_key_length := 6,
+            parsed_key := <<"sample">>,
+            remaining_bytes_length := 0
+        },
+        emqx_frame:parse(BadInput, ParseState)
+    ),
+    ok.
 
 %% TODO: parse v3 with 0 length clientid
 
