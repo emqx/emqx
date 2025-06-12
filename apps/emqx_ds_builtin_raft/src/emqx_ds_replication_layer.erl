@@ -127,6 +127,7 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds_replication_layer.hrl").
+-include_lib("emqx_durable_storage/gen_src/DSBuiltinMetadata.hrl").
 
 -define(SAFE_ERPC(EXPR),
     try
@@ -437,8 +438,9 @@ get_delete_streams(DB, TopicFilter, StartTime) ->
 
 -spec make_iterator(emqx_ds:db(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).
-make_iterator(DB, Stream, TopicFilter, StartTime) ->
-    ?stream_v2(Shard, StorageStream) = Stream,
+make_iterator(DB, Stream = #'Stream'{shard = Shard}, TopicFilter, StartTime) ->
+    ra_make_iterator(DB, Shard, Stream, TopicFilter, StartTime);
+make_iterator(DB, ?stream_v2(Shard, StorageStream), TopicFilter, StartTime) ->
     case ra_make_iterator(DB, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
@@ -774,6 +776,12 @@ do_get_streams_v2(DB, Shard, TopicFilter, StartTime) ->
     emqx_ds:time()
 ) ->
     emqx_ds:make_iterator_result(emqx_ds_storage_layer:iterator()).
+do_make_iterator_v2(DB, Shard, Stream = #'Stream'{}, TopicFilter, StartTime) ->
+    ShardId = {DB, Shard},
+    ?IF_SHARD_READY(
+        ShardId,
+        emqx_ds_storage_layer_ttv:make_iterator(DB, Stream, TopicFilter, StartTime)
+    );
 do_make_iterator_v2(DB, Shard, Stream, TopicFilter, StartTime) ->
     ShardId = {DB, Shard},
     ?IF_SHARD_READY(
