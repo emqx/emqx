@@ -80,6 +80,7 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds_builtin_tx.hrl").
+-include("../../emqx_durable_storage/gen_src/DSBuiltinMetadata.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -403,27 +404,48 @@ get_streams(DB, TopicFilter, StartTime, Opts) ->
             _ ->
                 emqx_ds_builtin_local_meta:shards(DB)
         end,
-    Results = lists:flatmap(
-        fun(Shard) ->
-            Streams = emqx_ds_storage_layer:get_streams(
-                {DB, Shard}, TopicFilter, timestamp_to_timeus(StartTime)
-            ),
-            lists:map(
-                fun({Generation, InnerStream}) ->
-                    Slab = {Shard, Generation},
-                    {Slab, ?stream(Shard, InnerStream)}
-                end,
-                Streams
-            )
+    #{store_ttv := IsTTV} = emqx_ds_builtin_local_meta:db_config(DB),
+    Results =
+        case IsTTV of
+            false ->
+                lists:flatmap(
+                    fun(Shard) ->
+                        Streams = emqx_ds_storage_layer:get_streams(
+                            {DB, Shard}, TopicFilter, timestamp_to_timeus(StartTime)
+                        ),
+                        lists:map(
+                            fun({Generation, InnerStream}) ->
+                                Slab = {Shard, Generation},
+                                {Slab, ?stream(Shard, InnerStream)}
+                            end,
+                            Streams
+                        )
+                    end,
+                    Shards
+                );
+            true ->
+                lists:flatmap(
+                    fun(Shard) ->
+                        Streams = emqx_ds_storage_layer_ttv:get_streams(
+                            {DB, Shard}, TopicFilter, timestamp_to_timeus(StartTime)
+                        ),
+                        [
+                            {{Shard, Stream#'Stream'.generation}, Stream}
+                         || Stream <- Streams
+                        ]
+                    end,
+                    Shards
+                )
         end,
-        Shards
-    ),
     {Results, []}.
 
 -spec make_iterator(
     emqx_ds:db(), emqx_ds:ds_specific_stream(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
     emqx_ds:make_iterator_result(iterator()).
+make_iterator(DB, Stream = #'Stream'{}, TopicFilter, StartTime) ->
+    %% TTV
+    emqx_ds_storage_layer_ttv:make_iterator(DB, Stream, TopicFilter, StartTime);
 make_iterator(DB, ?stream(Shard, InnerStream), TopicFilter, StartTime) ->
     ShardId = {DB, Shard},
     case
@@ -568,10 +590,18 @@ current_timestamp(ShardId) ->
     emqx_ds_builtin_local_meta:current_timestamp(ShardId).
 
 -spec do_next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
-do_next(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, N) ->
-    ShardId = {DB, Shard},
+do_next(DB, Iter0 = #'Iterator'{shard = Shard}, N) ->
+    %% New style DB: "TTV"
+    DBShard = {DB, Shard},
     T0 = erlang:monotonic_time(microsecond),
-    Result = emqx_ds_storage_layer:next(ShardId, StorageIter0, N, current_timestamp(ShardId)),
+    Result = emqx_ds_storage_layer_ttv:next(DB, Iter0, N, current_timestamp(DBShard)),
+    T1 = erlang:monotonic_time(microsecond),
+    emqx_ds_builtin_metrics:observe_next_time(DB, T1 - T0),
+    Result;
+do_next(DB, Iter0 = #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0}, N) ->
+    DBShard = {DB, Shard},
+    T0 = erlang:monotonic_time(microsecond),
+    Result = emqx_ds_storage_layer:next(DBShard, StorageIter0, N, current_timestamp(DBShard)),
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_next_time(DB, T1 - T0),
     case Result of

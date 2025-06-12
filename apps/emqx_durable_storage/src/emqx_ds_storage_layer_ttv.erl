@@ -10,6 +10,11 @@
 -export([
     prepare_tx/5,
     commit_batch/3,
+
+    make_iterator/4,
+    get_streams/3,
+    next/4,
+
     lookup/4,
     get_read_tx_serial/1,
     set_read_tx_serial/2
@@ -18,14 +23,35 @@
 %% internal exports:
 -export([]).
 
--export_type([]).
+-export_type([stream/0, iterator/0]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds.hrl").
+-include("../gen_src/DSBuiltinMetadata.hrl").
+
+-elvis([{elvis_style, atom_naming_convention, disable}]).
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type inner_stream() :: binary().
+
+-type stream() :: #'Stream'{
+    shard :: emqx_ds:shard(),
+    generation :: emqx_ds:generation(),
+    inner :: inner_stream()
+}.
+
+-type it_static() :: binary().
+-type it_pos() :: binary().
+
+-type iterator() :: #'Iterator'{
+    shard :: emqx_ds:shard(),
+    generation :: emqx_ds:generation(),
+    innerStatic :: it_static(),
+    innerPos :: it_pos()
+}.
 
 -type cooked_tx() :: term().
 
@@ -84,13 +110,14 @@
     [_Stream].
 
 -callback make_iterator(
-    emqx_ds_storage_layer:dbshard(),
+    emqx_ds:db(),
+    emqx_ds:shard(),
     emqx_ds_storage_layer:generation_data(),
-    _Stream,
+    inner_stream(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    emqx_ds:make_iterator_result(_Iterator).
+    {ok, it_static(), it_pos()} | emqx_ds:error(_).
 
 -callback lookup(
     emqx_ds_storage_layer:dbshard(),
@@ -101,27 +128,26 @@
     {ok, binary()} | undefined | emqx_ds:error(_).
 
 -callback next(
-    emqx_ds_storage_layer:dbshard(),
+    emqx_ds:db(),
+    emqx_ds:shard(),
     emqx_ds_storage_layer:generation_data(),
-    Iter,
+    it_static(),
+    it_pos(),
     pos_integer(),
-    %% TODO: Currently calls to kv layouts are still dispatched
-    %% through `emqx_ds_storage_layer' and carry some extra
-    %% parameters. Fixing it is not super trivial and not very useful,
-    %% except from aesthetics perspective, so there are some useless
-    %% parameters.
-    _,
-    _
+    emqx_ds:time(),
+    boolean()
 ) ->
-    {ok, Iter, [emqx_ds:ttv()]} | emqx_ds:error(_).
+    {ok, it_pos(), [emqx_ds:ttv()]} | emqx_ds:error(_).
 
 -callback batch_events(
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
     _CookedBatch
-) -> [_Stream].
+) -> [inner_stream()].
 
 -define(tx_serial_gvar, tx_serial).
+
+-define(ERR_GEN_GONE, ?err_unrec(generation_not_found)).
 
 %%================================================================================
 %% API functions
@@ -198,6 +224,77 @@ commit_batch(DBShard, [{Generation, GenBatches} | Rest], Opts) ->
     end;
 commit_batch(_, [], _) ->
     ok.
+
+-spec get_streams(emqx_ds_storage_layer:dbshard(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+    [stream()].
+get_streams(DBShard = {_DB, Shard}, TopicFilter, StartTime) ->
+    Gens = emqx_ds_storage_layer:generations_since(DBShard, StartTime),
+    ?tp(get_streams_all_gens, #{gens => Gens}),
+    lists:flatmap(
+        fun(GenId) ->
+            ?tp(get_streams_get_gen, #{gen_id => GenId}),
+            case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
+                #{module := Mod, data := GenData} ->
+                    Streams = Mod:get_streams(DBShard, GenData, TopicFilter, StartTime),
+                    [
+                        #'Stream'{shard = Shard, generation = GenId, inner = InnerStream}
+                     || InnerStream <- Streams
+                    ];
+                not_found ->
+                    %% race condition: generation was dropped before getting its streams?
+                    []
+            end
+        end,
+        Gens
+    ).
+
+-spec make_iterator(emqx_ds:db(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+    emqx_ds:make_iterator_result(iterator()).
+make_iterator(
+    DB, #'Stream'{shard = Shard, generation = Generation, inner = Inner}, TopicFilter, StartTime
+) ->
+    case emqx_ds_storage_layer:generation_get({DB, Shard}, Generation) of
+        #{module := Mod, data := GenData} ->
+            case Mod:make_iterator(DB, Shard, GenData, Inner, TopicFilter, StartTime) of
+                {ok, ItStatic, ItPos} ->
+                    {ok, #'Iterator'{
+                        shard = Shard,
+                        generation = Generation,
+                        innerStatic = ItStatic,
+                        innerPos = ItPos
+                    }};
+                Err ->
+                    Err
+            end;
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+-spec next(emqx_ds:db(), iterator(), pos_integer(), emqx_ds:time()) ->
+    emqx_ds:next_result(iterator()).
+next(
+    DB,
+    It0 = #'Iterator'{
+        shard = Shard, generation = Generation, innerStatic = InnerStatic, innerPos = InnerPos0
+    },
+    BatchSize,
+    Now
+) ->
+    DBShard = {DB, Shard},
+    case emqx_ds_storage_layer:generation_get(DBShard, Generation) of
+        #{module := Mod, data := GenData} ->
+            IsCurrent = Generation =:= emqx_ds_storage_layer:generation_current(DBShard),
+            case Mod:next(DB, Shard, GenData, InnerStatic, InnerPos0, BatchSize, Now, IsCurrent) of
+                {ok, InnerPos, Batch} ->
+                    {ok, It0#'Iterator'{innerPos = InnerPos}, Batch};
+                {ok, end_of_stream} ->
+                    {ok, end_of_stream};
+                Error = {error, _, _} ->
+                    Error
+            end;
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
 
 %%================================================================================
 %% behavior callbacks

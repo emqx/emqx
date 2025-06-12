@@ -73,7 +73,9 @@
 ]).
 
 %% internal exports:
--export([db_dir/1, base_dir/0, generation_get/2, get_gvars/1]).
+-export([
+    db_dir/1, base_dir/0, generation_get/2, generation_current/1, generations_since/2, get_gvars/1
+]).
 
 -export_type([
     gen_id/0,
