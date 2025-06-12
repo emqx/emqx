@@ -2,19 +2,20 @@ receivers:
   otlp:
     protocols:
       grpc:
-        tls:
+        endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: basicauth/server
+#        tls:
 #          ca_file: /etc/ca.pem
 #          cert_file: /etc/server.pem
 #          key_file: /etc/server.key
-      http:
-        tls:
+#      http:
+#        tls:
 #          ca_file: /etc/ca.pem
 #          cert_file: /etc/server.pem
 #          key_file: /etc/server.key
 
 exporters:
-  logging:
-    verbosity: detailed
   otlp:
     endpoint: jaeger.emqx.net:4317
     tls:
@@ -35,19 +36,23 @@ extensions:
   health_check:
   zpages:
     endpoint: :55679
+  basicauth/server:
+    htpasswd:
+      inline: |
+        admin:public
 
 service:
-  extensions: [zpages, health_check]
+  extensions: [zpages, health_check, basicauth/server]
   pipelines:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging, otlp]
+      exporters: [otlp]
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging, file/metrics]
+      exporters: [file/metrics]
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging, file/log]
+      exporters: [file/log]
