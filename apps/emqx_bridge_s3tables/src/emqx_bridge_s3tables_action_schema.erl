@@ -142,7 +142,7 @@ fields(container_parquet) ->
         {max_row_group_bytes,
             mk(
                 emqx_schema:bytesize(),
-                #{default => <<"1MB">>, desc => ?DESC("container_parquet_max_row_group_bytes")}
+                #{default => <<"128MB">>, desc => ?DESC("container_parquet_max_row_group_bytes")}
             )}
     ];
 fields(action_resource_opts) ->
