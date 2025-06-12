@@ -34,6 +34,7 @@ get_broker_pool_workers() ->
 init([]) ->
     %% Broker pool
     ok = emqx_broker:create_tabs(),
+    ok = emqx_broker:init_config(),
     PoolSize = emqx:get_config([node, broker_pool_size], emqx_vm:schedulers() * 2),
     BrokerPool = emqx_pool_sup:spec(broker_pool_sup, permanent, [
         ?broker_pool,
