@@ -12,7 +12,7 @@
     create_resource/5,
     update_resource/5,
     init_state/2,
-    resource_config/2,
+    cleanup_resource_config/2,
     check_password_from_selected_map/3,
     parse_deep/1,
     parse_str/1,
@@ -88,7 +88,7 @@ init_state(#{enable := Enable} = _Source, Values) ->
         Values
     ).
 
-resource_config(WithoutFields, Config) ->
+cleanup_resource_config(WithoutFields, Config) ->
     maps:without([enable] ++ WithoutFields, Config).
 
 parse_deep(Template) -> emqx_auth_template:parse_deep(Template, ?AUTHN_DEFAULT_ALLOWED_VARS).

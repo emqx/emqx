@@ -68,7 +68,7 @@ new_state(
         emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
     ),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    ResourceConfig = emqx_authz_utils:resource_config(
+    ResourceConfig = emqx_authz_utils:cleanup_resource_config(
         [collection, skip, limit, filter], Source
     ),
     emqx_authz_utils:init_state(Source, #{

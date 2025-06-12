@@ -103,7 +103,7 @@ create_state(
                 resource_id => ResourceId
             })
         ),
-        ResourceConfig = emqx_authn_utils:resource_config(
+        ResourceConfig = emqx_authn_utils:cleanup_resource_config(
             [
                 base_dn,
                 filter,

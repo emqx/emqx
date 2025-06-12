@@ -108,7 +108,7 @@ new_state(ResourceId, #{base_dn := BaseDN, filter := Filter} = Source) ->
         {ok, FilterTemplate, FilterVars} ?=
             emqx_auth_ldap_utils:parse_filter(Filter, ?ALLOWED_VARS),
         CacheKeyTemplate = emqx_auth_template:cache_key_template(BaseDNVars ++ FilterVars),
-        ResourceConfig = emqx_authz_utils:resource_config(
+        ResourceConfig = emqx_authz_utils:cleanup_resource_config(
             [
                 query_timeout,
                 publish_attribute,

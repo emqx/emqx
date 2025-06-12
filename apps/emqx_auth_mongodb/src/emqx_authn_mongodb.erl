@@ -145,7 +145,7 @@ create_state(ResourceId, #{filter := Filter} = Config) ->
         resource_id => ResourceId
     },
     ok = emqx_authn_password_hashing:init(maps:get(password_hash_algorithm, State)),
-    ResourceConfig = emqx_authn_utils:resource_config(
+    ResourceConfig = emqx_authn_utils:cleanup_resource_config(
         [
             collection,
             password_hash_field,

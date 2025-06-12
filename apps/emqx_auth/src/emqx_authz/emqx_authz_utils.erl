@@ -20,7 +20,7 @@
     vars_for_rule_query/2,
     authorize_with_row/6,
     init_state/2,
-    resource_config/2
+    cleanup_resource_config/2
 ]).
 
 -export([
@@ -57,7 +57,7 @@ create_resource(
                 ResourceConfig,
                 ?DEFAULT_RESOURCE_OPTS(Type)
             ),
-        ok ?= start_resource_if_enabled(State)
+        ok = start_resource_if_enabled(State)
     else
         {error, Reason} ->
             error({create_resource_error, Reason})
@@ -86,8 +86,8 @@ update_resource(
 remove_resource(ResourceId) ->
     emqx_resource:remove_local(ResourceId).
 
--spec resource_config([atom()], map()) -> map().
-resource_config(WithoutFields, Source) ->
+-spec cleanup_resource_config([atom()], map()) -> map().
+cleanup_resource_config(WithoutFields, Source) ->
     maps:without([enable, type] ++ WithoutFields, Source).
 
 -spec start_resource_if_enabled(map()) -> ok | {error, term()}.

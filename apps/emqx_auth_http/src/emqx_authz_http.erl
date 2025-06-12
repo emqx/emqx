@@ -175,7 +175,7 @@ new_state(
     {HeadersVars, HeadersTemplate} = emqx_authn_utils:parse_deep(Headers),
     Vars = BasePathVars ++ BaseQueryVars ++ BodyVars ++ HeadersVars,
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    ResourceConfig = emqx_authz_utils:resource_config(
+    ResourceConfig = emqx_authz_utils:cleanup_resource_config(
         [url, method, request_timeout, body],
         Source#{
             request_base => RequestBase,

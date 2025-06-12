@@ -122,5 +122,7 @@ create_state(
         cache_key_template => CacheKeyTemplate,
         resource_id => ResourceId
     }),
-    ResourceConfig = emqx_authn_utils:resource_config([query, password_hash_algorithm], Config),
+    ResourceConfig = emqx_authn_utils:cleanup_resource_config(
+        [query, password_hash_algorithm], Config
+    ),
     {ok, ResourceConfig#{prepare_statement => #{ResourceId => Query}}, State}.

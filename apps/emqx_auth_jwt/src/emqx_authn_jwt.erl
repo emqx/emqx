@@ -43,7 +43,7 @@ create(#{use_jwks := true} = Config) ->
                 ResourceConfig,
                 State,
                 ?AUTHN_MECHANISM_BIN,
-                <<>>
+                _Backend = <<>>
             ),
         {ok, State}
     end.
@@ -68,7 +68,7 @@ update(
                 ResourceConfig,
                 State,
                 ?AUTHN_MECHANISM_BIN,
-                <<>>
+                _Backend = <<>>
             ),
         {ok, State}
     end;
@@ -184,7 +184,7 @@ create_authn_public_key_with_jwks(
         from := From
     } = Config
 ) ->
-    ResourceConfig = emqx_authn_utils:resource_config(
+    ResourceConfig = emqx_authn_utils:cleanup_resource_config(
         [verify_claims, disconnect_after_expire, acl_claim_name, from], Config
     ),
     State = emqx_authn_utils:init_state(

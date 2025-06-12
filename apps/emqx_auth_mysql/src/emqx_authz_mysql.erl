@@ -80,7 +80,7 @@ new_state(ResourceId, #{query := SQL} = Source0) ->
     {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    ResourceConfig = emqx_authz_utils:resource_config(
+    ResourceConfig = emqx_authz_utils:cleanup_resource_config(
         [query], Source
     ),
     emqx_authz_utils:init_state(Source, #{

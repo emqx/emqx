@@ -72,7 +72,7 @@ authorize(
 new_state(ResourceId, #{cmd := CmdStr} = Source) ->
     {Vars, CmdTemplate} = parse_cmd(CmdStr),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    ResourceConfig = emqx_authz_utils:resource_config(
+    ResourceConfig = emqx_authz_utils:cleanup_resource_config(
         [cmd], Source
     ),
     emqx_authz_utils:init_state(Source, #{

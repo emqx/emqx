@@ -185,7 +185,7 @@ parse_config(
         request_timeout => RequestTimeout,
         url => RawUrl
     }),
-    ResourceConfig0 = emqx_authn_utils:resource_config(
+    ResourceConfig0 = emqx_authn_utils:cleanup_resource_config(
         [method, url, headers, request_timeout], Config
     ),
     ResourceConfig = ResourceConfig0#{
