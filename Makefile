@@ -166,10 +166,6 @@ endif
 cover: $(REBAR)
 	@ENABLE_COVER_COMPILE=1 $(REBAR) as test cover
 
-.PHONY: coveralls
-coveralls: $(REBAR)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) as test coveralls send
-
 COMMON_DEPS := $(REBAR)
 
 .PHONY: $(REL_PROFILES)
