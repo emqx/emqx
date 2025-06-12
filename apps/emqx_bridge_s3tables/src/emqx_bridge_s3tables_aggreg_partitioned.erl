@@ -25,13 +25,13 @@ Tracks one or more Avro files for different partition keys.
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--record(iceberg, {
+-record(partitioned_aggreg, {
     inner_container_opts,
     partition_fields,
     partitions = #{}
 }).
 
--opaque container() :: #iceberg{
+-opaque container() :: #partitioned_aggreg{
     inner_container_opts :: map(),
     partition_fields :: [partition_field()],
     partitions :: #{[partition_key()] => avro_container()}
@@ -60,7 +60,7 @@ new(Opts) ->
         inner_container_opts := InnerContainerOpts,
         partition_fields := PartitionFields
     } = Opts,
-    #iceberg{
+    #partitioned_aggreg{
         inner_container_opts = InnerContainerOpts,
         partition_fields = PartitionFields,
         partitions = #{}
@@ -68,8 +68,8 @@ new(Opts) ->
 
 -spec fill([emqx_connector_aggregator:record()], container()) ->
     {partition_out(), write_metadata(), container()}.
-fill(Records, #iceberg{} = Container0) ->
-    #iceberg{partition_fields = PartitionFields} = Container0,
+fill(Records, #partitioned_aggreg{} = Container0) ->
+    #partitioned_aggreg{partition_fields = PartitionFields} = Container0,
     Partitions = maps:groups_from_list(
         fun(R) -> to_partition_keys(R, PartitionFields) end,
         Records
@@ -77,7 +77,7 @@ fill(Records, #iceberg{} = Container0) ->
     fill_partitions(Partitions, Container0).
 
 -spec close(container()) -> partition_out().
-close(#iceberg{partitions = Partitions} = Container) ->
+close(#partitioned_aggreg{partitions = Partitions} = Container) ->
     maps:fold(
         fun(PK, _Inner, Acc) ->
             IO = close(Container, PK),
@@ -88,7 +88,7 @@ close(#iceberg{partitions = Partitions} = Container) ->
     ).
 
 -spec close(container(), [partition_key()]) -> iodata().
-close(#iceberg{partitions = Partitions}, PK) when is_map_key(PK, Partitions) ->
+close(#partitioned_aggreg{partitions = Partitions}, PK) when is_map_key(PK, Partitions) ->
     Inner = maps:get(PK, Partitions),
     emqx_bridge_s3tables_aggreg_unpartitioned:close(Inner).
 
@@ -105,23 +105,23 @@ to_partition_keys(Record, PartitionFields) ->
     end.
 
 fill_partitions(Partitions, Container0) ->
-    #iceberg{inner_container_opts = InnerContainerOpts} = Container0,
+    #partitioned_aggreg{inner_container_opts = InnerContainerOpts} = Container0,
     maps:fold(
         fun
-            (PK, Records, {AccIO0, AccMeta0, #iceberg{partitions = Ps0} = AccCont0}) when
+            (PK, Records, {AccIO0, AccMeta0, #partitioned_aggreg{partitions = Ps0} = AccCont0}) when
                 is_map_key(PK, Ps0)
             ->
                 #{?num_records := N0} = WM0 = maps:get(PK, AccMeta0, #{?num_records => 0}),
-                #iceberg{partitions = #{PK := Inner0}} = AccCont0,
+                #partitioned_aggreg{partitions = #{PK := Inner0}} = AccCont0,
                 {IOData, #{?num_records := N1}, Inner} =
                     emqx_bridge_s3tables_aggreg_unpartitioned:fill(
                         Records, Inner0
                     ),
                 AccIO = maps:update_with(PK, fun(IO0) -> [IO0 | IOData] end, IOData, AccIO0),
                 AccMeta = AccMeta0#{PK => WM0#{?num_records := N0 + N1}},
-                AccCont = AccCont0#iceberg{partitions = Ps0#{PK := Inner}},
+                AccCont = AccCont0#partitioned_aggreg{partitions = Ps0#{PK := Inner}},
                 {AccIO, AccMeta, AccCont};
-            (PK, Records, {AccIO0, AccMeta0, #iceberg{partitions = Ps0} = AccCont0}) ->
+            (PK, Records, {AccIO0, AccMeta0, #partitioned_aggreg{partitions = Ps0} = AccCont0}) ->
                 %% New partition key
                 Inner0 = emqx_bridge_s3tables_aggreg_unpartitioned:new(InnerContainerOpts),
                 {IOData, #{?num_records := N1}, Inner} =
@@ -130,7 +130,7 @@ fill_partitions(Partitions, Container0) ->
                     ),
                 AccIO = maps:put(PK, IOData, AccIO0),
                 AccMeta = maps:put(PK, #{?num_records => N1}, AccMeta0),
-                AccCont = AccCont0#iceberg{partitions = Ps0#{PK => Inner}},
+                AccCont = AccCont0#partitioned_aggreg{partitions = Ps0#{PK => Inner}},
                 {AccIO, AccMeta, AccCont}
         end,
         {#{}, #{}, Container0},
