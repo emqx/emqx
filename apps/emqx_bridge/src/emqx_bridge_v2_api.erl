@@ -1303,7 +1303,8 @@ format_bridge_info(ConfRootKey, Type, Name, [FirstBridge | _] = Bridges) ->
         node_status => NodeStatus,
         rules => lists:sort(Rules)
     },
-    redact(Res1).
+    Res2 = enrich_fallback_actions_info(Res1),
+    redact(Res2).
 
 node_status(Bridges) ->
     [maps:with([node, status, status_reason], B) || B <- Bridges].
@@ -1360,6 +1361,7 @@ summary_from_local_node_v7(ConfRootKey) ->
             CreatedAt = maps:get(<<"created_at">>, RawConfig, undefined),
             LastModifiedAt = maps:get(<<"last_modified_at">>, RawConfig, undefined),
             Description = maps:get(<<"description">>, RawConfig, <<"">>),
+            Tags = maps:get(<<"tags">>, RawConfig, []),
             IsEnabled = maps:get(<<"enable">>, RawConfig, true),
             maps:merge(
                 #{
@@ -1367,6 +1369,7 @@ summary_from_local_node_v7(ConfRootKey) ->
                     type => Type,
                     name => Name,
                     description => Description,
+                    tags => Tags,
                     enable => IsEnabled,
                     created_at => CreatedAt,
                     last_modified_at => LastModifiedAt
@@ -1550,6 +1553,26 @@ aggregate_metrics(
         M16 + N16,
         M17 + N17,
         M18 + N18
+    ).
+
+%% Called locally, not during RPC.
+enrich_fallback_actions_info(Info) ->
+    emqx_utils_maps:update_if_present(
+        <<"fallback_actions">>,
+        fun(FBAs0) ->
+            lists:map(
+                fun
+                    (#{<<"kind">> := <<"reference">>, <<"type">> := T, <<"name">> := N} = FBA) ->
+                        Tags = emqx_config:get([actions, T, N], []),
+                        FBA#{<<"tags">> => Tags};
+                    (A) ->
+                        %% Republish
+                        A
+                end,
+                FBAs0
+            )
+        end,
+        Info
     ).
 
 fill_defaults(ConfRootKey, Type, RawConf) ->
