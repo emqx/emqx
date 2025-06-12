@@ -96,10 +96,17 @@ end_per_suite(Config) ->
     reset_proxy(),
     ok.
 
-init_per_testcase(TestCase, TCConfig) ->
+init_per_testcase(TestCase, TCConfig0) ->
     reset_proxy(),
-    Path = group_path(TCConfig, no_groups),
+    Path = group_path(TCConfig0, no_groups),
     ct:print(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    TCConfig =
+        case erlang:function_exported(?MODULE, TestCase, 2) of
+            true ->
+                ?MODULE:TestCase(init, TCConfig0);
+            false ->
+                TCConfig0
+        end,
     ConnectorName = atom_to_binary(TestCase),
     ConnectorConfig = connector_config(),
     ActionName = ConnectorName,
@@ -107,6 +114,7 @@ init_per_testcase(TestCase, TCConfig) ->
     ActionConfig = action_config(#{
         <<"connector">> => ConnectorName,
         <<"parameters">> => #{
+            <<"aggregation">> => #{<<"container">> => container_opts(TCConfig)},
             <<"namespace">> => Ns,
             <<"table">> => Table
         }
@@ -125,7 +133,13 @@ init_per_testcase(TestCase, TCConfig) ->
         | TCConfig
     ].
 
-end_per_testcase(_TestCase, TCConfig) ->
+end_per_testcase(TestCase, TCConfig) ->
+    case erlang:function_exported(?MODULE, TestCase, 2) of
+        true ->
+            ?MODULE:TestCase('end', TCConfig);
+        false ->
+            ok
+    end,
     snabbkaffe:stop(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     case ?config(tc_status, TCConfig) of
@@ -195,6 +209,31 @@ action_config(Overrides) ->
     },
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
     emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+get_matrix_prop(TCConfig, Alternatives, Default) ->
+    GroupPath = group_path(TCConfig, [Default]),
+    case lists:filter(fun(G) -> lists:member(G, Alternatives) end, GroupPath) of
+        [] ->
+            Default;
+        [Opt] ->
+            Opt
+    end.
+
+container_opts(TCConfig) ->
+    case get_matrix_prop(TCConfig, [parquet, avro], avro) of
+        avro ->
+            #{<<"type">> => <<"avro">>};
+        parquet ->
+            #{<<"type">> => <<"parquet">>}
+    end.
+
+is_partitioned(TCConfig) ->
+    case get_matrix_prop(TCConfig, [partitioned, not_partitioned], not_partitioned) of
+        partitioned ->
+            true;
+        not_partitioned ->
+            false
+    end.
 
 make_client() ->
     Params = #{
@@ -356,6 +395,40 @@ simple_schema1() ->
         ]
     }.
 
+array_schema1() ->
+    #{
+        <<"type">> => <<"struct">>,
+        <<"fields">> => [
+            #{
+                <<"id">> => 1,
+                <<"name">> => <<"mylist">>,
+                <<"required">> => true,
+                <<"type">> => #{
+                    <<"type">> => <<"list">>,
+                    <<"element-id">> => 2,
+                    <<"element-required">> => true,
+                    <<"element">> => #{
+                        <<"type">> => <<"struct">>,
+                        <<"fields">> => [
+                            #{
+                                <<"id">> => 3,
+                                <<"name">> => <<"k">>,
+                                <<"type">> => <<"string">>,
+                                <<"required">> => true
+                            },
+                            #{
+                                <<"id">> => 4,
+                                <<"name">> => <<"v">>,
+                                <<"type">> => <<"long">>,
+                                <<"required">> => false
+                            }
+                        ]
+                    }
+                }
+            }
+        ]
+    }.
+
 simple_schema1_partition_spec1() ->
     #{
         <<"spec-id">> => 1,
@@ -447,7 +520,7 @@ simple_setup_table(TestCase, TCConfig) ->
     Name = <<TestCaseBin/binary, "_", (integer_to_binary(N))/binary>>,
     Namespace = [Name],
     Table = Name,
-    Schema = simple_schema1(),
+    Schema = proplists:get_value(schema, TCConfig, simple_schema1()),
     ok = ensure_namespace_created(Client, Namespace),
     ExtraOptsFn = get_tc_prop(TestCase, table_extra_opts_fn, fun(_) -> #{} end),
     ExtraOpts = ExtraOptsFn(TCConfig),
@@ -629,10 +702,10 @@ t_start_stop(Config) when is_list(Config) ->
 
 t_rule_action() ->
     TableExtraOptsFn = fun(TCConfig) ->
-        case group_path(TCConfig, [batched, not_partitioned]) of
-            [_, not_partitioned] ->
+        case is_partitioned(TCConfig) of
+            false ->
                 #{};
-            [_, partitioned] ->
+            true ->
                 #{<<"partition-spec">> => simple_schema1_partition_spec1()}
         end
     end,
@@ -642,13 +715,15 @@ t_rule_action() ->
     ].
 t_rule_action(matrix) ->
     [
-        [batched, not_partitioned],
-        [not_batched, not_partitioned],
-        [batched, partitioned]
+        [batched, not_partitioned, avro],
+        [not_batched, not_partitioned, avro],
+        [batched, partitioned, avro],
+        [not_batched, not_partitioned, parquet],
+        [batched, partitioned, parquet]
     ];
 t_rule_action(Config) when is_list(Config) ->
     ct:timetrap({seconds, 15}),
-    [IsBatched, IsPartitioned] = group_path(Config, [batched, not_partitioned]),
+    [IsBatched, IsPartitioned, _] = group_path(Config, [batched, not_partitioned, avro]),
     Ns = emqx_bridge_v2_testlib:get_value(namespace, Config),
     Table = emqx_bridge_v2_testlib:get_value(table, Config),
     RuleTopic = atom_to_binary(?FUNCTION_NAME),
@@ -1707,6 +1782,116 @@ t_convert_connector_tls_certs(Config) ->
         }),
         #{expected_prefix => ExpectedPrefix}
     ),
+    ok.
+
+t_avro_lists() ->
+    [{matrix, true}].
+t_avro_lists(init, TCConfig) ->
+    [{schema, array_schema1()} | TCConfig];
+t_avro_lists('end', _TCConfig) ->
+    ok.
+t_avro_lists(matrix) ->
+    [[avro]];
+t_avro_lists(TCConfig) when is_list(TCConfig) ->
+    Ns = get_config(namespace, TCConfig),
+    Table = get_config(table, TCConfig),
+    RuleTopic = atom_to_binary(?FUNCTION_NAME),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    Opts = #{
+        sql => render(<<"select payload.mylist as mylist from \"${t}\" ">>, #{t => RuleTopic})
+    },
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(
+        ?ACTION_TYPE, RuleTopic, TCConfig, Opts
+    ),
+    Payloads = [
+        #{
+            <<"mylist">> => [
+                #{<<"k">> => <<"k1">>, <<"v">> => 123},
+                #{<<"k">> => <<"k2">>, <<"v">> => null}
+            ]
+        }
+    ],
+    ct:timetrap({seconds, 10}),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            parallel_publish(RuleTopic, Payloads),
+            #{?snk_kind := connector_aggreg_delivery_completed, transfer := T} when
+                T /= empty
+        ),
+    ?retry(200, 10, begin
+        Rows0 = scan_table(Ns, Table),
+        Rows = lists:sort(fun(#{<<"col_str">> := A}, #{<<"col_str">> := B}) -> A =< B end, Rows0),
+        ?assertMatch(
+            [
+                #{
+                    <<"mylist">> := [
+                        #{<<"k">> := <<"k1">>, <<"v">> := 123},
+                        #{<<"k">> := <<"k2">>, <<"v">> := null}
+                    ]
+                }
+            ],
+            Rows
+        )
+    end),
+    ok.
+
+t_parquet_3level_lists() ->
+    [{matrix, true}].
+t_parquet_3level_lists(init, TCConfig) ->
+    [{schema, array_schema1()} | TCConfig];
+t_parquet_3level_lists('end', _TCConfig) ->
+    ok.
+t_parquet_3level_lists(matrix) ->
+    [[parquet]];
+t_parquet_3level_lists(TCConfig) when is_list(TCConfig) ->
+    Ns = get_config(namespace, TCConfig),
+    Table = get_config(table, TCConfig),
+    RuleTopic = atom_to_binary(?FUNCTION_NAME),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    Opts = #{
+        sql => render(<<"select payload.mylist as mylist from \"${t}\" ">>, #{t => RuleTopic})
+    },
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(
+        ?ACTION_TYPE, RuleTopic, TCConfig, Opts
+    ),
+    Payloads = [
+        #{
+            %% The payloads must conform to 3-level lists
+            %% https://iceberg.apache.org/spec/#parquet
+            <<"mylist">> => #{
+                %% This key is always called `list`.
+                <<"list">> => [
+                    %% This key is always called `element`.
+                    #{<<"element">> => #{<<"k">> => <<"k1">>, <<"v">> => 123}},
+                    #{<<"element">> => #{<<"k">> => <<"k2">>, <<"v">> => null}}
+                ]
+            }
+        }
+    ],
+    ct:timetrap({seconds, 10}),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            parallel_publish(RuleTopic, Payloads),
+            #{?snk_kind := connector_aggreg_delivery_completed, transfer := T} when
+                T /= empty
+        ),
+    ?retry(200, 10, begin
+        Rows0 = scan_table(Ns, Table),
+        Rows = lists:sort(fun(#{<<"col_str">> := A}, #{<<"col_str">> := B}) -> A =< B end, Rows0),
+        ?assertMatch(
+            [
+                #{
+                    <<"mylist">> := [
+                        #{<<"k">> := <<"k1">>, <<"v">> := 123},
+                        #{<<"k">> := <<"k2">>, <<"v">> := null}
+                    ]
+                }
+            ],
+            Rows
+        )
+    end),
     ok.
 
 %% More test ideas:

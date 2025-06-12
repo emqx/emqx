@@ -47,4 +47,40 @@ emqx_bridge_s3tables_action_schema {
     """Table to be used with this action."""
   }
 
+  aggregation_container {
+    label: """Data File Format"""
+    desc:
+    """Options for configuring the data file format to be used."""
+  }
+
+  container_avro {
+    label: """Avro Data File"""
+    desc:
+    """Use Avro for encoding data files."""
+  }
+
+  container_parquet {
+    label: """Parquet Data File"""
+    desc:
+    """Use Parquet for encoding data files."""
+  }
+
+  container_type_avro {
+    label: """Avro Data File"""
+    desc:
+    """Use Avro for encoding data files."""
+  }
+
+  container_type_parquet {
+    label: """Parquet Data File"""
+    desc:
+    """Use Parquet for encoding data files."""
+  }
+
+  container_parquet_max_row_group_bytes {
+    label: """Parquet Max Row Group Bytes"""
+    desc:
+    """The size above which row groups are flushed.  The actual triggering of row group flushes uses estimates of the buffered data sizes, since the actual output may differ in size from the raw input data size."""
+  }
+
 }

@@ -10,6 +10,8 @@ Does not quite match the API of `emqx_connector_aggregator`, though, because we 
 keep track of extra metadata for each fill.
 """.
 
+-behaviour(emqx_bridge_s3tables_aggreg_unpartitioned).
+
 %% Quasi-`emqx_connector_aggreg_container' API
 -export([
     new/1,
@@ -85,6 +87,6 @@ fill(Records, #avro{} = Container) ->
     WriteMetadata = #{?num_records => NumRecords},
     {Block, WriteMetadata, Container}.
 
--spec close(container()) -> {iodata(), map()}.
+-spec close(container()) -> iodata().
 close(#avro{}) ->
-    {[], #{?num_records => 0}}.
+    [].
