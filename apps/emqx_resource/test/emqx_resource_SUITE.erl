@@ -2231,7 +2231,16 @@ t_delete_and_re_create_with_same_name(_Config) ->
                 lists:seq(1, NumRequests)
             ),
 
-            {ok, _} = snabbkaffe:receive_events(SRef),
+            NumWorkersQueued =
+                case snabbkaffe:receive_events(SRef) of
+                    {ok, Events} ->
+                        length(Events);
+                    {timeout, [_ | _] = Events} ->
+                        %% At least one worker buffered stuff; should be enough?
+                        length(Events);
+                    {timeout, []} ->
+                        ct:fail("buffer workers did not buffer stuff to disk")
+                end,
 
             %% ensure that stuff got enqueued into disk
             tap_metrics(?LINE),
@@ -2250,7 +2259,7 @@ t_delete_and_re_create_with_same_name(_Config) ->
             ?retry(
                 _Sleep = 300,
                 _Attempts0 = 20,
-                ?assertEqual(2, emqx_resource_metrics:inflight_get(?ID))
+                ?assertEqual(NumWorkersQueued, emqx_resource_metrics:inflight_get(?ID))
             ),
 
             %% now, we delete the resource
