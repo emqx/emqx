@@ -2047,17 +2047,41 @@ t_fallback_actions_returned_info(Config) ->
         }
     ),
     ?assertMatch(
-        {201, #{<<"fallback_actions">> := [#{<<"kind">> := <<"reference">>}]}},
+        {201, #{
+            <<"fallback_actions">> := [
+                #{
+                    <<"kind">> := <<"reference">>,
+                    <<"tags">> := _
+                }
+            ]
+        }},
         create_action_api(ReferencingName, Type, ActionConfig)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"fallback_actions">> := [
+                #{
+                    <<"kind">> := <<"reference">>,
+                    <<"tags">> := _
+                }
+            ]
+        }},
+        update_action_api(
+            ReferencingName,
+            Type,
+            maps:without([<<"type">>, <<"name">>], ActionConfig)
+        )
     ),
     ?assertMatch(
         {200, [
             #{
                 <<"name">> := ReferencingName,
+                <<"tags">> := _,
                 <<"referenced_as_fallback_action_by">> := []
             },
             #{
                 <<"name">> := ReferencedName,
+                <<"tags">> := _,
                 <<"referenced_as_fallback_action_by">> := [
                     #{
                         <<"type">> := Type,
