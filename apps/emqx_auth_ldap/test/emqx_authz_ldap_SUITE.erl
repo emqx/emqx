@@ -71,7 +71,7 @@ t_create_invalid(_Config) ->
     ),
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [BadConfig]),
 
-    [_] = emqx_authz:lookup().
+    [_] = emqx_authz:lookup_states().
 
 t_node_cache(_Config) ->
     ClientInfo = #{username => <<"mqttuser0001">>, cn => <<"mqttUser">>},

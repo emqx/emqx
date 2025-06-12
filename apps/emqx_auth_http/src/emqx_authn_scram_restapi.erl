@@ -38,40 +38,36 @@
 create(_AuthenticatorID, Config) ->
     create(Config).
 
-create(Config0) ->
-    emqx_authn_http:with_validated_config(Config0, fun(Config, State) ->
+create(Config) ->
+    maybe
         ResourceId = emqx_authn_utils:make_resource_id(
             iolist_to_binary([?AUTHN_MECHANISM_SCRAM_BIN, ":", ?AUTHN_BACKEND_BIN])
         ),
-        % {Config, State} = parse_config(Config0),
-        {ok, _Data} = emqx_authn_utils:create_resource(
-            ResourceId,
-            emqx_bridge_http_connector,
-            Config,
-            ?AUTHN_MECHANISM_SCRAM_BIN,
-            ?AUTHN_BACKEND_BIN
-        ),
-        {ok, merge_scram_conf(Config, State#{resource_id => ResourceId})}
-    end).
-
-update(Config0, #{resource_id := ResourceId} = _State) ->
-    emqx_authn_http:with_validated_config(Config0, fun(Config, NState) ->
-        % {Config, NState} = parse_config(Config0),
-        case
-            emqx_authn_utils:update_resource(
+        {ok, ResourceConfig, State} ?= create_state(ResourceId, Config),
+        ok ?=
+            emqx_authn_utils:create_resource(
                 emqx_bridge_http_connector,
-                Config,
-                ResourceId,
+                ResourceConfig,
+                State,
                 ?AUTHN_MECHANISM_SCRAM_BIN,
                 ?AUTHN_BACKEND_BIN
-            )
-        of
-            {error, Reason} ->
-                error({load_config_error, Reason});
-            {ok, _} ->
-                {ok, merge_scram_conf(Config, NState#{resource_id => ResourceId})}
-        end
-    end).
+            ),
+        {ok, State}
+    end.
+
+update(Config0, #{resource_id := ResourceId} = _State) ->
+    maybe
+        {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
+        ok ?=
+            emqx_authn_utils:update_resource(
+                emqx_bridge_http_connector,
+                ResourceConfig,
+                State,
+                ?AUTHN_MECHANISM_SCRAM_BIN,
+                ?AUTHN_BACKEND_BIN
+            ),
+        {ok, State}
+    end.
 
 authenticate(
     #{
@@ -180,5 +176,9 @@ safely_convert_hex(Required) ->
             {error, Reason}
     end.
 
-merge_scram_conf(Conf, State) ->
-    maps:merge(maps:with([algorithm, iteration_count], Conf), State).
+create_state(ResourceId, Config) ->
+    maybe
+        {ok, ResourceConfig, State0} ?= emqx_authn_http:create_state(ResourceId, Config),
+        State = maps:merge(State0, maps:with([algorithm, iteration_count], Config)),
+        {ok, ResourceConfig, State}
+    end.

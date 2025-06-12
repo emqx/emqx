@@ -52,7 +52,8 @@ t_hmac_based(_) ->
         secret => Secret,
         secret_base64_encoded => false,
         verify_claims => [{<<"username">>, <<"${username}">>}],
-        disconnect_after_expire => false
+        disconnect_after_expire => false,
+        enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
@@ -172,11 +173,11 @@ t_public_key(_) ->
         from => password,
         acl_claim_name => <<"acl">>,
         use_jwks => false,
-        enable => true,
         algorithm => 'public-key',
         public_key => PublicKey,
         verify_claims => [],
-        disconnect_after_expire => false
+        disconnect_after_expire => false,
+        enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
@@ -202,7 +203,8 @@ t_bad_public_keys(_) ->
         use_jwks => false,
         algorithm => 'public-key',
         verify_claims => [],
-        disconnect_after_expire => false
+        disconnect_after_expire => false,
+        enable => true
     },
 
     %% try create with invalid public key
@@ -234,7 +236,9 @@ t_bad_public_keys(_) ->
 
     %% assume jwk authenticator is disabled
     {ok, State} =
-        emqx_authn_jwt:create(?AUTHN_ID, BaseConfig#{public_key => <<"bad_public_key">>}),
+        emqx_authn_jwt:create(?AUTHN_ID, BaseConfig#{
+            public_key => <<"bad_public_key">>, enable => false
+        }),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
@@ -250,7 +254,8 @@ t_jwt_in_username(_) ->
         secret => Secret,
         secret_base64_encoded => false,
         verify_claims => [],
-        disconnect_after_expire => false
+        disconnect_after_expire => false,
+        enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
@@ -273,7 +278,8 @@ t_complex_template(_) ->
         secret => Secret,
         secret_base64_encoded => false,
         verify_claims => [{<<"id">>, <<"${username}-${clientid}">>}],
-        disconnect_after_expire => false
+        disconnect_after_expire => false,
+        enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 
@@ -318,7 +324,8 @@ t_jwks_renewal(_Config) ->
         endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
         headers => #{<<"Accept">> => <<"application/json">>},
         refresh_interval => 1000,
-        pool_size => 1
+        pool_size => 1,
+        enable => true
     },
 
     ok = snabbkaffe:start_trace(),
@@ -399,6 +406,51 @@ t_jwks_renewal(_Config) ->
     ),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State2)),
+    ok = emqx_utils_http_test_server:stop().
+
+t_jwks_resource_status(_Config) ->
+    {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
+    ok = emqx_utils_http_test_server:set_handler(fun jwks_handler/2),
+
+    %% Config with enable => true
+    ConfigEnabled = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        algorithm => 'public-key',
+        ssl => client_ssl_opts(),
+        verify_claims => [],
+        disconnect_after_expire => false,
+        use_jwks => true,
+        endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT) ++ ?JWKS_PATH,
+        headers => #{<<"Accept">> => <<"application/json">>},
+        refresh_interval => 1000,
+        pool_size => 1,
+        enable => true
+    },
+    ConfigDisabled = ConfigEnabled#{enable => false},
+
+    %% Create the authenticator with enable => true, the jwks resource should be running
+    {ok, #{resource_id := ResourceId0} = State0} = emqx_authn_jwt:create(?AUTHN_ID, ConfigEnabled),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId0)),
+
+    %% Update the authenticator with enable => false, the jwks resource should be stopped
+    {ok, #{resource_id := ResourceId0} = State1} = emqx_authn_jwt:update(ConfigDisabled, State0),
+    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(ResourceId0)),
+
+    %% Clean up
+    ok = emqx_authn_jwt:destroy(State1),
+
+    %% Now, start the authenticator in disabled state, and update it to enabled state
+    {ok, #{resource_id := ResourceId1} = State2} = emqx_authn_jwt:create(
+        ?AUTHN_ID, ConfigDisabled
+    ),
+    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(ResourceId1)),
+    {ok, #{resource_id := ResourceId1} = State3} = emqx_authn_jwt:update(ConfigEnabled, State2),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId1)),
+
+    %% Clean up
+    ok = emqx_authn_jwt:destroy(State3),
     ok = emqx_utils_http_test_server:stop().
 
 t_jwks_custom_headers(_Config) ->
@@ -515,7 +567,8 @@ t_jwks_config_update(_Config) ->
         endpoint => "https://127.0.0.1:" ++ integer_to_list(?JWKS_PORT + 1) ++ ?JWKS_PATH,
         headers => #{<<"Accept">> => <<"application/json">>},
         refresh_interval => 1000,
-        pool_size => 1
+        pool_size => 1,
+        enable => true
     },
 
     %% Wait till the jwks are ready
@@ -573,7 +626,8 @@ t_jwks_verify_hostname(Config) ->
         endpoint => <<"https://www.googleapis.com/oauth2/v3/certs">>,
         headers => #{<<"Accept">> => <<"application/json">>},
         refresh_interval => 1000,
-        pool_size => 1
+        pool_size => 1,
+        enable => true
     },
 
     %% Wait till the jwks are ready
@@ -600,7 +654,8 @@ t_verify_claims(_) ->
         secret => Secret,
         secret_base64_encoded => false,
         verify_claims => [{<<"foo">>, <<"bar">>}],
-        disconnect_after_expire => false
+        disconnect_after_expire => false,
+        enable => true
     },
     {ok, State0} = emqx_authn_jwt:create(?AUTHN_ID, Config0),
 
@@ -691,7 +746,8 @@ t_verify_claim_clientid(_) ->
         secret => Secret,
         secret_base64_encoded => false,
         verify_claims => [{<<"cl">>, <<"${clientid}">>}],
-        disconnect_after_expire => false
+        disconnect_after_expire => false,
+        enable => true
     },
     {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
 

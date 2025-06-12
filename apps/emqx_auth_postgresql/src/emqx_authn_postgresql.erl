@@ -30,28 +30,32 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
-    {Config, State} = parse_config(Config0, ResourceId),
-    {ok, _Data} = emqx_authn_utils:create_resource(
-        ResourceId,
-        emqx_postgresql,
-        Config,
-        ?AUTHN_MECHANISM_BIN,
-        ?AUTHN_BACKEND_BIN
-    ),
-    {ok, State#{resource_id => ResourceId}}.
+    maybe
+        ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
+        {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
+        ok ?=
+            emqx_authn_utils:create_resource(
+                emqx_postgresql,
+                ResourceConfig,
+                State,
+                ?AUTHN_MECHANISM_BIN,
+                ?AUTHN_BACKEND_BIN
+            ),
+        {ok, State}
+    end.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
-    {Config, NState} = parse_config(Config0, ResourceId),
-    case
-        emqx_authn_utils:update_resource(
-            emqx_postgresql, Config, ResourceId, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
-        )
-    of
-        {error, Reason} ->
-            error({load_config_error, Reason});
-        {ok, _} ->
-            {ok, NState#{resource_id => ResourceId}}
+    maybe
+        {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
+        ok ?=
+            emqx_authn_utils:update_resource(
+                emqx_postgresql,
+                ResourceConfig,
+                State,
+                ?AUTHN_MECHANISM_BIN,
+                ?AUTHN_BACKEND_BIN
+            ),
+        {ok, State}
     end.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -102,19 +106,23 @@ authenticate(
             ignore
     end.
 
-parse_config(
+create_state(
+    ResourceId,
     #{
         query := Query0,
         password_hash_algorithm := Algorithm
-    } = Config,
-    ResourceId
+    } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
     {Vars, Query, PlaceHolders} = emqx_authn_utils:parse_sql(Query0, '$n'),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    State = #{
+    State = emqx_authn_utils:init_state(Config, #{
         placeholders => PlaceHolders,
         password_hash_algorithm => Algorithm,
-        cache_key_template => CacheKeyTemplate
-    },
-    {Config#{prepare_statement => #{ResourceId => Query}}, State}.
+        cache_key_template => CacheKeyTemplate,
+        resource_id => ResourceId
+    }),
+    ResourceConfig = emqx_authn_utils:cleanup_resource_config(
+        [query, password_hash_algorithm], Config
+    ),
+    {ok, ResourceConfig#{prepare_statement => #{ResourceId => Query}}, State}.

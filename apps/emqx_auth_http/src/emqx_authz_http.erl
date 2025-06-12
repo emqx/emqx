@@ -9,7 +9,7 @@
 %% AuthZ Callbacks
 -export([
     create/1,
-    update/1,
+    update/2,
     destroy/1,
     authorize/4,
     format_for_api/1
@@ -49,26 +49,19 @@
     ?VAR_RETAIN
 ]).
 
-create(Config) ->
-    #{annotations := Annotations} = NConfig = parse_config(Config),
+create(Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
-    {ok, _Data} = emqx_authz_utils:create_resource(
-        ResourceId,
-        emqx_bridge_http_connector,
-        NConfig,
-        ?AUTHZ_TYPE
-    ),
-    NConfig#{annotations => Annotations#{id => ResourceId}}.
+    State = new_state(ResourceId, Source),
+    ok = emqx_authz_utils:create_resource(emqx_bridge_http_connector, State),
+    State.
 
-update(Config) ->
-    #{annotations := Annotations} = NConfig = parse_config(Config),
-    case emqx_authz_utils:update_resource(emqx_bridge_http_connector, NConfig, ?AUTHZ_TYPE) of
-        {error, Reason} -> error({load_config_error, Reason});
-        {ok, Id} -> NConfig#{annotations => Annotations#{id => Id}}
-    end.
+update(#{resource_id := ResourceId} = _State, Source) ->
+    State = new_state(ResourceId, Source),
+    ok = emqx_authz_utils:update_resource(emqx_bridge_http_connector, State),
+    State.
 
-destroy(#{annotations := #{id := Id}}) ->
-    emqx_authz_utils:remove_resource(Id).
+destroy(#{resource_id := ResourceId}) ->
+    emqx_authz_utils:remove_resource(ResourceId).
 
 authorize(
     Client,
@@ -76,13 +69,14 @@ authorize(
     Topic,
     #{
         type := http,
-        annotations := #{id := ResourceId, cache_key_template := CacheKeyTemplate},
+        resource_id := ResourceId,
+        cache_key_template := CacheKeyTemplate,
         method := Method,
         request_timeout := RequestTimeout
-    } = Config
+    } = State
 ) ->
     Values = client_vars(Client, Action, Topic),
-    case emqx_auth_http_utils:generate_request(Config, Values) of
+    case emqx_auth_http_utils:generate_request(State, Values) of
         {ok, Request} ->
             CacheKey = emqx_auth_template:cache_key(Values, CacheKeyTemplate),
             Response = emqx_authz_utils:cached_simple_sync_query(
@@ -157,15 +151,15 @@ log_nomtach_msg(Status, Headers, Body) ->
         }
     ).
 
-parse_config(
+new_state(
+    ResourceId,
     #{
         url := RawUrl,
         method := Method,
         headers := Headers0,
         request_timeout := ReqTimeout
-    } = Conf
+    } = Source
 ) ->
-    Annotations = maps:get(annotations, Conf, #{}),
     {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
     {BasePathVars, BasePathTemplate} = emqx_auth_template:parse_str(Path, ?ALLOWED_VARS),
     {BaseQueryVars, BaseQueryTemplate} = emqx_auth_template:parse_deep(
@@ -174,25 +168,31 @@ parse_config(
     ),
     {BodyVars, BodyTemplate} =
         emqx_auth_template:parse_deep(
-            emqx_utils_maps:binary_key_map(maps:get(body, Conf, #{})),
+            emqx_utils_maps:binary_key_map(maps:get(body, Source, #{})),
             ?ALLOWED_VARS
         ),
     Headers = maps:to_list(emqx_auth_http_utils:transform_header_name(Headers0)),
     {HeadersVars, HeadersTemplate} = emqx_authn_utils:parse_deep(Headers),
     Vars = BasePathVars ++ BaseQueryVars ++ BodyVars ++ HeadersVars,
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    Conf#{
+    ResourceConfig = emqx_authz_utils:cleanup_resource_config(
+        [url, method, request_timeout, body],
+        Source#{
+            request_base => RequestBase,
+            pool_type => random
+        }
+    ),
+    emqx_authz_utils:init_state(Source, #{
+        resource_config => ResourceConfig,
+        resource_id => ResourceId,
         method => Method,
-        request_base => RequestBase,
-        headers => HeadersTemplate,
+        headers_template => HeadersTemplate,
         base_path_template => BasePathTemplate,
         base_query_template => BaseQueryTemplate,
         body_template => BodyTemplate,
         request_timeout => ReqTimeout,
-        annotations => Annotations#{cache_key_template => CacheKeyTemplate},
-        %% pool_type default value `random`
-        pool_type => random
-    }.
+        cache_key_template => CacheKeyTemplate
+    }).
 
 client_vars(Client, Action, Topic) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),

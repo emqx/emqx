@@ -4,6 +4,8 @@
 
 -module(emqx_authn_mongodb).
 
+-behaviour(emqx_authn_provider).
+
 -export([
     create/2,
     update/2,
@@ -22,28 +24,32 @@ create(_AuthenticatorID, Config) ->
     create(Config).
 
 create(Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
-    {Config, State} = parse_config(Config0),
-    {ok, _Data} = emqx_authn_utils:create_resource(
-        ResourceId,
-        emqx_mongodb,
-        Config,
-        ?AUTHN_MECHANISM_BIN,
-        ?AUTHN_BACKEND_BIN
-    ),
-    {ok, State#{resource_id => ResourceId}}.
+    maybe
+        ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
+        {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
+        ok ?=
+            emqx_authn_utils:create_resource(
+                emqx_mongodb,
+                ResourceConfig,
+                State,
+                ?AUTHN_MECHANISM_BIN,
+                ?AUTHN_BACKEND_BIN
+            ),
+        {ok, State}
+    end.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
-    {Config, NState} = parse_config(Config0),
-    case
-        emqx_authn_utils:update_resource(
-            emqx_mongodb, Config, ResourceId, ?AUTHN_MECHANISM_BIN, ?AUTHN_BACKEND_BIN
-        )
-    of
-        {error, Reason} ->
-            error({load_config_error, Reason});
-        {ok, _} ->
-            {ok, NState#{resource_id => ResourceId}}
+    maybe
+        {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
+        ok ?=
+            emqx_authn_utils:update_resource(
+                emqx_mongodb,
+                ResourceConfig,
+                State,
+                ?AUTHN_MECHANISM_BIN,
+                ?AUTHN_BACKEND_BIN
+            ),
+        {ok, State}
     end.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -116,10 +122,30 @@ authenticate_with_filter(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-parse_config(#{filter := Filter} = Config) ->
+create_state(ResourceId, #{filter := Filter} = Config) ->
     {Vars, FilterTemplate} = emqx_authn_utils:parse_deep(emqx_utils_maps:binary_key_map(Filter)),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    State = maps:with(
+    State0 = emqx_authn_utils:init_state(
+        Config,
+        maps:with(
+            [
+                collection,
+                password_hash_field,
+                salt_field,
+                is_superuser_field,
+                password_hash_algorithm,
+                salt_position
+            ],
+            Config
+        )
+    ),
+    State = State0#{
+        filter_template => FilterTemplate,
+        cache_key_template => CacheKeyTemplate,
+        resource_id => ResourceId
+    },
+    ok = emqx_authn_password_hashing:init(maps:get(password_hash_algorithm, State)),
+    ResourceConfig = emqx_authn_utils:cleanup_resource_config(
         [
             collection,
             password_hash_field,
@@ -130,8 +156,7 @@ parse_config(#{filter := Filter} = Config) ->
         ],
         Config
     ),
-    ok = emqx_authn_password_hashing:init(maps:get(password_hash_algorithm, State)),
-    {Config, State#{filter_template => FilterTemplate, cache_key_template => CacheKeyTemplate}}.
+    {ok, ResourceConfig, State}.
 
 check_password(undefined, _Selected, _State) ->
     {error, bad_username_or_password};
