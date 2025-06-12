@@ -231,6 +231,7 @@ jobs:
       ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}
       ct-host: ${{ needs.prepare.outputs.ct-host }}
       ct-docker: ${{ needs.prepare.outputs.ct-docker }}
+    secrets: inherit
 
   run_conf_tests:
     if: needs.prepare.outputs.release != 'true'
