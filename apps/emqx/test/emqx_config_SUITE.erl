@@ -60,8 +60,8 @@ t_fill_default_values(C) when is_list(C) ->
                     <<"enable_session_registry">> := true,
                     <<"perf">> :=
                         #{
-                            <<"route_lock_type">> := <<"key">>,
-                            <<"trie_compaction">> := true
+                            <<"async_fanout_shard_dispatch">> := false,
+                            <<"route_lock_type">> := <<"key">>
                         },
                     <<"route_batch_clean">> := false,
                     <<"session_history_retain">> := <<"0s">>

@@ -15,7 +15,7 @@
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
 
--export([start_link/2, create_tabs/0]).
+-export([start_link/2, create_tabs/0, init_config/0]).
 
 %% PubSub
 -export([
@@ -77,6 +77,8 @@
 %% Guards
 -define(IS_SUBID(Id), (is_binary(Id) orelse is_atom(Id))).
 
+-define(PT_FLAG_ASYNC_SHARD_DISPATCH, async_fanout_shard_dispatch).
+
 -define(cast_or_eval(PICK, Msg, Expr),
     case PICK of
         __X_Pid when __X_Pid =:= self() ->
@@ -125,6 +127,15 @@ create_tabs() ->
     %% However, the factor is small: high-fanout topics are _sharded_ into
     %% buckets of constant length (e.g. 1024).
     ok = emqx_utils_ets:new(?SUBSCRIBER, [bag | TabOpts]).
+
+-spec init_config() -> ok.
+init_config() ->
+    %% NOTE
+    %% Cache in persistent term, to avoid `emqx:get_config/2` in hot paths.
+    persistent_term:put(
+        ?PT_FLAG_ASYNC_SHARD_DISPATCH,
+        emqx:get_config([broker, perf, async_fanout_shard_dispatch], false)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Subscribe API
@@ -728,9 +739,16 @@ code_change(_OldVsn, State, _Extra) ->
 do_dispatch2(Topic, #delivery{message = MsgIn}) ->
     ?BROKER_INSTR_TS(T0),
     ?BROKER_INSTR_BIND(Msg, MsgIn, MsgIn#message{extra = T0}),
+    AsyncDispatch = persistent_term:get(?PT_FLAG_ASYNC_SHARD_DISPATCH, false),
+    Deliver = {deliver, Topic, Msg},
     Shards = lookup_value(?SUBSCRIBER, {shard, Topic}, []),
-    DispN0 = do_dispatch_shards(Topic, Msg, Shards, 0),
-    DispN = do_dispatch_chans({deliver, Topic, Msg}, subscribers(Topic), DispN0),
+    case AsyncDispatch of
+        false ->
+            DispN0 = do_dispatch_shards(Topic, Deliver, Shards, 0);
+        true ->
+            DispN0 = do_dispatch_shards_async(Topic, Msg, Shards, 0)
+    end,
+    DispN = do_dispatch_chans(Deliver, subscribers(Topic), DispN0),
     ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
     case DispN of
         0 ->
@@ -749,15 +767,21 @@ do_dispatch_chans(Deliver, [SubPid | Rest], N) ->
 do_dispatch_chans(_Deliver, [], N) ->
     N.
 
-do_dispatch_shards(Topic, Msg, [I | Rest], N) ->
+do_dispatch_shards(Topic, Deliver, [I | Rest], N0) ->
+    N = do_dispatch_chans(Deliver, subscribers({shard, Topic, I}), N0),
+    do_dispatch_shards(Topic, Deliver, Rest, N);
+do_dispatch_shards(_Topic, _Deliver, [], N) ->
+    N.
+
+do_dispatch_shards_async(Topic, Msg, [I | Rest], N) ->
     %% Dispatching to sharded subscribers concurrently + asynchronously.
     %% Ordering guarantees should still hold:
     %% * Each subscriber is part of exactly one shard.
     %% * Each topic-shard is always dispatched through the same process.
     cast(pick({Topic, I}), {dispatch, Topic, I, Msg}),
     %% Assuming shard is non-empty.
-    do_dispatch_shards(Topic, Msg, Rest, N + 1);
-do_dispatch_shards(_Topic, _Msg, [], N) ->
+    do_dispatch_shards_async(Topic, Msg, Rest, N + 1);
+do_dispatch_shards_async(_Topic, _Msg, [], N) ->
     N.
 
 %%
