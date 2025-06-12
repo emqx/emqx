@@ -46,7 +46,7 @@ services:
   ## 7890 for nREPL access
 
   query:
-    image: ghcr.io/emqx/spark-query:1.0.4
+    image: ghcr.io/emqx/spark-query:1.0.7
     container_name: query
     networks:
       emqx_bridge:

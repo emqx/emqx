@@ -304,6 +304,7 @@ create_channel(ChanResId, ActionConfig, ConnState) ->
         bridge_name := Name,
         parameters := #{
             aggregation := #{
+                container := #{type := ContainerType} = WriterOpts,
                 max_records := MaxRecords,
                 time_interval := TimeInterval
             },
@@ -325,7 +326,9 @@ create_channel(ChanResId, ActionConfig, ConnState) ->
         ?location_client => LocClient,
         ?client => Client,
         ?namespace => Namespace,
-        ?table => Table
+        ?table => Table,
+        ?container_type => ContainerType,
+        ?writer_opts => WriterOpts
     },
     DeliveryOpts = #{
         callback_module => emqx_bridge_s3tables_delivery,

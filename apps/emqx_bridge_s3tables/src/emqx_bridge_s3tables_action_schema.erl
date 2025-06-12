@@ -88,7 +88,7 @@ fields(s3_upload) ->
 fields(aggregation) ->
     [
         {time_interval,
-            hoconsc:mk(
+            mk(
                 emqx_schema:duration_s(),
                 #{
                     required => false,
@@ -97,13 +97,52 @@ fields(aggregation) ->
                 }
             )},
         {max_records,
-            hoconsc:mk(
+            mk(
                 pos_integer(),
                 #{
                     required => false,
                     default => 100_000,
                     desc => ?DESC("aggregation_max_records")
                 }
+            )},
+        {container,
+            mk(
+                emqx_schema:mkunion(
+                    type,
+                    #{
+                        <<"avro">> => ref(container_avro),
+                        <<"parquet">> => ref(container_parquet)
+                    },
+                    avro
+                ),
+                #{
+                    default => #{<<"type">> => <<"avro">>},
+                    desc => ?DESC("aggregation_container")
+                }
+            )}
+    ];
+fields(container_avro) ->
+    [{type, mk(avro, #{desc => ?DESC("container_type_avro")})}];
+fields(container_parquet) ->
+    [
+        {type, mk(parquet, #{desc => ?DESC("container_type_parquet")})},
+        {write_old_list_structure,
+            mk(boolean(), #{default => false, importance => ?IMPORTANCE_HIDDEN})},
+        {enable_dictionary, mk(boolean(), #{default => false, importance => ?IMPORTANCE_HIDDEN})},
+        {default_compression,
+            mk(
+                hoconsc:enum([none, zstd, snappy]),
+                #{default => zstd, importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {data_page_header_version,
+            mk(
+                hoconsc:enum([1, 2]),
+                #{default => 2, importance => ?IMPORTANCE_HIDDEN}
+            )},
+        {max_row_group_bytes,
+            mk(
+                emqx_schema:bytesize(),
+                #{default => <<"128MB">>, desc => ?DESC("container_parquet_max_row_group_bytes")}
             )}
     ];
 fields(action_resource_opts) ->
@@ -118,6 +157,8 @@ desc(Name) when
     Name =:= action_parameters;
     Name =:= aggregation;
     Name =:= s3_upload;
+    Name =:= container_avro;
+    Name =:= container_parquet;
     Name =:= parameters
 ->
     ?DESC(Name);
