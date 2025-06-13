@@ -11,7 +11,7 @@ permissions:
 jobs:
   init:
     if: github.repository == 'emqx/emqx'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     outputs:
       BUILDER_master: ${{ steps.env.outputs.BUILDER_master }}
       BUILDER_release-58: ${{ steps.env.outputs.BUILDER_release-58 }}
@@ -37,7 +37,7 @@ jobs:
 
   analyze:
     if: github.repository == 'emqx/emqx'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
       actions: read

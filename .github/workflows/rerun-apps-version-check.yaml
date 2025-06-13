@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   rerun-apps-version-check:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
     permissions:
       pull-requests: read

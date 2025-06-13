@@ -121,7 +121,7 @@ jobs:
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
 
   compile:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral-xl","linux","x64"]') }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
     container: ${{ needs.init.outputs.BUILDER }}
     needs:
       - init
@@ -150,12 +150,12 @@ jobs:
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
           make ${PROFILE}-rel
-      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
           retention-days: 7
-      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: "${{ matrix.profile }}-schema-dump"
           path: |
@@ -190,6 +190,7 @@ jobs:
       ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
       ct-host: ${{ needs.sanity-checks.outputs.ct-host }}
       ct-docker: ${{ needs.sanity-checks.outputs.ct-docker }}
+    secrets: inherit
 
   static_checks:
     needs:
