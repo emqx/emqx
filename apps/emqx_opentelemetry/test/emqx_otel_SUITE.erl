@@ -1863,7 +1863,10 @@ enabled_trace_conf(TcConfig) ->
     }.
 
 exporter_conf(TcConfig) ->
-    #{<<"endpoint">> => ?config(otel_collector_url, TcConfig)}.
+    #{
+        <<"endpoint">> => ?config(otel_collector_url, TcConfig),
+        <<"headers">> => #{<<"authorization">> => <<"Basic YWRtaW46cHVibGlj">>}
+    }.
 
 filter_conf(TcConfig) ->
     TrcaeMode = ?config(otel_trace_mode, TcConfig),
