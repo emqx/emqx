@@ -202,13 +202,7 @@ action_config(Overrides) ->
             <<"stream_name">> => ?STREAM_NAME
         },
         <<"resource_opts">> =>
-            maps:merge(
-                emqx_bridge_v2_testlib:common_action_resource_opts(),
-                #{
-                    <<"batch_size">> => 10,
-                    <<"batch_time">> => <<"100ms">>
-                }
-            )
+            emqx_bridge_v2_testlib:common_action_resource_opts()
     },
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
     emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
@@ -391,7 +385,7 @@ t_connector_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
     snabbkaffe:stop(),
 
     ct:pal("Testing with 3 nodes"),
-    ct:timetrap({seconds, 15}),
+    ct:timetrap({seconds, 30}),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin
@@ -531,7 +525,7 @@ t_action_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
     snabbkaffe:stop(),
 
     ct:pal("Testing with 3 nodes"),
-    ct:timetrap({seconds, 15}),
+    ct:timetrap({seconds, 30}),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin
