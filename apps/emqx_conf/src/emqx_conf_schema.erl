@@ -431,7 +431,7 @@ fields("node") ->
                     %% deprecated make sure it's disappeared in raw_conf user(HTTP API)
                     %% but still in vm.args via translation/1
                     %% ProcessLimit is always equal to MaxPort * 2 when translation/1.
-                    deprecated => true,
+                    deprecated => {since, "5.1"},
                     desc => ?DESC(process_limit),
                     importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
