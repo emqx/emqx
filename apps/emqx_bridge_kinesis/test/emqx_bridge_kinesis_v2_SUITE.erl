@@ -675,3 +675,40 @@ t_limiter_config_infinity_timeout(TCConfig) when is_list(TCConfig) ->
         })
     ),
     ok.
+
+%% Checks that we handle throttled API responses during HC by repeating the last status
+%% (connector).
+t_connector_health_check_throttled(TCConfig) ->
+    meck:unload(),
+    ct:timetrap({seconds, 15}),
+    emqx_common_test_helpers:with_mock(
+        erlcloud_kinesis,
+        list_streams,
+        fun() ->
+            {error, {<<"LimitExceededException">>, <<"Rate exceeded for account 123456789012.">>}}
+        end,
+        fun() ->
+            {201, _} = create_connector_api(TCConfig, #{<<"max_retries">> => 1}),
+            ?block_until(#{?snk_kind := "kinesis_producer_connector_hc_throttled"})
+        end
+    ),
+    ok.
+
+%% Checks that we handle throttled API responses during HC by repeating the last status
+%% (action).
+t_action_health_check_throttled(TCConfig) ->
+    meck:unload(),
+    ct:timetrap({seconds, 15}),
+    emqx_common_test_helpers:with_mock(
+        erlcloud_kinesis,
+        describe_stream,
+        fun(_StreamName) ->
+            {error, {<<"LimitExceededException">>, <<"Rate exceeded for account 123456789012.">>}}
+        end,
+        fun() ->
+            {201, _} = create_connector_api(TCConfig),
+            {201, _} = create_action_api(TCConfig),
+            ?block_until(#{?snk_kind := "kinesis_producer_action_hc_throttled"})
+        end
+    ),
+    ok.

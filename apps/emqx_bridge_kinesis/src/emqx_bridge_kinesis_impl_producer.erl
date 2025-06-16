@@ -135,9 +135,9 @@ on_get_status(ConnResId, ConnState) ->
     of
         {ok, Status} ->
             Status;
-        {error, {error, {nxdomain = Posix, _}}} ->
+        {error, {nxdomain = Posix, _}} ->
             {error, emqx_utils:explain_posix(Posix)};
-        {error, {error, {econnrefused = Posix, _}}} ->
+        {error, {econnrefused = Posix, _}} ->
             {error, emqx_utils:explain_posix(Posix)};
         {error, Reason} ->
             ?SLOG(error, #{
@@ -179,6 +179,14 @@ do_connector_health_check(WorkerPid, ConnResId, ConnState) ->
                 error => ErrorBefore
             }),
             {halt, {ok, {StatusBefore, ErrorBefore}}};
+        {error, {<<"LimitExceededException">>, _} = Error} ->
+            ?tp(info, "kinesis_producer_connector_hc_throttled", #{
+                hint => "repeating last status",
+                connector => ConnResId,
+                status => StatusBefore,
+                error => Error
+            }),
+            {halt, {ok, {StatusBefore, ErrorBefore}}};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -218,6 +226,14 @@ do_channel_health_check(WorkerPid, ChanResId, ChanState, ConnResId) ->
             {halt, {ok, StatusBefore}};
         {halt, Res} ->
             Res;
+        {error, {<<"LimitExceededException">>, _} = Error} ->
+            ?tp(info, "kinesis_producer_action_hc_throttled", #{
+                hint => "repeating last status",
+                action => ChanResId,
+                status => StatusBefore,
+                error => Error
+            }),
+            {halt, {ok, StatusBefore}};
         {error, Reason} ->
             {error, Reason}
     end.

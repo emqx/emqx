@@ -138,7 +138,7 @@ handle_call(connection_status, _From, State) ->
         case erlcloud_kinesis:list_streams() of
             {ok, _ListStreamsResult} ->
                 {ok, ?status_connected};
-            Error ->
+            {error, Error} ->
                 {error, Error}
         end,
     {reply, Status, State};
@@ -171,7 +171,7 @@ get_status(StreamName) ->
             {ok, ?status_connected};
         {error, {<<"ResourceNotFoundException">>, _}} ->
             {error, unhealthy_target};
-        Error ->
+        {error, Error} ->
             {error, Error}
     end.
 
