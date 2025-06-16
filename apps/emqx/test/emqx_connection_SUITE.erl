@@ -228,7 +228,10 @@ t_handle_msg_passive(_) ->
 
 t_handle_msg_deliver(_) ->
     ok = meck:expect(emqx_channel, handle_deliver, fun(_, Channel) -> {ok, Channel} end),
-    ?assertMatch({ok, _St}, handle_msg({deliver, topic, msg}, st())).
+    ?assertMatch(
+        {ok, _St},
+        handle_msg({deliver, <<"#">>, emqx_message:make(<<"t">>, <<>>)}, st())
+    ).
 
 t_handle_msg_inet_reply(_) ->
     ?assertMatch(
