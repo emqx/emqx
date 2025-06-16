@@ -59,7 +59,7 @@ start_link() ->
 %% """.
 -spec regenerate_dispatch([emqx_dashboard:listener_name()]) -> ok.
 regenerate_dispatch(Listeners) ->
-    gen_server:call(?SERVER, #regenerate_dispatch{listeners = Listeners}).
+    gen_server:call(?SERVER, #regenerate_dispatch{listeners = Listeners}, infinity).
 
 %% -doc """
 %% Regenerate the dispatch for the given listeners asynchronously after the current

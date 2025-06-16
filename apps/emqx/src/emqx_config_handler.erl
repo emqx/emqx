@@ -157,7 +157,7 @@ get_raw_cluster_override_conf() ->
     gen_server:call(?MODULE, get_raw_cluster_override_conf).
 
 info() ->
-    gen_server:call(?MODULE, info).
+    gen_server:call(?MODULE, info, infinity).
 
 %%============================================================================
 

@@ -24,6 +24,9 @@
 %% API
 -export([start_link/0]).
 
+%% For tests
+-export([info/0]).
+
 %% emqx_config_handler API
 -export([add_handler/0, remove_handler/0]).
 -export([pre_config_update/3, post_config_update/5]).
@@ -45,6 +48,7 @@
     old_listeners :: emqx_dashboard:listener_configs(),
     new_listeners :: emqx_dashboard:listener_configs()
 }).
+-record(info, {}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -52,6 +56,9 @@
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+info() ->
+    gen_server:call(?MODULE, #info{}, infinity).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -62,6 +69,8 @@ init([]) ->
     ok = add_handler(),
     {ok, #{}}.
 
+handle_call(#info{}, _From, State) ->
+    {reply, {ok, State}, State};
 handle_call(_Request, _From, State) ->
     {reply, {error, not_implemented}, State, hibernate}.
 
