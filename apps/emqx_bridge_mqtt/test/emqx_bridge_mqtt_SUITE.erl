@@ -183,6 +183,26 @@ clear_resources() ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
+t_conf_no_resource_leak(_) ->
+    FindTopicIndexTab = fun() ->
+        lists:filter(
+            fun(T) -> ets:info(T, name) =:= emqx_topic_index end,
+            ets:all()
+        )
+    end,
+    Tabs1 = FindTopicIndexTab(),
+    {ok, 201, _Bridge} = request(
+        post,
+        uri(["bridges"]),
+        ?SERVER_CONF#{
+            %% invalid server
+            <<"server">> => <<"127.0.0.1:6060">>,
+            <<"name">> => <<"t_conf_no_resource_leak">>,
+            <<"ingress">> => ?INGRESS_CONF#{<<"pool_size">> => 1}
+        }
+    ),
+    ?assertEqual(Tabs1, FindTopicIndexTab()).
+
 t_conf_bridge_authn_anonymous(_) ->
     ok = hook_authenticate(),
     {ok, 201, _Bridge} = request(
