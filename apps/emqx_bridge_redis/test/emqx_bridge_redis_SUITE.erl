@@ -291,9 +291,12 @@ t_check_replay(Config) ->
         5
     ),
 
+    ct:timetrap({seconds, 15}),
     ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
         ?wait_async_action(
             with_down_failure(Config, ProxyName, fun() ->
+                ct:sleep(500),
                 {_, {ok, _}} =
                     ?wait_async_action(
                         lists:foreach(
@@ -306,12 +309,10 @@ t_check_replay(Config) ->
                             ?snk_kind := redis_bridge_connector_send_done,
                             batch := true,
                             result := {error, _}
-                        },
-                        10_000
+                        }
                     )
             end),
-            #{?snk_kind := redis_bridge_connector_send_done, batch := true, result := {ok, _}},
-            10_000
+            #{?snk_kind := redis_bridge_connector_send_done, batch := true, result := {ok, _}}
         ),
         fun(Trace) ->
             ?assert(
@@ -323,7 +324,7 @@ t_check_replay(Config) ->
             )
         end
     ),
-    ok = emqx_bridge:remove(Type, Name).
+    ok.
 
 t_permanent_error(_Config) ->
     Name = <<"invalid_command_bridge">>,
