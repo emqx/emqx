@@ -638,7 +638,7 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 unpack_iterator(DBShard = {_, Shard}, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     case generation_get(DBShard, GenId) of
         #{module := Mod, data := GenData} ->
-            {InnerStream, TopicFilter, Key, _TS} = Mod:unpack_iterator(DBShard, GenData, Inner),
+            {InnerStream, TopicFilter, Key} = Mod:unpack_iterator(DBShard, GenData, Inner),
             #{
                 stream => ?stream_v2(GenId, InnerStream),
                 topic_filter => TopicFilter,

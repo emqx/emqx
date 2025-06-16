@@ -231,11 +231,7 @@ lookup_message(_ShardId, S = #s{db = DB, cf = CF}, #message_matcher{timestamp = 
 
 unpack_iterator(_Shard, _S, #it{topic_filter = TopicFilter, last_seen_message_key = LSK}) ->
     Stream = #stream{},
-    case LSK of
-        first -> Timestamp = 0;
-        <<Timestamp:64>> -> ok
-    end,
-    {Stream, TopicFilter, LSK, Timestamp}.
+    {Stream, TopicFilter, LSK}.
 
 scan_stream(Shard, S, _Stream, TopicFilter, LastSeenKey, BatchSize, TMax, IsCurrent) ->
     It0 = #it{topic_filter = TopicFilter, start_time = 0, last_seen_message_key = LastSeenKey},
