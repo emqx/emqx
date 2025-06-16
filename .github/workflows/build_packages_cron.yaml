@@ -15,7 +15,7 @@ permissions:
 jobs:
   linux:
     if: github.repository_owner == 'emqx'
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
 
     strategy:
       fail-fast: false
@@ -53,14 +53,14 @@ jobs:
       - name: build pkg
         run: |
           ./scripts/buildx.sh --profile "$PROFILE" --pkgtype pkg --builder "$BUILDER"
-      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: success()
         with:
           name: ${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.os }}
           path: _packages/${{ matrix.profile[0] }}/
           retention-days: 7
       - name: Send notification to Slack
-        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+        uses: slackapi/slack-github-action@b0fa283ad8fea605de13dc3f449259339835fc52 # v2.1.0
         if: failure()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -79,6 +79,7 @@ jobs:
           - emqx
         branch:
           - master
+          - release-58
         os:
           - macos-14-arm64
 
@@ -101,14 +102,14 @@ jobs:
           apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
           apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
           apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: success()
         with:
           name: ${{ matrix.profile }}-${{ matrix.os }}
           path: _packages/${{ matrix.profile }}/
           retention-days: 7
       - name: Send notification to Slack
-        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # v2.0.0
+        uses: slackapi/slack-github-action@b0fa283ad8fea605de13dc3f449259339835fc52 # v2.1.0
         if: failure()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
