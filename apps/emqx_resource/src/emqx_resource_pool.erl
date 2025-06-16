@@ -86,10 +86,18 @@ health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     DoPerWorker =
         fun(Worker) ->
-            case ecpool_worker:client(Worker) of
-                {ok, Conn} ->
-                    erlang:is_process_alive(Conn) andalso
-                        ecpool_worker:exec(Worker, CheckFunc, Timeout);
+            maybe
+                {ok, Conn} ?= ecpool_worker:client(Worker),
+                true ?= erlang:is_process_alive(Conn),
+                try
+                    ecpool_worker:exec(Worker, CheckFunc, Timeout)
+                catch
+                    exit:{timeout, _} ->
+                        {error, timeout}
+                end
+            else
+                false ->
+                    {error, ecpool_worker_dead};
                 Error ->
                     Error
             end
