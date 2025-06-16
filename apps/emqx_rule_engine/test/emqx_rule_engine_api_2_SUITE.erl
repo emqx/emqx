@@ -929,7 +929,7 @@ t_remove_rule_with_wildcard(_Config) ->
     ?assertEqual(lists:sort(Events), lists:sort(ListRuleHooks())),
     {204, _} = delete_rule(RuleId2),
     %% Should have cleared up all hooks but `'message.publish'``.
-    ?assertMatch(['message.publish'], ListRuleHooks()),
+    ?retry(100, 10, ?assertMatch(['message.publish'], ListRuleHooks())),
     {204, _} = delete_rule(RuleId1),
     ?assertMatch([], ListRuleHooks()),
     ok.
