@@ -546,7 +546,6 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
             [?QUERY(_, _, _, _, _, _) | _] ->
                 QueryOrBatch
         end,
-    Data1 = aggregate_counters(Data0, DeltaCounters),
     case Decision of
         %% Send failed because resource is down
         ?nack ->
@@ -559,7 +558,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
                     result => Result
                 }
             ),
-            {keep_state, Data1, {state_timeout, ResumeT, unblock}};
+            {keep_state, Data0, {state_timeout, ResumeT, unblock}};
         %% Send ok or failed but the resource is working
         ?ack ->
             BufferWorkerPid = self(),
@@ -571,6 +570,14 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
             %% requests (repeated and original) have the same `Ref',
             %% we bump the counter when removing it from the table.
             IsAcked andalso PostFn(result_context(Queries1)),
+            Data1 =
+                case IsAcked of
+                    true ->
+                        %% We should only change the metrics when the decision is final.
+                        aggregate_counters(Data0, DeltaCounters);
+                    false ->
+                        Data0
+                end,
             ?tp(
                 buffer_worker_retry_inflight_succeeded,
                 #{
