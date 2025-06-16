@@ -85,7 +85,6 @@
 
 -type s() :: #s{}.
 
--define(asn1name, skipstreamV2).
 -define(stream(STATIC), STATIC).
 
 %%================================================================================

@@ -271,6 +271,7 @@ make_iterator(
     end.
 
 -spec next(emqx_ds:db(), iterator(), pos_integer(), emqx_ds:time()) ->
+    %% FIXME: type
     emqx_ds:next_result(iterator()).
 next(
     DB,
