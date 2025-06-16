@@ -691,6 +691,8 @@ restart_server() ->
             [{body_format, binary}]
         ),
     ct:pal("restarted iceberg server."),
+    %% Wait for a bit to ensure server is stable...
+    ct:sleep(1_000),
     ok.
 
 %%------------------------------------------------------------------------------
