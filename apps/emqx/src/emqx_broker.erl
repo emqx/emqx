@@ -11,6 +11,7 @@
 -include("emqx_external_trace.hrl").
 
 -include("logger.hrl").
+-include("emqx_instr.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
 
@@ -718,7 +719,9 @@ code_change(_OldVsn, State, _Extra) ->
 
 -spec do_dispatch2(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
-do_dispatch2(Topic, #delivery{message = Msg}) ->
+do_dispatch2(Topic, #delivery{message = MsgIn}) ->
+    ?BROKER_INSTR_TS(T0),
+    ?BROKER_INSTR_BIND(Msg, MsgIn, MsgIn#message{extra = T0}),
     DispN = lists:foldl(
         fun(Sub, N) ->
             N + do_dispatch2(Sub, Topic, Msg)
@@ -726,6 +729,7 @@ do_dispatch2(Topic, #delivery{message = Msg}) ->
         0,
         subscribers(Topic)
     ),
+    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
     case DispN of
         0 ->
             ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
