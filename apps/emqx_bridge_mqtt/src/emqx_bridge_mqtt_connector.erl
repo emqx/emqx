@@ -110,6 +110,7 @@ on_start(ResourceId, #{server := Server} = Conf) ->
                 server => Server
             }};
         {error, Reason} ->
+            ets:delete(TopicToHandlerIndex),
             {error, emqx_maybe:define(explain_error(Reason), Reason)}
     end.
 
