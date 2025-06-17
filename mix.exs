@@ -239,7 +239,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.2", override: true}
 
   def common_dep(:minirest),
-    do: {:minirest, github: "emqx/minirest", tag: "1.4.7", override: true}
+    do: {:minirest, github: "emqx/minirest", tag: "1.4.8", override: true}
 
   # maybe forbid to fetch quicer
   def common_dep(:emqtt),
