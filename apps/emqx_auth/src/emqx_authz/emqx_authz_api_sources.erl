@@ -371,8 +371,8 @@ sources_order(put, #{body := AuthzOrder}) ->
 
 lookup_from_local_node(Type) ->
     NodeId = node(self()),
-    try emqx_authz:lookup(Type) of
-        #{annotations := #{id := ResourceId}} ->
+    try emqx_authz:lookup_state(Type) of
+        #{resource_id := ResourceId} ->
             Metrics = emqx_metrics_worker:get_metrics(authz_metrics, Type),
             case emqx_resource:get_instance(ResourceId) of
                 {error, not_found} ->

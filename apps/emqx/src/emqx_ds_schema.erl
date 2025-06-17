@@ -41,8 +41,13 @@
 
 -spec db_config(emqx_config:runtime_config_key_path()) -> emqx_ds:create_db_opts().
 db_config(Path) ->
-    ConfigTree = #{'_config_handler' := {Module, Function}} = emqx_config:get(Path),
-    apply(Module, Function, [ConfigTree]).
+    ConfigTree = #{backend := Backend} = emqx_config:get(Path),
+    case Backend of
+        builtin_local ->
+            translate_builtin_local(ConfigTree);
+        builtin_raft ->
+            translate_builtin_raft(ConfigTree)
+    end.
 
 translate_builtin_raft(
     Backend = #{
@@ -135,15 +140,6 @@ backend_fields(builtin_local, Flavor) ->
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(backend_type)
                 }
-            )},
-        {'_config_handler',
-            sc(
-                {module(), atom()},
-                #{
-                    'readOnly' => true,
-                    default => {?MODULE, translate_builtin_local},
-                    importance => ?IMPORTANCE_HIDDEN
-                }
             )}
         | common_builtin_fields(Flavor)
     ];
@@ -158,15 +154,6 @@ backend_fields(builtin_raft, Flavor) ->
                     default => builtin_raft,
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(backend_type)
-                }
-            )},
-        {'_config_handler',
-            sc(
-                {module(), atom()},
-                #{
-                    'readOnly' => true,
-                    default => {?MODULE, translate_builtin_raft},
-                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {replication_factor,

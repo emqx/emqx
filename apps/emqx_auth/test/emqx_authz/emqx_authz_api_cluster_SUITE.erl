@@ -29,7 +29,7 @@ all() ->
 
 init_per_suite(Config) ->
     WorkDir = ?config(priv_dir, Config),
-    Cluster = mk_cluster_spec(#{}),
+    Cluster = mk_cluster_spec(),
     Nodes = [NodePrimary | _] = emqx_cth_cluster:start(Cluster, #{work_dir => WorkDir}),
     lists:foreach(fun(N) -> ?ON(N, emqx_authz_test_lib:register_fake_sources([http])) end, Nodes),
     {ok, App} = ?ON(NodePrimary, emqx_common_test_http:create_default_app()),
@@ -97,7 +97,7 @@ t_api(Config) ->
 get_sources(Result) ->
     maps:get(<<"sources">>, emqx_utils_json:decode(Result)).
 
-mk_cluster_spec(Opts) ->
+mk_cluster_spec() ->
     Apps = [
         emqx,
         {emqx_conf, "authorization {cache{enable=false},no_match=deny,sources=[]}"},
@@ -107,8 +107,8 @@ mk_cluster_spec(Opts) ->
     Node1Apps = Apps ++ [{emqx_dashboard, "dashboard.listeners.http {enable=true,bind=18083}"}],
     Node2Apps = Apps,
     [
-        {emqx_authz_api_cluster_SUITE1, Opts#{apps => Node1Apps}},
-        {emqx_authz_api_cluster_SUITE2, Opts#{apps => Node2Apps}}
+        {emqx_authz_api_cluster_SUITE1, #{apps => Node1Apps}},
+        {emqx_authz_api_cluster_SUITE2, #{apps => Node2Apps}}
     ].
 
 request(Method, URL, Body, Config) ->

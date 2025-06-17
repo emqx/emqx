@@ -657,14 +657,19 @@ explain_error(econnrefused) ->
         "or port number for the server."
     >>;
 explain_error({tcp_closed, _}) ->
+    listener_max_limit_explanation();
+explain_error(closed) ->
+    listener_max_limit_explanation();
+explain_error(_Reason) ->
+    undefined.
+
+listener_max_limit_explanation() ->
     <<
         "Your MQTT connection attempt was unsuccessful. "
         "It might be at its maximum capacity for handling new connections. "
         "To diagnose the issue further, you can check the server logs for "
         "any specific messages related to the unavailability or connection limits."
-    >>;
-explain_error(_Reason) ->
-    undefined.
+    >>.
 
 handle_disconnect(_Reason) ->
     ok.

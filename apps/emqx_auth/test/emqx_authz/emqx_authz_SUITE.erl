@@ -293,7 +293,7 @@ t_update_source(_) ->
             #{type := redis, enable := false},
             #{type := file, enable := false}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     {ok, _} = emqx_authz:update(?CMD_REPLACE, []).
@@ -336,7 +336,7 @@ t_replace_all(_) ->
             #{type := mongodb, enable := true},
             #{type := http, enable := true}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
     Ids = [http, mongodb, mysql, postgresql, redis, file],
     %% metrics
@@ -355,7 +355,7 @@ t_replace_all(_) ->
         )
     ),
     %% hooks status
-    ?assertMatch([#{type := http, enable := false}], emqx_authz:lookup()),
+    ?assertMatch([#{type := http, enable := false}], emqx_authz:lookup_states()),
     %% metrics
     ?assert(emqx_metrics_worker:has_metrics(authz_metrics, http)),
     lists:foreach(
@@ -396,7 +396,7 @@ t_move_source(_) ->
             #{type := redis},
             #{type := file}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     {ok, _} = emqx_authz:move(postgresql, ?CMD_MOVE_FRONT),
@@ -409,7 +409,7 @@ t_move_source(_) ->
             #{type := redis},
             #{type := file}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     {ok, _} = emqx_authz:move(http, ?CMD_MOVE_REAR),
@@ -422,7 +422,7 @@ t_move_source(_) ->
             #{type := file},
             #{type := http}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     {ok, _} = emqx_authz:move(mysql, ?CMD_MOVE_BEFORE(postgresql)),
@@ -435,7 +435,7 @@ t_move_source(_) ->
             #{type := file},
             #{type := http}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     {ok, _} = emqx_authz:move(mongodb, ?CMD_MOVE_AFTER(http)),
@@ -448,7 +448,7 @@ t_move_source(_) ->
             #{type := http},
             #{type := mongodb}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     ok.

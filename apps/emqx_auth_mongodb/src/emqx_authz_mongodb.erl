@@ -9,7 +9,7 @@
 %% AuthZ Callbacks
 -export([
     create/1,
-    update/1,
+    update/2,
     destroy/1,
     authorize/4
 ]).
@@ -25,55 +25,29 @@
 
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
-create(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
+create(Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source, ?AUTHZ_TYPE),
-    {Vars, FilterTemp} = emqx_auth_template:parse_deep(
-        emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
-    ),
-    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    Source#{
-        annotations => #{
-            id => ResourceId,
-            skip => Skip,
-            limit => Limit,
-            filter_template => FilterTemp,
-            cache_key_template => CacheKeyTemplate
-        }
-    }.
+    State = new_state(ResourceId, Source),
+    ok = emqx_authz_utils:create_resource(emqx_mongodb, State),
+    State.
 
-update(#{filter := Filter, skip := Skip, limit := Limit} = Source) ->
-    {Vars, FilterTemp} = emqx_auth_template:parse_deep(
-        emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
-    ),
-    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    case emqx_authz_utils:update_resource(emqx_mongodb, Source, ?AUTHZ_TYPE) of
-        {error, Reason} ->
-            error({load_config_error, Reason});
-        {ok, Id} ->
-            Source#{
-                annotations => #{
-                    id => Id,
-                    skip => Skip,
-                    limit => Limit,
-                    filter_template => FilterTemp,
-                    cache_key_template => CacheKeyTemplate
-                }
-            }
-    end.
+update(#{resource_id := ResourceId} = _State, Source) ->
+    State = new_state(ResourceId, Source),
+    ok = emqx_authz_utils:update_resource(emqx_mongodb, State),
+    State.
 
-destroy(#{annotations := #{id := Id}}) ->
-    emqx_authz_utils:remove_resource(Id).
+destroy(#{resource_id := ResourceId}) ->
+    emqx_authz_utils:remove_resource(ResourceId).
 
 authorize(
     Client,
     Action,
     Topic,
-    #{annotations := #{filter_template := FilterTemplate}} = Config
+    #{filter_template := FilterTemplate} = State
 ) ->
     try emqx_auth_template:render_deep_for_json(FilterTemplate, Client) of
         RenderedFilter ->
-            authorize_with_filter(RenderedFilter, Client, Action, Topic, Config)
+            authorize_with_filter(RenderedFilter, Client, Action, Topic, State)
     catch
         error:{encode_error, _} = EncodeError ->
             ?SLOG(error, #{
@@ -83,11 +57,36 @@ authorize(
             nomatch
     end.
 
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+new_state(
+    ResourceId, #{filter := Filter, skip := Skip, limit := Limit, collection := Collection} = Source
+) ->
+    {Vars, FilterTemp} = emqx_auth_template:parse_deep(
+        emqx_utils_maps:binary_key_map(Filter), ?ALLOWED_VARS
+    ),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
+    ResourceConfig = emqx_authz_utils:cleanup_resource_config(
+        [collection, skip, limit, filter], Source
+    ),
+    emqx_authz_utils:init_state(Source, #{
+        resource_config => ResourceConfig,
+        resource_id => ResourceId,
+        collection => Collection,
+        skip => Skip,
+        limit => Limit,
+        filter_template => FilterTemp,
+        cache_key_template => CacheKeyTemplate
+    }).
+
 authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     collection := Collection,
-    annotations := #{
-        skip := Skip, limit := Limit, id := ResourceId, cache_key_template := CacheKeyTemplate
-    }
+    skip := Skip,
+    limit := Limit,
+    resource_id := ResourceId,
+    cache_key_template := CacheKeyTemplate
 }) ->
     Options = #{skip => Skip, limit => Limit},
     CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate),

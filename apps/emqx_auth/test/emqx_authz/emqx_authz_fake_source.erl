@@ -10,7 +10,7 @@
 -export([
     description/0,
     create/1,
-    update/1,
+    update/2,
     destroy/1,
     authorize/4
 ]).
@@ -23,10 +23,10 @@ description() ->
     "Fake AuthZ".
 
 create(Source) ->
-    Source.
+    emqx_authz_utils:init_state(Source, #{config => Source}).
 
-update(Source) ->
-    Source.
+update(_State, Source) ->
+    create(Source).
 
 destroy(_Source) -> ok.
 

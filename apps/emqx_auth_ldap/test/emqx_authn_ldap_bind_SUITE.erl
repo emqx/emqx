@@ -13,7 +13,6 @@
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
--define(LDAP_RESOURCE, <<"emqx_authn_ldap_bind_SUITE">>).
 
 -define(PATH, [authentication]).
 -define(ResourceID, <<"password_based:ldap">>).
@@ -43,13 +42,6 @@ init_per_suite(Config) ->
             Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_ldap], #{
                 work_dir => ?config(priv_dir, Config)
             }),
-            {ok, _Data} = emqx_authn_utils:create_resource(
-                ?LDAP_RESOURCE,
-                emqx_ldap_connector,
-                ldap_config(),
-                ?AUTHN_MECHANISM_BIN,
-                ?AUTHN_BACKEND_BIN
-            ),
             [{apps, Apps} | Config];
         false ->
             {skip, no_ldap}
@@ -60,7 +52,6 @@ end_per_suite(Config) ->
         [authentication],
         ?GLOBAL
     ),
-    ok = emqx_authn_ldap:destroy(#{resource_id => ?LDAP_RESOURCE}),
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 %%------------------------------------------------------------------------------
@@ -364,9 +355,6 @@ user_seeds() ->
 
 ldap_server() ->
     iolist_to_binary(io_lib:format("~s:~B", [?LDAP_HOST, ?LDAP_DEFAULT_PORT])).
-
-ldap_config() ->
-    emqx_ldap_SUITE:ldap_config([]).
 
 filter_expected_fields({ok, Expected}, {ok, Actual}) ->
     {ok, maps:with(maps:keys(Expected), Actual)};

@@ -34,11 +34,23 @@ create(#{algorithm := 'hmac-based', use_jwks := false} = Config) ->
 create(#{algorithm := 'public-key', use_jwks := false} = Config) ->
     create_authn_public_key(Config);
 create(#{use_jwks := true} = Config) ->
-    create_authn_public_key_with_jwks(Config).
+    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_TYPE),
+    maybe
+        {ok, ResourceConfig, State} ?= create_authn_public_key_with_jwks(ResourceId, Config),
+        ok ?=
+            emqx_authn_utils:create_resource(
+                emqx_authn_jwks_connector,
+                ResourceConfig,
+                State,
+                ?AUTHN_MECHANISM_BIN,
+                _Backend = <<>>
+            ),
+        {ok, State}
+    end.
 
 update(
     #{use_jwks := false} = Config,
-    #{jwk_resource := ResourceId}
+    #{resource_id := ResourceId}
 ) ->
     _ = emqx_resource:remove_local(ResourceId),
     create(Config);
@@ -46,18 +58,19 @@ update(#{use_jwks := false} = Config, _State) ->
     create(Config);
 update(
     #{use_jwks := true} = Config,
-    #{jwk_resource := ResourceId}
+    #{resource_id := ResourceId}
 ) ->
-    case emqx_resource:simple_sync_query(ResourceId, {update, connector_opts(Config)}) of
-        ok ->
-            create_authn_public_key_with_jwks(Config, ResourceId);
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "jwks_client_option_update_failed",
-                resource => ResourceId,
-                reason => Reason
-            }),
-            {error, Reason}
+    maybe
+        {ok, ResourceConfig, State} ?= create_authn_public_key_with_jwks(ResourceId, Config),
+        ok ?=
+            emqx_authn_utils:update_resource(
+                emqx_authn_jwks_connector,
+                ResourceConfig,
+                State,
+                ?AUTHN_MECHANISM_BIN,
+                _Backend = <<>>
+            ),
+        {ok, State}
     end;
 update(#{use_jwks := true} = Config, _State) ->
     create(Config).
@@ -84,7 +97,7 @@ authenticate(
     #{
         verify_claims := VerifyClaims0,
         disconnect_after_expire := DisconnectAfterExpire,
-        jwk_resource := ResourceId,
+        resource_id := ResourceId,
         acl_claim_name := AclClaimName,
         from := From
     }
@@ -102,7 +115,7 @@ authenticate(
             verify(JWT, JWKs, VerifyClaims, AclClaimName, DisconnectAfterExpire)
     end.
 
-destroy(#{jwk_resource := ResourceId}) ->
+destroy(#{resource_id := ResourceId}) ->
     _ = emqx_resource:remove_local(ResourceId),
     ok;
 destroy(_) ->
@@ -118,7 +131,8 @@ create_authn_hmac_based(#{
     verify_claims := VerifyClaims,
     disconnect_after_expire := DisconnectAfterExpire,
     acl_claim_name := AclClaimName,
-    from := From
+    from := From,
+    enable := Enable
 }) ->
     case may_decode_secret(Base64Encoded, Secret0) of
         {error, Reason} ->
@@ -130,7 +144,8 @@ create_authn_hmac_based(#{
                 verify_claims => handle_verify_claims(VerifyClaims),
                 disconnect_after_expire => DisconnectAfterExpire,
                 acl_claim_name => AclClaimName,
-                from => From
+                from => From,
+                enable => Enable
             }}
     end.
 
@@ -140,54 +155,49 @@ create_authn_public_key(
         verify_claims := VerifyClaims,
         disconnect_after_expire := DisconnectAfterExpire,
         acl_claim_name := AclClaimName,
-        from := From
+        from := From,
+        enable := Enable
     } = Config
 ) ->
-    case
-        create_jwk_from_public_key(
-            maps:get(enable, Config, false),
-            PublicKey
-        )
-    of
-        {ok, JWK} ->
-            {ok, #{
-                jwk => JWK,
-                verify_claims => handle_verify_claims(VerifyClaims),
-                disconnect_after_expire => DisconnectAfterExpire,
-                acl_claim_name => AclClaimName,
-                from => From
-            }};
-        {error, _Reason} = Err ->
-            Err
+    maybe
+        {ok, JWK} ?=
+            create_jwk_from_public_key(
+                maps:get(enable, Config, false),
+                PublicKey
+            ),
+        {ok, #{
+            jwk => JWK,
+            verify_claims => handle_verify_claims(VerifyClaims),
+            disconnect_after_expire => DisconnectAfterExpire,
+            acl_claim_name => AclClaimName,
+            from => From,
+            enable => Enable
+        }}
     end.
 
-create_authn_public_key_with_jwks(Config) ->
-    ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_TYPE),
-    {ok, _Data} = emqx_resource:create_local(
-        ResourceId,
-        ?AUTHN_RESOURCE_GROUP,
-        emqx_authn_jwks_connector,
-        connector_opts(Config),
-        #{}
-    ),
-    create_authn_public_key_with_jwks(Config, ResourceId).
-
 create_authn_public_key_with_jwks(
+    ResourceId,
     #{
         verify_claims := VerifyClaims,
         disconnect_after_expire := DisconnectAfterExpire,
         acl_claim_name := AclClaimName,
         from := From
-    },
-    ResourceId
+    } = Config
 ) ->
-    {ok, #{
-        jwk_resource => ResourceId,
-        verify_claims => handle_verify_claims(VerifyClaims),
-        disconnect_after_expire => DisconnectAfterExpire,
-        acl_claim_name => AclClaimName,
-        from => From
-    }}.
+    ResourceConfig = emqx_authn_utils:cleanup_resource_config(
+        [verify_claims, disconnect_after_expire, acl_claim_name, from], Config
+    ),
+    State = emqx_authn_utils:init_state(
+        Config,
+        #{
+            resource_id => ResourceId,
+            verify_claims => handle_verify_claims(VerifyClaims),
+            disconnect_after_expire => DisconnectAfterExpire,
+            acl_claim_name => AclClaimName,
+            from => From
+        }
+    ),
+    {ok, ResourceConfig, State}.
 
 create_jwk_from_public_key(true, PublicKey) when
     is_binary(PublicKey); is_list(PublicKey)
@@ -212,9 +222,6 @@ do_create_jwk_from_public_key(PublicKey) ->
         false ->
             jose_jwk:from_pem(iolist_to_binary(PublicKey))
     end.
-
-connector_opts(Config) ->
-    Config.
 
 may_decode_secret(false, Secret) ->
     Secret;

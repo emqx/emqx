@@ -218,9 +218,11 @@ t_verify_cacertfile(Config) ->
     SSLCert = DefaultSSLCert#{cacertfile => <<"">>},
 
     %% validate with default #{verify => verify_none}
+    ct:pal("testing with verify_none"),
     validate_https(MaxConnection, SSLCert, verify_none),
 
     %% verify_peer but cacertfile is empty
+    ct:pal("testing with verify_peer but no cacertfile"),
     DashboardConf0 = ?config(dashboard_conf, Config),
     VerifyPeerConf1 = emqx_utils_maps:deep_put(
         [<<"dashboard">>, <<"listeners">>, <<"https">>, <<"ssl_options">>, <<"verify">>],
@@ -228,18 +230,26 @@ t_verify_cacertfile(Config) ->
         <<"verify_peer">>
     ),
     {ok, _} = emqx:update_config([<<"dashboard">>], maps:get(<<"dashboard">>, VerifyPeerConf1)),
+    %% `emqx_dashboard_listener_config` will crash because itself will fail to start the
+    %% listeners.
+    wait_listener_config_crash(),
     ok = emqx_dashboard:stop_listeners(),
     ?assertMatch({error, [?NAME]}, emqx_dashboard:start_listeners()),
 
     %% verify_peer and cacertfile is ok.
+    ct:pal("testing with verify_peer and cacertfile"),
     VerifyPeerConf2 = emqx_utils_maps:deep_put(
         [<<"dashboard">>, <<"listeners">>, <<"https">>, <<"ssl_options">>, <<"cacertfile">>],
         VerifyPeerConf1,
         naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cacert.pem">>)
     ),
     {ok, _} = emqx:update_config([<<"dashboard">>], maps:get(<<"dashboard">>, VerifyPeerConf2)),
+    wait_listener_config_processed_requests(),
+    ct:pal("l. ~b: stopping", [?LINE]),
     ok = emqx_dashboard:stop_listeners(),
+    ct:pal("l. ~b: starting", [?LINE]),
     ok = emqx_dashboard:start_listeners(),
+
     %% we always test client with verify_none and no client cert is sent
     %% since the server is configured with verify_peer
     %% hence the expected observation on the client side is an error
@@ -255,6 +265,8 @@ t_verify_cacertfile(Config) ->
         socket_closed_remotely ->
             ok;
         {ssl_error, _SslSock, {tls_alert, {certificate_required, _}}} ->
+            ok;
+        closed ->
             ok;
         Other ->
             throw({unexpected, Other})
@@ -395,5 +407,21 @@ emqx_cth_suite_start(Case, DashboardConf, Config) ->
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard(DashboardConf)
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Case, Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Case, Config), work_dir_dirty => true}
     ).
+
+wait_listener_config_processed_requests() ->
+    %% Assert that config has finished processing and process has not crashed, since it's
+    %% async.
+    ?assertMatch({ok, _}, emqx_dashboard_listener_config:info()).
+
+wait_listener_config_crash() ->
+    %% `emqx_dashboard_listener_config` will crash because itself will fail to start the
+    %% listeners.
+    try
+        emqx_dashboard_listener_config:info(),
+        ct:fail("didn't crash")
+    catch
+        exit:_ ->
+            ok
+    end.
