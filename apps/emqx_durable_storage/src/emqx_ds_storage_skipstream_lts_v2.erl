@@ -22,14 +22,18 @@
     commit_batch/4,
     get_streams/4,
     make_iterator/6,
+    unpack_iterator/3,
     next/8,
+    scan_stream/9,
     lookup/4,
+
+    message_match_context/4,
+    iterator_match_context/3,
 
     batch_events/3
 ]).
 
 %% internal exports:
--export([]).
 
 %% inline small functions:
 -compile(inline).
@@ -159,12 +163,12 @@ open(
 drop(_ShardId, _DBHandle, _GenId, _CFRefs, #s{gs = GS}) ->
     emqx_ds_gen_skipstream_lts:drop(GS).
 
-prepare_tx(DBShard, S, TXID, Ops, _Options) ->
+prepare_tx(_DBShard, S, TXID, Ops, _Options) ->
     _ = emqx_ds_gen_skipstream_lts:pop_lts_persist_ops(),
     W = maps:get(?ds_tx_write, Ops, []),
     DT = maps:get(?ds_tx_delete_topic, Ops, []),
     try
-        OperationsCooked = cook_blob_deletes(DBShard, S, DT, cook_blob_writes(S, TXID, W, [])),
+        OperationsCooked = cook_blob_deletes(S, DT, cook_blob_writes(S, TXID, W, [])),
         {ok, #{
             ?cooked_msg_ops => OperationsCooked,
             ?cooked_lts_ops => emqx_ds_gen_skipstream_lts:pop_lts_persist_ops()
@@ -198,16 +202,16 @@ cook_blob_writes(S = #s{}, TXID, [{Topic, TS0, Value0} | Rest], Acc) ->
         end,
     cook_blob_writes(S, TXID, Rest, [?cooked_msg_op(Static, Varying, TS, Value) | Acc]).
 
-cook_blob_deletes(DBShard, S, Topics, Acc0) ->
+cook_blob_deletes(S, Topics, Acc0) ->
     lists:foldl(
         fun(TopicFilter, Acc) ->
-            cook_blob_deletes1(DBShard, S, TopicFilter, Acc)
+            cook_blob_deletes1(S, TopicFilter, Acc)
         end,
         Acc0,
         Topics
     ).
 
-cook_blob_deletes1(_DBShard, S, TopicFilter, Acc0) ->
+cook_blob_deletes1(S, TopicFilter, Acc0) ->
     lists:foldl(
         fun(Stream, Acc) ->
             {ok, Static, Varying, ItPos} = make_internal_iterator(S, Stream, TopicFilter, 0),
@@ -329,6 +333,10 @@ make_iterator(_DB, _Shard, S, Stream, TopicFilter, StartPos) ->
         {ok, it2ext(Static, Varying), ItPos}
     end.
 
+unpack_iterator(_DBShard, _GenData, ItStaticBin) ->
+    {Static, CompressedTF} = ext2it(ItStaticBin),
+    {ok, Static, CompressedTF}.
+
 next(_DB, _Shard, S, ItStaticBin, ItPos0, BatchSize, _Now, IsCurrent) ->
     {Static, CompressedTF} = ext2it(ItStaticBin),
     case next_internal(S, Static, CompressedTF, ItPos0, BatchSize, IsCurrent) of
@@ -338,6 +346,9 @@ next(_DB, _Shard, S, ItStaticBin, ItPos0, BatchSize, _Now, IsCurrent) ->
             Other
     end.
 
+scan_stream(_DB, _Shard, S, Static, CompressedTF, Pos, BatchSize, _Now, IsCurrent) ->
+    next_internal(S, Static, CompressedTF, Pos, BatchSize, IsCurrent).
+
 lookup(_Shard, #s{trie = Trie, gs = GS, ts_bytes = TSB}, Topic, Time) ->
     maybe
         {ok, {Static, Varying}} ?= emqx_ds_lts:lookup_topic_key(Trie, Topic),
@@ -345,6 +356,22 @@ lookup(_Shard, #s{trie = Trie, gs = GS, ts_bytes = TSB}, Topic, Time) ->
         {ok, _DSKey, Value} ?=
             emqx_ds_gen_skipstream_lts:lookup_message(GS, Static, StreamKey),
         {ok, Value}
+    end.
+
+message_match_context(#s{trie = Trie}, Stream, _, {Topic, TS, _Value}) ->
+    case emqx_ds_lts:reverse_lookup(Trie, Stream) of
+        {ok, TopicStructure} ->
+            CT = emqx_ds_lts:compress_topic(Stream, TopicStructure, Topic),
+            {ok, {CT, TS}};
+        undefined ->
+            ?err_unrec(unknown_lts_v2_stream)
+    end.
+
+iterator_match_context(#s{ts_bytes = TSB}, ItStaticBin, ItPos) ->
+    {_Static, CompressedTF} = ext2it(ItStaticBin),
+    <<ItTS:(TSB * 8), _/binary>> = ItPos,
+    fun({CompressedTopic, TS}) ->
+        TS > ItTS andalso emqx_topic:match(CompressedTopic, CompressedTF)
     end.
 
 %%================================================================================

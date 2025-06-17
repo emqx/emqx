@@ -48,7 +48,7 @@
     drop_generation/2,
     find_generation/2,
 
-    %% Globals
+    %% Global
     store_global/3,
     fetch_global/2,
 
