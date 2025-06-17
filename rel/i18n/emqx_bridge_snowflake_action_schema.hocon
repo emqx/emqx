@@ -14,10 +14,20 @@ emqx_bridge_snowflake_action_schema {
   aggreg_parameters.desc:
   """Set of parameters for the action in aggregated mode."""
 
+  streaming_parameters.label:
+  """Snowflake Streaming Mode action parameters"""
+  streaming_parameters.desc:
+  """Set of parameters for the action in streaming mode."""
+
   aggregated_mode.label:
   """Aggregated Snowflake Upload"""
   aggregated_mode.desc:
   """Enables time-based aggregation of incoming events and uploading them to the Snowflake as a single object.  This aggregation is done independently by each node in the cluster."""
+
+  streaming_mode.label:
+  """Streaming Snowflake Upload"""
+  streaming_mode.desc:
+  """Enables uploading data to Snowflake using [Snowpipe Streaming API](https://docs.snowflake.com/en/user-guide/snowpipe-streaming-high-performance-overview)."""
 
   aggregation.label:
   """Aggregation parameters"""
