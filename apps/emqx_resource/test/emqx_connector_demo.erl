@@ -297,9 +297,11 @@ on_batch_query(InstId, BatchReq, State) ->
             batch_individual_reply(sync, InstId, BatchReq, State);
         {_ChanId, #{q := ask, fn := _Fn, ctx := _Ctx}} ->
             batch_ask_reply(sync, InstId, BatchReq, State);
-        {random_reply, Num} ->
+        {random_reply, Num, ReplyTab} ->
             %% async batch retried
-            make_random_reply(Num)
+            Result = make_random_reply(Num),
+            ets:insert(ReplyTab, {erlang:monotonic_time(), [Result]}),
+            Result
     end.
 
 on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, #{pid := Pid} = State) ->
@@ -317,9 +319,9 @@ on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, #{pid := Pid} = State) -
             batch_individual_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
         {_ChanId, #{q := ask, fn := _Fn, ctx := _Ctx}} ->
             batch_ask_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
-        {random_reply, Num} ->
+        {random_reply, Num, ReplyTab} ->
             %% only take the first Num in the batch should be random enough
-            Pid ! {{random_reply, Num}, ReplyFunAndArgs},
+            Pid ! {{random_reply, Num, ReplyTab}, ReplyFunAndArgs},
             {ok, Pid}
     end.
 
@@ -570,7 +572,6 @@ counter_loop(
                 apply_reply(ReplyFun, {error, {recoverable_error, blocked}}),
                 State;
             {{FromPid, ReqRef}, {inc, N}} when Status == running ->
-                %ct:pal("sync counter recv: ~p", [{inc, N}]),
                 FromPid ! {ReqRef, ok},
                 State#{counter => Num + N};
             {{FromPid, ReqRef}, {inc, _N}} when Status == blocked ->
@@ -607,7 +608,7 @@ counter_loop(
                     end,
                 apply_reply(ReplyFun, Res),
                 State;
-            {{random_reply, RandNum}, ReplyFun} ->
+            {{random_reply, RandNum, ReplyTab}, ReplyFun} ->
                 %% usually a behaving  connector should reply once and only once for
                 %% each (batch) request
                 %% but we try to reply random results a random number of times
@@ -615,6 +616,8 @@ counter_loop(
                 %% drain the buffer (and inflights table)
                 ReplyCount = 1 + (RandNum rem 3),
                 Results = make_random_replies(ReplyCount),
+                %% To track expected state.
+                ets:insert(ReplyTab, {erlang:monotonic_time(), Results}),
                 %% add a delay to trigger inflight full
                 lists:foreach(
                     fun(Result) ->

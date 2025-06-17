@@ -11,7 +11,7 @@
 %% AuthZ Callbacks
 -export([
     create/1,
-    update/1,
+    update/2,
     destroy/1,
     authorize/4
 ]).
@@ -27,46 +27,28 @@
 
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
-create(#{query := SQL} = Source0) ->
-    {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
-    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
+create(Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
-    Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source, ?AUTHZ_TYPE),
-    Source#{
-        annotations => #{
-            id => ResourceId, tmpl_token => TmplToken, cache_key_template => CacheKeyTemplate
-        }
-    }.
+    State = new_state(ResourceId, Source),
+    ok = emqx_authz_utils:create_resource(emqx_mysql, State),
+    State.
 
-update(#{query := SQL} = Source0) ->
-    {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
-    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    case emqx_authz_utils:update_resource(emqx_mysql, Source, ?AUTHZ_TYPE) of
-        {error, Reason} ->
-            error({load_config_error, Reason});
-        {ok, Id} ->
-            Source#{
-                annotations => #{
-                    id => Id, tmpl_token => TmplToken, cache_key_template => CacheKeyTemplate
-                }
-            }
-    end.
+update(#{resource_id := ResourceId} = _State, Source) ->
+    State = new_state(ResourceId, Source),
+    ok = emqx_authz_utils:update_resource(emqx_mysql, State),
+    State.
 
-destroy(#{annotations := #{id := Id}}) ->
-    emqx_authz_utils:remove_resource(Id).
+destroy(#{resource_id := ResourceId}) ->
+    emqx_authz_utils:remove_resource(ResourceId).
 
 authorize(
     Client,
     Action,
     Topic,
     #{
-        annotations := #{
-            id := ResourceId,
-            tmpl_token := TmplToken,
-            cache_key_template := CacheKeyTemplate
-        }
+        resource_id := ResourceId,
+        tmpl_token := TmplToken,
+        cache_key_template := CacheKeyTemplate
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
@@ -90,10 +72,28 @@ authorize(
             nomatch
     end.
 
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+new_state(ResourceId, #{query := SQL} = Source0) ->
+    {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
+    Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
+    ResourceConfig = emqx_authz_utils:cleanup_resource_config(
+        [query], Source
+    ),
+    emqx_authz_utils:init_state(Source, #{
+        resource_config => ResourceConfig,
+        resource_id => ResourceId,
+        tmpl_token => TmplToken,
+        cache_key_template => CacheKeyTemplate
+    }).
+
 do_authorize(_Client, _Action, _Topic, _ColumnNames, []) ->
     nomatch;
 do_authorize(Client, Action, Topic, ColumnNames, [Row | Tail]) ->
-    case emqx_authz_utils:do_authorize(mysql, Client, Action, Topic, ColumnNames, Row) of
+    case emqx_authz_utils:authorize_with_row(mysql, Client, Action, Topic, ColumnNames, Row) of
         nomatch ->
             do_authorize(Client, Action, Topic, ColumnNames, Tail);
         {matched, Permission} ->

@@ -406,6 +406,55 @@ t_update(_Config) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
+t_resource_status(_Config) ->
+    EnabledConfig = raw_http_auth_config(),
+    DisabledConfig =
+        EnabledConfig#{<<"enable">> => false},
+
+    %% Create enabled, update to disabled
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, EnabledConfig}
+    ),
+    {ok, #{state := #{resource_id := ResourceId0}}} = emqx_authn_chains:lookup_authenticator(
+        ?GLOBAL,
+        <<"password_based:http">>
+    ),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId0)),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {update_authenticator, ?GLOBAL, <<"password_based:http">>, DisabledConfig}
+    ),
+    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(ResourceId0)),
+
+    %% Cleanup
+    emqx_authn_test_lib:delete_authenticators(
+        [authentication],
+        ?GLOBAL
+    ),
+
+    %% Now, create disabled, update to enabled
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, DisabledConfig}
+    ),
+    {ok, #{state := #{resource_id := ResourceId1}}} = emqx_authn_chains:lookup_authenticator(
+        ?GLOBAL,
+        <<"password_based:http">>
+    ),
+    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(ResourceId1)),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {update_authenticator, ?GLOBAL, <<"password_based:http">>, EnabledConfig}
+    ),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId1)),
+
+    %% Cleanup
+    emqx_authn_test_lib:delete_authenticators(
+        [authentication],
+        ?GLOBAL
+    ).
+
 t_update_precondition(_Config) ->
     %% always allow
     ok = emqx_utils_http_test_server:set_handler(

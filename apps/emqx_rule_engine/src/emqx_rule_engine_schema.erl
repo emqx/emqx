@@ -102,7 +102,7 @@ fields("builtin_action_console") ->
         %% the field needs to be included in the schema even though it is not a valid field.
         {args,
             ?HOCON(map(), #{
-                deprecated => true,
+                deprecated => {since, "5.2.1"},
                 importance => ?IMPORTANCE_HIDDEN,
                 desc => "The arguments of the built-in 'console' action",
                 default => #{}

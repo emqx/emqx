@@ -812,6 +812,37 @@ t_create_replace(_Config) ->
         })
     ).
 
+t_resource_status(_Config) ->
+    EnabledConfig = raw_http_authz_config(),
+    DisabledConfig =
+        EnabledConfig#{<<"enable">> => false},
+
+    %% Create enabled, update to disabled
+    ok = emqx_authz_test_lib:setup_config(EnabledConfig, #{}),
+    #{resource_id := ResourceId0} = emqx_authz:lookup_state(http),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId0)),
+    ?assertMatch(
+        {ok, _},
+        emqx_authz:update({?CMD_REPLACE, http}, DisabledConfig)
+    ),
+    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(ResourceId0)),
+
+    %% Cleanup
+    emqx_authz_test_lib:reset_authorizers(),
+
+    %% Now, create disabled, update to enabled
+    ok = emqx_authz_test_lib:setup_config(DisabledConfig, #{}),
+    #{resource_id := ResourceId1} = emqx_authz:lookup_state(http),
+    ?assertEqual({error, resource_is_stopped}, emqx_resource:health_check(ResourceId1)),
+    ?assertMatch(
+        {ok, _},
+        emqx_authz:update({?CMD_REPLACE, http}, EnabledConfig)
+    ),
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId1)),
+
+    %% Cleanup
+    emqx_authz_test_lib:reset_authorizers().
+
 t_uri_normalization(_Config) ->
     ok = emqx_authz_test_lib:setup_config(
         raw_http_authz_config(),

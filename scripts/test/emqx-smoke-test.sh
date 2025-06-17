@@ -36,13 +36,20 @@ json_status() {
 
 ## Check if the API docs are available
 check_api_docs() {
+    local attempts=5
     local url="$BASE_URL/api-docs/index.html"
-    local status
-    status="$(curl -s -o /dev/null -w "%{http_code}" "$url")"
-    if [ "$status" != "200" ]; then
-        echo "emqx return non-200 responses($status) on $url"
-        exit 1
-    fi
+    local status="undefined"
+    while [ "$status" != "200" ]; do
+        status="$(curl -s -o /dev/null -w "%{http_code}" "$url")"
+        if [ "$status" != "200" ]; then
+            if [ $attempts -eq 0 ]; then
+                echo "emqx return non-200 responses($status) on $url"
+                exit 1
+            fi
+            sleep 1
+            attempts=$((attempts-1))
+        fi
+    done
 }
 
 ## Check if the swagger.json contains hidden fields

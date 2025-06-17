@@ -302,12 +302,14 @@ t_api(_) ->
     } = emqx_utils_json:decode(Status5_1),
 
     #{
-        ssl := #{
-            cacertfile := SavedCacertfile,
-            certfile := SavedCertfile,
-            keyfile := SavedKeyfile
+        config := #{
+            ssl := #{
+                cacertfile := SavedCacertfile,
+                certfile := SavedCertfile,
+                keyfile := SavedKeyfile
+            }
         }
-    } = emqx_authz:lookup(mongodb),
+    } = emqx_authz:lookup_state(mongodb),
 
     ?assert(filelib:is_file(SavedCacertfile)),
     ?assert(filelib:is_file(SavedCertfile)),
@@ -503,7 +505,7 @@ t_source_move(_) ->
             #{type := postgresql},
             #{type := redis}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     {ok, 204, _} = request(
@@ -519,7 +521,7 @@ t_source_move(_) ->
             #{type := mysql},
             #{type := redis}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     {ok, 204, _} = request(
@@ -535,7 +537,7 @@ t_source_move(_) ->
             #{type := redis},
             #{type := http}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     {ok, 204, _} = request(
@@ -551,7 +553,7 @@ t_source_move(_) ->
             #{type := redis},
             #{type := http}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     {ok, 204, _} = request(
@@ -567,7 +569,7 @@ t_source_move(_) ->
             #{type := http},
             #{type := mongodb}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     ok.
@@ -586,7 +588,7 @@ t_sources_reorder(_) ->
             #{type := postgresql},
             #{type := redis}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     OrderUri = uri(["authorization", "sources", "order"]),
@@ -611,7 +613,7 @@ t_sources_reorder(_) ->
             #{type := mysql},
             #{type := mongodb, enable := false}
         ],
-        emqx_authz:lookup()
+        emqx_authz:lookup_states()
     ),
 
     %% Invalid moves

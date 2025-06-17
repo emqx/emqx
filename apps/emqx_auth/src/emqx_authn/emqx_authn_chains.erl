@@ -849,7 +849,7 @@ do_create_authenticator2(AuthenticatorID, Config, Provider) ->
 %% Create authenticator with precondition
 do_create_authenticator3(AuthenticatorID, Config, Provider, Precondition) ->
     #{enable := Enable} = Config,
-    case Provider:create(AuthenticatorID, Config) of
+    try Provider:create(AuthenticatorID, Config) of
         {ok, State} ->
             Authenticator = #authenticator{
                 id = AuthenticatorID,
@@ -861,6 +861,18 @@ do_create_authenticator3(AuthenticatorID, Config, Provider, Precondition) ->
             {ok, Authenticator};
         {error, Reason} ->
             {error, Reason}
+    catch
+        _Class:Reason:Stacktrace ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "create_authenticator_error",
+                    authenticator => AuthenticatorID,
+                    reason => Reason,
+                    stacktrace => Stacktrace
+                }
+            ),
+            {error, #{cause => "create_authenticator_error", reason => Reason}}
     end.
 
 compile_precondition(Config) ->

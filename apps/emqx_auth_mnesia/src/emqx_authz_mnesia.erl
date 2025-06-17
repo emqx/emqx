@@ -46,7 +46,7 @@
 %% AuthZ Callbacks
 -export([
     create/1,
-    update/1,
+    update/2,
     destroy/1,
     authorize/4
 ]).
@@ -87,7 +87,7 @@ create_tables() ->
 
 create(Source) -> Source.
 
-update(Source) -> Source.
+update(_State, Source) -> create(Source).
 
 destroy(_Source) ->
     {atomic, ok} = mria:clear_table(?ACL_TABLE),

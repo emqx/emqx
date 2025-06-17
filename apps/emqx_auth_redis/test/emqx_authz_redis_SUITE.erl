@@ -82,7 +82,7 @@ t_create_with_config_values_wont_work(_Config) ->
     lists:foreach(
         fun(Config) ->
             {ok, _} = emqx_authz:update(?CMD_REPLACE, [Config]),
-            [_] = emqx_authz:lookup()
+            [_] = emqx_authz:lookup_states()
         end,
         InvalidConfigs
     ).

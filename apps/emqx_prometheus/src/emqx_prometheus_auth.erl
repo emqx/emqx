@@ -397,7 +397,7 @@ authz_rules_count_data() ->
             (#{type := built_in_database} = Authz, AccIn) ->
                 [auth_data_sample_point(authz, Authz, ?ACL_TABLE) | AccIn];
             (#{type := file}, AccIn) ->
-                #{annotations := #{rules := Rules}} = emqx_authz:lookup(file),
+                #{rules := Rules} = emqx_authz:lookup_state(file),
                 Size = erlang:length(Rules),
                 [{[{type, file}], Size} | AccIn];
             (_, AccIn) ->

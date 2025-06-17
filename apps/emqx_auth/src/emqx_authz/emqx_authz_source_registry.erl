@@ -8,59 +8,55 @@
     create/0,
     register/2,
     unregister/1,
-    get/0,
-    get/1,
+    registered_types/0,
     module/1
 ]).
 
 -define(TAB, ?MODULE).
 
--type fuzzy_type() :: emqx_authz_source:source_type() | binary().
+-type type() :: emqx_authz_source:source_type().
+
+-record(source, {
+    type :: type(),
+    module :: module()
+}).
+
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
 -spec create() -> ok.
 create() ->
-    _ = ets:new(?TAB, [named_table, public, set]),
+    _ = ets:new(?TAB, [named_table, public, set, {keypos, #source.type}]),
     ok.
 
--spec register(emqx_authz_source:source_type(), module()) -> ok | {error, term()}.
+-spec register(type(), module()) -> ok | {error, term()}.
 register(Type, Module) when is_atom(Type) andalso is_atom(Module) ->
-    case ets:insert_new(?TAB, {Type, Type, Module}) of
+    case ets:insert_new(?TAB, #source{type = Type, module = Module}) of
         true ->
-            _ = ets:insert(?TAB, {atom_to_binary(Type), Type, Module}),
             ok;
         false ->
             {error, {already_registered, Type}}
     end.
 
--spec unregister(emqx_authz_source:source_type()) -> ok.
+-spec unregister(type()) -> ok.
 unregister(Type) when is_atom(Type) ->
     _ = ets:delete(?TAB, Type),
-    _ = ets:delete(?TAB, atom_to_binary(Type)),
     ok.
 
--spec get(fuzzy_type()) ->
-    emqx_authz_source:source_type() | no_return().
-get(FuzzyType) when is_atom(FuzzyType) orelse is_binary(FuzzyType) ->
-    case ets:lookup(?TAB, FuzzyType) of
-        [] ->
-            throw({unknown_authz_source_type, FuzzyType});
-        [{FuzzyType, Type, _Module}] ->
-            Type
-    end.
-
--spec get() -> [emqx_authz_source:source_type()].
-get() ->
+-spec registered_types() -> [type()].
+registered_types() ->
     Types = lists:map(
-        fun({_, Type, _}) -> Type end,
+        fun(#source{type = Type}) -> Type end,
         ets:tab2list(?TAB)
     ),
-    lists:usort(Types).
+    lists:sort(Types).
 
--spec module(fuzzy_type()) -> module() | no_return().
-module(FuzzyType) when is_atom(FuzzyType) orelse is_binary(FuzzyType) ->
-    case ets:lookup(?TAB, FuzzyType) of
+-spec module(type()) -> module() | no_return().
+module(Type) ->
+    case ets:lookup(?TAB, Type) of
         [] ->
-            throw({unknown_authz_source_type, FuzzyType});
-        [{FuzzyType, _Type, Module}] ->
+            throw({unknown_authz_source_type, Type});
+        [#source{module = Module}] ->
             Module
     end.
