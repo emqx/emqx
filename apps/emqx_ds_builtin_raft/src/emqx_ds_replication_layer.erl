@@ -1322,6 +1322,10 @@ apply(
                     emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
                     State = State0#{tx_serial := Serial, latest := Timestamp},
                     Result = ok,
+                    DispatchF = fun(Stream) ->
+                        emqx_ds_beamformer:shard_event(DBShard, [Stream])
+                    end,
+                    emqx_ds_storage_layer_ttv:dispatch_events(DBShard, Batches, DispatchF),
                     Effects = try_release_log({Serial, length(Batches)}, RaftMeta, State);
                 Err = ?err_unrec(_) ->
                     State = State0,
@@ -1505,13 +1509,28 @@ timeus_to_timestamp(TimestampUs) ->
 snapshot_module() ->
     emqx_ds_builtin_raft_server_snapshot.
 
+unpack_iterator(Shard, Iterator = #'Iterator'{}) ->
+    emqx_ds_storage_layer_ttv:unpack_iterator(Shard, Iterator);
 unpack_iterator(Shard, #{?tag := ?IT, ?enc := Iterator}) ->
     emqx_ds_storage_layer:unpack_iterator(Shard, Iterator).
 
 high_watermark(DBShard = {DB, Shard}, Stream) ->
     Now = current_timestamp(DB, Shard),
-    emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now).
+    case Stream of
+        #'Stream'{} ->
+            emqx_ds_storage_layer_ttv:high_watermark(DBShard, Stream, Now);
+        _ ->
+            emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now)
+    end.
 
+fast_forward(DBShard = {DB, Shard}, It = #'Iterator'{}, Key) ->
+    ?IF_SHARD_READY(
+        DBShard,
+        begin
+            Now = current_timestamp(DB, Shard),
+            emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now)
+        end
+    );
 fast_forward(DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc := Inner0}, Key) ->
     ?IF_SHARD_READY(
         DBShard,
@@ -1528,9 +1547,13 @@ fast_forward(DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc :=
         end
     ).
 
-message_match_context(DBShard, InnerStream, MsgKey, Message) ->
-    emqx_ds_storage_layer:message_match_context(DBShard, InnerStream, MsgKey, Message).
+message_match_context(DBShard, Stream = #'Stream'{}, MsgKey, TTV) ->
+    emqx_ds_storage_layer_ttv:message_match_context(DBShard, Stream, MsgKey, TTV);
+message_match_context(DBShard, Stream, MsgKey, Message) ->
+    emqx_ds_storage_layer:message_match_context(DBShard, Stream, MsgKey, Message).
 
+iterator_match_context(DBShard, Iterator = #'Iterator'{}) ->
+    emqx_ds_storage_layer_ttv:iterator_match_context(DBShard, Iterator);
 iterator_match_context(DBShard = {_DB, Shard}, #{?tag := ?IT, ?shard := Shard, ?enc := Iterator}) ->
     emqx_ds_storage_layer:iterator_match_context(DBShard, Iterator).
 
@@ -1539,16 +1562,24 @@ scan_stream(DBShard = {DB, Shard}, Stream, TopicFilter, StartMsg, BatchSize) ->
         DBShard,
         begin
             Now = current_timestamp(DB, Shard),
-            emqx_ds_storage_layer:scan_stream(
-                DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
-            )
+            case Stream of
+                #'Stream'{} ->
+                    emqx_ds_storage_layer_ttv:scan_stream(
+                        DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
+                    );
+                _ ->
+                    emqx_ds_storage_layer:scan_stream(
+                        DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
+                    )
+            end
         end
     ).
 
 -spec update_iterator(emqx_ds_storage_layer:dbshard(), iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
-update_iterator(ShardId, OldIter, DSKey) ->
-    #{?tag := ?IT, ?enc := Inner0} = OldIter,
+update_iterator(ShardId, #'Iterator'{} = Iter, DSKey) ->
+    emqx_ds_storage_layer_ttv:update_iterator(ShardId, Iter, DSKey);
+update_iterator(ShardId, #{?tag := ?IT, ?enc := Inner0} = OldIter, DSKey) ->
     case emqx_ds_storage_layer:update_iterator(ShardId, Inner0, DSKey) of
         {ok, Inner} ->
             {ok, OldIter#{?enc => Inner}};

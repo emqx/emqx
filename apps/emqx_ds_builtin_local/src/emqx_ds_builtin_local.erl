@@ -444,7 +444,6 @@ get_streams(DB, TopicFilter, StartTime, Opts) ->
 ) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(DB, Stream = #'Stream'{}, TopicFilter, StartTime) ->
-    %% TTV
     emqx_ds_storage_layer_ttv:make_iterator(DB, Stream, TopicFilter, StartTime);
 make_iterator(DB, ?stream(Shard, InnerStream), TopicFilter, StartTime) ->
     ShardId = {DB, Shard},
@@ -461,6 +460,8 @@ make_iterator(DB, ?stream(Shard, InnerStream), TopicFilter, StartTime) ->
 
 -spec update_iterator(_Shard, emqx_ds:ds_specific_iterator(), emqx_ds:message_key()) ->
     emqx_ds:make_iterator_result(iterator()).
+update_iterator(DBShard, Iter0 = #'Iterator'{}, Key) ->
+    emqx_ds_storage_layer_ttv:update_iterator(DBShard, Iter0, Key);
 update_iterator(ShardId, Iter0 = #{?tag := ?IT, ?enc := StorageIter0}, Key) ->
     case emqx_ds_storage_layer:update_iterator(ShardId, StorageIter0, Key) of
         {ok, StorageIter} ->
@@ -479,7 +480,13 @@ next(DB, Iter, N) ->
 
 -spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
     {ok, emqx_ds:subscription_handle(), reference()}.
-subscribe(DB, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
+subscribe(DB, It, SubOpts) ->
+    case It of
+        #{?tag := ?IT, ?shard := Shard} ->
+            ok;
+        #'Iterator'{shard = Shard} ->
+            ok
+    end,
     Server = emqx_ds_beamformer:where({DB, Shard}),
     MRef = monitor(process, Server),
     case emqx_ds_beamformer:subscribe(Server, self(), MRef, It, SubOpts) of
@@ -503,13 +510,23 @@ unsubscribe(DB, {Shard, SubId}) ->
 suback(DB, {Shard, SubRef}, SeqNo) ->
     emqx_ds_beamformer:suback({DB, Shard}, SubRef, SeqNo).
 
+unpack_iterator(DBShard, Iterator = #'Iterator'{}) ->
+    emqx_ds_storage_layer_ttv:unpack_iterator(DBShard, Iterator);
 unpack_iterator(DBShard, #{?tag := ?IT, ?enc := Iterator}) ->
     emqx_ds_storage_layer:unpack_iterator(DBShard, Iterator).
 
 high_watermark(DBShard, Stream) ->
     Now = current_timestamp(DBShard),
-    emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now).
+    case Stream of
+        #'Stream'{} ->
+            emqx_ds_storage_layer_ttv:high_watermark(DBShard, Stream, Now);
+        _ ->
+            emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now)
+    end.
 
+fast_forward(DBShard, It = #'Iterator'{}, Key) ->
+    Now = current_timestamp(DBShard),
+    emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now);
 fast_forward(DBShard, It = #{?tag := ?IT, ?enc := Inner0}, Key) ->
     Now = current_timestamp(DBShard),
     case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
@@ -521,9 +538,13 @@ fast_forward(DBShard, It = #{?tag := ?IT, ?enc := Inner0}, Key) ->
             Err
     end.
 
-message_match_context(DBShard, InnerStream, MsgKey, Message) ->
-    emqx_ds_storage_layer:message_match_context(DBShard, InnerStream, MsgKey, Message).
+message_match_context(DBShard, Stream = #'Stream'{}, MsgKey, TTV) ->
+    emqx_ds_storage_layer_ttv:message_match_context(DBShard, Stream, MsgKey, TTV);
+message_match_context(DBShard, Stream, MsgKey, Message) ->
+    emqx_ds_storage_layer:message_match_context(DBShard, Stream, MsgKey, Message).
 
+iterator_match_context(DBShard, Iterator = #'Iterator'{}) ->
+    emqx_ds_storage_layer_ttv:iterator_match_context(DBShard, Iterator);
 iterator_match_context(DBShard, #{?tag := ?IT, ?enc := Iterator}) ->
     emqx_ds_storage_layer:iterator_match_context(DBShard, Iterator).
 
@@ -531,9 +552,17 @@ scan_stream(DBShard, Stream, TopicFilter, StartMsg, BatchSize) ->
     {DB, _} = DBShard,
     Now = current_timestamp(DBShard),
     T0 = erlang:monotonic_time(microsecond),
-    Result = emqx_ds_storage_layer:scan_stream(
-        DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
-    ),
+    Result =
+        case Stream of
+            #'Stream'{} ->
+                emqx_ds_storage_layer_ttv:scan_stream(
+                    DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
+                );
+            _ ->
+                emqx_ds_storage_layer:scan_stream(
+                    DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
+                )
+        end,
     T1 = erlang:monotonic_time(microsecond),
     emqx_ds_builtin_metrics:observe_next_time(DB, T1 - T0),
     Result.
@@ -669,7 +698,10 @@ otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Timestamp, Batches) -
                 %% Commit data:
                 ok ?= emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{}),
                 %% Finally, update read serial:
-                emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial)
+                emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
+                %% Dispatch events:
+                DispatchF = fun(Stream) -> emqx_ds_beamformer:shard_event(DBShard, [Stream]) end,
+                emqx_ds_storage_layer_ttv:dispatch_events(DBShard, Batches, DispatchF)
             end;
         Val ->
             ?err_unrec({serial_mismatch, SerCtl, Val})

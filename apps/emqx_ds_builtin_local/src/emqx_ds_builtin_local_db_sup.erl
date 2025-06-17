@@ -225,9 +225,6 @@ shard_batch_serializer_spec(DB, Shard, Opts = #{store_ttv := false}) ->
         type => worker
     }.
 
-shard_beamformers_spec(_DB, _Shard, #{store_ttv := true}) ->
-    %% Currently subscribe API is not supported for KV
-    [];
 shard_beamformers_spec(DB, Shard, _Opts) ->
     BeamformerOpts = #{n_workers => emqx_ds_beamformer:cfg_workers_per_shard()},
     [
