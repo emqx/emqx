@@ -934,7 +934,9 @@ run_migrations(_Version = "5.8." ++ _) ->
 run_migrations(_Version = "5.9." ++ _) ->
     run_migrations_e58();
 run_migrations(_Version = "5.10." ++ _) ->
-    run_migrations_e58().
+    run_migrations_e58();
+run_migrations(_Version = "6." ++ _) ->
+    ok.
 
 ensure_site() ->
     Filename = filename:join(emqx_ds_storage_layer:base_dir(), "emqx_ds_builtin_site.eterm"),
