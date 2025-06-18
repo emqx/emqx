@@ -100,6 +100,17 @@ readable("pos_integer()") ->
         dashboard => #{type => integer, minimum => 1},
         docgen => #{type => "Integer(1..+inf)"}
     };
+readable("pos_integer_or_infinity()") ->
+    #{
+        swagger => #{
+            <<"oneOf">> => [
+                #{type => string},
+                #{type => integer, minimum => 1}
+            ]
+        },
+        dashboard => #{type => integer, minimum => 1},
+        docgen => #{type => "Integer(1..+inf)"}
+    };
 readable("number()") ->
     #{
         swagger => #{type => number},
