@@ -7,7 +7,8 @@
 
 -export([
     sys_info/0,
-    app_env_dump/0
+    app_env_dump/0,
+    print_conf_dump/0
 ]).
 
 sys_info() ->
@@ -18,6 +19,11 @@ sys_info() ->
 
 app_env_dump() ->
     censor(ets:tab2list(ac_tab)).
+
+print_conf_dump() ->
+    RawConf0 = emqx_config:get_raw([]),
+    RawConf = emqx_utils:redact(RawConf0),
+    io:put_chars(hocon_pp:do(RawConf, #{})).
 
 censor([]) ->
     [];

@@ -12,7 +12,8 @@ BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
 cd "${RUNNER_ROOT_DIR}"
 
 DUMP="$EMQX_LOG_DIR/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
-CONF_DUMP="$EMQX_LOG_DIR/conf.dump"
+APP_ENV_DUMP="$EMQX_LOG_DIR/app_env.dump"
+CONF_DUMP="$EMQX_LOG_DIR/conf.hocon"
 LICENSE_INFO="$EMQX_LOG_DIR/license_info.txt"
 SYSINFO="$EMQX_LOG_DIR/sysinfo.txt"
 
@@ -72,8 +73,13 @@ done
 
 # Collect information about the configuration:
 {
-    collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:app_env_dump()'"
+    collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:app_env_dump().'"
+} > "${APP_ENV_DUMP}"
+
+{
+    collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:print_conf_dump().'"
 } > "${CONF_DUMP}"
+
 
 # Collect license info:
 {
@@ -84,16 +90,17 @@ done
 {
     find "$EMQX_LOG_DIR" -mtime -"${LOG_MAX_AGE_DAYS}" \( -name '*.log.*' -or -name 'run_erl.log*' \)
     echo "${SYSINFO}"
+    echo "${APP_ENV_DUMP}"
     echo "${CONF_DUMP}"
     echo "${LICENSE_INFO}"
 } | tar czf "${DUMP}" -T -
 
 ## Cleanup:
 rm "${SYSINFO}" "${LICENSE_INFO}"
-#rm "${CONF_DUMP}" # Keep it for inspection
+#rm "${APP_ENV_DUMP}" "${CONF_DUMP}" # Keep it for inspection
 
 echo "Created a node dump ${DUMP}"
 echo
 echo "WARNING: this script tries to obfuscate secrets, but make sure to
-inspect log/conf.dump file manually before uploading the node dump
+inspect log/app_env.dump and log/conf.hocon files manually before uploading the node dump
 to a public location."
