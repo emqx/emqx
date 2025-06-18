@@ -1774,7 +1774,9 @@ start_channel_health_check_action(ChannelId, NewChanStatus, PreviousChanStatus, 
             end,
             [NewChanStatus, PreviousChanStatus]
         ),
-    Timeout = get_channel_health_check_interval(ChannelId, ConfigSources, Data),
+    Timeout0 = get_channel_health_check_interval(ChannelId, ConfigSources, Data),
+    MaxJitter = get_channel_health_check_interval_jitter(ChannelId, ConfigSources, Data),
+    Timeout = Timeout0 + rand:uniform(MaxJitter + 1) - 1,
     Event = #start_channel_health_check{channel_id = ChannelId},
     [generic_timeout_action(Event, Timeout, Event)].
 
@@ -1826,6 +1828,11 @@ get_channel_health_check_timeout(ChannelId, ConfigSources, Data) ->
 get_channel_health_check_interval(ChannelId, ConfigSources, Data) ->
     Field = health_check_interval,
     Default = ?HEALTHCHECK_INTERVAL,
+    get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data).
+
+get_channel_health_check_interval_jitter(ChannelId, ConfigSources, Data) ->
+    Field = health_check_interval_jitter,
+    Default = ?HEALTHCHECK_INTERVAL_JITTER,
     get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data).
 
 get_resource_opts_field_with_fallback(Field, Default, ChannelId, ConfigSources, Data) ->
