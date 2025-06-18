@@ -247,6 +247,9 @@ t_listeners(_Config) ->
 t_authz(_Config) ->
     %% authz cache-clean all         # Clears authorization cache on all nodes
     ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", "all"])),
+    %% "cache-clean all" relies on an inserted timestamp in persistent term; we need to
+    %% sleep to avoid considering a freshly inserted cache entry as stale.
+    ct:sleep(1),
     ClientId = "authz_clean_test",
     ClientIdBin = list_to_binary(ClientId),
     %% authz cache-clean <ClientId>  # Clears authorization cache for given client

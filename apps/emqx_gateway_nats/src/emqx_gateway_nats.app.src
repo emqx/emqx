@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_gateway_nats, [
     {description, "NATS Server implementation in EMQX Gateway"},
-    {vsn, "0.1.0"},
+    {vsn, "0.1.1"},
     {registered, []},
     {applications, [kernel, stdlib, emqx, emqx_gateway]},
     {env, []},

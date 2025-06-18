@@ -43,6 +43,7 @@ create_opts(Overrides) ->
             {buffer_mode, fun buffer_mode/1},
             {worker_pool_size, fun worker_pool_size/1},
             {health_check_interval, fun health_check_interval/1},
+            {health_check_interval_jitter, fun health_check_interval_jitter/1},
             {health_check_timeout, fun health_check_timeout/1},
             {resume_interval, fun resume_interval/1},
             {metrics_flush_interval, fun metrics_flush_interval/1},
@@ -102,6 +103,12 @@ health_check_interval(default) -> ?HEALTHCHECK_INTERVAL_RAW;
 health_check_interval(required) -> false;
 health_check_interval(validator) -> fun health_check_interval_range/1;
 health_check_interval(_) -> undefined.
+
+health_check_interval_jitter(type) -> emqx_schema:timeout_duration_ms();
+health_check_interval_jitter(desc) -> ?DESC("health_check_interval_jitter");
+health_check_interval_jitter(default) -> ?HEALTHCHECK_INTERVAL_JITTER_RAW;
+health_check_interval_jitter(required) -> false;
+health_check_interval_jitter(_) -> undefined.
 
 health_check_timeout(type) -> hoconsc:union([emqx_schema:timeout_duration_ms(), infinity]);
 health_check_timeout(desc) -> ?DESC("health_check_timeout");

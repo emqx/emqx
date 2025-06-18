@@ -7,6 +7,7 @@
 -export([
     start/0,
     announce/2,
+    nodes_supporting_bpapi_version/2,
     supported_version/1, supported_version/2,
     supported_apis/1,
     versions_file/1
@@ -117,6 +118,17 @@ announce(Node, App) ->
 -spec versions_file(atom()) -> file:filename_all().
 versions_file(App) ->
     filename:join(code:priv_dir(App), "bpapi.versions").
+
+-spec nodes_supporting_bpapi_version(api(), api_version()) -> [node()].
+nodes_supporting_bpapi_version(BPAPIName, Vsn) ->
+    [
+        N
+     || N <- emqx:running_nodes(),
+        case emqx_bpapi:supported_version(N, BPAPIName) of
+            undefined -> false;
+            NVsn when is_number(NVsn) -> NVsn >= Vsn
+        end
+    ].
 
 %%--------------------------------------------------------------------
 %% Internal functions
