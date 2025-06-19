@@ -17,7 +17,6 @@
 -define(api_base_url(_Port_), ("http://127.0.0.1:" ++ (integer_to_list(_Port_)))).
 
 -define(UPLOAD_EE_BACKUP, "emqx-export-upload-ee.tar.gz").
--define(UPLOAD_CE_BACKUP, "emqx-export-upload-ce.tar.gz").
 -define(BAD_UPLOAD_BACKUP, "emqx-export-bad-upload.tar.gz").
 -define(BAD_IMPORT_BACKUP, "emqx-export-bad-file.tar.gz").
 -define(backup_path(_Config_, _BackupName_),
@@ -39,8 +38,7 @@ init_per_testcase(TC, Config) when
     TC =:= t_import_ee_backup
 ->
     case emqx_release:edition() of
-        ee -> do_init_per_testcase(TC, Config);
-        ce -> Config
+        ee -> do_init_per_testcase(TC, Config)
     end;
 init_per_testcase(TC, Config) ->
     do_init_per_testcase(TC, Config).
@@ -100,22 +98,14 @@ t_list_backups(Config) ->
 
     ?assertEqual(Data, DataP1 ++ DataP2).
 
-t_upload_ce_backup(Config) ->
-    upload_backup_test(Config, ?UPLOAD_CE_BACKUP).
-
 t_upload_ee_backup(Config) ->
     case emqx_release:edition() of
-        ee -> upload_backup_test(Config, ?UPLOAD_EE_BACKUP);
-        ce -> ok
+        ee -> upload_backup_test(Config, ?UPLOAD_EE_BACKUP)
     end.
-
-t_import_ce_backup(Config) ->
-    import_backup_test(Config, ?UPLOAD_CE_BACKUP).
 
 t_import_ee_backup(Config) ->
     case emqx_release:edition() of
-        ee -> import_backup_test(Config, ?UPLOAD_EE_BACKUP);
-        ce -> ok
+        ee -> import_backup_test(Config, ?UPLOAD_EE_BACKUP)
     end.
 
 %% Simple smoke test for cloud export API (export with scoped table set names and root
@@ -538,9 +528,7 @@ app_spec_dashboard(APIPort) ->
 
 test_case_specific_apps_spec(TC) when
     TC =:= t_upload_ee_backup;
-    TC =:= t_import_ee_backup;
-    TC =:= t_upload_ce_backup;
-    TC =:= t_import_ce_backup
+    TC =:= t_import_ee_backup
 ->
     [
         emqx_auth,

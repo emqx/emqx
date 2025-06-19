@@ -17,7 +17,7 @@
 
 -define(ROLE_SUPERUSER, <<"administrator">>).
 -define(ROLE_API_SUPERUSER, <<"administrator">>).
--define(BOOTSTRAP_BACKUP, "emqx-export-test-bootstrap-ce.tar.gz").
+-define(BOOTSTRAP_BACKUP, "emqx-export-test-bootstrap.tar.gz").
 
 -define(CACERT, <<
     "-----BEGIN CERTIFICATE-----\n"
@@ -106,8 +106,6 @@ t_empty_export_import(_Config) ->
 
 t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
     case emqx_release:edition() of
-        ce ->
-            ok;
         ee ->
             FNameEmqx44 = "emqx-export-4.4.24-retainer-mqttsub.tar.gz",
             BackupFile = filename:join(?config(data_dir, Config), FNameEmqx44),
@@ -135,7 +133,7 @@ t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
     ok.
 
 t_import_retained_messages(Config) ->
-    FName = "emqx-export-ce-retained-msgs-test.tar.gz",
+    FName = "emqx-export-retained-msgs-test.tar.gz",
     BackupFile = filename:join(?config(data_dir, Config), FName),
     Exp = {ok, #{db_errors => #{}, config_errors => #{}}},
     ?assertEqual(Exp, emqx_mgmt_data_backup:import_local(BackupFile)),
@@ -290,32 +288,6 @@ t_cluster_hocon_export_import(Config) ->
         emqx_mgmt_auth:read(<<"key_to_export2">>)
     ),
     ok.
-
-t_ee_to_ce_backup(Config) ->
-    case emqx_release:edition() of
-        ce ->
-            EEBackupFileName = filename:join(?config(priv_dir, Config), "export-backup-ee.tar.gz"),
-            Meta = unicode:characters_to_binary(
-                hocon_pp:do(#{edition => ee, version => emqx_release:version()}, #{})
-            ),
-            ok = erl_tar:create(
-                EEBackupFileName,
-                [
-                    {"export-backup-ee/cluster.hocon", <<>>},
-                    {"export-backup-ee/META.hocon", Meta}
-                ],
-                [compressed]
-            ),
-            ExpReason = ee_to_ce_backup,
-            ?assertEqual(
-                {error, ExpReason}, emqx_mgmt_data_backup:import_local(EEBackupFileName)
-            ),
-            %% Must be translated to a readable string
-            ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(ExpReason));
-        ee ->
-            %% Don't fail if the test is run with emqx-enterprise profile
-            ok
-    end.
 
 t_tar_outside_backup_dir(Config) ->
     BackupFileName = filename:join(?config(priv_dir, Config), "tar_outside_backup_dir.tar.gz"),
@@ -498,9 +470,6 @@ t_bad_config(Config) ->
 
 t_cluster_links(_Config) ->
     case emqx_release:edition() of
-        ce ->
-            %% Only available in EMQX Enterprise
-            ok;
         ee ->
             Link = #{
                 <<"name">> => <<"emqxcl_backup_test">>,
@@ -858,13 +827,11 @@ create_test_tab(Attributes) ->
 
 apps_to_start(t_cluster_links) ->
     case emqx_release:edition() of
-        ee -> apps_to_start() ++ [emqx_cluster_link];
-        ce -> []
+        ee -> apps_to_start() ++ [emqx_cluster_link]
     end;
 apps_to_start(t_export_cloud_subset) ->
     case emqx_release:edition() of
-        ee -> apps_to_start() ++ [emqx_schema_registry, emqx_cluster_link];
-        ce -> []
+        ee -> apps_to_start() ++ [emqx_schema_registry, emqx_cluster_link]
     end;
 apps_to_start(_TC) ->
     apps_to_start().
