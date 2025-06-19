@@ -1257,6 +1257,7 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
             _ -> #{}
         end,
     {Streams, ShardErrors0} = get_streams(DB, TopicFilter, StartTime, GetStreamOpts),
+    ?tp(warning, "Streams", #{its => Streams}),
     ShardErrors = [{shard, Shard, Err} || {Shard, Err} <- ShardErrors0],
     %% Create iterators:
     {Iterators, MakeIteratorErrors} =

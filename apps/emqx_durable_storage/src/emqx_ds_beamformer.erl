@@ -100,6 +100,7 @@
     return_addr/1,
     unpack_iterator_result/1,
     event_topic/0,
+    event_topic_filter/0,
     stream_scan_return/0,
     beam_builder/0,
     sub_tab/0

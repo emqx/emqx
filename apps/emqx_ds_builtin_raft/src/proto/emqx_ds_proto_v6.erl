@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ds_proto_v5).
+-module(emqx_ds_proto_v6).
 
 -behavior(emqx_bpapi).
 
@@ -22,11 +22,13 @@
     %% introduced in v4
     get_delete_streams/5,
     make_delete_iterator/6,
-    delete_next/6
+    delete_next/6,
+    %% introduced in v6
+    next_ttv/5
 ]).
 
 %% behavior callbacks:
--export([introduced_in/0, deprecated_since/0]).
+-export([introduced_in/0]).
 
 %%================================================================================
 %% API functions
@@ -72,6 +74,17 @@ make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_rpc:call_result(emqx_ds:next_result()).
 next(Node, DB, Shard, Iter, BatchSize) ->
     emqx_rpc:call(Shard, Node, emqx_ds_replication_layer, do_next_v1, [DB, Shard, Iter, BatchSize]).
+
+-spec next_ttv(
+    node(),
+    emqx_ds:db(),
+    emqx_ds:shard(),
+    emqx_ds_storage_layer_ttv:iterator(),
+    pos_integer()
+) ->
+    emqx_rpc:call_result(emqx_ds:next_result()).
+next_ttv(Node, DB, Shard, Iter, BatchSize) ->
+    emqx_rpc:call(Shard, Node, emqx_ds_replication_layer, do_next_ttv, [DB, Iter, BatchSize]).
 
 -spec store_batch(
     node(),
@@ -195,7 +208,4 @@ delete_next(Node, DB, Shard, Iter, Selector, BatchSize) ->
 %%================================================================================
 
 introduced_in() ->
-    "5.8.0".
-
-deprecated_since() ->
     "5.11.0".

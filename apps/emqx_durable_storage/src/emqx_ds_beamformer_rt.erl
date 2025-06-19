@@ -385,8 +385,10 @@ process_batch(Stream, EndKey, [{Key, Msg} | Rest], S, Beams0) ->
     Beams = emqx_ds_beamformer:beams_add(Stream, Key, Msg, Candidates, Beams0),
     process_batch(Stream, EndKey, Rest, S, Beams).
 
-queue_search(#s{queue = Queue}, Stream, _MsgKey, Msg) ->
-    Topic = emqx_topic:tokens(Msg#message.topic),
+queue_search(#s{queue = Queue}, Stream, _MsgKey, {Topic, _Time, _Value}) ->
+    emqx_ds_beamformer_waitq:matching_keys(Stream, Topic, Queue);
+queue_search(#s{queue = Queue}, Stream, _MsgKey, #message{topic = TopicBin}) ->
+    Topic = emqx_topic:tokens(TopicBin),
     emqx_ds_beamformer_waitq:matching_keys(Stream, Topic, Queue).
 
 queue_drop(Queue, #sub_state{stream = Stream, topic_filter = TF, req_id = ID, client = Client}) ->

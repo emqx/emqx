@@ -48,7 +48,7 @@
     drop_generation/2,
     find_generation/2,
 
-    %% Globals
+    %% Global
     store_global/3,
     fetch_global/2,
 
@@ -73,7 +73,9 @@
 ]).
 
 %% internal exports:
--export([db_dir/1, base_dir/0, generation_get/2, get_gvars/1]).
+-export([
+    db_dir/1, base_dir/0, generation_get/2, generation_current/1, generations_since/2, get_gvars/1
+]).
 
 -export_type([
     gen_id/0,
@@ -636,7 +638,7 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 unpack_iterator(DBShard = {_, Shard}, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     case generation_get(DBShard, GenId) of
         #{module := Mod, data := GenData} ->
-            {InnerStream, TopicFilter, Key, _TS} = Mod:unpack_iterator(DBShard, GenData, Inner),
+            {InnerStream, TopicFilter, Key} = Mod:unpack_iterator(DBShard, GenData, Inner),
             #{
                 stream => ?stream_v2(GenId, InnerStream),
                 topic_filter => TopicFilter,

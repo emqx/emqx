@@ -380,7 +380,7 @@ unpack_iterator(_Shard, S = #s{trie = Trie}, #it{
     MHB = master_hash_bits(S, CTF),
     DSKey = mk_master_key(StaticIdx, LSK, MHB),
     TopicFilter = emqx_ds_lts:decompress_topic(get_topic_structure(Trie, StaticIdx), words(CTF)),
-    {#stream{static_index = StaticIdx}, TopicFilter, DSKey, stream_key_ts(LSK, MHB)}.
+    {#stream{static_index = StaticIdx}, TopicFilter, DSKey}.
 
 scan_stream(
     Shard,

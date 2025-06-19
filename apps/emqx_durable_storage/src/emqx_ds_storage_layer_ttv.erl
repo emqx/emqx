@@ -10,6 +10,21 @@
 -export([
     prepare_tx/5,
     commit_batch/3,
+
+    get_streams/3,
+    high_watermark/3,
+
+    make_iterator/4,
+    unpack_iterator/2,
+    update_iterator/3,
+
+    next/4,
+    scan_stream/6,
+    fast_forward/4,
+
+    message_match_context/4,
+    iterator_match_context/2,
+
     lookup/4,
     get_read_tx_serial/1,
     set_read_tx_serial/2
@@ -18,14 +33,35 @@
 %% internal exports:
 -export([]).
 
--export_type([]).
+-export_type([stream/0, iterator/0]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_ds.hrl").
+-include("../gen_src/DSBuiltinMetadata.hrl").
+
+-elvis([{elvis_style, atom_naming_convention, disable}]).
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type inner_stream() :: binary().
+
+-type stream() :: #'Stream'{
+    shard :: emqx_ds:shard(),
+    generation :: emqx_ds:generation(),
+    inner :: inner_stream()
+}.
+
+-type it_static() :: binary().
+-type it_pos() :: binary().
+
+-type iterator() :: #'Iterator'{
+    shard :: emqx_ds:shard(),
+    generation :: emqx_ds:generation(),
+    innerStatic :: it_static(),
+    innerPos :: it_pos()
+}.
 
 -type cooked_tx() :: term().
 
@@ -81,16 +117,24 @@
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    [_Stream].
+    [inner_stream()].
 
 -callback make_iterator(
-    emqx_ds_storage_layer:dbshard(),
+    emqx_ds:db(),
+    emqx_ds:shard(),
     emqx_ds_storage_layer:generation_data(),
-    _Stream,
+    inner_stream(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    emqx_ds:make_iterator_result(_Iterator).
+    {ok, it_static(), it_pos()} | emqx_ds:error(_).
+
+-callback unpack_iterator(
+    emqx_ds_beamformer:dbshard(),
+    emqx_ds_storage_layer:generation_data(),
+    it_static()
+) ->
+    {ok, inner_stream(), emqx_ds_beamformer:event_topic()} | emqx_ds:error(_).
 
 -callback lookup(
     emqx_ds_storage_layer:dbshard(),
@@ -101,27 +145,54 @@
     {ok, binary()} | undefined | emqx_ds:error(_).
 
 -callback next(
-    emqx_ds_storage_layer:dbshard(),
+    emqx_ds:db(),
+    emqx_ds:shard(),
     emqx_ds_storage_layer:generation_data(),
-    Iter,
+    it_static(),
+    it_pos(),
     pos_integer(),
-    %% TODO: Currently calls to kv layouts are still dispatched
-    %% through `emqx_ds_storage_layer' and carry some extra
-    %% parameters. Fixing it is not super trivial and not very useful,
-    %% except from aesthetics perspective, so there are some useless
-    %% parameters.
-    _,
-    _
+    emqx_ds:time(),
+    boolean()
 ) ->
-    {ok, Iter, [emqx_ds:ttv()]} | emqx_ds:error(_).
+    {ok, it_pos(), [emqx_ds:ttv()]} | emqx_ds:error(_).
+
+-callback scan_stream(
+    emqx_ds:db(),
+    emqx_ds:shard(),
+    emqx_ds_storage_layer:generation_data(),
+    inner_stream(),
+    emqx_ds_beamformer:event_topic_filter(),
+    it_pos(),
+    _BatchSize :: pos_integer(),
+    _Now :: emqx_ds:time(),
+    _IsCurrent :: boolean()
+) ->
+    {ok, it_pos(), [{it_pos(), emqx_ds:ttv()}]}.
 
 -callback batch_events(
     emqx_ds_storage_layer:dbshard(),
     emqx_ds_storage_layer:generation_data(),
     _CookedBatch
-) -> [_Stream].
+) -> [inner_stream()].
+
+-callback message_match_context(
+    emqx_ds_storage_layer:generation_data(),
+    inner_stream(),
+    it_pos(),
+    emqx_ds:ttv()
+) ->
+    {ok, _MatchCtx}.
+
+-callback iterator_match_context(
+    emqx_ds_storage_layer:generation_data(),
+    it_static(),
+    it_pos()
+) ->
+    fun((_MatchCtx) -> boolean()).
 
 -define(tx_serial_gvar, tx_serial).
+
+-define(ERR_GEN_GONE, ?err_unrec(generation_not_found)).
 
 %%================================================================================
 %% API functions
@@ -199,13 +270,169 @@ commit_batch(DBShard, [{Generation, GenBatches} | Rest], Opts) ->
 commit_batch(_, [], _) ->
     ok.
 
-%%================================================================================
-%% behavior callbacks
-%%================================================================================
+-spec get_streams(emqx_ds_storage_layer:dbshard(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+    [stream()].
+get_streams(DBShard = {_DB, Shard}, TopicFilter, StartTime) ->
+    Gens = emqx_ds_storage_layer:generations_since(DBShard, StartTime),
+    ?tp(get_streams_all_gens, #{gens => Gens}),
+    lists:flatmap(
+        fun(GenId) ->
+            ?tp(get_streams_get_gen, #{gen_id => GenId}),
+            case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
+                #{module := Mod, data := GenData} ->
+                    Streams = Mod:get_streams(DBShard, GenData, TopicFilter, StartTime),
+                    [
+                        #'Stream'{shard = Shard, generation = GenId, inner = InnerStream}
+                     || InnerStream <- Streams
+                    ];
+                not_found ->
+                    %% race condition: generation was dropped before getting its streams?
+                    []
+            end
+        end,
+        Gens
+    ).
 
-%%================================================================================
-%% Internal exports
-%%================================================================================
+-spec make_iterator(emqx_ds:db(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+    emqx_ds:make_iterator_result(iterator()).
+make_iterator(
+    DB, #'Stream'{shard = Shard, generation = Generation, inner = Inner}, TopicFilter, StartTime
+) ->
+    case emqx_ds_storage_layer:generation_get({DB, Shard}, Generation) of
+        #{module := Mod, data := GenData} ->
+            case Mod:make_iterator(DB, Shard, GenData, Inner, TopicFilter, StartTime) of
+                {ok, ItStatic, ItPos} ->
+                    {ok, #'Iterator'{
+                        shard = Shard,
+                        generation = Generation,
+                        innerStatic = ItStatic,
+                        innerPos = ItPos
+                    }};
+                Err ->
+                    Err
+            end;
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+-spec unpack_iterator(emqx_ds_beamformer:dbshard(), iterator()) ->
+    emqx_ds_beamformer:unpack_iterator_result(stream()) | emqx_ds:error(_).
+unpack_iterator(DBShard = {_, Shard}, #'Iterator'{
+    generation = Gen, innerStatic = InnerStatic, innerPos = Pos
+}) ->
+    case emqx_ds_storage_layer:generation_get(DBShard, Gen) of
+        #{module := Mod, data := GenData} ->
+            case Mod:unpack_iterator(DBShard, GenData, InnerStatic) of
+                {ok, InnerStream, TopicFilter} ->
+                    #{
+                        stream => #'Stream'{shard = Shard, generation = Gen, inner = InnerStream},
+                        topic_filter => TopicFilter,
+                        last_seen_key => Pos,
+                        rank => {Shard, Gen}
+                    };
+                {error, _, _} = Err ->
+                    Err
+            end;
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+-spec update_iterator(emqx_ds_beamformer:dbshard(), iterator(), it_pos()) ->
+    {ok, iterator()}.
+update_iterator(_, It = #'Iterator'{}, Pos) ->
+    {ok, It#'Iterator'{innerPos = Pos}}.
+
+-spec scan_stream(
+    emqx_ds_beamformer:dbshard(),
+    stream(),
+    emqx_ds_beamformer:event_topic_filter(),
+    emqx_ds:time(),
+    it_pos(),
+    non_neg_integer()
+) ->
+    emqx_ds_beamformer:scan_stream_result().
+scan_stream(
+    DBShard = {DB, Shard}, #'Stream'{inner = Inner0, generation = Gen}, TF, Now, Pos, BatchSize
+) ->
+    case emqx_ds_storage_layer:generation_get(DBShard, Gen) of
+        #{module := Mod, data := GenData} ->
+            IsCurrent = Gen =:= emqx_ds_storage_layer:generation_current(DBShard),
+            Mod:scan_stream(DB, Shard, GenData, Inner0, TF, Pos, BatchSize, Now, IsCurrent);
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+-spec high_watermark(emqx_ds_beamformer:dbshard(), stream(), emqx_ds:time()) ->
+    {ok, it_pos()} | emqx_ds:error(_).
+high_watermark({DB, _}, Stream, Now) ->
+    case make_iterator(DB, Stream, ['#'], Now) of
+        {ok, #'Iterator'{innerPos = Pos}} ->
+            {ok, Pos};
+        Err ->
+            Err
+    end.
+
+-spec next(emqx_ds:db(), iterator(), pos_integer(), emqx_ds:time()) ->
+    %% FIXME: type
+    emqx_ds:next_result(iterator()).
+next(
+    DB,
+    It0 = #'Iterator'{
+        shard = Shard, generation = Generation, innerStatic = InnerStatic, innerPos = InnerPos0
+    },
+    BatchSize,
+    Now
+) ->
+    DBShard = {DB, Shard},
+    case emqx_ds_storage_layer:generation_get(DBShard, Generation) of
+        #{module := Mod, data := GenData} ->
+            IsCurrent = Generation =:= emqx_ds_storage_layer:generation_current(DBShard),
+            case Mod:next(DB, Shard, GenData, InnerStatic, InnerPos0, BatchSize, Now, IsCurrent) of
+                {ok, InnerPos, Batch} ->
+                    {ok, It0#'Iterator'{innerPos = InnerPos}, Batch};
+                {ok, end_of_stream} ->
+                    {ok, end_of_stream};
+                Error = {error, _, _} ->
+                    Error
+            end;
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+-spec fast_forward(emqx_ds_beamformer:dbshard(), iterator(), it_pos(), emqx_ds:time()) ->
+    {ok, iterator()} | {ok, end_of_stream} | emqx_ds:error(_).
+fast_forward({DB, _}, It0, _Pos, Now) ->
+    %% FIXME: add additional checks for Pos
+    case next(DB, It0, 1, Now) of
+        {ok, It, []} ->
+            {ok, It};
+        {ok, _It, _} ->
+            ?err_unrec(has_data);
+        Other ->
+            Other
+    end.
+
+-spec message_match_context(emqx_ds_beamformer:dbshard(), stream(), it_pos(), emqx_ds:ttv()) ->
+    {ok, _}.
+message_match_context(DBShard, #'Stream'{generation = Gen, inner = Stream}, ItPos, TTV) ->
+    case emqx_ds_storage_layer:generation_get(DBShard, Gen) of
+        #{module := Mod, data := GenData} ->
+            Mod:message_match_context(GenData, Stream, ItPos, TTV);
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
+-spec iterator_match_context(emqx_ds_beamformer:dbshard(), iterator()) ->
+    fun((_MessageMatchCtx) -> boolean()).
+iterator_match_context(DBShard, #'Iterator'{
+    generation = Gen, innerStatic = InnerStatic, innerPos = Pos
+}) ->
+    case emqx_ds_storage_layer:generation_get(DBShard, Gen) of
+        #{module := Mod, data := GenData} ->
+            Mod:iterator_match_context(GenData, InnerStatic, Pos);
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
 
 %%================================================================================
 %% Internal functions
