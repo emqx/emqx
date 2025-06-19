@@ -792,6 +792,8 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
     [Pid1, Pid2] = emqx_shared_sub:subscribers(Group, Topic),
     ?assert(is_process_alive(Pid1)),
     ?assert(is_process_alive(Pid2)),
+    ?retry(100, 10, ?assertEqual(disconnected, get_channel_info(conn_state, Pid1))),
+    ?retry(100, 10, ?assertEqual(disconnected, get_channel_info(conn_state, Pid2))),
 
     {ok, _} = emqtt:publish(ConnPub, Topic, <<"hello11">>, 1),
     ?retry(
@@ -808,7 +810,10 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
     ok.
 
 get_mqueue(ConnPid) ->
-    emqx_connection:info({channel, {session, mqueue}}, sys:get_state(ConnPid)).
+    get_channel_info({session, mqueue}, ConnPid).
+
+get_channel_info(Info, ConnPid) ->
+    emqx_connection:info({channel, Info}, sys:get_state(ConnPid)).
 
 %% No ack, QoS 2 subscriptions,
 %% client1 receives one message, send pubrec, then suspend
