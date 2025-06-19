@@ -45,6 +45,7 @@ After completing the steps below, the following credentials shall be used in con
 | Schema                 | `public`                                         |
 | Stage                  | `emqx`                                           |
 | Pipe                   | `emqx`                                           |
+| Pipe (streaming)       | `emqxstreaming`                                  |
 | Pipe User              | `snowpipeuser`                                   |
 | Private Key            | `file://<path to snowflake_rsa_key.private.pem>` |
 
@@ -78,6 +79,13 @@ COPY INTO testdatabase.public.emqx
 FROM @testdatabase.public.emqx
 MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
 
+CREATE PIPE IF NOT EXISTS testdatabase.public.emqxstreaming AS
+COPY INTO testdatabase.public.emqx FROM (
+  SELECT $1:clientid, $1:topic, $1:payload, $1:publish_received_at
+  FROM TABLE(DATA_SOURCE(TYPE => 'STREAMING')
+)
+MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+
 CREATE USER IF NOT EXISTS snowpipeuser
     PASSWORD = 'Snowpipeuser99'
     MUST_CHANGE_PASSWORD = FALSE;
@@ -100,6 +108,7 @@ GRANT USAGE ON SCHEMA testdatabase.public TO ROLE snowpipe;
 GRANT INSERT, SELECT ON testdatabase.public.emqx TO ROLE snowpipe;
 GRANT READ, WRITE ON STAGE testdatabase.public.emqx TO ROLE snowpipe;
 GRANT OPERATE, MONITOR ON PIPE testdatabase.public.emqx TO ROLE snowpipe;
+GRANT OPERATE, MONITOR ON PIPE testdatabase.public.emqxstreaming TO ROLE snowpipe;
 GRANT ROLE snowpipe TO USER snowpipeuser;
 ALTER USER snowpipeuser SET DEFAULT_ROLE = snowpipe;
 ```

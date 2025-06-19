@@ -78,6 +78,13 @@ COPY INTO testdatabase.public.test0
 FROM @testdatabase.public.teststage0
 MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
 
+CREATE PIPE IF NOT EXISTS testdatabase.public.emqxstreaming AS
+COPY INTO testdatabase.public.emqx FROM (
+  SELECT $1:clientid, $1:topic, $1:payload, $1:publish_received_at
+  FROM TABLE(DATA_SOURCE(TYPE => 'STREAMING')
+)
+MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+
 
 -- Grant the USAGE privilege on the database and schema that contain the pipe object.
 grant usage on database testdatabase to role testrole;
@@ -87,10 +94,12 @@ grant usage on warehouse testwarehouse to role testrole;
 -- Grant the INSERT, SELECT, TRUNCATE and DELETE privileges on the target table
 -- for cleaning up after tests
 grant insert, select, truncate, delete on testdatabase.public.test0 to role testrole;
+grant insert, select, truncate, delete on testdatabase.public.emqx to role testrole;
 -- Grant the READ and WRITE privilege on the internal stage.
 grant read, write on stage testdatabase.public.teststage0 to role testrole;
 -- Grant the OPERATE and MONITOR privileges on the pipe object.
 grant operate, monitor on pipe testdatabase.public.testpipe0 to role testrole;
+grant operate, monitor on pipe testdatabase.public.emqxstreaming to role testrole;
 -- Grant the role to a user
 grant role testrole to user testuser;
 -- Set the role as the default role for the user
@@ -103,10 +112,12 @@ grant usage on database testdatabase to role snowpipe;
 grant usage on schema testdatabase.public to role snowpipe;
 -- Grant the INSERT and SELECT privileges on the target table.
 grant insert, select on testdatabase.public.test0 to role snowpipe;
+grant insert, select on testdatabase.public.emqx to role snowpipe;
 -- Grant the READ and WRITE privilege on the internal stage.
 grant read, write on stage testdatabase.public.teststage0 to role snowpipe;
 -- Grant the OPERATE and MONITOR privileges on the pipe object.
 grant operate, monitor on pipe testdatabase.public.testpipe0 to role snowpipe;
+grant operate, monitor on pipe testdatabase.public.emqxstreaming to role snowpipe;
 -- Grant the role to a user
 grant role snowpipe to user snowpipeuser;
 -- Set the role as the default role for the user
