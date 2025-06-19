@@ -1922,6 +1922,7 @@ common_action_resource_opts() ->
         <<"buffer_mode">> => <<"memory_only">>,
         <<"buffer_seg_bytes">> => <<"10MB">>,
         <<"health_check_interval">> => <<"1s">>,
+        <<"health_check_interval_jitter">> => <<"0s">>,
         <<"health_check_timeout">> => <<"30s">>,
         <<"inflight_window">> => 100,
         <<"max_buffer_bytes">> => <<"256MB">>,
@@ -1935,6 +1936,7 @@ common_action_resource_opts() ->
 common_source_resource_opts() ->
     #{
         <<"health_check_interval">> => <<"1s">>,
+        <<"health_check_interval_jitter">> => <<"0s">>,
         <<"health_check_timeout">> => <<"30s">>,
         <<"resume_interval">> => <<"1s">>
     }.

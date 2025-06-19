@@ -95,6 +95,7 @@ fields(source_parameters) ->
 fields(source_resource_opts) ->
     Fields = [
         health_check_interval,
+        health_check_interval_jitter,
         health_check_timeout,
         %% the workers pull the messages
         request_ttl,

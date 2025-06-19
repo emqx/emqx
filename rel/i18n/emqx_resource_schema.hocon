@@ -45,6 +45,12 @@ health_check_interval.desc:
 health_check_interval.label:
 """Health Check Interval"""
 
+health_check_interval_jitter.desc:
+"""A uniform random delay to be added to health check interval, so that Actions and Sources from the same Connector start their health checks at different instants."""
+
+health_check_interval_jitter.label:
+"""Health Check Interval Jitter"""
+
 health_check_timeout.desc:
 """Health check timeout.  If a health check call takes more than this time to return a result, the resource is deemed disconnected."""
 

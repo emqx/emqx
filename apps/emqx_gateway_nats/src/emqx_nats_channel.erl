@@ -337,7 +337,7 @@ feedvar(Override, ConnParams, ConnInfo, ClientInfo) ->
     },
     Trans = fun(V) ->
         case V of
-            undefined -> undefined;
+            undefined -> <<>>;
             V -> emqx_utils_conv:bin(V)
         end
     end,
