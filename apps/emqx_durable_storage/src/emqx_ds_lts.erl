@@ -530,7 +530,7 @@ do_lookup_topic_key(Trie, State, [Tok | Rest], Varying) ->
 do_topic_key(Trie, _, _, State, [], _Parent, Tokens, Varying) ->
     %% We reached the end of topic. Assert: Trie node that corresponds
     %% to EOT cannot be a wildcard.
-    {Updated, false, Static} = trie_next_(Trie, State, ?EOT),
+    {Updated, false, Static} = trie_next_(Trie, State, ?EOT, ?EOT),
     _ =
         case Trie#trie.rlookups andalso Updated of
             false ->
@@ -542,9 +542,19 @@ do_topic_key(Trie, _, _, State, [], _Parent, Tokens, Varying) ->
 do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Parent, Tokens, Varying0) ->
     % TODO: it's not necessary to call it every time.
     Threshold = ThresholdFun(Depth, Parent),
-    {NChildren, IsWildcard, NextState} = trie_next_(Trie, State, Tok),
+    %% If the threshold is 0, we do not want to create a new static node for this level.
+    CreateTok =
+        case Threshold of
+            0 -> ?PLUS;
+            _ -> Tok
+        end,
+    {NChildren, IsWildcard, NextState} = trie_next_(Trie, State, Tok, CreateTok),
     Varying =
         case IsWildcard of
+            true ->
+                %% This topic level is marked as wildcard in the trie,
+                %% we need to add it to the varying part of the key:
+                [Tok | Varying0];
             _ when is_integer(NChildren), NChildren >= Threshold ->
                 %% Topic structure learnt!
                 %% Number of children for the trie node reached the
@@ -553,11 +563,7 @@ do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Parent, Tokens, Var
                 {_, _WildcardState} = trie_insert(Trie, State, ?PLUS),
                 Varying0;
             false ->
-                Varying0;
-            true ->
-                %% This topic level is marked as wildcard in the trie,
-                %% we need to add it to the varying part of the key:
-                [Tok | Varying0]
+                Varying0
         end,
     TokOrWildcard =
         case IsWildcard of
@@ -576,17 +582,20 @@ do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Parent, Tokens, Var
     ).
 
 %% @doc Has side effects! Inserts missing elements.
--spec trie_next_(trie(), state(), binary() | ?EOT) -> {New, IsWildcard, state()} when
+-spec trie_next_(trie(), state(), binary() | ?EOT, binary() | ?EOT | ?PLUS) ->
+    {New, IsWildcard, state()}
+when
     New :: false | non_neg_integer(),
     IsWildcard :: boolean().
-trie_next_(Trie, State, Token) ->
+trie_next_(Trie, State, Token, CreateToken) ->
     case trie_next(Trie, State, Token) of
         {IsWildcard, NextState} ->
             {false, IsWildcard, NextState};
         undefined ->
             %% No exists, create new static key for return
-            {Updated, NextState} = trie_insert(Trie, State, Token),
-            {Updated, false, NextState}
+            {Updated, NextState} = trie_insert(Trie, State, CreateToken),
+            IsWildcard = CreateToken == ?PLUS,
+            {Updated, IsWildcard, NextState}
     end.
 
 %% @doc Return all edges emanating from a node:
