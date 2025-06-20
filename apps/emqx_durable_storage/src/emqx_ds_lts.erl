@@ -45,6 +45,8 @@
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
+-elvis([{elvis_style, nesting_level, disable}]).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -527,10 +529,10 @@ do_lookup_topic_key(Trie, State, [Tok | Rest], Varying) ->
             undefined
     end.
 
-do_topic_key(Trie, _, _, State, [], _Parent, Tokens, Varying) ->
+do_topic_key(Trie, ThresholdFun, Depth, State, [], Parent, Tokens, Varying) ->
     %% We reached the end of topic. Assert: Trie node that corresponds
     %% to EOT cannot be a wildcard.
-    {Updated, false, Static} = trie_next_(Trie, State, ?EOT),
+    {Updated, false, Static} = trie_next_(Trie, ThresholdFun, Depth, Parent, State, ?EOT),
     _ =
         case Trie#trie.rlookups andalso Updated of
             false ->
@@ -540,18 +542,9 @@ do_topic_key(Trie, _, _, State, [], _Parent, Tokens, Varying) ->
         end,
     {Static, lists:reverse(Varying)};
 do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Parent, Tokens, Varying0) ->
-    % TODO: it's not necessary to call it every time.
-    Threshold = ThresholdFun(Depth, Parent),
-    {NChildren, IsWildcard, NextState} = trie_next_(Trie, State, Tok),
+    {_, IsWildcard, NextState} = trie_next_(Trie, ThresholdFun, Depth, Parent, State, Tok),
     Varying =
         case IsWildcard of
-            _ when is_integer(NChildren), NChildren >= Threshold ->
-                %% Topic structure learnt!
-                %% Number of children for the trie node reached the
-                %% threshold, we need to insert wildcard here.
-                %% Next new children from next call will resue the WildcardState.
-                {_, _WildcardState} = trie_insert(Trie, State, ?PLUS),
-                Varying0;
             false ->
                 Varying0;
             true ->
@@ -576,17 +569,48 @@ do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Parent, Tokens, Var
     ).
 
 %% @doc Has side effects! Inserts missing elements.
--spec trie_next_(trie(), state(), binary() | ?EOT) -> {New, IsWildcard, state()} when
+-spec trie_next_(
+    trie(), threshold_fun(), non_neg_integer(), parent_token(), state(), binary() | ?EOT
+) ->
+    {New, IsWildcard, state()}
+when
     New :: false | non_neg_integer(),
     IsWildcard :: boolean().
-trie_next_(Trie, State, Token) ->
+trie_next_(Trie, ThresholdFun, Depth, Parent, State, Token) ->
     case trie_next(Trie, State, Token) of
         {IsWildcard, NextState} ->
             {false, IsWildcard, NextState};
         undefined ->
-            %% No exists, create new static key for return
-            {Updated, NextState} = trie_insert(Trie, State, Token),
-            {Updated, false, NextState}
+            case Token of
+                ?EOT ->
+                    %% EOT token is special, we never treat it as the
+                    %% wildcard:
+                    {Updated, NextState} = trie_insert(Trie, State, ?EOT),
+                    {Updated, false, NextState};
+                _ ->
+                    %% For any other token, we may consider inserting
+                    %% the wildcard:
+                    case ThresholdFun(Depth, Parent) of
+                        0 ->
+                            %% Wildcard threshold is 0, we can insert
+                            %% ?PLUS immediately:
+                            {Updated, NextState} = trie_insert(Trie, State, ?PLUS),
+                            {Updated, true, NextState};
+                        Threshold ->
+                            %% For other wildcard thresholds we first
+                            %% insert the original token, then
+                            %% `?PLUS', if threshold was reached:
+                            {Updated, NextState} = trie_insert(Trie, State, Token),
+                            _ =
+                                is_integer(Updated) andalso Updated >= Threshold andalso
+                                    %% Topic structure has been
+                                    %% learned. Next topic with the
+                                    %% same prefix will be treated as
+                                    %% a wildcard:
+                                    trie_insert(Trie, State, ?PLUS),
+                            {Updated, false, NextState}
+                    end
+            end
     end.
 
 %% @doc Return all edges emanating from a node:
@@ -1255,5 +1279,20 @@ decompress_topic_test() ->
         [<<"foo">>, '+', <<"bar">>, '+', ''],
         decompress_topic([<<"foo">>, '+', <<"bar">>, '+', ''], ['+', '+'])
     ).
+
+%% This test verifies that changing the threshold doesn't affect the
+%% nodes that already exist:
+change_threshold_test() ->
+    Threshold0 = fun(_, _) -> 0 end,
+    ThresholdInf = fun(_, _) -> infinity end,
+    T = trie_create(#{reverse_lookups => true}),
+    %% Infinity -> 0
+    {S11, []} = test_key(T, ThresholdInf, [1, 1]),
+    {S11, []} = test_key(T, Threshold0, [1, 1]),
+    %% 0 -> Infinity
+    {S1_, [W2]} = test_key(T, Threshold0, [1, 2]),
+    {S1_, [W2]} = test_key(T, ThresholdInf, [1, 2]),
+    {S__, [W2, W1]} = test_key(T, Threshold0, [2, 1]),
+    {S__, [W2, W1]} = test_key(T, ThresholdInf, [2, 1]).
 
 -endif.
