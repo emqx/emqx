@@ -13,6 +13,9 @@ case "$VERSION" in
     e*)
         RELEASE_ASSET_FILE="emqx-enterprise-dashboard-$VERSION.zip"
         ;;
+    2*)
+        RELEASE_ASSET_FILE="emqx-enterprise-dashboard-$VERSION.zip"
+        ;;
     *)
         echo "Unknown version $VERSION"
         exit 1

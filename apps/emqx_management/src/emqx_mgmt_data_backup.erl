@@ -373,7 +373,7 @@ format_error(unsafe_backup_name) ->
 format_error({unsupported_version, ImportVersion}) ->
     str(
         io_lib:format(
-            "[warning] Backup version ~p is newer than EMQX version ~p, import is not allowed.~n",
+            "[warning] Backup version ~p is incompatible with EMQX version ~p, import is not allowed.~n",
             [str(ImportVersion), str(emqx_release:version())]
         )
     );
@@ -641,10 +641,10 @@ check_version(ImportVersion) ->
         {ok, {ImportMajorInt, ImportMinorInt}} ->
             Version = emqx_release:version(),
             {ok, {MajorInt, MinorInt}} = parse_version_no_patch(bin(Version)),
-            case ImportMajorInt > MajorInt orelse ImportMinorInt > MinorInt of
+            case ImportMajorInt =/= MajorInt orelse ImportMinorInt > MinorInt of
                 true ->
-                    %% 4.x backup files are anyway not compatible and will be treated as invalid,
-                    %% before this step,
+                    %% do not allow import of backups between different major versions,
+                    %% and if backup's minor version is higher than the current one
                     {error, {unsupported_version, str(ImportVersion)}};
                 false ->
                     ok

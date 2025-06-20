@@ -1,6 +1,13 @@
 Fixes <issue-or-jira-number>
 
-Release version: 5.?
+<!--
+5.8.7
+5.9.1
+6.0.0-M1.202507
+6.0.0-M2.202508
+6.0.0
+-->
+Release version:
 
 ## Summary
 

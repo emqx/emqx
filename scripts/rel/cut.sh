@@ -13,14 +13,19 @@ usage() {
     cat <<EOF
 $0 RELEASE_GIT_TAG [option]
 RELEASE_GIT_TAG is a 'e*' tag, for example:
-  e5.9.0-beta.6
+  e5.8.7-alpha.1
+  e5.9.1-beta.6
+  e6.0.0-M1.202507-rc.1
+  e6.0.0
 
 options:
   -h|--help:         Print this usage.
 
   -b|--base:         Specify the current release base branch, can be one of
+                     release-58
                      release-59
                      release-510
+                     release-60
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
@@ -35,7 +40,12 @@ options:
 For 5.X series the current working branch must be 'release-5X'
       --.--[  master  ]---------------------------.-----------.---
          \\                                      /
-          \`---[release-5X]----------------e5.9.0
+          \`---[release-5X]----------------e5.10.0
+
+For 6.X series the current working branch must be 'release-6X'
+      --.--[  master  ]---------------------------.-----------.---
+         \\                                      /
+          \`---[release-6X]----------------e6.0.0
 EOF
 }
 
@@ -111,8 +121,17 @@ done
 rel_branch() {
     local tag="$1"
     case "$tag" in
+        e5.8.*)
+            echo 'release-58'
+            ;;
+        e5.9.*)
+            echo 'release-59'
+            ;;
         e5.10.*)
             echo 'release-510'
+            ;;
+        e6.0.*)
+            echo 'release-60'
             ;;
         *)
             logerr "Unsupported version tag $TAG"

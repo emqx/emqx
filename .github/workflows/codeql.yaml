@@ -14,16 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       BUILDER_master: ${{ steps.env.outputs.BUILDER_master }}
+      BUILDER_release-58: ${{ steps.env.outputs.BUILDER_release-58 }}
       BUILDER_release-59: ${{ steps.env.outputs.BUILDER_release-59 }}
       BUILDER_release-510: ${{ steps.env.outputs.BUILDER_release-510 }}
+      BUILDER_release-60: ${{ steps.env.outputs.BUILDER_release-60 }}
 
     strategy:
       fail-fast: false
       matrix:
         branch:
           - master
+          - release-58
           - release-59
           - release-510
+          - release-60
 
     steps:
       - name: Checkout repository
@@ -53,8 +57,10 @@ jobs:
       matrix:
         branch:
           - master
+          - release-58
           - release-59
           - release-510
+          - release-60
         language:
           - cpp
           - python
