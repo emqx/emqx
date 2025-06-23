@@ -73,7 +73,7 @@ Therefore, we spawn one of these clients for each channel used.
     ?write_pool_id := binary()
 }.
 -type open_channel_error() :: #{response := {_, _, _} | {_, _}, any() => term()}.
--type append_rows_error() :: {unrecoverable_error, map()} | term().
+-type append_rows_error() :: {recoverable_error | unrecoverable_error, map()} | term().
 
 %%------------------------------------------------------------------------------
 %% API
@@ -229,9 +229,9 @@ do_open_channel(State0) ->
         channel_name => ChannelName,
         path => OpenChannelPath
     }),
+    Resp = ?MODULE:do_open_channel(SetupPoolId, Req, RequestTTL, MaxRetries),
     maybe
-        {ok, 200, _, BodyRaw} ?=
-            ?MODULE:do_open_channel(SetupPoolId, Req, RequestTTL, MaxRetries),
+        {ok, 200, _, BodyRaw} ?= emqx_bridge_http_connector:transform_result(Resp),
         #{<<"next_continuation_token">> := ContinuationToken} =
             Response0 = emqx_utils_json:decode(BodyRaw),
         ?tp(debug, "snowflake_streaming_open_channel_success", #{
@@ -303,8 +303,8 @@ do_append_rows(State0, Records) ->
             path => AppendRowsPath,
             records => Records
         }),
-        {ok, 200, _Headers, BodyRaw} ?=
-            ?MODULE:do_append_rows({WritePoolId, Id}, Req, RequestTTL, MaxRetries),
+        Resp = ?MODULE:do_append_rows({WritePoolId, Id}, Req, RequestTTL, MaxRetries),
+        {ok, 200, _Headers, BodyRaw} ?= emqx_bridge_http_connector:transform_result(Resp),
         #{<<"next_continuation_token">> := NextContinuationToken} =
             RespBody = emqx_utils_json:decode(BodyRaw),
         ?SLOG(debug, #{msg => "snowflake_streaming_append_rows_success", response => RespBody}),
