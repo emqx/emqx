@@ -17,6 +17,14 @@
     desc/1
 ]).
 
+-type default_max_sessions_internal() :: infinity | pos_integer().
+-reflect_type([default_max_sessions_internal/0]).
+
+-type default_max_sessions() :: default_max_sessions_internal().
+-reflect_type([default_max_sessions/0]).
+-typerefl_from_string({default_max_sessions/0, emqx_mt_schema, to_default_max_sessions}).
+-export([to_default_max_sessions/1]).
+
 namespace() -> emqx_mt.
 
 roots() ->
@@ -28,9 +36,7 @@ fields("config") ->
     [
         {default_max_sessions,
             mk(
-                hoconsc:union(
-                    [infinity, pos_integer()]
-                ),
+                typerefl:alias("pos_integer_or_infinity", default_max_sessions()),
                 #{
                     desc => ?DESC(default_max_sessions),
                     importance => ?IMPORTANCE_HIGH,
@@ -53,3 +59,9 @@ ref(Name) -> hoconsc:ref(?MODULE, Name).
 
 desc("config") -> ?DESC("config");
 desc(_) -> undefined.
+
+to_default_max_sessions(Val) ->
+    maybe
+        {error, _} ?= typerefl:from_string(default_max_sessions_internal(), Val),
+        {error, "Bad value: expecting `infinity` or positive integer"}
+    end.
