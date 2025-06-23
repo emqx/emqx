@@ -89,7 +89,7 @@ assign_sub_shard(Topic) ->
             Ix;
         _ ->
             %% Subject to races.
-            ets:update_counter(?HELPER, Topic, {2, 1, Ix + 1, Ix + 1}, Shard),
+            _ = ets:update_counter(?HELPER, Topic, {2, 1, Ix + 1, Ix + 1}, Shard),
             Ix
     end.
 
@@ -110,11 +110,13 @@ unassign_sub_shard(Topic, ShardIx) when is_integer(ShardIx) ->
                             [{const, {Topic, ShardIx}}]
                         }
                     ],
-                    _NR = ets:select_replace(?HELPER, Spec);
+                    _NR = ets:select_replace(?HELPER, Spec),
+                    ok;
                 Ix when Ix < ShardIx andalso N =:= 0 ->
                     %% Current shard is lower.
                     %% This one is empty, likely not going to be filled soon.
-                    ets:delete(?HELPER, {Shard, 0});
+                    _ = ets:delete(?HELPER, {Shard, 0}),
+                    ok;
                 _ ->
                     %% Current shard is either this or lower.
                     ok
