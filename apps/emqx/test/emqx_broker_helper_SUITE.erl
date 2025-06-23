@@ -133,3 +133,59 @@ t_shard_assignment_concurrent(_) ->
         lists:sum([N || {Shard, N} <- maps:to_list(AccHist), Shard > OptimalLastShard]),
         AccHist
     ).
+
+t_shard_unassignment_concurrent(_) ->
+    Topic = <<"t/shard/unassign">>,
+    %% Run 15 concurrent workers
+    NWorkers = 15,
+    %% ...performing 1000 operations each.
+    NOperations = 1000,
+    %% Which operation to perform at `N`th step.
+    FOperation = fun(WI, N, Assignments) ->
+        case N =< NOperations of
+            true when N rem (WI + 1) > 0 ->
+                assign;
+            true when N rem (WI + 1) =:= 0 ->
+                unassign;
+            false when map_size(Assignments) > 0 ->
+                unassign;
+            false ->
+                stop
+        end
+    end,
+    Worker = fun Worker(WI, N, Assignments) ->
+        case FOperation(WI, N, Assignments) of
+            assign ->
+                I = emqx_broker_helper:assign_sub_shard(Topic),
+                NAssignments = maps:update_with(I, fun(C) -> C + 1 end, 1, Assignments),
+                Worker(WI, N + 1, NAssignments);
+            unassign when map_size(Assignments) > 0 ->
+                %% Pick shard to unassign pseudo-randomly:
+                I = lists:nth((N rem maps:size(Assignments)) + 1, maps:keys(Assignments)),
+                _ = emqx_broker_helper:unassign_sub_shard(Topic, I),
+                NAssignments = maps:filter(
+                    fun(_, C) -> C > 0 end,
+                    maps:update_with(I, fun(C) -> C - 1 end, Assignments)
+                ),
+                Worker(WI, N + 1, NAssignments);
+            unassign ->
+                Worker(WI, N + 1, Assignments);
+            stop ->
+                exit(Assignments)
+        end
+    end,
+    %% Spawn workers:
+    Workers = [erlang:spawn_monitor(fun() -> Worker(I, 1, #{}) end) || I <- lists:seq(1, NWorkers)],
+    %% Collect finished workers:
+    [
+        receive
+            {'DOWN', MRef, process, Pid, Hist} ->
+                ?assertEqual(#{}, Hist)
+        end
+     || {Pid, MRef} <- Workers
+    ],
+    %% Only one shard should be there afterwards:
+    ?assertEqual(
+        [{0, 0}],
+        emqx_broker_helper:assigned_sub_shards(Topic)
+    ).
