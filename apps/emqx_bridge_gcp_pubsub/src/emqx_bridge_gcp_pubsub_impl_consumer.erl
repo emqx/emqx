@@ -97,9 +97,20 @@ query_mode(_Config) -> no_queries.
 -spec on_start(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, term()}.
 on_start(ConnectorResId, Config0) ->
-    Config = maps:update_with(
+    Config1 = maps:update_with(
         service_account_json, fun(X) -> emqx_utils_json:decode(X) end, Config0
     ),
+    {Transport, HostPort} = get_transport(),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
+    Config = Config1#{
+        jwt_opts => #{
+            %% fixed for pubsub; trailing slash is important.
+            aud => <<"https://pubsub.googleapis.com/">>
+        },
+        transport => Transport,
+        host => Host,
+        port => Port
+    },
     #{service_account_json := #{<<"project_id">> := ProjectId}} = Config,
     case emqx_bridge_gcp_pubsub_client:start(ConnectorResId, Config) of
         {ok, Client} ->
@@ -365,7 +376,7 @@ do_validate_pubsub_topics(_Client, [], _ReqOpts) ->
     ok.
 
 check_for_topic_existence(Topic, Client, ReqOpts) ->
-    Res = emqx_bridge_gcp_pubsub_client:get_topic(Topic, Client, ReqOpts),
+    Res = emqx_bridge_gcp_pubsub_client:pubsub_get_topic(Topic, Client, ReqOpts),
     case Res of
         {ok, _} ->
             ok;
@@ -426,3 +437,18 @@ log_when_error(Fun, Log) ->
 
 forget_interval(infinity) -> ?DEFAULT_FORGET_INTERVAL;
 forget_interval(Timeout) -> 2 * Timeout.
+
+-spec get_transport() -> {tls | tcp, string()}.
+get_transport() ->
+    %% emulating the emulator behavior
+    %% https://cloud.google.com/pubsub/docs/emulator
+    case os:getenv("PUBSUB_EMULATOR_HOST") of
+        false ->
+            {tls, "pubsub.googleapis.com:443"};
+        HostPort0 ->
+            %% The emulator is plain HTTP...
+            Transport0 = persistent_term:get(
+                {emqx_bridge_gcp_pubsub_client, pubsub, transport}, tcp
+            ),
+            {Transport0, HostPort0}
+    end.
