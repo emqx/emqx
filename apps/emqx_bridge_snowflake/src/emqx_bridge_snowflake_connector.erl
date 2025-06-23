@@ -66,8 +66,7 @@
     do_insert_files_request/4,
     do_insert_report_request/4,
     %% Streaming mode
-    do_get_streaming_hostname/4,
-    do_exchange_rowset_scoped_token/4
+    do_get_streaming_hostname/4
 ]).
 
 %%------------------------------------------------------------------------------
@@ -78,7 +77,7 @@
 -define(streaming_channel_pool(RES_ID), {streaming_channel_pool, RES_ID}).
 -define(streaming_setup_pool(RES_ID), {streaming_setup_pool, RES_ID}).
 -define(streaming_write_pool(RES_ID), {streaming_write_pool, RES_ID}).
--define(streaming_jwt_tab(RES_ID), {streaming_jwt_tab, RES_ID}).
+-define(streaming_jwt(RES_ID), {streaming_jwt, RES_ID}).
 
 -define(HC_TIMEOUT, 15_000).
 %% Seconds
@@ -700,7 +699,6 @@ create_action(
     else
         Error ->
             streaming_destroy_allocated_resources(ConnResId, ActionResId),
-            ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ActionResId),
             Error
     end.
 
@@ -774,7 +772,7 @@ start_streaming_pools(ConnResId, ActionResId, ActionConfig, ConnState) ->
             init_streaming_write_pool(ConnResId, ActionResId, ActionConfig, Hostname),
         {ok, ChanPoolState} ?=
             init_streaming_channel_pool(
-                ConnResId, ActionResId, ActionConfig, Hostname, SetupPoolState
+                ConnResId, ConnState, ActionResId, ActionConfig, Hostname, SetupPoolState
             ),
         {ok, SetupPoolState, WritePoolState, ChanPoolState}
     end.
@@ -859,7 +857,9 @@ init_streaming_write_pool(ConnResId, ActionResId, ActionConfig, Hostname) ->
         {ok, WritePoolState}
     end.
 
-init_streaming_channel_pool(ConnResId, ActionResId, ActionConfig, Hostname, SetupPoolState) ->
+init_streaming_channel_pool(
+    ConnResId, ConnState, ActionResId, ActionConfig, Hostname, SetupPoolState
+) ->
     #{
         parameters := #{
             pool_size := PoolSize,
@@ -870,26 +870,7 @@ init_streaming_channel_pool(ConnResId, ActionResId, ActionConfig, Hostname, Setu
     SetupPoolId = streaming_setup_pool(ActionResId),
     WritePoolId = streaming_write_pool(ActionResId),
     ChanPoolId = streaming_channel_pool(ActionResId),
-    ChanJWTTab = ets:new(snowflake_write_state, [public, ordered_set]),
-    allocate(ConnResId, ?streaming_jwt_tab(ActionResId), ChanJWTTab),
-    GenerateWriteTokenFn = fun() ->
-        maybe
-            {ok, 200, _, JWT} ?=
-                exchange_rowset_scoped_token(SetupPoolId, SetupPoolState, Hostname),
-            JWT
-        else
-            Response ->
-                error(#{
-                    reason => <<"exchange_rowset_scoped_token_unexpected_response">>,
-                    response => Response
-                })
-        end
-    end,
-    ChanJWTConfig = #{
-        resource_id => ChanPoolId,
-        table => ChanJWTTab,
-        generate_fn => GenerateWriteTokenFn
-    },
+    ChanJWTConfig = jwt_config(ActionResId, ActionConfig, ConnState),
     ChanOpts = [
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_type, hash},
@@ -908,6 +889,7 @@ init_streaming_channel_pool(ConnResId, ActionResId, ActionConfig, Hostname, Setu
         hostname => Hostname
     }),
     allocate(ConnResId, ?streaming_channel_pool(ActionResId), ChanPoolId),
+    allocate(ConnResId, ?streaming_jwt(ActionResId), ActionResId),
     case emqx_resource_pool:start(ChanPoolId, emqx_bridge_snowflake_channel_client, ChanOpts) of
         ok ->
             ChanPoolState = #{
@@ -1217,37 +1199,6 @@ get_streaming_hostname(SetupPoolId, SetupPoolState) ->
 do_get_streaming_hostname(HTTPPool, Req, RequestTTL, MaxRetries) ->
     ehttpc:request(HTTPPool, get, Req, RequestTTL, MaxRetries).
 
-exchange_rowset_scoped_token(SetupPoolId, SetupPoolState, Hostname) ->
-    #{
-        jwt_config := JWTConfig,
-        request_ttl := RequestTTL,
-        max_retries := MaxRetries
-    } = SetupPoolState,
-    JWTToken = emqx_connector_jwt:ensure_jwt(JWTConfig),
-    AuthnHeader = [<<"BEARER ">>, JWTToken],
-    Headers = [
-        {<<"X-Snowflake-Authorization-Token-Type">>, <<"KEYPAIR_JWT">>},
-        {<<"Content-Type">>, <<"application/x-www-form-urlencoded">>},
-        {<<"Accept">>, <<"application/json">>},
-        {<<"User-Agent">>, <<"emqx">>},
-        {<<"Authorization">>, AuthnHeader}
-    ],
-    Path = <<"/oauth/token">>,
-    Body = uri_string:compose_query([
-        {"grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"},
-        {"scope", Hostname}
-    ]),
-    Req = {Path, Headers, Body},
-    ?tp(debug, "snowflake_streaming_exchange_rowset_scoped_token_request", #{
-        setup_pool_id => SetupPoolId,
-        hostname => Hostname
-    }),
-    ?MODULE:do_exchange_rowset_scoped_token(SetupPoolId, Req, RequestTTL, MaxRetries).
-
-%% Internal export exposed ONLY for mocking
-do_exchange_rowset_scoped_token(HTTPPool, Req, RequestTTL, MaxRetries) ->
-    ehttpc:request(HTTPPool, post, Req, RequestTTL, MaxRetries).
-
 http_headers(AuthnHeader) ->
     [
         {<<"X-Snowflake-Authorization-Token-Type">>, <<"KEYPAIR_JWT">>},
@@ -1288,7 +1239,6 @@ action_status(_ConnResId, ActionResId, #{?mode := ?streaming} = ActionState) ->
         ok ?= streaming_channel_pool_workers_healthy(ActionResId, HCTimeout),
         ok ?= http_pool_workers_healthy(WritePoolId, ConnectTimeout),
         ok ?= http_pool_workers_healthy(SetupPoolId, ConnectTimeout),
-        ok ?= ensure_chan_jwt(ActionState),
         ?status_connected
     else
         {error, Reason} ->
@@ -1556,31 +1506,6 @@ open_channels(ActionResId) ->
         ecpool:workers(ChannelPoolId)
     ).
 
-ensure_chan_jwt(ActionState) ->
-    #{
-        ?channel := #{
-            ?jwt_config := JWTConfig0
-        }
-    } = ActionState,
-    %% Returned token has 1 hour expiration
-    GracePeriod = erlang:convert_time_unit(
-        timer:minutes(15),
-        millisecond,
-        second
-    ),
-    JWTConfig = JWTConfig0#{grace_period => GracePeriod},
-    try
-        _ = emqx_connector_jwt:ensure_jwt(JWTConfig),
-        ok
-    catch
-        Kind:Error ->
-            Context = #{
-                reason => <<"failed_to_refresh_jwt">>,
-                details => {Kind, Error}
-            },
-            {error, Context}
-    end.
-
 common_ehttpc_pool_opts(ActionConfig) ->
     #{
         parameters := #{
@@ -1640,10 +1565,10 @@ streaming_destroy_allocated_resources(ConnResId, ActionResId) ->
                 _ = ehttpc_sup:stop_pool(SetupPoolId),
                 deallocate(ConnResId, Key),
                 ok;
-            (?streaming_jwt_tab(Id) = Key, ChanJWTTab) when
+            (?streaming_jwt(Id) = Key, _) when
                 ActionResId == '_' orelse Id == ActionResId
             ->
-                _ = ets:delete(ChanJWTTab),
+                ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, Id),
                 deallocate(ConnResId, Key),
                 ok;
             (_, _) ->

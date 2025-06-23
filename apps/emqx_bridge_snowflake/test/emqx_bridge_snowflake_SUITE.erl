@@ -296,14 +296,6 @@ mock_snowflake() ->
         ?tp("mock_snowflake_get_streaming_hostname", #{}),
         {ok, 200, Headers, Body}
     end),
-    meck:expect(Mod, do_exchange_rowset_scoped_token, fun(
-        _HTTPPool, _Req, _RequestTTL, _MaxRetries
-    ) ->
-        Headers = [],
-        Body = generate_dummy_jwt(),
-        ?tp("mock_snowflake_exchange_rowset_scoped_token", #{}),
-        {ok, 200, Headers, Body}
-    end),
     meck:expect(?CHAN_CLIENT_MOD, do_open_channel, fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
         Headers = [],
         Body = emqx_utils_json:encode(#{<<"next_continuation_token">> => <<"0_1">>}),
