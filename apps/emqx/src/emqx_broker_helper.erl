@@ -6,6 +6,8 @@
 
 -behaviour(gen_server).
 
+-include_lib("stdlib/include/ms_transform.hrl").
+
 -include("emqx_router.hrl").
 -include("emqx_shared_sub.hrl").
 -include("logger.hrl").
@@ -19,6 +21,7 @@
     lookup_subid/1,
     lookup_subpid/1,
     assign_sub_shard/1,
+    assigned_sub_shards/1,
     unassign_sub_shard/2,
     shard_capacity/0,
     create_seq/1,
@@ -103,19 +106,20 @@ unassign_sub_shard(Topic, ShardIx) when is_integer(ShardIx) ->
                 Ix when Ix > ShardIx ->
                     %% Current shard is higher.
                     %% Switch down to this shard.
-                    Spec = [
-                        {
-                            {Topic, '$1'},
-                            [{'>', '$1', ShardIx}],
-                            [{const, {Topic, ShardIx}}]
-                        }
-                    ],
-                    _NR = ets:select_replace(?HELPER, Spec),
+                    Spec = [{{Topic, '$1'}, [{'>', '$1', ShardIx}], [{const, Shard}]}],
+                    _ = ets:select_replace(?HELPER, Spec),
                     ok;
                 Ix when Ix < ShardIx andalso N =:= 0 ->
-                    %% Current shard is lower.
-                    %% This one is empty, likely not going to be filled soon.
-                    _ = ets:delete(?HELPER, {Shard, 0}),
+                    %% Current shard is lower, this one is empty.
+                    %% Likely not going to be filled soon.
+                    _ = ets:delete_object(?HELPER, {Shard, 0}),
+                    ok;
+                ShardIx when ShardIx > 0 andalso N =:= 0 ->
+                    %% This is the current shard, and is now empty.
+                    %% Switch down to previous shard.
+                    Spec = [{Shard, [], [{const, {Topic, ShardIx - 1}}]}],
+                    _ = ets:select_replace(?HELPER, Spec),
+                    _ = ets:delete_object(?HELPER, {Shard, 0}),
                     ok;
                 _ ->
                     %% Current shard is either this or lower.
@@ -125,6 +129,11 @@ unassign_sub_shard(Topic, ShardIx) when is_integer(ShardIx) ->
         N ->
             N
     end.
+
+-spec assigned_sub_shards(emqx_types:topic()) ->
+    [{_Shard :: non_neg_integer(), non_neg_integer()}].
+assigned_sub_shards(Topic) ->
+    ets:select(?HELPER, ets:fun2ms(fun({{T, ShardIx}, C}) when T == Topic -> {ShardIx, C} end)).
 
 -spec shard_capacity() -> pos_integer().
 shard_capacity() ->
