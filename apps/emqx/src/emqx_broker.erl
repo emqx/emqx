@@ -210,24 +210,23 @@ unsubscribe(Topic) when ?IS_TOPIC(Topic) ->
 do_unsubscribe(Topic, SubPid, SubOpts) ->
     true = ets:delete(?SUBOPTION, {Topic, SubPid}),
     true = ets:delete_object(?SUBSCRIPTION, {SubPid, Topic}),
-    do_unsubscribe2(Topic, SubPid, SubOpts).
+    case Topic of
+        B when is_binary(B) ->
+            do_unsubscribe_regular(Topic, SubPid, SubOpts);
+        #share{group = Group, topic = RealTopic} ->
+            emqx_shared_sub:unsubscribe(Group, RealTopic, SubPid)
+    end.
 
--spec do_unsubscribe2(emqx_types:topic() | emqx_types:share(), pid(), emqx_types:subopts()) ->
+-spec do_unsubscribe_regular(emqx_types:topic(), pid(), emqx_types:subopts()) ->
     ok.
-do_unsubscribe2(Topic, SubPid, SubOpts) when
-    is_binary(Topic), is_pid(SubPid), is_map(SubOpts)
-->
+do_unsubscribe_regular(Topic, SubPid, SubOpts) ->
     _ = emqx_broker_helper:reclaim_seq(Topic),
     I = maps:get(shard, SubOpts, 0),
     case I of
         0 -> emqx_exclusive_subscription:unsubscribe(Topic, SubOpts);
         _ -> ok
     end,
-    cast(pick({Topic, I}), {unsubscribed, Topic, SubPid, I});
-do_unsubscribe2(#share{group = Group, topic = Topic}, SubPid, _SubOpts) when
-    is_binary(Group), is_binary(Topic), is_pid(SubPid)
-->
-    emqx_shared_sub:unsubscribe(Group, Topic, SubPid).
+    cast(pick({Topic, I}), {unsubscribed, Topic, SubPid, I}).
 
 %%--------------------------------------------------------------------
 %% Publish
@@ -517,8 +516,7 @@ subscriber_down(SubPid) ->
         fun(Topic) ->
             case lookup_value(?SUBOPTION, {Topic, SubPid}) of
                 SubOpts when is_map(SubOpts) ->
-                    true = ets:delete(?SUBOPTION, {Topic, SubPid}),
-                    do_unsubscribe2(Topic, SubPid, SubOpts);
+                    do_unsubscribe_down(Topic, SubPid, SubOpts);
                 undefined ->
                     ok
             end
@@ -526,6 +524,16 @@ subscriber_down(SubPid) ->
         lookup_value(?SUBSCRIPTION, SubPid, [])
     ),
     ets:delete(?SUBSCRIPTION, SubPid).
+
+do_unsubscribe_down(Topic, SubPid, SubOpts) ->
+    true = ets:delete(?SUBOPTION, {Topic, SubPid}),
+    case Topic of
+        B when is_binary(B) ->
+            do_unsubscribe_regular(Topic, SubPid, SubOpts);
+        #share{} ->
+            %% NOTE: `emqx_shared_sub` manages its own monitors and cleanups.
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Management APIs
