@@ -1443,6 +1443,7 @@ fields("broker_perf") ->
                 boolean(),
                 #{
                     default => true,
+                    deprecated => {since, "5.10.0"},
                     desc => ?DESC(broker_perf_trie_compaction)
                 }
             )}
