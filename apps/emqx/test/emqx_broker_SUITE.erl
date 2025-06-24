@@ -115,32 +115,8 @@ end_per_testcase(Case, Config) ->
 %%--------------------------------------------------------------------
 
 t_stats_fun({init, Config}) ->
-    Parent = self(),
-    F = fun Loop() ->
-        N1 = emqx_stats:getstat('subscribers.count'),
-        N2 = emqx_stats:getstat('subscriptions.count'),
-        N3 = emqx_stats:getstat('suboptions.count'),
-        case N1 + N2 + N3 =:= 0 of
-            true ->
-                Parent ! {ready, self()},
-                exit(normal);
-            false ->
-                receive
-                    stop ->
-                        exit(normal)
-                after 100 ->
-                    Loop()
-                end
-        end
-    end,
-    Pid = spawn_link(F),
-    receive
-        {ready, P} when P =:= Pid ->
-            Config
-    after 5000 ->
-        Pid ! stop,
-        ct:fail("timedout_waiting_for_sub_stats_to_reach_zero")
-    end;
+    ok = emqx_stats:reset(),
+    Config;
 t_stats_fun(Config) when is_list(Config) ->
     ok = emqx_broker:subscribe(<<"topic">>, <<"clientid">>),
     ok = emqx_broker:subscribe(<<"topic2">>, <<"clientid">>),
