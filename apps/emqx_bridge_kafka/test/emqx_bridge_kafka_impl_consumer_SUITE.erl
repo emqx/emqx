@@ -844,6 +844,36 @@ receive_published(#{n := N, timeout := Timeout} = Opts, Acc) ->
         )
     end.
 
+receive_published_payloads(Opts0) ->
+    Default = #{n => 1, timeout => 10_000},
+    #{expected := Expected0} = Opts = maps:merge(Default, Opts0),
+    Expected = maps:from_keys(Expected0, true),
+    receive_published_payloads(Expected, Opts, []).
+
+receive_published_payloads(Expected, _Opts, Acc) when map_size(Expected) == 0 ->
+    lists:reverse(Acc);
+receive_published_payloads(Expected0, Opts, Acc) ->
+    #{timeout := Timeout} = Opts,
+    receive
+        {publish, #{payload := Payload0} = Msg} ->
+            case emqx_utils_json:decode(Payload0) of
+                #{<<"value">> := V} when is_map_key(V, Expected0) ->
+                    Expected = maps:remove(V, Expected0),
+                    receive_published_payloads(Expected, Opts, [Msg | Acc]);
+                #{} ->
+                    ct:pal("unexpected publish:\n  ~p", [Msg]),
+                    receive_published_payloads(Expected0, Opts, Acc)
+            end
+    after Timeout ->
+        error(
+            {timeout, #{
+                msgs_so_far => lists:reverse(Acc),
+                mailbox => process_info(self(), messages),
+                expected_remaining => Expected0
+            }}
+        )
+    end.
+
 wait_until_subscribers_are_ready(N, Timeout) ->
     {ok, _} =
         snabbkaffe:block_until(
@@ -1990,7 +2020,12 @@ t_cluster_node_down(Config) ->
                 length(Nodes),
                 15_000
             ),
-            erpc:call(N2, fun() -> {ok, _} = create_bridge(Config) end),
+            erpc:call(N2, fun() ->
+                {ok, _} = create_bridge(
+                    Config,
+                    #{<<"kafka">> => #{<<"offset_reset_policy">> => <<"earliest">>}}
+                )
+            end),
             {ok, _} = snabbkaffe:receive_events(SRef0),
             lists:foreach(
                 fun(N) ->
@@ -2042,9 +2077,9 @@ t_cluster_node_down(Config) ->
             %% it.
             ?assertEqual([N2], NodeAssignments),
             ?assertEqual(NPartitions, map_size(Assignments)),
-            NumPublished = ets:info(TId, size),
             %% All published messages are eventually received.
-            Published = receive_published(#{n => NumPublished, timeout => 10_000}),
+            Payloads = [P || {P} <- ets:tab2list(TId)],
+            Published = receive_published_payloads(#{expected => Payloads, timeout => 10_000}),
             ct:pal("published:\n  ~p", [Published]),
             ok
         end
