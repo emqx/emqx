@@ -118,6 +118,36 @@ Unrecognized tag: refs/tags/v5.2.0-alpha-1
 {"profile": "emqx-enterprise", "release": true, "latest": false}
 >>>= 0
 
+./parse-git-ref.sh refs/tags/e6.0.0-M1.202507
+>>>
+{"profile": "emqx-enterprise", "release": true, "latest": false}
+>>>= 0
+
+./parse-git-ref.sh refs/tags/e6.0.0-M1.202507-alpha.1
+>>>
+{"profile": "emqx-enterprise", "release": true, "latest": false}
+>>>= 0
+
+./parse-git-ref.sh refs/tags/e6.0.0-M1.202507-beta.1
+>>>
+{"profile": "emqx-enterprise", "release": true, "latest": false}
+>>>= 0
+
+./parse-git-ref.sh refs/tags/e6.0.0-M1.202507-rc.1
+>>>
+{"profile": "emqx-enterprise", "release": true, "latest": false}
+>>>= 0
+
+./parse-git-ref.sh refs/tags/e6.1.0-M2.202508
+>>>
+{"profile": "emqx-enterprise", "release": true, "latest": false}
+>>>= 0
+
+./parse-git-ref.sh refs/tags/e6.1.0-M2.202508-alpha.2
+>>>
+{"profile": "emqx-enterprise", "release": true, "latest": false}
+>>>= 0
+
 ./parse-git-ref.sh refs/tags/e5.1.99
 >>>
 {"profile": "emqx-enterprise", "release": true, "latest": true}

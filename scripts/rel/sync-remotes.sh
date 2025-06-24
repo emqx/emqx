@@ -5,7 +5,7 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 
-BASE_BRANCHES=( 'release-510' 'release-59' 'release-58' 'release-57' 'release-56' 'release-55' 'master' )
+BASE_BRANCHES=( 'release-60' 'release-510' 'release-59' 'release-58' 'release-57' 'release-56' 'release-55' 'master' )
 
 usage() {
     cat <<EOF
@@ -18,13 +18,14 @@ options:
     It tries to merge (by default with --ff-only option)
     upstreams branches for the current working branch.
     The uppstream branch of the current branch are as below:
-    * release-55: []        # no upstream for 5.5 opensource edition
-    * release-56: []        # no upstream for 5.6 opensource edition
-    * release-57: []        # no upstream for 5.7 opensource edition
-    * release-58: []        # no upstream for 5.8 opensource edition
-    * release-59: []        # no upstream for 5.9
-    * release-510: []       # no upstream for 5.10
-    * master: [release-5x]  # sync release-5x to master
+    * release-55:  []                   # no upstream for 5.5 opensource edition
+    * release-56:  []                   # no upstream for 5.6 opensource edition
+    * release-57:  []                   # no upstream for 5.7 opensource edition
+    * release-58:  []                   # no upstream for 5.8 opensource edition
+    * release-59:  []                   # no upstream for 5.9
+    * release-510: []                   # no upstream for 5.10
+    * release-60:  []                   # no upstream for 6.0
+    * master: [release-5x, release-6x]  # sync release-5x and release-6x to master
 
   -b|--base:
     The base branch of current working branch if currently is not
@@ -168,8 +169,11 @@ upstream_branches() {
         release-510)
             remote_ref "$base"
             ;;
+        release-60)
+            remote_ref "$base"
+            ;;
         master)
-            remote_refs "$base" 'release-55' 'release-56' 'release-57' 'release-58' 'release-59' 'release-510'
+            remote_refs "$base" 'release-55' 'release-56' 'release-57' 'release-58' 'release-59' 'release-510' 'release-60'
             ;;
     esac
 }

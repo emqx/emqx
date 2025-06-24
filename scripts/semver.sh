@@ -3,7 +3,7 @@
 set -e
 
 function parseSemver() {
-    local RE='^([0-9]+)\.([0-9]+)\.([0-9]+)(-([a-z]+\.[0-9]+))?(-g[0-9a-f]+)?$'
+    local RE='^([0-9]+)\.([0-9]+)\.([0-9]+)(-([a-z]+\.[0-9]+|M[0-9]+\.[0-9]+|M[0-9]+\.[0-9]+-[a-z]+\.[0-9]+))?(-g[0-9a-f]+)?$'
     echo "$1" | grep -qE "$RE" || exit 1
     #shellcheck disable=SC2155
     local MAJOR=$(echo "$1" | sed -r "s#$RE#\1#")
