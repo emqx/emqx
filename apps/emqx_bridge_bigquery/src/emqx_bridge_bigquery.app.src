@@ -1,0 +1,17 @@
+{application, emqx_bridge_bigquery, [
+    {description, "EMQX Enterprise BigQuery Bridge"},
+    {vsn, "1.0.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        ehttpc,
+        emqx_resource,
+        emqx_connector_jwt,
+        emqx_bridge_gcp_pubsub
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

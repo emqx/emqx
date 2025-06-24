@@ -301,6 +301,12 @@
     "enabled": true
   },
   {
+    "name": "bigquery",
+    "listen": "0.0.0.0:9050",
+    "upstream": "bigquery:9050",
+    "enabled": true
+  },
+  {
     "name": "clickhouse",
     "listen": "0.0.0.0:8123",
     "upstream": "clickhouse:8123",
