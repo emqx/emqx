@@ -361,6 +361,26 @@ handle_response(Result, ResourceId, QueryMode) ->
     case Result of
         {error, {shutdown, Reason}} ->
             {error, Reason};
+        {error, Reason} when
+            Reason =:= econnrefused;
+            %% this comes directly from `gun'...
+            Reason =:= {closed, "The connection was lost."};
+            Reason =:= closed;
+            %% The normal reason happens when the HTTP connection times out before
+            %% the request has been fully processed
+            Reason =:= normal;
+            Reason =:= timeout
+        ->
+            ?tp(
+                warning,
+                gcp_client_request_failed,
+                #{
+                    reason => Reason,
+                    recoverable_error => true,
+                    connector => ResourceId
+                }
+            ),
+            {error, {recoverable_error, Reason}};
         {error, Reason} ->
             {error, Reason};
         {ok, StatusCode, RespHeaders} ->

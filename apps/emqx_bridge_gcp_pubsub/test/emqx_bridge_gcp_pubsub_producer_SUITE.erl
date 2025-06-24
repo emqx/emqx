@@ -1194,8 +1194,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                                 emqx:publish(Message)
                             end,
                             #{
-                                ?snk_kind := gcp_pubsub_request_failed,
-                                query_mode := async,
+                                ?snk_kind := gcp_client_request_failed,
                                 reason := econnrefused
                             },
                             15_000
@@ -1220,7 +1219,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
         fun(Trace) ->
             case Error of
                 econnrefused ->
-                    case ?of_kind(gcp_pubsub_request_failed, Trace) of
+                    case ?of_kind(gcp_client_request_failed, Trace) of
                         [#{reason := Reason, connector := ConnectorResourceId} | _] when
                             Reason == Error;
                             Reason == closed;
