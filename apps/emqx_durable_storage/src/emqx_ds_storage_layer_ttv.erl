@@ -58,7 +58,7 @@
 -type it_pos() :: binary().
 
 -type iterator() :: #'Iterator'{
-    shard :: emqx_ds:shard(),
+    shard :: binary(),
     generation :: emqx_ds:generation(),
     innerStatic :: it_static(),
     innerPos :: it_pos()

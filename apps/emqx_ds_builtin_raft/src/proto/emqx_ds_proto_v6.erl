@@ -5,7 +5,6 @@
 
 -behavior(emqx_bpapi).
 
--include_lib("emqx_utils/include/bpapi.hrl").
 %% API:
 -export([
     drop_db/2,
@@ -29,6 +28,8 @@
 
 %% behavior callbacks:
 -export([introduced_in/0]).
+
+-include_lib("emqx_utils/include/bpapi.hrl").
 
 %%================================================================================
 %% API functions
