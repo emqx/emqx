@@ -155,7 +155,7 @@
     emqx_ds:time(),
     boolean()
 ) ->
-    {ok, it_pos(), [emqx_ds:ttv()]} | emqx_ds:error(_).
+    {ok, it_pos(), [emqx_ds:ttv()]} | {ok, end_of_stream} | emqx_ds:error(_).
 
 -callback scan_stream(
     emqx_ds:db(),
@@ -168,7 +168,7 @@
     _Now :: emqx_ds:time(),
     _IsCurrent :: boolean()
 ) ->
-    {ok, it_pos(), [{it_pos(), emqx_ds:ttv()}]}.
+    {ok, it_pos(), [{it_pos(), emqx_ds:ttv()}]} | {ok, end_of_stream} | emqx_ds:error(_).
 
 -callback batch_events(
     emqx_ds_storage_layer:dbshard(),

@@ -413,7 +413,7 @@ make_internal_iterator(
     LastSK = <<StartPos:(TSB * 8)>>,
     {ok, StaticIdx, CompressedTF, LastSK}.
 
-next_internal(#s{gs = GS}, Static, CompressedTF, ItPos0, BatchSize, _IsCurrent) ->
+next_internal(#s{gs = GS}, Static, CompressedTF, ItPos0, BatchSize, IsCurrent) ->
     Fun = fun(TopicStructure, DSKey, Varying, TS, Val, Acc) ->
         Topic = emqx_ds_lts:decompress_topic(TopicStructure, Varying),
         [{DSKey, {Topic, TS, Val}} | Acc]
@@ -421,6 +421,8 @@ next_internal(#s{gs = GS}, Static, CompressedTF, ItPos0, BatchSize, _IsCurrent) 
     Interval = {'(', ItPos0, infinity},
     %% Note: we don't reverse the batch here.
     case emqx_ds_gen_skipstream_lts:fold(GS, Static, CompressedTF, Interval, BatchSize, [], Fun) of
+        {ok, _, []} when not IsCurrent ->
+            {ok, end_of_stream};
         {ok, ItPos, Batch} ->
             {ok, ItPos, Batch};
         {error, _, _} = Err ->
