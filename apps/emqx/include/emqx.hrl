@@ -99,15 +99,6 @@
 -define(KIND_REPLICATE, replicate).
 -define(KIND_INITIATE, initiate).
 
--define(CONFIG_TAB, emqx_config).
-
--record(?CONFIG_TAB, {
-    %% {Namespace, RootKey}
-    root_key,
-    raw_value,
-    extra = #{}
-}).
-
 %%--------------------------------------------------------------------
 %% Client Attributes
 %%--------------------------------------------------------------------

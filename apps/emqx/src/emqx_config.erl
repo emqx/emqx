@@ -128,6 +128,14 @@
     runtime_config_key_path/0
 ]).
 
+-define(CONFIG_TAB, emqx_config).
+-record(?CONFIG_TAB, {
+    %% {Namespace, RootKey}
+    root_key,
+    raw_value,
+    extra = #{}
+}).
+
 -type update_request() :: term().
 -type update_cmd() :: {update, update_request()} | remove.
 -type update_opts() :: #{
