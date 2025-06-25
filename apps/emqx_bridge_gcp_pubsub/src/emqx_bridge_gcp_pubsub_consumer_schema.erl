@@ -67,9 +67,7 @@ fields(source_parameters) ->
     Fields = lists:map(
         fun
             ({topic_mapping = Name, Sc}) ->
-                %% to please dialyzer...
                 Override = #{
-                    type => hocon_schema:field_schema(Sc, type),
                     required => false,
                     default => [],
                     validator => fun(_) -> ok end,

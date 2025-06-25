@@ -1,6 +1,6 @@
 {application, emqx_bridge_doris, [
     {description, "EMQX Enterprise Doris Bridge"},
-    {vsn, "1.0.0"},
+    {vsn, "1.0.1"},
     {registered, []},
     {applications, [
         kernel,

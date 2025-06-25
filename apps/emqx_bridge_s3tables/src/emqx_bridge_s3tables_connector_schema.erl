@@ -96,8 +96,6 @@ fields(s3_client_params) ->
         fun
             ({K, Sc}) when K == host; K == port ->
                 Override = #{
-                    %% to please dialyzer...
-                    type => hocon_schema:field_schema(Sc, type),
                     required => false,
                     importance => ?IMPORTANCE_HIDDEN
                 },

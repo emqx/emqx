@@ -91,8 +91,7 @@ adjust_fields(Fields) ->
     lists:map(
         fun
             ({username, Sc}) ->
-                %% to please dialyzer...
-                Override = #{type => hocon_schema:field_schema(Sc, type), required => true},
+                Override = #{required => true},
                 {username, hocon_schema:override(Sc, Override)};
             (Field) ->
                 Field

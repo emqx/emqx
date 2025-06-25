@@ -55,11 +55,7 @@ fields(connector_config) ->
         lists:map(
             fun
                 ({server = K, Sc}) ->
-                    Override = #{
-                        %% to please dialyzer...
-                        type => hocon_schema:field_schema(Sc, type),
-                        desc => ?DESC("server")
-                    },
+                    Override = #{desc => ?DESC("server")},
                     {K, hocon_schema:override(Sc, Override)};
                 ({ssl = K, Sc}) ->
                     Override = #{type => hoconsc:ref(?MODULE, ssl)},
@@ -75,11 +71,7 @@ fields(ssl) ->
     lists:map(
         fun
             ({"middlebox_comp_mode" = K, Sc}) ->
-                Override = #{
-                    %% to please dialyzer...
-                    type => hocon_schema:field_schema(Sc, type),
-                    default => false
-                },
+                Override = #{default => false},
                 {K, hocon_schema:override(Sc, Override)};
             (Field) ->
                 Field
