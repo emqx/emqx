@@ -979,7 +979,7 @@ t_sub_catchup_unrecoverable(Config) ->
     ).
 
 %% Verify functionality of the low-level transaction API.
-t_13_smoke_kv_tx(Config) ->
+t_13_smoke_ttv_tx(Config) ->
     DB = ?FUNCTION_NAME,
     Owner = <<"test_clientid">>,
     ?check_trace(
@@ -1055,7 +1055,7 @@ t_13_smoke_kv_tx(Config) ->
 
 %% Verify correctness of wildcard topic deletions in the transactional
 %% API
-t_14_kv_wildcard_deletes(Config) ->
+t_14_ttv_wildcard_deletes(Config) ->
     DB = ?FUNCTION_NAME,
     TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     ?check_trace(
@@ -1119,7 +1119,7 @@ t_14_kv_wildcard_deletes(Config) ->
 
 %% Verify that `?ds_tx_serial' is properly substituted with the
 %% transaction serial.
-t_15_kv_write_serial(Config) ->
+t_15_ttv_write_serial(Config) ->
     DB = ?FUNCTION_NAME,
     TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     Topic = [<<"foo">>],
@@ -1157,7 +1157,7 @@ t_15_kv_write_serial(Config) ->
         []
     ).
 
-t_16_kv_preconditions(Config) ->
+t_16_ttv_preconditions(Config) ->
     DB = ?FUNCTION_NAME,
     TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     Topic1 = [<<"foo">>],
@@ -1421,7 +1421,7 @@ t_20_tx_monotonic_ts(Config) ->
                 store_ttv => true,
                 storage =>
                     {emqx_ds_storage_skipstream_lts_v2, #{
-                        timestamp_bytes => 64
+                        timestamp_bytes => 8
                     }}
             }),
             ?assertMatch(
@@ -1483,6 +1483,205 @@ t_20_tx_monotonic_ts(Config) ->
             ?assert(
                 TSAfterReopen > TSBefore,
                 #{before => TSBefore, after_ => TSAfterReopen}
+            )
+        end,
+        []
+    ).
+
+%% This testcase verifies that subscriptions work for TTV style of databases.
+t_21_ttv_subscription(Config) ->
+    DB = ?FUNCTION_NAME,
+    TXOpts = #{db => DB, shard => {auto, <<"me">>}, generation => 1, retries => 10},
+    Topic0 = [<<>>],
+    Topic1 = [<<>>, <<1>>],
+    Topic2 = [<<>>, <<2>>],
+    ?check_trace(
+        begin
+            %% Open the database
+            Opts = maps:merge(opts(Config), #{
+                store_ttv => true,
+                storage =>
+                    {emqx_ds_storage_skipstream_lts_v2, #{
+                        timestamp_bytes => 8,
+                        lts_threshold_spec => {simple, {infinity, 0}}
+                    }}
+            }),
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts)
+            ),
+            %% Insert some data:
+            {atomic, _, _} =
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({Topic0, ?ds_tx_ts_monotonic, <<0>>}),
+                        emqx_ds:tx_write({Topic0, ?ds_tx_ts_monotonic, <<1>>}),
+                        emqx_ds:tx_write({Topic0, ?ds_tx_ts_monotonic, <<2>>}),
+                        emqx_ds:tx_write({Topic1, ?ds_tx_ts_monotonic, <<3>>}),
+                        emqx_ds:tx_write({Topic1, ?ds_tx_ts_monotonic, <<4>>}),
+                        emqx_ds:tx_write({Topic2, ?ds_tx_ts_monotonic, <<5>>}),
+                        emqx_ds:tx_write({Topic2, ?ds_tx_ts_monotonic, <<6>>})
+                    end
+                ),
+            %% Create the subscriptions:
+            %%   Topic0:
+            [{_, Stream0}] = emqx_ds:get_streams(DB, Topic0, 0),
+            {ok, It0} = emqx_ds:make_iterator(DB, Stream0, Topic0, 0),
+            {ok, SubHandle0, SubRef0} = emqx_ds:subscribe(DB, It0, #{max_unacked => 100}),
+            %%   Topic1-2:
+            [{_, Stream1}] = emqx_ds:get_streams(DB, Topic1, 0),
+            {ok, It1} = emqx_ds:make_iterator(DB, Stream1, Topic1, 0),
+            {ok, It2} = emqx_ds:make_iterator(DB, Stream1, Topic2, 0),
+            {ok, It3} = emqx_ds:make_iterator(DB, Stream1, [<<>>, '+'], 0),
+            {ok, SubHandle1, SubRef1} = emqx_ds:subscribe(DB, It1, #{max_unacked => 100}),
+            {ok, SubHandle2, SubRef2} = emqx_ds:subscribe(DB, It2, #{max_unacked => 100}),
+            {ok, SubHandle3, SubRef3} = emqx_ds:subscribe(DB, It3, #{max_unacked => 100}),
+            %% Receive historical data:
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef0,
+                        lagging = true,
+                        seqno = 3,
+                        size = 3,
+                        payload =
+                            {ok, _, [
+                                {_, {Topic0, _, <<0>>}},
+                                {_, {Topic0, _, <<1>>}},
+                                {_, {Topic0, _, <<2>>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef0, 1)
+            ),
+            ok = emqx_ds:suback(DB, SubHandle0, 3),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef1,
+                        lagging = true,
+                        seqno = 2,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {_, {Topic1, _, <<3>>}},
+                                {_, {Topic1, _, <<4>>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef1, 1)
+            ),
+            ok = emqx_ds:suback(DB, SubHandle1, 2),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef2,
+                        lagging = true,
+                        seqno = 2,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {_, {Topic2, _, <<5>>}},
+                                {_, {Topic2, _, <<6>>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef2, 1)
+            ),
+            ok = emqx_ds:suback(DB, SubHandle2, 2),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef3,
+                        lagging = true,
+                        seqno = 4,
+                        size = 4,
+                        payload =
+                            {ok, _, [
+                                {_, {Topic1, _, <<3>>}},
+                                {_, {Topic1, _, <<4>>}},
+                                {_, {Topic2, _, <<5>>}},
+                                {_, {Topic2, _, <<6>>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef3, 1)
+            ),
+            ok = emqx_ds:suback(DB, SubHandle3, 4),
+            %% Publish and receive new data:
+            ?tp(info, "Test: publish new data", #{}),
+            {atomic, _, _} =
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({Topic0, ?ds_tx_ts_monotonic, <<7>>}),
+                        emqx_ds:tx_write({Topic0, ?ds_tx_ts_monotonic, <<8>>}),
+                        emqx_ds:tx_write({Topic1, ?ds_tx_ts_monotonic, <<9>>}),
+                        emqx_ds:tx_write({Topic2, ?ds_tx_ts_monotonic, <<10>>})
+                    end
+                ),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef0,
+                        lagging = false,
+                        seqno = 5,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {_, {Topic0, _, <<7>>}},
+                                {_, {Topic0, _, <<8>>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef0, 1)
+            ),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef1,
+                        lagging = false,
+                        seqno = 3,
+                        size = 1,
+                        payload =
+                            {ok, _, [
+                                {_, {Topic1, _, <<9>>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef1, 1)
+            ),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef2,
+                        lagging = false,
+                        seqno = 3,
+                        size = 1,
+                        payload =
+                            {ok, _, [
+                                {_, {Topic2, _, <<10>>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef2, 1)
+            ),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef3,
+                        lagging = false,
+                        seqno = 6,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {_, {Topic1, _, <<9>>}},
+                                {_, {Topic2, _, <<10>>}}
+                            ]}
+                    }
+                ],
+                recv(SubRef3, 1)
             )
         end,
         []

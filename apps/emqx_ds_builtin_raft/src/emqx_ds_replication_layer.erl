@@ -495,7 +495,11 @@ next(DB, Iter0, BatchSize) when is_map(Iter0) ->
 
 -spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
     {ok, emqx_ds:subscription_handle(), emqx_ds:sub_ref()} | emqx_ds:error(_).
-subscribe(DB, It = #{?tag := ?IT, ?shard := Shard}, SubOpts) ->
+subscribe(DB, It, SubOpts) ->
+    case It of
+        #{?tag := ?IT, ?shard := Shard} -> ok;
+        #'Iterator'{shard = Shard} -> ok
+    end,
     ?SHARD_RPC(
         DB,
         Shard,

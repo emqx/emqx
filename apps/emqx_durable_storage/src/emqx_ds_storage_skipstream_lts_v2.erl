@@ -348,9 +348,12 @@ make_iterator(_DB, _Shard, S, Stream, TopicFilter, StartPos) ->
         {ok, it2ext(Static, Varying), ItPos}
     end.
 
-unpack_iterator(_DBShard, _GenData, ItStaticBin) ->
+unpack_iterator(_DBShard, #s{trie = Trie}, ItStaticBin) ->
     {Static, CompressedTF} = ext2it(ItStaticBin),
-    {ok, Static, CompressedTF}.
+    maybe
+        {ok, TF} ?= decompress_tf(Trie, Static, CompressedTF),
+        {ok, Static, TF}
+    end.
 
 next(_DB, _Shard, S, ItStaticBin, ItPos0, BatchSize, _Now, IsCurrent) ->
     {Static, CompressedTF} = ext2it(ItStaticBin),
@@ -361,10 +364,14 @@ next(_DB, _Shard, S, ItStaticBin, ItPos0, BatchSize, _Now, IsCurrent) ->
             Other
     end.
 
-scan_stream(_DB, _Shard, S = #s{trie = Trie}, Static, TF, Pos, BatchSize, _Now, IsCurrent) ->
-    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, Static),
-    CompressedTF = emqx_ds_lts:compress_topic(Static, TopicStructure, TF),
-    next_internal(S, Static, CompressedTF, Pos, BatchSize, IsCurrent).
+scan_stream(
+    _DB, _Shard, S = #s{trie = Trie}, Static, TF, Pos, BatchSize, _Now, IsCurrent
+) ->
+    ?tp(warning, scan_stream, #{static => Static, tf => TF}),
+    maybe
+        {ok, CompressedTF} ?= compress_tf(Trie, Static, TF),
+        next_internal(S, Static, CompressedTF, Pos, BatchSize, IsCurrent)
+    end.
 
 lookup(_Shard, #s{trie = Trie, gs = GS, ts_bytes = TSB}, Topic, Time) ->
     maybe
@@ -376,12 +383,9 @@ lookup(_Shard, #s{trie = Trie, gs = GS, ts_bytes = TSB}, Topic, Time) ->
     end.
 
 message_match_context(#s{trie = Trie}, Stream, _, {Topic, TS, _Value}) ->
-    case emqx_ds_lts:reverse_lookup(Trie, Stream) of
-        {ok, TopicStructure} ->
-            CT = emqx_ds_lts:compress_topic(Stream, TopicStructure, Topic),
-            {ok, {CT, TS}};
-        undefined ->
-            ?err_unrec(unknown_lts_v2_stream)
+    maybe
+        {ok, CT} ?= compress_tf(Trie, Stream, Topic),
+        {ok, {CT, TS}}
     end.
 
 iterator_match_context(#s{ts_bytes = TSB}, ItStaticBin, ItPos) ->
@@ -408,10 +412,11 @@ make_internal_iterator(
     ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_make_blob_iterator, #{
         static_index => StaticIdx, topic_filter => TopicFilter
     }),
-    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
-    CompressedTF = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
-    LastSK = <<StartPos:(TSB * 8)>>,
-    {ok, StaticIdx, CompressedTF, LastSK}.
+    maybe
+        {ok, CompressedTF} ?= compress_tf(Trie, StaticIdx, TopicFilter),
+        LastSK = <<StartPos:(TSB * 8)>>,
+        {ok, StaticIdx, CompressedTF, LastSK}
+    end.
 
 next_internal(#s{gs = GS}, Static, CompressedTF, ItPos0, BatchSize, IsCurrent) ->
     Fun = fun(TopicStructure, DSKey, Varying, TS, Val, Acc) ->
@@ -419,12 +424,11 @@ next_internal(#s{gs = GS}, Static, CompressedTF, ItPos0, BatchSize, IsCurrent) -
         [{DSKey, {Topic, TS, Val}} | Acc]
     end,
     Interval = {'(', ItPos0, infinity},
-    %% Note: we don't reverse the batch here.
     case emqx_ds_gen_skipstream_lts:fold(GS, Static, CompressedTF, Interval, BatchSize, [], Fun) of
         {ok, _, []} when not IsCurrent ->
             {ok, end_of_stream};
         {ok, ItPos, Batch} ->
-            {ok, ItPos, Batch};
+            {ok, ItPos, lists:reverse(Batch)};
         {error, _, _} = Err ->
             Err
     end.
@@ -436,6 +440,22 @@ get_streams(Trie, TopicFilter) ->
         end,
         emqx_ds_lts:match_topics(Trie, TopicFilter)
     ).
+
+compress_tf(Trie, Static, TF) ->
+    case emqx_ds_lts:reverse_lookup(Trie, Static) of
+        {ok, TopicStructure} ->
+            {ok, emqx_ds_lts:compress_topic(Static, TopicStructure, TF)};
+        undefined ->
+            ?err_unrec(unknown_lts_v2_stream)
+    end.
+
+decompress_tf(Trie, Static, CompressedTF) ->
+    case emqx_ds_lts:reverse_lookup(Trie, Static) of
+        {ok, TopicStructure} ->
+            {ok, emqx_ds_lts:decompress_topic(TopicStructure, CompressedTF)};
+        undefined ->
+            ?err_unrec(unknown_lts_v2_stream)
+    end.
 
 %%%%%%%% Keys %%%%%%%%%%
 
