@@ -5,7 +5,7 @@ defmodule EMQXAuthHTTP.MixProject do
   def project do
     [
       app: :emqx_auth_http,
-      version: "0.1.0",
+      version: "0.4.6",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),

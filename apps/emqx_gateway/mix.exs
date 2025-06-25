@@ -5,7 +5,7 @@ defmodule EMQXGateway.MixProject do
   def project do
     [
       app: :emqx_gateway,
-      version: "0.1.0",
+      version: "0.2.6",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler

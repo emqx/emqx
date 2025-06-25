@@ -5,7 +5,7 @@ defmodule EMQXExhook.MixProject do
   def project do
     [
       app: :emqx_exhook,
-      version: "0.1.0",
+      version: "5.0.21",
       build_path: "../../_build",
       compilers: [:elixir, :grpc, :erlang, :app, :copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler

@@ -5,7 +5,7 @@ defmodule EMQXRuleEngine.MixProject do
   def project do
     [
       app: :emqx_rule_engine,
-      version: "0.1.0",
+      version: "5.2.9",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),

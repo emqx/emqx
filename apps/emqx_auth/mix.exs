@@ -5,7 +5,7 @@ defmodule EMQXAuth.MixProject do
   def project do
     [
       app: :emqx_auth,
-      version: "0.1.0",
+      version: "0.4.7",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
