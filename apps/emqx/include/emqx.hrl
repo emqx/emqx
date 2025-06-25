@@ -105,7 +105,6 @@
     %% {Namespace, RootKey}
     root_key,
     raw_value,
-    checked_value,
     extra = #{}
 }).
 

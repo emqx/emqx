@@ -372,7 +372,7 @@ post_update_ok(
     #conf_info{conf_key_path = [RootKeyAtom | _]} = ConfInfo,
     NewConf = maps:get(RootKeyAtom, NewConf0),
     NewRawConf = maps:get(bin(RootKeyAtom), NewRawConf0),
-    ok = emqx_config:save_configs_mnesia(Namespace, RootKeyAtom, NewConf, NewRawConf, Opts),
+    ok = emqx_config:save_configs_namespaced(Namespace, RootKeyAtom, NewConf, NewRawConf, Opts),
     Result1 = return_change_result(ConfInfo),
     {ok, Result1#{post_config_update => Result0}}.
 
@@ -857,9 +857,9 @@ get_root(ConfKeyPath, Namespace) when is_binary(Namespace) ->
 config_get(ConfKeyPath, undefined = _Namespace, Default) ->
     emqx_config:get(ConfKeyPath, Default);
 config_get(ConfKeyPath, Namespace, Default) when is_binary(Namespace) ->
-    emqx_config:get_mnesia(ConfKeyPath, Namespace, Default).
+    emqx_config:get_namespaced(ConfKeyPath, Namespace, Default).
 
 config_get_raw(ConfKeyPath, undefined = _Namespace) ->
     emqx_config:get_raw(ConfKeyPath);
 config_get_raw(ConfKeyPath, Namespace) when is_binary(Namespace) ->
-    emqx_config:get_raw_mnesia(ConfKeyPath, Namespace).
+    emqx_config:get_raw_namespaced(ConfKeyPath, Namespace).
