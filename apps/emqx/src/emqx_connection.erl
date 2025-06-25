@@ -376,15 +376,10 @@ exit_on_sock_error(Reason) ->
 recvloop(
     Parent,
     State = #state{
-        hibernate_after = HibernateAfterMs,
+        hibernate_after = HibernateTimeout,
         zone = Zone
     }
 ) ->
-    HibernateTimeout =
-        case HibernateAfterMs of
-            infinity -> infinity;
-            _ -> HibernateAfterMs
-        end,
     receive
         Msg ->
             handle_recv(Msg, Parent, State)
