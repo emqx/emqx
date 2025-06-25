@@ -16,14 +16,6 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       :emqx_exproto_v_1_connection_unary_handler_client,
       :emqx_exhook_v_2_hook_provider_client,
       :emqx_exhook_v_2_hook_provider_bhvr,
-      __MODULE__,
-      Mix.Tasks.Compile.Asn1,
-      Mix.Tasks.Emqx.Ct,
-      Mix.Tasks.Emqx.Eunit,
-      Mix.Tasks.Emqx.Proper,
-      Mix.Tasks.Emqx.Cover,
-      Mix.Tasks.Compile.Grpc,
-      Mix.Tasks.Compile.CopySrcs,
     ]
     |> MapSet.new(&to_string/1)
   )
@@ -125,6 +117,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
     }
 
     Mix.Dep.Umbrella.loaded()
+    |> Stream.reject(& &1.app in excluded_apps)
     |> Enum.reduce(acc, fn dep, acc ->
       # IO.inspect(dep)
       props = dep.opts[:app_properties]
