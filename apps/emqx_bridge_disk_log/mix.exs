@@ -27,6 +27,7 @@ defmodule EMQXBridgeDiskLog.MixProject do
   def deps() do
     [
       {:emqx_resource, in_umbrella: true},
+      {:emqx_connector_info, in_umbrella: true},
     ]
   end
 end

@@ -25,6 +25,7 @@ defmodule EMQXOpentelemetry.MixProject do
     [
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
+      UMP.common_dep(:minirest),
       {:opentelemetry_api,
        github: "emqx/opentelemetry-erlang",
        tag: "v1.4.9-emqx",
