@@ -342,7 +342,7 @@ t_shared_subscribe_3(_) ->
 t_fanout({init, Config}) ->
     Config;
 t_fanout({'end', _Config}) ->
-    ok;
+    emqx_stats:reset();
 t_fanout(_Config) ->
     NSubscribers = 2500,
     Subscribers = [
@@ -364,6 +364,16 @@ t_fanout(_Config) ->
         10,
         false = lists:any(fun erlang:is_process_alive/1, Subscribers)
     ).
+
+t_fanout_async_dispatch({init, Config}) ->
+    emqx_config:put([broker, perf, async_fanout_shard_dispatch], true),
+    emqx_broker:init_config(),
+    Config;
+t_fanout_async_dispatch({'end', _Config}) ->
+    emqx_config:put([broker, perf, async_fanout_shard_dispatch], false),
+    emqx_broker:init_config();
+t_fanout_async_dispatch(Config) ->
+    t_fanout(Config).
 
 %% persistent sessions, when gone, do not contribute to connected
 %% client count
