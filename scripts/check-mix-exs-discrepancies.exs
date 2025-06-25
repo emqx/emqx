@@ -98,15 +98,40 @@ defmodule CheckMixExsDiscrepancies do
   def check_missing_erl_opts(mix_infos, rebar_infos) do
     Enum.reduce(rebar_infos, %{}, fn {app, rebar_info}, acc ->
       custom_erl_opts = get_in(rebar_info, [:rebar_config, :erl_opts])
-      IO.inspect(%{app: app, custom: custom_erl_opts, mix: get_in(mix_infos, [app])})
+
       with [_ | _] <- custom_erl_opts,
            mix_erl_opts = get_in(mix_infos, [app, :project, :erlc_options]),
-           [_ | _] = missing_erl_opts <- custom_erl_opts -- mix_erl_opts do
+           [_ | _] = missing_erl_opts <-
+             do_check_missing_erl_opts(custom_erl_opts, mix_erl_opts, app, mix_infos) do
         Map.put(acc, app, missing_erl_opts)
       else
         _ -> acc
       end
     end)
+  end
+
+  defp do_check_missing_erl_opts(custom_erl_opts, mix_erl_opts, app, mix_infos) do
+    missing_erl_opts = custom_erl_opts -- mix_erl_opts
+
+    {src_dirs, missing_erl_opts} =
+      Enum.split_with(missing_erl_opts, fn
+        {:src_dirs, _} -> true
+        _ -> false
+      end)
+
+    if src_dirs == [] do
+      missing_erl_opts
+    else
+      src_dirs = for {:src_dirs, ds} <- src_dirs, d <- ds, do: to_string(d)
+      erlc_paths = get_in(mix_infos, [app, :project, :erlc_paths])
+      missing_erlc_paths = src_dirs -- erlc_paths
+
+      if missing_erlc_paths == [] do
+        missing_erl_opts
+      else
+        [{:src_dirs, missing_erlc_paths} | missing_erl_opts]
+      end
+    end
   end
 
   def copy_rebar_app_vsn_to_mix({_app, vsn_mismatch_info}) do
@@ -140,7 +165,7 @@ defmodule CheckMixExsDiscrepancies do
     %{
       apps_without_mix_exs: apps_without_mix_exs,
       version_mismatches: check_app_vsn_mismatches(mix_infos, rebar_infos),
-      missing_erl_opts: check_missing_erl_opts(mix_infos, rebar_infos),
+      missing_erl_opts: check_missing_erl_opts(mix_infos, rebar_infos)
     }
   end
 
@@ -200,12 +225,13 @@ defmodule CheckMixExsDiscrepancies do
             |> Inspect.Algebra.to_doc(Inspect.Opts.new(pretty: true))
             |> Inspect.Algebra.nest(4, :always)
             |> Inspect.Algebra.format(0)
+
           [
             "  * #{app} is missing:\n",
             ["    ", formatted_missing, "\n"]
           ]
         end),
-        "\n",
+        "\n"
       ])
 
       _failed? = true
@@ -227,6 +253,8 @@ defmodule CheckMixExsDiscrepancies do
 
     if failed? do
       System.halt(1)
+    else
+      puts([:green, "Ok!\n"])
     end
   end
 
