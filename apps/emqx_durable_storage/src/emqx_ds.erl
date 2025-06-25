@@ -787,8 +787,13 @@ Once subscribed, the client process will receive messages of type
 - `lagging` flag is an implementation-defined indicator that the
    subscription is currently reading old data.
 
-WARNING: this API is currently not supported by DBs with
-`store_ttv` = `true`.
+WARNING: Only use this API when monotonic timestamp policy is enforced
+for the new data. Subscriptions advance their iterators forward and
+only forward in time.
+
+Subscribers are NOT notified about newly inserted data if its
+timestamp is not greater than the current position of the subscription
+iterator.
 
 """.
 -doc #{title => <<"Subscriptions">>, since => <<"5.9.0">>}.

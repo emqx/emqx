@@ -31,6 +31,8 @@
 %% Type declarations
 %%================================================================================
 
+-define(MAX_RETRIES, 10).
+
 %% Whenever we receive a notification that a stream has new data, we
 %% add this stream to this table. Events are deduplicated.
 -record(active_streams, {
@@ -63,7 +65,7 @@
 
 -define(housekeeping_loop, housekeeping_loop).
 
--record(shard_event, {event}).
+-record(shard_event, {stream, retries}).
 -record(seal_event, {rank}).
 
 %%================================================================================
@@ -89,7 +91,7 @@ shard_event(Shard, Events) ->
     lists:foreach(
         fun(Stream) ->
             Worker = gproc_pool:pick_worker(Pool, Stream),
-            Worker ! stream_event(Stream)
+            Worker ! stream_event(Stream, ?MAX_RETRIES)
         end,
         Events
     ).
@@ -141,7 +143,7 @@ handle_cast(#seal_event{rank = Rank}, S0) ->
         %% for each known stream that has the matching rank:
         Streams = emqx_ds_beamformer_waitq:streams_of_rank(Rank, Queue),
         %% TODO: pass it through the event queue too
-        _ = [process_stream_event(self(), false, Stream, S) || Stream <- Streams],
+        _ = [process_stream_event(self(), 0, Stream, S) || Stream <- Streams],
         S
     end,
     push_cmd(S0, Fun);
@@ -285,9 +287,9 @@ do_enqueue(
     ok = gen_server:reply(From, Reply),
     S.
 
-process_stream_event(Parent, RetryOnEmpty, Stream, S) ->
+process_stream_event(Parent, RetriesOnEmpty, Stream, S) ->
     T0 = erlang:monotonic_time(microsecond),
-    do_process_stream_event(Parent, RetryOnEmpty, Stream, S),
+    do_process_stream_event(Parent, RetriesOnEmpty, Stream, S),
     emqx_ds_builtin_metrics:observe_beamformer_fulfill_time(
         S#s.metrics_id,
         erlang:monotonic_time(microsecond) - T0
@@ -296,7 +298,7 @@ process_stream_event(Parent, RetryOnEmpty, Stream, S) ->
 
 do_process_stream_event(
     Parent,
-    RetryOnEmpty,
+    RetriesOnEmpty,
     Stream,
     S = #s{
         shard = DBShard,
@@ -318,12 +320,17 @@ do_process_stream_event(
             ?tp(beamformer_rt_batch, #{
                 shard => DBShard, from => StartKey, to => LastKey, stream => Stream, empty => true
             }),
-            %% Race condition: event arrived before the data became
-            %% available. Retry later:
-            RetryOnEmpty andalso
+            %% Potential race condition: event arrived before the data
+            %% became available. Alternatively, the backend was not
+            %% careful: it added some data _before_ the stream high
+            %% watermark and send the event. Ideally, such events
+            %% should be avoided. Retry later:
+            RetriesOnEmpty > 0 andalso
                 begin
-                    ?tp(debug, beamformer_rt_retry_event, #{stream => Stream}),
-                    erlang:send_after(10, Parent, stream_event(Stream))
+                    ?tp(debug, beamformer_rt_retry_event, #{
+                        stream => Stream, retries => RetriesOnEmpty
+                    }),
+                    erlang:send_after(100, Parent, stream_event(Stream, RetriesOnEmpty - 1))
                 end,
             set_high_watermark(Stream, LastKey, S);
         {ok, LastKey, Batch} ->
@@ -340,7 +347,7 @@ do_process_stream_event(
             ),
             process_batch(Stream, LastKey, Batch, S, Beams),
             set_high_watermark(Stream, LastKey, S),
-            do_process_stream_event(Parent, false, Stream, S);
+            do_process_stream_event(Parent, 0, Stream, S);
         {error, recoverable, _Err} ->
             %% FIXME:
             exit(retry);
@@ -421,9 +428,9 @@ set_high_watermark(Stream, LastSeenKey, #s{high_watermark = Tab}) ->
     ?tp(debug, beamformer_rt_set_high_watermark, #{stream => Stream, key => LastSeenKey}),
     ets:insert(Tab, {Stream, LastSeenKey}).
 
--compile({inline, stream_event/1}).
-stream_event(Stream) ->
-    #shard_event{event = Stream}.
+-compile({inline, stream_event/2}).
+stream_event(Stream, Retries) ->
+    #shard_event{stream = Stream, retries = Retries}.
 
 %% Add a callback to the pending command queue. It will be executed
 %% when the worker process is not running.
@@ -453,7 +460,7 @@ exec_pending_cmds(S0 = #s{cmd_queue = Q}) ->
 
 active_streams_new() ->
     #active_streams{
-        t = ets:new(evt_queue, [private, ordered_set, {keypos, #shard_event.event}])
+        t = ets:new(evt_queue, [private, ordered_set, {keypos, #shard_event.stream}])
     }.
 
 maybe_dispatch_event(S = #s{worker_ref = W}) when is_reference(W) ->
@@ -462,11 +469,11 @@ maybe_dispatch_event(S = #s{active_streams = AS0, worker_ref = undefined, queue 
     case active_streams_pop(AS0) of
         undefined ->
             S;
-        {ok, Stream, AS} ->
+        {ok, #shard_event{stream = Stream, retries = Retries}, AS} ->
             case emqx_ds_beamformer_waitq:has_candidates(Stream, Queue) of
                 true ->
                     {ok, Pid, Ref} = emqx_ds_lib:with_worker(
-                        ?MODULE, process_stream_event, [self(), true, Stream, S]
+                        ?MODULE, process_stream_event, [self(), Retries, Stream, S]
                     ),
                     S#s{worker = Pid, worker_ref = Ref, active_streams = AS};
                 false ->
@@ -478,8 +485,9 @@ maybe_dispatch_event(S = #s{active_streams = AS0, worker_ref = undefined, queue 
             end
     end.
 
-active_streams_push(#active_streams{t = T}, Event = #shard_event{}) ->
-    _ = ets:insert_new(T, Event),
+active_streams_push(#active_streams{t = T}, #shard_event{stream = Key, retries = Retries}) ->
+    Op = {#shard_event.retries, Retries, ?MAX_RETRIES, ?MAX_RETRIES},
+    _ = ets:update_counter(T, Key, Op, #shard_event{retries = 0}),
     ok.
 
 active_streams_pop(Q = #active_streams{t = T, last_key = K0}) ->
@@ -489,10 +497,10 @@ active_streams_pop(Q = #active_streams{t = T, last_key = K0}) ->
                 '$end_of_table' ->
                     undefined;
                 Key ->
-                    [#shard_event{event = Stream}] = ets:take(T, Key),
-                    {ok, Stream, Q#active_streams{last_key = Key}}
+                    [Event] = ets:take(T, Key),
+                    {ok, Event, Q#active_streams{last_key = Key}}
             end;
         Key ->
-            [#shard_event{event = Stream}] = ets:take(T, Key),
-            {ok, Stream, Q#active_streams{last_key = Key}}
+            [Event] = ets:take(T, Key),
+            {ok, Event, Q#active_streams{last_key = Key}}
     end.
