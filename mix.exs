@@ -27,6 +27,8 @@ defmodule EMQXUmbrella.MixProject do
       tarball along with the release.
   """
 
+  @ignore_xref __MODULE__
+
   # TODO: remove once we switch to the new mix build
   def new_mix_build?() do
     System.get_env("NEW_MIX_BUILD") == "1"
@@ -1294,6 +1296,7 @@ defmodule EMQXUmbrella.MixProject do
   defp aliases() do
     [
       ct: &do_ct/1,
+      xref: &do_xref/1,
       cover: &do_cover/1,
       eunit: &do_eunit/1,
       proper: &do_proper/1,
@@ -1327,6 +1330,10 @@ defmodule EMQXUmbrella.MixProject do
     ensure_test_mix_env!()
     set_test_env!(true)
     Mix.Task.run("emqx.proper", args)
+  end
+
+  defp do_xref(args) do
+    Mix.Task.run("emqx.xref", args)
   end
 
   defp do_dialyzer(args) do

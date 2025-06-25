@@ -20,6 +20,10 @@ defmodule EMQXExhook.MixProject do
         proto_dirs: ["priv/protos"],
         out_dir: "src/pb"
       },
+      xref_ignores: [
+        :emqx_exhook_pb,
+        :emqx_exproto_pb,
+      ],
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",

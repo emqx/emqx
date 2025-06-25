@@ -90,7 +90,7 @@ defmodule Mix.Tasks.Compile.Grpc do
     end
 
     generated_src = Path.join([app_root, out_dir, "#{mod_name}.erl"])
-    gpb_include_dir = :code.lib_dir(:gpb, :include)
+    gpb_include_dir = :code.lib_dir(:gpb) |> Path.join("include")
 
     if stale?(generated_src, manifest_modified_time) do
       Mix.shell().info("compiling proto module: #{generated_src}")

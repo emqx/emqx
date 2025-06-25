@@ -182,8 +182,8 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
   end
 
   defp ebin_dir(app) do
-    with dir when is_list(dir) <- :code.lib_dir(app, :ebin),
-         dir = to_string(dir),
+    with dir when is_list(dir) <- :code.lib_dir(app),
+         dir = Path.join(dir, "ebin"),
          true <- File.dir?(dir) || {:error, :not_a_dir} do
       {:ok, to_string(dir)}
     else
