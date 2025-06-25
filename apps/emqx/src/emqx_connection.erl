@@ -551,8 +551,6 @@ handle_msg(
     ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
-handle_msg({inet_reply, _Sock, {error, Reason}}, State) ->
-    handle_info({sock_error, Reason}, State);
 handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
 handle_msg({close, Reason}, State) ->
@@ -943,11 +941,10 @@ send(Num, IoData, #state{transport = Transport, socket = Socket} = State) ->
                 ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
             end),
             Ok;
-        Error = {error, _Reason} ->
+        {error, Reason} ->
             %% Defer error handling
             %% so it's handled the same as tcp_closed or ssl_closed
-            self() ! {inet_reply, Socket, Error},
-            {ok, State}
+            {ok, {sock_error, Reason}, State}
     end.
 
 %% Some bytes sent
