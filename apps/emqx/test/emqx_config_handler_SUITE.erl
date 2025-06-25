@@ -58,8 +58,8 @@ init_per_testcase(_Case, Config) ->
     _ = ets:new(?pre_post_table, [named_table, bag, public]),
     maybe
         true ?= is_namespaced(Config),
-        emqx_config:seed_defaults_for_all_roots_mnesia(emqx_schema, ?NS),
-        on_exit(fun() -> ok = emqx_config:erase_namespace_configs_mnesia(?NS) end)
+        emqx_config:seed_defaults_for_all_roots_namespaced(emqx_schema, ?NS),
+        on_exit(fun() -> ok = emqx_config:erase_namespaced_configs(?NS) end)
     end,
     Config.
 
@@ -102,7 +102,7 @@ is_namespaced(TCConfig) ->
 get_raw_config(TCConfig, KeyPath) when is_list(TCConfig) ->
     case is_namespaced(TCConfig) of
         true ->
-            emqx_config:get_raw_mnesia(KeyPath, ?NS);
+            emqx_config:get_raw_namespaced(KeyPath, ?NS);
         false ->
             emqx:get_raw_config(KeyPath)
     end.
@@ -110,7 +110,7 @@ get_raw_config(TCConfig, KeyPath) when is_list(TCConfig) ->
 get_raw_config(TCConfig, KeyPath, Default) when is_list(TCConfig) ->
     case is_namespaced(TCConfig) of
         true ->
-            emqx_config:get_raw_mnesia(KeyPath, ?NS, Default);
+            emqx_config:get_raw_namespaced(KeyPath, ?NS, Default);
         false ->
             emqx:get_raw_config(KeyPath, Default)
     end.
@@ -118,7 +118,7 @@ get_raw_config(TCConfig, KeyPath, Default) when is_list(TCConfig) ->
 get_config(TCConfig, KeyPath) when is_list(TCConfig) ->
     case is_namespaced(TCConfig) of
         true ->
-            emqx_config:get_mnesia(KeyPath, ?NS);
+            emqx_config:get_namespaced(KeyPath, ?NS);
         false ->
             emqx:get_config(KeyPath)
     end.
@@ -595,22 +595,25 @@ t_independent_namespace_configs(matrix) ->
     [[?namespace]];
 t_independent_namespace_configs(TCConfig) when is_list(TCConfig) ->
     OtherNS = <<"other_ns">>,
-    on_exit(fun() -> ok = emqx_config:erase_namespace_configs_mnesia(OtherNS) end),
-    emqx_config:seed_defaults_for_all_roots_mnesia(emqx_schema, OtherNS),
+    on_exit(fun() -> ok = emqx_config:erase_namespaced_configs(OtherNS) end),
+    emqx_config:seed_defaults_for_all_roots_namespaced(emqx_schema, OtherNS),
     KeyPath = [sysmon],
     ok = add_handler(KeyPath, ?MODULE),
     Wildcard = KeyPath ++ ['?', cpu_check_interval],
     ok = add_handler(Wildcard, ?MODULE),
     %% Initially, both are seeded with same defaults.
-    ?assertEqual(emqx_config:get_mnesia(KeyPath, ?NS), emqx_config:get_mnesia(KeyPath, OtherNS)),
     ?assertEqual(
-        emqx_config:get_raw_mnesia(KeyPath, ?NS), emqx_config:get_raw_mnesia(KeyPath, OtherNS)
+        emqx_config:get_namespaced(KeyPath, ?NS), emqx_config:get_namespaced(KeyPath, OtherNS)
+    ),
+    ?assertEqual(
+        emqx_config:get_raw_namespaced(KeyPath, ?NS),
+        emqx_config:get_raw_namespaced(KeyPath, OtherNS)
     ),
     %% They should update independently, and not affect globals as well.
     OriginalValGlobal = emqx_config:get(KeyPath),
     OriginalValRawGlobal = emqx_config:get_raw(KeyPath),
-    OriginalVal = emqx_config:get_mnesia(KeyPath, ?NS),
-    OriginalValRaw = emqx_config:get_raw_mnesia(KeyPath, ?NS),
+    OriginalVal = emqx_config:get_namespaced(KeyPath, ?NS),
+    OriginalValRaw = emqx_config:get_raw_namespaced(KeyPath, ?NS),
     Val1 = emqx_utils_maps:deep_put(
         [<<"os">>, <<"cpu_check_interval">>], OriginalValRaw, <<"666s">>
     ),
@@ -625,11 +628,11 @@ t_independent_namespace_configs(TCConfig) when is_list(TCConfig) ->
     %% Global and other namespaces are untouched.
     ?assertEqual(OriginalValGlobal, emqx_config:get(KeyPath)),
     ?assertEqual(OriginalValRawGlobal, emqx_config:get_raw(KeyPath)),
-    ?assertEqual(OriginalVal, emqx_config:get_mnesia(KeyPath, ?NS)),
-    ?assertEqual(OriginalValRaw, emqx_config:get_raw_mnesia(KeyPath, ?NS)),
+    ?assertEqual(OriginalVal, emqx_config:get_namespaced(KeyPath, ?NS)),
+    ?assertEqual(OriginalValRaw, emqx_config:get_raw_namespaced(KeyPath, ?NS)),
     %% Only target namespace is affected
-    ?assertEqual(Val1, emqx_config:get_raw_mnesia(KeyPath, OtherNS)),
-    ?assertEqual(666_000, emqx_config:get_mnesia(KeyPath ++ [os, cpu_check_interval], OtherNS)),
+    ?assertEqual(Val1, emqx_config:get_raw_namespaced(KeyPath, OtherNS)),
+    ?assertEqual(666_000, emqx_config:get_namespaced(KeyPath ++ [os, cpu_check_interval], OtherNS)),
     KeyPathSpecific = KeyPath ++ [os, cpu_check_interval],
     KeyPathSpecificBin = lists:map(fun emqx_utils_conv:bin/1, KeyPathSpecific),
     %% Trigger propagated pre/post config update callbacks
@@ -645,15 +648,15 @@ t_independent_namespace_configs(TCConfig) when is_list(TCConfig) ->
     %% Global and other namespaces are untouched.
     ?assertEqual(OriginalValGlobal, emqx_config:get(KeyPath)),
     ?assertEqual(OriginalValRawGlobal, emqx_config:get_raw(KeyPath)),
-    ?assertEqual(OriginalVal, emqx_config:get_mnesia(KeyPath, ?NS)),
-    ?assertEqual(OriginalValRaw, emqx_config:get_raw_mnesia(KeyPath, ?NS)),
+    ?assertEqual(OriginalVal, emqx_config:get_namespaced(KeyPath, ?NS)),
+    ?assertEqual(OriginalValRaw, emqx_config:get_raw_namespaced(KeyPath, ?NS)),
     %% Removed
     ?assertError(
         {config_not_found, KeyPathSpecificBin},
-        emqx_config:get_raw_mnesia(KeyPathSpecific, OtherNS)
+        emqx_config:get_raw_namespaced(KeyPathSpecific, OtherNS)
     ),
     %% Returns default again
-    ?assertEqual(60_000, emqx_config:get_mnesia(KeyPathSpecific, OtherNS)),
+    ?assertEqual(60_000, emqx_config:get_namespaced(KeyPathSpecific, OtherNS)),
     %% Pre/Post callbacks receive the namespace in extra context.
     ?assertMatch(
         [
