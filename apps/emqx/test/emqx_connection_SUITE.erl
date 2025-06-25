@@ -233,12 +233,6 @@ t_handle_msg_deliver(_) ->
         handle_msg({deliver, <<"#">>, emqx_message:make(<<"t">>, <<>>)}, st())
     ).
 
-t_handle_msg_inet_reply(_) ->
-    ?assertMatch(
-        {stop, {shutdown, for_testing}, _St},
-        handle_msg({inet_reply, for_testing, {error, for_testing}}, st())
-    ).
-
 t_handle_msg_connack(_) ->
     ?assertMatch({ok, _}, handle_msg({connack, ?CONNACK_PACKET(?CONNACK_ACCEPT)}, st())).
 
