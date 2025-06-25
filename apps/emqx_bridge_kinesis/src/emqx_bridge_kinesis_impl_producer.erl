@@ -179,6 +179,15 @@ do_connector_health_check(WorkerPid, ConnResId, ConnState) ->
                 error => ErrorBefore
             }),
             {halt, {ok, {StatusBefore, ErrorBefore}}};
+        no_cores ->
+            %% No cores, so no coordinator to handle the limiter
+            ?tp(info, "kinesis_producer_connector_hc_no_core", #{
+                hint => "repeating last status",
+                connector => ConnResId,
+                status => StatusBefore,
+                error => ErrorBefore
+            }),
+            {halt, {ok, {StatusBefore, ErrorBefore}}};
         {error, {<<"LimitExceededException">>, _} = Error} ->
             ?tp(info, "kinesis_producer_connector_hc_throttled", #{
                 hint => "repeating last status",
@@ -221,6 +230,14 @@ do_channel_health_check(WorkerPid, ChanResId, ChanState, ConnResId) ->
             ?tp(info, "kinesis_producer_action_hc_client_call_timeout", #{
                 hint => "repeating last status",
                 action => ChanResId,
+                status => StatusBefore
+            }),
+            {halt, {ok, StatusBefore}};
+        no_cores ->
+            %% No cores, so no coordinator to handle the limiter
+            ?tp(info, "kinesis_producer_action_hc_no_core", #{
+                hint => "repeating last status",
+                connector => ConnResId,
                 status => StatusBefore
             }),
             {halt, {ok, StatusBefore}};
@@ -534,31 +551,49 @@ do_ensure_limiter_group_created(ConnResId, LimiterConfigs) ->
 try_consume_connector_limiter(ConnResId, ConnState) ->
     LimiterConfig = limiter_group_config(),
     CompatibleNodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 1),
-    Coordinator = mria_membership:coordinator(CompatibleNodes),
-    HealthCheckTimeout = maps:get(health_check_timeout, ConnState, 60_000),
+    maybe
+        {ok, Coordinator} ?= get_coordinator(CompatibleNodes),
+        HealthCheckTimeout = maps:get(health_check_timeout, ConnState, 60_000),
+        try
+            emqx_bridge_kinesis_proto_v1:try_consume_connector_limiter(
+                Coordinator, ConnResId, LimiterConfig, HealthCheckTimeout, HealthCheckTimeout
+            )
+        catch
+            error:{erpc, _} ->
+                %% Treating erpc errors as a timeout
+                timeout
+        end
+    end.
+
+get_coordinator(CompatibleNodes) ->
     try
-        emqx_bridge_kinesis_proto_v1:try_consume_connector_limiter(
-            Coordinator, ConnResId, LimiterConfig, HealthCheckTimeout, HealthCheckTimeout
-        )
+        {ok, mria_membership:coordinator(CompatibleNodes)}
     catch
-        error:{erpc, _} ->
-            %% Treating erpc errors as a timeout
-            timeout
+        error:badarg ->
+            %% Empty list of up cores
+            no_cores
     end.
 
 try_consume_action_limiter(ConnResId, ChanResId, ChanState) ->
     LimiterConfig = limiter_group_config(),
     CompatibleNodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 1),
-    Coordinator = mria_membership:coordinator(CompatibleNodes),
-    HealthCheckTimeout = maps:get(health_check_timeout, ChanState, 60_000),
-    try
-        emqx_bridge_kinesis_proto_v1:try_consume_action_limiter(
-            Coordinator, ConnResId, ChanResId, LimiterConfig, HealthCheckTimeout, HealthCheckTimeout
-        )
-    catch
-        error:{erpc, _} ->
-            %% Treating erpc errors as a timeout
-            timeout
+    maybe
+        {ok, Coordinator} ?= get_coordinator(CompatibleNodes),
+        HealthCheckTimeout = maps:get(health_check_timeout, ChanState, 60_000),
+        try
+            emqx_bridge_kinesis_proto_v1:try_consume_action_limiter(
+                Coordinator,
+                ConnResId,
+                ChanResId,
+                LimiterConfig,
+                HealthCheckTimeout,
+                HealthCheckTimeout
+            )
+        catch
+            error:{erpc, _} ->
+                %% Treating erpc errors as a timeout
+                timeout
+        end
     end.
 
 connect_limiter(Kind, ConnResId) ->

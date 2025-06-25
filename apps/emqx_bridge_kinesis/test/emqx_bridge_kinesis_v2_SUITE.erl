@@ -13,6 +13,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx_resource/include/emqx_resource_runtime.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -212,6 +213,13 @@ create_connector_api(Config) ->
 create_connector_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+    ).
+
+get_connector_api(TCConfig) ->
+    Type = emqx_bridge_v2_testlib:get_value(connector_type, TCConfig),
+    Name = emqx_bridge_v2_testlib:get_value(connector_name, TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
     ).
 
 update_connector_api(Config) ->
@@ -703,6 +711,88 @@ t_action_health_check_throttled(TCConfig) ->
             {201, _} = create_connector_api(TCConfig),
             {201, _} = create_action_api(TCConfig),
             ?block_until(#{?snk_kind := "kinesis_producer_action_hc_throttled"})
+        end
+    ),
+    ok.
+
+%% Checks that we repeat the last status if there is no core to perform the health check
+%% (connector).
+t_connector_health_check_no_core() ->
+    [{cluster, true}].
+t_connector_health_check_no_core(TCConfig) when is_list(TCConfig) ->
+    Type = emqx_bridge_v2_testlib:get_value(connector_type, TCConfig),
+    Name = emqx_bridge_v2_testlib:get_value(connector_name, TCConfig),
+    ct:timetrap({seconds, 30}),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            Specs = [#{role => core}, #{role => replicant}],
+            [C1, R1] = Nodes = start_cluster(?FUNCTION_NAME, Specs, TCConfig),
+            {201, _} = create_connector_api(TCConfig, #{
+                <<"resource_opts">> => #{<<"health_check_interval">> => <<"200ms">>}
+            }),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connected">>}},
+                get_connector_api(TCConfig)
+            ),
+            ok = emqx_cth_cluster:stop([C1]),
+            ct:sleep(2_000),
+            %% Should not have crashed due to lack of cores.
+            ConnResId = emqx_connector_resource:resource_id(Type, Name),
+            ?assertMatch(
+                #{status := ?status_connected},
+                ?ON(R1, emqx_resource_cache:read_status(ConnResId))
+            ),
+            emqx_cth_cluster:stop(Nodes),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([], ?of_kind("kinesis_connector_hc_rate_limited", Trace)),
+            ?assertMatch([], ?of_kind("kinesis_action_hc_rate_limited", Trace)),
+            ?assertMatch([_ | _], ?of_kind("kinesis_producer_connector_hc_no_core", Trace)),
+            ok
+        end
+    ),
+    ok.
+
+%% Checks that we repeat the last status if there is no core to perform the health check
+%% (action).
+t_action_health_check_no_core() ->
+    [{cluster, true}].
+t_action_health_check_no_core(TCConfig) when is_list(TCConfig) ->
+    Type = emqx_bridge_v2_testlib:get_value(action_type, TCConfig),
+    Name = emqx_bridge_v2_testlib:get_value(action_name, TCConfig),
+    ct:timetrap({seconds, 30}),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            Specs = [#{role => core}, #{role => replicant}],
+            [C1, R1] = Nodes = start_cluster(?FUNCTION_NAME, Specs, TCConfig),
+            {201, _} = create_connector_api(TCConfig),
+            {201, _} = create_action_api(TCConfig, #{
+                <<"resource_opts">> => #{<<"health_check_interval">> => <<"200ms">>}
+            }),
+            {ok, {_ConnResId, ActionResId}} =
+                ?ON(R1, emqx_bridge_v2:get_resource_ids(actions, Type, Name)),
+            ?assertMatch(
+                {ok, #rt{channel_status = ?status_connected}},
+                ?ON(R1, emqx_resource_cache:get_runtime(ActionResId))
+            ),
+            ok = emqx_cth_cluster:stop([C1]),
+            ct:sleep(2_000),
+            %% Should not have crashed due to lack of cores.
+            ?assertMatch(
+                {ok, #rt{channel_status = ?status_connected}},
+                ?ON(R1, emqx_resource_cache:get_runtime(ActionResId))
+            ),
+            emqx_cth_cluster:stop(Nodes),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([], ?of_kind("kinesis_connector_hc_rate_limited", Trace)),
+            ?assertMatch([], ?of_kind("kinesis_action_hc_rate_limited", Trace)),
+            ?assertMatch([_ | _], ?of_kind("kinesis_producer_action_hc_no_core", Trace)),
+            ok
         end
     ),
     ok.
