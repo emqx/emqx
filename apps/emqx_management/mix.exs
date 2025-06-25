@@ -7,7 +7,7 @@ defmodule EMQXManagement.MixProject do
       app: :emqx_management,
       version: "5.3.9",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: [{:parse_transform} | UMP.strict_erlc_options()],
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",

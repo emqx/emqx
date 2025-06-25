@@ -551,6 +551,21 @@ defmodule EMQXUmbrella.MixProject do
     end)
   end
 
+  def strict_erlc_options() do
+    k = {__MODULE__, :strict_erlc_options}
+
+    get_memoized(k, fn ->
+      erlc_options() ++
+        [
+          :warn_unused_vars,
+          :warn_shadow_vars,
+          :warn_unused_import,
+          :warn_obsolete_guard,
+          :warnings_as_errors
+        ]
+    end)
+  end
+
   def test_env?() do
     k = {__MODULE__, :test_env?}
 

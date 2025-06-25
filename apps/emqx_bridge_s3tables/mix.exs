@@ -10,7 +10,7 @@ defmodule EMQXBridgeS3Tables.MixProject do
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
       extra_dirs: extra_dirs(),
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",

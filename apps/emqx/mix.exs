@@ -10,7 +10,12 @@ defmodule EMQX.MixProject do
       build_path: "../../_build",
       erlc_paths: erlc_paths(),
       erlc_options: [
-        {:i, "src"}
+        {:i, "src"},
+        :warn_unused_vars,
+        :warn_shadow_vars,
+        :warn_unused_import,
+        :warn_obsolete_guard,
+        :compressed
         | UMP.erlc_options()
       ],
       compilers: Mix.compilers() ++ [:copy_srcs],

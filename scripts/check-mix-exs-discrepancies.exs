@@ -95,6 +95,20 @@ defmodule CheckMixExsDiscrepancies do
     end)
   end
 
+  def check_missing_erl_opts(mix_infos, rebar_infos) do
+    Enum.reduce(rebar_infos, %{}, fn {app, rebar_info}, acc ->
+      custom_erl_opts = get_in(rebar_info, [:rebar_config, :erl_opts])
+      IO.inspect(%{app: app, custom: custom_erl_opts, mix: get_in(mix_infos, [app])})
+      with [_ | _] <- custom_erl_opts,
+           mix_erl_opts = get_in(mix_infos, [app, :project, :erlc_options]),
+           [_ | _] = missing_erl_opts <- custom_erl_opts -- mix_erl_opts do
+        Map.put(acc, app, missing_erl_opts)
+      else
+        _ -> acc
+      end
+    end)
+  end
+
   def copy_rebar_app_vsn_to_mix({_app, vsn_mismatch_info}) do
     %{
       mix_exs_path: mix_exs_path,
@@ -125,7 +139,8 @@ defmodule CheckMixExsDiscrepancies do
 
     %{
       apps_without_mix_exs: apps_without_mix_exs,
-      version_mismatches: check_app_vsn_mismatches(mix_infos, rebar_infos)
+      version_mismatches: check_app_vsn_mismatches(mix_infos, rebar_infos),
+      missing_erl_opts: check_missing_erl_opts(mix_infos, rebar_infos),
     }
   end
 
@@ -172,6 +187,31 @@ defmodule CheckMixExsDiscrepancies do
     end
   end
 
+  def report_missing_erl_opts(missing_erl_opts) do
+    if Enum.empty?(missing_erl_opts) do
+      _failed? = false
+    else
+      puts([
+        :red,
+        "The applications below differ in their erl_opts (`mix.exs` and `rebar.config`):\n",
+        Enum.map(missing_erl_opts, fn {app, missing} ->
+          formatted_missing =
+            missing
+            |> Inspect.Algebra.to_doc(Inspect.Opts.new(pretty: true))
+            |> Inspect.Algebra.nest(4, :always)
+            |> Inspect.Algebra.format(0)
+          [
+            "  * #{app} is missing:\n",
+            ["    ", formatted_missing, "\n"]
+          ]
+        end),
+        "\n",
+      ])
+
+      _failed? = true
+    end
+  end
+
   def report_problems(results) do
     failed? =
       Enum.reduce(results, false, fn
@@ -180,6 +220,9 @@ defmodule CheckMixExsDiscrepancies do
 
         {:version_mismatches, version_mismatches}, acc ->
           report_version_mismatches(version_mismatches) || acc
+
+        {:missing_erl_opts, missing_erl_opts}, acc ->
+          report_missing_erl_opts(missing_erl_opts) || acc
       end)
 
     if failed? do

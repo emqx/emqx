@@ -11,7 +11,7 @@ defmodule EMQXAuth.MixProject do
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
       extra_dirs: extra_dirs(),
       # config_path: "../../config/config.exs",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: [{:parse_transform} | UMP.strict_erlc_options()],
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",

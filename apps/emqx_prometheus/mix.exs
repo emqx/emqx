@@ -7,7 +7,7 @@ defmodule EMQXPrometheus.MixProject do
       app: :emqx_prometheus,
       version: "5.2.11",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: [{:parse_transform} | UMP.strict_erlc_options()],
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",

@@ -7,7 +7,7 @@ defmodule EMQXAICompletion.MixProject do
       app: :emqx_ai_completion,
       version: "0.1.6",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
