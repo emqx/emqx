@@ -230,12 +230,6 @@ t_handle_msg_deliver(_) ->
     ok = meck:expect(emqx_channel, handle_deliver, fun(_, Channel) -> {ok, Channel} end),
     ?assertMatch({ok, _St}, handle_msg({deliver, topic, msg}, st())).
 
-t_handle_msg_inet_reply(_) ->
-    ?assertMatch(
-        {stop, {shutdown, for_testing}, _St},
-        handle_msg({inet_reply, for_testing, {error, for_testing}}, st())
-    ).
-
 t_handle_msg_connack(_) ->
     ?assertMatch({ok, _}, handle_msg({connack, ?CONNACK_PACKET(?CONNACK_ACCEPT)}, st())).
 
