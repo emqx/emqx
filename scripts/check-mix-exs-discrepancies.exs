@@ -220,6 +220,43 @@ defmodule CheckMixExsDiscrepancies do
     end)
   end
 
+  def check_start_app_mismatches(mix_infos, rebar_infos) do
+    mix_injected_apps = [:kernel, :stdlib]
+
+    Enum.reduce(rebar_infos, %{}, fn {app, rebar_info}, acc ->
+      rebar_apps = get_in(rebar_info, [:app_src, :applications]) || []
+      rebar_included_apps = get_in(rebar_info, [:app_src, :included_applications]) || []
+      rebar_included_apps = MapSet.new(rebar_included_apps)
+
+      mix_deps =
+        mix_infos
+        |> get_in([app, :deps])
+        |> Kernel.||([])
+        |> Enum.map(&elem(&1, 0))
+
+      mix_extra_apps = get_in(mix_infos, [app, :application, :extra_applications]) || []
+      mix_included_apps = get_in(mix_infos, [app, :application, :included_applications]) || []
+      mix_included_apps = MapSet.new(mix_included_apps)
+
+      rebar_apps = MapSet.new(rebar_apps)
+      mix_apps = MapSet.new(mix_injected_apps ++ mix_deps ++ mix_extra_apps)
+
+      missing_apps = MapSet.difference(rebar_apps, mix_apps)
+      missing_included_apps = MapSet.difference(rebar_included_apps, mix_included_apps)
+
+      problems =
+        %{}
+        |> put_if_any(:missing_apps, missing_apps)
+        |> put_if_any(:missing_included_apps, missing_included_apps)
+
+      if Enum.empty?(problems) do
+        acc
+      else
+        Map.put(acc, app, problems)
+      end
+    end)
+  end
+
   defp put_if_any(map, k, enum) do
     if Enum.empty?(enum) do
       map
@@ -260,7 +297,8 @@ defmodule CheckMixExsDiscrepancies do
       apps_without_mix_exs: apps_without_mix_exs,
       version_mismatches: check_app_vsn_mismatches(mix_infos, rebar_infos),
       missing_erl_opts: check_missing_erl_opts(mix_infos, rebar_infos),
-      deps_mismatches: check_missing_deps(mix_infos, rebar_infos)
+      deps_mismatches: check_missing_deps(mix_infos, rebar_infos),
+      start_apps_mismatches: check_start_app_mismatches(mix_infos, rebar_infos)
     }
   end
 
@@ -381,6 +419,42 @@ defmodule CheckMixExsDiscrepancies do
     end
   end
 
+  def report_missing_start_apps(missing_start_apps, label) do
+    if Enum.empty?(missing_start_apps) do
+      []
+    else
+      [
+        "    - Missing #{label} apps:\n",
+        Enum.map(missing_start_apps, fn app ->
+          "      + #{app}\n"
+        end)
+      ]
+    end
+  end
+
+  def report_start_apps_mismatches(start_apps_mismatches) do
+    if Enum.empty?(start_apps_mismatches) do
+      _failed? = false
+    else
+      puts([
+        :red,
+        "The applications below have start/included application mismatches (`mix.exs` and `app.src`):\n",
+        Enum.map(start_apps_mismatches, fn {app, problems} ->
+          [
+            "  * #{app}:\n",
+            Map.get(problems, :missing_apps, [])
+            |> report_missing_start_apps("start"),
+            Map.get(problems, :missing_included_apps, [])
+            |> report_missing_start_apps("included")
+          ]
+        end),
+        "\n"
+      ])
+
+      _failed? = true
+    end
+  end
+
   def report_problems(results) do
     failed? =
       Enum.reduce(results, false, fn
@@ -395,6 +469,9 @@ defmodule CheckMixExsDiscrepancies do
 
         {:deps_mismatches, deps_mismatches}, acc ->
           report_deps_mismatches(deps_mismatches) || acc
+
+        {:start_apps_mismatches, start_apps_mismatches}, acc ->
+          report_start_apps_mismatches(start_apps_mismatches) || acc
       end)
 
     if failed? do
