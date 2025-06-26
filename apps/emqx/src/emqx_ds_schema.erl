@@ -305,7 +305,7 @@ fields(layout_builtin_wildcard_optimized_v2) ->
             sc(
                 emqx_ds_msg_serializer:schema(),
                 #{
-                    default => v1,
+                    default => asn1,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
