@@ -6,35 +6,6 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
 
   @requirements ["compile", "loadpaths"]
 
-  @excluded_mods (
-    [
-      :emqx_exproto_v_1_connection_unary_handler_bhvr,
-      :emqx_exproto_v_1_connection_handler_client,
-      :emqx_exproto_v_1_connection_handler_bhvr,
-      :emqx_exproto_v_1_connection_adapter_client,
-      :emqx_exproto_v_1_connection_adapter_bhvr,
-      :emqx_exproto_v_1_connection_unary_handler_client,
-      :emqx_exhook_v_2_hook_provider_client,
-      :emqx_exhook_v_2_hook_provider_bhvr,
-    ]
-    |> MapSet.new(&to_string/1)
-  )
-  ## Warnings such as "Expression produces a value of type bitstring(), but this value is
-  ## unmatched" are not generated for these modules
-  @excluded_mods_from_warnings (
-    [
-      :DurableMessage,
-      :DSBuiltinMetadata,
-      :DSBuiltinSLReference,
-      :DSBuiltinSLSkipstreamV1,
-      :DSBuiltinSLSkipstreamV2,
-      :DSBuiltinStorageLayer,
-      :DSMetadataCommon,
-    ]
-    |> MapSet.new(&to_string/1)
-    |> MapSet.union(@excluded_mods)
-  )
-
   @impl true
   def run(args) do
     %{
@@ -42,6 +13,12 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
     } = parse_args!(args)
 
     ECt.add_to_path_and_cache(:dialyzer)
+
+    excluded_mods = MapSet.new(UMP.dialyzer_excluded_mods(), &to_string/1)
+    excluded_mods_from_warnings =
+      UMP.dialyzer_excluded_mods_from_warnings()
+      |> MapSet.new(&to_string/1)
+      |> MapSet.union(excluded_mods)
 
     %{
       umbrella_apps: umbrella_apps,
@@ -54,7 +31,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       (umbrella_files ++ dep_files)
       |> Enum.reject(fn path ->
         name = Path.basename(path, ".beam")
-        MapSet.member?(@excluded_mods, name)
+        MapSet.member?(excluded_mods, name)
       end)
       |> Enum.map(&to_charlist/1)
     # Files that might have warnings for them
@@ -62,7 +39,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       umbrella_files
       |> Enum.reject(fn path ->
         name = Path.basename(path, ".beam")
-        MapSet.member?(@excluded_mods_from_warnings, name)
+        MapSet.member?(excluded_mods_from_warnings, name)
       end)
       |> Enum.map(&to_charlist/1)
     warning_apps = Enum.sort(umbrella_apps)

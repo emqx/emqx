@@ -1077,6 +1077,39 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
+  @doc """
+  Modules that should not be checked by dialyzer.
+  """
+  def dialyzer_excluded_mods() do
+    [
+      :emqx_exproto_v_1_connection_unary_handler_bhvr,
+      :emqx_exproto_v_1_connection_handler_client,
+      :emqx_exproto_v_1_connection_handler_bhvr,
+      :emqx_exproto_v_1_connection_adapter_client,
+      :emqx_exproto_v_1_connection_adapter_bhvr,
+      :emqx_exproto_v_1_connection_unary_handler_client,
+      :emqx_exhook_v_2_hook_provider_client,
+      :emqx_exhook_v_2_hook_provider_bhvr
+    ]
+  end
+
+  @doc """
+  Warnings such as "Expression produces a value of type bitstring(), but this value is
+  unmatched" are not generated for these modules.
+  They are still considered by dialyzer when referenced by other (checked) modules.
+  """
+  def dialyzer_excluded_mods_from_warnings() do
+    [
+      :DurableMessage,
+      :DSBuiltinMetadata,
+      :DSBuiltinSLReference,
+      :DSBuiltinSLSkipstreamV1,
+      :DSBuiltinSLSkipstreamV2,
+      :DSBuiltinStorageLayer,
+      :DSMetadataCommon
+    ]
+  end
+
   #############################################################################
   #  Helper functions
   #############################################################################
