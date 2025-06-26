@@ -1215,7 +1215,17 @@ t_start_stop(Config, StopTracePoint) ->
                 )
             ),
             %% Check that the bridge probe API doesn't leak atoms.
-            AtomsBefore = erlang:system_info(atom_count),
+            ?assertMatch(
+                {ok, {{_, 204, _}, _Headers, _Body}},
+                probe_bridge_api(
+                    Kind,
+                    Type,
+                    Name,
+                    BridgeConfig
+                )
+            ),
+            AtomsBefore = all_atoms(),
+            AtomCountBefore = erlang:system_info(atom_count),
             %% Probe again; shouldn't have created more atoms.
             ProbeRes1 = probe_bridge_api(
                 Kind,
@@ -1225,8 +1235,9 @@ t_start_stop(Config, StopTracePoint) ->
             ),
 
             ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
-            AtomsAfter = erlang:system_info(atom_count),
-            ?assertEqual(AtomsBefore, AtomsAfter),
+            AtomsAfter = all_atoms(),
+            AtomCountAfter = erlang:system_info(atom_count),
+            ?assertEqual(AtomCountBefore, AtomCountAfter, #{new_atoms => AtomsAfter -- AtomsBefore}),
 
             ?assertMatch({ok, _}, create_kind_api(Config)),
 
@@ -1282,7 +1293,7 @@ t_start_stop(Config, StopTracePoint) ->
             #{resource_id := ResourceId} = Res,
             %% one for each probe, one for real
             ?assertMatch(
-                [_, _, #{instance_id := ResourceId}],
+                [_, _, _, #{instance_id := ResourceId}],
                 ?of_kind(StopTracePoint, Trace)
             ),
             ok
@@ -1945,3 +1956,19 @@ clean_aggregated_upload_work_dir() ->
     Dir = filename:join([emqx:data_dir(), bridge]),
     _ = file:del_dir_r(Dir),
     ok.
+
+%% https://stackoverflow.com/a/34883331/2708711
+all_atoms() ->
+    do_all_atoms(_N = 0, []).
+
+idx_to_atom(N) ->
+    binary_to_term(<<131, 75, N:24>>).
+
+do_all_atoms(N, Acc) ->
+    try idx_to_atom(N) of
+        A ->
+            do_all_atoms(N + 1, [A | Acc])
+    catch
+        error:badarg ->
+            Acc
+    end.

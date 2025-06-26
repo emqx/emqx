@@ -267,6 +267,7 @@ SHA
 sharded
 shareload
 SMS
+Snowpipe
 sn
 sndbuf
 sockname

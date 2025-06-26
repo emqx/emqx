@@ -19,7 +19,7 @@ defmodule EMQXBridgeSnowflake.MixProject do
 
   def application do
     [
-      extra_applications: [:odbc] ++ UMP.extra_applications(),
+      extra_applications: [:ssl, :odbc] ++ UMP.extra_applications(),
       mod: {:emqx_bridge_snowflake_app, []}
     ]
   end
