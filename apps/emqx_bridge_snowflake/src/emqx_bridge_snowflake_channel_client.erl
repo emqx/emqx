@@ -283,27 +283,27 @@ do_append_rows(State0, Records) ->
         ?write_pool_id := WritePoolId
     } = State0,
     JWTToken = emqx_connector_jwt:ensure_jwt(JWTConfig),
+    Headers = [
+        {<<"Content-Type">>, <<"application/json">>},
+        {<<"Accept">>, <<"application/json">>},
+        {<<"User-Agent">>, <<"emqx">>},
+        {<<"Authorization">>, [<<"Bearer ">>, JWTToken]}
+    ],
+    Body = lists:map(fun(R) -> [emqx_utils_json:encode(R), $\n] end, Records),
+    AppendRowsPath = iolist_to_binary([
+        AppendRowsPath0,
+        <<"?continuationToken=">>,
+        uri_quote(ContinuationToken)
+    ]),
+    Req = {AppendRowsPath, Headers, Body},
+    ?tp(debug, "snowflake_streaming_append_rows_request", #{
+        write_pool_id => WritePoolId,
+        channel => ChannelName,
+        path => AppendRowsPath,
+        records => Records
+    }),
+    Resp = ?MODULE:do_append_rows({WritePoolId, Id}, Req, RequestTTL, MaxRetries),
     maybe
-        Headers = [
-            {<<"Content-Type">>, <<"application/json">>},
-            {<<"Accept">>, <<"application/json">>},
-            {<<"User-Agent">>, <<"emqx">>},
-            {<<"Authorization">>, [<<"Bearer ">>, JWTToken]}
-        ],
-        Body = lists:map(fun(R) -> [emqx_utils_json:encode(R), $\n] end, Records),
-        AppendRowsPath = iolist_to_binary([
-            AppendRowsPath0,
-            <<"?continuationToken=">>,
-            uri_quote(ContinuationToken)
-        ]),
-        Req = {AppendRowsPath, Headers, Body},
-        ?tp(debug, "snowflake_streaming_append_rows_request", #{
-            write_pool_id => WritePoolId,
-            channel => ChannelName,
-            path => AppendRowsPath,
-            records => Records
-        }),
-        Resp = ?MODULE:do_append_rows({WritePoolId, Id}, Req, RequestTTL, MaxRetries),
         {ok, 200, _Headers, BodyRaw} ?= emqx_bridge_http_connector:transform_result(Resp),
         #{<<"next_continuation_token">> := NextContinuationToken} =
             RespBody = emqx_utils_json:decode(BodyRaw),
