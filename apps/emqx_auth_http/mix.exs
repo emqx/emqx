@@ -26,6 +26,7 @@ defmodule EMQXAuthHTTP.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true},
       {:emqx_auth, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector, in_umbrella: true},

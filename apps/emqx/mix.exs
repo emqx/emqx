@@ -39,10 +39,10 @@ defmodule EMQX.MixProject do
   end
 
   def deps() do
-    ## FIXME!!! go though emqx.app.src and add missing stuff...
     [
       {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx_utils, in_umbrella: true},
+      {:emqx_durable_storage, in_umbrella: true},
       {:emqx_ds_backends, in_umbrella: true},
 
       UMP.common_dep(:gproc),
@@ -55,6 +55,9 @@ defmodule EMQX.MixProject do
       UMP.common_dep(:ranch),
       UMP.common_dep(:bcrypt),
       UMP.common_dep(:emqx_http_lib),
+      UMP.common_dep(:typerefl),
+      UMP.common_dep(:snabbkaffe),
+      UMP.common_dep(:recon),
     ] ++ UMP.quicer_dep()
   end
 

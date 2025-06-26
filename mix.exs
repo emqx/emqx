@@ -138,7 +138,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqx_connector and system_monitor
       common_dep(:epgsql),
       # in conflict by emqx and observer_cli
-      {:recon, github: "ferd/recon", tag: "2.5.6", override: true},
+      common_dep(:recon),
       common_dep(:jsx),
       # in conflict by erlavro and rocketmq
       common_dep(:jsone),
@@ -276,6 +276,9 @@ defmodule EMQXUmbrella.MixProject do
       override: true,
       system_env: emqx_app_system_env()
     }
+
+  def common_dep(:recon),
+    do: {:recon, github: "ferd/recon", tag: "2.5.6", override: true}
 
   def common_dep(:ots_erl),
     do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.3", override: true}

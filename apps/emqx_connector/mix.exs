@@ -32,6 +32,7 @@ defmodule EMQXConnector.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector_info, in_umbrella: true},
       {:emqx_connector_jwt, in_umbrella: true},

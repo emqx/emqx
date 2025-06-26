@@ -27,7 +27,10 @@ defmodule EMQXDashboard.MixProject do
     [
       {:pot, "1.0.2"},
       {:emqx_ctl, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true},
       {:emqx, in_umbrella: true},
+      ## Probably not actually needed?
+      {:emqx_bridge_http, in_umbrella: true},
       UMP.common_dep(:minirest),
     ]
   end

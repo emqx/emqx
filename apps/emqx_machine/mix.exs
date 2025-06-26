@@ -30,6 +30,7 @@ defmodule EMQXMachine.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true, runtime: false},
+      {:emqx_utils, in_umbrella: true, runtime: false},
       {:emqx_conf, in_umbrella: true, runtime: false},
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       {:emqx_management, in_umbrella: true, runtime: false},

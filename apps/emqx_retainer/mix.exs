@@ -26,6 +26,7 @@ defmodule EMQXRetainer.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true},
       {:emqx_ctl, in_umbrella: true},
     ]
   end
