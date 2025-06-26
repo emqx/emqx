@@ -67,6 +67,14 @@ It takes care of forwarding calls to the underlying DBMS.
     tx_ttv_assert_absent/2
 ]).
 
+%% Metadata serialization API:
+-export([
+    stream_to_binary/2,
+    binary_to_stream/2,
+    iterator_to_binary/2,
+    binary_to_iterator/2
+]).
+
 %% Utility functions:
 -export([
     dirty_read/2,
@@ -511,6 +519,13 @@ must not assume the default values.
 
 -callback delete_next(db(), DeleteIterator, delete_selector(), pos_integer()) ->
     delete_next_result(DeleteIterator).
+
+%% Metadata API:
+-callback stream_to_binary(db(), ds_specific_stream()) -> {ok, binary()} | {error, _}.
+-callback iterator_to_binary(db(), ds_specific_iterator()) -> {ok, binary()} | {error, _}.
+
+-callback binary_to_stream(db(), binary()) -> {ok, ds_specific_stream()} | {error, _}.
+-callback binary_to_iterator(db(), binary()) -> {ok, ds_specific_iterator()} | {error, _}.
 
 %% Statistics API:
 -callback count(db()) -> non_neg_integer().
@@ -1129,6 +1144,30 @@ tx_ttv_assert_absent(Topic, Time) ->
         false ->
             error(badarg)
     end.
+
+-doc "Serialize stream to a compact binary representation.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec stream_to_binary(db(), stream()) -> {ok, binary()} | {error, _}.
+stream_to_binary(DB, Stream) ->
+    ?module(DB):stream_to_binary(DB, Stream).
+
+-doc "De-serialize a binary produced by `stream_to_binary/2`.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec binary_to_stream(db(), binary()) -> {ok, stream()} | {error, _}.
+binary_to_stream(DB, Stream) ->
+    ?module(DB):binary_to_stream(DB, Stream).
+
+-doc "Serialize iterator to a compact binary representation.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec iterator_to_binary(db(), iterator() | end_of_stream) -> {ok, binary()} | {error, _}.
+iterator_to_binary(DB, Iterator) ->
+    ?module(DB):iterator_to_binary(DB, Iterator).
+
+-doc "De-serialize a binary produced by `iterator_to_binary/2`.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec binary_to_iterator(db(), binary()) -> {ok, iterator() | end_of_stream} | {error, _}.
+binary_to_iterator(DB, Iterator) ->
+    ?module(DB):binary_to_iterator(DB, Iterator).
 
 -doc "Restart the transaction.".
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.

@@ -327,18 +327,23 @@ make_iterator(
     TopicFilter,
     StartTime
 ) ->
-    ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_make_iterator, #{
-        static_index => StaticIdx, topic_filter => TopicFilter, start_time => StartTime
-    }),
-    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
-    CompressedTF = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
-    MHB = master_hash_bits(S, CompressedTF),
-    LastSK = dec_stream_key(stream_key(StartTime, 0, MHB), MHB),
-    {ok, #it{
-        static_index = StaticIdx,
-        last_key = LastSK,
-        compressed_tf = emqx_topic:join(CompressedTF)
-    }}.
+    try
+        ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_make_iterator, #{
+            static_index => StaticIdx, topic_filter => TopicFilter, start_time => StartTime
+        }),
+        {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
+        CompressedTF = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
+        MHB = master_hash_bits(S, CompressedTF),
+        LastSK = dec_stream_key(stream_key(StartTime, 0, MHB), MHB),
+        {ok, #it{
+            static_index = StaticIdx,
+            last_key = LastSK,
+            compressed_tf = emqx_topic:join(CompressedTF)
+        }}
+    catch
+        {Class, Err} ->
+            {error, Class, Err}
+    end.
 
 message_matcher(
     _Shard,

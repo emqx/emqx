@@ -60,7 +60,12 @@
     otx_prepare_tx/5,
     otx_commit_tx_batch/5,
     otx_lookup_ttv/4,
-    otx_get_runtime_config/1
+    otx_get_runtime_config/1,
+
+    stream_to_binary/2,
+    binary_to_stream/2,
+    iterator_to_binary/2,
+    binary_to_iterator/2
 ]).
 
 %% Internal exports:
@@ -81,6 +86,14 @@
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds_builtin_tx.hrl").
 -include("../../emqx_durable_storage/gen_src/DSBuiltinMetadata.hrl").
+
+-elvis([{elvis_style, atom_naming_convention, disable}]).
+%% https://github.com/erlang/otp/issues/9841
+-dialyzer(
+    {nowarn_function, [
+        stream_to_binary/2, binary_to_stream/2, iterator_to_binary/2, binary_to_iterator/2
+    ]}
+).
 
 %%================================================================================
 %% Type declarations
@@ -713,6 +726,53 @@ otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
 otx_get_runtime_config(DB) ->
     #{transaction := Val} = emqx_ds_builtin_local_meta:db_config(DB),
     Val.
+
+stream_to_binary(_DB, Stream = #'Stream'{}) ->
+    'DSBuiltinMetadata':encode('Stream', Stream);
+stream_to_binary(DB, ?stream(Shard, Inner)) ->
+    stream_to_binary(DB, emqx_ds_storage_layer:old_stream_to_new(Shard, Inner)).
+
+binary_to_stream(DB, Bin) ->
+    maybe
+        {ok, Stream} ?= 'DSBuiltinMetadata':decode('Stream', Bin),
+        case emqx_ds_builtin_local_meta:db_config(DB) of
+            #{store_ttv := true} ->
+                {ok, Stream};
+            #{store_ttv := false} ->
+                case emqx_ds_storage_layer:new_stream_to_old(Stream) of
+                    {ok, Shard, Inner} ->
+                        {ok, ?stream(Shard, Inner)};
+                    {error, _} = Err ->
+                        Err
+                end
+        end
+    end.
+
+iterator_to_binary(_DB, end_of_stream) ->
+    'DSBuiltinMetadata':encode('ReplayPosition', {endOfStream, 'NULL'});
+iterator_to_binary(_DB, It = #'Iterator'{}) ->
+    'DSBuiltinMetadata':encode('ReplayPosition', {value, It});
+iterator_to_binary(_DB, #{?tag := ?IT, ?shard := Shard, ?enc := Inner}) ->
+    It = emqx_ds_storage_layer:old_iterator_to_new(Shard, Inner),
+    'DSBuiltinMetadata':encode('ReplayPosition', {value, It}).
+
+binary_to_iterator(DB, Bin) ->
+    case 'DSBuiltinMetadata':decode('ReplayPosition', Bin) of
+        {ok, {endOfStream, 'NULL'}} ->
+            {ok, end_of_stream};
+        {ok, {value, It}} ->
+            case emqx_ds_builtin_local_meta:db_config(DB) of
+                #{store_ttv := true} ->
+                    {ok, It};
+                #{store_ttv := false} ->
+                    case emqx_ds_storage_layer:new_iterator_to_old(It) of
+                        {ok, Shard, Inner} ->
+                            {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Inner}};
+                        Err ->
+                            Err
+                    end
+            end
+    end.
 
 %%================================================================================
 %% Internal functions

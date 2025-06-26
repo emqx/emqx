@@ -444,7 +444,12 @@ get_streams(Trie, TopicFilter) ->
 compress_tf(Trie, Static, TF) ->
     case emqx_ds_lts:reverse_lookup(Trie, Static) of
         {ok, TopicStructure} ->
-            {ok, emqx_ds_lts:compress_topic(Static, TopicStructure, TF)};
+            try
+                {ok, emqx_ds_lts:compress_topic(Static, TopicStructure, TF)}
+            catch
+                {Class, Err} ->
+                    {error, Class, Err}
+            end;
         undefined ->
             ?err_unrec(unknown_lts_v2_stream)
     end.
