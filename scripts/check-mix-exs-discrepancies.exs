@@ -134,6 +134,100 @@ defmodule CheckMixExsDiscrepancies do
     end
   end
 
+  def check_missing_deps(mix_infos, rebar_infos) do
+    umbrella_dep? = fn dep_spec ->
+      app = elem(dep_spec, 0)
+      emqx? = to_string(app) =~ ~r"^emqx.*"
+      rebar_path? = match?({_, {:path, _}}, dep_spec)
+      mix_umbrella? = match?({_, [{:in_umbrella, true} | _]}, dep_spec)
+
+      emqx? && (rebar_path? || mix_umbrella?)
+    end
+
+    # simple check: only compares tags
+    get_rebar3_dep_vsn = fn
+      {_, vsn} when is_list(vsn) ->
+        to_string(vsn)
+
+      {_, tup} when is_tuple(tup) ->
+        Tuple.to_list(tup)
+        |> Enum.find(&match?({:tag, _vsn}, &1))
+        |> then(fn {:tag, vsn} -> to_string(vsn) end)
+    end
+
+    get_mix_dep_vsn = fn
+      {_, vsn} when is_binary(vsn) ->
+        vsn
+
+      {_, vsn, _} when is_binary(vsn) ->
+        vsn
+
+      {_, kw} when is_list(kw) ->
+        Keyword.fetch!(kw, :tag)
+    end
+
+    Enum.reduce(rebar_infos, %{}, fn {app, rebar_info}, acc ->
+      {rebar_umbrella, rebar_ext} =
+        rebar_info
+        |> get_in([:rebar_config, :deps])
+        |> Enum.split_with(umbrella_dep?)
+
+      rebar_umbrella = Enum.map(rebar_umbrella, &elem(&1, 0))
+
+      rebar_ext =
+        Map.new(rebar_ext, fn dep_spec ->
+          app = elem(dep_spec, 0)
+          vsn = get_rebar3_dep_vsn.(dep_spec)
+          {app, vsn}
+        end)
+
+      {mix_umbrella, mix_ext} =
+        mix_infos
+        |> get_in([app, :deps])
+        |> Enum.split_with(umbrella_dep?)
+
+      mix_umbrella = Enum.map(mix_umbrella, &elem(&1, 0))
+      missing_umbrella_deps = rebar_umbrella -- mix_umbrella
+
+      mix_ext =
+        Map.new(mix_ext, fn dep_spec ->
+          app = elem(dep_spec, 0)
+          vsn = get_mix_dep_vsn.(dep_spec)
+          {app, vsn}
+        end)
+
+      ext_with_different_vsns =
+        Enum.reduce(rebar_ext, %{}, fn {app, rebar3_vsn}, acc ->
+          mix_vsn = Map.get(mix_ext, app, :missing)
+
+          if mix_vsn == rebar3_vsn do
+            acc
+          else
+            Map.put(acc, app, %{mix_vsn: mix_vsn, rebar3_vsn: rebar3_vsn})
+          end
+        end)
+
+      problems =
+        %{}
+        |> put_if_any(:missing_umbrella_deps, missing_umbrella_deps)
+        |> put_if_any(:version_mismatches, ext_with_different_vsns)
+
+      if problems == %{} do
+        acc
+      else
+        Map.put(acc, app, problems)
+      end
+    end)
+  end
+
+  defp put_if_any(map, k, enum) do
+    if Enum.empty?(enum) do
+      map
+    else
+      Map.put(map, k, enum)
+    end
+  end
+
   def copy_rebar_app_vsn_to_mix({_app, vsn_mismatch_info}) do
     %{
       mix_exs_path: mix_exs_path,
@@ -165,7 +259,8 @@ defmodule CheckMixExsDiscrepancies do
     %{
       apps_without_mix_exs: apps_without_mix_exs,
       version_mismatches: check_app_vsn_mismatches(mix_infos, rebar_infos),
-      missing_erl_opts: check_missing_erl_opts(mix_infos, rebar_infos)
+      missing_erl_opts: check_missing_erl_opts(mix_infos, rebar_infos),
+      deps_mismatches: check_missing_deps(mix_infos, rebar_infos)
     }
   end
 
@@ -238,6 +333,54 @@ defmodule CheckMixExsDiscrepancies do
     end
   end
 
+  def report_missing_umbrella_deps(missing_umbrella_deps) do
+    if Enum.empty?(missing_umbrella_deps) do
+      []
+    else
+      [
+        "    - Missing umbrella dependencies:\n",
+        Enum.map(missing_umbrella_deps, fn umbrella_dep ->
+          "      + #{umbrella_dep}\n"
+        end)
+      ]
+    end
+  end
+
+  def report_deps_version_mismatches(ext_version_mismatches) do
+    if Enum.empty?(ext_version_mismatches) do
+      []
+    else
+      [
+        "    - External dependency version mismatches:\n",
+        Enum.map(ext_version_mismatches, fn {ext_dep, info} ->
+          %{mix_vsn: mix_vsn, rebar3_vsn: rebar3_vsn} = info
+          "      + #{ext_dep} has mix version #{mix_vsn} and rebar3 version #{rebar3_vsn} \n"
+        end)
+      ]
+    end
+  end
+
+  def report_deps_mismatches(deps_mismatches) do
+    if Enum.empty?(deps_mismatches) do
+      _failed? = false
+    else
+      puts([
+        :red,
+        "The applications below have dependency mismatches (`mix.exs` and `rebar.config`):\n",
+        Enum.map(deps_mismatches, fn {app, problems} ->
+          [
+            "  * #{app}:\n",
+            Map.get(problems, :missing_umbrella_deps, []) |> report_missing_umbrella_deps(),
+            Map.get(problems, :version_mismatches, %{}) |> report_deps_version_mismatches()
+          ]
+        end),
+        "\n"
+      ])
+
+      _failed? = true
+    end
+  end
+
   def report_problems(results) do
     failed? =
       Enum.reduce(results, false, fn
@@ -249,6 +392,9 @@ defmodule CheckMixExsDiscrepancies do
 
         {:missing_erl_opts, missing_erl_opts}, acc ->
           report_missing_erl_opts(missing_erl_opts) || acc
+
+        {:deps_mismatches, deps_mismatches}, acc ->
+          report_deps_mismatches(deps_mismatches) || acc
       end)
 
     if failed? do
