@@ -1815,11 +1815,13 @@ when
 maybe_update_sub_state_id(SRS = #srs{sub_state_id = SSID0}, S) ->
     case emqx_persistent_session_ds_state:get_subscription_state(SSID0, S) of
         #{superseded_by := _, parent_subscription := ParentSub} ->
-            {_, #{current_state := SSID}} = emqx_persistent_session_ds_subs:find_by_subid(
-                ParentSub, S
-            ),
-            ?tp(?sessds_update_srs_ssid, #{old => SSID0, new => SSID, srs => SRS}),
-            maybe_update_sub_state_id(SRS#srs{sub_state_id = SSID}, S);
+            case emqx_persistent_session_ds_subs:find_by_subid(ParentSub, S) of
+                {_, #{current_state := SSID}} ->
+                    ?tp(?sessds_update_srs_ssid, #{old => SSID0, new => SSID, srs => SRS}),
+                    maybe_update_sub_state_id(SRS#srs{sub_state_id = SSID}, S);
+                undefined ->
+                    error({wtf, ParentSub, S, SRS})
+            end;
         #{} = SubState ->
             {SRS, SubState};
         undefined ->
