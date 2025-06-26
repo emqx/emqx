@@ -151,6 +151,10 @@
 -define(HEALTHCHECK_INTERVAL_RAW, <<"15s">>).
 
 %% milliseconds
+-define(HEALTHCHECK_INTERVAL_JITTER, 0).
+-define(HEALTHCHECK_INTERVAL_JITTER_RAW, <<"0ms">>).
+
+%% milliseconds
 -define(HEALTHCHECK_TIMEOUT, 60_000).
 -define(HEALTHCHECK_TIMEOUT_RAW, <<"60s">>).
 
