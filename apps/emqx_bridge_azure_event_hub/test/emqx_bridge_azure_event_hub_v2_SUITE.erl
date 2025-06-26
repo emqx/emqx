@@ -23,7 +23,10 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    %% emqx_common_test_helpers:all(?MODULE).
+    [{group, repeat}].
+groups() ->
+    [{repeat, [{repeat_until_any_fail, 1_000}], emqx_common_test_helpers:all(?MODULE)}].
 
 init_per_suite(Config) ->
     KafkaHost = os:getenv("KAFKA_SASL_SSL_HOST", "toxiproxy.emqx.net"),

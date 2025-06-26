@@ -272,7 +272,12 @@ ensure_client(ClientId, Hosts, ClientConfig) ->
 
 deallocate_client(ClientId) ->
     _ = with_log_at_error(
-        fun() -> wolff:stop_and_delete_supervised_client(ClientId) end,
+        fun() ->
+            logger:warning(#{'$where' => {?MODULE, ?FUNCTION_NAME, ?LINE, self(), node()}}),
+            wolff:stop_and_delete_supervised_client(ClientId),
+            logger:warning(#{'$where' => {?MODULE, ?FUNCTION_NAME, ?LINE, self(), node()}}),
+            ok
+        end,
         #{
             msg => "failed_to_delete_kafka_client",
             client_id => ClientId
@@ -282,7 +287,12 @@ deallocate_client(ClientId) ->
 
 deallocate_producers(ClientId, Producers) ->
     _ = with_log_at_error(
-        fun() -> wolff:stop_and_delete_supervised_producers(Producers) end,
+        fun() ->
+            logger:warning(#{'$where' => {?MODULE, ?FUNCTION_NAME, ?LINE, self(), node()}}),
+            wolff:stop_and_delete_supervised_producers(Producers),
+            logger:warning(#{'$where' => {?MODULE, ?FUNCTION_NAME, ?LINE, self(), node()}}),
+            ok
+        end,
         #{
             msg => "failed_to_delete_kafka_producer",
             client_id => ClientId
@@ -308,11 +318,17 @@ remove_producers_for_bridge_v2(
             ({?kafka_producers, BridgeV2IdCheck}, Producers) when
                 BridgeV2IdCheck =:= BridgeV2Id
             ->
-                deallocate_producers(ClientId, Producers);
+                logger:warning(#{'$where' => {?MODULE, ?FUNCTION_NAME, ?LINE, self(), node()}}),
+                deallocate_producers(ClientId, Producers),
+                logger:warning(#{'$where' => {?MODULE, ?FUNCTION_NAME, ?LINE, self(), node()}}),
+                ok;
             ({?kafka_telemetry_id, BridgeV2IdCheck}, TelemetryId) when
                 BridgeV2IdCheck =:= BridgeV2Id
             ->
-                deallocate_telemetry_handlers(TelemetryId);
+                logger:warning(#{'$where' => {?MODULE, ?FUNCTION_NAME, ?LINE, self(), node()}}),
+                deallocate_telemetry_handlers(TelemetryId),
+                logger:warning(#{'$where' => {?MODULE, ?FUNCTION_NAME, ?LINE, self(), node()}}),
+                ok;
             (_, _) ->
                 ok
         end,
@@ -328,7 +344,9 @@ on_remove_channel(
     } = OldState,
     BridgeV2Id
 ) ->
+    logger:warning(#{'$where' => {?MODULE, ?FUNCTION_NAME, ?LINE, self(), node()}}),
     ok = remove_producers_for_bridge_v2(InstId, BridgeV2Id),
+    logger:warning(#{'$where' => {?MODULE, ?FUNCTION_NAME, ?LINE, self(), node()}}),
     NewInstalledBridgeV2s = maps:remove(BridgeV2Id, InstalledBridgeV2s),
     %% Update state
     NewState = OldState#{installed_bridge_v2s => NewInstalledBridgeV2s},
