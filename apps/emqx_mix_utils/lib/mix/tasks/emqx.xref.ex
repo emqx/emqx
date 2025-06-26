@@ -8,31 +8,17 @@ defmodule Mix.Tasks.Emqx.Xref do
 
   @xref :xref
 
-  @default_checks [
+  @checks [
     :undefined_function_calls,
     :undefined_functions,
     :locals_not_used,
     :deprecated_function_calls,
-    # :warnings_as_errors,
     :deprecated_functions,
   ]
-
-  @excluded_apps MapSet.new([
-    :emqx_mix_utils,
-  ])
 
   @exclusions MapSet.new([
     EMQXUmbrella.MixProject,
   ])
-
-  @queries [
-    {"E || \"mnesia\":\"dirty_delete.*\"/\".*\" : Fun", []},
-    {"E || \"mnesia\":\"transaction\"/\".*\" : Fun", []},
-    {"E || \"mnesia\":\"async_dirty\"/\".*\" : Fun", []},
-    {"E || \"mnesia\":\"clear_table\"/\".*\" : Fun", []},
-    {"E || \"mnesia\":\"create_table\"/\".*\" : Fun", []},
-    {"E || \"mnesia\":\"delete_table\"/\".*\" : Fun", []}
-  ]
 
   @impl true
   def run(args) do
@@ -60,6 +46,7 @@ defmodule Mix.Tasks.Emqx.Xref do
             query_failures: query_failures,
           }, pretty: true),
         ])
+        System.halt(1)
     end
 
     :ok
@@ -68,7 +55,7 @@ defmodule Mix.Tasks.Emqx.Xref do
   def run_checks() do
     exclusions = gather_exclusions()
 
-    Enum.reduce(@default_checks, [], fn check, acc ->
+    Enum.reduce(@checks, [], fn check, acc ->
       {:ok, results} = :xref.analyse(@xref, check)
 
       mods = Enum.flat_map(results, fn
@@ -115,7 +102,8 @@ defmodule Mix.Tasks.Emqx.Xref do
   end
 
   def run_queries() do
-    Enum.flat_map(@queries, fn {query, expected} ->
+    UMP.xref_queries()
+    |> Enum.flat_map(fn {query, expected} ->
       {:ok, result} = :xref.q(@xref, to_charlist(query))
       if result == expected do
         []
@@ -169,7 +157,8 @@ defmodule Mix.Tasks.Emqx.Xref do
   def add_umbrella_app_dirs() do
     Mix.Dep.Umbrella.cached()
     |> Stream.reject(fn %Mix.Dep{app: app} ->
-      app in @excluded_apps
+      ## build-only application
+      app == :emqx_mix_utils
     end)
     |> Stream.flat_map(&Mix.Dep.load_paths/1)
     |> Enum.each(fn ebin_dir ->

@@ -1060,6 +1060,24 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   #############################################################################
+  #  Checks
+  #############################################################################
+
+  @doc """
+  Equivalent to rebar3's `{xref_queries, _}`.
+  """
+  def xref_queries() do
+    [
+      {"E || \"mnesia\":\"dirty_delete.*\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"transaction\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"async_dirty\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"clear_table\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"create_table\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"delete_table\"/\".*\" : Fun", []}
+    ]
+  end
+
+  #############################################################################
   #  Helper functions
   #############################################################################
 
