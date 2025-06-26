@@ -121,7 +121,10 @@ defmodule Mix.Tasks.Emqx.Ct do
   def unload_emqx_applications!() do
     for {app, _, _} <- Application.loaded_applications(),
         to_string(app) =~ ~r/^emqx/ do
-      :ok = Application.unload(app)
+      case Application.unload(app) do
+        :ok -> :ok
+        {:error, {:not_loaded, _}} -> :ok
+      end
     end
   end
 
