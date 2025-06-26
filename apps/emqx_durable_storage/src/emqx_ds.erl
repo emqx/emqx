@@ -77,10 +77,12 @@ It takes care of forwarding calls to the underlying DBMS.
 
 %% Utility functions:
 -export([
+    next_/3,
     dirty_read/2,
     fold_topic/4,
 
-    make_multi_iterator/2
+    make_multi_iterator/2,
+    multi_iterator_next/4
 ]).
 
 -export_type([
@@ -237,7 +239,7 @@ enabled are expected to support preconditions in batches.
 -type make_iterator_result() :: make_iterator_result(iterator()).
 
 -type next_result(Iterator) ::
-    {ok, Iterator, [{message_key(), emqx_types:message()}]} | {ok, end_of_stream} | error(_).
+    {ok, Iterator, [{message_key(), payload()}]} | {ok, end_of_stream} | error(_).
 
 -type next_result() :: next_result(iterator()).
 
@@ -471,20 +473,20 @@ Options for the `subscribe` API.
 
 -type fold_result(R) :: {R, [fold_error()]} | R.
 
--record(m_iter,
-        { stream :: stream(),
-          it :: iterator()
-        }).
+-record(m_iter, {
+    stream :: stream(),
+    it :: iterator()
+}).
 
 -opaque multi_iterator() :: #m_iter{} | '$end_of_table'.
 
 -type multi_iter_opts() ::
-        #{
-          db := db(),
-          generation => generation(),
-          shard => shard(),
-          start_time => time()
-         }.
+    #{
+        db := db(),
+        generation => generation(),
+        shard => shard(),
+        start_time => time()
+    }.
 
 %% Internal:
 -define(persistent_term(DB), {emqx_ds_db_backend, DB}).
@@ -793,6 +795,19 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
 -spec next(db(), iterator(), pos_integer()) -> next_result().
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
+
+-doc "Simplified version of next/3 that returns payloads without the keys.".
+-spec next_(db(), iterator(), pos_integer()) ->
+    {ok, iterator(), [payload()]}
+    | {ok, end_of_stream}
+    | error(_).
+next_(DB, It0, N) ->
+    case next(DB, It0, N) of
+        {ok, It, Batch} ->
+            {ok, It, [Payload || {_, Payload} <- Batch]};
+        Other ->
+            Other
+    end.
 
 -doc """
 
@@ -1361,49 +1376,76 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
             {Result, Errors}
     end.
 
--spec make_multi_iterator(
-        multi_iter_opts(),
-        topic_filter(),
-       ) -> multi_iterator().
-make_multi_iterator(UserOpts = #{db := DB}, TF) ->
-    Opts = #{start_time := StartTime} = multi_iter_opts(UserOpts),
-    case multi_iter_get_streams(TF, Opts) of
+-doc """
+
+Create a "multi-iterator" that combines iterators from multiple
+streams. Data from the streams can be consumed using
+`multi_iterator_next/4` function. When scan reaches end of the stream,
+multi-iterator automatically switches to the next one.
+
+This method of reading data frees the user from having to manage
+multiple streams and iterators at the cost of efficiency. Generally,
+multi-iterators are less efficient than subscriptions, `next/3` or
+`fold_topic/4`.
+
+""".
+-doc #{title => <<"Utility functions">>, since => <<"6.0.0">>}.
+-spec make_multi_iterator(multi_iter_opts(), topic_filter()) -> multi_iterator().
+make_multi_iterator(UserOpts = #{db := _}, TF) ->
+    Opts = multi_iter_opts(UserOpts),
+    case multi_iter_get_streams(Opts, TF) of
         [Stream | _] ->
-            {ok, It} = make_iterator(DB, Stream, TF, StartTime),
-            #m_iter{
-               stream = Stream,
-               it = It
-              };
+            do_multi_iter_make_it(Opts, TF, {ok, Stream});
         [] ->
             '$end_of_table'
     end.
 
+-doc """
+
+Consume a batch of data from the multi-iterator.
+
+Options and TopicFilter parameters should be the same as ones used to
+create the iterator.
+
+""".
+-doc #{title => <<"Utility functions">>, since => <<"6.0.0">>}.
 -spec multi_iterator_next(
-        multi_iter_opts(),
-        topic_filter(),
-        multi_iterator(),
-        pos_integer()
-       ) ->
-          {ok, multi_iterator(), [payload()]} | '$end_of_table'.
-multi_iterator_next(_TF, _Opts, '$end_of_table', _) ->
-    '$end_of_table';
-multi_iterator_next(TF, UserOpts, It = #m_iter{}, N) ->
-    do_multi_iterator_next(TF, UserOpts, It, N, []).
+    multi_iter_opts(),
+    topic_filter(),
+    multi_iterator(),
+    pos_integer()
+) ->
+    {[payload()], multi_iterator()}.
+multi_iterator_next(UserOpts, TF, It = #m_iter{}, N) ->
+    do_multi_iterator_next(multi_iter_opts(UserOpts), TF, It, N, []).
 
-multi_iterator_next(TF, UserOpts, It = #m_iter{}, N, Acc) ->
-    #{db := DB} = Opts = multi_iter_opts(UserOpts),
-    Result = next(DB, It0, N),
+do_multi_iterator_next(_Opts, _TF, '$end_of_table', _N, Acc) ->
+    {Acc, '$end_of_table'};
+do_multi_iterator_next(_Opts, _TF, MIt, N, Acc) when N =< 0 ->
+    {Acc, MIt};
+do_multi_iterator_next(Opts = #{db := DB}, TF, MIt0 = #m_iter{it = It0, stream = Stream}, N, Acc0) ->
+    Result = next_(DB, It0, N),
+    Len =
+        case Result of
+            {ok, _, Batch0} ->
+                length(Batch0);
+            _ ->
+                0
+        end,
     case Result of
-        {ok, It, Batch} when length(Batch) >= N ->
-            {_, Payloads} = lists:unzip(Batch ++ Acc),
-            {Payloads, It#m_iter{it = It}};
-        {ok, _, Batch} ->
-            %% Not enough data in this stream. Switch to the next one:
-            {multi_iterator_next_stream(TF, UserOpts,
-        _ ->
-            true
+        {ok, It, Batch} when Len >= N ->
+            {Batch ++ Acc0, MIt0#m_iter{it = It}};
+        Other ->
+            Acc =
+                case Other of
+                    {ok, _, Batch} ->
+                        Acc0 ++ Batch;
+                    _ ->
+                        Acc0
+                end,
+            MIt = do_multi_iter_make_it(Opts, TF, multi_iter_next_stream(Opts, TF, Stream)),
+            do_multi_iterator_next(Opts, TF, MIt, N - Len, Acc)
     end.
-
 
 -doc """
 
@@ -1646,30 +1688,43 @@ is_topic_filter(_) ->
 dirty_read_topic_fun(_Slab, _Stream, Object, Acc) ->
     [Object | Acc].
 
-multi_iter_get_streams(TopicFilter, #{db := DB, start_time := StartTime, shard := Shard, generation := Gen}) ->
+multi_iter_get_streams(
+    #{db := DB, start_time := StartTime, shard := Shard, generation := Gen}, TopicFilter
+) ->
     lists:sort(
-    lists:filtermap(
-      fun({{S, G}, Stream}) ->
-              (Shard =:= '_' orelse Shard =:= S) andalso
-                  (Gen =:= '_' orelse Gen =:= G) andalso
-                  {true, Stream}
-      end,
-      emqx_ds:get_streams(DB, TopicFilter, StartTime)
-     )).
+        lists:filtermap(
+            fun({{S, G}, Stream}) ->
+                (Shard =:= '_' orelse Shard =:= S) andalso
+                    (Gen =:= '_' orelse Gen =:= G) andalso
+                    {true, Stream}
+            end,
+            emqx_ds:get_streams(DB, TopicFilter, StartTime)
+        )
+    ).
 
-multi_iter_next_stream(TopicFilter, Opts = #{db := DB}, Stream) ->
-    F = fun F([S1, S2 | _]) when S1 =:= Stream ->
-                {ok, S2};
-            F([_ | Rest]) ->
-                F(Rest);
-            F(_) ->
-                undefined
-        end,
-    F(multi_iter_get_streams(TopicFilter, Opts)).
+multi_iter_next_stream(Opts, TopicFilter, Stream) ->
+    F = fun
+        F([S1, S2 | _]) when S1 =:= Stream ->
+            {ok, S2};
+        F([_ | Rest]) ->
+            F(Rest);
+        F(_) ->
+            '$end_of_table'
+    end,
+    F(multi_iter_get_streams(Opts, TopicFilter)).
+
+do_multi_iter_make_it(_Opts, _TopicFilter, '$end_of_table') ->
+    '$end_of_table';
+do_multi_iter_make_it(#{db := DB, start_time := StartTime}, TopicFilter, {ok, Stream}) ->
+    {ok, It} = make_iterator(DB, Stream, TopicFilter, StartTime),
+    #m_iter{
+        stream = Stream,
+        it = It
+    }.
 
 -spec multi_iter_opts(multi_iter_opts()) -> multi_iter_opts().
 multi_iter_opts(UserOpts) ->
     maps:merge(
-      #{shard => '_', generation => '_', start_time => 0},
-      UserOpts
-     ).
+        #{shard => '_', generation => '_', start_time => 0},
+        UserOpts
+    ).
