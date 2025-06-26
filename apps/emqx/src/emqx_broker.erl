@@ -11,10 +11,11 @@
 -include("emqx_external_trace.hrl").
 
 -include("logger.hrl").
+-include("emqx_instr.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
 
--export([start_link/2, create_tabs/0]).
+-export([start_link/2, create_tabs/0, init_config/0]).
 
 %% PubSub
 -export([
@@ -66,8 +67,6 @@
     code_change/3
 ]).
 
--import(emqx_utils_ets, [lookup_value/2, lookup_value/3]).
-
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -77,6 +76,8 @@
 
 %% Guards
 -define(IS_SUBID(Id), (is_binary(Id) orelse is_atom(Id))).
+
+-define(PT_FLAG_ASYNC_SHARD_DISPATCH, async_fanout_shard_dispatch).
 
 -define(cast_or_eval(PICK, Msg, Expr),
     case PICK of
@@ -95,8 +96,6 @@
     %% do not call message.publish hook point if true
     bypass_hook => boolean()
 }.
-
--elvis([{elvis_style, used_ignored_variable, disable}]).
 
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
@@ -120,12 +119,23 @@ create_tabs() ->
     ok = emqx_utils_ets:new(?SUBOPTION, [ordered_set | TabOpts]),
 
     %% Subscription: SubPid -> TopicFilter1, TopicFilter2, TopicFilter3, ...
-    %% duplicate_bag: o(1) insert
+    %% duplicate_bag: O(1) insert
     ok = emqx_utils_ets:new(?SUBSCRIPTION, [duplicate_bag | TabOpts]),
 
-    %% Subscriber: Topic -> SubPid1, SubPid2, SubPid3, ...
-    %% bag: o(n) insert:(
+    %% Subscriber: Topic -> SubPid1, SubPid2, SubPid3, ..., ShardPid1, ...
+    %% bag: O(n) insert
+    %% However, the factor is small: high-fanout topics are _sharded_ into
+    %% buckets of constant length (e.g. 1024).
     ok = emqx_utils_ets:new(?SUBSCRIBER, [bag | TabOpts]).
+
+-spec init_config() -> ok.
+init_config() ->
+    %% NOTE
+    %% Cache in persistent term, to avoid `emqx:get_config/2` in hot paths.
+    persistent_term:put(
+        ?PT_FLAG_ASYNC_SHARD_DISPATCH,
+        emqx:get_config([broker, perf, async_fanout_shard_dispatch], false)
+    ).
 
 %%------------------------------------------------------------------------------
 %% Subscribe API
@@ -168,9 +178,7 @@ with_subid(SubId, SubOpts) ->
     maps:put(subid, SubId, SubOpts).
 
 do_subscribe(Topic, SubPid, SubOpts) when is_binary(Topic) ->
-    %% FIXME: subscribe shard bug
-    %% https://emqx.atlassian.net/browse/EMQX-10214
-    I = emqx_broker_helper:get_sub_shard(SubPid, Topic),
+    I = emqx_broker_helper:assign_sub_shard(Topic),
     true = ets:insert(?SUBOPTION, {{Topic, SubPid}, with_shard_idx(I, SubOpts)}),
     Sync = call(pick({Topic, I}), {subscribe, Topic, SubPid, I}),
     case Sync of
@@ -217,8 +225,8 @@ do_unsubscribe(Topic, SubPid, SubOpts) ->
 do_unsubscribe2(Topic, SubPid, SubOpts) when
     is_binary(Topic), is_pid(SubPid), is_map(SubOpts)
 ->
-    _ = emqx_broker_helper:reclaim_seq(Topic),
     I = maps:get(shard, SubOpts, 0),
+    _ = emqx_broker_helper:unassign_sub_shard(Topic, I),
     case I of
         0 -> emqx_exclusive_subscription:unsubscribe(Topic, SubOpts);
         _ -> ok
@@ -655,7 +663,7 @@ handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
                     {subscribed, Topic, shard, I},
                     sync_route(add, Topic, #{})
                 ),
-                [{Topic, {shard, I}} | Recs];
+                [{{shard, Topic}, I} | Recs];
             true ->
                 Recs
         end,
@@ -665,6 +673,12 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
+handle_cast({dispatch, Topic, I, Msg}, State) ->
+    ?BROKER_INSTR_TS(TDisp),
+    _ = do_dispatch_chans({deliver, Topic, Msg}, subscribers({shard, Topic, I}), 0),
+    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_delay_us, ?US(TDisp - Msg#message.extra)),
+    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_lat_us, ?US_SINCE(TDisp)),
+    {noreply, State};
 handle_cast({subscribed, Topic, shard, _I}, State) ->
     %% Do not need to 'maybe add' (i.e. to check if the route exists).
     %% It was already checked that this shard is newely added.
@@ -681,7 +695,7 @@ handle_cast({unsubscribed, Topic, SubPid, I}, State) ->
     true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
     case ets:member(?SUBSCRIBER, {shard, Topic, I}) of
         false ->
-            ets:delete_object(?SUBSCRIBER, {Topic, {shard, I}}),
+            ets:delete_object(?SUBSCRIBER, {{shard, Topic}, I}),
             %% Do not attempt to delete any routes here,
             %% let it be handled only by the same pool worker per topic (0 shard),
             %% so that all route deletes are serialized.
@@ -714,14 +728,20 @@ code_change(_OldVsn, State, _Extra) ->
 
 -spec do_dispatch2(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
-do_dispatch2(Topic, #delivery{message = Msg}) ->
-    DispN = lists:foldl(
-        fun(Sub, N) ->
-            N + do_dispatch2(Sub, Topic, Msg)
-        end,
-        0,
-        subscribers(Topic)
-    ),
+do_dispatch2(Topic, #delivery{message = MsgIn}) ->
+    ?BROKER_INSTR_TS(T0),
+    ?BROKER_INSTR_BIND(Msg, MsgIn, MsgIn#message{extra = T0}),
+    AsyncDispatch = persistent_term:get(?PT_FLAG_ASYNC_SHARD_DISPATCH, false),
+    Deliver = {deliver, Topic, Msg},
+    Shards = lookup_value(?SUBSCRIBER, {shard, Topic}, []),
+    case AsyncDispatch of
+        false ->
+            DispN0 = do_dispatch_shards(Topic, Deliver, Shards, 0);
+        true ->
+            DispN0 = do_dispatch_shards_async(Topic, Msg, Shards, 0)
+    end,
+    DispN = do_dispatch_chans(Deliver, subscribers(Topic), DispN0),
+    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
     case DispN of
         0 ->
             ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
@@ -733,22 +753,28 @@ do_dispatch2(Topic, #delivery{message = Msg}) ->
 
 %% Don't dispatch to share subscriber here.
 %% we do it in `emqx_shared_sub.erl` with configured strategy
-do_dispatch2(SubPid, Topic, Msg) when is_pid(SubPid) ->
-    case erlang:is_process_alive(SubPid) of
-        true ->
-            SubPid ! {deliver, Topic, Msg},
-            1;
-        false ->
-            0
-    end;
-do_dispatch2({shard, I}, Topic, Msg) ->
-    lists:foldl(
-        fun(SubPid, N) ->
-            N + do_dispatch2(SubPid, Topic, Msg)
-        end,
-        0,
-        subscribers({shard, Topic, I})
-    ).
+do_dispatch_chans(Deliver, [SubPid | Rest], N) ->
+    SubPid ! Deliver,
+    do_dispatch_chans(Deliver, Rest, N + 1);
+do_dispatch_chans(_Deliver, [], N) ->
+    N.
+
+do_dispatch_shards(Topic, Deliver, [I | Rest], N0) ->
+    N = do_dispatch_chans(Deliver, subscribers({shard, Topic, I}), N0),
+    do_dispatch_shards(Topic, Deliver, Rest, N);
+do_dispatch_shards(_Topic, _Deliver, [], N) ->
+    N.
+
+do_dispatch_shards_async(Topic, Msg, [I | Rest], N) ->
+    %% Dispatching to sharded subscribers concurrently + asynchronously.
+    %% Ordering guarantees should still hold:
+    %% * Each subscriber is part of exactly one shard.
+    %% * Each topic-shard is always dispatched through the same process.
+    cast(pick({Topic, I}), {dispatch, Topic, I, Msg}),
+    %% Assuming shard is non-empty.
+    do_dispatch_shards_async(Topic, Msg, Rest, N + 1);
+do_dispatch_shards_async(_Topic, _Msg, [], N) ->
+    N.
 
 %%
 
@@ -797,3 +823,13 @@ regular_sync_route(add, Topic) ->
     emqx_router:do_add_route(Topic, node());
 regular_sync_route(delete, Topic) ->
     emqx_router:do_delete_route(Topic, node()).
+
+%%
+
+-compile({inline, [lookup_value/2, lookup_value/3]}).
+
+lookup_value(Tab, Key) ->
+    ets:lookup_element(Tab, Key, 2, undefined).
+
+lookup_value(Tab, Key, Def) ->
+    ets:lookup_element(Tab, Key, 2, Def).

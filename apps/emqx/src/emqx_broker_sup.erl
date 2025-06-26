@@ -4,6 +4,8 @@
 
 -module(emqx_broker_sup).
 
+-include("emqx_instr.hrl").
+
 -behaviour(supervisor).
 
 -export([start_link/0]).
@@ -32,6 +34,7 @@ get_broker_pool_workers() ->
 init([]) ->
     %% Broker pool
     ok = emqx_broker:create_tabs(),
+    ok = emqx_broker:init_config(),
     PoolSize = emqx:get_config([node, broker_pool_size], emqx_vm:schedulers() * 2),
     BrokerPool = emqx_pool_sup:spec(broker_pool_sup, permanent, [
         ?broker_pool,
@@ -77,4 +80,18 @@ init([]) ->
         modules => [emqx_exclusive_subscription]
     },
 
-    {ok, {{one_for_all, 0, 1}, [SyncerPool, BrokerPool, SharedSub, Helper, ExclusiveSub]}}.
+    MetricsWorker = emqx_metrics_worker:child_spec(
+        metrics_worker,
+        ?BROKER_INSTR_METRICS_WORKER,
+        ?BROKER_INSTR_METRICS_DECL
+    ),
+
+    {ok,
+        {{one_for_all, 0, 1}, [
+            MetricsWorker,
+            SyncerPool,
+            BrokerPool,
+            SharedSub,
+            Helper,
+            ExclusiveSub
+        ]}}.
