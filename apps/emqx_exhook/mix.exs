@@ -15,14 +15,14 @@ defmodule EMQXExhook.MixProject do
         gpb_opts: [
           module_name_prefix: 'emqx_',
           module_name_suffix: '_pb',
-          o: 'src/pb',
+          o: 'src/pb'
         ],
         proto_dirs: ["priv/protos"],
         out_dir: "src/pb"
       },
       xref_ignores: [
         :emqx_exhook_pb,
-        :emqx_exproto_pb,
+        :emqx_exproto_pb
       ],
       erlc_options: [{:parse_transform} | UMP.strict_erlc_options()],
       erlc_paths: UMP.erlc_paths(),
@@ -49,6 +49,7 @@ defmodule EMQXExhook.MixProject do
 
   defp extra_dirs() do
     dirs = []
+
     if UMP.test_env?() do
       ["test" | dirs]
     else

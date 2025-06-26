@@ -28,7 +28,7 @@ defmodule EMQXAuthMnesia.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_auth, in_umbrella: true},
-      UMP.common_dep(:sasl_auth),
+      UMP.common_dep(:sasl_auth)
     ]
   end
 end

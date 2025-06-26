@@ -28,7 +28,7 @@ defmodule EMQXAuthCinfo.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_auth, in_umbrella: true},
-      UMP.common_dep(:jose),
+      UMP.common_dep(:jose)
     ]
   end
 end

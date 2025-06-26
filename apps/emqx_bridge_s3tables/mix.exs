@@ -34,12 +34,13 @@ defmodule EMQXBridgeS3Tables.MixProject do
       {:emqx_s3, in_umbrella: true},
       {:parquer, github: "emqx/parquer", tag: "0.1.3", manager: :rebar3},
       UMP.common_dep(:erlcloud),
-      UMP.common_dep(:murmerl3),
+      UMP.common_dep(:murmerl3)
     ]
   end
 
   defp extra_dirs() do
     dirs = []
+
     if UMP.test_env?() do
       ["test" | dirs]
     else

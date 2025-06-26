@@ -31,12 +31,13 @@ defmodule EMQXS3.MixProject do
       UMP.common_dep(:gproc),
       UMP.common_dep(:hackney),
       UMP.common_dep(:erlcloud),
-      {:emqx_bridge_http, in_umbrella: true, runtime: false},
+      {:emqx_bridge_http, in_umbrella: true, runtime: false}
     ]
   end
 
   defp extra_dirs() do
     dirs = []
+
     if UMP.test_env?() do
       ["test" | dirs]
     else

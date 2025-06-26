@@ -33,7 +33,8 @@ defmodule EMQX.MixProject do
   def application do
     [
       ## FIXME!!! go though emqx.app.src and add missing stuff...
-      extra_applications: [:public_key, :ssl, :os_mon, :mnesia, :sasl] ++ UMP.extra_applications(),
+      extra_applications:
+        [:public_key, :ssl, :os_mon, :mnesia, :sasl] ++ UMP.extra_applications(),
       mod: {:emqx_app, []}
     ]
   end
@@ -44,7 +45,6 @@ defmodule EMQX.MixProject do
       {:emqx_utils, in_umbrella: true},
       {:emqx_durable_storage, in_umbrella: true},
       {:emqx_ds_backends, in_umbrella: true},
-
       UMP.common_dep(:gproc),
       UMP.common_dep(:gen_rpc),
       UMP.common_dep(:ekka),
@@ -57,12 +57,13 @@ defmodule EMQX.MixProject do
       UMP.common_dep(:emqx_http_lib),
       UMP.common_dep(:typerefl),
       UMP.common_dep(:snabbkaffe),
-      UMP.common_dep(:recon),
+      UMP.common_dep(:recon)
     ] ++ UMP.quicer_dep()
   end
 
   defp erlc_paths() do
     paths = UMP.erlc_paths()
+
     if UMP.test_env?() do
       ["integration_test" | paths]
     else
@@ -72,6 +73,7 @@ defmodule EMQX.MixProject do
 
   defp extra_dirs() do
     dirs = ["src", "etc"]
+
     if UMP.test_env?() do
       ["test", "integration_test" | dirs]
     else

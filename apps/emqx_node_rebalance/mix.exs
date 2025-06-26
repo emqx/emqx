@@ -25,7 +25,7 @@ defmodule EMQXNodeRebalance.MixProject do
     [
       {:emqx, in_umbrella: true},
       {:emqx_ctl, in_umbrella: true},
-      {:emqx_eviction_agent, in_umbrella: true},
+      {:emqx_eviction_agent, in_umbrella: true}
     ]
   end
 end

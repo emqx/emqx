@@ -36,7 +36,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     # the version without the `-test` suffix.
     System.fetch_env!("PROFILE")
     |> String.replace_suffix("-test", "")
-    |> then(& System.put_env("PROFILE", &1))
+    |> then(&System.put_env("PROFILE", &1))
 
     # {_, _, _} = ["test_server:do_init_tc_call -> return"] |> Enum.map(&to_charlist/1) |> :redbug.start()
 
@@ -45,17 +45,21 @@ defmodule Mix.Tasks.Emqx.Ct do
 
     EMQX.Mix.Utils.clear_screen()
 
-    results = :ct.run_test(
-      abort_if_missing_suites: true,
-      auto_compile: false,
-      suite: opts |> Map.fetch!(:suites) |> Enum.map(&to_charlist/1),
-      group: opts |> Map.fetch!(:group_paths) |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end),
-      testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
-      readable: ~c"true",
-      name: node_name,
-      ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
-      logdir: to_charlist(logdir)
-    )
+    results =
+      :ct.run_test(
+        abort_if_missing_suites: true,
+        auto_compile: false,
+        suite: opts |> Map.fetch!(:suites) |> Enum.map(&to_charlist/1),
+        group:
+          opts
+          |> Map.fetch!(:group_paths)
+          |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end),
+        testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
+        readable: ~c"true",
+        name: node_name,
+        ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
+        logdir: to_charlist(logdir)
+      )
 
     symlink_to_last_run(logdir)
 
@@ -64,7 +68,10 @@ defmodule Mix.Tasks.Emqx.Ct do
         Mix.raise("failures running tests: #{failed} failed, #{auto_skipped} auto skipped")
 
       {success, _failed = 0, {user_skipped, _auto_skipped = 0}} ->
-        info("Test suites ran successfully.  #{success} succeeded, #{user_skipped} skipped by the user")
+        info(
+          "Test suites ran successfully.  #{success} succeeded, #{user_skipped} skipped by the user"
+        )
+
         if cover_enabled?(), do: write_coverdata(opts)
     end
   end
@@ -123,7 +130,7 @@ defmodule Mix.Tasks.Emqx.Ct do
       :emqx_common_test_helpers,
       :emqx_bridge_testlib,
       :emqx_bridge_v2_testlib,
-      :emqx_utils_http_test_server,
+      :emqx_utils_http_test_server
     ])
   end
 
@@ -136,19 +143,25 @@ defmodule Mix.Tasks.Emqx.Ct do
       src_data_dir =
         project_root
         |> Path.join(Path.rootname(suite_path) <> "_data")
+
       data_dir_exists? = File.dir?(src_data_dir)
+
       if data_dir_exists? do
         suite_mod =
           suite_path
           |> Path.basename(".erl")
           |> String.to_atom()
+
         ebin_path = get_mod_ebin_path(suite_mod)
         data_dir = Path.basename(src_data_dir)
+
         dest_data_path =
           [ebin_path, "..", data_dir]
           |> Path.join()
           |> Path.expand()
+
         File.rm(dest_data_path)
+
         case File.ln_s(src_data_dir, dest_data_path) do
           :ok ->
             :ok
@@ -196,22 +209,30 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   defp parse_args!(args) do
-    {opts, _rest} = OptionParser.parse!(
-      args,
-      strict: [
-        cover_export_name: :string,
-        suites: :string,
-        group_paths: :string,
-        cases: :string])
+    {opts, _rest} =
+      OptionParser.parse!(
+        args,
+        strict: [
+          cover_export_name: :string,
+          suites: :string,
+          group_paths: :string,
+          cases: :string
+        ]
+      )
+
     suites = get_name_list(opts, :suites)
+
     group_paths =
       opts
       |> get_name_list(:group_paths)
-      |> Enum.map(& String.split(&1, ".", trim: true))
+      |> Enum.map(&String.split(&1, ".", trim: true))
+
     cases = get_name_list(opts, :cases)
 
     if suites == [] do
-      Mix.raise("must define at least one suite using --suites path/to/suite1.erl,path/to/suite2.erl")
+      Mix.raise(
+        "must define at least one suite using --suites path/to/suite1.erl,path/to/suite2.erl"
+      )
     end
 
     %{
@@ -253,7 +274,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     last_dir =
       logdir
       |> File.ls!()
-      |> Stream.filter(& &1 =~ ~r/^ct_run/)
+      |> Stream.filter(&(&1 =~ ~r/^ct_run/))
       |> Enum.sort()
       |> List.last()
 
@@ -287,6 +308,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     end)
     |> Enum.map(&do_cover_compile_file_async/1)
     |> Task.await_many(:infinity)
+
     info("Cover compiled project modules.")
   end
 
@@ -300,16 +322,17 @@ defmodule Mix.Tasks.Emqx.Ct do
 
           false ->
             debug("cover-compiling: #{beam_path}")
+
             beam_path
             |> to_charlist()
             |> :cover.compile_beam()
             |> case do
-                 {:ok, _} ->
-                   :ok
+              {:ok, _} ->
+                :ok
 
-                 {:error, reason} ->
-                   warn("Cover compilation failed: #{inspect(reason, pretty: true)}")
-               end
+              {:error, reason} ->
+                warn("Cover compilation failed: #{inspect(reason, pretty: true)}")
+            end
         end
       catch
         kind, reason ->
@@ -326,7 +349,7 @@ defmodule Mix.Tasks.Emqx.Ct do
       |> Path.join("{src,gen_src}/**/*.erl")
       |> Path.wildcard()
     end)
-    |> MapSet.new(& Path.basename(&1, ".erl"))
+    |> MapSet.new(&Path.basename(&1, ".erl"))
   end
 
   def write_coverdata(opts) do
@@ -336,6 +359,7 @@ defmodule Mix.Tasks.Emqx.Ct do
       cover_export_name = opts.cover_export_name
 
       export_file = Path.join(cover_dir, "#{cover_export_name}.coverdata")
+
       case :cover.export(export_file) do
         :ok ->
           info("Cover data written to #{export_file}")
@@ -363,6 +387,6 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   def warn(iodata) do
-    Mix.shell().info(IO.ANSI.format([:yellow,iodata]))
+    Mix.shell().info(IO.ANSI.format([:yellow, iodata]))
   end
 end

@@ -28,7 +28,7 @@ defmodule EMQXBridgeMQTT.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_connector_info, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      UMP.common_dep(:emqtt),
+      UMP.common_dep(:emqtt)
     ]
   end
 end

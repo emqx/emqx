@@ -36,6 +36,7 @@ defmodule EMQXAuth.MixProject do
 
   defp extra_dirs() do
     dirs = ["etc"]
+
     if UMP.test_env?() do
       ["test" | dirs]
     else

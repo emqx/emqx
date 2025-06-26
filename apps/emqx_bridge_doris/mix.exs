@@ -22,19 +22,20 @@ defmodule EMQXBridgeDoris.MixProject do
 
   def application do
     [
-      extra_applications: UMP.extra_applications(),
+      extra_applications: UMP.extra_applications()
     ]
   end
 
   def deps() do
     [
       {:emqx_resource, in_umbrella: true},
-      {:emqx_bridge_mysql, in_umbrella: true},
+      {:emqx_bridge_mysql, in_umbrella: true}
     ]
   end
 
   defp extra_dirs() do
     dirs = []
+
     if UMP.test_env?() do
       ["test" | dirs]
     else

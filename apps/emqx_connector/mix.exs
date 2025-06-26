@@ -39,7 +39,7 @@ defmodule EMQXConnector.MixProject do
       UMP.common_dep(:jose),
       UMP.common_dep(:ecpool),
       UMP.common_dep(:ehttpc),
-      UMP.common_dep(:emqtt),
+      UMP.common_dep(:emqtt)
     ]
   end
 end

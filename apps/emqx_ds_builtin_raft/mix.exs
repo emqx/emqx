@@ -24,7 +24,7 @@ defmodule EMQXDsBuiltinRaft.MixProject do
   def deps() do
     [
       {:emqx_durable_storage, in_umbrella: true},
-      UMP.common_dep(:ra),
+      UMP.common_dep(:ra)
     ]
   end
 end

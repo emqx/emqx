@@ -35,6 +35,7 @@ defmodule EMQXTelemetry.MixProject do
 
   defp extra_dirs() do
     dirs = []
+
     if UMP.test_env?() do
       ["test" | dirs]
     else

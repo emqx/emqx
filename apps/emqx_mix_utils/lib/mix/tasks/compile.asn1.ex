@@ -32,10 +32,12 @@ defmodule Mix.Tasks.Compile.Asn1 do
       src: src_path,
       compile_opts: compile_opts
     } = src
+
     src_path =
       app_root
       |> Path.join(src_path)
       |> Path.expand()
+
     if stale?(src_path, manifest_modified_time) do
       Mix.shell().info("compiling asn1 file: #{src_path}")
       :ok = :asn1ct.compile(to_charlist(src_path), compile_opts)

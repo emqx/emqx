@@ -32,7 +32,7 @@ defmodule EMQXBridgeSnowflake.MixProject do
       {:emqx_connector_aggregator, in_umbrella: true},
       UMP.common_dep(:ehttpc),
       UMP.common_dep(:ecpool),
-      UMP.common_dep(:gproc),
+      UMP.common_dep(:gproc)
     ]
   end
 end

@@ -19,7 +19,7 @@ defmodule EMQXBridgeDiskLog.MixProject do
 
   def application do
     [
-      extra_applications: UMP.extra_applications(),
+      extra_applications: UMP.extra_applications()
       # mod: {:emqx_bridge_disk_log_app, []}
     ]
   end
@@ -27,7 +27,7 @@ defmodule EMQXBridgeDiskLog.MixProject do
   def deps() do
     [
       {:emqx_resource, in_umbrella: true},
-      {:emqx_connector_info, in_umbrella: true},
+      {:emqx_connector_info, in_umbrella: true}
     ]
   end
 end

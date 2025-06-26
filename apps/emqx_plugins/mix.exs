@@ -24,7 +24,7 @@ defmodule EMQXPlugins.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
-      UMP.common_dep(:erlavro),
+      UMP.common_dep(:erlavro)
     ]
   end
 end

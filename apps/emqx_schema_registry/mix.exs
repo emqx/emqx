@@ -32,12 +32,13 @@ defmodule EMQXSchemaRegistry.MixProject do
       UMP.common_dep(:erlavro),
       UMP.common_dep(:jesse),
       UMP.common_dep(:gpb, runtime: true),
-      {:avlizer, github: "emqx/avlizer", tag: "0.5.1.1"},
+      {:avlizer, github: "emqx/avlizer", tag: "0.5.1.1"}
     ]
   end
 
   defp extra_dirs() do
     dirs = []
+
     if UMP.test_env?() do
       ["test" | dirs]
     else

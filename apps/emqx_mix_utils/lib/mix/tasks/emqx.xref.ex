@@ -13,12 +13,12 @@ defmodule Mix.Tasks.Emqx.Xref do
     :undefined_functions,
     :locals_not_used,
     :deprecated_function_calls,
-    :deprecated_functions,
+    :deprecated_functions
   ]
 
   @exclusions MapSet.new([
-    EMQXUmbrella.MixProject,
-  ])
+                EMQXUmbrella.MixProject
+              ])
 
   @impl true
   def run(args) do
@@ -29,23 +29,29 @@ defmodule Mix.Tasks.Emqx.Xref do
     check_failures = run_checks()
     query_failures = run_queries()
     stop_xref()
+
     case {check_failures, query_failures} do
       {[], []} ->
         Mix.shell().info([
           :green,
           "No xref issues found"
         ])
+
         :ok
 
       _ ->
         Mix.shell().info([
           :red,
           "Xref encountered issues:\n\n",
-          inspect(%{
-            check_failures: check_failures,
-            query_failures: query_failures,
-          }, pretty: true),
+          inspect(
+            %{
+              check_failures: check_failures,
+              query_failures: query_failures
+            },
+            pretty: true
+          )
         ])
+
         System.halt(1)
     end
 
@@ -58,16 +64,18 @@ defmodule Mix.Tasks.Emqx.Xref do
     Enum.reduce(@checks, [], fn check, acc ->
       {:ok, results} = :xref.analyse(@xref, check)
 
-      mods = Enum.flat_map(results, fn
-        {m, _f, _a} ->
-          [m]
+      mods =
+        Enum.flat_map(results, fn
+          {m, _f, _a} ->
+            [m]
 
-        {{ms, _fs, _as}, {_mt, _ft, _at}} ->
-          [ms]
+          {{ms, _fs, _as}, {_mt, _ft, _at}} ->
+            [ms]
 
-        _ ->
-          []
-      end)
+          _ ->
+            []
+        end)
+
       mod_ignores =
         mods
         |> Enum.flat_map(&get_module_ignores/1)
@@ -76,22 +84,26 @@ defmodule Mix.Tasks.Emqx.Xref do
       ignores = MapSet.union(exclusions, mod_ignores)
 
       ignored? = fn vertex ->
-        mod = case vertex do
-          {m, _, _} ->
-            m
-          _ ->
-            vertex
-        end
+        mod =
+          case vertex do
+            {m, _, _} ->
+              m
+
+            _ ->
+              vertex
+          end
+
         MapSet.member?(ignores, vertex) || MapSet.member?(ignores, mod)
       end
 
-      results = Enum.reject(results, fn
-        {src, dest} ->
-          ignored?.(src) || ignored?.(dest)
+      results =
+        Enum.reject(results, fn
+          {src, dest} ->
+            ignored?.(src) || ignored?.(dest)
 
-        vertex ->
-          ignored?.(vertex)
-      end)
+          vertex ->
+            ignored?.(vertex)
+        end)
 
       if results == [] do
         acc
@@ -105,6 +117,7 @@ defmodule Mix.Tasks.Emqx.Xref do
     UMP.xref_queries()
     |> Enum.flat_map(fn {query, expected} ->
       {:ok, result} = :xref.q(@xref, to_charlist(query))
+
       if result == expected do
         []
       else
@@ -116,6 +129,7 @@ defmodule Mix.Tasks.Emqx.Xref do
   def get_module_ignores(mod) do
     try do
       attrs = mod.module_info(:attributes)
+
       Keyword.get_values(attrs, :ignore_xref)
       |> List.flatten()
       |> Enum.map(fn
@@ -147,7 +161,7 @@ defmodule Mix.Tasks.Emqx.Xref do
   def set_library_path() do
     :code.get_path()
     |> Enum.filter(&File.dir?/1)
-    |> then(& :xref.set_library_path(@xref, &1))
+    |> then(&:xref.set_library_path(@xref, &1))
   end
 
   def set_default() do

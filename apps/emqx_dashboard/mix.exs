@@ -31,7 +31,7 @@ defmodule EMQXDashboard.MixProject do
       {:emqx, in_umbrella: true},
       ## Probably not actually needed?
       {:emqx_bridge_http, in_umbrella: true},
-      UMP.common_dep(:minirest),
+      UMP.common_dep(:minirest)
     ]
   end
 end

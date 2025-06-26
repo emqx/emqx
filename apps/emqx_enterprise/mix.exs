@@ -25,7 +25,7 @@ defmodule EMQXEnterprise.MixProject do
     [
       UMP.common_dep(:snabbkaffe),
       UMP.common_dep(:typerefl),
-      UMP.common_dep(:hocon),
+      UMP.common_dep(:hocon)
     ]
   end
 end

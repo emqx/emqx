@@ -15,6 +15,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
     ECt.add_to_path_and_cache(:dialyzer)
 
     excluded_mods = MapSet.new(UMP.dialyzer_excluded_mods(), &to_string/1)
+
     excluded_mods_from_warnings =
       UMP.dialyzer_excluded_mods_from_warnings()
       |> MapSet.new(&to_string/1)
@@ -24,8 +25,9 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       umbrella_apps: umbrella_apps,
       dep_apps: dep_apps
     } = resolve_apps()
-    umbrella_files = Enum.flat_map(umbrella_apps, & resolve_files/1)
-    dep_files = Enum.flat_map(dep_apps, & resolve_files/1)
+
+    umbrella_files = Enum.flat_map(umbrella_apps, &resolve_files/1)
+    dep_files = Enum.flat_map(dep_apps, &resolve_files/1)
     # Files to be considered; will be analyzed and their contracts taken into account.
     files =
       (umbrella_files ++ dep_files)
@@ -34,6 +36,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
         MapSet.member?(excluded_mods, name)
       end)
       |> Enum.map(&to_charlist/1)
+
     # Files that might have warnings for them
     warning_files =
       umbrella_files
@@ -42,6 +45,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
         MapSet.member?(excluded_mods_from_warnings, name)
       end)
       |> Enum.map(&to_charlist/1)
+
     warning_apps = Enum.sort(umbrella_apps)
 
     plt = to_charlist(plt_path(mode))
@@ -49,12 +53,12 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
     context = %{
       mode: mode,
       warnings: [
-          :unmatched_returns,
-          :error_handling
-        ],
+        :unmatched_returns,
+        :error_handling
+      ],
       warning_files: warning_files,
       umbrella_files: umbrella_files,
-      files: files,
+      files: files
     }
 
     EMQX.Mix.Utils.clear_screen()
@@ -67,15 +71,15 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
         :incremental ->
           run_dialyzer_incremental(context)
       end
-      |> Enum.map(& :dialyzer.format_warning(&1, filename_opt: :fullpath, indent_opt: false))
+      |> Enum.map(&:dialyzer.format_warning(&1, filename_opt: :fullpath, indent_opt: false))
       |> tap(&IO.puts/1)
       |> case do
-           [] ->
-             Mix.shell().info("Ok")
+        [] ->
+          Mix.shell().info("Ok")
 
-           [_ | _] ->
-             Mix.raise("Errors found!  See output above for details.")
-         end
+        [_ | _] ->
+          Mix.raise("Errors found!  See output above for details.")
+      end
     catch
       {:dialyzer_error, msg} ->
         Mix.raise("Dialyzer error:\n\n#{inspect(msg, pretty: true)}")
@@ -88,13 +92,14 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
   defp resolve_apps() do
     base_apps = MapSet.new([:erts, :crypto])
     excluded_apps = MapSet.new([:emqx_mix_utils])
+
     acc = %{
       umbrella_apps: [],
       dep_apps: base_apps
     }
 
     Mix.Dep.Umbrella.loaded()
-    |> Stream.reject(& &1.app in excluded_apps)
+    |> Stream.reject(&(&1.app in excluded_apps))
     |> Enum.reduce(acc, fn dep, acc ->
       # IO.inspect(dep)
       props = dep.opts[:app_properties]
@@ -102,9 +107,10 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       apps = Keyword.get(props, :applications, [])
       included_apps = Keyword.get(props, :included_applications, [])
       dep_apps = MapSet.new(optional_apps ++ apps ++ included_apps)
+
       acc
-      |> Map.update!(:umbrella_apps, & [dep.app | &1])
-      |> Map.update!(:dep_apps, & MapSet.union(&1, dep_apps))
+      |> Map.update!(:umbrella_apps, &[dep.app | &1])
+      |> Map.update!(:dep_apps, &MapSet.union(&1, dep_apps))
     end)
     |> then(fn acc ->
       dep_apps =
@@ -114,6 +120,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
         |> Enum.reduce(MapSet.new(), &find_nested_apps/2)
         |> MapSet.difference(excluded_apps)
         |> Enum.filter(&app_present?/1)
+
       %{acc | dep_apps: dep_apps}
     end)
   end
@@ -127,18 +134,25 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       seen
     else
       seen = MapSet.put(seen, app)
-      apps = case :application.get_key(app, :applications) do
-        {:ok, apps} -> apps
-        :undefined -> []
-      end
-      included_apps = case :application.get_key(app, :included_applications) do
-        {:ok, apps} -> apps
-        :undefined -> []
-      end
-      optional_apps = case :application.get_key(app, :optional_applications) do
-        {:ok, apps} -> apps
-        :undefined -> []
-      end
+
+      apps =
+        case :application.get_key(app, :applications) do
+          {:ok, apps} -> apps
+          :undefined -> []
+        end
+
+      included_apps =
+        case :application.get_key(app, :included_applications) do
+          {:ok, apps} -> apps
+          :undefined -> []
+        end
+
+      optional_apps =
+        case :application.get_key(app, :optional_applications) do
+          {:ok, apps} -> apps
+          :undefined -> []
+        end
+
       Enum.reduce(apps ++ included_apps, seen, &find_nested_apps/2)
     end
   end
@@ -158,23 +172,29 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       {:ok, to_string(dir)}
     else
       error ->
-        Mix.shell().info(IO.ANSI.format([
-              [:yellow,
-               "Unknown application: #{app}; error: #{inspect(error)}",
-               "; if this is is an optional application, ignore."
-              ],
-            ]))
+        Mix.shell().info(
+          IO.ANSI.format([
+            [
+              :yellow,
+              "Unknown application: #{app}; error: #{inspect(error)}",
+              "; if this is is an optional application, ignore."
+            ]
+          ])
+        )
+
         :error
     end
   end
 
   defp parse_args!(args) do
-    {opts, _rest} = OptionParser.parse!(
-      args,
-      strict: [
-        mode: :string,
-      ]
-    )
+    {opts, _rest} =
+      OptionParser.parse!(
+        args,
+        strict: [
+          mode: :string
+        ]
+      )
+
     mode =
       opts
       |> Keyword.get(:mode, "classic")
@@ -198,11 +218,13 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
 
   defp plt_path(mode) do
     otp_version = UMP.otp_release()
-    mode_slug = if mode == :incremental do
-      "_incremental"
-    else
-      ""
-    end
+
+    mode_slug =
+      if mode == :incremental do
+        "_incremental"
+      else
+        ""
+      end
 
     Mix.Project.project_file()
     |> Path.dirname()
@@ -216,34 +238,47 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       mode: mode,
       files: files,
       warnings: warnings,
-      warning_files: warning_files,
+      warning_files: warning_files
     } = context
+
     plt = mode |> plt_path() |> to_charlist()
 
     Mix.shell().info("Running dialyzer in #{mode} mode and PLT #{plt}")
 
     Mix.shell().info("Building initial PLT...")
-    {time, _} = :timer.tc(fn ->
-      :dialyzer.run(
-        analysis_type: :plt_build,
-        output_plt: plt,
-        get_warnings: false,
-        files: files,
-        files_rec: files,
+
+    {time, _} =
+      :timer.tc(
+        fn ->
+          :dialyzer.run(
+            analysis_type: :plt_build,
+            output_plt: plt,
+            get_warnings: false,
+            files: files,
+            files_rec: files
+          )
+        end,
+        :millisecond
       )
-    end, :millisecond)
+
     Mix.shell().info("Built initial PLT in #{time / 1_000} s")
 
     Mix.shell().info("Running success typing analysis...")
-    {time, res} = :timer.tc(fn ->
-      :dialyzer.run(
-        analysis_type: :succ_typings,
-        warnings: warnings,
-        init_plt: plt,
-        get_warnings: true,
-        files: warning_files
+
+    {time, res} =
+      :timer.tc(
+        fn ->
+          :dialyzer.run(
+            analysis_type: :succ_typings,
+            warnings: warnings,
+            init_plt: plt,
+            get_warnings: true,
+            files: warning_files
+          )
+        end,
+        :millisecond
       )
-    end, :millisecond)
+
     Mix.shell().info("Ran success typing analysis in #{time / 1_000} s")
 
     res
@@ -254,25 +289,31 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       mode: mode,
       files: files,
       warnings: warnings,
-      warning_files: warning_files,
+      warning_files: warning_files
     } = context
+
     plt = mode |> plt_path() |> to_charlist()
 
     Mix.shell().info("Running dialyzer in #{mode} mode and PLT #{plt}")
 
-    {time, res} = :timer.tc(fn ->
-      :dialyzer.run(
-        analysis_type: :incremental,
-        warnings: warnings,
-        init_plt: plt,
-        output_plt: plt,
-        warning_files: warning_files,
-        warning_files_rec: warning_files,
-        get_warnings: false,
-        files: files,
-        files_rec: files,
+    {time, res} =
+      :timer.tc(
+        fn ->
+          :dialyzer.run(
+            analysis_type: :incremental,
+            warnings: warnings,
+            init_plt: plt,
+            output_plt: plt,
+            warning_files: warning_files,
+            warning_files_rec: warning_files,
+            get_warnings: false,
+            files: files,
+            files_rec: files
+          )
+        end,
+        :millisecond
       )
-    end, :millisecond)
+
     Mix.shell().info("Ran incremental analysis in #{time / 1_000} s")
 
     res

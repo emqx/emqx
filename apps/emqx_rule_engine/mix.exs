@@ -22,16 +22,17 @@ defmodule EMQXRuleEngine.MixProject do
   end
 
   def deps() do
-    UMP.jq_dep() ++ [
-      {:emqx, in_umbrella: true},
-      {:emqx_ctl, in_umbrella: true},
-      {:emqx_utils, in_umbrella: true},
-      {:emqx_modules, in_umbrella: true},
-      {:emqx_resource, in_umbrella: true},
-      {:emqx_bridge, in_umbrella: true},
-      UMP.common_dep(:rulesql),
-      UMP.common_dep(:emqtt),
-      UMP.common_dep(:uuid),
-    ]
+    UMP.jq_dep() ++
+      [
+        {:emqx, in_umbrella: true},
+        {:emqx_ctl, in_umbrella: true},
+        {:emqx_utils, in_umbrella: true},
+        {:emqx_modules, in_umbrella: true},
+        {:emqx_resource, in_umbrella: true},
+        {:emqx_bridge, in_umbrella: true},
+        UMP.common_dep(:rulesql),
+        UMP.common_dep(:emqtt),
+        UMP.common_dep(:uuid)
+      ]
   end
 end
