@@ -74,7 +74,7 @@
 
 %% Iterating storage:
 -export([make_session_iterator/0, session_iterator_next/2]).
-%% -export([make_subscription_iterator/0, subscription_iterator_next/2]).
+-export([make_subscription_iterator/0, subscription_iterator_next/2]).
 
 -export_type([
     t/0,
@@ -642,21 +642,16 @@ n_awaiting_rel(Rec) ->
 make_session_iterator() ->
     emqx_persistent_session_ds_state_v2:make_session_iterator(generation()).
 
-%% make_subscription_iterator() ->
-%%     emqx_persistent_session_ds_state_v2:subscription_iterator().
-
 -spec session_iterator_next(session_iterator(), pos_integer()) ->
     {[{emqx_persistent_session_ds:id(), metadata()}], session_iterator() | '$end_of_table'}.
 session_iterator_next(It0, N) ->
     emqx_persistent_session_ds_state_v2:session_iterator_next(generation(), It0, N).
 
-%% subscription_iterator_next(It0, N) ->
-%%     case emqx_utils_stream:consume(N, It0) of
-%%         {Data, It} ->
-%%             {Data, It};
-%%         Data when is_list(Data) ->
-%%             {Data, '$end_of_table'}
-%%     end.
+make_subscription_iterator() ->
+    emqx_persistent_session_ds_state_v2:make_subscription_iterator(generation()).
+
+subscription_iterator_next(It0, N) ->
+    emqx_persistent_session_ds_state_v2:subscription_iterator_next(generation(), It0, N).
 
 %%================================================================================
 %% Internal functions

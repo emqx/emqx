@@ -39,11 +39,13 @@
     lts_threshold_cb/2,
     pmap_topic/4,
 
-    make_session_iterator/1
-    %% session_iterator_next/3
+    make_session_iterator/1,
+    session_iterator_next/3,
+    make_subscription_iterator/1,
+    subscription_iterator_next/3
 ]).
 
--export_type([session_iterator/0]).
+-export_type([session_iterator/0, subscription_iterator/0]).
 
 %% FIXME: rebar idiocy
 -compile(nowarn_export_all).
@@ -78,6 +80,7 @@
 -define(top_awaiting_rel, <<"arl">>).
 
 -type session_iterator() :: emqx_ds:multi_iterator().
+-type subscription_iterator() :: emqx_ds:multi_iterator().
 
 %%================================================================================
 %% API functions
@@ -308,15 +311,49 @@ lts_threshold_cb(_, _) ->
 
 -spec make_session_iterator(emqx_ds:generation()) -> session_iterator().
 make_session_iterator(Generation) ->
-    emqx_ds:make_multi_iterator(?DB, [?top_guard, '+'], #{generation => Generation}).
+    emqx_ds:make_multi_iterator(#{db => ?DB, generation => Generation}, [?top_guard, '+']).
+
+-spec session_iterator_next(emqx_ds:generation(), session_iterator(), pos_integer()) ->
+    {list(), session_iterator()}.
+session_iterator_next(Generation, It0, N) ->
+    {Batch, It} = emqx_ds:multi_iterator_next(
+        #{db => ?DB, generation => Generation}, [?top_guard, '+'], It0, N
+    ),
+    Results = lists:map(
+        fun({[?top_guard, SessId], _, Guard}) ->
+            Meta = pmap_dirty_read(Generation, ?metadata, SessId),
+            {SessId, Meta#{guard => Guard}}
+        end,
+        Batch
+    ),
+    {Results, It}.
+
+-spec make_subscription_iterator(emqx_ds:generation()) -> subscription_iterator().
+make_subscription_iterator(Generation) ->
+    emqx_ds:make_multi_iterator(
+        #{db => ?DB, generation => Generation}, pmap_topic(?subscriptions, '+', '+')
+    ).
+
+-spec subscription_iterator_next(emqx_ds:generation(), session_iterator(), pos_integer()) ->
+    {list(), session_iterator()}.
+subscription_iterator_next(Generation, It0, N) ->
+    {Batch, It} = emqx_ds:multi_iterator_next(
+        #{db => ?DB, generation => Generation}, pmap_topic(?subscriptions, '+', '+'), It0, N
+    ),
+    Results = lists:map(
+        fun({[?top_data, ClientId, _, Sub], _, _SubInfo}) ->
+            {ClientId, deser_pmap_key(?subscriptions, Sub)}
+        end,
+        Batch
+    ),
+    {Results, It}.
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
 
 open_tx(Generation, ClientId, Verify) ->
-    Shard = emqx_ds:shard_of(?DB, ClientId),
-    case guard(ClientId, Shard, Generation) of
+    case guard(ClientId, Generation) of
         undefined ->
             undefined;
         Guard ->
@@ -325,13 +362,13 @@ open_tx(Generation, ClientId, Verify) ->
                 ?guard => Guard,
                 ?dirty => false,
                 ?checkpoint_ref => undefined,
-                ?metadata => pmap_restore(?metadata, Shard, ClientId),
-                ?subscriptions => pmap_restore(?subscriptions, Shard, ClientId),
-                ?subscription_states => pmap_restore(?subscription_states, Shard, ClientId),
-                ?seqnos => pmap_restore(?seqnos, Shard, ClientId),
-                ?streams => pmap_restore(?streams, Shard, ClientId),
-                ?ranks => pmap_restore(?ranks, Shard, ClientId),
-                ?awaiting_rel => pmap_restore(?awaiting_rel, Shard, ClientId)
+                ?metadata => pmap_restore(?metadata, ClientId),
+                ?subscriptions => pmap_restore(?subscriptions, ClientId),
+                ?subscription_states => pmap_restore(?subscription_states, ClientId),
+                ?seqnos => pmap_restore(?seqnos, ClientId),
+                ?streams => pmap_restore(?streams, ClientId),
+                ?ranks => pmap_restore(?ranks, ClientId),
+                ?awaiting_rel => pmap_restore(?awaiting_rel, ClientId)
             },
             case Verify of
                 false ->
@@ -347,12 +384,12 @@ open_tx(Generation, ClientId, Verify) ->
 %% == Operations with the guard ==
 
 %% @doc Read the guard
--spec guard(emqx_persistent_session_ds:id(), emqx_ds:rank_x(), emqx_ds:generation()) ->
+-spec guard(emqx_persistent_session_ds:id(), emqx_ds:generation()) ->
     binary() | undefined.
-guard(ClientId, Shard, Generation) ->
+guard(ClientId, Generation) ->
     case
         emqx_ds:tx_read(
-            #{db => ?DB, shard => Shard, generation => Generation},
+            #{db => ?DB, generation => Generation},
             [?top_guard, ClientId]
         )
     of
@@ -403,23 +440,36 @@ pmap_commit(
         dirty = #{}
     }.
 
--spec pmap_restore(atom(), emqx_ds:rank_x(), emqx_persistent_session_ds:id()) ->
+-spec pmap_restore(atom(), emqx_persistent_session_ds:id()) ->
     emqx_persistent_session_ds_state:pmap(_, _).
-pmap_restore(Name, Shard, ClientId) ->
+pmap_restore(Name, ClientId) ->
     Cache = emqx_ds:tx_fold_topic(
-        fun(_Slab, _Stream, {Topic, _TS, Payload}, Acc) ->
-            KeyBin = lists:last(Topic),
-            {Key, Val} = deser_pmap_kv(Name, KeyBin, Payload),
-            Acc#{Key => Val}
+        fun(_Slab, _Stream, Payload, Acc) ->
+            pmap_restore_fun(Name, Payload, Acc)
         end,
         #{},
-        pmap_topic(Name, ClientId, '+'),
-        #{db => ?DB, shard => Shard}
+        pmap_topic(Name, ClientId, '+')
     ),
     #pmap{
         name = Name,
         cache = Cache
     }.
+
+-spec pmap_dirty_read(emqx_ds:generation(), atom(), emqx_persistent_session_ds:id()) -> map().
+pmap_dirty_read(Generation, Name, ClientId) ->
+    emqx_ds:fold_topic(
+        fun(_Slab, _Stream, Payload, Acc) ->
+            pmap_restore_fun(Name, Payload, Acc)
+        end,
+        #{},
+        pmap_topic(Name, ClientId, '+'),
+        #{db => ?DB, generation => Generation, shard => emqx_ds:shard_of(?DB, ClientId)}
+    ).
+
+pmap_restore_fun(Name, {Topic, _TS, Payload}, Acc) ->
+    KeyBin = lists:last(Topic),
+    {Key, Val} = deser_pmap_kv(Name, KeyBin, Payload),
+    Acc#{Key => Val}.
 
 -spec pmap_delete(
     emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:pmap(_, _) | atom()
