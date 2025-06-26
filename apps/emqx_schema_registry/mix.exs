@@ -21,13 +21,18 @@ defmodule EMQXSchemaRegistry.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_schema_registry_app, []}]
+    [
+      extra_applications: UMP.extra_applications(),
+      included_applications: [:emqx_rule_engine],
+      mod: {:emqx_schema_registry_app, []}
+    ]
   end
 
   def deps() do
     [
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
+      {:emqx_bridge_http, in_umbrella: true},
       {:emqx_rule_engine, in_umbrella: true},
       UMP.common_dep(:erlavro),
       UMP.common_dep(:jesse),

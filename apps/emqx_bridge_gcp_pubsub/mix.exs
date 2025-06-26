@@ -27,7 +27,8 @@ defmodule EMQXBridgeGcpPubsub.MixProject do
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false},
-      {:emqx_bridge_http, in_umbrella: true}
+      {:emqx_bridge_http, in_umbrella: true},
+      UMP.common_dep(:ehttpc)
     ]
   end
 end

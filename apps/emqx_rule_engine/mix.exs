@@ -29,6 +29,7 @@ defmodule EMQXRuleEngine.MixProject do
         {:emqx_utils, in_umbrella: true},
         {:emqx_modules, in_umbrella: true},
         {:emqx_resource, in_umbrella: true},
+        {:emqx_connector, in_umbrella: true},
         {:emqx_bridge, in_umbrella: true},
         UMP.common_dep(:rulesql),
         UMP.common_dep(:emqtt),

@@ -29,7 +29,8 @@ defmodule EMQXResource.MixProject do
       UMP.common_dep(:ecpool),
       UMP.common_dep(:gproc),
       UMP.common_dep(:telemetry),
-      UMP.common_dep(:hocon)
+      UMP.common_dep(:hocon),
+      UMP.common_dep(:replayq)
     ]
   end
 end

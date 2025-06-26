@@ -24,7 +24,8 @@ defmodule EMQXFt.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
-      {:emqx_s3, in_umbrella: true}
+      {:emqx_s3, in_umbrella: true},
+      UMP.common_dep(:gproc)
     ]
   end
 end

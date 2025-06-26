@@ -43,6 +43,7 @@ defmodule EMQXExhook.MixProject do
       {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
+      UMP.common_dep(:minirest),
       UMP.common_dep(:grpc)
     ]
   end

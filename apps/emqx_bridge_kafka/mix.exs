@@ -33,6 +33,7 @@ defmodule EMQXBridgeKafka.MixProject do
       UMP.common_dep(:snappyer),
       UMP.common_dep(:erlcloud),
       UMP.common_dep(:brod_oauth),
+      UMP.common_dep(:telemetry),
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

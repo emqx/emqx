@@ -18,7 +18,7 @@ defmodule EMQXRedis.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications()]
+    [extra_applications: [:eredis | UMP.extra_applications()]]
   end
 
   def deps() do

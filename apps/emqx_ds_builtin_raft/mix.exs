@@ -18,12 +18,16 @@ defmodule EMQXDsBuiltinRaft.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_ds_builtin_raft_app, []}]
+    [
+      extra_applications: [:mria | UMP.extra_applications()],
+      mod: {:emqx_ds_builtin_raft_app, []}
+    ]
   end
 
   def deps() do
     [
       {:emqx_durable_storage, in_umbrella: true},
+      UMP.common_dep(:gproc),
       UMP.common_dep(:ra)
     ]
   end

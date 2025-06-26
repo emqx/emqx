@@ -42,6 +42,7 @@ defmodule EMQXDurableStorage.MixProject do
       {:emqx_utils, in_umbrella: true},
       UMP.common_dep(:rocksdb),
       UMP.common_dep(:gproc),
+      UMP.common_dep(:gen_rpc),
       UMP.common_dep(:ra)
     ]
   end

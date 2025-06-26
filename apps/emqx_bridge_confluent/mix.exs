@@ -28,6 +28,7 @@ defmodule EMQXBridgeConfluent.MixProject do
       UMP.common_dep(:brod_gssapi),
       UMP.common_dep(:brod),
       UMP.common_dep(:snappyer),
+      UMP.common_dep(:telemetry),
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

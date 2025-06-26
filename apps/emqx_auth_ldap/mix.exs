@@ -20,7 +20,10 @@ defmodule EMQXAuthLDAP.MixProject do
 
   # Run "mix help compile.app" to learn about applications
   def application do
-    [extra_applications: [:eldap], mod: {:emqx_auth_ldap_app, []}]
+    [
+      extra_applications: [:eldap | UMP.extra_applications()],
+      mod: {:emqx_auth_ldap_app, []}
+    ]
   end
 
   def deps() do
@@ -28,6 +31,8 @@ defmodule EMQXAuthLDAP.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_auth, in_umbrella: true},
+      {:emqx_connector, in_umbrella: true},
+      {:emqx_resource, in_umbrella: true},
       {:emqx_ldap, in_umbrella: true}
     ]
   end

@@ -25,7 +25,8 @@ defmodule EMQXBridgeS3.MixProject do
     [
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector_aggregator, in_umbrella: true},
-      {:emqx_s3, in_umbrella: true}
+      {:emqx_s3, in_umbrella: true},
+      UMP.common_dep(:erlcloud)
     ]
   end
 end

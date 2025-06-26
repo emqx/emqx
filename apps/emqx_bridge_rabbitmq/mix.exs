@@ -18,7 +18,10 @@ defmodule EMQXBridgeRabbitmq.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_bridge_rabbitmq_app, []}]
+    [
+      extra_applications: [:rabbit_common | UMP.extra_applications()],
+      mod: {:emqx_bridge_rabbitmq_app, []}
+    ]
   end
 
   def deps() do

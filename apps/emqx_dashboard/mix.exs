@@ -20,7 +20,7 @@ defmodule EMQXDashboard.MixProject do
 
   # Run "mix help compile.app" to learn about applications
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_dashboard_app, []}]
+    [extra_applications: [:mnesia | UMP.extra_applications()], mod: {:emqx_dashboard_app, []}]
   end
 
   def deps() do

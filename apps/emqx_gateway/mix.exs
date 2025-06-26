@@ -21,7 +21,20 @@ defmodule EMQXGateway.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_gateway_app, []}]
+    [
+      extra_applications: [
+        :emqx_auth_http,
+        :emqx_auth_jwt,
+        :emqx_auth_ldap,
+        :emqx_auth_mnesia,
+        :emqx_auth_mongodb,
+        :emqx_auth_mysql,
+        :emqx_auth_postgresql,
+        :emqx_auth_redis
+        | UMP.extra_applications()
+      ],
+      mod: {:emqx_gateway_app, []}
+    ]
   end
 
   def deps() do

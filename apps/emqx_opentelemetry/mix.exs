@@ -18,7 +18,10 @@ defmodule EMQXOpentelemetry.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_otel_app, []}]
+    [
+      extra_applications: [:emqx_management | UMP.extra_applications()],
+      mod: {:emqx_otel_app, []}
+    ]
   end
 
   def deps() do

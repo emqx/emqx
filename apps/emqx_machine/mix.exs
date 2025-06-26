@@ -31,6 +31,7 @@ defmodule EMQXMachine.MixProject do
     [
       {:emqx, in_umbrella: true, runtime: false},
       {:emqx_utils, in_umbrella: true, runtime: false},
+      {:emqx_ctl, in_umbrella: true},
       {:emqx_conf, in_umbrella: true, runtime: false},
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       {:emqx_management, in_umbrella: true, runtime: false},
