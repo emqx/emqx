@@ -27,6 +27,8 @@ defmodule EMQXUmbrella.MixProject do
       tarball along with the release.
   """
 
+  @ignore_xref __MODULE__
+
   # TODO: remove once we switch to the new mix build
   def new_mix_build?() do
     System.get_env("NEW_MIX_BUILD") == "1"
@@ -1058,6 +1060,57 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   #############################################################################
+  #  Checks
+  #############################################################################
+
+  @doc """
+  Equivalent to rebar3's `{xref_queries, _}`.
+  """
+  def xref_queries() do
+    [
+      {"E || \"mnesia\":\"dirty_delete.*\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"transaction\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"async_dirty\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"clear_table\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"create_table\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"delete_table\"/\".*\" : Fun", []}
+    ]
+  end
+
+  @doc """
+  Modules that should not be checked by dialyzer.
+  """
+  def dialyzer_excluded_mods() do
+    [
+      :emqx_exproto_v_1_connection_unary_handler_bhvr,
+      :emqx_exproto_v_1_connection_handler_client,
+      :emqx_exproto_v_1_connection_handler_bhvr,
+      :emqx_exproto_v_1_connection_adapter_client,
+      :emqx_exproto_v_1_connection_adapter_bhvr,
+      :emqx_exproto_v_1_connection_unary_handler_client,
+      :emqx_exhook_v_2_hook_provider_client,
+      :emqx_exhook_v_2_hook_provider_bhvr
+    ]
+  end
+
+  @doc """
+  Warnings such as "Expression produces a value of type bitstring(), but this value is
+  unmatched" are not generated for these modules.
+  They are still considered by dialyzer when referenced by other (checked) modules.
+  """
+  def dialyzer_excluded_mods_from_warnings() do
+    [
+      :DurableMessage,
+      :DSBuiltinMetadata,
+      :DSBuiltinSLReference,
+      :DSBuiltinSLSkipstreamV1,
+      :DSBuiltinSLSkipstreamV2,
+      :DSBuiltinStorageLayer,
+      :DSMetadataCommon
+    ]
+  end
+
+  #############################################################################
   #  Helper functions
   #############################################################################
 
@@ -1294,6 +1347,7 @@ defmodule EMQXUmbrella.MixProject do
   defp aliases() do
     [
       ct: &do_ct/1,
+      xref: &do_xref/1,
       cover: &do_cover/1,
       eunit: &do_eunit/1,
       proper: &do_proper/1,
@@ -1327,6 +1381,10 @@ defmodule EMQXUmbrella.MixProject do
     ensure_test_mix_env!()
     set_test_env!(true)
     Mix.Task.run("emqx.proper", args)
+  end
+
+  defp do_xref(args) do
+    Mix.Task.run("emqx.xref", args)
   end
 
   defp do_dialyzer(args) do
