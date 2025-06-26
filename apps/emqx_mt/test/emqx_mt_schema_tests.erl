@@ -27,14 +27,18 @@ parse_and_check(InnerConfigs) ->
 %% Test cases
 %%------------------------------------------------------------------------------
 
-default_max_sessions_positive_test() ->
-    ?assertThrow(
-        {_, [
-            #{
-                kind := validation_error,
-                %% Wrong type
-                reason := matched_no_union_member
-            }
-        ]},
-        parse_and_check(#{<<"default_max_sessions">> => 0})
-    ).
+default_max_sessions_positive_test_() ->
+    [
+        ?_assertThrow(
+            {_, [
+                #{
+                    kind := validation_error,
+                    %% Wrong type
+                    reason := "Bad value: expecting `infinity` or positive integer"
+                }
+            ]},
+            parse_and_check(#{<<"default_max_sessions">> => 0})
+        ),
+        ?_assertMatch(#{}, parse_and_check(#{<<"default_max_sessions">> => 100})),
+        ?_assertMatch(#{}, parse_and_check(#{<<"default_max_sessions">> => <<"infinity">>}))
+    ].

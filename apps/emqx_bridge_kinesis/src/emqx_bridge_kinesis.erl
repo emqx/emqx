@@ -75,6 +75,9 @@ fields(action_resource_opts) ->
             {batch_size, #{
                 type => range(1, 500),
                 validator => emqx_resource_validator:max(int, 500)
+            }},
+            {health_check_interval_jitter, #{
+                default => <<"15s">>
             }}
         ]
     );

@@ -466,6 +466,7 @@ common_action_resource_opts_subfields() ->
         buffer_mode,
         buffer_seg_bytes,
         health_check_interval,
+        health_check_interval_jitter,
         health_check_timeout,
         inflight_window,
         max_buffer_bytes,
@@ -479,6 +480,7 @@ common_action_resource_opts_subfields() ->
 common_source_resource_opts_subfields() ->
     [
         health_check_interval,
+        health_check_interval_jitter,
         health_check_timeout,
         resume_interval
     ].

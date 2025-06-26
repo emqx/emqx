@@ -1216,14 +1216,7 @@ bpapi_version_range(From, To) ->
     lists:seq(From, To).
 
 nodes_supporting_bpapi_version(Vsn) ->
-    [
-        N
-     || N <- emqx:running_nodes(),
-        case emqx_bpapi:supported_version(N, ?BPAPI_NAME) of
-            undefined -> false;
-            NVsn when is_number(NVsn) -> NVsn >= Vsn
-        end
-    ].
+    emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, Vsn).
 
 maybe_unwrap({error, not_implemented}) ->
     {error, not_implemented};

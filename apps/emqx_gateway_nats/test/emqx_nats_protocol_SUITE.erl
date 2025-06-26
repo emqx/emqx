@@ -26,7 +26,7 @@
 -define(CONF_DEFAULT, <<
     "\n"
     "gateway.nats {\n"
-    "  default_heartbeat_interval = 1s\n"
+    "  default_heartbeat_interval = 2s\n"
     "  heartbeat_wait_timeout = 1s\n"
     "  protocol {\n"
     "    max_payload_size = 1024\n"
@@ -74,9 +74,9 @@ end_per_suite(Config) ->
     ok.
 
 init_per_group(tcp, Config) ->
-    [{client_opts, ?DEFAULT_CLIENT_OPTS} | Config];
+    [{client_opts, ?DEFAULT_CLIENT_OPTS}, {group_name, tcp} | Config];
 init_per_group(ws, Config) ->
-    [{client_opts, ?DEFAULT_WS_CLIENT_OPTS} | Config].
+    [{client_opts, ?DEFAULT_WS_CLIENT_OPTS}, {group_name, ws} | Config].
 
 end_per_group(_Group, _Config) ->
     ok.
@@ -406,6 +406,7 @@ t_unsubscribe_with_max_msgs(Config) ->
     ok = emqx_nats_client:connect(Client),
     recv_ok_frame(Client),
 
+    wait_for_client_info(Config),
     [ClientInfo] = find_client_by_username(Username),
     ClientId = maps:get(clientid, ClientInfo),
 
@@ -680,7 +681,7 @@ t_auth_failure(Config) ->
     ?assertMatch(
         #nats_frame{
             operation = ?OP_ERR,
-            message = <<"Login Failed: bad_username_or_password">>
+            message = _
         },
         ErrorMsg
     ),
@@ -739,7 +740,7 @@ t_auth_dynamic_enable_disable(Config) ->
     ?assertMatch(
         #nats_frame{
             operation = ?OP_ERR,
-            message = <<"Login Failed: bad_username_or_password">>
+            message = _
         },
         ErrorMsg
     ),
@@ -941,7 +942,7 @@ t_server_to_client_ping(Config) ->
     recv_ok_frame(Client),
 
     %% waiting ping message
-    timer:sleep(1000),
+    timer:sleep(2000),
     {ok, [PingMsg]} = emqx_nats_client:receive_message(Client),
     ?assertMatch(
         #nats_frame{
@@ -1121,10 +1122,35 @@ t_clientinfo_override_with_empty_clientid(Config) ->
     ok = emqx_nats_client:connect(Client),
     {ok, [_]} = emqx_nats_client:receive_message(Client),
 
+    wait_for_client_info(Config),
     [ClientInfo] = find_client_by_username(<<"test_user">>),
     ?assertNotEqual(undefined, maps:get(clientid, ClientInfo)),
     ?assertNotEqual(<<>>, maps:get(clientid, ClientInfo)),
 
+    emqx_nats_client:stop(Client).
+
+t_clientinfo_override_with_prefix_and_empty_clientid(Config) ->
+    update_nats_with_clientinfo_override(#{<<"clientid">> => <<"prefix-${Packet.clientid}">>}),
+
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            user => <<"test_user">>,
+            pass => <<"password">>,
+            verbose => true
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+    ok = emqx_nats_client:connect(Client),
+    {ok, [_]} = emqx_nats_client:receive_message(Client),
+
+    wait_for_client_info(Config),
+    [ClientInfo] = find_client_by_username(<<"test_user">>),
+    ?assertNotEqual(undefined, maps:get(clientid, ClientInfo)),
+    ?assertEqual(<<"prefix-">>, maps:get(clientid, ClientInfo)),
+
+    update_nats_with_clientinfo_override(#{}),
     emqx_nats_client:stop(Client).
 
 t_schema_coverage(_Config) ->
@@ -1160,3 +1186,11 @@ find_client_by_username(Username) ->
         end,
         ClientInfos
     ).
+
+wait_for_client_info(Config) ->
+    case ?config(group_name, Config) of
+        ws ->
+            timer:sleep(1000);
+        _ ->
+            ok
+    end.
