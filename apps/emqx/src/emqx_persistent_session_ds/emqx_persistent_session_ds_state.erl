@@ -73,7 +73,7 @@
 ]).
 
 %% Iterating storage:
-%% -export([make_session_iterator/0, session_iterator_next/2]).
+-export([make_session_iterator/0, session_iterator_next/2]).
 %% -export([make_subscription_iterator/0, subscription_iterator_next/2]).
 
 -export_type([
@@ -166,6 +166,7 @@
 
 -spec open_db(emqx_ds:create_db_opts()) -> ok.
 open_db(Config) ->
+    %% FIXME: don't hardcode
     Storage =
         {emqx_ds_storage_skipstream_lts_v2, #{
             lts_threshold_spec => {mf, emqx_persistent_session_ds_state_v2, lts_threshold_cb}
@@ -175,6 +176,7 @@ open_db(Config) ->
         atomic_batches => true,
         append_only => false,
         store_ttv => true,
+        replication_options => #{},
         storage => Storage
     }).
 
@@ -636,22 +638,17 @@ n_awaiting_rel(Rec) ->
 
 %%
 
-%% -spec make_session_iterator() -> session_iterator().
-%% make_session_iterator() ->
-%%     emqx_persistent_session_ds_state_v2:session_iterator().
+-spec make_session_iterator() -> session_iterator().
+make_session_iterator() ->
+    emqx_persistent_session_ds_state_v2:make_session_iterator(generation()).
 
 %% make_subscription_iterator() ->
 %%     emqx_persistent_session_ds_state_v2:subscription_iterator().
 
-%% -spec session_iterator_next(session_iterator(), pos_integer()) ->
-%%     {[{emqx_persistent_session_ds:id(), metadata()}], session_iterator() | '$end_of_table'}.
-%% session_iterator_next(It0, N) ->
-%%     case emqx_utils_stream:consume(N, It0) of
-%%         {Data, It} ->
-%%             {Data, It};
-%%         Data when is_list(Data) ->
-%%             {Data, '$end_of_table'}
-%%     end.
+-spec session_iterator_next(session_iterator(), pos_integer()) ->
+    {[{emqx_persistent_session_ds:id(), metadata()}], session_iterator() | '$end_of_table'}.
+session_iterator_next(It0, N) ->
+    emqx_persistent_session_ds_state_v2:session_iterator_next(generation(), It0, N).
 
 %% subscription_iterator_next(It0, N) ->
 %%     case emqx_utils_stream:consume(N, It0) of

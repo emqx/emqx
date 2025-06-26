@@ -37,10 +37,13 @@
     set_offline_info/3,
 
     lts_threshold_cb/2,
-    pmap_topic/4
+    pmap_topic/4,
+
+    make_session_iterator/1
+    %% session_iterator_next/3
 ]).
 
--export_type([]).
+-export_type([session_iterator/0]).
 
 %% FIXME: rebar idiocy
 -compile(nowarn_export_all).
@@ -73,6 +76,8 @@
 -define(top_stream, <<"st">>).
 -define(top_rank, <<"rnk">>).
 -define(top_awaiting_rel, <<"arl">>).
+
+-type session_iterator() :: emqx_ds:multi_iterator().
 
 %%================================================================================
 %% API functions
@@ -300,6 +305,10 @@ lts_threshold_cb(3, Parent) when
     0;
 lts_threshold_cb(_, _) ->
     infinity.
+
+-spec make_session_iterator(emqx_ds:generation()) -> session_iterator().
+make_session_iterator(Generation) ->
+    emqx_ds:make_multi_iterator(?DB, [?top_guard, '+'], #{generation => Generation}).
 
 %%================================================================================
 %% Internal functions
