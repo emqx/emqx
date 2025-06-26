@@ -158,6 +158,7 @@ common_compile_opts(Vsn) ->
         {d, 'EMQX_RELEASE_EDITION', ee}
     ] ++
         [{d, 'EMQX_BENCHMARK'} || os:getenv("EMQX_BENCHMARK") =:= "1"] ++
+        [{d, 'EMQX_BROKER_INSTR'} || os:getenv("EMQX_BROKER_INSTR") =:= "1"] ++
         [{d, 'STORE_STATE_IN_DS'} || os:getenv("STORE_STATE_IN_DS") =:= "1"] ++
         [{d, 'EMQX_FLAVOR', get_emqx_flavor()}] ++
         [{d, 'BUILD_WITHOUT_QUIC'} || not is_quicer_supported()].

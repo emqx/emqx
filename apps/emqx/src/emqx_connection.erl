@@ -16,6 +16,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_external_trace.hrl").
+-include("emqx_instr.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -555,6 +556,7 @@ handle_msg(
     Deliver = {deliver, _Topic, _Msg},
     #state{listener = {Type, Listener}} = State
 ) ->
+    ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
     ActiveN = get_active_n(Type, Listener),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
@@ -930,7 +932,13 @@ send(IoData, #state{transport = Transport, socket = Socket} = State) ->
             %% async_send, sent/1 should technically be called when
             %% {quic, send_complete, _Stream, true | false} is received,
             %% but it is handled early for simplicity
-            sent(State);
+            Ok = sent(State),
+            ?BROKER_INSTR_WMARK(t0_deliver, {T0, TDeliver} when is_integer(T0), begin
+                TSent = ?BROKER_INSTR_TS(),
+                ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_delay_us, ?US(TDeliver - T0)),
+                ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
+            end),
+            Ok;
         Error = {error, _Reason} ->
             %% Defer error handling
             %% so it's handled the same as tcp_closed or ssl_closed
