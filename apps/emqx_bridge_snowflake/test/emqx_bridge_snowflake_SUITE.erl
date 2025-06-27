@@ -25,13 +25,16 @@
 %%------------------------------------------------------------------------------
 
 -define(CONN_MOD, emqx_bridge_snowflake_connector).
+-define(CHAN_CLIENT_MOD, emqx_bridge_snowflake_channel_client).
 
 -define(DATABASE, <<"testdatabase">>).
 -define(SCHEMA, <<"public">>).
 -define(STAGE, <<"teststage0">>).
 -define(TABLE, <<"test0">>).
+-define(TABLE_STREAMING, <<"emqx">>).
 -define(WAREHOUSE, <<"testwarehouse">>).
 -define(PIPE, <<"testpipe0">>).
+-define(PIPE_STREAMING, <<"emqxstreaming">>).
 -define(PIPE_USER, <<"snowpipeuser">>).
 -define(PIPE_USER_RO, <<"snowpipe_ro_user">>).
 
@@ -49,12 +52,32 @@
     ?tp(notice, MSG, #{})
 end).
 
+-define(batching, batching).
+-define(not_batching, not_batching).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    All0 = emqx_common_test_helpers:all(?MODULE),
+    All = All0 -- matrix_cases(),
+    Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
+    Groups ++ All.
+
+matrix_cases() ->
+    lists:filter(
+        fun
+            ({testcase, TestCase, _Opts}) ->
+                get_tc_prop(TestCase, matrix, false);
+            (TestCase) ->
+                get_tc_prop(TestCase, matrix, false)
+        end,
+        emqx_common_test_helpers:all(?MODULE)
+    ).
+
+groups() ->
+    emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
 
 init_per_suite(Config) ->
     case os:getenv("SNOWFLAKE_ACCOUNT_ID", "") of
@@ -113,7 +136,13 @@ init_per_testcase(TestCase, Config0) ->
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     Name = <<(atom_to_binary(TestCase))/binary, UniqueNum/binary>>,
     ConnectorConfig = connector_config(Name, AccountId, Server, Username, Password),
-    ActionConfig0 = aggregated_action_config(#{connector => Name}),
+    ActionConfig0 =
+        case action_mode(Config0) of
+            ?aggregated ->
+                aggregated_action_config(#{connector => Name}, Config0);
+            ?streaming ->
+                streaming_action_config(#{connector => Name}, Config0)
+        end,
     ActionConfig = emqx_bridge_v2_testlib:parse_and_check(?ACTION_TYPE_BIN, Name, ActionConfig0),
     ExtraConfig0 = maybe_mock_snowflake(Config0),
     ConnPid = new_odbc_client(Config0),
@@ -130,6 +159,8 @@ init_per_testcase(TestCase, Config0) ->
                 {odbc_client, ConnPid}
                 | Config0
             ],
+    ok = clear_stage(Config),
+    ok = truncate_table(Config),
     case erlang:function_exported(?MODULE, TestCase, 2) of
         true ->
             ?MODULE:TestCase(init, Config);
@@ -158,6 +189,36 @@ timetrap(Config) ->
             {seconds, 150}
     end.
 
+group_path(Config, Default) ->
+    case emqx_common_test_helpers:group_path(Config) of
+        [] -> Default;
+        Path -> Path
+    end.
+
+get_tc_prop(TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(?MODULE, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
+        Val
+    else
+        _ -> Default
+    end.
+
+get_matrix_prop(TCConfig, Alternatives, Default) ->
+    GroupPath = group_path(TCConfig, [Default]),
+    case lists:filter(fun(G) -> lists:member(G, Alternatives) end, GroupPath) of
+        [] ->
+            Default;
+        [Opt] ->
+            Opt
+    end.
+
+action_mode(TCConfig) ->
+    get_matrix_prop(TCConfig, [?aggregated, ?streaming], ?aggregated).
+
+is_batching(TCConfig) ->
+    get_matrix_prop(TCConfig, [?not_batching, ?batching], ?batching).
+
 maybe_mock_snowflake(Config) when is_list(Config) ->
     maybe_mock_snowflake(maps:from_list(Config));
 maybe_mock_snowflake(#{mock := true}) ->
@@ -169,6 +230,7 @@ mock_snowflake() ->
     TId = ets:new(snowflake, [public, ordered_set]),
     Mod = ?CONN_MOD,
     ok = meck:new(Mod, [passthrough, no_history]),
+    ok = meck:new(?CHAN_CLIENT_MOD, [passthrough, no_history]),
     on_exit(fun() -> meck:unload() end),
     meck:expect(Mod, connect, fun(_Opts) -> spawn_dummy_connection_pid() end),
     meck:expect(Mod, disconnect, fun(_ConnPid) -> ok end),
@@ -225,7 +287,66 @@ mock_snowflake() ->
         ?tp("mock_snowflake_insert_file_request", #{}),
         {ok, 200, Headers, Body}
     end),
+    {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/", server_ssl_opts()),
+    on_exit(fun() -> persistent_term:erase({emqx_bridge_snowflake_connector, streaming_port}) end),
+    persistent_term:put({emqx_bridge_snowflake_connector, streaming_port}, Port),
+    meck:expect(Mod, do_get_streaming_hostname, fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
+        Headers = [],
+        Body = <<"127.0.0.1">>,
+        ?tp("mock_snowflake_get_streaming_hostname", #{}),
+        {ok, 200, Headers, Body}
+    end),
+    meck:expect(?CHAN_CLIENT_MOD, do_open_channel, fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
+        Headers = [],
+        Body = emqx_utils_json:encode(#{<<"next_continuation_token">> => <<"0_1">>}),
+        ?tp("mock_snowflake_open_channel", #{}),
+        {ok, 200, Headers, Body}
+    end),
+    meck:expect(?CHAN_CLIENT_MOD, do_append_rows, fun(_HTTPPool, Req, _RequestTTL, _MaxRetries) ->
+        {_, _, BodyRaw} = Req,
+        Records = emqx_connector_aggreg_json_lines_test_utils:decode(iolist_to_binary(BodyRaw)),
+        Rows = lists:map(fun streaming_record_to_mocked_row/1, Records),
+        ets:insert(TId, {erlang:monotonic_time(), Rows}),
+        Headers = [],
+        Body = emqx_utils_json:encode(#{<<"next_continuation_token">> => <<"1_1">>}),
+        ?tp("mock_snowflake_append_rows", #{}),
+        {ok, 200, Headers, Body}
+    end),
     [{mocked_table, TId}].
+
+generate_dummy_jwt() ->
+    NowS = erlang:system_time(second),
+    Exp = erlang:convert_time_unit(timer:hours(1), millisecond, second),
+    ExpTime = NowS + Exp,
+    Key = crypto:strong_rand_bytes(32),
+    JWK = #{
+        <<"kty">> => <<"oct">>,
+        <<"k">> => jose_base64url:encode(Key)
+    },
+    JWS = #{
+        <<"alg">> => <<"HS256">>
+    },
+    JWT = #{
+        <<"iss">> => <<"ct">>,
+        <<"exp">> => ExpTime
+    },
+    Signed = jose_jwt:sign(JWK, JWS, JWT),
+    {_, Token} = jose_jws:compact(Signed),
+    Token.
+
+server_ssl_opts() ->
+    [
+        {keyfile, cert_path("server.key")},
+        {certfile, cert_path("server.crt")},
+        {cacertfile, cert_path("ca.crt")},
+        {verify, verify_none},
+        {versions, ['tlsv1.2', 'tlsv1.3']},
+        {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
+    ].
+
+cert_path(FileName) ->
+    Dir = code:lib_dir(emqx_auth),
+    filename:join([Dir, <<"test/data/certs">>, FileName]).
 
 csv_row_to_mocked_row(Headers, Row) ->
     maps:map(
@@ -239,6 +360,18 @@ csv_row_to_mocked_row(Headers, Row) ->
                 V
         end,
         maps:from_list(lists:zip(Headers, Row))
+    ).
+
+streaming_record_to_mocked_row(Record0) ->
+    maps:fold(
+        fun
+            (<<"payload">> = K, <<"">>, Acc) ->
+                Acc#{string:uppercase(K) => null};
+            (K, V, Acc) ->
+                Acc#{string:uppercase(K) => V}
+        end,
+        #{},
+        Record0
     ).
 
 spawn_dummy_connection_pid() ->
@@ -281,7 +414,7 @@ connector_config(Name, AccountId, Server, Username, Password) ->
         },
     emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, Name, InnerConfigMap0).
 
-aggregated_action_config(Overrides0) ->
+aggregated_action_config(Overrides0, TCConfig) ->
     Overrides = emqx_utils_maps:binary_key_map(Overrides0),
     CommonConfig =
         #{
@@ -310,22 +443,55 @@ aggregated_action_config(Overrides0) ->
                     <<"pool_size">> => 1,
                     <<"max_retries">> => 3
                 },
-            <<"resource_opts">> => #{
-                <<"batch_size">> => 10,
-                <<"batch_time">> => <<"100ms">>,
-                <<"buffer_mode">> => <<"memory_only">>,
-                <<"buffer_seg_bytes">> => <<"10MB">>,
-                <<"health_check_interval">> => <<"1s">>,
-                <<"inflight_window">> => 100,
-                <<"max_buffer_bytes">> => <<"256MB">>,
-                <<"metrics_flush_interval">> => <<"1s">>,
-                <<"query_mode">> => <<"sync">>,
-                <<"request_ttl">> => <<"15s">>,
-                <<"resume_interval">> => <<"1s">>,
-                <<"worker_pool_size">> => 1
-            }
+            <<"resource_opts">> =>
+                maps:merge(
+                    emqx_bridge_v2_testlib:common_action_resource_opts(),
+                    batch_opts(TCConfig)
+                )
         },
     emqx_utils_maps:deep_merge(CommonConfig, Overrides).
+
+streaming_action_config(Overrides0, TCConfig) ->
+    Overrides = emqx_utils_maps:binary_key_map(Overrides0),
+    CommonConfig =
+        #{
+            <<"enable">> => true,
+            <<"connector">> => <<"please override">>,
+            <<"parameters">> =>
+                #{
+                    <<"mode">> => <<"streaming">>,
+                    <<"private_key">> => private_key(),
+                    <<"database">> => ?DATABASE,
+                    <<"schema">> => ?SCHEMA,
+                    <<"pipe">> => ?PIPE_STREAMING,
+                    <<"pipe_user">> => ?PIPE_USER,
+                    <<"connect_timeout">> => <<"5s">>,
+                    <<"max_inactive">> => <<"10s">>,
+                    <<"pipelining">> => 100,
+                    <<"pool_size">> => 1,
+                    <<"max_retries">> => 3
+                },
+            <<"resource_opts">> =>
+                maps:merge(
+                    emqx_bridge_v2_testlib:common_action_resource_opts(),
+                    batch_opts(TCConfig)
+                )
+        },
+    emqx_utils_maps:deep_merge(CommonConfig, Overrides).
+
+batch_opts(TCConfig) ->
+    case is_batching(TCConfig) of
+        ?batching ->
+            #{
+                <<"batch_size">> => 10,
+                <<"batch_time">> => <<"100ms">>
+            };
+        ?not_batching ->
+            #{
+                <<"batch_size">> => 1,
+                <<"batch_time">> => <<"0ms">>
+            }
+    end.
 
 private_key() ->
     case os:getenv("SNOWFLAKE_PRIVATE_KEY") of
@@ -426,10 +592,18 @@ truncate_table(Config) ->
     #{odbc_client := ConnPid} = Config,
     SQL = str([
         <<"truncate ">>,
-        fqn(?DATABASE, ?SCHEMA, ?TABLE)
+        fqn(?DATABASE, ?SCHEMA, table_of(Config))
     ]),
     {updated, _} = sql_query(ConnPid, SQL),
     ok.
+
+table_of(#{} = TCConfig) ->
+    table_of(maps:to_list(TCConfig));
+table_of(TCConfig) ->
+    case action_mode(TCConfig) of
+        ?aggregated -> ?TABLE;
+        ?streaming -> ?TABLE_STREAMING
+    end.
 
 row_to_map(Row0, Headers) ->
     Row1 = tuple_to_list(Row0),
@@ -462,9 +636,10 @@ get_all_rows(#{mock := false} = Config) ->
         ?WAREHOUSE
     ]),
     {updated, _} = sql_query(ConnPid, SQL0),
+    Table = table_of(Config),
     SQL1 = str([
         <<"select * from ">>,
-        fqn(?DATABASE, ?SCHEMA, ?TABLE),
+        fqn(?DATABASE, ?SCHEMA, Table),
         <<" order by clientid">>
     ]),
     {selected, Headers0, Rows} = sql_query(ConnPid, SQL1),
@@ -552,8 +727,12 @@ set_max_records(TCConfig, MaxRecords) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_start_stop(Config) ->
-    ok = emqx_bridge_v2_testlib:t_start_stop(Config, "snowflake_connector_stop"),
+t_start_stop() ->
+    [{matrix, true}].
+t_start_stop(matrix) ->
+    [[?aggregated], [?streaming]];
+t_start_stop(TCConfig) when is_list(TCConfig) ->
+    ok = emqx_bridge_v2_testlib:t_start_stop(TCConfig, "snowflake_connector_stop"),
     ok.
 
 t_create_via_http(Config) ->
@@ -567,7 +746,14 @@ t_on_get_status(Config) ->
     ok.
 
 %% Happy path smoke test for aggregated mode upload.
-t_aggreg_upload(Config) ->
+t_aggreg_upload() ->
+    [{matrix, true}].
+t_aggreg_upload(matrix) ->
+    [
+        [?aggregated, ?batching],
+        [?aggregated, ?not_batching]
+    ];
+t_aggreg_upload(Config) when is_list(Config) ->
     AggregId = aggreg_id(Config),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
@@ -1132,9 +1318,31 @@ t_aggreg_failed_delivery(init, #{mock := true} = Config) ->
         >>,
         {ok, 403, Headers, Body}
     end),
-    maps:to_list(Config);
+    maps:to_list(Config#{disable_mock => fun() -> ok end});
 t_aggreg_failed_delivery(init, #{} = Config) ->
-    maps:to_list(Config).
+    %% This test doesn't quite work with real snowflake without this hack, since we check
+    %% for user permissions when adding the action.
+    {ok, Agent} = emqx_utils_agent:start_link(mock),
+    Mod = emqx_bridge_snowflake_connector,
+    on_exit(fun() -> meck:unload() end),
+    ok = meck:new(Mod, [passthrough, no_history]),
+    meck:expect(Mod, do_insert_report_request, fun(HTTPPool, Req, RequestTTL, MaxRetries) ->
+        case emqx_utils_agent:get(Agent) of
+            mock ->
+                Headers = [],
+                Body = emqx_utils_json:encode(#{}),
+                {ok, 200, Headers, Body};
+            passthrough ->
+                meck:passthrough([HTTPPool, Req, RequestTTL, MaxRetries])
+        end
+    end),
+    DisableMock = fun() ->
+        emqx_utils_agent:get_and_update(
+            Agent,
+            fun(_) -> {passthrough, passthrough} end
+        )
+    end,
+    maps:to_list(Config#{disable_mock => DisableMock}).
 t_aggreg_failed_delivery(Config) ->
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
@@ -1249,6 +1457,31 @@ t_wrong_snowpipe_user(Config) ->
 t_rule_test_trace(Config) ->
     Opts = #{},
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
+
+%% Smoke test for streaming mode.
+t_streaming() ->
+    [{matrix, true}].
+t_streaming(matrix) ->
+    [
+        [?streaming, ?batching],
+        [?streaming, ?not_batching]
+    ];
+t_streaming(TCConfig) when is_list(TCConfig) ->
+    PostPublishFn = fun(Context) ->
+        #{payload := Payload} = Context,
+        ?retry(
+            2_000,
+            10,
+            ?assertMatch(
+                [#{<<"PAYLOAD">> := Payload}],
+                get_all_rows(TCConfig)
+            )
+        )
+    end,
+    Opts = #{
+        post_publish_fn => PostPublishFn
+    },
+    emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
 
 %% Todo: test scenarios
 %% * User error in rule definition; e.g.:

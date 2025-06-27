@@ -22,7 +22,11 @@
 -type wrapped_jwk() :: fun(() -> jose_jwk:key()).
 -type jwk() :: jose_jwk:key().
 -type duration() :: non_neg_integer().
--type jwt_config() :: #{
+
+-type jwt_config() :: local_jwt_config() | external_jwt_config().
+-type local_jwt_config() :: #{
+    %% Time before expiration we consider the token already expired.
+    grace_period => non_neg_integer(),
     expiration := duration(),
     resource_id := resource_id(),
     table => ets:table(),
@@ -32,6 +36,12 @@
     aud := binary(),
     kid := binary(),
     alg := binary()
+}.
+-type external_jwt_config() :: #{
+    table => ets:table(),
+    %% Time before expiration we consider the token already expired.
+    grace_period => non_neg_integer(),
+    generate_fn := {module(), atom(), [term()]} | fun(() -> iodata())
 }.
 
 -export_type([jwt_config/0, jwt/0]).
@@ -78,7 +88,7 @@ ensure_jwt(JWTConfig) ->
             store_jwt(JWTConfig, JWT),
             JWT;
         {ok, JWT0} ->
-            case is_about_to_expire(JWT0) of
+            case is_about_to_expire(JWTConfig, JWT0) of
                 true ->
                     JWT = do_generate_jwt(JWTConfig),
                     store_jwt(JWTConfig, JWT),
@@ -93,6 +103,11 @@ ensure_jwt(JWTConfig) ->
 %%-----------------------------------------------------------------------------------------
 
 -spec do_generate_jwt(jwt_config()) -> jwt().
+do_generate_jwt(#{generate_fn := GenerateFn}) ->
+    JWT = GenerateFn(),
+    %% Assert iodata
+    _ = iolist_size(JWT),
+    JWT;
 do_generate_jwt(#{
     expiration := ExpirationMS,
     iss := Iss,
@@ -127,9 +142,10 @@ store_jwt(#{resource_id := ResourceId} = JWTConfig, JWT) ->
     ?tp(emqx_connector_jwt_token_stored, #{resource_id => ResourceId}),
     ok.
 
--spec is_about_to_expire(jwt()) -> boolean().
-is_about_to_expire(JWT) ->
+-spec is_about_to_expire(jwt_config(), jwt()) -> boolean().
+is_about_to_expire(JWTConfig, JWT) ->
+    GracePeriodS = maps:get(grace_period, JWTConfig, 5),
     #jose_jwt{fields = #{<<"exp">> := Exp}} = jose_jwt:peek(JWT),
     Now = erlang:system_time(seconds),
-    GraceExp = Exp - 5,
+    GraceExp = Exp - GracePeriodS,
     Now >= GraceExp.
