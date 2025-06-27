@@ -139,7 +139,7 @@ update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
 
 -spec update_config(module(), conf_key_path(), emqx_config:update_args(), map()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
-update_config(SchemaModule, ConfKeyPath, UpdateArgs, ClusterRpcOpts) ->
+update_config(SchemaModule, ConfKeyPath, UpdateArgs, ClusterRPCOpts) ->
     %% force convert the path to a list of atoms, as there maybe some wildcard names/ids in the path
     AtomKeyPath = [atom(Key) || Key <- ConfKeyPath],
     Namespace =
@@ -156,7 +156,7 @@ update_config(SchemaModule, ConfKeyPath, UpdateArgs, ClusterRpcOpts) ->
         conf_key_path = AtomKeyPath,
         update_args = UpdateArgs,
         namespace = Namespace,
-        cluster_rpc_opts = ClusterRpcOpts
+        cluster_rpc_opts = ClusterRPCOpts
     },
     gen_server:call(?MODULE, ConfInfo, infinity).
 
@@ -330,10 +330,10 @@ check_and_save_configs(ConfInfo, NewRawConf, OverrideConf, Opts) ->
     #conf_info{
         schema_mod = SchemaModule,
         conf_key_path = ConfKeyPath,
-        cluster_rpc_opts = ClusterRpcOpts
+        cluster_rpc_opts = ClusterRPCOpts
     } = ConfInfo,
     Schema = schema(SchemaModule, ConfKeyPath),
-    Kind = maps:get(kind, ClusterRpcOpts, ?KIND_INITIATE),
+    Kind = maps:get(kind, ClusterRPCOpts, ?KIND_INITIATE),
     {AppEnvs, NewConf} = emqx_config:check_config(Schema, NewRawConf),
     OldConf = get_root(ConfKeyPath, ConfInfo#conf_info.namespace),
     PostUpCtx = #{old_conf => OldConf, new_conf => NewConf, app_envs => AppEnvs},
@@ -450,18 +450,18 @@ apply_pre_config_update(Module, Callback, 4, #{
     conf_key_path := ConfKeyPath,
     update_req := UpdateReq,
     old_raw_conf := OldRawConf,
-    cluster_rpc_opts := ClusterRpcOpts
+    cluster_rpc_opts := ClusterRPCOpts
 }) ->
-    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ClusterRpcOpts);
+    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ClusterRPCOpts);
 apply_pre_config_update(Module, Callback, 5, #{
     conf_key_path := ConfKeyPath,
     update_req := UpdateReq,
     namespace := Namespace,
     old_raw_conf := OldRawConf,
-    cluster_rpc_opts := ClusterRpcOpts
+    cluster_rpc_opts := ClusterRPCOpts
 }) ->
     ExtraContext = #{namespace => Namespace},
-    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ClusterRpcOpts, ExtraContext);
+    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ClusterRPCOpts, ExtraContext);
 apply_pre_config_update(_Module, _Callback, false, #{
     update_req := UpdateReq,
     old_raw_conf := OldRawConf
@@ -575,24 +575,24 @@ apply_post_config_update(Module, Callback, 5, #{
 apply_post_config_update(Module, Callback, 6, #{
     conf_key_path := ConfKeyPath,
     update_req := UpdateReq,
-    cluster_rpc_opts := ClusterRpcOpts,
+    cluster_rpc_opts := ClusterRPCOpts,
     new_conf := NewConf,
     old_conf := OldConf,
     app_envs := AppEnvs
 }) ->
-    Module:Callback(ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs, ClusterRpcOpts);
+    Module:Callback(ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs, ClusterRPCOpts);
 apply_post_config_update(Module, Callback, 7, #{
     conf_key_path := ConfKeyPath,
     update_req := UpdateReq,
     namespace := Namespace,
-    cluster_rpc_opts := ClusterRpcOpts,
+    cluster_rpc_opts := ClusterRPCOpts,
     new_conf := NewConf,
     old_conf := OldConf,
     app_envs := AppEnvs
 }) ->
     ExtraContext = #{namespace => Namespace},
     Module:Callback(
-        ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs, ClusterRpcOpts, ExtraContext
+        ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs, ClusterRPCOpts, ExtraContext
     );
 apply_post_config_update(_Module, _Callback, false, _Ctx) ->
     ok.
@@ -836,7 +836,7 @@ conf_info_to_map(#conf_info{
     conf_key_path = ConfKeyPath,
     update_args = UpdateArgs,
     namespace = Namespace,
-    cluster_rpc_opts = ClusterRpcOpts,
+    cluster_rpc_opts = ClusterRPCOpts,
     handlers = Handlers
 }) ->
     #{
@@ -845,7 +845,7 @@ conf_info_to_map(#conf_info{
         update_args => UpdateArgs,
         namespace => Namespace,
         update_req => up_req(UpdateArgs),
-        cluster_rpc_opts => ClusterRpcOpts,
+        cluster_rpc_opts => ClusterRPCOpts,
         handlers => Handlers
     }.
 
