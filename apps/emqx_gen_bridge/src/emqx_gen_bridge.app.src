@@ -1,0 +1,13 @@
+{application, emqx_gen_bridge, [
+    {description, "EMQX Generic Bridge Behaviours"},
+    {vsn, "1.0.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.

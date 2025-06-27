@@ -5,7 +5,7 @@ defmodule EMQXBridgeKafka.MixProject do
   def project do
     [
       app: :emqx_bridge_kafka,
-      version: "0.1.0",
+      version: "0.5.7",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -33,6 +33,7 @@ defmodule EMQXBridgeKafka.MixProject do
       UMP.common_dep(:snappyer),
       UMP.common_dep(:erlcloud),
       UMP.common_dep(:brod_oauth),
+      UMP.common_dep(:telemetry),
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

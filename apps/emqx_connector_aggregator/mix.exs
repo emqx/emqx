@@ -5,7 +5,7 @@ defmodule EMQXConnectorAggregator.MixProject do
   def project do
     [
       app: :emqx_connector_aggregator,
-      version: "0.1.0",
+      version: "0.1.6",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -23,10 +23,10 @@ defmodule EMQXConnectorAggregator.MixProject do
 
   def deps() do
     test_deps() ++
-    [
-      {:emqx, in_umbrella: true},
-      UMP.common_dep(:gproc),
-    ]
+      [
+        {:emqx, in_umbrella: true},
+        UMP.common_dep(:gproc)
+      ]
   end
 
   defp test_deps() do

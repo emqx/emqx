@@ -5,7 +5,7 @@ defmodule EMQXBridgeHstreamdb.MixProject do
   def project do
     [
       app: :emqx_bridge_hstreamdb,
-      version: "0.1.0",
+      version: "0.2.5",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -24,7 +24,8 @@ defmodule EMQXBridgeHstreamdb.MixProject do
   def deps() do
     [
       {:hstreamdb_erl,
-       github: "hstreamdb/hstreamdb_erl", tag: "0.5.27+v0.18.1",
+       github: "hstreamdb/hstreamdb_erl",
+       tag: "0.5.27+v0.18.1",
        system_env: UMP.emqx_app_system_env()},
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},

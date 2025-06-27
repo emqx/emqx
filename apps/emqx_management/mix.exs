@@ -5,9 +5,9 @@ defmodule EMQXManagement.MixProject do
   def project do
     [
       app: :emqx_management,
-      version: "0.1.0",
+      version: "5.3.9",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
@@ -28,7 +28,9 @@ defmodule EMQXManagement.MixProject do
       {:emqx_bridge_http, in_umbrella: true},
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       {:emqx_plugins, in_umbrella: true},
-      {:emqx_ctl, in_umbrella: true}
+      {:emqx_ctl, in_umbrella: true},
+      UMP.common_dep(:minirest),
+      UMP.common_dep(:emqx_http_lib)
     ]
   end
 end

@@ -138,7 +138,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqx_connector and system_monitor
       common_dep(:epgsql),
       # in conflict by emqx and observer_cli
-      {:recon, github: "ferd/recon", tag: "2.5.6", override: true},
+      common_dep(:recon),
       common_dep(:jsx),
       # in conflict by erlavro and rocketmq
       common_dep(:jsone),
@@ -220,7 +220,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
   def common_dep(:getopt), do: {:getopt, "1.0.2", override: true}
-  def common_dep(:telemetry), do: {:telemetry, "1.3.0", override: true}
+  def common_dep(:telemetry), do: {:telemetry, "1.3.0", manager: :rebar3, override: true}
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.21.1", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.15.2-emqx-3", override: true}
@@ -276,6 +276,9 @@ defmodule EMQXUmbrella.MixProject do
       override: true,
       system_env: emqx_app_system_env()
     }
+
+  def common_dep(:recon),
+    do: {:recon, github: "ferd/recon", tag: "2.5.6", override: true}
 
   def common_dep(:ots_erl),
     do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.3", override: true}
@@ -548,6 +551,21 @@ defmodule EMQXUmbrella.MixProject do
     get_memoized(k, fn ->
       version = pkg_vsn()
       erlc_options(version)
+    end)
+  end
+
+  def strict_erlc_options() do
+    k = {__MODULE__, :strict_erlc_options}
+
+    get_memoized(k, fn ->
+      erlc_options() ++
+        [
+          :warn_unused_vars,
+          :warn_shadow_vars,
+          :warn_unused_import,
+          :warn_obsolete_guard,
+          :warnings_as_errors
+        ]
     end)
   end
 

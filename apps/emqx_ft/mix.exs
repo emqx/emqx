@@ -5,7 +5,7 @@ defmodule EMQXFt.MixProject do
   def project do
     [
       app: :emqx_ft,
-      version: "0.1.0",
+      version: "0.1.17",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -24,7 +24,8 @@ defmodule EMQXFt.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
-      {:emqx_s3, in_umbrella: true}
+      {:emqx_s3, in_umbrella: true},
+      UMP.common_dep(:gproc)
     ]
   end
 end

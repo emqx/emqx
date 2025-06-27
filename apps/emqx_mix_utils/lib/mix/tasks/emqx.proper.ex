@@ -11,7 +11,6 @@ defmodule Mix.Tasks.Emqx.Proper do
     Mix.debug(true)
     IO.inspect(args)
 
-
     Enum.each([:common_test, :eunit, :mnesia], &ECt.add_to_path_and_cache/1)
 
     ECt.ensure_whole_emqx_project_is_loaded()
@@ -25,7 +24,7 @@ defmodule Mix.Tasks.Emqx.Proper do
     # the version without the `-test` suffix.
     System.fetch_env!("PROFILE")
     |> String.replace_suffix("-test", "")
-    |> then(& System.put_env("PROFILE", &1))
+    |> then(&System.put_env("PROFILE", &1))
 
     for {mod, fun} <- discover_props() do
       Mix.shell().info("testing #{mod}:#{fun}")

@@ -9,7 +9,6 @@
         kernel,
         stdlib,
         rulesql,
-        getopt,
         uuid,
         emqx,
         emqx_utils,
