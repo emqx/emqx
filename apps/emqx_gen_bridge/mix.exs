@@ -1,10 +1,10 @@
-defmodule EMQXConnectorInfo.MixProject do
+defmodule EMQXGenBridge.MixProject do
   use Mix.Project
   alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
-      app: :emqx_connector_info,
+      app: :emqx_gen_bridge,
       version: "1.0.0",
       build_path: "../../_build",
       erlc_options: UMP.strict_erlc_options(),

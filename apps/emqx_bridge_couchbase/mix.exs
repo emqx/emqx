@@ -24,7 +24,7 @@ defmodule EMQXBridgeCouchbase.MixProject do
   def deps() do
     [
       {:emqx_resource, in_umbrella: true},
-      {:emqx_connector_info, in_umbrella: true},
+      {:emqx_gen_bridge, in_umbrella: true},
       UMP.common_dep(:ehttpc)
     ]
   end

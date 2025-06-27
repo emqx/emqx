@@ -44,7 +44,7 @@
             emqx_ds_backends,
             emqx_http_lib,
             emqx_resource,
-            emqx_connector_info,
+            emqx_gen_bridge,
             emqx_connector_jwt,
             emqx_connector,
             emqx_auth,
