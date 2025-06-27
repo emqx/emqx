@@ -23,6 +23,7 @@
     restart/2,
     start/2,
     stop/1,
+    stop/2,
     add_channel/3,
     add_channel/4,
     add_channel_async/3,

@@ -57,6 +57,7 @@
     set_resource_status_connecting/1,
     %% stop the instance
     stop/1,
+    stop/2,
     %% query the instance
     query/2,
     query/3,
@@ -450,6 +451,10 @@ restart(ResId, Opts) ->
 -spec stop(resource_id()) -> ok | {error, Reason :: term()}.
 stop(ResId) ->
     emqx_resource_manager:stop(ResId).
+
+-spec stop(resource_id(), timeout()) -> ok | {error, Reason :: term()}.
+stop(ResId, Timeout) ->
+    emqx_resource_manager:stop(ResId, Timeout).
 
 %% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
 %% process.  Avoid doing manual health checks outside tests.
