@@ -8,7 +8,7 @@ defmodule EMQXRetainer.MixProject do
       version: "5.1.2",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
-      erlc_options: [{:parse_transform} | UMP.strict_erlc_options()],
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
