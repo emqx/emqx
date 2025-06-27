@@ -55,6 +55,7 @@ defmodule Mix.Tasks.Emqx.Cover do
             ECt.warn(
               "Couldn't write annotated file for module #{mod}: #{inspect(reason, pretty: true)}"
             )
+
             []
         end
       end)
@@ -77,14 +78,15 @@ defmodule Mix.Tasks.Emqx.Cover do
 
   defp compute_coverage(mod) do
     with {:ok, result} <- :cover.analyse(mod, :coverage, :line) do
-      coverage = Enum.reduce(result, {0, 0}, fn
-        {{_, 0}, _}, acc ->
-          # line 0 is a line added by eunit and never executed so ignore it
-          acc
+      coverage =
+        Enum.reduce(result, {0, 0}, fn
+          {{_, 0}, _}, acc ->
+            # line 0 is a line added by eunit and never executed so ignore it
+            acc
 
-        {_, {covered, not_covered}}, {acc_cov, acc_not_cov} ->
-          {acc_cov + covered, acc_not_cov + not_covered}
-      end)
+          {_, {covered, not_covered}}, {acc_cov, acc_not_cov} ->
+            {acc_cov + covered, acc_not_cov + not_covered}
+        end)
 
       case coverage do
         {_, 0} -> 100

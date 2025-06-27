@@ -5,12 +5,12 @@ defmodule EMQXBridgeBigQuery.MixProject do
   def project do
     [
       app: :emqx_bridge_bigquery,
-      version: "0.1.0",
+      version: "1.0.0",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
       extra_dirs: extra_dirs(),
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
@@ -22,7 +22,7 @@ defmodule EMQXBridgeBigQuery.MixProject do
 
   def application do
     [
-      extra_applications: UMP.extra_applications(),
+      extra_applications: UMP.extra_applications()
     ]
   end
 
@@ -31,12 +31,13 @@ defmodule EMQXBridgeBigQuery.MixProject do
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector_jwt, in_umbrella: true},
       {:emqx_bridge_gcp_pubsub, in_umbrella: true},
-      UMP.common_dep(:ehttpc),
+      UMP.common_dep(:ehttpc)
     ]
   end
 
   defp extra_dirs() do
     dirs = []
+
     if UMP.test_env?() do
       ["test" | dirs]
     else
