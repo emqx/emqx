@@ -33,8 +33,8 @@
 -export([
     get_root/1,
     get_root_raw/1,
-    get_root_mnesia/2,
-    get_root_raw_mnesia/2
+    get_root_namespaced/2,
+    get_root_raw_namespaced/2
 ]).
 
 -export([get_default_value/1]).
@@ -89,18 +89,22 @@
 -export([upgrade_raw_conf/2]).
 
 %% Namespaced configs
--export([seed_defaults_for_all_roots_namespaced/2, erase_namespaced_configs/1]).
 -export([
     get_namespaced/2,
     get_namespaced/3,
     get_raw_namespaced/2,
     get_raw_namespaced/3,
-    save_configs_namespaced/5,
+    save_configs_namespaced/6,
     save_configs_namespaced_tx/5
 ]).
 
 -ifdef(TEST).
 -export([erase_all/0, backup_and_write/2, cluster_hocon_file/0, base_hocon_file/0]).
+-export([
+    seed_defaults_for_all_roots_namespaced/2,
+    seed_defaults_for_all_roots_namespaced/3,
+    erase_namespaced_configs/1
+]).
 -endif.
 
 -include("logger.hrl").
@@ -187,22 +191,22 @@ create_tables() ->
 get_root([RootName | _]) ->
     #{RootName => do_get(?CONF, [RootName], #{})}.
 
-get_root_mnesia([RootName | _], Namespace) ->
-    #{bin(RootName) => do_get(?NS_CONF(Namespace), [RootName], #{})}.
+get_root_namespaced([RootName | _], Namespace) ->
+    #{RootName => do_get(?NS_CONF(Namespace), [RootName], #{})}.
 
 %% @doc For the given path, get raw root value enclosed in a single-key map.
 %% key is ensured to be binary.
 get_root_raw([RootName | _]) ->
     #{bin(RootName) => get_raw([RootName], #{})}.
 
-get_root_raw_mnesia([RootName | _], Namespace) ->
+get_root_raw_namespaced([RootName | _], Namespace) ->
     #{bin(RootName) => do_get_raw_namespaced([RootName], Namespace, {value, #{}})}.
 
 do_get_raw_namespaced([Root | KeyRest] = KeyPath, Namespace, DefaultAction) ->
     RootBin = bin(Root),
     case mnesia:dirty_read(?CONFIG_TAB, {Namespace, RootBin}) of
         [#?CONFIG_TAB{raw_value = #{} = RawConfig}] when DefaultAction == error ->
-            deep_get_mnesia(RootBin, KeyRest, RawConfig);
+            deep_get_namespaced(RootBin, KeyRest, RawConfig);
         [#?CONFIG_TAB{raw_value = #{} = RawConfig}] ->
             {value, Default} = DefaultAction,
             emqx_utils_maps:deep_get(KeyRest, RawConfig, Default);
@@ -215,7 +219,7 @@ do_get_raw_namespaced([Root | KeyRest] = KeyPath, Namespace, DefaultAction) ->
             end
     end.
 
-deep_get_mnesia(Root, KeyPath, Config) ->
+deep_get_namespaced(Root, KeyPath, Config) ->
     try
         emqx_utils_maps:deep_get(KeyPath, Config)
     catch
@@ -431,6 +435,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     save_to_app_env(AppEnvs),
     ok = save_to_config_map(CheckedConf, RawConf3),
     maybe_init_default_zone(),
+    load_namespaced_config(SchemaMod),
     ok.
 
 upgrade_raw_conf(SchemaMod, RawConf) ->
@@ -480,12 +485,18 @@ fill_defaults_for_all_roots(SchemaMod, RawConf0) ->
     ),
     fill_defaults(RawConf).
 
+-ifdef(TEST).
 seed_defaults_for_all_roots_namespaced(SchemaMod, Namespace) when is_binary(Namespace) ->
+    seed_defaults_for_all_roots_namespaced(SchemaMod, Namespace, _ClusterRPCOpts = #{}).
+
+seed_defaults_for_all_roots_namespaced(SchemaMod, Namespace, _ClusterRPCOpts) when
+    is_binary(Namespace)
+->
     RootSchemas = hocon_schema:roots(SchemaMod),
-    AllowedMnesiaRoots = mnesia_config_allowed_roots(),
+    AllowedNSRoots = namespaced_config_allowed_roots(),
     RawConf0 = lists:foldl(
         fun({BinRootName, {_RootName, Schema}}, Acc) ->
-            case maps:get(BinRootName, AllowedMnesiaRoots, false) of
+            case maps:get(BinRootName, AllowedNSRoots, false) of
                 true ->
                     Acc#{BinRootName => seed_default(Schema)};
                 false ->
@@ -531,6 +542,29 @@ erase_namespaced_configs(Namespace) when is_binary(Namespace) ->
         get_root_names()
     ),
     ok.
+-endif.
+
+load_namespaced_config(SchemaMod) ->
+    %% Ensure tables are ready when loading.
+    _ = emqx_config:create_tables(),
+    AllowedNSRoots = maps:keys(namespaced_config_allowed_roots()),
+    lists:foreach(
+        fun({Namespace, RootKeyBin} = Key) ->
+            [#?CONFIG_TAB{raw_value = RawConf0}] = mnesia:dirty_read(?CONFIG_TAB, Key),
+            RootKeyAtom = atom(RootKeyBin),
+            RawConf = #{RootKeyBin => RawConf0},
+            CheckedConf =
+                case check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) of
+                    #{RootKeyAtom := CheckedConf0} ->
+                        CheckedConf0;
+                    #{} ->
+                        #{}
+                end,
+            put_namespaced(Namespace, [RootKeyAtom], CheckedConf),
+            ok
+        end,
+        mnesia:dirty_all_keys(?CONFIG_TAB)
+    ).
 
 %% So far, this can only return true when testing.
 %% e.g. when testing an app, we need to load its config first
@@ -622,6 +656,11 @@ do_check_config(SchemaMod, RawConf, Opts0) ->
     {AppEnvs, CheckedConf} =
         hocon_tconf:map_translate(SchemaMod, RawConf, Opts),
     {AppEnvs, unsafe_atom_checked_hocon_key_map(CheckedConf)}.
+
+check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) ->
+    Opts = #{return_plain => true, format => map, required => false},
+    CheckedConf = hocon_tconf:check_plain(SchemaMod, RawConf, Opts, AllowedNSRoots),
+    unsafe_atom_checked_hocon_key_map(CheckedConf).
 
 fill_defaults(RawConf) ->
     fill_defaults(RawConf, #{}).
@@ -723,8 +762,8 @@ save_schema_mod_and_names(SchemaMod) ->
         names => lists:usort(OldNames ++ RootNames)
     }).
 
-mnesia_config_allowed_roots() ->
-    Roots = emqx_schema_hooks:list_injection_point('config.allowed_mnesia_roots', []),
+namespaced_config_allowed_roots() ->
+    Roots = emqx_schema_hooks:list_injection_point('config.allowed_namespaced_roots', []),
     maps:from_keys(Roots, true).
 
 -ifdef(TEST).
@@ -774,11 +813,18 @@ save_configs(AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
     save_to_app_env(AppEnvs),
     save_to_config_map(Conf, RawConf).
 
-save_configs_namespaced(Namespace, RootKey, Conf, RawConf, Opts) when is_binary(Namespace) ->
+save_configs_namespaced(Namespace, RootKey, Conf, RawConf, ClusterRPCOpts, Opts) when
+    is_binary(Namespace)
+->
     RootKeyBin = bin(RootKey),
-    {atomic, ok} = mria:transaction(?COMMON_SHARD, fun() ->
-        ?MODULE:save_configs_namespaced_tx(Namespace, RootKeyBin, Conf, RawConf, Opts)
-    end),
+    maybe
+        ?KIND_INITIATE ?= maps:get(kind, ClusterRPCOpts, ?KIND_INITIATE),
+        ?tp("emqx_config_save_configs_namespaced_transaction", #{}),
+        {atomic, ok} = mria:transaction(?COMMON_SHARD, fun() ->
+            ?MODULE:save_configs_namespaced_tx(Namespace, RootKeyBin, Conf, RawConf, Opts)
+        end),
+        ok
+    end,
     put_namespaced(Namespace, #{RootKey => Conf}),
     ok.
 

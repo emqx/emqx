@@ -372,7 +372,10 @@ post_update_ok(
     #conf_info{conf_key_path = [RootKeyAtom | _]} = ConfInfo,
     NewConf = maps:get(RootKeyAtom, NewConf0),
     NewRawConf = maps:get(bin(RootKeyAtom), NewRawConf0),
-    ok = emqx_config:save_configs_namespaced(Namespace, RootKeyAtom, NewConf, NewRawConf, Opts),
+    ClusterRPCOpts = ConfInfo#conf_info.cluster_rpc_opts,
+    ok = emqx_config:save_configs_namespaced(
+        Namespace, RootKeyAtom, NewConf, NewRawConf, ClusterRPCOpts, Opts
+    ),
     Result1 = return_change_result(ConfInfo),
     {ok, Result1#{post_config_update => Result0}}.
 
@@ -704,7 +707,9 @@ return_change_result(
     case Req =/= ?TOMBSTONE_CONFIG_CHANGE_REQ of
         true ->
             #{
-                config => config_get(ConfKeyPath, ConfInfo#conf_info.namespace, undefined),
+                config => config_get(
+                    ConfKeyPath, ConfInfo#conf_info.namespace, _Default = undefined
+                ),
                 raw_config => return_rawconf(ConfKeyPath, ConfInfo#conf_info.namespace, Opts)
             };
         false ->
@@ -847,12 +852,12 @@ conf_info_to_map(#conf_info{
 get_root_raw(ConfKeyPath, undefined = _Namespace) ->
     emqx_config:get_root_raw(ConfKeyPath);
 get_root_raw(ConfKeyPath, Namespace) when is_binary(Namespace) ->
-    emqx_config:get_root_raw_mnesia(ConfKeyPath, Namespace).
+    emqx_config:get_root_raw_namespaced(ConfKeyPath, Namespace).
 
 get_root(ConfKeyPath, undefined = _Namespace) ->
     emqx_config:get_root(ConfKeyPath);
 get_root(ConfKeyPath, Namespace) when is_binary(Namespace) ->
-    emqx_config:get_root_mnesia(ConfKeyPath, Namespace).
+    emqx_config:get_root_namespaced(ConfKeyPath, Namespace).
 
 config_get(ConfKeyPath, undefined = _Namespace, Default) ->
     emqx_config:get(ConfKeyPath, Default);

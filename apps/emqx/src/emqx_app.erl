@@ -25,6 +25,7 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
+    _ = emqx_config:create_tables(),
     ok = maybe_load_config(),
     _ = emqx_persistent_message:init(),
     ok = maybe_start_quicer(),
@@ -33,7 +34,6 @@ start(_Type, _Args) ->
     {ok, Sup} = emqx_sup:start_link(),
     ok = emqx_limiter:init(),
     ok = maybe_start_listeners(),
-    _ = emqx_config:create_tables(),
     emqx_config:add_handlers(),
     register(emqx, self()),
     {ok, Sup}.

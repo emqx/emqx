@@ -26,15 +26,14 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(TC, Config) ->
-    TCAbsDir = filename:join(?config(priv_dir, Config), TC),
-    ok = application:set_env(emqx, data_dir, TCAbsDir),
+    WorkDir = emqx_cth_suite:work_dir(TC, Config),
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => WorkDir}),
     ok = snabbkaffe:start_trace(),
-    [{tc_name, atom_to_list(TC)}, {tc_absdir, TCAbsDir} | Config].
+    [{apps, Apps}, {tc_name, atom_to_list(TC)}, {tc_absdir, WorkDir} | Config].
 
-end_per_testcase(_TC, _Config) ->
+end_per_testcase(_TC, Config) ->
     ok = snabbkaffe:stop(),
-    _ = emqx_schema_hooks:erase_injections(),
-    _ = emqx_config:erase_all(),
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 t_no_orphans(Config) ->
@@ -155,6 +154,7 @@ t_collect_orphans(_Config) ->
     ).
 
 t_gc_runs_periodically(_Config) ->
+    ok = supervisor:terminate_child(emqx_tls_lib_sup, emqx_tls_certfile_gc),
     {ok, Pid} = emqx_tls_certfile_gc:start_link(500),
 
     % Set up two servers in the config, each with its own set of certfiles
@@ -256,6 +256,7 @@ t_gc_runs_periodically(_Config) ->
     ok = proc_lib:stop(Pid).
 
 t_gc_spares_recreated_certfiles(_Config) ->
+    ok = supervisor:terminate_child(emqx_tls_lib_sup, emqx_tls_certfile_gc),
     {ok, Pid} = emqx_tls_certfile_gc:start_link(),
 
     % Create two sets of certfiles, with no references to them
@@ -304,6 +305,7 @@ t_gc_spares_recreated_certfiles(_Config) ->
     ok = proc_lib:stop(Pid).
 
 t_gc_spares_symlinked_datadir(Config) ->
+    ok = supervisor:terminate_child(emqx_tls_lib_sup, emqx_tls_certfile_gc),
     {ok, Pid} = emqx_tls_certfile_gc:start_link(),
 
     % Create a certfiles set and a server that references it
@@ -358,18 +360,10 @@ t_gc_spares_symlinked_datadir(Config) ->
     ok = proc_lib:stop(Pid).
 
 t_gc_active(Config) ->
-    Apps = emqx_cth_suite:start(
-        [emqx],
-        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
-    ),
-    try
-        ?assertEqual(
-            {ok, []},
-            emqx_tls_certfile_gc:run()
-        )
-    after
-        emqx_cth_suite:stop(Apps)
-    end.
+    ?assertEqual(
+        {ok, []},
+        emqx_tls_certfile_gc:run()
+    ).
 
 orphans() ->
     emqx_tls_certfile_gc:orphans(emqx:mutable_certs_dir()).
