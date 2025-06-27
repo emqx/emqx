@@ -109,6 +109,8 @@
 
 -export([capture_io_format/1]).
 
+-export([seed_defaults_for_all_roots_namespaced_cluster/2]).
+
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 
 -define(MQTT_SSL_CLIENT_CERTS, [
@@ -1608,3 +1610,10 @@ format_io_requests(IoRequests) ->
 %% In standalone tests, other applications such as `emqx_conf` are not available.
 is_standalone_test() ->
     not emqx_common_test_helpers:ensure_loaded(emqx_conf).
+
+seed_defaults_for_all_roots_namespaced_cluster(SchemaMod, Namespace) ->
+    emqx_cluster_rpc:multicall(
+        emqx_config,
+        seed_defaults_for_all_roots_namespaced,
+        [SchemaMod, Namespace]
+    ).

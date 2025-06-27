@@ -26,6 +26,8 @@
 
 -define(pre_post_table, pre_post_table).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -73,7 +75,7 @@ end_per_testcase(_Case, _Config) ->
 
 injected_fields() ->
     #{
-        'config.allowed_mnesia_roots' => [<<"sysmon">>]
+        'config.allowed_namespaced_roots' => [<<"sysmon">>]
     }.
 
 update_config_opts(TCConfig) ->
