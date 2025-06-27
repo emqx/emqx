@@ -6,7 +6,7 @@ defmodule EMQXUtils.MixProject do
   def project do
     [
       app: :emqx_utils,
-      version: "0.1.0",
+      version: "5.5.2",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: ["etc" | UMP.erlc_paths()],

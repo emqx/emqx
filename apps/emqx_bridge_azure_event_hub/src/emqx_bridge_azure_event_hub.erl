@@ -469,8 +469,7 @@ override_documentations(Fields) ->
         fun({Name, Sc}) ->
             case hocon_schema:field_schema(Sc, desc) of
                 ?DESC(emqx_bridge_kafka, Key) ->
-                    %% to please dialyzer...
-                    Override = #{type => hocon_schema:field_schema(Sc, type), desc => ?DESC(Key)},
+                    Override = #{desc => ?DESC(Key)},
                     {Name, hocon_schema:override(Sc, Override)};
                 _ ->
                     {Name, Sc}

@@ -5,9 +5,9 @@ defmodule EMQXPrometheus.MixProject do
   def project do
     [
       app: :emqx_prometheus,
-      version: "0.1.0",
+      version: "5.2.11",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
@@ -26,6 +26,7 @@ defmodule EMQXPrometheus.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_auth, in_umbrella: true},
+      {:emqx_management, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
       {:emqx_durable_storage, in_umbrella: true},
       {:prometheus, git: "https://github.com/emqx/prometheus.erl", tag: "v4.10.0.2"}

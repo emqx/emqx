@@ -5,7 +5,7 @@ defmodule EMQXConnector.MixProject do
   def project do
     [
       app: :emqx_connector,
-      version: "0.1.0",
+      version: "0.3.9",
       build_path: "../../_build",
       # erlc_options: [
       #   # config_path: "../../config/config.exs",
@@ -32,12 +32,14 @@ defmodule EMQXConnector.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
+      {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_connector_jwt, in_umbrella: true},
       UMP.common_dep(:jose),
       UMP.common_dep(:ecpool),
       UMP.common_dep(:ehttpc),
-      UMP.common_dep(:emqtt),
+      UMP.common_dep(:emqtt)
     ]
   end
 end

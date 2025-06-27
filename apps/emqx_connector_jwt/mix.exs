@@ -5,7 +5,7 @@ defmodule EMQXConnectorJWT.MixProject do
   def project do
     [
       app: :emqx_connector_jwt,
-      version: "0.1.0",
+      version: "0.1.2",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -28,7 +28,7 @@ defmodule EMQXConnectorJWT.MixProject do
   def deps() do
     [
       {:emqx_resource, in_umbrella: true},
-      UMP.common_dep(:jose),
+      UMP.common_dep(:jose)
     ]
   end
 end

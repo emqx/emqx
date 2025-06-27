@@ -36,6 +36,7 @@ jobs:
         run: mix deps.tree
       - run: ./scripts/check-elixir-deps-discrepancies.exs
       - run: ./scripts/check-elixir-applications.exs
+      - run: ./scripts/check-mix-exs-discrepancies.exs --check
       - name: Upload produced lock files
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()

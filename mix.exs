@@ -27,6 +27,8 @@ defmodule EMQXUmbrella.MixProject do
       tarball along with the release.
   """
 
+  @ignore_xref __MODULE__
+
   # TODO: remove once we switch to the new mix build
   def new_mix_build?() do
     System.get_env("NEW_MIX_BUILD") == "1"
@@ -136,7 +138,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqx_connector and system_monitor
       common_dep(:epgsql),
       # in conflict by emqx and observer_cli
-      {:recon, github: "ferd/recon", tag: "2.5.6", override: true},
+      common_dep(:recon),
       common_dep(:jsx),
       # in conflict by erlavro and rocketmq
       common_dep(:jsone),
@@ -189,7 +191,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.0", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.14.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.3", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.4", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.4", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, "2.1.0", override: true}
@@ -218,7 +220,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
   def common_dep(:getopt), do: {:getopt, "1.0.2", override: true}
-  def common_dep(:telemetry), do: {:telemetry, "1.3.0", override: true}
+  def common_dep(:telemetry), do: {:telemetry, "1.3.0", manager: :rebar3, override: true}
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.21.1", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.15.2-emqx-3", override: true}
@@ -274,6 +276,9 @@ defmodule EMQXUmbrella.MixProject do
       override: true,
       system_env: emqx_app_system_env()
     }
+
+  def common_dep(:recon),
+    do: {:recon, github: "ferd/recon", tag: "2.5.6", override: true}
 
   def common_dep(:ots_erl),
     do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.3", override: true}
@@ -546,6 +551,21 @@ defmodule EMQXUmbrella.MixProject do
     get_memoized(k, fn ->
       version = pkg_vsn()
       erlc_options(version)
+    end)
+  end
+
+  def strict_erlc_options() do
+    k = {__MODULE__, :strict_erlc_options}
+
+    get_memoized(k, fn ->
+      erlc_options() ++
+        [
+          :warn_unused_vars,
+          :warn_shadow_vars,
+          :warn_unused_import,
+          :warn_obsolete_guard,
+          :warnings_as_errors
+        ]
     end)
   end
 
@@ -1058,6 +1078,57 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   #############################################################################
+  #  Checks
+  #############################################################################
+
+  @doc """
+  Equivalent to rebar3's `{xref_queries, _}`.
+  """
+  def xref_queries() do
+    [
+      {"E || \"mnesia\":\"dirty_delete.*\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"transaction\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"async_dirty\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"clear_table\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"create_table\"/\".*\" : Fun", []},
+      {"E || \"mnesia\":\"delete_table\"/\".*\" : Fun", []}
+    ]
+  end
+
+  @doc """
+  Modules that should not be checked by dialyzer.
+  """
+  def dialyzer_excluded_mods() do
+    [
+      :emqx_exproto_v_1_connection_unary_handler_bhvr,
+      :emqx_exproto_v_1_connection_handler_client,
+      :emqx_exproto_v_1_connection_handler_bhvr,
+      :emqx_exproto_v_1_connection_adapter_client,
+      :emqx_exproto_v_1_connection_adapter_bhvr,
+      :emqx_exproto_v_1_connection_unary_handler_client,
+      :emqx_exhook_v_2_hook_provider_client,
+      :emqx_exhook_v_2_hook_provider_bhvr
+    ]
+  end
+
+  @doc """
+  Warnings such as "Expression produces a value of type bitstring(), but this value is
+  unmatched" are not generated for these modules.
+  They are still considered by dialyzer when referenced by other (checked) modules.
+  """
+  def dialyzer_excluded_mods_from_warnings() do
+    [
+      :DurableMessage,
+      :DSBuiltinMetadata,
+      :DSBuiltinSLReference,
+      :DSBuiltinSLSkipstreamV1,
+      :DSBuiltinSLSkipstreamV2,
+      :DSBuiltinStorageLayer,
+      :DSMetadataCommon
+    ]
+  end
+
+  #############################################################################
   #  Helper functions
   #############################################################################
 
@@ -1294,6 +1365,7 @@ defmodule EMQXUmbrella.MixProject do
   defp aliases() do
     [
       ct: &do_ct/1,
+      xref: &do_xref/1,
       cover: &do_cover/1,
       eunit: &do_eunit/1,
       proper: &do_proper/1,
@@ -1327,6 +1399,10 @@ defmodule EMQXUmbrella.MixProject do
     ensure_test_mix_env!()
     set_test_env!(true)
     Mix.Task.run("emqx.proper", args)
+  end
+
+  defp do_xref(args) do
+    Mix.Task.run("emqx.xref", args)
   end
 
   defp do_dialyzer(args) do

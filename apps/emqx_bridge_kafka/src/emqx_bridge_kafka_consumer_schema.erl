@@ -62,9 +62,7 @@ fields(source_parameters) ->
     Fields = lists:map(
         fun
             ({topic_mapping = Name, Sc}) ->
-                %% to please dialyzer...
                 Override = #{
-                    type => hocon_schema:field_schema(Sc, type),
                     required => false,
                     default => [],
                     validator => fun legacy_consumer_topic_mapping_validator/1,
@@ -263,8 +261,6 @@ connector_config_fields() ->
                 %% This field was accidentally added to the consumer schema because it was
                 %% added to the shared, v1 field in the shared schema module.
                 Override = #{
-                    %% to please dialyzer...
-                    type => hocon_schema:field_schema(Sc, type),
                     deprecated => {since, "5.9.0"},
                     importance => ?IMPORTANCE_HIDDEN
                 },

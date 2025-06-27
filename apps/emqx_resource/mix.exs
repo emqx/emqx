@@ -5,7 +5,7 @@ defmodule EMQXResource.MixProject do
   def project do
     [
       app: :emqx_resource,
-      version: "0.1.0",
+      version: "0.2.1",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),
@@ -30,6 +30,7 @@ defmodule EMQXResource.MixProject do
       UMP.common_dep(:gproc),
       UMP.common_dep(:telemetry),
       UMP.common_dep(:hocon),
+      UMP.common_dep(:replayq)
     ]
   end
 end
