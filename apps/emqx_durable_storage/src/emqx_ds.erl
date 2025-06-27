@@ -1140,7 +1140,7 @@ This operation is considered side effect.
 tx_ttv_assert_absent(Topic, Time) ->
     case is_topic(Topic) andalso is_integer(Time) of
         true ->
-            tx_push_op(?tx_ops_assert_absent, Topic);
+            tx_push_op(?tx_ops_assert_absent, {Topic, Time});
         false ->
             error(badarg)
     end.
