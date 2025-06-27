@@ -5,9 +5,9 @@ defmodule EMQXBridgeDiskLog.MixProject do
   def project do
     [
       app: :emqx_bridge_disk_log,
-      version: "0.1.0",
+      version: "1.0.0",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
@@ -19,7 +19,7 @@ defmodule EMQXBridgeDiskLog.MixProject do
 
   def application do
     [
-      extra_applications: UMP.extra_applications(),
+      extra_applications: UMP.extra_applications()
       # mod: {:emqx_bridge_disk_log_app, []}
     ]
   end
@@ -27,6 +27,7 @@ defmodule EMQXBridgeDiskLog.MixProject do
   def deps() do
     [
       {:emqx_resource, in_umbrella: true},
+      {:emqx_gen_bridge, in_umbrella: true}
     ]
   end
 end

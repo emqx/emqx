@@ -5,13 +5,13 @@ defmodule EMQXAuth.MixProject do
   def project do
     [
       app: :emqx_auth,
-      version: "0.1.0",
+      version: "0.4.7",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
       extra_dirs: extra_dirs(),
       # config_path: "../../config/config.exs",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
@@ -36,6 +36,7 @@ defmodule EMQXAuth.MixProject do
 
   defp extra_dirs() do
     dirs = ["etc"]
+
     if UMP.test_env?() do
       ["test" | dirs]
     else

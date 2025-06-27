@@ -5,7 +5,7 @@ defmodule EMQXPlugins.MixProject do
   def project do
     [
       app: :emqx_plugins,
-      version: "0.1.0",
+      version: "0.3.4",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -24,7 +24,7 @@ defmodule EMQXPlugins.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
-      UMP.common_dep(:erlavro),
+      UMP.common_dep(:erlavro)
     ]
   end
 end

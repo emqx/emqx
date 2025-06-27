@@ -5,7 +5,7 @@ defmodule EMQXRedis.MixProject do
   def project do
     [
       app: :emqx_redis,
-      version: "0.1.0",
+      version: "0.1.8",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -18,7 +18,7 @@ defmodule EMQXRedis.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications()]
+    [extra_applications: [:eredis | UMP.extra_applications()]]
   end
 
   def deps() do

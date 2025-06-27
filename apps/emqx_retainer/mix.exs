@@ -5,10 +5,10 @@ defmodule EMQXRetainer.MixProject do
   def project do
     [
       app: :emqx_retainer,
-      version: "0.1.0",
+      version: "5.1.2",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
@@ -26,7 +26,8 @@ defmodule EMQXRetainer.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
-      {:emqx_ctl, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true},
+      {:emqx_ctl, in_umbrella: true}
     ]
   end
 end

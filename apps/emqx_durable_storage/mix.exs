@@ -5,7 +5,7 @@ defmodule EMQXDurableStorage.MixProject do
   def project do
     [
       app: :emqx_durable_storage,
-      version: "0.1.0",
+      version: "0.5.1",
       build_path: "../../_build",
       compilers: [:yecc, :leex, :elixir, :asn1, :erlang, :app],
       erlc_options: UMP.erlc_options(),
@@ -24,8 +24,7 @@ defmodule EMQXDurableStorage.MixProject do
     "./asn.1/*.asn"
     |> Path.wildcard()
     |> Enum.map(fn src ->
-      %{src: src,
-        compile_opts: [:per, :noobj, outdir: ~c"gen_src"]}
+      %{src: src, compile_opts: [:per, :noobj, outdir: ~c"gen_src"]}
     end)
   end
 
@@ -43,7 +42,8 @@ defmodule EMQXDurableStorage.MixProject do
       {:emqx_utils, in_umbrella: true},
       UMP.common_dep(:rocksdb),
       UMP.common_dep(:gproc),
-      UMP.common_dep(:ra),
+      UMP.common_dep(:gen_rpc),
+      UMP.common_dep(:ra)
     ]
   end
 end

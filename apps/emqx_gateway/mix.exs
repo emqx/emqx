@@ -5,7 +5,7 @@ defmodule EMQXGateway.MixProject do
   def project do
     [
       app: :emqx_gateway,
-      version: "0.1.0",
+      version: "0.2.6",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
@@ -21,7 +21,20 @@ defmodule EMQXGateway.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_gateway_app, []}]
+    [
+      extra_applications: [
+        :emqx_auth_http,
+        :emqx_auth_jwt,
+        :emqx_auth_ldap,
+        :emqx_auth_mnesia,
+        :emqx_auth_mongodb,
+        :emqx_auth_mysql,
+        :emqx_auth_postgresql,
+        :emqx_auth_redis
+        | UMP.extra_applications()
+      ],
+      mod: {:emqx_gateway_app, []}
+    ]
   end
 
   def deps() do
@@ -36,6 +49,7 @@ defmodule EMQXGateway.MixProject do
 
   defp extra_dirs() do
     dirs = []
+
     if UMP.test_env?() do
       ["test" | dirs]
     else

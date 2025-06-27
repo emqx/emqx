@@ -5,7 +5,7 @@ defmodule EMQXBridgeMQTT.MixProject do
   def project do
     [
       app: :emqx_bridge_mqtt,
-      version: "0.1.0",
+      version: "0.2.11",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),
@@ -26,8 +26,9 @@ defmodule EMQXBridgeMQTT.MixProject do
   def deps() do
     [
       {:emqx, in_umbrella: true},
+      {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      UMP.common_dep(:emqtt),
+      UMP.common_dep(:emqtt)
     ]
   end
 end

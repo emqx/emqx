@@ -5,7 +5,7 @@ defmodule EMQXMachine.MixProject do
   def project do
     [
       app: :emqx_machine,
-      version: "0.1.0",
+      version: "0.4.2",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),
@@ -23,18 +23,20 @@ defmodule EMQXMachine.MixProject do
     [
       extra_applications: UMP.extra_applications(),
       included_applications: [:system_monitor],
-      mod: {:emqx_machine_app, []},
+      mod: {:emqx_machine_app, []}
     ]
   end
 
   def deps() do
     [
       {:emqx, in_umbrella: true, runtime: false},
+      {:emqx_utils, in_umbrella: true, runtime: false},
+      {:emqx_ctl, in_umbrella: true},
       {:emqx_conf, in_umbrella: true, runtime: false},
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       {:emqx_management, in_umbrella: true, runtime: false},
       UMP.common_dep(:system_monitor, runtime: false),
-      UMP.common_dep(:redbug),
+      UMP.common_dep(:redbug)
     ]
   end
 end

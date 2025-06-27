@@ -5,14 +5,14 @@ defmodule EMQXGatewayExproto.MixProject do
   def project do
     [
       app: :emqx_gateway_exproto,
-      version: "0.1.0",
+      version: "0.1.17",
       build_path: "../../_build",
       compilers: [:elixir, :grpc, :erlang, :app],
       # used by our `Mix.Tasks.Compile.Grpc` compiler
       grpc_opts: %{
         gpb_opts: [
           module_name_prefix: 'emqx_',
-          module_name_suffix: '_pb',
+          module_name_suffix: '_pb'
         ],
         proto_dirs: ["priv/protos"],
         out_dir: "src"
@@ -32,13 +32,16 @@ defmodule EMQXGatewayExproto.MixProject do
   end
 
   def deps() do
-    test_deps = if UMP.test_env?(), do: [{:emqx_exhook, in_umbrella: true, runtime: false}], else: []
-    test_deps ++ [
-      {:emqx_mix_utils, in_umbrella: true, runtime: false},
-      {:emqx, in_umbrella: true},
-      {:emqx_utils, in_umbrella: true},
-      {:emqx_gateway, in_umbrella: true},
-      UMP.common_dep(:grpc)
-    ]
+    test_deps =
+      if UMP.test_env?(), do: [{:emqx_exhook, in_umbrella: true, runtime: false}], else: []
+
+    test_deps ++
+      [
+        {:emqx_mix_utils, in_umbrella: true, runtime: false},
+        {:emqx, in_umbrella: true},
+        {:emqx_utils, in_umbrella: true},
+        {:emqx_gateway, in_umbrella: true},
+        UMP.common_dep(:grpc)
+      ]
   end
 end

@@ -5,10 +5,10 @@ defmodule EMQXDashboard.MixProject do
   def project do
     [
       app: :emqx_dashboard,
-      version: "0.1.0",
+      version: "5.2.4",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: [{:d, :APPLICATION, :emqx} | UMP.strict_erlc_options()],
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
@@ -20,15 +20,16 @@ defmodule EMQXDashboard.MixProject do
 
   # Run "mix help compile.app" to learn about applications
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_dashboard_app, []}]
+    [extra_applications: [:mnesia | UMP.extra_applications()], mod: {:emqx_dashboard_app, []}]
   end
 
   def deps() do
     [
       {:pot, "1.0.2"},
       {:emqx_ctl, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true},
       {:emqx, in_umbrella: true},
-      UMP.common_dep(:minirest),
+      UMP.common_dep(:minirest)
     ]
   end
 end
