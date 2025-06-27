@@ -1336,7 +1336,6 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
             _ -> #{}
         end,
     {Streams, ShardErrors0} = get_streams(DB, TopicFilter, StartTime, GetStreamOpts),
-    ?tp(warning, "Streams", #{its => Streams}),
     ShardErrors = [{shard, Shard, Err} || {Shard, Err} <- ShardErrors0],
     %% Create iterators:
     {Iterators, MakeIteratorErrors} =
@@ -1381,12 +1380,15 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
 Create a "multi-iterator" that combines iterators from multiple
 streams. Data from the streams can be consumed using
 `multi_iterator_next/4` function. When scan reaches end of the stream,
-multi-iterator automatically switches to the next one.
+multi-iterator automatically switches to the next stream.
 
 This method of reading data frees the user from having to manage
 multiple streams and iterators at the cost of efficiency. Generally,
-multi-iterators are less efficient than subscriptions, `next/3` or
-`fold_topic/4`.
+multi-iterators are less efficient than subscriptions, regular
+iterators or `fold_topic/4`.
+
+WARNING: Multi-iterators operate on live, changing data rather than
+snapshots. Don't use this API if you need any degree of consistency.
 
 """.
 -doc #{title => <<"Utility functions">>, since => <<"6.0.0">>}.
