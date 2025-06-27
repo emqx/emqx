@@ -117,10 +117,13 @@
 -type state() :: #{handlers := handlers(), _ => _}.
 -type conf_key_path() :: emqx_utils_maps:config_key_path().
 
+-type namespace() :: binary().
+
 -record(conf_info, {
     schema_mod :: module(),
     conf_key_path :: conf_key_path(),
     update_args :: emqx_config:update_args(),
+    namespace :: undefined | namespace(),
     cluster_rpc_opts :: map(),
     handlers :: handlers() | undefined
 }).
@@ -136,14 +139,24 @@ update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
 
 -spec update_config(module(), conf_key_path(), emqx_config:update_args(), map()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
-update_config(SchemaModule, ConfKeyPath, UpdateArgs, ClusterRpcOpts) ->
+update_config(SchemaModule, ConfKeyPath, UpdateArgs, ClusterRPCOpts) ->
     %% force convert the path to a list of atoms, as there maybe some wildcard names/ids in the path
     AtomKeyPath = [atom(Key) || Key <- ConfKeyPath],
+    Namespace =
+        case UpdateArgs of
+            {_, #{namespace := Namespace0}} ->
+                %% assert
+                true = is_binary(Namespace0),
+                Namespace0;
+            _ ->
+                undefined
+        end,
     ConfInfo = #conf_info{
         schema_mod = SchemaModule,
         conf_key_path = AtomKeyPath,
         update_args = UpdateArgs,
-        cluster_rpc_opts = ClusterRpcOpts
+        namespace = Namespace,
+        cluster_rpc_opts = ClusterRPCOpts
     },
     gen_server:call(?MODULE, ConfInfo, infinity).
 
@@ -271,15 +284,17 @@ handle_update_request(ConfInfo) ->
 
 process_update_request(#conf_info{conf_key_path = [_], update_args = {remove, _Opts}}) ->
     {error, "remove_root_is_forbidden"};
-process_update_request(#conf_info{conf_key_path = ConfKeyPath, update_args = {remove, Opts}}) ->
-    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
+process_update_request(
+    #conf_info{conf_key_path = ConfKeyPath, update_args = {remove, Opts}} = ConfInfo
+) ->
+    OldRawConf = get_root_raw(ConfKeyPath, ConfInfo#conf_info.namespace),
     BinKeyPath = bin_path(ConfKeyPath),
     NewRawConf = emqx_utils_maps:deep_remove(BinKeyPath, OldRawConf),
     OverrideConf = remove_from_override_config(BinKeyPath, Opts),
     {ok, NewRawConf, OverrideConf, Opts};
 process_update_request(#conf_info{update_args = {{update, _}, Opts}} = ConfInfo) ->
     ConfKeyPath = ConfInfo#conf_info.conf_key_path,
-    OldRawConf = emqx_config:get_root_raw(ConfKeyPath),
+    OldRawConf = get_root_raw(ConfKeyPath, ConfInfo#conf_info.namespace),
     case do_update_config(ConfInfo, OldRawConf) of
         {ok, NewRawConf} ->
             OverrideConf = merge_to_override_config(NewRawConf, Opts),
@@ -315,12 +330,12 @@ check_and_save_configs(ConfInfo, NewRawConf, OverrideConf, Opts) ->
     #conf_info{
         schema_mod = SchemaModule,
         conf_key_path = ConfKeyPath,
-        cluster_rpc_opts = ClusterRpcOpts
+        cluster_rpc_opts = ClusterRPCOpts
     } = ConfInfo,
     Schema = schema(SchemaModule, ConfKeyPath),
-    Kind = maps:get(kind, ClusterRpcOpts, ?KIND_INITIATE),
+    Kind = maps:get(kind, ClusterRPCOpts, ?KIND_INITIATE),
     {AppEnvs, NewConf} = emqx_config:check_config(Schema, NewRawConf),
-    OldConf = emqx_config:get_root(ConfKeyPath),
+    OldConf = get_root(ConfKeyPath, ConfInfo#conf_info.namespace),
     PostUpCtx = #{old_conf => OldConf, new_conf => NewConf, app_envs => AppEnvs},
     case do_post_config_update(ConfInfo, PostUpCtx) of
         {ok, Result0} ->
@@ -333,8 +348,34 @@ check_and_save_configs(ConfInfo, NewRawConf, OverrideConf, Opts) ->
             Error
     end.
 
-post_update_ok(ConfInfo, AppEnvs, NewConf, NewRawConf, OverrideConf, Opts, Result0) ->
+post_update_ok(
+    #conf_info{namespace = undefined} = ConfInfo,
+    AppEnvs,
+    NewConf,
+    NewRawConf,
+    OverrideConf,
+    Opts,
+    Result0
+) ->
     ok = emqx_config:save_configs(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts),
+    Result1 = return_change_result(ConfInfo),
+    {ok, Result1#{post_config_update => Result0}};
+post_update_ok(
+    #conf_info{namespace = Namespace} = ConfInfo,
+    _AppEnvs,
+    NewConf0,
+    NewRawConf0,
+    _OverrideConf,
+    Opts,
+    Result0
+) ->
+    #conf_info{conf_key_path = [RootKeyAtom | _]} = ConfInfo,
+    NewConf = maps:get(RootKeyAtom, NewConf0),
+    NewRawConf = maps:get(bin(RootKeyAtom), NewRawConf0),
+    ClusterRPCOpts = ConfInfo#conf_info.cluster_rpc_opts,
+    ok = emqx_config:save_configs_namespaced(
+        Namespace, RootKeyAtom, NewConf, NewRawConf, ClusterRPCOpts, Opts
+    ),
     Result1 = return_change_result(ConfInfo),
     {ok, Result1#{post_config_update => Result0}}.
 
@@ -387,7 +428,7 @@ call_pre_config_update(Ctx) ->
     end.
 
 call_proper_pre_config_update(#{handlers := #{?MOD := Module}, callback := Callback} = Ctx) ->
-    Arity = get_function_arity(Module, Callback, [3, 4]),
+    Arity = get_function_arity(Module, Callback, [3, 4, 5]),
     case apply_pre_config_update(Module, Callback, Arity, Ctx) of
         ok ->
             {ok, maps:get(update_req, Ctx)};
@@ -409,9 +450,18 @@ apply_pre_config_update(Module, Callback, 4, #{
     conf_key_path := ConfKeyPath,
     update_req := UpdateReq,
     old_raw_conf := OldRawConf,
-    cluster_rpc_opts := ClusterRpcOpts
+    cluster_rpc_opts := ClusterRPCOpts
 }) ->
-    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ClusterRpcOpts);
+    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ClusterRPCOpts);
+apply_pre_config_update(Module, Callback, 5, #{
+    conf_key_path := ConfKeyPath,
+    update_req := UpdateReq,
+    namespace := Namespace,
+    old_raw_conf := OldRawConf,
+    cluster_rpc_opts := ClusterRPCOpts
+}) ->
+    ExtraContext = #{namespace => Namespace},
+    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ClusterRPCOpts, ExtraContext);
 apply_pre_config_update(_Module, _Callback, false, #{
     update_req := UpdateReq,
     old_raw_conf := OldRawConf
@@ -503,7 +553,7 @@ call_proper_post_config_update(
         result := Result
     } = Ctx
 ) ->
-    Arity = get_function_arity(Module, Callback, [5, 6]),
+    Arity = get_function_arity(Module, Callback, [5, 6, 7]),
     case apply_post_config_update(Module, Callback, Arity, Ctx) of
         ok -> {ok, Result};
         {ok, Result1} -> {ok, Result#{Module => Result1}};
@@ -525,12 +575,25 @@ apply_post_config_update(Module, Callback, 5, #{
 apply_post_config_update(Module, Callback, 6, #{
     conf_key_path := ConfKeyPath,
     update_req := UpdateReq,
-    cluster_rpc_opts := ClusterRpcOpts,
+    cluster_rpc_opts := ClusterRPCOpts,
     new_conf := NewConf,
     old_conf := OldConf,
     app_envs := AppEnvs
 }) ->
-    Module:Callback(ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs, ClusterRpcOpts);
+    Module:Callback(ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs, ClusterRPCOpts);
+apply_post_config_update(Module, Callback, 7, #{
+    conf_key_path := ConfKeyPath,
+    update_req := UpdateReq,
+    namespace := Namespace,
+    cluster_rpc_opts := ClusterRPCOpts,
+    new_conf := NewConf,
+    old_conf := OldConf,
+    app_envs := AppEnvs
+}) ->
+    ExtraContext = #{namespace => Namespace},
+    Module:Callback(
+        ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs, ClusterRPCOpts, ExtraContext
+    );
 apply_post_config_update(_Module, _Callback, false, _Ctx) ->
     ok.
 
@@ -592,6 +655,8 @@ merge_to_old_config(UpdateReq, _RawConf) ->
 
 remove_from_override_config(_BinKeyPath, #{persistent := false}) ->
     undefined;
+remove_from_override_config(_BinKeyPath, #{namespace := Ns}) when is_binary(Ns) ->
+    undefined;
 remove_from_override_config(BinKeyPath, Opts) ->
     OldConf = emqx_config:read_override_conf(Opts),
     UpgradedOldConf = upgrade_conf(OldConf),
@@ -599,6 +664,8 @@ remove_from_override_config(BinKeyPath, Opts) ->
 
 %% apply new config on top of override config
 merge_to_override_config(_RawConf, #{persistent := false}) ->
+    undefined;
+merge_to_override_config(_RawConf, #{namespace := Ns}) when is_binary(Ns) ->
     undefined;
 merge_to_override_config(RawConf, Opts) ->
     OldConf = emqx_config:read_override_conf(Opts),
@@ -634,12 +701,14 @@ try_upgrade_conf(SchemaModule, Conf) ->
 up_req({remove, _Opts}) -> '$remove';
 up_req({{update, Req}, _Opts}) -> Req.
 
-return_change_result(#conf_info{conf_key_path = ConfKeyPath, update_args = {{update, Req}, Opts}}) ->
+return_change_result(
+    #conf_info{conf_key_path = ConfKeyPath, update_args = {{update, Req}, Opts}} = ConfInfo
+) ->
     case Req =/= ?TOMBSTONE_CONFIG_CHANGE_REQ of
         true ->
             #{
-                config => emqx_config:get(ConfKeyPath, undefined),
-                raw_config => return_rawconf(ConfKeyPath, Opts)
+                config => config_get(ConfKeyPath, ConfInfo#conf_info.namespace, undefined),
+                raw_config => return_rawconf(ConfKeyPath, ConfInfo#conf_info.namespace, Opts)
             };
         false ->
             %% like remove, nothing to return
@@ -648,13 +717,13 @@ return_change_result(#conf_info{conf_key_path = ConfKeyPath, update_args = {{upd
 return_change_result(#conf_info{update_args = {remove, _Opts}}) ->
     #{}.
 
-return_rawconf([Root | _] = ConfKeyPath, #{rawconf_with_defaults := true}) ->
+return_rawconf([Root | _] = ConfKeyPath, Namespace, #{rawconf_with_defaults := true}) ->
     RootKey = bin(Root),
-    RawConf1 = #{RootKey => emqx_config:get_raw([RootKey])},
+    RawConf1 = #{RootKey => config_get_raw([RootKey], Namespace)},
     RawConf2 = emqx_config:fill_defaults(RawConf1),
     emqx_utils_maps:deep_get(bin_path(ConfKeyPath), RawConf2);
-return_rawconf(ConfKeyPath, _) ->
-    emqx_config:get_raw(ConfKeyPath).
+return_rawconf(ConfKeyPath, Namespace, _) ->
+    config_get_raw(ConfKeyPath, Namespace).
 
 bin_path(ConfKeyPath) -> [bin(Key) || Key <- ConfKeyPath].
 
@@ -701,9 +770,11 @@ assert_callback_function(Mod) ->
     emqx_utils:interactive_load(Mod),
     case
         erlang:function_exported(Mod, pre_config_update, 3) orelse
-            erlang:function_exported(Mod, post_config_update, 5) orelse
             erlang:function_exported(Mod, pre_config_update, 4) orelse
-            erlang:function_exported(Mod, post_config_update, 6)
+            erlang:function_exported(Mod, pre_config_update, 5) orelse
+            erlang:function_exported(Mod, post_config_update, 5) orelse
+            erlang:function_exported(Mod, post_config_update, 6) orelse
+            erlang:function_exported(Mod, post_config_update, 7)
     of
         true -> ok;
         false -> error(#{msg => "bad_emqx_config_handler_callback", module => Mod})
@@ -762,14 +833,36 @@ conf_info_to_map(#conf_info{
     schema_mod = SchemaMod,
     conf_key_path = ConfKeyPath,
     update_args = UpdateArgs,
-    cluster_rpc_opts = ClusterRpcOpts,
+    namespace = Namespace,
+    cluster_rpc_opts = ClusterRPCOpts,
     handlers = Handlers
 }) ->
     #{
         schema_mod => SchemaMod,
         conf_key_path => ConfKeyPath,
         update_args => UpdateArgs,
+        namespace => Namespace,
         update_req => up_req(UpdateArgs),
-        cluster_rpc_opts => ClusterRpcOpts,
+        cluster_rpc_opts => ClusterRPCOpts,
         handlers => Handlers
     }.
+
+get_root_raw(ConfKeyPath, undefined = _Namespace) ->
+    emqx_config:get_root_raw(ConfKeyPath);
+get_root_raw(ConfKeyPath, Namespace) when is_binary(Namespace) ->
+    emqx_config:get_root_raw_namespaced(ConfKeyPath, Namespace).
+
+get_root(ConfKeyPath, undefined = _Namespace) ->
+    emqx_config:get_root(ConfKeyPath);
+get_root(ConfKeyPath, Namespace) when is_binary(Namespace) ->
+    emqx_config:get_root_namespaced(ConfKeyPath, Namespace).
+
+config_get(ConfKeyPath, undefined = _Namespace, Default) ->
+    emqx_config:get(ConfKeyPath, Default);
+config_get(ConfKeyPath, Namespace, Default) when is_binary(Namespace) ->
+    emqx_config:get_namespaced(ConfKeyPath, Namespace, Default).
+
+config_get_raw(ConfKeyPath, undefined = _Namespace) ->
+    emqx_config:get_raw(ConfKeyPath);
+config_get_raw(ConfKeyPath, Namespace) when is_binary(Namespace) ->
+    emqx_config:get_raw_namespaced(ConfKeyPath, Namespace).
