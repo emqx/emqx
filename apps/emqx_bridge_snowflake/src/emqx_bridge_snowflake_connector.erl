@@ -61,13 +61,33 @@
 ]).
 
 %% Internal exports only for mocking
--export([do_insert_files_request/4, do_insert_report_request/4]).
+-export([
+    %% Aggregated mode
+    do_insert_files_request/4,
+    do_insert_report_request/4,
+    %% Streaming mode
+    do_get_streaming_hostname/4
+]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------
 
+%% Allocatable resources
+-define(streaming_channel_pool(RES_ID), {streaming_channel_pool, RES_ID}).
+-define(streaming_setup_pool(RES_ID), {streaming_setup_pool, RES_ID}).
+-define(streaming_write_pool(RES_ID), {streaming_write_pool, RES_ID}).
+-define(streaming_jwt(RES_ID), {streaming_jwt, RES_ID}).
+
 -define(HC_TIMEOUT, 15_000).
+%% Seconds
+-define(AUTO_RECONNECT_INTERVAL, 2).
+
+-ifdef(TEST).
+-define(STREAMING_PORT, persistent_term:get({?MODULE, streaming_port}, 443)).
+-else.
+-define(STREAMING_PORT, 443).
+-endif.
 
 %% Ad-hoc requests
 -record(insert_report, {action_res_id :: action_resource_id(), opts :: ad_hoc_query_opts()}).
@@ -92,7 +112,7 @@
 -type action_config() :: aggregated_action_config().
 -type aggregated_action_config() :: #{
     parameters := #{
-        mode := aggregated,
+        mode := ?aggregated,
         database := database(),
         schema := schema(),
         pipe := pipe(),
@@ -233,6 +253,7 @@ on_start(ConnResId, ConnConfig) ->
 on_stop(ConnResId, _ConnState) ->
     Res = emqx_resource_pool:stop(ConnResId),
     ?tp("snowflake_connector_stop", #{instance_id => ConnResId}),
+    streaming_destroy_allocated_resources(ConnResId),
     Res.
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
@@ -263,12 +284,12 @@ on_add_channel(ConnResId, ConnState0, ActionResId, ActionConfig) ->
 ) ->
     {ok, connector_state()}.
 on_remove_channel(
-    _ConnResId, ConnState0 = #{installed_actions := InstalledActions0}, ActionResId
+    ConnResId, ConnState0 = #{installed_actions := InstalledActions0}, ActionResId
 ) when
     is_map_key(ActionResId, InstalledActions0)
 ->
     {ActionState, InstalledActions} = maps:take(ActionResId, InstalledActions0),
-    destroy_action(ActionResId, ActionState),
+    destroy_action(ConnResId, ActionResId, ActionState),
     ConnState = ConnState0#{installed_actions := InstalledActions},
     {ok, ConnState};
 on_remove_channel(_ConnResId, ConnState, ActionResId) ->
@@ -303,8 +324,12 @@ on_query(
 ) when
     is_map_key(ActionResId, InstalledActions)
 ->
-    #{ActionResId := #{mode := aggregated} = ActionState} = InstalledActions,
-    run_aggregated_action([Data], ActionResId, ActionState);
+    case InstalledActions of
+        #{ActionResId := #{?mode := ?aggregated} = ActionState} ->
+            run_aggregated_action([Data], ActionResId, ActionState);
+        #{ActionResId := #{?mode := ?streaming} = ActionState} ->
+            run_streaming_action([Data], ActionResId, ActionState)
+    end;
 on_query(
     _ConnResId,
     #insert_report{action_res_id = ActionResId, opts = Opts},
@@ -312,7 +337,7 @@ on_query(
 ) when
     is_map_key(ActionResId, InstalledActions)
 ->
-    #{mode := aggregated, http := HTTPClientConfig} = maps:get(ActionResId, InstalledActions),
+    #{?mode := ?aggregated, http := HTTPClientConfig} = maps:get(ActionResId, InstalledActions),
     insert_report_request(ActionResId, Opts, HTTPClientConfig);
 on_query(_ConnResId, Query, _ConnState) ->
     {error, {unrecoverable_error, {invalid_query, Query}}}.
@@ -322,9 +347,14 @@ on_query(_ConnResId, Query, _ConnState) ->
 on_batch_query(_ConnResId, [{ActionResId, _} | _] = Batch0, #{installed_actions := InstalledActions}) when
     is_map_key(ActionResId, InstalledActions)
 ->
-    #{ActionResId := #{mode := aggregated} = ActionState} = InstalledActions,
-    Batch = [Data || {_, Data} <- Batch0],
-    run_aggregated_action(Batch, ActionResId, ActionState);
+    case InstalledActions of
+        #{ActionResId := #{?mode := ?aggregated} = ActionState} ->
+            Batch = [Data || {_, Data} <- Batch0],
+            run_aggregated_action(Batch, ActionResId, ActionState);
+        #{ActionResId := #{?mode := ?streaming} = ActionState} ->
+            Batch = [Data || {_, Data} <- Batch0],
+            run_streaming_action(Batch, ActionResId, ActionState)
+    end;
 on_batch_query(_ConnResId, Batch, _ConnState) ->
     {error, {unrecoverable_error, {bad_batch, Batch}}}.
 
@@ -639,15 +669,40 @@ process_terminate(_TransferState) ->
 ) ->
     {ok, action_state()} | {error, term()}.
 create_action(
-    ConnResId, ActionResId, #{parameters := #{mode := aggregated}} = ActionConfig, ConnState
+    ConnResId, ActionResId, #{parameters := #{mode := ?aggregated}} = ActionConfig, ConnState
 ) ->
+    ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ActionResId),
     maybe
-        {ok, ActionState0} ?= start_http_pool(ActionResId, ActionConfig, ConnState),
+        {ok, ActionState0} ?= start_aggregated_http_pool(ActionResId, ActionConfig, ConnState),
         _ = check_snowpipe_user_permission(ActionResId, ConnResId, ActionState0),
         start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0)
+    end;
+create_action(
+    ConnResId, ActionResId, #{parameters := #{mode := ?streaming}} = ActionConfig, ConnState
+) ->
+    ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ActionResId),
+    ConnectTimeout = emqx_utils_maps:deep_get([parameters, connect_timeout], ActionConfig),
+    HCTimeout = emqx_resource:get_health_check_timeout(ActionConfig),
+    maybe
+        {ok, SetupPoolState, WritePoolState, ChanPoolState} ?=
+            start_streaming_pools(ConnResId, ActionResId, ActionConfig, ConnState),
+        ok ?= open_channels(ActionResId),
+        ActionState = #{
+            ?mode => ?streaming,
+            ?health_check_timeout => HCTimeout,
+            ?connect_timeout => ConnectTimeout,
+            ?setup => SetupPoolState,
+            ?write => WritePoolState,
+            ?channel => ChanPoolState
+        },
+        {ok, ActionState}
+    else
+        Error ->
+            streaming_destroy_allocated_resources(ConnResId, ActionResId),
+            Error
     end.
 
-start_http_pool(ActionResId, ActionConfig, ConnState) ->
+start_aggregated_http_pool(ActionResId, ActionConfig, ConnState) ->
     #{server := #{host := Host, port := Port}} = ConnState,
     #{
         parameters := #{
@@ -657,11 +712,8 @@ start_http_pool(ActionResId, ActionConfig, ConnState) ->
             pipe_user := _,
             private_key := _,
             connect_timeout := ConnectTimeout,
-            pipelining := Pipelining,
             pool_size := PoolSize,
-            max_retries := MaxRetries,
-            max_inactive := MaxInactive,
-            proxy := ProxyConfig0
+            max_retries := MaxRetries
         },
         resource_opts := #{request_ttl := RequestTTL}
     } = ActionConfig,
@@ -685,33 +737,14 @@ start_http_pool(ActionResId, ActionConfig, ConnState) ->
         <<"/insertReport">>
     ]),
     JWTConfig = jwt_config(ActionResId, ActionConfig, ConnState),
-    TransportOpts = emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none}),
-    ProxyConfig =
-        case ProxyConfig0 of
-            none ->
-                [];
-            #{host := ProxyHost, port := ProxyPort} ->
-                [
-                    {proxy, #{
-                        host => str(ProxyHost),
-                        port => ProxyPort
-                    }}
-                ]
-        end,
     PoolOpts =
-        ProxyConfig ++
-            [
-                {host, Host},
-                {port, Port},
-                {connect_timeout, ConnectTimeout},
-                {keepalive, 30_000},
-                {pool_type, random},
-                {pool_size, PoolSize},
-                {transport, tls},
-                {transport_opts, TransportOpts},
-                {max_inactive, MaxInactive},
-                {enable_pipelining, Pipelining}
-            ],
+        [
+            {host, Host},
+            {port, Port},
+            {pool_type, random},
+            {pool_size, PoolSize}
+            | common_ehttpc_pool_opts(ActionConfig)
+        ],
     case ehttpc_sup:start_pool(ActionResId, PoolOpts) of
         {ok, _} ->
             {ok, #{
@@ -726,7 +759,155 @@ start_http_pool(ActionResId, ActionConfig, ConnState) ->
             }};
         {error, {already_started, _}} ->
             _ = ehttpc_sup:stop_pool(ActionResId),
-            start_http_pool(ActionResId, ActionConfig, ConnState);
+            start_aggregated_http_pool(ActionResId, ActionConfig, ConnState);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+start_streaming_pools(ConnResId, ActionResId, ActionConfig, ConnState) ->
+    maybe
+        {ok, Hostname, SetupPoolState} ?=
+            init_streaming_setup_pool(ConnResId, ActionResId, ActionConfig, ConnState),
+        {ok, WritePoolState} ?=
+            init_streaming_write_pool(ConnResId, ActionResId, ActionConfig, Hostname),
+        {ok, ChanPoolState} ?=
+            init_streaming_channel_pool(
+                ConnResId, ConnState, ActionResId, ActionConfig, Hostname, SetupPoolState
+            ),
+        {ok, SetupPoolState, WritePoolState, ChanPoolState}
+    end.
+
+init_streaming_setup_pool(ConnResId, ActionResId, ActionConfig, ConnState) ->
+    #{server := #{host := Host, port := Port}} = ConnState,
+    #{
+        parameters := #{
+            database := Database,
+            schema := Schema,
+            pipe := Pipe,
+            max_retries := MaxRetries,
+            max_inactive := MaxInactive
+        },
+        resource_opts := #{request_ttl := RequestTTL}
+    } = ActionConfig,
+    JWTConfig = jwt_config(ActionResId, ActionConfig, ConnState),
+    SetupPoolOpts =
+        [
+            {host, Host},
+            {port, Port},
+            {pool_type, random},
+            %% Just for setup, so no need for big pool.
+            {pool_size, 1}
+            | common_ehttpc_pool_opts(ActionConfig)
+        ],
+    SetupPoolId = streaming_setup_pool(ActionResId),
+    SetupPoolState = #{
+        ?jwt_config => JWTConfig,
+        ?database => Database,
+        ?schema => Schema,
+        ?pipe => Pipe,
+        ?max_inactive => MaxInactive,
+        ?max_retries => MaxRetries,
+        ?request_ttl => RequestTTL
+    },
+    allocate(ConnResId, ?streaming_setup_pool(ActionResId), SetupPoolId),
+    maybe
+        {ok, _} ?= ehttpc_sup:start_pool(SetupPoolId, SetupPoolOpts),
+        {ok, Hostname} ?= get_streaming_hostname(SetupPoolId, SetupPoolState),
+        {ok, Hostname, SetupPoolState}
+    else
+        {error, {already_started, _}} ->
+            _ = ehttpc_sup:stop_pool(SetupPoolId),
+            init_streaming_setup_pool(ConnResId, ActionResId, ActionConfig, ConnState);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+init_streaming_write_pool(ConnResId, ActionResId, ActionConfig, Hostname) ->
+    #{
+        parameters := #{
+            pool_size := PoolSize,
+            max_retries := MaxRetries,
+            max_inactive := MaxInactive
+        },
+        resource_opts := #{request_ttl := RequestTTL}
+    } = ActionConfig,
+    WritePoolOpts =
+        [
+            {host, emqx_utils_conv:str(Hostname)},
+            {port, ?STREAMING_PORT},
+            {pool_type, direct},
+            {pool_size, PoolSize}
+            | common_ehttpc_pool_opts(ActionConfig)
+        ],
+    WritePoolState = #{
+        ?hostname => Hostname,
+        ?max_inactive => MaxInactive,
+        ?max_retries => MaxRetries,
+        ?request_ttl => RequestTTL
+    },
+    WritePoolId = streaming_write_pool(ActionResId),
+    allocate(ConnResId, ?streaming_write_pool(ActionResId), WritePoolId),
+    maybe
+        ?SLOG(debug, #{
+            msg => "snowflake_streaming_starting_write_http_pool",
+            write_pool_id => WritePoolId,
+            hostname => Hostname
+        }),
+        ok ?= do_start_streaming_write_http_pool(ActionResId, WritePoolOpts),
+        {ok, WritePoolState}
+    end.
+
+init_streaming_channel_pool(
+    ConnResId, ConnState, ActionResId, ActionConfig, Hostname, SetupPoolState
+) ->
+    #{
+        parameters := #{
+            pool_size := PoolSize,
+            max_retries := MaxRetries
+        },
+        resource_opts := #{request_ttl := RequestTTL}
+    } = ActionConfig,
+    SetupPoolId = streaming_setup_pool(ActionResId),
+    WritePoolId = streaming_write_pool(ActionResId),
+    ChanPoolId = streaming_channel_pool(ActionResId),
+    ChanJWTConfig = jwt_config(ActionResId, ActionConfig, ConnState),
+    ChanOpts = [
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
+        {pool_type, hash},
+        {pool_size, PoolSize},
+        {?action_res_id, ActionResId},
+        {?jwt_config, ChanJWTConfig},
+        {?max_retries, MaxRetries},
+        {?request_ttl, RequestTTL},
+        {?setup_pool_id, SetupPoolId},
+        {?setup_pool_state, SetupPoolState},
+        {?write_pool_id, WritePoolId}
+    ],
+    ?SLOG(debug, #{
+        msg => "snowflake_streaming_starting_channel_pool",
+        channel_pool_id => ChanPoolId,
+        hostname => Hostname
+    }),
+    allocate(ConnResId, ?streaming_channel_pool(ActionResId), ChanPoolId),
+    allocate(ConnResId, ?streaming_jwt(ActionResId), ActionResId),
+    case emqx_resource_pool:start(ChanPoolId, emqx_bridge_snowflake_channel_client, ChanOpts) of
+        ok ->
+            ChanPoolState = #{
+                ?jwt_config => ChanJWTConfig
+            },
+            {ok, ChanPoolState};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_start_streaming_write_http_pool(ActionResId, WritePoolOpts) ->
+    WritePoolId = streaming_write_pool(ActionResId),
+    case ehttpc_sup:start_pool(WritePoolId, WritePoolOpts) of
+        {ok, _} ->
+            ok;
+        {error, {already_started, _}} ->
+            _ = ehttpc_sup:stop_pool(WritePoolId),
+            do_start_streaming_write_http_pool(ActionResId, WritePoolOpts);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -736,7 +917,7 @@ start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0) ->
         #{
             bridge_name := Name,
             parameters := #{
-                mode := aggregated = Mode,
+                mode := ?aggregated = Mode,
                 database := Database,
                 schema := Schema,
                 stage := Stage,
@@ -799,8 +980,12 @@ start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0) ->
             {error, Reason}
     end.
 
--spec destroy_action(action_resource_id(), action_state()) -> ok.
-destroy_action(ActionResId, ActionState) ->
+-spec destroy_action(connector_resource_id(), action_resource_id(), action_state()) -> ok.
+destroy_action(ConnResId, ActionResId, #{mode := streaming} = _ActionState) ->
+    streaming_destroy_allocated_resources(ConnResId, ActionResId),
+    ok = ensure_common_action_destroyed(ActionResId),
+    ok;
+destroy_action(_ConnResId, ActionResId, ActionState) ->
     case ActionState of
         #{on_stop := {M, F, A}} ->
             ok = apply(M, F, A);
@@ -827,6 +1012,15 @@ run_aggregated_action(Batch, ActionResId, #{aggreg_id := AggregId}) ->
         {error, Reason} ->
             {error, {unrecoverable_error, Reason}}
     end.
+
+run_streaming_action(Batch, ActionResId, _ActionState) ->
+    ecpool:pick_and_do(
+        {streaming_channel_pool(ActionResId), self()},
+        fun(ChanClient) ->
+            emqx_bridge_snowflake_channel_client:append_rows(ChanClient, Batch)
+        end,
+        handover
+    ).
 
 work_dir(Type, Name) ->
     filename:join([emqx:data_dir(), bridge, Type, Name]).
@@ -972,6 +1166,39 @@ insert_report_query_string(Opts0) ->
 do_insert_report_request(HTTPPool, Req, RequestTTL, MaxRetries) ->
     ehttpc:request(HTTPPool, get, Req, RequestTTL, MaxRetries).
 
+get_streaming_hostname(SetupPoolId, SetupPoolState) ->
+    #{
+        jwt_config := JWTConfig,
+        request_ttl := RequestTTL,
+        max_retries := MaxRetries
+    } = SetupPoolState,
+    JWTToken = emqx_connector_jwt:ensure_jwt(JWTConfig),
+    AuthnHeader = [<<"BEARER ">>, JWTToken],
+    Headers = [
+        {<<"X-Snowflake-Authorization-Token-Type">>, <<"KEYPAIR_JWT">>},
+        {<<"Content-Type">>, <<"application/json">>},
+        {<<"Accept">>, <<"application/json">>},
+        {<<"User-Agent">>, <<"emqx">>},
+        {<<"Authorization">>, AuthnHeader}
+    ],
+    Path = <<"/v2/streaming/hostname">>,
+    Req = {Path, Headers},
+    ?tp(debug, "snowflake_streaming_get_hostname_request", #{
+        setup_pool_id => SetupPoolId
+    }),
+    maybe
+        {ok, 200, _Headers, Hostname} ?=
+            ?MODULE:do_get_streaming_hostname(SetupPoolId, Req, RequestTTL, MaxRetries),
+        {ok, Hostname}
+    else
+        Res ->
+            {error, #{reason => <<"get_hostname_unexpected_response">>, response => Res}}
+    end.
+
+%% Internal export exposed ONLY for mocking
+do_get_streaming_hostname(HTTPPool, Req, RequestTTL, MaxRetries) ->
+    ehttpc:request(HTTPPool, get, Req, RequestTTL, MaxRetries).
+
 http_headers(AuthnHeader) ->
     [
         {<<"X-Snowflake-Authorization-Token-Type">>, <<"KEYPAIR_JWT">>},
@@ -985,7 +1212,7 @@ row_to_map(Row0, Headers) ->
     Row = lists:zip(Headers, Row2),
     maps:from_list(Row).
 
-action_status(ConnResId, ActionResId, #{mode := aggregated} = ActionState) ->
+action_status(ConnResId, ActionResId, #{?mode := ?aggregated} = ActionState) ->
     #{
         aggreg_id := AggregId,
         http := #{connect_timeout := ConnectTimeout}
@@ -995,11 +1222,27 @@ action_status(ConnResId, ActionResId, #{mode := aggregated} = ActionState) ->
     ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
     ok = check_aggreg_upload_errors(AggregId),
     case http_pool_workers_healthy(ActionResId, ConnectTimeout) of
-        true ->
+        ok ->
             ok = check_snowpipe_user_permission(ActionResId, ConnResId, ActionState),
             ?status_connected;
-        false ->
-            ?status_disconnected
+        {error, Reason} ->
+            {?status_disconnected, Reason}
+    end;
+action_status(_ConnResId, ActionResId, #{?mode := ?streaming} = ActionState) ->
+    #{
+        health_check_timeout := HCTimeout,
+        connect_timeout := ConnectTimeout
+    } = ActionState,
+    SetupPoolId = streaming_setup_pool(ActionResId),
+    WritePoolId = streaming_write_pool(ActionResId),
+    maybe
+        ok ?= streaming_channel_pool_workers_healthy(ActionResId, HCTimeout),
+        ok ?= http_pool_workers_healthy(WritePoolId, ConnectTimeout),
+        ok ?= http_pool_workers_healthy(SetupPoolId, ConnectTimeout),
+        ?status_connected
+    else
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 stage_file_sql(Filename, Database, Schema, Stage, ActionName) ->
@@ -1024,26 +1267,52 @@ http_pool_workers_healthy(HTTPPool, Timeout) ->
         fun(Worker) ->
             case ehttpc:health_check(Worker, Timeout) of
                 ok ->
-                    true;
+                    ok;
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "snowflake_ehttpc_health_check_failed",
-                        action => HTTPPool,
+                        pool => HTTPPool,
                         reason => Reason,
                         worker => Worker,
                         wait_time => Timeout
                     }),
-                    false
+                    {error, Reason}
             end
         end,
     try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
-        [_ | _] = Status ->
-            lists:all(fun(St) -> St =:= true end, Status);
+        [_ | _] = Status0 ->
+            Errors = lists:filter(fun(St) -> St =/= ok end, Status0),
+            case Errors of
+                [] ->
+                    ok;
+                [Error | _] ->
+                    {error, Error}
+            end;
         [] ->
-            false
+            {error, {<<"http_pool_initializing">>, HTTPPool}}
     catch
         exit:timeout ->
-            false
+            {error, timeout}
+    end.
+
+streaming_channel_pool_workers_healthy(ActionResId, Timeout) ->
+    ChanPoolId = streaming_channel_pool(ActionResId),
+    Fn = fun(_) -> ok end,
+    Res0 = emqx_resource_pool:health_check_workers(
+        ChanPoolId, Fn, Timeout, #{return_values => true}
+    ),
+    case Res0 of
+        {ok, []} ->
+            {error, {<<"channel_pool_initializing">>, ChanPoolId}};
+        {ok, Sts} ->
+            case lists:filter(fun(X) -> X /= ok end, Sts) of
+                [] ->
+                    ok;
+                [Err | _] ->
+                    Err
+            end;
+        {error, _} = Err ->
+            Err
     end.
 
 %% https://docs.snowflake.com/en/sql-reference/identifiers-syntax
@@ -1206,6 +1475,113 @@ mk_odbc_authn_opt(#{password := Password}) ->
 mk_odbc_authn_opt(_ConnConfig) ->
     %% Users can place password in `/etc/odbc.ini`.
     [].
+
+streaming_setup_pool(ActionResId) -> <<ActionResId/binary, ":setup">>.
+streaming_write_pool(ActionResId) -> <<ActionResId/binary, ":write">>.
+streaming_channel_pool(ActionResId) -> <<ActionResId/binary, ":channel">>.
+
+open_channels(ActionResId) ->
+    ChannelPoolId = streaming_channel_pool(ActionResId),
+    emqx_utils:foldl_while(
+        fun({_, Worker}, _Acc) ->
+            {ok, ChanClient} = ecpool_worker:client(Worker),
+            case emqx_bridge_snowflake_channel_client:ensure_channel_opened(ChanClient) of
+                ok ->
+                    {cont, ok};
+                {error,
+                    #{response := {_, _, #{<<"error">> := <<"ERR_PIPE_KIND_NOT_SUPPORTED">>}}} =
+                        Error} ->
+                    Context = #{
+                        reason => <<"error_opening_channel">>,
+                        hint => <<"specified pipe does not support streaming">>,
+                        error => Error
+                    },
+                    {halt, {error, {unhealthy_target, Context}}};
+                Error ->
+                    Context = #{reason => <<"error_opening_channel">>, error => Error},
+                    {halt, {error, Context}}
+            end
+        end,
+        ok,
+        ecpool:workers(ChannelPoolId)
+    ).
+
+common_ehttpc_pool_opts(ActionConfig) ->
+    #{
+        parameters := #{
+            connect_timeout := ConnectTimeout,
+            pipelining := Pipelining,
+            max_inactive := MaxInactive,
+            proxy := ProxyConfig0
+        }
+    } = ActionConfig,
+    TransportOpts = emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none}),
+    ProxyConfig =
+        case ProxyConfig0 of
+            none ->
+                [];
+            #{host := ProxyHost, port := ProxyPort} ->
+                [
+                    {proxy, #{
+                        host => str(ProxyHost),
+                        port => ProxyPort
+                    }}
+                ]
+        end,
+    ProxyConfig ++
+        [
+            {connect_timeout, ConnectTimeout},
+            {keepalive, 30_000},
+            {transport, tls},
+            {transport_opts, TransportOpts},
+            {max_inactive, MaxInactive},
+            {enable_pipelining, Pipelining}
+        ].
+
+streaming_destroy_allocated_resources(ConnResId) ->
+    streaming_destroy_allocated_resources(ConnResId, _ActionResId = '_').
+
+streaming_destroy_allocated_resources(ConnResId, ActionResId) ->
+    maps:foreach(
+        fun
+            (?streaming_channel_pool(Id) = Key, _) when
+                ActionResId == '_' orelse Id == ActionResId
+            ->
+                ChanPoolId = streaming_channel_pool(Id),
+                _ = emqx_resource_pool:stop(ChanPoolId),
+                deallocate(ConnResId, Key),
+                ok;
+            (?streaming_write_pool(Id) = Key, _) when
+                ActionResId == '_' orelse Id == ActionResId
+            ->
+                WritePoolId = streaming_write_pool(Id),
+                _ = ehttpc_sup:stop_pool(WritePoolId),
+                deallocate(ConnResId, Key),
+                ok;
+            (?streaming_setup_pool(Id) = Key, _) when
+                ActionResId == '_' orelse Id == ActionResId
+            ->
+                SetupPoolId = streaming_setup_pool(Id),
+                _ = ehttpc_sup:stop_pool(SetupPoolId),
+                deallocate(ConnResId, Key),
+                ok;
+            (?streaming_jwt(Id) = Key, _) when
+                ActionResId == '_' orelse Id == ActionResId
+            ->
+                ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, Id),
+                deallocate(ConnResId, Key),
+                ok;
+            (_, _) ->
+                ok
+        end,
+        emqx_resource:get_allocated_resources(ConnResId)
+    ).
+
+allocate(ConnResId, Key, Value) ->
+    ok = emqx_resource:allocate_resource(ConnResId, ?MODULE, Key, Value).
+
+deallocate(ConnResId, Key) ->
+    ok = emqx_resource:deallocate_resource(ConnResId, Key).
 
 %%------------------------------------------------------------------------------
 %% Tests
