@@ -75,7 +75,6 @@ fields(action_parameters) ->
 %% Connector fields
 %%=========================================
 fields("config_connector") ->
-    %% FIXME
     emqx_connector_schema:common_fields() ++
         connector_config_fields();
 fields(connector_resource_opts) ->

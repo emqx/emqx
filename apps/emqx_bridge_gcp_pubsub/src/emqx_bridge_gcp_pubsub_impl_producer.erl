@@ -76,9 +76,20 @@ on_start(InstanceId, Config0) ->
         msg => "starting_gcp_pubsub_bridge",
         instance_id => InstanceId
     }),
-    Config = maps:update_with(
+    Config1 = maps:update_with(
         service_account_json, fun(X) -> emqx_utils_json:decode(X) end, Config0
     ),
+    {Transport, HostPort} = get_transport(),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
+    Config = Config1#{
+        jwt_opts => #{
+            %% fixed for pubsub; trailing slash is important.
+            aud => <<"https://pubsub.googleapis.com/">>
+        },
+        transport => Transport,
+        host => Host,
+        port => Port
+    },
     #{service_account_json := #{<<"project_id">> := ProjectId}} = Config,
     case emqx_bridge_gcp_pubsub_client:start(InstanceId, Config) of
         {ok, Client} ->
@@ -240,7 +251,9 @@ install_channel(ActionConfig, ConnectorState) ->
     } = ActionConfig,
     #{client := Client} = ConnectorState,
     case
-        emqx_bridge_gcp_pubsub_client:get_topic(PubSubTopic, Client, #{request_ttl => RequestTTL})
+        emqx_bridge_gcp_pubsub_client:pubsub_get_topic(PubSubTopic, Client, #{
+            request_ttl => RequestTTL
+        })
     of
         {error, #{status_code := 404}} ->
             {error, {unhealthy_target, <<"Topic does not exist">>}};
@@ -534,3 +547,18 @@ on_format_query_result(Result) ->
 reply_delegator(ConnResId, Request, ReplyFunAndArgs, Response) ->
     Result = handle_result(Response, Request, async, ConnResId),
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
+
+-spec get_transport() -> {tls | tcp, string()}.
+get_transport() ->
+    %% emulating the emulator behavior
+    %% https://cloud.google.com/pubsub/docs/emulator
+    case os:getenv("PUBSUB_EMULATOR_HOST") of
+        false ->
+            {tls, "pubsub.googleapis.com:443"};
+        HostPort0 ->
+            %% The emulator is plain HTTP...
+            Transport0 = persistent_term:get(
+                {emqx_bridge_gcp_pubsub_client, pubsub, transport}, tcp
+            ),
+            {Transport0, HostPort0}
+    end.

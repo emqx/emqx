@@ -89,13 +89,13 @@ init_per_suite(Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     {ok, _Api} = emqx_common_test_http:create_default_app(),
-    persistent_term:put({emqx_bridge_gcp_pubsub_client, transport}, tls),
+    persistent_term:put({emqx_bridge_gcp_pubsub_client, pubsub, transport}, tls),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
-    persistent_term:erase({emqx_bridge_gcp_pubsub_client, transport}),
+    persistent_term:erase({emqx_bridge_gcp_pubsub_client, pubsub, transport}),
     ok.
 
 init_per_group(sync_query, Config) ->
@@ -1017,7 +1017,7 @@ t_invalid_private_key(Config) ->
                                 #{<<"private_key">> => InvalidPrivateKeyPEM}
                         }
                     ),
-                    #{?snk_kind := gcp_pubsub_connector_startup_error},
+                    #{?snk_kind := gcp_client_startup_error},
                     20_000
                 ),
             Res
@@ -1026,7 +1026,7 @@ t_invalid_private_key(Config) ->
             ?assertMatch({ok, _}, Res),
             ?assertMatch(
                 [#{error := empty_key}],
-                ?of_kind(gcp_pubsub_connector_startup_error, Trace)
+                ?of_kind(gcp_client_startup_error, Trace)
             ),
             ok
         end
@@ -1046,7 +1046,7 @@ t_truncated_private_key(Config) ->
                                 #{<<"private_key">> => InvalidPrivateKeyPEM}
                         }
                     ),
-                    #{?snk_kind := gcp_pubsub_connector_startup_error},
+                    #{?snk_kind := gcp_client_startup_error},
                     20_000
                 ),
             Res
@@ -1055,7 +1055,7 @@ t_truncated_private_key(Config) ->
             ?assertMatch({ok, _}, Res),
             ?assertMatch(
                 [#{error := invalid_private_key}],
-                ?of_kind(gcp_pubsub_connector_startup_error, Trace)
+                ?of_kind(gcp_client_startup_error, Trace)
             ),
             ok
         end
@@ -1073,7 +1073,7 @@ t_jose_error_tuple(Config) ->
                         fun(_PrivateKeyPEM) -> {error, some_error} end,
                         fun() -> create_bridge(Config) end
                     ),
-                    #{?snk_kind := gcp_pubsub_connector_startup_error},
+                    #{?snk_kind := gcp_client_startup_error},
                     20_000
                 ),
             Res
@@ -1082,7 +1082,7 @@ t_jose_error_tuple(Config) ->
             ?assertMatch({ok, _}, Res),
             ?assertMatch(
                 [#{error := {invalid_private_key, some_error}}],
-                ?of_kind(gcp_pubsub_connector_startup_error, Trace)
+                ?of_kind(gcp_client_startup_error, Trace)
             ),
             ok
         end
@@ -1100,7 +1100,7 @@ t_jose_other_error(Config) ->
                         fun(_PrivateKeyPEM) -> {unknown, error} end,
                         fun() -> create_bridge(Config) end
                     ),
-                    #{?snk_kind := gcp_pubsub_connector_startup_error},
+                    #{?snk_kind := gcp_client_startup_error},
                     20_000
                 ),
             Res
@@ -1109,7 +1109,7 @@ t_jose_other_error(Config) ->
             ?assertMatch({ok, _}, Res),
             ?assertMatch(
                 [#{error := {invalid_private_key, {unknown, error}}} | _],
-                ?of_kind(gcp_pubsub_connector_startup_error, Trace)
+                ?of_kind(gcp_client_startup_error, Trace)
             ),
             ok
         end
@@ -1194,8 +1194,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                                 emqx:publish(Message)
                             end,
                             #{
-                                ?snk_kind := gcp_pubsub_request_failed,
-                                query_mode := async,
+                                ?snk_kind := gcp_client_request_failed,
                                 reason := econnrefused
                             },
                             15_000
@@ -1220,7 +1219,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
         fun(Trace) ->
             case Error of
                 econnrefused ->
-                    case ?of_kind(gcp_pubsub_request_failed, Trace) of
+                    case ?of_kind(gcp_client_request_failed, Trace) of
                         [#{reason := Reason, connector := ConnectorResourceId} | _] when
                             Reason == Error;
                             Reason == closed;
@@ -1523,12 +1522,12 @@ t_stop(Config) ->
     ?check_trace(
         ?wait_async_action(
             emqx_bridge_resource:stop(?BRIDGE_V1_TYPE, Name),
-            #{?snk_kind := gcp_pubsub_stop},
+            #{?snk_kind := gcp_client_stop},
             5_000
         ),
         fun(Res, Trace) ->
             ?assertMatch({ok, {ok, _}}, Res),
-            ?assertMatch([_], ?of_kind(gcp_pubsub_stop, Trace)),
+            ?assertMatch([_], ?of_kind(gcp_client_stop, Trace)),
             ?assertMatch([_ | _], ?of_kind(connector_jwt_deleted, Trace)),
             ok
         end
@@ -1598,12 +1597,12 @@ t_on_start_ehttpc_pool_already_started(Config) ->
         begin
             ?force_ordering(
                 #{?snk_kind := pool_started},
-                #{?snk_kind := gcp_pubsub_starting_ehttpc_pool}
+                #{?snk_kind := gcp_starting_ehttpc_pool}
             ),
             {ok, SubRef} =
                 snabbkaffe:subscribe(
                     fun
-                        (#{?snk_kind := gcp_pubsub_on_start_before_starting_pool}) -> true;
+                        (#{?snk_kind := gcp_on_start_before_starting_pool}) -> true;
                         (_) -> false
                     end,
                     5_000
@@ -1614,13 +1613,13 @@ t_on_start_ehttpc_pool_already_started(Config) ->
             ),
             ?assertMatch({ok, _}, ehttpc_sup:start_pool(PoolName, PoolOpts)),
             ?tp(pool_started, #{}),
-            ?block_until(#{?snk_kind := gcp_pubsub_ehttpc_pool_already_started}, 2_000),
+            ?block_until(#{?snk_kind := gcp_ehttpc_pool_already_started}, 2_000),
             PoolName
         end,
         fun(PoolName, Trace) ->
             ?assertMatch(
                 [#{pool_name := PoolName}],
-                ?of_kind(gcp_pubsub_ehttpc_pool_already_started, Trace)
+                ?of_kind(gcp_ehttpc_pool_already_started, Trace)
             ),
             ok
         end
@@ -1640,7 +1639,7 @@ t_on_start_ehttpc_pool_start_failure(Config) ->
         fun(Trace) ->
             ?assertMatch(
                 [#{reason := some_error} | _],
-                ?of_kind(gcp_pubsub_ehttpc_pool_start_failure, Trace)
+                ?of_kind(gcp_ehttpc_pool_start_failure, Trace)
             ),
             ok
         end

@@ -1,0 +1,18 @@
+services:
+  bigquery:
+    container_name: bigquery
+    image: ghcr.io/goccy/bigquery-emulator:0.6.6
+    restart: always
+    expose:
+      - "9050"
+    # ports:
+    #   - "9050:9050"
+    networks:
+      - emqx_bridge
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo '' >/dev/tcp/localhost/9050"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    command:
+      - "--project=myproject"

@@ -129,7 +129,7 @@ assert_persisted_service_account_json_is_binary(ConnectorName) ->
 %%------------------------------------------------------------------------------
 
 t_start_stop(Config) ->
-    ok = emqx_bridge_v2_testlib:t_start_stop(Config, gcp_pubsub_stop),
+    ok = emqx_bridge_v2_testlib:t_start_stop(Config, gcp_client_stop),
     ok.
 
 t_create_via_http(Config) ->

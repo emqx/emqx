@@ -57,7 +57,7 @@ init_per_suite(Config) ->
             ),
             HostPort = GCPEmulatorHost ++ ":" ++ GCPEmulatorPortStr,
             true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
-            Client = start_control_client(),
+            Client = start_control_client(GCPEmulatorHost, GCPEmulatorPort),
             [
                 {apps, Apps},
                 {proxy_name, ProxyName},
@@ -283,17 +283,21 @@ ensure_topic(Config, Topic) ->
     end,
     ok.
 
-start_control_client() ->
+start_control_client(GCPEmulatorHost, GCPEmulatorPort) ->
     RawServiceAccount = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
-    ConnectorConfig =
+    ClientConfig =
         #{
             connect_timeout => 5_000,
             max_retries => 0,
             pool_size => 1,
-            service_account_json => RawServiceAccount
+            service_account_json => RawServiceAccount,
+            jwt_opts => #{aud => <<"https://pubsub.googleapis.com/">>},
+            transport => tcp,
+            host => GCPEmulatorHost,
+            port => GCPEmulatorPort
         },
     PoolName = <<"control_connector">>,
-    {ok, Client} = emqx_bridge_gcp_pubsub_client:start(PoolName, ConnectorConfig),
+    {ok, Client} = emqx_bridge_gcp_pubsub_client:start(PoolName, ClientConfig),
     Client.
 
 stop_control_client(Client) ->
@@ -683,8 +687,8 @@ prop_client_stopped() ->
 prop_client_stopped(Trace) ->
     ?assert(
         ?strict_causality(
-            #{?snk_kind := gcp_pubsub_ehttpc_pool_started, pool_name := _P1},
-            #{?snk_kind := gcp_pubsub_stop, resource_id := _P2},
+            #{?snk_kind := gcp_ehttpc_pool_started, pool_name := _P1},
+            #{?snk_kind := gcp_client_stop, resource_id := _P2},
             _P1 =:= _P2,
             Trace
         )
@@ -1260,7 +1264,7 @@ t_nonexistent_topic(Config) ->
         [
             fun(Trace) ->
                 %% client is stopped after first failure
-                ?assertMatch([_], ?of_kind(gcp_pubsub_stop, Trace)),
+                ?assertMatch([_], ?of_kind(gcp_client_stop, Trace)),
                 ok
             end
         ]

@@ -143,10 +143,10 @@ assert_persisted_service_account_json_is_binary(ConnectorName) ->
 setup_mock_gcp_server() ->
     OriginalHostPort = os:getenv("PUBSUB_EMULATOR_HOST"),
     {ok, _Server} = emqx_bridge_gcp_pubsub_producer_SUITE:start_echo_http_server(),
-    persistent_term:put({emqx_bridge_gcp_pubsub_client, transport}, tls),
+    persistent_term:put({emqx_bridge_gcp_pubsub_client, pubsub, transport}, tls),
     on_exit(fun() ->
         ok = emqx_bridge_http_connector_test_server:stop(),
-        persistent_term:erase({emqx_bridge_gcp_pubsub_client, transport}),
+        persistent_term:erase({emqx_bridge_gcp_pubsub_client, pubsub, transport}),
         true = os:putenv("PUBSUB_EMULATOR_HOST", OriginalHostPort)
     end),
     ok.
@@ -209,7 +209,7 @@ create_action_api(Config) ->
 %%------------------------------------------------------------------------------
 
 t_start_stop(Config) ->
-    ok = emqx_bridge_v2_testlib:t_start_stop(Config, gcp_pubsub_stop),
+    ok = emqx_bridge_v2_testlib:t_start_stop(Config, gcp_client_stop),
     ok.
 
 t_create_via_http(Config) ->
@@ -371,7 +371,7 @@ t_jose_jwk_function_clause(Config0) ->
         fun(Trace) ->
             ?assertMatch(
                 [#{error := invalid_private_key} | _],
-                ?of_kind(gcp_pubsub_connector_startup_error, Trace)
+                ?of_kind(gcp_client_startup_error, Trace)
             ),
             ok
         end
