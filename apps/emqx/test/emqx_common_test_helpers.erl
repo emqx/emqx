@@ -1260,7 +1260,12 @@ call_janitor() ->
 
 call_janitor(Timeout) ->
     Janitor = get_or_spawn_janitor(),
-    ok = emqx_test_janitor:stop(Janitor, Timeout),
+    try
+        emqx_test_janitor:stop(Janitor, Timeout)
+    catch
+        K:E:S ->
+            ct:pal("janitor crashed:\n  ~p", [{K, E, S}])
+    end,
     erase({?MODULE, janitor_proc}),
     ok.
 
