@@ -33,7 +33,7 @@ jobs:
         run: |
           unzip -o -q ${{ matrix.profile }}.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: make ${{ matrix.profile }}
+      - run: make ${{ matrix.profile }}-elixir
       - run: ./scripts/test/check-example-configs.sh
       - run: ./scripts/conf-test/run.sh
       - name: print erlang log
