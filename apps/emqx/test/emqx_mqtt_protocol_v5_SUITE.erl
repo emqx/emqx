@@ -100,16 +100,6 @@ end_per_testcase(TestCase, Config) ->
 client_info(Key, Client) ->
     proplists:get_value(Key, emqtt:info(Client), undefined).
 
-connection_info(Info, ClientPid, Config) when is_list(Config) ->
-    connection_info(Info, ClientPid, ?config(conn_type, Config));
-connection_info(Info, ClientPid, tcp) ->
-    emqx_connection:info(Info, sys:get_state(ClientPid));
-connection_info(Info, ClientPid, quic) ->
-    emqx_connection:info(Info, sys:get_state(ClientPid));
-connection_info(Info, ClientPid, ws) ->
-    {_WSState, ConnState, _} = sys:get_state(ClientPid),
-    emqx_ws_connection:info(Info, ConnState).
-
 receive_messages(Count) ->
     receive_messages(Count, []).
 
@@ -283,8 +273,7 @@ t_connect_will_message(Config) ->
         | Config
     ]),
     {ok, _} = emqtt:ConnFun(Client1),
-    [ClientPid] = emqx_cm:lookup_channels(client_info(clientid, Client1)),
-    WillMsg = connection_info({channel, will_msg}, ClientPid, Config),
+    WillMsg = emqx_cth_broker:connection_info({channel, will_msg}, Client1),
     %% [MQTT-3.1.2-7]
     ?assertNotEqual(undefined, WillMsg),
 
@@ -468,13 +457,12 @@ t_connect_emit_stats_timeout(Config) ->
     {ok, _} = emqtt:ConnFun(Client),
     %% Poke the connection to ensure stats timer is armed.
     pong = emqtt:ping(Client),
-    [ClientPid] = emqx_cm:lookup_channels(client_info(clientid, Client)),
     ?assertMatch(
         TRef when is_reference(TRef),
-        connection_info(stats_timer, ClientPid, Config)
+        emqx_cth_broker:connection_info(stats_timer, Client)
     ),
     ?block_until(#{?snk_kind := cancel_stats_timer}, IdleTimeout * 2, _BackInTime = 0),
-    ?assertEqual(undefined, connection_info(stats_timer, ClientPid, Config)),
+    ?assertEqual(undefined, emqx_cth_broker:connection_info(stats_timer, Client)),
     ok = emqtt:disconnect(Client).
 
 %% [MQTT-3.1.2-22]

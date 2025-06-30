@@ -1090,10 +1090,13 @@ t_keepalive(Config) ->
     {ok, _} = emqtt:connect(C1),
     [Pid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
     %% will reset to max keepalive if keepalive > max keepalive
-    #{conninfo := #{keepalive := InitKeepalive}} = emqx_connection:info(Pid),
+    ?assertMatch(
+        #{conninfo := #{keepalive := InitKeepalive}},
+        emqx_cm:get_chan_info(list_to_binary(ClientId))
+    ),
     ?assertMatch(
         #{max_idle_millisecond := 65536500},
-        emqx_connection:info({channel, keepalive}, sys:get_state(Pid))
+        emqx_cth_broker:connection_info({channel, keepalive}, list_to_binary(ClientId))
     ),
 
     ?assertMatch(
