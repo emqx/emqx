@@ -27,8 +27,6 @@ defmodule EMQXUmbrella.MixProject do
       tarball along with the release.
   """
 
-  @ignore_xref __MODULE__
-
   # TODO: remove once we switch to the new mix build
   def new_mix_build?() do
     System.get_env("NEW_MIX_BUILD") == "1"
