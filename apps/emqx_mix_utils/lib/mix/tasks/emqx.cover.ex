@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Emqx.Cover do
   @requirements ["compile", "loadpaths"]
 
   @impl true
-  def run(args) do
+  def run(_args) do
     cover_dir = Path.join([Mix.Project.build_path(), "cover"])
     File.mkdir_p!(cover_dir)
 
@@ -47,7 +47,7 @@ defmodule Mix.Tasks.Emqx.Cover do
         ECt.debug("Analyzing coverage of #{mod}")
 
         case :cover.analyze_to_file(mod, outfile, [:html]) do
-          {:ok, file} ->
+          {:ok, _file} ->
             mod_report_path = Path.relative_to(outfile, cover_dir)
             [%{mod: mod, mod_report_path: mod_report_path, cover_percentage: coverage}]
 

@@ -46,9 +46,8 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
       end)
       |> Enum.map(&to_charlist/1)
 
-    warning_apps = Enum.sort(umbrella_apps)
-
-    plt = to_charlist(plt_path(mode))
+    # warning_apps = Enum.sort(umbrella_apps)
+    # plt = to_charlist(plt_path(mode))
 
     context = %{
       mode: mode,
@@ -147,11 +146,11 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
           :undefined -> []
         end
 
-      optional_apps =
-        case :application.get_key(app, :optional_applications) do
-          {:ok, apps} -> apps
-          :undefined -> []
-        end
+      # optional_apps =
+      #   case :application.get_key(app, :optional_applications) do
+      #     {:ok, apps} -> apps
+      #     :undefined -> []
+      #   end
 
       Enum.reduce(apps ++ included_apps, seen, &find_nested_apps/2)
     end
