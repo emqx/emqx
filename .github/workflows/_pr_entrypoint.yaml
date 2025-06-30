@@ -140,6 +140,7 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
           ENABLE_COVER_COMPILE: 1
+          NEW_MIX_BUILD: 1
         run: |
           make ensure-rebar3
           make ${PROFILE}-compile test-compile

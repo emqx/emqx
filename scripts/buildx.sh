@@ -194,6 +194,7 @@ elif docker info; then
         --platform="linux/$ARCH" \
         --env ACLOCAL_PATH="/usr/share/aclocal:/usr/local/share/aclocal" \
         --env EMQX_FLAVOR="$EMQX_FLAVOR" \
+        --env NEW_MIX_BUILD=1 \
         "$EMQX_BUILDER" \
         bash -euc "git config --global --add safe.directory /emqx && $CMD_RUN"
 else
