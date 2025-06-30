@@ -94,7 +94,7 @@ on_start(ConnResId, ConnConfig0) ->
         fun(X) -> emqx_utils_json:decode(X) end,
         ConnConfig0
     ),
-    {Transport, HostPort} = get_transport(),
+    {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(bigquery),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
     ConnConfig = ConnConfig1#{
         jwt_opts => #{
@@ -423,18 +423,3 @@ try_json_decode(BodyRaw) ->
 render(TemplateStr, Context) ->
     Template = emqx_template:parse(TemplateStr),
     emqx_template:render_strict(Template, Context).
-
--spec get_transport() -> {tls | tcp, string()}.
-get_transport() ->
-    %% creating similar behavior to pubsub emulator, though currently there is no official
-    %% bigquery emulator container.
-    case os:getenv("BIGQUERY_EMULATOR_HOST") of
-        false ->
-            {tls, "bigquery.googleapis.com:443"};
-        HostPort0 ->
-            %% The emulator is plain HTTP...
-            Transport0 = persistent_term:get(
-                {emqx_bridge_gcp_pubsub_client, bigquery, transport}, tcp
-            ),
-            {Transport0, HostPort0}
-    end.

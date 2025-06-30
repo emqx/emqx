@@ -100,7 +100,7 @@ on_start(ConnectorResId, Config0) ->
     Config1 = maps:update_with(
         service_account_json, fun(X) -> emqx_utils_json:decode(X) end, Config0
     ),
-    {Transport, HostPort} = get_transport(),
+    {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(pubsub),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
     Config = Config1#{
         jwt_opts => #{
@@ -437,18 +437,3 @@ log_when_error(Fun, Log) ->
 
 forget_interval(infinity) -> ?DEFAULT_FORGET_INTERVAL;
 forget_interval(Timeout) -> 2 * Timeout.
-
--spec get_transport() -> {tls | tcp, string()}.
-get_transport() ->
-    %% emulating the emulator behavior
-    %% https://cloud.google.com/pubsub/docs/emulator
-    case os:getenv("PUBSUB_EMULATOR_HOST") of
-        false ->
-            {tls, "pubsub.googleapis.com:443"};
-        HostPort0 ->
-            %% The emulator is plain HTTP...
-            Transport0 = persistent_term:get(
-                {emqx_bridge_gcp_pubsub_client, pubsub, transport}, tcp
-            ),
-            {Transport0, HostPort0}
-    end.
