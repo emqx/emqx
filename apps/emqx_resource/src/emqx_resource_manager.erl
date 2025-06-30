@@ -68,7 +68,7 @@
 -export([health_check/1, channel_health_check/2]).
 
 -ifdef(TEST).
--export([stop/2, summarize_query_mode/2]).
+-export([summarize_query_mode/2]).
 -endif.
 
 %%------------------------------------------------------------------------------
