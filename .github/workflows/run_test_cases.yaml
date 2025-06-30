@@ -28,6 +28,7 @@ permissions:
 
 env:
   IS_CI: "yes"
+  NEW_MIX_BUILD: "1"
 
 jobs:
   eunit_and_proper:
@@ -70,9 +71,6 @@ jobs:
           path: _build/test/cover/*.coverdata
           compression-level: 0
           retention-days: 1
-
-      - run: cat rebar3.crashdump || true
-        if: failure()
 
   ct_docker:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
@@ -117,22 +115,18 @@ jobs:
 
       - name: make cover
         run: |
-          docker exec -e PROFILE="$PROFILE" -t erlang make cover
+          docker exec -e PROFILE="$PROFILE" -e NEW_MIX_BUILD=1 -t erlang make cover
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverdata-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.suitegroup }}
-          path: _build/test/cover/*.coverdata
+          path: _build/${{ matrix.profile }}-test/cover/*.coverdata
           compression-level: 0
           retention-days: 1
 
-      - name: rebar3.crashdump
-        if: failure()
-        run: cat rebar3.crashdump || true
-
       - name: compress logs
         if: failure()
-        run: tar -czf logs.tar.gz _build/test/logs
+        run: tar -czf logs.tar.gz _build/${{ matrix.profile }}-test/logs
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
@@ -177,16 +171,13 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverdata-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.suitegroup }}
-          path: _build/test/cover/*.coverdata
+          path: _build/${{ matrix.profile }}-test/cover/*.coverdata
           compression-level: 0
           retention-days: 1
 
-      - run: cat rebar3.crashdump || true
-        if: failure()
-
       - name: compress logs
         if: failure()
-        run: tar -czf logs.tar.gz _build/test/logs
+        run: tar -czf logs.tar.gz _build/${{ matrix.profile }}-test/logs
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
