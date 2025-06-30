@@ -31,7 +31,19 @@ defmodule Mix.Tasks.Emqx.Proper do
     for {mod, fun} <- discover_props() do
       Mix.shell().info("testing #{mod}:#{fun}")
       opts = fetch_opts(mod, fun)
-      :proper.quickcheck(apply(mod, fun, []), opts)
+
+      try do
+        :proper.quickcheck(apply(mod, fun, []), opts)
+      catch
+        k, e ->
+          ECt.info([
+            :red,
+            ":proper.quickcheck crashed (#{mod}.#{fun}):\n",
+            inspect({k, e, __STACKTRACE__}, pretty: true)
+          ])
+
+          false
+      end
     end
     |> then(fn results ->
       if Enum.all?(results) do
