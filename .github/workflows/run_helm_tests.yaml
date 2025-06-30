@@ -38,11 +38,11 @@ jobs:
         path: source
     - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
       with:
-        name: "${{ env.EMQX_NAME }}-docker"
+        name: "${{ env.EMQX_NAME }}-elixir-docker"
         path: /tmp
     - run: minikube start
     - run: |
-        EMQX_IMAGE=$(docker load < /tmp/${EMQX_NAME}-docker-*.tar.gz | sed 's/Loaded image: //g')
+        EMQX_IMAGE=$(docker load < /tmp/${EMQX_NAME}-elixir-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "EMQX_TAG=${EMQX_IMAGE##*:}" >> $GITHUB_ENV
         if stderr=$(minikube image load "${EMQX_IMAGE}" 2>&1 >/dev/null) && test -n "$stderr"; then
           echo "${stderr}";
