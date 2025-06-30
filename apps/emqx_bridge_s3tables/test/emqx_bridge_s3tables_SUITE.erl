@@ -142,14 +142,14 @@ end_per_testcase(TestCase, TCConfig) ->
     end,
     snabbkaffe:stop(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_common_test_helpers:call_janitor(),
+    emqx_bridge_v2_testlib:clean_aggregated_upload_work_dir(),
     case ?config(tc_status, TCConfig) of
         {failed, _} ->
             restart_server();
         _ ->
             ok
     end,
-    emqx_common_test_helpers:call_janitor(),
-    emqx_bridge_v2_testlib:clean_aggregated_upload_work_dir(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -295,6 +295,13 @@ ensure_namespace_deleted(Client, Namespace) ->
         {error, {http_error, 404, _, _, _}} ->
             ct:pal("namespace ~p already gone", [Namespace]),
             ok;
+        {error, {http_error, Status, _, _, _} = Res} when Status >= 500 ->
+            %% See Note [Flaky iceberg-rest-fixtures]
+            %% If the Iceberg REST is in a broken state, trying to clean up will result in
+            %% 5xx errors.  Since the only way to fix it is by restarting it, we can just
+            %% ignore it
+            ct:pal("fixture server returned 500; ignoring as we'll likely restart it:\n  ~p", [Res]),
+            ok;
         {error, Reason} ->
             error(Reason)
     end.
@@ -341,6 +348,13 @@ ensure_table_created(Client, Namespace, Table, Schema, Opts) ->
             ok;
         {error, {http_error, 409, _, _, _}} ->
             ct:pal("table ~p.~p already exists", [Namespace, Table]),
+            ok;
+        {error, {http_error, Status, _, _, _} = Res} when Status >= 500 ->
+            %% See Note [Flaky iceberg-rest-fixtures]
+            %% If the Iceberg REST is in a broken state, trying to clean up will result in
+            %% 5xx errors.  Since the only way to fix it is by restarting it, we can just
+            %% ignore it
+            ct:pal("fixture server returned 500; ignoring as we'll likely restart it:\n  ~p", [Res]),
             ok;
         {error, Reason} ->
             error(Reason)
@@ -692,7 +706,16 @@ restart_server() ->
         ),
     ct:pal("restarted iceberg server."),
     %% Wait for a bit to ensure server is stable...
-    ct:sleep(1_000),
+    ?retry(
+        1_000,
+        10,
+        {ok, {{_, 200, _}, _, _}} = httpc:request(
+            get,
+            {"http://iceberg-rest:8181/v1/config", []},
+            [],
+            [{body_format, binary}]
+        )
+    ),
     ok.
 
 %%------------------------------------------------------------------------------
