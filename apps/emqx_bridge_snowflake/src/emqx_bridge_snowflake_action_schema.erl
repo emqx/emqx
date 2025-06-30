@@ -57,9 +57,8 @@ fields(?ACTION_TYPE) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(
             mkunion(mode, #{
-                %% To be implemented
-                %% <<"direct">> => ref(direct_parameters),
-                <<"aggregated">> => ref(aggreg_parameters)
+                <<"aggregated">> => ref(aggreg_parameters),
+                <<"streaming">> => ref(streaming_parameters)
             }),
             #{
                 required => true,
@@ -70,7 +69,7 @@ fields(?ACTION_TYPE) ->
     );
 fields(aggreg_parameters) ->
     [
-        {mode, mk(aggregated, #{required => true, desc => ?DESC("aggregated_mode")})},
+        {mode, mk(?aggregated, #{required => true, desc => ?DESC("aggregated_mode")})},
         {aggregation, mk(ref(aggregation), #{required => true, desc => ?DESC("aggregation")})},
         {private_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC("private_key")})},
         {private_key_password,
@@ -115,9 +114,33 @@ fields(aggreg_parameters) ->
                 #{default => none, desc => ?DESC("proxy_config")}
             )}
     ];
-fields(direct_parameters) ->
-    %% to be implemented
-    [{mode, mk(direct, #{required => true, desc => ?DESC("direct_mode")})}];
+fields(streaming_parameters) ->
+    [
+        {mode, mk(?streaming, #{required => true, desc => ?DESC("streaming_mode")})},
+        {private_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC("private_key")})},
+        {private_key_password,
+            emqx_schema_secret:mk(#{
+                required => false,
+                desc => ?DESC("private_key_password")
+            })},
+        {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
+        {schema, mk(binary(), #{required => true, desc => ?DESC("schema")})},
+        {pipe, mk(binary(), #{required => true, desc => ?DESC("pipe")})},
+        {pipe_user, mk(binary(), #{required => true, desc => ?DESC("pipe_user")})},
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"15s">>, desc => ?DESC("connect_timeout")
+            })},
+        {pipelining, mk(pos_integer(), #{default => 100, desc => ?DESC("pipelining")})},
+        {pool_size, mk(pos_integer(), #{default => 8, desc => ?DESC("pool_size")})},
+        {max_retries, mk(non_neg_integer(), #{default => 3, desc => ?DESC("max_retries")})},
+        emqx_connector_schema:ehttpc_max_inactive_sc(),
+        {proxy,
+            mk(
+                hoconsc:union([none, ref(proxy_config)]),
+                #{default => none, desc => ?DESC("proxy_config")}
+            )}
+    ];
 fields(aggregation) ->
     [
         emqx_connector_aggregator_schema:container(#{
@@ -159,6 +182,7 @@ fields(action_resource_opts) ->
 desc(Name) when
     Name =:= ?ACTION_TYPE;
     Name =:= aggreg_parameters;
+    Name =:= streaming_parameters;
     Name =:= aggregation;
     Name =:= parameters;
     Name =:= proxy_config

@@ -136,6 +136,8 @@
 %% process.  Avoid doing manual health checks outside tests.
 -export([health_check/1, channel_health_check/2]).
 
+-export([get_health_check_timeout/1]).
+
 -export_type([
     query_mode/0,
     query_kind/0,
@@ -777,6 +779,10 @@ ensure_metrics(ResId) ->
 -spec clear_metrics(resource_id()) -> ok.
 clear_metrics(ResId) ->
     emqx_metrics_worker:clear_metrics(?RES_METRICS, ResId).
+
+get_health_check_timeout(Opts) ->
+    emqx_utils_maps:deep_get([resource_opts, health_check_timeout], Opts, ?HEALTHCHECK_TIMEOUT).
+
 %% =================================================================================
 
 metrics() ->
