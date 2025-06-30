@@ -11,8 +11,8 @@ defmodule EMQXGatewayExproto.MixProject do
       # used by our `Mix.Tasks.Compile.Grpc` compiler
       grpc_opts: %{
         gpb_opts: [
-          module_name_prefix: 'emqx_',
-          module_name_suffix: '_pb'
+          module_name_prefix: ~c"emqx_",
+          module_name_suffix: ~c"_pb"
         ],
         proto_dirs: ["priv/protos"],
         out_dir: "src"

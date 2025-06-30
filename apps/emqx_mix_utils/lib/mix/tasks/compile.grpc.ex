@@ -66,15 +66,15 @@ defmodule Mix.Tasks.Compile.Grpc do
     manifest_modified_time = Mix.Utils.last_modified(manifest())
     ebin_path = Path.join([app_build_path, "ebin"])
     basename = proto_src |> Path.basename(".proto") |> to_charlist()
-    prefix = Keyword.get(gpb_opts, :module_name_prefix, '')
-    suffix = Keyword.get(gpb_opts, :module_name_suffix, '')
-    mod_name = '#{prefix}#{basename}#{suffix}'
+    prefix = Keyword.get(gpb_opts, :module_name_prefix, ~c"")
+    suffix = Keyword.get(gpb_opts, :module_name_suffix, ~c"")
+    mod_name = ~c"#{prefix}#{basename}#{suffix}"
 
     opts = [
       :use_packages,
       :maps,
       :strings_as_binaries,
-      i: '.',
+      i: ~c".",
       o: out_dir,
       report_errors: false,
       rename: {:msg_name, :snake_case},
