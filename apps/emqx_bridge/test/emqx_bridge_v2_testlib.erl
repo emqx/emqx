@@ -1308,8 +1308,8 @@ t_on_get_status(Config, Opts) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
-    FailureStatus = maps:get(failure_status, Opts, disconnected),
-    NormalStatus = maps:get(normal_status, Opts, connected),
+    FailureStatus = maps:get(failure_status, Opts, ?status_disconnected),
+    NormalStatus = maps:get(normal_status, Opts, ?status_connected),
     ?assertMatch({ok, _}, create_bridge_api(Config)),
     ResourceId = resource_id(Config),
     %% Since the connection process is async, we give it some time to

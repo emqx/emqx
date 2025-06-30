@@ -55,6 +55,8 @@ defmodule Mix.Tasks.Emqx.Cover do
             ECt.warn(
               "Couldn't write annotated file for module #{mod}: #{inspect(reason, pretty: true)}"
             )
+
+            []
         end
       end)
       |> Enum.sort_by(& &1.mod)
@@ -75,21 +77,25 @@ defmodule Mix.Tasks.Emqx.Cover do
   end
 
   defp compute_coverage(mod) do
-    {:ok, result} = :cover.analyse(mod, :coverage, :line)
+    with {:ok, result} <- :cover.analyse(mod, :coverage, :line) do
+      coverage =
+        Enum.reduce(result, {0, 0}, fn
+          {{_, 0}, _}, acc ->
+            # line 0 is a line added by eunit and never executed so ignore it
+            acc
 
-    coverage =
-      Enum.reduce(result, {0, 0}, fn
-        {{_, 0}, _}, acc ->
-          # line 0 is a line added by eunit and never executed so ignore it
-          acc
+          {_, {covered, not_covered}}, {acc_cov, acc_not_cov} ->
+            {acc_cov + covered, acc_not_cov + not_covered}
+        end)
 
-        {_, {covered, not_covered}}, {acc_cov, acc_not_cov} ->
-          {acc_cov + covered, acc_not_cov + not_covered}
-      end)
-
-    case coverage do
-      {_, 0} -> 100
-      {cov, not_cov} -> trunc(cov / (cov + not_cov) * 100)
+      case coverage do
+        {_, 0} -> 100
+        {cov, not_cov} -> trunc(cov / (cov + not_cov) * 100)
+      end
+    else
+      err ->
+        ECt.warn("Couldn't analyze coverage of #{mod}: #{inspect(err, pretty: true)}")
+        0
     end
   end
 

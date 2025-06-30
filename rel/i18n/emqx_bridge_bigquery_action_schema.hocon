@@ -1,0 +1,26 @@
+emqx_bridge_bigquery_action_schema {
+  bigquery {
+    label: """Upload to BigQuery"""
+    desc:
+    """Action that takes incoming events and appends them to BigQuery."""
+  }
+
+  action_parameters {
+    label: """BigQuery action parameters"""
+    desc:
+    """Set of parameters for the action."""
+  }
+
+  action_dataset {
+    label: """Dataset"""
+    desc:
+    """BigQuery Dataset."""
+  }
+
+  action_table {
+    label: """Table"""
+    desc:
+    """BigQuery Table."""
+  }
+
+}
