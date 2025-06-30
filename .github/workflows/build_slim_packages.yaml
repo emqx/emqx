@@ -14,6 +14,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NEW_MIX_BUILD: 1
+
 jobs:
   linux:
     runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.profile[2]) || (matrix.profile[2] == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
@@ -28,7 +31,7 @@ jobs:
       matrix:
         profile:
           - ["emqx-enterprise", "elixir", "arm64"]
-          - ["emqx-enterprise", "erlang", "amd64"]
+          - ["emqx-enterprise", "elixir", "amd64"]
 
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
