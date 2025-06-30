@@ -56,7 +56,9 @@
 -type parse_state_initial() :: #options{}.
 
 -type parse_result() ::
-    {more, parse_state()}
+    %% Need more bytes out of stream, `0` means it's unclear how much more.
+    {_NeedMore :: non_neg_integer(), parse_state()}
+    %% There's a full packet.
     | {emqx_types:packet(), binary(), parse_state_initial()}.
 
 -type serialize_opts() :: options().
@@ -144,7 +146,7 @@ parse(
 ) ->
     parse_body_frame(Bin, Header, Need, Body, Options);
 parse(<<>>, State) ->
-    {more, State}.
+    {0, State}.
 
 %% @doc Parses _complete_ binary frame into a single `#mqtt_packet{}`.
 -spec parse_complete(iodata(), parse_state_initial()) ->
@@ -170,7 +172,7 @@ parse_complete(
     end.
 
 parse_remaining_len(<<>>, Header, Mult, Length, Options) ->
-    {more, #remlen{hdr = Header, len = Length, mult = Mult, opts = Options}};
+    {_NeedMore = 0, #remlen{hdr = Header, len = Length, mult = Mult, opts = Options}};
 parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
     Packet = parse_bodyless_packet(Header),
     {Packet, Rest, Options};
@@ -226,7 +228,7 @@ parse_body_frame(Bin, Header, Need, Body, Options) ->
     case Need - byte_size(Bin) of
         More when More > 0 ->
             NewBody = append_body(Body, Bin),
-            {more, #body{hdr = Header, need = More, acc = NewBody, opts = Options}};
+            {More, #body{hdr = Header, need = More, acc = NewBody, opts = Options}};
         _ ->
             <<LastPart:Need/bytes, Rest/bytes>> = Bin,
             Frame = iolist_to_binary(append_body(Body, LastPart)),
