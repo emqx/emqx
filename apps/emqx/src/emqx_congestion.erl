@@ -105,6 +105,9 @@ do_cancel_alarm_congestion(Socket, Transport, Channel, Reason) ->
     emqx_alarm:ensure_deactivated(?ALARM_CONN_CONGEST(Channel, Reason), AlarmDetails, Message),
     ok.
 
+is_tcp_congested(_Socket, esockd_socket) ->
+    %% TODO: No such concept in `socket`-based sockets.
+    false;
 is_tcp_congested(Socket, Transport) ->
     case Transport:getstat(Socket, [send_pend]) of
         {ok, [{send_pend, N}]} when N > 0 -> true;
