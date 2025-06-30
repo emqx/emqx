@@ -67,10 +67,22 @@ It takes care of forwarding calls to the underlying DBMS.
     tx_ttv_assert_absent/2
 ]).
 
+%% Metadata serialization API:
+-export([
+    stream_to_binary/2,
+    binary_to_stream/2,
+    iterator_to_binary/2,
+    binary_to_iterator/2
+]).
+
 %% Utility functions:
 -export([
+    next_/3,
     dirty_read/2,
-    fold_topic/4
+    fold_topic/4,
+
+    make_multi_iterator/2,
+    multi_iterator_next/4
 ]).
 
 -export_type([
@@ -131,7 +143,10 @@ It takes care of forwarding calls to the underlying DBMS.
     kv_tx_context/0,
     transaction_opts/0,
     tx_ops/0,
-    commit_result/0
+    commit_result/0,
+
+    multi_iterator/0,
+    multi_iter_opts/0
 ]).
 
 %%================================================================================
@@ -224,7 +239,7 @@ enabled are expected to support preconditions in batches.
 -type make_iterator_result() :: make_iterator_result(iterator()).
 
 -type next_result(Iterator) ::
-    {ok, Iterator, [{message_key(), emqx_types:message()}]} | {ok, end_of_stream} | error(_).
+    {ok, Iterator, [{message_key(), payload()}]} | {ok, end_of_stream} | error(_).
 
 -type next_result() :: next_result(iterator()).
 
@@ -458,6 +473,21 @@ Options for the `subscribe` API.
 
 -type fold_result(R) :: {R, [fold_error()]} | R.
 
+-record(m_iter, {
+    stream :: stream(),
+    it :: iterator()
+}).
+
+-opaque multi_iterator() :: #m_iter{} | '$end_of_table'.
+
+-type multi_iter_opts() ::
+    #{
+        db := db(),
+        generation => generation(),
+        shard => shard(),
+        start_time => time()
+    }.
+
 %% Internal:
 -define(persistent_term(DB), {emqx_ds_db_backend, DB}).
 
@@ -511,6 +541,13 @@ must not assume the default values.
 
 -callback delete_next(db(), DeleteIterator, delete_selector(), pos_integer()) ->
     delete_next_result(DeleteIterator).
+
+%% Metadata API:
+-callback stream_to_binary(db(), ds_specific_stream()) -> {ok, binary()} | {error, _}.
+-callback iterator_to_binary(db(), ds_specific_iterator()) -> {ok, binary()} | {error, _}.
+
+-callback binary_to_stream(db(), binary()) -> {ok, ds_specific_stream()} | {error, _}.
+-callback binary_to_iterator(db(), binary()) -> {ok, ds_specific_iterator()} | {error, _}.
 
 %% Statistics API:
 -callback count(db()) -> non_neg_integer().
@@ -759,6 +796,19 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
 
+-doc "Simplified version of next/3 that returns payloads without the keys.".
+-spec next_(db(), iterator(), pos_integer()) ->
+    {ok, iterator(), [payload()]}
+    | {ok, end_of_stream}
+    | error(_).
+next_(DB, It0, N) ->
+    case next(DB, It0, N) of
+        {ok, It, Batch} ->
+            {ok, It, [Payload || {_, Payload} <- Batch]};
+        Other ->
+            Other
+    end.
+
 -doc """
 
 Subscribe current Erlang process to the messages that follow
@@ -787,8 +837,13 @@ Once subscribed, the client process will receive messages of type
 - `lagging` flag is an implementation-defined indicator that the
    subscription is currently reading old data.
 
-WARNING: this API is currently not supported by DBs with
-`store_ttv` = `true`.
+WARNING: Only use this API when monotonic timestamp policy is enforced
+for the new data. Subscriptions advance their iterators forward and
+only forward in time.
+
+Subscribers are NOT notified about newly inserted data if its
+timestamp is not greater than the current position of the subscription
+iterator.
 
 """.
 -doc #{title => <<"Subscriptions">>, since => <<"5.9.0">>}.
@@ -1120,10 +1175,34 @@ This operation is considered side effect.
 tx_ttv_assert_absent(Topic, Time) ->
     case is_topic(Topic) andalso is_integer(Time) of
         true ->
-            tx_push_op(?tx_ops_assert_absent, Topic);
+            tx_push_op(?tx_ops_assert_absent, {Topic, Time});
         false ->
             error(badarg)
     end.
+
+-doc "Serialize stream to a compact binary representation.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec stream_to_binary(db(), stream()) -> {ok, binary()} | {error, _}.
+stream_to_binary(DB, Stream) ->
+    ?module(DB):stream_to_binary(DB, Stream).
+
+-doc "De-serialize a binary produced by `stream_to_binary/2`.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec binary_to_stream(db(), binary()) -> {ok, stream()} | {error, _}.
+binary_to_stream(DB, Stream) ->
+    ?module(DB):binary_to_stream(DB, Stream).
+
+-doc "Serialize iterator to a compact binary representation.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec iterator_to_binary(db(), iterator() | end_of_stream) -> {ok, binary()} | {error, _}.
+iterator_to_binary(DB, Iterator) ->
+    ?module(DB):iterator_to_binary(DB, Iterator).
+
+-doc "De-serialize a binary produced by `iterator_to_binary/2`.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec binary_to_iterator(db(), binary()) -> {ok, iterator() | end_of_stream} | {error, _}.
+binary_to_iterator(DB, Iterator) ->
+    ?module(DB):binary_to_iterator(DB, Iterator).
 
 -doc "Restart the transaction.".
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
@@ -1294,6 +1373,80 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
             error(Errors);
         {_, report} ->
             {Result, Errors}
+    end.
+
+-doc """
+
+Create a "multi-iterator" that combines iterators from multiple
+streams. Data from the streams can be consumed using
+`multi_iterator_next/4` function. When scan reaches end of the stream,
+multi-iterator automatically switches to the next stream.
+
+This method of reading data frees the user from having to manage
+multiple streams and iterators at the cost of efficiency. Generally,
+multi-iterators are less efficient than subscriptions, regular
+iterators or `fold_topic/4`.
+
+WARNING: Multi-iterators operate on live, changing data rather than
+snapshots. Don't use this API if you need any degree of consistency.
+
+""".
+-doc #{title => <<"Utility functions">>, since => <<"6.0.0">>}.
+-spec make_multi_iterator(multi_iter_opts(), topic_filter()) -> multi_iterator().
+make_multi_iterator(UserOpts = #{db := _}, TF) ->
+    Opts = multi_iter_opts(UserOpts),
+    case multi_iter_get_streams(Opts, TF) of
+        [Stream | _] ->
+            do_multi_iter_make_it(Opts, TF, {ok, Stream});
+        [] ->
+            '$end_of_table'
+    end.
+
+-doc """
+
+Consume a batch of data from the multi-iterator.
+
+Options and TopicFilter parameters should be the same as ones used to
+create the iterator.
+
+""".
+-doc #{title => <<"Utility functions">>, since => <<"6.0.0">>}.
+-spec multi_iterator_next(
+    multi_iter_opts(),
+    topic_filter(),
+    multi_iterator(),
+    pos_integer()
+) ->
+    {[payload()], multi_iterator()}.
+multi_iterator_next(UserOpts, TF, It = #m_iter{}, N) ->
+    do_multi_iterator_next(multi_iter_opts(UserOpts), TF, It, N, []).
+
+do_multi_iterator_next(_Opts, _TF, '$end_of_table', _N, Acc) ->
+    {Acc, '$end_of_table'};
+do_multi_iterator_next(_Opts, _TF, MIt, N, Acc) when N =< 0 ->
+    {Acc, MIt};
+do_multi_iterator_next(Opts = #{db := DB}, TF, MIt0 = #m_iter{it = It0, stream = Stream}, N, Acc0) ->
+    Result = next_(DB, It0, N),
+    Len =
+        case Result of
+            {ok, _, Batch0} ->
+                length(Batch0);
+            _ ->
+                0
+        end,
+    case Result of
+        {ok, It, Batch} when Len >= N ->
+            {Batch ++ Acc0, MIt0#m_iter{it = It}};
+        Other ->
+            Acc =
+                case Other of
+                    {ok, _, Batch} ->
+                        Acc0 ++ Batch;
+                    _ ->
+                        Acc0
+                end,
+            MIt = do_multi_iter_make_it(Opts, TF, multi_iter_next_stream(Opts, TF, Stream)),
+            do_multi_iterator_next(Opts, TF, MIt, N - Len, Acc)
     end.
 
 -doc """
@@ -1536,3 +1689,44 @@ is_topic_filter(_) ->
 
 dirty_read_topic_fun(_Slab, _Stream, Object, Acc) ->
     [Object | Acc].
+
+multi_iter_get_streams(
+    #{db := DB, start_time := StartTime, shard := Shard, generation := Gen}, TopicFilter
+) ->
+    lists:sort(
+        lists:filtermap(
+            fun({{S, G}, Stream}) ->
+                (Shard =:= '_' orelse Shard =:= S) andalso
+                    (Gen =:= '_' orelse Gen =:= G) andalso
+                    {true, Stream}
+            end,
+            emqx_ds:get_streams(DB, TopicFilter, StartTime)
+        )
+    ).
+
+multi_iter_next_stream(Opts, TopicFilter, Stream) ->
+    F = fun
+        F([S1, S2 | _]) when S1 =:= Stream ->
+            {ok, S2};
+        F([_ | Rest]) ->
+            F(Rest);
+        F(_) ->
+            '$end_of_table'
+    end,
+    F(multi_iter_get_streams(Opts, TopicFilter)).
+
+do_multi_iter_make_it(_Opts, _TopicFilter, '$end_of_table') ->
+    '$end_of_table';
+do_multi_iter_make_it(#{db := DB, start_time := StartTime}, TopicFilter, {ok, Stream}) ->
+    {ok, It} = make_iterator(DB, Stream, TopicFilter, StartTime),
+    #m_iter{
+        stream = Stream,
+        it = It
+    }.
+
+-spec multi_iter_opts(multi_iter_opts()) -> multi_iter_opts().
+multi_iter_opts(UserOpts) ->
+    maps:merge(
+        #{shard => '_', generation => '_', start_time => 0},
+        UserOpts
+    ).

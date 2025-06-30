@@ -30,6 +30,7 @@
 {emqx_delayed,3}.
 {emqx_ds,4}.
 {emqx_ds,5}.
+{emqx_ds,6}.
 {emqx_ds_beamformer,1}.
 {emqx_ds_beamsplitter,1}.
 {emqx_ds_beamsplitter,2}.
