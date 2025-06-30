@@ -312,6 +312,10 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:unicode_util_compat),
     do: {:unicode_util_compat, "0.7.1", override: true}
 
+  def common_dep(:proper),
+    # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
+    do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}
+
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
   # These should be removed once we fully migrate to mix
@@ -510,8 +514,7 @@ defmodule EMQXUmbrella.MixProject do
       [
         {:bbmustache, "1.10.0"},
         {:cth_readable, "1.5.1"},
-        # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
-        {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true},
+        common_dep(:proper),
         {:meck, "0.9.2"}
       ]
     else
