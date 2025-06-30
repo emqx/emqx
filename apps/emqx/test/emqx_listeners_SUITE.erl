@@ -181,9 +181,7 @@ t_tcp_frame_parsing_conn(_Config) ->
     with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
         Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
         pong = emqtt:ping(Client),
-        ClientId = proplists:get_value(clientid, emqtt:info(Client)),
-        [CPid] = emqx_cm:lookup_channels(ClientId),
-        CState = emqx_connection:get_state(CPid),
+        CState = emqx_cth_broker:connection_state(Client),
         ?assertMatch(#{listener := {tcp, ?FUNCTION_NAME}}, CState),
         emqx_listeners:is_packet_parser_available(mqtt) andalso
             ?assertMatch(#{parser := {frame, _Options}}, CState)
