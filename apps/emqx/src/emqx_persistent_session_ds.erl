@@ -1820,12 +1820,12 @@ maybe_update_sub_state_id(SRS = #srs{sub_state_id = SSID0}, S) ->
                     ?tp(?sessds_update_srs_ssid, #{old => SSID0, new => SSID, srs => SRS}),
                     maybe_update_sub_state_id(SRS#srs{sub_state_id = SSID}, S);
                 undefined ->
-                    error({wtf, ParentSub, S, SRS})
+                    undefined
             end;
         #{} = SubState ->
             {SRS, SubState};
         undefined ->
-            error({unknown_state_id, SRS, S})
+            undefined
     end.
 
 -spec ensure_timer(timer(), non_neg_integer(), session()) -> session().

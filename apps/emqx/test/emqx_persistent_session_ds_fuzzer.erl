@@ -232,10 +232,12 @@ unsubscribe_() ->
 %% Operations
 %%--------------------------------------------------------------------
 
+-define(log_level, notice).
+
 %% @doc (Re)connect emqtt client to EMQX. If the client was previously
 %% connected, this function will wait for the takeover.
 connect(S, Opts = #{clientid := ClientId}) ->
-    ?tp(info, ?sessds_test_connect, #{opts => Opts, pid => self()}),
+    ?tp(?log_level, ?sessds_test_connect, #{opts => Opts, pid => self()}),
     %% Check metadata of the previous state to catch situations when
     %% the testcase starts from a dirty state:
     true = check_session_metadata(S),
@@ -256,14 +258,14 @@ connect(S, Opts = #{clientid := ClientId}) ->
 
 %% @doc Shut down emqtt
 disconnect(#{conninfo := ConnInfo = #{client_pid := CPid}}) ->
-    ?tp(info, ?sessds_test_disconnect, #{pid => CPid}),
+    ?tp(?log_level, ?sessds_test_disconnect, #{pid => CPid}),
     emqtt:stop(client_pid()),
     wait_stepdown(ConnInfo),
     flush_client_messages(CPid).
 
 publish(Batch) ->
     %% Produce traces for each message we're about to publish:
-    [?tp(info, ?sessds_test_out_publish, emqx_message:to_map(Msg)) || Msg <- Batch],
+    [?tp(?log_level, ?sessds_test_out_publish, emqx_message:to_map(Msg)) || Msg <- Batch],
     %% We bypass persistent session router for simplicity:
     ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [
         Msg#message{timestamp = emqx_message:timestamp_now()}
@@ -271,15 +273,15 @@ publish(Batch) ->
     ]).
 
 add_generation() ->
-    ?tp(info, ?sessds_test_add_generation, #{}),
+    ?tp(?log_level, ?sessds_test_add_generation, #{}),
     emqx_ds:add_generation(?PERSISTENT_MESSAGE_DB).
 
 subscribe(Topic, QoS) ->
-    ?tp(info, ?sessds_test_subscribe, #{topic => Topic, qos => QoS}),
+    ?tp(?log_level, ?sessds_test_subscribe, #{topic => Topic, qos => QoS}),
     emqtt:subscribe(client_pid(), Topic, QoS).
 
 unsubscribe(Topic) ->
-    ?tp(info, ?sessds_test_unsubscribe, #{topic => Topic}),
+    ?tp(?log_level, ?sessds_test_unsubscribe, #{topic => Topic}),
     emqtt:unsubscribe(client_pid(), Topic).
 
 consume(S = #{conninfo := #{client_pid := CPID, session_pid := SPID}}) ->

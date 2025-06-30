@@ -96,8 +96,8 @@ open(Generation, ClientId, Verify) ->
         generation => Generation,
         shard => {auto, ClientId},
         timeout => trans_timeout(),
-        retries => 5,
-        retry_interval => 1000
+        retries => 10,
+        retry_interval => 100
     },
     Ret = emqx_ds:trans(
         Opts,
@@ -158,7 +158,7 @@ commit(
         sync => Sync,
         timeout => trans_timeout(),
         retries => 5,
-        retry_interval => 10
+        retry_interval => 1000
     },
     Result =
         emqx_ds:trans(
@@ -170,10 +170,10 @@ commit(
                 case Lifetime of
                     new ->
                         %% Drop the old session state:
-                        del_session_tx(ClientId);
+                        tx_del_session_data(ClientId);
                     _ ->
                         %% Ensure continuity of the session:
-                        assert_guard(ClientId, Guard0)
+                        tx_assert_guard(ClientId, Guard0)
                 end,
                 Rec0#{
                     ?metadata := pmap_commit(ClientId, Metadata),
@@ -191,7 +191,6 @@ commit(
         {atomic, TXSerial, Rec} when NewGuard ->
             %% This is a new incarnation of the client. Update the
             %% guard:
-            timer:sleep(10),
             Rec#{?guard := TXSerial};
         {atomic, _TXSerial, Rec} ->
             Rec;
@@ -261,15 +260,14 @@ delete(
         emqx_ds:trans(
             Opts,
             fun() ->
-                del_session_tx(ClientId),
-
-                assert_guard(ClientId, Guard),
-                delete_guard(ClientId)
+                tx_assert_guard(ClientId, Guard),
+                tx_del_session_data(ClientId),
+                tx_delete_guard(ClientId)
             end
         ),
     ok.
 
-del_session_tx(ClientId) ->
+tx_del_session_data(ClientId) ->
     pmap_delete(ClientId, ?metadata),
     pmap_delete(ClientId, ?subscriptions),
     pmap_delete(ClientId, ?subscription_states),
@@ -320,9 +318,8 @@ session_iterator_next(Generation, It0, N) ->
         #{db => ?DB, generation => Generation}, [?top_guard, '+'], It0, N
     ),
     Results = lists:map(
-        fun({[?top_guard, SessId], _, Guard}) ->
-            Meta = pmap_dirty_read(Generation, ?metadata, SessId),
-            {SessId, Meta#{guard => Guard}}
+        fun({[?top_guard, SessId], _, _Guard}) ->
+                SessId
         end,
         Batch
     ),
@@ -376,7 +373,7 @@ open_tx(Generation, ClientId, Verify) ->
                 true ->
                     %% Verify that guard hasn't changed while we were
                     %% scanning the pmaps:
-                    assert_guard(ClientId, Guard),
+                    tx_assert_guard(ClientId, Guard),
                     {ok, Ret}
             end
     end.
@@ -399,21 +396,21 @@ guard(ClientId, Generation) ->
             undefined
     end.
 
--spec assert_guard(
+-spec tx_assert_guard(
     emqx_persistent_session_ds:id(),
     emqx_persistent_session_ds_state:guard() | undefined
 ) -> ok.
-assert_guard(ClientId, undefined) ->
+tx_assert_guard(ClientId, undefined) ->
     emqx_ds:tx_ttv_assert_absent([?top_guard, ClientId], 0);
-assert_guard(ClientId, Guard) when is_binary(Guard) ->
+tx_assert_guard(ClientId, Guard) when is_binary(Guard) ->
     emqx_ds:tx_ttv_assert_present([?top_guard, ClientId], 0, Guard).
 
 -spec write_guard(emqx_persistent_session_ds:id(), binary() | ?ds_tx_serial) -> ok.
 write_guard(ClientId, Guard) ->
     emqx_ds:tx_write({[?top_guard, ClientId], 0, Guard}).
 
--spec delete_guard(emqx_persistent_session_ds:id()) -> ok.
-delete_guard(ClientId) ->
+-spec tx_delete_guard(emqx_persistent_session_ds:id()) -> ok.
+tx_delete_guard(ClientId) ->
     emqx_ds:tx_del_topic([?top_guard, ClientId]).
 
 %% == Operations over PMaps ==

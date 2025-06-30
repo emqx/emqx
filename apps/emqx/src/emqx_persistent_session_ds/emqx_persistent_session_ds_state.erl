@@ -156,7 +156,15 @@
 
 -define(DEFAULT_BACKEND, builtin_raft).
 
--type lifetime() :: new | terminate | takeover | up.
+-type lifetime() ::
+    %% Session wasn't present before:
+    new
+    %% Channel is terminating normally:
+    | terminate
+    %% Client is taking over an existing session:
+    | takeover
+    %% Checkpoint:
+    | up.
 
 -type commit_opts() :: #{lifetime := lifetime(), sync := boolean()}.
 
@@ -177,7 +185,8 @@ open_db(Config) ->
         append_only => false,
         store_ttv => true,
         replication_options => #{},
-        storage => Storage
+        storage => Storage,
+        transaction => #{flush_interval => 1000, idle_flush_interval => 1, conflict_window => 5000}
     }).
 
 -spec open(emqx_persistent_session_ds:id()) -> {ok, t()} | emqx_ds:error(_) | undefined.
@@ -273,8 +282,6 @@ create_new(SessionId) ->
         ?guard => undefined,
         ?dirty => true,
         ?checkpoint_ref => undefined,
-        %% FIXME: this is part of metadata?
-        ?last_id => 1,
         ?metadata => #pmap{name = ?metadata},
         ?subscriptions => #pmap{name = ?subscriptions},
         ?subscription_states => #pmap{name = ?subscription_states},
@@ -643,7 +650,7 @@ make_session_iterator() ->
     emqx_persistent_session_ds_state_v2:make_session_iterator(generation()).
 
 -spec session_iterator_next(session_iterator(), pos_integer()) ->
-    {[{emqx_persistent_session_ds:id(), metadata()}], session_iterator() | '$end_of_table'}.
+    {[emqx_persistent_session_ds:id()], session_iterator() | '$end_of_table'}.
 session_iterator_next(It0, N) ->
     emqx_persistent_session_ds_state_v2:session_iterator_next(generation(), It0, N).
 

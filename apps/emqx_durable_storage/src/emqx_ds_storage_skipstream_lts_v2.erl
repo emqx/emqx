@@ -367,7 +367,6 @@ next(_DB, _Shard, S, ItStaticBin, ItPos0, BatchSize, _Now, IsCurrent) ->
 scan_stream(
     _DB, _Shard, S = #s{trie = Trie}, Static, TF, Pos, BatchSize, _Now, IsCurrent
 ) ->
-    ?tp(warning, scan_stream, #{static => Static, tf => TF}),
     maybe
         {ok, CompressedTF} ?= compress_tf(Trie, Static, TF),
         next_internal(S, Static, CompressedTF, Pos, BatchSize, IsCurrent)
