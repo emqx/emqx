@@ -795,7 +795,7 @@ run_stream_parser(Data, Acc, N, ParseState, State) ->
     case emqx_frame:parse(Data, ParseState) of
         {Packet, Rest, NParseState} ->
             run_stream_parser(Rest, [Packet | Acc], N + 1, NParseState, State);
-        {more, NParseState} ->
+        {_More, NParseState} ->
             {N, Acc, State#state{parser = NParseState}}
     end.
 
