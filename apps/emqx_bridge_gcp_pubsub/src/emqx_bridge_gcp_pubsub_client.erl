@@ -25,6 +25,9 @@
 
 -export([get_jwt_authorization_header/1]).
 
+%% Only for tests.
+-export([get_transport/1]).
+
 -type service_account_json() :: map().
 -type project_id() :: binary().
 -type duration() :: non_neg_integer().
@@ -210,6 +213,32 @@ pubsub_get_topic(Topic, ClientState, ReqOpts) ->
     Body = <<>>,
     PreparedRequest = {prepared_request, {Method, Path, Body}, ReqOpts},
     ?MODULE:query_sync(PreparedRequest, ClientState).
+
+%%-------------------------------------------------------------------------------------------------
+%% Only for tests
+%%-------------------------------------------------------------------------------------------------
+
+-spec get_transport(pubsub | bigquery) -> {tls | tcp, string()}.
+get_transport(Type) ->
+    %% emulating the emulator behavior
+    %% https://cloud.google.com/pubsub/docs/emulator
+    {Env, RealURL} =
+        case Type of
+            pubsub ->
+                {"PUBSUB_EMULATOR_HOST", "pubsub.googleapis.com:443"};
+            bigquery ->
+                {"BIGQUERY_EMULATOR_HOST", "bigquery.googleapis.com:443"}
+        end,
+    case os:getenv(Env) of
+        false ->
+            {tls, RealURL};
+        HostPort0 ->
+            %% The emulator is plain HTTP...
+            Transport0 = persistent_term:get(
+                {emqx_bridge_gcp_pubsub_client, Type, transport}, tcp
+            ),
+            {Transport0, HostPort0}
+    end.
 
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
