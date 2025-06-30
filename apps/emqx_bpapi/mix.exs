@@ -1,13 +1,13 @@
-defmodule EMQXDsBuiltinRaft.MixProject do
+defmodule EMQXBPAPI.MixProject do
   use Mix.Project
   alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
-      app: :emqx_ds_builtin_raft,
-      version: "0.2.7",
+      app: :emqx_bpapi,
+      version: "1.0.0",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
@@ -19,17 +19,13 @@ defmodule EMQXDsBuiltinRaft.MixProject do
 
   def application do
     [
-      extra_applications: [:mria | UMP.extra_applications()],
-      mod: {:emqx_ds_builtin_raft_app, []}
+      extra_applications: [:mria | UMP.extra_applications()]
     ]
   end
 
   def deps() do
     [
-      {:emqx_durable_storage, in_umbrella: true},
-      {:emqx_bpapi, in_umbrella: true},
-      UMP.common_dep(:gproc),
-      UMP.common_dep(:ra)
+      UMP.common_dep(:snabbkaffe)
     ]
   end
 end

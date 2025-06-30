@@ -635,6 +635,7 @@ defmodule EMQXUmbrella.MixProject do
           skip_mode_validation_for: [
             :lc,
             :emqx_mix,
+            :emqx_bpapi,
             :emqx_machine,
             :emqx_gateway,
             :emqx_gateway_stomp,

@@ -21,7 +21,6 @@
 
 -export_type([api/0, api_version/0, var_name/0, call/0, rpc/0, bpapi_meta/0]).
 
--include("emqx.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -type api() :: atom().
@@ -48,13 +47,15 @@
 
 -optional_callbacks([deprecated_since/0]).
 
+-define(BPAPI_SHARD, emqx_common_shard).
+
 -spec start() -> ok.
 start() ->
     ok = mria:create_table(?TAB, [
         {type, set},
         {storage, ram_copies},
         {attributes, record_info(fields, ?TAB)},
-        {rlog_shard, ?COMMON_SHARD}
+        {rlog_shard, ?BPAPI_SHARD}
     ]),
     ok = mria:wait_for_tables([?TAB]),
     announce(node(), emqx).
@@ -87,12 +88,12 @@ announce(Node, App) ->
     {ok, Data} = file:consult(?MODULE:versions_file(App)),
     %% replicant(5.6.0) will call old core(<5.6.0) announce_fun/2 is undef on old core
     %% so we just use anonymous function to update.
-    case mria:transaction(?COMMON_SHARD, fun ?MODULE:announce_fun/2, [Node, Data]) of
+    case mria:transaction(?BPAPI_SHARD, fun ?MODULE:announce_fun/2, [Node, Data]) of
         {atomic, ok} ->
             ok;
         {aborted, {undef, [{?MODULE, announce_fun, _, _} | _]}} ->
             {atomic, ok} = mria:transaction(
-                ?COMMON_SHARD,
+                ?BPAPI_SHARD,
                 fun() ->
                     MS = ets:fun2ms(fun(#?TAB{key = {N, API}}) when N =:= Node ->
                         {N, API}

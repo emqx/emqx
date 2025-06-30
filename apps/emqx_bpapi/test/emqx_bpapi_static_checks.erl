@@ -460,7 +460,9 @@ emqx_app_dir() ->
     Info = ?MODULE:module_info(compile),
     case proplists:get_value(source, Info) of
         Source when is_list(Source) ->
-            filename:dirname(filename:dirname(Source));
+            BPAPIAppDir = filename:dirname(filename:dirname(Source)),
+            Root = filename:dirname(filename:dirname(BPAPIAppDir)),
+            filename:join([Root, "apps", "emqx"]);
         undefined ->
             "apps/emqx"
     end.
