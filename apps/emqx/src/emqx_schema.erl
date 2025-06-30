@@ -627,6 +627,14 @@ fields("crl_cache") ->
     ];
 fields("mqtt_tcp_listener") ->
     mqtt_listener(1883) ++
+        [
+            {"tcp_backend",
+                sc(hoconsc:enum([gen_tcp, socket]), #{
+                    default => <<"gen_tcp">>,
+                    desc => ?DESC(fields_mqtt_opts_tcp_backend),
+                    importance => ?IMPORTANCE_LOW
+                })}
+        ] ++
         mqtt_parse_options() ++
         [
             {"tcp_options",

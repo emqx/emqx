@@ -42,17 +42,20 @@ all() ->
     [
         {group, tcp},
         {group, tcp_beam_framing},
+        {group, tcp_socket},
         {group, ws},
         {group, quic}
     ].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
+    TCsQuic = [t_connect_clean_start_unresp_old_client],
+    TCs = emqx_common_test_helpers:all(?MODULE) -- TCsQuic,
     [
-        {tcp, [], TCs -- [t_connect_clean_start_unresp_old_client]},
-        {tcp_beam_framing, [], TCs -- [t_connect_clean_start_unresp_old_client]},
-        {ws, [], TCs -- [t_connect_clean_start_unresp_old_client]},
-        {quic, [], TCs}
+        {tcp, [], TCs},
+        {tcp_beam_framing, [], TCs},
+        {tcp_socket, [], TCs},
+        {ws, [], TCs},
+        {quic, [], TCs ++ TCsQuic}
     ].
 
 init_per_group(tcp, Config) ->
@@ -61,6 +64,12 @@ init_per_group(tcp, Config) ->
 init_per_group(tcp_beam_framing, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, "listeners.tcp.test { enable = true, bind = 2883, parse_unit = frame }"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
+init_per_group(tcp_socket, Config) ->
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, tcp_backend = socket }"}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
