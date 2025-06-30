@@ -8,8 +8,7 @@ defmodule Mix.Tasks.Emqx.Proper do
 
   @impl true
   def run(args) do
-    Mix.debug(true)
-    IO.inspect(args)
+    input_opts = parse_args!(args)
 
     Enum.each([:common_test, :eunit, :mnesia], &ECt.add_to_path_and_cache/1)
 
@@ -26,12 +25,22 @@ defmodule Mix.Tasks.Emqx.Proper do
     |> String.replace_suffix("-test", "")
     |> then(&System.put_env("PROFILE", &1))
 
+    ECt.maybe_start_cover()
+    if ECt.cover_enabled?(), do: ECt.cover_compile_files()
+
     for {mod, fun} <- discover_props() do
       Mix.shell().info("testing #{mod}:#{fun}")
       opts = fetch_opts(mod, fun)
       :proper.quickcheck(apply(mod, fun, []), opts)
     end
-    |> IO.inspect()
+    |> then(fn results ->
+      if Enum.all?(results) do
+        if ECt.cover_enabled?(), do: ECt.write_coverdata(input_opts)
+        :ok
+      else
+        System.halt(1)
+      end
+    end)
   end
 
   defp add_to_path_and_cache(lib_name) do
@@ -70,5 +79,19 @@ defmodule Mix.Tasks.Emqx.Proper do
     rescue
       e in [FunctionClauseError, UndefinedFunctionError] -> []
     end
+  end
+
+  defp parse_args!(args) do
+    {opts, _rest} =
+      OptionParser.parse!(
+        args,
+        strict: [
+          cover_export_name: :string
+        ]
+      )
+
+    %{
+      cover_export_name: Keyword.get(opts, :cover_export_name, "proper")
+    }
   end
 end
