@@ -80,11 +80,11 @@ proper: $(REBAR)
 
 .PHONY: test-compile
 test-compile: $(REBAR) merge-config
-	$(REBAR) as test compile
+	env PROFILE=$(PROFILE)-test mix do deps.get, compile
 
 .PHONY: $(REL_PROFILES:%=%-compile)
 $(REL_PROFILES:%=%-compile): $(REBAR) merge-config
-	$(REBAR) as $(@:%-compile=%) compile
+	env PROFILE=$(@:%-compile=%) mix do deps.get, compile
 
 .PHONY: ct
 ct: $(REBAR) merge-config
@@ -228,8 +228,8 @@ dialyzer: $(REBAR)
 
 ## rel target is to create release package without relup
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
-$(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
-	@$(BUILD) $(subst -rel,,$(@)) rel
+$(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS)
+	@env ELIXIR_MAKE_TAR=yes PROFILE=$(subst -rel,,$(@)) $(BUILD) $(subst -rel,,$(@)) elixir
 
 ## download relup base packages
 .PHONY: $(REL_PROFILES:%=%-relup-downloads)
@@ -300,7 +300,7 @@ merge-config:
 ## elixir target is to create release packages using Elixir's Mix
 .PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)
 $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS)
-	@env IS_ELIXIR=yes $(BUILD) $(subst -elixir,,$(@)) elixir
+	@env NEW_MIX_BUILD=1 IS_ELIXIR=yes $(BUILD) $(subst -elixir,,$(@)) elixir
 
 .PHONY: $(REL_PROFILES:%=%-elixir-pkg)
 define gen-elixir-pkg-target
