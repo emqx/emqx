@@ -426,11 +426,17 @@ console_print(_Fmt, _Args) -> ok.
 -spec do_start_listener(listener_type(), atom(), listener_id(), map()) ->
     {ok, pid() | {skipped, atom()}} | {error, term()}.
 %% Start MQTT/TCP listener
+do_start_listener(Type = tcp, Name, Id, #{bind := ListenOn, tcp_backend := socket} = Conf) ->
+    esockd:open_tcpsocket(
+        Id,
+        ListenOn,
+        esockd_opts(Id, Type, Name, emqx_socket_connection, Conf)
+    );
 do_start_listener(Type, Name, Id, #{bind := ListenOn} = Opts) when ?ESOCKD_LISTENER(Type) ->
     esockd:open(
         Id,
         ListenOn,
-        esockd_opts(Id, Type, Name, Opts)
+        esockd_opts(Id, Type, Name, emqx_connection, Opts)
     );
 %% Start MQTT/WS listener
 do_start_listener(Type, Name, Id, Opts) when ?COWBOY_LISTENER(Type) ->
@@ -454,13 +460,35 @@ do_start_listener(quic, Name, Id, #{bind := Bind} = Opts) ->
             {ok, {skipped, quic_app_missing}}
     end.
 
+do_update_listener(
+    Type = tcp, Name, OldConf, NewConf = #{bind := ListenOn, tcp_backend := Backend}
+) ->
+    Id = listener_id(tcp, Name),
+    case OldConf of
+        #{bind := ListenOn, tcp_backend := Backend} ->
+            case Backend of
+                gen_tcp -> ConnMod = emqx_connection;
+                socket -> ConnMod = emqx_socket_connection
+            end,
+            esockd:reset_options(
+                {Id, ListenOn},
+                esockd_opts(Id, Type, Name, ConnMod, NewConf)
+            );
+        _Different ->
+            %% TODO
+            %% Again, we're not strictly required to drop live connections in this case.
+            {error, not_supported}
+    end;
 do_update_listener(Type, Name, OldConf, NewConf = #{bind := ListenOn}) when
     ?ESOCKD_LISTENER(Type)
 ->
     Id = listener_id(Type, Name),
-    case maps:get(bind, OldConf) of
-        ListenOn ->
-            esockd:reset_options({Id, ListenOn}, esockd_opts(Id, Type, Name, NewConf));
+    case OldConf of
+        #{bind := ListenOn} ->
+            esockd:reset_options(
+                {Id, ListenOn},
+                esockd_opts(Id, Type, Name, emqx_connection, NewConf)
+            );
         _Different ->
             %% TODO
             %% Again, we're not strictly required to drop live connections in this case.
@@ -578,17 +606,17 @@ perform_listener_change(update, {{Type, Name, ConfOld}, {_, _, ConfNew}}) ->
 perform_listener_change(stop, {Type, Name, Conf}) ->
     stop_listener(Type, Name, Conf).
 
-esockd_opts(ListenerId, Type, Name, Opts0) ->
+esockd_opts(ListenerId, Type, Name, ConnMod, Opts0) ->
     Zone = zone(Opts0),
     PacketTcpOpts = choose_packet_opts(Opts0),
+    Limiter = emqx_limiter:create_esockd_limiter_client(Zone, ListenerId),
     Opts1 = maps:with([acceptors, max_connections, proxy_protocol, proxy_protocol_timeout], Opts0),
-    ESockdLimiter = emqx_limiter:create_esockd_limiter_client(Zone, ListenerId),
     Opts2 = Opts1#{
-        limiter => ESockdLimiter,
+        limiter => Limiter,
         access_rules => esockd_access_rules(maps:get(access_rules, Opts0, [])),
         tune_fun => {emqx_olp, backoff_new_conn, [Zone]},
         connection_mfargs =>
-            {emqx_connection, start_link, [
+            {ConnMod, start_link, [
                 #{
                     listener => {Type, Name},
                     zone => Zone,

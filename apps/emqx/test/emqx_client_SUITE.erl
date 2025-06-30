@@ -18,18 +18,30 @@
 
 all() ->
     [
-        {group, mqttv3},
-        {group, mqttv4},
-        {group, mqttv5},
-        {group, others},
-        {group, misbehaving}
+        {group, gen_tcp_listener},
+        {group, socket_listener}
     ].
 
 groups() ->
     [
-        {mqttv3, [], [t_basic_v3]},
+        {gen_tcp_listener, [], [
+            {group, mqttv3},
+            {group, mqttv4},
+            {group, mqttv5},
+            {group, others},
+            {group, misbehaving}
+        ]},
+        {socket_listener, [], [
+            {group, sock_closed},
+            {group, misbehaving}
+        ]},
+        {mqttv3, [], [
+            t_basic,
+            t_sock_closed_reason_normal,
+            t_sock_closed_force_closed_by_client
+        ]},
         {mqttv4, [], [
-            t_basic_v4,
+            t_basic,
             t_cm,
             t_cm_registry,
             %% t_will_message,
@@ -37,16 +49,21 @@ groups() ->
             t_overlapping_subscriptions,
             %% t_keepalive,
             t_redelivery_on_reconnect,
-            t_dollar_topics
+            t_dollar_topics,
+            t_sock_closed_reason_normal,
+            t_sock_closed_force_closed_by_client
         ]},
-        {mqttv5, [], [t_basic_with_props_v5, t_v5_receive_maximim_in_connack]},
+        {mqttv5, [], [
+            t_basic_with_props_v5,
+            t_v5_receive_maximim_in_connack,
+            t_sock_closed_reason_normal,
+            t_sock_closed_force_closed_by_client
+        ]},
         {others, [], [
             t_username_as_clientid,
             t_certcn_as_alias,
             t_certdn_as_alias,
             t_client_attr_from_user_property,
-            t_sock_closed_reason_normal,
-            t_sock_closed_force_closed_by_client,
             t_certcn_as_clientid_default_config_tls,
             t_certcn_as_clientid_tlsv1_3,
             t_certcn_as_clientid_tlsv1_2,
@@ -58,14 +75,25 @@ groups() ->
         {misbehaving, [], [
             t_sub_non_utf8_topic,
             t_congestion_send_timeout
+        ]},
+        {sock_closed, [], [
+            t_sock_closed_reason_normal,
+            t_sock_closed_force_closed_by_client
         ]}
     ].
 
 init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(gen_tcp_listener, Config) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx,
                 %% t_congestion_send_timeout
+                "listeners.tcp.default.tcp_backend = gen_tcp\n"
                 "listeners.tcp.default.tcp_options.send_timeout = 2500\n"
                 "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
                 "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
@@ -75,10 +103,37 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{apps, Apps} | Config].
+    [{group_apps, Apps} | Config];
+init_per_group(socket_listener, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx,
+                %% t_congestion_send_timeout
+                "listeners.tcp.default.tcp_backend = socket\n"
+                "listeners.tcp.default.tcp_options.send_timeout = 2500\n"
+                "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
+                "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
+                %% others
+                "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{group_apps, Apps} | Config];
+init_per_group(mqttv3, Config) ->
+    [{proto_ver, v3} | Config];
+init_per_group(mqttv4, Config) ->
+    [{proto_ver, v4} | Config];
+init_per_group(mqttv5, Config) ->
+    [{proto_ver, v5} | Config];
+init_per_group(_GroupName, Config) ->
+    Config.
 
-end_per_suite(Config) ->
-    emqx_cth_suite:stop(?config(apps, Config)).
+end_per_group(gen_tcp_listener, Config) ->
+    emqx_cth_suite:stop(?config(group_apps, Config));
+end_per_group(socket_listener, Config) ->
+    emqx_cth_suite:stop(?config(group_apps, Config));
+end_per_group(_GroupName, _Config) ->
+    ok.
 
 init_per_testcase(_Case, Config) ->
     Config.
@@ -93,18 +148,8 @@ end_per_testcase(_Case, _Config) ->
     ok.
 
 %%--------------------------------------------------------------------
-%% Test cases for MQTT v3
-%%--------------------------------------------------------------------
-
-t_basic_v3(_) ->
-    run_basic([{proto_ver, v3}]).
-
-%%--------------------------------------------------------------------
 %% Test cases for MQTT v4
 %%--------------------------------------------------------------------
-
-t_basic_v4(_Config) ->
-    run_basic([{proto_ver, v4}]).
 
 t_cm(_) ->
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
@@ -271,18 +316,15 @@ t_dollar_topics(_) ->
 %% Test cases for MQTT v5
 %%--------------------------------------------------------------------
 
-v5_conn_props(ReceiveMaximum) ->
-    [
-        {proto_ver, v5},
-        {properties, #{'Receive-Maximum' => ReceiveMaximum}}
-    ].
+v5_conn_props(ReceiveMaximum, Config) ->
+    [{properties, #{'Receive-Maximum' => ReceiveMaximum}} | Config].
 
-t_basic_with_props_v5(_) ->
-    run_basic(v5_conn_props(4)).
+t_basic_with_props_v5(Config) ->
+    t_basic(v5_conn_props(4, Config)).
 
-t_v5_receive_maximim_in_connack(_) ->
+t_v5_receive_maximim_in_connack(Config) ->
     ReceiveMaximum = 7,
-    {ok, C} = emqtt:start_link(v5_conn_props(ReceiveMaximum)),
+    {ok, C} = emqtt:start_link(v5_conn_props(ReceiveMaximum, Config)),
     {ok, Props} = emqtt:connect(C),
     ?assertMatch(#{'Receive-Maximum' := ReceiveMaximum}, Props),
     ok = emqtt:disconnect(C),
@@ -292,7 +334,7 @@ t_v5_receive_maximim_in_connack(_) ->
 %% General test cases.
 %%--------------------------------------------------------------------
 
-run_basic(Opts) ->
+t_basic(Opts) ->
     Topic = <<"TopicA">>,
     {ok, C} = emqtt:start_link(Opts),
     {ok, _} = emqtt:connect(C),
@@ -378,56 +420,46 @@ t_client_attr_from_user_property(_Config) ->
     ),
     emqtt:disconnect(Client).
 
-t_sock_closed_reason_normal(_) ->
-    ProtoVers = [v3, v4, v5],
+t_sock_closed_reason_normal(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    [
-        ?check_trace(
-            begin
-                {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
-                {ok, _} = emqtt:connect(C),
-                ?wait_async_action(
-                    emqtt:disconnect(C),
-                    #{?snk_kind := sock_closed_normal},
-                    5_000
-                )
-            end,
-            fun(Trace0) ->
-                ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
-                ok
-            end
-        )
-     || Ver <- ProtoVers
-    ].
+    ?check_trace(
+        begin
+            {ok, C} = emqtt:start_link([{clientid, ClientId} | Config]),
+            {ok, _} = emqtt:connect(C),
+            ?wait_async_action(
+                emqtt:disconnect(C),
+                #{?snk_kind := sock_closed_normal},
+                5_000
+            )
+        end,
+        fun(Trace0) ->
+            ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
+            ok
+        end
+    ).
 
-t_sock_closed_force_closed_by_client(_) ->
-    ProtoVers = [v3, v4, v5],
+t_sock_closed_force_closed_by_client(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    process_flag(trap_exit, true),
-    [
-        ?check_trace(
-            begin
-                {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
-                {ok, _} = emqtt:connect(C),
-                ?wait_async_action(
-                    exit(C, kill),
-                    #{?snk_kind := sock_closed_with_other_reason},
-                    5_000
-                )
-            end,
-            fun(Trace0) ->
-                ?assertMatch(
-                    [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
-                ),
-                ok
-            end
-        )
-     || Ver <- ProtoVers
-    ],
-    process_flag(trap_exit, false).
+    ?check_trace(
+        begin
+            {ok, C} = emqtt:start_link([{clientid, ClientId} | Config]),
+            {ok, _} = emqtt:connect(C),
+            true = erlang:unlink(C),
+            ?wait_async_action(
+                exit(C, kill),
+                #{?snk_kind := sock_closed_with_other_reason},
+                5_000
+            )
+        end,
+        fun(Trace0) ->
+            ?assertMatch(
+                [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
+            ),
+            ok
+        end
+    ).
 
 t_clientid_override(_) ->
-    emqx_logger:set_log_level(debug),
     ClientId = <<"original-clientid-0">>,
     Username = <<"username1">>,
     Override = <<"username">>,

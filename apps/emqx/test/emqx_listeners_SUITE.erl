@@ -176,6 +176,7 @@ t_tcp_frame_parsing_conn(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     Conf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"tcp_backend">> => <<"gen_tcp">>,
         <<"parse_unit">> => <<"frame">>
     },
     with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
@@ -185,6 +186,21 @@ t_tcp_frame_parsing_conn(_Config) ->
         ?assertMatch(#{listener := {tcp, ?FUNCTION_NAME}}, CState),
         emqx_listeners:is_packet_parser_available(mqtt) andalso
             ?assertMatch(#{parser := {frame, _Options}}, CState)
+    end).
+
+t_tcp_socket_conn(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"tcp_backend">> => <<"socket">>
+    },
+    with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
+        Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
+        pong = emqtt:ping(Client),
+        ?assertEqual(
+            emqx_socket_connection,
+            emqx_cth_broker:connection_info(connmod, Client)
+        )
     end).
 
 t_ssl_frame_parsing_conn(Config) ->
