@@ -33,7 +33,7 @@ jobs:
         run: |
           unzip -o -q ${{ matrix.profile }}.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - run: make ${{ matrix.profile }}
+      - run: make ${{ matrix.profile }}-elixir
       - name: install bats
         run: |
           apt-get update
