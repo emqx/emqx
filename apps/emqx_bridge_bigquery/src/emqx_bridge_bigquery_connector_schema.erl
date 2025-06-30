@@ -149,7 +149,7 @@ connector_example(put) ->
         pipelining => 100,
         pool_size => 8,
         service_account_json =>
-            <<"{\"client_email\": \"test@myproject.iam.gserviceaccount.com\", ...}">>,
+            ~b|{"client_email": "test@myproject.iam.gserviceaccount.com", ...}|,
         resource_opts => #{
             health_check_interval => <<"45s">>,
             start_after_created => true,
