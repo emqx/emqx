@@ -7,6 +7,7 @@ defmodule EMQXLdap.MixProject do
       app: :emqx_ldap,
       version: "0.1.14",
       build_path: "../../_build",
+      compilers: [:yecc, :leex] ++ Mix.compilers(),
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
@@ -18,7 +19,7 @@ defmodule EMQXLdap.MixProject do
   end
 
   def application do
-    [extra_applications: [:eldap]]
+    [extra_applications: [:eldap | UMP.extra_applications()]]
   end
 
   def deps() do

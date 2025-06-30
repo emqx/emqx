@@ -8,6 +8,7 @@ defmodule EMQXUtils.MixProject do
       app: :emqx_utils,
       version: "5.5.2",
       build_path: "../../_build",
+      compilers: [:yecc, :leex] ++ Mix.compilers(),
       erlc_options: UMP.erlc_options(),
       erlc_paths: ["etc" | UMP.erlc_paths()],
       deps_path: "../../deps",
