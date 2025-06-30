@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -122,10 +123,11 @@ wait_for_ci_redis(0, _Config) ->
 wait_for_ci_redis(Checks, Config) ->
     timer:sleep(1000),
     TestHosts = all_test_hosts(),
+    ProxyHost = os:getenv("PROXY_HOST", ?PROXY_HOST),
+    ProxyPort = list_to_integer(os:getenv("PROXY_PORT", ?PROXY_PORT)),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     case emqx_common_test_helpers:is_all_tcp_servers_available(TestHosts) of
         true ->
-            ProxyHost = os:getenv("PROXY_HOST", ?PROXY_HOST),
-            ProxyPort = list_to_integer(os:getenv("PROXY_PORT", ?PROXY_PORT)),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             Apps = emqx_cth_suite:start(
                 [
@@ -286,7 +288,7 @@ t_check_replay(Config) ->
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
 
     ?WAIT(
-        {ok, connected},
+        {ok, ?status_connected},
         emqx_resource:health_check(ResourceId),
         5
     ),
@@ -296,7 +298,6 @@ t_check_replay(Config) ->
         emqx_bridge_v2_testlib:snk_timetrap(),
         ?wait_async_action(
             with_down_failure(Config, ProxyName, fun() ->
-                ct:sleep(500),
                 {_, {ok, _}} =
                     ?wait_async_action(
                         lists:foreach(
@@ -315,13 +316,12 @@ t_check_replay(Config) ->
             #{?snk_kind := redis_bridge_connector_send_done, batch := true, result := {ok, _}}
         ),
         fun(Trace) ->
-            ?assert(
-                ?strict_causality(
-                    #{?snk_kind := redis_bridge_connector_send_done, result := {error, _}},
-                    #{?snk_kind := redis_bridge_connector_send_done, result := {ok, _}},
-                    Trace
-                )
-            )
+            SubTrace = ?of_kind(redis_bridge_connector_send_done, Trace),
+            %% No strict causality here because, depending on timing, multiple batches may
+            %% be enqueued.
+            ?assertMatch([#{result := {error, _}} | _], SubTrace),
+            ?assertMatch([#{result := {ok, _}} | _], lists:reverse(SubTrace)),
+            ok
         end
     ),
     ok.
