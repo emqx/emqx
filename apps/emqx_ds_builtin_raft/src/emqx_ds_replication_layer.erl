@@ -270,7 +270,8 @@ open_db(DB, CreateOpts0) ->
                 flush_interval => 1_000,
                 idle_flush_interval => 1,
                 conflict_window => 5_000
-            }
+            },
+            replication_options => #{}
         },
         CreateOpts1
     ),
