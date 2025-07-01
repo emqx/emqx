@@ -55,7 +55,8 @@ translate_builtin_raft(
         n_shards := NShards,
         n_sites := NSites,
         replication_factor := ReplFactor,
-        transaction := Transaction
+        transaction := Transaction,
+        rocksdb := RocksDBOptions
     }
 ) ->
     %% NOTE: Undefined if `basic` schema is in use.
@@ -67,14 +68,16 @@ translate_builtin_raft(
         replication_factor => ReplFactor,
         replication_options => maps:get(replication_options, Backend, #{}),
         storage => emqx_maybe:apply(fun translate_layout/1, Layout),
-        transaction => Transaction
+        transaction => Transaction,
+        rocksdb => RocksDBOptions
     }.
 
 translate_builtin_local(
     Backend = #{
         backend := builtin_local,
         n_shards := NShards,
-        transaction := Transaction
+        transaction := Transaction,
+        rocksdb := RocksDBOptions
     }
 ) ->
     %% NOTE: Undefined if `basic` schema is in use.
@@ -87,7 +90,8 @@ translate_builtin_local(
         storage => emqx_maybe:apply(fun translate_layout/1, Layout),
         poll_workers_per_shard => NPollers,
         poll_batch_size => BatchSize,
-        transaction => Transaction
+        transaction => Transaction,
+        rocksdb => RocksDBOptions
     }.
 
 %%================================================================================
@@ -194,6 +198,33 @@ fields(builtin_local_basic) ->
     backend_fields(builtin_local, basic);
 fields(builtin_raft_basic) ->
     backend_fields(builtin_raft, basic);
+fields(rocksdb_options) ->
+    [
+        {cache_size,
+            sc(
+                emqx_schema:bytesize(),
+                #{
+                    default => <<"8MB">>,
+                    desc => ?DESC(rocksdb_cache_size)
+                }
+            )},
+        {write_buffer_size,
+            sc(
+                emqx_schema:bytesize(),
+                #{
+                    default => <<"10MB">>,
+                    desc => ?DESC(rocksdb_write_buffer_size)
+                }
+            )},
+        {max_open_files,
+            sc(
+                pos_integer(),
+                #{
+                    default => 100,
+                    desc => ?DESC(rocksdb_max_open_files)
+                }
+            )}
+    ];
 fields(builtin_write_buffer) ->
     [
         {max_items,
@@ -380,6 +411,14 @@ common_builtin_fields(basic) ->
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(builtin_optimistic_transaction)
                 }
+            )},
+        {rocksdb,
+            sc(
+                ref(rocksdb_options),
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_rocksdb_options)
+                }
             )}
     ];
 common_builtin_fields(layout) ->
@@ -436,6 +475,8 @@ desc(layout_builtin_reference) ->
     ?DESC(layout_builtin_reference);
 desc(optimistic_transaction) ->
     ?DESC(optimistic_transaction);
+desc(rocksdb_options) ->
+    ?DESC(rocksdb_options);
 desc(_) ->
     undefined.
 

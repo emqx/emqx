@@ -142,7 +142,7 @@ otx_idle_flush_interval.desc:
 otx_conflict_window.label: "Conflict tracking window"
 otx_conflict_window.desc:
   """~
-  Builtin durable storage backends track recent updates over a period of time known as the conflict tracking window.
+  Built-in durable storage backends track recent updates over a period of time known as the conflict tracking window.
 
   Transactions that started earlier than the beginning of the window are automatically rejected.
   So, effectively, this parameter limits the time the transactions can run.
@@ -150,5 +150,33 @@ otx_conflict_window.desc:
   Higher values reduce the risk of rejecting transactions due to long run time, but may increase RAM demands.
 
   This value should be greater than the flush interval.~"""
+
+rocksdb_options.label: "RocksDB options"
+rocksdb_options.desc:
+  """~
+  Options concerning behavior of RocksDB databases used by the built-in durable storage backends.~"""
+
+rocksdb_cache_size.label: "RocksDB cache size"
+rocksdb_cache_size.desc:
+  """~
+  Size of the RocksDB block cache.
+
+  Note that increasing this value may not necessarily reduce I/O, since the compressed data may reside in the OS's page cache, but it can reduce CPU load at the expense of memory usage.
+
+  Each shard of the database has its own cache.~"""
+
+rocksdb_write_buffer_size.label: "RocksDB write buffer size"
+rocksdb_write_buffer_size.desc:
+  """~
+  Maximum size of the RocksDB memtables.
+
+  Memtable is a buffer where newly written data is kept before it is flushed to disk.
+
+  Each shard of the database has its own memtable.~"""
+
+rocksdb_max_open_files.label: "Maximum open files"
+rocksdb_max_open_files.desc:
+  """~
+  Maximum number of open file descriptors per shard.~"""
 
 }

@@ -73,9 +73,10 @@
 ]).
 
 %% internal exports:
--export([db_dir/1, base_dir/0, generation_get/2, get_gvars/1]).
+-export([db_dir/1, base_dir/0, generation_get/2, get_gvars/1, ls_shards/1, get_stats/1]).
 
 -export_type([
+    rocksdb_options/0,
     gen_id/0,
     generation/0,
     generation_data/0,
@@ -113,6 +114,23 @@
 %%================================================================================
 
 -define(APP, emqx_durable_storage).
+
+-define(MB, 1024 * 1024).
+
+-type rocksdb_options() ::
+    #{
+        cache_size => non_neg_integer(),
+        write_buffer_size => non_neg_integer(),
+        max_open_files => non_neg_integer(),
+        misc_options => [{atom(), _}]
+    }.
+
+-type storage_layer_opts() :: #{
+    rocksdb => rocksdb_options(),
+    append_only => boolean(),
+    atomic_batches => boolean(),
+    store_ttv => boolean()
+}.
 
 %% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
 %% records over the wire.
@@ -382,6 +400,7 @@
 -record(call_drop_generation, {gen_id :: gen_id()}).
 -record(call_flush, {}).
 -record(call_take_snapshot, {}).
+-record(call_get_stats, {}).
 
 -spec drop_shard(dbshard()) -> ok.
 drop_shard(Shard) ->
@@ -825,7 +844,14 @@ shard_info(ShardId, status) ->
         error:badarg -> down
     end.
 
--spec flush(dbshard()) -> ok | {error, _}.
+-spec flush(dbshard() | emqx_ds:db()) -> ok | {error, _}.
+flush(DB) when is_atom(DB) ->
+    lists:foreach(
+        fun(Shard) ->
+            flush({DB, Shard})
+        end,
+        ls_shards(DB)
+    );
 flush(ShardId) ->
     gen_server:call(?REF(ShardId), #call_flush{}, infinity).
 
@@ -847,7 +873,7 @@ accept_snapshot(ShardId) ->
 %% gen_server for the shard
 %%================================================================================
 
--spec start_link(dbshard(), emqx_ds:create_db_opts()) ->
+-spec start_link(dbshard(), storage_layer_opts()) ->
     {ok, pid()}.
 start_link(Shard = {_, _}, Options) ->
     gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
@@ -981,6 +1007,15 @@ handle_call(#call_flush{}, _From, S0) ->
 handle_call(#call_take_snapshot{}, _From, S) ->
     Snapshot = handle_take_snapshot(S),
     {reply, Snapshot, S};
+handle_call(#call_get_stats{}, _From, S) ->
+    Reply =
+        try
+            handle_get_stats(S)
+        catch
+            EC:Err:Stack ->
+                {EC, Err, Stack}
+        end,
+    {reply, Reply, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
@@ -1219,6 +1254,18 @@ commit_metadata(#s{shard_id = ShardId, schema = Schema, shard = Runtime, db = DB
 -spec rocksdb_open(dbshard(), options()) ->
     {ok, rocksdb:db_handle(), cf_refs()} | {error, _TODO}.
 rocksdb_open(Shard, Options) ->
+    Defaults = #{
+        cache_size => 8 * ?MB,
+        write_buffer_size => 10 * ?MB,
+        max_open_files => 100,
+        misc_options => []
+    },
+    #{
+        cache_size := CacheSize,
+        write_buffer_size := WriteBufferSize,
+        max_open_files := MaxOpenFiles,
+        misc_options := MiscOptions
+    } = maps:merge(Defaults, maps:get(rocksdb, Options, #{})),
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true},
@@ -1232,8 +1279,11 @@ rocksdb_open(Shard, Options) ->
         %% With WAL-less writes, it's important to have CFs flushed atomically.
         %% For example, bitfield-lts backend needs data + trie CFs to be consistent.
         {atomic_flush, true},
-        {enable_write_thread_adaptive_yield, false}
-        | maps:get(db_options, Options, [])
+        {enable_write_thread_adaptive_yield, false},
+        {db_write_buffer_size, WriteBufferSize},
+        {cache_size, CacheSize},
+        {max_open_files, MaxOpenFiles}
+        | MiscOptions
     ],
     DBDir = db_dir(Shard),
     _ = filelib:ensure_dir(DBDir),
@@ -1329,6 +1379,24 @@ handle_take_snapshot(#s{db = DB, shard_id = ShardId}) ->
 handle_accept_snapshot(ShardId) ->
     Dir = db_dir(ShardId),
     emqx_ds_storage_snapshot:new_writer(Dir).
+
+handle_get_stats(#s{db = DB}) ->
+    Unwrap = fun
+        ({ok, A}) -> A;
+        (A) -> A
+    end,
+    #{
+        block_cache_usage => Unwrap(rocksdb:get_property(DB, <<"rocksdb.block-cache-usage">>)),
+        cur_size_all_memtables => Unwrap(
+            rocksdb:get_property(DB, <<"rocksdb.cur-size-all-mem-tables">>)
+        ),
+        table_readers_mem => Unwrap(
+            rocksdb:get_property(DB, <<"rocksdb.estimate-table-readers-mem">>)
+        ),
+        block_cache_pinned_usage => Unwrap(
+            rocksdb:get_property(DB, <<"rocksdb.block-cache-pinned-usage">>)
+        )
+    }.
 
 -spec handle_event(dbshard(), emqx_ds:time(), Event) -> [Event].
 handle_event(Shard, Time, ?storage_event(GenId, Event)) ->
@@ -1445,6 +1513,22 @@ get_schema_runtime(Shard = {_, _}) ->
 get_gvars(DBShard) ->
     #{gvars := GVars} = get_schema_runtime(DBShard),
     GVars.
+
+-doc "List shards of the DB".
+-spec ls_shards(emqx_ds:db()) -> [emqx_ds:shard()].
+ls_shards(DB) ->
+    ShardMS = {n, l, {?MODULE, {DB, '$1'}}},
+    MS = {{ShardMS, '_', '_'}, [], ['$1']},
+    gproc:select({local, names}, [MS]).
+
+-spec get_stats(emqx_ds:db()) -> map().
+get_stats(DB) ->
+    maps:from_list(
+        [
+            {Shard, gen_server:call(?REF({DB, Shard}), #call_get_stats{})}
+         || Shard <- ls_shards(DB)
+        ]
+    ).
 
 -spec put_schema_runtime(dbshard(), shard()) -> ok.
 put_schema_runtime(Shard = {_, _}, RuntimeSchema) ->
