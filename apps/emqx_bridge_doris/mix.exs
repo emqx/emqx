@@ -22,7 +22,11 @@ defmodule EMQXBridgeDoris.MixProject do
 
   def application do
     [
-      extra_applications: UMP.extra_applications()
+      extra_applications: UMP.extra_applications(),
+      env: [
+        emqx_action_info_modules: [:emqx_bridge_doris_action_info],
+        emqx_connector_info_modules: [:emqx_bridge_doris_connector_info]
+      ]
     ]
   end
 
