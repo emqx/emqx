@@ -119,49 +119,18 @@ jobs:
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
 
   compile:
-    runs-on: ubuntu-22.04
-    container: ${{ needs.init.outputs.BUILDER }}
     needs:
       - init
       - sanity-checks
     strategy:
       matrix:
-        profile:
-          - emqx-enterprise
-
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-      - name: Work around https://github.com/actions/checkout/issues/766
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - id: compile
-        env:
-          PROFILE: ${{ matrix.profile }}
-          ENABLE_COVER_COMPILE: 1
-          NEW_MIX_BUILD: 1
-        run: |
-          make ensure-rebar3
-          make ${PROFILE}-compile test-compile
-          echo "export PROFILE=${PROFILE}" | tee -a env.sh
-          echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
-          zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
-          make ${PROFILE}-rel
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ matrix.profile }}
-          path: ${{ matrix.profile }}.zip
-          retention-days: 7
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: "${{ matrix.profile }}-schema-dump"
-          path: |
-            env.sh
-            scripts/spellcheck
-            _build/docgen/${{ matrix.profile }}/*.json
-            _build/docgen/${{ matrix.profile }}/*.hocon
-          retention-days: 7
+        build_type:
+          - test
+          - release
+    uses: ./.github/workflows/compile.yaml
+    with:
+      builder: ${{ needs.init.outputs.BUILDER }}
+      build_type: ${{ matrix.build_type }}
 
   run_emqx_app_tests:
     needs:
