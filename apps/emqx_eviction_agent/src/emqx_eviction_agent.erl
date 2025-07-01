@@ -61,7 +61,11 @@
 -export_type([server_reference/0, kind/0, options/0]).
 
 -define(CONN_MODULES, [
-    emqx_connection, emqx_ws_connection, emqx_quic_connection, emqx_eviction_agent_channel
+    emqx_connection,
+    emqx_socket_connection,
+    emqx_ws_connection,
+    emqx_quic_connection,
+    emqx_eviction_agent_channel
 ]).
 
 %%--------------------------------------------------------------------
