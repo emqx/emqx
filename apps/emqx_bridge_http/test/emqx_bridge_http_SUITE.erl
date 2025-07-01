@@ -129,6 +129,7 @@ end_per_testcase(TestCase, _Config) when
     TestCase =:= t_send_async_connection_timeout;
     TestCase =:= t_send_get_trace_messages
 ->
+    snabbkaffe:stop(),
     ok = emqx_bridge_http_connector_test_server:stop(),
     persistent_term:erase({?MODULE, times_called}),
     emqx_bridge_v2_testlib:delete_all_bridges(),
@@ -136,6 +137,7 @@ end_per_testcase(TestCase, _Config) when
     emqx_common_test_helpers:call_janitor(),
     ok;
 end_per_testcase(_TestCase, Config) ->
+    snabbkaffe:stop(),
     case ?config(http_server, Config) of
         undefined -> ok;
         Server -> stop_http_server(Server)
