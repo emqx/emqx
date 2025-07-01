@@ -93,9 +93,11 @@ ct: $(REBAR) merge-config
 
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
-static_checks:
-	@$(REBAR) as check do xref, dialyzer
-	@$(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
+static_checks: $(ELIXIR_COMMON_DEPS)
+	@env NEW_MIX_BUILD=1 BPAPI_BUILD_PROFILE=$(PROFILE:%-test=%) \
+	    $(MIX) do \
+	    xref, dialyzer --mode classic \
+	    emqx.static_checks
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
 
@@ -220,12 +222,12 @@ $(PROFILES:%=deps-%): $(COMMON_DEPS)
 	@rm -f rebar.lock
 
 .PHONY: xref
-xref: $(REBAR)
-	@$(REBAR) as check xref
+xref:
+	@$(MIX) xref
 
 .PHONY: dialyzer
-dialyzer: $(REBAR)
-	@$(REBAR) as check dialyzer
+dialyzer:
+	@$(MIX) dialyzer --mode incremental
 
 ## rel target is to create release package without relup
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
