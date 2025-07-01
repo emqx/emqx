@@ -18,7 +18,14 @@ defmodule EMQXBridgeS3.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_bridge_s3_app, []}]
+    [
+      extra_applications: UMP.extra_applications(),
+      mod: {:emqx_bridge_s3_app, []},
+      env: [
+        emqx_action_info_modules: [:emqx_bridge_s3_upload_action_info],
+        emqx_connector_info_modules: [:emqx_bridge_s3_connector_info]
+      ]
+    ]
   end
 
   def deps() do

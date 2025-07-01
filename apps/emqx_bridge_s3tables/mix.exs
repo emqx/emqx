@@ -23,7 +23,11 @@ defmodule EMQXBridgeS3Tables.MixProject do
   def application do
     [
       extra_applications: UMP.extra_applications(),
-      mod: {:emqx_bridge_s3tables_app, []}
+      mod: {:emqx_bridge_s3tables_app, []},
+      env: [
+        emqx_action_info_modules: [:emqx_bridge_s3tables_action_info],
+        emqx_connector_info_modules: [:emqx_bridge_s3tables_connector_info]
+      ]
     ]
   end
 

@@ -46,16 +46,6 @@ defmodule Mix.Tasks.Emqx.Eunit do
     end
   end
 
-  defp add_to_path_and_cache(lib_name) do
-    :code.lib_dir()
-    |> Path.join("#{lib_name}-*")
-    |> Path.wildcard()
-    |> hd()
-    |> Path.join("ebin")
-    |> to_charlist()
-    |> :code.add_path(:cache)
-  end
-
   defp parse_args!(args) do
     {opts, _rest} =
       OptionParser.parse!(

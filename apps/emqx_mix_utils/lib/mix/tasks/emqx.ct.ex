@@ -104,7 +104,7 @@ defmodule Mix.Tasks.Emqx.Ct do
         {:ok, mods} ->
           mods
 
-        other ->
+        _other ->
           # IO.inspect({app, other}, label: :bad_mods)
           []
       end
@@ -187,19 +187,19 @@ defmodule Mix.Tasks.Emqx.Ct do
     end
   end
 
-  defp ensure_suites_are_loaded(suites) do
-    suites
-    |> Enum.map(fn suite_path ->
-      ["apps", app_name | _] = Path.split(suite_path)
-      String.to_atom(app_name)
-    end)
-    |> Enum.uniq()
-    |> Enum.flat_map(fn app ->
-      {:ok, mods} = :application.get_key(app, :modules)
-      mods
-    end)
-    |> Code.ensure_all_loaded()
-  end
+  # defp ensure_suites_are_loaded(suites) do
+  #   suites
+  #   |> Enum.map(fn suite_path ->
+  #     ["apps", app_name | _] = Path.split(suite_path)
+  #     String.to_atom(app_name)
+  #   end)
+  #   |> Enum.uniq()
+  #   |> Enum.flat_map(fn app ->
+  #     {:ok, mods} = :application.get_key(app, :modules)
+  #     mods
+  #   end)
+  #   |> Code.ensure_all_loaded()
+  # end
 
   def add_to_path_and_cache(lib_name) do
     :code.lib_dir()
@@ -356,7 +356,7 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   def write_coverdata(opts) do
-    with [_ | _] = modules <- :cover.modules() do
+    with [_ | _] = _modules <- :cover.modules() do
       cover_dir = Path.join([Mix.Project.build_path(), "cover"])
       File.mkdir_p!(cover_dir)
       cover_export_name = opts.cover_export_name

@@ -55,16 +55,6 @@ defmodule Mix.Tasks.Emqx.Proper do
     end)
   end
 
-  defp add_to_path_and_cache(lib_name) do
-    :code.lib_dir()
-    |> Path.join("#{lib_name}-*")
-    |> Path.wildcard()
-    |> hd()
-    |> Path.join("ebin")
-    |> to_charlist()
-    |> :code.add_path(:cache)
-  end
-
   ## TODO: allow filtering modules and test names
   defp discover_props() do
     Mix.Dep.Umbrella.cached()
@@ -87,9 +77,9 @@ defmodule Mix.Tasks.Emqx.Proper do
 
   defp fetch_opts(mod, fun) do
     try do
-      mod.fun(:opts)
+      apply(mod, fun, [:opts])
     rescue
-      e in [FunctionClauseError, UndefinedFunctionError] -> []
+      [FunctionClauseError, UndefinedFunctionError] -> []
     end
   end
 

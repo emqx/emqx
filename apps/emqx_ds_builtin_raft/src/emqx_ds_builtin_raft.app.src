@@ -5,7 +5,7 @@
     {vsn, "0.2.7"},
     {modules, []},
     {registered, []},
-    {applications, [kernel, stdlib, gproc, mria, ra, emqx_durable_storage]},
+    {applications, [kernel, stdlib, gproc, mria, ra, emqx_bpapi, emqx_durable_storage]},
     {mod, {emqx_ds_builtin_raft_app, []}},
     {env, []}
 ]}.

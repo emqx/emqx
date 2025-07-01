@@ -257,6 +257,23 @@ defmodule CheckMixExsDiscrepancies do
     end)
   end
 
+  def check_app_env_mismatches(mix_infos, rebar_infos) do
+    Enum.reduce(rebar_infos, %{}, fn {app, rebar_info}, acc ->
+      rebar_env = get_in(rebar_info, [:app_src, :env]) || []
+      rebar_env = Enum.sort(rebar_env)
+      mix_env = get_in(mix_infos, [app, :application, :env]) || []
+      mix_env = Enum.sort(mix_env)
+
+      missing_envs = rebar_env -- mix_env
+
+      if Enum.empty?(missing_envs) do
+        acc
+      else
+        Map.put(acc, app, %{missing_envs: missing_envs})
+      end
+    end)
+  end
+
   defp put_if_any(map, k, enum) do
     if Enum.empty?(enum) do
       map
@@ -298,7 +315,8 @@ defmodule CheckMixExsDiscrepancies do
       version_mismatches: check_app_vsn_mismatches(mix_infos, rebar_infos),
       missing_erl_opts: check_missing_erl_opts(mix_infos, rebar_infos),
       deps_mismatches: check_missing_deps(mix_infos, rebar_infos),
-      start_apps_mismatches: check_start_app_mismatches(mix_infos, rebar_infos)
+      start_apps_mismatches: check_start_app_mismatches(mix_infos, rebar_infos),
+      app_env_mismatches: check_app_env_mismatches(mix_infos, rebar_infos)
     }
   end
 
@@ -455,6 +473,32 @@ defmodule CheckMixExsDiscrepancies do
     end
   end
 
+  def report_app_env_mismatches(app_env_mismatches) do
+    if Enum.empty?(app_env_mismatches) do
+      _failed? = false
+    else
+      puts([
+        :red,
+        "The applications below have application env vars mismatches (`mix.exs` and `app.src`):\n",
+        Enum.map(app_env_mismatches, fn {app, problems} ->
+          formatted_missing =
+            problems.missing_envs
+            |> Inspect.Algebra.to_doc(Inspect.Opts.new(pretty: true))
+            |> Inspect.Algebra.nest(4, :always)
+            |> Inspect.Algebra.format(0)
+
+          [
+            "  * #{app} missing env vars:\n",
+            ["    - ", formatted_missing, "\n"]
+          ]
+        end),
+        "\n"
+      ])
+
+      _failed? = true
+    end
+  end
+
   def report_problems(results) do
     failed? =
       Enum.reduce(results, false, fn
@@ -472,6 +516,9 @@ defmodule CheckMixExsDiscrepancies do
 
         {:start_apps_mismatches, start_apps_mismatches}, acc ->
           report_start_apps_mismatches(start_apps_mismatches) || acc
+
+        {:app_env_mismatches, app_env_mismatches}, acc ->
+          report_app_env_mismatches(app_env_mismatches) || acc
       end)
 
     if failed? do

@@ -20,7 +20,11 @@ defmodule EMQXBridgeAzureBlobStorage.MixProject do
   def application do
     [
       extra_applications: UMP.extra_applications(),
-      mod: {:emqx_bridge_azure_blob_storage_app, []}
+      mod: {:emqx_bridge_azure_blob_storage_app, []},
+      env: [
+        emqx_action_info_modules: [:emqx_bridge_azure_blob_storage_action_info],
+        emqx_connector_info_modules: [:emqx_bridge_azure_blob_storage_connector_info]
+      ]
     ]
   end
 

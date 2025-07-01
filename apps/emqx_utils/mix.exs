@@ -8,13 +8,14 @@ defmodule EMQXUtils.MixProject do
       app: :emqx_utils,
       version: "5.5.2",
       build_path: "../../_build",
+      compilers: [:yecc, :leex] ++ Mix.compilers(),
       erlc_options: UMP.erlc_options(),
       erlc_paths: ["etc" | UMP.erlc_paths()],
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
-      deps: UMP.common_deps() ++ deps()
+      deps: UMP.common_deps() ++ deps() ++ test_deps()
     ]
   end
 
@@ -31,5 +32,15 @@ defmodule EMQXUtils.MixProject do
       UMP.common_dep(:snabbkaffe),
       {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true}
     ]
+  end
+
+  defp test_deps() do
+    if UMP.test_env?() do
+      [
+        UMP.common_dep(:cowboy)
+      ]
+    else
+      []
+    end
   end
 end

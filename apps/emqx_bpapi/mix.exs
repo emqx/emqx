@@ -1,11 +1,11 @@
-defmodule EMQXBridgeDiskLog.MixProject do
+defmodule EMQXBPAPI.MixProject do
   use Mix.Project
   alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
-      app: :emqx_bridge_disk_log,
-      version: "1.0.1",
+      app: :emqx_bpapi,
+      version: "1.0.0",
       build_path: "../../_build",
       erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -19,18 +19,13 @@ defmodule EMQXBridgeDiskLog.MixProject do
 
   def application do
     [
-      extra_applications: UMP.extra_applications(),
-      env: [
-        emqx_action_info_modules: [:emqx_bridge_disk_log_action_info],
-        emqx_connector_info_modules: [:emqx_bridge_disk_log_connector_info]
-      ]
+      extra_applications: [:mria | UMP.extra_applications()]
     ]
   end
 
   def deps() do
     [
-      {:emqx_resource, in_umbrella: true},
-      {:emqx_gen_bridge, in_umbrella: true}
+      UMP.common_dep(:snabbkaffe)
     ]
   end
 end
