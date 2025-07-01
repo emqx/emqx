@@ -18,7 +18,12 @@ defmodule EMQXBridgeKinesis.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications()]
+    [
+      extra_applications: UMP.extra_applications(),
+      env: [
+        emqx_action_info_modules: [:emqx_bridge_kinesis_action_info]
+      ]
+    ]
   end
 
   def deps() do

@@ -18,7 +18,13 @@ defmodule EMQXBridgeSqlserver.MixProject do
   end
 
   def application do
-    [extra_applications: [:odbc] ++ UMP.extra_applications()]
+    [
+      extra_applications: [:odbc] ++ UMP.extra_applications(),
+      env: [
+        emqx_action_info_modules: [:emqx_bridge_sqlserver_action_info],
+        emqx_connector_info_modules: [:emqx_bridge_sqlserver_connector_info]
+      ]
+    ]
   end
 
   def deps() do
