@@ -52,11 +52,11 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: ${{ matrix.profile }}
+          name: ${{ matrix.profile }}-test
 
       - name: extract artifact
         run: |
-          unzip -o -q ${{ matrix.profile }}.zip
+          unzip -o -q ${{ matrix.profile }}-test.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
         # produces eunit.coverdata
       - run: make eunit
@@ -68,7 +68,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverdata-${{ matrix.profile }}-eunit-proper
-          path: _build/test/cover/*.coverdata
+          path: _build/${{ matrix.profile }}-test/cover/*.coverdata
           compression-level: 0
           retention-days: 1
 
@@ -90,10 +90,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: ${{ matrix.profile }}
+          name: ${{ matrix.profile }}-test
       - name: extract artifact
         run: |
-          unzip -o -q ${{ matrix.profile }}.zip
+          unzip -o -q ${{ matrix.profile }}-test.zip
 
         # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata
       - name: run common tests
@@ -158,10 +158,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: ${{ matrix.profile }}
+          name: ${{ matrix.profile }}-test
       - name: extract artifact
         run: |
-          unzip -o -q ${{ matrix.profile }}.zip
+          unzip -o -q ${{ matrix.profile }}-test.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
         # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata
@@ -204,10 +204,10 @@ jobs:
       # download emqx-enterprise source code
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: emqx-enterprise
+          name: emqx-enterprise-test
       - name: extract artifact
         run: |
-          unzip -o -q emqx-enterprise.zip
+          unzip -o -q emqx-enterprise-test.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       # download coverdata artifacts
       - name: download coverdata

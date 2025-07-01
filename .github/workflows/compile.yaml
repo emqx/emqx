@@ -1,0 +1,79 @@
+name: Compile
+
+concurrency:
+  group: compile-${{ inputs.build_type }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      builder:
+        required: true
+        type: string
+      build_type:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IS_CI: "yes"
+  NEW_MIX_BUILD: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  compile:
+    runs-on: ubuntu-22.04
+    container: ${{ inputs.builder }}
+    strategy:
+      matrix:
+        profile:
+          - emqx-enterprise
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Work around https://github.com/actions/checkout/issues/766
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - id: compile
+        env:
+          PROFILE: ${{ matrix.profile }}
+          ENABLE_COVER_COMPILE: 1
+          NEW_MIX_BUILD: 1
+          MAKE_TARGET: ${{ inputs.build_type == 'test' && 'test-compile' || format('{0}-compile', matrix.profile) }}
+          ARTIFACT_NAME: ${{ format('{0}-{1}.zip', matrix.profile, inputs.build_type) }}
+        run: |
+          set -exuo pipefail
+          make ensure-rebar3
+          make ${MAKE_TARGET}
+          echo "export PROFILE=${PROFILE}" | tee -a env.sh
+          echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
+          zip -ryq -x@.github/workflows/.zipignore2 $ARTIFACT_NAME .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.profile }}-${{ inputs.build_type }}
+          path: ${{ matrix.profile }}-${{ inputs.build_type }}.zip
+          retention-days: 7
+          if-no-files-found: error
+      - name: build release with schema dump
+        if: inputs.build_type == 'release'
+        env:
+          PROFILE: ${{ matrix.profile }}
+          NEW_MIX_BUILD: 1
+        run: make ${PROFILE}-rel
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: inputs.build_type == 'release'
+        with:
+          name: "${{ matrix.profile }}-schema-dump"
+          path: |
+            env.sh
+            scripts/spellcheck
+            _build/docgen/${{ matrix.profile }}/*.json
+            _build/docgen/${{ matrix.profile }}/*.hocon
+          retention-days: 7
+          if-no-files-found: error
