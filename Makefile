@@ -93,9 +93,11 @@ ct: $(REBAR) merge-config
 
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
-static_checks:
-	@$(REBAR) as check do xref, dialyzer
-	@$(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
+static_checks: $(ELIXIR_COMMON_DEPS)
+	@env NEW_MIX_BUILD=1 BPAPI_BUILD_PROFILE=$(PROFILE:%-test=%) \
+	    $(MIX) do \
+	    xref, dialyzer --mode classic \
+	    emqx.static_checks
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
 
