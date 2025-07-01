@@ -74,8 +74,6 @@
 
 -define(MULTIPLIER_MAX, 16#200000).
 
--dialyzer({no_match, [serialize_utf8_string/3]}).
-
 %% @doc Describe state for logging.
 describe_state(Options = #options{}) ->
     #{
@@ -776,48 +774,60 @@ serialize_pkt(Packet, #{version := Ver, max_size := MaxSize, strict_mode := Stri
         false -> IoData
     end.
 
--spec serialize(emqx_types:packet()) -> iodata().
+-spec serialize(emqx_types:packet()) -> erlang:iovec().
 serialize(Packet) -> serialize(Packet, ?MQTT_PROTO_V4, false).
 
+-spec serialize(emqx_types:packet(), emqx_types:proto_ver()) -> erlang:iovec().
 serialize(Packet, Ver) -> serialize(Packet, Ver, false).
 
--spec serialize(emqx_types:packet(), emqx_types:proto_ver(), boolean()) -> iodata().
+%% erlfmt-ignore
+-define(bool(B), (case B of true -> 1; false -> 0; undefined -> 0 end):1).
+
+-spec serialize(emqx_types:packet(), emqx_types:proto_ver(), boolean()) -> erlang:iovec().
 serialize(
     #mqtt_packet{
-        header = Header,
+        header = #mqtt_packet_header{
+            type = Type,
+            dup = Dup,
+            qos = QoS,
+            retain = Retain
+        },
         variable = Variable,
         payload = Payload
     },
     Ver,
     StrictMode
-) ->
-    serialize(
-        Header,
-        serialize_variable(Variable, Ver, StrictMode),
-        serialize_payload(Payload),
-        StrictMode
-    ).
+) when ?CONNECT =< Type andalso Type =< ?AUTH ->
+    VariableBin = serialize_variable(Variable, Ver, StrictMode),
+    case Payload of
+        undefined ->
+            RemLenBin = serialize_remaining_len(byte_size(VariableBin)),
+            [
+                <<Type:4, ?bool(Dup), QoS:2, ?bool(Retain), RemLenBin/bytes>>,
+                VariableBin
+            ];
+        Bin ->
+            RemLenBin = serialize_remaining_len(byte_size(VariableBin) + byte_size(Bin)),
+            [
+                <<Type:4, ?bool(Dup), QoS:2, ?bool(Retain), RemLenBin/bytes>>,
+                VariableBin,
+                Bin
+            ]
+    end.
 
-serialize(
-    #mqtt_packet_header{
-        type = Type,
-        dup = Dup,
-        qos = QoS,
-        retain = Retain
-    },
-    VariableBin,
-    PayloadBin,
-    _StrictMode
-) when
-    ?CONNECT =< Type andalso Type =< ?AUTH
-->
-    Len = iolist_size(VariableBin) + iolist_size(PayloadBin),
-    [
-        <<Type:4, (flag(Dup)):1, (flag(QoS)):2, (flag(Retain)):1>>,
-        serialize_remaining_len(Len),
-        VariableBin,
-        PayloadBin
-    ].
+%% erlfmt-ignore
+-define(binstring(X), (byte_size(X)):16/big-unsigned-integer, X/bytes).
+
+%% erlfmt-ignore
+-define(utf8string(X, STRICT),
+    (begin
+        true = (case STRICT of
+            true -> byte_size(unicode:characters_to_binary(X));
+            false -> byte_size(X)
+        end =< 16#ffff),
+        byte_size(X)
+    end):16/big-unsigned-integer, X/bytes
+).
 
 serialize_variable(
     #mqtt_packet_connect{
@@ -842,9 +852,10 @@ serialize_variable(
     _Ver,
     StrictMode
 ) ->
-    [
-        serialize_binary_data(ProtoName),
+    %% NOTE: No need to optimize, broker never sends it during regular operation.
+    iolist_to_binary([
         <<
+            ?binstring(ProtoName),
             (case IsBridge of
                 true -> 16#80 + ProtoVer;
                 false -> ProtoVer
@@ -859,20 +870,28 @@ serialize_variable(
             KeepAlive:16/big-unsigned-integer
         >>,
         serialize_properties(Properties, ProtoVer, StrictMode),
-        serialize_utf8_string(ClientId, StrictMode),
+        <<?utf8string(ClientId, StrictMode)>>,
         case WillFlag of
             true ->
                 [
                     serialize_properties(WillProps, ProtoVer, StrictMode),
-                    serialize_utf8_string(WillTopic, StrictMode),
-                    serialize_binary_data(WillPayload)
+                    <<
+                        ?utf8string(WillTopic, StrictMode),
+                        ?binstring(WillPayload)
+                    >>
                 ];
             false ->
                 <<>>
         end,
-        serialize_utf8_string(Username, true, StrictMode),
-        serialize_utf8_string(Password, true, StrictMode)
-    ];
+        case Username of
+            undefined -> <<>>;
+            _ -> <<?utf8string(Username, StrictMode)>>
+        end,
+        case Password of
+            undefined -> <<>>;
+            _ -> <<?utf8string(Password, StrictMode)>>
+        end
+    ]);
 serialize_variable(
     #mqtt_packet_connack{
         ack_flags = AckFlags,
@@ -882,7 +901,12 @@ serialize_variable(
     Ver,
     StrictMode
 ) ->
-    [AckFlags, ReasonCode, serialize_properties(Properties, Ver, StrictMode)];
+    PropertiesBin = serialize_properties(Properties, Ver, StrictMode),
+    <<
+        AckFlags,
+        ReasonCode,
+        PropertiesBin/bytes
+    >>;
 serialize_variable(
     #mqtt_packet_publish{
         topic_name = TopicName,
@@ -892,16 +916,23 @@ serialize_variable(
     Ver,
     StrictMode
 ) ->
-    [
-        serialize_utf8_string(TopicName, StrictMode),
-        case PacketId of
-            undefined -> <<>>;
-            _ -> <<PacketId:16/big-unsigned-integer>>
-        end,
-        serialize_properties(Properties, Ver, StrictMode)
-    ];
+    PropertiesBin = serialize_properties(Properties, Ver, StrictMode),
+    case PacketId of
+        undefined ->
+            <<
+                ?utf8string(TopicName, StrictMode),
+                PropertiesBin/bytes
+            >>;
+        _ ->
+            <<
+                ?utf8string(TopicName, StrictMode),
+                PacketId:16/big-unsigned-integer,
+                PropertiesBin/bytes
+            >>
+    end;
 serialize_variable(#mqtt_packet_puback{packet_id = PacketId}, Ver, _StrictMode) when
-    Ver == ?MQTT_PROTO_V3; Ver == ?MQTT_PROTO_V4
+    Ver == ?MQTT_PROTO_V3;
+    Ver == ?MQTT_PROTO_V4
 ->
     <<PacketId:16/big-unsigned-integer>>;
 serialize_variable(
@@ -913,11 +944,12 @@ serialize_variable(
     Ver = ?MQTT_PROTO_V5,
     StrictMode
 ) ->
-    [
-        <<PacketId:16/big-unsigned-integer>>,
+    PropertiesBin = serialize_properties(Properties, Ver, StrictMode),
+    <<
+        PacketId:16/big-unsigned-integer,
         ReasonCode,
-        serialize_properties(Properties, Ver, StrictMode)
-    ];
+        PropertiesBin/bytes
+    >>;
 serialize_variable(
     #mqtt_packet_subscribe{
         packet_id = PacketId,
@@ -927,11 +959,12 @@ serialize_variable(
     Ver,
     StrictMode
 ) ->
-    [
+    %% NOTE: No need to optimize, broker never sends it during regular operation.
+    iolist_to_binary([
         <<PacketId:16/big-unsigned-integer>>,
         serialize_properties(Properties, Ver, StrictMode),
         serialize_topic_filters(subscribe, TopicFilters, Ver, StrictMode)
-    ];
+    ]);
 serialize_variable(
     #mqtt_packet_suback{
         packet_id = PacketId,
@@ -941,11 +974,12 @@ serialize_variable(
     Ver,
     StrictMode
 ) ->
-    [
-        <<PacketId:16/big-unsigned-integer>>,
-        serialize_properties(Properties, Ver, StrictMode),
-        serialize_reason_codes(ReasonCodes)
-    ];
+    PropertiesBin = serialize_properties(Properties, Ver, StrictMode),
+    <<
+        PacketId:16/big-unsigned-integer,
+        PropertiesBin/bytes,
+        (serialize_reason_codes(ReasonCodes))/bytes
+    >>;
 serialize_variable(
     #mqtt_packet_unsubscribe{
         packet_id = PacketId,
@@ -955,11 +989,12 @@ serialize_variable(
     Ver,
     StrictMode
 ) ->
-    [
+    %% NOTE: No need to optimize, broker never sends it during regular operation.
+    iolist_to_binary([
         <<PacketId:16/big-unsigned-integer>>,
         serialize_properties(Properties, Ver, StrictMode),
         serialize_topic_filters(unsubscribe, TopicFilters, Ver, StrictMode)
-    ];
+    ]);
 serialize_variable(
     #mqtt_packet_unsuback{
         packet_id = PacketId,
@@ -969,13 +1004,15 @@ serialize_variable(
     Ver,
     StrictMode
 ) ->
-    [
-        <<PacketId:16/big-unsigned-integer>>,
-        serialize_properties(Properties, Ver, StrictMode),
-        serialize_reason_codes(ReasonCodes)
-    ];
+    PropertiesBin = serialize_properties(Properties, Ver, StrictMode),
+    <<
+        PacketId:16/big-unsigned-integer,
+        PropertiesBin/bytes,
+        (serialize_reason_codes(ReasonCodes))/bytes
+    >>;
 serialize_variable(#mqtt_packet_disconnect{}, Ver, _StrictMode) when
-    Ver == ?MQTT_PROTO_V3; Ver == ?MQTT_PROTO_V4
+    Ver == ?MQTT_PROTO_V3;
+    Ver == ?MQTT_PROTO_V4
 ->
     <<>>;
 serialize_variable(
@@ -986,7 +1023,8 @@ serialize_variable(
     Ver = ?MQTT_PROTO_V5,
     StrictMode
 ) ->
-    [ReasonCode, serialize_properties(Properties, Ver, StrictMode)];
+    PropertiesBin = serialize_properties(Properties, Ver, StrictMode),
+    <<ReasonCode, PropertiesBin/bytes>>;
 serialize_variable(#mqtt_packet_disconnect{}, _Ver, _StrictMode) ->
     <<>>;
 serialize_variable(
@@ -997,16 +1035,14 @@ serialize_variable(
     Ver = ?MQTT_PROTO_V5,
     StrictMode
 ) ->
-    [ReasonCode, serialize_properties(Properties, Ver, StrictMode)];
+    PropertiesBin = serialize_properties(Properties, Ver, StrictMode),
+    <<ReasonCode, PropertiesBin/bytes>>;
 serialize_variable(PacketId, ?MQTT_PROTO_V3, _StrictMode) when is_integer(PacketId) ->
     <<PacketId:16/big-unsigned-integer>>;
 serialize_variable(PacketId, ?MQTT_PROTO_V4, _StrictMode) when is_integer(PacketId) ->
     <<PacketId:16/big-unsigned-integer>>;
 serialize_variable(undefined, _Ver, _StrictMode) ->
     <<>>.
-
-serialize_payload(undefined) -> <<>>;
-serialize_payload(Bin) -> Bin.
 
 serialize_properties(_Props, Ver, _StrictMode) when Ver =/= ?MQTT_PROTO_V5 ->
     <<>>;
@@ -1022,7 +1058,10 @@ serialize_properties(Props, StrictMode) when is_map(Props) ->
         <<(serialize_property(Prop, Val, StrictMode))/binary>>
      || {Prop, Val} <- maps:to_list(Props)
     >>,
-    [serialize_variable_byte_integer(byte_size(Bin)), Bin].
+    <<
+        (serialize_variable_byte_integer(byte_size(Bin)))/bytes,
+        Bin/bytes
+    >>.
 
 serialize_property(_, Disabled, _StrictMode) when
     Disabled =:= disabled;
@@ -1036,9 +1075,9 @@ serialize_property('Payload-Format-Indicator', Val, _StrictMode) ->
 serialize_property('Message-Expiry-Interval', Val, _StrictMode) ->
     <<16#02, Val:32/big>>;
 serialize_property('Content-Type', Val, StrictMode) ->
-    <<16#03, (serialize_utf8_string(Val, StrictMode))/binary>>;
+    <<16#03, ?utf8string(Val, StrictMode)>>;
 serialize_property('Response-Topic', Val, StrictMode) ->
-    <<16#08, (serialize_utf8_string(Val, StrictMode))/binary>>;
+    <<16#08, ?utf8string(Val, StrictMode)>>;
 serialize_property('Correlation-Data', Val, _StrictMode) ->
     <<16#09, (byte_size(Val)):16, Val/binary>>;
 serialize_property('Subscription-Identifier', Val, _StrictMode) ->
@@ -1046,11 +1085,11 @@ serialize_property('Subscription-Identifier', Val, _StrictMode) ->
 serialize_property('Session-Expiry-Interval', Val, _StrictMode) ->
     <<16#11, Val:32/big>>;
 serialize_property('Assigned-Client-Identifier', Val, StrictMode) ->
-    <<16#12, (serialize_utf8_string(Val, StrictMode))/binary>>;
+    <<16#12, ?utf8string(Val, StrictMode)>>;
 serialize_property('Server-Keep-Alive', Val, _StrictMode) ->
     <<16#13, Val:16/big>>;
 serialize_property('Authentication-Method', Val, StrictMode) ->
-    <<16#15, (serialize_utf8_string(Val, StrictMode))/binary>>;
+    <<16#15, ?utf8string(Val, StrictMode)>>;
 serialize_property('Authentication-Data', Val, _StrictMode) ->
     <<16#16, (iolist_size(Val)):16, Val/binary>>;
 serialize_property('Request-Problem-Information', Val, _StrictMode) ->
@@ -1060,11 +1099,11 @@ serialize_property('Will-Delay-Interval', Val, _StrictMode) ->
 serialize_property('Request-Response-Information', Val, _StrictMode) ->
     <<16#19, Val>>;
 serialize_property('Response-Information', Val, StrictMode) ->
-    <<16#1A, (serialize_utf8_string(Val, StrictMode))/binary>>;
+    <<16#1A, ?utf8string(Val, StrictMode)>>;
 serialize_property('Server-Reference', Val, StrictMode) ->
-    <<16#1C, (serialize_utf8_string(Val, StrictMode))/binary>>;
+    <<16#1C, ?utf8string(Val, StrictMode)>>;
 serialize_property('Reason-String', Val, StrictMode) ->
-    <<16#1F, (serialize_utf8_string(Val, StrictMode))/binary>>;
+    <<16#1F, ?utf8string(Val, StrictMode)>>;
 serialize_property('Receive-Maximum', Val, _StrictMode) ->
     <<16#21, Val:16/big>>;
 serialize_property('Topic-Alias-Maximum', Val, _StrictMode) ->
@@ -1076,7 +1115,7 @@ serialize_property('Maximum-QoS', Val, _StrictMode) ->
 serialize_property('Retain-Available', Val, _StrictMode) ->
     <<16#25, Val>>;
 serialize_property('User-Property', {Key, Val}, StrictMode) ->
-    <<16#26, (serialize_utf8_pair(Key, Val, StrictMode))/binary>>;
+    <<16#26, ?utf8string(Key, StrictMode), ?utf8string(Val, StrictMode)>>;
 serialize_property('User-Property', Props, StrictMode) when is_list(Props) ->
     <<
         <<(serialize_property('User-Property', {Key, Val}, StrictMode))/binary>>
@@ -1094,7 +1133,7 @@ serialize_property('Shared-Subscription-Available', Val, _StrictMode) ->
 serialize_topic_filters(subscribe, TopicFilters, ?MQTT_PROTO_V5, StrictMode) ->
     <<
         <<
-            (serialize_utf8_string(Topic, StrictMode))/binary,
+            ?utf8string(Topic, StrictMode),
             ?RESERVED:2,
             Rh:2,
             (flag(Rap)):1,
@@ -1105,48 +1144,42 @@ serialize_topic_filters(subscribe, TopicFilters, ?MQTT_PROTO_V5, StrictMode) ->
     >>;
 serialize_topic_filters(subscribe, TopicFilters, _Ver, StrictMode) ->
     <<
-        <<(serialize_utf8_string(Topic, StrictMode))/binary, ?RESERVED:6, QoS:2>>
+        <<?utf8string(Topic, StrictMode), ?RESERVED:6, QoS:2>>
      || {Topic, #{qos := QoS}} <- TopicFilters
     >>;
 serialize_topic_filters(unsubscribe, TopicFilters, _Ver, StrictMode) ->
-    <<<<(serialize_utf8_string(Topic, StrictMode))/binary>> || Topic <- TopicFilters>>.
+    <<<<?utf8string(Topic, StrictMode)>> || Topic <- TopicFilters>>.
 
 serialize_reason_codes(undefined) ->
     <<>>;
 serialize_reason_codes(ReasonCodes) when is_list(ReasonCodes) ->
     <<<<Code>> || Code <- ReasonCodes>>.
 
-serialize_utf8_pair(Name, Value, StrictMode) ->
-    <<
-        (serialize_utf8_string(Name, StrictMode))/binary,
-        (serialize_utf8_string(Value, StrictMode))/binary
-    >>.
-
-serialize_binary_data(Bin) ->
-    [<<(byte_size(Bin)):16/big-unsigned-integer>>, Bin].
-
-serialize_utf8_string(undefined, false, _StrictMode) ->
-    ?SERIALIZE_ERR(utf8_string_undefined);
-serialize_utf8_string(undefined, true, _StrictMode) ->
-    <<>>;
-serialize_utf8_string(String, _AllowNull, StrictMode) ->
-    serialize_utf8_string(String, StrictMode).
-
-serialize_utf8_string(String, true) ->
-    StringBin = unicode:characters_to_binary(String),
-    serialize_utf8_string(StringBin, false);
-serialize_utf8_string(String, false) ->
-    Len = byte_size(String),
-    true = (Len =< 16#ffff),
-    <<Len:16/big, String/binary>>.
-
 serialize_remaining_len(I) ->
     serialize_variable_byte_integer(I).
 
-serialize_variable_byte_integer(N) when N =< ?LOWBITS ->
+serialize_variable_byte_integer(N) when N < (1 bsl 7) ->
     <<0:1, N:7>>;
-serialize_variable_byte_integer(N) ->
-    <<1:1, (N rem ?HIGHBIT):7, (serialize_variable_byte_integer(N div ?HIGHBIT))/binary>>.
+serialize_variable_byte_integer(N) when N < (1 bsl 14) ->
+    <<1:1, (N band 2#1111111):7, (N bsr 7):8>>;
+serialize_variable_byte_integer(N) when N < (1 bsl 21) ->
+    <<
+        1:1,
+        (N band 2#1111111):7,
+        1:1,
+        ((N bsr 7) band 2#1111111):7,
+        (N bsr 14):8
+    >>;
+serialize_variable_byte_integer(N) when N < (1 bsl 28) ->
+    <<
+        1:1,
+        (N band 2#1111111):7,
+        1:1,
+        ((N bsr 7) band 2#1111111):7,
+        1:1,
+        ((N bsr 14) band 2#1111111):7,
+        (N bsr 21):8
+    >>.
 
 %% Is the frame too large?
 -spec is_too_large(iodata(), pos_integer()) -> boolean().

@@ -847,7 +847,8 @@ handle_outgoing(Packets, State = #state{channel = _Channel}) ->
 
 do_handle_outgoing(Packets, State) when is_list(Packets) ->
     N = length(Packets),
-    send(N, [serialize_and_inc_stats(State, Packet) || Packet <- Packets], State);
+    IoVec = lists:flatmap(fun(P) -> serialize_and_inc_stats(State, P) end, Packets),
+    send(N, IoVec, State);
 do_handle_outgoing(Packet, State) ->
     send(1, serialize_and_inc_stats(State, Packet), State).
 
@@ -862,7 +863,7 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
             emqx_metrics:inc('delivery.dropped.too_large'),
             emqx_metrics:inc('delivery.dropped'),
             inc_dropped_stats(),
-            <<>>;
+            [];
         Data ->
             ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
             emqx_metrics:inc_sent(Packet),
@@ -888,12 +889,12 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
 %%--------------------------------------------------------------------
 %% Send data
 
--spec send(non_neg_integer(), iodata(), state()) -> {ok, state()}.
-send(Num, IoData, #state{socket = Socket, sockstate = SS} = State) ->
-    Oct = iolist_size(IoData),
+-spec send(non_neg_integer(), erlang:iovec(), state()) -> {ok, state()}.
+send(Num, IoVec, #state{socket = Socket, sockstate = SS} = State) ->
+    Oct = iolist_size(IoVec),
     emqx_metrics:inc('bytes.sent', Oct),
     %% FIXME timeout
-    case SS =/= closed andalso socket:send(Socket, IoData, 15_000) of
+    case SS =/= closed andalso socket:sendv(Socket, IoVec, 15_000) of
         ok ->
             Ok = sent(Num, Oct, State),
             ?BROKER_INSTR_WMARK(t0_deliver, {T0, TDeliver} when is_integer(T0), begin
