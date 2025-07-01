@@ -23,14 +23,16 @@ main(Files) ->
     end.
 
 load_hocon() ->
-    Dir = "_build/default/lib/hocon/ebin",
-    File = filename:join([Dir, "hocon.beam"]),
-    case filelib:is_regular(File) of
-        true ->
-            code:add_path(Dir),
-            ok;
-        false ->
-            die("HOCON is not compiled in " ++ Dir ++ "~n")
+    maybe
+        [File | _] ?= filelib:wildcard("_build/*/lib/hocon/ebin/hocon.beam"),
+        true ?= filelib:is_regular(File) orelse {error, {not_compiled, File}},
+        code:add_path(filename:dirname(File)),
+        ok
+    else
+        [] ->
+            die("HOCON is not compiled in _build/* ~n");
+        {error, {not_compiled, File1}} ->
+            die("HOCON is not compiled in " ++ File1 ++ "~n")
     end.
 
 die(Msg) ->
