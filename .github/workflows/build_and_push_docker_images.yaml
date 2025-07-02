@@ -10,10 +10,6 @@ on:
       profile:
         required: true
         type: string
-      latest:
-        required: false
-        type: string
-        default: false
       publish:
         required: false
         type: boolean
@@ -41,10 +37,6 @@ on:
         required: false
         type: string
         default: 'emqx-enterprise'
-      latest:
-        required: false
-        type: boolean
-        default: false
       publish:
         required: false
         type: boolean
@@ -108,7 +100,7 @@ jobs:
     env:
       PROFILE: ${{ matrix.profile }}
       DOCKER_ORG: ${{ github.repository_owner }}
-      DOCKER_LATEST: ${{ inputs.latest }}
+      DOCKER_LATEST: false
       PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
       EMQX_SOURCE_TYPE: tgz
       EMQX_EXTRA_BASE_IMAGE_TAGS: emqx/emqx

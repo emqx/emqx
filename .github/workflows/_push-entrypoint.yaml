@@ -55,7 +55,6 @@ jobs:
     outputs:
       profile: ${{ steps.parse-git-ref.outputs.profile }}
       release: ${{ steps.parse-git-ref.outputs.release }}
-      latest: ${{ steps.parse-git-ref.outputs.latest }}
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
@@ -75,10 +74,8 @@ jobs:
           JSON="$(./scripts/parse-git-ref.sh $GITHUB_REF)"
           PROFILE=$(echo "$JSON" | jq -cr '.profile')
           RELEASE=$(echo "$JSON" | jq -cr '.release')
-          LATEST=$(echo "$JSON"  | jq -cr '.latest')
           echo "profile=$PROFILE" | tee -a $GITHUB_OUTPUT
           echo "release=$RELEASE" | tee -a $GITHUB_OUTPUT
-          echo "latest=$LATEST"   | tee -a $GITHUB_OUTPUT
       - name: Build matrix
         id: matrix
         run: |
@@ -114,7 +111,6 @@ jobs:
     with:
       profile: ${{ needs.prepare.outputs.profile }}
       publish: true
-      latest: ${{ needs.prepare.outputs.latest }}
     secrets: inherit
 
   build_slim_packages:
