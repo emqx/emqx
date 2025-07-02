@@ -77,7 +77,7 @@
     %% TCP/TLS Socket
     socket :: socket:socket(),
     %% Sock State
-    sockstate :: emqx_types:sockstate(),
+    sockstate :: idle | closed | congested(),
     %% Packet parser / serializer
     parser :: parser(),
     serialize :: emqx_frame:serialize_opts(),
@@ -102,6 +102,14 @@
     %% Extra field for future hot-upgrade support
     extra = []
 }).
+
+-record(congested, {
+    handle :: reference(),
+    deadline :: _TimestampMs :: integer(),
+    sendq :: [erlang:iovec()]
+}).
+
+-type congested() :: #congested{}.
 
 -type gc_tracker() ::
     {
@@ -182,7 +190,7 @@ stats(State = #state{channel = Channel}) ->
 
 %% @doc Gather socket statistics, for `emqx_congestion` alarms.
 -spec sockstats([atom()], state()) -> emqx_types:stats().
-sockstats(Keys, #state{socket = Socket}) ->
+sockstats(Keys, #state{socket = Socket, sockstate = SS}) ->
     #{counters := Counters} = socket:info(Socket),
     lists:map(
         fun
@@ -190,7 +198,7 @@ sockstats(Keys, #state{socket = Socket}) ->
             (S = recv_cnt) -> {S, maps:get(read_pkg, Counters, 0)};
             (S = send_oct) -> {S, maps:get(write_byte, Counters, 0)};
             (S = send_cnt) -> {S, maps:get(write_pkg, Counters, 0)};
-            (S = send_pend) -> {S, 0}
+            (S = send_pend) -> {S, sendq_bytesize(SS)}
         end,
         Keys
     ).
@@ -526,18 +534,14 @@ handle_msg({'$gen_call', From, Req}, State) ->
 handle_msg({'$gen_cast', Req}, State) ->
     NewState = handle_cast(Req, State),
     {ok, NewState};
-handle_msg({'$socket', Socket, select, _Handle}, State) ->
-    case sock_async_recv(Socket, 0) of
-        {ok, Data} ->
-            handle_data(Data, true, State);
-        {error, {closed, Data}} ->
-            {ok, [{recv, Data}, {sock_closed, tcp_closed}], socket_closed(State)};
-        {error, closed} ->
-            handle_info({sock_closed, tcp_closed}, socket_closed(State));
-        {error, {Reason, Data}} ->
-            {ok, [{recv, Data}, {sock_error, Reason}], State};
-        {error, Reason} ->
-            handle_info({sock_error, Reason}, State)
+handle_msg({'$socket', Socket, select, Handle}, State = #state{sockstate = SS}) ->
+    case SS of
+        idle ->
+            handle_data_ready(Socket, State);
+        #congested{handle = Handle} ->
+            handle_send_ready(Socket, SS, State);
+        _ ->
+            handle_data_ready(Socket, State)
     end;
 handle_msg({'$socket', _Socket, abort, {_Handle, Reason}}, State) ->
     handle_info({sock_error, Reason}, State);
@@ -674,13 +678,14 @@ handle_timeout(
     _TRef,
     emit_stats,
     State = #state{
-        channel = Channel
+        channel = Channel,
+        sockstate = SS
     }
 ) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
     emqx_congestion:maybe_alarm_conn_congestion(?MODULE, State),
-    {ok, State#state{stats_timer = undefined}};
+    check_send_timeout(SS, State#state{stats_timer = undefined});
 handle_timeout(
     TRef,
     keepalive,
@@ -738,6 +743,7 @@ handle_data(
 
 -compile({inline, [request_more_data/4]}).
 request_more_data(Socket, More, Acc, State) ->
+    %% TODO: `{otp, select_read}`.
     case sock_async_recv(Socket, More) of
         {ok, DataMore} ->
             {ok, [Acc, {recv_more, DataMore}], State};
@@ -755,6 +761,21 @@ request_more_data(Socket, More, Acc, State) ->
             {ok, [Acc, {recv, DataMore}, {sock_error, Reason}], State};
         {error, Reason} ->
             {ok, [Acc, {sock_error, Reason}], State}
+    end.
+
+-compile({inline, [handle_data_ready/2]}).
+handle_data_ready(Socket, State) ->
+    case sock_async_recv(Socket, 0) of
+        {ok, Data} ->
+            handle_data(Data, true, State);
+        {error, {closed, Data}} ->
+            {ok, [{recv, Data}, {sock_closed, tcp_closed}], socket_closed(State)};
+        {error, closed} ->
+            handle_info({sock_closed, tcp_closed}, socket_closed(State));
+        {error, {Reason, Data}} ->
+            {ok, [{recv, Data}, {sock_error, Reason}], State};
+        {error, Reason} ->
+            handle_info({sock_error, Reason}, State)
     end.
 
 %% @doc: return a reversed Msg list
@@ -913,21 +934,47 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
 %% Send data
 
 -spec send(non_neg_integer(), iodata(), state()) -> {ok, state()}.
-send(Num, IoData, #state{socket = Socket, sockstate = SS} = State) ->
+send(Num, IoData, #state{socket = Socket, sockstate = idle} = State) ->
     Oct = iolist_size(IoData),
-    emqx_metrics:inc('bytes.sent', Oct),
-    %% FIXME timeout
-    case SS =/= closed andalso socket:send(Socket, IoData, 15_000) of
+    Handle = make_ref(),
+    case socket:send(Socket, IoData, Handle) of
         ok ->
-            Ok = sent(Num, Oct, State),
-            ?BROKER_INSTR_WMARK(t0_deliver, {T0, TDeliver} when is_integer(T0), begin
-                TSent = ?BROKER_INSTR_TS(),
-                ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_delay_us, ?US(TDeliver - T0)),
-                ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
-            end),
-            Ok;
-        false ->
+            sent(Num, Oct, State);
+        {select, {_Info, Rest}} ->
+            sent(Num, Oct, queue_send(Handle, Rest, State));
+        {select, _Info} ->
+            sent(Num, Oct, queue_send(Handle, IoData, State));
+        {error, {Reason, _Rest}} ->
+            %% Defer error handling:
+            {ok, {sock_error, Reason}, State};
+        {error, Reason} ->
+            {ok, {sock_error, Reason}, State}
+    end;
+send(Num, IoData, #state{sockstate = SS = #congested{sendq = SQ, deadline = Deadline}} = State) ->
+    case erlang:monotonic_time(millisecond) of
+        BeforeDeadline when BeforeDeadline < Deadline ->
+            NState = State#state{sockstate = SS#congested{sendq = [IoData | SQ]}},
+            sent(Num, iolist_size(IoData), NState);
+        _PastDeadline ->
+            {ok, {sock_error, send_timeout}, State}
+    end;
+send(_Num, _IoVec, #state{sockstate = closed} = State) ->
+    {ok, State}.
+
+-compile({inline, [handle_send_ready/3]}).
+handle_send_ready(Socket, SS = #congested{sendq = SQ}, State) ->
+    IoData = sendq_to_iodata(SQ, []),
+    Handle = make_ref(),
+    case socket:send(Socket, IoData, Handle) of
+        ok ->
             {ok, State};
+        {select, {_Info, Rest}} ->
+            %% Partially accepted, renew deadline.
+            {ok, queue_send(Handle, Rest, State)};
+        {select, _Info} ->
+            %% Totally congested, keep the deadline.
+            NState = State#state{sockstate = SS#congested{sendq = IoData}},
+            {ok, NState};
         {error, {Reason, _Rest}} ->
             %% Defer error handling:
             {ok, {sock_error, Reason}, State};
@@ -935,27 +982,63 @@ send(Num, IoData, #state{socket = Socket, sockstate = SS} = State) ->
             {ok, {sock_error, Reason}, State}
     end.
 
+queue_send(Handle, IoData, State = #state{sockstate = idle, listener = {Type, Name}}) ->
+    Timeout = emqx_config:get_listener_conf(Type, Name, [tcp_options, send_timeout], 15_000),
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    SockState = #congested{handle = Handle, deadline = Deadline, sendq = [IoData]},
+    State#state{sockstate = SockState}.
+
+check_send_timeout(#congested{deadline = Deadline}, State) ->
+    case erlang:monotonic_time(millisecond) of
+        BeforeDeadline when BeforeDeadline < Deadline ->
+            {ok, State};
+        _PastDeadline ->
+            {ok, {sock_error, send_timeout}, State}
+    end;
+check_send_timeout(_, State) ->
+    {ok, State}.
+
+sendq_to_iodata([IoData | Rest], Acc) ->
+    sendq_to_iodata(Rest, [IoData | Acc]);
+sendq_to_iodata([], Acc) ->
+    Acc.
+
+sendq_bytesize(#congested{sendq = SQ}) ->
+    erlang:iolist_size(SQ);
+sendq_bytesize(_) ->
+    0.
+
 %% Some bytes sent
-sent(_Num, _Oct, State = #state{gc_tracker = {ActiveN, {PktsIn, BytesIn}, _Out}}) when
-    PktsIn > ActiveN
-->
-    %% Run GC and check OOM after certain amount of messages or bytes received.
-    trigger_gc(PktsIn, BytesIn, ActiveN, State);
-sent(Num, Oct, State = #state{gc_tracker = {ActiveN, In, {PktsOut, BytesOut}}}) ->
-    %% Run GC and check OOM after certain amount of messages or bytes sent.
-    NBytes = BytesOut + Oct,
-    case PktsOut + Num of
-        NPkts when NPkts > ActiveN ->
-            trigger_gc(NPkts, NBytes, ActiveN, State);
-        NPkts ->
-            NState = State#state{gc_tracker = {ActiveN, In, {NPkts, NBytes}}},
-            {ok, NState}
-    end.
+sent(
+    Num,
+    Oct,
+    State = #state{gc_tracker = {ActiveN, In = {PktsIn, BytesIn}, {PktsOut, BytesOut}}}
+) ->
+    %% TODO: Not actually "sent", as is `emqx_metrics:inc_sent/1`.
+    emqx_metrics:inc('bytes.sent', Oct),
+    NPktsOut = PktsOut + Num,
+    NBytesOut = BytesOut + Oct,
+    if
+        PktsIn > ActiveN ->
+            %% Run GC and check OOM after certain amount of messages or bytes received.
+            NState = trigger_gc(PktsIn, BytesIn, ActiveN, State);
+        NPktsOut > ActiveN ->
+            %% Run GC and check OOM after certain amount of messages or bytes sent.
+            NState = trigger_gc(NPktsOut, NBytesOut, ActiveN, State);
+        true ->
+            NState = State#state{gc_tracker = {ActiveN, In, {NPktsOut, NBytesOut}}}
+    end,
+    ?BROKER_INSTR_WMARK(t0_deliver, {T0, TDeliver} when is_integer(T0), begin
+        TSent = ?BROKER_INSTR_TS(),
+        ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_delay_us, ?US(TDeliver - T0)),
+        ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
+    end),
+    {ok, NState}.
 
 -compile({inline, [trigger_gc/4]}).
 trigger_gc(NPkts, NBytes, ActiveN, State) ->
     NState = State#state{gc_tracker = init_gc_tracker(ActiveN)},
-    {ok, check_oom(NPkts, NBytes, run_gc(NPkts, NBytes, NState))}.
+    check_oom(NPkts, NBytes, run_gc(NPkts, NBytes, NState)).
 
 %%--------------------------------------------------------------------
 %% Handle Info
