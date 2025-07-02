@@ -49,6 +49,24 @@ on_session_created(_ClientInfo, _SessionInfo) ->
 on_authenticate(
     #{clientid := ClientId, client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}}, DefaultResult
 ) ->
+    case emqx_config:get_namespace_config_errors(Tns) of
+        undefined ->
+            do_on_authenticate(ClientId, Tns, DefaultResult);
+        #{} ->
+            {stop, {error, server_unavailable}}
+    end;
+on_authenticate(_, DefaultResult) ->
+    AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
+    case AllowOnlyManagedNSs of
+        true ->
+            ?TRACE("deny_due_to_no_tenant_namespace", #{}),
+            {stop, {error, not_authorized}};
+        false ->
+            ?TRACE("no_tenant_namespace", #{}),
+            DefaultResult
+    end.
+
+do_on_authenticate(ClientId, Tns, DefaultResult) ->
     case emqx_mt_state:is_known_client(Tns, ClientId) of
         {true, Node} ->
             %% the client is re-connecting
@@ -79,14 +97,4 @@ on_authenticate(
                             DefaultResult
                     end
             end
-    end;
-on_authenticate(_, DefaultResult) ->
-    AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
-    case AllowOnlyManagedNSs of
-        true ->
-            ?TRACE("deny_due_to_no_tenant_namespace", #{}),
-            {stop, {error, not_authorized}};
-        false ->
-            ?TRACE("no_tenant_namespace", #{}),
-            DefaultResult
     end.

@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("typerefl/include/types.hrl").
 -include("emqx_conf.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).

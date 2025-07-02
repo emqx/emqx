@@ -283,11 +283,10 @@ safe_handle_update_request(ConfInfo) ->
     end.
 
 handle_update_request(ConfInfo) ->
-    case process_update_request(ConfInfo) of
-        {ok, NewRawConf, OverrideConf, Opts} ->
-            check_and_save_configs(ConfInfo, NewRawConf, OverrideConf, Opts);
-        {error, Result} ->
-            {error, Result}
+    maybe
+        {ok, NewRawConf, OverrideConf, Opts} ?=
+            process_update_request(ConfInfo),
+        check_and_save_configs(ConfInfo, NewRawConf, OverrideConf, Opts)
     end.
 
 process_update_request(#conf_info{conf_key_path = [_], update_args = {remove, _Opts}}) ->
@@ -697,17 +696,18 @@ return_change_result(
     case Req =/= ?TOMBSTONE_CONFIG_CHANGE_REQ of
         true ->
             #{
+                namespace => ConfInfo#conf_info.namespace,
                 config => config_get(
                     ConfKeyPath, ConfInfo#conf_info.namespace, _Default = undefined
                 ),
                 raw_config => return_rawconf(ConfKeyPath, ConfInfo#conf_info.namespace, Opts)
             };
         false ->
-            %% like remove, nothing to return
-            #{}
+            %% like remove, no configs to return
+            #{namespace => ConfInfo#conf_info.namespace}
     end;
-return_change_result(#conf_info{update_args = {remove, _Opts}}) ->
-    #{}.
+return_change_result(#conf_info{update_args = {remove, _Opts}} = ConfInfo) ->
+    #{namespace => ConfInfo#conf_info.namespace}.
 
 return_rawconf([Root | _] = ConfKeyPath, Namespace, #{rawconf_with_defaults := true}) ->
     RootKey = bin(Root),

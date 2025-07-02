@@ -33,6 +33,7 @@ start(_StartType, _StartArgs) ->
     emqx_conf_sup:start_link().
 
 stop(_State) ->
+    emqx_config:clear_all_invalid_namespaced_configs(),
     ok.
 
 %% @doc emqx_conf relies on this flag to synchronize configuration between nodes.

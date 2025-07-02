@@ -330,11 +330,11 @@ t_root_key_update(TCConfig) when is_list(TCConfig) ->
 
     %% update sub key
     SubKey = KeyPath ++ [os, cpu_high_watermark],
-    ?assertEqual(
+    ?assertMatch(
         {ok, #{
-            config => 0.81,
-            post_config_update => #{},
-            raw_config => <<"81%">>
+            config := 0.81,
+            post_config_update := #{},
+            raw_config := <<"81%">>
         }},
         emqx:update_config(SubKey, "81%", Opts)
     ),
@@ -381,8 +381,8 @@ t_sub_key_update_remove(TCConfig) when is_list(TCConfig) ->
 
     %% remove
     on_exit(fun() -> emqx:update_config(KeyPath, OriginalVal, Opts) end),
-    ?assertEqual(
-        {ok, #{post_config_update => #{?MODULE => ok}}},
+    ?assertMatch(
+        {ok, #{post_config_update := #{?MODULE := ok}}},
         remove_config(TCConfig, KeyPath)
     ),
     try

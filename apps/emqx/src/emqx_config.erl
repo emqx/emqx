@@ -95,7 +95,9 @@
     get_raw_namespaced/2,
     get_raw_namespaced/3,
     save_configs_namespaced/6,
-    save_configs_namespaced_tx/5
+    save_configs_namespaced_tx/5,
+    get_namespace_config_errors/1,
+    clear_all_invalid_namespaced_configs/0
 ]).
 
 -ifdef(TEST).
@@ -117,6 +119,7 @@
 -define(PERSIS_KEY(TYPE, ROOT), {?MODULE, TYPE, ROOT}).
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
+-define(INVALID_NS_CONF_PT_KEY(NS), {?MODULE, {corrupt_ns_conf, NS}}).
 
 -export_type([
     update_request/0,
@@ -435,7 +438,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     save_to_app_env(AppEnvs),
     ok = save_to_config_map(CheckedConf, RawConf3),
     maybe_init_default_zone(),
-    load_namespaced_config(SchemaMod),
+    load_namespaced_configs(SchemaMod),
     ok.
 
 upgrade_raw_conf(SchemaMod, RawConf) ->
@@ -544,26 +547,64 @@ erase_namespaced_configs(Namespace) when is_binary(Namespace) ->
     ok.
 -endif.
 
-load_namespaced_config(SchemaMod) ->
+load_namespaced_configs(SchemaMod) ->
     %% Ensure tables are ready when loading.
     _ = emqx_config:create_tables(),
     AllowedNSRoots = maps:keys(namespaced_config_allowed_roots()),
     lists:foreach(
-        fun({Namespace, RootKeyBin} = Key) ->
-            [#?CONFIG_TAB{raw_value = RawConf0}] = mnesia:dirty_read(?CONFIG_TAB, Key),
-            RootKeyAtom = atom(RootKeyBin),
-            RawConf = #{RootKeyBin => RawConf0},
-            CheckedConf =
-                case check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) of
-                    #{RootKeyAtom := CheckedConf0} ->
-                        CheckedConf0;
-                    #{} ->
-                        #{}
-                end,
-            put_namespaced(Namespace, [RootKeyAtom], CheckedConf),
-            ok
+        fun({Namespace, RootKeyBin}) ->
+            do_load_namespaced_config(SchemaMod, AllowedNSRoots, Namespace, RootKeyBin)
         end,
         mnesia:dirty_all_keys(?CONFIG_TAB)
+    ).
+
+do_load_namespaced_config(SchemaMod, AllowedNSRoots, Namespace, RootKeyBin) ->
+    Key = {Namespace, RootKeyBin},
+    [#?CONFIG_TAB{raw_value = RawConf0}] = mnesia:dirty_read(?CONFIG_TAB, Key),
+    RootKeyAtom = atom(RootKeyBin),
+    RawConf = #{RootKeyBin => RawConf0},
+    case check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) of
+        {ok, #{} = CheckedRoot} ->
+            CheckedConf = maps:get(RootKeyAtom, CheckedRoot, #{}),
+            clear_invalid_namespaced_config(Namespace, RootKeyBin),
+            put_namespaced(Namespace, [RootKeyAtom], CheckedConf);
+        {error, HoconErrors} ->
+            %% TODO FIXME: check this when (re)starting emqx and raise alarms, log when
+            %% logger is ready.
+            mark_namespaced_config_invalid(Namespace, RootKeyBin, HoconErrors)
+    end.
+
+mark_namespaced_config_invalid(Namespace, RootKeyBin, HoconErrors) when is_binary(Namespace) ->
+    PrevErrors = persistent_term:get(?INVALID_NS_CONF_PT_KEY(Namespace), #{}),
+    Errors = PrevErrors#{RootKeyBin => HoconErrors},
+    persistent_term:put(?INVALID_NS_CONF_PT_KEY(Namespace), Errors).
+
+get_namespace_config_errors(Namespace) when is_binary(Namespace) ->
+    persistent_term:get(?INVALID_NS_CONF_PT_KEY(Namespace), undefined).
+
+clear_invalid_namespaced_config(Namespace, RootKeyBin) when is_binary(Namespace) ->
+    case get_namespace_config_errors(Namespace) of
+        undefined ->
+            ok;
+        #{} = Errors0 ->
+            Errors = maps:remove(RootKeyBin, Errors0),
+            case map_size(Errors) == 0 of
+                true ->
+                    persistent_term:erase(?INVALID_NS_CONF_PT_KEY(Namespace));
+                false ->
+                    persistent_term:put(?INVALID_NS_CONF_PT_KEY(Namespace), Errors)
+            end
+    end.
+
+clear_all_invalid_namespaced_configs() ->
+    lists:foreach(
+        fun
+            ({?INVALID_NS_CONF_PT_KEY(_Namespace) = Key, _V}) ->
+                persistent_term:erase(Key);
+            (_) ->
+                ok
+        end,
+        persistent_term:get()
     ).
 
 %% So far, this can only return true when testing.
@@ -659,8 +700,13 @@ do_check_config(SchemaMod, RawConf, Opts0) ->
 
 check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) ->
     Opts = #{return_plain => true, format => map, required => false},
-    CheckedConf = hocon_tconf:check_plain(SchemaMod, RawConf, Opts, AllowedNSRoots),
-    unsafe_atom_checked_hocon_key_map(CheckedConf).
+    try hocon_tconf:check_plain(SchemaMod, RawConf, Opts, AllowedNSRoots) of
+        CheckedConf ->
+            {ok, unsafe_atom_checked_hocon_key_map(CheckedConf)}
+    catch
+        throw:{SchemaMod, Errors} ->
+            {error, Errors}
+    end.
 
 fill_defaults(RawConf) ->
     fill_defaults(RawConf, #{}).
@@ -813,10 +859,10 @@ save_configs(AppEnvs, Conf, RawConf, OverrideConf, Opts) ->
     save_to_app_env(AppEnvs),
     save_to_config_map(Conf, RawConf).
 
-save_configs_namespaced(Namespace, RootKey, Conf, RawConf, ClusterRPCOpts, Opts) when
+save_configs_namespaced(Namespace, RootKeyAtom, Conf, RawConf, ClusterRPCOpts, Opts) when
     is_binary(Namespace)
 ->
-    RootKeyBin = bin(RootKey),
+    RootKeyBin = bin(RootKeyAtom),
     maybe
         ?KIND_INITIATE ?= maps:get(kind, ClusterRPCOpts, ?KIND_INITIATE),
         ?tp("emqx_config_save_configs_namespaced_transaction", #{}),
@@ -825,7 +871,8 @@ save_configs_namespaced(Namespace, RootKey, Conf, RawConf, ClusterRPCOpts, Opts)
         end),
         ok
     end,
-    put_namespaced(Namespace, #{RootKey => Conf}),
+    put_namespaced(Namespace, #{RootKeyAtom => Conf}),
+    clear_invalid_namespaced_config(Namespace, RootKeyBin),
     ok.
 
 save_configs_namespaced_tx(Namespace, RootKeyBin, _Conf, RawConf, _Opts) when
