@@ -59,7 +59,7 @@ t_initialize(_Config) ->
         {error, not_authorized},
         emqx_access_control:authenticate(?CLIENTINFO)
     ),
-    ok = application:start(emqx_auth),
+    {ok, _} = application:ensure_all_started(emqx_auth),
     ?assertMatch(
         {error, not_authorized},
         emqx_access_control:authenticate(?CLIENTINFO)

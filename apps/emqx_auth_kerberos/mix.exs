@@ -18,7 +18,10 @@ defmodule EMQXAuthKerberos.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications()]
+    [
+      extra_applications: UMP.extra_applications(),
+      mod: {:emqx_auth_kerberos_app, []}
+    ]
   end
 
   def deps() do
