@@ -19,7 +19,8 @@
 -type options() :: #{
     base_url := binary(),
     headers := [{binary(), emqx_secret:t(binary())}],
-    transport_options := transport_options()
+    transport_options := transport_options(),
+    hackney_pool := term()
 }.
 
 -export_type([t/0, options/0]).
@@ -27,7 +28,8 @@
 -record(state, {
     headers :: [{binary(), emqx_secret:t(binary())}],
     base_url :: binary(),
-    transport_options :: transport_options()
+    transport_options :: transport_options(),
+    hackney_pool :: term()
 }).
 
 -type t() :: #state{}.
@@ -40,12 +42,14 @@
 new(#{
     base_url := BaseUrl,
     headers := Headers,
-    transport_options := TransportOptions
+    transport_options := TransportOptions,
+    hackney_pool := HackneyPool
 }) ->
     #state{
         base_url = BaseUrl,
         headers = Headers,
-        transport_options = TransportOptions
+        transport_options = TransportOptions,
+        hackney_pool = HackneyPool
     }.
 
 api_get(State, Path) ->
@@ -121,5 +125,8 @@ bin(I) when is_integer(I) ->
 bin(L) when is_list(L) ->
     iolist_to_binary(L).
 
-req_options(#state{transport_options = TransportOptions}) ->
-    maps:to_list(TransportOptions).
+req_options(#state{transport_options = TransportOptions, hackney_pool = HackneyPool}) ->
+    [{pool, HackneyPool}] ++
+        maps:to_list(
+            maps:with([connect_timeout, recv_timeout, checkout_timeout], TransportOptions)
+        ).

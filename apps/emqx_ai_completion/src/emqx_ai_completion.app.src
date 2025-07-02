@@ -1,6 +1,6 @@
 {application, emqx_ai_completion, [
     {description, "EMQX AI Completion"},
-    {vsn, "0.1.6"},
+    {vsn, "0.1.7"},
     {registered, [emqx_ai_completion_sup]},
     {mod, {emqx_ai_completion_app, []}},
     {applications, [
