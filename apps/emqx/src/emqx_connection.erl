@@ -946,9 +946,11 @@ send(Num, IoData, #state{transport = Transport, socket = Socket} = State) ->
                 ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
             end),
             Ok;
-        {error, Reason} ->
+        {error, timeout} ->
             %% Defer error handling
             %% so it's handled the same as tcp_closed or ssl_closed
+            {ok, {sock_error, send_timeout}, State};
+        {error, Reason} ->
             {ok, {sock_error, Reason}, State}
     end.
 
