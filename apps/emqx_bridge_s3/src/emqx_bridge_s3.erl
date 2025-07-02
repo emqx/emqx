@@ -112,6 +112,7 @@ connector_example(put) ->
     }.
 
 %% Config update
+%% `emqx_connector' API
 
 pre_config_update(Path, _Name, Conf = #{<<"transport_options">> := TransportOpts}, _ConfOld) ->
     case emqx_connector_ssl:convert_certs(filename:join(Path), TransportOpts) of

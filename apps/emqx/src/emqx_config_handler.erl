@@ -37,6 +37,8 @@
 
 -export([schema/2]).
 
+-export_type([extra_context/0]).
+
 -define(MOD, '$mod').
 -define(WKEY, '?').
 
@@ -86,7 +88,7 @@
     [binary()],
     emqx_config:update_request(),
     emqx_config:raw_config(),
-    emqx_config:cluster_rpc_opts()
+    extra_context()
 ) ->
     ok | {ok, emqx_config:update_request()} | {error, term()}.
 
@@ -96,7 +98,7 @@
     emqx_config:config(),
     emqx_config:config(),
     emqx_config:app_envs(),
-    emqx_config:cluster_rpc_opts()
+    extra_context()
 ) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
@@ -106,7 +108,7 @@
     emqx_config:config(),
     emqx_config:config(),
     emqx_config:app_envs(),
-    emqx_config:cluster_rpc_opts()
+    extra_context()
 ) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
@@ -118,6 +120,12 @@
 -type conf_key_path() :: emqx_utils_maps:config_key_path().
 
 -type namespace() :: binary().
+
+-type extra_context() :: #{
+    %% Should be interpreted as `?KIND_INITIATE` if key is absent.
+    kind => ?KIND_INITIATE | ?KIND_REPLICATE,
+    namespace := undefined | namespace()
+}.
 
 -record(conf_info, {
     schema_mod :: module(),
@@ -428,7 +436,7 @@ call_pre_config_update(Ctx) ->
     end.
 
 call_proper_pre_config_update(#{handlers := #{?MOD := Module}, callback := Callback} = Ctx) ->
-    Arity = get_function_arity(Module, Callback, [3, 4, 5]),
+    Arity = get_function_arity(Module, Callback, [3, 4]),
     case apply_pre_config_update(Module, Callback, Arity, Ctx) of
         ok ->
             {ok, maps:get(update_req, Ctx)};
@@ -449,19 +457,12 @@ apply_pre_config_update(Module, Callback, 3, #{
 apply_pre_config_update(Module, Callback, 4, #{
     conf_key_path := ConfKeyPath,
     update_req := UpdateReq,
-    old_raw_conf := OldRawConf,
-    cluster_rpc_opts := ClusterRPCOpts
-}) ->
-    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ClusterRPCOpts);
-apply_pre_config_update(Module, Callback, 5, #{
-    conf_key_path := ConfKeyPath,
-    update_req := UpdateReq,
     namespace := Namespace,
     old_raw_conf := OldRawConf,
     cluster_rpc_opts := ClusterRPCOpts
 }) ->
-    ExtraContext = #{namespace => Namespace},
-    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ClusterRPCOpts, ExtraContext);
+    ExtraContext = maps:merge(ClusterRPCOpts, #{namespace => Namespace}),
+    Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ExtraContext);
 apply_pre_config_update(_Module, _Callback, false, #{
     update_req := UpdateReq,
     old_raw_conf := OldRawConf
@@ -553,7 +554,7 @@ call_proper_post_config_update(
         result := Result
     } = Ctx
 ) ->
-    Arity = get_function_arity(Module, Callback, [5, 6, 7]),
+    Arity = get_function_arity(Module, Callback, [5, 6]),
     case apply_post_config_update(Module, Callback, Arity, Ctx) of
         ok -> {ok, Result};
         {ok, Result1} -> {ok, Result#{Module => Result1}};
@@ -575,25 +576,14 @@ apply_post_config_update(Module, Callback, 5, #{
 apply_post_config_update(Module, Callback, 6, #{
     conf_key_path := ConfKeyPath,
     update_req := UpdateReq,
-    cluster_rpc_opts := ClusterRPCOpts,
-    new_conf := NewConf,
-    old_conf := OldConf,
-    app_envs := AppEnvs
-}) ->
-    Module:Callback(ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs, ClusterRPCOpts);
-apply_post_config_update(Module, Callback, 7, #{
-    conf_key_path := ConfKeyPath,
-    update_req := UpdateReq,
     namespace := Namespace,
     cluster_rpc_opts := ClusterRPCOpts,
     new_conf := NewConf,
     old_conf := OldConf,
     app_envs := AppEnvs
 }) ->
-    ExtraContext = #{namespace => Namespace},
-    Module:Callback(
-        ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs, ClusterRPCOpts, ExtraContext
-    );
+    ExtraContext = maps:merge(ClusterRPCOpts, #{namespace => Namespace}),
+    Module:Callback(ConfKeyPath, UpdateReq, NewConf, OldConf, AppEnvs, ExtraContext);
 apply_post_config_update(_Module, _Callback, false, _Ctx) ->
     ok.
 
@@ -773,10 +763,8 @@ assert_callback_function(Mod) ->
     case
         erlang:function_exported(Mod, pre_config_update, 3) orelse
             erlang:function_exported(Mod, pre_config_update, 4) orelse
-            erlang:function_exported(Mod, pre_config_update, 5) orelse
             erlang:function_exported(Mod, post_config_update, 5) orelse
-            erlang:function_exported(Mod, post_config_update, 6) orelse
-            erlang:function_exported(Mod, post_config_update, 7)
+            erlang:function_exported(Mod, post_config_update, 6)
     of
         true -> ok;
         false -> error(#{msg => "bad_emqx_config_handler_callback", module => Mod})

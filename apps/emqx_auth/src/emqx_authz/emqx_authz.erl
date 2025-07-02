@@ -9,6 +9,7 @@
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/emqx_external_trace.hrl").
@@ -176,8 +177,10 @@ update({?CMD_DELETE, Type}, Source) ->
 update(Cmd, Sources) ->
     emqx_authz_utils:update_config(?CONF_KEY_PATH, {Cmd, Sources}).
 
-pre_config_update(Path, Cmd, OldConf, ClusterRpcOpts) ->
-    try do_pre_config_update(Path, Cmd, OldConf, ClusterRpcOpts) of
+pre_config_update(_Path, _Cmd, _OldConf, #{namespace := Ns}) when is_binary(Ns) ->
+    {error, not_implemented};
+pre_config_update(Path, Cmd, OldConf, ExtraContext) ->
+    try do_pre_config_update(Path, Cmd, OldConf, ExtraContext) of
         {error, Reason} -> {error, Reason};
         NewConf -> {ok, NewConf}
     catch
@@ -240,9 +243,9 @@ do_pre_config_update({{?CMD_REPLACE, Type}, Source}, Sources, _Opts) ->
 do_pre_config_update({{?CMD_DELETE, Type}, _Source}, Sources, Opts) ->
     case take_by_type(Type, Sources) of
         not_found ->
-            case emqx_cluster_rpc:is_initiator(Opts) of
-                true -> throw({not_found_source, Type});
-                false -> Sources
+            case maps:get(kind, Opts, ?KIND_INITIATE) of
+                ?KIND_INITIATE -> throw({not_found_source, Type});
+                ?KIND_REPLICATE -> Sources
             end;
         {_Found, NSources} ->
             NSources

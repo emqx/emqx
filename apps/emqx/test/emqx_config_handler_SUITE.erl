@@ -128,27 +128,26 @@ get_config(TCConfig, KeyPath) when is_list(TCConfig) ->
 remove_config(TCConfig, KeyPath) ->
     emqx:remove_config(KeyPath, update_config_opts(TCConfig)).
 
-pre_config_update([sysmon], UpdateReq, _RawConf, _ClusterRPCOpts, ExtraContext) ->
+pre_config_update([sysmon], UpdateReq, _RawConf, ExtraContext) ->
     ets:insert(?pre_post_table, {pre, #{extra_context => ExtraContext}}),
     {ok, UpdateReq};
-pre_config_update([sysmon, os], UpdateReq, _RawConf, _, _) ->
+pre_config_update([sysmon, os], UpdateReq, _RawConf, _) ->
     {ok, UpdateReq};
-pre_config_update([sysmon, os, cpu_check_interval], UpdateReq, _RawConf, _, _) ->
+pre_config_update([sysmon, os, cpu_check_interval], UpdateReq, _RawConf, _) ->
     {ok, UpdateReq};
-pre_config_update([sysmon, os, cpu_low_watermark], UpdateReq, _RawConf, _, _) ->
+pre_config_update([sysmon, os, cpu_low_watermark], UpdateReq, _RawConf, _) ->
     {ok, UpdateReq};
-pre_config_update([sysmon, os, cpu_high_watermark], UpdateReq, _RawConf, _, _) ->
+pre_config_update([sysmon, os, cpu_high_watermark], UpdateReq, _RawConf, _) ->
     {ok, UpdateReq};
-pre_config_update([sysmon, os, sysmem_high_watermark], UpdateReq, _RawConf, _, _) ->
+pre_config_update([sysmon, os, sysmem_high_watermark], UpdateReq, _RawConf, _) ->
     {ok, UpdateReq};
-pre_config_update([sysmon, os, mem_check_interval], _UpdateReq, _RawConf, _, _) ->
+pre_config_update([sysmon, os, mem_check_interval], _UpdateReq, _RawConf, _) ->
     {error, pre_config_update_error}.
 
 propagated_pre_config_update(
     [<<"sysmon">>, <<"os">>, <<"cpu_check_interval">>],
     <<"333s">>,
     _RawConf,
-    _ClusterRPCOpts,
     _ExtraContext
 ) ->
     {ok, <<"444s">>};
@@ -156,33 +155,32 @@ propagated_pre_config_update(
     [<<"sysmon">>, <<"os">>, <<"mem_check_interval">>],
     _UpdateReq,
     _RawConf,
-    _ClusterRPCOpts,
     _ExtraContext
 ) ->
     {error, pre_config_update_error};
-propagated_pre_config_update(_ConfKeyPath, _UpdateReq, _RawConf, _ClusterRPCOpts, ExtraContext) ->
+propagated_pre_config_update(_ConfKeyPath, _UpdateReq, _RawConf, ExtraContext) ->
     ets:insert(?pre_post_table, {propagated_pre, #{extra_context => ExtraContext}}),
     ok.
 
 post_config_update(
-    [sysmon], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _ClusterRPCOpts, ExtraContext
+    [sysmon], _UpdateReq, _NewConf, _OldConf, _AppEnvs, ExtraContext
 ) ->
     ets:insert(?pre_post_table, {post, #{extra_context => ExtraContext}}),
     {ok, ok};
-post_config_update([sysmon, os], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _, _) ->
+post_config_update([sysmon, os], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _) ->
     {ok, ok};
 post_config_update(
-    [sysmon, os, cpu_check_interval], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _, _
+    [sysmon, os, cpu_check_interval], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _
 ) ->
     {ok, ok};
-post_config_update([sysmon, os, cpu_low_watermark], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _, _) ->
+post_config_update([sysmon, os, cpu_low_watermark], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _) ->
     ok;
 post_config_update(
-    [sysmon, os, cpu_high_watermark], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _, _
+    [sysmon, os, cpu_high_watermark], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _
 ) ->
     ok;
 post_config_update(
-    [sysmon, os, sysmem_high_watermark], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _, _
+    [sysmon, os, sysmem_high_watermark], _UpdateReq, _NewConf, _OldConf, _AppEnvs, _
 ) ->
     {error, post_config_update_error}.
 
@@ -192,12 +190,11 @@ propagated_post_config_update(
     _NewConf,
     _OldConf,
     _AppEnvs,
-    _ClusterRPCOpts,
     _ExtraContext
 ) ->
     {error, post_config_update_error};
 propagated_post_config_update(
-    _ConfKeyPath, _UpdateReq, _NewConf, _OldConf, _AppEnvs, _, ExtraContext
+    _ConfKeyPath, _UpdateReq, _NewConf, _OldConf, _AppEnvs, ExtraContext
 ) ->
     ets:insert(?pre_post_table, {propagated_post, #{extra_context => ExtraContext}}),
     ok.
