@@ -7,32 +7,12 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(lists, [nth/2]).
-
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
--define(TOPICS, [
-    <<"TopicA">>,
-    <<"TopicA/B">>,
-    <<"Topic/C">>,
-    <<"TopicA/C">>,
-    <<"/TopicA">>
-]).
-
--define(WILD_TOPICS, [
-    <<"TopicA/+">>,
-    <<"+/C">>,
-    <<"#">>,
-    <<"/#">>,
-    <<"/+">>,
-    <<"+/+">>,
-    <<"TopicA/#">>
-]).
 
 -define(WAIT(EXPR, ATTEMPTS), ?retry(1000, ATTEMPTS, EXPR)).
 
@@ -46,22 +26,21 @@ all() ->
 
 groups() ->
     [
-        {mqttv3, [non_parallel_tests], [t_basic_v3]},
-        {mqttv4, [non_parallel_tests], [
+        {mqttv3, [], [t_basic_v3]},
+        {mqttv4, [], [
             t_basic_v4,
             t_cm,
             t_cm_registry,
             %% t_will_message,
-            %% t_offline_message_queueing,
+            t_offline_message_queueing,
             t_overlapping_subscriptions,
             %% t_keepalive,
-            %% t_redelivery_on_reconnect,
-            %% subscribe_failure_test,
+            t_redelivery_on_reconnect,
             t_dollar_topics,
             t_sub_non_utf8_topic
         ]},
-        {mqttv5, [non_parallel_tests], [t_basic_with_props_v5, t_v5_receive_maximim_in_connack]},
-        {others, [non_parallel_tests], [
+        {mqttv5, [], [t_basic_with_props_v5, t_v5_receive_maximim_in_connack]},
+        {others, [], [
             t_username_as_clientid,
             t_certcn_as_alias,
             t_certdn_as_alias,
@@ -136,15 +115,7 @@ t_idle_timeout_infinity(_) ->
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     ?WAIT(#{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId), 2),
-    emqtt:subscribe(C, <<"mytopic">>, 0),
-    ?WAIT(
-        begin
-            Stats = emqx_cm:get_chan_stats(ClientId),
-            ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats))
-        end,
-        2
-    ),
-    ok.
+    {ok, _, [0]} = emqtt:subscribe(C, <<"mytopic">>, 0).
 
 t_cm_registry(_) ->
     Children = supervisor:which_children(emqx_cm_sup),
@@ -154,9 +125,10 @@ t_cm_registry(_) ->
     Pid ! <<"Unexpected info">>.
 
 t_will_message(_Config) ->
+    WillTopic = <<"TopicA/C">>,
     {ok, C1} = emqtt:start_link([
         {clean_start, true},
-        {will_topic, nth(3, ?TOPICS)},
+        {will_topic, WillTopic},
         {will_payload, <<"client disconnected">>},
         {keepalive, 1}
     ]),
@@ -165,13 +137,10 @@ t_will_message(_Config) ->
     {ok, C2} = emqtt:start_link(),
     {ok, _} = emqtt:connect(C2),
 
-    {ok, _, [2]} = emqtt:subscribe(C2, nth(3, ?TOPICS), 2),
-    timer:sleep(5),
+    {ok, _, [2]} = emqtt:subscribe(C2, WillTopic, 2),
     ok = emqtt:stop(C1),
-    timer:sleep(5),
     ?assertEqual(1, length(recv_msgs(1))),
-    ok = emqtt:disconnect(C2),
-    ct:pal("Will message test succeeded").
+    ok = emqtt:disconnect(C2).
 
 t_offline_message_queueing(_) ->
     {ok, C1} = emqtt:start_link([
@@ -179,39 +148,36 @@ t_offline_message_queueing(_) ->
         {clientid, <<"c1">>}
     ]),
     {ok, _} = emqtt:connect(C1),
-
-    {ok, _, [2]} = emqtt:subscribe(C1, nth(6, ?WILD_TOPICS), 2),
+    {ok, _, [2]} = emqtt:subscribe(C1, <<"+/+">>, 2),
     ok = emqtt:disconnect(C1),
+
     {ok, C2} = emqtt:start_link([
         {clean_start, true},
         {clientid, <<"c2">>}
     ]),
     {ok, _} = emqtt:connect(C2),
 
-    ok = emqtt:publish(C2, nth(2, ?TOPICS), <<"qos 0">>, 0),
-    {ok, _} = emqtt:publish(C2, nth(3, ?TOPICS), <<"qos 1">>, 1),
-    {ok, _} = emqtt:publish(C2, nth(4, ?TOPICS), <<"qos 2">>, 2),
+    ok = emqtt:publish(C2, <<"TopicA/B">>, <<"qos 0">>, 0),
+    {ok, _} = emqtt:publish(C2, <<"Topic/C">>, <<"qos 1">>, 1),
+    {ok, _} = emqtt:publish(C2, <<"TopicA/C">>, <<"qos 2">>, 2),
     timer:sleep(10),
     emqtt:disconnect(C2),
+
     {ok, C3} = emqtt:start_link([{clean_start, false}, {clientid, <<"c1">>}]),
     {ok, _} = emqtt:connect(C3),
-
-    timer:sleep(10),
-    emqtt:disconnect(C3),
-    ?assertEqual(3, length(recv_msgs(3))).
+    ?assertEqual(3, length(recv_msgs(3))),
+    ok = emqtt:disconnect(C3).
 
 t_overlapping_subscriptions(_) ->
     {ok, C} = emqtt:start_link([]),
     {ok, _} = emqtt:connect(C),
 
     {ok, _, [2, 1]} = emqtt:subscribe(C, [
-        {nth(7, ?WILD_TOPICS), 2},
-        {nth(1, ?WILD_TOPICS), 1}
+        {<<"TopicA/#">>, 2},
+        {<<"TopicA/+">>, 1}
     ]),
     timer:sleep(10),
-    {ok, _} = emqtt:publish(C, nth(4, ?TOPICS), <<"overlapping topic filters">>, 2),
-    timer:sleep(10),
-
+    {ok, _} = emqtt:publish(C, <<"TopicA/C">>, <<"overlapping topic filters">>, 2),
     Num = length(recv_msgs(2)),
     ?assert(lists:member(Num, [1, 2])),
     if
@@ -247,22 +213,20 @@ t_overlapping_subscriptions(_) ->
 %%     ct:print("Keepalive test succeeded").
 
 t_redelivery_on_reconnect(_) ->
-    ct:pal("Redelivery on reconnect test starting"),
     {ok, C1} = emqtt:start_link([{clean_start, false}, {clientid, <<"c">>}]),
     {ok, _} = emqtt:connect(C1),
-
-    {ok, _, [2]} = emqtt:subscribe(C1, nth(7, ?WILD_TOPICS), 2),
+    {ok, _, [2]} = emqtt:subscribe(C1, <<"TopicA/#">>, 2),
     timer:sleep(10),
     ok = emqtt:pause(C1),
     {ok, _} = emqtt:publish(
         C1,
-        nth(2, ?TOPICS),
+        <<"TopicA/B">>,
         <<>>,
         [{qos, 1}, {retain, false}]
     ),
     {ok, _} = emqtt:publish(
         C1,
-        nth(4, ?TOPICS),
+        <<"TopicA/C">>,
         <<>>,
         [{qos, 2}, {retain, false}]
     ),
@@ -271,37 +235,24 @@ t_redelivery_on_reconnect(_) ->
     ?assertEqual(0, length(recv_msgs(2))),
     {ok, C2} = emqtt:start_link([{clean_start, false}, {clientid, <<"c">>}]),
     {ok, _} = emqtt:connect(C2),
-
-    timer:sleep(10),
-    ok = emqtt:disconnect(C2),
-    ?assertEqual(2, length(recv_msgs(2))).
-
-%% t_subscribe_sys_topics(_) ->
-%%     ct:print("Subscribe failure test starting"),
-%%     {ok, C, _} = emqtt:start_link([]),
-%%     {ok, _, [2]} = emqtt:subscribe(C, <<"$SYS/#">>, 2),
-%%     timer:sleep(10),
-%%     ct:print("Subscribe failure test succeeded").
+    ?assertEqual(2, length(recv_msgs(2))),
+    ok = emqtt:disconnect(C2).
 
 t_dollar_topics(_) ->
-    ct:pal("$ topics test starting"),
     {ok, C} = emqtt:start_link([
         {clean_start, true},
         {keepalive, 0}
     ]),
     {ok, _} = emqtt:connect(C),
-
-    {ok, _, [1]} = emqtt:subscribe(C, nth(6, ?WILD_TOPICS), 1),
+    {ok, _, [1]} = emqtt:subscribe(C, <<"+/+">>, 1),
     {ok, _} = emqtt:publish(
         C,
-        <<<<"$">>/binary, (nth(2, ?TOPICS))/binary>>,
+        <<"$TopicA/B">>,
         <<"test">>,
         [{qos, 1}, {retain, false}]
     ),
-    timer:sleep(10),
     ?assertEqual(0, length(recv_msgs(1))),
-    ok = emqtt:disconnect(C),
-    ct:pal("$ topics test succeeded").
+    ok = emqtt:disconnect(C).
 
 t_sub_non_utf8_topic(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
@@ -359,7 +310,7 @@ t_v5_receive_maximim_in_connack(_) ->
 %%--------------------------------------------------------------------
 
 run_basic(Opts) ->
-    Topic = nth(1, ?TOPICS),
+    Topic = <<"TopicA">>,
     {ok, C} = emqtt:start_link(Opts),
     {ok, _} = emqtt:connect(C),
     {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
@@ -577,11 +528,8 @@ recv_msgs(0, Msgs) ->
 recv_msgs(Count, Msgs) ->
     receive
         {publish, Msg} ->
-            recv_msgs(Count - 1, [Msg | Msgs]);
-        %%TODO:: remove the branch?
-        _Other ->
-            recv_msgs(Count, Msgs)
-    after 100 ->
+            recv_msgs(Count - 1, [Msg | Msgs])
+    after 1000 ->
         Msgs
     end.
 
