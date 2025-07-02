@@ -169,6 +169,8 @@ localhost
 lwm
 LwM
 Makefile
+memtable
+memtables
 MitM
 mnesia
 mountpoint
