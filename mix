@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+exec env ERL_FLAGS="+pc unicode ${ERL_FLAGS:-}" mix "$@"

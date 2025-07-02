@@ -45,6 +45,8 @@ defmodule Mix.Tasks.Emqx.Ct do
 
     EMQX.Mix.Utils.clear_screen()
 
+    :logger.set_primary_config(:level, :notice)
+
     results =
       :ct.run_test(
         abort_if_missing_suites: true,
