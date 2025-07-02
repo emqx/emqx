@@ -39,6 +39,12 @@
     stats/1
 ]).
 
+%% `emqx_congestion` callbacks:
+-export([
+    sockstats/2,
+    sockopts/2
+]).
+
 -export([
     async_set_keepalive/3,
     async_set_keepalive/5,
@@ -209,19 +215,27 @@ info({channel, Info}, #state{channel = Channel}) ->
 -spec stats(pid() | state()) -> emqx_types:stats().
 stats(CPid) when is_pid(CPid) ->
     call(CPid, stats);
-stats(#state{
-    transport = Transport,
-    socket = Socket,
-    channel = Channel
-}) ->
-    SockStats =
-        case Transport:getstat(Socket, ?SOCK_STATS) of
-            {ok, Ss} -> Ss;
-            {error, _} -> []
-        end,
+stats(State = #state{channel = Channel}) ->
+    SockStats = sockstats(?SOCK_STATS, State),
     ChanStats = emqx_channel:stats(Channel),
     ProcStats = emqx_utils:proc_stats(),
     lists:append([SockStats, ChanStats, ProcStats]).
+
+%% @doc Gather socket statistics, for `emqx_congestion` alarms.
+-spec sockstats([atom()], state()) -> emqx_types:stats().
+sockstats(Keys, #state{socket = Socket, transport = Transport}) ->
+    case Transport:getstat(Socket, Keys) of
+        {ok, Ss} -> Ss;
+        {error, _} -> []
+    end.
+
+%% @doc Gather socket options, for `emqx_congestion` alarms.
+-spec sockopts([atom()], state()) -> emqx_types:stats().
+sockopts(Names, #state{socket = Socket, transport = Transport}) ->
+    case Transport:getopts(Socket, Names) of
+        {ok, Opts} -> Opts;
+        {error, _} -> []
+    end.
 
 %% @doc Set TCP keepalive socket options to override system defaults.
 %% Idle: The number of seconds a connection needs to be idle before
@@ -597,14 +611,12 @@ handle_msg(Msg, State) ->
 terminate(
     Reason,
     State = #state{
-        channel = Channel,
-        transport = Transport,
-        socket = Socket
+        channel = Channel
     }
 ) ->
     try
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
-        emqx_congestion:cancel_alarms(Socket, Transport, Channel1),
+        emqx_congestion:cancel_alarms(?MODULE, State),
         emqx_channel:terminate(Reason, Channel1),
         close_socket_ok(State),
         ?TRACE("SOCKET", "emqx_connection_terminated", #{reason => Reason})
@@ -680,14 +692,12 @@ handle_timeout(
     _TRef,
     emit_stats,
     State = #state{
-        channel = Channel,
-        transport = Transport,
-        socket = Socket
+        channel = Channel
     }
 ) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
-    emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
+    emqx_congestion:maybe_alarm_conn_congestion(?MODULE, State),
     {ok, State#state{stats_timer = undefined}};
 handle_timeout(
     TRef,

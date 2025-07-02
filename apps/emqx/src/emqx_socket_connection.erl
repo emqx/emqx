@@ -34,6 +34,12 @@
     stats/1
 ]).
 
+%% `emqx_congestion` callbacks:
+-export([
+    sockstats/2,
+    sockopts/2
+]).
+
 -export([
     async_set_keepalive/4,
     async_set_socket_options/2
@@ -168,9 +174,17 @@ info({channel, Info}, #state{channel = Channel}) ->
 -spec stats(pid() | state()) -> emqx_types:stats().
 stats(CPid) when is_pid(CPid) ->
     call(CPid, stats);
-stats(#state{socket = Socket, channel = Channel}) ->
+stats(State = #state{channel = Channel}) ->
+    SockStats = sockstats(?SOCK_STATS, State),
+    ChanStats = emqx_channel:stats(Channel),
+    ProcStats = emqx_utils:proc_stats(),
+    lists:append([SockStats, ChanStats, ProcStats]).
+
+%% @doc Gather socket statistics, for `emqx_congestion` alarms.
+-spec sockstats([atom()], state()) -> emqx_types:stats().
+sockstats(Keys, #state{socket = Socket}) ->
     #{counters := Counters} = socket:info(Socket),
-    SockStats = lists:map(
+    lists:map(
         fun
             (S = recv_oct) -> {S, maps:get(read_byte, Counters, 0)};
             (S = recv_cnt) -> {S, maps:get(read_pkg, Counters, 0)};
@@ -178,11 +192,25 @@ stats(#state{socket = Socket, channel = Channel}) ->
             (S = send_cnt) -> {S, maps:get(write_pkg, Counters, 0)};
             (S = send_pend) -> {S, 0}
         end,
-        ?SOCK_STATS
-    ),
-    ChanStats = emqx_channel:stats(Channel),
-    ProcStats = emqx_utils:proc_stats(),
-    lists:append([SockStats, ChanStats, ProcStats]).
+        Keys
+    ).
+
+%% @doc Gather socket options, for `emqx_congestion` alarms.
+-spec sockopts([atom()], state()) -> emqx_types:stats().
+sockopts(Names, #state{socket = Socket}) ->
+    emqx_utils:flattermap(
+        fun
+            (buffer = N) -> sockopt_val(N, socket:getopt(Socket, {otp, rcvbuf}));
+            (recbuf = N) -> sockopt_val(N, socket:getopt(Socket, {socket, rcvbuf}));
+            (sndbuf = N) -> sockopt_val(N, socket:getopt(Socket, {socket, sndbuf}));
+            (high_watermark) -> _NA = [];
+            (high_msgq_watermark) -> _NA = []
+        end,
+        Names
+    ).
+
+sockopt_val(Name, {ok, V}) -> {Name, V};
+sockopt_val(_, {error, _}) -> [].
 
 %% @doc Set TCP keepalive socket options to override system defaults.
 %% Idle: The number of seconds a connection needs to be idle before
@@ -566,14 +594,11 @@ handle_msg(Msg, State) ->
 -spec terminate(any(), state()) -> no_return().
 terminate(
     Reason,
-    State = #state{
-        channel = Channel,
-        socket = Socket
-    }
+    State = #state{channel = Channel}
 ) ->
     try
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
-        emqx_congestion:cancel_alarms(Socket, esockd_socket, Channel1),
+        emqx_congestion:cancel_alarms(?MODULE, State),
         emqx_channel:terminate(Reason, Channel1),
         close_socket_ok(State),
         ?TRACE("SOCKET", "emqx_connection_terminated", #{reason => Reason})
@@ -649,13 +674,12 @@ handle_timeout(
     _TRef,
     emit_stats,
     State = #state{
-        channel = Channel,
-        socket = Socket
+        channel = Channel
     }
 ) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
-    emqx_congestion:maybe_alarm_conn_congestion(Socket, esockd_socket, Channel),
+    emqx_congestion:maybe_alarm_conn_congestion(?MODULE, State),
     {ok, State#state{stats_timer = undefined}};
 handle_timeout(
     TRef,
