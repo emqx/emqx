@@ -147,7 +147,8 @@
 
 -type prototype() ::
     {emqx_ds_storage_reference, emqx_ds_storage_reference:options()}
-    | {emqx_ds_storage_bitfield_lts, emqx_ds_storage_bitfield_lts:options()}.
+    | {emqx_ds_storage_bitfield_lts, emqx_ds_storage_bitfield_lts:options()}
+    | {emqx_ds_storage_skipstream_lts, emqx_ds_storage_skipstream_lts:schema()}.
 
 -type dbshard() :: {emqx_ds:db(), binary()}.
 
