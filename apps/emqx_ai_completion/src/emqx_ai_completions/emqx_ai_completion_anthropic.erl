@@ -64,7 +64,7 @@ call(
 %%------------------------------------------------------------------------------
 
 create_client(
-    #{base_url := BaseUrl, api_key := ApiKey, transport_options := TransportOptions},
+    #{base_url := BaseUrl, api_key := ApiKey, transport_options := TransportOptions} = Provider,
     AnthropicVersion
 ) ->
     emqx_ai_completion_client:new(#{
@@ -74,5 +74,6 @@ create_client(
             {<<"x-api-key">>, ApiKey},
             {<<"anthropic-version">>, atom_to_binary(AnthropicVersion, utf8)}
         ],
-        transport_options => TransportOptions
+        transport_options => TransportOptions,
+        hackney_pool => emqx_ai_completion_provider:hackney_pool(Provider)
     }).

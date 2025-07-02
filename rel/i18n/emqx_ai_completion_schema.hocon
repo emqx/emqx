@@ -66,6 +66,12 @@ completion_profiles.desc:
 completion_profiles.label:
 """Completion Profiles"""
 
+transport_options.desc:
+"""Transport (HTTP) options for the AI provider."""
+
+transport_options.label:
+"""Transport Options"""
+
 connect_timeout.desc:
 """Connect timeout to the AI provider."""
 
@@ -83,6 +89,12 @@ checkout_timeout.desc:
 
 checkout_timeout.label:
 """Checkout Timeout"""
+
+max_connections.desc:
+"""Maximum number of simultaneous connections to the AI provider."""
+
+max_connections.label:
+"""Max Connections"""
 
 ai.desc:
 """AI functions settings."""
