@@ -5,28 +5,11 @@
 -module(emqx_congestion).
 
 -export([
-    maybe_alarm_conn_congestion/3,
-    cancel_alarms/3
+    maybe_alarm_conn_congestion/2,
+    cancel_alarms/2
 ]).
 
 -elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_congestion]}}]).
-
--define(ALARM_CONN_CONGEST(Channel, Reason),
-    list_to_binary(
-        io_lib:format(
-            "~ts/~ts/~ts",
-            [
-                Reason,
-                emqx_channel:info(clientid, Channel),
-                maps:get(
-                    username,
-                    emqx_channel:info(clientinfo, Channel),
-                    <<"unknown_user">>
-                )
-            ]
-        )
-    )
-).
 
 -define(ALARM_CONN_INFO_KEYS, [
     socktype,
@@ -45,73 +28,68 @@
 -define(ALARM_SENT(REASON), {alarm_sent, REASON}).
 -define(ALL_ALARM_REASONS, [conn_congestion]).
 
-maybe_alarm_conn_congestion(Socket, Transport, Channel) ->
-    case is_alarm_enabled(Channel) of
-        false ->
-            ok;
-        true ->
-            case is_tcp_congested(Socket, Transport) of
-                true -> alarm_congestion(Socket, Transport, Channel, conn_congestion);
-                false -> cancel_alarm_congestion(Socket, Transport, Channel, conn_congestion)
-            end
+maybe_alarm_conn_congestion(ConnMod, State) ->
+    Zone = ConnMod:info({channel, zone}, State),
+    Opts = emqx_config:get_zone_conf(Zone, [conn_congestion]),
+    case Opts of
+        #{enable_alarm := true} ->
+            case is_tcp_congested(ConnMod, State) of
+                true -> alarm_congestion(ConnMod, State, conn_congestion);
+                false -> cancel_alarm_congestion(ConnMod, State, conn_congestion, Opts)
+            end;
+        #{enable_alarm := false} ->
+            ok
     end.
 
-cancel_alarms(Socket, Transport, Channel) ->
+cancel_alarms(ConnMod, State) ->
     lists:foreach(
         fun(Reason) ->
             case has_alarm_sent(Reason) of
-                true -> do_cancel_alarm_congestion(Socket, Transport, Channel, Reason);
+                true -> do_cancel_alarm_congestion(ConnMod, State, Reason);
                 false -> ok
             end
         end,
         ?ALL_ALARM_REASONS
     ).
 
-is_alarm_enabled(Channel) ->
-    Zone = emqx_channel:info(zone, Channel),
-    emqx_config:get_zone_conf(Zone, [conn_congestion, enable_alarm]).
-
-alarm_congestion(Socket, Transport, Channel, Reason) ->
+alarm_congestion(ConnMod, State, Reason) ->
     case has_alarm_sent(Reason) of
         false ->
-            do_alarm_congestion(Socket, Transport, Channel, Reason);
+            do_alarm_congestion(ConnMod, State, Reason);
         true ->
             %% pretend we have sent an alarm again
             update_alarm_sent_at(Reason)
     end.
 
-cancel_alarm_congestion(Socket, Transport, Channel, Reason) ->
-    Zone = emqx_channel:info(zone, Channel),
-    WontClearIn = emqx_config:get_zone_conf(Zone, [
-        conn_congestion,
-        min_alarm_sustain_duration
-    ]),
+cancel_alarm_congestion(ConnMod, State, Reason, Opts) ->
+    #{min_alarm_sustain_duration := WontClearIn} = Opts,
     case has_alarm_sent(Reason) andalso long_time_since_last_alarm(Reason, WontClearIn) of
-        true -> do_cancel_alarm_congestion(Socket, Transport, Channel, Reason);
+        true -> do_cancel_alarm_congestion(ConnMod, State, Reason);
         false -> ok
     end.
 
-do_alarm_congestion(Socket, Transport, Channel, Reason) ->
+do_alarm_congestion(ConnMod, State, Reason) ->
     ok = update_alarm_sent_at(Reason),
-    AlarmDetails = tcp_congestion_alarm_details(Socket, Transport, Channel),
-    Message = io_lib:format("connection congested: ~0p", [AlarmDetails]),
-    emqx_alarm:activate(?ALARM_CONN_CONGEST(Channel, Reason), AlarmDetails, Message),
+    Name = tcp_congestion_alarm_name(Reason, ConnMod, State),
+    Details = tcp_congestion_alarm_details(ConnMod, State),
+    Message = io_lib:format("connection congested: ~0p", [Details]),
+    emqx_alarm:activate(Name, Details, Message),
     ok.
 
-do_cancel_alarm_congestion(Socket, Transport, Channel, Reason) ->
+do_cancel_alarm_congestion(ConnMod, State, Reason) ->
     ok = remove_alarm_sent_at(Reason),
-    AlarmDetails = tcp_congestion_alarm_details(Socket, Transport, Channel),
-    Message = io_lib:format("connection congested: ~0p", [AlarmDetails]),
-    emqx_alarm:ensure_deactivated(?ALARM_CONN_CONGEST(Channel, Reason), AlarmDetails, Message),
+    Name = tcp_congestion_alarm_name(Reason, ConnMod, State),
+    Details = tcp_congestion_alarm_details(ConnMod, State),
+    Message = io_lib:format("connection congested: ~0p", [Details]),
+    emqx_alarm:ensure_deactivated(Name, Details, Message),
     ok.
 
-is_tcp_congested(_Socket, esockd_socket) ->
-    %% TODO: No such concept in `socket`-based sockets.
-    false;
-is_tcp_congested(Socket, Transport) ->
-    case Transport:getstat(Socket, [send_pend]) of
-        {ok, [{send_pend, N}]} when N > 0 -> true;
-        _ -> false
+is_tcp_congested(ConnMod, State) ->
+    case ConnMod:sockstats([send_pend], State) of
+        [{send_pend, N}] ->
+            N > 0;
+        _ ->
+            false
     end.
 
 has_alarm_sent(Reason) ->
@@ -119,17 +97,21 @@ has_alarm_sent(Reason) ->
         0 -> false;
         _ -> true
     end.
+
 update_alarm_sent_at(Reason) ->
     erlang:put(?ALARM_SENT(Reason), timenow()),
     ok.
+
 remove_alarm_sent_at(Reason) ->
     erlang:erase(?ALARM_SENT(Reason)),
     ok.
+
 get_alarm_sent_at(Reason) ->
     case erlang:get(?ALARM_SENT(Reason)) of
         undefined -> 0;
         LastSentAt -> LastSentAt
     end.
+
 long_time_since_last_alarm(Reason, WontClearIn) ->
     %% only sent clears when the alarm was not triggered in the last
     %% WontClearIn time
@@ -144,25 +126,26 @@ timenow() ->
 %%==============================================================================
 %% Alarm message
 %%==============================================================================
-tcp_congestion_alarm_details(Socket, Transport, Channel) ->
+
+tcp_congestion_alarm_name(Reason, ConnMod, State) ->
+    ClientId = ConnMod:info({channel, clientid}, State),
+    ClientInfo = ConnMod:info({channel, clientinfo}, State),
+    emqx_utils:format("~ts/~ts/~ts", [
+        Reason,
+        ClientId,
+        maps:get(username, ClientInfo, <<"unknown_user">>)
+    ]).
+
+tcp_congestion_alarm_details(ConnMod, State) ->
     ProcInfo = process_info(self(), ?PROC_INFO_KEYS),
     BasicInfo = [{pid, list_to_binary(pid_to_list(self()))} | ProcInfo],
-    Stat =
-        case Transport:getstat(Socket, ?ALARM_SOCK_STATS_KEYS) of
-            {ok, Stat0} -> Stat0;
-            {error, _} -> []
-        end,
-    Opts =
-        case Transport:getopts(Socket, ?ALARM_SOCK_OPTS_KEYS) of
-            {ok, Opts0} -> Opts0;
-            {error, _} -> []
-        end,
-    SockInfo = Stat ++ Opts,
-    ConnInfo = [conn_info(Key, Channel) || Key <- ?ALARM_CONN_INFO_KEYS],
-    maps:from_list(BasicInfo ++ ConnInfo ++ SockInfo).
+    Stat = ConnMod:sockstats(?ALARM_SOCK_STATS_KEYS, State),
+    Opts = ConnMod:sockopts(?ALARM_SOCK_OPTS_KEYS, State),
+    ConnInfo = [conn_info(Key, ConnMod, State) || Key <- ?ALARM_CONN_INFO_KEYS],
+    maps:from_list(BasicInfo ++ ConnInfo ++ Stat ++ Opts).
 
-conn_info(Key, Channel) when Key =:= sockname; Key =:= peername ->
-    {IPStr, Port} = emqx_channel:info(Key, Channel),
-    {Key, iolist_to_binary([inet:ntoa(IPStr), ":", integer_to_list(Port)])};
-conn_info(Key, Channel) ->
-    {Key, emqx_channel:info(Key, Channel)}.
+conn_info(Key, ConnMod, State) when Key =:= sockname; Key =:= peername ->
+    {Addr, Port} = ConnMod:info(Key, State),
+    {Key, iolist_to_binary([inet:ntoa(Addr), ":", integer_to_binary(Port)])};
+conn_info(Key, ConnMod, State) ->
+    {Key, ConnMod:info({channel, Key}, State)}.
