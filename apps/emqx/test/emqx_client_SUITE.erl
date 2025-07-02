@@ -21,7 +21,8 @@ all() ->
         {group, mqttv3},
         {group, mqttv4},
         {group, mqttv5},
-        {group, others}
+        {group, others},
+        {group, misbehaving}
     ].
 
 groups() ->
@@ -36,8 +37,7 @@ groups() ->
             t_overlapping_subscriptions,
             %% t_keepalive,
             t_redelivery_on_reconnect,
-            t_dollar_topics,
-            t_sub_non_utf8_topic
+            t_dollar_topics
         ]},
         {mqttv5, [], [t_basic_with_props_v5, t_v5_receive_maximim_in_connack]},
         {others, [], [
@@ -54,12 +54,25 @@ groups() ->
             t_clientid_override,
             t_clientid_override_fail_with_empty_render_result,
             t_clientid_override_fail_with_expression_exception
+        ]},
+        {misbehaving, [], [
+            t_sub_non_utf8_topic,
+            t_congestion_send_timeout
         ]}
     ].
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.ssl.default.ssl_options.verify = verify_peer"}],
+        [
+            {emqx,
+                %% t_congestion_send_timeout
+                "listeners.tcp.default.tcp_options.send_timeout = 2500\n"
+                "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
+                "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
+                "listeners.tcp.default.tcp_options.high_watermark = 160KB\n"
+                %% others
+                "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
@@ -253,36 +266,6 @@ t_dollar_topics(_) ->
     ),
     ?assertEqual(0, length(recv_msgs(1))),
     ok = emqtt:disconnect(C).
-
-t_sub_non_utf8_topic(_) ->
-    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
-    ConnPacket = emqx_frame:serialize(#mqtt_packet{
-        header = #mqtt_packet_header{type = 1},
-        variable = #mqtt_packet_connect{
-            clientid = <<"abcdefg">>
-        }
-    }),
-    ok = gen_tcp:send(Socket, ConnPacket),
-    receive
-        {tcp, _, _ConnAck = <<32, 2, 0, 0>>} -> ok
-    after 3000 -> ct:fail({connect_ack_not_recv, process_info(self(), messages)})
-    end,
-    SubHeader = <<130, 18, 25, 178>>,
-    SubTopicLen = <<0, 13>>,
-    %% this is not a valid utf8 topic
-    SubTopic = <<128, 10, 10, 12, 178, 159, 162, 47, 115, 1, 1, 1, 1>>,
-    SubQoS = <<1>>,
-    SubPacket = <<SubHeader/binary, SubTopicLen/binary, SubTopic/binary, SubQoS/binary>>,
-    ok = gen_tcp:send(Socket, SubPacket),
-    receive
-        {tcp_closed, _} -> ok
-    after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
-    end,
-    timer:sleep(1000),
-    ListenerCounts = emqx_listeners:shutdown_count('tcp:default', {{0, 0, 0, 0}, 1883}),
-    TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
-    ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
-    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v5
@@ -515,6 +498,94 @@ on_hook(ConnInfo, _, 'client.connect' = HP, Pid) ->
 on_hook(_ClientInfo, ConnInfo, 'client.connected' = HP, Pid) ->
     _ = Pid ! {HP, ConnInfo},
     ok.
+
+%%--------------------------------------------------------------------
+%% Misbehaving clients
+%%--------------------------------------------------------------------
+
+t_sub_non_utf8_topic(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"abcdefg">>}),
+    ok = gen_tcp:send(Socket, emqx_frame:serialize(ConnPacket)),
+    receive
+        {tcp, _, _ConnAck = <<32, 2, 0, 0>>} -> ok
+    after 3000 -> ct:fail({connect_ack_not_recv, process_info(self(), messages)})
+    end,
+    SubHeader = <<130, 18, 25, 178>>,
+    SubTopicLen = <<0, 13>>,
+    %% this is not a valid utf8 topic
+    SubTopic = <<128, 10, 10, 12, 178, 159, 162, 47, 115, 1, 1, 1, 1>>,
+    SubQoS = <<1>>,
+    SubPacket = <<SubHeader/binary, SubTopicLen/binary, SubTopic/binary, SubQoS/binary>>,
+    ok = gen_tcp:send(Socket, SubPacket),
+    receive
+        {tcp_closed, _} -> ok
+    after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
+    end,
+    timer:sleep(1000),
+    ListenerCounts = emqx_listeners:shutdown_count('tcp:default', 1883),
+    TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
+    ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
+    ok.
+
+t_congestion_send_timeout(_) ->
+    ok = emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, false}, binary]),
+    %% Send manually constructed CONNECT:
+    ok = gen_tcp:send(
+        Socket,
+        emqx_frame:serialize(
+            ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"t_congestion_send_timeout">>})
+        )
+    ),
+    {ok, Frames1} = gen_tcp:recv(Socket, 0, 1000),
+    {Pkt1, <<>>, Parser1} = emqx_frame:parse(Frames1, emqx_frame:initial_parse_state()),
+    ?assertMatch(?CONNACK_PACKET(0), Pkt1),
+    %% Send manually constructed SUBSCRIBE to subscribe to "t":
+    Topic = <<"t">>,
+    ok = gen_tcp:send(
+        Socket,
+        emqx_frame:serialize(
+            ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => 0}}])
+        )
+    ),
+    {ok, Frames2} = gen_tcp:recv(Socket, 0, 1000),
+    {Pkt2, <<>>, _Parser2} = emqx_frame:parse(Frames2, Parser1),
+    ?assertMatch(?SUBACK_PACKET(1, [0]), Pkt2),
+    %% Subscribe to alarms:
+    AlarmTopic = <<"$SYS/brokers/+/alarms/activate">>,
+    ok = emqx_broker:subscribe(AlarmTopic),
+    %% Start filling up send buffers:
+    Publisher = fun Publisher(N) ->
+        %% Each message has 8000 bytes payload:
+        Payload = binary:copy(<<N:64>>, 1000),
+        _ = emqx:publish(emqx_message:make(<<"publisher">>, Topic, Payload)),
+        ok = timer:sleep(50),
+        Publisher(N + 1)
+    end,
+    _PublisherPid = spawn_link(fun() -> Publisher(1) end),
+    %% Start lagging consumer:
+    Consumer = fun Consumer() ->
+        case gen_tcp:recv(Socket, 1000, 1000) of
+            {ok, _Bytes} ->
+                ok = timer:sleep(50),
+                Consumer();
+            {error, closed} ->
+                closed
+        end
+    end,
+    _ConsumerPid = spawn_link(fun() -> Consumer() end),
+    %% Congestion alarm should be raised soon:
+    {deliver, _, AlarmMsg} = ?assertReceive({deliver, AlarmTopic, _AlarmMsg}, 5_000),
+    #{
+        <<"name">> := <<"conn_congestion/t_congestion_send_timeout/undefined">>,
+        <<"details">> := AlarmDetails
+    } = emqx_utils_json:decode(emqx_message:payload(AlarmMsg)),
+    %% Connection should be closed once send timeout passes.
+    ConnPid = list_to_pid(binary_to_list(maps:get(<<"pid">>, AlarmDetails))),
+    MRef = erlang:monitor(process, ConnPid),
+    ?assertReceive({'DOWN', MRef, process, ConnPid, {shutdown, send_timeout}}, 5_000),
+    ok = gen_tcp:close(Socket).
 
 %%--------------------------------------------------------------------
 %% Helper functions
