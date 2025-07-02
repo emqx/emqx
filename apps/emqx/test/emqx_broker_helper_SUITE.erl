@@ -50,14 +50,6 @@ t_register_sub(_) ->
     end,
     ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)).
 
-t_shard_seq(_) ->
-    TestTopic = atom_to_list(?FUNCTION_NAME),
-    ?assertEqual([], ets:lookup(emqx_subseq, TestTopic)),
-    emqx_broker_helper:create_seq(TestTopic),
-    ?assertEqual([{TestTopic, 1}], ets:lookup(emqx_subseq, TestTopic)),
-    emqx_broker_helper:reclaim_seq(TestTopic),
-    ?assertEqual([], ets:lookup(emqx_subseq, TestTopic)).
-
 t_uncovered_func(_) ->
     gen_server:call(emqx_broker_helper, test),
     gen_server:cast(emqx_broker_helper, test),

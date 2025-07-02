@@ -23,9 +23,7 @@
     assign_sub_shard/1,
     assigned_sub_shards/1,
     unassign_sub_shard/2,
-    shard_capacity/0,
-    create_seq/1,
-    reclaim_seq/1
+    shard_capacity/0
 ]).
 
 %% Stats fun
@@ -52,7 +50,6 @@
 -define(HELPER, ?MODULE).
 -define(SUBID, emqx_subid).
 -define(SUBMON, emqx_submon).
--define(SUBSEQ, emqx_subseq).
 
 -define(SHARD_CAPACITY, 1024).
 -define(SHARD_REFILL, 768).
@@ -139,14 +136,6 @@ assigned_sub_shards(Topic) ->
 shard_capacity() ->
     ?SHARD_CAPACITY.
 
--spec create_seq(emqx_types:topic()) -> emqx_sequence:seqid().
-create_seq(Topic) ->
-    emqx_sequence:nextval(?SUBSEQ, Topic).
-
--spec reclaim_seq(emqx_types:topic()) -> emqx_sequence:seqid().
-reclaim_seq(Topic) ->
-    emqx_sequence:reclaim(?SUBSEQ, Topic).
-
 %%--------------------------------------------------------------------
 %% Stats fun
 %%--------------------------------------------------------------------
@@ -192,8 +181,6 @@ init([]) ->
     process_flag(message_queue_data, off_heap),
     %% Helper table
     ok = emqx_utils_ets:new(?HELPER, [public, {read_concurrency, true}, {write_concurrency, true}]),
-    %% SubSeq: Topic -> SeqId
-    ok = emqx_sequence:create(?SUBSEQ),
     %% SubId: SubId -> SubPid
     ok = emqx_utils_ets:new(?SUBID, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% SubMon: SubPid -> SubId
@@ -221,7 +208,6 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    true = emqx_sequence:delete(?SUBSEQ),
     emqx_stats:cancel_update(broker_stats).
 
 code_change(_OldVsn, State, _Extra) ->
