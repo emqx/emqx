@@ -24,6 +24,7 @@
 
 -include_lib("public_key/include/public_key.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_instr.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds_metrics.hrl").
 
 %% APIs
@@ -218,6 +219,8 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
     ok = add_collect_family(Callback, acl_metric_meta(), ?MG(emqx_acl_data, RawData)),
     ok = add_collect_family(Callback, authn_metric_meta(), ?MG(emqx_authn_data, RawData)),
 
+    ok = collect_broker_instr_family(Callback, ?MG(emqx_broker_instr_data, RawData)),
+
     ok = add_collect_family(Callback, cert_metric_meta(), ?MG(cert_data, RawData)),
     ok = add_collect_family(Callback, cluster_rpc_meta(), ?MG(cluster_rpc, RawData)),
     ok = add_collect_family(Callback, mria_metric_meta(), ?MG(mria_data, RawData)),
@@ -335,6 +338,7 @@ fetch_from_local_node(Mode) ->
         emqx_olp_data => emqx_metric_data(olp_metric_meta(), Mode),
         emqx_acl_data => emqx_metric_data(acl_metric_meta(), Mode),
         emqx_authn_data => emqx_metric_data(authn_metric_meta(), Mode),
+        emqx_broker_instr_data => emqx_broker_instr_data(Mode),
         cluster_rpc => cluster_rpc_data(Mode),
         mria_data => mria_data(Mode)
     }}.
@@ -360,6 +364,7 @@ aggre_or_zip_init_acc() ->
         emqx_olp_data => meta_to_init_from(olp_metric_meta()),
         emqx_acl_data => meta_to_init_from(acl_metric_meta()),
         emqx_authn_data => meta_to_init_from(authn_metric_meta()),
+        emqx_broker_instr_data => emqx_broker_instr_init(),
         cluster_rpc => meta_to_init_from(cluster_rpc_meta()),
         mria_data => meta_to_init_from(mria_metric_meta())
     }.
@@ -1192,6 +1197,39 @@ get_shard_metric(Metric, Shard) ->
         _ ->
             undefined
     end.
+
+%%========================================
+%% Broker Instrumentation
+%%========================================
+
+emqx_broker_instr_data(_Mode) ->
+    maps:map(
+        fun(N, _) ->
+            maps:to_list(emqx_metrics_worker:get_hists(?BROKER_INSTR_METRICS_WORKER, N))
+        end,
+        emqx_broker_instr_init()
+    ).
+
+emqx_broker_instr_init() ->
+    maps:from_keys(?BROKER_INSTR_METRICS, []).
+
+collect_broker_instr_family(Callback, Metrics) ->
+    maps:foreach(
+        fun(Id, Ms) ->
+            lists:foreach(
+                fun({Name, M}) ->
+                    collect_hist_family(Callback, Id, Name, M)
+                end,
+                Ms
+            )
+        end,
+        Metrics
+    ).
+
+collect_hist_family(Callback, Id, Name, #{count := Count, sum := Sum, bucket_counts := Buckets}) ->
+    MName = [<<"emqx_instr_">>, atom_to_binary(Id), <<"_">>, atom_to_binary(Name)],
+    Metric = prometheus_model_helpers:histogram_metric([{node, node()}], Buckets, Count, Sum),
+    Callback(prometheus_model_helpers:create_mf(MName, <<>>, histogram, Metric)).
 
 %%--------------------------------------------------------------------
 %% Collect functions

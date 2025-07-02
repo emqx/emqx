@@ -364,7 +364,8 @@ t_shared_subscribe_3(_) ->
 
 t_shard({init, Config}) ->
     ok = meck:new(emqx_broker_helper, [passthrough, no_history]),
-    ok = meck:expect(emqx_broker_helper, get_sub_shard, fun(_, _) -> 1 end),
+    ok = meck:expect(emqx_broker_helper, assign_sub_shard, fun(_) -> 1 end),
+    ok = meck:expect(emqx_broker_helper, unassign_sub_shard, fun(_, _) -> ok end),
     emqx_broker:subscribe(<<"topic">>, <<"clientid">>),
     Config;
 t_shard(Config) when is_list(Config) ->

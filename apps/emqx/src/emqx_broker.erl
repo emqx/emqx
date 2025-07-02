@@ -11,6 +11,7 @@
 -include("emqx_external_trace.hrl").
 
 -include("logger.hrl").
+-include("emqx_instr.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
 
@@ -66,8 +67,6 @@
     code_change/3
 ]).
 
--import(emqx_utils_ets, [lookup_value/2, lookup_value/3]).
-
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -96,8 +95,6 @@
     bypass_hook => boolean()
 }.
 
--elvis([{elvis_style, used_ignored_variable, disable}]).
-
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
     gen_server:start_link(
@@ -120,11 +117,13 @@ create_tabs() ->
     ok = emqx_utils_ets:new(?SUBOPTION, [ordered_set | TabOpts]),
 
     %% Subscription: SubPid -> TopicFilter1, TopicFilter2, TopicFilter3, ...
-    %% duplicate_bag: o(1) insert
+    %% duplicate_bag: O(1) insert
     ok = emqx_utils_ets:new(?SUBSCRIPTION, [duplicate_bag | TabOpts]),
 
-    %% Subscriber: Topic -> SubPid1, SubPid2, SubPid3, ...
-    %% bag: o(n) insert:(
+    %% Subscriber: Topic -> SubPid1, SubPid2, SubPid3, ..., ShardPid1, ...
+    %% bag: O(n) insert
+    %% However, the factor is small: high-fanout topics are _sharded_ into
+    %% buckets of constant length (e.g. 1024).
     ok = emqx_utils_ets:new(?SUBSCRIBER, [bag | TabOpts]).
 
 %%------------------------------------------------------------------------------
@@ -168,9 +167,7 @@ with_subid(SubId, SubOpts) ->
     maps:put(subid, SubId, SubOpts).
 
 do_subscribe(Topic, SubPid, SubOpts) when is_binary(Topic) ->
-    %% FIXME: subscribe shard bug
-    %% https://emqx.atlassian.net/browse/EMQX-10214
-    I = emqx_broker_helper:get_sub_shard(SubPid, Topic),
+    I = emqx_broker_helper:assign_sub_shard(Topic),
     true = ets:insert(?SUBOPTION, {{Topic, SubPid}, with_shard_idx(I, SubOpts)}),
     Sync = call(pick({Topic, I}), {subscribe, Topic, SubPid, I}),
     case Sync of
@@ -220,8 +217,8 @@ do_unsubscribe(Topic, SubPid, SubOpts) ->
 -spec do_unsubscribe_regular(emqx_types:topic(), pid(), emqx_types:subopts()) ->
     ok.
 do_unsubscribe_regular(Topic, SubPid, SubOpts) ->
-    _ = emqx_broker_helper:reclaim_seq(Topic),
     I = maps:get(shard, SubOpts, 0),
+    _ = emqx_broker_helper:unassign_sub_shard(Topic, I),
     case I of
         0 -> emqx_exclusive_subscription:unsubscribe(Topic, SubOpts);
         _ -> ok
@@ -722,7 +719,9 @@ code_change(_OldVsn, State, _Extra) ->
 
 -spec do_dispatch2(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
-do_dispatch2(Topic, #delivery{message = Msg}) ->
+do_dispatch2(Topic, #delivery{message = MsgIn}) ->
+    ?BROKER_INSTR_TS(T0),
+    ?BROKER_INSTR_BIND(Msg, MsgIn, MsgIn#message{extra = T0}),
     DispN = lists:foldl(
         fun(Sub, N) ->
             N + do_dispatch2(Sub, Topic, Msg)
@@ -730,6 +729,7 @@ do_dispatch2(Topic, #delivery{message = Msg}) ->
         0,
         subscribers(Topic)
     ),
+    ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0)),
     case DispN of
         0 ->
             ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
@@ -805,3 +805,13 @@ regular_sync_route(add, Topic) ->
     emqx_router:do_add_route(Topic, node());
 regular_sync_route(delete, Topic) ->
     emqx_router:do_delete_route(Topic, node()).
+
+%%
+
+-compile({inline, [lookup_value/2, lookup_value/3]}).
+
+lookup_value(Tab, Key) ->
+    ets:lookup_element(Tab, Key, 2, undefined).
+
+lookup_value(Tab, Key, Def) ->
+    ets:lookup_element(Tab, Key, 2, Def).

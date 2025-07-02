@@ -330,6 +330,8 @@ metric_meta(<<"emqx_conf_sync_txid">>) -> ?meta(0, 1, 1);
 %% END
 metric_meta(<<"emqx_cert_expiry_at">>) -> ?meta(2, 2, 2);
 metric_meta(<<"emqx_license_expiry_at">>) -> ?meta(0, 0, 0);
+%% broker instr
+metric_meta(<<"emqx_instr_", _Tail/binary>>) -> #{};
 %% mria metric with label `shard` and `node` when not in mode `node`
 metric_meta(<<"emqx_mria_", _Tail/binary>>) -> ?meta(1, 2, 2);
 %% `/prometheus/auth`
