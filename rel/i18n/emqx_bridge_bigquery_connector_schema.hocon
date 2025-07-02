@@ -1,0 +1,8 @@
+emqx_bridge_bigquery_connector_schema {
+  config_connector {
+    label: """BigQuery Connector Configuration"""
+    desc:
+    """Configuration for a connector to BigQuery tables."""
+  }
+
+}

@@ -12,6 +12,7 @@ on:
       - 'master'
       - 'release-5[0-9]'
       - 'release-5[1-9][0-9]'
+      - 'release-6[0-9]'
       - 'ci/**'
   workflow_dispatch:
     inputs:

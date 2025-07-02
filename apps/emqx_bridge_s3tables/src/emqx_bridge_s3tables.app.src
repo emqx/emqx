@@ -11,7 +11,10 @@
         emqx_s3,
         emqx_connector_aggregator
     ]},
-    {env, []},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_s3tables_action_info]},
+        {emqx_connector_info_modules, [emqx_bridge_s3tables_connector_info]}
+    ]},
     {modules, []},
 
     {links, []}

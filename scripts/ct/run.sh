@@ -245,6 +245,9 @@ for dep in ${CT_DEPS}; do
             FILES+=( '.ci/docker-compose-file/docker-compose-doris.yaml'
                      '.ci/docker-compose-file/docker-compose-doris-tls.yaml' )
             ;;
+        bigquery)
+            FILES+=( '.ci/docker-compose-file/docker-compose-bigquery.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1

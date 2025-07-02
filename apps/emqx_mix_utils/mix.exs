@@ -17,10 +17,13 @@ defmodule EMQXMixUtils.MixProject do
 
   # Run "mix help compile.app" to learn about applications
   def application do
-    [extra_applications: UMP.extra_applications()]
+    [extra_applications: [:eunit, :common_test, :tools, :dialyzer, :asn1]]
   end
 
   def deps() do
-    []
+    [
+      UMP.common_dep(:gpb),
+      UMP.common_dep(:proper)
+    ]
   end
 end

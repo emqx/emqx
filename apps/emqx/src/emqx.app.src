@@ -18,6 +18,7 @@
         sasl,
         lc,
         hocon,
+        emqx_bpapi,
         emqx_ds_backends,
         bcrypt,
         emqx_http_lib,

@@ -18,7 +18,13 @@ defmodule EMQXBridgeMatrix.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications()]
+    [
+      extra_applications: UMP.extra_applications(),
+      env: [
+        emqx_action_info_modules: [:emqx_bridge_matrix_action_info],
+        emqx_connector_info_modules: [:emqx_bridge_matrix_connector_info]
+      ]
+    ]
   end
 
   def deps() do

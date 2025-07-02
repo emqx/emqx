@@ -1,7 +1,6 @@
 defmodule Mix.Tasks.Emqx.Xref do
   use Mix.Task
 
-  alias Mix.Tasks.Emqx.Ct, as: ECt
   alias EMQXUmbrella.MixProject, as: UMP
 
   @requirements ["compile", "loadpaths"]
@@ -21,7 +20,7 @@ defmodule Mix.Tasks.Emqx.Xref do
               ])
 
   @impl true
-  def run(args) do
+  def run(_args) do
     start_xref()
     set_library_path()
     set_default()

@@ -23,6 +23,7 @@
     restart/2,
     start/2,
     stop/1,
+    stop/2,
     add_channel/3,
     add_channel/4,
     add_channel_async/3,
@@ -67,7 +68,7 @@
 -export([health_check/1, channel_health_check/2]).
 
 -ifdef(TEST).
--export([stop/2, summarize_query_mode/2]).
+-export([summarize_query_mode/2]).
 -endif.
 
 %%------------------------------------------------------------------------------

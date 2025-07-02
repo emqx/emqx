@@ -18,7 +18,13 @@ defmodule EMQXBridgeTablestore.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications()]
+    [
+      extra_applications: UMP.extra_applications(),
+      env: [
+        emqx_action_info_modules: [:emqx_bridge_tablestore_action_info],
+        emqx_connector_info_modules: [:emqx_bridge_tablestore_connector_info]
+      ]
+    ]
   end
 
   def deps() do

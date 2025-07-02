@@ -42,6 +42,10 @@
 
 -define(PROBE_ID_SEP, $_).
 
+%% Some connectors (e.g., Kafka producer/wolff) have some timeouts of 5 s when tearing
+%% down unresponsive processes.
+-define(STOP_TIMEOUT, 10_000).
+
 -callback connector_config(ParsedConfig, Context) ->
     ParsedConfig
 when
@@ -98,7 +102,7 @@ restart(Type, Name) ->
     emqx_resource:restart(resource_id(Type, Name)).
 
 stop(Type, Name) ->
-    emqx_resource:stop(resource_id(Type, Name)).
+    emqx_resource:stop(resource_id(Type, Name), ?STOP_TIMEOUT).
 
 start(Type, Name) ->
     emqx_resource:start(resource_id(Type, Name)).

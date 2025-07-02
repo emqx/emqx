@@ -8,8 +8,7 @@ defmodule Mix.Tasks.Emqx.Proper do
 
   @impl true
   def run(args) do
-    Mix.debug(true)
-    IO.inspect(args)
+    input_opts = parse_args!(args)
 
     Enum.each([:common_test, :eunit, :mnesia], &ECt.add_to_path_and_cache/1)
 
@@ -26,22 +25,34 @@ defmodule Mix.Tasks.Emqx.Proper do
     |> String.replace_suffix("-test", "")
     |> then(&System.put_env("PROFILE", &1))
 
+    ECt.maybe_start_cover()
+    if ECt.cover_enabled?(), do: ECt.cover_compile_files()
+
     for {mod, fun} <- discover_props() do
       Mix.shell().info("testing #{mod}:#{fun}")
       opts = fetch_opts(mod, fun)
-      :proper.quickcheck(apply(mod, fun, []), opts)
-    end
-    |> IO.inspect()
-  end
 
-  defp add_to_path_and_cache(lib_name) do
-    :code.lib_dir()
-    |> Path.join("#{lib_name}-*")
-    |> Path.wildcard()
-    |> hd()
-    |> Path.join("ebin")
-    |> to_charlist()
-    |> :code.add_path(:cache)
+      try do
+        :proper.quickcheck(apply(mod, fun, []), opts)
+      catch
+        k, e ->
+          ECt.info([
+            :red,
+            ":proper.quickcheck crashed (#{mod}.#{fun}):\n",
+            inspect({k, e, __STACKTRACE__}, pretty: true)
+          ])
+
+          false
+      end
+    end
+    |> then(fn results ->
+      if Enum.all?(results) do
+        if ECt.cover_enabled?(), do: ECt.write_coverdata(input_opts)
+        :ok
+      else
+        System.halt(1)
+      end
+    end)
   end
 
   ## TODO: allow filtering modules and test names
@@ -66,9 +77,23 @@ defmodule Mix.Tasks.Emqx.Proper do
 
   defp fetch_opts(mod, fun) do
     try do
-      mod.fun(:opts)
+      apply(mod, fun, [:opts])
     rescue
-      e in [FunctionClauseError, UndefinedFunctionError] -> []
+      [FunctionClauseError, UndefinedFunctionError] -> []
     end
+  end
+
+  defp parse_args!(args) do
+    {opts, _rest} =
+      OptionParser.parse!(
+        args,
+        strict: [
+          cover_export_name: :string
+        ]
+      )
+
+    %{
+      cover_export_name: Keyword.get(opts, :cover_export_name, "proper")
+    }
   end
 end

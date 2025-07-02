@@ -21,9 +21,12 @@
 ]).
 -export([reply_delegator/3]).
 
--export([get_topic/3]).
+-export([pubsub_get_topic/3]).
 
 -export([get_jwt_authorization_header/1]).
+
+%% Only for tests.
+-export([get_transport/1]).
 
 -type service_account_json() :: map().
 -type project_id() :: binary().
@@ -75,11 +78,12 @@ start(
     #{
         connect_timeout := ConnectTimeout,
         max_retries := MaxRetries,
-        pool_size := PoolSize
+        pool_size := PoolSize,
+        transport := Transport,
+        host := Host,
+        port := Port
     } = Config
 ) ->
-    {Transport, HostPort} = get_transport(),
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
     PoolType = random,
     TransportOpts =
         case Transport of
@@ -111,23 +115,23 @@ start(
         project_id => ProjectId
     },
     ?tp(
-        gcp_pubsub_on_start_before_starting_pool,
+        gcp_on_start_before_starting_pool,
         #{
             resource_id => ResourceId,
             pool_name => ResourceId,
             pool_opts => PoolOpts
         }
     ),
-    ?tp(gcp_pubsub_starting_ehttpc_pool, #{pool_name => ResourceId}),
+    ?tp(gcp_starting_ehttpc_pool, #{pool_name => ResourceId}),
     case ehttpc_sup:start_pool(ResourceId, PoolOpts) of
         {ok, _} ->
-            ?tp(gcp_pubsub_ehttpc_pool_started, #{pool_name => ResourceId}),
+            ?tp(gcp_ehttpc_pool_started, #{pool_name => ResourceId}),
             {ok, State};
         {error, {already_started, _}} ->
-            ?tp(gcp_pubsub_ehttpc_pool_already_started, #{pool_name => ResourceId}),
+            ?tp(gcp_ehttpc_pool_already_started, #{pool_name => ResourceId}),
             {ok, State};
         {error, Reason} ->
-            ?tp(gcp_pubsub_ehttpc_pool_start_failure, #{
+            ?tp(gcp_ehttpc_pool_start_failure, #{
                 pool_name => ResourceId,
                 reason => Reason
             }),
@@ -136,9 +140,9 @@ start(
 
 -spec stop(resource_id()) -> ok | {error, term()}.
 stop(ResourceId) ->
-    ?tp(gcp_pubsub_stop, #{instance_id => ResourceId, resource_id => ResourceId}),
+    ?tp(gcp_client_stop, #{instance_id => ResourceId, resource_id => ResourceId}),
     ?SLOG(info, #{
-        msg => "stopping_gcp_pubsub_bridge",
+        msg => "stopping_gcp_client",
         connector => ResourceId
     }),
     ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
@@ -155,12 +159,12 @@ stop(ResourceId) ->
     {prepared_request, prepared_request(), request_opts()},
     state()
 ) ->
-    {ok, map()} | {error, {recoverable_error, term()} | term()}.
+    {ok, map()} | {error, term()}.
 query_sync({prepared_request, PreparedRequest = {_Method, _Path, _Body}, ReqOpts}, State) ->
     PoolName = maps:get(pool_name, State),
     ?TRACE(
         "QUERY_SYNC",
-        "gcp_pubsub_received",
+        "gcp_client_received",
         #{requests => PreparedRequest, connector => PoolName, state => State}
     ),
     do_send_requests_sync(State, {prepared_request, PreparedRequest, ReqOpts}).
@@ -178,7 +182,7 @@ query_async(
     PoolName = maps:get(pool_name, State),
     ?TRACE(
         "QUERY_ASYNC",
-        "gcp_pubsub_received",
+        "gcp_client_received",
         #{requests => PreparedRequest, connector => PoolName, state => State}
     ),
     do_send_requests_async(State, {prepared_request, PreparedRequest, ReqOpts}, ReplyFunAndArgs).
@@ -190,7 +194,7 @@ get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
             ?status_connected;
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "gcp_pubsub_bridge_get_status_failed",
+                msg => "gcp_client_get_status_failed",
                 state => State,
                 reason => Reason
             }),
@@ -201,14 +205,40 @@ get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
 %% API
 %%-------------------------------------------------------------------------------------------------
 
--spec get_topic(topic(), state(), request_opts()) -> {ok, map()} | {error, term()}.
-get_topic(Topic, ClientState, ReqOpts) ->
+-spec pubsub_get_topic(topic(), state(), request_opts()) -> {ok, map()} | {error, term()}.
+pubsub_get_topic(Topic, ClientState, ReqOpts) ->
     #{project_id := ProjectId} = ClientState,
     Method = get,
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
     Body = <<>>,
     PreparedRequest = {prepared_request, {Method, Path, Body}, ReqOpts},
     ?MODULE:query_sync(PreparedRequest, ClientState).
+
+%%-------------------------------------------------------------------------------------------------
+%% Only for tests
+%%-------------------------------------------------------------------------------------------------
+
+-spec get_transport(pubsub | bigquery) -> {tls | tcp, string()}.
+get_transport(Type) ->
+    %% emulating the emulator behavior
+    %% https://cloud.google.com/pubsub/docs/emulator
+    {Env, RealURL} =
+        case Type of
+            pubsub ->
+                {"PUBSUB_EMULATOR_HOST", "pubsub.googleapis.com:443"};
+            bigquery ->
+                {"BIGQUERY_EMULATOR_HOST", "bigquery.googleapis.com:443"}
+        end,
+    case os:getenv(Env) of
+        false ->
+            {tls, RealURL};
+        HostPort0 ->
+            %% The emulator is plain HTTP...
+            Transport0 = persistent_term:get(
+                {emqx_bridge_gcp_pubsub_client, Type, transport}, tcp
+            ),
+            {Transport0, HostPort0}
+    end.
 
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
@@ -220,6 +250,7 @@ get_topic(Topic, ClientState, ReqOpts) ->
         project_id := binary()
     }.
 parse_jwt_config(ResourceId, #{
+    jwt_opts := #{aud := Aud},
     service_account_json := ServiceAccountJSON
 }) ->
     #{
@@ -228,8 +259,6 @@ parse_jwt_config(ResourceId, #{
         <<"private_key">> := PrivateKeyPEM,
         <<"client_email">> := ServiceAccountEmail
     } = ServiceAccountJSON,
-    %% fixed for pubsub; trailing slash is important.
-    Aud = <<"https://pubsub.googleapis.com/">>,
     ExpirationMS = timer:hours(1),
     Alg = <<"RS256">>,
     JWK =
@@ -240,15 +269,15 @@ parse_jwt_config(ResourceId, #{
                 %% nodes, and will easily become a bad fun.
                 JWK0;
             [] ->
-                ?tp(error, gcp_pubsub_connector_startup_error, #{error => empty_key}),
+                ?tp(error, gcp_client_startup_error, #{error => empty_key}),
                 throw("empty private in service account json");
             {error, Reason} ->
                 Error = {invalid_private_key, Reason},
-                ?tp(error, gcp_pubsub_connector_startup_error, #{error => Error}),
+                ?tp(error, gcp_client_startup_error, #{error => Error}),
                 throw("invalid private key in service account json");
             Error0 ->
                 Error = {invalid_private_key, Error0},
-                ?tp(error, gcp_pubsub_connector_startup_error, #{error => Error}),
+                ?tp(error, gcp_client_startup_error, #{error => Error}),
                 throw("invalid private key in service account json")
         catch
             error:function_clause ->
@@ -256,11 +285,11 @@ parse_jwt_config(ResourceId, #{
                 %% Possibly `base64:mime_decode_binary/5' while trying to decode an
                 %% invalid private key that would probably not appear under normal
                 %% conditions...
-                ?tp(error, gcp_pubsub_connector_startup_error, #{error => invalid_private_key}),
+                ?tp(error, gcp_client_startup_error, #{error => invalid_private_key}),
                 throw("invalid private key in service account json");
             Kind:Reason ->
                 Error = {Kind, Reason},
-                ?tp(error, gcp_pubsub_connector_startup_error, #{error => Error}),
+                ?tp(error, gcp_client_startup_error, #{error => Error}),
                 throw("invalid private key in service account json")
         end,
     JWTConfig = #{
@@ -288,7 +317,7 @@ get_jwt_authorization_header(JWTConfig) ->
     state(),
     {prepared_request, prepared_request(), request_opts()}
 ) ->
-    {ok, map()} | {error, {recoverable_error, term()} | term()}.
+    {ok, map()} | {error, term()}.
 do_send_requests_sync(State, {prepared_request, {Method, Path, Body}, ReqOpts}) ->
     #{
         pool_name := PoolName,
@@ -361,6 +390,26 @@ handle_response(Result, ResourceId, QueryMode) ->
     case Result of
         {error, {shutdown, Reason}} ->
             {error, Reason};
+        {error, Reason} when
+            Reason =:= econnrefused;
+            %% this comes directly from `gun'...
+            Reason =:= {closed, "The connection was lost."};
+            Reason =:= closed;
+            %% The normal reason happens when the HTTP connection times out before
+            %% the request has been fully processed
+            Reason =:= normal;
+            Reason =:= timeout
+        ->
+            ?tp(
+                warning,
+                gcp_client_request_failed,
+                #{
+                    reason => Reason,
+                    recoverable_error => true,
+                    connector => ResourceId
+                }
+            ),
+            {error, {recoverable_error, Reason}};
         {error, Reason} ->
             {error, Reason};
         {ok, StatusCode, RespHeaders} ->
@@ -411,7 +460,7 @@ do_get_status(ResourceId, Timeout) ->
                     ok;
                 {error, Reason} ->
                     ?SLOG(error, #{
-                        msg => "gcp_pubsub_ehttpc_health_check_failed",
+                        msg => "gcp_client_ehttpc_health_check_failed",
                         connector => ResourceId,
                         reason => Reason,
                         worker => Worker,
@@ -440,17 +489,4 @@ do_get_status(ResourceId, Timeout) ->
     catch
         exit:timeout ->
             {error, timeout}
-    end.
-
--spec get_transport() -> {tls | tcp, string()}.
-get_transport() ->
-    %% emulating the emulator behavior
-    %% https://cloud.google.com/pubsub/docs/emulator
-    case os:getenv("PUBSUB_EMULATOR_HOST") of
-        false ->
-            {tls, "pubsub.googleapis.com:443"};
-        HostPort0 ->
-            %% The emulator is plain HTTP...
-            Transport0 = persistent_term:get({?MODULE, transport}, tcp),
-            {Transport0, HostPort0}
     end.

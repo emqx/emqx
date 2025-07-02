@@ -20,7 +20,11 @@ defmodule EMQXBridgeRabbitmq.MixProject do
   def application do
     [
       extra_applications: [:rabbit_common | UMP.extra_applications()],
-      mod: {:emqx_bridge_rabbitmq_app, []}
+      mod: {:emqx_bridge_rabbitmq_app, []},
+      env: [
+        emqx_action_info_modules: [:emqx_bridge_rabbitmq_action_info],
+        emqx_connector_info_modules: [:emqx_bridge_rabbitmq_connector_info]
+      ]
     ]
   end
 

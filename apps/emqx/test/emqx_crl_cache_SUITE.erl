@@ -952,6 +952,8 @@ t_revoked(Config) ->
     case emqtt:connect(C) of
         {error, {ssl_error, _Sock, {tls_alert, {certificate_revoked, _}}}} ->
             ok;
+        {error, {tls_alert, {certificate_revoked, _}}} ->
+            ok;
         {error, closed} ->
             %% this happens due to an unidentified race-condition
             ok
