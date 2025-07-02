@@ -326,8 +326,18 @@ fields(layout_builtin_wildcard_optimized_v2) ->
             sc(
                 emqx_ds_msg_serializer:schema(),
                 #{
-                    default => v1,
+                    default => asn1,
                     importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {wildcard_thresholds,
+            sc(
+                hoconsc:array(hoconsc:union([non_neg_integer(), infinity])),
+                #{
+                    default => [100, 10],
+                    validator => fun validate_wildcard_thresholds/1,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(lts_wildcard_thresholds)
                 }
             )}
     ];
@@ -489,13 +499,15 @@ translate_layout(
         type := wildcard_optimized_v2,
         bytes_per_topic_level := BytesPerTopicLevel,
         topic_index_bytes := TopicIndexBytes,
-        serialization_schema := SSchema
+        serialization_schema := SSchema,
+        wildcard_thresholds := WildcardThresholds
     }
 ) ->
     {emqx_ds_storage_skipstream_lts, #{
         wildcard_hash_bytes => BytesPerTopicLevel,
         topic_index_bytes => TopicIndexBytes,
-        serialization_schema => SSchema
+        serialization_schema => SSchema,
+        lts_threshold_spec => translate_lts_wildcard_thresholds(WildcardThresholds)
     }};
 translate_layout(
     #{
@@ -527,3 +539,11 @@ builtin_layouts() ->
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
 ref(StructName) -> hoconsc:ref(?MODULE, StructName).
+
+validate_wildcard_thresholds([]) ->
+    {error, "List should not be empty."};
+validate_wildcard_thresholds([_ | _]) ->
+    ok.
+
+translate_lts_wildcard_thresholds(L = [_ | _]) ->
+    {simple, list_to_tuple(L)}.

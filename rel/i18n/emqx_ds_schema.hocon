@@ -179,4 +179,24 @@ rocksdb_max_open_files.desc:
   """~
   Maximum number of open file descriptors per shard.~"""
 
+lts_wildcard_thresholds.label: "Wildcard thresholds"
+lts_wildcard_thresholds.desc:
+  """~
+  Array of wildcard thresholds for different topic levels.
+
+  EMQX can automatically group similar topic together to increase efficiency of message storage and retrieval.
+
+  To understand the meaning of this configuration one can think of MQTT topics as a tree.
+  When the number of children of a particular tree node reaches the threshold, EMQX performs the grouping.
+
+  Adjusting this parameter helps when the topic structure is known in advance.
+  For example, in the situations where multiple clients publish messages to a topic containing their client ID,
+  such as `sensor/<clientid>/temperature/<room>`.
+  Since `<clientid>` and `<room>` parts of the topic are variable, one can lower the wildcard threshold for topic levels 2 and 4 by setting this parameter to `[100, 0, 100, 0, 100]`.
+
+  Each element of the array corresponds to a particular level of the topic.
+
+  The last element of the array corresponds to all remaining levels as well.
+
+  The array can't be empty.~"""
 }
