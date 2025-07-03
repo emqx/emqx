@@ -96,6 +96,7 @@
     get_raw_namespaced/3,
     save_configs_namespaced/6,
     save_configs_namespaced_tx/5,
+    get_all_namespace_config_errors/0,
     get_namespace_config_errors/1,
     clear_all_invalid_namespaced_configs/0
 ]).
@@ -569,8 +570,6 @@ do_load_namespaced_config(SchemaMod, AllowedNSRoots, Namespace, RootKeyBin) ->
             clear_invalid_namespaced_config(Namespace, RootKeyBin),
             put_namespaced(Namespace, [RootKeyAtom], CheckedConf);
         {error, HoconErrors} ->
-            %% TODO FIXME: check this when (re)starting emqx and raise alarms, log when
-            %% logger is ready.
             mark_namespaced_config_invalid(Namespace, RootKeyBin, HoconErrors)
     end.
 
@@ -578,6 +577,9 @@ mark_namespaced_config_invalid(Namespace, RootKeyBin, HoconErrors) when is_binar
     PrevErrors = persistent_term:get(?INVALID_NS_CONF_PT_KEY(Namespace), #{}),
     Errors = PrevErrors#{RootKeyBin => HoconErrors},
     persistent_term:put(?INVALID_NS_CONF_PT_KEY(Namespace), Errors).
+
+get_all_namespace_config_errors() ->
+    [{Namespace, Errors} || {?INVALID_NS_CONF_PT_KEY(Namespace), Errors} <- persistent_term:get()].
 
 get_namespace_config_errors(Namespace) when is_binary(Namespace) ->
     persistent_term:get(?INVALID_NS_CONF_PT_KEY(Namespace), undefined).
@@ -590,7 +592,8 @@ clear_invalid_namespaced_config(Namespace, RootKeyBin) when is_binary(Namespace)
             Errors = maps:remove(RootKeyBin, Errors0),
             case map_size(Errors) == 0 of
                 true ->
-                    persistent_term:erase(?INVALID_NS_CONF_PT_KEY(Namespace));
+                    persistent_term:erase(?INVALID_NS_CONF_PT_KEY(Namespace)),
+                    emqx_corrupt_namespace_config_checker:check(Namespace);
                 false ->
                     persistent_term:put(?INVALID_NS_CONF_PT_KEY(Namespace), Errors)
             end

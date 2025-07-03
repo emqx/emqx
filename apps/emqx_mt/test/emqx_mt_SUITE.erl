@@ -318,6 +318,7 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
     ct:pal("starting cluster"),
     Nodes = [N1] = emqx_cth_cluster:start(NodeSpecs),
     on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
+    ct:timetrap({seconds, 15}),
     ct:pal("cluster started"),
     ?assertMatch([_], ?ON(N1, emqx:get_config([mqtt, client_attrs_init]))),
     ct:pal("seeding namespace"),
@@ -338,8 +339,23 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
     ct:pal("injecting failure"),
     _ = emqx_utils_agent:get_and_update(Agent, fun(_Old) -> {unused, _BarType1 = integer()} end),
     ct:pal("restarting node; should not fail to start"),
-    [N1] = emqx_cth_cluster:restart([N1Spec]),
+    {[N1], {ok, _}} =
+        ?wait_async_action(
+            emqx_cth_cluster:restart([N1Spec]),
+            #{?snk_kind := "corrupt_ns_checker_started"}
+        ),
     ?assertMatch(#{<<"foo">> := _}, ?ON(N1, emqx_config:get_namespace_config_errors(Ns))),
+    Alarms1 = ?ON(N1, emqx_alarm:get_alarms(activated)),
+    ?assertMatch(
+        [
+            #{
+                name := Ns,
+                message := <<"Namespace contains invalid configuration">>,
+                details := #{errors := #{<<"foo">> := #{<<"kind">> := <<"validation_error">>}}}
+            }
+        ],
+        [A || A = #{name := Ns0} <- Alarms1, Ns0 == Ns]
+    ),
     %% Using the same value (now invalid)
     ?assertMatch(
         {error, #{reason := "Unable to parse integer value"}},
@@ -358,11 +374,16 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
     ),
     %% With valid values of new type; should succeed and heal the node
     ?assertMatch(
-        {ok, #{namespace := Ns, config := #{bar := 1}, raw_config := #{<<"bar">> := 1}}},
-        ?ON(N1, emqx_conf:update([foo], #{<<"bar">> => 1}, #{namespace => Ns}))
+        {{ok, #{namespace := Ns, config := #{bar := 1}, raw_config := #{<<"bar">> := 1}}}, {ok, _}},
+        ?wait_async_action(
+            ?ON(N1, emqx_conf:update([foo], #{<<"bar">> => 1}, #{namespace => Ns})),
+            #{?snk_kind := "corrupt_ns_checker_checked", ns := Ns}
+        )
     ),
     ?assertMatch(undefined, ?ON(N1, emqx_config:get_namespace_config_errors(Ns))),
     KeyPath = [foo, bar],
     ?assertMatch(1, ?ON(N1, emqx:get_config({Ns, KeyPath}))),
     ?assertMatch(1, ?ON(N1, emqx:get_raw_config({Ns, KeyPath}))),
+    Alarms2 = ?ON(N1, emqx_alarm:get_alarms(activated)),
+    ?assertMatch([], [A || A = #{name := Ns0} <- Alarms2, Ns0 == Ns]),
     ok.
