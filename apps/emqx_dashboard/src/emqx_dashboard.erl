@@ -18,7 +18,7 @@
 -export([authorize/2]).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 

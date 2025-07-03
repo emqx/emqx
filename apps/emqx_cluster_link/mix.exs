@@ -5,7 +5,7 @@ defmodule EMQXClusterLink.MixProject do
   def project do
     [
       app: :emqx_cluster_link,
-      version: "0.1.6",
+      version: "0.1.7",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),

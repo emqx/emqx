@@ -1,6 +1,6 @@
 {application, emqx_schema_validation, [
     {description, "EMQX Schema Validation"},
-    {vsn, "0.1.5"},
+    {vsn, "0.1.6"},
     {registered, [emqx_schema_validation_sup, emqx_schema_validation_registry]},
     {mod, {emqx_schema_validation_app, []}},
     {applications, [
