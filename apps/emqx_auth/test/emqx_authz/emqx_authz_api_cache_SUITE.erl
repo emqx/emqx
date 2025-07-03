@@ -45,6 +45,7 @@ init_per_suite(Config) ->
                 }
             }},
             emqx_auth,
+            emqx_bridge_http,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],

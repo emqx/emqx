@@ -17,6 +17,8 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_management,
+            emqx_connector,
+            emqx_bridge,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -28,14 +30,10 @@ end_per_suite(Config) ->
 
 init_per_testcase(TestCase = t_configs_node, Config) ->
     ?MODULE:TestCase({'init', Config});
-init_per_testcase(TestCase = t_create_webhook_v1_bridges_api, Config) ->
-    ?MODULE:TestCase({'init', Config});
 init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(TestCase = t_configs_node, Config) ->
-    ?MODULE:TestCase({'end', Config});
-end_per_testcase(TestCase = t_create_webhook_v1_bridges_api, Config) ->
     ?MODULE:TestCase({'end', Config});
 end_per_testcase(_TestCase, Config) ->
     Config.
@@ -331,19 +329,6 @@ t_get_configs_in_different_accept(_Config) ->
     %% returns error if it set to other type
     ?assertMatch({400, "application/json", _}, Request(<<"application/xml">>)).
 
-t_create_webhook_v1_bridges_api({'init', Config}) ->
-    lists:foreach(
-        fun(App) ->
-            _ = application:stop(App),
-            {ok, _} = application:ensure_all_started(App)
-        end,
-        [emqx_connector, emqx_bridge]
-    ),
-    Config;
-t_create_webhook_v1_bridges_api({'end', _}) ->
-    application:stop(emqx_bridge),
-    application:stop(emqx_connector),
-    ok;
 t_create_webhook_v1_bridges_api(Config) ->
     WebHookFile = filename:join(?config(data_dir, Config), "webhook_v1.conf"),
     ?assertMatch({ok, _}, hocon:files([WebHookFile])),
