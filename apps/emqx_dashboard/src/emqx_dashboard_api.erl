@@ -472,7 +472,6 @@ array(Type) ->
 enum(Symbols) ->
     hoconsc:enum(Symbols).
 
--if(?EMQX_RELEASE_EDITION == ee).
 field_filter(_) ->
     true.
 
@@ -491,25 +490,3 @@ username(#{query_string := #{<<"backend">> := Backend}}, Username) ->
     ?SSO_USERNAME(Backend, Username);
 username(_Req, Username) ->
     Username.
-
--else.
-
-field_filter(role) ->
-    false;
-field_filter(_) ->
-    true.
-
-filter_result(Result) when is_list(Result) ->
-    lists:map(fun filter_result/1, Result);
-filter_result(Result) ->
-    maps:without([role, backend], Result).
-
-sso_parameters() ->
-    sso_parameters([]).
-
-sso_parameters(Any) ->
-    Any.
-
-username(_Req, Username) ->
-    Username.
--endif.

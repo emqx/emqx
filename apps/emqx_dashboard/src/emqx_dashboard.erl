@@ -250,13 +250,6 @@ listener_name(Protocol) ->
 audit_log_fun() ->
     emqx_dashboard_audit:log_fun().
 
--if(?EMQX_RELEASE_EDITION =/= ee).
-
-%% dialyzer complains about the `unauthorized_role' clause...
--dialyzer({no_match, [authorize/2, api_key_authorize/4]}).
-
--endif.
-
 authorize(Req, HandlerInfo) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->

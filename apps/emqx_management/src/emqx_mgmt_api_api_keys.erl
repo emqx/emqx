@@ -227,8 +227,6 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
 ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
 ensure_expired_at(_) -> infinity.
 
--if(?EMQX_RELEASE_EDITION == ee).
-
 app_extend_fields() ->
     [
         {role,
@@ -239,10 +237,3 @@ app_extend_fields() ->
                 validator => fun emqx_dashboard_rbac:valid_api_role/1
             })}
     ].
-
--else.
-
-app_extend_fields() ->
-    [].
-
--endif.

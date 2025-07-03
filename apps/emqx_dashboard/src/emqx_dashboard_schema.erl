@@ -368,8 +368,6 @@ password_converter(I, HoconOpts) when is_integer(I) ->
 password_converter(X, HoconOpts) ->
     emqx_schema_secret:convert_secret(X, HoconOpts).
 
--if(?EMQX_RELEASE_EDITION == ee).
-
 mfa_schema() ->
     ?HOCON(
         hoconsc:union([none, ?REF("mfa_settings")]),
@@ -390,8 +388,3 @@ ee_fields() ->
                 #{required => {false, recursively}}
             )}
     ].
-
--else.
-ee_fields() ->
-    [].
--endif.

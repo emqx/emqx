@@ -58,9 +58,7 @@
 
 -export([backup_tables/0]).
 
--if(?EMQX_RELEASE_EDITION == ee).
 -export([add_sso_user/4, lookup_user/2]).
--endif.
 
 -ifdef(TEST).
 -export([unsafe_update_user/1, default_password/0]).
@@ -711,7 +709,6 @@ ensure_role(undefined) ->
 ensure_role(Role) when is_binary(Role) ->
     Role.
 
--if(?EMQX_RELEASE_EDITION == ee).
 legal_role(Role) ->
     emqx_dashboard_rbac:valid_dashboard_role(Role).
 
@@ -740,21 +737,6 @@ add_sso_user(Backend, Username0, Role, Desc) when is_binary(Username0) ->
 -spec lookup_user(dashboard_sso_backend(), binary()) -> [emqx_admin()].
 lookup_user(Backend, Username) when is_atom(Backend) ->
     lookup_user(?SSO_USERNAME(Backend, Username)).
--else.
-
--dialyzer({no_match, [add_user/4, update_user/3]}).
-
-legal_role(?ROLE_DEFAULT) ->
-    ok;
-legal_role(_) ->
-    {error, <<"Role does not exist">>}.
-
-role(_) ->
-    ?ROLE_DEFAULT.
-
-flatten_username(Data) ->
-    Data.
--endif.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
