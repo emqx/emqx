@@ -245,8 +245,6 @@ filter_false(K, V, S) -> [{K, V} | S].
 listener_name(Protocol) ->
     list_to_atom(atom_to_list(Protocol) ++ ":dashboard").
 
--dialyzer({no_match, [audit_log_fun/0]}).
-
 audit_log_fun() ->
     emqx_dashboard_audit:log_fun().
 

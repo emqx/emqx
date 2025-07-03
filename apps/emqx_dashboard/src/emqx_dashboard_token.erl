@@ -139,7 +139,6 @@ lookup(Token) ->
         {atomic, []} -> {error, not_found}
     end.
 
--dialyzer({nowarn_function, lookup_by_username/1}).
 lookup_by_username(Username) ->
     Spec = [{#?ADMIN_JWT{username = Username, _ = '_'}, [], ['$_']}],
     Fun = fun() -> mnesia:select(?TAB, Spec) end,
@@ -216,7 +215,6 @@ code_change(_OldVsn, State, _Extra) ->
 timer_clean(Pid) ->
     erlang:send_after(token_ttl(), Pid, clean_jwt).
 
--dialyzer({nowarn_function, clean_expired_jwt/1}).
 clean_expired_jwt(Now) ->
     Spec = [{#?ADMIN_JWT{exptime = '$1', token = '$2', _ = '_'}, [{'<', '$1', Now}], ['$2']}],
     {atomic, JWTList} = mria:ro_transaction(

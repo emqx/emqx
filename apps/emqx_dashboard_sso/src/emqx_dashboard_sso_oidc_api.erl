@@ -195,7 +195,6 @@ retrieve_userinfo(
             Error
     end.
 
--dialyzer({nowarn_function, ensure_user_exists/2}).
 ensure_user_exists(_Cfg, <<>>) ->
     {error, <<"Username can not be empty">>};
 ensure_user_exists(_Cfg, <<"undefined">>) ->
@@ -203,12 +202,8 @@ ensure_user_exists(_Cfg, <<"undefined">>) ->
 ensure_user_exists(Cfg, Username) ->
     case emqx_dashboard_admin:lookup_user(?BACKEND, Username) of
         [User] ->
-            case emqx_dashboard_token:sign(User) of
-                {ok, Role, Token} ->
-                    {ok, login_redirect_target(Cfg, Username, Role, Token)};
-                Error ->
-                    Error
-            end;
+            {ok, Role, Token} = emqx_dashboard_token:sign(User),
+            {ok, login_redirect_target(Cfg, Username, Role, Token)};
         [] ->
             case emqx_dashboard_admin:add_sso_user(?BACKEND, Username, ?ROLE_VIEWER, <<>>) of
                 {ok, _} ->

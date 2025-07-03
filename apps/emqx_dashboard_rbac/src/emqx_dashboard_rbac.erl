@@ -13,7 +13,6 @@
     valid_api_role/1
 ]).
 
--dialyzer({nowarn_function, role/1}).
 %%=====================================================================
 %% API
 check_rbac(Req, Username, Extra) ->

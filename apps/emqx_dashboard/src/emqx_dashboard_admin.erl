@@ -703,7 +703,6 @@ do_add_default_user(Username, Password) ->
 
 %% ensure the `role` is correct when it is directly read from the table
 %% this value in old data is `undefined`
--dialyzer({no_match, ensure_role/1}).
 ensure_role(undefined) ->
     ?ROLE_SUPERUSER;
 ensure_role(Role) when is_binary(Role) ->
