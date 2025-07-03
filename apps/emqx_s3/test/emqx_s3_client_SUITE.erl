@@ -26,11 +26,11 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    {ok, _} = application:ensure_all_started(emqx_s3),
-    Config.
+    Apps = emqx_cth_suite:start([emqx_s3], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = application:stop(emqx_s3).
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_group(ConnTypeGroup, Config) when ConnTypeGroup =:= tcp; ConnTypeGroup =:= tls ->
     [{conn_type, ConnTypeGroup} | Config].
