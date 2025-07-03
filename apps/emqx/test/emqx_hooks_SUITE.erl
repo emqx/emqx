@@ -12,7 +12,7 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-init_per_testcase(_, Config) ->
+init_per_testcase(_TestCase, Config) ->
     {ok, _} = emqx_hooks:start_link(),
     ok = emqx_hookpoints:register_hookpoints(
         [
@@ -27,7 +27,7 @@ init_per_testcase(_, Config) ->
     ),
     Config.
 
-end_per_testcase(_) ->
+end_per_testcase(_TestCase, _Config) ->
     ok = emqx_hookpoints:register_hookpoints(),
     catch emqx_hooks:stop().
 
