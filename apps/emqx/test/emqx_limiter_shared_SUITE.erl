@@ -10,6 +10,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -27,7 +29,7 @@ end_per_suite(Config) ->
 init_per_testcase(_TestCase, Config) ->
     Config.
 
-end_per_testcase(_TestCase, Config) ->
+end_per_testcase(_TestCase, _Config) ->
     Groups = emqx_limiter_registry:list_groups(),
     lists:foreach(
         fun(Group) ->
@@ -35,7 +37,8 @@ end_per_testcase(_TestCase, Config) ->
         end,
         Groups
     ),
-    Config.
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Tests
@@ -172,6 +175,11 @@ t_change_options_from_unlimited(_) ->
     {true, _Client2} = emqx_limiter_client:try_consume(Client1, 1).
 
 t_concurrent(_) ->
+    %% This test fails if log level is debug, so it's important to ensure the correct
+    %% level is set now.
+    #{level := PrevLevel} = logger:get_primary_config(),
+    on_exit(fun() -> emqx_logger:set_primary_log_level(PrevLevel) end),
+    ok = emqx_logger:set_primary_log_level(warning),
     ok = test_concurrent(33333, 1000),
     ok = test_concurrent(333, 1000).
 

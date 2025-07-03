@@ -7,6 +7,9 @@ defmodule EMQXPrometheus.MixProject do
       app: :emqx_prometheus,
       version: "5.2.11",
       build_path: "../../_build",
+      compilers: Mix.compilers() ++ [:copy_srcs],
+      # used by our `Mix.Tasks.Compile.CopySrcs` compiler
+      extra_dirs: extra_dirs(),
       erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
@@ -31,5 +34,15 @@ defmodule EMQXPrometheus.MixProject do
       {:emqx_durable_storage, in_umbrella: true},
       {:prometheus, git: "https://github.com/emqx/prometheus.erl", tag: "v4.10.0.2"}
     ]
+  end
+
+  defp extra_dirs() do
+    dirs = []
+
+    if UMP.test_env?() do
+      ["test" | dirs]
+    else
+      dirs
+    end
   end
 end

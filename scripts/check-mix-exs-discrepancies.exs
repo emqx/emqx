@@ -274,6 +274,24 @@ defmodule CheckMixExsDiscrepancies do
     end)
   end
 
+  def check_app_mod_mismatches(mix_infos, rebar_infos) do
+    Enum.reduce(rebar_infos, %{}, fn {app, rebar_info}, acc ->
+      rebar_app_mod = get_in(rebar_info, [:app_src, :mod])
+
+      if rebar_app_mod do
+        mix_app_mod = get_in(mix_infos, [app, :application, :mod])
+
+        if mix_app_mod == rebar_app_mod do
+          acc
+        else
+          Map.put(acc, app, %{rebar_app_mod: rebar_app_mod, mix_app_mod: mix_app_mod})
+        end
+      else
+        acc
+      end
+    end)
+  end
+
   defp put_if_any(map, k, enum) do
     if Enum.empty?(enum) do
       map
@@ -316,7 +334,8 @@ defmodule CheckMixExsDiscrepancies do
       missing_erl_opts: check_missing_erl_opts(mix_infos, rebar_infos),
       deps_mismatches: check_missing_deps(mix_infos, rebar_infos),
       start_apps_mismatches: check_start_app_mismatches(mix_infos, rebar_infos),
-      app_env_mismatches: check_app_env_mismatches(mix_infos, rebar_infos)
+      app_env_mismatches: check_app_env_mismatches(mix_infos, rebar_infos),
+      app_mod_mismatches: check_app_mod_mismatches(mix_infos, rebar_infos)
     }
   end
 
@@ -499,6 +518,29 @@ defmodule CheckMixExsDiscrepancies do
     end
   end
 
+  def report_app_mod_mismatches(app_mod_mismatches) do
+    if Enum.empty?(app_mod_mismatches) do
+      _failed? = false
+    else
+      puts([
+        :red,
+        "The applications below have application start mod mismatches (`mix.exs` and `app.src`):\n",
+        Enum.map(app_mod_mismatches, fn {app, problems} ->
+          %{rebar_app_mod: rebar_app_mod, mix_app_mod: mix_app_mod} = problems
+
+          [
+            "  * #{app}:\n",
+            "    - rebar `app` module: #{inspect(rebar_app_mod)}\n",
+            "    - mix `app` module: #{inspect(mix_app_mod)}\n"
+          ]
+        end),
+        "\n"
+      ])
+
+      _failed? = true
+    end
+  end
+
   def report_problems(results) do
     failed? =
       Enum.reduce(results, false, fn
@@ -519,6 +561,9 @@ defmodule CheckMixExsDiscrepancies do
 
         {:app_env_mismatches, app_env_mismatches}, acc ->
           report_app_env_mismatches(app_env_mismatches) || acc
+
+        {:app_mod_mismatches, app_mod_mismatches}, acc ->
+          report_app_mod_mismatches(app_mod_mismatches) || acc
       end)
 
     if failed? do
