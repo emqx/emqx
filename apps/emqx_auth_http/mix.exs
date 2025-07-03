@@ -30,6 +30,7 @@ defmodule EMQXAuthHTTP.MixProject do
       {:emqx_auth, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector, in_umbrella: true},
+      {:emqx_bridge_http, in_umbrella: true},
       UMP.common_dep(:hocon)
     ]
   end
