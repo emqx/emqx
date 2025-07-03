@@ -187,12 +187,12 @@ authorize(#{module := emqx_dashboard_api, function := logout}, _Req, _ApiKey, _A
     {error, <<"not_allowed">>, <<"logout">>};
 authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>, <<"api_key">>};
-authorize(_HandlerInfo, Req, ApiKey, ApiSecret) ->
+authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
     Now = erlang:system_time(second),
     case find_by_api_key(ApiKey) of
         {ok, true, ExpiredAt, SecretHash, Role} when ExpiredAt >= Now ->
             case emqx_dashboard_admin:verify_hash(ApiSecret, SecretHash) of
-                ok -> check_rbac(Req, ApiKey, Role);
+                ok -> check_rbac(Req, HandlerInfo, ApiKey, Role);
                 error -> {error, "secret_error"}
             end;
         {ok, true, _ExpiredAt, _SecretHash, _Role} ->
@@ -462,8 +462,8 @@ normalize_extra(Map) when is_map(Map) ->
 normalize_extra(Desc) ->
     #{desc => Desc, role => ?ROLE_API_DEFAULT}.
 
-check_rbac(Req, ApiKey, Role) ->
-    case emqx_dashboard_rbac:check_rbac(Req, ApiKey, Role) of
+check_rbac(Req, HandlerInfo, ApiKey, Role) ->
+    case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ApiKey, Role) of
         true ->
             ok;
         _ ->

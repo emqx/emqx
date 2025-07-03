@@ -7,7 +7,7 @@
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
 -export([
-    check_rbac/3,
+    check_rbac/4,
     role/1,
     valid_dashboard_role/1,
     valid_api_role/1
@@ -15,16 +15,9 @@
 
 %%=====================================================================
 %% API
-check_rbac(Req, Username, Extra) ->
+check_rbac(Req, HandlerInfo, Username, Extra) ->
     Role = role(Extra),
-    Method = cowboy_req:method(Req),
-    AbsPath = cowboy_req:path(Req),
-    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
-        {ok, Path} ->
-            check_rbac(Role, Method, Path, Username);
-        _ ->
-            false
-    end.
+    do_check_rbac(Role, Req, HandlerInfo, Username).
 
 %% For compatibility
 role(#?ADMIN{role = undefined}) ->
@@ -56,31 +49,49 @@ valid_role(Type, Role) ->
     end.
 
 %% ===================================================================
-check_rbac(?ROLE_SUPERUSER, _, _, _) ->
+do_check_rbac(?ROLE_SUPERUSER, _, _, _) ->
     true;
-check_rbac(?ROLE_VIEWER, <<"GET">>, _, _) ->
+do_check_rbac(?ROLE_VIEWER, _, #{method := get}, _) ->
     true;
-check_rbac(?ROLE_API_PUBLISHER, <<"POST">>, <<"/publish">>, _) ->
-    true;
-check_rbac(?ROLE_API_PUBLISHER, <<"POST">>, <<"/publish/bulk">>, _) ->
+do_check_rbac(
+    ?ROLE_API_PUBLISHER, _, #{method := post, module := emqx_mgmt_api_publish, function := Fn}, _
+) when Fn == publish; Fn == publish_batch ->
+    %% emqx_mgmt_api_publish:publish
+    %% emqx_mgmt_api_publish:publish_batch
     true;
 %% everyone should allow to logout
-check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/logout">>, _) ->
+do_check_rbac(
+    ?ROLE_VIEWER, _, #{method := post, module := emqx_dashboard_api, function := logout}, _
+) ->
+    %% emqx_dashboard_api:logout
     true;
 %% viewer should allow to change self password and (re)setup multi-factor auth for self,
 %% superuser should allow to change any user
-check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/users/", SubPath/binary>>, Username) ->
-    case binary:split(SubPath, <<"/">>, [global]) of
-        [Username, <<"change_pwd">>] -> true;
-        [Username, <<"mfa">>] -> true;
-        _ -> false
+do_check_rbac(
+    ?ROLE_VIEWER, Req, #{method := post, module := emqx_dashboard_api, function := Fn}, Username
+) when Fn == change_pwd; Fn == change_mfa ->
+    %% emqx_dashboard_api:change_pwd
+    %% emqx_dashboard_api:change_mfa
+    case Req of
+        #{bindings := #{username := Username}} ->
+            true;
+        _ ->
+            false
     end;
-check_rbac(?ROLE_VIEWER, <<"DELETE">>, <<"/users/", SubPath/binary>>, Username) ->
-    case binary:split(SubPath, <<"/">>, [global]) of
-        [Username, <<"mfa">>] -> true;
-        _ -> false
+do_check_rbac(
+    ?ROLE_VIEWER,
+    Req,
+    #{method := delete, module := emqx_dashboard_api, function := change_mfa},
+    Username
+) ->
+    %% emqx_dashboard_api:change_mfa
+    case Req of
+        #{bindings := #{username := Username}} ->
+            true;
+        _ ->
+            false
     end;
-check_rbac(_, _, _, _) ->
+do_check_rbac(_, _, _, _) ->
     false.
 
 role_list(dashboard) ->
