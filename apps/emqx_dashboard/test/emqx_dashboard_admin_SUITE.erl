@@ -173,19 +173,19 @@ t_clean_token(_) ->
     NewPassword = <<"public_www2">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
-    FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
-    FakeReq = #{method => <<"GET">>, path => FakePath},
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    FakeReq = #{},
+    FakeHandlerInfo = #{method => get, function => any, module => any},
+    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% change password
     {ok, _} = emqx_dashboard_admin:change_password(Username, Password, NewPassword),
     timer:sleep(5),
-    {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% remove user
     {ok, #{token := Token2}} = emqx_dashboard_admin:sign_token(Username, NewPassword),
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token2),
+    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token2),
     {ok, _} = emqx_dashboard_admin:remove_user(Username),
     timer:sleep(5),
-    {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, Token2),
+    {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token2),
     ok.
 
 t_password_expired(_) ->

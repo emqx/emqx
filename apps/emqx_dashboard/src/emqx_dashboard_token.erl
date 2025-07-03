@@ -10,7 +10,7 @@
 
 -export([
     sign/1,
-    verify/2,
+    verify/3,
     lookup/1,
     owner/1,
     destroy/1,
@@ -42,12 +42,12 @@
 %%--------------------------------------------------------------------
 %% jwt function
 
--spec verify(_, Token :: binary()) ->
+-spec verify(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
     Result ::
         {ok, binary()}
         | {error, token_timeout | not_found | unauthorized_role}.
-verify(Req, Token) ->
-    do_verify(Req, Token).
+verify(Req, HandlerInfo, Token) ->
+    do_verify(Req, HandlerInfo, Token).
 
 -spec destroy(KeyOrKeys :: list() | binary() | #?ADMIN_JWT{}) -> ok.
 destroy([]) ->
@@ -104,16 +104,16 @@ sign(#?ADMIN{username = Username} = User) ->
     _ = mria:sync_transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Role, Token}.
 
--spec do_verify(_, Token :: binary()) ->
+-spec do_verify(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
     Result ::
         {ok, binary()}
         | {error, token_timeout | not_found | unauthorized_role}.
-do_verify(Req, Token) ->
+do_verify(Req, HandlerInfo, Token) ->
     case lookup(Token) of
         {ok, JWT = #?ADMIN_JWT{exptime = ExpTime, extra = _Extra, username = _Username}} ->
             case ExpTime > erlang:system_time(millisecond) of
                 true ->
-                    check_rbac(Req, JWT);
+                    check_rbac(Req, HandlerInfo, JWT);
                 _ ->
                     {error, token_timeout}
             end;
@@ -223,9 +223,9 @@ clean_expired_jwt(Now) ->
     ),
     ok = destroy(JWTList).
 
-check_rbac(Req, JWT) ->
+check_rbac(Req, HandlerInfo, JWT) ->
     #?ADMIN_JWT{exptime = _ExpTime, extra = Extra, username = Username} = JWT,
-    case emqx_dashboard_rbac:check_rbac(Req, Username, Extra) of
+    case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, Username, Extra) of
         true ->
             save_new_jwt(JWT);
         _ ->

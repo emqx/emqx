@@ -41,7 +41,7 @@
 -export([
     sign_token/2,
     sign_token/3,
-    verify_token/2,
+    verify_token/3,
     destroy_token_by_username/2
 ]).
 -export([
@@ -641,12 +641,12 @@ sign_token(Username, Password, MfaToken) ->
         {ok, Result#{role => Role, token => Token}}
     end.
 
--spec verify_token(_, Token :: binary()) ->
+-spec verify_token(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
     Result ::
         {ok, binary()}
         | {error, token_timeout | not_found | unauthorized_role}.
-verify_token(Req, Token) ->
-    emqx_dashboard_token:verify(Req, Token).
+verify_token(Req, HandlerInfo, Token) ->
+    emqx_dashboard_token:verify(Req, HandlerInfo, Token).
 
 destroy_token_by_username(Username, Token) ->
     case emqx_dashboard_token:lookup(Token) of

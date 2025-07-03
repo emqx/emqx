@@ -27,7 +27,16 @@
 -type listener_name() :: atom().
 -type listener_configs() :: #{listener_name() => emqx_config:config()}.
 
--export_type([listener_name/0, listener_configs/0]).
+%% See `minirest_handler:do_authorize`.
+-type handler_info() :: #{
+    method := atom(),
+    module := module(),
+    function := atom()
+}.
+%% Todo: refine keys/values.
+-type request() :: map().
+
+-export_type([listener_name/0, listener_configs/0, handler_info/0, request/0]).
 
 %%--------------------------------------------------------------------
 %% Start/Stop Listeners
@@ -253,7 +262,7 @@ authorize(Req, HandlerInfo) ->
         {basic, Username, Password} ->
             api_key_authorize(Req, HandlerInfo, Username, Password);
         {bearer, Token} ->
-            case emqx_dashboard_admin:verify_token(Req, Token) of
+            case emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token) of
                 {ok, Username} ->
                     {ok, #{auth_type => jwt_token, source => Username}};
                 {error, token_timeout} ->
