@@ -27,6 +27,10 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
+-define(ALARM, <<"invalid_namespaced_configs">>).
+
+-define(problems, problems).
+
 %% Calls/casts/infos
 -record(check_all, {}).
 -record(clear, {ns}).
@@ -54,25 +58,38 @@ init(_) ->
         replicant ->
             ignore;
         _ ->
-            State = #{},
+            State = #{
+                ?problems => #{}
+            },
             {ok, State, {continue, #check_all{}}}
     end.
 
-handle_continue(#check_all{}, State) ->
-    NamespaceErrors = emqx_config:get_all_namespace_config_errors(),
-    raise_alarms(NamespaceErrors),
+handle_continue(#check_all{}, State0) ->
+    Problems =
+        lists:foldl(
+            fun({Ns, ErrorsPerRoot0}, Acc) ->
+                Acc#{Ns => format_errors(ErrorsPerRoot0)}
+            end,
+            #{},
+            emqx_config:get_all_namespace_config_errors()
+        ),
+    raise_alarms(Problems),
     ?tp("corrupt_ns_checker_started", #{}),
+    State = State0#{?problems := Problems},
     {noreply, State}.
 
 handle_call(Call, _From, State) ->
     {reply, {error, {unknown_call, Call}}, State}.
 
-handle_cast(#clear{ns = Namespace}, State) ->
-    emqx_alarm:ensure_deactivated(Namespace),
-    ?tp("corrupt_ns_checker_cleared", #{ns => Namespace}),
+handle_cast(#clear{ns = Namespace}, State0) ->
+    #{?problems := Problems0} = State0,
+    Problems = maps:remove(Namespace, Problems0),
+    raise_alarms(Problems),
+    ?tp("corrupt_ns_checker_checked", #{ns => Namespace}),
+    State = State0#{?problems := Problems},
     {noreply, State};
-handle_cast(#check{ns = Namespace}, State) ->
-    do_check(Namespace),
+handle_cast(#check{ns = Namespace}, State0) ->
+    State = do_check(Namespace, State0),
     ?tp("corrupt_ns_checker_checked", #{ns => Namespace}),
     {noreply, State};
 handle_cast(_Cast, State) ->
@@ -85,14 +102,13 @@ handle_info(_Info, State) ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-raise_alarms(NamespaceErrors) when is_list(NamespaceErrors) ->
-    lists:foreach(fun raise_alarms/1, NamespaceErrors);
-raise_alarms({Namespace, HoconErrorsPerRoot0}) ->
-    HoconErrorsPerRoot = format_errors(HoconErrorsPerRoot0),
-    emqx_alarm:safe_activate(
-        Namespace,
-        #{namespace => Namespace, errors => HoconErrorsPerRoot},
-        <<"Namespace contains invalid configuration">>
+raise_alarms(#{} = Problems) when map_size(Problems) == 0 ->
+    emqx_alarm:ensure_deactivated(?ALARM);
+raise_alarms(#{} = Problems) ->
+    _ = emqx_alarm:safe_activate(
+        ?ALARM,
+        #{problems => Problems},
+        <<"Namespaces with invalid configurations">>
     ),
     ok.
 
@@ -111,17 +127,15 @@ format_errors(HoconErrorsPerRoot0) ->
         HoconErrorsPerRoot0
     ).
 
-do_check(Namespace) ->
+do_check(Namespace, State0) ->
+    #{?problems := Problems0} = State0,
     case emqx_config:get_namespace_config_errors(Namespace) of
         undefined ->
-            emqx_alarm:ensure_deactivated(Namespace),
-            ok;
+            Problems = maps:remove(Namespace, Problems0),
+            raise_alarms(Problems);
         #{} = HoconErrorsPerRoot0 ->
             HoconErrorsPerRoot = format_errors(HoconErrorsPerRoot0),
-            emqx_alarm:safe_activate(
-                Namespace,
-                #{namespace => Namespace, errors => HoconErrorsPerRoot},
-                <<"Namespace contains invalid configuration">>
-            ),
-            ok
-    end.
+            Problems = Problems0#{Namespace => HoconErrorsPerRoot},
+            raise_alarms(Problems)
+    end,
+    State0#{?problems := Problems}.

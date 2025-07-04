@@ -37,6 +37,8 @@
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
+-define(ALARM, <<"invalid_namespaced_configs">>).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -349,12 +351,18 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
     ?assertMatch(
         [
             #{
-                name := Ns,
-                message := <<"Namespace contains invalid configuration">>,
-                details := #{errors := #{<<"foo">> := #{<<"kind">> := <<"validation_error">>}}}
+                name := ?ALARM,
+                message := <<"Namespaces with invalid configurations">>,
+                details := #{
+                    problems :=
+                        #{
+                            Ns :=
+                                #{<<"foo">> := #{<<"kind">> := <<"validation_error">>}}
+                        }
+                }
             }
         ],
-        [A || A = #{name := Ns0} <- Alarms1, Ns0 == Ns]
+        [A || A = #{name := ?ALARM} <- Alarms1]
     ),
     %% Using the same value (now invalid)
     ?assertMatch(
@@ -377,7 +385,7 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
         {{ok, #{namespace := Ns, config := #{bar := 1}, raw_config := #{<<"bar">> := 1}}}, {ok, _}},
         ?wait_async_action(
             ?ON(N1, emqx_conf:update([foo], #{<<"bar">> => 1}, #{namespace => Ns})),
-            #{?snk_kind := "corrupt_ns_checker_cleared", ns := Ns}
+            #{?snk_kind := "corrupt_ns_checker_checked", ns := Ns}
         )
     ),
     ?assertMatch(undefined, ?ON(N1, emqx_config:get_namespace_config_errors(Ns))),
@@ -385,5 +393,5 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
     ?assertMatch(1, ?ON(N1, emqx:get_config({Ns, KeyPath}))),
     ?assertMatch(1, ?ON(N1, emqx:get_raw_config({Ns, KeyPath}))),
     Alarms2 = ?ON(N1, emqx_alarm:get_alarms(activated)),
-    ?assertMatch([], [A || A = #{name := Ns0} <- Alarms2, Ns0 == Ns]),
+    ?assertMatch([], [A || A = #{name := ?ALARM} <- Alarms2]),
     ok.
