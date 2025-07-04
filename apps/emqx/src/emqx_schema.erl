@@ -1422,6 +1422,14 @@ fields("shared_subscription_group") ->
     ];
 fields("broker_perf") ->
     [
+        {"async_fanout_shard_dispatch",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(broker_perf_async_fanout_shard_dispatch)
+                }
+            )},
         {"route_lock_type",
             sc(
                 hoconsc:enum([key, tab, global]),
@@ -1435,6 +1443,7 @@ fields("broker_perf") ->
                 boolean(),
                 #{
                     default => true,
+                    deprecated => {since, "5.10.0"},
                     desc => ?DESC(broker_perf_trie_compaction)
                 }
             )}

@@ -7,32 +7,12 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(lists, [nth/2]).
-
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
--define(TOPICS, [
-    <<"TopicA">>,
-    <<"TopicA/B">>,
-    <<"Topic/C">>,
-    <<"TopicA/C">>,
-    <<"/TopicA">>
-]).
-
--define(WILD_TOPICS, [
-    <<"TopicA/+">>,
-    <<"+/C">>,
-    <<"#">>,
-    <<"/#">>,
-    <<"/+">>,
-    <<"+/+">>,
-    <<"TopicA/#">>
-]).
 
 -define(WAIT(EXPR, ATTEMPTS), ?retry(1000, ATTEMPTS, EXPR)).
 
@@ -41,27 +21,26 @@ all() ->
         {group, mqttv3},
         {group, mqttv4},
         {group, mqttv5},
-        {group, others}
+        {group, others},
+        {group, misbehaving}
     ].
 
 groups() ->
     [
-        {mqttv3, [non_parallel_tests], [t_basic_v3]},
-        {mqttv4, [non_parallel_tests], [
+        {mqttv3, [], [t_basic_v3]},
+        {mqttv4, [], [
             t_basic_v4,
             t_cm,
             t_cm_registry,
             %% t_will_message,
-            %% t_offline_message_queueing,
+            t_offline_message_queueing,
             t_overlapping_subscriptions,
             %% t_keepalive,
-            %% t_redelivery_on_reconnect,
-            %% subscribe_failure_test,
-            t_dollar_topics,
-            t_sub_non_utf8_topic
+            t_redelivery_on_reconnect,
+            t_dollar_topics
         ]},
-        {mqttv5, [non_parallel_tests], [t_basic_with_props_v5, t_v5_receive_maximim_in_connack]},
-        {others, [non_parallel_tests], [
+        {mqttv5, [], [t_basic_with_props_v5, t_v5_receive_maximim_in_connack]},
+        {others, [], [
             t_username_as_clientid,
             t_certcn_as_alias,
             t_certdn_as_alias,
@@ -75,12 +54,25 @@ groups() ->
             t_clientid_override,
             t_clientid_override_fail_with_empty_render_result,
             t_clientid_override_fail_with_expression_exception
+        ]},
+        {misbehaving, [], [
+            t_sub_non_utf8_topic,
+            t_congestion_send_timeout
         ]}
     ].
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.ssl.default.ssl_options.verify = verify_peer"}],
+        [
+            {emqx,
+                %% t_congestion_send_timeout
+                "listeners.tcp.default.tcp_options.send_timeout = 2500\n"
+                "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
+                "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
+                "listeners.tcp.default.tcp_options.high_watermark = 160KB\n"
+                %% others
+                "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
@@ -136,15 +128,7 @@ t_idle_timeout_infinity(_) ->
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     ?WAIT(#{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId), 2),
-    emqtt:subscribe(C, <<"mytopic">>, 0),
-    ?WAIT(
-        begin
-            Stats = emqx_cm:get_chan_stats(ClientId),
-            ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats))
-        end,
-        2
-    ),
-    ok.
+    {ok, _, [0]} = emqtt:subscribe(C, <<"mytopic">>, 0).
 
 t_cm_registry(_) ->
     Children = supervisor:which_children(emqx_cm_sup),
@@ -154,9 +138,10 @@ t_cm_registry(_) ->
     Pid ! <<"Unexpected info">>.
 
 t_will_message(_Config) ->
+    WillTopic = <<"TopicA/C">>,
     {ok, C1} = emqtt:start_link([
         {clean_start, true},
-        {will_topic, nth(3, ?TOPICS)},
+        {will_topic, WillTopic},
         {will_payload, <<"client disconnected">>},
         {keepalive, 1}
     ]),
@@ -165,13 +150,10 @@ t_will_message(_Config) ->
     {ok, C2} = emqtt:start_link(),
     {ok, _} = emqtt:connect(C2),
 
-    {ok, _, [2]} = emqtt:subscribe(C2, nth(3, ?TOPICS), 2),
-    timer:sleep(5),
+    {ok, _, [2]} = emqtt:subscribe(C2, WillTopic, 2),
     ok = emqtt:stop(C1),
-    timer:sleep(5),
     ?assertEqual(1, length(recv_msgs(1))),
-    ok = emqtt:disconnect(C2),
-    ct:pal("Will message test succeeded").
+    ok = emqtt:disconnect(C2).
 
 t_offline_message_queueing(_) ->
     {ok, C1} = emqtt:start_link([
@@ -179,39 +161,36 @@ t_offline_message_queueing(_) ->
         {clientid, <<"c1">>}
     ]),
     {ok, _} = emqtt:connect(C1),
-
-    {ok, _, [2]} = emqtt:subscribe(C1, nth(6, ?WILD_TOPICS), 2),
+    {ok, _, [2]} = emqtt:subscribe(C1, <<"+/+">>, 2),
     ok = emqtt:disconnect(C1),
+
     {ok, C2} = emqtt:start_link([
         {clean_start, true},
         {clientid, <<"c2">>}
     ]),
     {ok, _} = emqtt:connect(C2),
 
-    ok = emqtt:publish(C2, nth(2, ?TOPICS), <<"qos 0">>, 0),
-    {ok, _} = emqtt:publish(C2, nth(3, ?TOPICS), <<"qos 1">>, 1),
-    {ok, _} = emqtt:publish(C2, nth(4, ?TOPICS), <<"qos 2">>, 2),
+    ok = emqtt:publish(C2, <<"TopicA/B">>, <<"qos 0">>, 0),
+    {ok, _} = emqtt:publish(C2, <<"Topic/C">>, <<"qos 1">>, 1),
+    {ok, _} = emqtt:publish(C2, <<"TopicA/C">>, <<"qos 2">>, 2),
     timer:sleep(10),
     emqtt:disconnect(C2),
+
     {ok, C3} = emqtt:start_link([{clean_start, false}, {clientid, <<"c1">>}]),
     {ok, _} = emqtt:connect(C3),
-
-    timer:sleep(10),
-    emqtt:disconnect(C3),
-    ?assertEqual(3, length(recv_msgs(3))).
+    ?assertEqual(3, length(recv_msgs(3))),
+    ok = emqtt:disconnect(C3).
 
 t_overlapping_subscriptions(_) ->
     {ok, C} = emqtt:start_link([]),
     {ok, _} = emqtt:connect(C),
 
     {ok, _, [2, 1]} = emqtt:subscribe(C, [
-        {nth(7, ?WILD_TOPICS), 2},
-        {nth(1, ?WILD_TOPICS), 1}
+        {<<"TopicA/#">>, 2},
+        {<<"TopicA/+">>, 1}
     ]),
     timer:sleep(10),
-    {ok, _} = emqtt:publish(C, nth(4, ?TOPICS), <<"overlapping topic filters">>, 2),
-    timer:sleep(10),
-
+    {ok, _} = emqtt:publish(C, <<"TopicA/C">>, <<"overlapping topic filters">>, 2),
     Num = length(recv_msgs(2)),
     ?assert(lists:member(Num, [1, 2])),
     if
@@ -247,22 +226,20 @@ t_overlapping_subscriptions(_) ->
 %%     ct:print("Keepalive test succeeded").
 
 t_redelivery_on_reconnect(_) ->
-    ct:pal("Redelivery on reconnect test starting"),
     {ok, C1} = emqtt:start_link([{clean_start, false}, {clientid, <<"c">>}]),
     {ok, _} = emqtt:connect(C1),
-
-    {ok, _, [2]} = emqtt:subscribe(C1, nth(7, ?WILD_TOPICS), 2),
+    {ok, _, [2]} = emqtt:subscribe(C1, <<"TopicA/#">>, 2),
     timer:sleep(10),
     ok = emqtt:pause(C1),
     {ok, _} = emqtt:publish(
         C1,
-        nth(2, ?TOPICS),
+        <<"TopicA/B">>,
         <<>>,
         [{qos, 1}, {retain, false}]
     ),
     {ok, _} = emqtt:publish(
         C1,
-        nth(4, ?TOPICS),
+        <<"TopicA/C">>,
         <<>>,
         [{qos, 2}, {retain, false}]
     ),
@@ -271,67 +248,24 @@ t_redelivery_on_reconnect(_) ->
     ?assertEqual(0, length(recv_msgs(2))),
     {ok, C2} = emqtt:start_link([{clean_start, false}, {clientid, <<"c">>}]),
     {ok, _} = emqtt:connect(C2),
-
-    timer:sleep(10),
-    ok = emqtt:disconnect(C2),
-    ?assertEqual(2, length(recv_msgs(2))).
-
-%% t_subscribe_sys_topics(_) ->
-%%     ct:print("Subscribe failure test starting"),
-%%     {ok, C, _} = emqtt:start_link([]),
-%%     {ok, _, [2]} = emqtt:subscribe(C, <<"$SYS/#">>, 2),
-%%     timer:sleep(10),
-%%     ct:print("Subscribe failure test succeeded").
+    ?assertEqual(2, length(recv_msgs(2))),
+    ok = emqtt:disconnect(C2).
 
 t_dollar_topics(_) ->
-    ct:pal("$ topics test starting"),
     {ok, C} = emqtt:start_link([
         {clean_start, true},
         {keepalive, 0}
     ]),
     {ok, _} = emqtt:connect(C),
-
-    {ok, _, [1]} = emqtt:subscribe(C, nth(6, ?WILD_TOPICS), 1),
+    {ok, _, [1]} = emqtt:subscribe(C, <<"+/+">>, 1),
     {ok, _} = emqtt:publish(
         C,
-        <<<<"$">>/binary, (nth(2, ?TOPICS))/binary>>,
+        <<"$TopicA/B">>,
         <<"test">>,
         [{qos, 1}, {retain, false}]
     ),
-    timer:sleep(10),
     ?assertEqual(0, length(recv_msgs(1))),
-    ok = emqtt:disconnect(C),
-    ct:pal("$ topics test succeeded").
-
-t_sub_non_utf8_topic(_) ->
-    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
-    ConnPacket = emqx_frame:serialize(#mqtt_packet{
-        header = #mqtt_packet_header{type = 1},
-        variable = #mqtt_packet_connect{
-            clientid = <<"abcdefg">>
-        }
-    }),
-    ok = gen_tcp:send(Socket, ConnPacket),
-    receive
-        {tcp, _, _ConnAck = <<32, 2, 0, 0>>} -> ok
-    after 3000 -> ct:fail({connect_ack_not_recv, process_info(self(), messages)})
-    end,
-    SubHeader = <<130, 18, 25, 178>>,
-    SubTopicLen = <<0, 13>>,
-    %% this is not a valid utf8 topic
-    SubTopic = <<128, 10, 10, 12, 178, 159, 162, 47, 115, 1, 1, 1, 1>>,
-    SubQoS = <<1>>,
-    SubPacket = <<SubHeader/binary, SubTopicLen/binary, SubTopic/binary, SubQoS/binary>>,
-    ok = gen_tcp:send(Socket, SubPacket),
-    receive
-        {tcp_closed, _} -> ok
-    after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
-    end,
-    timer:sleep(1000),
-    ListenerCounts = emqx_listeners:shutdown_count('tcp:default', {{0, 0, 0, 0}, 1883}),
-    TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
-    ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
-    ok.
+    ok = emqtt:disconnect(C).
 
 %%--------------------------------------------------------------------
 %% Test cases for MQTT v5
@@ -359,7 +293,7 @@ t_v5_receive_maximim_in_connack(_) ->
 %%--------------------------------------------------------------------
 
 run_basic(Opts) ->
-    Topic = nth(1, ?TOPICS),
+    Topic = <<"TopicA">>,
     {ok, C} = emqtt:start_link(Opts),
     {ok, _} = emqtt:connect(C),
     {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
@@ -566,6 +500,83 @@ on_hook(_ClientInfo, ConnInfo, 'client.connected' = HP, Pid) ->
     ok.
 
 %%--------------------------------------------------------------------
+%% Misbehaving clients
+%%--------------------------------------------------------------------
+
+t_sub_non_utf8_topic(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"abcdefg">>}),
+    ok = gen_tcp:send(Socket, emqx_frame:serialize(ConnPacket)),
+    receive
+        {tcp, _, _ConnAck = <<32, 2, 0, 0>>} -> ok
+    after 3000 -> ct:fail({connect_ack_not_recv, process_info(self(), messages)})
+    end,
+    SubHeader = <<130, 18, 25, 178>>,
+    SubTopicLen = <<0, 13>>,
+    %% this is not a valid utf8 topic
+    SubTopic = <<128, 10, 10, 12, 178, 159, 162, 47, 115, 1, 1, 1, 1>>,
+    SubQoS = <<1>>,
+    SubPacket = <<SubHeader/binary, SubTopicLen/binary, SubTopic/binary, SubQoS/binary>>,
+    ok = gen_tcp:send(Socket, SubPacket),
+    receive
+        {tcp_closed, _} -> ok
+    after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
+    end,
+    timer:sleep(1000),
+    ListenerCounts = emqx_listeners:shutdown_count('tcp:default', 1883),
+    TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
+    ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
+    ok.
+
+t_congestion_send_timeout(_) ->
+    ok = emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, false}, binary]),
+    %% Send manually constructed CONNECT:
+    ok = gen_tcp:send(
+        Socket,
+        emqx_frame:serialize(
+            ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"t_congestion_send_timeout">>})
+        )
+    ),
+    {ok, Frames1} = gen_tcp:recv(Socket, 0, 1000),
+    {Pkt1, <<>>, Parser1} = emqx_frame:parse(Frames1, emqx_frame:initial_parse_state()),
+    ?assertMatch(?CONNACK_PACKET(0), Pkt1),
+    %% Send manually constructed SUBSCRIBE to subscribe to "t":
+    Topic = <<"t">>,
+    ok = gen_tcp:send(
+        Socket,
+        emqx_frame:serialize(
+            ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => 0}}])
+        )
+    ),
+    {ok, Frames2} = gen_tcp:recv(Socket, 0, 1000),
+    {Pkt2, <<>>, _Parser2} = emqx_frame:parse(Frames2, Parser1),
+    ?assertMatch(?SUBACK_PACKET(1, [0]), Pkt2),
+    %% Subscribe to alarms:
+    AlarmTopic = <<"$SYS/brokers/+/alarms/activate">>,
+    ok = emqx_broker:subscribe(AlarmTopic),
+    %% Start filling up send buffers:
+    Publisher = fun Publisher(N) ->
+        %% Each message has 8000 bytes payload:
+        Payload = binary:copy(<<N:64>>, 1000),
+        _ = emqx:publish(emqx_message:make(<<"publisher">>, Topic, Payload)),
+        ok = timer:sleep(50),
+        Publisher(N + 1)
+    end,
+    _PublisherPid = spawn_link(fun() -> Publisher(1) end),
+    %% Congestion alarm should be raised soon:
+    {deliver, _, AlarmMsg} = ?assertReceive({deliver, AlarmTopic, _AlarmMsg}, 5_000),
+    #{
+        <<"name">> := <<"conn_congestion/t_congestion_send_timeout/undefined">>,
+        <<"details">> := AlarmDetails
+    } = emqx_utils_json:decode(emqx_message:payload(AlarmMsg)),
+    %% Connection should be closed once send timeout passes.
+    ConnPid = list_to_pid(binary_to_list(maps:get(<<"pid">>, AlarmDetails))),
+    MRef = erlang:monitor(process, ConnPid),
+    ?assertReceive({'DOWN', MRef, process, ConnPid, {shutdown, send_timeout}}, 5_000),
+    ok = gen_tcp:close(Socket).
+
+%%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
 
@@ -577,11 +588,8 @@ recv_msgs(0, Msgs) ->
 recv_msgs(Count, Msgs) ->
     receive
         {publish, Msg} ->
-            recv_msgs(Count - 1, [Msg | Msgs]);
-        %%TODO:: remove the branch?
-        _Other ->
-            recv_msgs(Count, Msgs)
-    after 100 ->
+            recv_msgs(Count - 1, [Msg | Msgs])
+    after 1000 ->
         Msgs
     end.
 
