@@ -711,8 +711,18 @@ ensure_role(Role) when is_binary(Role) ->
 legal_role(Role) ->
     emqx_dashboard_rbac:valid_dashboard_role(Role).
 
-role(Data) ->
-    emqx_dashboard_rbac:role(Data).
+%% For compatibility
+role(#?ADMIN{role = undefined}) ->
+    ?ROLE_SUPERUSER;
+role(#?ADMIN{role = Role}) ->
+    Role;
+%% For compatibility
+role([]) ->
+    ?ROLE_SUPERUSER;
+role(#{role := Role}) ->
+    Role;
+role(Role) when is_binary(Role) ->
+    Role.
 
 flatten_username(#{username := ?SSO_USERNAME(Backend, Name)} = Data) ->
     Data#{

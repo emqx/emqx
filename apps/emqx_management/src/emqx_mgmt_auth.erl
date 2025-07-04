@@ -463,7 +463,8 @@ normalize_extra(Desc) ->
     #{desc => Desc, role => ?ROLE_API_DEFAULT}.
 
 check_rbac(Req, HandlerInfo, ApiKey, Role) ->
-    case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ApiKey, Role) of
+    ActorContext = actor_context_of(ApiKey, Role),
+    case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext) of
         true ->
             ok;
         _ ->
@@ -475,3 +476,9 @@ format_app_extend(App) ->
 
 valid_role(Role) ->
     emqx_dashboard_rbac:valid_api_role(Role).
+
+actor_context_of(ApiKey, Role) ->
+    #{
+        actor => ApiKey,
+        role => Role
+    }.
