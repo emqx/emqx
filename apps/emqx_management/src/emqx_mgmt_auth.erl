@@ -465,9 +465,9 @@ normalize_extra(Desc) ->
 check_rbac(Req, HandlerInfo, ApiKey, Role) ->
     ActorContext = actor_context_of(ApiKey, Role),
     case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext) of
-        true ->
-            ok;
-        _ ->
+        {ok, ActorContextFinal} ->
+            {ok, ActorContextFinal};
+        false ->
             {error, unauthorized_role}
     end.
 

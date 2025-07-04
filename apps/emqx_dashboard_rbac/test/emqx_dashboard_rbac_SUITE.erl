@@ -150,11 +150,11 @@ t_clean_token(_) ->
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     FakeReq = #{},
     FakeHandlerInfo = #{method => get, module => any, function => any},
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
+    {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% change description
     {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_SUPERUSER, NewDesc),
     timer:sleep(5),
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
+    {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% change role
     {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_VIEWER, NewDesc),
     timer:sleep(5),
@@ -169,7 +169,7 @@ t_login_out(_) ->
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     FakeReq = #{},
     FakeHandlerInfo = #{method => post, function => logout, module => emqx_dashboard_api},
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
+    {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     ok.
 
 t_change_pwd(_) ->
@@ -188,14 +188,14 @@ t_change_pwd(_) ->
         SuperUser, Password
     ),
     %% viewer can change own password
-    ?assertEqual({ok, Viewer1}, change_pwd(Viewer1Token, Viewer1)),
+    ?assertMatch({ok, #{actor := Viewer1}}, change_pwd(Viewer1Token, Viewer1)),
     %% viewer can't change other's password
     ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, Viewer2)),
     ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, SuperUser)),
     %% superuser can change other's password
-    ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, Viewer1)),
-    ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, Viewer2)),
-    ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, SuperUser)),
+    ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer1)),
+    ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer2)),
+    ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, SuperUser)),
     ok.
 
 change_pwd(Token, Username) ->
@@ -225,14 +225,14 @@ test_mfa(VerifyFn) ->
         SuperUser, Password
     ),
     %% viewer can change own password
-    ?assertEqual({ok, Viewer1}, VerifyFn(Viewer1Token, Viewer1)),
+    ?assertMatch({ok, #{actor := Viewer1}}, VerifyFn(Viewer1Token, Viewer1)),
     %% viewer can't change other's password
     ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, Viewer2)),
     ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, SuperUser)),
     %% superuser can change other's password
-    ?assertEqual({ok, SuperUser}, VerifyFn(SuperToken, Viewer1)),
-    ?assertEqual({ok, SuperUser}, VerifyFn(SuperToken, Viewer2)),
-    ?assertEqual({ok, SuperUser}, VerifyFn(SuperToken, SuperUser)),
+    ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer1)),
+    ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer2)),
+    ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, SuperUser)),
     ok.
 
 delete_mfa(Token, Username) ->
