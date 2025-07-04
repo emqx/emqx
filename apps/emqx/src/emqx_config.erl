@@ -593,9 +593,10 @@ clear_invalid_namespaced_config(Namespace, RootKeyBin) when is_binary(Namespace)
             case map_size(Errors) == 0 of
                 true ->
                     persistent_term:erase(?INVALID_NS_CONF_PT_KEY(Namespace)),
-                    emqx_corrupt_namespace_config_checker:check(Namespace);
+                    emqx_corrupt_namespace_config_checker:clear(Namespace);
                 false ->
-                    persistent_term:put(?INVALID_NS_CONF_PT_KEY(Namespace), Errors)
+                    persistent_term:put(?INVALID_NS_CONF_PT_KEY(Namespace), Errors),
+                    emqx_corrupt_namespace_config_checker:check(Namespace)
             end
     end.
 

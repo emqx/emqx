@@ -10,6 +10,7 @@
 -export([
     start_link/0,
 
+    clear/1,
     check/1
 ]).
 
@@ -28,6 +29,7 @@
 
 %% Calls/casts/infos
 -record(check_all, {}).
+-record(clear, {ns}).
 -record(check, {ns}).
 
 %%------------------------------------------------------------------------------
@@ -36,6 +38,9 @@
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+clear(Namespace) ->
+    gen_server:cast(?MODULE, #clear{ns = Namespace}).
 
 check(Namespace) ->
     gen_server:cast(?MODULE, #check{ns = Namespace}).
@@ -62,6 +67,10 @@ handle_continue(#check_all{}, State) ->
 handle_call(Call, _From, State) ->
     {reply, {error, {unknown_call, Call}}, State}.
 
+handle_cast(#clear{ns = Namespace}, State) ->
+    emqx_alarm:ensure_deactivated(Namespace),
+    ?tp("corrupt_ns_checker_cleared", #{ns => Namespace}),
+    {noreply, State};
 handle_cast(#check{ns = Namespace}, State) ->
     do_check(Namespace),
     ?tp("corrupt_ns_checker_checked", #{ns => Namespace}),

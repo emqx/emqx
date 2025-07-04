@@ -377,7 +377,7 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
         {{ok, #{namespace := Ns, config := #{bar := 1}, raw_config := #{<<"bar">> := 1}}}, {ok, _}},
         ?wait_async_action(
             ?ON(N1, emqx_conf:update([foo], #{<<"bar">> => 1}, #{namespace => Ns})),
-            #{?snk_kind := "corrupt_ns_checker_checked", ns := Ns}
+            #{?snk_kind := "corrupt_ns_checker_cleared", ns := Ns}
         )
     ),
     ?assertMatch(undefined, ?ON(N1, emqx_config:get_namespace_config_errors(Ns))),
