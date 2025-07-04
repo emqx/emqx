@@ -234,6 +234,11 @@ app_extend_fields() ->
                 desc => ?DESC(role),
                 default => ?ROLE_API_DEFAULT,
                 example => ?ROLE_API_DEFAULT,
-                validator => fun emqx_dashboard_rbac:valid_api_role/1
+                validator => fun(Role) ->
+                    maybe
+                        {ok, _} ?= emqx_dashboard_rbac:parse_api_role(Role),
+                        ok
+                    end
+                end
             })}
     ].

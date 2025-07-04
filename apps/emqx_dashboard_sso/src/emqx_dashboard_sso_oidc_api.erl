@@ -202,7 +202,7 @@ ensure_user_exists(_Cfg, <<"undefined">>) ->
 ensure_user_exists(Cfg, Username) ->
     case emqx_dashboard_admin:lookup_user(?BACKEND, Username) of
         [User] ->
-            {ok, Role, Token} = emqx_dashboard_token:sign(User),
+            {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(User),
             {ok, login_redirect_target(Cfg, Username, Role, Token)};
         [] ->
             case emqx_dashboard_admin:add_sso_user(?BACKEND, Username, ?ROLE_VIEWER, <<>>) of

@@ -54,7 +54,7 @@
     default_username/0
 ]).
 
--export([role/1]).
+-export([role/1, namespace_of/1]).
 
 -export([backup_tables/0]).
 
@@ -74,6 +74,9 @@
 -type emqx_admin() :: #?ADMIN{}.
 
 -define(USERNAME_ALREADY_EXISTS_ERROR, <<"username_already_exists">>).
+
+-define(role, role).
+-define(namespace, namespace).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -113,18 +116,31 @@ add_default_user() ->
 %% API
 %%--------------------------------------------------------------------
 
--spec add_user(dashboard_username(), binary(), dashboard_user_role(), binary()) ->
+-spec add_user(
+    dashboard_username(), _Password :: binary(), dashboard_user_role(), _Desc :: binary()
+) ->
     {ok, map()} | {error, any()}.
-add_user(Username, Password, Role, Desc) when is_binary(Username), is_binary(Password) ->
-    case {legal_username(Username), legal_password(Password), legal_role(Role)} of
-        {ok, ok, ok} -> do_add_user(Username, Password, Role, Desc);
-        {{error, Reason}, _, _} -> {error, Reason};
-        {_, {error, Reason}, _} -> {error, Reason};
-        {_, _, {error, Reason}} -> {error, Reason}
+add_user(Username, Password, Role0, Desc) when is_binary(Username), is_binary(Password) ->
+    maybe
+        ok ?= legal_username(Username),
+        ok ?= legal_password(Password),
+        {ok, ParsedRole} ?= parse_role(Role0),
+        #{?role := Role} = ParsedRole,
+        Extra = parsed_role_to_extra(ParsedRole),
+        do_add_user(Username, Password, Role, Desc, Extra)
     end.
 
-do_add_user(Username, Password, Role, Desc) ->
-    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun add_user_/4, [Username, Password, Role, Desc]),
+parsed_role_to_extra(#{?namespace := Ns}) when is_binary(Ns) ->
+    #{?namespace => Ns};
+parsed_role_to_extra(_) ->
+    #{}.
+
+do_add_user(Username, Password, Role, Desc, Extra) ->
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun add_user_/5,
+        [Username, Password, Role, Desc, Extra]
+    ),
     return(Res).
 
 get_mfa_enabled_state(Username) ->
@@ -309,7 +325,8 @@ force_add_user(Username, Password, Role, Desc) ->
     end.
 
 %% @private
-add_user_(Username, Password, Role, Desc) ->
+add_user_(Username, Password, Role, Desc, Extra) ->
+    Namespace = maps:get(?namespace, Extra, undefined),
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
             Admin = #?ADMIN{
@@ -317,17 +334,23 @@ add_user_(Username, Password, Role, Desc) ->
                 pwdhash = hash(Password),
                 role = Role,
                 description = Desc,
-                extra = #{password_ts => erlang:system_time(second)}
+                extra = Extra#{password_ts => erlang:system_time(second)}
             },
             mnesia:write(Admin),
-            ?SLOG(info, #{msg => "dashboard_sso_user_added", username => Username, role => Role}),
-            flatten_username(#{username => Username, role => Role, description => Desc});
+            ?SLOG(info, #{msg => "dashboard_sso_user_added", username => Username, ?role => Role}),
+            flatten_username(#{
+                username => Username,
+                ?role => Role,
+                description => Desc,
+                ?namespace => Namespace
+            });
         [_] ->
             ?SLOG(info, #{
                 msg => "dashboard_sso_user_add_failed",
                 reason => "username_already_exists",
                 username => Username,
-                role => Role
+                ?role => Role,
+                ?namespace => Namespace
             }),
             mnesia:abort(?USERNAME_ALREADY_EXISTS_ERROR)
     end.
@@ -350,15 +373,16 @@ remove_user(Username) ->
 
 -spec update_user(dashboard_username(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, term()}.
-update_user(Username, Role, Desc) ->
-    case legal_role(Role) of
-        ok ->
+update_user(Username, Role0, Desc) ->
+    case parse_role(Role0) of
+        {ok, #{role := Role} = ParsedRole} ->
+            Extra = parsed_role_to_extra(ParsedRole),
             case
                 return(
                     mria:sync_transaction(
                         ?DASHBOARD_SHARD,
-                        fun update_user_/3,
-                        [Username, Role, Desc]
+                        fun update_user_/4,
+                        [Username, Role, Desc, Extra]
                     )
                 )
             of
@@ -409,15 +433,26 @@ verify_password_expiration(ValidityDuration, #?ADMIN{extra = Extra} = User) ->
     end.
 
 %% @private
-update_user_(Username, Role, Desc) ->
+update_user_(Username, Role, Desc, Extra) ->
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
             mnesia:abort(<<"username_not_found">>);
         [Admin] ->
-            mnesia:write(Admin#?ADMIN{role = Role, description = Desc}),
+            #?ADMIN{extra = Extra0} = Admin,
+            NewExtra =
+                case is_map(Extra0) of
+                    false -> Extra;
+                    true -> maps:merge(Extra0, Extra)
+                end,
+            mnesia:write(Admin#?ADMIN{role = Role, description = Desc, extra = NewExtra}),
             {
                 role(Admin) =:= Role,
-                flatten_username(#{username => Username, role => Role, description => Desc})
+                flatten_username(#{
+                    username => Username,
+                    role => Role,
+                    description => Desc,
+                    ?namespace => maps:get(?namespace, Extra, undefined)
+                })
             }
     end.
 
@@ -505,7 +540,7 @@ to_external_user(UserRecord) ->
     flatten_username(#{
         username => Username,
         description => Desc,
-        role => ensure_role(Role),
+        ?role => ensure_role(Role),
         mfa => format_mfa(Extra)
     }).
 
@@ -637,8 +672,8 @@ sign_token(Username, Password, MfaToken) ->
         ok ?= emqx_dashboard_login_lock:verify(Username),
         {ok, User} ?= check(Username, Password, MfaToken),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
-        {ok, Role, Token} ?= emqx_dashboard_token:sign(User),
-        {ok, Result#{role => Role, token => Token}}
+        {ok, Role, Token, Namespace} ?= emqx_dashboard_token:sign(User),
+        {ok, Result#{?role => Role, token => Token, namespace => Namespace}}
     end.
 
 -spec verify_token(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
@@ -693,9 +728,10 @@ add_default_user(Username, Password) ->
     end.
 
 do_add_default_user(Username, Password) ->
+    Extra = #{},
     maybe
         {error, ?USERNAME_ALREADY_EXISTS_ERROR} ?=
-            do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>),
+            do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>, Extra),
         %% race condition: multiple nodes booting at the same time?
         {ok, default_user_exists}
     end.
@@ -707,8 +743,8 @@ ensure_role(undefined) ->
 ensure_role(Role) when is_binary(Role) ->
     Role.
 
-legal_role(Role) ->
-    emqx_dashboard_rbac:valid_dashboard_role(Role).
+parse_role(Role) ->
+    emqx_dashboard_rbac:parse_dashboard_role(Role).
 
 %% For compatibility
 role(#?ADMIN{role = undefined}) ->
@@ -718,10 +754,15 @@ role(#?ADMIN{role = Role}) ->
 %% For compatibility
 role([]) ->
     ?ROLE_SUPERUSER;
-role(#{role := Role}) ->
+role(#{?role := Role}) ->
     Role;
 role(Role) when is_binary(Role) ->
     Role.
+
+namespace_of(#?ADMIN{extra = #{?namespace := Namespace}}) when is_binary(Namespace) ->
+    Namespace;
+namespace_of(#?ADMIN{}) ->
+    undefined.
 
 flatten_username(#{username := ?SSO_USERNAME(Backend, Name)} = Data) ->
     Data#{
@@ -733,11 +774,12 @@ flatten_username(#{username := Username} = Data) when is_binary(Username) ->
 
 -spec add_sso_user(dashboard_sso_backend(), binary(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, any()}.
-add_sso_user(Backend, Username0, Role, Desc) when is_binary(Username0) ->
-    case legal_role(Role) of
-        ok ->
+add_sso_user(Backend, Username0, Role0, Desc) when is_binary(Username0) ->
+    case parse_role(Role0) of
+        {ok, #{?role := Role} = ParsedRole} ->
             Username = ?SSO_USERNAME(Backend, Username0),
-            do_add_user(Username, <<>>, Role, Desc);
+            Extra = parsed_role_to_extra(ParsedRole),
+            do_add_user(Username, <<>>, Role, Desc, Extra);
         {error, _} = Error ->
             Error
     end.

@@ -291,7 +291,13 @@ listeners() ->
 api_key_authorize(Req, HandlerInfo, Key, Secret) ->
     case emqx_mgmt_auth:authorize(HandlerInfo, Req, Key, Secret) of
         {ok, ActorContext} ->
-            {ok, #{auth_type => api_key, source => Key, actor => ActorContext}};
+            AuthnMeta = #{
+                auth_type => api_key,
+                source => Key,
+                namespace => maps:get(namespace, ActorContext, undefined),
+                actor => ActorContext
+            },
+            {ok, AuthnMeta};
         {error, <<"not_allowed">>, Resource} ->
             return_unauthorized(
                 ?API_KEY_NOT_ALLOW,
@@ -310,7 +316,13 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
 jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
     case emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token) of
         {ok, #{actor := Username} = ActorContext} ->
-            {ok, #{auth_type => jwt_token, source => Username, actor => ActorContext}};
+            AuthnMeta = #{
+                auth_type => jwt_token,
+                source => Username,
+                namespace => maps:get(namespace, ActorContext, undefined),
+                actor => ActorContext
+            },
+            {ok, AuthnMeta};
         {error, token_timeout} ->
             {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
         {error, not_found} ->

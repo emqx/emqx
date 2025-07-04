@@ -85,7 +85,7 @@ create_tables() ->
     [?TAB].
 
 -spec sign(User :: dashboard_user()) ->
-    {ok, dashboard_user_role(), Token :: binary()}.
+    {ok, dashboard_user_role(), Token :: binary(), Namespace :: binary()}.
 sign(#?ADMIN{username = Username} = User) ->
     ExpTime = jwt_expiration_time(),
     JWK = jwk(),
@@ -99,9 +99,10 @@ sign(#?ADMIN{username = Username} = User) ->
     Signed = jose_jwt:sign(JWK, JWS, JWT),
     {_, Token} = jose_jws:compact(Signed),
     Role = emqx_dashboard_admin:role(User),
-    JWTRec = format(Token, Username, Role, ExpTime),
+    Namespace = emqx_dashboard_admin:namespace_of(User),
+    JWTRec = format(Token, Username, Role, ExpTime, Namespace),
     _ = mria:sync_transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
-    {ok, Role, Token}.
+    {ok, Role, Token, Namespace}.
 
 -spec do_verify(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
     {ok, emqx_dashboard_rbac:actor_context()}
@@ -164,17 +165,23 @@ jwt_expiration_time() ->
 token_ttl() ->
     emqx_conf:get([dashboard, token_expired_time], ?EXPTIME).
 
-format(Token, ?SSO_USERNAME(Backend, Name), Role, ExpTime) ->
-    format(Token, Backend, Name, Role, ExpTime);
-format(Token, Username, Role, ExpTime) ->
-    format(Token, ?BACKEND_LOCAL, Username, Role, ExpTime).
+format(Token, ?SSO_USERNAME(Backend, Name), Role, ExpTime, Namespace) ->
+    format(Token, Backend, Name, Role, ExpTime, Namespace);
+format(Token, Username, Role, ExpTime, Namespace) ->
+    format(Token, ?BACKEND_LOCAL, Username, Role, ExpTime, Namespace).
 
-format(Token, Backend, Username, Role, ExpTime) ->
+format(Token, Backend, Username, Role, ExpTime, Namespace) ->
+    Extra = emqx_utils_maps:put_if(
+        #{role => Role, backend => Backend},
+        namespace,
+        Namespace,
+        is_binary(Namespace)
+    ),
     #?ADMIN_JWT{
         token = Token,
         username = Username,
         exptime = ExpTime,
-        extra = #{role => Role, backend => Backend}
+        extra = Extra
     }.
 
 %%--------------------------------------------------------------------
@@ -244,9 +251,11 @@ save_new_jwt(OldJWT) ->
 actor_context_of(#?ADMIN_JWT{} = JWT) ->
     #?ADMIN_JWT{exptime = _ExpTime, extra = Extra, username = Username} = JWT,
     Role = role_of(Extra),
+    Namespace = namespace_of(Extra),
     #{
         actor => Username,
-        role => Role
+        role => Role,
+        namespace => Namespace
     }.
 
 %% For compatibility
@@ -255,3 +264,8 @@ role_of([]) ->
     ?ROLE_SUPERUSER;
 role_of(#{role := Role}) ->
     Role.
+
+namespace_of(#{namespace := Namespace}) when is_binary(Namespace) ->
+    Namespace;
+namespace_of(_) ->
+    undefined.

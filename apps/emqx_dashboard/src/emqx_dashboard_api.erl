@@ -475,6 +475,16 @@ enum(Symbols) ->
 field_filter(_) ->
     true.
 
+filter_result(#{} = Result) ->
+    maps:map(
+        fun
+            (_K, undefined) ->
+                null;
+            (_K, V) ->
+                V
+        end,
+        Result
+    );
 filter_result(Result) ->
     Result.
 

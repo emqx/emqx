@@ -8,8 +8,8 @@
 
 -export([
     check_rbac/3,
-    valid_dashboard_role/1,
-    valid_api_role/1
+    parse_dashboard_role/1,
+    parse_api_role/1
 ]).
 
 -export_type([actor_context/0]).
@@ -19,16 +19,22 @@
 %%------------------------------------------------------------------------------
 
 -define(actor, actor).
+-define(namespace, namespace).
 -define(role, role).
+-define(undefined, undefined).
 
 -type actor_context() :: #{
     ?actor := username() | api_key(),
-    ?role := role()
+    ?role := role(),
+    ?namespace := ?undefined | namespace()
 }.
 
 -type username() :: binary().
 -type api_key() :: binary().
 -type role() :: binary().
+-type namespace() :: binary().
+
+-define(DASHBOARD_API(METHOD, FN), #{method := METHOD, module := emqx_dashboard_api, function := FN}).
 
 %%=====================================================================
 %% API
@@ -40,26 +46,55 @@ check_rbac(Req, HandlerInfo, ActorContext) ->
         {ok, ActorContext}
     end.
 
-valid_dashboard_role(Role) ->
-    valid_role(dashboard, Role).
+parse_dashboard_role(Role) ->
+    parse_role(dashboard, Role).
 
-valid_api_role(Role) ->
-    valid_role(api, Role).
+parse_api_role(Role) ->
+    parse_role(api, Role).
 
 %% ===================================================================
 
-valid_role(Type, Role) ->
-    case lists:member(Role, role_list(Type)) of
-        true ->
-            ok;
+parse_role(Type, Role0) ->
+    maybe
+        {ok, #{?role := Role} = ParsedRole} ?= do_parse_role(Role0),
+        true ?= lists:member(Role, role_list(Type)),
+        {ok, ParsedRole}
+    else
+        false ->
+            {error, <<"Role does not exist">>};
+        Error ->
+            Error
+    end.
+
+do_parse_role(Role0) when is_binary(Role0) ->
+    maybe
+        [NsTag, Role] ?= binary:split(Role0, <<"::">>),
+        {ok, Ns} ?= parse_namespace_tag(NsTag),
+        {ok, #{?role => Role, ?namespace => Ns}}
+    else
+        [Role1] ->
+            {ok, #{?role => Role1, ?namespace => ?undefined}};
+        {error, _} = Error ->
+            Error;
         _ ->
             {error, <<"Role does not exist">>}
+    end;
+do_parse_role(_) ->
+    {error, <<"Invalid role">>}.
+
+parse_namespace_tag(NsTag) ->
+    case binary:split(NsTag, <<":">>) of
+        [<<"ns">>, Ns] ->
+            {ok, Ns};
+        _ ->
+            {error, <<"Invalid namespace tag">>}
     end.
 
 %% ===================================================================
 -spec do_check_rbac(actor_context(), emqx_dashboard:request(), emqx_dashboard:handler_info()) ->
     boolean().
-do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, _) ->
+do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := ?undefined}, _, _) ->
+    %% Global administrator
     true;
 do_check_rbac(#{?role := ?ROLE_VIEWER}, _, #{method := get}) ->
     true;
@@ -72,9 +107,7 @@ do_check_rbac(
     %% emqx_mgmt_api_publish:publish_batch
     true;
 %% everyone should allow to logout
-do_check_rbac(
-    #{?role := ?ROLE_VIEWER}, _, #{method := post, module := emqx_dashboard_api, function := logout}
-) ->
+do_check_rbac(#{?role := ?ROLE_VIEWER}, _, ?DASHBOARD_API(post, logout)) ->
     %% emqx_dashboard_api:logout
     true;
 %% viewer should allow to change self password and (re)setup multi-factor auth for self,
@@ -82,7 +115,7 @@ do_check_rbac(
 do_check_rbac(
     #{?role := ?ROLE_VIEWER, ?actor := Username},
     Req,
-    #{method := post, module := emqx_dashboard_api, function := Fn}
+    ?DASHBOARD_API(post, Fn)
 ) when Fn == change_pwd; Fn == change_mfa ->
     %% emqx_dashboard_api:change_pwd
     %% emqx_dashboard_api:change_mfa
@@ -95,7 +128,7 @@ do_check_rbac(
 do_check_rbac(
     #{?role := ?ROLE_VIEWER, ?actor := Username},
     Req,
-    #{method := delete, module := emqx_dashboard_api, function := change_mfa}
+    ?DASHBOARD_API(delete, change_mfa)
 ) ->
     %% emqx_dashboard_api:change_mfa
     case Req of
