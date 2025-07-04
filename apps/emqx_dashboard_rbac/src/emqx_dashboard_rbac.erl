@@ -33,9 +33,12 @@
 %%=====================================================================
 %% API
 -spec check_rbac(emqx_dashboard:request(), emqx_dashboard:handler_info(), actor_context()) ->
-    boolean().
+    {ok, actor_context()} | false.
 check_rbac(Req, HandlerInfo, ActorContext) ->
-    do_check_rbac(ActorContext, Req, HandlerInfo).
+    maybe
+        true ?= do_check_rbac(ActorContext, Req, HandlerInfo),
+        {ok, ActorContext}
+    end.
 
 valid_dashboard_role(Role) ->
     valid_role(dashboard, Role).
@@ -54,6 +57,8 @@ valid_role(Type, Role) ->
     end.
 
 %% ===================================================================
+-spec do_check_rbac(actor_context(), emqx_dashboard:request(), emqx_dashboard:handler_info()) ->
+    boolean().
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, _) ->
     true;
 do_check_rbac(#{?role := ?ROLE_VIEWER}, _, #{method := get}) ->

@@ -36,6 +36,12 @@
 %% Todo: refine keys/values.
 -type request() :: map().
 
+-type auth_meta() :: #{
+    auth_type := jwt_token | api_key,
+    source := binary(),
+    actor := emqx_dashboard_rbac:actor_context()
+}.
+
 -export_type([listener_name/0, listener_configs/0, handler_info/0, request/0]).
 
 %%--------------------------------------------------------------------
@@ -257,22 +263,13 @@ listener_name(Protocol) ->
 audit_log_fun() ->
     emqx_dashboard_audit:log_fun().
 
+-spec authorize(request(), handler_info()) -> {ok, auth_meta()} | {integer(), term(), term()}.
 authorize(Req, HandlerInfo) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->
             api_key_authorize(Req, HandlerInfo, Username, Password);
         {bearer, Token} ->
-            case emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token) of
-                {ok, Username} ->
-                    {ok, #{auth_type => jwt_token, source => Username}};
-                {error, token_timeout} ->
-                    {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
-                {error, not_found} ->
-                    {401, 'BAD_TOKEN', <<"Get a token by POST /login">>};
-                {error, unauthorized_role} ->
-                    {403, 'UNAUTHORIZED_ROLE',
-                        <<"You don't have permission to access this resource">>}
-            end;
+            jwt_token_bearer_authorize(Req, HandlerInfo, Token);
         _ ->
             return_unauthorized(
                 <<"AUTHORIZATION_HEADER_ERROR">>,
@@ -293,8 +290,8 @@ listeners() ->
 
 api_key_authorize(Req, HandlerInfo, Key, Secret) ->
     case emqx_mgmt_auth:authorize(HandlerInfo, Req, Key, Secret) of
-        ok ->
-            {ok, #{auth_type => api_key, source => Key}};
+        {ok, ActorContext} ->
+            {ok, #{auth_type => api_key, source => Key, actor => ActorContext}};
         {error, <<"not_allowed">>, Resource} ->
             return_unauthorized(
                 ?API_KEY_NOT_ALLOW,
@@ -308,6 +305,18 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
                 ?BAD_API_KEY_OR_SECRET,
                 <<"Check api_key/api_secret">>
             )
+    end.
+
+jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
+    case emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token) of
+        {ok, #{actor := Username} = ActorContext} ->
+            {ok, #{auth_type => jwt_token, source => Username, actor => ActorContext}};
+        {error, token_timeout} ->
+            {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
+        {error, not_found} ->
+            {401, 'BAD_TOKEN', <<"Get a token by POST /login">>};
+        {error, unauthorized_role} ->
+            {403, 'UNAUTHORIZED_ROLE', <<"You don't have permission to access this resource">>}
     end.
 
 ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->

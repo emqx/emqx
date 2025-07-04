@@ -642,9 +642,8 @@ sign_token(Username, Password, MfaToken) ->
     end.
 
 -spec verify_token(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
-    Result ::
-        {ok, binary()}
-        | {error, token_timeout | not_found | unauthorized_role}.
+    {ok, emqx_dashboard_rbac:actor_context()}
+    | {error, token_timeout | not_found | unauthorized_role}.
 verify_token(Req, HandlerInfo, Token) ->
     emqx_dashboard_token:verify(Req, HandlerInfo, Token).
 

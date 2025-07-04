@@ -175,14 +175,16 @@ t_clean_token(_) ->
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     FakeReq = #{},
     FakeHandlerInfo = #{method => get, function => any, module => any},
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
+    {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% change password
     {ok, _} = emqx_dashboard_admin:change_password(Username, Password, NewPassword),
     timer:sleep(5),
     {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% remove user
     {ok, #{token := Token2}} = emqx_dashboard_admin:sign_token(Username, NewPassword),
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token2),
+    {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(
+        FakeReq, FakeHandlerInfo, Token2
+    ),
     {ok, _} = emqx_dashboard_admin:remove_user(Username),
     timer:sleep(5),
     {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token2),

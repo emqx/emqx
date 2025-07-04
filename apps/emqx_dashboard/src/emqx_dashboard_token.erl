@@ -43,9 +43,8 @@
 %% jwt function
 
 -spec verify(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
-    Result ::
-        {ok, binary()}
-        | {error, token_timeout | not_found | unauthorized_role}.
+    {ok, emqx_dashboard_rbac:actor_context()}
+    | {error, token_timeout | not_found | unauthorized_role}.
 verify(Req, HandlerInfo, Token) ->
     do_verify(Req, HandlerInfo, Token).
 
@@ -105,9 +104,8 @@ sign(#?ADMIN{username = Username} = User) ->
     {ok, Role, Token}.
 
 -spec do_verify(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
-    Result ::
-        {ok, binary()}
-        | {error, token_timeout | not_found | unauthorized_role}.
+    {ok, emqx_dashboard_rbac:actor_context()}
+    | {error, token_timeout | not_found | unauthorized_role}.
 do_verify(Req, HandlerInfo, Token) ->
     case lookup(Token) of
         {ok, JWT = #?ADMIN_JWT{exptime = ExpTime, extra = _Extra, username = _Username}} ->
@@ -226,21 +224,22 @@ clean_expired_jwt(Now) ->
 check_rbac(Req, HandlerInfo, JWT) ->
     ActorContext = actor_context_of(JWT),
     case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext) of
-        true ->
-            save_new_jwt(JWT);
-        _ ->
+        {ok, ActorContextFinal} ->
+            ok = save_new_jwt(JWT),
+            {ok, ActorContextFinal};
+        false ->
             {error, unauthorized_role}
     end.
 
 save_new_jwt(OldJWT) ->
-    #?ADMIN_JWT{exptime = _ExpTime, extra = _Extra, username = Username} = OldJWT,
+    #?ADMIN_JWT{exptime = _ExpTime, extra = _Extra} = OldJWT,
     NewJWT = OldJWT#?ADMIN_JWT{exptime = jwt_expiration_time()},
-    {atomic, Res} = mria:sync_transaction(
+    {atomic, ok} = mria:sync_transaction(
         ?DASHBOARD_SHARD,
         fun mnesia:write/1,
         [NewJWT]
     ),
-    {Res, Username}.
+    ok.
 
 actor_context_of(#?ADMIN_JWT{} = JWT) ->
     #?ADMIN_JWT{exptime = _ExpTime, extra = Extra, username = Username} = JWT,
