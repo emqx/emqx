@@ -359,7 +359,7 @@ t_gc_spares_symlinked_datadir(Config) ->
 
     ok = proc_lib:stop(Pid).
 
-t_gc_active(Config) ->
+t_gc_active(_Config) ->
     ?assertEqual(
         {ok, []},
         emqx_tls_certfile_gc:run()

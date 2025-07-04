@@ -839,7 +839,6 @@ non_rate_value() ->
         node_uptime => emqx_sys:uptime()
     }.
 
--if(?EMQX_RELEASE_EDITION == ee).
 license_quota() ->
     case emqx_license_checker:limits() of
         {ok, #{max_sessions := Quota}} ->
@@ -847,10 +846,6 @@ license_quota() ->
         {error, no_license} ->
             #{license_quota => 0}
     end.
--else.
-license_quota() ->
-    #{}.
--endif.
 
 now_ts() ->
     erlang:system_time(millisecond).
