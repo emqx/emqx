@@ -7,30 +7,35 @@
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
 -export([
-    check_rbac/4,
-    role/1,
+    check_rbac/3,
     valid_dashboard_role/1,
     valid_api_role/1
 ]).
 
+-export_type([actor_context/0]).
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
+
+-define(actor, actor).
+-define(role, role).
+
+-type actor_context() :: #{
+    ?actor := username() | api_key(),
+    ?role := role()
+}.
+
+-type username() :: binary().
+-type api_key() :: binary().
+-type role() :: binary().
+
 %%=====================================================================
 %% API
-check_rbac(Req, HandlerInfo, Username, Extra) ->
-    Role = role(Extra),
-    do_check_rbac(Role, Req, HandlerInfo, Username).
-
-%% For compatibility
-role(#?ADMIN{role = undefined}) ->
-    ?ROLE_SUPERUSER;
-role(#?ADMIN{role = Role}) ->
-    Role;
-%% For compatibility
-role([]) ->
-    ?ROLE_SUPERUSER;
-role(#{role := Role}) ->
-    Role;
-role(Role) when is_binary(Role) ->
-    Role.
+-spec check_rbac(emqx_dashboard:request(), emqx_dashboard:handler_info(), actor_context()) ->
+    boolean().
+check_rbac(Req, HandlerInfo, ActorContext) ->
+    do_check_rbac(ActorContext, Req, HandlerInfo).
 
 valid_dashboard_role(Role) ->
     valid_role(dashboard, Role).
@@ -49,26 +54,30 @@ valid_role(Type, Role) ->
     end.
 
 %% ===================================================================
-do_check_rbac(?ROLE_SUPERUSER, _, _, _) ->
+do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, _) ->
     true;
-do_check_rbac(?ROLE_VIEWER, _, #{method := get}, _) ->
+do_check_rbac(#{?role := ?ROLE_VIEWER}, _, #{method := get}) ->
     true;
 do_check_rbac(
-    ?ROLE_API_PUBLISHER, _, #{method := post, module := emqx_mgmt_api_publish, function := Fn}, _
+    #{?role := ?ROLE_API_PUBLISHER},
+    _,
+    #{method := post, module := emqx_mgmt_api_publish, function := Fn}
 ) when Fn == publish; Fn == publish_batch ->
     %% emqx_mgmt_api_publish:publish
     %% emqx_mgmt_api_publish:publish_batch
     true;
 %% everyone should allow to logout
 do_check_rbac(
-    ?ROLE_VIEWER, _, #{method := post, module := emqx_dashboard_api, function := logout}, _
+    #{?role := ?ROLE_VIEWER}, _, #{method := post, module := emqx_dashboard_api, function := logout}
 ) ->
     %% emqx_dashboard_api:logout
     true;
 %% viewer should allow to change self password and (re)setup multi-factor auth for self,
 %% superuser should allow to change any user
 do_check_rbac(
-    ?ROLE_VIEWER, Req, #{method := post, module := emqx_dashboard_api, function := Fn}, Username
+    #{?role := ?ROLE_VIEWER, ?actor := Username},
+    Req,
+    #{method := post, module := emqx_dashboard_api, function := Fn}
 ) when Fn == change_pwd; Fn == change_mfa ->
     %% emqx_dashboard_api:change_pwd
     %% emqx_dashboard_api:change_mfa
@@ -79,10 +88,9 @@ do_check_rbac(
             false
     end;
 do_check_rbac(
-    ?ROLE_VIEWER,
+    #{?role := ?ROLE_VIEWER, ?actor := Username},
     Req,
-    #{method := delete, module := emqx_dashboard_api, function := change_mfa},
-    Username
+    #{method := delete, module := emqx_dashboard_api, function := change_mfa}
 ) ->
     %% emqx_dashboard_api:change_mfa
     case Req of
@@ -91,7 +99,7 @@ do_check_rbac(
         _ ->
             false
     end;
-do_check_rbac(_, _, _, _) ->
+do_check_rbac(_, _, _) ->
     false.
 
 role_list(dashboard) ->

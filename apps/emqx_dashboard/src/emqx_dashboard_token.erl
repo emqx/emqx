@@ -224,8 +224,8 @@ clean_expired_jwt(Now) ->
     ok = destroy(JWTList).
 
 check_rbac(Req, HandlerInfo, JWT) ->
-    #?ADMIN_JWT{exptime = _ExpTime, extra = Extra, username = Username} = JWT,
-    case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, Username, Extra) of
+    ActorContext = actor_context_of(JWT),
+    case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext) of
         true ->
             save_new_jwt(JWT);
         _ ->
@@ -241,3 +241,18 @@ save_new_jwt(OldJWT) ->
         [NewJWT]
     ),
     {Res, Username}.
+
+actor_context_of(#?ADMIN_JWT{} = JWT) ->
+    #?ADMIN_JWT{exptime = _ExpTime, extra = Extra, username = Username} = JWT,
+    Role = role_of(Extra),
+    #{
+        actor => Username,
+        role => Role
+    }.
+
+%% For compatibility
+role_of([]) ->
+    %% Very old record definition had `[]` as the default for `extra`....
+    ?ROLE_SUPERUSER;
+role_of(#{role := Role}) ->
+    Role.
