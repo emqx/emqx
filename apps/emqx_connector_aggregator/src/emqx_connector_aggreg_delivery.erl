@@ -58,28 +58,44 @@
 
 -type transfer_state() :: term().
 
-%% @doc Initialize the transfer state, such as blob storage path, transfer options, client
-%% credentials, etc. .  Also returns options to initialize container, if dynamic settings
-%% are needed.
+-doc """
+Initialize the transfer state, such as blob storage path, transfer options, client
+credentials, etc. .  Also returns options to initialize container, if dynamic settings are
+needed.
+""".
 -callback init_transfer_state_and_container_opts(buffer(), map()) ->
     {ok, transfer_state(), ContainerOpts} | {error, term()}
 when
     ContainerOpts :: map().
 
-%% @doc Append data to the transfer before sending.  Usually should not fail.
+-doc """
+Append data to the transfer before sending.  Usually should not fail.
+""".
 -callback process_append(iodata() | term(), transfer_state()) ->
     transfer_state().
 
-%% @doc Push appended transfer data to its destination (e.g.: upload a part of a
-%% multi-part upload).  May fail.
+-doc """
+Push appended transfer data to its destination (e.g.: upload a part of a multi-part
+upload).  May fail.
+""".
 -callback process_write(transfer_state()) -> {ok, transfer_state()} | {error, term()}.
 
-%% @doc Finalize the transfer and clean up any resources.  May return a term summarizing
-%% the transfer.
+-doc """
+Finalize the transfer and clean up any resources.  May return a term summarizing the
+transfer.
+""".
 -callback process_complete(transfer_state()) -> {ok, term()}.
 
-%% @doc Clean up any resources when the process finishes abnormally.  Result is ignored.
+-doc """
+Clean up any resources when the process finishes abnormally.  Result is ignored.
+""".
 -callback process_terminate(transfer_state()) -> any().
+
+-doc """
+When a delivery fails (or simply when `gen_server:format_status/1` is called on a delivery
+process), this callback is used to format the internal transfer status.
+""".
+-callback process_format_status(transfer_state()) -> term().
 
 %%------------------------------------------------------------------------------
 %% API

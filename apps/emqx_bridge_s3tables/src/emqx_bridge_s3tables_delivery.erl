@@ -17,7 +17,8 @@
     process_append/2,
     process_write/1,
     process_complete/1,
-    process_terminate/1
+    process_terminate/1,
+    process_format_status/1
 ]).
 
 -include("emqx_bridge_s3tables.hrl").
@@ -360,6 +361,36 @@ process_terminate(#{?inner_transfer := #partitioned_transfer{} = TransferState})
         end,
         St
     ).
+
+-spec process_format_status(transfer_state()) -> map().
+process_format_status(
+    #{?inner_transfer := #single_transfer{} = InnerTransferState} = FullTransferState
+) ->
+    FullTransferState#{
+        ?client := <<"...">>,
+        ?inner_transfer := #{
+            data_file_key => InnerTransferState#single_transfer.data_file_key,
+            data_size => InnerTransferState#single_transfer.data_size,
+            num_records => InnerTransferState#single_transfer.num_records,
+            state => emqx_s3_upload:format(InnerTransferState#single_transfer.state)
+        },
+        ?s3_client := <<"...">>
+    };
+process_format_status(
+    #{?inner_transfer := #partitioned_transfer{state = InnerTransferState}} = FullTransferState
+) ->
+    FullTransferState#{
+        ?client := <<"...">>,
+        ?inner_transfer :=
+            maps:map(
+                fun(_PK, St) ->
+                    #{?s3_transfer_state := S3St} = St,
+                    St#{?s3_transfer_state := emqx_s3_upload:format(S3St)}
+                end,
+                InnerTransferState
+            ),
+        ?s3_client := <<"...">>
+    }.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
