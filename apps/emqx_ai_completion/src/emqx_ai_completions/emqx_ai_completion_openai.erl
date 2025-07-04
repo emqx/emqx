@@ -59,7 +59,9 @@ call(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-create_client(#{base_url := BaseUrl, api_key := ApiKey, transport_options := TransportOptions}) ->
+create_client(
+    #{base_url := BaseUrl, api_key := ApiKey, transport_options := TransportOptions} = Provider
+) ->
     emqx_ai_completion_client:new(#{
         base_url => BaseUrl,
         headers => [
@@ -67,5 +69,6 @@ create_client(#{base_url := BaseUrl, api_key := ApiKey, transport_options := Tra
             {<<"Authorization">>,
                 emqx_secret:wrap(<<"Bearer ", (emqx_secret:unwrap(ApiKey))/binary>>)}
         ],
-        transport_options => TransportOptions
+        transport_options => TransportOptions,
+        hackney_pool => emqx_ai_completion_provider:hackney_pool(Provider)
     }).

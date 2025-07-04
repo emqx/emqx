@@ -349,8 +349,7 @@ set(Name, Id, Metric, Val) ->
 %%
 -spec observe(handler_name(), metric_id(), atom(), integer()) -> ok.
 observe(Name, Id, Metric, Val) ->
-    #{ref := CRef, slide := Idx} = maps:get(Id, get_pterm(Name)),
-    Index = maps:get(Metric, Idx),
+    #{Id := #{ref := CRef, slide := #{Metric := Index}}} = get_pterm(Name),
     %% Update sum:
     counters:add(CRef, Index, Val),
     %% Update number of samples:
@@ -358,8 +357,7 @@ observe(Name, Id, Metric, Val) ->
 
 -spec observe_hist(handler_name(), metric_id(), atom(), integer()) -> ok.
 observe_hist(Name, Id, Metric, Val) ->
-    #{ref := CRef, hist := Idx} = maps:get(Id, get_pterm(Name)),
-    {Index, Buckets} = maps:get(Metric, Idx),
+    #{Id := #{ref := CRef, hist := #{Metric := {Index, Buckets}}}} = get_pterm(Name),
     %% Update sum:
     counters:add(CRef, Index, Val),
     %% Update bucket counter:

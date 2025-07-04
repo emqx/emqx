@@ -5,6 +5,7 @@
 -module(emqx_gateway_metrics_SUITE).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -20,14 +21,19 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
-    emqx_config:erase(gateway),
-    emqx_gateway_test_utils:load_all_gateway_apps(),
-    emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_common_test_helpers:start_apps([]),
-    Conf.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            {emqx_gateway, ?CONF_DEFAULT}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Conf)}
+    ),
+    [{apps, Apps} | Conf].
 
-end_per_suite(_Conf) ->
-    emqx_common_test_helpers:stop_apps([]).
+end_per_suite(Conf) ->
+    ok = emqx_cth_suite:stop(?config(apps, Conf)),
+    ok.
 
 init_per_testcase(_TestCase, Conf) ->
     {ok, Pid} = emqx_gateway_metrics:start_link(?GWNAME),

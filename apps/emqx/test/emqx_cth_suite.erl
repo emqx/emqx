@@ -256,6 +256,7 @@ maybe_configure_app(_App, #{}) ->
     ok.
 
 configure_app(SchemaModule, Config) ->
+    _ = emqx_config:create_tables(),
     ok = emqx_config:init_load(SchemaModule, render_config(Config)),
     ok.
 

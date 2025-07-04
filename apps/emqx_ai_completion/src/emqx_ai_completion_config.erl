@@ -48,7 +48,8 @@
 -type transport_options() :: #{
     connect_timeout => pos_integer(),
     recv_timeout => pos_integer(),
-    checkout_timeout => pos_integer()
+    checkout_timeout => pos_integer(),
+    max_connections => pos_integer()
 }.
 
 -type ai_type() :: openai | anthropic.
@@ -198,7 +199,8 @@ pre_config_update(_Path, Request, _OldConf) ->
         config => Request
     }}.
 
-post_config_update(?PROVIDER_CONFIG_PATH, _Request, NewConf, _OldConf, _AppEnvs) ->
+post_config_update(?PROVIDER_CONFIG_PATH, _Request, NewConf, OldConf, _AppEnvs) ->
+    ok = update_providers(NewConf, OldConf),
     ok = cache_providers(NewConf);
 post_config_update(?COMPLETION_PROFILE_CONFIG_PATH, _Request, NewConf, _OldConf, _AppEnvs) ->
     ok = cache_completion_profiles(NewConf).
@@ -407,6 +409,25 @@ update_provider(Name, Provider, Providers) ->
         Name,
         update_by_key(<<"name">>, Name, Provider, Providers)
     ).
+
+update_providers(NewConf, OldConf) ->
+    NewProviders = lists:foldl(
+        fun(#{name := Name} = Provider, Acc) -> Acc#{Name => Provider} end, #{}, NewConf
+    ),
+    OldProviders = lists:foldl(
+        fun(#{name := Name} = Provider, Acc) -> Acc#{Name => Provider} end, #{}, OldConf
+    ),
+    #{added := Added, removed := Removed, changed := Changed} =
+        emqx_utils_maps:diff_maps(NewProviders, OldProviders),
+    ok = lists:foreach(fun emqx_ai_completion_provider:create/1, maps:values(Added)),
+    ok = lists:foreach(fun emqx_ai_completion_provider:delete/1, maps:values(Removed)),
+    ok = lists:foreach(
+        fun({OldProvider, NewProvider}) ->
+            emqx_ai_completion_provider:update(OldProvider, NewProvider)
+        end,
+        maps:values(Changed)
+    ),
+    ok.
 
 %% Helpers
 
