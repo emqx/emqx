@@ -8,14 +8,17 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Config.
+    Apps = emqx_cth_suite:start([], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    _ = emqx_config:create_tables(),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_config:erase_all(),
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 t_run_gc(_) ->
