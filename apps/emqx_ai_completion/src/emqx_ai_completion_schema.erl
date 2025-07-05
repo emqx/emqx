@@ -76,7 +76,7 @@ fields(provider) ->
             mk(ref(transport_options), #{
                 default => #{},
                 desc => ?DESC(transport_options),
-                importance => ?IMPORTANCE_HIDDEN
+                importance => ?IMPORTANCE_LOW
             })}
     ];
 fields(transport_options) ->
@@ -86,21 +86,28 @@ fields(transport_options) ->
                 required => false,
                 default => <<"1s">>,
                 desc => ?DESC(connect_timeout),
-                importance => ?IMPORTANCE_HIDDEN
+                importance => ?IMPORTANCE_LOW
             })},
         {recv_timeout,
             mk(emqx_schema:timeout_duration_ms(), #{
                 required => false,
                 default => <<"5s">>,
                 desc => ?DESC(recv_timeout),
-                importance => ?IMPORTANCE_HIDDEN
+                importance => ?IMPORTANCE_LOW
             })},
         {checkout_timeout,
             mk(emqx_schema:timeout_duration_ms(), #{
                 required => false,
                 default => <<"1s">>,
                 desc => ?DESC(checkout_timeout),
-                importance => ?IMPORTANCE_HIDDEN
+                importance => ?IMPORTANCE_LOW
+            })},
+        {max_connections,
+            mk(pos_integer(), #{
+                required => false,
+                default => 50,
+                desc => ?DESC(max_connections),
+                importance => ?IMPORTANCE_LOW
             })}
     ];
 fields(provider_api_get) ->
@@ -162,6 +169,8 @@ desc(openai_completion_profile) ->
     ?DESC(openai_completion_profile);
 desc(anthropic_completion_profile) ->
     ?DESC(anthropic_completion_profile);
+desc(transport_options) ->
+    ?DESC(transport_options);
 desc(_) ->
     undefined.
 

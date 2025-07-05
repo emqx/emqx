@@ -9,6 +9,7 @@
         stdlib,
         emqx_auth,
         emqx_connector,
+        emqx_bridge_http,
         emqx_resource
     ]},
     {env, []},

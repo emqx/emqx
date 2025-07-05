@@ -165,6 +165,32 @@ t_anthropic_completion(_Config) ->
         <<"some completion-some completion">>
     ).
 
+t_hackney_pool_config(_Config) ->
+    ProviderRaw0 = #{
+        <<"type">> => <<"openai">>,
+        <<"name">> => <<"openai-provider">>,
+        <<"api_key">> => <<"sk-proj-1234567890">>,
+        <<"base_url">> => <<"http://localhost:33330/v1">>,
+        <<"transport_options">> => #{
+            <<"max_connections">> => 10
+        }
+    },
+    Pool = emqx_ai_completion_provider:hackney_pool(#{name => <<"openai-provider">>}),
+    ok = emqx_ai_completion_config:update_providers_raw({add, ProviderRaw0}),
+    ?assertEqual(10, hackney_pool:max_connections(Pool)),
+    ProviderRaw1 = emqx_utils_maps:deep_put(
+        [<<"transport_options">>, <<"max_connections">>], ProviderRaw0, 20
+    ),
+    ok = emqx_ai_completion_config:update_providers_raw({update, ProviderRaw1}),
+    ?assertEqual(20, hackney_pool:max_connections(Pool)),
+    ok = emqx_ai_completion_config:update_providers_raw({delete, <<"openai-provider">>}),
+    ?assertEqual([], ets:tab2list(hackney_pool)),
+    ?assertException(
+        exit,
+        {noproc, _},
+        hackney_pool:max_connections(Pool)
+    ).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

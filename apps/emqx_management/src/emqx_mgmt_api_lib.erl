@@ -22,7 +22,7 @@
     with_node_or_cluster/2
 ]).
 
--include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 -define(NODE_NOT_FOUND(NODE), ?NOT_FOUND(<<"Node not found: ", NODE/binary>>)).
 

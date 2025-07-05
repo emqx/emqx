@@ -167,6 +167,23 @@ wait_clustered([Node | Nodes] = All, Check, Deadline) ->
 -spec restart(Complete :: [bakedspec()] | bakedspec()) -> [node()].
 restart(NodeSpecs = [_ | _]) ->
     Nodes = [maps:get(name, Spec) || Spec <- NodeSpecs],
+    Cores = [maps:get(name, Spec) || Spec = #{role := core} <- NodeSpecs],
+    %% The default `shutdown` option that we currently pass to `peer` does not allow
+    %% `mnesia` to correctly sync its log and shutdown properly, even when using `shutdown
+    %% => 5_000` in some situations.  Since we are restarting the cluster in our test
+    %% here, it's expected that we don't lose the data in mnesia.  So we explicitly flush
+    %% it here.
+    ct:pal("Flushing mnesia in cores: ~p", [Cores]),
+    emqx_utils:pforeach(
+        fun(N) ->
+            maybe
+                Pid = whereis(N),
+                true ?= is_pid(Pid),
+                erpc:call(N, fun mnesia:sync_log/0)
+            end
+        end,
+        Cores
+    ),
     ct:pal("Stopping peer nodes: ~p", [Nodes]),
     ok = stop(Nodes),
     perform(restart, NodeSpecs, _Opts = #{});
@@ -434,7 +451,7 @@ start_apps(Node, #{apps := Apps} = Spec) ->
         _Started = erpc:call(Node, emqx_cth_suite, start_apps, [AppsRest, SuiteOpts])
     catch
         K:E:S ->
-            ct:pal("failure while starting apps on node ~s: ~p:~p\n  ~p", [Node, K, E, S]),
+            ct:pal("failure while starting apps on node ~s:\n  ~p:~p\n  ~p", [Node, K, E, S]),
             erlang:raise(K, E, S)
     end,
     ok.

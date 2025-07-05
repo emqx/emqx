@@ -5,7 +5,7 @@
 
 -behaviour(minirest_api).
 
--include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include("emqx_dashboard.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").

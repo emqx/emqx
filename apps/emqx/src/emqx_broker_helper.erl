@@ -6,6 +6,8 @@
 
 -behaviour(gen_server).
 
+-include_lib("stdlib/include/ms_transform.hrl").
+
 -include("emqx_router.hrl").
 -include("emqx_shared_sub.hrl").
 -include("logger.hrl").
@@ -18,9 +20,10 @@
     register_sub/2,
     lookup_subid/1,
     lookup_subpid/1,
-    get_sub_shard/2,
-    create_seq/1,
-    reclaim_seq/1
+    assign_sub_shard/1,
+    assigned_sub_shards/1,
+    unassign_sub_shard/2,
+    shard_capacity/0
 ]).
 
 %% Stats fun
@@ -47,8 +50,9 @@
 -define(HELPER, ?MODULE).
 -define(SUBID, emqx_subid).
 -define(SUBMON, emqx_submon).
--define(SUBSEQ, emqx_subseq).
--define(SHARD, 1024).
+
+-define(SHARD_CAPACITY, 1024).
+-define(SHARD_REFILL, 768).
 
 -define(BATCH_SIZE, 1000).
 
@@ -76,25 +80,98 @@ lookup_subid(SubPid) when is_pid(SubPid) ->
 lookup_subpid(SubId) ->
     emqx_utils_ets:lookup_value(?SUBID, SubId).
 
--spec get_sub_shard(pid(), emqx_types:topic()) -> non_neg_integer().
-get_sub_shard(SubPid, Topic) ->
-    case create_seq(Topic) of
-        Seq when Seq =< ?SHARD -> 0;
-        _ -> erlang:phash2(SubPid, shards_num()) + 1
+-doc """
+Assign `Topic` subscriber to some shard, where shard is simply a number between
+0 and positive infinity. Assignment strives to be optimal: for the given number
+of `Topic` subscribers (i.e. `assign_sub_shard(Topic)` calls) there should be as
+few shards assigned as possible, where each shard has fixed limited capacity
+(see `shard_capacity/0`). This limit is a soft limit, meaning going over capacity
+a bit is allowed, however it's expected to happen only under extremely high load.
+
+This operation is not idempotent.
+
+Shard numbers are used to partition subscribers into separate records in
+`emqx_subscriber` bag table, to smooth out O(N) insertion cost and O(N) memory
+requirement during record lookup.
+""".
+-spec assign_sub_shard(emqx_types:topic()) -> non_neg_integer().
+assign_sub_shard(Topic) ->
+    %% Lookup current shard:
+    %% Current shard is the shard that's being filled up now, _each_ assignment
+    %% goes into it.
+    Ix = ets:lookup_element(?HELPER, Topic, 2, 0),
+    Shard = {Topic, Ix},
+    %% Make assignment in the current shard:
+    case ets:update_counter(?HELPER, Shard, {2, 1}, {'_', 0}) of
+        N when N =< ?SHARD_CAPACITY ->
+            Ix;
+        _ ->
+            %% Current shard is over capacity. Switch up to the next shard.
+            %% Subject to races.
+            _ = ets:update_counter(?HELPER, Topic, {2, 1, Ix + 1, Ix + 1}, Shard),
+            Ix
     end.
 
--spec shards_num() -> pos_integer().
-shards_num() ->
-    %% Dynamic sharding later...
-    ets:lookup_element(?HELPER, shards, 2).
+-doc """
+Unassign `Topic` from the given shard `Ix`, where `Ix` was obtained before by
+calling `assign_sub_shard(Topic)`.
 
--spec create_seq(emqx_types:topic()) -> emqx_sequence:seqid().
-create_seq(Topic) ->
-    emqx_sequence:nextval(?SUBSEQ, Topic).
+\"Unassignment\" is performed in such a way that further assignments will tend
+towards optimality, as much as practically possible. This is why the logic is so
+complex.
 
--spec reclaim_seq(emqx_types:topic()) -> emqx_sequence:seqid().
-reclaim_seq(Topic) ->
-    emqx_sequence:reclaim(?SUBSEQ, Topic).
+This operation is not idempotent.
+""".
+-spec unassign_sub_shard(emqx_types:topic(), non_neg_integer()) -> _Left :: non_neg_integer().
+unassign_sub_shard(Topic, ShardIx) when is_integer(ShardIx) ->
+    Shard = {Topic, ShardIx},
+    %% Unassign subscriber from the given shard:
+    case ets:update_counter(?HELPER, Shard, {2, -1, 0, 0}, {'_', 1}) of
+        N when N =< ?SHARD_REFILL ->
+            %% After unassigment, shard has number of susbcribers fewer than threshold.
+            %% It is now a candidate for refilling. To keep assignments close to being
+            %% optimal, current shard can only switched down but not up, because it
+            %% makes "switch-up" to a new, never seen before shard less likely during
+            %% assign.
+            case ets:lookup_element(?HELPER, Topic, 2, 0) of
+                Ix when Ix > ShardIx ->
+                    %% Current shard is higher.
+                    %% Switch down to this shard atomically.
+                    Spec = [{{Topic, '$1'}, [{'>', '$1', ShardIx}], [{const, Shard}]}],
+                    _ = ets:select_replace(?HELPER, Spec),
+                    ok;
+                Ix when Ix < ShardIx andalso N =:= 0 ->
+                    %% Current shard is lower, this one is empty.
+                    %% Likely not going to be filled soon. Delete the shard counter
+                    %% record atomically.
+                    _ = ets:delete_object(?HELPER, {Shard, 0}),
+                    ok;
+                ShardIx when ShardIx > 0 andalso N =:= 0 ->
+                    %% This is the current shard, and is now empty.
+                    %% It's also not the zeroth shard, so switch-down is possible.
+                    %% Switch down to previous shard atomically and delete the shard
+                    %% counter record atomically.
+                    Spec = [{Shard, [], [{const, {Topic, ShardIx - 1}}]}],
+                    _ = ets:select_replace(?HELPER, Spec),
+                    _ = ets:delete_object(?HELPER, {Shard, 0}),
+                    ok;
+                _ ->
+                    %% Current shard is either this or lower.
+                    ok
+            end,
+            N;
+        N ->
+            N
+    end.
+
+-spec assigned_sub_shards(emqx_types:topic()) ->
+    [{_Shard :: non_neg_integer(), non_neg_integer()}].
+assigned_sub_shards(Topic) ->
+    ets:select(?HELPER, ets:fun2ms(fun({{T, ShardIx}, C}) when T == Topic -> {ShardIx, C} end)).
+
+-spec shard_capacity() -> pos_integer().
+shard_capacity() ->
+    ?SHARD_CAPACITY.
 
 %%--------------------------------------------------------------------
 %% Stats fun
@@ -140,11 +217,7 @@ table_size(Tab) when is_atom(Tab) -> ets:info(Tab, size).
 init([]) ->
     process_flag(message_queue_data, off_heap),
     %% Helper table
-    ok = emqx_utils_ets:new(?HELPER, [{read_concurrency, true}]),
-    %% Shards: CPU * 32
-    true = ets:insert(?HELPER, {shards, emqx_vm:schedulers() * 32}),
-    %% SubSeq: Topic -> SeqId
-    ok = emqx_sequence:create(?SUBSEQ),
+    ok = emqx_utils_ets:new(?HELPER, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% SubId: SubId -> SubPid
     ok = emqx_utils_ets:new(?SUBID, [public, {read_concurrency, true}, {write_concurrency, true}]),
     %% SubMon: SubPid -> SubId
@@ -172,7 +245,6 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    true = emqx_sequence:delete(?SUBSEQ),
     emqx_stats:cancel_update(broker_stats).
 
 code_change(_OldVsn, State, _Extra) ->

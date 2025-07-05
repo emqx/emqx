@@ -5,7 +5,7 @@ defmodule EMQXSchemaRegistry.MixProject do
   def project do
     [
       app: :emqx_schema_registry,
-      version: "0.3.8",
+      version: "0.3.9",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler

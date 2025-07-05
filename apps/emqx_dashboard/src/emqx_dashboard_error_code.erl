@@ -4,7 +4,7 @@
 
 -module(emqx_dashboard_error_code).
 
--include_lib("emqx/include/http_api.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 -export([
     all/0,

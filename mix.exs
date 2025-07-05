@@ -488,8 +488,13 @@ defmodule EMQXUmbrella.MixProject do
       {:d, :snk_kind, :msg}
     ] ++
       singleton(test_env?(), {:d, :TEST}) ++
+      singleton(enable_broker_instr?(), {:d, :EMQX_BROKER_INSTR}) ++
       singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
       singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
+  end
+
+  defp enable_broker_instr?() do
+    "1" == System.get_env("EMQX_BROKER_INSTR")
   end
 
   defp store_state_in_ds?() do
