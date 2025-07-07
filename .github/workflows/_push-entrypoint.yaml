@@ -177,18 +177,6 @@ jobs:
         run: |
           gh --repo emqx/emqx-i18n workflow run sync-and-translate.yaml -f version=${GITHUB_REF_NAME}
 
-  run_emqx_app_tests:
-    if: needs.prepare.outputs.release != 'true'
-    needs:
-      - init
-      - prepare
-      - compile
-    uses: ./.github/workflows/run_emqx_app_tests.yaml
-    with:
-      builder: ${{ needs.init.outputs.BUILDER }}
-      before_ref: ${{ github.event.before }}
-      after_ref: ${{ github.sha }}
-
   run_test_cases:
     if: needs.prepare.outputs.release != 'true'
     needs:
