@@ -11,21 +11,25 @@ defmodule EMQXUmbrella.MixProject do
   ## Profiles
 
   To control the profile and edition to build, we case split on the
-  MIX_ENV value.
+  `PROFILE` value.
 
   The following profiles are valid:
 
     * `emqx-enterprise`
     * `emqx-enterprise-pkg`
+    * `emqx-enterprise-test` (only for running tests)
     * `dev` -> same as `emqx-enterprise`, for convenience
 
   ## Release Environment Variables
 
   The release build is controlled by a few environment variables.
 
+    * `PROFILE` - defines the EMQX profile to use.
     * `ELIXIR_MAKE_TAR` - If set to `yes`, will produce a `.tar.gz`
       tarball along with the release.
   """
+
+  @default_profile_bin "emqx-enterprise"
 
   # TODO: remove once we switch to the new mix build
   def new_mix_build?() do
@@ -837,7 +841,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp make_docs(release) do
-    profile = System.get_env("MIX_ENV")
+    profile = System.get_env("PROFILE", @default_profile_bin)
     os_cmd("build", [profile, "docs"])
     release
   end
