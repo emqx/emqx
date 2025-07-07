@@ -52,7 +52,8 @@
     process_append/2,
     process_write/1,
     process_complete/1,
-    process_terminate/1
+    process_terminate/1,
+    process_format_status/1
 ]).
 
 %% API
@@ -659,6 +660,17 @@ process_complete(TransferState0) ->
 process_terminate(_TransferState) ->
     %% todo: cleanup staged files?
     ok.
+
+-spec process_format_status(transfer_state()) -> map().
+process_format_status(TransferState) ->
+    #{
+        http_client_config := HTTPClientConfig,
+        next_file := NextFile
+    } = TransferState,
+    TransferState#{
+        http_client_config := HTTPClientConfig#{jwt_config := <<"...">>},
+        next_file := queue:to_list(NextFile)
+    }.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
