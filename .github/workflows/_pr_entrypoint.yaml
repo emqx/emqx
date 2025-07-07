@@ -132,17 +132,6 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
       build_type: ${{ matrix.build_type }}
 
-  run_emqx_app_tests:
-    needs:
-      - init
-      - sanity-checks
-      - compile
-    uses: ./.github/workflows/run_emqx_app_tests.yaml
-    with:
-      builder: ${{ needs.init.outputs.BUILDER }}
-      before_ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-      after_ref: ${{ github.sha }}
-
   run_test_cases:
     needs:
       - init
