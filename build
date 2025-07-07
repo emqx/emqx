@@ -174,45 +174,26 @@ assert_no_excluded_deps() {
     done
 }
 
-just_compile() {
-    ./scripts/pre-compile.sh "$PROFILE"
-    # make_elixir_rel always create rebar.lock
-    # delete it to make git clone + checkout work because we use shallow close for rebar deps
-    rm -f rebar.lock
-    # compile all beams
-    ./rebar3 as "$PROFILE" compile
-    make_docs
-}
-
 just_compile_elixir() {
     ./scripts/pre-compile.sh "$PROFILE"
     rm -f rebar.lock
-    env MIX_ENV="$PROFILE" mix local.rebar --if-missing --force
-    env MIX_ENV="$PROFILE" mix local.rebar rebar3 "${PWD}/rebar3" --if-missing --force
-    # env MIX_ENV="$PROFILE" mix local.hex --if-missing --force
-    env MIX_ENV="$PROFILE" mix local.hex 2.0.6 --if-missing --force
-    env MIX_ENV="$PROFILE" mix deps.get
-    env MIX_ENV="$PROFILE" mix compile
-}
-
-make_rel() {
-    local release_or_tar="${1}"
-    just_compile
-    # now assemble the release tar
-    ./rebar3 as "$PROFILE" "$release_or_tar"
+    mix local.rebar --if-missing --force
+    mix local.rebar rebar3 "${PWD}/rebar3" --if-missing --force
+    # mix local.hex --if-missing --force
+    mix local.hex 2.0.6 --if-missing --force
+    mix deps.get
+    mix compile
 }
 
 make_elixir_rel() {
     ./scripts/pre-compile.sh "$PROFILE"
     export_elixir_release_vars "$PROFILE"
-    env MIX_ENV="$PROFILE" mix local.rebar --if-missing --force
-    env MIX_ENV="$PROFILE" mix local.rebar rebar3 "${PWD}/rebar3" --if-missing --force
-    # env MIX_ENV="$PROFILE" mix local.hex --if-missing --force
-    env MIX_ENV="$PROFILE" mix local.hex 2.0.6 --if-missing --force
-    env MIX_ENV="$PROFILE" mix deps.get
-    env MIX_ENV="$PROFILE" mix release --overwrite
+    # False positive: shellcheck thinks this `do` is a bash keyword...
+    # shellcheck disable=SC1010
+    mix do deps.get, release --overwrite
 }
 
+## TODO: adjust for mix
 make_relup() {
     case "$SYSTEM" in
         macos*)
@@ -250,21 +231,11 @@ make_tgz() {
     local target_name
     local target
 
-    if [ "${IS_ELIXIR:-no}" = "yes" ]
-    then
-      # ensure src_tarball exists
-      ELIXIR_MAKE_TAR=yes make_elixir_rel
+    # ensure src_tarball exists
+    ELIXIR_MAKE_TAR=yes make_elixir_rel
 
-      local relpath="_build/${PROFILE}"
-      full_vsn="$(./pkg-vsn.sh "$PROFILE" --long --elixir)"
-    else
-      # build the src_tarball again to ensure relup is included
-      # elixir does not have relup yet.
-      make_rel tar
-
-      local relpath="_build/${PROFILE}/rel/emqx"
-      full_vsn="$(./pkg-vsn.sh "$PROFILE" --long)"
-    fi
+    local relpath="_build/${PROFILE}"
+    full_vsn="$(./pkg-vsn.sh "$PROFILE" --long)"
 
     case "$SYSTEM" in
         macos*)
@@ -351,9 +322,6 @@ make_docker() {
     # shellcheck disable=SC2155
     local VSN_PATCH="$(scripts/semver.sh "$PKG_VSN" --patch)"
     local SUFFIX=''
-    if [[ "$PROFILE" = *-elixir ]]; then
-        SUFFIX="-elixir"
-    fi
 
     local DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
     local DOCKER_REGISTRIES=( )
@@ -364,7 +332,7 @@ make_docker() {
     done
 
     local DOCKER_ORG="${DOCKER_ORG:-emqx}"
-    local default_base_tag="${DOCKER_ORG}/${PROFILE%%-elixir}"
+    local default_base_tag="${DOCKER_ORG}/${PROFILE}"
 
     local EMQX_BASE_IMAGE_TAG="${EMQX_BASE_IMAGE_TAG:-$default_base_tag}"
     local DOCKER_IMAGE_BASE_TAGS=( "${EMQX_BASE_IMAGE_TAG}" )
@@ -400,14 +368,14 @@ make_docker() {
        --build-arg BUILD_FROM="${BUILD_FROM}" \
        --build-arg RUN_FROM="${RUN_FROM}" \
        --build-arg SOURCE_TYPE="${EMQX_SOURCE_TYPE}" \
-       --build-arg PROFILE="${PROFILE%%-elixir}" \
-       --build-arg IS_ELIXIR="$([[ "$PROFILE" = *-elixir ]] && echo yes || echo no)" \
+       --build-arg PROFILE="${PROFILE}" \
+       --build-arg IS_ELIXIR="yes" \
        --build-arg SUFFIX="${SUFFIX}" \
        --build-arg EXTRA_DEPS="${EXTRA_DEPS}" \
        --build-arg PKG_VSN="${PKG_VSN}" \
        --build-arg NEW_MIX_BUILD=1 \
        --file "${EMQX_DOCKERFILE}" \
-       --label org.opencontainers.image.title="${PROFILE%%-elixir}" \
+       --label org.opencontainers.image.title="${PROFILE}" \
        --label org.opencontainers.image.edition="${EDITION}" \
        --label org.opencontainers.image.version="${PKG_VSN}" \
        --label org.opencontainers.image.revision="${GIT_REVISION}" \
@@ -428,9 +396,7 @@ make_docker() {
     if [ "${DOCKER_BUILD_NOCACHE:-false}" = true ]; then
         DOCKER_BUILDX_ARGS+=(--no-cache)
     fi
-    if [ "${SUFFIX}" = '-elixir' ]; then
-        DOCKER_BUILDX_ARGS+=(--label org.opencontainers.image.elixir.version="${ELIXIR_VSN}")
-    fi
+    DOCKER_BUILDX_ARGS+=(--label org.opencontainers.image.elixir.version="${ELIXIR_VSN}")
     if [ "${DOCKER_PLATFORMS:-default}" != 'default' ]; then
         DOCKER_BUILDX_ARGS+=(--platform "${DOCKER_PLATFORMS}")
     fi
@@ -497,17 +463,13 @@ log "building artifact=$ARTIFACT for profile=$PROFILE"
 
 case "$ARTIFACT" in
     apps)
-        if [ "${IS_ELIXIR:-}" = "yes" ]; then
-            just_compile_elixir
-        else
-            just_compile
-        fi
+        just_compile_elixir
         ;;
     doc|docs)
         make_docs
         ;;
     rel)
-        make_rel release
+        make_elixir_rel
         ;;
     relup)
         make_relup
@@ -523,11 +485,7 @@ case "$ARTIFACT" in
             exit 0
         fi
         export EMQX_REL_FORM="$PKGERDIR"
-        if [ "${IS_ELIXIR:-}" = 'yes' ]; then
-            make_elixir_rel
-        else
-            make_rel tar
-        fi
+        make_tgz
         env EMQX_REL="$(pwd)" \
             EMQX_BUILD="${PROFILE}" \
             make -C "deploy/packages/${PKGERDIR}" clean
@@ -537,9 +495,6 @@ case "$ARTIFACT" in
         ;;
     docker)
         make_docker
-        ;;
-    elixir)
-        make_elixir_rel
         ;;
     *)
         log_red "Unknown artifact $ARTIFACT"

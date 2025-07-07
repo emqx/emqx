@@ -63,7 +63,7 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ${{ inputs.profile }}-elixir
+          - ${{ inputs.profile }}
         arch:
           - amd64
           - arm64
@@ -101,7 +101,7 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - "${{ inputs.profile }}-elixir"
+          - "${{ inputs.profile }}"
 
     env:
       PROFILE: ${{ matrix.profile }}
@@ -226,7 +226,6 @@ jobs:
       matrix:
         profile:
           - ${{ inputs.profile }}
-          - ${{ inputs.profile }}-elixir
         arch:
           - amd64
           - arm64

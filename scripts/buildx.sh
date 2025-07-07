@@ -25,10 +25,6 @@ help() {
     echo "    pkg for .rpm or .deb, rel for release only."
     echo "    Defaults to tgz."
     echo ""
-    echo "--elixir:"
-    echo "    Specify if the release should be built with Elixir, "
-    echo "    defaults to 'no'."
-    echo ""
     echo "--arch amd64|arm64:"
     echo "    Target arch to build the EMQX package for."
     echo "    Default is host machine's arch."
@@ -84,26 +80,6 @@ while [ "$#" -gt 0 ]; do
         ARCH="$2"
         shift 2
         ;;
-    --elixir)
-        shift 1
-        case ${1:-novalue} in
-            -*)
-                # another option
-                IS_ELIXIR='yes'
-                ;;
-            yes|no)
-                IS_ELIXIR="${1}"
-                shift 1
-                ;;
-            novalue)
-                IS_ELIXIR='yes'
-                ;;
-            *)
-                echo "ERROR: unknown option: --elixir $2"
-                exit 1
-                ;;
-        esac
-        ;;
     --flavor)
         EMQX_FLAVOR="$2"
         shift 2
@@ -133,10 +109,6 @@ ARCH="${ARCH:-${NATIVE_ARCH:-}}"
 
 set -x
 
-if [ -z "${IS_ELIXIR:-}" ]; then
-  IS_ELIXIR=no
-fi
-
 if [ -z "${EMQX_FLAVOR:-}" ]; then
   EMQX_FLAVOR=official
 fi
@@ -154,11 +126,7 @@ esac
 export CODE_PATH="${SRC_DIR:-$PWD}"
 cd "${CODE_PATH}"
 
-if [ "$IS_ELIXIR" = "yes" ]; then
-  MAKE_TARGET="${PROFILE}-elixir-${PKGTYPE}"
-else
-  MAKE_TARGET="${PROFILE}-${PKGTYPE}"
-fi
+MAKE_TARGET="${PROFILE}-${PKGTYPE}"
 
 HOST_SYSTEM="$(./scripts/get-distro.sh)"
 BUILDER_SYSTEM="${BUILDER_SYSTEM:-$(echo "$EMQX_BUILDER" | awk -F'-' '{print $NF}')}"

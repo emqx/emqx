@@ -88,6 +88,8 @@ jobs:
           - macos-15
         otp:
           - ${{ inputs.otp_vsn }}
+        elixir:
+          - ${{ inputs.elixir_vsn }}
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -98,6 +100,7 @@ jobs:
       with:
         profile: ${{ matrix.profile }}
         otp: ${{ matrix.otp }}
+        elixir: ${{ matrix.elixir }}
         os: ${{ matrix.os }}
         apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
@@ -166,8 +169,6 @@ jobs:
         arch:
           - amd64
           - arm64
-        with_elixir:
-          - 'no'
         otp:
           - ${{ inputs.otp_vsn }}
         builder:
@@ -178,7 +179,6 @@ jobs:
           - profile: ${{ inputs.profile }}
             os: ubuntu22.04
             arch: amd64
-            with_elixir: 'yes'
             otp: ${{ inputs.otp_vsn }}
             builder: ${{ inputs.builder_vsn }}
             elixir: ${{ inputs.elixir_vsn }}
@@ -197,7 +197,6 @@ jobs:
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         OS: ${{ matrix.os }}
-        IS_ELIXIR: ${{ matrix.with_elixir }}
         BUILDER: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
         BUILDER_SYSTEM: force_docker
       run: |
@@ -205,15 +204,12 @@ jobs:
           --profile $PROFILE \
           --arch $ARCH \
           --builder $BUILDER \
-          --elixir $IS_ELIXIR \
           --pkgtype tgz
     - name: build pkg
-      if: matrix.with_elixir == 'no'
       env:
         PROFILE: ${{ matrix.profile }}
         ARCH: ${{ matrix.arch }}
         OS: ${{ matrix.os }}
-        IS_ELIXIR: ${{ matrix.with_elixir }}
         BUILDER: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
         BUILDER_SYSTEM: force_docker
       run: |
@@ -221,11 +217,10 @@ jobs:
           --profile $PROFILE \
           --arch $ARCH \
           --builder $BUILDER \
-          --elixir $IS_ELIXIR \
           --pkgtype pkg
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
-        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.with_elixir == 'yes' && '-elixir' || '' }}-${{ matrix.builder }}-${{ matrix.otp }}-${{ matrix.elixir }}
+        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.builder }}-${{ matrix.otp }}-${{ matrix.elixir }}
         path: _packages/${{ matrix.profile }}/
         retention-days: 7
 
@@ -256,7 +251,6 @@ jobs:
 
     - name: Build tar.gz
       env:
-        IS_ELIXIR: "no"
         BUILDER: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ inputs.otp_vsn }}-ubuntu22.04"
         BUILDER_SYSTEM: force_docker
         SNAP_BASE: core22
@@ -265,7 +259,6 @@ jobs:
           --profile $PROFILE \
           --arch $ARCH \
           --builder $BUILDER \
-          --elixir $IS_ELIXIR \
           --pkgtype tgz
 
         export EMQX_VERSION="$(./pkg-vsn.sh $PROFILE)"
