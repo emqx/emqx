@@ -15,8 +15,6 @@ help() {
     echo
     echo "--long:          Print long vsn number. e.g. 5.0.0-ubuntu20.04-amd64"
     echo "                 Otherwise short e.g. 5.0.0"
-    echo "--elixir:        Include elixir version in the long version string"
-    echo "                 e.g. 5.0.0-elixir-ubuntu20.04-amd64"
     echo "--vsn_matcher:   For --long option, replace the EMQX version with '*'"
     echo "                 so it can be used in find commands"
 }
@@ -42,26 +40,6 @@ while [ "$#" -gt 0 ]; do
     --long)
         LONG_VERSION='yes'
         shift 1
-        ;;
-    --elixir)
-        shift 1
-        case ${1:-novalue} in
-            -*)
-                # another option
-                IS_ELIXIR='yes'
-                ;;
-            yes|no)
-                IS_ELIXIR="${1}"
-                shift 1
-                ;;
-            novalue)
-                IS_ELIXIR='yes'
-                ;;
-            *)
-                echo "ERROR: unknown option: --elixir $2"
-                exit 1
-                ;;
-        esac
         ;;
     --vsn_matcher)
         IS_MATCHER='yes'
@@ -147,10 +125,4 @@ case "$UNAME_M" in
         ;;
 esac
 
-if [ "${IS_ELIXIR:-}" = "yes" ]; then
-    infix='-elixir'
-else
-    infix=''
-fi
-
-echo "${PKG_VSN}${infix}-${SYSTEM}-${ARCH}"
+echo "${PKG_VSN}-${SYSTEM}-${ARCH}"

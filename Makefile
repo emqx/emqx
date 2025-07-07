@@ -89,7 +89,7 @@ $(REL_PROFILES:%=%-compile): $(REBAR) merge-config
 
 .PHONY: ct
 ct: $(REBAR) merge-config
-	@env ERL_FLAGS="-kernel prevent_overlapping_partitions false" $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
+	@env ERL_FLAGS="-kernel prevent_overlapping_partitions false" $(MIX) ct --cover-export-name $(CT_COVER_EXPORT_PREFIX)-ct
 
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
@@ -173,53 +173,26 @@ cover:
 COMMON_DEPS := $(REBAR)
 
 .PHONY: $(REL_PROFILES)
-$(REL_PROFILES:%=%): $(COMMON_DEPS)
+$(REL_PROFILES:%=%): $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get
 	@$(BUILD) $(@) rel
 
-.PHONY: compile $(PROFILES:%=compile-%)
-compile: $(PROFILES:%=compile-%)
-$(PROFILES:%=compile-%):
-	@$(BUILD) $(@:compile-%=%) apps
-
-.PHONY: $(PROFILES:%=compile-%-elixir)
-$(PROFILES:%=compile-%-elixir):
-	@env IS_ELIXIR=yes $(BUILD) $(@:compile-%-elixir=%) apps
-
-## Not calling rebar3 clean because
-## 1. rebar3 clean relies on rebar3, meaning it reads config, fetches dependencies etc.
-## 2. it's slow
-## NOTE: this does not force rebar3 to fetch new version dependencies
-## make clean-all to delete all fetched dependencies for a fresh start-over
 .PHONY: clean $(PROFILES:%=clean-%)
 clean: $(PROFILES:%=clean-%)
 $(PROFILES:%=clean-%):
-	@if [ -d _build/$(@:clean-%=%) ]; then \
-		rm -f rebar.lock; \
-		rm -rf _build/$(@:clean-%=%)/rel; \
-		find _build/$(@:clean-%=%) -name '*.beam' -o -name '*.so' -o -name '*.app' -o -name '*.appup' -o -name '*.o' -o -name '*.d' -type f | xargs rm -f; \
-		find _build/$(@:clean-%=%) -type l -delete; \
-	fi
+	@rm -rf _build/$(@:clean-%=%)
 
 .PHONY: clean-all
 clean-all:
 	@rm -f rebar.lock
+	@rm -f mix.lock
 	@rm -rf deps
 	@rm -rf _build
-	@rm -f emqx_dialyzer_*_plt
+	@rm -f emqx_dialyzer_*_plt*
 	@rm -rf apps/emqx_dashboard/priv
 
 .PHONY: deps-all
 deps-all: $(REBAR) $(PROFILES:%=deps-%)
 	@make clean # ensure clean at the end
-
-## deps-<profile> is used in CI scripts to download deps and the
-## share downloads between CI steps and/or copied into containers
-## which may not have the right credentials
-.PHONY: $(PROFILES:%=deps-%)
-$(PROFILES:%=deps-%): $(COMMON_DEPS)
-	@$(SCRIPTS)/pre-compile.sh $(@:deps-%=%)
-	@$(REBAR) as $(@:deps-%=%) get-deps
-	@rm -f rebar.lock
 
 .PHONY: xref
 xref:
@@ -232,7 +205,7 @@ dialyzer:
 ## rel target is to create release package without relup
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
 $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS)
-	@env ELIXIR_MAKE_TAR=yes PROFILE=$(subst -rel,,$(@)) $(BUILD) $(subst -rel,,$(@)) elixir
+	@env ELIXIR_MAKE_TAR=yes PROFILE=$(subst -rel,,$(@)) $(BUILD) $(subst -rel,,$(@)) rel
 
 ## download relup base packages
 .PHONY: $(REL_PROFILES:%=%-relup-downloads)
@@ -261,8 +234,8 @@ $(foreach zt,$(ALL_TGZS),$(eval $(call gen-relup-target,$(zt))))
 ## tgz target is to create a release package .tar.gz with relup
 .PHONY: $(REL_PROFILES:%=%-tgz)
 define gen-tgz-target
-$1-tgz: $(COMMON_DEPS)
-	@$(BUILD) $1 tgz
+$1-tgz: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get merge-config
+	@env IS_ELIXIR=yes $(BUILD) $1 tgz
 endef
 ALL_TGZS = $(REL_PROFILES)
 $(foreach zt,$(ALL_TGZS),$(eval $(call gen-tgz-target,$(zt))))
@@ -270,8 +243,10 @@ $(foreach zt,$(ALL_TGZS),$(eval $(call gen-tgz-target,$(zt))))
 ## A pkg target depend on a regular release
 .PHONY: $(PKG_PROFILES)
 define gen-pkg-target
-$1: $(COMMON_DEPS)
-	@$(BUILD) $1 pkg
+$1: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) merge-config
+	@env TAR_PKG_DIR=_build/$1 \
+		IS_ELIXIR=yes \
+		$(BUILD) $1 pkg
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
@@ -288,40 +263,17 @@ docker:
 	@$(BUILD) $(PROFILE) docker
 
 ## docker target is to create docker instructions
-.PHONY: $(REL_PROFILES:%=%-docker) $(REL_PROFILES:%=%-elixir-docker)
+.PHONY: $(REL_PROFILES:%=%-docker)
 define gen-docker-target
 $1-docker: $(COMMON_DEPS)
 	@$(BUILD) $1 docker
 endef
-ALL_DOCKERS = $(REL_PROFILES) $(REL_PROFILES:%=%-elixir)
+ALL_DOCKERS = $(REL_PROFILES)
 $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 
 .PHONY:
 merge-config:
 	@$(SCRIPTS)/merge-config.escript
-
-## elixir target is to create release packages using Elixir's Mix
-.PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)
-$(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS)
-	@env NEW_MIX_BUILD=1 IS_ELIXIR=yes $(BUILD) $(subst -elixir,,$(@)) elixir
-
-.PHONY: $(REL_PROFILES:%=%-elixir-pkg)
-define gen-elixir-pkg-target
-# the Elixir places the tar in a different path than Rebar3
-$1-elixir-pkg: $(COMMON_DEPS)
-	@env TAR_PKG_DIR=_build/$1-pkg \
-		IS_ELIXIR=yes \
-		$(BUILD) $1-pkg pkg
-endef
-$(foreach pt,$(REL_PROFILES),$(eval $(call gen-elixir-pkg-target,$(pt))))
-
-.PHONY: $(REL_PROFILES:%=%-elixir-tgz)
-define gen-elixir-tgz-target
-$1-elixir-tgz: $(COMMON_DEPS)
-	@env IS_ELIXIR=yes $(BUILD) $1 tgz
-endef
-ALL_ELIXIR_TGZS = $(REL_PROFILES)
-$(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))
 
 .PHONY: fmt
 fmt: $(REBAR)
