@@ -154,20 +154,10 @@ while [ "$#" -gt 0 ]; do
     shift 1;
 done
 
-case "${PROFILE}" in
-    ce|emqx)
-        PROFILE='emqx'
-        ;;
+case "${PROFILE:-ee}" in
     ee|emqx-enterprise)
         PROFILE='emqx-enterprise'
-        ;;
-    ce-ex|emqx-elixir)
-        export IS_ELIXIR=yes
-        PROFILE='emqx'
-        ;;
-    ee-ex|emqx-enterprise-elixir)
-        export IS_ELIXIR=yes
-        PROFILE='emqx-enterprise'
+        SCHEMA_MOD='emqx_enterprise_schema'
         ;;
     *)
         echo "Unknown profile $PROFILE"
@@ -175,15 +165,7 @@ case "${PROFILE}" in
         ;;
 esac
 export PROFILE
-
-case "${PROFILE}" in
-    emqx|emqx-elixir)
-        export SCHEMA_MOD='emqx_conf_schema'
-        ;;
-    emqx-enterprise|emqx-enterprise-elixir)
-        export SCHEMA_MOD='emqx_enterprise_schema'
-        ;;
-esac
+export SCHEMA_MOD
 
 BASE_DIR="_build/dev-run/$PROFILE"
 export EMQX_ETC_DIR="$BASE_DIR/etc"
@@ -230,17 +212,15 @@ prepare_erl_libs() {
             erl_libs="${app}"
         fi
     done
-    if [ "${IS_ELIXIR:-}" = "yes" ]; then
-        local elixir_libs_root_dir
-        elixir_libs_root_dir=$(realpath "$(elixir -e ':code.lib_dir(:elixir) |> IO.puts()')"/..)
-        for app in "${elixir_libs_root_dir}"/*; do
-            if [ -n "$erl_libs" ]; then
-                erl_libs="${erl_libs}${sep}${app}"
-            else
-                erl_libs="${app}"
-            fi
-        done
-    fi
+    local elixir_libs_root_dir
+    elixir_libs_root_dir=$(realpath "$(elixir -e ':code.lib_dir(:elixir) |> IO.puts()')"/..)
+    for app in "${elixir_libs_root_dir}"/*; do
+        if [ -n "$erl_libs" ]; then
+            erl_libs="${erl_libs}${sep}${app}"
+        else
+            erl_libs="${app}"
+        fi
+    done
     if [ -e "_build/${profile}/checkouts" ]; then
         for app in "_build/${profile}/checkouts"/*; do
             erl_libs="${erl_libs}${sep}${app}"
@@ -389,55 +369,37 @@ boot() {
     append_args_file
     APPS="$(apps_to_load)"
 
-    if [ "${IS_ELIXIR:-}" = "yes" ]; then
-        BOOT_SEQUENCE='
-          apps = System.get_env("APPS") |> String.split(",") |> Enum.map(&String.to_atom/1)
-          Enum.each(apps, &Application.load/1)
-          IO.inspect(apps, label: :loaded, limit: :infinity)
-          {:ok, _} = Application.ensure_all_started(:emqx_machine)
-        '
-        if [ -n "${EPMD_ARGS:-}" ]; then
-            EPMD_ARGS_ELIXIR="$EPMD_ARGS"
-        else
-            EPMD_ARGS_ELIXIR="-no_op true"
-        fi
-        local OTP_VSN USER_MOD_ARG
-        OTP_VSN=$(./scripts/get-otp-vsn.sh)
-        case "$OTP_VSN" in
-          25*)
-            USER_MOD_ARG='-user Elixir.IEx.CLI'
-            ;;
-          *)
-            USER_MOD_ARG='-user elixir'
-            ;;
-        esac
-
-        # shellcheck disable=SC2086
-        env APPS="$APPS" iex \
-          -$ERL_NAME_ARG "$EMQX_NODE_NAME" \
-          --erl "$EPMD_ARGS_ELIXIR" \
-          --erl "$USER_MOD_ARG" \
-          --erl '-proto_dist ekka' \
-          --vm-args "$ARGS_FILE" \
-          --erl-config "$CONF_FILE" \
-          -e "$BOOT_SEQUENCE"
+    BOOT_SEQUENCE='
+      apps = System.get_env("APPS") |> String.split(",") |> Enum.map(&String.to_atom/1)
+      Enum.each(apps, &Application.load/1)
+      IO.inspect(apps, label: :loaded, limit: :infinity)
+      {:ok, _} = Application.ensure_all_started(:emqx_machine)
+    '
+    if [ -n "${EPMD_ARGS:-}" ]; then
+        EPMD_ARGS_ELIXIR="$EPMD_ARGS"
     else
-        BOOT_SEQUENCE="
-            Apps=[${APPS}],
-            ok=lists:foreach(fun application:load/1, Apps),
-            io:format(user, \"~nLoaded: ~p~n\", [Apps]),
-            {ok, _} = application:ensure_all_started(emqx_machine).
-        "
-
-        # shellcheck disable=SC2086
-        erl $ERL_NAME_ARG "$EMQX_NODE_NAME" \
-            $EPMD_ARGS \
-            -proto_dist ekka \
-            -args_file "$ARGS_FILE" \
-            -config "$CONF_FILE" \
-            -s emqx_restricted_shell set_prompt_func \
-            -eval "$BOOT_SEQUENCE"
+        EPMD_ARGS_ELIXIR="-no_op true"
     fi
+    local OTP_VSN USER_MOD_ARG
+    OTP_VSN=$(./scripts/get-otp-vsn.sh)
+    case "$OTP_VSN" in
+      25*)
+        USER_MOD_ARG='-user Elixir.IEx.CLI'
+        ;;
+      *)
+        USER_MOD_ARG='-user elixir'
+        ;;
+    esac
+
+    # shellcheck disable=SC2086
+    env APPS="$APPS" iex \
+      -$ERL_NAME_ARG "$EMQX_NODE_NAME" \
+      --erl "$EPMD_ARGS_ELIXIR" \
+      --erl "$USER_MOD_ARG" \
+      --erl '-proto_dist ekka' \
+      --vm-args "$ARGS_FILE" \
+      --erl-config "$CONF_FILE" \
+      -e "$BOOT_SEQUENCE"
 }
 
 # Generate a random id
