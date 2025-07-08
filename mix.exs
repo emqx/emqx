@@ -953,7 +953,6 @@ defmodule EMQXUmbrella.MixProject do
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
       emqx_schema_mod: emqx_schema_mod(edition_type),
-      is_elixir: "yes",
       is_enterprise: if(edition_type == :enterprise, do: "yes", else: "no")
     ] ++ build_info()
   end
@@ -977,7 +976,6 @@ defmodule EMQXUmbrella.MixProject do
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
       emqx_schema_mod: emqx_schema_mod(edition_type),
-      is_elixir: "yes",
       is_enterprise: if(edition_type == :enterprise, do: "yes", else: "no")
     ] ++ build_info()
   end
