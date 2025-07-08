@@ -748,11 +748,11 @@ puback_reason_code(_PacketId, _Msg, disconnect) ->
 %%--------------------------------------------------------------------
 
 process_puback(
-    ?PUBACK_PACKET(PacketId, _ReasonCode, Properties),
+    ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
     Channel =
         #channel{clientinfo = ClientInfo, session = Session}
 ) ->
-    case emqx_session:puback(ClientInfo, PacketId, Session) of
+    case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, Msg, [], NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Properties),
             {ok, Channel#channel{session = NSession}};
@@ -824,12 +824,12 @@ process_pubrel(
 %%--------------------------------------------------------------------
 
 process_pubcomp(
-    ?PUBCOMP_PACKET(PacketId, _ReasonCode),
+    ?PUBCOMP_PACKET(PacketId, ReasonCode),
     Channel = #channel{
         clientinfo = ClientInfo, session = Session
     }
 ) ->
-    case emqx_session:pubcomp(ClientInfo, PacketId, Session) of
+    case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, [], NSession} ->
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
