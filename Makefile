@@ -257,6 +257,10 @@ run: compile-$(PROFILE) quickrun
 quickrun:
 	./dev -p $(PROFILE)
 
+.PHONY: repl
+repl:
+	iex -S mix app.start --no-start
+
 ## Take the currently set PROFILE
 .PHONY: docker
 docker:
