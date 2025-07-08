@@ -1,0 +1,10 @@
+{application, emqx_mq, [
+    {description, "Message Queue"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_mq_app, []}},
+    {applications, [kernel, stdlib, emqx]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.

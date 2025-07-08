@@ -503,6 +503,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_dashboard_sso,
             :emqx_audit,
             :emqx_mt,
+            :emqx_mq,
             :emqx_resource,
             :emqx_connector,
             :emqx_exhook,
