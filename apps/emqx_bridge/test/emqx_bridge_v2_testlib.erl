@@ -301,12 +301,123 @@ request(Method, Path, Params) ->
             Error
     end.
 
+simple_request(Params) ->
+    emqx_mgmt_api_test_util:simple_request(Params).
+
 simplify_result(Res) ->
     case Res of
         {error, {{_, Status, _}, _, Body}} ->
             {Status, Body};
         {ok, {{_, Status, _}, _, Body}} ->
             {Status, Body}
+    end.
+
+login(Params) ->
+    URL = emqx_mgmt_api_test_util:api_path(["login"]),
+    simple_request(#{
+        auth_header => [{"no", "auth"}],
+        method => post,
+        url => URL,
+        body => Params
+    }).
+
+create_superuser() ->
+    create_superuser(_Opts = #{}).
+create_superuser(Opts) ->
+    Defaults = #{
+        params => #{
+            <<"username">> => <<"superuser">>,
+            <<"password">> => <<"secretP@ss1">>
+        }
+    },
+    #{
+        params := #{
+            <<"username">> := Username,
+            <<"password">> := Password
+        } = Params
+    } = emqx_utils_maps:deep_merge(Defaults, Opts),
+    on_exit(fun() -> emqx_dashboard_admin:remove_user(Username) end),
+    case emqx_dashboard_admin:add_user(Username, Password, <<"administrator">>, <<"desc">>) of
+        {ok, _} -> ok;
+        {error, <<"username_already_exists">>} -> ok
+    end,
+    {200, #{<<"token">> := Token}} = login(Params),
+    {"Authorization", iolist_to_binary(["Bearer ", Token])}.
+
+create_namespaced_user(Opts0) ->
+    Defaults = #{
+        params => #{
+            <<"username">> => <<"nsuser">>,
+            <<"password">> => <<"SuperP@ss!1">>,
+            <<"role">> => <<"ns:ns1::administrator">>,
+            <<"description">> => <<"...">>
+        }
+    },
+    #{
+        params := #{
+            <<"username">> := Username,
+            <<"password">> := Password
+        } = Params
+    } = Opts = emqx_utils_maps:deep_merge(Defaults, Opts0),
+    AuthHeader = emqx_utils_maps:get_lazy(
+        auth_header,
+        Opts,
+        fun create_superuser/0
+    ),
+    URL = emqx_mgmt_api_test_util:api_path(["users"]),
+    on_exit(fun() -> emqx_dashboard_admin:remove_user(Username) end),
+    {200, _} = simple_request(#{
+        auth_header => AuthHeader,
+        method => post,
+        url => URL,
+        body => Params
+    }),
+    #{username => Username, password => Password}.
+
+create_namespaced_user_and_token(Opts) ->
+    #{username := Username, password := Password} = create_namespaced_user(Opts),
+    {200, #{<<"token">> := Token} = Res} =
+        login(#{<<"username">> => Username, <<"password">> => Password}),
+    ct:pal("namespaced token:\n  ~p", [Res]),
+    Token.
+
+to_rfc3339(Sec) ->
+    list_to_binary(calendar:system_time_to_rfc3339(Sec)).
+
+ensure_namespaced_api_key(Opts) ->
+    #{namespace := Namespace} = Opts,
+    Enabled = true,
+    Name = maps:get(name, Opts, <<"default_", Namespace/binary>>),
+    APIKey = <<Name/binary, "_key_", Namespace/binary>>,
+    APISecret = <<"apisecret_", Namespace/binary>>,
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    Role =
+        case maps:get(role, Opts, admin) of
+            admin ->
+                <<"ns:", Namespace/binary, "::administrator">>;
+            viewer ->
+                <<"ns:", Namespace/binary, "::viewer">>
+        end,
+    Res = emqx_mgmt_auth:create(
+        Name,
+        APIKey,
+        APISecret,
+        Enabled,
+        ExpiresAt,
+        <<"...">>,
+        Role
+    ),
+    case Res of
+        {ok, _} ->
+            emqx_common_test_http:auth_header(
+                binary_to_list(APIKey),
+                binary_to_list(APISecret)
+            );
+        {error, name_already_exists} ->
+            emqx_common_test_http:auth_header(
+                binary_to_list(APIKey),
+                binary_to_list(APISecret)
+            )
     end.
 
 list_bridges_api() ->
@@ -781,7 +892,7 @@ start_rule_test_trace(RuleId) ->
         <<"payload_encode">> => <<"text">>
     },
     URL = emqx_mgmt_api_test_util:api_path(["trace"]),
-    emqx_mgmt_api_test_util:simple_request(#{
+    simple_request(#{
         method => post,
         url => URL,
         body => Body
@@ -789,7 +900,7 @@ start_rule_test_trace(RuleId) ->
 
 stop_rule_test_trace(TraceName) ->
     URL = emqx_mgmt_api_test_util:api_path(["trace", TraceName]),
-    emqx_mgmt_api_test_util:simple_request(#{
+    simple_request(#{
         method => delete,
         url => URL
     }).
@@ -804,7 +915,7 @@ trigger_rule_test_trace_flow(Opts) ->
         <<"stop_action_after_template_rendering">> => false
     },
     URL = emqx_mgmt_api_test_util:api_path(["rules", RuleId, "test"]),
-    emqx_mgmt_api_test_util:simple_request(#{
+    simple_request(#{
         method => post,
         url => URL,
         body => Body
@@ -817,7 +928,7 @@ get_test_trace_log(TraceName) ->
     },
     maybe
         {200, #{<<"items">> := Bin}} ?=
-            emqx_mgmt_api_test_util:simple_request(#{
+            simple_request(#{
                 method => get,
                 url => URL,
                 query_params => QueryParams
