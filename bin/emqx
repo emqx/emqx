@@ -428,7 +428,7 @@ remsh() {
 
     # shellcheck disable=SC2086
     # Setup remote shell command to control node
-    if [ "$IS_ELIXIR" = no ] || [ "${EMQX_CONSOLE_FLAVOR:-}" = 'erl' ] ; then
+    if [ "${EMQX_CONSOLE_FLAVOR:-erl}" = 'erl' ] ; then
         set -- "$BINDIR/erl" "$NAME_TYPE" "$id" \
             -remsh "$NAME" -boot "$REL_DIR/start_clean" \
             -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
@@ -1273,14 +1273,14 @@ case "${COMMAND}" in
         # shellcheck disable=SC2086
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
-        if [ "$IS_ELIXIR" = no ] || [ "${EMQX_CONSOLE_FLAVOR:-}" = 'erl' ] ; then
+        if [ "${EMQX_CONSOLE_FLAVOR:-erl}" = 'erl' ] ; then
             if [[ "$DEBUG" == 2 ]]; then
               INIT_DEBUG_ARG="-init_debug"
             else
               INIT_DEBUG_ARG=""
             fi
 
-            # pass down RELEASE_LIB so we can switch to IS_ELIXIR=no
+            # pass down RELEASE_LIB so we can switch to EMQX_CONSOLE_FLAVOR=erl
             # to boot an Erlang node from the elixir release
             set -- "$BINDIR/erlexec" \
                 $FOREGROUNDOPTIONS \
@@ -1351,26 +1351,19 @@ case "${COMMAND}" in
         assert_node_alive
 
         shift
-        if [ "$IS_ELIXIR" = "yes" ]
-        then
-          "$REL_DIR/elixir" \
-              --hidden \
-              --name "rand-$(gen_node_id)-$NAME" \
-              --cookie "$COOKIE" \
-              --boot "$REL_DIR/start_clean" \
-              --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
-              --vm-args "$REL_DIR/remote.vm.args" \
-              --erl "-start_epmd false" \
-              --erl "-epmd_module ekka_epmd" \
-              --erl "+P 65536" \
-              --erl "+Q 65536" \
-              --erl "+S 2" \
-              --rpc-eval "$NAME" "$@"
-        else
-            echo "EMQX node is not an Elixir node"
-            usage "$COMMAND"
-            exit 1
-        fi
+        "$REL_DIR/elixir" \
+            --hidden \
+            --name "rand-$(gen_node_id)-$NAME" \
+            --cookie "$COOKIE" \
+            --boot "$REL_DIR/start_clean" \
+            --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
+            --vm-args "$REL_DIR/remote.vm.args" \
+            --erl "-start_epmd false" \
+            --erl "-epmd_module ekka_epmd" \
+            --erl "+P 65536" \
+            --erl "+Q 65536" \
+            --erl "+S 2" \
+            --rpc-eval "$NAME" "$@"
         ;;
     check_config)
         check_config

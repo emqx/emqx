@@ -8,7 +8,7 @@ ERTS_VSN="{{ erts_vsn }}"
 ERL_OPTS="{{ erl_opts }}"
 RUNNER_BIN_DIR="{{ runner_bin_dir }}"
 RUNNER_LIB_DIR="{{ runner_lib_dir }}"
-IS_ELIXIR="${IS_ELIXIR:-{{ is_elixir }}}"
+IS_ELIXIR="yes"
 ## Allow users to pre-set `EMQX_LOG_DIR` because it only affects boot commands like `start` and `console`,
 ## but not other commands such as `ping` and `ctl`.
 ## RUNNER_LOG_DIR is kept for backward compatibility.
