@@ -96,6 +96,11 @@ parse_namespace_tag(NsTag) ->
 do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := ?undefined}, _, _) ->
     %% Global administrator
     true;
+do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
+    %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
+    %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong
+    %% resources rather than hiding information.
+    true;
 do_check_rbac(#{?role := ?ROLE_VIEWER}, _, #{method := get}) ->
     true;
 do_check_rbac(

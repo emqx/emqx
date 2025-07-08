@@ -95,6 +95,36 @@ create_api_key_api(Params, AuthHeader) ->
 to_rfc3339(Sec) ->
     list_to_binary(calendar:system_time_to_rfc3339(Sec)).
 
+umbrella_apps() ->
+    [
+        App
+     || {App, _, _} <- application:loaded_applications(),
+        case re:run(atom_to_list(App), "^emqx", [{capture, none}]) of
+            match -> true;
+            nomatch -> false
+        end
+    ].
+
+all_handlers() ->
+    AllMethods = [get, post, put, delete],
+    Mods = minirest_api:find_api_modules(umbrella_apps()),
+    lists:flatmap(
+        fun(Mod) ->
+            Paths = Mod:paths(),
+            lists:flatmap(
+                fun(Path) ->
+                    #{'operationId' := Fn} = Sc = Mod:schema(Path),
+                    [
+                        #{method => M, module => Mod, function => Fn}
+                     || M <- maps:keys(Sc), lists:member(M, AllMethods)
+                    ]
+                end,
+                Paths
+            )
+        end,
+        Mods
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -440,4 +470,47 @@ t_namespaced_api_key(_TCConfig) ->
             body => #{<<"as">> => <<"peerhost">>, <<"who">> => <<"127.0.0.1">>}
         })
     ),
+    ok.
+
+-doc """
+Simple assertions about namespaced user permissions.
+
+   - Both viewers and admins can `GET` anything, even outside their namespace.  Namespaces
+     are mostly to avoid accidentally mutating the wrong resources rather than hiding
+     information.
+""".
+t_namespaced_user_permissions(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    Username = <<"iminans">>,
+    Password = <<"superSecureP@ss">>,
+    AdminRole = <<"ns:ns1::administrator">>,
+    {200, _} = create_user_api(
+        #{
+            <<"username">> => Username,
+            <<"password">> => Password,
+            <<"role">> => AdminRole,
+            <<"description">> => <<"namespaced person">>
+        },
+        GlobalAdminHeader
+    ),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    AllHandlers = [_ | _] = all_handlers(),
+    GetHandlers = [_ | _] = [FHI || #{method := get} = FHI <- AllHandlers],
+    FakeReq = #{},
+    Failures =
+        lists:filtermap(
+            fun(FakeHandlerInfo) ->
+                case emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token) of
+                    {ok, _} ->
+                        false;
+                    {error, _} ->
+                        true
+                end
+            end,
+            GetHandlers
+        ),
+    maybe
+        [_ | _] ?= Failures,
+        ct:fail({should_have_been_allowed, Failures})
+    end,
     ok.
