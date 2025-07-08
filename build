@@ -373,7 +373,6 @@ make_docker() {
        --build-arg SUFFIX="${SUFFIX}" \
        --build-arg EXTRA_DEPS="${EXTRA_DEPS}" \
        --build-arg PKG_VSN="${PKG_VSN}" \
-       --build-arg NEW_MIX_BUILD=1 \
        --file "${EMQX_DOCKERFILE}" \
        --label org.opencontainers.image.title="${PROFILE}" \
        --label org.opencontainers.image.edition="${EDITION}" \

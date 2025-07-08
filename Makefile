@@ -94,7 +94,7 @@ ct: $(REBAR) merge-config
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
 static_checks: $(ELIXIR_COMMON_DEPS)
-	@env NEW_MIX_BUILD=1 BPAPI_BUILD_PROFILE=$(PROFILE:%-test=%) \
+	@env BPAPI_BUILD_PROFILE=$(PROFILE:%-test=%) \
 	    $(MIX) do \
 	    xref, dialyzer --mode classic \
 	    emqx.static_checks
