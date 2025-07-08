@@ -36,6 +36,7 @@
 ]).
 
 -export([schema/2]).
+-export([get_namespace/1]).
 
 -export_type([extra_context/0]).
 
@@ -184,6 +185,11 @@ get_raw_cluster_override_conf() ->
 
 info() ->
     gen_server:call(?MODULE, info, infinity).
+
+get_namespace(#{namespace := Namespace} = _ExtraContext) when is_binary(Namespace) ->
+    Namespace;
+get_namespace(#{} = _ExtraContext) ->
+    undefined.
 
 %%============================================================================
 

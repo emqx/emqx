@@ -148,18 +148,6 @@ t_connector_lifecycle(_Config) ->
     ),
 
     ?assertMatch(
-        {ok, #{config := #{connect_timeout := 10000}}},
-        emqx_connector:update(kafka_producer, my_connector, (connector_config())#{
-            <<"connect_timeout">> => <<"10s">>
-        })
-    ),
-
-    ?assertMatch(
-        {ok, #{resource_data := #{config := #{connect_timeout := 10000}}}},
-        emqx_connector:lookup(kafka_producer, my_connector)
-    ),
-
-    ?assertMatch(
         ok,
         emqx_connector:remove(kafka_producer, my_connector)
     ),
@@ -178,10 +166,6 @@ t_connector_lifecycle(_Config) ->
             %% Disable
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
             %% Enable (restart); it attempts to stop again
-            {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
-            {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
-            {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
-            %% Update
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},

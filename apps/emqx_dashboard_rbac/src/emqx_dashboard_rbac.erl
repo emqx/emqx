@@ -33,6 +33,7 @@
 -type namespace() :: binary().
 
 -define(DASHBOARD_API(METHOD, FN), #{method := METHOD, module := emqx_dashboard_api, function := FN}).
+-define(CONNECTOR_API(METHOD, FN), #{method := METHOD, module := emqx_connector_api, function := FN}).
 
 %%=====================================================================
 %% API
@@ -140,6 +141,13 @@ do_check_rbac(
         _ ->
             false
     end;
+do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?CONNECTOR_API(_, _)) when
+    is_binary(Namespace)
+->
+    %% Namespaced connector API; may only alter resources in its own namespace.
+    %% This is enforced by the handlers themselves, by only fetching/acting on the
+    %% appropriate namespace.
+    true;
 do_check_rbac(_, _, _) ->
     false.
 

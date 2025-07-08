@@ -94,6 +94,8 @@
     get_namespaced/3,
     get_raw_namespaced/2,
     get_raw_namespaced/3,
+    get_root_from_all_namespaces/1,
+    get_raw_root_from_all_namespaces/1,
     save_configs_namespaced/6,
     save_configs_namespaced_tx/5,
     get_all_namespace_config_errors/0,
@@ -197,6 +199,39 @@ get_root([RootName | _]) ->
 
 get_root_namespaced([RootName | _], Namespace) ->
     #{RootName => do_get(?NS_CONF(Namespace), [RootName], #{})}.
+
+get_root_from_all_namespaces(RootKey0) ->
+    RootKey = bin(RootKey0),
+    MS = erlang:make_tuple(
+        record_info(size, ?CONFIG_TAB),
+        '_',
+        [{#?CONFIG_TAB.root_key, {'_', RootKey}}]
+    ),
+    Recs = mnesia:dirty_match_object(?CONFIG_TAB, MS),
+    lists:foldl(
+        fun(#?CONFIG_TAB{root_key = {Namespace, _RootKey}}, Acc) ->
+            Config = get_namespaced([RootKey0], Namespace),
+            Acc#{Namespace => Config}
+        end,
+        #{},
+        Recs
+    ).
+
+get_raw_root_from_all_namespaces(RootKey0) ->
+    RootKey = bin(RootKey0),
+    MS = erlang:make_tuple(
+        record_info(size, ?CONFIG_TAB),
+        '_',
+        [{#?CONFIG_TAB.root_key, {'_', RootKey}}]
+    ),
+    Recs = mnesia:dirty_match_object(?CONFIG_TAB, MS),
+    lists:foldl(
+        fun(#?CONFIG_TAB{root_key = {Namespace, _RootKey}, raw_value = RawConfig}, Acc) ->
+            Acc#{Namespace => RawConfig}
+        end,
+        #{},
+        Recs
+    ).
 
 %% @doc For the given path, get raw root value enclosed in a single-key map.
 %% key is ensured to be binary.

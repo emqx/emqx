@@ -16,6 +16,7 @@
 
 %% Authorization
 -export([authorize/2]).
+-export([get_namespace/1]).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
@@ -286,6 +287,11 @@ return_unauthorized(Code, Message) ->
                 <<"Basic Realm=\"emqx-dashboard\"">>
         },
         #{code => Code, message => Message}}.
+
+get_namespace(#{auth_meta := #{namespace := Namespace}} = _Request) when is_binary(Namespace) ->
+    Namespace;
+get_namespace(#{} = _Request) ->
+    undefined.
 
 listeners() ->
     emqx_conf:get([dashboard, listeners], #{}).
