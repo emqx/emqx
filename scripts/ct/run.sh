@@ -333,7 +333,6 @@ else
                     -e SUITEGROUP="${SUITEGROUP:-}" \
                     -e ENABLE_COVER_COMPILE="${ENABLE_COVER_COMPILE:-}" \
                     -e CT_COVER_EXPORT_PREFIX="${CT_COVER_EXPORT_PREFIX:-}" \
-                    -e NEW_MIX_BUILD="1" \
                     -i $TTY "$ERLANG_CONTAINER" \
                     bash -c "make ${WHICH_APP}-ct"
     else
