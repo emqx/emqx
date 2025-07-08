@@ -251,11 +251,11 @@ endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
 .PHONY: run
-run: compile-$(PROFILE) quickrun
+run: compile-$(PROFILE) run-console
 
-.PHONY: quickrun
-quickrun:
-	./dev -p $(PROFILE)
+.PHONY: run-console
+run-console:
+	_build/$(PROFILE)/rel/emqx/bin/emqx console
 
 .PHONY: repl
 repl:
