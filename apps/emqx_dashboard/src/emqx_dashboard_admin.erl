@@ -25,7 +25,7 @@
     clear_login_lock/1,
     set_login_lock/2,
     get_login_lock/1,
-    force_add_user/4,
+    force_add_user/5,
     remove_user/1,
     update_user/3,
     lookup_user/1,
@@ -309,14 +309,14 @@ ascii_character_validate(Password) ->
 contain(Xs, Spec) -> lists:any(fun(X) -> lists:member(X, Spec) end, Xs).
 
 %% black-magic: force overwrite a user
-force_add_user(Username, Password, Role, Desc) ->
+force_add_user(Username, Password, Role, Desc, Extra) ->
     AddFun = fun() ->
         mnesia:write(#?ADMIN{
             username = Username,
             pwdhash = hash(Password),
             role = Role,
             description = Desc,
-            extra = #{password_ts => erlang:system_time(second)}
+            extra = Extra#{password_ts => erlang:system_time(second)}
         })
     end,
     case mria:sync_transaction(?DASHBOARD_SHARD, AddFun) of
