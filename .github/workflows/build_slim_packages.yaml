@@ -19,20 +19,20 @@ env:
 
 jobs:
   linux:
-    runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.build.arch) || (matrix.build.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
+    runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     env:
-      PROFILE: ${{ matrix.build.profile }}
-      ARCH: ${{ matrix.build.arch }}
+      PROFILE: ${{ matrix.profile }}
+      ARCH: ${{ matrix.arch }}
       BUILDER_SYSTEM: force_docker
 
     strategy:
       fail-fast: false
       matrix:
-        build:
-          - profile: "emqx-enterprise"
-            arch: "arm64"
-          - profile: "emqx-enterprise"
-            arch: "amd64"
+        profile:
+          - "emqx-enterprise"
+        arch:
+          - "arm64"
+          - "amd64"
 
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -46,8 +46,8 @@ jobs:
         ./scripts/buildx.sh --profile $PROFILE --pkgtype pkg --arch $ARCH
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
-        name: "${{ matrix.build.profile }}-${{ matrix.build.arch }}"
-        path: _packages/${{ matrix.build.profile }}/*
+        name: "${{ matrix.profile }}-${{ matrix.arch }}"
+        path: _packages/${{ matrix.profile }}/*
         retention-days: 7
         compression-level: 0
 
