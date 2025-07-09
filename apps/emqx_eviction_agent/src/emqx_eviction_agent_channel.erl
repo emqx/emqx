@@ -191,13 +191,14 @@ handle_deliver(
     Delivers,
     #{
         takeover := true,
-        pendings := Pendings
+        pendings := Pendings,
+        clientinfo := ClientInfo
     } = Channel
 ) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
-    NPendings = lists:append(Pendings, emqx_channel:maybe_nack(Delivers)),
+    NPendings = lists:append(Pendings, emqx_channel:maybe_nack(ClientInfo, Delivers)),
     Channel#{pendings => NPendings};
 handle_deliver(
     Delivers,
@@ -209,7 +210,7 @@ handle_deliver(
 ) ->
     % NOTE
     % This is essentially part of `emqx_session_mem` logic, thus call it directly.
-    Delivers1 = emqx_channel:maybe_nack(Delivers),
+    Delivers1 = emqx_channel:maybe_nack(ClientInfo, Delivers),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     Channel#{session := NSession}.
@@ -257,12 +258,12 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             % NOTE
             % Here we aggregate and deduplicate remote and local pending deliveries,
             % throwing away any local deliveries that are part of some shared
-            % subscription. Remote deliviries pertaining to shared subscriptions should
+            % subscription. Remote deliveries pertaining to shared subscriptions should
             % already have been thrown away by `emqx_channel:handle_deliver/2`.
             % See also:
             % * `emqx_channel:maybe_resume_session/1`,
             % * `emqx_session_mem:replay_enqueue/4`.
-            DeliversLocal = emqx_channel:maybe_nack(emqx_utils:drain_deliver()),
+            DeliversLocal = emqx_channel:maybe_nack(ClientInfo, emqx_utils:drain_deliver()),
             NSession = emqx_session_mem:replay_enqueue(ClientInfo, DeliversLocal, RCtx, Session),
             NChannel = Channel#{session => NSession},
             ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),

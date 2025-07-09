@@ -51,7 +51,7 @@
 
 %% Export for emqx_channel implementations
 -export([
-    maybe_nack/1
+    maybe_nack/2
 ]).
 
 %% Export for DS session GC worker and session implementations
@@ -1111,13 +1111,14 @@ handle_deliver(
     Delivers,
     Channel = #channel{
         takeover = true,
-        pendings = Pendings
+        pendings = Pendings,
+        clientinfo = ClientInfo
     }
 ) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
-    NPendings = lists:append(Pendings, maybe_nack(Delivers)),
+    NPendings = lists:append(Pendings, maybe_nack(ClientInfo, Delivers)),
     {ok, Channel#channel{pendings = NPendings}};
 handle_deliver(
     Delivers,
@@ -1130,7 +1131,7 @@ handle_deliver(
 ) ->
     %% NOTE
     %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
-    Delivers1 = maybe_nack(Delivers),
+    Delivers1 = maybe_nack(ClientInfo, Delivers),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     %% we need to update stats here, as the stats_timer is canceled after disconnected
@@ -1160,10 +1161,11 @@ do_handle_deliver(
     end.
 
 %% Nack delivers from shared subscription
-maybe_nack(Delivers) ->
-    lists:filter(fun not_nacked/1, Delivers).
+maybe_nack(ClientInfo, Delivers0) ->
+    Delivers = lists:filter(fun not_nacked_by_shared_sub/1, Delivers0),
+    emqx_hooks:run_fold('message.nack', [ClientInfo], Delivers).
 
-not_nacked({deliver, _Topic, Msg}) ->
+not_nacked_by_shared_sub({deliver, _Topic, Msg}) ->
     case emqx_shared_sub:is_ack_required(Msg) of
         true ->
             ok = emqx_shared_sub:nack_no_connection(Msg),
@@ -1450,7 +1452,7 @@ handle_call(
     Channel = #channel{
         session = Session,
         pendings = Pendings,
-        clientinfo = #{clientid := ClientId}
+        clientinfo = #{clientid := ClientId} = ClientInfo
     }
 ) ->
     ?EXT_TRACE_BROKER_DISCONNECT(
@@ -1463,7 +1465,7 @@ handle_call(
             ok = emqx_session_mem:takeover(Session),
             %% TODO: Should not drain deliver here (side effect)
             Delivers = emqx_utils:drain_deliver(),
-            AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
+            AllPendings = lists:append(Pendings, maybe_nack(ClientInfo, Delivers)),
             ?tp(
                 debug,
                 emqx_channel_takeover_end,
@@ -1637,16 +1639,23 @@ handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
 handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
     Session = emqx_session:handle_info(Info, Session0, ClientInfo),
-    Channel = Channel0#channel{session = Session},
-    case Info of
-        {'DOWN', Ref, process, Pid, Reason} ->
-            case emqx_hooks:run_fold('client.monitored_process_down', [Ref, Pid, Reason], []) of
-                [] -> {ok, Channel};
-                Msgs -> {ok, Msgs, Channel}
-            end;
-        _ ->
-            {ok, Channel}
+    Channel1 = Channel0#channel{session = Session},
+    Acc0 = #{deliver => [], replies => []},
+    Acc = emqx_hooks:run_fold('client.handle_info', [ClientInfo, Info], Acc0),
+    Delivers = maps:get(deliver, Acc, []),
+    Replies = maps:get(replies, Acc, []),
+    case handle_deliver(Delivers, Channel1) of
+        {ok, Channel} ->
+            {ok, Replies, Channel};
+        {ok, DeliverReplies, Channel2} ->
+            {ok, append_replies(DeliverReplies, Replies), Channel2}
     end.
+
+append_replies(Replies1, Replies2) ->
+    replies_as_list(Replies1) ++ replies_as_list(Replies2).
+
+replies_as_list(Replies) when is_list(Replies) -> Replies;
+replies_as_list(Replies) -> [Replies].
 
 -ifdef(TEST).
 
