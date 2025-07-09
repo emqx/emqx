@@ -439,7 +439,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     save_to_app_env(AppEnvs),
     ok = save_to_config_map(CheckedConf, RawConf3),
     maybe_init_default_zone(),
-    load_namespaced_configs(SchemaMod),
+    load_namespaced_configs(),
     ok.
 
 upgrade_raw_conf(SchemaMod, RawConf) ->
@@ -548,13 +548,23 @@ erase_namespaced_configs(Namespace) when is_binary(Namespace) ->
     ok.
 -endif.
 
-load_namespaced_configs(SchemaMod) ->
+load_namespaced_configs() ->
     %% Ensure tables are ready when loading.
     _ = emqx_config:create_tables(),
     AllowedNSRoots = maps:keys(namespaced_config_allowed_roots()),
+    RootKeysToSchemaMods = get_schema_mod(),
     lists:foreach(
         fun({Namespace, RootKeyBin}) ->
-            do_load_namespaced_config(SchemaMod, AllowedNSRoots, Namespace, RootKeyBin)
+            case RootKeysToSchemaMods of
+                #{RootKeyBin := SchemaMod} ->
+                    do_load_namespaced_config(SchemaMod, AllowedNSRoots, Namespace, RootKeyBin);
+                #{} ->
+                    ?SLOG(error, #{
+                        msg => "loaded_unknown_root_key_in_namespace_config",
+                        namespace => Namespace,
+                        root_key => RootKeyBin
+                    })
+            end
         end,
         mnesia:dirty_all_keys(?CONFIG_TAB)
     ).
