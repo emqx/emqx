@@ -8,6 +8,8 @@ defmodule Mix.Tasks.Compile.Grpc do
   @manifest "compile.grpc"
   # TODO: use manifest to track generated files?
 
+  @stale? {__MODULE__, :stale?}
+
   @impl true
   def manifests(), do: [manifest()]
   defp manifest(), do: Path.join(Mix.Project.manifest_path(), @manifest)
@@ -47,10 +49,13 @@ defmodule Mix.Tasks.Compile.Grpc do
 
     Enum.each(proto_srcs, &compile_pb(&1, context))
 
-    write_manifest(manifest(), manifest_data)
+    if Process.get(@stale?, false) do
+      write_manifest(manifest(), manifest_data)
+    end
 
-    {:noop, []}
+    :noop
   after
+    Process.delete(@stale?)
     Application.unload(:gpb)
     Application.unload(:syntax_tools)
   end
@@ -82,7 +87,8 @@ defmodule Mix.Tasks.Compile.Grpc do
     ]
 
     if stale?(proto_src, manifest_modified_time) do
-      Mix.shell().info("compiling proto file: #{proto_src}")
+      Process.put(@stale?, true)
+      debug("compiling proto file: #{proto_src}")
       File.mkdir_p!(out_dir)
       # TODO: better error logging...
       :ok =
@@ -91,14 +97,15 @@ defmodule Mix.Tasks.Compile.Grpc do
           opts ++ gpb_opts
         )
     else
-      Mix.shell().info("proto file up to date, not compiling: #{proto_src}")
+      debug("proto file up to date, not compiling: #{proto_src}")
     end
 
     generated_src = Path.join([app_root, out_dir, "#{mod_name}.erl"])
     gpb_include_dir = :code.lib_dir(:gpb) |> Path.join("include")
 
     if stale?(generated_src, manifest_modified_time) do
-      Mix.shell().info("compiling proto module: #{generated_src}")
+      Process.put(@stale?, true)
+      debug("compiling proto module: #{generated_src}")
 
       compile_res =
         :compile.file(
@@ -119,7 +126,7 @@ defmodule Mix.Tasks.Compile.Grpc do
           :ok
       end
     else
-      Mix.shell().info("file up to date, not compiling: #{generated_src}")
+      debug("file up to date, not compiling: #{generated_src}")
     end
 
     mod_name
@@ -180,17 +187,19 @@ defmodule Mix.Tasks.Compile.Grpc do
         bhvr_output_src = Path.join([app_root, out_dir, "#{snake_service}_bhvr.erl"])
 
         if stale?(bhvr_output_src, manifest_modified_time) do
+          Process.put(@stale?, true)
           render_and_write(service_quoted, bhvr_output_src, bindings)
         else
-          Mix.shell().info("file up to date, not compiling: #{bhvr_output_src}")
+          debug("file up to date, not compiling: #{bhvr_output_src}")
         end
 
         client_output_src = Path.join([app_root, out_dir, "#{snake_service}_client.erl"])
 
         if stale?(client_output_src, manifest_modified_time) do
+          Process.put(@stale?, true)
           render_and_write(client_quoted, client_output_src, bindings)
         else
-          Mix.shell().info("file up to date, not compiling: #{client_output_src}")
+          debug("file up to date, not compiling: #{client_output_src}")
         end
 
         :ok
@@ -221,7 +230,7 @@ defmodule Mix.Tasks.Compile.Grpc do
   end
 
   defp write_manifest(file, data) do
-    Mix.shell().info("writing manifest #{file}")
+    debug("writing manifest #{file}")
     File.mkdir_p!(Path.dirname(file))
     File.write!(file, :erlang.term_to_binary({@manifest_vsn, data}))
   end
@@ -240,5 +249,11 @@ defmodule Mix.Tasks.Compile.Grpc do
     |> Path.join("ebin")
     |> to_charlist()
     |> :code.add_path(:cache)
+  end
+
+  defp debug(iodata) do
+    if Mix.debug?() do
+      Mix.shell().info(IO.ANSI.format([:cyan, iodata]))
+    end
   end
 end
