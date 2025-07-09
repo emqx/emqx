@@ -15,6 +15,11 @@
 -include_lib("snabbkaffe/include/test_macros.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
+
+-define(CONNECTOR_IMPL, dummy_connector_impl).
 -define(CONNECTOR_NAME, (atom_to_binary(?FUNCTION_NAME))).
 -define(RESOURCE(NAME, TYPE), #{
     %<<"ssl">> => #{<<"enable">> => false},
@@ -115,18 +120,18 @@
     {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
 ).
 
--if(?EMQX_RELEASE_EDITION == ee).
-%% For now we got only kafka_producer implementing `bridge_v2` and that is enterprise only.
+%%------------------------------------------------------------------------------
+%% CT boilerplate
+%%------------------------------------------------------------------------------
+
+suite() ->
+    [{timetrap, {seconds, 60}}].
+
 all() ->
     [
         {group, single},
-        %{group, cluster_later_join},
         {group, cluster}
     ].
--else.
-all() ->
-    [].
--endif.
 
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
@@ -140,17 +145,10 @@ groups() ->
     ClusterOnlyTests = [
         t_inconsistent_state
     ],
-    ClusterLaterJoinOnlyTCs = [
-        % t_cluster_later_join_metrics
-    ],
     [
-        {single, [], (AllTCs -- ClusterLaterJoinOnlyTCs) -- ClusterOnlyTests},
-        {cluster_later_join, [], ClusterLaterJoinOnlyTCs},
-        {cluster, [], (AllTCs -- SingleOnlyTests) -- ClusterLaterJoinOnlyTCs}
+        {single, [], AllTCs -- ClusterOnlyTests},
+        {cluster, [], AllTCs -- SingleOnlyTests}
     ].
-
-suite() ->
-    [{timetrap, {seconds, 60}}].
 
 init_per_suite(Config) ->
     Config.
@@ -161,32 +159,10 @@ end_per_suite(_Config) ->
 init_per_group(cluster = Name, Config) ->
     Nodes = [NodePrimary | _] = mk_cluster(Name, Config),
     init_api([{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config]);
-%% init_per_group(cluster_later_join = Name, Config) ->
-%%     Nodes = [NodePrimary | _] = mk_cluster(Name, Config, #{join_to => undefined}),
-%%     init_api([{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config]);
 init_per_group(Name, Config) ->
     WorkDir = filename:join(?config(priv_dir, Config), Name),
     Apps = emqx_cth_suite:start(?APPSPECS ++ [?APPSPEC_DASHBOARD], #{work_dir => WorkDir}),
     init_api([{group, single}, {group_apps, Apps}, {node, node()} | Config]).
-
-init_api(Config) ->
-    Node = ?config(node, Config),
-    {ok, ApiKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
-    [{api_key, ApiKey} | Config].
-
-mk_cluster(Name, Config) ->
-    mk_cluster(Name, Config, #{}).
-
-mk_cluster(Name, Config, Opts) ->
-    Node1Apps = ?APPSPECS ++ [?APPSPEC_DASHBOARD],
-    Node2Apps = ?APPSPECS,
-    emqx_cth_cluster:start(
-        [
-            {emqx_connector_api_SUITE_1, Opts#{role => core, apps => Node1Apps}},
-            {emqx_connector_api_SUITE_2, Opts#{role => core, apps => Node2Apps}}
-        ],
-        #{work_dir => filename:join(?config(priv_dir, Config), Name)}
-    ).
 
 end_per_group(Group, Config) when
     Group =:= cluster;
@@ -218,7 +194,29 @@ end_per_testcase(TestCase, Config) ->
     ok = emqx_common_test_helpers:call_janitor(),
     ok.
 
--define(CONNECTOR_IMPL, dummy_connector_impl).
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
+
+init_api(Config) ->
+    Node = ?config(node, Config),
+    {ok, ApiKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    [{api_key, ApiKey} | Config].
+
+mk_cluster(Name, Config) ->
+    mk_cluster(Name, Config, #{}).
+
+mk_cluster(Name, Config, Opts) ->
+    Node1Apps = ?APPSPECS ++ [?APPSPEC_DASHBOARD],
+    Node2Apps = ?APPSPECS,
+    emqx_cth_cluster:start(
+        [
+            {emqx_connector_api_SUITE_1, Opts#{role => core, apps => Node1Apps}},
+            {emqx_connector_api_SUITE_2, Opts#{role => core, apps => Node2Apps}}
+        ],
+        #{work_dir => filename:join(?config(priv_dir, Config), Name)}
+    ).
+
 init_mocks(_TestCase) ->
     meck:new(emqx_connector_resource, [passthrough, no_link]),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR_IMPL),
@@ -301,12 +299,114 @@ set_validator(Fn) when is_function(Fn, 1) ->
 clear_validator() ->
     persistent_term:erase({?MODULE, validator}).
 
-%%------------------------------------------------------------------------------
-%% Testcases
-%%------------------------------------------------------------------------------
+listen_on_random_port() ->
+    SockOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}, {backlog, 1000}],
+    case gen_tcp:listen(0, SockOpts) of
+        {ok, Sock} ->
+            {ok, Port} = inet:port(Sock),
+            {Port, Sock};
+        {error, Reason} when Reason /= eaddrinuse ->
+            {error, Reason}
+    end.
 
-%% We have to pretend testing a kafka_producer connector since at this point that's the
-%% only one that's implemented.
+request(Method, URL, Config) ->
+    request(Method, URL, [], Config).
+
+request(Method, {operation, Type, Op, BridgeID}, Body, Config) ->
+    URL = operation_path(Type, Op, BridgeID, Config),
+    request(Method, URL, Body, Config);
+request(Method, URL, Body, Config) ->
+    AuthHeader = emqx_common_test_http:auth_header(?config(api_key, Config)),
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    emqx_mgmt_api_test_util:request_api(Method, URL, [], AuthHeader, Body, Opts).
+
+request(Method, URL, Body, Decoder, Config) ->
+    case request(Method, URL, Body, Config) of
+        {ok, Code, Response} ->
+            case Decoder(Response) of
+                {error, _} = Error -> Error;
+                Decoded -> {ok, Code, Decoded}
+            end;
+        Otherwise ->
+            Otherwise
+    end.
+
+request_json(Method, URLLike, Config) ->
+    request(Method, URLLike, [], fun json/1, Config).
+
+request_json(Method, URLLike, Body, Config) ->
+    request(Method, URLLike, Body, fun json/1, Config).
+
+operation_path(node, Oper, ConnectorID, Config) ->
+    uri(["nodes", ?config(node, Config), "connectors", ConnectorID, Oper]);
+operation_path(cluster, Oper, ConnectorID, _Config) ->
+    uri(["connectors", ConnectorID, Oper]).
+
+enable_path(Enable, ConnectorID) ->
+    uri(["connectors", ConnectorID, "enable", Enable]).
+
+publish_message(Topic, Body, Config) ->
+    Node = ?config(node, Config),
+    erpc:call(Node, emqx, publish, [emqx_message:make(Topic, Body)]).
+
+update_config(Path, Value, Config) ->
+    Node = ?config(node, Config),
+    erpc:call(Node, emqx, update_config, [Path, Value]).
+
+get_raw_config(Path, Config) ->
+    Node = ?config(node, Config),
+    erpc:call(Node, emqx, get_raw_config, [Path]).
+
+add_user_auth(Chain, AuthenticatorID, User, Config) ->
+    Node = ?config(node, Config),
+    erpc:call(Node, emqx_authentication, add_user, [Chain, AuthenticatorID, User]).
+
+delete_user_auth(Chain, AuthenticatorID, User, Config) ->
+    Node = ?config(node, Config),
+    erpc:call(Node, emqx_authentication, delete_user, [Chain, AuthenticatorID, User]).
+
+str(S) when is_list(S) -> S;
+str(S) when is_binary(S) -> binary_to_list(S).
+
+json(B) when is_binary(B) ->
+    case emqx_utils_json:safe_decode(B) of
+        {ok, Term} ->
+            Term;
+        {error, Reason} = Error ->
+            ct:pal("Failed to decode json: ~p~n~p", [Reason, B]),
+            Error
+    end.
+
+suspend_connector_resource(ConnectorResID, Config) ->
+    Node = ?config(node, Config),
+    Pid = erpc:call(Node, fun() ->
+        [Pid] = [
+            Pid
+         || {ID, Pid, worker, _} <- supervisor:which_children(emqx_resource_manager_sup),
+            ID =:= ConnectorResID
+        ],
+        sys:suspend(Pid),
+        Pid
+    end),
+    on_exit(fun() -> erpc:call(Node, fun() -> catch sys:resume(Pid) end) end),
+    ok.
+
+resume_connector_resource(ConnectorResID, Config) ->
+    Node = ?config(node, Config),
+    erpc:call(Node, fun() ->
+        [Pid] = [
+            Pid
+         || {ID, Pid, worker, _} <- supervisor:which_children(emqx_resource_manager_sup),
+            ID =:= ConnectorResID
+        ],
+        sys:resume(Pid),
+        ok
+    end),
+    ok.
+
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
 
 t_connectors_lifecycle(Config) ->
     %% assert we there's no bridges at first
@@ -1061,110 +1161,4 @@ t_create_with_failed_root_validation(Config) ->
         },
         Message
     ),
-    ok.
-
-%%% helpers
-listen_on_random_port() ->
-    SockOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}, {backlog, 1000}],
-    case gen_tcp:listen(0, SockOpts) of
-        {ok, Sock} ->
-            {ok, Port} = inet:port(Sock),
-            {Port, Sock};
-        {error, Reason} when Reason /= eaddrinuse ->
-            {error, Reason}
-    end.
-
-request(Method, URL, Config) ->
-    request(Method, URL, [], Config).
-
-request(Method, {operation, Type, Op, BridgeID}, Body, Config) ->
-    URL = operation_path(Type, Op, BridgeID, Config),
-    request(Method, URL, Body, Config);
-request(Method, URL, Body, Config) ->
-    AuthHeader = emqx_common_test_http:auth_header(?config(api_key, Config)),
-    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
-    emqx_mgmt_api_test_util:request_api(Method, URL, [], AuthHeader, Body, Opts).
-
-request(Method, URL, Body, Decoder, Config) ->
-    case request(Method, URL, Body, Config) of
-        {ok, Code, Response} ->
-            case Decoder(Response) of
-                {error, _} = Error -> Error;
-                Decoded -> {ok, Code, Decoded}
-            end;
-        Otherwise ->
-            Otherwise
-    end.
-
-request_json(Method, URLLike, Config) ->
-    request(Method, URLLike, [], fun json/1, Config).
-
-request_json(Method, URLLike, Body, Config) ->
-    request(Method, URLLike, Body, fun json/1, Config).
-
-operation_path(node, Oper, ConnectorID, Config) ->
-    uri(["nodes", ?config(node, Config), "connectors", ConnectorID, Oper]);
-operation_path(cluster, Oper, ConnectorID, _Config) ->
-    uri(["connectors", ConnectorID, Oper]).
-
-enable_path(Enable, ConnectorID) ->
-    uri(["connectors", ConnectorID, "enable", Enable]).
-
-publish_message(Topic, Body, Config) ->
-    Node = ?config(node, Config),
-    erpc:call(Node, emqx, publish, [emqx_message:make(Topic, Body)]).
-
-update_config(Path, Value, Config) ->
-    Node = ?config(node, Config),
-    erpc:call(Node, emqx, update_config, [Path, Value]).
-
-get_raw_config(Path, Config) ->
-    Node = ?config(node, Config),
-    erpc:call(Node, emqx, get_raw_config, [Path]).
-
-add_user_auth(Chain, AuthenticatorID, User, Config) ->
-    Node = ?config(node, Config),
-    erpc:call(Node, emqx_authentication, add_user, [Chain, AuthenticatorID, User]).
-
-delete_user_auth(Chain, AuthenticatorID, User, Config) ->
-    Node = ?config(node, Config),
-    erpc:call(Node, emqx_authentication, delete_user, [Chain, AuthenticatorID, User]).
-
-str(S) when is_list(S) -> S;
-str(S) when is_binary(S) -> binary_to_list(S).
-
-json(B) when is_binary(B) ->
-    case emqx_utils_json:safe_decode(B) of
-        {ok, Term} ->
-            Term;
-        {error, Reason} = Error ->
-            ct:pal("Failed to decode json: ~p~n~p", [Reason, B]),
-            Error
-    end.
-
-suspend_connector_resource(ConnectorResID, Config) ->
-    Node = ?config(node, Config),
-    Pid = erpc:call(Node, fun() ->
-        [Pid] = [
-            Pid
-         || {ID, Pid, worker, _} <- supervisor:which_children(emqx_resource_manager_sup),
-            ID =:= ConnectorResID
-        ],
-        sys:suspend(Pid),
-        Pid
-    end),
-    on_exit(fun() -> erpc:call(Node, fun() -> catch sys:resume(Pid) end) end),
-    ok.
-
-resume_connector_resource(ConnectorResID, Config) ->
-    Node = ?config(node, Config),
-    erpc:call(Node, fun() ->
-        [Pid] = [
-            Pid
-         || {ID, Pid, worker, _} <- supervisor:which_children(emqx_resource_manager_sup),
-            ID =:= ConnectorResID
-        ],
-        sys:resume(Pid),
-        ok
-    end),
     ok.
