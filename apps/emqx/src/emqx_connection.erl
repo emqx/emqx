@@ -288,6 +288,11 @@ stop(Pid) ->
 init(Parent, Transport, RawSocket, Options) ->
     case Transport:wait(RawSocket) of
         {ok, Socket} ->
+            ?tp(connection_started, #{
+                socket => Socket,
+                listener => maps:get(listener, Options),
+                connmod => ?MODULE
+            }),
             run_loop(Parent, init_state(Transport, Socket, Options));
         {error, Reason} ->
             ok = Transport:fast_close(RawSocket),
