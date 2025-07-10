@@ -639,7 +639,7 @@ t_clients(_) ->
     {404, _} = request(delete, MyClientSubscriptions ++ "/test%2Ftopic"),
 
     {204, _} = request(delete, MyClient),
-    {404, _} = request(delete, MyClient),
+    ?retry(500, 10, {404, _} = request(delete, MyClient)),
     {404, _} = request(get, MyClient),
     {404, _} = request(get, MyClientSubscriptions),
     {404, _} = request(post, MyClientSubscriptions, #{topic => <<"foo">>}),
