@@ -5,83 +5,142 @@
 -module(emqx_dashboard_rbac).
 
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 -export([
     check_rbac/3,
-    role/1,
-    valid_dashboard_role/1,
-    valid_api_role/1
+    parse_dashboard_role/1,
+    parse_api_role/1
 ]).
 
--dialyzer({nowarn_function, role/1}).
+-export_type([actor_context/0]).
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
+
+-define(undefined, undefined).
+
+-type actor_context() :: #{
+    ?actor := username() | api_key(),
+    ?role := role(),
+    ?namespace := ?undefined | namespace()
+}.
+
+-type username() :: binary().
+-type api_key() :: binary().
+-type role() :: binary().
+-type namespace() :: binary().
+
+-define(DASHBOARD_API(METHOD, FN), #{method := METHOD, module := emqx_dashboard_api, function := FN}).
+
 %%=====================================================================
 %% API
-check_rbac(Req, Username, Extra) ->
-    Role = role(Extra),
-    Method = cowboy_req:method(Req),
-    AbsPath = cowboy_req:path(Req),
-    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
-        {ok, Path} ->
-            check_rbac(Role, Method, Path, Username);
-        _ ->
-            false
+-spec check_rbac(emqx_dashboard:request(), emqx_dashboard:handler_info(), actor_context()) ->
+    {ok, actor_context()} | false.
+check_rbac(Req, HandlerInfo, ActorContext) ->
+    maybe
+        true ?= do_check_rbac(ActorContext, Req, HandlerInfo),
+        {ok, ActorContext}
     end.
 
-%% For compatibility
-role(#?ADMIN{role = undefined}) ->
-    ?ROLE_SUPERUSER;
-role(#?ADMIN{role = Role}) ->
-    Role;
-%% For compatibility
-role([]) ->
-    ?ROLE_SUPERUSER;
-role(#{role := Role}) ->
-    Role;
-role(Role) when is_binary(Role) ->
-    Role.
+parse_dashboard_role(Role) ->
+    parse_role(dashboard, Role).
 
-valid_dashboard_role(Role) ->
-    valid_role(dashboard, Role).
-
-valid_api_role(Role) ->
-    valid_role(api, Role).
+parse_api_role(Role) ->
+    parse_role(api, Role).
 
 %% ===================================================================
 
-valid_role(Type, Role) ->
-    case lists:member(Role, role_list(Type)) of
-        true ->
-            ok;
+parse_role(Type, Role0) ->
+    maybe
+        {ok, #{?role := Role} = ParsedRole} ?= do_parse_role(Role0),
+        true ?= lists:member(Role, role_list(Type)),
+        {ok, ParsedRole}
+    else
+        false ->
+            {error, <<"Role does not exist">>};
+        Error ->
+            Error
+    end.
+
+do_parse_role(Role0) when is_binary(Role0) ->
+    maybe
+        [NsTag, Role] ?= binary:split(Role0, <<"::">>),
+        {ok, Ns} ?= parse_namespace_tag(NsTag),
+        {ok, #{?role => Role, ?namespace => Ns}}
+    else
+        [Role1] ->
+            {ok, #{?role => Role1, ?namespace => ?undefined}};
+        {error, _} = Error ->
+            Error;
         _ ->
             {error, <<"Role does not exist">>}
+    end;
+do_parse_role(_) ->
+    {error, <<"Invalid role">>}.
+
+parse_namespace_tag(NsTag) ->
+    case binary:split(NsTag, <<":">>) of
+        [<<"ns">>, Ns] ->
+            {ok, Ns};
+        _ ->
+            {error, <<"Invalid namespace tag">>}
     end.
 
 %% ===================================================================
-check_rbac(?ROLE_SUPERUSER, _, _, _) ->
+-spec do_check_rbac(actor_context(), emqx_dashboard:request(), emqx_dashboard:handler_info()) ->
+    boolean().
+do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := ?undefined}, _, _) ->
+    %% Global administrator
     true;
-check_rbac(?ROLE_VIEWER, <<"GET">>, _, _) ->
+do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
+    %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
+    %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong
+    %% resources rather than hiding information.
     true;
-check_rbac(?ROLE_API_PUBLISHER, <<"POST">>, <<"/publish">>, _) ->
+do_check_rbac(#{?role := ?ROLE_VIEWER}, _, #{method := get}) ->
     true;
-check_rbac(?ROLE_API_PUBLISHER, <<"POST">>, <<"/publish/bulk">>, _) ->
+do_check_rbac(
+    #{?role := ?ROLE_API_PUBLISHER},
+    _,
+    #{method := post, module := emqx_mgmt_api_publish, function := Fn}
+) when Fn == publish; Fn == publish_batch ->
+    %% emqx_mgmt_api_publish:publish
+    %% emqx_mgmt_api_publish:publish_batch
     true;
 %% everyone should allow to logout
-check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/logout">>, _) ->
+do_check_rbac(#{?role := ?ROLE_VIEWER}, _, ?DASHBOARD_API(post, logout)) ->
+    %% emqx_dashboard_api:logout
     true;
 %% viewer should allow to change self password and (re)setup multi-factor auth for self,
 %% superuser should allow to change any user
-check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/users/", SubPath/binary>>, Username) ->
-    case binary:split(SubPath, <<"/">>, [global]) of
-        [Username, <<"change_pwd">>] -> true;
-        [Username, <<"mfa">>] -> true;
-        _ -> false
+do_check_rbac(
+    #{?role := ?ROLE_VIEWER, ?actor := Username},
+    Req,
+    ?DASHBOARD_API(post, Fn)
+) when Fn == change_pwd; Fn == change_mfa ->
+    %% emqx_dashboard_api:change_pwd
+    %% emqx_dashboard_api:change_mfa
+    case Req of
+        #{bindings := #{username := Username}} ->
+            true;
+        _ ->
+            false
     end;
-check_rbac(?ROLE_VIEWER, <<"DELETE">>, <<"/users/", SubPath/binary>>, Username) ->
-    case binary:split(SubPath, <<"/">>, [global]) of
-        [Username, <<"mfa">>] -> true;
-        _ -> false
+do_check_rbac(
+    #{?role := ?ROLE_VIEWER, ?actor := Username},
+    Req,
+    ?DASHBOARD_API(delete, change_mfa)
+) ->
+    %% emqx_dashboard_api:change_mfa
+    case Req of
+        #{bindings := #{username := Username}} ->
+            true;
+        _ ->
+            false
     end;
-check_rbac(_, _, _, _) ->
+do_check_rbac(_, _, _) ->
     false.
 
 role_list(dashboard) ->

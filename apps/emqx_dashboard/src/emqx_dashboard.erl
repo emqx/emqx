@@ -18,6 +18,7 @@
 -export([authorize/2]).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -27,7 +28,23 @@
 -type listener_name() :: atom().
 -type listener_configs() :: #{listener_name() => emqx_config:config()}.
 
--export_type([listener_name/0, listener_configs/0]).
+%% See `minirest_handler:do_authorize`.
+-type handler_info() :: #{
+    method := atom(),
+    module := module(),
+    function := atom()
+}.
+%% Todo: refine keys/values.
+-type request() :: map().
+
+-type auth_meta() :: #{
+    auth_type := jwt_token | api_key,
+    source := binary(),
+    namespace := undefined | binary(),
+    actor := emqx_dashboard_rbac:actor_context()
+}.
+
+-export_type([listener_name/0, listener_configs/0, handler_info/0, request/0]).
 
 %%--------------------------------------------------------------------
 %% Start/Stop Listeners
@@ -245,34 +262,16 @@ filter_false(K, V, S) -> [{K, V} | S].
 listener_name(Protocol) ->
     list_to_atom(atom_to_list(Protocol) ++ ":dashboard").
 
--dialyzer({no_match, [audit_log_fun/0]}).
-
 audit_log_fun() ->
     emqx_dashboard_audit:log_fun().
 
--if(?EMQX_RELEASE_EDITION =/= ee).
-
-%% dialyzer complains about the `unauthorized_role' clause...
--dialyzer({no_match, [authorize/2, api_key_authorize/4]}).
-
--endif.
-
+-spec authorize(request(), handler_info()) -> {ok, auth_meta()} | {integer(), term(), term()}.
 authorize(Req, HandlerInfo) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->
             api_key_authorize(Req, HandlerInfo, Username, Password);
         {bearer, Token} ->
-            case emqx_dashboard_admin:verify_token(Req, Token) of
-                {ok, Username} ->
-                    {ok, #{auth_type => jwt_token, source => Username}};
-                {error, token_timeout} ->
-                    {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
-                {error, not_found} ->
-                    {401, 'BAD_TOKEN', <<"Get a token by POST /login">>};
-                {error, unauthorized_role} ->
-                    {403, 'UNAUTHORIZED_ROLE',
-                        <<"You don't have permission to access this resource">>}
-            end;
+            jwt_token_bearer_authorize(Req, HandlerInfo, Token);
         _ ->
             return_unauthorized(
                 <<"AUTHORIZATION_HEADER_ERROR">>,
@@ -293,8 +292,14 @@ listeners() ->
 
 api_key_authorize(Req, HandlerInfo, Key, Secret) ->
     case emqx_mgmt_auth:authorize(HandlerInfo, Req, Key, Secret) of
-        ok ->
-            {ok, #{auth_type => api_key, source => Key}};
+        {ok, ActorContext} ->
+            AuthnMeta = #{
+                auth_type => api_key,
+                source => Key,
+                namespace => maps:get(?namespace, ActorContext, undefined),
+                actor => ActorContext
+            },
+            {ok, AuthnMeta};
         {error, <<"not_allowed">>, Resource} ->
             return_unauthorized(
                 ?API_KEY_NOT_ALLOW,
@@ -308,6 +313,24 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
                 ?BAD_API_KEY_OR_SECRET,
                 <<"Check api_key/api_secret">>
             )
+    end.
+
+jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
+    case emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token) of
+        {ok, #{actor := Username} = ActorContext} ->
+            AuthnMeta = #{
+                auth_type => jwt_token,
+                source => Username,
+                namespace => maps:get(namespace, ActorContext, undefined),
+                actor => ActorContext
+            },
+            {ok, AuthnMeta};
+        {error, token_timeout} ->
+            {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
+        {error, not_found} ->
+            {401, 'BAD_TOKEN', <<"Get a token by POST /login">>};
+        {error, unauthorized_role} ->
+            {403, 'UNAUTHORIZED_ROLE', <<"You don't have permission to access this resource">>}
     end.
 
 ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->

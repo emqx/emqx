@@ -255,7 +255,8 @@ gen_redirect_response(DashboardAddr, Username) ->
 ensure_user_exists(Username) ->
     case emqx_dashboard_admin:lookup_user(saml, Username) of
         [User] ->
-            emqx_dashboard_token:sign(User);
+            {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(User),
+            {ok, Role, Token};
         [] ->
             case emqx_dashboard_admin:add_sso_user(saml, Username, ?ROLE_VIEWER, <<>>) of
                 {ok, _} ->

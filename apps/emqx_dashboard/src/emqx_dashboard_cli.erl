@@ -14,11 +14,7 @@
 
 -export([bin/1, print_error/1]).
 
--if(?EMQX_RELEASE_EDITION == ee).
 -define(CLI_MOD, emqx_dashboard_sso_cli).
--else.
--define(CLI_MOD, ?MODULE).
--endif.
 
 load() ->
     emqx_ctl:register_command(admins, {?CLI_MOD, admins}, []).
