@@ -444,12 +444,18 @@ defmodule EMQXUmbrella.MixProject do
           &create_RELEASES/1,
           &copy_files(&1, release_type, package_type, edition_type),
           &copy_escript(&1, "nodetool"),
-          &copy_escript(&1, "install_upgrade.escript")
+          &copy_escript(&1, "install_upgrade.escript"),
+          &cleanup_release_package/1
         ]
 
         steps =
           if System.get_env("ELIXIR_MAKE_TAR") == "yes" do
-            base_steps ++ [&prepare_tar_overlays/1, :tar]
+            base_steps ++
+              [
+                &prepare_tar_overlays/1,
+                &macos_pre_tar_steps/1,
+                :tar
+              ]
           else
             base_steps
           end
@@ -879,6 +885,36 @@ defmodule EMQXUmbrella.MixProject do
     )
   end
 
+  defp cleanup_release_package(release) do
+    release.path
+    |> List.wrap()
+    |> Mix.Utils.extract_files("swagger*.{css,js}.map")
+    |> Enum.each(&File.rm!/1)
+
+    release
+  end
+
+  # macos builds need to perform these extra steps before running `:tar`.
+  defp macos_pre_tar_steps(release) do
+    if is_macos?() do
+      Mix.shell().info("[macos] signing binaries...")
+      os_cmd("scripts/rel/macos-sign-binaries.sh")
+      Mix.shell().info("[macos] notarizing package...")
+      os_cmd("scripts/rel/macos-notarize-package.sh")
+      Mix.shell().info("[macos] done")
+    end
+
+    release
+  end
+
+  def is_macos?() do
+    {output, _} = System.cmd("uname", [])
+
+    output
+    |> String.trim()
+    |> Kernel.==("Darwin")
+  end
+
   #############################################################################
   #  Checks
   #############################################################################
@@ -1046,7 +1082,7 @@ defmodule EMQXUmbrella.MixProject do
     os_cmd(script, [Atom.to_string(edition_type)])
   end
 
-  defp os_cmd(script, args) do
+  defp os_cmd(script, args \\ []) do
     {str, 0} = System.cmd("bash", [script | args])
     String.trim(str)
   end
