@@ -77,7 +77,7 @@
 %% Guards
 -define(IS_SUBID(Id), (is_binary(Id) orelse is_atom(Id))).
 
--define(PT_FLAG_ASYNC_SHARD_DISPATCH, async_fanout_shard_dispatch).
+-define(PT_FLAG_ASYNC_SHARD_DISPATCH, '$emqx_broker__async_fanout_shard_dispatch').
 
 -define(cast_or_eval(PICK, Msg, Expr),
     case PICK of
