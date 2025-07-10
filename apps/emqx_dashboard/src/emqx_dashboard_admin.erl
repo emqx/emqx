@@ -454,7 +454,7 @@ update_user_(Username, Role, Desc, Extra) ->
                     username => Username,
                     role => Role,
                     description => Desc,
-                    ?namespace => maps:get(?namespace, Extra, undefined)
+                    ?namespace => maps:get(?namespace, NewExtra, undefined)
                 })
             }
     end.
