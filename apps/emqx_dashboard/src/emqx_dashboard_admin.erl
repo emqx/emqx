@@ -335,7 +335,12 @@ add_user_(Username, Password, Role, Desc, Extra) ->
                 extra = Extra#{password_ts => erlang:system_time(second)}
             },
             mnesia:write(Admin),
-            ?SLOG(info, #{msg => "dashboard_sso_user_added", username => Username, ?role => Role}),
+            ?SLOG(info, #{
+                msg => "dashboard_sso_user_added",
+                username => Username,
+                ?role => Role,
+                ?namespace => Namespace
+            }),
             flatten_username(#{
                 username => Username,
                 ?role => Role,
