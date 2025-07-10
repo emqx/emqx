@@ -140,15 +140,15 @@ update(Name, Enable, ExpiredAt, Desc, Role0) ->
             Error
     end.
 
-do_update(Name, Enable, ExpiredAt, Desc, #{role := Role, namespace := Namespace}) ->
+do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespace}) ->
     case mnesia:read(?APP, Name, write) of
         [] ->
             mnesia:abort(not_found);
         [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
             #{desc := Desc0} = Extra0 = normalize_extra(Extra0),
             Extra = emqx_utils_maps:put_if(
-                Extra0#{role => Role, desc => ensure_not_undefined(Desc, Desc0)},
-                namespace,
+                Extra0#{?role => Role, desc => ensure_not_undefined(Desc, Desc0)},
+                ?namespace,
                 Namespace,
                 is_binary(Namespace)
             ),
@@ -235,8 +235,8 @@ to_map(Apps) when is_list(Apps) ->
 to_map(#?APP{
     name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, extra = Extra0
 }) ->
-    #{role := Role, desc := Desc} = Extra = normalize_extra(Extra0),
-    Namespace = maps:get(namespace, Extra, undefined),
+    #{?role := Role, desc := Desc} = Extra = normalize_extra(Extra0),
+    Namespace = maps:get(?namespace, Extra, undefined),
     #{
         name => N,
         api_key => K,
@@ -254,10 +254,10 @@ is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
 
 create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role0) ->
     maybe
-        {ok, #{role := Role, namespace := Namespace}} ?= parse_role(Role0),
+        {ok, #{?role := Role, ?namespace := Namespace}} ?= parse_role(Role0),
         Extra = emqx_utils_maps:put_if(
-            #{role => Role, desc => Desc},
-            namespace,
+            #{?role => Role, desc => Desc},
+            ?namespace,
             Namespace,
             is_binary(Namespace)
         ),
@@ -458,7 +458,7 @@ parse_bootstrap_line(Bin, MP) ->
             {ok, Args ++ [?ROLE_API_DEFAULT, Namespace]};
         {match, [[ApiKey, ApiSecret, Role0]]} ->
             case parse_role(Role0) of
-                {ok, #{role := Role, namespace := Namespace}} ->
+                {ok, #{?role := Role, ?namespace := Namespace}} ->
                     {ok, [ApiKey, ApiSecret, Role, Namespace]};
                 _Error ->
                     {error, {"invalid_role", Role0}}
@@ -467,14 +467,14 @@ parse_bootstrap_line(Bin, MP) ->
             {error, "invalid_format"}
     end.
 
-get_role(#{role := Role}) ->
+get_role(#{?role := Role}) ->
     Role;
 %% Before v5.4.0,
 %% the field in the position of the `extra` is `desc` which is a binary for description
 get_role(_Desc) ->
     ?ROLE_API_DEFAULT.
 
-namespace_of(#{namespace := Namespace}) when is_binary(Namespace) ->
+namespace_of(#{?namespace := Namespace}) when is_binary(Namespace) ->
     Namespace;
 namespace_of(_) ->
     undefined.
@@ -482,7 +482,7 @@ namespace_of(_) ->
 normalize_extra(Map) when is_map(Map) ->
     Map;
 normalize_extra(Desc) ->
-    #{desc => Desc, role => ?ROLE_API_DEFAULT, namespace => undefined}.
+    #{desc => Desc, ?role => ?ROLE_API_DEFAULT, ?namespace => undefined}.
 
 check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) ->
     ActorContext = actor_context_of(ApiKey, Role, Namespace),
@@ -501,7 +501,7 @@ parse_role(Role) ->
 
 actor_context_of(ApiKey, Role, Namespace) ->
     #{
-        actor => ApiKey,
-        namespace => Namespace,
-        role => Role
+        ?actor => ApiKey,
+        ?namespace => Namespace,
+        ?role => Role
     }.

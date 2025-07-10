@@ -9,6 +9,7 @@
 -feature(maybe_expr, enable).
 
 -include("emqx_dashboard.hrl").
+-include("emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -74,9 +75,6 @@
 -type emqx_admin() :: #?ADMIN{}.
 
 -define(USERNAME_ALREADY_EXISTS_ERROR, <<"username_already_exists">>).
-
--define(role, role).
--define(namespace, namespace).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap

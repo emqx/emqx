@@ -5,6 +5,7 @@
 -module(emqx_dashboard_token).
 
 -include("emqx_dashboard.hrl").
+-include("emqx_dashboard_rbac.hrl").
 
 -export([create_tables/0]).
 
@@ -173,7 +174,7 @@ format(Token, Username, Role, ExpTime, Namespace) ->
 format(Token, Backend, Username, Role, ExpTime, Namespace) ->
     Extra = emqx_utils_maps:put_if(
         #{role => Role, backend => Backend},
-        namespace,
+        ?namespace,
         Namespace,
         is_binary(Namespace)
     ),
@@ -253,19 +254,19 @@ actor_context_of(#?ADMIN_JWT{} = JWT) ->
     Role = role_of(Extra),
     Namespace = namespace_of(Extra),
     #{
-        actor => Username,
-        role => Role,
-        namespace => Namespace
+        ?actor => Username,
+        ?role => Role,
+        ?namespace => Namespace
     }.
 
 %% For compatibility
 role_of([]) ->
     %% Very old record definition had `[]` as the default for `extra`....
     ?ROLE_SUPERUSER;
-role_of(#{role := Role}) ->
+role_of(#{?role := Role}) ->
     Role.
 
-namespace_of(#{namespace := Namespace}) when is_binary(Namespace) ->
+namespace_of(#{?namespace := Namespace}) when is_binary(Namespace) ->
     Namespace;
 namespace_of(_) ->
     undefined.

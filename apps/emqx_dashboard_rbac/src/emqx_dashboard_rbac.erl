@@ -5,6 +5,7 @@
 -module(emqx_dashboard_rbac).
 
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 -export([
     check_rbac/3,
@@ -18,9 +19,6 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--define(actor, actor).
--define(namespace, namespace).
--define(role, role).
 -define(undefined, undefined).
 
 -type actor_context() :: #{

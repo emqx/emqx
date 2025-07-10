@@ -18,6 +18,7 @@
 -export([authorize/2]).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -295,7 +296,7 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
             AuthnMeta = #{
                 auth_type => api_key,
                 source => Key,
-                namespace => maps:get(namespace, ActorContext, undefined),
+                namespace => maps:get(?namespace, ActorContext, undefined),
                 actor => ActorContext
             },
             {ok, AuthnMeta};
