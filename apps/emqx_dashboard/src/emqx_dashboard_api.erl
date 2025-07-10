@@ -485,6 +485,8 @@ filter_result(#{} = Result) ->
         end,
         Result
     );
+filter_result(Results) when is_list(Results) ->
+    lists:map(fun filter_result/1, Results);
 filter_result(Result) ->
     Result.
 
