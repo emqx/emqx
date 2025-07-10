@@ -266,7 +266,7 @@ list(Namespace) ->
     ).
 
 lookup(Id) ->
-    {Type, Name} = emqx_connector_resource:parse_connector_id(Id),
+    #{type := Type, name := Name} = emqx_connector_resource:parse_connector_id(Id),
     lookup(Type, Name).
 lookup(Type, Name) ->
     lookup(_Namespace = undefined, Type, Name).
