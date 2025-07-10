@@ -158,12 +158,12 @@ ifneq ($(TESTCASE),)
 ifneq ($(GROUP),)
 	env PROFILE=$(PROFILE)-test $(MIX) do deps.get, ct --suites $(SUITE) --cases $(TESTCASE) --group-paths $(GROUP)
 else
-	env PROFILE=$(PROFILE)-test $(MIX) do deps.get,  ct --suite $(SUITE)  --case $(TESTCASE)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get,  ct --suites $(SUITE)  --cases $(TESTCASE)
 endif
 else ifneq ($(GROUP),)
-	env PROFILE=$(PROFILE)-test $(MIX) do deps.get,  ct --suite $(SUITE)  --group $(GROUP)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get,  ct --suites $(SUITE)  --group-paths $(GROUP)
 else
-	env PROFILE=$(PROFILE)-test $(MIX) do deps.get,  ct --suite $(SUITE)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get,  ct --suites $(SUITE)
 endif
 
 .PHONY: cover
@@ -251,11 +251,18 @@ endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))
 
 .PHONY: run
-run: compile-$(PROFILE) run-console
+run: $(PROFILE) run-console
+
+.PHONY: run-iex
+run-iex: $(PROFILE) run-console-iex
 
 .PHONY: run-console
 run-console:
 	_build/$(PROFILE)/rel/emqx/bin/emqx console
+
+.PHONY: run-console-iex
+run-console-iex:
+	env EMQX_CONSOLE_FLAVOR=iex _build/$(PROFILE)/rel/emqx/bin/emqx console
 
 .PHONY: repl
 repl:
