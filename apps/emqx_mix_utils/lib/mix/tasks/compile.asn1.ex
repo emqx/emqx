@@ -6,6 +6,8 @@ defmodule Mix.Tasks.Compile.Asn1 do
   @manifest "compile.asn1"
   # TODO: use manifest to track generated files?
 
+  @stale? {__MODULE__, :stale?}
+
   @impl true
   def manifests(), do: [manifest()]
   defp manifest(), do: Path.join(Mix.Project.manifest_path(), @manifest)
@@ -22,9 +24,14 @@ defmodule Mix.Tasks.Compile.Asn1 do
     manifest_data = read_manifest(manifest())
     manifest_modified_time = Mix.Utils.last_modified(manifest())
     Enum.each(asn1_srcs, &compile(&1, app_root, manifest_modified_time))
-    write_manifest(manifest(), manifest_data)
+
+    if Process.get(@stale?, false) do
+      write_manifest(manifest(), manifest_data)
+    end
 
     {:noop, []}
+  after
+    Process.delete(@stale?)
   end
 
   defp compile(src, app_root, manifest_modified_time) do
@@ -39,10 +46,11 @@ defmodule Mix.Tasks.Compile.Asn1 do
       |> Path.expand()
 
     if stale?(src_path, manifest_modified_time) do
-      Mix.shell().info("compiling asn1 file: #{src_path}")
+      Process.put(@stale?, true)
+      debug("compiling asn1 file: #{src_path}")
       :ok = :asn1ct.compile(to_charlist(src_path), compile_opts)
     else
-      Mix.shell().info("file is up to date, not compiling: #{src_path}")
+      debug("file is up to date, not compiling: #{src_path}")
     end
   end
 
@@ -67,7 +75,7 @@ defmodule Mix.Tasks.Compile.Asn1 do
   end
 
   defp write_manifest(file, data) do
-    Mix.shell().info("writing manifest #{file}")
+    debug("writing manifest #{file}")
     File.mkdir_p!(Path.dirname(file))
     File.write!(file, :erlang.term_to_binary({@manifest_vsn, data}))
   end
@@ -80,5 +88,11 @@ defmodule Mix.Tasks.Compile.Asn1 do
     |> Path.join("ebin")
     |> to_charlist()
     |> :code.add_path(:cache)
+  end
+
+  defp debug(iodata) do
+    if Mix.debug?() do
+      Mix.shell().info(IO.ANSI.format([:cyan, iodata]))
+    end
   end
 end

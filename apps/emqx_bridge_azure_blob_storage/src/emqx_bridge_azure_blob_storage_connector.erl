@@ -41,7 +41,8 @@
     process_append/2,
     process_write/1,
     process_complete/1,
-    process_terminate/1
+    process_terminate/1,
+    process_format_status/1
 ]).
 
 %% `emqx_template' API
@@ -435,6 +436,15 @@ process_complete(TransferState) ->
 process_terminate(_TransferState) ->
     %% todo: delete uploaded blocks?
     ok.
+
+-spec process_format_status(transfer_state()) -> map().
+process_format_status(TransferState) ->
+    #{next_block := NextBlock} = TransferState,
+    TransferState#{
+        buffer := [<<"...">>],
+        next_block := [queue:len(NextBlock), <<"items">>],
+        driver_state := <<"...">>
+    }.
 
 %%------------------------------------------------------------------------------
 %% `emqx_template' API

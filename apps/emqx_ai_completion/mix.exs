@@ -18,13 +18,17 @@ defmodule EMQXAICompletion.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_ai_completion_app, []}]
+    [
+      extra_applications: UMP.extra_applications(),
+      mod: {:emqx_ai_completion_app, []}
+    ]
   end
 
   def deps() do
     [
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
+      UMP.common_dep(:minirest),
       UMP.common_dep(:hackney)
     ]
   end
