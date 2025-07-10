@@ -106,7 +106,7 @@
 -record(congested, {
     handle :: reference(),
     deadline :: _TimestampMs :: integer(),
-    sendq :: [erlang:iovec()]
+    sendq :: [erlang:iodata()]
 }).
 
 -type congested() :: #congested{}.
@@ -941,7 +941,7 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
 send(Num, IoData, #state{socket = Socket, sockstate = idle} = State) ->
     Oct = iolist_size(IoData),
     Handle = make_ref(),
-    case socket:send(Socket, IoData, Handle) of
+    case socket:send(Socket, IoData, [], Handle) of
         ok ->
             sent(Num, Oct, State);
         {select, {_Info, Rest}} ->
@@ -969,7 +969,7 @@ send(_Num, _IoVec, #state{sockstate = closed} = State) ->
 handle_send_ready(Socket, SS = #congested{sendq = SQ}, State) ->
     IoData = sendq_to_iodata(SQ, []),
     Handle = make_ref(),
-    case socket:send(Socket, IoData, Handle) of
+    case socket:send(Socket, IoData, [], Handle) of
         ok ->
             {ok, State};
         {select, {_Info, Rest}} ->
