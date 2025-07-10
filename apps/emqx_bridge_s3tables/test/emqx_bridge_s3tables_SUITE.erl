@@ -278,6 +278,9 @@ ensure_namespace_created(Client, Namespace) ->
         {ok, _} ->
             ct:pal("namespace ~p created", [Namespace]),
             ok;
+        {error, {http_error, 500, _, _, _}} ->
+            %% See Note [Flaky iceberg-rest-fixtures]
+            throw(fixture_dead);
         {error, {http_error, 409, _, _, _}} ->
             ct:pal("namespace ~p already exists", [Namespace]),
             ok;
@@ -349,13 +352,9 @@ ensure_table_created(Client, Namespace, Table, Schema, Opts) ->
         {error, {http_error, 409, _, _, _}} ->
             ct:pal("table ~p.~p already exists", [Namespace, Table]),
             ok;
-        {error, {http_error, Status, _, _, _} = Res} when Status >= 500 ->
+        {error, {http_error, 500, _, _, _}} ->
             %% See Note [Flaky iceberg-rest-fixtures]
-            %% If the Iceberg REST is in a broken state, trying to clean up will result in
-            %% 5xx errors.  Since the only way to fix it is by restarting it, we can just
-            %% ignore it
-            ct:pal("fixture server returned 500; ignoring as we'll likely restart it:\n  ~p", [Res]),
-            ok;
+            throw(fixture_dead);
         {error, Reason} ->
             error(Reason)
     end.
@@ -367,6 +366,16 @@ ensure_table_deleted(Client, Namespace, Table) ->
             ok;
         {error, {http_error, 404, _, _, _}} ->
             ct:pal("table ~p.~p already gone", [Namespace, Table]),
+            ok;
+        {error, {http_error, Status, _, _, _} = Res} when Status >= 500 ->
+            %% See Note [Flaky iceberg-rest-fixtures]
+            %% If the Iceberg REST is in a broken state, trying to clean up will result in
+            %% 5xx errors.  Since the only way to fix it is by restarting it, we can just
+            %% ignore it
+            ct:pal(
+                "fixture server returned ~b; ignoring as we'll likely restart it:\n  ~p",
+                [Status, Res]
+            ),
             ok;
         {error, Reason} ->
             error(Reason)
@@ -535,11 +544,27 @@ simple_setup_table(TestCase, TCConfig) ->
     Namespace = [Name],
     Table = Name,
     Schema = proplists:get_value(schema, TCConfig, simple_schema1()),
-    ok = ensure_namespace_created(Client, Namespace),
+    ok = retry_if_fixture_crashed(fun() -> ensure_namespace_created(Client, Namespace) end),
     ExtraOptsFn = get_tc_prop(TestCase, table_extra_opts_fn, fun(_) -> #{} end),
     ExtraOpts = ExtraOptsFn(TCConfig),
-    ok = ensure_table_created(Client, Namespace, Table, Schema, ExtraOpts),
+    ok = retry_if_fixture_crashed(fun() ->
+        ensure_table_created(Client, Namespace, Table, Schema, ExtraOpts)
+    end),
     #{ns => join_ns(Namespace), table => Table}.
+
+retry_if_fixture_crashed(Fn) ->
+    retry_if_fixture_crashed(Fn, 5).
+
+retry_if_fixture_crashed(Fn, RetriesLeft) ->
+    try
+        Fn()
+    catch
+        throw:fixture_dead when RetriesLeft > 0 ->
+            restart_server(),
+            retry_if_fixture_crashed(Fn, RetriesLeft - 1);
+        throw:fixture_dead:Stacktrace ->
+            error({fixture_failed_to_restart, Fn, Stacktrace})
+    end.
 
 scan_table(Namespace, Table) ->
     Method = get,
