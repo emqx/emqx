@@ -533,7 +533,7 @@ mk_ecpool_client_opts(
     }).
 
 parse_id_to_name(Id) ->
-    {_Type, Name} = emqx_connector_resource:parse_connector_id(Id, #{atom_name => false}),
+    #{name := Name} = emqx_connector_resource:parse_connector_id(Id, #{atom_name => false}),
     Name.
 
 mk_client_opt_password(Options = #{password := Secret}) ->

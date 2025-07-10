@@ -351,7 +351,8 @@ make_client_id(ConnResId) ->
         true ->
             pulsar_producer_probe;
         false ->
-            {pulsar, Name} = emqx_connector_resource:parse_connector_id(ConnResId),
+            #{name := Name} = emqx_connector_resource:parse_connector_id(ConnResId),
+            %% TODO: handle namespaces
             ClientIdBin = iolist_to_binary([
                 <<"pulsar:">>,
                 emqx_utils_conv:bin(Name),

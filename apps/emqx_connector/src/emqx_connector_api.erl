@@ -56,7 +56,7 @@
 %% Don't turn connector_name to atom, it's maybe not a existing atom.
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_connector_resource:parse_connector_id(Id, #{atom_name => false}) of
-        {ConnectorType, ConnectorName} ->
+        #{type := ConnectorType, name := ConnectorName} ->
             EXPR
     catch
         throw:#{reason := Reason} ->
@@ -72,7 +72,7 @@ api_spec() ->
 check_api_schema(Request, #{path := "/connectors/:id", method := put = Method} = Metadata) ->
     ConnectorId = emqx_utils_maps:deep_get([bindings, id], Request),
     try emqx_connector_resource:parse_connector_id(ConnectorId, #{atom_name => false}) of
-        {ConnectorType, _ConnectorName} ->
+        #{type := ConnectorType} ->
             %% Since we know the connector type, we refine the schema to get more decent
             %% error messages.
             {_, Ref} = emqx_connector_info:api_schema(ConnectorType, atom_to_list(Method)),

@@ -840,7 +840,7 @@ create_dry_run_helper(ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawCo
     ConnectorType = connector_type(BridgeV2Type),
     OnReadyCallback =
         fun(ConnectorId) ->
-            {_, ConnectorName} = emqx_connector_resource:parse_connector_id(ConnectorId),
+            #{name := ConnectorName} = emqx_connector_resource:parse_connector_id(ConnectorId),
             ChannelTestId = id(BridgeV2Type, BridgeName, ConnectorName),
             BridgeV2Conf0 = fill_defaults(
                 BridgeV2Type,
@@ -1022,7 +1022,7 @@ get_channels_for_connector(ConnectorId) ->
 
 get_channels_for_connector(SourcesOrActions, ConnectorId) ->
     try emqx_connector_resource:parse_connector_id(ConnectorId) of
-        {ConnectorType, ConnectorName} ->
+        #{type := ConnectorType, type := ConnectorName} ->
             RootConf = maps:keys(emqx:get_config([SourcesOrActions], #{})),
             RelevantBridgeV2Types = [
                 Type
