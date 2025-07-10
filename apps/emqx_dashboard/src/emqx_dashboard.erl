@@ -39,6 +39,7 @@
 -type auth_meta() :: #{
     auth_type := jwt_token | api_key,
     source := binary(),
+    namespace := undefined | binary(),
     actor := emqx_dashboard_rbac:actor_context()
 }.
 
