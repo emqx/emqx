@@ -29,10 +29,11 @@ groups() ->
             {group, mqttv4},
             {group, mqttv5},
             {group, others},
+            {group, socket},
             {group, misbehaving}
         ]},
         {socket_listener, [], [
-            {group, sock_closed},
+            {group, socket},
             {group, misbehaving}
         ]},
         {mqttv3, [], [
@@ -73,10 +74,13 @@ groups() ->
             t_clientid_override_fail_with_expression_exception
         ]},
         {misbehaving, [], [
+            t_sock_closed_instantly,
+            t_sock_closed_quickly,
             t_sub_non_utf8_topic,
             t_congestion_send_timeout
         ]},
-        {sock_closed, [], [
+        {socket, [], [
+            t_sock_keepalive,
             t_sock_closed_reason_normal,
             t_sock_closed_force_closed_by_client
         ]}
@@ -136,15 +140,18 @@ end_per_group(_GroupName, _Config) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
+    ok = snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    ok = snabbkaffe:stop(),
     %% restore default values
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
     emqx_config:put_zone_conf(default, [mqtt, use_username_as_clientid], false),
     emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], disabled),
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     emqx_config:put_zone_conf(default, [mqtt, clientid_override], disabled),
+    emqx_config:put_listener_conf(tcp, default, [tcp_options, keepalive], "none"),
     ok.
 
 %%--------------------------------------------------------------------
@@ -420,6 +427,23 @@ t_client_attr_from_user_property(_Config) ->
     ),
     emqtt:disconnect(Client).
 
+t_sock_keepalive(Config) ->
+    %% Configure TCP Keepalive:
+    ok = emqx_config:put_listener_conf(tcp, default, [tcp_options, keepalive], "1,1,5"),
+    %% Connect MQTT client:
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, C} = emqtt:start_link([{clientid, ClientId} | Config]),
+    {
+        {ok, _},
+        {ok, #{?snk_meta := #{pid := CPid}}}
+    } = ?wait_async_action(emqtt:connect(C), #{?snk_kind := connection_started}),
+    %% Verify TCP settings handled smoothly:
+    %% If actual keepalive probes are going around is notoriously difficult to verify.
+    MRef = erlang:monitor(process, CPid),
+    ok = timer:sleep(1_000),
+    ok = emqtt:disconnect(C),
+    ?assertReceive({'DOWN', MRef, process, CPid, normal}).
+
 t_sock_closed_reason_normal(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     ?check_trace(
@@ -534,6 +558,58 @@ on_hook(_ClientInfo, ConnInfo, 'client.connected' = HP, Pid) ->
 %%--------------------------------------------------------------------
 %% Misbehaving clients
 %%--------------------------------------------------------------------
+
+t_sock_closed_instantly(_) ->
+    %% Introduce scheduling delays:
+    meck:new(esockd_transport, [no_history, passthrough]),
+    meck:new(esockd_socket, [no_history, passthrough]),
+    meck:expect(esockd_transport, type, fun meck_sched_delay/1),
+    meck:expect(esockd_socket, type, fun meck_sched_delay/1),
+    %% Start a tracing session, to catch exit reasons consistently:
+    TS = trace:session_create(?MODULE, self(), []),
+    %% Estabilish a connection:
+    {
+        {ok, Socket},
+        {ok, #{?snk_meta := #{pid := CPid}}}
+    } = ?wait_async_action(
+        gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+        #{?snk_kind := connection_started}
+    ),
+    %% Verify it handles instant socket close smoothly:
+    trace:process(TS, CPid, true, [procs]),
+    try
+        ok = gen_tcp:close(Socket),
+        ?assertReceive(
+            {trace, CPid, exit, Reason} when
+                Reason == {shutdown, tcp_closed} orelse Reason == normal
+        )
+    after
+        trace:session_destroy(TS),
+        meck:unload()
+    end.
+
+t_sock_closed_quickly(_) ->
+    %% Start a tracing session:
+    TS = trace:session_create(?MODULE, self(), []),
+    %% Estabilish a connection:
+    {
+        {ok, Socket},
+        {ok, #{?snk_meta := #{pid := CPid}}}
+    } = ?wait_async_action(
+        gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+        #{?snk_kind := connection_started}
+    ),
+    %% Verify it handles quick socket close smoothly:
+    trace:process(TS, CPid, true, [procs]),
+    try
+        ok = gen_tcp:close(Socket),
+        ?assertReceive(
+            {trace, CPid, exit, Reason} when
+                Reason == {shutdown, tcp_closed} orelse Reason == normal
+        )
+    after
+        trace:session_destroy(TS)
+    end.
 
 t_sub_non_utf8_topic(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
@@ -659,3 +735,7 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),
     confirm_tls_version(Client, RequiredTLSVsn),
     emqtt:disconnect(Client).
+
+meck_sched_delay(X) ->
+    erlang:yield(),
+    meck:passthrough([X]).

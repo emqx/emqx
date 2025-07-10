@@ -264,6 +264,11 @@ stop(Pid) ->
 init(Parent, esockd_socket, RawSocket, Options) ->
     case esockd_socket:wait(RawSocket) of
         {ok, Socket} ->
+            ?tp(connection_started, #{
+                socket => Socket,
+                listener => maps:get(listener, Options),
+                connmod => ?MODULE
+            }),
             run_loop(Parent, init_state(Socket, Options));
         {error, Reason} ->
             ok = esockd_socket:fast_close(RawSocket),
@@ -321,7 +326,6 @@ init_state(
 ensure_ok_or_exit(Result, Sock) ->
     case Result of
         {error, Reason} when Reason =:= enotconn; Reason =:= closed ->
-            esockd_socket:fast_close(Sock),
             exit(normal);
         {error, Reason} ->
             esockd_socket:fast_close(Sock),
@@ -346,7 +350,7 @@ run_loop(
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
     ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     _ = emqx_utils:tune_heap_size(ShutdownPolicy),
-    ok = set_tcp_keepalive(Listener),
+    _ = set_tcp_keepalive(Listener),
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             NState = start_idle_timer(State),
