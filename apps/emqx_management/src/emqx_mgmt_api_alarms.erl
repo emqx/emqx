@@ -80,7 +80,7 @@ schema("/alarms/force_deactivate") ->
         post => #{
             description => ?DESC(force_deactivate_alarm_api),
             tags => ?TAGS,
-            requestBody => hoconsc:ref(?MODULE, force_deactivate_alarm_request),
+            'requestBody' => hoconsc:ref(?MODULE, force_deactivate_alarm_request),
             responses => #{
                 204 => ?DESC(force_deactivate_alarm_api_response204),
                 400 => ?DESC(force_deactivate_alarm_api_response400)
