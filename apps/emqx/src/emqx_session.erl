@@ -36,6 +36,7 @@
 -include("emqx.hrl").
 -include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -326,6 +327,9 @@ subscribe(ClientInfo, TopicFilter, SubOpts, Session) ->
     SubOpts0 = ?IMPL(Session):get_subscription(TopicFilter, Session),
     case ?IMPL(Session):subscribe(TopicFilter, SubOpts, Session) of
         {ok, Session1} ->
+            ?tp(warning, session_subscribed, #{
+                client_info => ClientInfo, topic_filter => TopicFilter, sub_opts => SubOpts
+            }),
             ok = emqx_hooks:run(
                 'session.subscribed',
                 [ClientInfo, TopicFilter, SubOpts#{is_new => (SubOpts0 == undefined)}]
