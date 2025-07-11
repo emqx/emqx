@@ -148,17 +148,17 @@ t_clean_token(_) ->
     NewDesc = <<"new desc">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
-    FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
-    FakeReq = #{method => <<"GET">>, path => FakePath},
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    FakeReq = #{},
+    FakeHandlerInfo = #{method => get, module => any, function => any},
+    {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% change description
     {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_SUPERUSER, NewDesc),
     timer:sleep(5),
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% change role
     {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_VIEWER, NewDesc),
     timer:sleep(5),
-    {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     ok.
 
 t_login_out(_) ->
@@ -167,9 +167,9 @@ t_login_out(_) ->
     Desc = <<"desc">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
-    FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/logout")),
-    FakeReq = #{method => <<"POST">>, path => FakePath},
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    FakeReq = #{},
+    FakeHandlerInfo = #{method => post, function => logout, module => emqx_dashboard_api},
+    {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     ok.
 
 t_change_pwd(_) ->
@@ -188,21 +188,20 @@ t_change_pwd(_) ->
         SuperUser, Password
     ),
     %% viewer can change own password
-    ?assertEqual({ok, Viewer1}, change_pwd(Viewer1Token, Viewer1)),
+    ?assertMatch({ok, #{actor := Viewer1}}, change_pwd(Viewer1Token, Viewer1)),
     %% viewer can't change other's password
     ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, Viewer2)),
     ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, SuperUser)),
     %% superuser can change other's password
-    ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, Viewer1)),
-    ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, Viewer2)),
-    ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, SuperUser)),
+    ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer1)),
+    ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer2)),
+    ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, SuperUser)),
     ok.
 
 change_pwd(Token, Username) ->
-    Path = "/users/" ++ binary_to_list(Username) ++ "/change_pwd",
-    Path1 = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri(Path)),
-    Req = #{method => <<"POST">>, path => Path1},
-    emqx_dashboard_admin:verify_token(Req, Token).
+    Req = #{bindings => #{username => Username}},
+    HandlerInfo = #{method => post, function => change_pwd, module => emqx_dashboard_api},
+    emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token).
 
 t_setup_mfa(_) ->
     test_mfa(fun setup_mfa/2).
@@ -226,27 +225,25 @@ test_mfa(VerifyFn) ->
         SuperUser, Password
     ),
     %% viewer can change own password
-    ?assertEqual({ok, Viewer1}, VerifyFn(Viewer1Token, Viewer1)),
+    ?assertMatch({ok, #{actor := Viewer1}}, VerifyFn(Viewer1Token, Viewer1)),
     %% viewer can't change other's password
     ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, Viewer2)),
     ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, SuperUser)),
     %% superuser can change other's password
-    ?assertEqual({ok, SuperUser}, VerifyFn(SuperToken, Viewer1)),
-    ?assertEqual({ok, SuperUser}, VerifyFn(SuperToken, Viewer2)),
-    ?assertEqual({ok, SuperUser}, VerifyFn(SuperToken, SuperUser)),
+    ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer1)),
+    ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer2)),
+    ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, SuperUser)),
     ok.
 
 delete_mfa(Token, Username) ->
-    Path = "/users/" ++ binary_to_list(Username) ++ "/mfa",
-    Path1 = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri(Path)),
-    Req = #{method => <<"DELETE">>, path => Path1},
-    emqx_dashboard_admin:verify_token(Req, Token).
+    Req = #{bindings => #{username => Username}},
+    HandlerInfo = #{method => delete, module => emqx_dashboard_api, function => change_mfa},
+    emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token).
 
 setup_mfa(Token, Username) ->
-    Path = "/users/" ++ binary_to_list(Username) ++ "/mfa",
-    Path1 = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri(Path)),
-    Req = #{method => <<"POST">>, path => Path1},
-    emqx_dashboard_admin:verify_token(Req, Token).
+    Req = #{bindings => #{username => Username}},
+    HandlerInfo = #{method => post, module => emqx_dashboard_api, function => change_mfa},
+    emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token).
 
 add_default_superuser() ->
     {ok, _NewUser} = emqx_dashboard_admin:add_user(

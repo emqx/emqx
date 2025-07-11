@@ -163,7 +163,7 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         State ->
             case emqx_dashboard_sso:login(provider(Backend), Request, State) of
-                {ok, Role, Token} ->
+                {ok, Role, Token, _Namespace} ->
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_successful",
                         request => emqx_utils:redact(Request)

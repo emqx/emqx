@@ -1032,6 +1032,9 @@ overload_protection_backoff_gc.desc:
 overload_protection_backoff_gc.label:
 """Skip GC"""
 
+broker_perf_async_fanout_shard_dispatch.desc:
+"""When enabled, subscribers residing in subscriber shards in high-fanout topics are dispatched asynchronously and concurrently through the broker pool."""
+
 broker_perf_route_lock_type.desc:
 """Performance tuning for subscribing/unsubscribing a wildcard topic.
 Change this parameter only when there are many wildcard topics.

@@ -364,10 +364,16 @@ do_delete_table(Dataset, Table, TCConfig) ->
         table => Table
     }),
     Body = <<"">>,
-    {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
+    Res = emqx_bridge_gcp_pubsub_client:query_sync(
         ?PREPARED_REQUEST(Method, Path, Body),
         Client
     ),
+    case Res of
+        {ok, _} ->
+            ok;
+        {error, #{status_code := 404}} ->
+            ok
+    end,
     ct:pal("table ~s deleted", [Table]),
     ok.
 
@@ -443,6 +449,11 @@ create_connector_api(TCConfig, Overrides) ->
 create_action_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
+
+get_action_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_action_api(TCConfig)
     ).
 
 %%------------------------------------------------------------------------------
@@ -633,3 +644,32 @@ t_forbidden(TCConfig) when is_list(TCConfig) ->
         trace_checkers => [TraceChecker]
     },
     emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+-doc """
+Verifies that we check for table existence during action health checks, and mark the
+action as `?status_disconnected` if the table ceases to exist.
+""".
+t_health_check_drop_table(TCConfig) when is_list(TCConfig) ->
+    Dataset = get_value(dataset, TCConfig),
+    Table = get_value(table, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    ok = do_delete_table(Dataset, Table, TCConfig),
+    ExpectedReason = iolist_to_binary(
+        io_lib:format(
+            "~p",
+            [{unhealthy_target, <<"Table or dataset does not exist">>}]
+        )
+    ),
+    ?retry(
+        750,
+        5,
+        ?assertMatch(
+            {200, #{
+                <<"status">> := <<"disconnected">>,
+                <<"status_reason">> := ExpectedReason
+            }},
+            get_action_api(TCConfig)
+        )
+    ),
+    ok.

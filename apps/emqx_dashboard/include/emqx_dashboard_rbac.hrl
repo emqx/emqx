@@ -18,4 +18,8 @@
 -define(ROLE_API_PUBLISHER, <<"publisher">>).
 -define(ROLE_API_DEFAULT, ?ROLE_API_SUPERUSER).
 
+-define(actor, actor).
+-define(role, role).
+-define(namespace, namespace).
+
 -endif.

@@ -741,6 +741,18 @@ restart_server() ->
             [{body_format, binary}]
         )
     ),
+    %% Apparently, the path-rewriting proxy needs extra time to recover too
+    ConfigURL = binary_to_list(<<?BASE_ENDPOINT/binary, "/v1/some_arn/config">>),
+    ?retry(
+        1_000,
+        10,
+        {ok, {{_, 200, _}, _, _}} = httpc:request(
+            get,
+            {ConfigURL, []},
+            [],
+            [{body_format, binary}]
+        )
+    ),
     ok.
 
 %%------------------------------------------------------------------------------
