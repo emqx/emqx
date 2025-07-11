@@ -282,17 +282,20 @@ t_rule_test_trace(Config) ->
 
 make_connector_config(Config) ->
     #{port := Port} = ?config(http_server, Config),
-    #{
+    Params = #{
         <<"enable">> => true,
         <<"url">> => iolist_to_binary(io_lib:format("http://localhost:~p", [Port])),
         <<"max_inactive">> => <<"10s">>,
         <<"headers">> => #{},
         <<"pool_type">> => <<"hash">>,
         <<"pool_size">> => 1,
-        <<"resource_opts">> => #{
-            <<"health_check_interval">> => <<"100ms">>
-        }
-    }.
+        <<"resource_opts">> =>
+            maps:merge(
+                emqx_bridge_v2_testlib:common_connector_resource_opts(),
+                #{<<"health_check_interval">> => <<"100ms">>}
+            )
+    },
+    emqx_bridge_v2_testlib:parse_and_check_connector(?BRIDGE_TYPE, ?CONNECTOR_NAME, Params).
 
 make_action_config(Config) ->
     make_action_config(Config, _Headers = #{}).

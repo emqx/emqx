@@ -205,6 +205,7 @@ t_rest_api(_Config) ->
                 <<"username">> => <<"admin">>,
                 <<"description">> => <<"administrator">>,
                 <<"role">> => ?ROLE_SUPERUSER,
+                <<"namespace">> => null,
                 <<"mfa">> => <<"none">>
             })
         ],

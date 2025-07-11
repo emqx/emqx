@@ -526,6 +526,7 @@ generate_id(Name) when is_binary(Name) ->
     Id = integer_to_binary(erlang:unique_integer([monotonic, positive])),
     <<Name/binary, ":", Id/binary>>.
 
+%% Note: currently, connectors/actions/sources from all namespaces are returned here.
 -spec list_group_instances(resource_group()) -> [resource_id()].
 list_group_instances(Group) -> emqx_resource_manager:list_group(Group).
 
