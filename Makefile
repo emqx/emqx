@@ -96,7 +96,7 @@ ct: $(REBAR) merge-config
 static_checks: $(ELIXIR_COMMON_DEPS)
 	@env BPAPI_BUILD_PROFILE=$(PROFILE:%-test=%) \
 	    $(MIX) do \
-	    xref, dialyzer --mode classic \
+	    emqx.xref, dialyzer --mode classic \
 	    emqx.static_checks
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
@@ -196,7 +196,7 @@ deps-all: $(REBAR) $(PROFILES:%=deps-%)
 
 .PHONY: xref
 xref:
-	@$(MIX) xref
+	@$(MIX) emqx.xref
 
 .PHONY: dialyzer
 dialyzer:
