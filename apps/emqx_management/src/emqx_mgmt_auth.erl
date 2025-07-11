@@ -132,25 +132,31 @@ read(Name) ->
         [] -> {error, not_found}
     end.
 
-update(Name, Enable, ExpiredAt, Desc, Role) ->
-    case valid_role(Role) of
-        ok ->
-            trans(fun ?MODULE:do_update/5, [Name, Enable, ExpiredAt, Desc, Role]);
+update(Name, Enable, ExpiredAt, Desc, Role0) ->
+    case parse_role(Role0) of
+        {ok, ParsedRole} ->
+            trans(fun ?MODULE:do_update/5, [Name, Enable, ExpiredAt, Desc, ParsedRole]);
         Error ->
             Error
     end.
 
-do_update(Name, Enable, ExpiredAt, Desc, Role) ->
+do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespace}) ->
     case mnesia:read(?APP, Name, write) of
         [] ->
             mnesia:abort(not_found);
         [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
-            #{desc := Desc0} = Extra = normalize_extra(Extra0),
+            #{desc := Desc0} = Extra0 = normalize_extra(Extra0),
+            Extra = emqx_utils_maps:put_if(
+                Extra0#{?role => Role, desc => ensure_not_undefined(Desc, Desc0)},
+                ?namespace,
+                Namespace,
+                is_binary(Namespace)
+            ),
             App =
                 App0#?APP{
                     expired_at = ExpiredAt,
                     enable = ensure_not_undefined(Enable, Enable0),
-                    extra = Extra#{desc := ensure_not_undefined(Desc, Desc0), role := Role}
+                    extra = Extra
                 },
             ok = mnesia:write(App),
             to_map(App)
@@ -187,18 +193,18 @@ authorize(#{module := emqx_dashboard_api, function := logout}, _Req, _ApiKey, _A
     {error, <<"not_allowed">>, <<"logout">>};
 authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>, <<"api_key">>};
-authorize(_HandlerInfo, Req, ApiKey, ApiSecret) ->
+authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
     Now = erlang:system_time(second),
     case find_by_api_key(ApiKey) of
-        {ok, true, ExpiredAt, SecretHash, Role} when ExpiredAt >= Now ->
+        {ok, true, ExpiredAt, SecretHash, Role, Namespace} when ExpiredAt >= Now ->
             case emqx_dashboard_admin:verify_hash(ApiSecret, SecretHash) of
-                ok -> check_rbac(Req, ApiKey, Role);
+                ok -> check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace);
                 error -> {error, "secret_error"}
             end;
-        {ok, true, _ExpiredAt, _SecretHash, _Role} ->
+        {ok, true, _ExpiredAt, _SecretHash, _Role, _Namespace} ->
             {error, "secret_expired"};
-        {ok, false, _ExpiredAt, _SecretHash, _Role} ->
-            {error, "secret_disable"};
+        {ok, false, _ExpiredAt, _SecretHash, _Role, _Namespace} ->
+            {error, "secret_disabled"};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -208,10 +214,15 @@ find_by_api_key(ApiKey) ->
     case mria:ro_transaction(?COMMON_SHARD, Fun) of
         {atomic, [
             #?APP{
-                api_secret_hash = SecretHash, enable = Enable, expired_at = ExpiredAt, extra = Extra
+                api_secret_hash = SecretHash,
+                enable = Enable,
+                expired_at = ExpiredAt,
+                extra = Extra
             }
         ]} ->
-            {ok, Enable, ExpiredAt, SecretHash, get_role(Extra)};
+            Role = get_role(Extra),
+            Namespace = namespace_of(Extra),
+            {ok, Enable, ExpiredAt, SecretHash, Role, Namespace};
         _ ->
             {error, "not_found"}
     end.
@@ -224,7 +235,8 @@ to_map(Apps) when is_list(Apps) ->
 to_map(#?APP{
     name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, extra = Extra0
 }) ->
-    #{role := Role, desc := Desc} = normalize_extra(Extra0),
+    #{?role := Role, desc := Desc} = Extra = normalize_extra(Extra0),
+    Namespace = maps:get(?namespace, Extra, undefined),
     #{
         name => N,
         api_key => K,
@@ -233,36 +245,34 @@ to_map(#?APP{
         created_at => CT,
         desc => Desc,
         expired => is_expired(ET),
-        role => Role
+        role => Role,
+        namespace => Namespace
     }.
 
 is_expired(undefined) -> false;
 is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
 
-create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
-    App =
-        #?APP{
-            name = Name,
-            enable = Enable,
-            expired_at = ExpiredAt,
-            extra = #{desc => Desc, role => Role},
-            created_at = erlang:system_time(second),
-            api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
-            api_key = ApiKey
-        },
-    case create_app(App) of
-        {ok, Res} ->
-            {ok, Res#{api_secret => ApiSecret}};
-        Error ->
-            Error
-    end.
-
-create_app(App = #?APP{extra = #{role := Role}}) ->
-    case valid_role(Role) of
-        ok ->
-            trans(fun ?MODULE:do_create_app/1, [App]);
-        Error ->
-            Error
+create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role0) ->
+    maybe
+        {ok, #{?role := Role, ?namespace := Namespace}} ?= parse_role(Role0),
+        Extra = emqx_utils_maps:put_if(
+            #{?role => Role, desc => Desc},
+            ?namespace,
+            Namespace,
+            is_binary(Namespace)
+        ),
+        App =
+            #?APP{
+                name = Name,
+                enable = Enable,
+                expired_at = ExpiredAt,
+                extra = Extra,
+                created_at = erlang:system_time(second),
+                api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
+                api_key = ApiKey
+            },
+        {ok, Res} ?= trans(fun ?MODULE:do_create_app/1, [App]),
+        {ok, Res#{api_secret => ApiSecret}}
     end.
 
 force_create_app(App) ->
@@ -271,14 +281,14 @@ force_create_app(App) ->
 do_create_app(App = #?APP{api_key = ApiKey, name = Name}) ->
     case mnesia:read(?APP, Name) of
         [_] ->
-            mnesia:abort(name_already_existed);
+            mnesia:abort(name_already_exists);
         [] ->
             case mnesia:match_object(?APP, #?APP{api_key = ApiKey, _ = '_'}, read) of
                 [] ->
                     ok = mnesia:write(App),
                     to_map(App);
                 _ ->
-                    mnesia:abort(api_key_already_existed)
+                    mnesia:abort(api_key_already_exists)
             end
     end.
 
@@ -384,14 +394,20 @@ add_bootstrap_file(File, Dev, MP, Line) ->
     case read_line(Dev) of
         {ok, Bin} ->
             case parse_bootstrap_line(Bin, MP) of
-                {ok, [ApiKey, ApiSecret, Role]} ->
+                {ok, [ApiKey, ApiSecret, Role, Namespace]} ->
+                    Extra = emqx_utils_maps:put_if(
+                        #{desc => ?BOOTSTRAP_TAG, role => Role},
+                        namespace,
+                        Namespace,
+                        is_binary(Namespace)
+                    ),
                     App =
                         #?APP{
                             name = generate_unique_name(?FROM_BOOTSTRAP_FILE_PREFIX, ApiKey),
                             api_key = ApiKey,
                             api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
                             enable = true,
-                            extra = #{desc => ?BOOTSTRAP_TAG, role => Role},
+                            extra = Extra,
                             created_at = erlang:system_time(second),
                             expired_at = infinity
                         },
@@ -438,56 +454,54 @@ read_line(Dev) ->
 parse_bootstrap_line(Bin, MP) ->
     case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
         {match, [[_ApiKey, _ApiSecret] = Args]} ->
-            {ok, Args ++ [?ROLE_API_DEFAULT]};
-        {match, [[_ApiKey, _ApiSecret, Role] = Args]} ->
-            case valid_role(Role) of
-                ok ->
-                    {ok, Args};
+            Namespace = undefined,
+            {ok, Args ++ [?ROLE_API_DEFAULT, Namespace]};
+        {match, [[ApiKey, ApiSecret, Role0]]} ->
+            case parse_role(Role0) of
+                {ok, #{?role := Role, ?namespace := Namespace}} ->
+                    {ok, [ApiKey, ApiSecret, Role, Namespace]};
                 _Error ->
-                    {error, {"invalid_role", Role}}
+                    {error, {"invalid_role", Role0}}
             end;
         _ ->
             {error, "invalid_format"}
     end.
 
-get_role(#{role := Role}) ->
+get_role(#{?role := Role}) ->
     Role;
 %% Before v5.4.0,
 %% the field in the position of the `extra` is `desc` which is a binary for description
 get_role(_Desc) ->
     ?ROLE_API_DEFAULT.
 
+namespace_of(#{?namespace := Namespace}) when is_binary(Namespace) ->
+    Namespace;
+namespace_of(_) ->
+    undefined.
+
 normalize_extra(Map) when is_map(Map) ->
     Map;
 normalize_extra(Desc) ->
-    #{desc => Desc, role => ?ROLE_API_DEFAULT}.
+    #{desc => Desc, ?role => ?ROLE_API_DEFAULT, ?namespace => undefined}.
 
--if(?EMQX_RELEASE_EDITION == ee).
-check_rbac(Req, ApiKey, Role) ->
-    case emqx_dashboard_rbac:check_rbac(Req, ApiKey, Role) of
-        true ->
-            ok;
-        _ ->
+check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) ->
+    ActorContext = actor_context_of(ApiKey, Role, Namespace),
+    case emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext) of
+        {ok, ActorContextFinal} ->
+            {ok, ActorContextFinal};
+        false ->
             {error, unauthorized_role}
     end.
 
 format_app_extend(App) ->
     App.
 
-valid_role(Role) ->
-    emqx_dashboard_rbac:valid_api_role(Role).
+parse_role(Role) ->
+    emqx_dashboard_rbac:parse_api_role(Role).
 
--else.
-
-check_rbac(_Req, _ApiKey, _Role) ->
-    ok.
-
-format_app_extend(App) ->
-    maps:remove(role, App).
-
-valid_role(?ROLE_API_DEFAULT) ->
-    ok;
-valid_role(_) ->
-    {error, <<"Role does not exist">>}.
-
--endif.
+actor_context_of(ApiKey, Role, Namespace) ->
+    #{
+        ?actor => ApiKey,
+        ?namespace => Namespace,
+        ?role => Role
+    }.

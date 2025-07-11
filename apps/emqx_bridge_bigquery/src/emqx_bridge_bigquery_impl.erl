@@ -50,10 +50,12 @@
 
 %% Fields
 -define(client, client).
+-define(dataset, dataset).
 -define(insert_all_path, insert_all_path).
 -define(installed_channels, installed_channels).
 -define(project_id, project_id).
 -define(request_ttl, request_ttl).
+-define(table, table).
 
 -type connector_config() :: #{}.
 -type connector_state() :: #{
@@ -63,9 +65,20 @@
 }.
 
 -type channel_config() :: #{
-    parameters := #{}
+    parameters := #{
+        table := table(),
+        dataset := dataset()
+    }
 }.
--type channel_state() :: #{}.
+-type channel_state() :: #{
+    ?dataset := dataset(),
+    ?table := table(),
+    ?insert_all_path := iolist(),
+    ?request_ttl := timeout()
+}.
+
+-type dataset() :: binary().
+-type table() :: binary().
 
 -type query() :: {_Tag :: channel_id(), _Data :: map()}.
 
@@ -175,10 +188,26 @@ on_remove_channel(_ConnResId, ConnState, _ChanResId) ->
 on_get_channel_status(
     _ConnResId,
     ChanResId,
-    _ConnState = #{?installed_channels := InstalledChannels}
+    ConnState = #{?installed_channels := InstalledChannels}
 ) when is_map_key(ChanResId, InstalledChannels) ->
-    %% Should we attempt to get the table here?
-    ?status_connected;
+    #{?client := Client, ?project_id := ProjectId} = ConnState,
+    #{
+        ?table := Table,
+        ?dataset := Dataset,
+        ?request_ttl := RequestTTL
+    } = maps:get(ChanResId, InstalledChannels),
+    Opts = #{?request_ttl => RequestTTL},
+    case get_table(Client, ProjectId, Dataset, Table, Opts) of
+        {ok, _} ->
+            ?status_connected;
+        {error, #{status_code := 404}} ->
+            {?status_disconnected, {unhealthy_target, <<"Table or dataset does not exist">>}};
+        {error, #{status_code := 403}} ->
+            {?status_disconnected,
+                {unhealthy_target, <<"Permission denied trying to access table">>}};
+        {error, Reason} ->
+            {?status_connecting, Reason}
+    end;
 on_get_channel_status(_ConnResId, _ChanResId, _ConnState) ->
     ?status_disconnected.
 
@@ -294,6 +323,8 @@ create_channel(ChanConfig, ConnState) ->
                 }
             ),
         ActionState = #{
+            ?dataset => Dataset,
+            ?table => Table,
             ?insert_all_path => InsertAllPath,
             ?request_ttl => RequestTTL
         },

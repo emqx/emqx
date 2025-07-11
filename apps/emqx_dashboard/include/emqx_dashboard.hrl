@@ -14,23 +14,35 @@
 -type dashboard_user_role() :: binary().
 
 -record(?ADMIN, {
+    username,
+    pwdhash,
+    description,
+    role = ?ROLE_DEFAULT,
+    extra = #{}
+}).
+
+-type dashboard_user() :: #?ADMIN{
     username :: dashboard_username(),
     pwdhash :: binary(),
     description :: binary(),
-    role = ?ROLE_DEFAULT :: dashboard_user_role(),
-    extra = #{} :: map()
-}).
-
--type dashboard_user() :: #?ADMIN{}.
+    role :: dashboard_user_role(),
+    extra :: map()
+}.
 
 -define(ADMIN_JWT, emqx_admin_jwt).
 
 -record(?ADMIN_JWT, {
+    token,
+    username,
+    exptime,
+    extra = #{}
+}).
+-type admin_jwt() :: #?ADMIN_JWT{
     token :: binary(),
     username :: binary(),
     exptime :: integer(),
-    extra = #{} :: map()
-}).
+    extra :: map()
+}.
 
 -define(TAB_COLLECT, emqx_collect).
 

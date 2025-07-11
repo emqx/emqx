@@ -69,7 +69,7 @@ auth_header(#{api_key := ApiKey, api_secret := Secret}) ->
     auth_header(binary_to_list(ApiKey), binary_to_list(Secret)).
 
 auth_header(User, Pass) ->
-    Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),
+    Encoded = base64:encode_to_string(iolist_to_binary([User, ":", Pass])),
     {"Authorization", "Basic " ++ Encoded}.
 
 default_auth_header() ->
@@ -94,7 +94,7 @@ create_default_app() ->
     of
         {ok, App} ->
             {ok, App};
-        {error, name_already_existed} ->
+        {error, name_already_exists} ->
             {ok, _} = emqx_mgmt_auth:read(?DEFAULT_APP_ID)
     end.
 

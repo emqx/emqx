@@ -10,6 +10,14 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
+
+%%------------------------------------------------------------------------------
+%% CT boilerplate
+%%------------------------------------------------------------------------------
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -32,6 +40,94 @@ end_per_suite(Config) ->
 end_per_testcase(_, _Config) ->
     All = emqx_dashboard_admin:all_users(),
     [emqx_dashboard_admin:remove_user(Name) || #{username := Name} <- All].
+
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
+
+bearer_auth_header(Token) ->
+    {"Authorization", iolist_to_binary(["Bearer ", Token])}.
+
+create_superuser() ->
+    emqx_common_test_http:create_default_app(),
+    Username = <<"superuser">>,
+    Password = <<"secretP@ss1">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
+    {200, #{<<"token">> := Token}} = login(#{<<"username">> => Username, <<"password">> => Password}),
+    {"Authorization", iolist_to_binary(["Bearer ", Token])}.
+
+login(Params) ->
+    URL = emqx_mgmt_api_test_util:api_path(["login"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => [{"no", "auth"}],
+        method => post,
+        url => URL,
+        body => Params
+    }).
+
+create_user_api(Params, AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["users"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => AuthHeader,
+        method => post,
+        url => URL,
+        body => Params
+    }).
+
+update_user_api(Username, Params, AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["users", Username]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => AuthHeader,
+        method => put,
+        url => URL,
+        body => Params
+    }).
+
+create_api_key_api(Params, AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["api_key"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => AuthHeader,
+        method => post,
+        url => URL,
+        body => Params
+    }).
+
+to_rfc3339(Sec) ->
+    list_to_binary(calendar:system_time_to_rfc3339(Sec)).
+
+umbrella_apps() ->
+    [
+        App
+     || {App, _, _} <- application:loaded_applications(),
+        case re:run(atom_to_list(App), "^emqx", [{capture, none}]) of
+            match -> true;
+            nomatch -> false
+        end
+    ].
+
+all_handlers() ->
+    AllMethods = [get, post, put, delete],
+    Mods = minirest_api:find_api_modules(umbrella_apps()),
+    lists:flatmap(
+        fun(Mod) ->
+            Paths = Mod:paths(),
+            lists:flatmap(
+                fun(Path) ->
+                    #{'operationId' := Fn} = Sc = Mod:schema(Path),
+                    [
+                        #{method => M, module => Mod, function => Fn}
+                     || M <- maps:keys(Sc), lists:member(M, AllMethods)
+                    ]
+                end,
+                Paths
+            )
+        end,
+        Mods
+    ).
+
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
 
 t_check_user(_) ->
     Username = <<"admin1">>,
@@ -173,19 +269,21 @@ t_clean_token(_) ->
     NewPassword = <<"public_www2">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
-    FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
-    FakeReq = #{method => <<"GET">>, path => FakePath},
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    FakeReq = #{},
+    FakeHandlerInfo = #{method => get, function => any, module => any},
+    {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% change password
     {ok, _} = emqx_dashboard_admin:change_password(Username, Password, NewPassword),
     timer:sleep(5),
-    {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     %% remove user
     {ok, #{token := Token2}} = emqx_dashboard_admin:sign_token(Username, NewPassword),
-    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token2),
+    {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(
+        FakeReq, FakeHandlerInfo, Token2
+    ),
     {ok, _} = emqx_dashboard_admin:remove_user(Username),
     timer:sleep(5),
-    {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, Token2),
+    {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token2),
     ok.
 
 t_password_expired(_) ->
@@ -204,4 +302,215 @@ t_password_expired(_) ->
     [#?ADMIN{extra = #{password_ts := PwdTS3}}] = emqx_dashboard_admin:lookup_user(Username),
     ?assert(PwdTS3 > PwdTS),
     ?assert(PwdTS3 > Now),
+    ok.
+
+-doc """
+Checks that we can create and use an user that is scoped to a namespace.
+""".
+t_namespaced_user(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    Username1 = <<"iminans">>,
+    Password1 = <<"superSecureP@ss">>,
+    Namespace1 = <<"ns1">>,
+    AdminRole1 = <<"ns:ns1::administrator">>,
+    %% Unknown role
+    BadRole1 = <<"ns:ns1::blobber">>,
+    ?assertMatch(
+        {400, #{
+            <<"message">> := <<"Role does not exist">>
+        }},
+        create_user_api(
+            #{
+                <<"username">> => Username1,
+                <<"password">> => Password1,
+                <<"role">> => BadRole1,
+                <<"description">> => <<"???">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    %% Ok
+    ?assertMatch(
+        {200, #{
+            <<"namespace">> := Namespace1,
+            <<"role">> := <<"administrator">>
+        }},
+        create_user_api(
+            #{
+                <<"username">> => Username1,
+                <<"password">> => Password1,
+                <<"role">> => AdminRole1,
+                <<"description">> => <<"namespaced person">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    %% Unknown role
+    ?assertMatch(
+        {400, #{
+            <<"message">> := <<"Role does not exist">>
+        }},
+        update_user_api(
+            Username1,
+            #{
+                <<"role">> => BadRole1,
+                <<"description">> => <<"???">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    %% Login
+    {200, #{<<"token">> := Token1, <<"namespace">> := Namespace1}} =
+        login(#{<<"username">> => Username1, <<"password">> => Password1}),
+    %% User updating self to viewer: at the time of writing, this is not yet supported.
+    ViewerRole1 = <<"ns:ns1::viewer">>,
+    ?assertMatch(
+        {403, _},
+        update_user_api(
+            Username1,
+            #{
+                <<"role">> => ViewerRole1,
+                <<"description">> => <<"namespaced viewer person">>
+            },
+            bearer_auth_header(Token1)
+        )
+    ),
+    %% User should not be able to create other users in own namespace (unsupported right
+    %% now)
+    {200, #{<<"token">> := Token2, <<"namespace">> := Namespace1}} =
+        login(#{<<"username">> => Username1, <<"password">> => Password1}),
+    Username1B = <<"iminthesamens">>,
+    Password1B = <<"superSecureP@ss!">>,
+    ?assertMatch(
+        {403, _},
+        create_user_api(
+            #{
+                <<"username">> => Username1B,
+                <<"password">> => Password1B,
+                <<"role">> => ViewerRole1,
+                <<"description">> => <<"just another viewer">>
+            },
+            bearer_auth_header(Token2)
+        )
+    ),
+    %% User should not be able to create other users outside its namespace
+    Username2 = <<"iminanotherns">>,
+    Password2 = <<"superSecureP@ss!!">>,
+    ViewerRole2 = <<"ns:ns2::viewer">>,
+    ?assertMatch(
+        {403, _},
+        create_user_api(
+            #{
+                <<"username">> => Username2,
+                <<"password">> => Password2,
+                <<"role">> => ViewerRole2,
+                <<"description">> => <<"???">>
+            },
+            bearer_auth_header(Token2)
+        )
+    ),
+    %% Global user (without namespace)
+    GlobalUser = <<"imnotinans">>,
+    GlobalViewerRole = <<"viewer">>,
+    ?assertMatch(
+        {200, #{
+            <<"namespace">> := null,
+            <<"role">> := <<"viewer">>
+        }},
+        create_user_api(
+            #{
+                <<"username">> => GlobalUser,
+                <<"password">> => Password1,
+                <<"role">> => GlobalViewerRole,
+                <<"description">> => <<"non-namespaced person">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    ?assertMatch(
+        {200, #{<<"token">> := _, <<"namespace">> := null}},
+        login(#{<<"username">> => GlobalUser, <<"password">> => Password1})
+    ),
+    ok.
+
+-doc """
+Checks that we can create and use an API key that is scoped to a namespace.
+""".
+t_namespaced_api_key(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    APIKeyName1 = <<"api1">>,
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    Namespace1 = <<"ns1">>,
+    AdminRole1 = <<"ns:ns1::administrator">>,
+    Res1 = create_api_key_api(
+        #{
+            <<"name">> => APIKeyName1,
+            <<"expired_at">> => ExpiresAt,
+            <<"desc">> => <<"namespaced api 1">>,
+            <<"enable">> => true,
+            <<"role">> => AdminRole1
+        },
+        GlobalAdminHeader
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"role">> := <<"administrator">>,
+            <<"namespace">> := Namespace1
+        }},
+        Res1
+    ),
+    {200, #{<<"api_key">> := Key1, <<"api_secret">> := Secret1}} = Res1,
+    %% At this moment, cannot perform any mutations (authorization will be added in the future)
+    ?assertMatch(
+        {403, _},
+        emqx_mgmt_api_test_util:simple_request(#{
+            auth_header => emqx_common_test_http:auth_header(Key1, Secret1),
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["banned"]),
+            body => #{<<"as">> => <<"peerhost">>, <<"who">> => <<"127.0.0.1">>}
+        })
+    ),
+    ok.
+
+-doc """
+Simple assertions about namespaced user permissions.
+
+   - Both viewers and admins can `GET` anything, even outside their namespace.  Namespaces
+     are mostly to avoid accidentally mutating the wrong resources rather than hiding
+     information.
+""".
+t_namespaced_user_permissions(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    Username = <<"iminans">>,
+    Password = <<"superSecureP@ss">>,
+    AdminRole = <<"ns:ns1::administrator">>,
+    {200, _} = create_user_api(
+        #{
+            <<"username">> => Username,
+            <<"password">> => Password,
+            <<"role">> => AdminRole,
+            <<"description">> => <<"namespaced person">>
+        },
+        GlobalAdminHeader
+    ),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    AllHandlers = [_ | _] = all_handlers(),
+    GetHandlers = [_ | _] = [FHI || #{method := get} = FHI <- AllHandlers],
+    FakeReq = #{},
+    Failures =
+        lists:filtermap(
+            fun(FakeHandlerInfo) ->
+                case emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token) of
+                    {ok, _} ->
+                        false;
+                    {error, _} ->
+                        true
+                end
+            end,
+            GetHandlers
+        ),
+    maybe
+        [_ | _] ?= Failures,
+        ct:fail({should_have_been_allowed, Failures})
+    end,
     ok.

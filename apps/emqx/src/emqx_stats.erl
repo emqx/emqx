@@ -45,6 +45,10 @@
     code_change/3
 ]).
 
+-ifdef(TEST).
+-export([reset/0]).
+-endif.
+
 -export_type([stats/0]).
 
 -record(update, {name, countdown, interval, func}).
@@ -219,7 +223,17 @@ cancel_update(Name) ->
 rec(Name, Secs, UpFun) ->
     #update{name = Name, countdown = Secs, interval = Secs, func = UpFun}.
 
-cast(Msg) -> gen_server:cast(?SERVER, Msg).
+cast(Msg) ->
+    gen_server:cast(?SERVER, Msg).
+
+-ifdef(TEST).
+
+-spec reset() -> ok.
+reset() ->
+    true = ets:delete_all_objects(?TAB),
+    ok.
+
+-endif.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
