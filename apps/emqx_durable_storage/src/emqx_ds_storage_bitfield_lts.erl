@@ -653,14 +653,10 @@ unpack_iterator(_Shard, _S, #{
     ?start_time := StartTime
 }) ->
     {Stream, TF, <<>>, StartTime};
-unpack_iterator(_Shard, #s{keymappers = Keymappers}, #{
+unpack_iterator(_Shard, #s{}, #{
     ?tag := ?IT, ?storage_key := Stream, ?topic_filter := TF, ?last_seen_key := LSK
 }) ->
-    {_, Varying} = Stream,
-    NVarying = length(Varying),
-    Keymapper = array:get(NVarying, Keymappers),
-    Timestamp = emqx_ds_bitmask_keymapper:bin_key_to_coord(Keymapper, LSK, ?DIM_TS),
-    {Stream, TF, LSK, Timestamp}.
+    {Stream, TF, LSK}.
 
 scan_stream(Shard, S, Stream, TopicFilter, LastSeenKey, BatchSize, TMax, IsCurrent) ->
     It = #{

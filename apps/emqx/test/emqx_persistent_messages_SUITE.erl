@@ -469,8 +469,8 @@ consume(It) ->
     case emqx_ds:next(?PERSISTENT_MESSAGE_DB, It, 100) of
         {ok, _NIt, _Msgs = []} ->
             [];
-        {ok, NIt, MsgsAndKeys} ->
-            [Msg || {_DSKey, Msg} <- MsgsAndKeys] ++ consume(NIt);
+        {ok, NIt, Batch} ->
+            Batch ++ consume(NIt);
         {ok, end_of_stream} ->
             []
     end.

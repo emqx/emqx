@@ -41,7 +41,7 @@ init([]) ->
     RegistryKeeper = child_spec(emqx_cm_registry_keeper, 5000, worker),
     Manager = child_spec(emqx_cm, 5000, worker),
     DSSessionSup = child_spec(emqx_persistent_session_ds_sup, infinity, supervisor),
-    DSSessionBookkeeper = child_spec(emqx_persistent_session_bookkeeper, 5_000, worker),
+    %% DSSessionBookkeeper = child_spec(emqx_persistent_session_bookkeeper, 5_000, worker),
     Children =
         [
             Banned,
@@ -51,8 +51,9 @@ init([]) ->
             Registry,
             RegistryKeeper,
             Manager,
-            DSSessionSup,
-            DSSessionBookkeeper
+            %,
+            DSSessionSup
+            %% DSSessionBookkeeper
         ],
     {ok, {SupFlags, Children}}.
 

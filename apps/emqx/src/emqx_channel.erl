@@ -3025,7 +3025,7 @@ maybe_publish_will_msg(
     %% OR fired but not yet handled
     %% NOTE! For durable sessions, `?chan_terminating' does NOT imply that the session is
     %% gone.
-    case is_durable_session(Channel0) andalso Reason =:= ?chan_terminating of
+    case Reason =:= ?chan_terminating of
         false ->
             ?tp(debug, maybe_publish_willmsg_session_ends, #{clientid => ClientId, reason => Reason}),
             Channel = publish_will_msg(Channel0),
@@ -3264,14 +3264,6 @@ remove_willmsg(Channel = #channel{timers = Timers}) ->
                 will_msg = undefined,
                 timers = maps:remove(will_message, Timers)
             }
-    end.
-
-is_durable_session(#channel{session = Session}) ->
-    case emqx_session:info(impl, Session) of
-        emqx_persistent_session_ds ->
-            true;
-        _ ->
-            false
     end.
 
 with_now(NowMs, #channel{clientinfo = ClientInfo0} = Channel0, Fun) ->

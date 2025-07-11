@@ -750,7 +750,7 @@ select_fold(#select{it = undefined}, _, _Fun, Acc) ->
 select_fold(It = #select{it = DSIt0}, N, Fun, Acc0) ->
     case emqx_ds:next(?DS_DB, DSIt0, N) of
         {ok, DSIt, Messages} ->
-            Acc = lists:foldl(fun({_Key, Msg}, Acc) -> Fun(Msg, Acc) end, Acc0, Messages),
+            Acc = lists:foldl(fun(Msg, Acc) -> Fun(Msg, Acc) end, Acc0, Messages),
             case length(Messages) of
                 N ->
                     {Acc, It#select{it = DSIt}};
@@ -831,7 +831,7 @@ ds_stream_fold(Fun, Acc0, It0) ->
     %% TODO: Gracefully handle `emqx_ds:error(_)`?
     case emqx_ds:next(?DS_DB, It0, ?STORE_BATCH_SIZE) of
         {ok, It, Messages = [_ | _]} ->
-            Acc1 = lists:foldl(fun({_Key, Msg}, Acc) -> Fun(Msg, Acc) end, Acc0, Messages),
+            Acc1 = lists:foldl(fun(Msg, Acc) -> Fun(Msg, Acc) end, Acc0, Messages),
             ds_stream_fold(Fun, Acc1, It);
         {ok, It, []} ->
             {It, Acc0};

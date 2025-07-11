@@ -32,9 +32,7 @@
 %% Type declarations
 %%================================================================================
 
-%% FIXME: Properl reflection fails dialyzer check due wrong spec in
-%% typerefl
--type schema() :: term().
+-type schema() :: asn1 | v1.
 
 -reflect_type([schema/0]).
 

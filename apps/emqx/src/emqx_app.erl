@@ -29,7 +29,7 @@ start(_Type, _Args) ->
     ok = maybe_load_config(),
     _ = emqx_persistent_message:init(),
     ok = maybe_start_quicer(),
-    ok = emqx_bpapi:start(),
+    %% ok = emqx_bpapi:start(),
     ok = emqx_alarm_handler:load(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = emqx_limiter:init(),

@@ -54,23 +54,34 @@ It takes care of forwarding calls to the underlying DBMS.
     tx_commit_outcome/3,
     reset_trans/0,
 
-    %% Transaction reading:
     tx_fold_topic/3,
     tx_fold_topic/4,
     tx_read/1,
     tx_read/2,
 
-    %% Key-value functions:
     tx_write/1,
+    tx_del_topic/3,
     tx_del_topic/1,
     tx_ttv_assert_present/3,
-    tx_ttv_assert_absent/2
+    tx_ttv_assert_absent/2,
+    tx_on_success/1
+]).
+
+%% Metadata serialization API:
+-export([
+    stream_to_binary/2,
+    binary_to_stream/2,
+    iterator_to_binary/2,
+    binary_to_iterator/2
 ]).
 
 %% Utility functions:
 -export([
     dirty_read/2,
-    fold_topic/4
+    fold_topic/4,
+
+    make_multi_iterator/2,
+    multi_iterator_next/4
 ]).
 
 -export_type([
@@ -98,8 +109,10 @@ It takes care of forwarding calls to the underlying DBMS.
     iterator_id/0,
     message_key/0,
     message_store_opts/0,
+    next_limit/0,
     next_result/1, next_result/0,
     delete_next_result/1, delete_next_result/0,
+    topic_range/0,
     store_batch_result/0,
     make_iterator_result/1, make_iterator_result/0,
     make_delete_iterator_result/1, make_delete_iterator_result/0,
@@ -131,7 +144,10 @@ It takes care of forwarding calls to the underlying DBMS.
     kv_tx_context/0,
     transaction_opts/0,
     tx_ops/0,
-    commit_result/0
+    commit_result/0,
+
+    multi_iterator/0,
+    multi_iter_opts/0
 ]).
 
 %%================================================================================
@@ -195,8 +211,16 @@ enabled are expected to support preconditions in batches.
 
 -opaque delete_iterator() :: ds_specific_delete_iterator().
 
+-doc """
+Options for limiting the number of streams.
+
+- `shard`: Only query streams in the given shard.
+
+- `generation_min`: Only return streams with generation >= generation_min.
+""".
 -type get_streams_opts() :: #{
-    shard => shard()
+    shard => shard(),
+    generation_min => generation()
 }.
 
 -type get_streams_result() ::
@@ -223,8 +247,11 @@ enabled are expected to support preconditions in batches.
 
 -type make_iterator_result() :: make_iterator_result(iterator()).
 
+-type next_limit() ::
+    pos_integer() | {time, time(), pos_integer()}.
+
 -type next_result(Iterator) ::
-    {ok, Iterator, [{message_key(), emqx_types:message()}]} | {ok, end_of_stream} | error(_).
+    {ok, Iterator, [payload()]} | {ok, end_of_stream} | error(_).
 
 -type next_result() :: next_result(iterator()).
 
@@ -243,6 +270,8 @@ enabled are expected to support preconditions in batches.
 -type poll_iterators() :: [{_UserData, iterator()}].
 
 -type delete_next_result() :: delete_next_result(delete_iterator()).
+
+-type topic_range() :: {topic(), time(), time() | ?ds_tx_ts_monotonic}.
 
 -type error(Reason) :: {error, recoverable | unrecoverable, Reason}.
 
@@ -382,9 +411,9 @@ Options for the `subscribe` API.
     %% Write operations:
     ?ds_tx_write => [{topic(), time() | ?ds_tx_ts_monotonic, binary() | ?ds_tx_serial}],
     %% Deletions:
-    ?ds_tx_delete_topic => [topic_filter()],
+    ?ds_tx_delete_topic => [topic_range()],
     %% Checked reads:
-    ?ds_tx_read => [topic_filter()],
+    ?ds_tx_read => [topic_range()],
     %% Preconditions:
     %%   List of objects that should be present in the database.
     ?ds_tx_expected => [{topic(), time(), binary() | '_'}],
@@ -430,16 +459,18 @@ Options for the `subscribe` API.
         shard => shard(),
         generation => generation(),
 
-        errors => crash | report,
+        errors => crash | report | ignore,
         batch_size => pos_integer(),
-        start_time => time()
+        start_time => time(),
+        end_time => time() | infinity
     }.
 
 -type tx_fold_options() ::
     #{
         errors => crash | report,
         batch_size => pos_integer(),
-        start_time => time()
+        start_time => time(),
+        end_time => time() | infinity
     }.
 
 -record(fold_ctx, {
@@ -458,10 +489,32 @@ Options for the `subscribe` API.
 
 -type fold_result(R) :: {R, [fold_error()]} | R.
 
+-record(m_iter, {
+    stream :: stream(),
+    it :: iterator()
+}).
+
+-opaque multi_iterator() :: #m_iter{} | '$end_of_table'.
+
+-type multi_iter_opts() ::
+    #{
+        db := db(),
+        generation => generation() | '_',
+        shard => shard() | '_',
+        start_time => time()
+    }.
+
 %% Internal:
 -define(persistent_term(DB), {emqx_ds_db_backend, DB}).
 
 -define(module(DB), (persistent_term:get(?persistent_term(DB)))).
+
+-define(is_time_range(FROM, TO),
+    (is_integer(FROM) andalso
+        FROM >= 0 andalso
+        (is_integer(TO) orelse TO =:= infinity orelse TO =:= ?ds_tx_ts_monotonic) andalso
+        TO >= FROM)
+).
 
 %%================================================================================
 %% Behavior callbacks
@@ -512,6 +565,13 @@ must not assume the default values.
 -callback delete_next(db(), DeleteIterator, delete_selector(), pos_integer()) ->
     delete_next_result(DeleteIterator).
 
+%% Metadata API:
+-callback stream_to_binary(db(), ds_specific_stream()) -> {ok, binary()} | {error, _}.
+-callback iterator_to_binary(db(), ds_specific_iterator()) -> {ok, binary()} | {error, _}.
+
+-callback binary_to_stream(db(), binary()) -> {ok, ds_specific_stream()} | {error, _}.
+-callback binary_to_iterator(db(), binary()) -> {ok, ds_specific_iterator()} | {error, _}.
+
 %% Statistics API:
 -callback count(db()) -> non_neg_integer().
 
@@ -527,9 +587,6 @@ must not assume the default values.
     commit_result().
 
 -optional_callbacks([
-    list_generations_with_lifetimes/1,
-    drop_generation/2,
-
     get_delete_streams/3,
     make_delete_iterator/4,
     delete_next/4,
@@ -646,18 +703,11 @@ update_db_config(DB, Opts) ->
 
 -spec list_generations_with_lifetimes(db()) -> #{slab() => slab_info()}.
 list_generations_with_lifetimes(DB) ->
-    Mod = ?module(DB),
-    call_if_implemented(Mod, list_generations_with_lifetimes, [DB], #{}).
+    ?module(DB):list_generations_with_lifetimes(DB).
 
 -spec drop_generation(db(), generation()) -> ok | {error, _}.
 drop_generation(DB, GenId) ->
-    Mod = ?module(DB),
-    case erlang:function_exported(Mod, drop_generation, 2) of
-        true ->
-            Mod:drop_generation(DB, GenId);
-        false ->
-            {error, not_implemented}
-    end.
+    ?module(DB):drop_generation(DB, GenId).
 
 -doc """
 Drop DB and destroy all data stored there.
@@ -751,13 +801,31 @@ filter may be cumbersome, it opens up some possibilities:
 get_streams(DB, TopicFilter, StartTime, Opts) ->
     ?module(DB):get_streams(DB, TopicFilter, StartTime, Opts).
 
+-doc """
+Make an iterator that can be used to traverse the given stream and topic filter.
+
+Iterators can be used to read data using `subscribe/3` or `next/3` APIs.
+
+StartTime: timestamp of the first payload *included* in the batch.
+""".
 -spec make_iterator(db(), stream(), topic_filter(), time()) -> make_iterator_result().
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
     ?module(DB):make_iterator(DB, Stream, TopicFilter, StartTime).
 
--spec next(db(), iterator(), pos_integer()) -> next_result().
-next(DB, Iter, BatchSize) ->
-    ?module(DB):next(DB, Iter, BatchSize).
+-doc """
+Fetch a batch of payloads from the DB, starting from position delimited by the iterator.
+
+Size of the batch is controlled by the NextLimit parameter.
+
+- When set to a positive integer Nmax, this function will return up to Nmax entries.
+
+- When set to `{time, Time, NMax}`, iteration will stop either
+  upon reaching a payload with timestamp >= `Time` (which *non't* be included in the batch) or
+  when the batch size reaches NMax.
+""".
+-spec next(db(), iterator(), next_limit()) -> next_result(iterator()).
+next(DB, It, NextLimit) ->
+    ?module(DB):next(DB, It, NextLimit).
 
 -doc """
 
@@ -787,8 +855,13 @@ Once subscribed, the client process will receive messages of type
 - `lagging` flag is an implementation-defined indicator that the
    subscription is currently reading old data.
 
-WARNING: this API is currently not supported by DBs with
-`store_ttv` = `true`.
+WARNING: Only use this API when monotonic timestamp policy is enforced
+for the new data. Subscriptions advance their iterators forward and
+only forward in time.
+
+Subscribers are NOT notified about newly inserted data if its
+timestamp is not greater than the current position of the subscription
+iterator.
 
 """.
 -doc #{title => <<"Subscriptions">>, since => <<"5.9.0">>}.
@@ -804,9 +877,10 @@ unsubscribe(DB, SubRef) ->
 
 -doc """
 
-Acknowledge processing of a message with a given sequence number. This
-way client can signal to DS that it is ready to process more data.
-Subscriptions that do not keep up with the acks are paused.
+Acknowledge processing of payloads received via subscription `SubRef`
+up to sequence number `SeqNo`. This way client can signal to DS that
+it is ready to process more data. Subscriptions that do not keep up
+with the acks are paused.
 
 """.
 -doc #{title => <<"Subscriptions">>, since => <<"5.9.0">>}.
@@ -885,7 +959,14 @@ the outcome of commit.
 -spec tx_commit_outcome(db(), reference(), term()) ->
     commit_result().
 tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
-    ?module(DB):tx_commit_outcome(Reply).
+    SideEffects = tx_pop_side_effects(Ref),
+    case ?module(DB):tx_commit_outcome(Reply) of
+        {ok, _} = Ok ->
+            tx_eval_side_effects(SideEffects),
+            Ok;
+        Other ->
+            Other
+    end.
 
 %%================================================================================
 %% Utility functions
@@ -899,6 +980,7 @@ tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
 -define(tx_ops_del_topic, emqx_ds_tx_ctx_del_topic).
 -define(tx_ops_assert_present, emqx_ds_tx_ctx_assert_present).
 -define(tx_ops_assert_absent, emqx_ds_tx_ctx_assert_absent).
+-define(tx_ops_side_effect, emqx_ds_tx_ctx_side_effect).
 
 %% Transaction throws:
 -define(tx_reset, emqx_ds_tx_reset).
@@ -914,6 +996,8 @@ When transaction commits, its side effects may be applied in an
 order different from their execution in the transaction fun.
 
 The following is guaranteed, though:
+
+0. Formally, reads and folds happen first.
 
 1. Preconditions are checked first
 
@@ -1047,7 +1131,7 @@ have to be proper unicode and levels can contain slashes.
 
 """.
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
--spec tx_write({topic(), time(), binary() | ?ds_tx_serial}) -> ok.
+-spec tx_write({topic(), time() | ?ds_tx_ts_monotonic, binary() | ?ds_tx_serial}) -> ok.
 tx_write({Topic, Time, Value}) ->
     case
         is_topic(Topic) andalso
@@ -1060,21 +1144,28 @@ tx_write({Topic, Time, Value}) ->
             error(badarg)
     end.
 
+-doc "Equivalent to `tx_del_topic(TopicFilter, 0, infinity)`.".
+-doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
+-spec tx_del_topic(topic_filter()) -> ok.
+tx_del_topic(TopicFilter) ->
+    tx_del_topic(TopicFilter, 0, infinity).
+
 -doc """
 
 Schedule a transactional deletion of all values stored in
-topics matching the filter. Deletion is performed on the latest
-version of the data.
+topics matching the filter and with timestamps within `[From, To)` half-open interval.
+
+Deletion is performed on the latest version of the data.
 
 NOTE: Use `<<>>` instead of `''` for empty topic levels
 
 """.
--doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
--spec tx_del_topic(topic_filter()) -> ok.
-tx_del_topic(TopicFilter) ->
+-doc #{title => <<"Transactions">>, since => <<"6.0.0">>}.
+-spec tx_del_topic(topic_filter(), time(), time() | ?ds_tx_ts_monotonic) -> ok.
+tx_del_topic(TopicFilter, From, To) ->
     case is_topic_filter(TopicFilter) of
-        true ->
-            tx_push_op(?tx_ops_del_topic, TopicFilter);
+        true when ?is_time_range(From, To) ->
+            tx_push_op(?tx_ops_del_topic, {TopicFilter, From, To});
         false ->
             error(badarg)
     end.
@@ -1120,10 +1211,51 @@ This operation is considered side effect.
 tx_ttv_assert_absent(Topic, Time) ->
     case is_topic(Topic) andalso is_integer(Time) of
         true ->
-            tx_push_op(?tx_ops_assert_absent, Topic);
+            tx_push_op(?tx_ops_assert_absent, {Topic, Time});
         false ->
             error(badarg)
     end.
+
+-doc """
+This API attaches a side effect to the transaction.
+
+Side effect is a callback that is executed locally (in the context of
+the current process) iff the transaction was successfully committed.
+
+WARNING: When transaction is started with `sync => false`, this
+function leaves data in the process dictionary of the transaction
+initiator.
+
+Therefore, `tx_commit_outcome/3` MUST be called in the same process.
+""".
+-doc #{title => <<"Transactions">>, since => <<"6.0.0">>}.
+-spec tx_on_success(fun(() -> _)) -> ok.
+tx_on_success(Fun) ->
+    tx_push_op(?tx_ops_side_effect, Fun).
+
+-doc "Serialize stream to a compact binary representation.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec stream_to_binary(db(), stream()) -> {ok, binary()} | {error, _}.
+stream_to_binary(DB, Stream) ->
+    ?module(DB):stream_to_binary(DB, Stream).
+
+-doc "De-serialize a binary produced by `stream_to_binary/2`.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec binary_to_stream(db(), binary()) -> {ok, stream()} | {error, _}.
+binary_to_stream(DB, Stream) ->
+    ?module(DB):binary_to_stream(DB, Stream).
+
+-doc "Serialize iterator to a compact binary representation.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec iterator_to_binary(db(), iterator() | end_of_stream) -> {ok, binary()} | {error, _}.
+iterator_to_binary(DB, Iterator) ->
+    ?module(DB):iterator_to_binary(DB, Iterator).
+
+-doc "De-serialize a binary produced by `iterator_to_binary/2`.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec binary_to_iterator(db(), binary()) -> {ok, iterator() | end_of_stream} | {error, _}.
+binary_to_iterator(DB, Iterator) ->
+    ?module(DB):binary_to_iterator(DB, Iterator).
 
 -doc "Restart the transaction.".
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
@@ -1238,11 +1370,18 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
         start_time => 0
     },
     #{
-        batch_size := BatchSize,
+        batch_size := BatchSize0,
         generation := GenerationMatcher,
         errors := ErrorHandling,
         start_time := StartTime
     } = maps:merge(Defaults, UserOpts),
+    BatchSize =
+        case maps:get(end_time, UserOpts, infinity) of
+            infinity ->
+                BatchSize0;
+            EndTime when is_integer(EndTime) ->
+                {time, EndTime, BatchSize0}
+        end,
     Ctx = #fold_ctx{
         db = DB,
         tf = TopicFilter,
@@ -1288,12 +1427,88 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
     end,
     %% Return result:
     case {Errors, ErrorHandling} of
+        {_, ignore} ->
+            Result;
         {[], crash} ->
             Result;
         {_, crash} ->
             error(Errors);
         {_, report} ->
             {Result, Errors}
+    end.
+
+-doc """
+
+Create a "multi-iterator" that combines iterators from multiple
+streams. Data from the streams can be consumed using
+`multi_iterator_next/4` function. When scan reaches end of the stream,
+multi-iterator automatically switches to the next stream.
+
+This method of reading data frees the user from having to manage
+multiple streams and iterators at the cost of efficiency. Generally,
+multi-iterators are less efficient than subscriptions, regular
+iterators or `fold_topic/4`.
+
+WARNING: Multi-iterators operate on live, changing data rather than
+snapshots. Don't use this API if you need any degree of consistency.
+
+""".
+-doc #{title => <<"Utility functions">>, since => <<"6.0.0">>}.
+-spec make_multi_iterator(multi_iter_opts(), topic_filter()) -> multi_iterator().
+make_multi_iterator(UserOpts = #{db := _}, TF) ->
+    Opts = multi_iter_opts(UserOpts),
+    case multi_iter_get_streams(Opts, TF) of
+        [Stream | _] ->
+            do_multi_iter_make_it(Opts, TF, {ok, Stream});
+        [] ->
+            '$end_of_table'
+    end.
+
+-doc """
+
+Consume a batch of data from the multi-iterator.
+
+Options and TopicFilter parameters should be the same as ones used to
+create the iterator.
+
+""".
+-doc #{title => <<"Utility functions">>, since => <<"6.0.0">>}.
+-spec multi_iterator_next(
+    multi_iter_opts(),
+    topic_filter(),
+    multi_iterator(),
+    pos_integer()
+) ->
+    {[payload()], multi_iterator()}.
+multi_iterator_next(UserOpts, TF, It = #m_iter{}, N) ->
+    do_multi_iterator_next(multi_iter_opts(UserOpts), TF, It, N, []).
+
+do_multi_iterator_next(_Opts, _TF, '$end_of_table', _N, Acc) ->
+    {Acc, '$end_of_table'};
+do_multi_iterator_next(_Opts, _TF, MIt, N, Acc) when N =< 0 ->
+    {Acc, MIt};
+do_multi_iterator_next(Opts = #{db := DB}, TF, MIt0 = #m_iter{it = It0, stream = Stream}, N, Acc0) ->
+    Result = next(DB, It0, N),
+    Len =
+        case Result of
+            {ok, _, Batch0} ->
+                length(Batch0);
+            _ ->
+                0
+        end,
+    case Result of
+        {ok, It, Batch} when Len >= N ->
+            {Batch ++ Acc0, MIt0#m_iter{it = It}};
+        Other ->
+            Acc =
+                case Other of
+                    {ok, _, Batch} ->
+                        Acc0 ++ Batch;
+                    _ ->
+                        Acc0
+                end,
+            MIt = do_multi_iter_make_it(Opts, TF, multi_iter_next_stream(Opts, TF, Stream)),
+            do_multi_iterator_next(Opts, TF, MIt, N - Len, Acc)
     end.
 
 -doc """
@@ -1318,8 +1533,10 @@ matching the filter.
 tx_fold_topic(Fun, Acc, TopicFilter, UserOpts) ->
     case tx_ctx() of
         #kv_tx_ctx{shard = Shard, generation = Generation} ->
+            StartTime = maps:get(start_time, UserOpts, 0),
+            EndTime = maps:get(end_time, UserOpts, infinity),
             Opts = UserOpts#{db => tx_ctx_db(), shard => Shard, generation => Generation},
-            tx_push_op(?tx_ops_read, TopicFilter),
+            tx_push_op(?tx_ops_read, {TopicFilter, StartTime, EndTime}),
             fold_topic(Fun, Acc, TopicFilter, Opts);
         undefined ->
             error(not_a_transaction)
@@ -1425,6 +1642,7 @@ trans_inner(DB, Fun, Opts) ->
                 _ = put(?tx_ops_del_topic, []),
                 _ = put(?tx_ops_assert_present, []),
                 _ = put(?tx_ops_assert_absent, []),
+                _ = put(?tx_ops_side_effect, []),
                 Ret = Fun(),
                 Tx = #{
                     ?ds_tx_write => lists:reverse(erase(?tx_ops_write)),
@@ -1441,10 +1659,12 @@ trans_inner(DB, Fun, Opts) ->
                         ?ds_tx_expected := [],
                         ?ds_tx_unexpected := []
                     } ->
-                        %% Nothing to commit
+                        %% Nothing to commit, apply side effects now:
+                        tx_eval_side_effects(erase(?tx_ops_side_effect)),
                         {nop, Ret};
                     _ ->
                         Ref = commit_tx(DB, Ctx, Tx),
+                        tx_maybe_save_side_effects(Ref),
                         trans_maybe_wait_outcome(DB, Ref, Ret, Opts)
                 end;
             Err ->
@@ -1460,7 +1680,8 @@ trans_inner(DB, Fun, Opts) ->
         _ = erase(?tx_ops_read),
         _ = erase(?tx_ops_del_topic),
         _ = erase(?tx_ops_assert_present),
-        _ = erase(?tx_ops_assert_absent)
+        _ = erase(?tx_ops_assert_absent),
+        _ = erase(?tx_ops_side_effect)
     end.
 
 trans_maybe_wait_outcome(DB, Ref, Ret, #{sync := true}) ->
@@ -1486,6 +1707,23 @@ tx_push_op(K, A) ->
     put(K, [A | get(K)]),
     ok.
 
+tx_pop_side_effects(Ref) ->
+    case erase({?tx_ops_side_effect, Ref}) of
+        undefined -> [];
+        L -> lists:reverse(L)
+    end.
+
+tx_maybe_save_side_effects(Ref) ->
+    case erase(?tx_ops_side_effect) of
+        [] ->
+            ok;
+        L ->
+            put({?tx_ops_side_effect, Ref}, L)
+    end.
+
+tx_eval_side_effects(L) ->
+    lists:foreach(fun(F) -> F() end, L).
+
 -spec fold_streams(
     fold_fun(Acc), Acc, [error(_)], [{slab(), stream(), iterator()}], fold_ctx()
 ) -> {Acc, [fold_error()]}.
@@ -1507,7 +1745,7 @@ fold_iterator(Fun, Acc0, AccErrors, Slab, Stream, It0, Ctx) ->
             {Acc0, AccErrors};
         {ok, It, Batch} ->
             Acc = lists:foldl(
-                fun({_MsgKey, Msg}, A) ->
+                fun(Msg, A) ->
                     Fun(Slab, Stream, Msg, A)
                 end,
                 Acc0,
@@ -1536,3 +1774,44 @@ is_topic_filter(_) ->
 
 dirty_read_topic_fun(_Slab, _Stream, Object, Acc) ->
     [Object | Acc].
+
+multi_iter_get_streams(
+    #{db := DB, start_time := StartTime, shard := Shard, generation := Gen}, TopicFilter
+) ->
+    lists:sort(
+        lists:filtermap(
+            fun({{S, G}, Stream}) ->
+                (Shard =:= '_' orelse Shard =:= S) andalso
+                    (Gen =:= '_' orelse Gen =:= G) andalso
+                    {true, Stream}
+            end,
+            emqx_ds:get_streams(DB, TopicFilter, StartTime)
+        )
+    ).
+
+multi_iter_next_stream(Opts, TopicFilter, Stream) ->
+    F = fun
+        F([S1, S2 | _]) when S1 =:= Stream ->
+            {ok, S2};
+        F([_ | Rest]) ->
+            F(Rest);
+        F(_) ->
+            '$end_of_table'
+    end,
+    F(multi_iter_get_streams(Opts, TopicFilter)).
+
+do_multi_iter_make_it(_Opts, _TopicFilter, '$end_of_table') ->
+    '$end_of_table';
+do_multi_iter_make_it(#{db := DB, start_time := StartTime}, TopicFilter, {ok, Stream}) ->
+    {ok, It} = make_iterator(DB, Stream, TopicFilter, StartTime),
+    #m_iter{
+        stream = Stream,
+        it = It
+    }.
+
+-spec multi_iter_opts(multi_iter_opts()) -> multi_iter_opts().
+multi_iter_opts(UserOpts) ->
+    maps:merge(
+        #{shard => '_', generation => '_', start_time => 0},
+        UserOpts
+    ).

@@ -621,27 +621,28 @@ is_active_unblocked(#srs{unsubscribed = true}, _S) ->
 is_active_unblocked(SRS, S) ->
     is_fully_acked(SRS, S).
 
--spec handle_down({'DOWN', _, _, _, _}, emqx_persistent_session_ds_state:t(), t()) ->
+-spec handle_down(term(), emqx_persistent_session_ds_state:t(), t()) ->
     {drop_buffer, stream_key(), t()} | ignore.
-handle_down(DOWN, S, SchedS = #s{ds_subs = Subs}) ->
-    case DOWN of
-        {'DOWN', Ref, process, Pid, Reason} ->
-            case Subs of
-                #{Ref := #ds_sub{stream_key = StreamKey}} ->
-                    %% Handle crash of DS subscription:
-                    ?tp(info, ?sessds_sub_down, #{
-                        stream => StreamKey,
-                        sub_ref => Ref,
-                        pid => Pid,
-                        reason => Reason
-                    }),
-                    {drop_buffer, StreamKey, ds_resubscribe(StreamKey, S, SchedS)};
-                #{} ->
-                    ignore
-            end;
-        {'DOWN', _Ref, _Type, _Pid, _Reason} ->
+handle_down(
+    {'DOWN', Ref, process, Pid, Reason},
+    S,
+    SchedS = #s{ds_subs = Subs}
+) ->
+    case Subs of
+        #{Ref := #ds_sub{stream_key = StreamKey}} ->
+            %% Handle crash of DS subscription:
+            ?tp(info, ?sessds_sub_down, #{
+                stream => StreamKey,
+                sub_ref => Ref,
+                pid => Pid,
+                reason => Reason
+            }),
+            {drop_buffer, StreamKey, ds_resubscribe(StreamKey, S, SchedS)};
+        #{} ->
             ignore
-    end.
+    end;
+handle_down(_, _, _) ->
+    ignore.
 
 -spec handle_retry(emqx_persistent_session_ds_state:t(), t()) -> ret().
 handle_retry(S0, SchedS0 = #s{retry = Actions}) ->

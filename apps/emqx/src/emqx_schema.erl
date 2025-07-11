@@ -1808,7 +1808,22 @@ fields("durable_sessions") ->
                 timeout_duration(),
                 #{
                     default => <<"10s">>,
-                    desc => ?DESC(session_ds_idle_poll_interval)
+                    desc => ?DESC(session_ds_idle_poll_interval),
+                    deprecated => {since, "5.9"}
+                }
+            )},
+        {"checkpoint_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5000ms">>
+                }
+            )},
+        {"commit_timeout",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5000ms">>
                 }
             )},
         {"heartbeat_interval",
@@ -1824,7 +1839,8 @@ fields("durable_sessions") ->
                 timeout_duration(),
                 #{
                     default => <<"1s">>,
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_HIDDEN,
+                    deprecated => {since, "5.9"}
                 }
             )},
         {"session_gc_interval",

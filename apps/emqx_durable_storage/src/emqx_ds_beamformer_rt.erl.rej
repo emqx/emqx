@@ -1,0 +1,10 @@
+diff a/apps/emqx_durable_storage/src/emqx_ds_beamformer_rt.erl b/apps/emqx_durable_storage/src/emqx_ds_beamformer_rt.erl	(rejected hunks)
+@@ -315,7 +315,7 @@ do_process_stream_event(
+     ),
+     case ScanResult of
+         {ok, LastKey, []} ->
+-            ?tp(beamformer_rt_batch, #{
++            ?tp(warning, beamformer_rt_batch, #{
+                 shard => DBShard, from => StartKey, to => LastKey, stream => Stream, empty => true
+             }),
+             %% Race condition: event arrived before the data became
