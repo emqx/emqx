@@ -4,6 +4,7 @@ else
 DEBUG_INFO = @:
 endif
 REBAR = $(CURDIR)/rebar3
+MIX = $(CURDIR)/mix
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 include env.sh
@@ -71,20 +72,20 @@ mix-deps-get: elixir-common-deps
 	@mix deps.get
 
 .PHONY: eunit
-eunit: $(REBAR) merge-config
-	@$(REBAR) eunit --name eunit@127.0.0.1 -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
+eunit: $(ELIXIR_COMMON_DEPS) merge-config
+	@env PROFILE=$(PROFILE)-test $(MIX) eunit --cover-export-name $(CT_COVER_EXPORT_PREFIX)-eunit
 
 .PHONY: proper
-proper: $(REBAR)
-	@$(REBAR) proper -d test/props -c
+proper: $(ELIXIR_COMMON_DEPS)
+	@env PROFILE=$(PROFILE)-test $(MIX) proper
 
 .PHONY: test-compile
 test-compile: $(REBAR) merge-config
-	$(REBAR) as test compile
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get, compile
 
 .PHONY: $(REL_PROFILES:%=%-compile)
 $(REL_PROFILES:%=%-compile): $(REBAR) merge-config
-	$(REBAR) as $(@:%-compile=%) compile
+	env PROFILE=$(@:%-compile=%) $(MIX) do deps.get, compile
 
 .PHONY: ct
 ct: $(REBAR) merge-config
@@ -92,24 +93,26 @@ ct: $(REBAR) merge-config
 
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
-static_checks:
-	@$(REBAR) as check do xref, dialyzer
-	@$(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
+static_checks: $(ELIXIR_COMMON_DEPS)
+	@env NEW_MIX_BUILD=1 BPAPI_BUILD_PROFILE=$(PROFILE:%-test=%) \
+	    $(MIX) do \
+	    xref, dialyzer --mode classic \
+	    emqx.static_checks
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
 
 # Allow user-set CASES environment variable
 ifneq ($(CASES),)
-CASES_ARG := --case $(CASES)
+CASES_ARG := --cases $(CASES)
 endif
 
 # Allow user-set GROUPS environment variable
 ifneq ($(GROUPS),)
-GROUPS_ARG := --group $(GROUPS)
+GROUPS_ARG := --group-paths $(GROUPS)
 endif
 
 ifeq ($(ENABLE_COVER_COMPILE),1)
-cover_args = --cover --cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1)
+cover_args = --cover-export-name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1)
 else
 cover_args =
 endif
@@ -117,14 +120,14 @@ endif
 ## example:
 ## env SUITES=apps/appname/test/test_SUITE.erl CASES=t_foo make apps/appname-ct
 define gen-app-ct-target
-$1-ct: $(REBAR) merge-config clean-test-cluster-config
+$1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
-	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" $(REBAR) ct -v \
-		--readable=$(CT_READABLE) \
-		--name $(CT_NODE_NAME) \
+	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
+	    PROFILE=$(PROFILE)-test \
+	        $(MIX) ct \
 		$(call cover_args,$1) \
-		--suite $(SUITES) \
+		--suites $(SUITES) \
 		$(GROUPS_ARG) \
 		$(CASES_ARG)
 else
@@ -153,19 +156,19 @@ endif
 ct-suite: $(REBAR) merge-config clean-test-cluster-config
 ifneq ($(TESTCASE),)
 ifneq ($(GROUP),)
-	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE) --group $(GROUP)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get, ct --suites $(SUITE) --cases $(TESTCASE) --group-paths $(GROUP)
 else
-	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get,  ct --suite $(SUITE)  --case $(TESTCASE)
 endif
 else ifneq ($(GROUP),)
-	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --group $(GROUP)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get,  ct --suite $(SUITE)  --group $(GROUP)
 else
-	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get,  ct --suite $(SUITE)
 endif
 
 .PHONY: cover
-cover: $(REBAR)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) as test cover
+cover:
+	@env PROFILE=$(PROFILE)-test mix cover
 
 COMMON_DEPS := $(REBAR)
 
@@ -219,17 +222,17 @@ $(PROFILES:%=deps-%): $(COMMON_DEPS)
 	@rm -f rebar.lock
 
 .PHONY: xref
-xref: $(REBAR)
-	@$(REBAR) as check xref
+xref:
+	@$(MIX) xref
 
 .PHONY: dialyzer
-dialyzer: $(REBAR)
-	@$(REBAR) as check dialyzer
+dialyzer:
+	@$(MIX) dialyzer --mode incremental
 
 ## rel target is to create release package without relup
 .PHONY: $(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel)
-$(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS)
-	@$(BUILD) $(subst -rel,,$(@)) rel
+$(REL_PROFILES:%=%-rel) $(PKG_PROFILES:%=%-rel): $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS)
+	@env ELIXIR_MAKE_TAR=yes PROFILE=$(subst -rel,,$(@)) $(BUILD) $(subst -rel,,$(@)) elixir
 
 ## download relup base packages
 .PHONY: $(REL_PROFILES:%=%-relup-downloads)
@@ -300,7 +303,7 @@ merge-config:
 ## elixir target is to create release packages using Elixir's Mix
 .PHONY: $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir)
 $(REL_PROFILES:%=%-elixir) $(PKG_PROFILES:%=%-elixir): $(COMMON_DEPS)
-	@env IS_ELIXIR=yes $(BUILD) $(subst -elixir,,$(@)) elixir
+	@env NEW_MIX_BUILD=1 IS_ELIXIR=yes $(BUILD) $(subst -elixir,,$(@)) elixir
 
 .PHONY: $(REL_PROFILES:%=%-elixir-pkg)
 define gen-elixir-pkg-target
