@@ -900,7 +900,17 @@ defmodule EMQXUmbrella.MixProject do
       Mix.shell().info("[macos] signing binaries...")
       os_cmd("scripts/rel/macos-sign-binaries.sh")
       Mix.shell().info("[macos] notarizing package...")
-      os_cmd("scripts/rel/macos-notarize-package.sh")
+
+      {_, 0} =
+        System.cmd(
+          "bash",
+          ["scripts/rel/macos-notarize-package.sh"],
+          env: [
+            {"RELX_TEMP_DIR", release.path},
+            {"RELX_OUTPUT_DIR", release.path}
+          ]
+        )
+
       Mix.shell().info("[macos] done")
     end
 
