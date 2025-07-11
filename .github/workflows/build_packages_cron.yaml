@@ -95,10 +95,12 @@ jobs:
         run: |
           source env.sh
           echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
+          echo "ELIXIR_VSN=$ELIXIR_VSN" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/package-macos
         with:
           profile: ${{ matrix.profile }}
           otp: ${{ steps.env.outputs.OTP_VSN }}
+          elixir: ${{ steps.env.outputs.ELIXIR_VSN }}
           os: ${{ matrix.os }}
           apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
           apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}

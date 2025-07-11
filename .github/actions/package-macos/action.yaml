@@ -7,6 +7,9 @@ inputs:
   otp:
     required: true
     type: string
+  elixir:
+    required: true
+    type: string
   os:
     required: false
     type: string
@@ -65,6 +68,20 @@ runs:
         kerl install $OTP_VERSION ~/.kerl/installations/$OTP_VERSION
         unset LDFLAGS
         unset CC
+    - name: build elixir
+      shell: bash
+      env:
+        OTP_VERSION: ${{ inputs.otp }}
+        ELIXIR_VERSION: ${{ inputs.elixir }}
+      run: |
+        mkdir -p ~/.elixir-install
+        cd ~/.elixir-install
+        otp_major=$(echo $OTP_VERSION | sed -nre 's/([0-9]+).*/\1/p')
+        elixir_zip="elixir-otp-${otp_major}.zip"
+        url="https://github.com/elixir-lang/elixir/releases/download/v${ELIXIR_VERSION}/${elixir_zip}"
+        curl -fsSLO "$url"
+        unzip "${elixir_zip}"
+        echo "$HOME/.elixir-install/bin" >> $GITHUB_PATH
     - name: build
       shell: bash
       env:
@@ -82,8 +99,10 @@ runs:
         . ~/.kerl/installations/$OTP_VERSION/activate
         # inspect erl in PATH
         which erl
+        which elixir
         # inspect erl command banner
         erl -s init stop
+        elixir -e "System.version() |> IO.puts()"
         make ensure-rebar3
         mkdir -p $HOME/bin
         cp rebar3 $HOME/bin/rebar3
