@@ -555,7 +555,9 @@ encode_nested_error(RuleError, Reason) ->
 mk_format_fn() ->
     SummaryIndex =
         maybe
-            {ok, Summary} = emqx_bridge_v2_api:do_handle_summary(actions),
+            %% TODO: should receive namespace as argument here.
+            GlobalNamespace = undefined,
+            {ok, Summary} = emqx_bridge_v2_api:do_handle_summary(GlobalNamespace, actions),
             lists:foldl(
                 fun(#{name := N, type := T, status := S}, Acc) ->
                     Acc#{{T, N} => S}

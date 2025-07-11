@@ -127,6 +127,7 @@
 %% common validations
 -export([
     parse_resource_id/2,
+    parse_channel_id/1,
     validate_type/1,
     validate_name/1
 ]).
@@ -841,6 +842,51 @@ parse_resource_id(Id0, Opts) ->
             invalid_data(
                 <<"should be of pattern {type}:{name}, but got: ", Id/binary>>
             )
+    end.
+
+parse_channel_id(<<"ns:", NsAndIds/binary>> = Id) ->
+    case binary:split(NsAndIds, <<":">>) of
+        [Ns, Rest] ->
+            case do_parse_channel_id(Rest) of
+                {ok, Parsed} ->
+                    Parsed#{namespace => Ns};
+                {error, invalid_id} ->
+                    throw({invalid_id, Id})
+            end;
+        _ ->
+            throw({invalid_id, Id})
+    end;
+parse_channel_id(Id) ->
+    case do_parse_channel_id(Id) of
+        {ok, Parsed} ->
+            Parsed;
+        {error, invalid_id} ->
+            throw({invalid_id, Id})
+    end.
+
+%% Without namespace
+do_parse_channel_id(Id) ->
+    case binary:split(Id, <<":">>, [global]) of
+        [<<"action">>, Type, Name, <<"connector">>, ConnectorType, ConnectorName] ->
+            {ok, #{
+                namespace => undefined,
+                kind => action,
+                type => Type,
+                name => Name,
+                connector_type => ConnectorType,
+                connector_name => ConnectorName
+            }};
+        [<<"source">>, Type, Name, <<"connector">>, ConnectorType, ConnectorName] ->
+            {ok, #{
+                namespace => undefined,
+                kind => source,
+                type => Type,
+                name => Name,
+                connector_type => ConnectorType,
+                connector_name => ConnectorName
+            }};
+        _ ->
+            {error, invalid_id}
     end.
 
 to_type_atom(Type) when is_binary(Type) ->

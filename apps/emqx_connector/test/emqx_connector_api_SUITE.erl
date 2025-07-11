@@ -1541,7 +1541,6 @@ t_namespaced_crud(TCConfig) ->
         get_resource(NS2, ConnectorType, ConnectorName1, TCConfigNS1)
     ),
 
-    %% Delete
     ?assertMatch({204, _}, delete(ConnectorType, ConnectorName1, TCConfigNS1)),
     ?assertMatch({200, []}, list(TCConfig)),
     ?assertMatch({200, [_]}, list(TCConfigNS1)),

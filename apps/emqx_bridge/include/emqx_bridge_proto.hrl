@@ -5,6 +5,6 @@
 -ifndef(EMQX_BRIDGE_PROTO_HRL).
 -define(EMQX_BRIDGE_PROTO_HRL, true).
 
--define(MAX_SUPPORTED_PROTO_VERSION, 7).
+-define(MAX_SUPPORTED_PROTO_VERSION, 8).
 
 -endif.

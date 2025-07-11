@@ -12,12 +12,20 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx_resource/include/emqx_resource_runtime.hrl").
+
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
 
 -define(ACTIONS_ROOT, "actions").
 -define(SOURCES_ROOT, "sources").
 
 -define(ACTION_CONNECTOR_NAME, <<"my_connector">>).
 -define(SOURCE_CONNECTOR_NAME, <<"my_connector">>).
+
+-define(CONNECTOR_IMPL, emqx_bridge_v2_dummy_connector).
 
 -define(RESOURCE(NAME, TYPE), #{
     <<"enable">> => true,
@@ -110,6 +118,7 @@
     emqx_auth,
     emqx_management,
     emqx_connector,
+    emqx_bridge_mqtt,
     emqx_bridge,
     emqx_rule_engine
 ]).
@@ -120,17 +129,11 @@
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
--if(?EMQX_RELEASE_EDITION == ee).
-%% For now we got only kafka implementing `bridge_v2` and that is enterprise only.
 all() ->
     All0 = emqx_common_test_helpers:all(?MODULE),
     All = All0 -- matrix_cases(),
     Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
     Groups ++ All.
--else.
-all() ->
-    [].
--endif.
 
 matrix_cases() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -287,12 +290,18 @@ skip_connector_creation_test_cases() ->
         t_connector_dependencies,
         t_kind_dependencies,
         t_summary,
-        t_summary_inconsistent
+        t_summary_inconsistent,
+        t_namespaced_crud,
+        t_namespaced_load_on_restart
     ].
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+get_tcp_mqtt_port(Node) ->
+    {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
 
 work_dir_random_suffix(Name0, CTConfig) ->
     Name = iolist_to_binary([emqx_utils_conv:bin(Name0), emqx_utils:rand_id(5)]),
@@ -308,7 +317,6 @@ setup_auth_header_fn(Config) ->
             emqx_bridge_v2_testlib:set_auth_header_getter(Fun)
     end.
 
--define(CONNECTOR_IMPL, emqx_bridge_v2_dummy_connector).
 init_mocks() ->
     meck:new(emqx_connector_resource, [passthrough, no_link]),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR_IMPL),
@@ -345,6 +353,14 @@ init_mocks() ->
         {ok, self()}
     end),
     ok.
+
+clear_mocks(TCConfig) ->
+    case ?config(cluster_nodes, TCConfig) of
+        undefined ->
+            meck:unload();
+        Nodes ->
+            [erpc:call(Node, meck, unload, []) || Node <- Nodes]
+    end.
 
 clear_resources() ->
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors().
@@ -470,9 +486,11 @@ json(B) when is_binary(B) ->
     end.
 
 group_path(Config) ->
+    group_path(Config, undefined).
+group_path(Config, Default) ->
     case emqx_common_test_helpers:group_path(Config) of
         [] ->
-            undefined;
+            Default;
         Path ->
             Path
     end.
@@ -740,8 +758,265 @@ summary_scenarios_setup(Config) ->
         summarize => Summarize
     }.
 
+get_value(Key, TCConfig) ->
+    emqx_bridge_v2_testlib:get_value(Key, TCConfig).
+
+auth_header(TCConfig) ->
+    maybe
+        undefined ?= ?config(auth_header, TCConfig),
+        emqx_bridge_v2_testlib:auth_header()
+    end.
+
+ensure_namespaced_api_key(Namespace, TCConfig) ->
+    ensure_namespaced_api_key(Namespace, _Opts = #{}, TCConfig).
+ensure_namespaced_api_key(Namespace, Opts0, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    Opts = Opts0#{namespace => Namespace},
+    ?ON(Node, emqx_bridge_v2_testlib:ensure_namespaced_api_key(Opts)).
+
+get_matrix_prop(TCConfig, Alternatives, Default) ->
+    GroupPath = group_path(TCConfig, [Default]),
+    case lists:filter(fun(G) -> lists:member(G, Alternatives) end, GroupPath) of
+        [] ->
+            Default;
+        [Opt] ->
+            Opt
+    end.
+
+kind_of(TCConfig) ->
+    case get_matrix_prop(TCConfig, [actions, sources], actions) of
+        actions ->
+            action;
+        sources ->
+            source
+    end.
+
+conf_root_key_of(TCConfig) ->
+    atom_to_binary(get_matrix_prop(TCConfig, [actions, sources], actions)).
+
+list(TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig)]),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get,
+            url => URL,
+            auth_header => AuthHeader
+        })
+    end).
+
+summary(TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        URL =
+            case kind_of(TCConfig) of
+                action -> emqx_mgmt_api_test_util:api_path(["actions_summary"]);
+                source -> emqx_mgmt_api_test_util:api_path(["sources_summary"])
+            end,
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get,
+            url => URL,
+            auth_header => AuthHeader
+        })
+    end).
+
+create(Type, Name, Config, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig)]),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => URL,
+            body => Config#{
+                <<"type">> => Type,
+                <<"name">> => Name
+            },
+            auth_header => AuthHeader
+        })
+    end).
+
+get(Type, Name, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        Id = emqx_bridge_resource:bridge_id(Type, Name),
+        URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig), Id]),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get,
+            url => URL,
+            auth_header => AuthHeader
+        })
+    end).
+
+get_channel_id(Namespace, Type, Name, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        ConfRootKey =
+            case kind_of(TCConfig) of
+                action -> actions;
+                source -> sources
+            end,
+        {ok, {_ConnResId, ChanResId}} =
+            emqx_bridge_v2:get_resource_ids(Namespace, ConfRootKey, Type, Name),
+        ChanResId
+    end).
+
+get_runtime(ChanResId, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, emqx_resource_cache:get_runtime(ChanResId)).
+
+get_runtime(Namespace, Type, Name, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        ConfRootKey =
+            case kind_of(TCConfig) of
+                action -> actions;
+                source -> sources
+            end,
+        {ok, {_ConnResId, ChanResId}} =
+            emqx_bridge_v2:get_resource_ids(Namespace, ConfRootKey, Type, Name),
+        emqx_resource_cache:get_runtime(ChanResId)
+    end).
+
+update(Type, Name, Config, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        Id = emqx_bridge_resource:bridge_id(Type, Name),
+        URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig), Id]),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => put,
+            url => URL,
+            body => Config,
+            auth_header => AuthHeader
+        })
+    end).
+
+enable(Type, Name, TCConfig) ->
+    do_enable_or_disable(Type, Name, "true", TCConfig).
+
+disable(Type, Name, TCConfig) ->
+    do_enable_or_disable(Type, Name, "false", TCConfig).
+
+do_enable_or_disable(Type, Name, Enable, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        Id = emqx_bridge_resource:bridge_id(Type, Name),
+        AuthHeader = auth_header(TCConfig),
+        URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig), Id, "enable", Enable]),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => put,
+            url => URL,
+            auth_header => AuthHeader
+        })
+    end).
+
+start(Type, Name, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        Id = emqx_bridge_resource:bridge_id(Type, Name),
+        AuthHeader = auth_header(TCConfig),
+        URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig), Id, "start"]),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => URL,
+            auth_header => AuthHeader
+        })
+    end).
+
+start_on_node(Type, Name, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    NodeBin = atom_to_binary(Node),
+    ?ON(Node, begin
+        Id = emqx_bridge_resource:bridge_id(Type, Name),
+        AuthHeader = auth_header(TCConfig),
+        URL = emqx_mgmt_api_test_util:api_path([
+            "nodes", NodeBin, conf_root_key_of(TCConfig), Id, "start"
+        ]),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => URL,
+            auth_header => AuthHeader
+        })
+    end).
+
+delete(Type, Name, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        Id = emqx_bridge_resource:bridge_id(Type, Name),
+        URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig), Id]),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => delete,
+            url => URL,
+            auth_header => AuthHeader
+        })
+    end).
+
+-doc """
+NOTE: We should **not** call `emqx_bridge_v2:send_message` directly in tests, as that
+makes potential refactoring harder.  The correct way is to create a rule referencing the
+action and send MQTT messages to the rule topic.
+
+At the time of writing, however, we're in the process of adding namespace support, and
+rule engine still does not "understand" namespaces.  After rule engine is updated, this
+helper should be replaced by creating a proper rule.
+""".
+send_message(Namespace, Type, Name, Message, QueryOpts, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(
+        Node,
+        emqx_bridge_v2:send_message(Namespace, Type, Name, Message, QueryOpts)
+    ).
+
+probe(Type, Name, Config, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        URL =
+            case kind_of(TCConfig) of
+                action -> emqx_mgmt_api_test_util:api_path(["actions_probe"]);
+                source -> emqx_mgmt_api_test_util:api_path(["sources_probe"])
+            end,
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => URL,
+            body => Config#{<<"type">> => Type, <<"name">> => Name},
+            auth_header => AuthHeader
+        })
+    end).
+
+get_metrics(Type, Name, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        Id = emqx_bridge_resource:bridge_id(Type, Name),
+        URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig), Id, "metrics"]),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get,
+            url => URL,
+            auth_header => AuthHeader
+        })
+    end).
+
+reset_metrics(Type, Name, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        Id = emqx_bridge_resource:bridge_id(Type, Name),
+        URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig), Id, "metrics", "reset"]),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => put,
+            url => URL,
+            auth_header => AuthHeader
+        })
+    end).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 %% We have to pretend testing a kafka bridge since at this point that's the
@@ -2092,4 +2367,430 @@ t_fallback_actions_returned_info(Config) ->
         ]},
         Summarize()
     ),
+    ok.
+
+-doc """
+Smoke tests for CRUD operations on namespaced connectors.
+
+  - Namespaced users should only see and be able to mutate resources in their namespaces.
+
+""".
+t_namespaced_crud(matrix) ->
+    [
+        [single, actions],
+        [single, sources],
+        [cluster, actions],
+        [cluster, sources]
+    ];
+t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
+    clear_mocks(TCConfig0),
+    Node = get_value(node, TCConfig0),
+    {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    TCConfig = [{api_key, APIKey} | TCConfig0],
+
+    NoNamespace = undefined,
+    TCConfigGlobal = [{auth_header, emqx_common_test_http:auth_header(APIKey)} | TCConfig],
+    NS1 = <<"ns1">>,
+    AuthHeaderNS1 = ensure_namespaced_api_key(NS1, TCConfig),
+    TCConfigNS1 = [{auth_header, AuthHeaderNS1} | TCConfig],
+    NS2 = <<"ns2">>,
+    AuthHeaderNS2 = ensure_namespaced_api_key(NS2, TCConfig),
+    TCConfigNS2 = [{auth_header, AuthHeaderNS2} | TCConfig],
+
+    AuthHeaderViewerNS1 = ensure_namespaced_api_key(
+        NS1, #{name => <<"viewer">>, role => viewer}, TCConfig
+    ),
+    TCConfigViewerNS1 = [{auth_header, AuthHeaderViewerNS1} | TCConfig],
+
+    %% setup connectors for each namespace
+    MQTTPort = get_tcp_mqtt_port(Node),
+    Server = <<"127.0.0.1:", (integer_to_binary(MQTTPort))/binary>>,
+    ConnectorType = <<"mqtt">>,
+    ConnectorName = <<"conn">>,
+    ConnectorConfigGlobal = source_connector_create_config(#{
+        <<"description">> => <<"global">>,
+        <<"server">> => Server
+    }),
+    ConnectorConfigNS1 = source_connector_create_config(#{
+        <<"description">> => <<"ns1">>,
+        <<"server">> => Server
+    }),
+    ConnectorConfigNS2 = source_connector_create_config(#{
+        <<"description">> => <<"ns2">>,
+        <<"server">> => Server
+    }),
+    {201, #{<<"status">> := <<"connected">>}} =
+        emqx_connector_api_SUITE:create(
+            ConnectorType, ConnectorName, ConnectorConfigGlobal, TCConfigGlobal
+        ),
+    {201, #{<<"status">> := <<"connected">>}} =
+        emqx_connector_api_SUITE:create(
+            ConnectorType, ConnectorName, ConnectorConfigNS1, TCConfigNS1
+        ),
+    {201, #{<<"status">> := <<"connected">>}} =
+        emqx_connector_api_SUITE:create(
+            ConnectorType, ConnectorName, ConnectorConfigNS2, TCConfigNS2
+        ),
+
+    %% no actions/sources at this moment
+    ?assertMatch({200, []}, list(TCConfigGlobal)),
+    ?assertMatch({200, []}, list(TCConfigNS1)),
+    ?assertMatch({200, []}, list(TCConfigNS2)),
+
+    ?assertMatch({200, []}, summary(TCConfigGlobal)),
+    ?assertMatch({200, []}, summary(TCConfigNS1)),
+    ?assertMatch({200, []}, summary(TCConfigNS2)),
+
+    %% Creating action/source with same name globally and in each NS should work.
+    Type = <<"mqtt">>,
+    Name1 = <<"channel1">>,
+    ConfigGlobal = source_update_config(#{
+        <<"description">> => <<"global">>,
+        <<"connector">> => ConnectorName
+    }),
+    ConfigNS1 = source_update_config(#{
+        <<"description">> => <<"ns1">>,
+        <<"connector">> => ConnectorName
+    }),
+    ConfigNS2 = source_update_config(#{
+        <<"description">> => <<"ns2">>,
+        <<"connector">> => ConnectorName
+    }),
+
+    ?assertMatch(
+        {201, #{<<"description">> := <<"global">>, <<"status">> := <<"connected">>}},
+        create(Type, Name1, ConfigGlobal, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {201, #{<<"description">> := <<"ns1">>, <<"status">> := <<"connected">>}},
+        create(Type, Name1, ConfigNS1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {201, #{<<"description">> := <<"ns2">>, <<"status">> := <<"connected">>}},
+        create(Type, Name1, ConfigNS2, TCConfigNS2)
+    ),
+
+    ?assertMatch({200, [#{<<"description">> := <<"global">>}]}, list(TCConfigGlobal)),
+    ?assertMatch({200, [#{<<"description">> := <<"ns1">>}]}, list(TCConfigNS1)),
+    ?assertMatch({200, [#{<<"description">> := <<"ns2">>}]}, list(TCConfigNS2)),
+
+    ?assertMatch({200, [#{<<"description">> := <<"global">>}]}, summary(TCConfigGlobal)),
+    ?assertMatch({200, [#{<<"description">> := <<"ns1">>}]}, summary(TCConfigNS1)),
+    ?assertMatch({200, [#{<<"description">> := <<"ns2">>}]}, summary(TCConfigNS2)),
+
+    ?assertMatch(
+        {200, #{<<"description">> := <<"global">>}},
+        get(Type, Name1, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{<<"description">> := NS1}},
+        get(Type, Name1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{<<"description">> := NS2}},
+        get(Type, Name1, TCConfigNS2)
+    ),
+
+    %% Checking resource state directly to ensure their independency.
+    ?assertMatch(
+        {ok, #rt{
+            st_err = #{status := ?status_connected},
+            channel_status = ?status_connected
+        }},
+        get_runtime(NoNamespace, Type, Name1, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {ok, #rt{
+            st_err = #{status := ?status_connected},
+            channel_status = ?status_connected
+        }},
+        get_runtime(NS1, Type, Name1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {ok, #rt{
+            st_err = #{status := ?status_connected},
+            channel_status = ?status_connected
+        }},
+        get_runtime(NS2, Type, Name1, TCConfigNS2)
+    ),
+
+    %% Updating each one should be independent
+    ?assertMatch(
+        {200, #{<<"description">> := <<"updated global">>}},
+        update(
+            Type,
+            Name1,
+            emqx_utils_maps:deep_merge(
+                ConfigGlobal,
+                #{
+                    <<"description">> => <<"updated global">>,
+                    <<"parameters">> => #{<<"qos">> => 0}
+                }
+            ),
+            TCConfigGlobal
+        )
+    ),
+    ?assertMatch(
+        {200, #{<<"description">> := <<"updated ns1">>}},
+        update(
+            Type,
+            Name1,
+            emqx_utils_maps:deep_merge(
+                ConfigNS1,
+                #{
+                    <<"description">> => <<"updated ns1">>,
+                    <<"parameters">> => #{<<"qos">> => 1}
+                }
+            ),
+            TCConfigNS1
+        )
+    ),
+    ?assertMatch(
+        {200, #{<<"description">> := <<"updated ns2">>}},
+        update(
+            Type,
+            Name1,
+            emqx_utils_maps:deep_merge(
+                ConfigNS2,
+                #{
+                    <<"description">> => <<"updated ns2">>,
+                    <<"parameters">> => #{<<"qos">> => 2}
+                }
+            ),
+            TCConfigNS2
+        )
+    ),
+
+    ?assertMatch({200, [#{<<"description">> := <<"updated global">>}]}, list(TCConfigGlobal)),
+    ?assertMatch({200, [#{<<"description">> := <<"updated ns1">>}]}, list(TCConfigNS1)),
+    ?assertMatch({200, [#{<<"description">> := <<"updated ns2">>}]}, list(TCConfigNS2)),
+
+    ?assertMatch({200, [#{<<"description">> := <<"updated global">>}]}, summary(TCConfigGlobal)),
+    ?assertMatch({200, [#{<<"description">> := <<"updated ns1">>}]}, summary(TCConfigNS1)),
+    ?assertMatch({200, [#{<<"description">> := <<"updated ns2">>}]}, summary(TCConfigNS2)),
+
+    ?assertMatch(
+        {200, #{<<"description">> := <<"updated global">>}},
+        get(Type, Name1, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{<<"description">> := <<"updated ns1">>}},
+        get(Type, Name1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{<<"description">> := <<"updated ns2">>}},
+        get(Type, Name1, TCConfigNS2)
+    ),
+
+    ?assertMatch(
+        {ok, #rt{
+            st_err = #{status := ?status_connected},
+            channel_status = ?status_connected
+        }},
+        get_runtime(NoNamespace, Type, Name1, TCConfig)
+    ),
+    ?assertMatch(
+        {ok, #rt{
+            st_err = #{status := ?status_connected},
+            channel_status = ?status_connected
+        }},
+        get_runtime(NS1, Type, Name1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {ok, #rt{
+            st_err = #{status := ?status_connected},
+            channel_status = ?status_connected
+        }},
+        get_runtime(NS2, Type, Name1, TCConfigNS2)
+    ),
+
+    %% Enable/Disable/Start operations
+    ?assertMatch({204, _}, disable(Type, Name1, TCConfigGlobal)),
+    ?assertMatch({204, _}, disable(Type, Name1, TCConfigNS1)),
+    ?assertMatch({204, _}, disable(Type, Name1, TCConfigNS2)),
+
+    ?assertMatch({204, _}, enable(Type, Name1, TCConfigGlobal)),
+    ?assertMatch({204, _}, enable(Type, Name1, TCConfigNS1)),
+    ?assertMatch({204, _}, enable(Type, Name1, TCConfigNS2)),
+
+    ?assertMatch({204, _}, start(Type, Name1, TCConfig)),
+    ?assertMatch({204, _}, start(Type, Name1, TCConfigNS1)),
+    ?assertMatch({204, _}, start(Type, Name1, TCConfigNS2)),
+
+    ?assertMatch({204, _}, start_on_node(Type, Name1, TCConfig)),
+    ?assertMatch({204, _}, start_on_node(Type, Name1, TCConfigNS1)),
+    ?assertMatch({204, _}, start_on_node(Type, Name1, TCConfigNS2)),
+
+    %% Create one extra namespaced action/source
+    Name2 = <<"conn2">>,
+    ConfigNS1B = source_update_config(#{
+        <<"description">> => <<"another ns1">>,
+        <<"connector">> => ConnectorName
+    }),
+    ?assertMatch(
+        {201, #{<<"description">> := <<"another ns1">>}},
+        create(Type, Name2, ConfigNS1B, TCConfigNS1)
+    ),
+    ?assertMatch({200, [_]}, list(TCConfigGlobal)),
+    ?assertMatch({200, [_, _]}, list(TCConfigNS1)),
+    ?assertMatch({200, [_]}, list(TCConfigNS2)),
+    ?assertMatch({200, [_]}, summary(TCConfigGlobal)),
+    ?assertMatch(
+        {200, [#{<<"status">> := <<"connected">>}, #{<<"status">> := <<"connected">>}]},
+        summary(TCConfigNS1)
+    ),
+    ?assertMatch({200, [_]}, summary(TCConfigNS2)),
+    ?assertMatch(
+        {200, #{<<"description">> := <<"another ns1">>}},
+        get(Type, Name2, TCConfigNS1)
+    ),
+    ?assertMatch({404, _}, get(Type, Name2, TCConfigGlobal)),
+    ?assertMatch({404, _}, get(Type, Name2, TCConfigNS2)),
+
+    %% Viewer cannot mutate anything, only read
+    ?assertMatch({200, [_, _]}, list(TCConfigViewerNS1)),
+    ?assertMatch({200, #{}}, get(Type, Name1, TCConfigViewerNS1)),
+    ?assertMatch({200, _}, get_metrics(Type, Name1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, create(Type, Name1, ConfigNS1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, update(Type, Name1, ConfigNS1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, delete(Type, Name1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, start(Type, Name1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, start_on_node(Type, Name1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, disable(Type, Name1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, enable(Type, Name1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, probe(Type, Name1, ConfigNS1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, reset_metrics(Type, Name1, TCConfigViewerNS1)),
+
+    %% Probe
+    ?assertMatch({204, _}, probe(Type, Name1, ConfigGlobal, TCConfigGlobal)),
+    ?assertMatch({204, _}, probe(Type, Name1, ConfigNS1, TCConfigNS1)),
+    ?assertMatch({204, _}, probe(Type, Name1, ConfigNS2, TCConfigNS2)),
+
+    %% Send messages
+    #{<<"parameters">> := #{<<"topic">> := RemoteTopic}} = ConfigGlobal,
+    {ok, C} = emqtt:start_link(#{port => MQTTPort, proto_ver => v5}),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, _} = emqtt:subscribe(C, RemoteTopic, [{qos, 2}]),
+    QueryOpts = #{},
+    Message = #{payload => <<"hello">>},
+    ok = send_message(NoNamespace, Type, Name1, Message, QueryOpts, TCConfigGlobal),
+    ok = send_message(NS1, Type, Name1, Message, QueryOpts, TCConfigNS1),
+    ok = send_message(NS2, Type, Name1, Message, QueryOpts, TCConfigNS2),
+    %% Each action has different QoSes.
+    ?assertReceive({publish, #{qos := 0}}),
+    ?assertReceive({publish, #{qos := 1}}),
+    ?assertReceive({publish, #{qos := 2}}),
+    ?assertNotReceive({publish, _}),
+
+    %% Metrics
+    ?assertMatch(
+        {200, #{<<"metrics">> := #{<<"matched">> := 1}}},
+        get_metrics(Type, Name1, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{<<"metrics">> := #{<<"matched">> := 1}}},
+        get_metrics(Type, Name1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{<<"metrics">> := #{<<"matched">> := 1}}},
+        get_metrics(Type, Name1, TCConfigNS2)
+    ),
+
+    ?assertMatch({204, _}, reset_metrics(Type, Name1, TCConfigGlobal)),
+
+    ?assertMatch(
+        {200, #{<<"metrics">> := #{<<"matched">> := 0}}},
+        get_metrics(Type, Name1, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{<<"metrics">> := #{<<"matched">> := 1}}},
+        get_metrics(Type, Name1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{<<"metrics">> := #{<<"matched">> := 1}}},
+        get_metrics(Type, Name1, TCConfigNS2)
+    ),
+
+    ?assertMatch({204, _}, reset_metrics(Type, Name1, TCConfigNS1)),
+
+    ?assertMatch(
+        {200, #{<<"metrics">> := #{<<"matched">> := 0}}},
+        get_metrics(Type, Name1, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{<<"metrics">> := #{<<"matched">> := 0}}},
+        get_metrics(Type, Name1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{<<"metrics">> := #{<<"matched">> := 1}}},
+        get_metrics(Type, Name1, TCConfigNS2)
+    ),
+
+    %% Delete
+    ChanIdGlobal = get_channel_id(NoNamespace, Type, Name1, TCConfigGlobal),
+    ChanIdNS1 = get_channel_id(NS1, Type, Name1, TCConfigNS1),
+    ChanIdNS2 = get_channel_id(NS2, Type, Name1, TCConfigNS2),
+
+    ?assertMatch({204, _}, delete(Type, Name1, TCConfigGlobal)),
+    ?assertMatch({200, []}, list(TCConfig)),
+    ?assertMatch({200, [_, _]}, list(TCConfigNS1)),
+    ?assertMatch({200, [_]}, list(TCConfigNS2)),
+    %% Note: we retry because removal of channel from cache is async
+    ?retry(
+        200,
+        20,
+        ?assertMatch(
+            {ok, #rt{channel_status = ?NO_CHANNEL}},
+            get_runtime(ChanIdGlobal, TCConfigGlobal)
+        )
+    ),
+    ?assertMatch({ok, _}, get_runtime(ChanIdNS1, TCConfigNS1)),
+    ?assertMatch({ok, _}, get_runtime(ChanIdNS2, TCConfigNS1)),
+
+    ?assertMatch({204, _}, delete(Type, Name1, TCConfigNS1)),
+    ?assertMatch({200, []}, list(TCConfigGlobal)),
+    ?assertMatch({200, [_]}, list(TCConfigNS1)),
+    ?assertMatch({200, [_]}, list(TCConfigNS2)),
+
+    ?assertMatch({204, _}, delete(Type, Name1, TCConfigNS2)),
+    ?assertMatch({200, []}, list(TCConfigGlobal)),
+    ?assertMatch({200, [_]}, list(TCConfigNS1)),
+    ?assertMatch({200, []}, list(TCConfigNS2)),
+    ?assertMatch(
+        {ok, #rt{channel_status = ?NO_CHANNEL}},
+        get_runtime(ChanIdGlobal, TCConfigGlobal)
+    ),
+    %% Note: we retry because removal of channel from cache is async
+    ?retry(
+        200,
+        20,
+        ?assertMatch(
+            {ok, #rt{channel_status = ?NO_CHANNEL}},
+            get_runtime(ChanIdNS1, TCConfigNS1)
+        )
+    ),
+    ?retry(
+        200,
+        20,
+        ?assertMatch(
+            {ok, #rt{channel_status = ?NO_CHANNEL}},
+            get_runtime(ChanIdNS2, TCConfigNS2)
+        )
+    ),
+
+    ?assertMatch({204, _}, delete(Type, Name2, TCConfigNS1)),
+    ?assertMatch({200, []}, list(TCConfigGlobal)),
+    ?assertMatch({200, []}, list(TCConfigNS1)),
+    ?assertMatch({200, []}, list(TCConfigNS2)),
+
+    ok.
+
+-doc """
+Checks that we correctly load and unload connectors already in the config when a node
+restarts.
+""".
+t_namespaced_load_on_restart(matrix) ->
+    [];
+t_namespaced_load_on_restart(TCConfig) when is_list(TCConfig) ->
+    ct:fail(todo),
     ok.
