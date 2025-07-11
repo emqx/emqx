@@ -7,6 +7,7 @@
 -include("emqx_resource.hrl").
 -include("emqx_resource_errors.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %% APIs for resource types
 
@@ -127,6 +128,9 @@
 %% common validations
 -export([
     parse_resource_id/2,
+    parse_channel_id/1,
+    parse_connector_id_from_channel_id/1,
+    extract_namespace_from_resource_id/1,
     validate_type/1,
     validate_name/1
 ]).
@@ -164,6 +168,8 @@
     callback_mode/1,
     query_opts/1
 ]).
+
+-type namespace() :: binary().
 
 %% when calling emqx_resource:start/1
 -callback on_start(resource_id(), resource_config()) ->
@@ -841,6 +847,108 @@ parse_resource_id(Id0, Opts) ->
             invalid_data(
                 <<"should be of pattern {type}:{name}, but got: ", Id/binary>>
             )
+    end.
+
+-doc """
+Parses a binary action or source resource id into a structured map.
+
+Throws `{invalid_id, Id}` if the input `Id` has an invalid format.
+""".
+-spec parse_channel_id(binary()) ->
+    #{
+        namespace := ?global_ns | namespace(),
+        kind := action | source,
+        type := binary(),
+        name := binary(),
+        connector_type := binary(),
+        connector_name := binary()
+    }.
+parse_channel_id(<<"ns:", NsAndIds/binary>> = Id) ->
+    case binary:split(NsAndIds, <<":">>) of
+        [Ns, Rest] ->
+            case do_parse_channel_id(Rest) of
+                {ok, Parsed} ->
+                    Parsed#{namespace := Ns};
+                {error, invalid_id} ->
+                    throw({invalid_id, Id})
+            end;
+        _ ->
+            throw({invalid_id, Id})
+    end;
+parse_channel_id(Id) ->
+    case do_parse_channel_id(Id) of
+        {ok, Parsed} ->
+            Parsed;
+        {error, invalid_id} ->
+            throw({invalid_id, Id})
+    end.
+
+%% Without namespace
+do_parse_channel_id(Id) ->
+    case binary:split(Id, <<":">>, [global]) of
+        [<<"action">>, Type, Name, <<"connector">>, ConnectorType, ConnectorName] ->
+            {ok, #{
+                namespace => ?global_ns,
+                kind => action,
+                type => Type,
+                name => Name,
+                connector_type => ConnectorType,
+                connector_name => ConnectorName
+            }};
+        [<<"source">>, Type, Name, <<"connector">>, ConnectorType, ConnectorName] ->
+            {ok, #{
+                namespace => ?global_ns,
+                kind => source,
+                type => Type,
+                name => Name,
+                connector_type => ConnectorType,
+                connector_name => ConnectorName
+            }};
+        _ ->
+            {error, invalid_id}
+    end.
+
+parse_connector_id_from_channel_id(Id) ->
+    try parse_channel_id(Id) of
+        #{
+            namespace := Namespace,
+            connector_type := ConnectorType,
+            connector_name := ConnectorName
+        } ->
+            NSTag =
+                case is_binary(Namespace) of
+                    false -> <<"">>;
+                    true -> <<"ns:", Namespace/binary, ":">>
+                end,
+            ConnResId = <<
+                NSTag/binary,
+                "connector:",
+                ConnectorType/binary,
+                ":",
+                ConnectorName/binary
+            >>,
+            {ok, ConnResId}
+    catch
+        throw:{invalid_id, _} ->
+            {error, iolist_to_binary(io_lib:format("Invalid action/source ID: ~p", [Id]))}
+    end.
+
+extract_namespace_from_resource_id(Id) ->
+    case binary:split(Id, <<":">>, [global]) of
+        [<<"ns">>, Namespace, Kind, _Type0, _Name0, <<"connector">>, _Type1, _Name1] when
+            Kind == <<"action">> orelse Kind == <<"source">>
+        ->
+            {ok, Namespace};
+        [<<"ns">>, Namespace, <<"connector">>, _Type1, _Name1] ->
+            {ok, Namespace};
+        [Kind, _Type0, _Name0, <<"connector">>, _Type1, _Name1] when
+            Kind == <<"action">> orelse Kind == <<"source">>
+        ->
+            {ok, ?global_ns};
+        [<<"connector">>, _Type1, _Name1] ->
+            {ok, ?global_ns};
+        _ ->
+            {error, invalid_id}
     end.
 
 to_type_atom(Type) when is_binary(Type) ->

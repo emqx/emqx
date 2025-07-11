@@ -11,6 +11,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 % SQL definitions
 -define(SQL_BRIDGE,
@@ -172,8 +173,23 @@ end_per_testcase(_Testcase, Config) ->
     delete_bridge(Config),
     ok.
 
+health_check(Type, Name) ->
+    emqx_bridge_v2_testlib:force_health_check(#{
+        type => Type,
+        name => Name,
+        namespace => ?global_ns,
+        kind => action
+    }).
+
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_setup_via_config_and_publish(Config) ->
@@ -678,13 +694,13 @@ create_bridge_http(Params) ->
 send_message(Config, Payload) ->
     Name = ?config(sqlserver_name, Config),
     BridgeType = ?config(sqlserver_bridge_type, Config),
-    ActionId = emqx_bridge_v2:id(BridgeType, Name),
-    emqx_bridge_v2:query(BridgeType, Name, {ActionId, Payload}, #{}).
+    ActionId = id(BridgeType, Name),
+    emqx_bridge_v2:query(?global_ns, BridgeType, Name, {ActionId, Payload}, #{}).
 
 query_resource(Config, Request) ->
     Name = ?config(sqlserver_name, Config),
     BridgeType = ?config(sqlserver_bridge_type, Config),
-    ID = emqx_bridge_v2:id(BridgeType, Name),
+    ID = id(BridgeType, Name),
     ResID = emqx_connector_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ID, Request, #{timeout => 1_000, connector_resource_id => ResID}).
 
@@ -713,7 +729,7 @@ health_check_resource_ok(Config) ->
         _Attempts = 10,
         begin
             ?assertEqual({ok, connected}, emqx_resource_manager:health_check(resource_id(Config))),
-            ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
+            ?assertMatch(#{status := connected}, health_check(BridgeType, Name))
         end
     ).
 
@@ -837,7 +853,7 @@ gen_batch_req(Config, Count) when
 ->
     BridgeType = ?config(sqlserver_bridge_type, Config),
     Name = ?config(sqlserver_name, Config),
-    ActionId = emqx_bridge_v2:id(BridgeType, Name),
+    ActionId = id(BridgeType, Name),
     Vals = [{str(erlang:unique_integer())} || _Seq <- lists:seq(1, Count)],
     Requests = [{ActionId, sent_data(Payload)} || {Payload} <- Vals],
     {Requests, Vals};

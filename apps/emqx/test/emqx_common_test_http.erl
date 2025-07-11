@@ -95,7 +95,8 @@ create_default_app() ->
         {ok, App} ->
             {ok, App};
         {error, name_already_exists} ->
-            {ok, _} = emqx_mgmt_auth:read(?DEFAULT_APP_ID)
+            {ok, App} = emqx_mgmt_auth:read(?DEFAULT_APP_ID),
+            {ok, App#{api_secret => ?DEFAULT_APP_SECRET}}
     end.
 
 delete_default_app() ->

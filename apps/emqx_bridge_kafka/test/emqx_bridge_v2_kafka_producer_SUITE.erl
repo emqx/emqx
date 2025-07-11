@@ -177,7 +177,8 @@ send_message(Type, ActionName) ->
     %% ######################################
     %% Send message
     %% ######################################
-    Res = emqx_bridge_v2:send_message(Type, ActionName, Msg, #{}),
+    %% todo: messages should be sent via rules in tests...
+    Res = emqx_bridge_v2:send_message(?global_ns, Type, ActionName, Msg, #{}),
     #{offset => Offset, payload => Payload, result => Res}.
 
 resolve_kafka_offset() ->
@@ -345,8 +346,17 @@ create_action(Name, Config) ->
         {action_name, Name},
         {action_config, Config}
     ]),
-    on_exit(fun() -> emqx_bridge_v2:remove(?TYPE, Name) end),
+    on_exit(fun() -> remove(Name) end),
     Res.
+
+remove(Name) ->
+    remove(?TYPE, Name).
+
+remove(Type, Name) ->
+    {204, _} = emqx_bridge_v2_testlib:delete_kind_api(action, Type, Name, #{
+        query_params => #{<<"also_delete_dep_actions">> => <<"true">>}
+    }),
+    ok.
 
 bridge_api_spec_props_for_get() ->
     #{
@@ -444,30 +454,32 @@ mock_iam_metadata_v2_calls() ->
         end
     ).
 
-%%------------------------------------------------------------------------------
-%% Testcases
-%%------------------------------------------------------------------------------
+health_check(Type, Name) ->
+    emqx_bridge_v2_testlib:force_health_check(#{
+        type => Type,
+        name => Name,
+        resource_namespace => ?global_ns,
+        kind => action
+    }).
 
-t_create_remove_list(_) ->
-    [] = emqx_bridge_v2:list(),
-    ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(?global_ns, ?TYPE, test_connector, ConnectorConfig),
-    Config = bridge_v2_config(<<"test_connector">>),
-    {ok, _Config} = create_action(test_bridge_v2, Config),
-    [BridgeV2Info] = emqx_bridge_v2:list(),
-    #{
-        name := <<"test_bridge_v2">>,
-        type := <<"kafka_producer">>,
-        raw_config := _RawConfig
-    } = BridgeV2Info,
-    {ok, _Config2} = create_action(test_bridge_v2_2, Config),
-    2 = length(emqx_bridge_v2:list()),
-    ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
-    1 = length(emqx_bridge_v2:list()),
-    ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2_2),
-    [] = emqx_bridge_v2:list(),
-    emqx_connector:remove(?global_ns, ?TYPE, test_connector),
-    ok.
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
+id(Type, Name, ConnName) ->
+    emqx_bridge_v2_testlib:make_chan_id(#{
+        kind => action,
+        type => Type,
+        name => Name,
+        connector_name => ConnName
+    }).
+
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
 
 %% Test sending a message to a bridge V2
 t_send_message(_) ->
@@ -502,27 +514,22 @@ t_send_message(_) ->
         end,
         BridgeNames
     ),
-    %% Remove all the bridges
-    lists:foreach(
-        fun(BridgeName) ->
-            ok = emqx_bridge_v2:remove(?TYPE, BridgeName)
-        end,
-        BridgeNames
-    ),
-    emqx_connector:remove(?global_ns, ?TYPE, test_connector2),
     ok.
 
 %% Test that we can get the status of the bridge V2
 t_health_check(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector3">>),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(?global_ns, ?TYPE, test_connector3, ConnectorConfig),
+    {ok, _} = emqx_bridge_v2_testlib:create_connector_api(test_connector3, ?TYPE, ConnectorConfig),
     {ok, _} = create_action(test_bridge_v2, BridgeV2Config),
-    #{status := connected} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
-    ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
+    #{status := connected} = health_check(?TYPE, test_bridge_v2),
+    {204, _} = emqx_bridge_v2_testlib:delete_kind_api(action, ?TYPE, test_bridge_v2),
     %% Check behaviour when bridge does not exist
-    {error, bridge_not_found} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
-    ok = emqx_connector:remove(?global_ns, ?TYPE, test_connector3),
+    {error, bridge_not_found} = health_check(?TYPE, test_bridge_v2),
+    {204, _} = emqx_bridge_v2_testlib:delete_connector_api([
+        {connector_type, ?TYPE},
+        {connector_name, test_connector3}
+    ]),
     ok.
 
 t_local_topic(_) ->
@@ -535,8 +542,6 @@ t_local_topic(_) ->
     Offset = resolve_kafka_offset(),
     emqx:publish(emqx_message:make(<<"kafka_t/hej">>, Payload)),
     check_kafka_message_payload(Offset, Payload),
-    ok = emqx_bridge_v2:remove(?TYPE, test_bridge),
-    ok = emqx_connector:remove(?global_ns, ?TYPE, test_connector),
     ok.
 
 t_message_too_large(_) ->
@@ -545,7 +550,7 @@ t_message_too_large(_) ->
     {ok, _} = emqx_connector:create(?global_ns, ?TYPE, test_connector4, ConnectorConfig),
     BridgeName = test_bridge4,
     {ok, _} = create_action(BridgeName, BridgeV2Config),
-    BridgeV2Id = emqx_bridge_v2:id(?TYPE, BridgeName),
+    BridgeV2Id = id(?TYPE, BridgeName),
     TooLargePayload = iolist_to_binary(lists:duplicate(100, 100)),
     ?assertEqual(0, emqx_resource_metrics:failed_get(BridgeV2Id)),
     emqx:publish(emqx_message:make(<<"kafka_t/hej">>, TooLargePayload)),
@@ -557,8 +562,6 @@ t_message_too_large(_) ->
             ok
         end
     ),
-    ok = emqx_bridge_v2:remove(?TYPE, BridgeName),
-    ok = emqx_connector:remove(?global_ns, ?TYPE, test_connector4),
     ok.
 
 t_unknown_topic(_Config) ->
@@ -575,7 +578,7 @@ t_unknown_topic(_Config) ->
     {ok, _} = create_action(BridgeName, BridgeV2Config),
     Payload = <<"will be dropped">>,
     emqx:publish(emqx_message:make(<<"kafka_t/local">>, Payload)),
-    BridgeV2Id = emqx_bridge_v2:id(?TYPE, BridgeName),
+    BridgeV2Id = id(?TYPE, BridgeName),
     ?retry(
         _Sleep0 = 50,
         _Attempts0 = 100,
@@ -624,7 +627,10 @@ t_bad_url(_Config) ->
         }},
         emqx_connector:lookup(?global_ns, ?TYPE, ConnectorName)
     ),
-    ?assertMatch({ok, #{status := ?status_disconnected}}, emqx_bridge_v2:lookup(?TYPE, ActionName)),
+    ?assertMatch(
+        {ok, #{status := ?status_disconnected}},
+        emqx_bridge_v2:lookup(?global_ns, actions, ?TYPE, ActionName)
+    ),
     ok.
 
 t_parameters_key_api_spec(_Config) ->
@@ -672,7 +678,7 @@ t_create_connector_while_connection_is_down(Config) ->
                 {connector_type, Type}
             ],
             ActionName = ConnectorName,
-            ActionId = emqx_bridge_v2:id(?TYPE, ActionName, ConnectorName),
+            ActionId = id(?TYPE, ActionName, ConnectorName),
             ActionConfig = action_config(
                 ConnectorName
             ),
@@ -722,7 +728,7 @@ t_create_connector_while_connection_is_down(Config) ->
                                         }
                                 }
                         }},
-                        emqx_bridge_v2:lookup(Type, ActionName),
+                        emqx_bridge_v2:lookup(?global_ns, actions, Type, ActionName),
                         #{action_id => ActionId}
                     ),
                     ?assertMatch(
@@ -756,7 +762,7 @@ t_create_connector_while_connection_is_down(Config) ->
                                             }
                                     }
                             }},
-                            emqx_bridge_v2:lookup(Type, ActionName),
+                            emqx_bridge_v2:lookup(?global_ns, actions, Type, ActionName),
                             #{action_id => ActionId}
                         ),
                         ?assertMatch(
@@ -962,7 +968,8 @@ t_invalid_partition_count_metrics(Config) ->
                 query_mode,
                 fun(Conf) -> meck:passthrough([Conf]) end
             ),
-            ok = emqx_bridge_v2:remove(actions, Type, ActionName),
+            %% Force remove action, but leave rule so that its metrics fail below.
+            ok = emqx_bridge_v2:remove(?global_ns, actions, Type, ActionName),
             {ok, {{_, 201, _}, _, #{}}} =
                 emqx_bridge_v2_testlib:create_action_api(
                     ActionParams,
@@ -1154,7 +1161,7 @@ t_dynamic_topics(Config) ->
             check_kafka_message_payload(PreConfiguredTopic1, Offset1, <<"p1">>),
             check_kafka_message_payload(PreConfiguredTopic2, Offset2, <<"p2">>),
 
-            ActionId = emqx_bridge_v2:id(Type, ActionName),
+            ActionId = id(Type, ActionName),
             ?assertEqual(2, emqx_resource_metrics:matched_get(ActionId)),
             ?assertEqual(2, emqx_resource_metrics:success_get(ActionId)),
             ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId)),
@@ -1249,7 +1256,7 @@ t_fixed_topic_recovers_in_disk_mode(Config) ->
                 ]
             ),
             %% Cut connection to kafka and enqueue some messages
-            ActionId = emqx_bridge_v2:id(Type, ActionName),
+            ActionId = id(Type, ActionName),
             SentMessages = with_brokers_down(Config, fun() ->
                 ct:sleep(100),
                 SentMessages = [send_message(ActionName) || _ <- lists:seq(1, 5)],
@@ -1656,7 +1663,10 @@ t_overflow_rule_metrics(Config) ->
                     'retried' := 0
                 }
             },
-            emqx_bridge_v2:get_metrics(Type, ActionName)
+            emqx_bridge_v2_testlib:get_metrics(#{
+                type => Type,
+                name => ActionName
+            })
         )
     ),
     ?retry(
@@ -1706,7 +1716,9 @@ t_overflow_rule_metrics(Config) ->
                     'retried' := 0
                 }
             },
-            emqx_bridge_v2:get_metrics(Type, ActionName)
+            emqx_bridge_v2_testlib:get_metrics(#{
+                type => Type, name => ActionName
+            })
         )
     ),
     ?retry(

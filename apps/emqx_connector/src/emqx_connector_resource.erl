@@ -86,7 +86,7 @@ parse_connector_id(ConnectorId) ->
     parse_connector_id(ConnectorId, #{atom_name => true}).
 
 -spec parse_connector_id(binary() | atom(), #{atom_name => boolean()}) ->
-    #{type := atom(), name := atom() | binary(), namespace := undefined | binary()}.
+    #{type := atom(), name := atom() | binary(), namespace := ?global_ns | binary()}.
 parse_connector_id(<<"ns:", NSConnectorId/binary>>, Opts) ->
     case binary:split(NSConnectorId, <<":">>) of
         [Namespace, ConnectorId] when size(Namespace) > 0 ->
@@ -105,7 +105,7 @@ parse_connector_id(?PROBE_ID_MATCH(Suffix), Opts) ->
     parse_connector_id(ConnectorId, Opts);
 parse_connector_id(ConnectorId, Opts) ->
     {Type, Name} = emqx_resource:parse_resource_id(ConnectorId, Opts),
-    #{type => Type, name => Name, namespace => undefined}.
+    #{type => Type, name => Name, namespace => ?global_ns}.
 
 connector_hookpoint(ConnectorId) ->
     <<"$connectors/", (bin(ConnectorId))/binary>>.

@@ -72,7 +72,8 @@ bridges(ee) ->
 
 namespaced_root_keys() ->
     [
-        emqx_connector_schema
+        emqx_connector_schema,
+        emqx_bridge_v2_schema
     ].
 
 %% Add more schemas here.

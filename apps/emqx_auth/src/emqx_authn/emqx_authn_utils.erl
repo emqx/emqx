@@ -30,6 +30,7 @@
 
 -define(DEFAULT_RESOURCE_OPTS(OWNER_ID), #{
     start_after_created => false,
+    spawn_buffer_workers => false,
     owner_id => OWNER_ID
 }).
 

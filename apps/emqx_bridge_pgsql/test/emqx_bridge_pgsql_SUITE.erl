@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("../../emqx_resource/include/emqx_resource_errors.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 % SQL definitions
 -define(SQL_BRIDGE,
@@ -303,12 +304,12 @@ send_message(Config, Payload) ->
 query_resource(Config, Msg = _Request) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
-    emqx_bridge_v2:query(BridgeType, Name, Msg, #{timeout => 1_000}).
+    emqx_bridge_v2:query(?global_ns, BridgeType, Name, Msg, #{timeout => 1_000}).
 
 query_resource_sync(Config, Request) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
-    ActionId = emqx_bridge_v2:id(BridgeType, Name),
+    ActionId = id(BridgeType, Name),
     emqx_resource_buffer_worker:simple_sync_query(ActionId, Request).
 
 query_resource_async(Config, Request) ->
@@ -320,7 +321,7 @@ query_resource_async(Config, Request, Opts) ->
     Ref = alias([reply]),
     AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
     Timeout = maps:get(timeout, Opts, 500),
-    Return = emqx_bridge_v2:query(BridgeType, Name, Request, #{
+    Return = emqx_bridge_v2:query(?global_ns, BridgeType, Name, Request, #{
         timeout => Timeout,
         async_reply_fun => {AsyncReplyFun, []}
     }),
@@ -381,8 +382,23 @@ connect_and_get_payload(Config) ->
     ok = epgsql:close(Con),
     Result.
 
+health_check(Type, Name) ->
+    emqx_bridge_v2_testlib:force_health_check(#{
+        type => Type,
+        name => Name,
+        resource_namespace => ?global_ns,
+        kind => action
+    }).
+
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_setup_via_config_and_publish(Config) ->
@@ -481,11 +497,11 @@ t_get_status(Config) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
 
-    ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name)),
+    ?assertMatch(#{status := connected}, health_check(BridgeType, Name)),
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
         ?assertMatch(
             #{status := Status} when Status =:= disconnected orelse Status =:= connecting,
-            emqx_bridge_v2:health_check(BridgeType, Name)
+            health_check(BridgeType, Name)
         )
     end),
     ok.
@@ -707,7 +723,7 @@ t_missing_table(Config) ->
                 _Attempts = 20,
                 ?assertMatch(
                     #{status := Status} when Status == connecting orelse Status == disconnected,
-                    emqx_bridge_v2:health_check(BridgeType, Name)
+                    health_check(BridgeType, Name)
                 )
             ),
             Val = integer_to_binary(erlang:unique_integer()),
@@ -765,7 +781,7 @@ t_prepared_statement_exists(Config) ->
                 _Attempts = 20,
                 ?assertMatch(
                     #{status := Status} when Status == connected,
-                    emqx_bridge_v2:health_check(BridgeType, Name)
+                    health_check(BridgeType, Name)
                 )
             ),
             ok
@@ -794,7 +810,7 @@ t_prepared_statement_exists(Config) ->
                 _Attempts = 20,
                 ?assertMatch(
                     #{status := Status} when Status == disconnected,
-                    emqx_bridge_v2:health_check(BridgeType, Name)
+                    health_check(BridgeType, Name)
                 )
             ),
             snabbkaffe_nemesis:cleanup(),
@@ -828,19 +844,19 @@ t_table_removed(Config) ->
             ?retry(
                 _Sleep = 100,
                 _Attempts = 200,
-                ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
+                ?assertMatch(#{status := connected}, health_check(BridgeType, Name))
             ),
             ct:pal("dropping table"),
             connect_and_drop_table(Config),
             Val = integer_to_binary(erlang:unique_integer()),
             SentData = #{payload => Val, timestamp => 1668602148000},
-            ActionId = emqx_bridge_v2:id(BridgeType, Name),
+            ActionId = id(BridgeType, Name),
             ?retry(
                 _Sleep = 100,
                 _Attempts = 200,
                 ?assertMatch(
                     #{error := {unhealthy_target, _}, status := disconnected},
-                    emqx_bridge_v2:health_check(BridgeType, Name)
+                    health_check(BridgeType, Name)
                 )
             ),
             ct:pal("sending query"),
@@ -869,12 +885,12 @@ t_concurrent_health_checks(Config) ->
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
-                ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
+                ?assertMatch(#{status := connected}, health_check(BridgeType, Name))
             ),
             emqx_utils:pmap(
                 fun(_) ->
                     ?assertMatch(
-                        #{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name)
+                        #{status := connected}, health_check(BridgeType, Name)
                     )
                 end,
                 lists:seq(1, 20)

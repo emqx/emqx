@@ -271,7 +271,7 @@ create(ResId, Group, ResourceType, Config, Opts) ->
     % Create metrics for the resource
     ok = emqx_resource:create_metrics(ResId),
     QueryMode = emqx_resource:query_mode(ResourceType, Config, Opts),
-    SpawnBufferWorkers = maps:get(spawn_buffer_workers, Opts, true),
+    SpawnBufferWorkers = maps:get(spawn_buffer_workers, Opts, false),
     case SpawnBufferWorkers andalso lists:member(QueryMode, [sync, async]) of
         true ->
             %% start resource workers as the query type requires them

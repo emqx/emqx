@@ -139,7 +139,7 @@ create_local_resource(ResourceID, CheckedConfig) ->
         ?CONNECTOR_RESOURCE_GROUP,
         emqx_bridge_rabbitmq_connector,
         CheckedConfig,
-        #{}
+        #{spawn_buffer_workers => true}
     ),
     Bridge.
 

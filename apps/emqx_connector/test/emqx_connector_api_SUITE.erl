@@ -287,17 +287,13 @@ init_mocks(_TestCase) ->
 
 clear_resources(_) ->
     lists:foreach(
-        fun(#{type := Type, name := Name}) ->
-            ok = emqx_bridge_v2:remove(Type, Name)
+        fun(#{id := Id}) ->
+            {204, _} = emqx_bridge_v2_testlib:delete_rule_api(Id)
         end,
-        emqx_bridge_v2:list()
+        emqx_rule_engine:get_rules()
     ),
-    lists:foreach(
-        fun(#{type := Type, name := Name}) ->
-            ok = emqx_connector:remove(?global_ns, Type, Name)
-        end,
-        emqx_connector:list(?global_ns)
-    ).
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    ok.
 
 clear_mocks(TCConfig) ->
     case ?config(cluster_nodes, TCConfig) of
@@ -1550,7 +1546,6 @@ t_namespaced_crud(TCConfig) ->
         get_resource(NS2, ConnectorType, ConnectorName1, TCConfigNS1)
     ),
 
-    %% Delete
     ?assertMatch({204, _}, delete(ConnectorType, ConnectorName1, TCConfigNS1)),
     ?assertMatch({200, []}, list(TCConfig)),
     ?assertMatch({200, [_]}, list(TCConfigNS1)),

@@ -157,11 +157,13 @@ generate_config(Config0) ->
         pubsub_config := PubSubConfig,
         service_account_json := ServiceAccountJSON
     } = gcp_pubsub_config(Config0),
-    %% FIXME
-    %% `emqx_bridge_resource:resource_id' requires an existing connector in the config.....
     ConnectorName = ActionName,
     ConnectorResourceId = <<"connector:", ?CONNECTOR_TYPE_BIN/binary, ":", ConnectorName/binary>>,
-    ActionResourceId = emqx_bridge_v2:id(?ACTION_TYPE_BIN, ActionName, ConnectorName),
+    ActionResourceId = emqx_bridge_v2_testlib:make_chan_id(#{
+        type => ?ACTION_TYPE_BIN,
+        name => ActionName,
+        connector_name => ConnectorName
+    }),
     BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_V1_TYPE_BIN, ActionName),
     [
         {gcp_pubsub_name, ActionName},

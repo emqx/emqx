@@ -12,6 +12,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([start_link/0]).
 
@@ -308,6 +309,7 @@ get_rule_ids_by_action(#{function := FuncName}) when is_binary(FuncName) ->
 -spec get_rule_ids_by_bridge_action(bridge_action_id()) -> [binary()].
 get_rule_ids_by_bridge_action(ActionId) ->
     %% ActionId = <<"type:name">>
+    %% ActionId = <<"ns:namespace:action:type:name">>
     [
         Id
      || #{actions := Acts, id := Id} <- get_rules(),
@@ -317,6 +319,7 @@ get_rule_ids_by_bridge_action(ActionId) ->
 -spec get_rule_ids_by_bridge_source(bridge_source_id()) -> [binary()].
 get_rule_ids_by_bridge_source(SourceId) ->
     %% SourceId = <<"type:name">>
+    %% SourceId = <<"ns:namespace:source:type:name">>
     [
         Id
      || #{from := Froms, id := Id} <- get_rules(),
@@ -766,14 +769,22 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
             end,
             Actions
         ),
+    %% TODO: namespace
     NonExistentBridgeIds =
         lists:filter(
             fun({Kind, Type, Name}) ->
                 IsExist =
                     case Kind of
-                        action -> fun emqx_bridge_v2:is_action_exist/2;
-                        source -> fun emqx_bridge_v2:is_source_exist/2;
-                        bridge_v1 -> fun emqx_bridge:is_exist_v1/2
+                        action ->
+                            fun(Type1, Name1) ->
+                                emqx_bridge_v2:is_action_exist(?global_ns, Type1, Name1)
+                            end;
+                        source ->
+                            fun(Type1, Name1) ->
+                                emqx_bridge_v2:is_source_exist(?global_ns, Type1, Name1)
+                            end;
+                        bridge_v1 ->
+                            fun emqx_bridge:is_exist_v1/2
                     end,
                 try
                     not IsExist(Type, Name)

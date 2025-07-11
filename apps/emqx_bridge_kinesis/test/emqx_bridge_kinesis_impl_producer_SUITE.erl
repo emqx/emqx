@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(BRIDGE_TYPE, kinesis_producer).
 -define(BRIDGE_TYPE_BIN, <<"kinesis_producer">>).
@@ -506,8 +507,23 @@ to_str(Int) when is_integer(Int) ->
 to_bin(Str) when is_list(Str) ->
     erlang:list_to_binary(Str).
 
+health_check(Type, Name) ->
+    emqx_bridge_v2_testlib:force_health_check(#{
+        type => Type,
+        name => Name,
+        namespace => ?global_ns,
+        kind => action
+    }).
+
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_create_via_http(Config) ->
@@ -539,7 +555,7 @@ t_start_failed_then_fix(Config) ->
         _Attempts1 = 30,
         ?assertMatch(
             #{status := ?status_connected},
-            emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
+            health_check(?BRIDGE_V2_TYPE_BIN, Name)
         )
     ),
     ok.
@@ -564,7 +580,7 @@ t_get_status_ok(Config) ->
     Name = ?config(kinesis_name, Config),
     {ok, _} = create_bridge(Config),
     ?assertMatch(
-        #{status := ?status_connected}, emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
+        #{status := ?status_connected}, health_check(?BRIDGE_V2_TYPE_BIN, Name)
     ),
     ok.
 
@@ -577,7 +593,7 @@ t_create_unhealthy(Config) ->
             status := ?status_disconnected,
             error := {unhealthy_target, _}
         },
-        emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
+        health_check(?BRIDGE_V2_TYPE_BIN, Name)
     ),
     ok.
 
@@ -588,7 +604,7 @@ t_get_status_unhealthy(Config) ->
         #{
             status := ?status_connected
         },
-        emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
+        health_check(?BRIDGE_V2_TYPE_BIN, Name)
     ),
     delete_stream(Config),
     ?retry(
@@ -600,7 +616,7 @@ t_get_status_unhealthy(Config) ->
                     status := ?status_disconnected,
                     error := {unhealthy_target, _}
                 },
-                emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
+                health_check(?BRIDGE_V2_TYPE_BIN, Name)
             )
         end
     ),
@@ -613,7 +629,7 @@ t_publish_success(Config) ->
     ?assertMatch({ok, _}, create_bridge(Config)),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    ActionId = emqx_bridge_v2:id(?BRIDGE_V2_TYPE_BIN, Name),
+    ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     ShardIt = get_shard_iterator(Config),
     Payload = <<"payload">>,
@@ -651,7 +667,7 @@ t_publish_success_with_template(Config) ->
     ?assertMatch({ok, _}, create_bridge(Config, Overrides)),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    ActionId = emqx_bridge_v2:id(?BRIDGE_V2_TYPE_BIN, Name),
+    ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     ShardIt = get_shard_iterator(Config),
     Payload = <<"{\"key\":\"my_key\", \"data\":\"my_data\"}">>,
@@ -684,7 +700,7 @@ t_publish_multiple_msgs_success(Config) ->
     ?assertMatch({ok, _}, create_bridge(Config)),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    ActionId = emqx_bridge_v2:id(?BRIDGE_V2_TYPE_BIN, Name),
+    ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     ShardIt = get_shard_iterator(Config),
     lists:foreach(
@@ -733,7 +749,7 @@ t_publish_unhealthy(Config) ->
     ?assertMatch({ok, _}, create_bridge(Config)),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    ActionId = emqx_bridge_v2:id(?BRIDGE_V2_TYPE_BIN, Name),
+    ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     ShardIt = get_shard_iterator(Config),
     Payload = <<"payload">>,
@@ -765,7 +781,7 @@ t_publish_unhealthy(Config) ->
             status := ?status_disconnected,
             error := {unhealthy_target, _}
         },
-        emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
+        health_check(?BRIDGE_V2_TYPE_BIN, Name)
     ),
     ok.
 
@@ -776,7 +792,7 @@ t_publish_big_msg(Config) ->
     ?assertMatch({ok, _}, create_bridge(Config)),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    ActionId = emqx_bridge_v2:id(?BRIDGE_V2_TYPE_BIN, Name),
+    ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     % Maximum size is 1MB. Using 1MB + 1 here.
     Payload = binary:copy(<<"a">>, 1 * 1024 * 1024 + 1),
@@ -815,11 +831,11 @@ t_publish_connection_down(Config0) ->
         _Attempts1 = 30,
         ?assertMatch(
             #{status := ?status_connected},
-            emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
+            health_check(?BRIDGE_V2_TYPE_BIN, Name)
         )
     ),
     emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    ActionId = emqx_bridge_v2:id(?BRIDGE_V2_TYPE_BIN, Name),
+    ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     ShardIt = get_shard_iterator(Config),
     Payload = <<"payload">>,
@@ -844,7 +860,7 @@ t_publish_connection_down(Config0) ->
         _Attempts3 = 20,
         ?assertMatch(
             #{status := ?status_connected},
-            emqx_bridge_v2:health_check(?BRIDGE_V2_TYPE_BIN, Name)
+            health_check(?BRIDGE_V2_TYPE_BIN, Name)
         )
     ),
     Record = wait_record(Config, ShardIt, 2000, 10),
@@ -955,7 +971,7 @@ t_empty_payload_template(Config) ->
     ?assertMatch({ok, _}, create_bridge(Config, #{}, Removes)),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    ActionId = emqx_bridge_v2:id(?BRIDGE_V2_TYPE_BIN, Name),
+    ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ResourceId),
     ShardIt = get_shard_iterator(Config),
     Payload = <<"payload">>,

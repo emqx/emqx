@@ -110,25 +110,41 @@ delete_all_bridges_and_connectors() ->
     delete_all_connectors().
 
 delete_all_bridges() ->
+    Namespaces = lists:usort(
+        emqx_config:get_all_namespaces_containing(<<"actions">>) ++
+            emqx_config:get_all_namespaces_containing(<<"sources">>)
+    ),
+    lists:foreach(
+        fun delete_all_bridges/1,
+        [?global_ns | Namespaces]
+    ).
+
+delete_all_bridges(Namespace) ->
     lists:foreach(
         fun(#{name := Name, type := Type}) ->
-            emqx_bridge_v2:remove(actions, Type, Name)
+            emqx_bridge_v2:remove(Namespace, actions, Type, Name)
         end,
-        emqx_bridge_v2:list(actions)
+        emqx_bridge_v2:list(Namespace, actions)
     ),
     lists:foreach(
         fun(#{name := Name, type := Type}) ->
-            emqx_bridge_v2:remove(sources, Type, Name)
+            emqx_bridge_v2:remove(Namespace, sources, Type, Name)
         end,
-        emqx_bridge_v2:list(sources)
+        emqx_bridge_v2:list(Namespace, sources)
     ).
 
 delete_all_connectors() ->
     lists:foreach(
+        fun delete_all_connectors/1,
+        [?global_ns | emqx_config:get_all_namespaces_containing(<<"connectors">>)]
+    ).
+
+delete_all_connectors(Namespace) ->
+    lists:foreach(
         fun(#{name := Name, type := Type}) ->
-            emqx_connector:remove(?global_ns, Type, Name)
+            emqx_connector:remove(Namespace, Type, Name)
         end,
-        emqx_connector:list(?global_ns)
+        emqx_connector:list(Namespace)
     ).
 
 %% test helpers
@@ -228,7 +244,7 @@ create_bridge(Config, Overrides) ->
         emqx_connector:create(?global_ns, ConnectorType, ConnectorName, ConnectorConfig),
 
     ct:pal("creating bridge with config:\n  ~p", [ActionConfig]),
-    emqx_bridge_v2:create(ActionType, ActionName, ActionConfig).
+    emqx_bridge_v2:create(?global_ns, ?ROOT_KEY_ACTIONS, ActionType, ActionName, ActionConfig).
 
 get_ct_config_with_fallback(Config, [Key]) ->
     ?config(Key, Config);
@@ -573,6 +589,16 @@ get_connector_api(ConnectorType, ConnectorName) ->
     ct:pal("get connector (http) result:\n  ~p", [Res]),
     Res.
 
+delete_connector_api(TCConfig) ->
+    Type = get_value(connector_type, TCConfig),
+    Name = get_value(connector_name, TCConfig),
+    Id = emqx_connector_resource:connector_id(Type, Name),
+    URL = emqx_mgmt_api_test_util:api_path(["connectors", Id]),
+    simple_request(#{
+        method => delete,
+        url => URL
+    }).
+
 create_action_api(Config) ->
     create_action_api(Config, _Overrides = #{}).
 
@@ -607,8 +633,8 @@ create_source_api(Config, Overrides) ->
     simplify_result(Res).
 
 get_action_api(Config) ->
-    ActionName = ?config(action_name, Config),
-    ActionType = ?config(action_type, Config),
+    ActionName = get_value(action_name, Config),
+    ActionType = get_value(action_type, Config),
     ActionId = emqx_bridge_resource:bridge_id(ActionType, ActionName),
     Path = emqx_mgmt_api_test_util:api_path(["actions", ActionId]),
     ct:pal("getting action (http)"),
@@ -645,13 +671,20 @@ update_bridge_api(Config, Overrides) ->
     Res.
 
 delete_kind_api(Kind, Type, Name) ->
+    delete_kind_api(Kind, Type, Name, _Opts = #{}).
+
+delete_kind_api(Kind, Type, Name, Opts) ->
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
     PathRoot = api_path_root(Kind),
     Path = emqx_mgmt_api_test_util:api_path([PathRoot, BridgeId]),
     ct:pal("deleting bridge (~s, http)", [Kind]),
-    Res = request(delete, Path, _Params = []),
+    Res = simple_request(#{
+        method => delete,
+        url => Path,
+        query_params => maps:get(query_params, Opts, #{})
+    }),
     ct:pal("delete bridge (~s, http) result:\n  ~p", [Kind, Res]),
-    simplify_result(Res).
+    Res.
 
 op_bridge_api(Op, BridgeType, BridgeName) ->
     op_bridge_api(_Kind = action, Op, BridgeType, BridgeName).
@@ -878,6 +911,23 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
             Error
     end.
 
+create_rule_api2(Params) ->
+    create_rule_api2(Params, _Opts = #{}).
+
+create_rule_api2(Params, Opts) ->
+    AuthHeader = emqx_utils_maps:get_lazy(
+        auth_header,
+        Opts,
+        fun auth_header/0
+    ),
+    URL = emqx_mgmt_api_test_util:api_path(["rules"]),
+    simple_request(#{
+        method => post,
+        url => URL,
+        body => Params,
+        auth_header => AuthHeader
+    }).
+
 delete_rule_api(RuleId) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules", RuleId]),
     simplify_result(request(delete, Path, "")).
@@ -970,6 +1020,7 @@ get_common_values(Config) ->
     case Kind of
         action ->
             #{
+                resource_namespace => proplists:get_value(resource_namespace, Config, ?global_ns),
                 conf_root_key => actions,
                 kind => Kind,
                 type => get_ct_config_with_fallback(Config, [action_type, bridge_type]),
@@ -979,6 +1030,7 @@ get_common_values(Config) ->
             };
         source ->
             #{
+                resource_namespace => proplists:get_value(resource_namespace, Config, ?global_ns),
                 conf_root_key => sources,
                 kind => Kind,
                 type => get_value(source_type, Config),
@@ -997,12 +1049,48 @@ health_check_connector(Config) ->
     emqx_resource_manager:health_check(ConnectorResId).
 
 health_check_channel(Config) ->
+    Opts = get_common_values(Config),
+    force_health_check(Opts).
+
+lookup_chan_id_in_conf(Opts) ->
     #{
-        conf_root_key := ConfRootKey,
         type := Type,
         name := Name
-    } = get_common_values(Config),
-    emqx_bridge_v2:health_check(ConfRootKey, Type, Name).
+    } = Opts,
+    Namespace = maps:get(resource_namespace, Opts, ?global_ns),
+    ConfRootKey =
+        case maps:get(kind, Opts, action) of
+            action -> actions;
+            source -> sources
+        end,
+    emqx_bridge_v2:lookup_chan_id_in_conf(Namespace, ConfRootKey, Type, Name).
+
+make_chan_id(Opts) ->
+    #{
+        type := Type,
+        name := Name,
+        connector_name := ConnName
+    } = Opts,
+    Namespace = maps:get(resource_namespace, Opts, ?global_ns),
+    ConfRootKey =
+        case maps:get(kind, Opts, action) of
+            action -> actions;
+            source -> sources
+        end,
+    emqx_bridge_v2:id_with_root_and_connector_names(Namespace, ConfRootKey, Type, Name, ConnName).
+
+get_metrics(Opts) ->
+    #{
+        type := Type,
+        name := Name
+    } = Opts,
+    Namespace = maps:get(resource_namespace, Opts, ?global_ns),
+    ConfRootKey =
+        case maps:get(kind, Opts, action) of
+            action -> actions;
+            source -> sources
+        end,
+    emqx_bridge_v2:get_metrics(Namespace, ConfRootKey, Type, Name).
 
 %%------------------------------------------------------------------------------
 %% Internal export
@@ -1059,7 +1147,7 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
             ?assertMatch(
                 {ok, {ok, _}},
                 ?wait_async_action(
-                    emqx_bridge_v2:query(ActionType, ActionName, Message, #{
+                    emqx_bridge_v2:query(?global_ns, ActionType, ActionName, Message, #{
                         async_reply_fun => {ReplyFun, [self()]}
                     }),
                     #{?snk_kind := TracePoint, instance_id := ResourceId},
@@ -1655,6 +1743,7 @@ This is done by the frontend via:
 """.
 t_rule_test_trace(Config, Opts) ->
     #{
+        resource_namespace := Namespace,
         type := ActionType0,
         name := ActionName0
     } = get_common_values(Config),
@@ -1934,7 +2023,7 @@ t_rule_test_trace(Config, Opts) ->
         )
     end),
     {ok, {_ConnResId, PrimaryActionResId}} =
-        emqx_bridge_v2:get_resource_ids(actions, ActionType, ActionName),
+        emqx_bridge_v2:get_resource_ids(Namespace, actions, ActionType, ActionName),
     emqx_common_test_helpers:with_mock(
         emqx_trace,
         rendered_action_template,
@@ -1986,11 +2075,30 @@ kickoff_source_health_check(Type, Name) ->
     kickoff_kind_health_check(sources, Type, Name).
 
 kickoff_kind_health_check(ConfRootKey, Type, Name) ->
+    Kind =
+        case ConfRootKey of
+            sources -> source;
+            actions -> action
+        end,
+    kickoff_kind_health_check(#{
+        kind => Kind,
+        type => Type,
+        name => Name
+    }).
+
+kickoff_kind_health_check(Opts) ->
+    #{
+        kind := Kind,
+        type := Type,
+        name := Name
+    } = Opts,
+    Namespace = maps:get(namespace, Opts, ?global_ns),
+    ConfRootKey = conf_root_key(Kind),
     Res =
         try
             maybe
                 {ok, {ConnResId, ChannelResId}} ?=
-                    emqx_bridge_v2:get_resource_ids(ConfRootKey, Type, Name),
+                    emqx_bridge_v2:get_resource_ids(Namespace, ConfRootKey, Type, Name),
                 _ = emqx_resource_manager:channel_health_check(ConnResId, ChannelResId),
                 ok
             end
@@ -2086,3 +2194,16 @@ do_all_atoms(N, Acc) ->
         error:badarg ->
             Acc
     end.
+
+force_health_check(Opts) ->
+    #{
+        type := Type,
+        name := Name
+    } = Opts,
+    Namespace = maps:get(resource_namespace, Opts, ?global_ns),
+    ConfRootKey =
+        case maps:get(kind, Opts, action) of
+            action -> actions;
+            source -> sources
+        end,
+    emqx_bridge_v2:health_check(Namespace, ConfRootKey, Type, Name).

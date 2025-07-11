@@ -99,9 +99,10 @@ get_action(Config) ->
 make_http_bridge(Config) ->
     HTTPServerConfig = ?config(http_server, Config),
     emqx_bridge_http_test_lib:make_bridge(HTTPServerConfig),
-    #{status := connected} = emqx_bridge_v2:health_check(
-        http, emqx_bridge_http_test_lib:bridge_name()
-    ),
+    #{status := connected} = emqx_bridge_v2_testlib:force_health_check(#{
+        type => http,
+        name => emqx_bridge_http_test_lib:bridge_name()
+    }),
     BridgeName = ?config(bridge_name, Config),
     emqx_bridge_resource:bridge_id(http, BridgeName).
 

@@ -351,9 +351,17 @@ make_client_id(ConnResId) ->
         true ->
             pulsar_producer_probe;
         false ->
-            #{name := Name} = emqx_connector_resource:parse_connector_id(ConnResId),
-            %% TODO: handle namespaces
+            #{
+                namespace := Namespace,
+                name := Name
+            } = emqx_connector_resource:parse_connector_id(ConnResId),
+            NSTag =
+                case is_binary(Namespace) of
+                    true -> <<"ns:", Namespace/binary, ":">>;
+                    false -> <<"">>
+                end,
             ClientIdBin = iolist_to_binary([
+                NSTag,
                 <<"pulsar:">>,
                 emqx_utils_conv:bin(Name),
                 <<":">>,

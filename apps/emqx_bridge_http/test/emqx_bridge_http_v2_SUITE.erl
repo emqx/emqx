@@ -99,7 +99,7 @@ t_compose_connector_url_and_action_path(Config) ->
         {connector_name, ?CONNECTOR_NAME},
         {connector_config, ConnectorCfg}
     ],
-    {ok, _} = emqx_bridge_v2_testlib:create_bridge(CreateConfig),
+    {ok, _} = emqx_bridge_v2_testlib:create_bridge_api(CreateConfig),
 
     %% assert: the url returned v1 api is composed by the url of the connector and the
     %% path of the action
