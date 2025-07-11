@@ -18,12 +18,16 @@ if [[ "${APPLE_ID:-0}" == 0 || "${APPLE_ID_PASSWORD:-0}" == 0 || "${APPLE_TEAM_I
     exit 0
 fi
 
-pushd "${RELX_TEMP_DIR}"
+if [ -n "${RELX_TEMP_DIR:-}" ]; then
+  pushd "${RELX_TEMP_DIR}"
+fi
 
 ZIP_PACKAGE_PATH="${1:-${RELX_OUTPUT_DIR}/${RELX_RELEASE_NAME}-${RELX_RELEASE_VSN}.zip}"
 zip -qr "${ZIP_PACKAGE_PATH}" .
 
-popd
+if [ -n "${RELX_TEMP_DIR:-}" ]; then
+  popd
+fi
 
 # notarize the package
 # if fails, check what went wrong with this command:
