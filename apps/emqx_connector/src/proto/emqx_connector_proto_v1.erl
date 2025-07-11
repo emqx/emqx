@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     list_connectors_on_nodes/1,
     lookup_from_all_nodes/3,
@@ -21,6 +22,9 @@
 
 introduced_in() ->
     "5.3.1".
+
+deprecated_since() ->
+    "6.0.0".
 
 -spec list_connectors_on_nodes([node()]) ->
     emqx_rpc:erpc_multicall([emqx_resource:resource_data()]).

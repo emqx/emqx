@@ -98,6 +98,9 @@ resource_id_for_kind(ConfRootKey, BridgeId) when is_binary(BridgeId) ->
             invalid_data(<<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>)
     end.
 
+-doc """
+Returns identifier of the `Type:Name` form.
+""".
 bridge_id(BridgeType, BridgeName) ->
     Name = bin(BridgeName),
     Type = bin(BridgeType),

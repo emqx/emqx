@@ -52,7 +52,7 @@ new() ->
 -spec write(pid(), binary(), resource_data()) -> ok.
 write(ManagerPid, Group, Data) ->
     #{
-        id := ID,
+        id := Id,
         mod := Mod,
         callback_mode := CallbackMode,
         query_mode := QueryMode,
@@ -68,9 +68,9 @@ write(ManagerPid, Group, Data) ->
         query_mode => QueryMode,
         state => State
     },
-    IsDryrun = emqx_resource:is_dry_run(ID),
+    IsDryrun = emqx_resource:is_dry_run(Id),
     Connector = #connector{
-        id = ID,
+        id = Id,
         group = Group,
         manager_pid = ManagerPid,
         st_err = #{
@@ -90,14 +90,14 @@ write(ManagerPid, Group, Data) ->
     },
     Channels = lists:map(fun to_channel_record/1, maps:to_list(AddedChannels)),
     %% erase old channels (if any)
-    ok = erase_old_channels(ID, maps:keys(AddedChannels)),
+    ok = erase_old_channels(Id, maps:keys(AddedChannels)),
     %% put callback state in persistent_term
     case IsDryrun of
         true ->
             %% do not write persistent_term for dryrun
             ok;
         false ->
-            ok = put_state_pt(ID, Cb)
+            ok = put_state_pt(Id, Cb)
     end,
     %% insert connector and channel states
     true = ets:insert(?CACHE, [Connector | Channels]),
@@ -107,64 +107,63 @@ write(ManagerPid, Group, Data) ->
 %% NOTE: Do not call this in hot-path.
 %% TODO: move `group' into `resource_data()'.
 -spec read(resource_id()) -> [{resource_group(), resource_data()}].
-read(ID) ->
-    case ets:lookup(?CACHE, ID) of
+read(Id) ->
+    case ets:lookup(?CACHE, Id) of
         [] ->
             [];
         [#connector{group = G} = C] ->
-            Channels = find_channels(ID),
-            [{G, make_resource_data(ID, C, Channels)}]
+            Channels = find_channels(Id),
+            [{G, make_resource_data(Id, C, Channels)}]
     end.
 
 -spec read_status(resource_id()) -> not_found | st_err().
-read_status(ID) ->
-    ets:lookup_element(?CACHE, ID, #connector.st_err, not_found).
+read_status(Id) ->
+    ets:lookup_element(?CACHE, Id, #connector.st_err, not_found).
 
 -spec read_manager_pid(resource_id()) -> not_found | pid().
-read_manager_pid(ID) ->
-    ets:lookup_element(?CACHE, ID, #connector.manager_pid, not_found).
+read_manager_pid(Id) ->
+    ets:lookup_element(?CACHE, Id, #connector.manager_pid, not_found).
 
 -spec read_mod(resource_id()) -> not_found | {ok, module()}.
-read_mod(ID) ->
-    case get_cb(ID) of
+read_mod(Id) ->
+    case get_cb(Id) of
         ?NO_CB ->
             not_found;
         #{mod := Mod} ->
             {ok, Mod}
     end.
 
-get_cb(ID) ->
-    case get_cb_pt(ID) of
+get_cb(Id) ->
+    case get_cb_pt(Id) of
         ?NO_CB ->
             %% maybe it's a dryrun connector
-            ets:lookup_element(?CACHE, ID, #connector.cb, ?NO_CB);
+            ets:lookup_element(?CACHE, Id, #connector.cb, ?NO_CB);
         InPt ->
             InPt
     end.
 
 -spec erase(resource_id()) -> ok.
-erase(ID) ->
-    MS = ets:fun2ms(fun(#channel{id = {C, _}}) when C =:= ID -> true end),
+erase(Id) ->
+    MS = ets:fun2ms(fun(#channel{id = {C, _}}) when C =:= Id -> true end),
     _ = ets:select_delete(?CACHE, MS),
-    _ = ets:delete(?CACHE, ID),
-    _ = del_state_pt(?CB_PT_KEY(ID)),
+    _ = ets:delete(?CACHE, Id),
+    _ = del_state_pt(?CB_PT_KEY(Id)),
     ok.
 
-erase_old_channels(ID, NewChanIds) ->
-    OldChanIds = maps:keys(find_channels(ID)),
+erase_old_channels(Id, NewChanIds) ->
+    OldChanIds = maps:keys(find_channels(Id)),
     DelChanIds = OldChanIds -- NewChanIds,
-    lists:foreach(fun erase_channel/1, DelChanIds).
+    lists:foreach(fun(ChanId) -> erase_channel(Id, ChanId) end, DelChanIds).
 
-erase_channel(ChanId) ->
-    Key = split_channel_id(ChanId),
-    ets:delete(?CACHE, Key).
+erase_channel(Id, ChanId) ->
+    ets:delete(?CACHE, {Id, ChanId}).
 
 -spec list_all() -> [resource_data()].
 list_all() ->
-    IDs = all_ids(),
+    Ids = all_ids(),
     lists:foldr(
-        fun(ID, Acc) ->
-            case read(ID) of
+        fun(Id, Acc) ->
+            case read(Id) of
                 [] ->
                     Acc;
                 [{_G, Data}] ->
@@ -172,22 +171,22 @@ list_all() ->
             end
         end,
         [],
-        IDs
+        Ids
     ).
 
 group_ids(Group) ->
-    MS = ets:fun2ms(fun(#connector{id = ID, group = G}) when G =:= Group -> ID end),
+    MS = ets:fun2ms(fun(#connector{id = Id, group = G}) when G =:= Group -> Id end),
     ets:select(?CACHE, MS).
 
 all_ids() ->
-    MS = ets:fun2ms(fun(#connector{id = ID}) -> ID end),
+    MS = ets:fun2ms(fun(#connector{id = Id}) -> Id end),
     ets:select(?CACHE, MS).
 
 %% @doc The most performance-critical call.
-%% NOTE: ID is the action ID, but not connector ID.
+%% NOTE: Id is the action Id, but not connector Id.
 -spec get_runtime(resource_id()) -> {ok, runtime()} | {error, not_found}.
-get_runtime(ID) ->
-    ChanKey = {ConnectorId, _ChanID} = split_channel_id(ID),
+get_runtime(Id) ->
+    ChanKey = {ConnectorId, _ChanId} = split_channel_id(Id),
     try
         Cb = get_cb(ConnectorId),
         ChannelStatus = get_channel_status(ChanKey),
@@ -214,13 +213,13 @@ get_channel_query_mode({_, ?NO_CHANNEL}) ->
 get_channel_query_mode(ChanKey) ->
     ets:lookup_element(?CACHE, ChanKey, #channel.query_mode, ?NO_CHANNEL).
 
-get_cb_pt(ID) ->
-    persistent_term:get(?CB_PT_KEY(ID), ?NO_CB).
+get_cb_pt(Id) ->
+    persistent_term:get(?CB_PT_KEY(Id), ?NO_CB).
 
-to_channel_record({ID0, #{status := Status, error := Error, query_mode := QueryMode}}) ->
-    ID = split_channel_id(ID0),
+to_channel_record({Id0, #{status := Status, error := Error, query_mode := QueryMode}}) ->
+    Id = split_channel_id(Id0),
     #channel{
-        id = ID,
+        id = Id,
         status = Status,
         error = Error,
         query_mode = QueryMode,
@@ -228,20 +227,10 @@ to_channel_record({ID0, #{status := Status, error := Error, query_mode := QueryM
     }.
 
 split_channel_id(Id) when is_binary(Id) ->
-    case binary:split(Id, <<":">>, [global]) of
-        [
-            ChannelGlobalType,
-            ChannelSubType,
-            ChannelName,
-            <<"connector">>,
-            ConnectorType,
-            ConnectorName
-        ] ->
-            ConnectorId = <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>,
-            ChannelId =
-                <<ChannelGlobalType/binary, ":", ChannelSubType/binary, ":", ChannelName/binary>>,
-            {ConnectorId, ChannelId};
-        _ ->
+    case emqx_bridge_v2:extract_connector_id_from_bridge_v2_id(Id) of
+        {ok, ConnResId} ->
+            {ConnResId, Id};
+        {error, _} ->
             %% this is not a per-channel query, e.g. for authn/authz
             {Id, ?NO_CHANNEL}
     end.
@@ -250,24 +239,24 @@ split_channel_id(Id) when is_binary(Id) ->
 %% for each and every query so we keep it in persistent_term instead.
 %% Connector state is relatively static, so persistent_term update triggered GC is less of a concern
 %% comparing to other fields such as `status' and `error', which may change very often.
-put_state_pt(ID, State) ->
-    case get_cb_pt(ID) of
+put_state_pt(Id, State) ->
+    case get_cb_pt(Id) of
         S when S =:= State ->
             %% identical
             ok;
         _ ->
-            _ = persistent_term:put(?CB_PT_KEY(ID), State),
+            _ = persistent_term:put(?CB_PT_KEY(Id), State),
             ok
     end.
 
-del_state_pt(ID) ->
-    _ = persistent_term:erase(?CB_PT_KEY(ID)),
+del_state_pt(Id) ->
+    _ = persistent_term:erase(?CB_PT_KEY(Id)),
     ok.
 
-is_exist(ID) ->
-    ets:member(?CACHE, ID).
+is_exist(Id) ->
+    ets:member(?CACHE, Id).
 
-make_resource_data(ID, Connector, Channels) ->
+make_resource_data(Id, Connector, Channels) ->
     #connector{
         st_err = #{
             error := Error,
@@ -279,7 +268,7 @@ make_resource_data(ID, Connector, Channels) ->
     Cb =
         case Cb0 of
             ?NO_CB ->
-                get_cb_pt(ID);
+                get_cb_pt(Id);
             X ->
                 X
         end,
@@ -290,7 +279,7 @@ make_resource_data(ID, Connector, Channels) ->
         state := State
     } = Cb,
     #{
-        id => ID,
+        id => Id,
         mod => Mod,
         callback_mode => CallbackMode,
         query_mode => QueryMode,
@@ -307,15 +296,14 @@ find_channels(ConnectorId) ->
     lists:foldl(
         fun(
             #channel{
-                id = {ConnectorId0, ChannelId},
+                id = {_ConnectorId, ChannelId},
                 status = Status,
                 query_mode = QueryMode,
                 error = Error
             },
             Acc
         ) ->
-            Key = iolist_to_binary([ChannelId, ":", ConnectorId0]),
-            Acc#{Key => #{status => Status, error => Error, query_mode => QueryMode}}
+            Acc#{ChannelId => #{status => Status, error => Error, query_mode => QueryMode}}
         end,
         #{},
         List

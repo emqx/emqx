@@ -540,10 +540,12 @@ to_external_user(UserRecord) ->
         role = Role,
         extra = Extra
     } = UserRecord,
+    Namespace = namespace_of(UserRecord),
     flatten_username(#{
         username => Username,
         description => Desc,
         ?role => ensure_role(Role),
+        ?namespace => Namespace,
         mfa => format_mfa(Extra)
     }).
 

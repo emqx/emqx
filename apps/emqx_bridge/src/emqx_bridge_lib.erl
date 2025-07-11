@@ -7,6 +7,7 @@
     maybe_withdraw_rule_action/3,
     maybe_withdraw_rule_action/4,
     external_ids/3,
+    external_ids/4,
     upgrade_type/1,
     downgrade_type/2,
     get_conf/2,
@@ -66,36 +67,59 @@ downgrade_type(Type, Conf) when is_list(Type) ->
 %% A rule might be referencing an old version bridge type name
 %% i.e. 'kafka' instead of 'kafka_producer' so we need to try both
 external_ids(ConfRootKey, Type, Name) ->
-    case downgrade_type(Type, get_conf(ConfRootKey, Type, Name)) of
+    external_ids(_Namespace = undefined, ConfRootKey, Type, Name).
+external_ids(Namespace, ConfRootKey, Type, Name) ->
+    case downgrade_type(Type, get_conf(Namespace, ConfRootKey, Type, Name)) of
         Type ->
-            [external_id(Type, Name)];
+            [external_id(Namespace, ConfRootKey, Type, Name)];
         Type0 ->
-            [external_id(Type0, Name), external_id(Type, Name)]
+            [
+                external_id(Namespace, ConfRootKey, Type0, Name),
+                external_id(Namespace, ConfRootKey, Type, Name)
+            ]
     end.
 
 get_conf(BridgeType, BridgeName) ->
     get_conf(undefined, BridgeType, BridgeName).
 get_conf(ConfRootKey, BridgeType, BridgeName) ->
+    get_conf(_Namespace = undefined, ConfRootKey, BridgeType, BridgeName).
+get_conf(Namespace, ConfRootKey, BridgeType, BridgeName) ->
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
             ConfRootKey1 =
                 case ConfRootKey of
                     undefined ->
-                        emqx_bridge_v2:get_conf_root_key_if_only_one(BridgeType, BridgeName);
+                        emqx_bridge_v2:get_conf_root_key_if_only_one(
+                            Namespace, BridgeType, BridgeName
+                        );
                     _ ->
                         ConfRootKey
                 end,
-            emqx_conf:get_raw([ConfRootKey1, BridgeType, BridgeName]);
+            get_raw_config(Namespace, [ConfRootKey1, BridgeType, BridgeName]);
         false ->
             undefined
     end.
 
 %% Creates the external id for the bridge_v2 that is used by the rule actions
 %% to refer to the bridge_v2
-external_id(BridgeType, BridgeName) ->
-    Name = bin(BridgeName),
-    Type = bin(BridgeType),
+external_id(Namespace, ConfRootKey, Type0, Name0) when is_binary(Namespace) ->
+    Kind =
+        case ConfRootKey of
+            actions -> <<"action">>;
+            sources -> <<"source">>
+        end,
+    Name = bin(Name0),
+    Type = bin(Type0),
+    <<"ns:", Namespace/binary, ":", Kind/binary, ":", Type/binary, ":", Name/binary>>;
+external_id(undefined = _Namespace, _ConfRootKey, Type0, Name0) ->
+    Name = bin(Name0),
+    Type = bin(Type0),
     <<Type/binary, ":", Name/binary>>.
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+get_raw_config(Namespace, KeyPath) when is_binary(Namespace) ->
+    emqx:get_raw_config({Namespace, KeyPath});
+get_raw_config(undefined, KeyPath) ->
+    emqx:get_raw_config(KeyPath).
