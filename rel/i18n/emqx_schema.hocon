@@ -613,6 +613,17 @@ Note, the choice of `parse_unit` affects the interpretation of the `active_n` se
 fields_mqtt_opts_parse_unit.label:
 """MQTT Message Parse Unit"""
 
+fields_mqtt_opts_tcp_backend.desc:
+"""Indicates which TCP backend should be used by the listener.
+
+- `gen_tcp`: Standard backend, in use since EMQX 5.0 release.
+
+- `socket`: Experimental backend, looking to improve message latency and compute resource usage.
+    Note that some `tcp_options` settings will have no effect when using this backend, e.g.: `high_watermark` and `send_timeout_close`."""
+
+fields_mqtt_opts_tcp_backend.label:
+"""TCP Backend"""
+
 server_ssl_opts_schema_honor_cipher_order.desc:
 """An important security setting. If this setting is enabled, the server will prioritize the cipher suites it prefers most from the list of cipher suites supported by the client, thus ignoring the client's preferences.
 

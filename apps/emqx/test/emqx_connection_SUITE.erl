@@ -484,18 +484,14 @@ t_cancel_congestion_alarm(_) ->
     ),
     with_conn(
         fun(Pid) ->
-            #{
-                channel := Channel,
-                transport := Transport,
-                socket := Socket
-            } = emqx_connection:get_state(Pid),
+            State = sys:get_state(Pid),
             %% precondition
-            Zone = emqx_channel:info(zone, Channel),
+            Zone = emqx_connection:info({channel, zone}, State),
             true = emqx_config:get_zone_conf(Zone, [conn_congestion, enable_alarm]),
             %% should not raise errors
-            ok = emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
+            ok = emqx_congestion:maybe_alarm_conn_congestion(emqx_connection, State),
             %% should not raise errors either
-            ok = emqx_congestion:cancel_alarms(Socket, Transport, Channel),
+            ok = emqx_congestion:cancel_alarms(emqx_connection, State),
             ok
         end,
         Opts
