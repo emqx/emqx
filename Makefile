@@ -11,7 +11,7 @@ include env.sh
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
 export EMQX_DASHBOARD_VERSION ?= v1.10.6
-export EMQX_EE_DASHBOARD_VERSION ?= 2.0.0-M1.202507-beta.2
+export EMQX_EE_DASHBOARD_VERSION ?= 2.0.0-M1.202507-beta.3
 
 export EMQX_RELUP ?= true
 export EMQX_REL_FORM ?= tgz
