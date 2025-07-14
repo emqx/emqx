@@ -135,8 +135,9 @@ pre_config_update([?ROOT_KEY], {async_start, NewConf}, RawConf, ExtraContext) ->
 pre_config_update([?ROOT_KEY], RawConf, RawConf, _ExtraContext) ->
     {ok, RawConf};
 pre_config_update([?ROOT_KEY], NewConf, _RawConf, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
     case multi_validate_connector_names(NewConf) of
-        ok -> {ok, convert_certs(NewConf, ExtraContext)};
+        ok -> {ok, convert_certs(Namespace, NewConf)};
         Error -> Error
     end;
 pre_config_update([?ROOT_KEY, _Type, _Name], Oper, undefined, _ExtraContext) when
@@ -149,9 +150,10 @@ pre_config_update([?ROOT_KEY, _Type, _Name], Oper, OldConfig, _ExtraContext) whe
     %% to save the 'enable' to the config files
     {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
 pre_config_update([?ROOT_KEY, Type, Name] = KeyPath, Conf = #{}, ConfOld, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
     case validate_connector_name(Name) of
         ok ->
-            CertDir = ssl_cert_dir(Type, Name, ExtraContext),
+            CertDir = ssl_cert_dir(Namespace, Type, Name),
             case emqx_connector_ssl:convert_certs(CertDir, Conf) of
                 {ok, ConfNew} ->
                     connector_pre_config_update(KeyPath, ConfNew, ConfOld);
@@ -391,12 +393,12 @@ changed_paths(OldRawConf, NewRawConf) ->
 %% Helper functions
 %%========================================================================================
 
-convert_certs(ConnectorsConf, ExtraContext) ->
+convert_certs(Namespace, ConnectorsConf) ->
     maps:map(
         fun(Type, Connectors) ->
             maps:map(
                 fun(Name, ConnectorConf) ->
-                    CertDir = ssl_cert_dir(Type, Name, ExtraContext),
+                    CertDir = ssl_cert_dir(Namespace, Type, Name),
                     case emqx_connector_ssl:convert_certs(CertDir, ConnectorConf) of
                         {error, Reason} ->
                             ?SLOG(error, #{
@@ -601,9 +603,9 @@ multi_validate_connector_names(Conf) ->
             }}
     end.
 
-ssl_cert_dir(Type, Name, #{namespace := Namespace}) when is_binary(Namespace) ->
+ssl_cert_dir(Namespace, Type, Name) when is_binary(Namespace) ->
     filename:join([Namespace, ?ROOT_KEY, Type, Name]);
-ssl_cert_dir(Type, Name, _ExtraContext) ->
+ssl_cert_dir(?global_ns, Type, Name) ->
     filename:join([?ROOT_KEY, Type, Name]).
 
 get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
