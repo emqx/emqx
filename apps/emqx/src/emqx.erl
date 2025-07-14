@@ -5,6 +5,7 @@
 -module(emqx).
 
 -include("emqx.hrl").
+-include("emqx_config.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 
@@ -165,6 +166,8 @@ subscribed(SubId, Topic) when is_atom(SubId); is_binary(SubId) ->
 %%--------------------------------------------------------------------
 
 -spec get_config(maybe_ns_config_key_path()) -> term().
+get_config({?global_ns, KeyPath}) ->
+    get_config(KeyPath);
 get_config({Namespace, KeyPath}) ->
     KeyPath1 = emqx_config:ensure_atom_conf_path(KeyPath, {raise_error, config_not_found}),
     emqx_config:get_namespaced(KeyPath1, Namespace);
@@ -173,6 +176,8 @@ get_config(KeyPath) ->
     emqx_config:get(KeyPath1).
 
 -spec get_config(maybe_ns_config_key_path(), term()) -> term().
+get_config({?global_ns, KeyPath}, Default) ->
+    get_config(KeyPath, Default);
 get_config({Namespace, KeyPath}, Default) ->
     try
         KeyPath1 = emqx_config:ensure_atom_conf_path(KeyPath, {raise_error, config_not_found}),
@@ -191,12 +196,16 @@ get_config(KeyPath, Default) ->
     end.
 
 -spec get_raw_config(maybe_ns_config_key_path()) -> term().
+get_raw_config({?global_ns, KeyPath}) ->
+    get_raw_config(KeyPath);
 get_raw_config({Namespace, KeyPath}) ->
     emqx_config:get_raw_namespaced(KeyPath, Namespace);
 get_raw_config(KeyPath) ->
     emqx_config:get_raw(KeyPath).
 
 -spec get_raw_config(maybe_ns_config_key_path(), term()) -> term().
+get_raw_config({?global_ns, KeyPath}, Default) ->
+    get_raw_config(KeyPath, Default);
 get_raw_config({Namespace, KeyPath}, Default) ->
     emqx_config:get_raw_namespaced(KeyPath, Namespace, Default);
 get_raw_config(KeyPath, Default) ->
