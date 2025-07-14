@@ -15,6 +15,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("hocon/include/hocon.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -50,7 +51,7 @@ init_per_testcase(_TestCase, Config) ->
     setup_mocks(),
     ets:new(fun_table_name(), [named_table, public]),
     %% Create a fake connector
-    {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
+    {ok, _} = emqx_connector:create(?global_ns, con_type(), con_name(), con_config()),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
@@ -466,7 +467,9 @@ t_send_message_through_rule(_) ->
         get_rule_metrics(RuleId)
     ),
     %% Now, turn off connector.  Should increase `actions.out_of_service' metric.
-    {ok, _} = emqx_connector:create(con_type(), con_name(), (con_config())#{<<"enable">> := false}),
+    {ok, _} = emqx_connector:create(?global_ns, con_type(), con_name(), (con_config())#{
+        <<"enable">> := false
+    }),
     emqx:publish(Msg),
     ?retry(
         100,
@@ -599,7 +602,7 @@ t_send_message_unhealthy_connector(_) ->
         <<"resource_opts">> => #{<<"start_timeout">> => 100}
     }),
     ConName = ?FUNCTION_NAME,
-    {ok, _} = emqx_connector:create(con_type(), ConName, ConConfig),
+    {ok, _} = emqx_connector:create(?global_ns, con_type(), ConName, ConConfig),
     BridgeConf = (bridge_config())#{
         <<"connector">> => atom_to_binary(ConName)
     },
@@ -623,7 +626,7 @@ t_send_message_unhealthy_connector(_) ->
     ?retry(100, 10, ?assertEqual(0, get_bridge_v2_alarm_cnt())),
     unregister(registered_process_name()),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
-    ok = emqx_connector:remove(con_type(), ConName),
+    ok = emqx_connector:remove(?global_ns, con_type(), ConName),
     ets:delete(ResponseETS),
     ok.
 
@@ -654,7 +657,7 @@ t_connector_connected_to_connecting_to_connected_no_channel_restart(_) ->
         <<"resource_opts">> => #{<<"start_timeout">> => 100}
     }),
     ConName = ?FUNCTION_NAME,
-    {ok, _} = emqx_connector:create(con_type(), ConName, ConConfig),
+    {ok, _} = emqx_connector:create(?global_ns, con_type(), ConName, ConConfig),
     BridgeConf = (bridge_config())#{
         <<"connector">> => atom_to_binary(ConName)
     },
@@ -712,7 +715,7 @@ t_connector_connected_to_connecting_to_connected_no_channel_restart(_) ->
     %% Now the channel should have been removed and added again
     ?retry(100, 50, ?assertEqual(2, counters:get(OnAddChannelCntr, 1))),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
-    ok = emqx_connector:remove(con_type(), ConName),
+    ok = emqx_connector:remove(?global_ns, con_type(), ConName),
     ets:delete(ResponseETS),
     ok.
 
@@ -962,7 +965,7 @@ t_remove_single_connector_being_referenced_with_active_channels(_Config) ->
     ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
     ?assertMatch(
         {error, {post_config_update, _HandlerMod, {active_channels, [_ | _]}}},
-        emqx_connector:remove(con_type(), con_name())
+        emqx_connector:remove(?global_ns, con_type(), con_name())
     ),
     ok.
 
@@ -976,7 +979,7 @@ t_remove_single_connector_being_referenced_without_active_channels(_Config) ->
         on_get_channels,
         fun(_ResId) -> [] end,
         fun() ->
-            ?assertMatch(ok, emqx_connector:remove(con_type(), con_name())),
+            ?assertMatch(ok, emqx_connector:remove(?global_ns, con_type(), con_name())),
             %% we no longer have connector data if this happens...
             ?assertMatch(
                 {ok, #{resource_data := #{}}},
@@ -1077,7 +1080,7 @@ t_lookup_status_when_connecting(_Config) ->
     }),
     ConnectorName = ?FUNCTION_NAME,
     ct:pal("connector config:\n  ~p", [ConnectorConfig]),
-    {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
+    {ok, _} = emqx_connector:create(?global_ns, con_type(), ConnectorName, ConnectorConfig),
 
     ActionName = my_test_action,
     ChanStatusFun = wrap_fun(fun() -> ?status_disconnected end),
@@ -1127,7 +1130,7 @@ t_rule_pointing_to_non_operational_channel(_Config) ->
     ct:pal("connector config:\n  ~p", [ConnectorConfig]),
     ?check_trace(
         begin
-            {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
+            {ok, _} = emqx_connector:create(?global_ns, con_type(), ConnectorName, ConnectorConfig),
 
             ActionName = my_test_action,
             ChanStatusFun = wrap_fun(fun() -> ?status_disconnected end),
@@ -1220,7 +1223,7 @@ t_query_uses_action_query_mode(_Config) ->
     ct:pal("connector config:\n  ~p", [ConnectorConfig]),
     ?check_trace(
         begin
-            {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
+            {ok, _} = emqx_connector:create(?global_ns, con_type(), ConnectorName, ConnectorConfig),
 
             ActionName = my_test_action,
             ActionConfig = (bridge_config())#{
@@ -1306,7 +1309,7 @@ t_async_load_config_cli(_Config) ->
     }),
     %% Make the resource stuck while starting
     spawn_link(fun() ->
-        {ok, _} = emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig)
+        {ok, _} = emqx_connector:create(?global_ns, ConnectorType, ConnectorName, ConnectorConfig)
     end),
     receive
         hanging ->
@@ -1408,7 +1411,7 @@ t_fallback_actions(_Config) ->
     ?check_trace(
         #{timetrap => 3_000},
         begin
-            {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
+            {ok, _} = emqx_connector:create(?global_ns, con_type(), ConnectorName, ConnectorConfig),
 
             FallbackActionName = <<"my_fallback">>,
             FallbackActionConfig = (bridge_config())#{
@@ -1496,7 +1499,7 @@ t_fallback_actions_cycles(_Config) ->
     ?check_trace(
         #{timetrap => 3_000},
         begin
-            {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
+            {ok, _} = emqx_connector:create(?global_ns, con_type(), ConnectorName, ConnectorConfig),
 
             TestPid = self(),
             OnQueryFn = wrap_fun(fun(Ctx) ->

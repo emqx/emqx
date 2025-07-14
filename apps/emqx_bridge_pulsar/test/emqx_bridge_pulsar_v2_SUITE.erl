@@ -10,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -166,7 +167,7 @@ create_connector(Config) ->
     ok.
 
 delete_connector(Name) ->
-    ok = emqx_connector:remove(?TYPE, Name).
+    ok = emqx_connector:remove(?global_ns, ?TYPE, Name).
 
 delete_action(Name) ->
     ok = emqx_bridge_v2:remove(actions, ?TYPE, Name).

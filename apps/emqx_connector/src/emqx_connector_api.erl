@@ -466,12 +466,9 @@ lookup_from_all_nodes(Namespace, ConnectorType, ConnectorName, SuccCode) ->
             ?INTERNAL_ERROR(Reason)
     end.
 
-%% RPC Target
+%% RPC Target; legacy API
 lookup_from_local_node(ConnectorType, ConnectorName) ->
-    case emqx_connector:lookup(ConnectorType, ConnectorName) of
-        {ok, Res} -> {ok, format_resource(Res, node())};
-        Error -> Error
-    end.
+    v2_lookup(?global_ns, ConnectorType, ConnectorName).
 
 %% RPC Target
 v2_lookup(Namespace, ConnectorType, ConnectorName) ->

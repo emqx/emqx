@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(REPUBLISH_TOPIC, <<"rule_apply_test_SUITE">>).
 
@@ -286,7 +287,7 @@ create_trace(TraceName, TraceType, TraceValue, PayloadEncode) ->
 
 t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
     meck_in_test_connector(),
-    {ok, _} = emqx_connector:create(rule_engine_test, ?FUNCTION_NAME, #{}),
+    {ok, _} = emqx_connector:create(?global_ns, rule_engine_test, ?FUNCTION_NAME, #{}),
     Name = atom_to_binary(?FUNCTION_NAME),
     ActionConf =
         #{
@@ -561,7 +562,7 @@ find_lines_with(Data, InLineText) ->
 
 do_apply_rule_test_format_action_failed_test(BatchSize, CheckLastTraceEntryFun) ->
     meck_in_test_connector(),
-    {ok, _} = emqx_connector:create(rule_engine_test, ?FUNCTION_NAME, #{}),
+    {ok, _} = emqx_connector:create(?global_ns, rule_engine_test, ?FUNCTION_NAME, #{}),
     Name = atom_to_binary(?FUNCTION_NAME),
     ActionConf =
         #{

@@ -14,6 +14,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -293,9 +294,9 @@ clear_resources(_) ->
     ),
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
-            ok = emqx_connector:remove(Type, Name)
+            ok = emqx_connector:remove(?global_ns, Type, Name)
         end,
-        emqx_connector:list()
+        emqx_connector:list(?global_ns)
     ).
 
 clear_mocks(TCConfig) ->
@@ -768,16 +769,24 @@ do_start_connector(TestType, Config) ->
                 node ->
                     Node = ?config(node, Config),
                     ok = rpc:call(
-                        Node, emqx_connector_resource, stop, [?CONNECTOR_TYPE, Name], 500
+                        Node,
+                        emqx_connector_resource,
+                        stop,
+                        [?global_ns, ?CONNECTOR_TYPE, Name],
+                        500
                     );
                 cluster ->
                     Nodes = ?config(cluster_nodes, Config),
                     [{ok, ok}, {ok, ok}] = erpc:multicall(
-                        Nodes, emqx_connector_resource, stop, [?CONNECTOR_TYPE, Name], 500
+                        Nodes,
+                        emqx_connector_resource,
+                        stop,
+                        [?global_ns, ?CONNECTOR_TYPE, Name],
+                        500
                     )
             end;
         _ ->
-            ok = emqx_connector_resource:stop(?CONNECTOR_TYPE, Name)
+            ok = emqx_connector_resource:stop(?global_ns, ?CONNECTOR_TYPE, Name)
     end,
     ?assertMatch(
         {ok, 200, #{<<"status">> := ExpectedStatus}},

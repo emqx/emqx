@@ -14,6 +14,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hocon.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %% Note: this is strange right now, because it lives in `emqx_bridge_v2', but it shall be
 %% refactored into a new module/application with appropriate name.
@@ -636,7 +637,7 @@ start(ActionOrSourceType, Name) ->
 -spec start(root_cfg_key(), term(), term()) -> ok | {error, Reason :: term()}.
 start(ConfRootKey, BridgeV2Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
-        emqx_connector_resource:start(ConnectorType, ConnectorName)
+        emqx_connector_resource:start(?global_ns, ConnectorType, ConnectorName)
     end,
     connector_operation_helper(ConfRootKey, BridgeV2Type, Name, ConnectorOpFun, true).
 
@@ -1434,7 +1435,7 @@ bridge_v1_lookup_and_transform(ActionType, Name) ->
             of
                 true ->
                     ConnectorType = connector_type(ActionType),
-                    case emqx_connector:lookup(ConnectorType, ConnectorName) of
+                    case emqx_connector:lookup(?global_ns, ConnectorType, ConnectorName) of
                         {ok, Connector} ->
                             bridge_v1_lookup_and_transform_helper(
                                 ConfRootKey,
@@ -1652,13 +1653,13 @@ do_connector_and_bridge_create(
     NewBridgeV2RawConf,
     RawConf
 ) ->
-    case emqx_connector:create(ConnectorType, NewConnectorName, NewConnectorRawConf) of
+    case emqx_connector:create(?global_ns, ConnectorType, NewConnectorName, NewConnectorRawConf) of
         {ok, _} ->
             case create(ConfRootName, BridgeType, BridgeName, NewBridgeV2RawConf) of
                 {ok, _} = Result ->
                     Result;
                 {error, Reason1} ->
-                    case emqx_connector:remove(ConnectorType, NewConnectorName) of
+                    case emqx_connector:remove(?global_ns, ConnectorType, NewConnectorName) of
                         ok ->
                             {error, Reason1};
                         {error, Reason2} ->
@@ -1831,7 +1832,7 @@ bridge_v1_remove(
     case remove(ConfRootKey, ActionType, Name) of
         ok ->
             ConnectorType = connector_type(ActionType),
-            emqx_connector:remove(ConnectorType, ConnectorName);
+            emqx_connector:remove(?global_ns, ConnectorType, ConnectorName);
         Error ->
             Error
     end;
@@ -1894,7 +1895,7 @@ maybe_delete_channels(BridgeType, BridgeName, ConnectorName) ->
             ok;
         false ->
             ConnectorType = connector_type(BridgeType),
-            case emqx_connector:remove(ConnectorType, ConnectorName) of
+            case emqx_connector:remove(?global_ns, ConnectorType, ConnectorName) of
                 ok ->
                     ok;
                 {error, Reason} ->
@@ -1911,7 +1912,7 @@ maybe_delete_channels(BridgeType, BridgeName, ConnectorName) ->
 
 connector_has_channels(BridgeV2Type, ConnectorName) ->
     ConnectorType = connector_type(BridgeV2Type),
-    case emqx_connector_resource:get_channels(ConnectorType, ConnectorName) of
+    case emqx_connector_resource:get_channels(?global_ns, ConnectorType, ConnectorName) of
         {ok, []} ->
             false;
         _ ->
@@ -1952,7 +1953,7 @@ bridge_v1_enable_disable_helper(_Op, _BridgeType, _BridgeName, {error, Reason}) 
 bridge_v1_enable_disable_helper(enable, BridgeType, BridgeName, #{connector := ConnectorName}) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeType),
     ConnectorType = connector_type(BridgeV2Type),
-    {ok, _} = emqx_connector:disable_enable(enable, ConnectorType, ConnectorName),
+    {ok, _} = emqx_connector:disable_enable(?global_ns, enable, ConnectorType, ConnectorName),
     ConfRootKey = get_conf_root_key_if_only_one(BridgeType, BridgeName),
     emqx_bridge_v2:disable_enable(ConfRootKey, enable, BridgeV2Type, BridgeName);
 bridge_v1_enable_disable_helper(disable, BridgeType, BridgeName, #{connector := ConnectorName}) ->
@@ -1960,23 +1961,23 @@ bridge_v1_enable_disable_helper(disable, BridgeType, BridgeName, #{connector := 
     ConnectorType = connector_type(BridgeV2Type),
     ConfRootKey = get_conf_root_key_if_only_one(BridgeType, BridgeName),
     {ok, _} = emqx_bridge_v2:disable_enable(ConfRootKey, disable, BridgeV2Type, BridgeName),
-    emqx_connector:disable_enable(disable, ConnectorType, ConnectorName).
+    emqx_connector:disable_enable(?global_ns, disable, ConnectorType, ConnectorName).
 
 bridge_v1_restart(BridgeV1Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
-        emqx_connector_resource:restart(ConnectorType, ConnectorName)
+        emqx_connector_resource:restart(?global_ns, ConnectorType, ConnectorName)
     end,
     bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, true).
 
 bridge_v1_stop(BridgeV1Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
-        emqx_connector_resource:stop(ConnectorType, ConnectorName)
+        emqx_connector_resource:stop(?global_ns, ConnectorType, ConnectorName)
     end,
     bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, false).
 
 bridge_v1_start(BridgeV1Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
-        emqx_connector_resource:start(ConnectorType, ConnectorName)
+        emqx_connector_resource:start(?global_ns, ConnectorType, ConnectorName)
     end,
     bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, true).
 

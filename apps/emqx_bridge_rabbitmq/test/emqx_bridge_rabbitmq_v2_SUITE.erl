@@ -136,9 +136,6 @@ create_connector(Name, Config) ->
     Connector = rabbitmq_connector(Config),
     {ok, _} = emqx_bridge_v2_testlib:create_connector_api(Name, ?TYPE, Connector).
 
-delete_connector(Name) ->
-    ok = emqx_connector:remove(?TYPE, Name).
-
 create_source(Name) ->
     Source = rabbitmq_source(),
     {ok, _} = emqx_bridge_v2_testlib:create_kind_api([

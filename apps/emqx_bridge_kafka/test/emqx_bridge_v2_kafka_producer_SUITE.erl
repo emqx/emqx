@@ -17,6 +17,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("kafka_protocol/include/kpro.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -330,8 +331,8 @@ toxiproxy_bootstrap_hosts(Config) ->
     iolist_to_binary([Host, ":", integer_to_binary(Port)]).
 
 create_connector(Name, Config) ->
-    Res = emqx_connector:create(?TYPE, Name, Config),
-    on_exit(fun() -> emqx_connector:remove(?TYPE, Name) end),
+    Res = emqx_connector:create(?global_ns, ?TYPE, Name, Config),
+    on_exit(fun() -> emqx_connector:remove(?global_ns, ?TYPE, Name) end),
     Res.
 
 create_connector_api(ConnectorParams) ->
@@ -450,7 +451,7 @@ mock_iam_metadata_v2_calls() ->
 t_create_remove_list(_) ->
     [] = emqx_bridge_v2:list(),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(?TYPE, test_connector, ConnectorConfig),
+    {ok, _} = emqx_connector:create(?global_ns, ?TYPE, test_connector, ConnectorConfig),
     Config = bridge_v2_config(<<"test_connector">>),
     {ok, _Config} = create_action(test_bridge_v2, Config),
     [BridgeV2Info] = emqx_bridge_v2:list(),
@@ -465,14 +466,14 @@ t_create_remove_list(_) ->
     1 = length(emqx_bridge_v2:list()),
     ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2_2),
     [] = emqx_bridge_v2:list(),
-    emqx_connector:remove(?TYPE, test_connector),
+    emqx_connector:remove(?global_ns, ?TYPE, test_connector),
     ok.
 
 %% Test sending a message to a bridge V2
 t_send_message(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector2">>),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(?TYPE, test_connector2, ConnectorConfig),
+    {ok, _} = emqx_connector:create(?global_ns, ?TYPE, test_connector2, ConnectorConfig),
     {ok, _} = create_action(test_bridge_v2_1, BridgeV2Config),
     %% Use the bridge to send a message
     check_send_message_with_bridge(test_bridge_v2_1),
@@ -508,26 +509,26 @@ t_send_message(_) ->
         end,
         BridgeNames
     ),
-    emqx_connector:remove(?TYPE, test_connector2),
+    emqx_connector:remove(?global_ns, ?TYPE, test_connector2),
     ok.
 
 %% Test that we can get the status of the bridge V2
 t_health_check(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector3">>),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(?TYPE, test_connector3, ConnectorConfig),
+    {ok, _} = emqx_connector:create(?global_ns, ?TYPE, test_connector3, ConnectorConfig),
     {ok, _} = create_action(test_bridge_v2, BridgeV2Config),
     #{status := connected} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
     ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
     %% Check behaviour when bridge does not exist
     {error, bridge_not_found} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
-    ok = emqx_connector:remove(?TYPE, test_connector3),
+    ok = emqx_connector:remove(?global_ns, ?TYPE, test_connector3),
     ok.
 
 t_local_topic(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector">>),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(?TYPE, test_connector, ConnectorConfig),
+    {ok, _} = emqx_connector:create(?global_ns, ?TYPE, test_connector, ConnectorConfig),
     {ok, _} = create_action(test_bridge, BridgeV2Config),
     %% Send a message to the local topic
     Payload = <<"local_topic_payload">>,
@@ -535,13 +536,13 @@ t_local_topic(_) ->
     emqx:publish(emqx_message:make(<<"kafka_t/hej">>, Payload)),
     check_kafka_message_payload(Offset, Payload),
     ok = emqx_bridge_v2:remove(?TYPE, test_bridge),
-    ok = emqx_connector:remove(?TYPE, test_connector),
+    ok = emqx_connector:remove(?global_ns, ?TYPE, test_connector),
     ok.
 
 t_message_too_large(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector4">>, "max-100-bytes"),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(?TYPE, test_connector4, ConnectorConfig),
+    {ok, _} = emqx_connector:create(?global_ns, ?TYPE, test_connector4, ConnectorConfig),
     BridgeName = test_bridge4,
     {ok, _} = create_action(BridgeName, BridgeV2Config),
     BridgeV2Id = emqx_bridge_v2:id(?TYPE, BridgeName),
@@ -557,7 +558,7 @@ t_message_too_large(_) ->
         end
     ),
     ok = emqx_bridge_v2:remove(?TYPE, BridgeName),
-    ok = emqx_connector:remove(?TYPE, test_connector4),
+    ok = emqx_connector:remove(?global_ns, ?TYPE, test_connector4),
     ok.
 
 t_unknown_topic(_Config) ->
@@ -570,7 +571,7 @@ t_unknown_topic(_Config) ->
         <<"nonexistent">>
     ),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(?TYPE, ConnectorName, ConnectorConfig),
+    {ok, _} = emqx_connector:create(?global_ns, ?TYPE, ConnectorName, ConnectorConfig),
     {ok, _} = create_action(BridgeName, BridgeV2Config),
     Payload = <<"will be dropped">>,
     emqx:publish(emqx_message:make(<<"kafka_t/local">>, Payload)),
@@ -621,7 +622,7 @@ t_bad_url(_Config) ->
                     error := [#{reason := unresolvable_hostname}]
                 }
         }},
-        emqx_connector:lookup(?TYPE, ConnectorName)
+        emqx_connector:lookup(?global_ns, ?TYPE, ConnectorName)
     ),
     ?assertMatch({ok, #{status := ?status_disconnected}}, emqx_bridge_v2:lookup(?TYPE, ActionName)),
     ok.

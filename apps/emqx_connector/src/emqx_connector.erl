@@ -16,20 +16,14 @@
 ]).
 
 -export([
-    create/3,
     create/4,
-    disable_enable/3,
     disable_enable/4,
-    get_metrics/2,
+    get_metrics/3,
     list/0,
     list/1,
     load/0,
-    is_exist/2,
     is_exist/3,
-    lookup/1,
-    lookup/2,
     lookup/3,
-    remove/2,
     remove/3,
     unload/0
 ]).
@@ -43,6 +37,9 @@
 -export([
     import_config/1
 ]).
+
+%% Deprecated RPC target (`emqx_connector_proto_v1`).
+-deprecated({list, 0, "use list/1 instead"}).
 
 -define(ROOT_KEY, connectors).
 -define(ENABLE_OR_DISABLE(A), (A =:= disable orelse A =:= enable)).
@@ -224,7 +221,9 @@ perform_connector_changes(Removed, Added, Updated, Namespace, Opts) ->
     Result = do_perform_connector_changes(
         [
             #{
-                action => fun emqx_connector_resource:remove/5,
+                action => fun(Namespace1, Type, Name, _Conf, _Opts) ->
+                    emqx_connector_resource:remove(Namespace1, Type, Name)
+                end,
                 action_name => remove,
                 namespace => Namespace,
                 data => Removed
@@ -234,7 +233,9 @@ perform_connector_changes(Removed, Added, Updated, Namespace, Opts) ->
                 action_name => create,
                 namespace => Namespace,
                 data => Added,
-                on_exception_fn => fun emqx_connector_resource:remove/5
+                on_exception_fn => fun(Namespace1, Type, Name, _Conf, _Opts) ->
+                    emqx_connector_resource:remove(Namespace1, Type, Name)
+                end
             },
             #{
                 action => fun emqx_connector_resource:update/5,
@@ -248,8 +249,10 @@ perform_connector_changes(Removed, Added, Updated, Namespace, Opts) ->
     ?tp(connector_post_config_update_done, #{}),
     Result.
 
+%% Deprecated RPC target (`emqx_connector_proto_v1`).
 list() ->
     list(?global_ns).
+
 list(Namespace) ->
     maps:fold(
         fun(Type, NameAndConf, Connectors) ->
@@ -268,11 +271,6 @@ list(Namespace) ->
         get_raw_config(Namespace, [connectors], #{})
     ).
 
-lookup(Id) ->
-    {Type, Name} = emqx_connector_resource:parse_connector_id(Id),
-    lookup(Type, Name).
-lookup(Type, Name) ->
-    lookup(?global_ns, Type, Name).
 lookup(Namespace, Type, Name) ->
     RawConf = get_raw_config(Namespace, [connectors, Type, Name], #{}),
     do_lookup(Namespace, Type, Name, RawConf).
@@ -284,27 +282,21 @@ do_lookup(Namespace, Type, Name, RawConf) ->
             {error, not_found};
         {ok, _, Data} ->
             {ok, #{
-                type => Type,
-                name => Name,
+                type => atom(Type),
+                name => atom(Name),
                 resource_data => Data,
                 raw_config => RawConf
             }}
     end.
 
-is_exist(Type, Name) ->
-    is_exist(?global_ns, Type, Name).
 is_exist(Namespace, Type, Name) ->
     ConnResId = emqx_connector_resource:resource_id(Namespace, Type, Name),
     emqx_resource:is_exist(ConnResId).
 
-get_metrics(Type, Name) ->
-    get_metrics(?global_ns, Type, Name).
 get_metrics(Namespace, Type, Name) ->
     ConnResId = emqx_connector_resource:resource_id(Namespace, Type, Name),
     emqx_resource:get_metrics(ConnResId).
 
-disable_enable(Action, ConnectorType, ConnectorName) when ?ENABLE_OR_DISABLE(Action) ->
-    disable_enable(?global_ns, Action, ConnectorType, ConnectorName).
 disable_enable(Namespace, Action, ConnectorType, ConnectorName) when ?ENABLE_OR_DISABLE(Action) ->
     emqx_conf:update(
         config_key_path() ++ [ConnectorType, ConnectorName],
@@ -312,8 +304,6 @@ disable_enable(Namespace, Action, ConnectorType, ConnectorName) when ?ENABLE_OR_
         with_namespace(#{override_to => cluster}, Namespace)
     ).
 
-create(ConnectorType, ConnectorName, RawConf) ->
-    create(?global_ns, ConnectorType, ConnectorName, RawConf).
 create(Namespace, ConnectorType, ConnectorName, RawConf) ->
     ?SLOG(debug, #{
         connector_action => create,
@@ -327,8 +317,6 @@ create(Namespace, ConnectorType, ConnectorName, RawConf) ->
         with_namespace(#{override_to => cluster}, Namespace)
     ).
 
-remove(ConnectorType, ConnectorName) ->
-    remove(?global_ns, ConnectorType, ConnectorName).
 remove(Namespace, ConnectorType, ConnectorName) ->
     ?SLOG(debug, #{
         bridge_action => remove,
@@ -526,7 +514,7 @@ get_basic_usage_info() ->
                     }
             end,
             InitialAcc,
-            list()
+            list(?global_ns)
         )
     catch
         %% for instance, when the connector app is not ready yet.
@@ -617,3 +605,6 @@ with_namespace(UpdateOpts, ?global_ns) ->
     UpdateOpts;
 with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
     UpdateOpts#{namespace => Namespace}.
+
+atom(B) when is_binary(B) -> binary_to_existing_atom(B, utf8);
+atom(A) when is_atom(A) -> A.

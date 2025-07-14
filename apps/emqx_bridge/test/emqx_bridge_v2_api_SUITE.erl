@@ -12,6 +12,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(ACTIONS_ROOT, "actions").
 -define(SOURCES_ROOT, "sources").
@@ -368,7 +369,7 @@ connector_operation(Config, ConnectorType, ConnectorName, OperationName) ->
                         Node,
                         emqx_connector_resource,
                         OperationName,
-                        [ConnectorType, ConnectorName],
+                        [?global_ns, ConnectorType, ConnectorName],
                         500
                     );
                 Nodes ->
@@ -376,12 +377,12 @@ connector_operation(Config, ConnectorType, ConnectorName, OperationName) ->
                         Nodes,
                         emqx_connector_resource,
                         OperationName,
-                        [ConnectorType, ConnectorName],
+                        [?global_ns, ConnectorType, ConnectorName],
                         500
                     )
             end;
         _ ->
-            ok = emqx_connector_resource:OperationName(ConnectorType, ConnectorName)
+            ok = emqx_connector_resource:OperationName(?global_ns, ConnectorType, ConnectorName)
     end.
 
 listen_on_random_port() ->

@@ -12,6 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -125,9 +126,9 @@ delete_all_bridges() ->
 delete_all_connectors() ->
     lists:foreach(
         fun(#{name := Name, type := Type}) ->
-            emqx_connector:remove(Type, Name)
+            emqx_connector:remove(?global_ns, Type, Name)
         end,
-        emqx_connector:list()
+        emqx_connector:list(?global_ns)
     ).
 
 %% test helpers
@@ -224,7 +225,7 @@ create_bridge(Config, Overrides) ->
         ConnectorType, ConnectorName, ConnectorConfig
     ]),
     {ok, _} =
-        emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig),
+        emqx_connector:create(?global_ns, ConnectorType, ConnectorName, ConnectorConfig),
 
     ct:pal("creating bridge with config:\n  ~p", [ActionConfig]),
     emqx_bridge_v2:create(ActionType, ActionName, ActionConfig).
@@ -1386,7 +1387,9 @@ t_start_stop(Config, StopTracePoint) ->
             ?assertMatch(
                 {{ok, _}, {ok, _}},
                 ?wait_async_action(
-                    emqx_connector:disable_enable(disable, ConnectorType, ConnectorName),
+                    emqx_connector:disable_enable(
+                        ?global_ns, disable, ConnectorType, ConnectorName
+                    ),
                     #{?snk_kind := StopTracePoint},
                     5_000
                 )

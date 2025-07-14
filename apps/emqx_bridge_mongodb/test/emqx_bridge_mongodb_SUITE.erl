@@ -143,14 +143,13 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_Testcase, Config) ->
     clear_db(Config),
-    delete_bridge(Config),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
     clear_db(Config),
-    delete_bridge(Config),
-    [] = emqx_connector:list(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     snabbkaffe:stop(),
     ok.
 
