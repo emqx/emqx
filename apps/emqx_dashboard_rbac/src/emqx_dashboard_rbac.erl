@@ -6,6 +6,7 @@
 
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     check_rbac/3,
@@ -19,12 +20,10 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--define(undefined, undefined).
-
 -type actor_context() :: #{
     ?actor := username() | api_key(),
     ?role := role(),
-    ?namespace := ?undefined | namespace()
+    ?namespace := ?global_ns | namespace()
 }.
 
 -type username() :: binary().
@@ -72,7 +71,7 @@ do_parse_role(Role0) when is_binary(Role0) ->
         {ok, #{?role => Role, ?namespace => Ns}}
     else
         [Role1] ->
-            {ok, #{?role => Role1, ?namespace => ?undefined}};
+            {ok, #{?role => Role1, ?namespace => ?global_ns}};
         {error, _} = Error ->
             Error;
         _ ->
@@ -92,7 +91,7 @@ parse_namespace_tag(NsTag) ->
 %% ===================================================================
 -spec do_check_rbac(actor_context(), emqx_dashboard:request(), emqx_dashboard:handler_info()) ->
     boolean().
-do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := ?undefined}, _, _) ->
+do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}, _, _) ->
     %% Global administrator
     true;
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->

@@ -22,4 +22,6 @@
 -define(role, role).
 -define(namespace, namespace).
 
+-define(global_ns, global).
+
 -endif.

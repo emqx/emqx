@@ -7,9 +7,11 @@
 -behaviour(minirest_api).
 
 -include("emqx_dashboard.hrl").
+-include("emqx_dashboard_rbac.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     api_spec/0,
@@ -479,6 +481,8 @@ filter_result(#{} = Result) ->
     maps:map(
         fun
             (_K, undefined) ->
+                null;
+            (_K, ?global_ns) ->
                 null;
             (_K, V) ->
                 V

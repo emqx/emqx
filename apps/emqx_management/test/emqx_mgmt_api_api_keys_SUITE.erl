@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(EE_CASES, [
     t_ee_create,
@@ -217,15 +218,15 @@ t_bootstrap_file_with_role(_) ->
     update_file(File),
 
     ?assertMatch(
-        {value, #{api_key := <<"role-1">>, role := <<"viewer">>, namespace := undefined}},
+        {value, #{api_key := <<"role-1">>, role := <<"viewer">>, namespace := ?global_ns}},
         Search(<<"role-1">>)
     ),
     ?assertMatch(
-        {value, #{api_key := <<"role-2">>, role := <<"administrator">>, namespace := undefined}},
+        {value, #{api_key := <<"role-2">>, role := <<"administrator">>, namespace := ?global_ns}},
         Search(<<"role-2">>)
     ),
     ?assertMatch(
-        {value, #{api_key := <<"role-3">>, role := <<"administrator">>, namespace := undefined}},
+        {value, #{api_key := <<"role-3">>, role := <<"administrator">>, namespace := ?global_ns}},
         Search(<<"role-3">>)
     ),
     ?assertMatch(

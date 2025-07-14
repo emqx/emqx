@@ -23,6 +23,7 @@
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(EMQX_MIDDLE, emqx_dashboard_middleware).
 
@@ -41,7 +42,7 @@
 -type auth_meta() :: #{
     auth_type := jwt_token | api_key,
     source := binary(),
-    namespace := undefined | binary(),
+    namespace := ?global_ns | binary(),
     actor := emqx_dashboard_rbac:actor_context()
 }.
 
@@ -288,10 +289,10 @@ return_unauthorized(Code, Message) ->
         },
         #{code => Code, message => Message}}.
 
-get_namespace(#{auth_meta := #{namespace := Namespace}} = _Request) when is_binary(Namespace) ->
+get_namespace(#{auth_meta := #{?namespace := Namespace}} = _Request) when is_binary(Namespace) ->
     Namespace;
 get_namespace(#{} = _Request) ->
-    undefined.
+    ?global_ns.
 
 listeners() ->
     emqx_conf:get([dashboard, listeners], #{}).
@@ -302,7 +303,7 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
             AuthnMeta = #{
                 auth_type => api_key,
                 source => Key,
-                namespace => maps:get(?namespace, ActorContext, undefined),
+                namespace => maps:get(?namespace, ActorContext, ?global_ns),
                 actor => ActorContext
             },
             {ok, AuthnMeta};
@@ -327,7 +328,7 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
             AuthnMeta = #{
                 auth_type => jwt_token,
                 source => Username,
-                namespace => maps:get(namespace, ActorContext, undefined),
+                namespace => maps:get(?namespace, ActorContext, ?global_ns),
                 actor => ActorContext
             },
             {ok, AuthnMeta};
