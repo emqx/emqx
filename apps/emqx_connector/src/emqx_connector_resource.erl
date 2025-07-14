@@ -7,6 +7,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include("emqx_connector.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     connector_to_resource_type/1,
@@ -74,7 +75,7 @@ connector_impl_module(ConnectorType) ->
     emqx_connector_info:config_transform_module(ConnectorType).
 
 resource_id(ConnectorType, ConnectorName) ->
-    resource_id(_Namespace = undefined, ConnectorType, ConnectorName).
+    resource_id(_Namespace = ?global_ns, ConnectorType, ConnectorName).
 
 resource_id(Namespace, ConnectorType, ConnectorName) ->
     ConnectorId = connector_id(ConnectorType, ConnectorName),
@@ -123,19 +124,19 @@ connector_hookpoint_to_connector_id(_) ->
     {error, bad_connector_hookpoint}.
 
 restart(Type, Name) ->
-    restart(_Namespace = undefined, Type, Name).
+    restart(_Namespace = ?global_ns, Type, Name).
 restart(Namespace, Type, Name) ->
     ConnResId = resource_id(Namespace, Type, Name),
     emqx_resource:restart(ConnResId).
 
 stop(Type, Name) ->
-    stop(_Namespace = undefined, Type, Name).
+    stop(_Namespace = ?global_ns, Type, Name).
 stop(Namespace, Type, Name) ->
     ConnResId = resource_id(Namespace, Type, Name),
     emqx_resource:stop(ConnResId, ?STOP_TIMEOUT).
 
 start(Type, Name) ->
-    start(_Namespace = undefined, Type, Name).
+    start(_Namespace = ?global_ns, Type, Name).
 start(Namespace, Type, Name) ->
     ConnResId = resource_id(Namespace, Type, Name),
     emqx_resource:start(ConnResId).
@@ -143,7 +144,7 @@ start(Namespace, Type, Name) ->
 create(Type, Name, Conf) ->
     create(Type, Name, Conf, #{}).
 create(Type, Name, Conf, Opts) ->
-    create(_Namespace = undefined, Type, Name, Conf, Opts).
+    create(_Namespace = ?global_ns, Type, Name, Conf, Opts).
 create(Namespace, Type, Name, Conf0, Opts) ->
     ?SLOG(info, #{
         msg => "create connector",
@@ -171,7 +172,7 @@ update(ConnectorId, {OldConf, Conf}) ->
 update(Type, Name, {OldConf, Conf}) ->
     update(Type, Name, {OldConf, Conf}, #{}).
 update(Type, Name, {OldConf, Conf0}, Opts) ->
-    update(_Namespace = undefined, Type, Name, {OldConf, Conf0}, Opts).
+    update(_Namespace = ?global_ns, Type, Name, {OldConf, Conf0}, Opts).
 update(Namespace, Type, Name, {OldConf, Conf0}, Opts) ->
     %% TODO: sometimes its not necessary to restart the connector connection.
     %%
@@ -220,7 +221,7 @@ update(Namespace, Type, Name, {OldConf, Conf0}, Opts) ->
     end.
 
 get_channels(Type, Name) ->
-    get_channels(_Namespace = undefined, Type, Name).
+    get_channels(_Namespace = ?global_ns, Type, Name).
 get_channels(Namespace, Type, Name) ->
     ConnResId = resource_id(Namespace, Type, Name),
     emqx_resource:get_channels(ConnResId).
@@ -230,7 +231,7 @@ recreate(Type, Name) ->
 recreate(Type, Name, Conf) ->
     recreate(Type, Name, Conf, #{}).
 recreate(Type, Name, Conf, Opts) ->
-    recreate(_Namespace = undefined, Type, Name, Conf, Opts).
+    recreate(_Namespace = ?global_ns, Type, Name, Conf, Opts).
 recreate(Namespace, Type, Name, Conf, Opts) ->
     TypeBin = bin(Type),
     emqx_resource:recreate_local(
@@ -292,11 +293,11 @@ remove(ConnectorId) ->
     {ConnectorType, ConnectorName} = parse_connector_id(ConnectorId),
     remove(ConnectorType, ConnectorName, #{}, #{}).
 remove(Type, Name) ->
-    remove(_Namespace = undefined, Type, Name, #{}, #{}).
+    remove(_Namespace = ?global_ns, Type, Name, #{}, #{}).
 remove(Namespace, Type, Name) ->
     remove(Namespace, Type, Name, #{}, #{}).
 remove(Type, Name, Conf, Opts) ->
-    remove(_Namespace = undefined, Type, Name, Conf, Opts).
+    remove(_Namespace = ?global_ns, Type, Name, Conf, Opts).
 remove(Namespace, Type, Name, _Conf, _Opts) ->
     %% just for perform_connector_changes/1
     ?SLOG(info, #{

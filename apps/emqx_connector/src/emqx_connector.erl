@@ -8,6 +8,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     pre_config_update/4,
@@ -48,7 +49,7 @@
 
 load() ->
     GlobalConnectors = emqx:get_config([?ROOT_KEY], #{}),
-    do_load(_GlobalNamespace = undefined, GlobalConnectors),
+    do_load(?global_ns, GlobalConnectors),
     NamespacedConnectors = emqx_config:get_root_from_all_namespaces(?ROOT_KEY),
     emqx_utils:pforeach(
         fun({Namespace, ConnectorsRoot}) ->
@@ -75,7 +76,7 @@ do_load(Namespace, ConnectorsRoot) ->
 
 unload() ->
     GlobalConnectors = emqx:get_config([?ROOT_KEY], #{}),
-    do_unload(_GlobalNamespace = undefined, GlobalConnectors),
+    do_unload(?global_ns, GlobalConnectors),
     NamespacedConnectors = emqx_config:get_root_from_all_namespaces(?ROOT_KEY),
     emqx_utils:pforeach(
         fun({Namespace, ConnectorsRoot}) ->
@@ -246,7 +247,7 @@ perform_connector_changes(Removed, Added, Updated, Namespace, Opts) ->
     Result.
 
 list() ->
-    list(_Namespace = undefined).
+    list(?global_ns).
 list(Namespace) ->
     maps:fold(
         fun(Type, NameAndConf, Connectors) ->
@@ -269,7 +270,7 @@ lookup(Id) ->
     {Type, Name} = emqx_connector_resource:parse_connector_id(Id),
     lookup(Type, Name).
 lookup(Type, Name) ->
-    lookup(_Namespace = undefined, Type, Name).
+    lookup(?global_ns, Type, Name).
 lookup(Namespace, Type, Name) ->
     RawConf = get_raw_config(Namespace, [connectors, Type, Name], #{}),
     do_lookup(Namespace, Type, Name, RawConf).
@@ -289,19 +290,19 @@ do_lookup(Namespace, Type, Name, RawConf) ->
     end.
 
 is_exist(Type, Name) ->
-    is_exist(_Namespace = undefined, Type, Name).
+    is_exist(?global_ns, Type, Name).
 is_exist(Namespace, Type, Name) ->
     ConnResId = emqx_connector_resource:resource_id(Namespace, Type, Name),
     emqx_resource:is_exist(ConnResId).
 
 get_metrics(Type, Name) ->
-    get_metrics(_Namespace = undefined, Type, Name).
+    get_metrics(?global_ns, Type, Name).
 get_metrics(Namespace, Type, Name) ->
     ConnResId = emqx_connector_resource:resource_id(Namespace, Type, Name),
     emqx_resource:get_metrics(ConnResId).
 
 disable_enable(Action, ConnectorType, ConnectorName) when ?ENABLE_OR_DISABLE(Action) ->
-    disable_enable(_Namespace = undefined, Action, ConnectorType, ConnectorName).
+    disable_enable(?global_ns, Action, ConnectorType, ConnectorName).
 disable_enable(Namespace, Action, ConnectorType, ConnectorName) when ?ENABLE_OR_DISABLE(Action) ->
     emqx_conf:update(
         config_key_path() ++ [ConnectorType, ConnectorName],
@@ -310,7 +311,7 @@ disable_enable(Namespace, Action, ConnectorType, ConnectorName) when ?ENABLE_OR_
     ).
 
 create(ConnectorType, ConnectorName, RawConf) ->
-    create(_Namespace = undefined, ConnectorType, ConnectorName, RawConf).
+    create(?global_ns, ConnectorType, ConnectorName, RawConf).
 create(Namespace, ConnectorType, ConnectorName, RawConf) ->
     ?SLOG(debug, #{
         connector_action => create,
@@ -325,7 +326,7 @@ create(Namespace, ConnectorType, ConnectorName, RawConf) ->
     ).
 
 remove(ConnectorType, ConnectorName) ->
-    remove(_Namespace = undefined, ConnectorType, ConnectorName).
+    remove(?global_ns, ConnectorType, ConnectorName).
 remove(Namespace, ConnectorType, ConnectorName) ->
     ?SLOG(debug, #{
         bridge_action => remove,
@@ -607,10 +608,10 @@ ssl_cert_dir(Type, Name, _ExtraContext) ->
 
 get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
     emqx:get_raw_config({Namespace, KeyPath}, Default);
-get_raw_config(undefined, KeyPath, Default) ->
+get_raw_config(?global_ns, KeyPath, Default) ->
     emqx:get_raw_config(KeyPath, Default).
 
-with_namespace(UpdateOpts, _Namespace = undefined) ->
+with_namespace(UpdateOpts, ?global_ns) ->
     UpdateOpts;
 with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
     UpdateOpts#{namespace => Namespace}.

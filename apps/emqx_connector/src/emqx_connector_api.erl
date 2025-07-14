@@ -11,6 +11,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
@@ -861,10 +862,10 @@ maybe_focus_on_request_connector(Reason0, Type0, Name0) ->
 
 get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
     emqx:get_raw_config({Namespace, KeyPath}, Default);
-get_raw_config(undefined, KeyPath, Default) ->
+get_raw_config(?global_ns, KeyPath, Default) ->
     emqx:get_raw_config(KeyPath, Default).
 
 get_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
     emqx:get_config({Namespace, KeyPath}, Default);
-get_config(undefined, KeyPath, Default) ->
+get_config(?global_ns, KeyPath, Default) ->
     emqx:get_config(KeyPath, Default).

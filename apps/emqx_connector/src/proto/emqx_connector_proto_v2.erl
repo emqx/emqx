@@ -14,9 +14,10 @@
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -type key() :: atom() | binary() | [byte()].
--type maybe_namespace() :: undefined | binary().
+-type maybe_namespace() :: ?global_ns | binary().
 
 -define(TIMEOUT, 15_000).
 
