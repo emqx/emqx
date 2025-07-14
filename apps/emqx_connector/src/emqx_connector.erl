@@ -597,7 +597,7 @@ ssl_cert_dir(?global_ns, Type, Name) ->
     filename:join([?ROOT_KEY, Type, Name]).
 
 get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
-    emqx:get_raw_config({Namespace, KeyPath}, Default);
+    emqx:get_raw_namespaced_config(Namespace, KeyPath, Default);
 get_raw_config(?global_ns, KeyPath, Default) ->
     emqx:get_raw_config(KeyPath, Default).
 

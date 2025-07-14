@@ -858,11 +858,11 @@ maybe_focus_on_request_connector(Reason0, Type0, Name0) ->
     end.
 
 get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
-    emqx:get_raw_config({Namespace, KeyPath}, Default);
+    emqx:get_raw_namespaced_config(Namespace, KeyPath, Default);
 get_raw_config(?global_ns, KeyPath, Default) ->
     emqx:get_raw_config(KeyPath, Default).
 
 get_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
-    emqx:get_config({Namespace, KeyPath}, Default);
+    emqx:get_namespaced_config(Namespace, KeyPath, Default);
 get_config(?global_ns, KeyPath, Default) ->
     emqx:get_config(KeyPath, Default).

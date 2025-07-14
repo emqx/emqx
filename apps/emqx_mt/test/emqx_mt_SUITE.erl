@@ -390,8 +390,8 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
     ),
     ?assertMatch(undefined, ?ON(N1, emqx_config:get_namespace_config_errors(Ns))),
     KeyPath = [foo, bar],
-    ?assertMatch(1, ?ON(N1, emqx:get_config({Ns, KeyPath}))),
-    ?assertMatch(1, ?ON(N1, emqx:get_raw_config({Ns, KeyPath}))),
+    ?assertMatch(1, ?ON(N1, emqx:get_namespaced_config(Ns, KeyPath))),
+    ?assertMatch(1, ?ON(N1, emqx:get_raw_namespaced_config(Ns, KeyPath))),
     Alarms2 = ?ON(N1, emqx_alarm:get_alarms(activated)),
     ?assertMatch([], [A || A = #{name := ?ALARM} <- Alarms2]),
     ok.

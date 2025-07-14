@@ -62,10 +62,17 @@
     mutable_certs_dir/0
 ]).
 
+%% Namespaced config facades.
+-export([
+    get_namespaced_config/2,
+    get_namespaced_config/3,
+    get_raw_namespaced_config/2,
+    get_raw_namespaced_config/3
+]).
+
 -define(APP, ?MODULE).
 
 -type config_key_path() :: emqx_utils_maps:config_key_path().
--type maybe_ns_config_key_path() :: config_key_path() | {namespace(), config_key_path()}.
 -type namespace() :: binary().
 
 %%--------------------------------------------------------------------
@@ -165,27 +172,17 @@ subscribed(SubId, Topic) when is_atom(SubId); is_binary(SubId) ->
 %% Config API
 %%--------------------------------------------------------------------
 
--spec get_config(maybe_ns_config_key_path()) -> term().
-get_config({?global_ns, KeyPath}) ->
-    get_config(KeyPath);
-get_config({Namespace, KeyPath}) ->
-    KeyPath1 = emqx_config:ensure_atom_conf_path(KeyPath, {raise_error, config_not_found}),
-    emqx_config:get_namespaced(KeyPath1, Namespace);
+-spec get_config(config_key_path()) -> term().
 get_config(KeyPath) ->
     KeyPath1 = emqx_config:ensure_atom_conf_path(KeyPath, {raise_error, config_not_found}),
     emqx_config:get(KeyPath1).
 
--spec get_config(maybe_ns_config_key_path(), term()) -> term().
-get_config({?global_ns, KeyPath}, Default) ->
-    get_config(KeyPath, Default);
-get_config({Namespace, KeyPath}, Default) ->
-    try
-        KeyPath1 = emqx_config:ensure_atom_conf_path(KeyPath, {raise_error, config_not_found}),
-        emqx_config:get_namespaced(KeyPath1, Namespace, Default)
-    catch
-        error:config_not_found ->
-            Default
-    end;
+-spec get_namespaced_config(namespace(), config_key_path()) -> term().
+get_namespaced_config(Namespace, KeyPath0) when is_binary(Namespace) ->
+    KeyPath = emqx_config:ensure_atom_conf_path(KeyPath0, {raise_error, config_not_found}),
+    emqx_config:get_namespaced(KeyPath, Namespace).
+
+-spec get_config(config_key_path(), term()) -> term().
 get_config(KeyPath, Default) ->
     try
         KeyPath1 = emqx_config:ensure_atom_conf_path(KeyPath, {raise_error, config_not_found}),
@@ -195,21 +192,31 @@ get_config(KeyPath, Default) ->
             Default
     end.
 
--spec get_raw_config(maybe_ns_config_key_path()) -> term().
-get_raw_config({?global_ns, KeyPath}) ->
-    get_raw_config(KeyPath);
-get_raw_config({Namespace, KeyPath}) ->
-    emqx_config:get_raw_namespaced(KeyPath, Namespace);
+-spec get_namespaced_config(namespace(), config_key_path(), _Default :: term()) -> term().
+get_namespaced_config(Namespace, KeyPath0, Default) when is_binary(Namespace) ->
+    try
+        KeyPath = emqx_config:ensure_atom_conf_path(KeyPath0, {raise_error, config_not_found}),
+        emqx_config:get_namespaced(KeyPath, Namespace, Default)
+    catch
+        error:config_not_found ->
+            Default
+    end.
+
+-spec get_raw_config(config_key_path()) -> term().
 get_raw_config(KeyPath) ->
     emqx_config:get_raw(KeyPath).
 
--spec get_raw_config(maybe_ns_config_key_path(), term()) -> term().
-get_raw_config({?global_ns, KeyPath}, Default) ->
-    get_raw_config(KeyPath, Default);
-get_raw_config({Namespace, KeyPath}, Default) ->
-    emqx_config:get_raw_namespaced(KeyPath, Namespace, Default);
+-spec get_raw_namespaced_config(namespace(), config_key_path()) -> term().
+get_raw_namespaced_config(Namespace, KeyPath) when is_binary(Namespace) ->
+    emqx_config:get_raw_namespaced(KeyPath, Namespace).
+
+-spec get_raw_config(config_key_path(), term()) -> term().
 get_raw_config(KeyPath, Default) ->
     emqx_config:get_raw(KeyPath, Default).
+
+-spec get_raw_namespaced_config(namespace(), config_key_path(), _Default :: term()) -> term().
+get_raw_namespaced_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
+    emqx_config:get_raw_namespaced(KeyPath, Namespace, Default).
 
 -spec update_config(config_key_path(), emqx_config:update_request()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
