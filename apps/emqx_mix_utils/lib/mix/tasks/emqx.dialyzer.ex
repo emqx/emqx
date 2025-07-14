@@ -84,7 +84,7 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
         Mix.raise("Dialyzer error:\n\n#{inspect(msg, pretty: true)}")
 
       err ->
-        Mix.raise("Error runnin dialyzer:\n\n#{inspect(err, pretty: true)}")
+        Mix.raise("Error running dialyzer:\n\n#{inspect(err, pretty: true)}")
     end
   end
 
