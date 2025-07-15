@@ -47,6 +47,7 @@ defmodule Mix.Tasks.Emqx.Xref do
               check_failures: check_failures,
               query_failures: query_failures
             },
+            limit: :infinity,
             pretty: true
           )
         ])
