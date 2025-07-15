@@ -957,11 +957,11 @@ t_conflicting_transactions() ->
     [{matrix, true}].
 t_conflicting_transactions(matrix) ->
     [
-        [second_commit],
+        [second_commit]
         %% N.B.: the apache iceberg-rest fixture container is extremely buggy, and tends
         %% to crash and enter a corrupt state that does not recover without restarting the
         %% service/container when running this case...
-        [first_commit]
+        %% [first_commit]
     ];
 t_conflicting_transactions(Config) ->
     ct:timetrap({seconds, 15}),
