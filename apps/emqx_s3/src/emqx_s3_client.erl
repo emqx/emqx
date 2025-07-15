@@ -9,6 +9,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("erlcloud/include/erlcloud_aws.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include("emqx_s3.hrl").
 
 -export([
     create/2,
@@ -88,8 +89,6 @@
 }.
 
 -type s3_options() :: proplists:proplist().
-
--define(DEFAULT_MAX_RETRIES, 2).
 
 %%--------------------------------------------------------------------
 %% API
