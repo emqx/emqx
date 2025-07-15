@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -242,7 +243,7 @@ t_create_remove_list(Config) ->
     1 = length(emqx_bridge_v2:list()),
     ok = emqx_bridge_v2:remove(?TYPE, test_action_2),
     [] = emqx_bridge_v2:list(),
-    emqx_connector:remove(?TYPE, test_connector),
+    emqx_connector:remove(?global_ns, ?TYPE, test_connector),
     ok.
 
 %% Test sending a message to a bridge V2
@@ -291,7 +292,7 @@ t_create_message(Config) ->
         end,
         ActionNames
     ),
-    emqx_connector:remove(?TYPE, test_connector2),
+    emqx_connector:remove(?global_ns, ?TYPE, test_connector2),
     lists:foreach(
         fun(#{id := Id}) ->
             emqx_rule_engine:delete_rule(Id)
@@ -353,7 +354,7 @@ t_update_message(Config) ->
     check_send_message_with_action(<<"es/1">>, update_action, update_connector, Expect2, ?LINE),
     %% Clean
     ok = emqx_bridge_v2:remove(?TYPE, update_action),
-    emqx_connector:remove(?TYPE, update_connector),
+    emqx_connector:remove(?global_ns, ?TYPE, update_connector),
     lists:foreach(
         fun(#{id := Id}) ->
             emqx_rule_engine:delete_rule(Id)
@@ -372,7 +373,7 @@ t_health_check(Config) ->
     ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
     %% Check behaviour when bridge does not exist
     {error, bridge_not_found} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
-    ok = emqx_connector:remove(?TYPE, test_connector3),
+    ok = emqx_connector:remove(?global_ns, ?TYPE, test_connector3),
     ok.
 
 t_bad_url(Config) ->
@@ -391,7 +392,7 @@ t_bad_url(Config) ->
                     error := failed_to_start_elasticsearch_bridge
                 }
         }},
-        emqx_connector:lookup(?TYPE, ConnectorName)
+        emqx_connector:lookup(?global_ns, ?TYPE, ConnectorName)
     ),
     ?assertMatch({ok, #{status := ?status_disconnected}}, emqx_bridge_v2:lookup(?TYPE, ActionName)),
     ok.

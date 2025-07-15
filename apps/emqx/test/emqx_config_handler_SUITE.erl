@@ -104,7 +104,7 @@ is_namespaced(TCConfig) ->
 get_raw_config(TCConfig, KeyPath) when is_list(TCConfig) ->
     case is_namespaced(TCConfig) of
         true ->
-            emqx:get_raw_config({?NS, KeyPath});
+            emqx:get_raw_namespaced_config(?NS, KeyPath);
         false ->
             emqx:get_raw_config(KeyPath)
     end.
@@ -112,7 +112,7 @@ get_raw_config(TCConfig, KeyPath) when is_list(TCConfig) ->
 get_raw_config(TCConfig, KeyPath, Default) when is_list(TCConfig) ->
     case is_namespaced(TCConfig) of
         true ->
-            emqx:get_raw_config({?NS, KeyPath}, Default);
+            emqx:get_raw_namespaced_config(?NS, KeyPath, Default);
         false ->
             emqx:get_raw_config(KeyPath, Default)
     end.
@@ -120,7 +120,7 @@ get_raw_config(TCConfig, KeyPath, Default) when is_list(TCConfig) ->
 get_config(TCConfig, KeyPath) when is_list(TCConfig) ->
     case is_namespaced(TCConfig) of
         true ->
-            emqx:get_config({?NS, KeyPath});
+            emqx:get_namespaced_config(?NS, KeyPath);
         false ->
             emqx:get_config(KeyPath)
     end.

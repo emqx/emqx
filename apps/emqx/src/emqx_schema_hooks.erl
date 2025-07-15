@@ -7,9 +7,9 @@
 -type hookpoint() :: atom().
 
 -callback injected_fields() ->
-    #{hookpoint() => [hocon_schema:field()]}.
+    #{hookpoint() => [hocon_schema:field() | binary()]}.
 -callback injected_fields(term()) ->
-    #{hookpoint() => [hocon_schema:field()]}.
+    #{hookpoint() => [hocon_schema:field() | binary()]}.
 -callback injected_values() ->
     #{hookpoint() => term()}.
 -callback injected_values(term()) ->

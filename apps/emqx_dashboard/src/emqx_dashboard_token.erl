@@ -6,6 +6,7 @@
 
 -include("emqx_dashboard.hrl").
 -include("emqx_dashboard_rbac.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([create_tables/0]).
 
@@ -269,4 +270,4 @@ role_of(#{?role := Role}) ->
 namespace_of(#{?namespace := Namespace}) when is_binary(Namespace) ->
     Namespace;
 namespace_of(_) ->
-    undefined.
+    ?global_ns.

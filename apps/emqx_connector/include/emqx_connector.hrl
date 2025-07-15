@@ -2,6 +2,9 @@
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
+-ifndef(EMQX_CONNECTOR_HRL).
+-define(EMQX_CONNECTOR_HRL, true).
+
 -define(VALID, emqx_resource_validator).
 -define(NOT_EMPTY(MSG), ?VALID:not_empty(MSG)).
 -define(MAX(MAXV), ?VALID:max(number, MAXV)).
@@ -26,3 +29,5 @@
 ).
 
 -define(CONNECTOR_RESOURCE_GROUP, <<"connector">>).
+
+-endif.

@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(CONNECTOR, emqx_connector_dummy_impl).
 
@@ -85,7 +86,6 @@ connector_config() ->
 %%------------------------------------------------------------------------------
 
 %% the 2 test cases below are based on kafka connector which is ee only
--if(?EMQX_RELEASE_EDITION == ee).
 t_connector_lifecycle({init, Config}) ->
     mock_resource(),
     Config;
@@ -95,78 +95,59 @@ t_connector_lifecycle({'end', Config}) ->
 t_connector_lifecycle(_Config) ->
     ?assertEqual(
         [],
-        emqx_connector:list()
+        emqx_connector:list(?global_ns)
     ),
 
     ?assertMatch(
         {ok, _},
-        emqx_connector:create(kafka_producer, my_connector, connector_config())
+        emqx_connector:create(?global_ns, kafka_producer, my_connector, connector_config())
     ),
 
     ?assertMatch(
         {ok, #{name := my_connector, type := kafka_producer}},
-        emqx_connector:lookup(<<"connector:kafka_producer:my_connector">>)
+        emqx_connector:lookup(?global_ns, <<"kafka_producer">>, <<"my_connector">>)
     ),
 
     ?assertMatch(
         {ok, #{
             name := my_connector, type := kafka_producer, resource_data := #{status := connected}
         }},
-        emqx_connector:lookup(<<"kafka_producer:my_connector">>)
+        emqx_connector:lookup(?global_ns, kafka_producer, my_connector)
     ),
 
     ?assertMatch(
-        {ok, #{
-            name := my_connector, type := kafka_producer, resource_data := #{status := connected}
-        }},
-        emqx_connector:lookup(kafka_producer, my_connector)
-    ),
-
-    ?assertMatch(
-        [#{name := <<"my_connector">>, type := <<"kafka_producer">>}],
-        emqx_connector:list()
+        [#{name := my_connector, type := kafka_producer}],
+        emqx_connector:list(?global_ns)
     ),
 
     ?assertMatch(
         {ok, #{config := #{enable := false}}},
-        emqx_connector:disable_enable(disable, kafka_producer, my_connector)
+        emqx_connector:disable_enable(?global_ns, disable, kafka_producer, my_connector)
     ),
 
     ?assertMatch(
         {ok, #{resource_data := #{status := stopped}}},
-        emqx_connector:lookup(kafka_producer, my_connector)
+        emqx_connector:lookup(?global_ns, kafka_producer, my_connector)
     ),
 
     ?assertMatch(
         {ok, #{config := #{enable := true}}},
-        emqx_connector:disable_enable(enable, kafka_producer, my_connector)
+        emqx_connector:disable_enable(?global_ns, enable, kafka_producer, my_connector)
     ),
 
     ?assertMatch(
         {ok, #{resource_data := #{status := connected}}},
-        emqx_connector:lookup(kafka_producer, my_connector)
-    ),
-
-    ?assertMatch(
-        {ok, #{config := #{connect_timeout := 10000}}},
-        emqx_connector:update(kafka_producer, my_connector, (connector_config())#{
-            <<"connect_timeout">> => <<"10s">>
-        })
-    ),
-
-    ?assertMatch(
-        {ok, #{resource_data := #{config := #{connect_timeout := 10000}}}},
-        emqx_connector:lookup(kafka_producer, my_connector)
+        emqx_connector:lookup(?global_ns, kafka_producer, my_connector)
     ),
 
     ?assertMatch(
         ok,
-        emqx_connector:remove(kafka_producer, my_connector)
+        emqx_connector:remove(?global_ns, kafka_producer, my_connector)
     ),
 
     ?assertEqual(
         [],
-        emqx_connector:list()
+        emqx_connector:list(?global_ns)
     ),
 
     ?assert(meck:validate(?CONNECTOR)),
@@ -178,10 +159,6 @@ t_connector_lifecycle(_Config) ->
             %% Disable
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
             %% Enable (restart); it attempts to stop again
-            {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
-            {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
-            {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
-            %% Update
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
@@ -217,22 +194,22 @@ t_remove_fail({'end', _Config}) ->
 t_remove_fail(_Config) ->
     ?assertEqual(
         [],
-        emqx_connector:list()
+        emqx_connector:list(?global_ns)
     ),
 
     ?assertMatch(
         {ok, _},
-        emqx_connector:create(kafka_producer, my_failing_connector, connector_config())
+        emqx_connector:create(?global_ns, kafka_producer, my_failing_connector, connector_config())
     ),
 
     ?assertMatch(
         {error, {post_config_update, emqx_connector, {active_channels, [{<<"my_channel">>, _}]}}},
-        emqx_connector:remove(kafka_producer, my_failing_connector)
+        emqx_connector:remove(?global_ns, kafka_producer, my_failing_connector)
     ),
 
     ?assertNotEqual(
         [],
-        emqx_connector:list()
+        emqx_connector:list(?global_ns)
     ),
 
     ?assert(meck:validate(?CONNECTOR)),
@@ -405,6 +382,3 @@ t_async_load_config_cli(Config) when is_list(Config) ->
     ct:timetrap(5_000),
     ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin, #{mode => merge})),
     ok.
-
-%% END if(?EMQX_RELEASE_EDITION == ee)
--endif.

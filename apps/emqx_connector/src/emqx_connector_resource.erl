@@ -7,11 +7,12 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include("emqx_connector.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     connector_to_resource_type/1,
-    resource_id/1,
     resource_id/2,
+    resource_id/3,
     connector_id/2,
     parse_connector_id/1,
     parse_connector_id/2,
@@ -20,25 +21,23 @@
 ]).
 
 -export([
-    create/3,
-    create/4,
+    create/5,
     create_dry_run/2,
     create_dry_run/3,
-    recreate/2,
-    recreate/3,
-    remove/1,
-    remove/2,
-    remove/4,
-    restart/2,
+    recreate/5,
+    remove/3,
+    restart/3,
     start/2,
-    stop/2,
-    update/2,
-    update/3,
-    update/4,
-    get_channels/2
+    start/3,
+    stop/3,
+    update/5,
+    get_channels/3
 ]).
 
 -export([parse_url/1]).
+
+%% Deprecated RPC target (`emqx_connector_proto_v1`).
+-deprecated({start, 2, "use start/3 instead"}).
 
 -define(PROBE_ID_SEP, $_).
 
@@ -65,12 +64,18 @@ connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
 connector_impl_module(ConnectorType) ->
     emqx_connector_info:config_transform_module(ConnectorType).
 
-resource_id(ConnectorId) when is_binary(ConnectorId) ->
-    <<"connector:", ConnectorId/binary>>.
-
 resource_id(ConnectorType, ConnectorName) ->
+    resource_id(_Namespace = ?global_ns, ConnectorType, ConnectorName).
+
+resource_id(Namespace, ConnectorType, ConnectorName) ->
     ConnectorId = connector_id(ConnectorType, ConnectorName),
-    resource_id(ConnectorId).
+    ResId = <<"connector:", ConnectorId/binary>>,
+    case is_binary(Namespace) of
+        true ->
+            <<"ns:", Namespace/binary, ":", ResId/binary>>;
+        false ->
+            ResId
+    end.
 
 connector_id(ConnectorType, ConnectorName) ->
     Name = bin(ConnectorName),
@@ -82,6 +87,16 @@ parse_connector_id(ConnectorId) ->
 
 -spec parse_connector_id(binary() | atom(), #{atom_name => boolean()}) ->
     {atom(), atom() | binary()}.
+parse_connector_id(<<"ns:", NSConnectorId/binary>>, Opts) ->
+    case binary:split(NSConnectorId, <<":">>) of
+        [Namespace, ConnectorId] when size(Namespace) > 0 ->
+            parse_connector_id(ConnectorId, Opts);
+        _ ->
+            throw(#{
+                kind => validation_error,
+                reason => <<"Invalid connector id: bad namespace tag">>
+            })
+    end;
 parse_connector_id(<<"connector:", ConnectorId/binary>>, Opts) ->
     parse_connector_id(ConnectorId, Opts);
 parse_connector_id(?PROBE_ID_MATCH(Suffix), Opts) ->
@@ -98,27 +113,32 @@ connector_hookpoint_to_connector_id(?BRIDGE_HOOKPOINT(ConnectorId)) ->
 connector_hookpoint_to_connector_id(_) ->
     {error, bad_connector_hookpoint}.
 
-restart(Type, Name) ->
-    emqx_resource:restart(resource_id(Type, Name)).
+restart(Namespace, Type, Name) ->
+    ConnResId = resource_id(Namespace, Type, Name),
+    emqx_resource:restart(ConnResId).
 
-stop(Type, Name) ->
-    emqx_resource:stop(resource_id(Type, Name), ?STOP_TIMEOUT).
+stop(Namespace, Type, Name) ->
+    ConnResId = resource_id(Namespace, Type, Name),
+    emqx_resource:stop(ConnResId, ?STOP_TIMEOUT).
 
+%% Deprecated RPC target (`emqx_connector_proto_v1`).
 start(Type, Name) ->
-    emqx_resource:start(resource_id(Type, Name)).
+    start(?global_ns, Type, Name).
 
-create(Type, Name, Conf) ->
-    create(Type, Name, Conf, #{}).
+start(Namespace, Type, Name) ->
+    ConnResId = resource_id(Namespace, Type, Name),
+    emqx_resource:start(ConnResId).
 
-create(Type, Name, Conf0, Opts) ->
+create(Namespace, Type, Name, Conf0, Opts) ->
     ?SLOG(info, #{
         msg => "create connector",
         type => Type,
         name => Name,
+        namespace => Namespace,
         config => redact(Conf0, Type)
     }),
     TypeBin = bin(Type),
-    ResourceId = resource_id(Type, Name),
+    ResourceId = resource_id(Namespace, Type, Name),
     Conf = Conf0#{connector_type => TypeBin, connector_name => Name},
     _ = emqx_alarm:ensure_deactivated(ResourceId),
     {ok, _Data} = emqx_resource:create_local(
@@ -130,14 +150,7 @@ create(Type, Name, Conf0, Opts) ->
     ),
     ok.
 
-update(ConnectorId, {OldConf, Conf}) ->
-    {ConnectorType, ConnectorName} = parse_connector_id(ConnectorId),
-    update(ConnectorType, ConnectorName, {OldConf, Conf}).
-
-update(Type, Name, {OldConf, Conf}) ->
-    update(Type, Name, {OldConf, Conf}, #{}).
-
-update(Type, Name, {OldConf, Conf0}, Opts) ->
+update(Namespace, Type, Name, {OldConf, Conf0}, Opts) ->
     %% TODO: sometimes its not necessary to restart the connector connection.
     %%
     %% - if the connection related configs like `servers` is updated, we should restart/start
@@ -153,9 +166,10 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
                 msg => "update connector",
                 type => Type,
                 name => Name,
+                namespace => Namespace,
                 config => redact(Conf, Type)
             }),
-            case recreate(Type, Name, Conf, Opts) of
+            case recreate(Namespace, Type, Name, Conf, Opts) of
                 {ok, _} ->
                     ok;
                 {error, not_found} ->
@@ -163,9 +177,10 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
                         msg => "updating_a_non_existing_connector",
                         type => Type,
                         name => Name,
+                        namespace => Namespace,
                         config => redact(Conf, Type)
                     }),
-                    create(Type, Name, Conf, Opts);
+                    create(Namespace, Type, Name, Conf, Opts);
                 {error, Reason} ->
                     {error, {update_connector_failed, Reason}}
             end;
@@ -175,26 +190,21 @@ update(Type, Name, {OldConf, Conf0}, Opts) ->
             _ =
                 case maps:get(enable, Conf, true) of
                     true ->
-                        restart(Type, Name);
+                        restart(Namespace, Type, Name);
                     false ->
-                        stop(Type, Name)
+                        stop(Namespace, Type, Name)
                 end,
             ok
     end.
 
-get_channels(Type, Name) ->
-    emqx_resource:get_channels(resource_id(Type, Name)).
+get_channels(Namespace, Type, Name) ->
+    ConnResId = resource_id(Namespace, Type, Name),
+    emqx_resource:get_channels(ConnResId).
 
-recreate(Type, Name) ->
-    recreate(Type, Name, emqx:get_config([connectors, Type, Name])).
-
-recreate(Type, Name, Conf) ->
-    recreate(Type, Name, Conf, #{}).
-
-recreate(Type, Name, Conf, Opts) ->
+recreate(Namespace, Type, Name, Conf, Opts) ->
     TypeBin = bin(Type),
     emqx_resource:recreate_local(
-        resource_id(Type, Name),
+        resource_id(Namespace, Type, Name),
         ?MODULE:connector_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
         parse_opts(Conf, Opts)
@@ -248,17 +258,16 @@ get_temp_conf(TypeAtom, CheckedConf) ->
             Conf
     end.
 
-remove(ConnectorId) ->
-    {ConnectorType, ConnectorName} = parse_connector_id(ConnectorId),
-    remove(ConnectorType, ConnectorName, #{}, #{}).
-
-remove(Type, Name) ->
-    remove(Type, Name, #{}, #{}).
-
-%% just for perform_connector_changes/1
-remove(Type, Name, _Conf, _Opts) ->
-    ?SLOG(info, #{msg => "remove_connector", type => Type, name => Name}),
-    emqx_resource:remove_local(resource_id(Type, Name)).
+remove(Namespace, Type, Name) ->
+    %% just for perform_connector_changes/1
+    ?SLOG(info, #{
+        msg => "remove_connector",
+        type => Type,
+        name => Name,
+        namespace => Namespace
+    }),
+    ConnResId = resource_id(Namespace, Type, Name),
+    emqx_resource:remove_local(ConnResId).
 
 %% convert connector configs to what the connector modules want
 parse_confs(

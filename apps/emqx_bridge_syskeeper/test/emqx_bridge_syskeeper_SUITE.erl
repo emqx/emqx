@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(HOST, "127.0.0.1").
 -define(PORT, 9092).
@@ -228,10 +229,10 @@ call_create_http(Root, Params) ->
     end.
 
 create_connectors(Type, Name, Conf) ->
-    emqx_connector:create(Type, Name, Conf).
+    emqx_connector:create(?global_ns, Type, Name, Conf).
 
 delete_connectors(Type, Name) ->
-    emqx_connector:remove(Type, Name).
+    emqx_connector:remove(?global_ns, Type, Name).
 
 send_message(_Config, Payload) ->
     Name = ?SYSKEEPER_NAME,
