@@ -573,25 +573,10 @@ handle_purge_node(Node) ->
             end
         )
     ),
-    handle_purge_node(Node, Records).
-
-handle_purge_node(Node, Records = [_ | _]) ->
-    Routes = lists:foldl(
-        fun(Record = #?SHARED_SUBSCRIPTION{group = Group, topic = Topic}, Acc) ->
-            mria:dirty_delete_object(?SHARED_SUBSCRIPTION, Record),
-            maps:put({Group, Topic}, true, Acc)
-        end,
-        #{},
+    lists:foreach(
+        fun(Record) -> mria:dirty_delete_object(?SHARED_SUBSCRIPTION, Record) end,
         Records
-    ),
-    maps:foreach(
-        fun({Group, Topic}, _) ->
-            delete_route(Group, Topic, Node)
-        end,
-        Routes
-    );
-handle_purge_node(_Node, []) ->
-    ok.
+    ).
 
 update_stats() ->
     emqx_stats:setstat(
