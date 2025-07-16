@@ -53,6 +53,11 @@ jobs:
               echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
               echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
               echo "ref_name=e$(./pkg-vsn.sh emqx-enterprise)" >> "$GITHUB_ENV"
+              if [[ $ref_name =~ ^e[6-9]+\.[0-9]+\.[0-9]+-M[0-9]+\.[0-9]+.*$ ]]; then
+                echo "internal_release=true" >> $GITHUB_ENV
+              else
+                echo "internal_release=false" >> $GITHUB_ENV
+              fi
               echo "s3dir=emqx-ee" >> $GITHUB_OUTPUT
               ;;
           esac
@@ -69,7 +74,7 @@ jobs:
           tag_name: "${{ env.ref_name }}"
           skip_existing: true
       - name: update to emqx.io
-        if: github.event_name == 'release' || inputs.publish_release_artifacts
+        if: (github.event_name == 'release' &&  !github.event.release.prerelease && env.internal_release == 'false') || inputs.publish_release_artifacts
         run: |
           set -eux
           curl -w %{http_code} \
@@ -80,7 +85,7 @@ jobs:
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
       - name: Push to packagecloud.io
-        if: (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts
+        if: (github.event_name == 'release' && !github.event.release.prerelease && env.internal_release == 'false') || inputs.publish_release_artifacts
         env:
           PROFILE: ${{ steps.profile.outputs.profile }}
           VERSION: ${{ steps.profile.outputs.version }}
@@ -115,6 +120,7 @@ jobs:
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-arm64.rpm"
 
       - name: Upload to snap store
+        if: (github.event_name == 'release' && !github.event.release.prerelease && env.internal_release == 'false') || inputs.publish_release_artifacts
         env:
           PROFILE: ${{ steps.profile.outputs.profile }}
           VERSION: ${{ steps.profile.outputs.version }}
