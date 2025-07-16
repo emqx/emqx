@@ -384,20 +384,20 @@ schedule_purge_left(Node) ->
 handle_purge(Node, Why, State) ->
     try purge_dead_node_trans(Node) of
         true ->
-            ?tp(warning, router_node_routing_table_purged, #{
+            ?tp(warning, broker_node_purged, #{
                 node => Node,
                 reason => Why,
                 hint => "Ignore if the node in question went offline due to cluster maintenance"
             }),
             forget_node(Node);
         false ->
-            ?tp(debug, router_node_purge_skipped, #{node => Node}),
+            ?tp(debug, broker_node_purge_skipped, #{node => Node}),
             forget_node(Node);
         aborted ->
-            ?tp(notice, router_node_purge_aborted, #{node => Node})
+            ?tp(notice, broker_node_purge_aborted, #{node => Node})
     catch
         Kind:Error ->
-            ?tp(warning, router_node_purge_error, #{
+            ?tp(warning, broker_node_purge_error, #{
                 node => Node,
                 kind => Kind,
                 error => Error

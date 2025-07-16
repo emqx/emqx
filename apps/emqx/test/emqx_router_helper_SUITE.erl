@@ -120,7 +120,7 @@ t_membership_node_leaving(_Config) ->
     ?assertMatch([_, _], emqx_router:topics()),
     {_, {ok, _}} = ?wait_async_action(
         ?ROUTER_HELPER ! {membership, {node, leaving, AnotherNode}},
-        #{?snk_kind := router_node_routing_table_purged, node := AnotherNode},
+        #{?snk_kind := broker_node_purged, node := AnotherNode},
         5_000
     ),
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
@@ -139,7 +139,7 @@ t_cluster_node_leaving(Config) ->
     ?assertMatch([_], emqx_shared_sub:subscribers(<<"g">>, '_')),
     {ok, {ok, _}} = ?wait_async_action(
         erpc:call(ClusterNode, ekka, leave, []),
-        #{?snk_kind := router_node_routing_table_purged, node := ClusterNode},
+        #{?snk_kind := broker_node_purged, node := ClusterNode},
         3_000
     ),
     ?assertEqual([<<"test/e/f">>], emqx_router:topics()),
@@ -159,7 +159,7 @@ t_cluster_node_down(Config) ->
     ?assertMatch([_], emqx_shared_sub:subscribers(<<"g">>, '_')),
     {ok, SRef} = snabbkaffe:subscribe(
         %% Should be purged after ~2 reconciliations.
-        ?match_event(#{?snk_kind := router_node_routing_table_purged, node := ClusterNode}),
+        ?match_event(#{?snk_kind := broker_node_purged, node := ClusterNode}),
         1,
         10_000
     ),
@@ -180,7 +180,7 @@ t_cluster_node_orphan(_Config) ->
     ?assertMatch([_, _], emqx_router:topics()),
     {ok, SRef} = snabbkaffe:subscribe(
         %% Should be purged after ~2 reconciliations.
-        ?match_event(#{?snk_kind := router_node_routing_table_purged, node := OrphanNode}),
+        ?match_event(#{?snk_kind := broker_node_purged, node := OrphanNode}),
         1,
         10_000
     ),
@@ -200,7 +200,7 @@ t_cluster_node_force_leave(Config) ->
     ?assertMatch([_, _, _], emqx_router:topics()),
     ?assertMatch([_], emqx_shared_sub:subscribers(<<"g">>, '_')),
     {ok, SRef} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := router_node_routing_table_purged, node := ClusterNode}),
+        ?match_event(#{?snk_kind := broker_node_purged, node := ClusterNode}),
         1,
         10_000
     ),
@@ -291,7 +291,7 @@ t_cluster_migration(Config) ->
     ?assertEqual([N2, N3], erpc:call(N2, emqx, running_nodes, [])),
 
     %% No routes are expected to be present in the global routing table.
-    ?block_until(#{?snk_kind := router_node_routing_table_purged, node := N1}),
+    ?block_until(#{?snk_kind := broker_node_purged, node := N1}),
     ?assertEqual([], erpc:call(N2, emqx_router, topics, [])),
     ?assertEqual([], erpc:call(N3, emqx_router, topics, [])),
 
