@@ -2,6 +2,10 @@
 %% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
+%% TODO
+%% This server might crash during the runtime. Naturally, `?SHARED_SUBSCRIPTION`
+%% table can be used to reconstruct local state in `init/1`.
+
 -module(emqx_shared_sub).
 
 -behaviour(gen_server).
@@ -20,11 +24,15 @@
 -export([create_tables/0]).
 
 %% APIs
--export([start_link/0]).
+-export([
+    start_link/0,
+    post_start/0
+]).
 
 -export([
     subscribe/3,
-    unsubscribe/3
+    unsubscribe/3,
+    purge_node/1
 ]).
 
 -export([
@@ -121,6 +129,14 @@ create_tables() ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+-spec post_start() -> ignore.
+post_start() ->
+    %% There may be leftovers from older incarnation of this node, clean them up:
+    %% Might take lots of time.
+    _ = mria:wait_for_tables([?SHARED_SUBSCRIPTION]),
+    ok = purge_node(node()),
+    ignore.
+
 %% @doc Subscribe `SubPid` to the shared subscription group-topic.
 %% This call *is not perfectly idempotent*, and currently `emqx_broker`
 %% guarantees that it's called only once (per new shared subscription).
@@ -134,6 +150,12 @@ subscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
 -spec unsubscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok.
 unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
     gen_server:call(?SERVER, {unsubscribe, Group, Topic, SubPid}).
+
+-spec purge_node(node()) -> ok | false.
+purge_node(Node) ->
+    %% TODO: Refactor `emqx_router_helper` to avoid this hack.
+    erlang:whereis(?SERVER) =/= undefined andalso
+        gen_server:call(?SERVER, {purge, Node}, infinity).
 
 record(Group, Topic, SubPid) ->
     #?SHARED_SUBSCRIPTION{group = Group, topic = Topic, subpid = SubPid}.
@@ -426,8 +448,6 @@ init([]) ->
     ok = emqx_utils_ets:new(?SHARED_SUBS_ROUND_ROBIN_COUNTER, [
         public, set, {write_concurrency, true}
     ]),
-    %% There may be leftovers from older incarnation of this node, clean them up:
-    cleanup_node(node()),
     %% Let `emqx_stats` periodically update stats instead of relying on mnesia events:
     ok = emqx_stats:update_interval(?MODULE, fun ?MODULE:update_stats/0),
     {ok, #state{pmon = pmon_new()}}.
@@ -457,6 +477,10 @@ handle_call({unsubscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PM
             })
     end,
     {reply, ok, State#state{pmon = NPMon}};
+handle_call({purge, Node}, _From, State) ->
+    handle_purge_node(Node),
+    update_stats(),
+    {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
@@ -540,17 +564,34 @@ cleanup_down(SubPid) ->
     Records = mnesia:dirty_match_object(#?SHARED_SUBSCRIPTION{_ = '_', subpid = SubPid}),
     lists:foreach(fun handle_unsubscribe/1, Records).
 
-cleanup_node(Node) ->
-    %% TODO: Liveness checks.
+handle_purge_node(Node) ->
     Records = mnesia:dirty_select(
         ?SHARED_SUBSCRIPTION,
-        ets:fun2ms(fun(Record = #?SHARED_SUBSCRIPTION{subpid = SubPid}) when
-            node(SubPid) == Node
-        ->
-            Record
-        end)
+        ets:fun2ms(
+            fun(Record = #?SHARED_SUBSCRIPTION{subpid = SubPid}) when node(SubPid) == Node ->
+                Record
+            end
+        )
     ),
-    lists:foreach(fun handle_unsubscribe/1, Records).
+    handle_purge_node(Node, Records).
+
+handle_purge_node(Node, Records = [_ | _]) ->
+    Routes = lists:foldl(
+        fun(Record = #?SHARED_SUBSCRIPTION{group = Group, topic = Topic}, Acc) ->
+            mria:dirty_delete_object(?SHARED_SUBSCRIPTION, Record),
+            maps:put({Group, Topic}, true, Acc)
+        end,
+        #{},
+        Records
+    ),
+    maps:foreach(
+        fun({Group, Topic}, _) ->
+            delete_route(Group, Topic, Node)
+        end,
+        Routes
+    );
+handle_purge_node(_Node, []) ->
+    ok.
 
 update_stats() ->
     emqx_stats:setstat(
@@ -574,7 +615,10 @@ is_alive_sub(Pid) ->
     emqx_router_helper:is_routable(node(Pid)).
 
 delete_route(Group, Topic) ->
-    ok = emqx_router:do_delete_route(Topic, {Group, node()}),
+    delete_route(Group, Topic, node()).
+
+delete_route(Group, Topic, Node) ->
+    ok = emqx_router:do_delete_route(Topic, {Group, Node}),
     _ = emqx_external_broker:delete_shared_route(Topic, Group),
     ok.
 
