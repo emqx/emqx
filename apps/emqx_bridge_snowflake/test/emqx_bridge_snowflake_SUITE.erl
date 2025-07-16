@@ -733,6 +733,7 @@ t_start_stop(matrix) ->
     [[?aggregated], [?streaming]];
 t_start_stop(TCConfig) when is_list(TCConfig) ->
     ok = emqx_bridge_v2_testlib:t_start_stop(TCConfig, "snowflake_connector_stop"),
+    ?assertMatch([], supervisor:which_children(emqx_bridge_snowflake_sup)),
     ok.
 
 t_create_via_http(Config) ->
