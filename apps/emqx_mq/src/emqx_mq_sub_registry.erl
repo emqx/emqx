@@ -21,6 +21,7 @@ The module registers subscriptions from channels to the Message Queue consumers.
 
 -define(TAB, ?MODULE).
 -define(SUB_PD_KEY(SUBSCRIBER_ID), {mq, SUBSCRIBER_ID}).
+-define(TOPIC_PD_KEY(TOPIC), {mqt, TOPIC}).
 
 -record(subscription, {
     key :: {emqx_mq_types:channel_pid(), emqx_mq_types:subscriber_id() | '_'},
@@ -42,17 +43,19 @@ create_tab() ->
     ]).
 
 -spec register_sub(emqx_mq_sub:t()) -> ok.
-register_sub(#{subscriber_id := SubscriberId, consumer_pid := ConsumerPid} = Sub0) ->
+register_sub(#{subscriber_id := SubscriberId, consumer_pid := ConsumerPid, topic := Topic} = Sub0) ->
     ChannelPid = self(),
     SubRec = #subscription{key = {ChannelPid, SubscriberId}, consumer_pid = ConsumerPid},
     true = ets:insert(?TAB, SubRec),
     Sub = maps:without([subscriber_id], Sub0),
     ?tp(warning, mq_sub_registry_register_sub, #{ets_key => {ChannelPid, SubscriberId}, sub => Sub}),
     _ = erlang:put(?SUB_PD_KEY(SubscriberId), Sub),
+    _ = erlang:put(?TOPIC_PD_KEY(Topic), SubscriberId),
     ok.
 
--spec delete_sub(emqx_mq_types:subscriber_id()) -> emqx_mq_sub:sub() | undefined.
-delete_sub(SubscriberId) ->
+-spec delete_sub(emqx_mq_types:subscriber_id() | emqx_types:topic()) ->
+    emqx_mq_sub:sub() | undefined.
+delete_sub(SubscriberId) when is_reference(SubscriberId) ->
     ChannelPid = self(),
     Key = {ChannelPid, SubscriberId},
     case ets:lookup(?TAB, Key) of
@@ -63,9 +66,17 @@ delete_sub(SubscriberId) ->
             case erlang:erase(?SUB_PD_KEY(SubscriberId)) of
                 undefined ->
                     undefined;
-                Sub ->
-                    Sub#{consumer_pid => SubscriberId}
+                #{topic := Topic} = Sub ->
+                    _ = erlang:erase(?TOPIC_PD_KEY(Topic)),
+                    Sub
             end
+    end;
+delete_sub(Topic) when is_binary(Topic) ->
+    case erlang:get(?TOPIC_PD_KEY(Topic)) of
+        undefined ->
+            undefined;
+        SubscriberId ->
+            delete_sub(SubscriberId)
     end.
 
 -spec get_sub(emqx_mq_types:subscriber_id()) -> emqx_mq_sub:t() | undefined.

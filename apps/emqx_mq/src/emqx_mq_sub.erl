@@ -18,7 +18,8 @@ It handles interactions between a channel and a consumer.
     handle_ping/1,
     handle_message/2,
     handle_timeout/2,
-    handle_cleanup/2
+    handle_cleanup/2,
+    handle_unsubscribe/1
 ]).
 
 -type t() :: #{
@@ -91,6 +92,11 @@ handle_timeout(#{consumer_pid := ConsumerPid, subscriber_id := SubscriberId} = S
 handle_cleanup(SubscriberId, ConsumerPid) ->
     ?tp(warning, mq_sub_cleanup, #{subscriber_id => SubscriberId, consumer_pid => ConsumerPid}),
     emqx_mq_consumer:disconnect(ConsumerPid, SubscriberId).
+
+-spec handle_unsubscribe(t()) -> ok.
+handle_unsubscribe(Sub) ->
+    ?tp(warning, mq_sub_handle_unsubscribe, #{sub => Sub}),
+    ok = destroy(Sub).
 
 %%--------------------------------------------------------------------
 %% Internal functions

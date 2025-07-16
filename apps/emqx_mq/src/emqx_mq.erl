@@ -15,6 +15,7 @@
     on_message_publish/1,
     on_client_authorize/4,
     on_session_subscribed/3,
+    on_session_unsubscribed/2,
     on_delivery_completed/2,
     on_message_nack/2,
     on_client_handle_info/3,
@@ -27,10 +28,10 @@ register_hooks() ->
     %% Select better priorities for the hooks
     %% TODO
     %% - session.resumed
-    %% - session.unsubscribed
     emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
     emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_HIGHEST),
     emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_HIGHEST),
+    emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_HIGHEST),
     emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
     emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_HIGHEST),
     emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_HIGHEST),
@@ -41,6 +42,7 @@ unregister_hooks() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}),
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
+    emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     emqx_hooks:del('client.authorize', {?MODULE, on_client_authorize}),
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}),
@@ -78,6 +80,16 @@ on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = FullTopic, _SubOpts)
     end;
 on_session_subscribed(_ClientInfo, FullTopic, _SubOpts) ->
     ?tp(warning, mq_on_session_subscribed, #{full_topic => FullTopic, handle => false}),
+    ok.
+
+on_session_unsubscribed(_ClientInfo, <<"$q/", Topic/binary>>) ->
+    case emqx_mq_sub_registry:delete_sub(Topic) of
+        undefined ->
+            ok;
+        Sub ->
+            ok = emqx_mq_sub:handle_unsubscribe(Sub)
+    end;
+on_session_unsubscribed(_ClientInfo, _FullTopic) ->
     ok.
 
 on_client_authorize(
@@ -118,7 +130,8 @@ on_client_handle_info(_ClientInfo, ?MQ_MESSAGE(Msg), #{deliver := Delivers} = Ac
 on_client_handle_info(ClientInfo, ?MQ_TIMEOUT(SubscriberId, TimerMsg), Acc) ->
     case with_sub(SubscriberId, handle_timeout, [TimerMsg]) of
         {error, recreate} ->
-            #{topic := Topic} = emqx_mq_sub_registry:delete_sub(SubscriberId),
+            OldSub = #{topic := Topic} = emqx_mq_sub_registry:delete_sub(SubscriberId),
+            ok = emqx_mq_sub:handle_unsubscribe(OldSub),
             case emqx_mq_sub:handle_subscribe(ClientInfo, Topic) of
                 {ok, NewSub} ->
                     ok = emqx_mq_sub_registry:register_sub(NewSub);
