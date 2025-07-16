@@ -1556,7 +1556,7 @@ enrich_fallback_actions_info(Info) ->
             lists:map(
                 fun
                     (#{<<"kind">> := <<"reference">>, <<"type">> := T, <<"name">> := N} = FBA) ->
-                        Tags = emqx_config:get([actions, T, N], []),
+                        Tags = emqx_config:get_raw([<<"actions">>, T, N, <<"tags">>], []),
                         FBA#{<<"tags">> => Tags};
                     (A) ->
                         %% Republish
