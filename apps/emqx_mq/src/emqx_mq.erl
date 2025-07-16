@@ -16,6 +16,7 @@
     on_client_authorize/4,
     on_session_subscribed/3,
     on_session_unsubscribed/2,
+    on_session_resumed/2,
     on_delivery_completed/2,
     on_message_nack/2,
     on_client_handle_info/3,
@@ -26,12 +27,11 @@
 register_hooks() ->
     %% TODO
     %% Select better priorities for the hooks
-    %% TODO
-    %% - session.resumed
     emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
     emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_HIGHEST),
     emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_HIGHEST),
     emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_HIGHEST),
+    emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_HIGHEST),
     emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
     emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_HIGHEST),
     emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_HIGHEST),
@@ -43,6 +43,7 @@ unregister_hooks() ->
     emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}),
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
+    emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
     emqx_hooks:del('client.authorize', {?MODULE, on_client_authorize}),
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}),
@@ -92,15 +93,26 @@ on_session_unsubscribed(_ClientInfo, <<"$q/", Topic/binary>>) ->
 on_session_unsubscribed(_ClientInfo, _FullTopic) ->
     ok.
 
+on_session_resumed(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
+    ok = maps:foreach(
+        fun
+            (<<"$q/", _/binary>> = FullTopic, SubOpts) ->
+                on_session_subscribed(ClientInfo, FullTopic, SubOpts);
+            (_Topic, _SubOpts) ->
+                ok
+        end,
+        Subs
+    ).
+
 on_client_authorize(
     #{clientid := _ClientId}, #{action_type := _ActionType, qos := _QoS}, _Topic, _DefaultResult
 ) ->
     %% TODO
-    %% Forbid direct publish to $queue/
+    %% Forbid direct publish to $q/
     ignore.
 
 on_message_nack(_ClientInfo, Delivers) ->
-    [_Nacked, NotNacked] = lists:partition(
+    {_Nacked, NotNacked} = lists:partition(
         fun({deliver, _, Msg}) ->
             SubscriberId = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg),
             case with_sub(SubscriberId, handle_ack, [Msg, ?MQ_NACK]) of
