@@ -147,13 +147,16 @@ t_cluster_node_leaving(Config) ->
     ClusterNode = ?config(cluster_node, Config),
     ok = emqx_router:add_route(<<"leaving/b/c">>, ClusterNode),
     ok = emqx_router:add_route(<<"test/e/f">>, node()),
-    ?assertMatch([_, _], emqx_router:topics()),
+    _SubPid = start_remote_shared_sub(ClusterNode, <<"g">>, <<"leaving/g/h">>),
+    ?assertMatch([_, _, _], emqx_router:topics()),
+    ?assertMatch([_], emqx_shared_sub:subscribers(<<"g">>, '_')),
     {ok, {ok, _}} = ?wait_async_action(
         erpc:call(ClusterNode, ekka, leave, []),
         #{?snk_kind := router_node_routing_table_purged, node := ClusterNode},
         3_000
     ),
-    ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
+    ?assertEqual([<<"test/e/f">>], emqx_router:topics()),
+    ?assertEqual([], emqx_shared_sub:subscribers(<<"g">>, '_')).
 
 t_cluster_node_down('init', Config) ->
     start_join_node(cluster_node_down, Config);
@@ -164,7 +167,9 @@ t_cluster_node_down(Config) ->
     ClusterNode = ?config(cluster_node, Config),
     emqx_router:add_route(<<"down/b/#">>, ClusterNode),
     emqx_router:add_route(<<"test/e/f">>, node()),
-    ?assertMatch([_, _], emqx_router:topics()),
+    _SubPid = start_remote_shared_sub(ClusterNode, <<"g">>, <<"down/g/+">>),
+    ?assertMatch([_, _, _], emqx_router:topics()),
+    ?assertMatch([_], emqx_shared_sub:subscribers(<<"g">>, '_')),
     {ok, SRef} = snabbkaffe:subscribe(
         %% Should be purged after ~2 reconciliations.
         ?match_event(#{?snk_kind := router_node_routing_table_purged, node := ClusterNode}),
@@ -173,7 +178,8 @@ t_cluster_node_down(Config) ->
     ),
     ok = emqx_cth_cluster:stop([ClusterNode]),
     {ok, _Event} = snabbkaffe:receive_events(SRef),
-    ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
+    ?assertEqual([<<"test/e/f">>], emqx_router:topics()),
+    ?assertEqual([], emqx_shared_sub:subscribers(<<"g">>, '_')).
 
 t_cluster_node_orphan('init', Config) ->
     Config;
@@ -203,7 +209,9 @@ t_cluster_node_force_leave(Config) ->
     ClusterNode = ?config(cluster_node, Config),
     emqx_router:add_route(<<"forceleave/b/#">>, ClusterNode),
     emqx_router:add_route(<<"test/e/f">>, node()),
-    ?assertMatch([_, _], emqx_router:topics()),
+    _SubPid = start_remote_shared_sub(ClusterNode, <<"g">>, <<"forceleave/#">>),
+    ?assertMatch([_, _, _], emqx_router:topics()),
+    ?assertMatch([_], emqx_shared_sub:subscribers(<<"g">>, '_')),
     {ok, SRef} = snabbkaffe:subscribe(
         ?match_event(#{?snk_kind := router_node_routing_table_purged, node := ClusterNode}),
         1,
@@ -222,7 +230,8 @@ t_cluster_node_force_leave(Config) ->
             ok
     end,
     {ok, _Event} = snabbkaffe:receive_events(SRef),
-    ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
+    ?assertEqual([<<"test/e/f">>], emqx_router:topics()),
+    ?assertEqual([], emqx_shared_sub:subscribers(<<"g">>, '_')).
 
 t_cluster_node_restart('init', Config) ->
     start_join_node(cluster_node_restart, Config);
@@ -234,10 +243,11 @@ t_cluster_node_restart(Config) ->
     ClusterSpec = ?config(cluster_node_spec, Config),
     emqx_router:add_route(<<"restart/b/+">>, ClusterNode),
     emqx_router:add_route(<<"test/e/f">>, node()),
-    ?assertMatch([_, _], emqx_router:topics()),
+    _SubPid = start_remote_shared_sub(ClusterNode, <<"g">>, <<"restart/b/#">>),
+    ?assertMatch([_, _, _], emqx_router:topics()),
     ok = emqx_cth_cluster:stop([ClusterNode]),
     %% The route should still be there, still expecting the node to come back up.
-    ?assertMatch([_, _], emqx_router:topics()),
+    ?assertMatch([_, _, _], emqx_router:topics()),
     %% Verify broker is aware there's no reason to route to a node that is down.
     ok = timer:sleep(500),
     ?assertEqual(
@@ -246,7 +256,8 @@ t_cluster_node_restart(Config) ->
     ),
     _ = emqx_cth_cluster:restart(ClusterSpec),
     %% Node should have cleaned up upon restart.
-    ?assertEqual([<<"test/e/f">>], emqx_router:topics()).
+    ?assertEqual([<<"test/e/f">>], emqx_router:topics()),
+    ?assertEqual([], emqx_shared_sub:subscribers(<<"g">>, '_')).
 
 t_message(_) ->
     Pid = erlang:whereis(?ROUTER_HELPER),
@@ -339,3 +350,18 @@ stop_leave_node(Config) ->
     ClusterNode = ?config(cluster_node, Config),
     emqx_cluster:force_leave(ClusterNode),
     emqx_cth_cluster:stop([ClusterNode]).
+
+%%
+
+start_remote_shared_sub(Node, Group, Topic) ->
+    Pid = self(),
+    ShareTopic = emqx_topic:make_shared_record(Group, Topic),
+    SubPid = erpc:call(Node, erlang, spawn, [
+        fun() ->
+            ok = emqx_broker:subscribe(ShareTopic),
+            Pid ! {self(), ok},
+            timer:sleep(infinity)
+        end
+    ]),
+    ?assertReceive({SubPid, ok}, 5_000),
+    SubPid.
