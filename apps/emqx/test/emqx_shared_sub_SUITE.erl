@@ -760,18 +760,26 @@ t_stats(Config) when is_list(Config) ->
 
     ct:pal("Shared sub table: ~p", [ets:tab2list(emqx_shared_subscription)]),
     %% Verify LOCAL stats update
-    ?assertMatch(
-        #{'subscriptions.shared.count' := 1},
-        maps:from_list(emqx_stats:getstats())
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{'subscriptions.shared.count' := 1},
+            maps:from_list(emqx_stats:getstats())
+        )
     ),
     emqtt:unsubscribe(ConnPid1, SharedTopic),
     ct:sleep(100),
 
     ct:pal("Shared sub table: ~p", [ets:tab2list(emqx_shared_subscription)]),
     %% Verify LOCAL stats update again
-    ?assertMatch(
-        #{'subscriptions.shared.count' := 0},
-        maps:from_list(emqx_stats:getstats())
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{'subscriptions.shared.count' := 0},
+            maps:from_list(emqx_stats:getstats())
+        )
     ),
 
     %% Shutdown
