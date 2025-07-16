@@ -255,10 +255,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 collect_and_handle(Reg0, Down0) ->
-    {Reg, Down} = collect_messages(Reg0, Down0),
+    {Regs, Down} = collect_messages(Reg0, Down0),
     %% handle register before handle down to avoid race condition
     %% because down message is always the last one from a process
-    ok = handle_register(Reg),
+    ok = handle_registrations(Regs),
     ok = handle_down(Down).
 
 collect_messages(Reg, Down) ->
@@ -267,6 +267,7 @@ collect_messages(Reg, Down) ->
 %% Collect both register_sub and 'DOWN' messages in a loop.
 %% There is no other message sent to this process, so the
 %% 'receive' should not have to scan the mailbox.
+%% TODO: Double-check.
 collect_messages(Reg, Down, 0) ->
     {Reg, Down};
 collect_messages(Reg, Down, N) ->
@@ -279,14 +280,26 @@ collect_messages(Reg, Down, N) ->
         {Reg, Down}
     end.
 
-handle_register(Reg) ->
-    lists:foreach(fun do_handle_register/1, Reg).
+handle_registrations(Regs) ->
+    lists:foreach(fun handle_register/1, Regs).
 
-do_handle_register({SubId, SubPid}) ->
-    true = (SubId =:= undefined) orelse ets:insert(?SUBID, {SubId, SubPid}),
-    _ = erlang:monitor(process, SubPid),
-    true = ets:insert(?SUBMON, {SubPid, SubId}),
-    ok.
+handle_register({SubId, SubPid}) ->
+    record_subscription(SubId, SubPid),
+    monitor_subscriber(SubId, SubPid).
+
+record_subscription(undefined, _) ->
+    true;
+record_subscription(SubId, SubPid) ->
+    ets:insert(?SUBID, {SubId, SubPid}).
+
+monitor_subscriber(SubId, SubPid) ->
+    case ets:member(?SUBMON, SubPid) of
+        false ->
+            _MRef = erlang:monitor(process, SubPid),
+            ets:insert(?SUBMON, {SubPid, SubId});
+        true ->
+            true
+    end.
 
 handle_down(SubPids) ->
     ok = emqx_pool:async_submit(
