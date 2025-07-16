@@ -267,7 +267,6 @@ collect_messages(Reg, Down) ->
 %% Collect both register_sub and 'DOWN' messages in a loop.
 %% There is no other message sent to this process, so the
 %% 'receive' should not have to scan the mailbox.
-%% TODO: Double-check.
 collect_messages(Reg, Down, 0) ->
     {Reg, Down};
 collect_messages(Reg, Down, N) ->
