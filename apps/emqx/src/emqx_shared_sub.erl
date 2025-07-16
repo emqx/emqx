@@ -455,7 +455,7 @@ init([]) ->
 %% Deprecated, left for backwards compatibility.
 %% Should be removed in the next release.
 init_monitors() ->
-    pmon_new().
+    emqx_pmon:new().
 
 handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon}) ->
     handle_subscribe(Group, Topic, SubPid),
