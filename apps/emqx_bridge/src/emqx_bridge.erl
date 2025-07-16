@@ -227,7 +227,8 @@ send_to_matched_egress_bridges_loop(Topic, Msg, [Id | Ids]) ->
     send_to_matched_egress_bridges_loop(Topic, Msg, Ids).
 
 send_message(BridgeId, Message) ->
-    {BridgeV1Type, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    #{type := BridgeV1Type, name := BridgeName} =
+        emqx_bridge_resource:parse_bridge_id(BridgeId),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeV1Type) of
         true ->
             ActionType = emqx_action_info:bridge_v1_type_to_action_type(BridgeV1Type),
@@ -313,7 +314,7 @@ list() ->
     BridgeV1Bridges ++ BridgeV2Bridges.
 
 lookup(Id) ->
-    {Type, Name} = emqx_bridge_resource:parse_bridge_id(Id),
+    #{type := Type, name := Name} = emqx_bridge_resource:parse_bridge_id(Id),
     lookup(Type, Name).
 
 is_exist_v1(Type, Name) ->

@@ -957,12 +957,8 @@ config(Args0, More, ConfigTemplateFun) ->
     ConfText = hocon_config(Args, ConfigTemplateFun),
     {ok, Conf} = hocon:binary(ConfText, #{format => map}),
     Name = bin(maps:get("bridge_name", Args)),
-    %% TODO can we skip this old check?
     ct:pal("Running tests with conf:\n~p", [Conf]),
-    % % InstId = maps:get("instance_id", Args),
     TypeBin = ?BRIDGE_TYPE_BIN,
-    % <<"connector:", BridgeId/binary>> = InstId,
-    % {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}),
     hocon_tconf:check_plain(
         emqx_bridge_schema,
         Conf,

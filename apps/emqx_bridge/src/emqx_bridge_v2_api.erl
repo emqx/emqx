@@ -81,7 +81,7 @@
 
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}) of
-        {BridgeType, BridgeName} ->
+        #{type := BridgeType, name := BridgeName} ->
             EXPR
     catch
         throw:#{reason := Reason} ->
@@ -721,7 +721,7 @@ check_api_schema(Request, ReqMeta = #{path := "/actions/:id", method := put}) ->
     try emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}) of
         %% NOTE
         %% Bridge type is known, refine the API schema to get more specific error messages.
-        {BridgeType, _Name} ->
+        #{type := BridgeType} ->
             Schema = emqx_bridge_v2_schema:action_api_schema("put", BridgeType),
             emqx_dashboard_swagger:filter_check_request(Request, refine_api_schema(Schema, ReqMeta))
     catch
@@ -733,7 +733,7 @@ check_api_schema(Request, ReqMeta = #{path := "/sources/:id", method := put}) ->
     try emqx_bridge_resource:parse_bridge_id(SourceId, #{atom_name => false}) of
         %% NOTE
         %% Source type is known, refine the API schema to get more specific error messages.
-        {BridgeType, _Name} ->
+        #{type := BridgeType} ->
             Schema = emqx_bridge_v2_schema:source_api_schema("put", BridgeType),
             emqx_dashboard_swagger:filter_check_request(Request, refine_api_schema(Schema, ReqMeta))
     catch

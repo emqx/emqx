@@ -444,7 +444,7 @@ get_basic_usage_info() ->
 tally_referenced_bridges(BridgeIds, Acc0) ->
     lists:foldl(
         fun(BridgeId, Acc) ->
-            {BridgeType, _BridgeName} = emqx_bridge_resource:parse_bridge_id(
+            #{type := BridgeType} = emqx_bridge_resource:parse_bridge_id(
                 BridgeId,
                 #{atom_name => false}
             ),
@@ -748,7 +748,7 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
             fun(BridgeId) ->
                 %% FIXME: this supposedly returns an upgraded type, but it's fuzzy: it
                 %% returns v1 types when attempting to "upgrade".....
-                {Type, Name} =
+                #{type := Type, name := Name} =
                     emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}),
                 case emqx_action_info:is_action_type(Type) of
                     true -> {source, Type, Name};

@@ -106,13 +106,24 @@ bridge_id(BridgeType, BridgeName) ->
 parse_bridge_id(BridgeId) ->
     parse_bridge_id(bin(BridgeId), #{atom_name => true}).
 
+%% Attempts to convert the type in the Id to a bridge v2 type, returning the v1 type if it
+%% fails.  At the time of writing, the latter should be impossible, as all v1 bridges have
+%% been converted to actions/sources.
 -spec parse_bridge_id(binary() | atom(), #{atom_name => boolean()}) ->
-    {atom(), atom() | binary()}.
-parse_bridge_id(<<"bridge:", ID/binary>>, Opts) ->
-    parse_bridge_id(ID, Opts);
+    #{
+        type := V2Type,
+        name := atom() | binary()
+    }
+when
+    V2Type :: atom().
+parse_bridge_id(<<"bridge:", Id/binary>>, Opts) ->
+    parse_bridge_id(Id, Opts);
 parse_bridge_id(BridgeId, Opts) ->
     {Type, Name} = emqx_resource:parse_resource_id(BridgeId, Opts),
-    {emqx_bridge_lib:upgrade_type(Type), Name}.
+    #{
+        type => emqx_bridge_lib:upgrade_type(Type),
+        name => Name
+    }.
 
 bridge_hookpoint(BridgeId) ->
     <<"$bridges/", (bin(BridgeId))/binary>>.
@@ -129,7 +140,7 @@ invalid_data(Reason) -> throw(#{kind => validation_error, reason => Reason}).
 
 reset_metrics(ResourceId) ->
     %% TODO we should not create atoms here
-    {Type, Name} = parse_bridge_id(ResourceId),
+    #{type := Type, name := Name} = parse_bridge_id(ResourceId),
     case emqx_bridge_v2:is_bridge_v2_type(Type) of
         false ->
             emqx_resource:reset_metrics(ResourceId);
@@ -168,7 +179,7 @@ start(Type, Name) ->
     end.
 
 create(BridgeId, Conf) ->
-    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    #{type := BridgeType, name := BridgeName} = parse_bridge_id(BridgeId),
     create(BridgeType, BridgeName, Conf).
 
 create(Type, Name, Conf) ->
@@ -193,7 +204,7 @@ create(Type, Name, Conf0, Opts) ->
     ok.
 
 update(BridgeId, {OldConf, Conf}) ->
-    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    #{type := BridgeType, name := BridgeName} = parse_bridge_id(BridgeId),
     update(BridgeType, BridgeName, {OldConf, Conf}).
 
 update(Type, Name, {OldConf, Conf}) ->
@@ -300,7 +311,7 @@ create_dry_run_bridge_v1(Type, Conf0) ->
     end.
 
 remove(BridgeId) ->
-    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    #{type := BridgeType, name := BridgeName} = parse_bridge_id(BridgeId),
     remove(BridgeType, BridgeName, #{}, #{}).
 
 remove(Type, Name) ->

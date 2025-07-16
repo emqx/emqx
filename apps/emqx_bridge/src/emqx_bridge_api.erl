@@ -62,7 +62,7 @@
 %% Don't turn bridge_name to atom, it's maybe not a existing atom.
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}) of
-        {BridgeType, BridgeName} ->
+        #{type := BridgeType, name := BridgeName} ->
             EXPR
     catch
         throw:#{reason := Reason} ->
