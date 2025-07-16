@@ -23,8 +23,8 @@ It handles interactions between a channel and a consumer.
 ]).
 
 -type t() :: #{
-    subscriber_id := emqx_mq_types:subscriber_id(),
-    consumer_pid := emqx_mq_types:consumer_pid(),
+    subscriber_ref := emqx_mq_types:subscriber_ref(),
+    consumer_ref := emqx_mq_types:consumer_ref(),
     topic := emqx_types:topic(),
     ping_tref := reference() | undefined,
     consumer_timeout_tref := reference() | undefined
@@ -40,16 +40,16 @@ It handles interactions between a channel and a consumer.
     {ok, t()} | {error, any()}.
 handle_subscribe(#{clientid := ClientId}, TopicFilter) ->
     case emqx_mq_consumer:find(TopicFilter) of
-        {ok, ConsumerPid} ->
-            SubscriberId = alias(),
+        {ok, ConsumerRef} ->
+            SubscriberRef = alias(),
             Sub0 = #{
-                subscriber_id => SubscriberId,
-                consumer_pid => ConsumerPid,
+                subscriber_ref => SubscriberRef,
+                consumer_ref => ConsumerRef,
                 topic => TopicFilter,
                 ping_tref => undefined,
                 consumer_timeout_tref => undefined
             },
-            ok = emqx_mq_consumer:connect(ConsumerPid, SubscriberId, ClientId),
+            ok = emqx_mq_consumer:connect(ConsumerRef, SubscriberRef, ClientId),
             Sub1 = reset_timers(Sub0),
             {ok, Sub1};
         {error, Reason} ->
@@ -57,12 +57,12 @@ handle_subscribe(#{clientid := ClientId}, TopicFilter) ->
     end.
 
 -spec handle_ack(t(), emqx_types:msg(), emqx_mq_types:ack()) -> ok.
-handle_ack(#{consumer_pid := ConsumerPid, subscriber_id := SubscriberId}, Msg, Ack) ->
+handle_ack(#{consumer_ref := ConsumerRef, subscriber_ref := SubscriberRef}, Msg, Ack) ->
     case emqx_message:get_header(?MQ_HEADER_MESSAGE_ID, Msg) of
         undefined ->
             ok;
         MessageId ->
-            ok = emqx_mq_consumer:ack(ConsumerPid, SubscriberId, MessageId, Ack)
+            ok = emqx_mq_consumer:ack(ConsumerRef, SubscriberRef, MessageId, Ack)
     end.
 
 -spec handle_ping(t()) -> {ok, t()}.
@@ -83,15 +83,15 @@ handle_timeout(Sub, consumer_timeout) ->
     %% TODO
     %% Log error
     {error, recreate};
-handle_timeout(#{consumer_pid := ConsumerPid, subscriber_id := SubscriberId} = Sub, ping) ->
+handle_timeout(#{consumer_ref := ConsumerRef, subscriber_ref := SubscriberRef} = Sub, ping) ->
     ?tp(warning, mq_sub_handle_timeout, #{sub => Sub, timer_msg => ping}),
-    ok = emqx_mq_consumer:ping(ConsumerPid, SubscriberId),
+    ok = emqx_mq_consumer:ping(ConsumerRef, SubscriberRef),
     {ok, reset_ping_timer(Sub)}.
 
--spec handle_cleanup(emqx_mq_types:subscriber_id(), emqx_mq_types:consumer_pid()) -> ok.
-handle_cleanup(SubscriberId, ConsumerPid) ->
-    ?tp(warning, mq_sub_cleanup, #{subscriber_id => SubscriberId, consumer_pid => ConsumerPid}),
-    emqx_mq_consumer:disconnect(ConsumerPid, SubscriberId).
+-spec handle_cleanup(emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref()) -> ok.
+handle_cleanup(SubscriberRef, ConsumerRef) ->
+    ?tp(warning, mq_sub_cleanup, #{subscriber_ref => SubscriberRef, consumer_ref => ConsumerRef}),
+    emqx_mq_consumer:disconnect(ConsumerRef, SubscriberRef).
 
 -spec handle_unsubscribe(t()) -> ok.
 handle_unsubscribe(Sub) ->
@@ -103,32 +103,32 @@ handle_unsubscribe(Sub) ->
 %%--------------------------------------------------------------------
 
 destroy(#{
-    consumer_pid := ConsumerPid,
-    subscriber_id := SubscriberId,
+    consumer_ref := ConsumerRef,
+    subscriber_ref := SubscriberRef,
     consumer_timeout_tref := ConsumerTimeoutTRef,
     ping_tref := PingTRef
 }) ->
     _ = emqx_utils:cancel_timer(ConsumerTimeoutTRef),
     _ = emqx_utils:cancel_timer(PingTRef),
-    ok = emqx_mq_consumer:disconnect(ConsumerPid, SubscriberId),
-    _ = unalias(SubscriberId),
+    ok = emqx_mq_consumer:disconnect(ConsumerRef, SubscriberRef),
+    _ = unalias(SubscriberRef),
     ok.
 
 reset_consumer_timeout_timer(
-    #{consumer_timeout_tref := TRef, subscriber_id := SubscriberId} = Sub
+    #{consumer_timeout_tref := TRef, subscriber_ref := SubscriberRef} = Sub
 ) ->
     _ = emqx_utils:cancel_timer(TRef),
     Sub#{
         consumer_timeout_tref => erlang:send_after(
-            ?DEFAULT_CONSUMER_TIMEOUT, self(), ?MQ_TIMEOUT(SubscriberId, consumer_timeout)
+            ?DEFAULT_CONSUMER_TIMEOUT, self(), ?MQ_TIMEOUT(SubscriberRef, consumer_timeout)
         )
     }.
 
-reset_ping_timer(#{ping_tref := TRef, subscriber_id := SubscriberId} = Sub) ->
+reset_ping_timer(#{ping_tref := TRef, subscriber_ref := SubscriberRef} = Sub) ->
     _ = emqx_utils:cancel_timer(TRef),
     Sub#{
         ping_tref => erlang:send_after(
-            ?DEFAULT_PING_INTERVAL, self(), ?MQ_TIMEOUT(SubscriberId, ping)
+            ?DEFAULT_PING_INTERVAL, self(), ?MQ_TIMEOUT(SubscriberRef, ping)
         )
     }.
 

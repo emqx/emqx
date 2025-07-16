@@ -60,9 +60,9 @@ on_delivery_completed(Msg, Info) ->
     case emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg, undefined) of
         undefined ->
             ok;
-        SubscriberId ->
+        SubscriberRef ->
             ReasonCode = maps:get(reason_code, Info, ?RC_SUCCESS),
-            ok = with_sub(SubscriberId, handle_ack, [Msg, ack_from_rc(ReasonCode)])
+            ok = with_sub(SubscriberRef, handle_ack, [Msg, ack_from_rc(ReasonCode)])
     end.
 
 on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = FullTopic, _SubOpts) ->
@@ -128,8 +128,8 @@ on_client_authorize(
     ignore.
 
 on_message_nack(Msg, false) ->
-    SubscriberId = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg),
-    case with_sub(SubscriberId, handle_ack, [Msg, ?MQ_NACK]) of
+    SubscriberRef = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg),
+    case with_sub(SubscriberRef, handle_ack, [Msg, ?MQ_NACK]) of
         not_found ->
             ok;
         ok ->
@@ -141,21 +141,21 @@ on_message_nack(Msg, false) ->
 on_message_nack(_Msg, true) ->
     ok.
 
-on_client_handle_info(_ClientInfo, ?MQ_PING_SUBSCRIBER(SubscriberId), Acc) ->
-    ok = with_sub(SubscriberId, handle_ping, []),
+on_client_handle_info(_ClientInfo, ?MQ_PING_SUBSCRIBER(SubscriberRef), Acc) ->
+    ok = with_sub(SubscriberRef, handle_ping, []),
     {ok, Acc};
 on_client_handle_info(_ClientInfo, ?MQ_MESSAGE(Msg), #{deliver := Delivers} = Acc) ->
-    SubscriberId = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg, undefined),
-    case with_sub(SubscriberId, handle_message, [Msg]) of
+    SubscriberRef = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg, undefined),
+    case with_sub(SubscriberRef, handle_message, [Msg]) of
         {ok, NewDelivers} ->
             {ok, Acc#{deliver => NewDelivers ++ Delivers}};
         not_found ->
             {ok, Acc}
     end;
-on_client_handle_info(ClientInfo, ?MQ_TIMEOUT(SubscriberId, TimerMsg), Acc) ->
-    case with_sub(SubscriberId, handle_timeout, [TimerMsg]) of
+on_client_handle_info(ClientInfo, ?MQ_TIMEOUT(SubscriberRef, TimerMsg), Acc) ->
+    case with_sub(SubscriberRef, handle_timeout, [TimerMsg]) of
         {error, recreate} ->
-            OldSub = #{topic := Topic} = emqx_mq_sub_registry:delete_sub(SubscriberId),
+            OldSub = #{topic := Topic} = emqx_mq_sub_registry:delete_sub(SubscriberRef),
             ok = emqx_mq_sub:handle_unsubscribe(OldSub),
             case emqx_mq_sub:handle_subscribe(ClientInfo, Topic) of
                 {ok, NewSub} ->
@@ -178,8 +178,8 @@ on_client_handle_info(_ClientInfo, Message, Acc) ->
 on_channel_unregistered(ChannelPid) ->
     Subs = emqx_mq_sub_registry:cleanup_subs(ChannelPid),
     ok = lists:foreach(
-        fun({SubscriberId, ConsumerPid}) ->
-            emqx_mq_sub:handle_cleanup(SubscriberId, ConsumerPid)
+        fun({SubscriberRef, ConsumerRef}) ->
+            emqx_mq_sub:handle_cleanup(SubscriberRef, ConsumerRef)
         end,
         Subs
     ).
@@ -190,8 +190,8 @@ on_channel_unregistered(ChannelPid) ->
 
 with_sub(undefined, _Handler, _Args) ->
     not_found;
-with_sub(SubscriberId, Handler, Args) ->
-    case emqx_mq_sub_registry:get_sub(SubscriberId) of
+with_sub(SubscriberRef, Handler, Args) ->
+    case emqx_mq_sub_registry:get_sub(SubscriberRef) of
         undefined ->
             not_found;
         Sub ->
@@ -201,10 +201,10 @@ with_sub(SubscriberId, Handler, Args) ->
                 {error, Reason} ->
                     {error, Reason};
                 {ok, NewSub} ->
-                    ok = emqx_mq_sub_registry:put_sub(SubscriberId, NewSub),
+                    ok = emqx_mq_sub_registry:put_sub(SubscriberRef, NewSub),
                     ok;
                 {ok, NewSub, Result} ->
-                    ok = emqx_mq_sub_registry:put_sub(SubscriberId, NewSub),
+                    ok = emqx_mq_sub_registry:put_sub(SubscriberRef, NewSub),
                     {ok, Result}
             end
     end.

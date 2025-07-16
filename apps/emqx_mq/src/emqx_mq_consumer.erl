@@ -100,7 +100,7 @@ Consumer's responsibilities:
 start_link(MQTopicFilter) ->
     gen_server:start_link(?MODULE, [MQTopicFilter], []).
 
--spec find(MQTopicFilter :: binary()) -> {ok, emqx_mq_types:consumer_pid()} | {error, term()}.
+-spec find(MQTopicFilter :: binary()) -> {ok, emqx_mq_types:consumer_ref()} | {error, term()}.
 find(MQTopicFilter) ->
     %% TODO
     %% implement cluster-wide discovery
