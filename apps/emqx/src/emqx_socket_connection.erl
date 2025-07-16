@@ -4,6 +4,10 @@
 
 %% This module interacts with the transport layer of MQTT
 %% Transport: esockd_socket.
+%%
+%% NOTE
+%% When changing this module, please make an effort to port changes to
+%% `emqx_connection` module if they make sense there, and vice versa.
 -module(emqx_socket_connection).
 
 -include("emqx.hrl").
@@ -20,7 +24,6 @@
 -endif.
 
 -elvis([{elvis_style, used_ignored_variable, disable}]).
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_connection]}}]).
 
 %% API
 -export([
