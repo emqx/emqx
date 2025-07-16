@@ -51,7 +51,7 @@
 
 %% Export for emqx_channel implementations
 -export([
-    maybe_nack/2
+    maybe_nack/1
 ]).
 
 %% Export for DS session GC worker and session implementations
@@ -1111,14 +1111,13 @@ handle_deliver(
     Delivers,
     Channel = #channel{
         takeover = true,
-        pendings = Pendings,
-        clientinfo = ClientInfo
+        pendings = Pendings
     }
 ) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
-    NPendings = lists:append(Pendings, maybe_nack(ClientInfo, Delivers)),
+    NPendings = lists:append(Pendings, maybe_nack(Delivers)),
     {ok, Channel#channel{pendings = NPendings}};
 handle_deliver(
     Delivers,
@@ -1131,7 +1130,7 @@ handle_deliver(
 ) ->
     %% NOTE
     %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
-    Delivers1 = maybe_nack(ClientInfo, Delivers),
+    Delivers1 = maybe_nack(Delivers),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     %% we need to update stats here, as the stats_timer is canceled after disconnected
@@ -1161,9 +1160,9 @@ do_handle_deliver(
     end.
 
 %% Nack delivers from shared subscription
-maybe_nack(ClientInfo, Delivers0) ->
+maybe_nack(Delivers0) ->
     Delivers = lists:filter(fun not_nacked_by_shared_sub/1, Delivers0),
-    emqx_hooks:run_fold('message.nack', [ClientInfo], Delivers).
+    lists:filter(fun not_nacked_by_hook/1, Delivers).
 
 not_nacked_by_shared_sub({deliver, _Topic, Msg}) ->
     case emqx_shared_sub:is_ack_required(Msg) of
@@ -1173,6 +1172,11 @@ not_nacked_by_shared_sub({deliver, _Topic, Msg}) ->
         false ->
             true
     end.
+
+not_nacked_by_hook({deliver, _Topic, Msg}) ->
+    %% NOTE if a callback nacks a message, it returns `true`
+    %% nack'ed messages will be dropped from the session.
+    not emqx_hooks:run_fold('message.nack', [Msg], false).
 
 %%--------------------------------------------------------------------
 %% Handle Frame Error
@@ -1452,7 +1456,7 @@ handle_call(
     Channel = #channel{
         session = Session,
         pendings = Pendings,
-        clientinfo = #{clientid := ClientId} = ClientInfo
+        clientinfo = #{clientid := ClientId}
     }
 ) ->
     ?EXT_TRACE_BROKER_DISCONNECT(
@@ -1465,7 +1469,7 @@ handle_call(
             ok = emqx_session_mem:takeover(Session),
             %% TODO: Should not drain deliver here (side effect)
             Delivers = emqx_utils:drain_deliver(),
-            AllPendings = lists:append(Pendings, maybe_nack(ClientInfo, Delivers)),
+            AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
             ?tp(
                 debug,
                 emqx_channel_takeover_end,

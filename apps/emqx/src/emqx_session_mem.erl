@@ -573,7 +573,10 @@ maybe_ack(Msg) ->
     emqx_shared_sub:maybe_ack(Msg).
 
 maybe_nack(Msg) ->
-    emqx_shared_sub:maybe_nack_dropped(Msg).
+    maybe
+        false ?= emqx_shared_sub:maybe_nack_dropped(Msg),
+        emqx_hooks:run_fold('message.nack', [Msg], false)
+    end.
 
 mark_begin_deliver(Msg) ->
     emqx_message:set_header(deliver_begin_at, erlang:system_time(millisecond), Msg).

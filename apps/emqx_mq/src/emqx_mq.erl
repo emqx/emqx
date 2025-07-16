@@ -105,28 +105,41 @@ on_session_resumed(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ).
 
 on_client_authorize(
-    #{clientid := _ClientId}, #{action_type := _ActionType, qos := _QoS}, _Topic, _DefaultResult
+    #{clientid := ClientId},
+    #{action_type := publish, qos := _QoS},
+    <<"$q/", _/binary>> = Topic,
+    _DefaultResult
 ) ->
-    %% TODO
-    %% Forbid direct publish to $q/
+    ?tp(info, mq_forbid_direct_publish_to_queue, #{topic => Topic, client_id => ClientId}),
+    {stop, #{result => deny, from => emqx_mq}};
+on_client_authorize(
+    #{clientid := ClientId},
+    #{action_type := subscribe, qos := QoS},
+    <<"$q/", _/binary>> = Topic,
+    _DefaultResult
+) when QoS =/= 1 ->
+    ?tp(info, mq_forbid_subscribe_to_queue_with_wrong_qos, #{
+        topic => Topic, qos => QoS, client_id => ClientId
+    }),
+    {stop, #{result => deny, from => emqx_mq}};
+on_client_authorize(
+    #{clientid := _ClientId}, #{action_type := _Action, qos := _QoS}, _Topic, _DefaultResult
+) ->
     ignore.
 
-on_message_nack(_ClientInfo, Delivers) ->
-    {_Nacked, NotNacked} = lists:partition(
-        fun({deliver, _, Msg}) ->
-            SubscriberId = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg),
-            case with_sub(SubscriberId, handle_ack, [Msg, ?MQ_NACK]) of
-                not_found ->
-                    false;
-                ok ->
-                    true;
-                {error, _Reason} ->
-                    false
-            end
-        end,
-        Delivers
-    ),
-    {ok, NotNacked}.
+on_message_nack(Msg, false) ->
+    SubscriberId = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg),
+    case with_sub(SubscriberId, handle_ack, [Msg, ?MQ_NACK]) of
+        not_found ->
+            ok;
+        ok ->
+            {ok, true};
+        {error, _Reason} ->
+            ok
+    end;
+%% Already nacked by some other hook
+on_message_nack(_Msg, true) ->
+    ok.
 
 on_client_handle_info(_ClientInfo, ?MQ_PING_SUBSCRIBER(SubscriberId), Acc) ->
     ok = with_sub(SubscriberId, handle_ping, []),

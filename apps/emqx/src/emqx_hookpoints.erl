@@ -221,8 +221,8 @@ when
 
 -callback 'message.acked'(emqx_types:clientinfo(), emqx_types:message()) -> callback_result().
 
--callback 'message.nack'(emqx_types:clientinfo(), Delivers) -> Delivers when
-    Delivers :: list(emqx_types:deliver()).
+-callback 'message.nack'(emqx_types:message(), boolean()) ->
+    fold_callback_result(boolean()).
 
 -callback 'delivery.dropped'(emqx_types:clientinfo(), emqx_types:message(), _Reason :: atom()) ->
     callback_result().
