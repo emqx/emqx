@@ -28,6 +28,11 @@
 %% replicants _do nothing_ on connectivity loss, regardless of how long
 %% it is. Coupled with the fact that replicants are not affected by
 %% "autoheal" mechanism, this may still lead to routing inconsistencies.
+%%
+%% TODO
+%% Since this module is now responsible for purging stuff not _directly_
+%% related to the routing table, it needs to be refactored to be more
+%% generic and placed in a more suitable spot in the supervision tree.
 
 -module(emqx_router_helper).
 
@@ -403,7 +408,7 @@ handle_purge(Node, Why, State) ->
 purge_dead_node(Node) ->
     case node_has_routes(Node) of
         true ->
-            ok = cleanup_routes(Node),
+            ok = do_purge_node(Node),
             true;
         false ->
             false
@@ -418,7 +423,7 @@ purge_dead_node_trans(Node) ->
                     global:trans(
                         {?LOCK(Node), self()},
                         fun() ->
-                            ok = cleanup_routes(Node),
+                            ok = do_purge_node(Node),
                             true
                         end,
                         Nodes,
@@ -431,8 +436,8 @@ purge_dead_node_trans(Node) ->
             false
     end.
 
-cleanup_routes(Node) ->
-    emqx_router:cleanup_routes(Node),
+do_purge_node(Node) ->
+    emqx_broker:purge_node(Node),
     remove_routing_node(Node).
 
 %%
