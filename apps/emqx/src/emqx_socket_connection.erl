@@ -1055,7 +1055,7 @@ handle_info({sock_error, Reason}, State) ->
         true -> ?SLOG(warning, #{msg => "socket_error", reason => Reason});
         false -> ok
     end,
-    handle_info({sock_closed, Reason}, close_socket(State));
+    handle_info({sock_closed, Reason}, ensure_close_socket(Reason, State));
 %% handle QUIC control stream events
 handle_info({quic, Event, Handle, Prop}, State) when is_atom(Event) ->
     case emqx_quic_stream:Event(Handle, Prop, State) of
@@ -1129,6 +1129,11 @@ check_oom(Pubs, Bytes, State = #state{zone = Zone}) ->
 
 %%--------------------------------------------------------------------
 %% Close Socket
+
+ensure_close_socket(closed, State) ->
+    socket_closed(State);
+ensure_close_socket(_Reason, State) ->
+    close_socket(State).
 
 close_socket(State = #state{sockstate = closed}) ->
     State;
