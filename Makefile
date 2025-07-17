@@ -235,7 +235,7 @@ $(foreach zt,$(ALL_TGZS),$(eval $(call gen-relup-target,$(zt))))
 .PHONY: $(REL_PROFILES:%=%-tgz)
 define gen-tgz-target
 $1-tgz: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) mix-deps-get merge-config
-	@env IS_ELIXIR=yes $(BUILD) $1 tgz
+	@env $(BUILD) $1 tgz
 endef
 ALL_TGZS = $(REL_PROFILES)
 $(foreach zt,$(ALL_TGZS),$(eval $(call gen-tgz-target,$(zt))))
@@ -245,7 +245,6 @@ $(foreach zt,$(ALL_TGZS),$(eval $(call gen-tgz-target,$(zt))))
 define gen-pkg-target
 $1: $(COMMON_DEPS) $(ELIXIR_COMMON_DEPS) merge-config
 	@env TAR_PKG_DIR=_build/$1 \
-		IS_ELIXIR=yes \
 		$(BUILD) $1 pkg
 endef
 $(foreach pt,$(PKG_PROFILES),$(eval $(call gen-pkg-target,$(pt))))

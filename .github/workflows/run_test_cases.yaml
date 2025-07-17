@@ -28,7 +28,6 @@ permissions:
 
 env:
   IS_CI: "yes"
-  NEW_MIX_BUILD: "1"
 
 jobs:
   eunit_and_proper:
@@ -115,7 +114,7 @@ jobs:
 
       - name: make cover
         run: |
-          docker exec -e PROFILE="$PROFILE" -e NEW_MIX_BUILD=1 -t erlang make cover
+          docker exec -e PROFILE="$PROFILE" -t erlang make cover
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

@@ -369,7 +369,6 @@ make_docker() {
        --build-arg RUN_FROM="${RUN_FROM}" \
        --build-arg SOURCE_TYPE="${EMQX_SOURCE_TYPE}" \
        --build-arg PROFILE="${PROFILE}" \
-       --build-arg IS_ELIXIR="yes" \
        --build-arg SUFFIX="${SUFFIX}" \
        --build-arg EXTRA_DEPS="${EXTRA_DEPS}" \
        --build-arg PKG_VSN="${PKG_VSN}" \

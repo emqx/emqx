@@ -72,9 +72,6 @@ on:
 permissions:
   contents: read
 
-env:
-  NEW_MIX_BUILD: "1"
-
 jobs:
   mac:
     strategy:

@@ -19,7 +19,6 @@ permissions:
 
 env:
   IS_CI: "yes"
-  NEW_MIX_BUILD: "1"
 
 defaults:
   run:
@@ -44,7 +43,6 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
           ENABLE_COVER_COMPILE: 1
-          NEW_MIX_BUILD: 1
           MAKE_TARGET: ${{ inputs.build_type == 'test' && 'test-compile' || format('{0}-compile', matrix.profile) }}
           ARTIFACT_NAME: ${{ format('{0}-{1}.zip', matrix.profile, inputs.build_type) }}
         run: |
@@ -64,7 +62,6 @@ jobs:
         if: inputs.build_type == 'release'
         env:
           PROFILE: ${{ matrix.profile }}
-          NEW_MIX_BUILD: 1
         run: make ${PROFILE}-rel
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: inputs.build_type == 'release'
