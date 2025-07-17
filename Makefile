@@ -298,7 +298,6 @@ fmt: $(REBAR)
 	                          -not -path '*/_checkouts/*' \
 	                          -type f \
 		| xargs $(SCRIPTS)/erlfmt -w
-	@$(SCRIPTS)/erlfmt -w 'apps/emqx/rebar.config.script'
 	@$(SCRIPTS)/erlfmt -w 'elvis.config'
 	@$(SCRIPTS)/erlfmt -w 'bin/nodetool'
 	@mix format
