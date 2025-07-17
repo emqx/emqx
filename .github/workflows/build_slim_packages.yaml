@@ -14,9 +14,6 @@ on:
 permissions:
   contents: read
 
-env:
-  NEW_MIX_BUILD: 1
-
 jobs:
   linux:
     runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
