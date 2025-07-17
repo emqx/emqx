@@ -453,7 +453,6 @@ defmodule EMQXUmbrella.MixProject do
             base_steps ++
               [
                 &prepare_tar_overlays/1,
-                &macos_pre_tar_steps/1,
                 :tar
               ]
           else
@@ -892,37 +891,6 @@ defmodule EMQXUmbrella.MixProject do
     |> Enum.each(&File.rm!/1)
 
     release
-  end
-
-  # macos builds need to perform these extra steps before running `:tar`.
-  defp macos_pre_tar_steps(release) do
-    if is_macos?() do
-      Mix.shell().info("[macos] signing binaries...")
-      os_cmd("scripts/rel/macos-sign-binaries.sh")
-      Mix.shell().info("[macos] notarizing package...")
-
-      {_, 0} =
-        System.cmd(
-          "bash",
-          ["scripts/rel/macos-notarize-package.sh"],
-          env: [
-            {"RELX_TEMP_DIR", release.path},
-            {"RELX_OUTPUT_DIR", release.path}
-          ]
-        )
-
-      Mix.shell().info("[macos] done")
-    end
-
-    release
-  end
-
-  def is_macos?() do
-    {output, _} = System.cmd("uname", [])
-
-    output
-    |> String.trim()
-    |> Kernel.==("Darwin")
   end
 
   #############################################################################
