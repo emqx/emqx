@@ -489,8 +489,6 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
 
-handle_info({mnesia_table_event, _Event}, State) ->
-    {noreply, State};
 handle_info({'DOWN', _MRef, process, SubPid, Reason}, State = #state{pmon = PMon}) ->
     ?SLOG(debug, #{msg => "shared_subscriber_down", sub_pid => SubPid, reason => Reason}),
     cleanup_down(SubPid),
