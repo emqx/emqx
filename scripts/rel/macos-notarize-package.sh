@@ -18,24 +18,14 @@ if [[ "${APPLE_ID:-0}" == 0 || "${APPLE_ID_PASSWORD:-0}" == 0 || "${APPLE_TEAM_I
     exit 0
 fi
 
-if [ -n "${RELX_TEMP_DIR:-}" ]; then
-  pushd "${RELX_TEMP_DIR}"
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <path-to-zip-package>"
+    exit 1
 fi
 
-ZIP_PACKAGE_PATH="${1:-${RELX_OUTPUT_DIR}/${RELX_RELEASE_NAME}-${RELX_RELEASE_VSN}.zip}"
-zip -qr "${ZIP_PACKAGE_PATH}" .
+ZIP_PACKAGE_PATH="${1}"
 
-if [ -n "${RELX_TEMP_DIR:-}" ]; then
-  popd
-fi
-
-# notarize the package
-# if fails, check what went wrong with this command:
-# xcrun notarytool log \
-#   --apple-id "${APPLE_ID}" \
-#   --password "${APPLE_ID_PASSWORD}" \
-#   --team-id "${APPLE_TEAM_ID}" <submission-id>
-echo 'Submitting the package for notarization to Apple (normally takes about a minute)'
+echo 'Submitting the package for notarization to Apple (normally takes 1-2 minutes)'
 notarytool_output="$(xcrun notarytool submit \
                                            --apple-id "${APPLE_ID}" \
                                            --password "${APPLE_ID_PASSWORD}" \

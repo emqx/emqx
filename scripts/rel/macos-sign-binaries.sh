@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 # intended to run on MacOS only
-# signs executables and runtime libraries found in $RELX_TEMP_DIR with developer certificate
+# signs executables and runtime libraries with developer certificate
+# path to binaries is passed as the first argument, defaults to current directory
 
 # required variables:
 # APPLE_DEVELOPER_IDENTITY: "Developer ID Application: <company name> (<hex id>)"
@@ -27,9 +28,7 @@ if [[ "${APPLE_DEVELOPER_ID_BUNDLE:-0}" == 0 || "${APPLE_DEVELOPER_ID_BUNDLE_PAS
     exit 0
 fi
 
-if [ -n "${RELX_TEMP_DIR:-}" ]; then
-  pushd "${RELX_TEMP_DIR}"
-fi
+PATH_TO_BINARIES="${1:-.}"
 
 PKSC12_FILE="$HOME/developer-id-application.p12"
 printf '%s' "${APPLE_DEVELOPER_ID_BUNDLE}" | base64 --decode > "${PKSC12_FILE}"
@@ -42,9 +41,6 @@ trap cleanup EXIT
 function cleanup {
     set +e
     security delete-keychain "${KEYCHAIN}" 2>/dev/null
-    if [ -n "${RELX_TEMP_DIR:-}" ]; then
-      cd "${RELX_TEMP_DIR}"
-    fi
     rm -f certificate.crt
 }
 
@@ -71,7 +67,7 @@ for keychain in ${keychains}; do
 done
 security -v list-keychains -s "${keychain_names[@]}" "${KEYCHAIN}"
 
-find . \( \
+find "${PATH_TO_BINARIES}" \( \
     -name asn1rt_nif.so \
     -o -name bcrypt_nif.so \
     -o -name beam.smp \
@@ -79,6 +75,8 @@ find . \( \
     -o -name crc32cer_nif.so \
     -o -name crypto.so \
     -o -name crypto_callback.so \
+    -o -name ct_run \
+    -o -name dialyzer \
     -o -name dyn_erl \
     -o -name dyntrace.so \
     -o -name epmd \
@@ -86,6 +84,7 @@ find . \( \
     -o -name erl_call \
     -o -name erl_child_setup \
     -o -name erlang_jq_port \
+    -o -name erlc \
     -o -name erlexec \
     -o -name escript \
     -o -name ezstd_nif.so \
@@ -95,10 +94,10 @@ find . \( \
     -o -name jq_nif1.so \
     -o -name liberocksdb.so \
     -o -name libjq.1.dylib \
-    -o -name 'libmsquic*.dylib' \
     -o -name libonig.5.dylib \
-    -o -name 'libquicer_nif*.dylib' \
     -o -name libquicer_nif.so \
+    -o -name 'libmsquic*.dylib' \
+    -o -name 'libquicer_nif*.dylib' \
     -o -name memsup \
     -o -name odbcserver \
     -o -name otp_test_engine.so \
@@ -108,10 +107,8 @@ find . \( \
     -o -name to_erl \
     -o -name trace_file_drv.so \
     -o -name trace_ip_drv.so \
+    -o -name typer \
+    -o -name yielding_c_fun \
 \) -print0 | xargs -0 --no-run-if-empty codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime
-
-if [ -n "${RELX_TEMP_DIR:-}" ]; then
-  popd
-fi
 
 cleanup
