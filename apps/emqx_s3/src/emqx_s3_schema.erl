@@ -6,6 +6,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include("emqx_s3.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 
@@ -204,9 +205,21 @@ fields(transport_options) ->
             )}
     ] ++
         emqx_connector_schema_lib:ssl_fields(_EnableByDefault = true) ++
-        props_with(
-            [headers, max_retries, request_timeout], emqx_bridge_http_connector:fields("request")
-        ).
+        fields(http_request);
+fields(http_request) ->
+    Fields = props_with(
+        [headers, max_retries, request_timeout], emqx_bridge_http_connector:fields("request")
+    ),
+    lists:map(
+        fun
+            ({max_retries = Key, Sc}) ->
+                Override = #{default => ?DEFAULT_MAX_RETRIES},
+                {Key, hocon_schema:override(Sc, Override)};
+            (Field) ->
+                Field
+        end,
+        Fields
+    ).
 
 desc(s3) ->
     "S3 connection options";

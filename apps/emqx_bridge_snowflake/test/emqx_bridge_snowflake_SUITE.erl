@@ -723,8 +723,13 @@ set_max_records(TCConfig, MaxRecords) ->
         )
     end).
 
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+    ).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_start_stop() ->
@@ -733,6 +738,7 @@ t_start_stop(matrix) ->
     [[?aggregated], [?streaming]];
 t_start_stop(TCConfig) when is_list(TCConfig) ->
     ok = emqx_bridge_v2_testlib:t_start_stop(TCConfig, "snowflake_connector_stop"),
+    ?assertMatch([], supervisor:which_children(emqx_bridge_snowflake_sup)),
     ok.
 
 t_create_via_http(Config) ->
@@ -1482,6 +1488,30 @@ t_streaming(TCConfig) when is_list(TCConfig) ->
         post_publish_fn => PostPublishFn
     },
     emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+t_optional_username(init, Config) when is_list(Config) ->
+    t_optional_username(init, maps:from_list(Config));
+t_optional_username(init, #{mock := true} = Config0) ->
+    Config = maps:update_with(
+        connector_config,
+        fun(Old) ->
+            {_, New} = maps:take(<<"username">>, Old),
+            New
+        end,
+        Config0
+    ),
+    maps:to_list(Config);
+t_optional_username(init, #{mock := false}) ->
+    %% requires manually setting up stuff in odbc.ini & friends
+    {skip, run_with_mock};
+t_optional_username('end', _Config) ->
+    ok.
+t_optional_username(Config) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(Config, #{})
+    ),
+    ok.
 
 %% Todo: test scenarios
 %% * User error in rule definition; e.g.:

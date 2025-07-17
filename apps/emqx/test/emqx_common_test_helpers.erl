@@ -14,6 +14,8 @@
     groups_with_matrix/1,
     matrix_to_groups/2,
     group_path/1,
+    group_path/2,
+    get_matrix_prop/3,
     init_per_testcase/3,
     end_per_testcase/3,
     boot_modules/1,
@@ -237,6 +239,15 @@ get_tc_prop(Module, TestCase, Key, Default) ->
         Val
     else
         _ -> Default
+    end.
+
+get_matrix_prop(TCConfig, Alternatives, Default) ->
+    GroupPath = group_path(TCConfig, [Default]),
+    case lists:filter(fun(G) -> lists:member(G, Alternatives) end, GroupPath) of
+        [] ->
+            Default;
+        [Opt] ->
+            Opt
     end.
 
 init_per_testcase(Module, TestCase, Config) ->
@@ -1441,6 +1452,12 @@ group_path(Config) ->
     catch
         _:_ ->
             []
+    end.
+
+group_path(TCConfig, Default) ->
+    case group_path(TCConfig) of
+        [] -> Default;
+        Path -> Path
     end.
 
 %% almost verify_none equivalent, but only ignores 'hostname_check_failed'

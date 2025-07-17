@@ -75,6 +75,8 @@
 %%------------------------------------------------------------------------------
 
 %% Allocatable resources
+-define(aggregated_http_pool(RES_ID), {aggregated_http_pool, RES_ID}).
+-define(aggregated_delivery_sup(RES_ID), {aggregated_delivery_sup, RES_ID}).
 -define(streaming_channel_pool(RES_ID), {streaming_channel_pool, RES_ID}).
 -define(streaming_setup_pool(RES_ID), {streaming_setup_pool, RES_ID}).
 -define(streaming_write_pool(RES_ID), {streaming_write_pool, RES_ID}).
@@ -125,7 +127,27 @@
         max_retries := non_neg_integer()
     }
 }.
--type action_state() :: #{}.
+-type action_state() :: aggregated_action_state() | streaming_action_state().
+
+-type aggregated_action_state() :: #{
+    ?mode := ?aggregated,
+    aggreg_id := term(),
+    supervisor := pid()
+}.
+
+-type streaming_action_state() :: #{
+    ?mode := ?streaming,
+    ?health_check_timeout := timeout(),
+    ?connect_timeout := timeout(),
+    ?setup := setup_pool_state(),
+    ?write := write_pool_state(),
+    ?channel := chan_pool_state()
+}.
+
+%% todo: refine
+-type setup_pool_state() :: map().
+-type write_pool_state() :: map().
+-type chan_pool_state() :: map().
 
 -type account() :: binary().
 -type database() :: binary().
@@ -221,12 +243,12 @@ on_start(ConnResId, ConnConfig) ->
     #{
         server := Server,
         account := Account,
-        username := Username,
         dsn := DSN,
         pool_size := PoolSize,
         proxy := ProxyConfig
     } = ConnConfig,
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SERVER_OPTS),
+    Username = maps:get(username, ConnConfig, undefined),
     Authn = mk_odbc_authn_opt(ConnConfig),
     PoolOpts = lists:flatten([
         Authn,
@@ -234,7 +256,7 @@ on_start(ConnResId, ConnConfig) ->
         {dsn, DSN},
         {account, Account},
         {server, Server},
-        {username, Username},
+        [{username, Username} || Username /= undefined],
         {proxy, ProxyConfig},
         {on_disconnect, {?MODULE, disconnect, []}}
     ]),
@@ -252,9 +274,10 @@ on_start(ConnResId, ConnConfig) ->
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok.
 on_stop(ConnResId, _ConnState) ->
+    aggregated_destroy_allocated_resources(ConnResId),
+    streaming_destroy_allocated_resources(ConnResId),
     Res = emqx_resource_pool:stop(ConnResId),
     ?tp("snowflake_connector_stop", #{instance_id => ConnResId}),
-    streaming_destroy_allocated_resources(ConnResId),
     Res.
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
@@ -412,9 +435,7 @@ do_health_check_connector(ConnectionPid) ->
 stage_file(ODBCPool, Filename, Database, Schema, Stage, ActionName) ->
     Res = ecpool:pick_and_do(
         ODBCPool,
-        fun(ConnPid) ->
-            ?MODULE:do_stage_file(ConnPid, Filename, Database, Schema, Stage, ActionName)
-        end,
+        {?MODULE, do_stage_file, [Filename, Database, Schema, Stage, ActionName]},
         %% Must be executed by the ecpool worker, which owns the ODBC connection.
         handover
     ),
@@ -685,7 +706,8 @@ create_action(
 ) ->
     ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ActionResId),
     maybe
-        {ok, ActionState0} ?= start_aggregated_http_pool(ActionResId, ActionConfig, ConnState),
+        {ok, ActionState0} ?=
+            start_aggregated_http_pool(ConnResId, ActionResId, ActionConfig, ConnState),
         _ = check_snowpipe_user_permission(ActionResId, ConnResId, ActionState0),
         start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0)
     end;
@@ -714,7 +736,7 @@ create_action(
             Error
     end.
 
-start_aggregated_http_pool(ActionResId, ActionConfig, ConnState) ->
+start_aggregated_http_pool(ConnResId, ActionResId, ActionConfig, ConnState) ->
     #{server := #{host := Host, port := Port}} = ConnState,
     #{
         parameters := #{
@@ -757,6 +779,7 @@ start_aggregated_http_pool(ActionResId, ActionConfig, ConnState) ->
             {pool_size, PoolSize}
             | common_ehttpc_pool_opts(ActionConfig)
         ],
+    allocate(ConnResId, ?aggregated_http_pool(ActionResId), ActionResId),
     case ehttpc_sup:start_pool(ActionResId, PoolOpts) of
         {ok, _} ->
             {ok, #{
@@ -771,7 +794,7 @@ start_aggregated_http_pool(ActionResId, ActionConfig, ConnState) ->
             }};
         {error, {already_started, _}} ->
             _ = ehttpc_sup:stop_pool(ActionResId),
-            start_aggregated_http_pool(ActionResId, ActionConfig, ConnState);
+            start_aggregated_http_pool(ConnResId, ActionResId, ActionConfig, ConnState);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -925,51 +948,52 @@ do_start_streaming_write_http_pool(ActionResId, WritePoolOpts) ->
     end.
 
 start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0) ->
+    #{
+        bridge_name := Name,
+        parameters := #{
+            mode := ?aggregated = Mode,
+            database := Database,
+            schema := Schema,
+            stage := Stage,
+            aggregation := #{
+                container := ContainerOpts,
+                max_records := MaxRecords,
+                time_interval := TimeInterval
+            },
+            max_block_size := MaxBlockSize,
+            min_block_size := MinBlockSize
+        }
+    } = ActionConfig,
+    #{http := HTTPClientConfig} = ActionState0,
+    Type = ?ACTION_TYPE_BIN,
+    AggregId = {Type, Name},
+    WorkDir = work_dir(Type, Name),
+    AggregOpts = #{
+        max_records => MaxRecords,
+        time_interval => TimeInterval,
+        work_dir => WorkDir
+    },
+    TransferOpts = #{
+        action => Name,
+        action_res_id => ActionResId,
+        odbc_pool => ConnResId,
+        database => Database,
+        schema => Schema,
+        stage => Stage,
+        http_pool => ActionResId,
+        http_client_config => HTTPClientConfig,
+        max_block_size => MaxBlockSize,
+        min_block_size => MinBlockSize,
+        work_dir => WorkDir
+    },
+    DeliveryOpts = #{
+        callback_module => ?MODULE,
+        container => ContainerOpts,
+        upload_options => TransferOpts
+    },
+    allocate(ConnResId, ?aggregated_delivery_sup(ActionResId), AggregId),
+    _ = ?AGGREG_SUP:delete_child(AggregId),
     maybe
-        #{
-            bridge_name := Name,
-            parameters := #{
-                mode := ?aggregated = Mode,
-                database := Database,
-                schema := Schema,
-                stage := Stage,
-                aggregation := #{
-                    container := ContainerOpts,
-                    max_records := MaxRecords,
-                    time_interval := TimeInterval
-                },
-                max_block_size := MaxBlockSize,
-                min_block_size := MinBlockSize
-            }
-        } = ActionConfig,
-        #{http := HTTPClientConfig} = ActionState0,
-        Type = ?ACTION_TYPE_BIN,
-        AggregId = {Type, Name},
-        WorkDir = work_dir(Type, Name),
-        AggregOpts = #{
-            max_records => MaxRecords,
-            time_interval => TimeInterval,
-            work_dir => WorkDir
-        },
-        TransferOpts = #{
-            action => Name,
-            action_res_id => ActionResId,
-            odbc_pool => ConnResId,
-            database => Database,
-            schema => Schema,
-            stage => Stage,
-            http_pool => ActionResId,
-            http_client_config => HTTPClientConfig,
-            max_block_size => MaxBlockSize,
-            min_block_size => MinBlockSize,
-            work_dir => WorkDir
-        },
-        DeliveryOpts = #{
-            callback_module => ?MODULE,
-            container => ContainerOpts,
-            upload_options => TransferOpts
-        },
-        _ = ?AGGREG_SUP:delete_child(AggregId),
         {ok, SupPid} ?=
             ?AGGREG_SUP:start_child(#{
                 id => AggregId,
@@ -983,8 +1007,7 @@ start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0) ->
         {ok, ActionState0#{
             mode => Mode,
             aggreg_id => AggregId,
-            supervisor => SupPid,
-            on_stop => {?AGGREG_SUP, delete_child, [AggregId]}
+            supervisor => SupPid
         }}
     else
         {error, Reason} ->
@@ -993,17 +1016,12 @@ start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0) ->
     end.
 
 -spec destroy_action(connector_resource_id(), action_resource_id(), action_state()) -> ok.
-destroy_action(ConnResId, ActionResId, #{mode := streaming} = _ActionState) ->
+destroy_action(ConnResId, ActionResId, #{mode := ?streaming} = _ActionState) ->
     streaming_destroy_allocated_resources(ConnResId, ActionResId),
     ok = ensure_common_action_destroyed(ActionResId),
     ok;
-destroy_action(_ConnResId, ActionResId, ActionState) ->
-    case ActionState of
-        #{on_stop := {M, F, A}} ->
-            ok = apply(M, F, A);
-        _ ->
-            ok
-    end,
+destroy_action(ConnResId, ActionResId, #{mode := ?aggregated} = _ActionState) ->
+    aggregated_destroy_allocated_resources(ConnResId, ActionResId),
     ok = ensure_common_action_destroyed(ActionResId),
     ok.
 
@@ -1455,9 +1473,7 @@ get_login_failure_details(ODBCPool, RequestId) ->
     try
         ecpool:pick_and_do(
             ODBCPool,
-            fun(ConnPid) ->
-                ?MODULE:do_get_login_failure_details(ConnPid, RequestId)
-            end,
+            {?MODULE, do_get_login_failure_details, [RequestId]},
             %% Must be executed by the ecpool worker, which owns the ODBC connection.
             handover
         )
@@ -1549,6 +1565,30 @@ common_ehttpc_pool_opts(ActionConfig) ->
             {max_inactive, MaxInactive},
             {enable_pipelining, Pipelining}
         ].
+
+aggregated_destroy_allocated_resources(ConnResId) ->
+    aggregated_destroy_allocated_resources(ConnResId, _ActionResId = '_').
+
+aggregated_destroy_allocated_resources(ConnResId, ActionResId) ->
+    maps:foreach(
+        fun
+            (?aggregated_http_pool(Id) = Key, Pool) when
+                ActionResId == '_' orelse Id == ActionResId
+            ->
+                _ = ehttpc_sup:stop_pool(Pool),
+                deallocate(ConnResId, Key),
+                ok;
+            (?aggregated_delivery_sup(Id) = Key, AggregId) when
+                ActionResId == '_' orelse Id == ActionResId
+            ->
+                _ = ?AGGREG_SUP:delete_child(AggregId),
+                deallocate(ConnResId, Key),
+                ok;
+            (_, _) ->
+                ok
+        end,
+        emqx_resource:get_allocated_resources(ConnResId)
+    ).
 
 streaming_destroy_allocated_resources(ConnResId) ->
     streaming_destroy_allocated_resources(ConnResId, _ActionResId = '_').

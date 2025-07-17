@@ -11,3 +11,5 @@
         exit:{noproc, _} -> {error, NoProcError}
     end
 ).
+
+-define(DEFAULT_MAX_RETRIES, 2).
