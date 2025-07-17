@@ -243,12 +243,12 @@ on_start(ConnResId, ConnConfig) ->
     #{
         server := Server,
         account := Account,
-        username := Username,
         dsn := DSN,
         pool_size := PoolSize,
         proxy := ProxyConfig
     } = ConnConfig,
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SERVER_OPTS),
+    Username = maps:get(username, ConnConfig, undefined),
     Authn = mk_odbc_authn_opt(ConnConfig),
     PoolOpts = lists:flatten([
         Authn,
@@ -256,7 +256,7 @@ on_start(ConnResId, ConnConfig) ->
         {dsn, DSN},
         {account, Account},
         {server, Server},
-        {username, Username},
+        [{username, Username} || Username /= undefined],
         {proxy, ProxyConfig},
         {on_disconnect, {?MODULE, disconnect, []}}
     ]),
