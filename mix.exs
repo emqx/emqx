@@ -527,8 +527,22 @@ defmodule EMQXUmbrella.MixProject do
     db_apps = Enum.map(db_apps, &{&1, :load})
     business_apps = Enum.map(business_apps, &{&1, :load})
 
+    unavailable_apps = unavailable_apps()
+
     [system_apps, db_apps, [emqx_ctl: :permanent, emqx_machine: :permanent], business_apps]
     |> List.flatten()
+    |> Enum.reject(fn {app, _mode} -> app in unavailable_apps end)
+  end
+
+  defp unavailable_apps() do
+    [
+      quicer: enable_quicer?(),
+      jq: enable_jq?(),
+      observer: has_app?(:observer),
+      mnesia_rocksdb: enable_rocksdb?()
+    ]
+    |> Enum.reject(fn {_, enabled?} -> enabled? end)
+    |> MapSet.new(fn {app, _enabled?} -> app end)
   end
 
   def check_profile!() do
@@ -1045,6 +1059,14 @@ defmodule EMQXUmbrella.MixProject do
       not build_without_quic?()
   end
 
+  def enable_rocksdb?() do
+    not build_without_rocksdb?()
+  end
+
+  def build_without_rocksdb?() do
+    "1" == System.get_env("BUILD_WITHOUT_ROCKSDB")
+  end
+
   def get_emqx_flavor() do
     case System.get_env("EMQX_FLAVOR") do
       nil -> :official
@@ -1086,6 +1108,16 @@ defmodule EMQXUmbrella.MixProject do
       str,
       "<%= \\g{1} %>"
     )
+  end
+
+  def has_app?(app) do
+    case Application.ensure_loaded(app) do
+      :ok ->
+        true
+
+      {:error, _} ->
+        false
+    end
   end
 
   defp build_info() do
@@ -1170,7 +1202,6 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp do_ct(args) do
-    IO.inspect(args)
     Mix.shell().info("testing")
 
     ensure_test_mix_env!()
