@@ -267,12 +267,14 @@ make_tgz() {
     cp_dyn_libs "${tard}/emqx"
     case "$SYSTEM" in
         macos*)
+            ./scripts/rel/macos-sign-binaries.sh "${tard}/emqx"
+            pushd "${tard}/emqx" >/dev/null
             ## create zip after change dir
             ## to avoid creating an extra level of 'emqx' dir in the .zip file
-            pushd "${tard}/emqx" >/dev/null
             zip -r "../${target_name}" -- * >/dev/null
             popd >/dev/null
             mv "${tard}/${target_name}" "${target}"
+            ./scripts/rel/macos-notarize-package.sh "${target}"
             # sha256sum may not be available on macos
             openssl dgst -sha256 "${target}" | cut -d ' ' -f 2  > "${target}.sha256"
             ;;
