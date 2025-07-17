@@ -17,8 +17,16 @@
 -define(DEFAULT_SUPERUSER_PASS, <<"admin_password">>).
 -define(ADD_DESCRIPTION, <<>>).
 
+-define(global_superuser, global_superuser).
+-define(global_viewer, global_viewer).
+-define(namespaced_superuser, namespaced_superuser).
+-define(namespaced_viewer, namespaced_viewer).
+
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
+
+groups() ->
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -41,6 +49,15 @@ end_per_suite(Config) ->
 end_per_testcase(_, _Config) ->
     All = emqx_dashboard_admin:all_users(),
     [emqx_dashboard_admin:remove_user(Name) || #{username := Name} <- All].
+
+role_of(TCConfig) ->
+    Alternatives = [
+        ?global_superuser,
+        ?global_viewer,
+        ?namespaced_superuser,
+        ?namespaced_viewer
+    ],
+    emqx_common_test_helpers:get_matrix_prop(TCConfig, Alternatives, ?global_superuser).
 
 t_create_bad_role(_) ->
     ?assertEqual(
@@ -161,11 +178,27 @@ t_clean_token(_) ->
     {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     ok.
 
-t_login_out(_) ->
+t_login_out() ->
+    [{matrix, true}].
+t_login_out(matrix) ->
+    [
+        [?global_superuser],
+        [?global_viewer],
+        [?namespaced_superuser],
+        [?namespaced_viewer]
+    ];
+t_login_out(TCConfig) when is_list(TCConfig) ->
     Username = <<"admin_token">>,
     Password = <<"public_www1">>,
     Desc = <<"desc">>,
-    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
+    Role =
+        case role_of(TCConfig) of
+            ?global_superuser -> ?ROLE_SUPERUSER;
+            ?global_viewer -> ?ROLE_VIEWER;
+            ?namespaced_superuser -> <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>;
+            ?namespaced_viewer -> <<"ns:ns1::", ?ROLE_VIEWER/binary>>
+        end,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, Role, Desc),
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     FakeReq = #{},
     FakeHandlerInfo = #{method => post, function => logout, module => emqx_dashboard_api},
