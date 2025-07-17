@@ -904,6 +904,29 @@ defmodule EMQXUmbrella.MixProject do
     |> Mix.Utils.extract_files("swagger*.{css,js}.map")
     |> Enum.each(&File.rm!/1)
 
+    ## mix copies the whole ERTS bin, which contains some extra executables we don't want.
+    executables_to_delete =
+      MapSet.new([
+        "dialyzer",
+        "ct_run",
+        "typer",
+        "erlc"
+      ])
+
+    erts_bin_dir =
+      [release.path, "erts-*", "bin"]
+      |> Path.join()
+      |> Path.wildcard()
+      |> hd()
+
+    erts_bin_dir
+    |> File.ls!()
+    |> Enum.filter(&(&1 in executables_to_delete))
+    |> Enum.each(fn f ->
+      f = Path.join(erts_bin_dir, f)
+      File.rm!(f)
+    end)
+
     release
   end
 
