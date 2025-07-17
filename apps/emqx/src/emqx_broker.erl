@@ -26,7 +26,10 @@
 
 -export([unsubscribe/1]).
 
--export([subscriber_down/1]).
+-export([
+    subscriber_down/1,
+    purge_node/1
+]).
 
 -export([
     publish/1,
@@ -412,8 +415,11 @@ aggre([#route{topic = To, dest = Node} | Rest], Dedup, Acc) when is_atom(Node) -
         false -> NAcc = Acc
     end,
     aggre(Rest, Dedup, NAcc);
-aggre([#route{topic = To, dest = {Group, _Node}} | Rest], _Dedup, Acc) ->
-    aggre(Rest, true, [{To, Group} | Acc]);
+aggre([#route{topic = To, dest = {Group, Node}} | Rest], Dedup, Acc) ->
+    case emqx_router_helper:is_routable(Node) of
+        true -> aggre(Rest, true, [{To, Group} | Acc]);
+        false -> aggre(Rest, Dedup, Acc)
+    end;
 aggre([], false, Acc) ->
     Acc;
 aggre([], true, Acc) ->
@@ -538,10 +544,19 @@ do_unsubscribe_down(Topic, SubPid, SubOpts) ->
     case Topic of
         B when is_binary(B) ->
             do_unsubscribe_regular(Topic, SubPid, SubOpts);
-        #share{} ->
-            %% NOTE: `emqx_shared_sub` manages its own monitors and cleanups.
-            ok
+        #share{group = Group, topic = RealTopic} ->
+            emqx_shared_sub:unsubscribe_down(Group, RealTopic, SubPid)
     end.
+
+%%--------------------------------------------------------------------
+%% Node Cleanup APIs
+%%--------------------------------------------------------------------
+
+-spec purge_node(node()) -> ok.
+purge_node(Node) ->
+    ok = emqx_router:cleanup_routes(Node),
+    _ = emqx_shared_sub:purge_node(Node),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Management APIs

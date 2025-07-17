@@ -4,6 +4,33 @@ defmodule Mix.Tasks.Emqx.Ct do
   # todo: invoke the equivalent of `make merge-config` as a requirement...
   @requirements ["compile", "loadpaths"]
 
+  @moduledoc """
+  Runs CT suites.
+
+  ## Options
+
+    * `--suites` - specify the comma-separated list of suites to run.
+
+    * `--cases` - specify the comma-separated list of test cases to run in a suite.
+
+    * `--group-paths` - group paths to run the tests.  Group sequences are dot-separated,
+      and different group paths are comma-separated.
+      Ex: `--group-paths a.b.c,x.y.z` will run the group path `[a, b, c]`, then `[x, y, z]`.
+
+    * `--spec` - specify the path to a CT test spec file.  This option cannot be combined
+      with the above.
+
+  ## Examples
+
+      $ mix ct --suites apps/emqx/test/emqx_SUITE.erl,apps/emqx/test/emqx_alarm_SUITE.erl
+
+      $ mix ct --suites apps/emqx_bridge_s3tables/test/emqx_bridge_s3tables_SUITE.erl \\
+               --group-paths batched.not_partitioned.avro,not_batched.not_partitioned.parquet \\
+               --cases t_rule_action
+
+      $ mix ct --spec apps/emqx_durable_storage/test/otx.spec
+  """
+
   @impl true
   def run(args) do
     opts = parse_args!(args)
@@ -47,21 +74,14 @@ defmodule Mix.Tasks.Emqx.Ct do
 
     :logger.set_primary_config(:level, :notice)
 
+    context = %{logdir: logdir, node_name: node_name}
+
     results =
-      :ct.run_test(
-        abort_if_missing_suites: true,
-        auto_compile: false,
-        suite: opts |> Map.fetch!(:suites) |> Enum.map(&to_charlist/1),
-        group:
-          opts
-          |> Map.fetch!(:group_paths)
-          |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end),
-        testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
-        readable: ~c"true",
-        name: node_name,
-        ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
-        logdir: to_charlist(logdir)
-      )
+      if !opts[:spec] do
+        run_suites(opts, context)
+      else
+        run_test_spec(opts, context)
+      end
 
     symlink_to_last_run(logdir)
 
@@ -76,6 +96,47 @@ defmodule Mix.Tasks.Emqx.Ct do
 
         if cover_enabled?(), do: write_coverdata(opts)
     end
+  end
+
+  def run_suites(opts, context) do
+    %{
+      logdir: logdir,
+      node_name: node_name
+    } = context
+
+    :ct.run_test(
+      abort_if_missing_suites: true,
+      auto_compile: false,
+      suite: opts |> Map.fetch!(:suites) |> Enum.map(&to_charlist/1),
+      group:
+        opts
+        |> Map.fetch!(:group_paths)
+        |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end),
+      testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
+      readable: ~c"true",
+      name: node_name,
+      ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
+      logdir: to_charlist(logdir)
+    )
+  end
+
+  def run_test_spec(opts, context) do
+    %{
+      logdir: logdir,
+      node_name: node_name
+    } = context
+
+    spec = opts[:spec]
+
+    :ct.run_test(
+      abort_if_missing_suites: true,
+      auto_compile: false,
+      spec: to_charlist(spec),
+      readable: ~c"true",
+      name: node_name,
+      ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
+      logdir: to_charlist(logdir)
+    )
   end
 
   @doc """
@@ -221,7 +282,8 @@ defmodule Mix.Tasks.Emqx.Ct do
           cover_export_name: :string,
           suites: :string,
           group_paths: :string,
-          cases: :string
+          cases: :string,
+          spec: :string
         ]
       )
 
@@ -234,7 +296,15 @@ defmodule Mix.Tasks.Emqx.Ct do
 
     cases = get_name_list(opts, :cases)
 
-    if suites == [] do
+    spec = opts[:spec]
+
+    if Enum.any?(suites ++ group_paths ++ cases) && !!spec do
+      Mix.raise(
+        "must define either `--spec` or `--suites`/`--group-paths`/`--cases`, but not both"
+      )
+    end
+
+    if !spec && suites == [] do
       Mix.raise(
         "must define at least one suite using --suites path/to/suite1.erl,path/to/suite2.erl"
       )
@@ -244,7 +314,8 @@ defmodule Mix.Tasks.Emqx.Ct do
       cover_export_name: Keyword.get(opts, :cover_export_name, "ct"),
       suites: suites,
       group_paths: group_paths,
-      cases: cases
+      cases: cases,
+      spec: spec
     }
   end
 

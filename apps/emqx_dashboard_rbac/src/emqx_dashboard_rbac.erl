@@ -110,7 +110,7 @@ do_check_rbac(
     %% emqx_mgmt_api_publish:publish_batch
     true;
 %% everyone should allow to logout
-do_check_rbac(#{?role := ?ROLE_VIEWER}, _, ?DASHBOARD_API(post, logout)) ->
+do_check_rbac(#{}, _, ?DASHBOARD_API(post, logout)) ->
     %% emqx_dashboard_api:logout
     true;
 %% viewer should allow to change self password and (re)setup multi-factor auth for self,

@@ -718,7 +718,10 @@ summary_scenarios_setup(Config) ->
                     {connector_type, ConnectorType}
                 ]),
             Type = ?ACTION_TYPE_2,
-            CreateConfig = mqtt_action_create_config(#{<<"connector">> => ConnectorName}),
+            CreateConfig = mqtt_action_create_config(#{
+                <<"connector">> => ConnectorName,
+                <<"tags">> => [<<"tag1">>]
+            }),
             {201, _} = create_action_api(Name, Type, CreateConfig),
             Summarize = fun emqx_bridge_v2_testlib:summarize_actions_api/0;
         sources ->
@@ -730,7 +733,10 @@ summary_scenarios_setup(Config) ->
                     {connector_type, ConnectorType}
                 ]),
             Type = ?SOURCE_TYPE,
-            CreateConfig = source_create_config(#{<<"connector">> => ConnectorName}),
+            CreateConfig = source_create_config(#{
+                <<"connector">> => ConnectorName,
+                <<"tags">> => [<<"tag1">>]
+            }),
             {201, _} = create_source_api(Name, Type, CreateConfig),
             Summarize = fun emqx_bridge_v2_testlib:summarize_sources_api/0
     end,
@@ -2052,7 +2058,7 @@ t_fallback_actions_returned_info(Config) ->
             <<"fallback_actions">> := [
                 #{
                     <<"kind">> := <<"reference">>,
-                    <<"tags">> := _
+                    <<"tags">> := [<<"tag1">>]
                 }
             ]
         }},
@@ -2063,7 +2069,7 @@ t_fallback_actions_returned_info(Config) ->
             <<"fallback_actions">> := [
                 #{
                     <<"kind">> := <<"reference">>,
-                    <<"tags">> := _
+                    <<"tags">> := [<<"tag1">>]
                 }
             ]
         }},
