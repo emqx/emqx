@@ -17,10 +17,10 @@
     on_session_subscribed/3,
     on_session_unsubscribed/2,
     on_session_resumed/2,
+    on_session_terminated/3,
     on_delivery_completed/2,
     on_message_nack/2,
-    on_client_handle_info/3,
-    on_channel_unregistered/1
+    on_client_handle_info/3
 ]).
 
 -spec register_hooks() -> ok.
@@ -32,10 +32,10 @@ register_hooks() ->
     emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_HIGHEST),
     emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_HIGHEST),
     emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_HIGHEST),
+    emqx_hooks:add('session.terminated', {?MODULE, on_session_terminated, []}, ?HP_HIGHEST),
     emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
     emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_HIGHEST),
-    emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_HIGHEST),
-    emqx_hooks:add('cm.channel.unregistered', {?MODULE, on_channel_unregistered, []}, ?HP_HIGHEST).
+    emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_HIGHEST).
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
@@ -44,10 +44,10 @@ unregister_hooks() ->
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
+    emqx_hooks:del('session.terminated', {?MODULE, on_session_terminated}),
     emqx_hooks:del('client.authorize', {?MODULE, on_client_authorize}),
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
-    emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}),
-    emqx_hooks:del('cm.channel.unregistered', {?MODULE, on_channel_unregistered}).
+    emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
 
 %%--------------------------------------------------------------------
 %% Hooks callbacks
@@ -67,28 +67,18 @@ on_delivery_completed(Msg, Info) ->
 
 on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = FullTopic, _SubOpts) ->
     ?tp(warning, mq_on_session_subscribed, #{full_topic => FullTopic, handle => true}),
-    %% TODO
-    %% Async connect to the consumer
-    case emqx_mq_sub:handle_subscribe(ClientInfo, Topic) of
-        {ok, Sub} ->
-            ?tp(warning, mq_on_session_subscribed_ok, #{sub => Sub}),
-            ok = emqx_mq_sub_registry:register_sub(Sub);
-        {error, Reason} ->
-            %% TODO
-            %% Log error
-            ?tp(error, mq_on_session_subscribed_error, #{topic => Topic, reason => Reason}),
-            ok
-    end;
+    Sub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
+    ok = emqx_mq_sub_registry:register(Sub);
 on_session_subscribed(_ClientInfo, FullTopic, _SubOpts) ->
     ?tp(warning, mq_on_session_subscribed, #{full_topic => FullTopic, handle => false}),
     ok.
 
 on_session_unsubscribed(_ClientInfo, <<"$q/", Topic/binary>>) ->
-    case emqx_mq_sub_registry:delete_sub(Topic) of
+    case emqx_mq_sub_registry:delete(Topic) of
         undefined ->
             ok;
         Sub ->
-            ok = emqx_mq_sub:handle_unsubscribe(Sub)
+            ok = emqx_mq_sub:handle_disconnect(Sub)
     end;
 on_session_unsubscribed(_ClientInfo, _FullTopic) ->
     ok.
@@ -147,39 +137,35 @@ on_client_handle_info(_ClientInfo, ?MQ_PING_SUBSCRIBER(SubscriberRef), Acc) ->
 on_client_handle_info(_ClientInfo, ?MQ_MESSAGE(Msg), #{deliver := Delivers} = Acc) ->
     SubscriberRef = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg, undefined),
     case with_sub(SubscriberRef, handle_message, [Msg]) of
+        not_found ->
+            {ok, Acc};
         {ok, NewDelivers} ->
             {ok, Acc#{deliver => NewDelivers ++ Delivers}};
-        not_found ->
+        {error, recreate} ->
+            ok = recreate_sub(SubscriberRef, _ClientInfo),
             {ok, Acc}
     end;
-on_client_handle_info(ClientInfo, ?MQ_TIMEOUT(SubscriberRef, TimerMsg), Acc) ->
-    case with_sub(SubscriberRef, handle_timeout, [TimerMsg]) of
-        {error, recreate} ->
-            OldSub = #{topic := Topic} = emqx_mq_sub_registry:delete_sub(SubscriberRef),
-            ok = emqx_mq_sub:handle_unsubscribe(OldSub),
-            case emqx_mq_sub:handle_subscribe(ClientInfo, Topic) of
-                {ok, NewSub} ->
-                    ok = emqx_mq_sub_registry:register_sub(NewSub);
-                {error, _Reason} ->
-                    %% TODO
-                    %% Log error
-                    ok
-            end;
+on_client_handle_info(ClientInfo, ?MQ_SUB_INFO(SubscriberRef, InfoMsg), Acc) ->
+    case with_sub(SubscriberRef, handle_info, [InfoMsg]) of
         not_found ->
             ok;
         ok ->
-            ok
+            ok;
+        {error, recreate} ->
+            ok = recreate_sub(SubscriberRef, ClientInfo)
     end,
     {ok, Acc};
 on_client_handle_info(_ClientInfo, Message, Acc) ->
     ?tp(warning, mq_on_client_handle_info, #{message => Message}),
     {ok, Acc}.
 
-on_channel_unregistered(ChannelPid) ->
-    Subs = emqx_mq_sub_registry:cleanup_subs(ChannelPid),
-    ok = lists:foreach(
-        fun({SubscriberRef, ConsumerRef}) ->
-            emqx_mq_sub:handle_cleanup(SubscriberRef, ConsumerRef)
+on_session_terminated(ClientInfo, _Reason, #{subscriptions := Subs} = _SessionInfo) ->
+    ok = maps:foreach(
+        fun
+            (<<"$q/", _/binary>> = FullTopic, _SubOpts) ->
+                on_session_unsubscribed(ClientInfo, FullTopic);
+            (_Topic, _SubOpts) ->
+                ok
         end,
         Subs
     ).
@@ -191,7 +177,7 @@ on_channel_unregistered(ChannelPid) ->
 with_sub(undefined, _Handler, _Args) ->
     not_found;
 with_sub(SubscriberRef, Handler, Args) ->
-    case emqx_mq_sub_registry:get_sub(SubscriberRef) of
+    case emqx_mq_sub_registry:find(SubscriberRef) of
         undefined ->
             not_found;
         Sub ->
@@ -201,13 +187,19 @@ with_sub(SubscriberRef, Handler, Args) ->
                 {error, Reason} ->
                     {error, Reason};
                 {ok, NewSub} ->
-                    ok = emqx_mq_sub_registry:put_sub(SubscriberRef, NewSub),
+                    ok = emqx_mq_sub_registry:update(SubscriberRef, NewSub),
                     ok;
                 {ok, NewSub, Result} ->
-                    ok = emqx_mq_sub_registry:put_sub(SubscriberRef, NewSub),
+                    ok = emqx_mq_sub_registry:update(SubscriberRef, NewSub),
                     {ok, Result}
             end
     end.
+
+recreate_sub(SubscriberRef, ClientInfo) ->
+    OldSub = #{topic := Topic} = emqx_mq_sub_registry:delete(SubscriberRef),
+    ok = emqx_mq_sub:handle_disconnect(OldSub),
+    NewSub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
+    ok = emqx_mq_sub_registry:register(NewSub).
 
 ack_from_rc(?RC_SUCCESS) -> ?MQ_ACK;
 ack_from_rc(_) -> ?MQ_NACK.

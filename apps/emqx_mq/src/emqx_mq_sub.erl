@@ -7,24 +7,34 @@
 -moduledoc """
 The module represents a subscription to a Message Queue consumer.
 It handles interactions between a channel and a consumer.
+
+It has two states:
+* `connecting` - the subscription is being established.
+* `{connected, ConsumerRef}` - the subscription is established and the consumer is connected.
+
+It uses two timers:
+* `consumer_timeout` - the timeout for the consumer to report about itself
+    (either by ping, message, or connection confirmation).
+* `ping` - the timeout for the ping message to be sent to the consumer.
 """.
 
 -include("emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
-    handle_subscribe/2,
+    handle_connect/2,
     handle_ack/3,
     handle_ping/1,
     handle_message/2,
-    handle_timeout/2,
-    handle_cleanup/2,
-    handle_unsubscribe/1
+    handle_info/2,
+    handle_disconnect/1
 ]).
 
+-type state() :: connecting | {connected, emqx_mq_types:consumer_ref()}.
+
 -type t() :: #{
+    state := state(),
     subscriber_ref := emqx_mq_types:subscriber_ref(),
-    consumer_ref := emqx_mq_types:consumer_ref(),
     topic := emqx_types:topic(),
     ping_tref := reference() | undefined,
     consumer_timeout_tref := reference() | undefined
@@ -36,28 +46,24 @@ It handles interactions between a channel and a consumer.
 %% API
 %%--------------------------------------------------------------------
 
--spec handle_subscribe(emqx_types:clientinfo(), emqx_types:topic()) ->
-    {ok, t()} | {error, any()}.
-handle_subscribe(#{clientid := ClientId}, TopicFilter) ->
-    case emqx_mq_consumer:find(TopicFilter) of
-        {ok, ConsumerRef} ->
-            SubscriberRef = alias(),
-            Sub0 = #{
-                subscriber_ref => SubscriberRef,
-                consumer_ref => ConsumerRef,
-                topic => TopicFilter,
-                ping_tref => undefined,
-                consumer_timeout_tref => undefined
-            },
-            ok = emqx_mq_consumer:connect(ConsumerRef, SubscriberRef, ClientId),
-            Sub1 = reset_timers(Sub0),
-            {ok, Sub1};
-        {error, Reason} ->
-            {error, {consumer_not_found, Reason}}
-    end.
+-spec handle_connect(emqx_types:clientinfo(), emqx_types:topic()) -> t().
+handle_connect(#{clientid := ClientId}, TopicFilter) ->
+    SubscriberRef = alias(),
+    Sub = #{
+        state => connecting,
+        subscriber_ref => SubscriberRef,
+        topic => TopicFilter,
+        ping_tref => undefined,
+        consumer_timeout_tref => undefined
+    },
+    ok = emqx_mq_consumer:connect(TopicFilter, SubscriberRef, ClientId),
+    reset_consumer_timeout_timer(Sub).
 
 -spec handle_ack(t(), emqx_types:msg(), emqx_mq_types:ack()) -> ok.
-handle_ack(#{consumer_ref := ConsumerRef, subscriber_ref := SubscriberRef}, Msg, Ack) ->
+handle_ack(#{state := connecting}, _Msg, _Ack) ->
+    %% Should not happen
+    ok;
+handle_ack(#{state := {connected, ConsumerRef}, subscriber_ref := SubscriberRef}, Msg, Ack) ->
     case emqx_message:get_header(?MQ_HEADER_MESSAGE_ID, Msg) of
         undefined ->
             ok;
@@ -71,48 +77,51 @@ handle_ping(Sub) ->
     {ok, reset_consumer_timeout_timer(Sub)}.
 
 -spec handle_message(t(), emqx_types:msg()) -> ok | {ok, t(), emqx_types:deliver()}.
+handle_message(#{state := connecting, topic := Topic} = _Sub, Msg) ->
+    %% TODO
+    ?tp(
+        warning,
+        mq_sub_handle_message_while_connecting,
+        #{queue_topic => Topic, topic => emqx_message:topic(Msg)}
+    ),
+    {error, recreate};
 handle_message(Sub0, Msg) ->
     Topic = emqx_message:topic(Msg),
     Sub = reset_consumer_timeout_timer(Sub0),
     {ok, Sub, [{deliver, Topic, Msg}]}.
 
--spec handle_timeout(t(), term()) -> {ok, t()} | {error, term()}.
-handle_timeout(Sub, consumer_timeout) ->
-    ?tp(warning, mq_sub_handle_timeout, #{sub => Sub, timer_msg => consumer_timeout}),
-    ok = destroy(Sub),
+-spec handle_info(t(), term()) -> {ok, t()} | {error, term()}.
+handle_info(Sub, consumer_timeout) ->
+    ?tp(warning, mq_sub_handle_info, #{sub => Sub, info_msg => consumer_timeout}),
     %% TODO
     %% Log error
     {error, recreate};
-handle_timeout(#{consumer_ref := ConsumerRef, subscriber_ref := SubscriberRef} = Sub, ping) ->
-    ?tp(warning, mq_sub_handle_timeout, #{sub => Sub, timer_msg => ping}),
+handle_info(#{state := {connected, ConsumerRef}, subscriber_ref := SubscriberRef} = Sub, ping) ->
+    ?tp(warning, mq_sub_handle_info, #{sub => Sub, info_msg => ping}),
     ok = emqx_mq_consumer:ping(ConsumerRef, SubscriberRef),
-    {ok, reset_ping_timer(Sub)}.
+    {ok, reset_ping_timer(Sub)};
+handle_info(#{state := connecting} = Sub0, {connected, ConsumerRef}) ->
+    ?tp(warning, mq_sub_handle_info, #{sub => Sub0, info_msg => {connected, ConsumerRef}}),
+    Sub = Sub0#{state => {connected, ConsumerRef}},
+    {ok, reset_timers(Sub)};
+handle_info(Sub, InfoMsg) ->
+    ?tp(warning, mq_sub_handle_info, #{sub => Sub, info_msg => InfoMsg}),
+    {ok, Sub}.
 
--spec handle_cleanup(emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref()) -> ok.
-handle_cleanup(SubscriberRef, ConsumerRef) ->
-    ?tp(warning, mq_sub_cleanup, #{subscriber_ref => SubscriberRef, consumer_ref => ConsumerRef}),
-    emqx_mq_consumer:disconnect(ConsumerRef, SubscriberRef).
-
--spec handle_unsubscribe(t()) -> ok.
-handle_unsubscribe(Sub) ->
-    ?tp(warning, mq_sub_handle_unsubscribe, #{sub => Sub}),
-    ok = destroy(Sub).
+-spec handle_disconnect(t()) -> ok.
+handle_disconnect(#{state := {connected, ConsumerRef}, subscriber_ref := SubscriberRef} = Sub) ->
+    ok = emqx_mq_consumer:disconnect(ConsumerRef, SubscriberRef),
+    destroy(Sub);
+handle_disconnect(Sub) ->
+    destroy(Sub).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-destroy(#{
-    consumer_ref := ConsumerRef,
-    subscriber_ref := SubscriberRef,
-    consumer_timeout_tref := ConsumerTimeoutTRef,
-    ping_tref := PingTRef
-}) ->
-    _ = emqx_utils:cancel_timer(ConsumerTimeoutTRef),
-    _ = emqx_utils:cancel_timer(PingTRef),
-    ok = emqx_mq_consumer:disconnect(ConsumerRef, SubscriberRef),
+destroy(#{subscriber_ref := SubscriberRef} = Sub) ->
     _ = unalias(SubscriberRef),
-    ok.
+    ok = cancel_timers(Sub).
 
 reset_consumer_timeout_timer(
     #{consumer_timeout_tref := TRef, subscriber_ref := SubscriberRef} = Sub
@@ -120,7 +129,7 @@ reset_consumer_timeout_timer(
     _ = emqx_utils:cancel_timer(TRef),
     Sub#{
         consumer_timeout_tref => erlang:send_after(
-            ?DEFAULT_CONSUMER_TIMEOUT, self(), ?MQ_TIMEOUT(SubscriberRef, consumer_timeout)
+            ?DEFAULT_CONSUMER_TIMEOUT, self(), ?MQ_SUB_INFO(SubscriberRef, consumer_timeout)
         )
     }.
 
@@ -128,10 +137,18 @@ reset_ping_timer(#{ping_tref := TRef, subscriber_ref := SubscriberRef} = Sub) ->
     _ = emqx_utils:cancel_timer(TRef),
     Sub#{
         ping_tref => erlang:send_after(
-            ?DEFAULT_PING_INTERVAL, self(), ?MQ_TIMEOUT(SubscriberRef, ping)
+            ?DEFAULT_PING_INTERVAL, self(), ?MQ_SUB_INFO(SubscriberRef, ping)
         )
     }.
 
 reset_timers(Sub0) ->
     Sub1 = reset_consumer_timeout_timer(Sub0),
     reset_ping_timer(Sub1).
+
+cancel_timer(Name, Sub) ->
+    MaybeTRef = maps:get(Name, Sub),
+    _ = emqx_utils:cancel_timer(MaybeTRef),
+    ok.
+
+cancel_timers(Sub) ->
+    lists:foreach(fun(Name) -> cancel_timer(Name, Sub) end, [consumer_timeout_tref, ping_tref]).

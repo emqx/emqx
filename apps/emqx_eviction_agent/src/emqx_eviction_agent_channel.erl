@@ -209,7 +209,7 @@ handle_deliver(
 ) ->
     % NOTE
     % This is essentially part of `emqx_session_mem` logic, thus call it directly.
-    Delivers1 = emqx_channel:maybe_nack(ClientInfo, Delivers),
+    Delivers1 = emqx_channel:maybe_nack(Delivers),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     Channel#{session := NSession}.

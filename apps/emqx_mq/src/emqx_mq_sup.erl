@@ -34,7 +34,6 @@ start_consumer(Id, Args) ->
     end.
 
 init(?ROOT_SUP) ->
-    ok = emqx_mq_sub_registry:create_tab(),
     SupFlags = #{
         strategy => one_for_all,
         intensity => 10,

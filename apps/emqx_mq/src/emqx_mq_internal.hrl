@@ -15,7 +15,7 @@
 
 -define(MQ_MESSAGE(MESSAGE), {mq_message, MESSAGE}).
 -define(MQ_PING_SUBSCRIBER(SUBSCRIBER_REF), {mq_ping, SUBSCRIBER_REF}).
--define(MQ_TIMEOUT(SUBSCRIBER_REF, MESSAGE), {mq_timeout, SUBSCRIBER_REF, MESSAGE}).
+-define(MQ_SUB_INFO(SUBSCRIBER_REF, MESSAGE), {mq_sub_info, SUBSCRIBER_REF, MESSAGE}).
 
 %% TODO
 %% configurable
