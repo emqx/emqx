@@ -544,9 +544,8 @@ do_unsubscribe_down(Topic, SubPid, SubOpts) ->
     case Topic of
         B when is_binary(B) ->
             do_unsubscribe_regular(Topic, SubPid, SubOpts);
-        #share{} ->
-            %% NOTE: `emqx_shared_sub` manages its own monitors and cleanups.
-            ok
+        #share{group = Group, topic = RealTopic} ->
+            emqx_shared_sub:unsubscribe_down(Group, RealTopic, SubPid)
     end.
 
 %%--------------------------------------------------------------------

@@ -18,7 +18,6 @@
 -include("types.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
--include_lib("snabbkaffe/include/trace.hrl").
 
 %% Mnesia bootstrap
 -export([create_tables/0]).
@@ -32,6 +31,7 @@
 -export([
     subscribe/3,
     unsubscribe/3,
+    unsubscribe_down/3,
     purge_node/1
 ]).
 
@@ -137,19 +137,17 @@ post_start() ->
     ok = purge_node(node()),
     ignore.
 
-%% @doc Subscribe `SubPid` to the shared subscription group-topic.
-%% This call *is not perfectly idempotent*, and currently `emqx_broker`
-%% guarantees that it's called only once (per new shared subscription).
 -spec subscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok.
 subscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
     gen_server:call(?SERVER, {subscribe, Group, Topic, SubPid}).
 
-%% @doc Unsubscribe `SubPid` from the shared subscription group-topic.
-%% This call *is not perfectly idempotent*, and currently `emqx_broker`
-%% guarantees that it's called only once (per existing shared subscription).
 -spec unsubscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok.
 unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
     gen_server:call(?SERVER, {unsubscribe, Group, Topic, SubPid}).
+
+-spec unsubscribe_down(emqx_types:group(), emqx_types:topic(), pid()) -> ok.
+unsubscribe_down(Group, Topic, SubPid) when is_pid(SubPid) ->
+    gen_server:cast(?SERVER, {unsubscribe, Group, Topic, SubPid}).
 
 -spec purge_node(node()) -> ok | false.
 purge_node(Node) ->
@@ -450,33 +448,21 @@ init([]) ->
     ]),
     %% Let `emqx_stats` periodically update stats instead of relying on mnesia events:
     ok = emqx_stats:update_interval(?MODULE, fun ?MODULE:update_stats/0),
-    {ok, #state{pmon = pmon_new()}}.
+    {ok, #state{}}.
 
 %% Deprecated, left for backwards compatibility.
 %% Should be removed in the next release.
 init_monitors() ->
     emqx_pmon:new().
 
-handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon}) ->
+handle_call({subscribe, Group, Topic, SubPid}, _From, State) ->
     handle_subscribe(Group, Topic, SubPid),
     update_stats(),
-    NPMon = pmon_inc_monitor(SubPid, PMon),
-    {reply, ok, State#state{pmon = NPMon}};
-handle_call({unsubscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon}) ->
+    {reply, ok, State};
+handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
     handle_unsubscribe(Group, Topic, SubPid),
     update_stats(),
-    case pmon_dec_monitor(SubPid, PMon) of
-        NPMon = #{} ->
-            ok;
-        {error, inconsistent} ->
-            NPMon = PMon,
-            ?tp(warning, "shared_subcriber_monitor_inconsistent", #{
-                subpid => SubPid,
-                group => Group,
-                topic => Topic
-            })
-    end,
-    {reply, ok, State#state{pmon = NPMon}};
+    {reply, ok, State};
 handle_call({purge, Node}, _From, State) ->
     handle_purge_node(Node),
     update_stats(),
@@ -485,16 +471,14 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
 
+handle_cast({unsubscribe, Group, Topic, SubPid}, State) ->
+    handle_unsubscribe(Group, Topic, SubPid),
+    update_stats(),
+    {noreply, State};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
 
-handle_info({'DOWN', _MRef, process, SubPid, Reason}, State = #state{pmon = PMon}) ->
-    ?SLOG(debug, #{msg => "shared_subscriber_down", sub_pid => SubPid, reason => Reason}),
-    cleanup_down(SubPid),
-    update_stats(),
-    NPMon = pmon_erase(SubPid, PMon),
-    {noreply, State#state{pmon = NPMon}};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -534,17 +518,8 @@ maybe_delete_round_robin_count({Group, _Topic} = GroupTopic) ->
         ets:delete(?SHARED_SUBS_ROUND_ROBIN_COUNTER, GroupTopic).
 
 handle_unsubscribe(Group, Topic, SubPid) ->
-    handle_unsubscribe(record(Group, Topic, SubPid)).
-
-handle_unsubscribe(
-    Record = #?SHARED_SUBSCRIPTION{
-        group = Group,
-        topic = Topic,
-        subpid = SubPid
-    }
-) ->
     GroupTopic = {Group, Topic},
-    mria:dirty_delete_object(?SHARED_SUBSCRIPTION, Record),
+    mria:dirty_delete_object(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid)),
     true = ets:delete_object(?SHARED_SUBSCRIBER, {GroupTopic, SubPid}),
     if_no_more_subscribers(GroupTopic, fun() ->
         maybe_delete_round_robin_count(GroupTopic),
@@ -557,10 +532,6 @@ if_no_more_subscribers(GroupTopic, Fn) ->
         false -> Fn()
     end,
     ok.
-
-cleanup_down(SubPid) ->
-    Records = mnesia:dirty_match_object(#?SHARED_SUBSCRIPTION{_ = '_', subpid = SubPid}),
-    lists:foreach(fun handle_unsubscribe/1, Records).
 
 handle_purge_node(Node) ->
     Records = mnesia:dirty_select(
@@ -610,36 +581,3 @@ get_default_shared_subscription_strategy() ->
 
 get_default_shared_subscription_initial_sticky_pick() ->
     emqx:get_config([mqtt, shared_subscription_initial_sticky_pick]).
-
-%%--------------------------------------------------------------------
-
-pmon_new() ->
-    #{}.
-
-pmon_inc_monitor(Pid, PMon) ->
-    case PMon of
-        #{Pid := {MRef, N}} ->
-            %% Process is already being monitored.
-            %% Bump number of monitor requests.
-            PMon#{Pid := {MRef, N + 1}};
-        #{} ->
-            %% Process is not being monitored yet.
-            MRef = erlang:monitor(process, Pid),
-            PMon#{Pid => {MRef, 1}}
-    end.
-
-pmon_dec_monitor(Pid, PMon) ->
-    case PMon of
-        #{Pid := {MRef, N}} when N =< 1 ->
-            %% Process is being monitored once.
-            _ = erlang:demonitor(MRef, [flush]),
-            maps:remove(Pid, PMon);
-        #{Pid := {MRef, N}} ->
-            %% Decrement number of monitor requests.
-            PMon#{Pid := {MRef, N - 1}};
-        #{} ->
-            {error, inconsistent}
-    end.
-
-pmon_erase(Pid, PMon) ->
-    maps:remove(Pid, PMon).
