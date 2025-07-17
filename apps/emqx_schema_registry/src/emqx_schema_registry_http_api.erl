@@ -408,6 +408,8 @@ validate_protobuf_bundle_request_with_bundle(#{body := #{} = Body} = Params0) ->
             case emqx_schema_registry:delete_schema(Name) of
                 ok ->
                     ?NO_CONTENT;
+                {error, #{} = Error} ->
+                    ?BAD_REQUEST(emqx_mgmt_api_lib:to_json(Error));
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
             end

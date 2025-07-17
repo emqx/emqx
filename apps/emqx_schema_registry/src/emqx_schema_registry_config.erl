@@ -141,13 +141,18 @@ pre_config_update(_Path, NewRawConf, _OldConf) ->
 post_config_update(
     ?SCHEMA_CONF_PATH(Name),
     '$remove',
-    _NewSchemas,
-    _OldSchemas,
+    _NewSchema,
+    OldSchema,
     _AppEnvs
 ) ->
-    emqx_schema_registry:async_delete_serdes([Name]),
-    delete_protobuf_bundle_data_dir(Name),
-    ok;
+    case find_serde_references(Name, OldSchema) of
+        false ->
+            emqx_schema_registry:async_delete_serdes([Name]),
+            delete_protobuf_bundle_data_dir(Name),
+            ok;
+        #{} = References ->
+            throw(#{reason => still_referenced, references => References})
+    end;
 %% add or update schema
 post_config_update(
     ?SCHEMA_CONF_PATH(NewName),
@@ -639,3 +644,41 @@ handle_import_root_pre_config_update(#{<<"schemas">> := Schemas0} = RawConf0) ->
     end;
 handle_import_root_pre_config_update(RawConf) ->
     {ok, RawConf}.
+
+is_serde_referenced_by_transformation(Type, Name, EncoderOrDecoder) ->
+    case EncoderOrDecoder of
+        #{type := Type, schema := Name} ->
+            true;
+        _ ->
+            false
+    end.
+
+find_serde_references(Name, OldSchema) ->
+    NameBin = bin(Name),
+    #{type := Type} = OldSchema,
+    Validations = emqx_schema_validation_config:list(),
+    Transformations = emqx_message_transformation_config:list(),
+    DependentValidations =
+        lists:usort([
+            ValidationName
+         || #{name := ValidationName, checks := Checks} <- Validations,
+            #{type := RefType, schema := RefName} <- Checks,
+            RefType == Type andalso RefName == NameBin
+        ]),
+    DependentTransformations =
+        [
+            TransformationName
+         || #{
+                name := TransformationName,
+                payload_encoder := Encoder,
+                payload_decoder := Decoder
+            } <- Transformations,
+            is_serde_referenced_by_transformation(Type, NameBin, Encoder) orelse
+                is_serde_referenced_by_transformation(Type, NameBin, Decoder)
+        ],
+    case {DependentValidations, DependentTransformations} of
+        {[], []} ->
+            false;
+        _ ->
+            #{validations => DependentValidations, transformations => DependentTransformations}
+    end.
