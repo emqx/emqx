@@ -75,8 +75,6 @@ find "${PATH_TO_BINARIES}" \( \
     -o -name crc32cer_nif.so \
     -o -name crypto.so \
     -o -name crypto_callback.so \
-    -o -name ct_run \
-    -o -name dialyzer \
     -o -name dyn_erl \
     -o -name dyntrace.so \
     -o -name epmd \
@@ -84,7 +82,6 @@ find "${PATH_TO_BINARIES}" \( \
     -o -name erl_call \
     -o -name erl_child_setup \
     -o -name erlang_jq_port \
-    -o -name erlc \
     -o -name erlexec \
     -o -name escript \
     -o -name ezstd_nif.so \
@@ -107,7 +104,6 @@ find "${PATH_TO_BINARIES}" \( \
     -o -name to_erl \
     -o -name trace_file_drv.so \
     -o -name trace_ip_drv.so \
-    -o -name typer \
     -o -name yielding_c_fun \
 \) -print0 | xargs -0 --no-run-if-empty codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime
 
