@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bpapi_app).
 
--behavior(application).
+-behaviour(application).
 
 %% behavior callbacks:
 -export([start/2, stop/1]).
