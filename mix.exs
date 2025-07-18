@@ -286,6 +286,9 @@ defmodule EMQXUmbrella.MixProject do
     # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
     do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}
 
+  def common_dep(:optvar),
+    do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
+
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
 
@@ -501,6 +504,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_s3,
             :emqx_opentelemetry,
             :emqx_durable_storage,
+            :emqx_durable_timer,
             :emqx_ds_builtin_local,
             :emqx_ds_builtin_raft,
             :rabbit_common,

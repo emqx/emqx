@@ -19,7 +19,8 @@ defmodule EMQXBPAPI.MixProject do
 
   def application do
     [
-      extra_applications: [:mria | UMP.extra_applications()]
+      extra_applications: [:mria | UMP.extra_applications()],
+      mod: {:emqx_bpapi_app, []}
     ]
   end
 
