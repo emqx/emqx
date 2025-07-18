@@ -16,7 +16,12 @@
 -export([
     start_generator/2,
     stop_generator/1,
-    read_all/1
+    read_all/1,
+    get_streams/1,
+    get_iterators/1,
+    run_consumer/2,
+    start_consumer/2,
+    stop_consumer/1
 ]).
 
 -define(SHARDS_PER_SITE, 4).
@@ -40,12 +45,77 @@ start_generator(MQTopic, NKeys) ->
 stop_generator(Pid) ->
     Pid ! stop.
 
+start_consumer(Iterator, Options) ->
+    Pid = spawn_link(fun() ->
+        run_consumer(Iterator, Options)
+    end),
+    Pid.
+
+stop_consumer(Pid) ->
+    Pid ! stop.
+
 read_all(MQTopic) ->
     emqx_ds:dirty_read(?MQ_PAYLOAD_DB, ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#')).
+
+get_streams(MQTopic) ->
+    emqx_ds:get_streams(?MQ_PAYLOAD_DB, ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#'), 0).
+
+get_iterators(MQTopic) ->
+    lists:map(
+        fun({Slab, Stream}) ->
+            {ok, It} = emqx_ds:make_iterator(
+                ?MQ_PAYLOAD_DB, Stream, ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#'), 0
+            ),
+            {Slab, It}
+        end,
+        get_streams(MQTopic)
+    ).
+
+run_consumer(Iterator, Options) ->
+    {ok, SubRef, SC} = emqx_mq_consumer_stream:new(Iterator, Options),
+    loop_consumer(SubRef, SC).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+loop_consumer(SubRef, SC) ->
+    receive
+        #ds_sub_reply{ref = SubRef} = DSReply ->
+            case emqx_mq_consumer_stream:handle_ds_reply(SC, DSReply) of
+                {ok, Payloads, SC1} ->
+                    ?tp(warning, mq_consumer_stream_handle_ds_reply, #{
+                        payloads => Payloads,
+                        sc => emqx_mq_consumer_stream:info(SC1)
+                    }),
+                    case ack_payloads(SC1, Payloads) of
+                        {ok, SC2} ->
+                            ?tp(warning, mq_consumer_stream_acked_payloads, #{
+                                sc => emqx_mq_consumer_stream:info(SC2)
+                            }),
+                            loop_consumer(SubRef, SC2);
+                        finished ->
+                            ?tp(warning, mq_consumer_stream_finished, #{}),
+                            ok
+                    end;
+                finished ->
+                    ?tp(warning, mq_consumer_stream_finished, #{}),
+                    ok
+            end;
+        stop ->
+            ?tp(warning, mq_consumer_stream_stop, #{}),
+            ok
+    end.
+
+ack_payloads(SC0, [{_Topic, MessageId, _Payload} | Rest]) ->
+    case emqx_mq_consumer_stream:handle_ack(SC0, MessageId) of
+        {ok, SC1} ->
+            ack_payloads(SC1, Rest);
+        finished ->
+            finished
+    end;
+ack_payloads(SC, []) ->
+    {ok, SC}.
 
 settings() ->
     NSites = length(emqx:running_nodes()),
@@ -86,10 +156,10 @@ generate_messages(MQTopic, NKeys, I) ->
             emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Payload})
         end),
         case TxResult of
-            {atomic, Serial, _} ->
-                ?tp(warning, mq_db_append_ok, #{
-                    topic => Topic, payload => Payload, serial => Serial
-                }),
+            {atomic, _Serial, _} ->
+                % ?tp(warning, mq_db_append_ok, #{
+                %     topic => Topic, payload => Payload, serial => Serial
+                % }),
                 ok;
             {error, IsRecoverable, Reason} ->
                 ?tp(warning, mq_db_append_error, #{

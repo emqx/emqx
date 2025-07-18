@@ -41,8 +41,8 @@ Consumer's responsibilities:
 ]).
 
 -type subscriber_ref() :: emqx_mq_types:subscriber_ref().
--type message_id() :: integer().
--type monotonic_timestamp_ms() :: integer().
+-type message_id() :: emqx_mq_types:message_id().
+-type monotonic_timestamp_ms() :: emqx_mq_types:monotonic_timestamp_ms().
 -type subscriber_data() :: #{
     timeout_tref := reference(),
     client_id := emqx_types:clientid(),
@@ -277,7 +277,7 @@ handle_gen_message(N, #state{messages = Messages0, topic_filter = TopicFilter} =
     Topic = TopicFilter,
     Payload = iolist_to_binary(io_lib:format("dummy message ~p", [N])),
     Message = emqx_message:make(<<"dummy client">>, ?QOS_1, Topic, Payload),
-    MessageId = N,
+    MessageId = {0, N},
     Messages = Messages0#{MessageId => Message},
     _ = erlang:send_after(500, self(), #gen_message{n = N + 1}),
     % ?tp(warning, mq_consumer_handle_gen_message, #{message_id => MessageId}),

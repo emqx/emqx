@@ -11,11 +11,12 @@ The module contains basic types for the Message Queue application.
 -include("emqx_mq_internal.hrl").
 
 -type subscriber_ref() :: reference().
--type message_id() :: integer().
+-type message_id() :: {emqx_ds:shard(), non_neg_integer()}.
 -type monotonic_timestamp_ms() :: integer().
 -type channel_pid() :: pid().
 -type consumer_ref() :: pid().
 -type ack() :: ?MQ_ACK | ?MQ_NACK.
+-type mq_topic() :: binary().
 
 -export_type([
     subscriber_ref/0,
@@ -23,5 +24,6 @@ The module contains basic types for the Message Queue application.
     monotonic_timestamp_ms/0,
     channel_pid/0,
     consumer_ref/0,
-    ack/0
+    ack/0,
+    mq_topic/0
 ]).
