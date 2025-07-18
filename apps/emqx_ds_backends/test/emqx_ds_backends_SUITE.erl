@@ -6,6 +6,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("../../emqx/include/emqx.hrl").
 -include("../../emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -54,7 +55,7 @@ t_02_smoke_iterate(Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs, #{sync => true})),
     timer:sleep(1000),
-    [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    {[{_, Stream}], []} = emqx_ds:get_streams(DB, TopicFilter, StartTime, #{}),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
     {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
     emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs, Batch).
@@ -76,7 +77,7 @@ t_05_restart(Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs, #{sync => true})),
     timer:sleep(1_000),
-    [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    {[{_, Stream}], []} = emqx_ds:get_streams(DB, TopicFilter, StartTime, #{}),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
     %% Restart the application:
     ?tp(warning, emqx_ds_SUITE_restart_app, #{}),
@@ -288,7 +289,7 @@ t_11_batch_preconditions(Config) ->
             %% There's no messages in the DB.
             ?assertEqual(
                 [],
-                emqx_ds_test_helpers:consume(DB, emqx_topic:words(<<"t/#">>))
+                emqx_ds:dirty_read(DB, emqx_topic:words(<<"t/#">>))
             )
         end,
         []
@@ -348,7 +349,7 @@ t_12_batch_precondition_conflicts(Config) ->
             [{precondition_failed, #message{payload = IOwner}}] = Failures,
             WinnerBatch = lists:nth(binary_to_integer(IOwner), ConflictBatches),
             BatchMessages = lists:sort(WinnerBatch#dsbatch.operations),
-            DBMessages = emqx_ds_test_helpers:consume(DB, emqx_topic:words(<<"t/#">>)),
+            DBMessages = emqx_ds:dirty_read(DB, emqx_topic:words(<<"t/#">>)),
             emqx_ds_test_helpers:diff_messages(
                 ?msg_fields,
                 lists:sort(BatchMessages),
@@ -476,7 +477,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
     {ok, Iter1, Batch1} = emqx_ds:next(DB, Iter0, 1),
     ?assertNotEqual(end_of_stream, Iter1),
-    emqx_ds_test_helpers:diff_messages(?msg_fields, [Msg0], [Msg || {_Key, Msg} <- Batch1]),
+    emqx_ds_test_helpers:diff_messages(?msg_fields, [Msg0], Batch1),
 
     ok = emqx_ds:add_generation(DB),
     ok = emqx_ds:drop_generation(DB, GenId0),
@@ -680,11 +681,11 @@ t_sub_catchup(Config) ->
                         size = 5,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"0">>}},
-                                {_, #message{payload = <<"1">>}},
-                                {_, #message{payload = <<"2">>}},
-                                {_, #message{payload = <<"3">>}},
-                                {_, #message{payload = <<"4">>}}
+                                #message{payload = <<"0">>},
+                                #message{payload = <<"1">>},
+                                #message{payload = <<"2">>},
+                                #message{payload = <<"3">>},
+                                #message{payload = <<"4">>}
                             ]}
                     }
                 ],
@@ -701,11 +702,11 @@ t_sub_catchup(Config) ->
                         size = 5,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"5">>}},
-                                {_, #message{payload = <<"6">>}},
-                                {_, #message{payload = <<"7">>}},
-                                {_, #message{payload = <<"8">>}},
-                                {_, #message{payload = <<"9">>}}
+                                #message{payload = <<"5">>},
+                                #message{payload = <<"6">>},
+                                #message{payload = <<"7">>},
+                                #message{payload = <<"8">>},
+                                #message{payload = <<"9">>}
                             ]}
                     }
                 ],
@@ -757,8 +758,8 @@ t_sub_realtime(Config) ->
                         size = 2,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"1">>}},
-                                {_, #message{payload = <<"2">>}}
+                                #message{payload = <<"1">>},
+                                #message{payload = <<"2">>}
                             ]}
                     }
                 ],
@@ -777,8 +778,8 @@ t_sub_realtime(Config) ->
                         size = 2,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"3">>}},
-                                {_, #message{payload = <<"4">>}}
+                                #message{payload = <<"3">>},
+                                #message{payload = <<"4">>}
                             ]}
                     }
                 ],
@@ -865,7 +866,7 @@ t_sub_slow(Config) ->
                         size = 1,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"0">>}}
+                                #message{payload = <<"0">>}
                             ]}
                     }
                 ],
@@ -884,8 +885,8 @@ t_sub_slow(Config) ->
                         size = 2,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"1">>}},
-                                {_, #message{payload = <<"2">>}}
+                                #message{payload = <<"1">>},
+                                #message{payload = <<"2">>}
                             ]}
                     }
                 ],
@@ -909,8 +910,8 @@ t_sub_slow(Config) ->
                         seqno = 5,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"3">>}},
-                                {_, #message{payload = <<"4">>}}
+                                #message{payload = <<"3">>},
+                                #message{payload = <<"4">>}
                             ]}
                     }
                 ],
@@ -945,11 +946,11 @@ t_sub_catchup_unrecoverable(Config) ->
                         size = 5,
                         payload =
                             {ok, _, [
-                                {_, #message{payload = <<"0">>}},
-                                {_, #message{payload = <<"1">>}},
-                                {_, #message{payload = <<"2">>}},
-                                {_, #message{payload = <<"3">>}},
-                                {_, #message{payload = <<"4">>}}
+                                #message{payload = <<"0">>},
+                                #message{payload = <<"1">>},
+                                #message{payload = <<"2">>},
+                                #message{payload = <<"3">>},
+                                #message{payload = <<"4">>}
                             ]}
                     }
                 ],
@@ -979,7 +980,7 @@ t_sub_catchup_unrecoverable(Config) ->
     ).
 
 %% Verify functionality of the low-level transaction API.
-t_13_smoke_kv_tx(Config) ->
+t_13_smoke_ttv_tx(Config) ->
     DB = ?FUNCTION_NAME,
     Owner = <<"test_clientid">>,
     ?check_trace(
@@ -994,7 +995,7 @@ t_13_smoke_kv_tx(Config) ->
                 emqx_ds_open_db(DB, Opts)
             ),
             %% 1. Start a write-only transaction to create some data:
-            {ok, Tx1} = emqx_ds:new_kv_tx(DB, #{
+            {ok, Tx1} = emqx_ds:new_tx(DB, #{
                 generation => 1,
                 shard => emqx_ds:shard_of(DB, Owner),
                 timeout => infinity
@@ -1032,13 +1033,13 @@ t_13_smoke_kv_tx(Config) ->
             ),
 
             %% 2. Create a transaction that deletes one of the topics:
-            {ok, Tx2} = emqx_ds:new_kv_tx(DB, #{
+            {ok, Tx2} = emqx_ds:new_tx(DB, #{
                 generation => 1,
                 shard => {auto, Owner},
                 timeout => infinity
             }),
             Ops2 = #{
-                ?ds_tx_delete_topic => [[<<"t">>, <<"2">>]]
+                ?ds_tx_delete_topic => [{[<<"t">>, <<"2">>], 0, infinity}]
             },
             ?assertMatch({ok, _Serial}, do_commit_tx(DB, Tx2, Ops2)),
             %% Verify that data in t/2 is gone:
@@ -1055,7 +1056,7 @@ t_13_smoke_kv_tx(Config) ->
 
 %% Verify correctness of wildcard topic deletions in the transactional
 %% API
-t_14_kv_wildcard_deletes(Config) ->
+t_14_ttv_wildcard_deletes(Config) ->
     DB = ?FUNCTION_NAME,
     TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     ?check_trace(
@@ -1073,7 +1074,7 @@ t_14_kv_wildcard_deletes(Config) ->
                 emqx_ds_open_db(DB, Opts)
             ),
             %% 1. Insert test data:
-            {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
+            {ok, Tx1} = emqx_ds:new_tx(DB, TXOpts),
             Msgs0 =
                 [{[<<"foo">>], 0, <<"payload">>}] ++
                     [
@@ -1094,9 +1095,9 @@ t_14_kv_wildcard_deletes(Config) ->
                 )
             ),
             %% 2. Issue a new transaction that deletes t/10/+:
-            {ok, Tx2} = emqx_ds:new_kv_tx(DB, TXOpts),
+            {ok, Tx2} = emqx_ds:new_tx(DB, TXOpts),
             Ops2 = #{
-                ?ds_tx_delete_topic => [[<<"t">>, <<10:16>>, '+']]
+                ?ds_tx_delete_topic => [{[<<"t">>, <<10:16>>, '+'], 0, infinity}]
             },
             ?assertMatch({ok, _}, do_commit_tx(DB, Tx2, Ops2)),
             Msgs1 = lists:filter(
@@ -1119,7 +1120,7 @@ t_14_kv_wildcard_deletes(Config) ->
 
 %% Verify that `?ds_tx_serial' is properly substituted with the
 %% transaction serial.
-t_15_kv_write_serial(Config) ->
+t_15_ttv_write_serial(Config) ->
     DB = ?FUNCTION_NAME,
     TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     Topic = [<<"foo">>],
@@ -1135,7 +1136,7 @@ t_15_kv_write_serial(Config) ->
                 emqx_ds_open_db(DB, Opts)
             ),
             %% 1. Insert test data:
-            {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
+            {ok, Tx1} = emqx_ds:new_tx(DB, TXOpts),
             Ops = #{
                 ?ds_tx_write => [{Topic, 0, ?ds_tx_serial}]
             },
@@ -1146,7 +1147,7 @@ t_15_kv_write_serial(Config) ->
                 emqx_ds:dirty_read(DB, Topic)
             ),
             %% Repeat the procedure and make sure serial increases
-            {ok, Tx2} = emqx_ds:new_kv_tx(DB, TXOpts),
+            {ok, Tx2} = emqx_ds:new_tx(DB, TXOpts),
             {ok, Serial2} = do_commit_tx(DB, Tx2, Ops),
             ?assertEqual(
                 [{Topic, 0, Serial2}],
@@ -1157,7 +1158,7 @@ t_15_kv_write_serial(Config) ->
         []
     ).
 
-t_16_kv_preconditions(Config) ->
+t_16_ttv_preconditions(Config) ->
     DB = ?FUNCTION_NAME,
     TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     Topic1 = [<<"foo">>],
@@ -1174,14 +1175,14 @@ t_16_kv_preconditions(Config) ->
                 emqx_ds_open_db(DB, Opts)
             ),
             %% 1. Insert test data:
-            {ok, Tx1} = emqx_ds:new_kv_tx(DB, TXOpts),
+            {ok, Tx1} = emqx_ds:new_tx(DB, TXOpts),
             Ops1 = #{
                 ?ds_tx_write => [{Topic1, 0, <<"payload0">>}]
             },
             ?assertMatch({ok, _}, do_commit_tx(DB, Tx1, Ops1)),
 
             %% 2. Preconditions, successful.
-            {ok, Tx2} = emqx_ds:new_kv_tx(DB, TXOpts),
+            {ok, Tx2} = emqx_ds:new_tx(DB, TXOpts),
             Ops2 = #{
                 ?ds_tx_expected => [
                     {Topic1, 0, '_'},
@@ -1200,7 +1201,7 @@ t_16_kv_preconditions(Config) ->
             ),
 
             %% 3. Precondiction fail, unexpected message:
-            {ok, Tx3} = emqx_ds:new_kv_tx(DB, TXOpts),
+            {ok, Tx3} = emqx_ds:new_tx(DB, TXOpts),
             Ops3 = #{
                 ?ds_tx_unexpected => [{Topic1, 0}],
                 ?ds_tx_write => [{Topic1, 0, <<"fail">>}]
@@ -1211,7 +1212,7 @@ t_16_kv_preconditions(Config) ->
             ),
 
             %% 4 Preconditions, fail, expected message not found:
-            {ok, Tx4} = emqx_ds:new_kv_tx(DB, TXOpts),
+            {ok, Tx4} = emqx_ds:new_tx(DB, TXOpts),
             Ops4 = #{
                 ?ds_tx_expected => [{Topic2, 0, '_'}],
                 ?ds_tx_write => [{Topic2, 0, <<"fail">>}]
@@ -1222,7 +1223,7 @@ t_16_kv_preconditions(Config) ->
             ),
 
             %% 5 Preconditions, fail, value is different:
-            {ok, Tx5} = emqx_ds:new_kv_tx(DB, TXOpts),
+            {ok, Tx5} = emqx_ds:new_tx(DB, TXOpts),
             Ops5 = #{
                 ?ds_tx_expected => [{Topic1, 0, <<"payload0">>}],
                 ?ds_tx_write => [{Topic1, 0, <<"fail">>}]
@@ -1421,7 +1422,7 @@ t_20_tx_monotonic_ts(Config) ->
                 store_ttv => true,
                 storage =>
                     {emqx_ds_storage_skipstream_lts_v2, #{
-                        timestamp_bytes => 64
+                        timestamp_bytes => 8
                     }}
             }),
             ?assertMatch(
@@ -1487,6 +1488,845 @@ t_20_tx_monotonic_ts(Config) ->
         end,
         []
     ).
+
+%% This testcase verifies that subscriptions work for TTV style of databases.
+t_21_ttv_subscription(Config) ->
+    DB = ?FUNCTION_NAME,
+    TXOpts = #{db => DB, shard => {auto, <<"me">>}, generation => 1, retries => 10},
+    Topic0 = [<<>>],
+    Topic1 = [<<>>, <<1>>],
+    Topic2 = [<<>>, <<2>>],
+    ?check_trace(
+        begin
+            %% Open the database
+            Opts = maps:merge(opts(Config), #{
+                store_ttv => true,
+                storage =>
+                    {emqx_ds_storage_skipstream_lts_v2, #{
+                        timestamp_bytes => 8,
+                        lts_threshold_spec => {simple, {infinity, 0}}
+                    }}
+            }),
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts)
+            ),
+            %% Insert some data:
+            {atomic, _, _} =
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({Topic0, ?ds_tx_ts_monotonic, <<0>>}),
+                        emqx_ds:tx_write({Topic0, ?ds_tx_ts_monotonic, <<1>>}),
+                        emqx_ds:tx_write({Topic0, ?ds_tx_ts_monotonic, <<2>>}),
+                        emqx_ds:tx_write({Topic1, ?ds_tx_ts_monotonic, <<3>>}),
+                        emqx_ds:tx_write({Topic1, ?ds_tx_ts_monotonic, <<4>>}),
+                        emqx_ds:tx_write({Topic2, ?ds_tx_ts_monotonic, <<5>>}),
+                        emqx_ds:tx_write({Topic2, ?ds_tx_ts_monotonic, <<6>>})
+                    end
+                ),
+            %% Create the subscriptions:
+            %%   Topic0:
+            [{_, Stream0}] = emqx_ds:get_streams(DB, Topic0, 0),
+            {ok, It0} = emqx_ds:make_iterator(DB, Stream0, Topic0, 0),
+            {ok, SubHandle0, SubRef0} = emqx_ds:subscribe(DB, It0, #{max_unacked => 100}),
+            %%   Topic1-2:
+            [{_, Stream1}] = emqx_ds:get_streams(DB, Topic1, 0),
+            {ok, It1} = emqx_ds:make_iterator(DB, Stream1, Topic1, 0),
+            {ok, It2} = emqx_ds:make_iterator(DB, Stream1, Topic2, 0),
+            {ok, It3} = emqx_ds:make_iterator(DB, Stream1, [<<>>, '+'], 0),
+            {ok, SubHandle1, SubRef1} = emqx_ds:subscribe(DB, It1, #{max_unacked => 100}),
+            {ok, SubHandle2, SubRef2} = emqx_ds:subscribe(DB, It2, #{max_unacked => 100}),
+            {ok, SubHandle3, SubRef3} = emqx_ds:subscribe(DB, It3, #{max_unacked => 100}),
+            %% Receive historical data:
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef0,
+                        lagging = true,
+                        seqno = 3,
+                        size = 3,
+                        payload =
+                            {ok, _, [
+                                {Topic0, _, <<0>>},
+                                {Topic0, _, <<1>>},
+                                {Topic0, _, <<2>>}
+                            ]}
+                    }
+                ],
+                recv(SubRef0, 1)
+            ),
+            ok = emqx_ds:suback(DB, SubHandle0, 3),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef1,
+                        lagging = true,
+                        seqno = 2,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {Topic1, _, <<3>>},
+                                {Topic1, _, <<4>>}
+                            ]}
+                    }
+                ],
+                recv(SubRef1, 1)
+            ),
+            ok = emqx_ds:suback(DB, SubHandle1, 2),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef2,
+                        lagging = true,
+                        seqno = 2,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {Topic2, _, <<5>>},
+                                {Topic2, _, <<6>>}
+                            ]}
+                    }
+                ],
+                recv(SubRef2, 1)
+            ),
+            ok = emqx_ds:suback(DB, SubHandle2, 2),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef3,
+                        lagging = true,
+                        seqno = 4,
+                        size = 4,
+                        payload =
+                            {ok, _, [
+                                {Topic1, _, <<3>>},
+                                {Topic1, _, <<4>>},
+                                {Topic2, _, <<5>>},
+                                {Topic2, _, <<6>>}
+                            ]}
+                    }
+                ],
+                recv(SubRef3, 1)
+            ),
+            ok = emqx_ds:suback(DB, SubHandle3, 4),
+            %% Publish and receive new data:
+            ?tp(info, "Test: publish new data", #{}),
+            {atomic, _, _} =
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({Topic0, ?ds_tx_ts_monotonic, <<7>>}),
+                        emqx_ds:tx_write({Topic0, ?ds_tx_ts_monotonic, <<8>>}),
+                        emqx_ds:tx_write({Topic1, ?ds_tx_ts_monotonic, <<9>>}),
+                        emqx_ds:tx_write({Topic2, ?ds_tx_ts_monotonic, <<10>>})
+                    end
+                ),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef0,
+                        lagging = false,
+                        seqno = 5,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {Topic0, _, <<7>>},
+                                {Topic0, _, <<8>>}
+                            ]}
+                    }
+                ],
+                recv(SubRef0, 1)
+            ),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef1,
+                        lagging = false,
+                        seqno = 3,
+                        size = 1,
+                        payload =
+                            {ok, _, [
+                                {Topic1, _, <<9>>}
+                            ]}
+                    }
+                ],
+                recv(SubRef1, 1)
+            ),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef2,
+                        lagging = false,
+                        seqno = 3,
+                        size = 1,
+                        payload =
+                            {ok, _, [
+                                {Topic2, _, <<10>>}
+                            ]}
+                    }
+                ],
+                recv(SubRef2, 1)
+            ),
+            ?assertMatch(
+                [
+                    #ds_sub_reply{
+                        ref = SubRef3,
+                        lagging = false,
+                        seqno = 6,
+                        size = 2,
+                        payload =
+                            {ok, _, [
+                                {Topic1, _, <<9>>},
+                                {Topic2, _, <<10>>}
+                            ]}
+                    }
+                ],
+                recv(SubRef3, 1)
+            )
+        end,
+        []
+    ).
+
+%% This testcase verifies metadata serialization and deserialization
+%% for databases with store_ttv => false.
+t_22_metadata_serialization(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = opts(Config),
+    Topics =
+        [<<"foo">>, <<>>] ++
+            [emqx_topic:join([<<"foo">>, integer_to_binary(N)]) || N <- lists:seq(1, 100)] ++
+            [
+                emqx_topic:join([<<"$foo">>, <<"bar">>, integer_to_binary(N)])
+             || N <- lists:seq(1, 100)
+            ],
+    TopicFilters =
+        [
+            <<>>,
+            <<"foo/#">>,
+            <<"#">>,
+            <<"+/+">>,
+            <<"$foo/#">>,
+            <<"foo/1">>,
+            <<"foo/99">>,
+            <<"$foo/bar/#">>,
+            <<"$foo/bar/99">>
+        ],
+    Batch = [message(Topic, <<>>, 0) || Topic <- Topics],
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            %% 1. Create generations using different layouts and
+            %% insert data there to create a variety of streams and
+            %% iterators.
+            %%
+            %%   1.1 Reference:
+            ok = emqx_ds:update_db_config(DB, Opts#{storage => {emqx_ds_storage_reference, #{}}}),
+            ok = emqx_ds:add_generation(DB),
+            ok = emqx_ds:store_batch(DB, Batch),
+            %%   1.2 Bitfield:
+            ok = emqx_ds:update_db_config(DB, Opts#{storage => {emqx_ds_storage_bitfield_lts, #{}}}),
+            ok = emqx_ds:add_generation(DB),
+            ok = emqx_ds:store_batch(DB, Batch),
+            %%   1.3 Skipstream:
+            ok = emqx_ds:update_db_config(DB, Opts#{
+                storage => {emqx_ds_storage_skipstream_lts, #{}}
+            }),
+            ok = emqx_ds:add_generation(DB),
+            ok = emqx_ds:store_batch(DB, Batch),
+            %%
+            %% 2. Get streams and create iterators:
+            timer:sleep(1000),
+            {_, Streams = [_ | _]} = lists:unzip(emqx_ds:get_streams(DB, ['#'], 0)),
+            Iterators = [
+                It
+             || Stream <- Streams,
+                TopicFilter <- TopicFilters,
+                {ok, It} <- [emqx_ds:make_iterator(DB, Stream, TopicFilter, 0)]
+            ],
+            ReplayPositions = [end_of_stream | Iterators],
+            %% 3. Check transcoding of streams:
+            [
+                begin
+                    {ok, Bin} = emqx_ds:stream_to_binary(DB, Stream),
+                    ?defer_assert(
+                        ?assertEqual({ok, Stream}, emqx_ds:binary_to_stream(DB, Bin))
+                    )
+                end
+             || Stream <- Streams
+            ],
+            %% 4. Check transcoding of replay positions:
+            [
+                begin
+                    {ok, Bin} = emqx_ds:iterator_to_binary(DB, Pos),
+                    ?defer_assert(
+                        ?assertEqual({ok, Pos}, emqx_ds:binary_to_iterator(DB, Bin))
+                    )
+                end
+             || Pos <- ReplayPositions
+            ]
+        end,
+        []
+    ).
+
+t_23_ttv_metadata_serialization(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = maps:merge(opts(Config), #{
+        store_ttv => true,
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+    }),
+    Topics =
+        [[], [<<"foo">>]] ++
+            [[<<"foo">>, <<I:32>>] || I <- lists:seq(1, 100)] ++
+            [[<<"$foo">>, <<>>, <<I:32>>] || I <- lists:seq(1, 100)],
+    TopicFilters =
+        [
+            [],
+            [<<"foo">>],
+            [<<"foo">>, '#'],
+            [<<"$foo">>, <<>>, <<0:32>>]
+        ],
+    TXOpts = #{db => DB, shard => {auto, <<"me">>}, generation => 1, retries => 10},
+    Trans = fun() ->
+        [emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, <<>>}) || Topic <- Topics],
+        ok
+    end,
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            %% 1. Create generations using different layouts and
+            %% insert data there to create a variety of streams and
+            %% iterators.
+            %%
+            %%   1.1 Skipstream:
+            {atomic, _, _} = emqx_ds:trans(TXOpts, Trans),
+            %%
+            %% 2. Get streams and create iterators:
+            timer:sleep(1000),
+            {_, Streams = [_ | _]} = lists:unzip(emqx_ds:get_streams(DB, ['#'], 0)),
+            Iterators = [
+                It
+             || Stream <- Streams,
+                TopicFilter <- TopicFilters,
+                {ok, It} <- [emqx_ds:make_iterator(DB, Stream, TopicFilter, 0)]
+            ],
+            ReplayPositions = [end_of_stream | Iterators],
+            %% 3. Check transcoding of streams:
+            [
+                begin
+                    {ok, Bin} = emqx_ds:stream_to_binary(DB, Stream),
+                    ?defer_assert(
+                        ?assertEqual({ok, Stream}, emqx_ds:binary_to_stream(DB, Bin))
+                    )
+                end
+             || Stream <- Streams
+            ],
+            %% 4. Check transcoding of replay positions:
+            [
+                begin
+                    {ok, Bin} = emqx_ds:iterator_to_binary(DB, Pos),
+                    ?defer_assert(
+                        ?assertEqual({ok, Pos}, emqx_ds:binary_to_iterator(DB, Bin))
+                    )
+                end
+             || Pos <- ReplayPositions
+            ]
+        end,
+        []
+    ).
+
+%% This testcase verifies `emqx_ds:tx_on_success' API.
+t_24_tx_side_effects(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = maps:merge(opts(Config), #{
+        store_ttv => true,
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+    }),
+    TxOpts = #{db => DB, shard => {auto, <<>>}, generation => 1, retries => 10},
+    %% Emit a trace as a side effect:
+    SideEffect = fun(Id, Expected) ->
+        ?ds_tx_on_success(?tp(test_side_effect, #{id => Id, expected => Expected}))
+    end,
+    ?check_trace(
+        begin
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts)
+            ),
+            %% This function verifies that transaction wrapper didn't
+            %% leave any garbage in the process dictionary:
+            PD = get(),
+            CheckPD = fun() ->
+                ?assertMatch([], get() -- PD)
+            end,
+            %% 1. Verify that side effects of an empty transaction are
+            %% executed:
+            ?assertMatch(
+                {nop, ok},
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        SideEffect(1, true)
+                    end
+                )
+            ),
+            CheckPD(),
+            %% 2. Verify that side effects not executed on exception:
+            ?assertError(
+                _,
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        SideEffect(2, false),
+                        error(crash)
+                    end
+                )
+            ),
+            CheckPD(),
+            %% 3. Verify that side effect is applied only once when
+            %% transaction is successful, but is restarted before
+            %% completion:
+            put(restart_count, 5),
+            ?assertMatch(
+                {atomic, _, ok},
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        SideEffect(3, true),
+                        emqx_ds:tx_write({[], 0, <<>>}),
+                        case get(restart_count) of
+                            0 ->
+                                erase(restart_count),
+                                ok;
+                            N ->
+                                put(restart_count, N - 1),
+                                emqx_ds:reset_trans(test)
+                        end
+                    end
+                )
+            ),
+            CheckPD(),
+            %% 4. Async transaction, successful:
+            {async, Ref1, _} = emqx_ds:trans(
+                TxOpts#{sync => false},
+                fun() ->
+                    %% Add multiple side effects to verify that they are executed in order:
+                    SideEffect(4, true),
+                    SideEffect(5, true),
+                    emqx_ds:tx_write({[], 0, <<>>}),
+                    SideEffect(6, true)
+                end
+            ),
+            receive
+                ?ds_tx_commit_reply(Ref1, Reply1) ->
+                    {ok, _} = emqx_ds:tx_commit_outcome(DB, Ref1, Reply1)
+            end,
+            CheckPD(),
+            %% 4. Async transaction, aborted:
+            {async, Ref2, _} = emqx_ds:trans(
+                TxOpts#{sync => false},
+                fun() ->
+                    SideEffect(7, false),
+                    emqx_ds:tx_ttv_assert_absent([], 0)
+                end
+            ),
+            receive
+                ?ds_tx_commit_reply(Ref2, Reply2) ->
+                    {error, unrecoverable, _} = emqx_ds:tx_commit_outcome(DB, Ref2, Reply2)
+            end,
+            CheckPD()
+        end,
+        fun(_, Trace) ->
+            ?assertMatch(
+                [1, 3, 4, 5, 6],
+                ?projection(id, ?of_kind(test_side_effect, Trace)),
+                "Sequence of IDs of the expected side effects"
+            )
+        end
+    ).
+
+t_25_get_streams_generation_min(Config) ->
+    %% Get generations from the list of streams:
+    Generations = fun(L) ->
+        lists:usort([G || {{_Shard, G}, _Stream} <- L])
+    end,
+    %%
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    %% Make streams in the 1st generation:
+    _ = publish_seq(DB, <<>>, 0, 100),
+    ct:sleep(100),
+    {Streams1, []} = emqx_ds:get_streams(DB, ['#'], 0, #{}),
+    ?assertMatch([1], Generations(Streams1)),
+    %% Add a generation and write more data:
+    ?assertMatch(ok, emqx_ds:add_generation(DB)),
+    _ = publish_seq(DB, <<>>, 0, 100),
+    ct:sleep(100),
+    %% Verify that now we have streams in both generations:
+    {Streams2, []} = emqx_ds:get_streams(DB, ['#'], 0, #{}),
+    ?assertMatch([1, 2], Generations(Streams2)),
+    %% But the first generation is ignored when we apply the filter:
+    {Streams3, []} = emqx_ds:get_streams(DB, ['#'], 0, #{generation_min => 2}),
+    ?assertMatch([2], Generations(Streams3)).
+
+t_26_ttv_next_with_upper_time_limit(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = maps:merge(opts(Config), #{
+        store_ttv => true,
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{timestamp_bytes => 8}}
+    }),
+    ?check_trace(
+        begin
+            Topic = [<<1>>, <<1>>],
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            TMax = 1 bsl 64 - 1,
+            %% 1. Insert data:
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    #{db => DB, shard => {auto, <<>>}, generation => 1},
+                    fun() ->
+                        emqx_ds:tx_write({Topic, 0, <<0>>}),
+                        emqx_ds:tx_write({Topic, 1, <<1>>}),
+                        emqx_ds:tx_write({Topic, 2, <<2>>}),
+                        emqx_ds:tx_write({Topic, 3, <<3>>}),
+                        emqx_ds:tx_write({Topic, 4, <<4>>}),
+                        emqx_ds:tx_write({Topic, TMax, <<5>>})
+                    end
+                )
+            ),
+            ct:sleep(100),
+            %% 2. Create iterators:
+            {[{_, Stream}], []} = emqx_ds:get_streams(DB, Topic, 0, #{}),
+            {ok, It1} = emqx_ds:make_iterator(DB, Stream, Topic, 0),
+            %% 3. Read data without time limit. Note: TTV DBs don't
+            %% limit the scans to the local timestamp by default.
+            ?defer_assert(
+                ?assertMatch(
+                    {ok, _, [
+                        {Topic, 0, <<0>>},
+                        {Topic, 1, <<1>>},
+                        {Topic, 2, <<2>>},
+                        {Topic, 3, <<3>>},
+                        {Topic, 4, <<4>>},
+                        {Topic, TMax, <<5>>}
+                    ]},
+                    emqx_ds:next(DB, It1, 100)
+                )
+            ),
+            %% 4. Read data with limit:
+            ?defer_assert(
+                ?assertMatch(
+                    {ok, _, []},
+                    emqx_ds:next(DB, It1, {time, 0, 100})
+                )
+            ),
+            ?defer_assert(
+                ?assertMatch(
+                    {ok, _, [{Topic, 0, <<0>>}]},
+                    emqx_ds:next(DB, It1, {time, 1, 100})
+                )
+            ),
+            ?defer_assert(
+                ?assertMatch(
+                    {ok, _, [{Topic, 0, <<0>>}, {Topic, 1, <<1>>}]},
+                    emqx_ds:next(DB, It1, {time, 2, 100})
+                )
+            ),
+            ?defer_assert(
+                ?assertMatch(
+                    {ok, _, [{Topic, 0, <<0>>}, {Topic, 1, <<1>>}, {Topic, 2, <<2>>}]},
+                    emqx_ds:next(DB, It1, {time, 3, 100})
+                )
+            ),
+            ?defer_assert(
+                ?assertMatch(
+                    {ok, _, [
+                        {Topic, 0, <<0>>}, {Topic, 1, <<1>>}, {Topic, 2, <<2>>}, {Topic, 3, <<3>>}
+                    ]},
+                    emqx_ds:next(DB, It1, {time, 4, 100})
+                )
+            ),
+            ?defer_assert(
+                ?assertMatch(
+                    {ok, _, [
+                        {Topic, 0, <<0>>},
+                        {Topic, 1, <<1>>},
+                        {Topic, 2, <<2>>},
+                        {Topic, 3, <<3>>},
+                        {Topic, 4, <<4>>}
+                    ]},
+                    emqx_ds:next(DB, It1, {time, 5, 100})
+                )
+            )
+        end,
+        []
+    ).
+
+t_27_tx_read_conflicts(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = maps:merge(opts(Config), #{
+        store_ttv => true,
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+    }),
+    TXOpts = #{shard => {auto, <<"me">>}, generation => 1, timeout => infinity},
+    %% Record that should not be present in the DB:
+    Canary = [{[<<"canary">>], 0, <<>>}],
+    CheckCanary = fun() ->
+        ?assertMatch([], emqx_ds:dirty_read(DB, [<<"canary">>]))
+    end,
+    %% Helper function that create a pair of transactions
+    %% (simultaneously), commits the first one, and then tries to
+    %% commit the second one.
+    Par = fun(Ops1, Ops2) ->
+        %% 1. Create context for two transactions:
+        {ok, Tx1} = emqx_ds:new_tx(DB, TXOpts),
+        {ok, Tx2} = emqx_ds:new_tx(DB, TXOpts),
+        %% 2. Commit the first one:
+        ?assertMatch(
+            {ok, _},
+            do_commit_tx(DB, Tx1, Ops1)
+        ),
+        %% 3. Try to commit the second one and return the result:
+        do_commit_tx(DB, Tx2, Ops2)
+    end,
+    %% Wrappers:
+    Ok = fun(Ops1, Ops2) ->
+        ?assertMatch({ok, _}, Par(Ops1, Ops2))
+    end,
+    Conflict = fun(Ops1, Ops2) ->
+        ?assertMatch(
+            ?err_rec({read_conflict, _}),
+            Par(
+                Ops1,
+                Ops2#{?ds_tx_write => Canary}
+            )
+        ),
+        CheckCanary()
+    end,
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            %% Create data:
+            Ok(
+                #{
+                    ?ds_tx_write => [
+                        {Topic, Time, <<Time:32>>}
+                     || Topic <- [[<<1>>], [<<1>>, <<2>>]],
+                        Time <- lists:seq(0, 100)
+                    ]
+                },
+                #{?ds_tx_read => [{[<<>>], 0, infinity}]}
+            ),
+            %% Writes:
+            %%   Read the same topic as was updated:
+            Conflict(
+                #{?ds_tx_write => [{[<<>>], 0, <<>>}]},
+                #{?ds_tx_read => [{[<<>>], 0, infinity}]}
+            ),
+            %%   Read the topic with '+' wildcard:
+            Conflict(
+                #{?ds_tx_write => [{[<<1>>, <<2>>], 0, <<>>}]},
+                #{?ds_tx_read => [{[<<1>>, '+'], 0, infinity}]}
+            ),
+            Ok(
+                #{?ds_tx_write => [{[<<1>>, <<2>>], 0, <<>>}]},
+                #{?ds_tx_read => [{[<<2>>, '+'], 0, infinity}]}
+            ),
+            Conflict(
+                #{?ds_tx_write => [{[<<2>>, <<2>>], 0, <<>>}]},
+                #{?ds_tx_read => [{['+', <<2>>], 0, infinity}]}
+            ),
+            %%   Read the topic with '#' wildcard:
+            Conflict(
+                #{?ds_tx_write => [{[<<1>>, <<2>>], 0, <<>>}]},
+                #{?ds_tx_read => [{['#'], 0, 0}]}
+            ),
+            Ok(
+                #{?ds_tx_write => [{[<<2>>, <<2>>], 0, <<>>}]},
+                #{?ds_tx_read => [{[<<1>>, '#'], 0, infinity}]}
+            ),
+            %% Topic deletions:
+            Conflict(
+                #{?ds_tx_delete_topic => [{[<<"foo">>], 0, infinity}]},
+                #{?ds_tx_read => [{[<<"foo">>], 0, 1}]}
+            ),
+            Ok(
+                #{?ds_tx_delete_topic => [{[<<"foo">>, <<1>>], 0, infinity}]},
+                #{?ds_tx_read => [{[<<"foo">>], 0, 1}]}
+            ),
+            Conflict(
+                #{?ds_tx_delete_topic => [{[<<"foo">>, <<1>>], 0, infinity}]},
+                #{?ds_tx_read => [{[<<"foo">>, '+'], 0, infinity}]}
+            ),
+            Conflict(
+                #{?ds_tx_delete_topic => [{[<<"foo">>, <<1>>], 0, infinity}]},
+                #{?ds_tx_read => [{['#'], 0, infinity}]}
+            ),
+            %% No conflict because transactions operate on different
+            %% time ranges:
+            Ok(
+                #{?ds_tx_write => [{[<<>>], 0, <<>>}]},
+                #{?ds_tx_read => [{['#'], 100, infinity}]}
+            ),
+            Ok(
+                #{?ds_tx_delete_topic => [{[<<>>, '#'], 0, 10}]},
+                #{?ds_tx_read => [{['#'], 100, infinity}]}
+            )
+        end,
+        []
+    ).
+
+%% This testcase verifies time limiting functionality of reads and topic deletions.
+t_28_ttv_time_limited(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = maps:merge(opts(Config), #{
+        store_ttv => true,
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+    }),
+    Trans = fun(Fun) ->
+        ?assertMatch(
+            {atomic, _, _},
+            emqx_ds:trans(
+                #{db => DB, shard => {auto, <<"me">>}, generation => 1, timeout => infinity}, Fun
+            )
+        )
+    end,
+    Filter = fun(From, To, L) ->
+        [{Topic, T, Val} || {Topic, T, Val} <- L, T >= From, T < To]
+    end,
+    FilterOut = fun(From, To, L) ->
+        [{Topic, T, Val} || {Topic, T, Val} <- L, not (T >= From andalso T < To)]
+    end,
+    Compare = fun(From, To, Expect, Got) ->
+        snabbkaffe_diff:assert_lists_eq(
+            lists:sort(Filter(From, To, Expect)),
+            lists:sort(Got)
+        )
+    end,
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            %% Create data:
+            Msgs0 = [
+                {[<<>>, <<Topic:32>>], Time, <<>>}
+             || Topic <- lists:seq(1, 20),
+                Time <- lists:seq(1, 100)
+            ],
+            Trans(
+                fun() ->
+                    [emqx_ds:tx_write(I) || I <- Msgs0],
+                    ok
+                end
+            ),
+            %% Test reading various time ranges:
+            Trans(
+                fun() ->
+                    Got = emqx_ds:tx_read(['#']),
+                    Compare(0, infinity, Msgs0, Got)
+                end
+            ),
+            Trans(
+                fun() ->
+                    Got = emqx_ds:tx_read(#{start_time => 10, end_time => 20}, ['#']),
+                    Compare(10, 20, Msgs0, Got)
+                end
+            ),
+            Trans(
+                fun() ->
+                    Got = emqx_ds:tx_read(#{start_time => 50}, ['#']),
+                    Compare(50, infinity, Msgs0, Got)
+                end
+            ),
+            %% Test deletions:
+            Msgs1 = FilterOut(20, 50, Msgs0),
+            Trans(
+                fun() ->
+                    emqx_ds:tx_del_topic(['#'], 20, 50)
+                end
+            ),
+            Trans(
+                fun() ->
+                    Got = emqx_ds:tx_read(['#']),
+                    Compare(0, infinity, Msgs1, Got)
+                end
+            ),
+            Msgs2 = FilterOut(0, 10, Msgs1),
+            Trans(
+                fun() ->
+                    emqx_ds:tx_del_topic(['#'], 0, 10)
+                end
+            ),
+            Trans(
+                fun() ->
+                    Got = emqx_ds:tx_read(#{end_time => 70}, ['#']),
+                    Compare(0, 70, Msgs2, Got)
+                end
+            ),
+            %% Test deletion with monotonic ts limit:
+            Trans(
+                fun() ->
+                    emqx_ds:tx_write({[<<"foo">>], ?ds_tx_ts_monotonic, <<1>>})
+                end
+            ),
+            ?assertMatch(
+                [{_, _, <<1>>}],
+                emqx_ds:dirty_read(DB, [<<"foo">>])
+            ),
+            Trans(
+                fun() ->
+                    emqx_ds:tx_write({[<<"foo">>], ?ds_tx_ts_monotonic, <<2>>}),
+                    emqx_ds:tx_del_topic([<<"foo">>], 0, ?ds_tx_ts_monotonic)
+                end
+            ),
+            ?assertMatch(
+                [{_, _, <<2>>}],
+                emqx_ds:dirty_read(DB, [<<"foo">>])
+            )
+        end,
+        []
+    ).
+
+t_multi_iterator(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = maps:merge(opts(Config), #{
+        n_shards => 5,
+        store_ttv => true,
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+    }),
+    ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+    Slabs = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    lists:foreach(
+        fun({Shard, Gen}) ->
+            emqx_ds:trans(
+                #{db => DB, shard => Shard, generation => Gen},
+                fun() ->
+                    [emqx_ds:tx_write({[Shard], T, <<T>>}) || T <- lists:seq(1, 3)]
+                end
+            )
+        end,
+        Slabs
+    ),
+    (fun() ->
+        MIt = emqx_ds:make_multi_iterator(#{db => DB}, ['#']),
+        {L, '$end_of_table'} = emqx_ds:multi_iterator_next(#{db => DB}, ['#'], MIt, 1000),
+        ?assertEqual(length(L), length(Slabs) * 3)
+    end)(),
+    (fun() ->
+        MIt0 = emqx_ds:make_multi_iterator(#{db => DB, shard => <<"0">>}, ['#']),
+        {[{_, 1, <<1>>}, {_, 2, <<2>>}], MIt1} = emqx_ds:multi_iterator_next(
+            #{db => DB, shard => <<"0">>}, ['#'], MIt0, 2
+        ),
+        {[{_, 3, <<3>>}], '$end_of_table'} = emqx_ds:multi_iterator_next(
+            #{db => DB, shard => <<"0">>}, ['#'], MIt1, 2
+        )
+    end)(),
+    (fun() ->
+        MIt0 = emqx_ds:make_multi_iterator(#{db => DB}, ['#']),
+        {[{_, 1, <<1>>}, {_, 2, <<2>>}, {_, 3, <<3>>}, {_, 1, <<1>>}], _MIt1} = emqx_ds:multi_iterator_next(
+            #{db => DB}, ['#'], MIt0, 4
+        )
+    end)().
 
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
@@ -1585,6 +2425,8 @@ init_per_testcase(TC, Config) ->
     }),
     ct:pal("Started apps: ~p", [Apps]),
     timer:sleep(1000),
+    %% Hack, fixme:
+    emqx_bpapi:start(),
     [{apps, Apps}, {tc, TC} | Config].
 
 end_per_testcase(TC, Config) ->
@@ -1643,7 +2485,7 @@ make_stream(Config) ->
     DB = proplists:get_value(tc, Config),
     publish_seq(DB, <<"t">>, 0, 0),
     timer:sleep(100),
-    [{_, Stream}] = emqx_ds:get_streams(DB, [<<"t">>], 0),
+    {[{_, Stream}], []} = emqx_ds:get_streams(DB, [<<"t">>], 0, #{}),
     Stream.
 
 %% @doc Publish sequence of integers from `Start' to `End' to a topic:
