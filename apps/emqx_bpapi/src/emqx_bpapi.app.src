@@ -9,6 +9,7 @@
     ]},
     {env, []},
     {modules, []},
+    {mod, {emqx_bpapi_app, []}},
 
     {links, []}
 ]}.
