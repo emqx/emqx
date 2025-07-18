@@ -72,9 +72,10 @@ Side effects:
 ) -> ok.
 on_disconnect(ClientId, ClientInfo, MaybeWillMsg) ->
     case check(ClientInfo, MaybeWillMsg) of
-        {ok, Delay, MsgBin} ->
+        {ok, Delay, MsgBin} when Delay > 0 ->
+            %% When Delay = 0 will message is handled by emqx_channel logic
             emqx_durable_timer:apply_after(durable_timer_type(), ClientId, MsgBin, Delay);
-        undefined ->
+        _ ->
             clear(ClientId)
     end.
 
