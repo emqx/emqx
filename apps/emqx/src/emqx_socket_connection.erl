@@ -349,8 +349,10 @@ run_loop(
         zone = Zone
     }
 ) ->
-    Peername = emqx_channel:info(peername, Channel),
-    emqx_logger:set_metadata_peername(esockd:format(Peername)),
+    emqx_logger:set_proc_metadata(#{
+        peername => esockd:format(emqx_channel:info(peername, Channel)),
+        connmod => ?MODULE
+    }),
     ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     _ = emqx_utils:tune_heap_size(ShutdownPolicy),
     _ = set_tcp_keepalive(Listener),
