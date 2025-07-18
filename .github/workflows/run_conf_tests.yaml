@@ -28,10 +28,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: ${{ matrix.profile }}
+          name: ${{ matrix.profile }}-release
       - name: extract artifact
         run: |
-          unzip -o -q ${{ matrix.profile }}.zip
+          unzip -o -q ${{ matrix.profile }}-release.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: make ${{ matrix.profile }}
       - run: ./scripts/test/check-example-configs.sh

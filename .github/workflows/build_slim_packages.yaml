@@ -16,19 +16,20 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.profile[2]) || (matrix.profile[2] == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
+    runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     env:
-      PROFILE: ${{ matrix.profile[0] }}
-      ELIXIR: ${{ matrix.profile[1] == 'elixir' && 'yes' || 'no' }}
-      ARCH: ${{ matrix.profile[2] }}
+      PROFILE: ${{ matrix.profile }}
+      ARCH: ${{ matrix.arch }}
       BUILDER_SYSTEM: force_docker
 
     strategy:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx-enterprise", "elixir", "arm64"]
-          - ["emqx-enterprise", "erlang", "amd64"]
+          - "emqx-enterprise"
+        arch:
+          - "arm64"
+          - "amd64"
 
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -36,14 +37,14 @@ jobs:
         fetch-depth: 0
     - name: build tgz
       run: |
-        ./scripts/buildx.sh --profile $PROFILE --pkgtype tgz --elixir $ELIXIR --arch $ARCH
+        ./scripts/buildx.sh --profile $PROFILE --pkgtype tgz --arch $ARCH
     - name: build pkg
       run: |
-        ./scripts/buildx.sh --profile $PROFILE --pkgtype pkg --elixir $ELIXIR --arch $ARCH
+        ./scripts/buildx.sh --profile $PROFILE --pkgtype pkg --arch $ARCH
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
-        name: "${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
-        path: _packages/${{ matrix.profile[0] }}/*
+        name: "${{ matrix.profile }}-${{ matrix.arch }}"
+        path: _packages/${{ matrix.profile }}/*
         retention-days: 7
         compression-level: 0
 
@@ -67,10 +68,12 @@ jobs:
       run: |
         source env.sh
         echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
+        echo "ELIXIR_VSN=$ELIXIR_VSN" >> "$GITHUB_OUTPUT"
     - uses: ./.github/actions/package-macos
       with:
         profile: ${{ matrix.profile }}
         otp: ${{ steps.env.outputs.OTP_VSN }}
+        elixir: ${{ steps.env.outputs.ELIXIR_VSN }}
         os: ${{ matrix.os }}
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
