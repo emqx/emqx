@@ -103,7 +103,7 @@ on_add_channel(
         true ->
             {error, already_exists};
         false ->
-            ProcParam = preproc_parameter(Config),
+            ProcParam = preproc_parameter(ChannelId, Config),
             case make_channel(InstanceId, ChannelId, ProcParam) of
                 {ok, RabbitChannels} ->
                     Channel = #{param => ProcParam, rabbitmq => RabbitChannels},
@@ -486,7 +486,7 @@ init_secret() ->
             ok
     end.
 
-preproc_parameter(#{config_root := actions, parameters := Parameter}) ->
+preproc_parameter(_ActionResId, #{config_root := actions, parameters := Parameter}) ->
     #{
         payload_template := PayloadTemplate,
         delivery_mode := InitialDeliveryMode,
@@ -500,8 +500,15 @@ preproc_parameter(#{config_root := actions, parameters := Parameter}) ->
         exchange := preproc_template(Exchange),
         routing_key := preproc_template(RoutingKey)
     };
-preproc_parameter(#{config_root := sources, parameters := Parameter, hookpoints := Hooks}) ->
-    Parameter#{hookpoints => Hooks, config_root => sources}.
+preproc_parameter(SourceResId, #{
+    config_root := sources, parameters := Parameter, hookpoints := Hooks
+}) ->
+    #{namespace := Namespace} = emqx_resource:parse_channel_id(SourceResId),
+    Parameter#{
+        hookpoints => Hooks,
+        namespace => Namespace,
+        config_root => sources
+    }.
 
 preproc_template(Template0) ->
     Template = emqx_template:parse(Template0),

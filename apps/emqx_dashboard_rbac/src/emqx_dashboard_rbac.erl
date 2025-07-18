@@ -35,6 +35,8 @@
 -define(DASHBOARD_API(METHOD, FN), ?API(emqx_dashboard_api, METHOD, FN)).
 -define(CONNECTOR_API(METHOD, FN), ?API(emqx_connector_api, METHOD, FN)).
 -define(BRIDGE_V2_API(METHOD, FN), ?API(emqx_bridge_v2_api, METHOD, FN)).
+-define(RULE_API(METHOD, FN), ?API(emqx_rule_engine_api, METHOD, FN)).
+-define(TRACE_API(METHOD, FN), ?API(emqx_mgmt_api_trace, METHOD, FN)).
 -define(PUBLISH_API(METHOD, FN), ?API(emqx_mgmt_api_publish, METHOD, FN)).
 
 %%=====================================================================
@@ -166,6 +168,18 @@ do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?BRIDG
     %% Namespaced action/source APIs; may only alter resources in its own namespace.  This
     %% is enforced by the handlers themselves, by only fetching/acting on the appropriate
     %% namespace.
+    true;
+do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?RULE_API(_, _)) when
+    is_binary(Namespace)
+->
+    %% Namespaced rule APIs; may only alter resources in its own namespace.  This
+    %% is enforced by the handlers themselves, by only fetching/acting on the appropriate
+    %% namespace.
+    true;
+do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?TRACE_API(_, _)) when
+    is_binary(Namespace)
+->
+    %% Used by rule simulation API.
     true;
 do_check_rbac(_, _, _) ->
     false.

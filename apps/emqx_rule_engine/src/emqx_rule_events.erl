@@ -42,7 +42,7 @@
     on_message_delivered/3,
     on_message_acked/3,
     on_delivery_dropped/4,
-    on_bridge_message_received/2
+    on_bridge_message_received/3
 ]).
 
 -export([
@@ -115,11 +115,16 @@ event_topics_enum() ->
     ].
 
 reload() ->
-    lists:foreach(
-        fun(Rule) ->
-            ok = emqx_rule_engine:load_hooks_for_rule(Rule)
+    maps:foreach(
+        fun(_Namespace, Rules) ->
+            lists:foreach(
+                fun(Rule) ->
+                    ok = emqx_rule_engine:load_hooks_for_rule(Rule)
+                end,
+                Rules
+            )
         end,
-        emqx_rule_engine:get_rules()
+        emqx_rule_engine:get_rules_from_all_namespaces()
     ).
 
 load(Topic) ->
@@ -170,17 +175,22 @@ on_message_publish(Message = #message{topic = Topic}, _Conf) ->
             case emqx_rule_engine:get_rules_for_topic(Topic) of
                 [] ->
                     ok;
-                RichedRules ->
+                EnrichedRules ->
                     %% ENVs are the fields that can't be refereced by the SQL, but can be used
                     %% from actions. e.g. The 'headers' field in the internal record `#message{}`.
                     {Columns, Envs} = eventmsg_publish(Message),
-                    emqx_rule_runtime:apply_rules(RichedRules, Columns, Envs)
+                    emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs)
             end
     end,
     {ok, Message}.
 
-on_bridge_message_received(Message, Conf = #{event_topic := BridgeTopic}) ->
-    apply_event(BridgeTopic, fun() -> with_basic_columns(BridgeTopic, Message, #{}) end, Conf).
+on_bridge_message_received(Message, Namespace, Conf = #{event_topic := BridgeTopic}) ->
+    apply_event_namespaced(
+        Namespace,
+        BridgeTopic,
+        fun() -> with_basic_columns(BridgeTopic, Message, #{}) end,
+        Conf
+    ).
 
 on_client_connected(ClientInfo, ConnInfo, Conf) ->
     apply_event(
@@ -846,14 +856,25 @@ with_basic_columns(EventName, Columns, Envs) when is_map(Columns) ->
 %%--------------------------------------------------------------------
 %% rules applying
 %%--------------------------------------------------------------------
-apply_event(EventName, GenEventMsg, _Conf) ->
-    case emqx_rule_engine:get_enriched_rules_with_matching_event(EventName) of
+
+apply_event_namespaced(Namespace, EventName, GenEventMsg, _Conf) ->
+    case emqx_rule_engine:get_enriched_rules_with_matching_event(Namespace, EventName) of
         [] ->
             ok;
-        RichedRules ->
+        EnrichedRules ->
             %% delay the generating of eventmsg after we have found some rules to apply
             {Columns, Envs} = GenEventMsg(),
-            emqx_rule_runtime:apply_rules(RichedRules, Columns, Envs)
+            emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs)
+    end.
+
+apply_event(EventName, GenEventMsg, _Conf) ->
+    case emqx_rule_engine:get_enriched_rules_with_matching_event_all_namespaces(EventName) of
+        [] ->
+            ok;
+        EnrichedRules ->
+            %% delay the generating of eventmsg after we have found some rules to apply
+            {Columns, Envs} = GenEventMsg(),
+            emqx_rule_runtime:apply_rules(EnrichedRules, Columns, Envs)
     end.
 
 %%--------------------------------------------------------------------
@@ -1420,7 +1441,8 @@ hook_fun_name(HookPoint) ->
     HookFunName.
 
 %% return static function references to help static code checks
-hook_fun(?BRIDGE_HOOKPOINT(_)) -> fun ?MODULE:on_bridge_message_received/2;
+hook_fun(?BRIDGE_HOOKPOINT(_)) -> fun ?MODULE:on_bridge_message_received/3;
+hook_fun(?SOURCE_HOOKPOINT(_)) -> fun ?MODULE:on_bridge_message_received/3;
 hook_fun('alarm.activated') -> fun ?MODULE:on_alarm_activated/2;
 hook_fun('alarm.deactivated') -> fun ?MODULE:on_alarm_deactivated/2;
 hook_fun('client.connected') -> fun ?MODULE:on_client_connected/3;
@@ -1511,6 +1533,7 @@ expand_legacy_event_topics(EventTopic) ->
 
 %% Remember to update `event_names` when adding a new topic here.
 event_name(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
+event_name(?SOURCE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_name(<<"$events/sys/alarm_activated">>) -> 'alarm.activated';
 event_name(<<"$events/sys/alarm_deactivated">>) -> 'alarm.deactivated';
 event_name(<<"$events/client/connected">>) -> 'client.connected';
@@ -1545,6 +1568,7 @@ event_name(_) -> 'message.publish'.
 
 %% Remember to update `event_names` when adding a new topic here.
 event_topic(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
+event_topic(?SOURCE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_topic('alarm.activated') -> <<"$events/sys/alarm_activated">>;
 event_topic('alarm.deactivated') -> <<"$events/sys/alarm_deactivated">>;
 event_topic('client.connected') -> <<"$events/client/connected">>;

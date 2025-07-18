@@ -1645,28 +1645,28 @@ t_e2e_client_source_republish_to_clients('init', Config) ->
     RepublishQOS = 2,
     RuleID = rule_id(Config),
     Rule = #{
-        id => RuleID,
-        sql => <<"SELECT * FROM \"$bridges/mqtt:my_mqtt_source\"">>,
-        actions => [
+        <<"id">> => RuleID,
+        <<"sql">> => <<"SELECT * FROM \"$bridges/mqtt:my_mqtt_source\"">>,
+        <<"actions">> => [
             #{
-                function => republish,
-                args => #{
-                    direct_dispatch => false,
-                    payload => <<"${payload}">>,
-                    qos => RepublishQOS,
-                    retain => false,
-                    topic => RepublishTopic,
-                    user_properties => <<>>,
-                    mqtt_properties => #{}
+                <<"function">> => <<"republish">>,
+                <<"args">> => #{
+                    <<"direct_dispatch">> => false,
+                    <<"payload">> => <<"${payload}">>,
+                    <<"qos">> => RepublishQOS,
+                    <<"retain">> => false,
+                    <<"topic">> => RepublishTopic,
+                    <<"user_properties">> => <<>>,
+                    <<"mqtt_properties">> => #{}
                 }
             },
             #{
-                function => console,
-                args => #{}
+                <<"function">> => <<"console">>,
+                <<"args">> => #{}
             }
         ]
     },
-    {ok, _} = emqx_rule_engine:create_rule(Rule),
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(Rule),
 
     %% important: Wait for channels installed to connectors
     timer:sleep(2_000),
@@ -2027,7 +2027,9 @@ e2e_client_id(Config) ->
     ).
 
 rule_id(Config) ->
-    <<"rule_id_", (e2e_client_id(Config))/binary>>.
+    ClientId0 = e2e_client_id(Config),
+    ClientId = iolist_to_binary(re:replace(ClientId0, <<"\\.">>, <<"_">>, [global])),
+    <<"rule_id_", ClientId/binary>>.
 
 connect(Config, ClientId) ->
     connect(Config, node(), ClientId).

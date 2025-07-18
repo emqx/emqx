@@ -6,7 +6,13 @@
 
 -define(TRACE, emqx_trace).
 
--type trace_extra() :: #{formatter => text | json, payload_limit => integer()}.
+-include_lib("emqx/include/emqx_config.hrl").
+
+-type trace_extra() :: #{
+    formatter => text | json,
+    payload_limit => integer(),
+    any() => term()
+}.
 
 -record(?TRACE, {
     name :: binary() | undefined | '_',
@@ -15,7 +21,7 @@
         emqx_types:topic()
         | emqx_types:clientid()
         | emqx_trace:ip_address()
-        | emqx_trace:ruleid()
+        | {?global_ns | binary(), emqx_trace:ruleid()}
         | undefined
         | '_',
     enable = true :: boolean() | '_',

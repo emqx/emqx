@@ -500,7 +500,7 @@ bridge_node_operation_http_api_v2(Name, Node0, Op0) ->
     Res.
 
 is_rule_enabled(RuleId) ->
-    {ok, #{enable := Enable}} = emqx_rule_engine:get_rule(RuleId),
+    {ok, #{enable := Enable}} = emqx_rule_engine:get_rule(?global_ns, RuleId),
     Enable.
 
 update_rule_http(RuleId, Params) ->

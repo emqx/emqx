@@ -259,21 +259,10 @@ delete_bridge(Config) ->
     emqx_bridge:remove(Type, Name).
 
 delete_all_bridges() ->
-    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            emqx_bridge:remove(Type, Name)
-        end,
-        emqx_bridge:list()
-    ).
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors().
 
 delete_all_rules() ->
-    lists:foreach(
-        fun(#{id := RuleId}) ->
-            ok = emqx_rule_engine:delete_rule(RuleId)
-        end,
-        emqx_rule_engine:get_rules()
-    ).
+    emqx_bridge_v2_testlib:delete_all_rules().
 
 create_rule_and_action_http(Config) ->
     create_rule_and_action_http(Config, _Overrides = #{}).

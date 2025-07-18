@@ -16,6 +16,7 @@
     group_path/1,
     group_path/2,
     get_matrix_prop/3,
+    get_tc_prop/4,
     init_per_testcase/3,
     end_per_testcase/3,
     boot_modules/1,

@@ -110,14 +110,19 @@ delete_all_bridges_and_connectors() ->
     delete_all_connectors().
 
 delete_all_bridges() ->
-    Namespaces = lists:usort(
-        emqx_config:get_all_namespaces_containing(<<"actions">>) ++
-            emqx_config:get_all_namespaces_containing(<<"sources">>)
-    ),
-    lists:foreach(
-        fun delete_all_bridges/1,
-        [?global_ns | Namespaces]
-    ).
+    maybe
+        true ?= has_config_table(),
+        Namespaces = lists:usort(
+            emqx_config:get_all_namespaces_containing(<<"actions">>) ++
+                emqx_config:get_all_namespaces_containing(<<"sources">>)
+        ),
+        lists:foreach(
+            fun delete_all_bridges/1,
+            [?global_ns | Namespaces]
+        )
+    else
+        _ -> ok
+    end.
 
 delete_all_bridges(Namespace) ->
     lists:foreach(
@@ -134,10 +139,15 @@ delete_all_bridges(Namespace) ->
     ).
 
 delete_all_connectors() ->
-    lists:foreach(
-        fun delete_all_connectors/1,
-        [?global_ns | emqx_config:get_all_namespaces_containing(<<"connectors">>)]
-    ).
+    maybe
+        true ?= has_config_table(),
+        lists:foreach(
+            fun delete_all_connectors/1,
+            [?global_ns | emqx_config:get_all_namespaces_containing(<<"connectors">>)]
+        )
+    else
+        _ -> ok
+    end.
 
 delete_all_connectors(Namespace) ->
     lists:foreach(
@@ -146,6 +156,34 @@ delete_all_connectors(Namespace) ->
         end,
         emqx_connector:list(Namespace)
     ).
+
+delete_all_rules() ->
+    maybe
+        true ?= has_config_table(),
+        lists:foreach(
+            fun delete_all_rules/1,
+            [?global_ns | emqx_config:get_all_namespaces_containing(<<"rule_engine">>)]
+        )
+    else
+        _ -> ok
+    end.
+
+delete_all_rules(Namespace) ->
+    lists:foreach(
+        fun(#{id := Id}) ->
+            emqx_rule_engine_config:delete_rule(Namespace, Id)
+        end,
+        emqx_rule_engine:get_rules(Namespace)
+    ).
+
+has_config_table() ->
+    maybe
+        yes ?= mnesia:system_info(is_running),
+        true ?= lists:member(emqx_config, mnesia:table_info(schema, tables)),
+        true
+    else
+        _ -> false
+    end.
 
 %% test helpers
 parse_and_check(Type, Name, InnerConfigMap0) ->
@@ -546,6 +584,32 @@ create_connector_api(ConnectorName, ConnectorType, ConnectorConfig) ->
     ct:pal("connector create (http) result:\n  ~p", [Res]),
     Res.
 
+create_connector_api_params(TCConfig, Overrides) when is_list(TCConfig) ->
+    #{
+        connector_type := Type,
+        connector_name := Name,
+        connector_config := ConnectorConfig
+    } = get_common_values_with_configs(TCConfig),
+    emqx_utils_maps:deep_merge(
+        ConnectorConfig#{
+            <<"type">> => Type,
+            <<"name">> => Name
+        },
+        Overrides
+    ).
+
+create_connector_api2(TCConfig, #{} = Overrides) when is_list(TCConfig) ->
+    Params = create_connector_api_params(TCConfig, Overrides),
+    do_create_connector_api2(Params, common_api_opts(TCConfig)).
+
+do_create_connector_api2(Params, Opts) ->
+    emqx_bridge_v2_testlib:simple_request(#{
+        method => post,
+        url => emqx_mgmt_api_test_util:api_path(["connectors"]),
+        body => Params,
+        auth_header => auth_header_lazy(Opts)
+    }).
+
 update_connector_api(ConnectorName, ConnectorType, ConnectorConfig) ->
     ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
     Path = emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
@@ -613,6 +677,35 @@ create_action_api(Config, Overrides) ->
     Res = request(post, Path, Params),
     ct:pal("action create (http) result:\n  ~p", [Res]),
     Res.
+
+create_action_api_params(TCConfig) ->
+    create_action_api_params(TCConfig, _Overrides = #{}).
+
+create_action_api_params(TCConfig, Overrides) when is_list(TCConfig) ->
+    #{
+        type := Type,
+        name := Name,
+        config := ActionConfig
+    } = get_common_values_with_configs(TCConfig),
+    emqx_utils_maps:deep_merge(
+        ActionConfig#{
+            <<"type">> => Type,
+            <<"name">> => Name
+        },
+        Overrides
+    ).
+
+create_action_api2(TCConfig, #{} = Overrides) when is_list(TCConfig) ->
+    Params = create_action_api_params(TCConfig, Overrides),
+    do_create_action_api2(Params, common_api_opts(TCConfig)).
+
+do_create_action_api2(Params, Opts) ->
+    emqx_bridge_v2_testlib:simple_request(#{
+        method => post,
+        url => emqx_mgmt_api_test_util:api_path(["actions"]),
+        body => Params,
+        auth_header => auth_header_lazy(Opts)
+    }).
 
 create_source_api(Config) ->
     create_source_api(Config, _Overrides = #{}).
@@ -837,7 +930,7 @@ kick_clients_http(ClientIds) ->
     simplify_result(Res).
 
 is_rule_enabled(RuleId) ->
-    {ok, #{enable := Enable}} = emqx_rule_engine:get_rule(RuleId),
+    {ok, #{enable := Enable}} = emqx_rule_engine:get_rule(?global_ns, RuleId),
     Enable.
 
 try_decode_error(Body0) ->
@@ -932,7 +1025,7 @@ delete_rule_api(RuleId) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules", RuleId]),
     simplify_result(request(delete, Path, "")).
 
-start_rule_test_trace(RuleId) ->
+start_rule_test_trace(RuleId, Opts) ->
     Name0 = uuid:uuid_to_string(uuid:get_v4(), binary_standard),
     Name = <<"trace-", Name0/binary>>,
     Body = #{
@@ -942,8 +1035,14 @@ start_rule_test_trace(RuleId) ->
         <<"formatter">> => <<"json">>,
         <<"payload_encode">> => <<"text">>
     },
+    AuthHeader = emqx_utils_maps:get_lazy(
+        auth_header,
+        Opts,
+        fun auth_header/0
+    ),
     URL = emqx_mgmt_api_test_util:api_path(["trace"]),
     simple_request(#{
+        auth_header => AuthHeader,
         method => post,
         url => URL,
         body => Body
@@ -965,8 +1064,14 @@ trigger_rule_test_trace_flow(Opts) ->
         <<"context">> => Context,
         <<"stop_action_after_template_rendering">> => false
     },
+    AuthHeader = emqx_utils_maps:get_lazy(
+        auth_header,
+        Opts,
+        fun auth_header/0
+    ),
     URL = emqx_mgmt_api_test_util:api_path(["rules", RuleId, "test"]),
     simple_request(#{
+        auth_header => AuthHeader,
         method => post,
         url => URL,
         body => Body
@@ -1040,6 +1145,18 @@ get_common_values(Config) ->
             }
     end.
 
+get_common_values_with_configs(Config) ->
+    Values = #{kind := Kind} = get_common_values(Config),
+    ConnectorConfig = get_value(connector_config, Config),
+    KindConfig =
+        case Kind of
+            action ->
+                get_value(action_config, Config);
+            source ->
+                get_value(source_config, Config)
+        end,
+    Values#{config => KindConfig, connector_config => ConnectorConfig}.
+
 connector_resource_id(Config) ->
     #{connector_type := Type, connector_name := Name} = get_common_values(Config),
     emqx_connector_resource:resource_id(Type, Name).
@@ -1096,7 +1213,7 @@ get_metrics(Opts) ->
 %% Internal export
 %%------------------------------------------------------------------------------
 
-source_hookpoint_callback(Message, TestPid) ->
+source_hookpoint_callback(Message, _Namespace, TestPid) ->
     TestPid ! {consumed_message, Message},
     ok.
 
@@ -1747,19 +1864,26 @@ t_rule_test_trace(Config, Opts) ->
         type := ActionType0,
         name := ActionName0
     } = get_common_values(Config),
+    AuthHeaderOpts =
+        case proplists:get_value(auth_header, Config) of
+            undefined -> #{};
+            AuthHeader -> #{auth_header => AuthHeader}
+        end,
     ActionName = bin(ActionName0),
     ActionType = bin(ActionType0),
     ct:print(asciiart:visible($+, "testing primary action success", [])),
+    ct:pal("namespace: ~p", [Namespace]),
     ?tpal("creating connector and actions"),
     {201, #{<<"status">> := <<"connected">>}} =
-        simplify_result(create_connector_api(Config)),
+        create_connector_api2(Config, #{}),
     FallbackActionName = <<ActionName/binary, "_fallback">>,
     {201, #{<<"status">> := <<"connected">>}} =
-        simplify_result(create_action_api([{action_name, FallbackActionName} | Config])),
+        create_action_api2([{action_name, FallbackActionName} | Config], #{}),
     RepublishTopicFallback = <<"fallback/republish">>,
     {201, #{<<"status">> := <<"connected">>}} =
-        simplify_result(
-            create_action_api(Config, #{
+        create_action_api2(
+            Config,
+            #{
                 <<"fallback_actions">> => [
                     #{
                         <<"kind">> => <<"reference">>,
@@ -1779,16 +1903,17 @@ t_rule_test_trace(Config, Opts) ->
                         }
                     }
                 ]
-            })
+            }
         ),
     ?tpal("creating rule"),
     RuleTopic = <<"rule/test/trace">>,
     BridgeId = emqx_bridge_resource:bridge_id(ActionType, ActionName),
     RepublishTopicPrimary = <<"primary/republish">>,
-    RuleOpts = #{
-        req_opts => #{return_all => true},
-        overrides => #{
-            actions => [
+    {201, #{<<"id">> := RuleId}} = create_rule_api2(
+        #{
+            <<"enable">> => true,
+            <<"sql">> => fmt(<<"select * from \"${t}\" ">>, #{t => RuleTopic}),
+            <<"actions">> => [
                 BridgeId,
                 #{
                     <<"function">> => <<"republish">>,
@@ -1803,10 +1928,8 @@ t_rule_test_trace(Config, Opts) ->
                     }
                 }
             ]
-        }
-    },
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(
-        ActionType, RuleTopic, Config, RuleOpts
+        },
+        AuthHeaderOpts
     ),
 
     Context0 = #{},
@@ -1815,13 +1938,13 @@ t_rule_test_trace(Config, Opts) ->
     Context1 = PreTestFn(Context0),
 
     ?tpal("start rule test trace"),
-    {200, #{<<"name">> := TraceName}} = start_rule_test_trace(RuleId),
+    {200, #{<<"name">> := TraceName}} = start_rule_test_trace(RuleId, AuthHeaderOpts),
     PayloadFn = maps:get(payload_fn, Opts, fun() ->
         emqx_utils_json:encode(#{<<"msg">> => <<"hello">>})
     end),
 
     Payload = PayloadFn(),
-    TestOpts = #{
+    TestOpts = AuthHeaderOpts#{
         context => #{
             <<"clientid">> => <<"c_emqx">>,
             <<"event_type">> => <<"message_publish">>,
@@ -1935,7 +2058,7 @@ t_rule_test_trace(Config, Opts) ->
     %% Now we test fallback action traces
     ct:print(asciiart:visible($+, "testing primary action failure with fallbacks", [])),
     ?tpal("starting fallback action test trace"),
-    {200, #{<<"name">> := TraceNameErr}} = start_rule_test_trace(RuleId),
+    {200, #{<<"name">> := TraceNameErr}} = start_rule_test_trace(RuleId, AuthHeaderOpts),
     AssertFallbackLogFn = maps:get(assert_fallback_log_fn, Opts, fun(TraceNameIn) ->
         {ok, LogLines0} = get_test_trace_log(TraceNameIn),
         LogLines1 = lists:filter(
@@ -2138,6 +2261,23 @@ auth_header() ->
             emqx_mgmt_api_test_util:auth_header_()
     end.
 
+common_api_opts(TCConfig) ->
+    Opts0 =
+        case proplists:get_value(auth_header, TCConfig) of
+            undefined -> #{};
+            AuthHeader -> #{auth_header => AuthHeader}
+        end,
+    Opts0#{tc_config => TCConfig}.
+
+auth_header_lazy(TCConfig) when is_list(TCConfig) ->
+    auth_header_lazy(maps:from_list(TCConfig));
+auth_header_lazy(#{} = Opts) ->
+    emqx_utils_maps:get_lazy(
+        auth_header,
+        Opts,
+        fun auth_header/0
+    ).
+
 bin(X) -> emqx_utils_conv:bin(X).
 
 common_connector_resource_opts() ->
@@ -2207,3 +2347,24 @@ force_health_check(Opts) ->
             source -> sources
         end,
     emqx_bridge_v2:health_check(Namespace, ConfRootKey, Type, Name).
+
+-doc """
+Please avoid using this function whenever possible.  Prefer to use helpers that use the
+HTTP API.
+""".
+delete_rule_directly(#{<<"id">> := Id} = Opts) ->
+    Namespace = maps:get(<<"namespace">>, Opts, ?global_ns),
+    emqx_rule_engine_config:delete_rule(Namespace, Id).
+
+-doc """
+Please avoid using this function whenever possible.  Prefer to use helpers that use the
+HTTP API.
+""".
+create_rule_directly(#{<<"id">> := Id} = Opts0) ->
+    Namespace = maps:get(<<"namespace">>, Opts0, ?global_ns),
+    Opts = maps:without([<<"id">>, <<"namespace">>], Opts0),
+    emqx_rule_engine_config:create_or_update_rule(Namespace, Id, Opts).
+
+fmt(FmtStr, Context) ->
+    Template = emqx_template:parse(FmtStr),
+    iolist_to_binary(emqx_template:render_strict(Template, Context)).

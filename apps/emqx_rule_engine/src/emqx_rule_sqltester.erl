@@ -6,20 +6,22 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include("rule_engine.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     test/1,
     get_selected_data/3,
     %% Some SQL functions return different results in the test environment
     is_test_runtime_env/0,
-    apply_rule/2
+    apply_rule/3
 ]).
 
 apply_rule(
+    Namespace,
     RuleId,
     Parameters
 ) ->
-    case emqx_rule_engine:get_rule(RuleId) of
+    case emqx_rule_engine:get_rule(Namespace, RuleId) of
         {ok, Rule} ->
             do_apply_rule(Rule, Parameters);
         not_found ->
@@ -42,7 +44,7 @@ do_apply_rule(
     case match_any(InTopic, Topics) of
         {ok, Filter} ->
             do_apply_matched_rule(
-                riched_rule(Rule, InTopic, Filter),
+                enriched_rule(Rule, InTopic, Filter),
                 Context,
                 StopAfterRender,
                 Topics
@@ -51,13 +53,13 @@ do_apply_rule(
             {error, nomatch}
     end.
 
-do_apply_matched_rule(RichedRule, Context, StopAfterRender, EventTopics) ->
+do_apply_matched_rule(EnrichedRule, Context, StopAfterRender, EventTopics) ->
     PrevLoggerProcessMetadata = logger:get_process_metadata(),
     try
         update_process_trace_metadata(StopAfterRender),
         FullContext0 = fill_default_values(hd(EventTopics), Context),
         FullContext = remove_internal_fields(FullContext0),
-        emqx_rule_runtime:apply_rule(RichedRule, FullContext, apply_rule_environment())
+        emqx_rule_runtime:apply_rule(EnrichedRule, FullContext, apply_rule_environment())
     after
         reset_logger_process_metadata(PrevLoggerProcessMetadata)
     end.
@@ -98,7 +100,9 @@ test(#{sql := Sql, context := Context}) ->
             ),
             case match_any(Topic, EventTopics) of
                 {ok, Filter} ->
-                    test_rule(riched_rule(rule(Sql, Select, EventTopics), Topic, Filter), Context);
+                    test_rule(
+                        enriched_rule(rule(Sql, Select, EventTopics), Topic, Filter), Context
+                    );
                 nomatch ->
                     {error, nomatch}
             end;
@@ -115,11 +119,11 @@ test(#{sql := Sql, context := Context}) ->
             {error, Reason}
     end.
 
-test_rule(#{rule := #{id := RuleId, from := EventTopics}} = RichedRule, Context) ->
+test_rule(#{rule := #{id := RuleId, from := EventTopics}} = EnrichedRule, Context) ->
     FullContext0 = fill_default_values(hd(EventTopics), Context),
     FullContext = remove_internal_fields(FullContext0),
     set_is_test_runtime_env(),
-    try emqx_rule_runtime:apply_rule(RichedRule, FullContext, #{}) of
+    try emqx_rule_runtime:apply_rule(EnrichedRule, FullContext, #{}) of
         {ok, Data} ->
             {ok, flatten(Data)};
         {error, Reason} ->
@@ -202,8 +206,9 @@ maybe_infer_in_topic(_Context, Event) ->
 rule(Sql, Select, EventTopics) ->
     RuleId = iolist_to_binary(["sql_tester:", emqx_utils:gen_id(16)]),
     ok = emqx_rule_engine:maybe_add_metrics_for_rule(RuleId),
-    _Rule = #{
+    #{
         id => RuleId,
+        namespace => ?global_ns,
         sql => Sql,
         from => EventTopics,
         actions => [#{mod => ?MODULE, func => get_selected_data, args => #{}}],
@@ -216,7 +221,7 @@ rule(Sql, Select, EventTopics) ->
         created_at => erlang:system_time(millisecond)
     }.
 
-riched_rule(Rule, InTopic, Matched) ->
+enriched_rule(Rule, InTopic, Matched) ->
     #{rule => Rule, trigger => InTopic, matched => Matched}.
 
 -spec match_any(binary(), list(binary())) ->

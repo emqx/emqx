@@ -440,8 +440,9 @@ trace(get, _Params) ->
                 ),
             {200, Traces}
     end;
-trace(post, #{body := Param}) ->
-    case emqx_trace:create(Param) of
+trace(post, #{body := Params} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    case emqx_trace:create(Params#{namespace => Namespace}) of
         {ok, Trace0} ->
             {200, format_trace(Trace0)};
         {error, {already_existed, Name}} ->
