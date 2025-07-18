@@ -946,7 +946,8 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
 %%--------------------------------------------------------------------
 %% Send data
 
--spec send(non_neg_integer(), iodata(), state()) -> {ok, state()}.
+-spec send(non_neg_integer(), iodata(), state()) ->
+    {ok, state()} | {ok, {sock_error, _Reason}, state()}.
 send(Num, IoData, #state{socket = Socket, sockstate = idle} = State) ->
     Oct = iolist_size(IoData),
     Handle = make_ref(),
