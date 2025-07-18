@@ -40,10 +40,11 @@ We pay for this simplicity by slow detection time, so this is something that can
 
 Every node periodically writes its local monotonic time to the DS topic associated with the current epoch.
 
-If the node doesn't succeed in updating heartbeat for its current epoch at least once over `missed_heartbeats / 2` milliseconds,
-then it considers itself isolated.
+If the node doesn't succeed in updating heartbeat for its current epoch at least once over
+`missed_heartbeats / 2` milliseconds, then it considers itself isolated.
 
-When node enters isolated state, it changes its current epoch and continues to try to update the heartbeat for the new epoch.
+When node enters isolated state, it changes its current epoch and continues to try to update the heartbeat
+for the new epoch.
 When this succeeds, it enters normal state.
 
 While the node is in isolated state, all local operations with the timers hang until the node enters normal state.
@@ -58,7 +59,7 @@ If this operation succeeds, the remote is considered down.
 If it fails it may be because the local node itself is isolated.
 """.
 
--behavior(gen_statem).
+-behaviour(gen_statem).
 
 %% API:
 -export([register_type/1, dead_hand/4, apply_after/4, cancel/2]).
@@ -77,6 +78,7 @@ If it fails it may be because the local node itself is isolated.
     epoch/0,
     get_cbm/1,
     list_types/0,
+    handle_durable_timeout/3,
 
     cfg_heartbeat_interval/0,
     cfg_missed_heartbeats/0,
@@ -112,7 +114,6 @@ If it fails it may be because the local node itself is isolated.
 }).
 
 -record(s, {
-    hb_timer :: timer:tref(),
     this_epoch :: epoch() | undefined,
     my_missed_heartbeats = 0 :: non_neg_integer(),
     my_last_heartbeat = 0 :: non_neg_integer(),
@@ -215,8 +216,7 @@ init(_) ->
     process_flag(trap_exit, true),
     ok = ensure_tables(),
     self() ! ?heartbeat,
-    {ok, TRef} = timer:send_interval(cfg_heartbeat_interval(), ?heartbeat),
-    {ok, ?s_isolated(new_epoch_id()), #s{hb_timer = TRef}}.
+    {ok, ?s_isolated(new_epoch_id()), #s{}}.
 
 %% Isolated:
 handle_event(enter, PrevState, ?s_isolated(NextEpoch), D) ->
@@ -327,6 +327,7 @@ handle_heartbeat(
     State, S0 = #s{this_epoch = LastEpoch, my_missed_heartbeats = MMH}
 ) ->
     ?tp(debug, ?tp_heartbeat, #{state => State}),
+    erlang:send_after(cfg_heartbeat_interval(), self(), ?heartbeat),
     LEO = now_ms(),
     Epoch =
         case State of
@@ -499,6 +500,9 @@ new_epoch_id() ->
 list_types() ->
     MS = {{'$1', '_'}, [], ['$1']},
     ets:select(?regs_tab, [MS]).
+
+handle_durable_timeout(CBM, Key, Value) ->
+    CBM:handle_durable_timeout(Key, Value).
 
 is_registered(Type) ->
     case ets:lookup(?regs_tab, Type) of

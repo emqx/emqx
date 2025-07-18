@@ -44,7 +44,7 @@ Invariants:
 
 """.
 
--behavior(gen_statem).
+-behaviour(gen_statem).
 
 %% API:
 -export([start_link/4, apply_after/5]).
@@ -462,7 +462,7 @@ on_clean_complete(Ref, Reply, Data) ->
 handle_timeout(Type, CBM, Time, Key, Value) ->
     ?tp(debug, ?tp_fire, #{type => Type, key => Key, val => Value, t => Time}),
     try
-        CBM:handle_durable_timeout(Key, Value),
+        emqx_durable_timer:handle_durable_timeout(CBM, Key, Value),
         ok
     catch
         _:_ ->
