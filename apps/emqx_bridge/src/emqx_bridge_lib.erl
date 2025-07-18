@@ -6,9 +6,7 @@
 -include_lib("emqx/include/emqx_config.hrl").
 
 -export([
-    maybe_withdraw_rule_action/3,
     maybe_withdraw_rule_action/4,
-    external_ids/3,
     external_ids/4,
     upgrade_type/1,
     downgrade_type/2,
@@ -19,11 +17,9 @@
 %% The bridge-ID in rule-engine's world is the action-ID.
 %% This function is to remove a bridge (action) from all rules
 %% using it if the `rule_actions' is included in `DeleteDeps' list
-maybe_withdraw_rule_action(BridgeType, BridgeName, DeleteDeps) ->
-    maybe_withdraw_rule_action(undefined, BridgeType, BridgeName, DeleteDeps).
-
+%% **N.B.**: helper for deprecated bridge v1 api
 maybe_withdraw_rule_action(ConfRootKey, BridgeType, BridgeName, DeleteDeps) ->
-    BridgeIds = external_ids(ConfRootKey, BridgeType, BridgeName),
+    BridgeIds = external_ids(?global_ns, ConfRootKey, BridgeType, BridgeName),
     DeleteActions = lists:member(rule_actions, DeleteDeps),
     maybe_withdraw_rule_action_loop(BridgeIds, DeleteActions).
 
@@ -67,18 +63,12 @@ downgrade_type(Type, Conf) when is_list(Type) ->
 
 %% A rule might be referencing an old version bridge type name
 %% i.e. 'kafka' instead of 'kafka_producer' so we need to try both
-external_ids(ConfRootKey, Type, Name) ->
-    external_ids(?global_ns, ConfRootKey, Type, Name).
-
 external_ids(Namespace, ConfRootKey, Type, Name) ->
     case downgrade_type(Type, get_conf(Namespace, ConfRootKey, Type, Name)) of
         Type ->
-            [external_id(Namespace, ConfRootKey, Type, Name)];
+            [external_id(Type, Name)];
         Type0 ->
-            [
-                external_id(Namespace, ConfRootKey, Type0, Name),
-                external_id(Namespace, ConfRootKey, Type, Name)
-            ]
+            [external_id(Type0, Name), external_id(Type, Name)]
     end.
 
 get_conf(BridgeType, BridgeName) ->
@@ -103,16 +93,7 @@ get_conf(Namespace, ConfRootKey, BridgeType, BridgeName) ->
 
 %% Creates the external id for the bridge_v2 that is used by the rule actions
 %% to refer to the bridge_v2
-external_id(Namespace, ConfRootKey, Type0, Name0) when is_binary(Namespace) ->
-    Kind =
-        case ConfRootKey of
-            actions -> <<"action">>;
-            sources -> <<"source">>
-        end,
-    Name = bin(Name0),
-    Type = bin(Type0),
-    <<"ns:", Namespace/binary, ":", Kind/binary, ":", Type/binary, ":", Name/binary>>;
-external_id(?global_ns, _ConfRootKey, Type0, Name0) ->
+external_id(Type0, Name0) ->
     Name = bin(Name0),
     Type = bin(Type0),
     <<Type/binary, ":", Name/binary>>.
