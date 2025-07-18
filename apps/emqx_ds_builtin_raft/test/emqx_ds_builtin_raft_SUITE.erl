@@ -1436,6 +1436,12 @@ groups() ->
                 ]}
     ].
 
+flaky_tests() ->
+    #{
+        t_rebalance => 3,
+        t_crash_restart_recover => 3
+    }.
+
 init_per_group(Group, Config) ->
     LayoutConf =
         case Group of
