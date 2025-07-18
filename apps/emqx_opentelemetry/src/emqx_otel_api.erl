@@ -90,6 +90,7 @@ otel_config_example() ->
     #{
         exporter => #{
             endpoint => "http://localhost:4317",
+            headers => #{},
             ssl_options => #{}
         },
         logs => #{
