@@ -23,7 +23,8 @@
         bcrypt,
         emqx_http_lib,
         recon,
-        os_mon
+        os_mon,
+        emqx_durable_timer
     ]},
     {mod, {emqx_app, []}},
     {env, []},
