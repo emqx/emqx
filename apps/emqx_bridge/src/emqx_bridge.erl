@@ -451,7 +451,10 @@ check_deps_and_remove(BridgeType0, BridgeName, RemoveDeps) ->
     end.
 
 do_check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
-    case emqx_bridge_lib:maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps) of
+    Res = emqx_bridge_lib:maybe_withdraw_rule_action(
+        ?global_ns, _Kind = undefined, BridgeType, BridgeName, RemoveDeps
+    ),
+    case Res of
         ok ->
             remove(BridgeType, BridgeName);
         {error, Reason} ->

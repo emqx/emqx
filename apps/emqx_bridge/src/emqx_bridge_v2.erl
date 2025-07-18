@@ -2012,7 +2012,9 @@ maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps) ->
         true ->
             ok;
         false ->
-            emqx_bridge_lib:maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps)
+            emqx_bridge_lib:maybe_withdraw_rule_action(
+                ?global_ns, _Kind = undefined, BridgeType, BridgeName, RemoveDeps
+            )
     end.
 
 %% Only used by legacy bridge v1 helpers
