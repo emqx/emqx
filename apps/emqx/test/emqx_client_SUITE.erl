@@ -77,7 +77,8 @@ groups() ->
             t_sock_closed_instantly,
             t_sock_closed_quickly,
             t_sub_non_utf8_topic,
-            t_congestion_send_timeout
+            t_congestion_send_timeout,
+            t_congestion_decongested
         ]},
         {socket, [], [
             t_sock_keepalive,
@@ -102,6 +103,8 @@ init_per_group(gen_tcp_listener, Config) ->
                 "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
                 "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
                 "listeners.tcp.default.tcp_options.high_watermark = 160KB\n"
+                %% t_congestion_decongested
+                "conn_congestion.min_alarm_sustain_duration = 0\n"
                 %% others
                 "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
         ],
@@ -117,6 +120,8 @@ init_per_group(socket_listener, Config) ->
                 "listeners.tcp.default.tcp_options.send_timeout = 2500\n"
                 "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
                 "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
+                %% t_congestion_decongested
+                "conn_congestion.min_alarm_sustain_duration = 0\n"
                 %% others
                 "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
         ],
@@ -693,6 +698,89 @@ t_congestion_send_timeout(_) ->
     ConnPid = list_to_pid(binary_to_list(maps:get(<<"pid">>, AlarmDetails))),
     MRef = erlang:monitor(process, ConnPid),
     ?assertReceive({'DOWN', MRef, process, ConnPid, {shutdown, send_timeout}}, 5_000),
+    ok = gen_tcp:close(Socket).
+
+t_congestion_decongested(_) ->
+    ok = emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, false}, binary]),
+    %% Send manually constructed CONNECT:
+    ok = gen_tcp:send(
+        Socket,
+        emqx_frame:serialize(
+            ?CONNECT_PACKET(#mqtt_packet_connect{clientid = <<"t_congestion_decongested">>})
+        )
+    ),
+    {ok, Frames1} = gen_tcp:recv(Socket, 0, 1000),
+    {Pkt1, <<>>, Parser1} = emqx_frame:parse(Frames1, emqx_frame:initial_parse_state()),
+    ?assertMatch(?CONNACK_PACKET(0), Pkt1),
+    %% Send manually constructed SUBSCRIBE to subscribe to "t":
+    Topic = <<"t">>,
+    ok = gen_tcp:send(
+        Socket,
+        emqx_frame:serialize(
+            ?SUBSCRIBE_PACKET(1, [{Topic, #{rh => 0, rap => 0, nl => 0, qos => 0}}])
+        )
+    ),
+    {ok, Frames2} = gen_tcp:recv(Socket, 0, 1000),
+    {Pkt2, <<>>, _Parser2} = emqx_frame:parse(Frames2, Parser1),
+    ?assertMatch(?SUBACK_PACKET(1, [0]), Pkt2),
+    %% Subscribe to alarms:
+    ok = emqx_broker:subscribe(<<"$SYS/brokers/+/alarms/activate">>),
+    ok = emqx_broker:subscribe(<<"$SYS/brokers/+/alarms/deactivate">>),
+    %% Start filling up send buffers:
+    Publisher = fun Publisher(N) ->
+        %% Each message has 8000 bytes payload:
+        Payload = binary:copy(<<N:64>>, 1000),
+        _ = emqx:publish(emqx_message:make(<<"publisher">>, Topic, Payload)),
+        ok = timer:sleep(50),
+        Publisher(N + 1)
+    end,
+    PublisherPid = spawn_link(fun() -> Publisher(1) end),
+    %% Start consumer, initially paused:
+    Consumer = fun
+        Consumer(paused) ->
+            receive
+                activate ->
+                    Consumer(active)
+            after 5_000 ->
+                exit(activate_timeout)
+            end;
+        Consumer(active) ->
+            case gen_tcp:recv(Socket, 0, 1000) of
+                {ok, _Bytes} ->
+                    Consumer(active);
+                {error, timeout} ->
+                    Consumer(active);
+                {error, closed} ->
+                    exit(closed)
+            end
+    end,
+    ConsumerPid = spawn_link(fun() -> Consumer(paused) end),
+    %% Congestion alarm should be raised soon:
+    {deliver, _, AlarmActivated} =
+        ?assertReceive({deliver, <<"$SYS/brokers/+/alarms/activate">>, _}, 5_000),
+    ?assertMatch(
+        #{<<"name">> := <<"conn_congestion/t_congestion_decongested/undefined">>},
+        emqx_utils_json:decode(emqx_message:payload(AlarmActivated))
+    ),
+    %% Activate consumer, congestion should resolve soon:
+    ConsumerPid ! activate,
+    {deliver, _, AlarmDeactivated} =
+        ?assertReceive({deliver, <<"$SYS/brokers/+/alarms/deactivate">>, _}, 5_000),
+    ?assertMatch(
+        #{<<"name">> := <<"conn_congestion/t_congestion_decongested/undefined">>},
+        emqx_utils_json:decode(emqx_message:payload(AlarmDeactivated))
+    ),
+    %% Connection should be alive and well:
+    ?assertMatch(
+        SS when SS == idle; SS == running,
+        emqx_cth_broker:connection_info(sockstate, <<"t_congestion_decongested">>)
+    ),
+    %% Cleanup:
+    true = unlink(PublisherPid),
+    true = unlink(ConsumerPid),
+    exit(PublisherPid, shutdown),
+    exit(ConsumerPid, shutdown),
     ok = gen_tcp:close(Socket).
 
 %%--------------------------------------------------------------------
