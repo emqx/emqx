@@ -37,7 +37,7 @@ db_config_timers() ->
     db_config([durable_storage, timers]).
 
 db_config_shared_subs() ->
-    db_config([durable_storage, shared_subs]).
+    db_config([durable_storage, queues]).
 
 %%================================================================================
 %% Behavior callbacks
@@ -82,8 +82,8 @@ schema() ->
                     desc => ?DESC(timers)
                 }
             )},
-        %% TODO: switch shared subs to use TTV
-        {shared_subs,
+        %% TODO: switch shared subs to use TTV and rename the DB to shared_sub
+        {queues,
             db_schema(
                 [builtin_raft_messages, builtin_local_messages],
                 #{

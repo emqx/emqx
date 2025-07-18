@@ -60,7 +60,7 @@
     session_id := emqx_persistent_session_ds:id()
 }.
 
--define(rank_x, rank_shared).
+-define(rank_x, <<"0">>).
 -define(rank_y, 0).
 
 -export_type([
