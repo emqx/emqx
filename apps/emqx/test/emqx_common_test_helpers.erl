@@ -1561,7 +1561,11 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
             config => maps:merge(EMQXOpts, #{
                 <<"durable_sessions">> => durable_sessions_config(
                     DurableSessionsOpts
-                )
+                ),
+                <<"cluster">> => #{
+                    <<"heartbeat_interval">> => 1000,
+                    <<"missed_heartbeats">> => 3
+                }
             })
         }}
     ],

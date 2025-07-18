@@ -731,7 +731,9 @@ deser_sub(Bin) ->
 
 %% Subscription state
 
-ser_sub_state(#{parent_subscription := PSub, upgrade_qos := UQ, subopts := SubOpts} = SState) ->
+ser_sub_state(
+    #{parent_subscription := PSub, upgrade_qos := UQ, subopts := SubOpts, mode := Mode} = SState
+) ->
     Misc = wrap_subopts(SubOpts),
     Share =
         case SState of
@@ -745,7 +747,8 @@ ser_sub_state(#{parent_subscription := PSub, upgrade_qos := UQ, subopts := SubOp
         upgradeQos = UQ,
         supersededBy = maps:get(superseded_by, SState, asn1_NOVALUE),
         shareTopicFilter = Share,
-        miscSubopts = Misc
+        miscSubopts = Misc,
+        durable = Mode =:= durable
     },
     'DurableSession':encode('SubState', Rec).
 
@@ -755,13 +758,19 @@ deser_sub_state(Bin) ->
         upgradeQos = UQ,
         supersededBy = SupBy,
         shareTopicFilter = Share,
-        miscSubopts = Misc
+        miscSubopts = Misc,
+        durable = Durable
     } = 'DurableSession':decode('SubState', Bin),
     SubOpts = unwrap_subopts(Misc),
     M1 = #{
         parent_subscription => PSub,
         upgrade_qos => UQ,
-        subopts => SubOpts
+        subopts => SubOpts,
+        mode =>
+            case Durable of
+                true -> durable;
+                false -> direct
+            end
     },
     M2 =
         case SupBy of

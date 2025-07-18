@@ -125,40 +125,46 @@ uniq_id() ->
     %% relies on uniqueness.
     non_neg_integer().
 
+sub_mode() ->
+    union([durable, direct]).
+
 %% Proper generator for subscription states.
 sub_state_gen() ->
     oneof(
         [
             %% Without optional fields:
             ?LET(
-                {Par, UQ, SO},
-                {uniq_id(), boolean(), emqx_proper_types:subopts()},
+                {Par, UQ, SO, Mode},
+                {uniq_id(), boolean(), emqx_proper_types:subopts(), sub_mode()},
                 #{
                     parent_subscription => Par,
                     upgrade_qos => UQ,
-                    subopts => SO
+                    subopts => SO,
+                    mode => Mode
                 }
             ),
             %% With "superseded by" field:
             ?LET(
-                {Par, UQ, SO, SB},
-                {uniq_id(), boolean(), emqx_proper_types:subopts(), uniq_id()},
+                {Par, UQ, SO, SB, Mode},
+                {uniq_id(), boolean(), emqx_proper_types:subopts(), uniq_id(), sub_mode()},
                 #{
                     parent_subscription => Par,
                     upgrade_qos => UQ,
                     subopts => SO,
-                    superseded_by => SB
+                    superseded_by => SB,
+                    mode => Mode
                 }
             ),
             %% With share topic filter:
             ?LET(
-                {Par, UQ, SO, STF},
-                {uniq_id(), boolean(), emqx_proper_types:subopts(), share_tf()},
+                {Par, UQ, SO, STF, Mode},
+                {uniq_id(), boolean(), emqx_proper_types:subopts(), share_tf(), sub_mode()},
                 #{
                     parent_subscription => Par,
                     upgrade_qos => UQ,
                     subopts => SO,
-                    share_topic_filter => STF
+                    share_topic_filter => STF,
+                    mode => Mode
                 }
             )
         ]

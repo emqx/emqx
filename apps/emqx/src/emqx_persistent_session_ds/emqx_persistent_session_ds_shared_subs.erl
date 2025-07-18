@@ -149,7 +149,8 @@ create_new_subscription(ShareTopicFilter, SubOpts, #{
                 parent_subscription => SubId,
                 upgrade_qos => UpgradeQoS,
                 subopts => SubOpts,
-                share_topic_filter => ShareTopicFilter
+                share_topic_filter => ShareTopicFilter,
+                mode => durable
             },
             S3 = emqx_persistent_session_ds_state:put_subscription_state(
                 SStateId, SState, S2
@@ -181,7 +182,9 @@ update_subscription(
     }
 ) ->
     #{upgrade_qos := UpgradeQoS} = Props,
-    SState = #{parent_subscription => SubId, upgrade_qos => UpgradeQoS, subopts => SubOpts},
+    SState = #{
+        parent_subscription => SubId, upgrade_qos => UpgradeQoS, subopts => SubOpts, mode => durable
+    },
     case emqx_persistent_session_ds_state:get_subscription_state(SStateId0, S0) of
         SState ->
             %% Client resubscribed with the same parameters:
