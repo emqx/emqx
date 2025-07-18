@@ -981,13 +981,15 @@ handle_send_ready(Socket, SS = #congested{sendq = SQ}, State) ->
     Handle = make_ref(),
     case socket:send(Socket, IoData, [], Handle) of
         ok ->
-            {ok, State};
+            NState = State#state{sockstate = idle},
+            {ok, NState};
         {select, {_Info, Rest}} ->
             %% Partially accepted, renew deadline.
             {ok, queue_send(Handle, Rest, State)};
         {select, _Info} ->
             %% Totally congested, keep the deadline.
-            NState = State#state{sockstate = SS#congested{sendq = IoData}},
+            NSS = SS#congested{handle = Handle, sendq = IoData},
+            NState = State#state{sockstate = NSS},
             {ok, NState};
         {error, {Reason, _Rest}} ->
             %% Defer error handling:
@@ -996,7 +998,7 @@ handle_send_ready(Socket, SS = #congested{sendq = SQ}, State) ->
             {ok, {sock_error, Reason}, State}
     end.
 
-queue_send(Handle, IoData, State = #state{sockstate = idle, listener = {Type, Name}}) ->
+queue_send(Handle, IoData, State = #state{listener = {Type, Name}}) ->
     Timeout = emqx_config:get_listener_conf(Type, Name, [tcp_options, send_timeout], 15_000),
     Deadline = erlang:monotonic_time(millisecond) + Timeout,
     SockState = #congested{handle = Handle, deadline = Deadline, sendq = [IoData]},
