@@ -14,7 +14,7 @@
 ```
 """.
 
--behavior(supervisor).
+-behaviour(supervisor).
 
 %% API:
 -export([ensure_running/0, start_top/0, restart_worker_sup/0, start_worker/4]).

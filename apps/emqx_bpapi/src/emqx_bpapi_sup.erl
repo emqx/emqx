@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bpapi_sup).
 
--behavior(supervisor).
+-behaviour(supervisor).
 
 %% API:
 -export([start_link/0]).

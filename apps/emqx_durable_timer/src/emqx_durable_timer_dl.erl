@@ -92,9 +92,9 @@ lts_threshold_cb(0, _) ->
     infinity;
 lts_threshold_cb(N, Root) when Root =:= ?top_deadhand; Root =:= ?top_started ->
     %% [<<"d">>, Type, Epoch, Key]
-    if
-        N =:= 1 -> infinity;
-        true -> 0
+    case N of
+        1 -> infinity;
+        _ -> 0
     end;
 lts_threshold_cb(_, _) ->
     0.
@@ -391,29 +391,21 @@ epoch_tx_opts(Shard, Other) ->
 
 has_data(Shard, Topic) ->
     case emqx_ds:get_streams(?DB_GLOB, Topic, 0, #{shard => Shard}) of
-        {[], []} ->
-            false;
         {Streams, []} ->
             lists:any(
                 fun({_Slab, Stream}) ->
-                    case emqx_ds:make_iterator(?DB_GLOB, Stream, Topic, 0) of
-                        {ok, It} ->
-                            case emqx_ds:next(?DB_GLOB, It, 1) of
-                                {ok, _, []} ->
-                                    false;
-                                {ok, end_of_stream} ->
-                                    false;
-                                _ ->
-                                    true
-                            end;
+                    maybe
+                        {ok, It} ?= emqx_ds:make_iterator(?DB_GLOB, Stream, Topic, 0),
+                        {ok, _, []} ?= emqx_ds:next(?DB_GLOB, It, 1),
+                        false
+                    else
                         _ ->
-                            %% Assume yes on errors:
                             true
                     end
                 end,
                 Streams
             );
-        _ ->
+        {_, _} ->
             %% Assume yes when error happens:
             true
     end.

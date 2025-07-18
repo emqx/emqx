@@ -47,6 +47,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-elvis([{elvis_style, no_if_expression, disable}]).
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
@@ -300,12 +302,12 @@ batch_delete(#s{data_cf = DataCF, hash_bytes = HashBytes}, Batch, Static, Varyin
 delete_key_range(#s{db = DB, data_cf = DataCF}, Static, Varying, From, To, WriteOpts) ->
     %% Delete indexes
     _ = lists:foldl(
-        fun(WCHash, WCLevel) ->
+        fun(WCHash, WcLevel) ->
             rocksdb:delete_range(
                 DB,
                 DataCF,
-                mk_index_key(Static, WCLevel, WCHash, From),
-                mk_index_key(Static, WCLevel, WCHash, To),
+                mk_index_key(Static, WcLevel, WCHash, From),
+                mk_index_key(Static, WcLevel, WCHash, To),
                 WriteOpts
             )
         end,
