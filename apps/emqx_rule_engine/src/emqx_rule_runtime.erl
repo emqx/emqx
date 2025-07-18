@@ -1007,12 +1007,8 @@ metrics_inc_exception(RuleId) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.exception'),
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed').
 
--if(?EMQX_RELEASE_EDITION == ee).
-
 rule_attrs(Rule) ->
     emqx_external_trace:rule_attrs(Rule).
 
 action_attrs(Action) ->
     emqx_external_trace:action_attrs(Action).
-
--endif.
