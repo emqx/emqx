@@ -881,8 +881,6 @@ event_info() ->
         event_info_bridge_mqtt()
     ] ++ ee_event_info().
 
--if(?EMQX_RELEASE_EDITION == ee).
-%% ELSE (?EMQX_RELEASE_EDITION == ee).
 event_info_schema_validation_failed() ->
     event_info_common(
         'schema.validation_failed',
@@ -902,12 +900,6 @@ ee_event_info() ->
         event_info_schema_validation_failed(),
         event_info_message_transformation_failed()
     ].
--else.
-%% END (?EMQX_RELEASE_EDITION == ee).
-
-ee_event_info() ->
-    [].
--endif.
 
 event_info_message_publish() ->
     event_info_common(
@@ -1120,20 +1112,12 @@ test_columns(<<"$bridges/mqtt", _/binary>>) ->
 test_columns(Event) ->
     ee_test_columns(Event).
 
--if(?EMQX_RELEASE_EDITION == ee).
 ee_test_columns('schema.validation_failed') ->
     [{<<"validation">>, <<"myvalidation">>}] ++
         test_columns('message.publish');
 ee_test_columns('message.transformation_failed') ->
     [{<<"transformation">>, <<"mytransformation">>}] ++
         test_columns('message.publish').
-%% ELSE (?EMQX_RELEASE_EDITION == ee).
--else.
--spec ee_test_columns(_) -> no_return().
-ee_test_columns(Event) ->
-    error({unknown_event, Event}).
-%% END (?EMQX_RELEASE_EDITION == ee).
--endif.
 
 columns_with_exam('message.publish') ->
     [
