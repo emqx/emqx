@@ -1,0 +1,15 @@
+{application, emqx_bpapi, [
+    {description, "EMQX BPAPI"},
+    {vsn, "1.0.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        mria
+    ]},
+    {env, []},
+    {modules, []},
+    {mod, {emqx_bpapi_app, []}},
+
+    {links, []}
+]}.
