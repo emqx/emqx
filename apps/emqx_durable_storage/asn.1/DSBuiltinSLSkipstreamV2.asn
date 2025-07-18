@@ -7,11 +7,9 @@ BEGIN
   EXPORTS ALL;
   IMPORTS TopicFilter FROM DSMetadataCommon;
 
-  Stream ::= OCTET STRING
-
+  -- Iterator metadata.
   Iterator ::= SEQUENCE {
     static OCTET STRING,
-    lastKey OCTET STRING,
     topicFilter TopicFilter
   }
 END

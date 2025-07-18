@@ -182,7 +182,7 @@ ds_topic_stream(DB, ClientId, TopicBin, Node) ->
             Node,
             begin
                 DBShard = {DB, Shard},
-                {DBShard, emqx_ds_storage_layer:get_streams(DBShard, Topic, 0)}
+                {DBShard, emqx_ds_storage_layer:get_streams(DBShard, Topic, 0, 0)}
             end
         ),
     ct:pal("Streams for ~p, ~p @ ~p:~n    ~p", [ClientId, TopicBin, Node, DSStreams]),
@@ -205,7 +205,7 @@ do_ds_topic_generation_stream(DB, Node, Shard, It0) ->
             ?ON(
                 Node,
                 begin
-                    emqx_ds_storage_layer:next(Shard, It0, 1, _Now = 1 bsl 63)
+                    emqx_ds_storage_layer:next(Shard, It0, 1, _Now = 1 bsl 63, false)
                 end
             )
         of

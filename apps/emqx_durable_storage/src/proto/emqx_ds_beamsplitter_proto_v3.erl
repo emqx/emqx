@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ds_beamsplitter_proto_v2).
+-module(emqx_ds_beamsplitter_proto_v3).
 
 -behavior(emqx_bpapi).
 -include_lib("emqx_utils/include/bpapi.hrl").
@@ -10,7 +10,12 @@
 -export([dispatch/6]).
 
 %% behavior callbacks:
--export([introduced_in/0, deprecated_since/0]).
+-export([introduced_in/0]).
+
+%% Changelog:
+%%
+%% == v3 ==
+%% Packs no longer include DSKeys
 
 %%================================================================================
 %% API functions
@@ -20,12 +25,12 @@
     _SerializationToken,
     node(),
     emqx_ds:db(),
-    emqx_ds_beamsplitter:pack_v2(),
+    emqx_ds_beamsplitter:pack_v3(),
     [emqx_ds_beamsplitter:destination()],
     map()
 ) -> true.
 dispatch(SerializationToken, Node, DB, Pack, Destinations, Misc) ->
-    emqx_rpc:cast(SerializationToken, Node, emqx_ds_beamsplitter, dispatch_v2, [
+    emqx_rpc:cast(SerializationToken, Node, emqx_ds_beamsplitter, dispatch_v3, [
         DB, Pack, Destinations, Misc
     ]).
 
@@ -34,7 +39,4 @@ dispatch(SerializationToken, Node, DB, Pack, Destinations, Misc) ->
 %%================================================================================
 
 introduced_in() ->
-    "5.9.0".
-
-deprecated_since() ->
     "6.0.0".
