@@ -12,6 +12,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx_resource/include/emqx_resource_id.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hocon.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
@@ -1176,27 +1177,29 @@ lookup_chan_id_in_conf(Namespace, RootName, BridgeType, BridgeName) ->
 id_with_root_and_connector_names(Namespace, RootName0, BridgeType, BridgeName, ConnectorName) ->
     RootName =
         case bin(RootName0) of
-            <<"actions">> -> <<"action">>;
-            <<"sources">> -> <<"source">>
+            <<"actions">> -> ?ACTION_SEG;
+            <<"sources">> -> ?SOURCE_SEG
         end,
     ConnectorType = bin(connector_type(BridgeType)),
     NSTag =
         case is_binary(Namespace) of
-            true -> <<"ns:", Namespace/binary, ":">>;
+            true -> iolist_to_binary([?NS_SEG, ?RES_SEP, Namespace, ?RES_SEP]);
             false -> <<"">>
         end,
-    <<
-        NSTag/binary,
-        (bin(RootName))/binary,
-        ":",
-        (bin(BridgeType))/binary,
-        ":",
-        (bin(BridgeName))/binary,
-        ":connector:",
-        (bin(ConnectorType))/binary,
-        ":",
-        (bin(ConnectorName))/binary
-    >>.
+    iolist_to_binary([
+        NSTag,
+        bin(RootName),
+        ?RES_SEP,
+        bin(BridgeType),
+        ?RES_SEP,
+        bin(BridgeName),
+        ?RES_SEP,
+        ?CONN_SEG,
+        ?RES_SEP,
+        bin(ConnectorType),
+        ?RES_SEP,
+        bin(ConnectorName)
+    ]).
 
 connector_type(Type) ->
     %% remote call so it can be mocked
@@ -2058,7 +2061,7 @@ bridge_v1_id_to_connector_resource_id(ConfRootKey, BridgeId) ->
                 throw(Reason)
         end,
     ConnectorType = bin(connector_type(BridgeV2Type)),
-    <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>.
+    iolist_to_binary([?CONN_SEG, ?RES_SEP, ConnectorType, ?RES_SEP, ConnectorName]).
 
 bridge_v1_enable_disable(Action, BridgeType, BridgeName) ->
     case emqx_bridge_v2:bridge_v1_is_valid(BridgeType, BridgeName) of

@@ -6,6 +6,7 @@
 
 -include("emqx_resource.hrl").
 -include("emqx_resource_errors.hrl").
+-include("emqx_resource_id.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
@@ -863,8 +864,8 @@ Throws `{invalid_id, Id}` if the input `Id` has an invalid format.
         connector_type := binary(),
         connector_name := binary()
     }.
-parse_channel_id(<<"ns:", NsAndIds/binary>> = Id) ->
-    case binary:split(NsAndIds, <<":">>) of
+parse_channel_id(<<?NS_SEG_PREFIX_STR, NsAndIds/binary>> = Id) ->
+    case binary:split(NsAndIds, ?RES_SEP) of
         [Ns, Rest] ->
             case do_parse_channel_id(Rest) of
                 {ok, Parsed} ->
@@ -885,8 +886,8 @@ parse_channel_id(Id) ->
 
 %% Without namespace
 do_parse_channel_id(Id) ->
-    case binary:split(Id, <<":">>, [global]) of
-        [<<"action">>, Type, Name, <<"connector">>, ConnectorType, ConnectorName] ->
+    case binary:split(Id, ?RES_SEP, [global]) of
+        ?NON_NAMESPACED_CHANNEL_PAT(?ACTION_SEG, Type, Name, ConnectorType, ConnectorName) ->
             {ok, #{
                 namespace => ?global_ns,
                 kind => action,
@@ -895,7 +896,7 @@ do_parse_channel_id(Id) ->
                 connector_type => ConnectorType,
                 connector_name => ConnectorName
             }};
-        [<<"source">>, Type, Name, <<"connector">>, ConnectorType, ConnectorName] ->
+        ?NON_NAMESPACED_CHANNEL_PAT(?SOURCE_SEG, Type, Name, ConnectorType, ConnectorName) ->
             {ok, #{
                 namespace => ?global_ns,
                 kind => source,
@@ -918,15 +919,16 @@ parse_connector_id_from_channel_id(Id) ->
             NSTag =
                 case is_binary(Namespace) of
                     false -> <<"">>;
-                    true -> <<"ns:", Namespace/binary, ":">>
+                    true -> iolist_to_binary([?NS_SEG, ?RES_SEP, Namespace, ?RES_SEP])
                 end,
-            ConnResId = <<
-                NSTag/binary,
-                "connector:",
-                ConnectorType/binary,
-                ":",
-                ConnectorName/binary
-            >>,
+            ConnResId = iolist_to_binary([
+                NSTag,
+                ?CONN_SEG,
+                ?RES_SEP,
+                ConnectorType,
+                ?RES_SEP,
+                ConnectorName
+            ]),
             {ok, ConnResId}
     catch
         throw:{invalid_id, _} ->
@@ -934,18 +936,14 @@ parse_connector_id_from_channel_id(Id) ->
     end.
 
 extract_namespace_from_resource_id(Id) ->
-    case binary:split(Id, <<":">>, [global]) of
-        [<<"ns">>, Namespace, Kind, _Type0, _Name0, <<"connector">>, _Type1, _Name1] when
-            Kind == <<"action">> orelse Kind == <<"source">>
-        ->
+    case binary:split(Id, ?RES_SEP, [global]) of
+        ?NAMESPACED_CHANNEL_PAT(Namespace, _Kind, _ChanType, _ChanName, _ConnType, _ConnName) ->
             {ok, Namespace};
-        [<<"ns">>, Namespace, <<"connector">>, _Type1, _Name1] ->
+        ?NAMESPACED_CONNECTOR_PAT(Namespace, _ConnType, _ConnName) ->
             {ok, Namespace};
-        [Kind, _Type0, _Name0, <<"connector">>, _Type1, _Name1] when
-            Kind == <<"action">> orelse Kind == <<"source">>
-        ->
+        ?NON_NAMESPACED_CHANNEL_PAT(_Kind, _ChanType, _ChanName, _ConnType, _ConnName) ->
             {ok, ?global_ns};
-        [<<"connector">>, _Type1, _Name1] ->
+        ?NON_NAMESPACED_CONNECTOR(_ConnType, _ConnName) ->
             {ok, ?global_ns};
         _ ->
             {error, invalid_id}
