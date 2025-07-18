@@ -60,7 +60,7 @@
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("pmap.hrl").
 -include("session_internals.hrl").
--include_lib("emqx/gen_src/DurableSession.hrl").
+-include("../../gen_src/DurableSession.hrl").
 
 %% TODO: https://github.com/erlang/otp/issues/9841
 -dialyzer(
