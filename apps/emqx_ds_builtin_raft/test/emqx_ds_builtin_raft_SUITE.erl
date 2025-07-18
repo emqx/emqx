@@ -1330,7 +1330,7 @@ t_crash_restart_recover(Config) ->
                     tl(ClientNodes)
                 ),
                 %% Does any messages were lost unexpectedly?
-                {_, DSMessages} = lists:unzip(emqx_utils_stream:consume(DSStream1)),
+                DSMessages = emqx_utils_stream:consume(DSStream1),
                 ExpectedMessages = emqx_utils_stream:consume(ExpectedStream),
                 MissingMessages = emqx_ds_test_helpers:message_set_subtract(
                     ExpectedMessages, DSMessages
