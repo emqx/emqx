@@ -120,7 +120,7 @@
 ]).
 
 %% internal exports:
--export([]).
+-export([get_streams/4]).
 
 -ifdef(TEST).
 -export([
@@ -312,11 +312,12 @@ on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
             #{TopicFilterBin := SubS0} = SubsMetadata,
             ?tp(?sessds_sched_new_stream_event, #{ref => Ref, topic => TopicFilterBin}),
             TopicFilter = emqx_ds:topic_words(TopicFilterBin),
-            Subscription = emqx_persistent_session_ds_subs:lookup(TopicFilterBin, S0),
+            Subscription =
+                #{id := SubId} = emqx_persistent_session_ds_subs:lookup(TopicFilterBin, S0),
             %% Renew streams:
             #{start_time := StartTime} = Subscription,
             try
-                StreamMap = get_streams(TopicFilter, StartTime),
+                StreamMap = get_streams(SubId, TopicFilter, StartTime, S0),
                 {NewSRSIds, S, SubS} = renew_streams(
                     S0, TopicFilter, Subscription, StreamMap, SubS0
                 ),
@@ -681,7 +682,7 @@ handle_retry(S0, SchedS0 = #s{retry = Actions}) ->
     ret().
 init_for_subscription(
     TopicFilterBin,
-    Subscription,
+    Subscription = #{id := SubId},
     S0,
     SchedS0 = #s{new_stream_subs = NewStreamSubs, sub_metadata = SubMetadata}
 ) ->
@@ -695,7 +696,7 @@ init_for_subscription(
         new_streams_watch = NewStreamsWatch
     },
     %% Renew streams:
-    StreamMap = get_streams(TopicFilter, StartTime),
+    StreamMap = get_streams(SubId, TopicFilter, StartTime, S0),
     {NewSRSIds, S, SubState} = renew_streams(
         S0, TopicFilter, Subscription, StreamMap, SubState0
     ),
@@ -870,14 +871,37 @@ do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YS
         DiscoveredStreams
     ).
 
--spec get_streams(emqx_ds:topic_filter(), emqx_ds:time()) -> stream_map().
-get_streams(TopicFilter, StartTime) ->
-    L = emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
-    maps:groups_from_list(
-        fun({{RankX, _}, _}) -> RankX end,
-        fun({{_, RankY}, Stream}) -> {RankY, Stream} end,
-        L
+-spec get_streams(
+    emqx_persistent_session_ds:subscription_id(),
+    emqx_ds:topic_filter(),
+    emqx_ds:time(),
+    emqx_persistent_session_ds_state:t()
+) -> stream_map().
+get_streams(SubId, TopicFilter, StartTime, S) ->
+    lists:foldl(
+        fun(Shard, Acc) ->
+            Streams = do_get_streams(SubId, TopicFilter, StartTime, S, Shard),
+            Acc#{Shard => Streams}
+        end,
+        #{},
+        emqx_ds:list_shards(?PERSISTENT_MESSAGE_DB)
     ).
+
+do_get_streams(SubId, TopicFilter, StartTime, S, Shard) ->
+    case emqx_persistent_session_ds_state:get_rank({SubId, Shard}, S) of
+        undefined -> MinGeneration = 0;
+        MinGeneration -> ok
+    end,
+    case
+        emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime, #{
+            shard => Shard, generation_min => MinGeneration
+        })
+    of
+        {L, []} ->
+            lists:map(fun({{_, Gen}, Stream}) -> {Gen, Stream} end, L);
+        {_, Errors} ->
+            throw({retry_get_streams, Errors})
+    end.
 
 %% @doc Set `unsubscribed' flag to SRS and remove DS subscription
 unsubscribe_stream(Comm1, Comm2, Key, SRS0 = #srs{}, S, SchedS) ->
