@@ -231,7 +231,7 @@
 
 -callback disconnect(t(), conninfo()) -> {idle | shutdown, t()}.
 
--callback terminate(Reason :: term(), t()) -> ok.
+-callback terminate(clientinfo(), _Reason, t()) -> ok.
 
 %%--------------------------------------------------------------------
 %% Create a Session
@@ -602,7 +602,7 @@ disconnect(_ClientInfo, ConnInfo, Session) ->
     ok.
 terminate(ClientInfo, Reason, Session) ->
     _ = run_terminate_hooks(ClientInfo, Reason, Session),
-    _ = ?IMPL(Session):terminate(Reason, Session),
+    _ = ?IMPL(Session):terminate(ClientInfo, Reason, Session),
     ok.
 
 run_terminate_hooks(ClientInfo, discarded, Session) ->

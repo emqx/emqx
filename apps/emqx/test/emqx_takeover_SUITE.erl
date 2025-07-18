@@ -57,10 +57,7 @@ init_per_group(persistence_enabled = Group, Config) ->
     DurableSessionsOpts = #{
         <<"enable">> => true,
         <<"force_persistence">> => true,
-        <<"heartbeat_interval">> => <<"100ms">>,
-        <<"renew_streams_interval">> => <<"100ms">>,
-        <<"idle_poll_interval">> => <<"1s">>,
-        <<"session_gc_interval">> => <<"2s">>
+        <<"checkpoint_interval">> => <<"100ms">>
     },
     Opts = #{
         durable_sessions_opts => DurableSessionsOpts,

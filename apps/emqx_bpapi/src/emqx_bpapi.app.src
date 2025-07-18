@@ -1,6 +1,6 @@
 {application, emqx_bpapi, [
     {description, "EMQX BPAPI"},
-    {vsn, "1.0.0"},
+    {vsn, "1.0.1"},
     {registered, []},
     {applications, [
         kernel,
@@ -9,6 +9,7 @@
     ]},
     {env, []},
     {modules, []},
+    {mod, {emqx_bpapi_app, []}},
 
     {links, []}
 ]}.

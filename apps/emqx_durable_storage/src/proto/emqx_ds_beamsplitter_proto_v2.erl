@@ -10,7 +10,7 @@
 -export([dispatch/6]).
 
 %% behavior callbacks:
--export([introduced_in/0]).
+-export([introduced_in/0, deprecated_since/0]).
 
 %%================================================================================
 %% API functions
@@ -20,7 +20,7 @@
     _SerializationToken,
     node(),
     emqx_ds:db(),
-    emqx_ds_beamsplitter:pack(),
+    emqx_ds_beamsplitter:pack_v2(),
     [emqx_ds_beamsplitter:destination()],
     map()
 ) -> true.
@@ -35,3 +35,6 @@ dispatch(SerializationToken, Node, DB, Pack, Destinations, Misc) ->
 
 introduced_in() ->
     "5.9.0".
+
+deprecated_since() ->
+    "6.0.0".

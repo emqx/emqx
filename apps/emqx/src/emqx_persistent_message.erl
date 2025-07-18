@@ -35,8 +35,9 @@ init() ->
         ?SLOG(notice, #{msg => "Session durability is enabled"}),
         ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, get_db_config()),
         ok = emqx_persistent_session_ds_router:init_tables(),
-        ok = initialize_session_ds_state(),
-        ok
+        ok = emqx_persistent_session_ds:create_tables(),
+        ok = emqx_persistent_session_ds_gc_timer:init(),
+        ok = emqx_durable_will:init()
     end).
 
 -spec is_persistence_enabled() -> boolean().
@@ -49,26 +50,13 @@ is_persistence_enabled(Zone) ->
 
 -spec get_db_config() -> emqx_ds:create_db_opts().
 get_db_config() ->
-    emqx_ds_schema:db_config([durable_storage, messages]).
+    emqx_ds_schema:db_config_messages().
 
 %% Dev-only option: force all messages to go through
 %% `emqx_persistent_session_ds':
 -spec force_ds(emqx_types:zone()) -> boolean().
 force_ds(Zone) ->
     emqx_config:get_zone_conf(Zone, [durable_sessions, force_persistence]).
-
--ifdef(STORE_STATE_IN_DS).
-initialize_session_ds_state() ->
-    {ok, Config0} = emqx_schema_hooks:value_injection_point('durable_storage.sessions'),
-    Config1 = emqx_ds_schema:db_config([durable_storage, sessions]),
-    Config = emqx_utils_maps:deep_merge(Config0, Config1),
-    ok = emqx_persistent_session_ds_state:open_db(Config).
-%% ELSE ifdef(STORE_STATE_IN_DS).
--else.
-initialize_session_ds_state() ->
-    ok = emqx_persistent_session_ds_state:create_tables().
-%% END ifdef(STORE_STATE_IN_DS).
--endif.
 
 %%--------------------------------------------------------------------
 
