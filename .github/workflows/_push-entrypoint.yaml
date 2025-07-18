@@ -56,7 +56,6 @@ jobs:
     outputs:
       profile: ${{ steps.parse-git-ref.outputs.profile }}
       release: ${{ steps.parse-git-ref.outputs.release }}
-      latest: ${{ steps.parse-git-ref.outputs.latest }}
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
@@ -76,10 +75,8 @@ jobs:
           JSON="$(./scripts/parse-git-ref.sh $GITHUB_REF)"
           PROFILE=$(echo "$JSON" | jq -cr '.profile')
           RELEASE=$(echo "$JSON" | jq -cr '.release')
-          LATEST=$(echo "$JSON"  | jq -cr '.latest')
           echo "profile=$PROFILE" | tee -a $GITHUB_OUTPUT
           echo "release=$RELEASE" | tee -a $GITHUB_OUTPUT
-          echo "latest=$LATEST"   | tee -a $GITHUB_OUTPUT
       - name: Build matrix
         id: matrix
         run: |
@@ -115,7 +112,6 @@ jobs:
     with:
       profile: ${{ needs.prepare.outputs.profile }}
       publish: true
-      latest: ${{ needs.prepare.outputs.latest }}
     secrets: inherit
 
   build_slim_packages:
@@ -184,7 +180,7 @@ jobs:
     steps:
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2.0.2
+        uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
         with:
           app-id: ${{ vars.AUTH_APP_ID }}
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
@@ -271,7 +267,7 @@ jobs:
 
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2.0.2
+        uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
         with:
           app-id: ${{ vars.AUTH_APP_ID }}
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
@@ -297,7 +293,7 @@ jobs:
     steps:
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@3ff1caaa28b64c9cc276ce0a02e2ff584f3900c5 # v2.0.2
+        uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
         with:
           app-id: ${{ vars.AUTH_APP_ID }}
           private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}

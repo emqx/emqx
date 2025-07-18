@@ -10,10 +10,6 @@ on:
       profile:
         required: true
         type: string
-      latest:
-        required: false
-        type: string
-        default: false
       publish:
         required: false
         type: boolean
@@ -41,10 +37,6 @@ on:
         required: false
         type: string
         default: 'emqx-enterprise'
-      latest:
-        required: false
-        type: boolean
-        default: false
       publish:
         required: false
         type: boolean
@@ -108,7 +100,7 @@ jobs:
     env:
       PROFILE: ${{ matrix.profile }}
       DOCKER_ORG: ${{ github.repository_owner }}
-      DOCKER_LATEST: ${{ inputs.latest }}
+      DOCKER_LATEST: false
       PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
       EMQX_SOURCE_TYPE: tgz
       EMQX_EXTRA_BASE_IMAGE_TAGS: emqx/emqx
@@ -118,7 +110,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref }}
 
-      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: "${{ matrix.profile }}-*.tar.gz"
           path: _packages
@@ -138,7 +130,7 @@ jobs:
           sudo systemctl restart docker
 
       - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
-      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+      - uses: docker/setup-buildx-action@18ce135bb5112fa8ce4ed6c17ab05699d7f3a5e0 # v3.11.0
 
       - name: Login to hub.docker.com
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
@@ -237,7 +229,7 @@ jobs:
       FILENAME: "${{ matrix.profile }}-${{ needs.build.outputs.PKG_VSN }}-docker-${{ matrix.arch }}.tar.gz"
 
     steps:
-      - uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: "${{ matrix.profile }}-docker-image-tag"
 
@@ -254,7 +246,7 @@ jobs:
           name: ${{ matrix.profile }}-docker-image-${{ matrix.arch }}
           path: ${{ env.FILENAME }}
 
-      - uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+      - uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
