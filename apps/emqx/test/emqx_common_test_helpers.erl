@@ -1516,6 +1516,7 @@ ensure_loaded(Mod) ->
 %%------------------------------------------------------------------------------
 
 start_apps_ds(Config, ExtraApps, Opts) ->
+    DurableStorageOpts = maps:get(durable_storage_opts, Opts, #{}),
     DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
     WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
@@ -1528,7 +1529,8 @@ start_apps_ds(Config, ExtraApps, Opts) ->
                     config => emqx_utils_maps:deep_merge(EMQXOpts, #{
                         <<"durable_sessions">> => durable_sessions_config(
                             DurableSessionsOpts
-                        )
+                        ),
+                        <<"durable_storage">> => DurableStorageOpts
                     })
                 }}
                 | ExtraApps
@@ -1544,8 +1546,7 @@ stop_apps_ds(Config) ->
 durable_sessions_config(Opts) ->
     emqx_utils_maps:deep_merge(
         #{
-            <<"enable">> => true,
-            <<"renew_streams_interval">> => <<"100ms">>
+            <<"enable">> => true
         },
         Opts
     ).

@@ -51,8 +51,7 @@ persistent_only_tcs() ->
 
 init_per_suite(Config) ->
     DurableSessionsOpts = #{
-        <<"enable">> => true,
-        <<"renew_streams_interval">> => <<"100ms">>
+        <<"enable">> => true
     },
     ExtraApps = [
         emqx_management,

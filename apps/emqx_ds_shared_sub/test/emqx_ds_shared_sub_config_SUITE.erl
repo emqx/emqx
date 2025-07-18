@@ -21,8 +21,7 @@ init_per_suite(Config) ->
             {emqx_conf, #{
                 config => #{
                     <<"durable_sessions">> => #{
-                        <<"enable">> => true,
-                        <<"renew_streams_interval">> => "100ms"
+                        <<"enable">> => true
                     },
                     <<"durable_storage">> => #{
                         <<"messages">> => #{

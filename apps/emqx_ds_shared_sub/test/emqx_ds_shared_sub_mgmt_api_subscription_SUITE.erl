@@ -21,7 +21,6 @@ init_per_suite(Config) ->
             {emqx_conf,
                 "durable_sessions {"
                 "\n     enable = true"
-                "\n     renew_streams_interval = 10ms"
                 "\n }"},
             {emqx_ds_shared_sub, #{
                 config => #{

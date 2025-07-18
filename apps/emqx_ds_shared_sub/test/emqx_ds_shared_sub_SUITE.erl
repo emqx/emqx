@@ -44,9 +44,7 @@ init_per_suite(Config) ->
                         <<"port_discovery">> => <<"manual">>
                     },
                     <<"durable_sessions">> => #{
-                        <<"enable">> => true,
-                        <<"renew_streams_interval">> => "100ms",
-                        <<"idle_poll_interval">> => "1s"
+                        <<"enable">> => true
                     },
                     <<"durable_storage">> => #{
                         <<"messages">> => #{

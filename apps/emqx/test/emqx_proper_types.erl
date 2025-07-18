@@ -41,7 +41,9 @@
     raw_duration/1,
     large_raw_duration/0,
     raw_byte_size/0,
-    clientid/0
+    clientid/0,
+    packet_id/0,
+    qos/0
 ]).
 
 %% Generic Types
