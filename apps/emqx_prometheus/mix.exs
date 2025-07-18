@@ -5,7 +5,7 @@ defmodule EMQXPrometheus.MixProject do
   def project do
     [
       app: :emqx_prometheus,
-      version: "5.2.11",
+      version: "5.2.12",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler

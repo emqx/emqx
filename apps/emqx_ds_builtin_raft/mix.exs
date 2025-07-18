@@ -5,7 +5,7 @@ defmodule EMQXDsBuiltinRaft.MixProject do
   def project do
     [
       app: :emqx_ds_builtin_raft,
-      version: "0.2.7",
+      version: "0.2.8",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
