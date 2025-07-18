@@ -34,6 +34,7 @@
 
 -define(DEFAULT_RESOURCE_OPTS(Type), #{
     start_after_created => false,
+    spawn_buffer_workers => false,
     owner_id => Type
 }).
 

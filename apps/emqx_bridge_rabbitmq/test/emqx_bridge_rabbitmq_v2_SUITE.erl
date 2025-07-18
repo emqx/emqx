@@ -136,9 +136,6 @@ create_connector(Name, Config) ->
     Connector = rabbitmq_connector(Config),
     {ok, _} = emqx_bridge_v2_testlib:create_connector_api(Name, ?TYPE, Connector).
 
-delete_connector(Name) ->
-    ok = emqx_connector:remove(?TYPE, Name).
-
 create_source(Name) ->
     Source = rabbitmq_source(),
     {ok, _} = emqx_bridge_v2_testlib:create_kind_api([
@@ -149,7 +146,10 @@ create_source(Name) ->
     ]).
 
 delete_source(Name) ->
-    ok = emqx_bridge_v2:remove(sources, ?TYPE, Name).
+    {204, _} = emqx_bridge_v2_testlib:delete_kind_api(source, ?TYPE, Name, #{
+        query_params => #{<<"also_delete_dep_actions">> => <<"true">>}
+    }),
+    ok.
 
 create_action(TestCase, Name) ->
     create_action(TestCase, Name, rabbit_mq_exchange(TestCase)).
@@ -164,7 +164,10 @@ create_action(TestCase, Name, Exchange) ->
     ]).
 
 delete_action(Name) ->
-    ok = emqx_bridge_v2:remove(actions, ?TYPE, Name).
+    {204, _} = emqx_bridge_v2_testlib:delete_kind_api(action, ?TYPE, Name, #{
+        query_params => #{<<"also_delete_dep_actions">> => <<"true">>}
+    }),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Test Cases

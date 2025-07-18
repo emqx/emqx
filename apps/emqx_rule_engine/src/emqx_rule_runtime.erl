@@ -10,6 +10,7 @@
 -include_lib("emqx/include/emqx_external_trace.hrl").
 -include_lib("emqx_resource/include/emqx_resource_errors.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     apply_rule/3,
@@ -507,8 +508,10 @@ do_handle_action2(
         [IncCtx],
         ?EXT_TRACE_WITH_ACTION_METADATA(_Envs, #{reply_dropped => true})
     },
+    %% TODO FIXME: namespace
     case
         emqx_bridge_v2:send_message(
+            ?global_ns,
             BridgeType,
             BridgeName,
             Selected,

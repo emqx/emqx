@@ -216,7 +216,7 @@ create_local_resource(ResourceId, CheckedConfig) ->
             ?CONNECTOR_RESOURCE_GROUP,
             ?CASSANDRA_RESOURCE_MOD,
             CheckedConfig,
-            #{}
+            #{spawn_buffer_workers => true}
         ),
     Bridge.
 

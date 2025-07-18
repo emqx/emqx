@@ -12,6 +12,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([start_link/0]).
 
@@ -308,6 +309,7 @@ get_rule_ids_by_action(#{function := FuncName}) when is_binary(FuncName) ->
 -spec get_rule_ids_by_bridge_action(bridge_action_id()) -> [binary()].
 get_rule_ids_by_bridge_action(ActionId) ->
     %% ActionId = <<"type:name">>
+    %% ActionId = <<"ns:namespace:action:type:name">>
     [
         Id
      || #{actions := Acts, id := Id} <- get_rules(),
@@ -317,6 +319,7 @@ get_rule_ids_by_bridge_action(ActionId) ->
 -spec get_rule_ids_by_bridge_source(bridge_source_id()) -> [binary()].
 get_rule_ids_by_bridge_source(SourceId) ->
     %% SourceId = <<"type:name">>
+    %% SourceId = <<"ns:namespace:source:type:name">>
     [
         Id
      || #{from := Froms, id := Id} <- get_rules(),
@@ -444,7 +447,7 @@ get_basic_usage_info() ->
 tally_referenced_bridges(BridgeIds, Acc0) ->
     lists:foldl(
         fun(BridgeId, Acc) ->
-            {BridgeType, _BridgeName} = emqx_bridge_resource:parse_bridge_id(
+            #{type := BridgeType} = emqx_bridge_resource:parse_bridge_id(
                 BridgeId,
                 #{atom_name => false}
             ),
@@ -748,7 +751,7 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
             fun(BridgeId) ->
                 %% FIXME: this supposedly returns an upgraded type, but it's fuzzy: it
                 %% returns v1 types when attempting to "upgrade".....
-                {Type, Name} =
+                #{type := Type, name := Name} =
                     emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}),
                 case emqx_action_info:is_action_type(Type) of
                     true -> {source, Type, Name};
@@ -766,14 +769,22 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
             end,
             Actions
         ),
+    %% TODO: namespace
     NonExistentBridgeIds =
         lists:filter(
             fun({Kind, Type, Name}) ->
                 IsExist =
                     case Kind of
-                        action -> fun emqx_bridge_v2:is_action_exist/2;
-                        source -> fun emqx_bridge_v2:is_source_exist/2;
-                        bridge_v1 -> fun emqx_bridge:is_exist_v1/2
+                        action ->
+                            fun(Type1, Name1) ->
+                                emqx_bridge_v2:is_action_exist(?global_ns, Type1, Name1)
+                            end;
+                        source ->
+                            fun(Type1, Name1) ->
+                                emqx_bridge_v2:is_source_exist(?global_ns, Type1, Name1)
+                            end;
+                        bridge_v1 ->
+                            fun emqx_bridge:is_exist_v1/2
                     end,
                 try
                     not IsExist(Type, Name)

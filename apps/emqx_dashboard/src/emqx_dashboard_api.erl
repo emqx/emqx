@@ -7,9 +7,11 @@
 -behaviour(minirest_api).
 
 -include("emqx_dashboard.hrl").
+-include("emqx_dashboard_rbac.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     api_spec/0,
@@ -264,7 +266,7 @@ login(post, #{body := Params}) ->
             ok = emqx_dashboard_login_lock:reset(Username),
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
             {200,
-                filter_result(Result#{
+                to_json_out(Result#{
                     version => Version,
                     license => #{edition => emqx_release:edition()}
                 })};
@@ -302,7 +304,7 @@ logout(_, #{
     end.
 
 users(get, _Request) ->
-    {200, filter_result(emqx_dashboard_admin:all_users())};
+    {200, to_json_out(emqx_dashboard_admin:all_users())};
 users(post, #{body := Params}) ->
     Desc = maps:get(<<"description">>, Params, <<"">>),
     Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
@@ -315,7 +317,7 @@ users(post, #{body := Params}) ->
             case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
                 {ok, Result} ->
                     ?SLOG(info, #{msg => "create_dashboard_user_success", username => Username}),
-                    {200, filter_result(Result)};
+                    {200, to_json_out(Result)};
                 {error, Reason} ->
                     ?SLOG(info, #{
                         msg => "create_dashboard_user_failed",
@@ -332,7 +334,7 @@ user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
     Username = username(Req, Username0),
     case emqx_dashboard_admin:update_user(Username, Role, Desc) of
         {ok, Result} ->
-            {200, filter_result(Result)};
+            {200, to_json_out(Result)};
         {error, <<"username_not_found">> = Reason} ->
             {404, ?USER_NOT_FOUND, Reason};
         {error, Reason} ->
@@ -475,17 +477,21 @@ enum(Symbols) ->
 field_filter(_) ->
     true.
 
-filter_result(#{} = Result) ->
+to_json_out(#{} = Result) ->
     maps:map(
         fun
             (_K, undefined) ->
+                null;
+            (_K, ?global_ns) ->
                 null;
             (_K, V) ->
                 V
         end,
         Result
     );
-filter_result(Result) ->
+to_json_out(Results) when is_list(Results) ->
+    lists:map(fun to_json_out/1, Results);
+to_json_out(Result) ->
     Result.
 
 sso_parameters() ->

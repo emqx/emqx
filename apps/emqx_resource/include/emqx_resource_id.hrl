@@ -1,0 +1,41 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
+-ifndef(EMQX_RESOURCE_RUNTIME_ID).
+-define(EMQX_RESOURCE_RUNTIME_ID, true).
+
+-define(NS_SEG, <<"ns">>).
+-define(NS_SEG_PREFIX_STR, "ns:").
+-define(CONN_SEG, <<"connector">>).
+-define(ACTION_SEG, <<"action">>).
+-define(SOURCE_SEG, <<"source">>).
+-define(RES_SEP, <<":">>).
+
+-define(NAMESPACED_CHANNEL(NS, KIND, CHAN_TYPE, CHAN_NAME, CONN_TYPE, CONN_NAME), [
+    ?NS_SEG, NS, KIND, CHAN_TYPE, CHAN_NAME, ?CONN_SEG, CONN_TYPE, CONN_NAME
+]).
+-define(NAMESPACED_CHANNEL_PAT(NS, KIND, CHAN_TYPE, CHAN_NAME, CONN_TYPE, CONN_NAME),
+    ?NAMESPACED_CHANNEL(NS, KIND, CHAN_TYPE, CHAN_NAME, CONN_TYPE, CONN_NAME) when
+        size(NS) > 0 andalso KIND == ?ACTION_SEG orelse KIND == ?SOURCE_SEG
+).
+-define(NAMESPACED_CONNECTOR(NS, CONN_TYPE, CONN_NAME), [
+    ?NS_SEG, NS, ?CONN_SEG, CONN_TYPE, CONN_NAME
+]).
+-define(NAMESPACED_CONNECTOR_PAT(NS, CONN_TYPE, CONN_NAME),
+    ?NAMESPACED_CONNECTOR(NS, CONN_TYPE, CONN_NAME) when size(NS) > 0
+).
+
+-define(NON_NAMESPACED_CHANNEL(KIND, CHAN_TYPE, CHAN_NAME, CONN_TYPE, CONN_NAME), [
+    KIND, CHAN_TYPE, CHAN_NAME, ?CONN_SEG, CONN_TYPE, CONN_NAME
+]).
+-define(NON_NAMESPACED_CHANNEL_PAT(KIND, CHAN_TYPE, CHAN_NAME, CONN_TYPE, CONN_NAME),
+    ?NON_NAMESPACED_CHANNEL(KIND, CHAN_TYPE, CHAN_NAME, CONN_TYPE, CONN_NAME) when
+        KIND == ?ACTION_SEG orelse KIND == ?SOURCE_SEG
+).
+-define(NON_NAMESPACED_CONNECTOR(CONN_TYPE, CONN_NAME), [?CONN_SEG, CONN_TYPE, CONN_NAME]).
+-define(NON_NAMESPACED_CONNECTOR_PAT(CONN_TYPE, CONN_NAME),
+    ?NON_NAMESPACED_CONNECTOR(CONN_TYPE, CONN_NAME)
+).
+
+-endif.

@@ -329,7 +329,7 @@ send_message(Config, Payload) ->
 query_resource(Config, Request) ->
     Name = ?config(dynamo_name, Config),
     BridgeType = ?config(dynamo_bridge_type, Config),
-    ID = emqx_bridge_v2:id(BridgeType, Name),
+    ID = id(BridgeType, Name),
     ResID = emqx_connector_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ID, Request, #{timeout => 500, connector_resource_id => ResID}).
 
@@ -373,8 +373,15 @@ directly_get_field(Key, Field) ->
             Error
     end.
 
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_setup_via_config_and_publish(Config) ->
@@ -568,7 +575,7 @@ t_simple_query(Config) ->
     ),
     BridgeType = ?config(dynamo_bridge_type, Config),
     Name = ?config(dynamo_name, Config),
-    ActionID = emqx_bridge_v2:id(BridgeType, Name),
+    ActionID = id(BridgeType, Name),
     Request = {ActionID, {get_item, {<<"id">>, <<"not_exists">>}}},
     Result = query_resource(Config, Request),
     case ?config(batch_size, Config) of
@@ -604,7 +611,7 @@ t_bad_parameter(Config) ->
     ),
     BridgeType = ?config(dynamo_bridge_type, Config),
     Name = ?config(dynamo_name, Config),
-    ActionID = emqx_bridge_v2:id(BridgeType, Name),
+    ActionID = id(BridgeType, Name),
     Request = {ActionID, {insert_item, bad_parameter}},
     Result = query_resource(Config, Request),
     ?assertMatch({error, {unrecoverable_error, {invalid_request, _}}}, Result),

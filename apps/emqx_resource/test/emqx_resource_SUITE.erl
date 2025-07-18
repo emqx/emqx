@@ -19,8 +19,8 @@
 -include_lib("emqx_resource/include/emqx_resource_runtime.hrl").
 
 -define(TEST_RESOURCE, emqx_connector_demo).
--define(ID, <<"id">>).
--define(ID1, <<"id1">>).
+-define(ID, <<"connector:sometype:somename">>).
+-define(ID1, <<"connector:sometype:someothername">>).
 -define(DEFAULT_RESOURCE_GROUP, <<"default">>).
 -define(RESOURCE_ERROR(REASON), {error, {resource_error, #{reason := REASON}}}).
 -define(TRACE_OPTS, #{timetrap => 10000, timeout => 1000}).
@@ -344,7 +344,8 @@ gauge_metric_set_fns() ->
 create(Id, Group, Type, Config) ->
     create(Id, Group, Type, Config, #{}).
 
-create(Id, Group, Type, Config, Opts) ->
+create(Id, Group, Type, Config, Opts0) ->
+    Opts = maps:merge(#{spawn_buffer_workers => true}, Opts0),
     Res = emqx_resource:create_local(Id, Group, Type, Config, Opts),
     on_exit(fun() -> emqx_resource:remove_local(Id) end),
     case Type of
@@ -849,7 +850,8 @@ t_create_remove(_) ->
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
-                    #{unknown => test_resource}
+                    #{unknown => test_resource},
+                    #{spawn_buffer_workers => true}
                 )
             ),
 
@@ -869,7 +871,7 @@ t_create_remove(_) ->
                     ?ID,
                     ?TEST_RESOURCE,
                     #{name => test_resource},
-                    #{}
+                    #{spawn_buffer_workers => true}
                 )
             ),
 
@@ -894,7 +896,8 @@ t_create_remove_local(_) ->
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
-                    #{unknown => test_resource}
+                    #{unknown => test_resource},
+                    #{spawn_buffer_workers => true}
                 )
             ),
 
@@ -912,7 +915,7 @@ t_create_remove_local(_) ->
                 ?ID,
                 ?TEST_RESOURCE,
                 #{name => test_resource},
-                #{}
+                #{spawn_buffer_workers => true}
             ),
 
             {ok, #{pid := Pid}} = emqx_resource:query(?ID, get_state),
@@ -925,7 +928,7 @@ t_create_remove_local(_) ->
                 ?ID,
                 ?TEST_RESOURCE,
                 #{name => test_resource},
-                #{}
+                #{spawn_buffer_workers => true}
             ),
 
             ?assertEqual(ok, emqx_resource:remove_local(?ID)),
@@ -1708,7 +1711,8 @@ t_stop_start(_) ->
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
-                    #{unknown => test_resource}
+                    #{unknown => test_resource},
+                    #{spawn_buffer_workers => true}
                 )
             ),
 
@@ -1718,7 +1722,8 @@ t_stop_start(_) ->
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
-                    #{<<"name">> => <<"test_resource">>}
+                    #{<<"name">> => <<"test_resource">>},
+                    #{spawn_buffer_workers => true}
                 )
             ),
 
@@ -1735,7 +1740,7 @@ t_stop_start(_) ->
                     ?ID,
                     ?TEST_RESOURCE,
                     #{<<"name">> => <<"test_resource">>},
-                    #{}
+                    #{spawn_buffer_workers => true}
                 )
             ),
 
@@ -1784,7 +1789,8 @@ t_stop_start_local(_) ->
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
-                    #{unknown => test_resource}
+                    #{unknown => test_resource},
+                    #{spawn_buffer_workers => true}
                 )
             ),
 
@@ -1794,7 +1800,8 @@ t_stop_start_local(_) ->
                     ?ID,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
-                    #{<<"name">> => <<"test_resource">>}
+                    #{<<"name">> => <<"test_resource">>},
+                    #{spawn_buffer_workers => true}
                 )
             ),
 
@@ -1804,7 +1811,7 @@ t_stop_start_local(_) ->
                     ?ID,
                     ?TEST_RESOURCE,
                     #{<<"name">> => <<"test_resource">>},
-                    #{}
+                    #{spawn_buffer_workers => true}
                 )
             ),
 
@@ -1835,13 +1842,15 @@ t_list_filter(_) ->
         emqx_resource:generate_id(<<"a">>),
         <<"group1">>,
         ?TEST_RESOURCE,
-        #{name => a}
+        #{name => a},
+        #{spawn_buffer_workers => false}
     ),
     {ok, _} = create(
         emqx_resource:generate_id(<<"a">>),
         <<"group2">>,
         ?TEST_RESOURCE,
-        #{name => grouped_a}
+        #{name => grouped_a},
+        #{spawn_buffer_workers => false}
     ),
 
     [Id1] = emqx_resource:list_group_instances(<<"group1">>),
@@ -3537,6 +3546,7 @@ t_batch_individual_reply_async(_Config) ->
         ?TEST_RESOURCE,
         #{name => test_resource},
         #{
+            spawn_buffer_workers => true,
             query_mode => sync,
             batch_size => 5,
             batch_time => 100,
@@ -3998,18 +4008,20 @@ t_non_blocking_resource_health_check(_Config) ->
 t_non_blocking_channel_health_check(_Config) ->
     ?check_trace(
         begin
+            ConnName = <<"cname">>,
+            ConnResId = connector_res_id(ConnName),
             {ok, _} =
                 create(
-                    ?ID,
+                    ConnResId,
                     ?DEFAULT_RESOURCE_GROUP,
                     ?TEST_RESOURCE,
                     #{name => test_resource, health_check_error => {delay, 500}},
                     #{health_check_interval => 100}
                 ),
-            ChanId = <<"chan">>,
+            ChanId = action_res_id(ConnResId),
             ok =
                 add_channel(
-                    ?ID,
+                    ConnResId,
                     ChanId,
                     #{health_check_delay => 500}
                 ),
@@ -4024,7 +4036,7 @@ t_non_blocking_channel_health_check(_Config) ->
             ?assertEqual(
                 Expected,
                 emqx_utils:pmap(
-                    fun(_) -> emqx_resource_manager:channel_health_check(?ID, ChanId) end,
+                    fun(_) -> emqx_resource_manager:channel_health_check(ConnResId, ChanId) end,
                     lists:seq(1, NumCallers)
                 )
             ),

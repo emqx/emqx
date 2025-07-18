@@ -101,6 +101,7 @@ resource_id(ClusterName) ->
 ensure_msg_fwd_resource(#{name := Name, resource_opts := ResOpts} = ClusterConf) ->
     ResOpts1 = ResOpts#{
         query_mode => async,
+        spawn_buffer_workers => true,
         start_after_created => true
     },
     emqx_resource:create_local(?MSG_RES_ID(Name), ?RES_GROUP, ?MODULE, ClusterConf, ResOpts1).

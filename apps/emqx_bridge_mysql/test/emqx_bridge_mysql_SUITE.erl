@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 % SQL definitions
 -define(SQL_BRIDGE,
@@ -286,12 +287,12 @@ send_message(Config, Payload) ->
 query_resource(Config, Request) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
-    emqx_bridge_v2:query(BridgeType, Name, Request, #{timeout => 500}).
+    emqx_bridge_v2:query(?global_ns, BridgeType, Name, Request, #{timeout => 500}).
 
 sync_query_resource(Config, Request) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
-    ResourceID = emqx_bridge_v2:id(BridgeType, Name),
+    ResourceID = id(BridgeType, Name),
     emqx_resource_buffer_worker:simple_sync_query(ResourceID, Request).
 
 query_resource_async(Config, Request) ->
@@ -299,7 +300,7 @@ query_resource_async(Config, Request) ->
     BridgeType = ?config(mysql_bridge_type, Config),
     Ref = alias([reply]),
     AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
-    Return = emqx_bridge_v2:query(BridgeType, Name, Request, #{
+    Return = emqx_bridge_v2:query(?global_ns, BridgeType, Name, Request, #{
         timeout => 500, async_reply_fun => {AsyncReplyFun, []}
     }),
     {Return, Ref}.
@@ -398,8 +399,15 @@ request_api_status(BridgeId) ->
             Error
     end.
 
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_setup_via_config_and_publish(Config) ->
@@ -790,7 +798,7 @@ t_uninitialized_prepared_statement(Config) ->
     SentData = #{payload => Val, timestamp => 1668602148000},
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
-    ResourceID = emqx_bridge_v2:id(BridgeType, Name),
+    ResourceID = id(BridgeType, Name),
     unprepare(Config, ResourceID),
     ?check_trace(
         begin
@@ -843,7 +851,7 @@ t_missing_table(Config) ->
             ),
             Val = integer_to_binary(erlang:unique_integer()),
             SentData = #{payload => Val, timestamp => 1668602148000},
-            ResourceID = emqx_bridge_v2:id(BridgeType, Name),
+            ResourceID = id(BridgeType, Name),
             Request = {ResourceID, SentData},
             Result =
                 case QueryMode of
@@ -880,7 +888,7 @@ t_table_removed(Config) ->
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
     Timeout = 1000,
-    ActionID = emqx_bridge_v2:id(BridgeType, Name),
+    ActionID = id(BridgeType, Name),
     ?assertMatch(
         {error,
             {unrecoverable_error, {1146, <<"42S02">>, <<"Table 'mqtt.mqtt_test' doesn't exist">>}}},
@@ -1018,7 +1026,7 @@ t_non_batch_update_is_allowed(Config) ->
                     #{?snk_kind := mysql_connector_query_return},
                     10_000
                 ),
-            ActionId = emqx_bridge_v2:id(?ACTION_TYPE, BridgeName),
+            ActionId = id(?ACTION_TYPE, BridgeName),
             ?assertEqual(1, emqx_resource_metrics:matched_get(ActionId)),
             ?retry(
                 _Sleep0 = 200,

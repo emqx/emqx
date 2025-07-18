@@ -51,6 +51,9 @@
 -define(MG(K, MAP), maps:get(K, MAP)).
 -define(MG0(K, MAP), maps:get(K, MAP, 0)).
 
+%% See `emqx_config.hrl`.
+-define(global_ns, global).
+
 %%--------------------------------------------------------------------
 %% Callback for emqx_prometheus_cluster
 %%--------------------------------------------------------------------
@@ -60,8 +63,8 @@
 fetch_from_local_node(Mode) ->
     Rules = emqx_rule_engine:get_rules(),
     BridgesV1 = emqx:get_config([bridges], #{}),
-    BridgeV2Actions = emqx_bridge_v2:list(?ROOT_KEY_ACTIONS),
-    Connectors = emqx_connector:list(),
+    BridgeV2Actions = emqx_bridge_v2:list(?global_ns, ?ROOT_KEY_ACTIONS),
+    Connectors = emqx_connector:list(?global_ns),
     {node(self()), #{
         rule_metric_data => rule_metric_data(Mode, Rules),
         action_metric_data => action_metric_data(Mode, BridgeV2Actions),
@@ -72,7 +75,7 @@ fetch_cluster_consistented_data() ->
     Rules = emqx_rule_engine:get_rules(),
     %% for bridge v1
     BridgesV1 = emqx:get_config([bridges], #{}),
-    Connectors = emqx_connector:list(),
+    Connectors = emqx_connector:list(?global_ns),
     (maybe_collect_schema_registry())#{
         rules_ov_data => rules_ov_data(Rules),
         actions_ov_data => actions_ov_data(Rules),
@@ -145,7 +148,7 @@ collect_mf(_, _) ->
 collect(<<"json">>) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
     Rules = emqx_rule_engine:get_rules(),
-    Connectors = emqx_connector:list(),
+    Connectors = emqx_connector:list(?global_ns),
     %% for bridge v1
     BridgesV1 = emqx:get_config([bridges], #{}),
     #{
@@ -474,7 +477,9 @@ action_point(Mode, Id, V) ->
     {with_node_label(Mode, [{id, Id}]), V}.
 
 get_action_metric(Type, Name) ->
-    #{counters := Counters, gauges := Gauges} = emqx_bridge_v2:get_metrics(Type, Name),
+    #{counters := Counters, gauges := Gauges} = emqx_bridge_v2:get_metrics(
+        ?global_ns, actions, Type, Name
+    ),
     #{
         emqx_action_matched => ?MG0(matched, Counters),
         emqx_action_dropped => ?MG0(dropped, Counters),

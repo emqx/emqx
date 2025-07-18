@@ -16,6 +16,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hocon.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -behaviour(gen_statem).
 
@@ -319,6 +320,7 @@ flush_worker(ServerRef) ->
 init({Id, Index, Opts}) ->
     process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Id, {Id, Index}),
+    proc_lib:set_label({buffer_worker, Id}),
     BatchSize = maps:get(batch_size, Opts, ?DEFAULT_BATCH_SIZE),
     QueueOpts = replayq_opts(Id, Index, Opts),
     Queue = replayq:open(QueueOpts),
@@ -1415,19 +1417,13 @@ collect_rule_trigger_times(?QUERY(_, _, _, _, _, #{rule_trigger_ts := Time}), Ac
 collect_rule_trigger_times(?QUERY(_, _, _, _, _, _), Acc) ->
     Acc.
 
-%% action:kafka_producer:myproducer1:connector:kafka_producer:mykakfaclient1
+%% action:kafka_producer:actionname:connector:kafka_producer:connectorname
+%% ns:ns1:action:kafka_producer:actionname:connector:kafka_producer:connectorname
 extract_connector_id(Id) when is_binary(Id) ->
-    case binary:split(Id, <<":">>, [global]) of
-        [
-            _ChannelGlobalType,
-            _ChannelSubType,
-            _ChannelName,
-            <<"connector">>,
-            ConnectorType,
-            ConnectorName
-        ] ->
-            <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>;
-        _ ->
+    case emqx_resource:parse_connector_id_from_channel_id(Id) of
+        {ok, ConnResId} ->
+            ConnResId;
+        {error, _} ->
             Id
     end.
 
@@ -2643,14 +2639,15 @@ maybe_trigger_fallback_actions(_Id, _ResultContext) ->
 
 trigger_fallback_action(Id, #{kind := reference, type := Type, name := Name}, Req, QueryOpts) ->
     try
+        {ok, Namespace} = emqx_resource:extract_namespace_from_resource_id(Id),
         %% Should we log if disabled/not found? Other errors?
-        FallbackResId = emqx_bridge_v2:id(Type, Name),
+        FallbackResId = emqx_bridge_v2:lookup_chan_id_in_conf(Namespace, actions, Type, Name),
         case FallbackResId == Id of
             true ->
                 %% Recursively falling back to self
                 ok;
             false ->
-                emqx_bridge_v2:send_message(Type, Name, Req, QueryOpts)
+                emqx_bridge_v2:send_message(Namespace, Type, Name, Req, QueryOpts)
         end
     catch
         K:E ->

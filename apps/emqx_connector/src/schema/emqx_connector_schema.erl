@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_schema).
 
+-behaviour(emqx_schema_hooks).
+
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -49,8 +51,17 @@
 
 -export([examples/1]).
 
+%% `emqx_schema_hooks' API
+-export([injected_fields/0]).
+
 -type http_method() :: get | post | put.
 -type schema_example_map() :: #{atom() => term()}.
+
+%% `emqx_schema_hooks' API
+injected_fields() ->
+    #{
+        'config.allowed_namespaced_roots' => [<<"connectors">>]
+    }.
 
 api_ref(Module, Type, Method) ->
     {Type, ref(Module, Method)}.

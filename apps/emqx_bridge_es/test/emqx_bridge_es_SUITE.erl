@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -111,7 +112,11 @@ send_message(Topic) ->
     ok.
 
 check_action_metrics(ActionName, ConnectorName, Expect, Line) ->
-    ActionId = emqx_bridge_v2:id(?TYPE, ActionName, ConnectorName),
+    ActionId = emqx_bridge_v2_testlib:make_chan_id(#{
+        type => ?TYPE,
+        name => ActionName,
+        connector_name => ConnectorName
+    }),
     ?retry(
         300,
         20,
@@ -219,31 +224,23 @@ action_api_spec_props_for_get() ->
         emqx_bridge_v2_testlib:actions_api_spec_schemas(),
     Props.
 
-%%------------------------------------------------------------------------------
-%% Testcases
-%%------------------------------------------------------------------------------
-
-t_create_remove_list(Config) ->
-    [] = emqx_bridge_v2:list(),
-    ConnectorConfig = connector_config(Config),
-    {ok, _} = create_connector(test_connector, ConnectorConfig),
-    ActionConfig = action(<<"test_connector">>),
-    {ok, _} = create_action(test_action_1, ActionConfig),
-    [ActionInfo] = emqx_bridge_v2:list(),
-    #{
-        name := <<"test_action_1">>,
-        type := <<"elasticsearch">>,
-        raw_config := _,
-        status := connected
-    } = ActionInfo,
-    {ok, _} = create_action(test_action_2, ActionConfig),
-    2 = length(emqx_bridge_v2:list()),
-    ok = emqx_bridge_v2:remove(?TYPE, test_action_1),
-    1 = length(emqx_bridge_v2:list()),
-    ok = emqx_bridge_v2:remove(?TYPE, test_action_2),
-    [] = emqx_bridge_v2:list(),
-    emqx_connector:remove(?TYPE, test_connector),
+remove(Name) ->
+    {204, _} = emqx_bridge_v2_testlib:delete_kind_api(action, ?TYPE, Name, #{
+        query_params => #{<<"also_delete_dep_actions">> => <<"true">>}
+    }),
     ok.
+
+health_check(Type, Name) ->
+    emqx_bridge_v2_testlib:force_health_check(#{
+        type => Type,
+        name => Name,
+        resource_namespace => ?global_ns,
+        kind => action
+    }).
+
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
 
 %% Test sending a message to a bridge V2
 t_create_message(Config) ->
@@ -287,11 +284,11 @@ t_create_message(Config) ->
     %% Remove all the bridges
     lists:foreach(
         fun(BridgeName) ->
-            ok = emqx_bridge_v2:remove(?TYPE, BridgeName)
+            ok = remove(BridgeName)
         end,
         ActionNames
     ),
-    emqx_connector:remove(?TYPE, test_connector2),
+    emqx_connector:remove(?global_ns, ?TYPE, test_connector2),
     lists:foreach(
         fun(#{id := Id}) ->
             emqx_rule_engine:delete_rule(Id)
@@ -352,8 +349,8 @@ t_update_message(Config) ->
     Expect2 = #{match => 1, success => 1, dropped => 0, failed => 0, queuing => 0},
     check_send_message_with_action(<<"es/1">>, update_action, update_connector, Expect2, ?LINE),
     %% Clean
-    ok = emqx_bridge_v2:remove(?TYPE, update_action),
-    emqx_connector:remove(?TYPE, update_connector),
+    ok = remove(update_action),
+    emqx_connector:remove(?global_ns, ?TYPE, update_connector),
     lists:foreach(
         fun(#{id := Id}) ->
             emqx_rule_engine:delete_rule(Id)
@@ -368,11 +365,11 @@ t_health_check(Config) ->
     ConnectorConfig = connector_config(Config),
     {ok, _} = create_connector(test_connector3, ConnectorConfig),
     {ok, _} = create_action(test_bridge_v2, BridgeV2Config),
-    #{status := connected} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
-    ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
+    #{status := connected} = health_check(?TYPE, test_bridge_v2),
+    ok = remove(test_bridge_v2),
     %% Check behaviour when bridge does not exist
-    {error, bridge_not_found} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
-    ok = emqx_connector:remove(?TYPE, test_connector3),
+    {error, bridge_not_found} = health_check(?TYPE, test_bridge_v2),
+    ok = emqx_connector:remove(?global_ns, ?TYPE, test_connector3),
     ok.
 
 t_bad_url(Config) ->
@@ -384,16 +381,20 @@ t_bad_url(Config) ->
     ?assertMatch({ok, _}, create_connector(ConnectorName, ConnectorConfig)),
     ?assertMatch({ok, _}, create_action(ActionName, ActionConfig)),
     ?assertMatch(
-        {ok, #{
-            resource_data :=
-                #{
-                    status := ?status_disconnected,
-                    error := failed_to_start_elasticsearch_bridge
-                }
-        }},
-        emqx_connector:lookup(?TYPE, ConnectorName)
+        {ok,
+            {{_, 200, _}, _, #{
+                <<"status">> := <<"disconnected">>,
+                <<"status_reason">> := <<"failed_to_start_elasticsearch_bridge">>
+            }}},
+        emqx_bridge_v2_testlib:get_connector_api(?TYPE, ConnectorName)
     ),
-    ?assertMatch({ok, #{status := ?status_disconnected}}, emqx_bridge_v2:lookup(?TYPE, ActionName)),
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, #{<<"status">> := <<"disconnected">>}}},
+        emqx_bridge_v2_testlib:get_action_api([
+            {action_type, ?TYPE},
+            {action_name, ActionName}
+        ])
+    ),
     ok.
 
 t_parameters_key_api_spec(_Config) ->

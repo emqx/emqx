@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 % SQL definitions
 -define(SQL_BRIDGE,
@@ -307,11 +308,12 @@ to_bin(Atom) when is_atom(Atom) ->
 to_bin(Bin) when is_binary(Bin) ->
     Bin.
 
+%% todo: messages should be sent via rules in tests...
 send_message(Config, Payload) ->
     BridgeType = ?config(bridge_type, Config),
     Name = ?config(bridge_name, Config),
     ct:print(">>> Name:~p~n BridgeType:~p~n", [Name, BridgeType]),
-    emqx_bridge_v2:send_message(BridgeType, Name, Payload, #{}).
+    emqx_bridge_v2:send_message(?global_ns, BridgeType, Name, Payload, #{}).
 
 receive_result(Ref, Timeout) ->
     receive
@@ -463,7 +465,7 @@ t_undefined_vars_as_null(Config0) ->
 t_batch_insert(Config) ->
     Name = ?config(bridge_name, Config),
     connect_and_clear_table(Config),
-    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
     _ = emqx_bridge_v2_testlib:kickoff_action_health_check(?BRIDGE_TYPE_BIN, Name),
 
     Size = 5,
@@ -534,7 +536,7 @@ t_auto_create_batch_insert(Config) ->
     Name = ?config(bridge_name, Config),
     ClientId1 = "client1",
     ClientId2 = "client2",
-    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
     _ = emqx_bridge_v2_testlib:kickoff_action_health_check(?BRIDGE_TYPE_BIN, Name),
 
     Size1 = 2,

@@ -90,7 +90,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
         ?CONNECTOR_RESOURCE_GROUP,
         ?INFLUXDB_RESOURCE_MOD,
         FullConfig,
-        #{}
+        #{spawn_buffer_workers => true}
     ),
     ?assertEqual(InitialStatus, connected),
     % Instance should match the state and status of the just started resource

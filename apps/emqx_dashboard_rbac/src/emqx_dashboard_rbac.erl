@@ -6,6 +6,7 @@
 
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     check_rbac/3,
@@ -19,12 +20,10 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--define(undefined, undefined).
-
 -type actor_context() :: #{
     ?actor := username() | api_key(),
     ?role := role(),
-    ?namespace := ?undefined | namespace()
+    ?namespace := ?global_ns | namespace()
 }.
 
 -type username() :: binary().
@@ -32,7 +31,10 @@
 -type role() :: binary().
 -type namespace() :: binary().
 
--define(DASHBOARD_API(METHOD, FN), #{method := METHOD, module := emqx_dashboard_api, function := FN}).
+-define(API(MOD, METHOD, FN), #{method := METHOD, module := MOD, function := FN}).
+-define(DASHBOARD_API(METHOD, FN), ?API(emqx_dashboard_api, METHOD, FN)).
+-define(CONNECTOR_API(METHOD, FN), ?API(emqx_connector_api, METHOD, FN)).
+-define(BRIDGE_V2_API(METHOD, FN), ?API(emqx_bridge_v2_api, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -71,7 +73,7 @@ do_parse_role(Role0) when is_binary(Role0) ->
         {ok, #{?role => Role, ?namespace => Ns}}
     else
         [Role1] ->
-            {ok, #{?role => Role1, ?namespace => ?undefined}};
+            {ok, #{?role => Role1, ?namespace => ?global_ns}};
         {error, _} = Error ->
             Error;
         _ ->
@@ -91,7 +93,7 @@ parse_namespace_tag(NsTag) ->
 %% ===================================================================
 -spec do_check_rbac(actor_context(), emqx_dashboard:request(), emqx_dashboard:handler_info()) ->
     boolean().
-do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := ?undefined}, _, _) ->
+do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}, _, _) ->
     %% Global administrator
     true;
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
@@ -140,6 +142,20 @@ do_check_rbac(
         _ ->
             false
     end;
+do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?CONNECTOR_API(_, _)) when
+    is_binary(Namespace)
+->
+    %% Namespaced connector API; may only alter resources in its own namespace.
+    %% This is enforced by the handlers themselves, by only fetching/acting on the
+    %% appropriate namespace.
+    true;
+do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?BRIDGE_V2_API(_, _)) when
+    is_binary(Namespace)
+->
+    %% Namespaced action/source APIs; may only alter resources in its own namespace.  This
+    %% is enforced by the handlers themselves, by only fetching/acting on the appropriate
+    %% namespace.
+    true;
 do_check_rbac(_, _, _) ->
     false.
 

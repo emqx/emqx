@@ -6,6 +6,7 @@
 -include("emqx_bridge_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     bridge_to_resource_type/1,
@@ -53,7 +54,8 @@
 
 -define(ROOT_KEY_ACTIONS, actions).
 
--if(?EMQX_RELEASE_EDITION == ee).
+-type namespace() :: binary().
+
 bridge_to_resource_type(BridgeType) when is_binary(BridgeType) ->
     bridge_to_resource_type(binary_to_existing_atom(BridgeType, utf8));
 bridge_to_resource_type(mqtt) ->
@@ -64,16 +66,6 @@ bridge_to_resource_type(BridgeType) ->
     emqx_bridge_enterprise:resource_type(BridgeType).
 
 bridge_impl_module(BridgeType) -> emqx_bridge_enterprise:bridge_impl_module(BridgeType).
--else.
-bridge_to_resource_type(BridgeType) when is_binary(BridgeType) ->
-    bridge_to_resource_type(binary_to_existing_atom(BridgeType, utf8));
-bridge_to_resource_type(mqtt) ->
-    emqx_bridge_mqtt_connector;
-bridge_to_resource_type(webhook) ->
-    emqx_bridge_http_connector.
-
-bridge_impl_module(_BridgeType) -> undefined.
--endif.
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
     resource_id_for_kind(?ROOT_KEY_ACTIONS, BridgeId).
@@ -98,6 +90,9 @@ resource_id_for_kind(ConfRootKey, BridgeId) when is_binary(BridgeId) ->
             invalid_data(<<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>)
     end.
 
+-doc """
+Returns identifier of the `Type:Name` form.
+""".
 bridge_id(BridgeType, BridgeName) ->
     Name = bin(BridgeName),
     Type = bin(BridgeType),
@@ -106,13 +101,43 @@ bridge_id(BridgeType, BridgeName) ->
 parse_bridge_id(BridgeId) ->
     parse_bridge_id(bin(BridgeId), #{atom_name => true}).
 
+%% Attempts to convert the type in the Id to a bridge v2 type, returning the v1 type if it
+%% fails.  At the time of writing, the latter should be impossible, as all v1 bridges have
+%% been converted to actions/sources.
 -spec parse_bridge_id(binary() | atom(), #{atom_name => boolean()}) ->
-    {atom(), atom() | binary()}.
-parse_bridge_id(<<"bridge:", ID/binary>>, Opts) ->
-    parse_bridge_id(ID, Opts);
+    #{
+        namespace := ?global_ns | namespace(),
+        kind := undefined | action | source,
+        type := V2Type,
+        name := atom() | binary()
+    }
+when
+    V2Type :: atom().
+parse_bridge_id(<<"bridge:", Id/binary>>, Opts) ->
+    parse_bridge_id(Id, Opts);
+parse_bridge_id(<<"ns:", Rest0/binary>> = Id, Opts) ->
+    maybe
+        [Namespace, Rest1] ?= binary:split(Rest0, <<":">>),
+        [KindBin, Rest] ?= binary:split(Rest1, <<":">>),
+        true ?= lists:member(KindBin, [<<"action">>, <<"source">>]),
+        Kind = safe_atom(KindBin),
+        Parsed = parse_bridge_id(Rest, Opts),
+        Parsed#{namespace => Namespace, kind => Kind}
+    else
+        _ ->
+            throw(#{
+                kind => validation_error,
+                reason => <<"invalid bridge identifier: ", Id/binary>>
+            })
+    end;
 parse_bridge_id(BridgeId, Opts) ->
     {Type, Name} = emqx_resource:parse_resource_id(BridgeId, Opts),
-    {emqx_bridge_lib:upgrade_type(Type), Name}.
+    #{
+        namespace => ?global_ns,
+        kind => undefined,
+        type => emqx_bridge_lib:upgrade_type(Type),
+        name => Name
+    }.
 
 bridge_hookpoint(BridgeId) ->
     <<"$bridges/", (bin(BridgeId))/binary>>.
@@ -127,9 +152,10 @@ bridge_hookpoint_to_bridge_id(_) ->
 -spec invalid_data(binary()) -> no_return().
 invalid_data(Reason) -> throw(#{kind => validation_error, reason => Reason}).
 
+%% Helper used by deprecated v1 bridge API.
 reset_metrics(ResourceId) ->
     %% TODO we should not create atoms here
-    {Type, Name} = parse_bridge_id(ResourceId),
+    #{type := Type, name := Name} = parse_bridge_id(ResourceId),
     case emqx_bridge_v2:is_bridge_v2_type(Type) of
         false ->
             emqx_resource:reset_metrics(ResourceId);
@@ -137,7 +163,7 @@ reset_metrics(ResourceId) ->
             case emqx_bridge_v2:bridge_v1_is_valid(Type, Name) of
                 true ->
                     BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(Type),
-                    emqx_bridge_v2:reset_metrics(BridgeV2Type, Name);
+                    emqx_bridge_v2:reset_metrics(?global_ns, actions, BridgeV2Type, Name);
                 false ->
                     {error, not_bridge_v1_compatible}
             end
@@ -168,7 +194,7 @@ start(Type, Name) ->
     end.
 
 create(BridgeId, Conf) ->
-    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    #{type := BridgeType, name := BridgeName} = parse_bridge_id(BridgeId),
     create(BridgeType, BridgeName, Conf).
 
 create(Type, Name, Conf) ->
@@ -193,7 +219,7 @@ create(Type, Name, Conf0, Opts) ->
     ok.
 
 update(BridgeId, {OldConf, Conf}) ->
-    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    #{type := BridgeType, name := BridgeName} = parse_bridge_id(BridgeId),
     update(BridgeType, BridgeName, {OldConf, Conf}).
 
 update(Type, Name, {OldConf, Conf}) ->
@@ -300,7 +326,7 @@ create_dry_run_bridge_v1(Type, Conf0) ->
     end.
 
 remove(BridgeId) ->
-    {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
+    #{type := BridgeType, name := BridgeName} = parse_bridge_id(BridgeId),
     remove(BridgeType, BridgeName, #{}, #{}).
 
 remove(Type, Name) ->

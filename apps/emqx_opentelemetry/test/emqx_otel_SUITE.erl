@@ -1628,8 +1628,18 @@ t_e2e_client_source_republish_to_clients('init', Config) ->
     _ = emqx_conf:update([connectors, ConnectorType, ConnectorName], ConnectorConfig, #{
         override_to => cluster
     }),
-    _ = emqx_bridge_v2:create(sources, SourceType, SourceName, SourceConfig),
-    _ = emqx_bridge_v2:create(actions, ActionType, ActionName, ActionConfig),
+    _ = emqx_bridge_v2_testlib:create_kind_api([
+        {bridge_kind, source},
+        {source_type, SourceType},
+        {source_name, SourceName},
+        {source_config, SourceConfig}
+    ]),
+    _ = emqx_bridge_v2_testlib:create_kind_api([
+        {bridge_kind, action},
+        {action_type, ActionType},
+        {action_name, ActionName},
+        {action_config, ActionConfig}
+    ]),
 
     RepublishTopic = <<"republish/1">>,
     RepublishQOS = 2,
@@ -2101,9 +2111,9 @@ mqtt_host_port(Config, Node) ->
 cluster(TC, Config) ->
     _Nodes = emqx_cth_cluster:start(
         [
-            {?otel_trace_core1, #{apps => apps_spec()}},
-            {?otel_trace_core2, #{apps => apps_spec()}},
-            {?otel_trace_repl, #{apps => apps_spec(), role => replicant}}
+            {?otel_trace_core1, #{apps => apps_spec(with_dashboard)}},
+            {?otel_trace_core2, #{apps => apps_spec(without_dashboard)}},
+            {?otel_trace_repl, #{apps => apps_spec(without_dashboard), role => replicant}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ).
@@ -2112,12 +2122,17 @@ node_name(Name) ->
     emqx_cth_cluster:node_name(Name).
 
 apps_spec() ->
+    apps_spec(with_dashboard).
+
+apps_spec(without_dashboard) ->
     [
         emqx,
         emqx_conf,
         emqx_management,
         emqx_opentelemetry
-    ].
+    ];
+apps_spec(with_dashboard) ->
+    apps_spec(without_dashboard) ++ [emqx_mgmt_api_test_util:emqx_dashboard()].
 
 apps_spec_with_rule_engine() ->
     [
@@ -2128,7 +2143,8 @@ apps_spec_with_rule_engine() ->
         emqx_rule_engine,
         emqx_connector,
         emqx_bridge_mqtt,
-        emqx_bridge
+        emqx_bridge,
+        emqx_mgmt_api_test_util:emqx_dashboard()
     ].
 
 build_query_string(Query = #{}) ->

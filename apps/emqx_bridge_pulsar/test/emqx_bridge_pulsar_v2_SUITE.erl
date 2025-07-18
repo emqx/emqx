@@ -10,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -166,10 +167,17 @@ create_connector(Config) ->
     ok.
 
 delete_connector(Name) ->
-    ok = emqx_connector:remove(?TYPE, Name).
+    {204, _} = emqx_bridge_v2_testlib:delete_connector_api([
+        {connector_type, ?TYPE},
+        {connector_name, Name}
+    ]),
+    ok.
 
 delete_action(Name) ->
-    ok = emqx_bridge_v2:remove(actions, ?TYPE, Name).
+    {204, _} = emqx_bridge_v2_testlib:delete_kind_api(action, ?TYPE, Name, #{
+        query_params => #{<<"also_delete_dep_actions">> => <<"true">>}
+    }),
+    ok.
 
 connector_config(Config) ->
     PulsarHost = ?config(pulsar_host, Config),
@@ -431,7 +439,7 @@ reset_combined_metrics(ActionResId, RuleId) ->
         type := Type,
         name := Name
     } = emqx_bridge_v2:parse_id(ActionResId),
-    ok = emqx_bridge_v2:reset_metrics(actions, Type, Name),
+    ok = emqx_bridge_v2:reset_metrics(?global_ns, actions, Type, Name),
     ok = emqx_rule_engine:reset_metrics_for_rule(RuleId),
     ok.
 
@@ -591,7 +599,9 @@ t_multiple_actions_sharing_topic(Config) when is_list(Config) ->
             %% Deleting also shouldn't disrupt a2.
             ?assertMatch(
                 {204, _},
-                emqx_bridge_v2_testlib:delete_kind_api(action, Type, ActionName1)
+                emqx_bridge_v2_testlib:delete_kind_api(action, Type, ActionName1, #{
+                    query_params => #{<<"also_delete_dep_actions">> => <<"true">>}
+                })
             ),
             ?assertStatusAPI(Type, ActionName2, <<"connected">>),
             ?assertMatch(ok, SendMessage()),

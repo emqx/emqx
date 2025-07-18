@@ -94,6 +94,10 @@
     get_namespaced/3,
     get_raw_namespaced/2,
     get_raw_namespaced/3,
+    get_all_namespaces_containing/1,
+    get_root_from_all_namespaces/1,
+    get_root_from_all_namespaces/2,
+    get_raw_root_from_all_namespaces/1,
     save_configs_namespaced/6,
     save_configs_namespaced_tx/5,
     get_all_namespace_config_errors/0,
@@ -197,6 +201,61 @@ get_root([RootName | _]) ->
 
 get_root_namespaced([RootName | _], Namespace) ->
     #{RootName => do_get(?NS_CONF(Namespace), [RootName], #{})}.
+
+get_all_namespaces_containing(RootKey0) ->
+    RootKey = bin(RootKey0),
+    MatchHead = erlang:make_tuple(
+        record_info(size, ?CONFIG_TAB),
+        '_',
+        [{#?CONFIG_TAB.root_key, {'$1', RootKey}}]
+    ),
+    MS = [{MatchHead, [], ['$1']}],
+    lists:usort(mnesia:dirty_select(?CONFIG_TAB, MS)).
+
+get_root_from_all_namespaces(RootKey) ->
+    do_get_root_from_all_namespaces(RootKey, error).
+
+get_root_from_all_namespaces(RootKey, Default) ->
+    do_get_root_from_all_namespaces(RootKey, {value, Default}).
+
+do_get_root_from_all_namespaces(RootKey0, DefaultAction) ->
+    RootKey = bin(RootKey0),
+    MS = erlang:make_tuple(
+        record_info(size, ?CONFIG_TAB),
+        '_',
+        [{#?CONFIG_TAB.root_key, {'_', RootKey}}]
+    ),
+    Recs = mnesia:dirty_match_object(?CONFIG_TAB, MS),
+    lists:foldl(
+        fun(#?CONFIG_TAB{root_key = {Namespace, _RootKey}}, Acc) ->
+            Config =
+                case DefaultAction of
+                    error ->
+                        get_namespaced([RootKey0], Namespace);
+                    {value, DefaultValue} ->
+                        get_namespaced([RootKey0], Namespace, DefaultValue)
+                end,
+            Acc#{Namespace => Config}
+        end,
+        #{},
+        Recs
+    ).
+
+get_raw_root_from_all_namespaces(RootKey0) ->
+    RootKey = bin(RootKey0),
+    MS = erlang:make_tuple(
+        record_info(size, ?CONFIG_TAB),
+        '_',
+        [{#?CONFIG_TAB.root_key, {'_', RootKey}}]
+    ),
+    Recs = mnesia:dirty_match_object(?CONFIG_TAB, MS),
+    lists:foldl(
+        fun(#?CONFIG_TAB{root_key = {Namespace, _RootKey}, raw_value = RawConfig}, Acc) ->
+            Acc#{Namespace => RawConfig}
+        end,
+        #{},
+        Recs
+    ).
 
 %% @doc For the given path, get raw root value enclosed in a single-key map.
 %% key is ensured to be binary.
@@ -439,7 +498,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     save_to_app_env(AppEnvs),
     ok = save_to_config_map(CheckedConf, RawConf3),
     maybe_init_default_zone(),
-    load_namespaced_configs(SchemaMod),
+    load_namespaced_configs(),
     ok.
 
 upgrade_raw_conf(SchemaMod, RawConf) ->
@@ -548,13 +607,23 @@ erase_namespaced_configs(Namespace) when is_binary(Namespace) ->
     ok.
 -endif.
 
-load_namespaced_configs(SchemaMod) ->
+load_namespaced_configs() ->
     %% Ensure tables are ready when loading.
     _ = emqx_config:create_tables(),
     AllowedNSRoots = maps:keys(namespaced_config_allowed_roots()),
+    RootKeysToSchemaMods = get_schema_mod(),
     lists:foreach(
         fun({Namespace, RootKeyBin}) ->
-            do_load_namespaced_config(SchemaMod, AllowedNSRoots, Namespace, RootKeyBin)
+            case RootKeysToSchemaMods of
+                #{RootKeyBin := SchemaMod} ->
+                    do_load_namespaced_config(SchemaMod, AllowedNSRoots, Namespace, RootKeyBin);
+                #{} ->
+                    ?SLOG(error, #{
+                        msg => "loaded_unknown_root_key_in_namespace_config",
+                        namespace => Namespace,
+                        root_key => RootKeyBin
+                    })
+            end
         end,
         mnesia:dirty_all_keys(?CONFIG_TAB)
     ).

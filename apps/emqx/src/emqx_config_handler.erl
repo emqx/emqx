@@ -8,6 +8,7 @@
 -include("logger.hrl").
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
+-include("emqx_config.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
@@ -36,6 +37,7 @@
 ]).
 
 -export([schema/2]).
+-export([get_namespace/1]).
 
 -export_type([extra_context/0]).
 
@@ -124,14 +126,14 @@
 -type extra_context() :: #{
     %% Should be interpreted as `?KIND_INITIATE` if key is absent.
     kind => ?KIND_INITIATE | ?KIND_REPLICATE,
-    namespace := undefined | namespace()
+    namespace := ?global_ns | namespace()
 }.
 
 -record(conf_info, {
     schema_mod :: module(),
     conf_key_path :: conf_key_path(),
     update_args :: emqx_config:update_args(),
-    namespace :: undefined | namespace(),
+    namespace :: ?global_ns | namespace(),
     cluster_rpc_opts :: map(),
     handlers :: handlers() | undefined
 }).
@@ -157,7 +159,7 @@ update_config(SchemaModule, ConfKeyPath, UpdateArgs, ClusterRPCOpts) ->
                 true = is_binary(Namespace0),
                 Namespace0;
             _ ->
-                undefined
+                ?global_ns
         end,
     ConfInfo = #conf_info{
         schema_mod = SchemaModule,
@@ -184,6 +186,11 @@ get_raw_cluster_override_conf() ->
 
 info() ->
     gen_server:call(?MODULE, info, infinity).
+
+get_namespace(#{namespace := Namespace} = _ExtraContext) when is_binary(Namespace) ->
+    Namespace;
+get_namespace(#{} = _ExtraContext) ->
+    ?global_ns.
 
 %%============================================================================
 
@@ -356,7 +363,7 @@ check_and_save_configs(ConfInfo, NewRawConf, OverrideConf, Opts) ->
     end.
 
 post_update_ok(
-    #conf_info{namespace = undefined} = ConfInfo,
+    #conf_info{namespace = ?global_ns} = ConfInfo,
     AppEnvs,
     NewConf,
     NewRawConf,
@@ -837,22 +844,22 @@ conf_info_to_map(#conf_info{
         handlers => Handlers
     }.
 
-get_root_raw(ConfKeyPath, undefined = _Namespace) ->
+get_root_raw(ConfKeyPath, ?global_ns) ->
     emqx_config:get_root_raw(ConfKeyPath);
 get_root_raw(ConfKeyPath, Namespace) when is_binary(Namespace) ->
     emqx_config:get_root_raw_namespaced(ConfKeyPath, Namespace).
 
-get_root(ConfKeyPath, undefined = _Namespace) ->
+get_root(ConfKeyPath, ?global_ns) ->
     emqx_config:get_root(ConfKeyPath);
 get_root(ConfKeyPath, Namespace) when is_binary(Namespace) ->
     emqx_config:get_root_namespaced(ConfKeyPath, Namespace).
 
-config_get(ConfKeyPath, undefined = _Namespace, Default) ->
+config_get(ConfKeyPath, ?global_ns, Default) ->
     emqx_config:get(ConfKeyPath, Default);
 config_get(ConfKeyPath, Namespace, Default) when is_binary(Namespace) ->
     emqx_config:get_namespaced(ConfKeyPath, Namespace, Default).
 
-config_get_raw(ConfKeyPath, undefined = _Namespace) ->
+config_get_raw(ConfKeyPath, ?global_ns) ->
     emqx_config:get_raw(ConfKeyPath);
 config_get_raw(ConfKeyPath, Namespace) when is_binary(Namespace) ->
     emqx_config:get_raw_namespaced(ConfKeyPath, Namespace).

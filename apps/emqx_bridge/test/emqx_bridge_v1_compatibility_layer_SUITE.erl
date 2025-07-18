@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -58,7 +59,7 @@ init_per_testcase(_TestCase, Config) ->
     setup_mocks(),
     ets:new(fun_table_name(), [named_table, public]),
     %% Create a fake connector
-    {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
+    {ok, _} = emqx_connector:create(?global_ns, con_type(), con_name(), con_config()),
     Config.
 
 end_per_testcase(t_upgrade_raw_conf_with_deprecated_files = _TestCase, Config) ->
@@ -263,20 +264,7 @@ registered_process_name() ->
     my_registered_process.
 
 delete_all_bridges_and_connectors() ->
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            ct:pal("removing bridge ~p", [{Type, Name}]),
-            emqx_bridge_v2:remove(Type, Name)
-        end,
-        emqx_bridge_v2:list()
-    ),
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            ct:pal("removing connector ~p", [{Type, Name}]),
-            emqx_connector:remove(Type, Name)
-        end,
-        emqx_connector:list()
-    ),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     update_root_config(#{}),
     ok.
 

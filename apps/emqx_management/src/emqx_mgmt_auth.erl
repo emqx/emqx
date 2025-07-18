@@ -6,6 +6,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -behaviour(emqx_db_backup).
 
@@ -236,7 +237,7 @@ to_map(#?APP{
     name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, extra = Extra0
 }) ->
     #{?role := Role, desc := Desc} = Extra = normalize_extra(Extra0),
-    Namespace = maps:get(?namespace, Extra, undefined),
+    Namespace = maps:get(?namespace, Extra, ?global_ns),
     #{
         name => N,
         api_key => K,
@@ -454,7 +455,7 @@ read_line(Dev) ->
 parse_bootstrap_line(Bin, MP) ->
     case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
         {match, [[_ApiKey, _ApiSecret] = Args]} ->
-            Namespace = undefined,
+            Namespace = ?global_ns,
             {ok, Args ++ [?ROLE_API_DEFAULT, Namespace]};
         {match, [[ApiKey, ApiSecret, Role0]]} ->
             case parse_role(Role0) of
@@ -477,12 +478,12 @@ get_role(_Desc) ->
 namespace_of(#{?namespace := Namespace}) when is_binary(Namespace) ->
     Namespace;
 namespace_of(_) ->
-    undefined.
+    ?global_ns.
 
 normalize_extra(Map) when is_map(Map) ->
     Map;
 normalize_extra(Desc) ->
-    #{desc => Desc, ?role => ?ROLE_API_DEFAULT, ?namespace => undefined}.
+    #{desc => Desc, ?role => ?ROLE_API_DEFAULT, ?namespace => ?global_ns}.
 
 check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) ->
     ActorContext = actor_context_of(ApiKey, Role, Namespace),

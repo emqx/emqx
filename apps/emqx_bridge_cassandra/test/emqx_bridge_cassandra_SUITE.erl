@@ -321,7 +321,7 @@ send_message(Config, Payload) ->
 query_resource(Config, Request) ->
     Name = ?config(cassa_name, Config),
     BridgeType = ?config(cassa_bridge_type, Config),
-    BridgeV2Id = emqx_bridge_v2:id(BridgeType, Name),
+    BridgeV2Id = id(BridgeType, Name),
     ConnectorResId = emqx_connector_resource:resource_id(BridgeType, Name),
     emqx_resource:query(BridgeV2Id, Request, #{
         timeout => 1_000, connector_resource_id => ConnectorResId
@@ -332,7 +332,7 @@ query_resource_async(Config, Request) ->
     BridgeType = ?config(cassa_bridge_type, Config),
     Ref = alias([reply]),
     AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
-    BridgeV2Id = emqx_bridge_v2:id(BridgeType, Name),
+    BridgeV2Id = id(BridgeType, Name),
     ConnectorResId = emqx_connector_resource:resource_id(BridgeType, Name),
     Return = emqx_resource:query(BridgeV2Id, Request, #{
         timeout => 500,
@@ -417,8 +417,15 @@ with_direct_conn(Config, Fn) ->
         ok = ecql:close(Conn)
     end.
 
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_setup_via_config_and_publish(Config) ->

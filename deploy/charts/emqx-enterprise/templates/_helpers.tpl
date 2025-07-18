@@ -3,7 +3,7 @@
 Expand the name of the chart.
 */}}
 {{- define "emqx.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | replace "." "-" | trimSuffix "-" -}}
 {{- end -}}
 
 {{/*
@@ -17,9 +17,9 @@ If release name contains chart name it will be used as a full name.
 {{- else -}}
 {{- $name := default .Chart.Name .Values.nameOverride -}}
 {{- if contains $name .Release.Name -}}
-{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- .Release.Name | trunc 63 | replace "." "-" | trimSuffix "-" -}}
 {{- else -}}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | replace "." "-" | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

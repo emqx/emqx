@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(ACTION_TYPE, confluent_producer).
 -define(ACTION_TYPE_BIN, <<"confluent_producer">>).
@@ -325,7 +326,7 @@ t_same_name_confluent_kafka_bridges(Config) ->
     ?assertMatch(
         {{ok, _}, {ok, _}},
         ?wait_async_action(
-            emqx_connector:disable_enable(disable, ?KAFKA_BRIDGE_TYPE, BridgeName),
+            emqx_connector:disable_enable(?global_ns, disable, ?KAFKA_BRIDGE_TYPE, BridgeName),
             #{?snk_kind := kafka_producer_stopped},
             5_000
         )

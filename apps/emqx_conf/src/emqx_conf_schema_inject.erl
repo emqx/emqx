@@ -16,6 +16,7 @@ schemas(Edition) ->
         authz() ++
         shared_subs(Edition) ++
         bridges(Edition) ++
+        namespaced_root_keys() ++
         customized(Edition).
 
 mria(ee) ->
@@ -67,6 +68,12 @@ bridges(ee) ->
         emqx_bridge_disk_log_connector_schema,
         emqx_bridge_mqtt_connector_schema,
         emqx_bridge_snowflake_connector_schema
+    ].
+
+namespaced_root_keys() ->
+    [
+        emqx_connector_schema,
+        emqx_bridge_v2_schema
     ].
 
 %% Add more schemas here.

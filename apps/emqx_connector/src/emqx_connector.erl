@@ -8,24 +8,24 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
-    pre_config_update/3,
-    post_config_update/5
+    pre_config_update/4,
+    post_config_update/6
 ]).
 
 -export([
-    create/3,
-    disable_enable/3,
-    get_metrics/2,
+    create/4,
+    disable_enable/4,
+    get_metrics/3,
     list/0,
+    list/1,
     load/0,
-    is_exist/2,
-    lookup/1,
-    lookup/2,
-    remove/2,
-    unload/0,
-    update/3
+    is_exist/3,
+    lookup/3,
+    remove/3,
+    unload/0
 ]).
 
 -export([config_key_path/0]).
@@ -38,50 +38,76 @@
     import_config/1
 ]).
 
+%% Deprecated RPC target (`emqx_connector_proto_v1`).
+-deprecated({list, 0, "use list/1 instead"}).
+
 -define(ROOT_KEY, connectors).
 -define(ENABLE_OR_DISABLE(A), (A =:= disable orelse A =:= enable)).
 
 load() ->
-    Connectors = emqx:get_config([?ROOT_KEY], #{}),
+    GlobalConnectors = emqx:get_config([?ROOT_KEY], #{}),
+    do_load(?global_ns, GlobalConnectors),
+    NamespacedConnectors = emqx_config:get_root_from_all_namespaces(?ROOT_KEY),
+    emqx_utils:pforeach(
+        fun({Namespace, ConnectorsRoot}) ->
+            do_load(Namespace, ConnectorsRoot)
+        end,
+        maps:to_list(NamespacedConnectors),
+        infinity
+    ).
+
+do_load(Namespace, ConnectorsRoot) ->
     emqx_utils:pforeach(
         fun({Type, NamedConf}) ->
             emqx_utils:pforeach(
                 fun({Name, Conf}) ->
-                    safe_load_connector(Type, Name, Conf)
+                    safe_load_connector(Namespace, Type, Name, Conf)
                 end,
                 maps:to_list(NamedConf),
                 infinity
             )
         end,
-        maps:to_list(Connectors),
+        maps:to_list(ConnectorsRoot),
         infinity
     ).
 
 unload() ->
-    Connectors = emqx:get_config([?ROOT_KEY], #{}),
+    GlobalConnectors = emqx:get_config([?ROOT_KEY], #{}),
+    do_unload(?global_ns, GlobalConnectors),
+    NamespacedConnectors = emqx_config:get_root_from_all_namespaces(?ROOT_KEY),
+    emqx_utils:pforeach(
+        fun({Namespace, ConnectorsRoot}) ->
+            do_unload(Namespace, ConnectorsRoot)
+        end,
+        maps:to_list(NamespacedConnectors),
+        infinity
+    ).
+
+do_unload(Namespace, ConnectorsRoot) ->
     emqx_utils:pforeach(
         fun({Type, NamedConf}) ->
             emqx_utils:pforeach(
                 fun({Name, _Conf}) ->
-                    _ = emqx_connector_resource:stop(Type, Name)
+                    _ = emqx_connector_resource:stop(Namespace, Type, Name)
                 end,
                 maps:to_list(NamedConf),
                 infinity
             )
         end,
-        maps:to_list(Connectors),
+        maps:to_list(ConnectorsRoot),
         infinity
     ).
 
-safe_load_connector(Type, Name, Conf) ->
+safe_load_connector(Namespace, Type, Name, Conf) ->
     try
         Opts = #{async_start => true},
-        _Res = emqx_connector_resource:create(Type, Name, Conf, Opts),
+        _Res = emqx_connector_resource:create(Namespace, Type, Name, Conf, Opts),
         ?tp(
             emqx_connector_loaded,
             #{
                 type => Type,
                 name => Name,
+                namespace => Namespace,
                 res => _Res
             }
         )
@@ -91,6 +117,7 @@ safe_load_connector(Type, Name, Conf) ->
                 msg => "load_connector_failed",
                 type => Type,
                 name => Name,
+                namespace => Namespace,
                 error => Err,
                 reason => Reason,
                 stacktrace => ST
@@ -100,30 +127,33 @@ safe_load_connector(Type, Name, Conf) ->
 config_key_path() ->
     [?ROOT_KEY].
 
-pre_config_update([?ROOT_KEY], {async_start, NewConf}, RawConf) ->
-    pre_config_update([?ROOT_KEY], NewConf, RawConf);
-pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
+pre_config_update([?ROOT_KEY], {async_start, NewConf}, RawConf, ExtraContext) ->
+    pre_config_update([?ROOT_KEY], NewConf, RawConf, ExtraContext);
+pre_config_update([?ROOT_KEY], RawConf, RawConf, _ExtraContext) ->
     {ok, RawConf};
-pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
+pre_config_update([?ROOT_KEY], NewConf, _RawConf, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
     case multi_validate_connector_names(NewConf) of
-        ok -> {ok, convert_certs(NewConf)};
+        ok -> {ok, convert_certs(Namespace, NewConf)};
         Error -> Error
     end;
-pre_config_update([?ROOT_KEY, _Type, _Name], Oper, undefined) when
+pre_config_update([?ROOT_KEY, _Type, _Name], Oper, undefined, _ExtraContext) when
     ?ENABLE_OR_DISABLE(Oper)
 ->
     {error, connector_not_found};
-pre_config_update([?ROOT_KEY, _Type, _Name], Oper, OldConfig) when
+pre_config_update([?ROOT_KEY, _Type, _Name], Oper, OldConfig, _ExtraContext) when
     ?ENABLE_OR_DISABLE(Oper)
 ->
     %% to save the 'enable' to the config files
     {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
-pre_config_update([?ROOT_KEY, _Type, Name] = Path, Conf = #{}, ConfOld) ->
+pre_config_update([?ROOT_KEY, Type, Name] = KeyPath, Conf = #{}, ConfOld, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
     case validate_connector_name(Name) of
         ok ->
-            case emqx_connector_ssl:convert_certs(filename:join(Path), Conf) of
+            CertDir = ssl_cert_dir(Namespace, Type, Name),
+            case emqx_connector_ssl:convert_certs(CertDir, Conf) of
                 {ok, ConfNew} ->
-                    connector_pre_config_update(Path, ConfNew, ConfOld);
+                    connector_pre_config_update(KeyPath, ConfNew, ConfOld);
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -131,11 +161,11 @@ pre_config_update([?ROOT_KEY, _Type, Name] = Path, Conf = #{}, ConfOld) ->
             Error
     end.
 
-connector_pre_config_update([?ROOT_KEY, Type, Name] = Path, ConfNew, ConfOld) ->
+connector_pre_config_update([?ROOT_KEY, Type, Name] = KeyPath, ConfNew, ConfOld) ->
     Mod = emqx_connector_info:config_transform_module(Type),
     case Mod =/= undefined andalso erlang:function_exported(Mod, pre_config_update, 4) of
         true ->
-            apply(Mod, pre_config_update, [Path, Name, ConfNew, ConfOld]);
+            apply(Mod, pre_config_update, [KeyPath, Name, ConfNew, ConfOld]);
         false ->
             {ok, ConfNew}
     end.
@@ -143,7 +173,8 @@ connector_pre_config_update([?ROOT_KEY, Type, Name] = Path, ConfNew, ConfOld) ->
 operation_to_enable(disable) -> false;
 operation_to_enable(enable) -> true.
 
-post_config_update([?ROOT_KEY], Req, NewConf, OldConf, _AppEnv) ->
+post_config_update([?ROOT_KEY], Req, NewConf, OldConf, _AppEnv, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
     #{added := Added, removed := Removed, changed := Updated} = diff_confs(NewConf, OldConf),
     Opts =
         case Req of
@@ -152,16 +183,17 @@ post_config_update([?ROOT_KEY], Req, NewConf, OldConf, _AppEnv) ->
             _ ->
                 #{}
         end,
-    case ensure_no_channels(Removed) of
+    case ensure_no_channels(Removed, Namespace) of
         ok ->
-            perform_connector_changes(Removed, Added, Updated, Opts);
+            perform_connector_changes(Removed, Added, Updated, Namespace, Opts);
         {error, Error} ->
             {error, Error}
     end;
-post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
-    case emqx_connector_resource:get_channels(Type, Name) of
+post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    case emqx_connector_resource:get_channels(Namespace, Type, Name) of
         {ok, []} ->
-            ok = emqx_connector_resource:remove(Type, Name),
+            ok = emqx_connector_resource:remove(Namespace, Type, Name),
             ?tp(connector_post_config_update_done, #{}),
             ok;
         {error, not_found} ->
@@ -171,35 +203,44 @@ post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
             {error, {active_channels, Channels}}
     end;
 %% create a new connector
-post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, undefined, _AppEnvs) ->
+post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, undefined, _AppEnvs, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
     ResOpts = emqx_resource:fetch_creation_opts(NewConf),
-    ok = emqx_connector_resource:create(Type, Name, NewConf, ResOpts),
+    ok = emqx_connector_resource:create(Namespace, Type, Name, NewConf, ResOpts),
     ?tp(connector_post_config_update_done, #{}),
     ok;
 %% update an existing connector
-post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
+post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, OldConf, _AppEnvs, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
     ResOpts = emqx_resource:fetch_creation_opts(NewConf),
-    ok = emqx_connector_resource:update(Type, Name, {OldConf, NewConf}, ResOpts),
+    ok = emqx_connector_resource:update(Namespace, Type, Name, {OldConf, NewConf}, ResOpts),
     ?tp(connector_post_config_update_done, #{}),
     ok.
 
-perform_connector_changes(Removed, Added, Updated, Opts) ->
-    Result = perform_connector_changes(
+perform_connector_changes(Removed, Added, Updated, Namespace, Opts) ->
+    Result = do_perform_connector_changes(
         [
             #{
-                action => fun emqx_connector_resource:remove/4,
+                action => fun(Namespace1, Type, Name, _Conf, _Opts) ->
+                    emqx_connector_resource:remove(Namespace1, Type, Name)
+                end,
                 action_name => remove,
+                namespace => Namespace,
                 data => Removed
             },
             #{
-                action => fun emqx_connector_resource:create/4,
+                action => fun emqx_connector_resource:create/5,
                 action_name => create,
+                namespace => Namespace,
                 data => Added,
-                on_exception_fn => fun emqx_connector_resource:remove/4
+                on_exception_fn => fun(Namespace1, Type, Name, _Conf, _Opts) ->
+                    emqx_connector_resource:remove(Namespace1, Type, Name)
+                end
             },
             #{
-                action => fun emqx_connector_resource:update/4,
+                action => fun emqx_connector_resource:update/5,
                 action_name => update,
+                namespace => Namespace,
                 data => Updated
             }
         ],
@@ -208,12 +249,16 @@ perform_connector_changes(Removed, Added, Updated, Opts) ->
     ?tp(connector_post_config_update_done, #{}),
     Result.
 
+%% Deprecated RPC target (`emqx_connector_proto_v1`).
 list() ->
+    list(?global_ns).
+
+list(Namespace) ->
     maps:fold(
         fun(Type, NameAndConf, Connectors) ->
             maps:fold(
                 fun(Name, RawConf, Acc) ->
-                    case lookup(Type, Name, RawConf) of
+                    case do_lookup(Namespace, Type, Name, RawConf) of
                         {error, not_found} -> Acc;
                         {ok, Res} -> [Res | Acc]
                     end
@@ -223,44 +268,43 @@ list() ->
             )
         end,
         [],
-        emqx:get_raw_config([connectors], #{})
+        get_raw_config(Namespace, [connectors], #{})
     ).
 
-lookup(Id) ->
-    {Type, Name} = emqx_connector_resource:parse_connector_id(Id),
-    lookup(Type, Name).
+lookup(Namespace, Type, Name) ->
+    RawConf = get_raw_config(Namespace, [connectors, Type, Name], #{}),
+    do_lookup(Namespace, Type, Name, RawConf).
 
-lookup(Type, Name) ->
-    RawConf = emqx:get_raw_config([connectors, Type, Name], #{}),
-    lookup(Type, Name, RawConf).
-
-lookup(Type, Name, RawConf) ->
-    case emqx_resource:get_instance(emqx_connector_resource:resource_id(Type, Name)) of
+do_lookup(Namespace, Type, Name, RawConf) ->
+    ConnResId = emqx_connector_resource:resource_id(Namespace, Type, Name),
+    case emqx_resource:get_instance(ConnResId) of
         {error, not_found} ->
             {error, not_found};
         {ok, _, Data} ->
             {ok, #{
-                type => Type,
-                name => Name,
+                type => atom(Type),
+                name => atom(Name),
                 resource_data => Data,
                 raw_config => RawConf
             }}
     end.
 
-is_exist(Type, Name) ->
-    emqx_resource:is_exist(emqx_connector_resource:resource_id(Type, Name)).
+is_exist(Namespace, Type, Name) ->
+    ConnResId = emqx_connector_resource:resource_id(Namespace, Type, Name),
+    emqx_resource:is_exist(ConnResId).
 
-get_metrics(Type, Name) ->
-    emqx_resource:get_metrics(emqx_connector_resource:resource_id(Type, Name)).
+get_metrics(Namespace, Type, Name) ->
+    ConnResId = emqx_connector_resource:resource_id(Namespace, Type, Name),
+    emqx_resource:get_metrics(ConnResId).
 
-disable_enable(Action, ConnectorType, ConnectorName) when ?ENABLE_OR_DISABLE(Action) ->
+disable_enable(Namespace, Action, ConnectorType, ConnectorName) when ?ENABLE_OR_DISABLE(Action) ->
     emqx_conf:update(
         config_key_path() ++ [ConnectorType, ConnectorName],
         Action,
-        #{override_to => cluster}
+        with_namespace(#{override_to => cluster}, Namespace)
     ).
 
-create(ConnectorType, ConnectorName, RawConf) ->
+create(Namespace, ConnectorType, ConnectorName, RawConf) ->
     ?SLOG(debug, #{
         connector_action => create,
         connector_type => ConnectorType,
@@ -270,19 +314,20 @@ create(ConnectorType, ConnectorName, RawConf) ->
     emqx_conf:update(
         emqx_connector:config_key_path() ++ [ConnectorType, ConnectorName],
         RawConf,
-        #{override_to => cluster}
+        with_namespace(#{override_to => cluster}, Namespace)
     ).
 
-remove(ConnectorType, ConnectorName) ->
+remove(Namespace, ConnectorType, ConnectorName) ->
     ?SLOG(debug, #{
         bridge_action => remove,
         connector_type => ConnectorType,
-        connector_name => ConnectorName
+        connector_name => ConnectorName,
+        namespace => Namespace
     }),
     case
         emqx_conf:remove(
             emqx_connector:config_key_path() ++ [ConnectorType, ConnectorName],
-            #{override_to => cluster}
+            with_namespace(#{override_to => cluster}, Namespace)
         )
     of
         {ok, _} ->
@@ -291,28 +336,11 @@ remove(ConnectorType, ConnectorName) ->
             {error, Reason}
     end.
 
-update(ConnectorType, ConnectorName, RawConf) ->
-    ?SLOG(debug, #{
-        connector_action => update,
-        connector_type => ConnectorType,
-        connector_name => ConnectorName,
-        connector_raw_config => emqx_utils:redact(RawConf)
-    }),
-    case lookup(ConnectorType, ConnectorName) of
-        {ok, _Conf} ->
-            emqx_conf:update(
-                emqx_connector:config_key_path() ++ [ConnectorType, ConnectorName],
-                RawConf,
-                #{override_to => cluster}
-            );
-        Error ->
-            Error
-    end.
-
 %%----------------------------------------------------------------------------------------
 %% Data backup
 %%----------------------------------------------------------------------------------------
 
+%% TODO: namespace
 import_config(RawConf) ->
     RootKeyPath = config_key_path(),
     ConnectorsConf = maps:get(<<"connectors">>, RawConf, #{}),
@@ -353,13 +381,13 @@ changed_paths(OldRawConf, NewRawConf) ->
 %% Helper functions
 %%========================================================================================
 
-convert_certs(ConnectorsConf) ->
+convert_certs(Namespace, ConnectorsConf) ->
     maps:map(
         fun(Type, Connectors) ->
             maps:map(
                 fun(Name, ConnectorConf) ->
-                    Path = filename:join([?ROOT_KEY, Type, Name]),
-                    case emqx_connector_ssl:convert_certs(Path, ConnectorConf) of
+                    CertDir = ssl_cert_dir(Namespace, Type, Name),
+                    case emqx_connector_ssl:convert_certs(CertDir, ConnectorConf) of
                         {error, Reason} ->
                             ?SLOG(error, #{
                                 msg => "bad_ssl_config",
@@ -378,15 +406,16 @@ convert_certs(ConnectorsConf) ->
         ConnectorsConf
     ).
 
-perform_connector_changes(Tasks, Opts) ->
-    perform_connector_changes(Tasks, [], Opts).
+do_perform_connector_changes(Tasks, Opts) ->
+    do_perform_connector_changes(Tasks, [], Opts).
 
-perform_connector_changes([], Errors, _Opts) ->
+do_perform_connector_changes([], Errors, _Opts) ->
     case Errors of
         [] -> ok;
         _ -> {error, Errors}
     end;
-perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks], Errors0, Opts) ->
+do_perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks], Errors0, Opts) ->
+    Namespace = maps:get(namespace, Task),
     OnException = maps:get(on_exception_fn, Task, fun(_Type, _Name, _Conf, _Opts) -> ok end),
     Results = emqx_utils:pmap(
         fun({{Type, Name}, Conf}) ->
@@ -394,7 +423,7 @@ perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks]
             ResOpts = maps:merge(ResOpts0, Opts),
             Res =
                 try
-                    Action(Type, Name, Conf, ResOpts)
+                    Action(Namespace, Type, Name, Conf, ResOpts)
                 catch
                     Kind:Error:Stacktrace ->
                         ?SLOG(error, #{
@@ -403,9 +432,10 @@ perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks]
                             error => Error,
                             type => Type,
                             name => Name,
+                            namespace => Namespace,
                             stacktrace => Stacktrace
                         }),
-                        OnException(Type, Name, Conf, ResOpts),
+                        OnException(Namespace, Type, Name, Conf, ResOpts),
                         {error, Error}
                 end,
             {{Type, Name}, Res}
@@ -428,7 +458,7 @@ perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks]
                 #{action_name := ActionName} = Task,
                 [#{action => ActionName, errors => Errs} | Errors0]
         end,
-    perform_connector_changes(Tasks, Errors, Opts).
+    do_perform_connector_changes(Tasks, Errors, Opts).
 
 creation_opts({_OldConf, Conf}) ->
     emqx_resource:fetch_creation_opts(Conf);
@@ -484,7 +514,7 @@ get_basic_usage_info() ->
                     }
             end,
             InitialAcc,
-            list()
+            list(?global_ns)
         )
     catch
         %% for instance, when the connector app is not ready yet.
@@ -492,12 +522,12 @@ get_basic_usage_info() ->
             InitialAcc
     end.
 
-ensure_no_channels(Configs) ->
+ensure_no_channels(Configs, Namespace) ->
     Pipeline =
         lists:map(
             fun({Type, ConnectorName}) ->
                 fun(_) ->
-                    case emqx_connector_resource:get_channels(Type, ConnectorName) of
+                    case emqx_connector_resource:get_channels(Namespace, Type, ConnectorName) of
                         {error, not_found} ->
                             ok;
                         {ok, []} ->
@@ -560,3 +590,21 @@ multi_validate_connector_names(Conf) ->
                 bad_connectors => BadConnectors
             }}
     end.
+
+ssl_cert_dir(Namespace, Type, Name) when is_binary(Namespace) ->
+    filename:join([Namespace, ?ROOT_KEY, Type, Name]);
+ssl_cert_dir(?global_ns, Type, Name) ->
+    filename:join([?ROOT_KEY, Type, Name]).
+
+get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
+    emqx:get_raw_namespaced_config(Namespace, KeyPath, Default);
+get_raw_config(?global_ns, KeyPath, Default) ->
+    emqx:get_raw_config(KeyPath, Default).
+
+with_namespace(UpdateOpts, ?global_ns) ->
+    UpdateOpts;
+with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
+    UpdateOpts#{namespace => Namespace}.
+
+atom(B) when is_binary(B) -> binary_to_existing_atom(B, utf8);
+atom(A) when is_atom(A) -> A.

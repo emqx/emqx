@@ -47,6 +47,7 @@
 -export([format_bridge_metrics/1, format_metrics/1]).
 
 -define(BPAPI_NAME, emqx_bridge).
+-define(DEPRECATED_V1_BPAPI_MAX_PROTO_VSN, 4).
 
 -define(BRIDGE_NOT_ENABLED,
     ?BAD_REQUEST(<<"Forbidden operation, bridge not enabled">>)
@@ -62,7 +63,7 @@
 %% Don't turn bridge_name to atom, it's maybe not a existing atom.
 -define(TRY_PARSE_ID(ID, EXPR),
     try emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}) of
-        {BridgeType, BridgeName} ->
+        #{type := BridgeType, name := BridgeName} ->
             EXPR
     catch
         throw:#{reason := Reason} ->
@@ -1105,13 +1106,13 @@ maybe_try_restart(_, _, _) ->
     ?NOT_IMPLEMENTED.
 
 do_bpapi_call(all, Call, Args) ->
-    maybe_unwrap(
-        do_bpapi_call_vsn(emqx_bpapi:supported_version(?BPAPI_NAME), Call, Args)
-    );
+    Vsn = max_supported_version(emqx_bpapi:supported_version(?BPAPI_NAME)),
+    maybe_unwrap(do_bpapi_call_vsn(Vsn, Call, Args));
 do_bpapi_call(Node, Call, Args) ->
     case lists:member(Node, mria:running_nodes()) of
         true ->
-            do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, ?BPAPI_NAME), Call, Args);
+            Vsn = max_supported_version(emqx_bpapi:supported_version(Node, ?BPAPI_NAME)),
+            do_bpapi_call_vsn(Vsn, Call, Args);
         false ->
             {error, {node_not_found, Node}}
     end.
@@ -1128,6 +1129,11 @@ maybe_unwrap({error, not_implemented}) ->
     {error, not_implemented};
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
+
+max_supported_version(undefined) ->
+    undefined;
+max_supported_version(N) when is_integer(N) ->
+    min(N, ?DEPRECATED_V1_BPAPI_MAX_PROTO_VSN).
 
 supported_versions(start_bridge_to_node) ->
     bpapi_version_range(2, ?MAX_SUPPORTED_PROTO_VERSION);

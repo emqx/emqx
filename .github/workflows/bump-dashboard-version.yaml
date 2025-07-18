@@ -58,7 +58,16 @@ jobs:
         run: |
           set -euxo pipefail
           git fetch origin
-          BASE_BRANCH="$(git branch --remotes --list 'origin/release-5?' 'origin/release-5??' | sort -rV | head -n 1 | cut -d '/' -f 2)"
+          BASE_BRANCH="$(git branch --remotes --list 'origin/release-[0-9]*' | \
+            awk -F- '{
+              version=$2;
+              if (version !~ /\./) {
+                version = substr(version, 1, 1) "." substr(version, 2)
+              }
+              print version, $0
+            }' | \
+            sort -rV -k1,1 | \
+            cut -d' ' -f2- | head -n 1)"
           NEW_BRANCH="bump-${EMQX_NAME}-dashboard-version-$(date +"%Y%m%d-%H%M%S")"
           git checkout -b ${NEW_BRANCH} --track origin/${BASE_BRANCH}
           sed -i "s|EMQX_EE_DASHBOARD_VERSION ?= .*|EMQX_EE_DASHBOARD_VERSION ?= ${DASHBOARD_VERSION}|" Makefile

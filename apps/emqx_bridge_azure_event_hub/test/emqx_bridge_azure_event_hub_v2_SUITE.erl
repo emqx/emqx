@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(BRIDGE_TYPE, azure_event_hub_producer).
 -define(BRIDGE_TYPE_BIN, <<"azure_event_hub_producer">>).
@@ -335,7 +336,7 @@ t_same_name_azure_kafka_bridges(Config) ->
     ?assertEqual({ok, connected}, emqx_resource_manager:health_check(KafkaResourceId)),
     ?assertMatch(
         {ok, _},
-        emqx_connector:disable_enable(disable, ?KAFKA_BRIDGE_TYPE, BridgeName)
+        emqx_connector:disable_enable(?global_ns, disable, ?KAFKA_BRIDGE_TYPE, BridgeName)
     ),
     % check that AEH bridge is still working
     ?check_trace(

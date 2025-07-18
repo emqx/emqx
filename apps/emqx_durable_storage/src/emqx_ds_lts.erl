@@ -19,6 +19,8 @@
     info/2,
     info/1,
 
+    insert_wildcard/2,
+
     updated_topics/2,
 
     threshold_fun/1,
@@ -378,6 +380,32 @@ updated_topics(#trie{rlookups = true}, Dump) ->
         end,
         Dump
     ).
+
+-spec insert_wildcard(trie(), [binary() | '+']) -> ok.
+insert_wildcard(Trie, TF) ->
+    %% Craft a special threshold function that returns 0 for topic
+    %% levels corresponding to '+'s in the filter or `infinity'
+    %% otherwise:
+    LevelThresholds = [
+        case I of
+            '+' -> 0;
+            _ when is_binary(I) -> infinity
+        end
+     || I <- TF
+    ],
+    ThresholdFun = fun(Depth, _Parent) ->
+        lists:nth(Depth + 1, LevelThresholds)
+    end,
+    %% Insert a dummy topic that corresponds to the given topic filter:
+    DummyTopic = [
+        case I of
+            '+' -> <<>>;
+            _ -> I
+        end
+     || I <- TF
+    ],
+    _ = topic_key(Trie, ThresholdFun, DummyTopic),
+    ok.
 
 %%================================================================================
 %% Internal exports
@@ -862,6 +890,19 @@ topic_key_test() ->
         dump_to_dot(T, filename:join("_build", atom_to_list(?FUNCTION_NAME) ++ ".dot"))
     end.
 
+insert_wildcard_test() ->
+    T = trie_create(),
+    ?assertMatch(ok, insert_wildcard(T, ['+', <<"pub">>, '+'])),
+    ThresholdFun = fun(_, _) -> infinity end,
+    ?assertMatch(
+        {_, [<<"foo">>, <<"bar">>]},
+        test_key(T, ThresholdFun, [<<"foo">>, <<"pub">>, <<"bar">>, <<"quux">>])
+    ),
+    ?assertMatch(
+        {_, [<<"foo">>]},
+        test_key(T, ThresholdFun, [<<"foo">>, <<"bar">>])
+    ).
+
 %% erlfmt-ignore
 topic_match_test() ->
     T = trie_create(),
@@ -1064,7 +1105,8 @@ assert_match_topics(Trie, Filter0, Expected) ->
 %% erlfmt-ignore
 test_key(Trie, Threshold, Topic0) ->
     Topic = lists:map(fun('') -> '';
-                         (I) -> integer_to_binary(I)
+                         (I) when is_integer(I) -> integer_to_binary(I);
+                         (Bin) when is_binary(Bin) -> Bin
                       end,
                       Topic0),
     Ret = topic_key(Trie, Threshold, Topic),

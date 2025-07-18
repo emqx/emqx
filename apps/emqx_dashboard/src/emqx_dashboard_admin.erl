@@ -12,6 +12,7 @@
 -include("emqx_dashboard_rbac.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -behaviour(emqx_db_backup).
 
@@ -324,7 +325,7 @@ force_add_user(Username, Password, Role, Desc, Extra) ->
 
 %% @private
 add_user_(Username, Password, Role, Desc, Extra) ->
-    Namespace = maps:get(?namespace, Extra, undefined),
+    Namespace = maps:get(?namespace, Extra, ?global_ns),
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
             Admin = #?ADMIN{
@@ -454,7 +455,7 @@ update_user_(Username, Role, Desc, Extra) ->
                     username => Username,
                     role => Role,
                     description => Desc,
-                    ?namespace => maps:get(?namespace, NewExtra, undefined)
+                    ?namespace => maps:get(?namespace, NewExtra, ?global_ns)
                 })
             }
     end.
@@ -540,10 +541,12 @@ to_external_user(UserRecord) ->
         role = Role,
         extra = Extra
     } = UserRecord,
+    Namespace = namespace_of(UserRecord),
     flatten_username(#{
         username => Username,
         description => Desc,
         ?role => ensure_role(Role),
+        ?namespace => Namespace,
         mfa => format_mfa(Extra)
     }).
 
@@ -765,7 +768,7 @@ role(Role) when is_binary(Role) ->
 namespace_of(#?ADMIN{extra = #{?namespace := Namespace}}) when is_binary(Namespace) ->
     Namespace;
 namespace_of(#?ADMIN{}) ->
-    undefined.
+    ?global_ns.
 
 flatten_username(#{username := ?SSO_USERNAME(Backend, Name)} = Data) ->
     Data#{
