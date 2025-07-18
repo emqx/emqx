@@ -16,6 +16,7 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("erlcloud/include/erlcloud_aws.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -754,6 +755,9 @@ restart_server() ->
         )
     ),
     ok.
+
+health_check(TCConfig) ->
+    emqx_bridge_v2_testlib:health_check_channel(TCConfig).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -1637,7 +1641,7 @@ do_t_upload_data_file_failure(S3UploadFnName, Config) ->
                         }},
                     status := ?status_disconnected
                 },
-                emqx_bridge_v2_testlib:health_check_channel(Config)
+                health_check(Config)
             );
         partitioned ->
             ?assertMatch(
@@ -1650,7 +1654,7 @@ do_t_upload_data_file_failure(S3UploadFnName, Config) ->
                         }},
                     status := ?status_disconnected
                 },
-                emqx_bridge_v2_testlib:health_check_channel(Config)
+                health_check(Config)
             )
     end,
     ok.
@@ -1701,7 +1705,7 @@ t_upload_manifest_entry_failure(Config) ->
                         }},
                     status := ?status_disconnected
                 },
-                emqx_bridge_v2_testlib:health_check_channel(Config)
+                health_check(Config)
             )
         end
     ),
@@ -1744,7 +1748,7 @@ t_upload_manifest_file_list_failure(Config) ->
                         }},
                     status := ?status_disconnected
                 },
-                emqx_bridge_v2_testlib:health_check_channel(Config)
+                health_check(Config)
             )
         end
     ),
@@ -1797,7 +1801,7 @@ t_commit_failure(Config) ->
                         }},
                     status := ?status_disconnected
                 },
-                emqx_bridge_v2_testlib:health_check_channel(Config)
+                health_check(Config)
             )
         end
     ),

@@ -63,7 +63,7 @@
 fetch_from_local_node(Mode) ->
     Rules = emqx_rule_engine:get_rules(),
     BridgesV1 = emqx:get_config([bridges], #{}),
-    BridgeV2Actions = emqx_bridge_v2:list(?ROOT_KEY_ACTIONS),
+    BridgeV2Actions = emqx_bridge_v2:list(?global_ns, ?ROOT_KEY_ACTIONS),
     Connectors = emqx_connector:list(?global_ns),
     {node(self()), #{
         rule_metric_data => rule_metric_data(Mode, Rules),
@@ -477,7 +477,9 @@ action_point(Mode, Id, V) ->
     {with_node_label(Mode, [{id, Id}]), V}.
 
 get_action_metric(Type, Name) ->
-    #{counters := Counters, gauges := Gauges} = emqx_bridge_v2:get_metrics(Type, Name),
+    #{counters := Counters, gauges := Gauges} = emqx_bridge_v2:get_metrics(
+        ?global_ns, actions, Type, Name
+    ),
     #{
         emqx_action_matched => ?MG0(matched, Counters),
         emqx_action_dropped => ?MG0(dropped, Counters),

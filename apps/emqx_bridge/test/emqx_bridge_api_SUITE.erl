@@ -13,6 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(ACTION_HTTP_TYPE, <<"http">>).
 -define(BRIDGE_TYPE_HTTP, <<"webhook">>).
@@ -1493,7 +1494,7 @@ validate_resource_request_ttl(_Cluster, _Timeout, _Name) ->
 
 do_send_message(BridgeV1Type, Name, Message) ->
     Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    emqx_bridge_v2:send_message(Type, Name, Message, #{}).
+    emqx_bridge_v2:send_message(?global_ns, Type, Name, Message, #{}).
 
 %%
 

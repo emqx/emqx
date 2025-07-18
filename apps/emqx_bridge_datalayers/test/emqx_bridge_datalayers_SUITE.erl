@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -305,10 +306,11 @@ create_rule_and_action_http(Config, Overrides) ->
         Error -> Error
     end.
 
+%% todo: messages should be sent via rules in tests...
 send_message(Config, Payload) ->
     Type = ?config(bridge_type, Config),
     Name = ?config(bridge_name, Config),
-    emqx_bridge_v2:send_message(Type, Name, Payload, #{}).
+    emqx_bridge_v2:send_message(?global_ns, Type, Name, Payload, #{}).
 
 query_by_clientid(Table, ClientId, Config) ->
     SQL = <<"SELECT * FROM ", Table/binary, " WHERE clientid = '", ClientId/binary, "'">>,

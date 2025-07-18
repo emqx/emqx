@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -285,7 +286,7 @@ resource_id(Config) ->
 action_id(Config) ->
     Type = ?BRIDGE_TYPE_BIN,
     Name = ?config(oracle_name, Config),
-    emqx_bridge_v2:id(Type, Name).
+    id(Type, Name).
 
 bridge_id(Config) ->
     Type = ?BRIDGE_TYPE_BIN,
@@ -386,8 +387,27 @@ create_rule_and_action_http(Config) ->
         Error -> Error
     end.
 
+%% todo: messages should be sent via rules in tests...
+send_message(Type, Name, Msg, QueryOpts) ->
+    emqx_bridge_v2:send_message(?global_ns, Type, Name, Msg, QueryOpts).
+
+health_check(Type, Name) ->
+    emqx_bridge_v2_testlib:force_health_check(#{
+        type => Type,
+        name => Name,
+        resource_namespace => ?global_ns,
+        kind => action
+    }).
+
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_sync_query(Config) ->
@@ -407,7 +427,7 @@ t_sync_query(Config) ->
                 _Attempts1 = 30,
                 ?assertMatch(
                     #{status := connected},
-                    emqx_bridge_v2:health_check(
+                    health_check(
                         ?BRIDGE_TYPE_BIN,
                         Name
                     )
@@ -451,7 +471,7 @@ t_batch_sync_query(Config) ->
                 _Attempts = 30,
                 ?assertMatch(
                     #{status := connected},
-                    emqx_bridge_v2:health_check(
+                    health_check(
                         ?BRIDGE_TYPE_BIN,
                         Name
                     )
@@ -469,9 +489,9 @@ t_batch_sync_query(Config) ->
             % be sent async as callback_mode is set to async_if_possible.
             emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
                 ct:sleep(1000),
-                emqx_bridge_v2:send_message(?BRIDGE_TYPE_BIN, Name, Params, #{}),
-                emqx_bridge_v2:send_message(?BRIDGE_TYPE_BIN, Name, Params, #{}),
-                emqx_bridge_v2:send_message(?BRIDGE_TYPE_BIN, Name, Params, #{}),
+                send_message(?BRIDGE_TYPE_BIN, Name, Params, #{}),
+                send_message(?BRIDGE_TYPE_BIN, Name, Params, #{}),
+                send_message(?BRIDGE_TYPE_BIN, Name, Params, #{}),
                 ok
             end),
             % Wait for reconnection.
@@ -485,7 +505,7 @@ t_batch_sync_query(Config) ->
                 _Attempts = 30,
                 ?assertMatch(
                     #{status := connected},
-                    emqx_bridge_v2:health_check(
+                    health_check(
                         ?BRIDGE_TYPE_BIN,
                         Name
                     )
@@ -560,7 +580,7 @@ t_start_stop(Config) ->
                 _Attempts = 20,
                 ?assertMatch(
                     #{status := connected},
-                    emqx_bridge_v2:health_check(
+                    health_check(
                         ?BRIDGE_TYPE_BIN,
                         OracleName
                     )
@@ -641,7 +661,7 @@ t_message_with_nested_tokens(Config) ->
         _Attempts = 20,
         ?assertMatch(
             #{status := connected},
-            emqx_bridge_v2:health_check(
+            health_check(
                 ?BRIDGE_TYPE_BIN,
                 Name
             )
@@ -691,7 +711,7 @@ t_message_with_null_value(Config) ->
         _Attempts = 20,
         ?assertMatch(
             #{status := connected},
-            emqx_bridge_v2:health_check(
+            health_check(
                 ?BRIDGE_TYPE_BIN,
                 Name
             )
@@ -745,7 +765,7 @@ t_on_get_status(Config) ->
         ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId)),
         ?assertMatch(
             #{status := disconnected},
-            emqx_bridge_v2:health_check(?BRIDGE_TYPE_BIN, Name)
+            health_check(?BRIDGE_TYPE_BIN, Name)
         )
     end),
     %% Check that it recovers itself.
@@ -756,7 +776,7 @@ t_on_get_status(Config) ->
             ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
             ?assertMatch(
                 #{status := connected},
-                emqx_bridge_v2:health_check(?BRIDGE_TYPE_BIN, Name)
+                health_check(?BRIDGE_TYPE_BIN, Name)
             )
         end
     ),
@@ -827,7 +847,7 @@ t_missing_table(Config) ->
             },
             ?assertMatch(
                 {error, {resource_error, #{reason := unhealthy_target}}},
-                emqx_bridge_v2:send_message(?BRIDGE_TYPE_BIN, Name, Params, _QueryOpts = #{})
+                send_message(?BRIDGE_TYPE_BIN, Name, Params, _QueryOpts = #{})
             ),
             ok
         end,
@@ -840,7 +860,7 @@ t_table_removed(Config) ->
         begin
             reset_table(Config),
             ?assertMatch({ok, _}, create_bridge_api(Config)),
-            ActionId = emqx_bridge_v2:id(?BRIDGE_TYPE_BIN, ?config(oracle_name, Config)),
+            ActionId = id(?BRIDGE_TYPE_BIN, ?config(oracle_name, Config)),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,

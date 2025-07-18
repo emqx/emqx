@@ -264,20 +264,7 @@ registered_process_name() ->
     my_registered_process.
 
 delete_all_bridges_and_connectors() ->
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            ct:pal("removing bridge ~p", [{Type, Name}]),
-            emqx_bridge_v2:remove(Type, Name)
-        end,
-        emqx_bridge_v2:list()
-    ),
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            ct:pal("removing connector ~p", [{Type, Name}]),
-            emqx_connector:remove(?global_ns, Type, Name)
-        end,
-        emqx_connector:list(?global_ns)
-    ),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     update_root_config(#{}),
     ok.
 

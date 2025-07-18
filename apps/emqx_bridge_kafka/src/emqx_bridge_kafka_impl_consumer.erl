@@ -27,7 +27,7 @@
 ]).
 
 -ifdef(TEST).
--export([consumer_group_id/2]).
+-export([consumer_group_id/2, make_client_id/1]).
 -endif.
 
 -include_lib("emqx/include/logger.hrl").
@@ -142,14 +142,12 @@ on_start(ConnectorResId, Config) ->
     #{
         authentication := Auth,
         bootstrap_hosts := BootstrapHosts0,
-        connector_type := ConnectorType,
-        connector_name := ConnectorName,
         socket_opts := SocketOpts0,
         ssl := SSL
     } = Config,
     BootstrapHosts = emqx_bridge_kafka_impl:hosts(BootstrapHosts0),
     %% Note: this is distinct per node.
-    ClientID = make_client_id(ConnectorResId, ConnectorType, ConnectorName),
+    ClientID = make_client_id(ConnectorResId),
     ClientOpts0 =
         case Auth of
             none -> [];
@@ -674,12 +672,31 @@ maybe_clean_error(Reason) ->
             Reason
     end.
 
--spec make_client_id(connector_resource_id(), binary(), atom() | binary()) -> atom().
-make_client_id(ConnectorResId, BridgeType, BridgeName) ->
+%% Client ID is better to be unique to make it easier for Kafka side trouble shooting.
+-spec make_client_id(connector_resource_id()) -> atom().
+make_client_id(ConnectorResId) ->
     case emqx_resource:is_dry_run(ConnectorResId) of
         false ->
-            ClientID0 = emqx_bridge_kafka_impl:make_client_id(BridgeType, BridgeName),
-            binary_to_atom(ClientID0);
+            #{
+                type := Type,
+                name := Name,
+                namespace := Namespace
+            } = emqx_connector_resource:parse_connector_id(ConnectorResId),
+            NSTag =
+                case is_binary(Namespace) of
+                    true -> <<"ns:", Namespace/binary, ":">>;
+                    false -> <<"">>
+                end,
+            binary_to_atom(
+                iolist_to_binary([
+                    NSTag,
+                    to_bin(Type),
+                    ":",
+                    to_bin(Name),
+                    ":",
+                    atom_to_list(node())
+                ])
+            );
         true ->
             %% It is a dry run and we don't want to leak too many
             %% atoms.

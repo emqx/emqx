@@ -89,7 +89,7 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
         ?CONNECTOR_RESOURCE_GROUP,
         ?LDAP_RESOURCE_MOD,
         CheckedConfig,
-        #{}
+        #{spawn_buffer_workers => true}
     ),
     ?assertEqual(InitialStatus, connected),
     % Instance should match the state and status of the just started resource

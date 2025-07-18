@@ -7,7 +7,6 @@
 
 -export([
     hosts/1,
-    make_client_id/2,
     sasl/1,
     socket_opts/1
 ]).
@@ -22,12 +21,6 @@ hosts([#{hostname := _, port := _} | _] = Servers) ->
     [{Hostname, Port} || #{hostname := Hostname, port := Port} <- Servers];
 hosts(Hosts) when is_list(Hosts) ->
     kpro:parse_endpoints(Hosts).
-
-%% Client ID is better to be unique to make it easier for Kafka side trouble shooting.
-make_client_id(BridgeType0, BridgeName0) ->
-    BridgeType = to_bin(BridgeType0),
-    BridgeName = to_bin(BridgeName0),
-    iolist_to_binary([BridgeType, ":", BridgeName, ":", atom_to_list(node())]).
 
 sasl(none) ->
     undefined;
@@ -75,10 +68,3 @@ adjust_socket_buffer(Bytes, Opts) ->
 
 tcp_keepalive(String) ->
     emqx_schema:tcp_keepalive_opts(String).
-
-to_bin(A) when is_atom(A) ->
-    atom_to_binary(A);
-to_bin(L) when is_list(L) ->
-    list_to_binary(L);
-to_bin(B) when is_binary(B) ->
-    B.

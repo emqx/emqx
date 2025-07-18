@@ -10,6 +10,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     pre_config_update/3,
@@ -227,11 +228,12 @@ send_to_matched_egress_bridges_loop(Topic, Msg, [Id | Ids]) ->
     send_to_matched_egress_bridges_loop(Topic, Msg, Ids).
 
 send_message(BridgeId, Message) ->
-    {BridgeV1Type, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    #{type := BridgeV1Type, name := BridgeName} =
+        emqx_bridge_resource:parse_bridge_id(BridgeId),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeV1Type) of
         true ->
             ActionType = emqx_action_info:bridge_v1_type_to_action_type(BridgeV1Type),
-            emqx_bridge_v2:send_message(ActionType, BridgeName, Message, #{});
+            emqx_bridge_v2:send_message(?global_ns, ActionType, BridgeName, Message, #{});
         false ->
             ResId = emqx_bridge_resource:resource_id(BridgeV1Type, BridgeName),
             send_message(BridgeV1Type, BridgeName, ResId, Message, #{})
@@ -313,7 +315,7 @@ list() ->
     BridgeV1Bridges ++ BridgeV2Bridges.
 
 lookup(Id) ->
-    {Type, Name} = emqx_bridge_resource:parse_bridge_id(Id),
+    #{type := Type, name := Name} = emqx_bridge_resource:parse_bridge_id(Id),
     lookup(Type, Name).
 
 is_exist_v1(Type, Name) ->
@@ -349,9 +351,9 @@ get_metrics(ActionType, Name) ->
                     BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(ActionType),
                     try
                         ConfRootKey = emqx_bridge_v2:get_conf_root_key_if_only_one(
-                            BridgeV2Type, Name
+                            ?global_ns, BridgeV2Type, Name
                         ),
-                        emqx_bridge_v2:get_metrics(ConfRootKey, BridgeV2Type, Name)
+                        emqx_bridge_v2:get_metrics(?global_ns, ConfRootKey, BridgeV2Type, Name)
                     catch
                         error:Reason ->
                             {error, Reason}

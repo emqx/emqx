@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 % Bridge defaults
 -define(TOPIC, "TopicTest").
@@ -245,16 +246,18 @@ create_bridge_http(Params) ->
             Error
     end.
 
+%% todo: messages should be sent via rules in tests...
 send_message(Config, Payload) ->
     Name = ?GET_CONFIG(rocketmq_name, Config),
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
-    ActionId = emqx_bridge_v2:id(BridgeType, Name),
-    emqx_bridge_v2:query(BridgeType, Name, {ActionId, Payload}, #{}).
+    ActionId = id(BridgeType, Name),
+    emqx_bridge_v2:query(?global_ns, BridgeType, Name, {ActionId, Payload}, #{}).
 
+%% todo: messages should be sent via rules in tests...
 query_resource(Config, Request) ->
     Name = ?GET_CONFIG(rocketmq_name, Config),
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
-    ID = emqx_bridge_v2:id(BridgeType, Name),
+    ID = id(BridgeType, Name),
     ResID = emqx_connector_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ID, Request, #{timeout => 500, connector_resource_id => ResID}).
 
@@ -266,8 +269,23 @@ create_action_api(Type, Name, Conf) ->
         {action_config, Conf}
     ]).
 
+health_check(Type, Name) ->
+    emqx_bridge_v2_testlib:force_health_check(#{
+        type => Type,
+        name => Name,
+        resource_namespace => ?global_ns,
+        kind => action
+    }).
+
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_setup_via_config_and_publish(Config) ->
@@ -328,7 +346,7 @@ t_setup_via_config_ssl_host_bad_ssl_opts(Config) ->
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
 
     ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceID)),
-    ?assertMatch(#{status := disconnected}, emqx_bridge_v2:health_check(BridgeType, Name)),
+    ?assertMatch(#{status := disconnected}, health_check(BridgeType, Name)),
     ok.
 
 t_setup_via_http_api_and_publish(Config) ->
@@ -373,7 +391,9 @@ t_setup_two_actions_via_http_api_and_publish(Config) ->
         {ok, _},
         create_bridge_http(RocketMQConf2)
     ),
-    {ok, #{raw_config := ActionConf}} = emqx_bridge_v2:lookup(actions, BridgeType, Name),
+    {ok, #{raw_config := ActionConf}} = emqx_bridge_v2:lookup(
+        ?global_ns, actions, BridgeType, Name
+    ),
     Topic2 = <<"Topic2">>,
     ActionConf2 = emqx_utils_maps:deep_force_put(
         [<<"parameters">>, <<"topic">>], ActionConf, Topic2
@@ -426,7 +446,7 @@ t_get_status(Config) ->
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
 
     ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID)),
-    ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name)),
+    ?assertMatch(#{status := connected}, health_check(BridgeType, Name)),
     ok.
 
 t_simple_query(Config) ->
@@ -436,7 +456,7 @@ t_simple_query(Config) ->
     ),
     Type = ?GET_CONFIG(rocketmq_bridge_type, Config),
     Name = ?GET_CONFIG(rocketmq_name, Config),
-    ActionId = emqx_bridge_v2:id(Type, Name),
+    ActionId = id(Type, Name),
     Request = {ActionId, #{message => <<"Hello">>}},
     Result = query_resource(Config, Request),
     ?assertEqual(ok, Result),

@@ -305,7 +305,7 @@ kafka_bridge_rest_api_helper(Config) ->
                 <<"kafka_bridge_topic/#">>,
                 [{action_name, Name}]
             ),
-        BridgeV2Id = emqx_bridge_v2:id(
+        BridgeV2Id = id(
             list_to_binary(?BRIDGE_TYPE_V2),
             list_to_binary(BridgeName)
         ),
@@ -470,7 +470,7 @@ t_failed_creation_then_fix(Config) ->
     },
     {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
     ct:pal("base offset before testing ~p", [Offset]),
-    BridgeV2Id = emqx_bridge_v2:id(bin(?BRIDGE_TYPE_V2), bin(Name)),
+    BridgeV2Id = id(bin(?BRIDGE_TYPE_V2), bin(Name)),
     {ok, ResourceId} = emqx_bridge_v2:extract_connector_id_from_bridge_v2_id(BridgeV2Id),
     {ok, _Group, #{state := State}} = emqx_resource:get_instance(ResourceId),
     ok = send(Config, ResourceId, Msg, State, BridgeV2Id),
@@ -556,9 +556,10 @@ t_nonexistent_topic(_Config) ->
             status := disconnected,
             error := {unhealthy_target, <<"Unknown topic or partition: undefined-test-topic">>}
         },
-        emqx_bridge_v2:health_check(
-            ?BRIDGE_TYPE_V2, list_to_atom(Name)
-        )
+        emqx_bridge_v2_testlib:force_health_check(#{
+            type => ?BRIDGE_TYPE_V2,
+            name => list_to_atom(Name)
+        })
     ),
     ok = emqx_bridge:remove(list_to_atom(Type), list_to_atom(Name)),
     delete_all_bridges(),
@@ -609,7 +610,7 @@ t_send_message_with_headers(Config) ->
         list_to_atom(Type), list_to_atom(Name), Conf
     ),
     ResourceId = emqx_bridge_resource:resource_id(bin(Type), bin(Name)),
-    BridgeV2Id = emqx_bridge_v2:id(bin(?BRIDGE_TYPE_V2), bin(Name)),
+    BridgeV2Id = id(bin(?BRIDGE_TYPE_V2), bin(Name)),
     {ok, _Group, #{state := State}} = emqx_resource:get_instance(ResourceId),
     Time1 = erlang:unique_integer(),
     BinTime1 = integer_to_binary(Time1),
@@ -843,7 +844,7 @@ t_wrong_headers_from_message(Config) ->
         payload => Payload1,
         timestamp => Time1
     },
-    BridgeV2Id = emqx_bridge_v2:id(bin(?BRIDGE_TYPE_V2), bin(Name)),
+    BridgeV2Id = id(bin(?BRIDGE_TYPE_V2), bin(Name)),
     ?assertError(
         {badmatch, {error, {unrecoverable_error, {bad_kafka_headers, Payload1}}}},
         send(Config, ResourceId, Msg1, State, BridgeV2Id)
@@ -881,6 +882,13 @@ t_wrong_headers_from_message(Config) ->
 %%------------------------------------------------------------------------------
 %% Helper functions
 %%------------------------------------------------------------------------------
+
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
 
 send(Config, ResourceId, Msg, State, BridgeV2Id) when is_list(Config) ->
     Ref = make_ref(),
@@ -957,12 +965,8 @@ config(Args0, More, ConfigTemplateFun) ->
     ConfText = hocon_config(Args, ConfigTemplateFun),
     {ok, Conf} = hocon:binary(ConfText, #{format => map}),
     Name = bin(maps:get("bridge_name", Args)),
-    %% TODO can we skip this old check?
     ct:pal("Running tests with conf:\n~p", [Conf]),
-    % % InstId = maps:get("instance_id", Args),
     TypeBin = ?BRIDGE_TYPE_BIN,
-    % <<"connector:", BridgeId/binary>> = InstId,
-    % {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}),
     hocon_tconf:check_plain(
         emqx_bridge_schema,
         Conf,

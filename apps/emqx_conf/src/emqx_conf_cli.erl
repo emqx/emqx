@@ -9,6 +9,7 @@
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_schema.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     load/0,
@@ -423,7 +424,8 @@ uninstall(ActionOrSource, Conf, #{mode := replace}) ->
             #{removed := Removed} = emqx_bridge_v2:diff_confs(New, Old),
             maps:foreach(
                 fun({Type, Name}, _) ->
-                    case emqx_bridge_v2:remove(ActionOrSourceAtom, Type, Name) of
+                    %% TODO: namespace
+                    case emqx_bridge_v2:remove(?global_ns, ActionOrSourceAtom, Type, Name) of
                         ok ->
                             ok;
                         {error, Reason} ->

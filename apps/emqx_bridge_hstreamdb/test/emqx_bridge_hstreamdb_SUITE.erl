@@ -11,6 +11,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 % SQL definitions
 
@@ -139,8 +140,23 @@ end_per_testcase(_Testcase, Config) ->
     delete_bridge(Config),
     ok.
 
+health_check(Type, Name) ->
+    emqx_bridge_v2_testlib:force_health_check(#{
+        type => Type,
+        name => Name,
+        resource_namespace => ?global_ns,
+        kind => action
+    }).
+
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_setup_via_config_and_publish(Config) ->
@@ -305,7 +321,7 @@ t_simple_query(Config) ->
     ),
     Type = ?config(hstreamdb_bridge_type, Config),
     Name = ?config(hstreamdb_name, Config),
-    ActionId = emqx_bridge_v2:id(Type, Name),
+    ActionId = id(Type, Name),
     Requests = gen_batch_req(BatchSize, ActionId),
     ?check_trace(
         begin
@@ -587,7 +603,7 @@ send_message(Config, Data) ->
 query_resource(Config, Request) ->
     Name = ?config(hstreamdb_name, Config),
     BridgeType = ?config(hstreamdb_bridge_type, Config),
-    ID = emqx_bridge_v2:id(BridgeType, Name),
+    ID = id(BridgeType, Name),
     ResID = emqx_connector_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ID, Request, #{timeout => 1_000, connector_resource_id => ResID}).
 
@@ -606,13 +622,13 @@ resource_id(Config) ->
 action_id(Config) ->
     ActionName = ?config(hstreamdb_name, Config),
     ActionType = ?config(hstreamdb_bridge_type, Config),
-    _ActionID = emqx_bridge_v2:id(ActionType, ActionName).
+    _ActionID = id(ActionType, ActionName).
 
 health_check_resource_ok(Config) ->
     ?assertEqual({ok, connected}, emqx_resource_manager:health_check(resource_id(Config))),
     ActionName = ?config(hstreamdb_name, Config),
     ActionType = ?config(hstreamdb_bridge_type, Config),
-    ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(ActionType, ActionName)).
+    ?assertMatch(#{status := connected}, health_check(ActionType, ActionName)).
 
 health_check_resource_down(Config) ->
     case emqx_resource_manager:health_check(resource_id(Config)) of
@@ -627,7 +643,7 @@ health_check_resource_down(Config) ->
     end,
     ActionName = ?config(hstreamdb_name, Config),
     ActionType = ?config(hstreamdb_bridge_type, Config),
-    #{status := StatusV2} = emqx_bridge_v2:health_check(ActionType, ActionName),
+    #{status := StatusV2} = health_check(ActionType, ActionName),
     case StatusV2 of
         disconnected ->
             ok;

@@ -94,7 +94,9 @@
     get_namespaced/3,
     get_raw_namespaced/2,
     get_raw_namespaced/3,
+    get_all_namespaces_containing/1,
     get_root_from_all_namespaces/1,
+    get_root_from_all_namespaces/2,
     get_raw_root_from_all_namespaces/1,
     save_configs_namespaced/6,
     save_configs_namespaced_tx/5,
@@ -200,7 +202,23 @@ get_root([RootName | _]) ->
 get_root_namespaced([RootName | _], Namespace) ->
     #{RootName => do_get(?NS_CONF(Namespace), [RootName], #{})}.
 
-get_root_from_all_namespaces(RootKey0) ->
+get_all_namespaces_containing(RootKey0) ->
+    RootKey = bin(RootKey0),
+    MatchHead = erlang:make_tuple(
+        record_info(size, ?CONFIG_TAB),
+        '_',
+        [{#?CONFIG_TAB.root_key, {'$1', RootKey}}]
+    ),
+    MS = [{MatchHead, [], ['$1']}],
+    lists:usort(mnesia:dirty_select(?CONFIG_TAB, MS)).
+
+get_root_from_all_namespaces(RootKey) ->
+    do_get_root_from_all_namespaces(RootKey, error).
+
+get_root_from_all_namespaces(RootKey, Default) ->
+    do_get_root_from_all_namespaces(RootKey, {value, Default}).
+
+do_get_root_from_all_namespaces(RootKey0, DefaultAction) ->
     RootKey = bin(RootKey0),
     MS = erlang:make_tuple(
         record_info(size, ?CONFIG_TAB),
@@ -210,7 +228,13 @@ get_root_from_all_namespaces(RootKey0) ->
     Recs = mnesia:dirty_match_object(?CONFIG_TAB, MS),
     lists:foldl(
         fun(#?CONFIG_TAB{root_key = {Namespace, _RootKey}}, Acc) ->
-            Config = get_namespaced([RootKey0], Namespace),
+            Config =
+                case DefaultAction of
+                    error ->
+                        get_namespaced([RootKey0], Namespace);
+                    {value, DefaultValue} ->
+                        get_namespaced([RootKey0], Namespace, DefaultValue)
+                end,
             Acc#{Namespace => Config}
         end,
         #{},

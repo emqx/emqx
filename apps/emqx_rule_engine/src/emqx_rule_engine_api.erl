@@ -9,6 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -behaviour(minirest_api).
 
@@ -555,7 +556,8 @@ encode_nested_error(RuleError, Reason) ->
 mk_format_fn() ->
     SummaryIndex =
         maybe
-            {ok, Summary} = emqx_bridge_v2_api:do_handle_summary(actions),
+            %% TODO: should receive namespace as argument here.
+            {ok, Summary} = emqx_bridge_v2_api:do_handle_summary(?global_ns, actions),
             lists:foldl(
                 fun(#{name := N, type := T, status := S}, Acc) ->
                     Acc#{{T, N} => S}

@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %% See `emqx_bridge_s3.hrl`.
 -define(BRIDGE_TYPE, <<"s3">>).
@@ -246,7 +247,8 @@ t_query_retry_recoverable(Config) ->
     ),
     Message = emqx_bridge_s3_test_helpers:mk_message_event(Bucket, Topic, Payload),
     %% Verify that the message is sent eventually.
-    ok = emqx_bridge_v2:send_message(?BRIDGE_TYPE, BridgeName, Message, #{}),
+    %% todo: messages should be sent via rules in tests...
+    ok = emqx_bridge_v2:send_message(?global_ns, ?BRIDGE_TYPE, BridgeName, Message, #{}),
     ?assertMatch(
         #{content := Payload},
         maps:from_list(erlcloud_s3:get_object(Bucket, Topic, AwsConfig))

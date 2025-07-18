@@ -46,7 +46,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
+            emqx_mgmt_api_test_util:emqx_dashboard(),
             emqx_opentelemetry
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}

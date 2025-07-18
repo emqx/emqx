@@ -263,21 +263,79 @@ get_bridge_v2_alarm_cnt() ->
     end,
     length(lists:filter(FilterFun, Alarms)).
 
+send_message(Type, Name, Msg, QueryOpts) ->
+    emqx_bridge_v2:send_message(?global_ns, Type, Name, Msg, QueryOpts).
+
+list_actions() ->
+    emqx_bridge_v2:list(?global_ns, actions).
+
+create(Type, Name, Config) ->
+    create(#{type => Type, name => Name, config => Config}).
+
+create(Opts) ->
+    #{
+        type := Type,
+        name := Name,
+        config := Config
+    } = Opts,
+    Namespace = maps:get(namespace, Opts, ?global_ns),
+    ConfRootKey =
+        case maps:get(kind, Opts, action) of
+            action -> actions;
+            source -> sources
+        end,
+    emqx_bridge_v2:create(Namespace, ConfRootKey, Type, Name, Config).
+
+remove(Type, Name) ->
+    emqx_bridge_v2:remove(?global_ns, actions, Type, Name).
+
+remove_connector(Type, Name) ->
+    emqx_connector:remove(?global_ns, Type, Name).
+
+lookup_action(Type, Name) ->
+    emqx_bridge_v2:lookup(?global_ns, actions, Type, Name).
+
+create_dry_run(Type, Config) ->
+    emqx_bridge_v2:create_dry_run(?global_ns, actions, Type, Config).
+
+health_check(Type, Name) ->
+    emqx_bridge_v2_testlib:force_health_check(#{
+        type => Type,
+        name => Name,
+        resource_namespace => ?global_ns,
+        kind => action
+    }).
+
+id(Type, Name) ->
+    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
+        kind => action,
+        type => Type,
+        name => Name
+    }).
+
+id(Type, Name, ConnName) ->
+    emqx_bridge_v2_testlib:make_chan_id(#{
+        kind => action,
+        type => Type,
+        name => Name,
+        connector_name => ConnName
+    }).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
 
 t_create_remove(_) ->
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    {ok, _} = create(bridge_type(), my_test_bridge, bridge_config()),
+    ok = remove(bridge_type(), my_test_bridge),
     ok.
 
 t_create_disabled_bridge(_) ->
     Config = #{<<"connector">> := Connector} = bridge_config(),
     Disable = Config#{<<"enable">> => false},
     BridgeType = bridge_type(),
-    {ok, _} = emqx_bridge_v2:create(BridgeType, my_enable_bridge, Config),
-    {ok, _} = emqx_bridge_v2:create(BridgeType, my_disable_bridge, Disable),
+    {ok, _} = create(BridgeType, my_enable_bridge, Config),
+    {ok, _} = create(BridgeType, my_disable_bridge, Disable),
     ConnectorId = emqx_connector_resource:resource_id(con_type(), Connector),
     ?assertMatch(
         [
@@ -294,24 +352,24 @@ t_create_disabled_bridge(_) ->
         ],
         emqx_bridge_v2:get_channels_for_connector(ConnectorId)
     ),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_enable_bridge),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_disable_bridge),
+    ok = remove(bridge_type(), my_enable_bridge),
+    ok = remove(bridge_type(), my_disable_bridge),
     ok.
 
 t_list(_) ->
-    [] = emqx_bridge_v2:list(),
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
-    1 = length(emqx_bridge_v2:list()),
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge2, bridge_config()),
-    2 = length(emqx_bridge_v2:list()),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
-    1 = length(emqx_bridge_v2:list()),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge2),
-    0 = length(emqx_bridge_v2:list()),
+    [] = list_actions(),
+    {ok, _} = create(bridge_type(), my_test_bridge, bridge_config()),
+    1 = length(list_actions()),
+    {ok, _} = create(bridge_type(), my_test_bridge2, bridge_config()),
+    2 = length(list_actions()),
+    ok = remove(bridge_type(), my_test_bridge),
+    1 = length(list_actions()),
+    ok = remove(bridge_type(), my_test_bridge2),
+    0 = length(list_actions()),
     ok.
 
 t_create_dry_run(_) ->
-    ok = emqx_bridge_v2:create_dry_run(bridge_type(), bridge_config()).
+    ok = create_dry_run(bridge_type(), bridge_config()).
 
 t_create_dry_run_fail_add_channel(_) ->
     Msg = <<"Failed to add channel">>,
@@ -319,12 +377,12 @@ t_create_dry_run_fail_add_channel(_) ->
         {error, Msg}
     end),
     Conf1 = (bridge_config())#{on_add_channel_fun => OnAddChannel1},
-    {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf1),
+    {error, _} = create_dry_run(bridge_type(), Conf1),
     OnAddChannel2 = wrap_fun(fun() ->
         throw(Msg)
     end),
     Conf2 = (bridge_config())#{on_add_channel_fun => OnAddChannel2},
-    {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf2),
+    {error, _} = create_dry_run(bridge_type(), Conf2),
     ok.
 
 t_create_dry_run_fail_get_channel_status(_) ->
@@ -333,38 +391,38 @@ t_create_dry_run_fail_get_channel_status(_) ->
         {error, Msg}
     end),
     Conf1 = (bridge_config())#{parameters => #{on_get_channel_status_fun => Fun1}},
-    {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf1),
+    {error, _} = create_dry_run(bridge_type(), Conf1),
     Fun2 = wrap_fun(fun() ->
         throw(Msg)
     end),
     Conf2 = (bridge_config())#{parameters => #{on_get_channel_status_fun => Fun2}},
-    {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf2),
+    {error, _} = create_dry_run(bridge_type(), Conf2),
     ok.
 
 t_create_dry_run_connector_does_not_exist(_) ->
     BridgeConf = (bridge_config())#{<<"connector">> => <<"connector_does_not_exist">>},
-    {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), BridgeConf).
+    {error, _} = create_dry_run(bridge_type(), BridgeConf).
 
 t_bridge_v1_is_valid(_) ->
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
+    {ok, _} = create(bridge_type(), my_test_bridge, bridge_config()),
     true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
     %% Add another channel/bridge to the connector
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge_2, bridge_config()),
+    {ok, _} = create(bridge_type(), my_test_bridge_2, bridge_config()),
     false = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = remove(bridge_type(), my_test_bridge),
     true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge_2),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge_2),
+    ok = remove(bridge_type(), my_test_bridge_2),
     %% Non existing bridge is a valid Bridge V1
     true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
     ok.
 
 t_manual_health_check(_) ->
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
+    {ok, _} = create(bridge_type(), my_test_bridge, bridge_config()),
     %% Run a health check for the bridge
-    #{error := undefined, status := connected} = emqx_bridge_v2:health_check(
+    #{error := undefined, status := connected} = health_check(
         bridge_type(), my_test_bridge
     ),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = remove(bridge_type(), my_test_bridge),
     ok.
 
 t_manual_health_check_exception(_) ->
@@ -373,12 +431,12 @@ t_manual_health_check_exception(_) ->
             <<"on_get_channel_status_fun">> => wrap_fun(fun() -> throw(my_error) end)
         }
     },
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    {ok, _} = create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
-    #{error := my_error, status := disconnected} = emqx_bridge_v2:health_check(
+    #{error := my_error, status := disconnected} = health_check(
         bridge_type(), my_test_bridge
     ),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = remove(bridge_type(), my_test_bridge),
     ok.
 
 t_manual_health_check_exception_error(_) ->
@@ -387,12 +445,12 @@ t_manual_health_check_exception_error(_) ->
             <<"on_get_channel_status_fun">> => wrap_fun(fun() -> error(my_error) end)
         }
     },
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    {ok, _} = create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
-    #{error := _, status := disconnected} = emqx_bridge_v2:health_check(
+    #{error := _, status := disconnected} = health_check(
         bridge_type(), my_test_bridge
     ),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = remove(bridge_type(), my_test_bridge),
     ok.
 
 t_manual_health_check_error(_) ->
@@ -401,22 +459,22 @@ t_manual_health_check_error(_) ->
             <<"on_get_channel_status_fun">> => wrap_fun(fun() -> {error, my_error} end)
         }
     },
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    {ok, _} = create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
-    #{error := my_error, status := disconnected} = emqx_bridge_v2:health_check(
+    #{error := my_error, status := disconnected} = health_check(
         bridge_type(), my_test_bridge
     ),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = remove(bridge_type(), my_test_bridge),
     ok.
 
 t_send_message(_) ->
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
+    {ok, _} = create(bridge_type(), my_test_bridge, bridge_config()),
     %% Register name for this process
     register(registered_process_name(), self()),
-    _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{}),
+    _ = send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{}),
     ?assertReceive({query_called, #{message := <<"my_msg">>}}),
     unregister(registered_process_name()),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge).
+    ok = remove(bridge_type(), my_test_bridge).
 
 t_send_message_through_rule(_) ->
     BridgeName = my_test_bridge,
@@ -426,7 +484,7 @@ t_send_message_through_rule(_) ->
             bridge_config(),
             #{<<"resource_opts">> => #{<<"query_mode">> => <<"async">>}}
         ),
-    {ok, _} = emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig0),
+    {ok, _} = create(BridgeType, BridgeName, BridgeConfig0),
     %% Create a rule to send message to the bridge
     {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
         #{
@@ -497,7 +555,7 @@ t_send_message_through_rule(_) ->
             bridge_config(),
             #{<<"resource_opts">> => #{<<"query_mode">> => <<"sync">>}}
         ),
-    {ok, _} = emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig1),
+    {ok, _} = create(BridgeType, BridgeName, BridgeConfig1),
     emqx:publish(Msg),
     ?retry(
         100,
@@ -520,7 +578,7 @@ t_send_message_through_rule(_) ->
         )
     ),
     unregister(registered_process_name()),
-    ok = emqx_bridge_v2:remove(bridge_type(), BridgeName),
+    ok = remove(bridge_type(), BridgeName),
     ok.
 
 t_send_message_through_local_topic(_) ->
@@ -530,7 +588,7 @@ t_send_message_through_local_topic(_) ->
     BridgeConfig = (bridge_config())#{
         <<"local_topic">> => TopicName
     },
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), BridgeName, BridgeConfig),
+    {ok, _} = create(bridge_type(), BridgeName, BridgeConfig),
     %% Register name for this process
     register(registered_process_name(), self()),
     %% Send message to the topic
@@ -540,7 +598,7 @@ t_send_message_through_local_topic(_) ->
     emqx:publish(Msg),
     ?assertReceive({query_called, #{message := #{payload := Payload}}}),
     unregister(registered_process_name()),
-    ok = emqx_bridge_v2:remove(bridge_type(), BridgeName),
+    ok = remove(bridge_type(), BridgeName),
     ok.
 
 t_send_message_unhealthy_channel(_) ->
@@ -556,10 +614,10 @@ t_send_message_unhealthy_channel(_) ->
             <<"parameters">> => #{<<"on_get_channel_status_fun">> => OnGetStatusFun}
         }
     ),
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), Name, Conf),
+    {ok, _} = create(bridge_type(), Name, Conf),
     %% Register name for this process
     register(registered_process_name(), self()),
-    _ = emqx_bridge_v2:send_message(bridge_type(), Name, <<"my_msg">>, #{timeout => 1}),
+    _ = send_message(bridge_type(), Name, <<"my_msg">>, #{timeout => 1}),
     ?assertNotReceive({query_called, _}),
     %% Sending should work again after the channel is healthy
     ets:insert(OnGetStatusResponseETS, {status_value, connected}),
@@ -568,10 +626,10 @@ t_send_message_unhealthy_channel(_) ->
         5,
         ?assertMatch(
             #{status := connected},
-            emqx_bridge_v2:health_check(bridge_type(), Name)
+            health_check(bridge_type(), Name)
         )
     ),
-    _ = emqx_bridge_v2:send_message(
+    _ = send_message(
         bridge_type(),
         my_test_bridge,
         <<"my_msg">>,
@@ -579,7 +637,7 @@ t_send_message_unhealthy_channel(_) ->
     ),
     ?assertReceive({query_called, #{message := <<"my_msg">>}}),
     unregister(registered_process_name()),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge).
+    ok = remove(bridge_type(), my_test_bridge).
 
 t_send_message_unhealthy_connector(_) ->
     ResponseETS = ets:new(response_ets, [public]),
@@ -606,12 +664,12 @@ t_send_message_unhealthy_connector(_) ->
     BridgeConf = (bridge_config())#{
         <<"connector">> => atom_to_binary(ConName)
     },
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, BridgeConf),
+    {ok, _} = create(bridge_type(), my_test_bridge, BridgeConf),
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% Test that sending does not work when the connector is unhealthy (connecting)
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     register(registered_process_name(), self()),
-    _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 100}),
+    _ = send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 100}),
     ?assertNotReceive({query_called, _}),
     %% We should have one alarm
     1 = get_bridge_v2_alarm_cnt(),
@@ -620,13 +678,13 @@ t_send_message_unhealthy_connector(_) ->
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     ets:insert(ResponseETS, {on_get_status_value, connected}),
 
-    _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 1000}),
+    _ = send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 1000}),
     ?assertReceive({query_called, #{message := <<"my_msg">>}}),
     %% The alarm should be gone at this point
     ?retry(100, 10, ?assertEqual(0, get_bridge_v2_alarm_cnt())),
     unregister(registered_process_name()),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
-    ok = emqx_connector:remove(?global_ns, con_type(), ConName),
+    ok = remove(bridge_type(), my_test_bridge),
+    ok = remove_connector(con_type(), ConName),
     ets:delete(ResponseETS),
     ok.
 
@@ -661,7 +719,7 @@ t_connector_connected_to_connecting_to_connected_no_channel_restart(_) ->
     BridgeConf = (bridge_config())#{
         <<"connector">> => atom_to_binary(ConName)
     },
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, BridgeConf),
+    {ok, _} = create(bridge_type(), my_test_bridge, BridgeConf),
     %% Wait until on_add_channel_fun is called at least once
     ?retry(100, 50, ?assertEqual(1, counters:get(OnAddChannelCntr, 1))),
     1 = counters:get(OnAddChannelCntr, 1),
@@ -673,10 +731,10 @@ t_connector_connected_to_connecting_to_connected_no_channel_restart(_) ->
         50,
         ?assertMatch(
             {ok, #{status := connecting}},
-            emqx_bridge_v2:lookup(bridge_type(), my_test_bridge)
+            lookup_action(bridge_type(), my_test_bridge)
         )
     ),
-    {ok, BridgeData1} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
+    {ok, BridgeData1} = lookup_action(bridge_type(), my_test_bridge),
     ct:pal("Bridge V2 status changed to: ~p", [maps:get(status, BridgeData1)]),
     %% We change the status again back to connected
     ets:insert(ResponseETS, {on_get_status_value, connected}),
@@ -686,7 +744,7 @@ t_connector_connected_to_connecting_to_connected_no_channel_restart(_) ->
         50,
         ?assertMatch(
             {ok, #{status := connected}},
-            emqx_bridge_v2:lookup(bridge_type(), my_test_bridge)
+            lookup_action(bridge_type(), my_test_bridge)
         )
     ),
     %% On add channel should not have been called again
@@ -699,7 +757,7 @@ t_connector_connected_to_connecting_to_connected_no_channel_restart(_) ->
         50,
         ?assertMatch(
             {ok, #{status := disconnected}},
-            emqx_bridge_v2:lookup(bridge_type(), my_test_bridge)
+            lookup_action(bridge_type(), my_test_bridge)
         )
     ),
     %% Now we go back to connected
@@ -709,13 +767,13 @@ t_connector_connected_to_connecting_to_connected_no_channel_restart(_) ->
         50,
         ?assertMatch(
             {ok, #{status := connected}},
-            emqx_bridge_v2:lookup(bridge_type(), my_test_bridge)
+            lookup_action(bridge_type(), my_test_bridge)
         )
     ),
     %% Now the channel should have been removed and added again
     ?retry(100, 50, ?assertEqual(2, counters:get(OnAddChannelCntr, 1))),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
-    ok = emqx_connector:remove(?global_ns, con_type(), ConName),
+    ok = remove(bridge_type(), my_test_bridge),
+    ok = remove_connector(con_type(), ConName),
     ets:delete(ResponseETS),
     ok.
 
@@ -727,10 +785,10 @@ t_unhealthy_channel_alarm(_) ->
         }
     },
     0 = get_bridge_v2_alarm_cnt(),
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    {ok, _} = create(bridge_type(), my_test_bridge, Conf),
     ok = emqx_bridge_v2_testlib:kickoff_action_health_check(bridge_type(), my_test_bridge),
     1 = get_bridge_v2_alarm_cnt(),
-    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = remove(bridge_type(), my_test_bridge),
     0 = get_bridge_v2_alarm_cnt(),
     ok.
 
@@ -738,7 +796,7 @@ t_load_no_matching_connector(_Config) ->
     Conf = bridge_config(),
     BridgeTypeBin = atom_to_binary(bridge_type()),
     BridgeNameBin0 = <<"my_test_bridge_update">>,
-    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeNameBin0, Conf)),
+    ?assertMatch({ok, _}, create(bridge_type(), BridgeNameBin0, Conf)),
 
     %% updating to invalid reference
     RootConf0 = #{
@@ -821,7 +879,7 @@ t_load_config_success(_Config) ->
             raw_config := #{},
             resource_data := #{}
         }},
-        emqx_bridge_v2:lookup(BridgeType, BridgeName)
+        lookup_action(BridgeType, BridgeName)
     ),
 
     %% update
@@ -837,7 +895,7 @@ t_load_config_success(_Config) ->
             raw_config := #{<<"description">> := <<"new_value">>},
             resource_data := #{}
         }},
-        emqx_bridge_v2:lookup(BridgeType, BridgeName)
+        lookup_action(BridgeType, BridgeName)
     ),
 
     %% delete
@@ -848,7 +906,7 @@ t_load_config_success(_Config) ->
     ),
     ?assertMatch(
         {error, not_found},
-        emqx_bridge_v2:lookup(BridgeType, BridgeName)
+        lookup_action(BridgeType, BridgeName)
     ),
 
     ok.
@@ -863,7 +921,7 @@ t_create_no_matching_connector(_Config) ->
                 bridge_type := _,
                 reason := <<"connector_not_found_or_wrong_type">>
             }}},
-        emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)
+        create(bridge_type(), my_test_bridge, Conf)
     ),
     ok.
 
@@ -883,13 +941,13 @@ t_create_wrong_connector_type(_Config) ->
                 bridge_type := wrong_type,
                 reason := <<"connector_not_found_or_wrong_type">>
             }}},
-        emqx_bridge_v2:create(wrong_type, my_test_bridge, Conf)
+        create(wrong_type, my_test_bridge, Conf)
     ),
     ok.
 
 t_update_connector_not_found(_Config) ->
     Conf = bridge_config(),
-    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
+    ?assertMatch({ok, _}, create(bridge_type(), my_test_bridge, Conf)),
     BadConf = Conf#{<<"connector">> => <<"wrong_connector_name">>},
     ?assertMatch(
         {error,
@@ -899,7 +957,7 @@ t_update_connector_not_found(_Config) ->
                 bridge_type := _,
                 reason := <<"connector_not_found_or_wrong_type">>
             }}},
-        emqx_bridge_v2:create(bridge_type(), my_test_bridge, BadConf)
+        create(bridge_type(), my_test_bridge, BadConf)
     ),
     ok.
 
@@ -930,24 +988,24 @@ t_update_concurrent_health_check(_Config) ->
             [<<"parameters">>, <<"is_conf_for_connected">>], BaseConf0, Val
         )
     end,
-    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, ConfFor(true))),
+    ?assertMatch({ok, _}, create(bridge_type(), my_test_bridge, ConfFor(true))),
     SetStatusConnected =
         fun
             (true) ->
                 Conf = ConfFor(true),
                 %% Update the config
-                ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
+                ?assertMatch({ok, _}, create(bridge_type(), my_test_bridge, Conf)),
                 ?assertMatch(
                     #{status := connected},
-                    emqx_bridge_v2:health_check(bridge_type(), my_test_bridge)
+                    health_check(bridge_type(), my_test_bridge)
                 );
             (false) ->
                 Conf = ConfFor(false),
                 %% Update the config
-                ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
+                ?assertMatch({ok, _}, create(bridge_type(), my_test_bridge, Conf)),
                 ?assertMatch(
                     #{status := disconnected},
-                    emqx_bridge_v2:health_check(bridge_type(), my_test_bridge)
+                    health_check(bridge_type(), my_test_bridge)
                 )
         end,
     [
@@ -962,10 +1020,10 @@ t_update_concurrent_health_check(_Config) ->
 t_remove_single_connector_being_referenced_with_active_channels(_Config) ->
     %% we test the connector post config update here because we also need bridges.
     Conf = bridge_config(),
-    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
+    ?assertMatch({ok, _}, create(bridge_type(), my_test_bridge, Conf)),
     ?assertMatch(
         {error, {post_config_update, _HandlerMod, {active_channels, [_ | _]}}},
-        emqx_connector:remove(?global_ns, con_type(), con_name())
+        remove_connector(con_type(), con_name())
     ),
     ok.
 
@@ -973,17 +1031,17 @@ t_remove_single_connector_being_referenced_without_active_channels(_Config) ->
     %% we test the connector post config update here because we also need bridges.
     Conf = bridge_config(),
     BridgeName = my_test_bridge,
-    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeName, Conf)),
+    ?assertMatch({ok, _}, create(bridge_type(), BridgeName, Conf)),
     emqx_common_test_helpers:with_mock(
         emqx_bridge_v2_test_connector,
         on_get_channels,
         fun(_ResId) -> [] end,
         fun() ->
-            ?assertMatch(ok, emqx_connector:remove(?global_ns, con_type(), con_name())),
+            ?assertMatch(ok, remove_connector(con_type(), con_name())),
             %% we no longer have connector data if this happens...
             ?assertMatch(
                 {ok, #{resource_data := #{}}},
-                emqx_bridge_v2:lookup(bridge_type(), BridgeName)
+                lookup_action(bridge_type(), BridgeName)
             ),
             ok
         end
@@ -993,7 +1051,7 @@ t_remove_single_connector_being_referenced_without_active_channels(_Config) ->
 t_remove_multiple_connectors_being_referenced_with_channels(_Config) ->
     Conf = bridge_config(),
     BridgeName = my_test_bridge,
-    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeName, Conf)),
+    ?assertMatch({ok, _}, create(bridge_type(), BridgeName, Conf)),
     ?assertMatch(
         {error,
             {post_config_update, _HandlerMod, #{
@@ -1009,7 +1067,7 @@ t_remove_multiple_connectors_being_referenced_with_channels(_Config) ->
 t_remove_multiple_connectors_being_referenced_without_channels(_Config) ->
     Conf = bridge_config(),
     BridgeName = my_test_bridge,
-    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeName, Conf)),
+    ?assertMatch({ok, _}, create(bridge_type(), BridgeName, Conf)),
     emqx_common_test_helpers:with_mock(
         emqx_bridge_v2_test_connector,
         on_get_channels,
@@ -1022,7 +1080,7 @@ t_remove_multiple_connectors_being_referenced_without_channels(_Config) ->
             %% we no longer have connector data if this happens...
             ?assertMatch(
                 {ok, #{resource_data := #{}}},
-                emqx_bridge_v2:lookup(bridge_type(), BridgeName)
+                lookup_action(bridge_type(), BridgeName)
             ),
             ok
         end
@@ -1038,20 +1096,20 @@ t_start_operation_when_on_add_channel_gives_error(_Config) ->
         fun(_, _, _ResId, _Channel) -> {error, <<"some_error">>} end,
         fun() ->
             %% We can crete the bridge event though on_add_channel returns error
-            ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeName, Conf)),
+            ?assertMatch({ok, _}, create(bridge_type(), BridgeName, Conf)),
             ?assertMatch(
                 #{
                     status := disconnected,
                     error := <<"some_error">>
                 },
-                emqx_bridge_v2:health_check(bridge_type(), BridgeName)
+                health_check(bridge_type(), BridgeName)
             ),
             ?assertMatch(
                 {ok, #{
                     status := disconnected,
                     error := <<"some_error">>
                 }},
-                emqx_bridge_v2:lookup(bridge_type(), BridgeName)
+                lookup_action(bridge_type(), BridgeName)
             ),
             %% emqx_bridge_v2:start/2 should return ok if bridge if connected after
             %% start and otherwise and error
@@ -1089,12 +1147,12 @@ t_lookup_status_when_connecting(_Config) ->
         <<"connector">> => atom_to_binary(ConnectorName)
     },
     ct:pal("action config:\n  ~p", [ActionConfig]),
-    {ok, _} = emqx_bridge_v2:create(bridge_type(), ActionName, ActionConfig),
+    {ok, _} = create(bridge_type(), ActionName, ActionConfig),
 
     %% Top-level status is connecting if the connector status is connecting, but the
     %% channel is not yet installed.  `resource_data.added_channels.$channel_id.status'
     %% contains true internal status.
-    {ok, Res} = emqx_bridge_v2:lookup(bridge_type(), ActionName),
+    {ok, Res} = lookup_action(bridge_type(), ActionName),
     ?assertMatch(
         #{
             %% This is the action's public status
@@ -1151,7 +1209,7 @@ t_rule_pointing_to_non_operational_channel(_Config) ->
             meck:expect(con_mod(), query_mode, 1, simple_async_internal_buffer),
             meck:expect(con_mod(), callback_mode, 0, async_if_possible),
 
-            {ok, _} = emqx_bridge_v2:create(bridge_type(), ActionName, ActionConfig),
+            {ok, _} = create(bridge_type(), ActionName, ActionConfig),
 
             ?assertMatch(
                 {ok, #{
@@ -1159,7 +1217,7 @@ t_rule_pointing_to_non_operational_channel(_Config) ->
                     status := ?status_connecting,
                     resource_data := #{status := ?status_connecting}
                 }},
-                emqx_bridge_v2:lookup(bridge_type(), ActionName)
+                lookup_action(bridge_type(), ActionName)
             ),
 
             {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
@@ -1180,7 +1238,7 @@ t_rule_pointing_to_non_operational_channel(_Config) ->
             Msg = emqx_message:make(<<"t/a">>, <<"payload">>),
             emqx:publish(Msg),
 
-            ActionId = emqx_bridge_v2:id(bridge_type(), ActionName, ConnectorName),
+            ActionId = id(bridge_type(), ActionName, ConnectorName),
             ?assertEqual(1, emqx_resource_metrics:matched_get(ActionId)),
             ?assertEqual(1, emqx_resource_metrics:failed_get(ActionId)),
             ?retry(
@@ -1236,7 +1294,7 @@ t_query_uses_action_query_mode(_Config) ->
             meck:expect(con_mod(), resource_type, 0, dummy),
             meck:expect(con_mod(), callback_mode, 0, async_if_possible),
 
-            {ok, _} = emqx_bridge_v2:create(bridge_type(), ActionName, ActionConfig),
+            {ok, _} = create(bridge_type(), ActionName, ActionConfig),
 
             {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
                 #{
@@ -1453,13 +1511,13 @@ t_fallback_actions(_Config) ->
             },
             ct:pal("action config:\n  ~p", [ActionConfig]),
 
-            {ok, _} = emqx_bridge_v2:create(
+            {ok, _} = create(
                 bridge_type(), FallbackActionName, FallbackActionConfig
             ),
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(
                 bridge_type(), FallbackActionName
             ),
-            {ok, _} = emqx_bridge_v2:create(bridge_type(), ActionName, ActionConfig),
+            {ok, _} = create(bridge_type(), ActionName, ActionConfig),
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(bridge_type(), ActionName),
 
             {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
@@ -1497,7 +1555,7 @@ t_fallback_actions_cycles(_Config) ->
     ConnectorName = ?FUNCTION_NAME,
     ct:pal("connector config:\n  ~p", [ConnectorConfig]),
     ?check_trace(
-        #{timetrap => 3_000},
+        #{timetrap => 10_000},
         begin
             {ok, _} = emqx_connector:create(?global_ns, con_type(), ConnectorName, ConnectorConfig),
 
@@ -1552,13 +1610,13 @@ t_fallback_actions_cycles(_Config) ->
             },
             ct:pal("primary action config:\n  ~p", [PrimaryActionConfig]),
 
-            {ok, _} = emqx_bridge_v2:create(
+            {ok, _} = create(
                 bridge_type(), FallbackActionName, FallbackActionConfig
             ),
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(
                 bridge_type(), FallbackActionName
             ),
-            {ok, _} = emqx_bridge_v2:create(bridge_type(), PrimaryActionName, PrimaryActionConfig),
+            {ok, _} = create(bridge_type(), PrimaryActionName, PrimaryActionConfig),
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(
                 bridge_type(), PrimaryActionName
             ),
@@ -1580,16 +1638,19 @@ t_fallback_actions_cycles(_Config) ->
             emqx:publish(Msg),
 
             ct:pal("waiting for fallback actions effects..."),
-            PrimaryResId = emqx_bridge_v2:id(bridge_type(), PrimaryActionName),
-            FallbackResId = emqx_bridge_v2:id(bridge_type(), FallbackActionName),
+            PrimaryResId = id(bridge_type(), PrimaryActionName),
+            FallbackResId = id(bridge_type(), FallbackActionName),
             %% Should trigger the primary and fallback actions exactly one each.
             ?assertReceive(
                 {query_called, #{action_res_id := PrimaryResId, message := #{payload := Payload}}}
             ),
+            ct:pal("primary called"),
             ?assertReceive(
                 {query_called, #{action_res_id := FallbackResId, message := #{payload := Payload}}}
             ),
+            ct:pal("fallback called"),
             ?assertNotReceive({query_called, _}),
+            ct:pal("no spurious invocations found"),
 
             ?assertMatch(
                 #{
@@ -1610,6 +1671,7 @@ t_fallback_actions_cycles(_Config) ->
                 },
                 get_rule_metrics(RuleId)
             ),
+            ct:pal("checking primary action metrics"),
             ?retry(
                 500,
                 10,
@@ -1626,9 +1688,14 @@ t_fallback_actions_cycles(_Config) ->
                                 'retried' := 0
                             }
                     },
-                    emqx_bridge_v2:get_metrics(ActionTypeBin, PrimaryActionName)
+                    emqx_bridge_v2_testlib:get_metrics(#{
+                        type => ActionTypeBin,
+                        name => PrimaryActionName
+                    })
                 )
             ),
+            ct:pal("primary action metrics ok"),
+            ct:pal("checking fallback action metrics"),
             ?retry(
                 500,
                 10,
@@ -1645,9 +1712,171 @@ t_fallback_actions_cycles(_Config) ->
                                 'retried' := 0
                             }
                     },
-                    emqx_bridge_v2:get_metrics(ActionTypeBin, FallbackActionName)
+                    emqx_bridge_v2_testlib:get_metrics(#{
+                        type => ActionTypeBin,
+                        name => FallbackActionName
+                    })
                 )
             ),
+            ct:pal("fallback action metrics ok"),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+-doc """
+Checks that, when fallback actions are triggered, their references are resolved within the
+same namespace as primary action's.
+""".
+t_fallback_actions_different_namespaces(_Config) ->
+    Namespace = <<"somens">>,
+    ConnectorConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"resource_opts">> => #{<<"start_timeout">> => 100}
+    }),
+    ConnectorName = ?FUNCTION_NAME,
+    ct:pal("connector config:\n  ~p", [ConnectorConfig]),
+    ?check_trace(
+        #{timetrap => 3_000},
+        begin
+            %% One for the primary action (namespaced), the other for the "fallback" (global).
+            {ok, _} = emqx_connector:create(Namespace, con_type(), ConnectorName, ConnectorConfig),
+            {ok, _} = emqx_connector:create(?global_ns, con_type(), ConnectorName, ConnectorConfig),
+
+            FallbackActionName = <<"my_fallback">>,
+            FallbackActionConfig = (bridge_config())#{
+                <<"connector">> => atom_to_binary(ConnectorName)
+            },
+            ct:pal("fallback action config:\n  ~p", [FallbackActionConfig]),
+
+            OnQueryFn = wrap_fun(fun(_Ctx) ->
+                {error, {unrecoverable_error, fallback_time}}
+            end),
+
+            RepublishTopic = <<"republish/fallback">>,
+            RepublishArgs = #{
+                <<"topic">> => RepublishTopic,
+                <<"qos">> => 1,
+                <<"retain">> => false,
+                <<"payload">> => <<"${payload}">>,
+                <<"mqtt_properties">> => #{},
+                <<"user_properties">> => <<"${pub_props.'User-Property'}">>,
+                <<"direct_dispatch">> => false
+            },
+
+            ActionName = my_test_action,
+            ActionTypeBin = atom_to_binary(bridge_type()),
+            ActionConfig = (bridge_config())#{
+                <<"connector">> => atom_to_binary(ConnectorName),
+                <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
+                <<"fallback_actions">> => [
+                    #{
+                        <<"kind">> => <<"reference">>,
+                        <<"type">> => ActionTypeBin,
+                        <<"name">> => FallbackActionName
+                    },
+                    #{
+                        <<"kind">> => <<"republish">>,
+                        <<"args">> => RepublishArgs
+                    }
+                ]
+            },
+            ct:pal("action config:\n  ~p", [ActionConfig]),
+            %% Note: creating fallback in global namespace; should not be invoked.
+            ct:pal("creating fallback (global namespace)"),
+            {ok, _} = create(#{
+                namespace => ?global_ns,
+                kind => action,
+                type => bridge_type(),
+                name => FallbackActionName,
+                config => FallbackActionConfig
+            }),
+            _ = emqx_bridge_v2_testlib:kickoff_kind_health_check(#{
+                namespace => ?global_ns,
+                kind => action,
+                type => bridge_type(),
+                name => FallbackActionName
+            }),
+            ct:pal("creating primary (namespaced)"),
+            {ok, _} = create(#{
+                namespace => Namespace,
+                kind => action,
+                type => bridge_type(),
+                name => ActionName,
+                config => ActionConfig
+            }),
+            _ = emqx_bridge_v2_testlib:kickoff_kind_health_check(#{
+                namespace => Namespace,
+                kind => action,
+                type => bridge_type(),
+                name => ActionName
+            }),
+
+            %% NOTE: we're temporarily sending the message directly to the action.  This
+            %% should **not** be done in tests: they should use rules for that.  However,
+            %% at the time of writing, rule engine is not yet namespaced.
+            TMPSendMessage = fun(Name, Payload) ->
+                Message = #{
+                    payload => Payload,
+                    metadata => #{rule_id => <<"ns_support_pending">>}
+                },
+                emqx_bridge_v2:send_message(
+                    Namespace,
+                    bridge_type(),
+                    Name,
+                    Message,
+                    #{query_mode => sync}
+                )
+            end,
+
+            %% {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+            %%     #{
+            %%         sql => <<"select * from \"t/a\"">>,
+            %%         id => atom_to_binary(?FUNCTION_NAME),
+            %%         actions => [
+            %%             emqx_bridge_resource:bridge_id(bridge_type(), ActionName)
+            %%         ]
+            %%     }
+            %% ),
+            %% on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
+
+            register(registered_process_name(), self()),
+            emqx:subscribe(RepublishTopic, #{qos => 1}),
+            Payload0 = <<"payload">>,
+
+            ct:pal("publishing initial message"),
+            TMPSendMessage(ActionName, Payload0),
+            ct:pal("waiting to assert fallback was not called"),
+            ?assertNotReceive({query_called, _}),
+            %% This one is received because republishes don't have namespaces...
+            ?assertReceive({deliver, RepublishTopic, #message{payload = Payload0}}),
+
+            %% Now, let's create a fallback action in the same namespace.  That should be
+            %% triggered.
+            ct:pal("creating fallback (namespaced)"),
+            {ok, _} = create(#{
+                namespace => Namespace,
+                kind => action,
+                type => bridge_type(),
+                name => FallbackActionName,
+                config => FallbackActionConfig
+            }),
+            _ = emqx_bridge_v2_testlib:kickoff_kind_health_check(#{
+                namespace => Namespace,
+                kind => action,
+                type => bridge_type(),
+                name => FallbackActionName
+            }),
+
+            ct:pal("publishing second message"),
+            Payload1 = <<"payload1">>,
+            TMPSendMessage(ActionName, Payload1),
+            ct:pal("waiting to assert fallback was called"),
+            ?assertReceive({query_called, #{message := #{payload := Payload1}}}),
+            ?assertReceive({deliver, RepublishTopic, #message{payload = Payload1}}),
+            %% Checking that `Payload0` didn't arrive later.
+            ?assertNotReceive({query_called, #{message := #{payload := Payload0}}}),
 
             ok
         end,

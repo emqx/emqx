@@ -18,6 +18,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(BRIDGE_TYPE, emqx_bridge_http_test_lib:bridge_type()).
 -define(BRIDGE_NAME, emqx_bridge_http_test_lib:bridge_name()).
@@ -792,7 +793,7 @@ t_bridge_probes_header_atoms(Config) ->
 
 do_send_message(Message) ->
     Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(?BRIDGE_TYPE),
-    emqx_bridge_v2:send_message(Type, ?BRIDGE_NAME, Message, #{}).
+    emqx_bridge_v2:send_message(?global_ns, Type, ?BRIDGE_NAME, Message, #{}).
 
 do_t_async_retries(TestCase, TestContext, Error, Fn) ->
     #{error_attempts := ErrorAttempts} = TestContext,

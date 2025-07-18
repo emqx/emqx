@@ -136,7 +136,7 @@ create_local_resource(ResourceId, CheckedConfig) ->
         ?CONNECTOR_RESOURCE_GROUP,
         ?MONGO_RESOURCE_MOD,
         CheckedConfig,
-        #{}
+        #{spawn_buffer_workers => true}
     ),
     Bridge.
 

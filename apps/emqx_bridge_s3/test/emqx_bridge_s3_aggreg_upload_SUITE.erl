@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_utils_conv, [bin/1]).
 
@@ -597,8 +598,11 @@ send_messages_delayed(BridgeName, MessageEvents, Delay) ->
         MessageEvents
     ).
 
+%% todo: messages should be sent via rules in tests...
 send_message(BridgeName, Message) ->
-    ?assertEqual(ok, emqx_bridge_v2:send_message(?BRIDGE_TYPE, BridgeName, Message, #{})).
+    ?assertEqual(
+        ok, emqx_bridge_v2:send_message(?global_ns, ?BRIDGE_TYPE, BridgeName, Message, #{})
+    ).
 
 fetch_parse_csv(Bucket, Key) ->
     #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),

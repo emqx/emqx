@@ -14,6 +14,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_resource/include/emqx_resource_runtime.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -773,7 +774,7 @@ t_action_health_check_no_core(TCConfig) when is_list(TCConfig) ->
                 <<"resource_opts">> => #{<<"health_check_interval">> => <<"200ms">>}
             }),
             {ok, {_ConnResId, ActionResId}} =
-                ?ON(R1, emqx_bridge_v2:get_resource_ids(actions, Type, Name)),
+                ?ON(R1, emqx_bridge_v2:get_resource_ids(?global_ns, actions, Type, Name)),
             ?assertMatch(
                 {ok, #rt{channel_status = ?status_connected}},
                 ?ON(R1, emqx_resource_cache:get_runtime(ActionResId))

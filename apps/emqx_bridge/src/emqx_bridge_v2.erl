@@ -12,9 +12,19 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx_resource/include/emqx_resource_id.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hocon.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+
+%% Deprecated RPC target (`emqx_bridge_proto_v5`).
+-deprecated({list, 0, "use list/3 instead"}).
+%% Deprecated RPC target (`emqx_bridge_proto_v{6,7}`).
+-deprecated({list, 1, "use list/3 instead"}).
+%% Deprecated RPC target (`emqx_bridge_proto_v5`).
+-deprecated({start, 2, "use start/4 instead"}).
+%% Deprecated RPC target (`emqx_bridge_proto_v6`).
+-deprecated({start, 3, "use start/4 instead"}).
 
 %% Note: this is strange right now, because it lives in `emqx_bridge_v2', but it shall be
 %% refactored into a new module/application with appropriate name.
@@ -22,6 +32,8 @@
 -define(ROOT_KEY_ACTIONS_BIN, <<"actions">>).
 -define(ROOT_KEY_SOURCES, sources).
 -define(ROOT_KEY_SOURCES_BIN, <<"sources">>).
+
+-define(ENABLE_OR_DISABLE(A), (A =:= disable orelse A =:= enable)).
 
 %% Loading and unloading config when EMQX starts and stops
 -export([
@@ -32,41 +44,39 @@
 %% CRUD API
 
 -export([
+    %% Deprecated RPC target (`emqx_bridge_proto_v5`).
     list/0,
+    %% Deprecated RPC target (`emqx_bridge_proto_v{6,7}`).
     list/1,
-    lookup/2,
-    lookup/3,
-    lookup_raw_conf/3,
-    is_exist/3,
-    create/3,
-    create/4,
-    %% The remove/2 function is only for internal use as it may create
+    list/2,
+    lookup/4,
+    lookup_raw_conf/4,
+    is_exist/4,
+    create/5,
+    %% The remove/4 function is only for internal use as it may create
     %% rules with broken dependencies
-    remove/2,
-    remove/3,
+    remove/4,
     %% The following is the remove function that is called by the HTTP API
     %% It also checks for rule action dependencies and optionally removes
     %% them
-    check_deps_and_remove/3,
-    check_deps_and_remove/4
+    check_deps_and_remove/5
 ]).
--export([is_action_exist/2, is_source_exist/2]).
+-export([is_action_exist/3, is_source_exist/3]).
 
 %% Operations
 
 -export([
-    disable_enable/3,
-    disable_enable/4,
-    send_message/4,
-    query/4,
+    disable_enable/5,
+    send_message/5,
+    query/5,
+    %% Deprecated RPC target (`emqx_bridge_proto_v5`).
     start/2,
+    %% Deprecated RPC target (`emqx_bridge_proto_v6`).
     start/3,
-    reset_metrics/2,
-    reset_metrics/3,
-    create_dry_run/2,
-    create_dry_run/3,
-    get_metrics/2,
-    get_metrics/3
+    start/4,
+    reset_metrics/4,
+    create_dry_run/4,
+    get_metrics/4
 ]).
 
 %% On message publish hook (for local_topics)
@@ -77,18 +87,19 @@
 
 -export([
     parse_id/1,
-    get_resource_ids/3,
+    get_resource_ids/4,
     get_channels_for_connector/1
 ]).
 
 -export([diff_confs/2]).
 
+%% Internal export for buffer worker (and tests)
+-export([lookup_chan_id_in_conf/4]).
+
 %% Exported for tests
 -export([
-    id/2,
-    id/3,
-    health_check/2,
-    health_check/3,
+    id_with_root_and_connector_names/5,
+    health_check/4,
     source_id/3,
     source_hookpoint/1,
     bridge_v1_is_valid/2,
@@ -99,8 +110,8 @@
 %% Config Update Handler API
 
 -export([
-    post_config_update/5,
-    pre_config_update/3
+    pre_config_update/4,
+    post_config_update/6
 ]).
 
 %% Data backup
@@ -138,12 +149,14 @@
     bridge_v1_reset_metrics/2,
     %% For test cases only
     bridge_v1_remove/2,
-    get_conf_root_key_if_only_one/2
+    get_conf_root_key_if_only_one/3
 ]).
 
 %%====================================================================
 %% Types
 %%====================================================================
+
+-type namespace() :: binary().
 
 -type bridge_v2_info() :: #{
     type := binary(),
@@ -159,6 +172,8 @@
 -type bridge_v2_name() :: binary() | atom() | [byte()].
 
 -type root_cfg_key() :: ?ROOT_KEY_ACTIONS | ?ROOT_KEY_SOURCES.
+
+-type maybe_namespace() :: ?global_ns | binary().
 
 -export_type([root_cfg_key/0, bridge_v2_type/0, bridge_v2_name/0]).
 
@@ -181,7 +196,17 @@ load() ->
     ok.
 
 load_bridges(RootName) ->
-    Bridges = emqx:get_config([RootName], #{}),
+    NamespaceToRoots = get_root_config_from_all_namespaces(RootName, #{}),
+    emqx_utils:pforeach(
+        fun({Namespace, RootConfig}) ->
+            do_load_bridges(Namespace, RootName, RootConfig)
+        end,
+        maps:to_list(NamespaceToRoots),
+        infinity
+    ),
+    ok.
+
+do_load_bridges(Namespace, RootName, RootConfig) ->
     emqx_utils:pforeach(
         fun
             ({?COMPUTED, _}) ->
@@ -189,16 +214,15 @@ load_bridges(RootName) ->
             ({Type, Bridge}) ->
                 emqx_utils:pmap(
                     fun({Name, BridgeConf}) ->
-                        install_bridge_v2(RootName, Type, Name, BridgeConf)
+                        install_bridge_v2(Namespace, RootName, Type, Name, BridgeConf)
                     end,
                     maps:to_list(Bridge),
                     infinity
                 )
         end,
-        maps:to_list(Bridges),
+        maps:to_list(RootConfig),
         infinity
-    ),
-    ok.
+    ).
 
 unload() ->
     unload_bridges(?ROOT_KEY_ACTIONS),
@@ -208,8 +232,18 @@ unload() ->
     emqx_conf:remove_handler(config_key_path_leaf()),
     ok.
 
-unload_bridges(ConfRootKey) ->
-    Bridges = emqx:get_config([ConfRootKey], #{}),
+unload_bridges(RootName) ->
+    NamespaceToRoots = get_root_config_from_all_namespaces(RootName, #{}),
+    emqx_utils:pforeach(
+        fun({Namespace, RootConfig}) ->
+            do_unload_bridges(Namespace, RootName, RootConfig)
+        end,
+        maps:to_list(NamespaceToRoots),
+        infinity
+    ),
+    ok.
+
+do_unload_bridges(Namespace, RootName, RootConfig) ->
     emqx_utils:pforeach(
         fun
             ({?COMPUTED, _}) ->
@@ -217,13 +251,13 @@ unload_bridges(ConfRootKey) ->
             ({Type, Bridge}) ->
                 emqx_utils:pmap(
                     fun({Name, BridgeConf}) ->
-                        uninstall_bridge_v2(ConfRootKey, Type, Name, BridgeConf)
+                        uninstall_bridge_v2(Namespace, RootName, Type, Name, BridgeConf)
                     end,
                     maps:to_list(Bridge),
                     infinity
                 )
         end,
-        maps:to_list(Bridges),
+        maps:to_list(RootConfig),
         infinity
     ),
     ok.
@@ -232,36 +266,32 @@ unload_bridges(ConfRootKey) ->
 %% CRUD API
 %%====================================================================
 
--spec lookup(bridge_v2_type(), bridge_v2_name()) -> {ok, bridge_v2_info()} | {error, not_found}.
-lookup(Type, Name) ->
-    lookup(?ROOT_KEY_ACTIONS, Type, Name).
+is_action_exist(Namespace, Type, Name) ->
+    is_exist(Namespace, ?ROOT_KEY_ACTIONS, Type, Name).
 
-is_action_exist(Type, Name) ->
-    is_exist(?ROOT_KEY_ACTIONS, Type, Name).
+is_source_exist(Namespace, Type, Name) ->
+    is_exist(Namespace, ?ROOT_KEY_SOURCES, Type, Name).
 
-is_source_exist(Type, Name) ->
-    is_exist(?ROOT_KEY_SOURCES, Type, Name).
+is_exist(Namespace, ConfRootName, Type, Name) ->
+    {error, not_found} =/= lookup_raw_conf(Namespace, ConfRootName, Type, Name).
 
-is_exist(ConfRootName, Type, Name) ->
-    {error, not_found} =/= lookup_raw_conf(ConfRootName, Type, Name).
-
-lookup_raw_conf(ConfRootName, Type, Name) ->
-    case emqx:get_raw_config([ConfRootName, Type, Name], not_found) of
+lookup_raw_conf(Namespace, ConfRootName, Type, Name) ->
+    case get_raw_config(Namespace, [ConfRootName, Type, Name], not_found) of
         not_found ->
             {error, not_found};
         #{<<"connector">> := _} = RawConf ->
             {ok, RawConf}
     end.
 
--spec lookup(root_cfg_key(), bridge_v2_type(), bridge_v2_name()) ->
+-spec lookup(maybe_namespace(), root_cfg_key(), bridge_v2_type(), bridge_v2_name()) ->
     {ok, bridge_v2_info()} | {error, not_found}.
-lookup(ConfRootName, Type, Name) ->
-    case emqx:get_raw_config([ConfRootName, Type, Name], not_found) of
+lookup(Namespace, ConfRootName, Type, Name) ->
+    case get_raw_config(Namespace, [ConfRootName, Type, Name], not_found) of
         not_found ->
             {error, not_found};
-        #{<<"connector">> := BridgeConnector} = RawConf ->
+        #{<<"connector">> := ConnectorName} = RawConf ->
             ConnectorId = emqx_connector_resource:resource_id(
-                connector_type(Type), BridgeConnector
+                Namespace, connector_type(Type), ConnectorName
             ),
             %% The connector should always exist
             %% ... but, in theory, there might be no channels associated to it when we try
@@ -276,7 +306,9 @@ lookup(ConfRootName, Type, Name) ->
             %% Find the Bridge V2 status from the ConnectorData
             ConnectorStatus = maps:get(status, ConnectorData, undefined),
             Channels = maps:get(added_channels, ConnectorData, #{}),
-            BridgeV2Id = id_with_root_name(ConfRootName, Type, Name, BridgeConnector),
+            BridgeV2Id = id_with_root_and_connector_names(
+                Namespace, ConfRootName, Type, Name, ConnectorName
+            ),
             ChannelStatus = maps:get(BridgeV2Id, Channels, undefined),
             {DisplayBridgeV2Status, ErrorMsg} =
                 case {ChannelStatus, ConnectorStatus} of
@@ -305,23 +337,27 @@ lookup(ConfRootName, Type, Name) ->
             }}
     end.
 
+%% Deprecated RPC target (`emqx_bridge_proto_v5`).
 -spec list() -> [bridge_v2_info()] | {error, term()}.
 list() ->
-    list_with_lookup_fun(?ROOT_KEY_ACTIONS, fun lookup/2).
+    list(?ROOT_KEY_ACTIONS).
 
+%% Deprecated RPC target (`emqx_bridge_proto_v{6,7}`).
 list(ConfRootKey) ->
+    list(?global_ns, ConfRootKey).
+
+-spec list(maybe_namespace(), root_cfg_key()) -> [bridge_v2_info()] | {error, term()}.
+list(Namespace, ConfRootKey) ->
     LookupFun = fun(Type, Name) ->
-        lookup(ConfRootKey, Type, Name)
+        lookup(Namespace, ConfRootKey, Type, Name)
     end,
-    list_with_lookup_fun(ConfRootKey, LookupFun).
+    list_with_lookup_fun(Namespace, ConfRootKey, LookupFun).
 
--spec create(bridge_v2_type(), bridge_v2_name(), map()) ->
+-spec create(maybe_namespace(), root_cfg_key(), bridge_v2_type(), bridge_v2_name(), map()) ->
     {ok, emqx_config:update_result()} | {error, any()}.
-create(BridgeType, BridgeName, RawConf) ->
-    create(?ROOT_KEY_ACTIONS, BridgeType, BridgeName, RawConf).
-
-create(ConfRootKey, BridgeType, BridgeName, RawConf0) ->
+create(Namespace, ConfRootKey, BridgeType, BridgeName, RawConf0) ->
     ?SLOG(debug, #{
+        namespace => Namespace,
         bridge_action => create,
         bridge_version => 2,
         bridge_type => BridgeType,
@@ -334,39 +370,33 @@ create(ConfRootKey, BridgeType, BridgeName, RawConf0) ->
     emqx_conf:update(
         [ConfRootKey, BridgeType, BridgeName],
         RawConf,
-        #{override_to => cluster}
+        with_namespace(#{override_to => cluster}, Namespace)
     ).
 
--spec remove(bridge_v2_type(), bridge_v2_name()) -> ok | {error, any()}.
-remove(BridgeType, BridgeName) ->
-    %% NOTE: This function can cause broken references from rules but it is only
-    %% called directly from test cases.
-    remove(?ROOT_KEY_ACTIONS, BridgeType, BridgeName).
-
-remove(ConfRootKey, BridgeType, BridgeName) ->
+-spec remove(maybe_namespace(), root_cfg_key(), bridge_v2_type(), bridge_v2_name()) ->
+    ok | {error, any()}.
+remove(Namespace, ConfRootKey, BridgeType, BridgeName) ->
     ?SLOG(debug, #{
         bridge_action => remove,
         bridge_version => 2,
+        namespace => Namespace,
         bridge_type => BridgeType,
         bridge_name => BridgeName
     }),
-    case
-        emqx_conf:remove(
-            [ConfRootKey, BridgeType, BridgeName],
-            #{override_to => cluster}
-        )
-    of
+    Res = emqx_conf:remove(
+        [ConfRootKey, BridgeType, BridgeName],
+        with_namespace(#{override_to => cluster}, Namespace)
+    ),
+    case Res of
         {ok, _} -> ok;
         {error, Reason} -> {error, Reason}
     end.
 
--spec check_deps_and_remove(bridge_v2_type(), bridge_v2_name(), boolean()) -> ok | {error, any()}.
-check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions) ->
-    check_deps_and_remove(?ROOT_KEY_ACTIONS, BridgeType, BridgeName, AlsoDeleteActions).
-
--spec check_deps_and_remove(root_cfg_key(), bridge_v2_type(), bridge_v2_name(), boolean()) ->
+-spec check_deps_and_remove(
+    maybe_namespace(), root_cfg_key(), bridge_v2_type(), bridge_v2_name(), boolean()
+) ->
     ok | {error, any()}.
-check_deps_and_remove(ConfRootKey, BridgeType, BridgeName, AlsoDeleteActions) ->
+check_deps_and_remove(Namespace, ConfRootKey, BridgeType, BridgeName, AlsoDeleteActions) ->
     AlsoDelete =
         case AlsoDeleteActions of
             true -> [rule_actions];
@@ -374,6 +404,7 @@ check_deps_and_remove(ConfRootKey, BridgeType, BridgeName, AlsoDeleteActions) ->
         end,
     case
         maybe_withdraw_rule_action(
+            Namespace,
             ConfRootKey,
             BridgeType,
             BridgeName,
@@ -381,7 +412,7 @@ check_deps_and_remove(ConfRootKey, BridgeType, BridgeName, AlsoDeleteActions) ->
         )
     of
         ok ->
-            remove(ConfRootKey, BridgeType, BridgeName);
+            remove(Namespace, ConfRootKey, BridgeType, BridgeName);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -390,10 +421,11 @@ check_deps_and_remove(ConfRootKey, BridgeType, BridgeName, AlsoDeleteActions) ->
 %% Helpers for CRUD API
 %%--------------------------------------------------------------------
 
-maybe_withdraw_rule_action(ConfRootKey, BridgeType, BridgeName, DeleteDeps) ->
-    BridgeIds = emqx_bridge_lib:external_ids(ConfRootKey, BridgeType, BridgeName),
+maybe_withdraw_rule_action(Namespace, ConfRootKey, BridgeType, BridgeName, DeleteDeps) ->
+    BridgeIds = emqx_bridge_lib:external_ids(Namespace, ConfRootKey, BridgeType, BridgeName),
     DeleteActions = lists:member(rule_actions, DeleteDeps),
     GetFn =
+        %% TODO: namespace
         case ConfRootKey of
             ?ROOT_KEY_ACTIONS ->
                 fun emqx_rule_engine:get_rule_ids_by_bridge_action/1;
@@ -424,7 +456,7 @@ maybe_withdraw_rule_action_loop([BridgeId | More], DeleteActions, GetFn) ->
             }}
     end.
 
-list_with_lookup_fun(ConfRootName, LookupFun) ->
+list_with_lookup_fun(Namespace, ConfRootName, LookupFun) ->
     maps:fold(
         fun(Type, NameAndConf, Bridges) ->
             maps:fold(
@@ -447,10 +479,11 @@ list_with_lookup_fun(ConfRootName, LookupFun) ->
             )
         end,
         [],
-        emqx:get_raw_config([ConfRootName], #{})
+        get_raw_config(Namespace, [ConfRootName], #{})
     ).
 
 install_bridge_v2(
+    _Namespace,
     _RootName,
     _BridgeType,
     _BridgeName,
@@ -458,37 +491,42 @@ install_bridge_v2(
 ) ->
     ok;
 install_bridge_v2(
+    Namespace,
     RootName,
     BridgeV2Type,
     BridgeName,
     Config
 ) ->
-    install_bridge_v2_helper(
-        RootName,
+    CombinedConfig = combine_connector_and_bridge_v2_config(
+        Namespace,
         BridgeV2Type,
         BridgeName,
-        combine_connector_and_bridge_v2_config(
-            BridgeV2Type,
-            BridgeName,
-            Config
-        )
-    ).
+        Config
+    ),
+    case CombinedConfig of
+        {error, Reason} = Error ->
+            ?SLOG(warning, Reason),
+            Error;
+        #{} ->
+            install_bridge_v2_helper(
+                Namespace,
+                RootName,
+                BridgeV2Type,
+                BridgeName,
+                CombinedConfig
+            )
+    end.
 
 install_bridge_v2_helper(
-    _RootName,
-    _BridgeV2Type,
-    _BridgeName,
-    {error, Reason} = Error
-) ->
-    ?SLOG(warning, Reason),
-    Error;
-install_bridge_v2_helper(
+    Namespace,
     RootName,
     BridgeV2Type,
     BridgeName,
     #{connector := ConnectorName} = Config
 ) ->
-    BridgeV2Id = id_with_root_name(RootName, BridgeV2Type, BridgeName, ConnectorName),
+    BridgeV2Id = id_with_root_and_connector_names(
+        Namespace, RootName, BridgeV2Type, BridgeName, ConnectorName
+    ),
     CreationOpts = emqx_resource:fetch_creation_opts(Config),
     %% Create metrics for Bridge V2
     ok = emqx_resource:create_metrics(BridgeV2Id),
@@ -508,7 +546,7 @@ install_bridge_v2_helper(
     end,
     %% If there is a running connector, we need to install the Bridge V2 in it
     ConnectorId = emqx_connector_resource:resource_id(
-        connector_type(BridgeV2Type), ConnectorName
+        Namespace, connector_type(BridgeV2Type), ConnectorName
     ),
     _ = emqx_resource_manager:add_channel_async(
         ConnectorId,
@@ -548,6 +586,7 @@ source_hookpoint(BridgeId) ->
     <<"$sources/", (bin(BridgeId))/binary>>.
 
 uninstall_bridge_v2(
+    _Namespace,
     _ConfRootKey,
     _BridgeType,
     _BridgeName,
@@ -556,33 +595,58 @@ uninstall_bridge_v2(
     %% Already not installed
     ok;
 uninstall_bridge_v2(
+    Namespace,
     ConfRootKey,
     BridgeV2Type,
     BridgeName,
     #{connector := ConnectorName} = Config
 ) ->
-    BridgeV2Id = id_with_root_name(ConfRootKey, BridgeV2Type, BridgeName, ConnectorName),
+    BridgeV2Id = id_with_root_and_connector_names(
+        Namespace, ConfRootKey, BridgeV2Type, BridgeName, ConnectorName
+    ),
     CreationOpts = emqx_resource:fetch_creation_opts(Config),
     ok = emqx_resource_buffer_worker_sup:stop_workers(BridgeV2Id, CreationOpts),
-    case referenced_connectors_exist(BridgeV2Type, ConnectorName, BridgeName) of
+    case referenced_connectors_exist(Namespace, BridgeV2Type, ConnectorName, BridgeName) of
         {error, _} ->
             ok;
         ok ->
             %% uninstall from connector
             ConnectorId = emqx_connector_resource:resource_id(
-                connector_type(BridgeV2Type), ConnectorName
+                Namespace, connector_type(BridgeV2Type), ConnectorName
             ),
             emqx_resource_manager:remove_channel_async(ConnectorId, BridgeV2Id)
     end.
 
 combine_connector_and_bridge_v2_config(
+    Namespace,
     BridgeV2Type,
     BridgeName,
     #{connector := ConnectorName} = BridgeV2Config
 ) ->
     ConnectorType = connector_type(BridgeV2Type),
-    try emqx_config:get([connectors, ConnectorType, to_existing_atom(ConnectorName)]) of
-        ConnectorConfig ->
+    ConnectorConfig =
+        try
+            get_config(
+                Namespace,
+                [connectors, ConnectorType, to_existing_atom(ConnectorName)],
+                undefined
+            )
+        catch
+            _:_ ->
+                %% inexistent atom = unknown name
+                undefined
+        end,
+    case ConnectorConfig of
+        undefined ->
+            alarm_connector_not_found(BridgeV2Type, BridgeName, ConnectorName),
+            {error, #{
+                reason => <<"connector_not_found_or_wrong_type">>,
+                namespace => Namespace,
+                bridge_type => BridgeV2Type,
+                bridge_name => BridgeName,
+                connector_name => ConnectorName
+            }};
+        #{} ->
             ConnectorCreationOpts = emqx_resource:fetch_creation_opts(ConnectorConfig),
             BridgeV2CreationOpts = emqx_resource:fetch_creation_opts(BridgeV2Config),
             CombinedCreationOpts0 = emqx_utils_maps:deep_merge(
@@ -591,15 +655,6 @@ combine_connector_and_bridge_v2_config(
             ),
             CombinedCreationOpts = remove_connector_only_resource_opts(CombinedCreationOpts0),
             BridgeV2Config#{resource_opts => CombinedCreationOpts}
-    catch
-        _:_ ->
-            alarm_connector_not_found(BridgeV2Type, BridgeName, ConnectorName),
-            {error, #{
-                reason => <<"connector_not_found_or_wrong_type">>,
-                bridge_type => BridgeV2Type,
-                bridge_name => BridgeName,
-                connector_name => ConnectorName
-            }}
     end.
 
 remove_connector_only_resource_opts(ResourceOpts) ->
@@ -608,21 +663,29 @@ remove_connector_only_resource_opts(ResourceOpts) ->
 %%====================================================================
 %% Operations
 %%====================================================================
--define(ENABLE_OR_DISABLE(A), (A =:= disable orelse A =:= enable)).
 
--spec disable_enable(disable | enable, bridge_v2_type(), bridge_v2_name()) ->
+-spec disable_enable(
+    maybe_namespace(), root_cfg_key(), disable | enable, bridge_v2_type(), bridge_v2_name()
+) ->
     {ok, any()} | {error, any()}.
-disable_enable(Action, BridgeType, BridgeName) when ?ENABLE_OR_DISABLE(Action) ->
-    disable_enable(?ROOT_KEY_ACTIONS, Action, BridgeType, BridgeName).
-
-disable_enable(ConfRootKey, EnableOrDisable, BridgeType, BridgeName) when
+disable_enable(Namespace, ConfRootKey, EnableOrDisable, BridgeType, BridgeName) when
     ?ENABLE_OR_DISABLE(EnableOrDisable)
 ->
     emqx_conf:update(
         [ConfRootKey, BridgeType, BridgeName],
         {EnableOrDisable, #{now => now_ms()}},
-        #{override_to => cluster}
+        with_namespace(#{override_to => cluster}, Namespace)
     ).
+
+%% Deprecated RPC target (`emqx_bridge_proto_v5`).
+-spec start(term(), term()) -> ok | {error, Reason :: term()}.
+start(ActionOrSourceType, Name) ->
+    start(?global_ns, ?ROOT_KEY_ACTIONS, ActionOrSourceType, Name).
+
+%% Deprecated RPC target (`emqx_bridge_proto_v6`).
+-spec start(root_cfg_key(), term(), term()) -> ok | {error, Reason :: term()}.
+start(ConfRootKey, ActionOrSourceType, Name) ->
+    start(?global_ns, ConfRootKey, ActionOrSourceType, Name).
 
 %% Manually start connector. This function can speed up reconnection when
 %% waiting for auto reconnection. The function forwards the start request to
@@ -630,37 +693,31 @@ disable_enable(ConfRootKey, EnableOrDisable, BridgeType, BridgeName) when
 %% starting the connector. Returns {error, Reason} if the status of the bridge
 %% is something else than connected after starting the connector or if an
 %% error occurred when the connector was started.
--spec start(term(), term()) -> ok | {error, Reason :: term()}.
-start(ActionOrSourceType, Name) ->
-    start(?ROOT_KEY_ACTIONS, ActionOrSourceType, Name).
-
--spec start(root_cfg_key(), term(), term()) -> ok | {error, Reason :: term()}.
-start(ConfRootKey, BridgeV2Type, Name) ->
+-spec start(maybe_namespace(), root_cfg_key(), term(), term()) -> ok | {error, Reason :: term()}.
+start(Namespace, ConfRootKey, BridgeV2Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
-        emqx_connector_resource:start(?global_ns, ConnectorType, ConnectorName)
+        emqx_connector_resource:start(Namespace, ConnectorType, ConnectorName)
     end,
-    connector_operation_helper(ConfRootKey, BridgeV2Type, Name, ConnectorOpFun, true).
+    connector_operation_helper(Namespace, ConfRootKey, BridgeV2Type, Name, ConnectorOpFun, true).
 
-connector_operation_helper(ConfRootKey, BridgeV2Type, Name, ConnectorOpFun, DoHealthCheck) ->
-    connector_operation_helper_with_conf(
-        ConfRootKey,
-        BridgeV2Type,
-        Name,
-        lookup_conf(ConfRootKey, BridgeV2Type, Name),
-        ConnectorOpFun,
-        DoHealthCheck
-    ).
-
-connector_operation_helper_with_conf(
-    _ConfRootKey,
-    _BridgeV2Type,
-    _Name,
-    {error, _} = Error,
-    _ConnectorOpFun,
-    _DoHealthCheck
+connector_operation_helper(
+    Namespace, ConfRootKey, BridgeV2Type, Name, ConnectorOpFun, DoHealthCheck
 ) ->
-    Error;
+    maybe
+        #{} = PreviousConf ?= lookup_conf(Namespace, ConfRootKey, BridgeV2Type, Name),
+        connector_operation_helper_with_conf(
+            Namespace,
+            ConfRootKey,
+            BridgeV2Type,
+            Name,
+            PreviousConf,
+            ConnectorOpFun,
+            DoHealthCheck
+        )
+    end.
+
 connector_operation_helper_with_conf(
+    _Namespace,
     _ConfRootKey,
     _BridgeV2Type,
     _Name,
@@ -670,6 +727,7 @@ connector_operation_helper_with_conf(
 ) ->
     ok;
 connector_operation_helper_with_conf(
+    Namespace,
     ConfRootKey,
     BridgeV2Type,
     Name,
@@ -685,8 +743,8 @@ connector_operation_helper_with_conf(
         {true, {error, Reason}} ->
             {error, Reason};
         {true, ok} ->
-            case health_check(ConfRootKey, BridgeV2Type, Name) of
-                #{status := connected} ->
+            case health_check(Namespace, ConfRootKey, BridgeV2Type, Name) of
+                #{status := ?status_connected} ->
                     ok;
                 {error, Reason} ->
                     {error, Reason};
@@ -700,20 +758,21 @@ connector_operation_helper_with_conf(
             end
     end.
 
--spec reset_metrics(bridge_v2_type(), bridge_v2_name()) -> ok | {error, not_found}.
-reset_metrics(Type, Name) ->
-    reset_metrics(?ROOT_KEY_ACTIONS, Type, Name).
+reset_metrics(Namespace, ConfRootKey, Type, Name) ->
+    case lookup_conf(Namespace, ConfRootKey, Type, Name) of
+        #{} = PreviousConf ->
+            reset_metrics_helper(Namespace, ConfRootKey, Type, Name, PreviousConf);
+        {error, bridge_not_found} ->
+            {error, not_found}
+    end.
 
-reset_metrics(ConfRootKey, Type, Name) ->
-    reset_metrics_helper(ConfRootKey, Type, Name, lookup_conf(ConfRootKey, Type, Name)).
-
-reset_metrics_helper(_ConfRootKey, _Type, _Name, #{enable := false}) ->
+reset_metrics_helper(_Namespace, _ConfRootKey, _Type, _Name, #{enable := false}) ->
     ok;
-reset_metrics_helper(ConfRootKey, BridgeV2Type, BridgeName, #{connector := ConnectorName}) ->
-    ResourceId = id_with_root_name(ConfRootKey, BridgeV2Type, BridgeName, ConnectorName),
-    emqx_resource:reset_metrics(ResourceId);
-reset_metrics_helper(_, _, _, _) ->
-    {error, not_found}.
+reset_metrics_helper(Namespace, ConfRootKey, BridgeV2Type, BridgeName, #{connector := ConnectorName}) ->
+    ResourceId = id_with_root_and_connector_names(
+        Namespace, ConfRootKey, BridgeV2Type, BridgeName, ConnectorName
+    ),
+    emqx_resource:reset_metrics(ResourceId).
 
 get_resource_query_mode(ActionType, Config) ->
     CreationOpts = emqx_resource:fetch_creation_opts(Config),
@@ -721,40 +780,47 @@ get_resource_query_mode(ActionType, Config) ->
     ResourceMod = emqx_connector_resource:connector_to_resource_type(ConnectorType),
     emqx_resource:query_mode(ResourceMod, Config, CreationOpts).
 
--spec query(bridge_v2_type(), bridge_v2_name(), Message :: term(), QueryOpts :: map()) ->
+-spec query(
+    maybe_namespace(), bridge_v2_type(), bridge_v2_name(), Message :: term(), QueryOpts :: map()
+) ->
     term() | {error, term()}.
-query(BridgeType, BridgeName, Message, QueryOpts0) ->
-    case lookup_conf(BridgeType, BridgeName) of
+query(Namespace, Type, Name, Message, QueryOpts0) ->
+    case lookup_conf(Namespace, ?ROOT_KEY_ACTIONS, Type, Name) of
         #{enable := true} = Config0 ->
-            Config = combine_connector_and_bridge_v2_config(BridgeType, BridgeName, Config0),
-            do_query_with_enabled_config(BridgeType, BridgeName, Message, QueryOpts0, Config);
+            Config = combine_connector_and_bridge_v2_config(
+                Namespace, Type, Name, Config0
+            ),
+            case Config of
+                {error, Reason} ->
+                    ?SLOG(warning, Reason),
+                    {error, Reason};
+                #{} ->
+                    do_query_with_enabled_config(Namespace, Type, Name, Message, QueryOpts0, Config)
+            end;
         #{enable := false} ->
             {error, bridge_disabled};
         {error, bridge_not_found} ->
-            %% race
+            %% race or bad configuration (e.g.: referenced fallback action does not exist)
             {error, bridge_not_found}
     end.
 
 do_query_with_enabled_config(
-    _BridgeType, _BridgeName, _Message, _QueryOpts0, {error, Reason} = Error
-) ->
-    ?SLOG(warning, Reason),
-    Error;
-do_query_with_enabled_config(
-    BridgeType, BridgeName, Message, QueryOpts0, Config
+    Namespace, Type, Name, Message, QueryOpts0, Config
 ) ->
     ConnectorName = maps:get(connector, Config),
     FallbackActions = maps:get(fallback_actions, Config, []),
-    ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeType),
-    ConnectorResId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
+    ConnectorType = emqx_action_info:action_type_to_connector_type(Type),
+    ConnectorResId = emqx_connector_resource:resource_id(Namespace, ConnectorType, ConnectorName),
     QueryOpts = maps:merge(
-        query_opts(BridgeType, Config),
+        query_opts(Type, Config),
         QueryOpts0#{
             connector_resource_id => ConnectorResId,
             fallback_actions => FallbackActions
         }
     ),
-    BridgeV2Id = id(BridgeType, BridgeName),
+    BridgeV2Id = id_with_root_and_connector_names(
+        Namespace, ?ROOT_KEY_ACTIONS, Type, Name, ConnectorName
+    ),
     case Message of
         {send_message, Msg} ->
             emqx_resource:query(BridgeV2Id, {BridgeV2Id, Msg}, QueryOpts);
@@ -762,10 +828,12 @@ do_query_with_enabled_config(
             emqx_resource:query(BridgeV2Id, Msg, QueryOpts)
     end.
 
--spec send_message(bridge_v2_type(), bridge_v2_name(), Message :: term(), QueryOpts :: map()) ->
+-spec send_message(
+    maybe_namespace(), bridge_v2_type(), bridge_v2_name(), Message :: term(), QueryOpts :: map()
+) ->
     term() | {error, term()}.
-send_message(BridgeType, BridgeName, Message, QueryOpts0) ->
-    query(BridgeType, BridgeName, {send_message, Message}, QueryOpts0).
+send_message(Namespace, Type, Name, Message, QueryOpts0) ->
+    query(Namespace, Type, Name, {send_message, Message}, QueryOpts0).
 
 query_opts(ActionOrSourceType, Config) ->
     ConnectorType = connector_type(ActionOrSourceType),
@@ -774,25 +842,19 @@ query_opts(ActionOrSourceType, Config) ->
 
 %% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
 %% process.  Avoid doing manual health checks outside tests.
--spec health_check(BridgeType :: term(), BridgeName :: term()) ->
-    #{status := emqx_resource:resource_status(), error := term()} | {error, Reason :: term()}.
-health_check(BridgeType, BridgeName) ->
-    health_check(?ROOT_KEY_ACTIONS, BridgeType, BridgeName).
-
-%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
-%% process.  Avoid doing manual health checks outside tests.
-health_check(ConfRootKey, BridgeType, BridgeName) ->
-    case lookup_conf(ConfRootKey, BridgeType, BridgeName) of
+health_check(Namespace, ConfRootKey, BridgeType, BridgeName) ->
+    case lookup_conf(Namespace, ConfRootKey, BridgeType, BridgeName) of
         #{
             enable := true,
             connector := ConnectorName
         } ->
             ConnectorId = emqx_connector_resource:resource_id(
-                connector_type(BridgeType), ConnectorName
+                Namespace, connector_type(BridgeType), ConnectorName
             ),
-            emqx_resource_manager:channel_health_check(
-                ConnectorId, id_with_root_name(ConfRootKey, BridgeType, BridgeName, ConnectorName)
-            );
+            ChannelId = id_with_root_and_connector_names(
+                Namespace, ConfRootKey, BridgeType, BridgeName, ConnectorName
+            ),
+            emqx_resource_manager:channel_health_check(ConnectorId, ChannelId);
         #{enable := false} ->
             {error, bridge_disabled};
         {error, bridge_not_found} ->
@@ -800,12 +862,9 @@ health_check(ConfRootKey, BridgeType, BridgeName) ->
             {error, bridge_not_found}
     end.
 
--spec create_dry_run(bridge_v2_type(), Config :: map()) -> ok | {error, term()}.
-create_dry_run(Type, Conf) ->
-    create_dry_run(?ROOT_KEY_ACTIONS, Type, Conf).
-
--spec create_dry_run(root_cfg_key(), bridge_v2_type(), Config :: map()) -> ok | {error, term()}.
-create_dry_run(ConfRootKey, Type, Conf0) ->
+-spec create_dry_run(maybe_namespace(), root_cfg_key(), bridge_v2_type(), Config :: map()) ->
+    ok | {error, term()}.
+create_dry_run(Namespace, ConfRootKey, Type, Conf0) ->
     Conf1 = maps:without([<<"name">>], Conf0),
     TypeBin = bin(Type),
     ConfRootKeyBin = bin(ConfRootKey),
@@ -821,12 +880,12 @@ create_dry_run(ConfRootKey, Type, Conf0) ->
         #{<<"connector">> := ConnectorName} = Conf1,
         %% Check that the connector exists and do the dry run if it exists
         ConnectorType = connector_type(Type),
-        case emqx:get_raw_config([connectors, ConnectorType, ConnectorName], not_found) of
+        case get_raw_config(Namespace, [connectors, ConnectorType, ConnectorName], not_found) of
             not_found ->
                 {error, iolist_to_binary(io_lib:format("Connector ~p not found", [ConnectorName]))};
             ConnectorRawConf ->
                 create_dry_run_helper(
-                    ensure_atom_root_key(ConfRootKey), Type, ConnectorRawConf, Conf1
+                    Namespace, ensure_atom_root_key(ConfRootKey), Type, ConnectorRawConf, Conf1
                 )
         end
     catch
@@ -835,13 +894,15 @@ create_dry_run(ConfRootKey, Type, Conf0) ->
             {error, Reason1}
     end.
 
-create_dry_run_helper(ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawConf) ->
+create_dry_run_helper(Namespace, ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawConf) ->
     BridgeName = ?PROBE_ID_NEW(),
     ConnectorType = connector_type(BridgeV2Type),
     OnReadyCallback =
         fun(ConnectorId) ->
-            {_, ConnectorName} = emqx_connector_resource:parse_connector_id(ConnectorId),
-            ChannelTestId = id(BridgeV2Type, BridgeName, ConnectorName),
+            #{name := ConnectorName} = emqx_connector_resource:parse_connector_id(ConnectorId),
+            ChannelTestId = id_with_root_and_connector_names(
+                Namespace, ConfRootKey, BridgeV2Type, BridgeName, ConnectorName
+            ),
             BridgeV2Conf0 = fill_defaults(
                 BridgeV2Type,
                 BridgeV2RawConf,
@@ -869,7 +930,7 @@ create_dry_run_helper(ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawCo
                         ConnectorId, ChannelTestId
                     ),
                     case HealthCheckResult of
-                        #{status := connected} ->
+                        #{status := ?status_connected} ->
                             ok;
                         #{status := Status, error := Error} ->
                             {error, {Status, Error}}
@@ -878,14 +939,9 @@ create_dry_run_helper(ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawCo
         end,
     emqx_connector_resource:create_dry_run(ConnectorType, ConnectorRawConf, OnReadyCallback).
 
--spec get_metrics(bridge_v2_type(), bridge_v2_name()) -> emqx_metrics_worker:metrics().
-get_metrics(Type, Name) ->
-    get_metrics(?ROOT_KEY_ACTIONS, Type, Name).
-
--spec get_metrics(root_cfg_key(), bridge_v2_type(), bridge_v2_name()) ->
-    emqx_metrics_worker:metrics().
-get_metrics(ConfRootKey, Type, Name) ->
-    emqx_resource:get_metrics(id_with_root_name(ConfRootKey, Type, Name)).
+get_metrics(Namespace, ConfRootKey, Type, Name) ->
+    ChanResId = lookup_chan_id_in_conf(Namespace, ConfRootKey, Type, Name),
+    emqx_resource:get_metrics(ChanResId).
 
 %%====================================================================
 %% On message publish hook (for local topics)
@@ -893,15 +949,20 @@ get_metrics(ConfRootKey, Type, Name) ->
 
 %% The following functions are more or less copied from emqx_bridge.erl
 
-reload_message_publish_hook(Bridges) ->
+reload_message_publish_hook(NamespaceOverride) ->
     ok = unload_message_publish_hook(),
-    ok = load_message_publish_hook(Bridges).
+    ok = load_message_publish_hook(NamespaceOverride).
 
 load_message_publish_hook() ->
-    Bridges = emqx:get_config([?ROOT_KEY_ACTIONS], #{}),
-    load_message_publish_hook(Bridges).
+    load_message_publish_hook(_NamespaceOverride = #{}).
 
-load_message_publish_hook(Bridges) ->
+load_message_publish_hook(NamespaceOverride) ->
+    NamespaceToRoots0 = get_root_config_from_all_namespaces(?ROOT_KEY_ACTIONS, #{}),
+    NamespaceToRoots = maps:merge(NamespaceToRoots0, NamespaceOverride),
+    RootConfigs = maps:values(NamespaceToRoots),
+    lists:foreach(fun load_message_publish_hook1/1, RootConfigs).
+
+load_message_publish_hook1(Bridges) ->
     lists:foreach(
         fun
             ({?COMPUTED, _}) ->
@@ -925,6 +986,10 @@ do_load_message_publish_hook(_Type, _Conf) ->
 unload_message_publish_hook() ->
     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}).
 
+%% This is a deprecated hook: it only hooks up actions that have the also deprecated
+%% `local_topic` parameters, which is a legacy config from before
+%% connectors/actions/sources were introduced.  Currently, the only official and correct
+%% way to funnel messages into actions is via rules.
 on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
     case maps:get(sys, Flags, false) of
         false ->
@@ -938,8 +1003,8 @@ on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
 send_to_matched_egress_bridges(Topic, Msg) ->
     MatchedBridgeIds = get_matched_egress_bridges(Topic),
     lists:foreach(
-        fun({Type, Name}) ->
-            try send_message(Type, Name, Msg, #{}) of
+        fun({Namespace, Type, Name}) ->
+            try send_message(Namespace, Type, Name, Msg, #{}) of
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "send_message_to_bridge_failed",
@@ -965,7 +1030,16 @@ send_to_matched_egress_bridges(Topic, Msg) ->
     ).
 
 get_matched_egress_bridges(Topic) ->
-    Bridges = emqx:get_config([?ROOT_KEY_ACTIONS], #{}),
+    NamespaceToActions = get_root_config_from_all_namespaces(?ROOT_KEY_ACTIONS, #{}),
+    maps:fold(
+        fun(Namespace, RootConfig, Acc) ->
+            do_get_matched_egress_bridges(Topic, Namespace, RootConfig, Acc)
+        end,
+        [],
+        NamespaceToActions
+    ).
+
+do_get_matched_egress_bridges(Topic, Namespace, RootConfig, AccIn) ->
     maps:fold(
         fun
             (?COMPUTED, _, Acc) ->
@@ -973,29 +1047,29 @@ get_matched_egress_bridges(Topic) ->
             (BType, Conf, Acc0) ->
                 maps:fold(
                     fun(BName, BConf, Acc1) ->
-                        get_matched_bridge_id(BType, BConf, Topic, BName, Acc1)
+                        get_matched_bridge_id(Namespace, BType, BConf, Topic, BName, Acc1)
                     end,
                     Acc0,
                     Conf
                 )
         end,
-        [],
-        Bridges
+        AccIn,
+        RootConfig
     ).
 
-get_matched_bridge_id(_BType, #{enable := false}, _Topic, _BName, Acc) ->
+get_matched_bridge_id(_Namespace, _BType, #{enable := false}, _Topic, _BName, Acc) ->
     Acc;
-get_matched_bridge_id(BType, Conf, Topic, BName, Acc) ->
+get_matched_bridge_id(Namespace, BType, Conf, Topic, BName, Acc) ->
     case maps:get(local_topic, Conf, undefined) of
         undefined ->
             Acc;
         Filter ->
-            do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc)
+            do_get_matched_bridge_id(Namespace, Topic, Filter, BType, BName, Acc)
     end.
 
-do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc) ->
+do_get_matched_bridge_id(Namespace, Topic, Filter, BType, BName, Acc) ->
     case emqx_topic:match(Topic, Filter) of
-        true -> [{BType, BName} | Acc];
+        true -> [{Namespace, BType, BName} | Acc];
         false -> Acc
     end.
 
@@ -1003,17 +1077,25 @@ do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc) ->
 %% Convenience functions for connector implementations
 %%====================================================================
 
+-doc """
+Parses a binary action or source resource id into a structured map.
+
+Throws `{invalid_id, Id}` if the input `Id` has an invalid format.
+
+See [`emqx_resource:parse_channel_id/1`].
+""".
+-doc #{equiv => fun emqx_resource:parse_channel_id/1}.
+-spec parse_id(binary()) ->
+    #{
+        namespace := ?global_ns | namespace(),
+        kind := action | source,
+        type := binary(),
+        name := binary(),
+        connector_type := binary(),
+        connector_name := binary()
+    }.
 parse_id(Id) ->
-    case binary:split(Id, <<":">>, [global]) of
-        [Type, Name] ->
-            #{kind => undefined, type => Type, name => Name};
-        [<<"action">>, Type, Name | _] ->
-            #{kind => action, type => Type, name => Name};
-        [<<"source">>, Type, Name | _] ->
-            #{kind => source, type => Type, name => Name};
-        _ ->
-            error({error, iolist_to_binary(io_lib:format("Invalid id: ~p", [Id]))})
-    end.
+    emqx_resource:parse_channel_id(Id).
 
 get_channels_for_connector(ConnectorId) ->
     Actions = get_channels_for_connector(?ROOT_KEY_ACTIONS, ConnectorId),
@@ -1022,15 +1104,16 @@ get_channels_for_connector(ConnectorId) ->
 
 get_channels_for_connector(SourcesOrActions, ConnectorId) ->
     try emqx_connector_resource:parse_connector_id(ConnectorId) of
-        {ConnectorType, ConnectorName} ->
-            RootConf = maps:keys(emqx:get_config([SourcesOrActions], #{})),
+        #{type := ConnectorType, name := ConnectorName, namespace := Namespace} ->
+            RootConf = get_config(Namespace, [SourcesOrActions], #{}),
+            Types = maps:keys(RootConf),
             RelevantBridgeV2Types = [
                 Type
-             || Type <- RootConf,
+             || Type <- Types,
                 connector_type(Type) =:= ConnectorType
             ],
             lists:flatten([
-                get_channels_for_connector(SourcesOrActions, ConnectorName, BridgeV2Type)
+                get_channels_for_connector(Namespace, SourcesOrActions, ConnectorName, BridgeV2Type)
              || BridgeV2Type <- RelevantBridgeV2Types
             ])
     catch
@@ -1040,11 +1123,13 @@ get_channels_for_connector(SourcesOrActions, ConnectorId) ->
             []
     end.
 
-get_channels_for_connector(SourcesOrActions, ConnectorName, BridgeV2Type) ->
-    BridgeV2s = emqx:get_config([SourcesOrActions, BridgeV2Type], #{}),
+get_channels_for_connector(Namespace, SourcesOrActions, ConnectorName, BridgeV2Type) ->
+    BridgeV2s = get_config(Namespace, [SourcesOrActions, BridgeV2Type], #{}),
     [
         {
-            id_with_root_name(SourcesOrActions, BridgeV2Type, Name, ConnectorName),
+            id_with_root_and_connector_names(
+                Namespace, SourcesOrActions, BridgeV2Type, Name, ConnectorName
+            ),
             augment_channel_config(SourcesOrActions, BridgeV2Type, Name, Conf)
         }
      || {Name, Conf} <- maps:to_list(BridgeV2s),
@@ -1055,19 +1140,15 @@ get_channels_for_connector(SourcesOrActions, ConnectorName, BridgeV2Type) ->
 %% ID related functions
 %%====================================================================
 
-id(BridgeType, BridgeName) ->
-    id_with_root_name(?ROOT_KEY_ACTIONS, BridgeType, BridgeName).
-
-id(BridgeType, BridgeName, ConnectorName) ->
-    id_with_root_name(?ROOT_KEY_ACTIONS, BridgeType, BridgeName, ConnectorName).
-
 source_id(BridgeType, BridgeName, ConnectorName) ->
-    id_with_root_name(?ROOT_KEY_SOURCES, BridgeType, BridgeName, ConnectorName).
+    id_with_root_and_connector_names(
+        ?global_ns, ?ROOT_KEY_SOURCES, BridgeType, BridgeName, ConnectorName
+    ).
 
-get_resource_ids(ConfRootKey, Type, Name) ->
+get_resource_ids(Namespace, ConfRootKey, Type, Name) ->
     try
         maybe
-            ChannelResId = id_with_root_name(ConfRootKey, Type, Name),
+            ChannelResId = lookup_chan_id_in_conf(Namespace, ConfRootKey, Type, Name),
             {ok, ConnResId} ?= extract_connector_id_from_bridge_v2_id(ChannelResId),
             {ok, {ConnResId, ChannelResId}}
         end
@@ -1076,10 +1157,12 @@ get_resource_ids(ConfRootKey, Type, Name) ->
             {error, Reason}
     end.
 
-id_with_root_name(RootName, BridgeType, BridgeName) ->
-    case lookup_conf(RootName, BridgeType, BridgeName) of
+lookup_chan_id_in_conf(Namespace, RootName, BridgeType, BridgeName) ->
+    case lookup_conf(Namespace, RootName, BridgeType, BridgeName) of
         #{connector := ConnectorName} ->
-            id_with_root_name(RootName, BridgeType, BridgeName, ConnectorName);
+            id_with_root_and_connector_names(
+                Namespace, RootName, BridgeType, BridgeName, ConnectorName
+            );
         {error, Reason} ->
             throw(
                 {action_source_not_found, #{
@@ -1091,24 +1174,32 @@ id_with_root_name(RootName, BridgeType, BridgeName) ->
             )
     end.
 
-id_with_root_name(RootName0, BridgeType, BridgeName, ConnectorName) ->
+id_with_root_and_connector_names(Namespace, RootName0, BridgeType, BridgeName, ConnectorName) ->
     RootName =
         case bin(RootName0) of
-            <<"actions">> -> <<"action">>;
-            <<"sources">> -> <<"source">>
+            <<"actions">> -> ?ACTION_SEG;
+            <<"sources">> -> ?SOURCE_SEG
         end,
     ConnectorType = bin(connector_type(BridgeType)),
-    <<
-        (bin(RootName))/binary,
-        ":",
-        (bin(BridgeType))/binary,
-        ":",
-        (bin(BridgeName))/binary,
-        ":connector:",
-        (bin(ConnectorType))/binary,
-        ":",
-        (bin(ConnectorName))/binary
-    >>.
+    NSTag =
+        case is_binary(Namespace) of
+            true -> iolist_to_binary([?NS_SEG, ?RES_SEP, Namespace, ?RES_SEP]);
+            false -> <<"">>
+        end,
+    iolist_to_binary([
+        NSTag,
+        bin(RootName),
+        ?RES_SEP,
+        bin(BridgeType),
+        ?RES_SEP,
+        bin(BridgeName),
+        ?RES_SEP,
+        ?CONN_SEG,
+        ?RES_SEP,
+        bin(ConnectorType),
+        ?RES_SEP,
+        bin(ConnectorName)
+    ]).
 
 connector_type(Type) ->
     %% remote call so it can be mocked
@@ -1161,22 +1252,24 @@ config_key_path_leaf_sources() ->
     [?ROOT_KEY_SOURCES, '?', '?'].
 
 %% enable or disable action
-pre_config_update([ConfRootKey, _Type, _Name], Oper, undefined) when
+pre_config_update([ConfRootKey, _Type, _Name], Oper, undefined, _ExtraContext) when
     ?ENABLE_OR_DISABLE(Oper) andalso
         (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
 ->
     {error, bridge_not_found};
-pre_config_update([ConfRootKey, _Type, _Name], {Oper, #{}}, undefined) when
+pre_config_update([ConfRootKey, _Type, _Name], {Oper, #{}}, undefined, _ExtraContext) when
     ?ENABLE_OR_DISABLE(Oper) andalso
         (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
 ->
     {error, bridge_not_found};
-pre_config_update([ConfRootKey, _Type, _Name], Oper, OldAction) when
+pre_config_update([ConfRootKey, _Type, _Name], Oper, OldAction, _ExtraContext) when
     ?ENABLE_OR_DISABLE(Oper) andalso
         (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
 ->
     {ok, OldAction#{<<"enable">> => operation_to_enable(Oper)}};
-pre_config_update([ConfRootKey, _Type, _Name], {Oper, #{now := NowMS}}, OldAction) when
+pre_config_update(
+    [ConfRootKey, _Type, _Name], {Oper, #{now := NowMS}}, OldAction, _ExtraContext
+) when
     ?ENABLE_OR_DISABLE(Oper) andalso
         (ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES)
 ->
@@ -1187,33 +1280,36 @@ pre_config_update([ConfRootKey, _Type, _Name], {Oper, #{now := NowMS}}, OldActio
     {ok, Action};
 %% Updates a single action from a specific HTTP API.
 %% If the connector is not found, the update operation fails.
-pre_config_update([ConfRootKey, Type, Name], Conf = #{}, _OldConf) when
+pre_config_update([ConfRootKey, Type, Name], Conf = #{}, _OldConf, ExtraContext) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    convert_from_connector(ConfRootKey, Type, Name, Conf);
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    convert_from_connector(Namespace, ConfRootKey, Type, Name, Conf);
 %% Batch updates actions when importing a configuration or executing a CLI command.
 %% Update succeeded even if the connector is not found, alarm in post_config_update
-pre_config_update([ConfRootKey], Conf = #{}, OldConfs) when
+pre_config_update([ConfRootKey], Conf = #{}, OldConfs, ExtraContext) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS orelse ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    {ok, convert_from_connectors(ConfRootKey, Conf, OldConfs)}.
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    {ok, convert_from_connectors(Namespace, ConfRootKey, Conf, OldConfs)}.
 
 %% This top level handler will be triggered when the actions path is updated
 %% with calls to emqx_conf:update([actions], BridgesConf, #{}).
-post_config_update([ConfRootKey], _Req, NewConf, OldConf, _AppEnv) when
+post_config_update([ConfRootKey], _Req, NewConf, OldConf, _AppEnv, ExtraContext) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS; ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
     #{added := Added, removed := Removed, changed := Updated} =
         diff_confs(NewConf, OldConf),
     RemoveFun = fun(Type, Name, Conf) ->
-        uninstall_bridge_v2(ConfRootKey, Type, Name, Conf)
+        uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, Conf)
     end,
     CreateFun = fun(Type, Name, Conf) ->
-        install_bridge_v2(ConfRootKey, Type, Name, Conf)
+        install_bridge_v2(Namespace, ConfRootKey, Type, Name, Conf)
     end,
     UpdateFun = fun(Type, Name, {OldBridgeConf, Conf}) ->
-        _ = uninstall_bridge_v2(ConfRootKey, Type, Name, OldBridgeConf),
-        install_bridge_v2(ConfRootKey, Type, Name, Conf)
+        _ = uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, OldBridgeConf),
+        install_bridge_v2(Namespace, ConfRootKey, Type, Name, Conf)
     end,
     Result = perform_bridge_changes([
         #{action => RemoveFun, action_name => remove, data => Removed},
@@ -1221,55 +1317,64 @@ post_config_update([ConfRootKey], _Req, NewConf, OldConf, _AppEnv) when
             action => CreateFun,
             action_name => create,
             data => Added,
-            on_exception_fn => fun emqx_bridge_resource:remove/4
+            on_exception_fn => fun(Type, Name, Conf, _Opts) ->
+                RemoveFun(Type, Name, Conf)
+            end
         },
         #{action => UpdateFun, action_name => update, data => Updated}
     ]),
-    reload_message_publish_hook(NewConf),
+    reload_message_publish_hook(#{Namespace => NewConf}),
     ?tp(bridge_post_config_update_done, #{}),
     Result;
 %% Don't crash even when the bridge is not found
-post_config_update([ConfRootKey, Type, Name], '$remove', _, _OldConf, _AppEnvs) when
+post_config_update([ConfRootKey, Type, Name], '$remove', _, _OldConf, _AppEnvs, ExtraContext) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS; ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    AllBridges = emqx:get_config([ConfRootKey]),
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    AllBridges = get_config(Namespace, [ConfRootKey], #{}),
     case emqx_utils_maps:deep_get([Type, Name], AllBridges, undefined) of
         undefined ->
             ok;
         Action ->
-            ok = uninstall_bridge_v2(ConfRootKey, Type, Name, Action),
+            ok = uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, Action),
             Bridges = emqx_utils_maps:deep_remove([Type, Name], AllBridges),
-            reload_message_publish_hook(Bridges)
+            reload_message_publish_hook(#{Namespace => Bridges})
     end,
     ?tp(bridge_post_config_update_done, #{}),
     ok;
 %% Create a single bridge fails if the connector is not found (already checked in pre_config_update)
-post_config_update([ConfRootKey, BridgeType, BridgeName], _Req, NewConf, undefined, _AppEnvs) when
+post_config_update(
+    [ConfRootKey, BridgeType, BridgeName], _Req, NewConf, undefined, _AppEnvs, ExtraContext
+) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS; ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    ok = install_bridge_v2(ConfRootKey, BridgeType, BridgeName, NewConf),
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    ok = install_bridge_v2(Namespace, ConfRootKey, BridgeType, BridgeName, NewConf),
+    PreviousConfig = get_config(Namespace, [ConfRootKey], #{}),
     Bridges = emqx_utils_maps:deep_put(
-        [BridgeType, BridgeName], emqx:get_config([ConfRootKey]), NewConf
+        [BridgeType, BridgeName], PreviousConfig, NewConf
     ),
-    reload_message_publish_hook(Bridges),
+    reload_message_publish_hook(#{Namespace => Bridges}),
     ?tp(bridge_post_config_update_done, #{}),
     ok;
 %% update bridges fails if the connector is not found (already checked in pre_config_update)
-post_config_update([ConfRootKey, BridgeType, BridgeName], _Req, NewConf, OldConf, _AppEnvs) when
+post_config_update(
+    [ConfRootKey, BridgeType, BridgeName], _Req, NewConf, OldConf, _AppEnvs, ExtraContext
+) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS; ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
-    case uninstall_bridge_v2(ConfRootKey, BridgeType, BridgeName, OldConf) of
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    case uninstall_bridge_v2(Namespace, ConfRootKey, BridgeType, BridgeName, OldConf) of
         ok ->
             ok;
         {error, not_found} ->
             %% Should not happen, unless config is inconsistent.
             throw(<<"Referenced connector not found">>)
     end,
-    ok = install_bridge_v2(ConfRootKey, BridgeType, BridgeName, NewConf),
-    Bridges = emqx_utils_maps:deep_put(
-        [BridgeType, BridgeName], emqx:get_config([ConfRootKey]), NewConf
-    ),
-    reload_message_publish_hook(Bridges),
+    ok = install_bridge_v2(Namespace, ConfRootKey, BridgeType, BridgeName, NewConf),
+    PreviousRootConf = get_config(Namespace, [ConfRootKey], #{}),
+    Bridges = emqx_utils_maps:deep_put([BridgeType, BridgeName], PreviousRootConf, NewConf),
+    reload_message_publish_hook(#{Namespace => Bridges}),
     ?tp(bridge_post_config_update_done, #{}),
     ok.
 
@@ -1376,7 +1481,7 @@ bridge_v1_is_valid(?ROOT_KEY_SOURCES, rabbitmq, _BridgeName) ->
     false;
 bridge_v1_is_valid(ConfRootKey, BridgeV1Type, BridgeName) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    case lookup_conf(ConfRootKey, BridgeV2Type, BridgeName) of
+    case lookup_conf(?global_ns, ConfRootKey, BridgeV2Type, BridgeName) of
         {error, _} ->
             %% If the bridge v2 does not exist, it is a valid bridge v1
             true;
@@ -1400,7 +1505,10 @@ is_bridge_v2_type(Type) ->
     emqx_action_info:is_action_type(Type).
 
 bridge_v1_list_and_transform() ->
+    %% deprecated, legacy V1 shall not support namespaced resources.
+    GlobalNamespace = ?global_ns,
     BridgesFromActions0 = list_with_lookup_fun(
+        GlobalNamespace,
         ?ROOT_KEY_ACTIONS,
         fun bridge_v1_lookup_and_transform/2
     ),
@@ -1411,6 +1519,7 @@ bridge_v1_list_and_transform() ->
     ],
     FromActionsNames = maps:from_keys([Name || #{name := Name} <- BridgesFromActions1], true),
     BridgesFromSources0 = list_with_lookup_fun(
+        GlobalNamespace,
         ?ROOT_KEY_SOURCES,
         fun bridge_v1_lookup_and_transform/2
     ),
@@ -1456,10 +1565,11 @@ bridge_v1_lookup_and_transform(ActionType, Name) ->
             Error
     end.
 
+%% legacy bridge v1 helper
 lookup_in_actions_or_sources(ActionType, Name) ->
-    case lookup(?ROOT_KEY_ACTIONS, ActionType, Name) of
+    case lookup(?global_ns, ?ROOT_KEY_ACTIONS, ActionType, Name) of
         {error, not_found} ->
-            case lookup(?ROOT_KEY_SOURCES, ActionType, Name) of
+            case lookup(?global_ns, ?ROOT_KEY_SOURCES, ActionType, Name) of
                 {ok, SourceInfo} ->
                     {ok, ?ROOT_KEY_SOURCES, SourceInfo};
                 Error ->
@@ -1506,9 +1616,9 @@ bridge_v1_lookup_and_transform_helper(
     ResourceData2 = maps:put(id, BridgeV1Id, ResourceData1),
     ConnectorStatus = maps:get(status, ResourceData2, undefined),
     case ConnectorStatus of
-        connected ->
+        ?status_connected ->
             case BridgeV2Status of
-                connected ->
+                ?status_connected ->
                     %% No need to modify the status
                     {ok, BridgeV1#{resource_data => ResourceData2}};
                 NotConnected ->
@@ -1522,12 +1632,18 @@ bridge_v1_lookup_and_transform_helper(
             {ok, BridgeV1#{resource_data => ResourceData2}}
     end.
 
-lookup_conf(Type, Name) ->
-    lookup_conf(?ROOT_KEY_ACTIONS, Type, Name).
+lookup_conf(Namespace, RootName, Type, Name) ->
+    case get_config(Namespace, [RootName, Type, Name], not_found) of
+        not_found ->
+            {error, bridge_not_found};
+        Config ->
+            Config
+    end.
 
+%% helper for deprecated bridge v1 api
 lookup_conf_if_exists_in_exactly_one_of_sources_and_actions(Type, Name) ->
-    LookUpConfActions = lookup_conf(?ROOT_KEY_ACTIONS, Type, Name),
-    LookUpConfSources = lookup_conf(?ROOT_KEY_SOURCES, Type, Name),
+    LookUpConfActions = lookup_conf(?global_ns, ?ROOT_KEY_ACTIONS, Type, Name),
+    LookUpConfSources = lookup_conf(?global_ns, ?ROOT_KEY_SOURCES, Type, Name),
     case {LookUpConfActions, LookUpConfSources} of
         {{error, bridge_not_found}, {error, bridge_not_found}} ->
             {error, bridge_not_found};
@@ -1539,9 +1655,10 @@ lookup_conf_if_exists_in_exactly_one_of_sources_and_actions(Type, Name) ->
             {error, name_conflict_sources_actions}
     end.
 
+%% helper for deprecated bridge v1 api
 is_only_source(BridgeType, BridgeName) ->
-    LookUpConfActions = lookup_conf(?ROOT_KEY_ACTIONS, BridgeType, BridgeName),
-    LookUpConfSources = lookup_conf(?ROOT_KEY_SOURCES, BridgeType, BridgeName),
+    LookUpConfActions = lookup_conf(?global_ns, ?ROOT_KEY_ACTIONS, BridgeType, BridgeName),
+    LookUpConfSources = lookup_conf(?global_ns, ?ROOT_KEY_SOURCES, BridgeType, BridgeName),
     case {LookUpConfActions, LookUpConfSources} of
         {{error, bridge_not_found}, {error, bridge_not_found}} ->
             false;
@@ -1553,9 +1670,9 @@ is_only_source(BridgeType, BridgeName) ->
             false
     end.
 
-get_conf_root_key_if_only_one(BridgeType, BridgeName) ->
-    LookUpConfActions = lookup_conf(?ROOT_KEY_ACTIONS, BridgeType, BridgeName),
-    LookUpConfSources = lookup_conf(?ROOT_KEY_SOURCES, BridgeType, BridgeName),
+get_conf_root_key_if_only_one(Namespace, BridgeType, BridgeName) ->
+    LookUpConfActions = lookup_conf(Namespace, ?ROOT_KEY_ACTIONS, BridgeType, BridgeName),
+    LookUpConfSources = lookup_conf(Namespace, ?ROOT_KEY_SOURCES, BridgeType, BridgeName),
     case {LookUpConfActions, LookUpConfSources} of
         {{error, bridge_not_found}, {error, bridge_not_found}} ->
             error({action_or_source_not_found, BridgeType, BridgeName});
@@ -1565,14 +1682,6 @@ get_conf_root_key_if_only_one(BridgeType, BridgeName) ->
             ?ROOT_KEY_ACTIONS;
         {_Conf1, _Conf2} ->
             error({name_clash_action_source, BridgeType, BridgeName})
-    end.
-
-lookup_conf(RootName, Type, Name) ->
-    case emqx:get_config([RootName, Type, Name], not_found) of
-        not_found ->
-            {error, bridge_not_found};
-        Config ->
-            Config
     end.
 
 bridge_v1_split_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
@@ -1590,7 +1699,9 @@ bridge_v1_split_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
                 true ->
                     %% Using remove + create as update, hence do not delete deps.
                     RemoveDeps = [],
-                    ConfRootKey = get_conf_root_key_if_only_one(BridgeV2Type, BridgeName),
+                    ConfRootKey = get_conf_root_key_if_only_one(
+                        ?global_ns, BridgeV2Type, BridgeName
+                    ),
                     PreviousRawConf = emqx:get_raw_config(
                         [ConfRootKey, BridgeV2Type, BridgeName], undefined
                     ),
@@ -1617,7 +1728,7 @@ split_bridge_v1_config_and_create_helper(
             connector_name := NewConnectorName,
             connector_conf := NewConnectorRawConf,
             bridge_v2_type := BridgeType,
-            bridge_v2_name := BridgeName,
+            bridge_v2_name := BridgeV2Name,
             bridge_v2_conf := NewBridgeV2RawConf,
             conf_root_key := ConfRootName
         } = split_and_validate_bridge_v1_config(
@@ -1627,14 +1738,13 @@ split_bridge_v1_config_and_create_helper(
             PreviousRawConf
         ),
         _ = PreCreateFun(),
-
         do_connector_and_bridge_create(
             ConfRootName,
             ConnectorType,
             NewConnectorName,
             NewConnectorRawConf,
             BridgeType,
-            BridgeName,
+            BridgeV2Name,
             NewBridgeV2RawConf,
             RawConf
         )
@@ -1643,6 +1753,7 @@ split_bridge_v1_config_and_create_helper(
             {error, Reason}
     end.
 
+%% legacy bridge v1 helper
 do_connector_and_bridge_create(
     ConfRootName,
     ConnectorType,
@@ -1655,7 +1766,15 @@ do_connector_and_bridge_create(
 ) ->
     case emqx_connector:create(?global_ns, ConnectorType, NewConnectorName, NewConnectorRawConf) of
         {ok, _} ->
-            case create(ConfRootName, BridgeType, BridgeName, NewBridgeV2RawConf) of
+            case
+                create(
+                    ?global_ns,
+                    ConfRootName,
+                    BridgeType,
+                    BridgeName,
+                    NewBridgeV2RawConf
+                )
+            of
                 {ok, _} = Result ->
                     Result;
                 {error, Reason1} ->
@@ -1694,7 +1813,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
     },
     ConfRootKeyPrevRawConf =
         case PreviousRawConf =/= undefined of
-            true -> get_conf_root_key_if_only_one(BridgeV2Type, BridgeName);
+            true -> get_conf_root_key_if_only_one(?global_ns, BridgeV2Type, BridgeName);
             false -> not_used
         end,
     FakeGlobalConfig =
@@ -1713,7 +1832,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
     NewBridgeV2RawConf =
         emqx_utils_maps:deep_get(
             [
-                ConfRootKey,
+                bin(ConfRootKey),
                 bin(BridgeV2Type),
                 bin(BridgeName)
             ],
@@ -1721,7 +1840,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
         ),
     ConnectorName = emqx_utils_maps:deep_get(
         [
-            ConfRootKey,
+            bin(ConfRootKey),
             bin(BridgeV2Type),
             bin(BridgeName),
             <<"connector">>
@@ -1783,13 +1902,15 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
     end.
 
 get_conf_root_key(#{<<"actions">> := _}) ->
-    <<"actions">>;
+    ?ROOT_KEY_ACTIONS;
 get_conf_root_key(#{<<"sources">> := _}) ->
-    <<"sources">>;
+    ?ROOT_KEY_SOURCES;
 get_conf_root_key(_NoMatch) ->
     error({incompatible_bridge_v1, no_action_or_source}).
 
 bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
+    %% deprecated, legacy V1 shall not support namespaced resources.
+    GlobalNamespace = ?global_ns,
     RawConf = maps:without([<<"name">>], RawConfig0),
     TmpName = ?PROBE_ID_NEW(),
     PreviousRawConf = undefined,
@@ -1807,7 +1928,11 @@ bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
             BridgeType, ConnectorRawConf, BridgeV2RawConf0
         ),
         create_dry_run_helper(
-            ensure_atom_root_key(ConfRootKey), BridgeV2Type, ConnectorRawConf, BridgeV2RawConf
+            GlobalNamespace,
+            ensure_atom_root_key(ConfRootKey),
+            BridgeV2Type,
+            ConnectorRawConf,
+            BridgeV2RawConf
         )
     catch
         throw:Reason ->
@@ -1828,8 +1953,8 @@ bridge_v1_remove(
     Name,
     #{connector := ConnectorName}
 ) ->
-    ConfRootKey = get_conf_root_key_if_only_one(ActionType, Name),
-    case remove(ConfRootKey, ActionType, Name) of
+    ConfRootKey = get_conf_root_key_if_only_one(?global_ns, ActionType, Name),
+    case remove(?global_ns, ConfRootKey, ActionType, Name) of
         ok ->
             ConnectorType = connector_type(ActionType),
             emqx_connector:remove(?global_ns, ConnectorType, ConnectorName);
@@ -1865,8 +1990,8 @@ bridge_v1_check_deps_and_remove(
     RemoveConnector = lists:member(connector, RemoveDeps),
     case maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps) of
         ok ->
-            ConfRootKey = get_conf_root_key_if_only_one(BridgeType, BridgeName),
-            case remove(ConfRootKey, BridgeType, BridgeName) of
+            ConfRootKey = get_conf_root_key_if_only_one(?global_ns, BridgeType, BridgeName),
+            case remove(?global_ns, ConfRootKey, BridgeType, BridgeName) of
                 ok when RemoveConnector ->
                     maybe_delete_channels(BridgeType, BridgeName, ConnectorName);
                 ok ->
@@ -1881,6 +2006,7 @@ bridge_v1_check_deps_and_remove(_BridgeType, _BridgeName, _RemoveDeps, Error) ->
     %% TODO: the connector is gone, for whatever reason, maybe call remove/2 anyway?
     Error.
 
+%% helper for deprecated bridge v1 api
 maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps) ->
     case is_only_source(BridgeType, BridgeName) of
         true ->
@@ -1889,6 +2015,7 @@ maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps) ->
             emqx_bridge_lib:maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps)
     end.
 
+%% Only used by legacy bridge v1 helpers
 maybe_delete_channels(BridgeType, BridgeName, ConnectorName) ->
     case connector_has_channels(BridgeType, ConnectorName) of
         true ->
@@ -1910,6 +2037,7 @@ maybe_delete_channels(BridgeType, BridgeName, ConnectorName) ->
             end
     end.
 
+%% Only used by legacy bridge v1 helpers
 connector_has_channels(BridgeV2Type, ConnectorName) ->
     ConnectorType = connector_type(BridgeV2Type),
     case emqx_connector_resource:get_channels(?global_ns, ConnectorType, ConnectorName) of
@@ -1926,14 +2054,14 @@ bridge_v1_id_to_connector_resource_id(ConfRootKey, BridgeId) ->
     [Type, Name] = binary:split(BridgeId, <<":">>),
     BridgeV2Type = bin(bridge_v1_type_to_bridge_v2_type(Type)),
     ConnectorName =
-        case lookup_conf(ConfRootKey, BridgeV2Type, Name) of
+        case lookup_conf(?global_ns, ConfRootKey, BridgeV2Type, Name) of
             #{connector := Con} ->
                 Con;
             {error, Reason} ->
                 throw(Reason)
         end,
     ConnectorType = bin(connector_type(BridgeV2Type)),
-    <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>.
+    iolist_to_binary([?CONN_SEG, ?RES_SEP, ConnectorType, ?RES_SEP, ConnectorName]).
 
 bridge_v1_enable_disable(Action, BridgeType, BridgeName) ->
     case emqx_bridge_v2:bridge_v1_is_valid(BridgeType, BridgeName) of
@@ -1954,13 +2082,15 @@ bridge_v1_enable_disable_helper(enable, BridgeType, BridgeName, #{connector := C
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeType),
     ConnectorType = connector_type(BridgeV2Type),
     {ok, _} = emqx_connector:disable_enable(?global_ns, enable, ConnectorType, ConnectorName),
-    ConfRootKey = get_conf_root_key_if_only_one(BridgeType, BridgeName),
-    emqx_bridge_v2:disable_enable(ConfRootKey, enable, BridgeV2Type, BridgeName);
+    ConfRootKey = get_conf_root_key_if_only_one(?global_ns, BridgeType, BridgeName),
+    emqx_bridge_v2:disable_enable(?global_ns, ConfRootKey, enable, BridgeV2Type, BridgeName);
 bridge_v1_enable_disable_helper(disable, BridgeType, BridgeName, #{connector := ConnectorName}) ->
     BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeType),
     ConnectorType = connector_type(BridgeV2Type),
-    ConfRootKey = get_conf_root_key_if_only_one(BridgeType, BridgeName),
-    {ok, _} = emqx_bridge_v2:disable_enable(ConfRootKey, disable, BridgeV2Type, BridgeName),
+    ConfRootKey = get_conf_root_key_if_only_one(?global_ns, BridgeType, BridgeName),
+    {ok, _} = emqx_bridge_v2:disable_enable(
+        ?global_ns, ConfRootKey, disable, BridgeV2Type, BridgeName
+    ),
     emqx_connector:disable_enable(?global_ns, disable, ConnectorType, ConnectorName).
 
 bridge_v1_restart(BridgeV1Type, Name) ->
@@ -1982,11 +2112,14 @@ bridge_v1_start(BridgeV1Type, Name) ->
     bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, true).
 
 bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, DoHealthCheck) ->
+    %% deprecated, legacy V1 shall not support namespaced resources.
+    GlobalNamespace = ?global_ns,
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
     case emqx_bridge_v2:bridge_v1_is_valid(BridgeV1Type, Name) of
         true ->
-            ConfRootKey = get_conf_root_key_if_only_one(BridgeV2Type, Name),
+            ConfRootKey = get_conf_root_key_if_only_one(GlobalNamespace, BridgeV2Type, Name),
             connector_operation_helper_with_conf(
+                GlobalNamespace,
                 ConfRootKey,
                 BridgeV2Type,
                 Name,
@@ -2001,9 +2134,9 @@ bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, DoHealthCheck) ->
 bridge_v1_reset_metrics(BridgeV1Type, BridgeName) ->
     BridgeV2Type = bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
     ConfRootKey = get_conf_root_key_if_only_one(
-        BridgeV2Type, BridgeName
+        ?global_ns, BridgeV2Type, BridgeName
     ),
-    ok = reset_metrics(ConfRootKey, BridgeV2Type, BridgeName).
+    ok = reset_metrics(?global_ns, ConfRootKey, BridgeV2Type, BridgeName).
 
 %%====================================================================
 %% Misc helper functions
@@ -2017,14 +2150,7 @@ bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 
 extract_connector_id_from_bridge_v2_id(Id) ->
-    case binary:split(Id, <<":">>, [global]) of
-        [<<"action">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
-            {ok, <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>};
-        [<<"source">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
-            {ok, <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>};
-        _X ->
-            {error, iolist_to_binary(io_lib:format("Invalid action ID: ~p", [Id]))}
-    end.
+    emqx_resource:parse_connector_id_from_channel_id(Id).
 
 ensure_atom_root_key(ConfRootKey) when is_atom(ConfRootKey) ->
     ConfRootKey;
@@ -2039,13 +2165,14 @@ to_existing_atom(X) ->
         {error, _} -> throw(bad_atom)
     end.
 
-referenced_connectors_exist(BridgeType, ConnectorNameBin, BridgeName) ->
+referenced_connectors_exist(Namespace, BridgeType, ConnectorNameBin, BridgeName) ->
     %% N.B.: assumes that, for all bridgeV2 types, the name of the bridge type is
     %% identical to its matching connector type name.
-    case get_connector_info(ConnectorNameBin, BridgeType) of
+    case get_connector_info(Namespace, ConnectorNameBin, BridgeType) of
         {error, not_found} ->
             {error, #{
                 reason => "connector_not_found_or_wrong_type",
+                namespace => Namespace,
                 connector_name => ConnectorNameBin,
                 bridge_name => BridgeName,
                 bridge_type => BridgeType
@@ -2054,7 +2181,7 @@ referenced_connectors_exist(BridgeType, ConnectorNameBin, BridgeName) ->
             ok
     end.
 
-convert_from_connectors(ConfRootKey, Conf, OldRootConfig) ->
+convert_from_connectors(Namespace, ConfRootKey, Conf, OldRootConfig) ->
     maps:map(
         fun(ActionType, Actions) ->
             maps:map(
@@ -2063,7 +2190,11 @@ convert_from_connectors(ConfRootKey, Conf, OldRootConfig) ->
                     Action = ensure_last_modified_at(
                         Action1, ActionType, ActionName, OldRootConfig
                     ),
-                    case convert_from_connector(ConfRootKey, ActionType, ActionName, Action) of
+                    case
+                        convert_from_connector(
+                            Namespace, ConfRootKey, ActionType, ActionName, Action
+                        )
+                    of
                         {ok, NewAction} -> NewAction;
                         {error, _} -> Action
                     end
@@ -2074,8 +2205,9 @@ convert_from_connectors(ConfRootKey, Conf, OldRootConfig) ->
         Conf
     ).
 
-convert_from_connector(ConfRootKey, Type, Name, Action = #{<<"connector">> := ConnectorName}) ->
-    case get_connector_info(ConnectorName, Type) of
+convert_from_connector(Namespace, ConfRootKey, Type, Name, Action) ->
+    #{<<"connector">> := ConnectorName} = Action,
+    case get_connector_info(Namespace, ConnectorName, Type) of
         {ok, Connector} ->
             TypeAtom = to_existing_atom(Type),
             Action1 = emqx_action_info:action_convert_from_connector(TypeAtom, Connector, Action),
@@ -2108,12 +2240,12 @@ ensure_created_at(RawConfig) when is_map_key(<<"created_at">>, RawConfig) ->
 ensure_created_at(RawConfig) ->
     RawConfig#{<<"created_at">> => now_ms()}.
 
-get_connector_info(ConnectorNameBin, BridgeType) ->
+get_connector_info(Namespace, ConnectorNameBin, BridgeType) ->
     case to_connector(ConnectorNameBin, BridgeType) of
         {error, not_found} ->
             {error, not_found};
         {ConnectorName, ConnectorType} ->
-            case emqx_config:get_raw([connectors, ConnectorType, ConnectorName], undefined) of
+            case get_raw_config(Namespace, [connectors, ConnectorType, ConnectorName], undefined) of
                 undefined -> {error, not_found};
                 Connector -> {ok, Connector}
             end
@@ -2148,3 +2280,22 @@ alarm_connector_not_found(ActionType, ActionName, ConnectorName) ->
 
 now_ms() ->
     erlang:system_time(millisecond).
+
+get_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
+    emqx:get_namespaced_config(Namespace, KeyPath, Default);
+get_config(?global_ns, KeyPath, Default) ->
+    emqx:get_config(KeyPath, Default).
+
+get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
+    emqx:get_raw_namespaced_config(Namespace, KeyPath, Default);
+get_raw_config(?global_ns, KeyPath, Default) ->
+    emqx:get_raw_config(KeyPath, Default).
+
+with_namespace(UpdateOpts, ?global_ns) ->
+    UpdateOpts;
+with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
+    UpdateOpts#{namespace => Namespace}.
+
+get_root_config_from_all_namespaces(RootKey, Default) ->
+    NamespacedConfigs = emqx_config:get_root_from_all_namespaces(RootKey, Default),
+    NamespacedConfigs#{?global_ns => emqx:get_config([RootKey], Default)}.

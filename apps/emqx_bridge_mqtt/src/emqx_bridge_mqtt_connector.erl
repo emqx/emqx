@@ -495,7 +495,7 @@ mk_ingress_config(
     emqx_bridge_mqtt_ingress:config(NewConf, ChannelId, TopicToHandlerIndex).
 
 mk_ecpool_client_opts(
-    ResourceId,
+    ConnResId,
     Config = #{
         connect_timeout := ConnectTimeoutS,
         server := Server,
@@ -521,20 +521,20 @@ mk_ecpool_client_opts(
         ],
         Config
     ),
-    Name = parse_id_to_name(ResourceId),
+    #{
+        name := Name,
+        namespace := Namespace
+    } =
+        emqx_connector_resource:parse_connector_id(ConnResId, #{atom_name => false}),
     mk_client_opt_password(Options#{
         hosts => [HostPort],
-        clientid => clientid(Name, Config),
+        clientid => clientid(Namespace, Name, Config),
         connect_timeout => ConnectTimeoutS,
         keepalive => ms_to_s(KeepAlive),
         force_ping => true,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))
     }).
-
-parse_id_to_name(Id) ->
-    {_Type, Name} = emqx_connector_resource:parse_connector_id(Id, #{atom_name => false}),
-    Name.
 
 mk_client_opt_password(Options = #{password := Secret}) ->
     %% TODO: Teach `emqtt` to accept 0-arity closures as passwords.
@@ -545,12 +545,19 @@ mk_client_opt_password(Options) ->
 ms_to_s(Ms) ->
     erlang:ceil(Ms / 1000).
 
-clientid(Name, _Conf = #{clientid_prefix := Prefix}) when
+clientid(Namespace, Name0, _Conf = #{clientid_prefix := Prefix}) when
     is_binary(Prefix) andalso Prefix =/= <<>>
 ->
+    Name = maybe_prefix_namespce(Namespace, Name0),
     {Prefix, emqx_bridge_mqtt_lib:clientid_base(Name)};
-clientid(Name, _Conf) ->
+clientid(Namespace, Name0, _Conf) ->
+    Name = maybe_prefix_namespce(Namespace, Name0),
     {?NO_PREFIX, emqx_bridge_mqtt_lib:clientid_base(Name)}.
+
+maybe_prefix_namespce(Namespace, Name) when is_binary(Namespace) ->
+    <<Namespace/binary, ":", Name/binary>>;
+maybe_prefix_namespce(_Namespace, Name) ->
+    Name.
 
 %% @doc Start an ingress bridge worker.
 -spec connect([option() | {ecpool_worker_id, pos_integer()}]) ->
