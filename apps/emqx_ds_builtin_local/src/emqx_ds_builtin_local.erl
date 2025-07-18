@@ -17,6 +17,7 @@
     close_db/1,
     add_generation/1,
     update_db_config/2,
+    list_shards/1,
     shard_of/2,
     list_generations_with_lifetimes/1,
     drop_generation/2,
@@ -401,6 +402,9 @@ shard_of_operation(DB, {_, #message_matcher{from = From, topic = Topic}}, Serial
     shard_of(DB, Key);
 shard_of_operation(_DB, #ds_tx{ctx = #kv_tx_ctx{shard = Shard}}, _SerializeBy, _Options) ->
     Shard.
+
+list_shards(DB) ->
+    emqx_ds_builtin_local_meta:shards(DB).
 
 shard_of(DB, Key) ->
     N = emqx_ds_builtin_local_meta:n_shards(DB),
