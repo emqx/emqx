@@ -612,7 +612,8 @@ t_mixed_qos_subscription_mode_switch(_Config) ->
     CSub2 = start_connect_client(#{clientid => CIDSub, clean_start => false}),
     Received1 = emqx_common_test_helpers:wait_publishes(4, 5_000),
     Received = Received0 ++ Received1,
-    ?assertNotReceive(_),
+    %% Verify that there are no duplicate messages:
+    ?assertNotReceive(_, 300, emqx_persistent_session_ds_state:print_session(CIDSub)),
     ReceivedS1 = [M || M = #{properties := #{?PROP_SUBID := 1}} <- Received],
     ReceivedS2 = [M || M = #{properties := #{?PROP_SUBID := 2}} <- Received],
     %% Subscription 1 messages preserve per-topic publishing order.
