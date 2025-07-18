@@ -9,6 +9,7 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
+    ok = emqx_mq_db:open(),
     {ok, Sup} = emqx_mq_sup:start_link(),
     ok = emqx_mq:register_hooks(),
     {ok, Sup}.

@@ -22,6 +22,11 @@ defmodule EMQXMQ.MixProject do
   end
 
   def deps() do
-    [{:emqx, in_umbrella: true}, {:emqx_utils, in_umbrella: true}, UMP.common_dep(:gproc)]
+    [
+      {:emqx, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true},
+      {:emqx_durable_storage, in_umbrella: true},
+      UMP.common_dep(:gproc)
+    ]
   end
 end

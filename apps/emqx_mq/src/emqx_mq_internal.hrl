@@ -17,6 +17,17 @@
 -define(MQ_PING_SUBSCRIBER(SUBSCRIBER_REF), {mq_ping, SUBSCRIBER_REF}).
 -define(MQ_SUB_INFO(SUBSCRIBER_REF, MESSAGE), {mq_sub_info, SUBSCRIBER_REF, MESSAGE}).
 
+-define(MQ_PAYLOAD_DB, mq_payload).
+-define(MQ_PAYLOAD_DB_APPEND_RETRY, 5).
+
+-define(MQ_PAYLOAD_DB_LTS_SETTINGS, #{
+    %% "topic/TOPIC/key/СOMPACTION_KEY"
+    lts_threshold_spec => {simple, {100, 0, 100, 0, 100}}
+}).
+-define(MQ_PAYLOAD_DB_TOPIC(MQ_TOPIC, COMPACTION_KEY), [
+    <<"topic">>, MQ_TOPIC, <<"key">>, COMPACTION_KEY
+]).
+
 %% TODO
 %% configurable
 

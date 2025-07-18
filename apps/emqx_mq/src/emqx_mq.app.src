@@ -3,7 +3,7 @@
     {vsn, "0.1.0"},
     {registered, []},
     {mod, {emqx_mq_app, []}},
-    {applications, [kernel, stdlib, gproc, emqx]},
+    {applications, [kernel, stdlib, gproc, emqx, emqx_durable_storage]},
     {env, []},
     {modules, []},
     {links, []}
