@@ -1,0 +1,11 @@
+%% -*- mode: erlang -*-
+{application, emqx_durable_timer, [
+    {description, "Timers that survive node restart"},
+    % strict semver, bump manually!
+    {vsn, "0.0.1"},
+    {modules, []},
+    {registered, []},
+    {applications, [kernel, stdlib, crypto, gproc, optvar, emqx_ds_backends]},
+    {mod, {emqx_durable_timer_app, []}},
+    {env, []}
+]}.
