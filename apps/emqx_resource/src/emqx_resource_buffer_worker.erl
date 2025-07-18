@@ -206,7 +206,7 @@ simple_sync_query(Id, Request, QueryOpts0) ->
     emqx_resource_metrics:matched_inc(Id),
     ReplyTo = maps:get(reply_to, QueryOpts0, undefined),
     RequestContext = request_context(QueryOpts0),
-    TraceCtx = maps:get(trace_ctx, QueryOpts0, undefined),
+    TraceCtx = maps:get(trace_ctx, QueryOpts0, #{}),
     Query = ?SIMPLE_QUERY(ReplyTo, Request, RequestContext, TraceCtx),
     Result = call_query(
         force_sync,
@@ -227,7 +227,7 @@ simple_async_query(Id, Request, QueryOpts0) ->
     emqx_resource_metrics:matched_inc(Id),
     ReplyTo = maps:get(reply_to, QueryOpts0, undefined),
     RequestContext = request_context(QueryOpts0),
-    TraceCtx = maps:get(trace_ctx, QueryOpts0, undefined),
+    TraceCtx = maps:get(trace_ctx, QueryOpts0, #{}),
     Query = ?SIMPLE_QUERY(ReplyTo, Request, RequestContext, TraceCtx),
     Result = call_query(async_if_possible, Id, ?NO_INDEX, ?NO_REQ_REF, Query, QueryOpts),
     _ = handle_simple_query_result(Id, Query, Result, _HasBeenSent = false),
@@ -612,13 +612,13 @@ collect_and_enqueue_query_requests(Request0, Data0) ->
                     HasBeenSent = false,
                     ExpireAt = maps:get(expire_at, Opts),
                     RequestContext = request_context(Opts),
-                    TraceCtx = maps:get(trace_ctx, Opts, undefined),
+                    TraceCtx = maps:get(trace_ctx, Opts, #{}),
                     ?QUERY(ReplyFun, Req, HasBeenSent, ExpireAt, RequestContext, TraceCtx);
                 (?SEND_REQ(ReplyTo, #query{request = Req, query_opts = Opts})) ->
                     HasBeenSent = false,
                     ExpireAt = maps:get(expire_at, Opts),
                     RequestContext = request_context(Opts),
-                    TraceCtx = maps:get(trace_ctx, Opts, undefined),
+                    TraceCtx = maps:get(trace_ctx, Opts, #{}),
                     ?QUERY(ReplyTo, Req, HasBeenSent, ExpireAt, RequestContext, TraceCtx)
             end,
             Requests
@@ -1078,7 +1078,7 @@ handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, T
             error,
             "ERROR",
             "resource_exception",
-            (trace_ctx_map(TraceCtx))#{info => emqx_utils:redact(Msg)}
+            TraceCtx#{info => emqx_utils:redact(Msg)}
         ),
         ok
     end,
@@ -1093,7 +1093,7 @@ handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent, Tr
             error,
             "ERROR",
             "resource_not_found",
-            (trace_ctx_map(TraceCtx))#{id => Id, info => Msg}
+            TraceCtx#{id => Id, info => Msg}
         ),
         maybe_trigger_fallback_actions(Id, ResultContext),
         ok
@@ -1101,14 +1101,14 @@ handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent, Tr
     {?ack, PostFn, #{dropped_resource_not_found => 1}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasBeenSent, TraceCtx) ->
     PostFn = fun(ResultContext) ->
-        ?TRACE(error, "ERROR", "resource_stopped", (trace_ctx_map(TraceCtx))#{id => Id, info => Msg}),
+        ?TRACE(error, "ERROR", "resource_stopped", TraceCtx#{id => Id, info => Msg}),
         maybe_trigger_fallback_actions(Id, ResultContext),
         ok
     end,
     {?ack, PostFn, #{dropped_resource_stopped => 1}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent, TraceCtx) ->
     PostFn = fun(_ResultContext) ->
-        ?TRACE(error, "ERROR", "other_resource_error", (trace_ctx_map(TraceCtx))#{
+        ?TRACE(error, "ERROR", "other_resource_error", TraceCtx#{
             id => Id, reason => Reason
         }),
         ok
@@ -1141,7 +1141,7 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
         false ->
             PostFn =
                 fun(_ResultContext) ->
-                    ?TRACE(error, "ERROR", "send_error", (trace_ctx_map(TraceCtx))#{
+                    ?TRACE(error, "ERROR", "send_error", TraceCtx#{
                         id => Id, reason => Reason
                     }),
                     ok
@@ -1190,7 +1190,7 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCt
             {?ack, PostFn, Counters};
         false ->
             PostFn = fun(_ResultContext) ->
-                ?TRACE(error, "ERROR", "async_send_error", (trace_ctx_map(TraceCtx))#{
+                ?TRACE(error, "ERROR", "async_send_error", TraceCtx#{
                     id => Id, reason => Reason
                 }),
                 ok
@@ -1217,7 +1217,7 @@ handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCtx) when is_list(
                     error,
                     "ERROR",
                     "async_batch_send_error",
-                    (trace_ctx_map(TraceCtx))#{
+                    TraceCtx#{
                         id => Id,
                         reason => Results,
                         has_been_sent => HasBeenSent
@@ -1227,11 +1227,6 @@ handle_query_async_result_pure(Id, Results, HasBeenSent, TraceCtx) when is_list(
             end,
             {?nack, PostFn, #{}}
     end.
-
-trace_ctx_map(undefined) ->
-    #{};
-trace_ctx_map(Map) ->
-    Map.
 
 -spec aggregate_counters(data(), counters()) -> data().
 aggregate_counters(Data = #{counters := OldCounters}, DeltaCounters) ->
@@ -1372,24 +1367,23 @@ set_rule_id_trace_meta_data(Requests) when is_list(Requests) ->
     ClientIDs = lists:foldl(fun collect_client_id/2, #{}, Requests),
     RuleTriggerTimes0 = lists:foldl(fun collect_rule_trigger_times/2, [], Requests),
     RuleTriggerTimes = lists:flatten(RuleTriggerTimes0),
-    TraceMetadata =
-        case Requests of
-            %% We know that the batch is not mixed since we prevent this by
-            %% using a stop_after function in the replayq:pop call
-            [?QUERY(_, _, _, _, _, #{stop_action_after_render := true}) | _] ->
-                #{
-                    rule_ids => RuleIDs,
-                    client_ids => ClientIDs,
-                    rule_trigger_ts => RuleTriggerTimes,
-                    stop_action_after_render => true
-                };
-            [?QUERY(_, _, _, _, _, _TraceCtx) | _] ->
-                #{
-                    rule_ids => RuleIDs,
-                    client_ids => ClientIDs,
-                    rule_trigger_ts => RuleTriggerTimes
-                }
-        end,
+    %% We know that the batch is not mixed since we prevent this by
+    %% using a stop_after function in the replayq:pop call
+    [?QUERY(_, _, _, _, _, TraceCtx) | _] = Requests,
+    Namespace = maps:get(namespace, TraceCtx, ?global_ns),
+    StopAfterRender = maps:get(stop_action_after_render, TraceCtx, false),
+    TraceMetadata0 = #{
+        rule_ids => RuleIDs,
+        client_ids => ClientIDs,
+        rule_trigger_ts => RuleTriggerTimes,
+        namespace => Namespace
+    },
+    TraceMetadata = emqx_utils_maps:put_if(
+        TraceMetadata0,
+        stop_action_after_render,
+        StopAfterRender,
+        StopAfterRender == true
+    ),
     logger:update_process_metadata(TraceMetadata),
     ok;
 set_rule_id_trace_meta_data(Request) ->
@@ -2578,7 +2572,7 @@ unhealthy_target_maybe_trigger_fallback_actions(
     HasBeenSent = false,
     ExpireAt = maps:get(expire_at, QueryOpts),
     RequestContext = request_context(QueryOpts),
-    TraceCtx = maps:get(trace_ctx, QueryOpts, undefined),
+    TraceCtx = maps:get(trace_ctx, QueryOpts, #{}),
     Query = ?QUERY(ReplyFun, Req, HasBeenSent, ExpireAt, RequestContext, TraceCtx),
     ResultContext = result_context([Query]),
     emqx_utils:nolink_apply(fun() ->

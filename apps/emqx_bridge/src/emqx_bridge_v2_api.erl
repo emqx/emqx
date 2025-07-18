@@ -1331,8 +1331,8 @@ format_bridge_info(Namespace, ConfRootKey, Type, Name, [FirstBridge | _] = Bridg
     Id = emqx_bridge_resource:bridge_id(Type, Name),
     Rules =
         case ConfRootKey of
-            actions -> emqx_rule_engine:get_rule_ids_by_bridge_action(Id);
-            sources -> emqx_rule_engine:get_rule_ids_by_bridge_source(Id)
+            actions -> emqx_rule_engine:get_rule_ids_by_bridge_action(Namespace, Id);
+            sources -> emqx_rule_engine:get_rule_ids_by_bridge_source(Namespace, Id)
         end,
     Res1 = Res0#{
         status => aggregate_status(NodeStatus),

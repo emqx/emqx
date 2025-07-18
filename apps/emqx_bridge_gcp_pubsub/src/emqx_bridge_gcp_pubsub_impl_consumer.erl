@@ -257,6 +257,7 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
         hookpoints := Hookpoints,
         resource_opts := #{request_ttl := RequestTTL}
     } = SourceConfig,
+    #{namespace := Namespace} = emqx_resource:parse_channel_id(SourceResId),
     ConsumerConfig1 = ensure_topic_mapping(ConsumerConfig0),
     TopicMapping = maps:get(topic_mapping, ConsumerConfig1),
     ConsumerWorkersPerTopic = maps:get(consumer_workers_per_topic, ConsumerConfig1),
@@ -267,6 +268,7 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
         client => Client,
         forget_interval => forget_interval(RequestTTL),
         hookpoints => Hookpoints,
+        namespace => Namespace,
         connector_resource_id => ConnectorResId,
         source_resource_id => SourceResId,
         pool_size => PoolSize,

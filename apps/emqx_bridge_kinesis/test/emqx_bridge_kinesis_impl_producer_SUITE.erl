@@ -93,6 +93,7 @@ init_per_testcase(TestCase, Config0) ->
             _ -> 30
         end,
     ct:timetrap({seconds, TimeTrap}),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     delete_all_bridges(),
     Tid = install_telemetry_handler(TestCase),
     put(telemetry_table, Tid),
@@ -102,6 +103,7 @@ init_per_testcase(TestCase, Config0) ->
 
 end_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:stop(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     delete_all_bridges(),
     delete_stream(Config),
     emqx_common_test_helpers:call_janitor(),
@@ -627,8 +629,7 @@ t_publish_success(Config) ->
     TelemetryTable = ?config(telemetry_table, Config),
     Name = ?config(kinesis_name, Config),
     ?assertMatch({ok, _}, create_bridge(Config)),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     ShardIt = get_shard_iterator(Config),
@@ -665,8 +666,7 @@ t_publish_success_with_template(Config) ->
             <<"partition_key">> => <<"${payload.key}">>
         },
     ?assertMatch({ok, _}, create_bridge(Config, Overrides)),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     ShardIt = get_shard_iterator(Config),
@@ -698,8 +698,7 @@ t_publish_multiple_msgs_success(Config) ->
     TelemetryTable = ?config(telemetry_table, Config),
     Name = ?config(kinesis_name, Config),
     ?assertMatch({ok, _}, create_bridge(Config)),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     ShardIt = get_shard_iterator(Config),
@@ -747,8 +746,7 @@ t_publish_unhealthy(Config) ->
     TelemetryTable = ?config(telemetry_table, Config),
     Name = ?config(kinesis_name, Config),
     ?assertMatch({ok, _}, create_bridge(Config)),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     ShardIt = get_shard_iterator(Config),
@@ -790,8 +788,7 @@ t_publish_big_msg(Config) ->
     TelemetryTable = ?config(telemetry_table, Config),
     Name = ?config(kinesis_name, Config),
     ?assertMatch({ok, _}, create_bridge(Config)),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     % Maximum size is 1MB. Using 1MB + 1 here.
@@ -825,7 +822,7 @@ t_publish_connection_down(Config0) ->
     TelemetryTable = ?config(telemetry_table, Config),
     Name = ?config(kinesis_name, Config),
     ?assertMatch({ok, _}, create_bridge(Config)),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
+    {ok, _} = create_rule_and_action_http(Config),
     ?retry(
         _Sleep1 = 1_000,
         _Attempts1 = 30,
@@ -834,7 +831,6 @@ t_publish_connection_down(Config0) ->
             health_check(?BRIDGE_V2_TYPE_BIN, Name)
         )
     ),
-    emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
     ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ActionId),
     ShardIt = get_shard_iterator(Config),
@@ -969,8 +965,7 @@ t_empty_payload_template(Config) ->
     Removes = [<<"payload_template">>],
     Name = ?config(kinesis_name, Config),
     ?assertMatch({ok, _}, create_bridge(Config, #{}, Removes)),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     ActionId = id(?BRIDGE_V2_TYPE_BIN, Name),
     assert_empty_metrics(ResourceId),
     ShardIt = get_shard_iterator(Config),

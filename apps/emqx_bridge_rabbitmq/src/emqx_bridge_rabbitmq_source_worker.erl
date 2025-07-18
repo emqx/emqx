@@ -42,8 +42,12 @@ handle_info(
     {Channel, InstanceId, Params} = State
 ) ->
     Message = to_map(BasicDeliver, PBasic, Params, Payload),
-    #{hookpoints := Hooks, no_ack := NoAck} = Params,
-    lists:foreach(fun(Hook) -> emqx_hooks:run(Hook, [Message]) end, Hooks),
+    #{
+        hookpoints := Hooks,
+        namespace := Namespace,
+        no_ack := NoAck
+    } = Params,
+    lists:foreach(fun(Hook) -> emqx_hooks:run(Hook, [Message, Namespace]) end, Hooks),
     (NoAck =:= false) andalso
         amqp_channel:cast(Channel, #'basic.ack'{delivery_tag = Tag}),
     emqx_resource_metrics:received_inc(InstanceId),

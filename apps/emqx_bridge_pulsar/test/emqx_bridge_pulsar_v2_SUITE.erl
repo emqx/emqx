@@ -130,6 +130,7 @@ end_per_testcase(_Testcase, Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     stop_consumer(Config),
     %% in CI, apparently this needs more time since the
@@ -141,7 +142,8 @@ end_per_testcase(_Testcase, Config) ->
 
 common_init_per_testcase(TestCase, Config0) ->
     ct:timetrap(timer:seconds(60)),
-    emqx_bridge_v2_testlib:delete_all_bridges(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     PulsarTopic =
         <<
@@ -483,15 +485,14 @@ t_action(Config) when is_list(Config) ->
     Any = fun(#{name := BName}) -> BName =:= Name end,
     ?assert(lists:any(Any, Actions), Actions),
     Topic = <<"lkadfdaction">>,
-    {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
         #{
-            sql => <<"select * from \"", Topic/binary, "\"">>,
-            id => atom_to_binary(?FUNCTION_NAME),
-            actions => [<<"pulsar:", Name/binary>>],
-            description => <<"bridge_v2 send msg to pulsar action">>
+            <<"sql">> => <<"select * from \"", Topic/binary, "\"">>,
+            <<"id">> => atom_to_binary(?FUNCTION_NAME),
+            <<"actions">> => [<<"pulsar:", Name/binary>>],
+            <<"description">> => <<"bridge_v2 send msg to pulsar action">>
         }
     ),
-    on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
     MQTTClientID = <<"pulsar_mqtt_clientid">>,
     {ok, C1} = emqtt:start_link([{clean_start, true}, {clientid, MQTTClientID}]),
     {ok, _} = emqtt:connect(C1),

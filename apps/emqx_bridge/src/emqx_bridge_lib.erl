@@ -17,12 +17,13 @@
 %% The bridge-ID in rule-engine's world is the action-ID.
 %% This function is to remove a bridge (action) from all rules
 %% using it if the `rule_actions' is included in `DeleteDeps' list
-%% **N.B.**: helper for deprecated bridge v1 api
+%% **N.B.**: helper for deprecated bridge v1 API
 maybe_withdraw_rule_action(ConfRootKey, BridgeType, BridgeName, DeleteDeps) ->
     BridgeIds = external_ids(?global_ns, ConfRootKey, BridgeType, BridgeName),
     DeleteActions = lists:member(rule_actions, DeleteDeps),
     maybe_withdraw_rule_action_loop(BridgeIds, DeleteActions).
 
+%% **N.B.**: helper for deprecated bridge v1 API
 maybe_withdraw_rule_action_loop([], _DeleteActions) ->
     ok;
 maybe_withdraw_rule_action_loop([BridgeId | More], DeleteActions) ->
@@ -32,7 +33,7 @@ maybe_withdraw_rule_action_loop([BridgeId | More], DeleteActions) ->
         RuleIds when DeleteActions ->
             lists:foreach(
                 fun(R) ->
-                    emqx_rule_engine:ensure_action_removed(R, BridgeId)
+                    emqx_rule_engine:ensure_action_removed(?global_ns, R, BridgeId)
                 end,
                 RuleIds
             ),

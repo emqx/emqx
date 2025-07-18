@@ -709,40 +709,40 @@ assert_gateway_listener_shape(ListenerData, GatewayType) ->
     ).
 
 setup_fake_rule_engine_data() ->
-    {ok, _} =
-        emqx_rule_engine:create_rule(
+    {201, _} =
+        emqx_bridge_v2_testlib:create_rule_api2(
             #{
-                id => <<"rule:t_get_basic_usage_info:1">>,
-                sql => <<"select 1 from topic">>,
-                actions =>
+                <<"id">> => <<"t_get_basic_usage_info_1">>,
+                <<"sql">> => <<"select 1 from topic">>,
+                <<"actions">> =>
                     [
-                        #{function => <<"erlang:hibernate">>, args => #{}},
-                        #{function => console},
+                        #{<<"function">> => <<"erlang:hibernate">>, <<"args">> => #{}},
+                        #{<<"function">> => <<"console">>},
                         <<"webhook:basic_usage_info_webhook">>,
                         <<"webhook:basic_usage_info_webhook_disabled">>
                     ]
             }
         ),
-    {ok, _} =
-        emqx_rule_engine:create_rule(
+    {201, _} =
+        emqx_bridge_v2_testlib:create_rule_api2(
             #{
-                id => <<"rule:t_get_basic_usage_info:2">>,
-                sql => <<"select 1 from topic">>,
-                actions =>
+                <<"id">> => <<"t_get_basic_usage_info_2">>,
+                <<"sql">> => <<"select 1 from topic">>,
+                <<"actions">> =>
                     [
                         <<"mqtt:basic_usage_info_mqtt">>,
                         <<"webhook:basic_usage_info_webhook">>
                     ]
             }
         ),
-    {ok, _} =
-        emqx_rule_engine:create_rule(
+    {201, _} =
+        emqx_bridge_v2_testlib:create_rule_api2(
             #{
-                id => <<"rule:t_get_basic_usage_info:3">>,
-                sql => <<"select 1 from \"$bridges/mqtt:basic_usage_info_mqtt\"">>,
-                actions =>
+                <<"id">> => <<"t_get_basic_usage_info_3">>,
+                <<"sql">> => <<"select 1 from \"$bridges/mqtt:basic_usage_info_mqtt\"">>,
+                <<"actions">> =>
                     [
-                        #{function => console}
+                        #{<<"function">> => <<"console">>}
                     ]
             }
         ),

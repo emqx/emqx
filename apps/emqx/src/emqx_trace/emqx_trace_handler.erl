@@ -7,6 +7,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("emqx_trace.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -logger_header("[Tracer]").
 
@@ -33,8 +34,9 @@
 
 -type tracer() :: #{
     name := binary(),
+    namespace => maybe_namespace(),
     type := clientid | topic | ip_address,
-    filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address(),
+    filter := filter(),
     payload_encode := text | hidden | hex,
     payload_limit := non_neg_integer(),
     formatter => json | text
@@ -43,6 +45,26 @@
 -define(LOG_HANDLER_OLP_KILL_MEM_SIZE, 50 * 1024 * 1024).
 -define(LOG_HANDLER_OLP_KILL_QLEN, 20000).
 
+-type filter() ::
+    emqx_types:clientid()
+    | emqx_types:topic()
+    | {?global_ns | binary(), emqx_trace:ruleid()}
+    | string().
+
+-type namespace() :: binary().
+-type maybe_namespace() :: ?global_ns | namespace().
+
+-define(CONFIG(_LogFile_), #{
+    type => halt,
+    file => _LogFile_,
+    max_no_bytes => 512 * 1024 * 1024,
+    overload_kill_enable => true,
+    overload_kill_mem_size => 50 * 1024 * 1024,
+    overload_kill_qlen => 20000,
+    %% disable restart
+    overload_kill_restart_after => infinity
+}).
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -50,7 +72,7 @@
 -spec install(
     Name :: binary() | list(),
     Type :: clientid | topic | ip_address,
-    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
+    Filter :: filter(),
     Level :: logger:level() | all,
     LogFilePath :: string(),
     Formatter :: text | json
@@ -135,12 +157,19 @@ running() ->
     lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers(started)).
 
 -spec filter_ruleid(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
-filter_ruleid(#{meta := Meta = #{rule_id := RuleId}} = Log, {MatchId, _Name}) ->
+filter_ruleid(#{meta := Meta = #{rule_id := RuleId}} = Log, {{Namespace, MatchId}, _Name}) ->
+    LogNamespace = maps:get(namespace, Meta, ?global_ns),
     RuleIDs = maps:get(rule_ids, Meta, #{}),
-    IsMatch = (RuleId =:= MatchId) orelse maps:get(MatchId, RuleIDs, false),
+    IsMatch =
+        (LogNamespace =:= Namespace) andalso
+            ((RuleId =:= MatchId) orelse maps:get(MatchId, RuleIDs, false)),
     filter_ret(IsMatch andalso is_trace(Meta), Log);
-filter_ruleid(#{meta := Meta = #{rule_ids := RuleIDs}} = Log, {MatchId, _Name}) ->
-    filter_ret(maps:get(MatchId, RuleIDs, false) andalso is_trace(Meta), Log);
+filter_ruleid(#{meta := Meta = #{rule_ids := RuleIDs}} = Log, {{Namespace, MatchId}, _Name}) ->
+    LogNamespace = maps:get(namespace, Meta, ?global_ns),
+    IsMatch =
+        (LogNamespace =:= Namespace) andalso
+            (maps:get(MatchId, RuleIDs, false) andalso is_trace(Meta)),
+    filter_ret(IsMatch, Log);
 filter_ruleid(_Log, _ExpectId) ->
     stop.
 
@@ -180,8 +209,9 @@ filters(#{type := topic, filter := Filter, name := Name}) ->
     [{topic, {fun ?MODULE:filter_topic/2, {ensure_bin(Filter), Name}}}];
 filters(#{type := ip_address, filter := Filter, name := Name}) ->
     [{ip_address, {fun ?MODULE:filter_ip_address/2, {ensure_list(Filter), Name}}}];
-filters(#{type := ruleid, filter := Filter, name := Name}) ->
-    [{ruleid, {fun ?MODULE:filter_ruleid/2, {ensure_bin(Filter), Name}}}].
+filters(#{type := ruleid, filter := Filter, name := Name} = Who) ->
+    Namespace = maps:get(namespace, Who, ?global_ns),
+    [{ruleid, {fun ?MODULE:filter_ruleid/2, {{Namespace, ensure_bin(Filter)}, Name}}}].
 
 formatter(#{
     type := _Type, payload_encode := PayloadEncode, formatter := json, payload_limit := PayloadLimit
@@ -214,10 +244,21 @@ filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) 
         [{Type, {FilterFun, {Filter, Name}}}] when
             Type =:= topic orelse
                 Type =:= clientid orelse
-                Type =:= ip_address orelse
-                Type =:= ruleid
+                Type =:= ip_address
         ->
             [Init#{type => Type, filter => Filter, name => Name, filter_fun => FilterFun} | Acc];
+        [{Type, {FilterFun, {{Namespace, Filter}, Name}}}] when
+            Type =:= ruleid
+        ->
+            [
+                Init#{
+                    type => Type,
+                    filter => {Namespace, Filter},
+                    name => Name,
+                    filter_fun => FilterFun
+                }
+                | Acc
+            ];
         _ ->
             Acc
     end.
@@ -242,8 +283,13 @@ do_handler_id(Name, Type) ->
     FullNameBin = unicode:characters_to_binary(FullNameStr, utf8),
     binary_to_atom(FullNameBin, utf8).
 
-ensure_bin(List) when is_list(List) -> iolist_to_binary(List);
-ensure_bin(Bin) when is_binary(Bin) -> Bin.
+ensure_bin({Namespace, Match}) ->
+    MatchBin = ensure_bin(Match),
+    {Namespace, MatchBin};
+ensure_bin(List) when is_list(List) ->
+    iolist_to_binary(List);
+ensure_bin(Bin) when is_binary(Bin) ->
+    Bin.
 
 ensure_list(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin, utf8);
 ensure_list(List) when is_list(List) -> List.

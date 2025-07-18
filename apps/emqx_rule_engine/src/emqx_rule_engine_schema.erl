@@ -21,6 +21,9 @@
 
 -export([validate_sql/1]).
 
+%% `emqx_schema_hooks' API
+-export([injected_fields/0]).
+
 namespace() -> rule_engine.
 
 tags() ->
@@ -305,3 +308,12 @@ post_config_update(
 ) ->
     jq:set_implementation_module(NewSysConf),
     ok.
+
+%%======================================================================================
+%% `emqx_schema_hooks' API
+%%======================================================================================
+
+injected_fields() ->
+    #{
+        'config.allowed_namespaced_roots' => [<<"rule_engine">>]
+    }.

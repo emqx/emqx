@@ -61,7 +61,7 @@
 -define(ROOT_KEY_ACTIONS, actions).
 
 fetch_from_local_node(Mode) ->
-    Rules = emqx_rule_engine:get_rules(),
+    Rules = get_rules_all_namespaces(),
     BridgesV1 = emqx:get_config([bridges], #{}),
     BridgeV2Actions = emqx_bridge_v2:list(?global_ns, ?ROOT_KEY_ACTIONS),
     Connectors = emqx_connector:list(?global_ns),
@@ -72,7 +72,7 @@ fetch_from_local_node(Mode) ->
     }}.
 
 fetch_cluster_consistented_data() ->
-    Rules = emqx_rule_engine:get_rules(),
+    Rules = get_rules_all_namespaces(),
     %% for bridge v1
     BridgesV1 = emqx:get_config([bridges], #{}),
     Connectors = emqx_connector:list(?global_ns),
@@ -147,7 +147,7 @@ collect_mf(_, _) ->
 %% @private
 collect(<<"json">>) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
-    Rules = emqx_rule_engine:get_rules(),
+    Rules = get_rules_all_namespaces(),
     Connectors = emqx_connector:list(?global_ns),
     %% for bridge v1
     BridgesV1 = emqx:get_config([bridges], #{}),
@@ -635,3 +635,7 @@ with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
     Labels;
 with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
     [{node, node(self())} | Labels].
+
+get_rules_all_namespaces() ->
+    NamespaceToRules = emqx_rule_engine:get_rules_from_all_namespaces(),
+    lists:append(maps:values(NamespaceToRules)).
