@@ -1551,7 +1551,7 @@ durable_sessions_config(Opts) ->
         Opts
     ).
 
-start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
+start_cluster_ds(Config, ClusterSpec0, Opts = #{n := N}) when is_list(ClusterSpec0) ->
     WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
     DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
@@ -1559,6 +1559,7 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
         emqx_conf,
         {emqx, #{
             config => maps:merge(EMQXOpts, #{
+                <<"durable_storage">> => #{<<"n_sites">> => N},
                 <<"durable_sessions">> => durable_sessions_config(
                     DurableSessionsOpts
                 ),
