@@ -24,6 +24,7 @@ It takes care of forwarding calls to the underlying DBMS.
     update_db_config/2,
     add_generation/1,
     shard_of/2,
+    list_shards/1,
     list_generations_with_lifetimes/1,
     drop_generation/2,
     drop_db/1
@@ -543,6 +544,8 @@ must not assume the default values.
 
 -callback drop_db(db()) -> ok | {error, _}.
 
+-callback list_shards(db()) -> [shard()].
+
 -callback shard_of(db(), emqx_types:clientid() | topic()) -> shard().
 
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
@@ -718,6 +721,13 @@ drop_db(DB) ->
             _ = persistent_term:erase(?persistent_term(DB)),
             Module:drop_db(DB)
     end.
+
+-doc """
+List all shards of the database.
+""".
+-spec list_shards(db()) -> [shard()].
+list_shards(DB) ->
+    ?module(DB):list_shards(DB).
 
 -doc """
 Get shard of a client ID or a topic.
