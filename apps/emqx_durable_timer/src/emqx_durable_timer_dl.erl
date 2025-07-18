@@ -137,9 +137,7 @@ dirty_ls_epochs(Node) ->
 
 -spec shards() -> [emqx_ds:shard()].
 shards() ->
-    %% TODO: it's not the nicest way to get shards. Add an API to DS?
-    NShards = emqx_config:get([durable_storage, timers, n_shards]),
-    [integer_to_binary(I) || I <- lists:seq(0, NShards - 1)].
+    emqx_ds:list_shards(?DB_GLOB).
 
 -spec last_heartbeat(emqx_durable_timer:epoch()) -> {ok, integer()} | undefined.
 last_heartbeat(Epoch) ->
