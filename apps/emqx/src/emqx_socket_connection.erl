@@ -550,8 +550,14 @@ handle_msg({'$socket', Socket, select, Handle}, State = #state{sockstate = SS}) 
         _ ->
             handle_data_ready(Socket, State)
     end;
-handle_msg({'$socket', _Socket, abort, {_Handle, Reason}}, State) ->
-    handle_info({sock_error, Reason}, State);
+handle_msg({'$socket', _Socket, abort, {_Handle, Reason}}, State = #state{sockstate = SS}) ->
+    case SS =/= closed of
+        true ->
+            handle_info({sock_error, Reason}, State);
+        false ->
+            %% In case there were more than 1 outstanding select:
+            {ok, State}
+    end;
 handle_msg({recv, Data}, State) ->
     handle_data(Data, false, State);
 handle_msg({recv_more, Data}, State) ->
