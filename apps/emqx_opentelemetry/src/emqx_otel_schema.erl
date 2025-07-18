@@ -190,6 +190,16 @@ fields("otel_exporter") ->
                     importance => ?IMPORTANCE_HIGH
                 }
             )},
+        {headers,
+            ?HOCON(
+                map(),
+                #{
+                    required => false,
+                    default => #{},
+                    desc => ?DESC(exporter_headers),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
         {protocol,
             ?HOCON(
                 %% http protobuf/json may be added in future
