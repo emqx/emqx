@@ -1431,6 +1431,7 @@ groups() ->
                     t_drop_generation,
                     t_join_leave_errors,
                     t_store_batch_fail,
+                    t_crash_restart_recover,
                     %% Not supported.
                     t_poll
                 ]}

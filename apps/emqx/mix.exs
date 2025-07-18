@@ -29,6 +29,19 @@ defmodule EMQX.MixProject do
     ]
   end
 
+  def asn1_srcs do
+    [
+      %{
+        src: "./src/emqx_persistent_session_ds/DurableSession.asn",
+        compile_opts: [:per, :noobj, :no_ok_wrapper, outdir: ~c"gen_src"]
+      },
+      %{
+        src: "./src/emqx_persistent_session_ds/ChannelInfo.asn",
+        compile_opts: [:ber, :noobj, :no_ok_wrapper, outdir: ~c"gen_src"]
+      }
+    ]
+  end
+
   # Run "mix help compile.app" to learn about applications
   def application do
     [
@@ -45,6 +58,7 @@ defmodule EMQX.MixProject do
       {:emqx_bpapi, in_umbrella: true},
       {:emqx_durable_storage, in_umbrella: true},
       {:emqx_ds_backends, in_umbrella: true},
+      {:emqx_durable_timer, in_umbrella: true},
       UMP.common_dep(:gproc),
       UMP.common_dep(:gen_rpc),
       UMP.common_dep(:ekka),
@@ -62,7 +76,7 @@ defmodule EMQX.MixProject do
   end
 
   defp erlc_paths() do
-    paths = UMP.erlc_paths()
+    paths = ["gen_src" | UMP.erlc_paths()]
 
     if UMP.test_env?() do
       ["integration_test" | paths]
