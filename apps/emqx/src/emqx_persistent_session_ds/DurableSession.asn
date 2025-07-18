@@ -22,6 +22,7 @@ BEGIN
     parentSub ID,
     -- Flags
     upgradeQos BOOLEAN,
+    durable BOOLEAN,
     --
     supersededBy ID OPTIONAL,
     shareTopicFilter TopicFilter OPTIONAL,
