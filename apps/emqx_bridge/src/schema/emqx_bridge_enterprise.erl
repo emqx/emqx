@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_enterprise).
 
--if(?EMQX_RELEASE_EDITION == ee).
-
 -include_lib("hocon/include/hoconsc.hrl").
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -435,7 +433,3 @@ azure_event_hub_structs() ->
 
 api_ref(Module, Type, Method) ->
     {Type, ref(Module, Method)}.
-
--else.
-
--endif.
