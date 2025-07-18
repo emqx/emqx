@@ -20,12 +20,17 @@ defmodule EMQXDurableTimer.MixProject do
 
   # Run "mix help compile.app" to learn about applications
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_durable_timer_app, []}]
+    [
+      extra_applications: [:crypto | UMP.extra_applications()],
+      mod: {:emqx_durable_timer_app, []}
+    ]
   end
 
   def deps() do
     [
-      {:emqx_ds_backends, in_umbrella: true}
+      {:emqx_ds_backends, in_umbrella: true},
+      UMP.common_dep(:gproc),
+      UMP.common_dep(:optvar)
     ]
   end
 end

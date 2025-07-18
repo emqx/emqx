@@ -6,7 +6,7 @@
 %% API:
 -export([encode/1, enrich/2]).
 
--include_lib("emqx/gen_src/ChannelInfo.hrl").
+-include("../../gen_src/ChannelInfo.hrl").
 -include("pmap.hrl").
 
 %% TODO: https://github.com/erlang/otp/issues/9841
