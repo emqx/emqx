@@ -35,6 +35,7 @@
 -define(DASHBOARD_API(METHOD, FN), ?API(emqx_dashboard_api, METHOD, FN)).
 -define(CONNECTOR_API(METHOD, FN), ?API(emqx_connector_api, METHOD, FN)).
 -define(BRIDGE_V2_API(METHOD, FN), ?API(emqx_bridge_v2_api, METHOD, FN)).
+-define(PUBLISH_API(METHOD, FN), ?API(emqx_mgmt_api_publish, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -104,13 +105,23 @@ do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
 do_check_rbac(#{?role := ?ROLE_VIEWER}, _, #{method := get}) ->
     true;
 do_check_rbac(
-    #{?role := ?ROLE_API_PUBLISHER},
+    #{?role := ?ROLE_API_PUBLISHER, ?namespace := ?global_ns},
     _,
-    #{method := post, module := emqx_mgmt_api_publish, function := Fn}
+    ?PUBLISH_API(post, Fn)
 ) when Fn == publish; Fn == publish_batch ->
     %% emqx_mgmt_api_publish:publish
     %% emqx_mgmt_api_publish:publish_batch
+    %% Currently, only non-namespaced publisher roles may publish with these APIs.
     true;
+do_check_rbac(
+    #{?role := ?ROLE_API_PUBLISHER, ?namespace := _},
+    _,
+    ?PUBLISH_API(post, Fn)
+) when Fn == publish; Fn == publish_batch ->
+    %% emqx_mgmt_api_publish:publish
+    %% emqx_mgmt_api_publish:publish_batch
+    %% Currently, only namespaced publisher roles may not use these APIs.
+    false;
 %% everyone should allow to logout
 do_check_rbac(#{}, _, ?DASHBOARD_API(post, logout)) ->
     %% emqx_dashboard_api:logout
