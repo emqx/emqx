@@ -6,11 +6,8 @@
 -module(emqx_ds_schema).
 
 %% API:
--export([schema/0, db_schema/1, db_schema/2]).
--export([db_config/1]).
-
-%% Internal exports:
--export([translate_builtin_raft/1, translate_builtin_local/1]).
+-export([schema/0]).
+-export([db_config_messages/0, db_config_sessions/0, db_config_timers/0, db_config_shared_subs/0]).
 
 %% Behavior callbacks:
 -export([fields/1, desc/1, namespace/0]).
@@ -23,76 +20,24 @@
 %% Type declarations
 %%================================================================================
 
--ifndef(EMQX_RELEASE_EDITION).
--define(EMQX_RELEASE_EDITION, ce).
--endif.
-
--if(?EMQX_RELEASE_EDITION == ee).
 -define(DEFAULT_BACKEND, builtin_raft).
--define(BUILTIN_BACKENDS, [builtin_raft, builtin_local]).
--else.
--define(DEFAULT_BACKEND, builtin_local).
--define(BUILTIN_BACKENDS, [builtin_local]).
--endif.
 
 %%================================================================================
 %% API
 %%================================================================================
 
--spec db_config(emqx_config:runtime_config_key_path()) -> emqx_ds:create_db_opts().
-db_config(Path) ->
-    ConfigTree = #{backend := Backend} = emqx_config:get(Path),
-    case Backend of
-        builtin_local ->
-            translate_builtin_local(ConfigTree);
-        builtin_raft ->
-            translate_builtin_raft(ConfigTree)
-    end.
+-spec db_config_messages() -> emqx_ds:create_db_opts().
+db_config_messages() ->
+    db_config([durable_storage, messages]).
 
-translate_builtin_raft(
-    Backend = #{
-        backend := builtin_raft,
-        n_shards := NShards,
-        n_sites := NSites,
-        replication_factor := ReplFactor,
-        transaction := Transaction,
-        rocksdb := RocksDBOptions
-    }
-) ->
-    %% NOTE: Undefined if `basic` schema is in use.
-    Layout = maps:get(layout, Backend, undefined),
-    #{
-        backend => builtin_raft,
-        n_shards => NShards,
-        n_sites => NSites,
-        replication_factor => ReplFactor,
-        replication_options => maps:get(replication_options, Backend, #{}),
-        storage => emqx_maybe:apply(fun translate_layout/1, Layout),
-        transaction => Transaction,
-        rocksdb => RocksDBOptions
-    }.
+db_config_sessions() ->
+    db_config([durable_storage, sessions]).
 
-translate_builtin_local(
-    Backend = #{
-        backend := builtin_local,
-        n_shards := NShards,
-        transaction := Transaction,
-        rocksdb := RocksDBOptions
-    }
-) ->
-    %% NOTE: Undefined if `basic` schema is in use.
-    Layout = maps:get(layout, Backend, undefined),
-    NPollers = maps:get(poll_workers_per_shard, Backend, undefined),
-    BatchSize = maps:get(poll_batch_size, Backend, undefined),
-    #{
-        backend => builtin_local,
-        n_shards => NShards,
-        storage => emqx_maybe:apply(fun translate_layout/1, Layout),
-        poll_workers_per_shard => NPollers,
-        poll_batch_size => BatchSize,
-        transaction => Transaction,
-        rocksdb => RocksDBOptions
-    }.
+db_config_timers() ->
+    db_config([durable_storage, timers]).
+
+db_config_shared_subs() ->
+    db_config([durable_storage, shared_subs]).
 
 %%================================================================================
 %% Behavior callbacks
@@ -103,101 +48,68 @@ namespace() ->
 
 schema() ->
     [
-        {messages,
-            db_schema(#{
-                importance => ?IMPORTANCE_MEDIUM,
-                desc => ?DESC(messages)
-            })}
-    ] ++ emqx_schema_hooks:list_injection_point('durable_storage', []).
-
-db_schema(ExtraOptions) ->
-    db_schema(complete, ExtraOptions).
-
-db_schema(Flavor, ExtraOptions) ->
-    Options = #{
-        default => #{<<"backend">> => ?DEFAULT_BACKEND}
-    },
-    BuiltinBackends = [backend_ref(Backend, Flavor) || Backend <- ?BUILTIN_BACKENDS],
-    CustomBackends = emqx_schema_hooks:list_injection_point('durable_storage.backends', []),
-    sc(
-        hoconsc:union(BuiltinBackends ++ CustomBackends),
-        maps:merge(Options, ExtraOptions)
-    ).
-
--dialyzer({nowarn_function, backend_ref/2}).
-backend_ref(Backend, complete) ->
-    ref(Backend);
-backend_ref(builtin_local, basic) ->
-    ref(builtin_local_basic);
-backend_ref(builtin_raft, basic) ->
-    ref(builtin_raft_basic).
-
-backend_fields(builtin_local, Flavor) ->
-    %% Schema for the builtin_raft backend:
-    [
-        {backend,
-            sc(
-                builtin_local,
-                #{
-                    'readOnly' => true,
-                    default => builtin_local,
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(backend_type)
-                }
-            )}
-        | common_builtin_fields(Flavor)
-    ];
-backend_fields(builtin_raft, Flavor) ->
-    %% Schema for the builtin_raft backend:
-    [
-        {backend,
-            sc(
-                builtin_raft,
-                #{
-                    'readOnly' => true,
-                    default => builtin_raft,
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(backend_type)
-                }
-            )},
-        {replication_factor,
-            sc(
-                pos_integer(),
-                #{
-                    default => 3,
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(builtin_raft_replication_factor)
-                }
-            )},
         {n_sites,
             sc(
                 pos_integer(),
                 #{
                     default => 1,
-                    importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(builtin_raft_n_sites)
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_raft_n_sites),
+                    mapping => "emqx_ds_builtin_raft.n_sites"
                 }
             )},
-        %% TODO: Elaborate.
-        {replication_options,
-            sc(
-                hoconsc:map(name, any()),
+        {messages,
+            db_schema(
+                [builtin_raft_messages, builtin_local_messages],
                 #{
-                    default => #{},
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(messages)
+                }
+            )},
+        {sessions,
+            db_schema(
+                [builtin_raft_ttv, builtin_local_ttv],
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(sessions)
+                }
+            )},
+        {timers,
+            db_schema(
+                [builtin_raft_ttv, builtin_local_ttv],
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(timers)
+                }
+            )},
+        %% TODO: switch shared subs to use TTV
+        {shared_subs,
+            db_schema(
+                [builtin_raft_messages, builtin_local_messages],
+                #{
+                    importance => ?IMPORTANCE_HIDDEN,
+                    desc => ?DESC(shared_subs)
                 }
             )}
-        | common_builtin_fields(Flavor)
-    ].
+    ] ++ emqx_schema_hooks:list_injection_point('durable_storage', []).
 
-fields(builtin_local) ->
-    backend_fields(builtin_local, complete);
-fields(builtin_raft) ->
-    backend_fields(builtin_raft, complete);
-fields(builtin_local_basic) ->
-    backend_fields(builtin_local, basic);
-fields(builtin_raft_basic) ->
-    backend_fields(builtin_raft, basic);
+db_schema(Backends, ExtraOptions) ->
+    Options = #{
+        default => #{<<"backend">> => ?DEFAULT_BACKEND}
+    },
+    sc(
+        hoconsc:union([ref(I) || I <- Backends]),
+        maps:merge(Options, ExtraOptions)
+    ).
+
+fields(builtin_local_messages) ->
+    make_local(false);
+fields(builtin_raft_messages) ->
+    make_raft(false);
+fields(builtin_local_ttv) ->
+    make_local(true);
+fields(builtin_raft_ttv) ->
+    make_raft(true);
 fields(rocksdb_options) ->
     [
         {cache_size,
@@ -218,9 +130,9 @@ fields(rocksdb_options) ->
             )},
         {max_open_files,
             sc(
-                pos_integer(),
+                hoconsc:union([pos_integer(), infinity]),
                 #{
-                    default => 100,
+                    default => infinity,
                     desc => ?DESC(rocksdb_max_open_files)
                 }
             )}
@@ -360,7 +272,7 @@ fields(optimistic_transaction) ->
             sc(
                 emqx_schema:duration_ms(),
                 #{
-                    default => "5s",
+                    default => "10ms",
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(otx_flush_interval)
                 }
@@ -385,7 +297,56 @@ fields(optimistic_transaction) ->
             )}
     ].
 
-common_builtin_fields(basic) ->
+make_local(StoreTTV) ->
+    [
+        {backend,
+            sc(
+                builtin_local,
+                #{
+                    'readOnly' => true,
+                    default => builtin_local,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(backend_type)
+                }
+            )}
+        | common_builtin_fields(StoreTTV)
+    ].
+
+make_raft(StoreTTV) ->
+    [
+        {backend,
+            sc(
+                builtin_raft,
+                #{
+                    'readOnly' => true,
+                    default => builtin_raft,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(backend_type)
+                }
+            )},
+        {replication_factor,
+            sc(
+                pos_integer(),
+                #{
+                    default => 3,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_raft_replication_factor)
+                }
+            )},
+        %% TODO: Elaborate.
+        {replication_options,
+            sc(
+                hoconsc:map(name, any()),
+                #{
+                    default => #{},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+        | common_builtin_fields(StoreTTV)
+    ].
+
+%% This function returns fields common for builtin_local and builtin_raft backends.
+common_builtin_fields(StoreTTV) ->
     [
         {data_dir,
             sc(
@@ -414,14 +375,6 @@ common_builtin_fields(basic) ->
                     desc => ?DESC(builtin_write_buffer)
                 }
             )},
-        {transaction,
-            sc(
-                ref(optimistic_transaction),
-                #{
-                    importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(builtin_optimistic_transaction)
-                }
-            )},
         {rocksdb,
             sc(
                 ref(rocksdb_options),
@@ -429,25 +382,7 @@ common_builtin_fields(basic) ->
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(builtin_rocksdb_options)
                 }
-            )}
-    ];
-common_builtin_fields(layout) ->
-    [
-        {layout,
-            sc(
-                hoconsc:union(builtin_layouts()),
-                #{
-                    desc => ?DESC(builtin_layout),
-                    importance => ?IMPORTANCE_MEDIUM,
-                    default =>
-                        #{
-                            <<"type">> => wildcard_optimized_v2
-                        }
-                }
-            )}
-    ];
-common_builtin_fields(polling) ->
-    [
+            )},
         {poll_workers_per_shard,
             sc(
                 pos_integer(),
@@ -465,15 +400,43 @@ common_builtin_fields(polling) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ];
-common_builtin_fields(complete) ->
-    common_builtin_fields(basic) ++
-        common_builtin_fields(layout) ++
-        common_builtin_fields(polling).
+        | case StoreTTV of
+            true ->
+                [
+                    {transaction,
+                        sc(
+                            ref(optimistic_transaction),
+                            #{
+                                importance => ?IMPORTANCE_LOW,
+                                desc => ?DESC(builtin_optimistic_transaction)
+                            }
+                        )}
+                ];
+            false ->
+                [
+                    {layout,
+                        sc(
+                            hoconsc:union(builtin_layouts()),
+                            #{
+                                desc => ?DESC(builtin_layout),
+                                importance => ?IMPORTANCE_MEDIUM,
+                                default =>
+                                    #{
+                                        <<"type">> => wildcard_optimized_v2
+                                    }
+                            }
+                        )}
+                ]
+        end
+    ].
 
-desc(builtin_raft) ->
+desc(builtin_raft_ttv) ->
     ?DESC(builtin_raft);
-desc(builtin_local) ->
+desc(builtin_raft_messages) ->
+    ?DESC(builtin_raft);
+desc(builtin_local_ttv) ->
+    ?DESC(builtin_local);
+desc(builtin_local_messages) ->
     ?DESC(builtin_local);
 desc(builtin_write_buffer) ->
     ?DESC(builtin_write_buffer);
@@ -493,6 +456,59 @@ desc(_) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+db_config(SchemaKey) ->
+    translate_backend(emqx_config:get(SchemaKey)).
+
+translate_backend(
+    #{
+        backend := Backend,
+        n_shards := NShards,
+        rocksdb := RocksDBOptions,
+        poll_batch_size := PollBatchSize,
+        poll_workers_per_shard := PollWorkersPerShard
+    } = Input
+) when Backend =:= builtin_local; Backend =:= builtin_raft ->
+    Cfg1 = #{
+        backend => Backend,
+        n_shards => NShards,
+        poll_workers_per_shard => PollWorkersPerShard,
+        poll_batch_size => PollBatchSize,
+        rocksdb => translate_rocksdb_options(RocksDBOptions)
+    },
+    Cfg2 =
+        case Input of
+            #{transaction := Transaction} ->
+                Cfg1#{transaction => Transaction};
+            #{} ->
+                Cfg1
+        end,
+    Cfg =
+        case Input of
+            #{layout := Layout} ->
+                Cfg2#{storage => translate_layout(Layout)};
+            #{} ->
+                Cfg2
+        end,
+    case Backend of
+        builtin_raft ->
+            #{replication_factor := ReplFactor, replication_options := ReplOptions} = Input,
+            Cfg#{
+                replication_factor => ReplFactor,
+                replication_options => ReplOptions
+            };
+        builtin_local ->
+            Cfg
+    end.
+
+translate_rocksdb_options(Input = #{max_open_files := MOF}) ->
+    Input#{
+        max_open_files :=
+            case MOF of
+                infinity -> -1;
+                _ -> MOF
+            end
+    }.
 
 translate_layout(
     #{

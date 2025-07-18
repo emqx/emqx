@@ -3,7 +3,17 @@ emqx_ds_schema {
 messages.label: "MQTT message storage"
 messages.desc:
   """~
-  Configuration related to the durable storage of MQTT messages.~"""
+  Configuration of the durable storage for MQTT messages.~"""
+
+sessions.label: "MQTT session storage"
+sessions.desc:
+  """~
+  Configuration of the durable storage containing state and metadata of the durable sessions.~"""
+
+timers.label: "Durable timers storage"
+timers.desc:
+  """~
+  Configuration of the durable storage containing timers.~"""
 
 builtin_raft.label: "Builtin backend with Raft replication"
 builtin_raft.desc:
@@ -14,7 +24,10 @@ builtin_local.label: "Builtin backend"
 builtin_local.desc:
   """~
   Builtin storage backend utilizing embedded RocksDB key-value store.
-  This backend doesn't support clustering.~"""
+  It's recommended for use in single-node installations.
+  This backend doesn't support clustering.
+
+  Please note that it's impossible to switch the backend without losing the data.~"""
 
 backend_type.label: "Backend type"
 backend_type.desc:
