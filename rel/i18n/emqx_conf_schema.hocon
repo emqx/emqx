@@ -861,4 +861,31 @@ Defaults to 100000."""
 node_channel_cleanup_batch_size.label:
 """Node Channel Cleanup Batch Size"""
 
+desc_durable_timers.label: "Durable timers"
+desc_durable_timers.desc:
+"""~
+Configuration for the durable timers.
+Durable timers are used to schedule actions that should occur even if the node that created them is down.~"""
+
+durable_timer_heartbeat_interval.label: "Heartbeat interval"
+durable_timer_heartbeat_interval.desc:
+"""~
+Node heartbeat interval specifies how often the node records its presence in the `timers` durable storage.
+This setting should be the same on all nodes in the cluster."""
+
+durable_timer_missed_heartbeats.label: "Missed heartbeats"
+durable_timer_missed_heartbeats.desc:
+"""~
+If node fails this many heartbeats, its peers consider will it down."""
+
+durable_timer_retry_interval.label: "Durable timer retry interval"
+durable_timer_retry_interval.desc:
+"""~
+If the node fails to fetch timers from the durable storage, it will retry the attempt after this interval."""
+
+durable_timer_batch_size.label: "Durable timer batch size"
+durable_timer_batch_size.desc:
+"""~
+Specifies the batch size used for reading `timers` durable storage."""
+
 }

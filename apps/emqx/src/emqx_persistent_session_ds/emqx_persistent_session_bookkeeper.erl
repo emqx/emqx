@@ -157,7 +157,7 @@ do_tally_disconnected_persistent_sessions(Iter0, N) ->
     case emqx_persistent_session_ds_state:session_iterator_next(Iter0, 1) of
         {[], _} ->
             N;
-        {[{Id, _Meta}], Iter} ->
+        {[Id], Iter} ->
             case is_live_session(Id) of
                 true ->
                     do_tally_disconnected_persistent_sessions(Iter, N);

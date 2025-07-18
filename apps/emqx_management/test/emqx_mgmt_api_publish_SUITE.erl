@@ -41,8 +41,7 @@ init_per_group(without_ds, Config) ->
 init_per_group(with_ds, Config) ->
     DurableSessionsOpts = #{
         <<"enable">> => true,
-        <<"heartbeat_interval">> => <<"100ms">>,
-        <<"session_gc_interval">> => <<"2s">>
+        <<"checkpoint_interval">> => <<"100ms">>
     },
     Opts = #{durable_sessions_opts => DurableSessionsOpts},
     ExtraApps = [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],

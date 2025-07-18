@@ -65,13 +65,13 @@ init_mock_transient_failure() ->
 mock_transient_failure() ->
     ok = emqx_ds_test_helpers:mock_rpc_result(
         fun
-            (_Node, emqx_ds_replication_layer, _Function, [?DURABLE_SESSION_STATE, _Shard | _]) ->
-                passthrough;
-            (_Node, emqx_ds_replication_layer, _Function, [_DB, Shard | _]) ->
+            (_Node, emqx_ds_replication_layer, _Function, [messages, Shard | _]) ->
                 case erlang:phash2(Shard) rem 2 of
                     0 -> unavailable;
                     1 -> passthrough
-                end
+                end;
+            (_Node, _Module, _Function, _Args) ->
+                passthrough
         end
     ).
 
@@ -178,12 +178,6 @@ session_open(Node, ClientId) ->
         [ClientInfo, ConnInfo, WillMsg, Conf]
     ),
     Sess.
-
-force_last_alive_at(ClientId, Time) ->
-    {ok, S0} = emqx_persistent_session_ds_state:open(ClientId),
-    S = emqx_persistent_session_ds_state:set_last_alive_at(Time, S0),
-    _ = emqx_persistent_session_ds_state:commit(S),
-    ok.
 
 stop_and_commit(Client) ->
     {ok, {ok, _}} =
@@ -786,6 +780,134 @@ t_replay_deleted_generation(_Config) ->
         []
     ).
 
+%% @doc This stateful property-based testcase verifies consistency of
+%% commiting and restoring the session state. It creates a chain of
+%% random state changes (writes and deletes), as well as commit and
+%% restore actions and verifies that the session state is consistent
+%% with the model.
+t_state_fuzz(init, Config) ->
+    meck:new(emqx_ds, [passthrough, no_history]),
+    meck:expect(emqx_ds, stream_to_binary, fun(_, A) -> {ok, term_to_binary(A)} end),
+    meck:expect(emqx_ds, binary_to_stream, fun(_, A) -> {ok, binary_to_term(A)} end),
+    meck:expect(emqx_ds, iterator_to_binary, fun(_, A) -> {ok, term_to_binary(A)} end),
+    meck:expect(emqx_ds, binary_to_iterator, fun(_, A) -> {ok, binary_to_term(A)} end),
+    meck:expect(emqx_ds, make_multi_iterator, fun(_, _) -> '$end_of_table' end),
+    Cleanup = fun() ->
+        meck:unload(emqx_ds)
+    end,
+    start_local(?FUNCTION_NAME, [{cleanup, Cleanup} | Config]).
+t_state_fuzz(_Config) ->
+    NTests = ct:get_config({fuzzer, n_tests}, 10),
+    MaxSize = ct:get_config({fuzzer, max_size}, 100),
+    NCommandsFactor = ct:get_config({fuzzer, command_multiplier}, 1),
+    Mod = emqx_persistent_session_ds_state_fuzzer,
+    ?run_prop(
+        #{
+            proper => #{
+                timeout => 3_000_000,
+                numtests => NTests,
+                max_size => MaxSize,
+                start_size => MaxSize,
+                max_shrinks => 0
+            }
+        },
+        ?forall_trace(
+            Cmds,
+            proper_statem:more_commands(
+                NCommandsFactor,
+                commands(Mod)
+            ),
+            #{timetrap => 5_000 * length(Cmds) + 10_000},
+            try
+                %% Initialize the system and run commands:
+                Mod:init(self()),
+                {_History, State, Result} = run_commands(
+                    emqx_persistent_session_ds_state_fuzzer, Cmds
+                ),
+                %% Print debug information:
+                ct:pal("*** Result:~n~p", [Result]),
+                case Result of
+                    ok ->
+                        ok;
+                    _ ->
+                        ct:pal("*** Model state:~n~p", [State]),
+                        ct:pal("*** SUT cache:~n~p", [Mod:sut_state()]),
+                        ct:pal("*** DB state:~n~p", [emqx_ds:dirty_read(sessions, ['#'])]),
+                        error(Result)
+                end
+            after
+                Mod:clean()
+            end,
+            []
+        )
+    ).
+
+%% @doc This testcase verifies that in a situation where multiple
+%% actors compete for the state of the same client ID. Only one actor
+%% can sucessfully commit the session.
+%%
+%% Note: commiting a session that hasn't changed any data with
+%% `lifetime => up' is a NOP, so the actors have to occasionally make
+%% some changes to get kicked out after being taken over.
+t_state_commit_conflict(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_state_commit_conflict(_Config) ->
+    ?check_trace(
+        begin
+            Id = <<"clientid">>,
+            %% 1. Start from the empty state simultaneously:
+            A1 = emqx_persistent_session_ds_state:create_new(Id),
+            B1 = emqx_persistent_session_ds_state:create_new(Id),
+            %%   Commit the A (should succeed):
+            A2 = emqx_persistent_session_ds_state:commit(A1, #{lifetime => new, sync => true}),
+            %% %%   Now B should not be able to commit:
+            %% ?assertError(
+            %%     {failed_to_commit_session, _},
+            %%     emqx_persistent_session_ds_state:commit(B1, #{lifetime => new, sync => true})
+            %% ),
+            %%   A is still the owner:
+            {0, A3} = emqx_persistent_session_ds_state:new_id(A2),
+            A4 = emqx_persistent_session_ds_state:commit(A3, #{lifetime => up, sync => true}),
+            %% 2. Now C takes over the session. It should invalidate A's
+            %% claim.
+            {ok, C1} = emqx_persistent_session_ds_state:open(Id),
+            C2 = emqx_persistent_session_ds_state:commit(C1, #{lifetime => takeover, sync => true}),
+            %%   A loses:
+            {1, A5} = emqx_persistent_session_ds_state:new_id(A4),
+            ?assertError(
+                {failed_to_commit_session, _},
+                emqx_persistent_session_ds_state:commit(A5, #{lifetime => up, sync => true})
+            ),
+            %% 3. Now we emulate the situation where C went down gracefully,
+            %% and D and E take over simulataneously:
+            {1, C3} = emqx_persistent_session_ds_state:new_id(C2),
+            _ = emqx_persistent_session_ds_state:commit(C3, #{lifetime => terminate, sync => true}),
+            {ok, D1} = emqx_persistent_session_ds_state:open(Id),
+            {ok, E1} = emqx_persistent_session_ds_state:open(Id),
+            %%   E commits first:
+            {2, E2} = emqx_persistent_session_ds_state:new_id(E1),
+            E3 = emqx_persistent_session_ds_state:commit(E2, #{lifetime => takeover, sync => true}),
+            %%   D loses:
+            ?assertError(
+                {failed_to_commit_session, _},
+                emqx_persistent_session_ds_state:commit(D1, #{lifetime => takeover, sync => true})
+            ),
+            %% 4. Verify that commit with `lifetime => terminate'
+            %% doesn't crash even when inconsistency is detected.
+            %%
+            %%   F takes over:
+            {ok, F1} = emqx_persistent_session_ds_state:open(Id),
+            _F2 = emqx_persistent_session_ds_state:commit(F1, #{lifetime => takeover, sync => true}),
+            %%   E tries to commit, it silently fails with a warning:
+            {3, E4} = emqx_persistent_session_ds_state:new_id(E3),
+            _ = emqx_persistent_session_ds_state:commit(E4, #{lifetime => terminate, sync => true}),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(?sessds_takeover_conflict, Trace))
+        end
+    ).
+
 t_fuzz(init, Config) ->
     start_local(?FUNCTION_NAME, Config).
 t_fuzz(_Config) ->
@@ -795,10 +917,10 @@ t_fuzz(_Config) ->
     %% By default the number of tests and max_size are set to low
     %% values to avoid blowing up CI. Hence it's recommended to
     %% increase the max_size and numtests when doing local
-    %% development:
-    NTests = 10,
-    MaxSize = 100,
-    NCommandsFactor = 1,
+    %% development using "apps/emqx/test/sessds.cfg"
+    NTests = ct:get_config({fuzzer, n_tests}, 10),
+    MaxSize = ct:get_config({fuzzer, max_size}, 100),
+    NCommandsFactor = ct:get_config({fuzzer, command_multiplier}, 1),
     ?run_prop(
         #{
             proper => #{
@@ -835,10 +957,14 @@ t_fuzz(_Config) ->
                 ct:log(info, "*** Session state:~n  ~p~n", [
                     emqx_persistent_session_ds_fuzzer:sut_state()
                 ]),
+                ct:log(debug, "*** Persistent session DB:~n  ~p~n", [
+                    emqx_ds:dirty_read(sessions, ['#'])
+                ]),
                 ct:log("*** Result:~n  ~p~n", [Result]),
                 Result =:= ok orelse error(Result)
             after
                 ok = emqx_persistent_session_ds_fuzzer:cleanup(),
+                timer:sleep(10),
                 ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB)
             end,
             [
@@ -1078,21 +1204,9 @@ t_session_gc(Config) ->
                 [Client1, Client2, Client3]
             ),
 
-            %% Clients are still alive; no session is garbage collected.
-            ?tp(notice, "waiting for gc", #{}),
-            ?assertMatch(
-                {ok, _},
-                ?block_until(
-                    #{
-                        ?snk_kind := ds_session_gc,
-                        ?snk_span := {complete, _},
-                        ?snk_meta := #{node := N}
-                    } when N =/= node()
-                )
-            ),
+            %% Clients are alive:
             ?assertMatch([_, _, _], list_all_sessions(Node1), sessions),
             ?assertMatch([_, _, _], list_all_subscriptions(Node1), subscriptions),
-            ?tp(notice, "gc ran", #{}),
 
             %% Now we disconnect 2 of them; only those should be GC'ed.
 
@@ -1117,8 +1231,8 @@ t_session_gc(Config) ->
                 {ok, _},
                 ?block_until(
                     #{
-                        ?snk_kind := ds_session_gc_cleaned,
-                        session_id := ClientId2
+                        ?snk_kind := ?sessds_expired,
+                        id := ClientId2
                     }
                 )
             ),
@@ -1126,8 +1240,8 @@ t_session_gc(Config) ->
                 {ok, _},
                 ?block_until(
                     #{
-                        ?snk_kind := ds_session_gc_cleaned,
-                        session_id := ClientId3
+                        ?snk_kind := ?sessds_expired,
+                        id := ClientId3
                     }
                 )
             ),
@@ -1166,67 +1280,10 @@ t_crashed_node_session_gc(Config) ->
             %% However, the session should not be expired,
             %% because session's last alive time should be bumped by the node's last_alive_at, and
             %% the node only recently crashed.
-            erpc:call(Node2, emqx_persistent_session_ds_gc_worker, check_session, [ClientId]),
-            %%% Wait for possible async dirty session delete
-            ct:sleep(100),
-            ?assertMatch([_], list_all_sessions(Node2), sessions),
-
-            %% But finally the session has to expire since the connection
-            %% is not re-established.
-            ?assertMatch(
-                {ok, _},
-                ?block_until(
-                    #{
-                        ?snk_kind := ds_session_gc_cleaned,
-                        session_id := ClientId
-                    }
-                )
-            ),
+            ?block_until(#{?snk_kind := ?sessds_expired, id := ClientId}),
             %%% Wait for possible async dirty session delete
             ct:sleep(100),
             ?assertMatch([], list_all_sessions(Node2), sessions)
-        end,
-        [fun check_stream_state_transitions/1]
-    ),
-    ok.
-
-t_last_alive_at_cleanup(init, Config) ->
-    start_cluster(?FUNCTION_NAME, Config, #{n => 3}).
-t_last_alive_at_cleanup(Config) ->
-    [Node1 | _] = ?config(cluster_nodes, Config),
-    Port = get_mqtt_port(Node1, tcp),
-    ?check_trace(
-        #{timetrap => 5_000},
-        begin
-            NodeEpochId = erpc:call(
-                Node1,
-                emqx_persistent_session_ds_node_heartbeat_worker,
-                get_node_epoch_id,
-                []
-            ),
-            ClientId = <<"session_on_crashed_node">>,
-            Client = start_client(#{
-                clientid => ClientId,
-                port => Port,
-                properties => #{'Session-Expiry-Interval' => 1},
-                clean_start => false,
-                proto_ver => v5
-            }),
-            {ok, _} = emqtt:connect(Client),
-
-            %% Kill node making its lifetime epoch invalid.
-            emqx_cth_peer:kill(Node1),
-
-            %% Wait till the node's epoch is cleaned up.
-            ?assertMatch(
-                {ok, _},
-                ?block_until(
-                    #{
-                        ?snk_kind := persistent_session_ds_node_heartbeat_delete_epochs,
-                        epoch_ids := [NodeEpochId]
-                    }
-                )
-            )
         end,
         [fun check_stream_state_transitions/1]
     ),
@@ -1297,11 +1354,11 @@ t_session_replay_retry(_Config) ->
 
 %% Check that we send will messages when performing GC without relying on timers set by
 %% the channel process.
-t_session_gc_will_message(init, Config) ->
+t_delayed_will_message(init, Config) ->
     start_local(?FUNCTION_NAME, Config).
-t_session_gc_will_message(_Config) ->
+t_delayed_will_message(_Config) ->
     ?check_trace(
-        #{timetrap => 10_000},
+        #{timetrap => 15_000},
         begin
             WillTopic = <<"will/t">>,
             ok = emqx:subscribe(WillTopic, #{qos => 2}),
@@ -1311,7 +1368,7 @@ t_session_gc_will_message(_Config) ->
                 will_topic => WillTopic,
                 will_payload => <<"will payload">>,
                 will_qos => 0,
-                will_props => #{'Will-Delay-Interval' => 300}
+                will_props => #{'Will-Delay-Interval' => 5}
             }),
             {ok, _} = emqtt:connect(Client),
             %% Use reason code =/= `?RC_SUCCESS' to allow will message
@@ -1320,17 +1377,7 @@ t_session_gc_will_message(_Config) ->
                     emqtt:disconnect(Client, ?RC_UNSPECIFIED_ERROR),
                     #{?snk_kind := emqx_cm_clean_down}
                 ),
-            ?assertNotReceive({deliver, WillTopic, _}),
-            %% Set fake `last_alive_at' to trigger immediate will message.
-            force_last_alive_at(ClientId, _Time = 0),
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    emqx_persistent_session_ds_gc_worker:check_session(ClientId),
-                    #{?snk_kind := session_gc_published_will_msg}
-                ),
-            ?assertReceive({deliver, WillTopic, _}),
-
-            ok
+            ?assertReceive({deliver, WillTopic, _})
         end,
         [fun check_stream_state_transitions/1]
     ),
@@ -1433,6 +1480,7 @@ check_stream_state_transitions(Trace) ->
     ct:pal("~p: Verified state transitions of ~p streams.", [?FUNCTION_NAME, maps:size(Groups)]),
     maps:foreach(
         fun(StreamId, Transitions) ->
+            ct:pal("Stream: ~p~n  ~p", [StreamId, Transitions]),
             check_stream_state_transitions(StreamId, Transitions, void)
         end,
         Groups
@@ -1501,9 +1549,7 @@ start_cluster(TestCase, Config0, ClusterOpts) ->
     %% N.B.: some of the tests start a single-node cluster, so it's fine to test them with the
     %% `builtin_local' backend.
     DurableSessionsOpts = #{
-        <<"heartbeat_interval">> => <<"500ms">>,
-        <<"session_gc_interval">> => <<"1s">>,
-        <<"session_gc_batch_size">> => 2
+        <<"checkpoint_interval">> => <<"500ms">>
     },
     Opts = emqx_utils_maps:deep_merge(ClusterOpts, #{
         durable_sessions_opts => DurableSessionsOpts,
@@ -1519,10 +1565,18 @@ start_cluster(TestCase, Config0, ClusterOpts) ->
 
 start_local(TestCase, Config0) ->
     DurableSessionsOpts = #{
-        <<"enable">> => true,
-        <<"renew_streams_interval">> => <<"1s">>
+        <<"enable">> => true
     },
     Opts = #{
+        durable_storage_opts =>
+            #{
+                <<"sessions">> =>
+                    #{
+                        <<"backend">> => builtin_local,
+                        <<"transaction">> => #{<<"idle_flush_interval">> => 0}
+                    },
+                <<"timers">> => #{<<"backend">> => builtin_local}
+            },
         durable_sessions_opts => DurableSessionsOpts,
         start_emqx_conf => false,
         work_dir => emqx_cth_suite:work_dir(TestCase, Config0)
