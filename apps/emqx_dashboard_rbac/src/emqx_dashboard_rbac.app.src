@@ -1,6 +1,6 @@
 {application, emqx_dashboard_rbac, [
     {description, "EMQX Dashboard RBAC"},
-    {vsn, "0.2.1"},
+    {vsn, "0.2.2"},
     {registered, []},
     {applications, [
         kernel,

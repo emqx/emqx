@@ -5,7 +5,7 @@ defmodule EMQXDashboardSso.MixProject do
   def project do
     [
       app: :emqx_dashboard_sso,
-      version: "0.1.11",
+      version: "0.1.12",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
