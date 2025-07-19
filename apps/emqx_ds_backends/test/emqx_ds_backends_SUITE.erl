@@ -2307,25 +2307,34 @@ t_multi_iterator(Config) ->
         end,
         Slabs
     ),
+    %% Get all data from all streams in one batchs:
     (fun() ->
         MIt = emqx_ds:make_multi_iterator(#{db => DB}, ['#']),
         {L, '$end_of_table'} = emqx_ds:multi_iterator_next(#{db => DB}, ['#'], MIt, 1000),
         ?assertEqual(length(L), length(Slabs) * 3)
     end)(),
+    %% Limit itertion to shard 0, split batch in two:
     (fun() ->
-        MIt0 = emqx_ds:make_multi_iterator(#{db => DB, shard => <<"0">>}, ['#']),
-        {[{_, 1, <<1>>}, {_, 2, <<2>>}], MIt1} = emqx_ds:multi_iterator_next(
-            #{db => DB, shard => <<"0">>}, ['#'], MIt0, 2
-        ),
-        {[{_, 3, <<3>>}], '$end_of_table'} = emqx_ds:multi_iterator_next(
-            #{db => DB, shard => <<"0">>}, ['#'], MIt1, 2
-        )
+        ItOpts = #{db => DB, shard => <<"0">>},
+        MIt0 = emqx_ds:make_multi_iterator(ItOpts, ['#']),
+        {[{_, 1, <<1>>}, {_, 2, <<2>>}], MIt1} =
+            emqx_ds:multi_iterator_next(ItOpts, ['#'], MIt0, 2),
+        {[{_, 3, <<3>>}], '$end_of_table'} =
+            emqx_ds:multi_iterator_next(ItOpts, ['#'], MIt1, 2)
     end)(),
+    %% Interrupt iteration in the middle of the stream. Expect that
+    %% iteration will continue where it left off:
     (fun() ->
-        MIt0 = emqx_ds:make_multi_iterator(#{db => DB}, ['#']),
-        {[{_, 1, <<1>>}, {_, 2, <<2>>}, {_, 3, <<3>>}, {_, 1, <<1>>}], _MIt1} = emqx_ds:multi_iterator_next(
-            #{db => DB}, ['#'], MIt0, 4
-        )
+        ItOpts = #{db => DB},
+        MIt0 = emqx_ds:make_multi_iterator(ItOpts, ['#']),
+        {[{_, 1, <<1>>}, {_, 2, <<2>>}, {_, 3, <<3>>}, {_, 1, <<1>>}], MIt1} =
+            emqx_ds:multi_iterator_next(ItOpts, ['#'], MIt0, 4),
+        {[{_, 2, <<2>>}, {_, 3, <<3>>}, {_, 1, <<1>>}, {_, 2, <<2>>}], MIt2} =
+            emqx_ds:multi_iterator_next(ItOpts, ['#'], MIt1, 4),
+        {[{_, 3, <<3>>}, {_, 1, <<1>>}, {_, 2, <<2>>}, {_, 3, <<3>>}], MIt3} =
+            emqx_ds:multi_iterator_next(ItOpts, ['#'], MIt2, 4),
+        {[{_, 1, <<1>>}, {_, 2, <<2>>}, {_, 3, <<3>>}], '$end_of_table'} =
+            emqx_ds:multi_iterator_next(ItOpts, ['#'], MIt3, 4)
     end)().
 
 message(ClientId, Topic, Payload, PublishedAt) ->
