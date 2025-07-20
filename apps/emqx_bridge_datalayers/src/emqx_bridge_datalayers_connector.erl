@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_datalayers_connector).
 
+-include("emqx_bridge_datalayers.hrl").
+
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 -include_lib("hocon/include/hoconsc.hrl").
@@ -39,13 +41,6 @@
 ]).
 
 -export([precision_field/0]).
-
--define(DATALAYERS_DEFAULT_PORT, 8361).
-
-%% datalayers servers don't need parse
--define(DATALAYERS_HOST_OPTIONS, #{
-    default_port => ?DATALAYERS_DEFAULT_PORT
-}).
 
 -define(DEFAULT_POOL_SIZE, 8).
 
@@ -158,14 +153,22 @@ fields("connector") ->
             )},
         {parameters,
             mk(
-                hoconsc:union([
-                    ref(?MODULE, "datalayers_influxdb_v1_parameters")
-                ]),
+                hoconsc:union([ref(?MODULE, "datalayers_parameters")]),
                 #{required => true, desc => ?DESC("datalayers_parameters")}
             )}
     ] ++ emqx_connector_schema_lib:ssl_fields();
-fields("datalayers_influxdb_v1_parameters") ->
-    datalayers_parameters_fields().
+fields("datalayers_parameters") ->
+    [
+        {driver_type,
+            mk(enum([?DATALAYERS_DRIVER_TYPE_INFLUX, ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT]), #{
+                required => false,
+                default => ?DATALAYERS_DRIVER_TYPE_INFLUX,
+                desc => ?DESC("driver_type")
+            })},
+        {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
+        {username, mk(binary(), #{desc => ?DESC("username")})},
+        {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})}
+    ].
 
 precision_field() ->
     {precision,
@@ -176,17 +179,6 @@ precision_field() ->
         mk(enum([ns, us, ms, s]), #{
             required => false, default => ms, desc => ?DESC("precision")
         })}.
-
-datalayers_parameters_fields() ->
-    [
-        {driver_type,
-            mk(enum([influxdb_v1]), #{
-                required => false, default => influxdb_v1, desc => ?DESC("driver_type")
-            })},
-        {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
-        {username, mk(binary(), #{desc => ?DESC("username")})},
-        {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})}
-    ].
 
 server() ->
     Meta = #{
@@ -201,7 +193,7 @@ desc(common) ->
     ?DESC("common");
 desc(parameters) ->
     ?DESC("dayalayers_parameters");
-desc("datalayers_influxdb_v1_parameters") ->
+desc("datalayers_parameters") ->
     ?DESC("datalayers_parameters");
 desc(datalayers_api) ->
     ?DESC("datalayers_api");

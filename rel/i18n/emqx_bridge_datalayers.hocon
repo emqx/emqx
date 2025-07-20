@@ -30,10 +30,15 @@ Please note that a placeholder for an integer value must be annotated with a suf
 write_syntax.label:
 """Write Syntax"""
 
-action_parameters.label:
+action_parameters_influx.label:
 """Action Parameters"""
-action_parameters.desc:
-"""Additional parameters specific to this action type"""
+action_parameters_influx.desc:
+"""Additional parameters specific using Influx Line Protocol"""
+
+action_parameters_arrow_flight.label:
+"""Action Parameters"""
+action_parameters_arrow_flight.desc:
+"""Additional parameters specific using Arrow Flight Driver"""
 
 connector.label:
 """Datalayers Connector"""
