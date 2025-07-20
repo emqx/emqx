@@ -50,6 +50,13 @@ driver_type.label:
 driver_type.desc:
 """The Driver used to communicate with Datalayers service."""
 
+enable_prepared.desc:
+"""Enable prepared statements for the Datalayers connector.
+Note: this parameter only takes effect when the <code>driver_type/code> set to <code>arrow_flight</code>."""
+
+enable_prepared.label:
+"""Enable Prepared Statements"""
+
 datalayers_parameters.label:
 """Datalayers Specific Parameters"""
 

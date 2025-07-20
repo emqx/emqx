@@ -76,7 +76,7 @@ bridge_v2_examples(Method) ->
             <<"datalayers_arrow_flight">> => #{
                 summary => <<"Datalayers Action by Arrow Flight SQL Driver">>,
                 value => emqx_bridge_v2_schema:action_values(
-                    Method, datalayers, datalayers, ParamsExampleArrowFlight
+                    Method, datalayers, datalayers_arrow_flgiht, ParamsExampleArrowFlight
                 )
             }
         }
@@ -88,16 +88,29 @@ connector_examples(Method) ->
             <<"datalayers">> => #{
                 summary => <<"Datalayers Connector">>,
                 value => emqx_connector_schema:connector_values(
-                    Method, datalayers, connector_values(datalayers)
+                    Method, datalayers, connector_values(datalayers_influx)
+                )
+            }
+        },
+        #{
+            <<"datalayers_arrow_flight">> => #{
+                summary => <<"Datalayers Connector by Arrow Flight SQL Driver">>,
+                value => emqx_connector_schema:connector_values(
+                    Method, datalayers, connector_values(datalayers_arrow_flight)
                 )
             }
         }
     ].
 
 connector_values(Type) ->
-    maps:merge(basic_connector_values(), #{parameters => connector_values_v(Type)}).
+    maps:merge(
+        basic_connector_values(),
+        #{parameters => connector_values_v(Type)}
+    ).
 
-connector_values_v(datalayers) ->
+connector_values_v(Type) when
+    Type =:= datalayers_influx orelse Type =:= datalayers_arrow_flight
+->
     #{
         database => <<"example_database">>,
         username => <<"example_username">>,
