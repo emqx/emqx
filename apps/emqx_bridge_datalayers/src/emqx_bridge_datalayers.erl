@@ -29,6 +29,18 @@
 -define(CONNECTOR_TYPE, datalayers).
 -define(ACTION_TYPE, datalayers).
 
+-define(DEFAULT_SQL, <<
+    "insert into t_mqtt_msg(msgid, topic, qos, payload, arrived) "
+    "values (${id}, ${topic}, ${qos}, ${payload}, ${timestamp})"
+>>).
+
+-define(write_syntax_example, <<
+    "${topic},clientid=${clientid} ",
+    "payload=${payload},",
+    "${clientid}_int_value=${payload.int_key}i,",
+    "bool=${payload.bool}"
+>>).
+
 %% Examples
 conn_bridge_examples(Method) ->
     [
@@ -41,20 +53,30 @@ conn_bridge_examples(Method) ->
     ].
 
 bridge_v2_examples(Method) ->
-    WriteExample =
-        <<"${topic},clientid=${clientid} ", "payload=${payload},",
-            "${clientid}_int_value=${payload.int_key}i,", "bool=${payload.bool}">>,
-    ParamsExample = #{
+    ParamsExampleInflux = #{
         parameters => #{
-            write_syntax => WriteExample, precision => ms
+            write_syntax => ?write_syntax_example, precision => ms
+        }
+    },
+    ParamsExampleArrowFlight = #{
+        parameters => #{
+            sql => ?DEFAULT_SQL
         }
     },
     [
         #{
-            <<"datalayers">> => #{
-                summary => <<"Datalayers Action">>,
+            <<"datalayers_influx">> => #{
+                summary => <<"Datalayers Action by InfluxDB Driver">>,
                 value => emqx_bridge_v2_schema:action_values(
-                    Method, datalayers, datalayers, ParamsExample
+                    Method, datalayers, datalayers, ParamsExampleInflux
+                )
+            }
+        },
+        #{
+            <<"datalayers_arrow_flight">> => #{
+                summary => <<"Datalayers Action by Arrow Flight SQL Driver">>,
+                value => emqx_bridge_v2_schema:action_values(
+                    Method, datalayers, datalayers, ParamsExampleArrowFlight
                 )
             }
         }
@@ -136,14 +158,29 @@ fields(action) ->
         )};
 fields(datalayers_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
-        mk(ref(?MODULE, action_parameters), #{
-            required => true, desc => ?DESC(action_parameters)
-        })
+        mk(
+            hoconsc:union([
+                ref(?MODULE, action_parameters_influx),
+                ref(?MODULE, action_parameters_arrow_flight)
+            ]),
+            #{
+                required => true, desc => ?DESC(action_parameters_influx)
+            }
+        )
     );
-fields(action_parameters) ->
+fields(action_parameters_influx) ->
     [
         {write_syntax, fun write_syntax/1},
         emqx_bridge_datalayers_connector:precision_field()
+    ];
+fields(action_parameters_arrow_flight) ->
+    [
+        {sql,
+            mk(
+                emqx_schema:template(),
+                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
+            )},
+        emqx_bridge_v2_schema:undefined_as_null_field()
     ];
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
@@ -171,8 +208,10 @@ desc(datalayers_api) ->
     ?DESC(emqx_bridge_datalayers_connector, "datalayers");
 desc(datalayers_action) ->
     ?DESC(datalayers_action);
-desc(action_parameters) ->
-    ?DESC(action_parameters);
+desc(action_parameters_influx) ->
+    ?DESC(action_parameters_influx);
+desc(action_parameters_arrow_flight) ->
+    ?DESC(action_parameters_arrow_flight);
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(connector_resource_opts) ->
