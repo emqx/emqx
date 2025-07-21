@@ -28,6 +28,9 @@
     <<"topic">>, MQ_TOPIC, <<"key">>, COMPACTION_KEY
 ]).
 
+-define(MQ_COMPACTION_KEY_USER_PROPERTY, <<"CompactionKey">>).
+-define(MQ_COMPACTION_KEY_DEFAULT, <<"default_compaction_key">>).
+
 %% TODO
 %% make configurable, increase
 

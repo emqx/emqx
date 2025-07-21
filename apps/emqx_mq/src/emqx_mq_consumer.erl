@@ -106,22 +106,13 @@ start_link(MQTopicFilter) ->
 connect(MQTopicFilter, SubscriberRef, ClientId) ->
     maybe
         {ok, Pid} ?= emqx_mq_sup:start_consumer(MQTopicFilter, [MQTopicFilter]),
-        Rnd = rand:uniform(2),
-        case Rnd of
-            1 ->
-                ?tp(warning, mq_consumer_connect_success, #{
-                    subscriber_ref => SubscriberRef, client_id => ClientId, rnd => Rnd
-                }),
-                gen_server:cast(
-                    Pid,
-                    #connect{subscriber_ref = SubscriberRef, client_id = ClientId}
-                );
-            2 ->
-                ?tp(warning, mq_consumer_connect_fake_failure, #{
-                    subscriber_ref => SubscriberRef, client_id => ClientId
-                }),
-                ok
-        end
+        ?tp(warning, mq_consumer_connect_success, #{
+            subscriber_ref => SubscriberRef, client_id => ClientId
+        }),
+        gen_server:cast(
+            Pid,
+            #connect{subscriber_ref = SubscriberRef, client_id = ClientId}
+        )
     end.
 
 -spec disconnect(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.

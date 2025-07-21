@@ -7,13 +7,13 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include("emqx_mq_internal.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([register_hooks/0, unregister_hooks/0]).
 
 -export([
     on_message_publish/1,
-    on_client_authorize/4,
     on_session_subscribed/3,
     on_session_unsubscribed/2,
     on_session_resumed/2,
@@ -33,7 +33,6 @@ register_hooks() ->
     emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_HIGHEST),
     emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_HIGHEST),
     emqx_hooks:add('session.terminated', {?MODULE, on_session_terminated, []}, ?HP_HIGHEST),
-    emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
     emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_HIGHEST),
     emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_HIGHEST).
 
@@ -45,7 +44,6 @@ unregister_hooks() ->
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
     emqx_hooks:del('session.terminated', {?MODULE, on_session_terminated}),
-    emqx_hooks:del('client.authorize', {?MODULE, on_client_authorize}),
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
 
@@ -53,8 +51,18 @@ unregister_hooks() ->
 %% Hooks callbacks
 %%--------------------------------------------------------------------
 
-on_message_publish(Msg) ->
-    {ok, Msg}.
+on_message_publish(#message{topic = <<"$q/", Topic/binary>>} = Message) ->
+    Queues = emqx_mq_registry:find(Topic),
+    ?tp(warning, mq_on_message_publish, #{queues => Queues, message => Message}),
+    ok = lists:foreach(
+        fun(Queue) ->
+            publish_to_queue(Queue, Message)
+        end,
+        Queues
+    ),
+    {stop, do_not_allow_publish(Message)};
+on_message_publish(Message) ->
+    {ok, Message}.
 
 on_delivery_completed(Msg, Info) ->
     case emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg, undefined) of
@@ -93,29 +101,6 @@ on_session_resumed(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
         end,
         Subs
     ).
-
-on_client_authorize(
-    #{clientid := ClientId},
-    #{action_type := publish, qos := _QoS},
-    <<"$q/", _/binary>> = Topic,
-    _DefaultResult
-) ->
-    ?tp(info, mq_forbid_direct_publish_to_queue, #{topic => Topic, client_id => ClientId}),
-    {stop, #{result => deny, from => emqx_mq}};
-on_client_authorize(
-    #{clientid := ClientId},
-    #{action_type := subscribe, qos := QoS},
-    <<"$q/", _/binary>> = Topic,
-    _DefaultResult
-) when QoS =/= 1 ->
-    ?tp(info, mq_forbid_subscribe_to_queue_with_wrong_qos, #{
-        topic => Topic, qos => QoS, client_id => ClientId
-    }),
-    {stop, #{result => deny, from => emqx_mq}};
-on_client_authorize(
-    #{clientid := _ClientId}, #{action_type := _Action, qos := _QoS}, _Topic, _DefaultResult
-) ->
-    ignore.
 
 on_message_nack(Msg, false) ->
     SubscriberRef = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg),
@@ -203,3 +188,14 @@ recreate_sub(SubscriberRef, ClientInfo) ->
 
 ack_from_rc(?RC_SUCCESS) -> ?MQ_ACK;
 ack_from_rc(_) -> ?MQ_NACK.
+
+do_not_allow_publish(Message) ->
+    Message#message{headers = #{allow_publish => false}}.
+
+publish_to_queue(MQ, #message{headers = Headers} = Message) ->
+    Props = maps:get(properties, Headers, #{}),
+    UserProperties = maps:get('User-Property', Props),
+    CompactionKey = proplists:get_value(
+        ?MQ_COMPACTION_KEY_USER_PROPERTY, UserProperties, undefined
+    ),
+    emqx_mq_db:insert(MQ, Message, CompactionKey).

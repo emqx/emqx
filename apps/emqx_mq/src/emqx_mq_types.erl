@@ -17,6 +17,10 @@ The module contains basic types for the Message Queue application.
 -type consumer_ref() :: pid().
 -type ack() :: ?MQ_ACK | ?MQ_NACK.
 -type mq_topic() :: binary().
+-type mq() :: #{
+    topic_filter := mq_topic(),
+    is_compacted := boolean()
+}.
 
 -export_type([
     subscriber_ref/0,
@@ -25,5 +29,6 @@ The module contains basic types for the Message Queue application.
     channel_pid/0,
     consumer_ref/0,
     ack/0,
-    mq_topic/0
+    mq_topic/0,
+    mq/0
 ]).
