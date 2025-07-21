@@ -1339,7 +1339,7 @@ Smoke tests for CRUD operations on namespaced connectors.
 """.
 t_namespaced_crud(TCConfig) ->
     clear_mocks(TCConfig),
-    NoNamespace = undefined,
+    NoNamespace = ?global_ns,
     NS1 = <<"ns1">>,
     AuthHeaderNS1 = ensure_namespaced_api_key(NS1, TCConfig),
     TCConfigNS1 = [{auth_header, AuthHeaderNS1} | TCConfig],
