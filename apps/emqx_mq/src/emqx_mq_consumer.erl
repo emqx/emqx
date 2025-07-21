@@ -19,6 +19,7 @@ Consumer's responsibilities:
 
 -include("emqx_mq_internal.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -56,6 +57,7 @@ Consumer's responsibilities:
     messages :: #{message_id() => emqx_types:message()},
     topic_filter :: binary(),
     dispatch_queue :: queue:queue(),
+    consumer :: emqx_mq_consumer_streams:t(),
     ping_timer_ref :: reference() | undefined
 }).
 
@@ -89,8 +91,8 @@ Consumer's responsibilities:
 }).
 
 %% TODO
-%% Remove, used for tests
--record(gen_message, {n :: non_neg_integer()}).
+%% Stub, remove
+-record(renew_streams, {}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -153,12 +155,13 @@ ping(Pid, SubscriberRef) ->
 %%--------------------------------------------------------------------
 
 init([MQTopicFilter]) ->
-    erlang:send_after(1000, self(), #gen_message{n = 1}),
+    erlang:send_after(1000, self(), renew_streams),
     {ok, #state{
+        topic_filter = MQTopicFilter,
         subscribers = #{},
         messages = #{},
-        topic_filter = MQTopicFilter,
         dispatch_queue = queue:new(),
+        consumer = emqx_mq_consumer_streams:new(MQTopicFilter),
         ping_timer_ref = undefined
     }}.
 
@@ -181,8 +184,10 @@ handle_info(#ping_subscribers{}, State) ->
     {noreply, handle_ping_subscribers(State)};
 handle_info(#subscriber_timeout{subscriber_ref = SubscriberRef}, State) ->
     {noreply, handle_subscriber_timeout(SubscriberRef, State)};
-handle_info(#gen_message{n = N}, State) ->
-    {noreply, handle_gen_message(N, State)};
+handle_info(#renew_streams{}, State) ->
+    {noreply, handle_renew_streams(State)};
+handle_info(#ds_sub_reply{} = DSReply, State) ->
+    {noreply, handle_ds_reply(DSReply, State)};
 handle_info(_Request, State) ->
     {noreply, State}.
 
@@ -223,7 +228,10 @@ handle_disconnect(SubscriberRef, #state{subscribers = Subscribers0} = State0) ->
     end.
 
 handle_ack(
-    SubscriberRef, MessageId, Ack, #state{subscribers = Subscribers0, messages = Messages0} = State0
+    SubscriberRef,
+    MessageId,
+    Ack,
+    #state{subscribers = Subscribers0, messages = Messages0, consumer = Consumer0} = State0
 ) ->
     maybe
         #{SubscriberRef := SubscriberData0} ?= Subscribers0,
@@ -237,7 +245,8 @@ handle_ack(
         case Ack of
             ?MQ_ACK ->
                 Messages = maps:remove(MessageId, Messages0),
-                State#state{messages = Messages};
+                Consumer = emqx_mq_consumer_streams:handle_ack(Consumer0, MessageId),
+                State#state{messages = Messages, consumer = Consumer};
             ?MQ_NACK ->
                 dispatch(enqueue_for_dispatch([MessageId], State))
         end
@@ -271,21 +280,31 @@ handle_ping_subscribers(#state{subscribers = Subscribers} = State) ->
 handle_subscriber_timeout(SubscriberRef, State) ->
     handle_disconnect(SubscriberRef, State).
 
-%% TODO
-%% Remove, used for tests
-handle_gen_message(N, #state{messages = Messages0, topic_filter = TopicFilter} = State) ->
-    Topic = TopicFilter,
-    Payload = iolist_to_binary(io_lib:format("dummy message ~p", [N])),
-    Message = emqx_message:make(<<"dummy client">>, ?QOS_1, Topic, Payload),
-    MessageId = {0, N},
-    Messages = Messages0#{MessageId => Message},
-    _ = erlang:send_after(500, self(), #gen_message{n = N + 1}),
-    % ?tp(warning, mq_consumer_handle_gen_message, #{message_id => MessageId}),
-    dispatch(enqueue_for_dispatch([MessageId], State#state{messages = Messages})).
+handle_renew_streams(#state{consumer = Consumer0} = State) ->
+    _ = erlang:send_after(1000, self(), #renew_streams{}),
+    Consumer1 = emqx_mq_consumer_streams:renew_streams(Consumer0),
+    State#state{consumer = Consumer1}.
+
+handle_ds_reply(DSReply, #state{consumer = Consumer0} = State) ->
+    {ok, Messages, Consumer} = emqx_mq_consumer_streams:handle_ds_reply(Consumer0, DSReply),
+    dispatch(enqueue_messages(Messages, State#state{consumer = Consumer})).
 
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
+
+enqueue_messages([], State) ->
+    State;
+enqueue_messages(
+    [{MessageId, Payload} | Rest],
+    #state{topic_filter = TopicFilter, messages = Messages0} = State0
+) ->
+    %% TODO
+    %% use real topic and client
+    Message = emqx_message:make(<<"mq">>, ?QOS_1, TopicFilter, Payload),
+    Messages = Messages0#{MessageId => Message},
+    State = State0#state{messages = Messages},
+    enqueue_for_dispatch([MessageId], enqueue_messages(Rest, State)).
 
 refresh_subscriber_timeout(SubscriberRef, SubscriberData0) ->
     SubscriberData = cancel_subscriber_timeout(SubscriberData0),

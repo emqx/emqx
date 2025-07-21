@@ -45,9 +45,9 @@ start_generator(MQTopic, NKeys) ->
 stop_generator(Pid) ->
     Pid ! stop.
 
-start_consumer(Iterator, Options) ->
+start_consumer(MQTopic, Options) ->
     Pid = spawn_link(fun() ->
-        run_consumer(Iterator, Options)
+        run_consumer(MQTopic, Options)
     end),
     Pid.
 
@@ -71,51 +71,34 @@ get_iterators(MQTopic) ->
         get_streams(MQTopic)
     ).
 
-run_consumer(Iterator, Options) ->
-    {ok, SubRef, SC} = emqx_mq_consumer_stream:new(Iterator, Options),
-    loop_consumer(SubRef, SC).
+run_consumer(MQTopic, Options) ->
+    CSs = emqx_mq_consumer_streams:new(MQTopic, Options),
+    loop_consumer(CSs).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-loop_consumer(SubRef, SC) ->
+loop_consumer(CSs) ->
     receive
-        #ds_sub_reply{ref = SubRef} = DSReply ->
-            case emqx_mq_consumer_stream:handle_ds_reply(SC, DSReply) of
-                {ok, Payloads, SC1} ->
-                    ?tp(warning, mq_consumer_stream_handle_ds_reply, #{
-                        payloads => Payloads,
-                        sc => emqx_mq_consumer_stream:info(SC1)
-                    }),
-                    case ack_payloads(SC1, Payloads) of
-                        {ok, SC2} ->
-                            ?tp(warning, mq_consumer_stream_acked_payloads, #{
-                                sc => emqx_mq_consumer_stream:info(SC2)
-                            }),
-                            loop_consumer(SubRef, SC2);
-                        finished ->
-                            ?tp(warning, mq_consumer_stream_finished, #{}),
-                            ok
-                    end;
-                finished ->
-                    ?tp(warning, mq_consumer_stream_finished, #{}),
-                    ok
-            end;
+        #ds_sub_reply{} = DSReply ->
+            {ok, Messages, CSs1} = emqx_mq_consumer_streams:handle_ds_reply(CSs, DSReply),
+            ?tp(warning, mq_consumer_stream_handle_ds_reply, #{
+                messages => Messages,
+                cs => emqx_mq_consumer_streams:info(CSs1)
+            }),
+            CSs2 = ack_messages(CSs1, Messages),
+            loop_consumer(CSs2);
         stop ->
             ?tp(warning, mq_consumer_stream_stop, #{}),
             ok
     end.
 
-ack_payloads(SC0, [{_Topic, MessageId, _Payload} | Rest]) ->
-    case emqx_mq_consumer_stream:handle_ack(SC0, MessageId) of
-        {ok, SC1} ->
-            ack_payloads(SC1, Rest);
-        finished ->
-            finished
-    end;
-ack_payloads(SC, []) ->
-    {ok, SC}.
+ack_messages(CSs0, [{Slab, {_Topic, MessageId, _Payload}} | Rest]) ->
+    CSs1 = emqx_mq_consumer_streams:handle_ack(CSs0, Slab, MessageId),
+    ack_messages(CSs1, Rest);
+ack_messages(CSs, []) ->
+    CSs.
 
 settings() ->
     NSites = length(emqx:running_nodes()),
