@@ -52,8 +52,11 @@ $(REBAR): .prepare ensure-rebar3
 
 .PHONY: ensure-hex
 ensure-hex:
-	# @mix local.hex --if-missing --force
-	@mix local.hex 2.0.6 --if-missing --force
+	if [ "$(shell uname -m)" == "aarch64" ] && [ "$(shell ./scripts/get-distro.sh)" = "el7" ] ; then \
+	    mix archive.install github hexpm/hex branch latest --force; \
+	else \
+	    mix local.hex 2.2.1 --if-missing --force; \
+	fi
 
 .PHONY: ensure-mix-rebar3
 ensure-mix-rebar3: $(REBAR)
