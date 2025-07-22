@@ -125,8 +125,8 @@ t_parse_cont(_) ->
     Packet = ?CONNECT_PACKET(#mqtt_packet_connect{}),
     ParseState = emqx_frame:initial_parse_state(),
     <<HdrBin:1/binary, LenBin:1/binary, RestBin/binary>> = serialize_to_binary(Packet),
-    {0, ContParse} = emqx_frame:parse(<<>>, ParseState),
-    {0, ContParse1} = emqx_frame:parse(HdrBin, ContParse),
+    {some_more, ContParse} = emqx_frame:parse(<<>>, ParseState),
+    {some_more, ContParse1} = emqx_frame:parse(HdrBin, ContParse),
     {12, ContParse2} = emqx_frame:parse(LenBin, ContParse1),
     {12, ContParse3} = emqx_frame:parse(<<>>, ContParse2),
     {Packet, <<>>, _} = emqx_frame:parse(RestBin, ContParse3).

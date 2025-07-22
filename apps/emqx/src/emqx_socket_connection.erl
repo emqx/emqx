@@ -428,6 +428,8 @@ wakeup_from_hib(Parent, State) ->
 
 -compile({inline, [sock_async_recv/2]}).
 
+sock_async_recv(Socket, some_more) ->
+    socket:recv(Socket, 0, [], nowait);
 sock_async_recv(Socket, Len) ->
     socket:recv(Socket, Len, [], nowait).
 
