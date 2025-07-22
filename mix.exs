@@ -892,6 +892,7 @@ defmodule EMQXUmbrella.MixProject do
         "etc",
         "data",
         "plugins",
+        "log",
         "bin/node_dump"
         | &1
       ]
