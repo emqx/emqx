@@ -1,6 +1,6 @@
 {application, emqx_s3, [
     {description, "EMQX S3"},
-    {vsn, "5.1.4"},
+    {vsn, "5.1.5"},
     {modules, []},
     {registered, [emqx_s3_sup]},
     {applications, [

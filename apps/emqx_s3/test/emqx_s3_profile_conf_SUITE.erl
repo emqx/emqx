@@ -60,7 +60,8 @@ t_httpc_pool_start_error(Config) ->
     ?assertMatch(
         {error, _},
         emqx_s3:start_profile(<<"profile">>, ?config(profile_config, Config))
-    ).
+    ),
+    meck:unload(hackney_pool).
 
 t_httpc_pool_update_error(Config) ->
     %% `hackney_pool`s are lazy so it is difficult to trigger an error
@@ -77,7 +78,8 @@ t_httpc_pool_update_error(Config) ->
     ?assertMatch(
         {error, _},
         emqx_s3:start_profile(<<"profile">>, NewProfileConfig)
-    ).
+    ),
+    meck:unload(hackney_pool).
 
 t_orphaned_pools_cleanup(_Config) ->
     ProfileId = profile_id(),

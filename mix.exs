@@ -150,12 +150,13 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:gpb),
       common_dep(:hackney),
       # set by hackney (dependency)
+
       {:ssl_verify_fun, "1.1.7", override: true},
       common_dep(:bcrypt),
       common_dep(:uuid),
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
       common_dep(:ra),
-      {:mimerl, "1.2.0", override: true},
+      {:mimerl, "1.4.0", override: true},
       common_dep(:sasl_auth),
       # avlizer currently uses older :erlavro version
       common_dep(:erlavro),
@@ -210,7 +211,9 @@ defmodule EMQXUmbrella.MixProject do
     do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-2", override: true}
 
   def common_dep(:hackney),
-    do: {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true}
+    do:
+      {:hackney,
+       github: "savonarola/hackney", branch: "20250723-fix-ssl-connect-with-sni", override: true}
 
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
   def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.6.1", override: true}

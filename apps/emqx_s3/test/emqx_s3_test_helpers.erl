@@ -87,6 +87,7 @@ base_raw_config(tls) ->
         <<"transport_options">> =>
             #{
                 <<"request_timeout">> => <<"2s">>,
+                <<"connect_timeout">> => <<"5s">>,
                 <<"ssl">> => #{
                     <<"enable">> => true,
                     <<"cacertfile">> => bin(cert_path("ca.crt")),
