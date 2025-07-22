@@ -8,7 +8,13 @@
 %%   - TCP/TLS connection
 %%   - QUIC Stream
 %%
-%% for WebSocket @see emqx_ws_connection.erl
+%% For WebSocket transport, @see `emqx_ws_connection`.
+%% For `esockd_socket` transport, @see `emqx_socket_connection`.
+
+%% NOTE
+%% When changing this module, please make an effort to port changes to
+%% `emqx_socket_connection` module if they make sense there, and vice
+%% versa.
 -module(emqx_connection).
 
 -include("emqx.hrl").
