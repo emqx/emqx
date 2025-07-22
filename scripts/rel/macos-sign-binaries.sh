@@ -67,44 +67,8 @@ for keychain in ${keychains}; do
 done
 security -v list-keychains -s "${keychain_names[@]}" "${KEYCHAIN}"
 
-find "${PATH_TO_BINARIES}" \( \
-    -name asn1rt_nif.so \
-    -o -name bcrypt_nif.so \
-    -o -name beam.smp \
-    -o -name cpu_sup \
-    -o -name crc32cer_nif.so \
-    -o -name crypto.so \
-    -o -name crypto_callback.so \
-    -o -name dyn_erl \
-    -o -name dyntrace.so \
-    -o -name epmd \
-    -o -name erl \
-    -o -name erl_call \
-    -o -name erl_child_setup \
-    -o -name erlang_jq_port \
-    -o -name erlexec \
-    -o -name escript \
-    -o -name ezstd_nif.so \
-    -o -name heart \
-    -o -name inet_gethost \
-    -o -name jiffy.so \
-    -o -name jq_nif1.so \
-    -o -name liberocksdb.so \
-    -o -name libjq.1.dylib \
-    -o -name libonig.5.dylib \
-    -o -name libquicer_nif.so \
-    -o -name 'libmsquic*.dylib' \
-    -o -name 'libquicer_nif*.dylib' \
-    -o -name memsup \
-    -o -name odbcserver \
-    -o -name otp_test_engine.so \
-    -o -name run_erl \
-    -o -name sasl_auth.so \
-    -o -name snappyer.so \
-    -o -name to_erl \
-    -o -name trace_file_drv.so \
-    -o -name trace_ip_drv.so \
-    -o -name yielding_c_fun \
-\) -print0 | xargs -0 --no-run-if-empty codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime
+for f in $(find "${PATH_TO_BINARIES}" -type f -exec file {} + | awk -F': ' '/Mach-O/ {print $1}'); do
+  codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime "${f}"
+done
 
 cleanup
