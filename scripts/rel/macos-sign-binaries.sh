@@ -11,6 +11,8 @@
 
 # note: 'bundle' in apple terminology is 'identity'
 
+set -x
+
 set -euo pipefail
 
 if [ "$(uname)" != 'Darwin' ]; then

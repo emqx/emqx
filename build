@@ -4,6 +4,7 @@
 # arg1: profile, e.g. emqx-enterprise
 # arg2: artifact, e.g. rel | relup | tgz | pkg
 
+set -x
 set -euo pipefail
 
 if [ "${DEBUG:-0}" -eq 1 ]; then
@@ -263,7 +264,7 @@ make_tgz() {
         ./scripts/relup-build/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
     fi
     ## try to be portable for tar.gz packages.
-    ## for DEB and RPM packages the dependencies are resoved by yum and apt
+    ## for DEB and RPM packages the dependencies are resolved by yum and apt
     cp_dyn_libs "${tard}/emqx"
     case "$SYSTEM" in
         macos*)

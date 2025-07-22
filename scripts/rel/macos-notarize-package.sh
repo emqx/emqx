@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -x
+
 set -euo pipefail
 
 # intended to run on MacOS only
@@ -43,4 +45,3 @@ echo "$notarytool_output" | grep -q 'status: Accepted' || {
         --team-id "${APPLE_TEAM_ID}" "$submission_id"
     exit 1;
 }
-
