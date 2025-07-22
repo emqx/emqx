@@ -619,7 +619,9 @@ fields_mqtt_opts_tcp_backend.desc:
 - `gen_tcp`: Standard backend, in use since EMQX 5.0 release.
 
 - `socket`: Experimental backend, looking to improve message latency and compute resource usage.
-    Note that some `tcp_options` settings will have no effect when using this backend, e.g.: `high_watermark` and `send_timeout_close`."""
+    Note that some `tcp_options` settings will have no effect when using this backend, e.g.: `high_watermark` and `send_timeout_close`.
+    
+Changing the backend require restarting the listener, which will terminate all its active connections."""
 
 fields_mqtt_opts_tcp_backend.label:
 """TCP Backend"""
