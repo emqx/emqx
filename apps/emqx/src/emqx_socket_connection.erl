@@ -511,9 +511,7 @@ process_msg(Msg, State) ->
         {ok, NextMsg, NState} ->
             process_msg(NextMsg, NState);
         {stop, Reason, NState} ->
-            {stop, Reason, NState};
-        {stop, Reason} ->
-            {stop, Reason, State}
+            {stop, Reason, NState}
     catch
         exit:normal ->
             {stop, normal, State};
@@ -560,7 +558,7 @@ handle_msg({'$socket', _Socket, abort, {_Handle, Reason}}, State = #state{sockst
             handle_info({sock_error, Reason}, State);
         false ->
             %% In case there were more than 1 outstanding select:
-            {ok, State}
+            ok
     end;
 handle_msg({recv, Data}, State) ->
     handle_data(Data, false, State);
