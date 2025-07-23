@@ -93,7 +93,7 @@ jobs:
       env:
         PROFILE: emqx-enterprise
       run: |
-        make deps-emqx-enterprise
+        make mix-deps-get
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@7e187e1c529d80bac7b87a16e7a792427f65cf02 # v2.15.5

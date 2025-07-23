@@ -31,36 +31,18 @@ defmodule EMQXUmbrella.MixProject do
 
   @default_profile_bin "emqx-enterprise"
 
-  # TODO: remove once we switch to the new mix build
-  def new_mix_build?() do
-    System.get_env("NEW_MIX_BUILD") == "1"
-  end
-
   def project() do
     profile_info = check_profile!()
     version = pkg_vsn()
 
-    if new_mix_build?() do
-      [
-        apps_path: "apps",
-        erlc_options: erlc_options(version),
-        version: version,
-        deps: deps(profile_info, version),
-        releases: releases(),
-        aliases: aliases()
-      ]
-    else
-      # TODO: this check and clause will be removed when we switch to using mix as the
-      # manager for all umbrella apps.
-      [
-        app: :emqx_mix,
-        erlc_options: erlc_options(version),
-        version: version,
-        deps: deps(profile_info, version),
-        releases: releases(),
-        aliases: aliases()
-      ]
-    end
+    [
+      apps_path: "apps",
+      erlc_options: erlc_options(version),
+      version: version,
+      deps: deps(profile_info, version),
+      releases: releases(),
+      aliases: aliases()
+    ]
   end
 
   @doc """
@@ -77,34 +59,14 @@ defmodule EMQXUmbrella.MixProject do
   application dependency simply won't satisfy mix.  In such cases, it's fine to add it
   here.
   """
-  def deps(profile_info, version) do
+  def deps(_profile_info, _version) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
-
-    if new_mix_build?() do
-      new_deps()
-    else
-      old_deps(profile_info, version)
-    end
-  end
-
-  def new_deps() do
     common_deps() ++
       quicer_dep() ++
       jq_dep() ++
       extra_release_apps() ++
       overridden_deps()
-  end
-
-  ## TODO: this should be removed once we migrate the release build to mix
-  defp old_deps(profile_info, version) do
-    rebar3_umbrella_apps = emqx_apps(profile_info, version) ++ data_integration_deps()
-
-    common_deps() ++
-      extra_release_apps() ++
-      overridden_deps() ++
-      jq_dep() ++
-      quicer_dep() ++ rebar3_umbrella_apps
   end
 
   def overridden_deps() do
@@ -320,155 +282,6 @@ defmodule EMQXUmbrella.MixProject do
     # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
     do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}
 
-  ###############################################################################################
-  # BEGIN DEPRECATED FOR MIX BLOCK
-  # These should be removed once we fully migrate to mix
-  ###############################################################################################
-
-  defp emqx_apps(profile_info, version) do
-    apps = umbrella_apps(profile_info) ++ enterprise_apps(profile_info)
-    set_emqx_app_system_env(apps, version)
-  end
-
-  defp umbrella_apps(%{release_type: release_type}) do
-    enterprise_apps = enterprise_umbrella_apps(release_type)
-    excluded_apps = excluded_apps(release_type)
-
-    "apps/*"
-    |> Path.wildcard()
-    |> Enum.map(fn path ->
-      app =
-        path
-        |> Path.basename()
-        |> String.to_atom()
-
-      {app, path: path, manager: :rebar3, override: true}
-    end)
-    |> Enum.reject(fn dep_spec ->
-      dep_spec
-      |> elem(0)
-      |> then(&MapSet.member?(enterprise_apps, &1))
-    end)
-    |> Enum.reject(fn {app, _} -> app == :emqx_mix_utils end)
-    |> Enum.reject(fn {app, _} -> app in excluded_apps end)
-  end
-
-  defp enterprise_apps(_profile_info = %{release_type: release_type, edition_type: :enterprise}) do
-    Enum.map(enterprise_umbrella_apps(release_type), fn app_name ->
-      path = "apps/#{app_name}"
-      {app_name, path: path, manager: :rebar3, override: true}
-    end)
-  end
-
-  defp enterprise_apps(_profile_info) do
-    []
-  end
-
-  # need to remove those when listing `/apps/`...
-  defp enterprise_umbrella_apps(:standard) do
-    MapSet.new([
-      :emqx_connector_aggregator,
-      :emqx_bridge_kafka,
-      :emqx_bridge_confluent,
-      :emqx_bridge_gcp_pubsub,
-      :emqx_bridge_cassandra,
-      :emqx_bridge_opents,
-      :emqx_bridge_dynamo,
-      :emqx_bridge_es,
-      :emqx_bridge_greptimedb,
-      :emqx_bridge_hstreamdb,
-      :emqx_bridge_influxdb,
-      :emqx_bridge_iotdb,
-      :emqx_bridge_matrix,
-      :emqx_bridge_mongodb,
-      :emqx_bridge_mysql,
-      :emqx_bridge_pgsql,
-      :emqx_bridge_redis,
-      :emqx_bridge_rocketmq,
-      :emqx_bridge_tdengine,
-      :emqx_bridge_timescale,
-      :emqx_bridge_sqlserver,
-      :emqx_bridge_pulsar,
-      :emqx_oracle,
-      :emqx_bridge_oracle,
-      :emqx_bridge_rabbitmq,
-      :emqx_bridge_clickhouse,
-      :emqx_ft,
-      :emqx_license,
-      :emqx_opentelemetry,
-      :emqx_s3,
-      :emqx_bridge_s3,
-      :emqx_bridge_azure_blob_storage,
-      :emqx_bridge_couchbase,
-      :emqx_bridge_snowflake,
-      :emqx_bridge_disk_log,
-      :emqx_schema_registry,
-      :emqx_schema_validation,
-      :emqx_message_transformation,
-      :emqx_ai_completion,
-      :emqx_enterprise,
-      :emqx_bridge_kinesis,
-      :emqx_bridge_azure_event_hub,
-      :emqx_gcp_device,
-      :emqx_dashboard_rbac,
-      :emqx_dashboard_sso,
-      :emqx_audit,
-      :emqx_mt,
-      :emqx_gateway_gbt32960,
-      :emqx_gateway_ocpp,
-      :emqx_gateway_jt808,
-      :emqx_gateway_nats,
-      :emqx_bridge_syskeeper,
-      :emqx_ds_shared_sub,
-      :emqx_cluster_link,
-      :emqx_ds_builtin_raft,
-      :emqx_auth_kerberos,
-      :emqx_bridge_datalayers,
-      :emqx_bridge_tablestore,
-      :emqx_auth_cinfo
-    ])
-  end
-
-  defp data_integration_deps() do
-    [
-      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.27+v0.18.1"},
-      common_dep(:influxdb),
-      common_dep(:wolff),
-      common_dep(:kafka_protocol),
-      common_dep(:brod_gssapi),
-      common_dep(:brod),
-      common_dep(:snappyer),
-      common_dep(:crc32cer),
-      {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
-      {:greptimedb,
-       github: "GreptimeTeam/greptimedb-ingester-erl", tag: "v0.2.0", override: true},
-      {:amqp_client, "4.0.3", override: true}
-    ]
-  end
-
-  defp set_emqx_app_system_env(apps, version) do
-    system_env = emqx_app_system_env(version) ++ maybe_no_quic_env()
-
-    Enum.map(
-      apps,
-      fn {app, opts} ->
-        {app,
-         Keyword.update(
-           opts,
-           :system_env,
-           system_env,
-           &Keyword.merge(&1, system_env)
-         )}
-      end
-    )
-  end
-
-  def emqx_app_system_env(version) do
-    erlc_options(version)
-    |> dump_as_erl()
-    |> then(&[{"ERL_COMPILER_OPTIONS", &1}])
-  end
-
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
 
@@ -477,9 +290,11 @@ defmodule EMQXUmbrella.MixProject do
     end)
   end
 
-  ###############################################################################################
-  # END DEPRECATED FOR MIX BLOCK
-  ###############################################################################################
+  def emqx_app_system_env(version) do
+    erlc_options(version)
+    |> dump_as_erl()
+    |> then(&[{"ERL_COMPILER_OPTIONS", &1}])
+  end
 
   defp erlc_options(version) do
     [
@@ -629,12 +444,17 @@ defmodule EMQXUmbrella.MixProject do
           &create_RELEASES/1,
           &copy_files(&1, release_type, package_type, edition_type),
           &copy_escript(&1, "nodetool"),
-          &copy_escript(&1, "install_upgrade.escript")
+          &copy_escript(&1, "install_upgrade.escript"),
+          &cleanup_release_package/1
         ]
 
         steps =
           if System.get_env("ELIXIR_MAKE_TAR") == "yes" do
-            base_steps ++ [&prepare_tar_overlays/1, :tar]
+            base_steps ++
+              [
+                &prepare_tar_overlays/1,
+                :tar
+              ]
           else
             base_steps
           end
@@ -707,32 +527,22 @@ defmodule EMQXUmbrella.MixProject do
     db_apps = Enum.map(db_apps, &{&1, :load})
     business_apps = Enum.map(business_apps, &{&1, :load})
 
+    unavailable_apps = unavailable_apps()
+
     [system_apps, db_apps, [emqx_ctl: :permanent, emqx_machine: :permanent], business_apps]
     |> List.flatten()
+    |> Enum.reject(fn {app, _mode} -> app in unavailable_apps end)
   end
 
-  defp excluded_apps(:standard) do
-    %{
-      mnesia_rocksdb: enable_rocksdb?(),
+  defp unavailable_apps() do
+    [
       quicer: enable_quicer?(),
       jq: enable_jq?(),
-      observer: is_app?(:observer)
-    }
-    |> Enum.reject(&elem(&1, 1))
-    |> Enum.map(&elem(&1, 0))
-  end
-
-  defp is_app?(name) do
-    case Application.load(name) do
-      :ok ->
-        true
-
-      {:error, {:already_loaded, _}} ->
-        true
-
-      _ ->
-        false
-    end
+      observer: has_app?(:observer),
+      mnesia_rocksdb: enable_rocksdb?()
+    ]
+    |> Enum.reject(fn {_, enabled?} -> enabled? end)
+    |> MapSet.new(fn {app, _enabled?} -> app end)
   end
 
   def check_profile!() do
@@ -1082,10 +892,43 @@ defmodule EMQXUmbrella.MixProject do
         "etc",
         "data",
         "plugins",
+        "log",
         "bin/node_dump"
         | &1
       ]
     )
+  end
+
+  defp cleanup_release_package(release) do
+    release.path
+    |> List.wrap()
+    |> Mix.Utils.extract_files("swagger*.{css,js}.map")
+    |> Enum.each(&File.rm!/1)
+
+    ## mix copies the whole ERTS bin, which contains some extra executables we don't want.
+    executables_to_delete =
+      MapSet.new([
+        "dialyzer",
+        "ct_run",
+        "typer",
+        "erlc"
+      ])
+
+    erts_bin_dir =
+      [release.path, "erts-*", "bin"]
+      |> Path.join()
+      |> Path.wildcard()
+      |> hd()
+
+    erts_bin_dir
+    |> File.ls!()
+    |> Enum.filter(&(&1 in executables_to_delete))
+    |> Enum.each(fn f ->
+      f = Path.join(erts_bin_dir, f)
+      File.rm!(f)
+    end)
+
+    release
   end
 
   #############################################################################
@@ -1152,9 +995,9 @@ defmodule EMQXUmbrella.MixProject do
       platform_etc_dir: "etc",
       platform_plugins_dir: "plugins",
       runner_bin_dir: "$RUNNER_ROOT_DIR/bin",
-      emqx_etc_dir: "$RUNNER_ROOT_DIR/etc",
+      emqx_etc_dir: "$BASE_RUNNER_ROOT_DIR/etc",
       runner_lib_dir: "$RUNNER_ROOT_DIR/lib",
-      runner_log_dir: "$RUNNER_ROOT_DIR/log",
+      runner_log_dir: "$BASE_RUNNER_ROOT_DIR/log",
       runner_user: "",
       release_version: release.version,
       erts_vsn: release.erts_version,
@@ -1162,7 +1005,6 @@ defmodule EMQXUmbrella.MixProject do
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
       emqx_schema_mod: emqx_schema_mod(edition_type),
-      is_elixir: "yes",
       is_enterprise: if(edition_type == :enterprise, do: "yes", else: "no")
     ] ++ build_info()
   end
@@ -1186,7 +1028,6 @@ defmodule EMQXUmbrella.MixProject do
       erl_opts: "",
       emqx_description: emqx_description(release_type, edition_type),
       emqx_schema_mod: emqx_schema_mod(edition_type),
-      is_elixir: "yes",
       is_enterprise: if(edition_type == :enterprise, do: "yes", else: "no")
     ] ++ build_info()
   end
@@ -1242,19 +1083,20 @@ defmodule EMQXUmbrella.MixProject do
       not build_without_quic?()
   end
 
+  def enable_rocksdb?() do
+    not build_without_rocksdb?()
+  end
+
+  def build_without_rocksdb?() do
+    "1" == System.get_env("BUILD_WITHOUT_ROCKSDB")
+  end
+
   def get_emqx_flavor() do
     case System.get_env("EMQX_FLAVOR") do
       nil -> :official
       "" -> :official
       flavor -> String.to_atom(flavor)
     end
-  end
-
-  defp enable_rocksdb?() do
-    not Enum.any?([
-      raspbian?(),
-      build_without_rocksdb?()
-    ])
   end
 
   defp do_pkg_vsn() do
@@ -1264,13 +1106,9 @@ defmodule EMQXUmbrella.MixProject do
     os_cmd(script, [Atom.to_string(edition_type)])
   end
 
-  defp os_cmd(script, args) do
+  defp os_cmd(script, args \\ []) do
     {str, 0} = System.cmd("bash", [script | args])
     String.trim(str)
-  end
-
-  defp raspbian?() do
-    os_cmd("./scripts/get-distro.sh", []) =~ "raspbian"
   end
 
   defp build_without_jq?() do
@@ -1285,12 +1123,6 @@ defmodule EMQXUmbrella.MixProject do
     String.downcase(opt) != "false"
   end
 
-  defp build_without_rocksdb?() do
-    opt = System.get_env("BUILD_WITHOUT_ROCKSDB", "false")
-
-    String.downcase(opt) != "false"
-  end
-
   defp from_rebar_to_eex_template(str) do
     # we must not consider surrounding space in the template var name
     # because some help strings contain informative variables that
@@ -1300,6 +1132,16 @@ defmodule EMQXUmbrella.MixProject do
       str,
       "<%= \\g{1} %>"
     )
+  end
+
+  def has_app?(app) do
+    case Application.ensure_loaded(app) do
+      :ok ->
+        true
+
+      {:error, _} ->
+        false
+    end
   end
 
   defp build_info() do
@@ -1376,7 +1218,6 @@ defmodule EMQXUmbrella.MixProject do
   defp aliases() do
     [
       ct: &do_ct/1,
-      xref: &do_xref/1,
       cover: &do_cover/1,
       eunit: &do_eunit/1,
       proper: &do_proper/1,
@@ -1385,7 +1226,6 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp do_ct(args) do
-    IO.inspect(args)
     Mix.shell().info("testing")
 
     ensure_test_mix_env!()
@@ -1410,10 +1250,6 @@ defmodule EMQXUmbrella.MixProject do
     ensure_test_mix_env!()
     set_test_env!(true)
     Mix.Task.run("emqx.proper", args)
-  end
-
-  defp do_xref(args) do
-    Mix.Task.run("emqx.xref", args)
   end
 
   defp do_dialyzer(args) do
