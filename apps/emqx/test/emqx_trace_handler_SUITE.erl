@@ -50,7 +50,7 @@ t_trace_clientid(_Config) ->
     ok = emqx_trace_handler:install("CLI-client2", clientid, <<"client2">>, all, "tmp/client2.log"),
     ok = emqx_trace_handler:install("CLI-client3", clientid, <<"client3">>, all, "tmp/client3.log"),
     {error, {handler_not_added, {file_error, ".", eisdir}}} =
-        emqx_trace_handler:install(clientid, <<"client5">>, debug, "."),
+        emqx_trace_handler:install("CLI-client5", clientid, <<"client5">>, debug, "."),
     emqx_trace:check(),
     ok = filesync(<<"CLI-client1">>, clientid),
     ok = filesync(<<"CLI-client2">>, clientid),

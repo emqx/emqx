@@ -14,7 +14,6 @@
 -export([
     running/0,
     install/3,
-    install/4,
     install/5,
     install/6,
     uninstall/1,
@@ -84,15 +83,6 @@ install(Name, Type, Filter, Level, LogFile, Formatter) ->
 ) -> ok | {error, term()}.
 install(Name, Type, Filter, Level, LogFile) ->
     install(Name, Type, Filter, Level, LogFile, text).
-
--spec install(
-    Type :: clientid | topic | ip_address,
-    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
-    Level :: logger:level() | all,
-    LogFilePath :: string()
-) -> ok | {error, term()}.
-install(Type, Filter, Level, LogFile) ->
-    install(Filter, Type, Filter, Level, LogFile).
 
 -spec install(tracer(), logger:level() | all, string()) -> ok | {error, term()}.
 install(Who, all, LogFile) ->
