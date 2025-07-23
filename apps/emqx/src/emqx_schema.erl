@@ -18,6 +18,10 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("logger.hrl").
 
+-define(KB, 1024).
+-define(MB, 1024 * ?KB).
+-define(GB, 1024 * ?MB).
+
 -define(MAX_INT_MQTT_PACKET_SIZE, 268435455).
 -define(MAX_INT_TIMEOUT_MS, 4294967295).
 %% floor(?MAX_INT_TIMEOUT_MS / 1000).
@@ -1770,6 +1774,14 @@ fields("alarm") ->
     ];
 fields("trace") ->
     [
+        {"max_file_size",
+            sc(bytesize(), #{
+                default => <<"512MB">>,
+                importance => ?IMPORTANCE_LOW,
+                validator => mk_validator_bounds({10 * ?KB, "10KB"}, {10 * ?GB, "10GB"}),
+                desc => ?DESC(fields_trace_max_file_size)
+            })},
+        %% Deprecated fields:
         {"payload_encode",
             sc(hoconsc:enum([hex, text, hidden]), #{
                 default => text,
@@ -1937,6 +1949,16 @@ restricted_string(Str) ->
         true -> ok;
         false -> {error, <<"Invalid string for attribute name">>}
     end.
+
+mk_validator_bounds(Lower, Upper) ->
+    fun(X) -> validate_bounds(X, Lower, Upper) end.
+
+validate_bounds(X, {Lower, DisplayName}, _) when X < Lower ->
+    {error, emqx_utils:format("Invalid value: lower than allowed ~s", [DisplayName])};
+validate_bounds(X, _, {Upper, DisplayName}) when X > Upper ->
+    {error, emqx_utils:format("Invalid value: higher than allowed ~s", [DisplayName])};
+validate_bounds(_, _, _) ->
+    ok.
 
 mqtt_listener(Bind) ->
     base_listener(Bind) ++

@@ -17,7 +17,8 @@
     {password, <<"pass">>}
 ]).
 
-all() -> [t_trace_clientid, t_trace_topic, t_trace_ip_address, t_trace_clientid_utf8].
+all() ->
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -257,6 +258,47 @@ t_trace_ip_address(_Config) ->
     {error, _Reason} = emqx_trace_handler:uninstall(ip_address, <<"127.0.0.2">>),
     emqtt:disconnect(T),
     ?assertEqual([], emqx_trace_handler:running()).
+
+t_trace_max_file_size(_Config) ->
+    Name = <<"CLI-trace_max_file_size">>,
+    FileName = "tmp/trace_max_file_size.log",
+    %% Configure relatively low size limit:
+    MaxSize = 5 * 1024,
+    MaxSizeDefault = emqx_config:get([trace, max_file_size]),
+    ok = emqx_config:put([trace, max_file_size], MaxSize),
+    %% Start tracing:
+    ok = emqx_trace_handler:install(Name, topic, <<"t/#">>, all, FileName),
+    ok = emqx_trace:check(),
+    ?assertMatch(
+        [#{name := Name, type := topic, filter := <<"t/#">>}],
+        emqx_trace_handler:running()
+    ),
+    %% Start publisher publishing 50 messages with non-trivial payload:
+    {ok, C} = emqtt:start_link(?CLIENT),
+    {ok, _} = emqtt:connect(C),
+    ok = lists:foreach(
+        fun(N) ->
+            Topic = emqx_topic:join(["t", "topic", integer_to_list(N)]),
+            {ok, _} = emqtt:publish(C, Topic, binary:copy(<<"HELLO!">>, N), qos1)
+        end,
+        lists:seq(1, 50)
+    ),
+    %% At that point max size should already have been reached:
+    ok = filesync(Name, topic),
+    FileSize = filelib:file_size(FileName),
+    ?assertMatch(
+        FS when FS =< MaxSize andalso FS > MaxSize div 2,
+        FileSize,
+        {max_file_size, MaxSize}
+    ),
+    %% Verify log does not grow anymore:
+    {ok, _} = emqtt:publish(C, <<"t/lastone">>, binary:copy(<<"BYE!">>, 10), qos1),
+    ok = filesync(Name, topic),
+    ?assertEqual(FileSize, filelib:file_size(FileName)),
+    %% Cleanup:
+    ok = emqtt:disconnect(C),
+    ok = emqx_trace_handler:uninstall(topic, Name),
+    ok = emqx_config:put([trace, max_file_size], MaxSizeDefault).
 
 filesync(Name, Type) ->
     ct:sleep(50),

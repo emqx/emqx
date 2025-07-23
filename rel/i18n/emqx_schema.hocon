@@ -1164,6 +1164,13 @@ fields_trace_payload_encode.desc:
 fields_trace_payload_encode.label:
 """Payload encode"""
 
+fields_trace_max_file_size.desc:
+"""Specifies how large _each_ trace file may become.
+Once a trace file reaches this size, no additional events will be recorded, even if the trace remains active."""
+
+fields_trace_max_file_size.label:
+"""Maximum Trace File Size"""
+
 mqtt_response_information.desc:
 """UTF-8 string, for creating the response topic, for example, if set to <code>reqrsp/</code>, the publisher/subscriber will communicate using the topic prefix <code>reqrsp/</code>.
 To disable this feature, input <code>""</code> in the text box below. Only applicable to MQTT 5.0 clients."""
