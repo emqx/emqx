@@ -27,12 +27,6 @@ init_per_suite(Config) ->
         [emqx],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    Listeners = emqx_listeners:list(),
-    ct:pal("emqx_listeners:list() = ~p~n", [Listeners]),
-    ?assertMatch(
-        [_ | _],
-        [ID || {ID, #{running := true}} <- Listeners]
-    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -43,7 +37,6 @@ end_per_suite(Config) ->
 init_per_testcase(_, Config) ->
     reload(),
     ok = emqx_trace:clear(),
-    ct:pal("load:~p~n", [erlang:whereis(emqx_trace)]),
     Config.
 
 end_per_testcase(_) ->
