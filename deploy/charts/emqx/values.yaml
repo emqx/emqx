@@ -3,7 +3,7 @@
 ## Declare variables to be passed into your templates.
 
 ## It is recommended to have odd number of nodes in a cluster, otherwise the emqx cluster cannot be automatically healed in case of net-split.
-replicaCount: 3
+replicaCount: 1
 image:
   repository: emqx/emqx
   pullPolicy: IfNotPresent
