@@ -295,6 +295,8 @@ defmodule EMQXUmbrella.MixProject do
     {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-1", override: true}
   end
 
+  def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.8.3.0"}
+
   def common_dep(:unicode_util_compat),
     do: {:unicode_util_compat, "0.7.1", override: true}
 
