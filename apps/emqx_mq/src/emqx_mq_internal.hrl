@@ -41,10 +41,10 @@
 %% configurable
 
 %% 10 seconds
--define(DEFAULT_SUBSCRIBER_TIMEOUT, 10000).
+-define(DEFAULT_SUBSCRIBER_TIMEOUT, 10_000).
 %% 10 seconds
--define(DEFAULT_CONSUMER_TIMEOUT, 10000).
+-define(DEFAULT_CONSUMER_TIMEOUT, 10_000).
 %% 5 seconds
--define(DEFAULT_PING_INTERVAL, 5000).
+-define(DEFAULT_PING_INTERVAL, 5_000).
 
 -endif.

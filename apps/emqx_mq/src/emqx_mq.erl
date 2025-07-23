@@ -51,17 +51,14 @@ unregister_hooks() ->
 %% Hooks callbacks
 %%--------------------------------------------------------------------
 
-on_message_publish(#message{topic = <<"$q/", Topic/binary>>} = Message) ->
+on_message_publish(#message{topic = Topic} = Message) ->
     Queues = emqx_mq_registry:find(Topic),
-    ?tp(warning, mq_on_message_publish, #{queues => Queues, message => Message}),
     ok = lists:foreach(
         fun(Queue) ->
             publish_to_queue(Queue, Message)
         end,
         Queues
     ),
-    {stop, do_not_allow_publish(Message)};
-on_message_publish(Message) ->
     {ok, Message}.
 
 on_delivery_completed(Msg, Info) ->
@@ -188,9 +185,6 @@ recreate_sub(SubscriberRef, ClientInfo) ->
 
 ack_from_rc(?RC_SUCCESS) -> ?MQ_ACK;
 ack_from_rc(_) -> ?MQ_NACK.
-
-do_not_allow_publish(Message) ->
-    Message#message{headers = #{allow_publish => false}}.
 
 publish_to_queue(MQ, #message{headers = Headers} = Message) ->
     Props = maps:get(properties, Headers, #{}),
