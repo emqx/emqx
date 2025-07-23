@@ -146,7 +146,7 @@ ping(Pid, SubscriberRef) ->
 %%--------------------------------------------------------------------
 
 init([MQTopicFilter]) ->
-    erlang:send_after(1000, self(), renew_streams),
+    erlang:send_after(1000, self(), #renew_streams{}),
     {ok, #state{
         topic_filter = MQTopicFilter,
         subscribers = #{},

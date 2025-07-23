@@ -135,6 +135,7 @@ add_stream(#{streams := Streams} = State, Slab, Stream) ->
     end.
 
 do_add_stream(#{mq_topic := MQTopic, options := Options, streams := Streams} = State, Slab, Stream) ->
+    ?tp(warning, emqx_mq_consumer_streams_add_stream, #{mq_topic => MQTopic, slab => Slab}),
     {ok, It} = emqx_ds:make_iterator(
         ?MQ_PAYLOAD_DB, Stream, ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#'), 0
     ),
