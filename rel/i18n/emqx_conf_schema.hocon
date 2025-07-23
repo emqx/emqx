@@ -659,7 +659,8 @@ log_audit_handler.label:
 """Audit log Handler"""
 
 node_global_gc_interval.desc:
-"""Periodic garbage collection interval. Set to <code>disabled</code> to have it disabled."""
+"""Periodic garbage collection interval. Set to <code>disabled</code> to have it disabled.<br/>
+Only use this feature as a workaround if EMQX memory usage keeps growing and significantly exceeds normal levels, and manual garbage collection can indeed release a large amount of memory."""
 
 node_global_gc_interval.label:
 """Global GC Interval"""
