@@ -6,6 +6,9 @@ concurrency:
 
 on:
   workflow_call:
+    secrets:
+      EMQX_ENTERPRISE_LICENSE:
+        required: true
 
 permissions:
   contents: read
