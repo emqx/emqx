@@ -200,17 +200,10 @@ t_schema_registry_import_order(Config) ->
     [N1 | _] = ?config(cluster, Config),
     Auth = ?config(auth, Config),
     SerdeName = <<"test">>,
-    SchemaSource = #{
-        <<"$schema">> => <<"http://json-schema.org/draft-06/schema#">>,
-        <<"type">> => <<"object">>
-    },
-    CreateParams = #{
-        type => json,
-        source => emqx_utils_json:encode(SchemaSource)
-    },
+    CreateParams = emqx_schema_registry_SUITE:schema_params(avro),
     MTName = <<"mt">>,
     PayloadSerde = #{
-        <<"type">> => <<"json">>,
+        <<"type">> => <<"avro">>,
         <<"schema">> => SerdeName
     },
     Operation = emqx_message_transformation_http_api_SUITE:operation(
@@ -228,15 +221,19 @@ t_schema_registry_import_order(Config) ->
 
     ?ON(N1, begin
         ok = emqx_schema_registry:add_schema(SerdeName, CreateParams),
-        emqx_message_transformation:insert(Transformation),
-        emqx_schema_validation:insert(Validation),
-
+        {ok, _} = emqx_message_transformation:insert(Transformation),
+        {ok, _} = emqx_schema_validation:insert(Validation),
         ok
     end),
     ExportBody = #{},
     {200, #{<<"filename">> := Filepath}} = export_backup2(?NODE1_PORT, Auth, ExportBody),
     %% Remove schema so it's absent when importing stuff back
-    ?ON(N1, ok = emqx_schema_registry:delete_schema(SerdeName)),
+    ?ON(N1, begin
+        {ok, _} = emqx_message_transformation:delete(MTName),
+        {ok, _} = emqx_schema_validation:delete(SVName),
+        ok = emqx_schema_registry:delete_schema(SerdeName),
+        ok
+    end),
     {ok, _} = import_backup(?NODE1_PORT, Auth, Filepath),
     ok.
 

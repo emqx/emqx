@@ -7,6 +7,7 @@
 -compile(export_all).
 
 -include("emqx_dashboard.hrl").
+-include("emqx_dashboard_rbac.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -94,6 +95,8 @@ create_api_key_api(Params, AuthHeader) ->
 
 to_rfc3339(Sec) ->
     list_to_binary(calendar:system_time_to_rfc3339(Sec)).
+
+bin(X) -> emqx_utils_conv:bin(X).
 
 umbrella_apps() ->
     [
@@ -483,7 +486,7 @@ t_namespaced_user_permissions(_TCConfig) ->
     GlobalAdminHeader = create_superuser(),
     Username = <<"iminans">>,
     Password = <<"superSecureP@ss">>,
-    AdminRole = <<"ns:ns1::administrator">>,
+    AdminRole = <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>,
     {200, _} = create_user_api(
         #{
             <<"username">> => Username,
@@ -512,5 +515,63 @@ t_namespaced_user_permissions(_TCConfig) ->
     maybe
         [_ | _] ?= Failures,
         ct:fail({should_have_been_allowed, Failures})
+    end,
+    ok.
+
+-doc """
+Checks the authorization behavior of namespaced publisher API keys.
+
+Currently, they are not authorized even to use the publish HTTP APIs that their
+non-namespaced counterparts are.
+""".
+t_namespaced_api_publisher(TCConfig) when is_list(TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    APIKeyName = atom_to_binary(?FUNCTION_NAME),
+    Namespace = <<"ns1">>,
+    APIPublisherRole = <<"ns:ns1::", ?ROLE_API_PUBLISHER/binary>>,
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    Res1 = create_api_key_api(
+        #{
+            <<"name">> => APIKeyName,
+            <<"expired_at">> => ExpiresAt,
+            <<"desc">> => <<"namespaced api publisher">>,
+            <<"enable">> => true,
+            <<"role">> => APIPublisherRole
+        },
+        GlobalAdminHeader
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"role">> := ?ROLE_API_PUBLISHER,
+            <<"namespace">> := Namespace
+        }},
+        Res1
+    ),
+    {200, #{<<"api_key">> := Key, <<"api_secret">> := Secret}} = Res1,
+    {_, BasicAuth} = emqx_common_test_http:auth_header(Key, Secret),
+
+    AllHandlers = [_ | _] = all_handlers(),
+    FakeReq = #{headers => #{<<"authorization">> => bin(BasicAuth)}},
+    Failures =
+        lists:filtermap(
+            fun(FakeHandlerInfo) ->
+                case emqx_dashboard:authorize(FakeReq, FakeHandlerInfo) of
+                    {403, _, _} ->
+                        %% Currently, namespaced API publishers can't do anything.
+                        false;
+                    {401, _, _} ->
+                        %% Although a weird status code, it's current state of affairs...
+                        %% Some endpoints can't be called by API keys and return 401.
+                        %% See `emqx_mgmt_auth:authorize/2`.
+                        false;
+                    Unexpected ->
+                        {true, {FakeHandlerInfo, Unexpected}}
+                end
+            end,
+            AllHandlers
+        ),
+    maybe
+        [_ | _] ?= Failures,
+        ct:fail({should_have_been_forbidden, Failures})
     end,
     ok.

@@ -178,16 +178,16 @@ t_clean_token(_) ->
     {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     ok.
 
-t_login_out() ->
+t_logout() ->
     [{matrix, true}].
-t_login_out(matrix) ->
+t_logout(matrix) ->
     [
         [?global_superuser],
         [?global_viewer],
         [?namespaced_superuser],
         [?namespaced_viewer]
     ];
-t_login_out(TCConfig) when is_list(TCConfig) ->
+t_logout(TCConfig) when is_list(TCConfig) ->
     Username = <<"admin_token">>,
     Password = <<"public_www1">>,
     Desc = <<"desc">>,

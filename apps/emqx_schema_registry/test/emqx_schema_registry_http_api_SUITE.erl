@@ -53,6 +53,7 @@ only_once_testcases() ->
     ].
 
 init_per_suite(Config) ->
+    WorkDir = emqx_cth_suite:work_dir(Config),
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -62,9 +63,13 @@ init_per_suite(Config) ->
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => WorkDir}
     ),
-    [{apps, Apps} | Config].
+    [
+        {apps, Apps},
+        {work_dir, WorkDir}
+        | Config
+    ].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
@@ -1256,4 +1261,97 @@ t_protobuf_bundle_update_without_bundle(Config) ->
             root_proto_path => <<"some.proto">>
         })
     ),
+    ok.
+
+-doc """
+Verifies that we refuse to delete a serde which is referenced by a schema validation.
+""".
+t_delete_serde_with_dependent_validations(Config) ->
+    WorkDir = ?config(work_dir, Config),
+    SerdeType = ?config(serde_type, Config),
+    SourceBin = ?config(schema_source, Config),
+    SerdeTypeBin = atom_to_binary(SerdeType),
+    Apps = emqx_cth_suite:start_apps(
+        [
+            emqx_schema_validation,
+            emqx_message_transformation
+        ],
+        #{work_dir => WorkDir}
+    ),
+    on_exit(fun() ->
+        ok = emqx_cth_suite:stop_apps(Apps),
+        ok = emqx_dashboard:stop_listeners(),
+        ok = emqx_dashboard:start_listeners()
+    end),
+    ok = emqx_dashboard:stop_listeners(),
+    ok = emqx_dashboard:start_listeners(),
+    SerdeName = <<"imbeingused">>,
+    Params = #{
+        <<"type">> => SerdeTypeBin,
+        <<"source">> => SourceBin,
+        <<"name">> => SerdeName,
+        <<"description">> => <<"My serde">>
+    },
+    {ok, 201, _} = request({post, Params}),
+    ValidationName = <<"somevalidation">>,
+    ExtraArgs =
+        case SerdeType of
+            protobuf ->
+                #{<<"message_type">> => <<"Person">>};
+            _ ->
+                #{}
+        end,
+    Check = emqx_schema_validation_http_api_SUITE:schema_check(SerdeType, SerdeName, ExtraArgs),
+    Validation = emqx_schema_validation_http_api_SUITE:validation(ValidationName, [Check]),
+    {201, _} = emqx_schema_validation_http_api_SUITE:insert(Validation),
+
+    ?assertMatch(
+        {ok, 400, #{
+            <<"message">> :=
+                #{
+                    <<"reason">> := <<"still_referenced">>,
+                    <<"references">> := #{
+                        <<"transformations">> := [],
+                        <<"validations">> := [ValidationName]
+                    }
+                }
+        }},
+        request({delete, SerdeName})
+    ),
+    {204, _} = emqx_schema_validation_http_api_SUITE:delete(ValidationName),
+
+    %% Transformations do not reference JSON serdes.
+    maybe
+        true ?= SerdeType /= json,
+        TransformationName = <<"sometransformation">>,
+        Op = emqx_message_transformation_http_api_SUITE:dummy_operation(),
+        PayloadSerde0 = #{<<"type">> => SerdeTypeBin, <<"schema">> => SerdeName},
+        PayloadSerde = maps:merge(PayloadSerde0, ExtraArgs),
+        Transformation = emqx_message_transformation_http_api_SUITE:transformation(
+            TransformationName,
+            [Op],
+            #{
+                <<"payload_decoder">> => PayloadSerde,
+                <<"payload_encoder">> => PayloadSerde
+            }
+        ),
+        {201, _} = emqx_message_transformation_http_api_SUITE:insert(Transformation),
+        ?assertMatch(
+            {ok, 400, #{
+                <<"message">> :=
+                    #{
+                        <<"reason">> := <<"still_referenced">>,
+                        <<"references">> := #{
+                            <<"transformations">> := [TransformationName],
+                            <<"validations">> := []
+                        }
+                    }
+            }},
+            request({delete, SerdeName})
+        ),
+        {204, _} = emqx_message_transformation_http_api_SUITE:delete(TransformationName)
+    end,
+
+    ?assertMatch({ok, 204, _}, request({delete, SerdeName})),
+
     ok.
