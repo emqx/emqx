@@ -127,38 +127,18 @@ jobs:
     uses: ./.github/workflows/build_slim_packages.yaml
 
   compile:
-    runs-on: ubuntu-22.04
-    container: ${{ needs.init.outputs.BUILDER }}
     needs:
       - init
       - prepare
     strategy:
       matrix:
-        profile:
-          - emqx-enterprise
-
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          ref: ${{ github.event.inputs.ref }}
-          fetch-depth: 0
-      - name: Work around https://github.com/actions/checkout/issues/766
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - id: compile
-        env:
-          PROFILE: ${{ matrix.profile }}
-          ENABLE_COVER_COMPILE: 1
-        run: |
-          make $PROFILE
-          echo "export PROFILE=${PROFILE}" | tee -a env.sh
-          echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
-          zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ matrix.profile }}
-          path: ${{ matrix.profile }}.zip
-          retention-days: 7
+        build_type:
+          - test
+          - release
+    uses: ./.github/workflows/compile.yaml
+    with:
+      builder: ${{ needs.init.outputs.BUILDER }}
+      build_type: ${{ matrix.build_type }}
 
   performance_test:
     if: needs.prepare.outputs.release == 'true'
@@ -196,18 +176,6 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           gh --repo emqx/emqx-i18n workflow run sync-and-translate.yaml -f version=${GITHUB_REF_NAME}
-
-  run_emqx_app_tests:
-    if: needs.prepare.outputs.release != 'true'
-    needs:
-      - init
-      - prepare
-      - compile
-    uses: ./.github/workflows/run_emqx_app_tests.yaml
-    with:
-      builder: ${{ needs.init.outputs.BUILDER }}
-      before_ref: ${{ github.event.before }}
-      after_ref: ${{ github.sha }}
 
   run_test_cases:
     if: needs.prepare.outputs.release != 'true'

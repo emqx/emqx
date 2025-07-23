@@ -46,9 +46,22 @@
 -type raw_validation() :: #{binary() => _}.
 -type validation() :: #{
     name := validation_name(),
+    checks := [check()],
     strategy := all_pass | any_pass,
     failure_action := drop | disconnect | ignore,
     log_failure := #{level := error | warning | notice | info | debug | none}
+}.
+-type check() :: check_sql() | check_schema().
+-type check_sql() :: #{type := sql, sql := binary()}.
+-type check_schema() :: check_schema_internal() | check_schema_internal_protobuf().
+-type check_schema_internal() :: #{
+    type := avro | json | external_http,
+    schema := binary()
+}.
+-type check_schema_internal_protobuf() :: #{
+    type := protobuf,
+    schema := binary(),
+    message_type := binary()
 }.
 
 -export_type([

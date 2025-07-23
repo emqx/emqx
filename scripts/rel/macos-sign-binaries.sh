@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 # intended to run on MacOS only
-# signs executables and runtime libraries found in $RELX_TEMP_DIR with developer certificate
+# signs executables and runtime libraries with developer certificate
+# path to binaries is passed as the first argument, defaults to current directory
 
 # required variables:
 # APPLE_DEVELOPER_IDENTITY: "Developer ID Application: <company name> (<hex id>)"
@@ -27,7 +28,7 @@ if [[ "${APPLE_DEVELOPER_ID_BUNDLE:-0}" == 0 || "${APPLE_DEVELOPER_ID_BUNDLE_PAS
     exit 0
 fi
 
-pushd "${RELX_TEMP_DIR}"
+PATH_TO_BINARIES="${1:-.}"
 
 PKSC12_FILE="$HOME/developer-id-application.p12"
 printf '%s' "${APPLE_DEVELOPER_ID_BUNDLE}" | base64 --decode > "${PKSC12_FILE}"
@@ -40,7 +41,7 @@ trap cleanup EXIT
 function cleanup {
     set +e
     security delete-keychain "${KEYCHAIN}" 2>/dev/null
-    rm -f "${RELX_TEMP_DIR}/certificate.crt"
+    rm -f certificate.crt
 }
 
 security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
@@ -66,36 +67,8 @@ for keychain in ${keychains}; do
 done
 security -v list-keychains -s "${keychain_names[@]}" "${KEYCHAIN}"
 
-# known runtime executables and binaries
-codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
-         erts-*/bin/{beam.smp,dyn_erl,epmd,erl,erl_call,erl_child_setup,erlexec,escript,heart,inet_gethost,run_erl,to_erl}
-codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
-         lib/runtime_tools-*/priv/lib/{dyntrace.so,trace_ip_drv.so,trace_file_drv.so}
-codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
-         lib/os_mon-*/priv/bin/{cpu_sup,memsup}
-codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
-         lib/jq-*/priv/{jq_nif1.so,libjq.1.dylib,libonig.5.dylib,erlang_jq_port}
-# other files from runtime and dependencies
-for f in \
-        asn1rt_nif.so \
-        bcrypt_nif.so \
-        crc32cer_nif.so \
-        crypto.so \
-        crypto_callback.so \
-        ezstd_nif.so \
-        jiffy.so \
-        liberocksdb.so \
-        libquicer_nif.so \
-        libquicer_nif*.dylib \
-        libmsquic*.dylib \
-        odbcserver \
-        otp_test_engine.so \
-        sasl_auth.so \
-        snappyer.so \
-        ; do
-    find lib/ -name "$f" -exec codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime {} \;
+for f in $(find "${PATH_TO_BINARIES}" -type f -exec file {} + | awk -F': ' '/Mach-O/ {print $1}'); do
+  codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime "${f}"
 done
-
-popd
 
 cleanup

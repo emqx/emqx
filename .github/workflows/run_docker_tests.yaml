@@ -70,8 +70,6 @@ jobs:
       matrix:
         profile:
           - emqx-enterprise
-          #TODO: fix
-          #- emqx-enterprise-elixir
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
