@@ -34,6 +34,11 @@ groups() ->
         {mqttv5, [], emqx_common_test_helpers:all(?MODULE)}
     ].
 
+flaky_tests() ->
+    #{
+        t_kick_session => 3
+    }.
+
 tc_v5_only() ->
     [
         t_session_expire_with_delayed_willmsg,
