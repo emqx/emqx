@@ -922,7 +922,7 @@ defmodule EMQXUmbrella.MixProject do
         file = Path.join(ebin_path, file)
         binary = File.read!(file)
 
-        with {:ok, binary} <- Mix.Release.strip_beam(binary, keep: [], compress: true) do
+        with {:ok, binary} <- Mix.Release.strip_beam(binary, keep: ["Dbgi"], compress: true) do
           File.write!(file, binary)
         end
       end
