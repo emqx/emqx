@@ -8,7 +8,7 @@ on:
   workflow_call:
     secrets:
       EMQX_ENTERPRISE_LICENSE:
-        required: false
+        required: true
 
 permissions:
   contents: read
