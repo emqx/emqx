@@ -235,7 +235,7 @@ test_change_parse_unit(ConfPath, ClientOpts) ->
     ?assertMatch({ok, _}, emqx:update_config(ConfPath, {update, ListenerRawConf1})),
     Client1 = emqtt_connect(ClientOpts),
     pong = emqtt:ping(Client1),
-    CState1 = get_conn_state(Client1),
+    CState1 = emqx_cth_broker:connection_state(Client1),
     emqx_listeners:is_packet_parser_available(mqtt) andalso
         ?assertMatch(
             #{parser := {frame, _Options}},
@@ -245,7 +245,7 @@ test_change_parse_unit(ConfPath, ClientOpts) ->
     ?assertMatch({ok, _}, emqx:update_config(ConfPath, {update, ListenerRawConf0})),
     Client2 = emqtt_connect(ClientOpts),
     pong = emqtt:ping(Client2),
-    CState2 = get_conn_state(Client2),
+    CState2 = emqx_cth_broker:connection_state(Client2),
     emqx_listeners:is_packet_parser_available(mqtt) andalso
         ?assertMatch(
             #{parser := Parser} when Parser =/= map_get(parser, CState1),
@@ -424,8 +424,3 @@ emqtt_connect(Opts) ->
         {error, Reason} ->
             error(Reason, [Opts])
     end.
-
-get_conn_state(Client) ->
-    ClientId = proplists:get_value(clientid, emqtt:info(Client)),
-    [CPid | _] = emqx_cm:lookup_channels(ClientId),
-    emqx_connection:get_state(CPid).

@@ -6,6 +6,9 @@ concurrency:
 
 on:
   workflow_call:
+    secrets:
+      EMQX_ENTERPRISE_LICENSE:
+        required: true
 
 permissions:
   contents: read
@@ -68,7 +71,6 @@ jobs:
           EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
           EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
           EMQX_RPC__TLS_VERSIONS: "[tlsv1.3]"
-          EMQX_LICENSE__KEY: evaluation
         EOL
     - name: Prepare emqxConfig.EMQX_RPC using ssl1.2
       working-directory: source
@@ -82,7 +84,6 @@ jobs:
           EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
           EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
           EMQX_RPC__TLS_VERSIONS: "[tlsv1.2]"
-          EMQX_LICENSE__KEY: evaluation
         EOL
     - name: run emqx on chart (k8s)
       if: matrix.discovery == 'k8s'
@@ -97,12 +98,13 @@ jobs:
             --set image.pullPolicy=Never \
             --set image.tag=$EMQX_TAG \
             --set emqxAclConfig="" \
+            --set replicaCount=3 \
             --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
-            --set emqxConfig.EMQX_LICENSE__KEY=evaluation \
+            --set emqxConfig.EMQX_LICENSE__KEY="${{ secrets.EMQX_ENTERPRISE_LICENSE }}" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --debug
@@ -118,12 +120,13 @@ jobs:
             --set image.pullPolicy=Never \
             --set image.tag=$EMQX_TAG \
             --set emqxAclConfig="" \
+            --set replicaCount=3 \
             --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
-            --set emqxConfig.EMQX_LICENSE__KEY=evaluation \
+            --set emqxConfig.EMQX_LICENSE__KEY="${{ secrets.EMQX_ENTERPRISE_LICENSE }}" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --wait \
