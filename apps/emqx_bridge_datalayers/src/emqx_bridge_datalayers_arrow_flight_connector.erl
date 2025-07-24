@@ -326,7 +326,7 @@ pick_and_do(InstId, FuncMode, DriverFunArgs) ->
     end.
 
 proc_sql_params({?prepare, PrepStmtTemplate}, Querys, ChannelState, InitArgs) ->
-    RenderedRows = render_prepare_sql_row(PrepStmtTemplate, Querys),
+    RenderedRows = [render_prepare_sql_row(PrepStmtTemplate, Query) || {_, Query} <- Querys],
     [maps:get(prepared_refs, ChannelState), RenderedRows | InitArgs];
 proc_sql_params({?no_prepare, BatchTemplate}, Querys, ChannelState, InitArgs) ->
     RenderedSql = bin(render_batch_sql_row(BatchTemplate, Querys, ChannelState)),
@@ -349,9 +349,9 @@ enable_prepared(
 enable_prepared(_, _) ->
     ?no_prepare.
 
-render_prepare_sql_row({_InsertPart, RowTemplate}, Data) ->
+render_prepare_sql_row({_InsertPart, RowTemplate}, Querys) ->
     % NOTE: ignoring errors here, missing variables will be replaced with `null`.
-    {Row, _Errors} = emqx_template_sql:render_prepstmt(RowTemplate, {emqx_jsonish, Data}),
+    {Row, _Errors} = emqx_template_sql:render_prepstmt(RowTemplate, {emqx_jsonish, Querys}),
     Row.
 
 render_batch_sql_row({InsertPart, RowTemplate, OnClause}, Querys, ChannelState) ->
