@@ -309,6 +309,7 @@ defmodule EMQXUmbrella.MixProject do
       singleton(not test_env?(), :compressed) ++
       singleton(not test_env?(), :deterministic) ++
       singleton(test_env?(), {:d, :TEST}) ++
+      singleton(test_env?(), {:parse_transform, :cth_readable_transform}) ++
       singleton(enable_broker_instr?(), {:d, :EMQX_BROKER_INSTR}) ++
       singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
       singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
@@ -353,7 +354,7 @@ defmodule EMQXUmbrella.MixProject do
 
     get_memoized(k, fn ->
       if test_env?() do
-        [:eunit, :common_test, :dialyzer, :mnesia]
+        [:eunit, :common_test, :dialyzer, :mnesia, :cth_readable]
       else
         []
       end
