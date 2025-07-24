@@ -257,3 +257,4 @@ jobs:
       - sanity-checks
       - build_docker_emqx_enterprise
     uses: ./.github/workflows/run_helm_tests.yaml
+    secrets: inherit
