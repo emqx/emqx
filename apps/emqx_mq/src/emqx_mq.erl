@@ -194,4 +194,4 @@ publish_to_queue(MQ, #message{headers = Headers} = Message) ->
     CompactionKey = proplists:get_value(
         ?MQ_COMPACTION_KEY_USER_PROPERTY, UserProperties, undefined
     ),
-    emqx_mq_db:insert(MQ, Message, CompactionKey).
+    emqx_mq_payload_db:insert(MQ, Message, CompactionKey).

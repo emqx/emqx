@@ -18,8 +18,9 @@ The module represents a consumer of all streams of a single Message Queue.
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
-    new/1,
     new/2,
+    new/3,
+    get_data/1,
     renew_streams/1,
     handle_ds_reply/2,
     handle_ack/2,
@@ -40,23 +41,30 @@ The module represents a consumer of all streams of a single Message Queue.
 
 -export_type([t/0]).
 
--spec new(emqx_mq_types:mq_topic()) -> t().
-new(MQTopic) ->
-    new(MQTopic, #{}).
+-spec new(emqx_mq_types:mq_topic(), emqx_mq_types:consumer_data()) -> t().
+new(MQTopic, ConsumerData) ->
+    new(MQTopic, ConsumerData, #{}).
 
--spec new(emqx_mq_types:mq_topic(), map()) -> t().
-new(MQTopic, Options) ->
+-spec new(emqx_mq_types:mq_topic(), emqx_mq_types:consumer_data(), map()) -> t().
+new(MQTopic, ConsumerData, Options) ->
     State = #{
         options => Options,
         mq_topic => MQTopic,
-        streams => #{}
+        streams => #{},
+        %% TODO
+        %% use ConsumerData to initialize the streams
+        %% While this module is a stub, we do not use it.
+        consumer_data => ConsumerData
     },
-    Streams = emqx_ds:get_streams(?MQ_PAYLOAD_DB, ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#'), 0),
-    add_streams(State, Streams).
+    renew_streams(State).
+
+-spec get_data(t()) -> emqx_mq_types:consumer_data().
+get_data(#{consumer_data := ConsumerData}) ->
+    ConsumerData.
 
 -spec renew_streams(t()) -> t().
 renew_streams(#{mq_topic := MQTopic} = State) ->
-    Streams = emqx_ds:get_streams(?MQ_PAYLOAD_DB, ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#'), 0),
+    Streams = emqx_mq_payload_db:get_streams(MQTopic),
     add_streams(State, Streams).
 
 -spec handle_ds_reply(t(), #ds_sub_reply{}) ->
@@ -136,9 +144,7 @@ add_stream(#{streams := Streams} = State, Slab, Stream) ->
 
 do_add_stream(#{mq_topic := MQTopic, options := Options, streams := Streams} = State, Slab, Stream) ->
     ?tp(warning, emqx_mq_consumer_streams_add_stream, #{mq_topic => MQTopic, slab => Slab}),
-    {ok, It} = emqx_ds:make_iterator(
-        ?MQ_PAYLOAD_DB, Stream, ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#'), 0
-    ),
+    {ok, It} = emqx_mq_payload_db:make_iterator(Stream, MQTopic),
     {ok, SubRef, SC} = emqx_mq_consumer_stream:new(It, Options),
     State#{
         streams => Streams#{

@@ -90,6 +90,8 @@ Consumer's responsibilities:
     subscriber_ref :: subscriber_ref()
 }).
 
+-record(persist_consumer_data, {}).
+
 %% TODO
 %% Stub, remove
 -record(renew_streams, {}).
@@ -104,15 +106,13 @@ start_link(MQTopicFilter) ->
 -spec connect(binary(), emqx_mq_types:subscriber_ref(), emqx_types:clientid()) ->
     ok | {error, term()}.
 connect(MQTopicFilter, SubscriberRef, ClientId) ->
-    maybe
-        {ok, Pid} ?= emqx_mq_sup:start_consumer(MQTopicFilter, [MQTopicFilter]),
-        ?tp(warning, mq_consumer_connect_success, #{
-            subscriber_ref => SubscriberRef, client_id => ClientId
-        }),
-        gen_server:cast(
-            Pid,
-            #connect{subscriber_ref = SubscriberRef, client_id = ClientId}
-        )
+    case find_consumer(MQTopicFilter, 2) of
+        {ok, ConsumerRef} ->
+            gen_server:cast(ConsumerRef, #connect{
+                subscriber_ref = SubscriberRef, client_id = ClientId
+            });
+        not_found ->
+            {error, consumer_not_found}
     end.
 
 -spec disconnect(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.
@@ -146,15 +146,25 @@ ping(Pid, SubscriberRef) ->
 %%--------------------------------------------------------------------
 
 init([MQTopicFilter]) ->
-    erlang:send_after(1000, self(), #renew_streams{}),
-    {ok, #state{
-        topic_filter = MQTopicFilter,
-        subscribers = #{},
-        messages = #{},
-        dispatch_queue = queue:new(),
-        consumer = emqx_mq_consumer_streams:new(MQTopicFilter),
-        ping_timer_ref = undefined
-    }}.
+    case
+        emqx_mq_consumer_db:claim_leadership(MQTopicFilter, self_consumer_ref(), now_ms_monotonic())
+    of
+        {ok, ConsumerData} ->
+            erlang:send_after(1000, self(), #renew_streams{}),
+            erlang:send_after(
+                ?DEFAULT_CONSUMER_PERSISTENCE_INTERVAL, self(), #persist_consumer_data{}
+            ),
+            {ok, #state{
+                topic_filter = MQTopicFilter,
+                subscribers = #{},
+                messages = #{},
+                dispatch_queue = queue:new(),
+                consumer = emqx_mq_consumer_streams:new(MQTopicFilter, ConsumerData),
+                ping_timer_ref = undefined
+            }};
+        {error, _, _} = Error ->
+            {stop, Error}
+    end.
 
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
@@ -175,6 +185,8 @@ handle_info(#ping_subscribers{}, State) ->
     {noreply, handle_ping_subscribers(State)};
 handle_info(#subscriber_timeout{subscriber_ref = SubscriberRef}, State) ->
     {noreply, handle_subscriber_timeout(SubscriberRef, State)};
+handle_info(#persist_consumer_data{}, State) ->
+    handle_persist_consumer_data(State);
 handle_info(#renew_streams{}, State) ->
     {noreply, handle_renew_streams(State)};
 handle_info(#ds_sub_reply{} = DSReply, State) ->
@@ -280,9 +292,65 @@ handle_ds_reply(DSReply, #state{consumer = Consumer0} = State) ->
     {ok, Messages, Consumer} = emqx_mq_consumer_streams:handle_ds_reply(Consumer0, DSReply),
     dispatch(enqueue_messages(Messages, State#state{consumer = Consumer})).
 
+handle_persist_consumer_data(
+    #state{topic_filter = MQTopicFilter, consumer = Consumer, subscribers = Subscribers} = State
+) ->
+    ConsumerData = emqx_mq_consumer_streams:get_data(Consumer),
+    case
+        emqx_mq_consumer_db:update_consumer_data(
+            MQTopicFilter,
+            self_consumer_ref(),
+            ConsumerData,
+            now_ms_monotonic()
+        )
+    of
+        ok ->
+            %% TODO
+            %% track last disconnect time
+            case map_size(Subscribers) > 0 of
+                true ->
+                    erlang:send_after(
+                        ?DEFAULT_CONSUMER_PERSISTENCE_INTERVAL, self(), #persist_consumer_data{}
+                    ),
+                    {noreply, State};
+                false ->
+                    case emqx_mq_consumer_db:drop_leadership(MQTopicFilter) of
+                        ok ->
+                            {stop, normal, State};
+                        Error ->
+                            ?tp(error, mq_consumer_persist_consumer_data_error, #{error => Error}),
+                            {stop, Error, State}
+                    end
+            end;
+        Error ->
+            ?tp(error, mq_consumer_persist_consumer_data_error, #{error => Error}),
+            {stop, Error, State}
+    end.
+
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
+
+find_consumer(MQTopicFilter, 0) ->
+    ?tp(error, mq_consumer_find_consumer_error, #{
+        error => retries_exhausted, mq_topic_filter => MQTopicFilter
+    }),
+    not_found;
+find_consumer(MQTopicFilter, Retries) ->
+    case emqx_mq_consumer_db:find_consumer(MQTopicFilter, now_ms_monotonic()) of
+        {ok, ConsumerRef} ->
+            {ok, ConsumerRef};
+        not_found ->
+            case emqx_mq_sup:start_consumer(_ChildId = MQTopicFilter, [MQTopicFilter]) of
+                {ok, ConsumerRef} ->
+                    {ok, ConsumerRef};
+                {error, _} = Error ->
+                    ?tp(warning, mq_consumer_find_consumer_error, #{
+                        error => Error, retries => Retries, mq_topic_filter => MQTopicFilter
+                    }),
+                    find_consumer(MQTopicFilter, Retries - 1)
+            end
+    end.
 
 enqueue_messages([], State) ->
     State;
@@ -375,6 +443,9 @@ ensure_ping_timer(#state{ping_timer_ref = _PingTimerRef} = State) ->
 
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
+
+self_consumer_ref() ->
+    self().
 
 %%--------------------------------------------------------------------
 %% Communication with the subscribers

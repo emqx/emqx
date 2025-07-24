@@ -59,7 +59,7 @@ new(StartIterator) ->
 new(StartIterator, Options) ->
     MaxUnacked = maps:get(max_unacked, Options, ?MQ_CONSUMER_MAX_UNACKED),
     MaxBufferSize = maps:get(max_buffer_size, Options, ?MQ_CONSUMER_MAX_BUFFER_SIZE),
-    {ok, SubHandle, SubRef} = emqx_ds:subscribe(?MQ_PAYLOAD_DB, StartIterator, #{
+    {ok, SubHandle, SubRef} = emqx_mq_payload_db:subscribe(StartIterator, #{
         max_unacked => MaxUnacked
     }),
     {ok, SubRef, #{
@@ -237,7 +237,7 @@ is_buffer_full(#{max_buffer_size := MaxBufferSize} = _SC, #{n := N} = _Buffer) -
     N >= MaxBufferSize.
 
 unsubscribe_and_flush(#{sub_handle := SubHandle, sub_ref := SubRef} = SC) ->
-    _ = emqx_ds:unsubscribe(?MQ_PAYLOAD_DB, SubHandle),
+    _ = emqx_mq_payload_db:unsubscribe(SubHandle),
     ok = flush_sub_ref(SubRef),
     SC#{upper_seqno => undefined}.
 
@@ -249,7 +249,7 @@ flush_sub_ref(SubRef) ->
     end.
 
 suback(#{sub_handle := SubHandle} = SC, SeqNo) ->
-    ok = emqx_ds:suback(?MQ_PAYLOAD_DB, SubHandle, SeqNo),
+    ok = emqx_mq_payload_db:suback(SubHandle, SeqNo),
     SC#{upper_seqno => undefined}.
 
 resume(#{upper_seqno := undefined} = SC) ->

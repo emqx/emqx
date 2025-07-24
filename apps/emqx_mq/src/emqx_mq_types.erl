@@ -15,6 +15,7 @@ The module contains basic types for the Message Queue application.
 -type monotonic_timestamp_ms() :: integer().
 -type channel_pid() :: pid().
 -type consumer_ref() :: pid().
+-type consumer_data() :: #{}.
 -type ack() :: ?MQ_ACK | ?MQ_NACK.
 -type mq_topic() :: binary().
 -type mq() :: #{
@@ -28,6 +29,7 @@ The module contains basic types for the Message Queue application.
     monotonic_timestamp_ms/0,
     channel_pid/0,
     consumer_ref/0,
+    consumer_data/0,
     ack/0,
     mq_topic/0,
     mq/0
