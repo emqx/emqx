@@ -1109,7 +1109,7 @@ defmodule EMQXUmbrella.MixProject do
     os_cmd(script, [Atom.to_string(edition_type)])
   end
 
-  defp os_cmd(script, args \\ []) do
+  defp os_cmd(script, args) do
     {str, 0} = System.cmd("bash", [script | args])
     String.trim(str)
   end
