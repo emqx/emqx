@@ -51,6 +51,8 @@ unregister_hooks() ->
 %% Hooks callbacks
 %%--------------------------------------------------------------------
 
+on_message_publish(#message{topic = <<"$SYS/", _/binary>>} = Message) ->
+    {ok, Message};
 on_message_publish(#message{topic = Topic} = Message) ->
     Queues = emqx_mq_registry:find(Topic),
     ok = lists:foreach(
