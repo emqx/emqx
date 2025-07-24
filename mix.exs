@@ -179,7 +179,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-2", override: true}
 
   def common_dep(:hackney),
-    do: {:hackney, github: "emqx/hackney", tag: "1.24.1-emqx1", override: true}
+    do: {:hackney, github: "emqx/hackney", tag: "1.24.1-emqx2", override: true}
 
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
   def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.6.1", override: true}
