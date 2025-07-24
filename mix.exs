@@ -286,6 +286,12 @@ defmodule EMQXUmbrella.MixProject do
     # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
     do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}
 
+  def common_dep(:datalayers),
+    do: {
+      :datalayers,
+      github: "JimMoen/datalayers-adapter-erl", branch: "wrap-gen-server", override: true
+    }
+
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
 
