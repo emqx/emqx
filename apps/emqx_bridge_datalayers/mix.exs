@@ -30,6 +30,7 @@ defmodule EMQXBridgeDatalayers.MixProject do
   def deps() do
     [
       UMP.common_dep(:influxdb),
+      UMP.common_dep(:datalayers),
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
