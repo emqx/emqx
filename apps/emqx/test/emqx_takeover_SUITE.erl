@@ -107,6 +107,7 @@ t_takeover(Config) ->
     process_flag(trap_exit, true),
     ClientId = make_client_id(?FUNCTION_NAME, Config),
     MqttVer = ?config(mqtt_vsn, Config),
+    PersistenceEnabled = ?config(persistence_enabled, Config),
     ClientOpts = [
         {proto_ver, MqttVer},
         {clean_start, false}
@@ -131,27 +132,25 @@ t_takeover(Config) ->
         ok = timer:sleep(?SLEEP * 2),
         meck:passthrough([Arg])
     end),
+
+    Sleep = maps:get(PersistenceEnabled, #{true => 2000, false => ?SLEEP}),
     Commands =
         lists:flatten([
             {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun maybe_wait_subscriptions/1, []},
+            [{fun wait_subscription/1, []} || PersistenceEnabled],
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
             {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs],
+            {fun just_wait/2, [Sleep]},
             {fun stop_the_last_client/1, []}
         ]),
 
-    Sleep =
-        case ?config(persistence_enabled, Config) of
-            true -> 3000;
-            false -> ?SLEEP
-        end,
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
             apply(Fun, [Ctx | Args])
         end,
-        #{persistence_enabled => ?config(persistence_enabled, Config), sleep => Sleep},
+        #{},
         Commands
     ),
 
@@ -172,6 +171,7 @@ t_takeover_willmsg(Config) ->
     ClientId = make_client_id(?FUNCTION_NAME, Config),
     ClientIdSub = <<ClientId/binary, "_willsub">>,
     WillTopic = <<ClientId/binary, "_willtopic">>,
+    PersistenceEnabled = ?config(persistence_enabled, Config),
     Middle = ?CNT div 2,
     Client1Msgs = messages(ClientId, 0, Middle),
     Client2Msgs = messages(ClientId, Middle, ?CNT div 2),
@@ -184,30 +184,27 @@ t_takeover_willmsg(Config) ->
         {will_qos, 0}
         | [{properties, #{'Session-Expiry-Interval' => 60}} || v5 == ?config(mqtt_vsn, Config)]
     ],
+    Sleep = maps:get(PersistenceEnabled, #{true => 2000, false => ?SLEEP}),
     Commands =
         lists:flatten([
             %% GIVEN client connect with will message
             {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun maybe_wait_subscriptions/1, []},
+            [{fun wait_subscription/1, []} || PersistenceEnabled],
             {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
             %% WHEN client reconnect with clean_start = false
             {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs],
+            {fun just_wait/2, [Sleep]},
             {fun stop_the_last_client/1, []}
         ]),
-    Sleep =
-        case ?config(persistence_enabled, Config) of
-            true -> 2_000;
-            false -> ?SLEEP
-        end,
 
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
             apply(Fun, [Ctx | Args])
         end,
-        #{persistence_enabled => ?config(persistence_enabled, Config), sleep => Sleep},
+        #{},
         Commands
     ),
 
@@ -227,7 +224,8 @@ t_takeover_willmsg(Config) ->
 t_takeover_willmsg_clean_session(Config) ->
     process_flag(trap_exit, true),
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
+    WillTopic = <<ClientId/binary, "willtopic">>,
     Middle = ?CNT div 2,
     Client1Msgs = messages(ClientId, 0, Middle),
     Client2Msgs = messages(ClientId, Middle, ?CNT div 2),
@@ -248,12 +246,10 @@ t_takeover_willmsg_clean_session(Config) ->
 
     Commands =
         %% GIVEN: client connect with willmsg payload <<"willpayload_1">>
-        [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}] ++
-            [
-                {fun start_client_async_subscribe/5, [
-                    <<ClientId/binary, "_willsub"/binary>>, WillTopic, ?QOS_1, []
-                ]}
-            ] ++
+        [
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]}
+        ] ++
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
             %% WHEN: client connects with clean_start=true and willmsg payload <<"willpayload_2">>
             [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOptsClean]}] ++
@@ -371,9 +367,8 @@ t_no_takeover_with_delayed_willmsg(Config) ->
         %% GIVEN: client connect with willmsg payload <<"willpayload_delay3">> and delay-interval 3s
         lists:flatten(
             [
-                {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-                {fun maybe_wait_subscriptions/1, []},
-                {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
+                {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+                {fun start_client_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
                 [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs]
             ]
         ),
@@ -383,7 +378,7 @@ t_no_takeover_with_delayed_willmsg(Config) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
             apply(Fun, [Ctx | Args])
         end,
-        #{persistence_enabled => ?config(persistence_enabled, Config)},
+        #{},
         Commands
     ),
 
@@ -432,7 +427,7 @@ t_session_expire_with_delayed_willmsg(Config) ->
             %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
             %%        and delay-interval 10s > session expiry 3s.
             {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
+            {fun start_client_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs]
         ]),
 
@@ -501,20 +496,10 @@ t_takeover_before_session_expire_willdelay0(Config) ->
         %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
         %%        and delay-interval 0s session expiry 3s.
         [
-            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]}
+            {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]}
         ] ++
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
-            %% avoid two clients race for session takeover
-            [
-                {
-                    fun(CTX) ->
-                        timer:sleep(1000),
-                        CTX
-                    end,
-                    []
-                }
-            ] ++
             %% WHEN: client session is taken over within 3s.
             [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}],
 
@@ -564,17 +549,9 @@ t_takeover_before_session_expire(Config) ->
         %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
         %%        and delay-interval 10s > session expiry 3s.
         lists:flatten([
-            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
+            {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
-            %% avoid two clients race for session takeover
-            {
-                fun(CTX) ->
-                    timer:sleep(100),
-                    CTX
-                end,
-                []
-            },
             %% WHEN: client session is taken over within 3s.
             {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
         ]),
@@ -611,6 +588,7 @@ t_takeover_session_then_normal_disconnect(Config) ->
     ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
     process_flag(trap_exit, true),
     ClientId = atom_to_binary(?FUNCTION_NAME),
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
     WillTopic = <<ClientId/binary, "willtopic">>,
     Client1Msgs = messages(ClientId, 0, 10),
     ClientOpts = [
@@ -624,24 +602,12 @@ t_takeover_session_then_normal_disconnect(Config) ->
     ],
     Commands =
         lists:flatten([
-            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun maybe_wait_subscriptions/1, []},
-            {fun start_client_async_subscribe/5, [
-                <<ClientId/binary, "_willsub">>, WillTopic, ?QOS_1, []
-            ]},
+            {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
-            %% avoid two clients race for session takeover
-            {
-                fun(CTX) ->
-                    timer:sleep(100),
-                    CTX
-                end,
-                []
-            },
             %% GIVEN: client reconnect with willmsg payload <<"willpayload_delay10">>
             %%        and delay-interval 10s > session expiry 3s.
-            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun maybe_wait_subscriptions/1, []}
+            {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
         ]),
 
     FCtx = lists:foldl(
@@ -649,7 +615,7 @@ t_takeover_session_then_normal_disconnect(Config) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
             apply(Fun, [Ctx | Args])
         end,
-        #{persistence_enabled => ?config(persistence_enabled, Config)},
+        #{},
         Commands
     ),
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
@@ -689,17 +655,8 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
         lists:flatten([
             %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
             %%        and will-delay-interval 10s >  session expiry 3s.
-            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun maybe_wait_subscriptions/1, []},
-            {fun start_client_async_subscribe/5, [WillSubClientId, WillTopic, ?QOS_1, []]},
-            %% avoid two clients race for session takeover
-            {
-                fun(CTX) ->
-                    timer:sleep(100),
-                    CTX
-                end,
-                []
-            },
+            {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_subscribe/5, [WillSubClientId, WillTopic, ?QOS_1, []]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
             {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
         ]),
@@ -709,7 +666,7 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
             apply(Fun, [Ctx | Args])
         end,
-        #{persistence_enabled => ?config(persistence_enabled, Config)},
+        #{},
         Commands
     ),
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
@@ -746,7 +703,8 @@ t_takeover_session_then_abnormal_disconnect_2(Config) ->
     ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
     process_flag(trap_exit, true),
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
+    WillTopic = <<ClientId/binary, "willtopic">>,
     Client1Msgs = messages(ClientId, 0, 10),
     ClientOpts = [
         {proto_ver, ?config(mqtt_vsn, Config)},
@@ -767,23 +725,11 @@ t_takeover_session_then_abnormal_disconnect_2(Config) ->
         {properties, #{'Session-Expiry-Interval' => 3}}
     ],
     Commands =
-        [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}] ++
-            [
-                {fun start_client_async_subscribe/5, [
-                    <<ClientId/binary, "_willsub"/binary>>, WillTopic, ?QOS_1, []
-                ]}
-            ] ++
+        [
+            {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]}
+        ] ++
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
-            [
-                %% avoid two clients race for session takeover
-                {
-                    fun(CTX) ->
-                        timer:sleep(100),
-                        CTX
-                    end,
-                    []
-                }
-            ] ++
             %% GIVEN: client *reconnect* with willmsg payload <<"willpayload_delay2">>
             %%        and will-delay-interval 0s, session expiry 3s.
             [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts2]}],
@@ -834,18 +780,9 @@ t_takeover_before_willmsg_expire(Config) ->
         lists:flatten([
             %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
             %%        and will-delay-interval 3s < session expiry 10s.
-            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun maybe_wait_subscriptions/1, []},
-            {fun start_client_async_subscribe/5, [WillSubClientId, WillTopic, ?QOS_1, []]},
+            {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_subscribe/5, [WillSubClientId, WillTopic, ?QOS_1, []]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
-            %% avoid two clients race for session takeover
-            {
-                fun(CTX) ->
-                    timer:sleep(100),
-                    CTX
-                end,
-                []
-            },
             %% WHEN: another client takeover the session with in 3s.
             {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
         ]),
@@ -855,7 +792,7 @@ t_takeover_before_willmsg_expire(Config) ->
             ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
             apply(Fun, [Ctx | Args])
         end,
-        #{persistence_enabled => ?config(persistence_enabled, Config)},
+        #{},
         Commands
     ),
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
@@ -924,25 +861,29 @@ start_client_async_subscribe(Ctx, ClientId, Topic, Qos, Opts) ->
     end),
     Ctx#{client => [CPid | maps:get(client, Ctx, [])]}.
 
-maybe_wait_subscriptions(Ctx = #{persistence_enabled := true, client := CPids}) ->
-    ok = do_wait_subscription(CPids),
-    Ctx;
-maybe_wait_subscriptions(Ctx) ->
-    Ctx.
+start_client_subscribe(Ctx, ClientId, Topic, Qos, Opts) ->
+    {ok, CPid} = emqtt:start_link([{clientid, ClientId} | Opts]),
+    {ok, _} = emqtt:connect(CPid),
+    {ok, _, [Qos]} = emqtt:subscribe(CPid, Topic, Qos),
+    Ctx#{client => [CPid | maps:get(client, Ctx, [])]}.
 
-do_wait_subscription([]) ->
-    ok;
-do_wait_subscription([CPid | Rest]) ->
-    try emqtt:subscriptions(CPid) of
-        [] ->
-            ok = timer:sleep(rand:uniform(?SLEEP)),
-            do_wait_subscription([CPid | Rest]);
-        [_ | _] ->
-            do_wait_subscription(Rest)
-    catch
-        exit:{noproc, _} ->
-            ok
-    end.
+wait_subscription(Ctx = #{client := CPids}) ->
+    ok = lists:foreach(
+        fun Wait(CPid) ->
+            try emqtt:subscriptions(CPid) of
+                [] ->
+                    ok = timer:sleep(rand:uniform(?SLEEP)),
+                    Wait(CPid);
+                [_ | _] ->
+                    ok
+            catch
+                exit:{noproc, _} ->
+                    ok
+            end
+        end,
+        CPids
+    ),
+    Ctx.
 
 publish_msg(Ctx, Msg) ->
     ok = timer:sleep(rand:uniform(?SLEEP)),
@@ -951,8 +892,11 @@ publish_msg(Ctx, Msg) ->
         [_ | _] -> Ctx
     end.
 
-stop_the_last_client(Ctx = #{client := [CPid | _], sleep := Sleep}) ->
+just_wait(Ctx, Sleep) ->
     ok = timer:sleep(Sleep),
+    Ctx.
+
+stop_the_last_client(Ctx = #{client := [CPid | _]}) ->
     ok = emqtt:stop(CPid),
     Ctx.
 
