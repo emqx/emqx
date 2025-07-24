@@ -8,10 +8,15 @@ on:
   workflow_call:
     secrets:
       EMQX_ENTERPRISE_LICENSE:
-        required: true
+        required: false
 
 permissions:
   contents: read
+
+env:
+  # EMQX_ENTERPRISE_LICENSE: ${{ secrets.EMQX_ENTERPRISE_LICENSE }}
+  # temporary workaround while GHA refuses to pass down the secret....
+  EMQX_ENTERPRISE_LICENSE: evaluation
 
 jobs:
   helm_test:
@@ -88,8 +93,6 @@ jobs:
     - name: run emqx on chart (k8s)
       if: matrix.discovery == 'k8s'
       working-directory: source
-      env:
-        EMQX_ENTERPRISE_LICENSE: ${{ secrets.EMQX_ENTERPRISE_LICENSE }}
       run: |
         helm install ${EMQX_NAME} \
             --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="k8s" \
@@ -113,8 +116,6 @@ jobs:
     - name: run emqx on chart (dns)
       if: matrix.discovery == 'dns'
       working-directory: source
-      env:
-        EMQX_ENTERPRISE_LICENSE: ${{ secrets.EMQX_ENTERPRISE_LICENSE }}
       run: |
         helm install ${EMQX_NAME} \
             --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="dns" \
