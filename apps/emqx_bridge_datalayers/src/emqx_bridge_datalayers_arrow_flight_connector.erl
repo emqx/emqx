@@ -62,7 +62,7 @@
 
 resource_type() -> datalayers.
 
-callback_mode() -> sync.
+callback_mode() -> async_if_possible.
 
 %% ================================================================================
 -spec on_start(
