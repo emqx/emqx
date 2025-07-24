@@ -398,7 +398,7 @@ do_parse_incoming(<<>>, Packets, ParseState) ->
     {Packets, ParseState};
 do_parse_incoming(Data, Packets, ParseState) ->
     case emqx_frame:parse(Data, ParseState) of
-        {more, NParseState} ->
+        {_More, NParseState} ->
             {Packets, NParseState};
         {Packet, Rest, NParseState} ->
             do_parse_incoming(Rest, [Packet | Packets], NParseState)

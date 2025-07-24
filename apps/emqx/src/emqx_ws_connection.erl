@@ -590,7 +590,7 @@ parse_incoming(<<>>, Packets, State) ->
     {lists:reverse(Packets), State};
 parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
-        {more, NParseState} ->
+        {_More, NParseState} ->
             {Packets, State#state{parse_state = NParseState}};
         {Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},

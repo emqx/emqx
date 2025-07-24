@@ -91,11 +91,11 @@ meck_recv_ppv2(tcp) ->
     ok = meck:expect(
         esockd_proxy_protocol,
         recv,
-        fun(_Transport, Socket, _Timeout) ->
+        fun(Transport, Socket, _Timeout) ->
             SNI = persistent_term:get(current_client_sni, undefined),
-            {ok, {SrcAddr, SrcPort}} = esockd_transport:peername(Socket),
-            {ok, {DstAddr, DstPort}} = esockd_transport:sockname(Socket),
-            {ok, #proxy_socket{
+            {ok, {SrcAddr, SrcPort}} = Transport:peername(Socket),
+            {ok, {DstAddr, DstPort}} = Transport:sockname(Socket),
+            ProxySocket = #proxy_socket{
                 inet = inet4,
                 socket = Socket,
                 src_addr = SrcAddr,
@@ -103,7 +103,16 @@ meck_recv_ppv2(tcp) ->
                 src_port = SrcPort,
                 dst_port = DstPort,
                 pp2_additional_info = [{pp2_authority, SNI}]
-            }}
+            },
+            %% See `esockd_proxy_protocol:recv/3` implementation.
+            case Transport of
+                esockd_transport ->
+                    {ok, ProxySocket};
+                esockd_socket ->
+                    ProxyAttrs = esockd_proxy_protocol:get_proxy_attrs(ProxySocket),
+                    ok = socket:setopt(Socket, {otp, meta}, ProxyAttrs),
+                    {ok, Socket}
+            end
         end
     );
 meck_recv_ppv2(ws) ->
