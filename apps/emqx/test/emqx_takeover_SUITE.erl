@@ -891,75 +891,35 @@ t_takeover_before_willmsg_expire(Config) ->
 
 t_kick_session(Config) ->
     process_flag(trap_exit, true),
+    ProtoVer = ?config(mqtt_vsn, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
     WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
     ClientOpts = [
-        {proto_ver, ?config(mqtt_vsn, Config)},
+        {proto_ver, ProtoVer},
         {clean_start, false},
         {will_topic, WillTopic},
         {will_payload, <<"willpayload_kick">>},
         {will_qos, 1}
     ],
-    SubClientId = <<ClientId/binary, "_willsub">>,
-    Commands =
-        lists:flatten([
-            %% GIVEN: client connect with willmsg payload <<"willpayload_kick">>
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun start_client/5, [SubClientId, WillTopic, ?QOS_1, []]},
-            {fun wait_for_chan_reg/2, [ClientId]},
-            %% WHEN: client is kicked with kick_session
-            {fun kick_client/2, [ClientId]},
-            {fun wait_for_chan_dereg/2, [ClientId]},
-            {fun wait_for_pub_client_down/1, []}
-        ]),
-    FCtx = lists:foldl(
-        fun({Fun, Args}, Ctx) ->
-            ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
-            apply(Fun, [Ctx | Args])
-        end,
-        #{},
-        Commands
-    ),
-    #{client := [CPidSub, CPid1]} = FCtx,
-    assert_client_exit(CPid1, ?config(mqtt_vsn, Config), kicked),
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(timer:seconds(1))],
-    ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
+    %% GIVEN: client connect with willmsg payload <<"willpayload_kick">>
+    CPid = start_connect_client(ClientId, ClientOpts),
+    CPidSub = start_connect_client(ClientIdSub, ClientOpts),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(CPidSub, WillTopic, ?QOS_1),
+    %% WHEN: client is kicked with kick_session
+    ok = emqx_cm:kick_session(ClientId),
+    assert_client_exit(CPid, ProtoVer, kicked),
     %% THEN: payload <<"willpayload_kick">> should be published
-    {IsWill, _ReceivedNoWill} = filter_payload(Received, <<"willpayload_kick">>),
-    ?assert(IsWill),
-    emqtt:stop(CPidSub),
-    ?assert(not is_process_alive(CPid1)),
-    ok.
-
-wait_for_chan_reg(CTX, ClientId) ->
-    ?retry(
-        3_000,
-        100,
-        true = is_map(emqx_cm:get_chan_info(ClientId))
-    ),
-    CTX.
-
-wait_for_chan_dereg(CTX, ClientId) ->
-    ?retry(
-        3_000,
-        100,
-        undefined = emqx_cm:get_chan_info(ClientId)
-    ),
-    CTX.
-
-wait_for_pub_client_down(#{client := [_SubClient, PubClient]} = CTX) ->
-    ?retry(
-        3_000,
-        100,
-        false = is_process_alive(PubClient)
-    ),
-    CTX.
+    ?assertReceive({publish, #{payload := <<"willpayload_kick">>}}, timer:seconds(1)),
+    %% Cleanup
+    emqtt:stop(CPidSub).
 
 %% t_takover_in_cluster(_) ->
 %%     todo.
 
 %%--------------------------------------------------------------------
 %% Commands
+
 start_client(Ctx, ClientId, Topic, Qos, Opts) ->
     {ok, CPid} = emqtt:start_link([{clientid, ClientId} | Opts]),
     _ = erlang:spawn_link(fun() ->
@@ -988,10 +948,6 @@ do_wait_subscription([CPid | Rest]) ->
             ok
     end.
 
-kick_client(Ctx, ClientId) ->
-    ok = emqx_cm:kick_session(ClientId),
-    Ctx.
-
 publish_msg(Ctx, Msg) ->
     ok = timer:sleep(rand:uniform(?SLEEP)),
     case emqx:publish(Msg#message{timestamp = emqx_message:timestamp_now()}) of
@@ -1006,6 +962,11 @@ stop_the_last_client(Ctx = #{client := [CPid | _], sleep := Sleep}) ->
 
 %%--------------------------------------------------------------------
 %% Helpers
+
+start_connect_client(ClientId, Opts) ->
+    {ok, CPid} = emqtt:start_link([{clientid, ClientId} | Opts]),
+    {ok, _} = emqtt:connect(CPid),
+    CPid.
 
 assert_messages_missed(Ls1, Ls2) ->
     Missed = lists:filtermap(
