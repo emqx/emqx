@@ -219,6 +219,7 @@ t_node_uuid(_) ->
     {ok, NodeUUID4} = emqx_telemetry_proto_v1:get_node_uuid(node()),
     ?assertEqual(NodeUUID2, NodeUUID3),
     ?assertEqual(NodeUUID3, NodeUUID4),
+    emqx_telemetry:stop_reporting(),
     ?assertMatch({badrpc, nodedown}, emqx_telemetry_proto_v1:get_node_uuid('fake@node')).
 
 t_cluster_uuid(Config) ->

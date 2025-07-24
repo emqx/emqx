@@ -1474,10 +1474,11 @@ try_get_live_session(ClientID) ->
     case emqx_cm:lookup_channels(local, ClientID) of
         [Pid] ->
             try
-                #{channel := ChanState} = emqx_connection:get_state(Pid),
-                case emqx_channel:info(impl, ChanState) of
+                ConnMod = emqx_cm:do_get_chann_conn_mod(ClientID, Pid),
+                ConnState = sys:get_state(Pid),
+                case apply(ConnMod, info, [{channel, impl}, ConnState]) of
                     ?MODULE ->
-                        {Pid, emqx_channel:info(session_state, ChanState)};
+                        {Pid, apply(ConnMod, info, [{channel, session_state}, ConnState])};
                     _ ->
                         not_persistent
                 end

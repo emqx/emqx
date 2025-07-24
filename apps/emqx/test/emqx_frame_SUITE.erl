@@ -125,10 +125,10 @@ t_parse_cont(_) ->
     Packet = ?CONNECT_PACKET(#mqtt_packet_connect{}),
     ParseState = emqx_frame:initial_parse_state(),
     <<HdrBin:1/binary, LenBin:1/binary, RestBin/binary>> = serialize_to_binary(Packet),
-    {more, ContParse} = emqx_frame:parse(<<>>, ParseState),
-    {more, ContParse1} = emqx_frame:parse(HdrBin, ContParse),
-    {more, ContParse2} = emqx_frame:parse(LenBin, ContParse1),
-    {more, ContParse3} = emqx_frame:parse(<<>>, ContParse2),
+    {some_more, ContParse} = emqx_frame:parse(<<>>, ParseState),
+    {some_more, ContParse1} = emqx_frame:parse(HdrBin, ContParse),
+    {12, ContParse2} = emqx_frame:parse(LenBin, ContParse1),
+    {12, ContParse3} = emqx_frame:parse(<<>>, ContParse2),
     {Packet, <<>>, _} = emqx_frame:parse(RestBin, ContParse3).
 
 t_parse_frame_too_large(_) ->
@@ -411,7 +411,7 @@ t_parse_sticky_frames(_) ->
     Size = size(Bin),
     <<H:(Size - 2)/binary, TailTwoBytes/binary>> = Bin,
     %% needs 2 more bytes
-    {more, PState1} = emqx_frame:parse(H),
+    {2, PState1} = emqx_frame:parse(H),
     %% feed 3 bytes as if the next 1 byte belongs to the next packet.
     {_, <<42>>, PState2} = emqx_frame:parse(iolist_to_binary([TailTwoBytes, 42]), PState1),
     ?assertMatch(#{state := clean}, emqx_frame:describe_state(PState2)).

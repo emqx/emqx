@@ -792,16 +792,16 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
     [Pid1, Pid2] = emqx_shared_sub:subscribers(Group, Topic),
     ?assert(is_process_alive(Pid1)),
     ?assert(is_process_alive(Pid2)),
-    ?retry(100, 10, ?assertEqual(disconnected, get_channel_info(conn_state, Pid1))),
-    ?retry(100, 10, ?assertEqual(disconnected, get_channel_info(conn_state, Pid2))),
+    ?retry(100, 10, ?assertEqual(disconnected, get_channel_info(conn_state, ClientId1))),
+    ?retry(100, 10, ?assertEqual(disconnected, get_channel_info(conn_state, ClientId2))),
 
     {ok, _} = emqtt:publish(ConnPub, Topic, <<"hello11">>, 1),
     ?retry(
         100,
         10,
         begin
-            Msgs1 = emqx_mqueue:to_list(get_mqueue(Pid1)),
-            Msgs2 = emqx_mqueue:to_list(get_mqueue(Pid2)),
+            Msgs1 = emqx_mqueue:to_list(get_mqueue(ClientId1)),
+            Msgs2 = emqx_mqueue:to_list(get_mqueue(ClientId2)),
             %% assert the message is in mqueue (because socket is closed)
             ?assertMatch([#message{payload = <<"hello11">>}], Msgs1 ++ Msgs2)
         end
@@ -809,11 +809,11 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
     emqtt:stop(ConnPub),
     ok.
 
-get_mqueue(ConnPid) ->
-    get_channel_info({session, mqueue}, ConnPid).
+get_mqueue(Client) ->
+    get_channel_info({session, mqueue}, Client).
 
-get_channel_info(Info, ConnPid) ->
-    emqx_connection:info({channel, Info}, sys:get_state(ConnPid)).
+get_channel_info(Info, Client) ->
+    emqx_cth_broker:connection_info({channel, Info}, Client).
 
 %% No ack, QoS 2 subscriptions,
 %% client1 receives one message, send pubrec, then suspend

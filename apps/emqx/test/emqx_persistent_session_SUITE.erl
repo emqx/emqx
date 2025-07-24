@@ -355,13 +355,12 @@ t_choose_impl(Config) ->
         | Config
     ]),
     {ok, _} = emqtt:ConnFun(Client),
-    [ChanPid] = emqx_cm:lookup_channels(ClientId),
     ?assertEqual(
         case ?config(persistence, Config) of
             false -> emqx_session_mem;
             ds -> emqx_persistent_session_ds
         end,
-        emqx_connection:info({channel, {session, impl}}, sys:get_state(ChanPid))
+        emqx_cth_broker:connection_info({channel, {session, impl}}, ClientId)
     ),
     ok = emqtt:disconnect(Client).
 
