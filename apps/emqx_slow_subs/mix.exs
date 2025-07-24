@@ -5,7 +5,7 @@ defmodule EMQXSlowSubs.MixProject do
   def project do
     [
       app: :emqx_slow_subs,
-      version: "1.0.10",
+      version: "6.0.0",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),

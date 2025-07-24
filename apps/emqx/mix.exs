@@ -6,7 +6,7 @@ defmodule EMQX.MixProject do
   def project do
     [
       app: :emqx,
-      version: "5.5.6",
+      version: "6.0.0",
       build_path: "../../_build",
       erlc_paths: erlc_paths(),
       erlc_options: [
