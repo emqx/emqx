@@ -88,6 +88,8 @@ jobs:
     - name: run emqx on chart (k8s)
       if: matrix.discovery == 'k8s'
       working-directory: source
+      env:
+        EMQX_ENTERPRISE_LICENSE: ${{ secrets.EMQX_ENTERPRISE_LICENSE }}
       run: |
         helm install ${EMQX_NAME} \
             --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="k8s" \
@@ -104,13 +106,15 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
-            --set emqxConfig.EMQX_LICENSE__KEY="${{ secrets.EMQX_ENTERPRISE_LICENSE }}" \
+            --set emqxConfig.EMQX_LICENSE__KEY="$EMQX_ENTERPRISE_LICENSE" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --debug
     - name: run emqx on chart (dns)
       if: matrix.discovery == 'dns'
       working-directory: source
+      env:
+        EMQX_ENTERPRISE_LICENSE: ${{ secrets.EMQX_ENTERPRISE_LICENSE }}
       run: |
         helm install ${EMQX_NAME} \
             --set emqxConfig.EMQX_CLUSTER__DISCOVERY_STRATEGY="dns" \
@@ -126,7 +130,7 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
-            --set emqxConfig.EMQX_LICENSE__KEY="${{ secrets.EMQX_ENTERPRISE_LICENSE }}" \
+            --set emqxConfig.EMQX_LICENSE__KEY="$EMQX_ENTERPRISE_LICENSE" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --wait \
