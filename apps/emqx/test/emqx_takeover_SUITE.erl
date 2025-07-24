@@ -133,10 +133,10 @@ t_takeover(Config) ->
     end),
     Commands =
         lists:flatten([
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             {fun maybe_wait_subscriptions/1, []},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs],
             {fun stop_the_last_client/1, []}
         ]),
@@ -170,7 +170,8 @@ t_takeover(Config) ->
 t_takeover_willmsg(Config) ->
     process_flag(trap_exit, true),
     ClientId = make_client_id(?FUNCTION_NAME, Config),
-    WillTopic = <<ClientId/binary, <<"_willtopic">>/binary>>,
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
+    WillTopic = <<ClientId/binary, "_willtopic">>,
     Middle = ?CNT div 2,
     Client1Msgs = messages(ClientId, 0, Middle),
     Client2Msgs = messages(ClientId, Middle, ?CNT div 2),
@@ -186,14 +187,12 @@ t_takeover_willmsg(Config) ->
     Commands =
         lists:flatten([
             %% GIVEN client connect with will message
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             {fun maybe_wait_subscriptions/1, []},
-            {fun start_client/5, [
-                <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
-            ]},
+            {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
             %% WHEN client reconnect with clean_start = false
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs],
             {fun stop_the_last_client/1, []}
         ]),
@@ -249,15 +248,15 @@ t_takeover_willmsg_clean_session(Config) ->
 
     Commands =
         %% GIVEN: client connect with willmsg payload <<"willpayload_1">>
-        [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}] ++
+        [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}] ++
             [
-                {fun start_client/5, [
-                    <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
+                {fun start_client_async_subscribe/5, [
+                    <<ClientId/binary, "_willsub"/binary>>, WillTopic, ?QOS_1, []
                 ]}
             ] ++
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
             %% WHEN: client connects with clean_start=true and willmsg payload <<"willpayload_2">>
-            [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOptsClean]}] ++
+            [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOptsClean]}] ++
             [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs],
 
     FCtx = lists:foldl(
@@ -290,7 +289,8 @@ t_takeover_willmsg_clean_session(Config) ->
 t_takeover_clean_session_with_delayed_willmsg(Config) ->
     process_flag(trap_exit, true),
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
+    WillTopic = <<ClientId/binary, "willtopic">>,
     Middle = ?CNT div 2,
     Client1Msgs = messages(ClientId, 0, Middle),
     Client2Msgs = messages(ClientId, Middle, ?CNT div 2),
@@ -313,15 +313,13 @@ t_takeover_clean_session_with_delayed_willmsg(Config) ->
 
     Commands =
         %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">> and delay-interval 10s
-        [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}] ++
-            [
-                {fun start_client/5, [
-                    <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
-                ]}
-            ] ++
+        [
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]}
+        ] ++
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
             %% WHEN: client connects with clean_start=true and willmsg payload <<"willpayload_2">>
-            [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOptsClean]}] ++
+            [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOptsClean]}] ++
             [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs],
 
     FCtx = lists:foldl(
@@ -355,6 +353,7 @@ t_no_takeover_with_delayed_willmsg(Config) ->
     ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
     process_flag(trap_exit, true),
     ClientId = atom_to_binary(?FUNCTION_NAME),
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
     WillTopic = <<ClientId/binary, "willtopic">>,
     Client1Msgs = messages(ClientId, 0, 10),
     ClientOpts = [
@@ -372,9 +371,9 @@ t_no_takeover_with_delayed_willmsg(Config) ->
         %% GIVEN: client connect with willmsg payload <<"willpayload_delay3">> and delay-interval 3s
         lists:flatten(
             [
-                {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+                {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
                 {fun maybe_wait_subscriptions/1, []},
-                {fun start_client/5, [<<ClientId/binary, "_willsub">>, WillTopic, ?QOS_1, []]},
+                {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
                 [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs]
             ]
         ),
@@ -416,7 +415,8 @@ t_session_expire_with_delayed_willmsg(Config) ->
     ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
     process_flag(trap_exit, true),
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
+    WillTopic = <<ClientId/binary, "willtopic">>,
     Client1Msgs = messages(ClientId, 0, 10),
     ClientOpts = [
         {proto_ver, ?config(mqtt_vsn, Config)},
@@ -431,10 +431,8 @@ t_session_expire_with_delayed_willmsg(Config) ->
         lists:flatten([
             %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
             %%        and delay-interval 10s > session expiry 3s.
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun start_client/5, [
-                <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
-            ]},
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs]
         ]),
 
@@ -487,7 +485,8 @@ t_takeover_before_session_expire_willdelay0(Config) ->
     ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
     process_flag(trap_exit, true),
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
+    WillTopic = <<ClientId/binary, "willtopic">>,
     Client1Msgs = messages(ClientId, 0, 10),
     ClientOpts = [
         {proto_ver, ?config(mqtt_vsn, Config)},
@@ -501,15 +500,13 @@ t_takeover_before_session_expire_willdelay0(Config) ->
     Commands =
         %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
         %%        and delay-interval 0s session expiry 3s.
-        [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}] ++
-            [
-                {fun start_client/5, [
-                    <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
-                ]}
-            ] ++
+        [
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]}
+        ] ++
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
+            %% avoid two clients race for session takeover
             [
-                %% avoid two clients race for session takeover
                 {
                     fun(CTX) ->
                         timer:sleep(1000),
@@ -519,7 +516,7 @@ t_takeover_before_session_expire_willdelay0(Config) ->
                 }
             ] ++
             %% WHEN: client session is taken over within 3s.
-            [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}],
+            [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}],
 
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
@@ -551,7 +548,8 @@ t_takeover_before_session_expire(Config) ->
     ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
     process_flag(trap_exit, true),
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
+    WillTopic = <<ClientId/binary, "willtopic">>,
     Client1Msgs = messages(ClientId, 0, 10),
     ClientOpts = [
         {proto_ver, ?config(mqtt_vsn, Config)},
@@ -566,10 +564,8 @@ t_takeover_before_session_expire(Config) ->
         %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
         %%        and delay-interval 10s > session expiry 3s.
         lists:flatten([
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun start_client/5, [
-                <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
-            ]},
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
             %% avoid two clients race for session takeover
             {
@@ -580,7 +576,7 @@ t_takeover_before_session_expire(Config) ->
                 []
             },
             %% WHEN: client session is taken over within 3s.
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
         ]),
 
     FCtx = lists:foldl(
@@ -628,9 +624,9 @@ t_takeover_session_then_normal_disconnect(Config) ->
     ],
     Commands =
         lists:flatten([
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             {fun maybe_wait_subscriptions/1, []},
-            {fun start_client/5, [
+            {fun start_client_async_subscribe/5, [
                 <<ClientId/binary, "_willsub">>, WillTopic, ?QOS_1, []
             ]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
@@ -644,7 +640,7 @@ t_takeover_session_then_normal_disconnect(Config) ->
             },
             %% GIVEN: client reconnect with willmsg payload <<"willpayload_delay10">>
             %%        and delay-interval 10s > session expiry 3s.
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             {fun maybe_wait_subscriptions/1, []}
         ]),
 
@@ -693,9 +689,9 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
         lists:flatten([
             %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
             %%        and will-delay-interval 10s >  session expiry 3s.
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             {fun maybe_wait_subscriptions/1, []},
-            {fun start_client/5, [WillSubClientId, WillTopic, ?QOS_1, []]},
+            {fun start_client_async_subscribe/5, [WillSubClientId, WillTopic, ?QOS_1, []]},
             %% avoid two clients race for session takeover
             {
                 fun(CTX) ->
@@ -705,7 +701,7 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
                 []
             },
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
         ]),
 
     FCtx = lists:foldl(
@@ -771,10 +767,10 @@ t_takeover_session_then_abnormal_disconnect_2(Config) ->
         {properties, #{'Session-Expiry-Interval' => 3}}
     ],
     Commands =
-        [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}] ++
+        [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}] ++
             [
-                {fun start_client/5, [
-                    <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
+                {fun start_client_async_subscribe/5, [
+                    <<ClientId/binary, "_willsub"/binary>>, WillTopic, ?QOS_1, []
                 ]}
             ] ++
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
@@ -790,7 +786,7 @@ t_takeover_session_then_abnormal_disconnect_2(Config) ->
             ] ++
             %% GIVEN: client *reconnect* with willmsg payload <<"willpayload_delay2">>
             %%        and will-delay-interval 0s, session expiry 3s.
-            [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts2]}],
+            [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts2]}],
 
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
@@ -838,9 +834,9 @@ t_takeover_before_willmsg_expire(Config) ->
         lists:flatten([
             %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">>
             %%        and will-delay-interval 3s < session expiry 10s.
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
             {fun maybe_wait_subscriptions/1, []},
-            {fun start_client/5, [WillSubClientId, WillTopic, ?QOS_1, []]},
+            {fun start_client_async_subscribe/5, [WillSubClientId, WillTopic, ?QOS_1, []]},
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs],
             %% avoid two clients race for session takeover
             {
@@ -851,7 +847,7 @@ t_takeover_before_willmsg_expire(Config) ->
                 []
             },
             %% WHEN: another client takeover the session with in 3s.
-            {fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
+            {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}
         ]),
 
     FCtx = lists:foldl(
@@ -894,7 +890,7 @@ t_kick_session(Config) ->
     ProtoVer = ?config(mqtt_vsn, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
     ClientIdSub = <<ClientId/binary, "_willsub">>,
-    WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
+    WillTopic = <<ClientId/binary, "willtopic">>,
     ClientOpts = [
         {proto_ver, ProtoVer},
         {clean_start, false},
@@ -920,7 +916,7 @@ t_kick_session(Config) ->
 %%--------------------------------------------------------------------
 %% Commands
 
-start_client(Ctx, ClientId, Topic, Qos, Opts) ->
+start_client_async_subscribe(Ctx, ClientId, Topic, Qos, Opts) ->
     {ok, CPid} = emqtt:start_link([{clientid, ClientId} | Opts]),
     _ = erlang:spawn_link(fun() ->
         {ok, _} = emqtt:connect(CPid),
