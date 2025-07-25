@@ -1295,63 +1295,68 @@ t_crashed_node_session_gc(Config) ->
 t_session_replay_retry(init, Config) ->
     start_local(?FUNCTION_NAME, Config).
 t_session_replay_retry(_Config) ->
-    ?SETUP_MOD:init_mock_transient_failure(),
+    ?check_trace(
+        begin
+            ?SETUP_MOD:init_mock_transient_failure(),
+            ClientId = mk_clientid(?FUNCTION_NAME, sub),
+            NClients = 10,
+            ClientSubOpts = #{
+                clientid => ClientId,
+                auto_ack => never
+            },
+            ClientSub = start_connect_client(ClientSubOpts),
+            ?assertMatch(
+                {ok, _, [?RC_GRANTED_QOS_1]},
+                emqtt:subscribe(ClientSub, <<"t/#">>, ?QOS_1)
+            ),
 
-    NClients = 10,
-    ClientSubOpts = #{
-        clientid => mk_clientid(?FUNCTION_NAME, sub),
-        auto_ack => never
-    },
-    ClientSub = start_connect_client(ClientSubOpts),
-    ?assertMatch(
-        {ok, _, [?RC_GRANTED_QOS_1]},
-        emqtt:subscribe(ClientSub, <<"t/#">>, ?QOS_1)
-    ),
+            ClientsPub = [
+                start_connect_client(#{
+                    clientid => mk_clientid(?FUNCTION_NAME, I),
+                    properties => #{'Session-Expiry-Interval' => 0}
+                })
+             || I <- lists:seq(1, NClients)
+            ],
+            lists:foreach(
+                fun(Client) ->
+                    Index = integer_to_binary(rand:uniform(NClients)),
+                    Topic = <<"t/", Index/binary>>,
+                    ?assertMatch({ok, #{}}, emqtt:publish(Client, Topic, Index, 1))
+                end,
+                ClientsPub
+            ),
 
-    ClientsPub = [
-        start_connect_client(#{
-            clientid => mk_clientid(?FUNCTION_NAME, I),
-            properties => #{'Session-Expiry-Interval' => 0}
-        })
-     || I <- lists:seq(1, NClients)
-    ],
-    lists:foreach(
-        fun(Client) ->
-            Index = integer_to_binary(rand:uniform(NClients)),
-            Topic = <<"t/", Index/binary>>,
-            ?assertMatch({ok, #{}}, emqtt:publish(Client, Topic, Index, 1))
+            Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 5_000),
+            NPubs = length(Pubs0),
+            ?assertEqual(NClients, NPubs, ?drainMailbox(2_500)),
+
+            ok = emqtt:stop(ClientSub),
+
+            %% Make `emqx_ds` believe that roughly half of the shards are unavailable.
+            ?SETUP_MOD:mock_transient_failure(),
+
+            _ClientSub = start_connect_client(ClientSubOpts#{clean_start => false}),
+
+            Pubs1 = emqx_common_test_helpers:wait_publishes(NPubs, 5_000),
+            ?assert(length(Pubs1) < length(Pubs0), #{
+                num_pubs1 => length(Pubs1),
+                num_pubs0 => length(Pubs0),
+                pubs1 => Pubs1,
+                pubs0 => Pubs0
+            }),
+
+            %% "Recover" the shards.
+            ?SETUP_MOD:unmock_transient_failure(),
+
+            Pubs2 = emqx_common_test_helpers:wait_publishes(NPubs - length(Pubs1), 5_000),
+            snabbkaffe_diff:assert_lists_eq(
+                [maps:with([topic, payload, qos], P) || P <- Pubs0],
+                [maps:with([topic, payload, qos], P) || P <- Pubs1 ++ Pubs2],
+                #{comment => emqx_persistent_session_ds:print_session(ClientId)}
+            )
         end,
-        ClientsPub
-    ),
-
-    Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 5_000),
-    NPubs = length(Pubs0),
-    ?assertEqual(NClients, NPubs, ?drainMailbox(2_500)),
-
-    ok = emqtt:stop(ClientSub),
-
-    %% Make `emqx_ds` believe that roughly half of the shards are unavailable.
-    ?SETUP_MOD:mock_transient_failure(),
-
-    _ClientSub = start_connect_client(ClientSubOpts#{clean_start => false}),
-
-    Pubs1 = emqx_common_test_helpers:wait_publishes(NPubs, 5_000),
-    ?assert(length(Pubs1) < length(Pubs0), #{
-        num_pubs1 => length(Pubs1),
-        num_pubs0 => length(Pubs0),
-        pubs1 => Pubs1,
-        pubs0 => Pubs0
-    }),
-
-    %% "Recover" the shards.
-    ?SETUP_MOD:unmock_transient_failure(),
-
-    Pubs2 = emqx_common_test_helpers:wait_publishes(NPubs - length(Pubs1), 5_000),
-    ?assertEqual(
-        [maps:with([topic, payload, qos], P) || P <- Pubs0],
-        [maps:with([topic, payload, qos], P) || P <- Pubs1 ++ Pubs2]
-    ),
-    ok.
+        []
+    ).
 
 %% Check that we send will messages when performing GC without relying on timers set by
 %% the channel process.

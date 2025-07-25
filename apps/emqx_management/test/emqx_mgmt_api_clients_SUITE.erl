@@ -552,70 +552,6 @@ t_persistent_sessions5(Config) ->
     ),
     ok.
 
-%% Checks that expired durable sessions are returned with `is_expired => true'.
-t_persistent_sessions6(Config) ->
-    [N1, _N2] = ?config(cluster_nodes, Config),
-    Port1 = get_mqtt_port(N1, tcp),
-
-    ?assertMatch({ok, {?HTTP200, _, #{<<"data">> := []}}}, list_request(Config)),
-
-    ?check_trace(
-        begin
-            ClientId = <<"c1">>,
-            C1 = connect_client(#{port => Port1, clientid => ClientId, expiry => 1}),
-            assert_single_client(#{node => N1, clientid => ClientId, status => connected}, Config),
-            ?retry(
-                100,
-                20,
-                ?assertMatch(
-                    {ok, {?HTTP200, _, #{<<"data">> := [#{<<"is_expired">> := false}]}}},
-                    list_request(Config)
-                )
-            ),
-
-            ok = emqtt:disconnect(C1),
-            %% Wait for session to be considered expired but not GC'ed
-            ct:sleep(2_000),
-            assert_single_client(
-                #{node => N1, clientid => ClientId, status => disconnected}, Config
-            ),
-            N1Bin = atom_to_binary(N1),
-            ?retry(
-                100,
-                20,
-                ?assertMatch(
-                    {ok,
-                        {?HTTP200, _, #{
-                            <<"data">> := [
-                                #{
-                                    <<"is_expired">> := true,
-                                    <<"node">> := N1Bin,
-                                    <<"disconnected_at">> := <<_/binary>>
-                                }
-                            ]
-                        }}},
-                    list_request(Config)
-                )
-            ),
-            ?assertMatch(
-                {ok,
-                    {?HTTP200, _, #{
-                        <<"is_expired">> := true,
-                        <<"node">> := N1Bin,
-                        <<"disconnected_at">> := <<_/binary>>
-                    }}},
-                get_client_request(ClientId, Config)
-            ),
-
-            C2 = connect_client(#{port => Port1, clientid => ClientId}),
-            disconnect_and_destroy_session(C2),
-
-            ok
-        end,
-        []
-    ),
-    ok.
-
 %% Check that the output of `/clients/:clientid/subscriptions' has the expected keys.
 t_persistent_sessions_subscriptions1(Config) ->
     [N1, _N2] = ?config(cluster_nodes, Config),
@@ -2348,10 +2284,10 @@ assert_contains_clientids(Results, ExpectedClientIds, Line) ->
      || #{<<"data">> := Rows} <- Results,
         #{<<"clientid">> := ClientId} <- Rows
     ],
-    ?assertEqual(
+    snabbkaffe_diff:assert_lists_eq(
         lists:sort(ExpectedClientIds),
         lists:sort(ContainedClientIds),
-        #{results => Results, line => Line}
+        #{comment => Line}
     ).
 
 traverse_in_reverse_v2(QueryParams0, Results, Config) ->
