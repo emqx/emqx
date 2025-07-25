@@ -12,6 +12,11 @@
 
 set -euo pipefail
 
+# ensure dir
+cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+# shellcheck disable=SC1091
+source ./env.sh
+
 help() {
     echo
     echo "-h|--help:"
@@ -38,7 +43,7 @@ help() {
     echo ""
     echo "--builder <BUILDER>:"
     echo "    Docker image to use for building"
-    echo "    E.g. ghcr.io/emqx/emqx-builder/5.5-2:1.18.3-27.2-3-debian12"
+    echo "    E.g. ${EMQX_BUILDER}"
     echo "    For hot upgrading tar.gz, specify a builder image with the same OS distribution as the running one."
     echo "    Specifically, for EMQX's docker containers hot upgrading, please use the debian12-based builder. "
     echo "    Defaults to builder configured in env.sh."
@@ -51,10 +56,6 @@ die() {
     exit 1
 }
 
-# ensure dir
-cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
-# shellcheck disable=SC1091
-source ./env.sh
 PROFILE=emqx-enterprise
 PKGTYPE=tgz
 

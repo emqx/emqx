@@ -133,6 +133,13 @@ spec:
                 fieldPath: metadata.name
           - name: EMQX_HOST
             value: $(POD_NAME).{{ include "emqx.fullname" . }}-headless.{{ .Release.Namespace }}.svc.cluster.local
+          {{- if .Values.emqxLicenseSecretRef.name }}
+          - name: EMQX_LICENSE__KEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.emqxLicenseSecretRef.name }}
+                key: {{ .Values.emqxLicenseSecretRef.key }}
+          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "emqx.fullname" . }}-env

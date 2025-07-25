@@ -869,11 +869,11 @@ migrate_mnesia_backup(MnesiaBackupFileName, Mod, Acc) ->
     end.
 
 extract_backup(BackupFilePath) ->
-    ?SLOG(error, #{msg => "extract_backup", backup_file_path => BackupFilePath}),
+    ?SLOG(debug, #{msg => "extract_backup", backup_file_path => BackupFilePath}),
     RootBackupDir = root_backup_dir(),
     maybe
         ok ?= validate_filenames(BackupFilePath),
-        ?SLOG(error, #{
+        ?SLOG(debug, #{
             msg => "extracting_backup", backup => BackupFilePath, root_backup_dir => RootBackupDir
         }),
         format_tar_error(erl_tar:extract(BackupFilePath, [{cwd, RootBackupDir}, compressed]))
