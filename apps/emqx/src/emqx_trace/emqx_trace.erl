@@ -265,28 +265,20 @@ list_traces(Enable) ->
 -spec create(trace()) ->
     {ok, trace()}
     | {error,
-        {duplicate_condition, iodata()}
-        | {already_existed, iodata()}
+        {already_existed, iodata()}
+        | {duplicate_condition, iodata()}
+        | {max_limit_reached, non_neg_integer()}
         | {bad_type, any()}
         | iodata()}.
 create(Trace) ->
     maybe
         {ok, TraceRecord} ?= mk_trace_record(Trace),
-        true ?= mnesia:table_info(?TRACE, size) < max_traces(),
         ok ?= insert_new_trace(TraceRecord),
         {ok, format(TraceRecord)}
     else
         {error, Reason} ->
-            {error, Reason};
-        false ->
-            {error,
-                "The number of traces created has reached the maximum"
-                " please delete the useless ones first"}
+            {error, Reason}
     end.
-
--spec max_traces() -> non_neg_integer().
-max_traces() ->
-    emqx_config:get([trace, max_traces]).
 
 -spec delete(Name :: binary()) -> ok | {error, not_found}.
 delete(Name) ->
@@ -427,7 +419,7 @@ code_change(_, State, _Extra) ->
 
 insert_new_trace(Trace) ->
     case transaction(fun emqx_trace_dl:insert_new_trace/1, [Trace]) of
-        {ok, _} ->
+        ok ->
             %% We call this to ensure the trace is active when we return
             check();
         {error, _} = Error ->

@@ -39,20 +39,30 @@ update(Name, Enable) ->
 
 %% Introduced in 5.0
 insert_new_trace(Trace) ->
+    %% Name should be unique:
     case mnesia:read(?TRACE, Trace#?TRACE.name) of
         [] ->
-            %% allow one new trace for each filter in the same second
-            #?TRACE{start_at = StartAt, type = Type, filter = Filter} = Trace,
-            Match = #?TRACE{_ = '_', start_at = StartAt, type = Type, filter = Filter},
-            case mnesia:match_object(?TRACE, Match, read) of
-                [] ->
-                    ok = mnesia:write(?TRACE, Trace, write),
-                    {ok, Trace};
-                [#?TRACE{name = Name}] ->
-                    mnesia:abort({duplicate_condition, Name})
-            end;
+            ok;
         [#?TRACE{name = Name}] ->
             mnesia:abort({already_existed, Name})
+    end,
+    %% Disallow more than `max_traces` records:
+    MaxTraces = max_traces(),
+    mnesia:lock({table, ?TRACE}, write),
+    case mnesia:table_info(?TRACE, size) of
+        S when S < MaxTraces ->
+            ok;
+        _ ->
+            mnesia:abort({max_limit_reached, MaxTraces})
+    end,
+    %% Allow only one trace for each filter in the same second:
+    #?TRACE{start_at = StartAt, type = Type, filter = Filter} = Trace,
+    Match = #?TRACE{_ = '_', start_at = StartAt, type = Type, filter = Filter},
+    case mnesia:match_object(?TRACE, Match, read) of
+        [] ->
+            ok = mnesia:write(?TRACE, Trace, write);
+        [#?TRACE{name = Another}] ->
+            mnesia:abort({duplicate_condition, Another})
     end.
 
 %% Introduced in 5.0
@@ -90,3 +100,7 @@ get_enabled_trace() ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+-spec max_traces() -> non_neg_integer().
+max_traces() ->
+    emqx_config:get([trace, max_traces]).

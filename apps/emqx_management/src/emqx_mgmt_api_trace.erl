@@ -76,7 +76,8 @@ schema("/trace") ->
                 200 => hoconsc:ref(trace),
                 400 => emqx_dashboard_swagger:error_codes(
                     [
-                        'INVALID_PARAMS'
+                        'INVALID_PARAMS',
+                        ?EXCEED_LIMIT
                     ],
                     <<"invalid trace params">>
                 ),
@@ -444,6 +445,20 @@ trace(post, #{body := Params} = Req) ->
             {409, #{
                 code => 'BAD_TYPE',
                 message => <<"Rolling upgrade in progress, create failed">>
+            }};
+        {error, {max_limit_reached, Limit}} ->
+            {400, #{
+                code => ?EXCEED_LIMIT,
+                message =>
+                    case Limit of
+                        0 ->
+                            <<"Creating traces is disallowed">>;
+                        _ ->
+                            <<
+                                "Number of existing traces has reached the allowed "
+                                "maximum, please delete outdated traces first"
+                            >>
+                    end
             }};
         {error, Reason} ->
             {400, #{
