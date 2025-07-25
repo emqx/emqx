@@ -1,8 +1,8 @@
-emqx_bridge_snowflake_connector_schema {
+emqx_bridge_snowflake_aggregated_connector_schema {
   config_connector.label:
-  """Snowflake Connector Configuration"""
+  """Snowflake Aggregated Connector Configuration"""
   config_connector.desc:
-  """Configuration for a connector to Snowflake service."""
+  """Configuration for a connector to Snowflake service using aggregated uploads."""
 
   server.label:
   """Server Host"""

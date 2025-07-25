@@ -5,11 +5,11 @@
 -ifndef(__EMQX_BRIDGE_SNOWFLAKE_HRL__).
 -define(__EMQX_BRIDGE_SNOWFLAKE_HRL__, true).
 
--define(CONNECTOR_TYPE, snowflake).
--define(CONNECTOR_TYPE_BIN, <<"snowflake">>).
+-define(CONNECTOR_TYPE_AGGREG, snowflake).
+-define(CONNECTOR_TYPE_AGGREG_BIN, <<"snowflake">>).
 
--define(ACTION_TYPE, snowflake).
--define(ACTION_TYPE_BIN, <<"snowflake">>).
+-define(ACTION_TYPE_AGGREG, snowflake).
+-define(ACTION_TYPE_AGGREG_BIN, <<"snowflake">>).
 
 -define(SERVER_OPTS, #{
     default_port => 443
