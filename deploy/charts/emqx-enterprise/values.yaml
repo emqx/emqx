@@ -129,9 +129,11 @@ emqxConfig:
   EMQX_DASHBOARD__DEFAULT_USERNAME: "admin"
   EMQX_DASHBOARD__DEFAULT_PASSWORD: "public"
 
-## EMQX Enterprise Edition requires manual creation of a Secret containing the licensed content. Write the name of Secret to the value of "emqxLicenseSecretName"
+## Deprecated parameter
+emqxLicenseSecretName:
 ## Example:
 ##   kubectl create secret generic emqx-license --from-literal="license=your-license-token"
+##   helm install emq-enterprise emqx/emqx-enterprise --set emqxLicenseSecretRef.name=emqx-license --set emqxLicenseSecretRef.key=license
 emqxLicenseSecretRef:
   name:
   key:
