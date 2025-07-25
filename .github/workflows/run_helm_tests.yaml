@@ -8,10 +8,15 @@ on:
   workflow_call:
     secrets:
       EMQX_ENTERPRISE_LICENSE:
-        required: true
+        required: false
 
 permissions:
   contents: read
+
+env:
+  # EMQX_ENTERPRISE_LICENSE: ${{ secrets.EMQX_ENTERPRISE_LICENSE }}
+  # temporary workaround while GHA refuses to pass down the secret....
+  EMQX_ENTERPRISE_LICENSE: evaluation
 
 jobs:
   helm_test:
@@ -104,7 +109,7 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
-            --set emqxConfig.EMQX_LICENSE__KEY="${{ secrets.EMQX_ENTERPRISE_LICENSE }}" \
+            --set emqxConfig.EMQX_LICENSE__KEY="$EMQX_ENTERPRISE_LICENSE" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --debug
@@ -126,7 +131,7 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
-            --set emqxConfig.EMQX_LICENSE__KEY="${{ secrets.EMQX_ENTERPRISE_LICENSE }}" \
+            --set emqxConfig.EMQX_LICENSE__KEY="$EMQX_ENTERPRISE_LICENSE" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --wait \
