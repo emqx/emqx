@@ -5,7 +5,7 @@ defmodule EMQXBPAPI.MixProject do
   def project do
     [
       app: :emqx_bpapi,
-      version: "1.0.0",
+      version: "6.0.0",
       build_path: "../../_build",
       erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),

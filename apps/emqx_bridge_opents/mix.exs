@@ -5,7 +5,7 @@ defmodule EMQXBridgeOpents.MixProject do
   def project do
     [
       app: :emqx_bridge_opents,
-      version: "0.2.3",
+      version: "6.0.0",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),

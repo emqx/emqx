@@ -94,7 +94,7 @@ jobs:
           ./scripts/check-nl-at-eof.sh
       - name: Check apps version
         run: |
-          ./scripts/apps-version-check.sh
+          ./scripts/apps-version-check.exs
       - name: Setup mix
         run: |
           # mix local.hex --force --if-missing && mix local.rebar --force --if-missing

@@ -5,7 +5,7 @@ defmodule EMQXLdap.MixProject do
   def project do
     [
       app: :emqx_ldap,
-      version: "0.1.14",
+      version: "6.0.0",
       build_path: "../../_build",
       compilers: [:yecc, :leex] ++ Mix.compilers(),
       erlc_options: UMP.erlc_options(),

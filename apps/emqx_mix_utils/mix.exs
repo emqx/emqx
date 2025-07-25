@@ -5,7 +5,7 @@ defmodule EMQXMixUtils.MixProject do
   def project do
     [
       app: :emqx_mix_utils,
-      version: "0.1.0",
+      version: "6.0.0",
       build_path: "../../_build",
       deps_path: "../../deps",
       lockfile: "../../mix.lock",

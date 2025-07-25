@@ -5,7 +5,7 @@ defmodule EMQXBridgeMQTT.MixProject do
   def project do
     [
       app: :emqx_bridge_mqtt,
-      version: "0.2.12",
+      version: "6.0.0",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),

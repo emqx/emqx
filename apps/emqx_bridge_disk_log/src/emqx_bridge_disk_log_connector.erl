@@ -57,6 +57,7 @@
     max_file_number := pos_integer()
 }.
 -type connector_state() :: #{
+    deleteme := true,
     ?filepath := binary(),
     ?installed_actions := #{action_resource_id() => action_state()}
 }.

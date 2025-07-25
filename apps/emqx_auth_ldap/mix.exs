@@ -5,7 +5,7 @@ defmodule EMQXAuthLDAP.MixProject do
   def project do
     [
       app: :emqx_auth_ldap,
-      version: "0.1.8",
+      version: "6.0.0",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),

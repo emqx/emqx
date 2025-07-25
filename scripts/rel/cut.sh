@@ -242,7 +242,7 @@ SYNC_REMOTES_ARGS=
 ./scripts/rel/check-chart-vsn.sh "$PROFILE"
 
 ## Check if app versions are bumped
-./scripts/apps-version-check.sh
+./scripts/apps-version-check.exs
 
 ## Ensure appup files are updated
 if [ "$SKIP_APPUP" = 'no' ]; then

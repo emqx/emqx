@@ -5,7 +5,7 @@ defmodule EMQXDurableStorage.MixProject do
   def project do
     [
       app: :emqx_durable_storage,
-      version: "0.5.2",
+      version: "6.0.0",
       build_path: "../../_build",
       compilers: [:yecc, :leex, :elixir, :asn1, :erlang, :app],
       erlc_options: UMP.erlc_options(),
