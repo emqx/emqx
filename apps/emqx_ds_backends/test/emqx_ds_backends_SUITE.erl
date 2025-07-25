@@ -2287,6 +2287,12 @@ t_28_ttv_time_limited(Config) ->
         []
     ).
 
+%% This testcase veriries functionality of `emqx_ds:multi_iterator_next' function.
+%%
+%% Properties checked:
+%%
+%% - Multi-iterator covers all data  multiple streams
+%% - Size of the batch is respected
 t_multi_iterator(Config) ->
     DB = ?FUNCTION_NAME,
     Opts = maps:merge(opts(Config), #{

@@ -17,18 +17,18 @@
 
 all() ->
     [
-        {group, with_ds},
-        {group, without_ds}
+        {group, persistence_enabled},
+        {group, persistence_disabled}
     ].
 
 groups() ->
     Tcs = emqx_common_test_helpers:all(?MODULE),
     [
-        {with_ds, Tcs},
-        {without_ds, Tcs}
+        {persistence_enabled, Tcs},
+        {persistence_disabled, Tcs}
     ].
 
-init_per_group(without_ds, Config) ->
+init_per_group(persistence_disabled, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -38,7 +38,7 @@ init_per_group(without_ds, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config];
-init_per_group(with_ds, Config) ->
+init_per_group(persistence_enabled, Config) ->
     DurableSessionsOpts = #{
         <<"enable">> => true,
         <<"checkpoint_interval">> => <<"100ms">>
@@ -47,7 +47,7 @@ init_per_group(with_ds, Config) ->
     ExtraApps = [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],
     emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, Opts).
 
-end_per_group(with_ds, Config) ->
+end_per_group(persistence_enabled, Config) ->
     ok = emqx_common_test_helpers:stop_apps_ds(Config),
     ok;
 end_per_group(_, Config) ->
