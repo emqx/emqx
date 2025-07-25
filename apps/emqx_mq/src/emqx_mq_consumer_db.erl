@@ -78,12 +78,17 @@ claim_leadership(MQTopic, ConsumerRef, TS) ->
     {ok, consumer_ref()} | not_found.
 find_consumer(MQTopic, TS) ->
     LeadershipTopic = ?TOPIC_LEADERSHIP(MQTopic),
-    case emqx_ds:dirty_read(LeadershipTopic, LeadershipTopic) of
+    case emqx_ds:dirty_read(?MQ_CONSUMER_DB, LeadershipTopic) of
         [] ->
             not_found;
         [{_Topic, 0, ClaimBin}] ->
             case decode_claim(ClaimBin) of
                 {ConsumerRef, OldTS} when OldTS > TS - ?LEADER_TTL ->
+                    ?tp(warning, mq_consumer_db_find_consumer_success, #{
+                        mq_topic => MQTopic,
+                        active_ago_ms => TS - OldTS,
+                        consumer_ref => ConsumerRef
+                    }),
                     {ok, ConsumerRef};
                 _ ->
                     not_found
@@ -143,7 +148,9 @@ delete_claim(LeadershipTopic) ->
     emqx_ds:tx_del_topic(LeadershipTopic).
 
 read_or_init_consumer_data(DataTopic) ->
-    case emqx_ds:tx_read(DataTopic) of
+    Res = emqx_ds:tx_read(DataTopic),
+    ?tp(warning, mq_consumer_db_read_or_init_consumer_data, #{data_topic => DataTopic, res => Res}),
+    case Res of
         [] ->
             InitData = init_consumer_data(),
             ok = write_consumer_data(DataTopic, InitData),
@@ -153,6 +160,8 @@ read_or_init_consumer_data(DataTopic) ->
     end.
 
 write_consumer_data(DataTopic, Data) ->
+    TTV = {DataTopic, 0, Data},
+    ?tp(warning, mq_consumer_db_write_consumer_data, #{ttv => TTV}),
     emqx_ds:tx_write({DataTopic, 0, encode_consumer_data(Data)}).
 
 %% TODO

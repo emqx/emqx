@@ -11,6 +11,7 @@
 start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_mq_registry:create_tables()),
     ok = emqx_mq_payload_db:open(),
+    ok = emqx_mq_consumer_db:open(),
     {ok, Sup} = emqx_mq_sup:start_link(),
     ok = emqx_mq:register_hooks(),
     {ok, Sup}.

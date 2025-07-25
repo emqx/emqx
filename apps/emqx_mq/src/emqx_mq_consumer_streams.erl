@@ -20,12 +20,16 @@ The module represents a consumer of all streams of a single Message Queue.
 -export([
     new/2,
     new/3,
-    get_data/1,
+    progress/1,
     renew_streams/1,
     handle_ds_reply/2,
     handle_ack/2,
     info/1
 ]).
+
+-type progress() :: #{
+    emqx_ds:slab() => emqx_mq_consumer_stream:progress()
+}.
 
 -type t() :: #{
     mq_topic := binary(),
@@ -41,26 +45,37 @@ The module represents a consumer of all streams of a single Message Queue.
 
 -export_type([t/0]).
 
--spec new(emqx_mq_types:mq_topic(), emqx_mq_types:consumer_data()) -> t().
-new(MQTopic, ConsumerData) ->
-    new(MQTopic, ConsumerData, #{}).
+-spec new(emqx_mq_types:mq_topic(), progress()) -> t().
+new(MQTopic, Progress) ->
+    new(MQTopic, Progress, #{}).
 
--spec new(emqx_mq_types:mq_topic(), emqx_mq_types:consumer_data(), map()) -> t().
-new(MQTopic, ConsumerData, Options) ->
+-spec new(emqx_mq_types:mq_topic(), progress(), map()) -> t().
+new(MQTopic, Progress, Options) ->
     State = #{
         options => Options,
         mq_topic => MQTopic,
         streams => #{},
-        %% TODO
-        %% use ConsumerData to initialize the streams
-        %% While this module is a stub, we do not use it.
-        consumer_data => ConsumerData
+        progress => Progress
     },
     renew_streams(State).
 
--spec get_data(t()) -> emqx_mq_types:consumer_data().
-get_data(#{consumer_data := ConsumerData}) ->
-    ConsumerData.
+-spec progress(t()) -> progress().
+progress(#{progress := Progress0, streams := Streams}) ->
+    Progress = maps:fold(
+        fun
+            (Slab, #{consumer := undefined}, ProgressAcc) ->
+                ProgressAcc#{
+                    Slab => finished
+                };
+            (Slab, #{consumer := SC}, ProgressAcc) ->
+                ProgressAcc#{
+                    Slab => emqx_mq_consumer_stream:progress(SC)
+                }
+        end,
+        Progress0,
+        Streams
+    ),
+    Progress.
 
 -spec renew_streams(t()) -> t().
 renew_streams(#{mq_topic := MQTopic} = State) ->
@@ -142,19 +157,49 @@ add_stream(#{streams := Streams} = State, Slab, Stream) ->
             do_add_stream(State, Slab, Stream)
     end.
 
-do_add_stream(#{mq_topic := MQTopic, options := Options, streams := Streams} = State, Slab, Stream) ->
-    ?tp(warning, emqx_mq_consumer_streams_add_stream, #{mq_topic => MQTopic, slab => Slab}),
-    {ok, It} = emqx_mq_payload_db:make_iterator(Stream, MQTopic),
-    {ok, SubRef, SC} = emqx_mq_consumer_stream:new(It, Options),
-    State#{
-        streams => Streams#{
-            Slab => #{
-                sub_ref => SubRef,
-                stream => Stream,
-                consumer => SC
+do_add_stream(
+    #{mq_topic := MQTopic, options := Options, streams := Streams, progress := Progress} = State,
+    Slab,
+    Stream
+) ->
+    case Progress of
+        #{Slab := finished} ->
+            ?tp(warning, emqx_mq_consumer_streams_add_stream, #{
+                mq_topic => MQTopic, slab => Slab, status => finished
+            }),
+            State;
+        #{Slab := It} ->
+            ?tp(warning, emqx_mq_consumer_streams_add_stream, #{
+                mq_topic => MQTopic, slab => Slab, status => restore_iterator
+            }),
+            {ok, SubRef, SC} = emqx_mq_consumer_stream:new(It, Options),
+            State#{
+                streams => Streams#{
+                    Slab => #{
+                        sub_ref => SubRef,
+                        stream => Stream,
+                        consumer => SC
+                    }
+                }
+            };
+        _ ->
+            ?tp(warning, emqx_mq_consumer_streams_add_stream, #{
+                mq_topic => MQTopic, slab => Slab, status => new_iterator
+            }),
+            %% TODO
+            %% Handle errors
+            {ok, It} = emqx_mq_payload_db:make_iterator(Stream, MQTopic),
+            {ok, SubRef, SC} = emqx_mq_consumer_stream:new(It, Options),
+            State#{
+                streams => Streams#{
+                    Slab => #{
+                        sub_ref => SubRef,
+                        stream => Stream,
+                        consumer => SC
+                    }
+                }
             }
-        }
-    }.
+    end.
 
 find_stream(#{streams := Streams}, SubRef) ->
     do_find_stream(maps:to_list(Streams), SubRef).

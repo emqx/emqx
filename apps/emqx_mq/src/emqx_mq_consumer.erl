@@ -106,12 +106,26 @@ start_link(MQTopicFilter) ->
 -spec connect(binary(), emqx_mq_types:subscriber_ref(), emqx_types:clientid()) ->
     ok | {error, term()}.
 connect(MQTopicFilter, SubscriberRef, ClientId) ->
+    ?tp(warning, mq_consumer_connect, #{
+        mq_topic_filter => MQTopicFilter, subscriber_ref => SubscriberRef, client_id => ClientId
+    }),
     case find_consumer(MQTopicFilter, 2) of
         {ok, ConsumerRef} ->
+            ?tp(warning, mq_consumer_find_consumer_success, #{
+                mq_topic_filter => MQTopicFilter,
+                subscriber_ref => SubscriberRef,
+                client_id => ClientId,
+                consumer_ref => ConsumerRef
+            }),
             gen_server:cast(ConsumerRef, #connect{
                 subscriber_ref = SubscriberRef, client_id = ClientId
             });
         not_found ->
+            ?tp(warning, mq_consumer_find_consumer_not_found, #{
+                mq_topic_filter => MQTopicFilter,
+                subscriber_ref => SubscriberRef,
+                client_id => ClientId
+            }),
             {error, consumer_not_found}
     end.
 
@@ -146,20 +160,21 @@ ping(Pid, SubscriberRef) ->
 %%--------------------------------------------------------------------
 
 init([MQTopicFilter]) ->
-    case
-        emqx_mq_consumer_db:claim_leadership(MQTopicFilter, self_consumer_ref(), now_ms_monotonic())
-    of
+    ClaimRes = emqx_mq_consumer_db:claim_leadership(MQTopicFilter, self_consumer_ref(), now_ms()),
+    ?tp(warning, mq_consumer_init, #{mq_topic_filter => MQTopicFilter, claim_res => ClaimRes}),
+    case ClaimRes of
         {ok, ConsumerData} ->
             erlang:send_after(1000, self(), #renew_streams{}),
             erlang:send_after(
                 ?DEFAULT_CONSUMER_PERSISTENCE_INTERVAL, self(), #persist_consumer_data{}
             ),
+            Progress = maps:get(progress, ConsumerData, #{}),
             {ok, #state{
                 topic_filter = MQTopicFilter,
                 subscribers = #{},
                 messages = #{},
                 dispatch_queue = queue:new(),
-                consumer = emqx_mq_consumer_streams:new(MQTopicFilter, ConsumerData),
+                consumer = emqx_mq_consumer_streams:new(MQTopicFilter, Progress),
                 ping_timer_ref = undefined
             }};
         {error, _, _} = Error ->
@@ -295,13 +310,20 @@ handle_ds_reply(DSReply, #state{consumer = Consumer0} = State) ->
 handle_persist_consumer_data(
     #state{topic_filter = MQTopicFilter, consumer = Consumer, subscribers = Subscribers} = State
 ) ->
-    ConsumerData = emqx_mq_consumer_streams:get_data(Consumer),
+    ConsumerData = #{
+        progress => emqx_mq_consumer_streams:progress(Consumer)
+    },
+    ?tp(warning, mq_consumer_handle_persist_consumer_data, #{
+        mq_topic_filter => MQTopicFilter,
+        consumer_info => emqx_mq_consumer_streams:info(Consumer),
+        consumer_data => ConsumerData
+    }),
     case
         emqx_mq_consumer_db:update_consumer_data(
             MQTopicFilter,
             self_consumer_ref(),
             ConsumerData,
-            now_ms_monotonic()
+            now_ms()
         )
     of
         ok ->
@@ -314,6 +336,7 @@ handle_persist_consumer_data(
                     ),
                     {noreply, State};
                 false ->
+                    ?tp(warning, mq_consumer_drop_leadership, #{mq_topic_filter => MQTopicFilter}),
                     case emqx_mq_consumer_db:drop_leadership(MQTopicFilter) of
                         ok ->
                             {stop, normal, State};
@@ -337,7 +360,7 @@ find_consumer(MQTopicFilter, 0) ->
     }),
     not_found;
 find_consumer(MQTopicFilter, Retries) ->
-    case emqx_mq_consumer_db:find_consumer(MQTopicFilter, now_ms_monotonic()) of
+    case emqx_mq_consumer_db:find_consumer(MQTopicFilter, now_ms()) of
         {ok, ConsumerRef} ->
             {ok, ConsumerRef};
         not_found ->
@@ -443,6 +466,9 @@ ensure_ping_timer(#state{ping_timer_ref = _PingTimerRef} = State) ->
 
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
+
+now_ms() ->
+    erlang:system_time(millisecond).
 
 self_consumer_ref() ->
     self().

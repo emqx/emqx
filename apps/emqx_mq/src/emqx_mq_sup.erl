@@ -50,8 +50,6 @@ init(?CONSUMER_SUP) ->
     ChildSpecs = [],
     {ok, {SupFlags, ChildSpecs}}.
 
-%% TODO
-%% Simple sup, to allow consumers stop themselves
 consumer_sup_child_spec() ->
     #{
         id => ?CONSUMER_SUP,
@@ -66,6 +64,6 @@ consumer_child_spec(Id, Args) ->
     #{
         id => Id,
         start => {emqx_mq_consumer, start_link, Args},
-        restart => permanent,
+        restart => temporary,
         shutdown => 5000
     }.

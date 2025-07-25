@@ -15,7 +15,9 @@ The module contains basic types for the Message Queue application.
 -type monotonic_timestamp_ms() :: integer().
 -type channel_pid() :: pid().
 -type consumer_ref() :: pid().
--type consumer_data() :: #{}.
+-type consumer_data() :: #{
+    progress := emqx_mq_consumer_streams:progress()
+}.
 -type ack() :: ?MQ_ACK | ?MQ_NACK.
 -type mq_topic() :: binary().
 -type mq() :: #{

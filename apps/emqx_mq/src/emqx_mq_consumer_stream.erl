@@ -17,6 +17,7 @@ The module represents a consumer of a single stream of the Message Queue data.
     new/2,
     handle_ds_reply/2,
     handle_ack/2,
+    progress/1,
     info/1
 ]).
 
@@ -46,6 +47,10 @@ The module represents a consumer of a single stream of the Message Queue data.
     upper_buffer := undefined | buffer(),
     upper_seqno := undefined | non_neg_integer()
 }.
+
+-type progress() :: finished | emqx_ds:iterator().
+
+-export_type([t/0, progress/0]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -116,7 +121,9 @@ handle_ds_reply(#{lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = 
                 SC1 = SC0#{lower_buffer => LowerBuffer},
                 suback(SC1, SeqNo);
             false ->
-                UpperBuffer = push_to_buffer(UpperBuffer0, It, Payloads, Size),
+                UpperBuffer = push_to_buffer(
+                    maybe_init_upper_buffer(LowerBuffer0, UpperBuffer0), It, Payloads, Size
+                ),
                 SC1 = SC0#{upper_buffer => UpperBuffer},
                 case is_buffer_full(SC1, UpperBuffer) of
                     true ->
@@ -143,6 +150,17 @@ handle_ack(#{lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SC0, 
         end,
     compact(SC).
 
+%% TODO
+%% Implement unacked message restoration
+-spec progress(t()) -> progress().
+progress(#{lower_buffer := #{it_begin := ItBegin} = _LowerBuffer} = SC) ->
+    case is_finished(SC) of
+        true ->
+            finished;
+        false ->
+            ItBegin
+    end.
+
 -spec info(t()) ->
     #{
         lower_buffer := undefined | #{n := non_neg_integer(), unacked := non_neg_integer()},
@@ -161,6 +179,11 @@ info(#{lower_buffer := LowerBuffer, upper_buffer := UpperBuffer} = SC) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+maybe_init_upper_buffer(#{it_end := ItEnd} = _LowerBuffer, undefined) ->
+    #{it_begin => ItEnd, it_end => ItEnd, n => 0, unacked => #{}};
+maybe_init_upper_buffer(_LowerBuffer, #{} = UpperBuffer) ->
+    UpperBuffer.
 
 compact(SC0) ->
     SC1 = try_rotate_upper_buffer(SC0),

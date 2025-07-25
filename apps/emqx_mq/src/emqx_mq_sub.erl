@@ -56,7 +56,9 @@ handle_connect(#{clientid := ClientId}, TopicFilter) ->
         ping_tref => undefined,
         consumer_timeout_tref => undefined
     },
-    ok = emqx_mq_consumer:connect(TopicFilter, SubscriberRef, ClientId),
+    %% NOTE
+    %% on error, let's try to reconnect after consumer timeout
+    _ = emqx_mq_consumer:connect(TopicFilter, SubscriberRef, ClientId),
     reset_consumer_timeout_timer(Sub).
 
 -spec handle_ack(t(), emqx_types:msg(), emqx_mq_types:ack()) -> ok.
