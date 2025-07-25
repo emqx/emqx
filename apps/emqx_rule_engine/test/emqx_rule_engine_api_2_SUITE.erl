@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -1173,4 +1174,31 @@ t_rule_simulation_legacy_topics(_Config) ->
     ],
     Failures = lists:filtermap(fun do_rule_simulation_simple/1, Cases),
     ?assertEqual([], Failures),
+    ok.
+
+t_direct_dispatch_empty_string(_Config) ->
+    ?check_trace(
+        begin
+            {201, _} = create_rule(#{
+                <<"sql">> => <<"select * from t">>,
+                <<"actions">> => [
+                    #{
+                        <<"function">> => <<"republish">>,
+                        <<"args">> => #{
+                            <<"direct_dispatch">> => <<"">>,
+                            <<"topic">> => <<"rep">>
+                        }
+                    }
+                ]
+            }),
+            emqx:subscribe(<<"rep">>),
+            emqx:publish(emqx_message:make(<<"t">>, <<"hey">>)),
+            ?assertReceive({deliver, <<"rep">>, _}),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind("bad_direct_dispatch_resolved_value", Trace)),
+            ok
+        end
+    ),
     ok.
