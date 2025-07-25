@@ -836,8 +836,12 @@ next(DB, It, NextLimit) ->
 
 -doc """
 
-Subscribe current Erlang process to the messages that follow
-`Iterator`.
+A low-level API that subscribes current Erlang process to the messages
+that follow `Iterator`.
+
+NOTE: business-level applications are encouraged to use
+`emqx_ds_client` instead. This helper module that simplifies
+management of subscriptions.
 
 This function returns a subscription handle that can be used to to
 manipulate the subscription (ack batches and unsubscribe), as well as
