@@ -78,11 +78,6 @@ spec:
           claimName: {{ tpl . $ }}
         {{- end }}
       {{- end }}
-      {{- if .Values.emqxLicenseSecretName  }}
-      - name: emqx-license
-        secret:
-          secretName: {{ .Values.emqxLicenseSecretName }}
-      {{- end }}
     {{- if .Values.extraVolumes }}
       {{- toYaml .Values.extraVolumes | nindent 6 }}
     {{- end }}
@@ -133,6 +128,13 @@ spec:
                 fieldPath: metadata.name
           - name: EMQX_HOST
             value: $(POD_NAME).{{ include "emqx.fullname" . }}-headless.{{ .Release.Namespace }}.svc.cluster.local
+          {{- if .Values.emqxLicenseSecretRef.name }}
+          - name: EMQX_LICENSE__KEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.emqxLicenseSecretRef.name }}
+                key: {{ .Values.emqxLicenseSecretRef.key }}
+          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "emqx.fullname" . }}-env
@@ -150,12 +152,6 @@ spec:
             mountPath: /tmp/ssl
             readOnly: true
           {{- end}}
-          {{ if .Values.emqxLicenseSecretName }}
-          - name: emqx-license
-            mountPath: "/opt/emqx/etc/emqx.lic"
-            subPath: "emqx.lic"
-            readOnly: true
-          {{- end }}
         {{- if .Values.extraVolumeMounts }}
           {{- toYaml .Values.extraVolumeMounts | nindent 10 }}
         {{- end }}
