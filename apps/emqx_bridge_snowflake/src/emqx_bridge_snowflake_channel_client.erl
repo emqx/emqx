@@ -111,15 +111,14 @@ init(Opts) ->
     #{
         ecpool_worker_id := Id,
         ?action_res_id := ActionResId,
+        ?database := Database,
+        ?schema := Schema,
+        ?pipe := Pipe,
         ?jwt_config := JWTConfig,
         ?max_retries := MaxRetries,
         ?request_ttl := RequestTTL,
         ?setup_pool_id := SetupPoolId,
-        ?setup_pool_state := #{
-            ?database := Database,
-            ?schema := Schema,
-            ?pipe := Pipe
-        } = SetupPoolState0,
+        ?setup_pool_state := SetupPoolState0,
         ?write_pool_id := WritePoolId
     } = Opts,
     ChannelName = channel_name(ActionResId, Id),

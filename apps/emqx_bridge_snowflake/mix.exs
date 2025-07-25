@@ -22,8 +22,14 @@ defmodule EMQXBridgeSnowflake.MixProject do
       extra_applications: [:ssl, :odbc] ++ UMP.extra_applications(),
       mod: {:emqx_bridge_snowflake_app, []},
       env: [
-        emqx_action_info_modules: [:emqx_bridge_snowflake_action_info],
-        emqx_connector_info_modules: [:emqx_bridge_snowflake_connector_info]
+        emqx_action_info_modules: [
+          :emqx_bridge_snowflake_aggregated_action_info,
+          :emqx_bridge_snowflake_streaming_action_info
+        ],
+        emqx_connector_info_modules: [
+          :emqx_bridge_snowflake_aggregated_connector_info,
+          :emqx_bridge_snowflake_streaming_connector_info
+        ]
       ]
     ]
   end

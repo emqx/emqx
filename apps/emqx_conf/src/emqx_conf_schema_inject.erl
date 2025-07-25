@@ -67,7 +67,7 @@ bridges(ee) ->
     [
         emqx_bridge_disk_log_connector_schema,
         emqx_bridge_mqtt_connector_schema,
-        emqx_bridge_snowflake_connector_schema
+        emqx_bridge_snowflake_aggregated_connector_schema
     ].
 
 namespaced_root_keys() ->

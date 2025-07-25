@@ -1,8 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
--module(emqx_bridge_snowflake_action_schema).
+-module(emqx_bridge_snowflake_aggregated_action_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -33,7 +32,7 @@
 %%-------------------------------------------------------------------------------------------------
 
 namespace() ->
-    "action_snowflake".
+    "action_snowflake_aggregated".
 
 roots() ->
     [].
@@ -43,22 +42,23 @@ fields(Field) when
     Field == "put_bridge_v2";
     Field == "post_bridge_v2"
 ->
-    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(?ACTION_TYPE));
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE_AGGREG, fields(?ACTION_TYPE_AGGREG));
 fields(action) ->
-    {?ACTION_TYPE,
+    {?ACTION_TYPE_AGGREG,
         mk(
-            hoconsc:map(name, hoconsc:ref(?MODULE, ?ACTION_TYPE)),
+            hoconsc:map(name, hoconsc:ref(?MODULE, ?ACTION_TYPE_AGGREG)),
             #{
                 desc => <<"Snowflake Action Config">>,
                 required => false
             }
         )};
-fields(?ACTION_TYPE) ->
+fields(?ACTION_TYPE_AGGREG) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(
             mkunion(mode, #{
-                <<"aggregated">> => ref(aggreg_parameters),
-                <<"streaming">> => ref(streaming_parameters)
+                %% To be implemented
+                %% <<"direct">> => ref(direct_parameters),
+                <<"aggregated">> => ref(aggreg_parameters)
             }),
             #{
                 required => true,
@@ -114,33 +114,6 @@ fields(aggreg_parameters) ->
                 #{default => none, desc => ?DESC("proxy_config")}
             )}
     ];
-fields(streaming_parameters) ->
-    [
-        {mode, mk(?streaming, #{required => true, desc => ?DESC("streaming_mode")})},
-        {private_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC("private_key")})},
-        {private_key_password,
-            emqx_schema_secret:mk(#{
-                required => false,
-                desc => ?DESC("private_key_password")
-            })},
-        {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
-        {schema, mk(binary(), #{required => true, desc => ?DESC("schema")})},
-        {pipe, mk(binary(), #{required => true, desc => ?DESC("pipe")})},
-        {pipe_user, mk(binary(), #{required => true, desc => ?DESC("pipe_user")})},
-        {connect_timeout,
-            mk(emqx_schema:timeout_duration_ms(), #{
-                default => <<"15s">>, desc => ?DESC("connect_timeout")
-            })},
-        {pipelining, mk(pos_integer(), #{default => 100, desc => ?DESC("pipelining")})},
-        {pool_size, mk(pos_integer(), #{default => 8, desc => ?DESC("pool_size")})},
-        {max_retries, mk(non_neg_integer(), #{default => 3, desc => ?DESC("max_retries")})},
-        emqx_connector_schema:ehttpc_max_inactive_sc(),
-        {proxy,
-            mk(
-                hoconsc:union([none, ref(proxy_config)]),
-                #{default => none, desc => ?DESC("proxy_config")}
-            )}
-    ];
 fields(aggregation) ->
     [
         emqx_connector_aggregator_schema:container(#{
@@ -180,9 +153,8 @@ fields(action_resource_opts) ->
     ]).
 
 desc(Name) when
-    Name =:= ?ACTION_TYPE;
+    Name =:= ?ACTION_TYPE_AGGREG;
     Name =:= aggreg_parameters;
-    Name =:= streaming_parameters;
     Name =:= aggregation;
     Name =:= parameters;
     Name =:= proxy_config
@@ -200,8 +172,8 @@ desc(_Name) ->
 bridge_v2_examples(Method) ->
     [
         #{
-            ?ACTION_TYPE_BIN => #{
-                summary => <<"Snowflake Action">>,
+            ?ACTION_TYPE_AGGREG_BIN => #{
+                summary => <<"Snowflake Aggregated Action">>,
                 value => action_example(Method)
             }
         }
@@ -211,7 +183,7 @@ action_example(post) ->
     maps:merge(
         action_example(put),
         #{
-            type => ?ACTION_TYPE_BIN,
+            type => ?ACTION_TYPE_AGGREG_BIN,
             name => <<"my_action">>
         }
     );
