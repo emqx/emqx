@@ -14,7 +14,6 @@
 -export([
     running/0,
     install/3,
-    install/4,
     install/5,
     install/6,
     uninstall/1,
@@ -41,16 +40,8 @@
     formatter => json | text
 }.
 
--define(CONFIG(_LogFile_), #{
-    type => halt,
-    file => _LogFile_,
-    max_no_bytes => 512 * 1024 * 1024,
-    overload_kill_enable => true,
-    overload_kill_mem_size => 50 * 1024 * 1024,
-    overload_kill_qlen => 20000,
-    %% disable restart
-    overload_kill_restart_after => infinity
-}).
+-define(LOG_HANDLER_OLP_KILL_MEM_SIZE, 50 * 1024 * 1024).
+-define(LOG_HANDLER_OLP_KILL_QLEN, 20000).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -85,15 +76,6 @@ install(Name, Type, Filter, Level, LogFile, Formatter) ->
 install(Name, Type, Filter, Level, LogFile) ->
     install(Name, Type, Filter, Level, LogFile, text).
 
--spec install(
-    Type :: clientid | topic | ip_address,
-    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
-    Level :: logger:level() | all,
-    LogFilePath :: string()
-) -> ok | {error, term()}.
-install(Type, Filter, Level, LogFile) ->
-    install(Filter, Type, Filter, Level, LogFile).
-
 -spec install(tracer(), logger:level() | all, string()) -> ok | {error, term()}.
 install(Who, all, LogFile) ->
     install(Who, debug, LogFile);
@@ -104,11 +86,24 @@ install(Who = #{name := Name, type := Type}, Level, LogFile) ->
         formatter => formatter(Who),
         filter_default => stop,
         filters => filters(Who),
-        config => ?CONFIG(LogFile)
+        config => logger_config(LogFile)
     },
     Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
     show_prompts(Res, Who, "start_trace"),
     Res.
+
+logger_config(LogFile) ->
+    MaxBytes = emqx_config:get([trace, max_file_size]),
+    #{
+        type => halt,
+        file => LogFile,
+        max_no_bytes => MaxBytes,
+        overload_kill_enable => true,
+        overload_kill_mem_size => ?LOG_HANDLER_OLP_KILL_MEM_SIZE,
+        overload_kill_qlen => ?LOG_HANDLER_OLP_KILL_QLEN,
+        %% disable restart
+        overload_kill_restart_after => infinity
+    }.
 
 -spec uninstall(
     Type :: clientid | topic | ip_address,

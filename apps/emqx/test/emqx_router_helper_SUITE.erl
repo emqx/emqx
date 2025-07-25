@@ -351,4 +351,9 @@ start_remote_shared_sub(Node, Group, Topic) ->
         end
     ]),
     ?assertReceive({SubPid, ok}, 5_000),
+    %% NOTE: Anticipate occasional replication delay.
+    ?retry(100, 5, begin
+        SharedSubs = emqx_shared_sub:subscribers(Group, Topic),
+        ?assert(lists:member(SubPid, SharedSubs), SharedSubs)
+    end),
     SubPid.
