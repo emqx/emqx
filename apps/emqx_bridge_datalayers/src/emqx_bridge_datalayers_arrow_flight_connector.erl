@@ -231,25 +231,26 @@ on_get_channel_status(InstId, _ChannelId, _State) ->
     health_check(InstId).
 
 health_check(InstId) ->
-    case
-        lists:all(
-            fun({_Name, Worker}) ->
-                case ecpool_worker:client(Worker) of
-                    {ok, Conn} ->
-                        case datalayers:execute(Conn, <<"SELECT VERSION()">>) of
-                            {ok, [[Res]]} when is_binary(Res) -> true;
-                            {error, _} -> false
-                        end;
-                    _ ->
-                        false
-                end
-            end,
-            ecpool:workers(InstId)
-        )
-    of
+    case do_health_check(InstId) of
         true -> ?status_connected;
         false -> ?status_disconnected
     end.
+
+do_health_check(InstId) ->
+    lists:all(
+        fun({_Name, Worker}) ->
+            case ecpool_worker:client(Worker) of
+                {ok, Conn} ->
+                    case datalayers:execute(Conn, <<"SELECT VERSION()">>) of
+                        {ok, [[Res]]} when is_binary(Res) -> true;
+                        {error, _} -> false
+                    end;
+                _ ->
+                    false
+            end
+        end,
+        ecpool:workers(InstId)
+    ).
 
 on_query(InstId, {_ChannelId, _} = Query, State) ->
     ?TRACE("QUERY", "datalayers_arrow_flight_connector_received_sql_query", #{
@@ -436,12 +437,12 @@ parse_sql_template(
     ),
     #{query_templates => Templates}.
 
-parse_sql_template(_ChannelId, SQLTemplate, AccIn) ->
+parse_sql_template(ChannelId, SQLTemplate, AccIn) ->
     Template = emqx_template_sql:parse_prepstmt(SQLTemplate, #{parameters => '?'}),
     AccOut = AccIn#{prepstmt => Template},
-    parse_batch_sql(_ChannelId, SQLTemplate, AccOut).
+    parse_batch_sql(ChannelId, SQLTemplate, AccOut).
 
-parse_batch_sql(_ChannelId, Query, AccIn) ->
+parse_batch_sql(ChannelId, Query, AccIn) ->
     case emqx_utils_sql:get_statement_type(Query) of
         insert ->
             case emqx_utils_sql:split_insert(Query) of
@@ -461,7 +462,8 @@ parse_batch_sql(_ChannelId, Query, AccIn) ->
             ?SLOG(error, #{
                 msg => "invalid sql statement type",
                 sql => Query,
-                type => Type
+                type => Type,
+                channel => ChannelId
             }),
             AccIn
     end.
@@ -503,10 +505,10 @@ prepare_sql(PoolName, {SqlStatement0, _RowTemplates}) ->
             Error
     end.
 
-do_prepare_sql(PoolName, SQLStatement) ->
+do_prepare_sql(PoolName, SqlStatement) ->
     do_prepare_to_conns(
         ecpool:workers(PoolName),
-        SQLStatement,
+        SqlStatement,
         _InitPrepStatements = #{}
     ).
 
