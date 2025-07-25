@@ -272,7 +272,7 @@ list_traces(Enable) ->
 create(Trace) ->
     maybe
         {ok, TraceRecord} ?= mk_trace_record(Trace),
-        true ?= mnesia:table_info(?TRACE, size) < ?MAX_SIZE,
+        true ?= mnesia:table_info(?TRACE, size) < max_traces(),
         ok ?= insert_new_trace(TraceRecord),
         {ok, format(TraceRecord)}
     else
@@ -283,6 +283,10 @@ create(Trace) ->
                 "The number of traces created has reached the maximum"
                 " please delete the useless ones first"}
     end.
+
+-spec max_traces() -> non_neg_integer().
+max_traces() ->
+    emqx_config:get([trace, max_traces]).
 
 -spec delete(Name :: binary()) -> ok | {error, not_found}.
 delete(Name) ->

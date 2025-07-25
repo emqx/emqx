@@ -81,28 +81,35 @@ t_base_create_delete(_Config) ->
     ok.
 
 t_create_size_max(_Config) ->
-    lists:map(
+    %% Configure lower limit:
+    MaxTraces = 10,
+    MaxTracesDefault = emqx_config:get([trace, max_traces]),
+    ok = emqx_config:put([trace, max_traces], MaxTraces),
+    %% Fill the trace table up to the limit:
+    Names = lists:map(
         fun(Seq) ->
-            {ok, _} = emqx_trace:create(
-                #{
-                    name => list_to_binary("name" ++ integer_to_list(Seq)),
-                    type => topic,
-                    filter => list_to_binary("/x/y/" ++ integer_to_list(Seq))
-                }
-            )
+            Name = list_to_binary("name" ++ integer_to_list(Seq)),
+            {ok, _} = emqx_trace:create(#{
+                name => Name,
+                type => topic,
+                filter => list_to_binary("/x/y/" ++ integer_to_list(Seq))
+            }),
+            Name
         end,
-        lists:seq(1, 30)
+        lists:seq(1, MaxTraces)
     ),
-    Trace31 = #{
-        name => <<"name31">>,
+    %% Creating one more is disallowed:
+    TraceExtra = #{
+        name => <<"extra">>,
         type => topic,
-        filter => <<"/x/y/31">>
+        filter => <<"/x/y/extra">>
     },
-    {error, _} = emqx_trace:create(Trace31),
-    ok = emqx_trace:delete(<<"name30">>),
-    {ok, _} = emqx_trace:create(Trace31),
-    ?assertEqual(30, erlang:length(emqx_trace:list())),
-    ok.
+    {error, _} = emqx_trace:create(TraceExtra),
+    %% Make space for it, now it should succeed:
+    ok = emqx_trace:delete(lists:last(Names)),
+    {ok, _} = emqx_trace:create(TraceExtra),
+    ?assertEqual(MaxTraces, erlang:length(emqx_trace:list())),
+    emqx_config:put([trace, max_traces], MaxTracesDefault).
 
 t_create_failed(_Config) ->
     Trace = #{name => <<"test">>},

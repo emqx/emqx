@@ -1182,7 +1182,13 @@ fields_trace_max_file_size.desc:
 Once a trace file reaches this size, no additional events will be recorded, even if the trace remains active."""
 
 fields_trace_max_file_size.label:
-"""Maximum Trace File Size"""
+"""Max Trace File Size"""
+
+fields_trace_max_traces.desc:
+"""Specifies how many traces are allowed to exist at the same time, irrespective of their statuses."""
+
+fields_trace_max_traces.label:
+"""Max Traces"""
 
 mqtt_response_information.desc:
 """UTF-8 string, for creating the response topic, for example, if set to <code>reqrsp/</code>, the publisher/subscriber will communicate using the topic prefix <code>reqrsp/</code>.
