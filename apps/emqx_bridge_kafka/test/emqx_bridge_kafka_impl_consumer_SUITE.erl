@@ -67,6 +67,7 @@ testcases(sasl_auth_kerberos) ->
 testcases(once) ->
     %% tests that do not need to be run on all groups
     [
+        t_receive_after_recovery,
         t_begin_offset_earliest,
         t_bridge_rule_action_source,
         t_cluster_group,
@@ -610,8 +611,7 @@ kafka_config(TestCase, _KafkaType, Config) ->
             "    max_batch_bytes = 896KB\n"
             "    max_rejoin_attempts = 5\n"
             "    offset_commit_interval_seconds = 3s\n"
-            %% todo: matrix this
-            "    offset_reset_policy = latest\n"
+            "    offset_reset_policy = earliest\n"
             "  }\n"
             "~s"
             "  key_encoding_mode = none\n"
