@@ -374,42 +374,6 @@ t_trace_file(_Config) ->
     ok = file:delete(File),
     ok.
 
-t_find_closed_time(_Config) ->
-    DefaultMs = 60 * 15000,
-    Now = erlang:system_time(second),
-    Traces2 = [],
-    ?assertEqual(DefaultMs, emqx_trace:find_closest_time(Traces2, Now)),
-    Traces3 = [
-        #emqx_trace{
-            name = <<"disable">>,
-            start_at = Now + 1,
-            end_at = Now + 2,
-            enable = false
-        }
-    ],
-    ?assertEqual(DefaultMs, emqx_trace:find_closest_time(Traces3, Now)),
-    Traces4 = [#emqx_trace{name = <<"running">>, start_at = Now, end_at = Now + 10, enable = true}],
-    ?assertEqual(10000, emqx_trace:find_closest_time(Traces4, Now)),
-    Traces5 = [
-        #emqx_trace{
-            name = <<"waiting">>,
-            start_at = Now + 2,
-            end_at = Now + 10,
-            enable = true
-        }
-    ],
-    ?assertEqual(2000, emqx_trace:find_closest_time(Traces5, Now)),
-    Traces = [
-        #emqx_trace{name = <<"waiting">>, start_at = Now + 1, end_at = Now + 2, enable = true},
-        #emqx_trace{name = <<"running0">>, start_at = Now, end_at = Now + 5, enable = true},
-        #emqx_trace{name = <<"running1">>, start_at = Now - 1, end_at = Now + 1, enable = true},
-        #emqx_trace{name = <<"finished">>, start_at = Now - 2, end_at = Now - 1, enable = true},
-        #emqx_trace{name = <<"waiting">>, start_at = Now + 1, end_at = Now + 1, enable = true},
-        #emqx_trace{name = <<"stopped">>, start_at = Now, end_at = Now + 10, enable = false}
-    ],
-    ?assertEqual(1000, emqx_trace:find_closest_time(Traces, Now)),
-    ok.
-
 t_migrate_trace(_Config) ->
     build_new_trace_data(),
     build_old_trace_data(),

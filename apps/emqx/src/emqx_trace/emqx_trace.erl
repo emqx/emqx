@@ -756,3 +756,48 @@ maybe_migrate_trace(Fields) ->
             {atomic, ok} = mnesia:transform_table(?TRACE, TransFun, Fields, ?TRACE),
             ok
     end.
+
+%% Tests
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+-define(DEFAULT_MS, 60 * 15000).
+
+find_closest_time_empty_test() ->
+    ?assertEqual(?DEFAULT_MS, find_closest_time([], now_second())).
+
+find_closest_time_disabled_test() ->
+    Now = now_second(),
+    Traces = [
+        #emqx_trace{name = <<"disable">>, start_at = Now + 1, end_at = Now + 2, enable = false}
+    ],
+    ?assertEqual(?DEFAULT_MS, find_closest_time(Traces, Now)).
+
+find_closest_time_ends_soon_test() ->
+    Now = now_second(),
+    Traces = [
+        #emqx_trace{name = <<"running">>, start_at = Now, end_at = Now + 10, enable = true}
+    ],
+    ?assertEqual(10000, find_closest_time(Traces, Now)).
+
+find_closest_time_starts_soon_test() ->
+    Now = now_second(),
+    Traces = [
+        #emqx_trace{name = <<"waiting">>, start_at = Now + 2, end_at = Now + 10, enable = true}
+    ],
+    ?assertEqual(2000, find_closest_time(Traces, Now)).
+
+find_closest_time_complex_test() ->
+    Now = now_second(),
+    Traces = [
+        #emqx_trace{name = <<"waiting">>, start_at = Now + 1, end_at = Now + 2, enable = true},
+        #emqx_trace{name = <<"running0">>, start_at = Now, end_at = Now + 5, enable = true},
+        #emqx_trace{name = <<"running1">>, start_at = Now - 1, end_at = Now + 1, enable = true},
+        #emqx_trace{name = <<"finished">>, start_at = Now - 2, end_at = Now - 1, enable = true},
+        #emqx_trace{name = <<"waiting">>, start_at = Now + 1, end_at = Now + 1, enable = true},
+        #emqx_trace{name = <<"stopped">>, start_at = Now, end_at = Now + 10, enable = false}
+    ],
+    ?assertEqual(1000, find_closest_time(Traces, Now)).
+
+-endif.
