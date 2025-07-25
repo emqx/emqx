@@ -294,7 +294,7 @@ t_conn_fail_client_keyusage_unmatch(Config) ->
         1000
     ),
     %% Then connecion should fail.
-    fail_when_no_ssl_alert(Socket, handshake_failure),
+    fail_when_no_ssl_alert(Socket, unsupported_certificate),
     ok = ssl:close(Socket).
 
 t_conn_fail_client_keyusage_incomplete(Config) ->
