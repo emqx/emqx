@@ -309,7 +309,10 @@ defmodule EMQXUmbrella.MixProject do
       {:d, :EMQX_FLAVOR, get_emqx_flavor()},
       {:d, :snk_kind, :msg}
     ] ++
+      singleton(not test_env?(), :compressed) ++
+      singleton(not test_env?(), :deterministic) ++
       singleton(test_env?(), {:d, :TEST}) ++
+      singleton(test_env?(), {:parse_transform, :cth_readable_transform}) ++
       singleton(enable_broker_instr?(), {:d, :EMQX_BROKER_INSTR}) ++
       singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
       singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
@@ -354,7 +357,7 @@ defmodule EMQXUmbrella.MixProject do
 
     get_memoized(k, fn ->
       if test_env?() do
-        [:eunit, :common_test, :dialyzer, :mnesia]
+        [:eunit, :common_test, :dialyzer, :mnesia, :cth_readable]
       else
         []
       end
@@ -448,6 +451,7 @@ defmodule EMQXUmbrella.MixProject do
           &copy_files(&1, release_type, package_type, edition_type),
           &copy_escript(&1, "nodetool"),
           &copy_escript(&1, "install_upgrade.escript"),
+          &strip_dependency_beams/1,
           &cleanup_release_package/1
         ]
 
@@ -503,7 +507,10 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_node_rebalance
           ],
           steps: steps,
-          strip_beams: false
+          strip_beams: [
+            compress: true,
+            keep: ["Dbgi", "Docs", "CInf"]
+          ]
         ]
       end
     ]
@@ -900,6 +907,32 @@ defmodule EMQXUmbrella.MixProject do
         | &1
       ]
     )
+  end
+
+  defp strip_dependency_beams(release) do
+    umbrella_apps =
+      Mix.Dep.Umbrella.loaded()
+      |> MapSet.new(& &1.app)
+
+    release.applications
+    |> Stream.reject(fn {app, props} ->
+      app in umbrella_apps || props[:otp_app?]
+    end)
+    |> Enum.each(fn {app, props} ->
+      vsn = Keyword.fetch!(props, :vsn)
+      ebin_path = Path.join([release.path, "lib", "#{app}-#{vsn}", "ebin"])
+
+      for file <- File.ls!(ebin_path) do
+        file = Path.join(ebin_path, file)
+        binary = File.read!(file)
+
+        with {:ok, binary} <- Mix.Release.strip_beam(binary, keep: ["Dbgi"], compress: true) do
+          File.write!(file, binary)
+        end
+      end
+    end)
+
+    release
   end
 
   defp cleanup_release_package(release) do
