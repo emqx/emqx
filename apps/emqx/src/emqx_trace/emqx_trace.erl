@@ -222,10 +222,8 @@ log_filter([{Id, FilterFun, Filter, Name} | Rest], Log0) ->
                                     )
                             end
                     end;
-                {error, {not_found, Id}} ->
-                    ok;
-                {error, Reason} ->
-                    logger:internal_log(error, {find_handle_id_failed, Id, Reason})
+                {error, {not_found, _}} ->
+                    ok
             end
     end,
     log_filter(Rest, Log0).
