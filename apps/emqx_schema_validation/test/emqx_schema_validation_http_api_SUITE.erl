@@ -26,17 +26,15 @@ all() ->
 init_per_suite(Config) ->
     emqx_common_test_helpers:clear_screen(),
     Apps = emqx_cth_suite:start(
-        lists:flatten(
-            [
-                emqx,
-                emqx_conf,
-                emqx_rule_engine,
-                emqx_schema_validation,
-                emqx_management,
-                emqx_mgmt_api_test_util:emqx_dashboard(),
-                emqx_schema_registry
-            ]
-        ),
+        [
+            emqx,
+            emqx_conf,
+            emqx_rule_engine,
+            emqx_schema_validation,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard(),
+            emqx_schema_registry
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     {ok, _} = emqx_common_test_http:create_default_app(),
@@ -51,6 +49,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    emqx_bridge_v2_testlib:delete_all_rules(),
     clear_all_validations(),
     snabbkaffe:stop(),
     reset_all_global_metrics(),
@@ -409,13 +408,7 @@ create_rule(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     Res = request(post, Path, Params),
     ct:pal("create rule result:\n  ~p", [Res]),
-    case Res of
-        {ok, {{_, 201, _}, _, #{<<"id">> := RuleId}}} ->
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-            simplify_result(Res);
-        _ ->
-            simplify_result(Res)
-    end.
+    simplify_result(Res).
 
 make_trace_fn_action() ->
     persistent_term:put({?MODULE, test_pid}, self()),

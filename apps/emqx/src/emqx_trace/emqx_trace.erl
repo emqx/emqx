@@ -8,6 +8,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("emqx_trace.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -85,8 +86,17 @@ unsubscribe(<<"$SYS/", _/binary>>, _SubOpts) ->
 unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
-rendered_action_template(<<"action:", _/binary>> = ActionID, RenderResult) ->
-    do_rendered_action_template(ActionID, RenderResult);
+rendered_action_template(ActionID, RenderResult) when is_binary(ActionID) ->
+    try emqx_resource:parse_channel_id(ActionID) of
+        _ ->
+            do_rendered_action_template(ActionID, RenderResult)
+    catch
+        throw:{invalid_id, _} ->
+            %% We do nothing if we don't get a valid Action ID. This can happen when
+            %% called from connectors that are used for actions as well as authz and
+            %% authn.
+            ok
+    end;
 rendered_action_template(#{mod := _, func := _} = ActionID, RenderResult) ->
     do_rendered_action_template(ActionID, RenderResult);
 rendered_action_template(_ActionID, _RenderResult) ->
@@ -479,10 +489,12 @@ start_trace(Trace) ->
     } = Trace,
     Formatter = maps:get(formatter, Extra, text),
     PayloadLimit = maps:get(payload_limit, Extra, ?MAX_PAYLOAD_FORMAT_SIZE),
+    Namespace = maps:get(namespace, Extra, ?global_ns),
     Who = #{
         name => Name,
         type => Type,
         filter => Filter,
+        namespace => Namespace,
         payload_encode => PayloadEncode,
         payload_limit => PayloadLimit,
         formatter => Formatter
@@ -609,6 +621,11 @@ fill_default(Trace) ->
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
 
+to_trace(#{namespace := Namespace} = Trace, Rec0) ->
+    #?TRACE{extra = Extra0} = Rec0,
+    Extra = Extra0#{namespace => Namespace},
+    Rec = Rec0#?TRACE{extra = Extra},
+    to_trace(maps:remove(namespace, Trace), Rec);
 to_trace(#{name := Name} = Trace, Rec) ->
     case re:run(Name, ?NAME_RE) of
         nomatch -> {error, "Name should be " ?NAME_RE};

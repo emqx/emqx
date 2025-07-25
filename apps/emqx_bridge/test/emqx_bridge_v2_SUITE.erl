@@ -17,7 +17,14 @@
 -include_lib("hocon/include/hocon.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
+%%------------------------------------------------------------------------------
+%% Definitions
+%%------------------------------------------------------------------------------
+
 -import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(local, local).
+-define(custom_cluster, custom_cluster).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
@@ -25,27 +32,95 @@
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        app_specs(),
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{apps, Apps} | Config].
+all() ->
+    [
+        {group, ?local},
+        {group, ?custom_cluster}
+    ].
 
-end_per_suite(Config) ->
-    Apps = ?config(apps, Config),
-    emqx_cth_suite:stop(Apps),
+groups() ->
+    AllTCs0 = emqx_common_test_helpers:all_with_matrix(?MODULE),
+    AllTCs = lists:filter(
+        fun
+            ({group, _}) -> false;
+            (_) -> true
+        end,
+        AllTCs0
+    ),
+    CustomMatrix = emqx_common_test_helpers:groups_with_matrix(?MODULE),
+    LocalTCs = merge_custom_groups(?local, AllTCs, CustomMatrix),
+    ClusterTCs = merge_custom_groups(?custom_cluster, [], CustomMatrix),
+    [
+        {?local, LocalTCs},
+        {?custom_cluster, ClusterTCs}
+    ].
+
+merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
+    CustomMatrix =
+        lists:flatmap(
+            fun
+                ({G, _, SubGroup}) when G == RootGroup ->
+                    SubGroup;
+                (_) ->
+                    []
+            end,
+            CustomMatrix0
+        ),
+    CustomMatrix ++ GroupTCs.
+
+custom_cluster_cases() ->
+    Key = ?custom_cluster,
+    lists:filter(
+        fun
+            ({testcase, TestCase, _Opts}) ->
+                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false);
+            (TestCase) ->
+                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false)
+        end,
+        emqx_common_test_helpers:all(?MODULE)
+    ).
+
+init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
     ok.
 
-app_specs() ->
+app_specs_without_dashboard() ->
     [
         emqx,
         emqx_conf,
         emqx_connector,
         emqx_bridge,
-        emqx_rule_engine
+        emqx_rule_engine,
+        emqx_management
     ].
 
+app_specs() ->
+    app_specs_without_dashboard() ++ [emqx_mgmt_api_test_util:emqx_dashboard()].
+
+init_per_group(?local = Group, TCConfig) ->
+    Apps = emqx_cth_suite:start(
+        app_specs(),
+        #{work_dir => emqx_cth_suite:work_dir(Group, TCConfig)}
+    ),
+    [{apps, Apps}, {node, node()} | TCConfig];
+init_per_group(?custom_cluster, TCConfig) ->
+    TCConfig;
+init_per_group(_Group, TCConfig) ->
+    TCConfig.
+
+end_per_group(?local, TCConfig) ->
+    Apps = emqx_bridge_v2_testlib:get_value(apps, TCConfig),
+    ok = emqx_cth_suite:stop(Apps),
+    ok;
+end_per_group(?custom_cluster, _TCConfig) ->
+    ok;
+end_per_group(_Group, _TCConfig) ->
+    ok.
+
+init_per_testcase(t_modification_dates_when_replicating, Config) ->
+    Config;
 init_per_testcase(_TestCase, Config) ->
     %% Setting up mocks for fake connector and bridge V2
     setup_mocks(),
@@ -54,10 +129,18 @@ init_per_testcase(_TestCase, Config) ->
     {ok, _} = emqx_connector:create(?global_ns, con_type(), con_name(), con_config()),
     Config.
 
+end_per_testcase(t_modification_dates_when_replicating, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    delete_all_bridges_and_connectors(),
+    meck:unload(),
+    ok;
 end_per_testcase(_TestCase, _Config) ->
     ets:delete(fun_table_name()),
     emqx_common_test_helpers:call_janitor(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     delete_all_bridges_and_connectors(),
+    update_root_config(#{}),
     meck:unload(),
     ok.
 
@@ -157,18 +240,6 @@ fun_table_name() ->
 registered_process_name() ->
     my_registered_process.
 
-all() ->
-    emqx_common_test_helpers:all(?MODULE).
-
-start_apps() ->
-    [
-        emqx,
-        emqx_conf,
-        emqx_connector,
-        emqx_bridge,
-        emqx_rule_engine
-    ].
-
 setup_mocks() ->
     MeckOpts = [passthrough, no_link, no_history],
 
@@ -212,7 +283,6 @@ setup_mocks() ->
 
 delete_all_bridges_and_connectors() ->
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    update_root_config(#{}),
     ok.
 
 %% Hocon does not support placing a fun in a config map so we replace it with a string
@@ -486,21 +556,20 @@ t_send_message_through_rule(_) ->
         ),
     {ok, _} = create(BridgeType, BridgeName, BridgeConfig0),
     %% Create a rule to send message to the bridge
-    {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+    {201, #{<<"id">> := RuleId}} = emqx_bridge_v2_testlib:create_rule_api2(
         #{
-            sql => <<"select * from \"t/a\"">>,
-            id => atom_to_binary(?FUNCTION_NAME),
-            actions => [
+            <<"sql">> => <<"select * from \"t/a\"">>,
+            <<"id">> => atom_to_binary(?FUNCTION_NAME),
+            <<"actions">> => [
                 <<
                     (atom_to_binary(bridge_type()))/binary,
                     ":",
                     (atom_to_binary(BridgeName))/binary
                 >>
             ],
-            description => <<"bridge_v2 test rule">>
+            <<"description">> => <<"bridge_v2 test rule">>
         }
     ),
-    on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
     %% Register name for this process
     register(registered_process_name(), self()),
     %% Send message to the topic
@@ -1220,11 +1289,11 @@ t_rule_pointing_to_non_operational_channel(_Config) ->
                 lookup_action(bridge_type(), ActionName)
             ),
 
-            {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+            {201, #{<<"id">> := RuleId}} = emqx_bridge_v2_testlib:create_rule_api2(
                 #{
-                    sql => <<"select * from \"t/a\"">>,
-                    id => atom_to_binary(?FUNCTION_NAME),
-                    actions => [
+                    <<"sql">> => <<"select * from \"t/a\"">>,
+                    <<"id">> => atom_to_binary(?FUNCTION_NAME),
+                    <<"actions">> => [
                         <<
                             (atom_to_binary(bridge_type()))/binary,
                             ":",
@@ -1233,7 +1302,6 @@ t_rule_pointing_to_non_operational_channel(_Config) ->
                     ]
                 }
             ),
-            on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
 
             Msg = emqx_message:make(<<"t/a">>, <<"payload">>),
             emqx:publish(Msg),
@@ -1296,11 +1364,11 @@ t_query_uses_action_query_mode(_Config) ->
 
             {ok, _} = create(bridge_type(), ActionName, ActionConfig),
 
-            {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+            {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
                 #{
-                    sql => <<"select * from \"t/a\"">>,
-                    id => atom_to_binary(?FUNCTION_NAME),
-                    actions => [
+                    <<"sql">> => <<"select * from \"t/a\"">>,
+                    <<"id">> => atom_to_binary(?FUNCTION_NAME),
+                    <<"actions">> => [
                         <<
                             (atom_to_binary(bridge_type()))/binary,
                             ":",
@@ -1309,7 +1377,6 @@ t_query_uses_action_query_mode(_Config) ->
                     ]
                 }
             ),
-            on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
 
             Msg = emqx_message:make(<<"t/a">>, <<"payload">>),
             {_, {ok, _}} =
@@ -1398,11 +1465,14 @@ t_async_load_config_cli(_Config) ->
 
 %% Checks that we avoid touching `created_at' and `last_modified_at' when replicating
 %% cluster RPC configurations.
+t_modification_dates_when_replicating() ->
+    [{matrix, true}].
+t_modification_dates_when_replicating(matrix) ->
+    [[?custom_cluster]];
 t_modification_dates_when_replicating(Config) ->
-    AppSpecs = app_specs() ++ [emqx_management],
     ClusterSpec = [
-        {mod_dates1, #{apps => AppSpecs ++ [emqx_mgmt_api_test_util:emqx_dashboard()]}},
-        {mod_dates2, #{apps => AppSpecs}}
+        {mod_dates1, #{apps => app_specs()}},
+        {mod_dates2, #{apps => app_specs_without_dashboard()}}
     ],
     [N1, N2] =
         Nodes = emqx_cth_cluster:start(
@@ -1520,16 +1590,15 @@ t_fallback_actions(_Config) ->
             {ok, _} = create(bridge_type(), ActionName, ActionConfig),
             _ = emqx_bridge_v2_testlib:kickoff_action_health_check(bridge_type(), ActionName),
 
-            {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+            {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
                 #{
-                    sql => <<"select * from \"t/a\"">>,
-                    id => atom_to_binary(?FUNCTION_NAME),
-                    actions => [
+                    <<"sql">> => <<"select * from \"t/a\"">>,
+                    <<"id">> => atom_to_binary(?FUNCTION_NAME),
+                    <<"actions">> => [
                         emqx_bridge_resource:bridge_id(bridge_type(), ActionName)
                     ]
                 }
             ),
-            on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
 
             ct:pal("publishing initial message"),
             register(registered_process_name(), self()),
@@ -1621,16 +1690,15 @@ t_fallback_actions_cycles(_Config) ->
                 bridge_type(), PrimaryActionName
             ),
 
-            {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+            {201, #{<<"id">> := RuleId}} = emqx_bridge_v2_testlib:create_rule_api2(
                 #{
-                    sql => <<"select * from \"t/a\"">>,
-                    id => atom_to_binary(?FUNCTION_NAME),
-                    actions => [
+                    <<"sql">> => <<"select * from \"t/a\"">>,
+                    <<"id">> => atom_to_binary(?FUNCTION_NAME),
+                    <<"actions">> => [
                         emqx_bridge_resource:bridge_id(bridge_type(), PrimaryActionName)
                     ]
                 }
             ),
-            on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
 
             ct:pal("publishing initial message"),
             Payload = <<"payload">>,
@@ -1740,6 +1808,9 @@ t_fallback_actions_different_namespaces(_Config) ->
     ?check_trace(
         #{timetrap => 3_000},
         begin
+            AuthHeaderNS = emqx_bridge_v2_testlib:ensure_namespaced_api_key(#{
+                namespace => Namespace
+            }),
             %% One for the primary action (namespaced), the other for the "fallback" (global).
             {ok, _} = emqx_connector:create(Namespace, con_type(), ConnectorName, ConnectorConfig),
             {ok, _} = emqx_connector:create(?global_ns, con_type(), ConnectorName, ConnectorConfig),
@@ -1813,44 +1884,29 @@ t_fallback_actions_different_namespaces(_Config) ->
                 name => ActionName
             }),
 
-            %% NOTE: we're temporarily sending the message directly to the action.  This
-            %% should **not** be done in tests: they should use rules for that.  However,
-            %% at the time of writing, rule engine is not yet namespaced.
-            TMPSendMessage = fun(Name, Payload) ->
-                Message = #{
-                    payload => Payload,
-                    metadata => #{rule_id => <<"ns_support_pending">>}
+            {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
+                #{
+                    <<"sql">> => <<"select * from \"t/a\"">>,
+                    <<"id">> => atom_to_binary(?FUNCTION_NAME),
+                    <<"actions">> => [
+                        emqx_bridge_resource:bridge_id(bridge_type(), ActionName)
+                    ]
                 },
-                emqx_bridge_v2:send_message(
-                    Namespace,
-                    bridge_type(),
-                    Name,
-                    Message,
-                    #{query_mode => sync}
-                )
-            end,
-
-            %% {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
-            %%     #{
-            %%         sql => <<"select * from \"t/a\"">>,
-            %%         id => atom_to_binary(?FUNCTION_NAME),
-            %%         actions => [
-            %%             emqx_bridge_resource:bridge_id(bridge_type(), ActionName)
-            %%         ]
-            %%     }
-            %% ),
-            %% on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
+                #{auth_header => AuthHeaderNS}
+            ),
 
             register(registered_process_name(), self()),
-            emqx:subscribe(RepublishTopic, #{qos => 1}),
             Payload0 = <<"payload">>,
 
+            {ok, C} = emqtt:start_link(#{}),
+            {ok, _} = emqtt:connect(C),
+            {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
+
             ct:pal("publishing initial message"),
-            TMPSendMessage(ActionName, Payload0),
+            emqtt:publish(C, <<"t/a">>, Payload0),
             ct:pal("waiting to assert fallback was not called"),
             ?assertNotReceive({query_called, _}),
-            %% This one is received because republishes don't have namespaces...
-            ?assertReceive({deliver, RepublishTopic, #message{payload = Payload0}}),
+            ?assertReceive({publish, #{topic := RepublishTopic, payload := Payload0}}),
 
             %% Now, let's create a fallback action in the same namespace.  That should be
             %% triggered.
@@ -1871,13 +1927,14 @@ t_fallback_actions_different_namespaces(_Config) ->
 
             ct:pal("publishing second message"),
             Payload1 = <<"payload1">>,
-            TMPSendMessage(ActionName, Payload1),
+            emqtt:publish(C, <<"t/a">>, Payload1),
             ct:pal("waiting to assert fallback was called"),
             ?assertReceive({query_called, #{message := #{payload := Payload1}}}),
-            ?assertReceive({deliver, RepublishTopic, #message{payload = Payload1}}),
+            ?assertReceive({publish, #{topic := RepublishTopic, payload := Payload1}}),
             %% Checking that `Payload0` didn't arrive later.
             ?assertNotReceive({query_called, #{message := #{payload := Payload0}}}),
 
+            ok = emqtt:stop(C),
             ok
         end,
         []

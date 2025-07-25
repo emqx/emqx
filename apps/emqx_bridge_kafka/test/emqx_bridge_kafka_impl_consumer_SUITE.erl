@@ -404,6 +404,7 @@ end_per_testcase(_Testcase, Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProducersConfigs = ?config(kafka_producers, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     #{clientid := KafkaProducerClientId, producers := ProducersMapping} =
         ProducersConfigs,
@@ -1669,8 +1670,7 @@ t_bridge_rule_action_source(Config) ->
             {ok, _} = create_bridge(Config),
             ping_until_healthy(Config, _Period = 1_500, _Timeout = 24_000),
 
-            {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+            {ok, _} = create_rule_and_action_http(Config),
 
             RepublishTopic = <<"republish/", MQTTTopic/binary>>,
             {ok, C} = emqtt:start_link([{proto_ver, v5}]),

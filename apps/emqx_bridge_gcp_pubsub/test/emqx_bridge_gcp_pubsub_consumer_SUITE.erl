@@ -163,6 +163,7 @@ end_per_testcase(_Testcase, Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(60_000),
     ok = snabbkaffe:stop(),
@@ -490,8 +491,7 @@ create_rule_and_action_http(Config) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     ct:pal("rule action params: ~p", [Params]),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res = #{<<"id">> := RuleId}} ->
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+        {ok, Res} ->
             {ok, emqx_utils_json:decode(Res)};
         Error ->
             Error

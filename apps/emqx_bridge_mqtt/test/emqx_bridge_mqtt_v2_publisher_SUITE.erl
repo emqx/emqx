@@ -15,9 +15,20 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
+
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
+-define(NS, <<"some_namespace">>).
+
+-define(local, local).
+-define(cluster, cluster).
+-define(global_namespace, global_namespace).
+-define(namespaced, namespaced).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -25,20 +36,51 @@
 
 all() ->
     [
-        {group, cluster},
-        {group, local}
+        {group, ?cluster},
+        {group, ?local}
     ].
 
 groups() ->
-    AllTCs = emqx_common_test_helpers:all(?MODULE),
-    ClusterTCs = cluster_testcases(),
+    AllTCs0 = emqx_common_test_helpers:all_with_matrix(?MODULE),
+    AllTCs = lists:filter(
+        fun
+            ({group, _}) -> false;
+            (_) -> true
+        end,
+        AllTCs0
+    ),
+    CustomMatrix = emqx_common_test_helpers:groups_with_matrix(?MODULE),
+    LocalTCs = merge_custom_groups(?local, AllTCs, CustomMatrix),
+    ClusterTCs = merge_custom_groups(?cluster, cluster_testcases(), CustomMatrix),
     [
-        {cluster, ClusterTCs},
-        {local, AllTCs -- ClusterTCs}
+        {?cluster, ClusterTCs},
+        {?local, LocalTCs}
     ].
 
+merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
+    CustomMatrix =
+        lists:flatmap(
+            fun
+                ({G, _, SubGroup}) when G == RootGroup ->
+                    SubGroup;
+                (_) ->
+                    []
+            end,
+            CustomMatrix0
+        ),
+    CustomMatrix ++ GroupTCs.
+
 cluster_testcases() ->
-    [t_static_clientids].
+    Key = ?cluster,
+    lists:filter(
+        fun
+            ({testcase, TestCase, _Opts}) ->
+                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false);
+            (TestCase) ->
+                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false)
+        end,
+        emqx_common_test_helpers:all(?MODULE)
+    ).
 
 init_per_suite(Config) ->
     Config.
@@ -46,7 +88,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_group(cluster = Group, Config) ->
+init_per_group(?cluster = Group, Config) ->
     AppSpecs = [
         emqx,
         emqx_conf,
@@ -74,7 +116,7 @@ init_per_group(cluster = Group, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
     ),
     [{nodes, Nodes} | Config];
-init_per_group(local, Config) ->
+init_per_group(?local, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -88,15 +130,28 @@ init_per_group(local, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{apps, Apps} | Config].
+    [{apps, Apps} | Config];
+init_per_group(?namespaced, Config) ->
+    Opts = #{namespace => ?NS},
+    AuthHeader = emqx_bridge_v2_testlib:ensure_namespaced_api_key(Opts),
+    emqx_bridge_v2_testlib:set_auth_header_getter(fun() -> AuthHeader end),
+    [
+        {auth_header, AuthHeader},
+        {resource_namespace, ?NS}
+        | Config
+    ];
+init_per_group(_Group, Config) ->
+    Config.
 
-end_per_group(cluster, Config) ->
+end_per_group(?cluster, Config) ->
     Nodes = ?config(nodes, Config),
     ok = emqx_cth_cluster:stop(Nodes),
     ok;
-end_per_group(local, Config) ->
+end_per_group(?local, Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
+    ok;
+end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(TestCase, Config) ->
@@ -128,10 +183,12 @@ end_per_testcase(_TestCase, Config) ->
     emqx_common_test_helpers:call_janitor(),
     case Nodes of
         undefined ->
+            emqx_bridge_v2_testlib:delete_all_rules(),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors();
         _ ->
             emqx_utils:pmap(
                 fun(N) ->
+                    ?ON(N, emqx_bridge_v2_testlib:delete_all_rules()),
                     ?ON(N, emqx_bridge_v2_testlib:delete_all_bridges_and_connectors())
                 end,
                 Nodes
@@ -278,6 +335,10 @@ t_start_stop(Config) ->
     ok = emqx_bridge_v2_testlib:t_start_stop(Config, mqtt_connector_stopped),
     ok.
 
+t_static_clientids() ->
+    [{matrix, true}].
+t_static_clientids(matrix) ->
+    [[?cluster]];
 t_static_clientids(Config) ->
     [N1, N2, N3] = Nodes = ?config(nodes, Config),
     [N1Bin, N2Bin, N3Bin] = lists:map(fun atom_to_binary/1, Nodes),
@@ -766,6 +827,13 @@ t_fallback_actions_load_config(Config) ->
     ok = emqx_cth_cluster:stop(Nodes),
     ok.
 
+t_rule_test_trace() ->
+    [{matrix, true}].
+t_rule_test_trace(matrix) ->
+    [
+        [?local, ?global_namespace],
+        [?local, ?namespaced]
+    ];
 t_rule_test_trace(Config) ->
     Opts = #{},
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).

@@ -37,7 +37,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_rule_engine:delete_rule(?RULE_ID),
+    ok = emqx_bridge_v2_testlib:delete_all_rules(),
     ok = emqx_ai_completion_test_helpers:clean_completion_profiles(),
     ok = emqx_ai_completion_test_helpers:clean_providers(),
     ok = emqx_ai_completion_provider_mock:stop().
@@ -69,8 +69,8 @@ t_openai_completion(_Config) ->
     %% Setup republish rule
     RepublishTopic = <<"republish/ai_completion">>,
     Params = #{
-        id => ?RULE_ID,
-        sql =>
+        <<"id">> => ?RULE_ID,
+        <<"sql">> =>
             <<
                 "SELECT\n"
                 "  ai_completion('openai-profile', 'some prompt', payload) as result_openai_1,\n"
@@ -78,24 +78,23 @@ t_openai_completion(_Config) ->
                 "FROM\n"
                 "  't/#'"
             >>,
-        enable => true,
-        actions => [
+        <<"enable">> => true,
+        <<"actions">> => [
             #{
-                function => <<"republish">>,
-                args =>
+                <<"function">> => <<"republish">>,
+                <<"args">> =>
                     #{
-                        topic => RepublishTopic,
-                        qos => 0,
-                        retain => false,
-                        payload => <<"${result_openai_1}-${result_openai_2}">>,
-                        mqtt_properties => #{},
-                        user_properties => #{},
-                        direct_dispatch => false
+                        <<"topic">> => RepublishTopic,
+                        <<"qos">> => 0,
+                        <<"retain">> => false,
+                        <<"payload">> => <<"${result_openai_1}-${result_openai_2}">>,
+                        <<"mqtt_properties">> => #{},
+                        <<"direct_dispatch">> => false
                     }
             }
         ]
     },
-    {ok, _} = emqx_rule_engine:create_rule(Params),
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_directly(Params),
 
     %% Verify rule is triggered correctly
     verify_republish(
@@ -129,8 +128,8 @@ t_anthropic_completion(_Config) ->
     %% Setup republish rule
     RepublishTopic = <<"republish/ai_completion">>,
     Params = #{
-        id => ?RULE_ID,
-        sql =>
+        <<"id">> => ?RULE_ID,
+        <<"sql">> =>
             <<
                 "SELECT\n"
                 "  ai_completion('anthropic-profile', 'some prompt', payload) as result_anthropic_1,\n"
@@ -138,24 +137,23 @@ t_anthropic_completion(_Config) ->
                 "FROM\n"
                 "  't/#'"
             >>,
-        enable => true,
-        actions => [
+        <<"enable">> => true,
+        <<"actions">> => [
             #{
-                function => <<"republish">>,
-                args =>
+                <<"function">> => <<"republish">>,
+                <<"args">> =>
                     #{
-                        topic => RepublishTopic,
-                        qos => 0,
-                        retain => false,
-                        payload => <<"${result_anthropic_1}-${result_anthropic_2}">>,
-                        mqtt_properties => #{},
-                        user_properties => #{},
-                        direct_dispatch => false
+                        <<"topic">> => RepublishTopic,
+                        <<"qos">> => 0,
+                        <<"retain">> => false,
+                        <<"payload">> => <<"${result_anthropic_1}-${result_anthropic_2}">>,
+                        <<"mqtt_properties">> => #{},
+                        <<"direct_dispatch">> => false
                     }
             }
         ]
     },
-    {ok, _} = emqx_rule_engine:create_rule(Params),
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_directly(Params),
 
     %% Verify rule is triggered correctly
     verify_republish(

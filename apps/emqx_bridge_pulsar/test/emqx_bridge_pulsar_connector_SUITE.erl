@@ -148,7 +148,6 @@ common_end_per_group(Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    delete_all_bridges(),
     ok.
 
 init_per_testcase(TestCase, Config) ->
@@ -163,7 +162,8 @@ end_per_testcase(_Testcase, Config) ->
             ProxyHost = ?config(proxy_host, Config),
             ProxyPort = ?config(proxy_port, Config),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            delete_all_bridges(),
+            emqx_bridge_v2_testlib:delete_all_rules(),
+            emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
             stop_consumer(Config),
             %% in CI, apparently this needs more time since the
             %% machines struggle with all the containers running...
@@ -175,7 +175,8 @@ end_per_testcase(_Testcase, Config) ->
 
 common_init_per_testcase(TestCase, Config0) ->
     ct:timetrap(timer:seconds(60)),
-    delete_all_bridges(),
+    ok = emqx_bridge_v2_testlib:delete_all_rules(),
+    ok = emqx_bridge_v2_SUITE:delete_all_bridges_and_connectors(),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     PulsarTopic =
         <<
@@ -196,14 +197,6 @@ common_init_per_testcase(TestCase, Config0) ->
         {pulsar_config, PulsarConfig}
         | Config
     ].
-
-delete_all_bridges() ->
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            emqx_bridge:remove(Type, Name)
-        end,
-        emqx_bridge:list()
-    ).
 
 %%------------------------------------------------------------------------------
 %% Helper fns
@@ -590,7 +583,6 @@ t_start_and_produce_ok(Config) ->
                 create_bridge(Config)
             ),
             {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
             %% Publish using local topic.
             Message0 = emqx_message:make(ClientId, QoS, MQTTTopic, Payload),
             emqx:publish(Message0),
@@ -1205,8 +1197,7 @@ t_resilience(Config) ->
     ?check_trace(
         begin
             {ok, _} = create_bridge(Config),
-            {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+            {ok, _} = create_rule_and_action_http(Config),
             ResourceId = resource_id(Config),
             ?retry(
                 _Sleep0 = 1_000,

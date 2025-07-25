@@ -93,6 +93,7 @@ init_per_testcase(_Testcase, Config) ->
 
 end_per_testcase(_Testcase, _Config) ->
     ok = snabbkaffe:stop(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
     ok.
@@ -194,9 +195,6 @@ create_bridge(Type, Name, Conf) ->
         {action_name, Name},
         {action_config, Conf}
     ]).
-
-delete_bridge(Type, Name) ->
-    emqx_bridge_v2:remove(Type, Name).
 
 create_both_bridges(Config) ->
     {ProxyName, ProxyConf} = syskeeper_proxy_config(Config),

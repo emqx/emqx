@@ -84,6 +84,7 @@
 -type encoding_mode() :: none | base64.
 -type consumer_init_data() :: #{
     hookpoints := [binary()],
+    namespace := emqx_bridge_v2:maybe_namespace(),
     key_encoding_mode := encoding_mode(),
     resource_id := source_resource_id(),
     topic_mapping := #{
@@ -97,6 +98,7 @@
 }.
 -type consumer_state() :: #{
     hookpoints := [binary()],
+    namespace := emqx_bridge_v2:maybe_namespace(),
     kafka_topic := kafka_topic(),
     key_encoding_mode := encoding_mode(),
     resource_id := source_resource_id(),
@@ -308,6 +310,7 @@ handle_message(Message, State) ->
 do_handle_message(Message, State) ->
     #{
         hookpoints := Hookpoints,
+        namespace := Namespace,
         kafka_topic := KafkaTopic,
         key_encoding_mode := KeyEncodingMode,
         resource_id := SourceResId,
@@ -325,7 +328,12 @@ do_handle_message(Message, State) ->
     },
     LegacyMQTTConfig = maps:get(KafkaTopic, TopicMapping, #{}),
     legacy_maybe_publish_mqtt_message(LegacyMQTTConfig, SourceResId, FullMessage),
-    lists:foreach(fun(Hookpoint) -> emqx_hooks:run(Hookpoint, [FullMessage]) end, Hookpoints),
+    lists:foreach(
+        fun(Hookpoint) ->
+            emqx_hooks:run(Hookpoint, [FullMessage, Namespace])
+        end,
+        Hookpoints
+    ),
     emqx_resource_metrics:received_inc(SourceResId),
     %% note: just `ack' does not commit the offset to the
     %% kafka consumer group.
@@ -385,9 +393,11 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
             value_encoding_mode := ValueEncodingMode
         } = Params0
     } = Config,
+    #{namespace := Namespace} = emqx_resource:parse_channel_id(SourceResId),
     ?tp(kafka_consumer_sup_started, #{}),
     TopicMapping = ensure_topic_mapping(Params0),
     InitialState = #{
+        namespace => Namespace,
         key_encoding_mode => KeyEncodingMode,
         hookpoints => Hookpoints,
         resource_id => SourceResId,

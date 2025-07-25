@@ -8,6 +8,8 @@
 
 -export([cmd/1]).
 
+-include_lib("emqx/include/emqx_config.hrl").
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -25,15 +27,16 @@ unload() ->
 cmd(["list"]) ->
     lists:foreach(
         fun pretty_print_rule_summary/1,
-        emqx_rule_engine:get_rules_ordered_by_ts()
+        %% TODO: namespace
+        emqx_rule_engine:get_rules_ordered_by_ts(?global_ns)
     );
-cmd(["show", ID]) ->
-    pretty_print_rule(ID);
+cmd(["show", Id]) ->
+    pretty_print_rule(Id);
 cmd(_) ->
     emqx_ctl:usage(
         [
             {"rules list", "List rules"},
-            {"rules show <RuleID>", "Show a rule"}
+            {"rules show <RuleId>", "Show a rule"}
         ]
     ).
 
@@ -47,8 +50,9 @@ pretty_print_rule_summary(#{id := Id, name := Name, enable := Enable, descriptio
     ]).
 
 %% erlfmt-ignore
-pretty_print_rule(ID) ->
-    case emqx_rule_engine:get_rule(list_to_binary(ID)) of
+pretty_print_rule(Id0) ->
+    %% TODO: namespace
+    case emqx_rule_engine:get_rule(?global_ns, list_to_binary(Id0)) of
         {ok, #{id := Id, name := Name, description := Descr, enable := Enable,
                sql := SQL, created_at := CreatedAt, updated_at := UpdatedAt,
                actions := Actions}} ->

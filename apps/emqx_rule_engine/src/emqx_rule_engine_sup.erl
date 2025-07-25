@@ -16,6 +16,15 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
+    _ = ets:new(?RULE_TAB, [named_table, public, ordered_set, {read_concurrency, true}]),
+    _ = ets:new(?RULE_TOPIC_INDEX, [named_table, public, ordered_set, {read_concurrency, true}]),
+    _ = ets:new(?KV_TAB, [
+        named_table,
+        set,
+        public,
+        {write_concurrency, true},
+        {read_concurrency, true}
+    ]),
     RuleEngineRegistry = worker_spec(emqx_rule_engine),
     RuleEngineMetrics = emqx_metrics_worker:child_spec(rule_metrics),
     SupFlags = #{
