@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_snowflake_connector).
+-module(emqx_bridge_snowflake_aggregated_impl).
 
 -feature(maybe_expr, enable).
 
@@ -231,7 +231,7 @@
 
 -spec resource_type() -> atom().
 resource_type() ->
-    snowflake.
+    snowflake_aggregated.
 
 -spec callback_mode() -> callback_mode().
 callback_mode() ->
@@ -965,7 +965,7 @@ start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0) ->
         }
     } = ActionConfig,
     #{http := HTTPClientConfig} = ActionState0,
-    Type = ?ACTION_TYPE_BIN,
+    Type = ?ACTION_TYPE_AGGREG_BIN,
     AggregId = {Type, Name},
     WorkDir = work_dir(Type, Name),
     AggregOpts = #{

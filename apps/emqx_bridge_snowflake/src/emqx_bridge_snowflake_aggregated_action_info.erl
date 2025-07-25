@@ -2,7 +2,7 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_snowflake_action_info).
+-module(emqx_bridge_snowflake_aggregated_action_info).
 
 -behaviour(emqx_action_info).
 
@@ -23,11 +23,11 @@
 %% `emqx_action_info' API
 %%------------------------------------------------------------------------------
 
-action_type_name() -> ?ACTION_TYPE.
+action_type_name() -> ?ACTION_TYPE_AGGREG.
 
-connector_type_name() -> ?CONNECTOR_TYPE.
+connector_type_name() -> ?CONNECTOR_TYPE_AGGREG.
 
-schema_module() -> emqx_bridge_snowflake_action_schema.
+schema_module() -> emqx_bridge_snowflake_aggregated_action_schema.
 
 %%------------------------------------------------------------------------------
 %% Internal fns

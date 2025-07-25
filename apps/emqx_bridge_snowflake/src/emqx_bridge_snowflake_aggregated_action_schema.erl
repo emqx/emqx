@@ -1,8 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
--module(emqx_bridge_snowflake_action_schema).
+-module(emqx_bridge_snowflake_aggregated_action_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -33,7 +32,7 @@
 %%-------------------------------------------------------------------------------------------------
 
 namespace() ->
-    "action_snowflake".
+    "action_snowflake_aggregated".
 
 roots() ->
     [].
@@ -43,17 +42,17 @@ fields(Field) when
     Field == "put_bridge_v2";
     Field == "post_bridge_v2"
 ->
-    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(?ACTION_TYPE));
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE_AGGREG, fields(?ACTION_TYPE_AGGREG));
 fields(action) ->
-    {?ACTION_TYPE,
+    {?ACTION_TYPE_AGGREG,
         mk(
-            hoconsc:map(name, hoconsc:ref(?MODULE, ?ACTION_TYPE)),
+            hoconsc:map(name, hoconsc:ref(?MODULE, ?ACTION_TYPE_AGGREG)),
             #{
                 desc => <<"Snowflake Action Config">>,
                 required => false
             }
         )};
-fields(?ACTION_TYPE) ->
+fields(?ACTION_TYPE_AGGREG) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(
             mkunion(mode, #{
@@ -180,7 +179,7 @@ fields(action_resource_opts) ->
     ]).
 
 desc(Name) when
-    Name =:= ?ACTION_TYPE;
+    Name =:= ?ACTION_TYPE_AGGREG;
     Name =:= aggreg_parameters;
     Name =:= streaming_parameters;
     Name =:= aggregation;
@@ -200,8 +199,8 @@ desc(_Name) ->
 bridge_v2_examples(Method) ->
     [
         #{
-            ?ACTION_TYPE_BIN => #{
-                summary => <<"Snowflake Action">>,
+            ?ACTION_TYPE_AGGREG_BIN => #{
+                summary => <<"Snowflake Aggregated Action">>,
                 value => action_example(Method)
             }
         }
@@ -211,7 +210,7 @@ action_example(post) ->
     maps:merge(
         action_example(put),
         #{
-            type => ?ACTION_TYPE_BIN,
+            type => ?ACTION_TYPE_AGGREG_BIN,
             name => <<"my_action">>
         }
     );

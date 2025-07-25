@@ -1,8 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
--module(emqx_bridge_snowflake_connector_schema).
+-module(emqx_bridge_snowflake_aggregated_connector_schema).
 
 -behaviour(hocon_schema).
 -behaviour(emqx_connector_examples).
@@ -40,7 +39,7 @@
 %%-------------------------------------------------------------------------------------------------
 
 namespace() ->
-    "connector_snowflake".
+    "connector_snowflake_aggregated".
 
 roots() ->
     [].
@@ -50,7 +49,7 @@ fields(Field) when
     Field == "put_connector";
     Field == "post_connector"
 ->
-    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, fields(connector_config));
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE_AGGREG, fields(connector_config));
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++ fields(connector_config);
 fields(connector_config) ->
@@ -129,7 +128,7 @@ connector_examples(Method) ->
     [
         #{
             <<"snowflake">> => #{
-                summary => <<"Snowflake Connector">>,
+                summary => <<"Snowflake Aggregated Connector">>,
                 value => connector_example(Method)
             }
         }
@@ -152,7 +151,7 @@ connector_example(post) ->
     maps:merge(
         connector_example(put),
         #{
-            type => atom_to_binary(?CONNECTOR_TYPE),
+            type => atom_to_binary(?CONNECTOR_TYPE_AGGREG),
             name => <<"my_connector">>
         }
     );
