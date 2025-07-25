@@ -34,27 +34,22 @@ else
 fi
 
 
-IGNORE_COMMEENTS='(^[^\s?%])'
+IGNORE_COMMENTS='(^[^\s?%])'
 git_diff() {
-    git diff --ignore-blank-lines -G "$IGNORE_COMMEENTS" --name-only --diff-filter=ACMRTUXB "$compare_base"...HEAD
+    git diff --ignore-blank-lines -G "$IGNORE_COMMENTS" --name-only --diff-filter=ACMRTUXB "$compare_base"...HEAD
 }
 
-bad_file_count=0
-for file in $(git_diff); do
-    if [ ! -f "$file" ]; then
-        # file is deleted, skip
-        continue
+if command -v parallel 1>/dev/null 2>/dev/null ; then
+    parallel ./scripts/elvis-check1.sh :::: <<< "$(git_diff)"
+else
+    bad_file_count=0
+    for file in $(git_diff); do
+        if ! ./scripts/elvis-check1.sh "$file"; then
+            bad_file_count=$(( bad_file_count + 1))
+        fi
+    done
+    if [ $bad_file_count -gt 0 ]; then
+        echo "elvis: $bad_file_count errors"
+        exit 1
     fi
-    if [[ $file != *.erl ]]; then
-        # not .erl file
-        continue
-    fi
-    echo "$file ..."
-    if ! ./elvis rock "$file" -c elvis.config; then
-        bad_file_count=$(( bad_file_count + 1))
-    fi
-done
-if [ $bad_file_count -gt 0 ]; then
-    echo "elvis: $bad_file_count errors"
-    exit 1
 fi
