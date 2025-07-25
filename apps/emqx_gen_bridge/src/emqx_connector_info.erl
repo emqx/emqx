@@ -99,6 +99,7 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_s3_connector_info,
         emqx_bridge_s3tables_connector_info,
         emqx_bridge_snowflake_aggregated_connector_info,
+        emqx_bridge_snowflake_streaming_connector_info,
         emqx_bridge_sqlserver_connector_info,
         emqx_bridge_syskeeper_connector_info,
         emqx_bridge_syskeeper_proxy_connector_info,

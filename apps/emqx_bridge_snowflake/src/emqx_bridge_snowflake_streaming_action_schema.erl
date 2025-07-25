@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_snowflake_aggregated_action_schema).
+-module(emqx_bridge_snowflake_streaming_action_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -27,12 +27,15 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
+-define(AGGREG_CONN_SCHEMA_MOD, emqx_bridge_snowflake_aggregated_connector_schema).
+-define(AGGREG_ACTION_SCHEMA_MOD, emqx_bridge_snowflake_aggregated_action_schema).
+
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
 %%-------------------------------------------------------------------------------------------------
 
 namespace() ->
-    "action_snowflake_aggregated".
+    "action_snowflake_streaming".
 
 roots() ->
     [].
@@ -42,102 +45,49 @@ fields(Field) when
     Field == "put_bridge_v2";
     Field == "post_bridge_v2"
 ->
-    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE_AGGREG, fields(?ACTION_TYPE_AGGREG));
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE_STREAM, fields(?ACTION_TYPE_STREAM));
 fields(action) ->
-    {?ACTION_TYPE_AGGREG,
+    {?ACTION_TYPE_STREAM,
         mk(
-            hoconsc:map(name, hoconsc:ref(?MODULE, ?ACTION_TYPE_AGGREG)),
+            hoconsc:map(name, hoconsc:ref(?MODULE, ?ACTION_TYPE_STREAM)),
             #{
-                desc => <<"Snowflake Action Config">>,
+                desc => <<"Snowflake Streaming Action Config">>,
                 required => false
             }
         )};
-fields(?ACTION_TYPE_AGGREG) ->
+fields(?ACTION_TYPE_STREAM) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(
-            mkunion(mode, #{
-                %% To be implemented
-                %% <<"direct">> => ref(direct_parameters),
-                <<"aggregated">> => ref(aggreg_parameters)
-            }),
+            ref(parameters),
             #{
                 required => true,
-                desc => ?DESC("parameters")
+                desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "parameters")
             }
         ),
         #{resource_opts_ref => ref(action_resource_opts)}
     );
-fields(aggreg_parameters) ->
+fields(parameters) ->
     [
-        {mode, mk(?aggregated, #{required => true, desc => ?DESC("aggregated_mode")})},
-        {aggregation, mk(ref(aggregation), #{required => true, desc => ?DESC("aggregation")})},
-        {private_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC("private_key")})},
-        {private_key_password,
-            emqx_schema_secret:mk(#{
-                required => false,
-                desc => ?DESC("private_key_password")
-            })},
-        {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
-        {schema, mk(binary(), #{required => true, desc => ?DESC("schema")})},
-        {stage, mk(binary(), #{required => true, desc => ?DESC("stage")})},
-        {pipe, mk(binary(), #{required => true, desc => ?DESC("pipe")})},
-        {pipe_user, mk(binary(), #{required => true, desc => ?DESC("pipe_user")})},
+        {database,
+            mk(binary(), #{required => true, desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "database")})},
+        {schema,
+            mk(binary(), #{required => true, desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "schema")})},
+        {pipe, mk(binary(), #{required => true, desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "pipe")})},
         {connect_timeout,
             mk(emqx_schema:timeout_duration_ms(), #{
-                default => <<"15s">>, desc => ?DESC("connect_timeout")
+                default => <<"15s">>, desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "connect_timeout")
             })},
-        {pipelining, mk(pos_integer(), #{default => 100, desc => ?DESC("pipelining")})},
-        {pool_size, mk(pos_integer(), #{default => 8, desc => ?DESC("pool_size")})},
-        {max_retries, mk(non_neg_integer(), #{default => 3, desc => ?DESC("max_retries")})},
-        emqx_connector_schema:ehttpc_max_inactive_sc(),
-        {max_block_size,
-            mk(
-                emqx_schema:bytesize(),
-                #{
-                    default => <<"250mb">>,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    required => true
-                }
-            )},
-        {min_block_size,
-            mk(
-                emqx_schema:bytesize(),
-                #{
-                    default => <<"100mb">>,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    required => true
-                }
-            )},
-        {proxy,
-            mk(
-                hoconsc:union([none, ref(proxy_config)]),
-                #{default => none, desc => ?DESC("proxy_config")}
-            )}
-    ];
-fields(aggregation) ->
-    [
-        emqx_connector_aggregator_schema:container(#{
-            supported_types => [<<"csv">>],
-            default => <<"csv">>
-        }),
-        {time_interval,
-            hoconsc:mk(
-                emqx_schema:duration_s(),
-                #{
-                    required => false,
-                    default => <<"1h">>,
-                    desc => ?DESC("aggregation_interval")
-                }
-            )},
-        {max_records,
-            hoconsc:mk(
-                pos_integer(),
-                #{
-                    required => false,
-                    default => 1_000_000,
-                    desc => ?DESC("aggregation_max_records")
-                }
-            )}
+        {pipelining,
+            mk(pos_integer(), #{
+                default => 100, desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "pipelining")
+            })},
+        {pool_size,
+            mk(pos_integer(), #{default => 8, desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "pool_size")})},
+        {max_retries,
+            mk(non_neg_integer(), #{
+                default => 3, desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "max_retries")
+            })},
+        emqx_connector_schema:ehttpc_max_inactive_sc()
     ];
 fields(proxy_config) ->
     [
@@ -153,13 +103,11 @@ fields(action_resource_opts) ->
     ]).
 
 desc(Name) when
-    Name =:= ?ACTION_TYPE_AGGREG;
-    Name =:= aggreg_parameters;
-    Name =:= aggregation;
-    Name =:= parameters;
-    Name =:= proxy_config
+    Name =:= ?ACTION_TYPE_STREAM
 ->
     ?DESC(Name);
+desc(parameters) ->
+    ?DESC(?AGGREG_ACTION_SCHEMA_MOD, parameters);
 desc(action_resource_opts) ->
     ?DESC(emqx_resource_schema, "creation_opts");
 desc(_Name) ->
@@ -172,8 +120,8 @@ desc(_Name) ->
 bridge_v2_examples(Method) ->
     [
         #{
-            ?ACTION_TYPE_AGGREG_BIN => #{
-                summary => <<"Snowflake Aggregated Action">>,
+            ?ACTION_TYPE_STREAM_BIN => #{
+                summary => <<"Snowflake Streaming Action">>,
                 value => action_example(Method)
             }
         }
@@ -183,7 +131,7 @@ action_example(post) ->
     maps:merge(
         action_example(put),
         #{
-            type => ?ACTION_TYPE_AGGREG_BIN,
+            type => ?ACTION_TYPE_STREAM_BIN,
             name => <<"my_action">>
         }
     );
@@ -242,17 +190,3 @@ action_example(put) ->
 
 ref(Name) -> hoconsc:ref(?MODULE, Name).
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
-
-mkunion(Field, Schemas) ->
-    hoconsc:union(fun(Arg) -> scunion(Field, Schemas, Arg) end).
-
-scunion(_Field, Schemas, all_union_members) ->
-    maps:values(Schemas);
-scunion(Field, Schemas, {value, Value}) ->
-    Selector = maps:get(emqx_utils_conv:bin(Field), Value, undefined),
-    case Selector == undefined orelse maps:find(emqx_utils_conv:bin(Selector), Schemas) of
-        {ok, Schema} ->
-            [Schema];
-        _Error ->
-            throw(#{field_name => Field, expected => maps:keys(Schemas)})
-    end.
