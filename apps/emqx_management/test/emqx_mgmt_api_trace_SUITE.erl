@@ -35,6 +35,13 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
+init_per_testcase(_, Config) ->
+    ok = snabbkaffe:start_trace(),
+    Config.
+
+end_per_testcase(_, _Config) ->
+    snabbkaffe:stop().
+
 t_http_test(_Config) ->
     emqx_trace:clear(),
     load(),
@@ -493,13 +500,11 @@ t_create_failed(_Config) ->
     %% MAX Limited
     lists:map(
         fun(Seq) ->
-            Name0 = list_to_binary("name" ++ integer_to_list(Seq)),
-            Trace0 = [
-                {name, Name0},
-                {type, topic},
-                {topic, list_to_binary("/x/y/" ++ integer_to_list(Seq))}
-            ],
-            {ok, _} = emqx_trace:create(Trace0)
+            {ok, _} = emqx_trace:create(#{
+                name => list_to_binary("name" ++ integer_to_list(Seq)),
+                type => topic,
+                filter => list_to_binary("/x/y/" ++ integer_to_list(Seq))
+            })
         end,
         lists:seq(1, 30 - ets:info(emqx_trace, size))
     ),
@@ -602,25 +607,21 @@ create_trace(Name, ClientId, Start) ->
     create_trace(Name, clientid, ClientId, Start).
 
 create_trace(Name, Type, TypeValue, Start) ->
-    ?check_trace(
-        #{timetrap => 900},
+    ?wait_async_action(
         begin
-            {ok, _} = emqx_trace:create([
-                {<<"name">>, Name},
-                {<<"type">>, Type},
-                {atom_to_binary(Type), TypeValue},
-                {<<"start_at">>, Start}
-            ]),
-            ?block_until(#{?snk_kind := update_trace_done})
+            {ok, _Created} = request_api(post, api_path("trace"), #{
+                <<"name">> => Name,
+                <<"type">> => Type,
+                Type => TypeValue,
+                <<"start_at">> => Start
+            })
         end,
-        fun(Trace) ->
-            ?assertMatch([#{} | _], ?of_kind(update_trace_done, Trace))
-        end
+        #{?snk_kind := update_trace_done}
     ).
 
 create_rule_trace(RuleId) ->
     Now = erlang:system_time(second),
-    emqx_mgmt_api_trace_SUITE:create_trace(atom_to_binary(?FUNCTION_NAME), ruleid, RuleId, Now - 2).
+    create_trace(atom_to_binary(?FUNCTION_NAME), ruleid, RuleId, Now - 2).
 
 t_create_rule_trace(_Config) ->
     load(),

@@ -39,7 +39,6 @@
 ]).
 
 -export([
-    format/1,
     zip_dir/0,
     filename/2,
     trace_dir/0,
@@ -52,10 +51,17 @@
 
 -ifdef(TEST).
 -export([
-    log_file/2,
-    find_closest_time/2
+    log_file/2
 ]).
 -endif.
+
+-type trace() :: #{atom() => _TODO}.
+
+-type trace_extra() :: #{
+    formatter => text | json,
+    payload_limit => integer(),
+    any() => term()
+}.
 
 -export_type([ip_address/0]).
 -type ip_address() :: string().
@@ -242,30 +248,36 @@ log_filter([{Id, FilterFun, Filter, Name} | Rest], Log0) ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec list() -> [tuple()].
+-spec list() -> [trace()].
 list() ->
+    [format(T) || T <- list_traces()].
+
+-spec list(boolean()) -> [trace()].
+list(Enable) ->
+    [format(T) || T <- list_traces(Enable)].
+
+list_traces() ->
     ets:match_object(?TRACE, #?TRACE{_ = '_'}).
 
--spec list(boolean()) -> [tuple()].
-list(Enable) ->
+list_traces(Enable) ->
     ets:match_object(?TRACE, #?TRACE{enable = Enable, _ = '_'}).
 
--spec create([{Key :: binary(), Value :: any()}] | #{atom() => any()}) ->
-    {ok, #?TRACE{}}
+-spec create(trace()) ->
+    {ok, trace()}
     | {error,
         {duplicate_condition, iodata()}
         | {already_existed, iodata()}
         | {bad_type, any()}
         | iodata()}.
 create(Trace) ->
-    case mnesia:table_info(?TRACE, size) < ?MAX_SIZE of
-        true ->
-            case to_trace(Trace) of
-                {ok, TraceRec} ->
-                    insert_new_trace(TraceRec);
-                {error, Reason} ->
-                    {error, Reason}
-            end;
+    maybe
+        {ok, TraceRecord} ?= mk_trace_record(Trace),
+        true ?= mnesia:table_info(?TRACE, size) < ?MAX_SIZE,
+        ok ?= insert_new_trace(TraceRecord),
+        {ok, format(TraceRecord)}
+    else
+        {error, Reason} ->
+            {error, Reason};
         false ->
             {error,
                 "The number of traces created has reached the maximum"
@@ -320,21 +332,28 @@ trace_file_detail(File) ->
 delete_files_after_send(TraceLog, Zips) ->
     gen_server:cast(?MODULE, {delete_tag, self(), [TraceLog | Zips]}).
 
--spec format(list(#?TRACE{})) -> list(map()).
-format(Traces) ->
-    Fields = record_info(fields, ?TRACE),
-    lists:map(
-        fun(Trace0 = #?TRACE{}) ->
-            [_ | Values] = tuple_to_list(Trace0),
-            Map0 = maps:from_list(lists:zip(Fields, Values)),
-            Extra = maps:get(extra, Map0, #{}),
-            Formatter = maps:get(formatter, Extra, text),
-            PayloadLimit = maps:get(payload_limit, Extra, ?MAX_PAYLOAD_FORMAT_SIZE),
-            Map1 = Map0#{formatter => Formatter, payload_limit => PayloadLimit},
-            maps:remove(extra, Map1)
-        end,
-        Traces
-    ).
+-spec format(#?TRACE{}) -> trace().
+format(#?TRACE{
+    enable = Enable,
+    name = Name,
+    type = Type,
+    filter = Filter,
+    start_at = StartAt,
+    end_at = EndAt,
+    payload_encode = PayloadEncode,
+    extra = Extra
+}) ->
+    #{
+        enable => Enable,
+        name => Name,
+        type => Type,
+        filter => Filter,
+        start_at => StartAt,
+        end_at => EndAt,
+        payload_encode => PayloadEncode,
+        payload_limit => maps:get(payload_limit, Extra, ?MAX_PAYLOAD_FORMAT_SIZE),
+        formatter => maps:get(formatter, Extra, text)
+    }.
 
 init([]) ->
     erlang:process_flag(trap_exit, true),
@@ -404,12 +423,11 @@ code_change(_, State, _Extra) ->
 
 insert_new_trace(Trace) ->
     case transaction(fun emqx_trace_dl:insert_new_trace/1, [Trace]) of
-        {error, _} = Error ->
-            Error;
-        Res ->
+        {ok, _} ->
             %% We call this to ensure the trace is active when we return
-            check(),
-            Res
+            check();
+        {error, _} = Error ->
+            Error
     end.
 
 update_trace(Traces) ->
@@ -539,7 +557,7 @@ clean_stale_trace_files() ->
     case file:list_dir(TraceDir) of
         {ok, AllFiles} when AllFiles =/= ["zip"] ->
             FileFun = fun(#?TRACE{name = Name, start_at = StartAt}) -> filename(Name, StartAt) end,
-            KeepFiles = lists:map(FileFun, list()),
+            KeepFiles = lists:map(FileFun, list_traces()),
             case AllFiles -- ["zip" | KeepFiles] of
                 [] ->
                     ok;
@@ -575,42 +593,33 @@ classify_by_time(
 classify_by_time([Trace | Traces], Now, Wait, Run, Finish) ->
     classify_by_time(Traces, Now, Wait, [Trace | Run], Finish).
 
-to_trace(TraceParam) ->
-    case to_trace(ensure_map(TraceParam), #?TRACE{}) of
-        {error, Reason} ->
-            {error, Reason};
-        {ok, #?TRACE{name = undefined}} ->
-            {error, "name required"};
-        {ok, #?TRACE{type = undefined}} ->
-            {error, "type=[topic,clientid,ip_address] required"};
-        {ok, TraceRec0 = #?TRACE{}} ->
-            case fill_default(TraceRec0) of
-                #?TRACE{start_at = Start, end_at = End} when End =< Start ->
-                    {error, "failed by start_at >= end_at"};
-                TraceRec ->
-                    {ok, TraceRec}
-            end
+mk_trace_record(Trace = #{}) ->
+    Name = maps:get(name, Trace, undefined),
+    Type = maps:get(type, Trace, undefined),
+    Filter = maps:get(filter, Trace, undefined),
+    ST = maps:get(start_at, Trace, undefined),
+    ET = maps:get(end_at, Trace, undefined),
+    maybe
+        ok ?= validate_name(Name),
+        ok ?= validate_filter(Type, Filter),
+        ok ?= validate_end_at(ET),
+        Record = fill_default(#?TRACE{
+            name = Name,
+            type = Type,
+            filter = Filter,
+            start_at = ST,
+            end_at = ET,
+            payload_encode = maps:get(payload_encode, Trace, text),
+            extra = maps:merge(
+                #{formatter => text},
+                maps:with([formatter, payload_limit, namespace], Trace)
+            )
+        }),
+        ok ?= validate_time_range(Record),
+        {ok, Record}
+    else
+        Error -> Error
     end.
-
-ensure_map(#{} = Trace) ->
-    maps:fold(
-        fun
-            (K, V, Acc) when is_binary(K) -> Acc#{binary_to_existing_atom(K) => V};
-            (K, V, Acc) when is_atom(K) -> Acc#{K => V}
-        end,
-        #{},
-        Trace
-    );
-ensure_map(Trace) when is_list(Trace) ->
-    lists:foldl(
-        fun
-            ({K, V}, Acc) when is_binary(K) -> Acc#{binary_to_existing_atom(K) => V};
-            ({K, V}, Acc) when is_atom(K) -> Acc#{K => V};
-            (_, Acc) -> Acc
-        end,
-        #{},
-        Trace
-    ).
 
 fill_default(Trace = #?TRACE{start_at = undefined}) ->
     fill_default(Trace#?TRACE{start_at = now_second()});
@@ -619,68 +628,41 @@ fill_default(Trace = #?TRACE{end_at = undefined, start_at = StartAt}) ->
 fill_default(Trace) ->
     Trace.
 
+validate_time_range(#?TRACE{start_at = Start, end_at = End}) when End =< Start ->
+    {error, "failed by start_at >= end_at"};
+validate_time_range(_) ->
+    ok.
+
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
 
-to_trace(#{namespace := Namespace} = Trace, Rec0) ->
-    #?TRACE{extra = Extra0} = Rec0,
-    Extra = Extra0#{namespace => Namespace},
-    Rec = Rec0#?TRACE{extra = Extra},
-    to_trace(maps:remove(namespace, Trace), Rec);
-to_trace(#{name := Name} = Trace, Rec) ->
+validate_name(undefined) ->
+    {error, "name required"};
+validate_name(Name) ->
     case re:run(Name, ?NAME_RE) of
         nomatch -> {error, "Name should be " ?NAME_RE};
-        _ -> to_trace(maps:remove(name, Trace), Rec#?TRACE{name = Name})
-    end;
-to_trace(#{type := clientid, clientid := Filter} = Trace, Rec) ->
-    Trace0 = maps:without([type, clientid], Trace),
-    to_trace(Trace0, Rec#?TRACE{type = clientid, filter = Filter});
-to_trace(#{type := topic, topic := Filter} = Trace, Rec) ->
-    case validate_topic(Filter) of
-        ok ->
-            Trace0 = maps:without([type, topic], Trace),
-            to_trace(Trace0, Rec#?TRACE{type = topic, filter = Filter});
-        Error ->
-            Error
-    end;
-to_trace(#{type := ip_address, ip_address := Filter} = Trace, Rec) ->
-    case validate_ip_address(Filter) of
-        ok ->
-            Trace0 = maps:without([type, ip_address], Trace),
-            to_trace(Trace0, Rec#?TRACE{type = ip_address, filter = binary_to_list(Filter)});
-        Error ->
-            Error
-    end;
-to_trace(#{type := ruleid, ruleid := Filter} = Trace, Rec) ->
-    Trace0 = maps:without([type, ruleid], Trace),
-    to_trace(Trace0, Rec#?TRACE{type = ruleid, filter = Filter});
-to_trace(#{type := Type}, _Rec) ->
-    {error, io_lib:format("required ~s field", [Type])};
-to_trace(#{payload_encode := PayloadEncode} = Trace, Rec) ->
-    to_trace(maps:remove(payload_encode, Trace), Rec#?TRACE{payload_encode = PayloadEncode});
-to_trace(#{start_at := StartAt} = Trace, Rec) ->
-    to_trace(maps:remove(start_at, Trace), Rec#?TRACE{start_at = StartAt});
-to_trace(#{end_at := EndAt} = Trace, Rec) ->
-    Now = now_second(),
-    case to_system_second(EndAt) of
-        {ok, Sec} when Sec > Now ->
-            to_trace(maps:remove(end_at, Trace), Rec#?TRACE{end_at = Sec});
-        {ok, _Sec} ->
+        _ -> ok
+    end.
+
+validate_filter(clientid, _ClientId = <<_/binary>>) ->
+    ok;
+validate_filter(topic, Topic) ->
+    validate_topic(Topic);
+validate_filter(ip_address, Addr) ->
+    validate_ip_address(Addr);
+validate_filter(ruleid, _RuleId = <<_/binary>>) ->
+    ok;
+validate_filter(_, _) ->
+    {error, "type=[topic,clientid,ip_address] required"}.
+
+validate_end_at(undefined) ->
+    ok;
+validate_end_at(EndAt) ->
+    case now_second() of
+        Now when Now < EndAt ->
+            ok;
+        _ ->
             {error, "end_at time has already passed"}
-    end;
-to_trace(#{formatter := Formatter} = Trace, Rec) ->
-    Extra = Rec#?TRACE.extra,
-    to_trace(
-        maps:remove(formatter, Trace),
-        Rec#?TRACE{extra = Extra#{formatter => Formatter}}
-    );
-to_trace(#{payload_limit := PayloadLimit} = Trace, Rec) ->
-    Extra = Rec#?TRACE.extra,
-    to_trace(
-        maps:remove(payload_limit, Trace),
-        Rec#?TRACE{extra = Extra#{payload_limit => PayloadLimit}}
-    );
-to_trace(_, Rec) ->
-    {ok, Rec}.
+    end.
 
 validate_topic(TopicName) ->
     try emqx_topic:validate(filter, TopicName) of
@@ -694,9 +676,6 @@ validate_ip_address(IP) ->
         {ok, _} -> ok;
         {error, Reason} -> {error, lists:flatten(io_lib:format("ip address: ~p", [Reason]))}
     end.
-
-to_system_second(Sec) ->
-    {ok, erlang:max(now_second(), Sec)}.
 
 zip_dir() ->
     filename:join([trace_dir(), "zip"]).

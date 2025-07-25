@@ -407,34 +407,19 @@ trace(get, _Params) ->
         List0 ->
             List = lists:sort(
                 fun(#{start_at := A}, #{start_at := B}) -> A > B end,
-                emqx_trace:format(List0)
+                List0
             ),
+            Now = erlang:system_time(second),
             Nodes = emqx:running_nodes(),
             TraceSize = wrap_rpc(emqx_mgmt_trace_proto_v2:get_trace_size(Nodes)),
             AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
-            Now = erlang:system_time(second),
             Traces =
                 lists:map(
-                    fun(
-                        Trace = #{
-                            name := Name,
-                            start_at := Start,
-                            end_at := End,
-                            enable := Enable,
-                            type := Type,
-                            filter := Filter
-                        }
-                    ) ->
+                    fun(TraceIn = #{name := Name, start_at := Start}) ->
+                        Trace = format_trace(TraceIn, Now, Nodes),
                         FileName = emqx_trace:filename(Name, Start),
                         LogSize = collect_file_size(Nodes, FileName, AllFileSize),
-                        Trace0 = maps:without([enable, filter], Trace),
-                        Trace0#{
-                            log_size => LogSize,
-                            Type => iolist_to_binary(Filter),
-                            start_at => emqx_utils_calendar:epoch_to_rfc3339(Start, second),
-                            end_at => emqx_utils_calendar:epoch_to_rfc3339(End, second),
-                            status => status(Enable, Start, End, Now)
-                        }
+                        Trace#{log_size => LogSize}
                     end,
                     List
                 ),
@@ -442,9 +427,9 @@ trace(get, _Params) ->
     end;
 trace(post, #{body := Params} = Req) ->
     Namespace = emqx_dashboard:get_namespace(Req),
-    case emqx_trace:create(Params#{namespace => Namespace}) of
-        {ok, Trace0} ->
-            {200, format_trace(Trace0)};
+    case emqx_trace:create(mk_trace(Params, Namespace)) of
+        {ok, Created} ->
+            {200, format_trace(Created)};
         {error, {already_existed, Name}} ->
             {409, #{
                 code => 'ALREADY_EXISTS',
@@ -470,24 +455,35 @@ trace(delete, _Param) ->
     ok = emqx_trace:clear(),
     {204}.
 
-format_trace(Trace0) ->
-    [
-        #{
-            start_at := Start,
-            end_at := End,
-            enable := Enable,
-            type := Type,
-            filter := Filter
-        } = Trace1
-    ] = emqx_trace:format([Trace0]),
-    Now = erlang:system_time(second),
+mk_trace(Params, Namespace) ->
+    Trace0 = #{type := Type} = emqx_utils_maps:safe_atom_key_map(Params),
+    Trace1 = maps:remove(Type, Trace0),
+    Trace1#{
+        filter => maps:get(Type, Trace0),
+        namespace => Namespace
+    }.
+
+format_trace(Trace) ->
+    format_trace(Trace, erlang:system_time(second), emqx:running_nodes()).
+
+format_trace(
+    Trace0 = #{
+        start_at := Start,
+        end_at := End,
+        enable := Enable,
+        type := Type,
+        filter := Filter
+    },
+    Now,
+    Nodes
+) ->
     LogSize = lists:foldl(
         fun(Node, Acc) -> Acc#{Node => 0} end,
         #{},
-        emqx:running_nodes()
+        Nodes
     ),
-    Trace2 = maps:without([enable, filter], Trace1),
-    Trace2#{
+    Trace1 = maps:without([enable, filter], Trace0),
+    Trace1#{
         log_size => LogSize,
         Type => iolist_to_binary(Filter),
         start_at => emqx_utils_calendar:epoch_to_rfc3339(Start, second),

@@ -8,12 +8,6 @@
 
 -include_lib("emqx/include/emqx_config.hrl").
 
--type trace_extra() :: #{
-    formatter => text | json,
-    payload_limit => integer(),
-    any() => term()
-}.
-
 -record(?TRACE, {
     name :: binary() | undefined | '_',
     type :: clientid | topic | ip_address | ruleid | undefined | '_',
@@ -26,7 +20,7 @@
         | '_',
     enable = true :: boolean() | '_',
     payload_encode = text :: hex | text | hidden | '_',
-    extra = #{formatter => text} :: trace_extra() | '_',
+    extra = #{formatter => text} :: emqx_trace:trace_extra() | '_',
     start_at :: integer() | undefined | '_',
     end_at :: integer() | undefined | '_'
 }).

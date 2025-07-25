@@ -669,7 +669,7 @@ trace_cluster_on(Name, Type, Filter, DurationS0, Formatter) ->
     Trace = #{
         name => bin(Name),
         type => Type,
-        Type => bin(Filter),
+        filter => bin(Filter),
         start_at => Now,
         end_at => Now + DurationS,
         formatter => Formatter

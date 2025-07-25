@@ -392,7 +392,7 @@ t_send_get_trace_messages(Config) ->
     Trace = #{
         name => TraceName,
         type => ruleid,
-        ruleid => RuleId,
+        filter => RuleId,
         start_at => Start,
         end_at => End
     },

@@ -274,7 +274,7 @@ create_trace(TraceName, TraceType, TraceValue, PayloadEncode) ->
     Trace = #{
         name => TraceName,
         type => TraceType,
-        TraceType => TraceValue,
+        filter => TraceValue,
         start_at => Start,
         end_at => End,
         formatter => json,
