@@ -71,4 +71,7 @@
 -define(ds_tx_expected, e).
 -define(ds_tx_unexpected, u).
 
+%% Client
+-record(emqx_ds_client_retry, {ref :: reference()}).
+
 -endif.
