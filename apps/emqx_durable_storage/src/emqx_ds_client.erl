@@ -293,7 +293,7 @@ Generally, all messages received by the process should be passed into this funct
 If atom `ignore` is returned, the message was not addressed to the client and should be processed elsewhere.
 """.
 -spec dispatch_message(term(), t(), HostState) ->
-    ignore | {t(), HostState} | {data, sub_id(), emqx_ds:stream(), #ds_sub_reply{}}.
+    ignore | {t(), HostState} | {data, sub_id(), emqx_ds:stream(), emqx_ds:sub_reply()}.
 dispatch_message(Message, CS0, HS0) ->
     case do_dispatch_message(Message, CS0, HS0) of
         ignore ->
@@ -352,7 +352,7 @@ complete_stream_(CS0 = #cs{ds_subs = DSSubs}, SRef, HS) ->
 -spec do_dispatch_message(_Message, t(), HostState) ->
     {integer(), t(), HostState}
     | ignore
-    | {data, sub_id(), emqx_ds:stream(), #ds_sub_reply{}}.
+    | {data, sub_id(), emqx_ds:stream(), emqx_ds:sub_reply()}.
 do_dispatch_message(
     {'DOWN', MRef, _, _, _} = Msg,
     CS0 = #cs{ds_subs = DSSubs},
