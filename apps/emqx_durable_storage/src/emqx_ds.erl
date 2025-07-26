@@ -137,6 +137,7 @@ It takes care of forwarding calls to the underlying DBMS.
     sub_ref/0,
     sub_info/0,
     sub_seqno/0,
+    sub_reply/0,
 
     ttv/0,
     payload/0,
@@ -396,6 +397,8 @@ Options for the `subscribe` API.
 
 %% Subscription:
 -type subscription_handle() :: term().
+
+-type sub_reply() :: #ds_sub_reply{}.
 
 -type sub_ref() :: reference().
 
