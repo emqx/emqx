@@ -34,7 +34,7 @@ A process responsible for execution of the timers.
 - `del_up_to` tracks the last garbage collection.
    It's used to avoid running GC unnecessarily.
 
-- `fully_replayed_ts` is used to
+- `fully_replayed_ts` is used as the upper bound for delete operations.
 
 Invariants:
 

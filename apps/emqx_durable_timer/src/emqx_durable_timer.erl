@@ -52,7 +52,7 @@ While the node is in isolated state, all local operations with the timers hang u
 ### Remote view
 
 All nodes monitor heartbeats for every known epoch, except their own.
-When the remote fails to update the epoch for `missed_heartbeats` milliseconds,
+When the remote fails to update the epoch `missed_heartbeats` times in a row,
 node tries to close the epoch using `update_epoch`.
 
 If this operation succeeds, the remote is considered down.

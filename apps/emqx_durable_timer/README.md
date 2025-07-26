@@ -2,7 +2,7 @@
 
 This application implements functionality similar to `timer:apply_after`, but timers survive restart of the node that started them.
 
-An timer that has been successfully created will be eventually executed, unless canceled.
+A timer that has been successfully created will be eventually executed, unless canceled.
 
 # Features
 
@@ -36,7 +36,7 @@ An timer that has been successfully created will be eventually executed, unless 
 
 ## Configuration
 
-This application is configured via application environment variables.
+This application is configured via application environment variables and `emqx_conf`.
 
 Warning: heartbeat and health configuration must be consistent across the cluster.
 
