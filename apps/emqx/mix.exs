@@ -18,7 +18,8 @@ defmodule EMQX.MixProject do
         :compressed
         | UMP.erlc_options()
       ],
-      compilers: Mix.compilers() ++ [:copy_srcs],
+      compilers: [:asn1] ++ Mix.compilers() ++ [:copy_srcs],
+      asn1_srcs: asn1_srcs(),
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
       extra_dirs: extra_dirs(),
       deps_path: "../../deps",
@@ -29,7 +30,7 @@ defmodule EMQX.MixProject do
     ]
   end
 
-  def asn1_srcs do
+  def asn1_srcs() do
     [
       %{
         src: "./src/emqx_persistent_session_ds/DurableSession.asn",
