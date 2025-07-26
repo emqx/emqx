@@ -12,7 +12,7 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx/src/emqx_persistent_session_ds/session_internals.hrl").
+-include("../src/emqx_persistent_session_ds/session_internals.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 %%================================================================================

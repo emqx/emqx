@@ -54,7 +54,7 @@
 -compile(export_all).
 
 -include_lib("stdlib/include/assert.hrl").
--include_lib("emqx/src/emqx_tracepoints.hrl").
+-include("../src/emqx_tracepoints.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").

@@ -10,7 +10,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/assert.hrl").
--include_lib("emqx/include/asserts.hrl").
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
@@ -674,9 +673,9 @@ t_070_multiple_shards(Config) ->
             Keys
         end,
         fun(Keys, Trace) ->
-            ?assertSameSet(
-                Keys,
-                ?projection(key, ?of_kind(?tp_fire, Trace))
+            snabbkaffe_diff:assert_lists_eq(
+                lists:sort(Keys),
+                lists:sort(?projection(key, ?of_kind(?tp_fire, Trace)))
             )
         end
     ).
