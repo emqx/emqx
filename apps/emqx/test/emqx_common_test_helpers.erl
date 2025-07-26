@@ -1492,6 +1492,7 @@ ensure_loaded(Mod) ->
 %%------------------------------------------------------------------------------
 
 start_apps_ds(Config, ExtraApps, Opts) ->
+    DurableStorageOpts = maps:get(durable_storage_opts, Opts, #{}),
     DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
     WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
@@ -1504,7 +1505,8 @@ start_apps_ds(Config, ExtraApps, Opts) ->
                     config => emqx_utils_maps:deep_merge(EMQXOpts, #{
                         <<"durable_sessions">> => durable_sessions_config(
                             DurableSessionsOpts
-                        )
+                        ),
+                        <<"durable_storage">> => DurableStorageOpts
                     })
                 }}
                 | ExtraApps
@@ -1520,8 +1522,7 @@ stop_apps_ds(Config) ->
 durable_sessions_config(Opts) ->
     emqx_utils_maps:deep_merge(
         #{
-            <<"enable">> => true,
-            <<"renew_streams_interval">> => <<"100ms">>
+            <<"enable">> => true
         },
         Opts
     ).
@@ -1534,9 +1535,14 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
         emqx_conf,
         {emqx, #{
             config => maps:merge(EMQXOpts, #{
+                <<"durable_storage">> => #{<<"n_sites">> => length(ClusterSpec0)},
                 <<"durable_sessions">> => durable_sessions_config(
                     DurableSessionsOpts
-                )
+                ),
+                <<"cluster">> => #{
+                    <<"heartbeat_interval">> => 1000,
+                    <<"missed_heartbeats">> => 3
+                }
             })
         }}
     ],

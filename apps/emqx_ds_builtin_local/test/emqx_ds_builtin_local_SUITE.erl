@@ -93,7 +93,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
     {ok, Iter1, Batch1} = emqx_ds:next(DB, Iter0, 1),
     ?assertNotEqual(end_of_stream, Iter1),
-    ?assertEqual([Msg0], [Msg || {_Key, Msg} <- Batch1]),
+    ?assertEqual([Msg0], Batch1),
 
     ok = emqx_ds:add_generation(DB),
     ok = emqx_ds:drop_generation(DB, GenId0),

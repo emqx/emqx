@@ -333,10 +333,10 @@ lookup_client({clientid, ClientId}, FormatFun) ->
     IsPersistenceEnabled = emqx_persistent_message:is_persistence_enabled(),
     case lookup_running_client(ClientId, FormatFun) of
         [] when IsPersistenceEnabled ->
-            case emqx_persistent_session_ds_state:print_session(ClientId) of
-                undefined -> [];
-                Session -> [maybe_format(FormatFun, {ClientId, Session})]
-            end;
+            [
+                maybe_format(FormatFun, I)
+             || I <- emqx_persistent_session_ds_state:print_channel(ClientId)
+            ];
         Res ->
             Res
     end;

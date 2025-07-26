@@ -1330,7 +1330,7 @@ t_crash_restart_recover(Config) ->
                     tl(ClientNodes)
                 ),
                 %% Does any messages were lost unexpectedly?
-                {_, DSMessages} = lists:unzip(emqx_utils_stream:consume(DSStream1)),
+                DSMessages = emqx_utils_stream:consume(DSStream1),
                 ExpectedMessages = emqx_utils_stream:consume(ExpectedStream),
                 MissingMessages = emqx_ds_test_helpers:message_set_subtract(
                     ExpectedMessages, DSMessages
@@ -1431,6 +1431,7 @@ groups() ->
                     t_drop_generation,
                     t_join_leave_errors,
                     t_store_batch_fail,
+                    t_crash_restart_recover,
                     %% Not supported.
                     t_poll
                 ]}
