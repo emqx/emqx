@@ -56,6 +56,7 @@ defmodule Mix.Tasks.Emqx.Eunit do
     if ECt.cover_enabled?(), do: ECt.cover_compile_files()
 
     opts = parse_args!(args)
+    Logger.configure(level: :notice)
 
     :logger.set_primary_config(:level, :notice)
     ECt.replace_elixir_formatter()
