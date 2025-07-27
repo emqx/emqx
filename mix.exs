@@ -1018,8 +1018,9 @@ defmodule EMQXUmbrella.MixProject do
       :DSBuiltinSLReference,
       :DSBuiltinSLSkipstreamV1,
       :DSBuiltinSLSkipstreamV2,
-      :DSBuiltinStorageLayer,
-      :DSMetadataCommon
+      :DSMetadataCommon,
+      :DurableSession,
+      :ChannelInfo
     ]
   end
 
