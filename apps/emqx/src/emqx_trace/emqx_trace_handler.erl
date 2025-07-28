@@ -46,6 +46,12 @@
 -type namespace() :: binary().
 -type maybe_namespace() :: ?global_ns | namespace().
 
+-ifdef(TEST).
+-define(LOG_HANDLER_FILESYNC_INTERVAL, 5_000).
+-else.
+-define(LOG_HANDLER_FILESYNC_INTERVAL, 100).
+-endif.
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -92,6 +98,7 @@ logger_config(LogFile) ->
         type => halt,
         file => LogFile,
         max_no_bytes => MaxBytes,
+        filesync_repeat_interval => ?LOG_HANDLER_FILESYNC_INTERVAL,
         overload_kill_enable => true,
         overload_kill_mem_size => ?LOG_HANDLER_OLP_KILL_MEM_SIZE,
         overload_kill_qlen => ?LOG_HANDLER_OLP_KILL_QLEN,
