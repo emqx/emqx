@@ -199,6 +199,7 @@ fields("cluster") ->
                     'readOnly' => true
                 }
             )},
+        {"description", emqx_schema:description_schema()},
         {"discovery_strategy",
             sc(
                 hoconsc:enum([manual, static, singleton, dns, etcd, k8s]),

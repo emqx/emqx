@@ -95,4 +95,14 @@ node_invitation_in_progress_started_at.desc:
 node_invitation_in_progress_started_at.label:
 """Started At"""
 
+put_cluster_info.desc:
+"""Update cluster information."""
+put_cluster_info.label:
+"""Update cluster information"""
+
+cluster_description.desc:
+"""Text blurb to describe the current cluster."""
+cluster_description.label:
+"""Cluster description"""
+
 }
