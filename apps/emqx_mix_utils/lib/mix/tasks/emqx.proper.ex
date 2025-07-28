@@ -29,6 +29,7 @@ defmodule Mix.Tasks.Emqx.Proper do
     if ECt.cover_enabled?(), do: ECt.cover_compile_files()
 
     :logger.set_primary_config(:level, :notice)
+    ECt.replace_elixir_formatter()
 
     for {mod, fun} <- discover_props() do
       Mix.shell().info("testing #{mod}:#{fun}")

@@ -139,6 +139,11 @@ defmodule Mix.Tasks.Emqx.Ct do
     )
   end
 
+  def replace_elixir_formatter() do
+    erl_formatter = {:logger_formatter, %{single_line: false, legacy_header: true}}
+    :logger.update_handler_config(:default, %{formatter: erl_formatter})
+  end
+
   @doc """
   Here we ensure the _modules_ are loaded, not the applications.
 
