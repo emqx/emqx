@@ -647,8 +647,12 @@ validate_time_range(_) ->
 
 validate_name(undefined) ->
     {error, "name required"};
-validate_name(Name) ->
-    case re:run(Name, ?NAME_RE) of
+validate_name(Name) when is_binary(Name) ->
+    case
+        Name =:= unicode:characters_to_binary(Name, utf8) andalso
+            re:run(Name, ?NAME_RE)
+    of
+        false -> {error, "Name is not a UTF-8 string"};
         nomatch -> {error, "Name should be " ?NAME_RE};
         _ -> ok
     end.

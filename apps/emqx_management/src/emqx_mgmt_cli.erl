@@ -1186,7 +1186,8 @@ indent_print({Key, Val}) ->
     emqx_ctl:print("  ~-16s: ~w~n", [Key, Val]).
 
 name(Filter) ->
-    iolist_to_binary(["CLI-", Filter]).
+    Name = iolist_to_binary(["CLI-", Filter]),
+    Name = unicode:characters_to_binary(Name, utf8).
 
 for_node(Fun, Node) ->
     try list_to_existing_atom(Node) of
