@@ -11,7 +11,7 @@
     insert_new_trace/1,
     delete/1,
     get_trace_filename/1,
-    delete_finished/1,
+    disable_finished/1,
     get_enabled_trace/0
 ]).
 
@@ -100,7 +100,7 @@ get_trace_filename(Name) ->
     end.
 
 %% Introduced in 5.0
-delete_finished(Traces) ->
+disable_finished(Traces) ->
     lists:map(
         fun(#?TRACE{name = Name}) ->
             case mnesia:read(?TRACE, Name, write) of

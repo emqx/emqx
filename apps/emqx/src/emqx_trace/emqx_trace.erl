@@ -470,7 +470,7 @@ closest(Time, Now, Closest) -> min(Time - Now, Closest).
 disable_finished([]) ->
     ok;
 disable_finished(Traces) ->
-    transaction(fun emqx_trace_dl:delete_finished/1, [Traces]).
+    transaction(fun emqx_trace_dl:disable_finished/1, [Traces]).
 
 start_trace(Traces, Started0) ->
     Started = lists:map(fun(#{name := Name}) -> Name end, Started0),
