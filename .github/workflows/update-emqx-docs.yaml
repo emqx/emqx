@@ -25,7 +25,21 @@ jobs:
           ref: ${{ env.TAG }}
           fetch-depth: 0
 
+      - name: Check if "${{ env.PROFILE }}-schema-dump" artifact is already available
+        id: check-artifact
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          result-encoding: string
+          script: |
+            const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            return artifacts.some(artifact => artifact.name === `${{ env.PROFILE }}-schema-dump`);
+
       - name: Compile
+        if: steps.check-artifact.outputs.result == 'false'
         run: |
           scripts/buildx.sh --profile $PROFILE --pkgtype rel
 
@@ -38,6 +52,7 @@ jobs:
           owner: ${{ github.repository_owner }}
 
       - name: Upload schema-dump artifact
+        if: steps.check-artifact.outputs.result == 'false'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: "${{ env.PROFILE }}-schema-dump"
