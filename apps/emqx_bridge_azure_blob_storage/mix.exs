@@ -5,7 +5,7 @@ defmodule EMQXBridgeAzureBlobStorage.MixProject do
   def project do
     [
       app: :emqx_bridge_azure_blob_storage,
-      version: "0.1.5",
+      version: "6.0.0",
       build_path: "../../_build",
       erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),

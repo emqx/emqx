@@ -5,7 +5,7 @@ defmodule EMQXBridgeS3Tables.MixProject do
   def project do
     [
       app: :emqx_bridge_s3tables,
-      version: "1.0.1",
+      version: "6.0.0",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
@@ -35,6 +35,7 @@ defmodule EMQXBridgeS3Tables.MixProject do
     [
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector_aggregator, in_umbrella: true},
+      {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_s3, in_umbrella: true},
       {:parquer, github: "emqx/parquer", tag: "0.1.3", manager: :rebar3},
       UMP.common_dep(:erlcloud),

@@ -37,9 +37,10 @@
 ## Prevent user from accidentally calling a function from the prompt that could harm a running system.
 -stdlib restricted_shell emqx_restricted_shell
 
-## Sets the distribution buffer busy limit (dist_buf_busy_limit).
-## Preferably set in `emqx.conf`,
-#+zdbbl 8192
+## Sets the distribution buffer busy limit (dist_buf_busy_limit) in kilobytes.
+## The default 1024 may not be sufficient when mnesia operations are intensive,
+##  and could result in busy_dist_port alarms.
++zdbbl 32768
 
 ## Sets default scheduler hint for port parallelism.
 +spp true
@@ -87,12 +88,26 @@
 ## Suggested stack size, in kilowords, for dirty IO scheduler threads.
 #+sssdio 40
 
-## Sets scheduler bind type.
-## Can be one of: u, ns, ts, ps, s, nnts, nnps, tnnps, db
-#+sbt db
-
 ## Sets a user-defined CPU topology.
 #+sct L0-3c0-3p0N0:L4-7c0-3p1N1
+
+## Sets scheduler bind type. Setting to 'db' may achieve lower message latency
+##  than the default 'u' in most scenarios.
+## If binding of schedulers is not supported by the OS, or no available CPU
+##  topology detected, the runtime system silently ignores the error, and start
+##  up using unbound schedulers 'u'.
++stbt db
+
+## Sets scheduler busy wait threshold. Setting to 'none' disables busy waiting.
+## This can significantly reduce the CPU usage observed by the OS, but may
+##  increase message latency in some scenarios.
++sbwt none
+
+## As +sbwt but affects dirty CPU schedulers.
++sbwtdcpu none
+
+## As +sbwt but affects dirty IO schedulers.
++sbwtdio none
 
 ## Sets the mapping of warning messages for error_logger
 #+W w
