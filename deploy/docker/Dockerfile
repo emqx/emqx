@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.5-4:1.15.7-26.2.5.14-1-debian12
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.5-5:1.15.7-26.2.5.14-1-debian12
 ARG RUN_FROM=debian:12-slim
 ARG SOURCE_TYPE=src # tgz
 
