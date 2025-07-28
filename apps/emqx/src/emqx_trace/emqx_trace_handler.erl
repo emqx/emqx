@@ -257,8 +257,15 @@ filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) 
 fallback_handler_id(Prefix, Name) when is_binary(Name) ->
     NameString = [_ | _] = unicode:characters_to_list(Name),
     fallback_handler_id(Prefix, NameString);
-fallback_handler_id(Prefix, Name) when is_list(Name) ->
-    list_to_atom(Prefix ++ ":" ++ Name).
+fallback_handler_id(Prefix, Name) when is_list(Name), length(Prefix) < 50 ->
+    case length(Name) of
+        L when L < 200 ->
+            list_to_atom(Prefix ++ ":" ++ Name);
+        _ ->
+            Hash = erlang:md5(term_to_binary(Name)),
+            HashString = binary_to_list(binary:encode_hex(Hash, lowercase)),
+            list_to_atom(Prefix ++ ":" ++ lists:sublist(Name, 160) ++ "." ++ HashString)
+    end.
 
 payload_encode() -> emqx_config:get([trace, payload_encode], text).
 

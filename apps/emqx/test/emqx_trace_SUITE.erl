@@ -142,6 +142,16 @@ t_create_failed(_Config) ->
         })
     ).
 
+t_create_long_name(_Config) ->
+    ?assertMatch(
+        {ok, #{}},
+        emqx_trace:create(#{
+            name => binary:copy(<<"test">>, 200),
+            type => clientid,
+            filter => <<?MODULE_STRING>>
+        })
+    ).
+
 t_create_default(_Config) ->
     {error, "name required"} = emqx_trace:create(#{}),
     {ok, _} = emqx_trace:create(#{
