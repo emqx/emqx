@@ -534,7 +534,7 @@ stop_trace(Finished, Started) ->
         fun(#{name := Name, id := HandlerID, dst := FilePath, type := Type, filter := Filter}) ->
             case lists:member(Name, Finished) of
                 true ->
-                    _ = maybe_sync_logfile(HandlerID),
+                    _ = emqx_trace_handler:filesync(HandlerID),
                     case file:read_file_info(FilePath) of
                         {ok, #file_info{size = Size}} when Size > 0 ->
                             ?TRACE("API", "trace_stopping", #{Type => Filter});
@@ -548,19 +548,6 @@ stop_trace(Finished, Started) ->
         end,
         Started
     ).
-
-maybe_sync_logfile(HandlerID) ->
-    case logger:get_handler_config(HandlerID) of
-        {ok, #{module := Mod}} ->
-            case erlang:function_exported(Mod, filesync, 1) of
-                true ->
-                    Mod:filesync(HandlerID);
-                false ->
-                    ok
-            end;
-        _ ->
-            ok
-    end.
 
 clean_stale_trace_files() ->
     TraceDir = trace_dir(),

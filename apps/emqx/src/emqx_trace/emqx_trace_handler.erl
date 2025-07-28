@@ -15,7 +15,8 @@
     running/0,
     install/4,
     install/7,
-    uninstall/1
+    uninstall/1,
+    filesync/1
 ]).
 
 %% For logger handler filters callbacks
@@ -124,6 +125,20 @@ uninstall(HandlerId) ->
     ].
 running() ->
     lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers(started)).
+
+-spec filesync(logger:handler_id()) -> ok | {error, any()}.
+filesync(HandlerId) ->
+    case logger:get_handler_config(HandlerId) of
+        {ok, #{module := Mod}} ->
+            try
+                Mod:filesync(HandlerId)
+            catch
+                error:undef ->
+                    {error, unsupported}
+            end;
+        Error ->
+            Error
+    end.
 
 -spec filter_ruleid(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
 filter_ruleid(#{meta := Meta = #{rule_id := RuleId}} = Log, {{Namespace, MatchId}, _Name}) ->
