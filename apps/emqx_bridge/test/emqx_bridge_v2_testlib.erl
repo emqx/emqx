@@ -1403,7 +1403,9 @@ t_start_stop(Config, StopTracePoint) ->
         create_connector_api(Config)
     ),
 
+    ct:timetrap({seconds, 20}),
     ?check_trace(
+        snk_timetrap(),
         begin
             ?assertMatch(
                 {ok, {{_, 204, _}, _Headers, _Body}},
@@ -1478,8 +1480,7 @@ t_start_stop(Config, StopTracePoint) ->
                     emqx_connector:disable_enable(
                         ?global_ns, disable, ConnectorType, ConnectorName
                     ),
-                    #{?snk_kind := StopTracePoint},
-                    5_000
+                    #{?snk_kind := StopTracePoint}
                 )
             ),
             ?retry(
