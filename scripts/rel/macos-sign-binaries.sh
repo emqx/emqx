@@ -67,8 +67,15 @@ for keychain in ${keychains}; do
 done
 security -v list-keychains -s "${keychain_names[@]}" "${KEYCHAIN}"
 
-for f in $(find "${PATH_TO_BINARIES}" -type f -exec file {} + | awk -F': ' '/Mach-O/ {print $1}'); do
-  codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime "${f}"
+find "${PATH_TO_BINARIES}" -type f -print0 | while IFS= read -r -d '' f; do
+  if file "$f" | grep -q "Mach-O"; then
+    codesign -s "${APPLE_DEVELOPER_IDENTITY}" \
+             -f \
+             --verbose=4 \
+             --timestamp \
+             --options=runtime \
+             "$f"
+  fi
 done
 
 cleanup
