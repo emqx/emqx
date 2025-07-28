@@ -526,7 +526,8 @@ install_bridge_v2_helper(
     BridgeV2Id = id_with_root_and_connector_names(
         Namespace, RootName, BridgeV2Type, BridgeName, ConnectorName
     ),
-    CreationOpts = emqx_resource:fetch_creation_opts(Config),
+    CreationOpts0 = emqx_resource:fetch_creation_opts(Config),
+    CreationOpts = CreationOpts0#{namespace => Namespace},
     %% Create metrics for Bridge V2
     ok = emqx_resource:create_metrics(BridgeV2Id),
     %% We might need to create buffer workers for Bridge V2

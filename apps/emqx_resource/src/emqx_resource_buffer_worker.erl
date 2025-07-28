@@ -94,6 +94,7 @@
 ).
 
 -type id() :: binary().
+-type maybe_namespace() :: ?global_ns | binary().
 -type index() :: pos_integer().
 -type expire_at() :: infinity | integer().
 -type trace_context() :: map() | undefined.
@@ -139,6 +140,7 @@
 -type inflight_table() :: ets:tid().
 -type data() :: #{
     id := id(),
+    namespace := maybe_namespace(),
     index := index(),
     inflight_tid := inflight_table(),
     async_workers := #{pid() => reference()},
@@ -320,7 +322,9 @@ flush_worker(ServerRef) ->
 init({Id, Index, Opts}) ->
     process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Id, {Id, Index}),
-    proc_lib:set_label({buffer_worker, Id}),
+    Namespace = emqx_resource_manager:get_namespace(Id, Opts),
+    proc_lib:set_label({buffer_worker, Namespace, Id}),
+    logger:update_process_metadata(#{namespace => Namespace}),
     BatchSize = maps:get(batch_size, Opts, ?DEFAULT_BATCH_SIZE),
     QueueOpts = replayq_opts(Id, Index, Opts),
     Queue = replayq:open(QueueOpts),
@@ -338,6 +342,7 @@ init({Id, Index, Opts}) ->
     MetricsFlushInterval = maps:get(metrics_flush_interval, Opts, ?DEFAULT_METRICS_FLUSH_INTERVAL),
     Data0 = #{
         id => Id,
+        namespace => Namespace,
         index => Index,
         inflight_tid => InflightTID,
         async_workers => #{},
