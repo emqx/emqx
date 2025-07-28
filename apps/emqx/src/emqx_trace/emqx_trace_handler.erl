@@ -183,7 +183,9 @@ filters(#{type := ruleid, filter := Filter, name := Name} = Who) ->
     [{ruleid, {fun ?MODULE:filter_ruleid/2, {{Namespace, ensure_bin(Filter)}, Name}}}].
 
 formatter(#{
-    type := _Type, payload_encode := PayloadEncode, formatter := json, payload_limit := PayloadLimit
+    formatter := json,
+    payload_encode := PayloadEncode,
+    payload_limit := PayloadLimit
 }) ->
     PayloadFmtOpts = #{
         payload_encode => PayloadEncode,
@@ -191,7 +193,11 @@ formatter(#{
         truncate_to => PayloadLimit
     },
     {emqx_trace_json_formatter, #{payload_fmt_opts => PayloadFmtOpts}};
-formatter(#{type := _Type, payload_encode := PayloadEncode, payload_limit := PayloadLimit}) ->
+formatter(#{
+    formatter := _Text,
+    payload_encode := PayloadEncode,
+    payload_limit := PayloadLimit
+}) ->
     {emqx_trace_formatter, #{
         %% template is for ?SLOG message not ?TRACE.
         %% XXX: Don't need to print the time field in logger_formatter due to we manually concat it
