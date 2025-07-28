@@ -7,7 +7,8 @@
         stdlib,
         emqx_resource,
         telemetry,
-        wolff
+        wolff,
+        brod
     ]},
     {env, [
         {emqx_action_info_modules, [emqx_bridge_azure_event_hub_action_info]},
