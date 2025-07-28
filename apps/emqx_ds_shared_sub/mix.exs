@@ -22,6 +22,9 @@ defmodule EMQXDsSharedSub.MixProject do
   end
 
   def deps() do
-    [{:emqx, in_umbrella: true}]
+    [
+      {:emqx, in_umbrella: true},
+      UMP.common_dep(:minirest)
+    ]
   end
 end
