@@ -543,7 +543,7 @@ runtime_state_invariants(ModelState = #{subs := ModelSubs}, State) ->
 
 -spec offline_state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) ->
     boolean().
-offline_state_invariants(ModelState = #{subs := ModelSubs}, State) ->
+offline_state_invariants(ModelState = #{subs := _ModelSubs}, State) ->
     state_invariants(ModelState, State).
 
 -spec state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) ->

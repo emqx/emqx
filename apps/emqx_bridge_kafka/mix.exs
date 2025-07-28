@@ -5,7 +5,7 @@ defmodule EMQXBridgeKafka.MixProject do
   def project do
     [
       app: :emqx_bridge_kafka,
-      version: "0.5.8",
+      version: "6.0.0",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),

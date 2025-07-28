@@ -30,6 +30,9 @@ defmodule Mix.Tasks.Emqx.Eunit do
 
     opts = parse_args!(args)
 
+    :logger.set_primary_config(:level, :notice)
+    ECt.replace_elixir_formatter()
+
     opts
     |> discover_tests()
     |> :eunit.test(
