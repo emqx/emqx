@@ -55,14 +55,26 @@
 ]).
 -endif.
 
--type trace() :: #{atom() => _TODO}.
-
--type trace_extra() :: #{
-    formatter => text | json,
-    payload_limit => integer(),
-    namespace => atom() | binary(),
-    slot => non_neg_integer()
+-export_type([trace/0]).
+-type trace() :: #{
+    enable => boolean(),
+    name := binary(),
+    type := clientid | topic | ip_address | ruleid,
+    filter := filter(),
+    start_at => _TimestampSeconds :: non_neg_integer(),
+    end_at => _TimestampSeconds :: non_neg_integer(),
+    formatter := text | json,
+    payload_encode => text | hex | hidden,
+    payload_limit => pos_integer(),
+    namespace => ?global_ns | binary()
 }.
+
+-export_type([filter/0]).
+-type filter() ::
+    emqx_types:clientid()
+    | emqx_types:topic()
+    | ip_address()
+    | {?global_ns | binary(), ruleid()}.
 
 -export_type([ip_address/0]).
 -type ip_address() :: string().

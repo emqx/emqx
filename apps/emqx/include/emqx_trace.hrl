@@ -9,20 +9,14 @@
 -include_lib("emqx/include/emqx_config.hrl").
 
 -record(?TRACE, {
-    name :: binary() | undefined | '_',
-    type :: clientid | topic | ip_address | ruleid | undefined | '_',
-    filter ::
-        emqx_types:topic()
-        | emqx_types:clientid()
-        | emqx_trace:ip_address()
-        | {?global_ns | binary(), emqx_trace:ruleid()}
-        | undefined
-        | '_',
-    enable = true :: boolean() | '_',
-    payload_encode = text :: hex | text | hidden | '_',
-    extra = #{formatter => text} :: emqx_trace:trace_extra() | '_',
-    start_at :: integer() | undefined | '_',
-    end_at :: integer() | undefined | '_'
+    name,
+    type,
+    filter,
+    enable = true,
+    payload_encode = text,
+    extra = #{formatter => text},
+    start_at,
+    end_at
 }).
 
 -record(emqx_trace_format_func_data, {

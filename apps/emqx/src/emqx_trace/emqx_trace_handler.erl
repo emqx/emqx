@@ -33,8 +33,8 @@
 -type tracer() :: #{
     name := binary(),
     namespace => maybe_namespace(),
-    type := clientid | topic | ip_address,
-    filter := filter(),
+    type := clientid | topic | ip_address | ruleid,
+    filter := emqx_trace:filter(),
     payload_encode := text | hidden | hex,
     payload_limit := non_neg_integer(),
     formatter => json | text
@@ -42,12 +42,6 @@
 
 -define(LOG_HANDLER_OLP_KILL_MEM_SIZE, 50 * 1024 * 1024).
 -define(LOG_HANDLER_OLP_KILL_QLEN, 20000).
-
--type filter() ::
-    emqx_types:clientid()
-    | emqx_types:topic()
-    | {?global_ns | binary(), emqx_trace:ruleid()}
-    | string().
 
 -type namespace() :: binary().
 -type maybe_namespace() :: ?global_ns | namespace().
@@ -59,8 +53,8 @@
 -spec install(
     HandlerId :: logger:handler_id(),
     Name :: binary() | list(),
-    Type :: clientid | topic | ip_address,
-    Filter :: filter(),
+    Type :: clientid | topic | ip_address | ruleid,
+    Filter :: emqx_trace:filter(),
     Level :: logger:level() | all,
     LogFilePath :: string(),
     Formatter :: text | json
@@ -116,9 +110,9 @@ uninstall(HandlerId) ->
     [
         #{
             name => binary(),
-            type => topic | clientid | ip_address,
+            type => topic | clientid | ip_address | ruleid,
             id => atom(),
-            filter => emqx_types:topic() | emqx_types:clientid() | emqx_trace:ip_address(),
+            filter => emqx_trace:filter(),
             level => logger:level(),
             dst => file:filename() | console | unknown
         }

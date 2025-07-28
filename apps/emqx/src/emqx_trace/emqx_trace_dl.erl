@@ -17,6 +17,25 @@
 
 -include("emqx_trace.hrl").
 
+-export_type([record/0]).
+-type record() :: #?TRACE{
+    name :: binary(),
+    type :: clientid | topic | ip_address | ruleid,
+    filter :: emqx_trace:filter(),
+    enable :: boolean(),
+    payload_encode :: hex | text | hidden,
+    extra :: trace_extra(),
+    start_at :: integer(),
+    end_at :: integer()
+}.
+
+-type trace_extra() :: #{
+    formatter => text | json,
+    payload_limit => integer(),
+    namespace => atom() | binary(),
+    slot => non_neg_integer()
+}.
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -38,6 +57,7 @@ update(Name, Enable) ->
     end.
 
 %% Introduced in 5.0
+-spec insert_new_trace(record()) -> ok.
 insert_new_trace(
     Trace0 = #?TRACE{
         name = Name,
@@ -56,7 +76,7 @@ insert_new_trace(
     end,
     %% Disallow more than `max_traces` records:
     MaxTraces = max_traces(),
-    mnesia:lock({table, ?TRACE}, write),
+    _ = mnesia:lock({table, ?TRACE}, write),
     case mnesia:table_info(?TRACE, size) of
         S when S < MaxTraces ->
             ok;
@@ -100,8 +120,9 @@ get_trace_filename(Name) ->
     end.
 
 %% Introduced in 5.0
+-spec disable_finished([record()]) -> ok.
 disable_finished(Traces) ->
-    lists:map(
+    lists:foreach(
         fun(#?TRACE{name = Name}) ->
             case mnesia:read(?TRACE, Name, write) of
                 [] -> ok;
@@ -112,6 +133,7 @@ disable_finished(Traces) ->
     ).
 
 %% Introduced in 5.0
+-spec get_enabled_trace() -> [record()].
 get_enabled_trace() ->
     mnesia:match_object(?TRACE, #?TRACE{enable = true, _ = '_'}, read).
 
