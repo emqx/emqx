@@ -4,7 +4,6 @@
 
 -module(emqx_trace_handler).
 
--include("emqx.hrl").
 -include("logger.hrl").
 -include("emqx_trace.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
@@ -14,11 +13,9 @@
 %% APIs
 -export([
     running/0,
-    install/3,
-    install/5,
-    install/6,
-    uninstall/1,
-    uninstall/2
+    install/4,
+    install/7,
+    uninstall/1
 ]).
 
 %% For logger handler filters callbacks
@@ -29,7 +26,7 @@
     filter_ip_address/2
 ]).
 
--export([handler_id/2]).
+-export([fallback_handler_id/2]).
 -export([payload_encode/0]).
 
 -type tracer() :: #{
@@ -54,22 +51,12 @@
 -type namespace() :: binary().
 -type maybe_namespace() :: ?global_ns | namespace().
 
--define(CONFIG(_LogFile_), #{
-    type => halt,
-    file => _LogFile_,
-    max_no_bytes => 512 * 1024 * 1024,
-    overload_kill_enable => true,
-    overload_kill_mem_size => 50 * 1024 * 1024,
-    overload_kill_qlen => 20000,
-    %% disable restart
-    overload_kill_restart_after => infinity
-}).
-
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
 
 -spec install(
+    HandlerId :: logger:handler_id(),
     Name :: binary() | list(),
     Type :: clientid | topic | ip_address,
     Filter :: filter(),
@@ -77,7 +64,7 @@
     LogFilePath :: string(),
     Formatter :: text | json
 ) -> ok | {error, term()}.
-install(Name, Type, Filter, Level, LogFile, Formatter) ->
+install(HandlerId, Name, Type, Filter, Level, LogFile, Formatter) ->
     Who = #{
         type => Type,
         filter => ensure_bin(Filter),
@@ -86,23 +73,13 @@ install(Name, Type, Filter, Level, LogFile, Formatter) ->
         payload_limit => ?MAX_PAYLOAD_FORMAT_SIZE,
         formatter => Formatter
     },
-    install(Who, Level, LogFile).
+    install(HandlerId, Who, Level, LogFile).
 
--spec install(
-    Name :: binary() | list(),
-    Type :: clientid | topic | ip_address,
-    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
-    Level :: logger:level() | all,
-    LogFilePath :: string()
-) -> ok | {error, term()}.
-install(Name, Type, Filter, Level, LogFile) ->
-    install(Name, Type, Filter, Level, LogFile, text).
-
--spec install(tracer(), logger:level() | all, string()) -> ok | {error, term()}.
-install(Who, all, LogFile) ->
-    install(Who, debug, LogFile);
-install(Who = #{name := Name, type := Type}, Level, LogFile) ->
-    HandlerId = handler_id(Name, Type),
+-spec install(logger:handler_id(), tracer(), logger:level() | all, string()) ->
+    ok | {error, term()}.
+install(HandlerId, Who, all, LogFile) ->
+    install(HandlerId, Who, debug, LogFile);
+install(HandlerId, Who, Level, LogFile) ->
     Config = #{
         level => Level,
         formatter => formatter(Who),
@@ -126,14 +103,6 @@ logger_config(LogFile) ->
         %% disable restart
         overload_kill_restart_after => infinity
     }.
-
--spec uninstall(
-    Type :: clientid | topic | ip_address,
-    Name :: binary() | list()
-) -> ok | {error, term()}.
-uninstall(Type, Name) ->
-    HandlerId = handler_id(ensure_bin(Name), Type),
-    uninstall(HandlerId).
 
 -spec uninstall(HandlerId :: atom()) -> ok | {error, term()}.
 uninstall(HandlerId) ->
@@ -263,25 +232,14 @@ filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) 
             Acc
     end.
 
+-spec fallback_handler_id(string(), string() | binary()) -> atom().
+fallback_handler_id(Prefix, Name) when is_binary(Name) ->
+    NameString = [_ | _] = unicode:characters_to_list(Name),
+    fallback_handler_id(Prefix, NameString);
+fallback_handler_id(Prefix, Name) when is_list(Name) ->
+    list_to_atom(Prefix ++ ":" ++ Name).
+
 payload_encode() -> emqx_config:get([trace, payload_encode], text).
-
-handler_id(Name, Type) ->
-    try
-        do_handler_id(Name, Type)
-    catch
-        _:_ ->
-            Hash = emqx_utils:bin_to_hexstr(crypto:hash(md5, Name), lower),
-            do_handler_id(Hash, Type)
-    end.
-
-%% Handler ID must be an atom.
-do_handler_id(Name, Type) ->
-    TypeStr = atom_to_list(Type),
-    NameStr = unicode:characters_to_list(Name, utf8),
-    FullNameStr = "trace_" ++ TypeStr ++ "_" ++ NameStr,
-    true = io_lib:printable_unicode_list(FullNameStr),
-    FullNameBin = unicode:characters_to_binary(FullNameStr, utf8),
-    binary_to_atom(FullNameBin, utf8).
 
 ensure_bin({Namespace, Match}) ->
     MatchBin = ensure_bin(Match),

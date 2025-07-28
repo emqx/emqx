@@ -38,9 +38,17 @@ update(Name, Enable) ->
     end.
 
 %% Introduced in 5.0
-insert_new_trace(Trace) ->
+insert_new_trace(
+    Trace0 = #?TRACE{
+        name = Name,
+        start_at = StartAt,
+        type = Type,
+        filter = Filter,
+        extra = Extra
+    }
+) ->
     %% Name should be unique:
-    case mnesia:read(?TRACE, Trace#?TRACE.name) of
+    case mnesia:read(?TRACE, Name) of
         [] ->
             ok;
         [#?TRACE{name = Name}] ->
@@ -55,15 +63,25 @@ insert_new_trace(Trace) ->
         _ ->
             mnesia:abort({max_limit_reached, MaxTraces})
     end,
-    %% Allow only one trace for each filter in the same second:
-    #?TRACE{start_at = StartAt, type = Type, filter = Filter} = Trace,
-    Match = #?TRACE{_ = '_', start_at = StartAt, type = Type, filter = Filter},
-    case mnesia:match_object(?TRACE, Match, read) of
-        [] ->
-            ok = mnesia:write(?TRACE, Trace, write);
-        [#?TRACE{name = Another}] ->
-            mnesia:abort({duplicate_condition, Another})
-    end.
+    %% Find free ID slot / verify uniqueness condition:
+    SlotList = mnesia:foldl(
+        fun(Trace, FL) ->
+            case Trace of
+                #?TRACE{start_at = StartAt, type = Type, filter = Filter} ->
+                    %% Allow only one trace for each filter in the same second:
+                    mnesia:abort({duplicate_condition, Trace#?TRACE.name});
+                #?TRACE{extra = #{slot := Slot}} ->
+                    emqx_trace_freelist:occupy(Slot, FL)
+            end
+        end,
+        emqx_trace_freelist:range(1, MaxTraces),
+        ?TRACE
+    ),
+    Slot = emqx_trace_freelist:first(SlotList),
+    Trace = Trace0#?TRACE{
+        extra = Extra#{slot => Slot}
+    },
+    ok = mnesia:write(?TRACE, Trace, write).
 
 %% Introduced in 5.0
 -spec delete(Name :: binary()) -> ok.

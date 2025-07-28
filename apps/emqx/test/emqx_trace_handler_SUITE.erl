@@ -47,11 +47,11 @@ end_per_testcase(_Case, _Config) ->
 t_trace_clientid(_Config) ->
     %% Start tracing
     %% add list clientid
-    ok = emqx_trace_handler:install("CLI-client1", clientid, "client", debug, "tmp/client.log"),
-    ok = emqx_trace_handler:install("CLI-client2", clientid, <<"client2">>, all, "tmp/client2.log"),
-    ok = emqx_trace_handler:install("CLI-client3", clientid, <<"client3">>, all, "tmp/client3.log"),
+    ok = install_handler("CLI-client1", clientid, "client", debug, "tmp/client.log"),
+    ok = install_handler("CLI-client2", clientid, <<"client2">>, all, "tmp/client2.log"),
+    ok = install_handler("CLI-client3", clientid, <<"client3">>, all, "tmp/client3.log"),
     {error, {handler_not_added, {file_error, ".", eisdir}}} =
-        emqx_trace_handler:install("CLI-client5", clientid, <<"client5">>, debug, "."),
+        install_handler("CLI-client5", clientid, <<"client5">>, debug, "."),
     emqx_trace:check(),
     ok = filesync(<<"CLI-client1">>, clientid),
     ok = filesync(<<"CLI-client2">>, clientid),
@@ -108,16 +108,16 @@ t_trace_clientid(_Config) ->
     ?assert(filelib:file_size("tmp/client2.log") == 0),
 
     %% Stop tracing
-    ok = emqx_trace_handler:uninstall(clientid, <<"CLI-client1">>),
-    ok = emqx_trace_handler:uninstall(clientid, <<"CLI-client2">>),
-    ok = emqx_trace_handler:uninstall(clientid, <<"CLI-client3">>),
+    ok = uninstall_handler("CLI-client1"),
+    ok = uninstall_handler("CLI-client2"),
+    ok = uninstall_handler("CLI-client3"),
 
     emqtt:disconnect(T),
     ?assertEqual([], emqx_trace_handler:running()).
 
 t_trace_clientid_utf8(_) ->
     Utf8Id = <<"client 漢字編碼"/utf8>>,
-    ok = emqx_trace_handler:install("CLI-UTF8", clientid, Utf8Id, debug, "tmp/client-utf8.log"),
+    ok = install_handler("CLI-UTF8", clientid, Utf8Id, debug, "tmp/client-utf8.log"),
     emqx_trace:check(),
     {ok, T} = emqtt:start_link([{clientid, Utf8Id}]),
     emqtt:connect(T),
@@ -130,7 +130,7 @@ t_trace_clientid_utf8(_) ->
     emqtt:ping(T),
 
     ok = filesync("CLI-UTF8", clientid),
-    ok = emqx_trace_handler:uninstall(clientid, "CLI-UTF8"),
+    ok = uninstall_handler("CLI-UTF8"),
     emqtt:disconnect(T),
     ?assertEqual([], emqx_trace_handler:running()),
     ok.
@@ -140,8 +140,8 @@ t_trace_topic(_Config) ->
     emqtt:connect(T),
 
     %% Start tracing
-    ok = emqx_trace_handler:install("CLI-TOPIC-1", topic, <<"x/#">>, all, "tmp/topic_trace_x.log"),
-    ok = emqx_trace_handler:install("CLI-TOPIC-2", topic, <<"y/#">>, all, "tmp/topic_trace_y.log"),
+    ok = install_handler("CLI-TOPIC-1", topic, <<"x/#">>, all, "tmp/topic_trace_x.log"),
+    ok = install_handler("CLI-TOPIC-2", topic, <<"y/#">>, all, "tmp/topic_trace_y.log"),
     emqx_trace:check(),
     ok = filesync("CLI-TOPIC-1", topic),
     ok = filesync("CLI-TOPIC-2", topic),
@@ -188,9 +188,9 @@ t_trace_topic(_Config) ->
     ?assert(filelib:file_size("tmp/topic_trace_y.log") =:= 0),
 
     %% Stop tracing
-    ok = emqx_trace_handler:uninstall(topic, <<"CLI-TOPIC-1">>),
-    ok = emqx_trace_handler:uninstall(topic, <<"CLI-TOPIC-2">>),
-    {error, _Reason} = emqx_trace_handler:uninstall(topic, <<"z/#">>),
+    ok = uninstall_handler("CLI-TOPIC-1"),
+    ok = uninstall_handler("CLI-TOPIC-2"),
+    {error, _Reason} = uninstall_handler("z/#"),
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T).
 
@@ -199,14 +199,8 @@ t_trace_ip_address(_Config) ->
     emqtt:connect(T),
 
     %% Start tracing
-    ok = emqx_trace_handler:install("CLI-IP-1", ip_address, "127.0.0.1", all, "tmp/ip_trace_x.log"),
-    ok = emqx_trace_handler:install(
-        "CLI-IP-2",
-        ip_address,
-        "192.168.1.1",
-        all,
-        "tmp/ip_trace_y.log"
-    ),
+    ok = install_handler("CLI-IP-1", ip_address, "127.0.0.1", all, "tmp/ip_trace_x.log"),
+    ok = install_handler("CLI-IP-2", ip_address, "192.168.1.1", all, "tmp/ip_trace_y.log"),
     emqx_trace:check(),
     ok = filesync(<<"CLI-IP-1">>, ip_address),
     ok = filesync(<<"CLI-IP-2">>, ip_address),
@@ -253,9 +247,9 @@ t_trace_ip_address(_Config) ->
     ?assert(filelib:file_size("tmp/ip_trace_y.log") =:= 0),
 
     %% Stop tracing
-    ok = emqx_trace_handler:uninstall(ip_address, <<"CLI-IP-1">>),
-    ok = emqx_trace_handler:uninstall(ip_address, <<"CLI-IP-2">>),
-    {error, _Reason} = emqx_trace_handler:uninstall(ip_address, <<"127.0.0.2">>),
+    ok = uninstall_handler("CLI-IP-1"),
+    ok = uninstall_handler("CLI-IP-2"),
+    {error, _Reason} = uninstall_handler("127.0.0.2"),
     emqtt:disconnect(T),
     ?assertEqual([], emqx_trace_handler:running()).
 
@@ -267,7 +261,7 @@ t_trace_max_file_size(_Config) ->
     MaxSizeDefault = emqx_config:get([trace, max_file_size]),
     ok = emqx_config:put([trace, max_file_size], MaxSize),
     %% Start tracing:
-    ok = emqx_trace_handler:install(Name, topic, <<"t/#">>, all, FileName),
+    ok = emqx_trace_handler:install(?FUNCTION_NAME, Name, topic, <<"t/#">>, all, FileName, text),
     ok = emqx_trace:check(),
     ?assertMatch(
         [#{name := Name, type := topic, filter := <<"t/#">>}],
@@ -297,7 +291,7 @@ t_trace_max_file_size(_Config) ->
     ?assertEqual(FileSize, filelib:file_size(FileName)),
     %% Cleanup:
     ok = emqtt:disconnect(C),
-    ok = emqx_trace_handler:uninstall(topic, Name),
+    ok = emqx_trace_handler:uninstall(?FUNCTION_NAME),
     ok = emqx_config:put([trace, max_file_size], MaxSizeDefault).
 
 filesync(Name, Type) ->
@@ -322,6 +316,14 @@ filesync(Name0, Type, Retry) ->
             ct:sleep(100),
             filesync(Name, Type, Retry - 1)
     end.
+
+install_handler(Name, Type, Filter, Level, LogFile) ->
+    HandlerId = list_to_atom(?MODULE_STRING ++ ":" ++ Name),
+    emqx_trace_handler:install(HandlerId, Name, Type, Filter, Level, LogFile, text).
+
+uninstall_handler(Name) ->
+    HandlerId = list_to_atom(?MODULE_STRING ++ ":" ++ Name),
+    emqx_trace_handler:uninstall(HandlerId).
 
 init() ->
     emqx_trace:start_link().

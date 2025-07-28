@@ -99,16 +99,22 @@ t_create_size_max(_Config) ->
         lists:seq(1, MaxTraces)
     ),
     %% Creating one more is disallowed:
+    NameExtra = iolist_to_binary(["extra", integer_to_list(erlang:system_time())]),
     TraceExtra = #{
-        name => <<"extra">>,
+        name => NameExtra,
         type => topic,
         filter => <<"/x/y/extra">>
     },
     {error, _} = emqx_trace:create(TraceExtra),
+    %% Record current atom table size:
+    NAtom0 = erlang:system_info(atom_count),
     %% Make space for it, now it should succeed:
     ok = emqx_trace:delete(lists:last(Names)),
     {ok, _} = emqx_trace:create(TraceExtra),
     ?assertEqual(MaxTraces, erlang:length(emqx_trace:list())),
+    %% Verify atom table is not growing:
+    ?assertEqual(NAtom0, erlang:system_info(atom_count)),
+    %% Cleanup:
     emqx_config:put([trace, max_traces], MaxTracesDefault).
 
 t_create_failed(_Config) ->
@@ -398,11 +404,10 @@ t_migrate_trace(_Config) ->
             ?assertEqual(true, lists:member(Id, LoggerIds), LoggerIds)
         end,
         [
-            trace_topic_test_topic_migrate_new,
-            trace_topic_test_topic_migrate_old
+            'emqx_trace:1',
+            'emqx_trace:test_topic_migrate_old'
         ]
-    ),
-    ok.
+    ).
 
 %% If no relevant event occurred, the log file size must be exactly 0 after stopping the trace.
 t_empty_trace_log_file(_Config) ->

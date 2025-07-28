@@ -60,7 +60,8 @@
 -type trace_extra() :: #{
     formatter => text | json,
     payload_limit => integer(),
-    any() => term()
+    namespace => atom() | binary(),
+    slot => non_neg_integer()
 }.
 
 -export_type([ip_address/0]).
@@ -492,19 +493,22 @@ start_trace(Traces, Started0) ->
         Traces
     ).
 
-start_trace(Trace) ->
-    #?TRACE{
-        name = Name,
-        type = Type,
-        filter = Filter,
-        start_at = Start,
-        payload_encode = PayloadEncode,
-        extra = Extra
-    } = Trace,
+start_trace(Trace = #?TRACE{name = Name, start_at = Start}) ->
+    HandlerID = mk_handler_id(Trace),
+    Handler = mk_handler(Trace),
+    emqx_trace_handler:install(HandlerID, Handler, debug, log_file(Name, Start)).
+
+mk_handler(#?TRACE{
+    name = Name,
+    type = Type,
+    filter = Filter,
+    payload_encode = PayloadEncode,
+    extra = Extra
+}) ->
     Formatter = maps:get(formatter, Extra, text),
     PayloadLimit = maps:get(payload_limit, Extra, ?MAX_PAYLOAD_FORMAT_SIZE),
     Namespace = maps:get(namespace, Extra, ?global_ns),
-    Who = #{
+    #{
         name => Name,
         type => Type,
         filter => Filter,
@@ -512,8 +516,18 @@ start_trace(Trace) ->
         payload_encode => PayloadEncode,
         payload_limit => PayloadLimit,
         formatter => Formatter
-    },
-    emqx_trace_handler:install(Who, debug, log_file(Name, Start)).
+    }.
+
+%% Handler ID must be an atom.
+mk_handler_id(#?TRACE{extra = #{slot := Slot}}) ->
+    %% NOTE
+    %% Number of slots is limited by `trace.max_traces`.
+    list_to_atom(?MODULE_STRING ++ ":" ++ integer_to_list(Slot));
+mk_handler_id(#?TRACE{name = Name}) ->
+    %% NOTE
+    %% Backward compat: pre-existing traces may lack assigned slots.
+    %% To be removed in the next release.
+    emqx_trace_handler:fallback_handler_id(?MODULE_STRING, Name).
 
 stop_trace(Finished, Started) ->
     lists:foreach(
@@ -527,7 +541,7 @@ stop_trace(Finished, Started) ->
                         _ ->
                             ok
                     end,
-                    emqx_trace_handler:uninstall(Type, Name);
+                    emqx_trace_handler:uninstall(HandlerID);
                 false ->
                     ok
             end

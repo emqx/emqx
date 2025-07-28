@@ -558,7 +558,6 @@ trace(["start", Operation, Filter0, LogFile, Level, Formatter0]) ->
     case trace_type(Operation, Filter0, Formatter0) of
         {ok, Type, Filter, Formatter} ->
             trace_on(
-                name(Filter0),
                 Type,
                 Filter,
                 list_to_existing_atom(Level),
@@ -585,8 +584,10 @@ trace(_) ->
         {"trace stop  ruleid  <RuleID> ", "Stop tracing for a rule ID on local node"}
     ]).
 
-trace_on(Name, Type, Filter, Level, LogFile, Formatter) ->
-    case emqx_trace_handler:install(Name, Type, Filter, Level, LogFile, Formatter) of
+trace_on(Type, Filter, Level, LogFile, Formatter) ->
+    Name = name(Filter),
+    HandlerId = emqx_trace_handler:fallback_handler_id(?MODULE_STRING, Name),
+    case emqx_trace_handler:install(HandlerId, Name, Type, Filter, Level, LogFile, Formatter) of
         ok ->
             emqx_trace:check(),
             emqx_ctl:print("trace ~s ~s successfully~n", [Filter, Name]);
@@ -595,8 +596,10 @@ trace_on(Name, Type, Filter, Level, LogFile, Formatter) ->
     end.
 
 trace_off(Type, Filter) ->
+    Name = name(Filter),
+    HandlerId = emqx_trace_handler:fallback_handler_id(?MODULE_STRING, Name),
     ?TRACE("CLI", "trace_stopping", #{Type => Filter}),
-    case emqx_trace_handler:uninstall(Type, name(Filter)) of
+    case emqx_trace_handler:uninstall(HandlerId) of
         ok ->
             emqx_trace:check(),
             emqx_ctl:print("stop tracing ~s ~s successfully~n", [Type, Filter]);

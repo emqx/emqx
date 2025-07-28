@@ -3979,10 +3979,10 @@ t_trace_rule_id(_Config) ->
     ),
     %% Start tracing
     ok = emqx_trace_handler:install(
-        "CLI-RULE-1", ruleid, <<"test_rule_id_1">>, all, "tmp/rule_trace_1.log"
+        'CLI-RULE-1', "CLI-RULE-1", ruleid, <<"test_rule_id_1">>, all, "tmp/rule_trace_1.log", text
     ),
     ok = emqx_trace_handler:install(
-        "CLI-RULE-2", ruleid, <<"test_rule_id_2">>, all, "tmp/rule_trace_2.log"
+        'CLI-RULE-2', "CLI-RULE-2", ruleid, <<"test_rule_id_2">>, all, "tmp/rule_trace_2.log", text
     ),
     emqx_trace:check(),
     ok = filesync("CLI-RULE-1", ruleid),
@@ -4028,8 +4028,8 @@ t_trace_rule_id(_Config) ->
     ?assert(filelib:file_size("tmp/rule_trace_2.log") =:= 0),
 
     %% Stop tracing
-    ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-1">>),
-    ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-2">>),
+    ok = emqx_trace_handler:uninstall('CLI-RULE-1'),
+    ok = emqx_trace_handler:uninstall('CLI-RULE-2'),
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T).
 
@@ -4046,6 +4046,7 @@ t_trace_truncated(_Config) ->
 
     %% Start tracing
     ok = emqx_trace_handler:install(
+        'CLI-RULE-3',
         #{
             type => ruleid,
             filter => <<"test_rule_truncated">>,
@@ -4098,7 +4099,7 @@ t_trace_truncated(_Config) ->
     ),
 
     %% Stop tracing
-    ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-3">>),
+    ok = emqx_trace_handler:uninstall('CLI-RULE-3'),
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T),
 
