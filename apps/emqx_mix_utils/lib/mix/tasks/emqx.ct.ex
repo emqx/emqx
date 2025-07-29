@@ -142,9 +142,36 @@ defmodule Mix.Tasks.Emqx.Ct do
     )
   end
 
+  defmodule Formatter do
+    @config %{single_line: false, legacy_header: true}
+    @colors %{
+      error: :red,
+      warning: :yellow,
+      notice: :bright,
+      info: :normal,
+      debug: :cyan
+    }
+
+    @doc false
+    def new(), do: {__MODULE__, IO.ANSI.enabled?()}
+
+    @doc false
+    def format(%{level: level} = event, true) do
+      color = Access.get(@colors, level, :red)
+      [IO.ANSI.format_fragment(color, true), format_erlang_default(event), IO.ANSI.reset()]
+    end
+
+    def format(event, false) do
+      format_erlang_default(event)
+    end
+
+    defp format_erlang_default(event) do
+      :logger_formatter.format(event, @config)
+    end
+  end
+
   def replace_elixir_formatter() do
-    erl_formatter = {:logger_formatter, %{single_line: false, legacy_header: true}}
-    :logger.update_handler_config(:default, %{formatter: erl_formatter})
+    :logger.update_handler_config(:default, %{formatter: Formatter.new()})
   end
 
   @doc """
