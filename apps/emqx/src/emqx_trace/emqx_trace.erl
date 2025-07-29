@@ -288,9 +288,6 @@ create(Trace) ->
         {ok, TraceRecord} ?= mk_trace_record(Trace),
         ok ?= insert_new_trace(TraceRecord),
         {ok, format(TraceRecord)}
-    else
-        {error, Reason} ->
-            {error, Reason}
     end.
 
 -spec delete(Name :: binary()) -> ok | {error, not_found}.
@@ -626,8 +623,6 @@ mk_trace_record(Trace = #{}) ->
         }),
         ok ?= validate_time_range(Record),
         {ok, Record}
-    else
-        Error -> Error
     end.
 
 fill_default(Trace = #?TRACE{start_at = undefined}) ->
