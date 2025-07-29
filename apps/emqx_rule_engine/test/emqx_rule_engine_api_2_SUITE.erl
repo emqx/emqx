@@ -9,40 +9,142 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+
+%%------------------------------------------------------------------------------
+%% Definitions
+%%------------------------------------------------------------------------------
 
 -import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(local, local).
+-define(custom_cluster, custom_cluster).
+-define(global_namespace, global_namespace).
+-define(namespaced, namespaced).
+
+-define(NS, <<"some_namespace">>).
+
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
+-define(assertReceivePublish(TOPIC, EXPR), begin
+    ?assertMatch(
+        EXPR,
+        maps:update_with(
+            payload,
+            fun emqx_utils_json:decode/1,
+            element(2, ?assertReceive({publish, #{topic := TOPIC}}))
+        )
+    )
+end).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, ?local},
+        {group, ?custom_cluster}
+    ].
 
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        app_specs(),
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+groups() ->
+    AllTCs0 = emqx_common_test_helpers:all_with_matrix(?MODULE),
+    AllTCs = lists:filter(
+        fun
+            ({group, _}) -> false;
+            (_) -> true
+        end,
+        AllTCs0
     ),
-    [{apps, Apps} | Config].
+    CustomMatrix = emqx_common_test_helpers:groups_with_matrix(?MODULE),
+    LocalTCs = merge_custom_groups(?local, AllTCs, CustomMatrix),
+    ClusterTCs = merge_custom_groups(?custom_cluster, [], CustomMatrix),
+    [
+        {?local, LocalTCs},
+        {?custom_cluster, ClusterTCs}
+    ].
 
-end_per_suite(Config) ->
-    Apps = ?config(apps, Config),
-    ok = emqx_cth_suite:stop(Apps),
+merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
+    CustomMatrix =
+        lists:flatmap(
+            fun
+                ({G, _, SubGroup}) when G == RootGroup ->
+                    SubGroup;
+                (_) ->
+                    []
+            end,
+            CustomMatrix0
+        ),
+    CustomMatrix ++ GroupTCs.
+
+custom_cluster_cases() ->
+    Key = ?custom_cluster,
+    lists:filter(
+        fun
+            ({testcase, TestCase, _Opts}) ->
+                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false);
+            (TestCase) ->
+                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false)
+        end,
+        emqx_common_test_helpers:all(?MODULE)
+    ).
+
+init_per_suite(TCConfig) ->
+    TCConfig.
+
+end_per_suite(_TCConfig) ->
     ok.
 
-app_specs() ->
+app_specs_no_dashboard() ->
     [
+        {emqx, #{
+            before_start =>
+                fun(App, AppOpts) ->
+                    %% We need this in the tests because `emqx_cth_suite` does not start apps in
+                    %% the exact same way as the release works: in the release,
+                    %% `emqx_enterprise_schema` is the root schema that knows all root keys.  In
+                    %% CTH, we need to manually load the schema below so that when
+                    %% `emqx_config:init_load` runs and encounters a namespaced root key, it knows
+                    %% the schema module for it.
+                    Mod = emqx_rule_engine_schema,
+                    emqx_config:init_load(Mod, <<"">>),
+                    ok = emqx_schema_hooks:inject_from_modules([?MODULE, Mod]),
+                    emqx_cth_suite:inhibit_config_loader(App, AppOpts)
+                end
+        }},
         emqx_conf,
         emqx_rule_engine,
-        emqx_management,
-        emqx_mgmt_api_test_util:emqx_dashboard()
+        emqx_management
     ].
+
+app_specs() ->
+    app_specs_no_dashboard() ++ [emqx_mgmt_api_test_util:emqx_dashboard()].
+
+init_per_group(?local, TCConfig) ->
+    Apps = emqx_cth_suite:start(
+        app_specs(),
+        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
+    ),
+    [{apps, Apps}, {node, node()} | TCConfig];
+init_per_group(?custom_cluster, TCConfig) ->
+    TCConfig;
+init_per_group(_Group, TCConfig) ->
+    TCConfig.
+
+end_per_group(?local, TCConfig) ->
+    Apps = get_value(apps, TCConfig),
+    ok = emqx_cth_suite:stop(Apps),
+    ok;
+end_per_group(?custom_cluster, _TCConfig) ->
+    ok;
+end_per_group(_Group, _TCConfig) ->
+    ok.
 
 init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -110,15 +212,18 @@ list_rules_just_ids(QueryParams) when is_list(QueryParams) ->
             Res
     end.
 
+rule_config(Overrides) ->
+    Default = #{
+        <<"enable">> => true,
+        <<"sql">> => <<"select true from t">>
+    },
+    emqx_utils_maps:deep_merge(Default, Overrides).
+
 create_rule() ->
     create_rule(_Overrides = #{}).
 
 create_rule(Overrides) ->
-    Params0 = #{
-        <<"enable">> => true,
-        <<"sql">> => <<"select true from t">>
-    },
-    Params = emqx_utils_maps:deep_merge(Params0, Overrides),
+    Params = rule_config(Overrides),
     Method = post,
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     Res = request(Method, Path, Params),
@@ -161,6 +266,137 @@ simulate_rule(Id, Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules", Id, "test"]),
     Res = request(Method, Path, Params),
     emqx_mgmt_api_test_util:simplify_result(Res).
+
+get_value(Key, TCConfig) ->
+    emqx_bridge_v2_testlib:get_value(Key, TCConfig).
+
+ensure_namespaced_api_key(Namespace, TCConfig) ->
+    ensure_namespaced_api_key(Namespace, _Opts = #{}, TCConfig).
+ensure_namespaced_api_key(Namespace, Opts0, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    Opts = Opts0#{namespace => Namespace},
+    ?ON(Node, emqx_bridge_v2_testlib:ensure_namespaced_api_key(Opts)).
+
+auth_header(TCConfig) ->
+    maybe
+        undefined ?= ?config(auth_header, TCConfig),
+        APIKey = get_value(api_key, TCConfig),
+        emqx_common_test_http:auth_header(APIKey)
+    end.
+
+list(TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get,
+            url => emqx_mgmt_api_test_util:api_path(["rules"]),
+            auth_header => AuthHeader
+        })
+    end).
+
+create(Config, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["rules"]),
+            body => Config,
+            auth_header => AuthHeader
+        })
+    end).
+
+get(Id, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get,
+            url => emqx_mgmt_api_test_util:api_path(["rules", Id]),
+            auth_header => AuthHeader
+        })
+    end).
+
+update(Id, Config, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => put,
+            url => emqx_mgmt_api_test_util:api_path(["rules", Id]),
+            body => Config,
+            auth_header => AuthHeader
+        })
+    end).
+
+delete(Id, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => delete,
+            url => emqx_mgmt_api_test_util:api_path(["rules", Id]),
+            auth_header => AuthHeader
+        })
+    end).
+
+get_metrics(Id, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get,
+            url => emqx_mgmt_api_test_util:api_path(["rules", Id, "metrics"]),
+            auth_header => AuthHeader
+        })
+    end).
+
+reset_metrics(Id, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => put,
+            url => emqx_mgmt_api_test_util:api_path(["rules", Id, "metrics", "reset"]),
+            auth_header => AuthHeader
+        })
+    end).
+
+simulate(Id, Params, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["rules", Id, "test"]),
+            body => Params,
+            auth_header => AuthHeader
+        })
+    end).
+
+get_rule_engine_config(TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get,
+            url => emqx_mgmt_api_test_util:api_path(["rule_engine"]),
+            auth_header => AuthHeader
+        })
+    end).
+
+set_rule_engine_config(Config, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => put,
+            url => emqx_mgmt_api_test_util:api_path(["rule_engine"]),
+            body => Config,
+            auth_header => AuthHeader
+        })
+    end).
 
 sources_sql(Sources) ->
     Froms = iolist_to_binary(lists:join(<<", ">>, lists:map(fun source_from/1, Sources))),
@@ -218,6 +454,120 @@ client_connected_context() ->
         <<"peername">> => <<"127.0.0.1:64001">>,
         <<"username">> => <<"u_emqx">>
     }.
+
+get_tcp_mqtt_port(Node) ->
+    {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
+
+setup_namespaced_actions_sources_scenario(TCConfig0) ->
+    Node = proplists:get_value(node, TCConfig0, node()),
+    MQTTPort = get_tcp_mqtt_port(Node),
+    {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    TCConfig = [{node, Node}, {api_key, APIKey} | TCConfig0],
+
+    AuthHeaderGlobal = emqx_common_test_http:auth_header(APIKey),
+    TCConfigGlobal = [{auth_header, AuthHeaderGlobal} | TCConfig],
+    NS1 = <<"ns1">>,
+    AuthHeaderNS1 = ensure_namespaced_api_key(NS1, TCConfig),
+    TCConfigNS1 = [{auth_header, AuthHeaderNS1} | TCConfig],
+    NS2 = <<"ns2">>,
+    AuthHeaderNS2 = ensure_namespaced_api_key(NS2, TCConfig),
+    TCConfigNS2 = [{auth_header, AuthHeaderNS2} | TCConfig],
+
+    %% Sanity checks
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigGlobal)),
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigNS1)),
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigNS2)),
+
+    %% setup connectors for each namespace
+    on_exit(fun() -> emqx_bridge_v2_testlib:delete_all_bridges_and_connectors() end),
+    Server = <<"127.0.0.1:", (integer_to_binary(MQTTPort))/binary>>,
+    ConnectorType = <<"mqtt">>,
+    ConnectorName = <<"conn">>,
+    ConnectorConfigGlobal = emqx_bridge_v2_api_SUITE:source_connector_create_config(#{
+        <<"description">> => <<"global">>,
+        <<"pool_size">> => 1,
+        <<"server">> => Server
+    }),
+    ConnectorConfigNS1 = emqx_bridge_v2_api_SUITE:source_connector_create_config(#{
+        <<"description">> => <<"ns1">>,
+        <<"pool_size">> => 1,
+        <<"server">> => Server
+    }),
+    ConnectorConfigNS2 = emqx_bridge_v2_api_SUITE:source_connector_create_config(#{
+        <<"description">> => <<"ns2">>,
+        <<"pool_size">> => 1,
+        <<"server">> => Server
+    }),
+    {201, #{<<"status">> := <<"connected">>}} =
+        emqx_connector_api_SUITE:create(
+            ConnectorType, ConnectorName, ConnectorConfigGlobal, TCConfigGlobal
+        ),
+    {201, #{<<"status">> := <<"connected">>}} =
+        emqx_connector_api_SUITE:create(
+            ConnectorType, ConnectorName, ConnectorConfigNS1, TCConfigNS1
+        ),
+    {201, #{<<"status">> := <<"connected">>}} =
+        emqx_connector_api_SUITE:create(
+            ConnectorType, ConnectorName, ConnectorConfigNS2, TCConfigNS2
+        ),
+
+    %% Create actions/sources
+    Type = <<"mqtt">>,
+    Name = <<"channel1">>,
+    RemoteTopic = <<"remote/t">>,
+    ConfigGlobal = emqx_bridge_v2_api_SUITE:source_update_config(#{
+        <<"description">> => <<"global">>,
+        <<"connector">> => ConnectorName,
+        <<"parameters">> => #{<<"topic">> => RemoteTopic}
+    }),
+    ConfigNS1 = emqx_bridge_v2_api_SUITE:source_update_config(#{
+        <<"description">> => <<"ns1">>,
+        <<"connector">> => ConnectorName,
+        <<"parameters">> => #{<<"topic">> => RemoteTopic}
+    }),
+    ConfigNS2 = emqx_bridge_v2_api_SUITE:source_update_config(#{
+        <<"description">> => <<"ns2">>,
+        <<"connector">> => ConnectorName,
+        <<"parameters">> => #{<<"topic">> => RemoteTopic}
+    }),
+
+    ?assertMatch(
+        {201, #{<<"description">> := <<"global">>, <<"status">> := <<"connected">>}},
+        emqx_bridge_v2_api_SUITE:create(Type, Name, ConfigGlobal, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {201, #{<<"description">> := <<"ns1">>, <<"status">> := <<"connected">>}},
+        emqx_bridge_v2_api_SUITE:create(Type, Name, ConfigNS1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {201, #{<<"description">> := <<"ns2">>, <<"status">> := <<"connected">>}},
+        emqx_bridge_v2_api_SUITE:create(Type, Name, ConfigNS2, TCConfigNS2)
+    ),
+
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+
+    #{
+        mqtt_port => MQTTPort,
+        remote_topic => RemoteTopic,
+        namespaces => [?global_ns, NS1, NS2],
+        tc_configs => #{
+            ?global_ns => TCConfigGlobal,
+            NS1 => TCConfigNS1,
+            NS2 => TCConfigNS2
+        },
+        connector_type => ConnectorType,
+        connector_name => ConnectorName,
+        kind => emqx_bridge_v2_api_SUITE:kind_of(TCConfig),
+        type => Type,
+        name => Name,
+        bridge_id => BridgeId
+    }.
+
+namespace_of(TCConfig) ->
+    emqx_common_test_helpers:get_matrix_prop(
+        TCConfig, [?global_namespace, ?namespaced], ?global_namespace
+    ).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -1064,19 +1414,35 @@ t_alarm_details_with_unknown_atom_key(_Config) ->
 
 %% Verifies that we enrich the list response with status about the Actions in each rule,
 %% if available.
-t_action_details(Config) ->
+t_action_details() ->
+    [{matrix, true}].
+t_action_details(matrix) ->
+    [
+        [?local, ?global_namespace],
+        [?local, ?namespaced]
+    ];
+t_action_details(TCConfig0) ->
     ExtraAppSpecs = [
         emqx_bridge_mqtt,
         emqx_bridge
     ],
     ExtraApps = emqx_cth_suite:start_apps(
         ExtraAppSpecs,
-        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, TCConfig0)}
     ),
     on_exit(fun() -> emqx_cth_suite:stop_apps(ExtraApps) end),
 
+    {ok, APIKey} = emqx_common_test_http:create_default_app(),
+    TCConfig1 = [{api_key, APIKey} | TCConfig0],
+    AuthHeader =
+        case namespace_of(TCConfig1) of
+            ?global_namespace -> auth_header(TCConfig1);
+            ?namespaced -> ensure_namespaced_api_key(?NS, TCConfig1)
+        end,
+    TCConfig = [{auth_header, AuthHeader} | TCConfig1],
+
     CreateBridge = fun(Name, MQTTPort) ->
-        emqx_bridge_v2_testlib:create_bridge_api([
+        TCConfig2 = [
             {connector_type, <<"mqtt">>},
             {connector_name, Name},
             {connector_config,
@@ -1090,26 +1456,30 @@ t_action_details(Config) ->
                 emqx_bridge_mqtt_v2_publisher_SUITE:action_config(#{
                     <<"connector">> => Name
                 })}
-        ])
+            | TCConfig
+        ],
+        {201, _} = emqx_bridge_v2_testlib:create_connector_api2(TCConfig2, #{}),
+        {201, _} = emqx_bridge_v2_testlib:create_action_api2(TCConfig2, #{}),
+        ok
     end,
     on_exit(fun emqx_bridge_v2_testlib:delete_all_bridges_and_connectors/0),
-    {ok, _} = CreateBridge(<<"a1">>, 1883),
+    ok = CreateBridge(<<"a1">>, 1883),
     %% Bad port: will be disconnected
-    {ok, _} = CreateBridge(<<"a2">>, 9999),
+    ok = CreateBridge(<<"a2">>, 9999),
 
-    ?assertMatch(
-        {200, #{<<"data">> := []}},
-        list_rules([])
-    ),
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfig)),
 
     ActionId1 = <<"mqtt:a1">>,
     ActionId2 = <<"mqtt:a2">>,
     %% This onw does not exist.
     ActionId3 = <<"mqtt:a3">>,
-    {201, _} = create_rule(#{<<"id">> => <<"1">>, <<"actions">> => [ActionId1]}),
-    {201, _} = create_rule(#{<<"id">> => <<"2">>, <<"actions">> => [ActionId2]}),
-    {201, _} = create_rule(#{<<"id">> => <<"3">>, <<"actions">> => [ActionId2, ActionId1]}),
-    {201, _} = create_rule(#{<<"id">> => <<"4">>, <<"actions">> => [ActionId3]}),
+    Base = #{<<"sql">> => <<"select true from t">>},
+    {201, _} = create(Base#{<<"id">> => <<"1">>, <<"actions">> => [ActionId1]}, TCConfig),
+    {201, _} = create(Base#{<<"id">> => <<"2">>, <<"actions">> => [ActionId2]}, TCConfig),
+    {201, _} = create(
+        Base#{<<"id">> => <<"3">>, <<"actions">> => [ActionId2, ActionId1]}, TCConfig
+    ),
+    {201, _} = create(Base#{<<"id">> => <<"4">>, <<"actions">> => [ActionId3]}, TCConfig),
 
     ?assertMatch(
         {200, #{
@@ -1157,7 +1527,7 @@ t_action_details(Config) ->
                 }
             ]
         }},
-        list_rules([])
+        list(TCConfig)
     ),
     ok.
 
@@ -1173,4 +1543,706 @@ t_rule_simulation_legacy_topics(_Config) ->
     ],
     Failures = lists:filtermap(fun do_rule_simulation_simple/1, Cases),
     ?assertEqual([], Failures),
+    ok.
+
+-doc """
+Smoke tests for CRUD operations on namespaced rules.
+
+  - Namespaced users should only see and be able to mutate resources in their namespaces.
+""".
+t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
+    %% Worth checking in a clustered setup?
+    Node = node(),
+    MQTTPort = get_tcp_mqtt_port(Node),
+    {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    TCConfig = [{node, Node}, {api_key, APIKey} | TCConfig0],
+
+    AuthHeaderGlobal = emqx_common_test_http:auth_header(APIKey),
+    TCConfigGlobal = [{auth_header, AuthHeaderGlobal} | TCConfig],
+    NS1 = <<"ns1">>,
+    AuthHeaderNS1 = ensure_namespaced_api_key(NS1, TCConfig),
+    TCConfigNS1 = [{auth_header, AuthHeaderNS1} | TCConfig],
+    NS2 = <<"ns2">>,
+    AuthHeaderNS2 = ensure_namespaced_api_key(NS2, TCConfig),
+    TCConfigNS2 = [{auth_header, AuthHeaderNS2} | TCConfig],
+
+    AuthHeaderViewerNS1 = ensure_namespaced_api_key(
+        NS1, #{name => <<"viewer">>, role => viewer}, TCConfig
+    ),
+    TCConfigViewerNS1 = [{auth_header, AuthHeaderViewerNS1} | TCConfig],
+
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigGlobal)),
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigNS1)),
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigNS2)),
+
+    %% Create a few simple rules (no references to actions/sources)
+    RuleTopic1 = <<"t">>,
+    IdGlobal = <<"id_global">>,
+    IdNS1 = <<"id_ns1">>,
+    IdNS2 = <<"id_ns2">>,
+    RepublishAction = #{
+        <<"function">> => <<"republish">>,
+        <<"args">> => #{
+            <<"topic">> => <<"rep/${.topic}/${.ns}">>,
+            <<"qos">> => 2,
+            <<"payload">> => <<"${.}">>
+        }
+    },
+    ConfigGlobal = rule_config(#{
+        <<"id">> => IdGlobal,
+        <<"description">> => <<"global">>,
+        <<"sql">> => fmt(<<"select *, 'global' as ns from ${t}">>, #{t => RuleTopic1}),
+        <<"actions">> => [RepublishAction]
+    }),
+    ConfigNS1 = rule_config(#{
+        <<"id">> => IdNS1,
+        <<"description">> => <<"ns1">>,
+        <<"sql">> => fmt(<<"select *, 'ns1' as ns from ${t}">>, #{t => RuleTopic1}),
+        <<"actions">> => [RepublishAction]
+    }),
+    ConfigNS2 = rule_config(#{
+        <<"id">> => IdNS2,
+        <<"description">> => <<"ns2">>,
+        <<"sql">> => fmt(<<"select *, 'ns2' as ns from ${t}">>, #{t => RuleTopic1}),
+        <<"actions">> => [RepublishAction]
+    }),
+
+    ?assertMatch(
+        {201, #{<<"id">> := IdGlobal, <<"description">> := <<"global">>}},
+        create(ConfigGlobal, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {201, #{<<"id">> := IdNS1, <<"description">> := <<"ns1">>}},
+        create(ConfigNS1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {201, #{<<"id">> := IdNS2, <<"description">> := <<"ns2">>}},
+        create(ConfigNS2, TCConfigNS2)
+    ),
+
+    ?assertMatch(
+        {200, #{<<"data">> := [#{<<"id">> := IdGlobal, <<"description">> := <<"global">>}]}},
+        list(TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{<<"data">> := [#{<<"id">> := IdNS1, <<"description">> := <<"ns1">>}]}},
+        list(TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{<<"data">> := [#{<<"id">> := IdNS2, <<"description">> := <<"ns2">>}]}},
+        list(TCConfigNS2)
+    ),
+
+    ?assertMatch({200, #{<<"description">> := <<"global">>}}, get(IdGlobal, TCConfigGlobal)),
+    ?assertMatch({200, #{<<"description">> := <<"ns1">>}}, get(IdNS1, TCConfigNS1)),
+    ?assertMatch({200, #{<<"description">> := <<"ns2">>}}, get(IdNS2, TCConfigNS2)),
+
+    ?assertMatch({404, _}, get(IdGlobal, TCConfigNS1)),
+    ?assertMatch({404, _}, get(IdGlobal, TCConfigNS2)),
+    ?assertMatch({404, _}, get(IdNS1, TCConfigGlobal)),
+    ?assertMatch({404, _}, get(IdNS1, TCConfigNS2)),
+
+    %% Update
+    ?assertMatch(
+        {200, #{<<"id">> := IdGlobal, <<"description">> := <<"updated global">>}},
+        update(IdGlobal, ConfigGlobal#{<<"description">> => <<"updated global">>}, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{<<"id">> := IdNS1, <<"description">> := <<"updated ns1">>}},
+        update(IdNS1, ConfigNS1#{<<"description">> => <<"updated ns1">>}, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{<<"id">> := IdNS2, <<"description">> := <<"updated ns2">>}},
+        update(IdNS2, ConfigNS2#{<<"description">> => <<"updated ns2">>}, TCConfigNS2)
+    ),
+
+    ?assertMatch(
+        {200, #{<<"data">> := [#{<<"id">> := IdGlobal, <<"description">> := <<"updated global">>}]}},
+        list(TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{<<"data">> := [#{<<"id">> := IdNS1, <<"description">> := <<"updated ns1">>}]}},
+        list(TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{<<"data">> := [#{<<"id">> := IdNS2, <<"description">> := <<"updated ns2">>}]}},
+        list(TCConfigNS2)
+    ),
+
+    ?assertMatch(
+        {200, #{<<"description">> := <<"updated global">>}}, get(IdGlobal, TCConfigGlobal)
+    ),
+    ?assertMatch({200, #{<<"description">> := <<"updated ns1">>}}, get(IdNS1, TCConfigNS1)),
+    ?assertMatch({200, #{<<"description">> := <<"updated ns2">>}}, get(IdNS2, TCConfigNS2)),
+
+    ?assertMatch({404, _}, get(IdGlobal, TCConfigNS1)),
+    ?assertMatch({404, _}, get(IdGlobal, TCConfigNS2)),
+    ?assertMatch({404, _}, get(IdNS1, TCConfigGlobal)),
+    ?assertMatch({404, _}, get(IdNS1, TCConfigNS2)),
+
+    %% Trigger rule / check topic index
+    {ok, C} = emqtt:start_link(#{port => MQTTPort, proto_ver => v5}),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, _} = emqtt:subscribe(C, <<"rep/#">>, [{qos, 2}]),
+
+    %% Same rule topic is used by all rules here.
+    {ok, _} = emqtt:publish(C, RuleTopic1, <<"hello!">>, [{qos, 2}]),
+    ?assertReceivePublish(
+        <<"rep/t/global">>,
+        #{payload := #{<<"metadata">> := #{<<"rule_id">> := IdGlobal}}}
+    ),
+    ?assertReceivePublish(
+        <<"rep/t/ns1">>,
+        #{payload := #{<<"metadata">> := #{<<"rule_id">> := IdNS1}}}
+    ),
+    ?assertReceivePublish(
+        <<"rep/t/ns2">>,
+        #{payload := #{<<"metadata">> := #{<<"rule_id">> := IdNS2}}}
+    ),
+    ?assertNotReceive({publish, _}),
+
+    %% Metrics
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"actions.discarded">> := 0,
+                <<"actions.failed">> := 0,
+                <<"actions.failed.out_of_service">> := 0,
+                <<"actions.failed.unknown">> := 0,
+                <<"actions.success">> := 1,
+                <<"actions.total">> := 1,
+                <<"failed">> := 0,
+                <<"failed.exception">> := 0,
+                <<"failed.no_result">> := 0,
+                <<"matched">> := 1,
+                <<"matched.rate">> := _,
+                <<"matched.rate.last5m">> := _,
+                <<"matched.rate.max">> := _,
+                <<"passed">> := 1
+            }
+        }},
+        get_metrics(IdGlobal, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"actions.discarded">> := 0,
+                <<"actions.failed">> := 0,
+                <<"actions.failed.out_of_service">> := 0,
+                <<"actions.failed.unknown">> := 0,
+                <<"actions.success">> := 1,
+                <<"actions.total">> := 1,
+                <<"failed">> := 0,
+                <<"failed.exception">> := 0,
+                <<"failed.no_result">> := 0,
+                <<"matched">> := 1,
+                <<"matched.rate">> := _,
+                <<"matched.rate.last5m">> := _,
+                <<"matched.rate.max">> := _,
+                <<"passed">> := 1
+            }
+        }},
+        get_metrics(IdNS1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"actions.discarded">> := 0,
+                <<"actions.failed">> := 0,
+                <<"actions.failed.out_of_service">> := 0,
+                <<"actions.failed.unknown">> := 0,
+                <<"actions.success">> := 1,
+                <<"actions.total">> := 1,
+                <<"failed">> := 0,
+                <<"failed.exception">> := 0,
+                <<"failed.no_result">> := 0,
+                <<"matched">> := 1,
+                <<"matched.rate">> := _,
+                <<"matched.rate.last5m">> := _,
+                <<"matched.rate.max">> := _,
+                <<"passed">> := 1
+            }
+        }},
+        get_metrics(IdNS2, TCConfigNS2)
+    ),
+
+    ?assertMatch({204, _}, reset_metrics(IdNS2, TCConfigNS2)),
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"actions.total">> := 1,
+                <<"matched">> := 1,
+                <<"passed">> := 1
+            }
+        }},
+        get_metrics(IdGlobal, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"actions.total">> := 1,
+                <<"matched">> := 1,
+                <<"passed">> := 1
+            }
+        }},
+        get_metrics(IdNS1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"actions.total">> := 0,
+                <<"matched">> := 0,
+                <<"passed">> := 0
+            }
+        }},
+        get_metrics(IdNS2, TCConfigNS2)
+    ),
+
+    ?assertMatch({204, _}, reset_metrics(IdGlobal, TCConfigGlobal)),
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"actions.total">> := 0,
+                <<"matched">> := 0,
+                <<"passed">> := 0
+            }
+        }},
+        get_metrics(IdGlobal, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"actions.total">> := 1,
+                <<"matched">> := 1,
+                <<"passed">> := 1
+            }
+        }},
+        get_metrics(IdNS1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"actions.total">> := 0,
+                <<"matched">> := 0,
+                <<"passed">> := 0
+            }
+        }},
+        get_metrics(IdNS2, TCConfigNS2)
+    ),
+
+    %% Simulate
+    %% Non-simulation tests don't have anything that depends on namespaces.  Simulate
+    %% exercises existing real rules.
+    SimulatedEncPayload = emqx_utils_json:encode(#{<<"just">> => <<"testing">>}),
+    SimulateParams = #{
+        <<"context">> => #{
+            <<"clientid">> => <<"c_emqx">>,
+            <<"event_type">> => <<"message_publish">>,
+            <<"username">> => <<"u_emqx">>,
+            <<"payload">> => SimulatedEncPayload,
+            <<"qos">> => 1,
+            <<"topic">> => RuleTopic1
+        },
+        <<"stop_action_after_template_rendering">> => false
+    },
+    ?assertMatch({200, _}, simulate(IdGlobal, SimulateParams, TCConfigGlobal)),
+    ?assertMatch({200, _}, simulate(IdNS1, SimulateParams, TCConfigNS1)),
+    ?assertMatch({200, _}, simulate(IdNS2, SimulateParams, TCConfigNS2)),
+
+    ?assertReceivePublish(
+        <<"rep/t/global">>,
+        #{
+            payload := #{
+                <<"payload">> := SimulatedEncPayload,
+                <<"metadata">> := #{<<"rule_id">> := IdGlobal}
+            }
+        }
+    ),
+    ?assertReceivePublish(
+        <<"rep/t/ns1">>,
+        #{
+            payload := #{
+                <<"payload">> := SimulatedEncPayload,
+                <<"metadata">> := #{<<"rule_id">> := IdNS1}
+            }
+        }
+    ),
+    ?assertReceivePublish(
+        <<"rep/t/ns2">>,
+        #{
+            payload := #{
+                <<"payload">> := SimulatedEncPayload,
+                <<"metadata">> := #{<<"rule_id">> := IdNS2}
+            }
+        }
+    ),
+    ?assertNotReceive({publish, _}),
+
+    %% Root config
+    ?assertMatch({200, _}, get_rule_engine_config(TCConfigGlobal)),
+    ?assertMatch({200, _}, get_rule_engine_config(TCConfigNS1)),
+    ?assertMatch({200, _}, get_rule_engine_config(TCConfigNS2)),
+
+    {200, RootConfig0} = get_rule_engine_config(TCConfigGlobal),
+    ?assertMatch(
+        {200, #{<<"jq_function_default_timeout">> := 1_000}},
+        set_rule_engine_config(
+            RootConfig0#{<<"jq_function_default_timeout">> := 1_000}, TCConfigGlobal
+        )
+    ),
+    ?assertMatch(
+        {200, #{<<"jq_function_default_timeout">> := 2_000}},
+        set_rule_engine_config(
+            RootConfig0#{<<"jq_function_default_timeout">> := 2_000}, TCConfigNS1
+        )
+    ),
+    ?assertMatch(
+        {200, #{<<"jq_function_default_timeout">> := 3_000}},
+        set_rule_engine_config(
+            RootConfig0#{<<"jq_function_default_timeout">> := 3_000}, TCConfigNS2
+        )
+    ),
+
+    ?assertMatch(
+        {200, #{<<"jq_function_default_timeout">> := 1_000}},
+        get_rule_engine_config(TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{<<"jq_function_default_timeout">> := 2_000}},
+        get_rule_engine_config(TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{<<"jq_function_default_timeout">> := 3_000}},
+        get_rule_engine_config(TCConfigNS2)
+    ),
+
+    %% Viewer cannot mutate anything
+    ?assertMatch({404, _}, get(IdNS2, TCConfigViewerNS1)),
+
+    ?assertMatch({200, #{<<"data">> := [_]}}, list(TCConfigViewerNS1)),
+    ?assertMatch({200, _}, get(IdNS1, TCConfigViewerNS1)),
+    ?assertMatch({200, _}, get_metrics(IdNS1, TCConfigViewerNS1)),
+
+    ?assertMatch({403, _}, create(ConfigNS1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, update(IdNS1, ConfigNS1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, delete(IdNS1, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, simulate(IdNS1, SimulateParams, TCConfigViewerNS1)),
+    ?assertMatch({403, _}, reset_metrics(IdNS1, TCConfigViewerNS1)),
+
+    %% Delete
+    ?assertMatch({204, _}, delete(IdNS2, TCConfigNS2)),
+
+    ?assertMatch({200, #{<<"data">> := [_]}}, list(TCConfigGlobal)),
+    ?assertMatch({200, #{<<"data">> := [_]}}, list(TCConfigNS1)),
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigNS2)),
+
+    ?assertMatch({200, _}, get(IdGlobal, TCConfigGlobal)),
+    ?assertMatch({200, _}, get(IdNS1, TCConfigNS1)),
+    ?assertMatch({404, _}, get(IdNS2, TCConfigNS2)),
+
+    ?assertMatch({200, _}, get_metrics(IdGlobal, TCConfigGlobal)),
+    ?assertMatch({200, _}, get_metrics(IdNS1, TCConfigNS1)),
+    ?assertMatch({404, _}, get_metrics(IdNS2, TCConfigNS2)),
+
+    ?assertMatch({204, _}, reset_metrics(IdGlobal, TCConfigGlobal)),
+    ?assertMatch({204, _}, reset_metrics(IdNS1, TCConfigNS1)),
+    ?assertMatch({404, _}, reset_metrics(IdNS2, TCConfigNS2)),
+
+    ?assertMatch({200, _}, update(IdGlobal, ConfigGlobal, TCConfigGlobal)),
+    ?assertMatch({200, _}, update(IdNS1, ConfigNS1, TCConfigNS1)),
+    ?assertMatch({404, _}, update(IdNS2, ConfigNS2, TCConfigNS2)),
+
+    ?assertMatch({404, _}, simulate(IdNS2, SimulateParams, TCConfigNS2)),
+
+    ?assertMatch({204, _}, delete(IdGlobal, TCConfigGlobal)),
+
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigGlobal)),
+    ?assertMatch({200, #{<<"data">> := [_]}}, list(TCConfigNS1)),
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigNS2)),
+
+    ?assertMatch({404, _}, get(IdGlobal, TCConfigGlobal)),
+    ?assertMatch({200, _}, get(IdNS1, TCConfigNS1)),
+    ?assertMatch({404, _}, get(IdNS2, TCConfigNS2)),
+
+    ?assertMatch({204, _}, delete(IdNS1, TCConfigNS1)),
+
+    ok = emqtt:stop(C),
+
+    ok.
+
+-doc """
+Verifies that rules referencing actions are restricted to their namespaces.
+""".
+t_namespaced_actions() ->
+    [{matrix, true}].
+t_namespaced_actions(matrix) ->
+    [[?local, actions]];
+t_namespaced_actions(TCConfig0) when is_list(TCConfig0) ->
+    %% Worth checking in a clustered setup?
+    Node = node(),
+    TCConfig = [{node, Node} | TCConfig0],
+    #{
+        bridge_id := BridgeId,
+        remote_topic := RemoteTopic,
+        mqtt_port := MQTTPort,
+        namespaces := [?global_ns, NS1, NS2]
+    } = Params = setup_namespaced_actions_sources_scenario(TCConfig),
+    #{
+        tc_configs := #{
+            ?global_ns := TCConfigGlobal,
+            NS1 := TCConfigNS1,
+            NS2 := TCConfigNS2
+        }
+    } = Params,
+
+    RuleTopicGlobal = <<"global">>,
+    RuleTopicNS1 = <<"ns1">>,
+    RuleTopicNS2 = <<"ns2">>,
+    IdGlobal = <<"id_global">>,
+    IdNS1 = <<"id_ns1">>,
+    IdNS2 = <<"id_ns2">>,
+    ConfigGlobal = rule_config(#{
+        <<"id">> => IdGlobal,
+        <<"description">> => <<"global">>,
+        <<"sql">> => fmt(<<"select *, 'global' as ns from ${t}">>, #{t => RuleTopicGlobal}),
+        <<"actions">> => [BridgeId]
+    }),
+    ConfigNS1 = rule_config(#{
+        <<"id">> => IdNS1,
+        <<"description">> => <<"ns1">>,
+        <<"sql">> => fmt(<<"select *, 'ns1' as ns from ${t}">>, #{t => RuleTopicNS1}),
+        <<"actions">> => [BridgeId]
+    }),
+    ConfigNS2 = rule_config(#{
+        <<"id">> => IdNS2,
+        <<"description">> => <<"ns2">>,
+        <<"sql">> => fmt(<<"select *, 'ns2' as ns from ${t}">>, #{t => RuleTopicNS2}),
+        <<"actions">> => [BridgeId]
+    }),
+
+    ?assertMatch(
+        {201, #{<<"id">> := IdGlobal, <<"description">> := <<"global">>}},
+        create(ConfigGlobal, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {201, #{<<"id">> := IdNS1, <<"description">> := <<"ns1">>}},
+        create(ConfigNS1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {201, #{<<"id">> := IdNS2, <<"description">> := <<"ns2">>}},
+        create(ConfigNS2, TCConfigNS2)
+    ),
+
+    {ok, C} = emqtt:start_link(#{port => MQTTPort, proto_ver => v5}),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, _} = emqtt:subscribe(C, RemoteTopic, [{qos, 2}]),
+
+    {ok, _} = emqtt:publish(C, RuleTopicNS1, <<"hello ns1">>, [{qos, 2}]),
+    ?assertReceivePublish(
+        RemoteTopic,
+        #{
+            payload := #{
+                <<"ns">> := <<"ns1">>,
+                <<"metadata">> := #{<<"rule_id">> := IdNS1}
+            }
+        }
+    ),
+    ?assertNotReceive({publish, _}),
+
+    {ok, _} = emqtt:publish(C, RuleTopicGlobal, <<"hello global">>, [{qos, 2}]),
+    ?assertReceivePublish(
+        RemoteTopic,
+        #{
+            payload := #{
+                <<"ns">> := <<"global">>,
+                <<"metadata">> := #{<<"rule_id">> := IdGlobal}
+            }
+        }
+    ),
+    ?assertNotReceive({publish, _}),
+
+    ok = emqtt:stop(C),
+
+    ok.
+
+-doc """
+Verifies that rules referencing sources are restricted to their namespaces.
+""".
+t_namespaced_sources() ->
+    [{matrix, true}].
+t_namespaced_sources(matrix) ->
+    [[?local, sources]];
+t_namespaced_sources(TCConfig0) when is_list(TCConfig0) ->
+    %% Worth checking in a clustered setup?
+    Node = node(),
+    TCConfig = [{node, Node} | TCConfig0],
+    #{
+        bridge_id := BridgeId,
+        remote_topic := RemoteTopic,
+        mqtt_port := MQTTPort,
+        namespaces := [?global_ns, NS1, NS2]
+    } = Params = setup_namespaced_actions_sources_scenario(TCConfig),
+    #{
+        tc_configs := #{
+            ?global_ns := TCConfigGlobal,
+            NS1 := TCConfigNS1,
+            NS2 := TCConfigNS2
+        }
+    } = Params,
+    HookPoint = emqx_bridge_v2:source_hookpoint(BridgeId),
+
+    IdGlobal = <<"id_global">>,
+    IdNS1 = <<"id_ns1">>,
+    IdNS2 = <<"id_ns2">>,
+    RepublishAction = #{
+        <<"function">> => <<"republish">>,
+        <<"args">> => #{
+            <<"topic">> => <<"rep/${.topic}/${.ns}">>,
+            <<"qos">> => 2,
+            <<"payload">> => <<"${.}">>
+        }
+    },
+    ConfigGlobal = rule_config(#{
+        <<"id">> => IdGlobal,
+        <<"description">> => <<"global">>,
+        <<"sql">> => fmt(<<"select *, 'global' as ns from \"${t}\"">>, #{t => HookPoint}),
+        <<"actions">> => [RepublishAction]
+    }),
+    ConfigNS1 = rule_config(#{
+        <<"id">> => IdNS1,
+        <<"description">> => <<"ns1">>,
+        <<"sql">> => fmt(<<"select *, 'ns1' as ns from \"${t}\"">>, #{t => HookPoint}),
+        <<"actions">> => [RepublishAction]
+    }),
+    ConfigNS2 = rule_config(#{
+        <<"id">> => IdNS2,
+        <<"description">> => <<"ns2">>,
+        <<"sql">> => fmt(<<"select *, 'ns2' as ns from \"${t}\"">>, #{t => HookPoint}),
+        <<"actions">> => [RepublishAction]
+    }),
+
+    ?assertMatch(
+        {201, #{<<"id">> := IdGlobal, <<"description">> := <<"global">>}},
+        create(ConfigGlobal, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {201, #{<<"id">> := IdNS1, <<"description">> := <<"ns1">>}},
+        create(ConfigNS1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {201, #{<<"id">> := IdNS2, <<"description">> := <<"ns2">>}},
+        create(ConfigNS2, TCConfigNS2)
+    ),
+
+    {ok, C} = emqtt:start_link(#{port => MQTTPort, proto_ver => v5}),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, _} = emqtt:subscribe(C, <<"rep/#">>, [{qos, 2}]),
+
+    {ok, _} = emqtt:publish(C, RemoteTopic, <<"hello all sources">>, [{qos, 2}]),
+    ?assertReceivePublish(
+        <<"rep/remote/t/global">>,
+        #{
+            payload := #{
+                <<"ns">> := <<"global">>,
+                <<"metadata">> := #{<<"rule_id">> := IdGlobal}
+            }
+        }
+    ),
+    ?assertReceivePublish(
+        <<"rep/remote/t/ns1">>,
+        #{
+            payload := #{
+                <<"ns">> := <<"ns1">>,
+                <<"metadata">> := #{<<"rule_id">> := IdNS1}
+            }
+        }
+    ),
+    ?assertReceivePublish(
+        <<"rep/remote/t/ns2">>,
+        #{
+            payload := #{
+                <<"ns">> := <<"ns2">>,
+                <<"metadata">> := #{<<"rule_id">> := IdNS2}
+            }
+        }
+    ),
+    ?assertNotReceive({publish, _}),
+
+    ok = emqtt:stop(C),
+
+    ok.
+
+-doc """
+Asserts that a node restarts fine when there are namespaced rules in its config.
+""".
+t_namespaced_restart() ->
+    [{matrix, true}].
+t_namespaced_restart(matrix) ->
+    [[?custom_cluster]];
+t_namespaced_restart(TCConfig0) when is_list(TCConfig0) ->
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {rule_namespaced_restart1, #{apps => app_specs()}},
+            {rule_namespaced_restart2, #{apps => app_specs_no_dashboard()}}
+        ],
+        #{
+            work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, TCConfig0),
+            shutdown => 10_000
+        }
+    ),
+    [N1Spec | _] = NodeSpecs,
+    Nodes = [Node | _] = emqx_cth_cluster:start(NodeSpecs),
+    on_exit(fun() -> ok = emqx_cth_cluster:stop(Nodes) end),
+
+    {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    TCConfig = [{node, Node}, {api_key, APIKey} | TCConfig0],
+    NS1 = <<"ns1">>,
+    AuthHeaderNS1 = ensure_namespaced_api_key(NS1, TCConfig),
+    TCConfigNS1 = [{auth_header, AuthHeaderNS1} | TCConfig],
+
+    RuleTopic1 = <<"t">>,
+    IdNS1 = <<"id_ns1">>,
+    RepublishAction = #{
+        <<"function">> => <<"republish">>,
+        <<"args">> => #{
+            <<"topic">> => <<"rep/${.topic}/${.ns}">>,
+            <<"qos">> => 2,
+            <<"payload">> => <<"${.}">>
+        }
+    },
+    ConfigNS1 = rule_config(#{
+        <<"id">> => IdNS1,
+        <<"description">> => <<"ns1">>,
+        <<"sql">> => fmt(<<"select *, 'ns1' as ns from ${t}">>, #{t => RuleTopic1}),
+        <<"actions">> => [RepublishAction]
+    }),
+
+    ?assertMatch({201, _}, create(ConfigNS1, TCConfigNS1)),
+
+    ?assertMatch(
+        {200, #{<<"data">> := [#{<<"description">> := <<"ns1">>}]}},
+        list(TCConfigNS1)
+    ),
+
+    [Node] = emqx_cth_cluster:restart([N1Spec]),
+
+    ?assertMatch(
+        {200, #{<<"data">> := [#{<<"description">> := <<"ns1">>}]}},
+        list(TCConfigNS1)
+    ),
+
+    MQTTPort = get_tcp_mqtt_port(Node),
+
+    {ok, C} = emqtt:start_link(#{port => MQTTPort, proto_ver => v5}),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, _} = emqtt:subscribe(C, <<"rep/#">>, [{qos, 2}]),
+
+    %% Same rule topic is used by all rules here.
+    {ok, _} = emqtt:publish(C, RuleTopic1, <<"hello!">>, [{qos, 2}]),
+    ?assertReceivePublish(
+        <<"rep/t/ns1">>,
+        #{payload := #{<<"metadata">> := #{<<"rule_id">> := IdNS1}}}
+    ),
+    ok = emqtt:stop(C),
+
     ok.

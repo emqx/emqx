@@ -204,7 +204,7 @@ format_map_set_to_list(Map) ->
 format_action_info(#{mod := _Mod, func := _Func} = FuncCall) ->
     FuncCall;
 format_action_info(V) ->
-    [<<"action">>, Type, Name | _] = binary:split(V, <<":">>, [global]),
+    #{type := Type, name := Name} = emqx_resource:parse_channel_id(V),
     #{
         type => Type,
         name => Name

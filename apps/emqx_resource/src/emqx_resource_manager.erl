@@ -11,6 +11,7 @@
 -include("emqx_resource_errors.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 % API
 -export([
@@ -62,6 +63,9 @@
 -export([do_worker_channel_health_check/3, do_worker_resource_health_check/1]).
 -export([wait_for_ready/2]).
 
+%% Internal exports for `emqx_resource` app
+-export([get_namespace/2]).
+
 %% N.B.: This ONLY for tests or initializing the channel; actual health checks should be
 %% triggered by timers in the process.  Avoid doing manual health checks in other
 %% situations.
@@ -81,6 +85,7 @@
 % State record
 -record(data, {
     id,
+    namespace,
     group,
     type,
     mod,
@@ -689,6 +694,7 @@ start_link(ResId, Group, ResourceType, Config, Opts) ->
     ),
     Data = #data{
         id = ResId,
+        namespace = get_namespace(ResId, Opts),
         type = emqx_resource:get_resource_type(ResourceType),
         group = Group,
         mod = ResourceType,
@@ -705,7 +711,7 @@ start_link(ResId, Group, ResourceType, Config, Opts) ->
 init({DataIn, Opts}) ->
     process_flag(trap_exit, true),
     Data = DataIn#data{pid = self()},
-    set_label(Data#data.id),
+    set_label({resource_manager, Data#data.namespace, Data#data.id}),
     ok = set_log_meta(Data),
     emqx_resource_cache_cleaner:add_cache(Data#data.id, self()),
     IsEnabled = maps:get(enable, Data#data.config, true),
@@ -939,8 +945,25 @@ log_cache_consistency(DataCached, Data) ->
     }).
 
 %%------------------------------------------------------------------------------
-%% internal functions
+%% Internal exports for `emqx_resource` app
 %%------------------------------------------------------------------------------
+
+get_namespace(_ResId, #{namespace := Namespace}) ->
+    %% Assert
+    true = is_binary(Namespace) orelse Namespace == ?global_ns,
+    Namespace;
+get_namespace(ResId, _ResOpts) ->
+    case emqx_resource:parse_connector_id(ResId) of
+        {ok, #{namespace := Namespace}} ->
+            Namespace;
+        {error, _} ->
+            ?global_ns
+    end.
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
 insert_cache(Group, Data) ->
     emqx_resource_cache:write(self(), Group, Data).
 
@@ -2396,7 +2419,10 @@ tag(Group, Type) ->
     string:uppercase(Str).
 
 set_log_meta(Data) ->
-    LogTag = #{tag => tag(Data#data.group, Data#data.type)},
+    LogTag = #{
+        tag => tag(Data#data.group, Data#data.type),
+        namespace => Data#data.namespace
+    },
     emqx_logger:set_proc_metadata(LogTag).
 
 %% For still unknown reasons (e.g.: `emqx_metrics_worker' process might die?), metrics

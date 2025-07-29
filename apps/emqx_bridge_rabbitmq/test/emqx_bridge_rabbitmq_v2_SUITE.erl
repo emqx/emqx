@@ -58,6 +58,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok.
 
@@ -182,34 +183,33 @@ t_source(Config) ->
     Any = fun(#{name := BName}) -> BName =:= Name end,
     ?assert(lists:any(Any, Sources), Sources),
     Topic = <<"tesldkafd">>,
-    {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
         #{
-            sql =>
+            <<"sql">> =>
                 <<
                     "select *, queue as payload.queue, exchange as payload.exchange,"
                     "routing_key as payload.routing_key from \"$bridges/rabbitmq:",
                     Name/binary,
                     "\""
                 >>,
-            id => atom_to_binary(?FUNCTION_NAME),
-            actions => [
+            <<"id">> => atom_to_binary(?FUNCTION_NAME),
+            <<"actions">> => [
                 #{
-                    args => #{
-                        topic => Topic,
-                        mqtt_properties => #{},
-                        payload => <<"${payload}">>,
-                        qos => 0,
-                        retain => false,
-                        user_properties => [],
-                        direct_dispatch => false
+                    <<"args">> => #{
+                        <<"topic">> => Topic,
+                        <<"mqtt_properties">> => #{},
+                        <<"payload">> => <<"${payload}">>,
+                        <<"qos">> => 0,
+                        <<"retain">> => false,
+                        <<"user_properties">> => [],
+                        <<"direct_dispatch">> => false
                     },
-                    function => republish
+                    <<"function">> => <<"republish">>
                 }
             ],
-            description => <<"bridge_v2 republish rule">>
+            <<"description">> => <<"bridge_v2 republish rule">>
         }
     ),
-    on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
     {ok, C1} = emqtt:start_link([{clean_start, true}]),
     {ok, _} = emqtt:connect(C1),
     {ok, #{}, [0]} = emqtt:subscribe(C1, Topic, [{qos, 0}, {rh, 0}]),
@@ -277,15 +277,14 @@ t_action(Config) ->
     Any = fun(#{name := BName}) -> BName =:= Name end,
     ?assert(lists:any(Any, Actions), Actions),
     Topic = <<"lkadfdaction">>,
-    {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
         #{
-            sql => <<"select * from \"", Topic/binary, "\"">>,
-            id => atom_to_binary(?FUNCTION_NAME),
-            actions => [<<"rabbitmq:", Name/binary>>],
-            description => <<"bridge_v2 send msg to rabbitmq action">>
+            <<"sql">> => <<"select * from \"", Topic/binary, "\"">>,
+            <<"id">> => atom_to_binary(?FUNCTION_NAME),
+            <<"actions">> => [<<"rabbitmq:", Name/binary>>],
+            <<"description">> => <<"bridge_v2 send msg to rabbitmq action">>
         }
     ),
-    on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
     {ok, C1} = emqtt:start_link([{clean_start, true}]),
     {ok, _} = emqtt:connect(C1),
     Payload = payload(),
@@ -333,18 +332,17 @@ t_action_not_exist_exchange(_Config) ->
     Any = fun(#{name := BName}) -> BName =:= Name end,
     ?assert(lists:any(Any, Actions), Actions),
     Topic = <<"lkadfaodik">>,
-    {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
         #{
-            sql => <<"select * from \"", Topic/binary, "\"">>,
-            id => atom_to_binary(?FUNCTION_NAME),
-            actions => [<<"rabbitmq:", Name/binary>>],
-            description => <<"bridge_v2 send msg to rabbitmq action failed">>
+            <<"sql">> => <<"select * from \"", Topic/binary, "\"">>,
+            <<"id">> => atom_to_binary(?FUNCTION_NAME),
+            <<"actions">> => [<<"rabbitmq:", Name/binary>>],
+            <<"description">> => <<"bridge_v2 send msg to rabbitmq action failed">>
         }
     ),
     ok = snabbkaffe:start_trace(),
     on_exit(fun() ->
         snabbkaffe:stop(),
-        emqx_rule_engine:delete_rule(RuleId),
         _ = delete_action(Name)
     end),
     {ok, C1} = emqtt:start_link([{clean_start, true}]),
@@ -451,15 +449,14 @@ t_action_dynamic(Config) ->
     Any = fun(#{name := BName}) -> BName =:= Name end,
     ?assert(lists:any(Any, Actions), Actions),
     Topic = <<"rabbitdynaction">>,
-    {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
         #{
-            sql => <<"select * from \"", Topic/binary, "\"">>,
-            id => atom_to_binary(?FUNCTION_NAME),
-            actions => [<<"rabbitmq:", Name/binary>>],
-            description => <<"bridge_v2 send msg to rabbitmq action">>
+            <<"sql">> => <<"select * from \"", Topic/binary, "\"">>,
+            <<"id">> => atom_to_binary(?FUNCTION_NAME),
+            <<"actions">> => [<<"rabbitmq:", Name/binary>>],
+            <<"description">> => <<"bridge_v2 send msg to rabbitmq action">>
         }
     ),
-    on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
     {ok, C1} = emqtt:start_link([{clean_start, true}]),
     {ok, _} = emqtt:connect(C1),
     Payload = payload(?FUNCTION_NAME),
@@ -500,15 +497,14 @@ t_action_use_default_exchange(Config) ->
     Any = fun(#{name := BName}) -> BName =:= Name end,
     ?assert(lists:any(Any, Actions), Actions),
     Topic = <<"rabbit/use/default/exchange">>,
-    {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
         #{
-            sql => <<"select * from \"", Topic/binary, "\"">>,
-            id => atom_to_binary(?FUNCTION_NAME),
-            actions => [<<"rabbitmq:", Name/binary>>],
-            description => <<"bridge_v2 send msg to rabbitmq action">>
+            <<"sql">> => <<"select * from \"", Topic/binary, "\"">>,
+            <<"id">> => atom_to_binary(?FUNCTION_NAME),
+            <<"actions">> => [<<"rabbitmq:", Name/binary>>],
+            <<"description">> => <<"bridge_v2 send msg to rabbitmq action">>
         }
     ),
-    on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
     {ok, C1} = emqtt:start_link([{clean_start, true}]),
     {ok, _} = emqtt:connect(C1),
     Payload = payload(?FUNCTION_NAME),

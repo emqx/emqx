@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -294,7 +295,7 @@ create_rule_and_action(Action, RuleTopic, Opts) ->
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
             Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(?global_ns, RuleId) end),
             {ok, Res};
         Error ->
             Error

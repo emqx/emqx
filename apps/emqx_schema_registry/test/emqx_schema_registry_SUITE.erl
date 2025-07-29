@@ -93,6 +93,7 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
     emqx_common_test_helpers:call_janitor(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     clear_schemas(),
     clear_external_registries(),
     ok.
@@ -143,9 +144,7 @@ create_rule_http(RuleParams, Overrides) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
-            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-            {ok, Res};
+            {ok, emqx_utils_json:decode(Res0)};
         Error ->
             Error
     end.

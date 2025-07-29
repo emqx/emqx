@@ -127,7 +127,8 @@ end_per_suite(_Config) ->
 init_per_testcase(_Testcase, Config) ->
     connect_and_drop_table(Config),
     connect_and_create_table(Config),
-    delete_bridge(Config),
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     snabbkaffe:start_trace(),
     Config.
 
@@ -136,6 +137,8 @@ end_per_testcase(_Testcase, Config) ->
     ProxyPort = ?config(proxy_port, Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     ok = snabbkaffe:stop(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -381,9 +384,7 @@ create_rule_and_action_http(Config) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
-            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-            {ok, Res};
+            {ok, emqx_utils_json:decode(Res0)};
         Error ->
             Error
     end.

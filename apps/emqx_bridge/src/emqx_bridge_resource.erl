@@ -115,21 +115,6 @@ when
     V2Type :: atom().
 parse_bridge_id(<<"bridge:", Id/binary>>, Opts) ->
     parse_bridge_id(Id, Opts);
-parse_bridge_id(<<"ns:", Rest0/binary>> = Id, Opts) ->
-    maybe
-        [Namespace, Rest1] ?= binary:split(Rest0, <<":">>),
-        [KindBin, Rest] ?= binary:split(Rest1, <<":">>),
-        true ?= lists:member(KindBin, [<<"action">>, <<"source">>]),
-        Kind = safe_atom(KindBin),
-        Parsed = parse_bridge_id(Rest, Opts),
-        Parsed#{namespace => Namespace, kind => Kind}
-    else
-        _ ->
-            throw(#{
-                kind => validation_error,
-                reason => <<"invalid bridge identifier: ", Id/binary>>
-            })
-    end;
 parse_bridge_id(BridgeId, Opts) ->
     {Type, Name} = emqx_resource:parse_resource_id(BridgeId, Opts),
     #{

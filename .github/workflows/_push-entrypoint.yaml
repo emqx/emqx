@@ -220,6 +220,7 @@ jobs:
     needs:
       - init
       - prepare
+      - compile
       - build_and_push_docker_images
     uses: ./.github/workflows/update-emqx-docs.yaml
     secrets: inherit

@@ -35,14 +35,9 @@ stop(_State) ->
     emqx_action_info:clean_cache(),
     ok.
 
--if(?EMQX_RELEASE_EDITION == ee).
 ensure_enterprise_schema_loaded() ->
     emqx_utils:interactive_load(emqx_bridge_enterprise),
     ok.
--else.
-ensure_enterprise_schema_loaded() ->
-    ok.
--endif.
 
 %% NOTE: We depends on the `emqx_bridge:pre_config_update/3` to restart/stop the
 %%       underlying resources.
