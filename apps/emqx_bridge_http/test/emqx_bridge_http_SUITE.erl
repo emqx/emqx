@@ -431,8 +431,7 @@ t_send_get_trace_messages(Config) ->
         )
     ),
 
-    ok = emqx_trace_handler_SUITE:filesync(TraceName, ruleid),
-    {ok, Bin} = file:read_file(emqx_trace:log_file(TraceName, Now)),
+    Bin = read_rule_trace_file(TraceName, Now),
 
     ?retry(
         _Interval0 = 200,
@@ -451,7 +450,8 @@ t_send_get_trace_messages(Config) ->
 
 read_rule_trace_file(TraceName, From) ->
     emqx_trace:check(),
-    ok = emqx_trace_handler_SUITE:filesync(TraceName, ruleid),
+    %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
+    timer:sleep(2 * 100),
     {ok, Bin} = file:read_file(emqx_trace:log_file(TraceName, From)),
     Bin.
 

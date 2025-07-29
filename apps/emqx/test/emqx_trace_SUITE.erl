@@ -283,26 +283,23 @@ t_client_event(_Config) ->
         filter => ClientId,
         start_at => Now
     }),
-    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     emqtt:ping(Client),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"1">>, [{qos, 0}]),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"2">>, [{qos, 0}]),
-    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     {ok, _} = emqx_trace:create(#{
         name => <<"test_topic">>,
         type => topic,
         filter => <<"/test">>,
         start_at => Now
     }),
-    ok = emqx_trace_handler_SUITE:filesync(<<"test_topic">>, topic),
+    ok = wait_filesync(),
     {ok, Bin} = file:read_file(emqx_trace:log_file(Name, Now)),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"3">>, [{qos, 0}]),
     ok = emqtt:publish(Client, <<"/test">>, #{}, <<"4">>, [{qos, 0}]),
     ok = emqtt:disconnect(Client),
-    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
-    ok = emqx_trace_handler_SUITE:filesync(<<"test_topic">>, topic),
+    ok = wait_filesync(),
     {ok, Bin2} = file:read_file(emqx_trace:log_file(Name, Now)),
     {ok, Bin3} = file:read_file(emqx_trace:log_file(<<"test_topic">>, Now)),
     ct:pal("Bin ~p Bin2 ~p Bin3 ~p", [byte_size(Bin), byte_size(Bin2), byte_size(Bin3)]),
@@ -321,7 +318,6 @@ t_client_huge_payload_truncated(_Config) ->
         filter => ClientId,
         start_at => Now
     }),
-    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     emqtt:ping(Client),
@@ -334,7 +330,6 @@ t_client_huge_payload_truncated(_Config) ->
     HugePayload2 = iolist_to_binary(lists:duplicate(Size2, "z")),
     TruncatedBytes2 = Size2 - PayloadLimit,
     ok = emqtt:publish(Client, <<"/test">>, #{}, NormalPayload, [{qos, 0}]),
-    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     {ok, _} = emqx_trace:create(#{
         name => <<"test_topic">>,
         type => topic,
@@ -342,14 +337,13 @@ t_client_huge_payload_truncated(_Config) ->
         start_at => Now,
         payload_limit => PayloadLimit
     }),
-    ok = emqx_trace_handler_SUITE:filesync(<<"test_topic">>, topic),
+    ok = wait_filesync(),
     {ok, Bin} = file:read_file(emqx_trace:log_file(Name, Now)),
     ok = emqtt:publish(Client, <<"/test">>, #{}, NormalPayload, [{qos, 0}]),
     ok = emqtt:publish(Client, <<"/test">>, #{}, HugePayload1, [{qos, 0}]),
     ok = emqtt:publish(Client, <<"/test">>, #{}, HugePayload2, [{qos, 0}]),
     ok = emqtt:disconnect(Client),
-    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
-    ok = emqx_trace_handler_SUITE:filesync(<<"test_topic">>, topic),
+    ok = wait_filesync(),
     {ok, Bin2} = file:read_file(emqx_trace:log_file(Name, Now)),
     {ok, Bin3} = file:read_file(emqx_trace:log_file(<<"test_topic">>, Now)),
     ?assert(erlang:byte_size(Bin) > 1024),
@@ -436,8 +430,8 @@ t_empty_trace_log_file(_Config) ->
                 ?assertMatch({ok, _}, emqx_trace:create(Trace)),
                 #{?snk_kind := update_trace_done}
             ),
-            ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
             {ok, Filename} = emqx_trace:get_trace_filename(Name),
+            ok = wait_filesync(),
             ?assertMatch({ok, #{size := 0}}, emqx_trace:trace_file_detail(Filename)),
             ?wait_async_action(
                 ?assertEqual(ok, emqx_trace:update(Name, false)),
@@ -479,3 +473,7 @@ reload() ->
                 [NotOKRes]
             )
     end.
+
+wait_filesync() ->
+    %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
+    timer:sleep(2 * 100).

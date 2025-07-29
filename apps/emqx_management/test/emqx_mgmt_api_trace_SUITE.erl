@@ -734,7 +734,8 @@ t_download_empty_trace(_Config) ->
     ok.
 
 wait_filesync() ->
-    timer:sleep(100).
+    %% NOTE: Twice `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
+    timer:sleep(2 * 100).
 
 to_rfc3339(Second) ->
     list_to_binary(calendar:system_time_to_rfc3339(Second)).

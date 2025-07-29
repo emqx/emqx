@@ -694,8 +694,9 @@ maybe_json_decode(X) ->
         {error, _} -> X
     end.
 
-read_rule_trace_file(TraceName, TraceType, From) ->
+read_rule_trace_file(TraceName, _TraceType, From) ->
     emqx_trace:check(),
-    ok = emqx_trace_handler_SUITE:filesync(TraceName, TraceType),
+    %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
+    timer:sleep(2 * 100),
     {ok, Bin} = file:read_file(emqx_trace:log_file(TraceName, From)),
     Bin.

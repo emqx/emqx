@@ -53,11 +53,9 @@ t_trace_clientid(_Config) ->
     {error, {handler_not_added, {file_error, ".", eisdir}}} =
         install_handler("CLI-client5", clientid, <<"client5">>, debug, "."),
     emqx_trace:check(),
-    ok = filesync(<<"CLI-client1">>, clientid),
-    ok = filesync(<<"CLI-client2">>, clientid),
-    ok = filesync(<<"CLI-client3">>, clientid),
 
     %% Verify the tracing file exits
+    ok = wait_filesync(),
     ?assert(filelib:is_regular("tmp/client.log")),
     ?assert(filelib:is_regular("tmp/client2.log")),
     ?assert(filelib:is_regular("tmp/client3.log")),
@@ -95,11 +93,9 @@ t_trace_clientid(_Config) ->
     emqtt:connect(T),
     emqtt:publish(T, <<"a/b/c">>, <<"hi">>),
     emqtt:ping(T),
-    ok = filesync(<<"CLI-client1">>, clientid),
-    ok = filesync(<<"CLI-client2">>, clientid),
-    ok = filesync(<<"CLI-client3">>, clientid),
 
     %% Verify messages are logged to "tmp/client.log" but not "tmp/client2.log".
+    ok = wait_filesync(),
     {ok, Bin} = file:read_file("tmp/client.log"),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"CONNECT">>])),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"CONNACK">>])),
@@ -129,7 +125,6 @@ t_trace_clientid_utf8(_) ->
     ],
     emqtt:ping(T),
 
-    ok = filesync("CLI-UTF8", clientid),
     ok = uninstall_handler("CLI-UTF8"),
     emqtt:disconnect(T),
     ?assertEqual([], emqx_trace_handler:running()),
@@ -143,10 +138,9 @@ t_trace_topic(_Config) ->
     ok = install_handler("CLI-TOPIC-1", topic, <<"x/#">>, all, "tmp/topic_trace_x.log"),
     ok = install_handler("CLI-TOPIC-2", topic, <<"y/#">>, all, "tmp/topic_trace_y.log"),
     emqx_trace:check(),
-    ok = filesync("CLI-TOPIC-1", topic),
-    ok = filesync("CLI-TOPIC-2", topic),
 
     %% Verify the tracing file exits
+    ok = wait_filesync(),
     ?assert(filelib:is_regular("tmp/topic_trace_x.log")),
     ?assert(filelib:is_regular("tmp/topic_trace_y.log")),
 
@@ -176,9 +170,8 @@ t_trace_topic(_Config) ->
     emqtt:publish(T, <<"x/y/z">>, <<"hi2">>),
     emqtt:subscribe(T, <<"x/y/z">>),
     emqtt:unsubscribe(T, <<"x/y/z">>),
-    ok = filesync("CLI-TOPIC-1", topic),
-    ok = filesync("CLI-TOPIC-2", topic),
 
+    ok = wait_filesync(),
     {ok, Bin} = file:read_file("tmp/topic_trace_x.log"),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"hi1">>])),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"hi2">>])),
@@ -202,10 +195,9 @@ t_trace_ip_address(_Config) ->
     ok = install_handler("CLI-IP-1", ip_address, "127.0.0.1", all, "tmp/ip_trace_x.log"),
     ok = install_handler("CLI-IP-2", ip_address, "192.168.1.1", all, "tmp/ip_trace_y.log"),
     emqx_trace:check(),
-    ok = filesync(<<"CLI-IP-1">>, ip_address),
-    ok = filesync(<<"CLI-IP-2">>, ip_address),
 
     %% Verify the tracing file exits
+    ok = wait_filesync(),
     ?assert(filelib:is_regular("tmp/ip_trace_x.log")),
     ?assert(filelib:is_regular("tmp/ip_trace_y.log")),
 
@@ -235,9 +227,8 @@ t_trace_ip_address(_Config) ->
     emqtt:publish(T, <<"x/y/z">>, <<"hi2">>),
     emqtt:subscribe(T, <<"x/y/z">>),
     emqtt:unsubscribe(T, <<"x/y/z">>),
-    ok = filesync(<<"CLI-IP-1">>, ip_address),
-    ok = filesync(<<"CLI-IP-2">>, ip_address),
 
+    ok = wait_filesync(),
     {ok, Bin} = file:read_file("tmp/ip_trace_x.log"),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"hi1">>])),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"hi2">>])),
@@ -278,7 +269,7 @@ t_trace_max_file_size(_Config) ->
         lists:seq(1, 50)
     ),
     %% At that point max size should already have been reached:
-    ok = filesync(Name, topic),
+    ok = wait_filesync(),
     FileSize = filelib:file_size(FileName),
     ?assertMatch(
         FS when FS =< MaxSize andalso FS > MaxSize div 2,
@@ -287,35 +278,16 @@ t_trace_max_file_size(_Config) ->
     ),
     %% Verify log does not grow anymore:
     {ok, _} = emqtt:publish(C, <<"t/lastone">>, binary:copy(<<"BYE!">>, 10), qos1),
-    ok = filesync(Name, topic),
+    ok = wait_filesync(),
     ?assertEqual(FileSize, filelib:file_size(FileName)),
     %% Cleanup:
     ok = emqtt:disconnect(C),
     ok = emqx_trace_handler:uninstall(?FUNCTION_NAME),
     ok = emqx_config:put([trace, max_file_size], MaxSizeDefault).
 
-filesync(Name, Type) ->
-    ct:sleep(50),
-    filesync(Name, Type, 3).
-
-%% sometime the handler process is not started yet.
-filesync(_Name, _Type, 0) ->
-    ok;
-filesync(Name0, Type, Retry) ->
-    Name =
-        case is_binary(Name0) of
-            true -> Name0;
-            false -> list_to_binary(Name0)
-        end,
-    try
-        Handler = binary_to_atom(<<"trace_", (atom_to_binary(Type))/binary, "_", Name/binary>>),
-        ok = logger_disk_log_h:filesync(Handler)
-    catch
-        E:R ->
-            ct:pal("Filesync error:~p ~p~n", [{Name, Type, Retry}, {E, R}]),
-            ct:sleep(100),
-            filesync(Name, Type, Retry - 1)
-    end.
+wait_filesync() ->
+    %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
+    timer:sleep(2 * 100).
 
 install_handler(Name, Type, Filter, Level, LogFile) ->
     HandlerId = list_to_atom(?MODULE_STRING ++ ":" ++ Name),
