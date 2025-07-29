@@ -314,8 +314,17 @@ Pretty-print state of the client.
 """.
 -spec inspect(t()) -> map().
 inspect(CS = #cs{streams = Streams, ds_subs = DSSubs}) ->
+    PrettyStreams = maps:map(
+        fun(_, Cache0 = #stream_cache{future = F}) ->
+            Cache = Cache0#stream_cache{
+                future = gb_sets:to_list(F)
+            },
+            ?record_to_map(stream_cache, Cache)
+        end,
+        Streams
+    ),
     ?record_to_map(cs, CS#cs{
-        streams = maps:map(fun(_, V) -> ?record_to_map(stream_cache, V) end, Streams),
+        streams = PrettyStreams,
         ds_subs = maps:map(fun(_, V) -> ?record_to_map(ds_sub, V) end, DSSubs)
     }).
 
@@ -446,9 +455,9 @@ handle_ds_sub_recoverable_error_(Reason, CS0, SRef, DSSub, HS0) ->
     {CS, HS} = update_streams(CS2, SubId, Shard, [{Slab, Stream}], HS1),
     {#cs.plan, CS, HS}.
 
-handle_ds_sub_unrecoverable_error_(Reason, CS0, SRef, DSSub, HS) ->
+handle_ds_sub_unrecoverable_error_(Reason, CS0, SRef, DSSub, HS0) ->
     #cs{cbm = CBM} = CS0,
-    #ds_sub{id = SubId, db = DB, handle = Handle, stream = Stream, slab = Slab} =
+    #ds_sub{id = SubId, db = DB, handle = Handle, stream = Stream, slab = Slab = {Shard, _}} =
         DSSub,
     ?tp(info, emqx_ds_client_read_failure, #{
         unrecoverable => Reason,
@@ -457,12 +466,19 @@ handle_ds_sub_unrecoverable_error_(Reason, CS0, SRef, DSSub, HS) ->
         slab => Slab,
         stream => Stream
     }),
-    CS = plan(#eff_ds_unsub{ref = SRef, db = DB, handle = Handle}, CS0),
-    {
-        #cs.plan,
-        forget_stream(CS, SubId, Slab, Stream),
-        on_unrecoverable_error(CBM, SubId, Slab, Stream, Reason, HS)
-    }.
+    HS1 = on_unrecoverable_error(CBM, SubId, Slab, Stream, Reason, HS0),
+    CS1 = plan(#eff_ds_unsub{ref = SRef, db = DB, handle = Handle}, CS0),
+    CS2 = forget_stream(CS1, SubId, Slab, Stream),
+    {CS, HS} = with_stream_cache(
+        SubId,
+        Shard,
+        CS2,
+        HS1,
+        fun(Cache) ->
+            maybe_advance_generation(SubId, Shard, Cache, CS2, HS1)
+        end
+    ),
+    {#cs.plan, CS, HS}.
 
 -spec destroy_(t()) -> t().
 destroy_(CS0 = #cs{retry_tref = TRef}) ->
@@ -702,9 +718,14 @@ handle_add_iterator(Eff, CS0, HostState0, It) ->
 -doc """
 Handle unrecoverable errors that happen during creation of iterators.
 """.
-handle_make_iterator_fail(Eff, CS = #cs{cbm = CBM}, HostState, Err) ->
+handle_make_iterator_fail(Eff, CS0 = #cs{cbm = CBM}, HS0, Err) ->
     #eff_make_iterator{
-        sub_id = SubId, db = DB, slab = Slab, stream = Stream, topic = Topic, start_time = StartTime
+        sub_id = SubId,
+        db = DB,
+        slab = Slab = {Shard, _},
+        stream = Stream,
+        topic = Topic,
+        start_time = StartTime
     } = Eff,
     ?tp(info, emqx_ds_client_make_iterator_fail, #{
         unrecoverable => Err,
@@ -715,10 +736,17 @@ handle_make_iterator_fail(Eff, CS = #cs{cbm = CBM}, HostState, Err) ->
         stream => Stream,
         start_time => StartTime
     }),
-    {
-        forget_stream(CS, SubId, Slab, Stream),
-        on_unrecoverable_error(CBM, SubId, Slab, Stream, Err, HostState)
-    }.
+    HS1 = on_unrecoverable_error(CBM, SubId, Slab, Stream, Err, HS0),
+    CS1 = forget_stream(CS0, SubId, Slab, Stream),
+    with_stream_cache(
+        SubId,
+        Shard,
+        CS1,
+        HS1,
+        fun(Cache) ->
+            maybe_advance_generation(SubId, Shard, Cache, CS1, HS1)
+        end
+    ).
 
 -spec effect_handler(effect()) -> _Result.
 effect_handler(#eff_watch_streams{db = DB, topic = Topic}) ->

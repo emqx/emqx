@@ -13,8 +13,12 @@
 
 -include("emqx_ds.hrl").
 -include("../src/emqx_ds_client_internals.hrl").
+-include("emqx_ds_client_tests.hrl").
 
 -define(fake_shards, [<<"0">>, <<"12">>]).
+-define(test_sub_ids, [id1, id2]).
+%% -define(fake_shards, [<<"0">>]).
+%% -define(test_sub_ids, [id1]).
 
 %%================================================================================
 %% Basic tests
@@ -45,8 +49,6 @@ filter_effects_test() ->
         {emqx_ds_client:sub_id(), emqx_ds:stream()} => emqx_ds:iteraator() | end_of_stream
     }
 }).
-
--record(fake_stream, {shard, gen, id}).
 
 get_current_generation(SubId, Shard, #test_host_state{generations = Gens}) ->
     maps:get({SubId, Shard}, Gens, 0).
@@ -101,12 +103,6 @@ get_iterator(SubId, _Slab, Stream, #test_host_state{iterators = Its}) ->
 %%================================================================================
 %% Proper test
 %%================================================================================
-
--define(test_sub_ids, [id1, id2]).
-
--define(err_get_streams, err_get_streams).
--define(err_make_iterator, err_make_iterator).
--define(err_subscribe, err_subscribe).
 
 -type error_type() :: ?err_get_streams | ?err_make_iterator | ?err_subscribe.
 
@@ -170,7 +166,7 @@ gen_subscribe(MS) ->
     ?LET(
         Id,
         oneof(?test_sub_ids),
-        ?call_wrapper(MS, client_subscribe, [Id, test_db, [<<"test_topic">>]])
+        ?call_wrapper(MS, client_subscribe, [Id, ?DB, [<<"test_topic">>]])
     ).
 
 gen_unsubscribe(MS) ->
@@ -184,7 +180,8 @@ gen_error_type() ->
     oneof([
         ?err_get_streams,
         ?err_make_iterator,
-        ?err_subscribe
+        ?err_subscribe,
+        ?err_publish
     ]).
 
 gen_inject_error(MS) ->
@@ -213,15 +210,16 @@ gen_ds_sub_recoverable_error(MS) ->
 
 gen_ds_sub_payloads(MS) ->
     ?LET(
-        {BatchSize, SeqNoError},
+        {BatchSize, SeqNoError, GracefulTerminateGoneStreams},
         {
             range(0, 5),
             frequency([
                 {5, 0},
                 {1, range(-3, 3)}
-            ])
+            ]),
+            boolean()
         },
-        ?call_wrapper(MS, ds_publish_payloads, [BatchSize, SeqNoError])
+        ?call_wrapper(MS, ds_publish_payloads, [BatchSize, SeqNoError, GracefulTerminateGoneStreams])
     ).
 
 %%------------------------------------------------------------------------------
@@ -318,7 +316,7 @@ postcondition(PrevState, Call, Result) ->
     prop_active_subscriptions(CurrentState),
     prop_no_pending_when_healthy(CurrentState),
     prop_host_seen_all_streams(CurrentState),
-    %% prop_host_generations(CurrentState, Call),
+    prop_host_has_iterators_for_all_model_streams(CurrentState),
     true.
 
 %%------------------------------------------------------------------------------
@@ -341,7 +339,8 @@ run_proper() ->
     ProperOpts = [
         {numtests, 200},
         {max_size, 100},
-        {on_output, fun(Fmt, Args) -> io:format(user, Fmt, Args) end}
+        {on_output, fun(Fmt, Args) -> io:format(user, Fmt, Args) end},
+        {max_shrinks, 1000}
     ],
     ?assert(
         proper:quickcheck(
@@ -372,6 +371,15 @@ format_cmds(Cmds) ->
         end,
         Cmds
     ).
+
+format_state(MS = #model_state{runtime = {CS, HS}}) ->
+    ?record_to_map(model_state, MS#model_state{
+        runtime = #{
+            client => emqx_ds_client:inspect(CS),
+            host => ?record_to_map(test_host_state, HS),
+            world => emqx_ds_fake:inspect()
+        }
+    }).
 
 %%------------------------------------------------------------------------------
 %% Properties
@@ -535,7 +543,9 @@ prop_host_seen_all_streams(#model_state{
                                             msg =>
                                                 "Current generation, there should be an iterator or `end_of_stream'",
                                             sub_id => SubId,
-                                            stream => Stream
+                                            stream => Stream,
+                                            cs => emqx_ds_client:inspect(CS),
+                                            gen => Gen
                                         }
                                     );
                                 Current when Gen < Current ->
@@ -547,7 +557,9 @@ prop_host_seen_all_streams(#model_state{
                                             msg =>
                                                 "Past generation, stream should be fully replayed",
                                             sub_id => SubId,
-                                            stream => Stream
+                                            stream => Stream,
+                                            cs => emqx_ds_client:inspect(CS),
+                                            gen => Gen
                                         }
                                     )
                             end
@@ -618,38 +630,41 @@ prop_active_subscriptions(#model_state{runtime = {CS, _HS}}) ->
         #{comment => emqx_ds_client:inspect(CS)}
     ).
 
-%% Verify that when the system is healthy, after sending the data all
-%% subscriptions registered by the host advance to the last
-%% generations.
-prop_host_generations(MS = #model_state{err_rec = Errors, runtime = {_, HS}}, Call) ->
-    %% TODO: this doesn't work like this. The client can advance the
-    %% generation, but unless it receives some data or end_of_stream,
-    %% it won't reach the last generation.
+%% Verify that when the system is healthy, the host is aware of all
+%% streams existing in the model.
+prop_host_has_iterators_for_all_model_streams(
+    MS = #model_state{err_rec = Errors, runtime = {CS, HS}, streams = ModelStreams, subs = Subs}
+) ->
     IsSystemHealthy = maps:size(Errors) =:= 0,
-    RunCheck =
-        case Call of
-            ?call_wrapper(_, ds_publish_payloads, [_, 0]) when IsSystemHealthy ->
-                %% Run this check after publishing some payloads with
-                %% valid sequence numbers:
-                true;
-            _ ->
-                false
-        end,
-    case RunCheck of
-        true ->
-            maps:foreach(
-                fun({SubId, Shard}, HostGeneration) ->
-                    ?assertEqual(
-                        current_gen(Shard, MS),
-                        HostGeneration,
-                        #{sub_id => SubId, shard => Shard}
-                    )
-                end,
-                HS#test_host_state.generations
-            );
-        false ->
-            skip
-    end,
+    IsSystemHealthy andalso
+        maps:foreach(
+            fun(SubId, _) ->
+                HostStreams = maps:fold(
+                    fun({SID, Stream}, _, Acc) ->
+                        case SID of
+                            SubId ->
+                                [Stream | Acc];
+                            _ ->
+                                Acc
+                        end
+                    end,
+                    [],
+                    HS#test_host_state.iterators
+                ),
+                Comment = #{
+                    sub_id => SubId,
+                    msg => "Host should not miss any streams that exist in the model",
+                    ms => format_state(MS)
+                },
+                %% Note: extra streams are allowed, since the host doesn't delete streams from deleted generations:
+                snabbkaffe_diff:assert_lists_eq(
+                    [],
+                    ModelStreams -- HostStreams,
+                    #{comment => Comment}
+                )
+            end,
+            Subs
+        ),
     true.
 
 %%------------------------------------------------------------------------------
@@ -680,8 +695,10 @@ fix_all_errors(#model_state{runtime = Runtime}) ->
     emqx_ds_fake:fixall(),
     Runtime.
 
-ds_publish_payloads(#model_state{runtime = Runtime}, BatchSize, SeqNoError) ->
-    emqx_ds_fake:publish_payloads(BatchSize, SeqNoError),
+ds_publish_payloads(
+    #model_state{runtime = Runtime}, BatchSize, SeqNoError, GracefulTerminateGoneStreams
+) ->
+    emqx_ds_fake:publish_payloads(BatchSize, SeqNoError, GracefulTerminateGoneStreams),
     Runtime.
 
 ds_sub_recoverable_error(#model_state{runtime = Runtime}, Reason) ->
@@ -741,7 +758,7 @@ dispatch_messages({CS0, HS0}) ->
             prop_dispatch_result(Message, CS0, Result),
             case Result of
                 ignore ->
-                    {CS0, HS0};
+                    dispatch_messages({CS0, HS0});
                 {data, SubId, Stream, Reply} ->
                     case Reply of
                         #ds_sub_reply{ref = Ref, payload = {ok, end_of_stream}} ->
