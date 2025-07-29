@@ -155,18 +155,8 @@ end_per_testcase(_, _Config) ->
     ok.
 
 clear_resources() ->
-    lists:foreach(
-        fun(#{id := Id}) ->
-            ok = emqx_rule_engine:delete_rule(Id)
-        end,
-        emqx_rule_engine:get_rules()
-    ),
-    lists:foreach(
-        fun(#{type := Type, name := Name}) ->
-            ok = emqx_bridge:remove(Type, Name)
-        end,
-        emqx_bridge:list()
-    ).
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors().
 
 %%------------------------------------------------------------------------------
 %% Testcases

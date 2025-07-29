@@ -143,12 +143,14 @@ end_per_suite(_Config) ->
 
 init_per_testcase(_Testcase, Config) ->
     clear_db(Config),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
     clear_db(Config),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     snabbkaffe:stop(),
     ok.
@@ -551,19 +553,16 @@ t_mongo_date_rule_engine_functions(Config) ->
     SQL =
         "SELECT mongo_date() as date_0, mongo_date(1000) as date_1, mongo_date(1, 'second') as date_2 FROM "
         "\"t_mongo_date_rule_engine_functions/topic\"",
-    %% Remove rule if it already exists
-    RuleId = <<"rule:t_mongo_date_rule_engine_functions">>,
-    emqx_rule_engine:delete_rule(RuleId),
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
-    {ok, _Rule} = emqx_rule_engine:create_rule(
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
         #{
-            id => <<"rule:t_mongo_date_rule_engine_functions">>,
-            sql => SQL,
-            actions => [
+            <<"id">> => <<"t_mongo_date_rule_engine_functions">>,
+            <<"sql">> => SQL,
+            <<"actions">> => [
                 BridgeId,
-                #{function => console}
+                #{<<"function">> => <<"console">>}
             ],
-            description => <<"to mongo bridge">>
+            <<"description">> => <<"to mongo bridge">>
         }
     ),
     %% Send a message to topic

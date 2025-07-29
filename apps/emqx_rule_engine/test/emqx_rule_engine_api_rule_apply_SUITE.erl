@@ -68,8 +68,8 @@ init_per_testcase(_Case, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_bridge_http_connector_test_server:stop(),
-    emqx_bridge_v2_testlib:delete_all_bridges(),
-    emqx_bridge_v2_testlib:delete_all_connectors(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
     meck:unload(),
     ok.
@@ -652,9 +652,6 @@ create_rule_with_action(ActionType, ActionName, SQL) ->
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res0} ->
             #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0),
-            emqx_common_test_helpers:on_exit(fun() ->
-                emqx_rule_engine:delete_rule(RuleId)
-            end),
             {ok, RuleId};
         Error ->
             Error

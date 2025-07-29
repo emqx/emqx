@@ -100,7 +100,7 @@ do_unload(Namespace, ConnectorsRoot) ->
 
 safe_load_connector(Namespace, Type, Name, Conf) ->
     try
-        Opts = #{async_start => true},
+        Opts = #{async_start => true, namespace => Namespace},
         _Res = emqx_connector_resource:create(Namespace, Type, Name, Conf, Opts),
         ?tp(
             emqx_connector_loaded,
@@ -205,7 +205,8 @@ post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs, Ex
 %% create a new connector
 post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, undefined, _AppEnvs, ExtraContext) ->
     Namespace = emqx_config_handler:get_namespace(ExtraContext),
-    ResOpts = emqx_resource:fetch_creation_opts(NewConf),
+    ResOpts0 = emqx_resource:fetch_creation_opts(NewConf),
+    ResOpts = ResOpts0#{namespace => Namespace},
     ok = emqx_connector_resource:create(Namespace, Type, Name, NewConf, ResOpts),
     ?tp(connector_post_config_update_done, #{}),
     ok;

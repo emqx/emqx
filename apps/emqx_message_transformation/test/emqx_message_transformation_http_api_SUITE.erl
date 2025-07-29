@@ -50,6 +50,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    emqx_bridge_v2_testlib:delete_all_rules(),
     clear_all_transformations(),
     snabbkaffe:stop(),
     reset_all_global_metrics(),
@@ -459,13 +460,7 @@ create_failure_tracing_rule() ->
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     Res = request(post, Path, Params),
     ct:pal("create failure tracing rule result:\n  ~p", [Res]),
-    case Res of
-        {ok, {{_, 201, _}, _, #{<<"id">> := RuleId}}} ->
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-            simplify_result(Res);
-        _ ->
-            simplify_result(Res)
-    end.
+    simplify_result(Res).
 
 make_trace_fn_action() ->
     persistent_term:put({?MODULE, test_pid}, self()),

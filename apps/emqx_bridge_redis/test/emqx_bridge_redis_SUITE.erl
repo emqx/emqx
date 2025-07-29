@@ -167,7 +167,7 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(Testcase, Config0) ->
-    ok = delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     ok = emqx_bridge_v2_SUITE:delete_all_bridges_and_connectors(),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     Name = <<(atom_to_binary(Testcase))/binary, UniqueNum/binary>>,
@@ -198,6 +198,7 @@ end_per_testcase(_Testcase, Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ok = snabbkaffe:stop(),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     ok = emqx_bridge_v2_SUITE:delete_all_bridges_and_connectors().
 
 t_create_delete_bridge(Config) ->
@@ -229,23 +230,22 @@ t_create_delete_bridge(Config) ->
 
     RuleId = <<"my_rule_id">>,
     RuleConf = #{
-        actions => [Action],
-        description => <<>>,
-        enable => true,
-        id => RuleId,
-        name => <<>>,
-        sql => <<"SELECT * FROM \"t/#\"">>
+        <<"actions">> => [Action],
+        <<"description">> => <<>>,
+        <<"enable">> => true,
+        <<"id">> => RuleId,
+        <<"name">> => <<>>,
+        <<"sql">> => <<"SELECT * FROM \"t/#\"">>
     },
 
     %% check export by rule
-    {ok, _} = emqx_rule_engine:create_rule(RuleConf),
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(RuleConf),
     _ = check_resource_queries(ResourceId, <<"t/test">>, IsBatch),
-    ok = emqx_rule_engine:delete_rule(RuleId),
 
     %% check export through local topic
     _ = check_resource_queries(ResourceId, <<"local_topic/test">>, IsBatch),
 
-    ok = emqx_bridge:remove(Type, Name).
+    ok.
 
 % check that we provide correct examples
 t_check_values(_Config) ->
@@ -509,14 +509,6 @@ conf_schema(StructName) ->
         namespace => undefined,
         roots => [{root, hoconsc:ref(emqx_bridge_redis, StructName)}]
     }.
-
-delete_all_rules() ->
-    lists:foreach(
-        fun(#{id := RuleId}) ->
-            emqx_rule_engine:delete_rule(RuleId)
-        end,
-        emqx_rule_engine:get_rules()
-    ).
 
 all_test_hosts() ->
     Confs = [

@@ -127,10 +127,12 @@ end_per_testcase(_TestCase, Config) ->
     emqx_common_test_helpers:call_janitor(),
     case Nodes of
         undefined ->
+            emqx_bridge_v2_testlib:delete_all_rules(),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors();
         _ ->
             emqx_utils:pmap(
                 fun(N) ->
+                    ?ON(N, emqx_bridge_v2_testlib:delete_all_rules()),
                     ?ON(N, emqx_bridge_v2_testlib:delete_all_bridges_and_connectors())
                 end,
                 Nodes
@@ -308,9 +310,8 @@ t_receive_via_rule(Config) ->
                     }
                 ]
             },
-            {ok, {{_, 201, _}, _, #{<<"id">> := RuleId}}} =
+            {ok, {{_, 201, _}, _, _}} =
                 emqx_bridge_v2_testlib:create_rule_api(RuleOpts),
-            on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
             {ok, Client} = emqtt:start_link([{proto_ver, v5}]),
             {ok, _} = emqtt:connect(Client),
             {ok, _, [?RC_GRANTED_QOS_0]} = emqtt:subscribe(Client, RepublishTopic),

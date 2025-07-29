@@ -123,7 +123,6 @@ init_per_testcase(TestCase, Config0) when
         1 ->
             [{skip_due_to_no_batching, true}];
         _ ->
-            delete_all_bridges(),
             Tid = install_telemetry_handler(TestCase),
             Config = generate_config(Config0),
             put(telemetry_table, Tid),
@@ -133,7 +132,6 @@ init_per_testcase(TestCase, Config0) when
 init_per_testcase(TestCase, Config0) ->
     ct:timetrap({seconds, 30}),
     {ok, HttpServer} = start_echo_http_server(),
-    delete_all_bridges(),
     Tid = install_telemetry_handler(TestCase),
     Config = generate_config(Config0),
     put(telemetry_table, Tid),
@@ -141,7 +139,8 @@ init_per_testcase(TestCase, Config0) ->
 
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
-    delete_all_bridges(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok = stop_echo_http_server(),
     emqx_common_test_helpers:call_janitor(),
     ok.
@@ -175,15 +174,6 @@ generate_config(Config0) ->
         {bridge_id, BridgeId}
         | Config0
     ].
-
-delete_all_bridges() ->
-    ct:pal("deleting all bridges"),
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            emqx_bridge:remove(Type, Name)
-        end,
-        emqx_bridge:list()
-    ).
 
 delete_bridge(Config) ->
     Type = ?BRIDGE_V1_TYPE,
@@ -700,7 +690,6 @@ t_publish_success(Config) ->
     Topic = <<"t/topic">>,
     ?assertMatch({ok, _}, create_bridge(Config)),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
     assert_empty_metrics(ActionResourceId),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
@@ -741,7 +730,6 @@ t_publish_success_infinity_timeout(Config) ->
         <<"resource_opts">> => #{<<"request_ttl">> => <<"infinity">>}
     }),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
     emqx:publish(Message),
@@ -816,8 +804,7 @@ t_publish_templated(Config) ->
             #{<<"payload_template">> => PayloadTemplate}
         )
     ),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     assert_empty_metrics(ActionResourceId),
     Payload = <<"payload">>,
     Message =
@@ -891,8 +878,7 @@ test_publish_success_batch(Config) ->
             }
         )
     ),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     assert_empty_metrics(ActionResourceId),
     NumMessages = BatchSize * 2,
     Messages = [emqx_message:make(Topic, integer_to_binary(N)) || N <- lists:seq(1, NumMessages)],
@@ -1129,8 +1115,7 @@ t_publish_econnrefused(Config) ->
             <<"resource_opts">> => #{<<"resume_interval">> => <<"15s">>}
         }
     ),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     assert_empty_metrics(ResourceId),
     ok = emqx_bridge_http_connector_test_server:stop(),
     do_econnrefused_or_timeout_test(Config, econnrefused).
@@ -1148,8 +1133,7 @@ t_publish_timeout(Config) ->
             <<"metrics_flush_interval">> => <<"700ms">>
         }
     }),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     assert_empty_metrics(ActionResourceId),
     TestPid = self(),
     TimeoutHandler =
@@ -1319,8 +1303,7 @@ t_success_no_body(Config) ->
     ok = emqx_bridge_http_connector_test_server:set_handler(SuccessNoBodyHandler),
     Topic = <<"t/topic">>,
     {ok, _} = create_bridge(Config),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
     ?check_trace(
@@ -1368,8 +1351,7 @@ t_failure_with_body(Config) ->
     ok = emqx_bridge_http_connector_test_server:set_handler(FailureWithBodyHandler),
     Topic = <<"t/topic">>,
     {ok, _} = create_bridge(Config),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
     ?check_trace(
@@ -1417,8 +1399,7 @@ t_failure_no_body(Config) ->
     ok = emqx_bridge_http_connector_test_server:set_handler(FailureNoBodyHandler),
     Topic = <<"t/topic">>,
     {ok, _} = create_bridge(Config),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
     ?check_trace(
@@ -1474,8 +1455,7 @@ t_unrecoverable_error(Config) ->
     Topic = <<"t/topic">>,
     {ok, _} = create_bridge(Config),
     assert_empty_metrics(ActionResourceId),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    {ok, _} = create_rule_and_action_http(Config),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
     ?check_trace(
@@ -1662,8 +1642,7 @@ t_query_sync(Config) ->
             fun() -> always_sync end,
             fun() ->
                 {ok, _} = create_bridge(Config),
-                {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-                on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+                {ok, _} = create_rule_and_action_http(Config),
                 Message = emqx_message:make(Topic, Payload),
                 emqx_utils:pmap(fun(_) -> emqx:publish(Message) end, lists:seq(1, BatchSize)),
                 DecodedMessages = assert_http_request(ServiceAccountJSON),

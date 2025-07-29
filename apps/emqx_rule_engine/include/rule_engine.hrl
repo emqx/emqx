@@ -6,6 +6,9 @@
 
 -define(KV_TAB, '@rule_engine_db').
 
+-define(RES_SEP, <<":">>).
+-define(NS_SEG, <<"ns">>).
+
 -type option(T) :: T | undefined.
 
 -type rule_id() :: binary().
@@ -33,26 +36,6 @@
     | bridge_channel_id()
     | {bridge_v2, emqx_bridge_v2:bridge_v2_type(), emqx_bridge_v2:bridge_v2_name()}
     | {bridge, emqx_utils_maps:config_key(), emqx_utils_maps:config_key(), bridge_channel_id()}.
-
--type rule() ::
-    #{
-        id := rule_id(),
-        name := binary(),
-        sql := binary(),
-        actions := [action()],
-        enable := boolean(),
-        description => binary(),
-        %% epoch in millisecond precision
-        created_at := integer(),
-        %% epoch in millisecond precision
-        updated_at := integer(),
-        from := list(topic()),
-        is_foreach := boolean(),
-        fields := list(),
-        doeach := term(),
-        incase := term(),
-        conditions := tuple()
-    }.
 
 %% Arithmetic operators
 -define(is_arith(Op),

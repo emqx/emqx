@@ -170,7 +170,7 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_Testcase, Config) ->
-    delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     Config.
 
@@ -179,7 +179,7 @@ end_per_testcase(_Testcase, Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ok = snabbkaffe:stop(),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok.
 
@@ -277,14 +277,6 @@ create_bridge(Config) ->
 
 create_bridge(Config, Overrides) ->
     emqx_bridge_v2_testlib:create_bridge_api(Config, Overrides).
-
-delete_all_rules() ->
-    lists:foreach(
-        fun(#{id := RuleId}) ->
-            ok = emqx_rule_engine:delete_rule(RuleId)
-        end,
-        emqx_rule_engine:get_rules()
-    ).
 
 create_rule_and_action_http(Config) ->
     create_rule_and_action_http(Config, _Overrides = #{}).

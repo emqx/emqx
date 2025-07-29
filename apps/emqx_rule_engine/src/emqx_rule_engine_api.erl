@@ -5,6 +5,7 @@
 -module(emqx_rule_engine_api).
 
 -include("rule_engine.hrl").
+-include("emqx_rule_engine_internal.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -33,9 +34,13 @@
 ]).
 
 %% query callback
--export([qs2ms/2, run_fuzzy_match/2, format_rule_info_resp/2]).
+-export([run_fuzzy_match/2, format_rule_info_resp/2]).
 
--define(RPC_GET_METRICS_TIMEOUT, 5000).
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
+
+-define(RPC_GET_METRICS_TIMEOUT, 5_000).
 
 -define(ERR_BADARGS(REASON), begin
     R0 = err_msg(REASON),
@@ -133,6 +138,12 @@ end).
     {<<"source">>, binary},
     {<<"like_description">>, binary}
 ]).
+
+-type maybe_namespace() :: ?global_ns | binary().
+
+%%-------------------------------------------------------------------------------------------------
+%% `minirest' and `minirest_trails' API
+%%-------------------------------------------------------------------------------------------------
 
 namespace() -> "rule".
 
@@ -255,6 +266,7 @@ schema("/rules/:id") ->
             'requestBody' => rule_creation_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
+                404 => error_schema('NOT_FOUND', "Rule not found"),
                 200 => rule_info_schema()
             }
         },
@@ -360,15 +372,16 @@ param_path_id() ->
 '/rule_events'(get, _Params) ->
     {200, emqx_rule_events:event_info()}.
 
-'/rules'(get, #{query_string := QueryString}) ->
+'/rules'(get, #{query_string := QueryString} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
     case
         emqx_mgmt_api:node_query(
             node(),
             ?RULE_TAB,
             QueryString,
             ?RULE_QS_SCHEMA,
-            fun ?MODULE:qs2ms/2,
-            mk_format_fn()
+            mk_qs2ms_fn(Namespace),
+            mk_format_fn(Namespace)
         )
     of
         {error, page_limit_invalid} ->
@@ -379,26 +392,32 @@ param_path_id() ->
         Result ->
             {200, Result}
     end;
-'/rules'(post, #{body := Params0}) ->
+'/rules'(post, #{body := Params0} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
     case maps:get(<<"id">>, Params0, list_to_binary(emqx_utils:gen_id(8))) of
         <<>> ->
             {400, #{code => 'BAD_REQUEST', message => <<"empty rule id is not allowed">>}};
         Id when is_binary(Id) ->
             Params = filter_out_request_body(add_metadata(Params0)),
-            case emqx_rule_engine:get_rule(Id) of
+            case emqx_rule_engine:get_rule(Namespace, Id) of
                 {ok, _Rule} ->
                     ?BAD_REQUEST(<<"rule id already exists">>);
                 not_found ->
-                    ConfPath = ?RULE_PATH(Id),
-                    case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
+                    UpdateRes = emqx_rule_engine_config:create_or_update_rule(
+                        Namespace,
+                        Id,
+                        Params
+                    ),
+                    case UpdateRes of
                         {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
-                            FormatFn = mk_format_fn(),
+                            FormatFn = mk_format_fn(Namespace),
                             ?CREATED(FormatFn(Rule));
                         {error, Reason} ->
                             ?SLOG(
                                 info,
                                 #{
                                     msg => "create_rule_failed",
+                                    namespace => Namespace,
                                     rule_id => Id,
                                     reason => Reason
                                 },
@@ -427,59 +446,74 @@ param_path_id() ->
         end
     ).
 
-'/rules/:id/test'(post, #{body := Params, bindings := #{id := RuleId}}) ->
+'/rules/:id/test'(post, #{body := Params, bindings := #{id := RuleId}} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
     ?CHECK_PARAMS(
         Params,
         rule_apply_test,
-        begin
-            case emqx_rule_sqltester:apply_rule(RuleId, CheckedParams) of
-                {ok, Result} ->
-                    {200, emqx_utils_json:best_effort_json_obj(Result)};
-                {error, {parse_error, Reason}} ->
-                    {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}};
-                {error, nomatch} ->
-                    {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}};
-                {error, rule_not_found} ->
-                    {404, #{code => 'RULE_NOT_FOUND', message => <<"The rule could not be found">>}};
-                {error, Reason} ->
-                    {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
-            end
+        case emqx_rule_sqltester:apply_rule(Namespace, RuleId, CheckedParams) of
+            {ok, Result} ->
+                {200, emqx_utils_json:best_effort_json_obj(Result)};
+            {error, {parse_error, Reason}} ->
+                {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}};
+            {error, nomatch} ->
+                {412, #{code => 'NOT_MATCH', message => <<"SQL Not Match">>}};
+            {error, rule_not_found} ->
+                {404, #{code => 'RULE_NOT_FOUND', message => <<"The rule could not be found">>}};
+            {error, Reason} ->
+                {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
         end
     ).
 
-'/rules/:id'(get, #{bindings := #{id := Id}}) ->
-    case emqx_rule_engine:get_rule(Id) of
+'/rules/:id'(get, #{bindings := #{id := Id}} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    case emqx_rule_engine:get_rule(Namespace, Id) of
         {ok, Rule} ->
-            FormatFn = mk_format_fn(),
+            FormatFn = mk_format_fn(Namespace),
             {200, FormatFn(Rule)};
         not_found ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
-'/rules/:id'(put, #{bindings := #{id := Id}, body := Params0}) ->
+'/rules/:id'(put, #{bindings := #{id := Id}, body := Params0} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
     Params1 = filter_out_request_body(Params0),
     Params = ensure_last_modified_at(Params1),
-    ConfPath = ?RULE_PATH(Id),
-    case emqx_conf:update(ConfPath, Params, #{override_to => cluster}) of
-        {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
-            FormatFn = mk_format_fn(),
-            {200, FormatFn(Rule)};
-        {error, Reason} ->
-            ?SLOG(
-                info,
-                #{
-                    msg => "update_rule_failed",
-                    rule_id => Id,
-                    reason => Reason
-                },
-                #{tag => ?TAG}
+    case emqx_rule_engine:get_rule(Namespace, Id) of
+        {ok, _} ->
+            UpdateRes = emqx_rule_engine_config:create_or_update_rule(
+                Namespace,
+                Id,
+                Params
             ),
-            {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
+            case UpdateRes of
+                {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
+                    FormatFn = mk_format_fn(Namespace),
+                    {200, FormatFn(Rule)};
+                {error, Reason} ->
+                    ?SLOG(
+                        info,
+                        #{
+                            msg => "update_rule_failed",
+                            namespace => Namespace,
+                            rule_id => Id,
+                            reason => Reason
+                        },
+                        #{tag => ?TAG}
+                    ),
+                    {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
+            end;
+        not_found ->
+            {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
-'/rules/:id'(delete, #{bindings := #{id := Id}}) ->
-    case emqx_rule_engine:get_rule(Id) of
+'/rules/:id'(delete, #{bindings := #{id := Id}} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    case emqx_rule_engine:get_rule(Namespace, Id) of
         {ok, _Rule} ->
-            ConfPath = ?RULE_PATH(Id),
-            case emqx_conf:remove(ConfPath, #{override_to => cluster}) of
+            UpdateRes = emqx_rule_engine_config:delete_rule(
+                Namespace,
+                Id
+            ),
+            case UpdateRes of
                 {ok, _} ->
                     {204};
                 {error, Reason} ->
@@ -487,6 +521,7 @@ param_path_id() ->
                         error,
                         #{
                             msg => "delete_rule_failed",
+                            namespace => Namespace,
                             rule_id => Id,
                             reason => Reason
                         },
@@ -498,10 +533,12 @@ param_path_id() ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end.
 
-'/rules/:id/metrics'(get, #{bindings := #{id := Id}}) ->
-    case emqx_rule_engine:get_rule(Id) of
-        {ok, _Rule} ->
-            NodeMetrics = get_rule_metrics(Id),
+'/rules/:id/metrics'(get, #{bindings := #{id := Id}} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    case emqx_rule_engine:get_rule(Namespace, Id) of
+        {ok, Rule} ->
+            RuleResId = emqx_rule_engine:rule_resource_id(Rule),
+            NodeMetrics = get_rule_metrics(RuleResId),
             MetricsResp =
                 #{
                     id => Id,
@@ -513,19 +550,23 @@ param_path_id() ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end.
 
-'/rules/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
-    case emqx_rule_engine:get_rule(Id) of
-        {ok, _Rule} ->
-            ok = emqx_rule_engine_proto_v1:reset_metrics(Id),
+'/rules/:id/metrics/reset'(put, #{bindings := #{id := Id}} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    case emqx_rule_engine:get_rule(Namespace, Id) of
+        {ok, Rule} ->
+            RuleResId = emqx_rule_engine:rule_resource_id(Rule),
+            ok = emqx_rule_engine_proto_v1:reset_metrics(RuleResId),
             {204};
         not_found ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end.
 
-'/rule_engine'(get, _Params) ->
-    {200, format_rule_engine_resp(emqx_conf:get([rule_engine]))};
-'/rule_engine'(put, #{body := Params}) ->
-    case rule_engine_update(Params) of
+'/rule_engine'(get, Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    {200, format_rule_engine_resp(get_config(Namespace, [rule_engine], #{}))};
+'/rule_engine'(put, #{body := Params} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    case rule_engine_update(Namespace, Params) of
         {ok, Config} ->
             {200, format_rule_engine_resp(Config)};
         {error, Reason} ->
@@ -553,11 +594,10 @@ encode_nested_error(RuleError, Reason) ->
             {RuleError, Reason}
     end.
 
-mk_format_fn() ->
+mk_format_fn(Namespace) ->
     SummaryIndex =
         maybe
-            %% TODO: should receive namespace as argument here.
-            {ok, Summary} = emqx_bridge_v2_api:do_handle_summary(?global_ns, actions),
+            {ok, Summary} = emqx_bridge_v2_api:do_handle_summary(Namespace, actions),
             lists:foldl(
                 fun(#{name := N, type := T, status := S}, Acc) ->
                     Acc#{{T, N} => S}
@@ -576,7 +616,7 @@ mk_format_fn() ->
         ?MODULE:format_rule_info_resp(Row, #{action_summary_index => SummaryIndex})
     end.
 
-format_rule_info_resp({Id, Rule}, Context) ->
+format_rule_info_resp({?KEY(_Namespace, Id), Rule}, Context) ->
     format_rule_info_resp(Rule#{id => Id}, Context);
 format_rule_info_resp(
     #{
@@ -788,17 +828,23 @@ filter_out_request_body(Conf) ->
     ],
     maps:without(ExtraConfs, Conf).
 
--spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
-qs2ms(_Tab, {Qs0, Fuzzy0}) ->
-    {Qs, Fuzzy} = adapt_custom_filters(Qs0, Fuzzy0),
-    case lists:keytake(from, 1, Qs) of
-        false ->
-            #{match_spec => generate_match_spec(Qs), fuzzy_fun => fuzzy_match_fun(Fuzzy)};
-        {value, {from, '=:=', From}, Ls} ->
-            #{
-                match_spec => generate_match_spec(Ls),
-                fuzzy_fun => fuzzy_match_fun([{from, '=:=', From} | Fuzzy])
-            }
+-spec mk_qs2ms_fn(maybe_namespace()) ->
+    fun((atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter()).
+mk_qs2ms_fn(Namespace) ->
+    fun(_Tab, {Qs0, Fuzzy0}) ->
+        {Qs1, Fuzzy} = adapt_custom_filters(Qs0, Fuzzy0),
+        case lists:keytake(from, 1, Qs1) of
+            false ->
+                #{
+                    match_spec => generate_match_spec(Namespace, Qs1),
+                    fuzzy_fun => fuzzy_match_fun(Fuzzy)
+                };
+            {value, {from, '=:=', From}, Qs2} ->
+                #{
+                    match_spec => generate_match_spec(Namespace, Qs2),
+                    fuzzy_fun => fuzzy_match_fun([{from, '=:=', From} | Fuzzy])
+                }
+        end
     end.
 
 %% Some filters are run as fuzzy filters because they cannot be expressed as simple ETS
@@ -833,17 +879,17 @@ adapt_custom_filters(Qs, Fuzzy) ->
 wrap(Xs) when is_list(Xs) -> Xs;
 wrap(X) -> [X].
 
-generate_match_spec(Qs) ->
-    {MtchHead, Conds} = generate_match_spec(Qs, 2, {#{}, []}),
-    [{{'_', MtchHead}, Conds, ['$_']}].
+generate_match_spec(Namespace, Qs) ->
+    {MatchHead, Conds} = generate_match_spec(Qs, 2, {#{}, []}),
+    [{{?KEY(Namespace, '_'), MatchHead}, Conds, ['$_']}].
 
-generate_match_spec([], _, {MtchHead, Conds}) ->
-    {MtchHead, lists:reverse(Conds)};
-generate_match_spec([Qs | Rest], N, {MtchHead, Conds}) ->
+generate_match_spec([], _, {MatchHead, Conds}) ->
+    {MatchHead, lists:reverse(Conds)};
+generate_match_spec([Qs | Rest], N, {MatchHead, Conds}) ->
     Holder = list_to_atom([$$ | integer_to_list(N)]),
-    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(element(1, Qs), Holder)),
+    NMatchHead = emqx_mgmt_util:merge_maps(MatchHead, ms(element(1, Qs), Holder)),
     NConds = put_conds(Qs, Holder, Conds),
-    generate_match_spec(Rest, N + 1, {NMtchHead, NConds}).
+    generate_match_spec(Rest, N + 1, {NMatchHead, NConds}).
 
 put_conds({_, Op, V}, Holder, Conds) ->
     [{Op, Holder, V} | Conds].
@@ -858,33 +904,35 @@ fuzzy_match_fun(Fuzzy) ->
 
 run_fuzzy_match(_, []) ->
     true;
-run_fuzzy_match(E = {Id, _}, [{id, like, Pattern} | Fuzzy]) ->
+run_fuzzy_match(E = {?KEY(_, Id), _}, [{id, like, Pattern} | Fuzzy]) ->
     binary:match(Id, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
-run_fuzzy_match(E = {_Id, #{description := Desc}}, [{description, like, Pattern} | Fuzzy]) ->
+run_fuzzy_match(E = {_, #{description := Desc}}, [{description, like, Pattern} | Fuzzy]) ->
     binary:match(Desc, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_, #{from := Topics}}, [{from, '=:=', Pattern} | Fuzzy]) ->
     lists:member(Pattern, Topics) /= false andalso run_fuzzy_match(E, Fuzzy);
-run_fuzzy_match(E = {_Id, #{from := Topics}}, [{from, match, Pattern} | Fuzzy]) ->
+run_fuzzy_match(E = {_, #{from := Topics}}, [{from, match, Pattern} | Fuzzy]) ->
     lists:any(fun(For) -> emqx_topic:match(For, Pattern) end, Topics) andalso
         run_fuzzy_match(E, Fuzzy);
-run_fuzzy_match(E = {_Id, #{from := Topics}}, [{from, like, Pattern} | Fuzzy]) ->
+run_fuzzy_match(E = {_, #{from := Topics}}, [{from, like, Pattern} | Fuzzy]) ->
     lists:any(fun(For) -> binary:match(For, Pattern) /= nomatch end, Topics) andalso
         run_fuzzy_match(E, Fuzzy);
-run_fuzzy_match(E = {_Id, #{actions := Actions}}, [{action, in, ActionIds} | Fuzzy]) ->
+run_fuzzy_match(E = {_, #{actions := Actions}}, [{action, in, ActionIds} | Fuzzy]) ->
     lists:any(fun(AId) -> lists:member(AId, Actions) end, ActionIds) andalso
         run_fuzzy_match(E, Fuzzy);
-run_fuzzy_match(E = {_Id, #{from := Froms}}, [{source, in, SourceIds} | Fuzzy]) ->
+run_fuzzy_match(E = {_, #{from := Froms}}, [{source, in, SourceIds} | Fuzzy]) ->
     lists:any(fun(SId) -> lists:member(SId, Froms) end, SourceIds) andalso
         run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E, [_ | Fuzzy]) ->
     run_fuzzy_match(E, Fuzzy).
 
-rule_engine_update(Params) ->
+rule_engine_update(Namespace, Params) ->
     case emqx_rule_api_schema:check_params(Params, rule_engine) of
         {ok, _CheckedParams} ->
-            {ok, #{config := Config}} = emqx_conf:update([rule_engine], Params, #{
-                override_to => cluster
-            }),
+            {ok, #{config := Config}} = emqx_conf:update(
+                [rule_engine],
+                Params,
+                with_namespace(#{override_to => cluster}, Namespace)
+            ),
             {ok, Config};
         {error, Reason} ->
             {error, Reason}
@@ -897,3 +945,13 @@ ensure_last_modified_at(RawConfig) ->
     ).
 
 bin(X) -> emqx_utils_conv:bin(X).
+
+with_namespace(UpdateOpts, ?global_ns) ->
+    UpdateOpts;
+with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
+    UpdateOpts#{namespace => Namespace}.
+
+get_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
+    emqx:get_namespaced_config(Namespace, KeyPath, Default);
+get_config(?global_ns, KeyPath, Default) ->
+    emqx:get_config(KeyPath, Default).

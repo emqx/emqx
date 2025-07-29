@@ -129,6 +129,7 @@
 %% common validations
 -export([
     parse_resource_id/2,
+    parse_connector_id/1,
     parse_channel_id/1,
     parse_connector_id_from_channel_id/1,
     extract_namespace_from_resource_id/1,
@@ -850,6 +851,24 @@ parse_resource_id(Id0, Opts) ->
             )
     end.
 
+parse_connector_id(Id) when is_binary(Id) ->
+    case binary:split(Id, ?RES_SEP, [global]) of
+        ?NAMESPACED_CONNECTOR_PAT(Namespace, Type, Name) ->
+            {ok, #{
+                namespace => Namespace,
+                type => Type,
+                name => Name
+            }};
+        ?NON_NAMESPACED_CONNECTOR_PAT(Type, Name) ->
+            {ok, #{
+                namespace => ?global_ns,
+                type => Type,
+                name => Name
+            }};
+        _ ->
+            {error, invalid_id}
+    end.
+
 -doc """
 Parses a binary action or source resource id into a structured map.
 
@@ -916,20 +935,18 @@ parse_connector_id_from_channel_id(Id) ->
             connector_type := ConnectorType,
             connector_name := ConnectorName
         } ->
-            NSTag =
+            ConnResId =
                 case is_binary(Namespace) of
-                    false -> <<"">>;
-                    true -> iolist_to_binary([?NS_SEG, ?RES_SEP, Namespace, ?RES_SEP])
+                    true ->
+                        lists:join(
+                            ?RES_SEP, ?NAMESPACED_CONNECTOR(Namespace, ConnectorType, ConnectorName)
+                        );
+                    false ->
+                        lists:join(
+                            ?RES_SEP, ?NON_NAMESPACED_CONNECTOR(ConnectorType, ConnectorName)
+                        )
                 end,
-            ConnResId = iolist_to_binary([
-                NSTag,
-                ?CONN_SEG,
-                ?RES_SEP,
-                ConnectorType,
-                ?RES_SEP,
-                ConnectorName
-            ]),
-            {ok, ConnResId}
+            {ok, iolist_to_binary(ConnResId)}
     catch
         throw:{invalid_id, _} ->
             {error, iolist_to_binary(io_lib:format("Invalid action/source ID: ~p", [Id]))}

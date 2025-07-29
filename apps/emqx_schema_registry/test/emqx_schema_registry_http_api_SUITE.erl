@@ -143,6 +143,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    emqx_bridge_v2_testlib:delete_all_rules(),
     clear_schemas(),
     clear_external_registries(),
     ok = snabbkaffe:stop(),
@@ -213,13 +214,7 @@ dryrun_rule(SQL, Context) ->
     Path = emqx_mgmt_api_test_util:api_path(["rule_test"]),
     Res = do_request(post, Path, Params),
     ct:pal("dryrun rule result:\n  ~p", [Res]),
-    case Res of
-        {ok, {{_, 201, _}, _, #{<<"id">> := RuleId}}} ->
-            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-            simplify_result(Res);
-        _ ->
-            simplify_result(Res)
-    end.
+    simplify_result(Res).
 
 simplify_result(Res) ->
     case Res of

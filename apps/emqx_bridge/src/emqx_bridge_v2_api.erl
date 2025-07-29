@@ -905,7 +905,7 @@ handle_list(Namespace, ConfRootKey) ->
                 [format_resource(ConfRootKey, Data, Node) || Data <- Bridges]
              || {Node, Bridges} <- lists:zip(Nodes, NodeBridges)
             ],
-            ?OK(zip_bridges(ConfRootKey, AllBridges));
+            ?OK(zip_bridges(Namespace, ConfRootKey, AllBridges));
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
     end.
@@ -923,7 +923,7 @@ do_handle_summary(Namespace, ConfRootKey) ->
     NodeReplies = emqx_bridge_proto_v8:summary(Nodes, Namespace, ConfRootKey),
     maybe
         {ok, AllBridges} ?= is_ok(NodeReplies),
-        ZippedBridges = zip_bridges(ConfRootKey, AllBridges),
+        ZippedBridges = zip_bridges(Namespace, ConfRootKey, AllBridges),
         {ok, add_fallback_actions_references(Namespace, ConfRootKey, ZippedBridges)}
     end.
 
@@ -1130,7 +1130,7 @@ lookup_from_all_nodes(Namespace, ConfRootKey, BridgeType, BridgeName, SuccCode) 
     of
         {ok, [{ok, _} | _] = Results0} ->
             Results = [R || {ok, R} <- Results0],
-            {SuccCode, format_bridge_info(ConfRootKey, BridgeType, BridgeName, Results)};
+            {SuccCode, format_bridge_info(Namespace, ConfRootKey, BridgeType, BridgeName, Results)};
         {ok, [{error, not_found} | _]} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
         {error, Reason} ->
@@ -1258,12 +1258,12 @@ maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
 %% Note: this must be called on the local node handling the request, not during RPCs.
-zip_bridges(ConfRootKey, [BridgesFirstNode | _] = BridgesAllNodes) ->
+zip_bridges(Namespace, ConfRootKey, [BridgesFirstNode | _] = BridgesAllNodes) ->
     %% TODO: make this a `lists:map`...
     lists:foldl(
         fun(#{type := Type, name := Name}, Acc) ->
             Bridges = pick_bridges_by_id(Type, Name, BridgesAllNodes),
-            [format_bridge_info(ConfRootKey, Type, Name, Bridges) | Acc]
+            [format_bridge_info(Namespace, ConfRootKey, Type, Name, Bridges) | Acc]
         end,
         [],
         BridgesFirstNode
@@ -1325,21 +1325,21 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
     ).
 
 %% Note: this must be called on the local node handling the request, not during RPCs.
-format_bridge_info(ConfRootKey, Type, Name, [FirstBridge | _] = Bridges) ->
+format_bridge_info(Namespace, ConfRootKey, Type, Name, [FirstBridge | _] = Bridges) ->
     Res0 = maps:remove(node, FirstBridge),
     NodeStatus = node_status(Bridges),
     Id = emqx_bridge_resource:bridge_id(Type, Name),
     Rules =
         case ConfRootKey of
-            actions -> emqx_rule_engine:get_rule_ids_by_bridge_action(Id);
-            sources -> emqx_rule_engine:get_rule_ids_by_bridge_source(Id)
+            actions -> emqx_rule_engine:get_rule_ids_by_bridge_action(Namespace, Id);
+            sources -> emqx_rule_engine:get_rule_ids_by_bridge_source(Namespace, Id)
         end,
     Res1 = Res0#{
         status => aggregate_status(NodeStatus),
         node_status => NodeStatus,
         rules => lists:sort(Rules)
     },
-    Res2 = enrich_fallback_actions_info(Res1),
+    Res2 = enrich_fallback_actions_info(Namespace, Res1),
     redact(Res2).
 
 node_status(Bridges) ->
@@ -1607,14 +1607,14 @@ aggregate_metrics(
     ).
 
 %% Called locally, not during RPC.
-enrich_fallback_actions_info(Info) ->
+enrich_fallback_actions_info(Namespace, Info) ->
     emqx_utils_maps:update_if_present(
         <<"fallback_actions">>,
         fun(FBAs0) ->
             lists:map(
                 fun
                     (#{<<"kind">> := <<"reference">>, <<"type">> := T, <<"name">> := N} = FBA) ->
-                        Tags = emqx_config:get_raw([<<"actions">>, T, N, <<"tags">>], []),
+                        Tags = get_raw_config(Namespace, [<<"actions">>, T, N, <<"tags">>], []),
                         FBA#{<<"tags">> => Tags};
                     (A) ->
                         %% Republish
