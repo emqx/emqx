@@ -11,6 +11,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
@@ -264,11 +265,7 @@ data_import(post, #{body := #{<<"filename">> := Filename} = Body}) ->
                         true ->
                             {204};
                         false ->
-                            DbErrs1 = emqx_mgmt_data_backup:format_db_errors(DbErrs),
-                            ConfErrs1 = emqx_mgmt_data_backup:format_conf_errors(ConfErrs),
-                            Msg = unicode:characters_to_binary(
-                                io_lib:format("~s", [DbErrs1 ++ ConfErrs1])
-                            ),
+                            Msg = format_import_errors(DbErrs, ConfErrs),
                             {400, #{code => ?BAD_REQUEST, message => Msg}}
                     end;
                 {badrpc, Reason} ->
@@ -282,6 +279,19 @@ data_import(post, #{body := #{<<"filename">> := Filename} = Body}) ->
                     }}
             end
     end.
+
+format_import_errors(DbErrs, ConfErrs) ->
+    DbErrs1 = emqx_mgmt_data_backup:format_db_errors(DbErrs),
+    ConfErrs1 = emqx_mgmt_data_backup:format_conf_errors(ConfErrs),
+    GlobalConfErrs = maps:get(?global_ns, ConfErrs1, <<"">>),
+    Msg0 = ConfErrs1#{
+        ?global_ns => [
+            DbErrs1,
+            GlobalConfErrs
+        ]
+    },
+    Msg1 = maps:map(fun(_Ns, IOData) -> iolist_to_binary(IOData) end, Msg0),
+    maps:filter(fun(_Ns, Text) -> Text /= <<"">> end, Msg1).
 
 core_node(FileNode) ->
     case mria_rlog:role(FileNode) of

@@ -27,7 +27,7 @@
     update_setting/1
 ]).
 
--export([import_config/1]).
+-export([import_config/2]).
 
 -define(CONF_KEY_PATH, [license]).
 
@@ -120,7 +120,7 @@ check(#{clientid := ClientId}, AckProps) ->
             {stop, {error, ?RC_QUOTA_EXCEEDED}}
     end.
 
-import_config(#{<<"license">> := Config}) ->
+import_config(_Namespace, #{<<"license">> := Config}) ->
     OldConf = emqx:get_config(?CONF_KEY_PATH),
     case exec_config_update(Config) of
         {ok, #{config := NewConf}} ->
@@ -130,7 +130,7 @@ import_config(#{<<"license">> := Config}) ->
         Error ->
             {error, #{root_key => license, reason => Error}}
     end;
-import_config(_RawConf) ->
+import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => license, changed => []}}.
 
 %%------------------------------------------------------------------------------

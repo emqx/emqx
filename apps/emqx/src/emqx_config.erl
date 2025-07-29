@@ -95,6 +95,7 @@
     get_raw_namespaced/2,
     get_raw_namespaced/3,
     get_all_namespaces_containing/1,
+    get_all_raw_namespaced_configs/0,
     get_root_from_all_namespaces/1,
     get_root_from_all_namespaces/2,
     get_raw_root_from_all_namespaces/1,
@@ -211,6 +212,21 @@ get_all_namespaces_containing(RootKey0) ->
     ),
     MS = [{MatchHead, [], ['$1']}],
     lists:usort(mnesia:dirty_select(?CONFIG_TAB, MS)).
+
+get_all_raw_namespaced_configs() ->
+    MatchHead = erlang:make_tuple(record_info(size, ?CONFIG_TAB), '_'),
+    lists:foldl(
+        fun(#?CONFIG_TAB{root_key = {Namespace, RootKey}, raw_value = Config}, Acc) ->
+            maps:update_with(
+                Namespace,
+                fun(NSConfigs) -> NSConfigs#{RootKey => Config} end,
+                #{RootKey => Config},
+                Acc
+            )
+        end,
+        #{},
+        mnesia:dirty_match_object(?CONFIG_TAB, MatchHead)
+    ).
 
 get_root_from_all_namespaces(RootKey) ->
     do_get_root_from_all_namespaces(RootKey, error).

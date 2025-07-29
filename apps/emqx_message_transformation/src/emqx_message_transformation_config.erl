@@ -24,7 +24,7 @@
 
 %% `emqx_config_backup' API
 -behaviour(emqx_config_backup).
--export([import_config/1]).
+-export([import_config/2]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -215,7 +215,7 @@ post_config_update([?CONF_ROOT], {replace, Input}, ResultingConfig, Old, _AppEnv
 %% `emqx_config_backup' API
 %%------------------------------------------------------------------------------
 
-import_config(#{?CONF_ROOT_BIN := RawConf0}) ->
+import_config(_Namespace, #{?CONF_ROOT_BIN := RawConf0}) ->
     Result = emqx_conf:update(
         [?CONF_ROOT],
         {merge, RawConf0},
@@ -229,7 +229,7 @@ import_config(#{?CONF_ROOT_BIN := RawConf0}) ->
             ChangedPaths = Keys0 -- [<<"transformations">>],
             {ok, #{root_key => ?CONF_ROOT, changed => ChangedPaths}}
     end;
-import_config(_RawConf) ->
+import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => ?CONF_ROOT, changed => []}}.
 
 %%------------------------------------------------------------------------------

@@ -52,7 +52,7 @@
 ]).
 
 %% `emqx_config_backup' API
--export([import_config/1]).
+-export([import_config/2]).
 
 %% `emqx_db_backup' API
 -export([backup_tables/0, on_backup_table_imported/2]).
@@ -285,7 +285,7 @@ load() ->
 %% `emqx_config_backup' API
 %%------------------------------------------------------------------------------
 
-import_config(#{?CONF_ROOT_KEY_BIN := #{} = RawConf}) ->
+import_config(_Namespace, #{?CONF_ROOT_KEY_BIN := #{} = RawConf}) ->
     Result = emqx_conf:update(
         [?CONF_ROOT_KEY],
         RawConf,
@@ -299,7 +299,7 @@ import_config(#{?CONF_ROOT_KEY_BIN := #{} = RawConf}) ->
             Keys = lists:map(fun(K) -> [K] end, Keys0),
             {ok, #{root_key => ?CONF_ROOT_KEY, changed => Keys}}
     end;
-import_config(_RawConf) ->
+import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => ?CONF_ROOT_KEY, changed => []}}.
 
 %%------------------------------------------------------------------------------

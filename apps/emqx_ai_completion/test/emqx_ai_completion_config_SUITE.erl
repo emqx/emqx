@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -37,6 +38,13 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_ai_completion_test_helpers:clean_completion_profiles(),
     ok = emqx_ai_completion_test_helpers:clean_providers().
+
+%%--------------------------------------------------------------------
+%% Helper fns
+%%--------------------------------------------------------------------
+
+import_config(RawConf) ->
+    emqx_ai_completion_config:import_config(?global_ns, RawConf).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -80,11 +88,11 @@ t_config_backup_and_restore(_Config) ->
     %% Ok to import the empty configs
     ?assertEqual(
         {ok, #{root_key => ai, changed => []}},
-        emqx_ai_completion_config:import_config(#{})
+        import_config(#{})
     ),
     ?assertMatch(
         {results, {_, []}},
-        emqx_ai_completion_config:import_config(#{<<"ai">> => #{}})
+        import_config(#{<<"ai">> => #{}})
     ),
 
     %% Ok to import the same config
@@ -100,7 +108,7 @@ t_config_backup_and_restore(_Config) ->
                 ],
                 []
             }},
-        emqx_ai_completion_config:import_config(BackupConfig0)
+        import_config(BackupConfig0)
     ),
 
     %% Fail to import Completion Profile without a matching provider
@@ -128,7 +136,7 @@ t_config_backup_and_restore(_Config) ->
                     #{root_key := ai, reason := _}
                 ]
             }},
-        emqx_ai_completion_config:import_config(BackupConfig1)
+        import_config(BackupConfig1)
     ),
 
     %% Fail to change type of a referenced provider
@@ -154,5 +162,5 @@ t_config_backup_and_restore(_Config) ->
                     #{root_key := ai, reason := _}
                 ]
             }},
-        emqx_ai_completion_config:import_config(BackupConfig2)
+        import_config(BackupConfig2)
     ).

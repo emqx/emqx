@@ -603,7 +603,7 @@ create_connector_api2(TCConfig, #{} = Overrides) when is_list(TCConfig) ->
     do_create_connector_api2(Params, common_api_opts(TCConfig)).
 
 do_create_connector_api2(Params, Opts) ->
-    emqx_bridge_v2_testlib:simple_request(#{
+    simple_request(#{
         method => post,
         url => emqx_mgmt_api_test_util:api_path(["connectors"]),
         body => Params,
@@ -700,7 +700,7 @@ create_action_api2(TCConfig, #{} = Overrides) when is_list(TCConfig) ->
     do_create_action_api2(Params, common_api_opts(TCConfig)).
 
 do_create_action_api2(Params, Opts) ->
-    emqx_bridge_v2_testlib:simple_request(#{
+    simple_request(#{
         method => post,
         url => emqx_mgmt_api_test_util:api_path(["actions"]),
         body => Params,
@@ -1111,6 +1111,22 @@ bridges_api_spec_schemas() ->
 
 actions_api_spec_schemas() ->
     api_spec_schemas("actions").
+
+export_backup_api(Params, Opts) ->
+    simple_request(#{
+        method => post,
+        url => emqx_mgmt_api_test_util:api_path(["data", "export"]),
+        body => Params,
+        auth_header => auth_header_lazy(Opts)
+    }).
+
+import_backup_api(Params, Opts) ->
+    simple_request(#{
+        method => post,
+        url => emqx_mgmt_api_test_util:api_path(["data", "import"]),
+        body => Params,
+        auth_header => auth_header_lazy(Opts)
+    }).
 
 get_value(Key, Config) ->
     case proplists:get_value(Key, Config, undefined) of

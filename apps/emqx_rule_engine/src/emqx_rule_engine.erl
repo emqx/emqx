@@ -6,7 +6,6 @@
 
 -behaviour(gen_server).
 -behaviour(emqx_config_handler).
--behaviour(emqx_config_backup).
 
 -include("rule_engine.hrl").
 -include("emqx_rule_engine_internal.hrl").
@@ -71,11 +70,6 @@
     handle_info/2,
     terminate/2,
     code_change/3
-]).
-
-%% Data backup
--export([
-    import_config/1
 ]).
 
 %% For setting and getting extra rule engine SQL functions module
@@ -545,25 +539,6 @@ tally_referenced_bridges(BridgeIds, Acc0) ->
         Acc0,
         BridgeIds
     ).
-
-%%----------------------------------------------------------------------------------------
-%% Data backup
-%%----------------------------------------------------------------------------------------
-
-%% TODO: namespace
-import_config(#{<<"rule_engine">> := #{<<"rules">> := NewRules} = RuleEngineConf}) ->
-    OldRules = emqx:get_raw_config(?KEY_PATH, #{}),
-    RuleEngineConf1 = RuleEngineConf#{<<"rules">> => maps:merge(OldRules, NewRules)},
-    case emqx_conf:update([rule_engine], RuleEngineConf1, #{override_to => cluster}) of
-        {ok, #{raw_config := #{<<"rules">> := NewRawRules}}} ->
-            Changed = maps:get(changed, emqx_utils_maps:diff_maps(NewRawRules, OldRules)),
-            ChangedPaths = [?RULE_PATH(Id) || Id <- maps:keys(Changed)],
-            {ok, #{root_key => rule_engine, changed => ChangedPaths}};
-        Error ->
-            {error, #{root_key => rule_engine, reason => Error}}
-    end;
-import_config(_RawConf) ->
-    {ok, #{root_key => rule_engine, changed => []}}.
 
 %%----------------------------------------------------------------------------------------
 %% gen_server callbacks

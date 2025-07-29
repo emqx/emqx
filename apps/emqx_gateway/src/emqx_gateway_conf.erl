@@ -55,7 +55,7 @@
 
 %% Data backup
 -export([
-    import_config/1
+    import_config/2
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -362,7 +362,7 @@ ret_listener_or_err(_, _, Err) ->
 %% Data backup
 %%----------------------------------------------------------------------------------------
 
-import_config(RawConf) ->
+import_config(_Namespace, RawConf) ->
     GatewayConf = maps:get(<<"gateway">>, RawConf, #{}),
     OldGatewayConf = emqx:get_raw_config([<<"gateway">>], #{}),
     MergedConf = maps:merge(OldGatewayConf, GatewayConf),

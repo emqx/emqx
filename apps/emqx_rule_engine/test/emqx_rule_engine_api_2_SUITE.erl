@@ -565,6 +565,74 @@ setup_namespaced_actions_sources_scenario(TCConfig0) ->
         bridge_id => BridgeId
     }.
 
+%% Sets up only one namespace with both an action and a source with a rule referencing
+%% both.
+setup_namespaced_actions_sources_scenario2(TCConfig0) ->
+    Node = get_value(node, TCConfig0),
+    MQTTPort = get_tcp_mqtt_port(Node),
+    Server = <<"127.0.0.1:", (integer_to_binary(MQTTPort))/binary>>,
+
+    Namespace = <<"my_namespace">>,
+    AuthHeader = ?ON(
+        Node, emqx_bridge_v2_testlib:ensure_namespaced_api_key(#{namespace => Namespace})
+    ),
+    TCConfigNS = [{auth_header, AuthHeader} | TCConfig0],
+
+    ConnectorType = <<"mqtt">>,
+    ConnectorName = <<"conn">>,
+    ConnectorConfig = emqx_bridge_v2_api_SUITE:source_connector_create_config(#{
+        <<"description">> => <<"connector ns1">>,
+        <<"pool_size">> => 1,
+        <<"server">> => Server
+    }),
+    {201, _} = emqx_connector_api_SUITE:create(
+        ConnectorType, ConnectorName, ConnectorConfig, TCConfigNS
+    ),
+
+    ActionType = <<"mqtt">>,
+    ActionName = <<"channel1">>,
+    ActionConfig = emqx_bridge_v2_api_SUITE:source_update_config(#{
+        <<"description">> => <<"action ns1">>,
+        <<"connector">> => ConnectorName
+    }),
+    {201, _} = emqx_bridge_v2_api_SUITE:create(
+        ActionType,
+        ActionName,
+        ActionConfig,
+        [{conf_root_key, actions} | TCConfigNS]
+    ),
+
+    SourceType = <<"mqtt">>,
+    SourceName = <<"channel2">>,
+    SourceConfig = emqx_bridge_v2_api_SUITE:source_update_config(#{
+        <<"description">> => <<"source ns1">>,
+        <<"connector">> => ConnectorName
+    }),
+    {201, _} = emqx_bridge_v2_api_SUITE:create(
+        SourceType,
+        SourceName,
+        SourceConfig,
+        [{conf_root_key, sources} | TCConfigNS]
+    ),
+
+    ActionId = emqx_bridge_resource:bridge_id(ActionType, ActionName),
+    SourceId = emqx_bridge_resource:bridge_id(SourceType, SourceName),
+    SourceHookPoint = emqx_bridge_v2:source_hookpoint(SourceId),
+    RuleConfig = rule_config(#{
+        <<"id">> => <<"somerule">>,
+        <<"description">> => <<"rule ns1">>,
+        <<"sql">> => fmt(<<"select * from \"${t}\" ">>, #{t => SourceHookPoint}),
+        <<"actions">> => [ActionId]
+    }),
+
+    {201, _} = create(RuleConfig, TCConfigNS),
+
+    #{
+        namespace => Namespace,
+        auth_header => AuthHeader,
+        tc_config => TCConfigNS
+    }.
+
 namespace_of(TCConfig) ->
     emqx_common_test_helpers:get_matrix_prop(
         TCConfig, [?global_namespace, ?namespaced], ?global_namespace
@@ -2273,4 +2341,106 @@ t_direct_dispatch_empty_string(_Config) ->
             ok
         end
     ),
+    ok.
+
+-doc """
+Verifies that we are able to export and import namespaced connector/action/source/rule
+configurations.
+""".
+t_namespaced_export_import_config_api() ->
+    [{matrix, true}].
+t_namespaced_export_import_config_api(matrix) ->
+    [[?custom_cluster]];
+t_namespaced_export_import_config_api(TCConfig0) when is_list(TCConfig0) ->
+    Apps = [
+        emqx_conf,
+        emqx_bridge_mqtt,
+        emqx_bridge,
+        emqx_rule_engine,
+        emqx_management
+    ],
+    Dashboard = [emqx_mgmt_api_test_util:emqx_dashboard()],
+    Nodes = emqx_cth_cluster:start(
+        [
+            {ns_import_api1, #{apps => Apps ++ Dashboard}},
+            {ns_import_api2, #{apps => Apps}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, TCConfig0)}
+    ),
+    on_exit(fun() -> ok = emqx_cth_cluster:stop(Nodes) end),
+    [N1 | _] = Nodes,
+    TCConfig1 = [{node, N1} | TCConfig0],
+    #{
+        tc_config := TCConfigNS,
+        auth_header := AuthHeader
+    } = setup_namespaced_actions_sources_scenario2(TCConfig1),
+
+    {200, #{<<"filename">> := BackupFilename}} =
+        emqx_bridge_v2_testlib:export_backup_api(#{}, #{auth_header => AuthHeader}),
+    CleanUp = fun() ->
+        ?ON(N1, begin
+            emqx_bridge_v2_testlib:delete_all_rules(),
+            emqx_bridge_v2_testlib:delete_all_bridges_and_connectors()
+        end)
+    end,
+    CleanUp(),
+
+    %% Sanity checks
+    {200, []} = emqx_connector_api_SUITE:list(TCConfigNS),
+    {200, []} = emqx_bridge_v2_api_SUITE:list([{conf_root_key, actions} | TCConfigNS]),
+    {200, []} = emqx_bridge_v2_api_SUITE:list([{conf_root_key, sources} | TCConfigNS]),
+    {200, #{<<"data">> := []}} = list(TCConfigNS),
+
+    {204, _} = emqx_bridge_v2_testlib:import_backup_api(
+        #{<<"filename">> => BackupFilename},
+        #{auth_header => AuthHeader}
+    ),
+
+    ?assertMatch(
+        {200, [#{<<"description">> := <<"connector ns1">>}]},
+        emqx_connector_api_SUITE:list(TCConfigNS)
+    ),
+    ?assertMatch(
+        {200, [#{<<"description">> := <<"action ns1">>}]},
+        emqx_bridge_v2_api_SUITE:list([{conf_root_key, actions} | TCConfigNS])
+    ),
+    ?assertMatch(
+        {200, [#{<<"description">> := <<"source ns1">>}]},
+        emqx_bridge_v2_api_SUITE:list([{conf_root_key, sources} | TCConfigNS])
+    ),
+    ?assertMatch(
+        {200, #{<<"data">> := [#{<<"description">> := <<"rule ns1">>}]}},
+        list(TCConfigNS)
+    ),
+
+    %% Filtering root keys work for namespaced configs
+    {200, #{<<"filename">> := BackupFilename2}} =
+        emqx_bridge_v2_testlib:export_backup_api(
+            #{<<"root_keys">> => [<<"connectors">>]},
+            #{auth_header => AuthHeader}
+        ),
+    CleanUp(),
+
+    {204, _} = emqx_bridge_v2_testlib:import_backup_api(
+        #{<<"filename">> => BackupFilename2},
+        #{auth_header => AuthHeader}
+    ),
+
+    ?assertMatch(
+        {200, [#{<<"description">> := <<"connector ns1">>}]},
+        emqx_connector_api_SUITE:list(TCConfigNS)
+    ),
+    ?assertMatch(
+        {200, []},
+        emqx_bridge_v2_api_SUITE:list([{conf_root_key, actions} | TCConfigNS])
+    ),
+    ?assertMatch(
+        {200, []},
+        emqx_bridge_v2_api_SUITE:list([{conf_root_key, sources} | TCConfigNS])
+    ),
+    ?assertMatch(
+        {200, #{<<"data">> := []}},
+        list(TCConfigNS)
+    ),
+
     ok.
