@@ -20,22 +20,30 @@
 
 %%
 
+-doc "Contruct a freelist spanning range of integers, inclusive bounds.".
 -spec range(integer(), integer()) -> t().
 range(A, B) when A =< B ->
     [A, B].
 
+-doc "Pick a first unoccupied slot in the given freelist.".
 -spec first(t()) -> integer() | {error, full}.
 first([A | _]) ->
     A;
 first([]) ->
     {error, full}.
 
+-doc "Turn freelist into a list of all unoccupied slots.".
 -spec to_list(t()) -> [integer()].
 to_list([A, B | Rest]) ->
     lists:seq(A, B) ++ to_list(Rest);
 to_list([]) ->
     [].
 
+-doc """
+Occupy a slot in the given freelist.
+Occupying already occupied slot is not an error, consistency holds as long as results
+from `first/1` / `to_list/1` are fed into this function.
+""".
 -spec occupy(integer(), t()) -> t().
 occupy(X, [A | _] = List) when X < A ->
     List;
