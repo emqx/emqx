@@ -60,7 +60,8 @@
     'delivery.completed',
     'cm.channel.unregistered',
     'tls_handshake.psk_lookup',
-    'config.zones_updated'
+    'config.zones_updated',
+    'api_actor.will_be_created'
 ]).
 
 %% Our template plugin used this hookpoints before its 5.1.0 version,
@@ -247,6 +248,13 @@ when
 %% Executed out of channel process context
 -callback 'config.zones_updated'(_Old :: emqx_config:config(), _New :: emqx_config:config()) ->
     callback_result().
+
+%% NOTE
+%% Executed out of channel process context
+-callback 'api_actor.will_be_created'(
+    emqx_config:maybe_namespace(), emqx_dashboard_admin:actor_props()
+) ->
+    fold_callback_result(ok | {error, term()}).
 
 %%-----------------------------------------------------------------------------
 %% API

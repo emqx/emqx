@@ -188,6 +188,11 @@ api_key(post, #{body := App}) ->
     case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc, Role) of
         {ok, NewApp} ->
             {200, emqx_mgmt_auth:format(NewApp)};
+        {error, Reason} when is_map(Reason) ->
+            {400, #{
+                code => 'BAD_REQUEST',
+                message => Reason
+            }};
         {error, Reason} ->
             {400, #{
                 code => 'BAD_REQUEST',

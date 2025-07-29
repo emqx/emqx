@@ -256,6 +256,8 @@ is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
 create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role0) ->
     maybe
         {ok, #{?role := Role, ?namespace := Namespace}} ?= parse_role(Role0),
+        ActorProps = #{?role => Role, ?namespace => Namespace},
+        ok ?= emqx_hooks:run_fold('api_actor.will_be_created', [ActorProps], ok),
         Extra = emqx_utils_maps:put_if(
             #{?role => Role, desc => Desc},
             ?namespace,
