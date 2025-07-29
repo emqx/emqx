@@ -259,8 +259,10 @@ jobs:
           --pkgtype tgz
 
         export EMQX_VERSION="$(./pkg-vsn.sh $PROFILE)"
-        echo "EMQX_VERSION=$EMQX_VERSION" >> $GITHUB_ENV
         export PACKAGE_SOURCE="_packages/${PROFILE}/${PROFILE}-${EMQX_VERSION}-ubuntu22.04-$ARCH.tar.gz"
+        # ensure package version length is capped at 32 characters (enforced by snap)
+        export EMQX_VERSION="${EMQX_VERSION:0:32}"
+        echo "EMQX_VERSION=$EMQX_VERSION" >> $GITHUB_ENV
         echo "PACKAGE_SOURCE=$PACKAGE_SOURCE" >> $GITHUB_ENV
         envsubst '${PROFILE},${EMQX_VERSION},${PACKAGE_SOURCE},${SNAP_BASE}' < deploy/snap/snapcraft.yaml > ./snapcraft.yaml
         cat snapcraft.yaml
@@ -285,7 +287,7 @@ jobs:
         sudo snap start "${PROFILE}"
         for i in {1..30}; do
           echo .
-          sudo snap logs "${PROFILE}" | grep -q "${EMQX_VERSION} is running now!" && break
+          sudo snap logs "${PROFILE}" | grep -Eq "EMQX Enterprise ${EMQX_VERSION}.* is running now!" && break
           sleep 1
         done
         if [ $i -eq 30 ]; then

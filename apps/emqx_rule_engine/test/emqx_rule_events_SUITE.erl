@@ -20,8 +20,12 @@ t_mod_hook_fun(_) ->
         Events
     ),
     ?assertEqual(
-        fun emqx_rule_events:on_bridge_message_received/2,
+        fun emqx_rule_events:on_bridge_message_received/3,
         emqx_rule_events:hook_fun(<<"$bridges/foo">>)
+    ),
+    ?assertEqual(
+        fun emqx_rule_events:on_bridge_message_received/3,
+        emqx_rule_events:hook_fun(<<"$sources/foo">>)
     ),
     ?assertError({invalid_event, foo}, emqx_rule_events:hook_fun(foo)).
 

@@ -286,12 +286,7 @@ init_mocks(_TestCase) ->
     [?CONNECTOR_IMPL, emqx_connector_resource].
 
 clear_resources(_) ->
-    lists:foreach(
-        fun(#{id := Id}) ->
-            {204, _} = emqx_bridge_v2_testlib:delete_rule_api(Id)
-        end,
-        emqx_rule_engine:get_rules()
-    ),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok.
 
@@ -1339,7 +1334,7 @@ Smoke tests for CRUD operations on namespaced connectors.
 """.
 t_namespaced_crud(TCConfig) ->
     clear_mocks(TCConfig),
-    NoNamespace = undefined,
+    NoNamespace = ?global_ns,
     NS1 = <<"ns1">>,
     AuthHeaderNS1 = ensure_namespaced_api_key(NS1, TCConfig),
     TCConfigNS1 = [{auth_header, AuthHeaderNS1} | TCConfig],

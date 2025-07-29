@@ -9,6 +9,7 @@
 -behaviour(emqx_config_backup).
 
 -include("rule_engine.hrl").
+-include("emqx_rule_engine_internal.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -17,7 +18,7 @@
 -export([start_link/0]).
 
 -export([
-    post_config_update/5
+    post_config_update/6
 ]).
 
 %% Rule Management
@@ -27,20 +28,22 @@
 -export([
     create_rule/1,
     update_rule/1,
-    delete_rule/1,
-    get_rule/1
+    delete_rule/2,
+    get_rule/2
 ]).
 
 -export([
-    get_rules/0,
+    rule_resource_id/2,
+    get_rules/1,
+    get_rules_from_all_namespaces/0,
     get_rules_for_topic/1,
-    get_rules_with_same_event/1,
-    get_enriched_rules_with_matching_event/1,
+    get_enriched_rules_with_matching_event/2,
+    get_enriched_rules_with_matching_event_all_namespaces/1,
     get_rule_ids_by_action/1,
-    get_rule_ids_by_bridge_action/1,
-    get_rule_ids_by_bridge_source/1,
-    ensure_action_removed/2,
-    get_rules_ordered_by_ts/0
+    get_rule_ids_by_bridge_action/2,
+    get_rule_ids_by_bridge_source/2,
+    ensure_action_removed/3,
+    get_rules_ordered_by_ts/1
 ]).
 
 -export([
@@ -54,6 +57,9 @@
 
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
+
+%% Internal exports for `emqx_rule_engine` application
+-export([rule_resource_id/1]).
 
 -export([now_ms/0]).
 
@@ -81,9 +87,20 @@
     unregister_external_functions/2
 ]).
 
+%% Only used by tests and debugging
+-export([get_rules_with_same_event/2]).
+
+-export_type([rule/0]).
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
+
 -define(RULE_ENGINE, ?MODULE).
 
 -define(T_CALL, infinity).
+
+-define(namespace, namespace).
 
 %% NOTE: This order cannot be changed! This is to make the metric working during relup.
 %% Append elements to this list to add new metrics.
@@ -106,42 +123,81 @@
 -define(DEFAULT_EXTERNAL_FUNCTION_PREFIX, 'rsf_').
 -define(EXTERNAL_FUNCTION_PT_KEY(NAME), {?MODULE, external_function, NAME}).
 
+%% Calls/casts/infos
+-record(insert_rule, {rule}).
+-record(update_rule, {new_rule, old_rule}).
+-record(delete_rule, {rule}).
+
 -type action_name() :: binary() | #{function := binary()}.
 -type bridge_action_id() :: binary().
 -type bridge_source_id() :: binary().
+-type namespace() :: binary().
+-type maybe_namespace() :: ?global_ns | namespace().
+
+-type rule() ::
+    #{
+        id := rule_id(),
+        namespace := maybe_namespace(),
+        name := binary(),
+        sql := binary(),
+        actions := [action()],
+        enable := boolean(),
+        description => binary(),
+        %% epoch in millisecond precision
+        created_at := integer(),
+        %% epoch in millisecond precision
+        updated_at := integer(),
+        from := list(topic()),
+        is_foreach := boolean(),
+        fields := list(),
+        doeach := term(),
+        incase := term(),
+        conditions := tuple()
+    }.
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
 
 -spec start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}.
 start_link() ->
     gen_server:start_link({local, ?RULE_ENGINE}, ?MODULE, [], []).
 
-%%----------------------------------------------------------------------------------------
-%% The config handler for emqx_rule_engine
 %%------------------------------------------------------------------------------
-post_config_update(?RULE_PATH(RuleId), '$remove', undefined, _OldRule, _AppEnvs) ->
-    delete_rule(bin(RuleId));
-post_config_update(?RULE_PATH(RuleId), _Req, NewRule, undefined, _AppEnvs) ->
-    create_rule(NewRule#{id => bin(RuleId)});
-post_config_update(?RULE_PATH(RuleId), _Req, NewRule, _OldRule, _AppEnvs) ->
-    update_rule(NewRule#{id => bin(RuleId)});
-post_config_update([rule_engine], _Req, #{rules := NewRules}, #{rules := OldRules}, _AppEnvs) ->
+%% `emqx_config_handler' API
+%%------------------------------------------------------------------------------
+
+post_config_update(?RULE_PATH(RuleId), '$remove', undefined, _OldRule, _AppEnvs, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    delete_rule(Namespace, bin(RuleId));
+post_config_update(?RULE_PATH(RuleId), _Req, NewRule, undefined, _AppEnvs, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    create_rule(NewRule#{id => bin(RuleId), ?namespace => Namespace});
+post_config_update(?RULE_PATH(RuleId), _Req, NewRule, _OldRule, _AppEnvs, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    update_rule(NewRule#{id => bin(RuleId), ?namespace => Namespace});
+post_config_update(
+    [rule_engine], _Req, #{rules := NewRules}, #{rules := OldRules}, _AppEnvs, ExtraContext
+) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
     #{added := Added, removed := Removed, changed := Updated} =
         emqx_utils_maps:diff_maps(NewRules, OldRules),
     try
-        maps_foreach(
-            fun({Id, {_Old, New}}) ->
-                {ok, _} = update_rule(New#{id => bin(Id)})
+        maps:foreach(
+            fun(Id, {_Old, New}) ->
+                {ok, _} = update_rule(New#{id => bin(Id), ?namespace => Namespace})
             end,
             Updated
         ),
-        maps_foreach(
-            fun({Id, _Rule}) ->
-                ok = delete_rule(bin(Id))
+        maps:foreach(
+            fun(Id, _Rule) ->
+                ok = delete_rule(Namespace, bin(Id))
             end,
             Removed
         ),
-        maps_foreach(
-            fun({Id, Rule}) ->
-                {ok, _} = create_rule(Rule#{id => bin(Id)})
+        maps:foreach(
+            fun(Id, Rule) ->
+                {ok, _} = create_rule(Rule#{id => bin(Id), ?namespace => Namespace})
             end,
             Added
         ),
@@ -157,66 +213,87 @@ post_config_update([rule_engine], _Req, #{rules := NewRules}, #{rules := OldRule
 
 -spec load_rules() -> ok.
 load_rules() ->
-    maps_foreach(
-        fun
-            ({Id, #{metadata := #{created_at := CreatedAt}} = Rule}) ->
-                create_rule(Rule#{id => bin(Id)}, CreatedAt);
-            ({Id, Rule}) ->
-                create_rule(Rule#{id => bin(Id)})
+    maps:foreach(
+        fun(Namespace, RootCfg) ->
+            Rules = maps:get(rules, RootCfg, #{}),
+            maps:foreach(
+                fun
+                    (Id, #{metadata := #{created_at := CreatedAt}} = Rule) ->
+                        create_rule(Rule#{id => bin(Id), ?namespace => Namespace}, CreatedAt);
+                    (Id, Rule) ->
+                        create_rule(Rule#{id => bin(Id), ?namespace => Namespace})
+                end,
+                Rules
+            )
         end,
-        emqx:get_config([rule_engine, rules], #{})
+        get_root_config_from_all_namespaces()
     ).
 
 -spec create_rule(map()) -> {ok, rule()} | {error, term()}.
 create_rule(Params) ->
     create_rule(Params, maps:get(created_at, Params, now_ms())).
 
-create_rule(Params = #{id := RuleId}, CreatedAt) when is_binary(RuleId) ->
-    case get_rule(RuleId) of
+create_rule(Params = #{id := RuleId, ?namespace := Namespace}, CreatedAt) when is_binary(RuleId) ->
+    case get_rule(Namespace, RuleId) of
         not_found -> with_parsed_rule(Params, CreatedAt, fun insert_rule/1);
         {ok, _} -> {error, already_exists}
     end.
 
 -spec update_rule(map()) -> {ok, rule()} | {error, term()}.
-update_rule(Params = #{id := RuleId}) when is_binary(RuleId) ->
-    case get_rule(RuleId) of
+update_rule(Params = #{id := RuleId, ?namespace := Namespace}) when is_binary(RuleId) ->
+    case get_rule(Namespace, RuleId) of
         not_found ->
             {error, not_found};
-        {ok, RulePrev = #{created_at := CreatedAt}} ->
-            with_parsed_rule(Params, CreatedAt, fun(Rule) -> update_rule(Rule, RulePrev) end)
+        {ok, OldRule = #{created_at := CreatedAt}} ->
+            with_parsed_rule(Params, CreatedAt, fun(NewRule) -> update_rule(NewRule, OldRule) end)
     end.
 
--spec delete_rule(RuleId :: rule_id()) -> ok.
-delete_rule(RuleId) when is_binary(RuleId) ->
-    case get_rule(RuleId) of
+-spec delete_rule(maybe_namespace(), RuleId :: rule_id()) -> ok.
+delete_rule(Namespace, RuleId) when is_binary(RuleId) ->
+    case get_rule(Namespace, RuleId) of
         not_found ->
             ok;
         {ok, Rule} ->
-            gen_server:call(?RULE_ENGINE, {delete_rule, Rule}, ?T_CALL)
+            gen_server:call(?RULE_ENGINE, #delete_rule{rule = Rule}, ?T_CALL)
     end.
 
 -spec insert_rule(Rule :: rule()) -> ok.
 insert_rule(Rule) ->
-    gen_server:call(?RULE_ENGINE, {insert_rule, Rule}, ?T_CALL).
+    gen_server:call(?RULE_ENGINE, #insert_rule{rule = Rule}, ?T_CALL).
 
--spec update_rule(Rule :: rule(), RulePrev :: rule()) -> ok.
-update_rule(Rule, RulePrev) ->
-    gen_server:call(?RULE_ENGINE, {update_rule, Rule, RulePrev}, ?T_CALL).
+-spec update_rule(NewRule :: rule(), OldRule :: rule()) -> ok.
+update_rule(#{id := Id, ?namespace := NS} = NewRule, #{id := Id, ?namespace := NS} = OldRule) ->
+    gen_server:call(?RULE_ENGINE, #update_rule{new_rule = NewRule, old_rule = OldRule}, ?T_CALL).
 
 %%----------------------------------------------------------------------------------------
 %% Rule Management
 %%----------------------------------------------------------------------------------------
 
--spec get_rules() -> [rule()].
-get_rules() ->
-    get_all_records(?RULE_TAB).
+-spec get_rules_from_all_namespaces() -> #{maybe_namespace() => [rule()]}.
+get_rules_from_all_namespaces() ->
+    lists:foldl(
+        fun({?KEY(Namespace, Id), Rule}, Acc) ->
+            maps:update_with(
+                Namespace,
+                fun(NsRules) -> [Rule#{id => Id} | NsRules] end,
+                [Rule#{id => Id}],
+                Acc
+            )
+        end,
+        #{},
+        ets:tab2list(?RULE_TAB)
+    ).
 
-get_rules_ordered_by_ts() ->
+-spec get_rules(maybe_namespace()) -> [rule()].
+get_rules(Namespace) ->
+    get_all_records(Namespace, ?RULE_TAB).
+
+get_rules_ordered_by_ts(Namespace) ->
     lists:sort(
         fun(#{created_at := CreatedA}, #{created_at := CreatedB}) ->
             CreatedA =< CreatedB
         end,
-        get_rules()
+        get_rules(Namespace)
     ).
 
 -spec get_rules_for_topic(Topic) ->
@@ -242,35 +319,37 @@ get_rules_for_topic(Topic) ->
         Rule <- lookup_rule(emqx_topic_index:get_id(M))
     ].
 
--spec get_rules_with_same_event(Topic :: binary()) -> [rule()].
-get_rules_with_same_event(Topic) ->
-    [
-        Rule
-     || Rule = #{from := From} <- get_rules(),
-        EventName <- emqx_rule_events:match_event_names(Topic),
-        lists:any(fun(T) -> is_of_event_name(EventName, T) end, From)
-    ].
-
--spec get_enriched_rules_with_matching_event(EventName :: atom()) ->
+-spec get_enriched_rules_with_matching_event_all_namespaces(EventName :: atom()) ->
     [
         #{
-            rule => Rule,
-            trigger := Topic,
-            matched := TopicFilter
+            rule := rule(),
+            trigger := _Topic :: binary(),
+            matched := _TopicFilter :: binary()
         }
-    ]
-when
-    Topic :: binary(),
-    TopicFilter :: binary(),
-    Rule :: rule().
-get_enriched_rules_with_matching_event(EventName) ->
+    ].
+get_enriched_rules_with_matching_event_all_namespaces(EventName) ->
+    NamespaceToRules = get_rules_from_all_namespaces(),
     lists:usort([
         #{
             rule => Rule,
             trigger => emqx_rule_events:event_topic(EventName),
             matched => Topic
         }
-     || Rule = #{from := Topics} <- get_rules(),
+     || Rules <- maps:values(NamespaceToRules),
+        Rule = #{from := Topics} <- Rules,
+        Topic <- Topics,
+        EventNameOther <- emqx_rule_events:match_event_names(Topic),
+        EventNameOther == EventName
+    ]).
+
+get_enriched_rules_with_matching_event(Namespace, EventName) ->
+    lists:usort([
+        #{
+            rule => Rule,
+            trigger => emqx_rule_events:event_topic(EventName),
+            matched => Topic
+        }
+     || Rule = #{from := Topics} <- get_rules(Namespace),
         Topic <- Topics,
         EventNameOther <- emqx_rule_events:match_event_names(Topic),
         EventNameOther == EventName
@@ -278,19 +357,22 @@ get_enriched_rules_with_matching_event(EventName) ->
 
 -spec get_rules_with_matching_event(EventName :: atom()) -> [rule()].
 get_rules_with_matching_event(EventName) ->
+    NamespaceToRules = get_rules_from_all_namespaces(),
     lists:usort([
         Rule
-     || Rule = #{from := Topics} <- get_rules(),
+     || Rules <- maps:values(NamespaceToRules),
+        Rule = #{from := Topics} <- Rules,
         Topic <- Topics,
         EventNameOther <- emqx_rule_events:match_event_names(Topic),
         EventNameOther == EventName
     ]).
 
+%% Helper used only by deprecated bridge v1 APIs
 -spec get_rule_ids_by_action(action_name()) -> [rule_id()].
 get_rule_ids_by_action(BridgeId) when is_binary(BridgeId) ->
     [
         Id
-     || #{actions := Acts, id := Id, from := Froms} <- get_rules(),
+     || #{actions := Acts, id := Id, from := Froms} <- get_rules(?global_ns),
         forwards_to_bridge(Acts, BridgeId) orelse
             references_ingress_bridge(Froms, BridgeId)
     ];
@@ -302,39 +384,37 @@ get_rule_ids_by_action(#{function := FuncName}) when is_binary(FuncName) ->
         end,
     [
         Id
-     || #{actions := Acts, id := Id} <- get_rules(),
+     || #{actions := Acts, id := Id} <- get_rules(?global_ns),
         contains_actions(Acts, Mod, Fun)
     ].
 
--spec get_rule_ids_by_bridge_action(bridge_action_id()) -> [binary()].
-get_rule_ids_by_bridge_action(ActionId) ->
+-spec get_rule_ids_by_bridge_action(maybe_namespace(), bridge_action_id()) -> [binary()].
+get_rule_ids_by_bridge_action(Namespace, ActionId) ->
     %% ActionId = <<"type:name">>
-    %% ActionId = <<"ns:namespace:action:type:name">>
     [
         Id
-     || #{actions := Acts, id := Id} <- get_rules(),
+     || #{actions := Acts, id := Id} <- get_rules(Namespace),
         forwards_to_bridge(Acts, ActionId)
     ].
 
--spec get_rule_ids_by_bridge_source(bridge_source_id()) -> [binary()].
-get_rule_ids_by_bridge_source(SourceId) ->
+-spec get_rule_ids_by_bridge_source(maybe_namespace(), bridge_source_id()) -> [binary()].
+get_rule_ids_by_bridge_source(Namespace, SourceId) ->
     %% SourceId = <<"type:name">>
-    %% SourceId = <<"ns:namespace:source:type:name">>
     [
         Id
-     || #{from := Froms, id := Id} <- get_rules(),
+     || #{from := Froms, id := Id} <- get_rules(Namespace),
         references_ingress_bridge(Froms, SourceId)
     ].
 
--spec ensure_action_removed(rule_id(), action_name()) -> ok.
-ensure_action_removed(RuleId, ActionName) ->
+-spec ensure_action_removed(maybe_namespace(), rule_id(), action_name()) -> ok.
+ensure_action_removed(Namespace, RuleId, ActionName) ->
     FilterFunc =
         fun
             (Func, Func) -> false;
             (#{<<"function">> := Func}, #{function := Func}) -> false;
             (_, _) -> true
         end,
-    case emqx:get_raw_config([rule_engine, rules, RuleId], not_found) of
+    case get_raw_config(Namespace, [rule_engine, rules, RuleId], not_found) of
         not_found ->
             ok;
         #{<<"actions">> := Acts} = Conf ->
@@ -342,7 +422,7 @@ ensure_action_removed(RuleId, ActionName) ->
             {ok, _} = emqx_conf:update(
                 ?RULE_PATH(RuleId),
                 Conf#{<<"actions">> => NewActs},
-                #{override_to => cluster}
+                with_namespace(#{override_to => cluster}, Namespace)
             ),
             ok
     end.
@@ -350,15 +430,18 @@ ensure_action_removed(RuleId, ActionName) ->
 is_of_event_name(EventName, Topic) ->
     EventName =:= emqx_rule_events:event_name(Topic).
 
--spec get_rule(Id :: rule_id()) -> {ok, rule()} | not_found.
-get_rule(Id) ->
-    case lookup_rule(Id) of
+-spec get_rule(maybe_namespace(), Id :: rule_id()) -> {ok, rule()} | not_found.
+get_rule(Namespace, Id) ->
+    case lookup_rule(Namespace, Id) of
         [Rule] -> {ok, Rule};
         [] -> not_found
     end.
 
-lookup_rule(Id) ->
-    [Rule || {_Id, Rule} <- ets:lookup(?RULE_TAB, Id)].
+lookup_rule({Namespace, Id}) ->
+    lookup_rule(Namespace, Id).
+
+lookup_rule(Namespace, Id) ->
+    [Rule || {?KEY(_, _), Rule} <- ets:lookup(?RULE_TAB, ?KEY(Namespace, Id))].
 
 load_hooks_for_rule(#{from := Topics}) ->
     lists:foreach(fun emqx_rule_events:load/1, Topics).
@@ -415,7 +498,8 @@ when
     BridgeType :: atom().
 get_basic_usage_info() ->
     try
-        Rules = get_rules(),
+        NamespaceToRules = get_rules_from_all_namespaces(),
+        Rules = lists:append(maps:values(NamespaceToRules)),
         EnabledRules =
             lists:filter(
                 fun(#{enable := Enabled}) -> Enabled end,
@@ -466,6 +550,7 @@ tally_referenced_bridges(BridgeIds, Acc0) ->
 %% Data backup
 %%----------------------------------------------------------------------------------------
 
+%% TODO: namespace
 import_config(#{<<"rule_engine">> := #{<<"rules">> := NewRules} = RuleEngineConf}) ->
     OldRules = emqx:get_raw_config(?KEY_PATH, #{}),
     RuleEngineConf1 = RuleEngineConf#{<<"rules">> => maps:merge(OldRules, NewRules)},
@@ -485,29 +570,18 @@ import_config(_RawConf) ->
 %%----------------------------------------------------------------------------------------
 
 init([]) ->
-    _TableId = ets:new(?KV_TAB, [
-        named_table,
-        set,
-        public,
-        {write_concurrency, true},
-        {read_concurrency, true}
-    ]),
-    ok = emqx_conf:add_handler(
-        [rule_engine, jq_implementation_module],
-        emqx_rule_engine_schema
-    ),
     {ok, #{}}.
 
-handle_call({insert_rule, Rule}, _From, State) ->
+handle_call(#insert_rule{rule = Rule}, _From, State) ->
     ok = do_insert_rule(Rule),
     ok = do_update_rule_index(Rule),
     {reply, ok, State};
-handle_call({update_rule, Rule, RulePrev}, _From, State) ->
-    ok = do_delete_rule_index(RulePrev),
-    ok = do_insert_rule(Rule),
-    ok = do_update_rule_index(Rule),
+handle_call(#update_rule{new_rule = NewRule, old_rule = OldRule}, _From, State) ->
+    ok = do_delete_rule_index(OldRule),
+    ok = do_insert_rule(NewRule),
+    ok = do_update_rule_index(NewRule),
     {reply, ok, State};
-handle_call({delete_rule, Rule}, _From, State) ->
+handle_call(#delete_rule{rule = Rule}, _From, State) ->
     ok = do_delete_rule_index(Rule),
     ok = do_delete_rule(Rule),
     {reply, ok, State};
@@ -533,13 +607,18 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Functions
 %%----------------------------------------------------------------------------------------
 
-with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt0, Fun) ->
+with_parsed_rule(
+    Params = #{id := RuleId, namespace := Namespace, sql := Sql, actions := Actions},
+    CreatedAt0,
+    Fun
+) ->
     CreatedAt = emqx_utils_maps:deep_get([metadata, created_at], Params, CreatedAt0),
     LastModifiedAt = emqx_utils_maps:deep_get([metadata, last_modified_at], Params, CreatedAt),
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
             Rule0 = #{
                 id => RuleId,
+                namespace => Namespace,
                 name => maps:get(name, Params, <<"">>),
                 created_at => CreatedAt,
                 updated_at => LastModifiedAt,
@@ -562,8 +641,9 @@ with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
                 {error, NonExistentBridgeIds} ->
                     ?tp(error, "action_references_nonexistent_bridges", #{
                         rule_id => RuleId,
+                        namespace => Namespace,
                         nonexistent_bridge_ids => NonExistentBridgeIds,
-                        hint => "this rule will be disabled"
+                        hint => <<"this rule will not work properly">>
                     })
             end,
             Rule = Rule0#{enable => InputEnable},
@@ -573,30 +653,40 @@ with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
             {error, Reason}
     end.
 
-do_insert_rule(#{id := Id} = Rule) ->
+rule_resource_id(#{id := Id, namespace := Namespace}) ->
+    rule_resource_id(Namespace, Id).
+
+rule_resource_id(?global_ns, Id) ->
+    Id;
+rule_resource_id(Namespace, Id) when is_binary(Namespace) ->
+    iolist_to_binary([?NS_SEG, ?RES_SEP, Namespace, ?RES_SEP, Id]).
+
+do_insert_rule(#{id := Id, namespace := Namespace} = Rule) ->
+    RuleResId = rule_resource_id(Rule),
     ok = load_hooks_for_rule(Rule),
-    ok = maybe_add_metrics_for_rule(Id),
-    true = ets:insert(?RULE_TAB, {Id, Rule}),
+    ok = maybe_add_metrics_for_rule(RuleResId),
+    true = ets:insert(?RULE_TAB, {?KEY(Namespace, Id), Rule}),
     ok.
 
-do_delete_rule(#{id := Id} = Rule) ->
+do_delete_rule(#{id := Id, namespace := Namespace} = Rule) ->
+    RuleResId = rule_resource_id(Rule),
     ok = unload_hooks_for_rule(Rule),
-    ok = clear_metrics_for_rule(Id),
-    true = ets:delete(?RULE_TAB, Id),
+    ok = clear_metrics_for_rule(RuleResId),
+    true = ets:delete(?RULE_TAB, ?KEY(Namespace, Id)),
     ok.
 
-do_update_rule_index(#{id := Id, from := From}) ->
+do_update_rule_index(#{id := Id, namespace := Namespace, from := From}) ->
     ok = lists:foreach(
         fun(Topic) ->
-            true = emqx_topic_index:insert(Topic, Id, [], ?RULE_TOPIC_INDEX)
+            true = emqx_topic_index:insert(Topic, ?KEY(Namespace, Id), [], ?RULE_TOPIC_INDEX)
         end,
         From
     ).
 
-do_delete_rule_index(#{id := Id, from := From}) ->
+do_delete_rule_index(#{id := Id, namespace := Namespace, from := From}) ->
     ok = lists:foreach(
         fun(Topic) ->
-            true = emqx_topic_index:delete(Topic, Id, ?RULE_TOPIC_INDEX)
+            true = emqx_topic_index:delete(Topic, ?KEY(Namespace, Id), ?RULE_TOPIC_INDEX)
         end,
         From
     ).
@@ -607,11 +697,9 @@ parse_actions(Actions) ->
 do_parse_action(Action) ->
     emqx_rule_actions:parse_action(Action).
 
-get_all_records(Tab) ->
-    [Rule#{id => Id} || {Id, Rule} <- ets:tab2list(Tab)].
-
-maps_foreach(Fun, Map) ->
-    lists:foreach(Fun, maps:to_list(Map)).
+get_all_records(Namespace, Tab) ->
+    MS = {?KEY(Namespace, '$1'), '$2'},
+    [Rule#{id => Id} || [Id, Rule] <- ets:match(Tab, MS)].
 
 now_ms() ->
     erlang:system_time(millisecond).
@@ -745,7 +833,12 @@ get_external_function(FunctionRSName) ->
 %% Checks whether the referenced bridges in actions all exist.  If there are non-existent
 %% ones, the rule shouldn't be allowed to be enabled.
 %% The actions here are already parsed.
-validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rule) ->
+validate_bridge_existence_in_actions(#{} = Rule) ->
+    #{
+        namespace := Namespace,
+        actions := Actions,
+        from := Froms
+    } = Rule,
     BridgeIds0 =
         lists:map(
             fun(BridgeId) ->
@@ -769,7 +862,6 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
             end,
             Actions
         ),
-    %% TODO: namespace
     NonExistentBridgeIds =
         lists:filter(
             fun({Kind, Type, Name}) ->
@@ -777,11 +869,11 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
                     case Kind of
                         action ->
                             fun(Type1, Name1) ->
-                                emqx_bridge_v2:is_action_exist(?global_ns, Type1, Name1)
+                                emqx_bridge_v2:is_action_exist(Namespace, Type1, Name1)
                             end;
                         source ->
                             fun(Type1, Name1) ->
-                                emqx_bridge_v2:is_source_exist(?global_ns, Type1, Name1)
+                                emqx_bridge_v2:is_source_exist(Namespace, Type1, Name1)
                             end;
                         bridge_v1 ->
                             fun emqx_bridge:is_exist_v1/2
@@ -803,3 +895,32 @@ join(BinaryTF) when is_binary(BinaryTF) ->
     BinaryTF;
 join(Words) when is_list(Words) ->
     emqx_topic:join(Words).
+
+get_root_config_from_all_namespaces() ->
+    Default = #{},
+    RootKey = rule_engine,
+    NamespacedConfigs = emqx_config:get_root_from_all_namespaces(RootKey, Default),
+    NamespacedConfigs#{?global_ns => emqx:get_config([RootKey], Default)}.
+
+with_namespace(UpdateOpts, ?global_ns) ->
+    UpdateOpts;
+with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
+    UpdateOpts#{namespace => Namespace}.
+
+get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
+    emqx:get_raw_namespaced_config(Namespace, KeyPath, Default);
+get_raw_config(?global_ns, KeyPath, Default) ->
+    emqx:get_raw_config(KeyPath, Default).
+
+%%------------------------------------------------------------------------------
+%% Only used by tests and debugging
+%%------------------------------------------------------------------------------
+
+-spec get_rules_with_same_event(maybe_namespace(), Topic :: binary()) -> [rule()].
+get_rules_with_same_event(Namespace, Topic) ->
+    [
+        Rule
+     || Rule = #{from := From} <- get_rules(Namespace),
+        EventName <- emqx_rule_events:match_event_names(Topic),
+        lists:any(fun(T) -> is_of_event_name(EventName, T) end, From)
+    ].

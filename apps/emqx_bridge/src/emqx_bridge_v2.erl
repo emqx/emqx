@@ -175,11 +175,7 @@
 
 -type maybe_namespace() :: ?global_ns | binary().
 
--export_type([root_cfg_key/0, bridge_v2_type/0, bridge_v2_name/0]).
-
-%%====================================================================
-
-%%====================================================================
+-export_type([root_cfg_key/0, bridge_v2_type/0, bridge_v2_name/0, maybe_namespace/0]).
 
 %%====================================================================
 %% Loading and unloading config when EMQX starts and stops
@@ -425,29 +421,32 @@ maybe_withdraw_rule_action(Namespace, ConfRootKey, BridgeType, BridgeName, Delet
     BridgeIds = emqx_bridge_lib:external_ids(Namespace, ConfRootKey, BridgeType, BridgeName),
     DeleteActions = lists:member(rule_actions, DeleteDeps),
     GetFn =
-        %% TODO: namespace
         case ConfRootKey of
             ?ROOT_KEY_ACTIONS ->
-                fun emqx_rule_engine:get_rule_ids_by_bridge_action/1;
+                fun(Id) ->
+                    emqx_rule_engine:get_rule_ids_by_bridge_action(Namespace, Id)
+                end;
             ?ROOT_KEY_SOURCES ->
-                fun emqx_rule_engine:get_rule_ids_by_bridge_source/1
+                fun(Id) ->
+                    emqx_rule_engine:get_rule_ids_by_bridge_source(Namespace, Id)
+                end
         end,
-    maybe_withdraw_rule_action_loop(BridgeIds, DeleteActions, GetFn).
+    maybe_withdraw_rule_action_loop(BridgeIds, DeleteActions, Namespace, GetFn).
 
-maybe_withdraw_rule_action_loop([], _DeleteActions, _GetFn) ->
+maybe_withdraw_rule_action_loop([], _DeleteActions, _Namespace, _GetFn) ->
     ok;
-maybe_withdraw_rule_action_loop([BridgeId | More], DeleteActions, GetFn) ->
+maybe_withdraw_rule_action_loop([BridgeId | More], DeleteActions, Namespace, GetFn) ->
     case GetFn(BridgeId) of
         [] ->
-            maybe_withdraw_rule_action_loop(More, DeleteActions, GetFn);
+            maybe_withdraw_rule_action_loop(More, DeleteActions, Namespace, GetFn);
         RuleIds when DeleteActions ->
             lists:foreach(
                 fun(R) ->
-                    emqx_rule_engine:ensure_action_removed(R, BridgeId)
+                    emqx_rule_engine:ensure_action_removed(Namespace, R, BridgeId)
                 end,
                 RuleIds
             ),
-            maybe_withdraw_rule_action_loop(More, DeleteActions, GetFn);
+            maybe_withdraw_rule_action_loop(More, DeleteActions, Namespace, GetFn);
         RuleIds ->
             {error, #{
                 reason => rules_depending_on_this_bridge,
@@ -527,7 +526,8 @@ install_bridge_v2_helper(
     BridgeV2Id = id_with_root_and_connector_names(
         Namespace, RootName, BridgeV2Type, BridgeName, ConnectorName
     ),
-    CreationOpts = emqx_resource:fetch_creation_opts(Config),
+    CreationOpts0 = emqx_resource:fetch_creation_opts(Config),
+    CreationOpts = CreationOpts0#{namespace => Namespace},
     %% Create metrics for Bridge V2
     ok = emqx_resource:create_metrics(BridgeV2Id),
     %% We might need to create buffer workers for Bridge V2
@@ -2012,7 +2012,9 @@ maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps) ->
         true ->
             ok;
         false ->
-            emqx_bridge_lib:maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps)
+            emqx_bridge_lib:maybe_withdraw_rule_action(
+                _Kind = undefined, BridgeType, BridgeName, RemoveDeps
+            )
     end.
 
 %% Only used by legacy bridge v1 helpers

@@ -13,7 +13,7 @@
 %% ecpool
 -export([connect/1]).
 
--export([on_message_received/3]).
+-export([on_message_received/4]).
 -export([handle_disconnect/1]).
 
 %% callbacks of behaviour emqx_resource
@@ -67,11 +67,11 @@
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called
 %% if the bridge received msgs from the remote broker.
 
-on_message_received(Msg, HookPoints, ResId) ->
+on_message_received(Msg, HookPoints, ResId, Namespace) ->
     emqx_resource_metrics:received_inc(ResId),
     lists:foreach(
         fun(HookPoint) ->
-            emqx_hooks:run(HookPoint, [Msg])
+            emqx_hooks:run(HookPoint, [Msg, Namespace])
         end,
         HookPoints
     ),
@@ -487,9 +487,10 @@ mk_ingress_config(
     IngressChannelConfig,
     TopicToHandlerIndex
 ) ->
+    #{namespace := Namespace} = emqx_resource:parse_channel_id(ChannelId),
     HookPoints = maps:get(hookpoints, IngressChannelConfig, []),
     NewConf = IngressChannelConfig#{
-        on_message_received => {?MODULE, on_message_received, [HookPoints, ChannelId]},
+        on_message_received => {?MODULE, on_message_received, [HookPoints, ChannelId, Namespace]},
         ingress_list => [IngressChannelConfig]
     },
     emqx_bridge_mqtt_ingress:config(NewConf, ChannelId, TopicToHandlerIndex).

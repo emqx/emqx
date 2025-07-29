@@ -6,6 +6,7 @@
 -include("../../emqx_bridge/include/emqx_bridge_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx_resource/include/emqx_resource_id.hrl").
 -include("emqx_connector.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
@@ -67,14 +68,18 @@ connector_impl_module(ConnectorType) ->
 resource_id(ConnectorType, ConnectorName) ->
     resource_id(_Namespace = ?global_ns, ConnectorType, ConnectorName).
 
-resource_id(Namespace, ConnectorType, ConnectorName) ->
-    ConnectorId = connector_id(ConnectorType, ConnectorName),
-    ResId = <<"connector:", ConnectorId/binary>>,
+resource_id(Namespace, ConnectorType0, ConnectorName0) ->
+    ConnectorType = bin(ConnectorType0),
+    ConnectorName = bin(ConnectorName0),
     case is_binary(Namespace) of
         true ->
-            <<"ns:", Namespace/binary, ":", ResId/binary>>;
+            iolist_to_binary(
+                lists:join(?RES_SEP, ?NAMESPACED_CONNECTOR(Namespace, ConnectorType, ConnectorName))
+            );
         false ->
-            ResId
+            iolist_to_binary(
+                lists:join(?RES_SEP, ?NON_NAMESPACED_CONNECTOR(ConnectorType, ConnectorName))
+            )
     end.
 
 connector_id(ConnectorType, ConnectorName) ->
@@ -87,8 +92,8 @@ parse_connector_id(ConnectorId) ->
 
 -spec parse_connector_id(binary() | atom(), #{atom_name => boolean()}) ->
     #{type := atom(), name := atom() | binary(), namespace := ?global_ns | binary()}.
-parse_connector_id(<<"ns:", NSConnectorId/binary>>, Opts) ->
-    case binary:split(NSConnectorId, <<":">>) of
+parse_connector_id(<<?NS_SEG_PREFIX_STR, NSConnectorId/binary>>, Opts) ->
+    case binary:split(NSConnectorId, ?RES_SEP) of
         [Namespace, ConnectorId] when size(Namespace) > 0 ->
             Parsed = parse_connector_id(ConnectorId, Opts),
             Parsed#{namespace => Namespace};
@@ -98,7 +103,7 @@ parse_connector_id(<<"ns:", NSConnectorId/binary>>, Opts) ->
                 reason => <<"Invalid connector id: bad namespace tag">>
             })
     end;
-parse_connector_id(<<"connector:", ConnectorId/binary>>, Opts) ->
+parse_connector_id(<<?CONN_SEG_PREFIX_STR, ConnectorId/binary>>, Opts) ->
     parse_connector_id(ConnectorId, Opts);
 parse_connector_id(?PROBE_ID_MATCH(Suffix), Opts) ->
     <<?PROBE_ID_SEP, ConnectorId/binary>> = Suffix,

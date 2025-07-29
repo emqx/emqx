@@ -8,6 +8,7 @@
 -define(NS_SEG, <<"ns">>).
 -define(NS_SEG_PREFIX_STR, "ns:").
 -define(CONN_SEG, <<"connector">>).
+-define(CONN_SEG_PREFIX_STR, "connector:").
 -define(ACTION_SEG, <<"action">>).
 -define(SOURCE_SEG, <<"source">>).
 -define(RES_SEP, <<":">>).
