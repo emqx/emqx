@@ -660,7 +660,7 @@ validate_filter(ip_address, Addr) ->
 validate_filter(ruleid, _RuleId = <<_/binary>>) ->
     ok;
 validate_filter(_, _) ->
-    {error, "type=[topic,clientid,ip_address] required"}.
+    {error, "type=[topic,clientid,ip_address,ruleid] required"}.
 
 validate_end_at(undefined) ->
     ok;

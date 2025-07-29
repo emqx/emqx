@@ -121,7 +121,7 @@ t_create_failed(_Config) ->
     Trace = #{name => <<"test">>},
     UnknownField = Trace#{unknown => 12},
     {error, Reason1} = emqx_trace:create(UnknownField),
-    ?assertEqual(<<"type=[topic,clientid,ip_address] required">>, iolist_to_binary(Reason1)),
+    ?assertEqual(<<"type=[topic,clientid,ip_address,ruleid] required">>, iolist_to_binary(Reason1)),
 
     InvalidTopic = Trace#{type => topic, filter => "#/#//"},
     {error, Reason2} = emqx_trace:create(InvalidTopic),
