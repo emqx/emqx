@@ -98,6 +98,7 @@ insert_new_trace(
         ?TRACE
     ),
     Slot = emqx_trace_freelist:first(SlotList),
+    true = is_integer(Slot),
     Trace = Trace0#?TRACE{
         extra = Extra#{slot => Slot}
     },
