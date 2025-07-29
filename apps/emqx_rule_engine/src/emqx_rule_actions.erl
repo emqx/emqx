@@ -8,6 +8,7 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %% APIs
 -export([parse_action/1]).
@@ -151,7 +152,25 @@ republish(
     Payload = iolist_to_binary(PayloadString),
     QoS = render_simple_var(QoSTemplate, Selected, 0),
     Retain = render_simple_var(RetainTemplate, Selected, false),
-    DirectDispatch = render_simple_var(DirectDispatchTemplate, Selected, false),
+    DirectDispatch0 = render_simple_var(DirectDispatchTemplate, Selected, false),
+    DirectDispatch =
+        case is_boolean(DirectDispatch0) of
+            true ->
+                DirectDispatch0;
+            false ->
+                ?tp("bad_direct_dispatch_resolved_value", #{}),
+                ?SLOG(
+                    error,
+                    #{
+                        msg => "bad_direct_dispatch_resolved_value",
+                        value => DirectDispatch0,
+                        hint => <<"will use default value: false">>,
+                        rule_id => RuleId
+                    },
+                    #{tag => ?TAG}
+                ),
+                false
+        end,
     %% 'flags' is set for message re-publishes or message related
     %% events such as message.acked and message.dropped
     Flags0 = maps:get(flags, Env, #{}),
@@ -294,6 +313,8 @@ render_simple_var([{var, _Name, Accessor}], Data, Default) ->
         %% cannot find the variable from Data
         {error, _} -> Default
     end;
+render_simple_var([Val], _Data, _Default) ->
+    Val;
 render_simple_var({const, Val}, _Data, _Default) ->
     Val.
 

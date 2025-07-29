@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
 %%------------------------------------------------------------------------------
@@ -2245,4 +2246,31 @@ t_namespaced_restart(TCConfig0) when is_list(TCConfig0) ->
     ),
     ok = emqtt:stop(C),
 
+    ok.
+
+t_direct_dispatch_empty_string(_Config) ->
+    ?check_trace(
+        begin
+            {201, _} = create_rule(#{
+                <<"sql">> => <<"select * from t">>,
+                <<"actions">> => [
+                    #{
+                        <<"function">> => <<"republish">>,
+                        <<"args">> => #{
+                            <<"direct_dispatch">> => <<"">>,
+                            <<"topic">> => <<"rep">>
+                        }
+                    }
+                ]
+            }),
+            emqx:subscribe(<<"rep">>),
+            emqx:publish(emqx_message:make(<<"t">>, <<"hey">>)),
+            ?assertReceive({deliver, <<"rep">>, _}),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind("bad_direct_dispatch_resolved_value", Trace)),
+            ok
+        end
+    ),
     ok.
