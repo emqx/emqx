@@ -158,6 +158,7 @@ init_per_suite(Config) ->
         [
             emqx,
             emqx_conf,
+            emqx_modules,
             emqx_rule_engine,
             emqx_auth,
             emqx_bridge,
@@ -336,13 +337,6 @@ init_per_testcase(t_events_legacy, Config) ->
 init_per_testcase(t_get_basic_usage_info_1, Config) ->
     meck:new(emqx_bridge, [passthrough, no_link, no_history]),
     meck:expect(emqx_bridge, lookup, fun(_Type, _Name) -> {ok, #{mocked => true}} end),
-    Config;
-init_per_testcase(Case, Config) when
-    Case =:= t_trace_rule_id orelse
-        Case =:= t_trace_truncated
-->
-    emqx_trace_SUITE:reload(),
-    ok = emqx_trace:clear(),
     Config;
 init_per_testcase(_TestCase, Config) ->
     Config.
@@ -3941,23 +3935,6 @@ emqtt_client_config() ->
         {password, <<"pass">>}
     ].
 
-filesync(HandlerId) ->
-    ct:sleep(50),
-    filesync(HandlerId, 5).
-
-%% sometime the handler process is not started yet.
-filesync(HandlerId, 0) ->
-    ct:fail("Handler process not started ~p", [HandlerId]);
-filesync(HandlerId, Retry) ->
-    try
-        ok = emqx_trace_handler:filesync(HandlerId)
-    catch
-        E:R ->
-            ct:pal("Filesync error:~p ~p~n", [HandlerId, {E, R}]),
-            ct:sleep(100),
-            filesync(HandlerId, Retry - 1)
-    end.
-
 t_trace_rule_id(_Config) ->
     %% Start MQTT Client
     {ok, T} = emqtt:start_link(emqtt_client_config()),
@@ -3989,10 +3966,9 @@ t_trace_rule_id(_Config) ->
         text
     ),
     emqx_trace:check(),
-    ok = filesync('CLI-RULE-1'),
-    ok = filesync('CLI-RULE-2'),
 
     %% Verify the tracing file exits
+    ok = wait_filesync(),
     ?assert(filelib:is_regular("tmp/rule_trace_1.log")),
     ?assert(filelib:is_regular("tmp/rule_trace_2.log")),
 
@@ -4019,16 +3995,16 @@ t_trace_rule_id(_Config) ->
 
     %% Trigger rule
     emqtt:publish(T, <<"rule_1_topic">>, <<"my_traced_message">>),
+
+    ok = wait_filesync(),
     ?retry(
         100,
         5,
         begin
-            ok = filesync('CLI-RULE-1'),
             {ok, Bin} = file:read_file("tmp/rule_trace_1.log"),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"my_traced_message">>]))
         end
     ),
-    ok = filesync('CLI-RULE-2'),
     ?assert(filelib:file_size("tmp/rule_trace_2.log") =:= 0),
 
     %% Stop tracing
@@ -4064,9 +4040,9 @@ t_trace_truncated(_Config) ->
         "tmp/rule_trace_truncated.log"
     ),
     emqx_trace:check(),
-    ok = filesync('CLI-RULE-3'),
 
     %% Verify the tracing file exits
+    ok = wait_filesync(),
     ?assert(filelib:is_regular("tmp/rule_trace_truncated.log")),
 
     %% Get current traces
@@ -4085,11 +4061,12 @@ t_trace_truncated(_Config) ->
 
     %% Trigger rule, payload size bigger than payload_limit 20
     emqtt:publish(T, <<"rule_2_topic">>, <<"{\"msg\":\"123456789012345678901234567890\"}">>),
+
+    ok = wait_filesync(),
     ?retry(
         100,
         5,
         begin
-            ok = filesync('CLI-RULE-3'),
             {ok, Bin} = file:read_file("tmp/rule_trace_truncated.log"),
             ?assertNotEqual(
                 nomatch,
@@ -4104,9 +4081,11 @@ t_trace_truncated(_Config) ->
     %% Stop tracing
     ok = emqx_trace_handler:uninstall('CLI-RULE-3'),
     ?assertEqual([], emqx_trace_handler:running()),
-    emqtt:disconnect(T),
+    emqtt:disconnect(T).
 
-    ok.
+wait_filesync() ->
+    %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
+    timer:sleep(2 * 100).
 
 t_sqlselect_client_attr(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
