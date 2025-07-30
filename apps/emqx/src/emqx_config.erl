@@ -8,6 +8,7 @@
 -include("logger.hrl").
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
+-include("emqx_config.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hocon.hrl").
 
@@ -128,6 +129,7 @@
 -define(INVALID_NS_CONF_PT_KEY(NS), {?MODULE, {corrupt_ns_conf, NS}}).
 
 -export_type([
+    maybe_namespace/0,
     update_request/0,
     raw_config/0,
     config/0,
@@ -173,6 +175,8 @@
     post_config_update => #{module() => any()}
 }.
 -type cluster_rpc_opts() :: #{kind => ?KIND_INITIATE | ?KIND_REPLICATE}.
+
+-type maybe_namespace() :: ?global_ns | binary().
 
 %% raw_config() is the config that is NOT parsed and translated by hocon schema
 -type raw_config() :: #{binary() => term()} | list() | undefined.

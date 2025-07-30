@@ -117,7 +117,8 @@
 -type export_opts() :: #{
     mnesia_table_filter => mnesia_table_filter(),
     print_fun => fun((io:format(), [term()]) -> ok),
-    raw_conf_transform => fun((raw_config()) -> raw_config())
+    raw_conf_transform => fun((raw_config()) -> raw_config()),
+    namespace => emqx_config:maybe_namespace()
 }.
 -type raw_config() :: #{binary() => any()}.
 -type mnesia_table_filter() :: fun((atom()) -> boolean()).
