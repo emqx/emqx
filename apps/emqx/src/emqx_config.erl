@@ -97,6 +97,7 @@
     get_raw_namespaced/3,
     get_all_namespaces_containing/1,
     get_all_raw_namespaced_configs/0,
+    get_all_roots_from_namespace/1,
     get_root_from_all_namespaces/1,
     get_root_from_all_namespaces/2,
     get_raw_root_from_all_namespaces/1,
@@ -230,6 +231,21 @@ get_all_raw_namespaced_configs() ->
         end,
         #{},
         mnesia:dirty_match_object(?CONFIG_TAB, MatchHead)
+    ).
+
+get_all_roots_from_namespace(Namespace) when is_binary(Namespace) ->
+    MatchHead = erlang:make_tuple(
+        record_info(size, ?CONFIG_TAB),
+        '_',
+        [{#?CONFIG_TAB.root_key, {Namespace, '_'}}]
+    ),
+    RootConfigs = mnesia:dirty_match_object(?CONFIG_TAB, MatchHead),
+    lists:foldl(
+        fun(#?CONFIG_TAB{root_key = {_, RootKey}, raw_value = Config}, Acc) ->
+            Acc#{RootKey => Config}
+        end,
+        #{},
+        RootConfigs
     ).
 
 get_root_from_all_namespaces(RootKey) ->

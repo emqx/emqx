@@ -23,6 +23,7 @@
 ]).
 
 -define(TAGS, [<<"Data Backup">>]).
+-define(BPAPI_NAME, emqx_mgmt_data_backup).
 
 namespace() -> undefined.
 
@@ -224,7 +225,9 @@ field_filename(IsRequired, Meta) ->
 %% HTTP API Callbacks
 %%------------------------------------------------------------------------------
 
-data_export(post, #{body := Params}) ->
+data_export(post, #{body := Params0} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    Params = emqx_utils_maps:put_if(Params0, <<"namespace">>, Namespace, is_binary(Namespace)),
     maybe
         ok ?= emqx_mgmt_data_backup:validate_export_root_keys(Params),
         {ok, Opts} ?= emqx_mgmt_data_backup:parse_export_request(Params),
@@ -251,15 +254,23 @@ data_export(post, #{body := Params}) ->
             {500, #{code => 'INTERNAL_ERROR', message => Msg}}
     end.
 
-data_import(post, #{body := #{<<"filename">> := Filename} = Body}) ->
-    case safe_parse_node(Body) of
+data_import(post, #{body := #{<<"filename">> := Filename} = Body} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 2),
+    case safe_parse_node(Body, Nodes) of
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
             CoreNode = core_node(FileNode),
-            case
-                emqx_mgmt_data_backup_proto_v1:import_file(CoreNode, FileNode, Filename, infinity)
-            of
+            Opts = emqx_utils_maps:put_if(#{}, namespace, Namespace, is_binary(Namespace)),
+            Res = emqx_mgmt_data_backup_proto_v2:import_file(
+                CoreNode,
+                FileNode,
+                Filename,
+                Opts,
+                infinity
+            ),
+            case Res of
                 {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} ->
                     case DbErrs =:= #{} andalso ConfErrs =:= #{} of
                         true ->
@@ -360,13 +371,17 @@ get_or_delete_file(get, Filename, Node) ->
 get_or_delete_file(delete, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:delete_file(Node, Filename, infinity).
 
-safe_parse_node(#{<<"node">> := NodeBin}) ->
-    NodesBin = [erlang:atom_to_binary(N, utf8) || N <- emqx:running_nodes()],
+safe_parse_node(BodyParams) ->
+    Nodes = emqx:running_nodes(),
+    safe_parse_node(BodyParams, Nodes).
+
+safe_parse_node(#{<<"node">> := NodeBin}, Nodes) ->
+    NodesBin = [erlang:atom_to_binary(N, utf8) || N <- Nodes],
     case lists:member(NodeBin, NodesBin) of
         true -> erlang:binary_to_atom(NodeBin, utf8);
         false -> {error, io_lib:format("Unknown node: ~s", [NodeBin])}
     end;
-safe_parse_node(_) ->
+safe_parse_node(_, _) ->
     node().
 
 list_backup_files(Page, Limit) ->

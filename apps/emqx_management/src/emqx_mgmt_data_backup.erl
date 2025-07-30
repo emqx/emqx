@@ -21,7 +21,10 @@
 %% HTTP API
 -export([
     upload/2,
+    %% RPC target (v1)
     maybe_copy_and_import/2,
+    %% RPC target (v2)
+    maybe_copy_and_import/3,
     read_file/1,
     delete_file/1,
     list_files/0,
@@ -213,6 +216,7 @@ validate_export_root_keys(Params) ->
     end.
 
 parse_export_request(Params) ->
+    Namespace = maps:get(<<"namespace">>, Params, ?global_ns),
     OutDir = maps:get(<<"out_dir">>, Params, undefined),
     Opts0 = emqx_utils_maps:put_if(#{}, out_dir, OutDir, OutDir /= undefined),
     Opts1 =
@@ -226,14 +230,24 @@ parse_export_request(Params) ->
         else
             error -> Opts0
         end,
+    CheckNamespaceValid =
+        case Namespace of
+            ?global_ns -> ok;
+            _ when is_binary(Namespace) -> ok;
+            _ -> {error, {invalid_namespace, Namespace}}
+        end,
+    Opts2 = Opts1#{namespace => Namespace},
     maybe
+        ok ?= CheckNamespaceValid,
         {ok, TableSetNames0} ?= maps:find(<<"table_sets">>, Params),
         TableSetNames = lists:usort(TableSetNames0),
         {ok, Filter} ?= emqx_mgmt_data_backup:compile_mnesia_table_filter(TableSetNames),
-        {ok, Opts1#{mnesia_table_filter => Filter}}
+        {ok, Opts2#{mnesia_table_filter => Filter}}
     else
         error ->
-            {ok, Opts1};
+            {ok, Opts2};
+        {error, {invalid_namespace, _}} = Error ->
+            Error;
         {error, InvalidSetNames0} ->
             InvalidSetNames = lists:sort(InvalidSetNames0),
             {error, {bad_table_sets, InvalidSetNames}}
@@ -293,16 +307,26 @@ import(BackupFilename, Opts) ->
     end.
 
 -doc """
-This function is an RPC target and is called from the API handler.
+This function is an RPC target (v1) and is called from the API handler.
 It runs on a core node.
 
 `FileNode` is the node to take backup file from.
 """.
 -spec maybe_copy_and_import(node(), file:filename_all()) -> import_res().
 maybe_copy_and_import(FileNode, BackupFilename) ->
+    maybe_copy_and_import(FileNode, BackupFilename, _Opts = #{}).
+
+-doc """
+This function is an RPC target (v2) and is called from the API handler.
+It runs on a core node.
+
+`FileNode` is the node to take backup file from.
+""".
+-spec maybe_copy_and_import(node(), file:filename_all(), map()) -> import_res().
+maybe_copy_and_import(FileNode, BackupFilename, Opts) ->
     maybe
         ok ?= maybe_copy(FileNode, BackupFilename),
-        import(BackupFilename, #{})
+        import(BackupFilename, Opts)
     end.
 
 -spec read_file(file:filename_all()) ->
@@ -515,11 +539,16 @@ do_export(BackupName, TarDescriptor, Opts) ->
     },
     MetaBin = bin(hocon_pp:do(Meta, #{})),
     MetaFilename = filename:join(BackupBaseName, ?META_FILENAME),
+    Namespace = maps:get(namespace, Opts, ?global_ns),
 
     ok = format_tar_error(erl_tar:add(TarDescriptor, MetaBin, MetaFilename, [])),
-    ok = export_cluster_hocon(TarDescriptor, BackupBaseName, Opts),
-    ok = export_namespaced_cluster_hocons(TarDescriptor, BackupBaseName, Opts),
-    ok = export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts),
+    case Namespace of
+        ?global_ns ->
+            ok = export_cluster_hocon(TarDescriptor, BackupBaseName, Opts),
+            ok = export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts);
+        _ when is_binary(Namespace) ->
+            ok = export_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, Opts)
+    end,
     ok = format_tar_error(erl_tar:close(TarDescriptor)),
     {ok, #file_info{
         size = Size,
@@ -546,21 +575,16 @@ export_cluster_hocon(TarDescriptor, BackupBaseName, Opts) ->
     NameInArchive = filename:join(BackupBaseName, ?CLUSTER_HOCON_FILENAME),
     ok = format_tar_error(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, [])).
 
-export_namespaced_cluster_hocons(TarDescriptor, BackupBaseName, Opts) ->
-    maybe_print("Exporting namespaced cluster configuration...~n", [], Opts),
+export_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, Opts) ->
+    maybe_print("Exporting cluster configuration for namespace ~s...~n", [Namespace], Opts),
     TransformFn = maps:get(raw_conf_transform, Opts, fun(Raw) -> Raw end),
-    maps:foreach(
-        fun(Namespace, RootConfig0) ->
-            maybe_print("  Namespace: ~s~n", [Namespace], Opts),
-            RootConfig = TransformFn(RootConfig0),
-            RawConfBin = bin(hocon_pp:do(RootConfig, #{})),
-            NameInArchive = str(
-                filename:join(?HOCON_NS_INTERNAL_TAR_PATH(BackupBaseName, Namespace))
-            ),
-            ok = format_tar_error(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, []))
-        end,
-        emqx_config:get_all_raw_namespaced_configs()
+    RootConfig0 = emqx_config:get_all_roots_from_namespace(Namespace),
+    RootConfig = TransformFn(RootConfig0),
+    RawConfBin = bin(hocon_pp:do(RootConfig, #{})),
+    NameInArchive = str(
+        filename:join(?HOCON_NS_INTERNAL_TAR_PATH(BackupBaseName, Namespace))
     ),
+    ok = format_tar_error(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, [])),
     ok.
 
 export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts) ->
@@ -703,23 +727,16 @@ parse_version_no_patch(VersionBin) ->
 
 do_import(BackupFilePath, Opts) ->
     maybe_print("Importing data from ~p...~n", [BackupFilePath], Opts),
+    Namespace = maps:get(namespace, Opts, ?global_ns),
     try
         maybe
             {ok, BackupDir} ?= backup_dir(BackupFilePath),
             ok ?= validate_backup_basename(BackupFilePath),
             ok ?= extract_backup(BackupFilePath),
             {ok, _} ?= validate_backup(BackupDir),
-            {ok, GlobalConfErrors} ?= import_cluster_hocon(BackupDir, Opts),
-            {ok, NSConfErrors} ?= import_namespaced_cluster_hocons(BackupDir, Opts),
-            MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
+            {ok, #{conf_errors := ConfErrors, mnesia_errors := MnesiaErrors}} ?=
+                do_import_for_namespace(Namespace, BackupDir, Opts),
             ?SLOG(info, #{msg => "emqx_data_import_success"}),
-            ConfErrors =
-                case map_size(GlobalConfErrors) > 0 of
-                    true ->
-                        maps:merge(#{?global_ns => GlobalConfErrors}, NSConfErrors);
-                    false ->
-                        NSConfErrors
-                end,
             {ok, #{db_errors => MnesiaErrors, config_errors => ConfErrors}}
         else
             {error, Error} ->
@@ -742,6 +759,26 @@ do_import(BackupFilePath, Opts) ->
             {error, Reason}
     after
         cleanup_backup_dir(BackupFilePath)
+    end.
+
+do_import_for_namespace(?global_ns, BackupDir, Opts) ->
+    maybe
+        {ok, GlobalConfErrors} ?= import_cluster_hocon(BackupDir, Opts),
+        MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
+        ConfErrors =
+            case map_size(GlobalConfErrors) of
+                0 -> #{};
+                _ -> #{?global_ns => GlobalConfErrors}
+            end,
+        {ok, #{
+            mnesia_errors => MnesiaErrors,
+            conf_errors => ConfErrors
+        }}
+    end;
+do_import_for_namespace(Namespace, BackupDir, Opts) when is_binary(Namespace) ->
+    maybe
+        {ok, NSConfErrors} ?= import_namespaced_cluster_hocon(Namespace, BackupDir, Opts),
+        {ok, #{conf_errors => NSConfErrors, mnesia_errors => #{}}}
     end.
 
 import_mnesia_tabs(BackupDir, Opts) ->
@@ -946,28 +983,16 @@ import_cluster_hocon(BackupDir, Opts) ->
     HoconFilename = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
     do_import_cluster_hocon(?global_ns, BackupDir, HoconFilename, Opts).
 
-import_namespaced_cluster_hocons(BackupDir, Opts) ->
-    NSHocons =
-        filelib:wildcard(
-            filename:join(?HOCON_NS_INTERNAL_TAR_PATH(BackupDir, "*"))
-        ),
-    emqx_utils:foldl_while(
-        fun(NSHoconPath, {ok, Acc}) ->
-            ?HOCON_NS_INTERNAL_TAR_PATH_REV_PAT(Namespace0) =
-                lists:reverse(filename:split(NSHoconPath)),
-            Namespace = bin(Namespace0),
-            case do_import_cluster_hocon(Namespace, BackupDir, NSHoconPath, Opts) of
-                {ok, Res} when map_size(Res) == 0 ->
-                    {cont, {ok, Acc}};
-                {ok, Res} ->
-                    {cont, {ok, Acc#{Namespace => Res}}};
-                {error, Reason} ->
-                    {halt, {error, #{Namespace => Reason}}}
-            end
-        end,
-        {ok, #{}},
-        NSHocons
-    ).
+import_namespaced_cluster_hocon(Namespace, BackupDir, Opts) when is_binary(Namespace) ->
+    NSHoconPath = filename:join(?HOCON_NS_INTERNAL_TAR_PATH(BackupDir, Namespace)),
+    case do_import_cluster_hocon(Namespace, BackupDir, NSHoconPath, Opts) of
+        {ok, Res} when map_size(Res) == 0 ->
+            {ok, #{}};
+        {ok, Res} ->
+            {ok, #{Namespace => Res}};
+        {error, Reason} ->
+            {error, #{Namespace => Reason}}
+    end.
 
 do_import_cluster_hocon(Namespace, BackupDir, Filename, Opts) ->
     case filelib:is_regular(Filename) of
