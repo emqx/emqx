@@ -1960,6 +1960,78 @@ t_parquet_3level_lists(TCConfig) when is_list(TCConfig) ->
     end),
     ok.
 
+-doc """
+Checks that we infer Access Key Id and Secret Access Key from Instance Metadata Service v2 APIs
+when those values are omitted.
+""".
+t_imdsv2_credentials(TCConfig0) when is_list(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(
+        TCConfig0,
+        connector_config,
+        fun(Cfg0) ->
+            {_, Cfg1} = maps:take(<<"access_key_id">>, Cfg0),
+            {_, Cfg} = maps:take(<<"secret_access_key">>, Cfg1),
+            Cfg
+        end
+    ),
+    MockedToken = <<"mocked_imdsv2_token">>,
+    Expiration0 = erlang:system_time(second) + 1_000,
+    Expiration = calendar:system_time_to_rfc3339(Expiration0, [{unit, second}, {offset, "Z"}]),
+    emqx_common_test_helpers:with_mocks(
+        #{
+            erlcloud_aws => #{
+                update_config => fun(Config0) ->
+                    maybe
+                        {ok, Config} ?= meck:passthrough([Config0]),
+                        %% Unfortunately, we need this mock, otherwise when we call the S3
+                        %% client, it'll add the `x-security-token` header to the request, and
+                        %% Minio does not like it.
+                        {ok, Config#aws_config{security_token = undefined}}
+                    end
+                end
+            },
+            erlcloud_ec2_meta => #{
+                generate_session_token => fun(_TTL, _Cfg) ->
+                    {ok, MockedToken}
+                end,
+                get_instance_metadata => fun
+                    ("iam/security-credentials/mocked_role", _Cfg, MockedToken0) when
+                        MockedToken0 == MockedToken
+                    ->
+                        Resp = #{
+                            <<"AccessKeyId">> => ?ACCESS_KEY_ID,
+                            <<"SecretAccessKey">> => ?SECRET_ACCESS_KEY,
+                            <<"Token">> => <<"mockedtoken">>,
+                            <<"Expiration">> => iolist_to_binary(Expiration)
+                        },
+                        {ok, emqx_utils_json:encode(Resp)};
+                    ("iam/security-credentials/", _Cfg, MockedToken0) when
+                        MockedToken0 == MockedToken
+                    ->
+                        {ok, <<"mocked_role\n">>}
+                end
+            },
+            erlcloud_ecs_container_credentials => #{
+                get_container_credentials => fun(_Cfg) ->
+                    {error, <<"mocked_error_no_ecs">>}
+                end
+            }
+        },
+        fun() ->
+            ct:pal("creating connector"),
+            ?assertMatch(
+                {201, #{<<"status">> := <<"connected">>}},
+                create_connector_api(TCConfig, #{})
+            ),
+            ct:pal("creating action"),
+            ?assertMatch(
+                {201, #{<<"status">> := <<"connected">>}},
+                create_action_api(TCConfig, #{})
+            )
+        end
+    ),
+    ok.
+
 %% More test ideas:
 %%   * Concurrent schema change during upload.
 %%   * Timeout/connection error when loading schema for the first time or when retrying
