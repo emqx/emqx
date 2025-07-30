@@ -1,4 +1,4 @@
-emqx_bridge_snowflake_action_schema {
+emqx_bridge_snowflake_aggregated_action_schema {
   snowflake.label:
   """Upload to Snowflake"""
   snowflake.desc:
