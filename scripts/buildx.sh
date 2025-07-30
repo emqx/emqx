@@ -39,7 +39,7 @@ help() {
     echo ""
     echo "--builder <BUILDER>:"
     echo "    Docker image to use for building"
-    echo "    E.g. ghcr.io/emqx/emqx-builder/5.5-4:1.18.3-27.3.4.2-1-debian12"
+    echo "    E.g. ghcr.io/emqx/emqx-builder/5.5-6:1.18.3-27.3.4.2-1-debian12"
     echo "    For hot upgrading tar.gz, specify a builder image with the same OS distribution as the running one."
     echo "    Specifically, for EMQX's docker containers hot upgrading, please use the debian12-based builder. "
     echo "    Defaults to builder configured in env.sh."
