@@ -473,7 +473,7 @@ prop_dispatch_result(Msg = #ds_sub_reply{ref = Ref}, CS, Result) ->
     case Result of
         {_CS, _HS} when IsSub ->
             ok;
-        {data, _SubId, _Stream, #ds_sub_reply{}} when IsSub ->
+        {data, _SubId, _Stream, _Handle, #ds_sub_reply{}} when IsSub ->
             ok;
         ignore when not IsSub ->
             ok;
@@ -759,7 +759,7 @@ dispatch_messages({CS0, HS0}) ->
             case Result of
                 ignore ->
                     dispatch_messages({CS0, HS0});
-                {data, SubId, Stream, Reply} ->
+                {data, SubId, Stream, _Handle, Reply} ->
                     case Reply of
                         #ds_sub_reply{ref = Ref, payload = {ok, end_of_stream}} ->
                             HS1 = host_set_iter(SubId, Stream, end_of_stream, HS0),
