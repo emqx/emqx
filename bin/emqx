@@ -317,7 +317,7 @@ check_user() {
         done
         # This will drop privileges into the runner user
         # It exec's in a new shell and the current shell will exit
-        exec su - "$RUNNER_USER" -c "$CMD"
+        exec su "$RUNNER_USER" -c "$CMD"
     fi
 }
 
