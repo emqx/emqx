@@ -2,7 +2,7 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_mq_consumer_stream).
+-module(emqx_mq_consumer_stream_buffer).
 
 -moduledoc """
 The module represents a consumer of a single stream of the Message Queue data.
@@ -15,7 +15,7 @@ The module represents a consumer of a single stream of the Message Queue data.
 -export([
     new/1,
     new/2,
-    handle_ds_reply/2,
+    handle_ds_reply/3,
     handle_ack/2,
     progress/1,
     info/1
@@ -45,10 +45,10 @@ The module represents a consumer of a single stream of the Message Queue data.
     sub_ref := emqx_ds:sub_ref(),
     lower_buffer := buffer(),
     upper_buffer := undefined | buffer(),
-    upper_seqno := undefined | non_neg_integer()
+    upper_seqno := undefined | {emqx_ds:sub_ref(), emqx_ds:sub_seqno()}
 }.
 
--type progress() :: finished | emqx_ds:iterator().
+-type progress() :: end_of_stream | emqx_ds:iterator().
 
 -export_type([t/0, progress/0]).
 
@@ -62,15 +62,9 @@ new(StartIterator) ->
 
 -spec new(emqx_ds:iterator(), options()) -> {ok, emqx_ds:sub_ref(), t()}.
 new(StartIterator, Options) ->
-    MaxUnacked = maps:get(max_unacked, Options, ?MQ_CONSUMER_MAX_UNACKED),
     MaxBufferSize = maps:get(max_buffer_size, Options, ?MQ_CONSUMER_MAX_BUFFER_SIZE),
-    {ok, SubHandle, SubRef} = emqx_mq_payload_db:subscribe(StartIterator, #{
-        max_unacked => MaxUnacked
-    }),
-    {ok, SubRef, #{
+    #{
         max_buffer_size => MaxBufferSize,
-        sub_handle => SubHandle,
-        sub_ref => SubRef,
         lower_buffer => #{
             it_begin => StartIterator,
             it_end => StartIterator,
@@ -79,13 +73,15 @@ new(StartIterator, Options) ->
         },
         upper_buffer => undefined,
         upper_seqno => undefined
-    }}.
+    }.
 
 %% TODO: handle errors
--spec handle_ds_reply(t(), #ds_sub_reply{}) -> {ok, [emqx_ds:ttv()], t()} | finished.
+-spec handle_ds_reply(t(), emqx_ds:subscription_handle(), #ds_sub_reply{}) ->
+    {ok, [emqx_ds:ttv()], t()} | finished.
 handle_ds_reply(
     #{lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SC0,
-    #ds_sub_reply{payload = {ok, end_of_stream}}
+    Handle,
+    #ds_sub_reply{payload = {ok, end_of_stream}, seqno = SeqNo}
 ) ->
     SC1 =
         case UpperBuffer0 of
@@ -104,22 +100,24 @@ handle_ds_reply(
                     upper_buffer => UpperBuffer1
                 }
         end,
-    SC2 = unsubscribe_and_flush(SC1),
+    SC2 = suback(SC1, Handle, SeqNo),
     case compact(SC2) of
         finished ->
             finished;
         {ok, SC} ->
-            {ok, [], SC}
+            {ok, [], SC#{upper_seqno => undefined}}
     end;
-handle_ds_reply(#{lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SC0, #ds_sub_reply{
-    payload = {ok, It, Payloads}, seqno = SeqNo, size = Size
-}) ->
+handle_ds_reply(
+    #{lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SC0,
+    Handle,
+    #ds_sub_reply{payload = {ok, It, Payloads}, seqno = SeqNo, size = Size}
+) ->
     SC =
         case can_advance_lower_buffer(SC0) of
             true ->
                 LowerBuffer = push_to_buffer(LowerBuffer0, It, Payloads, Size),
                 SC1 = SC0#{lower_buffer => LowerBuffer},
-                suback(SC1, SeqNo);
+                suback(SC1, Handle, SeqNo);
             false ->
                 UpperBuffer = push_to_buffer(
                     maybe_init_upper_buffer(LowerBuffer0, UpperBuffer0), It, Payloads, Size
@@ -127,9 +125,9 @@ handle_ds_reply(#{lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = 
                 SC1 = SC0#{upper_buffer => UpperBuffer},
                 case is_buffer_full(SC1, UpperBuffer) of
                     true ->
-                        SC1#{upper_seqno => SeqNo};
+                        SC1#{upper_seqno => {Handle, SeqNo}};
                     false ->
-                        suback(SC1, SeqNo)
+                        suback(SC1, Handle, SeqNo)
                 end
         end,
     {ok, Payloads, SC}.
@@ -156,7 +154,7 @@ handle_ack(#{lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SC0, 
 progress(#{lower_buffer := #{it_begin := ItBegin} = _LowerBuffer} = SC) ->
     case is_finished(SC) of
         true ->
-            finished;
+            end_of_stream;
         false ->
             ItBegin
     end.
@@ -259,26 +257,14 @@ can_advance_lower_buffer(#{}) ->
 is_buffer_full(#{max_buffer_size := MaxBufferSize} = _SC, #{n := N} = _Buffer) ->
     N >= MaxBufferSize.
 
-unsubscribe_and_flush(#{sub_handle := SubHandle, sub_ref := SubRef} = SC) ->
-    _ = emqx_mq_payload_db:unsubscribe(SubHandle),
-    ok = flush_sub_ref(SubRef),
-    SC#{upper_seqno => undefined}.
-
-flush_sub_ref(SubRef) ->
-    receive
-        #ds_sub_reply{ref = SubRef} -> flush_sub_ref(SubRef)
-    after 0 ->
-        ok
-    end.
-
-suback(#{sub_handle := SubHandle} = SC, SeqNo) ->
-    ok = emqx_mq_payload_db:suback(SubHandle, SeqNo),
+suback(SC, Handle, SeqNo) ->
+    ok = emqx_mq_payload_db:suback(Handle, SeqNo),
     SC#{upper_seqno => undefined}.
 
 resume(#{upper_seqno := undefined} = SC) ->
     SC;
-resume(#{upper_seqno := UpperSeqNo} = SC) ->
-    suback(SC, UpperSeqNo).
+resume(#{upper_seqno := {Handle, SeqNo}} = SC) ->
+    suback(SC, Handle, SeqNo).
 
 info_buffer(undefined) -> undefined;
 info_buffer(#{n := N, unacked := Unacked} = _Buffer) -> #{n => N, unacked => map_size(Unacked)}.

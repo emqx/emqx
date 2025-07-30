@@ -92,10 +92,6 @@ Consumer's responsibilities:
 
 -record(persist_consumer_data, {}).
 
-%% TODO
-%% Stub, remove
--record(renew_streams, {}).
-
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -164,7 +160,6 @@ init([MQTopicFilter]) ->
     ?tp(warning, mq_consumer_init, #{mq_topic_filter => MQTopicFilter, claim_res => ClaimRes}),
     case ClaimRes of
         {ok, ConsumerData} ->
-            erlang:send_after(1000, self(), #renew_streams{}),
             erlang:send_after(
                 ?DEFAULT_CONSUMER_PERSISTENCE_INTERVAL, self(), #persist_consumer_data{}
             ),
@@ -202,12 +197,15 @@ handle_info(#subscriber_timeout{subscriber_ref = SubscriberRef}, State) ->
     {noreply, handle_subscriber_timeout(SubscriberRef, State)};
 handle_info(#persist_consumer_data{}, State) ->
     handle_persist_consumer_data(State);
-handle_info(#renew_streams{}, State) ->
-    {noreply, handle_renew_streams(State)};
-handle_info(#ds_sub_reply{} = DSReply, State) ->
-    {noreply, handle_ds_reply(DSReply, State)};
-handle_info(_Request, State) ->
-    {noreply, State}.
+handle_info(Request, #state{topic_filter = MQTopicFilter} = State0) ->
+    ?tp(warning, mq_consumer_handle_info, #{request => Request, mq_topic => MQTopicFilter}),
+    case handle_ds_info(Request, State0) of
+        ignore ->
+            ?tp(warning, mq_consumer_unknown_info, #{request => Request, mq_topic => MQTopicFilter}),
+            {noreply, State0};
+        {ok, State} ->
+            {noreply, State}
+    end.
 
 terminate(_Reason, _State) ->
     ok.
@@ -298,14 +296,13 @@ handle_ping_subscribers(#state{subscribers = Subscribers} = State) ->
 handle_subscriber_timeout(SubscriberRef, State) ->
     handle_disconnect(SubscriberRef, State).
 
-handle_renew_streams(#state{consumer = Consumer0} = State) ->
-    _ = erlang:send_after(1000, self(), #renew_streams{}),
-    Consumer1 = emqx_mq_consumer_streams:renew_streams(Consumer0),
-    State#state{consumer = Consumer1}.
-
-handle_ds_reply(DSReply, #state{consumer = Consumer0} = State) ->
-    {ok, Messages, Consumer} = emqx_mq_consumer_streams:handle_ds_reply(Consumer0, DSReply),
-    dispatch(enqueue_messages(Messages, State#state{consumer = Consumer})).
+handle_ds_info(Request, #state{consumer = Consumer0} = State) ->
+    case emqx_mq_consumer_streams:handle_ds_info(Consumer0, Request) of
+        {ok, Messages, Consumer} ->
+            {ok, dispatch(enqueue_messages(Messages, State#state{consumer = Consumer}))};
+        ignore ->
+            ignore
+    end.
 
 handle_persist_consumer_data(
     #state{topic_filter = MQTopicFilter, consumer = Consumer, subscribers = Subscribers} = State

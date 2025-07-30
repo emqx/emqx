@@ -4,14 +4,11 @@
 
 -module(emqx_mq_consumer_streams).
 
--moduledoc """
-The module represents a consumer of all streams of a single Message Queue.
-""".
+-behaviour(emqx_ds_client).
 
-%% NOTE
-%% This is mostly a stub working with a single generation.
-%% Most of the logic of stream advancement is and discovery
-%% should be done by future `emqx_ds_client`
+-moduledoc """
+The module holds a stream_buffers for all streams of a single Message Queue.
+""".
 
 -include("emqx_mq_internal.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
@@ -21,195 +18,325 @@ The module represents a consumer of all streams of a single Message Queue.
     new/2,
     new/3,
     progress/1,
-    renew_streams/1,
-    handle_ds_reply/2,
+    handle_ds_info/2,
     handle_ack/2,
     info/1
 ]).
 
--type progress() :: #{
-    emqx_ds:slab() => emqx_mq_consumer_stream:progress()
-}.
+-export([
+    get_current_generation/3,
+    on_advance_generation/4,
+    get_iterator/4,
+    on_new_iterator/5,
+    on_unrecoverable_error/5,
+    on_subscription_down/4
+]).
 
--type t() :: #{
-    mq_topic := binary(),
-    options := map(),
-    streams := #{
-        emqx_ds:slab() => #{
-            sub_ref := undefined | reference(),
-            stream := emqx_ds:stream(),
-            consumer := undefined | emqx_mq_consumer_stream:t()
-        }
+-type generation_progress() :: #{
+    emqx_ds:shard() => emqx_ds:generation()
+}.
+-type streams_progress() :: #{
+    emqx_ds:stream() => #{
+        slab := emqx_ds:slab(),
+        progress := emqx_mq_consumer_stream_buffer:progress()
     }
 }.
 
+-type progress() :: #{
+    generation_progress := generation_progress(),
+    streams_progress := streams_progress()
+}.
+
+-type state() :: #{
+    mq_topic := binary(),
+    stream_buffer_options := emqx_mq_consumer_stream_buffer:stream_buffer_options(),
+    streams := #{
+        emqx_ds:stream() => #{
+            stream_buffer := undefined | emqx_mq_consumer_stream_buffer:t(),
+            slab := emqx_ds:slab()
+        }
+    },
+    streams_by_slab := #{
+        emqx_ds:slab() => emqx_ds:stream()
+    },
+    progress := generation_progress(),
+    ds_client := emqx_ds_client:t()
+}.
+
+-record(cs, {
+    st :: state(),
+    ds_client :: emqx_ds_client:t()
+}).
+
+-type t() :: #cs{}.
+
 -export_type([t/0]).
+
+%% We create only one subscription in the `emqx_ds_client`.
+-define(SUB_ID, []).
+
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
 -spec new(emqx_mq_types:mq_topic(), progress()) -> t().
 new(MQTopic, Progress) ->
     new(MQTopic, Progress, #{}).
 
 -spec new(emqx_mq_types:mq_topic(), progress(), map()) -> t().
-new(MQTopic, Progress, Options) ->
-    State = #{
-        options => Options,
+new(MQTopic, Progress, SBOptions) ->
+    StreamsProgress = maps:get(streams_progress, Progress, #{}),
+    GenerationProgress = maps:get(generation_progress, Progress, #{}),
+    State0 = #{
+        stream_buffer_options => SBOptions,
         mq_topic => MQTopic,
         streams => #{},
-        progress => Progress
+        streams_by_slab => #{},
+        progress => GenerationProgress
     },
-    renew_streams(State).
+    State1 = restore_streams(State0, StreamsProgress),
+    DSClient0 = emqx_mq_payload_db:create_client(?MODULE),
+    {ok, DSClient, State} = emqx_mq_payload_db:subscribe(DSClient0, ?SUB_ID, MQTopic, State1),
+    #cs{st = State, ds_client = DSClient}.
 
 -spec progress(t()) -> progress().
-progress(#{progress := Progress0, streams := Streams}) ->
-    Progress = maps:fold(
-        fun
-            (Slab, #{consumer := undefined}, ProgressAcc) ->
-                ProgressAcc#{
-                    Slab => finished
-                };
-            (Slab, #{consumer := SC}, ProgressAcc) ->
-                ProgressAcc#{
-                    Slab => emqx_mq_consumer_stream:progress(SC)
-                }
+progress(#cs{st = #{progress := GenerationProgress, streams := Streams}}) ->
+    StreamProgress = maps:fold(
+        fun(Stream, #{stream_buffer := SB, slab := {Shard, StreamGeneration} = Slab}, ProgressAcc) ->
+            case GenerationProgress of
+                #{Shard := Generation} when StreamGeneration < Generation ->
+                    ProgressAcc;
+                _ ->
+                    case SB of
+                        undefined ->
+                            ProgressAcc#{
+                                Stream => #{
+                                    slab => Slab,
+                                    progress => end_of_stream
+                                }
+                            };
+                        _ ->
+                            ProgressAcc#{
+                                Stream => #{
+                                    slab => Slab,
+                                    progress => emqx_mq_consumer_stream_buffer:progress(SB)
+                                }
+                            }
+                    end
+            end
         end,
-        Progress0,
+        #{},
         Streams
     ),
-    Progress.
+    #{
+        generation_progress => GenerationProgress,
+        streams_progress => StreamProgress
+    }.
 
--spec renew_streams(t()) -> t().
-renew_streams(#{mq_topic := MQTopic} = State) ->
-    Streams = emqx_mq_payload_db:get_streams(MQTopic),
-    add_streams(State, Streams).
-
--spec handle_ds_reply(t(), #ds_sub_reply{}) ->
+-spec handle_ds_info(t(), term()) ->
     {ok, [{emqx_ds:slab(), emqx_mq_types:message()}], t()}.
-handle_ds_reply(State, #ds_sub_reply{ref = SubRef} = DsReply) ->
-    case find_stream(State, SubRef) of
-        {ok, Slab, StreamData} ->
-            do_handle_ds_reply(State, Slab, StreamData, DsReply);
-        not_found ->
-            {ok, [], State}
+handle_ds_info(#cs{ds_client = DSC0, st = State0} = CS, GenericMessage) ->
+    case emqx_ds_client:dispatch_message(GenericMessage, DSC0, State0) of
+        ignore ->
+            ignore;
+        {data, ?SUB_ID, Stream, Handle, DSReply} ->
+            {ok, Messages, State} = handle_ds_reply(State0, Stream, Handle, DSReply),
+            {ok, Messages, CS#cs{st = State}};
+        {DSC, State} ->
+            {ok, [], CS#cs{ds_client = DSC, st = State}}
     end.
 
 -spec handle_ack(t(), emqx_mq_types:message_id()) -> t().
-handle_ack(#{streams := Streams} = State, {Slab, StreamMessageId}) ->
-    case Streams of
-        #{Slab := #{consumer := SC} = StreamData} ->
-            case emqx_mq_consumer_stream:handle_ack(SC, StreamMessageId) of
-                {ok, SC1} ->
-                    State#{streams => Streams#{Slab => StreamData#{consumer => SC1}}};
-                finished ->
-                    State#{
-                        streams => Streams#{
-                            Slab => StreamData#{consumer => undefined, sub_ref => undefined}
-                        }
+handle_ack(
+    #cs{st = #{streams_by_slab := StreamsBySlab, streams := Streams} = State} = CS,
+    {Slab, StreamMessageId}
+) ->
+    maybe
+        #{Slab := Stream} ?= StreamsBySlab,
+        #{Stream := #{stream_buffer := SB} = StreamData} ?= Streams,
+        case emqx_mq_consumer_stream_buffer:handle_ack(SB, StreamMessageId) of
+            {ok, SB1} ->
+                CS#cs{
+                    st = State#{streams => Streams#{Stream => StreamData#{stream_buffer => SB1}}}
+                };
+            finished ->
+                CS#cs{
+                    st = State#{
+                        streams => Streams#{Stream => StreamData#{stream_buffer => undefined}}
                     }
-            end;
-        _ ->
-            State
+                }
+        end
+    else
+        _ -> CS
     end.
 
 -spec info(t()) -> map().
-info(#{streams := Streams}) ->
-    lists:foldl(
-        fun({Slab, #{consumer := SC}}, Acc) ->
-            Acc#{Slab => emqx_mq_consumer_stream:info(SC)}
+info(#cs{st = #{streams := Streams}}) ->
+    maps:fold(
+        fun(_Stream, #{stream_buffer := SB, slab := Slab}, Acc) ->
+            Acc#{Slab => emqx_mq_consumer_stream_buffer:info(SB)}
         end,
         #{},
-        maps:to_list(Streams)
+        Streams
     ).
+
+%%--------------------------------------------------------------------
+%% emqx_ds_client callbacks
+%%--------------------------------------------------------------------
+
+get_current_generation(?SUB_ID, Shard, #{progress := GenerationProgress}) ->
+    Result =
+        case GenerationProgress of
+            #{Shard := Generation} ->
+                Generation;
+            _ ->
+                0
+        end,
+    ?tp(warning, emqx_mq_consumer_streams_get_current_generation, #{
+        shard => Shard, result => Result
+    }),
+    Result.
+
+on_advance_generation(
+    ?SUB_ID, Shard, Generation, #{progress := GenerationProgress} = State0
+) ->
+    State = State0#{progress => GenerationProgress#{Shard => Generation}},
+    cleanup_streams(Shard, Generation, State).
+
+get_iterator(?SUB_ID, Slab, Stream, #{streams := Streams}) ->
+    Result =
+        case Streams of
+            #{Stream := #{stream_buffer := undefined}} ->
+                {ok, end_of_stream};
+            #{Stream := #{stream_buffer := SB}} ->
+                case emqx_mq_consumer_stream_buffer:progress(SB) of
+                    end_of_stream ->
+                        {ok, end_of_stream};
+                    It ->
+                        {subscribe, It}
+                end;
+            _ ->
+                undefined
+        end,
+    ?tp(warning, emqx_mq_consumer_streams_get_iterator, #{
+        slab => Slab, stream => Stream, result => Result
+    }),
+    Result.
+
+on_new_iterator(
+    ?SUB_ID,
+    Slab,
+    Stream,
+    It,
+    #{streams := Streams, streams_by_slab := StreamsBySlab, stream_buffer_options := SBOptions} =
+        State
+) ->
+    StreamData = #{
+        stream_buffer => emqx_mq_consumer_stream_buffer:new(It, SBOptions), slab => Slab
+    },
+    {subscribe, State#{
+        streams => Streams#{Stream => StreamData},
+        streams_by_slab => StreamsBySlab#{Slab => Stream}
+    }}.
+
+on_unrecoverable_error(
+    ?SUB_ID, Slab, Stream, Error, #{mq_topic := MQTopic, streams := Streams} = State
+) ->
+    ?tp(error, emqx_mq_consumer_streams_unrecoverable_error, #{
+        mq_topic => MQTopic, slab => Slab, stream => Stream, error => Error
+    }),
+    maybe
+        #{Stream := StreamData} ?= Streams,
+        %% We consider this stream as finished.
+        State#{
+            streams => Streams#{Stream => StreamData#{stream_buffer => undefined}}
+        }
+    else
+        _ -> State
+    end.
+
+on_subscription_down(?SUB_ID, Slab, Stream, State) ->
+    ?tp(warning, emqx_mq_consumer_streams_subscription_down, #{slab => Slab, stream => Stream}),
+    %% TODO
+    %% Handle gracefully
+    State.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-do_handle_ds_reply(#{streams := Streams} = State, Slab, #{consumer := SC} = StreamData, DSReply) ->
-    case emqx_mq_consumer_stream:handle_ds_reply(SC, DSReply) of
-        {ok, Messages0, SC1} ->
+restore_streams(State, StreamsProgress) ->
+    maps:fold(
+        fun(Stream, #{slab := Slab, progress := StreamProgress}, StateAcc) ->
+            restore_stream(StateAcc, Slab, Stream, StreamProgress)
+        end,
+        State,
+        StreamsProgress
+    ).
+
+restore_stream(
+    #{streams := Streams, streams_by_slab := StreamsBySlab, stream_buffer_options := SBOptions} =
+        State,
+    Slab,
+    Stream,
+    StreamProgress
+) ->
+    StreamData =
+        case StreamProgress of
+            finished ->
+                #{stream_buffer => undefined, slab => Slab};
+            It ->
+                #{stream_buffer => emqx_mq_consumer_stream_buffer:new(It, SBOptions), slab => Slab}
+        end,
+    State#{
+        streams => Streams#{Stream => StreamData}, streams_by_slab => StreamsBySlab#{Slab => Stream}
+    }.
+
+handle_ds_reply(#{streams := Streams} = State, Stream, Handle, DSReply) ->
+    case Streams of
+        #{Stream := StreamData} ->
+            do_handle_ds_reply(State, Stream, StreamData, Handle, DSReply);
+        _ ->
+            {ok, [], State}
+    end.
+
+do_handle_ds_reply(
+    #{streams := Streams} = State,
+    Stream,
+    #{stream_buffer := SB, slab := Slab} = StreamData,
+    Handle,
+    DSReply
+) ->
+    case emqx_mq_consumer_stream_buffer:handle_ds_reply(SB, Handle, DSReply) of
+        {ok, Messages0, SB1} ->
             Messages = [
                 {{Slab, StreamMessageId}, Payload}
              || {_Topic, StreamMessageId, Payload} <- Messages0
             ],
-            {ok, Messages, State#{streams => Streams#{Slab => StreamData#{consumer => SC1}}}};
+            {ok, Messages, State#{streams => Streams#{Stream => StreamData#{stream_buffer => SB1}}}};
         finished ->
             {ok, [], State#{
                 streams => Streams#{
-                    Slab => StreamData#{consumer => undefined, sub_ref => undefined}
+                    Stream => StreamData#{stream_buffer => undefined, sub_ref => undefined}
                 }
             }}
     end.
 
-add_streams(State, Streams) ->
+cleanup_streams(Shard, Generation, #{streams := Streams} = State) ->
     lists:foldl(
-        fun({Slab, Stream}, StateAcc) ->
-            add_stream(StateAcc, Slab, Stream)
+        fun(Stream, #{streams := StreamsAcc, streams_by_slab := StreamsBySlabAcc} = StateAcc) ->
+            case Streams of
+                #{Stream := #{slab := {Shard, StreamGeneration} = Slab}} when
+                    StreamGeneration < Generation
+                ->
+                    StateAcc#{
+                        streams => maps:remove(Stream, StreamsAcc),
+                        streams_by_slab => maps:remove(Slab, StreamsBySlabAcc)
+                    };
+                _ ->
+                    StateAcc
+            end
         end,
         State,
-        Streams
+        maps:keys(Streams)
     ).
-
-add_stream(#{streams := Streams} = State, Slab, Stream) ->
-    case Streams of
-        #{Slab := _} ->
-            State;
-        _ ->
-            do_add_stream(State, Slab, Stream)
-    end.
-
-do_add_stream(
-    #{mq_topic := MQTopic, options := Options, streams := Streams, progress := Progress} = State,
-    Slab,
-    Stream
-) ->
-    case Progress of
-        #{Slab := finished} ->
-            ?tp(warning, emqx_mq_consumer_streams_add_stream, #{
-                mq_topic => MQTopic, slab => Slab, status => finished
-            }),
-            State;
-        #{Slab := It} ->
-            ?tp(warning, emqx_mq_consumer_streams_add_stream, #{
-                mq_topic => MQTopic, slab => Slab, status => restore_iterator
-            }),
-            {ok, SubRef, SC} = emqx_mq_consumer_stream:new(It, Options),
-            State#{
-                streams => Streams#{
-                    Slab => #{
-                        sub_ref => SubRef,
-                        stream => Stream,
-                        consumer => SC
-                    }
-                }
-            };
-        _ ->
-            ?tp(warning, emqx_mq_consumer_streams_add_stream, #{
-                mq_topic => MQTopic, slab => Slab, status => new_iterator
-            }),
-            %% TODO
-            %% Handle errors
-            {ok, It} = emqx_mq_payload_db:make_iterator(Stream, MQTopic),
-            {ok, SubRef, SC} = emqx_mq_consumer_stream:new(It, Options),
-            State#{
-                streams => Streams#{
-                    Slab => #{
-                        sub_ref => SubRef,
-                        stream => Stream,
-                        consumer => SC
-                    }
-                }
-            }
-    end.
-
-find_stream(#{streams := Streams}, SubRef) ->
-    do_find_stream(maps:to_list(Streams), SubRef).
-
-do_find_stream([{Slab, StreamData} | Rest], SubRef) ->
-    case StreamData of
-        #{sub_ref := SubRef} ->
-            {ok, Slab, StreamData};
-        _ ->
-            do_find_stream(Rest, SubRef)
-    end;
-do_find_stream([], _) ->
-    not_found.

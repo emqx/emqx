@@ -10,11 +10,9 @@
 -export([
     open/0,
     insert/3,
-    get_streams/1,
-    make_iterator/2,
-    subscribe/2,
-    unsubscribe/1,
-    suback/2
+    suback/2,
+    create_client/1,
+    subscribe/4
 ]).
 
 -define(MQ_PAYLOAD_DB, mq_payload).
@@ -56,6 +54,7 @@ insert(#{is_compacted := true, topic_filter := TopicFilter} = _MQ, Message, Comp
         retries => ?MQ_PAYLOAD_DB_APPEND_RETRY
     },
     Payload = emqx_message:payload(Message),
+    ?tp(warning, mq_payload_db_insert, #{topic => Topic, generation => 1, payload => Payload}),
     emqx_ds:trans(TxOpts, fun() ->
         emqx_ds:tx_del_topic(Topic),
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Payload})
@@ -71,26 +70,25 @@ insert(#{is_compacted := false, topic_filter := TopicFilter} = _MQ, Message, und
         sync => true,
         retries => ?MQ_PAYLOAD_DB_APPEND_RETRY
     },
+    ?tp(warning, mq_payload_db_insert, #{topic => Topic, generation => 1, payload => Payload}),
     emqx_ds:trans(TxOpts, fun() ->
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Payload})
     end).
 
-get_streams(MQTopic) ->
-    emqx_ds:get_streams(?MQ_PAYLOAD_DB, ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#'), 0).
+create_client(Module) ->
+    emqx_ds_client:new(Module, #{}).
 
-make_iterator(Stream, MQTopic) ->
-    emqx_ds:make_iterator(
-        ?MQ_PAYLOAD_DB, Stream, ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#'), 0
-    ).
+subscribe(DSClient0, SubId, MQTopic, State0) ->
+    SubOpts = #{
+        db => ?MQ_PAYLOAD_DB,
+        id => SubId,
+        topic => ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#')
+    },
+    {ok, DSClient, State} = emqx_ds_client:subscribe(DSClient0, SubOpts, State0),
+    {ok, DSClient, State}.
 
-subscribe(Iterator, Options) ->
-    emqx_ds:subscribe(?MQ_PAYLOAD_DB, Iterator, Options).
-
-unsubscribe(SubHandle) ->
-    emqx_ds:unsubscribe(?MQ_PAYLOAD_DB, SubHandle).
-
-suback(SubHandle, SeqNo) ->
-    emqx_ds:suback(?MQ_PAYLOAD_DB, SubHandle, SeqNo).
+suback(SubRef, SeqNo) ->
+    emqx_ds:suback(?MQ_PAYLOAD_DB, SubRef, SeqNo).
 
 %%--------------------------------------------------------------------
 %% Internal functions
