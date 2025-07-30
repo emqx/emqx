@@ -4,7 +4,6 @@
 
 -module(emqx_trace_handler).
 
--include("emqx.hrl").
 -include("logger.hrl").
 -include("emqx_trace.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
@@ -14,11 +13,10 @@
 %% APIs
 -export([
     running/0,
-    install/3,
-    install/5,
-    install/6,
+    install/4,
+    install/7,
     uninstall/1,
-    uninstall/2
+    filesync/1
 ]).
 
 %% For logger handler filters callbacks
@@ -29,14 +27,14 @@
     filter_ip_address/2
 ]).
 
--export([handler_id/2]).
+-export([fallback_handler_id/2]).
 -export([payload_encode/0]).
 
 -type tracer() :: #{
     name := binary(),
     namespace => maybe_namespace(),
-    type := clientid | topic | ip_address,
-    filter := filter(),
+    type := clientid | topic | ip_address | ruleid,
+    filter := emqx_trace:filter(),
     payload_encode := text | hidden | hex,
     payload_limit := non_neg_integer(),
     formatter => json | text
@@ -45,39 +43,29 @@
 -define(LOG_HANDLER_OLP_KILL_MEM_SIZE, 50 * 1024 * 1024).
 -define(LOG_HANDLER_OLP_KILL_QLEN, 20000).
 
--type filter() ::
-    emqx_types:clientid()
-    | emqx_types:topic()
-    | {?global_ns | binary(), emqx_trace:ruleid()}
-    | string().
-
 -type namespace() :: binary().
 -type maybe_namespace() :: ?global_ns | namespace().
 
--define(CONFIG(_LogFile_), #{
-    type => halt,
-    file => _LogFile_,
-    max_no_bytes => 512 * 1024 * 1024,
-    overload_kill_enable => true,
-    overload_kill_mem_size => 50 * 1024 * 1024,
-    overload_kill_qlen => 20000,
-    %% disable restart
-    overload_kill_restart_after => infinity
-}).
+-ifdef(TEST).
+-define(LOG_HANDLER_FILESYNC_INTERVAL, 5_000).
+-else.
+-define(LOG_HANDLER_FILESYNC_INTERVAL, 100).
+-endif.
 
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
 
 -spec install(
+    HandlerId :: logger:handler_id(),
     Name :: binary() | list(),
-    Type :: clientid | topic | ip_address,
-    Filter :: filter(),
+    Type :: clientid | topic | ip_address | ruleid,
+    Filter :: emqx_trace:filter(),
     Level :: logger:level() | all,
     LogFilePath :: string(),
     Formatter :: text | json
 ) -> ok | {error, term()}.
-install(Name, Type, Filter, Level, LogFile, Formatter) ->
+install(HandlerId, Name, Type, Filter, Level, LogFile, Formatter) ->
     Who = #{
         type => Type,
         filter => ensure_bin(Filter),
@@ -86,23 +74,13 @@ install(Name, Type, Filter, Level, LogFile, Formatter) ->
         payload_limit => ?MAX_PAYLOAD_FORMAT_SIZE,
         formatter => Formatter
     },
-    install(Who, Level, LogFile).
+    install(HandlerId, Who, Level, LogFile).
 
--spec install(
-    Name :: binary() | list(),
-    Type :: clientid | topic | ip_address,
-    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
-    Level :: logger:level() | all,
-    LogFilePath :: string()
-) -> ok | {error, term()}.
-install(Name, Type, Filter, Level, LogFile) ->
-    install(Name, Type, Filter, Level, LogFile, text).
-
--spec install(tracer(), logger:level() | all, string()) -> ok | {error, term()}.
-install(Who, all, LogFile) ->
-    install(Who, debug, LogFile);
-install(Who = #{name := Name, type := Type}, Level, LogFile) ->
-    HandlerId = handler_id(Name, Type),
+-spec install(logger:handler_id(), tracer(), logger:level() | all, string()) ->
+    ok | {error, term()}.
+install(HandlerId, Who, all, LogFile) ->
+    install(HandlerId, Who, debug, LogFile);
+install(HandlerId, Who, Level, LogFile) ->
     Config = #{
         level => Level,
         formatter => formatter(Who),
@@ -120,20 +98,13 @@ logger_config(LogFile) ->
         type => halt,
         file => LogFile,
         max_no_bytes => MaxBytes,
+        filesync_repeat_interval => ?LOG_HANDLER_FILESYNC_INTERVAL,
         overload_kill_enable => true,
         overload_kill_mem_size => ?LOG_HANDLER_OLP_KILL_MEM_SIZE,
         overload_kill_qlen => ?LOG_HANDLER_OLP_KILL_QLEN,
         %% disable restart
         overload_kill_restart_after => infinity
     }.
-
--spec uninstall(
-    Type :: clientid | topic | ip_address,
-    Name :: binary() | list()
-) -> ok | {error, term()}.
-uninstall(Type, Name) ->
-    HandlerId = handler_id(ensure_bin(Name), Type),
-    uninstall(HandlerId).
 
 -spec uninstall(HandlerId :: atom()) -> ok | {error, term()}.
 uninstall(HandlerId) ->
@@ -146,15 +117,29 @@ uninstall(HandlerId) ->
     [
         #{
             name => binary(),
-            type => topic | clientid | ip_address,
+            type => topic | clientid | ip_address | ruleid,
             id => atom(),
-            filter => emqx_types:topic() | emqx_types:clientid() | emqx_trace:ip_address(),
+            filter => emqx_trace:filter(),
             level => logger:level(),
             dst => file:filename() | console | unknown
         }
     ].
 running() ->
     lists:foldl(fun filter_traces/2, [], emqx_logger:get_log_handlers(started)).
+
+-spec filesync(logger:handler_id()) -> ok | {error, any()}.
+filesync(HandlerId) ->
+    case logger:get_handler_config(HandlerId) of
+        {ok, #{module := Mod}} ->
+            try
+                Mod:filesync(HandlerId)
+            catch
+                error:undef ->
+                    {error, unsupported}
+            end;
+        Error ->
+            Error
+    end.
 
 -spec filter_ruleid(logger:log_event(), {binary(), atom()}) -> logger:log_event() | stop.
 filter_ruleid(#{meta := Meta = #{rule_id := RuleId}} = Log, {{Namespace, MatchId}, _Name}) ->
@@ -214,7 +199,9 @@ filters(#{type := ruleid, filter := Filter, name := Name} = Who) ->
     [{ruleid, {fun ?MODULE:filter_ruleid/2, {{Namespace, ensure_bin(Filter)}, Name}}}].
 
 formatter(#{
-    type := _Type, payload_encode := PayloadEncode, formatter := json, payload_limit := PayloadLimit
+    formatter := json,
+    payload_encode := PayloadEncode,
+    payload_limit := PayloadLimit
 }) ->
     PayloadFmtOpts = #{
         payload_encode => PayloadEncode,
@@ -222,7 +209,11 @@ formatter(#{
         truncate_to => PayloadLimit
     },
     {emqx_trace_json_formatter, #{payload_fmt_opts => PayloadFmtOpts}};
-formatter(#{type := _Type, payload_encode := PayloadEncode, payload_limit := PayloadLimit}) ->
+formatter(#{
+    formatter := _Text,
+    payload_encode := PayloadEncode,
+    payload_limit := PayloadLimit
+}) ->
     {emqx_trace_formatter, #{
         %% template is for ?SLOG message not ?TRACE.
         %% XXX: Don't need to print the time field in logger_formatter due to we manually concat it
@@ -263,25 +254,21 @@ filter_traces(#{id := Id, level := Level, dst := Dst, filters := Filters}, Acc) 
             Acc
     end.
 
-payload_encode() -> emqx_config:get([trace, payload_encode], text).
-
-handler_id(Name, Type) ->
-    try
-        do_handler_id(Name, Type)
-    catch
-        _:_ ->
-            Hash = emqx_utils:bin_to_hexstr(crypto:hash(md5, Name), lower),
-            do_handler_id(Hash, Type)
+-spec fallback_handler_id(string(), string() | binary()) -> atom().
+fallback_handler_id(Prefix, Name) when is_binary(Name) ->
+    NameString = [_ | _] = unicode:characters_to_list(Name),
+    fallback_handler_id(Prefix, NameString);
+fallback_handler_id(Prefix, Name) when is_list(Name), length(Prefix) < 50 ->
+    case length(Name) of
+        L when L < 200 ->
+            list_to_atom(Prefix ++ ":" ++ Name);
+        _ ->
+            Hash = erlang:md5(term_to_binary(Name)),
+            HashString = binary_to_list(binary:encode_hex(Hash, lowercase)),
+            list_to_atom(Prefix ++ ":" ++ lists:sublist(Name, 160) ++ "." ++ HashString)
     end.
 
-%% Handler ID must be an atom.
-do_handler_id(Name, Type) ->
-    TypeStr = atom_to_list(Type),
-    NameStr = unicode:characters_to_list(Name, utf8),
-    FullNameStr = "trace_" ++ TypeStr ++ "_" ++ NameStr,
-    true = io_lib:printable_unicode_list(FullNameStr),
-    FullNameBin = unicode:characters_to_binary(FullNameStr, utf8),
-    binary_to_atom(FullNameBin, utf8).
+payload_encode() -> emqx_config:get([trace, payload_encode], text).
 
 ensure_bin({Namespace, Match}) ->
     MatchBin = ensure_bin(Match),

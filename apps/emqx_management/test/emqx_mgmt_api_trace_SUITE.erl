@@ -24,7 +24,10 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
+            %% Needed by `emqx_modules`:
+            emqx_conf,
+            %% Manages `emqx_trace` server:
+            emqx_modules,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -35,9 +38,15 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
-t_http_test(_Config) ->
+init_per_testcase(_, Config) ->
+    ok = snabbkaffe:start_trace(),
     emqx_trace:clear(),
-    load(),
+    Config.
+
+end_per_testcase(_, _Config) ->
+    snabbkaffe:stop().
+
+t_http_test(_Config) ->
     %% list
     {ok, Empty} = request_api(get, api_path("trace")),
     ?assertEqual([], json(Empty)),
@@ -114,14 +123,9 @@ t_http_test(_Config) ->
     ?assertMatch(#{<<"name">> := Name}, json(Create1)),
 
     {ok, Clear} = request_api(delete, api_path("trace")),
-    ?assertEqual(<<>>, Clear),
-
-    unload(),
-    ok.
+    ?assertEqual(<<>>, Clear).
 
 t_http_test_rule_trace(_Config) ->
-    emqx_trace:clear(),
-    load(),
     %% create
     Name = atom_to_binary(?FUNCTION_NAME),
     Trace = #{
@@ -164,16 +168,9 @@ t_http_test_rule_trace(_Config) ->
 
     %% delete
     {ok, Delete} = request_api(delete, api_path(["trace/", Name])),
-    ?assertEqual(<<>>, Delete),
-
-    emqx_trace:clear(),
-    unload(),
-    ok.
+    ?assertEqual(<<>>, Delete).
 
 t_http_test_json_formatter(_Config) ->
-    emqx_trace:clear(),
-    load(),
-
     Name = <<"testname">>,
     Topic = <<"/x/y/z">>,
     Trace = #{
@@ -200,7 +197,7 @@ t_http_test_json_formatter(_Config) ->
     ),
 
     %% Check that the log is empty
-    ok = emqx_trace_handler_SUITE:filesync(Name, topic),
+    ok = wait_filesync(),
     {ok, _Detail} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/log_detail")),
     %% Trace is empty which results in a not found error
     {error, _} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/download")),
@@ -277,7 +274,7 @@ t_http_test_json_formatter(_Config) ->
         %% We should not convert this to a map as we will lose information
         map_key => [{a, a}, {a, b}]
     }),
-    ok = emqx_trace_handler_SUITE:filesync(Name, topic),
+    ok = wait_filesync(),
     {ok, _Detail2} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/log_detail")),
     {ok, Bin} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/download")),
     {ok, [
@@ -456,13 +453,9 @@ t_http_test_json_formatter(_Config) ->
     {ok, List2} = request_api(get, api_path("trace")),
     ?assertEqual([], json(List2)),
 
-    ok = emqtt:disconnect(Client),
-    unload(),
-    emqx_trace:clear(),
-    ok.
+    ok = emqtt:disconnect(Client).
 
 t_create_failed(_Config) ->
-    load(),
     Now = erlang:system_time(second),
     Trace = #{
         <<"type">> => <<"topic">>,
@@ -493,13 +486,11 @@ t_create_failed(_Config) ->
     %% MAX Limited
     lists:map(
         fun(Seq) ->
-            Name0 = list_to_binary("name" ++ integer_to_list(Seq)),
-            Trace0 = [
-                {name, Name0},
-                {type, topic},
-                {topic, list_to_binary("/x/y/" ++ integer_to_list(Seq))}
-            ],
-            {ok, _} = emqx_trace:create(Trace0)
+            {ok, _} = emqx_trace:create(#{
+                name => list_to_binary("name" ++ integer_to_list(Seq)),
+                type => topic,
+                filter => list_to_binary("/x/y/" ++ integer_to_list(Seq))
+            })
         end,
         lists:seq(1, 30 - ets:info(emqx_trace, size))
     ),
@@ -527,17 +518,12 @@ t_create_failed(_Config) ->
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
         request_api(post, api_path("trace"), GoodName3)
-    ),
-
-    unload(),
-    emqx_trace:clear(),
-    ok.
+    ).
 
 t_log_file(_Config) ->
     ClientId = <<"client-test-download">>,
     Now = erlang:system_time(second),
     Name = <<"test_client_id">>,
-    load(),
     create_trace(Name, ClientId, Now),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
@@ -547,11 +533,11 @@ t_log_file(_Config) ->
         end
      || _ <- lists:seq(1, 5)
     ],
-    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
     ?assertMatch(
         {error, {"HTTP/1.1", 404, "Not Found"}},
         request_api(get, api_path("trace/test_client_not_found/log_detail"))
     ),
+    ok = wait_filesync(),
     {ok, Detail} = request_api(get, api_path("trace/test_client_id/log_detail")),
     ?assertMatch([#{<<"mtime">> := _, <<"size">> := _, <<"node">> := _}], json(Detail)),
     {ok, Binary} = request_api(get, api_path("trace/test_client_id/download")),
@@ -602,35 +588,26 @@ create_trace(Name, ClientId, Start) ->
     create_trace(Name, clientid, ClientId, Start).
 
 create_trace(Name, Type, TypeValue, Start) ->
-    ?check_trace(
-        #{timetrap => 900},
+    ?wait_async_action(
         begin
-            {ok, _} = emqx_trace:create([
-                {<<"name">>, Name},
-                {<<"type">>, Type},
-                {atom_to_binary(Type), TypeValue},
-                {<<"start_at">>, Start}
-            ]),
-            ?block_until(#{?snk_kind := update_trace_done})
+            {ok, _Created} = request_api(post, api_path("trace"), #{
+                <<"name">> => Name,
+                <<"type">> => Type,
+                Type => TypeValue,
+                <<"start_at">> => Start
+            })
         end,
-        fun(Trace) ->
-            ?assertMatch([#{} | _], ?of_kind(update_trace_done, Trace))
-        end
+        #{?snk_kind := update_trace_done}
     ).
 
 create_rule_trace(RuleId) ->
     Now = erlang:system_time(second),
-    emqx_mgmt_api_trace_SUITE:create_trace(atom_to_binary(?FUNCTION_NAME), ruleid, RuleId, Now - 2).
+    create_trace(atom_to_binary(?FUNCTION_NAME), ruleid, RuleId, Now - 2).
 
 t_create_rule_trace(_Config) ->
-    load(),
-    create_rule_trace(atom_to_binary(?FUNCTION_NAME)),
-    unload(),
-    ok.
+    create_rule_trace(atom_to_binary(?FUNCTION_NAME)).
 
 t_stream_log(_Config) ->
-    emqx_trace:clear(),
-    load(),
     ClientId = <<"client-stream">>,
     Now = erlang:system_time(second),
     Name = <<"test_stream_log">>,
@@ -684,15 +661,12 @@ t_stream_log(_Config) ->
         request_api(
             get,
             api_path("trace/test_stream_log_not_found/log")
-        ),
-    unload(),
-    ok.
+        ).
 
 t_trace_files_are_deleted_after_download(_Config) ->
     ClientId = <<"client-test-delete-after-download">>,
     Now = erlang:system_time(second),
     Name = <<"test_client_id">>,
-    load(),
     create_trace(Name, ClientId, Now),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
@@ -703,7 +677,7 @@ t_trace_files_are_deleted_after_download(_Config) ->
      || _ <- lists:seq(1, 5)
     ],
     ok = emqtt:disconnect(Client),
-    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
+    ok = wait_filesync(),
 
     %% Check that files have been removed after download and that zip
     %% directories uses unique session ids
@@ -733,9 +707,8 @@ t_download_empty_trace(_Config) ->
     ClientId = <<"client-test-empty-trace-download">>,
     Now = erlang:system_time(second),
     Name = <<"test_client_id_empty_trace">>,
-    load(),
     create_trace(Name, ClientId, Now),
-    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
+    ok = wait_filesync(),
     ?check_trace(
         begin
             ?wait_async_action(
@@ -760,6 +733,10 @@ t_download_empty_trace(_Config) ->
     ?assertMatch(#{<<"message">> := <<"Trace is empty">>}, emqx_utils_json:decode(Body)),
     ok.
 
+wait_filesync() ->
+    %% NOTE: Twice `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
+    timer:sleep(2 * 100).
+
 to_rfc3339(Second) ->
     list_to_binary(calendar:system_time_to_rfc3339(Second)).
 
@@ -778,9 +755,3 @@ api_path(Path) ->
 
 json(Data) ->
     emqx_utils_json:decode(Data).
-
-load() ->
-    emqx_trace:start_link().
-
-unload() ->
-    gen_server:stop(emqx_trace).
