@@ -5,7 +5,7 @@ defmodule EMQXDurableTimer.MixProject do
   def project do
     [
       app: :emqx_durable_timer,
-      version: "0.0.1",
+      version: "6.0.0",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.strict_erlc_options(),
@@ -21,7 +21,14 @@ defmodule EMQXDurableTimer.MixProject do
   # Run "mix help compile.app" to learn about applications
   def application do
     [
-      extra_applications: [:crypto | UMP.extra_applications()],
+      extra_applications: [
+        :kernel,
+        :stdlib,
+        :crypto,
+        :gproc,
+        :optvar,
+        :emqx_ds_backends | UMP.extra_applications()
+      ],
       mod: {:emqx_durable_timer_app, []}
     ]
   end
