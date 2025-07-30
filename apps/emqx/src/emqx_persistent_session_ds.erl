@@ -1624,10 +1624,10 @@ update_seqno(
 %% the current counter to the packet id:
 -spec packet_id_to_seqno(emqx_types:packet_id(), seqno()) ->
     seqno().
-packet_id_to_seqno(PacketId, NextSeqNo) ->
-    Epoch = NextSeqNo bsr ?EPOCH_BITS,
+packet_id_to_seqno(PacketId, CommittedSeqNo) ->
+    Epoch = CommittedSeqNo bsr ?EPOCH_BITS,
     SeqNo = (Epoch bsl ?EPOCH_BITS) + (PacketId band ?PACKET_ID_MASK),
-    case SeqNo < NextSeqNo of
+    case SeqNo < CommittedSeqNo of
         true ->
             SeqNo + ?EPOCH_SIZE;
         false ->
@@ -1863,16 +1863,8 @@ list_all_sessions() ->
 
 %%%% Proper generators:
 
-%% Generate a sequence number that smaller than the given `NextSeqNo'
-%% number by at most `?EPOCH_SIZE':
-seqno_gen(NextSeqNo) ->
-    WindowSize = ?EPOCH_SIZE - 1,
-    Min = max(0, NextSeqNo - WindowSize),
-    Max = max(0, NextSeqNo - 1),
-    range(Min, Max).
-
 %% Generate a sequence number:
-next_seqno_gen() ->
+seqno_gen() ->
     ?LET(
         {Epoch, Offset},
         {non_neg_integer(), range(0, ?EPOCH_SIZE)},
@@ -1884,17 +1876,18 @@ next_seqno_gen() ->
 %% erlfmt-ignore
 packet_id_to_seqno_prop() ->
     ?FORALL(
-        {QoS, NextSeqNo}, {oneof([?QOS_1, ?QOS_2]), next_seqno_gen()},
+        {QoS, CommittedSeqNo}, {oneof([?QOS_1, ?QOS_2]), seqno_gen()},
         ?FORALL(
-            ExpectedSeqNo, seqno_gen(NextSeqNo),
+            ExpectedSeqNo, range(CommittedSeqNo, CommittedSeqNo + ?EPOCH_SIZE),
             begin
                 PacketId = seqno_to_packet_id(QoS, ExpectedSeqNo),
-                SeqNo = packet_id_to_seqno(PacketId, NextSeqNo),
+                SeqNo = packet_id_to_seqno(PacketId, CommittedSeqNo),
                 ?WHENFAIL(
                     begin
+                        io:format(user, "~p~n", [?FUNCTION_NAME]),
                         io:format(user, " *** PacketID = ~p~n", [PacketId]),
                         io:format(user, " *** SeqNo = ~p -> ~p~n", [ExpectedSeqNo, SeqNo]),
-                        io:format(user, " *** NextSeqNo = ~p~n", [NextSeqNo])
+                        io:format(user, " *** CommittedSeqNo = ~p~n", [CommittedSeqNo])
                     end,
                     PacketId < 16#10000 andalso SeqNo =:= ExpectedSeqNo
                 )
@@ -1903,12 +1896,13 @@ packet_id_to_seqno_prop() ->
 inc_seqno_prop() ->
     ?FORALL(
         {QoS, SeqNo},
-        {oneof([?QOS_1, ?QOS_2]), next_seqno_gen()},
+        {oneof([?QOS_1, ?QOS_2]), seqno_gen()},
         begin
             NewSeqNo = inc_seqno(QoS, SeqNo),
             PacketId = seqno_to_packet_id(QoS, NewSeqNo),
             ?WHENFAIL(
                 begin
+                    io:format(user, "~p~n", [?FUNCTION_NAME]),
                     io:format(user, " *** QoS = ~p~n", [QoS]),
                     io:format(user, " *** SeqNo = ~p -> ~p~n", [SeqNo, NewSeqNo]),
                     io:format(user, " *** PacketId = ~p~n", [PacketId])
@@ -1921,7 +1915,7 @@ inc_seqno_prop() ->
 seqno_diff_prop() ->
     ?FORALL(
         {QoS, SeqNo, N},
-        {oneof([?QOS_1, ?QOS_2]), next_seqno_gen(), range(0, 100)},
+        {oneof([?QOS_1, ?QOS_2]), seqno_gen(), range(0, 100)},
         ?IMPLIES(
             seqno_to_packet_id(QoS, SeqNo) > 0,
             begin
@@ -1929,6 +1923,7 @@ seqno_diff_prop() ->
                 Diff = seqno_diff(QoS, NewSeqNo, SeqNo),
                 ?WHENFAIL(
                     begin
+                        io:format(user, "~p~n", [?FUNCTION_NAME]),
                         io:format(user, " *** QoS = ~p~n", [QoS]),
                         io:format(user, " *** SeqNo = ~p -> ~p~n", [SeqNo, NewSeqNo]),
                         io:format(user, " *** N : ~p == ~p~n", [N, Diff])
