@@ -10,7 +10,7 @@
 The module holds a stream_buffers for all streams of a single Message Queue.
 """.
 
--include("emqx_mq_internal.hrl").
+-include("../emqx_mq_internal.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -134,7 +134,7 @@ progress(#cs{st = #{progress := GenerationProgress, streams := Streams}}) ->
     }.
 
 -spec handle_ds_info(t(), term()) ->
-    {ok, [{emqx_ds:slab(), emqx_mq_types:message()}], t()}.
+    {ok, [{emqx_mq_types:message_id(), emqx_types:message()}], t()}.
 handle_ds_info(#cs{ds_client = DSC0, st = State0} = CS, GenericMessage) ->
     case emqx_ds_client:dispatch_message(GenericMessage, DSC0, State0) of
         ignore ->

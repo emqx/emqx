@@ -115,30 +115,21 @@ on_message_nack(Msg, false) ->
 on_message_nack(_Msg, true) ->
     ok.
 
-on_client_handle_info(_ClientInfo, ?MQ_PING_SUBSCRIBER(SubscriberRef), Acc) ->
-    ok = with_sub(SubscriberRef, handle_ping, []),
-    {ok, Acc};
-on_client_handle_info(_ClientInfo, ?MQ_MESSAGE(Msg), #{deliver := Delivers} = Acc) ->
-    SubscriberRef = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg, undefined),
-    case with_sub(SubscriberRef, handle_message, [Msg]) of
-        not_found ->
-            {ok, Acc};
-        {ok, NewDelivers} ->
-            {ok, Acc#{deliver => NewDelivers ++ Delivers}};
-        {error, recreate} ->
-            ok = recreate_sub(SubscriberRef, _ClientInfo),
-            {ok, Acc}
-    end;
-on_client_handle_info(ClientInfo, ?MQ_SUB_INFO(SubscriberRef, InfoMsg), Acc) ->
+on_client_handle_info(
+    ClientInfo,
+    #info_to_mq_sub{subscriber_ref = SubscriberRef, message = InfoMsg},
+    #{deliver := Delivers} = Acc
+) ->
     case with_sub(SubscriberRef, handle_info, [InfoMsg]) of
         not_found ->
             ok;
         ok ->
             ok;
+        {ok, Message} ->
+            {ok, Acc#{deliver => delivers(SubscriberRef, Message) ++ Delivers}};
         {error, recreate} ->
             ok = recreate_sub(SubscriberRef, ClientInfo)
-    end,
-    {ok, Acc};
+    end;
 on_client_handle_info(_ClientInfo, Message, Acc) ->
     ?tp(warning, mq_on_client_handle_info, #{message => Message}),
     {ok, Acc}.
@@ -195,3 +186,15 @@ publish_to_queue(MQ, #message{headers = Headers} = Message) ->
         ?MQ_COMPACTION_KEY_USER_PROPERTY, UserProperties, undefined
     ),
     emqx_mq_payload_db:insert(MQ, Message, CompactionKey).
+
+delivers(SubscriberRef, Messages) ->
+    lists:map(
+        fun(Message0) ->
+            Message = emqx_message:set_headers(
+                #{?MQ_HEADER_SUBSCRIBER_ID => SubscriberRef}, Message0
+            ),
+            Topic = emqx_message:topic(Message),
+            {deliver, Topic, Message}
+        end,
+        Messages
+    ).

@@ -4,7 +4,7 @@
 
 -module(emqx_mq_consumer_db).
 
--include("emqx_mq_internal.hrl").
+-include("../emqx_mq_internal.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
