@@ -536,6 +536,7 @@ zone_global_defaults() ->
                 batch_size => 100,
                 force_persistence => false,
                 checkpoint_interval => 5000,
+                commit_timeout => 5000,
                 message_retention_period => 86400000,
                 subscription_count_refresh_interval => 5000,
                 disconnected_session_count_refresh_interval => 5000
