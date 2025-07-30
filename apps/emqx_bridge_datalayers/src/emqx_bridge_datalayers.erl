@@ -191,7 +191,7 @@ fields(action_parameters_arrow_flight) ->
         {sql,
             mk(
                 emqx_schema:template(),
-                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
+                #{desc => ?DESC(sql_template), default => ?DEFAULT_SQL, format => <<"sql">>}
             )},
         emqx_bridge_v2_schema:undefined_as_null_field()
     ];
@@ -225,6 +225,8 @@ desc(action_parameters_influx) ->
     ?DESC(action_parameters_influx);
 desc(action_parameters_arrow_flight) ->
     ?DESC(action_parameters_arrow_flight);
+desc(sql_template) ->
+    ?DESC(sql_template);
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(connector_resource_opts) ->

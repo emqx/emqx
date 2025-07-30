@@ -40,6 +40,11 @@ action_parameters_arrow_flight.label:
 action_parameters_arrow_flight.desc:
 """Additional parameters specific using Arrow Flight Driver"""
 
+sql_template.label:
+"""SQL Template"""
+sql_template.desc:
+"""SQL Template"""
+
 connector.label:
 """Datalayers Connector"""
 connector.desc:
