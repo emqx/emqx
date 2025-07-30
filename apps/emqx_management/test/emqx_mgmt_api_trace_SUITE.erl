@@ -488,8 +488,7 @@ t_create_failed(_Config) ->
         fun(Seq) ->
             {ok, _} = emqx_trace:create(#{
                 name => list_to_binary("name" ++ integer_to_list(Seq)),
-                type => topic,
-                filter => list_to_binary("/x/y/" ++ integer_to_list(Seq))
+                filter => {topic, list_to_binary("/x/y/" ++ integer_to_list(Seq))}
             })
         end,
         lists:seq(1, 30 - ets:info(emqx_trace, size))

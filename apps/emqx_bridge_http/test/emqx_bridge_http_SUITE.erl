@@ -391,8 +391,7 @@ t_send_get_trace_messages(Config) ->
     TraceName = atom_to_binary(?FUNCTION_NAME),
     Trace = #{
         name => TraceName,
-        type => ruleid,
-        filter => RuleId,
+        filter => {ruleid, RuleId},
         start_at => Start,
         end_at => End
     },

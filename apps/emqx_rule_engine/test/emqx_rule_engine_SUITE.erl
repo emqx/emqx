@@ -3973,10 +3973,20 @@ t_trace_rule_id(_Config) ->
     ),
     %% Start tracing
     ok = emqx_trace_handler:install(
-        'CLI-RULE-1', "CLI-RULE-1", ruleid, <<"test_rule_id_1">>, all, "tmp/rule_trace_1.log", text
+        'CLI-RULE-1',
+        "CLI-RULE-1",
+        {ruleid, <<"test_rule_id_1">>},
+        all,
+        "tmp/rule_trace_1.log",
+        text
     ),
     ok = emqx_trace_handler:install(
-        'CLI-RULE-2', "CLI-RULE-2", ruleid, <<"test_rule_id_2">>, all, "tmp/rule_trace_2.log", text
+        'CLI-RULE-2',
+        "CLI-RULE-2",
+        {ruleid, <<"test_rule_id_2">>},
+        all,
+        "tmp/rule_trace_2.log",
+        text
     ),
     emqx_trace:check(),
     ok = filesync('CLI-RULE-1'),
@@ -3990,16 +4000,16 @@ t_trace_rule_id(_Config) ->
     ?assertMatch(
         [
             #{
-                type := ruleid,
-                filter := {?global_ns, <<"test_rule_id_1">>},
+                name := <<"CLI-RULE-1">>,
+                filter := {ruleid, <<"test_rule_id_1">>},
+                namespace := ?global_ns,
                 level := debug,
-                dst := "tmp/rule_trace_1.log",
-                name := <<"CLI-RULE-1">>
+                dst := "tmp/rule_trace_1.log"
             },
             #{
-                type := ruleid,
-                filter := {?global_ns, <<"test_rule_id_2">>},
                 name := <<"CLI-RULE-2">>,
+                filter := {ruleid, <<"test_rule_id_2">>},
+                namespace := ?global_ns,
                 level := debug,
                 dst := "tmp/rule_trace_2.log"
             }
@@ -4042,9 +4052,8 @@ t_trace_truncated(_Config) ->
     ok = emqx_trace_handler:install(
         'CLI-RULE-3',
         #{
-            type => ruleid,
-            filter => <<"test_rule_truncated">>,
             name => <<"CLI-RULE-3">>,
+            filter => {ruleid, <<"test_rule_truncated">>},
             payload_encode => text,
             %% limit 1 Byte to make truncated to "input: Encoded(text)=[...(xxx bytes)"
             %% The only byte not truncated is the `[`         where is ^
@@ -4064,11 +4073,11 @@ t_trace_truncated(_Config) ->
     ?assertMatch(
         [
             #{
-                type := ruleid,
-                filter := {?global_ns, <<"test_rule_truncated">>},
+                name := <<"CLI-RULE-3">>,
+                filter := {ruleid, <<"test_rule_truncated">>},
+                namespace := ?global_ns,
                 level := debug,
-                dst := "tmp/rule_trace_truncated.log",
-                name := <<"CLI-RULE-3">>
+                dst := "tmp/rule_trace_truncated.log"
             }
         ],
         emqx_trace_handler:running()

@@ -59,27 +59,23 @@
 -type trace() :: #{
     enable => boolean(),
     name := binary(),
-    type := clientid | topic | ip_address | ruleid,
     filter := filter(),
+    namespace => ?global_ns | binary(),
     start_at => _TimestampSeconds :: non_neg_integer(),
     end_at => _TimestampSeconds :: non_neg_integer(),
     formatter := text | json,
     payload_encode => text | hex | hidden,
-    payload_limit => pos_integer(),
-    namespace => ?global_ns | binary()
+    payload_limit => pos_integer()
 }.
 
 -export_type([filter/0]).
 -type filter() ::
-    emqx_types:clientid()
-    | emqx_types:topic()
-    | ip_address()
-    | {?global_ns | binary(), ruleid()}.
+    {clientid, emqx_types:clientid()}
+    | {topic, emqx_types:topic()}
+    | {ip_address, ip_address()}
+    | {ruleid, ruleid()}.
 
--export_type([ip_address/0]).
 -type ip_address() :: string().
-
--export_type([ruleid/0]).
 -type ruleid() :: binary().
 
 -export_type([rendered_action_template_ctx/0]).
@@ -206,56 +202,20 @@ is_rule_trace_active() ->
             false
     end.
 
-log(List, Msg, Meta) ->
-    log(debug, List, Msg, Meta).
+log([], _Msg, _Meta) ->
+    ok;
+log(LogHandlers, Msg, Meta) ->
+    log(debug, LogHandlers, Msg, Meta).
 
-log(Level, List, Msg, Meta) ->
+log(Level, LogHandlers, Msg, Meta) ->
     Log = #{level => Level, meta => enrich_meta(Meta), msg => Msg},
-    log_filter(List, Log).
+    emqx_trace_handler:log(Log, LogHandlers).
 
 enrich_meta(Meta) ->
     case logger:get_process_metadata() of
         undefined -> Meta;
         ProcMeta -> maps:merge(ProcMeta, Meta)
     end.
-
-log_filter([], _Log) ->
-    ok;
-log_filter([{Id, FilterFun, Filter, Name} | Rest], Log0) ->
-    case FilterFun(Log0, {Filter, Name}) of
-        stop ->
-            stop;
-        ignore ->
-            ignore;
-        Log ->
-            case logger_config:get(logger, Id) of
-                {ok, #{module := Module} = HandlerConfig0} ->
-                    HandlerConfig = maps:without(?OWN_KEYS, HandlerConfig0),
-                    try
-                        Module:log(Log, HandlerConfig)
-                    catch
-                        C:R:S ->
-                            case logger:remove_handler(Id) of
-                                ok ->
-                                    logger:internal_log(
-                                        error, {removed_failing_handler, Id, C, R, S}
-                                    );
-                                {error, {not_found, _}} ->
-                                    %% Probably already removed by other client
-                                    %% Don't report again
-                                    ok;
-                                {error, Reason} ->
-                                    logger:internal_log(
-                                        error,
-                                        {removed_handler_failed, Id, Reason, C, R, S}
-                                    )
-                            end
-                    end;
-                {error, {not_found, _}} ->
-                    ok
-            end
-    end,
-    log_filter(Rest, Log0).
 
 -spec start_link() -> emqx_types:startlink_ret().
 start_link() ->
@@ -352,8 +312,8 @@ format(#?TRACE{
     #{
         enable => Enable,
         name => Name,
-        type => Type,
-        filter => Filter,
+        filter => {Type, Filter},
+        namespace => maps:get(namespace, Extra, ?global_ns),
         start_at => StartAt,
         end_at => EndAt,
         payload_encode => PayloadEncode,
@@ -519,8 +479,7 @@ mk_handler(#?TRACE{
     Namespace = maps:get(namespace, Extra, ?global_ns),
     #{
         name => Name,
-        type => Type,
-        filter => Filter,
+        filter => {Type, Filter},
         namespace => Namespace,
         payload_encode => PayloadEncode,
         payload_limit => PayloadLimit,
@@ -540,7 +499,7 @@ mk_handler_id(#?TRACE{name = Name}) ->
 
 stop_trace(Finished, Started) ->
     lists:foreach(
-        fun(#{name := Name, id := HandlerID, dst := FilePath, type := Type, filter := Filter}) ->
+        fun(#{name := Name, id := HandlerID, dst := FilePath, filter := {Type, Filter}}) ->
             case lists:member(Name, Finished) of
                 true ->
                     _ = emqx_trace_handler:filesync(HandlerID),
@@ -601,18 +560,18 @@ classify_by_time([Trace | Traces], Now, Wait, Run, Finish) ->
 
 mk_trace_record(Trace = #{}) ->
     Name = maps:get(name, Trace, undefined),
-    Type = maps:get(type, Trace, undefined),
     Filter = maps:get(filter, Trace, undefined),
     ST = maps:get(start_at, Trace, undefined),
     ET = maps:get(end_at, Trace, undefined),
     maybe
         ok ?= validate_name(Name),
-        ok ?= validate_filter(Type, Filter),
+        ok ?= validate_filter(Filter),
         ok ?= validate_end_at(ET),
+        {Type, Match} = Filter,
         Record = fill_default(#?TRACE{
             name = Name,
             type = Type,
-            filter = Filter,
+            filter = Match,
             start_at = ST,
             end_at = ET,
             payload_encode = maps:get(payload_encode, Trace, text),
@@ -651,15 +610,15 @@ validate_name(Name) when is_binary(Name) ->
         _ -> ok
     end.
 
-validate_filter(clientid, _ClientId = <<_/binary>>) ->
+validate_filter({clientid, _ClientId = <<_/binary>>}) ->
     ok;
-validate_filter(topic, Topic) ->
+validate_filter({topic, Topic}) ->
     validate_topic(Topic);
-validate_filter(ip_address, Addr) ->
+validate_filter({ip_address, Addr}) ->
     validate_ip_address(Addr);
-validate_filter(ruleid, _RuleId = <<_/binary>>) ->
+validate_filter({ruleid, _RuleId = <<_/binary>>}) ->
     ok;
-validate_filter(_, _) ->
+validate_filter(_) ->
     {error, "type=[topic,clientid,ip_address,ruleid] required"}.
 
 validate_end_at(undefined) ->
@@ -709,19 +668,7 @@ update_trace_handler() ->
         [] ->
             persistent_term:erase(?TRACE_FILTER);
         Running ->
-            List = lists:map(
-                fun(
-                    #{
-                        id := Id,
-                        filter_fun := FilterFun,
-                        filter := Filter,
-                        name := Name
-                    }
-                ) ->
-                    {Id, FilterFun, Filter, Name}
-                end,
-                Running
-            ),
+            List = [emqx_trace_handler:mk_log_handler(HandlerInfo) || HandlerInfo <- Running],
             case List =/= persistent_term:get(?TRACE_FILTER, undefined) of
                 true -> persistent_term:put(?TRACE_FILTER, List);
                 false -> ok
