@@ -171,9 +171,7 @@ init_config(#{} = Params) ->
 new_erlcloud_config(AccessKeyId, SecretAccessKey) ->
     %% Doing this hack here because the `erlcloud_config:new` typespecs say it only
     %% accepts `string()` arguments, but it works as expected with `undefined`....
-    AccessKeyId1 = emqx_maybe:define(AccessKeyId, ""),
-    SecretAccessKey1 = emqx_maybe:define(SecretAccessKey, ""),
-    Config0 = erlcloud_config:new(AccessKeyId1, SecretAccessKey1),
+    Config0 = erlcloud_config:new("", ""),
     Config0#aws_config{
         access_key_id = AccessKeyId,
         secret_access_key = SecretAccessKey
