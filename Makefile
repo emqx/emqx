@@ -264,7 +264,7 @@ run-console:
 
 .PHONY: run-console-iex
 run-console-iex:
-	env EMQX_CONSOLE_FLAVOR=iex _build/$(PROFILE)/rel/emqx/bin/emqx console
+	_build/$(PROFILE)/rel/emqx/bin/emqx console --iex
 
 .PHONY: repl
 repl:
