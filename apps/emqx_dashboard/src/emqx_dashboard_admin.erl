@@ -454,11 +454,17 @@ update_user_(Username, Role, Desc, Extra) ->
             mnesia:abort(<<"username_not_found">>);
         [Admin] ->
             #?ADMIN{extra = Extra0} = Admin,
-            NewExtra =
+            {OldExtra, NewExtra} =
                 case is_map(Extra0) of
-                    false -> Extra;
-                    true -> maps:merge(Extra0, Extra)
+                    false -> {#{}, Extra};
+                    true -> {Extra0, maps:merge(Extra0, Extra)}
                 end,
+            NewNamespace = maps:get(?namespace, NewExtra, ?global_ns),
+            PreviousNamespace = maps:get(?namespace, OldExtra, ?global_ns),
+            maybe
+                true ?= PreviousNamespace /= NewNamespace,
+                mnesia:abort(<<"changing_namespace_is_forbidden">>)
+            end,
             mnesia:write(Admin#?ADMIN{role = Role, description = Desc, extra = NewExtra}),
             {
                 role(Admin) =:= Role,

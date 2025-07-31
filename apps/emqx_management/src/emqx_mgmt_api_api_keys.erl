@@ -222,6 +222,8 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
             {200, emqx_mgmt_auth:format(App)};
         {error, not_found} ->
             {404, ?NOT_FOUND_RESPONSE};
+        {error, Reason} when is_binary(Reason) ->
+            {400, #{code => 'BAD_REQUEST', message => Reason}};
         {error, Reason} ->
             {400, #{
                 code => 'BAD_REQUEST',

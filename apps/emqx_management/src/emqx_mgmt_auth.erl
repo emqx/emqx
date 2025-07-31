@@ -146,9 +146,14 @@ do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespac
         [] ->
             mnesia:abort(not_found);
         [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
-            #{desc := Desc0} = Extra0 = normalize_extra(Extra0),
+            #{desc := Desc0} = Extra1 = normalize_extra(Extra0),
+            PreviousNamespace = maps:get(?namespace, Extra1, ?global_ns),
+            maybe
+                true ?= PreviousNamespace /= Namespace,
+                mnesia:abort(<<"changing_namespace_is_forbidden">>)
+            end,
             Extra = emqx_utils_maps:put_if(
-                Extra0#{?role => Role, desc => ensure_not_undefined(Desc, Desc0)},
+                Extra1#{?role => Role, desc => ensure_not_undefined(Desc, Desc0)},
                 ?namespace,
                 Namespace,
                 is_binary(Namespace)

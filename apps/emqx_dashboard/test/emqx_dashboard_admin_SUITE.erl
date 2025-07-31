@@ -96,6 +96,15 @@ create_api_key_api(Params, AuthHeader) ->
         body => Params
     }).
 
+update_api_key_api(Name, Params, AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => AuthHeader,
+        method => put,
+        url => URL,
+        body => Params
+    }).
+
 to_rfc3339(Sec) ->
     list_to_binary(calendar:system_time_to_rfc3339(Sec)).
 
@@ -609,4 +618,66 @@ t_namespaced_user_hook(_TCConfig) ->
             GlobalAdminHeader
         )
     ),
+    ok.
+
+-doc """
+Asserts that we disallow changing the namespace of an user or API key.
+""".
+t_namespace_immutable(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    NS = <<"ns1">>,
+    AdminRole = <<"ns:", NS/binary, "::", ?ROLE_SUPERUSER/binary>>,
+
+    Username = <<"iminans">>,
+    Password = <<"superSecureP@ss">>,
+    {200, _} = create_user_api(
+        #{
+            <<"username">> => Username,
+            <<"password">> => Password,
+            <<"role">> => AdminRole,
+            <<"description">> => <<"namespaced person">>
+        },
+        GlobalAdminHeader
+    ),
+
+    APIKeyName = <<"someapi">>,
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    {200, _} =
+        create_api_key_api(
+            #{
+                <<"name">> => APIKeyName,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"namespaced api publisher">>,
+                <<"enable">> => true,
+                <<"role">> => AdminRole
+            },
+            GlobalAdminHeader
+        ),
+
+    DifferentNS = <<"ns2">>,
+    DifferentAdminRole = <<"ns:", DifferentNS/binary, "::", ?ROLE_SUPERUSER/binary>>,
+    ?assertMatch(
+        {400, #{<<"message">> := <<"changing_namespace_is_forbidden">>}},
+        update_user_api(
+            Username,
+            #{
+                <<"role">> => DifferentAdminRole,
+                <<"description">> => <<"shouldn't work">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+
+    ?assertMatch(
+        {400, #{<<"message">> := <<"changing_namespace_is_forbidden">>}},
+        update_api_key_api(
+            APIKeyName,
+            #{
+                <<"role">> => DifferentAdminRole,
+                <<"description">> => <<"shouldn't work">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+
     ok.
