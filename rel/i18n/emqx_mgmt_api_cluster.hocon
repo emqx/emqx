@@ -101,7 +101,7 @@ put_cluster_info.label:
 """Update cluster information"""
 
 cluster_description.desc:
-"""Text blurb to describe the current cluster."""
+"""Text blob to describe the current cluster."""
 cluster_description.label:
 """Cluster description"""
 
