@@ -43,6 +43,31 @@
 
 -define(DEFAULT_POOL_SIZE, 8).
 
+-define(driver_type(ConfigOrState),
+    case ConfigOrState of
+        #{parameters := ?influx_driver} ->
+            ?DATALAYERS_DRIVER_TYPE_INFLUX;
+        #{parameters := ?arrow_flight_driver} ->
+            ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT;
+        ?influx_driver ->
+            ?DATALAYERS_DRIVER_TYPE_INFLUX;
+        ?arrow_flight_driver ->
+            ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT
+    end
+).
+
+-define(driver_module(DriverType),
+    case DriverType of
+        ?DATALAYERS_DRIVER_TYPE_INFLUX -> emqx_bridge_influxdb_connector;
+        ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT -> emqx_bridge_datalayers_arrow_flight_connector
+    end
+).
+
+-define(with_driver(ConfigOrState, Args), begin
+    DriverType = ?driver_type(ConfigOrState),
+    erlang:apply(?driver_module(DriverType), ?FUNCTION_NAME, Args)
+end).
+
 -define(influx_driver, #{driver_type := ?DATALAYERS_DRIVER_TYPE_INFLUX}).
 -define(arrow_flight_driver, #{driver_type := ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT}).
 
@@ -63,179 +88,70 @@ callback_mode() -> async_if_possible.
     Config :: resource_config()
 ) -> {ok, state()} | {error, term()}.
 on_start(InstId, Config) ->
-    case Config of
-        #{parameters := ?influx_driver} ->
-            case emqx_bridge_influxdb_connector:on_start(InstId, enrich_config(Config)) of
-                {ok, State} ->
-                    %% Start the InfluxDB client
-                    {ok, State#{driver_type => ?DATALAYERS_DRIVER_TYPE_INFLUX}};
-                {error, _} = Err ->
-                    Err
-            end;
-        #{parameters := ?arrow_flight_driver} ->
-            case emqx_bridge_datalayers_arrow_flight_connector:on_start(InstId, Config) of
-                {ok, State} ->
-                    %% Start the Arrow Flight client
-                    {ok, State#{driver_type => ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT}};
-                {error, _} = Err ->
-                    Err
-            end
+    case ?with_driver(Config, [InstId, enrich_config(Config)]) of
+        {ok, State} ->
+            {ok, State#{driver_type => DriverType}};
+        {error, _} = Err ->
+            Err
     end.
 
-enrich_config(
-    Config = #{parameters := Params = #{driver_type := ?DATALAYERS_DRIVER_TYPE_INFLUX}}
-) ->
-    Config#{parameters := Params#{influxdb_type => influxdb_api_v1}}.
+enrich_config(Config = #{parameters := Params = #{driver_type := ?DATALAYERS_DRIVER_TYPE_INFLUX}}) ->
+    Config#{parameters := Params#{influxdb_type => influxdb_api_v1}};
+enrich_config(Config) ->
+    Config.
 
--spec on_stop(
-    InstId :: resource_id(),
-    State :: resource_state()
-) -> ok.
-on_stop(InstId, State = ?influx_driver) ->
-    emqx_bridge_influxdb_connector:on_stop(InstId, State);
-on_stop(InstId, State = ?arrow_flight_driver) ->
-    emqx_bridge_datalayers_arrow_flight_connector:on_stop(InstId, State).
+-spec on_stop(InstId :: resource_id(), State :: resource_state()) -> ok.
+on_stop(InstId, State) ->
+    ?with_driver(State, [InstId, State]).
 
--spec on_add_channel(
+-spec on_add_channel(InstId, OldState, ChannelId, ChannelConf) -> ok | {error, term()} when
     InstId :: resource_id(),
     OldState :: resource_state(),
     ChannelId :: channel_id(),
-    ChannelConf :: resource_config()
-) -> ok | {error, term()}.
-on_add_channel(
-    InstId,
-    OldState = ?influx_driver,
-    ChannelId,
-    ChannelConf
-) ->
-    emqx_bridge_influxdb_connector:on_add_channel(
-        InstId,
-        OldState,
-        ChannelId,
-        ChannelConf
-    );
-on_add_channel(
-    InstId,
-    OldState = ?arrow_flight_driver,
-    ChannelId,
-    ChannelConf
-) ->
-    emqx_bridge_datalayers_arrow_flight_connector:on_add_channel(
-        InstId,
-        OldState,
-        ChannelId,
-        ChannelConf
-    ).
+    ChannelConf :: resource_config().
+on_add_channel(InstId, OldState, ChannelId, ChannelConf) ->
+    ?with_driver(OldState, [InstId, OldState, ChannelId, ChannelConf]).
 
-on_remove_channel(InstId, State = ?influx_driver, ChannelId) ->
-    emqx_bridge_influxdb_connector:on_remove_channel(InstId, State, ChannelId);
-on_remove_channel(InstId, State = ?arrow_flight_driver, ChannelId) ->
-    emqx_bridge_datalayers_arrow_flight_connector:on_remove_channel(InstId, State, ChannelId).
+on_remove_channel(InstId, State, ChannelId) ->
+    ?with_driver(State, [InstId, State, ChannelId]).
 
-on_get_channel_status(InstId, ChannelId, State = ?influx_driver) ->
-    emqx_bridge_influxdb_connector:on_get_channel_status(InstId, ChannelId, State);
-on_get_channel_status(InstId, ChannelId, State = ?arrow_flight_driver) ->
-    emqx_bridge_datalayers_arrow_flight_connector:on_get_channel_status(InstId, ChannelId, State).
+on_get_channel_status(InstId, ChannelId, State) ->
+    ?with_driver(State, [InstId, ChannelId, State]).
 
 on_get_channels(InstId) ->
     emqx_bridge_v2:get_channels_for_connector(InstId).
 
--spec on_query(
+-spec on_query(InstId, QueryData, State) -> {ok, term()} | {error, term()} when
     InstId :: resource_id(),
     QueryData :: {channel_id(), term()},
-    State :: resource_state()
-) -> {ok, term()} | {error, term()}.
-on_query(
-    InstId,
-    {Channel, Message},
-    State = ?influx_driver
-) ->
-    emqx_bridge_influxdb_connector:on_query(InstId, {Channel, Message}, State);
-on_query(
-    InstId,
-    {Channel, Message},
-    State = ?arrow_flight_driver
-) ->
-    emqx_bridge_datalayers_arrow_flight_connector:on_query(InstId, {Channel, Message}, State).
+    State :: resource_state().
+on_query(InstId, {Channel, Message}, State) ->
+    ?with_driver(State, [InstId, {Channel, Message}, State]).
 
 -spec on_batch_query(
-    InstId :: resource_id(),
-    BatchData :: resource_config(),
-    State :: resource_state()
+    InstId :: resource_id(), BatchData :: resource_config(), State :: resource_state()
 ) -> {ok, term()} | {error, term()}.
-on_batch_query(
-    InstId,
-    BatchData,
-    State = ?influx_driver
-) ->
-    emqx_bridge_influxdb_connector:on_batch_query(InstId, BatchData, State);
-on_batch_query(
-    InstId,
-    BatchData,
-    State = ?arrow_flight_driver
-) ->
-    emqx_bridge_datalayers_arrow_flight_connector:on_batch_query(InstId, BatchData, State).
+on_batch_query(InstId, BatchData, State) ->
+    ?with_driver(State, [InstId, BatchData, State]).
 
--spec on_query_async(
+-spec on_query_async(InstId, QueryData, ReplyFun, State) -> ok | {error, term()} when
     InstId :: resource_id(),
     QueryData :: {channel_id(), resource_config()},
     ReplyFun :: reply_fun(),
-    State :: resource_state()
-) -> ok | {error, term()}.
-on_query_async(
-    InstId,
-    {Channel, Message},
-    {ReplyFun, Args},
-    State = ?influx_driver
-) ->
-    emqx_bridge_influxdb_connector:on_query_async(
-        InstId, {Channel, Message}, {ReplyFun, Args}, State
-    );
-on_query_async(
-    InstId,
-    {Channel, Message},
-    {ReplyFun, Args},
-    State = ?arrow_flight_driver
-) ->
-    emqx_bridge_datalayers_arrow_flight_connector:on_query_async(
-        InstId, {Channel, Message}, {ReplyFun, Args}, State
-    ).
+    State :: resource_state().
+on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
+    ?with_driver(State, [InstId, {Channel, Message}, {ReplyFun, Args}, State]).
 
--spec on_batch_query_async(
+-spec on_batch_query_async(InstId, BatchData, ReplyFun, State) -> ok | {error, term()} when
     InstId :: resource_id(),
     BatchData :: resource_config(),
     ReplyFun :: reply_fun(),
-    State :: resource_state()
-) -> ok | {error, term()}.
-on_batch_query_async(
-    InstId,
-    BatchData,
-    {ReplyFun, Args},
-    State = ?influx_driver
-) ->
-    emqx_bridge_influxdb_connector:on_batch_query_async(
-        InstId,
-        BatchData,
-        {ReplyFun, Args},
-        State
-    );
-on_batch_query_async(
-    InstId,
-    BatchData,
-    {ReplyFun, Args},
-    State = ?arrow_flight_driver
-) ->
-    emqx_bridge_datalayers_arrow_flight_connector:on_batch_query_async(
-        InstId,
-        BatchData,
-        {ReplyFun, Args},
-        State
-    ).
+    State :: resource_state().
+on_batch_query_async(InstId, BatchData, {ReplyFun, Args}, State) ->
+    ?with_driver(State, [InstId, BatchData, {ReplyFun, Args}, State]).
 
-on_get_status(InstId, State = ?influx_driver) ->
-    emqx_bridge_influxdb_connector:on_get_status(InstId, State);
-on_get_status(InstId, State = ?arrow_flight_driver) ->
-    emqx_bridge_datalayers_arrow_flight_connector:on_get_status(InstId, State).
+on_get_status(InstId, State) ->
+    ?with_driver(State, [InstId, State]).
 
 %%--------------------------------------------------------------------
 %% schema

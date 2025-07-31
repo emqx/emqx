@@ -439,7 +439,7 @@ parse_batch_sql(ChannelId, Query, AccIn) ->
                     AccIn#{batch => parse_splited_sql(SplitedInsert)};
                 {error, Reason} ->
                     ?SLOG(error, #{
-                        msg => "parse insert sql statement failed",
+                        msg => "parse_insert_sql_statement_failed",
                         sql => Query,
                         reason => Reason
                     }),
@@ -449,7 +449,7 @@ parse_batch_sql(ChannelId, Query, AccIn) ->
             AccIn;
         Type ->
             ?SLOG(error, #{
-                msg => "invalid sql statement type",
+                msg => "invalid_sql_statement_type",
                 sql => Query,
                 type => Type,
                 channel => ChannelId
