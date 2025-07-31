@@ -26,9 +26,7 @@
 %% Hookpoints
 %%-----------------------------------------------------------------------------
 
--define(HOOKPOINTS, [
-    'alarm.activated',
-    'alarm.deactivated',
+-define(MQTT_CLIENT_LIFECYCLE_HOOKPOINTS, [
     'channel.limiter_adjustment',
     'client.connect',
     'client.connack',
@@ -58,11 +56,18 @@
     'message.acked',
     'delivery.dropped',
     'delivery.completed',
-    'cm.channel.unregistered',
+    'cm.channel.unregistered'
+]).
+
+-define(MANAGEMENT_HOOKPOINTS, [
+    'alarm.activated',
+    'alarm.deactivated',
     'tls_handshake.psk_lookup',
     'config.zones_updated',
     'api_actor.pre_create'
 ]).
+
+-define(HOOKPOINTS, (?MQTT_CLIENT_LIFECYCLE_HOOKPOINTS ++ ?MANAGEMENT_HOOKPOINTS)).
 
 %% Our template plugin used this hookpoints before its 5.1.0 version,
 %% so we keep them here
