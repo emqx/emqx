@@ -30,58 +30,11 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install dependencies
-      shell: bash
-      run: |
-        brew update
-        brew install curl zip unzip unixodbc coreutils freetds autoconf automake openssl kerl
-        brew upgrade curl zip unzip unixodbc coreutils freetds autoconf automake openssl kerl
-    # Homebrew installs CMake v4, while RocksDB requires CMake 3.x
-    - name: Install cmake 3.x
-      shell: bash
-      run: |
-        curl -LO https://cmake.org/files/v3.31/cmake-3.31.7-macos-universal.tar.gz
-        tar -xzf cmake-3.31.7-macos-universal.tar.gz
-        sudo mv cmake-3.31.7-macos-universal/CMake.app/Contents/bin/cmake /usr/local/bin/
-        sudo mv cmake-3.31.7-macos-universal/CMake.app/Contents/share/cmake-3.31 /usr/local/share/
-        sudo rm -rf cmake-3.31.7-macos-universal
-        export CMAKE_ROOT=/usr/local/share/cmake-3.31
-        echo "CMAKE_ROOT=/usr/local/share/cmake-3.31" >> $GITHUB_ENV
-        hash -r
-        cmake --version
-    - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-      id: cache
+    - uses: emqx/macos-erlang@f744c98139c0db83a10619587d4bae4fc49765a8 # v1.0.0
       with:
-        path: ~/.kerl/installations/${{ inputs.otp }}
-        key: otp-install-${{ inputs.otp }}-${{ inputs.os }}-static-ssl-disable-jit-20250325
-    - name: build erlang
-      if: steps.cache.outputs.cache-hit != 'true'
-      shell: bash
-      env:
-        OTP_VERSION: ${{ inputs.otp }}
-      run: |
-        export LDFLAGS="-L$(brew --prefix unixodbc)/lib"
-        export CC="/usr/bin/gcc -I$(brew --prefix unixodbc)/include"
-        export KERL_CONFIGURE_OPTIONS="--disable-jit --disable-dynamic-ssl-lib --with-ssl=$(brew --prefix openssl) --with-odbc=$(brew --prefix unixodbc)"
-        export MAKEFLAGS=-j$(nproc)
-        kerl build git https://github.com/emqx/otp.git OTP-$OTP_VERSION $OTP_VERSION
-        kerl install $OTP_VERSION ~/.kerl/installations/$OTP_VERSION
-        unset LDFLAGS
-        unset CC
-    - name: build elixir
-      shell: bash
-      env:
-        OTP_VERSION: ${{ inputs.otp }}
-        ELIXIR_VERSION: ${{ inputs.elixir }}
-      run: |
-        mkdir -p ~/.elixir-install
-        cd ~/.elixir-install
-        otp_major=$(echo $OTP_VERSION | sed -nre 's/([0-9]+).*/\1/p')
-        elixir_zip="elixir-otp-${otp_major}.zip"
-        url="https://github.com/elixir-lang/elixir/releases/download/v${ELIXIR_VERSION}/${elixir_zip}"
-        curl -fsSLO "$url"
-        unzip "${elixir_zip}"
-        echo "$HOME/.elixir-install/bin" >> $GITHUB_PATH
+        otp-version: ${{ inputs.otp }}
+        install-elixir: true
+        elixir-version: ${{ inputs.elixir }}
     - name: build
       shell: bash
       env:
@@ -96,11 +49,6 @@ runs:
         APPLE_DEVELOPER_ID_BUNDLE_PASSWORD: ${{ inputs.apple_developer_id_bundle_password }}
         QUICER_TLS_VER: openssl3
       run: |
-        . ~/.kerl/installations/$OTP_VERSION/activate
-        # inspect erl in PATH
-        which erl
-        which elixir
-        # inspect erl command banner
         erl -s init stop
         elixir -e "System.version() |> IO.puts()"
         make ensure-rebar3
@@ -116,16 +64,20 @@ runs:
       shell: bash
       env:
         PROFILE: ${{ inputs.profile }}
-        OTP_VERSION: ${{ inputs.otp }}
       run: |
-        . ~/.kerl/installations/$OTP_VERSION/activate
         pkg_name=$(find _packages/$PROFILE -mindepth 1 -maxdepth 1 -iname \*.zip)
         mkdir emqx
         unzip -d emqx $pkg_name > /dev/null
-        ./emqx/bin/emqx start && \
-        ./scripts/test/emqx-smoke-test.sh 127.0.0.1 18083 && \
-        ./emqx/bin/emqx ping && \
-        ./emqx/bin/emqx help && \
-        ./emqx/bin/emqx ctl status && \
-        ./emqx/bin/emqx stop || \
-        (cat emqx/log/erlang.log.1 && cat emqx/log/emqx.log.1 && exit 1)
+        set -e
+        ./emqx/bin/emqx start
+        ./scripts/test/emqx-smoke-test.sh 127.0.0.1 18083
+        ./emqx/bin/emqx ping
+        ./emqx/bin/emqx help
+        ./emqx/bin/emqx ctl status
+        ./emqx/bin/emqx stop
+    - name: show logs
+      shell: bash
+      if: failure()
+      run: |
+        cat emqx/log/erlang.log.1
+        cat emqx/log/emqx.log.1

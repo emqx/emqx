@@ -1,0 +1,7 @@
+emqx_bridge_snowflake_streaming_connector_schema {
+  config_connector.label:
+  """Snowflake Streaming Connector Configuration"""
+  config_connector.desc:
+  """Configuration for a connector to Snowflake service using high-performance streaming API."""
+
+}

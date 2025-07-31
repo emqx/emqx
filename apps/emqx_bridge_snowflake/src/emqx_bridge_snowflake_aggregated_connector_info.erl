@@ -2,7 +2,7 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_snowflake_connector_info).
+-module(emqx_bridge_snowflake_aggregated_connector_info).
 
 -behaviour(emqx_connector_info).
 
@@ -25,7 +25,7 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--define(SCHEMA_MOD, emqx_bridge_snowflake_connector_schema).
+-define(SCHEMA_MOD, emqx_bridge_snowflake_aggregated_connector_schema).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -36,16 +36,16 @@
 %%------------------------------------------------------------------------------
 
 type_name() ->
-    ?CONNECTOR_TYPE.
+    ?CONNECTOR_TYPE_AGGREG.
 
 bridge_types() ->
-    [?ACTION_TYPE].
+    [?ACTION_TYPE_AGGREG].
 
 resource_callback_module() ->
-    emqx_bridge_snowflake_connector.
+    emqx_bridge_snowflake_aggregated_impl.
 
 config_schema() ->
-    {?CONNECTOR_TYPE,
+    {?CONNECTOR_TYPE_AGGREG,
         hoconsc:mk(
             hoconsc:map(
                 name,
@@ -55,7 +55,7 @@ config_schema() ->
                 )
             ),
             #{
-                desc => <<"Snowflake Connector Config">>,
+                desc => <<"Snowflake Aggregated Connector Config">>,
                 required => false
             }
         )}.
@@ -65,7 +65,7 @@ schema_module() ->
 
 api_schema(Method) ->
     emqx_connector_schema:api_ref(
-        ?SCHEMA_MOD, ?CONNECTOR_TYPE_BIN, Method ++ "_connector"
+        ?SCHEMA_MOD, ?CONNECTOR_TYPE_AGGREG_BIN, Method ++ "_connector"
     ).
 
 %%------------------------------------------------------------------------------

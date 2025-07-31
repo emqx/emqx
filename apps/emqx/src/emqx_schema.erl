@@ -1795,6 +1795,12 @@ fields("trace") ->
                 validator => mk_validator_bounds({10 * ?KB, "10KB"}, {10 * ?GB, "10GB"}),
                 desc => ?DESC(fields_trace_max_file_size)
             })},
+        {"max_traces",
+            sc(range(0, 100), #{
+                default => 30,
+                importance => ?IMPORTANCE_LOW,
+                desc => ?DESC(fields_trace_max_traces)
+            })},
         %% Deprecated fields:
         {"payload_encode",
             sc(hoconsc:enum([hex, text, hidden]), #{

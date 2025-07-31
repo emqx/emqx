@@ -36,7 +36,7 @@
 
 %% callbacks for emqx_config_backup
 -export([
-    import_config/1
+    import_config/2
 ]).
 
 -type update_request() :: emqx_config:config().
@@ -107,7 +107,7 @@ update(Config) ->
 %% Data backup
 %%----------------------------------------------------------------------------------------
 
-import_config(#{<<"file_transfer">> := FTConf}) ->
+import_config(_Namespace, #{<<"file_transfer">> := FTConf}) ->
     OldFTConf = emqx:get_raw_config([file_transfer], #{}),
     NewFTConf = maps:merge(OldFTConf, FTConf),
     case emqx_conf:update([file_transfer], NewFTConf, #{override_to => cluster}) of
@@ -118,7 +118,7 @@ import_config(#{<<"file_transfer">> := FTConf}) ->
         Error ->
             {error, #{root_key => file_transfer, reason => Error}}
     end;
-import_config(_) ->
+import_config(_, _) ->
     {ok, #{root_key => file_transfer, changed => []}}.
 
 %%--------------------------------------------------------------------

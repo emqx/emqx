@@ -32,7 +32,7 @@
 
 %% Data backup
 -export([
-    import_config/1
+    import_config/2
 ]).
 
 load() ->
@@ -95,7 +95,7 @@ get_basic_usage_info() ->
 %% Data backup
 %%------------------------------------------------------------------------------
 
-import_config(#{<<"auto_subscribe">> := #{<<"topics">> := Topics} = AutoSubscribe}) ->
+import_config(_Namespace, #{<<"auto_subscribe">> := #{<<"topics">> := Topics} = AutoSubscribe}) ->
     ConfPath = [?ROOT_KEY],
     OldTopics = emqx:get_raw_config(ConfPath ++ [topics], []),
     KeyFun = fun(#{<<"topic">> := T}) -> T end,
@@ -109,7 +109,7 @@ import_config(#{<<"auto_subscribe">> := #{<<"topics">> := Topics} = AutoSubscrib
         Error ->
             {error, #{root_key => ?ROOT_KEY, reason => Error}}
     end;
-import_config(_RawConf) ->
+import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => auto_subscribe, changed => []}}.
 
 %%------------------------------------------------------------------------------

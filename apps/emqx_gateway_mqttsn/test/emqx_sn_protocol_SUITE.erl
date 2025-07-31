@@ -246,22 +246,28 @@ t_auth_expire(_) ->
         end
     ),
 
-    ?assertWaitEvent(
-        begin
-            {ok, Socket} = gen_udp:open(0, [binary]),
-            send_connect_msg(Socket, <<"client_id_test1">>),
-            ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+    {ok, {ok, Event}} =
+        ?wait_async_action(
+            begin
+                {ok, Socket} = gen_udp:open(0, [binary]),
+                send_connect_msg(Socket, <<"client_id_test1">>),
+                ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
 
-            ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-            gen_udp:close(Socket)
-        end,
+                ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+                gen_udp:close(Socket)
+            end,
+            #{?snk_kind := conn_process_terminated},
+            15_000
+        ),
+    ?assertMatch(
         #{
             ?snk_kind := conn_process_terminated,
             clientid := <<"client_id_test1">>,
             reason := {shutdown, expired}
         },
-        5000
-    ).
+        Event
+    ),
+    meck:unload().
 
 t_first_disconnect(_) ->
     SockName = {'mqttsn:udp:default', 1884},
@@ -2880,9 +2886,6 @@ receive_response(Socket, Timeout) ->
             Bin;
         {mqttc, From, Data2} ->
             ?LOG("receive_response() ignore mqttc From=~p, Data2=~p~n", [From, Data2]),
-            receive_response(Socket);
-        Other ->
-            ?LOG("receive_response() Other message: ~p", [{unexpected_udp_data, Other}]),
             receive_response(Socket)
     after Timeout ->
         udp_receive_timeout

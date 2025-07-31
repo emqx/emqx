@@ -266,15 +266,21 @@ make_client(#{s3tables_arn := ARN} = Params0) ->
     emqx_bridge_s3tables_client_s3t:new(Params).
 
 init_location_client(ConnResId, Params) ->
+    #{
+        s3tables_arn := ARN,
+        s3_client := S3Config0
+    } = Params,
+    AccessKeyId =
+        case maps:get(access_key_id, Params, undefined) of
+            undefined ->
+                undefined;
+            AccessKeyId0 ->
+                iolist_to_list(AccessKeyId0)
+        end,
+    SecretAccessKey = maps:get(secret_access_key, Params, undefined),
     maybe
-        #{
-            access_key_id := AccessKeyId,
-            secret_access_key := SecretAccessKey,
-            s3tables_arn := ARN,
-            s3_client := S3Config0
-        } = Params,
         S3Config1 = S3Config0#{
-            access_key_id => iolist_to_list(AccessKeyId),
+            access_key_id => AccessKeyId,
             secret_access_key => SecretAccessKey,
             url_expire_time => 0
         },

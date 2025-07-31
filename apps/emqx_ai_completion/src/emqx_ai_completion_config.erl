@@ -13,7 +13,7 @@
 -export([pre_config_update/3, post_config_update/5]).
 
 %% emqx_config_backup
--export([import_config/1]).
+-export([import_config/2]).
 
 -export([
     get_provider/1,
@@ -479,7 +479,7 @@ update_by_key(Key, Value, Entry, Entries) ->
 %% emqx_config_backup callbacks
 %%--------------------------------------------------------------------
 
-import_config(#{<<"ai">> := AI}) ->
+import_config(_Namespace, #{<<"ai">> := AI}) ->
     Providers = maps:get(<<"providers">>, AI, []),
     CompletionProfilesToImport = maps:get(<<"completion_profiles">>, AI, []),
     NewProviders = merge_by_names(get_providers_raw(), Providers),
@@ -491,7 +491,7 @@ import_config(#{<<"ai">> := AI}) ->
         [ai, completion_profiles], NewCompletionProfiles
     ),
     combine_results([ProviderImportResult, CompletionProfileImportResult]);
-import_config(_RawConf) ->
+import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => ai, changed => []}}.
 
 import_ai_entries(ConfigPath, Entries) ->

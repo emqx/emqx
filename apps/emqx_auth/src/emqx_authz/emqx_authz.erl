@@ -41,7 +41,7 @@
 
 %% Data backup
 -export([
-    import_config/1,
+    import_config/2,
     maybe_read_files/1,
     maybe_write_files/1
 ]).
@@ -633,7 +633,7 @@ get_enabled_authzs() ->
 %% Data backup
 %%------------------------------------------------------------------------------
 
-import_config(#{?CONF_NS_BINARY := AuthzConf}) ->
+import_config(_Namespace, #{?CONF_NS_BINARY := AuthzConf}) ->
     Sources = get_sources(AuthzConf),
     OldSources = emqx:get_raw_config(?CONF_KEY_PATH, [emqx_authz_schema:default_authz()]),
     MergedSources = emqx_utils:merge_lists(OldSources, Sources, fun type/1),
@@ -647,7 +647,7 @@ import_config(#{?CONF_NS_BINARY := AuthzConf}) ->
         Error ->
             {error, #{root_key => ?CONF_NS_ATOM, reason => Error}}
     end;
-import_config(_RawConf) ->
+import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => ?CONF_NS_ATOM, changed => []}}.
 
 changed_paths(OldSources, NewSources) ->

@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -include("emqx_schema_registry.hrl").
 
@@ -543,6 +544,9 @@ import_backup(BackupName) ->
 simple_request(Opts) ->
     emqx_mgmt_api_test_util:simple_request(Opts).
 
+import_config(RawConf) ->
+    emqx_schema_registry_config:import_config(?global_ns, RawConf).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -987,15 +991,15 @@ t_import_config(_Config) ->
     Path2 = [schema_registry, schemas, my_json_schema],
     ?assertEqual(
         {ok, #{root_key => schema_registry, changed => [Path1]}},
-        emqx_schema_registry_config:import_config(RawConf)
+        import_config(RawConf)
     ),
     ?assertEqual(
         {ok, #{root_key => schema_registry, changed => [Path1]}},
-        emqx_schema_registry_config:import_config(RawConf1)
+        import_config(RawConf1)
     ),
     ?assertEqual(
         {ok, #{root_key => schema_registry, changed => [Path2]}},
-        emqx_schema_registry_config:import_config(RawConf2)
+        import_config(RawConf2)
     ),
     %% Both schemas should be present.
     ?assertMatch(

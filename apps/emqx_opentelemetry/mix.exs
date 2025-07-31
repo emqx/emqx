@@ -25,35 +25,22 @@ defmodule EMQXOpentelemetry.MixProject do
   end
 
   def deps() do
+    opentelemetry = [
+      github: "emqx/opentelemetry-erlang",
+      tag: "v1.4.10-emqx",
+      override: true
+    ]
+
     [
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
       UMP.common_dep(:minirest),
-      {:opentelemetry_api,
-       github: "emqx/opentelemetry-erlang",
-       tag: "v1.4.9-emqx",
-       sparse: "apps/opentelemetry_api",
-       override: true},
-      {:opentelemetry,
-       github: "emqx/opentelemetry-erlang",
-       tag: "v1.4.9-emqx",
-       sparse: "apps/opentelemetry",
-       override: true},
-      {:opentelemetry_experimental,
-       github: "emqx/opentelemetry-erlang",
-       tag: "v1.4.9-emqx",
-       sparse: "apps/opentelemetry_experimental",
-       override: true},
+      {:opentelemetry_api, opentelemetry ++ [sparse: "apps/opentelemetry_api"]},
+      {:opentelemetry, opentelemetry ++ [sparse: "apps/opentelemetry"]},
+      {:opentelemetry_experimental, opentelemetry ++ [sparse: "apps/opentelemetry_experimental"]},
       {:opentelemetry_api_experimental,
-       github: "emqx/opentelemetry-erlang",
-       tag: "v1.4.9-emqx",
-       sparse: "apps/opentelemetry_api_experimental",
-       override: true},
-      {:opentelemetry_exporter,
-       github: "emqx/opentelemetry-erlang",
-       tag: "v1.4.9-emqx",
-       sparse: "apps/opentelemetry_exporter",
-       override: true}
+       opentelemetry ++ [sparse: "apps/opentelemetry_api_experimental"]},
+      {:opentelemetry_exporter, opentelemetry ++ [sparse: "apps/opentelemetry_exporter"]}
     ]
   end
 end

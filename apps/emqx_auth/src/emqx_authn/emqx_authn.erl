@@ -15,7 +15,7 @@
     deregister_provider/1
 ]).
 
--export([merge_config/1, merge_config_local/2, import_config/1]).
+-export([merge_config/1, merge_config_local/2, import_config/2]).
 
 -include("emqx_authn.hrl").
 
@@ -68,7 +68,7 @@ deregister_provider(ProviderType) ->
 
 -define(IMPORT_OPTS, #{override_to => cluster}).
 
-import_config(RawConf) ->
+import_config(_Namespace, RawConf) ->
     AuthnList = authn_list(maps:get(?CONF_NS_BINARY, RawConf, [])),
     OldAuthnList = emqx:get_raw_config([?CONF_NS_BINARY], []),
     MergedAuthnList = emqx_utils:merge_lists(

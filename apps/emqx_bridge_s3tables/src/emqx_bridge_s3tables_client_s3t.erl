@@ -75,20 +75,11 @@
 new(Params) ->
     #{
         account_id := AccountId,
-        access_key_id := AccessKeyId,
-        secret_access_key := SecretAccessKey0,
         base_endpoint := BaseEndpoint,
         bucket := Bucket
     } = Params,
-    RequestTimeout = maps:get(request_timeout, Params, ?DEFAULT_REQUEST_TIMEOUT),
-    SecretAccessKey1 = emqx_secret:unwrap(SecretAccessKey0),
-    AWSConfig0 = erlcloud_config:new(str(AccessKeyId), str(SecretAccessKey1)),
-    AWSConfig = AWSConfig0#aws_config{
-        timeout = RequestTimeout,
-        %% todo: make configurable?
-        retry_num = 3
-    },
     maybe
+        {ok, AWSConfig} ?= init_config(Params),
         {ok, #{
             host := Host,
             base_uri := BaseURI,
@@ -151,6 +142,40 @@ update_table(Client, Namespace, Table, Payload) ->
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
+
+init_config(#{access_key_id := AccessKeyId, secret_access_key := SecretAccessKey0} = Params) when
+    AccessKeyId /= undefined, SecretAccessKey0 /= undefined
+->
+    RequestTimeout = maps:get(request_timeout, Params, ?DEFAULT_REQUEST_TIMEOUT),
+    SecretAccessKey1 = emqx_secret:unwrap(SecretAccessKey0),
+    AWSConfig0 = new_erlcloud_config(str(AccessKeyId), str(SecretAccessKey1)),
+    AWSConfig = AWSConfig0#aws_config{
+        timeout = RequestTimeout,
+        %% todo: make configurable?
+        retry_num = 3
+    },
+    {ok, AWSConfig};
+init_config(#{} = Params) ->
+    RequestTimeout = maps:get(request_timeout, Params, ?DEFAULT_REQUEST_TIMEOUT),
+    AWSConfig0 = new_erlcloud_config(undefined, undefined),
+    maybe
+        {ok, AWSConfig1} ?= erlcloud_aws:update_config(AWSConfig0),
+        AWSConfig = AWSConfig1#aws_config{
+            timeout = RequestTimeout,
+            %% todo: make configurable?
+            retry_num = 3
+        },
+        {ok, AWSConfig}
+    end.
+
+new_erlcloud_config(AccessKeyId, SecretAccessKey) ->
+    %% Doing this hack here because the `erlcloud_config:new` typespecs say it only
+    %% accepts `string()` arguments, but it works as expected with `undefined`....
+    Config0 = erlcloud_config:new("", ""),
+    Config0#aws_config{
+        access_key_id = AccessKeyId,
+        secret_access_key = SecretAccessKey
+    }.
 
 do_request(Client, Context) ->
     #{?aws_config := AWSConfig} = Client,

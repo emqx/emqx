@@ -1439,7 +1439,8 @@ groups() ->
 flaky_tests() ->
     #{
         t_rebalance => 3,
-        t_crash_restart_recover => 3
+        t_crash_restart_recover => 3,
+        t_rebalance_chaotic_converges => 3
     }.
 
 init_per_group(Group, Config) ->

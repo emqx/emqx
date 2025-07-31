@@ -61,13 +61,13 @@ init_per_testcase(TC = t_import_on_cluster, Config) ->
     meck:expect(
         emqx_mgmt_listeners_conf,
         import_config,
-        1,
+        2,
         {ok, #{changed => [], root_key => listeners}}
     ),
     meck:expect(
         emqx_gateway_conf,
         import_config,
-        1,
+        2,
         {ok, #{changed => [], root_key => gateway}}
     ),
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];

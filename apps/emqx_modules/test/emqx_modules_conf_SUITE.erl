@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -62,7 +63,7 @@ t_topic_metrics_merge_update(_) ->
                 #{<<"topic">> => <<"imported_topic2">>}
             ]
     },
-    ?assertMatch({ok, _}, emqx_modules_conf:import_config(ImportConf)),
+    ?assertMatch({ok, _}, emqx_modules_conf:import_config(?global_ns, ImportConf)),
     ExpTopics = [
         <<"test-topic-before-import1">>,
         <<"test-topic-before-import2">>,

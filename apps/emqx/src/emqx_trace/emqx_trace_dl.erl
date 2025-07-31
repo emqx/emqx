@@ -11,11 +11,30 @@
     insert_new_trace/1,
     delete/1,
     get_trace_filename/1,
-    delete_finished/1,
+    disable_finished/1,
     get_enabled_trace/0
 ]).
 
 -include("emqx_trace.hrl").
+
+-export_type([record/0]).
+-type record() :: #?TRACE{
+    name :: binary(),
+    type :: clientid | topic | ip_address | ruleid,
+    filter :: emqx_trace:filter(),
+    enable :: boolean(),
+    payload_encode :: hex | text | hidden,
+    extra :: trace_extra(),
+    start_at :: integer(),
+    end_at :: integer()
+}.
+
+-type trace_extra() :: #{
+    formatter => text | json,
+    payload_limit => integer(),
+    namespace => atom() | binary(),
+    slot => non_neg_integer()
+}.
 
 %%================================================================================
 %% API functions
@@ -38,22 +57,52 @@ update(Name, Enable) ->
     end.
 
 %% Introduced in 5.0
-insert_new_trace(Trace) ->
-    case mnesia:read(?TRACE, Trace#?TRACE.name) of
+-spec insert_new_trace(record()) -> ok.
+insert_new_trace(
+    Trace0 = #?TRACE{
+        name = Name,
+        start_at = StartAt,
+        type = Type,
+        filter = Filter,
+        extra = Extra
+    }
+) ->
+    %% Name should be unique:
+    case mnesia:read(?TRACE, Name) of
         [] ->
-            %% allow one new trace for each filter in the same second
-            #?TRACE{start_at = StartAt, type = Type, filter = Filter} = Trace,
-            Match = #?TRACE{_ = '_', start_at = StartAt, type = Type, filter = Filter},
-            case mnesia:match_object(?TRACE, Match, read) of
-                [] ->
-                    ok = mnesia:write(?TRACE, Trace, write),
-                    {ok, Trace};
-                [#?TRACE{name = Name}] ->
-                    mnesia:abort({duplicate_condition, Name})
-            end;
+            ok;
         [#?TRACE{name = Name}] ->
             mnesia:abort({already_existed, Name})
-    end.
+    end,
+    %% Disallow more than `max_traces` records:
+    MaxTraces = max_traces(),
+    _ = mnesia:lock({table, ?TRACE}, write),
+    case mnesia:table_info(?TRACE, size) of
+        S when S < MaxTraces ->
+            ok;
+        _ ->
+            mnesia:abort({max_limit_reached, MaxTraces})
+    end,
+    %% Find free ID slot / verify uniqueness condition:
+    SlotList = mnesia:foldl(
+        fun(Trace, FL) ->
+            case Trace of
+                #?TRACE{start_at = StartAt, type = Type, filter = Filter} ->
+                    %% Allow only one trace for each filter in the same second:
+                    mnesia:abort({duplicate_condition, Trace#?TRACE.name});
+                #?TRACE{extra = #{slot := Slot}} ->
+                    emqx_trace_freelist:occupy(Slot, FL)
+            end
+        end,
+        emqx_trace_freelist:range(1, MaxTraces),
+        ?TRACE
+    ),
+    Slot = emqx_trace_freelist:first(SlotList),
+    true = is_integer(Slot),
+    Trace = Trace0#?TRACE{
+        extra = Extra#{slot => Slot}
+    },
+    ok = mnesia:write(?TRACE, Trace, write).
 
 %% Introduced in 5.0
 -spec delete(Name :: binary()) -> ok.
@@ -72,8 +121,9 @@ get_trace_filename(Name) ->
     end.
 
 %% Introduced in 5.0
-delete_finished(Traces) ->
-    lists:map(
+-spec disable_finished([record()]) -> ok.
+disable_finished(Traces) ->
+    lists:foreach(
         fun(#?TRACE{name = Name}) ->
             case mnesia:read(?TRACE, Name, write) of
                 [] -> ok;
@@ -84,9 +134,14 @@ delete_finished(Traces) ->
     ).
 
 %% Introduced in 5.0
+-spec get_enabled_trace() -> [record()].
 get_enabled_trace() ->
     mnesia:match_object(?TRACE, #?TRACE{enable = true, _ = '_'}, read).
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+-spec max_traces() -> non_neg_integer().
+max_traces() ->
+    emqx_config:get([trace, max_traces]).

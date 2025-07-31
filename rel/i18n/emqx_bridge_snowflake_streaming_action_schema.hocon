@@ -1,0 +1,7 @@
+emqx_bridge_snowflake_streaming_action_schema {
+  snowflake_streaming.label:
+  """Upload to Snowflake"""
+  snowflake_streaming.desc:
+  """Action that takes incoming events and uploads them to the Snowflake."""
+
+}

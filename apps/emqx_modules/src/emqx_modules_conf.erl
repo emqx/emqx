@@ -28,7 +28,7 @@
 
 %% Data backup
 -export([
-    import_config/1
+    import_config/2
 ]).
 
 %%--------------------------------------------------------------------
@@ -76,14 +76,14 @@ remove_topic_metrics(Topic) ->
 %% Data backup (Topic-Metrics)
 %%--------------------------------------------------------------------
 
-import_config(#{<<"topic_metrics">> := Topics}) ->
+import_config(_Namespace, #{<<"topic_metrics">> := Topics}) ->
     case emqx_conf:update([topic_metrics], {merge_topics, Topics}, #{override_to => cluster}) of
         {ok, _} ->
             {ok, #{root_key => topic_metrics, changed => []}};
         Error ->
             {error, #{root_key => topic_metrics, reason => Error}}
     end;
-import_config(_RawConf) ->
+import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => topic_metrics, changed => []}}.
 
 %%--------------------------------------------------------------------

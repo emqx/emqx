@@ -16,13 +16,13 @@ parse_and_check_connector(InnerConfig) ->
     %% To trigger schema injections
     _ = emqx_conf_schema:roots(),
     emqx_bridge_v2_testlib:parse_and_check_connector(
-        ?CONNECTOR_TYPE_BIN,
+        ?CONNECTOR_TYPE_AGGREG_BIN,
         ?CONNECTOR_NAME,
         InnerConfig
     ).
 
 connector_config(Overrides) ->
-    Base = emqx_bridge_snowflake_SUITE:connector_config(
+    Base = emqx_bridge_snowflake_aggregated_SUITE:connector_config(
         ?CONNECTOR_NAME,
         <<"orgid-accountid">>,
         <<"orgid-accountid.snowflakecomputing.com">>,

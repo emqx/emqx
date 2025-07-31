@@ -1197,7 +1197,7 @@ t_backup_export_and_import(_Config) ->
             #{path => [sessions], op => {mocked, error}, error => {throw, <<"mocked_error">>}}
         ]}
     end),
-    {400, #{<<"message">> := Msg}} = import_backup(BackupName),
+    {400, #{<<"message">> := #{<<"global">> := Msg}}} = import_backup(BackupName),
     ?assertEqual(match, re:run(Msg, <<"mocked_error">>, [global, {capture, none}])),
 
     ok.

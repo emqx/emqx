@@ -28,7 +28,7 @@
 
 %% `emqx_config_backup' API
 -behaviour(emqx_config_backup).
--export([import_config/1]).
+-export([import_config/2]).
 -export([prepare_protobuf_files_for_export/1]).
 
 %%------------------------------------------------------------------------------
@@ -207,7 +207,7 @@ post_config_update(_Path, _Cmd, NewConf, _OldConf, _AppEnvs) ->
 %% `emqx_config_backup' API
 %%------------------------------------------------------------------------------
 
-import_config(#{?CONF_KEY_ROOT_BIN := RawConf0}) ->
+import_config(_Namespace, #{?CONF_KEY_ROOT_BIN := RawConf0}) ->
     OldRawConf = emqx:get_raw_config([?CONF_KEY_ROOT_BIN], #{}),
     RawConf = emqx_utils_maps:deep_merge(OldRawConf, RawConf0),
     Result = emqx_conf:update(
@@ -226,7 +226,7 @@ import_config(#{?CONF_KEY_ROOT_BIN := RawConf0}) ->
             ),
             {ok, #{root_key => ?CONF_KEY_ROOT, changed => ChangedPaths}}
     end;
-import_config(_RawConf) ->
+import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => ?CONF_KEY_ROOT, changed => []}}.
 
 prepare_protobuf_files_for_export(
