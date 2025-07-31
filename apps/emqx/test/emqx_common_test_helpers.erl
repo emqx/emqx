@@ -74,7 +74,7 @@
 ]).
 
 -export([clear_screen/0]).
--export([with_mock/4, with_mock/5]).
+-export([with_mock/4, with_mock/5, with_mocks/2, with_mocks/3]).
 -export([
     on_exit/1,
     call_janitor/0,
@@ -1056,6 +1056,29 @@ with_mock(Mod, FnName, MockedFn, Opts, Fun) ->
     ok = meck:expect(Mod, FnName, MockedFn),
     try
         Fun()
+    after
+        ok = meck:unload(Mod)
+    end.
+
+with_mocks(ModToMocked, TestFn) ->
+    with_mocks(ModToMocked, _Opts = #{}, TestFn).
+
+with_mocks(#{} = ModsToMocked, Opts, TestFn) ->
+    do_with_mocks(maps:to_list(ModsToMocked), Opts, TestFn).
+
+do_with_mocks([], _Opts, TestFn) ->
+    TestFn();
+do_with_mocks([{Mod, #{} = MockedFns} | Rest], Opts, TestFn) ->
+    MeckOpts = maps:get(meck_opts, Opts, [no_history, passthrough]),
+    ok = meck:new(Mod, MeckOpts),
+    maps:foreach(
+        fun(FnName, MockedFn) ->
+            ok = meck:expect(Mod, FnName, MockedFn)
+        end,
+        MockedFns
+    ),
+    try
+        do_with_mocks(Rest, Opts, TestFn)
     after
         ok = meck:unload(Mod)
     end.

@@ -62,7 +62,7 @@ fields(connector_config) ->
     [
         {account_id, mk(binary(), #{required => false, importance => ?IMPORTANCE_HIDDEN})},
         {access_key_id,
-            mk(binary(), #{required => true, desc => ?DESC("location_s3t_access_key_id")})},
+            mk(binary(), #{required => false, desc => ?DESC("location_s3t_access_key_id")})},
         {secret_access_key,
             emqx_schema_secret:mk(
                 #{
