@@ -20,6 +20,7 @@ start(_Type, _Args) ->
     ok = emqx_conf:add_handler(RulePath ++ ['?'], emqx_rule_engine),
     ok = emqx_conf:add_handler([RuleEngine], emqx_rule_engine),
     ok = emqx_conf:add_handler([rule_engine, jq_implementation_module], emqx_rule_engine_schema),
+    ok = emqx_config_dep_registry:register_dependencies(emqx_rule_engine_config),
     emqx_rule_engine_cli:load(),
     SupRet.
 

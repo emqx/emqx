@@ -20,6 +20,7 @@ init([]) ->
         [
             child_spec(emqx_config_handler, worker),
             child_spec(emqx_config_backup_manager, worker),
+            child_spec(emqx_config_dep_registry, worker),
             child_spec(emqx_pool_sup, supervisor, [
                 emqx:get_config([node, generic_pool_size], emqx_vm:schedulers())
             ]),

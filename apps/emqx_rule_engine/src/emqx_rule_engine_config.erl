@@ -12,7 +12,7 @@
 ]).
 
 %% `emqx_config_backup' API
--export([import_config/2]).
+-export([import_config/2, config_dependencies/0]).
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
@@ -41,6 +41,12 @@ delete_rule(Namespace, Id) ->
 %%------------------------------------------------------------------------------
 %% `emqx_config_backup' API
 %%------------------------------------------------------------------------------
+
+config_dependencies() ->
+    #{
+        root_keys => [?ROOT_KEY_BIN],
+        dependencies => [emqx_bridge_v2, emqx_schema_registry_config]
+    }.
 
 import_config(Namespace, #{?ROOT_KEY_BIN := #{<<"rules">> := NewRules} = RuleEngineConf}) ->
     OldRules = get_raw_config(Namespace, ?KEY_PATH, #{}),
