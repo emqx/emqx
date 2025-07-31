@@ -10,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -312,7 +313,7 @@ t_import(Config) ->
 
     ?assertMatch(
         {ok, _},
-        emqx_ft_conf:import_config(FTBackupConfig)
+        emqx_ft_conf:import_config(?global_ns, FTBackupConfig)
     ),
 
     ?assertMatch(

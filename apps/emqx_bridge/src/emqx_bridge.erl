@@ -50,11 +50,7 @@
 -export([get_basic_usage_info/0]).
 
 %% Data backup
--export([
-    import_config/1,
-    %% exported for emqx_bridge_v2
-    import_config/4
-]).
+-export([import_config/2]).
 
 -export([query_opts/1]).
 
@@ -465,43 +461,8 @@ do_check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
 %% Data backup
 %%----------------------------------------------------------------------------------------
 
-import_config(RawConf) ->
-    import_config(RawConf, <<"bridges">>, ?ROOT_KEY, config_key_path()).
-
-%% Used in emqx_bridge_v2
-import_config(RawConf, RawConfKey, RootKey, RootKeyPath) ->
-    BridgesConf = maps:get(RawConfKey, RawConf, #{}),
-    OldBridgesConf = emqx:get_raw_config(RootKeyPath, #{}),
-    MergedConf = merge_confs(OldBridgesConf, BridgesConf),
-    case emqx_conf:update(RootKeyPath, MergedConf, #{override_to => cluster}) of
-        {ok, #{raw_config := NewRawConf}} ->
-            {ok, #{root_key => RootKey, changed => changed_paths(OldBridgesConf, NewRawConf)}};
-        Error ->
-            {error, #{root_key => RootKey, reason => Error}}
-    end.
-
-merge_confs(OldConf, NewConf) ->
-    AllTypes = maps:keys(maps:merge(OldConf, NewConf)),
-    lists:foldr(
-        fun(Type, Acc) ->
-            NewBridges = maps:get(Type, NewConf, #{}),
-            OldBridges = maps:get(Type, OldConf, #{}),
-            Acc#{Type => maps:merge(OldBridges, NewBridges)}
-        end,
-        #{},
-        AllTypes
-    ).
-
-changed_paths(OldRawConf, NewRawConf) ->
-    maps:fold(
-        fun(Type, Bridges, ChangedAcc) ->
-            OldBridges = maps:get(Type, OldRawConf, #{}),
-            Changed = maps:get(changed, emqx_utils_maps:diff_maps(Bridges, OldBridges)),
-            [[?ROOT_KEY, Type, K] || K <- maps:keys(Changed)] ++ ChangedAcc
-        end,
-        [],
-        NewRawConf
-    ).
+import_config(_Namespace, RawConf) ->
+    emqx_bridge_v2:bridge_v1_import_config(RawConf).
 
 %%========================================================================================
 %% Helper functions

@@ -42,7 +42,7 @@
 
 %% Data backup
 -export([
-    import_config/1,
+    import_config/2,
     backup_tables/0
 ]).
 
@@ -117,14 +117,14 @@ stop() ->
 %% Data backup
 %%------------------------------------------------------------------------------
 
-import_config(#{<<"psk_authentication">> := PskConf}) ->
+import_config(_Namespace, #{<<"psk_authentication">> := PskConf}) ->
     case emqx_conf:update([psk_authentication], PskConf, #{override_to => cluster}) of
         {ok, _} ->
             {ok, #{root_key => psk_authentication, changed => []}};
         Error ->
             {error, #{root_key => psk_authentication, reason => Error}}
     end;
-import_config(_RawConf) ->
+import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => psk_authentication, changed => []}}.
 
 post_config_update([?PSK_KEY], _Req, #{enable := Enable} = NewConf, _OldConf, _AppEnvs) ->

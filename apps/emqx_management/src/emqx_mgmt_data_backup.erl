@@ -21,7 +21,10 @@
 %% HTTP API
 -export([
     upload/2,
+    %% RPC target (v1)
     maybe_copy_and_import/2,
+    %% RPC target (v2)
+    maybe_copy_and_import/3,
     read_file/1,
     delete_file/1,
     list_files/0,
@@ -50,6 +53,7 @@
 
 -include_lib("kernel/include/file.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(ROOT_BACKUP_DIR, "backup").
 -define(BACKUP_MNESIA_DIR, "mnesia").
@@ -92,6 +96,13 @@
 
 -define(DEFAULT_OPTS, #{}).
 
+-define(HOCON_NS_INTERNAL_TAR_PATH(BASE_NAME, NAMESPACE), [
+    BASE_NAME, "ns", NAMESPACE, ?CLUSTER_HOCON_FILENAME
+]).
+-define(HOCON_NS_INTERNAL_TAR_PATH_REV_PAT(NAMESPACE), [
+    ?CLUSTER_HOCON_FILENAME, NAMESPACE, "ns" | _
+]).
+
 -type backup_file_info() :: #{
     filename := binary(),
     size := non_neg_integer(),
@@ -109,10 +120,12 @@
 -type export_opts() :: #{
     mnesia_table_filter => mnesia_table_filter(),
     print_fun => fun((io:format(), [term()]) -> ok),
-    raw_conf_transform => fun((raw_config()) -> raw_config())
+    raw_conf_transform => fun((raw_config()) -> raw_config()),
+    namespace => emqx_config:maybe_namespace()
 }.
 -type raw_config() :: #{binary() => any()}.
 -type mnesia_table_filter() :: fun((atom()) -> boolean()).
+-type maybe_namespace() :: ?global_ns | binary().
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -203,6 +216,7 @@ validate_export_root_keys(Params) ->
     end.
 
 parse_export_request(Params) ->
+    Namespace = maps:get(<<"namespace">>, Params, ?global_ns),
     OutDir = maps:get(<<"out_dir">>, Params, undefined),
     Opts0 = emqx_utils_maps:put_if(#{}, out_dir, OutDir, OutDir /= undefined),
     Opts1 =
@@ -216,14 +230,24 @@ parse_export_request(Params) ->
         else
             error -> Opts0
         end,
+    CheckNamespaceValid =
+        case Namespace of
+            ?global_ns -> ok;
+            _ when is_binary(Namespace) -> ok;
+            _ -> {error, {invalid_namespace, Namespace}}
+        end,
+    Opts2 = Opts1#{namespace => Namespace},
     maybe
+        ok ?= CheckNamespaceValid,
         {ok, TableSetNames0} ?= maps:find(<<"table_sets">>, Params),
         TableSetNames = lists:usort(TableSetNames0),
         {ok, Filter} ?= emqx_mgmt_data_backup:compile_mnesia_table_filter(TableSetNames),
-        {ok, Opts1#{mnesia_table_filter => Filter}}
+        {ok, Opts2#{mnesia_table_filter => Filter}}
     else
         error ->
-            {ok, Opts1};
+            {ok, Opts2};
+        {error, {invalid_namespace, _}} = Error ->
+            Error;
         {error, InvalidSetNames0} ->
             InvalidSetNames = lists:sort(InvalidSetNames0),
             {error, {bad_table_sets, InvalidSetNames}}
@@ -270,52 +294,62 @@ It receives file name of the backup file in the backup data folder.
 Backup file should be previously created by `upload/2` function.
 """.
 -spec import(file:filename_all()) -> import_res().
-import(BackupFileName) ->
-    import(BackupFileName, ?DEFAULT_OPTS).
+import(BackupFilename) ->
+    import(BackupFilename, ?DEFAULT_OPTS).
 
 -spec import(file:filename_all(), map()) -> import_res().
-import(BackupFileName, Opts) ->
+import(BackupFilename, Opts) ->
     maybe
         ok ?= validate_import_allowed(),
-        {ok, BackupFilePath} ?= backup_path(BackupFileName),
+        {ok, BackupFilePath} ?= backup_path(BackupFilename),
         ok ?= validate_file_exists(BackupFilePath),
         do_import(BackupFilePath, Opts)
     end.
 
 -doc """
-This function is an RPC target and is called from the API handler.
+This function is an RPC target (v1) and is called from the API handler.
 It runs on a core node.
 
 `FileNode` is the node to take backup file from.
 """.
 -spec maybe_copy_and_import(node(), file:filename_all()) -> import_res().
-maybe_copy_and_import(FileNode, BackupFileName) ->
+maybe_copy_and_import(FileNode, BackupFilename) ->
+    maybe_copy_and_import(FileNode, BackupFilename, _Opts = #{}).
+
+-doc """
+This function is an RPC target (v2) and is called from the API handler.
+It runs on a core node.
+
+`FileNode` is the node to take backup file from.
+""".
+-spec maybe_copy_and_import(node(), file:filename_all(), map()) -> import_res().
+maybe_copy_and_import(FileNode, BackupFilename, Opts) ->
     maybe
-        ok ?= maybe_copy(FileNode, BackupFileName),
-        import(BackupFileName, #{})
+        ok ?= maybe_copy(FileNode, BackupFilename),
+        import(BackupFilename, Opts)
     end.
 
 -spec read_file(file:filename_all()) ->
     {ok, #{filename => file:filename_all(), file => binary()}} | {error, _}.
-read_file(BackupFileName) ->
+read_file(BackupFilename) ->
     maybe
-        {ok, FilePath} ?= backup_path(BackupFileName),
+        {ok, FilePath} ?= backup_path(BackupFilename),
         maybe_not_found(file:read_file(FilePath))
     end.
 
 -spec delete_file(file:filename_all()) -> ok | {error, _}.
-delete_file(BackupFileName) ->
+delete_file(BackupFilename) ->
     maybe
-        {ok, FilePath} ?= backup_path(BackupFileName),
+        {ok, FilePath} ?= backup_path(BackupFilename),
         maybe_not_found(file:delete(FilePath))
     end.
 
 -spec upload(file:filename_all(), binary()) -> ok | {error, _}.
-upload(BackupFileName, BackupFileContent) ->
+upload(BackupFilename, BackupFileContent) ->
     maybe
-        {ok, FilePath} ?= backup_path(BackupFileName),
+        {ok, FilePath} ?= backup_path(BackupFilename),
         case filelib:is_file(FilePath) of
-            true -> {error, {already_exists, BackupFileName}};
+            true -> {error, {already_exists, BackupFilename}};
             false -> do_upload(FilePath, BackupFileContent)
         end
     end.
@@ -377,15 +411,21 @@ format_error({unsupported_version, ImportVersion}) ->
             [str(ImportVersion), str(emqx_release:version())]
         )
     );
-format_error({already_exists, BackupFileName}) ->
-    str(io_lib:format("Backup file \"~s\" already exists", [BackupFileName]));
+format_error({already_exists, BackupFilename}) ->
+    str(io_lib:format("Backup file \"~s\" already exists", [BackupFilename]));
 format_error(Reason) ->
     Reason.
 
--spec format_conf_errors(map()) -> list().
-format_conf_errors(Errors) ->
+-spec format_conf_errors(#{maybe_namespace() => map()}) -> #{maybe_namespace() => iodata()}.
+format_conf_errors(ErrorsPerNamespace) ->
     Opts = #{print_fun => fun io_lib:format/2},
-    maps:values(maps:map(conf_error_formatter(Opts), Errors)).
+    maps:map(
+        fun(_Namespace, Errors) ->
+            Formatted = maps:map(conf_error_formatter(Opts), Errors),
+            maps:values(Formatted)
+        end,
+        ErrorsPerNamespace
+    ).
 
 -spec format_db_errors(map()) -> list().
 format_db_errors(Errors) ->
@@ -401,25 +441,25 @@ format_db_errors(Errors) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-maybe_copy(FileNode, _BackupFileName) when FileNode =:= node() ->
+maybe_copy(FileNode, _BackupFilename) when FileNode =:= node() ->
     ok;
-maybe_copy(FileNode, BackupFileName) ->
+maybe_copy(FileNode, BackupFilename) ->
     maybe
-        {ok, FilePath} ?= backup_path(BackupFileName),
+        {ok, FilePath} ?= backup_path(BackupFilename),
         %% The file can be already present locally.
         case filelib:is_regular(FilePath) of
             true ->
                 ok;
             false ->
-                copy(FileNode, BackupFileName)
+                copy(FileNode, BackupFilename)
         end
     end.
 
-copy(FileNode, BackupFileName) ->
+copy(FileNode, BackupFilename) ->
     maybe
         {ok, BackupFileContent} ?=
-            emqx_mgmt_data_backup_proto_v1:read_file(FileNode, BackupFileName, infinity),
-        ok ?= upload(BackupFileName, BackupFileContent)
+            emqx_mgmt_data_backup_proto_v1:read_file(FileNode, BackupFilename, infinity),
+        ok ?= upload(BackupFilename, BackupFileContent)
     end.
 
 maybe_not_found({error, enoent}) ->
@@ -434,12 +474,12 @@ do_upload(BackupFilePath, BackupFileContent) ->
             ok ?= file:write_file(BackupFilePath, BackupFileContent),
             ok ?= extract_backup(BackupFilePath),
             {ok, _} ?= validate_backup(BackupDir),
-            HoconFileName = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
+            HoconFilename = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
             ok ?=
-                case filelib:is_regular(HoconFileName) of
+                case filelib:is_regular(HoconFilename) of
                     true ->
                         maybe
-                            {ok, RawConf} ?= hocon:files([HoconFileName]),
+                            {ok, RawConf} ?= hocon:files([HoconFilename]),
                             RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf),
                             {ok, _} ?= validate_cluster_hocon(RawConf1),
                             ok
@@ -498,11 +538,17 @@ do_export(BackupName, TarDescriptor, Opts) ->
         edition => emqx_release:edition()
     },
     MetaBin = bin(hocon_pp:do(Meta, #{})),
-    MetaFileName = filename:join(BackupBaseName, ?META_FILENAME),
+    MetaFilename = filename:join(BackupBaseName, ?META_FILENAME),
+    Namespace = maps:get(namespace, Opts, ?global_ns),
 
-    ok = format_tar_error(erl_tar:add(TarDescriptor, MetaBin, MetaFileName, [])),
-    ok = export_cluster_hocon(TarDescriptor, BackupBaseName, Opts),
-    ok = export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts),
+    ok = format_tar_error(erl_tar:add(TarDescriptor, MetaBin, MetaFilename, [])),
+    case Namespace of
+        ?global_ns ->
+            ok = export_cluster_hocon(TarDescriptor, BackupBaseName, Opts),
+            ok = export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts);
+        _ when is_binary(Namespace) ->
+            ok = export_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, Opts)
+    end,
     ok = format_tar_error(erl_tar:close(TarDescriptor)),
     {ok, #file_info{
         size = Size,
@@ -528,6 +574,18 @@ export_cluster_hocon(TarDescriptor, BackupBaseName, Opts) ->
     RawConfBin = bin(hocon_pp:do(RawConf, #{})),
     NameInArchive = filename:join(BackupBaseName, ?CLUSTER_HOCON_FILENAME),
     ok = format_tar_error(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, [])).
+
+export_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, Opts) ->
+    maybe_print("Exporting cluster configuration for namespace ~s...~n", [Namespace], Opts),
+    TransformFn = maps:get(raw_conf_transform, Opts, fun(Raw) -> Raw end),
+    RootConfig0 = emqx_config:get_all_roots_from_namespace(Namespace),
+    RootConfig = TransformFn(RootConfig0),
+    RawConfBin = bin(hocon_pp:do(RootConfig, #{})),
+    NameInArchive = str(
+        filename:join(?HOCON_NS_INTERNAL_TAR_PATH(BackupBaseName, Namespace))
+    ),
+    ok = format_tar_error(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, [])),
+    ok.
 
 export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts) ->
     maybe_print("Exporting built-in database...~n", [], Opts),
@@ -669,14 +727,15 @@ parse_version_no_patch(VersionBin) ->
 
 do_import(BackupFilePath, Opts) ->
     maybe_print("Importing data from ~p...~n", [BackupFilePath], Opts),
+    Namespace = maps:get(namespace, Opts, ?global_ns),
     try
         maybe
             {ok, BackupDir} ?= backup_dir(BackupFilePath),
             ok ?= validate_backup_basename(BackupFilePath),
             ok ?= extract_backup(BackupFilePath),
             {ok, _} ?= validate_backup(BackupDir),
-            {ok, ConfErrors} ?= import_cluster_hocon(BackupDir, Opts),
-            MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
+            {ok, #{conf_errors := ConfErrors, mnesia_errors := MnesiaErrors}} ?=
+                do_import_for_namespace(Namespace, BackupDir, Opts),
             ?SLOG(info, #{msg => "emqx_data_import_success"}),
             {ok, #{db_errors => MnesiaErrors, config_errors => ConfErrors}}
         else
@@ -702,6 +761,26 @@ do_import(BackupFilePath, Opts) ->
         cleanup_backup_dir(BackupFilePath)
     end.
 
+do_import_for_namespace(?global_ns, BackupDir, Opts) ->
+    maybe
+        {ok, GlobalConfErrors} ?= import_cluster_hocon(BackupDir, Opts),
+        MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
+        ConfErrors =
+            case map_size(GlobalConfErrors) of
+                0 -> #{};
+                _ -> #{?global_ns => GlobalConfErrors}
+            end,
+        {ok, #{
+            mnesia_errors => MnesiaErrors,
+            conf_errors => ConfErrors
+        }}
+    end;
+do_import_for_namespace(Namespace, BackupDir, Opts) when is_binary(Namespace) ->
+    maybe
+        {ok, NSConfErrors} ?= import_namespaced_cluster_hocon(Namespace, BackupDir, Opts),
+        {ok, #{conf_errors => NSConfErrors, mnesia_errors => #{}}}
+    end.
+
 import_mnesia_tabs(BackupDir, Opts) ->
     maybe_print("Importing built-in database...~n", [], Opts),
     filter_errors(
@@ -724,19 +803,19 @@ import_mnesia_tabs(BackupDir, Opts) ->
 -spec import_mnesia_tab(file:filename_all(), module(), mria:table(), map()) ->
     ok | {ok, no_backup_file} | {error, term()} | no_return().
 import_mnesia_tab(BackupDir, Mod, TabName, Opts) ->
-    MnesiaBackupFileName = mnesia_backup_name(BackupDir, TabName),
-    case filelib:is_regular(MnesiaBackupFileName) of
+    MnesiaBackupFilename = mnesia_backup_name(BackupDir, TabName),
+    case filelib:is_regular(MnesiaBackupFilename) of
         true ->
             maybe_print("Importing ~p database table...~n", [TabName], Opts),
-            restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts);
+            restore_mnesia_tab(BackupDir, MnesiaBackupFilename, Mod, TabName, Opts);
         false ->
             maybe_print("No backup file for ~p database table...~n", [TabName], Opts),
             ?SLOG(info, #{msg => "missing_mnesia_backup", table => TabName, backup => BackupDir}),
             ok
     end.
 
-restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
-    Validated = validate_mnesia_backup(MnesiaBackupFileName, Mod),
+restore_mnesia_tab(BackupDir, MnesiaBackupFilename, Mod, TabName, Opts) ->
+    Validated = validate_mnesia_backup(MnesiaBackupFilename, Mod),
     try
         case Validated of
             {ok, #{backup_file := BackupFile}} ->
@@ -769,7 +848,7 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
         end
     after
         %% Cleanup files as soon as they are not needed any more for more efficient disk usage
-        _ = file:delete(MnesiaBackupFileName)
+        _ = file:delete(MnesiaBackupFilename)
     end.
 
 on_table_imported(Mod, Tab, Opts) ->
@@ -796,11 +875,11 @@ on_table_imported(Mod, Tab, Opts) ->
 %% NOTE: if backup file is valid, we keep traversing it, though we only need to validate schema.
 %% Looks like there is no clean way to abort traversal without triggering any error reporting,
 %% `mnesia_bup:read_schema/2` is an option but its direct usage should also be avoided...
-validate_mnesia_backup(MnesiaBackupFileName, Mod) ->
-    Init = #{backup_file => MnesiaBackupFileName},
+validate_mnesia_backup(MnesiaBackupFilename, Mod) ->
+    Init = #{backup_file => MnesiaBackupFilename},
     Validated =
         catch mnesia:traverse_backup(
-            MnesiaBackupFileName,
+            MnesiaBackupFilename,
             mnesia_backup,
             dummy,
             read_only,
@@ -813,7 +892,7 @@ validate_mnesia_backup(MnesiaBackupFileName, Mod) ->
         {error, {_, over}} ->
             {ok, Init};
         {error, {_, migrate}} ->
-            migrate_mnesia_backup(MnesiaBackupFileName, Mod, Init);
+            migrate_mnesia_backup(MnesiaBackupFilename, Mod, Init);
         Error ->
             Error
     end.
@@ -850,10 +929,10 @@ default_validate_mnesia_backup({schema, Tab, CreateList}) ->
 default_validate_mnesia_backup(_Other) ->
     ok.
 
-migrate_mnesia_backup(MnesiaBackupFileName, Mod, Acc) ->
+migrate_mnesia_backup(MnesiaBackupFilename, Mod, Acc) ->
     case erlang:function_exported(Mod, migrate_mnesia_backup, 1) of
         true ->
-            MigrateFile = MnesiaBackupFileName ++ ".migrate",
+            MigrateFile = MnesiaBackupFilename ++ ".migrate",
             Migrator = fun(Schema, InAcc) ->
                 case Mod:migrate_mnesia_backup(Schema) of
                     {ok, NewSchema} ->
@@ -863,7 +942,7 @@ migrate_mnesia_backup(MnesiaBackupFileName, Mod, Acc) ->
                 end
             end,
             catch mnesia:traverse_backup(
-                MnesiaBackupFileName,
+                MnesiaBackupFilename,
                 MigrateFile,
                 Migrator,
                 Acc#{backup_file := MigrateFile}
@@ -885,14 +964,14 @@ extract_backup(BackupFilePath) ->
 
 validate_filenames(BackupFilePath) ->
     maybe
-        {ok, FileNames} ?= format_tar_error(erl_tar:table(BackupFilePath, [compressed])),
+        {ok, Filenames} ?= format_tar_error(erl_tar:table(BackupFilePath, [compressed])),
         BackupName = filename:basename(BackupFilePath, ?TAR_SUFFIX),
         IsValid = lists:all(
-            fun(FileName) ->
-                [Root | _] = filename:split(FileName),
+            fun(Filename) ->
+                [Root | _] = filename:split(Filename),
                 Root =:= BackupName
             end,
-            FileNames
+            Filenames
         ),
         case IsValid of
             true -> ok;
@@ -901,22 +980,39 @@ validate_filenames(BackupFilePath) ->
     end.
 
 import_cluster_hocon(BackupDir, Opts) ->
-    HoconFileName = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
-    case filelib:is_regular(HoconFileName) of
+    HoconFilename = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
+    do_import_cluster_hocon(?global_ns, BackupDir, HoconFilename, Opts).
+
+import_namespaced_cluster_hocon(Namespace, BackupDir, Opts) when is_binary(Namespace) ->
+    NSHoconPath = filename:join(?HOCON_NS_INTERNAL_TAR_PATH(BackupDir, Namespace)),
+    case do_import_cluster_hocon(Namespace, BackupDir, NSHoconPath, Opts) of
+        {ok, Res} when map_size(Res) == 0 ->
+            {ok, #{}};
+        {ok, Res} ->
+            {ok, #{Namespace => Res}};
+        {error, Reason} ->
+            {error, #{Namespace => Reason}}
+    end.
+
+do_import_cluster_hocon(Namespace, BackupDir, Filename, Opts) ->
+    case filelib:is_regular(Filename) of
         true ->
             maybe
-                {ok, RawConf} ?= hocon:files([HoconFileName]),
+                {ok, RawConf} ?= hocon:files([Filename]),
                 RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf),
                 {ok, _} ?= validate_cluster_hocon(RawConf1),
-                maybe_print("Importing cluster configuration...~n", [], Opts),
+                maybe_print(
+                    "Importing cluster configuration for namespace ~s...~n", [Namespace], Opts
+                ),
                 %% At this point, when all validations have been passed, we want to log errors (if any)
                 %% but proceed with the next items, instead of aborting the whole import operation
-                {ok, do_import_conf(RawConf1, Opts)}
+                {ok, do_import_conf(Namespace, RawConf1, Opts)}
             end;
         false ->
             maybe_print("No cluster configuration to be imported.~n", [], Opts),
             ?SLOG(info, #{
                 msg => "no_backup_hocon_config_to_import",
+                namespace => Namespace,
                 backup => BackupDir
             }),
             {ok, #{}}
@@ -945,26 +1041,26 @@ read_data_files(RawConf0) ->
 read_data_file(Key, Val, DataDir, AbsDataDir) ->
     Val1 =
         case Val of
-            ?dir_pattern(DataDir) = FileName ->
-                do_read_file(FileName);
-            ?dir_pattern(AbsDataDir) = FileName ->
-                do_read_file(FileName);
+            ?dir_pattern(DataDir) = Filename ->
+                do_read_file(Filename);
+            ?dir_pattern(AbsDataDir) = Filename ->
+                do_read_file(Filename);
             V ->
                 V
         end,
     {Key, Val1}.
 
-do_read_file(FileName) ->
-    case file:read_file(FileName) of
+do_read_file(Filename) ->
+    case file:read_file(Filename) of
         {ok, Content} ->
             Content;
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "failed_to_read_data_file",
-                filename => FileName,
+                filename => Filename,
                 reason => Reason
             }),
-            FileName
+            Filename
     end.
 
 validate_cluster_hocon(RawConf) ->
@@ -976,17 +1072,21 @@ validate_cluster_hocon(RawConf) ->
         #{atom_key => false, required => false}
     ).
 
-do_import_conf(RawConf, Opts) ->
-    GenConfErrs = filter_errors(maps:from_list(import_generic_conf(RawConf))),
+do_import_conf(Namespace, RawConf, Opts) ->
+    GenConfErrs = filter_errors(maps:from_list(import_generic_conf(Namespace, RawConf))),
     maybe_print_conf_errors(GenConfErrs, Opts),
     Modules = sort_importer_modules(find_behaviours(emqx_config_backup)),
-    Errors = lists:foldl(print_ok_results_collect_errors(RawConf, Opts), GenConfErrs, Modules),
+    Errors = lists:foldl(
+        print_ok_results_collect_errors(Namespace, RawConf, Opts),
+        GenConfErrs,
+        Modules
+    ),
     maybe_print_conf_errors(Errors, Opts),
     Errors.
 
-print_ok_results_collect_errors(RawConf, Opts) ->
+print_ok_results_collect_errors(Namespace, RawConf, Opts) ->
     fun(Module, Errors) ->
-        case Module:import_config(RawConf) of
+        case Module:import_config(Namespace, RawConf) of
             {results, {OkResults, ErrResults}} ->
                 print_ok_results(OkResults, Opts),
                 collect_errors(ErrResults, Errors);
@@ -1031,12 +1131,19 @@ order(Elem, [Elem | _], Order) ->
 order(Elem, [_ | T], Order) ->
     order(Elem, T, Order + 1).
 
-import_generic_conf(Data) ->
+import_generic_conf(Namespace, Data) ->
     lists:map(
         fun(KeyPath) ->
             case emqx_utils_maps:deep_get(KeyPath, Data, undefined) of
-                undefined -> {[KeyPath], ok};
-                Conf -> {[KeyPath], emqx_conf:update(KeyPath, Conf, #{override_to => cluster})}
+                undefined ->
+                    {[KeyPath], ok};
+                Conf ->
+                    UpdateRes = emqx_conf:update(
+                        KeyPath,
+                        Conf,
+                        with_namespace(#{override_to => cluster}, Namespace)
+                    ),
+                    {[KeyPath], UpdateRes}
             end
         end,
         ?CONF_KEYS
@@ -1175,8 +1282,8 @@ build_table_set_to_tables_mapping() ->
         Mods
     ).
 
-tar(FileName) ->
-    FileName ++ ?TAR_SUFFIX.
+tar(Filename) ->
+    Filename ++ ?TAR_SUFFIX.
 
 format_tar_error(Expr) ->
     case Expr of
@@ -1200,13 +1307,13 @@ backup_dir(BackupFilePath) ->
         _ -> {ok, filename:join(RootBackupDir, BaseName)}
     end.
 
-backup_path(FileName) when is_binary(FileName) ->
-    backup_path(str(FileName));
-backup_path(FileName) when is_list(FileName) ->
+backup_path(Filename) when is_binary(Filename) ->
+    backup_path(str(Filename));
+backup_path(Filename) when is_list(Filename) ->
     maybe
-        [FileName] ?= filename:split(FileName),
-        ok ?= validate_backup_basename(FileName),
-        {ok, filename:join(root_backup_dir(), FileName)}
+        [Filename] ?= filename:split(Filename),
+        ok ?= validate_backup_basename(Filename),
+        {ok, filename:join(root_backup_dir(), Filename)}
     else
         _ -> {error, bad_backup_name}
     end.
@@ -1216,3 +1323,8 @@ cleanup_backup_dir(BackupFilePath) ->
         {ok, BackupDir} ?= backup_dir(BackupFilePath),
         file:del_dir_r(BackupDir)
     end.
+
+with_namespace(UpdateOpts, ?global_ns) ->
+    UpdateOpts;
+with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
+    UpdateOpts#{namespace => Namespace}.

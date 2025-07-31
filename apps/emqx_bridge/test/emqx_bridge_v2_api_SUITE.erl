@@ -816,7 +816,12 @@ kind_of(TCConfig) ->
     end.
 
 conf_root_key_of(TCConfig) ->
-    atom_to_binary(get_matrix_prop(TCConfig, [actions, sources], actions)).
+    case proplists:get_value(conf_root_key, TCConfig) of
+        undefined ->
+            atom_to_binary(get_matrix_prop(TCConfig, [actions, sources], actions));
+        ConfRootKey ->
+            atom_to_binary(ConfRootKey)
+    end.
 
 list(TCConfig) ->
     Node = get_value(node, TCConfig),

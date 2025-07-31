@@ -35,7 +35,7 @@
 
 %% Data backup
 -export([
-    import_config/1
+    import_config/2
 ]).
 
 %% Deprecated RPC target (`emqx_connector_proto_v1`).
@@ -341,14 +341,18 @@ remove(Namespace, ConnectorType, ConnectorName) ->
 %% Data backup
 %%----------------------------------------------------------------------------------------
 
-%% TODO: namespace
-import_config(RawConf) ->
+import_config(Namespace, RawConf) ->
     RootKeyPath = config_key_path(),
     ConnectorsConf = maps:get(<<"connectors">>, RawConf, #{}),
-    OldConnectorsConf = emqx:get_raw_config(RootKeyPath, #{}),
+    OldConnectorsConf = get_raw_config(Namespace, RootKeyPath, #{}),
     MergedConf = merge_confs(OldConnectorsConf, ConnectorsConf),
     %% using merge strategy, deletions should not be performed within the post_config_update/5.
-    case emqx_conf:update(RootKeyPath, MergedConf, #{override_to => cluster}) of
+    UpdateRes = emqx_conf:update(
+        RootKeyPath,
+        MergedConf,
+        with_namespace(#{override_to => cluster}, Namespace)
+    ),
+    case UpdateRes of
         {ok, #{raw_config := NewRawConf}} ->
             {ok, #{root_key => ?ROOT_KEY, changed => changed_paths(OldConnectorsConf, NewRawConf)}};
         Error ->

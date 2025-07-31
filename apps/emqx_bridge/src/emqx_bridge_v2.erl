@@ -116,7 +116,7 @@
 
 %% Data backup
 -export([
-    import_config/1
+    import_config/2
 ]).
 
 %% Bridge V2 Types and Conversions
@@ -138,6 +138,7 @@
     bridge_v1_split_config_and_create/3,
     bridge_v1_create_dry_run/2,
     bridge_v1_type_to_bridge_v2_type/1,
+    bridge_v1_import_config/1,
     %% Exception from the naming convention:
     bridge_v2_type_to_bridge_v1_type/2,
     bridge_v1_id_to_connector_resource_id/1,
@@ -1212,15 +1213,63 @@ bridge_v2_type_to_connector_type(Type) ->
 %% Data backup API
 %%====================================================================
 
-import_config(RawConf) ->
+import_config(Namespace, RawConf) ->
     %% actions structure
-    ActionRes = emqx_bridge:import_config(
-        RawConf, <<"actions">>, ?ROOT_KEY_ACTIONS, config_key_path()
+    ActionRes = do_import_config(
+        Namespace, RawConf, <<"actions">>, ?ROOT_KEY_ACTIONS, config_key_path()
     ),
-    SourceRes = emqx_bridge:import_config(
-        RawConf, <<"sources">>, ?ROOT_KEY_SOURCES, config_key_path_sources()
+    SourceRes = do_import_config(
+        Namespace, RawConf, <<"sources">>, ?ROOT_KEY_SOURCES, config_key_path_sources()
     ),
     group_import_results([ActionRes, SourceRes]).
+
+bridge_v1_import_config(RawConf) ->
+    RootKey = bridges,
+    RootKeyBin = atom_to_binary(RootKey),
+    ConfKeyPath = [RootKey],
+    do_import_config(?global_ns, RawConf, RootKeyBin, RootKey, ConfKeyPath).
+
+do_import_config(Namespace, RawConf, RawConfKey, RootKey, RootKeyPath) ->
+    BridgesConf = maps:get(RawConfKey, RawConf, #{}),
+    OldBridgesConf = get_raw_config(Namespace, RootKeyPath, #{}),
+    MergedConf = merge_confs(OldBridgesConf, BridgesConf),
+    UpdateRes = emqx_conf:update(
+        RootKeyPath,
+        MergedConf,
+        with_namespace(#{override_to => cluster}, Namespace)
+    ),
+    case UpdateRes of
+        {ok, #{raw_config := NewRawConf}} ->
+            {ok, #{
+                root_key => RootKey,
+                changed => changed_paths(RootKey, OldBridgesConf, NewRawConf)
+            }};
+        Error ->
+            {error, #{root_key => RootKey, reason => Error}}
+    end.
+
+merge_confs(OldConf, NewConf) ->
+    AllTypes = maps:keys(maps:merge(OldConf, NewConf)),
+    lists:foldr(
+        fun(Type, Acc) ->
+            NewBridges = maps:get(Type, NewConf, #{}),
+            OldBridges = maps:get(Type, OldConf, #{}),
+            Acc#{Type => maps:merge(OldBridges, NewBridges)}
+        end,
+        #{},
+        AllTypes
+    ).
+
+changed_paths(RootKey, OldRawConf, NewRawConf) ->
+    maps:fold(
+        fun(Type, Bridges, ChangedAcc) ->
+            OldBridges = maps:get(Type, OldRawConf, #{}),
+            Changed = maps:get(changed, emqx_utils_maps:diff_maps(Bridges, OldBridges)),
+            [[RootKey, Type, K] || K <- maps:keys(Changed)] ++ ChangedAcc
+        end,
+        [],
+        NewRawConf
+    ).
 
 group_import_results(Results0) ->
     Results = lists:foldr(

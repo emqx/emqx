@@ -97,6 +97,8 @@
     end)
 ).
 
--define(KEY_PATH, [rule_engine, rules]).
--define(RULE_PATH(RULE), [rule_engine, rules, RULE]).
+-define(ROOT_KEY, rule_engine).
+-define(ROOT_KEY_BIN, <<"rule_engine">>).
+-define(KEY_PATH, [?ROOT_KEY, rules]).
+-define(RULE_PATH(RULE), [?ROOT_KEY, rules, RULE]).
 -define(TAG, "RULE").

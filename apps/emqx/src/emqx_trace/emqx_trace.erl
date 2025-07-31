@@ -111,17 +111,17 @@ rendered_action_template(ActionID, RenderResult) when is_binary(ActionID) ->
             do_rendered_action_template(ActionID, RenderResult)
     catch
         throw:{invalid_id, _} ->
-            %% We do nothing if we don't get a valid Action ID. This can happen when
+            %% Note [Invalid channel ids in trace]
+            %% We do nothing if we don't get a valid channel id. This can happen when
             %% called from connectors that are used for actions as well as authz and
-            %% authn.
+            %% authn.  Those applications generate their connector resource ids using
+            %% `emqx_resource:generate_id/1`, which does not output a channel id.
             ok
     end;
 rendered_action_template(#{mod := _, func := _} = ActionID, RenderResult) ->
     do_rendered_action_template(ActionID, RenderResult);
 rendered_action_template(_ActionID, _RenderResult) ->
-    %% We do nothing if we don't get a valid Action ID. This can happen when
-    %% called from connectors that are used for actions as well as authz and
-    %% authn.
+    %% See Note [Invalid channel ids in trace]
     ok.
 
 do_rendered_action_template(ActionID, RenderResult) ->

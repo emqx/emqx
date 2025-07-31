@@ -12,6 +12,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_license.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(LIMIT, 10).
 
@@ -179,7 +180,7 @@ t_import_config(_Config) ->
     %% Import default license
     ?assertMatch(
         {ok, #{root_key := license, changed := _}},
-        emqx_license:import_config(#{<<"license">> => #{<<"key">> => <<"default">>}})
+        import_config(#{<<"license">> => #{<<"key">> => <<"default">>}})
     ),
     ?assertEqual(default, emqx:get_config([license, key])),
     ?assertMatch(
@@ -189,7 +190,7 @@ t_import_config(_Config) ->
     %% Import evaluation license
     ?assertMatch(
         {ok, #{root_key := license, changed := _}},
-        emqx_license:import_config(#{<<"license">> => #{<<"key">> => <<"evaluation">>}})
+        import_config(#{<<"license">> => #{<<"key">> => <<"evaluation">>}})
     ),
     ?assertEqual(evaluation, emqx:get_config([license, key])),
     ?assertMatch(
@@ -202,7 +203,7 @@ t_import_config(_Config) ->
     }),
     ?assertMatch(
         {ok, #{root_key := license, changed := _}},
-        emqx_license:import_config(
+        import_config(
             #{
                 <<"license">> =>
                     #{
@@ -297,3 +298,6 @@ connect(Opts) ->
     unlink(C),
     {ok, _} = emqtt:connect(C),
     C.
+
+import_config(RawConf) ->
+    emqx_license:import_config(?global_ns, RawConf).
