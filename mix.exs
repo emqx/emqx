@@ -289,7 +289,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:datalayers),
     do: {
       :datalayers,
-      github: "JimMoen/datalayers-adapter-erl", branch: "wrap-gen-server", override: true
+      github: "JimMoen/datalayers-adapter-erl", branch: "feat-support-null-value", override: true
     }
 
   def emqx_app_system_env() do

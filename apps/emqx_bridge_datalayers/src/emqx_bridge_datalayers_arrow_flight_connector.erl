@@ -6,12 +6,12 @@
 
 -include("emqx_bridge_datalayers.hrl").
 
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% callbacks of behaviour emqx_resource
@@ -39,6 +39,7 @@
 ]).
 
 -type state() :: #{
+    driver_type := atom(),
     channels => #{channel_id() := channel_state()},
     enable_prepared => boolean()
 }.
@@ -51,7 +52,15 @@
             prepstmt := {emqx_template_sql:statement(), emqx_template_sql:row_template()},
             batch := tuple()
         },
-        prepared_refs := #{{_Name :: any(), Worker :: pid()} := datalayers:prepared_statement()}
+        prepared_refs := #{Client :: pid() := datalayers:prepared_statement()}
+    }.
+
+-type channel_config() ::
+    #{
+        parameters := #{
+            sql := binary(),
+            undefined_vars_as_null := boolean()
+        }
     }.
 
 -define(sync, sync).
@@ -65,10 +74,6 @@ resource_type() -> datalayers.
 callback_mode() -> async_if_possible.
 
 %% ================================================================================
--spec on_start(
-    InstId :: resource_id(),
-    Config :: emqx_resource:config()
-) -> {ok, state()} | {error, any()}.
 on_start(
     InstId,
     Config = #{
@@ -118,13 +123,13 @@ on_start(
     case emqx_resource_pool:start(InstId, ?MODULE, PoolOpts) of
         ok ->
             {ok, InitState};
-        {error, Reason} = Err ->
+        {error, {start_pool_failed, _, Reason}} ->
             ?SLOG(error, #{
                 msg => "datalayers_arrow_flight_connector_start_failed",
                 reason => Reason,
                 config => emqx_utils:redact(Config)
             }),
-            Err
+            {error, Reason}
     end.
 
 on_stop(InstId, _State) ->
@@ -149,8 +154,8 @@ on_stop(InstId, _State) ->
     InstId :: resource_id(),
     State :: state(),
     ChannelId :: channel_id(),
-    ChannelConfig :: emqx_connector:channel_config()
-) -> {ok, state()} | {error, any()}.
+    ChannelConfig :: channel_config()
+) -> {ok, state()} | {error, term()}.
 on_add_channel(_InstId, #{channels := Channels} = _State, ChannelId, _ChannelConfig) when
     is_map_key(ChannelId, Channels)
 ->
@@ -161,18 +166,8 @@ on_add_channel(
     ChannelId,
     ChannelConfig
 ) ->
-    case create_channel_state(InstId, ChannelId, State, ChannelConfig) of
-        {ok, ChannelState} ->
-            {ok, State#{channels => Channels#{ChannelId => ChannelState}}};
-        {error, Error} ->
-            ?SLOG(error, #{
-                msg => "failed_to_create_datalayers_channel",
-                instance_id => InstId,
-                channel_id => ChannelId,
-                error => Error
-            }),
-            {error, Error}
-    end.
+    {ok, ChannelState} = create_channel_state(InstId, ChannelId, State, ChannelConfig),
+    {ok, State#{channels => Channels#{ChannelId => ChannelState}}}.
 
 on_remove_channel(_InstId, #{channels := Channels} = _State, ChannelId) when
     not is_map_key(ChannelId, Channels)
@@ -379,15 +374,9 @@ render_row(RowTemplate, Data, ChannelState) ->
 %% =================================================================
 %% ecpool callback
 
--spec connect(datalayers:opts()) -> {ok, datalayers:client()} | {error, any()}.
 connect(Opts) ->
     #{password := Password} = Config = proplists:get_value(conn_config, Opts),
-    case datalayers:connect(Config#{password => emqx_secret:unwrap(Password)}) of
-        {ok, _ConnRef} = Ok ->
-            Ok;
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    datalayers:connect(Config#{password => emqx_secret:unwrap(Password)}).
 
 call_driver(Client, {_QueryMode, true} = FuncMode, Args0) ->
     [PreparedRefs | Args] = Args0,

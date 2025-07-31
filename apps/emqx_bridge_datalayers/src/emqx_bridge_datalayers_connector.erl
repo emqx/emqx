@@ -5,11 +5,10 @@
 
 -include("emqx_bridge_datalayers.hrl").
 
--include_lib("emqx_connector/include/emqx_connector.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
@@ -47,6 +46,11 @@
 -define(influx_driver, #{driver_type := ?DATALAYERS_DRIVER_TYPE_INFLUX}).
 -define(arrow_flight_driver, #{driver_type := ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT}).
 
+-type state() :: #{
+    driver_type := ?DATALAYERS_DRIVER_TYPE_INFLUX | ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT,
+    _ := _
+}.
+
 %%--------------------------------------------------------------------
 %% resource callback
 
@@ -54,6 +58,10 @@ resource_type() -> datalayers.
 
 callback_mode() -> async_if_possible.
 
+-spec on_start(
+    InstId :: resource_id(),
+    Config :: resource_config()
+) -> {ok, state()} | {error, term()}.
 on_start(InstId, Config) ->
     case Config of
         #{parameters := ?influx_driver} ->
@@ -61,7 +69,7 @@ on_start(InstId, Config) ->
                 {ok, State} ->
                     %% Start the InfluxDB client
                     {ok, State#{driver_type => ?DATALAYERS_DRIVER_TYPE_INFLUX}};
-                Err ->
+                {error, _} = Err ->
                     Err
             end;
         #{parameters := ?arrow_flight_driver} ->
@@ -69,7 +77,7 @@ on_start(InstId, Config) ->
                 {ok, State} ->
                     %% Start the Arrow Flight client
                     {ok, State#{driver_type => ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT}};
-                Err ->
+                {error, _} = Err ->
                     Err
             end
     end.
@@ -79,11 +87,21 @@ enrich_config(
 ) ->
     Config#{parameters := Params#{influxdb_type => influxdb_api_v1}}.
 
+-spec on_stop(
+    InstId :: resource_id(),
+    State :: resource_state()
+) -> ok.
 on_stop(InstId, State = ?influx_driver) ->
     emqx_bridge_influxdb_connector:on_stop(InstId, State);
 on_stop(InstId, State = ?arrow_flight_driver) ->
     emqx_bridge_datalayers_arrow_flight_connector:on_stop(InstId, State).
 
+-spec on_add_channel(
+    InstId :: resource_id(),
+    OldState :: resource_state(),
+    ChannelId :: channel_id(),
+    ChannelConf :: resource_config()
+) -> ok | {error, term()}.
 on_add_channel(
     InstId,
     OldState = ?influx_driver,
@@ -122,6 +140,11 @@ on_get_channel_status(InstId, ChannelId, State = ?arrow_flight_driver) ->
 on_get_channels(InstId) ->
     emqx_bridge_v2:get_channels_for_connector(InstId).
 
+-spec on_query(
+    InstId :: resource_id(),
+    QueryData :: {channel_id(), term()},
+    State :: resource_state()
+) -> {ok, term()} | {error, term()}.
 on_query(
     InstId,
     {Channel, Message},
@@ -135,6 +158,11 @@ on_query(
 ) ->
     emqx_bridge_datalayers_arrow_flight_connector:on_query(InstId, {Channel, Message}, State).
 
+-spec on_batch_query(
+    InstId :: resource_id(),
+    BatchData :: resource_config(),
+    State :: resource_state()
+) -> {ok, term()} | {error, term()}.
 on_batch_query(
     InstId,
     BatchData,
@@ -148,6 +176,12 @@ on_batch_query(
 ) ->
     emqx_bridge_datalayers_arrow_flight_connector:on_batch_query(InstId, BatchData, State).
 
+-spec on_query_async(
+    InstId :: resource_id(),
+    QueryData :: {channel_id(), resource_config()},
+    ReplyFun :: reply_fun(),
+    State :: resource_state()
+) -> ok | {error, term()}.
 on_query_async(
     InstId,
     {Channel, Message},
@@ -167,6 +201,12 @@ on_query_async(
         InstId, {Channel, Message}, {ReplyFun, Args}, State
     ).
 
+-spec on_batch_query_async(
+    InstId :: resource_id(),
+    BatchData :: resource_config(),
+    ReplyFun :: reply_fun(),
+    State :: resource_state()
+) -> ok | {error, term()}.
 on_batch_query_async(
     InstId,
     BatchData,
