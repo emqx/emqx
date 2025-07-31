@@ -547,7 +547,7 @@ trace(["list"]) ->
     end;
 trace(["stop", Operation, Filter0]) ->
     case trace_type(Operation, Filter0, text) of
-        {ok, Type, Filter, _} -> trace_off(Type, Filter);
+        {ok, Filter, _} -> trace_off(Filter);
         error -> trace([])
     end;
 trace(["start", Operation, ClientId, LogFile]) ->
@@ -556,14 +556,8 @@ trace(["start", Operation, Filter0, LogFile, Level]) ->
     trace(["start", Operation, Filter0, LogFile, Level, text]);
 trace(["start", Operation, Filter0, LogFile, Level, Formatter0]) ->
     case trace_type(Operation, Filter0, Formatter0) of
-        {ok, Type, Filter, Formatter} ->
-            trace_on(
-                Type,
-                Filter,
-                list_to_existing_atom(Level),
-                LogFile,
-                Formatter
-            );
+        {ok, Filter, Formatter} ->
+            trace_on(Filter, list_to_existing_atom(Level), LogFile, Formatter);
         error ->
             trace([])
     end;
@@ -584,28 +578,33 @@ trace(_) ->
         {"trace stop  ruleid  <RuleID> ", "Stop tracing for a rule ID on local node"}
     ]).
 
-trace_on(Type, Filter, Level, LogFile, Formatter) ->
-    Name = name(Filter),
+trace_on(Filter = {Type, Value}, Level, LogFile, Formatter) ->
+    Name = trace_name(Filter),
     HandlerId = emqx_trace_handler:fallback_handler_id(?MODULE_STRING, Name),
-    case emqx_trace_handler:install(HandlerId, Name, Type, Filter, Level, LogFile, Formatter) of
+    case emqx_trace_handler:install(HandlerId, Name, Filter, Level, LogFile, Formatter) of
         ok ->
             emqx_trace:check(),
-            emqx_ctl:print("trace ~s ~s successfully~n", [Filter, Name]);
+            emqx_ctl:print("trace ~s ~s successfully~n", [Type, Value]);
         {error, Error} ->
-            emqx_ctl:print("[error] trace ~s ~s: ~p~n", [Filter, Name, Error])
+            emqx_ctl:print("[error] trace ~s ~s: ~p~n", [Type, Value, Error])
     end.
 
-trace_off(Type, Filter) ->
-    Name = name(Filter),
+trace_off(Filter = {Type, Value}) ->
+    Name = trace_name(Filter),
     HandlerId = emqx_trace_handler:fallback_handler_id(?MODULE_STRING, Name),
-    ?TRACE("CLI", "trace_stopping", #{Type => Filter}),
+    ?TRACE("CLI", "trace_stopping", #{Type => Value}),
     case emqx_trace_handler:uninstall(HandlerId) of
         ok ->
             emqx_trace:check(),
-            emqx_ctl:print("stop tracing ~s ~s successfully~n", [Type, Filter]);
+            emqx_ctl:print("stop tracing ~s ~s successfully~n", [Type, Value]);
         {error, Error} ->
-            emqx_ctl:print("[error] stop tracing ~s ~s: ~p~n", [Type, Filter, Error])
+            emqx_ctl:print("[error] stop tracing ~s ~s: ~p~n", [Type, Value, Error])
     end.
+
+trace_name({_Type, Filter}) ->
+    %% NOTE: Asserting the resulting name is valid UTF-8, not expected to fail.
+    Name = iolist_to_binary(["CLI-", Filter]),
+    Name = unicode:characters_to_binary(Name, utf8).
 
 %%--------------------------------------------------------------------
 %% @doc Trace Cluster Command
@@ -644,7 +643,7 @@ traces(["start", Name, Operation, Filter, DurationS]) ->
     traces(["start", Name, Operation, Filter, DurationS, text]);
 traces(["start", Name, Operation, Filter0, DurationS, Formatter0]) ->
     case trace_type(Operation, Filter0, Formatter0) of
-        {ok, Type, Filter, Formatter} -> trace_cluster_on(Name, Type, Filter, DurationS, Formatter);
+        {ok, Filter, Formatter} -> trace_cluster_on(Name, Filter, DurationS, Formatter);
         error -> traces([])
     end;
 traces(_) ->
@@ -666,24 +665,23 @@ traces(_) ->
         {"traces delete <Name>", "Delete trace in cluster"}
     ]).
 
-trace_cluster_on(Name, Type, Filter, DurationS0, Formatter) ->
+trace_cluster_on(Name, Filter = {Type, Value}, DurationS0, Formatter) ->
     Now = emqx_trace:now_second(),
     DurationS = list_to_integer(DurationS0),
     Trace = #{
         name => bin(Name),
-        type => Type,
-        filter => bin(Filter),
+        filter => Filter,
         start_at => Now,
         end_at => Now + DurationS,
         formatter => Formatter
     },
     case emqx_trace:create(Trace) of
         {ok, _} ->
-            emqx_ctl:print("cluster_trace ~p ~s ~s successfully~n", [Type, Filter, Name]);
+            emqx_ctl:print("cluster_trace ~p ~s ~s successfully~n", [Type, Value, Name]);
         {error, Error} ->
             emqx_ctl:print(
                 "[error] cluster_trace ~s ~s=~s ~p~n",
-                [Name, Type, Filter, Error]
+                [Name, Type, Value, Error]
             )
     end.
 
@@ -701,9 +699,9 @@ trace_cluster_off(Name) ->
 
 trace_type(Op, Match, "text") -> trace_type(Op, Match, text);
 trace_type(Op, Match, "json") -> trace_type(Op, Match, json);
-trace_type("client", ClientId, Formatter) -> {ok, clientid, bin(ClientId), Formatter};
-trace_type("topic", Topic, Formatter) -> {ok, topic, bin(Topic), Formatter};
-trace_type("ip_address", IP, Formatter) -> {ok, ip_address, IP, Formatter};
+trace_type("client", ClientId, Formatter) -> {ok, {clientid, bin(ClientId)}, Formatter};
+trace_type("topic", Topic, Formatter) -> {ok, {topic, bin(Topic)}, Formatter};
+trace_type("ip_address", IP, Formatter) -> {ok, {ip_address, IP}, Formatter};
 trace_type(_, _, _) -> error.
 
 %%--------------------------------------------------------------------
@@ -1184,10 +1182,6 @@ indent_print({Key, {string, Val}}) ->
     emqx_ctl:print("  ~-16s: ~ts~n", [Key, Val]);
 indent_print({Key, Val}) ->
     emqx_ctl:print("  ~-16s: ~w~n", [Key, Val]).
-
-name(Filter) ->
-    Name = iolist_to_binary(["CLI-", Filter]),
-    Name = unicode:characters_to_binary(Name, utf8).
 
 for_node(Fun, Node) ->
     try list_to_existing_atom(Node) of
