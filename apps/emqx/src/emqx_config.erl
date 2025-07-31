@@ -106,15 +106,15 @@
     save_configs_namespaced_tx/5,
     get_all_namespace_config_errors/0,
     get_namespace_config_errors/1,
-    clear_all_invalid_namespaced_configs/0
+    clear_all_invalid_namespaced_configs/0,
+    erase_namespaced_configs/1
 ]).
 
 -ifdef(TEST).
 -export([erase_all/0, backup_and_write/2, cluster_hocon_file/0, base_hocon_file/0]).
 -export([
     seed_defaults_for_all_roots_namespaced/2,
-    seed_defaults_for_all_roots_namespaced/3,
-    erase_namespaced_configs/1
+    seed_defaults_for_all_roots_namespaced/3
 ]).
 -endif.
 
@@ -131,6 +131,7 @@
 -define(INVALID_NS_CONF_PT_KEY(NS), {?MODULE, {corrupt_ns_conf, NS}}).
 
 -export_type([
+    namespace/0,
     maybe_namespace/0,
     update_request/0,
     raw_config/0,
@@ -178,7 +179,8 @@
 }.
 -type cluster_rpc_opts() :: #{kind => ?KIND_INITIATE | ?KIND_REPLICATE}.
 
--type maybe_namespace() :: ?global_ns | binary().
+-type namespace() :: binary().
+-type maybe_namespace() :: ?global_ns | namespace().
 
 %% raw_config() is the config that is NOT parsed and translated by hocon schema
 -type raw_config() :: #{binary() => term()} | list() | undefined.
@@ -628,6 +630,8 @@ seed_defaults_for_all_roots_namespaced(SchemaMod, Namespace, _ClusterRPCOpts) wh
     put_namespaced(Namespace, CheckedConf),
     ok.
 
+-endif.
+
 erase_namespaced_configs(Namespace) when is_binary(Namespace) ->
     MS = erlang:make_tuple(
         record_info(size, ?CONFIG_TAB),
@@ -642,7 +646,6 @@ erase_namespaced_configs(Namespace) when is_binary(Namespace) ->
         get_root_names()
     ),
     ok.
--endif.
 
 load_namespaced_configs() ->
     %% Ensure tables are ready when loading.

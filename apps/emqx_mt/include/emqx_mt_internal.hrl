@@ -10,5 +10,6 @@
 -define(COUNTER_TAB, emqx_mt_counter).
 -define(NS_TAB, emqx_mt_ns).
 -define(CONFIG_TAB, emqx_mt_config).
+-define(TOMBSTONE_TAB, emqx_mt_tombstone).
 
 -endif.

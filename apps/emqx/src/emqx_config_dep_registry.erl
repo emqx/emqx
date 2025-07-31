@@ -16,7 +16,8 @@ register their dependencies when they start.
     start_link/0,
 
     register_dependencies/1,
-    sorted_importer_modules/0
+    sorted_importer_modules/0,
+    sorted_root_keys/0
 ]).
 
 %% `gen_server' API
@@ -62,6 +63,35 @@ sorted_importer_modules() ->
     %% We assume here that the digraph owner process crashes rarely.
     G = persistent_term:get(?DIGRAPH_PT_KEY),
     do_sorted_importer_modules(G, AllModules).
+
+-spec sorted_root_keys() -> [binary()].
+sorted_root_keys() ->
+    %% We assume here that the digraph owner process crashes rarely.
+    InvMap = persistent_term:get(?ROOT_KEY_MAPPING_PT_KEY),
+    Map = maps:fold(
+        fun(RK, Mod, Acc) ->
+            maps:update_with(
+                Mod,
+                fun(RKs) -> [RK | RKs] end,
+                [RK],
+                Acc
+            )
+        end,
+        #{},
+        InvMap
+    ),
+    ImporterModules = sorted_importer_modules(),
+    lists:flatmap(
+        fun(Mod) ->
+            case Map of
+                #{Mod := RootKeys} ->
+                    RootKeys;
+                #{} ->
+                    []
+            end
+        end,
+        ImporterModules
+    ).
 
 %%------------------------------------------------------------------------------
 %% `gen_server' API
