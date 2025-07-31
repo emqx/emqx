@@ -3941,27 +3941,21 @@ emqtt_client_config() ->
         {password, <<"pass">>}
     ].
 
-filesync(Name, Type) ->
+filesync(HandlerId) ->
     ct:sleep(50),
-    filesync(Name, Type, 5).
+    filesync(HandlerId, 5).
 
 %% sometime the handler process is not started yet.
-filesync(Name, Type, 0) ->
-    ct:fail("Handler process not started ~p ~p", [Name, Type]);
-filesync(Name0, Type, Retry) ->
-    Name =
-        case is_binary(Name0) of
-            true -> Name0;
-            false -> list_to_binary(Name0)
-        end,
+filesync(HandlerId, 0) ->
+    ct:fail("Handler process not started ~p", [HandlerId]);
+filesync(HandlerId, Retry) ->
     try
-        Handler = binary_to_atom(<<"trace_", (atom_to_binary(Type))/binary, "_", Name/binary>>),
-        ok = logger_disk_log_h:filesync(Handler)
+        ok = emqx_trace_handler:filesync(HandlerId)
     catch
         E:R ->
-            ct:pal("Filesync error:~p ~p~n", [{Name, Type, Retry}, {E, R}]),
+            ct:pal("Filesync error:~p ~p~n", [HandlerId, {E, R}]),
             ct:sleep(100),
-            filesync(Name, Type, Retry - 1)
+            filesync(HandlerId, Retry - 1)
     end.
 
 t_trace_rule_id(_Config) ->
@@ -3979,14 +3973,14 @@ t_trace_rule_id(_Config) ->
     ),
     %% Start tracing
     ok = emqx_trace_handler:install(
-        "CLI-RULE-1", ruleid, <<"test_rule_id_1">>, all, "tmp/rule_trace_1.log"
+        'CLI-RULE-1', "CLI-RULE-1", ruleid, <<"test_rule_id_1">>, all, "tmp/rule_trace_1.log", text
     ),
     ok = emqx_trace_handler:install(
-        "CLI-RULE-2", ruleid, <<"test_rule_id_2">>, all, "tmp/rule_trace_2.log"
+        'CLI-RULE-2', "CLI-RULE-2", ruleid, <<"test_rule_id_2">>, all, "tmp/rule_trace_2.log", text
     ),
     emqx_trace:check(),
-    ok = filesync("CLI-RULE-1", ruleid),
-    ok = filesync("CLI-RULE-2", ruleid),
+    ok = filesync('CLI-RULE-1'),
+    ok = filesync('CLI-RULE-2'),
 
     %% Verify the tracing file exits
     ?assert(filelib:is_regular("tmp/rule_trace_1.log")),
@@ -4019,17 +4013,17 @@ t_trace_rule_id(_Config) ->
         100,
         5,
         begin
-            ok = filesync("CLI-RULE-1", ruleid),
+            ok = filesync('CLI-RULE-1'),
             {ok, Bin} = file:read_file("tmp/rule_trace_1.log"),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"my_traced_message">>]))
         end
     ),
-    ok = filesync("CLI-RULE-2", ruleid),
+    ok = filesync('CLI-RULE-2'),
     ?assert(filelib:file_size("tmp/rule_trace_2.log") =:= 0),
 
     %% Stop tracing
-    ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-1">>),
-    ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-2">>),
+    ok = emqx_trace_handler:uninstall('CLI-RULE-1'),
+    ok = emqx_trace_handler:uninstall('CLI-RULE-2'),
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T).
 
@@ -4046,6 +4040,7 @@ t_trace_truncated(_Config) ->
 
     %% Start tracing
     ok = emqx_trace_handler:install(
+        'CLI-RULE-3',
         #{
             type => ruleid,
             filter => <<"test_rule_truncated">>,
@@ -4060,7 +4055,7 @@ t_trace_truncated(_Config) ->
         "tmp/rule_trace_truncated.log"
     ),
     emqx_trace:check(),
-    ok = filesync("CLI-RULE-3", ruleid),
+    ok = filesync('CLI-RULE-3'),
 
     %% Verify the tracing file exits
     ?assert(filelib:is_regular("tmp/rule_trace_truncated.log")),
@@ -4085,7 +4080,7 @@ t_trace_truncated(_Config) ->
         100,
         5,
         begin
-            ok = filesync(<<"CLI-RULE-3">>, ruleid),
+            ok = filesync('CLI-RULE-3'),
             {ok, Bin} = file:read_file("tmp/rule_trace_truncated.log"),
             ?assertNotEqual(
                 nomatch,
@@ -4098,7 +4093,7 @@ t_trace_truncated(_Config) ->
     ),
 
     %% Stop tracing
-    ok = emqx_trace_handler:uninstall(ruleid, <<"CLI-RULE-3">>),
+    ok = emqx_trace_handler:uninstall('CLI-RULE-3'),
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T),
 

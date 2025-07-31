@@ -17,7 +17,7 @@
 
 %% callbacks for emqx_config_backup
 -export([
-    import_config/1
+    import_config/2
 ]).
 
 %% API
@@ -95,7 +95,7 @@ config_transition(#{enable := E}, #{enable := E}) ->
 %% Data backup
 %%----------------------------------------------------------------------------------------
 
-import_config(#{<<"durable_queues">> := DQConf}) ->
+import_config(_Namespace, #{<<"durable_queues">> := DQConf}) ->
     OldDQConf = emqx:get_raw_config([durable_queues], #{}),
     NewDQConf = maps:merge(OldDQConf, DQConf),
     case emqx_conf:update([durable_queues], NewDQConf, #{override_to => cluster}) of
@@ -106,5 +106,5 @@ import_config(#{<<"durable_queues">> := DQConf}) ->
         Error ->
             {error, #{root_key => durable_queues, reason => Error}}
     end;
-import_config(_) ->
+import_config(_, _) ->
     {ok, #{root_key => durable_queues, changed => []}}.

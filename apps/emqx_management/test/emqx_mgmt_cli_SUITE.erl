@@ -21,6 +21,7 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
+            emqx_modules,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -195,6 +196,8 @@ t_trace(_Config) ->
     emqx_ctl:run_command(["trace", "list"]),
     %% trace start client <ClientId> <File> [<Level>]    # Traces for a client on local node
     %% trace stop  client <ClientId>                     # Stop tracing for a client on local node
+    ok = emqx_ctl:run_command(["trace", "start", "client", ?MODULE_STRING, "trace/t1.log"]),
+    ok = emqx_ctl:run_command(["trace", "stop", "client", ?MODULE_STRING]),
     %% trace start topic  <Topic>    <File> [<Level>]    # Traces for a topic on local node
     %% trace stop  topic  <Topic>                        # Stop tracing for a topic on local node
     %% trace start ip_address  <IP>    <File> [<Level>]  # Traces for a client ip on local node

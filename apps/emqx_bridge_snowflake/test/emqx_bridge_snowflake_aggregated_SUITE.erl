@@ -1,10 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
--module(emqx_bridge_snowflake_SUITE).
-
--feature(maybe_expr, enable).
+-module(emqx_bridge_snowflake_aggregated_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -24,17 +21,14 @@
 %% Definitions
 %%------------------------------------------------------------------------------
 
--define(CONN_MOD, emqx_bridge_snowflake_connector).
--define(CHAN_CLIENT_MOD, emqx_bridge_snowflake_channel_client).
+-define(CONN_MOD_AGGREG, emqx_bridge_snowflake_aggregated_impl).
 
 -define(DATABASE, <<"testdatabase">>).
 -define(SCHEMA, <<"public">>).
 -define(STAGE, <<"teststage0">>).
 -define(TABLE, <<"test0">>).
--define(TABLE_STREAMING, <<"emqx">>).
 -define(WAREHOUSE, <<"testwarehouse">>).
 -define(PIPE, <<"testpipe0">>).
--define(PIPE_STREAMING, <<"emqxstreaming">>).
 -define(PIPE_USER, <<"snowpipeuser">>).
 -define(PIPE_USER_RO, <<"snowpipe_ro_user">>).
 
@@ -136,25 +130,21 @@ init_per_testcase(TestCase, Config0) ->
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     Name = <<(atom_to_binary(TestCase))/binary, UniqueNum/binary>>,
     ConnectorConfig = connector_config(Name, AccountId, Server, Username, Password),
-    ActionConfig0 =
-        case action_mode(Config0) of
-            ?aggregated ->
-                aggregated_action_config(#{connector => Name}, Config0);
-            ?streaming ->
-                streaming_action_config(#{connector => Name}, Config0)
-        end,
-    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(?ACTION_TYPE_BIN, Name, ActionConfig0),
+    ActionConfig0 = action_config(#{connector => Name}, Config0),
+    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(
+        ?ACTION_TYPE_AGGREG_BIN, Name, ActionConfig0
+    ),
     ExtraConfig0 = maybe_mock_snowflake(Config0),
     ConnPid = new_odbc_client(Config0),
     Config =
         ExtraConfig0 ++
             [
                 {bridge_kind, action},
-                {action_type, ?ACTION_TYPE_BIN},
+                {action_type, ?ACTION_TYPE_AGGREG_BIN},
                 {action_name, Name},
                 {action_config, ActionConfig},
                 {connector_name, Name},
-                {connector_type, ?CONNECTOR_TYPE_BIN},
+                {connector_type, ?CONNECTOR_TYPE_AGGREG_BIN},
                 {connector_config, ConnectorConfig},
                 {odbc_client, ConnPid}
                 | Config0
@@ -213,9 +203,6 @@ get_matrix_prop(TCConfig, Alternatives, Default) ->
             Opt
     end.
 
-action_mode(TCConfig) ->
-    get_matrix_prop(TCConfig, [?aggregated, ?streaming], ?aggregated).
-
 is_batching(TCConfig) ->
     get_matrix_prop(TCConfig, [?not_batching, ?batching], ?batching).
 
@@ -228,9 +215,8 @@ maybe_mock_snowflake(#{mock := false}) ->
 
 mock_snowflake() ->
     TId = ets:new(snowflake, [public, ordered_set]),
-    Mod = ?CONN_MOD,
+    Mod = ?CONN_MOD_AGGREG,
     ok = meck:new(Mod, [passthrough, no_history]),
-    ok = meck:new(?CHAN_CLIENT_MOD, [passthrough, no_history]),
     on_exit(fun() -> meck:unload() end),
     meck:expect(Mod, connect, fun(_Opts) -> spawn_dummy_connection_pid() end),
     meck:expect(Mod, disconnect, fun(_ConnPid) -> ok end),
@@ -287,31 +273,6 @@ mock_snowflake() ->
         ?tp("mock_snowflake_insert_file_request", #{}),
         {ok, 200, Headers, Body}
     end),
-    {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/", server_ssl_opts()),
-    on_exit(fun() -> persistent_term:erase({emqx_bridge_snowflake_connector, streaming_port}) end),
-    persistent_term:put({emqx_bridge_snowflake_connector, streaming_port}, Port),
-    meck:expect(Mod, do_get_streaming_hostname, fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
-        Headers = [],
-        Body = <<"127.0.0.1">>,
-        ?tp("mock_snowflake_get_streaming_hostname", #{}),
-        {ok, 200, Headers, Body}
-    end),
-    meck:expect(?CHAN_CLIENT_MOD, do_open_channel, fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
-        Headers = [],
-        Body = emqx_utils_json:encode(#{<<"next_continuation_token">> => <<"0_1">>}),
-        ?tp("mock_snowflake_open_channel", #{}),
-        {ok, 200, Headers, Body}
-    end),
-    meck:expect(?CHAN_CLIENT_MOD, do_append_rows, fun(_HTTPPool, Req, _RequestTTL, _MaxRetries) ->
-        {_, _, BodyRaw} = Req,
-        Records = emqx_connector_aggreg_json_lines_test_utils:decode(iolist_to_binary(BodyRaw)),
-        Rows = lists:map(fun streaming_record_to_mocked_row/1, Records),
-        ets:insert(TId, {erlang:monotonic_time(), Rows}),
-        Headers = [],
-        Body = emqx_utils_json:encode(#{<<"next_continuation_token">> => <<"1_1">>}),
-        ?tp("mock_snowflake_append_rows", #{}),
-        {ok, 200, Headers, Body}
-    end),
     [{mocked_table, TId}].
 
 generate_dummy_jwt() ->
@@ -362,18 +323,6 @@ csv_row_to_mocked_row(Headers, Row) ->
         maps:from_list(lists:zip(Headers, Row))
     ).
 
-streaming_record_to_mocked_row(Record0) ->
-    maps:fold(
-        fun
-            (<<"payload">> = K, <<"">>, Acc) ->
-                Acc#{string:uppercase(K) => null};
-            (K, V, Acc) ->
-                Acc#{string:uppercase(K) => V}
-        end,
-        #{},
-        Record0
-    ).
-
 spawn_dummy_connection_pid() ->
     DummyConnPid = spawn_link(fun() ->
         receive
@@ -392,7 +341,7 @@ spawn_dummy_connection_pid() ->
     end),
     {ok, DummyConnPid}.
 
-connector_config(Name, AccountId, Server, Username, Password) ->
+connector_config(Name, AccountId, Server, Username, _Password) ->
     InnerConfigMap0 =
         #{
             <<"enable">> => true,
@@ -400,7 +349,8 @@ connector_config(Name, AccountId, Server, Username, Password) ->
             <<"description">> => <<"my cool bridge">>,
             <<"server">> => Server,
             <<"username">> => Username,
-            <<"password">> => Password,
+            %% <<"password">> => Password,
+            <<"private_key_path">> => private_key_path(),
             <<"account">> => AccountId,
             <<"dsn">> => <<"snowflake">>,
             <<"pool_size">> => 1,
@@ -412,9 +362,11 @@ connector_config(Name, AccountId, Server, Username, Password) ->
                     <<"start_timeout">> => <<"5s">>
                 }
         },
-    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, Name, InnerConfigMap0).
+    emqx_bridge_v2_testlib:parse_and_check_connector(
+        ?CONNECTOR_TYPE_AGGREG_BIN, Name, InnerConfigMap0
+    ).
 
-aggregated_action_config(Overrides0, TCConfig) ->
+action_config(Overrides0, TCConfig) ->
     Overrides = emqx_utils_maps:binary_key_map(Overrides0),
     CommonConfig =
         #{
@@ -436,34 +388,6 @@ aggregated_action_config(Overrides0, TCConfig) ->
                     <<"schema">> => ?SCHEMA,
                     <<"pipe">> => ?PIPE,
                     <<"stage">> => ?STAGE,
-                    <<"pipe_user">> => ?PIPE_USER,
-                    <<"connect_timeout">> => <<"5s">>,
-                    <<"max_inactive">> => <<"10s">>,
-                    <<"pipelining">> => 100,
-                    <<"pool_size">> => 1,
-                    <<"max_retries">> => 3
-                },
-            <<"resource_opts">> =>
-                maps:merge(
-                    emqx_bridge_v2_testlib:common_action_resource_opts(),
-                    batch_opts(TCConfig)
-                )
-        },
-    emqx_utils_maps:deep_merge(CommonConfig, Overrides).
-
-streaming_action_config(Overrides0, TCConfig) ->
-    Overrides = emqx_utils_maps:binary_key_map(Overrides0),
-    CommonConfig =
-        #{
-            <<"enable">> => true,
-            <<"connector">> => <<"please override">>,
-            <<"parameters">> =>
-                #{
-                    <<"mode">> => <<"streaming">>,
-                    <<"private_key">> => private_key(),
-                    <<"database">> => ?DATABASE,
-                    <<"schema">> => ?SCHEMA,
-                    <<"pipe">> => ?PIPE_STREAMING,
                     <<"pipe_user">> => ?PIPE_USER,
                     <<"connect_timeout">> => <<"5s">>,
                     <<"max_inactive">> => <<"10s">>,
@@ -522,7 +446,7 @@ private_key_password() ->
 
 aggreg_id(Config) ->
     ActionName = ?config(action_name, Config),
-    {?ACTION_TYPE_BIN, ActionName}.
+    {?ACTION_TYPE_AGGREG_BIN, ActionName}.
 
 new_odbc_client(Config) when is_list(Config) ->
     new_odbc_client(maps:from_list(Config));
@@ -531,24 +455,25 @@ new_odbc_client(#{mock := true} = _Config) ->
 new_odbc_client(#{mock := false} = Config) ->
     #{
         username := Username,
-        password := Password,
+        %% password := Password,
         server := Server,
         account_id := AccountId
     } = Config,
     DSN = <<"snowflake">>,
     Opts = [
         {username, Username},
-        {password, Password},
+        %% {password, Password},
+        {private_key_path, private_key_path()},
         {account, AccountId},
         {server, Server},
         {dsn, DSN}
     ],
-    {ok, ConnPid} = emqx_bridge_snowflake_connector:connect(Opts),
+    {ok, ConnPid} = ?CONN_MOD_AGGREG:connect(Opts),
     ConnPid.
 
 stop_odbc_client(Config) ->
     ConnPid = ?config(odbc_client, Config),
-    ok = emqx_bridge_snowflake_connector:disconnect(ConnPid).
+    ok = ?CONN_MOD_AGGREG:disconnect(ConnPid).
 
 str(IOList) ->
     emqx_utils_conv:str(iolist_to_binary(IOList)).
@@ -597,13 +522,8 @@ truncate_table(Config) ->
     {updated, _} = sql_query(ConnPid, SQL),
     ok.
 
-table_of(#{} = TCConfig) ->
-    table_of(maps:to_list(TCConfig));
-table_of(TCConfig) ->
-    case action_mode(TCConfig) of
-        ?aggregated -> ?TABLE;
-        ?streaming -> ?TABLE_STREAMING
-    end.
+table_of(_TCConfig) ->
+    ?TABLE.
 
 row_to_map(Row0, Headers) ->
     Row1 = tuple_to_list(Row0),
@@ -664,7 +584,7 @@ get_begin_mark(#{mock := true}, _ActionResId) ->
     <<"mocked">>;
 get_begin_mark(#{mock := false}, ActionResId) ->
     {ok, #{<<"nextBeginMark">> := BeginMark}} =
-        emqx_bridge_snowflake_connector:insert_report(ActionResId, #{}),
+        ?CONN_MOD_AGGREG:insert_report(ActionResId, #{}),
     BeginMark.
 
 wait_until_processed(Config, ActionResId, BeginMark) ->
@@ -685,7 +605,9 @@ wait_until_processed(#{mock := true} = Config, _ActionResId, _BeginMark, Expecte
     {ok, InsertRes};
 wait_until_processed(#{mock := false} = Config, ActionResId, BeginMark, ExpectedNumFiles) ->
     {ok, Res} =
-        emqx_bridge_snowflake_connector:insert_report(ActionResId, #{begin_mark => BeginMark}),
+        ?CONN_MOD_AGGREG:insert_report(
+            ActionResId, #{begin_mark => BeginMark}
+        ),
     ct:pal("insert report (begin mark ~s):\n  ~p", [BeginMark, Res]),
     case Res of
         #{
@@ -732,10 +654,6 @@ create_connector_api(Config, Overrides) ->
 %% Test cases
 %%------------------------------------------------------------------------------
 
-t_start_stop() ->
-    [{matrix, true}].
-t_start_stop(matrix) ->
-    [[?aggregated], [?streaming]];
 t_start_stop(TCConfig) when is_list(TCConfig) ->
     ok = emqx_bridge_v2_testlib:t_start_stop(TCConfig, "snowflake_connector_stop"),
     ?assertMatch([], supervisor:which_children(emqx_bridge_snowflake_sup)),
@@ -770,7 +688,7 @@ t_aggreg_upload(Config) when is_list(Config) ->
             BeginMark = get_begin_mark(Config, ActionResId),
             {ok, _Rule} =
                 emqx_bridge_v2_testlib:create_rule_and_action_http(
-                    ?ACTION_TYPE_BIN, <<"">>, Config, #{
+                    ?ACTION_TYPE_AGGREG_BIN, <<"">>, Config, #{
                         sql => sql1()
                     }
                 ),
@@ -908,7 +826,7 @@ t_aggreg_upload_flush_on_complete(Config) ->
             BeginMark = get_begin_mark(Config, ActionResId),
             {ok, _Rule} =
                 emqx_bridge_v2_testlib:create_rule_and_action_http(
-                    ?ACTION_TYPE_BIN, <<"">>, Config, #{
+                    ?ACTION_TYPE_AGGREG_BIN, <<"">>, Config, #{
                         sql => sql1()
                     }
                 ),
@@ -1048,7 +966,7 @@ t_aggreg_wrong_number_of_columns(init, #{mock := true} = Config) ->
             #{<<"activeFilesCount">> => 0}
     },
     %% Snowflake stages the file, but inserts no rows
-    meck:expect(?CONN_MOD, do_stage_file, fun(
+    meck:expect(?CONN_MOD_AGGREG, do_stage_file, fun(
         _ConnPid, Filename, _Database, _Schema, _Stage, _ActionNmame
     ) ->
         Headers = [
@@ -1090,7 +1008,7 @@ t_aggreg_wrong_number_of_columns(Config) ->
             BeginMark = get_begin_mark(Config, ActionResId),
             {ok, _Rule} =
                 emqx_bridge_v2_testlib:create_rule_and_action_http(
-                    ?ACTION_TYPE_BIN, <<"">>, Config, #{
+                    ?ACTION_TYPE_AGGREG_BIN, <<"">>, Config, #{
                         sql => <<
                             "SELECT "
                             "  *,"
@@ -1173,7 +1091,7 @@ t_aggreg_invalid_column_values(init, #{mock := true} = Config) ->
         <<"pipe">> => <<"TESTDATABASE.PUBLIC.TESTPIPE0">>,
         <<"statistics">> => #{<<"activeFilesCount">> => 0}
     },
-    meck:expect(?CONN_MOD, do_stage_file, fun(
+    meck:expect(?CONN_MOD_AGGREG, do_stage_file, fun(
         _ConnPid, Filename, _Database, _Schema, _Stage, _ActionName
     ) ->
         {ok, Content} = file:read_file(Filename),
@@ -1233,7 +1151,7 @@ t_aggreg_invalid_column_values(Config0) ->
             BeginMark = get_begin_mark(Config, ActionResId),
             {ok, _Rule} =
                 emqx_bridge_v2_testlib:create_rule_and_action_http(
-                    ?ACTION_TYPE_BIN, <<"">>, Config, #{
+                    ?ACTION_TYPE_AGGREG_BIN, <<"">>, Config, #{
                         sql => <<
                             "SELECT "
                             "  clientid,"
@@ -1303,7 +1221,7 @@ t_aggreg_invalid_column_values(Config0) ->
 t_aggreg_failed_delivery(init, Config) when is_list(Config) ->
     t_aggreg_failed_delivery(init, maps:from_list(Config));
 t_aggreg_failed_delivery(init, #{mock := true} = Config) ->
-    Mod = ?CONN_MOD,
+    Mod = ?CONN_MOD_AGGREG,
     meck:expect(Mod, do_insert_files_request, fun(
         _HTTPPool, _Req, _RequestTTL, _MaxRetries
     ) ->
@@ -1329,7 +1247,7 @@ t_aggreg_failed_delivery(init, #{} = Config) ->
     %% This test doesn't quite work with real snowflake without this hack, since we check
     %% for user permissions when adding the action.
     {ok, Agent} = emqx_utils_agent:start_link(mock),
-    Mod = emqx_bridge_snowflake_connector,
+    Mod = ?CONN_MOD_AGGREG,
     on_exit(fun() -> meck:unload() end),
     ok = meck:new(Mod, [passthrough, no_history]),
     meck:expect(Mod, do_insert_report_request, fun(HTTPPool, Req, RequestTTL, MaxRetries) ->
@@ -1361,7 +1279,7 @@ t_aggreg_failed_delivery(Config) ->
             %% BeginMark = get_begin_mark(Config, ActionResId),
             {ok, _Rule} =
                 emqx_bridge_v2_testlib:create_rule_and_action_http(
-                    ?ACTION_TYPE_BIN, <<"">>, Config, #{
+                    ?ACTION_TYPE_AGGREG_BIN, <<"">>, Config, #{
                         sql => sql1()
                     }
                 ),
@@ -1408,7 +1326,7 @@ t_aggreg_failed_delivery(Config) ->
 t_wrong_snowpipe_user(init, Config) when is_list(Config) ->
     t_wrong_snowpipe_user(init, maps:from_list(Config));
 t_wrong_snowpipe_user(init, #{mock := true} = Config) ->
-    Mod = ?CONN_MOD,
+    Mod = ?CONN_MOD_AGGREG,
     InsertReportResponse = #{
         <<"code">> => <<"390144">>,
         <<"data">> => null,
@@ -1463,31 +1381,6 @@ t_wrong_snowpipe_user(Config) ->
 t_rule_test_trace(Config) ->
     Opts = #{},
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
-
-%% Smoke test for streaming mode.
-t_streaming() ->
-    [{matrix, true}].
-t_streaming(matrix) ->
-    [
-        [?streaming, ?batching],
-        [?streaming, ?not_batching]
-    ];
-t_streaming(TCConfig) when is_list(TCConfig) ->
-    PostPublishFn = fun(Context) ->
-        #{payload := Payload} = Context,
-        ?retry(
-            2_000,
-            10,
-            ?assertMatch(
-                [#{<<"PAYLOAD">> := Payload}],
-                get_all_rows(TCConfig)
-            )
-        )
-    end,
-    Opts = #{
-        post_publish_fn => PostPublishFn
-    },
-    emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
 
 t_optional_username(init, Config) when is_list(Config) ->
     t_optional_username(init, maps:from_list(Config));

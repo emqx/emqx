@@ -58,7 +58,7 @@
 
 %% Data backup
 -export([
-    import_config/1
+    import_config/2
 ]).
 
 -export_type([
@@ -185,7 +185,7 @@ post_config_update(_KeyPath, UpdateReq, NewConf, OldConf, _AppEnvs) ->
 %% Data backup
 %%----------------------------------------------------------------------------------------
 
-import_config(#{<<"exhook">> := #{<<"servers">> := Servers} = ExHook}) ->
+import_config(_Namespace, #{<<"exhook">> := #{<<"servers">> := Servers} = ExHook}) ->
     OldServers = emqx:get_raw_config(?SERVERS, []),
     KeyFun = fun(#{<<"name">> := Name}) -> Name end,
     ExHook1 = ExHook#{<<"servers">> => emqx_utils:merge_lists(OldServers, Servers, KeyFun)},
@@ -197,7 +197,7 @@ import_config(#{<<"exhook">> := #{<<"servers">> := Servers} = ExHook}) ->
         Error ->
             {error, #{root_key => ?EXHOOK_ROOT, reason => Error}}
     end;
-import_config(_RawConf) ->
+import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => ?EXHOOK_ROOT, changed => []}}.
 
 %%----------------------------------------------------------------------------------------

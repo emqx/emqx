@@ -16,7 +16,7 @@
 
 %% Data backup
 -export([
-    import_config/1
+    import_config/2
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -49,7 +49,7 @@ wrap(Ok) -> Ok.
 %% Data backup
 %%------------------------------------------------------------------------------
 
-import_config(RawConf) ->
+import_config(_Namespace, RawConf) ->
     NewConf = maps:get(<<"listeners">>, RawConf, #{}),
     OldConf = emqx:get_raw_config([?CONF_ROOT_KEY], #{}),
     MergedConf = merge_confs(OldConf, NewConf),

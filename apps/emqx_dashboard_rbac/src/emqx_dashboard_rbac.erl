@@ -38,6 +38,7 @@
 -define(RULE_API(METHOD, FN), ?API(emqx_rule_engine_api, METHOD, FN)).
 -define(TRACE_API(METHOD, FN), ?API(emqx_mgmt_api_trace, METHOD, FN)).
 -define(PUBLISH_API(METHOD, FN), ?API(emqx_mgmt_api_publish, METHOD, FN)).
+-define(DATA_BACKUP_API(METHOD, FN), ?API(emqx_mgmt_api_data_backup, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -180,6 +181,13 @@ do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?TRACE
     is_binary(Namespace)
 ->
     %% Used by rule simulation API.
+    true;
+do_check_rbac(
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?DATA_BACKUP_API(_, _)
+) when
+    is_binary(Namespace)
+->
+    %% Configuration backup export/import.
     true;
 do_check_rbac(_, _, _) ->
     false.

@@ -13,6 +13,8 @@
 
 -define(CONNECTOR, emqx_connector_dummy_impl).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -80,6 +82,9 @@ connector_config() ->
                 <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
             }
     }.
+
+get_value(Key, TCConfig) ->
+    emqx_bridge_v2_testlib:get_value(Key, TCConfig).
 
 %%------------------------------------------------------------------------------
 %% Test cases

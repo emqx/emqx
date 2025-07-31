@@ -95,11 +95,16 @@ t_copy_deprecated_data_dir(Config) ->
         File = NodeDataDir ++ "/configs/cluster-override.conf",
         assert_config_load_done(Nodes),
         rpc:call(First, ?MODULE, create_data_dir, [File]),
+        ct:pal("stopping emqx_conf application on all nodes"),
         {[ok, ok, ok], []} = rpc:multicall(Nodes, application, stop, [emqx_conf]),
         {[ok, ok, ok], []} = rpc:multicall(Nodes, ?MODULE, set_data_dir_env, []),
+        ct:pal("starting emqx_conf application on ~p", [First]),
         ok = rpc:call(First, application, start, [emqx_conf]),
+        ct:pal("starting emqx_conf application on ~p", [Rest]),
         {[ok, ok], []} = rpc:multicall(Rest, application, start, [emqx_conf]),
-        ?retry(200, 10, ok = assert_data_copy_done(Nodes, File))
+        ct:pal("checking state", []),
+        ?retry(200, 10, ok = assert_data_copy_done(Nodes, File)),
+        ct:pal("state ok", [])
     after
         stop_cluster(Nodes)
     end.
@@ -219,10 +224,14 @@ assert_data_copy_done([_First | Rest], File) ->
     lists:foreach(
         fun(Node0) ->
             NodeDataDir = erpc:call(Node0, emqx, data_dir, []),
-            ?assertEqual(
-                {ok, FakeCertFile},
-                file:read_file(NodeDataDir ++ "/certs/fake-cert"),
-                #{node => Node0}
+            ?retry(
+                200,
+                10,
+                ?assertEqual(
+                    {ok, FakeCertFile},
+                    file:read_file(NodeDataDir ++ "/certs/fake-cert"),
+                    #{node => Node0}
+                )
             ),
             ?assertEqual(
                 {ok, ExpectFake},
@@ -295,6 +304,7 @@ cluster_spec(Num) ->
 
 sort_highest_uptime(Nodes) ->
     Ranking = lists:sort([{-get_node_uptime(N), N} || N <- Nodes]),
+    ct:pal("nodes sorted by uptime: ~p", [Ranking]),
     element(2, lists:unzip(Ranking)).
 
 get_node_uptime(Node) ->

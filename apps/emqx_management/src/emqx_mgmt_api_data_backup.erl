@@ -11,6 +11,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
@@ -22,6 +23,7 @@
 ]).
 
 -define(TAGS, [<<"Data Backup">>]).
+-define(BPAPI_NAME, emqx_mgmt_data_backup).
 
 namespace() -> undefined.
 
@@ -223,7 +225,9 @@ field_filename(IsRequired, Meta) ->
 %% HTTP API Callbacks
 %%------------------------------------------------------------------------------
 
-data_export(post, #{body := Params}) ->
+data_export(post, #{body := Params0} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    Params = emqx_utils_maps:put_if(Params0, <<"namespace">>, Namespace, is_binary(Namespace)),
     maybe
         ok ?= emqx_mgmt_data_backup:validate_export_root_keys(Params),
         {ok, Opts} ?= emqx_mgmt_data_backup:parse_export_request(Params),
@@ -250,25 +254,29 @@ data_export(post, #{body := Params}) ->
             {500, #{code => 'INTERNAL_ERROR', message => Msg}}
     end.
 
-data_import(post, #{body := #{<<"filename">> := Filename} = Body}) ->
-    case safe_parse_node(Body) of
+data_import(post, #{body := #{<<"filename">> := Filename} = Body} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 2),
+    case safe_parse_node(Body, Nodes) of
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
             CoreNode = core_node(FileNode),
-            case
-                emqx_mgmt_data_backup_proto_v1:import_file(CoreNode, FileNode, Filename, infinity)
-            of
+            Opts = emqx_utils_maps:put_if(#{}, namespace, Namespace, is_binary(Namespace)),
+            Res = emqx_mgmt_data_backup_proto_v2:import_file(
+                CoreNode,
+                FileNode,
+                Filename,
+                Opts,
+                infinity
+            ),
+            case Res of
                 {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} ->
                     case DbErrs =:= #{} andalso ConfErrs =:= #{} of
                         true ->
                             {204};
                         false ->
-                            DbErrs1 = emqx_mgmt_data_backup:format_db_errors(DbErrs),
-                            ConfErrs1 = emqx_mgmt_data_backup:format_conf_errors(ConfErrs),
-                            Msg = unicode:characters_to_binary(
-                                io_lib:format("~s", [DbErrs1 ++ ConfErrs1])
-                            ),
+                            Msg = format_import_errors(DbErrs, ConfErrs),
                             {400, #{code => ?BAD_REQUEST, message => Msg}}
                     end;
                 {badrpc, Reason} ->
@@ -282,6 +290,19 @@ data_import(post, #{body := #{<<"filename">> := Filename} = Body}) ->
                     }}
             end
     end.
+
+format_import_errors(DbErrs, ConfErrs) ->
+    DbErrs1 = emqx_mgmt_data_backup:format_db_errors(DbErrs),
+    ConfErrs1 = emqx_mgmt_data_backup:format_conf_errors(ConfErrs),
+    GlobalConfErrs = maps:get(?global_ns, ConfErrs1, <<"">>),
+    Msg0 = ConfErrs1#{
+        ?global_ns => [
+            DbErrs1,
+            GlobalConfErrs
+        ]
+    },
+    Msg1 = maps:map(fun(_Ns, IOData) -> iolist_to_binary(IOData) end, Msg0),
+    maps:filter(fun(_Ns, Text) -> Text /= <<"">> end, Msg1).
 
 core_node(FileNode) ->
     case mria_rlog:role(FileNode) of
@@ -350,13 +371,17 @@ get_or_delete_file(get, Filename, Node) ->
 get_or_delete_file(delete, Filename, Node) ->
     emqx_mgmt_data_backup_proto_v1:delete_file(Node, Filename, infinity).
 
-safe_parse_node(#{<<"node">> := NodeBin}) ->
-    NodesBin = [erlang:atom_to_binary(N, utf8) || N <- emqx:running_nodes()],
+safe_parse_node(BodyParams) ->
+    Nodes = emqx:running_nodes(),
+    safe_parse_node(BodyParams, Nodes).
+
+safe_parse_node(#{<<"node">> := NodeBin}, Nodes) ->
+    NodesBin = [erlang:atom_to_binary(N, utf8) || N <- Nodes],
     case lists:member(NodeBin, NodesBin) of
         true -> erlang:binary_to_atom(NodeBin, utf8);
         false -> {error, io_lib:format("Unknown node: ~s", [NodeBin])}
     end;
-safe_parse_node(_) ->
+safe_parse_node(_, _) ->
     node().
 
 list_backup_files(Page, Limit) ->

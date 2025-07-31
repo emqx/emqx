@@ -8,6 +8,7 @@
 -include("logger.hrl").
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
+-include("emqx_config.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hocon.hrl").
 
@@ -95,6 +96,8 @@
     get_raw_namespaced/2,
     get_raw_namespaced/3,
     get_all_namespaces_containing/1,
+    get_all_raw_namespaced_configs/0,
+    get_all_roots_from_namespace/1,
     get_root_from_all_namespaces/1,
     get_root_from_all_namespaces/2,
     get_raw_root_from_all_namespaces/1,
@@ -127,6 +130,7 @@
 -define(INVALID_NS_CONF_PT_KEY(NS), {?MODULE, {corrupt_ns_conf, NS}}).
 
 -export_type([
+    maybe_namespace/0,
     update_request/0,
     raw_config/0,
     config/0,
@@ -173,6 +177,8 @@
 }.
 -type cluster_rpc_opts() :: #{kind => ?KIND_INITIATE | ?KIND_REPLICATE}.
 
+-type maybe_namespace() :: ?global_ns | binary().
+
 %% raw_config() is the config that is NOT parsed and translated by hocon schema
 -type raw_config() :: #{binary() => term()} | list() | undefined.
 %% config() is the config that is parsed and translated by hocon schema
@@ -211,6 +217,36 @@ get_all_namespaces_containing(RootKey0) ->
     ),
     MS = [{MatchHead, [], ['$1']}],
     lists:usort(mnesia:dirty_select(?CONFIG_TAB, MS)).
+
+get_all_raw_namespaced_configs() ->
+    MatchHead = erlang:make_tuple(record_info(size, ?CONFIG_TAB), '_'),
+    lists:foldl(
+        fun(#?CONFIG_TAB{root_key = {Namespace, RootKey}, raw_value = Config}, Acc) ->
+            maps:update_with(
+                Namespace,
+                fun(NSConfigs) -> NSConfigs#{RootKey => Config} end,
+                #{RootKey => Config},
+                Acc
+            )
+        end,
+        #{},
+        mnesia:dirty_match_object(?CONFIG_TAB, MatchHead)
+    ).
+
+get_all_roots_from_namespace(Namespace) when is_binary(Namespace) ->
+    MatchHead = erlang:make_tuple(
+        record_info(size, ?CONFIG_TAB),
+        '_',
+        [{#?CONFIG_TAB.root_key, {Namespace, '_'}}]
+    ),
+    RootConfigs = mnesia:dirty_match_object(?CONFIG_TAB, MatchHead),
+    lists:foldl(
+        fun(#?CONFIG_TAB{root_key = {_, RootKey}, raw_value = Config}, Acc) ->
+            Acc#{RootKey => Config}
+        end,
+        #{},
+        RootConfigs
+    ).
 
 get_root_from_all_namespaces(RootKey) ->
     do_get_root_from_all_namespaces(RootKey, error).

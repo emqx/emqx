@@ -82,9 +82,8 @@ MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
 CREATE PIPE IF NOT EXISTS testdatabase.public.emqxstreaming AS
 COPY INTO testdatabase.public.emqx FROM (
   SELECT $1:clientid, $1:topic, $1:payload, $1:publish_received_at
-  FROM TABLE(DATA_SOURCE(TYPE => 'STREAMING')
-)
-MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+  FROM TABLE(DATA_SOURCE(TYPE => 'STREAMING'))
+);
 
 CREATE USER IF NOT EXISTS snowpipeuser
     PASSWORD = 'Snowpipeuser99'

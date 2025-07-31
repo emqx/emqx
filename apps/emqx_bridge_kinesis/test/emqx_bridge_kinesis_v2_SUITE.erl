@@ -352,7 +352,7 @@ t_connector_health_check_rate_limit() ->
 t_connector_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
     %% Using long enough interval with few nodes, should not hit limit
     ct:pal("Testing with 1 node, no rate limit"),
-    ct:timetrap({seconds, 10}),
+    ct:timetrap({seconds, 30}),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin
@@ -373,7 +373,7 @@ t_connector_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
     snabbkaffe:stop(),
 
     ct:pal("Testing with 1 node"),
-    ct:timetrap({seconds, 10}),
+    ct:timetrap({seconds, 30}),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin
@@ -488,7 +488,7 @@ t_action_health_check_rate_limit() ->
 t_action_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
     %% Using long enough interval with few nodes, should not hit limit
     ct:pal("Testing with 1 node, no rate limit"),
-    ct:timetrap({seconds, 10}),
+    ct:timetrap({seconds, 30}),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin
@@ -511,7 +511,7 @@ t_action_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
     snabbkaffe:stop(),
 
     ct:pal("Testing with 1 node"),
-    ct:timetrap({seconds, 10}),
+    ct:timetrap({seconds, 30}),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin

@@ -54,10 +54,9 @@ defmodule Mix.Tasks.Emqx.Ct do
 
     {_, 0} = System.cmd("epmd", ["-daemon"])
     node_name = :"test@127.0.0.1"
-    :net_kernel.start([node_name, :longnames])
+    Node.start(node_name, :longnames)
     logdir = Path.join([Mix.Project.build_path(), "logs"])
     File.mkdir_p!(logdir)
-    {:ok, _} = Application.ensure_all_started(:cth_readable)
 
     # unmangle PROFILE env because some places (`:emqx_conf.resolve_schema_module`) expect
     # the version without the `-test` suffix.
@@ -72,7 +71,11 @@ defmodule Mix.Tasks.Emqx.Ct do
 
     EMQX.Mix.Utils.clear_screen()
 
-    :logger.set_primary_config(:level, :notice)
+    Logger.configure(level: :notice)
+    :ok = enable_sasl_report_logging()
+    :ok = replace_elixir_formatter()
+
+    {:ok, _} = Application.ensure_all_started(:cth_readable)
 
     context = %{logdir: logdir, node_name: node_name}
 
@@ -139,9 +142,36 @@ defmodule Mix.Tasks.Emqx.Ct do
     )
   end
 
+  defmodule Formatter do
+    @config %{single_line: false, legacy_header: true}
+    @colors %{
+      error: :red,
+      warning: :yellow,
+      notice: :bright,
+      info: :normal,
+      debug: :cyan
+    }
+
+    @doc false
+    def new(), do: {__MODULE__, IO.ANSI.enabled?()}
+
+    @doc false
+    def format(%{level: level} = event, true) do
+      color = Access.get(@colors, level, :red)
+      [IO.ANSI.format_fragment(color, true), format_erlang_default(event), IO.ANSI.reset()]
+    end
+
+    def format(event, false) do
+      format_erlang_default(event)
+    end
+
+    defp format_erlang_default(event) do
+      :logger_formatter.format(event, @config)
+    end
+  end
+
   def replace_elixir_formatter() do
-    erl_formatter = {:logger_formatter, %{single_line: false, legacy_header: true}}
-    :logger.update_handler_config(:default, %{formatter: erl_formatter})
+    :logger.update_handler_config(:default, %{formatter: Formatter.new()})
   end
 
   @doc """
@@ -277,6 +307,21 @@ defmodule Mix.Tasks.Emqx.Ct do
     |> Path.join("ebin")
     |> to_charlist()
     |> :code.add_path(:cache)
+  end
+
+  defp enable_sasl_report_logging do
+    filters =
+      :logger.get_primary_config()
+      |> Map.fetch!(:filters)
+      |> Enum.map(fn
+        {name = :logger_translator, {mod, config}} ->
+          {name, {mod, %{config | sasl: true, translators: []}}}
+
+        filter ->
+          filter
+      end)
+
+    :logger.set_primary_config(:filters, filters)
   end
 
   defp parse_args!(args) do

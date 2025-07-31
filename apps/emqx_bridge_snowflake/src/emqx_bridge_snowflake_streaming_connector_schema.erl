@@ -1,8 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
--module(emqx_bridge_snowflake_connector_schema).
+-module(emqx_bridge_snowflake_streaming_connector_schema).
 
 -behaviour(hocon_schema).
 -behaviour(emqx_connector_examples).
@@ -19,10 +18,6 @@
     desc/1
 ]).
 
-%% `emqx_schema_hooks' API
--export([injected_fields/0]).
--export([authn_mode_selection_validator/1]).
-
 %% `emqx_connector_examples' API
 -export([
     connector_examples/1
@@ -35,12 +30,15 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
+-define(AGGREG_CONN_SCHEMA_MOD, emqx_bridge_snowflake_aggregated_connector_schema).
+-define(AGGREG_ACTION_SCHEMA_MOD, emqx_bridge_snowflake_aggregated_action_schema).
+
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
 %%-------------------------------------------------------------------------------------------------
 
 namespace() ->
-    "connector_snowflake".
+    "connector_snowflake_streaming".
 
 roots() ->
     [].
@@ -50,74 +48,78 @@ fields(Field) when
     Field == "put_connector";
     Field == "post_connector"
 ->
-    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, fields(connector_config));
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE_STREAM, fields(connector_config));
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++ fields(connector_config);
 fields(connector_config) ->
-    Fields0 = emqx_connector_schema_lib:relational_db_fields(),
-    Fields1 = proplists:delete(database, Fields0),
-    Fields = lists:map(
-        fun
-            ({Field, Sc}) when Field =:= username; Field =:= password ->
-                Override = #{type => hocon_schema:field_schema(Sc, type), required => false},
-                {Field, hocon_schema:override(Sc, Override)};
-            ({Field, Sc}) ->
-                {Field, Sc}
-        end,
-        Fields1
-    ),
     [
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"15s">>, desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "connect_timeout")
+            })},
+        {pipelining,
+            mk(pos_integer(), #{
+                default => 100, desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "pipelining")
+            })},
+        {max_retries,
+            mk(non_neg_integer(), #{
+                default => 3, desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "max_retries")
+            })},
+        emqx_connector_schema:ehttpc_max_inactive_sc(),
         {server,
             emqx_schema:servers_sc(
-                #{required => true, desc => ?DESC("server")},
+                #{required => true, desc => ?DESC(?AGGREG_CONN_SCHEMA_MOD, "server")},
                 ?SERVER_OPTS
             )},
         {account,
             mk(binary(), #{
                 required => true,
-                desc => ?DESC("account"),
-                validator => fun account_id_validator/1
+                desc => ?DESC(?AGGREG_CONN_SCHEMA_MOD, "account"),
+                validator => fun emqx_bridge_snowflake_lib:account_id_validator/1
             })},
-        {dsn, mk(binary(), #{required => true, desc => ?DESC("dsn")})},
-        {private_key_path, mk(binary(), #{required => false, desc => ?DESC("private_key_path")})},
+        {pipe_user,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "pipe_user")
+            })},
+        {private_key,
+            emqx_schema_secret:mk(#{
+                required => true,
+                desc => ?DESC(?AGGREG_ACTION_SCHEMA_MOD, "private_key")
+            })},
         {private_key_password,
             emqx_schema_secret:mk(#{
                 required => false,
-                desc => ?DESC("private_key_password")
+                desc => ?DESC(?AGGREG_CONN_SCHEMA_MOD, "private_key_password")
             })},
         {proxy,
             mk(
                 hoconsc:union([none, hoconsc:ref(?MODULE, proxy_config)]),
-                #{default => none, desc => ?DESC("proxy_config")}
+                #{default => none, desc => ?DESC(?AGGREG_CONN_SCHEMA_MOD, "proxy_config")}
             )}
-        | Fields
     ] ++
         emqx_connector_schema:resource_opts() ++
         emqx_connector_schema_lib:ssl_fields();
 fields(proxy_config) ->
     [
-        {host, mk(binary(), #{required => true, desc => ?DESC("proxy_config_host")})},
+        {host,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(?AGGREG_CONN_SCHEMA_MOD, "proxy_config_host")
+            })},
         {port,
-            mk(emqx_schema:port_number(), #{required => true, desc => ?DESC("proxy_config_port")})}
+            mk(emqx_schema:port_number(), #{
+                required => true,
+                desc => ?DESC(?AGGREG_CONN_SCHEMA_MOD, "proxy_config_port")
+            })}
     ].
-
-injected_fields() ->
-    #{
-        'connectors.validators' => [fun ?MODULE:authn_mode_selection_validator/1]
-    }.
-
-authn_mode_selection_validator(#{<<"snowflake">> := SnowflakeConns}) ->
-    Iter = maps:iterator(SnowflakeConns),
-    do_authn_mode_selection_validator(maps:next(Iter));
-authn_mode_selection_validator(_) ->
-    ok.
 
 desc("config_connector") ->
     ?DESC("config_connector");
 desc(resource_opts) ->
     ?DESC(emqx_resource_schema, resource_opts);
 desc(proxy_config) ->
-    ?DESC("proxy_config");
+    ?DESC(?AGGREG_CONN_SCHEMA_MOD, "proxy_config");
 desc(_Name) ->
     undefined.
 
@@ -152,7 +154,7 @@ connector_example(post) ->
     maps:merge(
         connector_example(put),
         #{
-            type => atom_to_binary(?CONNECTOR_TYPE),
+            type => atom_to_binary(?CONNECTOR_TYPE_AGGREG),
             name => <<"my_connector">>
         }
     );
@@ -182,25 +184,3 @@ connector_example(put) ->
 %%------------------------------------------------------------------------------
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
-
-account_id_validator(AccountId) ->
-    case binary:split(AccountId, <<"-">>) of
-        [_, _] ->
-            ok;
-        _ ->
-            {error, <<"Account identifier must be of form ORGID-ACCOUNTNAME">>}
-    end.
-
-do_authn_mode_selection_validator(none) ->
-    ok;
-do_authn_mode_selection_validator({_Name, Conf, Iter}) ->
-    case Conf of
-        #{<<"password">> := _, <<"private_key_path">> := _} ->
-            Msg = <<
-                "At most one of `password` or `private_key_path`"
-                " must be set, but not both"
-            >>,
-            {error, Msg};
-        _ ->
-            do_authn_mode_selection_validator(maps:next(Iter))
-    end.
