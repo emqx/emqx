@@ -45,11 +45,16 @@ schema("/cluster") ->
             desc => ?DESC(get_cluster_info),
             tags => [<<"Cluster">>],
             responses => #{
-                200 => [
-                    {name, ?HOCON(string(), #{desc => ?DESC("cluster_name")})},
-                    {nodes, ?HOCON(?ARRAY(string()), #{desc => ?DESC("node_names")})},
-                    {self, ?HOCON(string(), #{desc => ?DESC("self_node_name")})}
-                ]
+                200 => fields(cluster_info_response)
+            }
+        },
+        put => #{
+            desc => ?DESC(put_cluster_info),
+            tags => [<<"Cluster">>],
+            'requestBody' => hoconsc:ref(?MODULE, cluster_info_request),
+            responses => #{
+                200 => fields(cluster_info_response),
+                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'], <<"Invalid request">>)
             }
         }
     };
@@ -219,6 +224,17 @@ fields(node_invitation_in_progress) ->
                     example => <<"2024-01-30T15:24:39.355+08:00">>
                 }
             )}
+    ];
+fields(cluster_info_request) ->
+    [
+        {description, ?HOCON(binary(), #{desc => ?DESC("cluster_description")})}
+    ];
+fields(cluster_info_response) ->
+    [
+        {name, ?HOCON(binary(), #{desc => ?DESC("cluster_name")})},
+        {description, ?HOCON(binary(), #{desc => ?DESC("cluster_description")})},
+        {nodes, ?HOCON(?ARRAY(binary()), #{desc => ?DESC("node_names")})},
+        {self, ?HOCON(binary(), #{desc => ?DESC("self_node_name")})}
     ].
 
 validate_node(Node) ->
@@ -228,13 +244,16 @@ validate_node(Node) ->
     end.
 
 cluster_info(get, _) ->
-    ClusterName = application:get_env(ekka, cluster_name, emqxcl),
-    Info = #{
-        name => ClusterName,
-        nodes => emqx:running_nodes(),
-        self => node()
-    },
-    {200, Info}.
+    {200, get_cluster_info()};
+cluster_info(put, #{body := Params0}) ->
+    PreviousParams = emqx:get_raw_config([<<"cluster">>], #{}),
+    Params = emqx_utils_maps:deep_merge(PreviousParams, Params0),
+    case emqx:update_config([cluster], Params, #{override_to => cluster}) of
+        {ok, _} ->
+            {200, get_cluster_info()};
+        {error, Reason} ->
+            {400, Reason}
+    end.
 
 cluster_topology(get, _) ->
     RunningCores = running_cores(),
@@ -358,3 +377,13 @@ format_invitation_info(L) when is_list(L) ->
         end,
         L
     ).
+
+get_cluster_info() ->
+    ClusterName = application:get_env(ekka, cluster_name, emqxcl),
+    Description = emqx:get_config([cluster, description], <<"">>),
+    #{
+        name => ClusterName,
+        description => Description,
+        nodes => emqx:running_nodes(),
+        self => node()
+    }.
