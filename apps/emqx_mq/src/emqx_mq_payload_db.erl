@@ -6,6 +6,7 @@
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("emqx_mq_internal.hrl").
 
 -export([
     open/0,
@@ -82,7 +83,10 @@ subscribe(DSClient0, SubId, MQTopic, State0) ->
     SubOpts = #{
         db => ?MQ_PAYLOAD_DB,
         id => SubId,
-        topic => ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#')
+        topic => ?MQ_PAYLOAD_DB_TOPIC(MQTopic, '#'),
+        ds_sub_opts => #{
+            max_unacked => ?MQ_CONSUMER_MAX_UNACKED
+        }
     },
     {ok, DSClient, State} = emqx_ds_client:subscribe(DSClient0, SubOpts, State0),
     {ok, DSClient, State}.

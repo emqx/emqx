@@ -42,7 +42,7 @@
     subscriber_ref :: emqx_mq_types:subscriber_ref()
 }).
 
--define(MQ_COMPACTION_KEY_USER_PROPERTY, <<"CompactionKey">>).
+-define(MQ_COMPACTION_KEY_USER_PROPERTY, <<"mq-key">>).
 
 %% TODO
 %% make configurable, increase

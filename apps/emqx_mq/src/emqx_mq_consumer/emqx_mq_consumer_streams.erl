@@ -83,7 +83,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
 new(MQTopic, Progress) ->
     new(MQTopic, Progress, #{}).
 
--spec new(emqx_mq_types:mq_topic(), progress(), map()) -> t().
+-spec new(emqx_mq_types:mq_topic(), progress(), emqx_mq_consumer_stream_buffer:options()) -> t().
 new(MQTopic, Progress, SBOptions) ->
     StreamsProgress = maps:get(streams_progress, Progress, #{}),
     GenerationProgress = maps:get(generation_progress, Progress, #{}),

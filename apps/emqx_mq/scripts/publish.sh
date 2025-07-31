@@ -16,6 +16,6 @@ while true; do
     n=$((n + 1))
     compaction_key="key$(($RANDOM % $keys))"
     payload="dummy message $n $compaction_key"
-    mosquitto_pub -t "$topic" -m "$payload" -D publish user-property CompactionKey "$compaction_key"
+    mosquitto_pub -t "$topic" -m "$payload" -D publish user-property mq-compaction-key "$compaction_key"
     sleep 0.3
 done

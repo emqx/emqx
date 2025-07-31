@@ -181,7 +181,7 @@ ack_from_rc(_) -> ?MQ_NACK.
 
 publish_to_queue(MQ, #message{headers = Headers} = Message) ->
     Props = maps:get(properties, Headers, #{}),
-    UserProperties = maps:get('User-Property', Props),
+    UserProperties = maps:get('User-Property', Props, []),
     CompactionKey = proplists:get_value(
         ?MQ_COMPACTION_KEY_USER_PROPERTY, UserProperties, undefined
     ),

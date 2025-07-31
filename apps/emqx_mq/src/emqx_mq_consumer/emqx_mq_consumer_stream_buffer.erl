@@ -26,7 +26,6 @@ The module represents a consumer of a single stream of the Message Queue data.
 %%--------------------------------------------------------------------
 
 -type options() :: #{
-    max_unacked := non_neg_integer(),
     max_buffer_size := non_neg_integer()
 }.
 
@@ -50,7 +49,7 @@ The module represents a consumer of a single stream of the Message Queue data.
 
 -type progress() :: end_of_stream | emqx_ds:iterator().
 
--export_type([t/0, progress/0]).
+-export_type([t/0, progress/0, options/0]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -62,7 +61,8 @@ new(StartIterator) ->
 
 -spec new(emqx_ds:iterator(), options()) -> {ok, emqx_ds:sub_ref(), t()}.
 new(StartIterator, Options) ->
-    MaxBufferSize = maps:get(max_buffer_size, Options, ?MQ_CONSUMER_MAX_BUFFER_SIZE),
+    MaxBufferSizeTotal = maps:get(max_buffer_size, Options, ?MQ_CONSUMER_MAX_BUFFER_SIZE),
+    MaxBufferSize = max(1, MaxBufferSizeTotal div 2),
     #{
         max_buffer_size => MaxBufferSize,
         lower_buffer => #{
@@ -75,7 +75,6 @@ new(StartIterator, Options) ->
         upper_seqno => undefined
     }.
 
-%% TODO: handle errors
 -spec handle_ds_reply(t(), emqx_ds:subscription_handle(), #ds_sub_reply{}) ->
     {ok, [emqx_ds:ttv()], t()} | finished.
 handle_ds_reply(
