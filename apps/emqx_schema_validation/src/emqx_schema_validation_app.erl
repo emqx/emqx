@@ -20,6 +20,7 @@
 start(_Type, _Args) ->
     {ok, Sup} = emqx_schema_validation_sup:start_link(),
     ok = emqx_schema_validation_config:add_handler(),
+    ok = emqx_config_dep_registry:register_dependencies(emqx_schema_validation_config),
     ok = emqx_schema_validation:register_hooks(),
     ok = emqx_schema_validation_config:load(),
     {ok, Sup}.
