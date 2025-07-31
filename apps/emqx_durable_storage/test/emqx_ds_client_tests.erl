@@ -633,7 +633,7 @@ prop_active_subscriptions(#model_state{runtime = {CS, _HS}}) ->
 %% Verify that when the system is healthy, the host is aware of all
 %% streams existing in the model.
 prop_host_has_iterators_for_all_model_streams(
-    MS = #model_state{err_rec = Errors, runtime = {CS, HS}, streams = ModelStreams, subs = Subs}
+    MS = #model_state{err_rec = Errors, runtime = {_CS, HS}, streams = ModelStreams, subs = Subs}
 ) ->
     IsSystemHealthy = maps:size(Errors) =:= 0,
     IsSystemHealthy andalso

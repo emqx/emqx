@@ -51,7 +51,8 @@ persistent_only_tcs() ->
 
 init_per_suite(Config) ->
     DurableSessionsOpts = #{
-        <<"enable">> => true
+        <<"enable">> => true,
+        <<"checkpoint_interval">> => 0
     },
     ExtraApps = [
         emqx_management,
@@ -162,6 +163,8 @@ t_mixed_persistent_sessions(Config) ->
 
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(PersistentClient, <<"t/1">>, 1),
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(MemClient, <<"t/1">>, 1),
+    emqx_persistent_session_ds:sync(PersistentClient),
+    ct:sleep(1000),
 
     %% First page with sufficient limit should have both mem and DS clients.
     ?assertMatch(
@@ -242,6 +245,8 @@ t_subscription_fuzzy_search(Config) ->
         <<"topic/foo/baz">>
     ],
     [{ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client, T, ?QOS_1) || T <- Topics],
+    emqx_persistent_session_ds:sync(Client),
+    ct:sleep(1000),
 
     Headers = emqx_mgmt_api_test_util:auth_header_(),
     MatchQs = [
@@ -255,8 +260,8 @@ t_subscription_fuzzy_search(Config) ->
     ?assertEqual(1, maps:get(<<"page">>, MatchMeta1)),
     ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, MatchMeta1)),
     %% count is undefined in fuzzy searching
-    ?assertNot(maps:is_key(<<"count">>, MatchMeta1)),
-    ?assertMatch(3, length(maps:get(<<"data">>, MatchData1))),
+    ?assertNot(maps:is_key(<<"count">>, MatchMeta1), MatchData1),
+    ?assertMatch(3, length(maps:get(<<"data">>, MatchData1)), MatchData1),
     ?assertEqual(false, maps:get(<<"hasnext">>, MatchMeta1)),
 
     LimitMatchQuery = [
