@@ -290,7 +290,7 @@ maybe_publish_payload(BatchSize, SeqNoError, Graceful, Err, DSSub = #test_ds_sub
         publish_payload(BatchSize, SeqNoError, Graceful, DSSub).
 
 publish_payload(BatchSize, SeqNoError, Graceful, DSSub = #test_ds_sub{sref = SRef, it = It}) ->
-    #fake_ds{gens = Gens, streams = Streams} = get(?fake_ds),
+    #fake_ds{streams = Streams} = get(?fake_ds),
     #fake_iter{stream = Stream} = It,
     case lists:member(Stream, Streams) of
         true ->
@@ -309,7 +309,7 @@ publish_payload(BatchSize, SeqNoError, Graceful, DSSub = #test_ds_sub{sref = SRe
 do_publish_payload(
     BatchSize, SeqNoError, DSSub = #test_ds_sub{sref = SRef, it = It0, seqno = SeqNo0}
 ) ->
-    #fake_ds{gens = Gens, streams = Streams} = get(?fake_ds),
+    #fake_ds{gens = Gens} = get(?fake_ds),
     #fake_iter{stream = #fake_stream{shard = Shard, gen = Gen}} = It0,
     Msg =
         case maps:get(Shard, Gens, 0) > Gen of
