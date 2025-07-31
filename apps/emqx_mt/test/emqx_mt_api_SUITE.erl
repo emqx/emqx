@@ -1255,3 +1255,79 @@ t_creation_date(_Config) ->
     {204, _} = delete_managed_ns(Ns2),
 
     ok.
+
+-doc """
+Verifies that managed/explicit namespaces have their existence checked before attempting
+to create a namespaced user or API key.
+""".
+t_namespaced_user_api_checks(_TCConfig) ->
+    GlobalAdminHeader = emqx_dashboard_admin_SUITE:create_superuser(),
+    Namespace = <<"ns1">>,
+    AdminRole = iolist_to_binary(["ns:", Namespace, "::administrator"]),
+    %% Pre-conditions
+    {200, []} = list_managed_nss_details(#{}),
+
+    Username = <<"iminans">>,
+    Password = <<"superSecureP@ss">>,
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{<<"reason">> := <<"unknown_namespace">>}
+        }},
+        emqx_dashboard_admin_SUITE:create_user_api(
+            #{
+                <<"username">> => Username,
+                <<"password">> => Password,
+                <<"role">> => AdminRole,
+                <<"description">> => <<"???">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+
+    APIKeyName = <<"someapikey">>,
+    ExpiresAt = emqx_dashboard_admin_SUITE:to_rfc3339(erlang:system_time(second) + 1_000),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{<<"reason">> := <<"unknown_namespace">>}
+        }},
+        emqx_dashboard_admin_SUITE:create_api_key_api(
+            #{
+                <<"name">> => APIKeyName,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"namespaced api 1">>,
+                <<"enable">> => true,
+                <<"role">> => AdminRole
+            },
+            GlobalAdminHeader
+        )
+    ),
+
+    %% Now we create the namespace
+    {204, _} = create_managed_ns(Namespace),
+    ?assertMatch(
+        {200, _},
+        emqx_dashboard_admin_SUITE:create_user_api(
+            #{
+                <<"username">> => Username,
+                <<"password">> => Password,
+                <<"role">> => AdminRole,
+                <<"description">> => <<"???">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    ?assertMatch(
+        {200, _},
+        emqx_dashboard_admin_SUITE:create_api_key_api(
+            #{
+                <<"name">> => APIKeyName,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"namespaced api 1">>,
+                <<"enable">> => true,
+                <<"role">> => AdminRole
+            },
+            GlobalAdminHeader
+        )
+    ),
+
+    ok.

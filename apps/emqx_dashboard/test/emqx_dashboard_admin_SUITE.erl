@@ -10,10 +10,13 @@
 -include("emqx_dashboard_rbac.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
 %%------------------------------------------------------------------------------
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -127,6 +130,9 @@ all_handlers() ->
         end,
         Mods
     ).
+
+on_user_will_be_created(_UserProps, _Ok) ->
+    {stop, {error, <<"oops">>}}.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -574,4 +580,33 @@ t_namespaced_api_publisher(TCConfig) when is_list(TCConfig) ->
         [_ | _] ?= Failures,
         ct:fail({should_have_been_forbidden, Failures})
     end,
+    ok.
+
+-doc """
+Verifies that we run hooks before actually creating the user, which allows to plug in
+extra validation.
+""".
+t_namespaced_user_hook(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    Username = <<"iminans">>,
+    Password = <<"superSecureP@ss">>,
+    AdminRole = <<"ns:ns1::administrator">>,
+    on_exit(fun() ->
+        emqx_hooks:del('api_actor.pre_create', {?MODULE, on_user_will_be_created})
+    end),
+    ok = emqx_hooks:add(
+        'api_actor.pre_create', {?MODULE, on_user_will_be_created, []}, ?HP_LOWEST
+    ),
+    ?assertMatch(
+        {400, #{<<"message">> := <<"oops">>}},
+        create_user_api(
+            #{
+                <<"username">> => Username,
+                <<"password">> => Password,
+                <<"role">> => AdminRole,
+                <<"description">> => <<"namespaced person">>
+            },
+            GlobalAdminHeader
+        )
+    ),
     ok.
