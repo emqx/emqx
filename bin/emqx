@@ -66,11 +66,13 @@ usage() {
     console)
         echo "Boot up EMQX service in an interactive Erlang or Elixir shell"
         echo "This command needs a tty"
+        echo "Passing it the --iex flag will run an IEx (Elixir console)"
         ;;
     console_clean)
         echo "This command does NOT boot up the EMQX service"
         echo "It only starts an interactive Erlang or Elixir console with all the"
         echo "EMQX code available"
+        echo "Passing it the --iex flag will run an IEx (Elixir console)"
         ;;
     foreground)
         echo "Start EMQX in foreground mode without an interactive shell"
@@ -96,6 +98,7 @@ usage() {
         echo "Start an interactive shell running an Erlang or Elixir node which "
         echo "hidden-connects to the running EMQX node".
         echo "This command is mostly used for troubleshooting."
+        echo "Passing it the --iex flag will run an IEx (Elixir console)"
         ;;
     ertspath)
         echo "Print path to Erlang runtime bin dir"
@@ -174,14 +177,14 @@ usage() {
         echo "Usage: $progname COMMAND [help]"
         echo ''
         echo "Commonly used COMMANDs:"
-        echo "  start:      Start EMQX in daemon mode"
-        echo "  console:    Start EMQX in an interactive Erlang or Elixir shell"
-        echo "  foreground: Start EMQX in foreground mode without an interactive shell"
-        echo "  stop:       Stop the running EMQX node"
-        echo "  ctl:        Administration commands, execute '$progname ctl help' for more details"
+        echo "  start:            Start EMQX in daemon mode"
+        echo "  console [--iex]:  Start EMQX in an interactive Erlang or Elixir shell"
+        echo "  foreground:       Start EMQX in foreground mode without an interactive shell"
+        echo "  stop:             Stop the running EMQX node"
+        echo "  ctl:              Administration commands, execute '$progname ctl help' for more details"
         echo ''
         echo "More:"
-        echo "  Shell attach:     remote_console | attach"
+        echo "  Shell attach:     remote_console [--iex] | attach"
 #       echo "  Up/Down-grade:    upgrade | downgrade | install | uninstall | versions" # TODO enable when supported
         echo "  Install Info:     ertspath | root_dir"
         echo "  Runtime Status:   pid | ping"
@@ -1178,6 +1181,18 @@ case "${COMMAND}" in
     remote_console)
         assert_node_alive
 
+        case "${2:-}" in
+            --iex)
+                EMQX_CONSOLE_FLAVOR=iex
+                shift
+                ;;
+            "")
+                ;;
+            *)
+                echo "Usage: $REL_NAME $COMMAND [--iex]"
+                exit 1
+                ;;
+        esac
         shift
         remsh
         ;;
@@ -1266,6 +1281,25 @@ case "${COMMAND}" in
 
         export EMU
         export PROGNAME
+
+        case "${COMMAND}" in
+            console|console_clean)
+                case "${2:-}" in
+                    --iex)
+                        EMQX_CONSOLE_FLAVOR=iex
+                        shift
+                        ;;
+                    "")
+                        ;;
+                    *)
+                        echo "Usage: $REL_NAME $COMMAND [--iex]"
+                        exit 1
+                        ;;
+                esac
+                ;;
+            *)
+                ;;
+        esac
 
         # Store passed arguments since they will be erased by `set`
         ARGS="$*"
