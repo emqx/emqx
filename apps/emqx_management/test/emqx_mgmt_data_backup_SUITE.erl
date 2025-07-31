@@ -792,9 +792,9 @@ recompose_version(MajorInt, MinorInt, Patch) ->
 cluster(TC, Config) ->
     Nodes = emqx_cth_cluster:start(
         [
-            {data_backup_core1, #{role => core, apps => apps_to_start()}},
-            {data_backup_core2, #{role => core, apps => apps_to_start()}},
-            {data_backup_replicant, #{role => replicant, apps => apps_to_start()}}
+            {data_backup_core1, #{role => core, apps => apps_to_start(TC)}},
+            {data_backup_core2, #{role => core, apps => apps_to_start(TC)}},
+            {data_backup_replicant, #{role => replicant, apps => apps_to_start(TC)}}
         ],
         #{
             work_dir => emqx_cth_suite:work_dir(TC, Config),
@@ -822,10 +822,7 @@ create_test_tab(Attributes) ->
 apps_to_start(t_cluster_links) ->
     apps_to_start() ++ [emqx_cluster_link];
 apps_to_start(t_export_cloud_subset) ->
-    case emqx_release:edition() of
-        ee -> apps_to_start() ++ [emqx_schema_registry, emqx_cluster_link];
-        ce -> []
-    end;
+    apps_to_start() ++ [emqx_schema_registry, emqx_cluster_link];
 apps_to_start(_TC) ->
     apps_to_start().
 

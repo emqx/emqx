@@ -9,7 +9,9 @@
 %% API
 -export([
     create_or_update_rule/3,
-    delete_rule/2
+    delete_rule/2,
+    list_raw_rules/1,
+    get_raw_rule/2
 ]).
 
 %% `emqx_config_backup' API
@@ -17,6 +19,7 @@
 
 %% `emqx_config_handler' API
 -export([
+    pre_config_update/4,
     post_config_update/6
 ]).
 
@@ -46,6 +49,18 @@ delete_rule(Namespace, Id) ->
         with_namespace(#{override_to => cluster}, Namespace)
     ).
 
+-spec list_raw_rules(emqx_config:maybe_namespace()) -> #{binary() => _RuleConfig}.
+list_raw_rules(Namespace) ->
+    get_raw_config(Namespace, [?ROOT_KEY_BIN, <<"rules">>], #{}).
+
+get_raw_rule(Namespace, Id) ->
+    case get_raw_config(Namespace, ?RULE_PATH(Id), undefined) of
+        undefined ->
+            {error, not_found};
+        RawRule ->
+            {ok, RawRule}
+    end.
+
 %%------------------------------------------------------------------------------
 %% `emqx_config_backup' API
 %%------------------------------------------------------------------------------
@@ -56,7 +71,8 @@ config_dependencies() ->
         dependencies => [emqx_bridge_v2, emqx_schema_registry_config]
     }.
 
-import_config(Namespace, #{?ROOT_KEY_BIN := #{<<"rules">> := NewRules} = RuleEngineConf}) ->
+import_config(Namespace, #{?ROOT_KEY_BIN := RuleEngineConf}) ->
+    NewRules = maps:get(<<"rules">>, RuleEngineConf, #{}),
     OldRules = get_raw_config(Namespace, ?KEY_PATH, #{}),
     RuleEngineConf1 = RuleEngineConf#{<<"rules">> => maps:merge(OldRules, NewRules)},
     UpdateRes = emqx_conf:update(
@@ -78,6 +94,9 @@ import_config(_Namespace, _RawConf) ->
 %%------------------------------------------------------------------------------
 %% `emqx_config_handler' API
 %%------------------------------------------------------------------------------
+
+pre_config_update(_KeyPath, UpdateReq, _Old, _ExtraContext) ->
+    {ok, UpdateReq}.
 
 post_config_update(?RULE_PATH(RuleId), '$remove', undefined, _OldRule, _AppEnvs, ExtraContext) ->
     Namespace = emqx_config_handler:get_namespace(ExtraContext),
