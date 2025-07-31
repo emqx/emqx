@@ -348,8 +348,11 @@ fallback_handler_id(Prefix, Name) when is_list(Name), length(Prefix) < 50 ->
 
 payload_encode() -> emqx_config:get([trace, payload_encode], text).
 
-ensure_bin(List) when is_list(List) -> unicode:characters_to_binary(List);
-ensure_bin(Bin) when is_binary(Bin) -> Bin.
+ensure_bin(List) when is_list(List) ->
+    %% NOTE: Asserting the result is UTF-8 binary, not expected to fail.
+    <<_/binary>> = unicode:characters_to_binary(List);
+ensure_bin(Bin) when is_binary(Bin) ->
+    Bin.
 
 ensure_list(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin, utf8);
 ensure_list(List) when is_list(List) -> List.
