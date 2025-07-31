@@ -136,7 +136,7 @@ add_user(Username, Password, Role0, Desc) when is_binary(Username), is_binary(Pa
         ActorProps = Extra#{
             ?role => Role
         },
-        ok ?= emqx_hooks:run_fold('api_actor.will_be_created', [ActorProps], ok),
+        ok ?= emqx_hooks:run_fold('api_actor.pre_create', [ActorProps], ok),
         do_add_user(Username, Password, Role, Desc, Extra)
     end.
 

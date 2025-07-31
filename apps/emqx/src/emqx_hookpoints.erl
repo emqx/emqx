@@ -61,7 +61,7 @@
     'cm.channel.unregistered',
     'tls_handshake.psk_lookup',
     'config.zones_updated',
-    'api_actor.will_be_created'
+    'api_actor.pre_create'
 ]).
 
 %% Our template plugin used this hookpoints before its 5.1.0 version,
@@ -251,7 +251,7 @@ when
 
 %% NOTE
 %% Executed out of channel process context
--callback 'api_actor.will_be_created'(
+-callback 'api_actor.pre_create'(
     emqx_config:maybe_namespace(), emqx_dashboard_admin:actor_props()
 ) ->
     fold_callback_result(ok | {error, term()}).

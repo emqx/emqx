@@ -592,10 +592,10 @@ t_namespaced_user_hook(_TCConfig) ->
     Password = <<"superSecureP@ss">>,
     AdminRole = <<"ns:ns1::administrator">>,
     on_exit(fun() ->
-        emqx_hooks:del('api_actor.will_be_created', {?MODULE, on_user_will_be_created})
+        emqx_hooks:del('api_actor.pre_create', {?MODULE, on_user_will_be_created})
     end),
     ok = emqx_hooks:add(
-        'api_actor.will_be_created', {?MODULE, on_user_will_be_created, []}, ?HP_LOWEST
+        'api_actor.pre_create', {?MODULE, on_user_will_be_created, []}, ?HP_LOWEST
     ),
     ?assertMatch(
         {400, #{<<"message">> := <<"oops">>}},

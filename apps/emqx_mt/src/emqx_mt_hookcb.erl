@@ -29,14 +29,14 @@ register_hooks() ->
     ok = emqx_hooks:add('session.created', ?SESSION_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('client.authenticate', ?AUTHN_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('channel.limiter_adjustment', ?LIMITER_HOOK, ?HP_HIGHEST),
-    ok = emqx_hooks:add('api_actor.will_be_created', ?USER_CREATION_HOOK, ?HP_HIGHEST),
+    ok = emqx_hooks:add('api_actor.pre_create', ?USER_CREATION_HOOK, ?HP_HIGHEST),
     ok.
 
 unregister_hooks() ->
     ok = emqx_hooks:del('session.created', ?SESSION_HOOK),
     ok = emqx_hooks:del('client.authenticate', ?AUTHN_HOOK),
     ok = emqx_hooks:del('channel.limiter_adjustment', ?LIMITER_HOOK),
-    ok = emqx_hooks:del('api_actor.will_be_created', ?USER_CREATION_HOOK),
+    ok = emqx_hooks:del('api_actor.pre_create', ?USER_CREATION_HOOK),
     ok.
 
 on_session_created(
