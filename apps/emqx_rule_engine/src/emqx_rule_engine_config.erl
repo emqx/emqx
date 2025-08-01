@@ -4,6 +4,7 @@
 -module(emqx_rule_engine_config).
 
 -behaviour(emqx_config_backup).
+-behaviour(emqx_config_handler).
 
 %% API
 -export([
@@ -14,12 +15,19 @@
 %% `emqx_config_backup' API
 -export([import_config/2, config_dependencies/0]).
 
+%% `emqx_config_handler' API
+-export([
+    post_config_update/6
+]).
+
 -include("rule_engine.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------
+
+-define(namespace, namespace).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -68,6 +76,50 @@ import_config(_Namespace, _RawConf) ->
     {ok, #{root_key => ?ROOT_KEY, changed => []}}.
 
 %%------------------------------------------------------------------------------
+%% `emqx_config_handler' API
+%%------------------------------------------------------------------------------
+
+post_config_update(?RULE_PATH(RuleId), '$remove', undefined, _OldRule, _AppEnvs, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    emqx_rule_engine:delete_rule(Namespace, bin(RuleId));
+post_config_update(?RULE_PATH(RuleId), _Req, NewRule, undefined, _AppEnvs, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    emqx_rule_engine:create_rule(NewRule#{id => bin(RuleId), ?namespace => Namespace});
+post_config_update(?RULE_PATH(RuleId), _Req, NewRule, _OldRule, _AppEnvs, ExtraContext) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    emqx_rule_engine:update_rule(NewRule#{id => bin(RuleId), ?namespace => Namespace});
+post_config_update(
+    [?ROOT_KEY], _Req, #{rules := NewRules}, #{rules := OldRules}, _AppEnvs, ExtraContext
+) ->
+    Namespace = emqx_config_handler:get_namespace(ExtraContext),
+    #{added := Added, removed := Removed, changed := Updated} =
+        emqx_utils_maps:diff_maps(NewRules, OldRules),
+    try
+        maps:foreach(
+            fun(Id, {_Old, New}) ->
+                {ok, _} = emqx_rule_engine:update_rule(New#{id => bin(Id), ?namespace => Namespace})
+            end,
+            Updated
+        ),
+        maps:foreach(
+            fun(Id, _Rule) ->
+                ok = emqx_rule_engine:delete_rule(Namespace, bin(Id))
+            end,
+            Removed
+        ),
+        maps:foreach(
+            fun(Id, Rule) ->
+                {ok, _} = emqx_rule_engine:create_rule(Rule#{id => bin(Id), ?namespace => Namespace})
+            end,
+            Added
+        ),
+        ok
+    catch
+        throw:#{kind := _} = Error ->
+            {error, Error}
+    end.
+
+%%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
 
@@ -80,3 +132,6 @@ with_namespace(UpdateOpts, ?global_ns) ->
     UpdateOpts;
 with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
     UpdateOpts#{namespace => Namespace}.
+
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(B) when is_binary(B) -> B.

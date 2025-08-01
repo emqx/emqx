@@ -409,7 +409,7 @@ param_path_id() ->
                         Params
                     ),
                     case UpdateRes of
-                        {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
+                        {ok, #{post_config_update := #{emqx_rule_engine_config := Rule}}} ->
                             FormatFn = mk_format_fn(Namespace),
                             ?CREATED(FormatFn(Rule));
                         {error, Reason} ->
@@ -486,7 +486,7 @@ param_path_id() ->
                 Params
             ),
             case UpdateRes of
-                {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
+                {ok, #{post_config_update := #{emqx_rule_engine_config := Rule}}} ->
                     FormatFn = mk_format_fn(Namespace),
                     {200, FormatFn(Rule)};
                 {error, Reason} ->
