@@ -25,7 +25,7 @@
 }.
 -type data() :: binary().
 
--callback call(completion_profile(), data(), options()) -> binary().
+-callback call_completion(completion_profile(), data(), options()) -> binary().
 -callback list_models(provider()) -> list(model()).
 
 %%------------------------------------------------------------------------------
@@ -45,7 +45,7 @@ rsf_ai_completion(Args) ->
 
 call_completion(Name, Data, Options) ->
     {Module, CompletionProfile} = completion_profile(Name),
-    Module:call(CompletionProfile, Data, Options).
+    Module:call_completion(CompletionProfile, Data, Options).
 
 completion_profile(Name) ->
     case emqx_ai_completion_config:get_completion_profile(Name) of

@@ -9,7 +9,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
-    call/3,
+    call_completion/3,
     list_models/1
 ]).
 
@@ -17,7 +17,7 @@
 %% API
 %%------------------------------------------------------------------------------
 
-call(
+call_completion(
     #{
         name := Name,
         model := Model,
