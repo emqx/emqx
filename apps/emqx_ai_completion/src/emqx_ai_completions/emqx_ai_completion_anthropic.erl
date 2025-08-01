@@ -24,14 +24,13 @@ call_completion(
         model := Model,
         system_prompt := SystemPrompt,
         max_tokens := MaxTokens,
-        provider := #{name := ProviderName} = Provider,
-        anthropic_version := AnthropicVersion
+        provider := #{name := ProviderName} = Provider
     },
     Data,
     Options
 ) ->
     Prompt = maps:get(prompt, Options, SystemPrompt),
-    Client = create_client(Provider, AnthropicVersion),
+    Client = create_client(Provider),
     Request = #{
         model => Model,
         messages => [
@@ -67,8 +66,12 @@ list_models(#{}) -> [].
 %%------------------------------------------------------------------------------
 
 create_client(
-    #{base_url := BaseUrl, api_key := ApiKey, transport_options := TransportOptions} = Provider,
-    AnthropicVersion
+    #{
+        base_url := BaseUrl,
+        api_key := ApiKey,
+        transport_options := TransportOptions,
+        anthropic_version := AnthropicVersion
+    } = Provider
 ) ->
     emqx_ai_completion_client:new(#{
         base_url => BaseUrl,
