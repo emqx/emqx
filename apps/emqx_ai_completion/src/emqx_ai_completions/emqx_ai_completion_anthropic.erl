@@ -91,7 +91,7 @@ list_models(Client, ModelsAcc, AfterId) ->
 list_models_qs(undefined) ->
     #{<<"limit">> => ?LIST_MODELS_LIMIT};
 list_models_qs(AfterId) ->
-    #{<<"limit">> => ?LIST_MODELS_LIMIT, <<"after_id">> => integer_to_binary(AfterId)}.
+    #{<<"limit">> => ?LIST_MODELS_LIMIT, <<"after_id">> => AfterId}.
 
 create_client(
     #{

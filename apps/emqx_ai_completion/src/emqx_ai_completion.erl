@@ -9,7 +9,6 @@
 %% NOTE
 %% rsf_ stands for Rule SQL Function
 -export([
-    call_completion/2,
     call_completion/3,
     list_models/1
 ]).
@@ -41,14 +40,7 @@ call_completion(Name, Data, Options) ->
         {ok, Module:call_completion(CompletionProfile, Data, Options)}
     end.
 
--spec call_completion(binary(), data()) -> {ok, binary()} | {error, term()}.
-call_completion(Name, Data) ->
-    maybe
-        {ok, Module, CompletionProfile} ?= completion_profile(Name),
-        {ok, Module:call_completion(CompletionProfile, Data, #{})}
-    end.
-
--spec list_models(binary()) -> {ok, list(model())} | {error, term()}.
+-spec list_models(binary()) -> {ok, list(model())} | {error, provider_not_found | term()}.
 list_models(Name) ->
     maybe
         {ok, Module, Provider} ?= provider(Name),
@@ -72,7 +64,7 @@ provider(Name) ->
         {ok, #{type := Type} = Provider} ->
             {ok, completion_module(Type), Provider};
         not_found ->
-            {error, {provider_not_found, Name}}
+            {error, provider_not_found}
     end.
 
 completion_module(openai) ->

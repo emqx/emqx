@@ -16,14 +16,14 @@
 
 -spec rsf_ai_completion([binary()]) -> binary().
 rsf_ai_completion([Name, Prompt, Data]) ->
-    case emqx_ai_completion:call_completion([Name, Prompt, Data]) of
+    case emqx_ai_completion:call_completion(Name, Data, #{prompt => Prompt}) of
         {ok, Result} ->
             Result;
         {error, Reason} ->
             error({ai_completion_error, Reason})
     end;
 rsf_ai_completion([Name, Data]) ->
-    case emqx_ai_completion:call_completion([Name, Data]) of
+    case emqx_ai_completion:call_completion(Name, Data, #{}) of
         {ok, Result} ->
             Result;
         {error, Reason} ->
