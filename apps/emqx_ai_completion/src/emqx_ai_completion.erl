@@ -9,7 +9,9 @@
 %% NOTE
 %% rsf_ stands for Rule SQL Function
 -export([
-    rsf_ai_completion/1
+    call_completion/2,
+    call_completion/3,
+    list_models/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -26,33 +28,51 @@
 -type data() :: binary().
 
 -callback call_completion(completion_profile(), data(), options()) -> binary().
--callback list_models(provider()) -> list(model()).
+-callback list_models(provider()) -> {ok, list(model())} | {error, term()}.
 
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
-rsf_ai_completion([Name, Prompt, Data]) ->
-    call_completion(Name, Data, #{prompt => Prompt});
-rsf_ai_completion([Name, Data]) ->
-    call_completion(Name, Data, #{});
-rsf_ai_completion(Args) ->
-    error({args_count_error, {ai_completion, Args}}).
+-spec call_completion(binary(), data(), options()) -> {ok, binary()} | {error, term()}.
+call_completion(Name, Data, Options) ->
+    maybe
+        {ok, Module, CompletionProfile} ?= completion_profile(Name),
+        {ok, Module:call_completion(CompletionProfile, Data, Options)}
+    end.
+
+-spec call_completion(binary(), data()) -> {ok, binary()} | {error, term()}.
+call_completion(Name, Data) ->
+    maybe
+        {ok, Module, CompletionProfile} ?= completion_profile(Name),
+        {ok, Module:call_completion(CompletionProfile, Data, #{})}
+    end.
+
+-spec list_models(binary()) -> {ok, list(model())} | {error, term()}.
+list_models(Name) ->
+    maybe
+        {ok, Module, Provider} ?= provider(Name),
+        Module:list_models(Provider)
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-call_completion(Name, Data, Options) ->
-    {Module, CompletionProfile} = completion_profile(Name),
-    Module:call_completion(CompletionProfile, Data, Options).
-
 completion_profile(Name) ->
     case emqx_ai_completion_config:get_completion_profile(Name) of
         {ok, #{type := Type} = CompletionProfile} ->
-            {completion_module(Type), CompletionProfile};
+            {ok, completion_module(Type), CompletionProfile};
         not_found ->
-            error({completion_profile_not_found, Name})
+            {error, {completion_profile_not_found, Name}}
+    end.
+
+provider(Name) ->
+    case emqx_ai_completion_config:get_provider(Name) of
+        {ok, #{type := Type} = Provider} ->
+            {ok, completion_module(Type), Provider};
+        not_found ->
+            {error, {provider_not_found, Name}}
     end.
 
 completion_module(openai) ->

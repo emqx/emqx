@@ -53,38 +53,29 @@ fields(ai) ->
             )}
     ];
 fields(openai_provider) ->
-    [
-        {name,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(provider_name),
-                validator => fun validate_name/1
-            })},
-        {type,
-            mk(hoconsc:enum([openai, anthropic]), #{
-                default => openai, required => true, desc => ?DESC(type)
-            })},
-        {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})},
-        {base_url,
-            mk(binary(), #{
-                required => false,
-                desc => ?DESC(base_url),
-                validator => fun validate_url/1,
-                default => <<"https://api.openai.com/v1">>
-            })},
-        {transport_options,
-            mk(ref(transport_options), #{
-                default => #{},
-                desc => ?DESC(transport_options),
-                importance => ?IMPORTANCE_LOW
-            })}
-    ];
+    base_provider_fields() ++
+        [
+            {base_url,
+                mk(binary(), #{
+                    required => false,
+                    desc => ?DESC(base_url),
+                    validator => fun validate_url/1,
+                    default => <<"https://api.openai.com/v1">>
+                })}
+        ];
 fields(anthropic_provider) ->
-    fields(openai_provider) ++
+    base_provider_fields() ++
         [
             {anthropic_version,
                 mk(enum(['2023-06-01']), #{
                     default => '2023-06-01', desc => ?DESC(anthropic_version), required => false
+                })},
+            {base_url,
+                mk(binary(), #{
+                    required => false,
+                    desc => ?DESC(base_url),
+                    validator => fun validate_url/1,
+                    default => <<"https://api.anthropic.com/v1">>
                 })}
         ];
 fields(transport_options) ->
@@ -176,6 +167,27 @@ fields(anthropic_completion_profile_api_get) ->
     fields(anthropic_completion_profile);
 fields(anthropic_completion_profile_api_put) ->
     without_fields([name], fields(anthropic_completion_profile)).
+
+base_provider_fields() ->
+    [
+        {name,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(provider_name),
+                validator => fun validate_name/1
+            })},
+        {type,
+            mk(hoconsc:enum([openai, anthropic]), #{
+                default => openai, required => true, desc => ?DESC(type)
+            })},
+        {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})},
+        {transport_options,
+            mk(ref(transport_options), #{
+                default => #{},
+                desc => ?DESC(transport_options),
+                importance => ?IMPORTANCE_LOW
+            })}
+    ].
 
 desc(ai) ->
     ?DESC(ai);

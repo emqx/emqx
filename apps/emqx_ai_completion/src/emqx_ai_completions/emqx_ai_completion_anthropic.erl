@@ -14,6 +14,8 @@
     list_models/1
 ]).
 
+-define(LIST_MODELS_LIMIT, 100).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -59,11 +61,37 @@ call_completion(
             <<"">>
     end.
 
-list_models(#{}) -> [].
+list_models(Provider) ->
+    Client = create_client(Provider),
+    list_models(Client, [], undefined).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+list_models(Client, ModelsAcc, AfterId) ->
+    QS = list_models_qs(AfterId),
+    case emqx_ai_completion_client:api_get(Client, models, QS) of
+        {ok, #{<<"data">> := Models, <<"has_more">> := HasMore, <<"last_id">> := LastId}} when
+            is_list(Models) andalso is_boolean(HasMore) andalso is_binary(LastId)
+        ->
+            ModelIds = [Model || #{<<"id">> := Model} <- Models],
+            case HasMore of
+                true ->
+                    list_models(Client, [ModelIds | ModelsAcc], LastId);
+                false ->
+                    {ok, lists:append(lists:reverse([ModelIds | ModelsAcc]))}
+            end;
+        {ok, Other} ->
+            {error, {cannot_list_models, {unexpected_response, Other}}};
+        {error, Reason} ->
+            {error, {cannot_list_models, Reason}}
+    end.
+
+list_models_qs(undefined) ->
+    #{<<"limit">> => ?LIST_MODELS_LIMIT};
+list_models_qs(AfterId) ->
+    #{<<"limit">> => ?LIST_MODELS_LIMIT, <<"after_id">> => integer_to_binary(AfterId)}.
 
 create_client(
     #{

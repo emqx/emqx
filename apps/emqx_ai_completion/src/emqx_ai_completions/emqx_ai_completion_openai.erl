@@ -56,7 +56,17 @@ call_completion(
             <<"">>
     end.
 
-list_models(#{}) -> [].
+list_models(Provider) ->
+    Client = create_client(Provider),
+    case emqx_ai_completion_client:api_get(Client, models) of
+        {ok, #{<<"data">> := Models}} when is_list(Models) ->
+            ModelIds = [Model || #{<<"id">> := Model} <- Models],
+            {ok, ModelIds};
+        {ok, Other} ->
+            {error, {cannot_list_models, {unexpected_response, Other}}};
+        {error, Reason} ->
+            {error, {cannot_list_models, Reason}}
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
