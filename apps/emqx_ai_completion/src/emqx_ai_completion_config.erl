@@ -53,6 +53,7 @@
 }.
 
 -type ai_type() :: openai | anthropic.
+-type model() :: binary().
 
 -type provider() :: #{
     name := provider_name(),
@@ -66,6 +67,7 @@
     name := completion_profile_name(),
     type := ai_type(),
     provider := provider(),
+    model := model(),
     _ => _
 }.
 
@@ -98,6 +100,7 @@
 
 -export_type([
     ai_type/0,
+    model/0,
     provider/0,
     completion_profile/0,
     transport_options/0

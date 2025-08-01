@@ -6,6 +6,8 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+%% NOTE
+%% rsf_ stands for Rule SQL Function
 -export([
     rsf_ai_completion/1
 ]).
@@ -15,6 +17,8 @@
 %%------------------------------------------------------------------------------
 
 -type completion_profile() :: emqx_ai_completion_config:completion_profile().
+-type provider() :: emqx_ai_completion_config:provider().
+-type model() :: emqx_ai_completion_config:model().
 -type prompt() :: binary().
 -type options() :: #{
     prompt => prompt()
@@ -22,6 +26,7 @@
 -type data() :: binary().
 
 -callback call(completion_profile(), data(), options()) -> binary().
+-callback list_models(provider()) -> list(model()).
 
 %%------------------------------------------------------------------------------
 %% API
