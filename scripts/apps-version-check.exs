@@ -88,8 +88,11 @@ defmodule AppsVersionCheck do
   def has_valid_app_vsn?(app, context) do
     src_file = Path.join(["apps", app, "mix.exs"])
 
-    with true <- File.exists?(src_file) do
+    if File.exists?(src_file) do
       do_has_valid_app_vsn?(app, context)
+    else
+      log("IGNORE: #{src_file} was deleted")
+      true
     end
   end
 
@@ -232,9 +235,11 @@ defmodule AppsVersionCheck do
       [] ->
         :ok
 
-      _ ->
+      invalid_apps ->
         log_err([
           "Errors were found\n",
+          "Invalid apps: \n",
+          [inspect(invalid_apps, pretty: true), "\n"],
           "Run this script again with `--auto-fix` to automatically fix issues,",
           " or fix them manually."
         ])
