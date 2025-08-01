@@ -6,8 +6,6 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx/include/logger.hrl").
 
-%% NOTE
-%% rsf_ stands for Rule SQL Function
 -export([
     call_completion/3,
     list_models/1
