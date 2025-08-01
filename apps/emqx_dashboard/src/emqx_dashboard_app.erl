@@ -22,6 +22,7 @@ start(_StartType, _StartArgs) ->
     ]),
     ok = mria:wait_for_tables(Tables),
     {ok, Sup} = emqx_dashboard_sup:start_link(),
+    ok = emqx_dashboard_hookcb:register_hooks(),
     case emqx_dashboard:start_listeners() of
         ok ->
             emqx_dashboard_cli:load(),
@@ -34,4 +35,5 @@ start(_StartType, _StartArgs) ->
 stop(_State) ->
     ok = emqx_dashboard:stop_listeners(),
     emqx_dashboard_cli:unload(),
+    ok = emqx_dashboard_hookcb:unregister_hooks(),
     ok.

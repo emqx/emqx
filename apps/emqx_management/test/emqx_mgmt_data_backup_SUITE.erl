@@ -105,33 +105,28 @@ t_empty_export_import(_Config) ->
     ?assertEqual(ExpRawConf, emqx:get_raw_config([])).
 
 t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
-    case emqx_release:edition() of
-        ce ->
-            ok;
-        ee ->
-            FNameEmqx44 = "emqx-export-4.4.24-retainer-mqttsub.tar.gz",
-            BackupFile = filename:join(?config(data_dir, Config), FNameEmqx44),
-            Exp = {ok, #{db_errors => #{}, config_errors => #{}}},
-            ?assertEqual(Exp, emqx_mgmt_data_backup:import_local(BackupFile)),
-            RawConfAfterImport = emqx:get_raw_config([]),
-            %% verify that MQTT sources are imported
-            ?assertMatch(
-                #{<<"sources">> := #{<<"mqtt">> := Sources}} when map_size(Sources) > 0,
-                RawConfAfterImport
-            ),
-            %% verify that retainer messages are imported
-            ?assertMatch(
-                {ok, [#message{payload = <<"test-payload">>}]},
-                emqx_retainer:read_message(<<"test-retained-message/1">>)
-            ),
-            %% Export and import again
-            {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
-            ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
-            ?assertEqual(
-                remove_time_based_fields(RawConfAfterImport),
-                remove_time_based_fields(emqx:get_raw_config([]))
-            )
-    end,
+    FNameEmqx44 = "emqx-export-4.4.24-retainer-mqttsub.tar.gz",
+    BackupFile = filename:join(?config(data_dir, Config), FNameEmqx44),
+    Exp = {ok, #{db_errors => #{}, config_errors => #{}}},
+    ?assertEqual(Exp, emqx_mgmt_data_backup:import_local(BackupFile)),
+    RawConfAfterImport = emqx:get_raw_config([]),
+    %% verify that MQTT sources are imported
+    ?assertMatch(
+        #{<<"sources">> := #{<<"mqtt">> := Sources}} when map_size(Sources) > 0,
+        RawConfAfterImport
+    ),
+    %% verify that retainer messages are imported
+    ?assertMatch(
+        {ok, [#message{payload = <<"test-payload">>}]},
+        emqx_retainer:read_message(<<"test-retained-message/1">>)
+    ),
+    %% Export and import again
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
+    ?assertEqual(
+        remove_time_based_fields(RawConfAfterImport),
+        remove_time_based_fields(emqx:get_raw_config([]))
+    ),
     ok.
 
 t_import_retained_messages(Config) ->
@@ -290,32 +285,6 @@ t_cluster_hocon_export_import(Config) ->
         emqx_mgmt_auth:read(<<"key_to_export2">>)
     ),
     ok.
-
-t_ee_to_ce_backup(Config) ->
-    case emqx_release:edition() of
-        ce ->
-            EEBackupFileName = filename:join(?config(priv_dir, Config), "export-backup-ee.tar.gz"),
-            Meta = unicode:characters_to_binary(
-                hocon_pp:do(#{edition => ee, version => emqx_release:version()}, #{})
-            ),
-            ok = erl_tar:create(
-                EEBackupFileName,
-                [
-                    {"export-backup-ee/cluster.hocon", <<>>},
-                    {"export-backup-ee/META.hocon", Meta}
-                ],
-                [compressed]
-            ),
-            ExpReason = ee_to_ce_backup,
-            ?assertEqual(
-                {error, ExpReason}, emqx_mgmt_data_backup:import_local(EEBackupFileName)
-            ),
-            %% Must be translated to a readable string
-            ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(ExpReason));
-        ee ->
-            %% Don't fail if the test is run with emqx-enterprise profile
-            ok
-    end.
 
 t_tar_outside_backup_dir(Config) ->
     BackupFileName = filename:join(?config(priv_dir, Config), "tar_outside_backup_dir.tar.gz"),
@@ -497,34 +466,28 @@ t_bad_config(Config) ->
     ?assertMatch({error, #{kind := validation_error}}, Res).
 
 t_cluster_links(_Config) ->
-    case emqx_release:edition() of
-        ce ->
-            %% Only available in EMQX Enterprise
-            ok;
-        ee ->
-            Link = #{
-                <<"name">> => <<"emqxcl_backup_test">>,
-                <<"server">> => <<"emqx.emqxcl_backup_test.host:41883">>,
-                <<"topics">> => [<<"#">>],
-                <<"ssl">> => #{<<"enable">> => true, <<"cacertfile">> => ?CACERT}
-            },
-            {ok, [RawLink]} = emqx_cluster_link_config:update([Link]),
-            {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
-            {ok, []} = emqx_cluster_link_config:update([]),
-            #{<<"ssl">> := #{<<"cacertfile">> := CertPath}} = RawLink,
-            _ = file:delete(CertPath),
-            ?assertEqual(
-                {ok, #{db_errors => #{}, config_errors => #{}}},
-                emqx_mgmt_data_backup:import(basename(FileName))
-            ),
-            [
-                #{
-                    <<"name">> := <<"emqxcl_backup_test">>,
-                    <<"ssl">> := #{<<"cacertfile">> := CertPath1}
-                }
-            ] = emqx:get_raw_config([cluster, links]),
-            ?assertEqual({ok, ?CACERT}, file:read_file(CertPath1))
-    end.
+    Link = #{
+        <<"name">> => <<"emqxcl_backup_test">>,
+        <<"server">> => <<"emqx.emqxcl_backup_test.host:41883">>,
+        <<"topics">> => [<<"#">>],
+        <<"ssl">> => #{<<"enable">> => true, <<"cacertfile">> => ?CACERT}
+    },
+    {ok, [RawLink]} = emqx_cluster_link_config:update([Link]),
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    {ok, []} = emqx_cluster_link_config:update([]),
+    #{<<"ssl">> := #{<<"cacertfile">> := CertPath}} = RawLink,
+    _ = file:delete(CertPath),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import(basename(FileName))
+    ),
+    [
+        #{
+            <<"name">> := <<"emqxcl_backup_test">>,
+            <<"ssl">> := #{<<"cacertfile">> := CertPath1}
+        }
+    ] = emqx:get_raw_config([cluster, links]),
+    ?assertEqual({ok, ?CACERT}, file:read_file(CertPath1)).
 
 t_import_on_cluster(Config) ->
     %% Randomly chosen config key to verify import result additionally
@@ -829,9 +792,9 @@ recompose_version(MajorInt, MinorInt, Patch) ->
 cluster(TC, Config) ->
     Nodes = emqx_cth_cluster:start(
         [
-            {data_backup_core1, #{role => core, apps => apps_to_start()}},
-            {data_backup_core2, #{role => core, apps => apps_to_start()}},
-            {data_backup_replicant, #{role => replicant, apps => apps_to_start()}}
+            {data_backup_core1, #{role => core, apps => apps_to_start(TC)}},
+            {data_backup_core2, #{role => core, apps => apps_to_start(TC)}},
+            {data_backup_replicant, #{role => replicant, apps => apps_to_start(TC)}}
         ],
         #{
             work_dir => emqx_cth_suite:work_dir(TC, Config),
@@ -857,15 +820,9 @@ create_test_tab(Attributes) ->
     ok = mria:wait_for_tables([data_backup_test]).
 
 apps_to_start(t_cluster_links) ->
-    case emqx_release:edition() of
-        ee -> apps_to_start() ++ [emqx_cluster_link];
-        ce -> []
-    end;
+    apps_to_start() ++ [emqx_cluster_link];
 apps_to_start(t_export_cloud_subset) ->
-    case emqx_release:edition() of
-        ee -> apps_to_start() ++ [emqx_schema_registry, emqx_cluster_link];
-        ce -> []
-    end;
+    apps_to_start() ++ [emqx_schema_registry, emqx_cluster_link];
 apps_to_start(_TC) ->
     apps_to_start().
 

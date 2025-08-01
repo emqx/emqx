@@ -409,7 +409,7 @@ param_path_id() ->
                         Params
                     ),
                     case UpdateRes of
-                        {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
+                        {ok, #{post_config_update := #{emqx_rule_engine_config := Rule}}} ->
                             FormatFn = mk_format_fn(Namespace),
                             ?CREATED(FormatFn(Rule));
                         {error, Reason} ->
@@ -477,16 +477,17 @@ param_path_id() ->
 '/rules/:id'(put, #{bindings := #{id := Id}, body := Params0} = Req) ->
     Namespace = emqx_dashboard:get_namespace(Req),
     Params1 = filter_out_request_body(Params0),
-    Params = ensure_last_modified_at(Params1),
-    case emqx_rule_engine:get_rule(Namespace, Id) of
-        {ok, _} ->
+    Params2 = ensure_last_modified_at(Params1),
+    case emqx_rule_engine_config:get_raw_rule(Namespace, Id) of
+        {ok, RawRule0} ->
+            Params = maps:merge(RawRule0, Params2),
             UpdateRes = emqx_rule_engine_config:create_or_update_rule(
                 Namespace,
                 Id,
                 Params
             ),
             case UpdateRes of
-                {ok, #{post_config_update := #{emqx_rule_engine := Rule}}} ->
+                {ok, #{post_config_update := #{emqx_rule_engine_config := Rule}}} ->
                     FormatFn = mk_format_fn(Namespace),
                     {200, FormatFn(Rule)};
                 {error, Reason} ->
@@ -502,7 +503,7 @@ param_path_id() ->
                     ),
                     {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(Reason)}}
             end;
-        not_found ->
+        {error, not_found} ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
 '/rules/:id'(delete, #{bindings := #{id := Id}} = Req) ->
@@ -925,11 +926,13 @@ run_fuzzy_match(E = {_, #{from := Froms}}, [{source, in, SourceIds} | Fuzzy]) ->
 run_fuzzy_match(E, [_ | Fuzzy]) ->
     run_fuzzy_match(E, Fuzzy).
 
-rule_engine_update(Namespace, Params) ->
-    case emqx_rule_api_schema:check_params(Params, rule_engine) of
+rule_engine_update(Namespace, Params0) ->
+    case emqx_rule_api_schema:check_params(Params0, rule_engine) of
         {ok, _CheckedParams} ->
+            Rules = emqx_rule_engine_config:list_raw_rules(Namespace),
+            Params = Params0#{<<"rules">> => Rules},
             {ok, #{config := Config}} = emqx_conf:update(
-                [rule_engine],
+                [?ROOT_KEY],
                 Params,
                 with_namespace(#{override_to => cluster}, Namespace)
             ),

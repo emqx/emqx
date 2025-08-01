@@ -114,9 +114,10 @@
     post_config_update/6
 ]).
 
-%% Data backup
+%% `emqx_config_backup` API
 -export([
-    import_config/2
+    import_config/2,
+    config_dependencies/0
 ]).
 
 %% Bridge V2 Types and Conversions
@@ -1210,8 +1211,14 @@ bridge_v2_type_to_connector_type(Type) ->
     emqx_action_info:action_type_to_connector_type(Type).
 
 %%====================================================================
-%% Data backup API
+%% `emqx_config_backup` API
 %%====================================================================
+
+config_dependencies() ->
+    #{
+        root_keys => [?ROOT_KEY_ACTIONS_BIN, ?ROOT_KEY_SOURCES_BIN],
+        dependencies => [emqx_connector]
+    }.
 
 import_config(Namespace, RawConf) ->
     %% actions structure
