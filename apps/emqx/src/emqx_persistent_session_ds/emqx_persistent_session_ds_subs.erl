@@ -74,7 +74,7 @@
     %%    to in-mem sessions. Applicable to QoS0 subscriptions.
     %% It's essentially an override for the case when the active mode
     %% is different from what QoS level of the subscription implies.
-    mode => subscription_mode(),
+    mode := subscription_mode(),
     %% SubOpts:
     subopts := #{
         nl => _,
@@ -186,7 +186,7 @@ mk_subscription_state(SubId, SubOpts, UpgradeQoS) ->
     },
     case desired_subscription_mode(SubOpts) of
         %% Subscriptions are assumed to be durable by default:
-        durable -> SState;
+        durable -> SState#{mode => durable};
         %% Explicitly mark as direct to differentiate from existing subscriptions:
         direct -> SState#{mode => direct}
     end.
@@ -195,15 +195,19 @@ update_subscription(TopicFilter, SubOpts, Sub0, SessionId, #{upgrade_qos := Upgr
     #{id := SubId, current_state := SStateId0} = Sub0,
     OldSState = emqx_persistent_session_ds_state:get_subscription_state(SStateId0, S0),
     case OldSState of
-        #{parent_subscription := SubId, subopts := SubOpts, upgrade_qos := UpgradeQoS} ->
+        #{
+            parent_subscription := SubId,
+            subopts := SubOpts,
+            upgrade_qos := UpgradeQoS,
+            mode := Mode
+        } ->
             %% Client resubscribed with the same parameters:
-            Mode = sstate_subscription_mode(OldSState),
             {ok, Mode, S0, Sub0};
-        OldSState ->
+        OldSState = #{mode := OldMode} ->
             %% Subsription parameters changed:
             DesiredMode = desired_subscription_mode(SubOpts),
             SState0 = mk_subscription_state(SubId, SubOpts, UpgradeQoS),
-            case sstate_subscription_mode(OldSState) of
+            case OldMode of
                 DesiredMode ->
                     %% No change in subscription mode:
                     {S, Sub} =
@@ -303,10 +307,10 @@ on_session_replay(SessionId, S0) ->
 
 restart_subscription(TopicFilter, Sub0 = #{current_state := SStateId}, SessionId, S0) ->
     SState =
-        #{subopts := SubOpts} =
+        #{subopts := SubOpts, mode := Mode} =
         emqx_persistent_session_ds_state:get_subscription_state(SStateId, S0),
     DesiredMode = desired_subscription_mode(SubOpts),
-    case sstate_subscription_mode(SState) of
+    case Mode of
         durable when DesiredMode =:= direct ->
             %% Switch from durable to direct is now possible:
             S = change_to_direct(TopicFilter, SState, SessionId, S0),
@@ -455,8 +459,8 @@ cold_get_subscription(SessionId, Topic) ->
 %% @doc Merge subscription with its current state:
 -spec session_subscription(subscription(), subscription_state()) ->
     emqx_persistent_session_ds:subscription().
-session_subscription(Subscription, SState = #{subopts := SubOpts}) ->
-    Subscription#{subopts => SubOpts, mode => sstate_subscription_mode(SState)};
+session_subscription(Subscription, #{subopts := SubOpts, mode := Mode}) ->
+    Subscription#{subopts => SubOpts, mode => Mode};
 session_subscription(_Subscription, undefined) ->
     undefined.
 
@@ -470,13 +474,8 @@ desired_subscription_mode(#{qos := _QoS12}) ->
     durable.
 
 get_subscription_mode(#{current_state := SStateId}, S) ->
-    SState = emqx_persistent_session_ds_state:get_subscription_state(SStateId, S),
-    sstate_subscription_mode(SState).
-
-sstate_subscription_mode(#{mode := Mode}) ->
-    Mode;
-sstate_subscription_mode(#{subopts := SubOpts}) ->
-    desired_subscription_mode(SubOpts).
+    #{mode := Mode} = emqx_persistent_session_ds_state:get_subscription_state(SStateId, S),
+    Mode.
 
 add_route(durable, SessionId, Topic, _SubOpts) ->
     add_persistent_route(SessionId, Topic);

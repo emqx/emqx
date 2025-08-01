@@ -26,7 +26,13 @@
 ]).
 
 %% behavior callbacks:
--export([introduced_in/0]).
+-export([introduced_in/0, deprecated_since/0]).
+
+%% = Changelog =
+%% == v5 ==
+%% === poll ===
+%%
+%% Added new API
 
 %%================================================================================
 %% API functions
@@ -196,3 +202,6 @@ delete_next(Node, DB, Shard, Iter, Selector, BatchSize) ->
 
 introduced_in() ->
     "5.8.0".
+
+deprecated_since() ->
+    "6.0.0".

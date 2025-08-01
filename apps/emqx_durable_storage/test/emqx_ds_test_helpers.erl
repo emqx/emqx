@@ -224,7 +224,7 @@ storage_consume(ShardId, TopicFilter) ->
     storage_consume(ShardId, TopicFilter, 0).
 
 storage_consume(ShardId, TopicFilter, StartTime) ->
-    Streams = emqx_ds_storage_layer:get_streams(ShardId, TopicFilter, StartTime),
+    Streams = emqx_ds_storage_layer:get_streams(ShardId, TopicFilter, StartTime, 0),
     lists:flatmap(
         fun({_Rank, Stream}) ->
             storage_consume_stream(ShardId, Stream, TopicFilter, StartTime)
@@ -243,7 +243,7 @@ storage_consume_iter(ShardId, It) ->
 storage_consume_iter(ShardId, It0, Opts) ->
     consume_iter_with(
         fun(It, BatchSize) ->
-            emqx_ds_storage_layer:next(ShardId, It, BatchSize, emqx_ds:timestamp_us())
+            emqx_ds_storage_layer:next(ShardId, It, BatchSize, emqx_ds:timestamp_us(), false)
         end,
         It0,
         Opts
@@ -256,7 +256,7 @@ consume_iter_with(NextFun, It0, Opts) ->
             {ok, It, []};
         {ok, It1, Batch} ->
             {ok, It, Msgs} = consume_iter_with(NextFun, It1, Opts),
-            {ok, It, [Msg || {_DSKey, Msg} <- Batch] ++ Msgs};
+            {ok, It, Batch ++ Msgs};
         {ok, Eos = end_of_stream} ->
             {ok, Eos, []};
         {error, Class, Reason} ->

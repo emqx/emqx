@@ -46,8 +46,7 @@ init_per_group(persistence_disabled, Config) ->
 init_per_group(persistence_enabled, Config) ->
     DurableSessionsOpts = #{
         <<"enable">> => true,
-        <<"heartbeat_interval">> => <<"100ms">>,
-        <<"renew_streams_interval">> => <<"100ms">>
+        <<"heartbeat_interval">> => <<"100ms">>
     },
     Opts = #{durable_sessions_opts => DurableSessionsOpts},
     ExtraApps = [emqx_management],

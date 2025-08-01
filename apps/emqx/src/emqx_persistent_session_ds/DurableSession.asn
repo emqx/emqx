@@ -1,0 +1,54 @@
+DurableSession DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  ID ::= INTEGER(0..MAX)
+
+  TopicFilter ::= SEQUENCE {
+    topic OCTET STRING,
+    group OCTET STRING OPTIONAL
+  }
+
+  Subscription ::= SEQUENCE {
+    id ID,
+    currentState ID,
+    startTime INTEGER
+  }
+
+  Misc ::= SEQUENCE {
+    key OCTET STRING,
+    val OCTET STRING
+  }
+
+  SubState ::= SEQUENCE {
+    parentSub ID,
+    -- Flags
+    upgradeQos BOOLEAN,
+    durable BOOLEAN,
+    --
+    supersededBy ID OPTIONAL,
+    shareTopicFilter TopicFilter OPTIONAL,
+    --
+    miscSubopts SEQUENCE OF Misc
+  }
+
+  StreamKey ::= SEQUENCE {
+    subId ID,
+    stream OCTET STRING
+  }
+
+  SRS ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER,
+    itBegin OCTET STRING,
+    -- Strictly speaking, we don't have to store itEnd, as can be
+    -- derived from batchSize and itBegin. It's used as for some
+    -- checks, so it's worth having.
+    itEnd OCTET STRING OPTIONAL,
+    batchSize INTEGER,
+    firstSeqNoQoS1 INTEGER,
+    firstSeqNoQoS2 INTEGER,
+    lastSeqNoQoS1 INTEGER,
+    lastSeqNoQoS2 INTEGER,
+    unsubscribed BOOLEAN,
+    subscriptionState ID
+  }
+END

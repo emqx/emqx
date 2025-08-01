@@ -98,7 +98,7 @@ t_operations(_Config) ->
     ).
 
 %% Smoke test for iteration through a concrete topic
-t_iterate(_Config) ->
+et_iterate(_Config) ->
     %% Prepare data:
     Topics = [<<"foo/bar">>, <<"foo/bar/baz">>, <<"a">>],
     Timestamps = lists:seq(1, 10),
@@ -110,19 +110,20 @@ t_iterate(_Config) ->
     %% Iterate through individual topics:
     [
         begin
-            [{Rank, Stream}] = emqx_ds_storage_layer:get_streams(?SHARD, parse_topic(Topic), 0),
+            [{Rank, Stream}] = emqx_ds_storage_layer:get_streams(?SHARD, parse_topic(Topic), 0, 0),
             ct:pal("Streams for ~p: {~p, ~p}", [Topic, Rank, Stream]),
             {ok, It} = emqx_ds_storage_layer:make_iterator(?SHARD, Stream, parse_topic(Topic), 0),
             ct:pal("Iterator for ~p: ~p", [Topic, It]),
-            {ok, NextIt, MessagesAndKeys} = emqx_ds_storage_layer:next(
-                ?SHARD, It, 100, emqx_ds:timestamp_us()
+            {ok, NextIt, Messages} = emqx_ds_storage_layer:next(
+                ?SHARD, It, 100, emqx_ds:timestamp_us(), false
             ),
-            Messages = [Msg || {_DSKey, Msg} <- MessagesAndKeys],
             ?assertEqual(
                 lists:map(fun integer_to_binary/1, Timestamps),
                 payloads(Messages)
             ),
-            {ok, _, []} = emqx_ds_storage_layer:next(?SHARD, NextIt, 100, emqx_ds:timestamp_us())
+            {ok, _, []} = emqx_ds_storage_layer:next(
+                ?SHARD, NextIt, 100, emqx_ds:timestamp_us(), false
+            )
         end
      || Topic <- Topics
     ],
@@ -154,7 +155,7 @@ t_delete(_Config) ->
     ?assertEqual(10, NumDeleted),
 
     %% Read surviving messages.
-    Messages = [Msg || {_DSKey, Msg} <- replay(?SHARD, TopicFilter, StartTime)],
+    Messages = replay(?SHARD, TopicFilter, StartTime),
     MessagesByTopic = maps:groups_from_list(fun emqx_message:topic/1, Messages),
     ?assertNot(is_map_key(TopicToDelete, MessagesByTopic), #{msgs => MessagesByTopic}),
     ?assertEqual(20, length(Messages)).
@@ -176,7 +177,7 @@ t_get_streams(Config) ->
     ok = emqx_ds:store_batch(?FUNCTION_NAME, Batch),
     GetStream = fun(Topic) ->
         StartTime = 0,
-        emqx_ds_storage_layer:get_streams(?SHARD, parse_topic(Topic), StartTime)
+        emqx_ds_storage_layer:get_streams(?SHARD, parse_topic(Topic), StartTime, 0)
     end,
     %% Get streams for individual topics to use as a reference for later:
     [FooBar = {_, _}] = GetStream(<<"foo/bar">>),
@@ -250,7 +251,7 @@ t_new_generation_inherit_trie(Config) ->
             %% We should get only two streams for wildcard query, for "foo" and for "bar".
             ?assertMatch(
                 [_Foo, _Bar],
-                emqx_ds_storage_layer:get_streams(?SHARD, [<<"wildcard">>, '#'], 1_000)
+                emqx_ds_storage_layer:get_streams(?SHARD, [<<"wildcard">>, '#'], 1_000, 0)
             ),
             ok
         end,
@@ -477,7 +478,7 @@ verify_dump(TopicFilter, StartTime, Dump) ->
     ).
 
 dump_messages(Shard, TopicFilter, StartTime) ->
-    Streams = emqx_ds_storage_layer:get_streams(Shard, parse_topic(TopicFilter), StartTime),
+    Streams = emqx_ds_storage_layer:get_streams(Shard, parse_topic(TopicFilter), StartTime, 0),
     ct:pal("Streams for ~p:~n ~p", [TopicFilter, Streams]),
     lists:flatmap(
         fun({_Rank, Stream}) ->
@@ -496,13 +497,13 @@ dump_stream(Shard, Stream, TopicFilter, StartTime) ->
         F(It, 0) ->
             error({too_many_iterations, It});
         F(It, N) ->
-            case emqx_ds_storage_layer:next(Shard, It, BatchSize, emqx_ds:timestamp_us()) of
+            case emqx_ds_storage_layer:next(Shard, It, BatchSize, emqx_ds:timestamp_us(), false) of
                 end_of_stream ->
                     [];
                 {ok, _NextIt, []} ->
                     [];
                 {ok, NextIt, Batch} ->
-                    [Msg || {_DSKey, Msg} <- Batch] ++ F(NextIt, N - 1)
+                    Batch ++ F(NextIt, N - 1)
             end
     end,
     MaxIterations = 1000000,
@@ -655,7 +656,7 @@ delete(Shard, Iterators, Selector) ->
     N + delete(Shard, NewIterators1, Selector).
 
 replay(Shard, TopicFilter, Time) ->
-    StreamsByRank = emqx_ds_storage_layer:get_streams(Shard, TopicFilter, Time),
+    StreamsByRank = emqx_ds_storage_layer:get_streams(Shard, TopicFilter, Time, 0),
     Iterators = lists:map(
         fun({_Rank, Stream}) ->
             {ok, Iterator} = emqx_ds_storage_layer:make_iterator(Shard, Stream, TopicFilter, Time),
@@ -670,7 +671,7 @@ replay(_Shard, []) ->
 replay(Shard, Iterators) ->
     {NewIterators0, Messages0} = lists:foldl(
         fun(Iterator0, {AccIterators, AccMessages}) ->
-            case emqx_ds_storage_layer:next(Shard, Iterator0, 10, ?FUTURE) of
+            case emqx_ds_storage_layer:next(Shard, Iterator0, 10, ?FUTURE, false) of
                 {ok, end_of_stream} ->
                     {AccIterators, AccMessages};
                 {ok, _Iterator1, []} ->

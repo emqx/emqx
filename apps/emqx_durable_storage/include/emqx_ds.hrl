@@ -44,6 +44,8 @@
 
 -define(ds_tx_commit_reply(REF, REPLY), REPLY = {'DOWN', REF, _, _, _}).
 
+-define(ds_tx_on_success(BODY), emqx_ds:tx_on_success(fun() -> BODY end)).
+
 %% Helper macros for generating transaction commit messages (internal
 %% macros, for use in the backends). `META' argument can be used by
 %% the backend to store arbitrary data.
@@ -68,5 +70,8 @@
 -define(ds_tx_read, r).
 -define(ds_tx_expected, e).
 -define(ds_tx_unexpected, u).
+
+%% Client
+-record(emqx_ds_client_retry, {ref :: reference()}).
 
 -endif.
