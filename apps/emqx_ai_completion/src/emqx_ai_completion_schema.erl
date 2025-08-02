@@ -52,33 +52,32 @@ fields(ai) ->
                 }
             )}
     ];
-fields(provider) ->
-    [
-        {name,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(provider_name),
-                validator => fun validate_name/1
-            })},
-        {type,
-            mk(hoconsc:enum([openai, anthropic]), #{
-                default => openai, required => true, desc => ?DESC(type)
-            })},
-        {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})},
-        {base_url,
-            mk(binary(), #{
-                required => false,
-                desc => ?DESC(base_url),
-                validator => fun validate_url/1,
-                default => <<"https://api.openai.com/v1">>
-            })},
-        {transport_options,
-            mk(ref(transport_options), #{
-                default => #{},
-                desc => ?DESC(transport_options),
-                importance => ?IMPORTANCE_LOW
-            })}
-    ];
+fields(openai_provider) ->
+    base_provider_fields() ++
+        [
+            {base_url,
+                mk(binary(), #{
+                    required => false,
+                    desc => ?DESC(base_url),
+                    validator => fun validate_url/1,
+                    default => <<"https://api.openai.com/v1">>
+                })}
+        ];
+fields(anthropic_provider) ->
+    base_provider_fields() ++
+        [
+            {anthropic_version,
+                mk(enum(['2023-06-01']), #{
+                    default => '2023-06-01', desc => ?DESC(anthropic_version), required => false
+                })},
+            {base_url,
+                mk(binary(), #{
+                    required => false,
+                    desc => ?DESC(base_url),
+                    validator => fun validate_url/1,
+                    default => <<"https://api.anthropic.com/v1">>
+                })}
+        ];
 fields(transport_options) ->
     [
         {connect_timeout,
@@ -110,10 +109,14 @@ fields(transport_options) ->
                 importance => ?IMPORTANCE_LOW
             })}
     ];
-fields(provider_api_get) ->
-    fields(provider);
-fields(provider_api_put) ->
-    without_fields([name], fields(provider));
+fields(openai_provider_api_get) ->
+    fields(openai_provider);
+fields(openai_provider_api_put) ->
+    without_fields([name], fields(openai_provider));
+fields(anthropic_provider_api_get) ->
+    fields(anthropic_provider);
+fields(anthropic_provider_api_put) ->
+    without_fields([name], fields(anthropic_provider));
 fields(openai_completion_profile) ->
     [
         {name,
@@ -143,7 +146,11 @@ fields(anthropic_completion_profile) ->
         {provider_name, mk(binary(), #{required => true, desc => ?DESC(provider_name)})},
         {anthropic_version,
             mk(enum(['2023-06-01']), #{
-                default => '2023-06-01', desc => ?DESC(anthropic_version), required => false
+                default => '2023-06-01',
+                desc => ?DESC(anthropic_version),
+                required => false,
+                deprecated => {since, <<"6.0.0">>},
+                importance => ?IMPORTANCE_HIDDEN
             })},
         {system_prompt,
             mk(binary(), #{required => false, default => <<>>, desc => ?DESC(system_prompt)})},
@@ -161,10 +168,33 @@ fields(anthropic_completion_profile_api_get) ->
 fields(anthropic_completion_profile_api_put) ->
     without_fields([name], fields(anthropic_completion_profile)).
 
+base_provider_fields() ->
+    [
+        {name,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(provider_name),
+                validator => fun validate_name/1
+            })},
+        {type,
+            mk(hoconsc:enum([openai, anthropic]), #{
+                default => openai, required => true, desc => ?DESC(type)
+            })},
+        {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})},
+        {transport_options,
+            mk(ref(transport_options), #{
+                default => #{},
+                desc => ?DESC(transport_options),
+                importance => ?IMPORTANCE_LOW
+            })}
+    ].
+
 desc(ai) ->
     ?DESC(ai);
-desc(provider) ->
-    ?DESC(provider);
+desc(openai_provider) ->
+    ?DESC(openai_provider);
+desc(anthropic_provider) ->
+    ?DESC(anthropic_provider);
 desc(openai_completion_profile) ->
     ?DESC(openai_completion_profile);
 desc(anthropic_completion_profile) ->
@@ -206,12 +236,33 @@ completion_profile_sctype_api(post) ->
     completion_profile_sctype().
 
 provider_sctype() ->
-    ref(provider).
+    emqx_schema:mkunion(
+        type,
+        #{
+            <<"openai">> => ref(openai_provider),
+            <<"anthropic">> => ref(anthropic_provider)
+        },
+        <<"openai">>
+    ).
 
 provider_sctype_api(put) ->
-    ref(provider_api_put);
+    emqx_schema:mkunion(
+        type,
+        #{
+            <<"openai">> => ref(openai_provider_api_put),
+            <<"anthropic">> => ref(anthropic_provider_api_put)
+        },
+        <<"openai">>
+    );
 provider_sctype_api(get) ->
-    ref(provider_api_get);
+    emqx_schema:mkunion(
+        type,
+        #{
+            <<"openai">> => ref(openai_provider_api_get),
+            <<"anthropic">> => ref(anthropic_provider_api_get)
+        },
+        <<"openai">>
+    );
 provider_sctype_api(post) ->
     provider_sctype().
 

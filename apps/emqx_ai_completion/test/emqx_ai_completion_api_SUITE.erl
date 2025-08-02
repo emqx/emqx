@@ -40,13 +40,14 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    emqx_ai_completion_test_helpers:clean_completion_profiles(),
-    emqx_ai_completion_test_helpers:clean_providers(),
+    ok = emqx_ai_completion_test_helpers:clean_completion_profiles(),
+    ok = emqx_ai_completion_test_helpers:clean_providers(),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    emqx_ai_completion_test_helpers:clean_completion_profiles(),
-    emqx_ai_completion_test_helpers:clean_providers().
+    ok = emqx_ai_completion_test_helpers:clean_completion_profiles(),
+    ok = emqx_ai_completion_test_helpers:clean_providers(),
+    ok = emqx_ai_completion_provider_mock:stop().
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -331,6 +332,33 @@ t_api_key_redact(_Config) ->
             }
         ],
         emqx_ai_completion_config:get_providers_raw()
+    ).
+
+t_models(_Config) ->
+    %% Create provider
+    ?assertMatch(
+        {ok, 204},
+        api_post([ai, providers], #{
+            name => <<"test-provider">>,
+            type => <<"openai">>,
+            api_key => <<"test-api-key">>,
+            base_url => <<"http://localhost:33330/v1">>
+        })
+    ),
+
+    %% Setup mock
+    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_models),
+
+    %% Succeed to fetch models of the provider
+    ?assertMatch(
+        {ok, 200, [<<"gpt-4-0613">>, <<"gpt-4">>, <<"gpt-3.5-turbo">>]},
+        api_get([ai, providers, <<"test-provider">>, models])
+    ),
+
+    %% Fail to fetch models of non-existent provider
+    ?assertMatch(
+        {ok, 404, _},
+        api_get([ai, providers, <<"non-existent-provider">>, models])
     ).
 
 %%--------------------------------------------------------------------

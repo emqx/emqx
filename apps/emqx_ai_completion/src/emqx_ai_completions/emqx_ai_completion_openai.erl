@@ -9,14 +9,15 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
-    call/3
+    call_completion/3,
+    list_models/1
 ]).
 
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
-call(
+call_completion(
     #{
         name := Name,
         model := Model,
@@ -53,6 +54,18 @@ call(
                 completion_profile => Name
             }),
             <<"">>
+    end.
+
+list_models(Provider) ->
+    Client = create_client(Provider),
+    case emqx_ai_completion_client:api_get(Client, models) of
+        {ok, #{<<"data">> := Models}} when is_list(Models) ->
+            ModelIds = [Model || #{<<"id">> := Model} <- Models],
+            {ok, ModelIds};
+        {ok, Other} ->
+            {error, {cannot_list_models, {unexpected_response, Other}}};
+        {error, Reason} ->
+            {error, {cannot_list_models, Reason}}
     end.
 
 %%------------------------------------------------------------------------------

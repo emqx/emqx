@@ -189,6 +189,54 @@ t_hackney_pool_config(_Config) ->
         hackney_pool:max_connections(Pool)
     ).
 
+t_openai_models(_Config) ->
+    %% Setup completion profiles
+    ok = emqx_ai_completion_config:update_providers_raw(
+        {add, #{
+            <<"type">> => <<"openai">>,
+            <<"name">> => <<"openai-provider">>,
+            <<"api_key">> => <<"sk-proj-1234567890">>,
+            <<"base_url">> => <<"http://localhost:33330/v1">>
+        }}
+    ),
+    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_models),
+    ?assertEqual(
+        {ok, [<<"gpt-4-0613">>, <<"gpt-4">>, <<"gpt-3.5-turbo">>]},
+        emqx_ai_completion:list_models(<<"openai-provider">>)
+    ).
+
+t_anthropic_models(_Config) ->
+    %% Setup completion profiles
+    ok = emqx_ai_completion_config:update_providers_raw(
+        {add, #{
+            <<"type">> => <<"anthropic">>,
+            <<"name">> => <<"anthropic-provider">>,
+            <<"api_key">> => <<"sk-ant-api03-1234567890">>,
+            <<"base_url">> => <<"http://localhost:33330/v1">>
+        }}
+    ),
+    ok = emqx_ai_completion_provider_mock:start_link(33330, anthropic_models),
+    ?assertEqual(
+        {ok, [<<"claude-opus-4-20250514">>, <<"claude-3-opus-20240229">>]},
+        emqx_ai_completion:list_models(<<"anthropic-provider">>)
+    ).
+
+t_anthropic_models_paginated(_Config) ->
+    %% Setup completion profiles
+    ok = emqx_ai_completion_config:update_providers_raw(
+        {add, #{
+            <<"type">> => <<"anthropic">>,
+            <<"name">> => <<"anthropic-provider">>,
+            <<"api_key">> => <<"sk-ant-api03-1234567890">>,
+            <<"base_url">> => <<"http://localhost:33330/v1">>
+        }}
+    ),
+    ok = emqx_ai_completion_provider_mock:start_link(33330, anthropic_models_paginated),
+    ?assertEqual(
+        {ok, [<<"claude-opus-4-20250514">>, <<"claude-3-opus-20240229">>]},
+        emqx_ai_completion:list_models(<<"anthropic-provider">>)
+    ).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

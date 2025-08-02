@@ -102,11 +102,17 @@ ai.desc:
 ai.label:
 """AI"""
 
-provider.desc:
-"""AI provider."""
+openai_provider.desc:
+"""OpenAI Compatible Provider."""
 
-provider.label:
-"""Provider"""
+openai_provider.label:
+"""OpenAI Provider"""
+
+anthropic_provider.desc:
+"""Anthropic Compatible Provider."""
+
+anthropic_provider.label:
+"""Anthropic Provider"""
 
 openai_completion_profile.desc:
 """AI completion profile for OpenAI."""
