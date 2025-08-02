@@ -60,7 +60,8 @@
     type := ai_type(),
     api_key := fun(() -> binary()),
     base_url := binary(),
-    transport_options := transport_options()
+    transport_options := transport_options(),
+    _ => _
 }.
 
 -type completion_profile() :: #{
