@@ -66,6 +66,12 @@ This function is called by the session when the channel disconnects.
 Side effects:
 
 - If DISCONNECT ReasonCode is 0, the current will message is deleted.
+
+- If WillDelay is 0 then current durable will message is deleted.
+  This is done to avoid interference with the channel logic.
+
+- Otherwise, authorization checks run to verify that client is eligible to publish to the will topic.
+  If the check is successful, a regular durable timer is started (this removes the dead hand timer).
 """.
 -spec on_disconnect(
     emqx_types:clientid(), emqx_types:clientinfo(), emqx_types:message() | undefined

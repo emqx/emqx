@@ -1786,52 +1786,68 @@ t_list_clients_v2_limit(Config) ->
      || I <- lists:seq(1, Nclients)
     ],
     {ClientIds, _, _} = lists:unzip3(Clients),
-    ct:sleep(1000),
-    %% Set pagination options:
-    Limit = 8,
-    QP = #{<<"limit">> => integer_to_binary(Limit)},
-    %% 1. Verify API output when all clients are online:
-    (fun() ->
-        %% Since we have 10 clients in total, we should get all results on 2 pages.
-        {ok, {{_, 200, _}, _, Res1}} = list_v2_request(
-            QP,
-            Config
-        ),
-        #{<<"meta">> := #{<<"count">> := 8, <<"cursor">> := Cursor1}, <<"data">> := _} = Res1,
-        {ok, {{_, 200, _}, _, Res2}} = list_v2_request(
-            QP#{<<"cursor">> => Cursor1},
-            Config
-        ),
-        #{<<"meta">> := Meta2 = #{<<"count">> := 2}, <<"data">> := _} = Res2,
-        ?assertNot(maps:is_key(<<"cursor">>, Meta2), Meta2),
-        ?assertContainsClientids([Res1, Res2], ClientIds)
-    end)(),
-    %% 2. Verify output when half of the clients is offline:
-    (fun() ->
-        %% Shutdown half of the clients:
-        [
-            begin
-                ct:pal("Disconnecting ~p", [ClientId]),
-                emqtt:stop(Pid)
-            end
-         || {ClientId, _, Pid} <- lists:nthtail(Nclients div 2, Clients)
-        ],
+    try
         ct:sleep(1000),
-        %% Verify result:
-        {ok, {{_, 200, _}, _, Res1}} = list_v2_request(
-            QP,
-            Config
-        ),
-        #{<<"meta">> := #{<<"count">> := 8, <<"cursor">> := Cursor1}, <<"data">> := _} = Res1,
-        {ok, {{_, 200, _}, _, Res2}} = list_v2_request(
-            QP#{<<"cursor">> => Cursor1},
-            Config
-        ),
-        #{<<"meta">> := Meta2 = #{<<"count">> := 2}, <<"data">> := _} = Res2,
-        ?assertNot(maps:is_key(<<"cursor">>, Meta2), Meta2),
-        ?assertContainsClientids([Res1, Res2], ClientIds)
-    end)(),
-    ok.
+        %% Set pagination options:
+        Limit = 8,
+        QP = #{<<"limit">> => integer_to_binary(Limit)},
+        %% 1. Verify API output when all clients are online:
+        (fun() ->
+            %% Since we have 10 clients in total, we should get all results on 2 pages.
+            {ok, {{_, 200, _}, _, Res1}} = list_v2_request(
+                QP,
+                Config
+            ),
+            #{<<"meta">> := #{<<"count">> := 8, <<"cursor">> := Cursor1}, <<"data">> := _} = Res1,
+            {ok, {{_, 200, _}, _, Res2}} = list_v2_request(
+                QP#{<<"cursor">> => Cursor1},
+                Config
+            ),
+            #{<<"meta">> := Meta2 = #{<<"count">> := 2}, <<"data">> := _} = Res2,
+            ?assertNot(maps:is_key(<<"cursor">>, Meta2), Meta2),
+            ?assertContainsClientids([Res1, Res2], ClientIds)
+        end)(),
+        %% 2. Verify output when half of the clients is offline:
+        {_Keep, Stop} = lists:split(Nclients div 2, Clients),
+        (fun() ->
+            %% Shutdown half of the clients:
+            [
+                begin
+                    ct:pal("Disconnecting ~p", [ClientId]),
+                    emqtt:stop(Pid)
+                end
+             || {ClientId, _, Pid} <- Stop
+            ],
+            ct:sleep(1000),
+            %% Verify result:
+            {ok, {{_, 200, _}, _, Res1}} = list_v2_request(
+                QP,
+                Config
+            ),
+            #{<<"meta">> := #{<<"count">> := 8, <<"cursor">> := Cursor1}, <<"data">> := _} = Res1,
+            {ok, {{_, 200, _}, _, Res2}} = list_v2_request(
+                QP#{<<"cursor">> => Cursor1},
+                Config
+            ),
+            #{<<"meta">> := Meta2 = #{<<"count">> := 2}, <<"data">> := _} = Res2,
+            ?assertNot(maps:is_key(<<"cursor">>, Meta2), Meta2),
+            ?assertContainsClientids([Res1, Res2], ClientIds)
+        end)()
+    after
+        %% 3. Cleanup:
+        _ = [
+            begin
+                try
+                    emqtt:stop(Pid)
+                catch
+                    _:_ -> ok
+                end,
+                erpc:call(Node, emqx_persistent_session_ds, kick_offline_session, [ClientId])
+            end
+         || {ClientId, Node, Pid} <- Clients
+        ],
+        ok
+    end.
 
 %% Checks that exact match filters (username) works in clients_v2 API.
 t_list_clients_v2_exact_filters(Config) ->
