@@ -26,18 +26,18 @@
 
 all() ->
     [
-        {group, mem},
-        {group, persistent}
+        {group, persistence_disabled},
+        {group, persistence_enabled}
     ].
 
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
     CommonTCs = AllTCs -- persistent_only_tcs(),
     [
-        {mem, CommonTCs},
+        {persistence_disabled, CommonTCs},
         %% Persistent shared subscriptions are an EE app.
         %% So they are tested outside emqx_management app which is CE.
-        {persistent,
+        {persistence_enabled,
             (CommonTCs --
                 [t_list_with_shared_sub, t_list_with_invalid_match_topic, t_subscription_api]) ++
                 persistent_only_tcs()}
@@ -64,7 +64,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_common_test_helpers:stop_apps_ds(Config).
 
-init_per_group(persistent, Config) ->
+init_per_group(persistence_enabled, Config) ->
     ClientConfig = #{
         username => ?USERNAME,
         clientid => ?CLIENTID,
@@ -73,7 +73,7 @@ init_per_group(persistent, Config) ->
         properties => #{'Session-Expiry-Interval' => 300}
     },
     [{client_config, ClientConfig}, {durable, true} | Config];
-init_per_group(mem, Config) ->
+init_per_group(persistence_disabled, Config) ->
     ClientConfig = #{
         username => ?USERNAME, clientid => ?CLIENTID, proto_ver => v5, clean_start => true
     },
