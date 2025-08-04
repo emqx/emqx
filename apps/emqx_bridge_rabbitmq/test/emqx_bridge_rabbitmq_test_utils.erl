@@ -173,13 +173,13 @@ ssl_options(false) ->
         enable => false
     }.
 
-parse_and_check(Key, Mod, Conf, Name) ->
-    ConfStr = hocon_pp:do(Conf, #{}),
-    ct:pal(ConfStr),
-    {ok, RawConf} = hocon:binary(ConfStr, #{format => map}),
-    hocon_tconf:check_plain(Mod, RawConf, #{required => false, atom_key => false}),
-    #{Key := #{<<"rabbitmq">> := #{Name := RetConf}}} = RawConf,
-    RetConf.
+%% todo: delete this and use testlib directly
+parse_and_check(_, emqx_connector_schema, Conf, Name) ->
+    emqx_bridge_v2_testlib:parse_and_check_connector(<<"rabbitmq">>, Name, Conf);
+parse_and_check(<<"sources">>, emqx_bridge_v2_schema, Conf, Name) ->
+    emqx_bridge_v2_testlib:parse_and_check(source, <<"rabbitmq">>, Name, Conf);
+parse_and_check(<<"actions">>, emqx_bridge_v2_schema, Conf, Name) ->
+    emqx_bridge_v2_testlib:parse_and_check(action, <<"rabbitmq">>, Name, Conf).
 
 receive_message_from_rabbitmq(Config) ->
     #{channel := Channel} = get_channel_connection(Config),
