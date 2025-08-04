@@ -45,4 +45,7 @@
 -define(otx_leader_pid, 5).
 -define(otx_timestamp, 6).
 
+%% Optvars:
+-record(emqx_ds_builtin_raft_optvar_ready, {db}).
+
 -endif.

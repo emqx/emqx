@@ -823,14 +823,14 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
     ?module(DB):make_iterator(DB, Stream, TopicFilter, StartTime).
 
 -doc """
-Fetch a batch of payloads from the DB, starting from position delimited by the iterator.
+Fetch a batch of payloads from the DB, starting from position marked by the iterator.
 
 Size of the batch is controlled by the NextLimit parameter.
 
 - When set to a positive integer Nmax, this function will return up to Nmax entries.
 
 - When set to `{time, Time, NMax}`, iteration will stop either
-  upon reaching a payload with timestamp >= `Time` (which *non't* be included in the batch) or
+  upon reaching a payload with timestamp >= `Time` (which *won't* be included in the batch) or
   when the batch size reaches NMax.
 """.
 -spec next(db(), iterator(), next_limit()) -> next_result(iterator()).
@@ -842,9 +842,8 @@ next(DB, It, NextLimit) ->
 A low-level API that subscribes current Erlang process to the messages
 that follow `Iterator`.
 
-NOTE: business-level applications are encouraged to use
-`emqx_ds_client` instead. This helper module that simplifies
-management of subscriptions.
+NOTE: business-level applications are encouraged to use `emqx_ds_client` instead.
+This helper module greatly simplifies management of subscriptions.
 
 This function returns a subscription handle that can be used to to
 manipulate the subscription (ack batches and unsubscribe), as well as
@@ -1059,9 +1058,9 @@ The following is guaranteed, though:
 
 - **`retries`**: Automatically retry the transaction if transaction
   results in a recoverable error. This option specifies number of
-  retries. Restart behavior depends on the `sync` flag. Sync
-  transactions are always restarted, while async transactions are only
-  restarted for errors that happen before the commit stage.
+  retries. Transaction restart behavior depends on the `sync` flag.
+  Sync transactions are always restarted, while async transactions are
+  only restarted for errors that happen before the commit stage.
 
   Default: 0.
 

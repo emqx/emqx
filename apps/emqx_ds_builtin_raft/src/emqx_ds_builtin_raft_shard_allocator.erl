@@ -9,6 +9,7 @@
 -module(emqx_ds_builtin_raft_shard_allocator).
 
 -include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_ds_replication_layer.hrl").
 
 -export([start_link/1]).
 
@@ -515,7 +516,8 @@ save_db_meta(DB, Shards) ->
     persistent_term:put(?db_meta(DB), #{
         shards => Shards,
         n_shards => length(Shards)
-    }).
+    }),
+    optvar:set(#emqx_ds_builtin_raft_optvar_ready{db = DB}, true).
 
 cache_shard_info(DB, Shards) when is_list(Shards) ->
     lists:foreach(fun(Shard) -> cache_shard_info(DB, Shard) end, Shards);
@@ -523,6 +525,7 @@ cache_shard_info(DB, Shard) ->
     emqx_ds_builtin_raft_shard:cache_shard_servers(DB, Shard).
 
 erase_db_meta(DB) ->
+    optvar:unset(#emqx_ds_builtin_raft_optvar_ready{db = DB}),
     persistent_term:erase(?db_meta(DB)).
 
 clear_shard_cache(DB, Shards) when is_list(Shards) ->
