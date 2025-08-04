@@ -19,6 +19,7 @@
 -export([
     '/ai/providers'/2,
     '/ai/providers/:name'/2,
+    '/ai/providers/:name/models'/2,
     '/ai/completion_profiles'/2,
     '/ai/completion_profiles/:name'/2
 ]).
@@ -38,6 +39,7 @@ paths() ->
     [
         "/ai/providers",
         "/ai/providers/:name",
+        "/ai/providers/:name/models",
         "/ai/completion_profiles",
         "/ai/completion_profiles/:name"
     ].
@@ -130,7 +132,32 @@ schema("/ai/providers/:name") ->
                     ['NOT_FOUND'], <<"Provider not found">>
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CREDENTIAL'], <<"Invalid request">>
+                    ['INVALID_CREDENTIAL'], <<"Invalid provider">>
+                ),
+                503 => emqx_dashboard_swagger:error_codes(
+                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
+                )
+            }
+        }
+    };
+schema("/ai/providers/:name/models") ->
+    #{
+        'operationId' => '/ai/providers/:name/models',
+        get => #{
+            tags => ?TAGS,
+            summary => <<"List all AI models available for a provider">>,
+            description => ?DESC(ai_providers_model_list),
+            parameters => [name_param()],
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    hoconsc:array(binary()),
+                    [get_models_example()]
+                ),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND'], <<"Provider not found">>
+                ),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['INVALID_CREDENTIAL'], <<"Invalid provider">>
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
@@ -284,6 +311,9 @@ get_completion_profile_example() ->
 post_completion_profile_example() ->
     get_completion_profile_example().
 
+get_models_example() ->
+    [<<"gpt-4-0613">>, <<"gpt-4">>, <<"gpt-3.5-turbo">>].
+
 %%--------------------------------------------------------------------
 %% Minirest handlers
 %%--------------------------------------------------------------------
@@ -304,6 +334,18 @@ post_completion_profile_example() ->
     update_provider(Name, UpdatedProvider#{<<"name">> => Name});
 '/ai/providers/:name'(delete, #{bindings := #{name := Name}}) ->
     delete_provider(Name).
+
+'/ai/providers/:name/models'(get, #{bindings := #{name := Name}}) ->
+    case emqx_ai_completion:list_models(Name) of
+        {error, provider_not_found} ->
+            {404, #{code => 'NOT_FOUND', message => <<"Provider not found">>}};
+        {ok, Models} ->
+            {200, Models};
+        {error, Reason} ->
+            {503, #{
+                code => 'SERVICE_UNAVAILABLE', message => emqx_utils:readable_error_msg(Reason)
+            }}
+    end.
 
 '/ai/completion_profiles'(get, _Params) ->
     {200, get_completion_profiles_for_output()};
