@@ -407,9 +407,7 @@ n_subscriptions(Rec) ->
 
 -spec total_subscription_count() -> non_neg_integer().
 total_subscription_count() ->
-    %% Fun = fun(Data, Acc) -> length(Data) + Acc end,
-    %% read_fold(Fun, 0, '+', [?subscription_domain_bin, '+']).
-    0.
+    emqx_persistent_session_ds_state_v2:total_subscription_count(generation()).
 
 -spec put_subscription(
     emqx_persistent_session_ds:topic_filter(),

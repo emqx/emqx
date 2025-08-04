@@ -41,6 +41,7 @@
     pmap_dirty_read/3,
     pmap_topic/4,
 
+    total_subscription_count/1,
     make_session_iterator/1,
     session_iterator_next/3,
     make_subscription_iterator/1,
@@ -406,6 +407,14 @@ subscription_iterator_next(Generation, It0, N) ->
         Batch
     ),
     {Results, It}.
+
+total_subscription_count(Generation) ->
+    emqx_ds:fold_topic(
+        fun(_, _, _, Acc) -> Acc + 1 end,
+        0,
+        pmap_topic(?subscriptions, '+', '+'),
+        #{db => ?DB, generation => Generation}
+    ).
 
 %%================================================================================
 %% Internal functions
