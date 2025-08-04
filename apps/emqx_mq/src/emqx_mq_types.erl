@@ -9,6 +9,8 @@ The module contains basic types for the Message Queue application.
 """.
 
 -include("emqx_mq_internal.hrl").
+-elvis([{elvis_style, atom_naming_convention, disable}]).
+-include("../gen_src/MQMessage.hrl").
 
 -type subscriber_ref() :: reference().
 -type message_id() :: {emqx_ds:slab(), non_neg_integer()}.
@@ -25,6 +27,8 @@ The module contains basic types for the Message Queue application.
     is_compacted := boolean()
 }.
 
+-type mq_message() :: #'MQMessage'{}.
+
 -export_type([
     subscriber_ref/0,
     message_id/0,
@@ -34,5 +38,6 @@ The module contains basic types for the Message Queue application.
     consumer_data/0,
     ack/0,
     mq_topic/0,
-    mq/0
+    mq/0,
+    mq_message/0
 ]).

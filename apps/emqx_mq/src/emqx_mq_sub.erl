@@ -101,7 +101,7 @@ handle_info(#{state := #connecting{}, topic := Topic} = _Sub, #mq_sub_message{me
     ),
     {error, recreate};
 handle_info(Sub0, #mq_sub_message{message = Msg}) ->
-    ?tp(warning, mq_sub_message, #{sub => Sub0, msg => Msg}),
+    ?tp(warning, mq_sub_message, #{sub => Sub0, message => Msg}),
     Sub = reset_consumer_timeout_timer(Sub0),
     {ok, Sub, [Msg]};
 handle_info(#{state := #connecting{}} = Sub0, #mq_sub_connected{consumer_ref = ConsumerRef}) ->

@@ -1,0 +1,11 @@
+-- Binary encoding of MQ messages.
+
+MQMessage DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  MQMessage ::= SEQUENCE {
+    from UTF8String,
+    topic UTF8String,
+    payload OCTET STRING,
+    timestamp INTEGER
+  }
+END
