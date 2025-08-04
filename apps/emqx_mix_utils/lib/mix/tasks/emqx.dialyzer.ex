@@ -6,6 +6,26 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
 
   @requirements ["compile", "loadpaths"]
 
+  @shortdoc "Run dialyzer analysis"
+
+  @moduledoc """
+  Runs dialyzer analysis.
+
+  ## Options
+
+    * `--mode` - The mode dialyzer should use.  Available options:
+
+        * `incremental`: runs dialyzer in incremental mode.
+
+        * `classic`: runs dialyzer in "classic" mode (non-incremental).
+
+      Defaults to `classic`.
+
+  ## Examples
+
+      $ mix emqx.dialyzer --mode incremental
+  """
+
   @impl true
   def run(args) do
     %{

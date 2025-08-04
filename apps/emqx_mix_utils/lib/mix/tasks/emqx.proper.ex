@@ -2,12 +2,31 @@ defmodule Mix.Tasks.Emqx.Proper do
   use Mix.Task
 
   alias Mix.Tasks.Emqx.Ct, as: ECt
+  alias EMQXUmbrella.MixProject, as: UMP
 
   # todo: invoke the equivalent of `make merge-config` as a requirement...
   @requirements ["compile", "loadpaths"]
 
+  @shortdoc "Run proper tests"
+
+  @moduledoc """
+  Runs proper tests.
+
+  ## Options
+
+    * `--cover-export-name` - filename to export cover data to.  Defaults to `proper`.
+      Always get `.coverdata` appended to it.
+
+  ## Examples
+
+      $ mix emqx.proper
+  """
+
   @impl true
   def run(args) do
+    ECt.ensure_test_mix_env!()
+    UMP.set_test_env!(true)
+
     input_opts = parse_args!(args)
 
     Enum.each([:common_test, :eunit, :mnesia], &ECt.add_to_path_and_cache/1)
