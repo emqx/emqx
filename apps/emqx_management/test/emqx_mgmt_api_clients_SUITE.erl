@@ -27,8 +27,8 @@
 all() ->
     [
         {group, general},
-        {group, persistent_sessions},
-        {group, non_persistent_cluster}
+        {group, persistence_enabled},
+        {group, persistence_disabled_cluster}
     ].
 
 groups() ->
@@ -36,15 +36,15 @@ groups() ->
     GeneralTCs =
         AllTCs --
             (persistent_session_testcases() ++
-                non_persistent_cluster_testcases() ++ client_msgs_testcases()),
+                persistence_disabled_cluster_testcases() ++ client_msgs_testcases()),
     [
         {general, [
             {group, msgs_base64_encoding},
             {group, msgs_plain_encoding}
             | GeneralTCs
         ]},
-        {persistent_sessions, persistent_session_testcases()},
-        {non_persistent_cluster, non_persistent_cluster_testcases()},
+        {persistence_enabled, persistent_session_testcases()},
+        {persistence_disabled_cluster, persistence_disabled_cluster_testcases()},
         {msgs_base64_encoding, client_msgs_testcases()},
         {msgs_plain_encoding, client_msgs_testcases()}
     ].
@@ -56,7 +56,6 @@ persistent_session_testcases() ->
         t_persistent_sessions3,
         t_persistent_sessions4,
         t_persistent_sessions5,
-        t_persistent_sessions6,
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
         t_list_clients_v2_limit,
@@ -64,7 +63,7 @@ persistent_session_testcases() ->
         t_list_clients_v2_regular_filters,
         t_list_clients_v2_bad_query_string_parameters
     ].
-non_persistent_cluster_testcases() ->
+persistence_disabled_cluster_testcases() ->
     [
         t_bulk_subscribe
     ].
@@ -94,10 +93,11 @@ init_per_group(general, Config) ->
         {api_auth_header, emqx_mgmt_api_test_util:auth_header_()}
         | Config
     ];
-init_per_group(persistent_sessions, Config0) ->
+init_per_group(persistence_enabled, Config0) ->
     DurableSessionsOpts = #{
         <<"enable">> => true,
-        <<"disconnected_session_count_refresh_interval">> => <<"100ms">>
+        <<"disconnected_session_count_refresh_interval">> => <<"100ms">>,
+        <<"checkpoint_interval">> => 0
     },
     Opts = #{durable_sessions_opts => DurableSessionsOpts},
     AppSpecs = [emqx_management],
@@ -112,7 +112,7 @@ init_per_group(persistent_sessions, Config0) ->
         {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
         | Config
     ];
-init_per_group(non_persistent_cluster, Config) ->
+init_per_group(persistence_disabled_cluster, Config) ->
     AppSpecs = [
         emqx,
         emqx_conf,
@@ -144,12 +144,12 @@ end_per_group(general, Config) ->
     Apps = ?config(apps, Config),
     ok = emqx_cth_suite:stop(Apps);
 end_per_group(Group, Config) when
-    Group =:= persistent_sessions
+    Group =:= persistence_enabled
 ->
     emqx_common_test_helpers:stop_cluster_ds(Config),
     ok;
 end_per_group(Group, Config) when
-    Group =:= non_persistent_cluster
+    Group =:= persistence_disabled_cluster
 ->
     Nodes = ?config(nodes, Config),
     ok = emqx_cth_cluster:stop(Nodes);

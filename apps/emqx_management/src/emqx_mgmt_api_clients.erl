@@ -1738,18 +1738,7 @@ fuzzy_filter_fun(Fuzzy) ->
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter(
-    Row = {_, #{metadata := #{clientinfo := ClientInfo}}},
-    [{Key, like, SubStr} | RestArgs]
-) ->
-    %% Row from DS
-    run_fuzzy_filter1(ClientInfo, Key, SubStr) andalso
-        run_fuzzy_filter(Row, RestArgs);
-run_fuzzy_filter(
-    Row = {_, #{metadata := #{clientinfo := ClientInfo}}},
-    [{Key, in, Xs} | RestArgs]
-) ->
-    %% Row from DS
+run_fuzzy_filter(Row = {_, #{clientinfo := ClientInfo}, _}, [{Key, in, Xs} | RestArgs]) ->
     IsMatch =
         case maps:find(Key, ClientInfo) of
             {ok, X} ->
@@ -1760,7 +1749,6 @@ run_fuzzy_filter(
     IsMatch andalso
         run_fuzzy_filter(Row, RestArgs);
 run_fuzzy_filter(Row = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | RestArgs]) ->
-    %% Row from ETS
     run_fuzzy_filter1(ClientInfo, Key, SubStr) andalso
         run_fuzzy_filter(Row, RestArgs).
 
@@ -1818,13 +1806,7 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
             with_client_info_fields(ClientInfoMap, RequestedFields),
             TimesKeys
         )
-    );
-format_channel_info(undefined, {ClientId, undefined = _PSInfo}, _Opts) ->
-    %% Durable session missing its metadata: possibly a race condition, such as the client
-    %% being kicked while the API is enumerating clients.  There's nothing much to do, we
-    %% just return an almost empty map to avoid crashing this function.  The client may
-    %% just retry listing in such cases.
-    #{clientid => ClientId}.
+    ).
 
 with_client_info_fields(ClientInfoMap, all) ->
     RemoveList =
