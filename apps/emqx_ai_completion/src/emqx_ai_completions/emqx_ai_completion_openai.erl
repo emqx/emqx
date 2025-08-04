@@ -30,23 +30,31 @@ call_completion(
     Prompt = maps:get(prompt, Options, SystemPrompt),
     Client = create_client(Provider),
     Request = #{
-        model => Model,
-        messages => [
-            #{role => <<"system">>, content => Prompt},
-            #{role => <<"user">>, content => Data}
-        ]
+        <<"model">> => Model,
+        <<"input">> => Data,
+        <<"instructions">> => Prompt
     },
     ?tp(debug, emqx_ai_completion_request, #{
         request => Request
     }),
-    case emqx_ai_completion_client:api_post(Client, {chat, completions}, Request) of
-        {ok, #{<<"choices">> := [#{<<"message">> := #{<<"content">> := Content}}]}} ->
+    case emqx_ai_completion_client:api_post(Client, responses, Request) of
+        {ok, #{
+            <<"status">> := <<"completed">>,
+            <<"output">> := [
+                #{
+                    <<"type">> := <<"message">>,
+                    <<"status">> := <<"completed">>,
+                    <<"content">> := [#{<<"type">> := <<"output_text">>, <<"text">> := Output} | _]
+                }
+                | _
+            ]
+        }} ->
             ?tp(debug, emqx_ai_completion_result, #{
-                result => Content,
+                result => Output,
                 provider => ProviderName,
                 completion_profile => Name
             }),
-            Content;
+            Output;
         {error, Reason} ->
             ?tp(error, emqx_ai_completion_error, #{
                 reason => Reason,

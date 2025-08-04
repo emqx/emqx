@@ -37,55 +37,73 @@ set_handler(anthropic_models_paginated) ->
 set_handler(Fun) ->
     emqx_utils_http_test_server:set_handler(Fun).
 
-openai_chat_completion(#{path := <<"/v1/chat/completions">>} = Req0, State) ->
+openai_chat_completion(#{path := <<"/v1/responses">>} = Req0, State) ->
     {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
     Body = emqx_utils_json:decode(RawBody),
     #{
-        <<"messages">> :=
-            [
-                #{<<"content">> := _, <<"role">> := <<"system">>},
-                #{<<"content">> := _, <<"role">> := <<"user">>}
-            ],
+        <<"input">> := _,
+        <<"instructions">> := _,
         <<"model">> := _
     } =
         Body,
-    %% https://platform.openai.com/docs/api-reference/chat/object
-    Data = #{
-        <<"id">> => <<"chatcmpl-B9MHDbslfkBeAs8l4bebGdFOJ6PeG">>,
-        <<"object">> => <<"chat.completion">>,
-        <<"created">> => 1741570283,
-        <<"model">> => <<"gpt-4o-2024-08-06">>,
-        <<"choices">> => [
-            #{
-                <<"index">> => 0,
-                <<"message">> => #{
+    %% https://platform.openai.com/docs/api-reference/responses/create
+    Data =
+        #{
+            <<"id">> => <<"resp_67ccd2bed1ec8190b14f964abc0542670bb6a6b452d3795b">>,
+            <<"object">> => <<"response">>,
+            <<"created_at">> => 1741476542,
+            <<"status">> => <<"completed">>,
+            <<"error">> => null,
+            <<"incomplete_details">> => null,
+            <<"instructions">> => null,
+            <<"max_output_tokens">> => null,
+            <<"model">> => <<"gpt-4.1-2025-04-14">>,
+            <<"output">> => [
+                #{
+                    <<"type">> => <<"message">>,
+                    <<"id">> => <<"msg_67ccd2bf17f0819081ff3bb2cf6508e60bb6a6b452d3795b">>,
+                    <<"status">> => <<"completed">>,
                     <<"role">> => <<"assistant">>,
-                    <<"content">> => <<"some completion">>,
-                    <<"refusal">> => null,
-                    <<"annotations">> => []
-                },
-                <<"logprobs">> => null,
-                <<"finish_reason">> => <<"stop">>
-            }
-        ],
-        <<"usage">> => #{
-            <<"prompt_tokens">> => 1117,
-            <<"completion_tokens">> => 46,
-            <<"total_tokens">> => 1163,
-            <<"prompt_tokens_details">> => #{
-                <<"cached_tokens">> => 0,
-                <<"audio_tokens">> => 0
+                    <<"content">> => [
+                        #{
+                            <<"type">> => <<"output_text">>,
+                            <<"text">> => <<"some completion">>,
+                            <<"annotations">> => []
+                        }
+                    ]
+                }
+            ],
+            <<"parallel_tool_calls">> => true,
+            <<"previous_response_id">> => null,
+            <<"reasoning">> => #{
+                <<"effort">> => null,
+                <<"summary">> => null
             },
-            <<"completion_tokens_details">> => #{
-                <<"reasoning_tokens">> => 0,
-                <<"audio_tokens">> => 0,
-                <<"accepted_prediction_tokens">> => 0,
-                <<"rejected_prediction_tokens">> => 0
-            }
+            <<"store">> => true,
+            <<"temperature">> => 1.0,
+            <<"text">> => #{
+                <<"format">> => #{
+                    <<"type">> => <<"text">>
+                }
+            },
+            <<"tool_choice">> => <<"auto">>,
+            <<"tools">> => [],
+            <<"top_p">> => 1.0,
+            <<"truncation">> => <<"disabled">>,
+            <<"usage">> => #{
+                <<"input_tokens">> => 36,
+                <<"input_tokens_details">> => #{
+                    <<"cached_tokens">> => 0
+                },
+                <<"output_tokens">> => 87,
+                <<"output_tokens_details">> => #{
+                    <<"reasoning_tokens">> => 0
+                },
+                <<"total_tokens">> => 123
+            },
+            <<"user">> => null,
+            <<"metadata">> => #{}
         },
-        <<"service_tier">> => <<"default">>,
-        <<"system_fingerprint">> => <<"fp_fc9f1d7035">>
-    },
     reply_ok(Data, Req1, State).
 
 anthropic_messages(#{path := <<"/v1/messages">>} = Req0, State) ->
