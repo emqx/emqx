@@ -34,17 +34,23 @@ channels subscribed to a Message Queue.
     inflight_messages := #{message_id() => monotonic_timestamp_ms()}
 }.
 
+-define(ping_timer, ping_timer).
+-define(shutdown_timer, shutdown_timer).
+
 -record(st, {
-    topic_filter :: binary(),
+    mq :: emqx_mq_types:mq(),
     subscribers :: #{subscriber_ref() => subscriber_data()},
     messages :: #{message_id() => emqx_types:message()},
     dispatch_queue :: queue:queue(),
-    ping_timer_ref :: reference() | undefined
+    timers :: #{
+        ?ping_timer => emqx_maybe:t(reference()),
+        ?shutdown_timer => emqx_maybe:t(reference())
+    }
 }).
 
 -type t() :: #st{}.
 
--type event() :: {ds_ack, message_id()}.
+-type event() :: {ds_ack, message_id()} | shutdown.
 
 -export_type([t/0, event/0]).
 
@@ -52,7 +58,7 @@ channels subscribed to a Message Queue.
 %% Messages
 %%--------------------------------------------------------------------
 
--record(ping_subscribers, {}).
+-record(timer_message, {timer_name :: ?ping_timer | ?shutdown_timer}).
 
 -record(subscriber_timeout, {
     subscriber_ref :: subscriber_ref()
@@ -62,14 +68,17 @@ channels subscribed to a Message Queue.
 %% API
 %%--------------------------------------------------------------------
 
--spec new(binary()) -> t().
-new(MQTopicFilter) ->
+-spec new(emqx_mq_types:mq()) -> t().
+new(MQ) ->
     #st{
-        topic_filter = MQTopicFilter,
+        mq = MQ,
         subscribers = #{},
         messages = #{},
         dispatch_queue = queue:new(),
-        ping_timer_ref = undefined
+        timers = #{
+            ?ping_timer => undefined,
+            ?shutdown_timer => undefined
+        }
     }.
 
 -spec handle_messages(t(), [{message_id(), emqx_types:message()}]) -> t().
@@ -85,8 +94,10 @@ handle_info(St, #mq_server_ack{subscriber_ref = SubscriberRef, message_id = Mess
     handle_ack(St, SubscriberRef, MessageId, Ack);
 handle_info(St, #mq_server_ping{subscriber_ref = SubscriberRef}) ->
     {ok, [], handle_ping(St, SubscriberRef)};
-handle_info(St, #ping_subscribers{}) ->
+handle_info(St, #timer_message{timer_name = ?ping_timer}) ->
     {ok, [], handle_ping_subscribers(St)};
+handle_info(St, #timer_message{timer_name = ?shutdown_timer}) ->
+    handle_shutdown(St);
 handle_info(St, #subscriber_timeout{subscriber_ref = SubscriberRef}) ->
     {ok, [], handle_subscriber_timeout(SubscriberRef, St)}.
 
@@ -108,7 +119,7 @@ handle_connect(#st{subscribers = Subscribers0} = State, SubscriberRef, ClientId)
                 SubscriberRef => initial_subscriber_data(SubscriberRef, ClientId)
             },
             ok = send_connected_to_subscriber(SubscriberRef),
-            dispatch(ensure_ping_timer(State#st{subscribers = Subscribers1}))
+            dispatch(ensure_client_timers(State#st{subscribers = Subscribers1}))
     end.
 
 handle_disconnect(#st{subscribers = Subscribers0} = State0, SubscriberRef) ->
@@ -118,7 +129,7 @@ handle_disconnect(#st{subscribers = Subscribers0} = State0, SubscriberRef) ->
             Subscribers = maps:remove(SubscriberRef, Subscribers0),
             State1 = State0#st{subscribers = Subscribers},
             State = enqueue_for_dispatch(State1, maps:keys(InflightMessages)),
-            dispatch(ensure_ping_timer(State));
+            dispatch(ensure_client_timers(State));
         _ ->
             State0
     end.
@@ -163,18 +174,26 @@ handle_ping(#st{subscribers = Subscribers0} = State, SubscriberRef) ->
             State
     end.
 
-handle_ping_subscribers(#st{subscribers = Subscribers} = State) ->
+handle_ping_subscribers(#st{subscribers = Subscribers} = State0) ->
     ?tp(warning, mq_consumer_handle_ping_subscribers, #{subscribers => maps:keys(Subscribers)}),
+    State1 = cancel_timer(?ping_timer, State0),
     ok = maps:foreach(
         fun(SubscriberRef, _SubscriberData) ->
             send_ping_to_subscriber(SubscriberRef)
         end,
         Subscribers
     ),
-    ensure_ping_timer(State).
+    ensure_timer(?ping_timer, State1).
 
 handle_subscriber_timeout(SubscriberRef, State) ->
     handle_disconnect(SubscriberRef, State).
+
+handle_shutdown(State) ->
+    {ok, [shutdown], State}.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 enqueue_messages(State, []) ->
     State;
@@ -255,20 +274,46 @@ dispatch_to_subscriber(
     ok = send_message_to_subscriber(MessageId, Message, SubscriberRef),
     State.
 
-ensure_ping_timer(#st{ping_timer_ref = PingTimerRef, subscribers = Subscribers} = State) when
-    map_size(Subscribers) =:= 0
-->
-    _ = emqx_utils:cancel_timer(PingTimerRef),
-    State#st{ping_timer_ref = undefined};
-ensure_ping_timer(#st{ping_timer_ref = _PingTimerRef} = State) ->
-    TRref = send_after(?DEFAULT_PING_INTERVAL, #ping_subscribers{}),
-    State#st{ping_timer_ref = TRref}.
+ensure_timer(TimerName, #st{timers = Timers0} = State) ->
+    Timers =
+        case Timers0 of
+            #{TimerName := undefined} ->
+                Timeout = timeout(TimerName, State),
+                TRref = send_after(Timeout, #timer_message{timer_name = TimerName}),
+                Timers0#{TimerName => TRref};
+            _ ->
+                Timers0
+        end,
+    State#st{timers = Timers}.
+
+cancel_timer(TimerName, #st{timers = Timers0} = State) ->
+    Timers =
+        case Timers0 of
+            #{TimerName := undefined} ->
+                Timers0;
+            #{TimerName := TimerRef} ->
+                _ = emqx_utils:cancel_timer(TimerRef),
+                Timers0#{TimerName => undefined}
+        end,
+    State#st{timers = Timers}.
+
+ensure_client_timers(#st{subscribers = Subscribers} = State0) when map_size(Subscribers) =:= 0 ->
+    State1 = cancel_timer(?ping_timer, State0),
+    ensure_timer(?shutdown_timer, State1);
+ensure_client_timers(#st{} = State0) ->
+    State1 = ensure_timer(?ping_timer, State0),
+    cancel_timer(?shutdown_timer, State1).
 
 send_after(Timeout, Message) ->
     erlang:send_after(Timeout, self_consumer_ref(), #info_to_mq_server{message = Message}).
 
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
+
+timeout(?ping_timer, #st{mq = #{consumer_ping_interval_ms := ConsumerPingIntervalMs}}) ->
+    ConsumerPingIntervalMs;
+timeout(?shutdown_timer, #st{mq = #{consumer_max_inactive_ms := ConsumerMaxInactiveMs}}) ->
+    ConsumerMaxInactiveMs.
 
 %% TODO
 %% use proto

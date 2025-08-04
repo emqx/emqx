@@ -10,8 +10,9 @@ The module contains the registry of Message Queues.
 
 -export([
     create_tables/0,
-    create/2,
+    create/1,
     find/1,
+    match/1,
     delete/1
 ]).
 
@@ -23,9 +24,13 @@ The module contains the registry of Message Queues.
 -define(MQ_REGISTRY_TAB, emqx_mq_registry).
 -define(MQ_REGISTRY_SHARD, emqx_mq_registry_shard).
 
+%% NOTE
+%% emqx_mq_types:mq() without topic_filter
+-type registry_mq() :: map().
+
 -record(?MQ_REGISTRY_TAB, {
     key :: emqx_topic_index:key(nil()) | '_',
-    is_compacted :: boolean() | '_'
+    mq :: registry_mq() | '_'
 }).
 
 %%--------------------------------------------------------------------
@@ -49,32 +54,57 @@ create_tables() ->
     ]),
     [?MQ_REGISTRY_TAB].
 
--spec create(emqx_mq_types:mq_topic(), boolean()) -> ok.
-create(TopicFilter, IsCompacted) ->
+-doc """
+Create a new MQ.
+""".
+-spec create(emqx_mq_types:mq()) -> ok.
+create(#{topic_filter := TopicFilter} = MQ) ->
     Key = make_key(TopicFilter),
-    ok = mria:dirty_write(#?MQ_REGISTRY_TAB{key = Key, is_compacted = IsCompacted}).
+    RegistryMQ = maps:remove(topic_filter, MQ),
+    ok = mria:dirty_write(#?MQ_REGISTRY_TAB{key = Key, mq = RegistryMQ}).
 
--spec find(emqx_mq_types:mq_topic()) -> [emqx_mq_types:mq()].
-find(Topic) ->
+-doc """
+Find all MQs matching the given concrete topic.
+""".
+-spec match(emqx_types:topic()) -> [emqx_mq_types:mq()].
+match(Topic) ->
     Keys = emqx_topic_index:matches(Topic, ?MQ_REGISTRY_TAB, []),
     lists:flatmap(
         fun(Key) ->
             case ets:lookup(?MQ_REGISTRY_TAB, Key) of
                 [] ->
                     [];
-                [#?MQ_REGISTRY_TAB{is_compacted = IsCompacted}] ->
-                    TopicFilter = emqx_topic_index:get_topic(Key),
-                    [#{topic_filter => TopicFilter, is_compacted => IsCompacted}]
+                [#?MQ_REGISTRY_TAB{} = Record] ->
+                    [from_record(Record)]
             end
         end,
         Keys
     ).
 
+-doc """
+Find the MQ by its topic filter.
+""".
+-spec find(emqx_mq_types:mq_topic()) -> {ok, emqx_mq_types:mq()} | not_found.
+find(TopicFilter) ->
+    Key = make_key(TopicFilter),
+    case ets:lookup(?MQ_REGISTRY_TAB, Key) of
+        [] ->
+            not_found;
+        [#?MQ_REGISTRY_TAB{} = Record] ->
+            {ok, from_record(Record)}
+    end.
+
+-doc """
+Delete the MQ by its topic filter.
+""".
 -spec delete(emqx_mq_types:mq_topic()) -> ok.
 delete(TopicFilter) ->
     Key = make_key(TopicFilter),
     ok = mria:dirty_delete(?MQ_REGISTRY_TAB, Key).
 
+-doc """
+Delete all MQs.
+""".
 -spec delete_all() -> ok.
 delete_all() ->
     {atomic, ok} = mria:async_dirty(
@@ -91,3 +121,9 @@ delete_all() ->
 
 make_key(TopicFilter) ->
     emqx_topic_index:make_key(TopicFilter, []).
+
+from_record(#?MQ_REGISTRY_TAB{
+    key = Key,
+    mq = MQ
+}) ->
+    MQ#{topic_filter => emqx_topic_index:get_topic(Key)}.

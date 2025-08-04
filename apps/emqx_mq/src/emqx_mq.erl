@@ -54,7 +54,7 @@ unregister_hooks() ->
 on_message_publish(#message{topic = <<"$SYS/", _/binary>>} = Message) ->
     {ok, Message};
 on_message_publish(#message{topic = Topic} = Message) ->
-    Queues = emqx_mq_registry:find(Topic),
+    Queues = emqx_mq_registry:match(Topic),
     ok = lists:foreach(
         fun(Queue) ->
             publish_to_queue(Queue, Message)
@@ -74,8 +74,13 @@ on_delivery_completed(Msg, Info) ->
 
 on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = FullTopic, _SubOpts) ->
     ?tp(warning, mq_on_session_subscribed, #{full_topic => FullTopic, handle => true}),
-    Sub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
-    ok = emqx_mq_sub_registry:register(Sub);
+    case emqx_mq_registry:find(Topic) of
+        not_found ->
+            ok;
+        {ok, MQ} ->
+            Sub = emqx_mq_sub:handle_connect(ClientInfo, MQ),
+            ok = emqx_mq_sub_registry:register(Sub)
+    end;
 on_session_subscribed(_ClientInfo, FullTopic, _SubOpts) ->
     ?tp(warning, mq_on_session_subscribed, #{full_topic => FullTopic, handle => false}),
     ok.

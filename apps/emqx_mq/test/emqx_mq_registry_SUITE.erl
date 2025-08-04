@@ -32,34 +32,34 @@ end_per_suite(Config) ->
 %%--------------------------------------------------------------------
 
 t_crud(_Config) ->
-    ok = emqx_mq_registry:create(<<"a/b/c">>, true),
-    ok = emqx_mq_registry:create(<<"a/b/#">>, true),
-    ok = emqx_mq_registry:create(<<"a/#">>, true),
-    ok = emqx_mq_registry:create(<<"a/+/d">>, true),
+    ok = emqx_mq_test_utils:create_mq(<<"a/b/c">>),
+    ok = emqx_mq_test_utils:create_mq(<<"a/b/#">>),
+    ok = emqx_mq_test_utils:create_mq(<<"a/#">>),
+    ok = emqx_mq_test_utils:create_mq(<<"a/+/d">>),
     ?assertMatch(
         [
             #{topic_filter := <<"a/b/c">>},
             #{topic_filter := <<"a/b/#">>},
             #{topic_filter := <<"a/#">>}
         ],
-        emqx_mq_registry:find(<<"a/b/c">>)
+        emqx_mq_registry:match(<<"a/b/c">>)
     ),
     ?assertMatch(
         [
             #{topic_filter := <<"a/+/d">>},
             #{topic_filter := <<"a/#">>}
         ],
-        emqx_mq_registry:find(<<"a/x/d">>)
+        emqx_mq_registry:match(<<"a/x/d">>)
     ),
     ok = emqx_mq_registry:delete(<<"a/#">>),
     ?assertMatch(
         [
             #{topic_filter := <<"a/+/d">>}
         ],
-        emqx_mq_registry:find(<<"a/x/d">>)
+        emqx_mq_registry:match(<<"a/x/d">>)
     ),
     ok = emqx_mq_registry:delete_all(),
     ?assertMatch(
         [],
-        emqx_mq_registry:find(<<"a/x/d">>)
+        emqx_mq_registry:match(<<"a/x/d">>)
     ).

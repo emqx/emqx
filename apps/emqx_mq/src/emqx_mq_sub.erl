@@ -56,8 +56,8 @@ It uses two timers:
 %% API
 %%--------------------------------------------------------------------
 
--spec handle_connect(emqx_types:clientinfo(), emqx_types:topic()) -> t().
-handle_connect(#{clientid := ClientId}, TopicFilter) ->
+-spec handle_connect(emqx_types:clientinfo(), emqx_mq_types:mq()) -> t().
+handle_connect(#{clientid := ClientId}, #{topic_filter := TopicFilter} = MQ) ->
     SubscriberRef = alias(),
     Sub = #{
         state => #connecting{},
@@ -69,7 +69,7 @@ handle_connect(#{clientid := ClientId}, TopicFilter) ->
     %% NOTE
     %% Ignore error.
     %% In case of error, we will reconnect after consumer timeout
-    _ = emqx_mq_consumer:connect(TopicFilter, SubscriberRef, ClientId),
+    _ = emqx_mq_consumer:connect(MQ, SubscriberRef, ClientId),
     reset_consumer_timeout_timer(Sub).
 
 -spec handle_ack(t(), emqx_types:msg(), emqx_mq_types:ack()) -> ok.

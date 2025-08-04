@@ -64,20 +64,28 @@ emqtt_drain(MinMsg, Timeout, AccMsgs, AccNReceived) ->
         end
     end.
 
-create_mq(Topic) ->
-    create_mq(Topic, true).
+create_mq(Topic) when is_binary(Topic) ->
+    create_mq(#{topic_filter => Topic, is_compacted => true});
+create_mq(#{topic_filter := TopicFilter} = MQ0) ->
+    Default = #{
+        consumer_max_inactive_ms => 1000,
+        consumer_ping_interval_ms => 5000
+    },
+    MQ = maps:merge(Default, MQ0),
 
-create_mq(Topic, IsCompacted) ->
-    SampleTopic0 = string:replace(Topic, "#", "x", all),
+    SampleTopic0 = string:replace(TopicFilter, "#", "x", all),
     SampleTopic1 = string:replace(SampleTopic0, "+", "x", all),
     SampleTopic = iolist_to_binary(SampleTopic1),
-    ok = emqx_mq_registry:create(Topic, IsCompacted),
+    ok = emqx_mq_registry:create(MQ),
     ?retry(
         5,
         100,
-        [#{topic_filter := Topic}] = emqx_mq_registry:find(SampleTopic)
+        [#{topic_filter := TopicFilter}] = emqx_mq_registry:match(SampleTopic)
     ),
     ok.
+
+create_mq(Topic, IsCompacted) ->
+    create_mq(#{topic_filter => Topic, is_compacted => IsCompacted}).
 
 populate(N, Fun) ->
     C = emqx_mq_test_utils:emqtt_connect([]),
