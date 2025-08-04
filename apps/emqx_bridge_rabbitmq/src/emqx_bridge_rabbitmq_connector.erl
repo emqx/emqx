@@ -273,28 +273,16 @@ on_batch_query(ResourceID, [{ChannelId, _Data} | _] = Batch, State) ->
 publish_messages(
     Conn,
     RabbitMQ,
-    #{
-        delivery_mode := DeliveryMode,
-        payload_template := PayloadTmpl,
-        routing_key := RoutingKey,
-        exchange := Exchange,
-        wait_for_publish_confirmations := WaitForPublishConfirmations,
-        publish_confirmation_timeout := PublishConfirmationTimeout
-    },
+    ChanState,
     Messages,
     TraceRenderedCTX
 ) ->
     try
-        publish_messages(
+        do_publish_messages(
             Conn,
             RabbitMQ,
-            DeliveryMode,
-            Exchange,
-            RoutingKey,
-            PayloadTmpl,
+            ChanState,
             Messages,
-            WaitForPublishConfirmations,
-            PublishConfirmationTimeout,
             TraceRenderedCTX
         )
     catch
@@ -310,8 +298,8 @@ publish_messages(
                 {recoverable_error, #{
                     msg => <<"rabbitmq_publish_failed">>,
                     explain => Msg,
-                    exchange => Exchange,
-                    routing_key => RoutingKey,
+                    exchange => maps:get(exchange, ChanState),
+                    routing_key => maps:get(routing_key, ChanState),
                     rabbit_mq_error_code => Code
                 }}};
         %% This probably happens when the RabbitMQ driver is restarting the connection process
@@ -321,8 +309,8 @@ publish_messages(
                 {recoverable_error, #{
                     msg => <<"rabbitmq_publish_failed">>,
                     explain => "Connection is establishing",
-                    exchange => Exchange,
-                    routing_key => RoutingKey,
+                    exchange => maps:get(exchange, ChanState),
+                    routing_key => maps:get(routing_key, ChanState),
                     internal_error => InternalError
                 }}};
         _Type:Reason ->
@@ -331,25 +319,25 @@ publish_messages(
             {error, {recoverable_error, Msg}}
     end.
 
-publish_messages(
+do_publish_messages(
     Conn,
     RabbitMQ,
-    DeliveryMode,
-    Exchange0,
-    RoutingKey0,
-    PayloadTmpl,
+    ChanState,
     Messages,
-    WaitForPublishConfirmations,
-    PublishConfirmationTimeout,
     TraceRenderedCTX
 ) ->
+    #{
+        delivery_mode := DeliveryMode,
+        payload_template := _PayloadTmpl,
+        headers_template := _HeadersTemplate,
+        properties_template := _PropsTemplate,
+        routing_key := RoutingKey0,
+        exchange := Exchange0,
+        wait_for_publish_confirmations := WaitForPublishConfirmations,
+        publish_confirmation_timeout := PublishConfirmationTimeout
+    } = ChanState,
     case maps:find(Conn, RabbitMQ) of
         {ok, Channel} ->
-            MessageProperties = #'P_basic'{
-                headers = [],
-                delivery_mode = DeliveryMode
-            },
-
             Exchange = render_template(Exchange0, Messages),
             RoutingKey = render_template(RoutingKey0, Messages),
             Method = #'basic.publish'{
@@ -357,15 +345,19 @@ publish_messages(
                 routing_key = RoutingKey
             },
 
-            FormattedMsgs = [
-                format_data(PayloadTmpl, M)
-             || {_, M} <- Messages
-            ],
+            BaseProps = #'P_basic'{
+                delivery_mode = DeliveryMode
+            },
+            FormattedMsgs = lists:map(
+                fun({_ChanId, Msg}) ->
+                    render_data(Msg, BaseProps, ChanState)
+                end,
+                Messages
+            ),
 
             emqx_trace:rendered_action_template_with_ctx(TraceRenderedCTX, #{
                 messages => FormattedMsgs,
                 properties => #{
-                    headers => [],
                     delivery_mode => DeliveryMode
                 },
                 method => #{
@@ -374,13 +366,13 @@ publish_messages(
                 }
             }),
             lists:foreach(
-                fun(Msg) ->
+                fun({Payload, Props}) ->
                     amqp_channel:cast(
                         Channel,
                         Method,
                         #amqp_msg{
-                            payload = Msg,
-                            props = MessageProperties
+                            payload = Payload,
+                            props = Props
                         }
                     )
                 end,
@@ -420,6 +412,25 @@ format_data([], Msg) ->
     emqx_utils_json:encode(Msg);
 format_data(Tokens, Msg) ->
     emqx_placeholder:proc_tmpl(Tokens, Msg).
+
+render_data(Msg, BaseProps, ChanState) ->
+    #{
+        payload_template := PayloadTemplate,
+        headers_template := HeadersTemplate,
+        properties_template := PropsTemplate
+    } = ChanState,
+    Payload = format_data(PayloadTemplate, Msg),
+    Props1 = add_rendered_props(PropsTemplate, Msg, BaseProps),
+    Headers = lists:map(
+        fun(Tpl) ->
+            {K, V} = render_kv_template(Tpl, Msg),
+            %% should we support other types?
+            {K, binary, V}
+        end,
+        HeadersTemplate
+    ),
+    Props = Props1#'P_basic'{headers = Headers},
+    {Payload, Props}.
 
 %% Dynamic `exchange` and `routing_key` are restricted in batch mode,
 %% we assume these two values ​​are the same in a batch.
@@ -491,14 +502,18 @@ preproc_parameter(_ActionResId, #{config_root := actions, parameters := Paramete
         payload_template := PayloadTemplate,
         delivery_mode := InitialDeliveryMode,
         exchange := Exchange,
-        routing_key := RoutingKey
+        routing_key := RoutingKey,
+        headers_template := HeadersTemplate,
+        properties_template := PropsTemplate
     } = Parameter,
     Parameter#{
         delivery_mode => delivery_mode(InitialDeliveryMode),
         payload_template => emqx_placeholder:preproc_tmpl(PayloadTemplate),
         config_root => actions,
         exchange := preproc_template(Exchange),
-        routing_key := preproc_template(RoutingKey)
+        routing_key := preproc_template(RoutingKey),
+        headers_template := lists:map(fun parse_kv_template/1, HeadersTemplate),
+        properties_template := lists:map(fun parse_kv_template/1, PropsTemplate)
     };
 preproc_parameter(SourceResId, #{
     config_root := sources, parameters := Parameter, hookpoints := Hooks
@@ -517,6 +532,73 @@ preproc_template(Template0) ->
             {fixed, emqx_utils_conv:bin(Template0)};
         [_ | _] ->
             {dynamic, Template}
+    end.
+
+parse_kv_template(#{key := KTpl, value := VTpl}) ->
+    #{
+        key => emqx_template:parse(KTpl),
+        value => emqx_template:parse(VTpl)
+    }.
+
+render_kv_template(#{key := KTpl, value := VTpl}, Msg) ->
+    Key = render_lax(KTpl, Msg),
+    Value = render_lax(VTpl, Msg),
+    {Key, Value}.
+
+render_lax(Template, Data) ->
+    %% Unknown/undefined values are rendered as empty strings
+    VarTrans = fun
+        (undefined) -> <<"">>;
+        (X) -> X
+    end,
+    {Rendered, _} = emqx_template:render(Template, {emqx_jsonish, Data}, #{var_trans => VarTrans}),
+    case Rendered of
+        [Value] -> Value;
+        _ -> iolist_to_binary(Rendered)
+    end.
+
+add_rendered_props(PropsTemplate, Data, PBasic) ->
+    RenderedProps = lists:map(fun(Tpl) -> render_kv_template(Tpl, Data) end, PropsTemplate),
+    lists:foldl(
+        fun
+            ({<<"content_type">>, Val}, Acc) ->
+                Acc#'P_basic'{content_type = Val};
+            ({<<"content_encoding">>, Val}, Acc) ->
+                Acc#'P_basic'{content_encoding = Val};
+            ({<<"correlation_id">>, Val}, Acc) ->
+                Acc#'P_basic'{correlation_id = Val};
+            ({<<"reply_to">>, Val}, Acc) ->
+                Acc#'P_basic'{reply_to = Val};
+            ({<<"expiration">>, Val}, Acc) ->
+                Acc#'P_basic'{expiration = Val};
+            ({<<"message_id">>, Val}, Acc) ->
+                Acc#'P_basic'{message_id = Val};
+            ({<<"type">>, Val}, Acc) ->
+                Acc#'P_basic'{type = Val};
+            ({<<"user_id">>, Val}, Acc) ->
+                Acc#'P_basic'{user_id = Val};
+            ({<<"app_id">>, Val}, Acc) ->
+                Acc#'P_basic'{app_id = Val};
+            ({<<"cluster_id">>, Val}, Acc) ->
+                Acc#'P_basic'{cluster_id = Val};
+            ({<<"timestamp">>, Val0}, Acc) ->
+                Val = try_cast_timestamp_to_integer(Val0),
+                Acc#'P_basic'{timestamp = Val};
+            ({_Unknown, _Val}, Acc) ->
+                Acc
+        end,
+        PBasic,
+        RenderedProps
+    ).
+
+try_cast_timestamp_to_integer(I) when is_integer(I) ->
+    I;
+try_cast_timestamp_to_integer(Bin) when is_binary(Bin) ->
+    try
+        binary_to_integer(Bin)
+    catch
+        error:badarg ->
+            throw({unrecoverable_error, {bad_timestamp_value, Bin}})
     end.
 
 delivery_mode(non_persistent) -> 1;

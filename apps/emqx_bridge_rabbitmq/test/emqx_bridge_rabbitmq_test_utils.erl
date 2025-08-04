@@ -202,11 +202,43 @@ receive_message_from_rabbitmq(Config) ->
             %% Cancel the consumer
             #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
                 amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
-            Payload = Content#amqp_msg.payload,
+            #amqp_msg{
+                props = #'P_basic'{
+                    app_id = AppId,
+                    cluster_id = ClusterId,
+                    content_encoding = ContentEncoding,
+                    content_type = ContentType,
+                    correlation_id = CorrelationId,
+                    expiration = Expiration,
+                    headers = Headers,
+                    message_id = MessageId,
+                    timestamp = Timestamp,
+                    type = Type,
+                    user_id = UserId
+                },
+                payload = Payload
+            } = Content,
             case emqx_utils_json:safe_decode(Payload) of
-                {ok, Msg} -> Msg;
-                {error, _} -> ?assert(false, {"Failed to decode the message", Payload})
+                {ok, DecodedPayload} ->
+                    #{
+                        payload => DecodedPayload,
+                        headers => Headers,
+                        props => #{
+                            app_id => AppId,
+                            cluster_id => ClusterId,
+                            content_encoding => ContentEncoding,
+                            content_type => ContentType,
+                            correlation_id => CorrelationId,
+                            expiration => Expiration,
+                            message_id => MessageId,
+                            timestamp => Timestamp,
+                            type => Type,
+                            user_id => UserId
+                        }
+                    };
+                {error, _} ->
+                    ct:fail({"Failed to decode the message", Payload})
             end
-    after 5000 ->
-        ?assert(false, "Did not receive message within 5 second")
+    after 5_000 ->
+        ct:fail("Did not receive message within 5 second")
     end.

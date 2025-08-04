@@ -30,4 +30,29 @@ source_no_ack.desc:
 source_no_ack.label:
 """Source No Ack"""
 
+headers_template.label:
+"""Headers Template"""
+headers_template.desc:
+"""Template for message headers."""
+
+properties_template.label:
+"""Properties Template"""
+properties_template.desc:
+"""Template for message properties.  Unknown properties are silently dropped.  See also: https://www.rabbitmq.com/docs/publishers#message-properties"""
+
+key_value.label:
+"""Key-Value Pair"""
+key_value.desc:
+"""Key-Value template pair."""
+
+key_value_key.label:
+"""Key"""
+key_value_key.desc:
+"""Template for key."""
+
+key_value_value.label:
+"""Value"""
+key_value_value.desc:
+"""Template for value."""
+
 }

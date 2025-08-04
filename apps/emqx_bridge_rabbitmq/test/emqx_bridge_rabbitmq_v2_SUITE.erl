@@ -24,6 +24,8 @@
 
 -define(TYPE, <<"rabbitmq">>).
 
+-define(USER, <<"guest">>).
+-define(PASSWORD, <<"guest">>).
 -define(EXCHANGE, <<"messages">>).
 -define(QUEUE, <<"test_queue">>).
 -define(ROUTING_KEY, <<"test_routing_key">>).
@@ -101,8 +103,8 @@ connector_config(Overrides) ->
         <<"ssl">> => #{<<"enable">> => false},
         <<"server">> => <<"rabbitmq">>,
         <<"port">> => 5672,
-        <<"username">> => <<"guest">>,
-        <<"password">> => <<"guest">>
+        <<"username">> => ?USER,
+        <<"password">> => ?PASSWORD
     },
     InnerConfigMap = emqx_utils_maps:deep_merge(Default, Overrides),
     emqx_bridge_v2_testlib:parse_and_check_connector(?TYPE, <<"x">>, InnerConfigMap).
@@ -389,7 +391,7 @@ t_action(Config) ->
     Payload = payload(),
     PayloadBin = emqx_utils_json:encode(Payload),
     {ok, _} = emqtt:publish(C1, Topic, #{}, PayloadBin, [{qos, 1}, {retain, false}]),
-    Msg = emqx_bridge_rabbitmq_test_utils:receive_message_from_rabbitmq(Config),
+    #{payload := Msg} = emqx_bridge_rabbitmq_test_utils:receive_message_from_rabbitmq(Config),
     ?assertMatch(Payload, Msg),
     ok = emqtt:disconnect(C1),
     InstanceId = instance_id(actions, Name),
@@ -565,7 +567,7 @@ t_action_dynamic(Config) ->
     Payload = payload(#{<<"e">> => ?EXCHANGE, <<"r">> => ?ROUTING_KEY}),
     PayloadBin = emqx_utils_json:encode(Payload),
     {ok, _} = emqtt:publish(C1, Topic, #{}, PayloadBin, [{qos, 1}, {retain, false}]),
-    Msg = emqx_bridge_rabbitmq_test_utils:receive_message_from_rabbitmq(Config),
+    #{payload := Msg} = emqx_bridge_rabbitmq_test_utils:receive_message_from_rabbitmq(Config),
     ?assertMatch(Payload, Msg),
     ok = emqtt:disconnect(C1),
     InstanceId = instance_id(actions, Name),
@@ -611,7 +613,7 @@ t_action_use_default_exchange(Config) ->
     Payload = payload(#{<<"e">> => <<"">>, <<"r">> => <<"test_queue">>}),
     PayloadBin = emqx_utils_json:encode(Payload),
     {ok, _} = emqtt:publish(C1, Topic, #{}, PayloadBin, [{qos, 1}, {retain, false}]),
-    Msg = emqx_bridge_rabbitmq_test_utils:receive_message_from_rabbitmq(Config),
+    #{payload := Msg} = emqx_bridge_rabbitmq_test_utils:receive_message_from_rabbitmq(Config),
     ?assertMatch(Payload, Msg),
     ok = emqtt:disconnect(C1),
     InstanceId = instance_id(actions, Name),
@@ -631,5 +633,92 @@ t_action_use_default_exchange(Config) ->
                 Counters
             )
         end
+    ),
+    ok.
+
+-doc """
+Smoke tests for settings message header and property templates.
+""".
+t_header_props_templates(TCConfig) ->
+    Name = get_value(action_name, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"headers_template">> => [
+                #{<<"key">> => <<"${.payload.hk1}">>, <<"value">> => <<"${.payload.hv1}">>},
+                #{<<"key">> => <<"${.payload.hk2}">>, <<"value">> => <<"${.payload.hv2}">>}
+            ],
+            <<"properties_template">> => [
+                %% Correlation id
+                #{<<"key">> => <<"${.payload.pk1}">>, <<"value">> => <<"${.payload.pv1}">>},
+                %% Message id
+                #{<<"key">> => <<"${.payload.pk2}">>, <<"value">> => <<"${.payload.pv2}">>},
+                #{<<"key">> => <<"content_type">>, <<"value">> => <<"application/json">>},
+                #{<<"key">> => <<"content_encoding">>, <<"value">> => <<"utf8">>},
+                #{<<"key">> => <<"expiration">>, <<"value">> => <<"600000">>},
+                #{<<"key">> => <<"type">>, <<"value">> => <<"orders.created">>},
+                #{<<"key">> => <<"user_id">>, <<"value">> => ?USER},
+                #{<<"key">> => <<"app_id">>, <<"value">> => <<"myapp">>},
+                #{<<"key">> => <<"cluster_id">>, <<"value">> => <<"mycluster">>},
+                #{<<"key">> => <<"timestamp">>, <<"value">> => <<"${publish_received_at}">>},
+                #{<<"key">> => <<"unknown">>, <<"value">> => <<"${.does.not.matter}">>}
+            ]
+        },
+        <<"resource_opts">> => #{<<"request_ttl">> => <<"1s">>}
+    }),
+    RuleTopic = <<"header/props">>,
+    BridgeId = emqx_bridge_resource:bridge_id(?TYPE, Name),
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
+        #{
+            <<"sql">> =>
+                emqx_bridge_v2_testlib:fmt(
+                    <<"select * from \"${t}\" ">>,
+                    #{t => RuleTopic}
+                ),
+            <<"id">> => atom_to_binary(?FUNCTION_NAME),
+            <<"actions">> => [BridgeId],
+            <<"description">> => <<"">>
+        }
+    ),
+
+    {ok, C1} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(C1),
+    CorrelationId = <<"123456_correlation">>,
+    MessageId = <<"some_message_id">>,
+    Payload = payload(#{
+        <<"hk1">> => <<"header_key1">>,
+        <<"hv1">> => <<"header_val1">>,
+        <<"hk2">> => <<"header_key2">>,
+        <<"hv2">> => <<"header_val2">>,
+        <<"pk1">> => <<"correlation_id">>,
+        <<"pv1">> => CorrelationId,
+        <<"pk2">> => <<"message_id">>,
+        <<"pv2">> => MessageId
+    }),
+    PayloadBin = emqx_utils_json:encode(Payload),
+    {ok, _} = emqtt:publish(C1, RuleTopic, #{}, PayloadBin, [{qos, 1}, {retain, false}]),
+    ok = emqtt:disconnect(C1),
+    Msg = emqx_bridge_rabbitmq_test_utils:receive_message_from_rabbitmq(TCConfig),
+    ?assertMatch(
+        #{
+            payload := Payload,
+            props := #{
+                app_id := <<"myapp">>,
+                cluster_id := <<"mycluster">>,
+                user_id := ?USER,
+                content_type := <<"application/json">>,
+                content_encoding := <<"utf8">>,
+                expiration := <<"600000">>,
+                message_id := MessageId,
+                correlation_id := CorrelationId,
+                type := <<"orders.created">>,
+                timestamp := TS
+            },
+            headers := [
+                {<<"header_key1">>, binary, <<"header_val1">>},
+                {<<"header_key2">>, binary, <<"header_val2">>}
+            ]
+        } when TS /= undefined,
+        Msg
     ),
     ok.

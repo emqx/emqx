@@ -151,7 +151,7 @@ perform_query(PoolName, Channel) ->
     ok = emqx_resource:query(PoolName, {ChannelId, payload()}),
     %% Get the message from queue:
     SendData = test_data(),
-    RecvData = receive_message_from_rabbitmq(Channel),
+    #{payload := RecvData} = receive_message_from_rabbitmq(Channel),
     ?assertMatch(SendData, RecvData),
     ?assertEqual(ok, emqx_resource_manager:remove_channel(PoolName, ChannelId)),
     ok.
@@ -183,6 +183,8 @@ rabbitmq_action_config() ->
         parameters => #{
             delivery_mode => non_persistent,
             exchange => rabbit_mq_exchange(),
+            headers_template => [],
+            properties_template => [],
             payload_template => <<"${.payload}">>,
             publish_confirmation_timeout => 30000,
             routing_key => rabbit_mq_routing_key(),

@@ -94,7 +94,7 @@ t_send_message_query(Config) ->
     %% This will use the SQL template included in the bridge
     emqx_bridge:send_message(BridgeID, Payload),
     %% Check that the data got to the database
-    ?assertEqual(Payload, receive_message_from_rabbitmq(Config)),
+    ?assertMatch(#{payload := Payload}, receive_message_from_rabbitmq(Config)),
     ok = delete_bridge(Name),
     ok.
 
@@ -115,7 +115,7 @@ t_send_message_query_with_template(Config) ->
     ExpectedResult = Payload#{
         <<"secret">> => 42
     },
-    ?assertEqual(ExpectedResult, receive_message_from_rabbitmq(Config)),
+    ?assertMatch(#{payload := ExpectedResult}, receive_message_from_rabbitmq(Config)),
     ok = delete_bridge(Name),
     ok.
 
@@ -126,7 +126,7 @@ t_send_simple_batch(Config) ->
     BridgeID = create_bridge(Name, BridgeConf),
     Payload = #{<<"key">> => 42, <<"data">> => <<"RabbitMQ">>, <<"timestamp">> => 10000},
     emqx_bridge:send_message(BridgeID, Payload),
-    ?assertEqual(Payload, receive_message_from_rabbitmq(Config)),
+    ?assertMatch(#{payload := Payload}, receive_message_from_rabbitmq(Config)),
     ok = delete_bridge(Name),
     ok.
 
@@ -146,7 +146,7 @@ t_send_simple_batch_with_template(Config) ->
     },
     emqx_bridge:send_message(BridgeID, Payload),
     ExpectedResult = Payload#{<<"secret">> => 42},
-    ?assertEqual(ExpectedResult, receive_message_from_rabbitmq(Config)),
+    ?assertMatch(#{payload := ExpectedResult}, receive_message_from_rabbitmq(Config)),
     ok = delete_bridge(Name),
     ok.
 
@@ -166,7 +166,7 @@ t_heavy_batching(Config) ->
     [SendMessage(Key) || Key <- lists:seq(1, NumberOfMessages)],
     AllMessages = lists:foldl(
         fun(_, Acc) ->
-            Message = receive_message_from_rabbitmq(Config),
+            #{payload := Message} = receive_message_from_rabbitmq(Config),
             #{<<"key">> := Key} = Message,
             Acc#{Key => true}
         end,
@@ -181,33 +181,25 @@ rabbitmq_config(Config) ->
     UseTLS = maps:get(tls, Config, false),
     BatchSize = maps:get(batch_size, Config, 1),
     BatchTime = maps:get(batch_time_ms, Config, 0),
-    Name = atom_to_binary(?MODULE),
     Server = maps:get(server, Config, rabbit_mq_host()),
     Port = maps:get(port, Config, rabbit_mq_port()),
     Template = maps:get(payload_template, Config, <<"">>),
-    Bridge =
-        #{
-            <<"bridges">> => #{
-                <<"rabbitmq">> => #{
-                    Name => #{
-                        <<"enable">> => true,
-                        <<"ssl">> => ssl_options(UseTLS),
-                        <<"server">> => Server,
-                        <<"port">> => Port,
-                        <<"username">> => <<"guest">>,
-                        <<"password">> => <<"guest">>,
-                        <<"routing_key">> => rabbit_mq_routing_key(),
-                        <<"exchange">> => rabbit_mq_exchange(),
-                        <<"payload_template">> => Template,
-                        <<"resource_opts">> => #{
-                            <<"batch_size">> => BatchSize,
-                            <<"batch_time">> => BatchTime
-                        }
-                    }
-                }
-            }
-        },
-    parse_and_check(<<"bridges">>, emqx_bridge_schema, Bridge, Name).
+    BridgeConfig = #{
+        <<"enable">> => true,
+        <<"ssl">> => ssl_options(UseTLS),
+        <<"server">> => Server,
+        <<"port">> => Port,
+        <<"username">> => <<"guest">>,
+        <<"password">> => <<"guest">>,
+        <<"routing_key">> => rabbit_mq_routing_key(),
+        <<"exchange">> => rabbit_mq_exchange(),
+        <<"payload_template">> => Template,
+        <<"resource_opts">> => #{
+            <<"batch_size">> => BatchSize,
+            <<"batch_time">> => BatchTime
+        }
+    },
+    emqx_bridge_testlib:parse_and_check(?TYPE, <<"x">>, BridgeConfig).
 
 payload_template() ->
     <<
