@@ -39,7 +39,7 @@ A process responsible for execution of the timers.
 Invariants:
 
 - `del_up_to` =< `fully_replayed_ts`
-- `fully_replayed_ts` < `safe_active_replay_pos`
+- `fully_replayed_ts` < `active_safe_replay_pos`
 - All pending transactions that add new timers insert entries with timestamp >= `active_safe_replay_pos`
 
 """.

@@ -5,7 +5,8 @@
 -moduledoc """
 Low-level API for the durable timers.
 
-Business-level applications should not use this.
+Business-level applications should not use this module directly.
+They should implement a callback module with `emqx_durable_timer` behavior instead.
 
 ## Timer types
 
@@ -23,7 +24,7 @@ If data stored in the timer key or value changes, a new timer type should be cre
 ()--> isolated -(successful heartbeat)-> normal --<
          ^                                         |
          |                                         |
-         `--(failed multple heartbeats in a row)--'
+         `--(failed multiple heartbeats in a row)--'
 ```
 
 ## Down detection
