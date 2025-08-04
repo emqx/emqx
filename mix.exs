@@ -410,7 +410,7 @@ defmodule EMQXUmbrella.MixProject do
     end)
   end
 
-  defp set_test_env!(test_env?) do
+  def set_test_env!(test_env?) do
     k = {__MODULE__, :test_env?}
     :persistent_term.put(k, test_env?)
   end
@@ -1254,43 +1254,12 @@ defmodule EMQXUmbrella.MixProject do
 
   defp aliases() do
     [
-      ct: &do_ct/1,
-      cover: &do_cover/1,
-      eunit: &do_eunit/1,
-      proper: &do_proper/1,
-      dialyzer: &do_dialyzer/1
+      ct: "emqx.ct",
+      cover: "emqx.cover",
+      eunit: "emqx.eunit",
+      proper: "emqx.proper",
+      dialyzer: "emqx.dialyzer"
     ]
-  end
-
-  defp do_ct(args) do
-    Mix.shell().info("testing")
-
-    ensure_test_mix_env!()
-    set_test_env!(true)
-
-    Mix.Task.run("emqx.ct", args)
-  end
-
-  defp do_cover(args) do
-    ensure_test_mix_env!()
-    set_test_env!(true)
-    Mix.Task.run("emqx.cover", args)
-  end
-
-  defp do_eunit(args) do
-    ensure_test_mix_env!()
-    set_test_env!(true)
-    Mix.Task.run("emqx.eunit", args)
-  end
-
-  defp do_proper(args) do
-    ensure_test_mix_env!()
-    set_test_env!(true)
-    Mix.Task.run("emqx.proper", args)
-  end
-
-  defp do_dialyzer(args) do
-    Mix.Task.run("emqx.dialyzer", args)
   end
 
   defp ensure_test_mix_env!() do
