@@ -132,3 +132,30 @@ assert_force_deactivate_fails(AlarmName, ExpectedCode, ExpectedMessage) ->
         Other ->
             ct:fail("Expected 400 error with code ~p, but got: ~p", [ExpectedCode, Other])
     end.
+
+t_alarm_monitor(_) ->
+    TestPid = spawn(fun() ->
+        AlarmName = <<"conn_congestion/test_client/test_user">>,
+        AlarmDetails = #{test => details},
+        AlarmMessage = <<"connection congested: test">>,
+        ok = emqx_alarm:activate(AlarmName, AlarmDetails, AlarmMessage),
+        %% Keep the process alive to maintain the alarm
+        receive
+            stop -> ok;
+            _ -> ok
+        end
+    end),
+    %% Verify alarm is activated
+    timer:sleep(100),
+    Alarms = emqx_alarm:get_alarms(activated),
+    AlarmName = <<"conn_congestion/test_client/test_user">>,
+    ?assert(lists:any(fun(#{name := Name}) -> Name =:= AlarmName end, Alarms)),
+
+    %% Force kill the process
+    exit(TestPid, kill),
+    timer:sleep(100),
+    ActivatedAlarms = emqx_alarm:get_alarms(activated),
+    ?assertNot(lists:any(fun(#{name := Name}) -> Name =:= AlarmName end, ActivatedAlarms)),
+    DeactivatedAlarms = emqx_alarm:get_alarms(deactivated),
+    ?assert(lists:any(fun(#{name := Name}) -> Name =:= AlarmName end, DeactivatedAlarms)),
+    ok.
