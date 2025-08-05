@@ -114,7 +114,7 @@
     post_config_update/6
 ]).
 
-%% Data backup
+%% `emqx_config_backup` API
 -export([
     import_config/2
 ]).
@@ -1210,7 +1210,7 @@ bridge_v2_type_to_connector_type(Type) ->
     emqx_action_info:action_type_to_connector_type(Type).
 
 %%====================================================================
-%% Data backup API
+%% `emqx_config_backup` API
 %%====================================================================
 
 import_config(Namespace, RawConf) ->

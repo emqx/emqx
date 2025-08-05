@@ -176,6 +176,9 @@ simplify_result(Res) ->
             {StatusCode, Body}
     end.
 
+put_auth_header(Header) ->
+    put(?AUTH_HEADER_PD_KEY, Header).
+
 simple_request(Params) ->
     AuthHeader =
         case get(?AUTH_HEADER_PD_KEY) of
@@ -525,6 +528,13 @@ t_bulk_delete_ns(_Config) ->
     ?assertMatch({200, []}, list_managed_nss(#{})),
 
     %% Simulate failure during side-effect execution.
+    ct:pal("waiting for tombstones to be cleared"),
+    lists:foreach(
+        fun(Ns) ->
+            ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Ns1), #{ns => Ns}))
+        end,
+        [Ns1, Ns2, Ns3]
+    ),
     lists:foreach(
         fun(Ns) ->
             {204, _} = create_managed_ns(Ns)
@@ -1073,6 +1083,8 @@ t_kick_clients_when_deleting(_Config) ->
     %% Create one of the NSs again
     ct:pal("waiting for kicker to shut down"),
     ?retry(250, 10, ?assertMatch({error, not_found}, emqx_mt_client_kicker:whereis_kicker(Ns1))),
+    ct:pal("waiting for tombstone to be cleared"),
+    ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Ns1))),
     ct:pal("recreating namespace"),
     {204, _} = create_managed_ns(Ns1),
     Clients1B = [connect(ClientId, Ns1) || ClientId <- ClientIds1],

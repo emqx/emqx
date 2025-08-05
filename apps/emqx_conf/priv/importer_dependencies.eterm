@@ -1,0 +1,22 @@
+%% -*- mode: erlang; -*-
+
+%% Mapping from importer modules to their dependencies (other importer modules) and the
+%% hocon schema root keys they are responsible for.
+#{
+    emqx_rule_engine_config => #{
+        root_keys => [<<"rule_engine">>],
+        dependencies => [emqx_bridge_v2, emqx_schema_registry_config]
+    },
+    emqx_bridge_v2 => #{
+        root_keys => [<<"actions">>, <<"sources">>],
+        dependencies => [emqx_connector]
+    },
+    emqx_message_transformation_config => #{
+        root_keys => [<<"message_transformation">>],
+        dependencies => [emqx_schema_registry_config]
+    },
+    emqx_schema_validation_config => #{
+        root_keys => [<<"schema_validation">>],
+        dependencies => [emqx_schema_registry_config]
+    }
+}.
