@@ -173,13 +173,13 @@ ssl_options(false) ->
         enable => false
     }.
 
-parse_and_check(Key, Mod, Conf, Name) ->
-    ConfStr = hocon_pp:do(Conf, #{}),
-    ct:pal(ConfStr),
-    {ok, RawConf} = hocon:binary(ConfStr, #{format => map}),
-    hocon_tconf:check_plain(Mod, RawConf, #{required => false, atom_key => false}),
-    #{Key := #{<<"rabbitmq">> := #{Name := RetConf}}} = RawConf,
-    RetConf.
+%% todo: delete this and use testlib directly
+parse_and_check(_, emqx_connector_schema, Conf, Name) ->
+    emqx_bridge_v2_testlib:parse_and_check_connector(<<"rabbitmq">>, Name, Conf);
+parse_and_check(<<"sources">>, emqx_bridge_v2_schema, Conf, Name) ->
+    emqx_bridge_v2_testlib:parse_and_check(source, <<"rabbitmq">>, Name, Conf);
+parse_and_check(<<"actions">>, emqx_bridge_v2_schema, Conf, Name) ->
+    emqx_bridge_v2_testlib:parse_and_check(action, <<"rabbitmq">>, Name, Conf).
 
 receive_message_from_rabbitmq(Config) ->
     #{channel := Channel} = get_channel_connection(Config),
@@ -202,11 +202,45 @@ receive_message_from_rabbitmq(Config) ->
             %% Cancel the consumer
             #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
                 amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
-            Payload = Content#amqp_msg.payload,
+            #amqp_msg{
+                props = #'P_basic'{
+                    app_id = AppId,
+                    cluster_id = ClusterId,
+                    content_encoding = ContentEncoding,
+                    content_type = ContentType,
+                    correlation_id = CorrelationId,
+                    expiration = Expiration,
+                    headers = Headers,
+                    message_id = MessageId,
+                    reply_to = ReplyTo,
+                    timestamp = Timestamp,
+                    type = Type,
+                    user_id = UserId
+                },
+                payload = Payload
+            } = Content,
             case emqx_utils_json:safe_decode(Payload) of
-                {ok, Msg} -> Msg;
-                {error, _} -> ?assert(false, {"Failed to decode the message", Payload})
+                {ok, DecodedPayload} ->
+                    #{
+                        payload => DecodedPayload,
+                        headers => Headers,
+                        props => #{
+                            app_id => AppId,
+                            cluster_id => ClusterId,
+                            content_encoding => ContentEncoding,
+                            content_type => ContentType,
+                            correlation_id => CorrelationId,
+                            expiration => Expiration,
+                            message_id => MessageId,
+                            reply_to => ReplyTo,
+                            timestamp => Timestamp,
+                            type => Type,
+                            user_id => UserId
+                        }
+                    };
+                {error, _} ->
+                    ct:fail({"Failed to decode the message", Payload})
             end
-    after 5000 ->
-        ?assert(false, "Did not receive message within 5 second")
+    after 5_000 ->
+        ct:fail("Did not receive message within 5 second")
     end.

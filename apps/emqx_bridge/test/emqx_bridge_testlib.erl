@@ -99,10 +99,21 @@ delete_all_bridges() ->
     ).
 
 %% test helpers
-parse_and_check(BridgeType, BridgeName, ConfigString) ->
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"bridges">> := #{BridgeType := #{BridgeName := BridgeConfig}}} = RawConf,
+parse_and_check(BridgeType, BridgeName, ConfigIn) ->
+    RawConf =
+        case is_map(ConfigIn) of
+            true ->
+                #{<<"bridges">> => #{BridgeType => #{BridgeName => ConfigIn}}};
+            false ->
+                {ok, RawConf0} = hocon:binary(ConfigIn, #{format => map}),
+                RawConf0
+        end,
+    #{<<"bridges">> := #{BridgeType := #{BridgeName := BridgeConfig}}} =
+        hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{
+            required => false,
+            atom_key => false,
+            make_serializable => true
+        }),
     BridgeConfig.
 
 resource_id(Config) ->
