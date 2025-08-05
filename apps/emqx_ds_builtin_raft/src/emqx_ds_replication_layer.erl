@@ -308,10 +308,8 @@ open_db(DB, CreateOpts0) ->
     ),
     case emqx_ds_builtin_raft_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
-            _ = optvar:read(#emqx_ds_builtin_raft_optvar_ready{db = DB}),
             ok;
         {error, {already_started, _}} ->
-            _ = optvar:read(#emqx_ds_builtin_raft_optvar_ready{db = DB}),
             ok;
         {error, Err} ->
             {error, Err}

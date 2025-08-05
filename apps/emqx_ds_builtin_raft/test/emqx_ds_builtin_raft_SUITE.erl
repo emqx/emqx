@@ -73,7 +73,7 @@ t_metadata(_Config) ->
         replication_factor => 1,
         replication_options => #{}
     },
-    ?assertMatch(ok, emqx_ds:open_db(DB, Options)),
+    ?assertMatch(ok, open_db(DB, Options)),
     %% Check metadata:
     %%    We have only one site:
     [Site] = emqx_ds_builtin_raft_meta:sites(),
@@ -204,10 +204,7 @@ t_replication_transfers_snapshots(Config) ->
                 })
             ),
 
-            ok = ?ON(
-                NodeOffline,
-                emqx_ds:open_db(?DB, opts(Config, #{}))
-            ),
+            ok = ?ON(NodeOffline, open_db(?DB, opts(Config, #{}))),
 
             %% Trigger storage operation and wait the replica to be restored.
             ok = ?ON(Node, emqx_ds:add_generation(?DB)),
@@ -309,7 +306,7 @@ t_preconditions_idempotent(Config) ->
             %% Restart N1 and wait until it is ready.
             [N1] = emqx_cth_cluster:restart(NS1),
             RestartedAt1 = erlang:monotonic_time(millisecond),
-            ok = ?ON(N1, emqx_ds:open_db(?DB, Opts)),
+            ok = ?ON(N1, open_db(?DB, Opts)),
             SinceRestarted1 = erlang:monotonic_time(millisecond) - RestartedAt1,
             emqx_ds_raft_test_helpers:wait_db_bootstrapped([N1], ?DB, infinity, SinceRestarted1),
 
@@ -350,7 +347,7 @@ t_preconditions_idempotent(Config) ->
             %% Restart N1 and wait until it is ready.
             [N1] = emqx_cth_cluster:restart(NS1),
             RestartedAt2 = erlang:monotonic_time(millisecond),
-            ok = ?ON(N1, emqx_ds:open_db(?DB, Opts)),
+            ok = ?ON(N1, open_db(?DB, Opts)),
             SinceRestarted2 = erlang:monotonic_time(millisecond) - RestartedAt2,
             emqx_ds_raft_test_helpers:wait_db_bootstrapped([N1], ?DB, infinity, SinceRestarted2),
 
@@ -1037,7 +1034,7 @@ t_drop_generation(Config) ->
             ),
             %% Restart N3 and verify that it reached the consistent state:
             emqx_cth_cluster:restart(NS3),
-            ok = ?ON(N3, emqx_ds:open_db(?DB, Opts)),
+            ok = ?ON(N3, open_db(?DB, Opts)),
             %% N3 can be in unstalbe state right now, but it still
             %% must successfully return streams:
             ?ON(
@@ -1079,7 +1076,7 @@ t_error_mapping(Config) ->
     %% This checks that the replication layer maps recoverable errors correctly.
 
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config, #{n_shards => 2}))),
+    ?assertMatch(ok, open_db(DB, opts(Config, #{n_shards => 2}))),
     [Shard1, Shard2] = emqx_ds_builtin_raft_meta:shards(DB),
 
     TopicFilter = emqx_topic:words(<<"foo/#">>),
@@ -1179,7 +1176,7 @@ t_store_batch_fail(Config) ->
         #{timetrap => 15_000},
         try
             ok = meck:new(emqx_ds_storage_layer, [passthrough, no_history]),
-            ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config, #{n_shards => 2}))),
+            ?assertMatch(ok, open_db(DB, opts(Config, #{n_shards => 2}))),
             %% Success:
             Batch1 = [
                 message(<<"C1">>, <<"foo/bar">>, <<"1">>, 1),
@@ -1467,3 +1464,7 @@ end_per_testcase(TCName, Config) ->
     catch emqx_ds:drop_db(TCName),
     emqx_cth_suite:clean_work_dir(?config(work_dir, Config)),
     Result.
+
+open_db(DB, Opts) ->
+    ?assertMatch(ok, emqx_ds:open_db(DB, Opts)),
+    ?assertMatch(ok, emqx_ds:wait_db(DB, all, infinity)).

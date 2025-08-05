@@ -17,8 +17,12 @@ It takes care of forwarding calls to the underlying DBMS.
 %% Management API:
 -export([
     register_backend/2,
+    set_shard_ready/3,
+    set_db_ready/2,
 
     open_db/2,
+    wait_db/3,
+    is_shard_up/2,
     close_db/1,
     which_dbs/0,
     update_db_config/2,
@@ -519,6 +523,10 @@ Options for the `subscribe` API.
         TO >= FROM)
 ).
 
+%% Optvars:
+-record(emqx_ds_db_ready_optvar, {db :: db()}).
+-record(emqx_ds_shard_ready_optvar, {db :: db(), shard :: shard()}).
+
 %%================================================================================
 %% Behavior callbacks
 %%================================================================================
@@ -615,6 +623,11 @@ Create a new DS database or open an existing one.
 
 Different DBs are completely independent from each other. They can
 store different type of data or data from different tenants.
+
+WARNING: this function may return before the DB is ready to be used.
+Database is considered initialized once `wait_db/3` function returns.
+This separation of functionality simplifies startup procedure of the
+EMQX application.
 """.
 -spec open_db(db(), create_db_opts()) -> ok.
 open_db(DB, UserOpts) ->
@@ -639,10 +652,59 @@ open_db(DB, UserOpts) ->
     end.
 
 -doc """
+Block the process until `DB` is initialized.
+""".
+-spec wait_db(db(), [shard()] | all, timeout()) -> ok | timeout.
+wait_db(DB, Shards0, Timeout) ->
+    maybe
+        {ok, _} ?= optvar:read(#emqx_ds_db_ready_optvar{db = DB}, Timeout),
+        Shards =
+            case Shards0 of
+                all -> list_shards(DB);
+                _ -> Shards0
+            end,
+        ok ?=
+            optvar:wait_vars(
+                [#emqx_ds_shard_ready_optvar{db = DB, shard = Shard} || Shard <- Shards], Timeout
+            )
+    else
+        _ ->
+            timeout
+    end.
+
+-doc """
+Check status of the shard.
+""".
+-spec is_shard_up(db(), shard()) -> boolean().
+is_shard_up(DB, Shard) ->
+    optvar:is_set(#emqx_ds_shard_ready_optvar{db = DB, shard = Shard}).
+
+-doc """
+Internal API called by the backend application when DB becomes ready.
+""".
+-doc #{title => <<"Backend API">>, since => <<"6.0.0.">>}.
+-spec set_shard_ready(db(), shard(), boolean()) -> ok.
+set_shard_ready(DB, Shard, true) ->
+    optvar:set(#emqx_ds_shard_ready_optvar{db = DB, shard = Shard}, true);
+set_shard_ready(DB, Shard, false) ->
+    optvar:unset(#emqx_ds_shard_ready_optvar{db = DB, shard = Shard}).
+
+-doc """
+Internal API called by the backend application when DB becomes ready.
+""".
+-doc #{title => <<"Backend API">>, since => <<"6.0.0.">>}.
+-spec set_db_ready(db(), boolean()) -> ok.
+set_db_ready(DB, true) ->
+    optvar:set(#emqx_ds_db_ready_optvar{db = DB}, true);
+set_db_ready(DB, false) ->
+    optvar:unset(#emqx_ds_db_ready_optvar{db = DB}).
+
+-doc """
 Gracefully close a DB.
 """.
 -spec close_db(db()) -> ok.
 close_db(DB) ->
+    set_db_ready(DB, false),
     emqx_ds_sup:unregister_db(DB),
     ?module(DB):close_db(DB).
 
@@ -717,6 +779,7 @@ Drop DB and destroy all data stored there.
 """.
 -spec drop_db(db()) -> ok.
 drop_db(DB) ->
+    set_db_ready(DB, false),
     case persistent_term:get(?persistent_term(DB), undefined) of
         undefined ->
             ok;
@@ -1350,6 +1413,9 @@ and `next`.
 
   + When set to `crash', fold throws an exception on read errors. On
     success it returns the accumulator.
+
+  + When set to `ignore', fold returns the accumulator, but errors are
+    ignored.
 
   + When set to `report', fold returns a tuple: `{Acc, Errors}' where
     `Errors' is a list of read errors.

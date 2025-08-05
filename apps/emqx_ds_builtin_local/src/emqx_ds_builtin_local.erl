@@ -170,8 +170,10 @@ open_db(DB, CreateOpts0) ->
     ),
     case emqx_ds_builtin_local_sup:start_db(DB, CreateOpts) of
         {ok, _} ->
+            emqx_ds:set_db_ready(DB, true),
             ok;
         {error, {already_started, _}} ->
+            emqx_ds:set_db_ready(DB, true),
             ok;
         {error, Err} ->
             {error, Err}

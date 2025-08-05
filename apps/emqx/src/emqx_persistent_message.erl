@@ -5,11 +5,12 @@
 -module(emqx_persistent_message).
 
 -behaviour(emqx_config_handler).
+-behaviour(gen_server).
 
 -include("emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([init/0]).
+-export([start_link/0, init/1, handle_continue/2, handle_call/3, handle_cast/2]).
 -export([is_persistence_enabled/0, is_persistence_enabled/1, force_ds/1, get_db_config/0]).
 
 %% Config handler
@@ -23,22 +24,6 @@
 -include("emqx_persistent_message.hrl").
 
 %%--------------------------------------------------------------------
-
-init() ->
-    %% Note: currently persistence can't be enabled or disabled in the
-    %% runtime. If persistence is enabled for any of the zones, we
-    %% consider durability feature to be on:
-    Zones = maps:keys(emqx_config:get([zones])),
-    IsEnabled = lists:any(fun is_persistence_enabled/1, Zones),
-    persistent_term:put(?PERSISTENCE_ENABLED, IsEnabled),
-    ?WITH_DURABILITY_ENABLED(begin
-        ?SLOG(notice, #{msg => "Session durability is enabled"}),
-        ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, get_db_config()),
-        ok = emqx_persistent_session_ds_router:init_tables(),
-        ok = emqx_persistent_session_ds:create_tables(),
-        ok = emqx_persistent_session_ds_gc_timer:init(),
-        ok = emqx_durable_will:init()
-    end).
 
 -spec is_persistence_enabled() -> boolean().
 is_persistence_enabled() ->
@@ -96,4 +81,50 @@ store_message(Msg) ->
 has_subscribers(#message{topic = Topic}) ->
     emqx_persistent_session_ds_router:has_any_route(Topic).
 
-%%
+%%--------------------------------------------------------------------
+
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+init(_) ->
+    Zones = maps:keys(emqx_config:get([zones])),
+    IsEnabled = lists:any(fun is_persistence_enabled/1, Zones),
+    persistent_term:put(?PERSISTENCE_ENABLED, IsEnabled),
+    case is_persistence_enabled() of
+        true ->
+            %% TODO: currently initialization is asynchronous. This is
+            %% done to work around a deadlock that happens when Raft
+            %% backend is used with `n_sites' > 0. During the initial
+            %% forming of the cluster, the node should be able to
+            %% proceed to the autocluster stage, which happens _after_
+            %% full start of EMQX application. As a side effect, some
+            %% durable features may become available _after_ listeners
+            %% are enabled. This may lead to transient errors.
+            %% Unfortunately, the real solution involves deep rework
+            %% of emqx_machine and autocluster.
+            {ok, undefined, {continue, real_init}};
+        false ->
+            ignore
+    end.
+
+handle_continue(real_init, State) ->
+    %% Note: currently persistence can't be enabled or disabled in the
+    %% runtime. If persistence is enabled for any of the zones, we
+    %% consider durability feature to be on:
+    ?SLOG(notice, #{msg => "Session durability is enabled"}),
+    ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, get_db_config()),
+    ok = emqx_persistent_session_ds_router:init_tables(),
+    ok = emqx_persistent_session_ds:create_tables(),
+    ok = emqx_persistent_session_ds_gc_timer:init(),
+    ok = emqx_durable_will:init(),
+    ok = emqx_ds:wait_db(?PERSISTENT_MESSAGE_DB, all, infinity),
+    %% FIXME:
+    ok = emqx_ds:wait_db(sessions, all, infinity),
+    emqx_persistent_session_ds_sup:on_dbs_up(),
+    {stop, normal, State}.
+
+handle_call(_, _, State) ->
+    {reply, {error, unknown_call}, State}.
+
+handle_cast(_, State) ->
+    {noreply, State}.

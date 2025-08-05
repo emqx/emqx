@@ -23,6 +23,7 @@ assert_db_open(Nodes, DB, Opts) ->
         [{ok, ok} || _ <- Nodes],
         erpc:multicall(Nodes, emqx_ds, open_db, [DB, Opts])
     ),
+    erpc:multicall(Nodes, emqx_ds, wait_db, [DB, all, infinity]),
     wait_db_bootstrapped(Nodes, DB).
 
 wait_db_bootstrapped(Nodes, DB) ->

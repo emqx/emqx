@@ -215,7 +215,6 @@ callback_mode() ->
 
 init(_) ->
     process_flag(trap_exit, true),
-    ok = ensure_tables(),
     self() ! ?heartbeat,
     {ok, ?s_isolated(new_epoch_id()), #s{}}.
 
@@ -274,6 +273,7 @@ get_cbm(Type) ->
 %%================================================================================
 
 enter_isolated(PrevState, NextEpoch, D0) ->
+    ok = ensure_tables(),
     case PrevState of
         ?s_isolated(_) ->
             ok;
@@ -372,7 +372,8 @@ ensure_tables() ->
             append_only => false,
             reads => leader_preferred
         }
-    ).
+    ),
+    emqx_ds:wait_db(?DB_GLOB, all, infinity).
 
 check_peers(PeerInfo0) ->
     %% Note: we ignore errors since data accumulates in the ets. So

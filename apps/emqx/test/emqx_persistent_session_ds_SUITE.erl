@@ -948,7 +948,7 @@ t_fuzz(_Config) ->
                     emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
                 ]),
                 %% Initialize the system:
-                ok = emqx_persistent_message:init(),
+                emqx_persistent_message:init([]),
                 emqx_persistent_session_ds_fuzzer:cleanup(),
                 %% Run test:
                 {_History, State, Result} = proper_statem:run_commands(

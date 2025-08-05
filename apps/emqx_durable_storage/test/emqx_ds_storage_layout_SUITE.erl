@@ -185,7 +185,7 @@ t_get_streams(Config) ->
     [A] = GetStream(<<"a">>),
     %% Restart shard to make sure trie is persisted and restored:
     ok = emqx_ds:close_db(?FUNCTION_NAME),
-    ok = emqx_ds:open_db(?FUNCTION_NAME, ?DB_CONFIG(Config)),
+    ok = open_db(?FUNCTION_NAME, ?DB_CONFIG(Config)),
     %% Verify that there are no "ghost streams" for topics that don't
     %% have any messages:
     [] = GetStream(<<"bar/foo">>),
@@ -239,7 +239,7 @@ t_new_generation_inherit_trie(Config) ->
             ok = emqx_ds_storage_layer:add_generation(?SHARD, _Since = 1_000),
             %% Restart the shard, to verify that LTS is persisted.
             ok = emqx_ds:close_db(?FUNCTION_NAME),
-            ok = emqx_ds:open_db(?FUNCTION_NAME, ?DB_CONFIG(Config)),
+            ok = open_db(?FUNCTION_NAME, ?DB_CONFIG(Config)),
             %% Store a batch of messages with the same set of topics.
             TS2 = 1_500,
             Batch2 = [
@@ -292,7 +292,7 @@ t_replay(Config) ->
     ?assert(check(?SHARD, <<"+/+/baz">>, 0, Messages)),
     %% Restart the DB to make sure trie is persisted and restored:
     ok = emqx_ds:close_db(?FUNCTION_NAME),
-    ok = emqx_ds:open_db(?FUNCTION_NAME, ?DB_CONFIG(Config)),
+    ok = open_db(?FUNCTION_NAME, ?DB_CONFIG(Config)),
     %% Learned wildcard topics:
     ?assertNot(check(?SHARD, <<"wildcard/1000/suffix/foo">>, 0, [])),
     ?assert(check(?SHARD, <<"wildcard/1/suffix/foo">>, 0, Messages)),
@@ -587,7 +587,7 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(TC, Config) ->
-    ok = emqx_ds:open_db(TC, db_config(TC, Config)),
+    ok = open_db(TC, db_config(TC, Config)),
     Config.
 
 end_per_testcase(TC, _Config) ->
@@ -686,3 +686,11 @@ replay(Shard, Iterators) ->
     Messages1 = lists:flatten(lists:reverse(Messages0)),
     NewIterators1 = lists:reverse(NewIterators0),
     Messages1 ++ replay(Shard, NewIterators1).
+
+open_db(DB, Opts) ->
+    case emqx_ds:open_db(DB, Opts) of
+        ok ->
+            emqx_ds:wait_db(DB, all, infinity);
+        Other ->
+            Other
+    end.

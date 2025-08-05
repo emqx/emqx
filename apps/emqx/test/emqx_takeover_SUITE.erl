@@ -678,14 +678,7 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
     %% THEN: willmsg is not published before session expiry
     ?assertNot(IsWill),
     ?assertNotEqual([], ReceivedNoWill),
-    SessionSleep =
-        case ?config(persistence_enabled, Config) of
-            true ->
-                %% Session GC uses a larger, safer cutoff time (GC interval x 3)
-                10_000;
-            false ->
-                3_000
-        end,
+    SessionSleep = 3_000,
     Received3 = [Msg || {publish, Msg} <- ?drainMailbox(SessionSleep)],
     {IsWill1, ReceivedNoWill1} = filter_payload(Received3, <<"willpayload_delay10">>),
     %% AND THEN: willmsg is published after session expiry

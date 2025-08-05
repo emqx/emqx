@@ -1467,7 +1467,7 @@ t_20_tx_monotonic_ts(Config) ->
             ),
             ?assertMatch(
                 ok,
-                emqx_ds:open_db(DB, Opts)
+                emqx_ds_open_db(DB, Opts)
             ),
             {atomic, _, _} =
                 emqx_ds:trans(
@@ -2454,8 +2454,11 @@ end_per_testcase(TC, Config) ->
 emqx_ds_open_db(DB, Opts) ->
     ct:pal("Opening DB ~p with options ~p", [DB, Opts]),
     case emqx_ds:open_db(DB, Opts) of
-        ok -> timer:sleep(1000);
-        Other -> Other
+        ok ->
+            emqx_ds:wait_db(DB, all, infinity),
+            ct:sleep(1000);
+        Other ->
+            Other
     end.
 
 backends() ->

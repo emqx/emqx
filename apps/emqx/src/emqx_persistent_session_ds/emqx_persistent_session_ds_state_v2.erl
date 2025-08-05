@@ -409,11 +409,12 @@ subscription_iterator_next(Generation, It0, N) ->
     {Results, It}.
 
 total_subscription_count(Generation) ->
+    emqx_ds:wait_db(?DB, all, infinity),
     emqx_ds:fold_topic(
         fun(_, _, _, Acc) -> Acc + 1 end,
         0,
         pmap_topic(?subscriptions, '+', '+'),
-        #{db => ?DB, generation => Generation}
+        #{db => ?DB, generation => Generation, errors => ignore}
     ).
 
 %%================================================================================
