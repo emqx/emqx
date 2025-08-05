@@ -212,6 +212,7 @@ receive_message_from_rabbitmq(Config) ->
                     expiration = Expiration,
                     headers = Headers,
                     message_id = MessageId,
+                    reply_to = ReplyTo,
                     timestamp = Timestamp,
                     type = Type,
                     user_id = UserId
@@ -231,6 +232,7 @@ receive_message_from_rabbitmq(Config) ->
                             correlation_id => CorrelationId,
                             expiration => Expiration,
                             message_id => MessageId,
+                            reply_to => ReplyTo,
                             timestamp => Timestamp,
                             type => Type,
                             user_id => UserId

@@ -95,7 +95,7 @@ fields(action_parameters) ->
             )},
         {headers_template,
             hoconsc:mk(
-                hoconsc:array(hoconsc:ref(?MODULE, key_value)),
+                hoconsc:array(hoconsc:ref(?MODULE, header_key_value)),
                 #{
                     default => [],
                     desc => ?DESC("headers_template")
@@ -103,17 +103,39 @@ fields(action_parameters) ->
             )},
         {properties_template,
             hoconsc:mk(
-                hoconsc:array(hoconsc:ref(?MODULE, key_value)),
+                hoconsc:array(hoconsc:ref(?MODULE, property_key_value)),
                 #{
                     default => [],
                     desc => ?DESC("properties_template")
                 }
             )}
     ];
-fields(key_value) ->
+fields(header_key_value) ->
     [
         {key,
             hoconsc:mk(emqx_schema:template(), #{required => true, desc => ?DESC("key_value_key")})},
+        {value,
+            hoconsc:mk(emqx_schema:template(), #{required => true, desc => ?DESC("key_value_value")})}
+    ];
+fields(property_key_value) ->
+    [
+        {key,
+            hoconsc:mk(
+                hoconsc:enum([
+                    app_id,
+                    cluster_id,
+                    content_encoding,
+                    content_type,
+                    correlation_id,
+                    expiration,
+                    message_id,
+                    reply_to,
+                    timestamp,
+                    type,
+                    user_id
+                ]),
+                #{required => true, desc => ?DESC("key_value_key")}
+            )},
         {value,
             hoconsc:mk(emqx_schema:template(), #{required => true, desc => ?DESC("key_value_value")})}
     ];
@@ -209,7 +231,9 @@ desc(publisher_action) ->
     ?DESC(publisher_action);
 desc(subscriber_source) ->
     ?DESC(subscriber_source);
-desc(key_value) ->
+desc(header_key_value) ->
+    ?DESC(key_value);
+desc(property_key_value) ->
     ?DESC(key_value);
 desc(_) ->
     undefined.

@@ -649,19 +649,17 @@ t_header_props_templates(TCConfig) ->
                 #{<<"key">> => <<"${.payload.hk2}">>, <<"value">> => <<"${.payload.hv2}">>}
             ],
             <<"properties_template">> => [
-                %% Correlation id
-                #{<<"key">> => <<"${.payload.pk1}">>, <<"value">> => <<"${.payload.pv1}">>},
-                %% Message id
-                #{<<"key">> => <<"${.payload.pk2}">>, <<"value">> => <<"${.payload.pv2}">>},
-                #{<<"key">> => <<"content_type">>, <<"value">> => <<"application/json">>},
-                #{<<"key">> => <<"content_encoding">>, <<"value">> => <<"utf8">>},
-                #{<<"key">> => <<"expiration">>, <<"value">> => <<"600000">>},
-                #{<<"key">> => <<"type">>, <<"value">> => <<"orders.created">>},
-                #{<<"key">> => <<"user_id">>, <<"value">> => ?USER},
                 #{<<"key">> => <<"app_id">>, <<"value">> => <<"myapp">>},
                 #{<<"key">> => <<"cluster_id">>, <<"value">> => <<"mycluster">>},
+                #{<<"key">> => <<"content_encoding">>, <<"value">> => <<"utf8">>},
+                #{<<"key">> => <<"content_type">>, <<"value">> => <<"application/json">>},
+                #{<<"key">> => <<"correlation_id">>, <<"value">> => <<"${.payload.pv1}">>},
+                #{<<"key">> => <<"expiration">>, <<"value">> => <<"600000">>},
+                #{<<"key">> => <<"message_id">>, <<"value">> => <<"${.payload.pv2}">>},
+                #{<<"key">> => <<"reply_to">>, <<"value">> => <<"reply.to.me">>},
                 #{<<"key">> => <<"timestamp">>, <<"value">> => <<"${publish_received_at}">>},
-                #{<<"key">> => <<"unknown">>, <<"value">> => <<"${.does.not.matter}">>}
+                #{<<"key">> => <<"type">>, <<"value">> => <<"orders.created">>},
+                #{<<"key">> => <<"user_id">>, <<"value">> => ?USER}
             ]
         },
         <<"resource_opts">> => #{<<"request_ttl">> => <<"1s">>}
@@ -705,14 +703,15 @@ t_header_props_templates(TCConfig) ->
             props := #{
                 app_id := <<"myapp">>,
                 cluster_id := <<"mycluster">>,
-                user_id := ?USER,
-                content_type := <<"application/json">>,
                 content_encoding := <<"utf8">>,
+                content_type := <<"application/json">>,
+                correlation_id := CorrelationId,
                 expiration := <<"600000">>,
                 message_id := MessageId,
-                correlation_id := CorrelationId,
+                reply_to := <<"reply.to.me">>,
+                timestamp := TS,
                 type := <<"orders.created">>,
-                timestamp := TS
+                user_id := ?USER
             },
             headers := [
                 {<<"header_key1">>, binary, <<"header_val1">>},

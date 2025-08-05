@@ -513,7 +513,7 @@ preproc_parameter(_ActionResId, #{config_root := actions, parameters := Paramete
         exchange := preproc_template(Exchange),
         routing_key := preproc_template(RoutingKey),
         headers_template := lists:map(fun parse_kv_template/1, HeadersTemplate),
-        properties_template := lists:map(fun parse_kv_template/1, PropsTemplate)
+        properties_template := lists:map(fun parse_v_template/1, PropsTemplate)
     };
 preproc_parameter(SourceResId, #{
     config_root := sources, parameters := Parameter, hookpoints := Hooks
@@ -533,6 +533,9 @@ preproc_template(Template0) ->
         [_ | _] ->
             {dynamic, Template}
     end.
+
+parse_v_template(#{key := K, value := VTpl}) ->
+    {K, emqx_template:parse(VTpl)}.
 
 parse_kv_template(#{key := KTpl, value := VTpl}) ->
     #{
@@ -558,37 +561,45 @@ render_lax(Template, Data) ->
     end.
 
 add_rendered_props(PropsTemplate, Data, PBasic) ->
-    RenderedProps = lists:map(fun(Tpl) -> render_kv_template(Tpl, Data) end, PropsTemplate),
     lists:foldl(
         fun
-            ({<<"content_type">>, Val}, Acc) ->
-                Acc#'P_basic'{content_type = Val};
-            ({<<"content_encoding">>, Val}, Acc) ->
-                Acc#'P_basic'{content_encoding = Val};
-            ({<<"correlation_id">>, Val}, Acc) ->
-                Acc#'P_basic'{correlation_id = Val};
-            ({<<"reply_to">>, Val}, Acc) ->
-                Acc#'P_basic'{reply_to = Val};
-            ({<<"expiration">>, Val}, Acc) ->
-                Acc#'P_basic'{expiration = Val};
-            ({<<"message_id">>, Val}, Acc) ->
-                Acc#'P_basic'{message_id = Val};
-            ({<<"type">>, Val}, Acc) ->
-                Acc#'P_basic'{type = Val};
-            ({<<"user_id">>, Val}, Acc) ->
-                Acc#'P_basic'{user_id = Val};
-            ({<<"app_id">>, Val}, Acc) ->
+            ({app_id, Tpl}, Acc) ->
+                Val = render_lax(Tpl, Data),
                 Acc#'P_basic'{app_id = Val};
-            ({<<"cluster_id">>, Val}, Acc) ->
+            ({cluster_id, Tpl}, Acc) ->
+                Val = render_lax(Tpl, Data),
                 Acc#'P_basic'{cluster_id = Val};
-            ({<<"timestamp">>, Val0}, Acc) ->
+            ({content_encoding, Tpl}, Acc) ->
+                Val = render_lax(Tpl, Data),
+                Acc#'P_basic'{content_encoding = Val};
+            ({content_type, Tpl}, Acc) ->
+                Val = render_lax(Tpl, Data),
+                Acc#'P_basic'{content_type = Val};
+            ({correlation_id, Tpl}, Acc) ->
+                Val = render_lax(Tpl, Data),
+                Acc#'P_basic'{correlation_id = Val};
+            ({expiration, Tpl}, Acc) ->
+                Val = render_lax(Tpl, Data),
+                Acc#'P_basic'{expiration = Val};
+            ({message_id, Tpl}, Acc) ->
+                Val = render_lax(Tpl, Data),
+                Acc#'P_basic'{message_id = Val};
+            ({reply_to, Tpl}, Acc) ->
+                Val = render_lax(Tpl, Data),
+                Acc#'P_basic'{reply_to = Val};
+            ({timestamp, Tpl}, Acc) ->
+                Val0 = render_lax(Tpl, Data),
                 Val = try_cast_timestamp_to_integer(Val0),
                 Acc#'P_basic'{timestamp = Val};
-            ({_Unknown, _Val}, Acc) ->
-                Acc
+            ({type, Tpl}, Acc) ->
+                Val = render_lax(Tpl, Data),
+                Acc#'P_basic'{type = Val};
+            ({user_id, Tpl}, Acc) ->
+                Val = render_lax(Tpl, Data),
+                Acc#'P_basic'{user_id = Val}
         end,
         PBasic,
-        RenderedProps
+        PropsTemplate
     ).
 
 try_cast_timestamp_to_integer(I) when is_integer(I) ->
