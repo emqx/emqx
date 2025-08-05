@@ -74,7 +74,7 @@
 -record(deactivated_alarm, {
     activate_at :: integer(),
     name :: binary() | atom(),
-    details :: map() | list(),
+    details :: map() | list() | no_details,
     message :: binary(),
     deactivate_at :: integer() | infinity
 }).
