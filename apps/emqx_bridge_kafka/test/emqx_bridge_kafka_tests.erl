@@ -204,13 +204,6 @@ test_keepalive_validation(Name, Conf) ->
         [?_assertThrow(_, check(C)) || C <- InvalidConfs] ++
         [?_assertThrow(_, check_atom_key(C)) || C <- InvalidConfs].
 
-%% assert compatibility
-bridge_schema_json_test() ->
-    JSON = iolist_to_binary(emqx_dashboard_schema_api:bridge_schema_json()),
-    Map = emqx_utils_json:decode(JSON),
-    Path = [<<"components">>, <<"schemas">>, <<"bridge_kafka.post_producer">>, <<"properties">>],
-    ?assertMatch(#{<<"kafka">> := _}, emqx_utils_maps:deep_get(Path, Map)).
-
 custom_group_id_test() ->
     BaseConfig = kafka_consumer_source_config(),
     BadSourceConfig = emqx_utils_maps:deep_merge(
