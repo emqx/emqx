@@ -1065,7 +1065,7 @@ validate_cluster_hocon(RawConf) ->
 do_import_conf(Namespace, RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(Namespace, RawConf))),
     maybe_print_conf_errors(GenConfErrs, Opts),
-    Modules = emqx_config_dep_registry:sorted_importer_modules(),
+    Modules = emqx_conf_dep_registry:sorted_importer_modules(),
     Errors = lists:foldl(
         print_ok_results_collect_errors(Namespace, RawConf, Opts),
         GenConfErrs,

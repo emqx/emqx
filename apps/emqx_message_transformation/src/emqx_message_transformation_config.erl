@@ -24,7 +24,7 @@
 
 %% `emqx_config_backup' API
 -behaviour(emqx_config_backup).
--export([import_config/2, config_dependencies/0]).
+-export([import_config/2]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -214,12 +214,6 @@ post_config_update([?CONF_ROOT], {replace, Input}, ResultingConfig, Old, _AppEnv
 %%------------------------------------------------------------------------------
 %% `emqx_config_backup' API
 %%------------------------------------------------------------------------------
-
-config_dependencies() ->
-    #{
-        root_keys => [?CONF_ROOT_BIN],
-        dependencies => [emqx_schema_registry_config]
-    }.
 
 import_config(_Namespace, #{?CONF_ROOT_BIN := RawConf0}) ->
     Result = emqx_conf:update(

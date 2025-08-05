@@ -21,7 +21,6 @@ start(_Type, _Args) ->
     {ok, Sup} = emqx_message_transformation_sup:start_link(),
     ok = emqx_variform:inject_allowed_module(emqx_message_transformation_bif),
     ok = emqx_message_transformation_config:add_handler(),
-    ok = emqx_config_dep_registry:register_dependencies(emqx_message_transformation_config),
     ok = emqx_message_transformation_config:load(),
     ok = emqx_message_transformation:register_hooks(),
     {ok, Sup}.

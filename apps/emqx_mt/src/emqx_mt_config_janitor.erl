@@ -135,7 +135,7 @@ do_clean_up(Namespace) ->
     RootConfigs = emqx_config:get_all_roots_from_namespace(Namespace),
     AllRootKeys = maps:keys(RootConfigs),
     %% We destroy terminal root keys before initial ones.
-    SortedRootKeys = lists:reverse(emqx_config_dep_registry:sorted_root_keys()),
+    SortedRootKeys = lists:reverse(emqx_conf_dep_registry:sorted_root_keys()),
     %% These don't have a specified order in which to be destroyed
     OtherRootKeys = AllRootKeys -- SortedRootKeys,
     lists:foreach(
