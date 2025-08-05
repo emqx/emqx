@@ -134,7 +134,7 @@ progress(#cs{st = #{progress := GenerationProgress, streams := Streams}}) ->
     }.
 
 -spec handle_ds_info(t(), term()) ->
-    {ok, [{emqx_mq_types:message_id(), emqx_mq_types:mq_message()}], t()}.
+    {ok, [{emqx_mq_types:message_id(), emqx_types:message()}], t()}.
 handle_ds_info(#cs{ds_client = DSC0, st = State0} = CS, GenericMessage) ->
     case emqx_ds_client:dispatch_message(GenericMessage, DSC0, State0) of
         ignore ->
@@ -310,7 +310,7 @@ do_handle_ds_reply(
     case emqx_mq_consumer_stream_buffer:handle_ds_reply(SB, Handle, DSReply) of
         {ok, Messages0, SB1} ->
             Messages = [
-                {{Slab, StreamMessageId}, emqx_mq_payload_db:decode_mq_message(Payload)}
+                {{Slab, StreamMessageId}, emqx_mq_payload_db:decode_message(Payload)}
              || {_Topic, StreamMessageId, Payload} <- Messages0
             ],
             {ok, Messages, State#{streams => Streams#{Stream => StreamData#{stream_buffer => SB1}}}};

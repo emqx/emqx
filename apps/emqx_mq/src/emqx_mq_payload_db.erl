@@ -10,9 +10,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_mq_internal.hrl").
 
--elvis([{elvis_style, atom_naming_convention, disable}]).
--include("../gen_src/MQMessage.hrl").
-
 -export([
     open/0,
     insert/3,
@@ -22,10 +19,8 @@
 ]).
 
 -export([
-    to_mq_message/1,
-    from_mq_message/1,
-    encode_mq_message/1,
-    decode_mq_message/1
+    encode_message/1,
+    decode_message/1
 ]).
 
 -define(MQ_PAYLOAD_DB, mq_payload).
@@ -66,14 +61,14 @@ insert(#{is_compacted := true, topic_filter := TopicFilter} = _MQ, Message, Comp
         sync => true,
         retries => ?MQ_PAYLOAD_DB_APPEND_RETRY
     },
-    Value = encode_mq_message(to_mq_message(Message)),
+    Value = encode_message(Message),
     ?tp(warning, mq_payload_db_insert, #{topic => Topic, generation => 1, value => Value}),
     emqx_ds:trans(TxOpts, fun() ->
         emqx_ds:tx_del_topic(Topic),
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
     end);
 insert(#{is_compacted := false, topic_filter := TopicFilter} = _MQ, Message, undefined) ->
-    Value = encode_mq_message(to_mq_message(Message)),
+    Value = encode_message(Message),
     ClientId = emqx_message:from(Message),
     Topic = ?MQ_PAYLOAD_DB_TOPIC(TopicFilter, ClientId),
     TxOpts = #{
@@ -106,29 +101,13 @@ subscribe(DSClient0, SubId, MQTopic, State0) ->
 suback(SubRef, SeqNo) ->
     emqx_ds:suback(?MQ_PAYLOAD_DB, SubRef, SeqNo).
 
--spec to_mq_message(emqx_types:message()) -> emqx_mq_types:mq_message().
-to_mq_message(#message{from = From, topic = Topic, payload = Payload, timestamp = Timestamp}) ->
-    #'MQMessage'{
-        from = From,
-        topic = Topic,
-        payload = Payload,
-        timestamp = Timestamp
-    }.
+-spec encode_message(emqx_types:message()) -> binary().
+encode_message(Message) ->
+    emqx_ds_msg_serializer:serialize(asn1, Message).
 
--spec from_mq_message(emqx_mq_types:mq_message()) -> emqx_types:message().
-from_mq_message(#'MQMessage'{from = From, topic = Topic, payload = Payload, timestamp = Timestamp}) ->
-    Message0 = emqx_message:make(From, ?QOS_1, Topic, Payload),
-    Message0#message{timestamp = Timestamp}.
-
--spec encode_mq_message(emqx_mq_types:mq_message()) -> binary().
-encode_mq_message(#'MQMessage'{} = MQMessage) ->
-    {ok, Bin} = 'MQMessage':encode('MQMessage', MQMessage),
-    Bin.
-
--spec decode_mq_message(binary()) -> emqx_mq_types:mq_message().
-decode_mq_message(Bin) ->
-    {ok, MQMessage} = 'MQMessage':decode('MQMessage', Bin),
-    MQMessage.
+-spec decode_message(binary()) -> emqx_types:message().
+decode_message(Bin) ->
+    emqx_ds_msg_serializer:deserialize(asn1, Bin).
 
 %%--------------------------------------------------------------------
 %% Internal functions

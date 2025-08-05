@@ -7,24 +7,14 @@ defmodule EMQXMQ.MixProject do
       app: :emqx_mq,
       version: "6.0.0",
       build_path: "../../_build",
-      compilers: [:elixir, :asn1, :erlang, :app],
       erlc_options: UMP.erlc_options(),
-      erlc_paths: ["gen_src" | UMP.erlc_paths()],
-      asn1_srcs: asn1_srcs(),
+      erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
-  end
-
-  def asn1_srcs() do
-    "./asn.1/*.asn"
-    |> Path.wildcard()
-    |> Enum.map(fn src ->
-      %{src: src, compile_opts: [:per, :noobj, outdir: ~c"gen_src"]}
-    end)
   end
 
   def application do

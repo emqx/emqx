@@ -199,11 +199,8 @@ enqueue_messages(State, []) ->
     State;
 enqueue_messages(
     #st{messages = Messages0} = State0,
-    [{MessageId, MQMessage} | Rest]
+    [{MessageId, Message} | Rest]
 ) ->
-    %% TODO
-    %% use real topic and client
-    Message = emqx_mq_payload_db:from_mq_message(MQMessage),
     Messages = Messages0#{MessageId => Message},
     State = State0#st{messages = Messages},
     enqueue_for_dispatch(enqueue_messages(State, Rest), [MessageId]).
