@@ -11,6 +11,7 @@ services:
       DATALAYERS_SERVER__TIMEZONE: "Etc/GMT"
       DATALAYERS_SERVER__ADDR: "0.0.0.0:8362"
       DATALAYERS_SERVER__HTTP: "0.0.0.0:8363"
+      DATALAYERS_TS_ENGINE__SCHEMALESS__AUTO_ALTER_TABLE: "true"
       DATALAYERS_SERVER__TLS__KEY: "/etc/datalayers/key.pem"
       DATALAYERS_SERVER__TLS__CERT: "/etc/datalayers/cert.pem"
     volumes:

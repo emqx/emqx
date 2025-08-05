@@ -9,6 +9,7 @@ services:
       - "8361"
     environment:
       DATALAYERS_SERVER__TIMEZONE: "Etc/GMT"
+      DATALAYERS_TS_ENGINE__SCHEMALESS__AUTO_ALTER_TABLE: "true"
     restart: always
     networks:
       - emqx_bridge
