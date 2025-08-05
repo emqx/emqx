@@ -1,0 +1,7 @@
+emqx_bridge_alloydb_connector_schema {
+  config_connector {
+    label: """Google AlloyDB Connector Configuration"""
+    desc:
+    """Configuration for a connector to Google AlloyDB."""
+  }
+}

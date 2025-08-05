@@ -1,0 +1,7 @@
+emqx_bridge_redshift_connector_schema {
+  config_connector {
+    label: """AWS Redshift Connector Configuration"""
+    desc:
+    """Configuration for a connector to AWS Redshift."""
+  }
+}
