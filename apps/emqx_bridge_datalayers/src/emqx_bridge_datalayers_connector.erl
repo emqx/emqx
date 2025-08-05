@@ -215,7 +215,7 @@ server() ->
         desc => ?DESC("server"),
         converter => fun convert_server/2
     },
-    emqx_schema:servers_sc(Meta, ?DATALAYERS_HOST_OPTIONS).
+    emqx_schema:servers_sc(Meta, ?DATALAYERS_HOST_HTTP_OPTIONS).
 
 desc(common) ->
     ?DESC("common");

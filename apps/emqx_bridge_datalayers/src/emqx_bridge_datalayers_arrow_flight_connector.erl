@@ -88,7 +88,9 @@ on_start(
         ssl := SSL
     }
 ) ->
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?DATALAYERS_HOST_OPTIONS),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(
+        Server, ?DATALAYERS_HOST_ARROW_OPTIONS
+    ),
     ?SLOG(info, #{
         msg => "starting_datalayers_arrow_flight_connector",
         connector => InstId,
