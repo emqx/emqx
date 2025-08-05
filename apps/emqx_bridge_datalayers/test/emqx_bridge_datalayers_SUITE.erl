@@ -33,15 +33,15 @@ groups() ->
             {group, async_query}
         ]},
         {sync_query, [
-            {group, apiv1_tcp},
-            {group, apiv1_tls}
+            {group, apiv1_http},
+            {group, apiv1_https}
         ]},
         {async_query, [
-            {group, apiv1_tcp},
-            {group, apiv1_tls}
+            {group, apiv1_http},
+            {group, apiv1_https}
         ]},
-        {apiv1_tcp, TCs},
-        {apiv1_tls, TCs}
+        {apiv1_http, TCs},
+        {apiv1_https, TCs}
     ].
 
 init_per_suite(Config) ->
@@ -51,8 +51,8 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(DatalayersType, Config0) when
-    DatalayersType =:= apiv1_tcp;
-    DatalayersType =:= apiv1_tls
+    DatalayersType =:= apiv1_http;
+    DatalayersType =:= apiv1_https
 ->
     #{
         host := DatalayersHost,
@@ -61,19 +61,19 @@ init_per_group(DatalayersType, Config0) when
         proxy_name := ProxyName
     } =
         case DatalayersType of
-            apiv1_tcp ->
+            apiv1_http ->
                 #{
-                    host => os:getenv("DATALAYERS_TCP_HOST", "toxiproxy"),
-                    port => list_to_integer(os:getenv("DATALAYERS_TCP_PORT", "8361")),
+                    host => os:getenv("DATALAYERS_HTTP_HOST", "toxiproxy"),
+                    port => list_to_integer(os:getenv("DATALAYERS_HTTP_PORT", "8361")),
                     use_tls => false,
-                    proxy_name => "datalayers_tcp"
+                    proxy_name => "datalayers_http"
                 };
-            apiv1_tls ->
+            apiv1_https ->
                 #{
-                    host => os:getenv("DATALAYERS_TLS_HOST", "toxiproxy"),
-                    port => list_to_integer(os:getenv("DATALAYERS_TLS_PORT", "8362")),
+                    host => os:getenv("DATALAYERS_HTTPS_HOST", "toxiproxy"),
+                    port => list_to_integer(os:getenv("DATALAYERS_HTTPS_PORT", "8363")),
                     use_tls => true,
-                    proxy_name => "datalayers_tls"
+                    proxy_name => "datalayers_https"
                 }
         end,
     case emqx_common_test_helpers:is_tcp_server_available(DatalayersHost, DatalayersPort) of
@@ -155,8 +155,8 @@ init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(Group, Config) when
-    Group =:= apiv1_tcp;
-    Group =:= apiv1_tls
+    Group =:= apiv1_http;
+    Group =:= apiv1_https
 ->
     Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
