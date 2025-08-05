@@ -36,25 +36,28 @@ end_per_suite(Config) ->
 %% Test fetching non-redispatched messages
 t_fetch_initial(_Config) ->
     Q0 = emqx_mq_consumer_dispatchq:new(),
-    {[], Q1} = emqx_mq_consumer_dispatchq:fetch(Q0),
-    Q2 = emqx_mq_consumer_dispatchq:add_initial(Q1, {?SLAB, 3}),
-    Q3 = emqx_mq_consumer_dispatchq:add_initial(Q2, {?SLAB, 2}),
-    Q4 = emqx_mq_consumer_dispatchq:add_initial(Q3, {?SLAB, 1}),
-    {[{?SLAB, 1}, {?SLAB, 2}, {?SLAB, 3}], Q5} = emqx_mq_consumer_dispatchq:fetch(Q4),
-    {[], Q6} = emqx_mq_consumer_dispatchq:fetch(Q5),
-    Q7 = emqx_mq_consumer_dispatchq:add_initial(Q6, {?SLAB, 4}),
-    {[{?SLAB, 4}], Q8} = emqx_mq_consumer_dispatchq:fetch(Q7),
-    {[], _Q9} = emqx_mq_consumer_dispatchq:fetch(Q8).
+    empty = emqx_mq_consumer_dispatchq:fetch(Q0),
+    Q1 = emqx_mq_consumer_dispatchq:add(Q0, [{?SLAB, 2}, {?SLAB, 1}]),
+    ct:sleep(1),
+    Q2 = emqx_mq_consumer_dispatchq:add(Q1, [{?SLAB, 3}]),
+    {ok, [{?SLAB, 1}, {?SLAB, 2}, {?SLAB, 3}], Q3} = emqx_mq_consumer_dispatchq:fetch(Q2),
+    empty = emqx_mq_consumer_dispatchq:fetch(Q3),
+    Q4 = emqx_mq_consumer_dispatchq:add(Q3, [{?SLAB, 4}]),
+    {ok, [{?SLAB, 4}], Q5} = emqx_mq_consumer_dispatchq:fetch(Q4),
+    empty = emqx_mq_consumer_dispatchq:fetch(Q5).
 
 %% Test fetching redispatched messages
 t_fetch_redispatch(_Config) ->
     Q0 = emqx_mq_consumer_dispatchq:new(),
-    Q1 = emqx_mq_consumer_dispatchq:add_initial(Q0, {?SLAB, 1}),
+    Q1 = emqx_mq_consumer_dispatchq:add(Q0, [{?SLAB, 1}]),
     Q2 = emqx_mq_consumer_dispatchq:add_redispatch(Q1, {?SLAB, 2}, 100),
-    Q3 = emqx_mq_consumer_dispatchq:add_initial(Q2, {?SLAB, 3}),
+    Q3 = emqx_mq_consumer_dispatchq:add(Q2, [{?SLAB, 3}]),
     Q4 = emqx_mq_consumer_dispatchq:add_redispatch(Q3, {?SLAB, 4}, 50),
-    {[{?SLAB, 1}, {?SLAB, 3}], Delay0, Q5} = emqx_mq_consumer_dispatchq:fetch(Q4),
+    {ok, [{?SLAB, 1}, {?SLAB, 3}], Q5} = emqx_mq_consumer_dispatchq:fetch(Q4),
+    {delay, Delay0} = emqx_mq_consumer_dispatchq:fetch(Q5),
     ct:sleep(Delay0),
-    {[{?SLAB, 4}], Delay1, Q6} = emqx_mq_consumer_dispatchq:fetch(Q5),
+    {ok, [{?SLAB, 4}], Q6} = emqx_mq_consumer_dispatchq:fetch(Q5),
+    {delay, Delay1} = emqx_mq_consumer_dispatchq:fetch(Q6),
     ct:sleep(Delay1),
-    {[{?SLAB, 2}], _Q7} = emqx_mq_consumer_dispatchq:fetch(Q6).
+    {ok, [{?SLAB, 2}], Q7} = emqx_mq_consumer_dispatchq:fetch(Q6),
+    empty = emqx_mq_consumer_dispatchq:fetch(Q7).

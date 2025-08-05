@@ -18,9 +18,10 @@ This module implements the dispatch queue (time-based priority) for the MQ consu
 
 -export([
     new/0,
-    add_initial/2,
+    add/2,
     add_redispatch/3,
-    fetch/1
+    fetch/1,
+    to_list/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -48,29 +49,45 @@ new() ->
         queue = gb_trees:empty()
     }.
 
-add_initial(DispatchQueue, MessageId) ->
-    add(DispatchQueue, MessageId, now_ms_monotonic()).
+-spec add(t(), [emqx_mq_types:message_id()]) -> t().
+add(DispatchQueue, MessageIds) when is_list(MessageIds) ->
+    NowMs = now_ms_monotonic(),
+    lists:foldl(
+        fun(MessageId, DispatchQueueAcc) ->
+            add(DispatchQueueAcc, MessageId, NowMs)
+        end,
+        DispatchQueue,
+        MessageIds
+    ).
 
-add_redispatch(DispatchQueue, MessageId, DelayMs) ->
+-spec add_redispatch(t(), emqx_mq_types:message_id(), ts_monotonic()) -> t().
+add_redispatch(DispatchQueue, MessageId, DelayMs) when is_tuple(MessageId) ->
     add(DispatchQueue, MessageId, now_ms_monotonic() + DelayMs).
 
 -spec fetch(t()) ->
-    {[emqx_mq_types:message_id()], ts_monotonic(), t()} | {[emqx_mq_types:message_id()], t()}.
+    {ok, [emqx_mq_types:message_id()], t()} | {delay, ts_monotonic()} | empty.
 fetch(#dispatch_queue{queue = Queue0} = DispatchQueue) ->
     NowMs = now_ms_monotonic(),
     It = gb_sets:iterator(Queue0),
     case fetch(Queue0, It, NowMs, []) of
+        {[], _Queue} ->
+            empty;
+        {[], Delay, _Queue} ->
+            {delay, Delay};
         {Fetched, Queue} ->
-            {message_ids(Fetched), DispatchQueue#dispatch_queue{queue = Queue}};
-        {Fetched, Delay, Queue} ->
-            {message_ids(Fetched), Delay, DispatchQueue#dispatch_queue{queue = Queue}}
+            {ok, message_ids(Fetched), DispatchQueue#dispatch_queue{queue = Queue}};
+        {Fetched, _Delay, Queue} ->
+            {ok, message_ids(Fetched), DispatchQueue#dispatch_queue{queue = Queue}}
     end.
+
+-spec to_list(t()) -> [entry()].
+to_list(#dispatch_queue{queue = Queue}) ->
+    gb_sets:to_list(Queue).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec add(t(), emqx_mq_types:message_id(), ts_monotonic()) -> t().
 add(#dispatch_queue{queue = Queue} = DispatchQueue, {Slab, SlabMessageId}, TimestampMs) ->
     DispatchQueue#dispatch_queue{
         %% let the message be ordered by raft's ts within the same timestamp

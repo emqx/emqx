@@ -13,6 +13,7 @@ The module contains basic types for the Message Queue application.
 -type subscriber_ref() :: reference().
 -type message_id() :: {emqx_ds:slab(), non_neg_integer()}.
 -type monotonic_timestamp_ms() :: integer().
+-type interval_ms() :: pos_integer().
 -type channel_pid() :: pid().
 -type consumer_ref() :: pid().
 -type consumer_data() :: #{
@@ -20,13 +21,20 @@ The module contains basic types for the Message Queue application.
 }.
 -type ack() :: ?MQ_ACK | ?MQ_NACK.
 -type mq_topic() :: binary().
+
+-type dispatch_variform_expr() :: binary().
+
+-type dispatch_strategy() :: random | least_inflight | {hash, dispatch_variform_expr()}.
+
 -type mq() :: #{
     topic_filter := mq_topic(),
     is_compacted := boolean(),
-    consumer_max_inactive_ms := pos_integer(),
-    consumer_ping_interval_ms := pos_integer()
+    consumer_max_inactive_ms := interval_ms(),
+    ping_interval_ms := interval_ms(),
+    redispatch_interval_ms := interval_ms(),
+    unhealthy_subscriber_timeout_ms := interval_ms(),
+    dispatch_strategy := dispatch_strategy()
 }.
-
 -export_type([
     subscriber_ref/0,
     message_id/0,

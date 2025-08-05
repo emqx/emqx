@@ -20,6 +20,7 @@
 
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 emqtt_connect(Opts) ->
     BaseOpts = [{proto_ver, v5}],
@@ -69,7 +70,10 @@ create_mq(Topic) when is_binary(Topic) ->
 create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     Default = #{
         consumer_max_inactive_ms => 1000,
-        consumer_ping_interval_ms => 5000
+        ping_interval_ms => 5000,
+        redispatch_interval_ms => 100,
+        unhealthy_subscriber_timeout_ms => 50,
+        dispatch_strategy => random
     },
     MQ = maps:merge(Default, MQ0),
 
@@ -80,7 +84,14 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     ?retry(
         5,
         100,
-        [#{topic_filter := TopicFilter}] = emqx_mq_registry:match(SampleTopic)
+        ?assert(
+            lists:any(
+                fun(#{topic_filter := TF}) ->
+                    TopicFilter =:= TF
+                end,
+                emqx_mq_registry:match(SampleTopic)
+            )
+        )
     ),
     ok.
 

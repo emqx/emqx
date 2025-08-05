@@ -27,12 +27,14 @@ of channels to the Message Queue consumers.
 %%--------------------------------------------------------------------
 
 -spec register(emqx_mq_sub:t()) -> ok.
-register(#{subscriber_ref := SubscriberRef, topic := Topic} = Sub) ->
+register(Sub) ->
+    SubscriberRef = emqx_mq_sub:subscriber_ref(Sub),
+    MQTopicFilter = emqx_mq_sub:mq_topic_filter(Sub),
     ?tp(warning, mq_sub_registry_register, #{
-        subscriber_ref => SubscriberRef, topic => Topic, sub => Sub
+        subscriber_ref => SubscriberRef, mq_topic_filter => MQTopicFilter, sub => Sub
     }),
     _ = erlang:put(?SUB_PD_KEY(SubscriberRef), maps:without([subscriber_ref], Sub)),
-    _ = erlang:put(?TOPIC_PD_KEY(Topic), SubscriberRef),
+    _ = erlang:put(?TOPIC_PD_KEY(MQTopicFilter), SubscriberRef),
     ok.
 
 -spec delete(emqx_mq_types:subscriber_ref() | emqx_types:topic()) ->
@@ -41,12 +43,13 @@ delete(SubscriberRef) when is_reference(SubscriberRef) ->
     case erlang:erase(?SUB_PD_KEY(SubscriberRef)) of
         undefined ->
             undefined;
-        #{topic := Topic} = Sub ->
-            _ = erlang:erase(?TOPIC_PD_KEY(Topic)),
+        Sub ->
+            MQTopicFilter = emqx_mq_sub:mq_topic_filter(Sub),
+            _ = erlang:erase(?TOPIC_PD_KEY(MQTopicFilter)),
             Sub#{subscriber_ref => SubscriberRef}
     end;
-delete(Topic) when is_binary(Topic) ->
-    case erlang:get(?TOPIC_PD_KEY(Topic)) of
+delete(MQTopicFilter) when is_binary(MQTopicFilter) ->
+    case erlang:get(?TOPIC_PD_KEY(MQTopicFilter)) of
         undefined ->
             undefined;
         SubscriberRef ->
@@ -63,9 +66,8 @@ find(SubscriberRef) ->
     end.
 
 -spec update(emqx_mq_types:subscriber_ref(), emqx_mq_sub:t()) -> ok.
-update(SubscriberRef, #{topic := Topic} = Sub) ->
-    %%
-    #{topic := Topic} = erlang:put(?SUB_PD_KEY(SubscriberRef), maps:without([subscriber_ref], Sub)),
+update(SubscriberRef, Sub) ->
+    _ = erlang:put(?SUB_PD_KEY(SubscriberRef), maps:without([subscriber_ref], Sub)),
     ok.
 
 -spec all() -> [emqx_mq_sub:t()].
