@@ -408,7 +408,7 @@ t_send_get_trace_messages(Config) ->
     ?retry(
         _Interval0 = 200,
         _NAttempts0 = 20,
-        ?assertEqual(<<>>, read_rule_trace_file(TraceName, Now))
+        ?assertEqual(<<>>, read_rule_trace_file(TraceName))
     ),
     Msg = emqx_message:make(RuleTopic, <<"{\"id\": 1}">>),
     emqx:publish(Msg),
@@ -433,7 +433,7 @@ t_send_get_trace_messages(Config) ->
         _Interval0 = 200,
         _NAttempts0 = 20,
         begin
-            Bin = read_rule_trace_file(TraceName, Now),
+            Bin = read_rule_trace_file(TraceName),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"rule_activated">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"SQL_yielded_result">>])),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"bridge_action">>])),
@@ -444,11 +444,8 @@ t_send_get_trace_messages(Config) ->
     emqx_trace:delete(TraceName),
     ok.
 
-read_rule_trace_file(TraceName, From) ->
-    emqx_trace:check(),
-    %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
-    timer:sleep(2 * 100),
-    {ok, Bin} = file:read_file(emqx_trace:log_file(TraceName, From)),
+read_rule_trace_file(TraceName) ->
+    {ok, Bin, _} = emqx_trace:stream_log(TraceName, start, undefined),
     Bin.
 
 t_async_free_retries(Config) ->
