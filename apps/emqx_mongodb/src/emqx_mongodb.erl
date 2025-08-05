@@ -355,6 +355,9 @@ check_worker_health(Conn) ->
         _ ->
             ok
     catch
+        error:{error, #{<<"code">> := 13, <<"codeName">> := <<"Unauthorized">>}} ->
+            %% Doesn't matter: if we got this, we're connected.
+            ok;
         Class:Error ->
             ?SLOG(warning, #{
                 msg => "mongo_connection_get_status_exception",
