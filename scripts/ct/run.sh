@@ -9,16 +9,18 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 
 help() {
     echo
-    echo "-h|--help:              To display this usage info"
-    echo "--app lib_dir/app_name: For which app to run start docker-compose, and run common tests"
-    echo "--console:              Start EMQX in console mode but do not run test cases"
-    echo "--attach:               Attach to the Erlang docker container without running any test case"
-    echo "--stop:                 Stop running containers for the given app"
-    echo "--only-up:              Only start the testbed but do not run CT"
-    echo "--keep-up:              Keep the testbed running after CT"
-    echo "--ci:                   Set this flag in GitHub action to enforce no tests are skipped"
-    echo "--:                     If any, all args after '--' are passed to rebar3 ct"
-    echo "                        otherwise it runs the entire app's CT"
+    echo '-h|--help:              To display this usage info'
+    echo '--app lib_dir/app_name: For which app to run start docker-compose, and run common tests'
+    echo '--console:              Start EMQX in console mode but do not run test cases'
+    echo '--attach:               Attach to the Erlang docker container without running any test case'
+    echo '--stop:                 Stop running containers for the given app'
+    echo '--only-up:              Only start the testbed but do not run CT'
+    echo '--keep-up:              Keep the testbed running after CT'
+    echo '--ci:                   Set this flag in GitHub action to enforce no tests are skipped'
+    echo '--:                     If any, all args after '--' are passed to rebar3 ct'
+    echo '                        otherwise it runs the entire app'\''s CT by mix'
+    # shellcheck disable=SC2016
+    echo '                        (will run `make ${WHICH_APP}-ct`)'
 }
 
 set +e
@@ -304,6 +306,7 @@ if [ "$DOCKER_USER" != "root" ]; then
          "useradd --uid $DOCKER_USER -M -d / emqx || true && \
           mkdir -p /.cache /.hex /.mix && \
           chown $DOCKER_USER /.cache /.hex /.mix && \
+          chown $DOCKER_USER -R /usr/local/lib/rustup /usr/local/cargo && \
           openssl rand -base64 -hex 16 > /.erlang.cookie && \
           chown $DOCKER_USER /.erlang.cookie && \
           chmod 0400 /.erlang.cookie && \
@@ -327,6 +330,7 @@ else
     if [ -z "${REBAR3CT:-}" ]; then
         docker exec -e IS_CI="$IS_CI" \
                     -e PROFILE="$PROFILE" \
+                    -e SUITES="${SUITES:-}" \
                     -e SUITEGROUP="${SUITEGROUP:-}" \
                     -e ENABLE_COVER_COMPILE="${ENABLE_COVER_COMPILE:-}" \
                     -e CT_COVER_EXPORT_PREFIX="${CT_COVER_EXPORT_PREFIX:-}" \
