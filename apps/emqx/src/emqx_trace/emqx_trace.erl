@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_trace).
 
--behaviour(gen_server).
-
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("emqx_trace.hrl").
@@ -13,6 +11,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+%% Trace events:
 -export([
     publish/1,
     subscribe/3,
@@ -25,40 +24,55 @@
     is_rule_trace_active/0
 ]).
 
+%% Trace API:
 -export([
-    start_link/0,
+    %% CRUD:
     list/0,
     list/1,
-    get_trace_filename/1,
+    get/1,
     create/1,
     delete/1,
     clear/0,
     update/2,
-    check/0,
+    %% Accessors:
+    status/2,
+    log_filename/1
+]).
+
+%% Trace Log API:
+-export([
+    log_details/1,
+    stream_log/3
+]).
+
+%% Manager API:
+-export([
+    start_link/0,
+    check/0
+]).
+
+%% Utilities:
+-export([
+    zip_dir/0,
+    trace_dir/0,
     now_second/0
 ]).
 
+%% Deprecated API:
 -export([
-    zip_dir/0,
-    filename/2,
-    trace_dir/0,
+    log_filename/2,
     trace_file/1,
     trace_file_detail/1,
     delete_files_after_send/2
 ]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
-
--ifdef(TEST).
--export([
-    log_file/2
-]).
--endif.
+-behaviour(gen_server).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -export_type([trace/0]).
 -type trace() :: #{
     enable => boolean(),
-    name := binary(),
+    name := name(),
     filter := filter(),
     namespace => ?global_ns | binary(),
     start_at => _TimestampSeconds :: non_neg_integer(),
@@ -67,6 +81,9 @@
     payload_encode => text | hex | hidden,
     payload_limit => pos_integer()
 }.
+
+-export_type([name/0]).
+-type name() :: binary().
 
 -export_type([filter/0]).
 -type filter() ::
@@ -83,6 +100,11 @@
     trace_ctx := map(),
     action_id := any()
 }.
+
+-export_type([cursor/0]).
+-opaque cursor() :: map().
+
+-define(DEFAULT_STREAM_CHUNK_SIZE, 64 * 1024 * 1024).
 
 publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
@@ -250,7 +272,15 @@ create(Trace) ->
         {ok, format(TraceRecord)}
     end.
 
--spec delete(Name :: binary()) -> ok | {error, not_found}.
+-spec get(name()) ->
+    {ok, trace()} | {error, not_found}.
+get(Name) ->
+    maybe
+        {ok, TraceRecord} ?= emqx_trace_dl:get(Name),
+        {ok, format(TraceRecord)}
+    end.
+
+-spec delete(name()) -> ok | {error, not_found}.
 delete(Name) ->
     transaction(fun emqx_trace_dl:delete/1, [Name]).
 
@@ -261,22 +291,116 @@ clear() ->
         {aborted, Reason} -> {error, Reason}
     end.
 
--spec update(Name :: binary(), Enable :: boolean()) ->
+-spec update(name(), Enable :: boolean()) ->
     ok | {error, not_found | finished}.
 update(Name, Enable) ->
     transaction(fun emqx_trace_dl:update/2, [Name, Enable]).
 
+-spec status(trace(), _Now :: non_neg_integer()) -> waiting | running | stopped.
+status(#{enable := false}, _Now) ->
+    stopped;
+status(#{enable := true, start_at := Start, end_at := End}, Now) ->
+    if
+        Now < Start -> waiting;
+        Now >= End -> stopped;
+        true -> running
+    end.
+
+-spec log_filename(trace()) -> file:filename().
+log_filename(#{name := Name, start_at := StartAt}) ->
+    log_filename(Name, StartAt).
+
+%%
+
+-spec log_details(name()) ->
+    {ok, #{
+        size := _Bytes :: non_neg_integer(),
+        mtime := _Posix :: non_neg_integer()
+    }}
+    | {error, not_found | {file_error, file:posix()}}.
+log_details(Name) ->
+    maybe
+        {ok, Trace = #?TRACE{start_at = Start}} ?= emqx_trace_dl:get(Name),
+        Filepath = log_filepath(Name, Start),
+        _ = emqx_trace_handler:filesync(mk_handler_id(Trace)),
+        case file:read_file_info(Filepath, [{'time', 'posix'}]) of
+            {ok, #file_info{size = Size, mtime = MTime}} ->
+                {ok, #{size => Size, mtime => MTime}};
+            {error, Reason} ->
+                {error, {file_error, Reason}}
+        end
+    end.
+
+-spec stream_log(name(), start | {cont, cursor()}, _Limit :: pos_integer() | undefined) ->
+    {ok, binary(), {cont | eof, cursor()}}
+    | {error, not_found | bad_cursor | {file_error, file:posix()}}.
+stream_log(Name, start, Limit) ->
+    case emqx_trace_dl:get(Name) of
+        {ok, Trace} ->
+            Cursor = init_stream_cursor(Trace),
+            _ = emqx_trace_handler:filesync(mk_handler_id(Trace)),
+            stream_log_cursor(Name, Cursor, Limit);
+        Error ->
+            Error
+    end;
+stream_log(Name, {cont, Cursor}, Limit) ->
+    stream_log_cursor(Name, Cursor, Limit).
+
+stream_log_cursor(Name, Cursor = #{s := Start, p := Pos}, Limit) ->
+    NBytes = emqx_maybe:define(Limit, ?DEFAULT_STREAM_CHUNK_SIZE),
+    Filepath = log_filepath(Name, Start),
+    case read_file_at(Filepath, Pos, NBytes) of
+        {ok, Chunk} ->
+            Size = byte_size(Chunk),
+            case Size of
+                N when N >= NBytes ->
+                    Then = cont;
+                _Partial ->
+                    Then = eof
+            end,
+            {ok, Chunk, {Then, Cursor#{p := Pos + Size}}};
+        eof ->
+            {ok, <<>>, {eof, Cursor}};
+        {error, Reason} ->
+            {error, {file_error, Reason}}
+    end;
+stream_log_cursor(_Name, _Cursor, _Limit) ->
+    {error, bad_cursor}.
+
+read_file_at(Filepath, Pos, NBytes) ->
+    case file:open(Filepath, [read, raw, binary]) of
+        {ok, IoDevice} ->
+            try
+                case file:pread(IoDevice, Pos, NBytes) of
+                    {ok, Chunk} ->
+                        {ok, Chunk};
+                    {error, Reason} ->
+                        {error, Reason};
+                    eof ->
+                        eof
+                end
+            after
+                file:close(IoDevice)
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+init_stream_cursor(#?TRACE{start_at = Start}) ->
+    %% NOTE: Enough information to _safely_ reconstruct the filename.
+    #{s => Start, p => 0}.
+
+log_filepath(Name, Start) ->
+    filename:join(trace_dir(), log_filename(Name, Start)).
+
+log_filename(Name, Start) ->
+    [Time, _] = string:split(calendar:system_time_to_rfc3339(Start), "T", leading),
+    lists:flatten(["trace_", binary_to_list(Name), "_", Time, ".log"]).
+
 check() ->
     gen_server:call(?MODULE, check).
 
--spec get_trace_filename(Name :: binary()) ->
-    {ok, FileName :: string()} | {error, not_found}.
-get_trace_filename(Name) ->
-    transaction(fun emqx_trace_dl:get_trace_filename/1, [Name]).
-
--spec trace_file(File :: file:filename_all()) ->
-    {ok, Node :: list(), Binary :: binary()}
-    | {error, Node :: list(), Reason :: term()}.
+%% Deprecated RPC target, see `emqx_mgmt_trace_proto_v2`.
 trace_file(File) ->
     FileName = filename:join(trace_dir(), File),
     Node = atom_to_list(node()),
@@ -285,6 +409,7 @@ trace_file(File) ->
         {error, Reason} -> {error, Node, Reason}
     end.
 
+%% Deprecated RPC target, see `emqx_mgmt_trace_proto_v2`.
 trace_file_detail(File) ->
     FileName = filename:join(trace_dir(), File),
     Node = atom_to_binary(node()),
@@ -320,6 +445,8 @@ format(#?TRACE{
         payload_limit => maps:get(payload_limit, Extra, ?MAX_PAYLOAD_FORMAT_SIZE),
         formatter => maps:get(formatter, Extra, text)
     }.
+
+%% gen_server
 
 init([]) ->
     erlang:process_flag(trap_exit, true),
@@ -383,9 +510,6 @@ terminate(_Reason, #{timer := TRef}) ->
     update_trace_handler(),
     _ = file:del_dir_r(zip_dir()),
     ok.
-
-code_change(_, State, _Extra) ->
-    {ok, State}.
 
 insert_new_trace(Trace) ->
     case transaction(fun emqx_trace_dl:insert_new_trace/1, [Trace]) of
@@ -465,7 +589,8 @@ start_trace(Traces, Started0) ->
 start_trace(Trace = #?TRACE{name = Name, start_at = Start}) ->
     HandlerID = mk_handler_id(Trace),
     Handler = mk_handler(Trace),
-    emqx_trace_handler:install(HandlerID, Handler, debug, log_file(Name, Start)).
+    Filepath = log_filepath(Name, Start),
+    emqx_trace_handler:install(HandlerID, Handler, debug, Filepath).
 
 mk_handler(#?TRACE{
     name = Name,
@@ -521,8 +646,10 @@ clean_stale_trace_files() ->
     TraceDir = trace_dir(),
     case file:list_dir(TraceDir) of
         {ok, AllFiles} when AllFiles =/= ["zip"] ->
-            FileFun = fun(#?TRACE{name = Name, start_at = StartAt}) -> filename(Name, StartAt) end,
-            KeepFiles = lists:map(FileFun, list_traces()),
+            KeepFiles = [
+                log_filename(Name, StartAt)
+             || #?TRACE{name = Name, start_at = StartAt} <- list_traces()
+            ],
             case AllFiles -- ["zip" | KeepFiles] of
                 [] ->
                     ok;
@@ -649,13 +776,6 @@ zip_dir() ->
 
 trace_dir() ->
     filename:join(emqx:data_dir(), "trace").
-
-log_file(Name, Start) ->
-    filename:join(trace_dir(), filename(Name, Start)).
-
-filename(Name, Start) ->
-    [Time, _] = string:split(calendar:system_time_to_rfc3339(Start), "T", leading),
-    lists:flatten(["trace_", binary_to_list(Name), "_", Time, ".log"]).
 
 transaction(Fun, Args) ->
     case mria:transaction(?COMMON_SHARD, Fun, Args) of
