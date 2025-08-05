@@ -3949,67 +3949,50 @@ t_trace_rule_id(_Config) ->
         <<"select 2 as rule_number from \"rule_2_topic\"">>
     ),
     %% Start tracing
-    ok = emqx_trace_handler:install(
-        'CLI-RULE-1',
-        "CLI-RULE-1",
-        {ruleid, <<"test_rule_id_1">>},
-        all,
-        "tmp/rule_trace_1.log",
-        text
-    ),
-    ok = emqx_trace_handler:install(
-        'CLI-RULE-2',
-        "CLI-RULE-2",
-        {ruleid, <<"test_rule_id_2">>},
-        all,
-        "tmp/rule_trace_2.log",
-        text
-    ),
+    {ok, _} = emqx_trace:create(#{
+        name => <<"RULE-1">>,
+        filter => {ruleid, <<"test_rule_id_1">>},
+        formatter => text
+    }),
+    {ok, _} = emqx_trace:create(#{
+        name => <<"RULE-2">>,
+        filter => {ruleid, <<"test_rule_id_2">>},
+        formatter => text
+    }),
     emqx_trace:check(),
-
-    %% Verify the tracing file exits
-    ok = wait_filesync(),
-    ?assert(filelib:is_regular("tmp/rule_trace_1.log")),
-    ?assert(filelib:is_regular("tmp/rule_trace_2.log")),
 
     %% Get current traces
     ?assertMatch(
         [
             #{
-                name := <<"CLI-RULE-1">>,
+                name := <<"RULE-1">>,
                 filter := {ruleid, <<"test_rule_id_1">>},
-                namespace := ?global_ns,
-                level := debug,
-                dst := "tmp/rule_trace_1.log"
+                namespace := ?global_ns
             },
             #{
-                name := <<"CLI-RULE-2">>,
+                name := <<"RULE-2">>,
                 filter := {ruleid, <<"test_rule_id_2">>},
-                namespace := ?global_ns,
-                level := debug,
-                dst := "tmp/rule_trace_2.log"
+                namespace := ?global_ns
             }
         ],
         emqx_trace_handler:running()
     ),
 
     %% Trigger rule
-    emqtt:publish(T, <<"rule_1_topic">>, <<"my_traced_message">>),
+    emqtt:publish(T, <<"rule_1_topic">>, <<"my_traced_message">>, qos1),
 
-    ok = wait_filesync(),
-    ?retry(
-        100,
-        5,
-        begin
-            {ok, Bin} = file:read_file("tmp/rule_trace_1.log"),
-            ?assertNotEqual(nomatch, binary:match(Bin, [<<"my_traced_message">>]))
-        end
+    {ok, Bin, _} = emqx_trace:stream_log(<<"RULE-1">>, start, undefined),
+    ?assertNotEqual(nomatch, binary:match(Bin, [<<"my_traced_message">>])),
+
+    ?assertMatch(
+        {ok, <<>>, {eof, _}},
+        emqx_trace:stream_log(<<"RULE-2">>, start, undefined)
     ),
-    ?assert(filelib:file_size("tmp/rule_trace_2.log") =:= 0),
 
     %% Stop tracing
-    ok = emqx_trace_handler:uninstall('CLI-RULE-1'),
-    ok = emqx_trace_handler:uninstall('CLI-RULE-2'),
+    ok = emqx_trace:delete(<<"RULE-1">>),
+    ok = emqx_trace:delete(<<"RULE-2">>),
+    emqx_trace:check(),
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T).
 
@@ -4025,67 +4008,46 @@ t_trace_truncated(_Config) ->
     ),
 
     %% Start tracing
-    ok = emqx_trace_handler:install(
-        'CLI-RULE-3',
-        #{
-            name => <<"CLI-RULE-3">>,
-            filter => {ruleid, <<"test_rule_truncated">>},
-            payload_encode => text,
-            %% limit 1 Byte to make truncated to "input: Encoded(text)=[...(xxx bytes)"
-            %% The only byte not truncated is the `[`         where is ^
-            payload_limit => 1,
-            formatter => text
-        },
-        all,
-        "tmp/rule_trace_truncated.log"
-    ),
+    {ok, _} = emqx_trace:create(#{
+        name => <<"RULE-3">>,
+        filter => {ruleid, <<"test_rule_truncated">>},
+        payload_encode => text,
+        %% limit 1 Byte to make truncated to "input: Encoded(text)=[...(xxx bytes)"
+        %% The only byte not truncated is the `[`         where is ^
+        payload_limit => 1,
+        formatter => text
+    }),
     emqx_trace:check(),
-
-    %% Verify the tracing file exits
-    ok = wait_filesync(),
-    ?assert(filelib:is_regular("tmp/rule_trace_truncated.log")),
 
     %% Get current traces
     ?assertMatch(
         [
             #{
-                name := <<"CLI-RULE-3">>,
+                name := <<"RULE-3">>,
                 filter := {ruleid, <<"test_rule_truncated">>},
-                namespace := ?global_ns,
-                level := debug,
-                dst := "tmp/rule_trace_truncated.log"
+                namespace := ?global_ns
             }
         ],
         emqx_trace_handler:running()
     ),
 
     %% Trigger rule, payload size bigger than payload_limit 20
-    emqtt:publish(T, <<"rule_2_topic">>, <<"{\"msg\":\"123456789012345678901234567890\"}">>),
+    emqtt:publish(T, <<"rule_2_topic">>, <<"{\"msg\":\"123456789012345678901234567890\"}">>, qos1),
 
-    ok = wait_filesync(),
-    ?retry(
-        100,
-        5,
-        begin
-            {ok, Bin} = file:read_file("tmp/rule_trace_truncated.log"),
-            ?assertNotEqual(
-                nomatch,
-                binary:match(Bin, [
-                    <<"input: Encoded(text)=[...(">>,
-                    <<"result: Encoded(text)=[...(">>
-                ])
-            )
-        end
+    {ok, Bin, _} = emqx_trace:stream_log(<<"RULE-3">>, start, undefined),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(Bin, [
+            <<"input: Encoded(text)=[...(">>,
+            <<"result: Encoded(text)=[...(">>
+        ])
     ),
 
     %% Stop tracing
-    ok = emqx_trace_handler:uninstall('CLI-RULE-3'),
+    ok = emqx_trace:delete(<<"RULE-3">>),
+    emqx_trace:check(),
     ?assertEqual([], emqx_trace_handler:running()),
     emqtt:disconnect(T).
-
-wait_filesync() ->
-    %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
-    timer:sleep(2 * 100).
 
 t_sqlselect_client_attr(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
