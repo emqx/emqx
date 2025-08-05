@@ -2,11 +2,29 @@ defmodule Mix.Tasks.Emqx.Cover do
   use Mix.Task
 
   alias Mix.Tasks.Emqx.Ct, as: ECt
+  alias EMQXUmbrella.MixProject, as: UMP
 
   @requirements ["compile", "loadpaths"]
 
+  @shortdoc "Run cover analysis"
+
+  @moduledoc """
+  Runs cover analysis.
+
+  ## Options
+
+  Currently, no options are available.
+
+  ## Examples
+
+      $ mix emqx.cover
+  """
+
   @impl true
   def run(_args) do
+    ECt.ensure_test_mix_env!()
+    UMP.set_test_env!(true)
+
     cover_dir = Path.join([Mix.Project.build_path(), "cover"])
     File.mkdir_p!(cover_dir)
 

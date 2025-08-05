@@ -12,6 +12,9 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
+-define(CONNECTOR_TYPE, <<"rocketmq">>).
+-define(ACTION_TYPE, <<"rocketmq">>).
+
 % Bridge defaults
 -define(TOPIC, "TopicTest").
 -define(DENY_TOPIC, "DENY_TOPIC").
@@ -30,18 +33,26 @@ all() ->
     [
         {group, async},
         {group, sync},
-        {group, acl}
+        {group, once}
     ].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE) -- [t_acl_deny],
+    OnceTCs = once_testcases(),
+    TCs = emqx_common_test_helpers:all(?MODULE) -- OnceTCs,
     BatchingGroups = [{group, with_batch}, {group, without_batch}],
     [
         {async, BatchingGroups},
         {sync, BatchingGroups},
         {with_batch, TCs},
         {without_batch, TCs},
-        {acl, [t_acl_deny]}
+        {once, OnceTCs}
+    ].
+
+once_testcases() ->
+    [
+        t_acl_deny,
+        t_key_template_required,
+        t_deprecated_templated_strategy
     ].
 
 init_per_group(async, Config) ->
@@ -54,7 +65,7 @@ init_per_group(with_batch, Config0) ->
 init_per_group(without_batch, Config0) ->
     Config = [{batch_size, 1} | Config0],
     common_init(Config);
-init_per_group(acl, Config0) ->
+init_per_group(once, Config0) ->
     Config = [{batch_size, 1}, {query_mode, sync} | Config0],
     common_init(Config);
 init_per_group(_Group, Config) ->
@@ -76,9 +87,20 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(_Testcase, Config) ->
+init_per_testcase(TestCase, Config) ->
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    Config.
+    ConnectorName = atom_to_binary(TestCase),
+    ActionName = ConnectorName,
+    [
+        {connector_type, ?CONNECTOR_TYPE},
+        {connector_name, ConnectorName},
+        {connector_config, connector_config(#{})},
+        {bridge_kind, action},
+        {action_type, ?ACTION_TYPE},
+        {action_name, ActionName},
+        {action_config, action_config(#{<<"connector">> => ConnectorName})}
+        | Config
+    ].
 
 end_per_testcase(_Testcase, Config) ->
     ProxyHost = ?config(proxy_host, Config),
@@ -96,14 +118,12 @@ common_init(ConfigT) ->
     BridgeType = <<"rocketmq">>,
     Host = os:getenv("ROCKETMQ_HOST", "toxiproxy"),
     Port = list_to_integer(os:getenv("ROCKETMQ_PORT", "9876")),
-
     Config0 = [
         {host, Host},
         {port, Port},
         {proxy_name, "rocketmq"}
         | ConfigT
     ],
-
     case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
         true ->
             % Setup toxiproxy
@@ -196,6 +216,41 @@ rocketmq_config(BridgeType, Config) ->
             ]
         ),
     {Name, emqx_bridge_testlib:parse_and_check(BridgeType, Name, ConfigString)}.
+
+connector_config(Overrides) ->
+    Defaults = #{
+        <<"description">> => <<"connector">>,
+        <<"tags">> => [<<"a">>, <<"b">>],
+        <<"servers">> => <<"toxiproxy:9876">>,
+        <<"access_key">> => ?ACCESS_KEY,
+        <<"secret_key">> => ?SECRET_KEY,
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE, <<"x">>, InnerConfigMap).
+
+action_config(Overrides) ->
+    Defaults = #{
+        <<"connector">> => <<"please override">>,
+        <<"parameters">> => #{
+            <<"topic">> => ?TOPIC
+        },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_action_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE, <<"x">>, InnerConfigMap).
+
+create_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
+    ).
+
+create_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
 
 create_bridge(Config) ->
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
@@ -485,5 +540,120 @@ t_acl_deny(Config0) ->
             ?assertMatch([#{error := #{<<"code">> := 1}}], Trace),
             ok
         end
+    ),
+    ok.
+
+-doc """
+Smoke test for templating key and tag values.
+""".
+t_key_tag_templates(TCConfig) when is_list(TCConfig) ->
+    BatchSize = emqx_bridge_v2_testlib:get_value(batch_size, TCConfig),
+    Name = emqx_bridge_v2_testlib:get_value(action_name, TCConfig),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{})
+    ),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"key">> => <<"${.mykey}">>,
+                <<"tag">> => <<"${.mytag}">>
+            },
+            <<"resource_opts">> => #{<<"batch_size">> => BatchSize}
+        })
+    ),
+    ActionId = emqx_bridge_resource:bridge_id(?ACTION_TYPE, Name),
+    RuleTopic = <<"t/keytag">>,
+    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
+        #{
+            <<"id">> => atom_to_binary(?FUNCTION_NAME),
+            <<"description">> => <<"">>,
+            <<"sql">> =>
+                emqx_bridge_v2_testlib:fmt(
+                    <<
+                        "select *, payload.tag as mytag, payload.key as mykey"
+                        " from \"${t}\" "
+                    >>,
+                    #{t => RuleTopic}
+                ),
+            <<"actions">> => [ActionId]
+        }
+    ),
+    {ok, C} = emqtt:start_link(#{proto_ver => v5}),
+    {ok, _} = emqtt:connect(C),
+    Payload = emqx_utils_json:encode(#{<<"key">> => <<"k1">>, <<"tag">> => <<"t1">>}),
+    ct:timetrap({seconds, 10}),
+    ok = snabbkaffe:start_trace(),
+    {{ok, _}, {ok, #{data := Data}}} =
+        ?wait_async_action(
+            emqtt:publish(C, RuleTopic, Payload, [{qos, 2}]),
+            #{?snk_kind := "rocketmq_rendered_data"}
+        ),
+    case BatchSize of
+        1 ->
+            ?assertMatch(
+                {_Payload, #{
+                    key := <<"k1">>,
+                    tag := <<"t1">>
+                }},
+                Data
+            );
+        _ ->
+            ?assertMatch(
+                [
+                    {_Payload, #{
+                        key := <<"k1">>,
+                        tag := <<"t1">>
+                    }}
+                    | _
+                ],
+                Data
+            )
+    end,
+    ok.
+
+-doc """
+Checks that we require `key` to be set if `key_dispatch` strategy is used.
+""".
+t_key_template_required(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{})
+    ),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"must provide a key template if strategy is key dispatch">>
+        }},
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"strategy">> => <<"key_dispatch">>
+            }
+        })
+    ),
+    ok.
+
+-doc """
+Checks that we emit a warning about using deprecated strategy which used templates in that
+config key to imply key dispatch.
+""".
+t_deprecated_templated_strategy(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{})
+    ),
+    ct:timetrap({seconds, 5}),
+    ok = snabbkaffe:start_trace(),
+    ?assertMatch(
+        {{201, #{<<"status">> := <<"connected">>}}, {ok, _}},
+        ?wait_async_action(
+            create_action_api(TCConfig, #{
+                <<"parameters">> => #{
+                    <<"strategy">> => <<"${some_template}">>
+                }
+            }),
+            #{?snk_kind := "rocketmq_deprecated_placeholder_strategy"}
+        )
     ),
     ok.

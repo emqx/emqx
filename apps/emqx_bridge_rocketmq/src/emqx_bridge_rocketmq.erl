@@ -166,8 +166,18 @@ fields(action_parameters) ->
                 )},
             {strategy,
                 mk(
-                    hoconsc:union([roundrobin, binary()]),
+                    hoconsc:union([roundrobin, key_dispatch, binary()]),
                     #{desc => ?DESC("strategy"), default => roundrobin}
+                )},
+            {key,
+                mk(
+                    emqx_schema:template(),
+                    #{desc => ?DESC("key"), required => false}
+                )},
+            {tag,
+                mk(
+                    emqx_schema:template(),
+                    #{desc => ?DESC("tag"), required => false}
                 )}
         ] ++ emqx_bridge_rocketmq_connector:fields(config),
     lists:foldl(

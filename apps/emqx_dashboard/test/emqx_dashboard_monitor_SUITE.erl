@@ -87,7 +87,7 @@ init_per_group(common = Group, Config0) ->
     Config = emqx_common_test_helpers:start_apps_ds(
         Config0,
         lists:flatten([
-            [emqx_ds_shared_sub || is_ee()],
+            emqx_ds_shared_sub,
             {emqx_retainer, ?BASE_RETAINER_CONF},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard(
@@ -152,13 +152,14 @@ t_pmap_nodes(Config) when is_list(Config) ->
     StartTs = round_down(Now - MaxAge, Interval),
     DataPoints = 5,
     clean_data(),
-    LastVal = insert_data_points(DataPoints, fun sent_n/1, StartTs, Now),
+    LastVal = insert_data_points_deterministic(DataPoints, fun sent_n/1, StartTs, Now),
     Nodes = [node(), node(), node()],
     %% this function calls emqx_utils:pmap to do the job
     Data0 = emqx_dashboard_monitor:sample_nodes(Nodes, StartTs),
     Data1 = emqx_dashboard_monitor:fill_gaps(Data0, StartTs),
     Data = emqx_dashboard_monitor:format(Data1),
-    ok = check_sample_intervals(Interval, hd(Data), tl(Data)),
+    FirstPoint = hd(Data),
+    ok = check_sample_intervals(Interval, FirstPoint#{'$is_first_point' => true}, tl(Data)),
     ?assertEqual(LastVal * length(Nodes), maps:get(sent, lists:last(Data))).
 
 t_inplace_downsample(Config) when is_list(Config) ->
@@ -288,6 +289,27 @@ sum_value([D | Rest], Key, V) ->
 
 check_sample_intervals(_Interval, _, []) ->
     ok;
+check_sample_intervals(Interval, #{'$is_first_point' := true, time_stamp := T}, [First | Rest]) ->
+    %% The first point in a sample interval list might differ from the second point by
+    %% more than 1 interval, due to rounding errors when building the buckets, apparently.
+    #{time_stamp := T2} = First,
+    ?assert(
+        lists:member(
+            T2,
+            [
+                T + N * Interval
+             || N <- lists:seq(1, 5)
+            ]
+        ),
+        #{
+            t => T,
+            t2 => T2,
+            diff => T + Interval - T2,
+            interval => Interval,
+            rest => Rest
+        }
+    ),
+    check_sample_intervals(Interval, First, Rest);
 check_sample_intervals(Interval, #{time_stamp := T}, [First | Rest]) ->
     #{time_stamp := T2} = First,
     ?assertEqual(T + Interval, T2, #{
@@ -336,6 +358,29 @@ insert_data_points(N, MkPointFn, {LastTs, LastVal}, InitialN, TsMin, TsMax) when
             %% clashed, try again
             insert_data_points(N, MkPointFn, {LastTs, LastVal}, InitialN, TsMin, TsMax)
     end.
+
+%% Creates N data points evenly spaced in time.  Last point is equal to `TsMax`.  Returns
+%% the value associated with the last timestamp inserted (`TsMax`).
+insert_data_points_deterministic(N, MkPointFn, TsMin, TsMax) ->
+    %% assert
+    true = TsMax - TsMin > 1,
+    true = N > 1,
+    Step = (TsMax - TsMin) div (N - 1),
+    FakeTss0 = lists:seq(TsMin, TsMax, Step),
+    FakeTss1 = lists:droplast(FakeTss0),
+    FakeTss = FakeTss1 ++ [TsMax],
+    lists:foldl(
+        fun({I, FakeTs}, _) ->
+            %% assert
+            [] = read(FakeTs),
+            Val = N - I + 2,
+            Data = MkPointFn(Val),
+            ok = write(FakeTs, Data),
+            Val
+        end,
+        should_not_be_used,
+        lists:enumerate(FakeTss)
+    ).
 
 read(Ts) ->
     emqx_dashboard_monitor:lookup(Ts).
@@ -1144,7 +1189,4 @@ cluster_node_appspec(Enable, Port0) ->
     ].
 
 clean_data() ->
-    ok = emqx_dashboard_monitor:clean(-100_000).
-
-is_ee() ->
-    emqx_release:edition() == ee.
+    {atomic, ok} = emqx_dashboard_monitor:clear_table().

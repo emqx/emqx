@@ -2,12 +2,39 @@ defmodule Mix.Tasks.Emqx.Eunit do
   use Mix.Task
 
   alias Mix.Tasks.Emqx.Ct, as: ECt
+  alias EMQXUmbrella.MixProject, as: UMP
 
   # todo: invoke the equivalent of `make merge-config` as a requirement...
   @requirements ["compile", "loadpaths"]
 
+  @shortdoc "Run eunit tests"
+
+  @moduledoc """
+  Runs eunit tests.
+
+  ## Options
+
+    * `--modules` - specify the comma-separated list of modules to run.
+
+    * `--cases` - comma-separated list of specific test cases to run.  Generators may be
+      given here.
+
+    * `--cover-export-name` - filename to export cover data to.  Defaults to `eunit`.
+      Always get `.coverdata` appended to it.
+
+  ## Examples
+
+      $ mix emqx.eunit --modules emqx_bridge_s3tables_logic_tests,emqx_resource_tests
+
+      $ mix emqx.eunit --cases emqx_bridge_s3tables_logic_tests:transform_fns_test_
+
+  """
+
   @impl true
   def run(args) do
+    ECt.ensure_test_mix_env!()
+    UMP.set_test_env!(true)
+
     Enum.each([:common_test, :eunit, :mnesia], &ECt.add_to_path_and_cache/1)
 
     ECt.ensure_whole_emqx_project_is_loaded()

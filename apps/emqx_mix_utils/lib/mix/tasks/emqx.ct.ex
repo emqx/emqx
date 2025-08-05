@@ -1,8 +1,12 @@
 defmodule Mix.Tasks.Emqx.Ct do
   use Mix.Task
 
+  alias EMQXUmbrella.MixProject, as: UMP
+
   # todo: invoke the equivalent of `make merge-config` as a requirement...
   @requirements ["compile", "loadpaths"]
+
+  @shortdoc "Run common tests"
 
   @moduledoc """
   Runs CT suites.
@@ -20,37 +24,33 @@ defmodule Mix.Tasks.Emqx.Ct do
     * `--spec` - specify the path to a CT test spec file.  This option cannot be combined
       with the above.
 
+    * `--cover-export-name` - filename to export cover data to.  Defaults to `ct`.  Always
+      get `.coverdata` appended to it.
+
   ## Examples
 
-      $ mix ct --suites apps/emqx/test/emqx_SUITE.erl,apps/emqx/test/emqx_alarm_SUITE.erl
+      $ mix emqx.ct --suites apps/emqx/test/emqx_SUITE.erl,apps/emqx/test/emqx_alarm_SUITE.erl
 
-      $ mix ct --suites apps/emqx_bridge_s3tables/test/emqx_bridge_s3tables_SUITE.erl \\
-               --group-paths batched.not_partitioned.avro,not_batched.not_partitioned.parquet \\
-               --cases t_rule_action
+      $ mix emqx.ct --suites apps/emqx_bridge_s3tables/test/emqx_bridge_s3tables_SUITE.erl \\
+                    --group-paths batched.not_partitioned.avro,not_batched.not_partitioned.parquet \\
+                    --cases t_rule_action
 
-      $ mix ct --spec apps/emqx_durable_storage/test/otx.spec
+      $ mix emqx.ct --spec apps/emqx_durable_storage/test/otx.spec
   """
 
   @impl true
   def run(args) do
+    ensure_test_mix_env!()
+    UMP.set_test_env!(true)
+
     opts = parse_args!(args)
 
     Enum.each([:common_test, :eunit, :mnesia], &add_to_path_and_cache/1)
-
-    # app_to_debug = :emqx_conf
-    # Mix.Dep.Umbrella.cached()
-    # |> Enum.find(& &1.app == app_to_debug)
-    # |> Mix.Dep.in_dependency(fn _dep_mix_project_mod ->
-    #   config = Mix.Project.config()
-    #   |> IO.inspect(label: app_to_debug)
-    # end)
 
     ensure_whole_emqx_project_is_loaded()
     unload_emqx_applications!()
     load_common_helpers!()
     hack_test_data_dirs!(opts.suites)
-
-    # ensure_suites_are_loaded(opts.suites)
 
     {_, 0} = System.cmd("epmd", ["-daemon"])
     node_name = :"test@127.0.0.1"
@@ -63,8 +63,6 @@ defmodule Mix.Tasks.Emqx.Ct do
     System.fetch_env!("PROFILE")
     |> String.replace_suffix("-test", "")
     |> then(&System.put_env("PROFILE", &1))
-
-    # {_, _, _} = ["test_server:do_init_tc_call -> return"] |> Enum.map(&to_charlist/1) |> :redbug.start()
 
     maybe_start_cover()
     if cover_enabled?(), do: cover_compile_files()
@@ -285,20 +283,6 @@ defmodule Mix.Tasks.Emqx.Ct do
     end
   end
 
-  # defp ensure_suites_are_loaded(suites) do
-  #   suites
-  #   |> Enum.map(fn suite_path ->
-  #     ["apps", app_name | _] = Path.split(suite_path)
-  #     String.to_atom(app_name)
-  #   end)
-  #   |> Enum.uniq()
-  #   |> Enum.flat_map(fn app ->
-  #     {:ok, mods} = :application.get_key(app, :modules)
-  #     mods
-  #   end)
-  #   |> Code.ensure_all_loaded()
-  # end
-
   def add_to_path_and_cache(lib_name) do
     :code.lib_dir()
     |> Path.join("#{lib_name}-*")
@@ -514,5 +498,19 @@ defmodule Mix.Tasks.Emqx.Ct do
 
   def warn(iodata) do
     Mix.shell().info(IO.ANSI.format([:yellow, iodata]))
+  end
+
+  def ensure_test_mix_env!() do
+    Mix.env()
+    |> to_string()
+    |> then(fn env ->
+      if String.ends_with?(env, "-test") do
+        env
+      else
+        env <> "-test"
+      end
+    end)
+    |> String.to_atom()
+    |> Mix.env()
   end
 end

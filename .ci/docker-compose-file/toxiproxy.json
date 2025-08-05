@@ -211,12 +211,6 @@
     "enabled": true
   },
   {
-    "name": "hstreamdb",
-    "listen": "0.0.0.0:6570",
-    "upstream": "hstreamdb:6570",
-    "enabled": true
-  },
-  {
     "name": "greptimedb_http",
     "listen": "0.0.0.0:4000",
     "upstream": "greptimedb:4000",

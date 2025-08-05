@@ -42,6 +42,7 @@ init_per_suite(Config0) ->
         [
             emqx,
             emqx_conf,
+            emqx_modules,
             emqx_connector,
             emqx_bridge_http,
             emqx_bridge,
@@ -391,13 +392,10 @@ t_send_get_trace_messages(Config) ->
     TraceName = atom_to_binary(?FUNCTION_NAME),
     Trace = #{
         name => TraceName,
-        type => ruleid,
-        filter => RuleId,
+        filter => {ruleid, RuleId},
         start_at => Start,
         end_at => End
     },
-    emqx_trace_SUITE:reload(),
-    ok = emqx_trace:clear(),
     {ok, _} = emqx_trace:create(Trace),
     %% ===================================
 
@@ -430,8 +428,6 @@ t_send_get_trace_messages(Config) ->
             emqx_metrics_worker:get_metrics(rule_metrics, RuleId)
         )
     ),
-
-    Bin = read_rule_trace_file(TraceName, Now),
 
     ?retry(
         _Interval0 = 200,

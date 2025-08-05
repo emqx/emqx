@@ -9,28 +9,34 @@
     register_hooks/0,
     unregister_hooks/0,
     on_session_created/2,
-    on_authenticate/2
+    on_authenticate/2,
+    on_api_actor_will_be_created/2
 ]).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(TRACE(MSG, META), ?TRACE("MULTI_TENANCY", MSG, META)).
 -define(SESSION_HOOK, {?MODULE, on_session_created, []}).
 -define(AUTHN_HOOK, {?MODULE, on_authenticate, []}).
 -define(LIMITER_HOOK, {emqx_mt_limiter, adjust_limiter, []}).
+-define(USER_CREATION_HOOK, {?MODULE, on_api_actor_will_be_created, []}).
 
 register_hooks() ->
     ok = emqx_hooks:add('session.created', ?SESSION_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('client.authenticate', ?AUTHN_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('channel.limiter_adjustment', ?LIMITER_HOOK, ?HP_HIGHEST),
+    ok = emqx_hooks:add('api_actor.pre_create', ?USER_CREATION_HOOK, ?HP_HIGHEST),
     ok.
 
 unregister_hooks() ->
     ok = emqx_hooks:del('session.created', ?SESSION_HOOK),
     ok = emqx_hooks:del('client.authenticate', ?AUTHN_HOOK),
     ok = emqx_hooks:del('channel.limiter_adjustment', ?LIMITER_HOOK),
+    ok = emqx_hooks:del('api_actor.pre_create', ?USER_CREATION_HOOK),
     ok.
 
 on_session_created(
@@ -97,4 +103,14 @@ do_on_authenticate(ClientId, Tns, DefaultResult) ->
                             DefaultResult
                     end
             end
+    end.
+
+on_api_actor_will_be_created(#{?namespace := ?global_ns}, Ok) ->
+    Ok;
+on_api_actor_will_be_created(#{?namespace := Namespace}, Ok) ->
+    case emqx_mt_config:is_known_managed_ns(Namespace) of
+        true ->
+            Ok;
+        false ->
+            {stop, {error, #{reason => unknown_namespace, namespace => Namespace}}}
     end.

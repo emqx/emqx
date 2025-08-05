@@ -472,9 +472,9 @@ trace(delete, _Param) ->
 
 mk_trace(Params, Namespace) ->
     Trace0 = #{type := Type} = emqx_utils_maps:safe_atom_key_map(Params),
-    Trace1 = maps:remove(Type, Trace0),
+    Trace1 = maps:without([type, Type], Trace0),
     Trace1#{
-        filter => maps:get(Type, Trace0),
+        filter => {Type, maps:get(Type, Trace0)},
         namespace => Namespace
     }.
 
@@ -482,12 +482,12 @@ format_trace(Trace) ->
     format_trace(Trace, erlang:system_time(second), emqx:running_nodes()).
 
 format_trace(
-    Trace0 = #{
+    Trace = #{
+        enable := Enable,
+        name := Name,
         start_at := Start,
         end_at := End,
-        enable := Enable,
-        type := Type,
-        filter := Filter
+        filter := {Type, Filter}
     },
     Now,
     Nodes
@@ -497,13 +497,15 @@ format_trace(
         #{},
         Nodes
     ),
-    Trace1 = maps:without([enable, filter], Trace0),
-    Trace1#{
-        log_size => LogSize,
+    TraceOut = maps:with([name, payload_encode, payload_limit, formatter], Trace),
+    TraceOut#{
+        name => Name,
+        type => Type,
         Type => iolist_to_binary(Filter),
         start_at => emqx_utils_calendar:epoch_to_rfc3339(Start, second),
         end_at => emqx_utils_calendar:epoch_to_rfc3339(Start, second),
-        status => status(Enable, Start, End, Now)
+        status => status(Enable, Start, End, Now),
+        log_size => LogSize
     }.
 
 delete_trace(delete, #{bindings := #{name := Name}}) ->

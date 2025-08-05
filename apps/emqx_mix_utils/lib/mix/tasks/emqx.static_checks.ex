@@ -5,10 +5,16 @@ defmodule Mix.Tasks.Emqx.StaticChecks do
 
   @requirements ["compile", "loadpaths"]
 
+  @shortdoc "Run static checks (xref, dialyzer, bpapi checks)"
+
   @moduledoc """
   This is a very lightweight and specific version of CT invocation, because this suite is
   run in CI using the release build (we don't want to run static checks on test code), but
   the test script itself is written assuming to be run by CT.
+
+  ## Examples
+
+      $ mix emqx.static_checks
   """
 
   @common_helpers_src ~c"apps/emqx/test/emqx_common_test_helpers.erl"

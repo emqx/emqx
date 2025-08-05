@@ -10,3 +10,13 @@ accounts:
     topicPerms:
       - TopicTest=PUB|SUB
       - Topic2=PUB|SUB
+
+  - accessKey: rocketmq2
+    secretKey: 12345678
+    whiteRemoteAddress:
+    admin: true
+    defaultTopicPerm: ALLOW
+    defaultGroupPerm: PUB|SUB
+    topicPerms:
+      - TopicTest=PUB|SUB
+      - Topic2=PUB|SUB
