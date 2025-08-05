@@ -273,8 +273,7 @@ create_trace(TraceName, TraceType, TraceValue, PayloadEncode) ->
     End = Now + 60,
     Trace = #{
         name => TraceName,
-        type => TraceType,
-        filter => TraceValue,
+        filter => {TraceType, TraceValue},
         start_at => Start,
         end_at => End,
         formatter => json,

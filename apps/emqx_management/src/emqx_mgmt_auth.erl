@@ -146,9 +146,14 @@ do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespac
         [] ->
             mnesia:abort(not_found);
         [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
-            #{desc := Desc0} = Extra0 = normalize_extra(Extra0),
+            #{desc := Desc0} = Extra1 = normalize_extra(Extra0),
+            PreviousNamespace = maps:get(?namespace, Extra1, ?global_ns),
+            maybe
+                true ?= PreviousNamespace /= Namespace,
+                mnesia:abort(<<"changing_namespace_is_forbidden">>)
+            end,
             Extra = emqx_utils_maps:put_if(
-                Extra0#{?role => Role, desc => ensure_not_undefined(Desc, Desc0)},
+                Extra1#{?role => Role, desc => ensure_not_undefined(Desc, Desc0)},
                 ?namespace,
                 Namespace,
                 is_binary(Namespace)
@@ -256,6 +261,8 @@ is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
 create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc, Role0) ->
     maybe
         {ok, #{?role := Role, ?namespace := Namespace}} ?= parse_role(Role0),
+        ActorProps = #{?role => Role, ?namespace => Namespace},
+        ok ?= emqx_hooks:run_fold('api_actor.pre_create', [ActorProps], ok),
         Extra = emqx_utils_maps:put_if(
             #{?role => Role, desc => Desc},
             ?namespace,

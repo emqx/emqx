@@ -5,6 +5,20 @@ defmodule Mix.Tasks.Emqx.Xref do
 
   @requirements ["compile", "loadpaths"]
 
+  @shortdoc "Run xref analysis"
+
+  @moduledoc """
+  Runs xref analysis.
+
+  ## Options
+
+  Currently, no options are available.
+
+  ## Examples
+
+      $ mix emqx.xref
+  """
+
   @xref :xref
 
   @checks [

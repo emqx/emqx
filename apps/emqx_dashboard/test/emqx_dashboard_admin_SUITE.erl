@@ -10,10 +10,13 @@
 -include("emqx_dashboard_rbac.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
 %%------------------------------------------------------------------------------
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -93,6 +96,15 @@ create_api_key_api(Params, AuthHeader) ->
         body => Params
     }).
 
+update_api_key_api(Name, Params, AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => AuthHeader,
+        method => put,
+        url => URL,
+        body => Params
+    }).
+
 to_rfc3339(Sec) ->
     list_to_binary(calendar:system_time_to_rfc3339(Sec)).
 
@@ -127,6 +139,9 @@ all_handlers() ->
         end,
         Mods
     ).
+
+on_user_will_be_created(_UserProps, _Ok) ->
+    {stop, {error, <<"oops">>}}.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -574,4 +589,95 @@ t_namespaced_api_publisher(TCConfig) when is_list(TCConfig) ->
         [_ | _] ?= Failures,
         ct:fail({should_have_been_forbidden, Failures})
     end,
+    ok.
+
+-doc """
+Verifies that we run hooks before actually creating the user, which allows to plug in
+extra validation.
+""".
+t_namespaced_user_hook(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    Username = <<"iminans">>,
+    Password = <<"superSecureP@ss">>,
+    AdminRole = <<"ns:ns1::administrator">>,
+    on_exit(fun() ->
+        emqx_hooks:del('api_actor.pre_create', {?MODULE, on_user_will_be_created})
+    end),
+    ok = emqx_hooks:add(
+        'api_actor.pre_create', {?MODULE, on_user_will_be_created, []}, ?HP_LOWEST
+    ),
+    ?assertMatch(
+        {400, #{<<"message">> := <<"oops">>}},
+        create_user_api(
+            #{
+                <<"username">> => Username,
+                <<"password">> => Password,
+                <<"role">> => AdminRole,
+                <<"description">> => <<"namespaced person">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    ok.
+
+-doc """
+Asserts that we disallow changing the namespace of an user or API key.
+""".
+t_namespace_immutable(_TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    NS = <<"ns1">>,
+    AdminRole = <<"ns:", NS/binary, "::", ?ROLE_SUPERUSER/binary>>,
+
+    Username = <<"iminans">>,
+    Password = <<"superSecureP@ss">>,
+    {200, _} = create_user_api(
+        #{
+            <<"username">> => Username,
+            <<"password">> => Password,
+            <<"role">> => AdminRole,
+            <<"description">> => <<"namespaced person">>
+        },
+        GlobalAdminHeader
+    ),
+
+    APIKeyName = <<"someapi">>,
+    ExpiresAt = to_rfc3339(erlang:system_time(second) + 1_000),
+    {200, _} =
+        create_api_key_api(
+            #{
+                <<"name">> => APIKeyName,
+                <<"expired_at">> => ExpiresAt,
+                <<"desc">> => <<"namespaced api publisher">>,
+                <<"enable">> => true,
+                <<"role">> => AdminRole
+            },
+            GlobalAdminHeader
+        ),
+
+    DifferentNS = <<"ns2">>,
+    DifferentAdminRole = <<"ns:", DifferentNS/binary, "::", ?ROLE_SUPERUSER/binary>>,
+    ?assertMatch(
+        {400, #{<<"message">> := <<"changing_namespace_is_forbidden">>}},
+        update_user_api(
+            Username,
+            #{
+                <<"role">> => DifferentAdminRole,
+                <<"description">> => <<"shouldn't work">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+
+    ?assertMatch(
+        {400, #{<<"message">> := <<"changing_namespace_is_forbidden">>}},
+        update_api_key_api(
+            APIKeyName,
+            #{
+                <<"role">> => DifferentAdminRole,
+                <<"description">> => <<"shouldn't work">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+
     ok.

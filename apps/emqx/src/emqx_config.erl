@@ -11,6 +11,7 @@
 -include("emqx_config.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hocon.hrl").
+-include("emqx_config.hrl").
 
 -export([
     init_load/1,

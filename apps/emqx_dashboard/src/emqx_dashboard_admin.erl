@@ -70,10 +70,17 @@
     dashboard_sso_backend/0,
     dashboard_username/0,
     dashboard_user_role/0,
-    emqx_admin/0
+    emqx_admin/0,
+    actor_props/0
 ]).
 
 -type emqx_admin() :: #?ADMIN{}.
+
+-type actor_props() :: #{
+    role := role(),
+    namespace := emqx_config:maybe_namespace()
+}.
+-type role() :: binary().
 
 -define(USERNAME_ALREADY_EXISTS_ERROR, <<"username_already_exists">>).
 
@@ -126,13 +133,17 @@ add_user(Username, Password, Role0, Desc) when is_binary(Username), is_binary(Pa
         {ok, ParsedRole} ?= parse_role(Role0),
         #{?role := Role} = ParsedRole,
         Extra = parsed_role_to_extra(ParsedRole),
+        ActorProps = Extra#{
+            ?role => Role
+        },
+        ok ?= emqx_hooks:run_fold('api_actor.pre_create', [ActorProps], ok),
         do_add_user(Username, Password, Role, Desc, Extra)
     end.
 
-parsed_role_to_extra(#{?namespace := Ns}) when is_binary(Ns) ->
+parsed_role_to_extra(#{?namespace := Ns}) ->
     #{?namespace => Ns};
 parsed_role_to_extra(_) ->
-    #{}.
+    #{?namespace => ?global_ns}.
 
 do_add_user(Username, Password, Role, Desc, Extra) ->
     Res = mria:sync_transaction(
@@ -443,11 +454,17 @@ update_user_(Username, Role, Desc, Extra) ->
             mnesia:abort(<<"username_not_found">>);
         [Admin] ->
             #?ADMIN{extra = Extra0} = Admin,
-            NewExtra =
+            {OldExtra, NewExtra} =
                 case is_map(Extra0) of
-                    false -> Extra;
-                    true -> maps:merge(Extra0, Extra)
+                    false -> {#{}, Extra};
+                    true -> {Extra0, maps:merge(Extra0, Extra)}
                 end,
+            NewNamespace = maps:get(?namespace, NewExtra, ?global_ns),
+            PreviousNamespace = maps:get(?namespace, OldExtra, ?global_ns),
+            maybe
+                true ?= PreviousNamespace /= NewNamespace,
+                mnesia:abort(<<"changing_namespace_is_forbidden">>)
+            end,
             mnesia:write(Admin#?ADMIN{role = Role, description = Desc, extra = NewExtra}),
             {
                 role(Admin) =:= Role,

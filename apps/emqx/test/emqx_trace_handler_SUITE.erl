@@ -47,11 +47,11 @@ end_per_testcase(_Case, _Config) ->
 t_trace_clientid(_Config) ->
     %% Start tracing
     %% add list clientid
-    ok = install_handler("CLI-client1", clientid, "client", debug, "tmp/client.log"),
-    ok = install_handler("CLI-client2", clientid, <<"client2">>, all, "tmp/client2.log"),
-    ok = install_handler("CLI-client3", clientid, <<"client3">>, all, "tmp/client3.log"),
+    ok = install_handler("CLI-client1", {clientid, "client"}, debug, "tmp/client.log"),
+    ok = install_handler("CLI-client2", {clientid, <<"client2">>}, all, "tmp/client2.log"),
+    ok = install_handler("CLI-client3", {clientid, <<"client3">>}, all, "tmp/client3.log"),
     {error, {handler_not_added, {file_error, ".", eisdir}}} =
-        install_handler("CLI-client5", clientid, <<"client5">>, debug, "."),
+        install_handler("CLI-client5", {clientid, <<"client5">>}, debug, "."),
     emqx_trace:check(),
 
     %% Verify the tracing file exits
@@ -64,23 +64,20 @@ t_trace_clientid(_Config) ->
     ?assertMatch(
         [
             #{
-                type := clientid,
-                filter := <<"client">>,
                 name := <<"CLI-client1">>,
+                filter := {clientid, <<"client">>},
                 level := debug,
                 dst := "tmp/client.log"
             },
             #{
-                type := clientid,
-                filter := <<"client2">>,
                 name := <<"CLI-client2">>,
+                filter := {clientid, <<"client2">>},
                 level := debug,
                 dst := "tmp/client2.log"
             },
             #{
-                type := clientid,
-                filter := <<"client3">>,
                 name := <<"CLI-client3">>,
+                filter := {clientid, <<"client3">>},
                 level := debug,
                 dst := "tmp/client3.log"
             }
@@ -113,7 +110,7 @@ t_trace_clientid(_Config) ->
 
 t_trace_clientid_utf8(_) ->
     Utf8Id = <<"client 漢字編碼"/utf8>>,
-    ok = install_handler("CLI-UTF8", clientid, Utf8Id, debug, "tmp/client-utf8.log"),
+    ok = install_handler("CLI-UTF8", {clientid, Utf8Id}, debug, "tmp/client-utf8.log"),
     emqx_trace:check(),
     {ok, T} = emqtt:start_link([{clientid, Utf8Id}]),
     emqtt:connect(T),
@@ -135,8 +132,8 @@ t_trace_topic(_Config) ->
     emqtt:connect(T),
 
     %% Start tracing
-    ok = install_handler("CLI-TOPIC-1", topic, <<"x/#">>, all, "tmp/topic_trace_x.log"),
-    ok = install_handler("CLI-TOPIC-2", topic, <<"y/#">>, all, "tmp/topic_trace_y.log"),
+    ok = install_handler("CLI-TOPIC-1", {topic, <<"x/#">>}, all, "tmp/topic_trace_x.log"),
+    ok = install_handler("CLI-TOPIC-2", {topic, <<"y/#">>}, all, "tmp/topic_trace_y.log"),
     emqx_trace:check(),
 
     %% Verify the tracing file exits
@@ -148,16 +145,14 @@ t_trace_topic(_Config) ->
     ?assertMatch(
         [
             #{
-                type := topic,
-                filter := <<"x/#">>,
+                name := <<"CLI-TOPIC-1">>,
+                filter := {topic, <<"x/#">>},
                 level := debug,
-                dst := "tmp/topic_trace_x.log",
-                name := <<"CLI-TOPIC-1">>
+                dst := "tmp/topic_trace_x.log"
             },
             #{
-                type := topic,
-                filter := <<"y/#">>,
                 name := <<"CLI-TOPIC-2">>,
+                filter := {topic, <<"y/#">>},
                 level := debug,
                 dst := "tmp/topic_trace_y.log"
             }
@@ -192,8 +187,8 @@ t_trace_ip_address(_Config) ->
     emqtt:connect(T),
 
     %% Start tracing
-    ok = install_handler("CLI-IP-1", ip_address, "127.0.0.1", all, "tmp/ip_trace_x.log"),
-    ok = install_handler("CLI-IP-2", ip_address, "192.168.1.1", all, "tmp/ip_trace_y.log"),
+    ok = install_handler("CLI-IP-1", {ip_address, "127.0.0.1"}, all, "tmp/ip_trace_x.log"),
+    ok = install_handler("CLI-IP-2", {ip_address, "192.168.1.1"}, all, "tmp/ip_trace_y.log"),
     emqx_trace:check(),
 
     %% Verify the tracing file exits
@@ -205,16 +200,14 @@ t_trace_ip_address(_Config) ->
     ?assertMatch(
         [
             #{
-                type := ip_address,
-                filter := "127.0.0.1",
                 name := <<"CLI-IP-1">>,
+                filter := {ip_address, "127.0.0.1"},
                 level := debug,
                 dst := "tmp/ip_trace_x.log"
             },
             #{
-                type := ip_address,
-                filter := "192.168.1.1",
                 name := <<"CLI-IP-2">>,
+                filter := {ip_address, "192.168.1.1"},
                 level := debug,
                 dst := "tmp/ip_trace_y.log"
             }
@@ -252,10 +245,10 @@ t_trace_max_file_size(_Config) ->
     MaxSizeDefault = emqx_config:get([trace, max_file_size]),
     ok = emqx_config:put([trace, max_file_size], MaxSize),
     %% Start tracing:
-    ok = emqx_trace_handler:install(?FUNCTION_NAME, Name, topic, <<"t/#">>, all, FileName, text),
+    ok = emqx_trace_handler:install(?FUNCTION_NAME, Name, {topic, <<"t/#">>}, all, FileName, text),
     ok = emqx_trace:check(),
     ?assertMatch(
-        [#{name := Name, type := topic, filter := <<"t/#">>}],
+        [#{name := Name, filter := {topic, <<"t/#">>}}],
         emqx_trace_handler:running()
     ),
     %% Start publisher publishing 50 messages with non-trivial payload:
@@ -289,9 +282,9 @@ wait_filesync() ->
     %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
     timer:sleep(2 * 100).
 
-install_handler(Name, Type, Filter, Level, LogFile) ->
+install_handler(Name, Filter, Level, LogFile) ->
     HandlerId = list_to_atom(?MODULE_STRING ++ ":" ++ Name),
-    emqx_trace_handler:install(HandlerId, Name, Type, Filter, Level, LogFile, text).
+    emqx_trace_handler:install(HandlerId, Name, Filter, Level, LogFile, text).
 
 uninstall_handler(Name) ->
     HandlerId = list_to_atom(?MODULE_STRING ++ ":" ++ Name),
