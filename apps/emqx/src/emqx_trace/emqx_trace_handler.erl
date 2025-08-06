@@ -73,9 +73,10 @@
 -type namespace() :: binary().
 -type maybe_namespace() :: ?global_ns | namespace().
 
--ifdef(TEST).
 -define(LOG_HANDLER_FILESYNC_INTERVAL, 5_000).
--else.
+
+-ifdef(TEST).
+-undef(LOG_HANDLER_FILESYNC_INTERVAL).
 -define(LOG_HANDLER_FILESYNC_INTERVAL, 100).
 -endif.
 
