@@ -66,6 +66,7 @@ init_per_suite(Config) ->
         ],
         #{work_dir => ?config(priv_dir, Config)}
     ),
+    ok = emqx_persistent_message:wait_readiness(5_000),
     [{apps, Apps} | Config].
 
 init_per_group(GroupName, Config) ->

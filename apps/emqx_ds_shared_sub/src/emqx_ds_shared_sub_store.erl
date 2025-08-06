@@ -101,7 +101,8 @@
 %%
 
 open() ->
-    emqx_ds:open_db(?DS_DB, db_config()).
+    ok = emqx_ds:open_db(?DS_DB, db_config()),
+    emqx_ds:wait_db(?DS_DB, all, infinity).
 
 close() ->
     emqx_ds:close_db(?DS_DB).

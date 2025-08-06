@@ -39,6 +39,7 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    ok = emqx_persistent_message:wait_readiness(5_000),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
