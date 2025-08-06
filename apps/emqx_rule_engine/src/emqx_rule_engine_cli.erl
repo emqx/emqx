@@ -11,6 +11,14 @@
 -include_lib("emqx/include/emqx_config.hrl").
 
 %%================================================================================
+%% Type definitions
+%%================================================================================
+
+-define(id, id).
+-define(namespace, namespace).
+-define(single_arg, single_arg).
+
+%%================================================================================
 %% API functions
 %%================================================================================
 
@@ -24,25 +32,71 @@ unload() ->
 %% Internal exports
 %%================================================================================
 
-cmd(["list"]) ->
-    lists:foreach(
-        fun pretty_print_rule_summary/1,
-        %% TODO: namespace
-        emqx_rule_engine:get_rules_ordered_by_ts(?global_ns)
-    );
-cmd(["show", Id]) ->
-    pretty_print_rule(Id);
+cmd(["list" | Args]) ->
+    case list_args(Args) of
+        {ok, #{?namespace := Namespace}} ->
+            lists:foreach(
+                fun pretty_print_rule_summary/1,
+                emqx_rule_engine:get_rules_ordered_by_ts(Namespace)
+            );
+        {error, Reason} = Error ->
+            emqx_ctl:warning("~ts~n", [Reason]),
+            show_usage(),
+            Error
+    end;
+cmd(["show" | Args]) ->
+    case show_args(Args) of
+        {ok, #{?id := Id, ?namespace := Namespace}} ->
+            pretty_print_rule(Namespace, Id);
+        {error, Reason} = Error ->
+            emqx_ctl:warning("~ts~n", [Reason]),
+            show_usage(),
+            Error
+    end;
 cmd(_) ->
-    emqx_ctl:usage(
-        [
-            {"rules list", "List rules"},
-            {"rules show <RuleId>", "Show a rule"}
-        ]
-    ).
+    show_usage().
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+show_usage() ->
+    NamespaceOptLine = {"", "Set `--namespace <ns>` to narrow the scope to a specific namespace."},
+    emqx_ctl:usage(
+        [
+            {"rules list [--namespace <ns>]", "List rules"},
+            NamespaceOptLine,
+            {"rules show [--namespace <ns>] <RuleId>", "Show a rule"},
+            NamespaceOptLine
+        ]
+    ).
+
+collect_args(Args) ->
+    do_collect_args(Args, #{}).
+
+do_collect_args([], Acc) ->
+    {ok, Acc};
+do_collect_args([SingleArg], Acc) when SingleArg /= "--namespace" ->
+    do_collect_args([], Acc#{?single_arg => bin(SingleArg)});
+do_collect_args(["--namespace", Namespace | Rest], Acc) ->
+    do_collect_args(Rest, Acc#{"--namespace" => bin(Namespace)});
+do_collect_args(Args, _Acc) ->
+    {error, lists:flatten(io_lib:format("bad arguments: ~p", [Args]))}.
+
+list_args(Args) ->
+    maybe
+        {ok, Collected} ?= collect_args(Args),
+        Namespace = maps:get("--namespace", Collected, ?global_ns),
+        {ok, #{?namespace => Namespace}}
+    end.
+
+show_args(Args) ->
+    maybe
+        {ok, Collected} ?= collect_args(Args),
+        #{?single_arg := Id} = Collected,
+        Namespace = maps:get("--namespace", Collected, ?global_ns),
+        {ok, #{?id => Id, ?namespace => Namespace}}
+    end.
 
 pretty_print_rule_summary(#{id := Id, name := Name, enable := Enable, description := Desc}) ->
     emqx_ctl:print("Rule{id=~ts, name=~ts, enabled=~ts, descr=~ts}\n", [
@@ -50,9 +104,8 @@ pretty_print_rule_summary(#{id := Id, name := Name, enable := Enable, descriptio
     ]).
 
 %% erlfmt-ignore
-pretty_print_rule(Id0) ->
-    %% TODO: namespace
-    case emqx_rule_engine:get_rule(?global_ns, list_to_binary(Id0)) of
+pretty_print_rule(Namespace, Id0) ->
+    case emqx_rule_engine:get_rule(Namespace, Id0) of
         {ok, #{id := Id, name := Name, description := Descr, enable := Enable,
                sql := SQL, created_at := CreatedAt, updated_at := UpdatedAt,
                actions := Actions}} ->
@@ -103,3 +156,5 @@ format_action({bridge_v2, ActionType, ActionName}) ->
 
 left_pad(Str) ->
     re:replace(Str, "\n", "\n  ", [global]).
+
+bin(X) -> emqx_utils_conv:bin(X).
