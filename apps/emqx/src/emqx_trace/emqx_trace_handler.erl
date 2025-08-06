@@ -151,8 +151,9 @@ filesync(HandlerId) ->
             try
                 Mod:filesync(HandlerId)
             catch
-                error:undef ->
-                    {error, unsupported}
+                exit:{noproc, _} -> ok;
+                exit:{{shutdown, _}, _} -> ok;
+                error:undef -> {error, unsupported}
             end;
         Error ->
             Error
