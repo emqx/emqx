@@ -32,7 +32,7 @@ channels subscribed to a Message Queue.
     %% TODO
     %% add stale message redispatch
     inflight_messages := #{message_id() => monotonic_timestamp_ms()},
-    last_nack_ts := emqx_maybe:t(monotonic_timestamp_ms())
+    last_ack_ts := monotonic_timestamp_ms()
 }.
 
 -define(ping_timer, ping_timer).
@@ -160,7 +160,7 @@ handle_ack(
         InflightMessages = maps:remove(MessageId, InflightMessages0),
         SubscriberData1 = SubscriberData0#{inflight_messages => InflightMessages},
         SubscriberData2 = refresh_subscriber_timeout(State0, SubscriberRef, SubscriberData1),
-        SubscriberData3 = update_last_nack(Ack, SubscriberData2),
+        SubscriberData3 = update_last_ack(SubscriberData2),
         Subscribers = Subscribers0#{SubscriberRef => SubscriberData3},
         State1 = State0#st{subscribers = Subscribers},
         case Ack of
@@ -168,7 +168,7 @@ handle_ack(
                 Messages = maps:remove(MessageId, Messages0),
                 State = State1#st{messages = Messages},
                 {ok, [{ds_ack, MessageId}], State};
-            ?MQ_NACK ->
+            ?MQ_REJECTED ->
                 {ok, [], dispatch(schedule_for_dispatch(State1, [MessageId]))}
         end
     else
@@ -230,10 +230,8 @@ refresh_subscriber_timeout(State, SubscriberRef, SubscriberData0) ->
     ),
     SubscriberData#{timeout_tref => TimeoutTRef}.
 
-update_last_nack(?MQ_ACK, SubscriberData0) ->
-    SubscriberData0#{last_nack_ts => undefined};
-update_last_nack(?MQ_NACK, SubscriberData0) ->
-    SubscriberData0#{last_nack_ts => now_ms_monotonic()}.
+update_last_ack(SubscriberData0) ->
+    SubscriberData0#{last_ack_ts => now_ms_monotonic()}.
 
 cancel_subscriber_timeout(#{timeout_tref := TimeoutTRef} = SubscriberData) ->
     emqx_utils:cancel_timer(TimeoutTRef),
@@ -244,7 +242,7 @@ initial_subscriber_data(State, SubscriberRef, ClientId) ->
         timeout_tref => undefined,
         client_id => ClientId,
         inflight_messages => #{},
-        last_nack_ts => undefined
+        last_ack_ts => now_ms_monotonic()
     },
     refresh_subscriber_timeout(State, SubscriberRef, SubscriberData).
 
@@ -319,52 +317,31 @@ pick_subscriber(Message, #st{dispatch_strategy = {hash, Expression}} = State) ->
 
 %% Random dispatch strategy
 
-pick_subscriber_random(_Message, State) ->
+pick_subscriber_random(_Message, #st{subscribers = Subscribers} = _State) ->
     %% TODO
     %% cache healthy subscribers
-    case healthy_subscribers(State) of
+    case maps:keys(Subscribers) of
         [] ->
             no_subscriber;
-        Subscribers ->
-            RandIndex = rand:uniform(length(Subscribers)),
-            {ok, lists:nth(RandIndex, Subscribers)}
+        SubscriberRefs ->
+            RandIndex = rand:uniform(length(SubscriberRefs)),
+            {ok, lists:nth(RandIndex, SubscriberRefs)}
     end.
-
-healthy_subscribers(#st{subscribers = Subscribers} = State) ->
-    NackDeadlineMs = now_ms_monotonic() - unhealthy_timeout(State),
-    maps:fold(
-        fun(SubscriberRef, SubscriberData, Acc) ->
-            case is_healthy(NackDeadlineMs, SubscriberData) of
-                true ->
-                    [SubscriberRef | Acc];
-                false ->
-                    Acc
-            end
-        end,
-        [],
-        Subscribers
-    ).
 
 %% Least inflight dispatch strategy
 
-pick_subscriber_least_inflight(_Message, #st{subscribers = Subscribers} = State) ->
-    NackDeadlineMs = now_ms_monotonic() - unhealthy_timeout(State),
+pick_subscriber_least_inflight(_Message, #st{subscribers = Subscribers} = _State) ->
     {SubscriberRef, _} = maps:fold(
         fun(
             SubscriberRef,
-            #{inflight_messages := InflightMessages} = SubscriberData,
+            #{inflight_messages := InflightMessages} = _SubscriberData,
             {LeastSubscriberRef, LeastInflightCount}
         ) ->
-            case is_healthy(NackDeadlineMs, SubscriberData) of
-                false ->
-                    {LeastSubscriberRef, LeastInflightCount};
-                true ->
-                    case map_size(InflightMessages) of
-                        InflightCount when InflightCount < LeastInflightCount ->
-                            {SubscriberRef, InflightCount};
-                        _ ->
-                            {LeastSubscriberRef, LeastInflightCount}
-                    end
+            case map_size(InflightMessages) of
+                InflightCount when InflightCount < LeastInflightCount ->
+                    {SubscriberRef, InflightCount};
+                _ ->
+                    {LeastSubscriberRef, LeastInflightCount}
             end
         end,
         {undefined, infinity},
@@ -389,14 +366,7 @@ pick_subscriber_hash(Message, Expression, #st{subscribers = Subscribers} = State
             SubscriberCount = length(SubscriberRefs),
             SelectedIdx = erlang:phash2(Value, SubscriberCount),
             SelectedSubscriberRef = lists:nth(SelectedIdx + 1, SubscriberRefs),
-            SubscriberData = maps:get(SelectedSubscriberRef, Subscribers),
-            NackDeadlineMs = now_ms_monotonic() - unhealthy_timeout(State),
-            case is_healthy(NackDeadlineMs, SubscriberData) of
-                true ->
-                    {ok, SelectedSubscriberRef};
-                false ->
-                    no_subscriber
-            end;
+            {ok, SelectedSubscriberRef};
         {error, Error} ->
             ?tp(warning, mq_consumer_pick_subscriber_hash_error, #{
                 message => Message, error => Error, mq_topic_filter => mq_topic_filter(State)
@@ -455,19 +425,6 @@ dispatch_strategy(#{dispatch_strategy := {hash, Expression}}) ->
 
 redispatch_interval(#st{mq = #{redispatch_interval_ms := RedispatchIntervalMs}}) ->
     RedispatchIntervalMs.
-
-unhealthy_timeout(#st{mq = #{unhealthy_subscriber_timeout_ms := UnhealthySubscriberTimeoutMs}}) ->
-    UnhealthySubscriberTimeoutMs.
-
-is_healthy(NackDeadlineMs, #{last_nack_ts := LastNackTs} = _SubscriberData) ->
-    case LastNackTs of
-        undefined ->
-            true;
-        Ts when Ts < NackDeadlineMs ->
-            true;
-        _ ->
-            false
-    end.
 
 mq_topic_filter(#st{mq = #{topic_filter := TopicFilter}}) ->
     TopicFilter.

@@ -29,6 +29,13 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
+init_per_testcase(_CaseName, Config) ->
+    ok = emqx_mq_test_utils:cleanup_mqs(),
+    Config.
+
+end_per_testcase(_CaseName, _Config) ->
+    ok = emqx_mq_test_utils:cleanup_mqs().
+
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
@@ -36,19 +43,19 @@ end_per_suite(Config) ->
 %% Consume some history messages from a non-compacted queue
 t_publish_and_consume(_Config) ->
     %% Create a non-compacted Queue
-    ok = emqx_mq_test_utils:create_mq(<<"t1/#">>, false),
+    ok = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
 
     %% Publish 100 messages to the queue
     ok = emqx_mq_test_utils:populate(100, fun(I) ->
         IBin = integer_to_binary(I),
         Payload = <<"payload-", IBin/binary>>,
-        Topic = <<"t1/", IBin/binary>>,
+        Topic = <<"t/", IBin/binary>>,
         {Topic, Payload}
     end),
 
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t1/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
     {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 100),
     ok = emqtt:disconnect(CSub),
 
@@ -58,75 +65,41 @@ t_publish_and_consume(_Config) ->
 %% Consume some history messages from a compacted queue
 t_publish_and_consume_compacted(_Config) ->
     %% Create a non-compacted Queue
-    ok = emqx_mq_test_utils:create_mq(<<"t2/#">>, true),
+    ok = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => true}),
 
     %% Publish 100 messages to the queue
     ok = emqx_mq_test_utils:populate_compacted(100, fun(I) ->
         IBin = integer_to_binary(I),
         Payload = <<"payload-", IBin/binary>>,
         CompactionKey = <<"k-", (integer_to_binary(I rem 10))/binary>>,
-        Topic = <<"t2/", IBin/binary>>,
+        Topic = <<"t/", IBin/binary>>,
         {Topic, Payload, CompactionKey}
     end),
 
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t2/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
     {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 100),
     ok = emqtt:disconnect(CSub),
 
     %% Verify the messages
     ?assertEqual(10, length(Msgs)).
 
-%% Cooperatively consume online messages
-t_cooperative_consumption(_Config) ->
-    %% Create a non-compacted Queue
-    ok = emqx_mq_test_utils:create_mq(<<"t3/#">>, false),
-
-    %% Subscribe to the queue
-    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
-    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t3/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t3/#">>),
-
-    %% Publish 100 messages to the queue
-    ok = emqx_mq_test_utils:populate(100, fun(I) ->
-        IBin = integer_to_binary(I),
-        Payload = <<"payload-", IBin/binary>>,
-        Topic = <<"t3/", IBin/binary>>,
-        {Topic, Payload}
-    end),
-
-    %% Drain the messages
-    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 500),
-    ok = emqtt:disconnect(CSub0),
-    ok = emqtt:disconnect(CSub1),
-
-    %% Verify the messages
-    ?assertEqual(100, length(Msgs)),
-    {Sub0Msgs, Sub1Msgs} = lists:partition(
-        fun
-            (#{client_pid := Pid}) when Pid =:= CSub0 ->
-                true;
-            (#{client_pid := Pid}) when Pid =:= CSub1 ->
-                false
-        end,
-        Msgs
-    ),
-    ?assert(length(Sub0Msgs) > 0),
-    ?assert(length(Sub1Msgs) > 0).
-
-%% Verify that the consumer stops consuming and dispatching messages once there is
+%% Verify that the consumer stops consuming DS messages once there is
 %% a critical amount of unacked messages
 t_backpressure(_Config) ->
     %% Create a non-compacted Queue
-    ok = emqx_mq_test_utils:create_mq(<<"t4/#">>, false),
+    ok = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>,
+        is_compacted => false,
+        local_max_inflight => 100
+    }),
 
     %% Publish 100 messages to the queue
     ok = emqx_mq_test_utils:populate(100, fun(I) ->
         IBin = integer_to_binary(I),
         Payload = <<"payload-", IBin/binary>>,
-        Topic = <<"t4/", IBin/binary>>,
+        Topic = <<"t/", IBin/binary>>,
         {Topic, Payload}
     end),
 
@@ -134,7 +107,7 @@ t_backpressure(_Config) ->
     %% Set max_inflight to 0 to avoid nacking messages by the client's session
     emqx_config:put([mqtt, max_inflight], 0),
     CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t4/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
     {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(
         _MinMsg = ?MQ_CONSUMER_MAX_BUFFER_SIZE, _Timeout = 200
     ),
@@ -163,19 +136,19 @@ t_backpressure(_Config) ->
 %% if a subscriber received the message but disconnected before acknowledging it
 t_redispatch_on_disconnect(_Config) ->
     %% Create a non-compacted Queue
-    ok = emqx_mq_test_utils:create_mq(<<"t5/#">>, false),
+    ok = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
 
     %% Connect two subscribers
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
     CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t5/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t5/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
 
     %% Publish just 1 message to the queue
     ok = emqx_mq_test_utils:populate(1, fun(I) ->
         IBin = integer_to_binary(I),
         Payload = <<"payload-", IBin/binary>>,
-        Topic = <<"t5/", IBin/binary>>,
+        Topic = <<"t/", IBin/binary>>,
         {Topic, Payload}
     end),
 
@@ -200,3 +173,91 @@ t_redispatch_on_disconnect(_Config) ->
     %% Clean up
     ok = emqtt:puback(OtherCSub, PacketId),
     ok = emqtt:disconnect(OtherCSub).
+
+%% Cooperatively consume online messages with random dispatching
+t_random_dispatch(_Config) ->
+    %% Create a non-compacted Queue
+    ok = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
+
+    %% Subscribe to the queue
+    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+
+    %% Publish 100 messages to the queue
+    ok = emqx_mq_test_utils:populate(100, fun(I) ->
+        IBin = integer_to_binary(I),
+        Payload = <<"payload-", IBin/binary>>,
+        Topic = <<"t/", IBin/binary>>,
+        {Topic, Payload}
+    end),
+
+    %% Drain the messages
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 500),
+    ok = emqtt:disconnect(CSub0),
+    ok = emqtt:disconnect(CSub1),
+
+    %% Verify the messages
+    ?assertEqual(100, length(Msgs)),
+    {Sub0Msgs, Sub1Msgs} = lists:partition(
+        fun
+            (#{client_pid := Pid}) when Pid =:= CSub0 ->
+                true;
+            (#{client_pid := Pid}) when Pid =:= CSub1 ->
+                false
+        end,
+        Msgs
+    ),
+    ?assert(length(Sub0Msgs) > 0),
+    ?assert(length(Sub1Msgs) > 0).
+
+%% Cooperatively consume online messages with hash dispatching
+t_hash_dispatch(_Config) ->
+    %% Create a non-compacted Queue
+    ok = emqx_mq_test_utils:create_mq(
+        #{
+            topic_filter => <<"t/#">>,
+            is_compacted => false,
+            dispatch_strategy => {hash, <<"m.topic(message)">>}
+        }
+    ),
+
+    %% Subscribe to the queue
+    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+
+    %% Publish 100 messages to the queue
+    ok = emqx_mq_test_utils:populate(100, fun(I) ->
+        IBin = integer_to_binary(I),
+        Payload = <<"payload-", IBin/binary>>,
+        Topic = <<"t/", (integer_to_binary(I rem 10))/binary>>,
+        {Topic, Payload}
+    end),
+
+    %% Drain the messages
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 500),
+    ok = emqtt:disconnect(CSub0),
+    ok = emqtt:disconnect(CSub1),
+
+    %% Verify the messages: check that messages with the same topic
+    %% were not delivered to different clients
+    ?assertEqual(100, length(Msgs)),
+    ClientsByTopic = lists:foldl(
+        fun(#{client_pid := Pid, topic := Topic}, Acc) ->
+            case Acc of
+                #{Topic := Pids} ->
+                    Acc#{Topic => Pids#{Pid => true}};
+                _ ->
+                    Acc#{Topic => #{Pid => true}}
+            end
+        end,
+        #{},
+        Msgs
+    ),
+    ?assert(
+        lists:all(fun({_Topic, Pids}) -> map_size(Pids) == 1 end, maps:to_list(ClientsByTopic)),
+        "Same topic delivered to different clients"
+    ).

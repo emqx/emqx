@@ -23,6 +23,11 @@
     decode_message/1
 ]).
 
+%% For testing/maintenance
+-export([
+    delete_all/0
+]).
+
 -define(MQ_PAYLOAD_DB, mq_payload).
 -define(MQ_PAYLOAD_DB_APPEND_RETRY, 5).
 -define(MQ_PAYLOAD_DB_LTS_SETTINGS, #{
@@ -62,7 +67,7 @@ insert(#{is_compacted := true, topic_filter := TopicFilter} = _MQ, Message, Comp
         retries => ?MQ_PAYLOAD_DB_APPEND_RETRY
     },
     Value = encode_message(Message),
-    ?tp(warning, mq_payload_db_insert, #{topic => Topic, generation => 1, value => Value}),
+    % ?tp(warning, mq_payload_db_insert, #{topic => Topic, generation => 1, value => Value}),
     emqx_ds:trans(TxOpts, fun() ->
         emqx_ds:tx_del_topic(Topic),
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
@@ -78,10 +83,29 @@ insert(#{is_compacted := false, topic_filter := TopicFilter} = _MQ, Message, und
         sync => true,
         retries => ?MQ_PAYLOAD_DB_APPEND_RETRY
     },
-    ?tp(warning, mq_payload_db_insert, #{topic => Topic, generation => 1, value => Value}),
+    % ?tp(warning, mq_payload_db_insert, #{topic => Topic, generation => 1, value => Value}),
     emqx_ds:trans(TxOpts, fun() ->
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
     end).
+
+delete_all() ->
+    Shards = emqx_ds:list_shards(?MQ_PAYLOAD_DB),
+    lists:foreach(
+        fun(Shard) ->
+            Topic = ['#'],
+            TxOpts = #{
+                db => ?MQ_PAYLOAD_DB,
+                shard => Shard,
+                generation => 1,
+                sync => true,
+                retries => ?MQ_PAYLOAD_DB_APPEND_RETRY
+            },
+            emqx_ds:trans(TxOpts, fun() ->
+                emqx_ds:tx_del_topic(Topic)
+            end)
+        end,
+        Shards
+    ).
 
 create_client(Module) ->
     emqx_ds_client:new(Module, #{}).

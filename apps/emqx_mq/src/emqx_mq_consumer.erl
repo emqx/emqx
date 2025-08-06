@@ -22,7 +22,8 @@ Consumer's responsibilities:
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
-    start_link/1
+    start_link/1,
+    stop/1
 ]).
 
 -export([
@@ -104,11 +105,16 @@ ack(Pid, SubscriberRef, MessageId, Ack) ->
 ping(Pid, SubscriberRef) ->
     send_to_consumer_server(Pid, #mq_server_ping{subscriber_ref = SubscriberRef}).
 
+-spec stop(emqx_mq_types:consumer_ref()) -> ok.
+stop(Pid) ->
+    gen_server:call(Pid, stop, infinity).
+
 %%--------------------------------------------------------------------
 %% Gen Server Callbacks
 %%--------------------------------------------------------------------
 
 init([#{topic_filter := MQTopicFilter} = MQ]) ->
+    erlang:process_flag(trap_exit, true),
     ClaimRes = emqx_mq_consumer_db:claim_leadership(MQTopicFilter, self_consumer_ref(), now_ms()),
     ?tp(warning, mq_consumer_init, #{mq_topic_filter => MQTopicFilter, claim_res => ClaimRes}),
     case ClaimRes of
@@ -128,6 +134,8 @@ init([#{topic_filter := MQTopicFilter} = MQ]) ->
             {stop, Error}
     end.
 
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
@@ -140,7 +148,7 @@ handle_info(#info_to_mq_server{message = Message}, State) ->
 handle_info(#persist_consumer_data{}, State) ->
     handle_persist_consumer_data(State);
 handle_info(Request, #state{topic_filter = MQTopicFilter} = State0) ->
-    ?tp(warning, mq_consumer_handle_info, #{request => Request, mq_topic => MQTopicFilter}),
+    % ?tp(warning, mq_consumer_handle_info, #{request => Request, mq_topic => MQTopicFilter}),
     case handle_ds_info(Request, State0) of
         ignore ->
             ?tp(warning, mq_consumer_unknown_info, #{request => Request, mq_topic => MQTopicFilter}),
@@ -149,8 +157,8 @@ handle_info(Request, #state{topic_filter = MQTopicFilter} = State0) ->
             {noreply, State}
     end.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, #state{topic_filter = _MQTopicFilter} = State) ->
+    handle_shutdown(State).
 
 %%--------------------------------------------------------------------
 %% Handlers
@@ -166,7 +174,7 @@ handle_events([{ds_ack, MessageId} | Rest], #state{streams = Streams0} = State) 
     Streams = emqx_mq_consumer_streams:handle_ack(Streams0, MessageId),
     handle_events(Rest, State#state{streams = Streams});
 handle_events([shutdown | _Rest], State) ->
-    shutdown(State).
+    {stop, normal, State}.
 
 handle_ds_info(Request, #state{streams = Streams0, server = Server0} = State) ->
     case emqx_mq_consumer_streams:handle_ds_info(Streams0, Request) of
@@ -205,17 +213,15 @@ persist_consumer_data(#state{topic_filter = MQTopicFilter, streams = Streams}) -
         now_ms()
     ).
 
-shutdown(#state{topic_filter = MQTopicFilter} = State) ->
-    ?tp(warning, mq_consumer_shutdown, #{mq_topic_filter => MQTopicFilter}),
-    maybe
-        ok ?= persist_consumer_data(State),
-        ok ?= emqx_mq_consumer_db:drop_leadership(MQTopicFilter),
-        {stop, normal, State}
-    else
-        Error ->
-            ?tp(error, mq_consumer_shutdown_error, #{error => Error}),
-            {stop, Error, State}
-    end.
+handle_shutdown(#state{topic_filter = MQTopicFilter} = State) ->
+    PersistRes = persist_consumer_data(State),
+    DropLeadershipRes = emqx_mq_consumer_db:drop_leadership(MQTopicFilter),
+    ?tp(warning, mq_consumer_shutdown, #{
+        mq_topic_filter => MQTopicFilter,
+        persist_res => PersistRes,
+        drop_leadership_res => DropLeadershipRes
+    }),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Internal Functions

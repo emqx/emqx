@@ -14,9 +14,11 @@
     emqtt_drain/2
 ]).
 
--export([create_mq/1, create_mq/2]).
+-export([create_mq/1]).
 
 -export([populate/2, populate_compacted/2]).
+
+-export([cleanup_mqs/0]).
 
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -66,14 +68,15 @@ emqtt_drain(MinMsg, Timeout, AccMsgs, AccNReceived) ->
     end.
 
 create_mq(Topic) when is_binary(Topic) ->
-    create_mq(#{topic_filter => Topic, is_compacted => true});
+    create_mq(#{topic_filter => Topic});
 create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     Default = #{
+        is_compacted => false,
         consumer_max_inactive_ms => 1000,
         ping_interval_ms => 5000,
         redispatch_interval_ms => 100,
-        unhealthy_subscriber_timeout_ms => 50,
-        dispatch_strategy => random
+        dispatch_strategy => random,
+        local_max_inflight => 4
     },
     MQ = maps:merge(Default, MQ0),
 
@@ -94,9 +97,6 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
         )
     ),
     ok.
-
-create_mq(Topic, IsCompacted) ->
-    create_mq(#{topic_filter => Topic, is_compacted => IsCompacted}).
 
 populate(N, Fun) ->
     C = emqx_mq_test_utils:emqtt_connect([]),
@@ -119,3 +119,15 @@ populate_compacted(N, Fun) ->
         lists:seq(0, N - 1)
     ),
     ok = emqtt:disconnect(C).
+
+cleanup_mqs() ->
+    ConsumerPids = [Pid || {_, Pid, _, _} <- supervisor:which_children(emqx_mq_consumer_sup)],
+    ok = lists:foreach(
+        fun(Pid) ->
+            ok = emqx_mq_consumer:stop(Pid)
+        end,
+        ConsumerPids
+    ),
+    ok = emqx_mq_registry:delete_all(),
+    ok = emqx_mq_payload_db:delete_all(),
+    ok = emqx_mq_consumer_db:delete_all().

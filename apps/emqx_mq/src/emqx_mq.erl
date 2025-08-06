@@ -171,7 +171,9 @@ with_sub(SubscriberRef, Handler, Args) ->
                     ok;
                 {ok, NewSub, Result} ->
                     ok = emqx_mq_sub_registry:update(SubscriberRef, NewSub),
-                    {ok, Result}
+                    {ok, Result};
+                _ ->
+                    error({invalid_return_value_from_handler, Handler})
             end
     end.
 
@@ -182,7 +184,7 @@ recreate_sub(SubscriberRef, ClientInfo) ->
     ok = emqx_mq_sub_registry:register(NewSub).
 
 ack_from_rc(?RC_SUCCESS) -> ?MQ_ACK;
-ack_from_rc(_) -> ?MQ_NACK.
+ack_from_rc(_) -> ?MQ_REJECTED.
 
 publish_to_queue(MQ, #message{headers = Headers} = Message) ->
     Props = maps:get(properties, Headers, #{}),

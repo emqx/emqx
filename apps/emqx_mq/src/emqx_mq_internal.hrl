@@ -10,6 +10,7 @@
 
 -define(MQ_ACK, 0).
 -define(MQ_NACK, 1).
+-define(MQ_REJECTED, 2).
 
 -record(info_to_mq_sub, {
     subscriber_ref :: emqx_mq_types:subscriber_ref(),

@@ -32,8 +32,8 @@ The module contains basic types for the Message Queue application.
     consumer_max_inactive_ms := interval_ms(),
     ping_interval_ms := interval_ms(),
     redispatch_interval_ms := interval_ms(),
-    unhealthy_subscriber_timeout_ms := interval_ms(),
-    dispatch_strategy := dispatch_strategy()
+    dispatch_strategy := dispatch_strategy(),
+    local_max_inflight := non_neg_integer()
 }.
 -export_type([
     subscriber_ref/0,

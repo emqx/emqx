@@ -20,6 +20,11 @@
     drop_leadership/1
 ]).
 
+%% For testing/maintenance
+-export([
+    delete_all/0
+]).
+
 -type mq_topic() :: emqx_mq_types:mq_topic().
 -type consumer_ref() :: emqx_mq_types:consumer_ref().
 -type timestamp() :: emqx_message:timestamp().
@@ -125,6 +130,27 @@ drop_leadership(MQTopic) ->
         ok = delete_claim(LeadershipTopic)
     end),
     get_result(TxRes).
+
+%% For testing/maintenance
+-spec delete_all() -> ok.
+delete_all() ->
+    Shards = emqx_ds:list_shards(?MQ_CONSUMER_DB),
+    lists:foreach(
+        fun(Shard) ->
+            Topic = ['#'],
+            TxOpts = #{
+                db => ?MQ_CONSUMER_DB,
+                shard => Shard,
+                generation => 1,
+                sync => true,
+                retries => 5
+            },
+            emqx_ds:trans(TxOpts, fun() ->
+                emqx_ds:tx_del_topic(Topic)
+            end)
+        end,
+        Shards
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal functions
