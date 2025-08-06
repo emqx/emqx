@@ -165,6 +165,8 @@ t_inc_sent(_) ->
     ).
 
 t_inc_sent_auth_error(_) ->
+    %% verify the packets.publish.error, packets.publish.auth_error,
+    %% packets.subscribe.error, packets.subscribe.auth_error can be incremented correctly
     with_metrics_server(
         fun() ->
             %% Subscribe
