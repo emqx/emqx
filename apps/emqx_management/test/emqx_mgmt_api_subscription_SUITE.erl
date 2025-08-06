@@ -72,6 +72,7 @@ init_per_group(persistence_enabled, Config) ->
         clean_start => true,
         properties => #{'Session-Expiry-Interval' => 300}
     },
+    _ = emqx_persistent_message:wait_readiness(5_000),
     [{client_config, ClientConfig}, {durable, true} | Config];
 init_per_group(persistence_disabled, Config) ->
     ClientConfig = #{

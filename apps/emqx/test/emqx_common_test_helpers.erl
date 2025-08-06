@@ -1538,6 +1538,7 @@ start_apps_ds(Config, ExtraApps, Opts) ->
         ),
         #{work_dir => WorkDir}
     ),
+    ok = emqx_persistent_message:wait_readiness(5_000),
     [{apps, Apps} | Config].
 
 stop_apps_ds(Config) ->
