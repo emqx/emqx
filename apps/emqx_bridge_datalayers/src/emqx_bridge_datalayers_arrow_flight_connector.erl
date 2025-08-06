@@ -158,6 +158,7 @@ on_stop(InstId, _State) ->
         end,
         ecpool:workers(InstId)
     ),
+    ?tp("arrow_flight_sql_client_stopped", #{instance_id => InstId}),
     emqx_resource_pool:stop(InstId).
 
 -spec on_add_channel(
@@ -331,12 +332,34 @@ pick_and_do(InstId, FuncMode, DriverFunArgs) ->
             {error, {unrecoverable_error, invalid_request}}
     end.
 
-proc_sql_params({?prepare, PrepStmtTemplate}, Querys, ChannelState, InitArgs) ->
-    RenderedRows = [render_prepare_sql_row(PrepStmtTemplate, Query) || {_, Query} <- Querys],
-    [maps:get(prepared_refs, ChannelState), RenderedRows | InitArgs];
-proc_sql_params({?no_prepare, BatchTemplate}, Querys, ChannelState, InitArgs) ->
+proc_sql_params(
+    {?prepare, PrepStmtTemplate},
+    [{ChannelId, _} | _] = Querys,
+    ChannelState,
+    InitArgs
+) ->
+    RenderedRows = [
+        render_prepare_sql_row(PrepStmtTemplate, Query)
+     || {_, Query} <- Querys
+    ],
+    emqx_trace:rendered_action_template(ChannelId, #{record_rows => RenderedRows}),
+    [
+        maps:get(prepared_refs, ChannelState),
+        RenderedRows
+        | InitArgs
+    ];
+proc_sql_params(
+    {?no_prepare, BatchTemplate},
+    [{ChannelId, _} | _] = Querys,
+    ChannelState,
+    InitArgs
+) ->
     RenderedSql = bin(render_batch_sql_row(BatchTemplate, Querys, ChannelState)),
-    [RenderedSql | InitArgs].
+    emqx_trace:rendered_action_template(ChannelId, #{rendered_sql => RenderedSql}),
+    [
+        RenderedSql
+        | InitArgs
+    ].
 
 get_template(?prepare, #{query_templates := QueryTemplates} = _ChannelState) ->
     maps:get(prepstmt, QueryTemplates, undefined);
@@ -441,16 +464,16 @@ parse_sql_template(ChannelId, SQLTemplate, AccIn) ->
     AccOut = AccIn#{prepstmt => Template},
     parse_batch_sql(ChannelId, SQLTemplate, AccOut).
 
-parse_batch_sql(ChannelId, Query, AccIn) ->
-    case emqx_utils_sql:get_statement_type(Query) of
+parse_batch_sql(ChannelId, SQLTemplate, AccIn) ->
+    case emqx_utils_sql:get_statement_type(SQLTemplate) of
         insert ->
-            case emqx_utils_sql:split_insert(Query) of
+            case emqx_utils_sql:split_insert(SQLTemplate) of
                 {ok, SplitedInsert} ->
                     AccIn#{batch => parse_splited_sql(SplitedInsert)};
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "parse_insert_sql_statement_failed",
-                        sql => Query,
+                        sql => SQLTemplate,
                         reason => Reason
                     }),
                     AccIn
@@ -460,7 +483,7 @@ parse_batch_sql(ChannelId, Query, AccIn) ->
         Type ->
             ?SLOG(error, #{
                 msg => "invalid_sql_statement_type",
-                sql => Query,
+                sql => SQLTemplate,
                 type => Type,
                 channel => ChannelId
             }),
