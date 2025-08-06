@@ -39,7 +39,6 @@
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
--export([get_clientinfo/1, set_clientinfo/2]).
 -export([set_offline_info/2, get_offline_info/1]).
 -export([get_peername/1, set_peername/2]).
 -export([get_protocol/1, set_protocol/2]).
@@ -343,14 +342,6 @@ get_protocol(Rec) ->
 -spec set_protocol(protocol(), t()) -> t().
 set_protocol(Val, Rec) ->
     set_meta(?protocol, Val, Rec).
-
--spec get_clientinfo(t()) -> emqx_maybe:t(emqx_types:clientinfo()).
-get_clientinfo(Rec) ->
-    get_meta(?clientinfo, Rec).
-
--spec set_clientinfo(emqx_types:clientinfo(), t()) -> t().
-set_clientinfo(Val, Rec) ->
-    set_meta(?clientinfo, Val, Rec).
 
 -spec set_offline_info(_Info :: map(), t()) -> t().
 set_offline_info(Info, #{?id := SessionId} = Rec) ->
