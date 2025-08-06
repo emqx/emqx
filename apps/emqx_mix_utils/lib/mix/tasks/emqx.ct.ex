@@ -102,8 +102,10 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   def sum_results(l) do
-    Enum.reduce(l, fn {success, failed, {skipped, auto_skipped}},
-                      {s_acc, f_acc, {sk_acc, as_acc}} ->
+    init_acc = {0, 0, {0, 0}}
+
+    Enum.reduce(l, init_acc, fn {success, failed, {skipped, auto_skipped}},
+                                {s_acc, f_acc, {sk_acc, as_acc}} ->
       {success + s_acc, failed + f_acc, {skipped + sk_acc, auto_skipped + as_acc}}
     end)
   end
