@@ -107,9 +107,18 @@ app_specs_no_dashboard() ->
                     %% CTH, we need to manually load the schema below so that when
                     %% `emqx_config:init_load` runs and encounters a namespaced root key, it knows
                     %% the schema module for it.
-                    Mod = emqx_rule_engine_schema,
-                    emqx_config:init_load(Mod, <<"">>),
-                    ok = emqx_schema_hooks:inject_from_modules([?MODULE, Mod]),
+                    Mods = [
+                        emqx_rule_engine_schema,
+                        emqx_bridge_v2_schema,
+                        emqx_connector_schema
+                    ],
+                    lists:foreach(
+                        fun(Mod) ->
+                            emqx_config:init_load(Mod, <<"">>)
+                        end,
+                        Mods
+                    ),
+                    ok = emqx_schema_hooks:inject_from_modules(Mods),
                     emqx_cth_suite:inhibit_config_loader(App, AppOpts)
                 end
         }},
@@ -2294,6 +2303,7 @@ t_namespaced_restart(TCConfig0) when is_list(TCConfig0) ->
         list(TCConfigNS1)
     ),
 
+    ct:pal("restarting node"),
     [Node] = emqx_cth_cluster:restart([N1Spec]),
 
     ?assertMatch(

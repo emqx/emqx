@@ -107,7 +107,8 @@
     get_all_namespace_config_errors/0,
     get_namespace_config_errors/1,
     clear_all_invalid_namespaced_configs/0,
-    erase_namespaced_configs/1
+    erase_namespaced_configs/1,
+    namespaced_config_allowed_roots/0
 ]).
 
 -ifdef(TEST).
@@ -813,7 +814,9 @@ do_check_config(SchemaMod, RawConf, Opts0) ->
 
 check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) ->
     Opts = #{return_plain => true, format => map, required => false},
-    try hocon_tconf:check_plain(SchemaMod, RawConf, Opts, AllowedNSRoots) of
+    Roots0 = [R || {R, _} <- hocon_schema:roots(SchemaMod)],
+    Roots = lists:filter(fun(R) -> lists:member(R, AllowedNSRoots) end, Roots0),
+    try hocon_tconf:check_plain(SchemaMod, RawConf, Opts, Roots) of
         CheckedConf ->
             {ok, unsafe_atom_checked_hocon_key_map(CheckedConf)}
     catch

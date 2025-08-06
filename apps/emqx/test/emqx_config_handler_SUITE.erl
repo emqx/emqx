@@ -667,3 +667,19 @@ t_independent_namespace_configs(TCConfig) when is_list(TCConfig) ->
         lists:sort(ets:tab2list(?pre_post_table))
     ),
     ok.
+
+-doc """
+If a config root key is not part of the explicit allow list for namespaced configurations,
+we should reject the config update.
+""".
+t_non_namespaced_root_key() ->
+    [{matrix, true}].
+t_non_namespaced_root_key(matrix) ->
+    [[?namespace]];
+t_non_namespaced_root_key(TCConfig) when is_list(TCConfig) ->
+    %% `config_backup_interval` is currently not an allowed root key for namespaces.
+    ?assertMatch(
+        {error, {root_key_not_namespaced, <<"config_backup_interval">>}},
+        emqx:update_config([config_backup_interval], <<"10m">>, #{namespace => ?NS})
+    ),
+    ok.
