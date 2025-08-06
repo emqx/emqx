@@ -1558,16 +1558,19 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
     BaseApps = [
         emqx_conf,
+        {emqx_durable_timer, #{
+            override_env =>
+                [
+                    {heartbeat_interval, 500},
+                    {missed_heartbeats, 3}
+                ]
+        }},
         {emqx, #{
             config => maps:merge(EMQXOpts, #{
                 <<"durable_storage">> => #{<<"n_sites">> => length(ClusterSpec0)},
                 <<"durable_sessions">> => durable_sessions_config(
                     DurableSessionsOpts
-                ),
-                <<"cluster">> => #{
-                    <<"heartbeat_interval">> => 1000,
-                    <<"missed_heartbeats">> => 3
-                }
+                )
             })
         }}
     ],
