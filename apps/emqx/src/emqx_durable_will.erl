@@ -7,7 +7,7 @@
 
 %% API:
 -export([init/0]).
--export([on_connect/3, on_disconnect/3, clear/1]).
+-export([on_connect/4, on_disconnect/4, clear/1]).
 
 %% behavior callbacks:
 -export([durable_timer_type/0, handle_durable_timeout/2, timer_introduced_in/0]).
@@ -43,17 +43,18 @@ Side effects:
 - If the new will message is present, it is checked whether the client
   is authorized to publish it.
 
-- If it client is allowed to publish the will message, a durable timer is created
+- If the client is allowed to publish the will message, a durable timer is created
   that will publish the will message if the node goes down abruptly ("dead hand" timer is used).
 """.
 -spec on_connect(
     emqx_types:clientid(),
     emqx_types:clientinfo(),
+    non_neg_integer(),
     emqx_types:message() | undefined
 ) ->
     ok | emqx_ds:error(_).
-on_connect(ClientId, ClientInfo, MaybeWillMsg) ->
-    case check(ClientInfo, MaybeWillMsg) of
+on_connect(ClientId, ClientInfo, SessExpiryMS, MaybeWillMsg) ->
+    case check(ClientInfo, SessExpiryMS, MaybeWillMsg) of
         {ok, Delay, MsgBin} ->
             emqx_durable_timer:dead_hand(durable_timer_type(), ClientId, MsgBin, Delay);
         undefined ->
@@ -67,19 +68,18 @@ Side effects:
 
 - If DISCONNECT ReasonCode is 0, the current will message is deleted.
 
-- If WillDelay is 0 then current durable will message is deleted.
-  This is done to avoid interference with the channel logic.
-
 - Otherwise, authorization checks run to verify that client is eligible to publish to the will topic.
   If the check is successful, a regular durable timer is started (this removes the dead hand timer).
 """.
 -spec on_disconnect(
-    emqx_types:clientid(), emqx_types:clientinfo(), emqx_types:message() | undefined
+    emqx_types:clientid(),
+    emqx_types:clientinfo(),
+    non_neg_integer(),
+    emqx_types:message() | undefined
 ) -> ok.
-on_disconnect(ClientId, ClientInfo, MaybeWillMsg) ->
-    case check(ClientInfo, MaybeWillMsg) of
-        {ok, Delay, MsgBin} when Delay > 0 ->
-            %% When Delay = 0 will message is handled by emqx_channel logic
+on_disconnect(ClientId, ClientInfo, SessExpiryMS, MaybeWillMsg) ->
+    case check(ClientInfo, SessExpiryMS, MaybeWillMsg) of
+        {ok, Delay, MsgBin} ->
             emqx_durable_timer:apply_after(durable_timer_type(), ClientId, MsgBin, Delay);
         _ ->
             clear(ClientId)
@@ -106,12 +106,12 @@ handle_durable_timeout(_Key, MsgBin) ->
 %% Internal functions
 %%================================================================================
 
-check(_ClientInfo, undefined) ->
+check(_ClientInfo, _SessExpiryMS, undefined) ->
     undefined;
-check(ClientInfo, WillMsg0) ->
+check(ClientInfo, SessExpiryMS, WillMsg0) ->
     case emqx_channel:prepare_will_message_for_publishing(ClientInfo, WillMsg0) of
         {ok, WillMsg} ->
-            WillDelay = emqx_channel:will_delay_interval(WillMsg),
+            WillDelay = min(timer:seconds(emqx_channel:will_delay_interval(WillMsg)), SessExpiryMS),
             MsgBin = emqx_ds_msg_serializer:serialize(asn1, WillMsg),
             {ok, WillDelay, MsgBin};
         {error, _} ->

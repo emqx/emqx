@@ -924,10 +924,9 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
 terminate(ClientInfo, Reason, Session = #{s := S, id := Id, will_msg := MaybeWillMsg}) ->
     _ = commit(Session#{s := S}, #{lifetime => terminate, sync => true}),
-    ok = emqx_persistent_session_ds_gc_timer:on_disconnect(
-        Id, emqx_persistent_session_ds_state:get_expiry_interval(S)
-    ),
-    ok = emqx_durable_will:on_disconnect(Id, ClientInfo, MaybeWillMsg),
+    SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S),
+    ok = emqx_persistent_session_ds_gc_timer:on_disconnect(Id, SessExpiryInterval),
+    ok = emqx_durable_will:on_disconnect(Id, ClientInfo, SessExpiryInterval, MaybeWillMsg),
     ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
     ok.
 
@@ -1068,8 +1067,7 @@ session_drop(SessionId, Reason) ->
             ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
             ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
             ok = emqx_persistent_session_ds_state:delete(SessionId),
-            emqx_persistent_session_ds_gc_timer:delete(SessionId),
-            emqx_durable_will:clear(SessionId);
+            emqx_persistent_session_ds_gc_timer:delete(SessionId);
         undefined ->
             ok
     end.
@@ -1404,10 +1402,9 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
                 S0, shared_sub_opts(ClientID)
             )
     end,
-    ok = emqx_persistent_session_ds_gc_timer:on_connect(
-        ClientID, emqx_persistent_session_ds_state:get_expiry_interval(S1)
-    ),
-    ok = emqx_durable_will:on_connect(ClientID, ClientInfo, MaybeWillMsg),
+    SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S1),
+    ok = emqx_persistent_session_ds_gc_timer:on_connect(ClientID, SessExpiryInterval),
+    ok = emqx_durable_will:on_connect(ClientID, ClientInfo, SessExpiryInterval, MaybeWillMsg),
     S = emqx_persistent_session_ds_state:commit(S1, #{lifetime => Lifetime, sync => true}),
     #{
         id => ClientID,
@@ -1682,9 +1679,11 @@ clear_will_message(#{id := Id} = Session) ->
     Session#{will_msg := undefined}.
 
 -spec publish_will_message_now(session(), message()) -> session().
-publish_will_message_now(#{} = Session, WillMsg = #message{}) ->
-    _ = emqx_broker:publish(WillMsg),
-    clear_will_message(Session).
+publish_will_message_now(#{} = Session, _WillMsg = #message{}) ->
+    %% We always rely on `emqx_durable_will' module to send will
+    %% messages. Hence we ignore request from the channel to avoid
+    %% duplication of will messages.
+    Session.
 
 %% @doc Prepare stream state for new messages. Make current end
 %% iterator into the begin iterator, update seqnos and subscription

@@ -355,13 +355,13 @@ t_no_takeover_with_delayed_willmsg(Config) ->
         {will_topic, WillTopic},
         {will_payload, <<"willpayload_delay3">>},
         {will_qos, 1},
-        %secs
+        % secs
         {will_props, #{'Will-Delay-Interval' => 3}},
         % secs
         {properties, #{'Session-Expiry-Interval' => 10}}
     ],
     Commands =
-        %% GIVEN: client connect with willmsg payload <<"willpayload_delay3">> and delay-interval 3s
+        %% GIVEN: client connects with willmsg payload <<"willpayload_delay3">> and delay-interval 3s
         lists:flatten(
             [
                 {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
@@ -391,6 +391,7 @@ t_no_takeover_with_delayed_willmsg(Config) ->
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), killed),
 
     Received1 = [Msg || {publish, Msg} <- ?drainMailbox(1000)],
+    ct:pal("received: ~p", [[P || #{payload := P} <- Received1]]),
     {IsWill1, ReceivedNoWill1} = filter_payload(Received1, <<"willpayload_delay3">>),
     ?assertNot(IsWill1),
     ?assertEqual([], ReceivedNoWill1),
@@ -453,14 +454,7 @@ t_session_expire_with_delayed_willmsg(Config) ->
     ?assertNot(IsWill1),
     ?assertEqual([], ReceivedNoWill1),
     %% THEN: for MQTT v5, payload <<"willpayload_delay3">> should be published after session expiry.
-    SessionSleep =
-        case ?config(persistence_enabled, Config) of
-            true ->
-                %% Session GC uses a larger, safer cutoff time.
-                15_000;
-            false ->
-                5_000
-        end,
+    SessionSleep = 5_000,
     Received2 = [Msg || {publish, Msg} <- ?drainMailbox(SessionSleep)],
     {IsWill12, ReceivedNoWill2} = filter_payload(Received2, <<"willpayload_delay10">>),
     ?assertEqual([], ReceivedNoWill2),
@@ -955,11 +949,7 @@ payload(I) ->
 -spec filter_payload(List :: [#{payload := binary()}], Payload :: binary()) ->
     {IsPayloadFound :: boolean(), OtherPayloads :: [#{payload := binary()}]}.
 filter_payload(List, Payload) when is_binary(Payload) ->
-    Filtered = [
-        Msg
-     || #{payload := P} = Msg <- List,
-        P =/= Payload
-    ],
+    Filtered = lists:filter(fun(#{payload := P}) -> P =/= Payload end, List),
     {length(List) =/= length(Filtered), Filtered}.
 
 %% @doc assert emqtt *client* process exits as expected.

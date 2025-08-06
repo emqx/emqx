@@ -1381,7 +1381,7 @@ t_delayed_will_message(_Config) ->
                     emqtt:disconnect(Client, ?RC_UNSPECIFIED_ERROR),
                     #{?snk_kind := emqx_cm_clean_down}
                 ),
-            ?assertReceive({deliver, WillTopic, _})
+            ?assertReceive({deliver, WillTopic, _}, 10_000)
         end,
         [fun check_stream_state_transitions/1]
     ),
