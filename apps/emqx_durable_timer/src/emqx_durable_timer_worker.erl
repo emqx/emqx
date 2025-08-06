@@ -141,7 +141,7 @@ apply_after(Type, Epoch, Key, Val, NotEarlierThan) when
     topic :: emqx_ds:topic(),
     %% This value should be added to the timestamp of the timer TTV to
     %% convert it to the local time:
-    time_delta :: integer(),
+    time_delta :: integer() | undefined,
     %% Timeline (Note: here times are NOT adjusted for delta):
     del_up_to = -1 :: integer(),
     fully_replayed_ts = -1 :: integer()
@@ -175,24 +175,16 @@ init([WorkerKind, Type, Epoch, Shard]) ->
             {ok, ?s_active, D};
         {closed, Kind} ->
             pg:join(?workers_pg, {Kind, Type, Epoch, Shard}, self()),
-            case Kind of
-                started ->
-                    Topic = emqx_durable_timer_dl:started_topic(Type, Epoch, '+'),
-                    %% TODO: try to account for clock skew?
-                    Delta = 0;
-                dead_hand ->
-                    {ok, LastHeartbeat0} = emqx_durable_timer_dl:last_heartbeat(Epoch),
-                    %% Upper margin for error:
-                    Delta = LastHeartbeat0 + emqx_durable_timer:cfg_heartbeat_interval(),
-                    Topic = emqx_durable_timer_dl:dead_hand_topic(Type, Epoch, '+')
-            end,
             D = #s{
                 type = Type,
                 cbm = CBM,
                 epoch = Epoch,
                 shard = Shard,
-                time_delta = Delta,
-                topic = Topic
+                topic =
+                    case Kind of
+                        started -> emqx_durable_timer_dl:started_topic(Type, Epoch, '+');
+                        dead_hand -> emqx_durable_timer_dl:dead_hand_topic(Type, Epoch, '+')
+                    end
             },
             {ok, ?s_candidate(Kind), D}
     end.
@@ -294,17 +286,27 @@ handle_leader_selection(Kind, Data = #s{type = T, epoch = E, shard = S}) ->
             {next_state, ?s_candidate(Kind), Data}
     end.
 
-init_leader(Kind, Data0) ->
-    case get_iterator(Data0) of
-        {ok, It} ->
-            Data = Data0#s{
-                replay_pos = It
-            },
-            %% Broadcast the self-appointment to the peers:
-            pg_bcast(Kind, Data, #cast_became_leader{pid = self()}),
-            %% Start the replay loop:
-            wake_up(Data, 0),
-            {keep_state, Data};
+init_leader(?s_leader(Kind), Data0 = #s{epoch = Epoch}) ->
+    maybe
+        {ok, LastHeartbeat0} ?= emqx_durable_timer_dl:last_heartbeat(Epoch),
+        Delta =
+            case Kind of
+                started ->
+                    %% TODO: try to account for clock skew?
+                    0;
+                dead_hand ->
+                    %% Upper margin for error:
+                    LastHeartbeat0 + emqx_durable_timer:cfg_heartbeat_interval()
+            end,
+        Data1 = Data0#s{time_delta = Delta},
+        {ok, It} ?= get_iterator(Data1),
+        Data = Data1#s{replay_pos = It},
+        %% Broadcast the self-appointment to the peers:
+        pg_bcast(Kind, Data, #cast_became_leader{pid = self()}),
+        %% Start the replay loop:
+        wake_up(Data, 0),
+        {keep_state, Data}
+    else
         undefined ->
             complete_replay(Kind, Data0, 0)
     end.
