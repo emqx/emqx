@@ -465,10 +465,14 @@ get_raw([Root | _] = KeyPath, Default) when is_binary(Root) -> do_get_raw(KeyPat
 get_raw([Root | T], Default) -> get_raw([bin(Root) | T], Default);
 get_raw([], Default) -> do_get_raw([], Default).
 
+get_raw_namespaced([], Namespace) ->
+    get_all_roots_from_namespace(Namespace);
 get_raw_namespaced([_Root | _] = KeyPath0, Namespace) ->
     KeyPath = lists:map(fun bin/1, KeyPath0),
     do_get_raw_namespaced(KeyPath, Namespace, error).
 
+get_raw_namespaced([], Namespace, _Default) ->
+    get_all_roots_from_namespace(Namespace);
 get_raw_namespaced([_Root | _] = KeyPath0, Namespace, Default) ->
     KeyPath = lists:map(fun bin/1, KeyPath0),
     do_get_raw_namespaced(KeyPath, Namespace, {value, Default}).

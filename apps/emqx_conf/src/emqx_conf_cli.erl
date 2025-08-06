@@ -11,6 +11,11 @@
 -include_lib("emqx/include/emqx_schema.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
+%% Deprecated RPC target (`emqx_conf_proto_v{3,4}`)
+-deprecated({get_config, 0, "use get_config_namespaced/1 instead"}).
+%% Deprecated RPC target (`emqx_conf_proto_v{3,4}`)
+-deprecated({get_config, 1, "use get_config_namespaced/2 instead"}).
+
 -export([
     load/0,
     admins/1,
@@ -20,7 +25,10 @@
     mark_fix_log/2
 ]).
 
--export([keys/0, get_config/0, get_config/1, load_config/2]).
+%% Deprecated RPC targets (`emqx_conf_proto_v{3,4}`)
+-export([get_config/0, get_config/1]).
+
+-export([keys/0, get_config_namespaced/1, get_config_namespaced/2, load_config/3]).
 
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -34,10 +42,17 @@
 -define(CONNECTORS_CONF_ROOT_BIN, <<"connectors">>).
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
 
+-define(key, key).
+-define(mode, mode).
+-define(namespace, namespace).
+-define(path, path).
+-define(raw_config, raw_config).
+-define(single_arg, single_arg).
+
 %% All 'cluster.*' keys, except for 'cluster.link', should also be treated as read-only.
 -define(READONLY_ROOT_KEYS, [rpc, node]).
 
--dialyzer({no_match, [load/0]}).
+-define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
 
 load() ->
     emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, [hidden]),
@@ -52,18 +67,35 @@ unload() ->
 
 conf(["show_keys" | _]) ->
     print_keys(keys());
-conf(["show"]) ->
-    print_hocon(get_config());
-conf(["show", Key]) ->
-    print_hocon(get_config(list_to_binary(Key)));
-conf(["load", "--replace", Path]) ->
-    load_config(Path, #{mode => replace});
-conf(["load", "--merge", Path]) ->
-    load_config(Path, #{mode => merge});
-conf(["load", Path]) ->
-    load_config(Path, #{mode => merge});
-conf(["remove", ConfPathStr]) ->
-    remove_config(ConfPathStr);
+conf(["show" | Args]) ->
+    case show_args(Args) of
+        {ok, #{?key := all, ?namespace := Namespace}} ->
+            print_hocon(get_config_namespaced(Namespace));
+        {ok, #{?key := Key, ?namespace := Namespace}} ->
+            print_hocon(get_config_namespaced(Namespace, Key));
+        {error, Reason} = Error ->
+            print_error(Reason),
+            conf_usage(),
+            Error
+    end;
+conf(["load" | Args]) ->
+    case load_args(Args) of
+        {ok, #{?raw_config := RawConfig, ?namespace := Namespace, ?mode := Mode}} ->
+            load_config_from_raw(Namespace, RawConfig, #{mode => Mode});
+        {error, Reason} = Error ->
+            print_error(Reason),
+            conf_usage(),
+            Error
+    end;
+conf(["remove" | Args]) ->
+    case remove_args(Args) of
+        {ok, #{?path := Path, ?namespace := Namespace}} ->
+            remove_config(Namespace, Path);
+        {error, Reason} = Error ->
+            print_error(Reason),
+            conf_usage(),
+            Error
+    end;
 conf(["cluster_sync" | Args]) ->
     admins(Args);
 conf(["reload", "--merge"]) ->
@@ -73,6 +105,9 @@ conf(["reload", "--replace"]) ->
 conf(["reload"]) ->
     conf(["reload", "--merge"]);
 conf(_) ->
+    conf_usage().
+
+conf_usage() ->
     emqx_ctl:usage(usage_conf() ++ usage_sync()).
 
 admins(["status"]) ->
@@ -135,7 +170,8 @@ fix_lagging_with_raw(ToTnxId, Node, Keys) ->
     ),
     case mark_fix_begin(Node, ToTnxId) of
         ok ->
-            case load_config_from_raw(Confs, #{mode => replace}) of
+            %% todo: should this support namespaces?
+            case load_config_from_raw(?global_ns, Confs, #{mode => replace}) of
                 ok -> waiting_for_fix_finish();
                 Error0 -> Error0
             end;
@@ -168,24 +204,42 @@ redact(Logs = #{cmd := license, args := [<<"update">>, _License]}) ->
 redact(Logs) ->
     Logs.
 
+print_error(Reason) ->
+    case io_lib:printable_unicode_list(Reason) of
+        true ->
+            emqx_ctl:warning("~ts~n", [Reason]);
+        false ->
+            emqx_ctl:warning("~p~n", [Reason])
+    end.
+
 usage_conf() ->
+    NamespaceOptLine = {"", "Set `--namespace <ns>` to narrow the scope to a specific namespace."},
     [
-        {"conf reload --replace|--merge", "reload etc/emqx.conf on local node"},
+        {"conf reload [--namespace <ns>] --replace|--merge", "reload etc/emqx.conf on local node"},
         {"", "The new configuration values will be overlaid on the existing values by default."},
         {"", "use the --replace flag to replace existing values with the new ones instead."},
+        NamespaceOptLine,
         {"----------------------------------", "------------"},
         {"conf show_keys", "print all the currently used configuration keys."},
-        {"conf show [<key>]",
+        {"----------------------------------", "------------"},
+        {"conf show [--namespace <ns>] [<key>]",
             "Print in-use configs (including default values) under the given key."},
         {"", "Print ALL keys if key is not provided"},
-        {"conf load --replace|--merge <path>", "Load a HOCON format config file."},
+        NamespaceOptLine,
+        {"----------------------------------", "------------"},
+        {"conf load [--namespace <ns>] --replace|--merge <path>",
+            "Load a HOCON format config file."},
         {"", "The new configuration values will be overlaid on the existing values by default."},
         {"", "use the --replace flag to replace existing values with the new ones instead."},
         {"", "The current node will initiate a cluster wide config change"},
         {"", "transaction to sync the changes to other nodes in the cluster. "},
         {"", "NOTE: do not make runtime config changes during rolling upgrade."},
+        NamespaceOptLine,
         {"----------------------------------", "------------"},
-        {"conf remove <conf-path>", "Removes a config path (e.g. `a.b.c`) from the current config."}
+        {"conf remove [--namespace <ns>] <conf-path>",
+            "Removes a config path (e.g. `a.b.c`) from the current config."},
+        NamespaceOptLine,
+        {"----------------------------------", "------------"}
     ].
 
 usage_sync() ->
@@ -278,9 +332,28 @@ print_hocon(undefined) ->
 print_hocon({error, Error}) ->
     emqx_ctl:warning("~ts~n", [Error]).
 
+%% Deprecated RPC target (`emqx_conf_proto_v{3,4}`)
 get_config() ->
-    AllConf = fill_defaults(emqx:get_raw_config([])),
+    get_config_namespaced(?global_ns).
+
+%% Deprecated RPC target (`emqx_conf_proto_v{3,4}`)
+get_config(Key) ->
+    get_config_namespaced(?global_ns, Key).
+
+get_config_namespaced(Namespace) ->
+    AllConf = fill_defaults(get_raw_config(Namespace, [], #{})),
     drop_hidden_roots(AllConf).
+
+get_config_namespaced(Namespace, Key) ->
+    case get_raw_config(Namespace, [Key], undefined) of
+        undefined -> {error, "key_not_found"};
+        Value -> fill_defaults(#{Key => Value})
+    end.
+
+get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
+    emqx:get_raw_namespaced_config(Namespace, KeyPath, Default);
+get_raw_config(?global_ns, KeyPath, Default) ->
+    emqx:get_raw_config(KeyPath, Default).
 
 keys() ->
     emqx_config:get_root_names() -- hidden_roots().
@@ -297,14 +370,7 @@ hidden_roots() ->
         <<"zones">>
     ].
 
-get_config(Key) ->
-    case emqx:get_raw_config([Key], undefined) of
-        undefined -> {error, "key_not_found"};
-        Value -> fill_defaults(#{Key => Value})
-    end.
-
--define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
-load_config(Path, Opts) when is_list(Path) ->
+read_hocon_file(Path) ->
     case hocon:files([Path]) of
         {ok, RawConf} when RawConf =:= #{} ->
             case filelib:is_regular(Path) of
@@ -316,15 +382,16 @@ load_config(Path, Opts) when is_list(Path) ->
                     {error, #{cause => not_a_file, path => Path}}
             end;
         {ok, RawConf} ->
-            load_config_from_raw(RawConf, Opts);
+            {ok, RawConf};
         {error, Reason} ->
             emqx_ctl:warning("load ~ts failed~n~p~n", [Path, Reason]),
             {error, bad_hocon_file}
-    end;
-load_config(Bin, Opts) when is_binary(Bin) ->
+    end.
+
+load_config(Namespace, Bin, Opts) when is_binary(Bin) ->
     case hocon:binary(Bin) of
         {ok, RawConf} ->
-            load_config_from_raw(RawConf, Opts);
+            load_config_from_raw(Namespace, RawConf, Opts);
         %% Type is scan_error, parse_error...
         {error, {Type, Meta = #{reason := Reason}}} ->
             {error, Meta#{
@@ -335,12 +402,18 @@ load_config(Bin, Opts) when is_binary(Bin) ->
             {error, Reason}
     end.
 
-load_config_from_raw(RawConf0, Opts) ->
+load_config_from_raw(Namespace, RawConf0, Opts) ->
+    case Namespace of
+        ?global_ns ->
+            emqx_ctl:print("loading config for global namespace~n", []);
+        _ ->
+            emqx_ctl:print("loading config for namespace \"~s\"~n", [Namespace])
+    end,
     SchemaMod = emqx_conf:schema_module(),
     RawConf1 = emqx_config:upgrade_raw_conf(SchemaMod, RawConf0),
     case check_config(RawConf1, Opts) of
         {ok, RawConf} ->
-            case update_cluster_links(cluster, RawConf, Opts) of
+            case update_cluster_links(cluster, RawConf, Namespace, Opts) of
                 ok ->
                     %% It has been ensured that the connector is always the first
                     %% configuration to be updated.
@@ -349,9 +422,9 @@ load_config_from_raw(RawConf0, Opts) ->
                     %% dependent actions/sources first; otherwise, the deletion will fail.
                     %%
                     %% Note: we can't create action/sources before connector.
-                    uninstall(<<"actions">>, RawConf, Opts),
-                    uninstall(<<"sources">>, RawConf, Opts),
-                    Error = update_config_cluster(Opts, RawConf),
+                    uninstall(<<"actions">>, RawConf, Namespace, Opts),
+                    uninstall(<<"sources">>, RawConf, Namespace, Opts),
+                    Error = update_config_cluster(Namespace, Opts, RawConf),
                     case iolist_to_binary(Error) of
                         <<"">> -> ok;
                         ErrorBin -> {error, ErrorBin}
@@ -384,10 +457,10 @@ load_config_from_raw(RawConf0, Opts) ->
             {error, Errors}
     end.
 
-update_config_cluster(Opts, RawConf) ->
+update_config_cluster(Namespace, Opts, RawConf) ->
     lists:filtermap(
         fun({K, V}) ->
-            case update_config_cluster(K, V, Opts) of
+            case update_config_cluster(K, V, Namespace, Opts) of
                 ok -> false;
                 {error, Msg} -> {true, Msg}
             end
@@ -395,18 +468,21 @@ update_config_cluster(Opts, RawConf) ->
         to_sorted_list(RawConf)
     ).
 
-update_cluster_links(cluster, #{<<"cluster">> := #{<<"links">> := Links}}, Opts) ->
-    Res = emqx_conf:update([<<"cluster">>, <<"links">>], Links, ?OPTIONS),
+update_cluster_links(cluster, #{<<"cluster">> := #{<<"links">> := Links}}, Namespace, Opts) ->
+    UpdateOpts = with_namespace(?OPTIONS, Namespace),
+    Res = emqx_conf:update([<<"cluster">>, <<"links">>], Links, UpdateOpts),
     check_res(<<"cluster.links">>, Res, Links, Opts);
-update_cluster_links(local, #{<<"cluster">> := #{<<"links">> := Links}}, Opts) ->
-    Res = emqx:update_config([<<"cluster">>, <<"links">>], Links, ?LOCAL_OPTIONS),
+update_cluster_links(local, #{<<"cluster">> := #{<<"links">> := Links}}, Namespace, Opts) ->
+    UpdateOpts = with_namespace(?LOCAL_OPTIONS, Namespace),
+    Res = emqx:update_config([<<"cluster">>, <<"links">>], Links, UpdateOpts),
     check_res(node(), <<"cluster.links">>, Res, Links, Opts);
-update_cluster_links(_, _, _) ->
+update_cluster_links(_, _, _, _) ->
     ok.
 
-remove_config(ConfPathStr) ->
+remove_config(Namespace, ConfPathStr) ->
     ConfPath = hocon_util:split_path(ConfPathStr),
-    Res = emqx_conf:remove(ConfPath, ?OPTIONS),
+    UpdateOpts = with_namespace(?OPTIONS, Namespace),
+    Res = emqx_conf:remove(ConfPath, UpdateOpts),
     case Res of
         {error, #{reason := {badkey, BadRootKey}}} ->
             emqx_ctl:warning("Root key ~s not found ~n", [BadRootKey]);
@@ -416,16 +492,15 @@ remove_config(ConfPathStr) ->
             emqx_ctl:print("ok~n")
     end.
 
-uninstall(ActionOrSource, Conf, #{mode := replace}) ->
+uninstall(ActionOrSource, Conf, Namespace, #{mode := replace}) ->
     case maps:find(ActionOrSource, Conf) of
         {ok, New} ->
-            Old = emqx_conf:get_raw([ActionOrSource], #{}),
+            Old = get_raw_config(Namespace, [ActionOrSource], #{}),
             ActionOrSourceAtom = binary_to_existing_atom(ActionOrSource),
             #{removed := Removed} = emqx_bridge_v2:diff_confs(New, Old),
             maps:foreach(
                 fun({Type, Name}, _) ->
-                    %% TODO: namespace
-                    case emqx_bridge_v2:remove(?global_ns, ActionOrSourceAtom, Type, Name) of
+                    case emqx_bridge_v2:remove(Namespace, ActionOrSourceAtom, Type, Name) of
                         ok ->
                             ok;
                         {error, Reason} ->
@@ -443,43 +518,63 @@ uninstall(ActionOrSource, Conf, #{mode := replace}) ->
             ok
     end;
 %% we don't delete things when in merge mode or without actions/sources key.
-uninstall(_, _RawConf, _) ->
+uninstall(_, _RawConf, _Namespace, _) ->
     ok.
 
 update_config_cluster(
     ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key,
     Conf,
+    _Namespace,
     #{mode := merge} = Opts
 ) ->
+    %% Currently, authn/authz are not namespaced roots.
     check_res(Key, emqx_authz:merge(Conf), Conf, Opts);
 update_config_cluster(
     ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key,
     Conf,
+    _Namespace,
     #{mode := merge} = Opts
 ) ->
+    %% Currently, authn/authz are not namespaced roots.
     check_res(Key, emqx_authn:merge_config(Conf), Conf, Opts);
-update_config_cluster(?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, #{mode := merge} = Opts) ->
-    check_res(Key, emqx_conf:update([Key], {merge, NewConf}, ?OPTIONS), NewConf, Opts);
-update_config_cluster(?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, #{mode := replace} = Opts) ->
-    check_res(Key, emqx_conf:update([Key], {replace, NewConf}, ?OPTIONS), NewConf, Opts);
 update_config_cluster(
-    ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, #{mode := merge} = Opts
+    ?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := merge} = Opts
 ) ->
-    check_res(Key, emqx_conf:update([Key], {merge, NewConf}, ?OPTIONS), NewConf, Opts);
+    %% Currently not a namespaced root, but nevertheless adding the option for consistency.
+    UpdateOpts = with_namespace(?OPTIONS, Namespace),
+    check_res(Key, emqx_conf:update([Key], {merge, NewConf}, UpdateOpts), NewConf, Opts);
 update_config_cluster(
-    ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, #{mode := replace} = Opts
+    ?SCHEMA_VALIDATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := replace} = Opts
 ) ->
-    check_res(Key, emqx_conf:update([Key], {replace, NewConf}, ?OPTIONS), NewConf, Opts);
-update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, NewConf, #{mode := merge} = Opts) ->
+    %% Currently not a namespaced root, but nevertheless adding the option for consistency.
+    UpdateOpts = with_namespace(?OPTIONS, Namespace),
+    check_res(Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts);
+update_config_cluster(
+    ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := merge} = Opts
+) ->
+    %% Currently not a namespaced root, but nevertheless adding the option for consistency.
+    UpdateOpts = with_namespace(?OPTIONS, Namespace),
+    check_res(Key, emqx_conf:update([Key], {merge, NewConf}, UpdateOpts), NewConf, Opts);
+update_config_cluster(
+    ?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := replace} = Opts
+) ->
+    %% Currently not a namespaced root, but nevertheless adding the option for consistency.
+    UpdateOpts = with_namespace(?OPTIONS, Namespace),
+    check_res(Key, emqx_conf:update([Key], {replace, NewConf}, UpdateOpts), NewConf, Opts);
+update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, NewConf, Namespace, #{mode := merge} = Opts) ->
+    UpdateOpts = with_namespace(?OPTIONS, Namespace),
     Merged = merge_conf(Key, NewConf),
-    check_res(Key, emqx_conf:update([Key], {async_start, Merged}, ?OPTIONS), NewConf, Opts);
-update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, Value, #{mode := replace} = Opts) ->
-    check_res(Key, emqx_conf:update([Key], {async_start, Value}, ?OPTIONS), Value, Opts);
-update_config_cluster(Key, NewConf, #{mode := merge} = Opts) ->
+    check_res(Key, emqx_conf:update([Key], {async_start, Merged}, UpdateOpts), NewConf, Opts);
+update_config_cluster(?CONNECTORS_CONF_ROOT_BIN = Key, Value, Namespace, #{mode := replace} = Opts) ->
+    UpdateOpts = with_namespace(?OPTIONS, Namespace),
+    check_res(Key, emqx_conf:update([Key], {async_start, Value}, UpdateOpts), Value, Opts);
+update_config_cluster(Key, NewConf, Namespace, #{mode := merge} = Opts) ->
+    UpdateOpts = with_namespace(?OPTIONS, Namespace),
     Merged = merge_conf(Key, NewConf),
-    check_res(Key, emqx_conf:update([Key], Merged, ?OPTIONS), NewConf, Opts);
-update_config_cluster(Key, Value, #{mode := replace} = Opts) ->
-    check_res(Key, emqx_conf:update([Key], Value, ?OPTIONS), Value, Opts).
+    check_res(Key, emqx_conf:update([Key], Merged, UpdateOpts), NewConf, Opts);
+update_config_cluster(Key, Value, Namespace, #{mode := replace} = Opts) ->
+    UpdateOpts = with_namespace(?OPTIONS, Namespace),
+    check_res(Key, emqx_conf:update([Key], Value, UpdateOpts), Value, Opts).
 
 update_config_local(
     ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key,
@@ -650,10 +745,13 @@ filter_readonly_config(Raw) ->
     end.
 
 reload_config(AllConf, Opts) ->
-    case update_cluster_links(local, AllConf, Opts) of
+    %% Since the reload operation is about reading "etc/emqx.conf", it pertains to the
+    %% global namespace.
+    Namespace = ?global_ns,
+    case update_cluster_links(local, AllConf, Namespace, Opts) of
         ok ->
-            uninstall(<<"actions">>, AllConf, Opts),
-            uninstall(<<"sources">>, AllConf, Opts),
+            uninstall(<<"actions">>, AllConf, Namespace, Opts),
+            uninstall(<<"sources">>, AllConf, Namespace, Opts),
             Fold = fun({Key, Conf}, Acc) ->
                 case update_config_local(Key, Conf, Opts) of
                     ok ->
@@ -920,6 +1018,62 @@ remove_identical_value(New = #{}, Old = #{}) ->
     );
 remove_identical_value(New, Old) ->
     {New, Old}.
+
+show_args(Args) ->
+    maybe
+        {ok, Collected} ?= collect_conf_args(Args),
+        case Collected of
+            #{?single_arg := Key} ->
+                Namespace = maps:get("--namespace", Collected, ?global_ns),
+                {ok, #{?key => Key, ?namespace => Namespace}};
+            #{} ->
+                Namespace = maps:get("--namespace", Collected, ?global_ns),
+                {ok, #{?key => all, ?namespace => Namespace}}
+        end
+    end.
+
+load_args(Args) ->
+    maybe
+        {ok, Collected} ?= collect_conf_args(Args),
+        #{?single_arg := Path} = Collected,
+        Namespace = maps:get("--namespace", Collected, ?global_ns),
+        Mode = maps:get(?mode, Collected, merge),
+        {ok, RawConf} ?= read_hocon_file(Path),
+        {ok, #{?raw_config => RawConf, ?namespace => Namespace, ?mode => Mode}}
+    end.
+
+remove_args(Args) ->
+    maybe
+        {ok, Collected} ?= collect_conf_args(Args),
+        #{?single_arg := Path} = Collected,
+        Namespace = maps:get("--namespace", Collected, ?global_ns),
+        {ok, #{?path => Path, ?namespace => Namespace}}
+    end.
+
+collect_conf_args(Args) ->
+    do_collect_conf_args(Args, #{}).
+
+do_collect_conf_args([], Acc) ->
+    {ok, Acc};
+%% Load/reload
+do_collect_conf_args(["--merge" | Rest], Acc) ->
+    do_collect_conf_args(Rest, Acc#{?mode => merge});
+do_collect_conf_args(["--replace" | Rest], Acc) ->
+    do_collect_conf_args(Rest, Acc#{?mode => replace});
+%% Common
+do_collect_conf_args([KeyOrPath], Acc) when KeyOrPath /= "--namespace" ->
+    do_collect_conf_args([], Acc#{?single_arg => bin(KeyOrPath)});
+do_collect_conf_args(["--namespace", Namespace | Rest], Acc) ->
+    do_collect_conf_args(Rest, Acc#{"--namespace" => bin(Namespace)});
+do_collect_conf_args(Args, _Acc) ->
+    {error, lists:flatten(io_lib:format("bad arguments: ~p", [Args]))}.
+
+bin(X) -> emqx_utils_conv:bin(X).
+
+with_namespace(UpdateOpts, ?global_ns) ->
+    UpdateOpts;
+with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
+    UpdateOpts#{namespace => Namespace}.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
