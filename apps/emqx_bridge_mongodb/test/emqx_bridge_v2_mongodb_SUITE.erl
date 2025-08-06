@@ -224,6 +224,11 @@ create_bridge_api(Config, Overrides) ->
         emqx_bridge_v2_testlib:create_bridge_api(Config, Overrides)
     ).
 
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+    ).
+
 create_action_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_kind_api(Config, Overrides)
@@ -359,5 +364,23 @@ t_timeout_during_connector_health_check(Config0) ->
             ?assertEqual([], ?of_kind("remove_channel_failed", Trace)),
             ok
         end
+    ),
+    ok.
+
+-doc """
+Currently, we try to find documents in a collection called "foo" to do connector health
+checks.
+
+If the connector's user does not have permissions to find stuff in such collection, it
+should not render the status `?status_disconnected`.
+""".
+t_connector_health_check_permission_denied(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{
+            <<"username">> => <<"user1">>,
+            <<"password">> => <<"abc123">>,
+            <<"auth_source">> => <<"mqtt">>
+        })
     ),
     ok.
