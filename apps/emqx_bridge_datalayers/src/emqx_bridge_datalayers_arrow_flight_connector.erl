@@ -81,10 +81,8 @@ on_start(
         parameters := #{
             username := Username,
             password := Password,
-            database := _Database,
-            enable_prepared := EnablePrepared
+            database := _Database
         } = _Parameters,
-        pool_size := PoolSize,
         ssl := SSL
     }
 ) ->
@@ -96,28 +94,38 @@ on_start(
         connector => InstId,
         config => emqx_utils:redact(Config)
     }),
-    %% TODO: Handle SSL options properly
-    SslOpts =
-        case maps:get(enable, SSL) of
-            true -> #{};
-            false -> #{}
-        end,
-    ConnConfig =
-        maps:merge(
-            #{
+    case ssl_opts(InstId, SSL) of
+        SslOpts when is_map(SslOpts) ->
+            ?SLOG(debug, #{
+                msg => "ssl_options_for_datalayers_arrow_flight_connector",
+                ssl_opts => SslOpts
+            }),
+            ConnConfig = SslOpts#{
                 host => bin(Host),
                 port => Port,
-                username => Username,
+                username => bin(Username),
                 password => Password
             },
-            SslOpts
-        ),
+            do_start(InstId, ConnConfig, Config);
+        {error, _Reason} = Err ->
+            Err
+    end.
+
+do_start(
+    InstId,
+    ConnConfig,
+    Config = #{
+        parameters := #{
+            enable_prepared := EnablePrepared
+        } = _Parameters,
+        pool_size := PoolSize
+    }
+) ->
     PoolOpts = [
         {conn_config, ConnConfig},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize}
     ],
-
     InitState = #{
         channels => #{},
         enable_prepared => EnablePrepared
@@ -378,7 +386,7 @@ render_row(RowTemplate, Data, ChannelState) ->
 
 connect(Opts) ->
     #{password := Password} = Config = proplists:get_value(conn_config, Opts),
-    datalayers:connect(Config#{password => emqx_secret:unwrap(Password)}).
+    datalayers:connect(Config#{password => bin(emqx_secret:unwrap(Password))}).
 
 call_driver(Client, {_QueryMode, true} = FuncMode, Args0) ->
     [PreparedRefs | Args] = Args0,
@@ -520,6 +528,17 @@ prepare_sql_to_conn(Client, SqlStatement) ->
 
 close_statement_on_conn(Client, PrepareRef) ->
     datalayers:close_prepared(Client, PrepareRef).
+
+ssl_opts(InstId, #{enable := true, verify := verify_none}) ->
+    ?SLOG(error, #{msg => "ssl_verify_none_not_supported", connector => InstId}),
+    {error, verify_none_not_supported};
+ssl_opts(InstId, #{enable := true} = SSL) when not is_map_key(cacertfile, SSL) ->
+    ?SLOG(error, #{msg => "cacertfile_is_required", connector => InstId}),
+    {error, ssl_cacertfile_is_required};
+ssl_opts(_InstId, #{enable := true, cacertfile := CacertFile} = _SSL) ->
+    #{tls_cert => bin(CacertFile)};
+ssl_opts(_InstId, _) ->
+    #{}.
 
 bin(Bin) when is_binary(Bin) ->
     Bin;

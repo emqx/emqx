@@ -15,8 +15,9 @@ services:
       DATALAYERS_SERVER__TLS__KEY: "/etc/datalayers/key.pem"
       DATALAYERS_SERVER__TLS__CERT: "/etc/datalayers/cert.pem"
     volumes:
-      - ./certs/server.crt:/etc/datalayers/cert.pem
-      - ./certs/server.key:/etc/datalayers/key.pem
+      - ./certs/ca.crt:/etc/datalayers/cacert.pem
+      - ./datalayers/server.crt:/etc/datalayers/cert.pem
+      - ./datalayers/server.key:/etc/datalayers/key.pem
     restart: always
     networks:
       - emqx_bridge
