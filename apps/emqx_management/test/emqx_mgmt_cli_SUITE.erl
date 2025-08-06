@@ -193,10 +193,11 @@ t_log(_Config) ->
 
 t_trace(_Config) ->
     %% trace list                                        # List all traces started on local node
-    emqx_ctl:run_command(["trace", "list"]),
+    ok = emqx_ctl:run_command(["trace", "list"]),
     %% trace start client <ClientId> <File> [<Level>]    # Traces for a client on local node
     %% trace stop  client <ClientId>                     # Stop tracing for a client on local node
     ok = emqx_ctl:run_command(["trace", "start", "client", ?MODULE_STRING, "trace/t1.log"]),
+    ok = emqx_ctl:run_command(["trace", "list"]),
     ok = emqx_ctl:run_command(["trace", "stop", "client", ?MODULE_STRING]),
     %% trace start topic  <Topic>    <File> [<Level>]    # Traces for a topic on local node
     %% trace stop  topic  <Topic>                        # Stop tracing for a topic on local node
