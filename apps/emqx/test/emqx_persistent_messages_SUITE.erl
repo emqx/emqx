@@ -84,7 +84,9 @@ common_init_per_testcase(TestCase, Config, Opts0) ->
         work_dir => emqx_cth_suite:work_dir(TestCase, Config),
         start_emqx_conf => false
     },
-    emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts).
+    Result = emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts),
+    ok = emqx_persistent_message:wait_readiness(5_000),
+    Result.
 
 end_per_testcase(_TestCase, Config) ->
     emqx_common_test_helpers:call_janitor(60_000),

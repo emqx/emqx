@@ -948,8 +948,8 @@ t_fuzz(_Config) ->
                     emqx_persistent_session_ds_fuzzer:print_cmds(Cmds)
                 ]),
                 %% Initialize the system:
-                emqx_persistent_message:init([]),
                 emqx_persistent_session_ds_fuzzer:cleanup(),
+                drop_all_ds_messages(),
                 %% Run test:
                 {_History, State, Result} = proper_statem:run_commands(
                     emqx_persistent_session_ds_fuzzer, Cmds
@@ -964,9 +964,7 @@ t_fuzz(_Config) ->
                 ct:log("*** Result:~n  ~p~n", [Result]),
                 Result =:= ok orelse error(Result)
             after
-                ok = emqx_persistent_session_ds_fuzzer:cleanup(),
-                timer:sleep(10),
-                ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB)
+                ok = emqx_persistent_session_ds_fuzzer:cleanup()
             end,
             [
                 fun emqx_persistent_session_ds_fuzzer:tprop_packet_id_history/1,
@@ -1434,6 +1432,7 @@ t_ds_resubscribe(_Config) ->
                 ?match_event(#{?snk_kind := ?sessds_sched_subscribe})
             ),
             ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, emqx_persistent_message:get_db_config()),
+            ok = emqx_ds:wait_db(?PERSISTENT_MESSAGE_DB, all, infinity),
             %% Publish a message to verify that session resubscribed
             %% from the correct point:
             {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"2">>, ?QOS_1),
@@ -1593,4 +1592,17 @@ start_local(TestCase, Config0) ->
             ct:pal("Stopping apps ~p", [Config]),
             emqx_common_test_helpers:stop_apps_ds(Config)
         end,
+    ok = emqx_persistent_message:wait_readiness(5_000),
     [{cleanup, Cleanup} | Config].
+
+%% This function cleans up `messages' DB by rotating generations.
+drop_all_ds_messages() ->
+    DB = ?PERSISTENT_MESSAGE_DB,
+    OldSlabs = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    ok = emqx_ds:add_generation(DB),
+    lists:foreach(
+        fun(Slab) ->
+            ok = emqx_ds:drop_generation(DB, Slab)
+        end,
+        OldSlabs
+    ).

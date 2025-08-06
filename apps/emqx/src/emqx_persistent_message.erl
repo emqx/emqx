@@ -10,8 +10,14 @@
 -include("emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([start_link/0, init/1, handle_continue/2, handle_call/3, handle_cast/2]).
--export([is_persistence_enabled/0, is_persistence_enabled/1, force_ds/1, get_db_config/0]).
+-export([start_link/0, init/1, terminate/2, handle_continue/2, handle_call/3, handle_cast/2]).
+-export([
+    is_persistence_enabled/0,
+    wait_readiness/1,
+    is_persistence_enabled/1,
+    force_ds/1,
+    get_db_config/0
+]).
 
 %% Config handler
 -export([add_handler/0, pre_config_update/3]).
@@ -23,7 +29,39 @@
 
 -include("emqx_persistent_message.hrl").
 
+-define(optvar_ready, emqx_persistent_message_ready).
+
 %%--------------------------------------------------------------------
+
+-doc """
+This function returns when EMQX has finished initializing databases
+needed for durable sessions.
+
+This is a temporary solution that is meant to work around a problem
+related to the EMQX startup sequence: before cluster discovery begins,
+EMQX for some reason waits for the full startup of the applications.
+It cannot occur if the DS databases are configured to wait for a
+certain number of replicas.
+
+As a temporary solution, we let EMQX start without waiting for durable
+storages. Once EMQX startup sequence is fixed and split into
+reasonable stages, this function should be removed, and creation of
+durable storages should become a prerequisite for start of EMQX
+business applications.
+""".
+-spec wait_readiness(timeout()) -> ok | disabled.
+wait_readiness(Timeout) ->
+    case is_persistence_enabled() of
+        true ->
+            case optvar:read(?optvar_ready, Timeout) of
+                {ok, _} ->
+                    ok;
+                Err ->
+                    Err
+            end;
+        false ->
+            disabled
+    end.
 
 -spec is_persistence_enabled() -> boolean().
 is_persistence_enabled() ->
@@ -87,6 +125,7 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_) ->
+    process_flag(trap_exit, true),
     Zones = maps:keys(emqx_config:get([zones])),
     IsEnabled = lists:any(fun is_persistence_enabled/1, Zones),
     persistent_term:put(?PERSISTENCE_ENABLED, IsEnabled),
@@ -121,7 +160,11 @@ handle_continue(real_init, State) ->
     %% FIXME:
     ok = emqx_ds:wait_db(sessions, all, infinity),
     emqx_persistent_session_ds_sup:on_dbs_up(),
-    {stop, normal, State}.
+    optvar:set(?optvar_ready, true),
+    {noreply, State}.
+
+terminate(_, _) ->
+    optvar:unset(?optvar_ready).
 
 handle_call(_, _, State) ->
     {reply, {error, unknown_call}, State}.
