@@ -770,9 +770,15 @@ update_db_config(DB, Opts) ->
 list_generations_with_lifetimes(DB) ->
     ?module(DB):list_generations_with_lifetimes(DB).
 
--spec drop_generation(db(), generation()) -> ok | {error, _}.
-drop_generation(DB, GenId) ->
-    ?module(DB):drop_generation(DB, GenId).
+-doc """
+Delete an entire slab `Slab` from the database `DB`.
+
+This operation is the most efficient way to delete data.
+""".
+-spec drop_generation(db(), slab()) -> ok | {error, _}.
+drop_generation(DB, Slab) ->
+    %% TODO: rename to `drop_slab'
+    ?module(DB):drop_generation(DB, Slab).
 
 -doc """
 Drop DB and destroy all data stored there.
