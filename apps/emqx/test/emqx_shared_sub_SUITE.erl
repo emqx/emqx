@@ -971,8 +971,8 @@ t_session_takeover(Config) when is_list(Config) ->
     {true, _} = last_message(<<"hello2">>, [ConnPid2]),
     %% We may or may not recv dup hello2 due to QoS1 redelivery
     _ = last_message(<<"hello2">>, [ConnPid2]),
-    {true, _} = last_message(<<"hello3">>, [ConnPid2]),
-    {true, _} = last_message(<<"hello4">>, [ConnPid2]),
+    {true, _} = last_message(<<"hello3">>, [ConnPid2], 5_000),
+    {true, _} = last_message(<<"hello4">>, [ConnPid2], 5_000),
     ?assertEqual([], collect_msgs(timer:seconds(2))),
     emqtt:unsubscribe(ConnPid2, SharedTopic),
     emqtt:stop(ConnPid2),

@@ -142,8 +142,23 @@ defmodule Mix.Tasks.Emqx.Eunit do
   end
 
   defp discover_tests(%{cases: [], modules: []} = _opts) do
+    ## `eunit` is problematic here: the docs says that `{application, _}` uses the
+    ## application's `.app` file to discover modules.  However, if we use just that,
+    ## `eunit` sees both `mod` and `mod_test` in `.app`, and then decides to also add
+    ## `mod_test` _again_, duplicating the tests being run.  So, as a workaround to this
+    ## bug, we need to explicitly enumerate all modules.
+    ##
+    ## Also, just enumerating all modules yield the same behavior.  We need to check if
+    ## both `mod` and `mod_tests` exist, and remove the latter, since `eunit` will
+    ## **always** add `mod_tests` given `mod`.
     Mix.Dep.Umbrella.cached()
-    |> Enum.map(&{:application, &1.app})
+    |> Enum.map(fn dep ->
+      modules =
+        dep.opts[:app_properties][:modules]
+        |> dedup_test_modules()
+
+      {:application, dep.app, modules: modules}
+    end)
   end
 
   defp discover_tests(%{cases: cases, modules: modules}) do
@@ -151,5 +166,31 @@ defmodule Mix.Tasks.Emqx.Eunit do
       cases,
       Enum.map(modules, &{:module, &1})
     ])
+  end
+
+  ## We need to check if both `mod` and `mod_tests` exist, and remove the latter, since
+  ## `eunit` will **always** add `mod_tests` given `mod`.
+  defp dedup_test_modules(modules) do
+    re = ~r/_tests$/
+
+    {test_modules, normal_modules} =
+      Enum.split_with(modules, fn mod ->
+        to_string(mod) =~ re
+      end)
+
+    Enum.reduce(test_modules, normal_modules, fn test_mod, acc ->
+      base_mod =
+        test_mod
+        |> to_string()
+        |> String.replace(re, "")
+        |> String.to_atom()
+
+      if base_mod in acc do
+        # don't add `mod_tests`, otherwise `eunit` will duplicate it
+        acc
+      else
+        [test_mod | acc]
+      end
+    end)
   end
 end

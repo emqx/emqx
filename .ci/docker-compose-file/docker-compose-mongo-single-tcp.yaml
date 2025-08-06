@@ -13,3 +13,34 @@ services:
     command:
       --ipv6
       --bind_ip_all
+
+  mongo_single_setup:
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
+    container_name: mongo_single_setup
+    networks:
+      - emqx_bridge
+    depends_on:
+      - mongo_server
+    restart: on-failure:3
+    command:
+      - /bin/bash
+      - -c
+      - |
+        while ! mongo --host mongo --eval 'db.runCommand("ping").ok' --quiet > /dev/null 2>&1; do
+            sleep 1
+        done
+        cat <<EOF >cmds.js
+          use mqtt
+          db.createRole({role: "role1", privileges: [], roles: []})
+          db.createUser({user: "user1", pwd: "abc123", roles: [{role: "role1", db: "mqtt"}]})
+        EOF
+        mongo --host mongo -u emqx -p passw0rd < cmds.js
+
+  mongo_single_setup_done:
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
+    networks:
+      - emqx_bridge
+    restart: no
+    depends_on:
+      mongo_single_setup:
+        condition: service_completed_successfully

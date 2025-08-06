@@ -536,8 +536,7 @@ trace(["list"]) ->
             emqx_ctl:print("Trace is empty~n", []);
         Traces ->
             lists:foreach(
-                fun(Trace) ->
-                    #{type := Type, filter := Filter, level := Level, dst := Dst} = Trace,
+                fun(#{filter := {Type, Filter}, level := Level, dst := Dst}) ->
                     emqx_ctl:print("Trace(~s=~s, level=~s, destination=~0p)~n", [
                         Type, Filter, Level, Dst
                     ])
