@@ -398,8 +398,7 @@ producer_overrides() ->
             ),
         %% NOTE: field 'kafka' is renamed to 'parameters' since e5.3.1
         %% We will keep 'kafka' for backward compatibility.
-        %% TODO: delete this override when we upgrade bridge schema json to 0.2.0
-        %% See emqx_conf:bridge_schema_json/0
+        %% TODO: delete this override when we stop supporting v1 bridge schema
         kafka =>
             mk(ref(producer_kafka_opts), #{
                 required => true,

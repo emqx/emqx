@@ -42,8 +42,15 @@ t_hotconf(_) ->
     _ = emqx_utils_json:decode(Body),
     ok.
 
-t_bridges(_) ->
-    Url = ?SERVER ++ "/schemas/bridges",
+t_actions(_) ->
+    Url = ?SERVER ++ "/schemas/actions",
+    {ok, 200, Body} = request(get, Url),
+    %% assert it's a valid json
+    _ = emqx_utils_json:decode(Body),
+    ok.
+
+t_connectors(_) ->
+    Url = ?SERVER ++ "/schemas/connectors",
     {ok, 200, Body} = request(get, Url),
     %% assert it's a valid json
     _ = emqx_utils_json:decode(Body),
