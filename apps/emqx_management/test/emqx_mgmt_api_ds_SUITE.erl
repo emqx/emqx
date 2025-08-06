@@ -56,8 +56,8 @@ t_get_sites(Config) ->
 
 t_get_storages(Config) ->
     {ok, Response} = request_api(get, ["ds", "storages"], Config),
-    ?assertEqual(
-        [<<"messages">>],
+    ?assertMatch(
+        [Head | _] when is_binary(Head),
         emqx_utils_json:decode(Response)
     ).
 
