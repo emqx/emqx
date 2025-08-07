@@ -459,7 +459,6 @@ init([]) ->
         {attributes, Fields}
     ]),
     ok = mria:wait_for_tables([?TRACE]),
-    maybe_migrate_trace(Fields),
     {ok, _} = mnesia:subscribe({table, ?TRACE, simple}),
     ok = filelib:ensure_dir(filename:join([trace_dir(), dummy])),
     ok = filelib:ensure_dir(filename:join([zip_dir(), dummy])),
@@ -805,32 +804,6 @@ filter_cli_handler(Names) ->
 
 now_second() ->
     os:system_time(second).
-
-maybe_migrate_trace(Fields) ->
-    case mnesia:table_info(emqx_trace, attributes) =:= Fields of
-        true ->
-            ok;
-        false ->
-            TransFun = fun(Trace) ->
-                case Trace of
-                    {?TRACE, Name, Type, Filter, Enable, StartAt, EndAt} ->
-                        #?TRACE{
-                            name = Name,
-                            type = Type,
-                            filter = Filter,
-                            enable = Enable,
-                            start_at = StartAt,
-                            end_at = EndAt,
-                            payload_encode = text,
-                            extra = #{}
-                        };
-                    #?TRACE{} ->
-                        Trace
-                end
-            end,
-            {atomic, ok} = mnesia:transform_table(?TRACE, TransFun, Fields, ?TRACE),
-            ok
-    end.
 
 %% Tests
 
