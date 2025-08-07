@@ -289,7 +289,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:datalayers),
     do: {
       :datalayers,
-      github: "JimMoen/datalayers-adapter-erl", branch: "fix-empty-batch-bail", override: true
+      github: "JimMoen/datalayers-adapter-erl",
+      branch: "0807-feat-null-and-tls-test",
+      override: true
     }
 
   def emqx_app_system_env() do
