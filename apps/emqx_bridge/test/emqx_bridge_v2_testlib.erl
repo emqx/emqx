@@ -1021,6 +1021,21 @@ create_rule_api2(Params, Opts) ->
         auth_header => AuthHeader
     }).
 
+simple_create_rule_api(TCConfig) ->
+    simple_create_rule_api(<<"select * from \"${t}\" ">>, TCConfig).
+
+simple_create_rule_api(SQL, TCConfig) ->
+    #{rule_action_id := ActionId} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    RuleTopic = <<"t">>,
+    {201, #{<<"id">> := RuleId}} = emqx_bridge_v2_testlib:create_rule_api2(
+        #{
+            <<"sql">> => emqx_bridge_v2_testlib:fmt(SQL, #{t => RuleTopic}),
+            <<"actions">> => [ActionId],
+            <<"description">> => <<"bridge_v2 test rule">>
+        }
+    ),
+    #{topic => RuleTopic, id => RuleId}.
+
 delete_rule_api(RuleId) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules", RuleId]),
     simplify_result(request(delete, Path, "")).
@@ -1140,12 +1155,15 @@ get_common_values(Config) ->
     Kind = proplists:get_value(bridge_kind, Config, action),
     case Kind of
         action ->
+            Type = get_ct_config_with_fallback(Config, [action_type, bridge_type]),
+            Name = get_ct_config_with_fallback(Config, [action_name, bridge_name]),
             #{
                 resource_namespace => proplists:get_value(resource_namespace, Config, ?global_ns),
                 conf_root_key => actions,
                 kind => Kind,
-                type => get_ct_config_with_fallback(Config, [action_type, bridge_type]),
-                name => get_ct_config_with_fallback(Config, [action_name, bridge_name]),
+                rule_action_id => emqx_bridge_resource:bridge_id(Type, Name),
+                type => Type,
+                name => Name,
                 connector_type => get_value(connector_type, Config),
                 connector_name => get_value(connector_name, Config)
             };
