@@ -10,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("kernel/include/file.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -370,3 +371,145 @@ t_empty_trace_log_file(_Config) ->
         end,
         []
     ).
+
+t_stream_continuity(_Config) ->
+    %% Configure relatively low size limit:
+    MaxSize = 10 * 1024,
+    PayloadLimit = 400,
+    StreamLimit = 512,
+    MaxSizeDefault = emqx_config:get([trace, max_file_size]),
+    ok = emqx_config:put([trace, max_file_size], MaxSize),
+    %% Start a trace:
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Name = <<"test_", ClientId/binary>>,
+    {ok, _} = emqx_trace:create(#{
+        name => Name,
+        filter => {clientid, ClientId},
+        payload_limit => PayloadLimit
+    }),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    %% Start a log stream:
+    {ok, Bin1, {_, Cursor1}} = emqx_trace:stream_log(Name, start, StreamLimit),
+    %% Publish a few messages containing incrementing counter:
+    [
+        {ok, _} = emqtt:publish(Client, <<"counter">>, integer_to_binary(I), qos1)
+     || I <- lists:seq(1, 10)
+    ],
+    %% Trigger filesync:
+    {ok, #{size := TotalSize}} = emqx_trace:log_details(Name),
+    %% Continue reading the stream:
+    {Bins, Cursor2} = stream_until_eof(Name, Cursor1, StreamLimit),
+    %% Verify that "tailing" the file works:
+    {ok, <<>>, {eof, Cursor3}} = emqx_trace:stream_log(Name, {cont, Cursor2}, undefined),
+    %% Verify continuity:
+    Content = [Bin1 | Bins],
+    ?assertEqual(TotalSize, iolist_size(Content), Content),
+    ?assertEqual(
+        [integer_to_binary(I) || I <- lists:seq(1, 10)],
+        trace_extract_payloads(Content)
+    ),
+    %% Publish more than max file size allows:
+    [
+        {ok, _} = emqtt:publish(Client, <<"counter">>, integer_to_binary(I), qos1)
+     || I <- lists:seq(11, 100)
+    ],
+    %% Trigger filesync:
+    {ok, #{}} = emqx_trace:log_details(Name),
+    %% Stream observes discontinuity:
+    ?assertMatch(
+        {error, {file_error, Reason}} when Reason == enoent; Reason == stale,
+        emqx_trace:stream_log(Name, {cont, Cursor3}, undefined)
+    ),
+    %% Cleanup:
+    ok = emqx_trace:delete(Name),
+    ok = emqtt:disconnect(Client),
+    ok = emqx_config:put([trace, max_file_size], MaxSizeDefault).
+
+t_stream_tailf(_Config) ->
+    TCPid = self(),
+    %% Configure relatively low size limit:
+    MaxSize = 10 * 1024,
+    PayloadLimit = 400,
+    StreamLimit = 1024,
+    MaxSizeDefault = emqx_config:get([trace, max_file_size]),
+    ok = emqx_config:put([trace, max_file_size], MaxSize),
+    %% Start a trace:
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Name = <<"test_", ClientId/binary>>,
+    {ok, _} = emqx_trace:create(#{
+        name => Name,
+        filter => {clientid, ClientId},
+        payload_limit => PayloadLimit
+    }),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    %% Spawn a log stream receiver:
+    Receiver = fun Receiver(Cursor0, Acc0) ->
+        {Bins, Cursor} = stream_until_eof(Name, Cursor0, StreamLimit),
+        Acc = [Acc0 | Bins],
+        receive
+            {TCPid, stop} ->
+                exit({received, Acc})
+        after 1 ->
+            Receiver(Cursor, Acc)
+        end
+    end,
+    {ReceiverPid, MRef} = spawn_monitor(fun() ->
+        Receiver(start, [])
+    end),
+    %% Publish a lot of messages:
+    lists:foreach(
+        fun(I) ->
+            ok = timer:sleep(1),
+            {ok, _} = emqtt:publish(Client, <<"c">>, integer_to_binary(I), qos1)
+        end,
+        lists:seq(1, 100)
+    ),
+    ok = timer:sleep(100),
+    %% Trigger filesync:
+    {ok, #{size := CurrentSize}} = emqx_trace:log_details(Name),
+    %% Ask the receiver to stop and hand us the log stream it has accumulated:
+    ReceiverPid ! {self(), stop},
+    Signal = ?assertReceive({'DOWN', MRef, process, _Pid, {received, _}}),
+    {received, Content} = element(5, Signal),
+    ?assertEqual(
+        [integer_to_binary(I) || I <- lists:seq(1, 100)],
+        trace_extract_payloads(Content)
+    ),
+    %% We were able to stream much more than what is currently used by the log:
+    ?assert(
+        CurrentSize < iolist_size(Content),
+        {CurrentSize, iolist_size(Content)}
+    ),
+    %% Cleanup:
+    ok = emqx_trace:delete(Name),
+    ok = emqtt:disconnect(Client),
+    ok = emqx_config:put([trace, max_file_size], MaxSizeDefault).
+
+trace_extract_payloads(TraceContent) ->
+    Lines = string:split(TraceContent, "\n", all),
+    [
+        M
+     || L <- Lines,
+        {match, [M]} <- [re:run(L, "payload: ([0-9]+)", [{capture, all_but_first, binary}])]
+    ].
+
+stream_until_eof(Name, Cursor0, Limit) ->
+    case Cursor0 of
+        start ->
+            Cont = start;
+        _ ->
+            Cont = {cont, Cursor0}
+    end,
+    case emqx_trace:stream_log(Name, Cont, Limit) of
+        {ok, Bin, {eof, CursorLast}} ->
+            {[Bin], CursorLast};
+        {ok, Bin, {X, Cursor}} ->
+            case X of
+                retry -> timer:sleep(10);
+                cont -> ok
+            end,
+            {Acc, CursorLast} = stream_until_eof(Name, Cursor, Limit),
+            {[Bin | Acc], CursorLast}
+    end.
