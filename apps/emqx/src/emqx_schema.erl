@@ -1816,7 +1816,6 @@ fields("durable_sessions") ->
             sc(
                 boolean(), #{
                     desc => ?DESC(durable_sessions_enable),
-                    %% importance => ?IMPORTANCE_NO_DOC,
                     default => false
                 }
             )},
@@ -1835,45 +1834,22 @@ fields("durable_sessions") ->
                     mapping => "emqx_durable_session.poll_batch_size"
                 }
             )},
-        {"idle_poll_interval",
+        {"checkpoint_interval",
             sc(
                 timeout_duration(),
                 #{
-                    default => <<"10s">>,
-                    desc => ?DESC(session_ds_idle_poll_interval)
+                    default => <<"5s">>,
+                    desc => ?DESC(session_ds_checkpoint_interval),
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {"heartbeat_interval",
+        {"commit_timeout",
             sc(
                 timeout_duration(),
                 #{
-                    default => <<"5000ms">>,
-                    desc => ?DESC(session_ds_heartbeat_interval)
-                }
-            )},
-        {"renew_streams_interval",
-            sc(
-                timeout_duration(),
-                #{
-                    default => <<"1s">>,
+                    default => <<"5s">>,
+                    desc => ?DESC(session_ds_commit_timeout),
                     importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        {"session_gc_interval",
-            sc(
-                timeout_duration(),
-                #{
-                    default => <<"10m">>,
-                    desc => ?DESC(session_ds_session_gc_interval)
-                }
-            )},
-        {"session_gc_batch_size",
-            sc(
-                pos_integer(),
-                #{
-                    default => 100,
-                    importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(session_ds_session_gc_batch_size)
                 }
             )},
         {"subscription_count_refresh_interval",

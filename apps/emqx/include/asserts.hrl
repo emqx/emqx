@@ -55,10 +55,14 @@
 ).
 
 -define(assertNotReceive(PATTERN),
-    ?assertNotReceive(PATTERN, 300)
+    ?assertNotReceive(PATTERN, 300, undefined)
 ).
 
 -define(assertNotReceive(PATTERN, TIMEOUT),
+    ?assertNotReceive(PATTERN, TIMEOUT, undefined)
+).
+
+-define(assertNotReceive(PATTERN, TIMEOUT, COMMENT),
     (fun() ->
         receive
             X__V = PATTERN ->
@@ -67,7 +71,8 @@
                         {module, ?MODULE},
                         {line, ?LINE},
                         {expression, (??PATTERN)},
-                        {message, X__V}
+                        {message, X__V},
+                        {comment, COMMENT}
                     ]}
                 )
         after TIMEOUT ->

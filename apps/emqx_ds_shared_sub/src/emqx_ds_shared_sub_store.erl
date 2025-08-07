@@ -101,13 +101,14 @@
 %%
 
 open() ->
-    emqx_ds:open_db(?DS_DB, db_config()).
+    ok = emqx_ds:open_db(?DS_DB, db_config()),
+    emqx_ds:wait_db(?DS_DB, all, infinity).
 
 close() ->
     emqx_ds:close_db(?DS_DB).
 
 db_config() ->
-    Config = emqx_ds_schema:db_config([durable_storage, queues]),
+    Config = emqx_ds_schema:db_config_shared_subs(),
     tune_db_config(Config).
 
 tune_db_config(Config0 = #{backend := Backend}) ->
@@ -750,7 +751,7 @@ select_fold(#select{it = undefined}, _, _Fun, Acc) ->
 select_fold(It = #select{it = DSIt0}, N, Fun, Acc0) ->
     case emqx_ds:next(?DS_DB, DSIt0, N) of
         {ok, DSIt, Messages} ->
-            Acc = lists:foldl(fun({_Key, Msg}, Acc) -> Fun(Msg, Acc) end, Acc0, Messages),
+            Acc = lists:foldl(fun(Msg, Acc) -> Fun(Msg, Acc) end, Acc0, Messages),
             case length(Messages) of
                 N ->
                     {Acc, It#select{it = DSIt}};
@@ -831,7 +832,7 @@ ds_stream_fold(Fun, Acc0, It0) ->
     %% TODO: Gracefully handle `emqx_ds:error(_)`?
     case emqx_ds:next(?DS_DB, It0, ?STORE_BATCH_SIZE) of
         {ok, It, Messages = [_ | _]} ->
-            Acc1 = lists:foldl(fun({_Key, Msg}, Acc) -> Fun(Msg, Acc) end, Acc0, Messages),
+            Acc1 = lists:foldl(fun(Msg, Acc) -> Fun(Msg, Acc) end, Acc0, Messages),
             ds_stream_fold(Fun, Acc1, It);
         {ok, It, []} ->
             {It, Acc0};

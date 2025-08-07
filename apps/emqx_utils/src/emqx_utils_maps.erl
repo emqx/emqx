@@ -41,7 +41,8 @@
     unindent/2,
     unsafe_atom_key_map/1,
     update_if_present/3,
-    printable_props/1
+    printable_props/1,
+    find_key/2
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -401,6 +402,25 @@ printable_props(Headers) ->
         #{'User-Property' => #{}},
         Headers
     ).
+
+-doc """
+Inverse of `maps:find'. Search for the key that has the given value.
+If there are multiple keys that have the matching value, it returns
+any of them.
+""".
+-spec find_key(Value, #{Key => Value}) -> {ok, Key} | undefined.
+find_key(Value, Map) ->
+    Go = fun Go(Val, It0) ->
+        case maps:next(It0) of
+            {Key, Val, _} ->
+                {ok, Key};
+            {_, _, It} ->
+                Go(Val, It);
+            none ->
+                undefined
+        end
+    end,
+    Go(Value, maps:iterator(Map)).
 
 ntoa(undefined) ->
     undefined;

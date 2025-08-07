@@ -22,10 +22,13 @@
     %% Update the table:
     batch_put/6,
     batch_delete/5,
+    delete_key_range/6,
 
     %% Reading:
     lookup_message/3,
-    fold/7
+    fold/7,
+    %% Iteration over topics:
+    fold_topic_index/9
 ]).
 
 -export_type([
@@ -43,6 +46,8 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+-elvis([{elvis_style, no_if_expression, disable}]).
 
 %%================================================================================
 %% Type declarations
@@ -282,6 +287,42 @@ batch_delete(#s{data_cf = DataCF, hash_bytes = HashBytes}, Batch, Static, Varyin
     MasterKey = mk_master_key(Static, StreamKey),
     ok = rocksdb:batch_delete(Batch, DataCF, MasterKey).
 
+%% @doc Delete a half-open interval `[From, To)' of stream keys in the
+%% given topic. This function only works with concrete topics; there's
+%% no support for wildcards of any kind.
+-spec delete_key_range(
+    s(),
+    emqx_ds_lts:static_key(),
+    [emqx_ds_lts:level()],
+    stream_key(),
+    stream_key(),
+    %% rocksdb:write_options(),
+    _WriteOptions
+) -> ok.
+delete_key_range(#s{db = DB, data_cf = DataCF}, Static, Varying, From, To, WriteOpts) ->
+    %% Delete indexes
+    _ = lists:foldl(
+        fun(WCHash, WcLevel) ->
+            rocksdb:delete_range(
+                DB,
+                DataCF,
+                mk_index_key(Static, WcLevel, WCHash, From),
+                mk_index_key(Static, WcLevel, WCHash, To),
+                WriteOpts
+            )
+        end,
+        1,
+        Varying
+    ),
+    %% Delete the payloads:
+    rocksdb:delete_range(
+        DB,
+        DataCF,
+        mk_master_key(Static, From),
+        mk_master_key(Static, To),
+        WriteOpts
+    ).
+
 %% @doc Compose a RocksDB key for data or index from the parts.
 -spec mk_key(emqx_ds_lts:static_key(), wildcard_idx(), wildcard_hash(), stream_key()) ->
     binary().
@@ -431,6 +472,54 @@ fold(
         free_iterators(PerLevelIterators),
         _ = rocksdb:release_snapshot(Snapshot),
         collect_counters(DBShard)
+    end.
+
+-doc """
+Loop over all known topic hashes at a particular index level,
+that have data in the range of `From' .. `To'.
+
+WARNING: in the worst case this function will iterate over _all_ knwon topics,
+even the ones not containing any data in the stream key range.
+""".
+-spec fold_topic_index(
+    s(),
+    emqx_ds_lts:static_key(),
+    pos_integer(),
+    stream_key(),
+    stream_key(),
+    integer(),
+    integer(),
+    fun((_TopicLevelHash, Acc) -> Acc),
+    Acc
+) -> {ok, integer() | undefined, Acc}.
+fold_topic_index(
+    #s{db = DB, data_cf = DataCF, hash_bytes = HashBytes},
+    Static,
+    WildcardLevel,
+    From,
+    To,
+    StartFrom,
+    Limit,
+    Fun,
+    Acc
+) when
+    WildcardLevel > 0
+->
+    KeyPrefix = <<Static/binary, WildcardLevel:?wcb/big>>,
+    {ok, ItHandle} = rocksdb:iterator(
+        DB,
+        DataCF,
+        [
+            {iterate_lower_bound, KeyPrefix},
+            {iterate_upper_bound, <<Static/binary, (WildcardLevel + 1):?wcb/big>>}
+        ]
+    ),
+    try
+        do_fold_topic_index(
+            KeyPrefix, HashBytes * 8, ItHandle, From, To, StartFrom, Limit, Fun, Acc
+        )
+    after
+        rocksdb:iterator_close(ItHandle)
     end.
 
 %%================================================================================
@@ -590,7 +679,10 @@ fold_loop(Ctx, SK0, BatchSize, Op, Acc0) ->
                     fold_loop(Ctx, SK, BatchSize - 1, next, Acc);
                 false ->
                     fold_loop(Ctx, SK, BatchSize, next, Acc0)
-            end
+            end;
+        next ->
+            ?dbg(skipstream_invalid_index, #{r => next}),
+            fold_loop(Ctx, SK0, BatchSize, next, Acc0)
     end.
 
 fold_step(
@@ -644,7 +736,9 @@ fold_step(
                                     inc_counter(?DS_SKIPSTREAM_LTS_HIT),
                                     {ok, NextSK, CompressedTopic, Key, Timestamp, Payload};
                                 false ->
-                                    %% Hash collision. Advance to the
+                                    %% Hash collision or payload has
+                                    %% been deleted before the index
+                                    %% non-atomically. Advance to the
                                     %% next key:
                                     inc_counter(?DS_SKIPSTREAM_LTS_HASH_COLLISION),
                                     %% FIXME: this part is different
@@ -735,6 +829,42 @@ do_delete_index(Batch, CF, HashBytes, Static, N, [TopicLevel | Varying], StreamK
     do_delete_index(Batch, CF, HashBytes, Static, N + 1, Varying, StreamKey);
 do_delete_index(_Batch, _CF, _HashBytes, _Static, _N, [], _StreamKey) ->
     ok.
+
+do_fold_topic_index(_KeyPrefix, _HashBits, _It, _From, _To, HashCandidate, Limit, _Fun, Acc) when
+    Limit =:= 0
+->
+    {ok, HashCandidate, Acc};
+do_fold_topic_index(KeyPrefix, HashBits, It, From, To, HashCandidate, Limit0, Fun, Acc0) ->
+    CandidateKey = <<KeyPrefix/binary, HashCandidate:HashBits, From/binary>>,
+    case rocksdb:iterator_move(It, {seek, CandidateKey}) of
+        {error, invalid_iterator} ->
+            {ok, end_of_stream, Acc0};
+        {ok, <<_:(bit_size(KeyPrefix)), Hash:HashBits, StreamKey/binary>>, _} ->
+            if
+                StreamKey < From ->
+                    %% We enter this branch when HashCandiate doesn't
+                    %% exist or all its stream keys are less than
+                    %% `From'. In this case seek ends up _somewhere_
+                    %% in the range that belongs to the next hash
+                    %% candiate. We need to check it:
+                    Next = Hash,
+                    Acc = Acc0,
+                    Limit = Limit0;
+                StreamKey > To ->
+                    %% Stream key is out of range. Move to the next candidate:
+                    Next = Hash + 1,
+                    Acc = Acc0,
+                    Limit = Limit0;
+                true ->
+                    %% We ended up in the expected range of stream
+                    %% keys. Add match to the accumulator and move to
+                    %% the next candidate:
+                    Next = Hash + 1,
+                    Acc = Fun(<<Hash:HashBits>>, Acc0),
+                    Limit = Limit0 - 1
+            end,
+            do_fold_topic_index(KeyPrefix, HashBits, It, From, To, Next, Limit, Fun, Acc)
+    end.
 
 %% Key
 

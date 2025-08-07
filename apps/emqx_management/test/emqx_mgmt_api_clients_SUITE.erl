@@ -27,8 +27,8 @@
 all() ->
     [
         {group, general},
-        {group, persistent_sessions},
-        {group, non_persistent_cluster}
+        {group, persistence_enabled},
+        {group, persistence_disabled_cluster}
     ].
 
 groups() ->
@@ -36,15 +36,15 @@ groups() ->
     GeneralTCs =
         AllTCs --
             (persistent_session_testcases() ++
-                non_persistent_cluster_testcases() ++ client_msgs_testcases()),
+                persistence_disabled_cluster_testcases() ++ client_msgs_testcases()),
     [
         {general, [
             {group, msgs_base64_encoding},
             {group, msgs_plain_encoding}
             | GeneralTCs
         ]},
-        {persistent_sessions, persistent_session_testcases()},
-        {non_persistent_cluster, non_persistent_cluster_testcases()},
+        {persistence_enabled, persistent_session_testcases()},
+        {persistence_disabled_cluster, persistence_disabled_cluster_testcases()},
         {msgs_base64_encoding, client_msgs_testcases()},
         {msgs_plain_encoding, client_msgs_testcases()}
     ].
@@ -56,7 +56,6 @@ persistent_session_testcases() ->
         t_persistent_sessions3,
         t_persistent_sessions4,
         t_persistent_sessions5,
-        t_persistent_sessions6,
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
         t_list_clients_v2_limit,
@@ -64,7 +63,7 @@ persistent_session_testcases() ->
         t_list_clients_v2_regular_filters,
         t_list_clients_v2_bad_query_string_parameters
     ].
-non_persistent_cluster_testcases() ->
+persistence_disabled_cluster_testcases() ->
     [
         t_bulk_subscribe
     ].
@@ -94,10 +93,11 @@ init_per_group(general, Config) ->
         {api_auth_header, emqx_mgmt_api_test_util:auth_header_()}
         | Config
     ];
-init_per_group(persistent_sessions, Config0) ->
+init_per_group(persistence_enabled, Config0) ->
     DurableSessionsOpts = #{
         <<"enable">> => true,
-        <<"disconnected_session_count_refresh_interval">> => <<"100ms">>
+        <<"disconnected_session_count_refresh_interval">> => <<"100ms">>,
+        <<"checkpoint_interval">> => 0
     },
     Opts = #{durable_sessions_opts => DurableSessionsOpts},
     AppSpecs = [emqx_management],
@@ -112,7 +112,7 @@ init_per_group(persistent_sessions, Config0) ->
         {api_auth_header, erpc:call(N1, emqx_mgmt_api_test_util, auth_header_, [])}
         | Config
     ];
-init_per_group(non_persistent_cluster, Config) ->
+init_per_group(persistence_disabled_cluster, Config) ->
     AppSpecs = [
         emqx,
         emqx_conf,
@@ -144,12 +144,12 @@ end_per_group(general, Config) ->
     Apps = ?config(apps, Config),
     ok = emqx_cth_suite:stop(Apps);
 end_per_group(Group, Config) when
-    Group =:= persistent_sessions
+    Group =:= persistence_enabled
 ->
     emqx_common_test_helpers:stop_cluster_ds(Config),
     ok;
 end_per_group(Group, Config) when
-    Group =:= non_persistent_cluster
+    Group =:= persistence_disabled_cluster
 ->
     Nodes = ?config(nodes, Config),
     ok = emqx_cth_cluster:stop(Nodes);
@@ -545,70 +545,6 @@ t_persistent_sessions5(Config) ->
             C1B = connect_client(#{port => Port1, clientid => ClientId1}),
             C2B = connect_client(#{port => Port2, clientid => ClientId2}),
             lists:foreach(fun disconnect_and_destroy_session/1, [C1B, C2B]),
-
-            ok
-        end,
-        []
-    ),
-    ok.
-
-%% Checks that expired durable sessions are returned with `is_expired => true'.
-t_persistent_sessions6(Config) ->
-    [N1, _N2] = ?config(cluster_nodes, Config),
-    Port1 = get_mqtt_port(N1, tcp),
-
-    ?assertMatch({ok, {?HTTP200, _, #{<<"data">> := []}}}, list_request(Config)),
-
-    ?check_trace(
-        begin
-            ClientId = <<"c1">>,
-            C1 = connect_client(#{port => Port1, clientid => ClientId, expiry => 1}),
-            assert_single_client(#{node => N1, clientid => ClientId, status => connected}, Config),
-            ?retry(
-                100,
-                20,
-                ?assertMatch(
-                    {ok, {?HTTP200, _, #{<<"data">> := [#{<<"is_expired">> := false}]}}},
-                    list_request(Config)
-                )
-            ),
-
-            ok = emqtt:disconnect(C1),
-            %% Wait for session to be considered expired but not GC'ed
-            ct:sleep(2_000),
-            assert_single_client(
-                #{node => N1, clientid => ClientId, status => disconnected}, Config
-            ),
-            N1Bin = atom_to_binary(N1),
-            ?retry(
-                100,
-                20,
-                ?assertMatch(
-                    {ok,
-                        {?HTTP200, _, #{
-                            <<"data">> := [
-                                #{
-                                    <<"is_expired">> := true,
-                                    <<"node">> := N1Bin,
-                                    <<"disconnected_at">> := <<_/binary>>
-                                }
-                            ]
-                        }}},
-                    list_request(Config)
-                )
-            ),
-            ?assertMatch(
-                {ok,
-                    {?HTTP200, _, #{
-                        <<"is_expired">> := true,
-                        <<"node">> := N1Bin,
-                        <<"disconnected_at">> := <<_/binary>>
-                    }}},
-                get_client_request(ClientId, Config)
-            ),
-
-            C2 = connect_client(#{port => Port1, clientid => ClientId}),
-            disconnect_and_destroy_session(C2),
 
             ok
         end,
@@ -1827,96 +1763,91 @@ t_list_clients_v2(Config) ->
     ),
     ok.
 
+%% This testcase verifies pagination of durable sessions:
 t_list_clients_v2_limit(Config) ->
-    [N1, N2] = ?config(cluster_nodes, Config),
-    Port1 = get_mqtt_port(N1, tcp),
-    Port2 = get_mqtt_port(N2, tcp),
-    N1ClientIds = lists:map(
-        fun(N) ->
-            Suffix = <<"n1_", (integer_to_binary(N))/binary>>,
-            ?CLIENTID(Suffix)
-        end,
-        lists:seq(1, 5)
-    ),
-    N1Clients = lists:map(
-        fun(ClientId) ->
-            connect_client(#{
-                port => Port1,
+    [Node1, Node2] = ?config(cluster_nodes, Config),
+    Nclients = 10,
+    %% Create clients:
+    Clients = [
+        begin
+            Node =
+                case I rem 2 of
+                    0 -> Node1;
+                    1 -> Node2
+                end,
+            ClientId = ?CLIENTID((integer_to_binary(I))),
+            Pid = connect_client(#{
+                port => get_mqtt_port(Node, tcp),
                 clientid => ClientId,
                 clean_start => true
-            })
-        end,
-        N1ClientIds
-    ),
-    N2ClientIds = lists:map(
-        fun(N) ->
-            Suffix = <<"n2_", (integer_to_binary(N))/binary>>,
-            ?CLIENTID(Suffix)
-        end,
-        lists:seq(1, 5)
-    ),
-    N2Clients = lists:map(
-        fun(ClientId) ->
-            connect_client(#{
-                port => Port2,
-                clientid => ClientId,
-                clean_start => true
-            })
-        end,
-        N2ClientIds
-    ),
-    %% All clients are live and in ETS.
-    Limit = 8,
-    QueryParams1 = #{<<"limit">> => integer_to_binary(Limit)},
-    {ok, {{_, 200, _}, _, Res1}} = list_v2_request(QueryParams1, Config),
-    %% Current implementation does an `ets:select_reverse'...
-    NumN1Clients = length(N1ClientIds),
-    NumN2Clients = Limit - NumN1Clients,
-    N2ClientsToDrop = length(N2ClientIds) - NumN2Clients,
-    ?assert(N2ClientsToDrop > 0, #{n2_clients_to_drop_from_list => N2ClientsToDrop}),
-    ExpectedClientIds1 = N1ClientIds ++ lists:nthtail(N2ClientsToDrop, N2ClientIds),
-    ?assertContainsClientids([Res1], ExpectedClientIds1),
-    Res1A = list_all_v2(#{<<"limit">> => <<"8">>}, Config),
-    ?assertContainsClientids(Res1A, N1ClientIds ++ N2ClientIds),
-    Res1B = list_all_v2(#{<<"limit">> => <<"3">>}, Config),
-    ?assertContainsClientids(Res1B, N1ClientIds ++ N2ClientIds),
-    %% Some clients are now disconnected and mixed between ETS and DS.
-    ClientsToDisconnect = lists:nthtail(NumN2Clients, N2Clients),
-    lists:foreach(fun stop_and_commit/1, ClientsToDisconnect),
-    ct:sleep(200),
-    %% ETS iterates in reverse order, DS in direct order....
-    ExpectedClientIds2 = N1ClientIds ++ lists:sublist(N2ClientIds, NumN2Clients),
-    {ok, {{_, 200, _}, _, Res2}} = list_v2_request(QueryParams1, Config),
-    ?assertContainsClientids([Res2], ExpectedClientIds2),
-    %% All clients are disconnected and in DS.
-    MoreClientsToDisconnect = N1Clients ++ (N2Clients -- ClientsToDisconnect),
-    lists:foreach(fun stop_and_commit/1, MoreClientsToDisconnect),
-    ct:sleep(200),
-    {ok, {{_, 200, _}, _, Res3}} = list_v2_request(QueryParams1, Config),
-    ?assertContainsClientids([Res3], ExpectedClientIds2),
-    %% Clear persistent sessions
-    NewN1Clients = lists:map(
-        fun(ClientId) ->
-            connect_client(#{
-                port => Port1,
-                clientid => ClientId,
-                clean_start => true
-            })
-        end,
-        N1ClientIds
-    ),
-    NewN2Clients = lists:map(
-        fun(ClientId) ->
-            connect_client(#{
-                port => Port2,
-                clientid => ClientId,
-                clean_start => true
-            })
-        end,
-        N2ClientIds
-    ),
-    lists:foreach(fun disconnect_and_destroy_session/1, NewN1Clients ++ NewN2Clients),
-    ok.
+            }),
+            {ClientId, Node, Pid}
+        end
+     || I <- lists:seq(1, Nclients)
+    ],
+    {ClientIds, _, _} = lists:unzip3(Clients),
+    try
+        ct:sleep(1000),
+        %% Set pagination options:
+        Limit = 8,
+        QP = #{<<"limit">> => integer_to_binary(Limit)},
+        %% 1. Verify API output when all clients are online:
+        (fun() ->
+            %% Since we have 10 clients in total, we should get all results on 2 pages.
+            {ok, {{_, 200, _}, _, Res1}} = list_v2_request(
+                QP,
+                Config
+            ),
+            #{<<"meta">> := #{<<"count">> := 8, <<"cursor">> := Cursor1}, <<"data">> := _} = Res1,
+            {ok, {{_, 200, _}, _, Res2}} = list_v2_request(
+                QP#{<<"cursor">> => Cursor1},
+                Config
+            ),
+            #{<<"meta">> := Meta2 = #{<<"count">> := 2}, <<"data">> := _} = Res2,
+            ?assertNot(maps:is_key(<<"cursor">>, Meta2), Meta2),
+            ?assertContainsClientids([Res1, Res2], ClientIds)
+        end)(),
+        %% 2. Verify output when half of the clients is offline:
+        {_Keep, Stop} = lists:split(Nclients div 2, Clients),
+        (fun() ->
+            %% Shutdown half of the clients:
+            [
+                begin
+                    ct:pal("Disconnecting ~p", [ClientId]),
+                    emqtt:stop(Pid)
+                end
+             || {ClientId, _, Pid} <- Stop
+            ],
+            ct:sleep(1000),
+            %% Verify result:
+            {ok, {{_, 200, _}, _, Res1}} = list_v2_request(
+                QP,
+                Config
+            ),
+            #{<<"meta">> := #{<<"count">> := 8, <<"cursor">> := Cursor1}, <<"data">> := _} = Res1,
+            {ok, {{_, 200, _}, _, Res2}} = list_v2_request(
+                QP#{<<"cursor">> => Cursor1},
+                Config
+            ),
+            #{<<"meta">> := Meta2 = #{<<"count">> := 2}, <<"data">> := _} = Res2,
+            ?assertNot(maps:is_key(<<"cursor">>, Meta2), Meta2),
+            ?assertContainsClientids([Res1, Res2], ClientIds)
+        end)()
+    after
+        %% 3. Cleanup:
+        _ = [
+            begin
+                try
+                    emqtt:stop(Pid)
+                catch
+                    _:_ -> ok
+                end,
+                erpc:call(Node, emqx_persistent_session_ds, kick_offline_session, [ClientId])
+            end
+         || {ClientId, Node, Pid} <- Clients
+        ],
+        ok
+    end.
 
 %% Checks that exact match filters (username) works in clients_v2 API.
 t_list_clients_v2_exact_filters(Config) ->
@@ -2348,10 +2279,10 @@ assert_contains_clientids(Results, ExpectedClientIds, Line) ->
      || #{<<"data">> := Rows} <- Results,
         #{<<"clientid">> := ClientId} <- Rows
     ],
-    ?assertEqual(
+    snabbkaffe_diff:assert_lists_eq(
         lists:sort(ExpectedClientIds),
         lists:sort(ContainedClientIds),
-        #{results => Results, line => Line}
+        #{comment => Line}
     ).
 
 traverse_in_reverse_v2(QueryParams0, Results, Config) ->

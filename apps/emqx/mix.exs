@@ -18,7 +18,8 @@ defmodule EMQX.MixProject do
         :compressed
         | UMP.erlc_options()
       ],
-      compilers: Mix.compilers() ++ [:copy_srcs],
+      compilers: [:asn1] ++ Mix.compilers() ++ [:copy_srcs],
+      asn1_srcs: asn1_srcs(),
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
       extra_dirs: extra_dirs(),
       deps_path: "../../deps",
@@ -26,6 +27,19 @@ defmodule EMQX.MixProject do
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps()
+    ]
+  end
+
+  def asn1_srcs() do
+    [
+      %{
+        src: "./src/emqx_persistent_session_ds/DurableSession.asn",
+        compile_opts: [:per, :noobj, :no_ok_wrapper, outdir: ~c"gen_src"]
+      },
+      %{
+        src: "./src/emqx_persistent_session_ds/ChannelInfo.asn",
+        compile_opts: [:ber, :noobj, :no_ok_wrapper, outdir: ~c"gen_src"]
+      }
     ]
   end
 
@@ -45,6 +59,7 @@ defmodule EMQX.MixProject do
       {:emqx_bpapi, in_umbrella: true},
       {:emqx_durable_storage, in_umbrella: true},
       {:emqx_ds_backends, in_umbrella: true},
+      {:emqx_durable_timer, in_umbrella: true},
       UMP.common_dep(:gproc),
       UMP.common_dep(:gen_rpc),
       UMP.common_dep(:ekka),
@@ -62,7 +77,7 @@ defmodule EMQX.MixProject do
   end
 
   defp erlc_paths() do
-    paths = UMP.erlc_paths()
+    paths = ["gen_src" | UMP.erlc_paths()]
 
     if UMP.test_env?() do
       ["integration_test" | paths]

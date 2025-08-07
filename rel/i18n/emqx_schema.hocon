@@ -1773,35 +1773,21 @@ Messages sent to the durable sessions are saved on disc.
 This inevitably limits the overall throughput of the system.
 :::"""
 
-session_ds_heartbeat_interval.label:
-"""Durable session heartbeat interval"""
-session_ds_heartbeat_interval.desc:
-"""Durable sessions back up their state on disc every heartbeat interval.
+session_ds_checkpoint_interval.label:
+"""Durable session checkpoint interval"""
+session_ds_checkpoint_interval.desc:
+"""Durable sessions periodically back up their state to disc.
+This happens every checkpoint interval."""
 
-Heartbeat interval is also taken into account during garbage collection of expired sessions.
-It is added to the session expiry time as a safety margin when precise time of session termination is not precisely known."""
-
-session_ds_idle_poll_interval.label:
-"""Durable session idle poll interval"""
-session_ds_idle_poll_interval.desc:
-"""Expiry interval for poll requests sent by durable sessions to the storage."""
+session_ds_commit_timeout.label:
+"""Durable session commit timeout"""
+session_ds_commit_timeout.desc:
+"""Transaction timeout for committing durable session state to the storage."""
 
 session_ds_message_retention_period.label:
 """Message retenetion period"""
 session_ds_message_retention_period.desc:
 """Broker keeps messages sent to the durable sessions for this period of time."""
-
-session_ds_session_gc_interval.label:
-"""Session garbage collection interval"""
-
-session_ds_session_gc_interval.desc:
-"""The interval at which session garbage collection is executed for persistent sessions."""
-
-session_ds_session_gc_batch_size.label:
-"""Session garbage collection batch size"""
-
-session_ds_session_gc_batch_size.desc:
-"""The size of each batch of expired persistent sessions to be garbage collected per iteration."""
 
 session_ds_batch_size.label:
 """Batch size"""

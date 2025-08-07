@@ -31,7 +31,7 @@ defmodule EMQXDurableStorage.MixProject do
   # Run "mix help compile.app" to learn about applications
   def application do
     [
-      extra_applications: [:mria] ++ UMP.extra_applications(),
+      extra_applications: [:mria, :optvar] ++ UMP.extra_applications(),
       mod: {:emqx_ds_app, []}
     ]
   end

@@ -13,7 +13,7 @@
 -export([serialize/2, deserialize/2, check_schema/1]).
 
 %% internal exports:
--export([]).
+-export([encode_ip_port/3, decode_ip_port/2, asn1_encode_proto_ver/1]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -32,9 +32,7 @@
 %% Type declarations
 %%================================================================================
 
-%% FIXME: Properl reflection fails dialyzer check due wrong spec in
-%% typerefl
--type schema() :: term().
+-type schema() :: asn1 | v1.
 
 -reflect_type([schema/0]).
 
