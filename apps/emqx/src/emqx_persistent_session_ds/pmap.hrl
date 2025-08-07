@@ -17,10 +17,6 @@
 %% the data, and `dirty' contains information about dirty and deleted
 %% keys. When `commit/1' is called, dirty keys are dumped to the
 %% tables, and deleted keys are removed from the tables.
-%%
-%% `key_mapping' is used only when the feature flag to store session data in DS is
-%% enabled.  It maps external keys to unique integers, which are internally used in the
-%% topic level structure to avoid costly encodings of arbitrary key terms.
 -record(pmap, {
     name :: atom(),
     cache = #{},

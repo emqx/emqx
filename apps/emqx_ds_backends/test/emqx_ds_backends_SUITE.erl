@@ -2440,8 +2440,6 @@ init_per_testcase(TC, Config) ->
     }),
     ct:pal("Started apps: ~p", [Apps]),
     timer:sleep(1000),
-    %% Hack, fixme:
-    emqx_bpapi:start(),
     [{apps, Apps}, {tc, TC} | Config].
 
 end_per_testcase(TC, Config) ->
