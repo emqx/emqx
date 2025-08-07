@@ -170,8 +170,8 @@ admins(["fast_forward" | Args]) ->
         {ok, #{?namespace := Namespace, ?vararg := []}} ->
             status(Namespace),
             Nodes = emqx:running_nodes(),
-            TnxId = emqx_cluster_rpc:latest_tnx_id(),
-            lists:foreach(fun(N) -> emqx_cluster_rpc:fast_forward_to_commit(N, TnxId) end, Nodes),
+            TxId = emqx_cluster_rpc:latest_tnx_id(),
+            lists:foreach(fun(N) -> emqx_cluster_rpc:fast_forward_to_commit(N, TxId) end, Nodes),
             status(Namespace);
         {ok, #{?namespace := Namespace, ?vararg := [ToTxId]}} ->
             status(Namespace),
@@ -196,7 +196,7 @@ admins(["fast_forward" | Args]) ->
 admins(_) ->
     emqx_ctl:usage(usage_sync()).
 
-fix_lagging_with_raw(ToTnxId, Node, Namespace, Keys) ->
+fix_lagging_with_raw(ToTxId, Node, Namespace, Keys) ->
     Confs = lists:foldl(
         fun(Key, Acc) ->
             KeyRaw = atom_to_binary(Key),
@@ -205,7 +205,7 @@ fix_lagging_with_raw(ToTnxId, Node, Namespace, Keys) ->
         #{},
         Keys
     ),
-    case mark_fix_begin(Node, Namespace, ToTnxId) of
+    case mark_fix_begin(Node, Namespace, ToTxId) of
         ok ->
             case load_config_from_raw(Namespace, Confs, #{mode => replace}) of
                 ok -> waiting_for_fix_finish();
@@ -215,10 +215,10 @@ fix_lagging_with_raw(ToTnxId, Node, Namespace, Keys) ->
             emqx_ctl:warning("mark fix begin failed: ~s~n", [Reason])
     end.
 
-mark_fix_begin(Node, Namespace, TnxId) ->
+mark_fix_begin(Node, Namespace, TxId) ->
     {atomic, Status} = emqx_cluster_rpc:status(),
     MFA = {?MODULE, mark_fix_log, [#{status => Status, ?namespace => Namespace}]},
-    emqx_cluster_rpc:update_mfa(Node, MFA, TnxId).
+    emqx_cluster_rpc:update_mfa(Node, MFA, TxId).
 
 mark_fix_log(#{status := Status, ?namespace := Namespace}, Opts) ->
     ?SLOG(warning, #{
@@ -328,30 +328,30 @@ maybe_fix_lagging(Namespace, Status, #{fix := Fix}) ->
     %% because the raw conf is hard to be compared. (e.g, 1000ms vs 1s)
     AllConfs = find_running_confs(Namespace),
     case find_lagging(Status, AllConfs) of
-        {inconsistent_tnx_id_key, ToTnxId, Target, InconsistentKeys} when Fix ->
-            _ = fix_lagging_with_raw(ToTnxId, Target, Namespace, InconsistentKeys),
+        {inconsistent_tnx_id_key, ToTxId, Target, InconsistentKeys} when Fix ->
+            _ = fix_lagging_with_raw(ToTxId, Target, Namespace, InconsistentKeys),
             ok;
-        {inconsistent_tnx_id_key, _ToTnxId, Target, InconsistentKeys} ->
+        {inconsistent_tnx_id_key, _ToTxId, Target, InconsistentKeys} ->
             emqx_ctl:warning("Inconsistent keys: ~p~n", [InconsistentKeys]),
             print_inconsistent_conf(Namespace, InconsistentKeys, Target, Status, AllConfs);
-        {inconsistent_tnx_id, ToTnxId, Target} when Fix ->
+        {inconsistent_tnx_id, ToTxId, Target} when Fix ->
             print_tnx_id_status(Status),
-            case mark_fix_begin(Target, Namespace, ToTnxId) of
+            case mark_fix_begin(Target, Namespace, ToTxId) of
                 ok ->
                     waiting_for_fix_finish(),
-                    emqx_ctl:print("Forward tnxid to ~w successfully~n", [ToTnxId + 1]);
+                    emqx_ctl:print("Forward tnxid to ~w successfully~n", [ToTxId + 1]);
                 Error ->
                     Error
             end;
-        {inconsistent_tnx_id, _ToTnxId, _Target} ->
+        {inconsistent_tnx_id, _ToTxId, _Target} ->
             print_tnx_id_status(Status),
             Leader = emqx_cluster_rpc:find_leader(),
             emqx_ctl:print(?SUGGESTION(Leader));
-        {inconsistent_key, ToTnxId, InconsistentKeys} ->
+        {inconsistent_key, ToTxId, InconsistentKeys} ->
             [{Target, _} | _] = AllConfs,
             print_inconsistent_conf(Namespace, InconsistentKeys, Target, Status, AllConfs),
             emqx_ctl:warning("All configuration synchronized(tnx_id=~w)~n", [
-                ToTnxId
+                ToTxId
             ]),
             emqx_ctl:warning(
                 "but inconsistent keys were found: ~p, which come from environment variables or etc/emqx.conf.~n",
@@ -369,7 +369,7 @@ maybe_fix_lagging(Namespace, Status, #{fix := Fix}) ->
 
 print_tnx_id_status(List0) ->
     emqx_ctl:print("No inconsistent configuration found but has inconsistent tnxId ~n"),
-    List1 = lists:map(fun(#{node := Node, tnx_id := TnxId}) -> {Node, TnxId} end, List0),
+    List1 = lists:map(fun(#{node := Node, tnx_id := TxId}) -> {Node, TxId} end, List0),
     emqx_ctl:print("~p~n", [List1]).
 
 print_keys(Keys) ->
@@ -896,11 +896,11 @@ waiting_for_sync_finish(10) ->
     );
 waiting_for_sync_finish(Sec) ->
     {atomic, Status} = emqx_cluster_rpc:status(),
-    case lists:usort([TnxId || #{tnx_id := TnxId} <- Status]) of
+    case lists:usort([TxId || #{tnx_id := TxId} <- Status]) of
         [_] ->
             emqx_ctl:warning("sync successfully in ~ws ~n", [Sec]);
         _ ->
-            Res = lists:sort([{TnxId, Node} || #{node := Node, tnx_id := TnxId} <- Status]),
+            Res = lists:sort([{TxId, Node} || #{node := Node, tnx_id := TxId} <- Status]),
             emqx_ctl:warning("sync status: ~p~n", [Res]),
             timer:sleep(1000),
             waiting_for_sync_finish(Sec + 1)
@@ -908,17 +908,17 @@ waiting_for_sync_finish(Sec) ->
 
 find_lagging(Status, AllConfs) ->
     case find_highest_node(Status) of
-        {same_tnx_id, TnxId} ->
+        {same_tnx_id, TxId} ->
             %% check the conf is the same or not
             [{_, TargetConf} | OtherConfs] = AllConfs,
             case find_inconsistent_key(TargetConf, OtherConfs) of
                 [] ->
                     Msg =
                         <<"All configuration synchronized(tnx_id=",
-                            (integer_to_binary(TnxId))/binary, ") successfully\n">>,
+                            (integer_to_binary(TxId))/binary, ") successfully\n">>,
                     {consistent, Msg};
                 InconsistentKeys ->
-                    {inconsistent_key, TnxId, InconsistentKeys}
+                    {inconsistent_key, TxId, InconsistentKeys}
             end;
         {ok, TargetId, Target} ->
             {value, {_, TargetConf}, OtherConfs} = lists:keytake(Target, 1, AllConfs),
@@ -947,10 +947,10 @@ find_highest_node([]) ->
 find_highest_node(Status) ->
     Ids = [{Id, Node} || #{tnx_id := Id, node := Node} <- Status],
     case lists:usort(fun({A, _}, {B, _}) -> A >= B end, Ids) of
-        [{TnxId, _}] ->
-            {same_tnx_id, TnxId};
-        [{TnxId, Target} | _] ->
-            {ok, TnxId, Target}
+        [{TxId, _}] ->
+            {same_tnx_id, TxId};
+        [{TxId, Target} | _] ->
+            {ok, TxId, Target}
     end.
 
 changed(K, V, Conf) ->
@@ -970,18 +970,18 @@ find_running_confs(Namespace) ->
 
 print_inconsistent_conf(Namespace, Keys, Target, Status, AllConfs) ->
     {value, {_, TargetConf}, OtherConfs} = lists:keytake(Target, 1, AllConfs),
-    TargetTnxId = get_tnx_id(Target, Status),
+    TargetTxId = get_tnx_id(Target, Status),
     lists:foreach(
         fun(Key) ->
             lists:foreach(
                 fun({Node, OtherConf}) ->
                     TargetV = maps:get(Key, TargetConf, undefined),
                     PrevV = maps:get(Key, OtherConf, undefined),
-                    NodeTnxId = get_tnx_id(Node, Status),
+                    NodeTxId = get_tnx_id(Node, Status),
                     Options = #{
                         key => Key,
-                        node => {Node, NodeTnxId},
-                        target => {Target, TargetTnxId}
+                        node => {Node, NodeTxId},
+                        target => {Target, TargetTxId}
                     },
                     print_inconsistent_conf(Namespace, TargetV, PrevV, Options)
                 end,
@@ -994,7 +994,7 @@ print_inconsistent_conf(Namespace, Keys, Target, Status, AllConfs) ->
 get_tnx_id(Node, Status) ->
     case lists:filter(fun(#{node := Node0}) -> Node0 =:= Node end, Status) of
         [] -> 0;
-        [#{tnx_id := TnxId}] -> TnxId
+        [#{tnx_id := TxId}] -> TxId
     end.
 
 print_inconsistent_conf(_Namespace, SameConf, SameConf, _Options) ->
@@ -1016,11 +1016,11 @@ print_inconsistent_conf(Namespace, New = #{}, Old = #{}, Options) ->
 print_inconsistent_conf(_Namespace, New, Old, Options) ->
     #{
         key := Key,
-        target := {Target, TargetTnxId},
-        node := {Node, NodeTnxId}
+        target := {Target, TargetTxId},
+        node := {Node, NodeTxId}
     } = Options,
     emqx_ctl:print("~ts(tnx_id=~w)'s ~s is different from ~ts(tnx_id=~w).~n", [
-        Node, NodeTnxId, Key, Target, TargetTnxId
+        Node, NodeTxId, Key, Target, TargetTxId
     ]),
     emqx_ctl:print("~ts:~n", [Node]),
     print_hocon(Old),
@@ -1030,10 +1030,10 @@ print_inconsistent_conf(_Namespace, New, Old, Options) ->
 print_inconsistent(Namespace, Conf, Fmt, Options) when Conf =/= #{} ->
     #{
         key := Key,
-        target := {Target, TargetTnxId},
-        node := {Node, NodeTnxId}
+        target := {Target, TargetTxId},
+        node := {Node, NodeTxId}
     } = Options,
-    emqx_ctl:warning(Fmt, [Target, TargetTnxId, Key, Node, NodeTnxId]),
+    emqx_ctl:warning(Fmt, [Target, TargetTxId, Key, Node, NodeTxId]),
     NodeRawConf = emqx_conf_proto_v5:get_raw_config(Node, Namespace, [Key]),
     TargetRawConf = emqx_conf_proto_v5:get_raw_config(Target, Namespace, [Key]),
     {NodeConf, TargetConf} =
