@@ -426,8 +426,7 @@ t_030_cancellation(Config) ->
         ]
     ).
 
-%% This testcase verifies the functionality related to timer
-%% cancellation.
+%% This testcase verifies basic functionality of dead hand timer.
 t_040_dead_hand({init, Config}) ->
     Env = #{
         <<"durable_storage">> =>
@@ -623,7 +622,7 @@ t_060_standby(Config) ->
             fun ?MODULE:no_read_conflicts/1,
             fun ?MODULE:no_replay_failures/1,
             fun ?MODULE:verify_timers/1,
-            {"Timers each timer was executed once", fun(Trace) ->
+            {"Each timer was executed once", fun(Trace) ->
                 ?assertMatch(
                     [<<1>>, <<2>>],
                     ?projection(key, ?of_kind(?tp_test_fire, Trace))

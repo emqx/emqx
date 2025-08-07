@@ -11,7 +11,7 @@
 %% transaction.
 %%
 %% It should be possible to make frequent changes to the pmap without
-%% stressing Mria.
+%% stressing DS.
 %%
 %% It's implemented as two maps: `cache', and `dirty'. `cache' stores
 %% the data, and `dirty' contains information about dirty and deleted

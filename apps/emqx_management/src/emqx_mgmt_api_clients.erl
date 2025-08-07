@@ -20,10 +20,6 @@
 
 -include("emqx_mgmt.hrl").
 
-%% FIXME
--compile(export_all).
--compile(nowarn_export_all).
-
 %% API
 -export([
     api_spec/0,
@@ -1485,9 +1481,6 @@ no_persistent_sessions() ->
         false ->
             true
     end.
-
-is_expired(#{last_alive_at := LastAliveAt, expiry_interval := ExpiryInterval}) ->
-    LastAliveAt + ExpiryInterval < erlang:system_time(millisecond).
 
 do_persistent_session_query(ResultAcc, QueryState) ->
     case emqx_persistent_message:is_persistence_enabled() of
