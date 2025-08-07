@@ -102,7 +102,20 @@
 }.
 
 -export_type([cursor/0]).
--opaque cursor() :: map().
+
+%% Cursor in a log stream.
+%% * Can be sent to the outside and received back from it, hence should be
+%%   safe against `binary_to_term(term_to_binary(Cursor))`.
+%% * Can be forged, however it's generally exposed to trusted user agents.
+%%   Still, contains no information to "escape" the log stream.
+-opaque cursor() :: #{
+    %% Same as `Trace#?TRACE.start_at`:
+    s := _Timestamp :: non_neg_integer(),
+    p := _Position :: non_neg_integer(),
+    f := emqx_trace_handler:log_fragment(),
+    %% Deferred stream error:
+    e => _Reason
+}.
 
 -define(DEFAULT_STREAM_CHUNK_SIZE, 64 * 1024 * 1024).
 
@@ -319,76 +332,83 @@ log_filename(#{name := Name, start_at := StartAt}) ->
     }}
     | {error, not_found | {file_error, file:posix()}}.
 log_details(Name) ->
-    maybe
-        {ok, Trace = #?TRACE{start_at = Start}} ?= emqx_trace_dl:get(Name),
-        Filepath = log_filepath(Name, Start),
-        _ = emqx_trace_handler:filesync(mk_handler_id(Trace)),
-        case file:read_file_info(Filepath, [{'time', 'posix'}]) of
-            {ok, #file_info{size = Size, mtime = MTime}} ->
-                {ok, #{size => Size, mtime => MTime}};
-            {error, Reason} ->
-                {error, {file_error, Reason}}
-        end
+    case emqx_trace_dl:get(Name) of
+        {ok, Trace = #?TRACE{start_at = Start}} ->
+            _ = emqx_trace_handler:filesync(mk_handler_id(Trace)),
+            Basename = log_filepath(Name, Start),
+            AccFun = fun AccFun(Which, SizeAcc, MTimeMax) ->
+                case emqx_trace_handler:find_log_fragment(Which, Basename) of
+                    {ok, _, #file_info{size = Size, mtime = MTime}, Fragment} ->
+                        AccFun({next, Fragment}, Size + SizeAcc, max(MTime, MTimeMax));
+                    none ->
+                        {ok, #{size => SizeAcc, mtime => MTimeMax}};
+                    {error, Reason} ->
+                        {error, {file_error, Reason}}
+                end
+            end,
+            AccFun(first, 0, 0);
+        Error ->
+            Error
     end.
 
 -spec stream_log(name(), start | {cont, cursor()}, _Limit :: pos_integer() | undefined) ->
-    {ok, binary(), {cont | eof, cursor()}}
+    {ok, binary(), {cont | eof | retry, cursor()}}
     | {error, not_found | bad_cursor | {file_error, file:posix()}}.
-stream_log(Name, start, Limit) ->
+stream_log(Name, start, Limit) when Limit > 0 ->
     case emqx_trace_dl:get(Name) of
-        {ok, Trace} ->
-            Cursor = init_stream_cursor(Trace),
+        {ok, Trace = #?TRACE{start_at = Start}} ->
             _ = emqx_trace_handler:filesync(mk_handler_id(Trace)),
-            stream_log_cursor(Name, Cursor, Limit);
+            Basename = log_filepath(Name, Start),
+            case emqx_trace_handler:find_log_fragment(first, Basename) of
+                {ok, _Filename, _Info, Fragment} ->
+                    %% NOTE: Enough information to _safely_ reconstruct the basename.
+                    Cursor = #{s => Start, p => 0, f => Fragment},
+                    stream_log_cursor(Name, Cursor, Limit);
+                none ->
+                    {error, {file_error, enoent}};
+                {error, Reason} ->
+                    {error, {file_error, Reason}}
+            end;
         Error ->
             Error
     end;
-stream_log(Name, {cont, Cursor}, Limit) ->
+stream_log(Name, {cont, Cursor}, Limit) when Limit > 0 ->
     stream_log_cursor(Name, Cursor, Limit).
 
-stream_log_cursor(Name, Cursor = #{s := Start, p := Pos}, Limit) ->
+stream_log_cursor(Name, Cursor0 = #{s := Start, p := Pos, f := Fragment0}, Limit) ->
     NBytes = emqx_maybe:define(Limit, ?DEFAULT_STREAM_CHUNK_SIZE),
-    Filepath = log_filepath(Name, Start),
-    case read_file_at(Filepath, Pos, NBytes) of
-        {ok, Chunk} ->
+    Basename = log_filepath(Name, Start),
+    case emqx_trace_handler:read_log_fragment_at(Fragment0, Basename, Pos, NBytes) of
+        {ok, Chunk, Fragment} ->
             Size = byte_size(Chunk),
+            Cursor = Cursor0#{p := Pos + Size, f := Fragment},
             case Size of
                 N when N >= NBytes ->
-                    Then = cont;
+                    Cont = {cont, Cursor};
                 _Partial ->
-                    Then = eof
+                    case emqx_trace_handler:find_log_fragment({next, Fragment}, Basename) of
+                        {ok, _, _, FragmentNext} ->
+                            Cont = {cont, Cursor#{p := 0, f := FragmentNext}};
+                        none ->
+                            Cont = {eof, Cursor};
+                        {error, enoent} ->
+                            %% TODO
+                            Cont = {retry, Cursor};
+                        {error, Reason} ->
+                            Cont = {cont, #{e => {file_error, Reason}}}
+                    end
             end,
-            {ok, Chunk, {Then, Cursor#{p := Pos + Size}}};
-        eof ->
-            {ok, <<>>, {eof, Cursor}};
+            {ok, Chunk, Cont};
+        {error, enoent} ->
+            %% TODO
+            {ok, <<>>, {retry, Cursor0}};
         {error, Reason} ->
             {error, {file_error, Reason}}
     end;
+stream_log_cursor(_Name, #{e := Reason}, _Limit) ->
+    {error, Reason};
 stream_log_cursor(_Name, _Cursor, _Limit) ->
     {error, bad_cursor}.
-
-read_file_at(Filepath, Pos, NBytes) ->
-    case file:open(Filepath, [read, raw, binary]) of
-        {ok, IoDevice} ->
-            try
-                case file:pread(IoDevice, Pos, NBytes) of
-                    {ok, Chunk} ->
-                        {ok, Chunk};
-                    {error, Reason} ->
-                        {error, Reason};
-                    eof ->
-                        eof
-                end
-            after
-                file:close(IoDevice)
-            end;
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-init_stream_cursor(#?TRACE{start_at = Start}) ->
-    %% NOTE: Enough information to _safely_ reconstruct the filename.
-    #{s => Start, p => 0}.
 
 log_filepath(Name, Start) ->
     filename:join(trace_dir(), log_filename(Name, Start)).
