@@ -1094,7 +1094,7 @@ This module is architected as following:
 - It's assumed that all APIs are executed in a process called host.
   Host keeps the state of the client, and it has its own state that is unknown to us.
 
-- Host interacts with the client via API calls, such as `subscribe`, `unsubscribe`, `ack`, etc.
+- Host interacts with the client via API calls, such as `subscribe`, `unsubscribe`, etc.
 
 - Client interacts with the host via callbacks defined in this module.
   Callbacks can query and mutate state of the host.
@@ -1109,8 +1109,8 @@ The logic is split up between three types of functions:
 Planners are triggered by the API calls (`subscribe`, `unsubscribe`, `destroy`, etc.).
 Planners create sequences of effects that are fed into the interpreter (`execute`).
 
-The interpreter feeds the effects into the effect handler, which evaluates them,
-returns the result and updates its own state (`EffHandlerState`).
+The interpreter feeds the effects into the effect handler,
+which evaluates them and returns the result.
 The results are then fed into the result handler,
 which can further mutate client and host states, and schedule more effects if needed.
 
@@ -1119,20 +1119,8 @@ Effects in the `plan` queue are executed immediately,
 while `retry` effects are executed on retry timeout.
 
 This architecture isolates all interactions with the real world in the effect handler,
-which is a trivial wrapper of DS API,
+a trivial wrapper of DS API,
 and allows to implement all complex logic as pure functions in the planners and result handler.
-
-It also allows to create a fake effect handler for property-based testing.
-
-On the flip side, we now have to deal with three separate states:
-
-- Host state
-- Client state
-- Effect handler state
-
-The good news is that the last one is only used for testing.
-`real_world` effect handler ignores its state.
-
 """.
 -spec execute(t(), HostState) -> {t(), HostState}.
 execute(CS, HostState) ->
