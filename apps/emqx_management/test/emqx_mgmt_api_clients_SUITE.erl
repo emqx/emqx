@@ -1514,7 +1514,7 @@ t_subscribe_shared_topic(Config) ->
     ),
 
     %% assert subscription
-    ?assertEqual([], ets:tab2list(?SUBSCRIPTION)),
+    ?retry(200, 10, ?assertEqual([], ets:tab2list(?SUBSCRIPTION))),
     ?assertEqual([], ets:tab2list(?SUBOPTION)),
     ?assertEqual([], ets:tab2list(emqx_shared_subscription)),
 
