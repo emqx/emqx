@@ -58,8 +58,7 @@
 -type channel_config() ::
     #{
         parameters := #{
-            sql := binary(),
-            undefined_vars_as_null := boolean()
+            sql := binary()
         }
     }.
 
@@ -68,6 +67,8 @@
 
 -define(prepare, true).
 -define(no_prepare, false).
+
+-define(null, null).
 
 resource_type() -> datalayers.
 
@@ -393,14 +394,8 @@ render_batch_sql_row({InsertPart, RowTemplate}, Querys, ChannelState) ->
     Query.
 
 render_row(RowTemplate, Data, ChannelState) ->
-    RenderOpts =
-        case maps:get(undefined_vars_as_null, ChannelState, false) of
-            % NOTE:
-            %  Ignoring errors here, missing variables are set to "'undefined'" due to backward
-            %  compatibility requirements.
-            false -> #{escaping => mysql, undefined => <<"undefined">>};
-            true -> #{escaping => mysql}
-        end,
+    %% undefined values are always replaced with `null`
+    RenderOpts = #{escaping => mysql, undefined => ?null},
     {Row, _Errors} = emqx_template_sql:render(RowTemplate, {emqx_jsonish, Data}, RenderOpts),
     Row.
 

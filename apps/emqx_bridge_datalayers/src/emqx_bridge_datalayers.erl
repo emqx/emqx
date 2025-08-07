@@ -168,8 +168,7 @@ values(common, "datalayers_influx", SupportUint, ConnOpts) ->
 values(common, "datalayers_arrow_flight", _, ConnOpts) ->
     TypeOpts = #{
         type => datalayers_arrow_flight,
-        sql => ?DEFAULT_SQL,
-        undefined_vars_as_null => true
+        sql => ?DEFAULT_SQL
     },
     values(common, maps:merge(TypeOpts, ConnOpts)).
 
@@ -212,8 +211,7 @@ fields(action_parameters_arrow_flight) ->
             mk(
                 emqx_schema:template(),
                 #{desc => ?DESC(sql_template), default => ?DEFAULT_SQL, format => <<"sql">>}
-            )},
-        emqx_bridge_v2_schema:undefined_as_null_field()
+            )}
     ];
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
