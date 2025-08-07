@@ -168,19 +168,21 @@ handle_info(
     #{status := #connected{}, inflight := Inflight0, buffer := Buffer0} = Sub0,
     #publish_retry{}
 ) ->
-    ?tp(warning, mq_sub_handle_info, #{sub => info(Sub0), info_msg => publish_retry}),
+    ?tp(warning, mq_sub_handle_info_publish_retry_start, #{sub => info(Sub0)}),
     NPublish = max_inflight(Sub0) - map_size(Inflight0),
     {MessagesWithIds, Buffer} = emqx_mq_sub_buffer:take(Buffer0, NPublish),
-    {Inflight, Messages} = lists:foldl(
+    {Inflight, Messages0} = lists:foldl(
         fun({MessageId, Message}, {InflightAcc, Msgs}) ->
             {InflightAcc#{MessageId => Message}, [Message | Msgs]}
         end,
         {Inflight0, []},
         MessagesWithIds
     ),
+    Messages = lists:reverse(Messages0),
     Sub1 = cancel_timer(publish_retry_tref, Sub0),
     Sub = Sub1#{inflight => Inflight, buffer => Buffer},
-    {ok, Sub, lists:reverse(Messages)};
+    ?tp(warning, mq_sub_handle_info_publish_retry_end, #{sub => info(Sub), messages => Messages}),
+    {ok, Sub, Messages};
 handle_info(Sub, InfoMsg) ->
     ?tp(warning, mq_sub_handle_info, #{sub => info(Sub), info_msg => InfoMsg}),
     {ok, Sub}.
@@ -208,6 +210,7 @@ do_handle_ack(#{inflight := Inflight0, buffer := Buffer0} = Sub0, MessageId, ?MQ
             0 ->
                 %% Channel rejected all our messages, probably it's busy.
                 %% We will retry to publish the messages later.
+                ?tp(warning, mq_sub_handle_nack_session_busy, #{sub => info(Sub0)}),
                 schedule_publish_retry(retry_interval(Sub0), Sub0);
             _ ->
                 %% We do not try to refill the inflight buffer on NACK
@@ -248,7 +251,8 @@ do_handle_ack(
 
 destroy(#{subscriber_ref := SubscriberRef} = Sub) ->
     _ = unalias(SubscriberRef),
-    ok = cancel_timers(Sub).
+    _Sub = cancel_timers(Sub),
+    ok.
 
 reset_consumer_timeout_timer(#{subscriber_ref := SubscriberRef} = Sub0) ->
     Sub = cancel_timer(consumer_timeout_tref, Sub0),

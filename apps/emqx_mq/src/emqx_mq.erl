@@ -130,8 +130,8 @@ on_client_handle_info(
             ok;
         ok ->
             ok;
-        {ok, Message} ->
-            {ok, Acc#{deliver => delivers(SubscriberRef, Message) ++ Delivers}};
+        {ok, Messages} ->
+            {ok, Acc#{deliver => delivers(SubscriberRef, Messages) ++ Delivers}};
         {error, recreate} ->
             ok = recreate_sub(SubscriberRef, ClientInfo)
     end;

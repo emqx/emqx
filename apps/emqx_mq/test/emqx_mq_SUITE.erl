@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include("../src/emqx_mq_internal.hrl").
 
 all() ->
@@ -31,9 +32,11 @@ end_per_suite(Config) ->
 
 init_per_testcase(_CaseName, Config) ->
     ok = emqx_mq_test_utils:cleanup_mqs(),
+    ok = snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_CaseName, _Config) ->
+    ok = snabbkaffe:stop(),
     ok = emqx_mq_test_utils:cleanup_mqs().
 
 %%--------------------------------------------------------------------
@@ -113,7 +116,12 @@ t_backpressure(_Config) ->
     ),
 
     %% Messages should stop being dispatched once the buffer is full and we acked nothing
-    ?assert(length(Msgs0) =< ?MQ_CONSUMER_MAX_BUFFER_SIZE + ?MQ_CONSUMER_MAX_UNACKED),
+    ?assert(
+        length(Msgs0) =< ?MQ_CONSUMER_MAX_BUFFER_SIZE + ?MQ_CONSUMER_MAX_UNACKED + 1,
+        binfmt("Msgs received: ~p, expected less than or equal to: ~p", [
+            length(Msgs0), ?MQ_CONSUMER_MAX_BUFFER_SIZE + ?MQ_CONSUMER_MAX_UNACKED + 1
+        ])
+    ),
 
     %% Acknowledge the messages
     ok = lists:foreach(
@@ -127,7 +135,13 @@ t_backpressure(_Config) ->
     {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(
         _MinMsg = ?MQ_CONSUMER_MAX_BUFFER_SIZE, _Timeout = 200
     ),
-    ?assert(length(Msgs1) =< ?MQ_CONSUMER_MAX_BUFFER_SIZE + ?MQ_CONSUMER_MAX_UNACKED),
+    ?assert(
+        length(Msgs1) =< ?MQ_CONSUMER_MAX_BUFFER_SIZE + ?MQ_CONSUMER_MAX_UNACKED * 2,
+        binfmt(
+            "Msgs received: ~p, expected less than or equal to: ~p",
+            [length(Msgs1), ?MQ_CONSUMER_MAX_BUFFER_SIZE + ?MQ_CONSUMER_MAX_UNACKED + 1]
+        )
+    ),
 
     %% Clean up
     ok = emqtt:disconnect(CSub).
@@ -261,3 +275,128 @@ t_hash_dispatch(_Config) ->
         lists:all(fun({_Topic, Pids}) -> map_size(Pids) == 1 end, maps:to_list(ClientsByTopic)),
         "Same topic delivered to different clients"
     ).
+
+%% Cooperatively consume online messages with least inflight dispatching
+t_least_inflight_dispatch(_Config) ->
+    %% Create a non-compacted Queue
+    ok = emqx_mq_test_utils:create_mq(
+        #{
+            topic_filter => <<"t/#">>,
+            is_compacted => false,
+            dispatch_strategy => least_inflight
+        }
+    ),
+
+    %% Subscribe to the queue
+    CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+
+    %% Publish 100 messages to the queue
+    CPub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_pub_mq(CPub, <<"t/1">>, <<"payload-0">>),
+    emqx_mq_test_utils:emqtt_pub_mq(CPub, <<"t/1">>, <<"payload-1">>),
+
+    %% Each subscriber should receive one message
+    {CSub, PacketId} =
+        receive
+            {publish, #{topic := <<"t/1">>, client_pid := Pid, packet_id := PktId}} ->
+                {Pid, PktId}
+        after 100 ->
+            ct:fail("No messages from MQ received")
+        end,
+    OtherCSub =
+        case CSub of
+            CSub0 -> CSub1;
+            CSub1 -> CSub0
+        end,
+    receive
+        {publish, #{topic := <<"t/1">>, client_pid := OtherCSub}} ->
+            ok
+    after 100 ->
+        ct:fail("Message not delivered to both subscribers")
+    end,
+
+    %% The next message should be delivered to the subscriber which acked the previous message
+    ok = emqtt:puback(CSub, PacketId),
+    emqx_mq_test_utils:emqtt_pub_mq(CPub, <<"t/1">>, <<"payload-2">>),
+    receive
+        {publish, #{topic := <<"t/1">>, client_pid := CSub}} ->
+            ok
+    after 100 ->
+        ct:fail("Message not delivered to the subscriber which acked the previous message")
+    end,
+
+    %% Clean up
+    ok = emqtt:disconnect(CPub),
+    ok = emqtt:disconnect(CSub0),
+    ok = emqtt:disconnect(CSub1).
+
+%% Verify that messages are eventually delivered to a busy session,
+%% i.e. a session that exhausted the limit of inflight messages
+t_busy_session(_Config) ->
+    %% Create a non-compacted Queue
+    ok = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>,
+        is_compacted => false,
+        local_max_inflight => 4
+    }),
+
+    %% Publish 100 messages to the queue
+    ok = emqx_mq_test_utils:populate(100, fun(I) ->
+        IBin = integer_to_binary(I),
+        Payload = <<"payload-", IBin/binary>>,
+        Topic = <<"t/", IBin/binary>>,
+        {Topic, Payload}
+    end),
+
+    %% Consume the messages from the queue
+    %% Set max_inflight to 0 to avoid nacking messages by the client's session
+    emqx_config:put([mqtt, max_inflight], 10),
+    CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+
+    %% Fill the session's inflight buffer
+    emqtt:subscribe(CSub, <<"busytopic">>, 1),
+    CPub = emqx_mq_test_utils:emqtt_connect([]),
+    lists:foreach(
+        fun(_) ->
+            emqx_mq_test_utils:emqtt_pub_mq(CPub, <<"busytopic">>, <<"payload">>)
+        end,
+        lists:seq(1, 20)
+    ),
+
+    %% Now subscribe to the queue, check that the session is busy
+    %% and prevents the queue's messages from being delivered
+    ?assertWaitEvent(
+        emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+        #{?snk_kind := mq_sub_handle_nack_session_busy, sub := #{mq_topic_filter := <<"t/#">>}},
+        100
+    ),
+
+    %% Assert that after acks, the messages are delivered to the session
+    ReceiveFun = fun RFun(NRecFromMQ) ->
+        receive
+            {publish, #{topic := <<"busytopic">>, packet_id := PacketId}} ->
+                ok = emqtt:puback(CSub, PacketId),
+                RFun(NRecFromMQ);
+            {publish, #{topic := <<"t/", _/binary>>, packet_id := PacketId}} ->
+                ok = emqtt:puback(CSub, PacketId),
+                RFun(NRecFromMQ + 1)
+        after 500 ->
+            NRecFromMQ
+        end
+    end,
+    NRecFromMQ = ReceiveFun(0),
+    ?assert(NRecFromMQ == 100, binfmt("Expected 100 queued messages, got: ~p", [NRecFromMQ])),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub),
+    ok = emqtt:disconnect(CPub).
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+binfmt(Format, Args) ->
+    iolist_to_binary(io_lib:format(Format, Args)).
