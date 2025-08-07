@@ -393,7 +393,7 @@ render_batch_sql_row({InsertPart, RowTemplate}, Querys, ChannelState) ->
     Query = [InsertPart, <<" values ">> | lists:join($,, Rows)],
     Query.
 
-render_row(RowTemplate, Data, ChannelState) ->
+render_row(RowTemplate, Data, _ChannelState) ->
     %% undefined values are always replaced with `null`
     RenderOpts = #{escaping => mysql, undefined => ?null},
     {Row, _Errors} = emqx_template_sql:render(RowTemplate, {emqx_jsonish, Data}, RenderOpts),

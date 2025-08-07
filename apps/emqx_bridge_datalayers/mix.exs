@@ -8,7 +8,7 @@ defmodule EMQXBridgeDatalayers.MixProject do
       version: "6.0.0",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       extra_dirs: extra_dirs(),
       deps_path: "../../deps",
@@ -45,7 +45,7 @@ defmodule EMQXBridgeDatalayers.MixProject do
     if UMP.test_env?() do
       ["test" | dirs]
     else
-      ["src" | dirs]
+      dirs
     end
   end
 end
