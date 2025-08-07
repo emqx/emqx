@@ -232,7 +232,7 @@ init([]) ->
     process_flag(trap_exit, true),
     State = #{
         ?worker => start_worker(),
-        pmon => emqx_pmon:new()
+        pmon => #{}
     },
     {ok, State, get_validity_period()}.
 
@@ -283,17 +283,22 @@ handle_info(timeout, State) ->
 handle_info({'EXIT', Worker, _}, #{?worker := Worker} = State0) ->
     State = State0#{?worker := start_worker()},
     {noreply, State};
-handle_info({'DOWN', _MRef, process, Pid, _Reason}, #{pmon := Pmon} = State) ->
-    case emqx_pmon:find(Pid, Pmon) of
-        {ok, Name} ->
-            case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
-                [] ->
-                    ok;
-                [Alarm] ->
-                    deactivate_alarm(Alarm, no_details, <<"">>, State)
-            end,
-            Pmon1 = emqx_pmon:erase(Pid, Pmon),
-            {noreply, State#{pmon => Pmon1}};
+handle_info({'DOWN', _MRef, process, Pid, _Reason}, #{pmon := Monitors} = State) ->
+    case maps:find(Pid, Monitors) of
+        {ok, Names} ->
+            lists:foreach(
+                fun(Name) ->
+                    case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
+                        [] ->
+                            ok;
+                        [Alarm] ->
+                            deactivate_alarm(Alarm, no_details, <<"">>, State)
+                    end
+                end,
+                Names
+            ),
+            Monitors1 = maps:remove(Pid, Monitors),
+            {noreply, State#{pmon => Monitors1}};
         error ->
             {noreply, State}
     end;
@@ -593,9 +598,16 @@ worker_loop() ->
 maybe_monitor_process_related_alarms(
     <<"conn_congestion/", _/binary>> = Name,
     Pid,
-    #{pmon := Pmon} = State
+    #{pmon := Monitors} = State
 ) ->
-    Pmon1 = emqx_pmon:monitor(Pid, Name, Pmon),
-    State#{pmon => Pmon1};
+    case maps:find(Pid, Monitors) of
+        {ok, Names} ->
+            Monitors1 = Monitors#{Pid => [Name | Names]},
+            State#{pmon => Monitors1};
+        error ->
+            erlang:monitor(process, Pid),
+            Monitors1 = Monitors#{Pid => [Name]},
+            State#{pmon => Monitors1}
+    end;
 maybe_monitor_process_related_alarms(_, _, State) ->
     State.

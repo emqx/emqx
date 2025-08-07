@@ -134,8 +134,8 @@ assert_force_deactivate_fails(AlarmName, ExpectedCode, ExpectedMessage) ->
     end.
 
 t_alarm_monitor(_) ->
+    AlarmName = <<"conn_congestion/test_client/test_user">>,
     TestPid = spawn(fun() ->
-        AlarmName = <<"conn_congestion/test_client/test_user">>,
         AlarmDetails = #{test => details},
         AlarmMessage = <<"connection congested: test">>,
         ok = emqx_alarm:activate(AlarmName, AlarmDetails, AlarmMessage),
@@ -148,7 +148,6 @@ t_alarm_monitor(_) ->
     %% Verify alarm is activated
     timer:sleep(100),
     Alarms = emqx_alarm:get_alarms(activated),
-    AlarmName = <<"conn_congestion/test_client/test_user">>,
     ?assert(lists:any(fun(#{name := Name}) -> Name =:= AlarmName end, Alarms)),
 
     %% Force kill the process
