@@ -215,8 +215,6 @@ datalayers_config(DatalayersHost, DatalayersPort, Config) ->
 
 datalayers_connector_config(Name, DatalayersHost, DatalayersPort, Config) ->
     UseTLS = proplists:get_value(use_tls, Config, false),
-    Dir = code:lib_dir(emqx_bridge_datalayers),
-    Cacertfile = filename:join([Dir, <<"test/data/certs">>, <<"ca.crt">>]),
     ConfigString =
         io_lib:format(
             "connectors.datalayers.~s {\n"
@@ -239,7 +237,7 @@ datalayers_connector_config(Name, DatalayersHost, DatalayersPort, Config) ->
                 DatalayersHost,
                 DatalayersPort,
                 UseTLS,
-                Cacertfile
+                cacert_file()
             ]
         ),
     {ConfigString, parse_and_check_connector(ConfigString, Name)}.
@@ -427,12 +425,10 @@ exec_sql(SQL, Config) ->
         username => <<"admin">>,
         password => <<"public">>
     },
-    Dir = code:lib_dir(emqx_bridge_datalayers),
-    Cacertfile = filename:join([Dir, <<"test/data/certs">>, <<"ca.crt">>]),
     ConnConfig =
         case ?config(use_tls, Config) of
             true ->
-                ConnConfig0#{tls_cert => Cacertfile};
+                ConnConfig0#{tls_cert => cacert_file()};
             false ->
                 ConnConfig0
         end,
@@ -457,3 +453,9 @@ make_message(ClientId, Topic, Payload) ->
     From = emqx_message:from(Message),
     Msg = emqx_message:to_map(Message),
     Msg#{id => Id, clientid => From}.
+
+cacert_file() ->
+    %% XXX:
+    %% in CI, same as `.ci/docker-compose-file/certs/ca.crt`
+    Dir = code:lib_dir(emqx_bridge_datalayers),
+    filename:join([Dir, <<"test/emqx_bridge_datalayers_SUITE_data">>, <<"ca.crt">>]).

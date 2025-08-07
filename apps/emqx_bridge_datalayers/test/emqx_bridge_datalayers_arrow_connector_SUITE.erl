@@ -183,10 +183,6 @@ datalayers_connector_config(Host, Port, SslEnabled) ->
 
 datalayers_connector_config(Host, Port, SslEnabled, Verify) ->
     Server = list_to_binary(io_lib:format("~s:~b", [Host, Port])),
-    Dir = code:lib_dir(emqx_bridge_datalayers),
-    %% XXX:
-    %% in CI, same as `.ci/docker-compose-file/certs/ca.crt`
-    Cacertfile = filename:join([Dir, <<"test/data/certs">>, <<"ca.crt">>]),
     ConnectorConf = #{
         <<"parameters">> => #{
             <<"username">> => <<"admin">>,
@@ -199,7 +195,7 @@ datalayers_connector_config(Host, Port, SslEnabled, Verify) ->
         <<"ssl">> => #{
             <<"enable">> => SslEnabled,
             <<"verify">> => Verify,
-            <<"cacertfile">> => Cacertfile
+            <<"cacertfile">> => cacert_file()
         }
     },
     #{<<"config">> => ConnectorConf}.
@@ -213,3 +209,9 @@ datalayers_action_config() ->
 
 datalayers_sql_template() ->
     "INSERT INTO connector_test (ts, clientid, payload_bool) VALUES (${timestamp}, ${clientid}, ${payload.bool})".
+
+cacert_file() ->
+    %% XXX:
+    %% in CI, same as `.ci/docker-compose-file/certs/ca.crt`
+    Dir = code:lib_dir(emqx_bridge_datalayers),
+    filename:join([Dir, <<"test/emqx_bridge_datalayers_SUITE_data">>, <<"ca.crt">>]).
