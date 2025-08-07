@@ -531,7 +531,7 @@ t_bulk_delete_ns(_Config) ->
     ct:pal("waiting for tombstones to be cleared"),
     lists:foreach(
         fun(Ns) ->
-            ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Ns1), #{ns => Ns}))
+            ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Ns), #{ns => Ns}))
         end,
         [Ns1, Ns2, Ns3]
     ),

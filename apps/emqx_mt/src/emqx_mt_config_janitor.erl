@@ -29,14 +29,20 @@ it is deleted.
 
 -include("emqx_mt_internal.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------
 
+-ifdef(TEST).
+-define(CHECK_INTERVAL_MS, 1_000).
+-else.
 -define(CHECK_INTERVAL_MS, 15_000).
+-endif.
 
 -define(check_timer, check_timer).
+-define(cleanup_failed, cleanup_failed).
 
 %% Calls/casts/infos/continues
 -record(clean_tombstones, {}).
@@ -135,9 +141,15 @@ do_clean_up(Namespace) ->
     RootConfigs = emqx_config:get_all_roots_from_namespace(Namespace),
     AllRootKeys = maps:keys(RootConfigs),
     %% We destroy terminal root keys before initial ones.
-    SortedRootKeys = lists:reverse(emqx_conf_dep_registry:sorted_root_keys()),
+    SortedRootKeys0 = lists:reverse(emqx_conf_dep_registry:sorted_root_keys()),
+    %% Keeping only those actually in the config.
+    SortedRootKeys = lists:filter(
+        fun(K) -> is_map_key(K, RootConfigs) end,
+        SortedRootKeys0
+    ),
     %% These don't have a specified order in which to be destroyed
     OtherRootKeys = AllRootKeys -- SortedRootKeys,
+    put(?cleanup_failed, false),
     lists:foreach(
         fun(RootKey) ->
             ok = do_clean_up(Namespace, RootKey)
@@ -151,8 +163,14 @@ do_clean_up(Namespace) ->
         OtherRootKeys
     ),
     ok = emqx_hooks:run('namespace.delete', [Namespace]),
-    ok = emqx_config:erase_namespaced_configs(Namespace),
-    ok = emqx_mt_state:clear_tombstone(Namespace),
+    AnyFailed = get(?cleanup_failed),
+    maybe
+        false ?= AnyFailed,
+        ok = emqx_config:erase_namespaced_configs(Namespace),
+        ok = emqx_mt_state:clear_tombstone(Namespace)
+    end,
+    erase(?cleanup_failed),
+    ?tp("mt_janitor_finished_ns", #{namespace => Namespace, failed => AnyFailed}),
     ok.
 
 do_clean_up(Namespace, RootKey) ->
@@ -167,12 +185,12 @@ do_clean_up(Namespace, RootKey) ->
         {ok, _} ->
             ok;
         {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "mt_failed_to_delete_namespaced_config",
+            ?tp(error, "mt_failed_to_delete_namespaced_config", #{
                 namespace => Namespace,
                 root_key => RootKey,
                 reason => Reason
             }),
+            put(?cleanup_failed, true),
             ok
     end.
 
