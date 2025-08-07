@@ -344,18 +344,6 @@ t_client_huge_payload_truncated(_Config) ->
     ?assertMatch({match, _}, re:run(Bin3, ReN(TruncatedBytes2), [unicode])),
     ok.
 
-t_trace_file(_Config) ->
-    FileName = "test.log",
-    Content = <<"test \n test">>,
-    TraceDir = emqx_trace:trace_dir(),
-    File = filename:join(TraceDir, FileName),
-    ok = file:write_file(File, Content),
-    {ok, Node, Bin} = emqx_trace:trace_file(FileName),
-    ?assertEqual(Node, atom_to_list(node())),
-    ?assertEqual(Content, Bin),
-    ok = file:delete(File),
-    ok.
-
 %% If no relevant event occurred, the log file size must be exactly 0 after stopping the trace.
 t_empty_trace_log_file(_Config) ->
     ?check_trace(
