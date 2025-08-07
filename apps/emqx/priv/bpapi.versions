@@ -23,6 +23,7 @@
 {emqx_conf,2}.
 {emqx_conf,3}.
 {emqx_conf,4}.
+{emqx_conf,5}.
 {emqx_connector,1}.
 {emqx_connector,2}.
 {emqx_dashboard,1}.

@@ -73,7 +73,8 @@
 -define(APP, ?MODULE).
 
 -type config_key_path() :: emqx_utils_maps:config_key_path().
--type namespace() :: binary().
+-type namespace() :: emqx_config:namespace().
+-type maybe_namespace() :: emqx_config:maybe_namespace().
 
 %%--------------------------------------------------------------------
 %% Bootstrap, is_running...
@@ -177,10 +178,12 @@ get_config(KeyPath) ->
     KeyPath1 = emqx_config:ensure_atom_conf_path(KeyPath, {raise_error, config_not_found}),
     emqx_config:get(KeyPath1).
 
--spec get_namespaced_config(namespace(), config_key_path()) -> term().
+-spec get_namespaced_config(maybe_namespace(), config_key_path()) -> term().
 get_namespaced_config(Namespace, KeyPath0) when is_binary(Namespace) ->
     KeyPath = emqx_config:ensure_atom_conf_path(KeyPath0, {raise_error, config_not_found}),
-    emqx_config:get_namespaced(KeyPath, Namespace).
+    emqx_config:get_namespaced(KeyPath, Namespace);
+get_namespaced_config(?global_ns, KeyPath) ->
+    get_config(KeyPath).
 
 -spec get_config(config_key_path(), term()) -> term().
 get_config(KeyPath, Default) ->
@@ -192,7 +195,7 @@ get_config(KeyPath, Default) ->
             Default
     end.
 
--spec get_namespaced_config(namespace(), config_key_path(), _Default :: term()) -> term().
+-spec get_namespaced_config(maybe_namespace(), config_key_path(), _Default :: term()) -> term().
 get_namespaced_config(Namespace, KeyPath0, Default) when is_binary(Namespace) ->
     try
         KeyPath = emqx_config:ensure_atom_conf_path(KeyPath0, {raise_error, config_not_found}),
@@ -200,15 +203,19 @@ get_namespaced_config(Namespace, KeyPath0, Default) when is_binary(Namespace) ->
     catch
         error:config_not_found ->
             Default
-    end.
+    end;
+get_namespaced_config(?global_ns, KeyPath, Default) ->
+    get_config(KeyPath, Default).
 
 -spec get_raw_config(config_key_path()) -> term().
 get_raw_config(KeyPath) ->
     emqx_config:get_raw(KeyPath).
 
--spec get_raw_namespaced_config(namespace(), config_key_path()) -> term().
+-spec get_raw_namespaced_config(maybe_namespace(), config_key_path()) -> term().
 get_raw_namespaced_config(Namespace, KeyPath) when is_binary(Namespace) ->
-    emqx_config:get_raw_namespaced(KeyPath, Namespace).
+    emqx_config:get_raw_namespaced(KeyPath, Namespace);
+get_raw_namespaced_config(?global_ns, KeyPath) ->
+    emqx_config:get_raw(KeyPath).
 
 -spec get_raw_config(config_key_path(), term()) -> term().
 get_raw_config(KeyPath, Default) ->
@@ -216,7 +223,9 @@ get_raw_config(KeyPath, Default) ->
 
 -spec get_raw_namespaced_config(namespace(), config_key_path(), _Default :: term()) -> term().
 get_raw_namespaced_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
-    emqx_config:get_raw_namespaced(KeyPath, Namespace, Default).
+    emqx_config:get_raw_namespaced(KeyPath, Namespace, Default);
+get_raw_namespaced_config(?global_ns, KeyPath, Default) ->
+    emqx_config:get_raw(KeyPath, Default).
 
 -spec update_config(config_key_path(), emqx_config:update_request()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
