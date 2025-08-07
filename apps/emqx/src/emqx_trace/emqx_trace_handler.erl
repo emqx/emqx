@@ -8,7 +8,7 @@
 -include("emqx_trace.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
--logger_header("[Tracer]").
+-include_lib("kernel/include/file.hrl").
 
 %% APIs
 -export([
@@ -24,6 +24,11 @@
     log/2
 ]).
 
+-export([
+    find_log_fragment/2,
+    read_log_fragment_at/4
+]).
+
 %% For logger handler filters callbacks
 -export([
     filter_ruleid/2,
@@ -36,6 +41,7 @@
 -export([payload_encode/0]).
 
 -export_type([log_handler/0]).
+-export_type([log_fragment/0]).
 
 %% Tracer, prototype for a log handler:
 -type tracer() :: #{
@@ -67,13 +73,21 @@
 -type filter_fun() :: {function(), #filterctx{}}.
 -opaque log_handler() :: {logger:handler_id(), filter_fun()}.
 
--define(LOG_HANDLER_OLP_KILL_MEM_SIZE, 50 * 1024 * 1024).
+-define(KB, 1024).
+-define(MB, 1024 * ?KB).
+
+-define(LOG_HANDLER_ROTATION_N_FILES_MAX, 10).
+-define(LOG_HANDLER_ROTATION_N_FILES_MIN, 4).
+-define(LOG_HANDLER_ROTATION_FILE_SIZE_MIN, (20 * ?KB)).
+-define(LOG_HANDLER_FILESYNC_INTERVAL, 5_000).
+-define(LOG_HANDLER_FILECHECK_INTERVAL, 60_000).
+-define(LOG_HANDLER_OLP_KILL_MEM_SIZE, (50 * ?MB)).
 -define(LOG_HANDLER_OLP_KILL_QLEN, 20000).
+
+-define(LOG_FRAGMENT_WITNESS_BYTES, 64).
 
 -type namespace() :: binary().
 -type maybe_namespace() :: ?global_ns | namespace().
-
--define(LOG_HANDLER_FILESYNC_INTERVAL, 5_000).
 
 -ifdef(TEST).
 -undef(LOG_HANDLER_FILESYNC_INTERVAL).
@@ -115,17 +129,24 @@ install(HandlerId, Who, Level, LogFile) ->
         filters => logger_filters(Who),
         config => logger_config(LogFile)
     },
-    Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
+    Res = logger:add_handler(HandlerId, logger_std_h, Config),
     show_prompts(Res, Who, "start_trace"),
     Res.
 
 logger_config(LogFile) ->
     MaxBytes = emqx_config:get([trace, max_file_size]),
+    NFiles = emqx_utils:clamp(
+        MaxBytes div ?LOG_HANDLER_ROTATION_FILE_SIZE_MIN,
+        ?LOG_HANDLER_ROTATION_N_FILES_MIN,
+        ?LOG_HANDLER_ROTATION_N_FILES_MAX
+    ),
     #{
-        type => halt,
+        type => file,
         file => LogFile,
-        max_no_bytes => MaxBytes,
+        max_no_bytes => MaxBytes div NFiles,
+        max_no_files => NFiles - 1,
         filesync_repeat_interval => ?LOG_HANDLER_FILESYNC_INTERVAL,
+        file_check => ?LOG_HANDLER_FILECHECK_INTERVAL,
         overload_kill_enable => true,
         overload_kill_mem_size => ?LOG_HANDLER_OLP_KILL_MEM_SIZE,
         overload_kill_qlen => ?LOG_HANDLER_OLP_KILL_QLEN,
@@ -155,6 +176,154 @@ filesync(HandlerId) ->
                 exit:{{shutdown, _}, _} -> ok;
                 error:undef -> {error, unsupported}
             end;
+        Error ->
+            Error
+    end.
+
+%%
+
+-opaque log_fragment() :: #{i := non_neg_integer(), node := integer()}.
+
+-spec find_log_fragment(first | {next, _After :: log_fragment()}, file:filename()) ->
+    {ok, file:filename(), file:file_info(), log_fragment()}
+    | none
+    | {error, stale | file:posix()}.
+find_log_fragment(first, Basename) ->
+    find_first_log_fragment(Basename);
+find_log_fragment({next, #{i := I, node := Inode}}, Basename) ->
+    find_next_log_fragment(I, Inode, Basename).
+
+find_first_log_fragment(Basename) ->
+    SearchFun = fun(I) ->
+        Filename = mk_log_fragment_filename(Basename, I),
+        case read_file_info(Filename) of
+            {ok, Info = #file_info{inode = Inode}} ->
+                {true, {ok, Filename, Info, mk_log_fragment(I, Inode)}};
+            {error, enoent} ->
+                false;
+            {error, Reason} ->
+                {error, Reason}
+        end
+    end,
+    find_boundary(SearchFun, 0, ?LOG_HANDLER_ROTATION_N_FILES_MAX - 1, none).
+
+find_next_log_fragment(I, Inode, Basename) ->
+    Filename = mk_log_fragment_filename(Basename, I),
+    case read_file_info(Filename) of
+        {ok, #file_info{inode = Inode}} ->
+            %% Fragment is still there, go into the more recent one.
+            next_log_fragment(I, Basename);
+        {ok, #file_info{}} ->
+            %% Fragment was rotated in the meantime, try to find it first.
+            find_next_log_fragment(I + 1, Inode, Basename);
+        {error, enoent} when I < ?LOG_HANDLER_ROTATION_N_FILES_MAX - 1 ->
+            %% Fragment is likely being rotated right now, try to find it.
+            find_next_log_fragment(I + 1, Inode, Basename);
+        {error, enoent} ->
+            %% Fragment was rotated _and_ deleted, there's a discontinuity.
+            {error, stale};
+        Error ->
+            Error
+    end.
+
+next_log_fragment(0, _Basename) ->
+    none;
+next_log_fragment(I, Basename) ->
+    %% TODO
+    %% Subject to races with `looger_std_h:rotate_files/3`, highly unlikely though.
+    %% 1. We can accidentally skip one fragment.
+    %% 2. We can get `{error, enoent}` for 0th (most recent) fragment.
+    Filename = mk_log_fragment_filename(Basename, I - 1),
+    case read_file_info(Filename) of
+        {ok, Info = #file_info{inode = Inode}} ->
+            {ok, Filename, Info, mk_log_fragment(I - 1, Inode)};
+        Error ->
+            Error
+    end.
+
+find_boundary(SF, I1, I2, Found0) ->
+    IMid = (I1 + I2) div 2,
+    case SF(IMid) of
+        {true, Found} when I2 > I1 -> find_boundary(SF, IMid + 1, I2, Found);
+        {true, Found} -> Found;
+        false when I2 > I1 -> find_boundary(SF, I1, IMid - 1, Found0);
+        false -> Found0;
+        Error -> Error
+    end.
+
+-spec read_log_fragment_at(
+    log_fragment(),
+    file:filename(),
+    _Pos :: non_neg_integer(),
+    _NBytes :: pos_integer()
+) ->
+    {ok, binary(), log_fragment()} | {error, stale | file:posix()}.
+read_log_fragment_at(#{i := I, node := Inode} = Fragment, Basename, Pos, NBytes) ->
+    Filename = mk_log_fragment_filename(Basename, I),
+    case file:open(Filename, [read, raw, binary]) of
+        {ok, FD} ->
+            Req = pread_request(Pos, NBytes, Fragment),
+            Result =
+                try
+                    {ok, Info} = read_file_info(FD),
+                    case Info of
+                        #file_info{inode = Inode} ->
+                            file:pread(FD, Req);
+                        _Mismatch ->
+                            stale
+                    end
+                after
+                    file:close(FD)
+                end,
+            case Result of
+                {ok, [eof]} ->
+                    {ok, <<>>, Fragment};
+                {ok, Reads} ->
+                    verify_witness(Reads, Fragment);
+                stale ->
+                    read_log_fragment_at(Fragment#{i := I + 1}, Basename, Pos, NBytes);
+                Error ->
+                    Error
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+pread_request(0, NBytes, _Fragment) ->
+    [{0, NBytes}];
+pread_request(Pos, NBytes, #{w := {WSize, _Checksum}}) ->
+    %% NOTE: Not optimizing small reads.
+    [{0, WSize}, {Pos, NBytes}].
+
+verify_witness([Witness, Chunk], Fragment = #{w := {_WSize, Checksum}}) ->
+    case erlang:crc32(Witness) of
+        Checksum when is_binary(Chunk) ->
+            {ok, Chunk, Fragment};
+        Checksum ->
+            %% Chunk = `eof`:
+            {ok, <<>>, Fragment};
+        _Mismatch ->
+            {error, stale}
+    end;
+verify_witness([Chunk], Fragment) ->
+    WSize = min(?LOG_FRAGMENT_WITNESS_BYTES, byte_size(Chunk)),
+    Witness = binary:part(Chunk, 0, WSize),
+    {ok, Chunk, Fragment#{w := {WSize, erlang:crc32(Witness)}}}.
+
+mk_log_fragment(I, Inode) ->
+    #{i => I, node => Inode, w => []}.
+
+mk_log_fragment_filename(Basename, 0) ->
+    Basename;
+mk_log_fragment_filename(Basename, I) ->
+    Basename ++ "." ++ integer_to_list(I - 1).
+
+read_file_info(Filename) ->
+    case file:read_file_info(Filename, [raw, {time, posix}]) of
+        {ok, #file_info{type = regular} = Info} ->
+            {ok, Info};
+        {ok, #file_info{type = Type}} ->
+            {error, Type};
         Error ->
             Error
     end.
