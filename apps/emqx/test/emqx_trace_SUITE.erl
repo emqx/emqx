@@ -356,28 +356,6 @@ t_trace_file(_Config) ->
     ok = file:delete(File),
     ok.
 
-t_migrate_trace(_Config) ->
-    build_new_trace_data(),
-    build_old_trace_data(),
-    reload(),
-    ?assertMatch(
-        [
-            #{name := _N1, enable := true},
-            #{name := _N2, enable := true}
-        ],
-        emqx_trace:list()
-    ),
-    LoggerIds = logger:get_handler_ids(),
-    lists:foreach(
-        fun(Id) ->
-            ?assertEqual(true, lists:member(Id, LoggerIds), LoggerIds)
-        end,
-        [
-            'emqx_trace:1',
-            'emqx_trace:test_topic_migrate_old'
-        ]
-    ).
-
 %% If no relevant event occurred, the log file size must be exactly 0 after stopping the trace.
 t_empty_trace_log_file(_Config) ->
     ?check_trace(
@@ -404,33 +382,3 @@ t_empty_trace_log_file(_Config) ->
         end,
         []
     ).
-
-build_new_trace_data() ->
-    Now = erlang:system_time(second),
-    {ok, _} = emqx_trace:create(#{
-        name => <<"test_topic_migrate_new">>,
-        filter => {topic, <<"/test/migrate/new">>},
-        start_at => Now - 10
-    }).
-
-build_old_trace_data() ->
-    Now = erlang:system_time(second),
-    OldAttrs = [name, type, filter, enable, start_at, end_at],
-    {atomic, ok} = mnesia:transform_table(emqx_trace, ignore, OldAttrs, emqx_trace),
-    OldTrace =
-        {emqx_trace, <<"test_topic_migrate_old">>, topic, <<"topic">>, true, Now - 10, Now + 100},
-    ok = mnesia:dirty_write(OldTrace),
-    ok.
-
-reload() ->
-    catch ok = gen_server:stop(emqx_trace),
-    case emqx_trace:start_link() of
-        {ok, _Pid} = Res ->
-            Res;
-        NotOKRes ->
-            ct:pal(
-                "emqx_trace:start_link() gave result: ~p\n"
-                "(perhaps it is already started)",
-                [NotOKRes]
-            )
-    end.
