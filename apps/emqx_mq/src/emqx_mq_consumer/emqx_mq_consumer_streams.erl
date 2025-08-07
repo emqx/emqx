@@ -116,6 +116,9 @@ progress(#cs{st = #{progress := GenerationProgress, streams := Streams}}) ->
                                 }
                             };
                         _ ->
+                            ?tp(warning, emqx_mq_consumer_streams_progress_stream, #{
+                                slab => Slab, sb => emqx_mq_consumer_stream_buffer:info(SB)
+                            }),
                             ProgressAcc#{
                                 Stream => #{
                                     slab => Slab,
@@ -149,8 +152,11 @@ handle_ds_info(#cs{ds_client = DSC0, st = State0} = CS, GenericMessage) ->
 -spec handle_ack(t(), emqx_mq_types:message_id()) -> t().
 handle_ack(
     #cs{st = #{streams_by_slab := StreamsBySlab, streams := Streams} = State} = CS,
-    {Slab, StreamMessageId}
+    {Slab, StreamMessageId} = MessagesId
 ) ->
+    ?tp(warning, emqx_mq_consumer_streams_handle_ack, #{
+        message_id => MessagesId
+    }),
     maybe
         #{Slab := Stream} ?= StreamsBySlab,
         #{Stream := #{stream_buffer := SB} = StreamData} ?= Streams,
@@ -209,7 +215,7 @@ get_iterator(?SUB_ID, Slab, Stream, #{streams := Streams}) ->
             #{Stream := #{stream_buffer := undefined}} ->
                 {ok, end_of_stream};
             #{Stream := #{stream_buffer := SB}} ->
-                case emqx_mq_consumer_stream_buffer:progress(SB) of
+                case emqx_mq_consumer_stream_buffer:iterator(SB) of
                     end_of_stream ->
                         {ok, end_of_stream};
                     It ->
@@ -285,8 +291,13 @@ restore_stream(
         case StreamProgress of
             finished ->
                 #{stream_buffer => undefined, slab => Slab};
-            It ->
-                #{stream_buffer => emqx_mq_consumer_stream_buffer:new(It, SBOptions), slab => Slab}
+            _ ->
+                #{
+                    stream_buffer => emqx_mq_consumer_stream_buffer:restore(
+                        StreamProgress, SBOptions
+                    ),
+                    slab => Slab
+                }
         end,
     State#{
         streams => Streams#{Stream => StreamData}, streams_by_slab => StreamsBySlab#{Slab => Stream}
@@ -307,14 +318,23 @@ do_handle_ds_reply(
     Handle,
     DSReply
 ) ->
+    ?tp(warning, emqx_mq_consumer_streams_do_handle_ds_reply, #{
+        slab => Slab, stream => Stream, handle => Handle, ds_reply => DSReply
+    }),
     case emqx_mq_consumer_stream_buffer:handle_ds_reply(SB, Handle, DSReply) of
         {ok, Messages0, SB1} ->
+            ?tp(warning, emqx_mq_consumer_streams_do_handle_ds_reply_ok, #{
+                slab => Slab, sb => emqx_mq_consumer_stream_buffer:info(SB1)
+            }),
             Messages = [
                 {{Slab, StreamMessageId}, emqx_mq_payload_db:decode_message(Payload)}
              || {_Topic, StreamMessageId, Payload} <- Messages0
             ],
             {ok, Messages, State#{streams => Streams#{Stream => StreamData#{stream_buffer => SB1}}}};
         finished ->
+            ?tp(warning, emqx_mq_consumer_streams_do_handle_ds_reply_finished, #{
+                slab => Slab, sb => emqx_mq_consumer_stream_buffer:info(SB)
+            }),
             {ok, [], State#{
                 streams => Streams#{
                     Stream => StreamData#{stream_buffer => undefined, sub_ref => undefined}

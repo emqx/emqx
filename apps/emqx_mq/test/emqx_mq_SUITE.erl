@@ -344,12 +344,14 @@ t_busy_session(_Config) ->
     }),
 
     %% Publish 100 messages to the queue
-    ok = emqx_mq_test_utils:populate(100, fun(I) ->
-        IBin = integer_to_binary(I),
-        Payload = <<"payload-", IBin/binary>>,
-        Topic = <<"t/", IBin/binary>>,
-        {Topic, Payload}
-    end),
+    ok = emqx_mq_test_utils:populate(
+        100, fun(I) ->
+            IBin = integer_to_binary(I),
+            Payload = <<"payload-", IBin/binary>>,
+            Topic = <<"t/", IBin/binary>>,
+            {Topic, Payload}
+        end
+    ),
 
     %% Consume the messages from the queue
     %% Set max_inflight to 0 to avoid nacking messages by the client's session
@@ -394,9 +396,137 @@ t_busy_session(_Config) ->
     ok = emqtt:disconnect(CSub),
     ok = emqtt:disconnect(CPub).
 
+%% We check that the consumption progress is restored correctly
+%% when the consumer is stopped and started again:
+%% * acked messages are not re-delivered
+%% * unacked messages are re-delivered
+t_progress_restoration(_Config) ->
+    %% Create a non-compacted Queue
+    ok = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>,
+        is_compacted => false,
+        consumer_max_inactive_ms => 50
+    }),
+
+    %% Publish 20 messages to the queue
+    ok = emqx_mq_test_utils:populate(20, fun(I) ->
+        IBin = integer_to_binary(I),
+        Payload = <<"payload-", IBin/binary>>,
+        Topic = <<"t/", IBin/binary>>,
+        {Topic, Payload}
+    end),
+
+    %% Start to consume the messages from the queue
+    CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+
+    %% Receive first message and NOT acknowledge it
+    receive
+        {publish, #{topic := <<"t/0">>, client_pid := CSub0}} ->
+            ok
+    after 100 ->
+        ct:fail("t/0 message from MQ not received")
+    end,
+
+    %% Receive second message and acknowledge it
+    receive
+        {publish, #{topic := <<"t/1">>, packet_id := PacketId, client_pid := CSub0}} ->
+            ok = emqtt:puback(CSub0, PacketId)
+    after 100 ->
+        ct:fail("t/1 message from MQ not received")
+    end,
+
+    %% Disconnect the client and wait for the consumer to stop and save the progress
+    ok = emqtt:disconnect(CSub0),
+    ok = wait_for_consumer_stop(<<"t/#">>, 100),
+
+    %% Start the client and the consumer again
+    CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+
+    %% Verify that we receive unacknowledged messages from t/0, and t/2
+    %% and DO NOT receive already acknowledged from t/1
+    receive
+        {publish, #{topic := <<"t/1">>, client_pid := CSub1}} ->
+            ct:fail("Already acknowledged t/1 message from MQ received")
+    after 100 ->
+        ok
+    end,
+    receive
+        {publish, #{topic := <<"t/0">>, client_pid := CSub1}} ->
+            ok
+    after 100 ->
+        ct:fail("t/0 message from MQ not received")
+    end,
+    receive
+        {publish, #{topic := <<"t/2">>, client_pid := CSub1}} ->
+            ok
+    after 100 ->
+        ct:fail("t/2 message from MQ not received")
+    end,
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub1).
+
+%% We check that the consumption progress is restored correctly
+%% when the consumption buffer is full
+t_progress_restoration_full_buffer(_Config) ->
+    %% Create a non-compacted Queue
+    ok = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>,
+        is_compacted => false,
+        consumer_max_inactive_ms => 50,
+        local_max_inflight => 100
+    }),
+
+    %% Publish 20 messages to the queue
+    ok = emqx_mq_test_utils:populate(100, fun(I) ->
+        IBin = integer_to_binary(I),
+        Payload = <<"payload-", IBin/binary>>,
+        Topic = <<"t/", IBin/binary>>,
+        {Topic, Payload}
+    end),
+
+    %% Start to consume the messages from the queue
+    emqx_config:put([mqtt, max_inflight], 100),
+    CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+
+    %% Receive all messages and acknowledge only the last one
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 100),
+    #{packet_id := PacketId} = lists:last(Msgs0),
+    ok = emqtt:puback(CSub0, PacketId),
+
+    %% Disconnect the client and wait for the consumer to stop and save the progress
+    ok = emqtt:disconnect(CSub0),
+    ok = wait_for_consumer_stop(<<"t/#">>, 100),
+
+    %% Start the client and the consumer again
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+
+    %% Verify that we receive all messages
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 100),
+    ?assertEqual(99, length(Msgs1), binfmt("Expected 99 messages, got: ~p", [length(Msgs1)])),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub1).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
 
 binfmt(Format, Args) ->
     iolist_to_binary(io_lib:format(Format, Args)).
+
+now_ms() ->
+    erlang:system_time(millisecond).
+
+wait_for_consumer_stop(Topic, Ms) when Ms > 5 ->
+    ?retry(
+        5,
+        1 + Ms div 5,
+        ?assert(
+            emqx_mq_consumer_db:find_consumer(Topic, now_ms()) == not_found
+        )
+    ).

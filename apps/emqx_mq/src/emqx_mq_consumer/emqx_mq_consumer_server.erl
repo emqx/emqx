@@ -153,6 +153,9 @@ handle_ack(
     MessageId,
     Ack
 ) ->
+    ?tp(warning, mq_consumer_handle_ack, #{
+        subscriber_ref => SubscriberRef, message_id => MessageId, ack => Ack
+    }),
     maybe
         #{SubscriberRef := SubscriberData0} ?= Subscribers0,
         #{inflight_messages := InflightMessages0} ?= SubscriberData0,

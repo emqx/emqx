@@ -18,7 +18,7 @@
 
 -export([populate/2, populate_compacted/2]).
 
--export([cleanup_mqs/0]).
+-export([cleanup_mqs/0, stop_all_consumers/0]).
 
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -121,13 +121,16 @@ populate_compacted(N, Fun) ->
     ok = emqtt:disconnect(C).
 
 cleanup_mqs() ->
+    ok = stop_all_consumers(),
+    ok = emqx_mq_registry:delete_all(),
+    ok = emqx_mq_payload_db:delete_all(),
+    ok = emqx_mq_consumer_db:delete_all().
+
+stop_all_consumers() ->
     ConsumerPids = [Pid || {_, Pid, _, _} <- supervisor:which_children(emqx_mq_consumer_sup)],
     ok = lists:foreach(
         fun(Pid) ->
             ok = emqx_mq_consumer:stop(Pid)
         end,
         ConsumerPids
-    ),
-    ok = emqx_mq_registry:delete_all(),
-    ok = emqx_mq_payload_db:delete_all(),
-    ok = emqx_mq_consumer_db:delete_all().
+    ).
