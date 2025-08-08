@@ -411,21 +411,27 @@ log(Log, [{Id, {FilterFun, Ctx}} | Rest]) ->
                     try
                         Module:log(NLog, HandlerConfig)
                     catch
-                        C:R:S ->
+                        Kind:Error:Stacktrace ->
                             case logger:remove_handler(Id) of
                                 ok ->
-                                    logger:internal_log(
-                                        error, {removed_failing_handler, Id, C, R, S}
-                                    );
+                                    ?SLOG(error, #{
+                                        msg => "trace_log_handler_failing_removed",
+                                        handler_id => Id,
+                                        reason => {Kind, Error},
+                                        stacktrace => Stacktrace
+                                    });
                                 {error, {not_found, _}} ->
                                     %% Probably already removed by other client
                                     %% Don't report again
                                     ok;
                                 {error, Reason} ->
-                                    logger:internal_log(
-                                        error,
-                                        {removed_handler_failed, Id, Reason, C, R, S}
-                                    )
+                                    ?SLOG(error, #{
+                                        msg => "trace_log_handler_failing_removal_error",
+                                        removal_error => Reason,
+                                        handler_id => Id,
+                                        reason => {Kind, Error},
+                                        stacktrace => Stacktrace
+                                    })
                             end
                     end;
                 {error, {not_found, _}} ->
