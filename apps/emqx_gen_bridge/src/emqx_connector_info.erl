@@ -62,14 +62,15 @@
 %% apps are loaded before this module is called.
 %% ====================================================================
 
--if(?EMQX_RELEASE_EDITION == ee).
 hard_coded_connector_info_modules_ee() ->
     [
+        emqx_bridge_alloydb_connector_info,
         emqx_bridge_azure_blob_storage_connector_info,
         emqx_bridge_azure_event_hub_connector_info,
         emqx_bridge_bigquery_connector_info,
         emqx_bridge_cassandra_connector_info,
         emqx_bridge_clickhouse_connector_info,
+        emqx_bridge_cockroachdb_connector_info,
         emqx_bridge_confluent_producer_connector_info,
         emqx_bridge_couchbase_connector_info,
         emqx_bridge_datalayers_connector_info,
@@ -94,6 +95,7 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_pulsar_connector_info,
         emqx_bridge_rabbitmq_connector_info,
         emqx_bridge_redis_connector_info,
+        emqx_bridge_redshift_connector_info,
         emqx_bridge_rocketmq_connector_info,
         emqx_bridge_s3_connector_info,
         emqx_bridge_s3tables_connector_info,
@@ -105,10 +107,6 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_tdengine_connector_info,
         emqx_bridge_timescale_connector_info
     ].
--else.
-hard_coded_connector_info_modules_ee() ->
-    [].
--endif.
 
 hard_coded_connector_info_modules_common() ->
     [

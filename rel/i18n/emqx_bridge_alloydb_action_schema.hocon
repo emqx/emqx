@@ -1,0 +1,13 @@
+emqx_bridge_alloydb_action_schema {
+  alloydb {
+    label: """Upload to Google AlloyDB"""
+    desc:
+    """Action that takes incoming events and appends them to Google AlloyDB."""
+  }
+
+  action_parameters {
+    label: "Action Parameters"
+    desc:
+    """Set of parameters for the action."""
+  }
+}
