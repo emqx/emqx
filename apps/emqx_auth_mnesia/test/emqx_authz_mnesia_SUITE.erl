@@ -8,6 +8,7 @@
 -compile(export_all).
 
 -include_lib("emqx_auth/include/emqx_authz.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -404,9 +405,9 @@ t_conf_cli_load(_Config) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
     PrevRules = ets:tab2list(emqx_acl),
-    Hocon = emqx_conf_cli:get_config("authorization"),
+    Hocon = emqx_conf_cli:get_config_namespaced(?global_ns, "authorization"),
     Bin = iolist_to_binary(hocon_pp:do(Hocon, #{})),
-    ok = emqx_conf_cli:load_config(Bin, #{mode => merge}),
+    ok = emqx_conf_cli:load_config(?global_ns, Bin, #{mode => merge}),
     %% ensure emqx_acl table not clear
     ?assertEqual(PrevRules, ets:tab2list(emqx_acl)),
     %% still working

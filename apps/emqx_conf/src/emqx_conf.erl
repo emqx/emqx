@@ -9,9 +9,11 @@
 -include_lib("emqx/include/emqx_schema.hrl").
 -include("emqx_conf.hrl").
 
+%% DEPRECATED: Unused RPC target for `emqx_conf_proto_v{1..4}`.
+-deprecated({get_node_and_config, 1}).
+
 -export([add_handler/2, remove_handler/1]).
--export([get/1, get/2, get_raw/1, get_raw/2, get_all/1]).
--export([get_by_node/2, get_by_node/3]).
+-export([get/1, get/2, get_raw/1, get_raw/2]).
 -export([update/3, update/4]).
 -export([remove/2, remove/3]).
 -export([tombstone/2]).
@@ -19,7 +21,7 @@
 -export([dump_schema/2, reformat_schema_dump/2]).
 -export([schema_module/0]).
 
-%% for rpc
+%% DEPRECATED: Unused RPC target for `emqx_conf_proto_v{1..4}`.
 -export([get_node_and_config/1]).
 
 %% API
@@ -49,26 +51,7 @@ get_raw(KeyPath, Default) ->
 get_raw(KeyPath) ->
     emqx_config:get_raw(KeyPath).
 
-%% @doc Returns all values in the cluster.
--spec get_all(emqx_utils_maps:config_key_path()) -> #{node() => term()}.
-get_all(KeyPath) ->
-    {ResL, []} = emqx_conf_proto_v4:get_all(KeyPath),
-    maps:from_list(ResL).
-
-%% @doc Returns the specified node's KeyPath, or exception if not found
--spec get_by_node(node(), emqx_utils_maps:config_key_path()) -> term().
-get_by_node(Node, KeyPath) when Node =:= node() ->
-    emqx:get_config(KeyPath);
-get_by_node(Node, KeyPath) ->
-    emqx_conf_proto_v4:get_config(Node, KeyPath).
-
-%% @doc Returns the specified node's KeyPath, or the default value if not found
--spec get_by_node(node(), emqx_utils_maps:config_key_path(), term()) -> term().
-get_by_node(Node, KeyPath, Default) when Node =:= node() ->
-    emqx:get_config(KeyPath, Default);
-get_by_node(Node, KeyPath, Default) ->
-    emqx_conf_proto_v4:get_config(Node, KeyPath, Default).
-
+%% DEPRECATED: Unused RPC target for `emqx_conf_proto_v{1..4}`.
 %% @doc Returns the specified node's KeyPath, or config_not_found if key path not found
 -spec get_node_and_config(emqx_utils_maps:config_key_path()) -> term().
 get_node_and_config(KeyPath) ->

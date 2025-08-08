@@ -1458,7 +1458,7 @@ t_async_load_config_cli(_Config) ->
     ConfigToLoadBin = iolist_to_binary(hocon_pp:do(RawConfig, #{})),
     ct:pal("loading config..."),
     ct:timetrap(5_000),
-    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin, #{mode => merge})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin, #{mode => merge})),
     ct:pal("config loaded"),
 
     ok.

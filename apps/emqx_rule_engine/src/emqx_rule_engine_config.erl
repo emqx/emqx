@@ -102,8 +102,9 @@ post_config_update(?RULE_PATH(RuleId), _Req, NewRule, _OldRule, _AppEnvs, ExtraC
     Namespace = emqx_config_handler:get_namespace(ExtraContext),
     emqx_rule_engine:update_rule(NewRule#{id => bin(RuleId), ?namespace => Namespace});
 post_config_update(
-    [?ROOT_KEY], _Req, #{rules := NewRules}, #{rules := OldRules}, _AppEnvs, ExtraContext
+    [?ROOT_KEY], _Req, #{rules := NewRules}, OldConfig, _AppEnvs, ExtraContext
 ) ->
+    OldRules = maps:get(rules, OldConfig, #{}),
     Namespace = emqx_config_handler:get_namespace(ExtraContext),
     #{added := Added, removed := Removed, changed := Updated} =
         emqx_utils_maps:diff_maps(NewRules, OldRules),

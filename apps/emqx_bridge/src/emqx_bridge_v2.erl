@@ -1344,9 +1344,11 @@ pre_config_update([ConfRootKey], Conf = #{}, OldConfs, ExtraContext) when
 
 %% This top level handler will be triggered when the actions path is updated
 %% with calls to emqx_conf:update([actions], BridgesConf, #{}).
-post_config_update([ConfRootKey], _Req, NewConf, OldConf, _AppEnv, ExtraContext) when
+post_config_update([ConfRootKey], _Req, NewConf0, OldConf0, _AppEnv, ExtraContext) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS; ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
+    NewConf = remove_computed_fields(NewConf0),
+    OldConf = remove_computed_fields(OldConf0),
     Namespace = emqx_config_handler:get_namespace(ExtraContext),
     #{added := Added, removed := Removed, changed := Updated} =
         diff_confs(NewConf, OldConf),
@@ -2350,3 +2352,11 @@ with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
 get_root_config_from_all_namespaces(RootKey, Default) ->
     NamespacedConfigs = emqx_config:get_root_from_all_namespaces(RootKey, Default),
     NamespacedConfigs#{?global_ns => emqx:get_config([RootKey], Default)}.
+
+remove_computed_fields(#{} = Map) ->
+    maps:map(
+        fun(_K, V) -> remove_computed_fields(V) end,
+        maps:remove(?COMPUTED, Map)
+    );
+remove_computed_fields(X) ->
+    X.

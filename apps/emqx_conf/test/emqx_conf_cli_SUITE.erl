@@ -92,63 +92,57 @@ t_remove_config(Config) ->
     ok.
 
 t_conflict_mix_conf(Config) ->
-    case emqx_release:edition() of
-        ce ->
-            %% Don't fail if the test is run with emqx profile
-            ok;
-        ee ->
-            AuthNInit = emqx_conf:get_raw([authentication]),
-            Redis = #{
-                <<"backend">> => <<"redis">>,
-                <<"database">> => 0,
-                <<"password_hash_algorithm">> =>
-                    #{<<"name">> => <<"sha256">>, <<"salt_position">> => <<"prefix">>},
-                <<"pool_size">> => 8,
-                <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt">>,
-                <<"enable">> => false,
-                <<"mechanism">> => <<"password_based">>,
-                %% password_hash_algorithm {name = sha256, salt_position = suffix}
-                <<"redis_type">> => <<"single">>,
-                <<"server">> => <<"127.0.0.1:6379">>,
-                <<"precondition">> => <<>>
-            },
-            AuthN = #{<<"authentication">> => [Redis]},
-            ConfBin = hocon_pp:do(AuthN, #{}),
-            ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
-            %% init with redis sources
-            ok = emqx_conf_cli:conf(["load", "--replace", ConfFile]),
-            [RedisRaw] = emqx_conf:get_raw([authentication]),
-            ?assertEqual(
-                lists:sort(maps:to_list(Redis)),
-                lists:sort(maps:to_list(maps:remove(<<"ssl">>, RedisRaw))),
-                {Redis, RedisRaw}
-            ),
-            %% change redis type from single to cluster
-            %% the server field will become servers field
-            RedisCluster = maps:without([<<"server">>, <<"database">>], Redis#{
-                <<"redis_type">> => cluster,
-                <<"servers">> => [<<"127.0.0.1:6379">>]
-            }),
-            AuthN1 = AuthN#{<<"authentication">> => [RedisCluster]},
-            ConfBin1 = hocon_pp:do(AuthN1, #{}),
-            ConfFile1 = prepare_conf_file(?FUNCTION_NAME, ConfBin1, Config),
-            {error, Reason} = emqx_conf_cli:conf(["load", "--merge", ConfFile1]),
-            ?assertNotEqual(
-                nomatch,
-                binary:match(
-                    Reason,
-                    [<<"Tips: There may be some conflicts in the new configuration under">>]
-                ),
-                Reason
-            ),
-            %% use replace to change redis type from single to cluster
-            ?assertMatch(ok, emqx_conf_cli:conf(["load", "--replace", ConfFile1])),
-            %% clean up
-            ConfBinInit = hocon_pp:do(#{<<"authentication">> => AuthNInit}, #{}),
-            ConfFileInit = prepare_conf_file(?FUNCTION_NAME, ConfBinInit, Config),
-            ok = emqx_conf_cli:conf(["load", "--replace", ConfFileInit]),
-            ok
-    end.
+    AuthNInit = emqx_conf:get_raw([authentication]),
+    Redis = #{
+        <<"backend">> => <<"redis">>,
+        <<"database">> => 0,
+        <<"password_hash_algorithm">> =>
+            #{<<"name">> => <<"sha256">>, <<"salt_position">> => <<"prefix">>},
+        <<"pool_size">> => 8,
+        <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt">>,
+        <<"enable">> => false,
+        <<"mechanism">> => <<"password_based">>,
+        %% password_hash_algorithm {name = sha256, salt_position = suffix}
+        <<"redis_type">> => <<"single">>,
+        <<"server">> => <<"127.0.0.1:6379">>,
+        <<"precondition">> => <<>>
+    },
+    AuthN = #{<<"authentication">> => [Redis]},
+    ConfBin = hocon_pp:do(AuthN, #{}),
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
+    %% init with redis sources
+    ok = emqx_conf_cli:conf(["load", "--replace", ConfFile]),
+    [RedisRaw] = emqx_conf:get_raw([authentication]),
+    ?assertEqual(
+        lists:sort(maps:to_list(Redis)),
+        lists:sort(maps:to_list(maps:remove(<<"ssl">>, RedisRaw))),
+        {Redis, RedisRaw}
+    ),
+    %% change redis type from single to cluster
+    %% the server field will become servers field
+    RedisCluster = maps:without([<<"server">>, <<"database">>], Redis#{
+        <<"redis_type">> => cluster,
+        <<"servers">> => [<<"127.0.0.1:6379">>]
+    }),
+    AuthN1 = AuthN#{<<"authentication">> => [RedisCluster]},
+    ConfBin1 = hocon_pp:do(AuthN1, #{}),
+    ConfFile1 = prepare_conf_file(?FUNCTION_NAME, ConfBin1, Config),
+    {error, Reason} = emqx_conf_cli:conf(["load", "--merge", ConfFile1]),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(
+            Reason,
+            [<<"Tips: There may be some conflicts in the new configuration under">>]
+        ),
+        Reason
+    ),
+    %% use replace to change redis type from single to cluster
+    ?assertMatch(ok, emqx_conf_cli:conf(["load", "--replace", ConfFile1])),
+    %% clean up
+    ConfBinInit = hocon_pp:do(#{<<"authentication">> => AuthNInit}, #{}),
+    ConfFileInit = prepare_conf_file(?FUNCTION_NAME, ConfBinInit, Config),
+    ok = emqx_conf_cli:conf(["load", "--replace", ConfFileInit]),
+    ok.
 
 t_config_handler_hook_failed(Config) ->
     Listeners =

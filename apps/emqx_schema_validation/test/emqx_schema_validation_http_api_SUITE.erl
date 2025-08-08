@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -1203,7 +1204,7 @@ t_schema_check_non_existent_serde_load_config(_Config) ->
     },
     ConfigToLoadBin1 = iolist_to_binary(hocon_pp:do(ConfigToLoad1, #{})),
     %% Merge
-    ResMerge = emqx_conf_cli:load_config(ConfigToLoadBin1, #{mode => merge}),
+    ResMerge = emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin1, #{mode => merge}),
     ?assertMatch({error, _}, ResMerge),
     {error, ErrorMessage1} = ResMerge,
     ?assertEqual(match, re:run(ErrorMessage1, <<"missing_schemas">>, [{capture, none}])),
@@ -1212,7 +1213,7 @@ t_schema_check_non_existent_serde_load_config(_Config) ->
     ?assertEqual(match, re:run(ErrorMessage1, MissingMessageType, [{capture, none}])),
 
     %% Replace
-    ResReplace = emqx_conf_cli:load_config(ConfigToLoadBin1, #{mode => replace}),
+    ResReplace = emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin1, #{mode => replace}),
     ?assertMatch({error, _}, ResReplace),
     {error, ErrorMessage2} = ResReplace,
     ?assertEqual(match, re:run(ErrorMessage2, <<"missing_schemas">>, [{capture, none}])),
@@ -1449,7 +1450,7 @@ t_load_config(_Config) ->
         }
     },
     ConfigToLoadBin1 = iolist_to_binary(hocon_pp:do(ConfigToLoad1, #{})),
-    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin1, #{mode => merge})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin1, #{mode => merge})),
     ExpectedValidations1 = normalize_validations([
         Validation1A,
         Validation2A,
@@ -1462,7 +1463,7 @@ t_load_config(_Config) ->
                 <<"validations">> := ExpectedValidations1
             }
         },
-        emqx_conf_cli:get_config(<<"schema_validation">>)
+        emqx_conf_cli:get_config_namespaced(?global_ns, <<"schema_validation">>)
     ),
     ?assertIndexOrder([Name1, Name2, Name3, Name4], <<"t/a">>),
 
@@ -1478,7 +1479,7 @@ t_load_config(_Config) ->
         ConfRootBin => #{<<"validations">> => [Validation4B, Validation3, Validation5]}
     },
     ConfigToLoadBin2 = iolist_to_binary(hocon_pp:do(ConfigToLoad2, #{})),
-    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin2, #{mode => replace})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin2, #{mode => replace})),
     ExpectedValidations2 = normalize_validations([Validation4B, Validation3, Validation5]),
     ?assertMatch(
         #{
@@ -1486,7 +1487,7 @@ t_load_config(_Config) ->
                 <<"validations">> := ExpectedValidations2
             }
         },
-        emqx_conf_cli:get_config(<<"schema_validation">>)
+        emqx_conf_cli:get_config_namespaced(?global_ns, <<"schema_validation">>)
     ),
     ?assertIndexOrder([Name4, Name3, Name5], <<"t/a">>),
 
