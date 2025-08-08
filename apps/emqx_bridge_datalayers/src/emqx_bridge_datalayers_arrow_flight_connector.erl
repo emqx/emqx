@@ -279,35 +279,39 @@ do_health_check(InstId, Timeout) ->
     end.
 
 on_query(InstId, {_ChannelId, _} = Query, State) ->
-    ?TRACE("QUERY", "datalayers_arrow_flight_connector_received_sql_query", #{
+    ?TRACE("QUERY", "datalayers_arrow_flight_connector_do_query", #{
         instance_id => InstId,
         query => Query,
         state => emqx_utils:redact(State)
     }),
+    ?tp(datalayers_arrow_flight_connector_on_query, #{instance_id => InstId}),
     do_query(InstId, ?sync, [Query], State, []).
 
 on_batch_query(InstId, [{_ChannelId, _} | _] = Querys, State) ->
-    ?TRACE("QUERY", "datalayers_arrow_flight_connector_received_batch_sql_query", #{
+    ?TRACE("QUERY", "datalayers_arrow_flight_connector_do_batch_query", #{
         instance_id => InstId,
         querys => Querys,
         state => emqx_utils:redact(State)
     }),
+    ?tp(datalayers_arrow_flight_connector_on_batch_query, #{instance_id => InstId}),
     do_query(InstId, ?sync, Querys, State, []).
 
 on_query_async(InstId, {_ChannelId, _Message} = Query, ResCallback, State) ->
-    ?TRACE("QUERY", "datalayers_arrow_flight_connector_received_async_sql_query", #{
+    ?TRACE("QUERY", "datalayers_arrow_flight_connector_do_async_query", #{
         instance_id => InstId,
         query => Query,
         state => emqx_utils:redact(State)
     }),
+    ?tp(datalayers_arrow_flight_connector_on_query_async, #{instance_id => InstId}),
     do_query(InstId, ?async, [Query], State, [ResCallback]).
 
 on_batch_query_async(InstId, Querys, ResCallback, State) ->
-    ?TRACE("QUERY", "datalayers_arrow_flight_connector_received_async_batch_sql_query", #{
+    ?TRACE("QUERY", "datalayers_arrow_flight_connector_do_async_batch_query", #{
         instance_id => InstId,
         querys => Querys,
         state => emqx_utils:redact(State)
     }),
+    ?tp(datalayers_arrow_flight_connector_on_batch_query_async, #{instance_id => InstId}),
     do_query(InstId, ?async, Querys, State, [ResCallback]).
 
 -spec do_query(

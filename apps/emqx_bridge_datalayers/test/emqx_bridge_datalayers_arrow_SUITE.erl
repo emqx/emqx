@@ -10,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(create_database, <<"CREATE DATABASE IF NOT EXISTS mqtt_arrow">>).
 
@@ -213,34 +214,60 @@ datalayers_config(DatalayersHost, DatalayersPort, Config) ->
     {ActionConfString, ActionConfMap} = datalayers_action_config(Name, Config),
     {Name, ConnConfString, ConnConfMap, ActionConfString, ActionConfMap}.
 
+%% erlfmt-ignore
+-define(connector_config,
+"""
+enable = true
+server = "~s:~b"
+parameters {
+  driver_type = arrow_flight
+  database = mqtt
+  username = admin
+  password = public
+}
+ssl {
+  enable = ~p
+  verify = verify_peer
+  cacertfile = "~s"
+}
+"""
+).
+
 datalayers_connector_config(Name, DatalayersHost, DatalayersPort, Config) ->
     UseTLS = proplists:get_value(use_tls, Config, false),
     ConfigString =
         io_lib:format(
-            "connectors.datalayers.~s {\n"
-            "  enable = true\n"
-            "  server = \"~s:~b\"\n"
-            "  parameters {\n"
-            "    driver_type = arrow_flight\n"
-            "    database = mqtt\n"
-            "    username = admin\n"
-            "    password = public\n"
-            "  }\n"
-            "  ssl {\n"
-            "    enable = ~p\n"
-            "    verify = verify_peer\n"
-            "    cacertfile = \"~s\"\n"
-            "  }\n"
-            "}\n",
+            ?connector_config,
             [
-                Name,
                 DatalayersHost,
                 DatalayersPort,
                 UseTLS,
                 cacert_file()
             ]
         ),
-    {ConfigString, parse_and_check_connector(ConfigString, Name)}.
+    {ok, RawConf} = hocon:binary(ConfigString),
+    Checked = emqx_bridge_v2_testlib:parse_and_check_connector(
+        <<"datalayers">>,
+        Name,
+        RawConf
+    ),
+    {ConfigString, Checked}.
+
+%% erlfmt-ignore
+-define(action_config,
+"""
+enable = true
+connector = ~s
+parameters {
+  sql = "~s"
+}
+resource_opts = {
+  request_ttl = 15s
+  query_mode = ~s
+  batch_size = ~b
+}
+"""
+).
 
 datalayers_action_config(Name, Config) ->
     BatchSize = proplists:get_value(batch_size, Config, 100),
@@ -248,85 +275,27 @@ datalayers_action_config(Name, Config) ->
     SQL = sql_template(),
     ConfigString =
         io_lib:format(
-            "actions.datalayers.~s {\n"
-            "  enable = true\n"
-            "  connector = ~s\n"
-            "  parameters {\n"
-            "    sql = \"~s\"\n"
-            "  }\n"
-            "  resource_opts = {\n"
-            "    request_ttl = 15s\n"
-            "    query_mode = ~s\n"
-            "    batch_size = ~b\n"
-            "  }\n"
-            "}\n",
+            ?action_config,
             [
-                Name,
                 Name,
                 SQL,
                 QueryMode,
                 BatchSize
             ]
         ),
-    {ConfigString, parse_and_check_action(ConfigString, Name)}.
+    {ok, RawConf} = hocon:binary(ConfigString),
+    Checked = emqx_bridge_v2_testlib:parse_and_check(
+        <<"datalayers">>,
+        Name,
+        RawConf
+    ),
+    {ConfigString, Checked}.
 
 sql_template() ->
     <<
         "INSERT INTO mqtt_arrow.common_test(ts, msgid, clientid, topic, qos, payload) VALUES "
         "(${timestamp}, ${id}, ${clientid}, ${topic}, ${qos}, ${payload})"
     >>.
-
-parse_and_check_connector(ConfigString, Name) ->
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    hocon_tconf:check_plain(emqx_connector_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"connectors">> := #{<<"datalayers">> := #{Name := Config}}} = RawConf,
-    Config.
-
-parse_and_check_action(ConfigString, Name) ->
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    hocon_tconf:check_plain(emqx_bridge_v2_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"actions">> := #{<<"datalayers">> := #{Name := Config}}} = RawConf,
-    Config.
-
-create_bridge(Config) ->
-    create_bridge(Config, _Overrides = #{}).
-
-create_bridge(Config, Overrides) ->
-    emqx_bridge_v2_testlib:create_bridge_api(Config, Overrides).
-
-query_resource(Config, Request) ->
-    Type = ?config(bridge_type, Config),
-    Name = ?config(bridge_name, Config),
-    BridgeV2Id = id(Type, Name),
-    ConnectorResId = emqx_connector_resource:resource_id(Type, Name),
-    emqx_resource:query(BridgeV2Id, Request, #{
-        timeout => 1_000, connector_resource_id => ConnectorResId
-    }).
-
-query_resource_async(Config, Request) ->
-    Type = ?config(bridge_type, Config),
-    Name = ?config(bridge_name, Config),
-    Ref = alias([reply]),
-    AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
-    BridgeV2Id = id(Type, Name),
-    ConnectorResId = emqx_connector_resource:resource_id(Type, Name),
-    Return = emqx_resource:query(BridgeV2Id, Request, #{
-        timeout => 500,
-        async_reply_fun => {AsyncReplyFun, []},
-        connector_resource_id => ConnectorResId,
-        query_mode => async
-    }),
-    {Return, Ref}.
-
-receive_result(Ref, Timeout) when is_reference(Ref) ->
-    receive
-        {result, Ref, Result} ->
-            {ok, Result};
-        {Ref, Result} ->
-            {ok, Result}
-    after Timeout ->
-        timeout
-    end.
 
 query_by_clientid(ClientId, Config) ->
     SQL = io_lib:format("SELECT * FROM mqtt_arrow.common_test WHERE clientid = '~s'", [ClientId]),
@@ -336,13 +305,6 @@ query_by_clientid(ClientId, Config) ->
         {error, Reason} ->
             error({bad_response, Reason})
     end.
-
-assert_persisted_data(Expected, [PersistedData | _]) ->
-    ?assertEqual(Expected, PersistedData).
-
-connector_id(Config) ->
-    Name = ?config(connector_name, Config),
-    emqx_connector_resource:resource_id(<<"datalayers">>, Name).
 
 ensure_database(Config) ->
     exec_sql(?create_database, Config).
@@ -361,60 +323,106 @@ id(Type, Name) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_start_ok(Config) ->
-    QueryMode = ?config(query_mode, Config),
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
-    ClientId = random_clientid_(),
-    Topic = <<"t/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
-    Payload = #{msg => <<"Hello, Arrow Flight SQL!">>},
-    #{id := Id, timestamp := TimeStamp} = Msg = make_message(ClientId, Topic, Payload),
-
-    Request = {emqx_bridge_v2_testlib:bridge_id(Config), Msg},
-    case QueryMode of
-        sync ->
-            query_resource(Config, Request);
-        async ->
-            {_, Ref} = query_resource_async(Config, Request),
-            {ok, Res} = receive_result(Ref, 2_000),
-            Res
-    end,
-    ct:sleep(1500),
-    PersistedData = query_by_clientid(ClientId, Config),
-
-    Expected = [
-        _TsStr = iolist_to_binary(
-            calendar:system_time_to_rfc3339(TimeStamp, [{unit, millisecond}, {offset, "Z"}])
-        ),
-        Id,
-        ClientId,
-        Topic,
-        _Qos = <<"0">>,
-        emqx_utils_json:encode(Payload)
-    ],
-    assert_persisted_data(Expected, PersistedData),
-    ok.
-
 t_start_stop(Config) ->
     ok = emqx_bridge_v2_testlib:t_start_stop(Config, "arrow_flight_sql_client_stopped").
 
-t_get_status(Config) ->
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyName = ?config(proxy_name, Config),
-    {ok, _} = create_bridge(Config),
-    ConnectorId = emqx_connector_resource:resource_id(datalayers, ?config(connector_name, Config)),
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ConnectorId)),
-    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ConnectorId))
-    end),
+t_create_via_http(Config) ->
+    emqx_bridge_v2_testlib:t_create_via_http(Config),
+    ok.
+
+t_on_get_status(Config) ->
+    emqx_bridge_v2_testlib:t_on_get_status(Config),
+    ok.
+
+t_start_action_or_source_with_disabled_connector(Config) ->
+    ok = emqx_bridge_v2_testlib:t_start_action_or_source_with_disabled_connector(Config),
     ok.
 
 t_rule_test_trace(Config) ->
     Opts = #{},
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
+
+t_sync_query(Config) ->
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config,
+        fun make_message/0,
+        fun(Res) -> ?assertMatch({ok, _}, Res) end,
+        datalayers_arrow_flight_connector_on_query
+    ),
+    ok.
+
+t_async_query(Config) ->
+    case ?config(query_mode, Config) of
+        async ->
+            TracePoint =
+                case ?config(batch_size, Config) of
+                    1 -> datalayers_arrow_flight_connector_on_query_async;
+                    _ -> datalayers_arrow_flight_connector_on_batch_query_async
+                end,
+            ok = emqx_bridge_v2_testlib:t_async_query(
+                Config,
+                fun make_message/0,
+                fun(Res) -> ?assertMatch({ok, _}, Res) end,
+                TracePoint
+            );
+        sync ->
+            ok
+    end,
+    ok.
+
+t_rule_action(Config) ->
+    RandomClientId = random_clientid_(),
+    PyloadFn = fun() -> emqx_guid:to_hexstr(emqx_guid:gen()) end,
+    RandomTopic = <<"/", (atom_to_binary(?FUNCTION_NAME))/binary, (random_topic_suffix())/binary>>,
+    RandomQoS = random_qos(),
+    PublishFn =
+        fun(#{rule_topic := RuleTopic, payload_fn := RandomPayloadFnIn} = Context) ->
+            RandomPayload = RandomPayloadFnIn(),
+            {ok, C} = emqtt:start_link(#{clean_start => true, clientid => RandomClientId}),
+            {ok, _} = emqtt:connect(C),
+            case RandomQoS of
+                0 ->
+                    ?assertMatch(
+                        ok, emqtt:publish(C, RuleTopic, RandomPayload, [{qos, RandomQoS}])
+                    );
+                _ ->
+                    ?assertMatch(
+                        {ok, _}, emqtt:publish(C, RuleTopic, RandomPayload, [{qos, RandomQoS}])
+                    )
+            end,
+
+            ok = emqtt:stop(C),
+            Context#{payload => RandomPayload}
+        end,
+
+    PostPublishFn = fun(#{payload := Payload, rule_topic := Topic} = _Context) ->
+        RandomClientIdIn = RandomClientId,
+        QoSBin = integer_to_binary(RandomQoS),
+        PayloadIn = Payload,
+        ?assertMatch(
+            [
+                [
+                    %% timestamp and msg are generated by emqx rule engine
+                    _TsStr,
+                    _Id,
+                    RandomClientIdIn,
+                    Topic,
+                    QoSBin,
+                    PayloadIn
+                ]
+            ],
+            query_by_clientid(RandomClientId, Config)
+        )
+    end,
+    Opts = #{
+        rule_topic => RandomTopic,
+        payload_fn => PyloadFn,
+        publish_fn => PublishFn,
+        post_publish_fn => PostPublishFn
+    },
+
+    emqx_bridge_v2_testlib:t_rule_action(Config, Opts),
+    ok.
 
 exec_sql(SQL, Config) ->
     Host = ?config(datalayers_host, Config),
@@ -446,6 +454,19 @@ bin(B) when is_binary(B) ->
 
 random_clientid_() ->
     <<"mqtt_", (emqx_guid:to_hexstr(emqx_guid:gen()))/binary>>.
+
+random_topic_suffix() ->
+    emqx_guid:to_hexstr(emqx_guid:gen()).
+
+random_qos() ->
+    %% rand:uniform(N) -> X generated random integer `X`, which: 1 =< X =< N
+    rand:uniform(?QOS_2 + 1) - 1.
+
+make_message() ->
+    ClientId = random_clientid_(),
+    Topic = <<"t/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
+    Payload = #{msg => <<"Hello, Arrow Flight SQL!">>},
+    make_message(ClientId, Topic, Payload).
 
 make_message(ClientId, Topic, Payload) ->
     Message = emqx_message:make(ClientId, Topic, Payload),
