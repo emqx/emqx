@@ -1888,7 +1888,7 @@ t_rule_test_trace(Config, Opts) ->
         end,
     ActionName = bin(ActionName0),
     ActionType = bin(ActionType0),
-    ct:print(asciiart:visible($+, "testing primary action success", [])),
+    ct:pal(asciiart:visible($+, "testing primary action success", [])),
     ct:pal("namespace: ~p", [Namespace]),
     ?tpal("creating connector and actions"),
     {201, #{<<"status">> := <<"connected">>}} =
@@ -2073,7 +2073,7 @@ t_rule_test_trace(Config, Opts) ->
     Context3 = CleanupFn(Context2),
 
     %% Now we test fallback action traces
-    ct:print(asciiart:visible($+, "testing primary action failure with fallbacks", [])),
+    ct:pal(asciiart:visible($+, "testing primary action failure with fallbacks", [])),
     ?tpal("starting fallback action test trace"),
     {200, #{<<"name">> := TraceNameErr}} = start_rule_test_trace(RuleId, AuthHeaderOpts),
     AssertFallbackLogFn = maps:get(assert_fallback_log_fn, Opts, fun(TraceNameIn) ->
