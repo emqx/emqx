@@ -90,7 +90,7 @@
         <<"Number of received SUBSCRIBE packet with failed subscriptions">>},
     %% SUBSCRIBE failed for not auth
     {counter, 'packets.subscribe.auth_error',
-        <<"Number of received SUBACK packet with failed Authorization check">>},
+        <<"Number of received SUBSCRIBE packet with failed Authorization check">>},
     %% SUBACK packets sent
     {counter, 'packets.suback.sent', <<"Number of sent SUBACK packet">>},
     %% UNSUBSCRIBE Packets received

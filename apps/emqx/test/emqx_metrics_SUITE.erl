@@ -140,7 +140,7 @@ t_inc_sent(_) ->
             ok = emqx_metrics:inc_sent(?PUBREC_PACKET(3, 0)),
             ok = emqx_metrics:inc_sent(?PACKET(?PUBREL)),
             ok = emqx_metrics:inc_sent(?PACKET(?PUBCOMP)),
-            ok = emqx_metrics:inc_sent(?PACKET(?SUBACK)),
+            ok = emqx_metrics:inc_sent(?SUBACK_PACKET(0, [?RC_SUCCESS])),
             ok = emqx_metrics:inc_sent(?PACKET(?UNSUBACK)),
             ok = emqx_metrics:inc_sent(?PACKET(?PINGRESP)),
             ok = emqx_metrics:inc_sent(?PACKET(?DISCONNECT)),
@@ -161,6 +161,32 @@ t_inc_sent(_) ->
             ?assertEqual(1, emqx_metrics:val('packets.pingresp.sent')),
             ?assertEqual(1, emqx_metrics:val('packets.disconnect.sent')),
             ?assertEqual(1, emqx_metrics:val('packets.auth.sent'))
+        end
+    ).
+
+t_inc_sent_auth_error(_) ->
+    %% verify the packets.publish.error, packets.publish.auth_error,
+    %% packets.subscribe.error, packets.subscribe.auth_error can be incremented correctly
+    with_metrics_server(
+        fun() ->
+            %% Subscribe
+            ok = emqx_metrics:inc_sent(?SUBACK_PACKET(0, [?RC_NOT_AUTHORIZED])),
+            ok = emqx_metrics:inc_sent(?SUBACK_PACKET(0, [?RC_UNSPECIFIED_ERROR])),
+            ?assertEqual(1, emqx_metrics:val('packets.subscribe.auth_error')),
+            ?assertEqual(2, emqx_metrics:val('packets.subscribe.error')),
+            ?assertEqual(2, emqx_metrics:val('packets.suback.sent')),
+            %% Publish - puback
+            ok = emqx_metrics:inc_sent(?PUBACK_PACKET(0, ?RC_UNSPECIFIED_ERROR)),
+            ok = emqx_metrics:inc_sent(?PUBACK_PACKET(0, ?RC_NOT_AUTHORIZED)),
+            ?assertEqual(1, emqx_metrics:val('packets.publish.auth_error')),
+            ?assertEqual(2, emqx_metrics:val('packets.publish.error')),
+            ?assertEqual(2, emqx_metrics:val('packets.puback.sent')),
+            %% Publish - pubrec
+            ok = emqx_metrics:inc_sent(?PUBREC_PACKET(0, ?RC_UNSPECIFIED_ERROR)),
+            ok = emqx_metrics:inc_sent(?PUBREC_PACKET(0, ?RC_NOT_AUTHORIZED)),
+            ?assertEqual(2, emqx_metrics:val('packets.publish.auth_error')),
+            ?assertEqual(4, emqx_metrics:val('packets.publish.error')),
+            ?assertEqual(2, emqx_metrics:val('packets.pubrec.sent'))
         end
     ).
 

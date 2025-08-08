@@ -333,7 +333,10 @@ do_inc_sent(?PACKET(?PUBREL)) ->
     inc('packets.pubrel.sent');
 do_inc_sent(?PACKET(?PUBCOMP)) ->
     inc('packets.pubcomp.sent');
-do_inc_sent(?PACKET(?SUBACK)) ->
+do_inc_sent(?SUBACK_PACKET(_PacketId, ReasonCodes)) ->
+    lists:any(fun(Code) -> Code >= ?RC_UNSPECIFIED_ERROR end, ReasonCodes) andalso
+        inc('packets.subscribe.error'),
+    lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) andalso inc('packets.subscribe.auth_error'),
     inc('packets.suback.sent');
 do_inc_sent(?PACKET(?UNSUBACK)) ->
     inc('packets.unsuback.sent');
