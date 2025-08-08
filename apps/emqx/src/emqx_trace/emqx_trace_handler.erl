@@ -143,7 +143,9 @@ logger_config(LogFile) ->
     #{
         type => file,
         file => LogFile,
+        %% Split `MaxBytes` across allowed number of files:
         max_no_bytes => MaxBytes div NFiles,
+        %% Number of "archives" is one less than allowed number of files:
         max_no_files => NFiles - 1,
         filesync_repeat_interval => ?LOG_HANDLER_FILESYNC_INTERVAL,
         file_check => ?LOG_HANDLER_FILECHECK_INTERVAL,
@@ -205,7 +207,7 @@ find_first_log_fragment(Basename) ->
                 {error, Reason}
         end
     end,
-    find_boundary(SearchFun, 0, ?LOG_HANDLER_ROTATION_N_FILES_MAX - 1, none).
+    find_boundary(SearchFun, 1, ?LOG_HANDLER_ROTATION_N_FILES_MAX, none).
 
 find_next_log_fragment(I, Inode, Basename) ->
     Filename = mk_log_fragment_filename(Basename, I),
@@ -216,7 +218,7 @@ find_next_log_fragment(I, Inode, Basename) ->
         {ok, #file_info{}} ->
             %% Fragment was rotated in the meantime, try to find it first.
             find_next_log_fragment(I + 1, Inode, Basename);
-        {error, enoent} when I < ?LOG_HANDLER_ROTATION_N_FILES_MAX - 1 ->
+        {error, enoent} when I < ?LOG_HANDLER_ROTATION_N_FILES_MAX ->
             %% Fragment is likely being rotated right now, try to find it.
             find_next_log_fragment(I + 1, Inode, Basename);
         {error, enoent} ->
@@ -226,7 +228,7 @@ find_next_log_fragment(I, Inode, Basename) ->
             Error
     end.
 
-next_log_fragment(0, _Basename) ->
+next_log_fragment(1, _Basename) ->
     none;
 next_log_fragment(I, Basename) ->
     %% TODO
@@ -313,10 +315,10 @@ verify_witness([Chunk], Fragment) ->
 mk_log_fragment(I, Inode) ->
     #{i => I, node => Inode, w => []}.
 
-mk_log_fragment_filename(Basename, 0) ->
+mk_log_fragment_filename(Basename, 1) ->
     Basename;
 mk_log_fragment_filename(Basename, I) ->
-    Basename ++ "." ++ integer_to_list(I - 1).
+    Basename ++ "." ++ integer_to_list(I - 2).
 
 read_file_info(Filename) ->
     case file:read_file_info(Filename, [raw, {time, posix}]) of
