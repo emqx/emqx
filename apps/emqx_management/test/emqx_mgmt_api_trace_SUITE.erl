@@ -631,21 +631,26 @@ t_stream_log(_Config) ->
     ?assertEqual(10, byte_size(Bin)),
     ?assertMatch(#{<<"position">> := _, <<"bytes">> := 10}, Meta),
     #{<<"position">> := Pos} = Meta,
-    Path = api_path(["trace/test_stream_log/log?bytes=10&position=", Pos]),
-    {ok, Binary1} = request_api(get, Path),
+    {ok, Binary1} =
+        request_api(get, api_path(["trace/test_stream_log/log?bytes=10&position=", Pos])),
     #{<<"meta">> := Meta1, <<"items">> := Bin1} = json(Binary1),
     ?assertMatch(#{<<"position">> := _, <<"bytes">> := 10}, Meta1),
     ?assertEqual(10, byte_size(Bin1)),
     ct:pal("~p vs ~p", [Bin, Bin1]),
     %% in theory they could be the same but we know they shouldn't
-    ?assertNotEqual(Bin, Bin1).
+    ?assertNotEqual(Bin, Bin1),
+    #{<<"position">> := Pos1} = Meta1,
+    {ok, Binary2} =
+        request_api(get, api_path(["trace/test_stream_log/log?bytes=100000&position=", Pos1])),
+    #{<<"meta">> := Meta2, <<"items">> := _} = json(Binary2),
+    ?assertMatch(#{<<"position">> := _, <<"hint">> := <<"eof">>}, Meta2).
 
 t_stream_log_errors(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Now = erlang:system_time(second),
     create_trace(<<"err_stream_log">>, ClientId, Now - 10),
     meck:new(file, [passthrough, unstick]),
-    meck:expect(file, pread, 3, {error, enomem}),
+    meck:expect(file, pread, 2, {error, enomem}),
     {error, {_, 503, _}} =
         request_api(get, api_path("trace/err_stream_log/log")),
     meck:unload(file),
