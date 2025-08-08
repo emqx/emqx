@@ -39,6 +39,7 @@
 ]).
 
 -define(MAX_READ_TRACE_BYTES, 64 * 1024 * 1024).
+-define(STREAM_TRACE_RETRY_TIMEOUT, 20).
 
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
 -define(NOT_FOUND_WITH_MSG(N), ?NOT_FOUND(?TO_BIN([N, " NOT FOUND"]))).
@@ -177,7 +178,7 @@ schema("/trace/:name/log") ->
                 200 =>
                     [
                         {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})},
-                        {meta, fields(bytes) ++ fields(position)}
+                        {meta, fields(bytes) ++ fields(position) ++ fields(stream_hint)}
                     ],
                 400 => emqx_dashboard_swagger:error_codes(
                     ['BAD_REQUEST'], <<"Bad input parameter">>
@@ -375,10 +376,22 @@ fields(position) ->
             hoconsc:mk(
                 hoconsc:union([integer(), binary()]),
                 #{
-                    description => ?DESC(current_trace_offset),
+                    description => ?DESC(current_trace_cursor),
                     in => query,
                     required => false,
                     default => 0
+                }
+            )}
+    ];
+fields(stream_hint) ->
+    [
+        {hint,
+            hoconsc:mk(
+                atom(),
+                #{
+                    description => ?DESC(current_trace_stream_hint),
+                    in => query,
+                    required => false
                 }
             )}
     ].
@@ -566,6 +579,7 @@ gather_trace_logs(Trace = #{name := Name}, Nodes) ->
             TraceFiles = [Filename || {_Node, {ok, _, Filename}} <- NonEmpty],
             serve_trace_log_archive(Trace, ZipDir, TraceFiles);
         #{error := Reasons} ->
+            ok = file:del_dir_r(ZipDir),
             ?INTERNAL_ERROR(Reasons);
         #{empty := _} ->
             ?NOT_FOUND(<<"Trace is empty">>)
@@ -590,7 +604,8 @@ stream_trace_log(Node, Name, Filepath) ->
             {ok, FD} = file:open(Filepath, [raw, write, binary]),
             try
                 ok = file:write(FD, Chunk),
-                stream_trace_log(Node, Name, Cont, byte_size(Chunk), FD)
+                NRetry = 2,
+                stream_trace_log(Node, Name, Cont, byte_size(Chunk), NRetry, FD)
             after
                 ok = file:close(FD)
             end;
@@ -598,15 +613,20 @@ stream_trace_log(Node, Name, Filepath) ->
             Error
     end.
 
-stream_trace_log(Node, Name, {cont, _} = Cont, NWritten, FD) ->
+stream_trace_log(Node, Name, {cont, _} = Cont, NWritten, NRetry, FD) ->
     case node_stream_trace_log(Node, Name, Cont, undefined) of
         {ok, Chunk, NCont} ->
             ok = file:write(FD, Chunk),
-            stream_trace_log(Node, Name, NCont, NWritten + byte_size(Chunk), FD);
+            stream_trace_log(Node, Name, NCont, NWritten + byte_size(Chunk), NRetry, FD);
         Error ->
             Error
     end;
-stream_trace_log(_Node, _Name, {eof, _}, NWritten, _FD) ->
+stream_trace_log(_Node, _Name, {retry, _}, _NWritten, 0, _FD) ->
+    {error, inconsistent};
+stream_trace_log(Node, Name, {retry, Cursor}, NWritten, NRetry, FD) ->
+    ok = timer:sleep(?STREAM_TRACE_RETRY_TIMEOUT),
+    stream_trace_log(Node, Name, {cont, Cursor}, NWritten, NRetry - 1, FD);
+stream_trace_log(_Node, _Name, {eof, _}, NWritten, _NRetry, _FD) ->
     NWritten.
 
 serve_trace_log_archive(_Trace = #{name := Name}, ZipDir, Files) ->
@@ -663,7 +683,7 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
         {ok, Cont} ?= parse_position(Position),
         case node_stream_trace_log(Node, Name, Cont, Bytes) of
             {ok, Bin, NCont} ->
-                Meta = #{<<"position">> => encode_position(NCont), <<"bytes">> => Bytes},
+                Meta = encode_meta(NCont, Bytes),
                 {200, #{meta => Meta, items => Bin}};
             %% the waiting trace should return "" not error.
             {error, {file_error, enoent}} ->
@@ -719,7 +739,15 @@ parse_position(0) ->
 parse_position(_) ->
     {error, bad_cursor}.
 
-encode_position(_Cont = {_, Cursor}) ->
+encode_meta(Cont = {What, _}, Bytes) ->
+    Meta = #{<<"position">> => encode_position(Cont), <<"bytes">> => Bytes},
+    case What of
+        cont -> Meta;
+        eof -> Meta#{<<"hint">> => <<"eof">>};
+        retry -> Meta#{<<"hint">> => <<"retry">>}
+    end.
+
+encode_position({_, Cursor}) ->
     emqx_base62:encode(term_to_binary(Cursor)).
 
 collect_file_size(Nodes, Name, AllTraceSizes) ->
