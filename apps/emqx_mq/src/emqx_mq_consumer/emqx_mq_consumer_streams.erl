@@ -64,7 +64,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
 }.
 
 -record(cs, {
-    st :: state(),
+    state :: state(),
     ds_client :: emqx_ds_client:t()
 }).
 
@@ -97,10 +97,10 @@ new(MQTopic, Progress, SBOptions) ->
     State1 = restore_streams(State0, StreamsProgress),
     DSClient0 = emqx_mq_payload_db:create_client(?MODULE),
     {ok, DSClient, State} = emqx_mq_payload_db:subscribe(DSClient0, ?SUB_ID, MQTopic, State1),
-    #cs{st = State, ds_client = DSClient}.
+    #cs{state = State, ds_client = DSClient}.
 
 -spec progress(t()) -> progress().
-progress(#cs{st = #{progress := GenerationProgress, streams := Streams}}) ->
+progress(#cs{state = #{progress := GenerationProgress, streams := Streams}}) ->
     StreamProgress = maps:fold(
         fun(Stream, #{stream_buffer := SB, slab := {Shard, StreamGeneration} = Slab}, ProgressAcc) ->
             case GenerationProgress of
@@ -138,20 +138,20 @@ progress(#cs{st = #{progress := GenerationProgress, streams := Streams}}) ->
 
 -spec handle_ds_info(t(), term()) ->
     {ok, [{emqx_mq_types:message_id(), emqx_types:message()}], t()}.
-handle_ds_info(#cs{ds_client = DSC0, st = State0} = CS, GenericMessage) ->
+handle_ds_info(#cs{ds_client = DSC0, state = State0} = CS, GenericMessage) ->
     case emqx_ds_client:dispatch_message(GenericMessage, DSC0, State0) of
         ignore ->
             ignore;
         {data, ?SUB_ID, Stream, Handle, DSReply} ->
             {ok, Messages, State} = handle_ds_reply(State0, Stream, Handle, DSReply),
-            {ok, Messages, CS#cs{st = State}};
+            {ok, Messages, CS#cs{state = State}};
         {DSC, State} ->
-            {ok, [], CS#cs{ds_client = DSC, st = State}}
+            {ok, [], CS#cs{ds_client = DSC, state = State}}
     end.
 
 -spec handle_ack(t(), emqx_mq_types:message_id()) -> t().
 handle_ack(
-    #cs{st = #{streams_by_slab := StreamsBySlab, streams := Streams} = State} = CS,
+    #cs{state = #{streams_by_slab := StreamsBySlab, streams := Streams} = State} = CS,
     {Slab, StreamMessageId} = MessagesId
 ) ->
     ?tp(warning, emqx_mq_consumer_streams_handle_ack, #{
@@ -163,11 +163,11 @@ handle_ack(
         case emqx_mq_consumer_stream_buffer:handle_ack(SB, StreamMessageId) of
             {ok, SB1} ->
                 CS#cs{
-                    st = State#{streams => Streams#{Stream => StreamData#{stream_buffer => SB1}}}
+                    state = State#{streams => Streams#{Stream => StreamData#{stream_buffer => SB1}}}
                 };
             finished ->
                 CS#cs{
-                    st = State#{
+                    state = State#{
                         streams => Streams#{Stream => StreamData#{stream_buffer => undefined}}
                     }
                 }
@@ -177,7 +177,7 @@ handle_ack(
     end.
 
 -spec info(t()) -> map().
-info(#cs{st = #{streams := Streams}}) ->
+info(#cs{state = #{streams := Streams}}) ->
     maps:fold(
         fun(_Stream, #{stream_buffer := SB, slab := Slab}, Acc) ->
             Acc#{Slab => emqx_mq_consumer_stream_buffer:info(SB)}

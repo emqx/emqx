@@ -225,8 +225,8 @@ settings() ->
     #{
         transaction =>
             #{
-                flush_interval => 100,
-                idle_flush_interval => 20,
+                flush_interval => 10,
+                idle_flush_interval => 5,
                 conflict_window => 5000
             },
         storage =>

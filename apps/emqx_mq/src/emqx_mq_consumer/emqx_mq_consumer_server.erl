@@ -41,7 +41,7 @@ channels subscribed to a Message Queue.
 
 -type dispatch_strategy() :: random | least_inflight | {hash, emqx_variform:compiled()}.
 
--record(st, {
+-record(state, {
     mq :: emqx_mq_types:mq(),
     subscribers :: #{subscriber_ref() => subscriber_data()},
     messages :: #{message_id() => emqx_types:message()},
@@ -54,7 +54,7 @@ channels subscribed to a Message Queue.
     }
 }).
 
--type t() :: #st{}.
+-type t() :: #state{}.
 
 -type event() :: {ds_ack, message_id()} | shutdown.
 
@@ -75,11 +75,11 @@ channels subscribed to a Message Queue.
 %%--------------------------------------------------------------------
 
 %% TODO
-%% Tidy up the St vs State naming and position of the state argument
+%% Tidy up the State vs State naming and position of the state argument
 
 -spec new(emqx_mq_types:mq()) -> t().
 new(MQ) ->
-    #st{
+    #state{
         mq = MQ,
         subscribers = #{},
         messages = #{},
@@ -97,28 +97,28 @@ handle_messages(State, Messages) ->
     dispatch(add_new_messages(State, Messages)).
 
 -spec handle_info(t(), term()) -> {ok, [event()], t()}.
-handle_info(St, #mq_server_connect{subscriber_ref = SubscriberRef, client_id = ClientId}) ->
-    {ok, [], handle_connect(St, SubscriberRef, ClientId)};
-handle_info(St, #mq_server_disconnect{subscriber_ref = SubscriberRef}) ->
-    {ok, [], handle_disconnect(St, SubscriberRef)};
-handle_info(St, #mq_server_ack{subscriber_ref = SubscriberRef, message_id = MessageId, ack = Ack}) ->
-    handle_ack(St, SubscriberRef, MessageId, Ack);
-handle_info(St, #mq_server_ping{subscriber_ref = SubscriberRef}) ->
-    {ok, [], handle_ping(St, SubscriberRef)};
-handle_info(St, #timer_message{timer_name = ?ping_timer}) ->
-    {ok, [], handle_ping_subscribers(St)};
-handle_info(St, #timer_message{timer_name = ?shutdown_timer}) ->
-    handle_shutdown(St);
-handle_info(St, #timer_message{timer_name = ?dispatch_timer}) ->
-    {ok, [], handle_dispatch(St)};
-handle_info(St, #subscriber_timeout{subscriber_ref = SubscriberRef}) ->
-    {ok, [], handle_subscriber_timeout(SubscriberRef, St)}.
+handle_info(State, #mq_server_connect{subscriber_ref = SubscriberRef, client_id = ClientId}) ->
+    {ok, [], handle_connect(State, SubscriberRef, ClientId)};
+handle_info(State, #mq_server_disconnect{subscriber_ref = SubscriberRef}) ->
+    {ok, [], handle_disconnect(State, SubscriberRef)};
+handle_info(State, #mq_server_ack{subscriber_ref = SubscriberRef, message_id = MessageId, ack = Ack}) ->
+    handle_ack(State, SubscriberRef, MessageId, Ack);
+handle_info(State, #mq_server_ping{subscriber_ref = SubscriberRef}) ->
+    {ok, [], handle_ping(State, SubscriberRef)};
+handle_info(State, #timer_message{timer_name = ?ping_timer}) ->
+    {ok, [], handle_ping_subscribers(State)};
+handle_info(State, #timer_message{timer_name = ?shutdown_timer}) ->
+    handle_shutdown(State);
+handle_info(State, #timer_message{timer_name = ?dispatch_timer}) ->
+    {ok, [], handle_dispatch(State)};
+handle_info(State, #subscriber_timeout{subscriber_ref = SubscriberRef}) ->
+    {ok, [], handle_subscriber_timeout(SubscriberRef, State)}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-handle_connect(#st{subscribers = Subscribers0} = State, SubscriberRef, ClientId) ->
+handle_connect(#state{subscribers = Subscribers0} = State, SubscriberRef, ClientId) ->
     ?tp(warning, mq_consumer_handle_connect, #{
         subscriber_ref => SubscriberRef, client_id => ClientId
     }),
@@ -126,21 +126,21 @@ handle_connect(#st{subscribers = Subscribers0} = State, SubscriberRef, ClientId)
         #{SubscriberRef := SubscriberData0} ->
             SubscriberData1 = refresh_subscriber_timeout(State, SubscriberRef, SubscriberData0),
             Subscribers1 = Subscribers0#{SubscriberRef => SubscriberData1},
-            State#st{subscribers = Subscribers1};
+            State#state{subscribers = Subscribers1};
         _ ->
             Subscribers1 = Subscribers0#{
                 SubscriberRef => initial_subscriber_data(State, SubscriberRef, ClientId)
             },
             ok = send_connected_to_subscriber(SubscriberRef),
-            dispatch(update_client_timers(State#st{subscribers = Subscribers1}))
+            dispatch(update_client_timers(State#state{subscribers = Subscribers1}))
     end.
 
-handle_disconnect(#st{subscribers = Subscribers0} = State0, SubscriberRef) ->
+handle_disconnect(#state{subscribers = Subscribers0} = State0, SubscriberRef) ->
     case Subscribers0 of
         #{SubscriberRef := #{inflight_messages := InflightMessages} = SubscriberData} ->
             _ = cancel_subscriber_timeout(SubscriberData),
             Subscribers = maps:remove(SubscriberRef, Subscribers0),
-            State1 = State0#st{subscribers = Subscribers},
+            State1 = State0#state{subscribers = Subscribers},
             State = schedule_for_dispatch(State1, maps:keys(InflightMessages)),
             dispatch(update_client_timers(State));
         _ ->
@@ -148,7 +148,7 @@ handle_disconnect(#st{subscribers = Subscribers0} = State0, SubscriberRef) ->
     end.
 
 handle_ack(
-    #st{subscribers = Subscribers0, messages = Messages0} = State0,
+    #state{subscribers = Subscribers0, messages = Messages0} = State0,
     SubscriberRef,
     MessageId,
     Ack
@@ -165,33 +165,34 @@ handle_ack(
         SubscriberData2 = refresh_subscriber_timeout(State0, SubscriberRef, SubscriberData1),
         SubscriberData3 = update_last_ack(SubscriberData2),
         Subscribers = Subscribers0#{SubscriberRef => SubscriberData3},
-        State1 = State0#st{subscribers = Subscribers},
+        State1 = State0#state{subscribers = Subscribers},
         case Ack of
             ?MQ_ACK ->
                 Messages = maps:remove(MessageId, Messages0),
-                State = State1#st{messages = Messages},
+                State = State1#state{messages = Messages},
                 {ok, [{ds_ack, MessageId}], State};
             ?MQ_REJECTED ->
-                {ok, [], dispatch(schedule_for_dispatch(State1, [MessageId]))}
+                {ok, [], redispatch_on_reject(State1, SubscriberRef, MessageId)}
         end
     else
         _ ->
-            %% TODO
-            %% warn
+            ?tp(error, mq_consumer_handle_ack_unknown_subscriber, #{
+                subscriber_ref => SubscriberRef, message_id => MessageId, ack => Ack
+            }),
             State0
     end.
 
-handle_ping(#st{subscribers = Subscribers0} = State, SubscriberRef) ->
+handle_ping(#state{subscribers = Subscribers0} = State, SubscriberRef) ->
     case Subscribers0 of
         #{SubscriberRef := SubscriberData0} ->
             SubscriberData = refresh_subscriber_timeout(State, SubscriberRef, SubscriberData0),
             Subscribers = Subscribers0#{SubscriberRef => SubscriberData},
-            State#st{subscribers = Subscribers};
+            State#state{subscribers = Subscribers};
         _ ->
             State
     end.
 
-handle_ping_subscribers(#st{subscribers = Subscribers} = State0) ->
+handle_ping_subscribers(#state{subscribers = Subscribers} = State0) ->
     ?tp(warning, mq_consumer_handle_ping_subscribers, #{subscribers => maps:keys(Subscribers)}),
     State1 = cancel_timer(?ping_timer, State0),
     ok = maps:foreach(
@@ -215,7 +216,7 @@ handle_shutdown(State) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-add_new_messages(#st{messages = Messages0} = State, MessagesWithIds) ->
+add_new_messages(#state{messages = Messages0} = State, MessagesWithIds) ->
     {MessageIds, Messages} = lists:foldl(
         fun({MessageId, Message}, {IdsAcc, MessagesAcc}) ->
             {[MessageId | IdsAcc], MessagesAcc#{MessageId => Message}}
@@ -223,7 +224,7 @@ add_new_messages(#st{messages = Messages0} = State, MessagesWithIds) ->
         {[], Messages0},
         MessagesWithIds
     ),
-    schedule_for_dispatch(State#st{messages = Messages}, MessageIds).
+    schedule_for_dispatch(State#state{messages = Messages}, MessageIds).
 
 refresh_subscriber_timeout(State, SubscriberRef, SubscriberData0) ->
     SubscriberData = cancel_subscriber_timeout(SubscriberData0),
@@ -249,61 +250,84 @@ initial_subscriber_data(State, SubscriberRef, ClientId) ->
     },
     refresh_subscriber_timeout(State, SubscriberRef, SubscriberData).
 
-schedule_for_dispatch(#st{dispatch_queue = DispatchQueue0} = State, MessageIds) ->
+schedule_for_dispatch(#state{dispatch_queue = DispatchQueue0} = State, MessageIds) ->
     DispatchQueue1 = emqx_mq_consumer_dispatchq:add(DispatchQueue0, MessageIds),
-    State#st{dispatch_queue = DispatchQueue1}.
+    State#state{dispatch_queue = DispatchQueue1}.
 
-dispatch(#st{subscribers = Subscribers} = State) when map_size(Subscribers) =:= 0 ->
+redispatch_on_reject(State, RejectedSubscriberRef, MessageId) ->
+    ?tp(warning, mq_consumer_redispatch_on_reject, #{
+        rejected_subscriber_ref => RejectedSubscriberRef, message_id => MessageId
+    }),
+    case dispatch_message(MessageId, [RejectedSubscriberRef], State) of
+        {dispatched, State1} ->
+            State1;
+        {delayed, State1} ->
+            %% NOTE to enable timer
+            dispatch(State1)
+    end.
+
+dispatch(#state{subscribers = Subscribers} = State) when map_size(Subscribers) =:= 0 ->
     cancel_timer(?dispatch_timer, State);
-dispatch(#st{dispatch_queue = DispatchQueue} = State0) ->
+dispatch(#state{dispatch_queue = DispatchQueue} = State0) ->
     State1 = cancel_timer(?dispatch_timer, State0),
     case emqx_mq_consumer_dispatchq:fetch(DispatchQueue) of
         empty ->
             State1;
         {ok, MessageIds, DispatchQueue1} ->
-            State2 = State0#st{dispatch_queue = DispatchQueue1},
-            State3 = dispatch_messages(MessageIds, State2),
+            State2 = State0#state{dispatch_queue = DispatchQueue1},
+            State3 = lists:foldl(
+                fun(MessageId, StateAcc0) ->
+                    {_, StateAcc} = dispatch_message(MessageId, [], StateAcc0),
+                    StateAcc
+                end,
+                State2,
+                MessageIds
+            ),
             dispatch(State3);
         {delay, DelayMs} ->
             ensure_timer(?dispatch_timer, DelayMs, State1)
     end.
 
-dispatch_messages(MessageIds, State) ->
-    lists:foldl(
-        fun(MessageId, StateAcc) -> dispatch_message(MessageId, StateAcc) end,
-        State,
-        MessageIds
-    ).
-
-dispatch_message(MessageId, #st{messages = Messages, dispatch_queue = DispatchQueue0} = State) ->
+-spec dispatch_message(message_id(), [subscriber_ref()], t()) -> {dispatched, t()} | {delayed, t()}.
+dispatch_message(
+    MessageId,
+    ExcludedSubscriberRefs,
+    #state{messages = Messages, dispatch_queue = DispatchQueue0} = State
+) ->
     Message = maps:get(MessageId, Messages),
-    case pick_subscriber(Message, State) of
+    PickResult = pick_subscriber(Message, ExcludedSubscriberRefs, State),
+    ?tp(warning, mq_consumer_dispatch_message, #{
+        message_id => MessageId,
+        pick_result => PickResult,
+        excluded_subscriber_refs => ExcludedSubscriberRefs
+    }),
+    case PickResult of
         {ok, SubscriberRef} ->
-            dispatch_to_subscriber(MessageId, Message, SubscriberRef, State);
+            {dispatched, dispatch_to_subscriber(MessageId, Message, SubscriberRef, State)};
         no_subscriber ->
             DispatchQueue = emqx_mq_consumer_dispatchq:add_redispatch(
                 DispatchQueue0, MessageId, redispatch_interval(State)
             ),
-            State#st{dispatch_queue = DispatchQueue}
+            {delayed, State#state{dispatch_queue = DispatchQueue}}
     end.
 
 dispatch_to_subscriber(
-    MessageId, Message, SubscriberRef, #st{subscribers = Subscribers0} = State0
+    MessageId, Message, SubscriberRef, #state{subscribers = Subscribers0} = State0
 ) ->
     #{inflight_messages := InflightMessages0} =
         SubscriberData0 = maps:get(SubscriberRef, Subscribers0),
     InflightMessages = InflightMessages0#{MessageId => now_ms_monotonic()},
     SubscriberData = SubscriberData0#{inflight_messages => InflightMessages},
     Subscribers = Subscribers0#{SubscriberRef => SubscriberData},
-    State = State0#st{subscribers = Subscribers},
+    State = State0#state{subscribers = Subscribers},
     ok = send_message_to_subscriber(MessageId, Message, SubscriberRef),
     State.
 
-update_client_timers(#st{subscribers = Subscribers} = State0) when map_size(Subscribers) =:= 0 ->
+update_client_timers(#state{subscribers = Subscribers} = State0) when map_size(Subscribers) =:= 0 ->
     State1 = cancel_timer(?ping_timer, State0),
     State2 = cancel_timer(?dispatch_timer, State1),
     ensure_timer(?shutdown_timer, State2);
-update_client_timers(#st{} = State0) ->
+update_client_timers(#state{} = State0) ->
     State1 = ensure_timer(?ping_timer, State0),
     cancel_timer(?shutdown_timer, State1).
 
@@ -311,19 +335,23 @@ update_client_timers(#st{} = State0) ->
 %% Dispatch strategies
 %%--------------------------------------------------------------------
 
-pick_subscriber(Message, #st{dispatch_strategy = random} = State) ->
-    pick_subscriber_random(Message, State);
-pick_subscriber(Message, #st{dispatch_strategy = least_inflight} = State) ->
-    pick_subscriber_least_inflight(Message, State);
-pick_subscriber(Message, #st{dispatch_strategy = {hash, Expression}} = State) ->
-    pick_subscriber_hash(Message, Expression, State).
+pick_subscriber(Message, ExcludedSubscriberRefs, #state{dispatch_strategy = random} = State) ->
+    pick_subscriber_random(Message, ExcludedSubscriberRefs, State);
+pick_subscriber(
+    Message, ExcludedSubscriberRefs, #state{dispatch_strategy = least_inflight} = State
+) ->
+    pick_subscriber_least_inflight(Message, ExcludedSubscriberRefs, State);
+pick_subscriber(Message, [], #state{dispatch_strategy = {hash, Expression}} = State) ->
+    pick_subscriber_hash(Message, Expression, State);
+pick_subscriber(_Message, _ExcludedSubscriberRefs, #state{dispatch_strategy = {hash, _}}) ->
+    no_subscriber.
 
 %% Random dispatch strategy
 
-pick_subscriber_random(_Message, #st{subscribers = Subscribers} = _State) ->
-    %% TODO
-    %% cache healthy subscribers
-    case maps:keys(Subscribers) of
+pick_subscriber_random(
+    _Message, ExcludedSubscriberRefs, #state{subscribers = Subscribers} = _State
+) ->
+    case maps:keys(Subscribers) -- ExcludedSubscriberRefs of
         [] ->
             no_subscriber;
         SubscriberRefs ->
@@ -333,7 +361,9 @@ pick_subscriber_random(_Message, #st{subscribers = Subscribers} = _State) ->
 
 %% Least inflight dispatch strategy
 
-pick_subscriber_least_inflight(_Message, #st{subscribers = Subscribers} = _State) ->
+pick_subscriber_least_inflight(
+    _Message, ExcludedSubscriberRefs, #state{subscribers = Subscribers} = _State
+) ->
     {SubscriberRef, _} = maps:fold(
         fun(
             SubscriberRef,
@@ -348,7 +378,7 @@ pick_subscriber_least_inflight(_Message, #st{subscribers = Subscribers} = _State
             end
         end,
         {undefined, infinity},
-        Subscribers
+        maps:without(ExcludedSubscriberRefs, Subscribers)
     ),
     case SubscriberRef of
         undefined ->
@@ -359,7 +389,7 @@ pick_subscriber_least_inflight(_Message, #st{subscribers = Subscribers} = _State
 
 %% Hash dispatch strategy
 
-pick_subscriber_hash(Message, Expression, #st{subscribers = Subscribers} = State) ->
+pick_subscriber_hash(Message, Expression, #state{subscribers = Subscribers} = State) ->
     %% NOTE
     %% We may render hashed value on publish to significantly reduce
     %% the load on the server process.
@@ -374,7 +404,7 @@ pick_subscriber_hash(Message, Expression, #st{subscribers = Subscribers} = State
             ?tp(warning, mq_consumer_pick_subscriber_hash_error, #{
                 message => Message, error => Error, mq_topic_filter => mq_topic_filter(State)
             }),
-            pick_subscriber_random(Message, State)
+            pick_subscriber_random(Message, [], State)
     end.
 
 %%--------------------------------------------------------------------
@@ -384,7 +414,7 @@ pick_subscriber_hash(Message, Expression, #st{subscribers = Subscribers} = State
 ensure_timer(TimerName, State) ->
     ensure_timer(TimerName, timeout(TimerName, State), State).
 
-ensure_timer(TimerName, Timeout, #st{timers = Timers0} = State) ->
+ensure_timer(TimerName, Timeout, #state{timers = Timers0} = State) ->
     Timers =
         case Timers0 of
             #{TimerName := undefined} ->
@@ -393,9 +423,9 @@ ensure_timer(TimerName, Timeout, #st{timers = Timers0} = State) ->
             _ ->
                 Timers0
         end,
-    State#st{timers = Timers}.
+    State#state{timers = Timers}.
 
-cancel_timer(TimerName, #st{timers = Timers0} = State) ->
+cancel_timer(TimerName, #state{timers = Timers0} = State) ->
     Timers =
         case Timers0 of
             #{TimerName := undefined} ->
@@ -404,7 +434,7 @@ cancel_timer(TimerName, #st{timers = Timers0} = State) ->
                 _ = emqx_utils:cancel_timer(TimerRef),
                 Timers0#{TimerName => undefined}
         end,
-    State#st{timers = Timers}.
+    State#state{timers = Timers}.
 
 send_after(Timeout, Message) ->
     erlang:send_after(Timeout, self_consumer_ref(), #info_to_mq_server{message = Message}).
@@ -412,9 +442,9 @@ send_after(Timeout, Message) ->
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
 
-timeout(?ping_timer, #st{mq = #{ping_interval_ms := ConsumerPingIntervalMs}}) ->
+timeout(?ping_timer, #state{mq = #{ping_interval_ms := ConsumerPingIntervalMs}}) ->
     ConsumerPingIntervalMs;
-timeout(?shutdown_timer, #st{mq = #{consumer_max_inactive_ms := ConsumerMaxInactiveMs}}) ->
+timeout(?shutdown_timer, #state{mq = #{consumer_max_inactive_ms := ConsumerMaxInactiveMs}}) ->
     ConsumerMaxInactiveMs.
 
 dispatch_strategy(#{dispatch_strategy := random}) ->
@@ -426,10 +456,10 @@ dispatch_strategy(#{dispatch_strategy := {hash, Expression}}) ->
     Compiled = emqx_mq_utils:dispatch_variform_compile(Expression),
     {hash, Compiled}.
 
-redispatch_interval(#st{mq = #{redispatch_interval_ms := RedispatchIntervalMs}}) ->
+redispatch_interval(#state{mq = #{redispatch_interval_ms := RedispatchIntervalMs}}) ->
     RedispatchIntervalMs.
 
-mq_topic_filter(#st{mq = #{topic_filter := TopicFilter}}) ->
+mq_topic_filter(#state{mq = #{topic_filter := TopicFilter}}) ->
     TopicFilter.
 
 %% TODO
