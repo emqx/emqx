@@ -192,10 +192,15 @@ fields("datalayers_parameters") ->
                 default => ?DATALAYERS_DRIVER_TYPE_INFLUX,
                 desc => ?DESC("driver_type")
             })},
-        {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
+        {database, mk(binary(), #{desc => ?DESC("database")})},
         {username, mk(binary(), #{desc => ?DESC("username")})},
         {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})},
-        {enable_prepared, fun enable_prepared/1}
+        {enable_prepared,
+            mk(boolean(), #{
+                required => false,
+                default => true,
+                desc => ?DESC("enable_prepared")
+            })}
     ].
 
 precision_field() ->
@@ -227,17 +232,6 @@ desc(datalayers_api) ->
     ?DESC("datalayers_api");
 desc("connector") ->
     ?DESC("connector").
-
-enable_prepared(type) ->
-    boolean();
-enable_prepared(required) ->
-    false;
-enable_prepared(desc) ->
-    ?DESC("enable_prepared");
-enable_prepared(default) ->
-    true;
-enable_prepared(_) ->
-    undefined.
 
 %%--------------------------------------------------------------------
 %% internal functions

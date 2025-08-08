@@ -128,6 +128,7 @@ do_start(
         {pool_size, PoolSize}
     ],
     InitState = #{
+        health_check_timeout => emqx_resource:get_health_check_timeout(Config),
         channels => #{},
         enable_prepared => EnablePrepared
     },
@@ -227,37 +228,55 @@ destory_channel_state(_ChannelState) ->
 on_get_channels(InstId) ->
     emqx_bridge_v2:get_channels_for_connector(InstId).
 
-on_get_status(InstId, _State) ->
-    health_check(InstId).
+on_get_status(InstId, State) ->
+    health_check(InstId, State).
 
-on_get_channel_status(InstId, _ChannelId, _State) ->
+on_get_channel_status(InstId, _ChannelId, State) ->
     %% TODO: Check the status for each channel.
     %% e.g.
     %% - check the prepared statements
     %% - check sql database/table existed
-    health_check(InstId).
+    health_check(InstId, State).
 
-health_check(InstId) ->
-    case do_health_check(InstId) of
-        true -> ?status_connected;
-        false -> ?status_disconnected
+health_check(InstId, #{health_check_timeout := Timeout} = _State) ->
+    case do_health_check(InstId, Timeout) of
+        ok -> ?status_connected;
+        {error, Reason} -> {?status_disconnected, Reason}
     end.
 
-do_health_check(InstId) ->
-    lists:all(
-        fun({_Name, Worker}) ->
-            case ecpool_worker:client(Worker) of
-                {ok, Conn} ->
-                    case datalayers:execute(Conn, <<"SELECT VERSION()">>) of
-                        {ok, [[Res]]} when is_binary(Res) -> true;
-                        {error, _} -> false
-                    end;
-                _ ->
-                    false
+do_health_check(InstId, Timeout) ->
+    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(InstId)],
+    Fn = fun(Conn) -> datalayers:execute(Conn, <<"SELECT VERSION()">>) end,
+    DoPerWorker =
+        fun(Worker) ->
+            case ecpool_worker:exec(Worker, Fn, Timeout) of
+                {ok, _} ->
+                    ok;
+                {error, Reason} = Error ->
+                    ?SLOG(error, #{
+                        msg => "datalayers_arrow_flight__connector_get_status_failed",
+                        reason => Reason,
+                        worker => Worker
+                    }),
+                    Error
             end
         end,
-        ecpool:workers(InstId)
-    ).
+    try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
+        Results ->
+            case [E || {error, _} = E <- Results] of
+                [] ->
+                    ok;
+                Errors ->
+                    hd(Errors)
+            end
+    catch
+        exit:timeout ->
+            ?SLOG(error, #{
+                msg => "datalayers_arrow_flight_connector_pmap_failed",
+                reason => timeout
+            }),
+            {error, timeout}
+    end.
 
 on_query(InstId, {_ChannelId, _} = Query, State) ->
     ?TRACE("QUERY", "datalayers_arrow_flight_connector_received_sql_query", #{
@@ -306,7 +325,7 @@ do_query(
     EnablePrepared = enable_prepared(State, ChannelState),
     case get_template(EnablePrepared, ChannelState) of
         undefined ->
-            {error, no_template_fonud};
+            {error, {unrecoverable_error, no_template_found}};
         Template ->
             DriverFunArgs = proc_sql_params(
                 {EnablePrepared, Template},
@@ -320,14 +339,7 @@ do_query(
 
 pick_and_do(InstId, FuncMode, DriverFunArgs) ->
     try
-        ecpool:pick_and_do(
-            InstId, {?MODULE, call_driver, [FuncMode, DriverFunArgs]}, no_handover
-        )
-    of
-        {error, _Reason} = Err ->
-            Err;
-        Result ->
-            Result
+        ecpool:pick_and_do(InstId, {?MODULE, call_driver, [FuncMode, DriverFunArgs]}, no_handover)
     catch
         _:_:_ ->
             {error, {unrecoverable_error, invalid_request}}
@@ -504,8 +516,8 @@ init_prepare(ChannelState = #{}) ->
         {ok, PrepStatements} when is_map(PrepStatements) ->
             %% each client holds a prepared statements reference
             ChannelState#{prepared_refs => PrepStatements};
-        _Error ->
-            ChannelState#{prepared_refs => {error, 'TODO_ERRORS'}}
+        {error, Reason} ->
+            ChannelState#{prepared_refs => {error, Reason}}
     end.
 
 prepare_sql(#{pool_name := PoolName, query_templates := #{prepstmt := PrepStmt}}) ->

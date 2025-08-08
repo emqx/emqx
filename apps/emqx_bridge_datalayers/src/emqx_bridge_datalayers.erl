@@ -82,7 +82,7 @@ bridge_v2_examples(Method) ->
             <<"datalayers_arrow_flight">> => #{
                 summary => <<"Datalayers Action by Arrow Flight SQL Driver">>,
                 value => emqx_bridge_v2_schema:action_values(
-                    Method, datalayers, datalayers_arrow_flgiht, ParamsExampleArrowFlight
+                    Method, datalayers, datalayers_arrow_flight, ParamsExampleArrowFlight
                 )
             }
         }
