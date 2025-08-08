@@ -1790,9 +1790,9 @@ fields("trace") ->
     [
         {"max_file_size",
             sc(bytesize(), #{
-                default => <<"512MB">>,
+                default => <<"128MB">>,
                 importance => ?IMPORTANCE_LOW,
-                validator => mk_validator_bounds({10 * ?KB, "10KB"}, {10 * ?GB, "10GB"}),
+                validator => mk_validator_bounds({100 * ?KB, "10KB"}, {10 * ?GB, "10GB"}),
                 desc => ?DESC(fields_trace_max_file_size)
             })},
         {"max_traces",
