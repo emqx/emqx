@@ -488,6 +488,18 @@ ensure_ssl_manager_alive() ->
 now_ms() ->
     erlang:system_time(millisecond).
 
+%% Since some events in this suite might come from different processes, relying on time
+%% ordering might be flaky.
+sort_trace(Trace) ->
+    lists:sort(
+        fun(#{?snk_kind := K1} = E1, #{?snk_kind := K2} = E2) ->
+            S1 = maps:get(?snk_span, E1, undefined),
+            S2 = maps:get(?snk_span, E2, undefined),
+            {K1, S1} =< {K2, S2}
+        end,
+        Trace
+    ).
+
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
@@ -745,21 +757,16 @@ t_cache_overflow(Config) ->
             ?assertMatch(
                 [
                     #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 1
-                    },
-                    #{
-                        ?snk_kind := new_crl_url_inserted,
-                        url := URL1
-                    },
-                    #{
                         ?snk_kind := crl_cache_ensure_timer,
                         url := URL1
                     },
                     #{
+                        ?snk_kind := crl_cache_ensure_timer,
+                        url := URL2
+                    },
+                    #{
                         ?snk_kind := mqtt_client_connection,
-                        ?snk_span := {complete, ok},
+                        ?snk_span := start,
                         client_num := 1
                     },
                     #{
@@ -768,20 +775,25 @@ t_cache_overflow(Config) ->
                         client_num := 2
                     },
                     #{
-                        ?snk_kind := new_crl_url_inserted,
-                        url := URL2
-                    },
-                    #{
-                        ?snk_kind := crl_cache_ensure_timer,
-                        url := URL2
+                        ?snk_kind := mqtt_client_connection,
+                        ?snk_span := {complete, ok},
+                        client_num := 1
                     },
                     #{
                         ?snk_kind := mqtt_client_connection,
                         ?snk_span := {complete, ok},
                         client_num := 2
+                    },
+                    #{
+                        ?snk_kind := new_crl_url_inserted,
+                        url := URL1
+                    },
+                    #{
+                        ?snk_kind := new_crl_url_inserted,
+                        url := URL2
                     }
                 ],
-                Trace1
+                sort_trace(Trace1)
             ),
             Trace2 = of_kinds(
                 trace_between(Trace, first_reconnections, first_eviction),
@@ -796,13 +808,13 @@ t_cache_overflow(Config) ->
                     },
                     #{
                         ?snk_kind := mqtt_client_connection,
-                        ?snk_span := {complete, ok},
-                        client_num := 1
+                        ?snk_span := start,
+                        client_num := 2
                     },
                     #{
                         ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 2
+                        ?snk_span := {complete, ok},
+                        client_num := 1
                     },
                     #{
                         ?snk_kind := mqtt_client_connection,
@@ -810,7 +822,7 @@ t_cache_overflow(Config) ->
                         client_num := 2
                     }
                 ],
-                Trace2
+                sort_trace(Trace2)
             ),
             Trace3 = of_kinds(
                 trace_between(Trace, first_eviction, second_eviction),
@@ -819,12 +831,7 @@ t_cache_overflow(Config) ->
             ?assertMatch(
                 [
                     #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 3
-                    },
-                    #{
-                        ?snk_kind := new_crl_url_inserted,
+                        ?snk_kind := crl_cache_ensure_timer,
                         url := URL3
                     },
                     #{
@@ -832,12 +839,8 @@ t_cache_overflow(Config) ->
                         oldest_url := URL1
                     },
                     #{
-                        ?snk_kind := crl_cache_ensure_timer,
-                        url := URL3
-                    },
-                    #{
                         ?snk_kind := mqtt_client_connection,
-                        ?snk_span := {complete, ok},
+                        ?snk_span := start,
                         client_num := 3
                     },
                     #{
@@ -849,9 +852,18 @@ t_cache_overflow(Config) ->
                         ?snk_kind := mqtt_client_connection,
                         ?snk_span := {complete, ok},
                         client_num := 3
+                    },
+                    #{
+                        ?snk_kind := mqtt_client_connection,
+                        ?snk_span := {complete, ok},
+                        client_num := 3
+                    },
+                    #{
+                        ?snk_kind := new_crl_url_inserted,
+                        url := URL3
                     }
                 ],
-                Trace3
+                sort_trace(Trace3)
             ),
             Trace4 = of_kinds(
                 trace_between(Trace, second_eviction, test_end),
@@ -860,12 +872,7 @@ t_cache_overflow(Config) ->
             ?assertMatch(
                 [
                     #{
-                        ?snk_kind := mqtt_client_connection,
-                        ?snk_span := start,
-                        client_num := 1
-                    },
-                    #{
-                        ?snk_kind := new_crl_url_inserted,
+                        ?snk_kind := crl_cache_ensure_timer,
                         url := URL1
                     },
                     #{
@@ -873,16 +880,21 @@ t_cache_overflow(Config) ->
                         oldest_url := URL2
                     },
                     #{
-                        ?snk_kind := crl_cache_ensure_timer,
-                        url := URL1
+                        ?snk_kind := mqtt_client_connection,
+                        ?snk_span := start,
+                        client_num := 1
                     },
                     #{
                         ?snk_kind := mqtt_client_connection,
                         ?snk_span := {complete, ok},
                         client_num := 1
+                    },
+                    #{
+                        ?snk_kind := new_crl_url_inserted,
+                        url := URL1
                     }
                 ],
-                Trace4
+                sort_trace(Trace4)
             ),
             ok
         end
