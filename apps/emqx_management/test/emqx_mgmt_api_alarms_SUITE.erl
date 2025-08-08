@@ -72,3 +72,89 @@ get_alarms(AssertCount, Activated) ->
     ?assertEqual(Page, 1),
     ?assertEqual(Limit, emqx_mgmt:default_row_limit()),
     ?assert(Count >= AssertCount).
+
+t_force_deactivate_alarm_api(_) ->
+    AlarmName = <<"test_force_deactivate_alarm">>,
+
+    %% Test force deactivate non-existent alarm - should fail
+    assert_force_deactivate_fails(
+        AlarmName, <<"NOT_FOUND">>, <<"Alarm not found or already deactivated">>
+    ),
+
+    %% Activate an alarm
+    ok = emqx_alarm:activate(AlarmName, #{detail => <<"test detail">>}, <<"test message">>),
+
+    %% Verify alarm is activated
+    Alarms = emqx_alarm:get_alarms(activated),
+    ?assert(lists:any(fun(#{name := Name}) -> Name =:= AlarmName end, Alarms)),
+
+    %% Test successful force deactivate
+    assert_force_deactivate_success(AlarmName),
+
+    %% Verify alarm is deactivated
+    ActivatedAlarms = emqx_alarm:get_alarms(activated),
+    ?assertNot(lists:any(fun(#{name := Name}) -> Name =:= AlarmName end, ActivatedAlarms)),
+
+    %% Test force deactivate already deactivated alarm - should fail
+    assert_force_deactivate_fails(
+        AlarmName, <<"NOT_FOUND">>, <<"Alarm not found or already deactivated">>
+    ),
+
+    %% Test with atom alarm name
+    AtomAlarmName = test_atom_alarm,
+    ok = emqx_alarm:activate(AtomAlarmName, #{}, <<"atom alarm">>),
+    assert_force_deactivate_success(atom_to_binary(AtomAlarmName, utf8)),
+
+    %% Test parameter validation
+    assert_force_deactivate_fails(undefined, <<"INVALID_PARAMETER">>, <<"name is required">>),
+    assert_force_deactivate_fails(<<>>, <<"INVALID_PARAMETER">>, <<"name is required">>).
+
+%% Helper function to test successful force deactivate
+assert_force_deactivate_success(AlarmName) ->
+    Path = emqx_mgmt_api_test_util:api_path(["alarms", "force_deactivate"]),
+    Body = #{<<"name">> => AlarmName},
+    {ok, _} = emqx_mgmt_api_test_util:request_api(post, Path, "", [], Body).
+
+%% Helper function to test failed force deactivate
+assert_force_deactivate_fails(AlarmName, ExpectedCode, ExpectedMessage) ->
+    Path = emqx_mgmt_api_test_util:api_path(["alarms", "force_deactivate"]),
+    Body =
+        case AlarmName of
+            undefined -> #{};
+            Name -> #{<<"name">> => Name}
+        end,
+    Response = emqx_mgmt_api_test_util:request_api(post, Path, "", [], Body, #{return_all => true}),
+    case Response of
+        {error, {{_, 400, _}, _, ErrorBody}} ->
+            ErrorData = emqx_utils_json:decode(ErrorBody),
+            ?assertEqual(ExpectedCode, maps:get(<<"code">>, ErrorData)),
+            ?assertEqual(ExpectedMessage, maps:get(<<"message">>, ErrorData));
+        Other ->
+            ct:fail("Expected 400 error with code ~p, but got: ~p", [ExpectedCode, Other])
+    end.
+
+t_alarm_monitor(_) ->
+    AlarmName = <<"conn_congestion/test_client/test_user">>,
+    TestPid = spawn(fun() ->
+        AlarmDetails = #{test => details},
+        AlarmMessage = <<"connection congested: test">>,
+        ok = emqx_alarm:activate(AlarmName, AlarmDetails, AlarmMessage),
+        %% Keep the process alive to maintain the alarm
+        receive
+            stop -> ok;
+            _ -> ok
+        end
+    end),
+    %% Verify alarm is activated
+    timer:sleep(100),
+    Alarms = emqx_alarm:get_alarms(activated),
+    ?assert(lists:any(fun(#{name := Name}) -> Name =:= AlarmName end, Alarms)),
+
+    %% Force kill the process
+    exit(TestPid, kill),
+    timer:sleep(100),
+    ActivatedAlarms = emqx_alarm:get_alarms(activated),
+    ?assertNot(lists:any(fun(#{name := Name}) -> Name =:= AlarmName end, ActivatedAlarms)),
+    DeactivatedAlarms = emqx_alarm:get_alarms(deactivated),
+    ?assert(lists:any(fun(#{name := Name}) -> Name =:= AlarmName end, DeactivatedAlarms)),
+    ok.

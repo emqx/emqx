@@ -74,7 +74,7 @@
 -record(deactivated_alarm, {
     activate_at :: integer(),
     name :: binary() | atom(),
-    details :: map() | list(),
+    details :: map() | list() | no_details,
     message :: binary(),
     deactivate_at :: integer() | infinity
 }).
@@ -129,10 +129,10 @@ activate(Name, Details) ->
     activate(Name, Details, <<"">>).
 
 activate(Name, Details, Message) ->
-    gen_server:call(?MODULE, {activate_alarm, Name, Details, Message}).
+    gen_server:call(?MODULE, {activate_alarm, self(), Name, Details, Message}).
 
 safe_activate(Name, Details, Message) ->
-    safe_call({activate_alarm, Name, Details, Message}).
+    safe_call({activate_alarm, self(), Name, Details, Message}).
 
 -spec ensure_deactivated(binary() | atom()) -> ok.
 ensure_deactivated(Name) ->
@@ -230,14 +230,18 @@ init([]) ->
     ok = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM, ?TRIE]),
     deactivate_all_alarms(),
     process_flag(trap_exit, true),
-    State = #{?worker => start_worker()},
+    State = #{
+        ?worker => start_worker(),
+        pmon => #{}
+    },
     {ok, State, get_validity_period()}.
 
-handle_call({activate_alarm, Name, Details, Message}, _From, State) ->
+handle_call({activate_alarm, Pid, Name, Details, Message}, _From, State) ->
     case create_activate_alarm(Name, Details, Message) of
         {ok, Alarm} ->
             do_actions(activate, Alarm, emqx:get_config([alarm, actions]), State),
-            {reply, ok, State, get_validity_period()};
+            State1 = maybe_monitor_process_related_alarms(Name, Pid, State),
+            {reply, ok, State1, get_validity_period()};
         Err ->
             {reply, Err, State, get_validity_period()}
     end;
@@ -279,6 +283,25 @@ handle_info(timeout, State) ->
 handle_info({'EXIT', Worker, _}, #{?worker := Worker} = State0) ->
     State = State0#{?worker := start_worker()},
     {noreply, State};
+handle_info({'DOWN', _MRef, process, Pid, _Reason}, #{pmon := Monitors} = State) ->
+    case maps:find(Pid, Monitors) of
+        {ok, Names} ->
+            lists:foreach(
+                fun(Name) ->
+                    case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
+                        [] ->
+                            ok;
+                        [Alarm] ->
+                            deactivate_alarm(Alarm, no_details, <<"">>, State)
+                    end
+                end,
+                Names
+            ),
+            Monitors1 = maps:remove(Pid, Monitors),
+            {noreply, State#{pmon => Monitors1}};
+        error ->
+            {noreply, State}
+    end;
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info_req => Info}),
     {noreply, State, get_validity_period()}.
@@ -571,3 +594,20 @@ worker_loop() ->
             end,
             ?MODULE:worker_loop()
     end.
+
+maybe_monitor_process_related_alarms(
+    <<"conn_congestion/", _/binary>> = Name,
+    Pid,
+    #{pmon := Monitors} = State
+) ->
+    case maps:find(Pid, Monitors) of
+        {ok, Names} ->
+            Monitors1 = Monitors#{Pid => [Name | Names]},
+            State#{pmon => Monitors1};
+        error ->
+            erlang:monitor(process, Pid),
+            Monitors1 = Monitors#{Pid => [Name]},
+            State#{pmon => Monitors1}
+    end;
+maybe_monitor_process_related_alarms(_, _, State) ->
+    State.

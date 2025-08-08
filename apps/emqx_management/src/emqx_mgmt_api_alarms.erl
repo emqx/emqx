@@ -24,7 +24,7 @@
 
 -export([api_spec/0, paths/0, schema/1, fields/1, namespace/0]).
 
--export([alarms/2, format_alarm/2]).
+-export([alarms/2, format_alarm/2, force_deactivate_alarm/2]).
 
 -define(TAGS, [<<"Alarms">>]).
 
@@ -38,7 +38,10 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    ["/alarms"].
+    [
+        "/alarms",
+        "/alarms/force_deactivate"
+    ].
 
 schema("/alarms") ->
     #{
@@ -70,6 +73,19 @@ schema("/alarms") ->
                 204 => ?DESC(delete_alarms_api_response204)
             }
         }
+    };
+schema("/alarms/force_deactivate") ->
+    #{
+        'operationId' => force_deactivate_alarm,
+        post => #{
+            description => ?DESC(force_deactivate_alarm_api),
+            tags => ?TAGS,
+            'requestBody' => hoconsc:ref(?MODULE, force_deactivate_alarm_request),
+            responses => #{
+                204 => ?DESC(force_deactivate_alarm_api_response204),
+                400 => ?DESC(force_deactivate_alarm_api_response400)
+            }
+        }
     }.
 
 fields(alarm) ->
@@ -82,7 +98,7 @@ fields(alarm) ->
         {name,
             hoconsc:mk(
                 binary(),
-                #{desc => ?DESC(node), example => <<"high_system_memory_usage">>}
+                #{desc => ?DESC(name), example => <<"high_system_memory_usage">>}
             )},
         {message,
             hoconsc:mk(binary(), #{
@@ -104,6 +120,14 @@ fields(alarm) ->
             hoconsc:mk(binary(), #{
                 desc => ?DESC(deactivate_at),
                 example => <<"2021-10-31T10:52:52.548+08:00">>
+            })}
+    ];
+fields(force_deactivate_alarm_request) ->
+    [
+        {name,
+            hoconsc:mk(binary(), #{
+                desc => ?DESC(name),
+                example => <<"high_system_memory_usage">>
             })}
     ].
 
@@ -136,6 +160,32 @@ alarms(delete, _Params) ->
     _ = emqx_mgmt:delete_all_deactivated_alarms(),
     {204}.
 
+force_deactivate_alarm(post, #{body := Body}) ->
+    Name = maps:get(<<"name">>, Body, undefined),
+    case Name =:= undefined orelse Name =:= <<>> of
+        true ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"name is required">>}};
+        false ->
+            Result = lists:map(fun emqx_alarm:safe_deactivate/1, convert_alarm_names(Name)),
+            case
+                lists:any(
+                    fun
+                        (ok) -> true;
+                        (_) -> false
+                    end,
+                    Result
+                )
+            of
+                true ->
+                    {204};
+                false ->
+                    {400, #{
+                        code => <<"NOT_FOUND">>,
+                        message => <<"Alarm not found or already deactivated">>
+                    }}
+            end
+    end.
+
 %%%==============================================================================================
 %% internal
 
@@ -145,3 +195,11 @@ qs2ms(_Tab, {_Qs, _Fuzzy}) ->
 
 format_alarm(WhichNode, Alarm) ->
     emqx_alarm:format(WhichNode, Alarm).
+
+convert_alarm_names(Name) when is_binary(Name) ->
+    try
+        [binary_to_existing_atom(Name, utf8), Name]
+    catch
+        error:badarg ->
+            [Name]
+    end.
