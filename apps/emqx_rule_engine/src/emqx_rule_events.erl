@@ -1473,7 +1473,7 @@ force_to_bin(Term) ->
         emqx_utils_conv:bin(Term)
     catch
         _:_ ->
-            emqx_utils_conv:bin(lists:flatten(io_lib:format("~p", [Term])))
+            emqx_utils:format(Term)
     end.
 
 ntoa(undefined) ->

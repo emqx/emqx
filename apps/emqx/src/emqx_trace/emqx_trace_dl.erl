@@ -11,6 +11,7 @@
     insert_new_trace/1,
     delete/1,
     get_trace_filename/1,
+    get/1,
     disable_finished/1,
     get_enabled_trace/0
 ]).
@@ -113,11 +114,20 @@ delete(Name) ->
     end.
 
 %% Introduced in 5.0
+%% Deprecated since 5.10.0
 -spec get_trace_filename(Name :: binary()) -> {ok, string()}.
 get_trace_filename(Name) ->
     case mnesia:read(?TRACE, Name, read) of
         [] -> mnesia:abort(not_found);
-        [#?TRACE{start_at = Start}] -> {ok, emqx_trace:filename(Name, Start)}
+        [#?TRACE{start_at = Start}] -> {ok, emqx_trace:log_filename(Name, Start)}
+    end.
+
+%% Introduced in 6.0.0
+-spec get(Name :: binary()) -> {ok, record()} | {error, not_found}.
+get(Name) ->
+    case mnesia:dirty_read(?TRACE, Name) of
+        [Trace] -> {ok, Trace};
+        [] -> {error, not_found}
     end.
 
 %% Introduced in 5.0
