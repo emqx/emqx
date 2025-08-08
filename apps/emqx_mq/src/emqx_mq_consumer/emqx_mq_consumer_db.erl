@@ -25,10 +25,23 @@
     delete_all/0
 ]).
 
+%%--------------------------------------------------------------------
+%% Types
+%%--------------------------------------------------------------------
+
 -type mq_topic() :: emqx_mq_types:mq_topic().
 -type consumer_ref() :: emqx_mq_types:consumer_ref().
--type timestamp() :: emqx_message:timestamp().
+-type timestamp() :: non_neg_integer().
 -type consumer_data() :: emqx_mq_types:consumer_data().
+-type claim() :: {consumer_ref(), timestamp()}.
+
+-export_type([
+    claim/0
+]).
+
+%%--------------------------------------------------------------------
+%% Constants
+%%--------------------------------------------------------------------
 
 -define(MQ_CONSUMER_DB, mq_consumer).
 -define(MQ_CONSUMER_DB_LTS_SETTINGS, #{
@@ -157,7 +170,12 @@ delete_all() ->
 %%--------------------------------------------------------------------
 
 init_consumer_data() ->
-    #{}.
+    #{
+        progress => #{
+            generation_progress => #{},
+            streams_progress => #{}
+        }
+    }.
 
 read_claim(LeadershipTopic) ->
     case emqx_ds:tx_read(LeadershipTopic) of
@@ -190,19 +208,17 @@ write_consumer_data(DataTopic, Data) ->
     ?tp(warning, mq_consumer_db_write_consumer_data, #{ttv => TTV}),
     emqx_ds:tx_write({DataTopic, 0, encode_consumer_data(Data)}).
 
-%% TODO
-%% better serialize/deserialize
 decode_claim(ClaimBin) ->
-    binary_to_term(ClaimBin).
+    emqx_mq_consumer_db_serialization:decode_claim(ClaimBin).
 
 encode_claim(Claim) ->
-    term_to_binary(Claim).
+    emqx_mq_consumer_db_serialization:encode_claim(Claim).
 
 decode_consumer_data(DataBin) ->
-    binary_to_term(DataBin).
+    emqx_mq_consumer_db_serialization:decode_consumer_data(DataBin).
 
 encode_consumer_data(Data) ->
-    term_to_binary(Data).
+    emqx_mq_consumer_db_serialization:encode_consumer_data(Data).
 
 settings() ->
     NSites = length(emqx:running_nodes()),

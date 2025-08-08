@@ -1,0 +1,12 @@
+ConsumerClaim DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  -- Pid of the consumer process
+  ConsumerRef ::= OCTET STRING
+
+  LastSeenTimestamp ::= INTEGER
+
+  ConsumerClaim ::= SEQUENCE {
+    consumerRef ConsumerRef,
+    lastSeenTimestamp LastSeenTimestamp
+  }
+END

@@ -1,0 +1,33 @@
+
+ConsumerState DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+
+  -- How to encode the iterator and stream using DS serializers?
+
+  GenerationProgress ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER
+  }
+
+  StreamBufferProgress ::= SEQUENCE {
+    it OCTET STRING,
+    lastMessageId INTEGER OPTIONAL,
+    unacked SEQUENCE OF INTEGER
+  }
+
+  StreamProgress ::= SEQUENCE {
+    shard OCTET STRING,
+    generation INTEGER,
+    stream OCTET STRING,
+    bufferProgress StreamBufferProgress
+  }
+
+  Progress ::= SEQUENCE {
+    generationProgress SEQUENCE OF GenerationProgress,
+    streamProgress SEQUENCE OF StreamProgress
+  }
+
+  ConsumerState ::= SEQUENCE {
+    progress Progress
+  }
+END

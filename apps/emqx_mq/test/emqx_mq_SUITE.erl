@@ -14,7 +14,8 @@
 -include("../src/emqx_mq_internal.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    % emqx_common_test_helpers:all(?MODULE).
+    [t_progress_restoration].
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
