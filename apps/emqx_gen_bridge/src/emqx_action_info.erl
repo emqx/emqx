@@ -74,14 +74,15 @@
 %% apps are loaded before this module is called.
 %% ====================================================================
 
--if(?EMQX_RELEASE_EDITION == ee).
 hard_coded_action_info_modules_ee() ->
     [
+        emqx_bridge_alloydb_action_info,
         emqx_bridge_azure_blob_storage_action_info,
         emqx_bridge_azure_event_hub_action_info,
         emqx_bridge_bigquery_action_info,
         emqx_bridge_cassandra_action_info,
         emqx_bridge_clickhouse_action_info,
+        emqx_bridge_cockroachdb_action_info,
         emqx_bridge_confluent_producer_action_info,
         emqx_bridge_couchbase_action_info,
         emqx_bridge_disk_log_action_info,
@@ -105,6 +106,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_pulsar_action_info,
         emqx_bridge_rabbitmq_action_info,
         emqx_bridge_redis_action_info,
+        emqx_bridge_redshift_action_info,
         emqx_bridge_rocketmq_action_info,
         emqx_bridge_s3_upload_action_info,
         emqx_bridge_s3tables_action_info,
@@ -115,10 +117,6 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_tdengine_action_info,
         emqx_bridge_timescale_action_info
     ].
--else.
-hard_coded_action_info_modules_ee() ->
-    [].
--endif.
 
 hard_coded_action_info_modules_common() ->
     [

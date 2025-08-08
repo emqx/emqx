@@ -1,0 +1,13 @@
+emqx_bridge_cockroachdb_action_schema {
+  cockroachdb {
+    label: """Upload to CockroachDB"""
+    desc:
+    """Action that takes incoming events and appends them to CockroachDB."""
+  }
+
+  action_parameters {
+    label: "Action Parameters"
+    desc:
+    """Set of parameters for the action."""
+  }
+}
