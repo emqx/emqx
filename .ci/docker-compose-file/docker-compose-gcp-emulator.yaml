@@ -1,7 +1,7 @@
 services:
   gcp_emulator:
     container_name: gcp_emulator
-    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:435.0.1-emulators
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:533.0.0-emulators
     restart: always
     expose:
       - "8085"
@@ -11,7 +11,7 @@ services:
       - emqx_bridge
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8085"]
-      interval: 30s
+      interval: 5s
       timeout: 5s
       retries: 4
     command:
