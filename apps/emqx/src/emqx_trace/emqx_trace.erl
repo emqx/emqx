@@ -392,7 +392,10 @@ stream_log_cursor(Name, Cursor0 = #{s := Start, p := Pos, f := Fragment0}, Limit
                         none ->
                             Cont = {eof, Cursor};
                         {error, enoent} ->
-                            %% TODO
+                            %% Here it can actually mean active log rotation, ask the caller to
+                            %% retry. If the error persists, fragments were probably manually
+                            %% deleted.
+                            %% See `emqx_trace_handler:find_log_fragment/2`.
                             Cont = {retry, Cursor};
                         {error, Reason} ->
                             Cont = {cont, #{e => {file_error, Reason}}}
@@ -400,7 +403,7 @@ stream_log_cursor(Name, Cursor0 = #{s := Start, p := Pos, f := Fragment0}, Limit
             end,
             {ok, Chunk, Cont};
         {error, enoent} ->
-            %% TODO
+            %% Same here, see `emqx_trace_handler:find_log_fragment/2`.
             {ok, <<>>, {retry, Cursor0}};
         {error, Reason} ->
             {error, {file_error, Reason}}

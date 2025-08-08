@@ -184,18 +184,41 @@ filesync(HandlerId) ->
 
 %%
 
--opaque log_fragment() :: #{i := non_neg_integer(), node := integer()}.
+-opaque log_fragment() :: #{
+    %% Log fragment index:
+    i := non_neg_integer(),
+    %% Inode number from the filesystem:
+    node := integer(),
+    %% Witness for consistency checks:
+    w := {_WSize :: pos_integer(), _Checksum :: integer()} | nil()
+}.
 
+-doc """
+Find either the first log fragment to read data from, or the next to the one previously
+obtained through a call to this function.
+
+* `none`
+  There's no more fragments, either the last (most recent) fragment was reached,
+  or there is actually zero fragments.
+* `{error, stale}`
+  It's now impossible to find the next fragment because too much log rotation happened
+  in the meantime.
+* `{error, enoent}`
+  No such file, can actually mean concurrent log rotation is in progress, and the
+  caller may choose to retry.
+
+""".
 -spec find_log_fragment(first | {next, _After :: log_fragment()}, file:filename()) ->
     {ok, file:filename(), file:file_info(), log_fragment()}
     | none
     | {error, stale | file:posix()}.
 find_log_fragment(first, Basename) ->
-    find_first_log_fragment(Basename);
+    find_oldest_log_fragment(Basename);
 find_log_fragment({next, #{i := I, node := Inode}}, Basename) ->
     find_next_log_fragment(I, Inode, Basename).
 
-find_first_log_fragment(Basename) ->
+%% Find the oldest existing log fragment file.
+find_oldest_log_fragment(Basename) ->
     SearchFun = fun(I) ->
         Filename = mk_log_fragment_filename(Basename, I),
         case read_file_info(Filename) of
@@ -210,6 +233,8 @@ find_first_log_fragment(Basename) ->
     find_boundary(SearchFun, 1, ?LOG_HANDLER_ROTATION_N_FILES_MAX, none).
 
 find_next_log_fragment(I, Inode, Basename) ->
+    %% First we need to make sure the given fragment still resides under
+    %% the same index / filename.
     Filename = mk_log_fragment_filename(Basename, I),
     case read_file_info(Filename) of
         {ok, #file_info{inode = Inode}} ->
@@ -231,10 +256,12 @@ find_next_log_fragment(I, Inode, Basename) ->
 next_log_fragment(1, _Basename) ->
     none;
 next_log_fragment(I, Basename) ->
-    %% TODO
+    %% NOTE
     %% Subject to races with `looger_std_h:rotate_files/3`, highly unlikely though.
     %% 1. We can accidentally skip one fragment.
-    %% 2. We can get `{error, enoent}` for 0th (most recent) fragment.
+    %% 2. We can get `{error, enoent}` for a fragment in the process of rotation.
+    %% Currently, upper layer blindly considers `{error, enoent}` as retry-worthy,
+    %% i.e. by returning `{retry, Cursor}` as continuation to the user code.
     Filename = mk_log_fragment_filename(Basename, I - 1),
     case read_file_info(Filename) of
         {ok, Info = #file_info{inode = Inode}} ->
@@ -243,6 +270,7 @@ next_log_fragment(I, Basename) ->
             Error
     end.
 
+%% Binary search a boundary where SF turns from `{true, _}` to `false`.
 find_boundary(SF, I1, I2, Found0) ->
     IMid = (I1 + I2) div 2,
     case SF(IMid) of
@@ -253,6 +281,25 @@ find_boundary(SF, I1, I2, Found0) ->
         Error -> Error
     end.
 
+-doc """
+Read a portion of log fragment, starting from the given position.
+Fragment is previously obtained through a call to `find_log_fragment/2`.
+
+Read consistency under concurrent log rotation is preserved as realistically possible,
+however there's no strong guarantee. Avoid having configurations that allow for high
+log rotation rate. In attempt to ensure consistency, each log fragment read often
+involves more than one disk read, consider using large `NBytes` to smooth this cost
+out.
+
+* `{error, stale}`
+  It's now impossible to have consistent read because too much log rotation happened
+  in the meantime.
+
+* `{error, enoent}`
+  No such file, again can actually mean concurrent log rotation is in progress, and
+  the caller may choose to retry.
+
+""".
 -spec read_log_fragment_at(
     log_fragment(),
     file:filename(),
@@ -279,10 +326,13 @@ read_log_fragment_at(#{i := I, node := Inode} = Fragment, Basename, Pos, NBytes)
                 end,
             case Result of
                 {ok, [eof]} ->
+                    %% File is likely completely empty.
                     {ok, <<>>, Fragment};
                 {ok, Reads} ->
+                    %% We have read some bytes, try to verify it was the same fragment.
                     verify_witness(Reads, Fragment);
                 stale ->
+                    %% Inode mismatch, let's look inside the older fragment.
                     read_log_fragment_at(Fragment#{i := I + 1}, Basename, Pos, NBytes);
                 Error ->
                     Error
@@ -291,23 +341,34 @@ read_log_fragment_at(#{i := I, node := Inode} = Fragment, Basename, Pos, NBytes)
             {error, Reason}
     end.
 
+pread_request(Pos, NBytes, #{w := {WSize, _Checksum}}) when Pos > 0 ->
+    %% NOTE
+    %% If we are reading from the middle of the fragment, additionally read a "witness"
+    %% from the very beginning of the file. In the case of log files, beginning of
+    %% file usually contains unique data in the form of millisecond-precision timestamp.
+    %% Not optimizing small reads.
+    [{0, WSize}, {Pos, NBytes}];
 pread_request(0, NBytes, _Fragment) ->
-    [{0, NBytes}];
-pread_request(Pos, NBytes, #{w := {WSize, _Checksum}}) ->
-    %% NOTE: Not optimizing small reads.
-    [{0, WSize}, {Pos, NBytes}].
+    [{0, NBytes}].
 
 verify_witness([Witness, Chunk], Fragment = #{w := {_WSize, Checksum}}) ->
     case erlang:crc32(Witness) of
         Checksum when is_binary(Chunk) ->
+            %% Witness checksum matches the one we obtained before.
             {ok, Chunk, Fragment};
         Checksum ->
             %% Chunk = `eof`:
             {ok, <<>>, Fragment};
         _Mismatch ->
+            %% At this point this means that inode has been reused for a completely
+            %% different log fragment, which probably means high log rotation rate.
             {error, stale}
     end;
+verify_witness([<<>>], Fragment) ->
+    {ok, <<>>, Fragment};
 verify_witness([Chunk], Fragment) ->
+    %% No "witness" yet, first read from this fragment.
+    %% Take it and compute a checksum.
     WSize = min(?LOG_FRAGMENT_WITNESS_BYTES, byte_size(Chunk)),
     Witness = binary:part(Chunk, 0, WSize),
     {ok, Chunk, Fragment#{w := {WSize, erlang:crc32(Witness)}}}.
