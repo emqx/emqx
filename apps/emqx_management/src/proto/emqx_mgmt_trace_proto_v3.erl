@@ -53,7 +53,7 @@ get_trace_details(Nodes, Name) ->
     start | {cont, emqx_trace:cursor()},
     pos_integer() | undefined
 ) ->
-    {ok, binary(), {cont | eof, emqx_trace:cursor()}}
+    {ok, binary(), {cont | eof | retry, emqx_trace:cursor()}}
     | {error, _}
     | {badrpc, _}.
 stream_trace_log(Node, Name, Position, Limit) ->
