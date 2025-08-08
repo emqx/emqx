@@ -427,11 +427,17 @@ t_stream_continuity(_Config) ->
     ok = emqx_config:put([trace, max_file_size], MaxSizeDefault).
 
 t_stream_tailf(_Config) ->
+    test_stream_tailf(10 * 1024, 400, 1024, 100, 1).
+
+t_stream_tailf_small_reads(_Config) ->
+    test_stream_tailf(10 * 1024, 400, 32, 50, 3).
+
+t_stream_tailf_whole_reads(_Config) ->
+    test_stream_tailf(8 * 1024, 400, undefined, 100, 1).
+
+test_stream_tailf(MaxSize, PayloadLimit, StreamReadSize, NMsg, Cooldown) ->
     TCPid = self(),
     %% Configure relatively low size limit:
-    MaxSize = 10 * 1024,
-    PayloadLimit = 400,
-    StreamLimit = 1024,
     MaxSizeDefault = emqx_config:get([trace, max_file_size]),
     ok = emqx_config:put([trace, max_file_size], MaxSize),
     %% Start a trace:
@@ -446,7 +452,7 @@ t_stream_tailf(_Config) ->
     {ok, _} = emqtt:connect(Client),
     %% Spawn a log stream receiver:
     Receiver = fun Receiver(Cursor0, Acc0) ->
-        {Bins, Cursor} = stream_until_eof(Name, Cursor0, StreamLimit),
+        {Bins, Cursor} = stream_until_eof(Name, Cursor0, StreamReadSize),
         Acc = [Acc0 | Bins],
         receive
             {TCPid, stop} ->
@@ -461,10 +467,10 @@ t_stream_tailf(_Config) ->
     %% Publish a lot of messages:
     lists:foreach(
         fun(I) ->
-            ok = timer:sleep(1),
+            ok = timer:sleep(Cooldown),
             {ok, _} = emqtt:publish(Client, <<"c">>, integer_to_binary(I), qos1)
         end,
-        lists:seq(1, 100)
+        lists:seq(1, NMsg)
     ),
     ok = timer:sleep(100),
     %% Trigger filesync:
@@ -474,7 +480,7 @@ t_stream_tailf(_Config) ->
     Signal = ?assertReceive({'DOWN', MRef, process, _Pid, {received, _}}),
     {received, Content} = element(5, Signal),
     ?assertEqual(
-        [integer_to_binary(I) || I <- lists:seq(1, 100)],
+        [integer_to_binary(I) || I <- lists:seq(1, NMsg)],
         trace_extract_payloads(Content)
     ),
     %% We were able to stream much more than what is currently used by the log:
