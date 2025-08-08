@@ -397,7 +397,7 @@ read_file_info(Filename) ->
 mk_log_handler(Info = #{id := HandlerId}) ->
     {HandlerId, mk_filter_fun(Info)}.
 
--spec log(logger:log_event(), [log_handler()]) -> ok.
+-spec log(_LoggerEvent, [log_handler()]) -> ok.
 log(Log, [{Id, {FilterFun, Ctx}} | Rest]) ->
     case FilterFun(Log, Ctx) of
         stop ->

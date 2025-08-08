@@ -336,19 +336,29 @@ log_details(Name) ->
         {ok, Trace = #?TRACE{start_at = Start}} ->
             _ = emqx_trace_handler:filesync(mk_handler_id(Trace)),
             Basename = log_filepath(Name, Start),
-            AccFun = fun AccFun(Which, SizeAcc, MTimeMax) ->
-                case emqx_trace_handler:find_log_fragment(Which, Basename) of
-                    {ok, _, #file_info{size = Size, mtime = MTime}, Fragment} ->
-                        AccFun({next, Fragment}, Size + SizeAcc, max(MTime, MTimeMax));
-                    none ->
-                        {ok, #{size => SizeAcc, mtime => MTimeMax}};
-                    {error, Reason} ->
-                        {error, {file_error, Reason}}
-                end
-            end,
-            AccFun(first, 0, 0);
+            log_accum_details(first, Basename, 0, 0);
         Error ->
             Error
+    end.
+
+log_accum_details(Which, Basename, SizeAcc, MTimeMax) ->
+    case emqx_trace_handler:find_log_fragment(Which, Basename) of
+        {ok, _, #file_info{size = Size, mtime = MTime}, Fragment} ->
+            log_accum_details({next, Fragment}, Basename, Size + SizeAcc, max(MTime, MTimeMax));
+        none ->
+            {ok, #{size => SizeAcc, mtime => MTimeMax}};
+        {error, Reason} ->
+            {error, {file_error, Reason}}
+    end.
+
+log_is_empty(Basename) ->
+    case emqx_trace_handler:find_log_fragment(first, Basename) of
+        {ok, _, #file_info{size = Size}, _Fragment} ->
+            Size =:= 0;
+        none ->
+            true;
+        {error, Reason} ->
+            {error, {file_error, Reason}}
     end.
 
 -spec stream_log(name(), start | {cont, cursor()}, _Limit :: pos_integer() | undefined) ->
@@ -546,10 +556,10 @@ update_trace(Traces) ->
     Now = now_second(),
     {_Waiting, Running, Finished} = classify_by_time(Traces, Now),
     disable_finished(Finished),
-    Started = emqx_trace_handler:running(),
-    {NeedRunning, AllStarted} = start_trace(Running, Started),
+    RunningHandlers = emqx_trace_handler:running(),
+    {NeedRunning, AllStarted} = start_trace(Running, RunningHandlers),
     NeedStop = filter_cli_handler(AllStarted) -- NeedRunning,
-    ok = stop_trace(NeedStop, Started),
+    ok = stop_traces(NeedStop, RunningHandlers),
     clean_stale_trace_files(),
     NextTime = find_closest_time(Traces, Now),
     emqx_utils:start_timer(NextTime, update_trace).
@@ -644,25 +654,31 @@ mk_handler_id(#?TRACE{name = Name}) ->
     %% To be removed in the next release.
     emqx_trace_handler:fallback_handler_id(?MODULE_STRING, Name).
 
-stop_trace(Finished, Started) ->
+stop_traces(Finished, RunningHandlers) ->
     lists:foreach(
-        fun(#{name := Name, id := HandlerID, dst := FilePath, filter := {Type, Filter}}) ->
+        fun(#{name := Name} = Handler) ->
             case lists:member(Name, Finished) of
-                true ->
-                    _ = emqx_trace_handler:filesync(HandlerID),
-                    case file:read_file_info(FilePath) of
-                        {ok, #file_info{size = Size}} when Size > 0 ->
-                            ?TRACE("API", "trace_stopping", #{Type => Filter});
-                        _ ->
-                            ok
-                    end,
-                    emqx_trace_handler:uninstall(HandlerID);
-                false ->
-                    ok
+                true -> stop_trace(Handler);
+                false -> ok
             end
         end,
-        Started
+        RunningHandlers
     ).
+
+stop_trace(#{id := HandlerID, dst := Basename, filter := {Type, Filter}} = Handler) ->
+    _ = emqx_trace_handler:filesync(HandlerID),
+    case log_is_empty(Basename) of
+        true ->
+            ok;
+        false ->
+            Event = #{
+                level => debug,
+                meta => #{trace_tag => "API", Type => Filter},
+                msg => "trace_stopping"
+            },
+            emqx_trace_handler:log(Event, [emqx_trace_handler:mk_log_handler(Handler)])
+    end,
+    emqx_trace_handler:uninstall(HandlerID).
 
 clean_stale_trace_files() ->
     TraceDir = trace_dir(),
