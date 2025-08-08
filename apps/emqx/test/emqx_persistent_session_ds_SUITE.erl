@@ -858,7 +858,7 @@ t_state_commit_conflict(_Config) ->
             Id = <<"clientid">>,
             %% 1. Start from the empty state simultaneously:
             A1 = emqx_persistent_session_ds_state:create_new(Id),
-            B1 = emqx_persistent_session_ds_state:create_new(Id),
+            _B1 = emqx_persistent_session_ds_state:create_new(Id),
             %%   Commit the A (should succeed):
             A2 = emqx_persistent_session_ds_state:commit(A1, #{lifetime => new, sync => true}),
             %% %%   Now B should not be able to commit:
