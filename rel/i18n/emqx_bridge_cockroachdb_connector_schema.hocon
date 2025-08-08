@@ -1,0 +1,7 @@
+emqx_bridge_cockroachdb_connector_schema {
+  config_connector {
+    label: """CockroachDB Connector Configuration"""
+    desc:
+    """Configuration for a connector to CockroachDB."""
+  }
+}

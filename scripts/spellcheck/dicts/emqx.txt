@@ -5,6 +5,7 @@ ACL
 addr
 AES
 aliyun
+AlloyDB
 api
 APIs
 apiserver
@@ -52,6 +53,7 @@ CMD
 CN
 coap
 CoAP
+CockroachDB
 conf
 config
 configs
