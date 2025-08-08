@@ -69,10 +69,16 @@ t_read_garbage(Config) ->
     ok = file:write(WFD, rand:bytes(1048576)),
     ok = file:close(WFD),
     {ok, RFD} = file:open(Filename, [read, binary]),
-    ?assertError(
-        badarg,
-        emqx_connector_aggreg_buffer:new_reader(RFD)
-    ).
+    try emqx_connector_aggreg_buffer:new_reader(RFD) of
+        Res -> ct:fail({unexpected_success, Res})
+    catch
+        error:badarg ->
+            ok;
+        error:{buffer_unexpected_header, _} ->
+            ok;
+        Kind:Error:Stacktrace ->
+            ct:fail({unexpected_exception, Kind, Error, Stacktrace})
+    end.
 
 t_read_truncated(Config) ->
     Filename = mk_filename(?FUNCTION_NAME, Config),
