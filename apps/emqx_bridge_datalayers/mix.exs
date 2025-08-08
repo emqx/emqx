@@ -32,7 +32,7 @@ defmodule EMQXBridgeDatalayers.MixProject do
   def deps() do
     [
       UMP.common_dep(:influxdb),
-      UMP.common_dep(:datalayers),
+      {:datalayers, github: "datalayers-io/datalayers-adapter-erl", tag: "0.1.0", override: true},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
