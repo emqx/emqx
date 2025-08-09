@@ -19,6 +19,7 @@
 
 -include_lib("snabbkaffe/include/trace.hrl").
 -include("../emqx_tracepoints.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -47,8 +48,10 @@ on_connect(ClientId, ExpiryIntervalMS) ->
     non_neg_integer()
 ) -> ok.
 on_disconnect(ClientId, ExpiryIntervalMS) ->
-    emqx_durable_timer:apply_after(
-        durable_timer_type(), ClientId, <<>>, ExpiryIntervalMS
+    warn_timeout(
+        emqx_durable_timer:apply_after(
+            durable_timer_type(), ClientId, <<>>, ExpiryIntervalMS
+        )
     ).
 
 -spec delete(emqx_types:clientid()) -> ok.
@@ -74,3 +77,11 @@ handle_durable_timeout(SessionId, ChannelCookie) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+warn_timeout(ok) ->
+    ok;
+warn_timeout(?err_unrec(commit_timeout)) ->
+    ?tp(warning, "sessds_gc_timer_commit_timeout", #{}),
+    ok;
+warn_timeout(Err) ->
+    Err.

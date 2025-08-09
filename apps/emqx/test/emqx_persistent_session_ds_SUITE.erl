@@ -755,7 +755,7 @@ t_replay_deleted_generation(_Config) ->
             ok = emqtt:stop(Sub0),
             ?assertMatch(ok, emqx_ds:add_generation(?PERSISTENT_MESSAGE_DB)),
             _ = [
-                ok = emqx_ds:drop_generation(?PERSISTENT_MESSAGE_DB, GenId)
+                ok = emqx_ds:drop_slab(?PERSISTENT_MESSAGE_DB, GenId)
              || {GenId, #{until := Until}} <- maps:to_list(
                     emqx_ds:list_generations_with_lifetimes(?PERSISTENT_MESSAGE_DB)
                 ),
@@ -1602,7 +1602,7 @@ drop_all_ds_messages() ->
     ok = emqx_ds:add_generation(DB),
     lists:foreach(
         fun(Slab) ->
-            ok = emqx_ds:drop_generation(DB, Slab)
+            ok = emqx_ds:drop_slab(DB, Slab)
         end,
         OldSlabs
     ).

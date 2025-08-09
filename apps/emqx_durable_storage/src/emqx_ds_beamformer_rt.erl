@@ -161,7 +161,7 @@ handle_info({Ref, Result}, S0 = #s{worker_ref = Ref}) ->
 handle_info(
     ?housekeeping_loop, S0 = #s{name = Name, metrics_id = Metrics, queue = Queue}
 ) ->
-    %% Reload configuration according from environment variables:
+    %% Reload configuration according to the environment variables:
     S = S0#s{
         batch_size = emqx_ds_beamformer:cfg_batch_size()
     },
@@ -220,62 +220,20 @@ do_enqueue(
         client = Client
     },
     From,
-    S = #s{shard = Shard, queue = Queue, module = CBM, sub_tab = SubTab}
+    S = #s{shard = Shard, queue = Queue, module = CBM, sub_tab = SubTab, batch_size = BatchSize}
 ) ->
     Reply =
         case high_watermark(Stream, S) of
             {ok, HighWatermark} ->
-                FFRes = emqx_ds_beamformer:fast_forward(CBM, Shard, It0, HighWatermark),
-                case FFRes of
-                    {ok, It} ->
-                        ?tp(beamformer_push_rt, #{
-                            req_id => ReqId, stream => Stream, key => Key, it => It
-                        }),
-                        emqx_ds_beamformer_waitq:insert(
-                            Stream, TF, {node(Client), ReqId}, Rank, Queue
-                        ),
-                        emqx_ds_beamformer:take_ownership(Shard, SubTab, Req),
-                        ok;
-                    {error, unrecoverable, has_data} ->
-                        %% TODO: This piece of code is very
-                        %% problematic, because it can cause an
-                        %% infinite back and forth loop.
-                        %%
-                        %% Alt. 1: Instead of kicking the subscription
-                        %% back we could attempt to simply read the
-                        %% data and deliver it to the client before
-                        %% adding it to the queue. This may, of
-                        %% course, introduce latency to the other
-                        %% clients in the RT queue. But the effect
-                        %% will be temporary, and only happen when a
-                        %% new subscription joins.
-                        %%
-                        %% Assuming that catchup worker has done all
-                        %% the heavy lifting, the impact on the
-                        %% latency should be small under normal
-                        %% circumstances.
-                        %%
-                        %% Alt. 2: Kill the subsription when this
-                        %% happens with a reason indicating overload
-                        %% and so the client re-subscribes.
-                        %%
-                        %% This should spread the load over time, but
-                        %% it's not the perfect solution.
-                        ?tp(info, beamformer_push_rt_downgrade, #{
-                            req_id => ReqId, stream => Stream, key => Key
-                        }),
-                        {error, unrecoverable, stale};
-                    Error = {error, _, _} ->
-                        ?tp(
-                            error,
-                            beamformer_rt_cannot_fast_forward,
-                            #{
-                                it => It0,
-                                reason => Error
-                            }
-                        ),
-                        Error
-                end;
+                ?tp(beamformer_push_rt, #{
+                    req_id => ReqId, stream => Stream, key => Key, it => It0
+                }),
+                emqx_ds_beamformer_waitq:insert(
+                    Stream, TF, {node(Client), ReqId}, Rank, Queue
+                ),
+                emqx_ds_beamformer:take_ownership(Shard, SubTab, Req),
+                FFRes = emqx_ds_beamformer:fast_forward(CBM, Shard, It0, HighWatermark, BatchSize),
+                complete_takeover(S, Req, FFRes);
             undefined ->
                 ?tp(
                     warning,
@@ -286,6 +244,58 @@ do_enqueue(
         end,
     ok = gen_server:reply(From, Reply),
     S.
+
+-doc """
+This function is called during hand-over from catch-up to realtime worker.
+
+If more data was published while the subscription was in hand-over
+state, RT worker uses this function to send it to the client.
+""".
+complete_takeover(_, _, {ok, _, []}) ->
+    ok;
+complete_takeover(
+    S, #sub_state{client = Client, req_id = ReqId, stream = Stream}, {ok, EndKey, Batch}
+) ->
+    #s{
+        shard = DBShard,
+        module = CBM,
+        queue = Queue,
+        sub_tab = SubTab,
+        metrics_id = Metrics
+    } = S,
+    BB0 = emqx_ds_beamformer:beams_init(
+        CBM,
+        DBShard,
+        SubTab,
+        true,
+        fun(SubS) -> queue_drop(Queue, SubS) end,
+        fun(_OldSubState, _SubState) -> ok end
+    ),
+    Node = node(Client),
+    BB = lists:foldl(
+        fun({Key, Msg}, BB1) ->
+            emqx_ds_beamformer:beams_add(Stream, Key, Msg, [{Node, ReqId}], BB1)
+        end,
+        BB0,
+        Batch
+    ),
+    emqx_ds_builtin_metrics:inc_beams_sent(Metrics, 1),
+    emqx_ds_builtin_metrics:observe_sharing(Metrics, 1),
+    emqx_ds_beamformer:beams_conclude(DBShard, EndKey, BB),
+    ok;
+complete_takeover(
+    S,
+    Req = #sub_state{client = Client, req_id = ReqId, stream = Stream, topic_filter = TF},
+    Pack = {error, _, _}
+) ->
+    #s{
+        shard = DBShard,
+        sub_tab = SubTab,
+        queue = Queue
+    } = S,
+    emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Pack, [Req]),
+    emqx_ds_beamformer_waitq:delete(Stream, TF, {node(Client), ReqId}, Queue),
+    ok.
 
 process_stream_event(Parent, RetriesOnEmpty, Stream, S) ->
     T0 = erlang:monotonic_time(microsecond),

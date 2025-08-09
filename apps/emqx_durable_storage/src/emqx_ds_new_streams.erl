@@ -282,7 +282,7 @@ handle_watch({Pid, _}, TopicFilter, Data) ->
         {ok, MRef}
     catch
         EC:Err:Stack ->
-            demonitor(MRef, [flush]),
+            demonitor(MRef),
             ?tp(
                 error,
                 ds_new_streams_failed_to_insert,
@@ -319,7 +319,7 @@ insert(Record = #sub{tf = Filter, id = Ref}, #d{trie = Trie, subs = Subs}) ->
 do_unwatch(Ref, #d{trie = Trie, subs = Subs}) ->
     case ets:take(Subs, Ref) of
         [#sub{tf = TopicFilter}] ->
-            demonitor(Ref, [flush]),
+            demonitor(Ref),
             TrieKey = emqx_trie_search:make_key(TopicFilter, Ref),
             ets:delete(Trie, TrieKey);
         [] ->

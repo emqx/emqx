@@ -21,7 +21,7 @@
 
     next/4,
     scan_stream/6,
-    fast_forward/3,
+    fast_forward/5,
 
     message_match_context/4,
     iterator_match_context/2,
@@ -159,6 +159,18 @@
     boolean()
 ) ->
     {ok, it_pos(), [emqx_ds:ttv()]} | {ok, end_of_stream} | emqx_ds:error(_).
+
+-callback fast_forward(
+    emqx_ds:db(),
+    emqx_ds:shard(),
+    emqx_ds_storage_layer:generation_data(),
+    it_static(),
+    it_pos(),
+    _BatchSize :: pos_integer(),
+    _Now :: emqx_ds:time(),
+    _Target :: it_pos()
+) ->
+    {ok, it_pos(), [{it_pos(), emqx_ds:ttv()}]} | emqx_ds:error(_).
 
 -callback scan_stream(
     emqx_ds:db(),
@@ -395,7 +407,7 @@ scan_stream(
 -spec high_watermark(emqx_ds_beamformer:dbshard(), stream(), emqx_ds:time()) ->
     {ok, it_pos()} | emqx_ds:error(_).
 high_watermark({DB, _}, Stream, Now) ->
-    case make_iterator(DB, Stream, ['#'], Now) of
+    case make_iterator(DB, Stream, ['#'], max(0, Now - 1)) of
         {ok, #'Iterator'{innerPos = Pos}} ->
             {ok, Pos};
         Err ->
@@ -430,17 +442,20 @@ next(
             ?ERR_GEN_GONE
     end.
 
--spec fast_forward(emqx_ds_beamformer:dbshard(), iterator(), it_pos()) ->
-    {ok, iterator()} | {ok, end_of_stream} | emqx_ds:error(_).
-fast_forward({DB, _}, It0, _Pos) ->
-    %% FIXME: add additional checks for Pos
-    case next(DB, It0, 1, infinity) of
-        {ok, It, []} ->
-            {ok, It};
-        {ok, _It, _} ->
-            ?err_unrec(has_data);
-        Other ->
-            Other
+-spec fast_forward(
+    emqx_ds_beamformer:dbshard(), iterator(), it_pos(), emqx_ds:time() | infinity, pos_integer()
+) ->
+    {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+    | emqx_ds:error(_).
+fast_forward({DB, Shard} = DBShard, It0, Target, MaxTS, BatchSize) ->
+    #'Iterator'{
+        generation = Generation, innerStatic = InnerStatic, innerPos = InnerPos0
+    } = It0,
+    case emqx_ds_storage_layer:generation_get(DBShard, Generation) of
+        #{module := Mod, data := GenData} ->
+            Mod:fast_forward(DB, Shard, GenData, InnerStatic, InnerPos0, BatchSize, MaxTS, Target);
+        not_found ->
+            ?ERR_GEN_GONE
     end.
 
 -spec message_match_context(emqx_ds_beamformer:dbshard(), stream(), it_pos(), emqx_ds:ttv()) ->

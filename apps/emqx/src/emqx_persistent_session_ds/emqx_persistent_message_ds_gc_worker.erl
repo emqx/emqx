@@ -119,7 +119,7 @@ maybe_gc() ->
             ExpiredGenIds = maps:keys(ExpiredGens),
             lists:foreach(
                 fun(GenId) ->
-                    ok = emqx_ds:drop_generation(?PERSISTENT_MESSAGE_DB, GenId),
+                    ok = emqx_ds:drop_slab(?PERSISTENT_MESSAGE_DB, GenId),
                     ?tp(message_gc_generation_dropped, #{gen_id => GenId})
                 end,
                 ExpiredGenIds

@@ -23,6 +23,7 @@
     get_streams/4,
     make_iterator/6,
     unpack_iterator/3,
+    fast_forward/8,
     next/8,
     scan_stream/9,
     lookup/4,
@@ -377,6 +378,35 @@ scan_stream(
         next_internal(
             fun next_cb_with_key/6, S, Static, CompressedTF, Pos, BatchSize, Now, IsCurrent
         )
+    end.
+
+fast_forward(
+    _DB, _Shard, S = #s{ts_bytes = TSB}, ItStaticBin, Pos0, BatchSize, TMax, Target
+) ->
+    case Target of
+        <<TS:(TSB * 8), _/binary>> when TS < TMax ->
+            {Static, CompressedTF} = decode_ext_it_static(ItStaticBin),
+            case
+                next_internal(
+                    fun next_cb_with_key/6,
+                    S,
+                    Static,
+                    CompressedTF,
+                    Pos0,
+                    BatchSize + 1,
+                    TMax,
+                    true
+                )
+            of
+                Res = {ok, _, Batch} when length(Batch) =< BatchSize ->
+                    Res;
+                {ok, _, _} ->
+                    ?err_rec(cannot_fast_forward);
+                Err ->
+                    Err
+            end;
+        _ ->
+            ?err_rec(#{msg => <<"Key is too far in the future">>, max => TMax, to => Target})
     end.
 
 lookup(_Shard, #s{trie = Trie, gs = GS, ts_bytes = TSB}, Topic, Time) ->

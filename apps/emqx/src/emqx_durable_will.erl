@@ -18,6 +18,7 @@
 -export_type([]).
 
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("emqx.hrl").
 
 %%================================================================================
@@ -80,7 +81,9 @@ Side effects:
 on_disconnect(ClientId, ClientInfo, SessExpiryMS, MaybeWillMsg) ->
     case check(ClientInfo, SessExpiryMS, MaybeWillMsg) of
         {ok, Delay, MsgBin} ->
-            emqx_durable_timer:apply_after(durable_timer_type(), ClientId, MsgBin, Delay);
+            warn_timeout(
+                emqx_durable_timer:apply_after(durable_timer_type(), ClientId, MsgBin, Delay)
+            );
         _ ->
             clear(ClientId)
     end.
@@ -117,3 +120,11 @@ check(ClientInfo, SessExpiryMS, WillMsg0) ->
         {error, _} ->
             undefined
     end.
+
+warn_timeout(ok) ->
+    ok;
+warn_timeout(?err_unrec(commit_timeout)) ->
+    ?tp(warning, "durable_will_timer_commit_timeout", #{}),
+    ok;
+warn_timeout(Err) ->
+    Err.
