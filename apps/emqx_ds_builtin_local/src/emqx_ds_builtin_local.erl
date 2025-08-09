@@ -547,7 +547,7 @@ high_watermark(DBShard, Stream) ->
 fast_forward(DBShard, It = #'Iterator'{}, Key, BatchSize) ->
     Now = current_timestamp(DBShard),
     emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now, BatchSize);
-fast_forward(DBShard, It = #{?tag := ?IT, ?enc := Inner0}, Key, BatchSize) ->
+fast_forward(DBShard, #{?tag := ?IT, ?enc := Inner0}, Key, BatchSize) ->
     Now = current_timestamp(DBShard),
     case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize) of
         {ok, end_of_stream} ->

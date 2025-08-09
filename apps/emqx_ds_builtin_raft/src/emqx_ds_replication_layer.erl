@@ -1807,7 +1807,7 @@ fast_forward(DBShard = {DB, Shard}, It = #'Iterator'{}, Key, BatchSize) ->
         end
     );
 fast_forward(
-    DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc := Inner0}, Key, BatchSize
+    DBShard = {DB, Shard}, #{?tag := ?IT, ?shard := Shard, ?enc := Inner0}, Key, BatchSize
 ) ->
     ?IF_SHARD_READY(
         DBShard,
