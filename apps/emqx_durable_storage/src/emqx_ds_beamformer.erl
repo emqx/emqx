@@ -1308,7 +1308,7 @@ remove_subscription(
     case ets:take(owner_tab(DBShard), SubId) of
         [#owner_tab{owner = Owner, mref = MRef}] ->
             %% Remove client monitoring:
-            demonitor(MRef, [flush]),
+            demonitor(MRef),
             ets:delete(MTab, MRef),
             %% Remove stuck subscription (if stuck):
             ets:delete(disowned_sub_tab(DBShard), SubId),
