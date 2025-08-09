@@ -20,7 +20,7 @@
     list_shards/1,
     shard_of/2,
     list_generations_with_lifetimes/1,
-    drop_generation/2,
+    drop_slab/2,
     drop_db/1,
     store_batch/3,
     get_streams/4,
@@ -243,9 +243,9 @@ list_generations_with_lifetimes(DB) ->
         emqx_ds_builtin_local_meta:shards(DB)
     ).
 
--spec drop_generation(emqx_ds:db(), slab()) -> ok | {error, _}.
-drop_generation(DB, {Shard, GenId}) ->
-    emqx_ds_storage_layer:drop_generation({DB, Shard}, GenId).
+-spec drop_slab(emqx_ds:db(), slab()) -> ok | {error, _}.
+drop_slab(DB, {Shard, GenId}) ->
+    emqx_ds_storage_layer:drop_slab({DB, Shard}, GenId).
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->

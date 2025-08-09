@@ -141,7 +141,7 @@ t_08_smoke_list_drop_generation(Config) ->
             ),
             [{GenId0, _}] = maps:to_list(Generations0),
             %% Cannot delete current generation
-            ?assertEqual({error, current_generation}, emqx_ds:drop_generation(DB, GenId0)),
+            ?assertEqual({error, current_generation}, emqx_ds:drop_slab(DB, GenId0)),
 
             %% New gen
             ok = emqx_ds:add_generation(DB),
@@ -157,7 +157,7 @@ t_08_smoke_list_drop_generation(Config) ->
             [GenId0, GenId1] = lists:sort(maps:keys(Generations1)),
 
             %% Drop the older one
-            ?assertEqual(ok, emqx_ds:drop_generation(DB, GenId0)),
+            ?assertEqual(ok, emqx_ds:drop_slab(DB, GenId0)),
             Generations2 = emqx_ds:list_generations_with_lifetimes(DB),
             ?assertMatch(
                 [{GenId1, #{since := _, until := _}}],
@@ -166,7 +166,7 @@ t_08_smoke_list_drop_generation(Config) ->
             ),
 
             %% Unknown gen_id, as it was already dropped
-            ?assertEqual({error, not_found}, emqx_ds:drop_generation(DB, GenId0)),
+            ?assertEqual({error, not_found}, emqx_ds:drop_slab(DB, GenId0)),
 
             %% Should persist surviving generation list
             ok = application:stop(emqx_durable_storage),
@@ -427,7 +427,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
     %% Rotate the generations:
     ok = emqx_ds:add_generation(DB),
-    ok = emqx_ds:drop_generation(DB, GenId0),
+    ok = emqx_ds:drop_slab(DB, GenId0),
     timer:sleep(1_000),
     [GenId1] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
     ?assertNotEqual(GenId1, GenId0),
@@ -480,7 +480,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
     emqx_ds_test_helpers:diff_messages(?msg_fields, [Msg0], Batch1),
 
     ok = emqx_ds:add_generation(DB),
-    ok = emqx_ds:drop_generation(DB, GenId0),
+    ok = emqx_ds:drop_slab(DB, GenId0),
 
     Now = emqx_message:timestamp_now(),
     Msgs1 = [
@@ -514,7 +514,7 @@ t_make_iterator_stale_stream(Config) ->
     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
 
     ok = emqx_ds:add_generation(DB),
-    ok = emqx_ds:drop_generation(DB, GenId0),
+    ok = emqx_ds:drop_slab(DB, GenId0),
     timer:sleep(1_000),
 
     ?assertEqual(
@@ -961,7 +961,7 @@ t_sub_catchup_unrecoverable(Config) ->
                 #{{<<"0">>, 1} := _, {<<"0">>, 2} := _},
                 emqx_ds:list_generations_with_lifetimes(DB)
             ),
-            ?assertMatch(ok, emqx_ds:drop_generation(DB, {<<"0">>, 1})),
+            ?assertMatch(ok, emqx_ds:drop_slab(DB, {<<"0">>, 1})),
             %% Ack and receive unrecoverable error:
             emqx_ds:suback(DB, Handle, 5),
             ?assertMatch(
@@ -2532,7 +2532,7 @@ create_wildcard(DB, Prefix) ->
         ),
         is_integer(Until)
     ],
-    ?assertMatch(ok, emqx_ds:drop_generation(DB, GenToDel)).
+    ?assertMatch(ok, emqx_ds:drop_slab(DB, GenToDel)).
 
 %% Manual sync wrapper for the low-level DS transaction API.
 do_commit_tx(DB, Ctx, Ops) ->

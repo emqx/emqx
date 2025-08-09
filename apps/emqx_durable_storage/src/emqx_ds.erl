@@ -30,7 +30,7 @@ It takes care of forwarding calls to the underlying DBMS.
     shard_of/2,
     list_shards/1,
     list_generations_with_lifetimes/1,
-    drop_generation/2,
+    drop_slab/2,
     drop_db/1
 ]).
 
@@ -551,7 +551,7 @@ must not assume the default values.
 -callback list_generations_with_lifetimes(db()) ->
     #{slab() => slab_info()}.
 
--callback drop_generation(db(), slab()) -> ok | {error, _}.
+-callback drop_slab(db(), slab()) -> ok | {error, _}.
 
 -callback drop_db(db()) -> ok | {error, _}.
 
@@ -775,10 +775,9 @@ Delete an entire slab `Slab` from the database `DB`.
 
 This operation is the most efficient way to delete data.
 """.
--spec drop_generation(db(), slab()) -> ok | {error, _}.
-drop_generation(DB, Slab) ->
-    %% TODO: rename to `drop_slab'
-    ?module(DB):drop_generation(DB, Slab).
+-spec drop_slab(db(), slab()) -> ok | {error, _}.
+drop_slab(DB, Slab) ->
+    ?module(DB):drop_slab(DB, Slab).
 
 -doc """
 Drop DB and destroy all data stored there.

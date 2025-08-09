@@ -45,7 +45,7 @@
     update_config/3,
     add_generation/2,
     list_generations_with_lifetimes/1,
-    drop_generation/2,
+    drop_slab/2,
     find_generation/2,
 
     %% Global
@@ -181,7 +181,7 @@
 -type cf_refs() :: [cf_ref()].
 
 -type gen_id() :: 0..16#ffff.
--type gen_info() :: #{
+-type slab_info() :: #{
     created_at := emqx_ds:time(),
     since := emqx_ds:time(),
     until := undefined | emqx_ds:time(),
@@ -861,16 +861,16 @@ lookup_message(ShardId, Matcher = #message_matcher{timestamp = Time}) ->
     end.
 
 -spec list_generations_with_lifetimes(dbshard()) ->
-    #{gen_id() => gen_info()}.
+    #{gen_id() => slab_info()}.
 list_generations_with_lifetimes(ShardId) ->
     gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
 
--spec drop_generation(dbshard(), gen_id()) -> ok | {error, _}.
-drop_generation(ShardId, GenId) ->
+-spec drop_slab(dbshard(), gen_id()) -> ok | {error, _}.
+drop_slab(ShardId, GenId) ->
     gen_server:call(?REF(ShardId), #call_drop_generation{gen_id = GenId}, infinity).
 
 -spec find_generation(dbshard(), current | _At :: emqx_ds:time()) ->
-    {gen_id(), gen_info()} | not_found.
+    {gen_id(), slab_info()} | not_found.
 find_generation(ShardId, current) ->
     GenId = generation_current(ShardId),
     GenData = #{} = generation_get(ShardId, GenId),

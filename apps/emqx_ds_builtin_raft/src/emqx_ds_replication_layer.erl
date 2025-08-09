@@ -16,7 +16,7 @@
     add_generation/2,
     update_db_config/2,
     list_generations_with_lifetimes/1,
-    drop_generation/2,
+    drop_slab/2,
     drop_db/1,
     store_batch/3,
     get_streams/4,
@@ -364,9 +364,9 @@ list_generations_with_lifetimes(DB) ->
         Shards
     ).
 
--spec drop_generation(emqx_ds:db(), slab()) -> ok | {error, _}.
-drop_generation(DB, {Shard, GenId}) ->
-    ra_drop_generation(DB, Shard, GenId).
+-spec drop_slab(emqx_ds:db(), slab()) -> ok | {error, _}.
+drop_slab(DB, {Shard, GenId}) ->
+    ra_drop_slab(DB, Shard, GenId).
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
@@ -1187,7 +1187,7 @@ ra_update_config(DB, Shard, Opts, Since) ->
     },
     ra_command(DB, Shard, Command, 10).
 
-ra_drop_generation(DB, Shard, GenId) ->
+ra_drop_slab(DB, Shard, GenId) ->
     Command = #{?tag => drop_generation, ?generation => GenId},
     ra_command(DB, Shard, Command, 10).
 
@@ -1558,7 +1558,7 @@ apply(
             generation => GenId
         }
     ),
-    Result = emqx_ds_storage_layer:drop_generation(DBShard, GenId),
+    Result = emqx_ds_storage_layer:drop_slab(DBShard, GenId),
     {State, Result};
 apply(
     _RaftMeta,
