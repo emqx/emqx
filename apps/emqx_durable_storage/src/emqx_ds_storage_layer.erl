@@ -32,7 +32,7 @@
     unpack_iterator/2,
     scan_stream/6,
     high_watermark/3,
-    fast_forward/4,
+    fast_forward/5,
     message_match_context/4,
     iterator_match_context/2,
 
@@ -726,26 +726,21 @@ scan_stream(
             ?ERR_GEN_GONE
     end.
 
+fast_forward(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, Key, Now, BatchSize) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:fast_forward(Shard, GenData, Inner0, Key, Now, BatchSize);
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
 high_watermark(Shard, ?stream_v2(_, _) = Stream, Now) ->
-    case make_iterator(Shard, Stream, ['#'], Now) of
+    case make_iterator(Shard, Stream, ['#'], max(0, Now - 1)) of
         {ok, It} ->
             #{last_seen_key := LSK} = unpack_iterator(Shard, It),
             {ok, LSK};
         Err ->
             Err
-    end.
-
-fast_forward(Shard, It = #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, Key, Now) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            case Mod:fast_forward(Shard, GenData, Inner0, Key, Now) of
-                {ok, Inner} ->
-                    {ok, It#{?enc := Inner}};
-                Other ->
-                    Other
-            end;
-        not_found ->
-            ?ERR_GEN_GONE
     end.
 
 message_match_context(Shard, ?stream_v2(GenId, Inner), MsgKey, Message) ->

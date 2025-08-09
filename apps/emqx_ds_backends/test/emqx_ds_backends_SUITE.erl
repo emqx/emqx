@@ -832,6 +832,152 @@ t_sub_wildcard(Config) ->
         []
     ).
 
+%% @doc This testcase verifies a corner case in the beamformer logic
+%% when data is added while a subscription is being handed over from
+%% catchup to RT worker. Such "intermediate" data should be send to
+%% the subscriber if its volume is under size of the batch.
+%%
+%% Expected properties: subscription can be successfully handed over
+%% to RT worker when intermediate data is present. The subscriber
+%% receives intermediate data. If subscription's iterator cannot be
+%% fast-forwarded, then the subscription is dropped with a recoverable
+%% error. No duplication of messages occur.
+t_sub_unclean_handover(Config) ->
+    DB = ?FUNCTION_NAME,
+    DefaultBatchSize = emqx_ds_beamformer:cfg_batch_size(),
+    ?check_trace(
+        #{timetrap => 30_000},
+        try
+            application:set_env(emqx_durable_storage, poll_batch_size, 3),
+            %% Delay handover to RT until data is published:
+            ?force_ordering(
+                #{?snk_kind := test_added_data},
+                #{?snk_kind := beamformer_move_to_rt}
+            ),
+            %% Prepare SUT:
+            Opts = #{
+                store_ttv => true,
+                storage =>
+                    {emqx_ds_storage_skipstream_lts_v2, #{
+                        timestamp_bytes => 8,
+                        %% Create a single stream:
+                        lts_threshold_spec => {simple, {0}}
+                    }}
+            },
+            ?assertMatch(ok, emqx_ds_open_db(DB, maps:merge(opts(Config), Opts))),
+            Shard = emqx_ds:shard_of(DB, <<>>),
+            TXOpts = #{db => DB, shard => Shard, generation => 1},
+            PublishData = fun(Value) ->
+                ?assertMatch(
+                    {atomic, _, _},
+                    emqx_ds:trans(
+                        TXOpts,
+                        fun() ->
+                            [
+                                emqx_ds:tx_write({
+                                    [<<"t">>, <<I>>, <<J>>], ?ds_tx_ts_monotonic, Value
+                                })
+                             || I <- lists:seq(1, 2),
+                                J <- lists:seq(1, 2)
+                            ]
+                        end
+                    )
+                )
+            end,
+            %% Create a stream that will be used for all iterators:
+            ?assertMatch(
+                {atomic, _, _},
+                emqx_ds:trans(
+                    TXOpts,
+                    fun() ->
+                        emqx_ds:tx_write({[<<"ignore">>, <<"1">>, <<"2">>], 0, <<>>})
+                    end
+                )
+            ),
+            %% Create iterators and subscribe:
+            {[{_Slab, Stream}], []} = emqx_ds:get_streams(DB, ['#'], 0, #{shard => Shard}),
+            {ok, It0} = emqx_ds:make_iterator(DB, Stream, [<<"t">>, '+', '+'], 0),
+            {ok, It1} = emqx_ds:make_iterator(DB, Stream, [<<"t">>, <<1>>, '+'], 0),
+            {ok, It2} = emqx_ds:make_iterator(DB, Stream, [<<"t">>, <<1>>, <<1>>], 0),
+            SubOpts = #{max_unacked => 1000},
+            {ok, _, Sub0} = emqx_ds:subscribe(DB, It0, SubOpts),
+            {ok, _, Sub1} = emqx_ds:subscribe(DB, It1, SubOpts),
+            {ok, _, Sub2} = emqx_ds:subscribe(DB, It2, SubOpts),
+            %% Publish initial batch of data that should be fulfilled
+            %% via `emqx_ds_beamformer_rt:send_intermediate_beam':
+            PublishData(<<1>>),
+            %% Verify ordering:
+            receive
+                A -> error({unexpected_message, A})
+            after 1000 ->
+                ok
+            end,
+            %% Unblock subscriptions:
+            ?tp(notice, test_added_data, #{}),
+            %%
+            %% Verify first batch of data
+            %%
+            %% 1. Sub0 should fail because its topic received 4
+            %% messages, while poll_batch_size is only 3:
+            receive
+                #ds_sub_reply{ref = Sub0, payload = Payload0} ->
+                    ?assertMatch(?err_rec(cannot_fast_forward), Payload0)
+            after 1000 ->
+                error({subscription_not_received, Sub0, mailbox()})
+            end,
+            %% 2. Sub1 and 2 should receive the data:
+            receive
+                #ds_sub_reply{ref = Sub1, payload = Payload1} ->
+                    ?assertMatch(
+                        {ok, _, [
+                            {[<<"t">>, <<1>>, <<1>>], _, <<1>>},
+                            {[<<"t">>, <<1>>, <<2>>], _, <<1>>}
+                        ]},
+                        Payload1
+                    )
+            after 1000 ->
+                error({subscription_not_received, Sub1, mailbox()})
+            end,
+            receive
+                #ds_sub_reply{ref = Sub2, payload = Payload2} ->
+                    ?assertMatch(
+                        {ok, _, [{[<<"t">>, <<1>>, <<1>>], _, <<1>>}]},
+                        Payload2
+                    )
+            after 1000 ->
+                error({subscription_not_received, Sub2, mailbox()})
+            end,
+            %% Now send more data to verify that it's received by the
+            %% remaining subscribers, and there's no duplication:
+            PublishData(<<2>>),
+            receive
+                #ds_sub_reply{ref = Sub1, payload = Payload12} ->
+                    ?assertMatch(
+                        {ok, _, [
+                            {[<<"t">>, <<1>>, <<1>>], _, <<2>>},
+                            {[<<"t">>, <<1>>, <<2>>], _, <<2>>}
+                        ]},
+                        Payload12
+                    )
+            after 1000 ->
+                error({subscription_not_received, Sub1, mailbox()})
+            end,
+            receive
+                #ds_sub_reply{ref = Sub2, payload = Payload22} ->
+                    ?assertMatch(
+                        {ok, _, [{[<<"t">>, <<1>>, <<1>>], _, <<2>>}]},
+                        Payload22
+                    )
+            after 1000 ->
+                error({subscription_not_received, Sub2, mailbox()})
+            end,
+            ok
+        after
+            application:set_env(emqx_durable_storage, poll_batch_size, DefaultBatchSize)
+        end,
+        []
+    ).
+
 verify_receive(_Messages, []) ->
     0;
 verify_receive(Messages, [#{topic := TF, sub_ref := SubRef} | Rest]) ->

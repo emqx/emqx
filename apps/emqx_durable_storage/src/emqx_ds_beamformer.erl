@@ -69,7 +69,7 @@
 %% API:
 -export([start_link/2, where/1]).
 -export([poll/5, subscribe/5, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
--export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
+-export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/5]).
 -export([
     make_subtab/1,
     take_ownership/3,
@@ -311,18 +311,32 @@
 
 -callback high_watermark(dbshard(), _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error(_).
 
-%% @doc This callback is used to safely advance the iterator to the
-%% position represented by the key.
--callback fast_forward(dbshard(), Iterator, emqx_ds:message_key()) ->
-    {ok, Iterator} | {ok, end_of_stream} | emqx_ds:error(_).
+-doc """
+This callback is used to safely advance an iterator to the
+position represented by the key.
 
-%% @doc These two callbacks are used to create the dispatch matrix of
-%% the beam.
-%%
-%% Let c_m := message_match_context(key, message),
-%% c_i := iterator_match_context(iterator[client])
-%%
-%% then dispatch_matrix[message, client] = c_i(c_m)
+If this function returns `{ok, LastSeenKey, Batch}`, it means:
+
+1. The iterator can be advanced to LastSeenKey,
+   which is a key that is greater than or equal to the fast-forward target key.
+
+2. All data contained between the initial and the final position of the iterator
+   is contained in the batch.
+""".
+-callback fast_forward(dbshard(), Iterator, emqx_ds:message_key(), pos_integer()) ->
+    {ok, Iterator, [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+    | {ok, end_of_stream}
+    | emqx_ds:error(_).
+
+-doc """
+These two callbacks are used to create the dispatch matrix of
+the beam.
+
+Let c_m := message_match_context(key, message),
+c_i := iterator_match_context(iterator[client])
+
+then dispatch_matrix[message, client] = c_i(c_m)
+""".
 -callback message_match_context(dbshard(), _Stream, emqx_ds:message_key(), emqx_types:message()) ->
     {ok, _MatchCtxMsg}.
 
@@ -639,10 +653,12 @@ scan_stream(Mod, Shard, Stream, TopicFilter, StartKey, BatchSize) ->
 high_watermark(Mod, Shard, Stream) ->
     Mod:high_watermark(Shard, Stream).
 
--spec fast_forward(module(), dbshard(), Iterator, emqx_ds:message_key()) ->
-    {ok, Iterator} | ?err_unrec(has_data | old_key) | emqx_ds:error(_).
-fast_forward(Mod, Shard, It, Key) ->
-    Mod:fast_forward(Shard, It, Key).
+-spec fast_forward(module(), dbshard(), Iterator, emqx_ds:message_key(), pos_integer()) ->
+    {ok, Iterator, [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+    | ?err_unrec(has_data | old_key)
+    | emqx_ds:error(_).
+fast_forward(Mod, Shard, It, Key, BatchSize) ->
+    Mod:fast_forward(Shard, It, Key, BatchSize).
 
 %%================================================================================
 %% Internal subscription management API (RPC target)

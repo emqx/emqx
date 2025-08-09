@@ -96,7 +96,7 @@
     unpack_iterator/2,
     high_watermark/2,
     scan_stream/5,
-    fast_forward/3,
+    fast_forward/4,
     update_iterator/3,
     message_match_context/4,
     iterator_match_context/2
@@ -1798,24 +1798,26 @@ high_watermark(DBShard = {DB, Shard}, Stream) ->
             emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now)
     end.
 
-fast_forward(DBShard, It = #'Iterator'{}, Key) ->
-    ?IF_SHARD_READY(
-        DBShard,
-        begin
-            %% Now = current_timestamp(DB, Shard),
-            emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key)
-        end
-    );
-fast_forward(DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc := Inner0}, Key) ->
+fast_forward(DBShard = {DB, Shard}, It = #'Iterator'{}, Key, BatchSize) ->
     ?IF_SHARD_READY(
         DBShard,
         begin
             Now = current_timestamp(DB, Shard),
-            case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
+            emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now, BatchSize)
+        end
+    );
+fast_forward(
+    DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc := Inner0}, Key, BatchSize
+) ->
+    ?IF_SHARD_READY(
+        DBShard,
+        begin
+            Now = current_timestamp(DB, Shard),
+            case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize) of
                 {ok, end_of_stream} ->
                     {ok, end_of_stream};
-                {ok, Inner} ->
-                    {ok, It#{?enc := Inner}};
+                {ok, Pos, Data} ->
+                    {ok, Pos, Data};
                 {error, _, _} = Err ->
                     Err
             end
