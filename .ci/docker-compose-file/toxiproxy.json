@@ -265,15 +265,27 @@
     "enabled": true
   },
   {
-    "name": "datalayers_tcp",
+    "name": "datalayers_gprc",
+    "listen": "0.0.0.0:8360",
+    "upstream": "datalayers_tcp:8360",
+    "enabled": true
+  },
+  {
+    "name": "datalayers_http",
     "listen": "0.0.0.0:8361",
     "upstream": "datalayers_tcp:8361",
     "enabled": true
   },
   {
-    "name": "datalayers_tls",
+    "name": "datalayers_grpcs",
     "listen": "0.0.0.0:8362",
     "upstream": "datalayers_tls:8362",
+    "enabled": true
+  },
+  {
+    "name": "datalayers_https",
+    "listen": "0.0.0.0:8363",
+    "upstream": "datalayers_tls:8363",
     "enabled": true
   },
   {

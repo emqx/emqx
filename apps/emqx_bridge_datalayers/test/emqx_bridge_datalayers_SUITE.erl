@@ -33,15 +33,15 @@ groups() ->
             {group, async_query}
         ]},
         {sync_query, [
-            {group, apiv1_tcp},
-            {group, apiv1_tls}
+            {group, apiv1_http},
+            {group, apiv1_https}
         ]},
         {async_query, [
-            {group, apiv1_tcp},
-            {group, apiv1_tls}
+            {group, apiv1_http},
+            {group, apiv1_https}
         ]},
-        {apiv1_tcp, TCs},
-        {apiv1_tls, TCs}
+        {apiv1_http, TCs},
+        {apiv1_https, TCs}
     ].
 
 init_per_suite(Config) ->
@@ -51,8 +51,8 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(DatalayersType, Config0) when
-    DatalayersType =:= apiv1_tcp;
-    DatalayersType =:= apiv1_tls
+    DatalayersType =:= apiv1_http;
+    DatalayersType =:= apiv1_https
 ->
     #{
         host := DatalayersHost,
@@ -61,19 +61,19 @@ init_per_group(DatalayersType, Config0) when
         proxy_name := ProxyName
     } =
         case DatalayersType of
-            apiv1_tcp ->
+            apiv1_http ->
                 #{
-                    host => os:getenv("DATALAYERS_TCP_HOST", "toxiproxy"),
-                    port => list_to_integer(os:getenv("DATALAYERS_TCP_PORT", "8361")),
+                    host => os:getenv("DATALAYERS_HTTP_HOST", "toxiproxy"),
+                    port => list_to_integer(os:getenv("DATALAYERS_HTTP_PORT", "8361")),
                     use_tls => false,
-                    proxy_name => "datalayers_tcp"
+                    proxy_name => "datalayers_http"
                 };
-            apiv1_tls ->
+            apiv1_https ->
                 #{
-                    host => os:getenv("DATALAYERS_TLS_HOST", "toxiproxy"),
-                    port => list_to_integer(os:getenv("DATALAYERS_TLS_PORT", "8362")),
+                    host => os:getenv("DATALAYERS_HTTPS_HOST", "toxiproxy"),
+                    port => list_to_integer(os:getenv("DATALAYERS_HTTPS_PORT", "8363")),
                     use_tls => true,
-                    proxy_name => "datalayers_tls"
+                    proxy_name => "datalayers_https"
                 }
         end,
     case emqx_common_test_helpers:is_tcp_server_available(DatalayersHost, DatalayersPort) of
@@ -155,8 +155,8 @@ init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(Group, Config) when
-    Group =:= apiv1_tcp;
-    Group =:= apiv1_tls
+    Group =:= apiv1_http;
+    Group =:= apiv1_https
 ->
     Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
@@ -189,7 +189,12 @@ end_per_testcase(_Testcase, Config) ->
 
 example_write_syntax() ->
     %% N.B.: this single space character is relevant
-    <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
+    %% for case t_rule_test_trace/1
+    %% the measurement name should not be the topic
+    %% from datalayers:
+    %% <<"{\"error\":\"Measurement name rule/test/trace must begin with ('a-z','A-Z','_'),
+    %%     followed by ('a-z','A-Z','_','0-9','-', '.'), and end with ('a-z','A-Z','_'), and length is 1~63\"}">>
+    <<"mqtt,clientid=${clientid}", " ", "payload=${payload},topic=${topic},",
         "${clientid}_int_value=${payload.int_key}i,",
         "uint_value=${payload.uint_key}u,"
         "float_value=${payload.float_key},", "undef_value=${payload.undef},",
@@ -312,8 +317,10 @@ query_by_clientid(Table, ClientId, Config) ->
             #{};
         {200, Resp} ->
             case emqx_utils_json:decode(Resp) of
-                [] -> error(no_data);
-                [FirstRow | _] -> FirstRow
+                #{<<"result">> := #{<<"values">> := []}} ->
+                    error(no_data);
+                #{<<"result">> := #{<<"columns">> := Colms, <<"values">> := [FirstRow | _]}} ->
+                    maps:from_list(lists:zip(Colms, FirstRow))
             end;
         {Code, Resp} ->
             error({bad_response, Code, Resp})
@@ -404,6 +411,7 @@ connector_id(Config) ->
 ensure_database(Config) ->
     SQL = <<"create database if not exists mqtt">>,
     _Resp = exec_sql_via_http_api(SQL, Config),
+    ct:sleep(1000),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -411,13 +419,13 @@ ensure_database(Config) ->
 %%------------------------------------------------------------------------------
 
 t_start_ok(Config) ->
-    Table = atom_to_binary(?FUNCTION_NAME),
+    Table = <<"mqtt">>,
     QueryMode = ?config(query_mode, Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
     ),
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ClientId = random_clientid_(),
     Payload = #{
         int_key => -123,
         bool => true,
@@ -540,7 +548,8 @@ t_start_ok_no_subject_tags_write_syntax(Config) ->
     DatalayersConfigString0 = ?config(bridge_config_string, Config),
     WriteSyntax =
         %% N.B.: this single space characters are relevant
-        <<"${topic}", " ", "payload=${payload},", "${clientid}_int_value=${payload.int_key}i,",
+        <<"mqtt,clientid=${clientid}", " ", "topic=${topic},payload=${payload},",
+            "${clientid}_int_value=${payload.int_key}i,",
             "uint_value=${payload.uint_key}u,"
             "bool=${payload.bool}", " ", "${timestamp}">>,
     %% append this to override the config
@@ -574,7 +583,7 @@ t_const_timestamp(Config) ->
     Const = erlang:system_time(nanosecond),
     ConstBin = integer_to_binary(Const),
     TsStr = iolist_to_binary(
-        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, "Z"}])
+        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])
     ),
     ?assertMatch(
         {ok, _},
@@ -596,7 +605,7 @@ t_const_timestamp(Config) ->
             }
         )
     ),
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ClientId = random_clientid_(),
     Payload = #{<<"foo">> => 123},
     SentData = #{
         <<"clientid">> => ClientId,
@@ -610,7 +619,7 @@ t_const_timestamp(Config) ->
         sync ->
             ?assertMatch({ok, 204, _}, send_message(Config, SentData))
     end,
-    ct:sleep(1500),
+    ct:sleep(2000),
     PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
     Expected = #{
         foo => 123,
@@ -625,24 +634,15 @@ t_const_timestamp(Config) ->
         baz4 => <<"1u">>
     },
     assert_persisted_data(ClientId, Expected, PersistedData),
-    TimeReturned0 = maps:get(<<"time">>, PersistedData),
-    TimeReturned = pad_zero(TimeReturned0),
+    TimeReturned = maps:get(<<"time">>, PersistedData),
     ?assertEqual(TsStr, TimeReturned).
 
-%% influxdb returns timestamps without trailing zeros such as
-%% "2023-02-28T17:21:51.63678163Z"
-%% while the standard should be
-%% "2023-02-28T17:21:51.636781630Z"
-pad_zero(BinTs) ->
-    StrTs = binary_to_list(BinTs),
-    [Nano | Rest] = lists:reverse(string:tokens(StrTs, ".")),
-    [$Z | NanoNum] = lists:reverse(Nano),
-    Padding = lists:duplicate(10 - length(Nano), $0),
-    NewNano = lists:reverse(NanoNum) ++ Padding ++ "Z",
-    iolist_to_binary(string:join(lists:reverse([NewNano | Rest]), ".")).
-
+%% XXX: this case need:
+%% [ts_engine.schemaless]
+%% auto_alter_table = true
+%% aka: DATALAYERS_TS_ENGINE__SCHEMALESS__AUTO_ALTER_TABLE = true
 t_boolean_variants(Config) ->
-    Table = atom_to_binary(?FUNCTION_NAME),
+    Table = <<"mqtt">>,
     QueryMode = ?config(query_mode, Config),
     ?assertMatch(
         {ok, _},
@@ -662,7 +662,7 @@ t_boolean_variants(Config) ->
     },
     maps:foreach(
         fun(BoolVariant, Translation) ->
-            ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+            ClientId = random_clientid_(),
             Payload = #{
                 int_key => -123,
                 bool => BoolVariant,
@@ -680,7 +680,7 @@ t_boolean_variants(Config) ->
                 async ->
                     ?assertMatch(ok, send_message(Config, SentData))
             end,
-            ct:sleep(1500),
+            ct:sleep(2000),
             PersistedData = query_by_clientid(Table, ClientId, Config),
             Expected = #{
                 bool => Translation,
@@ -700,7 +700,7 @@ t_any_num_as_float(Config) ->
     Const = erlang:system_time(nanosecond),
     ConstBin = integer_to_binary(Const),
     TsStr = iolist_to_binary(
-        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, "Z"}])
+        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])
     ),
     ?assertMatch(
         {ok, _},
@@ -720,7 +720,7 @@ t_any_num_as_float(Config) ->
             }
         )
     ),
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ClientId = random_clientid_(),
     Payload = #{
         %% no decimal point
         float_no_dp => 123,
@@ -745,16 +745,16 @@ t_any_num_as_float(Config) ->
     PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
     Expected = #{float_no_dp => 123.0, float_dp => 123.0},
     assert_persisted_data(ClientId, Expected, PersistedData),
-    TimeReturned0 = maps:get(<<"time">>, PersistedData),
-    TimeReturned = pad_zero(TimeReturned0),
+    TimeReturned = maps:get(<<"time">>, PersistedData),
     ?assertEqual(TsStr, TimeReturned).
 
 t_tag_set_use_literal_value(Config) ->
+    Table = atom_to_binary(?FUNCTION_NAME),
     QueryMode = ?config(query_mode, Config),
     Const = erlang:system_time(nanosecond),
     ConstBin = integer_to_binary(Const),
     TsStr = iolist_to_binary(
-        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, "Z"}])
+        calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])
     ),
     ?assertMatch(
         {ok, _},
@@ -764,7 +764,8 @@ t_tag_set_use_literal_value(Config) ->
                 <<"parameters">> => #{
                     <<"write_syntax">> =>
                         <<
-                            "mqtt,clientid=${clientid},"
+                            Table/binary,
+                            ",clientid=${clientid},"
                             "tag_key1=100,tag_key2=123.4,"
                             "tag_key3=66i,tag_key4=${payload.float_dp}",
                             " ",
@@ -776,7 +777,7 @@ t_tag_set_use_literal_value(Config) ->
             }
         )
     ),
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ClientId = random_clientid_(),
     Payload = #{
         %% with decimal point
         float_dp => 123.4
@@ -796,11 +797,10 @@ t_tag_set_use_literal_value(Config) ->
     end,
     %% sleep is still need even in sync mode, or we would get an empty result sometimes
     ct:sleep(1500),
-    PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
+    PersistedData = query_by_clientid(Table, ClientId, Config),
     Expected = #{field_key1 => 100.1, field_key2 => 100, field_key3 => 123.4},
     assert_persisted_data(ClientId, Expected, PersistedData),
-    TimeReturned0 = maps:get(<<"time">>, PersistedData),
-    TimeReturned = pad_zero(TimeReturned0),
+    TimeReturned = maps:get(<<"time">>, PersistedData),
     ?assertEqual(TsStr, TimeReturned).
 
 t_bad_timestamp(Config) ->
@@ -810,7 +810,8 @@ t_bad_timestamp(Config) ->
     ActionConfigString0 = ?config(bridge_config_string, Config),
     WriteSyntax =
         %% N.B.: this single space characters are relevant
-        <<"${topic}", " ", "payload=${payload},", "${clientid}_int_value=${payload.int_key}i,",
+        <<"mqtt_table,clientid=${clientid}", " ", "topic=${topic},payload=${payload},",
+            "${clientid}_int_value=${payload.int_key}i,",
             "uint_value=${payload.uint_key}u,"
             "bool=${payload.bool}", " ", "bad_timestamp">>,
     %% append this to override the config
@@ -838,7 +839,7 @@ t_bad_timestamp(Config) ->
         create_bridge(Config1)
     ),
 
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ClientId = random_clientid_(),
     Payload = #{
         int_key => -123,
         bool => false,
@@ -987,7 +988,7 @@ t_write_failure(Config) ->
     ProxyHost = ?config(proxy_host, Config),
     QueryMode = ?config(query_mode, Config),
     {ok, _} = create_bridge(Config),
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ClientId = random_clientid_(),
     Payload = #{
         int_key => -123,
         bool => true,
@@ -1045,6 +1046,8 @@ t_write_failure(Config) ->
     ),
     ok.
 
+%% XXX: this required the previous test to be run first.
+%% otherwise the table `mqtt` won't be created.
 t_missing_field(Config) ->
     BatchSize = ?config(batch_size, Config),
     IsBatch = BatchSize > 1,
@@ -1053,7 +1056,7 @@ t_missing_field(Config) ->
             Config,
             #{
                 <<"parameters">> => #{
-                    <<"write_syntax">> => <<"${clientid} foo=${foo}i">>
+                    <<"write_syntax">> => <<"mqtt,clientid=${clientid} foo=${foo}i">>
                 },
                 <<"resource_opts">> => #{<<"worker_pool_size">> => 1}
             }
@@ -1061,8 +1064,8 @@ t_missing_field(Config) ->
     %% note: we don't select foo here, but we interpolate it in the
     %% fields, so it'll become undefined.
     {ok, _} = create_rule_and_action_http(Config, #{sql => <<"select * from \"t/topic\"">>}),
-    ClientId0 = emqx_guid:to_hexstr(emqx_guid:gen()),
-    ClientId1 = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ClientId0 = random_clientid_(),
+    ClientId1 = random_clientid_(),
     %% Message with the field that we "forgot" to select in the rule
     Msg0 = emqx_message:make(ClientId0, <<"t/topic">>, emqx_utils_json:encode(#{foo => 123})),
     %% Message without any fields
@@ -1082,8 +1085,14 @@ t_missing_field(Config) ->
             ok
         end,
         fun(Trace) ->
-            PersistedData0 = query_by_clientid(<<"mqtt">>, ClientId0, Config),
-            PersistedData1 = query_by_clientid(<<"mqtt">>, ClientId1, Config),
+            ?assertError(
+                no_data,
+                query_by_clientid(<<"mqtt">>, ClientId0, Config)
+            ),
+            ?assertError(
+                no_data,
+                query_by_clientid(<<"mqtt">>, ClientId1, Config)
+            ),
             case IsBatch of
                 true ->
                     ?assertMatch(
@@ -1096,9 +1105,6 @@ t_missing_field(Config) ->
                         ?of_kind(influxdb_connector_send_query_error, Trace)
                     )
             end,
-            %% nothing should have been persisted
-            ?assertEqual(#{}, PersistedData0),
-            ?assertEqual(#{}, PersistedData1),
             ok
         end
     ),
@@ -1188,7 +1194,7 @@ t_authentication_error_on_send_message(Config0) ->
     ),
 
     % Now back to wrong credentials
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ClientId = random_clientid_(),
     Payload = #{
         int_key => -123,
         bool => true,
@@ -1230,3 +1236,6 @@ t_authentication_error_on_send_message(Config0) ->
 t_rule_test_trace(Config) ->
     Opts = #{},
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
+
+random_clientid_() ->
+    <<"mqtt_", (emqx_guid:to_hexstr(emqx_guid:gen()))/binary>>.
