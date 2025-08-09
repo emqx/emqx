@@ -1595,6 +1595,7 @@ apply(
                     emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
                     State = State0#{tx_serial := Serial, latest := Timestamp},
                     Result = ok,
+                    set_ts(DBShard, Timestamp + 1),
                     DispatchF = fun(Stream) ->
                         emqx_ds_beamformer:shard_event(DBShard, [Stream])
                     end,

@@ -719,8 +719,9 @@ otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Timestamp, Batches) -
                     ),
                 %% Commit data:
                 ok ?= emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{}),
-                %% Finally, update read serial:
+                %% Finally, update read serial and last timestamp:
                 emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
+                emqx_ds_builtin_local_meta:set_current_timestamp(DBShard, Timestamp + 1),
                 %% Dispatch events:
                 DispatchF = fun(Stream) -> emqx_ds_beamformer:shard_event(DBShard, [Stream]) end,
                 emqx_ds_storage_layer_ttv:dispatch_events(DBShard, Batches, DispatchF)
