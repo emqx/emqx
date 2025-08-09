@@ -354,6 +354,13 @@ on_shared_stream_revoke(StreamKey, S, SchedS) ->
 %% @doc Verify sequence number of DS subscription reply
 -spec verify_reply(#ds_sub_reply{}, emqx_persistent_session_ds_state:t(), t()) ->
     {boolean() | drop_buffer, stream_key() | undefined, t()}.
+verify_reply(#ds_sub_reply{ref = Ref, payload = ?err_rec(_)}, S, SchedS) ->
+    case SchedS#s.ds_subs of
+        #{Ref := #ds_sub{stream_key = StreamKey}} ->
+            {drop_buffer, StreamKey, ds_resubscribe(StreamKey, S, SchedS)};
+        #{} ->
+            {false, undefined, SchedS}
+    end;
 verify_reply(Reply, S, SchedS) ->
     #ds_sub_reply{ref = Ref, size = Size, seqno = SeqNo} = Reply,
     case SchedS#s.ds_subs of
