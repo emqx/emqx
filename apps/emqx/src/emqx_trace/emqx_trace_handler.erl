@@ -188,7 +188,7 @@ filesync(HandlerId) ->
     %% Log fragment index:
     i := non_neg_integer(),
     %% Inode number from the filesystem:
-    node := integer(),
+    in := integer(),
     %% Witness for consistency checks:
     w := {_WSize :: pos_integer(), _Checksum :: integer()} | nil()
 }.
@@ -214,7 +214,7 @@ obtained through a call to this function.
     | {error, stale | file:posix()}.
 find_log_fragment(first, Basename) ->
     find_oldest_log_fragment(Basename);
-find_log_fragment({next, #{i := I, node := Inode}}, Basename) ->
+find_log_fragment({next, #{i := I, in := Inode}}, Basename) ->
     find_next_log_fragment(I, Inode, Basename).
 
 %% Find the oldest existing log fragment file.
@@ -307,7 +307,7 @@ out.
     _NBytes :: pos_integer()
 ) ->
     {ok, binary(), log_fragment()} | {error, stale | file:posix()}.
-read_log_fragment_at(#{i := I, node := Inode} = Fragment, Basename, Pos, NBytes) ->
+read_log_fragment_at(#{i := I, in := Inode} = Fragment, Basename, Pos, NBytes) ->
     Filename = mk_log_fragment_filename(Basename, I),
     case file:open(Filename, [read, raw, binary]) of
         {ok, FD} ->
@@ -374,7 +374,7 @@ verify_witness([Chunk], Fragment) ->
     {ok, Chunk, Fragment#{w := {WSize, erlang:crc32(Witness)}}}.
 
 mk_log_fragment(I, Inode) ->
-    #{i => I, node => Inode, w => []}.
+    #{i => I, in => Inode, w => []}.
 
 mk_log_fragment_filename(Basename, 1) ->
     Basename;
