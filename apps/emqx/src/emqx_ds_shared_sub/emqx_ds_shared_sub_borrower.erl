@@ -9,7 +9,6 @@
 -module(emqx_ds_shared_sub_borrower).
 
 -include_lib("emqx/include/logger.hrl").
--include("emqx_ds_shared_sub_config.hrl").
 -include("emqx_ds_shared_sub_proto.hrl").
 -include("emqx_ds_shared_sub_format.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -280,8 +279,8 @@ on_info(
             %% Should never happen.
             ?tp(warning, ds_shared_sub_borrower_leader_revoke_unknown_stream, #{
                 session_id => SessionId,
-                borrower_id => ?format_borrower_id(Id),
-                stream => ?format_stream(Stream)
+                borrower_id => Id,
+                stream => Stream
             }),
             reset(St0, revoke_all_events(St0))
     end;
@@ -508,11 +507,7 @@ cancel_all_timers(#{timers := Timers} = St) ->
         maps:keys(Timers)
     ).
 
-timer_timeout(?find_leader_timer) ->
-    ?dq_config(session_find_leader_timeout, 5000);
 timer_timeout(?ping_leader_timer) ->
-    ?dq_config(session_ping_leader_interval, 4000);
-timer_timeout(?ping_leader_timeout_timer) ->
-    ?dq_config(session_ping_leader_timeout, 4000);
-timer_timeout(?unsubscribe_timer) ->
-    ?dq_config(session_unsubscribe_timeout, 1000).
+    emqx_ds_shared_sub_leader:cfg_heartbeat_interval();
+timer_timeout(_) ->
+    emqx_conf:get([durable_sessions, shared_subs, leader_timeout]).

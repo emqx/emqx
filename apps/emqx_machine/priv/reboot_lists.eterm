@@ -148,7 +148,6 @@
             emqx_bridge_redshift,
             emqx_bridge_alloydb,
             emqx_bridge_cockroachdb,
-            emqx_ds_shared_sub,
             emqx_auth_kerberos,
             emqx_cluster_link,
             emqx_ds_builtin_raft,
