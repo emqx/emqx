@@ -12,7 +12,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include("emqx_ds_shared_sub_proto.hrl").
--include("emqx_ds_shared_sub_config.hrl").
 
 -export([
     new/1,
@@ -29,14 +28,74 @@
 ]).
 
 -export([
-    send_to_borrower/2
+    send_to_borrower/2,
+    send/3,
+    send_after/4
 ]).
 
--behaviour(emqx_persistent_session_ds_shared_subs_agent).
+-export_type([
+    t/0,
+    options/0,
+    subscription/0,
+    subscription_id/0,
+    session_id/0,
+    stream_lease_event/0,
+    stream_progress/0,
+    event/0,
+    opts/0
+]).
 
--type subscription() :: emqx_persistent_session_ds_shared_subs_agent:subscription().
+-include("emqx_session.hrl").
+-include("../emqx_persistent_session_ds/session_internals.hrl").
+-include("emqx_mqtt.hrl").
+-include("logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+%%--------------------------------------------------------------------
+%% Type declarations
+%%--------------------------------------------------------------------
+
+-type session_id() :: emqx_persistent_session_ds:id().
+
+-type subscription_id() :: emqx_persistent_session_ds:subscription_id().
+
+-type subscription() :: #{
+    id := subscription_id(),
+    start_time := emqx_ds:time()
+}.
+
 -type share_topic_filter() :: emqx_types:share().
--type subscription_id() :: emqx_persistent_session_ds_shared_subs_agent:subscription_id().
+
+-type opts() :: #{
+    session_id := session_id()
+}.
+
+%% TODO
+%% This records go through network, we better shrink them, e.g. use integer keys
+-type stream_lease() :: #{
+    type => lease,
+    subscription_id := subscription_id(),
+    share_topic_filter := share_topic_filter(),
+    stream := emqx_ds:stream(),
+    iterator := emqx_ds:iterator()
+}.
+
+-type stream_revoke() :: #{
+    type => revoke,
+    subscription_id := subscription_id(),
+    share_topic_filter := share_topic_filter(),
+    stream := emqx_ds:stream()
+}.
+
+-type stream_lease_event() :: stream_lease() | stream_revoke().
+-type event() :: stream_lease_event().
+
+-type stream_progress() :: #{
+    stream := emqx_ds:stream(),
+    iterator := emqx_ds:iterator(),
+    %% `true' when client unsubscribes from the shared topic:
+    use_finished := boolean()
+}.
 
 -type options() :: #{
     session_id := emqx_persistent_session_ds:id()
@@ -61,11 +120,6 @@
     borrower_id :: emqx_ds_shared_sub_proto:borrower_id(),
     message :: term()
 }).
-
--export_type([
-    t/0,
-    options/0
-]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -94,26 +148,18 @@ open(TopicSubscriptions, Opts) ->
 -spec pre_subscribe(t(), share_topic_filter(), emqx_types:subopts()) ->
     ok | {error, emqx_types:reason_code()}.
 pre_subscribe(_State, #share{group = Group, topic = Topic}, _SubOpts) ->
-    case ?dq_config(enable) of
-        true ->
-            %% TODO: Weird to have side effects in function with this name.
-            TS = StartTime = emqx_message:timestamp_now(),
-            case emqx_ds_shared_sub_queue:declare(Group, Topic, TS, StartTime) of
-                {ok, _} ->
-                    ok;
-                exists ->
-                    ok;
-                {error, Class, Reason} ->
-                    ?tp(warning, ds_shared_sub_agent_queue_declare_failed, #{
-                        group => Group,
-                        topic => Topic,
-                        class => Class,
-                        reason => Reason
-                    }),
-                    {error, ?RC_UNSPECIFIED_ERROR}
-            end;
-        false ->
-            {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}
+    %% TODO: Weird to have side effects in function with this name.
+    case emqx_ds_shared_sub:declare(Group, Topic, #{}) of
+        {ok, _Info} ->
+            ok;
+        {error, Class, Reason} ->
+            ?tp(warning, ds_shared_sub_agent_queue_declare_failed, #{
+                group => Group,
+                topic => Topic,
+                class => Class,
+                reason => Reason
+            }),
+            {error, ?RC_UNSPECIFIED_ERROR}
     end.
 
 -spec has_subscription(t(), subscription_id()) -> boolean().
@@ -170,8 +216,7 @@ on_disconnect(#{borrowers := Borrowers} = State, StreamProgresses) ->
     ),
     State#{borrowers => #{}}.
 
--spec on_info(t(), subscription_id(), term()) ->
-    {[emqx_persistent_session_ds_shared_subs_agent:event()], t()}.
+-spec on_info(t(), subscription_id(), term()) -> {[event()], t()}.
 on_info(State, SubscriptionId, #message_to_borrower{
     borrower_id = BorrowerId, message = Message
 }) ->
@@ -189,6 +234,14 @@ on_info(State, SubscriptionId, #message_to_borrower{
                 {ok, [], Borrower}
         end
     end).
+
+-spec send(pid() | reference(), subscription_id(), term()) -> term().
+send(Dest, SubscriptionId, Msg) ->
+    erlang:send(Dest, ?session_message(?shared_sub_message(SubscriptionId, Msg))).
+
+-spec send_after(non_neg_integer(), subscription_id(), pid() | reference(), term()) -> reference().
+send_after(Time, SubscriptionId, Dest, Msg) ->
+    erlang:send_after(Time, Dest, ?session_message(?shared_sub_message(SubscriptionId, Msg))).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -255,7 +308,7 @@ destroy_borrower_id(BorrowerId) ->
 send_to_borrower_after(BorrowerId) ->
     SubscriptionId = emqx_ds_shared_sub_proto:borrower_subscription_id(BorrowerId),
     fun(Time, Msg) ->
-        emqx_persistent_session_ds_shared_subs_agent:send_after(
+        send_after(
             Time,
             SubscriptionId,
             self(),
@@ -268,7 +321,7 @@ send_to_borrower_after(BorrowerId) ->
 
 send_to_borrower(BorrowerId, Msg) ->
     SubscriptionId = emqx_ds_shared_sub_proto:borrower_subscription_id(BorrowerId),
-    emqx_persistent_session_ds_shared_subs_agent:send(
+    send(
         emqx_ds_shared_sub_proto:borrower_pidref(BorrowerId),
         SubscriptionId,
         #message_to_borrower{

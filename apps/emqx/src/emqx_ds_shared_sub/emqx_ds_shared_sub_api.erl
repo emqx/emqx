@@ -138,9 +138,9 @@ schema("/durable_queues/:id") ->
     }.
 
 check_enabled(Request, _ReqMeta) ->
-    case emqx_ds_shared_sub_config:enabled() of
+    case emqx_persistent_message:is_persistence_enabled() of
         true -> {ok, Request};
-        false -> ?RESP_NOT_FOUND(<<"Durable queues are disabled">>)
+        false -> ?RESP_NOT_FOUND(<<"Durable sessions are disabled">>)
     end.
 
 '/durable_queues'(get, #{query_string := QString}) ->
@@ -164,8 +164,8 @@ check_enabled(Request, _ReqMeta) ->
     case queue_declare(Params) of
         {ok, Queue} ->
             {201, encode_queue(Queue)};
-        exists ->
-            ?RESP_CREATE_CONFLICT;
+        %% exists ->
+        %%     ?RESP_CREATE_CONFLICT;
         {error, _Class, Reason} ->
             ?RESP_INTERNAL_ERROR(emqx_utils:readable_error_msg(Reason))
     end.
@@ -183,33 +183,38 @@ check_enabled(Request, _ReqMeta) ->
             {200, <<"Queue deleted">>};
         not_found ->
             ?RESP_NOT_FOUND;
-        conflict ->
+        {error, recoverable, _} ->
             ?RESP_DELETE_CONFLICT;
-        {error, _Class, Reason} ->
+        {error, unrecoverable, Reason} ->
             ?RESP_INTERNAL_ERROR(emqx_utils:readable_error_msg(Reason))
     end.
 
 queue_list(Cursor, Limit) ->
-    emqx_ds_shared_sub_queue:list(Cursor, Limit).
+    emqx_ds_shared_sub:list(Cursor, Limit).
 
 queue_get(#{bindings := #{id := ID}}) ->
-    emqx_ds_shared_sub_queue:lookup(ID).
+    emqx_ds_shared_sub:lookup(ID).
 
 queue_delete(#{bindings := #{id := ID}}) ->
-    emqx_ds_shared_sub_queue:destroy(ID).
+    emqx_ds_shared_sub:destroy(ID).
 
 queue_declare(#{<<"group">> := Group, <<"topic">> := TopicFilter} = Params) ->
-    CreatedAt = emqx_message:timestamp_now(),
-    StartTime = maps:get(<<"start_time">>, Params, CreatedAt),
-    emqx_ds_shared_sub_queue:declare(Group, TopicFilter, CreatedAt, StartTime).
+    Options = maps:fold(
+        fun
+            (<<"start_time">>, T, Acc) ->
+                [{start_time, T} | Acc];
+            (_, _, Acc) ->
+                Acc
+        end,
+        [],
+        Params
+    ),
+    emqx_ds_shared_sub:declare(Group, TopicFilter, maps:from_list(Options)).
 
 %%--------------------------------------------------------------------
 
 encode_queue(Queue) ->
-    maps:merge(
-        #{id => emqx_ds_shared_sub_queue:id(Queue)},
-        emqx_ds_shared_sub_queue:properties(Queue)
-    ).
+    emqx_ds_shared_sub:lookup(Queue).
 
 encode_props(ID, Props) ->
     maps:merge(#{id => ID}, Props).
