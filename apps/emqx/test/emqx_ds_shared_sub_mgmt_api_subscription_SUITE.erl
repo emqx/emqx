@@ -48,8 +48,7 @@ end_per_suite(Config) ->
 init_per_testcase(TC, Config) ->
     Group = atom_to_binary(TC),
     Topic = <<"t/+">>,
-    TS = emqx_message:timestamp_now(),
-    {ok, Queue} = emqx_ds_shared_sub_queue:declare(Group, Topic, TS, _StartTime = 0),
+    {ok, Queue} = emqx_ds_shared_sub:declare(Group, Topic, #{start_time => 0}),
     ClientConfig = #{
         username => ?USERNAME,
         clientid => ?CLIENTID,
@@ -73,7 +72,7 @@ end_per_testcase(_TC, Config) ->
     _ = emqtt:disconnect(Client),
     Group = proplists:get_value(queue_group, Config),
     Topic = proplists:get_value(queue_topic, Config),
-    ok = emqx_ds_shared_sub_queue:destroy(Group, Topic).
+    ok = emqx_ds_shared_sub:destroy(Group, Topic).
 
 t_list_with_shared_sub(Config) ->
     Client = proplists:get_value(client, Config),
