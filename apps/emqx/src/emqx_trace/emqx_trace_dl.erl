@@ -114,7 +114,7 @@ delete(Name) ->
     end.
 
 %% Introduced in 5.0
-%% Deprecated since 5.10.0
+-doc #{deprecated => <<"5.10.0">>}.
 -spec get_trace_filename(Name :: binary()) -> {ok, string()}.
 get_trace_filename(Name) ->
     case mnesia:read(?TRACE, Name, read) of
@@ -122,7 +122,7 @@ get_trace_filename(Name) ->
         [#?TRACE{start_at = Start}] -> {ok, emqx_trace:log_filename(Name, Start)}
     end.
 
-%% Introduced in 6.0.0
+-doc #{since => <<"6.0.0">>}.
 -spec get(Name :: binary()) -> {ok, record()} | {error, not_found}.
 get(Name) ->
     case mnesia:dirty_read(?TRACE, Name) of
