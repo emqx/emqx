@@ -13,6 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include("../src/emqx_persistent_session_ds/session_internals.hrl").
+-include("../src/emqx_persistent_session_ds/pmap.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 %%================================================================================
@@ -335,18 +336,12 @@ command(S) ->
 
                 %% Key-value:
                 {3, {call, ?MODULE, gen_put, [session_id(S), put_req()]}},
-                {5, {call, ?MODULE, gen_get, get_req(S)}},
-                {3, {call, ?MODULE, gen_del, del_req(S)}},
-
-                %% Getters:
-                %% FIXME:
-                {0, {call, ?MODULE, iterate_sessions, [batch_size()]}}
+                {3, {call, ?MODULE, gen_get, get_req(S)}},
+                {3, {call, ?MODULE, gen_del, del_req(S)}}
             ]);
         false ->
             frequency([
-                {1, {call, ?MODULE, create_new, [session_id()]}},
-                %% FIXME:
-                {0, {call, ?MODULE, iterate_sessions, [batch_size()]}}
+                {1, {call, ?MODULE, create_new, [session_id()]}}
             ])
     end.
 
@@ -356,14 +351,6 @@ sample(Size) ->
 precondition(_, _) ->
     true.
 
-postcondition(S, {call, ?MODULE, iterate_sessions, [_]}, Result) ->
-    {Sessions, _} = lists:unzip(Result),
-    %% No lingering sessions:
-    ?assertMatch([], Sessions -- maps:keys(S)),
-    %% All committed sessions are visited by the iterator:
-    CommittedSessions = lists:sort([K || {K, #s{committed = true}} <- maps:to_list(S)]),
-    ?assertMatch([], CommittedSessions -- Sessions),
-    true;
 postcondition(S, {call, ?MODULE, get_metadata, [SessionId, {MetaKey, _Fun}]}, Result) ->
     #{SessionId := #s{metadata = Meta}} = S,
     ?assertEqual(
@@ -491,18 +478,6 @@ gen_get(SessionId, {Idx, Fun, Key}) ->
     print_cmd("*** ~p(~p, ~p, ~p)", [?FUNCTION_NAME, SessionId, pmap_name(Idx), Key]),
     apply(emqx_persistent_session_ds_state, Fun, [Key, get_state(SessionId)]).
 
-iterate_sessions(BatchSize) ->
-    print_cmd("*** ~p(~p)", [?FUNCTION_NAME, BatchSize]),
-    Fun = fun F(It0) ->
-        case emqx_persistent_session_ds_state:session_iterator_next(It0, BatchSize) of
-            {[], _} ->
-                [];
-            {Sessions, It} ->
-                Sessions ++ F(It)
-        end
-    end,
-    Fun(emqx_persistent_session_ds_state:make_session_iterator()).
-
 %%================================================================================
 %% Misc.
 %%================================================================================
@@ -527,7 +502,7 @@ do_takeover(SessionId) ->
     ).
 
 assert_state_eq(Expected, Got, Comment) ->
-    ExcludeFields = [dirty, guard, checkpoint_ref],
+    ExcludeFields = [?collection_dirty, ?collection_guard, checkpoint_ref],
     case maps:without(ExcludeFields, Expected) =:= maps:without(ExcludeFields, Got) of
         true ->
             ok;
