@@ -30,7 +30,7 @@
 
 %% API:
 -export([
-    open/3,
+    open/2,
     delete/2,
     commit/3,
 
@@ -111,9 +111,9 @@
 
 %% @doc Open a session
 %% TODO: combine opening with updating metadata to make it a one transaction
--spec open(emqx_ds:generation(), emqx_types:clientid(), boolean()) ->
+-spec open(emqx_ds:generation(), emqx_types:clientid()) ->
     {ok, emqx_persistent_session_ds_state:t()} | undefined.
-open(Generation, ClientId, Verify) ->
+open(Generation, ClientId) ->
     Opts = #{
         db => ?DB,
         generation => Generation,
@@ -124,7 +124,7 @@ open(Generation, ClientId, Verify) ->
     },
     Ret = emqx_ds:trans(
         Opts,
-        fun() -> open_tx(ClientId, Verify) end
+        fun() -> open_tx(ClientId) end
     ),
     case Ret of
         {atomic, _TXSerial, Result} ->
@@ -413,7 +413,7 @@ total_subscription_count(Generation) ->
 %% Internal functions
 %%================================================================================
 
-open_tx(ClientId, Verify) ->
+open_tx(ClientId) ->
     case emqx_ds_pmap:tx_guard(ClientId) of
         undefined ->
             undefined;
@@ -433,15 +433,7 @@ open_tx(ClientId, Verify) ->
                 ?ranks => emqx_ds_pmap:tx_restore(?MODULE, ?top_ranks, ClientId),
                 ?awaiting_rel => emqx_ds_pmap:tx_restore(?MODULE, ?top_awaiting_rel, ClientId)
             },
-            case Verify of
-                false ->
-                    {ok, Ret};
-                true ->
-                    %% Verify that guard hasn't changed while we were
-                    %% scanning the pmaps:
-                    emqx_ds_pmap:tx_assert_guard(ClientId, Guard),
-                    {ok, Ret}
-            end
+            {ok, Ret}
     end.
 
 -spec new_pmap(atom()) -> emqx_ds_pmap:pmap(_, _).

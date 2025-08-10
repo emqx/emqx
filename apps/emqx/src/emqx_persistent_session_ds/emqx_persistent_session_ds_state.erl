@@ -183,12 +183,12 @@ open(SessionId) ->
     ?tp_span(
         psds_open,
         #{id => SessionId},
-        emqx_persistent_session_ds_state_v2:open(generation(), SessionId, true)
+        emqx_persistent_session_ds_state_v2:open(generation(), SessionId)
     ).
 
 -spec print_session(emqx_persistent_session_ds:id()) -> map() | undefined.
 print_session(SessionId) ->
-    case emqx_persistent_session_ds_state_v2:open(generation(), SessionId, false) of
+    case emqx_persistent_session_ds_state_v2:open(generation(), SessionId) of
         undefined ->
             undefined;
         {ok, Session} ->
@@ -221,7 +221,7 @@ list_sessions() ->
 
 -spec delete(emqx_persistent_session_ds:id() | t()) -> ok.
 delete(Id) when is_binary(Id) ->
-    case emqx_persistent_session_ds_state_v2:open(generation(), Id, true) of
+    case emqx_persistent_session_ds_state_v2:open(generation(), Id) of
         {ok, Rec} ->
             delete(Rec);
         undefined ->
