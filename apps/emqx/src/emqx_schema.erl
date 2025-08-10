@@ -1900,6 +1900,56 @@ fields("durable_sessions") ->
                     %% Only for testing, shall remain hidden
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {"shared_subs",
+            sc(
+                ref(durable_shared_subs),
+                #{
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )}
+    ];
+fields(durable_shared_subs) ->
+    [
+        {checkpoint_interval,
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5s">>,
+                    desc => ?DESC(ds_shared_sub_checkpoint_interval)
+                }
+            )},
+        {realloc_interval,
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"100ms">>,
+                    desc => ?DESC(ds_shared_sub_realloc_interval)
+                }
+            )},
+        {heartbeat_interval,
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {leader_timeout,
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {revocation_timeout,
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"10s">>,
+                    desc => ?DESC(ds_shared_sub_revocation_timeout)
+                }
             )}
     ];
 fields(durable_storage) ->
@@ -2291,6 +2341,8 @@ desc("client_attrs_init") ->
     ?DESC(client_attrs_init);
 desc("banned") ->
     "Banned .";
+desc(durable_shared_subs) ->
+    ?DESC(durable_shared_subs);
 desc(_) ->
     undefined.
 

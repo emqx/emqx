@@ -10,7 +10,7 @@
 %% The logic is quite straightforward; most of the parts resemble the logic of the
 %% `emqx_persistent_session_ds_subs` (subscribe/unsubscribe) and
 %% `emqx_persistent_session_ds_scheduler` (providing new streams),
-%% but some data is sent or received from the `emqx_persistent_session_ds_shared_subs_agent`
+%% but some data is sent or received from the `emqx_ds_shared_sub_agent`
 %% which communicates with remote shared subscription leaders.
 
 -module(emqx_persistent_session_ds_shared_subs).
@@ -53,7 +53,7 @@
     }.
 
 -type t() :: #{
-    agent := emqx_persistent_session_ds_shared_subs_agent:t()
+    agent := emqx_ds_shared_sub_agent:t()
 }.
 -type share_topic_filter() :: emqx_types:share().
 -type opts() :: #{
@@ -78,7 +78,7 @@
 -spec new(opts()) -> t().
 new(Opts) ->
     #{
-        agent => emqx_persistent_session_ds_shared_subs_agent:new(
+        agent => emqx_ds_shared_sub_agent:new(
             agent_opts(Opts)
         )
     }.
@@ -96,7 +96,7 @@ open(S0, Opts) ->
         [],
         S0
     ),
-    Agent = emqx_persistent_session_ds_shared_subs_agent:open(
+    Agent = emqx_ds_shared_sub_agent:open(
         ToOpen, agent_opts(Opts)
     ),
     SharedSubS = #{agent => Agent},
@@ -135,7 +135,7 @@ create_new_subscription(ShareTopicFilter, SubOpts, #{
     props := #{upgrade_qos := UpgradeQoS}
 }) ->
     case
-        emqx_persistent_session_ds_shared_subs_agent:pre_subscribe(
+        emqx_ds_shared_sub_agent:pre_subscribe(
             Agent0, ShareTopicFilter, SubOpts
         )
     of
@@ -163,7 +163,7 @@ create_new_subscription(ShareTopicFilter, SubOpts, #{
             S = emqx_persistent_session_ds_state:put_subscription(
                 ShareTopicFilter, Subscription, S3
             ),
-            Agent = emqx_persistent_session_ds_shared_subs_agent:on_subscribe(
+            Agent = emqx_ds_shared_sub_agent:on_subscribe(
                 Agent0, SubId, ShareTopicFilter, SubOpts
             ),
             ?tp(debug, ds_shared_subs_on_subscribe_new, #{
@@ -234,7 +234,7 @@ on_unsubscribe(
             {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
                 ShareTopicFilter, SubId, S1, SchedS0
             ),
-            Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_unsubscribe(
+            Agent1 = emqx_ds_shared_sub_agent:on_unsubscribe(
                 Agent0, SubId
             ),
             SharedSubS1 = SharedSubS0#{agent => Agent1},
@@ -253,7 +253,7 @@ on_streams_replay(S, SharedS, []) ->
     {S, SharedS};
 on_streams_replay(S, #{agent := Agent} = SharedS, StreamKeys) ->
     %% No-op if there are no shared subscriptions
-    case emqx_persistent_session_ds_shared_subs_agent:has_subscriptions(Agent) of
+    case emqx_ds_shared_sub_agent:has_subscriptions(Agent) of
         false -> {S, SharedS};
         true -> report_progress(S, SharedS, StreamKeys, _NeedUnacked = false)
     end.
@@ -273,7 +273,7 @@ report_progress(
     S, #{agent := Agent0} = SharedS, StreamKeySelector, NeedUnacked
 ) ->
     Progresses = stream_progresses(S, SharedS, StreamKeySelector, NeedUnacked),
-    Agent = emqx_persistent_session_ds_shared_subs_agent:on_stream_progress(
+    Agent = emqx_ds_shared_sub_agent:on_stream_progress(
         Agent0, Progresses
     ),
     {S, SharedS#{agent => Agent}}.
@@ -337,7 +337,7 @@ stream_progress(
 select_stream_states(S, #{agent := Agent} = _SharedS, all) ->
     emqx_persistent_session_ds_state:fold_streams(
         fun({SubId, _Stream} = Key, SRS, Acc0) ->
-            case emqx_persistent_session_ds_shared_subs_agent:has_subscription(Agent, SubId) of
+            case emqx_ds_shared_sub_agent:has_subscription(Agent, SubId) of
                 true ->
                     [{Key, SRS} | Acc0];
                 false ->
@@ -350,7 +350,7 @@ select_stream_states(S, #{agent := Agent} = _SharedS, all) ->
 select_stream_states(S, #{agent := Agent} = _SharedS, StreamKeys) ->
     lists:filtermap(
         fun({SubId, _} = Key) ->
-            case emqx_persistent_session_ds_shared_subs_agent:has_subscription(Agent, SubId) of
+            case emqx_ds_shared_sub_agent:has_subscription(Agent, SubId) of
                 true ->
                     case emqx_persistent_session_ds_state:get_stream(Key, S) of
                         undefined -> false;
@@ -369,7 +369,7 @@ select_stream_states(S, #{agent := Agent} = _SharedS, StreamKeys) ->
 on_disconnect(S0, #{agent := Agent0} = SharedSubS0) ->
     S1 = terminate_streams(S0),
     Progresses = stream_progresses(S1, SharedSubS0, all, _NeedUnacked = true),
-    Agent1 = emqx_persistent_session_ds_shared_subs_agent:on_disconnect(Agent0, Progresses),
+    Agent1 = emqx_ds_shared_sub_agent:on_disconnect(Agent0, Progresses),
     SharedSubS1 = SharedSubS0#{agent => Agent1},
     {S1, SharedSubS1}.
 
@@ -402,7 +402,7 @@ terminate_streams(S0) ->
         t()
     }.
 on_info(S0, SchedS0, #{agent := Agent0} = SharedSubS0, ?shared_sub_message(SubscriptionId, Msg)) ->
-    {StreamLeaseEvents, Agent1} = emqx_persistent_session_ds_shared_subs_agent:on_info(
+    {StreamLeaseEvents, Agent1} = emqx_ds_shared_sub_agent:on_info(
         Agent0, SubscriptionId, Msg
     ),
     SharedSubS1 = SharedSubS0#{agent => Agent1},

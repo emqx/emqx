@@ -1,0 +1,18 @@
+DSSharedSub DEFINITIONS ::=
+BEGIN
+  Id ::= SEQUENCE {
+    group [0] OCTET STRING,
+    topic [1] OCTET STRING
+  }
+
+  StreamId ::= SEQUENCE {
+    shard [0] OCTET STRING,
+    generation [1] INTEGER,
+    stream [2] OCTET STRING
+  }
+
+  StreamState ::= SEQUENCE {
+    iterator [0] OCTET STRING,
+    ...
+  }
+END

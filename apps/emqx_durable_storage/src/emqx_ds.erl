@@ -158,7 +158,6 @@ It takes care of forwarding calls to the underlying DBMS.
     multi_iter_opts/0
 ]).
 
-
 -deprecated([
     {get_delete_streams, 3, "use `tx_del_topic` instead"},
     {make_delete_iterator, 4, "use `tx_del_topic` instead"},

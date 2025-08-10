@@ -25,8 +25,6 @@
 -type backend() ::
     builtin_raft
     | builtin_local
-    | builtin_raft_queues
-    | builtin_local_queues
     | builtin_raft_messages
     | builtin_local_messages.
 
@@ -45,7 +43,7 @@ db_config_timers() ->
     db_config([durable_storage, timers]).
 
 db_config_shared_subs() ->
-    db_config([durable_storage, queues]).
+    db_config([durable_storage, shared_subs]).
 
 %%================================================================================
 %% Behavior callbacks
@@ -93,11 +91,10 @@ schema() ->
                     }
                 }
             )},
-        %% TODO: switch shared subs to use TTV and rename the DB to shared_sub
-        {queues,
+        {shared_subs,
             db_schema(
-                [builtin_raft_queues, builtin_local_queues],
-                ?IMPORTANCE_HIDDEN,
+                [builtin_raft, builtin_local],
+                ?IMPORTANCE_MEDIUM,
                 ?DESC(shared_subs),
                 #{}
             )}
@@ -121,10 +118,6 @@ fields(builtin_local_messages) ->
     make_local(messages);
 fields(builtin_raft_messages) ->
     make_raft(messages);
-fields(builtin_local_queues) ->
-    make_local(queues);
-fields(builtin_raft_queues) ->
-    make_raft(queues);
 fields(builtin_local) ->
     make_local(generic);
 fields(builtin_raft) ->
@@ -153,41 +146,6 @@ fields(rocksdb_options) ->
                 #{
                     default => infinity,
                     desc => ?DESC(rocksdb_max_open_files)
-                }
-            )}
-    ];
-fields(builtin_write_buffer) ->
-    %% TODO: this setting becomes obsolete after all DBs are switch to
-    %% TTV style
-    [
-        {max_items,
-            sc(
-                emqx_ds_buffer:size_limit(),
-                #{
-                    default => 1000,
-                    mapping => "emqx_durable_storage.egress_batch_size",
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(builtin_write_buffer_max_items)
-                }
-            )},
-        {max_bytes,
-            sc(
-                emqx_ds_buffer:size_limit(),
-                #{
-                    default => infinity,
-                    mapping => "emqx_durable_storage.egress_batch_bytes",
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(builtin_write_buffer_max_items)
-                }
-            )},
-        {flush_interval,
-            sc(
-                emqx_schema:timeout_duration_ms(),
-                #{
-                    default => 100,
-                    mapping => "emqx_durable_storage.egress_flush_interval",
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(builtin_write_buffer_flush_interval)
                 }
             )}
     ];
@@ -392,65 +350,46 @@ common_builtin_fields(Flavor) ->
                 #{
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {transaction,
+            sc(
+                ref(optimistic_transaction),
+                #{
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(builtin_optimistic_transaction)
+                }
             )}
         | case Flavor of
-            queues ->
-                %% TODO: after migration of shared subs to TTV this flavor should be removed (-> generic)
+            generic ->
+                %% Generic DBs use preconfigured storage layout
+                [];
+            messages ->
+                %% `messages' DB lets user customize storage layout:
                 [
-                    {local_write_buffer,
+                    {layout,
                         sc(
-                            ref(builtin_write_buffer),
+                            hoconsc:union(builtin_layouts()),
                             #{
-                                importance => ?IMPORTANCE_HIDDEN,
-                                desc => ?DESC(builtin_write_buffer)
+                                desc => ?DESC(builtin_layout),
+                                importance => ?IMPORTANCE_MEDIUM,
+                                default =>
+                                    #{
+                                        <<"type">> => wildcard_optimized
+                                    }
                             }
                         )}
-                ];
-            _ ->
-                [
-                    {transaction,
-                        sc(
-                            ref(optimistic_transaction),
-                            #{
-                                importance => ?IMPORTANCE_LOW,
-                                desc => ?DESC(builtin_optimistic_transaction)
-                            }
-                        )}
-                    | case Flavor of
-                        generic ->
-                            %% Generic DBs use preconfigured storage layout
-                            [];
-                        messages ->
-                            %% `messages` DB lets user customize storage layout:
-                            [
-                                {layout,
-                                    sc(
-                                        hoconsc:union(builtin_layouts()),
-                                        #{
-                                            desc => ?DESC(builtin_layout),
-                                            importance => ?IMPORTANCE_MEDIUM,
-                                            default =>
-                                                #{
-                                                    <<"type">> => wildcard_optimized
-                                                }
-                                        }
-                                    )}
-                            ]
-                    end
                 ]
         end
     ].
 
 desc(Backend) when
-    Backend =:= builtin_raft; Backend =:= builtin_raft_messages; Backend =:= builtin_raft_queues
+    Backend =:= builtin_raft; Backend =:= builtin_raft_messages
 ->
     ?DESC(builtin_raft);
 desc(Backend) when
-    Backend =:= builtin_local; Backend =:= builtin_local_messages; Backend =:= builtin_local_queues
+    Backend =:= builtin_local; Backend =:= builtin_local_messages
 ->
     ?DESC(builtin_local);
-desc(builtin_write_buffer) ->
-    ?DESC(builtin_write_buffer);
 desc(layout_builtin_wildcard_optimized) ->
     ?DESC(layout_builtin_wildcard_optimized);
 desc(layout_builtin_wildcard_optimized_v2) ->

@@ -213,11 +213,13 @@ handle_continue(real_init, State) ->
     ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, get_db_config()),
     ok = emqx_persistent_session_ds_router:init_tables(),
     ok = emqx_persistent_session_ds:create_tables(),
+    ok = emqx_ds_shared_sub_dl:open_db(),
     ok = emqx_persistent_session_ds_gc_timer:init(),
     ok = emqx_durable_will:init(),
     ok = emqx_ds:wait_db(?PERSISTENT_MESSAGE_DB, all, infinity),
     %% FIXME:
     ok = emqx_ds:wait_db(sessions, all, infinity),
+    ok = emqx_ds_shared_sub_dl:wait_db(),
     emqx_persistent_session_ds_sup:on_dbs_up(),
     optvar:set(?optvar_ready, true),
     {noreply, State}.
