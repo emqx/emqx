@@ -8,6 +8,8 @@
 The module contains the registry of Message Queues.
 """.
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -export([
     create_tables/0,
     create/1,
@@ -57,13 +59,18 @@ create_tables() ->
 -doc """
 Create a new MQ.
 """.
--spec create(emqx_mq_types:mq()) -> emqx_mq_types:mq().
+-spec create(emqx_mq_types:mq()) -> {ok, emqx_mq_types:mq()} | {error, queue_exists}.
 create(#{topic_filter := TopicFilter} = MQ) ->
-    Id = emqx_guid:gen(),
-    Key = make_key(TopicFilter),
-    RegistryMQ = maps:remove(topic_filter, MQ#{id => Id}),
-    ok = mria:dirty_write(#?MQ_REGISTRY_TAB{key = Key, mq = RegistryMQ}),
-    MQ#{id => Id}.
+    case find(TopicFilter) of
+        not_found ->
+            Id = emqx_guid:gen(),
+            Key = make_key(TopicFilter),
+            RegistryMQ = maps:remove(topic_filter, MQ#{id => Id}),
+            ok = mria:dirty_write(#?MQ_REGISTRY_TAB{key = Key, mq = RegistryMQ}),
+            {ok, MQ#{id => Id}};
+        {ok, _MQ} ->
+            {error, queue_exists}
+    end.
 
 -doc """
 Find all MQs matching the given concrete topic.
@@ -88,6 +95,7 @@ Find the MQ by its topic filter.
 """.
 -spec find(emqx_mq_types:mq_topic()) -> {ok, emqx_mq_types:mq()} | not_found.
 find(TopicFilter) ->
+    ?tp(warning, mq_registry_find, #{topic_filter => TopicFilter}),
     Key = make_key(TopicFilter),
     case ets:lookup(?MQ_REGISTRY_TAB, Key) of
         [] ->
@@ -101,8 +109,22 @@ Delete the MQ by its topic filter.
 """.
 -spec delete(emqx_mq_types:mq_topic()) -> ok.
 delete(TopicFilter) ->
-    Key = make_key(TopicFilter),
-    ok = mria:dirty_delete(?MQ_REGISTRY_TAB, Key).
+    ?tp(warning, mq_registry_delete, #{topic_filter => TopicFilter}),
+    case find(TopicFilter) of
+        {ok, MQ} ->
+            Key = make_key(TopicFilter),
+            ok = mria:dirty_delete(?MQ_REGISTRY_TAB, Key),
+            case emqx_mq_consumer_db:drop_claim(MQ, now_ms()) of
+                {ok, ConsumerRef} ->
+                    ok = emqx_mq_consumer:stop(ConsumerRef);
+                not_found ->
+                    ok
+            end,
+            ok = emqx_mq_consumer_db:drop_consumer_data(MQ),
+            ok = emqx_mq_payload_db:drop(MQ);
+        not_found ->
+            ok
+    end.
 
 -doc """
 Delete all MQs.
@@ -129,3 +151,6 @@ from_record(#?MQ_REGISTRY_TAB{
     mq = MQ
 }) ->
     MQ#{topic_filter => emqx_topic_index:get_topic(Key)}.
+
+now_ms() ->
+    erlang:system_time(millisecond).

@@ -74,13 +74,8 @@ on_delivery_completed(Msg, Info) ->
 
 on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = FullTopic, _SubOpts) ->
     ?tp(warning, mq_on_session_subscribed, #{full_topic => FullTopic, handle => true}),
-    case emqx_mq_registry:find(Topic) of
-        not_found ->
-            ok;
-        {ok, MQ} ->
-            Sub = emqx_mq_sub:handle_connect(ClientInfo, MQ),
-            ok = emqx_mq_sub_registry:register(Sub)
-    end;
+    Sub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
+    ok = emqx_mq_sub_registry:register(Sub);
 on_session_subscribed(_ClientInfo, FullTopic, _SubOpts) ->
     ?tp(warning, mq_on_session_subscribed, #{full_topic => FullTopic, handle => false}),
     ok.
@@ -180,8 +175,12 @@ with_sub(SubscriberRef, Handler, Args) ->
 recreate_sub(SubscriberRef, ClientInfo) ->
     OldSub = #{topic := Topic} = emqx_mq_sub_registry:delete(SubscriberRef),
     ok = emqx_mq_sub:handle_disconnect(OldSub),
-    NewSub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
-    ok = emqx_mq_sub_registry:register(NewSub).
+    case emqx_mq_sub:handle_connect(ClientInfo, Topic) of
+        {error, queue_removed} ->
+            ok;
+        {ok, NewSub} ->
+            ok = emqx_mq_sub_registry:register(NewSub)
+    end.
 
 ack_from_rc(?RC_SUCCESS) -> ?MQ_ACK;
 ack_from_rc(_) -> ?MQ_REJECTED.

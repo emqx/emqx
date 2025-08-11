@@ -441,7 +441,7 @@ t_busy_session(_Config) ->
         emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
         #{
             ?snk_kind := mq_sub_handle_nack_session_busy,
-            sub := #{mq_topic_filter := <<"t/#">>}
+            sub := #{topic_filter := <<"t/#">>}
         },
         100
     ),
@@ -762,6 +762,79 @@ t_redispatch_on_reject_hash(_Config) ->
 
     %% Clean up
     ok = emqtt:disconnect(CSub0),
+    ok = emqtt:disconnect(CSub1).
+
+t_queue_deletion(_Config) ->
+    %% Create a non-compacted Queue
+    MQ0 = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>,
+        is_compacted => false,
+        dispatch_strategy => random
+    }),
+
+    %% Publish 20 messages to the queue
+    ok = emqx_mq_test_utils:populate(20, fun(I) ->
+        IBin = integer_to_binary(I),
+        Topic = <<"t/", IBin/binary>>,
+        Payload = <<"payload-1-", IBin/binary>>,
+        {Topic, Payload}
+    end),
+
+    %% Connect and start a consumer
+    CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+
+    %% Find the consumer
+    {ok, ConsumerRef} = emqx_mq_consumer_db:find_consumer(MQ0, now_ms()),
+    MRef = erlang:monitor(process, ConsumerRef),
+
+    %% Delete the queue
+    ok = emqx_mq_registry:delete(<<"t/#">>),
+    receive
+        {'DOWN', MRef, process, ConsumerRef, _Reason} -> ok
+    after 1000 ->
+        ct:fail("Consumer not down")
+    end,
+
+    %% Disconnect the consumer
+    ok = emqtt:disconnect(CSub0),
+
+    %% Create a new queue with the same topic filter
+    _MQ1 = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>,
+        is_compacted => false,
+        dispatch_strategy => random
+    }),
+
+    %% Publish 20 messages to the new queue
+    ok = emqx_mq_test_utils:populate(20, fun(I) ->
+        IBin = integer_to_binary(I),
+        Topic = <<"t/", IBin/binary>>,
+        Payload = <<"payload-2-", IBin/binary>>,
+        {Topic, Payload}
+    end),
+
+    %% Connect and start a consumer
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+
+    %% Verify that the old messages are not received
+    receive
+        {publish, #{payload := <<"payload-1-", _/binary>>, client_pid := CSub1}} ->
+            ct:fail("Old message received")
+    after 100 ->
+        ok
+    end,
+
+    %% Verify that the new messages are received
+    receive
+        {publish, #{payload := <<"payload-2-", _/binary>>, client_pid := CSub1}} ->
+            ok
+    after 100 ->
+        ct:fail("New message not received")
+    end,
+
+    %% Clean up
     ok = emqtt:disconnect(CSub1).
 
 %%--------------------------------------------------------------------

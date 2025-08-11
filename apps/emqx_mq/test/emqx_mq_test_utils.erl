@@ -76,14 +76,15 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
         ping_interval_ms => 5000,
         redispatch_interval_ms => 100,
         dispatch_strategy => random,
-        local_max_inflight => 4
+        local_max_inflight => 4,
+        busy_session_retry_interval => 100
     },
     MQ1 = maps:merge(Default, MQ0),
 
     SampleTopic0 = string:replace(TopicFilter, "#", "x", all),
     SampleTopic1 = string:replace(SampleTopic0, "+", "x", all),
     SampleTopic = iolist_to_binary(SampleTopic1),
-    MQ = emqx_mq_registry:create(MQ1),
+    {ok, MQ} = emqx_mq_registry:create(MQ1),
     ?retry(
         5,
         100,

@@ -77,6 +77,13 @@ connect(#{topic_filter := MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
             send_to_consumer_server(ConsumerRef, #mq_server_connect{
                 subscriber_ref = SubscriberRef, client_id = ClientId
             });
+        queue_removed ->
+            ?tp(warning, mq_consumer_find_consumer_queue_removed, #{
+                mq_topic_filter => MQTopicFilter,
+                subscriber_ref => SubscriberRef,
+                client_id => ClientId
+            }),
+            {error, queue_removed};
         not_found ->
             ?tp(warning, mq_consumer_find_consumer_not_found, #{
                 mq_topic_filter => MQTopicFilter,
@@ -107,7 +114,12 @@ ping(Pid, SubscriberRef) ->
 
 -spec stop(emqx_mq_types:consumer_ref()) -> ok.
 stop(Pid) ->
-    gen_server:call(Pid, stop, infinity).
+    try
+        gen_server:call(Pid, stop, infinity)
+    catch
+        exit:{noproc, _} ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Gen Server Callbacks
@@ -123,7 +135,7 @@ init([#{topic_filter := MQTopicFilter} = MQ]) ->
                 ?DEFAULT_CONSUMER_PERSISTENCE_INTERVAL, self(), #persist_consumer_data{}
             ),
             Progress = maps:get(progress, ConsumerData, #{}),
-            Streams = emqx_mq_consumer_streams:new(MQTopicFilter, Progress),
+            Streams = emqx_mq_consumer_streams:new(MQ, Progress),
             Server = emqx_mq_consumer_server:new(MQ),
             {ok, #state{
                 mq = MQ,
@@ -236,6 +248,8 @@ find_consumer(#{topic_filter := MQTopicFilter} = MQ, Retries) ->
     case emqx_mq_consumer_db:find_consumer(MQ, now_ms()) of
         {ok, ConsumerRef} ->
             {ok, ConsumerRef};
+        queue_removed ->
+            queue_removed;
         not_found ->
             case emqx_mq_sup:start_consumer(_ChildId = MQTopicFilter, [MQ]) of
                 {ok, ConsumerRef} ->
@@ -244,7 +258,7 @@ find_consumer(#{topic_filter := MQTopicFilter} = MQ, Retries) ->
                     ?tp(warning, mq_consumer_find_consumer_error, #{
                         error => Error, retries => Retries, mq_topic_filter => MQTopicFilter
                     }),
-                    find_consumer(MQTopicFilter, Retries - 1)
+                    find_consumer(MQ, Retries - 1)
             end
     end.
 

@@ -17,7 +17,9 @@
     claim_leadership/3,
     find_consumer/2,
     update_consumer_data/4,
-    drop_leadership/1
+    drop_leadership/1,
+    drop_claim/2,
+    drop_consumer_data/1
 ]).
 
 %% For testing/maintenance
@@ -95,7 +97,7 @@ claim_leadership(MQ, ConsumerRef, TS) ->
     get_result(TxRes).
 
 -spec find_consumer(emqx_mq_types:mq(), timestamp()) ->
-    {ok, consumer_ref()} | not_found.
+    {ok, consumer_ref()} | not_found | queue_removed.
 find_consumer(#{topic_filter := MQTopic} = MQ, TS) ->
     LeadershipTopic = topic_leadership(MQ),
     case emqx_ds:dirty_read(?MQ_CONSUMER_DB, LeadershipTopic) of
@@ -103,17 +105,48 @@ find_consumer(#{topic_filter := MQTopic} = MQ, TS) ->
             not_found;
         [{_Topic, 0, ClaimBin}] ->
             case decode_claim(ClaimBin) of
-                {ConsumerRef, OldTS} when OldTS > TS - ?LEADER_TTL ->
+                #claim{consumer_ref = ConsumerRef, last_seen_timestamp = OldTS} when
+                    OldTS > TS - ?LEADER_TTL
+                ->
                     ?tp(warning, mq_consumer_db_find_consumer_success, #{
                         mq_topic => MQTopic,
                         active_ago_ms => TS - OldTS,
                         consumer_ref => ConsumerRef
                     }),
                     {ok, ConsumerRef};
+                #tombstone{} ->
+                    queue_removed;
                 _ ->
                     not_found
             end
     end.
+
+-spec drop_claim(emqx_mq_types:mq(), timestamp()) -> {ok, consumer_ref()} | not_found.
+drop_claim(MQ, TS) ->
+    TxOpts = tx_opts(MQ),
+    LeadershipTopic = topic_leadership(MQ),
+    TombstoneClaim = #tombstone{last_seen_timestamp = TS},
+    TxRes = emqx_ds:trans(TxOpts, fun() ->
+        case read_claim(LeadershipTopic) of
+            {ok, #claim{consumer_ref = ConsumerRef}} ->
+                ok = write_claim(LeadershipTopic, TombstoneClaim),
+                {ok, ConsumerRef};
+            {ok, #tombstone{}} ->
+                not_found;
+            not_found ->
+                not_found
+        end
+    end),
+    get_result(TxRes).
+
+-spec drop_consumer_data(emqx_mq_types:mq()) -> ok | emqx_ds:error(term()).
+drop_consumer_data(MQ) ->
+    TxOpts = tx_opts(MQ),
+    DataTopic = topic_consumer_data(MQ),
+    TxRes = emqx_ds:trans(TxOpts, fun() ->
+        emqx_ds:tx_del_topic(DataTopic)
+    end),
+    get_result(TxRes).
 
 -spec update_consumer_data(emqx_mq_types:mq(), consumer_ref(), consumer_data(), timestamp()) ->
     ok | emqx_ds:error(term()).

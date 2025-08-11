@@ -79,12 +79,12 @@ The module holds a stream_buffers for all streams of a single Message Queue.
 %% API
 %%--------------------------------------------------------------------
 
--spec new(emqx_mq_types:mq_topic(), progress()) -> t().
-new(MQTopic, Progress) ->
-    new(MQTopic, Progress, #{}).
+-spec new(emqx_mq_types:mq(), progress()) -> t().
+new(MQ, Progress) ->
+    new(MQ, Progress, #{}).
 
--spec new(emqx_mq_types:mq_topic(), progress(), emqx_mq_consumer_stream_buffer:options()) -> t().
-new(MQTopic, Progress, SBOptions) ->
+-spec new(emqx_mq_types:mq(), progress(), emqx_mq_consumer_stream_buffer:options()) -> t().
+new(#{topic_filter := MQTopic} = MQ, Progress, SBOptions) ->
     StreamsProgress = maps:get(streams_progress, Progress, #{}),
     GenerationProgress = maps:get(generation_progress, Progress, #{}),
     State0 = #{
@@ -96,7 +96,7 @@ new(MQTopic, Progress, SBOptions) ->
     },
     State1 = restore_streams(State0, StreamsProgress),
     DSClient0 = emqx_mq_payload_db:create_client(?MODULE),
-    {ok, DSClient, State} = emqx_mq_payload_db:subscribe(DSClient0, ?SUB_ID, MQTopic, State1),
+    {ok, DSClient, State} = emqx_mq_payload_db:subscribe(MQ, DSClient0, ?SUB_ID, State1),
     #cs{state = State, ds_client = DSClient}.
 
 -spec progress(t()) -> progress().
