@@ -20,7 +20,7 @@ bridges.azure_event_hub_producer.my_producer {
   }
   bootstrap_hosts = \"emqx.servicebus.windows.net:9093\"
   connect_timeout = 5s
-  kafka {
+  parameters {
     buffer {
       memory_overload_protection = false
       mode = memory

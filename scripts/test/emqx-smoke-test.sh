@@ -86,11 +86,10 @@ main() {
     local JSON_STATUS
     JSON_STATUS="$(json_status)"
     check_api_docs
-    ## The json status feature was added after hotconf and bridges schema API
+    ## The json status feature was added after hotconf API
     if [ "$JSON_STATUS" != 'NOT_JSON' ]; then
         check_swagger_json
         check_schema_json hotconf "Hot Conf Schema"
-        check_schema_json bridges "Data Bridge Schema"
         check_schema_json actions "Actions and Sources Schema"
         check_schema_json connectors "Connectors Schema"
     fi
