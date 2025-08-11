@@ -363,7 +363,7 @@ log_is_empty(Basename) ->
 
 -spec stream_log(name(), start | {cont, cursor()}, _Limit :: pos_integer() | undefined) ->
     {ok, binary(), {cont | eof | retry, cursor()}}
-    | {error, not_found | bad_cursor | {file_error, file:posix()}}.
+    | {error, not_found | bad_cursor | stale_cursor | {file_error, file:posix()}}.
 stream_log(Name, start, Limit) when Limit > 0 ->
     case emqx_trace_dl:get(Name) of
         {ok, Trace = #?TRACE{start_at = Start}} ->
@@ -408,7 +408,7 @@ stream_log_cursor(Name, Cursor0 = #{s := Start, p := Pos, f := Fragment0}, Limit
                             %% See `emqx_trace_handler:find_log_fragment/2`.
                             Cont = {retry, Cursor};
                         {error, Reason} ->
-                            Cont = {cont, #{e => {file_error, Reason}}}
+                            Cont = {cont, #{e => stream_log_error(Reason)}}
                     end
             end,
             {ok, Chunk, Cont};
@@ -416,12 +416,17 @@ stream_log_cursor(Name, Cursor0 = #{s := Start, p := Pos, f := Fragment0}, Limit
             %% Same here, see `emqx_trace_handler:find_log_fragment/2`.
             {ok, <<>>, {retry, Cursor0}};
         {error, Reason} ->
-            {error, {file_error, Reason}}
+            {error, stream_log_error(Reason)}
     end;
 stream_log_cursor(_Name, #{e := Reason}, _Limit) ->
     {error, Reason};
 stream_log_cursor(_Name, _Cursor, _Limit) ->
     {error, bad_cursor}.
+
+stream_log_error(stale) ->
+    stale_cursor;
+stream_log_error(Reason) ->
+    {file_error, Reason}.
 
 log_filepath(Name, Start) ->
     filename:join(trace_dir(), log_filename(Name, Start)).
