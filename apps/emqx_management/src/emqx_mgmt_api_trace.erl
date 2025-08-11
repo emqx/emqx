@@ -181,7 +181,7 @@ schema("/trace/:name/log") ->
                         {meta, fields(bytes) ++ fields(position) ++ fields(stream_hint)}
                     ],
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Bad input parameter">>
+                    ['BAD_REQUEST', 'INVALID_PARAMETER', 'STALE_CURSOR'], <<"Bad input parameter">>
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND', 'NODE_ERROR'], <<"Trace Name or Node Not Found">>
@@ -687,7 +687,11 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
                 {200, #{meta => Meta, items => Bin}};
             %% the waiting trace should return "" not error.
             {error, {file_error, enoent}} ->
-                Meta = #{<<"position">> => Position, <<"bytes">> => Bytes},
+                Meta = #{
+                    <<"position">> => Position,
+                    <<"hint">> => <<"eof">>,
+                    <<"bytes">> => Bytes
+                },
                 {200, #{meta => Meta, items => <<>>}};
             {error, {file_error, enomem}} ->
                 ?SLOG(warning, #{
@@ -700,7 +704,9 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
             {error, not_found} ->
                 ?NOT_FOUND_WITH_MSG(Name);
             {error, bad_cursor} ->
-                ?BAD_REQUEST(<<"Invalid cursor">>);
+                ?BAD_REQUEST(<<"INVALID_PARAMETER">>, <<"Invalid cursor">>);
+            {error, stale_cursor} ->
+                ?BAD_REQUEST(<<"STALE_CURSOR">>, <<"Stale cursor">>);
             {badrpc, nodedown} ->
                 ?SERVICE_UNAVAILABLE(<<"Node is unavailable">>)
         end

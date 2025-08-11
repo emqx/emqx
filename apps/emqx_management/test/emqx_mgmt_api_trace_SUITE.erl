@@ -664,6 +664,49 @@ t_stream_log_errors(_Config) ->
     {error, {_, 404, _}} =
         request_api(get, api_path("trace/err_stream_log_not_found/log")).
 
+t_stream_log_stale(_Config) ->
+    %% Configure relatively low size limit:
+    MaxSize = 100 * 1024,
+    MaxSizeDefault = emqx_config:get([trace, max_file_size]),
+    ok = emqx_config:put([trace, max_file_size], MaxSize),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Now = erlang:system_time(second),
+    create_trace(<<"stale_stream_log">>, ClientId, Now - 10),
+    %% Start the client and publish some messages:
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    ok = lists:foreach(
+        fun(_) -> emqtt:publish(Client, <<"t/" ?MODULE_STRING>>, <<"HELLO">>, qos1) end,
+        lists:seq(1, 100)
+    ),
+    ok = timer:sleep(500),
+    %% Start streaming the log:
+    {ok, Resp1} = request_api(get, api_path("trace/stale_stream_log/log?bytes=40")),
+    #{<<"meta">> := #{<<"position">> := P1}, <<"items">> := _} = json(Resp1),
+    {ok, Resp2} = request_api(get, api_path(["trace/stale_stream_log/log?bytes=40&position=", P1])),
+    #{<<"meta">> := #{<<"position">> := P2}, <<"items">> := _} = json(Resp2),
+    %% Overwhelm the trace log:
+    ok = lists:foreach(
+        fun(_) -> emqtt:publish(Client, <<"t/" ?MODULE_STRING>>, <<"HELLO">>, qos1) end,
+        lists:seq(1, 400)
+    ),
+    ok = timer:sleep(500),
+    %% Cursor is now stale:
+    {error, {{_, 400, _}, _, RespErr}} =
+        request_api(
+            get,
+            api_path(["trace/stale_stream_log/log?&bytes=40&position=", P2]),
+            [],
+            #{return_all => true}
+        ),
+    ?assertEqual(
+        #{<<"code">> => <<"STALE_CURSOR">>, <<"message">> => <<"Stale cursor">>},
+        json(RespErr)
+    ),
+    %% Cleanup:
+    ok = emqx_config:put([trace, max_file_size], MaxSizeDefault),
+    ok = emqtt:disconnect(Client).
+
 t_trace_files_are_deleted_after_download(_Config) ->
     ClientId = <<"client-test-delete-after-download">>,
     Now = erlang:system_time(second),
