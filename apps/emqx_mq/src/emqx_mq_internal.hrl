@@ -49,8 +49,11 @@
 
 -record(claim, {
     consumer_ref :: emqx_mq_types:consumer_ref(),
-    last_seen_timestamp :: non_neg_integer(),
-    tombstone :: boolean()
+    last_seen_timestamp :: non_neg_integer()
+}).
+
+-record(tombstone, {
+    last_seen_timestamp :: non_neg_integer()
 }).
 
 %% TODO

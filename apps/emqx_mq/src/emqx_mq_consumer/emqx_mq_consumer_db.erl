@@ -32,7 +32,7 @@
 -type consumer_ref() :: emqx_mq_types:consumer_ref().
 -type timestamp() :: non_neg_integer().
 -type consumer_data() :: emqx_mq_types:consumer_data().
--type claim() :: #claim{}.
+-type claim() :: #claim{} | #tombstone{}.
 
 -export_type([
     claim/0
@@ -72,13 +72,13 @@ claim_leadership(MQ, ConsumerRef, TS) ->
     TxOpts = tx_opts(MQ),
     LeadershipTopic = topic_leadership(MQ),
     DataTopic = topic_consumer_data(MQ),
-    Claim = #claim{consumer_ref = ConsumerRef, last_seen_timestamp = TS, tombstone = false},
+    Claim = #claim{consumer_ref = ConsumerRef, last_seen_timestamp = TS},
     TxRes = emqx_ds:trans(TxOpts, fun() ->
         case read_claim(LeadershipTopic) of
             not_found ->
                 ok = write_claim(LeadershipTopic, Claim),
                 {ok, read_or_init_consumer_data(DataTopic)};
-            {ok, #claim{tombstone = true}} ->
+            {ok, #tombstone{}} ->
                 %% Tombstone, queue was removed
                 {error, unrecoverable, queue_removed};
             {ok, #claim{consumer_ref = ConsumerRef}} ->
@@ -123,9 +123,11 @@ update_consumer_data(MQ, ConsumerRef, ConsumerData, TS) ->
     DataTopic = topic_consumer_data(MQ),
     TxRes = emqx_ds:trans(TxOpts, fun() ->
         case read_claim(LeadershipTopic) of
+            {ok, #tombstone{}} ->
+                {error, unrecoverable, queue_removed};
             {ok, #claim{consumer_ref = ConsumerRef}} ->
                 ok = write_claim(LeadershipTopic, #claim{
-                    consumer_ref = ConsumerRef, last_seen_timestamp = TS, tombstone = false
+                    consumer_ref = ConsumerRef, last_seen_timestamp = TS
                 }),
                 ok = write_consumer_data(DataTopic, ConsumerData);
             {ok, #claim{consumer_ref = OtherConsumer}} ->

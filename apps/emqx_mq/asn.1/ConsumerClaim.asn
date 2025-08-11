@@ -3,12 +3,18 @@ BEGIN
   -- Pid of the consumer process
   ConsumerRef ::= OCTET STRING
 
-  LastSeenTimestamp ::= INTEGER
-
-  ConsumerClaimV1 ::= SEQUENCE {
+  ConsumerClaimLive ::= SEQUENCE {
     consumerRef ConsumerRef,
-    lastSeenTimestamp LastSeenTimestamp,
-    tombstone BOOLEAN
+    lastSeenTimestamp INTEGER
+  }
+
+  ConsumerClaimTombstone ::= SEQUENCE {
+    lastSeenTimestamp INTEGER
+  }
+
+  ConsumerClaimV1 ::= CHOICE {
+    live ConsumerClaimLive,
+    tombstone ConsumerClaimTombstone
   }
 
   ConsumerClaim ::= CHOICE {

@@ -30,34 +30,43 @@ This module provides serialization/deserialization into/from binary of
 -spec encode_claim(emqx_mq_consumer_db:claim()) -> binary().
 encode_claim(
     #claim{
-        consumer_ref = ConsumerRef, last_seen_timestamp = LastSeenTimestamp, tombstone = Tombstone
+        consumer_ref = ConsumerRef, last_seen_timestamp = LastSeenTimestamp
     } = _Claim
 ) when
     is_pid(ConsumerRef) andalso is_integer(LastSeenTimestamp)
 ->
     {ok, Bin} = 'ConsumerClaim':encode(
         'ConsumerClaim',
-        {v1, #'ConsumerClaimV1'{
-            consumerRef = pack_consumer_ref(ConsumerRef),
-            lastSeenTimestamp = LastSeenTimestamp,
-            tombstone = Tombstone
-        }}
+        {v1,
+            {live, #'ConsumerClaimLive'{
+                consumerRef = pack_consumer_ref(ConsumerRef),
+                lastSeenTimestamp = LastSeenTimestamp
+            }}}
+    ),
+    Bin;
+encode_claim(#tombstone{last_seen_timestamp = LastSeenTimestamp}) ->
+    {ok, Bin} = 'ConsumerClaim':encode(
+        'ConsumerClaim',
+        {v1, {tombstone, #'ConsumerClaimTombstone'{lastSeenTimestamp = LastSeenTimestamp}}}
     ),
     Bin.
 
 -spec decode_claim(binary()) -> emqx_mq_consumer_db:claim().
 decode_claim(Bin) ->
-    {ok,
-        {v1, #'ConsumerClaimV1'{
-            consumerRef = ConsumerRefBin,
-            lastSeenTimestamp = LastSeenTimestamp,
-            tombstone = Tombstone
-        }}} = 'ConsumerClaim':decode('ConsumerClaim', Bin),
-    #claim{
-        consumer_ref = unpack_consumer_ref(ConsumerRefBin),
-        last_seen_timestamp = LastSeenTimestamp,
-        tombstone = Tombstone
-    }.
+    {ok, {v1, ClaimPacked}} = 'ConsumerClaim':decode('ConsumerClaim', Bin),
+    case ClaimPacked of
+        {live, #'ConsumerClaimLive'{
+            consumerRef = ConsumerRefBin, lastSeenTimestamp = LastSeenTimestamp
+        }} ->
+            #claim{
+                consumer_ref = unpack_consumer_ref(ConsumerRefBin),
+                last_seen_timestamp = LastSeenTimestamp
+            };
+        {tombstone, #'ConsumerClaimTombstone'{lastSeenTimestamp = LastSeenTimestamp}} ->
+            #tombstone{
+                last_seen_timestamp = LastSeenTimestamp
+            }
+    end.
 
 -spec encode_consumer_data(emqx_mq_types:consumer_data()) -> binary().
 encode_consumer_data(#{
