@@ -227,6 +227,9 @@ handle_event(_ET, ?ds_tx_commit_reply(Ref, Reply), _State, Data) ->
     handle_ds_reply(Ref, Reply, Data);
 handle_event(info, #cast_wake_up{t = Treached}, State, Data) ->
     handle_wake_up(State, Data, Treached);
+handle_event(info, {'EXIT', _, _}, _State, _Data) ->
+    %% This signal could be sent by `global':
+    {stop, normal};
 handle_event(ET, Event, State, Data) ->
     ?tp(error, ?tp_unknown_event, #{m => ?MODULE, ET => Event, state => State, data => Data}),
     keep_state_and_data.
