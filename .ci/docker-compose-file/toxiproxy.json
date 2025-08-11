@@ -301,6 +301,18 @@
     "enabled": true
   },
   {
+    "name": "cockroachdb",
+    "listen": "0.0.0.0:26257",
+    "upstream": "cockroachdb:26257",
+    "enabled": true
+  },
+  {
+    "name": "alloydb",
+    "listen": "0.0.0.0:6432",
+    "upstream": "alloydb:5432",
+    "enabled": true
+  },
+  {
     "name": "clickhouse",
     "listen": "0.0.0.0:8123",
     "upstream": "clickhouse:8123",

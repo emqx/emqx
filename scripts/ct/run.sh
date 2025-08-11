@@ -245,6 +245,12 @@ for dep in ${CT_DEPS}; do
         bigquery)
             FILES+=( '.ci/docker-compose-file/docker-compose-bigquery.yaml' )
             ;;
+        alloydb)
+            FILES+=( '.ci/docker-compose-file/docker-compose-alloydb.yaml' )
+            ;;
+        cockroachdb)
+            FILES+=( '.ci/docker-compose-file/docker-compose-cockroachdb.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
