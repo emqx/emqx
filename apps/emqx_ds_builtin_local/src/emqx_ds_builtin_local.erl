@@ -19,7 +19,7 @@
     update_db_config/2,
     list_shards/1,
     shard_of/2,
-    list_generations_with_lifetimes/1,
+    list_slabs/1,
     drop_slab/2,
     drop_db/1,
     store_batch/3,
@@ -221,9 +221,9 @@ update_db_config(DB, CreateOpts) ->
         emqx_ds_builtin_local_meta:shards(DB)
     ).
 
--spec list_generations_with_lifetimes(emqx_ds:db()) ->
+-spec list_slabs(emqx_ds:db()) ->
     #{emqx_ds:slab() => emqx_ds:slab_info()}.
-list_generations_with_lifetimes(DB) ->
+list_slabs(DB) ->
     lists:foldl(
         fun(Shard, Acc) ->
             maps:fold(
@@ -236,7 +236,7 @@ list_generations_with_lifetimes(DB) ->
                     Acc1#{{Shard, GenId} => Data}
                 end,
                 Acc,
-                emqx_ds_storage_layer:list_generations_with_lifetimes({DB, Shard})
+                emqx_ds_storage_layer:list_slabs({DB, Shard})
             )
         end,
         #{},

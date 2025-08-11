@@ -548,7 +548,7 @@ must not assume the default values.
 
 -callback update_db_config(db(), create_db_opts()) -> ok | {error, _}.
 
--callback list_generations_with_lifetimes(db()) ->
+-callback list_slabs(db()) ->
     #{slab() => slab_info()}.
 
 -callback drop_slab(db(), slab()) -> ok | {error, _}.
@@ -768,7 +768,7 @@ update_db_config(DB, Opts) ->
 
 -spec list_slabs(db()) -> #{slab() => slab_info()}.
 list_slabs(DB) ->
-    ?module(DB):list_generations_with_lifetimes(DB).
+    ?module(DB):list_slabs(DB).
 
 -doc """
 Delete an entire slab `Slab` from the database `DB`.
