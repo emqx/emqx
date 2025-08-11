@@ -45,9 +45,10 @@
 %%--------------------------------------------------------------------
 
 open() ->
-    Result = emqx_ds:open_db(?MQ_PAYLOAD_DB, settings()),
-    ?tp(warning, mq_db_open, #{db => ?MQ_PAYLOAD_DB, result => Result}),
-    Result.
+    maybe
+        ok ?= emqx_ds:open_db(?MQ_PAYLOAD_DB, settings()),
+        emqx_ds:wait_db(?MQ_PAYLOAD_DB, all, infinity)
+    end.
 
 insert(#{is_compacted := true} = MQ, _Message, undefined) ->
     ?tp(warning, mq_db_insert_error, #{mq => MQ, reason => undefined_compaction_key}),

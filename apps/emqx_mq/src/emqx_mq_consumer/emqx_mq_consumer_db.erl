@@ -43,7 +43,6 @@
 %% Constants
 %%--------------------------------------------------------------------
 
--define(MQ_CONSUMER_DB, mq_consumer).
 -define(MQ_CONSUMER_DB_LTS_SETTINGS, #{
     %% "topic/TOPIC/INFO_KEY"
     lts_threshold_spec => {simple, {100, 0, 1000}}
@@ -63,9 +62,10 @@
 %%--------------------------------------------------------------------
 
 open() ->
-    Result = emqx_ds:open_db(?MQ_CONSUMER_DB, settings()),
-    ?tp(warning, mq_db_open, #{db => ?MQ_CONSUMER_DB, result => Result}),
-    Result.
+    maybe
+        ok ?= emqx_ds:open_db(?MQ_CONSUMER_DB, settings()),
+        emqx_ds:wait_db(?MQ_CONSUMER_DB, all, infinity)
+    end.
 
 -spec claim_leadership(mq_topic(), consumer_ref(), timestamp()) ->
     {ok, consumer_data()} | emqx_ds:error(term()).

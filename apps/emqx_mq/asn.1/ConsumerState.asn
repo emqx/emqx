@@ -2,8 +2,6 @@
 ConsumerState DEFINITIONS AUTOMATIC TAGS ::=
 BEGIN
 
-  -- How to encode the iterator and stream using DS serializers?
-
   GenerationProgress ::= SEQUENCE {
     shard OCTET STRING,
     generation INTEGER

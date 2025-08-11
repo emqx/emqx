@@ -129,10 +129,12 @@ pack_consumer_ref(ConsumerRef) ->
 %% opaque terms?
 
 pack_it(It) ->
-    term_to_binary(It).
+    {ok, ItBin} = emqx_ds:iterator_to_binary(?MQ_CONSUMER_DB, It),
+    ItBin.
 
 pack_stream(Stream) ->
-    term_to_binary(Stream).
+    {ok, StreamBin} = emqx_ds:stream_to_binary(?MQ_CONSUMER_DB, Stream),
+    StreamBin.
 
 unpack_streams_progress(StreamProgress) ->
     lists:foldl(
@@ -188,7 +190,9 @@ unpack_last_message_id(MessageId) ->
     MessageId.
 
 unpack_it(ItBin) ->
-    binary_to_term(ItBin).
+    {ok, It} = emqx_ds:binary_to_iterator(?MQ_CONSUMER_DB, ItBin),
+    It.
 
 unpack_stream(StreamBin) ->
-    binary_to_term(StreamBin).
+    {ok, Stream} = emqx_ds:binary_to_stream(?MQ_CONSUMER_DB, StreamBin),
+    Stream.

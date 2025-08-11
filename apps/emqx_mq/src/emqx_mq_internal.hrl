@@ -45,6 +45,8 @@
 
 -define(MQ_COMPACTION_KEY_USER_PROPERTY, <<"mq-key">>).
 
+-define(MQ_CONSUMER_DB, mq_consumer).
+
 %% TODO
 %% make configurable, increase
 
