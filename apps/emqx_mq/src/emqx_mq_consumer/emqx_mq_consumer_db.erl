@@ -29,11 +29,10 @@
 %% Types
 %%--------------------------------------------------------------------
 
--type mq_topic() :: emqx_mq_types:mq_topic().
 -type consumer_ref() :: emqx_mq_types:consumer_ref().
 -type timestamp() :: non_neg_integer().
 -type consumer_data() :: emqx_mq_types:consumer_data().
--type claim() :: {consumer_ref(), timestamp()}.
+-type claim() :: #claim{}.
 
 -export_type([
     claim/0
@@ -45,13 +44,13 @@
 
 -define(MQ_CONSUMER_DB_LTS_SETTINGS, #{
     %% "topic/TOPIC/INFO_KEY"
-    lts_threshold_spec => {simple, {100, 0, 1000}}
+    lts_threshold_spec => {simple, {100, 0, 1000, 0}}
 }).
--define(TOPIC_LEADERSHIP(MQ_TOPIC), [
-    <<"topic">>, MQ_TOPIC, <<"leader">>
+-define(TOPIC_LEADERSHIP(MQ_TOPIC, MQ_ID), [
+    <<"topic">>, MQ_TOPIC, <<"leader">>, MQ_ID
 ]).
--define(TOPIC_CONSUMER_DATA(MQ_TOPIC), [
-    <<"topic">>, MQ_TOPIC, <<"data">>
+-define(TOPIC_CONSUMER_DATA(MQ_TOPIC, MQ_ID), [
+    <<"topic">>, MQ_TOPIC, <<"data">>, MQ_ID
 ]).
 -define(SHARDS_PER_SITE, 4).
 -define(REPLICATION_FACTOR, 3).
@@ -67,22 +66,25 @@ open() ->
         emqx_ds:wait_db(?MQ_CONSUMER_DB, all, infinity)
     end.
 
--spec claim_leadership(mq_topic(), consumer_ref(), timestamp()) ->
+-spec claim_leadership(emqx_mq_types:mq(), consumer_ref(), timestamp()) ->
     {ok, consumer_data()} | emqx_ds:error(term()).
-claim_leadership(MQTopic, ConsumerRef, TS) ->
-    TxOpts = tx_opts(MQTopic),
-    LeadershipTopic = ?TOPIC_LEADERSHIP(MQTopic),
-    DataTopic = ?TOPIC_CONSUMER_DATA(MQTopic),
-    Claim = {ConsumerRef, TS},
+claim_leadership(MQ, ConsumerRef, TS) ->
+    TxOpts = tx_opts(MQ),
+    LeadershipTopic = topic_leadership(MQ),
+    DataTopic = topic_consumer_data(MQ),
+    Claim = #claim{consumer_ref = ConsumerRef, last_seen_timestamp = TS, tombstone = false},
     TxRes = emqx_ds:trans(TxOpts, fun() ->
         case read_claim(LeadershipTopic) of
             not_found ->
                 ok = write_claim(LeadershipTopic, Claim),
                 {ok, read_or_init_consumer_data(DataTopic)};
-            {ok, {ConsumerRef, _TS}} ->
+            {ok, #claim{tombstone = true}} ->
+                %% Tombstone, queue was removed
+                {error, unrecoverable, queue_removed};
+            {ok, #claim{consumer_ref = ConsumerRef}} ->
                 %% This should never happen, a process does not call `claim_leadership` twice
                 {error, unrecoverable, claim_self};
-            {ok, {_ConsumerRef, OldTS}} when OldTS < TS - ?LEADER_TTL ->
+            {ok, #claim{last_seen_timestamp = OldTS}} when OldTS < TS - ?LEADER_TTL ->
                 %% Outdated claim, we can replace it
                 ok = write_claim(LeadershipTopic, Claim),
                 {ok, read_or_init_consumer_data(DataTopic)};
@@ -92,10 +94,10 @@ claim_leadership(MQTopic, ConsumerRef, TS) ->
     end),
     get_result(TxRes).
 
--spec find_consumer(mq_topic(), timestamp()) ->
+-spec find_consumer(emqx_mq_types:mq(), timestamp()) ->
     {ok, consumer_ref()} | not_found.
-find_consumer(MQTopic, TS) ->
-    LeadershipTopic = ?TOPIC_LEADERSHIP(MQTopic),
+find_consumer(#{topic_filter := MQTopic} = MQ, TS) ->
+    LeadershipTopic = topic_leadership(MQ),
     case emqx_ds:dirty_read(?MQ_CONSUMER_DB, LeadershipTopic) of
         [] ->
             not_found;
@@ -113,18 +115,20 @@ find_consumer(MQTopic, TS) ->
             end
     end.
 
--spec update_consumer_data(mq_topic(), consumer_ref(), consumer_data(), timestamp()) ->
+-spec update_consumer_data(emqx_mq_types:mq(), consumer_ref(), consumer_data(), timestamp()) ->
     ok | emqx_ds:error(term()).
-update_consumer_data(MQTopic, ConsumerRef, ConsumerData, TS) ->
-    TxOpts = tx_opts(MQTopic),
-    LeadershipTopic = ?TOPIC_LEADERSHIP(MQTopic),
-    DataTopic = ?TOPIC_CONSUMER_DATA(MQTopic),
+update_consumer_data(MQ, ConsumerRef, ConsumerData, TS) ->
+    TxOpts = tx_opts(MQ),
+    LeadershipTopic = topic_leadership(MQ),
+    DataTopic = topic_consumer_data(MQ),
     TxRes = emqx_ds:trans(TxOpts, fun() ->
         case read_claim(LeadershipTopic) of
-            {ok, {ConsumerRef, _TS}} ->
-                ok = write_claim(LeadershipTopic, {ConsumerRef, TS}),
+            {ok, #claim{consumer_ref = ConsumerRef}} ->
+                ok = write_claim(LeadershipTopic, #claim{
+                    consumer_ref = ConsumerRef, last_seen_timestamp = TS, tombstone = false
+                }),
                 ok = write_consumer_data(DataTopic, ConsumerData);
-            {ok, {OtherConsumer, _OldTS}} ->
+            {ok, #claim{consumer_ref = OtherConsumer}} ->
                 {error, unrecoverable, {claim_lost, OtherConsumer}};
             not_found ->
                 {error, unrecoverable, claim_disappeared};
@@ -134,11 +138,11 @@ update_consumer_data(MQTopic, ConsumerRef, ConsumerData, TS) ->
     end),
     get_result(TxRes).
 
--spec drop_leadership(mq_topic()) ->
+-spec drop_leadership(emqx_mq_types:mq()) ->
     ok | emqx_ds:error(term()).
-drop_leadership(MQTopic) ->
-    TxOpts = tx_opts(MQTopic),
-    LeadershipTopic = ?TOPIC_LEADERSHIP(MQTopic),
+drop_leadership(MQ) ->
+    TxOpts = tx_opts(MQ),
+    LeadershipTopic = topic_leadership(MQ),
     TxRes = emqx_ds:trans(TxOpts, fun() ->
         ok = delete_claim(LeadershipTopic)
     end),
@@ -220,6 +224,12 @@ decode_consumer_data(DataBin) ->
 encode_consumer_data(Data) ->
     emqx_mq_consumer_db_serializer:encode_consumer_data(Data).
 
+topic_leadership(#{topic_filter := MQTopic, id := MQId}) ->
+    ?TOPIC_LEADERSHIP(MQTopic, MQId).
+
+topic_consumer_data(#{topic_filter := MQTopic, id := MQId}) ->
+    ?TOPIC_CONSUMER_DATA(MQTopic, MQId).
+
 settings() ->
     NSites = length(emqx:running_nodes()),
     #{
@@ -239,10 +249,10 @@ settings() ->
         replication_factor => ?REPLICATION_FACTOR
     }.
 
-tx_opts(MQTopic) ->
+tx_opts(#{topic_filter := MQTopic, id := MQId}) ->
     #{
         db => ?MQ_CONSUMER_DB,
-        shard => {auto, MQTopic},
+        shard => {auto, {MQTopic, MQId}},
         generation => 1,
         sync => true,
         retries => 5

@@ -47,6 +47,12 @@
 
 -define(MQ_CONSUMER_DB, mq_consumer).
 
+-record(claim, {
+    consumer_ref :: emqx_mq_types:consumer_ref(),
+    last_seen_timestamp :: non_neg_integer(),
+    tombstone :: boolean()
+}).
+
 %% TODO
 %% make configurable, increase
 

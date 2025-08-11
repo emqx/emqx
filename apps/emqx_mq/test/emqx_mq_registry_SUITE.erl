@@ -32,10 +32,10 @@ end_per_suite(Config) ->
 %%--------------------------------------------------------------------
 
 t_crud(_Config) ->
-    ok = emqx_mq_test_utils:create_mq(<<"a/b/c">>),
-    ok = emqx_mq_test_utils:create_mq(<<"a/b/#">>),
-    ok = emqx_mq_test_utils:create_mq(<<"a/#">>),
-    ok = emqx_mq_test_utils:create_mq(<<"a/+/d">>),
+    _ = emqx_mq_test_utils:create_mq(<<"a/b/c">>),
+    _ = emqx_mq_test_utils:create_mq(<<"a/b/#">>),
+    _ = emqx_mq_test_utils:create_mq(<<"a/#">>),
+    _ = emqx_mq_test_utils:create_mq(<<"a/+/d">>),
     ?assertMatch(
         [
             #{topic_filter := <<"a/b/c">>},

@@ -68,7 +68,7 @@ end_per_testcase(_CaseName, _Config) ->
 %% Consume some history messages from a non-compacted queue
 t_publish_and_consume(_Config) ->
     %% Create a non-compacted Queue
-    ok = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
 
     %% Publish 100 messages to the queue
     ok =
@@ -94,7 +94,7 @@ t_publish_and_consume(_Config) ->
 %% Consume some history messages from a compacted queue
 t_publish_and_consume_compacted(_Config) ->
     %% Create a non-compacted Queue
-    ok = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => true}),
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => true}),
 
     %% Publish 100 messages to the queue
     ok =
@@ -123,7 +123,7 @@ t_publish_and_consume_compacted(_Config) ->
 %% a critical amount of unacked messages
 t_backpressure(_Config) ->
     %% Create a non-compacted Queue
-    ok =
+    _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
@@ -186,7 +186,7 @@ t_backpressure(_Config) ->
 %% if a subscriber received the message but disconnected before acknowledging it
 t_redispatch_on_disconnect(_Config) ->
     %% Create a non-compacted Queue
-    ok = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
 
     %% Connect two subscribers
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
@@ -237,7 +237,7 @@ t_redispatch_on_disconnect(_Config) ->
 %% Cooperatively consume online messages with random dispatching
 t_random_dispatch(_Config) ->
     %% Create a non-compacted Queue
-    ok = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
 
     %% Subscribe to the queue
     CSub0 = emqx_mq_test_utils:emqtt_connect([]),
@@ -280,7 +280,7 @@ t_random_dispatch(_Config) ->
 %% Cooperatively consume online messages with hash dispatching
 t_hash_dispatch(_Config) ->
     %% Create a non-compacted Queue
-    ok =
+    _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
@@ -335,7 +335,7 @@ t_hash_dispatch(_Config) ->
 %% Cooperatively consume online messages with least inflight dispatching
 t_least_inflight_dispatch(_Config) ->
     %% Create a non-compacted Queue
-    ok =
+    _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
@@ -401,7 +401,7 @@ t_least_inflight_dispatch(_Config) ->
 %% i.e. a session that exhausted the limit of inflight messages
 t_busy_session(_Config) ->
     %% Create a non-compacted Queue
-    ok =
+    _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
@@ -473,7 +473,7 @@ t_busy_session(_Config) ->
 %% * unacked messages are re-delivered
 t_progress_restoration(_Config) ->
     %% Create a non-compacted Queue
-    ok =
+    MQ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
@@ -518,7 +518,7 @@ t_progress_restoration(_Config) ->
 
     %% Disconnect the client and wait for the consumer to stop and save the progress
     ok = emqtt:disconnect(CSub0),
-    ok = wait_for_consumer_stop(<<"t/#">>, 100),
+    ok = wait_for_consumer_stop(MQ, 100),
 
     %% Start the client and the consumer again
     CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
@@ -552,7 +552,7 @@ t_progress_restoration(_Config) ->
 %% when the consumption buffer is full
 t_progress_restoration_full_buffer(_Config) ->
     %% Create a non-compacted Queue
-    ok =
+    MQ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
@@ -584,7 +584,7 @@ t_progress_restoration_full_buffer(_Config) ->
 
     %% Disconnect the client and wait for the consumer to stop and save the progress
     ok = emqtt:disconnect(CSub0),
-    ok = wait_for_consumer_stop(<<"t/#">>, 100),
+    ok = wait_for_consumer_stop(MQ, 100),
 
     %% Start the client and the consumer again
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
@@ -601,7 +601,7 @@ t_progress_restoration_full_buffer(_Config) ->
 %% if a subscriber rejected the message
 t_redispatch_on_reject_random(_Config) ->
     %% Create a non-compacted Queue
-    ok =
+    _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
@@ -664,7 +664,7 @@ t_redispatch_on_reject_random(_Config) ->
 %% (random & least_inflight dispatch strategies)
 t_redispatch(Config) ->
     %% Create a non-compacted Queue
-    ok =
+    _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
@@ -719,7 +719,7 @@ t_redispatch(Config) ->
 %% (hash dispatch strategy)
 t_redispatch_on_reject_hash(_Config) ->
     %% Create a non-compacted Queue
-    ok =
+    _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
@@ -774,9 +774,9 @@ binfmt(Format, Args) ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-wait_for_consumer_stop(Topic, Ms) when Ms > 5 ->
+wait_for_consumer_stop(MQ, Ms) when Ms > 5 ->
     ?retry(
         5,
         1 + Ms div 5,
-        ?assert(emqx_mq_consumer_db:find_consumer(Topic, now_ms()) == not_found)
+        ?assert(emqx_mq_consumer_db:find_consumer(MQ, now_ms()) == not_found)
     ).

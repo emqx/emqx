@@ -78,12 +78,12 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
         dispatch_strategy => random,
         local_max_inflight => 4
     },
-    MQ = maps:merge(Default, MQ0),
+    MQ1 = maps:merge(Default, MQ0),
 
     SampleTopic0 = string:replace(TopicFilter, "#", "x", all),
     SampleTopic1 = string:replace(SampleTopic0, "+", "x", all),
     SampleTopic = iolist_to_binary(SampleTopic1),
-    ok = emqx_mq_registry:create(MQ),
+    MQ = emqx_mq_registry:create(MQ1),
     ?retry(
         5,
         100,
@@ -96,7 +96,7 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
             )
         )
     ),
-    ok.
+    MQ.
 
 populate(N, Fun) ->
     C = emqx_mq_test_utils:emqtt_connect([]),

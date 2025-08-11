@@ -74,9 +74,6 @@ channels subscribed to a Message Queue.
 %% API
 %%--------------------------------------------------------------------
 
-%% TODO
-%% Tidy up the State vs State naming and position of the state argument
-
 -spec new(emqx_mq_types:mq()) -> t().
 new(MQ) ->
     #state{

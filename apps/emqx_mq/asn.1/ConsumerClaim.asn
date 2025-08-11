@@ -7,11 +7,12 @@ BEGIN
 
   ConsumerClaimV1 ::= SEQUENCE {
     consumerRef ConsumerRef,
-    lastSeenTimestamp LastSeenTimestamp
+    lastSeenTimestamp LastSeenTimestamp,
+    tombstone BOOLEAN
   }
 
   ConsumerClaim ::= CHOICE {
-    v0 ConsumerClaimV1,
+    v1 ConsumerClaimV1,
     ...
   }
 END

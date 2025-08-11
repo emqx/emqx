@@ -28,6 +28,7 @@ The module contains basic types for the Message Queue application.
 
 -type mq() :: #{
     topic_filter := mq_topic(),
+    id := binary(),
     is_compacted := boolean(),
     consumer_max_inactive_ms := interval_ms(),
     ping_interval_ms := interval_ms(),

@@ -28,17 +28,21 @@ This module provides serialization/deserialization into/from binary of
 %%--------------------------------------------------------------------
 
 -spec encode_claim(emqx_mq_consumer_db:claim()) -> binary().
-encode_claim({ConsumerRef, LastSeenTimestamp} = _Claim) when
+encode_claim(
+    #claim{
+        consumer_ref = ConsumerRef, last_seen_timestamp = LastSeenTimestamp, tombstone = Tombstone
+    } = _Claim
+) when
     is_pid(ConsumerRef) andalso is_integer(LastSeenTimestamp)
 ->
     {ok, Bin} = 'ConsumerClaim':encode(
         'ConsumerClaim',
         {v1, #'ConsumerClaimV1'{
             consumerRef = pack_consumer_ref(ConsumerRef),
-            lastSeenTimestamp = LastSeenTimestamp
+            lastSeenTimestamp = LastSeenTimestamp,
+            tombstone = Tombstone
         }}
     ),
-    ct:print("Bin: ~p~n", [Bin]),
     Bin.
 
 -spec decode_claim(binary()) -> emqx_mq_consumer_db:claim().
@@ -46,24 +50,13 @@ decode_claim(Bin) ->
     {ok,
         {v1, #'ConsumerClaimV1'{
             consumerRef = ConsumerRefBin,
-            lastSeenTimestamp = LastSeenTimestamp
+            lastSeenTimestamp = LastSeenTimestamp,
+            tombstone = Tombstone
         }}} = 'ConsumerClaim':decode('ConsumerClaim', Bin),
-    {unpack_consumer_ref(ConsumerRefBin), LastSeenTimestamp}.
-
--spec decode_consumer_data(binary()) -> emqx_mq_types:consumer_data().
-decode_consumer_data(Bin) ->
-    {ok,
-        {v1, #'ConsumerStateV1'{
-            progress = #'Progress'{
-                generationProgress = GenerationProgress,
-                streamProgress = StreamProgress
-            }
-        }}} = 'ConsumerState':decode('ConsumerState', Bin),
-    #{
-        progress => #{
-            generation_progress => unpack_generation_progress(GenerationProgress),
-            streams_progress => unpack_streams_progress(StreamProgress)
-        }
+    #claim{
+        consumer_ref = unpack_consumer_ref(ConsumerRefBin),
+        last_seen_timestamp = LastSeenTimestamp,
+        tombstone = Tombstone
     }.
 
 -spec encode_consumer_data(emqx_mq_types:consumer_data()) -> binary().
@@ -83,6 +76,22 @@ encode_consumer_data(#{
         }}
     ),
     Bin.
+
+-spec decode_consumer_data(binary()) -> emqx_mq_types:consumer_data().
+decode_consumer_data(Bin) ->
+    {ok,
+        {v1, #'ConsumerStateV1'{
+            progress = #'Progress'{
+                generationProgress = GenerationProgress,
+                streamProgress = StreamProgress
+            }
+        }}} = 'ConsumerState':decode('ConsumerState', Bin),
+    #{
+        progress => #{
+            generation_progress => unpack_generation_progress(GenerationProgress),
+            streams_progress => unpack_streams_progress(StreamProgress)
+        }
+    }.
 
 %%--------------------------------------------------------------------
 %% Internal functions

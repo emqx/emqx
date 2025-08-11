@@ -42,7 +42,7 @@ Consumer's responsibilities:
 ]).
 
 -record(state, {
-    topic_filter :: binary(),
+    mq :: emqx_mq_types:mq(),
     streams :: emqx_mq_consumer_streams:t(),
     server :: emqx_mq_consumer_server:t()
 }).
@@ -115,7 +115,7 @@ stop(Pid) ->
 
 init([#{topic_filter := MQTopicFilter} = MQ]) ->
     erlang:process_flag(trap_exit, true),
-    ClaimRes = emqx_mq_consumer_db:claim_leadership(MQTopicFilter, self_consumer_ref(), now_ms()),
+    ClaimRes = emqx_mq_consumer_db:claim_leadership(MQ, self_consumer_ref(), now_ms()),
     ?tp(warning, mq_consumer_init, #{mq_topic_filter => MQTopicFilter, claim_res => ClaimRes}),
     case ClaimRes of
         {ok, ConsumerData} ->
@@ -126,7 +126,7 @@ init([#{topic_filter := MQTopicFilter} = MQ]) ->
             Streams = emqx_mq_consumer_streams:new(MQTopicFilter, Progress),
             Server = emqx_mq_consumer_server:new(MQ),
             {ok, #state{
-                topic_filter = MQTopicFilter,
+                mq = MQ,
                 streams = Streams,
                 server = Server
             }};
@@ -147,7 +147,7 @@ handle_info(#info_to_mq_server{message = Message}, State) ->
     handle_mq_server_info(Message, State);
 handle_info(#persist_consumer_data{}, State) ->
     handle_persist_consumer_data(State);
-handle_info(Request, #state{topic_filter = MQTopicFilter} = State0) ->
+handle_info(Request, #state{mq = #{topic_filter := MQTopicFilter}} = State0) ->
     % ?tp(warning, mq_consumer_handle_info, #{request => Request, mq_topic => MQTopicFilter}),
     case handle_ds_info(Request, State0) of
         ignore ->
@@ -157,7 +157,7 @@ handle_info(Request, #state{topic_filter = MQTopicFilter} = State0) ->
             {noreply, State}
     end.
 
-terminate(_Reason, #state{topic_filter = _MQTopicFilter} = State) ->
+terminate(_Reason, #state{} = State) ->
     handle_shutdown(State).
 
 %%--------------------------------------------------------------------
@@ -197,7 +197,7 @@ handle_persist_consumer_data(State) ->
             {stop, Error, State}
     end.
 
-persist_consumer_data(#state{topic_filter = MQTopicFilter, streams = Streams}) ->
+persist_consumer_data(#state{mq = #{topic_filter := MQTopicFilter} = MQ, streams = Streams}) ->
     PersistData = #{
         progress => emqx_mq_consumer_streams:progress(Streams)
     },
@@ -207,15 +207,15 @@ persist_consumer_data(#state{topic_filter = MQTopicFilter, streams = Streams}) -
         persist_streams_data => PersistData
     }),
     emqx_mq_consumer_db:update_consumer_data(
-        MQTopicFilter,
+        MQ,
         self_consumer_ref(),
         PersistData,
         now_ms()
     ).
 
-handle_shutdown(#state{topic_filter = MQTopicFilter} = State) ->
+handle_shutdown(#state{mq = #{topic_filter := MQTopicFilter} = MQ} = State) ->
     PersistRes = persist_consumer_data(State),
-    DropLeadershipRes = emqx_mq_consumer_db:drop_leadership(MQTopicFilter),
+    DropLeadershipRes = emqx_mq_consumer_db:drop_leadership(MQ),
     ?tp(warning, mq_consumer_shutdown, #{
         mq_topic_filter => MQTopicFilter,
         persist_res => PersistRes,
@@ -233,7 +233,7 @@ find_consumer(#{topic_filter := MQTopicFilter} = _MQ, 0) ->
     }),
     not_found;
 find_consumer(#{topic_filter := MQTopicFilter} = MQ, Retries) ->
-    case emqx_mq_consumer_db:find_consumer(MQTopicFilter, now_ms()) of
+    case emqx_mq_consumer_db:find_consumer(MQ, now_ms()) of
         {ok, ConsumerRef} ->
             {ok, ConsumerRef};
         not_found ->

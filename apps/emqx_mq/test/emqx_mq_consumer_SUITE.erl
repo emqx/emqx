@@ -43,7 +43,7 @@ end_per_testcase(_TestCase, _Config) ->
 %% Verify that the consumer stops itself after there are no active subscribers for a while
 t_auto_shutdown(_Config) ->
     %% Create a non-compacted Queue
-    ok = emqx_mq_test_utils:create_mq(#{
+    _ = emqx_mq_test_utils:create_mq(#{
         topic_filter => <<"t1/#">>, is_compacted => false, consumer_max_inactive_ms => 50
     }),
 

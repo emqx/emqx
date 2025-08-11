@@ -57,11 +57,13 @@ create_tables() ->
 -doc """
 Create a new MQ.
 """.
--spec create(emqx_mq_types:mq()) -> ok.
+-spec create(emqx_mq_types:mq()) -> emqx_mq_types:mq().
 create(#{topic_filter := TopicFilter} = MQ) ->
+    Id = emqx_guid:gen(),
     Key = make_key(TopicFilter),
-    RegistryMQ = maps:remove(topic_filter, MQ),
-    ok = mria:dirty_write(#?MQ_REGISTRY_TAB{key = Key, mq = RegistryMQ}).
+    RegistryMQ = maps:remove(topic_filter, MQ#{id => Id}),
+    ok = mria:dirty_write(#?MQ_REGISTRY_TAB{key = Key, mq = RegistryMQ}),
+    MQ#{id => Id}.
 
 -doc """
 Find all MQs matching the given concrete topic.
