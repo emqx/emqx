@@ -2,7 +2,7 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_mq_consumer_db_serialization).
+-module(emqx_mq_consumer_db_serializer).
 
 -moduledoc """
 This module provides serialization/deserialization into/from binary of
@@ -31,28 +31,34 @@ This module provides serialization/deserialization into/from binary of
 encode_claim({ConsumerRef, LastSeenTimestamp} = _Claim) when
     is_pid(ConsumerRef) andalso is_integer(LastSeenTimestamp)
 ->
-    {ok, Bin} = 'ConsumerClaim':encode('ConsumerClaim', #'ConsumerClaim'{
-        consumerRef = pack_consumer_ref(ConsumerRef),
-        lastSeenTimestamp = LastSeenTimestamp
-    }),
+    {ok, Bin} = 'ConsumerClaim':encode(
+        'ConsumerClaim',
+        {v1, #'ConsumerClaimV1'{
+            consumerRef = pack_consumer_ref(ConsumerRef),
+            lastSeenTimestamp = LastSeenTimestamp
+        }}
+    ),
+    ct:print("Bin: ~p~n", [Bin]),
     Bin.
 
 -spec decode_claim(binary()) -> emqx_mq_consumer_db:claim().
 decode_claim(Bin) ->
-    {ok, #'ConsumerClaim'{
-        consumerRef = ConsumerRefBin,
-        lastSeenTimestamp = LastSeenTimestamp
-    }} = 'ConsumerClaim':decode('ConsumerClaim', Bin),
+    {ok,
+        {v1, #'ConsumerClaimV1'{
+            consumerRef = ConsumerRefBin,
+            lastSeenTimestamp = LastSeenTimestamp
+        }}} = 'ConsumerClaim':decode('ConsumerClaim', Bin),
     {unpack_consumer_ref(ConsumerRefBin), LastSeenTimestamp}.
 
 -spec decode_consumer_data(binary()) -> emqx_mq_types:consumer_data().
 decode_consumer_data(Bin) ->
-    {ok, #'ConsumerState'{
-        progress = #'Progress'{
-            generationProgress = GenerationProgress,
-            streamProgress = StreamProgress
-        }
-    }} = 'ConsumerState':decode('ConsumerState', Bin),
+    {ok,
+        {v1, #'ConsumerStateV1'{
+            progress = #'Progress'{
+                generationProgress = GenerationProgress,
+                streamProgress = StreamProgress
+            }
+        }}} = 'ConsumerState':decode('ConsumerState', Bin),
     #{
         progress => #{
             generation_progress => unpack_generation_progress(GenerationProgress),
@@ -67,12 +73,15 @@ encode_consumer_data(#{
         streams_progress := StreamProgress
     }
 }) ->
-    {ok, Bin} = 'ConsumerState':encode('ConsumerState', #'ConsumerState'{
-        progress = #'Progress'{
-            generationProgress = pack_generation_progress(GenerationProgress),
-            streamProgress = pack_streams_progress(StreamProgress)
-        }
-    }),
+    {ok, Bin} = 'ConsumerState':encode(
+        'ConsumerState',
+        {v1, #'ConsumerStateV1'{
+            progress = #'Progress'{
+                generationProgress = pack_generation_progress(GenerationProgress),
+                streamProgress = pack_streams_progress(StreamProgress)
+            }
+        }}
+    ),
     Bin.
 
 %%--------------------------------------------------------------------
@@ -95,22 +104,14 @@ pack_streams_progress(StreamProgress) ->
         fun(
             {Stream, #{
                 slab := {Shard, Generation},
-                progress := #{
-                    it := It,
-                    last_message_id := LastMessageId,
-                    unacked := Unacked
-                }
+                progress := BufferProgress
             }}
         ) ->
             #'StreamProgress'{
                 shard = Shard,
                 generation = Generation,
                 stream = pack_stream(Stream),
-                bufferProgress = #'StreamBufferProgress'{
-                    it = pack_it(It),
-                    lastMessageId = pack_last_message_id(LastMessageId),
-                    unacked = Unacked
-                }
+                bufferProgress = pack_buffer_progress(BufferProgress)
             }
         end,
         maps:to_list(StreamProgress)
@@ -121,12 +122,17 @@ pack_last_message_id(undefined) ->
 pack_last_message_id(MessageId) when is_integer(MessageId) ->
     MessageId.
 
+pack_buffer_progress(finished) ->
+    {finished, asn1_NOVALUE};
+pack_buffer_progress(#{it := It, last_message_id := LastMessageId, unacked := Unacked}) ->
+    {active, #'ActiveStreamBufferProgress'{
+        it = pack_it(It),
+        lastMessageId = pack_last_message_id(LastMessageId),
+        unacked = Unacked
+    }}.
+
 pack_consumer_ref(ConsumerRef) ->
     term_to_binary(ConsumerRef).
-
-%% TODO
-%% how to encode streams and iterators having in mind that they are
-%% opaque terms?
 
 pack_it(It) ->
     {ok, ItBin} = emqx_ds:iterator_to_binary(?MQ_CONSUMER_DB, It),
@@ -143,28 +149,35 @@ unpack_streams_progress(StreamProgress) ->
                 shard = Shard,
                 generation = Generation,
                 stream = StreamPacked,
-                bufferProgress = #'StreamBufferProgress'{
-                    it = ItPacked,
-                    lastMessageId = LastMessageIdPacked,
-                    unacked = Unacked
-                }
+                bufferProgress = PackedBufferProgress
             },
             Acc
         ) ->
             Acc#{
                 unpack_stream(StreamPacked) => #{
                     slab => {Shard, Generation},
-                    progress => #{
-                        it => unpack_it(ItPacked),
-                        last_message_id => unpack_last_message_id(LastMessageIdPacked),
-                        unacked => Unacked
-                    }
+                    progress => unpack_buffer_progress(PackedBufferProgress)
                 }
             }
         end,
         #{},
         StreamProgress
     ).
+
+unpack_buffer_progress({finished, _}) ->
+    finished;
+unpack_buffer_progress(
+    {active, #'ActiveStreamBufferProgress'{
+        it = ItPacked,
+        lastMessageId = LastMessageIdPacked,
+        unacked = Unacked
+    }}
+) ->
+    #{
+        it => unpack_it(ItPacked),
+        last_message_id => unpack_last_message_id(LastMessageIdPacked),
+        unacked => Unacked
+    }.
 
 unpack_generation_progress(GenerationProgress) ->
     lists:foldl(

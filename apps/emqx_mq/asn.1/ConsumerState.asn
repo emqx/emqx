@@ -7,7 +7,12 @@ BEGIN
     generation INTEGER
   }
 
-  StreamBufferProgress ::= SEQUENCE {
+  StreamBufferProgress ::= CHOICE {
+    finished NULL,
+    active ActiveStreamBufferProgress
+  }
+
+  ActiveStreamBufferProgress ::= SEQUENCE {
     it OCTET STRING,
     lastMessageId INTEGER OPTIONAL,
     unacked SEQUENCE OF INTEGER
@@ -25,7 +30,11 @@ BEGIN
     streamProgress SEQUENCE OF StreamProgress
   }
 
-  ConsumerState ::= SEQUENCE {
+  ConsumerStateV1 ::= SEQUENCE {
     progress Progress
+  }
+
+  ConsumerState ::= CHOICE {
+    v1 ConsumerStateV1
   }
 END

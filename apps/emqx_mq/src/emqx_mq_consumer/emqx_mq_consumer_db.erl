@@ -209,16 +209,16 @@ write_consumer_data(DataTopic, Data) ->
     emqx_ds:tx_write({DataTopic, 0, encode_consumer_data(Data)}).
 
 decode_claim(ClaimBin) ->
-    emqx_mq_consumer_db_serialization:decode_claim(ClaimBin).
+    emqx_mq_consumer_db_serializer:decode_claim(ClaimBin).
 
 encode_claim(Claim) ->
-    emqx_mq_consumer_db_serialization:encode_claim(Claim).
+    emqx_mq_consumer_db_serializer:encode_claim(Claim).
 
 decode_consumer_data(DataBin) ->
-    emqx_mq_consumer_db_serialization:decode_consumer_data(DataBin).
+    emqx_mq_consumer_db_serializer:decode_consumer_data(DataBin).
 
 encode_consumer_data(Data) ->
-    emqx_mq_consumer_db_serialization:encode_consumer_data(Data).
+    emqx_mq_consumer_db_serializer:encode_consumer_data(Data).
 
 settings() ->
     NSites = length(emqx:running_nodes()),
