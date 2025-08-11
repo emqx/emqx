@@ -32,7 +32,7 @@
     unpack_iterator/2,
     scan_stream/6,
     high_watermark/3,
-    fast_forward/4,
+    fast_forward/5,
     message_match_context/4,
     iterator_match_context/2,
 
@@ -45,7 +45,7 @@
     update_config/3,
     add_generation/2,
     list_generations_with_lifetimes/1,
-    drop_generation/2,
+    drop_slab/2,
     find_generation/2,
 
     %% Global
@@ -181,7 +181,7 @@
 -type cf_refs() :: [cf_ref()].
 
 -type gen_id() :: 0..16#ffff.
--type gen_info() :: #{
+-type slab_info() :: #{
     created_at := emqx_ds:time(),
     since := emqx_ds:time(),
     until := undefined | emqx_ds:time(),
@@ -726,26 +726,21 @@ scan_stream(
             ?ERR_GEN_GONE
     end.
 
+fast_forward(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, Key, Now, BatchSize) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:fast_forward(Shard, GenData, Inner0, Key, Now, BatchSize);
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
 high_watermark(Shard, ?stream_v2(_, _) = Stream, Now) ->
-    case make_iterator(Shard, Stream, ['#'], Now) of
+    case make_iterator(Shard, Stream, ['#'], max(0, Now - 1)) of
         {ok, It} ->
             #{last_seen_key := LSK} = unpack_iterator(Shard, It),
             {ok, LSK};
         Err ->
             Err
-    end.
-
-fast_forward(Shard, It = #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, Key, Now) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            case Mod:fast_forward(Shard, GenData, Inner0, Key, Now) of
-                {ok, Inner} ->
-                    {ok, It#{?enc := Inner}};
-                Other ->
-                    Other
-            end;
-        not_found ->
-            ?ERR_GEN_GONE
     end.
 
 message_match_context(Shard, ?stream_v2(GenId, Inner), MsgKey, Message) ->
@@ -861,16 +856,16 @@ lookup_message(ShardId, Matcher = #message_matcher{timestamp = Time}) ->
     end.
 
 -spec list_generations_with_lifetimes(dbshard()) ->
-    #{gen_id() => gen_info()}.
+    #{gen_id() => slab_info()}.
 list_generations_with_lifetimes(ShardId) ->
     gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
 
--spec drop_generation(dbshard(), gen_id()) -> ok | {error, _}.
-drop_generation(ShardId, GenId) ->
+-spec drop_slab(dbshard(), gen_id()) -> ok | {error, _}.
+drop_slab(ShardId, GenId) ->
     gen_server:call(?REF(ShardId), #call_drop_generation{gen_id = GenId}, infinity).
 
 -spec find_generation(dbshard(), current | _At :: emqx_ds:time()) ->
-    {gen_id(), gen_info()} | not_found.
+    {gen_id(), slab_info()} | not_found.
 find_generation(ShardId, current) ->
     GenId = generation_current(ShardId),
     GenData = #{} = generation_get(ShardId, GenId),

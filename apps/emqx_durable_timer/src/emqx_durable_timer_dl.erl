@@ -384,7 +384,8 @@ epoch_tx_opts(Shard, Other) ->
         generation => generation(),
         shard => Shard,
         retries => 10,
-        retry_interval => 1000
+        retry_interval => 1000,
+        timeout => 10_000
     }.
 
 has_data(Shard, Topic) ->

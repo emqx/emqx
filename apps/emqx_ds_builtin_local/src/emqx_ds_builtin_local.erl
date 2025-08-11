@@ -20,7 +20,7 @@
     list_shards/1,
     shard_of/2,
     list_generations_with_lifetimes/1,
-    drop_generation/2,
+    drop_slab/2,
     drop_db/1,
     store_batch/3,
     get_streams/4,
@@ -45,7 +45,7 @@
     unpack_iterator/2,
     scan_stream/5,
     high_watermark/2,
-    fast_forward/3,
+    fast_forward/4,
     message_match_context/4,
     iterator_match_context/2,
 
@@ -243,9 +243,9 @@ list_generations_with_lifetimes(DB) ->
         emqx_ds_builtin_local_meta:shards(DB)
     ).
 
--spec drop_generation(emqx_ds:db(), slab()) -> ok | {error, _}.
-drop_generation(DB, {Shard, GenId}) ->
-    emqx_ds_storage_layer:drop_generation({DB, Shard}, GenId).
+-spec drop_slab(emqx_ds:db(), slab()) -> ok | {error, _}.
+drop_slab(DB, {Shard, GenId}) ->
+    emqx_ds_storage_layer:drop_slab({DB, Shard}, GenId).
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
@@ -544,15 +544,16 @@ high_watermark(DBShard, Stream) ->
             emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now)
     end.
 
-fast_forward(DBShard, It = #'Iterator'{}, Key) ->
-    emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key);
-fast_forward(DBShard, It = #{?tag := ?IT, ?enc := Inner0}, Key) ->
+fast_forward(DBShard, It = #'Iterator'{}, Key, BatchSize) ->
     Now = current_timestamp(DBShard),
-    case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
+    emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now, BatchSize);
+fast_forward(DBShard, #{?tag := ?IT, ?enc := Inner0}, Key, BatchSize) ->
+    Now = current_timestamp(DBShard),
+    case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize) of
         {ok, end_of_stream} ->
             {ok, end_of_stream};
-        {ok, Inner} ->
-            {ok, It#{?enc := Inner}};
+        {ok, Pos, Data} ->
+            {ok, Pos, Data};
         {error, _, _} = Err ->
             Err
     end.
@@ -719,8 +720,9 @@ otx_commit_tx_batch(DBShard = {DB, Shard}, SerCtl, Serial, Timestamp, Batches) -
                     ),
                 %% Commit data:
                 ok ?= emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{}),
-                %% Finally, update read serial:
+                %% Finally, update read serial and last timestamp:
                 emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
+                emqx_ds_builtin_local_meta:set_current_timestamp(DBShard, Timestamp + 1),
                 %% Dispatch events:
                 DispatchF = fun(Stream) -> emqx_ds_beamformer:shard_event(DBShard, [Stream]) end,
                 emqx_ds_storage_layer_ttv:dispatch_events(DBShard, Batches, DispatchF)

@@ -1015,7 +1015,7 @@ t_drop_generation(Config) ->
                 )
             ),
             %% Drop generation while all nodes are online:
-            ?ON(N1, ?assertMatch(ok, emqx_ds:drop_generation(?DB, {<<"0">>, 1}))),
+            ?ON(N1, ?assertMatch(ok, emqx_ds:drop_slab(?DB, {<<"0">>, 1}))),
             ?ON(
                 Nodes,
                 ?assertEqual(
@@ -1029,7 +1029,7 @@ t_drop_generation(Config) ->
                 N1,
                 begin
                     ok = emqx_ds:add_generation(?DB),
-                    ok = emqx_ds:drop_generation(?DB, {<<"0">>, 2})
+                    ok = emqx_ds:drop_slab(?DB, {<<"0">>, 2})
                 end
             ),
             %% Restart N3 and verify that it reached the consistent state:

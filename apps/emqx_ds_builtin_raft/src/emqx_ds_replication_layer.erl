@@ -16,7 +16,7 @@
     add_generation/2,
     update_db_config/2,
     list_generations_with_lifetimes/1,
-    drop_generation/2,
+    drop_slab/2,
     drop_db/1,
     store_batch/3,
     get_streams/4,
@@ -96,7 +96,7 @@
     unpack_iterator/2,
     high_watermark/2,
     scan_stream/5,
-    fast_forward/3,
+    fast_forward/4,
     update_iterator/3,
     message_match_context/4,
     iterator_match_context/2
@@ -364,9 +364,9 @@ list_generations_with_lifetimes(DB) ->
         Shards
     ).
 
--spec drop_generation(emqx_ds:db(), slab()) -> ok | {error, _}.
-drop_generation(DB, {Shard, GenId}) ->
-    ra_drop_generation(DB, Shard, GenId).
+-spec drop_slab(emqx_ds:db(), slab()) -> ok | {error, _}.
+drop_slab(DB, {Shard, GenId}) ->
+    ra_drop_slab(DB, Shard, GenId).
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
@@ -1187,7 +1187,7 @@ ra_update_config(DB, Shard, Opts, Since) ->
     },
     ra_command(DB, Shard, Command, 10).
 
-ra_drop_generation(DB, Shard, GenId) ->
+ra_drop_slab(DB, Shard, GenId) ->
     Command = #{?tag => drop_generation, ?generation => GenId},
     ra_command(DB, Shard, Command, 10).
 
@@ -1558,7 +1558,7 @@ apply(
             generation => GenId
         }
     ),
-    Result = emqx_ds_storage_layer:drop_generation(DBShard, GenId),
+    Result = emqx_ds_storage_layer:drop_slab(DBShard, GenId),
     {State, Result};
 apply(
     _RaftMeta,
@@ -1595,6 +1595,7 @@ apply(
                     emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
                     State = State0#{tx_serial := Serial, latest := Timestamp},
                     Result = ok,
+                    set_ts(DBShard, Timestamp + 1),
                     DispatchF = fun(Stream) ->
                         emqx_ds_beamformer:shard_event(DBShard, [Stream])
                     end,
@@ -1797,24 +1798,26 @@ high_watermark(DBShard = {DB, Shard}, Stream) ->
             emqx_ds_storage_layer:high_watermark(DBShard, Stream, Now)
     end.
 
-fast_forward(DBShard, It = #'Iterator'{}, Key) ->
-    ?IF_SHARD_READY(
-        DBShard,
-        begin
-            %% Now = current_timestamp(DB, Shard),
-            emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key)
-        end
-    );
-fast_forward(DBShard = {DB, Shard}, It = #{?tag := ?IT, ?shard := Shard, ?enc := Inner0}, Key) ->
+fast_forward(DBShard = {DB, Shard}, It = #'Iterator'{}, Key, BatchSize) ->
     ?IF_SHARD_READY(
         DBShard,
         begin
             Now = current_timestamp(DB, Shard),
-            case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now) of
+            emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now, BatchSize)
+        end
+    );
+fast_forward(
+    DBShard = {DB, Shard}, #{?tag := ?IT, ?shard := Shard, ?enc := Inner0}, Key, BatchSize
+) ->
+    ?IF_SHARD_READY(
+        DBShard,
+        begin
+            Now = current_timestamp(DB, Shard),
+            case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize) of
                 {ok, end_of_stream} ->
                     {ok, end_of_stream};
-                {ok, Inner} ->
-                    {ok, It#{?enc := Inner}};
+                {ok, Pos, Data} ->
+                    {ok, Pos, Data};
                 {error, _, _} = Err ->
                     Err
             end
