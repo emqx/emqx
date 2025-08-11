@@ -323,9 +323,8 @@ If this function returns `{ok, LastSeenKey, Batch}`, it means:
 2. All data contained between the initial and the final position of the iterator
    is contained in the batch.
 """.
--callback fast_forward(dbshard(), Iterator, emqx_ds:message_key(), pos_integer()) ->
-    {ok, Iterator, [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
-    | {ok, end_of_stream}
+-callback fast_forward(dbshard(), _Iterator, emqx_ds:message_key(), pos_integer()) ->
+    {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
     | emqx_ds:error(_).
 
 -doc """
