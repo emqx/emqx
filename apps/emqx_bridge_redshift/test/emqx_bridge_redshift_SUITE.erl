@@ -185,7 +185,20 @@ t_rule_action(Config) when is_list(Config) ->
             emqx_bridge_pgsql_SUITE:connect_and_get_payload(HelperCfg)
         )
     end,
+    CheckTrace = fun(Trace) ->
+        ?assertMatch(
+            [#{config := #{codecs := []}} | _],
+            ?of_kind("starting_postgresql_connector", Trace)
+        ),
+        ?assertMatch(
+            [#{opts := _} | _],
+            ?of_kind("postgres_epgsql_connect", Trace)
+        ),
+        [#{opts := ConnOpts} | _] = ?of_kind("postgres_epgsql_connect", Trace),
+        ?assertEqual([], proplists:get_value(codecs, ConnOpts, undefined))
+    end,
     Opts = #{
-        post_publish_fn => PostPublishFn
+        post_publish_fn => PostPublishFn,
+        trace_checkers => [CheckTrace]
     },
     emqx_bridge_v2_testlib:t_rule_action(Config, Opts).
