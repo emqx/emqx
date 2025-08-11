@@ -418,7 +418,7 @@ t_stream_continuity(_Config) ->
     {ok, #{}} = emqx_trace:log_details(Name),
     %% Stream observes discontinuity:
     ?assertMatch(
-        {error, {file_error, Reason}} when Reason == enoent; Reason == stale,
+        {error, Reason} when Reason == {file_error, enoent}; Reason == stale_cursor,
         emqx_trace:stream_log(Name, {cont, Cursor3}, undefined)
     ),
     %% Cleanup:

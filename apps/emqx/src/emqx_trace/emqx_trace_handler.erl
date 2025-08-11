@@ -337,6 +337,9 @@ read_log_fragment_at(#{i := I, in := Inode} = Fragment, Basename, Pos, NBytes) -
                 Error ->
                     Error
             end;
+        {error, enoent} when I >= ?LOG_HANDLER_ROTATION_N_FILES_MAX ->
+            %% Fragment was rotated _and_ deleted, there's a discontinuity.
+            {error, stale};
         {error, Reason} ->
             {error, Reason}
     end.
