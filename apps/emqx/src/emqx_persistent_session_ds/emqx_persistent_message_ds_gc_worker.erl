@@ -100,7 +100,7 @@ now_ms() ->
     erlang:system_time(millisecond).
 
 maybe_gc() ->
-    AllGens = emqx_ds:list_generations_with_lifetimes(?PERSISTENT_MESSAGE_DB),
+    AllGens = emqx_ds:list_slabs(?PERSISTENT_MESSAGE_DB),
     NowMS = now_ms(),
     RetentionPeriod = emqx_config:get([durable_sessions, message_retention_period]),
     TimeThreshold = NowMS - RetentionPeriod,

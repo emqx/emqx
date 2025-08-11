@@ -29,7 +29,7 @@ It takes care of forwarding calls to the underlying DBMS.
     add_generation/1,
     shard_of/2,
     list_shards/1,
-    list_generations_with_lifetimes/1,
+    list_slabs/1,
     drop_slab/2,
     drop_db/1
 ]).
@@ -766,8 +766,8 @@ semantic flags cannot be changed for the existing DBs.
 update_db_config(DB, Opts) ->
     ?module(DB):update_db_config(DB, set_db_defaults(Opts)).
 
--spec list_generations_with_lifetimes(db()) -> #{slab() => slab_info()}.
-list_generations_with_lifetimes(DB) ->
+-spec list_slabs(db()) -> #{slab() => slab_info()}.
+list_slabs(DB) ->
     ?module(DB):list_generations_with_lifetimes(DB).
 
 -doc """

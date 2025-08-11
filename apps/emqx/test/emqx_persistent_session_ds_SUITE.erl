@@ -757,7 +757,7 @@ t_replay_deleted_generation(_Config) ->
             _ = [
                 ok = emqx_ds:drop_slab(?PERSISTENT_MESSAGE_DB, GenId)
              || {GenId, #{until := Until}} <- maps:to_list(
-                    emqx_ds:list_generations_with_lifetimes(?PERSISTENT_MESSAGE_DB)
+                    emqx_ds:list_slabs(?PERSISTENT_MESSAGE_DB)
                 ),
                 is_integer(Until)
             ],
@@ -1598,7 +1598,7 @@ start_local(TestCase, Config0) ->
 %% This function cleans up `messages' DB by rotating generations.
 drop_all_ds_messages() ->
     DB = ?PERSISTENT_MESSAGE_DB,
-    OldSlabs = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    OldSlabs = maps:keys(emqx_ds:list_slabs(DB)),
     ok = emqx_ds:add_generation(DB),
     lists:foreach(
         fun(Slab) ->

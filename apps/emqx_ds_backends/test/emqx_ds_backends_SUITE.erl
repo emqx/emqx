@@ -94,14 +94,14 @@ t_06_smoke_add_generation(Config) ->
 
     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     [{Gen1, #{created_at := Created1, since := Since1, until := undefined}}] = maps:to_list(
-        emqx_ds:list_generations_with_lifetimes(DB)
+        emqx_ds:list_slabs(DB)
     ),
 
     ?assertMatch(ok, emqx_ds:add_generation(DB)),
     [
         {Gen1, #{created_at := Created1, since := Since1, until := Until1}},
         {_Gen2, #{created_at := Created2, since := Since2, until := undefined}}
-    ] = maps:to_list(emqx_ds:list_generations_with_lifetimes(DB)),
+    ] = maps:to_list(emqx_ds:list_slabs(DB)),
     %% Check units of the return values (+/- 10s from test begin time):
     ?give_or_take(BeginTime, 10_000, Created1),
     ?give_or_take(BeginTime, 10_000, Created2),
@@ -114,15 +114,15 @@ t_07_smoke_update_config(Config) ->
     timer:sleep(1000),
     ?assertMatch(
         [{_, _}],
-        maps:to_list(emqx_ds:list_generations_with_lifetimes(DB))
+        maps:to_list(emqx_ds:list_slabs(DB))
     ),
     ?assertMatch(ok, emqx_ds:update_db_config(DB, opts(Config))),
     ?assertMatch(
         [{_, _}, {_, _}],
-        maps:to_list(emqx_ds:list_generations_with_lifetimes(DB))
+        maps:to_list(emqx_ds:list_slabs(DB))
     ).
 
-%% Verifies the basic usage of `list_generations_with_lifetimes' and `drop_generation'...
+%% Verifies the basic usage of `list_slabs' and `drop_generation'...
 %%   1) Cannot drop current generation.
 %%   2) All existing generations are returned by `list_generation_with_lifetimes'.
 %%   3) Dropping a generation removes it from the list.
@@ -133,7 +133,7 @@ t_08_smoke_list_drop_generation(Config) ->
         begin
             ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
             %% Exactly one generation at first.
-            Generations0 = emqx_ds:list_generations_with_lifetimes(DB),
+            Generations0 = emqx_ds:list_slabs(DB),
             ?assertMatch(
                 [{_GenId, #{since := _, until := _}}],
                 maps:to_list(Generations0),
@@ -145,7 +145,7 @@ t_08_smoke_list_drop_generation(Config) ->
 
             %% New gen
             ok = emqx_ds:add_generation(DB),
-            Generations1 = emqx_ds:list_generations_with_lifetimes(DB),
+            Generations1 = emqx_ds:list_slabs(DB),
             ?assertMatch(
                 [
                     {GenId0, #{since := _, until := _}},
@@ -158,7 +158,7 @@ t_08_smoke_list_drop_generation(Config) ->
 
             %% Drop the older one
             ?assertEqual(ok, emqx_ds:drop_slab(DB, GenId0)),
-            Generations2 = emqx_ds:list_generations_with_lifetimes(DB),
+            Generations2 = emqx_ds:list_slabs(DB),
             ?assertMatch(
                 [{GenId1, #{since := _, until := _}}],
                 lists:sort(maps:to_list(Generations2)),
@@ -173,7 +173,7 @@ t_08_smoke_list_drop_generation(Config) ->
             {ok, _} = application:ensure_all_started(emqx_durable_storage),
             ok = emqx_ds_open_db(DB, opts(Config)),
 
-            Generations3 = emqx_ds:list_generations_with_lifetimes(DB),
+            Generations3 = emqx_ds:list_slabs(DB),
             ?assertMatch(
                 [{GenId1, #{since := _, until := _}}],
                 lists:sort(maps:to_list(Generations3)),
@@ -412,7 +412,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
 
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
     StartTime = 0,
@@ -429,7 +429,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
     ok = emqx_ds:add_generation(DB),
     ok = emqx_ds:drop_slab(DB, GenId0),
     timer:sleep(1_000),
-    [GenId1] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    [GenId1] = maps:keys(emqx_ds:list_slabs(DB)),
     ?assertNotEqual(GenId1, GenId0),
 
     Now = emqx_message:timestamp_now(),
@@ -461,7 +461,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
 
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
     StartTime = 0,
@@ -500,7 +500,7 @@ t_make_iterator_stale_stream(Config) ->
 
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
     StartTime = 0,
@@ -1105,7 +1105,7 @@ t_sub_catchup_unrecoverable(Config) ->
             %% Drop generation:
             ?assertMatch(
                 #{{<<"0">>, 1} := _, {<<"0">>, 2} := _},
-                emqx_ds:list_generations_with_lifetimes(DB)
+                emqx_ds:list_slabs(DB)
             ),
             ?assertMatch(ok, emqx_ds:drop_slab(DB, {<<"0">>, 1})),
             %% Ack and receive unrecoverable error:
@@ -2447,7 +2447,7 @@ t_multi_iterator(Config) ->
         storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
     }),
     ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
-    Slabs = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    Slabs = maps:keys(emqx_ds:list_slabs(DB)),
     lists:foreach(
         fun({Shard, Gen}) ->
             emqx_ds:trans(
@@ -2674,7 +2674,7 @@ create_wildcard(DB, Prefix) ->
     [GenToDel] = [
         GenId
      || {GenId, #{until := Until}} <- maps:to_list(
-            emqx_ds:list_generations_with_lifetimes(DB)
+            emqx_ds:list_slabs(DB)
         ),
         is_integer(Until)
     ],
