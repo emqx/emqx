@@ -26,9 +26,11 @@
 
 -feature(maybe_expr, enable).
 
+-behaviour(emqx_ds_pmap).
+
 %% API:
 -export([
-    open/3,
+    open/2,
     delete/2,
     commit/3,
 
@@ -38,8 +40,9 @@
     get_offline_info/2,
 
     lts_threshold_cb/2,
+
+    new_pmap/1,
     pmap_dirty_read/3,
-    pmap_topic/4,
 
     total_subscription_count/1,
     make_session_iterator/1,
@@ -47,6 +50,9 @@
     make_subscription_iterator/1,
     subscription_iterator_next/3
 ]).
+
+%% Behavior callbacks:
+-export([pmap_encode_key/3, pmap_decode_key/2, pmap_encode_val/3, pmap_decode_val/3]).
 
 -export_type([session_iterator/0, subscription_iterator/0]).
 
@@ -66,8 +72,8 @@
 %% TODO: https://github.com/erlang/otp/issues/9841
 -dialyzer(
     {nowarn_function, [
-        ser_pmap_key/3,
-        deser_pmap_key/2,
+        pmap_encode_key/3,
+        pmap_decode_key/2,
         ser_stream_key/1,
         deser_stream_key/1,
         ser_srs/1,
@@ -86,16 +92,14 @@
 -define(DB, ?DURABLE_SESSION_STATE).
 
 %% Topic roots:
--define(top_data, <<"d">>).
--define(top_guard, <<"g">>).
 -define(top_offline_info, <<"o">>).
 %% Pmap topics:
--define(top_meta, <<"mta">>).
--define(top_sub, <<"sub">>).
--define(top_sstate, <<"sst">>).
--define(top_seqno, <<"sn">>).
--define(top_stream, <<"st">>).
--define(top_rank, <<"rnk">>).
+-define(top_metadata, <<"mta">>).
+-define(top_subscriptions, <<"sub">>).
+-define(top_subscription_states, <<"sst">>).
+-define(top_seqnos, <<"sn">>).
+-define(top_streams, <<"st">>).
+-define(top_ranks, <<"rnk">>).
 -define(top_awaiting_rel, <<"arl">>).
 
 -type session_iterator() :: emqx_ds:multi_iterator().
@@ -107,9 +111,9 @@
 
 %% @doc Open a session
 %% TODO: combine opening with updating metadata to make it a one transaction
--spec open(emqx_ds:generation(), emqx_types:clientid(), boolean()) ->
+-spec open(emqx_ds:generation(), emqx_types:clientid()) ->
     {ok, emqx_persistent_session_ds_state:t()} | undefined.
-open(Generation, ClientId, Verify) ->
+open(Generation, ClientId) ->
     Opts = #{
         db => ?DB,
         generation => Generation,
@@ -120,7 +124,7 @@ open(Generation, ClientId, Verify) ->
     },
     Ret = emqx_ds:trans(
         Opts,
-        fun() -> open_tx(ClientId, Verify) end
+        fun() -> open_tx(ClientId) end
     ),
     case Ret of
         {atomic, _TXSerial, Result} ->
@@ -167,14 +171,16 @@ commit(Generation, Rec0 = #{?id := ClientId, ?checkpoint_ref := Ref}, Opts) when
                     commit(Generation, Rec#{?checkpoint_ref := undefined}, Opts)
             end
     end;
-commit(_Generation, Rec = #{?dirty := false}, #{lifetime := L}) when L =/= takeover, L =/= new ->
+commit(_Generation, Rec = #{?collection_dirty := false}, #{lifetime := L}) when
+    L =/= takeover, L =/= new
+->
     %% There's nothing to checkpoint.
     Rec;
 commit(
     Generation,
     Rec0 = #{
         ?id := ClientId,
-        ?guard := Guard0,
+        ?collection_guard := Guard0,
         ?metadata := Metadata,
         ?subscriptions := Subs,
         ?subscription_states := SubStates,
@@ -201,23 +207,23 @@ commit(
             fun() ->
                 %% Generate a new guard if needed:
                 NewGuard andalso
-                    tx_write_guard(ClientId, ?ds_tx_serial),
+                    emqx_ds_pmap:tx_write_guard(ClientId, ?ds_tx_serial),
                 case Lifetime of
                     new ->
                         %% Drop the old session state:
                         tx_del_session_data(ClientId);
                     _ ->
                         %% Ensure continuity of the session:
-                        tx_assert_guard(ClientId, Guard0)
+                        emqx_ds_pmap:tx_assert_guard(ClientId, Guard0)
                 end,
                 Rec0#{
-                    ?metadata := pmap_commit(ClientId, Metadata),
-                    ?subscriptions := pmap_commit(ClientId, Subs),
-                    ?subscription_states := pmap_commit(ClientId, SubStates),
-                    ?streams := pmap_commit(ClientId, Streams),
-                    ?seqnos := pmap_commit(ClientId, SeqNos),
-                    ?ranks := pmap_commit(ClientId, Ranks),
-                    ?awaiting_rel := pmap_commit(ClientId, AwaitingRels),
+                    ?metadata := emqx_ds_pmap:tx_commit(ClientId, Metadata),
+                    ?subscriptions := emqx_ds_pmap:tx_commit(ClientId, Subs),
+                    ?subscription_states := emqx_ds_pmap:tx_commit(ClientId, SubStates),
+                    ?streams := emqx_ds_pmap:tx_commit(ClientId, Streams),
+                    ?seqnos := emqx_ds_pmap:tx_commit(ClientId, SeqNos),
+                    ?ranks := emqx_ds_pmap:tx_commit(ClientId, Ranks),
+                    ?awaiting_rel := emqx_ds_pmap:tx_commit(ClientId, AwaitingRels),
                     ?unset_dirty
                 }
             end
@@ -226,7 +232,7 @@ commit(
         {atomic, TXSerial, Rec} when NewGuard ->
             %% This is a new incarnation of the client. Update the
             %% guard:
-            Rec#{?guard := TXSerial};
+            Rec#{?collection_guard := TXSerial};
         {atomic, _TXSerial, Rec} ->
             Rec;
         {nop, Rec} ->
@@ -252,15 +258,20 @@ commit(
             )
     end.
 
+-spec pmap_dirty_read(emqx_ds:generation(), atom(), emqx_persistent_session_ds:id()) -> map().
+pmap_dirty_read(Generation, Name, ClientId) ->
+    Opts = #{db => ?DB, generation => Generation, shard => emqx_ds:shard_of(?DB, ClientId)},
+    emqx_ds_pmap:dirty_read(?MODULE, pmap_name(Name), ClientId, Opts).
+
 -spec list_sessions(emqx_ds:generation()) -> [emqx_persistent_session_ds:id()].
 list_sessions(Gen) ->
     {L, _Errors} = emqx_ds:fold_topic(
         fun(_Slab, _Stream, {Topic, _TS, _Guard}, Acc) ->
-            [?top_guard, Id] = Topic,
+            ?guard_topic(Id) = Topic,
             [Id | Acc]
         end,
         [],
-        [?top_guard, '+'],
+        ?guard_topic('+'),
         #{db => ?DB, generation => Gen, errors => report}
     ),
     L.
@@ -310,7 +321,7 @@ get_offline_info(Generation, S = #{?id := ClientId}) ->
 -spec delete(emqx_ds:generation(), emqx_persistent_session_ds_state:t()) -> ok.
 delete(
     Generation,
-    #{?guard := Guard, ?id := ClientId}
+    #{?collection_guard := Guard, ?id := ClientId}
 ) ->
     Opts = #{
         db => ?DB, shard => {auto, ClientId}, generation => Generation, timeout => trans_timeout()
@@ -319,65 +330,42 @@ delete(
         emqx_ds:trans(
             Opts,
             fun() ->
-                tx_assert_guard(ClientId, Guard),
+                emqx_ds_pmap:tx_assert_guard(ClientId, Guard),
                 tx_del_session_data(ClientId),
-                tx_delete_guard(ClientId)
+                emqx_ds_pmap:tx_delete_guard(ClientId)
             end
         ),
     ok.
 
 tx_del_session_data(ClientId) ->
-    pmap_delete(ClientId, ?metadata),
-    pmap_delete(ClientId, ?subscriptions),
-    pmap_delete(ClientId, ?subscription_states),
-    pmap_delete(ClientId, ?seqnos),
-    pmap_delete(ClientId, ?streams),
-    pmap_delete(ClientId, ?ranks),
-    pmap_delete(ClientId, ?awaiting_rel),
+    emqx_ds_pmap:tx_destroy(ClientId, ?top_metadata),
+    emqx_ds_pmap:tx_destroy(ClientId, ?top_subscriptions),
+    emqx_ds_pmap:tx_destroy(ClientId, ?top_subscription_states),
+    emqx_ds_pmap:tx_destroy(ClientId, ?top_seqnos),
+    emqx_ds_pmap:tx_destroy(ClientId, ?top_streams),
+    emqx_ds_pmap:tx_destroy(ClientId, ?top_ranks),
+    emqx_ds_pmap:tx_destroy(ClientId, ?top_awaiting_rel),
     emqx_ds:tx_del_topic([?top_offline_info, ClientId]).
 
 %% @doc LTS trie wildcard threshold function
-lts_threshold_cb(0, _Parent) ->
-    %% Don't create a common stream for topics adjacent to the root:
-    infinity;
-lts_threshold_cb(_, ?top_guard) ->
-    %% Always create a unified stream for session guards, since
-    %% iteration over guards is used e.g. to enumerate sessions:
+lts_threshold_cb(_N, ?top_offline_info) ->
+    %% Create unified stream for all offline infos:
     0;
-lts_threshold_cb(N, ?top_data) ->
-    %% [<<"d">>, SessionId, PmapName, PmapKey]
-    %%    0          1         2        3
-    case N of
-        1 ->
-            %% Create a unified stream for pmaps' roots. Even though
-            %% we never iterate over pmaps that belong to different
-            %% sessions, all LTS nodes are kept in RAM at all time. So
-            %% if we don't unify the sessions' data, we'll end up with
-            %% a number of objects per session, dead or alive, stuck
-            %% in RAM.
-            0;
-        2 ->
-            %% Don't unify the streams that belong to different pmaps:
-            infinity;
-        _ ->
-            %% Unify stream for the pmap keys:
-            0
-    end;
-lts_threshold_cb(_, _) ->
-    infinity.
+lts_threshold_cb(Level, Parent) ->
+    emqx_ds_pmap:lts_threshold_cb(Level, Parent).
 
 -spec make_session_iterator(emqx_ds:generation()) -> session_iterator() | '$end_of_table'.
 make_session_iterator(Generation) ->
-    emqx_ds:make_multi_iterator(#{db => ?DB, generation => Generation}, [?top_guard, '+']).
+    emqx_ds:make_multi_iterator(#{db => ?DB, generation => Generation}, ?guard_topic('+')).
 
 -spec session_iterator_next(emqx_ds:generation(), session_iterator(), pos_integer()) ->
     {[emqx_persistent_session_ds:id()], session_iterator() | '$end_of_table'}.
 session_iterator_next(Generation, It0, N) ->
     {Batch, It} = emqx_ds:multi_iterator_next(
-        #{db => ?DB, generation => Generation}, [?top_guard, '+'], It0, N
+        #{db => ?DB, generation => Generation}, ?guard_topic('+'), It0, N
     ),
     Results = lists:map(
-        fun({[?top_guard, SessId], _, _Guard}) ->
+        fun({?guard_topic(SessId), _, _Guard}) ->
             SessId
         end,
         Batch
@@ -388,7 +376,8 @@ session_iterator_next(Generation, It0, N) ->
     subscription_iterator() | '$end_of_table'.
 make_subscription_iterator(Generation) ->
     emqx_ds:make_multi_iterator(
-        #{db => ?DB, generation => Generation}, pmap_topic(?subscriptions, '+', '+')
+        #{db => ?DB, generation => Generation},
+        emqx_ds_pmap:pmap_topic(?top_subscriptions, '+', '+')
     ).
 
 -spec subscription_iterator_next(emqx_ds:generation(), subscription_iterator(), pos_integer()) ->
@@ -398,11 +387,14 @@ make_subscription_iterator(Generation) ->
     }.
 subscription_iterator_next(Generation, It0, N) ->
     {Batch, It} = emqx_ds:multi_iterator_next(
-        #{db => ?DB, generation => Generation}, pmap_topic(?subscriptions, '+', '+'), It0, N
+        #{db => ?DB, generation => Generation},
+        emqx_ds_pmap:pmap_topic(?top_subscriptions, '+', '+'),
+        It0,
+        N
     ),
     Results = lists:map(
-        fun({[?top_data, ClientId, _, Sub], _, _SubInfo}) ->
-            {ClientId, deser_pmap_key(?subscriptions, Sub)}
+        fun({?pmap_topic(_, ClientId, Sub), _, _SubInfo}) ->
+            {ClientId, pmap_decode_key(?top_subscriptions, Sub)}
         end,
         Batch
     ),
@@ -413,7 +405,7 @@ total_subscription_count(Generation) ->
     emqx_ds:fold_topic(
         fun(_, _, _, Acc) -> Acc + 1 end,
         0,
-        pmap_topic(?subscriptions, '+', '+'),
+        emqx_ds_pmap:pmap_topic(?top_subscriptions, '+', '+'),
         #{db => ?DB, generation => Generation, errors => ignore}
     ).
 
@@ -421,211 +413,75 @@ total_subscription_count(Generation) ->
 %% Internal functions
 %%================================================================================
 
-open_tx(ClientId, Verify) ->
-    case tx_guard(ClientId) of
+open_tx(ClientId) ->
+    case emqx_ds_pmap:tx_guard(ClientId) of
         undefined ->
             undefined;
         Guard ->
             Ret = #{
                 ?id => ClientId,
-                ?guard => Guard,
-                ?dirty => false,
+                ?collection_guard => Guard,
+                ?collection_dirty => false,
                 ?checkpoint_ref => undefined,
-                ?metadata => pmap_restore(?metadata, ClientId),
-                ?subscriptions => pmap_restore(?subscriptions, ClientId),
-                ?subscription_states => pmap_restore(?subscription_states, ClientId),
-                ?seqnos => pmap_restore(?seqnos, ClientId),
-                ?streams => pmap_restore(?streams, ClientId),
-                ?ranks => pmap_restore(?ranks, ClientId),
-                ?awaiting_rel => pmap_restore(?awaiting_rel, ClientId)
+                ?metadata => emqx_ds_pmap:tx_restore(?MODULE, ?top_metadata, ClientId),
+                ?subscriptions => emqx_ds_pmap:tx_restore(?MODULE, ?top_subscriptions, ClientId),
+                ?subscription_states => emqx_ds_pmap:tx_restore(
+                    ?MODULE, ?top_subscription_states, ClientId
+                ),
+                ?seqnos => emqx_ds_pmap:tx_restore(?MODULE, ?top_seqnos, ClientId),
+                ?streams => emqx_ds_pmap:tx_restore(?MODULE, ?top_streams, ClientId),
+                ?ranks => emqx_ds_pmap:tx_restore(?MODULE, ?top_ranks, ClientId),
+                ?awaiting_rel => emqx_ds_pmap:tx_restore(?MODULE, ?top_awaiting_rel, ClientId)
             },
-            case Verify of
-                false ->
-                    {ok, Ret};
-                true ->
-                    %% Verify that guard hasn't changed while we were
-                    %% scanning the pmaps:
-                    tx_assert_guard(ClientId, Guard),
-                    {ok, Ret}
-            end
+            {ok, Ret}
     end.
 
-%% == Operations with the guard ==
+-spec new_pmap(atom()) -> emqx_ds_pmap:pmap(_, _).
+new_pmap(Pmap) ->
+    emqx_ds_pmap:new_pmap(?MODULE, pmap_name(Pmap)).
 
-%% @doc Read the guard
--spec tx_guard(emqx_persistent_session_ds:id()) ->
-    binary() | undefined.
-tx_guard(ClientId) ->
-    case emqx_ds:tx_read([?top_guard, ClientId]) of
-        [{_Topic, _TS, Guard}] ->
-            Guard;
-        [] ->
-            undefined
-    end.
-
--spec tx_assert_guard(
-    emqx_persistent_session_ds:id(),
-    emqx_persistent_session_ds_state:guard() | undefined
-) -> ok.
-tx_assert_guard(ClientId, undefined) ->
-    emqx_ds:tx_ttv_assert_absent([?top_guard, ClientId], 0);
-tx_assert_guard(ClientId, Guard) when is_binary(Guard) ->
-    emqx_ds:tx_ttv_assert_present([?top_guard, ClientId], 0, Guard).
-
--spec tx_write_guard(emqx_persistent_session_ds:id(), binary() | ?ds_tx_serial) -> ok.
-tx_write_guard(ClientId, Guard) ->
-    emqx_ds:tx_write({[?top_guard, ClientId], 0, Guard}).
-
--spec tx_delete_guard(emqx_persistent_session_ds:id()) -> ok.
-tx_delete_guard(ClientId) ->
-    emqx_ds:tx_del_topic([?top_guard, ClientId]).
-
-%% == Operations over PMaps ==
-
--spec pmap_commit(
-    emqx_persistent_session_ds:id(),
-    emqx_persistent_session_ds_state:pmap(K, V)
-) ->
-    emqx_persistent_session_ds_state:pmap(K, V).
-pmap_commit(
-    ClientId, Pmap = #pmap{name = Name, dirty = Dirty, cache = Cache}
-) ->
-    maps:foreach(
-        fun
-            (_Key, {del, Topic}) ->
-                emqx_ds:tx_del_topic(Topic);
-            (Key, dirty) ->
-                #{Key := Val} = Cache,
-                write_pmap_kv(Name, ClientId, Key, Val)
-        end,
-        Dirty
-    ),
-    Pmap#pmap{
-        dirty = #{}
-    }.
-
--spec pmap_restore(atom(), emqx_persistent_session_ds:id()) ->
-    emqx_persistent_session_ds_state:pmap(_, _).
-pmap_restore(Name, ClientId) ->
-    Cache = emqx_ds:tx_fold_topic(
-        fun(_Slab, _Stream, Payload, Acc) ->
-            pmap_restore_fun(Name, Payload, Acc)
-        end,
-        #{},
-        pmap_topic(Name, ClientId, '+')
-    ),
-    #pmap{
-        name = Name,
-        cache = Cache
-    }.
-
--spec pmap_dirty_read(emqx_ds:generation(), atom(), emqx_persistent_session_ds:id()) -> map().
-pmap_dirty_read(Generation, Name, ClientId) ->
-    emqx_ds:fold_topic(
-        fun(_Slab, _Stream, Payload, Acc) ->
-            pmap_restore_fun(Name, Payload, Acc)
-        end,
-        #{},
-        pmap_topic(Name, ClientId, '+'),
-        #{db => ?DB, generation => Generation, shard => emqx_ds:shard_of(?DB, ClientId)}
-    ).
-
-pmap_restore_fun(Name, {Topic, _TS, Payload}, Acc) ->
-    KeyBin = lists:last(Topic),
-    {Key, Val} = deser_pmap_kv(Name, KeyBin, Payload),
-    Acc#{Key => Val}.
-
--spec pmap_delete(
-    emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:pmap(_, _) | atom()
-) ->
-    ok.
-pmap_delete(ClientId, #pmap{name = Name}) ->
-    pmap_delete(ClientId, Name);
-pmap_delete(ClientId, Name) when is_atom(Name) ->
-    emqx_ds:tx_del_topic(pmap_topic(Name, ClientId, '+')).
-
-%% == Operations over PMap KV pairs ==
-
-%% @doc Write a single key-value pair that belongs to a pmap:
--spec write_pmap_kv(atom(), emqx_persistent_session_ds:id(), _, _) -> ok.
-write_pmap_kv(Name, ClientId, Key, Val) ->
-    emqx_ds:tx_write(
-        {
-            pmap_topic(Name, ClientId, Key, Val),
-            0,
-            ser_payload(Name, Key, Val)
-        }
-    ).
-
-%% @doc Deserialize a single key-value pair that belongs to a pmap:
--spec deser_pmap_kv(atom(), binary(), binary()) -> {_Key, _Val}.
-%% deser_pmap_kv(?subscriptions, _Key, Bin) ->
-%%     {_TopicFilter, _Val} = maps:take(tf, binary_to_term(Bin));
-deser_pmap_kv(Name, Key, Bin) ->
-    {deser_pmap_key(Name, Key), deser_payload(Name, Bin)}.
-
-%% Pmap key (topic):
--spec pmap_topic(atom(), emqx_persistent_session_ds:id(), _, _) -> emqx_ds:topic().
-pmap_topic(Name, ClientId, Key, Val) ->
-    pmap_topic(Name, ClientId, ser_pmap_key(Name, Key, Val)).
-
-%% @doc Return topic that is used as a key when contents of the pmap
-%% are stored in DS:
-pmap_topic(Name, ClientId, Key) ->
-    X =
-        case Name of
-            ?metadata -> ?top_meta;
-            ?subscriptions -> ?top_sub;
-            ?subscription_states -> ?top_sstate;
-            ?seqnos -> ?top_seqno;
-            ?streams -> ?top_stream;
-            ?ranks -> ?top_rank;
-            ?awaiting_rel -> ?top_awaiting_rel
-        end,
-    [?top_data, ClientId, X, Key].
-
-ser_pmap_key(?metadata, MetaKey, _Val) ->
+pmap_encode_key(?top_metadata, MetaKey, _Val) ->
     atom_to_binary(MetaKey, latin1);
-ser_pmap_key(?streams, Key, _Val) ->
+pmap_encode_key(?top_streams, Key, _Val) ->
     ser_stream_key(Key);
-ser_pmap_key(?subscriptions, Topic, _Val) ->
+pmap_encode_key(?top_subscriptions, Topic, _Val) ->
     'DurableSession':encode('TopicFilter', wrap_topic(Topic));
-ser_pmap_key(?seqnos, Track, _Val) ->
+pmap_encode_key(?top_seqnos, Track, _Val) ->
     ?assert(Track < 255),
     <<Track:8>>;
-ser_pmap_key(_, Key, _Val) ->
+pmap_encode_key(_, Key, _Val) ->
     term_to_binary(Key).
 
-deser_pmap_key(?metadata, Key) ->
+pmap_decode_key(?top_metadata, Key) ->
     binary_to_atom(Key, latin1);
-deser_pmap_key(?streams, Bin) ->
+pmap_decode_key(?top_streams, Bin) ->
     deser_stream_key(Bin);
-deser_pmap_key(?subscriptions, Key) ->
+pmap_decode_key(?top_subscriptions, Key) ->
     unwrap_topic('DurableSession':decode('TopicFilter', Key));
-deser_pmap_key(?seqnos, Bin) ->
+pmap_decode_key(?top_seqnos, Bin) ->
     <<Track:8>> = Bin,
     Track;
-deser_pmap_key(_, Key) ->
+pmap_decode_key(_, Key) ->
     binary_to_term(Key).
 
 %% Payload (de)serialization:
 
-ser_payload(?streams, _Key, SRS) ->
+pmap_encode_val(?top_streams, _Key, SRS) ->
     ser_srs(SRS);
-ser_payload(?subscriptions, _Key, Sub) ->
+pmap_encode_val(?top_subscriptions, _Key, Sub) ->
     ser_sub(Sub);
-ser_payload(?subscription_states, _Key, SState) ->
+pmap_encode_val(?top_subscription_states, _Key, SState) ->
     ser_sub_state(SState);
-ser_payload(_Name, _Key, Val) ->
+pmap_encode_val(_Name, _Key, Val) ->
     term_to_binary(Val).
 
-deser_payload(?streams, Bin) ->
+pmap_decode_val(?top_streams, _Key, Bin) ->
     deser_srs(Bin);
-deser_payload(?subscriptions, Bin) ->
+pmap_decode_val(?top_subscriptions, _Key, Bin) ->
     deser_sub(Bin);
-deser_payload(?subscription_states, Bin) ->
+pmap_decode_val(?top_subscription_states, _Key, Bin) ->
     deser_sub_state(Bin);
-deser_payload(_, Bin) ->
+pmap_decode_val(_, _, Bin) ->
     binary_to_term(Bin).
 
 %% Topic
@@ -817,3 +673,14 @@ unwrap_subopts(Misc) ->
 
 trans_timeout() ->
     emqx_config:get([durable_sessions, commit_timeout]).
+
+pmap_name(Pmap) ->
+    case Pmap of
+        ?metadata -> ?top_metadata;
+        ?subscriptions -> ?top_subscriptions;
+        ?subscription_states -> ?top_subscription_states;
+        ?seqnos -> ?top_seqnos;
+        ?streams -> ?top_streams;
+        ?ranks -> ?top_ranks;
+        ?awaiting_rel -> ?top_awaiting_rel
+    end.

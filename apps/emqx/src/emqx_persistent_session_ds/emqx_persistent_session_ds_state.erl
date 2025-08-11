@@ -76,7 +76,6 @@
 
 -export_type([
     t/0,
-    pmap/2,
     lifetime/0,
     metadata/0,
     seqno_type/0,
@@ -103,12 +102,6 @@
 
 -define(DB, ?DURABLE_SESSION_STATE).
 
--type pmap(K, V) ::
-    #pmap{
-        cache :: #{K => V},
-        dirty :: #{K => dirty | {del, emqx_ds:topic()}}
-    }.
-
 -type protocol() :: {binary(), emqx_types:proto_ver()}.
 
 -type metadata() ::
@@ -129,31 +122,31 @@
     | ?rec
     | ?committed(?QOS_2).
 
--type guard() :: binary().
+-type guard() :: emqx_ds_pmap:guard().
 
 %% TODO: move this type to a different module and make it opaque,
 %% otherwise someone WILL absolutely use it in the session business
 %% code and bypass API.
 -type t() :: #{
     ?id := emqx_persistent_session_ds:id(),
-    ?guard := guard() | undefined,
-    ?dirty := boolean(),
+    ?collection_guard := guard() | undefined,
+    ?collection_dirty := boolean(),
     %% Reference for the ongoing async commit.
     ?checkpoint_ref := reference() | undefined,
-    ?metadata := pmap(atom(), term()),
-    ?subscriptions := pmap(
+    ?metadata := emqx_ds_pmap:pmap(atom(), term()),
+    ?subscriptions := emqx_ds_pmap:pmap(
         emqx_persistent_session_ds:topic_filter(), emqx_persistent_session_ds_subs:subscription()
     ),
-    ?subscription_states := pmap(
+    ?subscription_states := emqx_ds_pmap:pmap(
         emqx_persistent_session_ds_subs:subscription_state_id(),
         emqx_persistent_session_ds_subs:subscription_state()
     ),
-    ?seqnos := pmap(seqno_type(), emqx_persistent_session_ds:seqno()),
+    ?seqnos := emqx_ds_pmap:pmap(seqno_type(), emqx_persistent_session_ds:seqno()),
     %% Fixme: key is actualy `{StreamId :: non_neg_integer(), emqx_ds:stream()}', from
     %% stream scheduler module.
-    ?streams := pmap(emqx_ds:stream(), emqx_persistent_session_ds:stream_state()),
-    ?ranks := pmap(term(), integer()),
-    ?awaiting_rel := pmap(emqx_types:packet_id(), _Timestamp :: integer())
+    ?streams := emqx_ds_pmap:pmap(emqx_ds:stream(), emqx_persistent_session_ds:stream_state()),
+    ?ranks := emqx_ds_pmap:pmap(term(), integer()),
+    ?awaiting_rel := emqx_ds_pmap:pmap(emqx_types:packet_id(), _Timestamp :: integer())
 }.
 
 -type lifetime() ::
@@ -175,11 +168,9 @@
 -spec open_db() -> ok.
 open_db() ->
     Config = emqx_ds_schema:db_config_sessions(),
-    Storage =
-        {emqx_ds_storage_skipstream_lts_v2, #{
-            timestamp_bytes => 0,
-            lts_threshold_spec => {mf, emqx_persistent_session_ds_state_v2, lts_threshold_cb}
-        }},
+    Storage = emqx_ds_pmap:storage_opts(
+        #{lts_threshold_spec => {mf, emqx_persistent_session_ds_state_v2, lts_threshold_cb}}
+    ),
     emqx_ds:open_db(?DB, Config#{
         atomic_batches => true,
         append_only => false,
@@ -192,12 +183,12 @@ open(SessionId) ->
     ?tp_span(
         psds_open,
         #{id => SessionId},
-        emqx_persistent_session_ds_state_v2:open(generation(), SessionId, true)
+        emqx_persistent_session_ds_state_v2:open(generation(), SessionId)
     ).
 
 -spec print_session(emqx_persistent_session_ds:id()) -> map() | undefined.
 print_session(SessionId) ->
-    case emqx_persistent_session_ds_state_v2:open(generation(), SessionId, false) of
+    case emqx_persistent_session_ds_state_v2:open(generation(), SessionId) of
         undefined ->
             undefined;
         {ok, Session} ->
@@ -220,9 +211,9 @@ format(Rec = #{?id := Id}) ->
             Acc#{MapKey => Val}
         end,
         #{?id => Id},
-        maps:without([?id, ?dirty, ?guard, ?checkpoint_ref, ?last_id], Rec)
+        maps:without([?id, ?collection_dirty, ?collection_guard, ?checkpoint_ref, ?last_id], Rec)
     ),
-    maps:merge(Pmaps, maps:with([?dirty, ?guard, ?checkpoint_ref], Rec)).
+    maps:merge(Pmaps, maps:with([?collection_dirty, ?collection_guard, ?checkpoint_ref], Rec)).
 
 -spec list_sessions() -> [emqx_persistent_session_ds:id()].
 list_sessions() ->
@@ -230,7 +221,7 @@ list_sessions() ->
 
 -spec delete(emqx_persistent_session_ds:id() | t()) -> ok.
 delete(Id) when is_binary(Id) ->
-    case emqx_persistent_session_ds_state_v2:open(generation(), Id, true) of
+    case emqx_persistent_session_ds_state_v2:open(generation(), Id) of
         {ok, Rec} ->
             delete(Rec);
         undefined ->
@@ -242,7 +233,7 @@ delete(Rec) when is_map(Rec) ->
 -spec commit(t(), commit_opts()) ->
     t().
 commit(Rec, Opts = #{lifetime := _, sync := _}) ->
-    check_sequence(Rec),
+    emqx_ds_pmap:collection_check_sequence(Rec),
     emqx_persistent_session_ds_state_v2:commit(generation(), Rec, Opts).
 
 -spec on_commit_reply(term(), t()) -> {ok, t()} | ignore | {error, _}.
@@ -283,20 +274,20 @@ on_commit_reply(_, _) ->
 create_new(SessionId) ->
     #{
         ?id => SessionId,
-        ?guard => undefined,
-        ?dirty => true,
+        ?collection_guard => undefined,
+        ?collection_dirty => true,
         ?checkpoint_ref => undefined,
-        ?metadata => #pmap{name = ?metadata},
-        ?subscriptions => #pmap{name = ?subscriptions},
-        ?subscription_states => #pmap{name = ?subscription_states},
-        ?seqnos => #pmap{name = ?seqnos},
-        ?streams => #pmap{name = ?streams},
-        ?ranks => #pmap{name = ?ranks},
-        ?awaiting_rel => #pmap{name = ?awaiting_rel}
+        ?metadata => emqx_persistent_session_ds_state_v2:new_pmap(?metadata),
+        ?subscriptions => emqx_persistent_session_ds_state_v2:new_pmap(?subscriptions),
+        ?subscription_states => emqx_persistent_session_ds_state_v2:new_pmap(?subscription_states),
+        ?seqnos => emqx_persistent_session_ds_state_v2:new_pmap(?seqnos),
+        ?streams => emqx_persistent_session_ds_state_v2:new_pmap(?streams),
+        ?ranks => emqx_persistent_session_ds_state_v2:new_pmap(?ranks),
+        ?awaiting_rel => emqx_persistent_session_ds_state_v2:new_pmap(?awaiting_rel)
     }.
 
 -spec is_dirty(t()) -> boolean().
-is_dirty(#{?dirty := Dirty}) ->
+is_dirty(#{?collection_dirty := Dirty}) ->
     Dirty.
 
 -spec checkpoint_ref(t()) -> undefined | reference().
@@ -371,7 +362,7 @@ new_id(Rec) ->
 -spec get_subscription(emqx_persistent_session_ds:topic_filter(), t()) ->
     emqx_persistent_session_ds_subs:subscription() | undefined.
 get_subscription(TopicFilter, Rec) ->
-    gen_get(?subscriptions, TopicFilter, Rec).
+    emqx_ds_pmap:collection_get(?subscriptions, TopicFilter, Rec).
 
 -spec cold_get_subscription(
     emqx_persistent_session_ds:id(), emqx_types:topic() | emqx_types:share()
@@ -390,11 +381,11 @@ cold_get_subscription(SessionId, Topic) ->
 
 -spec fold_subscriptions(fun(), Acc, t()) -> Acc.
 fold_subscriptions(Fun, Acc, Rec) ->
-    gen_fold(?subscriptions, Fun, Acc, Rec).
+    emqx_ds_pmap:collection_fold(?subscriptions, Fun, Acc, Rec).
 
 -spec n_subscriptions(t()) -> non_neg_integer().
 n_subscriptions(Rec) ->
-    gen_size(?subscriptions, Rec).
+    emqx_ds_pmap:collection_size(?subscriptions, Rec).
 
 -spec total_subscription_count() -> non_neg_integer().
 total_subscription_count() ->
@@ -406,18 +397,18 @@ total_subscription_count() ->
     t()
 ) -> t().
 put_subscription(TopicFilter, Subscription, Rec) ->
-    gen_put(?subscriptions, TopicFilter, Subscription, Rec).
+    emqx_ds_pmap:collection_put(?subscriptions, TopicFilter, Subscription, Rec).
 
 -spec del_subscription(emqx_persistent_session_ds:topic_filter(), t()) -> t().
 del_subscription(TopicFilter, Rec) ->
-    gen_del(?subscriptions, TopicFilter, Rec).
+    emqx_ds_pmap:collection_del(?subscriptions, TopicFilter, Rec).
 
 %%
 
 -spec get_subscription_state(emqx_persistent_session_ds_subs:subscription_state_id(), t()) ->
     emqx_persistent_session_ds_subs:subscription_state() | undefined.
 get_subscription_state(SStateId, Rec) ->
-    gen_get(?subscription_states, SStateId, Rec).
+    emqx_ds_pmap:collection_get(?subscription_states, SStateId, Rec).
 
 -spec cold_get_subscription_state(
     emqx_persistent_session_ds:id(), emqx_persistent_session_ds_subs:subscription_state_id()
@@ -436,7 +427,7 @@ cold_get_subscription_state(SessionId, SStateId) ->
 
 -spec fold_subscription_states(fun(), Acc, t()) -> Acc.
 fold_subscription_states(Fun, Acc, Rec) ->
-    gen_fold(?subscription_states, Fun, Acc, Rec).
+    emqx_ds_pmap:collection_fold(?subscription_states, Fun, Acc, Rec).
 
 -spec put_subscription_state(
     emqx_persistent_session_ds_subs:subscription_state_id(),
@@ -444,18 +435,18 @@ fold_subscription_states(Fun, Acc, Rec) ->
     t()
 ) -> t().
 put_subscription_state(SStateId, SState, Rec) ->
-    gen_put(?subscription_states, SStateId, SState, Rec).
+    emqx_ds_pmap:collection_put(?subscription_states, SStateId, SState, Rec).
 
 -spec del_subscription_state(emqx_persistent_session_ds_subs:subscription_state_id(), t()) -> t().
 del_subscription_state(SStateId, Rec) ->
-    gen_del(?subscription_states, SStateId, Rec).
+    emqx_ds_pmap:collection_del(?subscription_states, SStateId, Rec).
 
 %%
 
 -spec get_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) ->
     emqx_persistent_session_ds:stream_state() | undefined.
 get_stream(Key, Rec) ->
-    gen_get(?streams, Key, Rec).
+    emqx_ds_pmap:collection_get(?streams, Key, Rec).
 
 -spec put_stream(
     emqx_persistent_session_ds_stream_scheduler:stream_key(),
@@ -463,11 +454,11 @@ get_stream(Key, Rec) ->
     t()
 ) -> t().
 put_stream(Key, Val, Rec) ->
-    gen_put(?streams, Key, Val, Rec).
+    emqx_ds_pmap:collection_put(?streams, Key, Val, Rec).
 
 -spec del_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) -> t().
 del_stream(Key, Rec) ->
-    gen_del(?streams, Key, Rec).
+    emqx_ds_pmap:collection_del(?streams, Key, Rec).
 
 -spec fold_streams(
     fun(
@@ -481,7 +472,7 @@ del_stream(Key, Rec) ->
     t()
 ) -> Acc.
 fold_streams(Fun, Acc, Rec) ->
-    gen_fold(?streams, Fun, Acc, Rec).
+    emqx_ds_pmap:collection_fold(?streams, Fun, Acc, Rec).
 
 %% @doc Fold streams for a specific subscription id:
 -spec fold_streams(
@@ -493,7 +484,7 @@ fold_streams(Fun, Acc, Rec) ->
 fold_streams(SubId, Fun, Acc0, Rec) ->
     %% TODO: find some way to avoid full scan. Is it worth storing
     %% data as map of maps?
-    gen_fold(
+    emqx_ds_pmap:collection_fold(
         ?streams,
         fun({SID, StreamId}, Val, Acc) ->
             case SID of
@@ -509,17 +500,17 @@ fold_streams(SubId, Fun, Acc0, Rec) ->
 
 -spec n_streams(t()) -> non_neg_integer().
 n_streams(Rec) ->
-    gen_size(?streams, Rec).
+    emqx_ds_pmap:collection_size(?streams, Rec).
 
 %%
 
 -spec get_seqno(seqno_type(), t()) -> emqx_persistent_session_ds:seqno() | undefined.
 get_seqno(Key, Rec) ->
-    gen_get(?seqnos, Key, Rec).
+    emqx_ds_pmap:collection_get(?seqnos, Key, Rec).
 
 -spec put_seqno(seqno_type(), emqx_persistent_session_ds:seqno(), t()) -> t().
 put_seqno(Key, Val, Rec) ->
-    gen_put(?seqnos, Key, Val, Rec).
+    emqx_ds_pmap:collection_put(?seqnos, Key, Val, Rec).
 
 %%
 
@@ -527,19 +518,19 @@ put_seqno(Key, Val, Rec) ->
 
 -spec get_rank(rank_key(), t()) -> integer() | undefined.
 get_rank(Key, Rec) ->
-    gen_get(?ranks, Key, Rec).
+    emqx_ds_pmap:collection_get(?ranks, Key, Rec).
 
 -spec put_rank(rank_key(), integer(), t()) -> t().
 put_rank(Key, Val, Rec) ->
-    gen_put(?ranks, Key, Val, Rec).
+    emqx_ds_pmap:collection_put(?ranks, Key, Val, Rec).
 
 -spec del_rank(rank_key(), t()) -> t().
 del_rank(Key, Rec) ->
-    gen_del(?ranks, Key, Rec).
+    emqx_ds_pmap:collection_del(?ranks, Key, Rec).
 
 -spec fold_ranks(fun(), Acc, t()) -> Acc.
 fold_ranks(Fun, Acc, Rec) ->
-    gen_fold(?ranks, Fun, Acc, Rec).
+    emqx_ds_pmap:collection_fold(?ranks, Fun, Acc, Rec).
 
 %% @doc Fold ranks for a specific subscription ID
 -spec fold_ranks(
@@ -550,7 +541,7 @@ fold_ranks(Fun, Acc, Rec) ->
 ) -> Acc.
 fold_ranks(SubId, Fun, Acc0, Rec) ->
     %% TODO: find some way to avoid full scan.
-    gen_fold(
+    emqx_ds_pmap:collection_fold(
         ?ranks,
         fun({SID, RankX}, Val, Acc) ->
             case SID of
@@ -568,23 +559,23 @@ fold_ranks(SubId, Fun, Acc0, Rec) ->
 
 -spec get_awaiting_rel(emqx_types:packet_id(), t()) -> integer() | undefined.
 get_awaiting_rel(Key, Rec) ->
-    gen_get(?awaiting_rel, Key, Rec).
+    emqx_ds_pmap:collection_get(?awaiting_rel, Key, Rec).
 
 -spec put_awaiting_rel(emqx_types:packet_id(), _Timestamp :: integer(), t()) -> t().
 put_awaiting_rel(Key, Val, Rec) ->
-    gen_put(?awaiting_rel, Key, Val, Rec).
+    emqx_ds_pmap:collection_put(?awaiting_rel, Key, Val, Rec).
 
 -spec del_awaiting_rel(emqx_types:packet_id(), t()) -> t().
 del_awaiting_rel(Key, Rec) ->
-    gen_del(?awaiting_rel, Key, Rec).
+    emqx_ds_pmap:collection_del(?awaiting_rel, Key, Rec).
 
 -spec fold_awaiting_rel(fun(), Acc, t()) -> Acc.
 fold_awaiting_rel(Fun, Acc, Rec) ->
-    gen_fold(?awaiting_rel, Fun, Acc, Rec).
+    emqx_ds_pmap:collection_fold(?awaiting_rel, Fun, Acc, Rec).
 
 -spec n_awaiting_rel(t()) -> non_neg_integer().
 n_awaiting_rel(Rec) ->
-    gen_size(?awaiting_rel, Rec).
+    emqx_ds_pmap:collection_size(?awaiting_rel, Rec).
 
 %%
 
@@ -616,111 +607,12 @@ subscription_iterator_next(It0, N) ->
 %%
 
 get_meta(Key, Rec) ->
-    gen_get(?metadata, Key, Rec).
+    emqx_ds_pmap:collection_get(?metadata, Key, Rec).
 
 set_meta(Key, Val, Rec) ->
-    gen_put(?metadata, Key, Val, Rec).
-
-%%
-
-gen_get(Field, Key, Rec) ->
-    check_sequence(Rec),
-    pmap_get(Key, maps:get(Field, Rec)).
-
-gen_fold(Field, Fun, Acc, Rec) ->
-    check_sequence(Rec),
-    pmap_fold(Fun, Acc, maps:get(Field, Rec)).
-
-gen_put(Field, Key, Val, Rec) ->
-    check_sequence(Rec),
-    #{Field := Pmap} = Rec,
-    Rec#{
-        Field := pmap_put(Key, Val, Pmap),
-        ?set_dirty
-    }.
-
-gen_del(Field, Key, Rec) ->
-    check_sequence(Rec),
-    #{?id := SessionId, Field := PMap0} = Rec,
-    PMap = pmap_del(SessionId, Key, PMap0),
-    Rec#{
-        Field := PMap,
-        ?set_dirty
-    }.
-
-gen_size(Field, Rec) ->
-    check_sequence(Rec),
-    pmap_size(maps:get(Field, Rec)).
-
-%% PMaps
-
--spec pmap_get(K, pmap(K, V)) -> V | undefined.
-pmap_get(Key, #pmap{cache = Cache}) ->
-    maps:get(Key, Cache, undefined).
-
-pmap_put(
-    Key,
-    Val,
-    Pmap = #pmap{
-        dirty = Dirty, cache = Cache
-    }
-) ->
-    Pmap#pmap{
-        cache = Cache#{Key => Val},
-        dirty = Dirty#{Key => dirty}
-    }.
-
--spec pmap_del(emqx_persistent_session_ds:id(), K, pmap(K, V)) -> pmap(K, V).
-pmap_del(
-    SessionId,
-    Key,
-    Pmap = #pmap{
-        name = Name,
-        dirty = Dirty,
-        cache = Cache0
-    }
-) ->
-    case maps:take(Key, Cache0) of
-        {Val, Cache} ->
-            Topic = emqx_persistent_session_ds_state_v2:pmap_topic(Name, SessionId, Key, Val),
-            Pmap#pmap{
-                cache = Cache,
-                dirty = Dirty#{Key => {del, Topic}}
-            };
-        error ->
-            Pmap
-    end.
-
--spec pmap_fold(fun((K, V, A) -> A), A, pmap(K, V)) -> A.
-pmap_fold(Fun, Acc, #pmap{cache = Cache}) ->
-    maps:fold(Fun, Acc, Cache).
-
--spec pmap_size(pmap(_K, _V)) -> non_neg_integer().
-pmap_size(#pmap{cache = Cache}) ->
-    maps:size(Cache).
+    emqx_ds_pmap:collection_put(?metadata, Key, Val, Rec).
 
 %%
 
 generation() ->
     1.
-
--compile({inline, check_sequence/1}).
-
--ifdef(CHECK_SEQNO).
-do_seqno() ->
-    case erlang:get(?MODULE) of
-        undefined ->
-            put(?MODULE, 0),
-            0;
-        N ->
-            put(?MODULE, N + 1),
-            N + 1
-    end.
-
-check_sequence(A = #{'_' := N}) ->
-    N = erlang:get(?MODULE),
-    A.
--else.
-check_sequence(A) ->
-    A.
--endif.
