@@ -330,7 +330,6 @@ else
     if [ -z "${REBAR3CT:-}" ]; then
         docker exec -e IS_CI="$IS_CI" \
                     -e PROFILE="$PROFILE" \
-                    -e SUITES="${SUITES:-}" \
                     -e SUITEGROUP="${SUITEGROUP:-}" \
                     -e ENABLE_COVER_COMPILE="${ENABLE_COVER_COMPILE:-}" \
                     -e CT_COVER_EXPORT_PREFIX="${CT_COVER_EXPORT_PREFIX:-}" \
