@@ -387,7 +387,7 @@ fields(stream_hint) ->
     [
         {hint,
             hoconsc:mk(
-                atom(),
+                hoconsc:enum([eof, retry]),
                 #{
                     description => ?DESC(current_trace_stream_hint),
                     in => query,
