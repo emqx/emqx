@@ -906,7 +906,8 @@ t_sub_unclean_handover(Config) ->
             %% Publish initial batch of data that should be fulfilled
             %% via `emqx_ds_beamformer_rt:send_intermediate_beam':
             PublishData(<<1>>),
-            %% Verify ordering:
+            %% No messages should be received while handover is
+            %% blocked by `force_ordering`:
             receive
                 A -> error({unexpected_message, A})
             after 1000 ->
