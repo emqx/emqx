@@ -44,7 +44,7 @@
     %% Generations
     update_config/3,
     add_generation/2,
-    list_generations_with_lifetimes/1,
+    list_slabs/1,
     drop_slab/2,
     find_generation/2,
 
@@ -855,9 +855,9 @@ lookup_message(ShardId, Matcher = #message_matcher{timestamp = Time}) ->
             not_found
     end.
 
--spec list_generations_with_lifetimes(dbshard()) ->
+-spec list_slabs(dbshard()) ->
     #{gen_id() => slab_info()}.
-list_generations_with_lifetimes(ShardId) ->
+list_slabs(ShardId) ->
     gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
 
 -spec drop_slab(dbshard(), gen_id()) -> ok | {error, _}.

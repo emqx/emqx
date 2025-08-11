@@ -15,7 +15,7 @@
     add_generation/1,
     add_generation/2,
     update_db_config/2,
-    list_generations_with_lifetimes/1,
+    list_slabs/1,
     drop_slab/2,
     drop_db/1,
     store_batch/3,
@@ -339,13 +339,13 @@ update_db_config(DB, CreateOpts) ->
         fun(Shard) -> ok = ra_update_config(DB, Shard, Opts, Since) end
     ).
 
--spec list_generations_with_lifetimes(emqx_ds:db()) ->
+-spec list_slabs(emqx_ds:db()) ->
     #{slab() => emqx_ds:slab_info()}.
-list_generations_with_lifetimes(DB) ->
+list_slabs(DB) ->
     Shards = list_shards(DB),
     lists:foldl(
         fun(Shard, GensAcc) ->
-            case ra_list_generations_with_lifetimes(DB, Shard) of
+            case ra_list_slabs(DB, Shard) of
                 Gens = #{} ->
                     ok;
                 {error, _Class, _Reason} ->
@@ -1078,6 +1078,8 @@ do_delete_next_v4(DB, Shard, Iter, Selector, BatchSize) ->
 do_add_generation_v2(_DB) ->
     error(obsolete_api).
 
+%% Note: this function is called `do_list_generations_with_lifetimes'
+%% instead of `list_slabs' for BWC reasons.
 -spec do_list_generations_with_lifetimes_v3(emqx_ds:db(), shard_id()) ->
     #{emqx_ds:generation() => emqx_ds:slab_info()}
     | emqx_ds:error(storage_down).
@@ -1085,7 +1087,7 @@ do_list_generations_with_lifetimes_v3(DB, Shard) ->
     ShardId = {DB, Shard},
     ?IF_SHARD_READY(
         ShardId,
-        emqx_ds_storage_layer:list_generations_with_lifetimes(ShardId)
+        emqx_ds_storage_layer:list_slabs(ShardId)
     ).
 
 -spec do_drop_generation_v3(emqx_ds:db(), shard_id(), emqx_ds_storage_layer:gen_id()) ->
@@ -1357,7 +1359,7 @@ ra_delete_next(DB, Shard, Iter, Selector, BatchSize) ->
         end
     ).
 
-ra_list_generations_with_lifetimes(DB, Shard) ->
+ra_list_slabs(DB, Shard) ->
     Reply = ?SHARD_RPC(
         DB,
         Shard,

@@ -30,7 +30,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
 
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
     StartTime = 0,
@@ -78,7 +78,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
 
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
     StartTime = 0,
@@ -116,7 +116,7 @@ t_make_iterator_stale_stream(Config) ->
 
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
     StartTime = 0,
@@ -148,7 +148,7 @@ t_get_streams_concurrently_with_drop_generation(Config) ->
         begin
             ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
 
-            [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+            [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
             ok = emqx_ds:add_generation(DB),
             ok = emqx_ds:add_generation(DB),
 
