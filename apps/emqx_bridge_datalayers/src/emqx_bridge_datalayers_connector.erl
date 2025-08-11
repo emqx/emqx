@@ -3,11 +3,12 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_datalayers_connector).
 
--include_lib("emqx_connector/include/emqx_connector.hrl").
+-include("emqx_bridge_datalayers.hrl").
+
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
@@ -40,14 +41,40 @@
 
 -export([precision_field/0]).
 
--define(DATALAYERS_DEFAULT_PORT, 8361).
-
-%% datalayers servers don't need parse
--define(DATALAYERS_HOST_OPTIONS, #{
-    default_port => ?DATALAYERS_DEFAULT_PORT
-}).
-
 -define(DEFAULT_POOL_SIZE, 8).
+
+-define(driver_type(ConfigOrState),
+    case ConfigOrState of
+        #{parameters := ?influx_driver} ->
+            ?DATALAYERS_DRIVER_TYPE_INFLUX;
+        #{parameters := ?arrow_flight_driver} ->
+            ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT;
+        ?influx_driver ->
+            ?DATALAYERS_DRIVER_TYPE_INFLUX;
+        ?arrow_flight_driver ->
+            ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT
+    end
+).
+
+-define(driver_module(DriverType),
+    case DriverType of
+        ?DATALAYERS_DRIVER_TYPE_INFLUX -> emqx_bridge_influxdb_connector;
+        ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT -> emqx_bridge_datalayers_arrow_flight_connector
+    end
+).
+
+-define(with_driver(ConfigOrState, Args), begin
+    DriverType = ?driver_type(ConfigOrState),
+    erlang:apply(?driver_module(DriverType), ?FUNCTION_NAME, Args)
+end).
+
+-define(influx_driver, #{driver_type := ?DATALAYERS_DRIVER_TYPE_INFLUX}).
+-define(arrow_flight_driver, #{driver_type := ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT}).
+
+-type state() :: #{
+    driver_type := ?DATALAYERS_DRIVER_TYPE_INFLUX | ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT,
+    _ := _
+}.
 
 %%--------------------------------------------------------------------
 %% resource callback
@@ -56,80 +83,75 @@ resource_type() -> datalayers.
 
 callback_mode() -> async_if_possible.
 
-on_add_channel(
-    InstId,
-    OldState,
-    ChannelId,
-    ChannelConf
-) ->
-    emqx_bridge_influxdb_connector:on_add_channel(
-        InstId,
-        OldState,
-        ChannelId,
-        ChannelConf
-    ).
-
-on_remove_channel(InstId, State, ChannelId) ->
-    emqx_bridge_influxdb_connector:on_remove_channel(InstId, State, ChannelId).
-
-on_get_channel_status(InstId, ChannelId, State) ->
-    emqx_bridge_influxdb_connector:on_get_channel_status(InstId, ChannelId, State).
-
-on_get_channels(InstId) ->
-    emqx_bridge_influxdb_connector:on_get_channels(InstId).
-
+-spec on_start(
+    InstId :: resource_id(),
+    Config :: resource_config()
+) -> {ok, state()} | {error, term()}.
 on_start(InstId, Config) ->
-    case driver_type(Config) of
-        influxdb_v1 ->
-            Config1 = convert_config_to_influxdb(Config),
-            emqx_bridge_influxdb_connector:on_start(InstId, Config1)
+    case ?with_driver(Config, [InstId, enrich_config(Config)]) of
+        {ok, State} ->
+            {ok, State#{driver_type => DriverType}};
+        {error, _} = Err ->
+            Err
     end.
 
-driver_type(#{parameters := #{driver_type := influxdb_v1}}) ->
-    influxdb_v1.
+enrich_config(Config = #{parameters := Params = #{driver_type := ?DATALAYERS_DRIVER_TYPE_INFLUX}}) ->
+    Config#{parameters := Params#{influxdb_type => influxdb_api_v1}};
+enrich_config(Config) ->
+    Config.
 
-convert_config_to_influxdb(Config = #{parameters := Params = #{driver_type := influxdb_v1}}) ->
-    Config#{
-        parameters := maps:without([driver_type], Params#{influxdb_type => influxdb_api_v1})
-    }.
-
+-spec on_stop(InstId :: resource_id(), State :: resource_state()) -> ok.
 on_stop(InstId, State) ->
-    emqx_bridge_influxdb_connector:on_stop(InstId, State).
+    ?with_driver(State, [InstId, State]).
 
+-spec on_add_channel(InstId, OldState, ChannelId, ChannelConf) -> ok | {error, term()} when
+    InstId :: resource_id(),
+    OldState :: resource_state(),
+    ChannelId :: channel_id(),
+    ChannelConf :: resource_config().
+on_add_channel(InstId, OldState, ChannelId, ChannelConf) ->
+    ?with_driver(OldState, [InstId, OldState, ChannelId, ChannelConf]).
+
+on_remove_channel(InstId, State, ChannelId) ->
+    ?with_driver(State, [InstId, State, ChannelId]).
+
+on_get_channel_status(InstId, ChannelId, State) ->
+    ?with_driver(State, [InstId, ChannelId, State]).
+
+on_get_channels(InstId) ->
+    emqx_bridge_v2:get_channels_for_connector(InstId).
+
+-spec on_query(InstId, QueryData, State) -> {ok, term()} | {error, term()} when
+    InstId :: resource_id(),
+    QueryData :: {channel_id(), term()},
+    State :: resource_state().
 on_query(InstId, {Channel, Message}, State) ->
-    emqx_bridge_influxdb_connector:on_query(InstId, {Channel, Message}, State).
+    ?with_driver(State, [InstId, {Channel, Message}, State]).
 
+-spec on_batch_query(
+    InstId :: resource_id(), BatchData :: resource_config(), State :: resource_state()
+) -> {ok, term()} | {error, term()}.
 on_batch_query(InstId, BatchData, State) ->
-    emqx_bridge_influxdb_connector:on_batch_query(InstId, BatchData, State).
+    ?with_driver(State, [InstId, BatchData, State]).
 
-on_query_async(
-    InstId,
-    {Channel, Message},
-    {ReplyFun, Args},
-    State
-) ->
-    emqx_bridge_influxdb_connector:on_query_async(
-        InstId,
-        {Channel, Message},
-        {ReplyFun, Args},
-        State
-    ).
+-spec on_query_async(InstId, QueryData, ReplyFun, State) -> ok | {error, term()} when
+    InstId :: resource_id(),
+    QueryData :: {channel_id(), resource_config()},
+    ReplyFun :: reply_fun(),
+    State :: resource_state().
+on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
+    ?with_driver(State, [InstId, {Channel, Message}, {ReplyFun, Args}, State]).
 
-on_batch_query_async(
-    InstId,
-    BatchData,
-    {ReplyFun, Args},
-    State
-) ->
-    emqx_bridge_influxdb_connector:on_batch_query_async(
-        InstId,
-        BatchData,
-        {ReplyFun, Args},
-        State
-    ).
+-spec on_batch_query_async(InstId, BatchData, ReplyFun, State) -> ok | {error, term()} when
+    InstId :: resource_id(),
+    BatchData :: resource_config(),
+    ReplyFun :: reply_fun(),
+    State :: resource_state().
+on_batch_query_async(InstId, BatchData, {ReplyFun, Args}, State) ->
+    ?with_driver(State, [InstId, BatchData, {ReplyFun, Args}, State]).
 
 on_get_status(InstId, State) ->
-    emqx_bridge_influxdb_connector:on_get_status(InstId, State).
+    ?with_driver(State, [InstId, State]).
 
 %%--------------------------------------------------------------------
 %% schema
@@ -158,14 +180,28 @@ fields("connector") ->
             )},
         {parameters,
             mk(
-                hoconsc:union([
-                    ref(?MODULE, "datalayers_influxdb_v1_parameters")
-                ]),
+                hoconsc:union([ref(?MODULE, "datalayers_parameters")]),
                 #{required => true, desc => ?DESC("datalayers_parameters")}
             )}
     ] ++ emqx_connector_schema_lib:ssl_fields();
-fields("datalayers_influxdb_v1_parameters") ->
-    datalayers_parameters_fields().
+fields("datalayers_parameters") ->
+    [
+        {driver_type,
+            mk(enum([?DATALAYERS_DRIVER_TYPE_INFLUX, ?DATALAYERS_DRIVER_TYPE_ARROW_FLIGHT]), #{
+                required => false,
+                default => ?DATALAYERS_DRIVER_TYPE_INFLUX,
+                desc => ?DESC("driver_type")
+            })},
+        {database, mk(binary(), #{desc => ?DESC("database")})},
+        {username, mk(binary(), #{desc => ?DESC("username")})},
+        {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})},
+        {enable_prepared,
+            mk(boolean(), #{
+                required => false,
+                default => true,
+                desc => ?DESC("enable_prepared")
+            })}
+    ].
 
 precision_field() ->
     {precision,
@@ -177,17 +213,6 @@ precision_field() ->
             required => false, default => ms, desc => ?DESC("precision")
         })}.
 
-datalayers_parameters_fields() ->
-    [
-        {driver_type,
-            mk(enum([influxdb_v1]), #{
-                required => false, default => influxdb_v1, desc => ?DESC("driver_type")
-            })},
-        {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
-        {username, mk(binary(), #{desc => ?DESC("username")})},
-        {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})}
-    ].
-
 server() ->
     Meta = #{
         required => false,
@@ -195,13 +220,13 @@ server() ->
         desc => ?DESC("server"),
         converter => fun convert_server/2
     },
-    emqx_schema:servers_sc(Meta, ?DATALAYERS_HOST_OPTIONS).
+    emqx_schema:servers_sc(Meta, ?DATALAYERS_HOST_HTTP_OPTIONS).
 
 desc(common) ->
     ?DESC("common");
 desc(parameters) ->
     ?DESC("dayalayers_parameters");
-desc("datalayers_influxdb_v1_parameters") ->
+desc("datalayers_parameters") ->
     ?DESC("datalayers_parameters");
 desc(datalayers_api) ->
     ?DESC("datalayers_api");

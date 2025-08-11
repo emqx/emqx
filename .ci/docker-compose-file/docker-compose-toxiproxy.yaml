@@ -57,8 +57,11 @@ services:
       - 4000:4000
       - 4001:4001
       # Datalayers
+      - 8360:8360
       - 8361:8361
-      - 8362:8362
+      # Datalayers TLS
+      # - 8362:8362
+      # - 8363:8363
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"
