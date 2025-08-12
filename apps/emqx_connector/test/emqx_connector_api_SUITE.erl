@@ -1002,11 +1002,16 @@ t_create_with_bad_name(Config) ->
     ok.
 
 %% Checks that we correctly handle `throw({bad_ssl_config, _})' from
-%% `emqx_connector:convert_certs' and massage the error message accordingly.
+%% `emqx_connector_ssl:convert_certs' and massage the error message accordingly.
 t_create_with_bad_tls_files(Config) ->
     ConnectorName = atom_to_binary(?FUNCTION_NAME),
     Conf0 = ?KAFKA_CONNECTOR(ConnectorName),
-    Conf = Conf0#{<<"ssl">> => #{<<"cacertfile">> => <<"bad_pem_file">>}},
+    Conf = Conf0#{
+        <<"ssl">> => #{
+            <<"enable">> => true,
+            <<"cacertfile">> => <<"bad_pem_file">>
+        }
+    },
     ?check_trace(
         begin
             {ok, 400, #{

@@ -121,7 +121,10 @@ init_per_testcase(TestCase, TCConfig) ->
     ActionName = ConnectorName,
     ActionConfig = action_config(#{
         <<"connector">> => ConnectorName,
-        <<"resource_opts">> => #{<<"batch_size">> => get_config(batch_size, TCConfig, 1)}
+        <<"resource_opts">> => #{
+            <<"batch_size">> => get_config(batch_size, TCConfig, 1),
+            <<"query_mode">> => get_config(query_mode, TCConfig, <<"sync">>)
+        }
     }),
     connect_and_drop_table(TCConfig),
     connect_and_create_table(TCConfig),
