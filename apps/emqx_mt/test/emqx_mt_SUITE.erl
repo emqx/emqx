@@ -77,7 +77,6 @@ app_specs() ->
 
 injected_fields() ->
     #{
-        'config.allowed_namespaced_roots' => [<<"sysmon">>, <<"foo">>],
         'roots.high' => [{foo, hoconsc:mk(hoconsc:ref(?MODULE, foo), #{})}]
     }.
 
@@ -290,6 +289,7 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
             before_start =>
                 fun(App, AppCfg) ->
                     SetType(),
+                    ok = emqx_config:add_allowed_namespaced_config_root(<<"foo">>),
                     ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
                     emqx_cth_suite:inhibit_config_loader(App, AppCfg)
                 end

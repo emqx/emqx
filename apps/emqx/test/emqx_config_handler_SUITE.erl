@@ -44,7 +44,7 @@ init_per_suite(Config) ->
             {emqx, #{
                 after_start =>
                     fun() ->
-                        ok = emqx_schema_hooks:inject_from_modules([?MODULE])
+                        ok = emqx_config:add_allowed_namespaced_config_root(<<"sysmon">>)
                     end
             }}
         ],
@@ -72,11 +72,6 @@ end_per_testcase(_Case, _Config) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
-
-injected_fields() ->
-    #{
-        'config.allowed_namespaced_roots' => [<<"sysmon">>]
-    }.
 
 update_config_opts(TCConfig) ->
     update_config_opts(TCConfig, _Overrides = #{}).

@@ -112,7 +112,11 @@
             %% `emqx_config:init_load` runs and encounters a namespaced root key, it knows
             %% the schema module for it.
             emqx_config:init_load(emqx_connector_schema, <<"">>),
-            ok = emqx_schema_hooks:inject_from_modules([?MODULE, emqx_connector_schema]),
+            lists:foreach(
+                fun emqx_config:add_allowed_namespaced_config_root/1,
+                [<<"connectors">>]
+            ),
+            ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
             emqx_cth_suite:inhibit_config_loader(App, AppConfig)
         end
     }},
