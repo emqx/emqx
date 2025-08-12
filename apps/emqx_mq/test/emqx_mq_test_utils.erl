@@ -77,7 +77,9 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
         redispatch_interval_ms => 100,
         dispatch_strategy => random,
         local_max_inflight => 4,
-        busy_session_retry_interval => 100
+        busy_session_retry_interval => 100,
+        stream_max_buffer_size => 10,
+        stream_max_unacked => 5
     },
     MQ1 = maps:merge(Default, MQ0),
 

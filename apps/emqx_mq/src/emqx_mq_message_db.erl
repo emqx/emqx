@@ -13,7 +13,7 @@
 -export([
     open/0,
     insert/3,
-    suback/2,
+    suback/3,
     create_client/1,
     subscribe/4,
     drop/1
@@ -29,7 +29,8 @@
     delete_all/0
 ]).
 
--define(MQ_MESSAGE_DB, mq_message).
+-define(MQ_MESSAGE_COMPACTED_DB, mq_message_compacted).
+-define(MQ_MESSAGE_REGULAR_DB, mq_message_regular).
 -define(MQ_MESSAGE_DB_APPEND_RETRY, 5).
 -define(MQ_MESSAGE_DB_LTS_SETTINGS, #{
     %% "topic/TOPIC/key/СOMPACTION_KEY"
@@ -48,8 +49,10 @@
 -spec open() -> ok.
 open() ->
     maybe
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_DB, settings()),
-        emqx_ds:wait_db(?MQ_MESSAGE_DB, all, infinity)
+        ok ?= emqx_ds:open_db(?MQ_MESSAGE_COMPACTED_DB, settings()),
+        ok ?= emqx_ds:open_db(?MQ_MESSAGE_REGULAR_DB, settings()),
+        emqx_ds:wait_db(?MQ_MESSAGE_COMPACTED_DB, all, infinity),
+        emqx_ds:wait_db(?MQ_MESSAGE_REGULAR_DB, all, infinity)
     end.
 
 -spec insert(emqx_mq_types:mq(), emqx_types:message(), _CompactionKey :: undefined | binary()) ->
@@ -65,9 +68,9 @@ insert(#{is_compacted := false} = MQ, _Message, CompactionKey) when CompactionKe
 insert(#{is_compacted := true} = MQ, Message, CompactionKey) ->
     Topic = mq_message_topic(MQ, CompactionKey),
     TxOpts = #{
-        db => ?MQ_MESSAGE_DB,
+        db => db(MQ),
         shard => {auto, CompactionKey},
-        generation => generation(),
+        generation => generation_compacted(),
         sync => true,
         retries => ?MQ_MESSAGE_DB_APPEND_RETRY
     },
@@ -82,9 +85,9 @@ insert(#{is_compacted := false} = MQ, Message, undefined) ->
     ClientId = emqx_message:from(Message),
     Topic = mq_message_topic(MQ, ClientId),
     TxOpts = #{
-        db => ?MQ_MESSAGE_DB,
+        db => db(MQ),
         shard => {auto, ClientId},
-        generation => generation(),
+        generation => generation_regular(),
         sync => true,
         retries => ?MQ_MESSAGE_DB_APPEND_RETRY
     },
@@ -95,11 +98,12 @@ insert(#{is_compacted := false} = MQ, Message, undefined) ->
 
 -spec drop(emqx_mq_types:mq()) -> ok.
 drop(MQ) ->
-    delete(mq_message_topic(MQ, '#')).
+    delete(db(MQ), mq_message_topic(MQ, '#')).
 
 -spec delete_all() -> ok.
 delete_all() ->
-    delete(['#']).
+    delete(?MQ_MESSAGE_COMPACTED_DB, ['#']),
+    delete(?MQ_MESSAGE_REGULAR_DB, ['#']).
 
 -spec create_client(module()) -> emqx_ds_client:t().
 create_client(Module) ->
@@ -112,21 +116,21 @@ create_client(Module) ->
     emqx_mq_consumer_stream_buffer:state()
 ) ->
     {ok, emqx_ds_client:t(), emqx_mq_consumer_stream_buffer:state()}.
-subscribe(MQ, DSClient0, SubId, State0) ->
+subscribe(#{stream_max_unacked := StreamMaxUnacked} = MQ, DSClient0, SubId, State0) ->
     SubOpts = #{
-        db => ?MQ_MESSAGE_DB,
+        db => db(MQ),
         id => SubId,
         topic => mq_message_topic(MQ, '#'),
         ds_sub_opts => #{
-            max_unacked => ?MQ_CONSUMER_MAX_UNACKED
+            max_unacked => StreamMaxUnacked
         }
     },
     {ok, DSClient, State} = emqx_ds_client:subscribe(DSClient0, SubOpts, State0),
     {ok, DSClient, State}.
 
--spec suback(emqx_ds_client:sub_handle(), emqx_ds_client:sub_seqno()) -> ok.
-suback(SubHandle, SeqNo) ->
-    emqx_ds:suback(?MQ_MESSAGE_DB, SubHandle, SeqNo).
+-spec suback(emqx_mq_types:mq(), emqx_ds_client:sub_handle(), emqx_ds_client:sub_seqno()) -> ok.
+suback(MQ, SubHandle, SeqNo) ->
+    emqx_ds:suback(db(MQ), SubHandle, SeqNo).
 
 -spec encode_message(emqx_types:message()) -> binary().
 encode_message(Message) ->
@@ -140,14 +144,14 @@ decode_message(Bin) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-delete(Topic) ->
-    Shards = emqx_ds:list_shards(?MQ_MESSAGE_DB),
+delete(DB, Topic) ->
+    Shards = emqx_ds:list_shards(DB),
     lists:foreach(
         fun(Shard) ->
             TxOpts = #{
-                db => ?MQ_MESSAGE_DB,
+                db => DB,
                 shard => Shard,
-                generation => generation(),
+                generation => generation_compacted(),
                 sync => true,
                 retries => ?MQ_MESSAGE_DB_APPEND_RETRY
             },
@@ -161,7 +165,15 @@ delete(Topic) ->
 mq_message_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, CompactionKey) ->
     ?MQ_MESSAGE_DB_TOPIC(TopicFilter, Id, CompactionKey).
 
-generation() ->
+db(#{is_compacted := true} = _MQ) ->
+    ?MQ_MESSAGE_COMPACTED_DB;
+db(#{is_compacted := false} = _MQ) ->
+    ?MQ_MESSAGE_REGULAR_DB.
+
+generation_compacted() ->
+    1.
+
+generation_regular() ->
     1.
 
 settings() ->

@@ -122,12 +122,16 @@ t_publish_and_consume_compacted(_Config) ->
 %% Verify that the consumer stops consuming DS messages once there is
 %% a critical amount of unacked messages
 t_backpressure(_Config) ->
+    StreamMaxUnacked = 5,
+    StreamMaxBufferSize = 10,
     %% Create a non-compacted Queue
     _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
-            local_max_inflight => 100
+            local_max_inflight => 100,
+            stream_max_unacked => StreamMaxUnacked,
+            stream_max_buffer_size => StreamMaxBufferSize
         }),
 
     %% Publish 100 messages to the queue
@@ -148,14 +152,14 @@ t_backpressure(_Config) ->
     CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
     emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
     {ok, Msgs0} =
-        emqx_mq_test_utils:emqtt_drain(_MinMsg = ?MQ_CONSUMER_MAX_BUFFER_SIZE, _Timeout = 200),
+        emqx_mq_test_utils:emqtt_drain(_MinMsg = StreamMaxBufferSize, _Timeout = 200),
 
     %% Messages should stop being dispatched once the buffer is full and we acked nothing
     ?assert(
-        length(Msgs0) =< ?MQ_CONSUMER_MAX_BUFFER_SIZE + ?MQ_CONSUMER_MAX_UNACKED + 1,
+        length(Msgs0) =< StreamMaxBufferSize + StreamMaxUnacked + 1,
         binfmt(
             "Msgs received: ~p, expected less than or equal to: ~p",
-            [length(Msgs0), ?MQ_CONSUMER_MAX_BUFFER_SIZE + ?MQ_CONSUMER_MAX_UNACKED + 1]
+            [length(Msgs0), StreamMaxBufferSize + StreamMaxUnacked + 1]
         )
     ),
 
@@ -170,12 +174,12 @@ t_backpressure(_Config) ->
 
     %% After acknowledging, the messages should start being dispatched again
     {ok, Msgs1} =
-        emqx_mq_test_utils:emqtt_drain(_MinMsg = ?MQ_CONSUMER_MAX_BUFFER_SIZE, _Timeout = 200),
+        emqx_mq_test_utils:emqtt_drain(_MinMsg = StreamMaxBufferSize, _Timeout = 200),
     ?assert(
-        length(Msgs1) =< ?MQ_CONSUMER_MAX_BUFFER_SIZE + ?MQ_CONSUMER_MAX_UNACKED * 2,
+        length(Msgs1) =< StreamMaxBufferSize + StreamMaxUnacked * 2,
         binfmt(
             "Msgs received: ~p, expected less than or equal to: ~p",
-            [length(Msgs1), ?MQ_CONSUMER_MAX_BUFFER_SIZE + ?MQ_CONSUMER_MAX_UNACKED + 1]
+            [length(Msgs1), StreamMaxBufferSize + StreamMaxUnacked * 2]
         )
     ),
 

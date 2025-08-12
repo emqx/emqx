@@ -13,7 +13,6 @@ The module represents a consumer of a single stream of the Message Queue data.
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
-    new/1,
     new/2,
     restore/2,
     handle_ds_reply/3,
@@ -80,15 +79,12 @@ The module represents a consumer of a single stream of the Message Queue data.
 %% API
 %%--------------------------------------------------------------------
 
--spec new(emqx_ds:iterator()) -> t().
-new(StartIterator) ->
-    new(StartIterator, #{}).
-
--spec new(emqx_ds:iterator(), options()) -> t().
-new(StartIterator, Options) ->
+-spec new(emqx_ds:iterator(), emqx_mq_types:mq()) -> t().
+new(StartIterator, MQ) ->
     #{
         status => active,
-        options => handle_options(Options),
+        options => handle_options(MQ),
+        mq => MQ,
         lower_buffer => #{
             it_begin => StartIterator,
             it_end => StartIterator,
@@ -100,15 +96,16 @@ new(StartIterator, Options) ->
         last_message_id => undefined
     }.
 
--spec restore(progress(), options()) -> t().
+-spec restore(progress(), emqx_mq_types:mq()) -> t().
 %% The previous buffer did not see any messages, so we can just start a new buffer
-restore(#{last_message_id := undefined, it_begin := It}, Options) ->
-    new(It, Options);
+restore(#{last_message_id := undefined, it_begin := It}, MQ) ->
+    new(It, MQ);
 %% The previous buffer saw some messages, so we need to restore the buffer from the saved state
-restore(#{it := It, last_message_id := LastMessageId, unacked := Unacked}, Options) ->
+restore(#{it := It, last_message_id := LastMessageId, unacked := Unacked}, MQ) ->
     #{
         status => restoring,
-        options => handle_options(Options),
+        mq => MQ,
+        options => handle_options(MQ),
         it_begin => It,
         unacked => maps:from_keys(Unacked, true),
         actual_unacked => #{},
@@ -119,61 +116,61 @@ restore(#{it := It, last_message_id := LastMessageId, unacked := Unacked}, Optio
 -spec handle_ds_reply(t(), emqx_ds:subscription_handle(), #ds_sub_reply{}) ->
     {ok, [emqx_ds:ttv()], t()} | finished.
 handle_ds_reply(
-    #{status := active, lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SC0,
+    #{status := active, lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SB0,
     Handle,
     #ds_sub_reply{payload = {ok, end_of_stream}, seqno = SeqNo}
 ) ->
-    SC1 =
+    SB1 =
         case UpperBuffer0 of
             undefined ->
                 LowerBuffer1 = LowerBuffer0#{
                     it_end => end_of_stream
                 },
-                SC0#{
+                SB0#{
                     lower_buffer => LowerBuffer1
                 };
             _ ->
                 UpperBuffer1 = UpperBuffer0#{
                     it_end => end_of_stream
                 },
-                SC0#{
+                SB0#{
                     upper_buffer => UpperBuffer1
                 }
         end,
-    SC2 = suback(SC1, Handle, SeqNo),
-    case compact(SC2) of
+    SB2 = suback(SB1, Handle, SeqNo),
+    case compact(SB2) of
         finished ->
             finished;
-        {ok, SC} ->
-            {ok, [], SC}
+        {ok, SB} ->
+            {ok, [], SB}
     end;
 handle_ds_reply(
-    #{status := active, lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SC0,
+    #{status := active, lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SB0,
     Handle,
     #ds_sub_reply{payload = {ok, It, TTVs}, seqno = SeqNo, size = Size}
 ) ->
-    SC =
-        case can_advance_lower_buffer(SC0) of
+    SB =
+        case can_advance_lower_buffer(SB0) of
             true ->
                 {LastMessageId, LowerBuffer} = push_to_buffer(LowerBuffer0, It, TTVs, Size),
-                SC1 = SC0#{lower_buffer => LowerBuffer},
-                SC2 = update_last_seen_message_id(SC1, LastMessageId),
-                suback(SC2, Handle, SeqNo);
+                SB1 = SB0#{lower_buffer => LowerBuffer},
+                SB2 = update_last_seen_message_id(SB1, LastMessageId),
+                suback(SB2, Handle, SeqNo);
             false ->
                 {LastMessageId, UpperBuffer} = push_to_buffer(
                     maybe_init_upper_buffer(LowerBuffer0, UpperBuffer0), It, TTVs, Size
                 ),
-                SC1 = SC0#{upper_buffer => UpperBuffer},
-                SC2 = update_last_seen_message_id(SC1, LastMessageId),
+                SB1 = SB0#{upper_buffer => UpperBuffer},
+                SB2 = update_last_seen_message_id(SB1, LastMessageId),
                 %% TODO check if is paused also
-                case is_buffer_full(SC2, UpperBuffer) of
+                case is_buffer_full(SB2, UpperBuffer) of
                     true ->
-                        pause(SC2, Handle, SeqNo);
+                        pause(SB2, Handle, SeqNo);
                     false ->
-                        suback(SC2, Handle, SeqNo)
+                        suback(SB2, Handle, SeqNo)
                 end
         end,
-    {ok, TTVs, SC};
+    {ok, TTVs, SB};
 %% End of stream occured while restoring the buffer
 handle_ds_reply(
     #{
@@ -183,11 +180,11 @@ handle_ds_reply(
         messages := Messages,
         last_message_id := LastMessageId,
         options := Options
-    } = _SC0,
+    } = _SB0,
     Handle,
     #ds_sub_reply{payload = {ok, end_of_stream}, seqno = SeqNo}
 ) ->
-    SC0 = #{
+    SB0 = #{
         status => active,
         options => Options,
         lower_buffer => #{
@@ -200,40 +197,40 @@ handle_ds_reply(
         upper_seqno => undefined,
         last_message_id => LastMessageId
     },
-    SC = suback(SC0, Handle, SeqNo),
-    {ok, lists:reverse(Messages), SC};
-handle_ds_reply(#{status := restoring} = SC0, Handle, #ds_sub_reply{
+    SB = suback(SB0, Handle, SeqNo),
+    {ok, lists:reverse(Messages), SB};
+handle_ds_reply(#{status := restoring} = SB0, Handle, #ds_sub_reply{
     payload = {ok, It, NewTTVs}, seqno = SeqNo, size = _Size
 }) ->
-    case handle_restore(SC0, NewTTVs, 0, It) of
-        {ok, TTVs, #{status := active} = SC1} ->
-            SC2 = pause(SC1, Handle, SeqNo),
+    case handle_restore(SB0, NewTTVs, 0, It) of
+        {ok, TTVs, #{status := active} = SB1} ->
+            SB2 = pause(SB1, Handle, SeqNo),
             ?tp(warning, emqx_mq_consumer_stream_buffer_handle_ds_reply_buffer_restored, #{
-                sb => info(SC2)
+                sb => info(SB2)
             }),
-            {ok, TTVs, SC2};
-        {ok, TTVs, #{status := restoring} = SC} ->
-            {ok, TTVs, suback(SC, Handle, SeqNo)}
+            {ok, TTVs, SB2};
+        {ok, TTVs, #{status := restoring} = SB} ->
+            {ok, TTVs, suback(SB, Handle, SeqNo)}
     end.
 
 -spec handle_ack(t(), message_id()) -> {ok, t()} | finished.
 %% Must not receive any acks in restoring state
 handle_ack(
-    #{status := active, lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SC0, MessageId
+    #{status := active, lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SB0, MessageId
 ) ->
-    SC =
+    SB =
         case ack_from_buffer(LowerBuffer0, MessageId) of
             {true, LowerBuffer} ->
-                SC0#{lower_buffer => LowerBuffer};
+                SB0#{lower_buffer => LowerBuffer};
             false ->
                 case ack_from_buffer(UpperBuffer0, MessageId) of
                     {true, UpperBuffer} ->
-                        SC0#{upper_buffer => UpperBuffer};
+                        SB0#{upper_buffer => UpperBuffer};
                     false ->
                         error({message_not_found, MessageId})
                 end
         end,
-    compact(SC).
+    compact(SB).
 
 -spec progress(t()) -> progress().
 progress(
@@ -242,9 +239,9 @@ progress(
         lower_buffer := #{it_begin := ItBegin, unacked := LowerUnacked} = _LowerBuffer,
         upper_buffer := UpperBuffer,
         last_message_id := LastMessageId
-    } = SC
+    } = SB
 ) ->
-    case is_finished(SC) of
+    case is_finished(SB) of
         true ->
             end_of_stream;
         false ->
@@ -264,14 +261,14 @@ progress(
         it_begin := ItBegin,
         last_message_id := LastMessageId,
         unacked := Unacked
-    } = _SC
+    } = _SB
 ) ->
     #{it => ItBegin, last_message_id => LastMessageId, unacked => maps:keys(Unacked)}.
 
 -spec iterator(t()) -> emqx_ds:iterator() | end_of_stream.
-iterator(#{status := active, lower_buffer := #{it_begin := ItBegin}} = _SC) ->
+iterator(#{status := active, lower_buffer := #{it_begin := ItBegin}} = _SB) ->
     ItBegin;
-iterator(#{status := restoring, it_begin := ItBegin} = _SC) ->
+iterator(#{status := restoring, it_begin := ItBegin} = _SB) ->
     ItBegin.
 
 -spec info(t()) ->
@@ -296,14 +293,14 @@ info(
         lower_buffer := LowerBuffer,
         upper_buffer := UpperBuffer,
         last_message_id := LastMessageId
-    } = SC
+    } = SB
 ) ->
     #{
         status => active,
         lower_buffer => info_buffer(LowerBuffer),
         upper_buffer => info_buffer(UpperBuffer),
-        paused => info_paused(SC),
-        finished => is_finished(SC),
+        paused => info_paused(SB),
+        finished => is_finished(SB),
         last_message_id => LastMessageId
     };
 info(
@@ -313,7 +310,7 @@ info(
         unacked := Unacked,
         actual_unacked := ActualUnacked,
         messages := Messages
-    } = _SC
+    } = _SB
 ) ->
     #{
         status => restoring,
@@ -330,12 +327,13 @@ info(
 handle_restore(
     #{
         status := restoring,
+        mq := MQ,
         it_begin := ItBegin,
         actual_unacked := ActualUnacked,
         messages := Messages,
         last_message_id := LastMessageId,
         options := Options
-    } = SC0,
+    } = SB0,
     [],
     LastTTVMessageId,
     It
@@ -343,8 +341,9 @@ handle_restore(
     case LastMessageId =< LastTTVMessageId of
         %% Restoration is complete, we can transition to active state in paused state
         true ->
-            SC = SC0#{
+            SB = SB0#{
                 status => active,
+                mq => MQ,
                 options => Options,
                 lower_buffer => #{
                     it_begin => ItBegin,
@@ -356,9 +355,9 @@ handle_restore(
                 upper_seqno => undefined,
                 last_message_id => LastTTVMessageId
             },
-            {ok, lists:reverse(Messages), SC};
+            {ok, lists:reverse(Messages), SB};
         false ->
-            {ok, [], SC0}
+            {ok, [], SB0}
     end;
 handle_restore(
     #{
@@ -367,61 +366,61 @@ handle_restore(
         actual_unacked := ActualUnacked,
         messages := Messages,
         last_message_id := LastMessageId
-    } = SC0,
+    } = SB0,
     [{_Topic, MessageId, _TTV} = TTV | Rest],
     _LastTTVMessageId,
     It
 ) ->
-    SC =
+    SB =
         case MessageId =< LastMessageId of
             true ->
                 %% Message from the previous buffer
                 case Unacked of
                     %% Unacked message from the previous buffer
                     #{MessageId := true} ->
-                        SC0#{
+                        SB0#{
                             actual_unacked => ActualUnacked#{MessageId => true},
                             messages => [TTV | Messages]
                         };
                     %% Acknowledged message from the previous buffer
                     _ ->
-                        SC0
+                        SB0
                 end;
             false ->
                 %% New message, was not seen in the previous buffer
-                SC0#{
+                SB0#{
                     actual_unacked => ActualUnacked#{MessageId => true},
                     messages => [TTV | Messages]
                 }
         end,
-    handle_restore(SC, Rest, MessageId, It).
+    handle_restore(SB, Rest, MessageId, It).
 
 maybe_init_upper_buffer(#{it_end := ItEnd} = _LowerBuffer, undefined) ->
     #{it_begin => ItEnd, it_end => ItEnd, n => 0, unacked => #{}};
 maybe_init_upper_buffer(_LowerBuffer, #{} = UpperBuffer) ->
     UpperBuffer.
 
-compact(SC0) ->
-    SC1 = try_rotate_upper_buffer(SC0),
-    SC2 = try_compact_lower_buffer(SC1),
-    case is_finished(SC2) of
+compact(SB0) ->
+    SB1 = try_rotate_upper_buffer(SB0),
+    SB2 = try_compact_lower_buffer(SB1),
+    case is_finished(SB2) of
         true ->
             finished;
         false ->
-            {ok, SC2}
+            {ok, SB2}
     end.
 
 is_finished(
     #{
         lower_buffer := #{it_begin := end_of_stream, it_end := end_of_stream},
         upper_buffer := undefined
-    } = _SC
+    } = _SB
 ) ->
     true;
-is_finished(_SC) ->
+is_finished(_SB) ->
     false.
 
-try_compact_lower_buffer(#{lower_buffer := LowerBuffer0} = SC) ->
+try_compact_lower_buffer(#{lower_buffer := LowerBuffer0} = SB) ->
     case LowerBuffer0 of
         #{it_end := ItEnd, unacked := Unacked} when map_size(Unacked) =:= 0 ->
             LowerBuffer = LowerBuffer0#{
@@ -429,20 +428,20 @@ try_compact_lower_buffer(#{lower_buffer := LowerBuffer0} = SC) ->
                 it_end => ItEnd,
                 n => 0
             },
-            SC#{lower_buffer => LowerBuffer};
+            SB#{lower_buffer => LowerBuffer};
         _ ->
-            SC
+            SB
     end.
 
-try_rotate_upper_buffer(#{upper_buffer := undefined} = SC) ->
-    SC;
-try_rotate_upper_buffer(#{lower_buffer := LowerBuffer, upper_buffer := UpperBuffer} = SC0) ->
+try_rotate_upper_buffer(#{upper_buffer := undefined} = SB) ->
+    SB;
+try_rotate_upper_buffer(#{lower_buffer := LowerBuffer, upper_buffer := UpperBuffer} = SB0) ->
     case LowerBuffer of
         #{unacked := Unacked} when map_size(Unacked) =:= 0 ->
-            SC = SC0#{lower_buffer => UpperBuffer, upper_buffer => undefined},
-            resume(SC);
+            SB = SB0#{lower_buffer => UpperBuffer, upper_buffer => undefined},
+            resume(SB);
         _ ->
-            SC0
+            SB0
     end.
 
 ack_from_buffer(#{unacked := Unacked} = Buffer, MessageId) ->
@@ -467,40 +466,39 @@ push_to_buffer(#{n := N, unacked := Unacked0} = Buffer0, It, TTVs, Size) ->
         unacked => Unacked
     }}.
 
-update_last_seen_message_id(SC, undefined) ->
-    SC;
-update_last_seen_message_id(SC, LastMessageId) ->
-    SC#{last_message_id => LastMessageId}.
+update_last_seen_message_id(SB, undefined) ->
+    SB;
+update_last_seen_message_id(SB, LastMessageId) ->
+    SB#{last_message_id => LastMessageId}.
 
-can_advance_lower_buffer(#{lower_buffer := LowerBuffer, upper_buffer := undefined} = SC) ->
-    not is_buffer_full(SC, LowerBuffer);
+can_advance_lower_buffer(#{lower_buffer := LowerBuffer, upper_buffer := undefined} = SB) ->
+    not is_buffer_full(SB, LowerBuffer);
 can_advance_lower_buffer(#{}) ->
     false.
 
-is_buffer_full(#{options := #{max_buffer_size := MaxBufferSize}} = _SC, #{n := N} = _Buffer) ->
+is_buffer_full(#{options := #{max_buffer_size := MaxBufferSize}} = _SB, #{n := N} = _Buffer) ->
     N >= MaxBufferSize.
 
-suback(SC, Handle, SeqNo) ->
-    ok = emqx_mq_message_db:suback(Handle, SeqNo),
-    SC#{upper_seqno => undefined}.
+suback(#{mq := MQ} = SB, Handle, SeqNo) ->
+    ok = emqx_mq_message_db:suback(MQ, Handle, SeqNo),
+    SB#{upper_seqno => undefined}.
 
-pause(SC, Handle, SeqNo) ->
-    SC#{upper_seqno => {Handle, SeqNo}}.
+pause(SB, Handle, SeqNo) ->
+    SB#{upper_seqno => {Handle, SeqNo}}.
 
-resume(#{upper_seqno := undefined} = SC) ->
-    SC;
-resume(#{upper_seqno := {Handle, SeqNo}} = SC) ->
-    suback(SC, Handle, SeqNo).
+resume(#{upper_seqno := undefined} = SB) ->
+    SB;
+resume(#{upper_seqno := {Handle, SeqNo}} = SB) ->
+    suback(SB, Handle, SeqNo).
 
 info_buffer(undefined) -> undefined;
 info_buffer(#{n := N, unacked := Unacked} = _Buffer) -> #{n => N, unacked => map_size(Unacked)}.
 
-info_paused(#{upper_seqno := undefined} = _SC) ->
+info_paused(#{upper_seqno := undefined} = _SB) ->
     false;
-info_paused(#{upper_seqno := _UpperSeqNo} = _SC) ->
+info_paused(#{upper_seqno := _UpperSeqNo} = _SB) ->
     true.
 
-handle_options(Options) ->
-    MaxBufferSizeTotal = maps:get(max_buffer_size, Options, ?MQ_CONSUMER_MAX_BUFFER_SIZE),
-    MaxBufferSize = max(1, MaxBufferSizeTotal div 2),
-    Options#{max_buffer_size => MaxBufferSize}.
+handle_options(#{stream_max_buffer_size := MaxStreamBufferSize} = _MQ) ->
+    MaxBufferSize = max(1, MaxStreamBufferSize div 2),
+    #{max_buffer_size => MaxBufferSize}.

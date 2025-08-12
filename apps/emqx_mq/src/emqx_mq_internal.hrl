@@ -59,7 +59,6 @@
 %% TODO
 %% make configurable, increase
 
--define(MQ_CONSUMER_MAX_BUFFER_SIZE, 10).
 -define(MQ_CONSUMER_MAX_UNACKED, 5).
 
 %% TODO

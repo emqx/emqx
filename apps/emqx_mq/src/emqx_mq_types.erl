@@ -35,7 +35,9 @@ The module contains basic types for the Message Queue application.
     redispatch_interval_ms := interval_ms(),
     dispatch_strategy := dispatch_strategy(),
     local_max_inflight := non_neg_integer(),
-    busy_session_retry_interval := interval_ms()
+    busy_session_retry_interval := interval_ms(),
+    stream_max_buffer_size := non_neg_integer(),
+    stream_max_unacked := non_neg_integer()
 }.
 -export_type([
     subscriber_ref/0,

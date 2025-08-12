@@ -16,7 +16,6 @@ The module holds a stream_buffers for all streams of a single Message Queue.
 
 -export([
     new/2,
-    new/3,
     progress/1,
     handle_ds_info/2,
     handle_ack/2,
@@ -48,8 +47,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
 }.
 
 -type state() :: #{
-    mq_topic := binary(),
-    stream_buffer_options := emqx_mq_consumer_stream_buffer:stream_buffer_options(),
+    mq := emqx_mq_types:mq(),
     streams := #{
         emqx_ds:stream() => #{
             stream_buffer := undefined | emqx_mq_consumer_stream_buffer:t(),
@@ -81,15 +79,10 @@ The module holds a stream_buffers for all streams of a single Message Queue.
 
 -spec new(emqx_mq_types:mq(), progress()) -> t().
 new(MQ, Progress) ->
-    new(MQ, Progress, #{}).
-
--spec new(emqx_mq_types:mq(), progress(), emqx_mq_consumer_stream_buffer:options()) -> t().
-new(#{topic_filter := MQTopic} = MQ, Progress, SBOptions) ->
     StreamsProgress = maps:get(streams_progress, Progress, #{}),
     GenerationProgress = maps:get(generation_progress, Progress, #{}),
     State0 = #{
-        stream_buffer_options => SBOptions,
-        mq_topic => MQTopic,
+        mq => MQ,
         streams => #{},
         streams_by_slab => #{},
         progress => GenerationProgress
@@ -234,11 +227,11 @@ on_new_iterator(
     Slab,
     Stream,
     It,
-    #{streams := Streams, streams_by_slab := StreamsBySlab, stream_buffer_options := SBOptions} =
+    #{mq := MQ, streams := Streams, streams_by_slab := StreamsBySlab} =
         State
 ) ->
     StreamData = #{
-        stream_buffer => emqx_mq_consumer_stream_buffer:new(It, SBOptions), slab => Slab
+        stream_buffer => emqx_mq_consumer_stream_buffer:new(It, MQ), slab => Slab
     },
     {subscribe, State#{
         streams => Streams#{Stream => StreamData},
@@ -246,7 +239,7 @@ on_new_iterator(
     }}.
 
 on_unrecoverable_error(
-    ?SUB_ID, Slab, Stream, Error, #{mq_topic := MQTopic, streams := Streams} = State
+    ?SUB_ID, Slab, Stream, Error, #{mq := #{topic_filter := MQTopic}, streams := Streams} = State
 ) ->
     ?tp(error, emqx_mq_consumer_streams_unrecoverable_error, #{
         mq_topic => MQTopic, slab => Slab, stream => Stream, error => Error
@@ -281,7 +274,7 @@ restore_streams(State, StreamsProgress) ->
     ).
 
 restore_stream(
-    #{streams := Streams, streams_by_slab := StreamsBySlab, stream_buffer_options := SBOptions} =
+    #{streams := Streams, streams_by_slab := StreamsBySlab, mq := MQ} =
         State,
     Slab,
     Stream,
@@ -294,7 +287,7 @@ restore_stream(
             _ ->
                 #{
                     stream_buffer => emqx_mq_consumer_stream_buffer:restore(
-                        StreamProgress, SBOptions
+                        StreamProgress, MQ
                     ),
                     slab => Slab
                 }
