@@ -54,8 +54,6 @@ init_per_testcase(t_throttle_recoverable_msg, Config) ->
     Config;
 init_per_testcase(t_throttle_add_new_msg, Config) ->
     ok = snabbkaffe:start_trace(),
-    [?THROTTLE_MSG] = Conf = emqx:get_config([log, throttling, msgs]),
-    {ok, _} = emqx_conf:update([log, throttling, msgs], [?THROTTLE_MSG1 | Conf], #{}),
     Config;
 init_per_testcase(t_throttle_debug_primary_level, Config) ->
     ok = snabbkaffe:start_trace(),
@@ -149,6 +147,8 @@ t_throttle_recoverable_msg(_Config) ->
 t_throttle_add_new_msg(_Config) ->
     ?check_trace(
         begin
+            [?THROTTLE_MSG] = Conf = emqx:get_config([log, throttling, msgs]),
+            {ok, _} = emqx_conf:update([log, throttling, msgs], [?THROTTLE_MSG1 | Conf], #{}),
             {ok, _} = ?block_until(
                 #{?snk_kind := log_throttler_new_msg, throttled_msg := ?THROTTLE_MSG1}, 5000
             ),

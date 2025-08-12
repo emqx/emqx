@@ -1121,9 +1121,6 @@ api_spec_schemas(Root) ->
             Schemas
     end.
 
-bridges_api_spec_schemas() ->
-    api_spec_schemas("bridges").
-
 actions_api_spec_schemas() ->
     api_spec_schemas("actions").
 

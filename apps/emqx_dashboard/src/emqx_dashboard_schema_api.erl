@@ -18,9 +18,6 @@
 
 -export([get_schema/2]).
 
-%% for test
--export([bridge_schema_json/0]).
-
 -define(TAGS, [<<"dashboard">>]).
 -define(BAD_REQUEST, 'BAD_REQUEST').
 
@@ -45,9 +42,8 @@ paths() ->
     ["/schemas/:name"].
 
 %% This is a rather hidden API, so we don't need to add translations for the description.
-%% TODO(5.7): delete 'bridges'
 schema("/schemas/:name") ->
-    Schemas = [hotconf, bridges, actions, connectors],
+    Schemas = [hotconf, actions, connectors],
     #{
         'operationId' => get_schema,
         get => #{
@@ -79,8 +75,6 @@ get_schema(get, _) ->
 
 gen_schema(hotconf) ->
     hotconf_schema_json();
-gen_schema(bridges) ->
-    bridge_schema_json();
 gen_schema(actions) ->
     actions_schema_json();
 gen_schema(connectors) ->
@@ -92,13 +86,6 @@ hotconf_schema_json() ->
         version => ?SCHEMA_VERSION
     },
     gen_api_schema_json_iodata(emqx_mgmt_api_configs, SchemaInfo).
-
-bridge_schema_json() ->
-    SchemaInfo = #{
-        title => <<"Data Bridge Schema">>,
-        version => ?SCHEMA_VERSION
-    },
-    gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo).
 
 actions_schema_json() ->
     SchemaInfo = #{

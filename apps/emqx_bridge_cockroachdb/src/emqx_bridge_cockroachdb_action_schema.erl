@@ -65,7 +65,16 @@ fields(?ACTION_TYPE) ->
         )
     );
 fields(action_parameters) ->
-    emqx_bridge_pgsql:fields(action_parameters).
+    lists:map(
+        fun
+            ({sql = Key, Sc}) ->
+                Overrides = #{default => default_sql()},
+                {Key, hocon_schema:override(Sc, Overrides)};
+            (Field) ->
+                Field
+        end,
+        emqx_bridge_pgsql:fields(action_parameters)
+    ).
 
 desc(Name) when
     Name =:= ?ACTION_TYPE;
@@ -99,3 +108,10 @@ bridge_v2_examples(Method) ->
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Struct) -> hoconsc:ref(?MODULE, Struct).
+
+default_sql() ->
+    <<
+        "insert into t_mqtt_msg(msgid, topic, qos, payload, arrived) "
+        "values (${id}, ${topic}, ${qos}, ${payload}, "
+        "(((${timestamp} :: bigint)/1000) :: bigint) :: timestamp))"
+    >>.

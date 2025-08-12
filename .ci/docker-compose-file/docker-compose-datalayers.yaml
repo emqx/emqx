@@ -1,9 +1,0 @@
-services:
-  datalayers_server_tcp:
-    container_name: datalayers_tcp
-    image: datalayers/datalayers:${DATALAYERS_TAG}
-    expose:
-      - "8361"
-    restart: always
-    networks:
-      - emqx_bridge
