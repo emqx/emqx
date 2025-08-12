@@ -121,7 +121,7 @@ delete(TopicFilter) ->
                     ok
             end,
             ok = emqx_mq_consumer_db:drop_consumer_data(MQ),
-            ok = emqx_mq_payload_db:drop(MQ);
+            ok = emqx_mq_message_db:drop(MQ);
         not_found ->
             ok
     end.

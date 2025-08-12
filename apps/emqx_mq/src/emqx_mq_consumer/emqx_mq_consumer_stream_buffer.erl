@@ -481,7 +481,7 @@ is_buffer_full(#{options := #{max_buffer_size := MaxBufferSize}} = _SC, #{n := N
     N >= MaxBufferSize.
 
 suback(SC, Handle, SeqNo) ->
-    ok = emqx_mq_payload_db:suback(Handle, SeqNo),
+    ok = emqx_mq_message_db:suback(Handle, SeqNo),
     SC#{upper_seqno => undefined}.
 
 pause(SC, Handle, SeqNo) ->

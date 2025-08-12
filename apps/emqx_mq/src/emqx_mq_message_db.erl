@@ -2,7 +2,7 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_mq_payload_db).
+-module(emqx_mq_message_db).
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -29,13 +29,13 @@
     delete_all/0
 ]).
 
--define(MQ_PAYLOAD_DB, mq_payload).
--define(MQ_PAYLOAD_DB_APPEND_RETRY, 5).
--define(MQ_PAYLOAD_DB_LTS_SETTINGS, #{
+-define(MQ_MESSAGE_DB, mq_message).
+-define(MQ_MESSAGE_DB_APPEND_RETRY, 5).
+-define(MQ_MESSAGE_DB_LTS_SETTINGS, #{
     %% "topic/TOPIC/key/СOMPACTION_KEY"
     lts_threshold_spec => {simple, {100, 0, 0, 100, 0, 100}}
 }).
--define(MQ_PAYLOAD_DB_TOPIC(MQ_TOPIC, MQ_ID, COMPACTION_KEY), [
+-define(MQ_MESSAGE_DB_TOPIC(MQ_TOPIC, MQ_ID, COMPACTION_KEY), [
     <<"topic">>, MQ_TOPIC, MQ_ID, <<"key">>, COMPACTION_KEY
 ]).
 -define(SHARDS_PER_SITE, 4).
@@ -48,8 +48,8 @@
 -spec open() -> ok.
 open() ->
     maybe
-        ok ?= emqx_ds:open_db(?MQ_PAYLOAD_DB, settings()),
-        emqx_ds:wait_db(?MQ_PAYLOAD_DB, all, infinity)
+        ok ?= emqx_ds:open_db(?MQ_MESSAGE_DB, settings()),
+        emqx_ds:wait_db(?MQ_MESSAGE_DB, all, infinity)
     end.
 
 -spec insert(emqx_mq_types:mq(), emqx_types:message(), _CompactionKey :: undefined | binary()) ->
@@ -63,16 +63,16 @@ insert(#{is_compacted := false} = MQ, _Message, CompactionKey) when CompactionKe
     }),
     ok;
 insert(#{is_compacted := true} = MQ, Message, CompactionKey) ->
-    Topic = mq_payload_topic(MQ, CompactionKey),
+    Topic = mq_message_topic(MQ, CompactionKey),
     TxOpts = #{
-        db => ?MQ_PAYLOAD_DB,
+        db => ?MQ_MESSAGE_DB,
         shard => {auto, CompactionKey},
         generation => generation(),
         sync => true,
-        retries => ?MQ_PAYLOAD_DB_APPEND_RETRY
+        retries => ?MQ_MESSAGE_DB_APPEND_RETRY
     },
     Value = encode_message(Message),
-    % ?tp(warning, mq_payload_db_insert, #{topic => Topic, generation => 1, value => Value}),
+    % ?tp(warning, mq_message_db_insert, #{topic => Topic, generation => 1, value => Value}),
     emqx_ds:trans(TxOpts, fun() ->
         emqx_ds:tx_del_topic(Topic),
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
@@ -80,22 +80,22 @@ insert(#{is_compacted := true} = MQ, Message, CompactionKey) ->
 insert(#{is_compacted := false} = MQ, Message, undefined) ->
     Value = encode_message(Message),
     ClientId = emqx_message:from(Message),
-    Topic = mq_payload_topic(MQ, ClientId),
+    Topic = mq_message_topic(MQ, ClientId),
     TxOpts = #{
-        db => ?MQ_PAYLOAD_DB,
+        db => ?MQ_MESSAGE_DB,
         shard => {auto, ClientId},
         generation => generation(),
         sync => true,
-        retries => ?MQ_PAYLOAD_DB_APPEND_RETRY
+        retries => ?MQ_MESSAGE_DB_APPEND_RETRY
     },
-    % ?tp(warning, mq_payload_db_insert, #{topic => Topic, generation => 1, value => Value}),
+    % ?tp(warning, mq_message_db_insert, #{topic => Topic, generation => 1, value => Value}),
     emqx_ds:trans(TxOpts, fun() ->
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
     end).
 
 -spec drop(emqx_mq_types:mq()) -> ok.
 drop(MQ) ->
-    delete(mq_payload_topic(MQ, '#')).
+    delete(mq_message_topic(MQ, '#')).
 
 -spec delete_all() -> ok.
 delete_all() ->
@@ -114,9 +114,9 @@ create_client(Module) ->
     {ok, emqx_ds_client:t(), emqx_mq_consumer_stream_buffer:state()}.
 subscribe(MQ, DSClient0, SubId, State0) ->
     SubOpts = #{
-        db => ?MQ_PAYLOAD_DB,
+        db => ?MQ_MESSAGE_DB,
         id => SubId,
-        topic => mq_payload_topic(MQ, '#'),
+        topic => mq_message_topic(MQ, '#'),
         ds_sub_opts => #{
             max_unacked => ?MQ_CONSUMER_MAX_UNACKED
         }
@@ -126,7 +126,7 @@ subscribe(MQ, DSClient0, SubId, State0) ->
 
 -spec suback(emqx_ds_client:sub_handle(), emqx_ds_client:sub_seqno()) -> ok.
 suback(SubHandle, SeqNo) ->
-    emqx_ds:suback(?MQ_PAYLOAD_DB, SubHandle, SeqNo).
+    emqx_ds:suback(?MQ_MESSAGE_DB, SubHandle, SeqNo).
 
 -spec encode_message(emqx_types:message()) -> binary().
 encode_message(Message) ->
@@ -141,15 +141,15 @@ decode_message(Bin) ->
 %%--------------------------------------------------------------------
 
 delete(Topic) ->
-    Shards = emqx_ds:list_shards(?MQ_PAYLOAD_DB),
+    Shards = emqx_ds:list_shards(?MQ_MESSAGE_DB),
     lists:foreach(
         fun(Shard) ->
             TxOpts = #{
-                db => ?MQ_PAYLOAD_DB,
+                db => ?MQ_MESSAGE_DB,
                 shard => Shard,
                 generation => generation(),
                 sync => true,
-                retries => ?MQ_PAYLOAD_DB_APPEND_RETRY
+                retries => ?MQ_MESSAGE_DB_APPEND_RETRY
             },
             emqx_ds:trans(TxOpts, fun() ->
                 emqx_ds:tx_del_topic(Topic)
@@ -158,8 +158,8 @@ delete(Topic) ->
         Shards
     ).
 
-mq_payload_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, CompactionKey) ->
-    ?MQ_PAYLOAD_DB_TOPIC(TopicFilter, Id, CompactionKey).
+mq_message_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, CompactionKey) ->
+    ?MQ_MESSAGE_DB_TOPIC(TopicFilter, Id, CompactionKey).
 
 generation() ->
     1.
@@ -174,7 +174,7 @@ settings() ->
                 conflict_window => 5000
             },
         storage =>
-            {emqx_ds_storage_skipstream_lts_v2, ?MQ_PAYLOAD_DB_LTS_SETTINGS},
+            {emqx_ds_storage_skipstream_lts_v2, ?MQ_MESSAGE_DB_LTS_SETTINGS},
         store_ttv => true,
         backend => builtin_raft,
         n_shards => NSites * ?SHARDS_PER_SITE,

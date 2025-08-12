@@ -95,8 +95,8 @@ new(#{topic_filter := MQTopic} = MQ, Progress, SBOptions) ->
         progress => GenerationProgress
     },
     State1 = restore_streams(State0, StreamsProgress),
-    DSClient0 = emqx_mq_payload_db:create_client(?MODULE),
-    {ok, DSClient, State} = emqx_mq_payload_db:subscribe(MQ, DSClient0, ?SUB_ID, State1),
+    DSClient0 = emqx_mq_message_db:create_client(?MODULE),
+    {ok, DSClient, State} = emqx_mq_message_db:subscribe(MQ, DSClient0, ?SUB_ID, State1),
     #cs{state = State, ds_client = DSClient}.
 
 -spec progress(t()) -> progress().
@@ -327,7 +327,7 @@ do_handle_ds_reply(
                 slab => Slab, sb => emqx_mq_consumer_stream_buffer:info(SB1)
             }),
             Messages = [
-                {{Slab, StreamMessageId}, emqx_mq_payload_db:decode_message(Payload)}
+                {{Slab, StreamMessageId}, emqx_mq_message_db:decode_message(Payload)}
              || {_Topic, StreamMessageId, Payload} <- Messages0
             ],
             {ok, Messages, State#{streams => Streams#{Stream => StreamData#{stream_buffer => SB1}}}};

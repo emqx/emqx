@@ -124,7 +124,7 @@ populate_compacted(N, Fun) ->
 cleanup_mqs() ->
     ok = stop_all_consumers(),
     ok = emqx_mq_registry:delete_all(),
-    ok = emqx_mq_payload_db:delete_all(),
+    ok = emqx_mq_message_db:delete_all(),
     ok = emqx_mq_consumer_db:delete_all().
 
 stop_all_consumers() ->
