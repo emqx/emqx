@@ -1329,12 +1329,13 @@ t_rule_action(TCConfig, Opts) ->
     PostPublishFn = maps:get(post_publish_fn, Opts, fun(Context) -> Context end),
     PrePublishFn = maps:get(pre_publish_fn, Opts, fun(Context) -> Context end),
     PayloadFn = maps:get(payload_fn, Opts, fun() -> emqx_guid:to_hexstr(emqx_guid:gen()) end),
+    StartClientOpts = maps:get(start_client_opts, Opts, #{clean_start => true}),
     PublishFn = maps:get(
         publish_fn,
         Opts,
         fun(#{rule_topic := RuleTopic, payload_fn := PayloadFnIn} = Context) ->
             Payload = PayloadFnIn(),
-            {ok, C} = emqtt:start_link(#{clean_start => true}),
+            {ok, C} = emqtt:start_link(StartClientOpts),
             {ok, _} = emqtt:connect(C),
             ?assertMatch({ok, _}, emqtt:publish(C, RuleTopic, Payload, [{qos, 2}])),
             ok = emqtt:stop(C),
