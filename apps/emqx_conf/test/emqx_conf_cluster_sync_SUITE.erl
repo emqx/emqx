@@ -11,22 +11,31 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include("emqx_conf.hrl").
-
--import(emqx_common_test_helpers, [on_exit/1]).
 
 %%------------------------------------------------------------------------------
 %% Defs
 %%------------------------------------------------------------------------------
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(NS, <<"some_namespace">>).
+
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
+-define(global_namespace, global_namespace).
+-define(namespaced, namespaced).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
+
+groups() ->
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
     Config.
@@ -47,24 +56,31 @@ end_per_testcase(_TestCase, _Config) ->
 
 injected_fields() ->
     #{
-        'config.allowed_namespaced_roots' => [<<"sysmon">>]
+        'config.allowed_namespaced_roots' => [<<"sysmon">>, <<"mqtt">>]
     }.
 
-fake_mfa(TnxId, Node, MFA) ->
+fake_mfa(TxId, Node, MFA) ->
     Func = fun() ->
         MFARec = #cluster_rpc_mfa{
-            tnx_id = TnxId,
+            tnx_id = TxId,
             mfa = MFA,
             initiator = Node,
             created_at = erlang:localtime()
         },
         ok = mnesia:write(?CLUSTER_MFA, MFARec, write),
-        ok = emqx_cluster_rpc:commit(Node, TnxId)
+        ok = emqx_cluster_rpc:commit(Node, TxId)
     end,
     {atomic, ok} = mria:transaction(?CLUSTER_RPC_SHARD, Func, []),
     ok.
 
 mk_cluster_spec(Opts) ->
+    BaseAppSpec = #{
+        before_start =>
+            fun(App, AppOpts) ->
+                ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
+                emqx_cth_suite:inhibit_config_loader(App, AppOpts)
+            end
+    },
     Conf = #{
         listeners => #{
             tcp => #{default => <<"marked_for_deletion">>},
@@ -74,107 +90,178 @@ mk_cluster_spec(Opts) ->
         }
     },
     Apps = [
-        {emqx, #{config => Conf}},
-        {emqx_conf, #{config => Conf}}
+        {emqx, BaseAppSpec#{config => Conf}},
+        {emqx_conf, BaseAppSpec#{config => Conf}}
     ],
     [
         {emqx_conf_cluster_sync_SUITE1, Opts#{role => core, apps => Apps}},
         {emqx_conf_cluster_sync_SUITE2, Opts#{role => core, apps => Apps}}
     ].
 
+cli_admin(Cmd, Args) ->
+    emqx_conf_cli:admins([Cmd | Args]).
+
+str(X) -> emqx_utils_conv:str(X).
+
+namespace_of(TCConfig) ->
+    case
+        emqx_common_test_helpers:get_matrix_prop(
+            TCConfig, [?global_namespace, ?namespaced], ?global_namespace
+        )
+    of
+        ?global_namespace -> ?global_ns;
+        ?namespaced -> ?NS
+    end.
+
+status() ->
+    %% Due to seeding the test node, there're might be some initial MFAs.
+    {atomic, Status} = emqx_cluster_rpc:status(),
+    lists:filter(
+        fun
+            (#{mfa := {emqx_config, seed_defaults_for_all_roots_namespaced, _}}) ->
+                false;
+            (_) ->
+                true
+        end,
+        Status
+    ).
+
+%% bump expected transaction id if running namespaced test, since these have a seed
+%% transaction during setup.
+bump_if_namespaced(?global_ns, TxId) ->
+    TxId;
+bump_if_namespaced(Namespace, TxId) when is_binary(Namespace) ->
+    TxId + 1.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
 
-t_fix(Config) ->
+t_fix() ->
+    [{matrix, true}].
+t_fix(matrix) ->
+    [[?global_namespace], [?namespaced]];
+t_fix(Config) when is_list(Config) ->
+    Namespace = namespace_of(Config),
+    UpdateOpts =
+        case Namespace of
+            ?global_ns ->
+                #{};
+            _ ->
+                #{namespace => Namespace}
+        end,
     Cluster = mk_cluster_spec(#{}),
     Nodes =
         [Node1, Node2] = emqx_cth_cluster:start(
             Cluster, #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
         ),
     on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
+    maybe
+        true ?= is_binary(Namespace),
+        ?ON(
+            Node1,
+            ok = emqx_common_test_helpers:seed_defaults_for_all_roots_namespaced_cluster(
+                emqx_schema, Namespace
+            )
+        )
+    end,
 
-    ?ON(Node1, ?assertMatch({atomic, []}, emqx_cluster_rpc:status())),
-    ?ON(Node2, ?assertMatch({atomic, []}, emqx_cluster_rpc:status())),
-    ?ON(Node1, emqx_conf_proto_v4:update([<<"mqtt">>], #{<<"max_topic_levels">> => 100}, #{})),
-    ?assertEqual(100, emqx_conf_proto_v4:get_config(Node1, [mqtt, max_topic_levels])),
-    ?assertEqual(100, emqx_conf_proto_v4:get_config(Node2, [mqtt, max_topic_levels])),
+    ?ON(Node1, ?assertMatch([], status())),
+    ?ON(Node2, ?assertMatch([], status())),
+    ?ON(
+        Node1, emqx_conf_proto_v5:update([<<"mqtt">>], #{<<"max_topic_levels">> => 100}, UpdateOpts)
+    ),
+    ?assertEqual(100, emqx_conf_proto_v5:get_config(Node1, Namespace, [mqtt, max_topic_levels])),
+    ?assertEqual(100, emqx_conf_proto_v5:get_config(Node2, Namespace, [mqtt, max_topic_levels])),
+    TxId1 = bump_if_namespaced(Namespace, 1),
     ?ON(
         Node1,
         ?assertMatch(
-            {atomic, [
-                #{node := Node1, tnx_id := 1},
-                #{node := Node2, tnx_id := 1}
-            ]},
-            emqx_cluster_rpc:status()
+            [
+                #{node := Node1, tnx_id := TxId1},
+                #{node := Node2, tnx_id := TxId1}
+            ],
+            status()
         )
     ),
     %% fix normal, nothing changed
     ?ON(Node1, begin
-        ok = emqx_conf_cli:admins(["fix"]),
+        ok = cli_admin("fix", []),
         ?assertMatch(
-            {atomic, [
-                #{node := Node1, tnx_id := 1},
-                #{node := Node2, tnx_id := 1}
-            ]},
-            emqx_cluster_rpc:status()
+            [
+                #{node := Node1, tnx_id := TxId1},
+                #{node := Node2, tnx_id := TxId1}
+            ],
+            status()
         )
     end),
     %% fix inconsistent_key. tnx_id is the same, so nothing changed.
-    emqx_conf_proto_v4:update(Node1, [<<"mqtt">>], #{<<"max_topic_levels">> => 99}, #{}),
+    emqx_conf_proto_v5:update(Node1, [<<"mqtt">>], #{<<"max_topic_levels">> => 99}, UpdateOpts),
     ?ON(Node1, begin
-        ok = emqx_conf_cli:admins(["fix"]),
+        ok = cli_admin("fix", []),
         ?assertMatch(
-            {atomic, [
-                #{node := Node1, tnx_id := 1},
-                #{node := Node2, tnx_id := 1}
-            ]},
-            emqx_cluster_rpc:status()
+            [
+                #{node := Node1, tnx_id := TxId1},
+                #{node := Node2, tnx_id := TxId1}
+            ],
+            status()
         )
     end),
-    ?assertMatch(99, emqx_conf_proto_v4:get_config(Node1, [mqtt, max_topic_levels])),
-    ?assertMatch(100, emqx_conf_proto_v4:get_config(Node2, [mqtt, max_topic_levels])),
+    ?assertMatch(99, emqx_conf_proto_v5:get_config(Node1, Namespace, [mqtt, max_topic_levels])),
+    ?assertMatch(100, emqx_conf_proto_v5:get_config(Node2, Namespace, [mqtt, max_topic_levels])),
 
     %% fix inconsistent_tnx_id_key. tnx_id and key are updated.
-    ?ON(Node1, fake_mfa(2, Node1, {?MODULE, undef, []})),
+    ?ON(Node1, fake_mfa(TxId1 + 1, Node1, {?MODULE, undef, []})),
     %% 2 -> fake_mfa, 3-> mark_begin_log, 4-> mqtt 5 -> zones
+    TxId2 =
+        case Namespace of
+            ?global_ns -> 5;
+            _ -> 6
+        end,
     ?ON(Node2, begin
-        ok = emqx_conf_cli:admins(["fix"]),
+        ok = cli_admin("fix", []),
         ?assertMatch(
-            {atomic, [
-                #{node := Node1, tnx_id := 5},
-                #{node := Node2, tnx_id := 5}
-            ]},
-            emqx_cluster_rpc:status()
+            [
+                #{node := Node1, tnx_id := TxId2},
+                #{node := Node2, tnx_id := TxId2}
+            ],
+            status(),
+            #{expected_tx_id => TxId2}
         )
     end),
-    ?assertMatch(99, emqx_conf_proto_v4:get_config(Node1, [mqtt, max_topic_levels])),
-    ?assertMatch(99, emqx_conf_proto_v4:get_config(Node2, [mqtt, max_topic_levels])),
+    ?assertMatch(99, emqx_conf_proto_v5:get_config(Node1, Namespace, [mqtt, max_topic_levels])),
+    ?assertMatch(99, emqx_conf_proto_v5:get_config(Node2, Namespace, [mqtt, max_topic_levels])),
 
     %% fix inconsistent_tnx_id. tnx_id is updated.
     {ok, _} = ?ON(
-        Node1, emqx_conf_proto_v4:update([<<"mqtt">>], #{<<"max_topic_levels">> => 98}, #{})
+        Node1, emqx_conf_proto_v5:update([<<"mqtt">>], #{<<"max_topic_levels">> => 98}, UpdateOpts)
     ),
-    ?ON(Node2, fake_mfa(7, Node2, {?MODULE, undef1, []})),
+    ?ON(Node2, fake_mfa(TxId2 + 2, Node2, {?MODULE, undef1, []})),
+    TxId3 =
+        case Namespace of
+            ?global_ns -> 8;
+            _ -> 11
+        end,
     ?ON(Node1, begin
-        ok = emqx_conf_cli:admins(["fix"]),
+        ok = cli_admin("fix", []),
         ?assertMatch(
-            {atomic, [
-                #{node := Node1, tnx_id := 8},
-                #{node := Node2, tnx_id := 8}
-            ]},
-            emqx_cluster_rpc:status()
+            [
+                #{node := Node1, tnx_id := TxId3},
+                #{node := Node2, tnx_id := TxId3}
+            ],
+            status(),
+            #{expected_tx_id => TxId3}
         )
     end),
-    ?assertMatch(98, emqx_conf_proto_v4:get_config(Node1, [mqtt, max_topic_levels])),
-    ?assertMatch(98, emqx_conf_proto_v4:get_config(Node2, [mqtt, max_topic_levels])),
+    ?assertMatch(98, emqx_conf_proto_v5:get_config(Node1, Namespace, [mqtt, max_topic_levels])),
+    ?assertMatch(98, emqx_conf_proto_v5:get_config(Node2, Namespace, [mqtt, max_topic_levels])),
     %% unchanged
     ?ON(Node1, begin
-        ok = emqx_conf_cli:admins(["fix"]),
+        ok = cli_admin("fix", []),
         ?assertMatch(
             {atomic, [
-                #{node := Node1, tnx_id := 8},
-                #{node := Node2, tnx_id := 8}
+                #{node := Node1, tnx_id := TxId3},
+                #{node := Node2, tnx_id := TxId3}
             ]},
             emqx_cluster_rpc:status()
         )

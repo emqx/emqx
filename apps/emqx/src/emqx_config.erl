@@ -107,7 +107,8 @@
     get_all_namespace_config_errors/0,
     get_namespace_config_errors/1,
     clear_all_invalid_namespaced_configs/0,
-    erase_namespaced_configs/1
+    erase_namespaced_configs/1,
+    namespaced_config_allowed_roots/0
 ]).
 
 -ifdef(TEST).
@@ -221,6 +222,7 @@ get_all_namespaces_containing(RootKey0) ->
     MS = [{MatchHead, [], ['$1']}],
     lists:usort(mnesia:dirty_select(?CONFIG_TAB, MS)).
 
+-spec get_all_raw_namespaced_configs() -> #{namespace() => #{binary() => term()}}.
 get_all_raw_namespaced_configs() ->
     MatchHead = erlang:make_tuple(record_info(size, ?CONFIG_TAB), '_'),
     lists:foldl(
@@ -464,10 +466,14 @@ get_raw([Root | _] = KeyPath, Default) when is_binary(Root) -> do_get_raw(KeyPat
 get_raw([Root | T], Default) -> get_raw([bin(Root) | T], Default);
 get_raw([], Default) -> do_get_raw([], Default).
 
+get_raw_namespaced([], Namespace) ->
+    get_all_roots_from_namespace(Namespace);
 get_raw_namespaced([_Root | _] = KeyPath0, Namespace) ->
     KeyPath = lists:map(fun bin/1, KeyPath0),
     do_get_raw_namespaced(KeyPath, Namespace, error).
 
+get_raw_namespaced([], Namespace, _Default) ->
+    get_all_roots_from_namespace(Namespace);
 get_raw_namespaced([_Root | _] = KeyPath0, Namespace, Default) ->
     KeyPath = lists:map(fun bin/1, KeyPath0),
     do_get_raw_namespaced(KeyPath, Namespace, {value, Default}).
@@ -813,7 +819,9 @@ do_check_config(SchemaMod, RawConf, Opts0) ->
 
 check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) ->
     Opts = #{return_plain => true, format => map, required => false},
-    try hocon_tconf:check_plain(SchemaMod, RawConf, Opts, AllowedNSRoots) of
+    Roots0 = [R || {R, _} <- hocon_schema:roots(SchemaMod)],
+    Roots = lists:filter(fun(R) -> lists:member(R, AllowedNSRoots) end, Roots0),
+    try hocon_tconf:check_plain(SchemaMod, RawConf, Opts, Roots) of
         CheckedConf ->
             {ok, unsafe_atom_checked_hocon_key_map(CheckedConf)}
     catch

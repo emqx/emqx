@@ -21,6 +21,7 @@
 
 -include("emqx_lwm2m.hrl").
 -include_lib("emqx_gateway_coap/include/emqx_coap.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -149,7 +150,7 @@ init_per_testcase(TestCase, Config) ->
             _ ->
                 default_config()
         end,
-    ok = emqx_conf_cli:load_config(GatewayConfig, #{mode => replace}),
+    ok = emqx_conf_cli:load_config(?global_ns, GatewayConfig, #{mode => replace}),
 
     {ok, ClientUdpSock} = gen_udp:open(0, [binary, {active, false}]),
 

@@ -133,7 +133,7 @@ sync_cluster_conf() ->
 
 %% @private Some core nodes are running, try to sync the cluster config from them.
 sync_cluster_conf2(Nodes) ->
-    {Results, Failed} = emqx_conf_proto_v4:get_override_config_file(Nodes),
+    {Results, Failed} = emqx_conf_proto_v5:get_override_config_file(Nodes),
     {Ready, NotReady} = lists:partition(fun(Res) -> element(1, Res) =:= ok end, Results),
     LogData = #{peer_nodes => Nodes, self_node => node()},
     case Failed ++ NotReady of
