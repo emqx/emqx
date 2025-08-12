@@ -656,6 +656,11 @@ t_stream_log_errors(_Config) ->
     meck:unload(file),
     {error, {_, 400, _}} =
         request_api(get, api_path("trace/err_stream_log/log?&bytes=1000000000000")),
+    %% Bad cursor:
+    {error, {_, 400, _}} =
+        request_api(get, api_path("trace/err_stream_log/log?&bytes=10&position=invalid")),
+    {error, {_, 400, _}} =
+        request_api(get, api_path("trace/err_stream_log/log?&bytes=10&position=g3QAAAABdwFzYSK")),
     {error, {_, 404, _}} =
         request_api(get, api_path("trace/err_stream_log/log?node=unknown_node")),
     % known atom but not a node
