@@ -1,9 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
 -module(emqx_conf_cli).
--feature(maybe_expr, enable).
 
 -include("emqx_conf.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
@@ -113,129 +111,127 @@ conf(_) ->
 conf_usage() ->
     emqx_ctl:usage(usage_conf() ++ usage_sync()).
 
-admins(["status" | Args]) ->
-    case admin_just_namespace_args(Args) of
-        {ok, #{?namespace := Namespace}} ->
-            status(Namespace);
-        {error, Reason} = Error ->
-            print_error(Reason),
-            Error
-    end;
+admins(["status"]) ->
+    status();
 admins(["skip" | Args]) ->
-    case admin_varargs(Args) of
-        {ok, #{?namespace := Namespace, ?vararg := []}} ->
-            status(Namespace),
+    case Args of
+        [] ->
+            status(),
             Nodes = emqx:running_nodes(),
             lists:foreach(fun emqx_cluster_rpc:skip_failed_commit/1, Nodes),
-            status(Namespace);
-        {ok, #{?namespace := Namespace, ?vararg := [Node0]}} ->
-            status(Namespace),
+            status();
+        [Node0] ->
+            status(),
             Node = list_to_existing_atom(Node0),
             emqx_cluster_rpc:skip_failed_commit(Node),
-            status(Namespace);
-        {ok, #{?namespace := _Namespace, ?vararg := Vararg}} ->
-            Reason = vararg_len_error_msg({0, 1}, length(Vararg)),
+            status();
+        _ ->
+            Reason = vararg_len_error_msg({0, 1}, length(Args)),
             print_error(Reason),
-            {error, Reason};
-        {error, Reason} = Error ->
-            print_error(Reason),
-            Error
+            {error, Reason}
     end;
 admins(["inspect", TxId0]) ->
     TxId = list_to_integer(TxId0),
     print(emqx_cluster_rpc:query(TxId));
-admins(["fix" | Args]) ->
-    case admin_just_namespace_args(Args) of
-        {ok, #{?namespace := Namespace}} ->
-            {atomic, Status} = emqx_cluster_rpc:status(),
-            case mria_rlog:role() of
-                core ->
-                    #{stopped_nodes := StoppedNodes} = emqx_mgmt_cli:cluster_info(),
-                    maybe_fix_lagging(Namespace, Status, #{fix => true}),
-                    StoppedNodes =/= [] andalso
-                        emqx_ctl:warning("Found stopped nodes: ~p~n", [StoppedNodes]),
-                    ok;
-                Role ->
-                    Leader = emqx_cluster_rpc:find_leader(),
-                    emqx_ctl:print("Run fix command on ~p(core) node, but current is ~p~n", [
-                        Leader, Role
-                    ])
-            end;
-        {error, Reason} = Error ->
-            print_error(Reason),
-            Error
+admins(["fix"]) ->
+    {atomic, Status} = emqx_cluster_rpc:status(),
+    case mria_rlog:role() of
+        core ->
+            #{stopped_nodes := StoppedNodes} = emqx_mgmt_cli:cluster_info(),
+            maybe_fix_lagging(Status, #{fix => true}),
+            StoppedNodes =/= [] andalso
+                emqx_ctl:warning("Found stopped nodes: ~p~n", [StoppedNodes]),
+            ok;
+        Role ->
+            Leader = emqx_cluster_rpc:find_leader(),
+            emqx_ctl:print("Run fix command on ~p(core) node, but current is ~p~n", [
+                Leader, Role
+            ])
     end;
 admins(["fast_forward" | Args]) ->
-    case admin_varargs(Args) of
-        {ok, #{?namespace := Namespace, ?vararg := []}} ->
-            status(Namespace),
+    case Args of
+        [] ->
+            status(),
             Nodes = emqx:running_nodes(),
             TxId = emqx_cluster_rpc:latest_tnx_id(),
             lists:foreach(fun(N) -> emqx_cluster_rpc:fast_forward_to_commit(N, TxId) end, Nodes),
-            status(Namespace);
-        {ok, #{?namespace := Namespace, ?vararg := [ToTxId]}} ->
-            status(Namespace),
+            status();
+        [ToTxId] ->
+            status(),
             Nodes = emqx:running_nodes(),
             TxId = list_to_integer(ToTxId),
             lists:foreach(fun(N) -> emqx_cluster_rpc:fast_forward_to_commit(N, TxId) end, Nodes),
-            status(Namespace);
-        {ok, #{?namespace := Namespace, ?vararg := [Node0, ToTxId]}} ->
-            status(Namespace),
+            status();
+        [Node0, ToTxId] ->
+            status(),
             TxId = list_to_integer(ToTxId),
             Node = list_to_existing_atom(Node0),
             emqx_cluster_rpc:fast_forward_to_commit(Node, TxId),
-            status(Namespace);
-        {ok, #{?namespace := _Namespace, ?vararg := Vararg}} ->
-            Reason = vararg_len_error_msg({0, 2}, length(Vararg)),
+            status();
+        _ ->
+            Reason = vararg_len_error_msg({0, 2}, length(Args)),
             print_error(Reason),
-            {error, Reason};
-        {error, Reason} = Error ->
-            print_error(Reason),
-            Error
+            {error, Reason}
     end;
 admins(_) ->
     emqx_ctl:usage(usage_sync()).
 
-fix_lagging_with_raw(ToTxId, Node, Namespace, Keys) ->
+fix_lagging_with_raw(ToTxId, Node, Keys) ->
     Confs = lists:foldl(
         fun(Key, Acc) ->
             KeyRaw = atom_to_binary(Key),
-            Acc#{KeyRaw => emqx_conf_proto_v5:get_raw_config(Node, Namespace, [Key])}
+            Acc#{KeyRaw => emqx_conf_proto_v5:get_raw_config(Node, ?global_ns, [Key])}
         end,
         #{},
         Keys
     ),
-    case mark_fix_begin(Node, Namespace, ToTxId) of
+    case mark_fix_begin(Node, ToTxId) of
         ok ->
-            case load_config_from_raw(Namespace, Confs, #{mode => replace}) of
-                ok -> waiting_for_fix_finish();
-                Error0 -> Error0
+            maybe
+                ok ?= load_config_from_raw(?global_ns, Confs, #{mode => replace}),
+                ok ?= reload_all_namespaced_configs(),
+                waiting_for_fix_finish()
             end;
         {error, Reason} ->
             emqx_ctl:warning("mark fix begin failed: ~s~n", [Reason])
     end.
 
-mark_fix_begin(Node, Namespace, TxId) ->
+mark_fix_begin(Node, TxId) ->
     {atomic, Status} = emqx_cluster_rpc:status(),
-    MFA = {?MODULE, mark_fix_log, [#{status => Status, ?namespace => Namespace}]},
+    MFA = {?MODULE, mark_fix_log, [Status]},
     emqx_cluster_rpc:update_mfa(Node, MFA, TxId).
 
-mark_fix_log(#{status := Status, ?namespace := Namespace}, Opts) ->
-    ?SLOG(warning, #{
-        msg => cluster_config_sync_triggered,
-        namespace => Namespace,
-        status => emqx_utils:redact(Status),
-        opts => Opts
-    }),
-    ok;
 mark_fix_log(Status, Opts) ->
-    %% Cluster RPC initiated by node with older code
     ?SLOG(warning, #{
         msg => cluster_config_sync_triggered,
         status => emqx_utils:redact(Status),
         opts => Opts
     }),
     ok.
+
+%% While the raw configuration is guaranteed to be in sync by mnesia, the checked
+%% configuration (in persistent term) and the pre/post configuration side-effects might
+%% still be lagging and need to be evaluated if a node is lagging.
+reload_all_namespaced_configs() ->
+    Errors =
+        maps:fold(
+            fun(Namespace, RawConfig, Errors) ->
+                case load_config_from_raw(Namespace, RawConfig, #{mode => replace}) of
+                    ok ->
+                        Errors;
+                    Error ->
+                        Errors#{Namespace => Error}
+                end
+            end,
+            #{},
+            emqx_config:get_all_raw_namespaced_configs()
+        ),
+    case map_size(Errors) == 0 of
+        true ->
+            ok;
+        false ->
+            {error, Errors}
+    end.
 
 audit(Level, From, Log) ->
     ?AUDIT(Level, redact(Log#{from => From})).
@@ -288,68 +284,58 @@ usage_conf() ->
     ].
 
 usage_sync() ->
-    NamespaceOptLine =
-        {"",
-            "Set `--namespace <ns>` to narrow the scope to a specific namespace"
-            " when inspecting configurations."},
     [
-        {"conf cluster_sync status [--namespace <ns>]",
-            "Show cluster config sync status summary for all nodes."},
-        NamespaceOptLine,
+        {"conf cluster_sync status", "Show cluster config sync status summary for all nodes."},
         {"conf cluster_sync inspect <ID>",
             "Inspect detailed information of the config change transaction at the given commit ID"},
-        {"conf cluster_sync skip [--namespace <ns>] [node]",
+        {"conf cluster_sync skip [node]",
             "Increment the (currently failing) commit on the given node.\n"
             "WARNING: This results in inconsistent configs among the clustered nodes."},
-        NamespaceOptLine,
-        {"conf cluster_sync fast_forward [--namespace <ns>] [node] <ID>",
+        {"conf cluster_sync fast_forward [node] <ID>",
             "Fast-forward config change to the given commit ID on the given node.\n"
             "WARNING: This results in inconsistent configs among the clustered nodes."},
-        NamespaceOptLine,
-        {"conf cluster_sync fix [--namespace <ns>]",
+        {"conf cluster_sync fix",
             "Sync the node with the most comprehensive configuration to other node.\n"
-            "WARNING: typically the config leader(with the highest tnxid)."},
-        NamespaceOptLine
+            "WARNING: typically the config leader(with the highest tnxid)."}
     ].
 
-status(Namespace) ->
+status() ->
     {atomic, Status} = emqx_cluster_rpc:status(),
-    status(Namespace, Status).
+    status(Status).
 
-status(Namespace, Status) ->
+status(Status) ->
     emqx_ctl:print("-----------------------------------------------\n"),
     #{stopped_nodes := StoppedNodes} = emqx_mgmt_cli:cluster_info(),
-    maybe_fix_lagging(Namespace, Status, #{fix => false}),
+    maybe_fix_lagging(Status, #{fix => false}),
     StoppedNodes =/= [] andalso emqx_ctl:warning("Found stopped nodes: ~p~n", [StoppedNodes]),
     emqx_ctl:print("-----------------------------------------------\n").
 
-maybe_fix_lagging(Namespace, Status, #{fix := Fix}) ->
+maybe_fix_lagging(Status, #{fix := Fix}) ->
     %% find inconsistent in conf, but fix in raw way.
     %% because the raw conf is hard to be compared. (e.g, 1000ms vs 1s)
-    AllConfs = find_running_confs(Namespace),
+    AllConfs = find_running_confs(),
     case find_lagging(Status, AllConfs) of
         {inconsistent_tnx_id_key, ToTxId, Target, InconsistentKeys} when Fix ->
-            _ = fix_lagging_with_raw(ToTxId, Target, Namespace, InconsistentKeys),
+            _ = fix_lagging_with_raw(ToTxId, Target, InconsistentKeys),
             ok;
         {inconsistent_tnx_id_key, _ToTxId, Target, InconsistentKeys} ->
             emqx_ctl:warning("Inconsistent keys: ~p~n", [InconsistentKeys]),
-            print_inconsistent_conf(Namespace, InconsistentKeys, Target, Status, AllConfs);
+            print_inconsistent_conf(InconsistentKeys, Target, Status, AllConfs);
         {inconsistent_tnx_id, ToTxId, Target} when Fix ->
-            print_tnx_id_status(Status),
-            case mark_fix_begin(Target, Namespace, ToTxId) of
-                ok ->
-                    waiting_for_fix_finish(),
-                    emqx_ctl:print("Forward tnxid to ~w successfully~n", [ToTxId + 1]);
-                Error ->
-                    Error
+            print_tx_id_status(Status),
+            maybe
+                ok ?= mark_fix_begin(Target, ToTxId),
+                ok ?= reload_all_namespaced_configs(),
+                waiting_for_fix_finish(),
+                emqx_ctl:print("Forward tnxid to ~w successfully~n", [ToTxId + 1])
             end;
         {inconsistent_tnx_id, _ToTxId, _Target} ->
-            print_tnx_id_status(Status),
+            print_tx_id_status(Status),
             Leader = emqx_cluster_rpc:find_leader(),
             emqx_ctl:print(?SUGGESTION(Leader));
         {inconsistent_key, ToTxId, InconsistentKeys} ->
             [{Target, _} | _] = AllConfs,
-            print_inconsistent_conf(Namespace, InconsistentKeys, Target, Status, AllConfs),
+            print_inconsistent_conf(InconsistentKeys, Target, Status, AllConfs),
             emqx_ctl:warning("All configuration synchronized(tnx_id=~w)~n", [
                 ToTxId
             ]),
@@ -367,7 +353,7 @@ maybe_fix_lagging(Namespace, Status, #{fix := Fix}) ->
             emqx_ctl:print(Msg)
     end.
 
-print_tnx_id_status(List0) ->
+print_tx_id_status(List0) ->
     emqx_ctl:print("No inconsistent configuration found but has inconsistent tnxId ~n"),
     List1 = lists:map(fun(#{node := Node, tnx_id := TxId}) -> {Node, TxId} end, List0),
     emqx_ctl:print("~p~n", [List1]).
@@ -959,16 +945,19 @@ changed(K, V, Conf) ->
         _ -> {true, K}
     end.
 
-find_running_confs(Namespace) ->
+%% We only need to consult the global config for individual nodes, as namespaced raw
+%% config is already replicated by mnesia (the checked configuration and the pre/post
+%% config update side effects might still be lagging, though).
+find_running_confs() ->
     lists:map(
         fun(Node) ->
-            Conf = emqx_conf_proto_v5:get_config(Node, Namespace, []),
+            Conf = emqx_conf_proto_v5:get_config(Node, ?global_ns, []),
             {Node, maps:without(?READONLY_ROOT_KEYS, Conf)}
         end,
         emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 5)
     ).
 
-print_inconsistent_conf(Namespace, Keys, Target, Status, AllConfs) ->
+print_inconsistent_conf(Keys, Target, Status, AllConfs) ->
     {value, {_, TargetConf}, OtherConfs} = lists:keytake(Target, 1, AllConfs),
     TargetTxId = get_tnx_id(Target, Status),
     lists:foreach(
@@ -983,7 +972,7 @@ print_inconsistent_conf(Namespace, Keys, Target, Status, AllConfs) ->
                         node => {Node, NodeTxId},
                         target => {Target, TargetTxId}
                     },
-                    print_inconsistent_conf(Namespace, TargetV, PrevV, Options)
+                    print_inconsistent_conf(TargetV, PrevV, Options)
                 end,
                 OtherConfs
             )
@@ -997,23 +986,23 @@ get_tnx_id(Node, Status) ->
         [#{tnx_id := TxId}] -> TxId
     end.
 
-print_inconsistent_conf(_Namespace, SameConf, SameConf, _Options) ->
+print_inconsistent_conf(SameConf, SameConf, _Options) ->
     ok;
-print_inconsistent_conf(Namespace, New = #{}, Old = #{}, Options) ->
+print_inconsistent_conf(New = #{}, Old = #{}, Options) ->
     #{
         added := Added,
         removed := Removed,
         changed := Changed
     } = emqx_utils_maps:diff_maps(New, Old),
     RemovedFmt = "~ts(~w)'s ~s has deleted certain keys, but they are still present on ~ts(~w).~n",
-    print_inconsistent(Namespace, Removed, RemovedFmt, Options),
+    print_inconsistent(Removed, RemovedFmt, Options),
     AddedFmt = "~ts(~w)'s ~s has new setting, but it has not been applied to ~ts(~w).~n",
-    print_inconsistent(Namespace, Added, AddedFmt, Options),
+    print_inconsistent(Added, AddedFmt, Options),
     ChangedFmt =
         "~ts(~w)'s ~s has been updated, but the changes have not been applied to ~ts(~w).~n",
-    print_inconsistent(Namespace, Changed, ChangedFmt, Options);
+    print_inconsistent(Changed, ChangedFmt, Options);
 %% authentication rewrite topic_metrics is list(not map).
-print_inconsistent_conf(_Namespace, New, Old, Options) ->
+print_inconsistent_conf(New, Old, Options) ->
     #{
         key := Key,
         target := {Target, TargetTxId},
@@ -1027,15 +1016,15 @@ print_inconsistent_conf(_Namespace, New, Old, Options) ->
     emqx_ctl:print("~ts:~n", [Target]),
     print_hocon(New).
 
-print_inconsistent(Namespace, Conf, Fmt, Options) when Conf =/= #{} ->
+print_inconsistent(Conf, Fmt, Options) when Conf =/= #{} ->
     #{
         key := Key,
         target := {Target, TargetTxId},
         node := {Node, NodeTxId}
     } = Options,
     emqx_ctl:warning(Fmt, [Target, TargetTxId, Key, Node, NodeTxId]),
-    NodeRawConf = emqx_conf_proto_v5:get_raw_config(Node, Namespace, [Key]),
-    TargetRawConf = emqx_conf_proto_v5:get_raw_config(Target, Namespace, [Key]),
+    NodeRawConf = emqx_conf_proto_v5:get_raw_config(Node, ?global_ns, [Key]),
+    TargetRawConf = emqx_conf_proto_v5:get_raw_config(Target, ?global_ns, [Key]),
     {NodeConf, TargetConf} =
         maps:fold(
             fun(SubKey, _, {NewAcc, OldAcc}) ->
@@ -1053,7 +1042,7 @@ print_inconsistent(Namespace, Conf, Fmt, Options) when Conf =/= #{} ->
         true -> ok;
         false -> print_hocon(#{Target => #{Key => TargetConf}, Node => #{Key => NodeConf}})
     end;
-print_inconsistent(_Namespace, _Conf, _Format, _Options) ->
+print_inconsistent(_Conf, _Format, _Options) ->
     ok.
 
 remove_identical_value(New = #{}, Old = #{}) ->
@@ -1122,27 +1111,6 @@ do_collect_conf_args(["--namespace", Namespace | Rest], Acc) ->
 do_collect_conf_args(Args, _Acc) ->
     {error, lists:flatten(io_lib:format("bad arguments: ~p", [Args]))}.
 
-admin_just_namespace_args(Args) ->
-    maybe
-        {ok, Collected} ?= collect_admin_args(Args),
-        error ?= maps:find(?vararg, Collected),
-        Namespace = maps:get("--namespace", Collected, ?global_ns),
-        {ok, #{?namespace => Namespace}}
-    else
-        {ok, Vararg} ->
-            {error, lists:flatten(io_lib:format("bad arguments: ~p", [Vararg]))};
-        Error ->
-            Error
-    end.
-
-admin_varargs(Args) ->
-    maybe
-        {ok, Collected} ?= collect_admin_args(Args),
-        Vararg = maps:get(?vararg, Collected, []),
-        Namespace = maps:get("--namespace", Collected, ?global_ns),
-        {ok, #{?namespace => Namespace, ?vararg => Vararg}}
-    end.
-
 vararg_len_error_msg({Min, Max}, VarargLen) ->
     lists:flatten(
         io_lib:format(
@@ -1150,20 +1118,6 @@ vararg_len_error_msg({Min, Max}, VarargLen) ->
             [Min, Max, VarargLen]
         )
     ).
-
-collect_admin_args(Args) ->
-    do_collect_admin_args(Args, #{}).
-
-do_collect_admin_args([], Acc) ->
-    {ok, Acc};
-%% Common
-do_collect_admin_args(["--namespace", Namespace | Rest], Acc) ->
-    do_collect_admin_args(Rest, Acc#{"--namespace" => bin(Namespace)});
-do_collect_admin_args([Arg | Rest], Acc) when Arg /= "--namespace" ->
-    Vararg0 = maps:get(?vararg, Acc, []),
-    do_collect_admin_args(Rest, Acc#{?vararg => Vararg0 ++ [bin(Arg)]});
-do_collect_admin_args(Args, _Acc) ->
-    {error, lists:flatten(io_lib:format("bad arguments: ~p", [Args]))}.
 
 bin(X) -> emqx_utils_conv:bin(X).
 

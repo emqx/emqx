@@ -98,10 +98,8 @@ mk_cluster_spec(Opts) ->
         {emqx_conf_cluster_sync_SUITE2, Opts#{role => core, apps => Apps}}
     ].
 
-cli_admin(?global_ns, Cmd, Args) ->
-    emqx_conf_cli:admins([Cmd | Args]);
-cli_admin(Namespace, Cmd, Args) when is_binary(Namespace) ->
-    emqx_conf_cli:admins([Cmd, "--namespace", str(Namespace) | Args]).
+cli_admin(Cmd, Args) ->
+    emqx_conf_cli:admins([Cmd | Args]).
 
 str(X) -> emqx_utils_conv:str(X).
 
@@ -188,7 +186,7 @@ t_fix(Config) when is_list(Config) ->
     ),
     %% fix normal, nothing changed
     ?ON(Node1, begin
-        ok = cli_admin(Namespace, "fix", []),
+        ok = cli_admin("fix", []),
         ?assertMatch(
             [
                 #{node := Node1, tnx_id := TxId1},
@@ -200,7 +198,7 @@ t_fix(Config) when is_list(Config) ->
     %% fix inconsistent_key. tnx_id is the same, so nothing changed.
     emqx_conf_proto_v5:update(Node1, [<<"mqtt">>], #{<<"max_topic_levels">> => 99}, UpdateOpts),
     ?ON(Node1, begin
-        ok = cli_admin(Namespace, "fix", []),
+        ok = cli_admin("fix", []),
         ?assertMatch(
             [
                 #{node := Node1, tnx_id := TxId1},
@@ -215,9 +213,13 @@ t_fix(Config) when is_list(Config) ->
     %% fix inconsistent_tnx_id_key. tnx_id and key are updated.
     ?ON(Node1, fake_mfa(TxId1 + 1, Node1, {?MODULE, undef, []})),
     %% 2 -> fake_mfa, 3-> mark_begin_log, 4-> mqtt 5 -> zones
-    TxId2 = 5,
+    TxId2 =
+        case Namespace of
+            ?global_ns -> 5;
+            _ -> 6
+        end,
     ?ON(Node2, begin
-        ok = cli_admin(Namespace, "fix", []),
+        ok = cli_admin("fix", []),
         ?assertMatch(
             [
                 #{node := Node1, tnx_id := TxId2},
@@ -235,9 +237,13 @@ t_fix(Config) when is_list(Config) ->
         Node1, emqx_conf_proto_v5:update([<<"mqtt">>], #{<<"max_topic_levels">> => 98}, UpdateOpts)
     ),
     ?ON(Node2, fake_mfa(TxId2 + 2, Node2, {?MODULE, undef1, []})),
-    TxId3 = 8,
+    TxId3 =
+        case Namespace of
+            ?global_ns -> 8;
+            _ -> 11
+        end,
     ?ON(Node1, begin
-        ok = cli_admin(Namespace, "fix", []),
+        ok = cli_admin("fix", []),
         ?assertMatch(
             [
                 #{node := Node1, tnx_id := TxId3},
@@ -251,7 +257,7 @@ t_fix(Config) when is_list(Config) ->
     ?assertMatch(98, emqx_conf_proto_v5:get_config(Node2, Namespace, [mqtt, max_topic_levels])),
     %% unchanged
     ?ON(Node1, begin
-        ok = cli_admin(Namespace, "fix", []),
+        ok = cli_admin("fix", []),
         ?assertMatch(
             {atomic, [
                 #{node := Node1, tnx_id := TxId3},

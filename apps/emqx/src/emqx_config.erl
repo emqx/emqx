@@ -222,6 +222,7 @@ get_all_namespaces_containing(RootKey0) ->
     MS = [{MatchHead, [], ['$1']}],
     lists:usort(mnesia:dirty_select(?CONFIG_TAB, MS)).
 
+-spec get_all_raw_namespaced_configs() -> #{namespace() => #{binary() => term()}}.
 get_all_raw_namespaced_configs() ->
     MatchHead = erlang:make_tuple(record_info(size, ?CONFIG_TAB), '_'),
     lists:foldl(
