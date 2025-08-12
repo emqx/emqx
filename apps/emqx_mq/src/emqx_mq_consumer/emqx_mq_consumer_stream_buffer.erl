@@ -66,7 +66,7 @@ The module represents a consumer of a single stream of the Message Queue data.
 -type t() :: st_active() | st_restoring().
 
 -type progress() ::
-    end_of_stream
+    finished
     | #{
         it := emqx_ds:iterator(),
         last_message_id := message_id(),
@@ -243,7 +243,7 @@ progress(
 ) ->
     case is_finished(SB) of
         true ->
-            end_of_stream;
+            finished;
         false ->
             UpperUnacked =
                 case UpperBuffer of

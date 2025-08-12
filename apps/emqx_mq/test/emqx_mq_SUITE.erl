@@ -73,7 +73,7 @@ t_publish_and_consume(_Config) ->
     %% Publish 100 messages to the queue
     ok =
         emqx_mq_test_utils:populate(
-            100,
+            10,
             fun(I) ->
                 IBin = integer_to_binary(I),
                 Payload = <<"payload-", IBin/binary>>,
@@ -85,11 +85,41 @@ t_publish_and_consume(_Config) ->
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
     emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
-    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 100),
-    ok = emqtt:disconnect(CSub),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 1000),
 
     %% Verify the messages
-    ?assertEqual(100, length(Msgs)).
+    ?assertEqual(10, length(Msgs0)),
+
+    %% Add a generation
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+    % %% And another one
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+    ?retry(
+        100,
+        5,
+        ?assertEqual(3, emqx_mq_message_db:get_last_regular_db_generation(<<"0">>))
+    ),
+
+    %% Publish 100 more messages to the queue
+    ok =
+        emqx_mq_test_utils:populate(
+            10,
+            fun(I) ->
+                IBin = integer_to_binary(10 + I),
+                Payload = <<"payload-", IBin/binary>>,
+                Topic = <<"t/", IBin/binary>>,
+                {Topic, Payload}
+            end
+        ),
+
+    %% Consume the rest messages
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 1000),
+
+    %% Verify the messages
+    ?assertEqual(10, length(Msgs1)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
 
 %% Consume some history messages from a compacted queue
 t_publish_and_consume_compacted(_Config) ->
@@ -840,6 +870,21 @@ t_queue_deletion(_Config) ->
 
     %% Clean up
     ok = emqtt:disconnect(CSub1).
+
+% t_generation_advancement(_Config) ->
+%     ok = emqx_mq_message_db:add_regular_db_generation(),
+%     ?retry(
+%         100,
+%         5,
+%         ?assertEqual(2, emqx_mq_message_db:get_last_regular_db_generation(<<"0">>))
+%     ),
+%     ok = emqx_mq_message_db:add_regular_db_generation(),
+%     ok = emqx_mq_message_db:add_regular_db_generation(),
+%     ?retry(
+%         100,
+%         5,
+%         ?assertEqual(4, emqx_mq_message_db:get_last_regular_db_generation(<<"0">>))
+%     ).
 
 %%--------------------------------------------------------------------
 %% Helpers

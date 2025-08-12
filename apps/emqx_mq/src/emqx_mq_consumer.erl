@@ -160,7 +160,7 @@ handle_info(#info_to_mq_server{message = Message}, State) ->
 handle_info(#persist_consumer_data{}, State) ->
     handle_persist_consumer_data(State);
 handle_info(Request, #state{mq = #{topic_filter := MQTopicFilter}} = State0) ->
-    % ?tp(warning, mq_consumer_handle_info, #{request => Request, mq_topic => MQTopicFilter}),
+    ?tp(warning, mq_consumer_handle_info, #{request => Request, mq_topic_filter => MQTopicFilter}),
     case handle_ds_info(Request, State0) of
         ignore ->
             ?tp(warning, mq_consumer_unknown_info, #{request => Request, mq_topic => MQTopicFilter}),

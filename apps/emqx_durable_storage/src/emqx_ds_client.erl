@@ -445,6 +445,7 @@ do_dispatch_message(
 do_dispatch_message(
     #new_stream_event{subref = Watch}, CS0 = #cs{new_streams_watches = Watches, subs = Subs}, HS
 ) ->
+    ?tp(warning, emqx_ds_client_new_stream_event, #{watch => Watch, subs => Subs}),
     case Watches of
         #{Watch := SubId} ->
             #{SubId := Sub} = Subs,
@@ -750,6 +751,9 @@ handle_add_iterator(Eff, CS0, HostState0, It) ->
     case on_new_iterator(CBM, SubId, Slab, Stream, It, HostState0) of
         {subscribe, HostState} ->
             #{SubId := #sub{ds_sub_opts = SubOpts}} = Subs,
+            ?tp(warning, emqx_ds_client_handle_add_iterator_plan_subscribe, #{
+                sub_id => SubId, slab => Slab, stream => Stream
+            }),
             {
                 plan(
                     #eff_ds_sub{
@@ -819,10 +823,15 @@ effect_handler(
         current_generation = Gen
     }
 ) ->
-    emqx_ds:get_streams(DB, Topic, StartTime, #{shard => Shard, generation_min => Gen});
+    Res = emqx_ds:get_streams(DB, Topic, StartTime, #{shard => Shard, generation_min => Gen}),
+    ?tp(warning, emqx_ds_client_renew_streams, #{
+        db => DB, shard => Shard, generation_min => Gen, res => Res
+    }),
+    Res;
 effect_handler(#eff_make_iterator{db = DB, stream = Stream, topic = TF, start_time = StartTime}) ->
     emqx_ds:make_iterator(DB, Stream, TF, StartTime);
 effect_handler(#eff_ds_sub{db = DB, iterator = It, sub_options = Opts}) ->
+    ?tp(warning, emqx_ds_client_ds_sub, #{db => DB, iterator => It, sub_options => Opts}),
     emqx_ds:subscribe(DB, It, Opts);
 effect_handler(#eff_ds_unsub{db = DB, handle = Handle}) ->
     emqx_ds:unsubscribe(DB, Handle).
@@ -931,6 +940,9 @@ add_stream_to_cache(
     Generation,
     Stream
 ) when Generation > Current ->
+    ?tp(warning, emqx_ds_client_add_stream_to_cache_future, #{
+        shard => _Shard, generation => Generation
+    }),
     %% This is a stream we'll replay in the future:
     Future = gb_sets:add_element({Generation, Stream}, Future0),
     {
@@ -940,6 +952,9 @@ add_stream_to_cache(
 add_stream_to_cache(
     CS0, HostState, SubId, Shard, Cache0 = #stream_cache{current_gen = Current}, Generation, Stream
 ) when Generation =:= Current ->
+    ?tp(warning, emqx_ds_client_add_stream_to_cache_current, #{
+        shard => Shard, generation => Generation
+    }),
     #stream_cache{
         pending_iterator = Pending,
         active = Active,
@@ -953,9 +968,15 @@ add_stream_to_cache(
             lists:member(Stream, Pending)
     of
         true ->
+            ?tp(warning, emqx_ds_client_add_stream_to_cache_current, #{
+                shard => Shard, generation => Generation, known => true
+            }),
             %% This stream is already known:
             {CS0, Cache0};
         false ->
+            ?tp(warning, emqx_ds_client_add_stream_to_cache_current, #{
+                shard => Shard, generation => Generation, known => false
+            }),
             %% This stream is new (for the client)
             ?tp(debug, emqx_ds_client_new_stream, #{sub => SubId, shard => Shard, stream => Stream}),
             %% Does the host already have the iterator?
@@ -1016,9 +1037,13 @@ maybe_advance_generation(
 ) ->
     case is_fully_replayed(Cache0) of
         false ->
+            ?tp(warning, emqx_ds_client_maybe_advance_generation_false, #{shard => Shard}),
             %% Generation is not fully replayed:
             {Cache0, CS0, HostState0};
         {true, NextGen, StreamsOfNextGen, Future} ->
+            ?tp(warning, emqx_ds_client_maybe_advance_generation_true, #{
+                shard => Shard, next_gen => NextGen
+            }),
             ?tp(debug, emqx_ds_client_advance_generation, #{next_gen => NextGen}),
             %% Advance generation:
             #{SubId := #sub{db = DB, topic = Topic, start_time = StartTime}} = Subs,
@@ -1059,6 +1084,9 @@ is_fully_replayed(#stream_cache{
     current_gen = Current, pending_iterator = Pending, active = Active, future = Future0
 }) ->
     maybe
+        ?tp(warning, emqx_ds_client_is_fully_replayed, #{
+            current_gen => Current, pending_iterator => length(Pending), active => maps:size(Active)
+        }),
         [] ?= Pending,
         0 ?= maps:size(Active),
         {NextGen, Streams, Future} ?= pop_future_streams(Current, undefined, Future0, []),

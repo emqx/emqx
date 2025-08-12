@@ -46,6 +46,8 @@
 -define(MQ_COMPACTION_KEY_USER_PROPERTY, <<"mq-key">>).
 
 -define(MQ_CONSUMER_DB, mq_consumer).
+-define(MQ_MESSAGE_COMPACTED_DB, mq_message_compacted).
+-define(MQ_MESSAGE_REGULAR_DB, mq_message_regular).
 
 -record(claim, {
     consumer_ref :: emqx_mq_types:consumer_ref(),
