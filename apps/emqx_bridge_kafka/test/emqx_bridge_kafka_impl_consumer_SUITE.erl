@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -929,7 +930,7 @@ ensure_connected(Config) ->
 consumer_clientid(Config) ->
     BridgeType = ?config(bridge_type, Config),
     KafkaName = ?config(kafka_name, Config),
-    ConnResId = emqx_connector_resource:resource_id(BridgeType, KafkaName),
+    ConnResId = emqx_connector_resource:resource_id(?global_ns, BridgeType, KafkaName),
     emqx_bridge_kafka_impl_consumer:make_client_id(ConnResId).
 
 get_client_connection(Config) ->

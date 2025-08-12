@@ -1177,7 +1177,9 @@ t_list_disabled_channels(Config) ->
         )
     ),
     %% This should be fast even if the connector resource process is unresponsive.
-    ConnectorResID = emqx_connector_resource:resource_id(?CONNECTOR_TYPE, ?CONNECTOR_NAME),
+    ConnectorResID = emqx_connector_resource:resource_id(
+        ?global_ns, ?CONNECTOR_TYPE, ?CONNECTOR_NAME
+    ),
     suspend_connector_resource(ConnectorResID, Config),
     try
         ?assertMatch(

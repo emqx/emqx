@@ -12,7 +12,6 @@
 
 -export([
     connector_to_resource_type/1,
-    resource_id/2,
     resource_id/3,
     connector_id/2,
     parse_connector_id/1,
@@ -64,9 +63,6 @@ connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
     connector_impl_module(binary_to_atom(ConnectorType, utf8));
 connector_impl_module(ConnectorType) ->
     emqx_connector_info:config_transform_module(ConnectorType).
-
-resource_id(ConnectorType, ConnectorName) ->
-    resource_id(_Namespace = ?global_ns, ConnectorType, ConnectorName).
 
 resource_id(Namespace, ConnectorType0, ConnectorName0) ->
     ConnectorType = bin(ConnectorType0),

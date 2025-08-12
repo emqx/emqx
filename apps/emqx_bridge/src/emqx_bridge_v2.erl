@@ -639,7 +639,7 @@ combine_connector_and_bridge_v2_config(
         end,
     case ConnectorConfig of
         undefined ->
-            alarm_connector_not_found(BridgeV2Type, BridgeName, ConnectorName),
+            alarm_connector_not_found(Namespace, BridgeV2Type, BridgeName, ConnectorName),
             {error, #{
                 reason => <<"connector_not_found_or_wrong_type">>,
                 namespace => Namespace,
@@ -1538,7 +1538,9 @@ bridge_v1_is_valid(ConfRootKey, BridgeV1Type, BridgeName) ->
             true;
         #{connector := ConnectorName} ->
             ConnectorType = connector_type(BridgeV2Type),
-            ConnectorResourceId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
+            ConnectorResourceId = emqx_connector_resource:resource_id(
+                ?global_ns, ConnectorType, ConnectorName
+            ),
             case emqx_resource:get_channels(ConnectorResourceId) of
                 {ok, [_Channel]} -> true;
                 %% not_found, [], [_|_]
@@ -2315,10 +2317,10 @@ to_connector(ConnectorNameBin, BridgeType) ->
             {error, not_found}
     end.
 
-alarm_connector_not_found(ActionType, ActionName, ConnectorName) ->
+alarm_connector_not_found(Namespace, ActionType, ActionName, ConnectorName) ->
     ConnectorType = connector_type(to_existing_atom(ActionType)),
     ResId = emqx_connector_resource:resource_id(
-        ConnectorType, ConnectorName
+        Namespace, ConnectorType, ConnectorName
     ),
     _ = emqx_alarm:safe_activate(
         ResId,

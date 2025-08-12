@@ -398,8 +398,7 @@ assert_persisted_data(ClientId, Expected, PersistedData) ->
     ok.
 
 connector_id(Config) ->
-    Name = ?config(connector_name, Config),
-    emqx_connector_resource:resource_id(<<"datalayers">>, Name).
+    emqx_bridge_v2_testlib:connector_resource_id(Config).
 
 ensure_database(Config) ->
     SQL = <<"create database if not exists mqtt">>,

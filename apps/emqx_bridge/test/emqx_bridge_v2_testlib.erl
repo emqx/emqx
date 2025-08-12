@@ -1192,8 +1192,12 @@ get_common_values_with_configs(Config) ->
     Values#{config => KindConfig, connector_config => ConnectorConfig}.
 
 connector_resource_id(Config) ->
-    #{connector_type := Type, connector_name := Name} = get_common_values(Config),
-    emqx_connector_resource:resource_id(Type, Name).
+    #{
+        resource_namespace := Namespace,
+        connector_type := Type,
+        connector_name := Name
+    } = get_common_values(Config),
+    emqx_connector_resource:resource_id(Namespace, Type, Name).
 
 health_check_connector(Config) ->
     ConnectorResId = connector_resource_id(Config),

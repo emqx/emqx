@@ -420,15 +420,17 @@ resource_id(Config) ->
 
 connector_resource_id(Config) ->
     Name = ?config(consumer_name, Config),
-    emqx_connector_resource:resource_id(?CONNECTOR_TYPE_BIN, Name).
+    emqx_bridge_v2_testlib:connector_resource_id([
+        {connector_type, ?CONNECTOR_TYPE_BIN},
+        {connector_name, Name}
+    ]).
 
 health_check(Config) ->
     #{status := Status} = health_check_channel(Config),
     {ok, Status}.
 
 health_check_channel(Config) ->
-    Name = ?config(consumer_name, Config),
-    ConnectorResId = emqx_connector_resource:resource_id(?CONNECTOR_TYPE_BIN, Name),
+    ConnectorResId = connector_resource_id(Config),
     SourceResId = resource_id(Config),
     emqx_resource_manager:channel_health_check(ConnectorResId, SourceResId).
 

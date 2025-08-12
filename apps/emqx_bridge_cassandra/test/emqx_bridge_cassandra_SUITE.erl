@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %% To run this test locally:
 %%   ./scripts/ct/run.sh --app apps/emqx_bridge_cassandra --only-up
@@ -322,7 +323,7 @@ query_resource(Config, Request) ->
     Name = ?config(cassa_name, Config),
     BridgeType = ?config(cassa_bridge_type, Config),
     BridgeV2Id = id(BridgeType, Name),
-    ConnectorResId = emqx_connector_resource:resource_id(BridgeType, Name),
+    ConnectorResId = emqx_connector_resource:resource_id(?global_ns, BridgeType, Name),
     emqx_resource:query(BridgeV2Id, Request, #{
         timeout => 1_000, connector_resource_id => ConnectorResId
     }).
@@ -333,7 +334,7 @@ query_resource_async(Config, Request) ->
     Ref = alias([reply]),
     AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
     BridgeV2Id = id(BridgeType, Name),
-    ConnectorResId = emqx_connector_resource:resource_id(BridgeType, Name),
+    ConnectorResId = emqx_connector_resource:resource_id(?global_ns, BridgeType, Name),
     Return = emqx_resource:query(BridgeV2Id, Request, #{
         timeout => 500,
         async_reply_fun => {AsyncReplyFun, []},

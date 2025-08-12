@@ -293,9 +293,7 @@ read_rotated_logs(TCConfig) ->
     lists:map(fun({_MAt, C}) -> C end, lists:reverse(Contents1)).
 
 connector_resource_id(TCConfig) ->
-    ConnectorType = ?config(connector_type, TCConfig),
-    ConnectorName = ?config(connector_name, TCConfig),
-    emqx_connector_resource:resource_id(ConnectorType, ConnectorName).
+    emqx_bridge_v2_testlib:connector_resource_id(TCConfig).
 
 publish(Topic, Payload) ->
     Message = emqx_message:make(Topic, Payload),
