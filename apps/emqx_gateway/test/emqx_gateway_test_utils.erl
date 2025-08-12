@@ -113,7 +113,10 @@ all_gateway_apps() ->
         emqx_gateway_mqttsn,
         emqx_gateway_coap,
         emqx_gateway_lwm2m,
-        emqx_gateway_exproto
+        emqx_gateway_exproto,
+        emqx_gateway_jt808,
+        emqx_gateway_gbt32960,
+        emqx_gateway_ocpp
     ].
 
 %%--------------------------------------------------------------------
