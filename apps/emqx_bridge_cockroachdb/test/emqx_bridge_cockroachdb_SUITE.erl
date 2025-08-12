@@ -19,7 +19,7 @@
 
 %% -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(PROXY_NAME, "pgsql_tcp").
+-define(PROXY_NAME, "cockroachdb").
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).
 
@@ -49,7 +49,7 @@ init_per_suite(TCConfig) ->
     ),
     HelperCfg = [
         {pgsql_host, "toxiproxy"},
-        {pgsql_port, 5432},
+        {pgsql_port, 26257},
         {enable_tls, false}
     ],
     emqx_bridge_pgsql_SUITE:connect_and_create_table(HelperCfg),
@@ -113,7 +113,7 @@ connector_config(Overrides) ->
         <<"description">> => <<"my connector">>,
         <<"tags">> => [<<"some">>, <<"tags">>],
         <<"database">> => <<"mqtt">>,
-        <<"server">> => <<"toxiproxy:5432">>,
+        <<"server">> => <<"toxiproxy:26257">>,
         <<"pool_size">> => 8,
         <<"username">> => <<"root">>,
         <<"password">> => <<"public">>,
@@ -131,7 +131,7 @@ action_config(Overrides) ->
         <<"parameters">> => #{
             <<"sql">> => <<
                 "INSERT INTO mqtt_test(payload, arrived) "
-                "VALUES (${payload}, TO_TIMESTAMP((${timestamp} :: bigint)/1000))"
+                "VALUES (${payload}, (((${timestamp} :: bigint)/1000) :: bigint) :: timestamp)"
             >>
         },
         <<"resource_opts">> =>

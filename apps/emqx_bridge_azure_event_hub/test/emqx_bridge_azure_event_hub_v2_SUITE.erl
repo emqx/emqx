@@ -270,14 +270,6 @@ make_message() ->
         timestamp => Time
     }.
 
-bridge_api_spec_props_for_get() ->
-    #{
-        <<"bridge_azure_event_hub.get_producer">> :=
-            #{<<"properties">> := Props}
-    } =
-        emqx_bridge_v2_testlib:bridges_api_spec_schemas(),
-    Props.
-
 action_api_spec_props_for_get() ->
     #{
         <<"bridge_azure_event_hub.get_bridge_v2">> :=
@@ -353,10 +345,6 @@ t_same_name_azure_kafka_bridges(Config) ->
     ok.
 
 t_parameters_key_api_spec(_Config) ->
-    BridgeProps = bridge_api_spec_props_for_get(),
-    ?assert(is_map_key(<<"kafka">>, BridgeProps), #{bridge_props => BridgeProps}),
-    ?assertNot(is_map_key(<<"parameters">>, BridgeProps), #{bridge_props => BridgeProps}),
-
     ActionProps = action_api_spec_props_for_get(),
     ?assertNot(is_map_key(<<"kafka">>, ActionProps), #{action_props => ActionProps}),
     ?assert(is_map_key(<<"parameters">>, ActionProps), #{action_props => ActionProps}),

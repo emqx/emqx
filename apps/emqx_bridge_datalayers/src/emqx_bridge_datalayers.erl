@@ -10,7 +10,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--import(hoconsc, [mk/2, enum/1, ref/2]).
+-import(hoconsc, [mk/2, ref/2]).
 
 -export([
     namespace/0,
@@ -29,32 +29,60 @@
 -define(CONNECTOR_TYPE, datalayers).
 -define(ACTION_TYPE, datalayers).
 
+-define(DEFAULT_SQL, <<
+    "insert into t_mqtt_msg(msgid, topic, qos, payload, arrived) "
+    "values (${id}, ${topic}, ${qos}, ${payload}, ${timestamp})"
+>>).
+
+-define(write_syntax_example, <<
+    "${topic},clientid=${clientid} ",
+    "payload=${payload},",
+    "${clientid}_int_value=${payload.int_key}i,",
+    "bool=${payload.bool}"
+>>).
+
 %% Examples
 conn_bridge_examples(Method) ->
     [
         #{
-            <<"datalayers">> => #{
-                summary => <<"Datalayers Bridge">>,
-                value => values("datalayers", Method)
+            <<"datalayers_influx">> => #{
+                summary => <<"Datalayers Bridge by InfluxDB Driver">>,
+                value => values("datalayers_influx", Method)
+            }
+        },
+        #{
+            <<"datalayers_arrow_flight">> => #{
+                summary => <<"Datalayers Bridge by Arrow Flight SQL Driver">>,
+                value => values("datalayers_arrow_flight", Method)
             }
         }
     ].
 
 bridge_v2_examples(Method) ->
-    WriteExample =
-        <<"${topic},clientid=${clientid} ", "payload=${payload},",
-            "${clientid}_int_value=${payload.int_key}i,", "bool=${payload.bool}">>,
-    ParamsExample = #{
+    ParamsExampleInflux = #{
         parameters => #{
-            write_syntax => WriteExample, precision => ms
+            write_syntax => ?write_syntax_example, precision => ms
+        }
+    },
+    ParamsExampleArrowFlight = #{
+        parameters => #{
+            sql => ?DEFAULT_SQL
         }
     },
     [
         #{
-            <<"datalayers">> => #{
-                summary => <<"Datalayers Action">>,
+            <<"datalayers_influx">> => #{
+                summary => <<"Datalayers Action by InfluxDB Driver">>,
                 value => emqx_bridge_v2_schema:action_values(
-                    Method, datalayers, datalayers, ParamsExample
+                    Method, datalayers, datalayers, ParamsExampleInflux
+                )
+            }
+        },
+        #{
+            <<"datalayers_arrow_flight">> => #{
+                summary => <<"Datalayers Action by Arrow Flight SQL Driver">>,
+                value => emqx_bridge_v2_schema:action_values(
+                    Method, datalayers, datalayers_arrow_flight, ParamsExampleArrowFlight
                 )
             }
         }
@@ -66,16 +94,29 @@ connector_examples(Method) ->
             <<"datalayers">> => #{
                 summary => <<"Datalayers Connector">>,
                 value => emqx_connector_schema:connector_values(
-                    Method, datalayers, connector_values(datalayers)
+                    Method, datalayers, connector_values(datalayers_influx)
+                )
+            }
+        },
+        #{
+            <<"datalayers_arrow_flight">> => #{
+                summary => <<"Datalayers Connector by Arrow Flight SQL Driver">>,
+                value => emqx_connector_schema:connector_values(
+                    Method, datalayers, connector_values(datalayers_arrow_flight)
                 )
             }
         }
     ].
 
 connector_values(Type) ->
-    maps:merge(basic_connector_values(), #{parameters => connector_values_v(Type)}).
+    maps:merge(
+        basic_connector_values(),
+        #{parameters => connector_values_v(Type)}
+    ).
 
-connector_values_v(datalayers) ->
+connector_values_v(Type) when
+    Type =:= datalayers_influx orelse Type =:= datalayers_arrow_flight
+->
     #{
         database => <<"example_database">>,
         username => <<"example_username">>,
@@ -92,23 +133,19 @@ basic_connector_values() ->
 
 values(Protocol, get) ->
     values(Protocol, post);
-values("datalayers", post) ->
+values("datalayers_influx", post) ->
     SupportUint = <<>>,
-    TypeOpts = connector_values_v(datalayers),
-    values(common, "datalayers", SupportUint, TypeOpts);
+    ConnOpts = connector_values_v(datalayers_influx),
+    values(common, "datalayers_influx", SupportUint, ConnOpts);
+values("datalayers_arrow_flight", post) ->
+    ConnOpts = connector_values_v(datalayers_arrow_flight),
+    values(common, "datalayers_arrow_flight", undefined, ConnOpts);
 values(Protocol, put) ->
-    values(Protocol, post).
-
-values(common, Protocol, SupportUint, TypeOpts) ->
-    CommonConfigs = #{
-        type => list_to_atom(Protocol),
+    values(Protocol, post);
+values(common, ConnTypeOpts) ->
+    CommonOpts = #{
         name => <<"demo">>,
         enable => true,
-        write_syntax =>
-            <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
-                "${clientid}_int_value=${payload.int_key}i,", SupportUint/binary,
-                "bool=${payload.bool}">>,
-        precision => ms,
         resource_opts => #{
             batch_size => 100,
             batch_time => <<"20ms">>
@@ -116,7 +153,24 @@ values(common, Protocol, SupportUint, TypeOpts) ->
         server => <<"127.0.0.1:8361">>,
         ssl => #{enable => false}
     },
-    maps:merge(TypeOpts, CommonConfigs).
+    maps:merge(CommonOpts, ConnTypeOpts).
+
+values(common, "datalayers_influx", SupportUint, ConnOpts) ->
+    TypeOpts = #{
+        type => datalayers_influx,
+        write_syntax =>
+            <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
+                "${clientid}_int_value=${payload.int_key}i,", SupportUint/binary,
+                "bool=${payload.bool}">>,
+        precision => ms
+    },
+    values(common, maps:merge(TypeOpts, ConnOpts));
+values(common, "datalayers_arrow_flight", _, ConnOpts) ->
+    TypeOpts = #{
+        type => datalayers_arrow_flight,
+        sql => ?DEFAULT_SQL
+    },
+    values(common, maps:merge(TypeOpts, ConnOpts)).
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
@@ -136,14 +190,28 @@ fields(action) ->
         )};
 fields(datalayers_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
-        mk(ref(?MODULE, action_parameters), #{
-            required => true, desc => ?DESC(action_parameters)
-        })
+        mk(
+            hoconsc:union([
+                ref(?MODULE, action_parameters_influx),
+                ref(?MODULE, action_parameters_arrow_flight)
+            ]),
+            #{
+                required => true, desc => ?DESC(action_parameters_influx)
+            }
+        )
     );
-fields(action_parameters) ->
+fields(action_parameters_influx) ->
     [
         {write_syntax, fun write_syntax/1},
         emqx_bridge_datalayers_connector:precision_field()
+    ];
+fields(action_parameters_arrow_flight) ->
+    [
+        {sql,
+            mk(
+                emqx_schema:template(),
+                #{desc => ?DESC(sql_template), default => ?DEFAULT_SQL, format => <<"sql">>}
+            )}
     ];
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
@@ -171,8 +239,12 @@ desc(datalayers_api) ->
     ?DESC(emqx_bridge_datalayers_connector, "datalayers");
 desc(datalayers_action) ->
     ?DESC(datalayers_action);
-desc(action_parameters) ->
-    ?DESC(action_parameters);
+desc(action_parameters_influx) ->
+    ?DESC(action_parameters_influx);
+desc(action_parameters_arrow_flight) ->
+    ?DESC(action_parameters_arrow_flight);
+desc(sql_template) ->
+    ?DESC(sql_template);
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(connector_resource_opts) ->

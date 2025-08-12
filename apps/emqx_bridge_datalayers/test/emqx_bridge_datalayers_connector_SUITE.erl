@@ -20,10 +20,10 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    DatalayersTCPHost = os:getenv("DATALAYERS_TCP_HOST", "toxiproxy"),
-    DatalayersTCPPort = list_to_integer(os:getenv("DATALAYERS_TCP_PORT", "8361")),
-    DatalayersTLSHost = os:getenv("DATALAYERS_TLS_HOST", "toxiproxy"),
-    DatalayersTLSPort = list_to_integer(os:getenv("DATALAYERS_TLS_PORT", "8362")),
+    DatalayersTCPHost = os:getenv("DATALAYERS_HTTP_HOST", "toxiproxy"),
+    DatalayersTCPPort = list_to_integer(os:getenv("DATALAYERS_HTTP_PORT", "8361")),
+    DatalayersTLSHost = os:getenv("DATALAYERS_HTTPS_HOST", "toxiproxy"),
+    DatalayersTLSPort = list_to_integer(os:getenv("DATALAYERS_HTTPS_PORT", "8363")),
     Servers = [{DatalayersTCPHost, DatalayersTCPPort}, {DatalayersTLSHost, DatalayersTLSPort}],
     case emqx_common_test_helpers:is_all_tcp_servers_available(Servers) of
         true ->

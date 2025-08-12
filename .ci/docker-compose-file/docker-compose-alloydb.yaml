@@ -1,0 +1,13 @@
+services:
+  alloydb:
+    container_name: alloydb
+    image: google/alloydbomni:16.8-ubi
+    restart: always
+    expose:
+      - "5432"
+    networks:
+      - emqx_bridge
+    environment:
+      POSTGRES_PASSWORD: public
+      POSTGRES_USER: root
+      POSTGRES_DB: mqtt
