@@ -1,0 +1,43 @@
+services:
+  cockroachdb:
+    container_name: cockroachdb
+    image: cockroachdb/cockroach:v24.3.18
+    restart: always
+    expose:
+      - "26257"
+      - "26357"
+    networks:
+      - emqx_bridge
+    command:
+      - start
+      - "--advertise-addr=cockroachdb:26237"
+      - "--http-addr=cockroachdb:8080"
+      - "--listen-addr=cockroachdb:26357"
+      - "--sql-addr=cockroachdb:26257"
+      - "--insecure"
+      - "--join=cockroachdb:26357"
+
+  cockroachdb_cluster_init:
+    container_name: cockroachdb_cluster_init
+    image: cockroachdb/cockroach:v24.3.18
+    depends_on:
+      - cockroachdb
+    networks:
+      - emqx_bridge
+    restart: on-failure:3
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        ./cockroach --host "cockroachdb:26357" init --insecure ;
+        ./cockroach  --host "cockroachdb:26257" sql --insecure -e "create database mqtt;"
+
+  cockroachdb_cluster_init_done:
+    container_name: cockroachdb_cluster_init_done
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
+    networks:
+      - emqx_bridge
+    restart: no
+    depends_on:
+      cockroachdb_cluster_init:
+        condition: service_completed_successfully
