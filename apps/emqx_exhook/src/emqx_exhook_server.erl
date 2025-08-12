@@ -151,13 +151,7 @@ channel_opts(Opts = #{url := URL, socket_options := SockOptsT}) ->
                     #{enable := false} ->
                         [];
                     MapOpts ->
-                        filter(
-                            [
-                                {cacertfile, maps:get(cacertfile, MapOpts, undefined)},
-                                {certfile, maps:get(certfile, MapOpts, undefined)},
-                                {keyfile, maps:get(keyfile, MapOpts, undefined)}
-                            ]
-                        )
+                        emqx_tls_lib:to_client_opts(MapOpts)
                 end,
             NClientOpts = ClientOpts#{
                 gun_opts =>
@@ -173,9 +167,6 @@ channel_opts(Opts = #{url := URL, socket_options := SockOptsT}) ->
 
 format_http_uri(Scheme, Host, Port) ->
     lists:flatten(io_lib:format("~ts://~ts:~w", [Scheme, Host, Port])).
-
-filter(Ls) ->
-    [E || E <- Ls, E /= undefined].
 
 -spec unload(server()) -> ok.
 unload(#{name := Name, options := ReqOpts, hookspec := HookSpecs}) ->
