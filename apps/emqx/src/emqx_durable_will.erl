@@ -85,7 +85,7 @@ on_disconnect(ClientId, ClientInfo, SessExpiryMS, MaybeWillMsg) ->
                 emqx_durable_timer:apply_after(durable_timer_type(), ClientId, MsgBin, Delay)
             );
         _ ->
-            clear(ClientId)
+            warn_timeout(clear(ClientId))
     end.
 
 -spec clear(emqx_types:clientid()) -> ok.

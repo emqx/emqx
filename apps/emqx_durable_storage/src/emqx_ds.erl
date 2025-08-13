@@ -433,7 +433,7 @@ Options for the `subscribe` API.
     db := db(),
     shard := shard() | {auto, _},
 
-    generation := generation(),
+    generation := generation() | latest,
 
     retries => non_neg_integer(),
     timeout => timeout(),
@@ -1113,6 +1113,11 @@ The following is guaranteed, though:
   Mandatory.
 
 - **`generation`**: Specify generation for the transaction. Mandatory.
+
+  Generation can be set to atom `latest`, then the transaction will be
+  applied to the latest generation. Note that such transaction may be
+  restarted or fail with a recoverable error if a new generation is
+  added while the transaction is running.
 
 - **`sync`**: If set to `false`, this function will return immediately
   without waiting for commit. Commit outcome will be sent as a

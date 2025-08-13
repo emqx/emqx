@@ -227,8 +227,13 @@ handle_event(_ET, ?ds_tx_commit_reply(Ref, Reply), _State, Data) ->
     handle_ds_reply(Ref, Reply, Data);
 handle_event(info, #cast_wake_up{t = Treached}, State, Data) ->
     handle_wake_up(State, Data, Treached);
+handle_event(info, {global_name_conflict, _}, _State, _Data) ->
+    %% Name has been taken over by another peer:
+    {stop, taken_over};
+handle_event(info, {'EXIT', _, shutdown}, _State, _Data) ->
+    {stop, shutdown};
 handle_event(ET, Event, State, Data) ->
-    ?tp(error, ?tp_unknown_event, #{m => ?MODULE, ET => Event, state => State, data => Data}),
+    ?tp(debug, ?tp_unknown_event, #{m => ?MODULE, ET => Event, state => State, data => Data}),
     keep_state_and_data.
 
 terminate(_Reason, _State, _D) ->
@@ -279,7 +284,7 @@ init_standby(Kind, Data, Leader) ->
     {next_state, ?s_standby(Kind, MRef), Data}.
 
 handle_leader_selection(Kind, Data = #s{type = T, epoch = E, shard = S}) ->
-    case global:register_name(?name(Kind, T, E, S), self()) of
+    case global:register_name(?name(Kind, T, E, S), self(), fun global:random_notify_name/3) of
         yes ->
             {next_state, ?s_leader(Kind), Data};
         no ->
