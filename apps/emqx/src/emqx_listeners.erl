@@ -171,8 +171,7 @@ is_running(Type, ListenerId, Conf) when Type =:= tcp; Type =:= ssl ->
     end;
 is_running(Type, ListenerId, _Conf) when Type =:= ws; Type =:= wss ->
     try
-        Info = ranch:info(ListenerId),
-        proplists:get_value(status, Info) =:= running
+        ranch:get_status(ListenerId) =:= running
     catch
         _:_ ->
             false
@@ -192,7 +191,7 @@ current_conns(Id, ListenOn) ->
 current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_current_connections({listener_id(Type, Name), ListenOn});
 current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
-    proplists:get_value(all_connections, ranch:info(listener_id(Type, Name)));
+    maps:get(all_connections, ranch:info(listener_id(Type, Name)));
 current_conns(quic, Name, _ListenOn) ->
     {ok, LPid} = quicer:listener(listener_id(quic, Name)),
     quicer_listener:count_conns(LPid);
@@ -206,7 +205,7 @@ max_conns(Id, ListenOn) ->
 max_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_max_connections({listener_id(Type, Name), ListenOn});
 max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
-    proplists:get_value(max_connections, ranch:info(listener_id(Type, Name)));
+    maps:get(max_connections, ranch:info(listener_id(Type, Name)));
 max_conns(_, _, _) ->
     {error, not_support}.
 

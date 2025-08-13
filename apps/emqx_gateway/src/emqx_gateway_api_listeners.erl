@@ -305,12 +305,8 @@ do_listeners_cluster_status(Listeners) ->
 current_listener_status(Type, Id, _ListenOn) when Type =:= ws; Type =:= wss ->
     try
         Info = ranch:info(Id),
-        Conns = proplists:get_value(all_connections, Info, 0),
-        Running =
-            case proplists:get_value(status, Info) of
-                running -> true;
-                _ -> false
-            end,
+        Conns = maps:get(all_connections, Info, 0),
+        Running = maps:get(status, Info) =:= running,
         {Running, Conns}
     catch
         error:badarg ->
