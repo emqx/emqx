@@ -296,7 +296,8 @@ dispatch_message(
     ?tp(warning, mq_consumer_dispatch_message, #{
         message_id => MessageId,
         pick_result => PickResult,
-        excluded_subscriber_refs => ExcludedSubscriberRefs
+        excluded_subscriber_refs => ExcludedSubscriberRefs,
+        message_topic => emqx_message:topic(Message)
     }),
     case PickResult of
         {ok, SubscriberRef} ->

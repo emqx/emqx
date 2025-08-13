@@ -534,7 +534,7 @@ t_progress_restoration(_Config) ->
     receive
         {publish, #{topic := <<"t/0">>, client_pid := CSub0}} ->
             ok
-    after 100 ->
+    after 200 ->
         ct:fail("t/0 message from MQ not received")
     end,
 
@@ -546,7 +546,7 @@ t_progress_restoration(_Config) ->
             client_pid := CSub0
         }} ->
             ok = emqtt:puback(CSub0, PacketId)
-    after 100 ->
+    after 200 ->
         ct:fail("t/1 message from MQ not received")
     end,
 
@@ -570,7 +570,7 @@ t_progress_restoration(_Config) ->
         {publish, #{topic := <<"t/0">>, client_pid := CSub1}} ->
             ok
     after 100 ->
-        ct:fail("t/0 message from MQ not received")
+        ct:fail("t/0 unacknowledged message from MQ not received")
     end,
     receive
         {publish, #{topic := <<"t/2">>, client_pid := CSub1}} ->

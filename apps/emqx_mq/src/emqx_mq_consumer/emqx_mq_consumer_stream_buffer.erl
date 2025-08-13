@@ -66,8 +66,7 @@ The module represents a consumer of a single stream of the Message Queue data.
 -type t() :: st_active() | st_restoring().
 
 -type progress() ::
-    finished
-    | #{
+    #{
         it := emqx_ds:iterator(),
         last_message_id := message_id(),
         unacked := [message_id()]
@@ -239,22 +238,17 @@ progress(
         lower_buffer := #{it_begin := ItBegin, unacked := LowerUnacked} = _LowerBuffer,
         upper_buffer := UpperBuffer,
         last_message_id := LastMessageId
-    } = SB
+    }
 ) ->
-    case is_finished(SB) of
-        true ->
-            finished;
-        false ->
-            UpperUnacked =
-                case UpperBuffer of
-                    undefined ->
-                        #{};
-                    #{unacked := Unacked} ->
-                        Unacked
-                end,
-            AllUnacked = maps:keys(maps:merge(LowerUnacked, UpperUnacked)),
-            #{it => ItBegin, last_message_id => LastMessageId, unacked => AllUnacked}
-    end;
+    UpperUnacked =
+        case UpperBuffer of
+            undefined ->
+                #{};
+            #{unacked := Unacked} ->
+                Unacked
+        end,
+    AllUnacked = maps:keys(maps:merge(LowerUnacked, UpperUnacked)),
+    #{it => ItBegin, last_message_id => LastMessageId, unacked => AllUnacked};
 progress(
     #{
         status := restoring,
