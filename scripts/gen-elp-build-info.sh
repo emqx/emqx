@@ -14,7 +14,7 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 usage() {
     echo    "Usage: $0 [-h | -t | -w]"
     echo    "  -h: Show this help message."
-    echo    "  -t: Test generation and show the output via 'less'. Does not write any files."
+    echo -e "  -t: Test generation and show the output via ${beginfmt}'less'${endfmt}. Does not write any files."
     echo -e "  -w: Write the output to ${beginfmt}build_info.json${endfmt} (Will overwrite the existing file)"
     echo -e "      And create/check ${beginfmt}.elp.toml${endfmt}."
 }
@@ -51,7 +51,7 @@ generate_json_content() {
     trap 'rm -f "$TMP_APPS_FILE" "$TMP_DEPS_FILE"' RETURN
 
     # 1. Process in-project applications
-    echo -e "Processing project applications in ${beginfmt}apps/${endfmt}" >&2
+    echo -e "Processing project applications in ${beginfmt}apps/${endfmt}"
     find apps -mindepth 1 -maxdepth 1 -type d | while read -r app_dir;
     do
         process_app "$app_dir" >> "$TMP_APPS_FILE"
@@ -59,9 +59,9 @@ generate_json_content() {
 
     # 2. Conditionally compile dependencies
     if [ -d "_build/default/lib" ] && [ -d "_build/test/lib" ]; then
-        echo -e "Build directories found, skipping compilation." >&2
+        echo -e "Build directories found, skipping compilation."
     else
-        echo -e "Build directories not found or incomplete. Running ${beginfmt}'make test-compile'...${endfmt}" >&2
+        echo -e "Build directories not found or incomplete. Running ${beginfmt}'make test-compile'...${endfmt}\n"
         make test-compile
     fi
 
@@ -69,11 +69,11 @@ generate_json_content() {
     local DEP_ROOTS=('_build/default/lib' '_build/test/lib')
     # shellcheck disable=SC2155
     local PROJECT_ROOT=$(pwd)
-    echo -e "Processing dependencies in ${beginfmt}${DEP_ROOTS[*]}${endfmt}..." >&2
+    echo -e "Processing dependencies in ${beginfmt}${DEP_ROOTS[*]}${endfmt}..."
     for dep_root in "${DEP_ROOTS[@]}";
     do
         if [ ! -d "$dep_root" ]; then
-            echo -e "${beginfmt}Warning: Dependency directory not found, skipping: $dep_root${endfmt}" >&2
+            echo -e "${beginfmt}Warning: Dependency directory not found, skipping: $dep_root${endfmt}"
             continue
         fi
         find "$dep_root" -mindepth 1 -maxdepth 1 -not -name ".rebar3" | while read -r dep_path;
@@ -108,9 +108,9 @@ generate_json_content() {
     done
 
     # 4. Assemble and output the final JSON
-    echo -e "Assembling final JSON..." >&2
-    jq -n --slurpfile apps "$TMP_APPS_FILE" --slurpfile deps "$TMP_DEPS_FILE" \
-      '{apps: $apps, deps: $deps}'
+    echo "Assembling final JSON..."
+    json_content=$(jq -n --slurpfile apps "$TMP_APPS_FILE" --slurpfile deps "$TMP_DEPS_FILE" \
+                        '{apps: $apps, deps: $deps}')
 }
 
 default_elp_toml() {
@@ -129,14 +129,13 @@ case "$1" in
         usage
         ;;
     -t)
-        generate_json_content | less
+        generate_json_content
+        echo "$json_content" | jq -C | less
         ;;
     -w)
-        echo -e "Generating ${beginfmt}build_info.json${endfmt}..."
-        JSON_CONTENT=$(generate_json_content)
+        generate_json_content
         echo -e "Writing to ${beginfmt}build_info.json...${endfmt}"
-        echo "$JSON_CONTENT" > build_info.json
-        echo -e "${beginfmt}Successfully generated build_info.json${endfmt}"
+        echo "$json_content" > build_info.json
 
         if [ -f ".elp.toml" ]; then
             beginfmt='\033[1;33m'
