@@ -1281,8 +1281,11 @@ t_crashed_node_session_gc(Config) ->
             %% the node only recently crashed.
             ?block_until(#{?snk_kind := ?sessds_expired, id := ClientId}),
             %%% Wait for possible async dirty session delete
-            ct:sleep(100),
-            ?assertMatch([], list_all_sessions(Node2), sessions)
+            ?retry(
+                100,
+                10,
+                ?assertMatch([], list_all_sessions(Node2), sessions)
+            )
         end,
         [fun check_stream_state_transitions/1]
     ),
