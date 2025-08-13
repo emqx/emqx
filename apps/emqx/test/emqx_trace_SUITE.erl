@@ -374,7 +374,7 @@ t_empty_trace_log_file(_Config) ->
 
 t_stream_continuity(_Config) ->
     %% Configure relatively low size limit:
-    MaxSize = 10 * 1024,
+    MaxSize = 25 * 1024,
     PayloadLimit = 400,
     StreamLimit = 512,
     MaxSizeDefault = emqx_config:get([trace, max_file_size]),
@@ -427,22 +427,22 @@ t_stream_continuity(_Config) ->
     ok = emqx_config:put([trace, max_file_size], MaxSizeDefault).
 
 t_stream_tailf(_Config) ->
-    test_stream_tailf(10 * 1024, 400, 1024, 100, 1).
+    test_stream_tailf(<<"test_tailf">>, 25 * 1024, 400, 1024, 120, 1).
 
 t_stream_tailf_small_reads(_Config) ->
-    test_stream_tailf(10 * 1024, 400, 32, 50, 3).
+    test_stream_tailf(<<"test_tailf_sm">>, 25 * 1024, 400, 32, 80, 3).
 
 t_stream_tailf_whole_reads(_Config) ->
-    test_stream_tailf(8 * 1024, 400, undefined, 100, 1).
+    test_stream_tailf(<<"test_tailf_wh">>, 15 * 1024, 400, undefined, 120, 1).
 
-test_stream_tailf(MaxSize, PayloadLimit, StreamReadSize, NMsg, Cooldown) ->
+test_stream_tailf(Pre, MaxSize, PayloadLimit, StreamReadSize, NMsg, Cooldown) ->
     TCPid = self(),
     %% Configure relatively low size limit:
     MaxSizeDefault = emqx_config:get([trace, max_file_size]),
     ok = emqx_config:put([trace, max_file_size], MaxSize),
     %% Start a trace:
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    Name = <<"test_", ClientId/binary>>,
+    Name = iolist_to_binary([Pre, integer_to_binary(erlang:system_time(millisecond))]),
     {ok, _} = emqx_trace:create(#{
         name => Name,
         filter => {clientid, ClientId},
@@ -472,7 +472,7 @@ test_stream_tailf(MaxSize, PayloadLimit, StreamReadSize, NMsg, Cooldown) ->
         end,
         lists:seq(1, NMsg)
     ),
-    ok = timer:sleep(100),
+    ok = timer:sleep(NMsg),
     %% Trigger filesync:
     {ok, #{size := CurrentSize}} = emqx_trace:log_details(Name),
     %% Ask the receiver to stop and hand us the log stream it has accumulated:

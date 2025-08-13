@@ -73,15 +73,10 @@
 -type filter_fun() :: {function(), #filterctx{}}.
 -opaque log_handler() :: {logger:handler_id(), filter_fun()}.
 
--define(KB, 1024).
--define(MB, 1024 * ?KB).
-
--define(LOG_HANDLER_ROTATION_N_FILES_MAX, 10).
--define(LOG_HANDLER_ROTATION_N_FILES_MIN, 4).
--define(LOG_HANDLER_ROTATION_FILE_SIZE_MIN, (10 * ?KB)).
+-define(LOG_HANDLER_ROTATION_N_FILES, 10).
 -define(LOG_HANDLER_FILESYNC_INTERVAL, 5_000).
 -define(LOG_HANDLER_FILECHECK_INTERVAL, 60_000).
--define(LOG_HANDLER_OLP_KILL_MEM_SIZE, (50 * ?MB)).
+-define(LOG_HANDLER_OLP_KILL_MEM_SIZE, 50 * 1024 * 1024).
 -define(LOG_HANDLER_OLP_KILL_QLEN, 20000).
 
 -define(LOG_FRAGMENT_WITNESS_BYTES, 64).
@@ -135,11 +130,7 @@ install(HandlerId, Who, Level, LogFile) ->
 
 logger_config(LogFile) ->
     MaxBytes = emqx_config:get([trace, max_file_size]),
-    NFiles = emqx_utils:clamp(
-        MaxBytes div ?LOG_HANDLER_ROTATION_FILE_SIZE_MIN,
-        ?LOG_HANDLER_ROTATION_N_FILES_MIN,
-        ?LOG_HANDLER_ROTATION_N_FILES_MAX
-    ),
+    NFiles = ?LOG_HANDLER_ROTATION_N_FILES,
     #{
         type => file,
         file => LogFile,
@@ -200,9 +191,11 @@ obtained through a call to this function.
 * `none`
   There's no more fragments, either the last (most recent) fragment was reached,
   or there is actually zero fragments.
+
 * `{error, stale}`
   It's now impossible to find the next fragment because too much log rotation happened
   in the meantime.
+
 * `{error, enoent}`
   No such file, can actually mean concurrent log rotation is in progress, and the
   caller may choose to retry.
@@ -230,7 +223,7 @@ find_oldest_log_fragment(Basename) ->
                 {error, Reason}
         end
     end,
-    find_boundary(SearchFun, 1, ?LOG_HANDLER_ROTATION_N_FILES_MAX, none).
+    find_boundary(SearchFun, 1, ?LOG_HANDLER_ROTATION_N_FILES, none).
 
 find_next_log_fragment(I, Inode, Basename) ->
     %% First we need to make sure the given fragment still resides under
@@ -243,7 +236,7 @@ find_next_log_fragment(I, Inode, Basename) ->
         {ok, #file_info{}} ->
             %% Fragment was rotated in the meantime, try to find it first.
             find_next_log_fragment(I + 1, Inode, Basename);
-        {error, enoent} when I < ?LOG_HANDLER_ROTATION_N_FILES_MAX ->
+        {error, enoent} when I < ?LOG_HANDLER_ROTATION_N_FILES ->
             %% Fragment is likely being rotated right now, try to find it.
             find_next_log_fragment(I + 1, Inode, Basename);
         {error, enoent} ->
@@ -257,7 +250,7 @@ next_log_fragment(1, _Basename) ->
     none;
 next_log_fragment(I, Basename) ->
     %% NOTE
-    %% Subject to races with `looger_std_h:rotate_files/3`, highly unlikely though.
+    %% Subject to races with `logger_std_h:rotate_files/3`, highly unlikely though.
     %% 1. We can accidentally skip one fragment.
     %% 2. We can get `{error, enoent}` for a fragment in the process of rotation.
     %% Currently, upper layer blindly considers `{error, enoent}` as retry-worthy,
@@ -337,7 +330,7 @@ read_log_fragment_at(#{i := I, in := Inode} = Fragment, Basename, Pos, NBytes) -
                 Error ->
                     Error
             end;
-        {error, enoent} when I >= ?LOG_HANDLER_ROTATION_N_FILES_MAX ->
+        {error, enoent} when I >= ?LOG_HANDLER_ROTATION_N_FILES ->
             %% Fragment was rotated _and_ deleted, there's a discontinuity.
             {error, stale};
         {error, Reason} ->
