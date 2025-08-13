@@ -39,7 +39,7 @@ init(?ROOT_SUP) ->
         intensity => 10,
         period => 10
     },
-    ChildSpecs = [message_db_watcher_child_spec(), consumer_sup_child_spec()],
+    ChildSpecs = [consumer_sup_child_spec()],
     {ok, {SupFlags, ChildSpecs}};
 init(?CONSUMER_SUP) ->
     SupFlags = #{
@@ -66,13 +66,4 @@ consumer_child_spec(Id, Args) ->
         start => {emqx_mq_consumer, start_link, Args},
         restart => temporary,
         shutdown => 5000
-    }.
-
-message_db_watcher_child_spec() ->
-    #{
-        id => emqx_mq_message_db_watcher,
-        start => {emqx_mq_message_db_watcher, start_link, []},
-        restart => permanent,
-        shutdown => 5000,
-        type => worker
     }.

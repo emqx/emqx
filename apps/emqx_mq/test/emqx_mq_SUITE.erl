@@ -94,11 +94,6 @@ t_publish_and_consume(_Config) ->
     ok = emqx_mq_message_db:add_regular_db_generation(),
     % %% And another one
     ok = emqx_mq_message_db:add_regular_db_generation(),
-    ?retry(
-        100,
-        5,
-        ?assertEqual(3, emqx_mq_message_db:get_last_regular_db_generation(<<"0">>))
-    ),
 
     %% Publish 100 more messages to the queue
     ok =
@@ -506,6 +501,7 @@ t_busy_session(_Config) ->
 %% * acked messages are not re-delivered
 %% * unacked messages are re-delivered
 t_progress_restoration(_Config) ->
+    ok = emqx_mq_message_db:add_regular_db_generation(),
     %% Create a non-compacted Queue
     MQ =
         emqx_mq_test_utils:create_mq(#{
@@ -553,6 +549,7 @@ t_progress_restoration(_Config) ->
     %% Disconnect the client and wait for the consumer to stop and save the progress
     ok = emqtt:disconnect(CSub0),
     ok = wait_for_consumer_stop(MQ, 100),
+    ok = emqx_mq_message_db:add_regular_db_generation(),
 
     %% Start the client and the consumer again
     CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
@@ -870,21 +867,6 @@ t_queue_deletion(_Config) ->
 
     %% Clean up
     ok = emqtt:disconnect(CSub1).
-
-% t_generation_advancement(_Config) ->
-%     ok = emqx_mq_message_db:add_regular_db_generation(),
-%     ?retry(
-%         100,
-%         5,
-%         ?assertEqual(2, emqx_mq_message_db:get_last_regular_db_generation(<<"0">>))
-%     ),
-%     ok = emqx_mq_message_db:add_regular_db_generation(),
-%     ok = emqx_mq_message_db:add_regular_db_generation(),
-%     ?retry(
-%         100,
-%         5,
-%         ?assertEqual(4, emqx_mq_message_db:get_last_regular_db_generation(<<"0">>))
-%     ).
 
 %%--------------------------------------------------------------------
 %% Helpers

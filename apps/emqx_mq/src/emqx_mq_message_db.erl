@@ -28,15 +28,10 @@ Facade for all operations with the message database.
     decode_message/1
 ]).
 
--export([
-    subscribe_regular_db_streams/3,
-    set_last_regular_db_generation/2,
-    get_last_regular_db_generation/1
-]).
-
 %% For testing/maintenance
 -export([
-    add_regular_db_generation/0
+    add_regular_db_generation/0,
+    last_regular_db_generations/0
 ]).
 
 %% For testing/maintenance
@@ -52,13 +47,10 @@ Facade for all operations with the message database.
 -define(MQ_MESSAGE_DB_TOPIC(MQ_TOPIC, MQ_ID, COMPACTION_KEY), [
     <<"topic">>, MQ_TOPIC, MQ_ID, <<"key">>, COMPACTION_KEY
 ]).
--define(MQ_MESSAGE_DB_WATCH_TOPIC, [<<"watch">>]).
 
 %% TODO: increase
 -define(SHARDS_PER_SITE, 1).
 -define(REPLICATION_FACTOR, 1).
-
--define(REGULAR_DB_LAST_GEN_PT_KEY(SHARD), {?MODULE, subscribe_regular_db_last_generation, SHARD}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -73,8 +65,7 @@ open() ->
         ok ?= emqx_ds:wait_db(?MQ_MESSAGE_REGULAR_DB, all, infinity)
     else
         _ -> error(failed_to_open_mq_databases)
-    end,
-    ok = init_regular_db_last_generations().
+    end.
 
 -spec insert(emqx_mq_types:mq(), emqx_types:message(), _CompactionKey :: undefined | binary()) ->
     ok.
@@ -91,7 +82,7 @@ insert(#{is_compacted := true} = MQ, Message, CompactionKey) ->
     TxOpts = #{
         db => ?MQ_MESSAGE_COMPACTED_DB,
         shard => {auto, CompactionKey},
-        generation => generation_compacted(),
+        generation => insert_generation_compacted(),
         sync => true,
         retries => ?MQ_MESSAGE_DB_APPEND_RETRY
     },
@@ -106,7 +97,7 @@ insert(#{is_compacted := false} = MQ, Message, undefined) ->
     ClientId = emqx_message:from(Message),
     Topic = mq_message_topic(MQ, ClientId),
     Shard = emqx_ds:shard_of(?MQ_MESSAGE_REGULAR_DB, ClientId),
-    Generation = generation_regular(Shard),
+    Generation = insert_generation_regular(),
     TxOpts = #{
         db => ?MQ_MESSAGE_REGULAR_DB,
         shard => Shard,
@@ -179,61 +170,10 @@ decode_message(Bin) ->
 %%--------------------------------------------------------------------
 
 add_regular_db_generation() ->
-    LastGenerations = lists:usort(maps:values(get_current_last_generations())),
-    case LastGenerations of
-        [] ->
-            ?tp(error, mq_message_db_add_generation_error, #{reason => no_info}),
-            error(cannot_get_generation_info);
-        [_LastGen1, _LastGen2 | _] ->
-            ?tp(error, mq_message_db_add_generation_error, #{reason => multiple_generations}),
-            error(multiple_generations);
-        [LastGen] ->
-            ok = emqx_ds:add_generation(?MQ_MESSAGE_REGULAR_DB),
-            lists:foreach(
-                fun(Shard) ->
-                    %% In case of concurrent generation creation, we may touch an invalid generation.
-                    %% This is fine, because some other agent will touch the correct new generation.
-                    case touch_regular_db_generation(Shard, LastGen + 1) of
-                        ok ->
-                            ok;
-                        Error ->
-                            ?tp(error, mq_message_db_add_generation_error, #{
-                                reason => cannot_add_message_to_new_generation,
-                                shard => Shard,
-                                generation => LastGen + 1,
-                                error => Error
-                            }),
-                            error({cannot_add_message_to_new_generation, Error})
-                    end
-                end,
-                emqx_ds:list_shards(?MQ_MESSAGE_REGULAR_DB)
-            )
-    end.
+    ok = emqx_ds:add_generation(?MQ_MESSAGE_REGULAR_DB).
 
-%%--------------------------------------------------------------------
-%% API for watcher
-%%--------------------------------------------------------------------
-
--spec subscribe_regular_db_streams(emqx_ds_client:t(), emqx_ds_client:sub_id(), _State) ->
-    {ok, emqx_ds_client:t(), _State}.
-subscribe_regular_db_streams(DSClient0, SubId, State0) ->
-    SubOpts = #{
-        db => ?MQ_MESSAGE_REGULAR_DB,
-        id => SubId,
-        topic => ?MQ_MESSAGE_DB_WATCH_TOPIC,
-        ds_sub_opts => #{
-            max_unacked => 1000
-        }
-    },
-    {ok, DSClient, State} = emqx_ds_client:subscribe(DSClient0, SubOpts, State0),
-    {ok, DSClient, State}.
-
-get_last_regular_db_generation(Shard) ->
-    persistent_term:get(?REGULAR_DB_LAST_GEN_PT_KEY(Shard), 1).
-
-set_last_regular_db_generation(Shard, Generation) ->
-    _ = persistent_term:put(?REGULAR_DB_LAST_GEN_PT_KEY(Shard), Generation),
-    ok.
+last_regular_db_generations() ->
+    maps:values(maps:from_list(lists:sort(maps:keys(emqx_ds:list_slabs(?MQ_MESSAGE_REGULAR_DB))))).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -253,7 +193,7 @@ delete(DB, Topic) ->
                 emqx_ds:tx_del_topic(Topic)
             end)
         end,
-        maps:keys(emqx_ds:list_generations_with_lifetimes(?MQ_MESSAGE_REGULAR_DB))
+        maps:keys(emqx_ds:list_slabs(?MQ_MESSAGE_REGULAR_DB))
     ).
 
 mq_message_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, CompactionKey) ->
@@ -264,11 +204,11 @@ db(#{is_compacted := true} = _MQ) ->
 db(#{is_compacted := false} = _MQ) ->
     ?MQ_MESSAGE_REGULAR_DB.
 
-generation_compacted() ->
+insert_generation_compacted() ->
     1.
 
-generation_regular(Shard) ->
-    get_last_regular_db_generation(Shard).
+insert_generation_regular() ->
+    latest.
 
 settings() ->
     NSites = length(emqx:running_nodes()),
@@ -288,47 +228,3 @@ settings() ->
         n_sites => NSites,
         replication_factor => ?REPLICATION_FACTOR
     }.
-
-init_regular_db_last_generations() ->
-    LastGenerations = get_current_last_generations(),
-    maps:foreach(
-        fun(Shard, Generation) ->
-            ok = set_last_regular_db_generation(Shard, Generation)
-        end,
-        LastGenerations
-    ).
-
-get_current_last_generations() ->
-    GenerationInfo = emqx_ds:list_generations_with_lifetimes(?MQ_MESSAGE_REGULAR_DB),
-    maps:fold(
-        fun({Shard, Gen}, _SlabInfo, Acc) ->
-            case Acc of
-                #{Shard := LastGen} when LastGen < Gen ->
-                    Acc#{Shard => Gen};
-                #{Shard := _LastGen} ->
-                    Acc;
-                _ ->
-                    Acc#{Shard => Gen}
-            end
-        end,
-        #{},
-        GenerationInfo
-    ).
-
-touch_regular_db_generation(Shard, Generation) ->
-    TxOpts = #{
-        db => ?MQ_MESSAGE_REGULAR_DB,
-        shard => Shard,
-        generation => Generation,
-        sync => true,
-        retries => ?MQ_MESSAGE_DB_APPEND_RETRY
-    },
-    Res = emqx_ds:trans(TxOpts, fun() ->
-        emqx_ds:tx_write({?MQ_MESSAGE_DB_WATCH_TOPIC, ?ds_tx_ts_monotonic, <<>>})
-    end),
-    case Res of
-        {atomic, _Serial, ok} ->
-            ok;
-        Error ->
-            Error
-    end.
