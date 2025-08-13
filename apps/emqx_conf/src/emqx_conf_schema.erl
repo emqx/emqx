@@ -76,6 +76,7 @@
     connection_rejected_due_to_trial_license_uptime_limit,
     connection_rejected_due_to_license_expired,
     listener_accept_throttled_due_to_quota_exceeded,
+    listener_accept_refused_reached_max_connections,
     failed_to_consume_from_limiter,
     failed_to_put_back_to_limiter,
     data_bridge_buffer_overflow,
