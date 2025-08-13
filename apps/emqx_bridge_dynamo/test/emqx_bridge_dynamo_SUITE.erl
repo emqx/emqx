@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 % DB defaults
 -define(TABLE, "mqtt").
@@ -330,7 +331,7 @@ query_resource(Config, Request) ->
     Name = ?config(dynamo_name, Config),
     BridgeType = ?config(dynamo_bridge_type, Config),
     ID = id(BridgeType, Name),
-    ResID = emqx_connector_resource:resource_id(BridgeType, Name),
+    ResID = emqx_connector_resource:resource_id(?global_ns, BridgeType, Name),
     emqx_resource:query(ID, Request, #{timeout => 500, connector_resource_id => ResID}).
 
 %% create a table, use the apps/emqx_bridge_dynamo/priv/dynamo/mqtt_msg.json as template

@@ -313,7 +313,7 @@ query_resource(Config, Request) ->
     Name = ?GET_CONFIG(rocketmq_name, Config),
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
     ID = id(BridgeType, Name),
-    ResID = emqx_connector_resource:resource_id(BridgeType, Name),
+    ResID = emqx_connector_resource:resource_id(?global_ns, BridgeType, Name),
     emqx_resource:query(ID, Request, #{timeout => 500, connector_resource_id => ResID}).
 
 create_action_api(Type, Name, Conf) ->
