@@ -1462,6 +1462,16 @@ t_17_tx_wrapper(Config) ->
                     {[<<"t">>, <<"1">>], 0, <<"2">>}
                 ],
                 lists:sort(emqx_ds:dirty_read(DB, ['#']))
+            ),
+            %% 4. Transaction in the latest generation:
+            ?assertMatch(
+                {atomic, _Serial, [{_, _, <<"2">>}]},
+                emqx_ds:trans(
+                    TXOpts#{generation => latest},
+                    fun() ->
+                        emqx_ds:tx_read(['#'])
+                    end
+                )
             )
         end,
         []
@@ -2430,6 +2440,35 @@ t_28_ttv_time_limited(Config) ->
                 [{_, _, <<2>>}],
                 emqx_ds:dirty_read(DB, [<<"foo">>])
             )
+        end,
+        []
+    ).
+
+%% This testcase verifies a corner case where a new generation is
+%% added while a transaction created with `generation => latest` is
+%% running. It is expected that such transaction will be aborted with
+%% a recoverable error.
+t_29_tx_latest_generation_race_condition(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = maps:merge(opts(Config), #{
+        store_ttv => true,
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+    }),
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            {ok, Tx} = emqx_ds:new_tx(DB, #{
+                generation => latest,
+                shard => emqx_ds:shard_of(DB, <<>>),
+                timeout => infinity
+            }),
+            ?assertMatch(ok, emqx_ds:add_generation(DB)),
+            Ops = #{
+                ?ds_tx_write => [
+                    {[<<"foo">>], 0, <<"payload0">>}
+                ]
+            },
+            ?assertMatch(?err_rec(_), do_commit_tx(DB, Tx, Ops))
         end,
         []
     ).

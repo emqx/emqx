@@ -57,6 +57,7 @@
     %% optimistic_tx
     otx_get_tx_serial/2,
     otx_get_leader/2,
+    otx_get_latest_generation/2,
     otx_become_leader/2,
     otx_prepare_tx/5,
     otx_commit_tx_batch/5,
@@ -704,6 +705,9 @@ otx_become_leader(DB, Shard) ->
 
 otx_get_leader(DB, Shard) ->
     emqx_ds_optimistic_tx:where(DB, Shard).
+
+otx_get_latest_generation(DB, Shard) ->
+    emqx_ds_storage_layer:generation_current({DB, Shard}).
 
 otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
     emqx_ds_storage_layer_ttv:prepare_tx(DBShard, Generation, SerialBin, Ops, Opts).

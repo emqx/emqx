@@ -106,6 +106,7 @@
 -export([
     otx_get_tx_serial/2,
     otx_get_leader/2,
+    otx_get_latest_generation/2,
     otx_become_leader/2,
     otx_prepare_tx/5,
     otx_commit_tx_batch/5,
@@ -785,6 +786,9 @@ otx_get_tx_serial(DB, Shard) ->
 
 otx_get_leader(DB, Shard) ->
     emqx_ds_builtin_raft_sup:get_gvar(DB, ?gv_otx_leader_pid(Shard), undefined).
+
+otx_get_latest_generation(DB, Shard) ->
+    emqx_ds_storage_layer:generation_current({DB, Shard}).
 
 otx_become_leader(DB, Shard) ->
     Command = #{?tag => new_otx_leader, ?otx_leader_pid => self()},

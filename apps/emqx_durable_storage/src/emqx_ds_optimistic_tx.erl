@@ -115,6 +115,9 @@
 -callback otx_become_leader(emqx_ds:db(), emqx_ds:shard()) ->
     {ok, serial(), emqx_ds:time()} | {error, _}.
 
+%% Executed by the leader
+-callback otx_get_latest_generation(emqx_ds:db(), emqx_ds:shard()) -> emqx_ds:generation().
+
 %% Executed by the readers
 -callback otx_get_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 
@@ -174,9 +177,20 @@ start_link(DB, Shard, CBM) ->
     gen_statem:start_link(?via(DB, Shard), ?MODULE, [DB, Shard, CBM], []).
 
 -spec new_kv_tx_ctx(
-    module(), emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), emqx_ds:transaction_opts()
+    module(),
+    emqx_ds:db(),
+    emqx_ds:shard(),
+    emqx_ds:generation() | latest,
+    emqx_ds:transaction_opts()
 ) -> {ok, ctx()} | emqx_ds:error(_).
-new_kv_tx_ctx(CBM, DB, Shard, Generation, Opts) ->
+new_kv_tx_ctx(CBM, DB, Shard, Generation0, Opts) ->
+    case Generation0 of
+        latest ->
+            Generation = CBM:otx_get_latest_generation(DB, Shard),
+            IsLatest = true;
+        Generation when is_integer(Generation) ->
+            IsLatest = false
+    end,
     maybe
         Leader = CBM:otx_get_leader(DB, Shard),
         true ?= is_pid(Leader),
@@ -186,6 +200,7 @@ new_kv_tx_ctx(CBM, DB, Shard, Generation, Opts) ->
             leader = Leader,
             serial = Serial,
             generation = Generation,
+            latest_generation = IsLatest,
             opts = Opts
         },
         {ok, Ctx}
@@ -350,7 +365,10 @@ handle_tx(
     Tx
 ) ->
     DBShard = {DB, Shard},
-    #ds_tx{ref = TxRef, ctx = #kv_tx_ctx{generation = Gen}} = Tx,
+    #ds_tx{
+        ref = TxRef,
+        ctx = #kv_tx_ctx{generation = Gen, latest_generation = IsLatest}
+    } = Tx,
     ?tp(
         emqx_ds_optimistic_tx_commit_received,
         #{
@@ -358,7 +376,8 @@ handle_tx(
             serial => Serial,
             committed_serial => SafeToReadSerial,
             ref => TxRef,
-            tx => Tx
+            tx => Tx,
+            generation => {IsLatest, Gen}
         }
     ),
     case Gens of
@@ -403,6 +422,7 @@ try_commit(
     Ops = preprocess_ops(PresumedCommitSerial, Ops0),
     #kv_tx_ctx{serial = TxStartSerial} = Ctx,
     maybe
+        ok ?= check_latest_generation(CBM, DBShard, Ctx),
         ok ?= check_conflicts(DirtyW0, DirtyD0, TxStartSerial, SafeToReadSerial, Ops),
         ok ?= verify_preconditions(DBShard, CBM, Gen, Ops),
         {ok, CookedTx} ?=
@@ -426,6 +446,18 @@ try_commit(
             ),
             reply_error(From, Ref, Meta, Class, Error),
             aborted
+    end.
+
+check_latest_generation(_, _, #kv_tx_ctx{latest_generation = false}) ->
+    %% This transaction was created for a constant generation that
+    %% doesn't have to be the latest. This always succeeds.
+    ok;
+check_latest_generation(CBM, {DB, Shard}, #kv_tx_ctx{latest_generation = true, generation = Gen}) ->
+    case CBM:otx_get_latest_generation(DB, Shard) of
+        Gen ->
+            ok;
+        Latest ->
+            ?err_rec({not_the_latest_generation, Gen, Latest})
     end.
 
 update_dirty_d(Serial, Ops, Dirty) ->
@@ -658,8 +690,13 @@ reply_success(From, Ref, Meta, Serial) ->
         emqx_ds_optimistic_tx_commit_success,
         #{client => From, ref => Ref, meta => Meta, serial => Serial}
     ),
-    From ! ?ds_tx_commit_ok(Ref, Meta, serial_bin(Serial)),
-    ok.
+    case From of
+        _ when is_pid(From) orelse is_reference(From) ->
+            From ! ?ds_tx_commit_ok(Ref, Meta, serial_bin(Serial)),
+            ok;
+        undefined ->
+            ok
+    end.
 
 reply_error(From, Ref, Meta, Class, Error) ->
     ?tp(
@@ -667,8 +704,13 @@ reply_error(From, Ref, Meta, Class, Error) ->
         emqx_ds_optimistic_tx_commit_abort,
         #{client => From, ref => Ref, meta => Meta, ec => Class, reason => Error, stage => final}
     ),
-    From ! ?ds_tx_commit_error(Ref, Meta, Class, Error),
-    ok.
+    case From of
+        _ when is_pid(From) orelse is_reference(From) ->
+            From ! ?ds_tx_commit_error(Ref, Meta, Class, Error),
+            ok;
+        undefined ->
+            ok
+    end.
 
 %%================================================================================
 %% Tests

@@ -9,13 +9,14 @@
     leader :: pid(),
     serial :: term(),
     generation :: emqx_ds:generation(),
+    latest_generation :: boolean(),
     opts :: emqx_ds:transaction_opts()
 }).
 
 -record(ds_tx, {
     ctx :: emqx_ds_optimistic_tx:ctx(),
     ops :: emqx_ds:tx_ops() | emqx_ds:tx_ops(),
-    from :: pid(),
+    from :: pid() | reference() | undefined,
     ref :: reference(),
     meta :: term()
 }).
