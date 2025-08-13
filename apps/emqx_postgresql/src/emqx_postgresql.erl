@@ -50,6 +50,9 @@
     on_get_status_prepares/1
 ]).
 
+%% Allocatable resources
+-define(conn_pool, conn_pool).
+
 -define(PGSQL_HOST_OPTIONS, #{
     default_port => ?PGSQL_DEFAULT_PORT
 }).
@@ -160,6 +163,7 @@ on_start(
     ]),
     State1 = parse_sql_template(Config, <<"send_message">>),
     State2 = State1#{installed_channels => #{}},
+    ok = emqx_resource:allocate_resource(InstId, ?MODULE, ?conn_pool, InstId),
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
             Prepares =
@@ -194,6 +198,8 @@ on_stop(InstId, State) ->
 close_connections(#{pool_name := PoolName} = _State) ->
     WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     close_connections_with_worker_pids(WorkerPids),
+    ok;
+close_connections(_) ->
     ok.
 
 close_connections_with_worker_pids([WorkerPid | Rest]) ->

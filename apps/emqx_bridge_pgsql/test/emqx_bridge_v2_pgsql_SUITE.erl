@@ -529,3 +529,34 @@ t_reconnect_on_connector_health_check_timeout_check_prepares(Config) ->
         )
     ),
     ok.
+
+-doc """
+Checks that we use the allocation APIs to ensure we destroy the connection pool if the
+resource state is not properly initialized.
+""".
+t_allocated_conn_pool(TCConfig) when is_list(TCConfig) ->
+    emqx_common_test_helpers:with_mock(
+        emqx_resource_pool,
+        start,
+        fun(_ResId, _Mod, _Opts) -> {error, mocked_error} end,
+        #{meck_opts => [no_history, passthrough]},
+        fun() ->
+            ?check_trace(
+                begin
+                    ?assertMatch(
+                        {201, #{
+                            <<"status">> := <<"disconnected">>,
+                            <<"status_reason">> := <<"mocked_error">>
+                        }},
+                        create_connector_api(TCConfig, #{})
+                    ),
+                    {204, _} = emqx_bridge_v2_testlib:delete_connector_api(TCConfig)
+                end,
+                fun(Trace) ->
+                    ?assertMatch([_ | _], ?of_kind(postgres_stopped, Trace)),
+                    ok
+                end
+            )
+        end
+    ),
+    ok.
