@@ -94,15 +94,12 @@ sync_data_from_node() ->
 %% ------------------------------------------------------------------------------
 
 ensure_allowed_namespaced_root_keys() ->
-    lists:foreach(
-        fun emqx_config:add_allowed_namespaced_config_root/1,
-        [
-            <<"actions">>,
-            <<"connectors">>,
-            <<"rule_engine">>,
-            <<"sources">>
-        ]
-    ).
+    emqx_config:add_allowed_namespaced_config_root([
+        <<"actions">>,
+        <<"connectors">>,
+        <<"rule_engine">>,
+        <<"sources">>
+    ]).
 
 init_load(TnxId) ->
     case emqx_app:get_config_loader() of

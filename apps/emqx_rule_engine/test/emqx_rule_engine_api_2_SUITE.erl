@@ -118,10 +118,9 @@ app_specs_no_dashboard() ->
                         end,
                         Mods
                     ),
-                    lists:foreach(
-                        fun emqx_config:add_allowed_namespaced_config_root/1,
-                        [<<"connectors">>, <<"actions">>, <<"sources">>, <<"rule_engine">>]
-                    ),
+                    emqx_config:add_allowed_namespaced_config_root([
+                        <<"connectors">>, <<"actions">>, <<"sources">>, <<"rule_engine">>
+                    ]),
                     emqx_cth_suite:inhibit_config_loader(App, AppOpts)
                 end
         }},

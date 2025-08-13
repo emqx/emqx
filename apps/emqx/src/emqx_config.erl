@@ -935,6 +935,8 @@ namespaced_config_allowed_roots() ->
     Roots = persistent_term:get(?ALLOWED_NS_ROOT_KEYS_PT_KEY, []),
     maps:from_keys(Roots, true).
 
+add_allowed_namespaced_config_root(RootKeyBins) when is_list(RootKeyBins) ->
+    lists:foreach(fun add_allowed_namespaced_config_root/1, RootKeyBins);
 add_allowed_namespaced_config_root(RootKeyBin) when is_binary(RootKeyBin) ->
     Roots0 = persistent_term:get(?ALLOWED_NS_ROOT_KEYS_PT_KEY, []),
     Roots = [RootKeyBin | Roots0 -- [RootKeyBin]],
