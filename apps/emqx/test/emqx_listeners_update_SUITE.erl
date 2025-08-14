@@ -97,8 +97,8 @@ t_update_conf(_Conf) ->
     ?assertEqual(0, current_conns(<<"tcp:default">>, BindTcp)),
     ?assertEqual(0, current_conns(<<"ssl:default">>, BindSsl)),
 
-    ?assertEqual({0, 0, 0, 0}, proplists:get_value(ip, ranch:info('ws:default'))),
-    ?assertEqual({127, 0, 0, 1}, proplists:get_value(ip, ranch:info('wss:default'))),
+    ?assertEqual({0, 0, 0, 0}, maps:get(ip, ranch:info('ws:default'))),
+    ?assertEqual({127, 0, 0, 1}, maps:get(ip, ranch:info('wss:default'))),
     ?assert(is_running('ws:default')),
     ?assert(is_running('wss:default')),
     ok.
@@ -347,8 +347,8 @@ t_update_empty_ssl_options_conf(_Conf) ->
     ?assertEqual(0, current_conns(<<"tcp:default">>, BindTcp)),
     ?assertEqual(0, current_conns(<<"ssl:default">>, BindSsl)),
 
-    ?assertEqual({0, 0, 0, 0}, proplists:get_value(ip, ranch:info('ws:default'))),
-    ?assertEqual({127, 0, 0, 1}, proplists:get_value(ip, ranch:info('wss:default'))),
+    ?assertEqual({0, 0, 0, 0}, maps:get(ip, ranch:info('ws:default'))),
+    ?assertEqual({127, 0, 0, 1}, maps:get(ip, ranch:info('wss:default'))),
     ?assert(is_running('ws:default')),
     ?assert(is_running('wss:default')),
 

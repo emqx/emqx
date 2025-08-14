@@ -37,6 +37,7 @@
     {_From :: calendar:date(), _To :: calendar:date()}.
 
 -type cert_extensions() :: #{
+    subject_alt_name => string(),
     basic_constraints => false | ca | _PathLenContraint :: pos_integer(),
     key_usage => false | certsign
 }.
@@ -199,6 +200,13 @@ extensions(Opts) ->
         maps:merge(Default, Exts)
     ).
 
+extension(subject_alt_name, Ns) ->
+    [
+        #'Extension'{
+            extnID = ?'id-ce-subjectAltName',
+            extnValue = lists:map(fun subject_alt_name/1, Ns)
+        }
+    ];
 extension(basic_constraints, false) ->
     [];
 extension(basic_constraints, ca) ->
@@ -227,6 +235,9 @@ extension(key_usage, certsign) ->
             critical = true
         }
     ].
+
+subject_alt_name({ip, IPAddr}) when tuple_size(IPAddr) == 4 ->
+    {iPAddress, tuple_to_list(IPAddr)}.
 
 default_validity() ->
     {shift_date(date(), -1), shift_date(date(), +7)}.
@@ -264,7 +275,7 @@ verify_signature(CertDer, KeyPem) ->
 %% -------------------------------------------------------------------
 
 gen_privkey(ec) ->
-    public_key:generate_key({namedCurve, secp256k1});
+    public_key:generate_key({namedCurve, secp521r1});
 gen_privkey(rsa) ->
     public_key:generate_key({rsa, 2048, 17}).
 

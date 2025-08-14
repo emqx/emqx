@@ -161,34 +161,15 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
 
 init(Req, #{listener := {Type, Listener}} = Opts) ->
     WsOpts = get_ws_opts(Type, Listener),
-    case check_origin_header(Req, WsOpts) of
+    case check_request_origin(Req, WsOpts) of
         ok ->
-            check_max_connections(Type, Listener, Req, Opts, WsOpts);
+            negotiate_protocol(Type, Listener, Req, Opts, WsOpts);
         {error, Reason} ->
             ?SLOG(error, #{msg => "invalid_origin_header", reason => Reason}),
             {ok, cowboy_req:reply(403, Req), #{}}
     end.
 
-check_max_connections(Type, Listener, Req, Opts, WsOpts) ->
-    case emqx_config:get_listener_conf(Type, Listener, [max_connections]) of
-        infinity ->
-            check_sec_websocket_protocol(Type, Listener, Req, Opts, WsOpts);
-        Max ->
-            case get_current_connections(Req) of
-                N when N < Max ->
-                    check_sec_websocket_protocol(Type, Listener, Req, Opts, WsOpts);
-                N ->
-                    Reason = #{
-                        msg => "websocket_max_connections_limited",
-                        current => N,
-                        max => Max
-                    },
-                    ?SLOG(warning, Reason),
-                    {ok, cowboy_req:reply(429, Req), #{}}
-            end
-    end.
-
-check_sec_websocket_protocol(Type, Listener, Req, Opts, WsOpts) ->
+negotiate_protocol(Type, Listener, Req, Opts, WsOpts) ->
     Header = <<"sec-websocket-protocol">>,
     #{
         fail_if_no_subprotocol := FailIfNoSubprotocol,
@@ -242,7 +223,8 @@ pick_subprotocol([Subprotocol | Rest], SupportedSubprotocols) ->
             pick_subprotocol(Rest, SupportedSubprotocols)
     end.
 
-parse_header_fun_origin(Req, #{
+check_request_origin(Req, #{
+    check_origin_enable := true,
     allow_origin_absence := AllowOriginAbsence,
     check_origins := CheckOrigins
 }) ->
@@ -256,21 +238,14 @@ parse_header_fun_origin(Req, #{
                 true -> ok;
                 false -> {error, #{bad_origin => Value}}
             end
-    end.
-
-check_origin_header(Req, #{check_origin_enable := true} = WsOpts) ->
-    parse_header_fun_origin(Req, WsOpts);
-check_origin_header(_Req, #{check_origin_enable := false}) ->
+    end;
+check_request_origin(_Req, #{check_origin_enable := false}) ->
     ok.
+
+%%
 
 websocket_init([ConnInfo, Opts]) ->
     init_connection(ConnInfo, Opts).
-
-get_current_connections(Req) ->
-    %% NOTE: Involves a gen:call to the connections supervisor.
-    RanchRef = maps:get(ref, Req),
-    RanchConnsSup = ranch_server:get_connections_sup(RanchRef),
-    proplists:get_value(active, supervisor:count_children(RanchConnsSup), 0).
 
 init_connection(
     ConnInfo = #{peername := Peername, sockname := Sockname},

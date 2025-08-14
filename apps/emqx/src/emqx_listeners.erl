@@ -171,8 +171,7 @@ is_running(Type, ListenerId, Conf) when Type =:= tcp; Type =:= ssl ->
     end;
 is_running(Type, ListenerId, _Conf) when Type =:= ws; Type =:= wss ->
     try
-        Info = ranch:info(ListenerId),
-        proplists:get_value(status, Info) =:= running
+        ranch:get_status(ListenerId) =:= running
     catch
         _:_ ->
             false
@@ -192,7 +191,7 @@ current_conns(Id, ListenOn) ->
 current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_current_connections({listener_id(Type, Name), ListenOn});
 current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
-    proplists:get_value(all_connections, ranch:info(listener_id(Type, Name)));
+    maps:get(all_connections, ranch:info(listener_id(Type, Name)));
 current_conns(quic, Name, _ListenOn) ->
     {ok, LPid} = quicer:listener(listener_id(quic, Name)),
     quicer_listener:count_conns(LPid);
@@ -206,7 +205,7 @@ max_conns(Id, ListenOn) ->
 max_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
     esockd:get_max_connections({listener_id(Type, Name), ListenOn});
 max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
-    proplists:get_value(max_connections, ranch:info(listener_id(Type, Name)));
+    maps:get(max_connections, ranch:info(listener_id(Type, Name)));
 max_conns(_, _, _) ->
     {error, not_support}.
 
@@ -440,7 +439,7 @@ do_start_listener(Type, Name, Id, #{bind := ListenOn} = Opts) when ?ESOCKD_LISTE
     );
 %% Start MQTT/WS listener
 do_start_listener(Type, Name, Id, Opts) when ?COWBOY_LISTENER(Type) ->
-    RanchOpts = ranch_opts(Type, Opts),
+    RanchOpts = ranch_opts(Id, Type, Opts),
     WsOpts = ws_opts(Type, Name, Opts),
     case Type of
         ws -> cowboy:start_clear(Id, RanchOpts, WsOpts);
@@ -498,9 +497,9 @@ do_update_listener(Type, Name, OldConf, NewConf) when
     ?COWBOY_LISTENER(Type)
 ->
     Id = listener_id(Type, Name),
-    RanchOpts = ranch_opts(Type, NewConf),
+    RanchOpts = ranch_opts(Id, Type, NewConf),
     WsOpts = ws_opts(Type, Name, NewConf),
-    case ranch_opts(Type, OldConf) of
+    case ranch_opts(Id, Type, OldConf) of
         RanchOpts ->
             %% Transport options did not change, no need to touch the listener.
             ok;
@@ -654,9 +653,17 @@ ws_opts(Type, ListenerName, Opts) ->
     ProxyProto = maps:get(proxy_protocol, Opts, false),
     #{env => #{dispatch => Dispatch}, proxy_header => ProxyProto}.
 
-ranch_opts(Type, Opts = #{bind := ListenOn}) ->
+ranch_opts(ListenerId, Type, Opts = #{bind := ListenOn}) ->
+    Zone = zone(Opts),
     NumAcceptors = maps:get(acceptors, Opts, 4),
     MaxConnections = maps:get(max_connections, Opts, 1024),
+    LimiterClient = emqx_limiter:create_listener_limiter_client(Zone, ListenerId),
+    Limiter =
+        {emqx_ranch_limiter, #{
+            listener => ListenerId,
+            rate_limiter => LimiterClient,
+            max_connections => MaxConnections
+        }},
     SocketOpts =
         case Type of
             wss ->
@@ -674,6 +681,11 @@ ranch_opts(Type, Opts = #{bind := ListenOn}) ->
         end,
     #{
         num_acceptors => NumAcceptors,
+        %% Controls both connection rate and max connections limit:
+        limiter => Limiter,
+        %% Same as number of acceptors, for predictable limiter behavior:
+        num_conns_sups => NumAcceptors,
+        %% Essentially only for `max_conns/1` now:
         max_connections => MaxConnections,
         handshake_timeout => maps:get(handshake_timeout, Opts, 15000),
         socket_opts => ip_port(ListenOn) ++
