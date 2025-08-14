@@ -41,6 +41,10 @@
     code_change/3
 ]).
 
+-export([
+    authns/2
+]).
+
 -record(state, {
     name :: gateway_name(),
     config :: emqx_config:config(),
