@@ -440,6 +440,15 @@ t_stream_tailf_small_reads(_Config) ->
 t_stream_tailf_whole_reads(_Config) ->
     test_stream_tailf(<<"test_tailf_wh">>, 15 * 1024, 400, undefined, 120, 1).
 
+t_stream_tailf_const_inode(_Config) ->
+    meck:new(emqx_trace_handler, [passthrough]),
+    meck:expect(emqx_trace_handler, read_file_info_impl, fun read_file_info_const_inode/1),
+    try
+        test_stream_tailf(<<"test_tailf_inode">>, 25 * 1024, 400, 1024, 120, 40)
+    after
+        meck:unload()
+    end.
+
 test_stream_tailf(Pre, MaxSize, PayloadLimit, StreamReadSize, NMsg, Cooldown) ->
     TCPid = self(),
     %% Configure relatively low size limit:
@@ -462,7 +471,7 @@ test_stream_tailf(Pre, MaxSize, PayloadLimit, StreamReadSize, NMsg, Cooldown) ->
         receive
             {TCPid, stop} ->
                 exit({received, Acc})
-        after 1 ->
+        after Cooldown ->
             Receiver(Cursor, Acc)
         end
     end,
@@ -526,4 +535,12 @@ stream_until_eof(Name, Cursor0, Limit) ->
             {[Bin | Acc], CursorLast};
         {error, Reason} ->
             error(Reason, [Name, Cont, Limit])
+    end.
+
+read_file_info_const_inode(Filename) ->
+    case meck:passthrough([Filename]) of
+        {ok, Info = #file_info{}} ->
+            {ok, Info#file_info{inode = 0}};
+        Error ->
+            Error
     end.

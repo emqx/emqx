@@ -40,6 +40,10 @@
 -export([fallback_handler_id/2]).
 -export([payload_encode/0]).
 
+-ifdef(TEST).
+-export([read_file_info_impl/1]).
+-endif.
+
 -export_type([log_handler/0]).
 -export_type([log_fragment/0]).
 
@@ -401,7 +405,16 @@ mk_log_fragment_filename(Basename, 1) ->
 mk_log_fragment_filename(Basename, I) ->
     Basename ++ "." ++ integer_to_list(I - 2).
 
+-ifndef(TEST).
 read_file_info(Filename) ->
+    read_file_info_impl(Filename).
+-else.
+read_file_info(Filename) ->
+    ?MODULE:read_file_info_impl(Filename).
+-endif.
+
+%% NOTE: Mocked in `emqx_trace_SUITE`.
+read_file_info_impl(Filename) ->
     case file:read_file_info(Filename, [raw, {time, posix}]) of
         {ok, #file_info{type = regular} = Info} ->
             {ok, Info};
