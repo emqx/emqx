@@ -43,6 +43,7 @@
     'session.created',
     'session.subscribed',
     'session.unsubscribed',
+    'session.disonnected',
     'session.resumed',
     'session.discarded',
     'session.takenover',
@@ -179,6 +180,9 @@ when
     callback_result().
 
 -callback 'session.unsubscribed'(emqx_types:clientinfo(), emqx_types:topic(), emqx_types:subopts()) ->
+    callback_result().
+
+-callback 'session.disonnected'(emqx_types:clientinfo(), _SessionInfo :: emqx_types:infos()) ->
     callback_result().
 
 -callback 'session.resumed'(emqx_types:clientinfo(), _SessionInfo :: emqx_types:infos()) ->

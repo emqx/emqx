@@ -73,7 +73,7 @@ t_publish_and_consume(_Config) ->
     %% Publish 100 messages to the queue
     ok =
         emqx_mq_test_utils:populate(
-            10,
+            100,
             fun(I) ->
                 IBin = integer_to_binary(I),
                 Payload = <<"payload-", IBin/binary>>,
@@ -85,10 +85,10 @@ t_publish_and_consume(_Config) ->
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
     emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
-    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 1000),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 100, _Timeout0 = 1000),
 
     %% Verify the messages
-    ?assertEqual(10, length(Msgs0)),
+    ?assertEqual(100, length(Msgs0)),
 
     %% Add a generation
     ok = emqx_mq_message_db:add_regular_db_generation(),
@@ -98,9 +98,9 @@ t_publish_and_consume(_Config) ->
     %% Publish 100 more messages to the queue
     ok =
         emqx_mq_test_utils:populate(
-            10,
+            100,
             fun(I) ->
-                IBin = integer_to_binary(10 + I),
+                IBin = integer_to_binary(100 + I),
                 Payload = <<"payload-", IBin/binary>>,
                 Topic = <<"t/", IBin/binary>>,
                 {Topic, Payload}
@@ -108,10 +108,10 @@ t_publish_and_consume(_Config) ->
         ),
 
     %% Consume the rest messages
-    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 1000),
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 100, _Timeout1 = 1000),
 
     %% Verify the messages
-    ?assertEqual(10, length(Msgs1)),
+    ?assertEqual(100, length(Msgs1)),
 
     %% Clean up
     ok = emqtt:disconnect(CSub).
@@ -863,6 +863,54 @@ t_queue_deletion(_Config) ->
             ok
     after 100 ->
         ct:fail("New message not received")
+    end,
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub1).
+
+%% Check that a session of a disconnected client does not receive messages
+t_disconnected_session_does_not_receive_messages(_Config) ->
+    %% Create a non-compacted Queue
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
+
+    %% Publish some messages to the queue
+    ok = emqx_mq_test_utils:populate(1, fun(I) ->
+        IBin = integer_to_binary(I),
+        Topic = <<"t/", IBin/binary>>,
+        Payload = <<"payload-", IBin/binary>>,
+        {Topic, Payload}
+    end),
+
+    %% Connect a client
+    CSub0 = emqx_mq_test_utils:emqtt_connect([
+        {auto_ack, false},
+        {clientid, <<"c0">>},
+        {properties, #{'Session-Expiry-Interval' => 1000}}
+    ]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+
+    %% Assert that the message is received
+    receive
+        {publish, #{payload := <<"payload-0">>, client_pid := CSub0}} ->
+            ok
+    after 1000 ->
+        ct:fail("Message not received by CSub0")
+    end,
+
+    %% Disconnect the client
+    ok = emqtt:disconnect(CSub0),
+
+    %% Verify that the session's channel is alive
+    ?assertMatch([_], emqx_cm:lookup_channels(<<"c0">>)),
+
+    %% Verify that the message is redispatched to another subscriber
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    receive
+        {publish, #{payload := <<"payload-0">>, client_pid := CSub1}} ->
+            ok
+    after 1000 ->
+        ct:fail("Message not received by CSub1")
     end,
 
     %% Clean up
