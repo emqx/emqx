@@ -1601,7 +1601,7 @@ t_protobuf_bundle_cluster_sync_join_later(Config) ->
         fun(N) ->
             ok = ?ON(N, begin
                 Res0 = emqx_schema_registry:get_serde(Name),
-                ?assertMatch({ok, #serde{}}, Res0, #{node => N}),
+                ?retry(200, 10, ?assertMatch({ok, #serde{}}, Res0, #{node => N})),
                 {ok, Serde} = Res0,
                 ?assertEqual(
                     Data1,

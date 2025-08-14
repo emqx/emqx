@@ -77,7 +77,7 @@ check_api_schema(Request, #{path := "/connectors/:id", method := put = Method} =
             %% error messages.
             {_, Ref} = emqx_connector_info:api_schema(ConnectorType, atom_to_list(Method)),
             Schema = hoconsc:mk(Ref),
-            emqx_dashboard_swagger:filter_check_request(
+            emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(
                 Request, refine_api_schema(Schema, Metadata)
             )
     catch
@@ -85,7 +85,7 @@ check_api_schema(Request, #{path := "/connectors/:id", method := put = Method} =
             ?NOT_FOUND(<<"Invalid connector id, ", Reason/binary>>)
     end;
 check_api_schema(Request, Metadata) ->
-    emqx_dashboard_swagger:filter_check_request(Request, Metadata).
+    emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(Request, Metadata).
 
 refine_api_schema(Schema, Metadata = #{path := Path, method := Method}) ->
     Spec = maps:get(Method, schema(Path)),

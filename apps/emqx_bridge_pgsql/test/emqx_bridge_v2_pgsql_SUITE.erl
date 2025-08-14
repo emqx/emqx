@@ -320,7 +320,7 @@ t_disable_prepared_statements(Config0) ->
             RuleTopic = <<"t/postgres">>,
             Type = ?config(bridge_type, Config),
             {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(Type, RuleTopic, Config),
-            ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+            ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
