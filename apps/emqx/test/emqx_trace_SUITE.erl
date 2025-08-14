@@ -410,10 +410,15 @@ t_stream_continuity(_Config) ->
         trace_extract_payloads(Content)
     ),
     %% Publish more than max file size allows:
-    [
-        {ok, _} = emqtt:publish(Client, <<"counter">>, integer_to_binary(I), qos1)
-     || I <- lists:seq(11, 100)
-    ],
+    lists:foreach(
+        fun(I) ->
+            %% Publish message:
+            {ok, _} = emqtt:publish(Client, <<"counter">>, integer_to_binary(I), qos1),
+            %% Introduce delay to make sure not all files are rotated in the same second:
+            ok = timer:sleep(1000 div 40)
+        end,
+        lists:seq(11, 160)
+    ),
     %% Trigger filesync:
     {ok, #{}} = emqx_trace:log_details(Name),
     %% Stream observes discontinuity:
@@ -476,6 +481,7 @@ test_stream_tailf(Pre, MaxSize, PayloadLimit, StreamReadSize, NMsg, Cooldown) ->
     %% Trigger filesync:
     {ok, #{size := CurrentSize}} = emqx_trace:log_details(Name),
     %% Ask the receiver to stop and hand us the log stream it has accumulated:
+    ok = timer:sleep(10),
     ReceiverPid ! {self(), stop},
     Signal = ?assertReceive({'DOWN', MRef, process, _Pid, {received, _}}),
     {received, Content} = element(5, Signal),
@@ -517,5 +523,7 @@ stream_until_eof(Name, Cursor0, Limit) ->
                 cont -> ok
             end,
             {Acc, CursorLast} = stream_until_eof(Name, Cursor, Limit),
-            {[Bin | Acc], CursorLast}
+            {[Bin | Acc], CursorLast};
+        {error, Reason} ->
+            error(Reason, [Name, Cont, Limit])
     end.

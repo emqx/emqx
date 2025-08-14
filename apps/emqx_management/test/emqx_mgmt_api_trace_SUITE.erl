@@ -651,6 +651,7 @@ t_stream_log_errors(_Config) ->
     create_trace(<<"err_stream_log">>, ClientId, Now - 10),
     meck:new(file, [passthrough, unstick]),
     meck:expect(file, pread, 2, {error, enomem}),
+    meck:expect(file, pread, 3, {error, enomem}),
     {error, {_, 503, _}} =
         request_api(get, api_path("trace/err_stream_log/log")),
     meck:unload(file),
