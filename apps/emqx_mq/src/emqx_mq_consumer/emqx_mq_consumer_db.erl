@@ -255,12 +255,10 @@ encode_claim(Claim) ->
     emqx_mq_consumer_db_serializer:encode_claim(Claim).
 
 decode_consumer_data(DataBin) ->
-    % emqx_mq_consumer_db_serializer:decode_consumer_data(DataBin).
-    binary_to_term(DataBin).
+    emqx_mq_consumer_db_serializer:decode_consumer_data(DataBin).
 
 encode_consumer_data(Data) ->
-    % emqx_mq_consumer_db_serializer:encode_consumer_data(Data).
-    term_to_binary(Data).
+    emqx_mq_consumer_db_serializer:encode_consumer_data(Data).
 
 topic_leadership(#{topic_filter := MQTopic, id := MQId}) ->
     ?TOPIC_LEADERSHIP(MQTopic, MQId).

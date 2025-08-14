@@ -70,84 +70,66 @@ decode_claim(Bin) ->
 
 -spec encode_consumer_data(emqx_mq_types:consumer_data()) -> binary().
 encode_consumer_data(#{
-    progress := #{
-        generation_progress := GenerationProgress,
-        streams_progress := StreamProgress
-    }
+    progress := ShardProgress
 }) ->
-    {ok, Bin} = 'ConsumerState':encode(
-        'ConsumerState',
+    ConsumerState =
         {v1, #'ConsumerStateV1'{
-            progress = #'Progress'{
-                generationProgress = pack_generation_progress(GenerationProgress),
-                streamProgress = pack_streams_progress(StreamProgress)
-            }
-        }}
-    ),
+            progress = lists:map(fun pack_shard_progress/1, maps:to_list(ShardProgress))
+        }},
+    ?tp(warning, mq_consumer_db_encode_consumer_data, #{consumer_state => ConsumerState}),
+    {ok, Bin} = 'ConsumerState':encode('ConsumerState', ConsumerState),
     Bin.
 
 -spec decode_consumer_data(binary()) -> emqx_mq_types:consumer_data().
 decode_consumer_data(Bin) ->
     {ok,
         {v1, #'ConsumerStateV1'{
-            progress = #'Progress'{
-                generationProgress = GenerationProgress,
-                streamProgress = StreamProgress
-            }
+            progress = ProgressPacked
         }}} = 'ConsumerState':decode('ConsumerState', Bin),
     #{
-        progress => #{
-            generation_progress => unpack_generation_progress(GenerationProgress),
-            streams_progress => unpack_streams_progress(StreamProgress)
-        }
+        progress => maps:from_list(
+            lists:map(fun unpack_shard_progress/1, ProgressPacked)
+        )
     }.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-pack_generation_progress(GenerationProgress) ->
-    lists:map(
-        fun({Shard, Generation}) ->
-            #'GenerationProgress'{
-                shard = Shard,
-                generation = Generation
-            }
-        end,
-        maps:to_list(GenerationProgress)
-    ).
-
-pack_streams_progress(StreamProgress) ->
-    lists:map(
-        fun(
-            {Stream, #{
-                slab := {Shard, Generation},
-                progress := BufferProgress
-            }}
-        ) ->
-            #'StreamProgress'{
-                shard = Shard,
+pack_shard_progress(
+    {Shard, #{
+        status := active,
+        generation := Generation,
+        stream := Stream,
+        buffer_progress := BufferProgress
+    }}
+) ->
+    #'ShardProgress'{
+        shard = Shard,
+        progress =
+            {active, #'ActiveShardProgress'{
                 generation = Generation,
                 stream = pack_stream(Stream),
                 bufferProgress = pack_buffer_progress(BufferProgress)
-            }
-        end,
-        maps:to_list(StreamProgress)
-    ).
+            }}
+    };
+pack_shard_progress({Shard, #{status := finished, generation := Generation}}) ->
+    #'ShardProgress'{
+        shard = Shard,
+        progress = {finished, #'FinishedShardProgress'{generation = Generation}}
+    }.
 
 pack_last_message_id(undefined) ->
     asn1_NOVALUE;
 pack_last_message_id(MessageId) when is_integer(MessageId) ->
     MessageId.
 
-pack_buffer_progress(finished) ->
-    {finished, asn1_NOVALUE};
 pack_buffer_progress(#{it := It, last_message_id := LastMessageId, unacked := Unacked}) ->
-    {active, #'ActiveStreamBufferProgress'{
+    #'StreamBufferProgress'{
         it = pack_it(It),
         lastMessageId = pack_last_message_id(LastMessageId),
         unacked = Unacked
-    }}.
+    }.
 
 pack_consumer_ref(ConsumerRef) ->
     term_to_binary(ConsumerRef).
@@ -160,57 +142,39 @@ pack_stream(Stream) ->
     {ok, StreamBin} = emqx_ds:stream_to_binary(?MQ_CONSUMER_DB, Stream),
     StreamBin.
 
-unpack_streams_progress(StreamProgress) ->
-    lists:foldl(
-        fun(
-            #'StreamProgress'{
-                shard = Shard,
-                generation = Generation,
-                stream = StreamPacked,
-                bufferProgress = PackedBufferProgress
-            },
-            Acc
-        ) ->
-            Acc#{
-                unpack_stream(StreamPacked) => #{
-                    slab => {Shard, Generation},
-                    progress => unpack_buffer_progress(PackedBufferProgress)
-                }
-            }
-        end,
-        #{},
-        StreamProgress
-    ).
+unpack_shard_progress(#'ShardProgress'{
+    shard = Shard,
+    progress =
+        {active, #'ActiveShardProgress'{
+            generation = Generation, stream = StreamPacked, bufferProgress = PackedBufferProgress
+        }}
+}) ->
+    {Shard, #{
+        status => active,
+        generation => Generation,
+        stream => unpack_stream(StreamPacked),
+        buffer_progress => unpack_buffer_progress(PackedBufferProgress)
+    }};
+unpack_shard_progress(#'ShardProgress'{
+    shard = Shard, progress = {finished, #'FinishedShardProgress'{generation = Generation}}
+}) ->
+    {Shard, #{
+        status => finished,
+        generation => Generation
+    }}.
 
-unpack_buffer_progress({finished, _}) ->
-    finished;
 unpack_buffer_progress(
-    {active, #'ActiveStreamBufferProgress'{
+    #'StreamBufferProgress'{
         it = ItPacked,
         lastMessageId = LastMessageIdPacked,
         unacked = Unacked
-    }}
+    }
 ) ->
     #{
         it => unpack_it(ItPacked),
         last_message_id => unpack_last_message_id(LastMessageIdPacked),
         unacked => Unacked
     }.
-
-unpack_generation_progress(GenerationProgress) ->
-    lists:foldl(
-        fun(
-            #'GenerationProgress'{
-                shard = Shard,
-                generation = Generation
-            },
-            Acc
-        ) ->
-            Acc#{Shard => Generation}
-        end,
-        #{},
-        GenerationProgress
-    ).
 
 unpack_consumer_ref(ConsumerRefBin) ->
     binary_to_term(ConsumerRefBin).

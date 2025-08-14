@@ -2,39 +2,36 @@
 ConsumerState DEFINITIONS AUTOMATIC TAGS ::=
 BEGIN
 
-  GenerationProgress ::= SEQUENCE {
-    shard OCTET STRING,
-    generation INTEGER
-  }
-
-  StreamBufferProgress ::= CHOICE {
-    finished NULL,
-    active ActiveStreamBufferProgress
-  }
-
-  ActiveStreamBufferProgress ::= SEQUENCE {
+  StreamBufferProgress ::= SEQUENCE {
     it OCTET STRING,
     lastMessageId INTEGER OPTIONAL,
     unacked SEQUENCE OF INTEGER
   }
 
-  StreamProgress ::= SEQUENCE {
+  ShardProgress ::= SEQUENCE {
     shard OCTET STRING,
+    progress CHOICE {
+      active ActiveShardProgress,
+      finished FinishedShardProgress
+    }
+  }
+
+  FinishedShardProgress ::= SEQUENCE {
+    generation INTEGER
+  }
+
+  ActiveShardProgress ::= SEQUENCE {
     generation INTEGER,
     stream OCTET STRING,
     bufferProgress StreamBufferProgress
   }
 
-  Progress ::= SEQUENCE {
-    generationProgress SEQUENCE OF GenerationProgress,
-    streamProgress SEQUENCE OF StreamProgress
-  }
-
   ConsumerStateV1 ::= SEQUENCE {
-    progress Progress
+    progress SEQUENCE OF ShardProgress
   }
 
   ConsumerState ::= CHOICE {
-    v1 ConsumerStateV1
+    v1 ConsumerStateV1,
+    ...
   }
 END
