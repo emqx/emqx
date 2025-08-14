@@ -10,6 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("kernel/include/file.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -263,31 +264,30 @@ t_load_state(_Config) ->
 t_client_event(_Config) ->
     ClientId = <<"client-test">>,
     Now = erlang:system_time(second),
-    Name = <<"test_client_id_event">>,
+    Name1 = <<"test_client_id_event">>,
+    Name2 = <<"test_topic">>,
     {ok, _} = emqx_trace:create(#{
-        name => Name,
+        name => Name1,
         filter => {clientid, ClientId},
         start_at => Now
     }),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     emqtt:ping(Client),
-    ok = emqtt:publish(Client, <<"/test">>, #{}, <<"1">>, [{qos, 0}]),
-    ok = emqtt:publish(Client, <<"/test">>, #{}, <<"2">>, [{qos, 0}]),
+    {ok, _} = emqtt:publish(Client, <<"/test">>, #{}, <<"1">>, [{qos, 1}]),
+    {ok, _} = emqtt:publish(Client, <<"/test">>, #{}, <<"2">>, [{qos, 1}]),
     {ok, _} = emqx_trace:create(#{
-        name => <<"test_topic">>,
+        name => Name2,
         filter => {topic, <<"/test">>},
         start_at => Now
     }),
-    ok = wait_filesync(),
-    {ok, Bin} = file:read_file(emqx_trace:log_file(Name, Now)),
-    ok = emqtt:publish(Client, <<"/test">>, #{}, <<"3">>, [{qos, 0}]),
-    ok = emqtt:publish(Client, <<"/test">>, #{}, <<"4">>, [{qos, 0}]),
+    {ok, Bin, _} = emqx_trace:stream_log(Name1, start, undefined),
+    {ok, _} = emqtt:publish(Client, <<"/test">>, #{}, <<"3">>, [{qos, 1}]),
+    {ok, _} = emqtt:publish(Client, <<"/test">>, #{}, <<"4">>, [{qos, 1}]),
     ok = emqtt:disconnect(Client),
-    ok = wait_filesync(),
-    {ok, Bin2} = file:read_file(emqx_trace:log_file(Name, Now)),
-    {ok, Bin3} = file:read_file(emqx_trace:log_file(<<"test_topic">>, Now)),
-    ct:pal("Bin ~p Bin2 ~p Bin3 ~p", [byte_size(Bin), byte_size(Bin2), byte_size(Bin3)]),
+    {ok, Bin2, _} = emqx_trace:stream_log(Name1, start, undefined),
+    {ok, Bin3, _} = emqx_trace:stream_log(Name2, start, undefined),
+    ct:pal("Bin1 ~p Bin2 ~p Bin3 ~p", [byte_size(Bin), byte_size(Bin2), byte_size(Bin3)]),
     ?assert(erlang:byte_size(Bin) > 0),
     ?assert(erlang:byte_size(Bin) < erlang:byte_size(Bin2)),
     ?assert(erlang:byte_size(Bin3) > 0),
@@ -296,9 +296,10 @@ t_client_event(_Config) ->
 t_client_huge_payload_truncated(_Config) ->
     ClientId = <<"client-truncated1">>,
     Now = erlang:system_time(second),
-    Name = <<"test_client_id_truncated1">>,
+    Name1 = <<"test_client_id_truncated1">>,
+    Name2 = <<"test_topic">>,
     {ok, _} = emqx_trace:create(#{
-        name => Name,
+        name => Name1,
         filter => {clientid, ClientId},
         start_at => Now
     }),
@@ -313,22 +314,21 @@ t_client_huge_payload_truncated(_Config) ->
     Size2 = 1024 * 10,
     HugePayload2 = iolist_to_binary(lists:duplicate(Size2, "z")),
     TruncatedBytes2 = Size2 - PayloadLimit,
-    ok = emqtt:publish(Client, <<"/test">>, #{}, NormalPayload, [{qos, 0}]),
+    {ok, _} = emqtt:publish(Client, <<"/test">>, #{}, NormalPayload, [{qos, 1}]),
     {ok, _} = emqx_trace:create(#{
-        name => <<"test_topic">>,
+        name => Name2,
         filter => {topic, <<"/test">>},
         start_at => Now,
         payload_limit => PayloadLimit
     }),
-    ok = wait_filesync(),
-    {ok, Bin} = file:read_file(emqx_trace:log_file(Name, Now)),
-    ok = emqtt:publish(Client, <<"/test">>, #{}, NormalPayload, [{qos, 0}]),
-    ok = emqtt:publish(Client, <<"/test">>, #{}, HugePayload1, [{qos, 0}]),
-    ok = emqtt:publish(Client, <<"/test">>, #{}, HugePayload2, [{qos, 0}]),
+
+    {ok, Bin, _} = emqx_trace:stream_log(Name1, start, undefined),
+    {ok, _} = emqtt:publish(Client, <<"/test">>, #{}, NormalPayload, [{qos, 1}]),
+    {ok, _} = emqtt:publish(Client, <<"/test">>, #{}, HugePayload1, [{qos, 1}]),
+    {ok, _} = emqtt:publish(Client, <<"/test">>, #{}, HugePayload2, [{qos, 1}]),
     ok = emqtt:disconnect(Client),
-    ok = wait_filesync(),
-    {ok, Bin2} = file:read_file(emqx_trace:log_file(Name, Now)),
-    {ok, Bin3} = file:read_file(emqx_trace:log_file(<<"test_topic">>, Now)),
+    {ok, Bin2, _} = emqx_trace:stream_log(Name1, start, undefined),
+    {ok, Bin3, _} = emqx_trace:stream_log(Name2, start, undefined),
     ?assert(erlang:byte_size(Bin) > 1024),
     ?assert(erlang:byte_size(Bin) < erlang:byte_size(Bin2)),
     ?assert(erlang:byte_size(Bin3) > 1024),
@@ -344,56 +344,6 @@ t_client_huge_payload_truncated(_Config) ->
     ?assertMatch({match, _}, re:run(Bin2, ReN(TruncatedBytes1), [unicode])),
     ?assertMatch({match, _}, re:run(Bin3, ReN(TruncatedBytes2), [unicode])),
     ok.
-
-t_get_log_filename(_Config) ->
-    Now = erlang:system_time(second),
-    Name = <<"name1">>,
-    Trace = #{
-        name => Name,
-        filter => {ip_address, <<"127.0.0.1">>},
-        start_at => Now,
-        end_at => Now + 2
-    },
-    {ok, _} = emqx_trace:create(Trace),
-    ?assertEqual({error, not_found}, emqx_trace:get_trace_filename(<<"test">>)),
-    ?assertEqual(ok, element(1, emqx_trace:get_trace_filename(Name))),
-    ct:sleep(3000),
-    ?assertEqual(ok, element(1, emqx_trace:get_trace_filename(Name))),
-    ok.
-
-t_trace_file(_Config) ->
-    FileName = "test.log",
-    Content = <<"test \n test">>,
-    TraceDir = emqx_trace:trace_dir(),
-    File = filename:join(TraceDir, FileName),
-    ok = file:write_file(File, Content),
-    {ok, Node, Bin} = emqx_trace:trace_file(FileName),
-    ?assertEqual(Node, atom_to_list(node())),
-    ?assertEqual(Content, Bin),
-    ok = file:delete(File),
-    ok.
-
-t_migrate_trace(_Config) ->
-    build_new_trace_data(),
-    build_old_trace_data(),
-    reload(),
-    ?assertMatch(
-        [
-            #{name := _N1, enable := true},
-            #{name := _N2, enable := true}
-        ],
-        emqx_trace:list()
-    ),
-    LoggerIds = logger:get_handler_ids(),
-    lists:foreach(
-        fun(Id) ->
-            ?assertEqual(true, lists:member(Id, LoggerIds), LoggerIds)
-        end,
-        [
-            'emqx_trace:1',
-            'emqx_trace:test_topic_migrate_old'
-        ]
-    ).
 
 %% If no relevant event occurred, the log file size must be exactly 0 after stopping the trace.
 t_empty_trace_log_file(_Config) ->
@@ -411,49 +361,186 @@ t_empty_trace_log_file(_Config) ->
                 ?assertMatch({ok, _}, emqx_trace:create(Trace)),
                 #{?snk_kind := update_trace_done}
             ),
-            {ok, Filename} = emqx_trace:get_trace_filename(Name),
-            ok = wait_filesync(),
-            ?assertMatch({ok, #{size := 0}}, emqx_trace:trace_file_detail(Filename)),
+            ?assertMatch({ok, #{size := 0}}, emqx_trace:log_details(Name)),
             ?wait_async_action(
                 ?assertEqual(ok, emqx_trace:update(Name, false)),
                 #{?snk_kind := update_trace_done}
             ),
-            ?assertMatch({ok, #{size := 0}}, emqx_trace:trace_file_detail(Filename)),
+            ?assertMatch({ok, #{size := 0}}, emqx_trace:log_details(Name)),
             ?assertEqual(ok, emqx_trace:delete(Name))
         end,
         []
     ).
 
-build_new_trace_data() ->
-    Now = erlang:system_time(second),
+t_stream_continuity(_Config) ->
+    %% Configure relatively low size limit:
+    MaxSize = 25 * 1024,
+    PayloadLimit = 400,
+    StreamLimit = 512,
+    MaxSizeDefault = emqx_config:get([trace, max_file_size]),
+    ok = emqx_config:put([trace, max_file_size], MaxSize),
+    %% Start a trace:
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Name = <<"test_", ClientId/binary>>,
     {ok, _} = emqx_trace:create(#{
-        name => <<"test_topic_migrate_new">>,
-        filter => {topic, <<"/test/migrate/new">>},
-        start_at => Now - 10
-    }).
+        name => Name,
+        filter => {clientid, ClientId},
+        payload_limit => PayloadLimit
+    }),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    %% Start a log stream:
+    {ok, Bin1, {_, Cursor1}} = emqx_trace:stream_log(Name, start, StreamLimit),
+    %% Publish a few messages containing incrementing counter:
+    [
+        {ok, _} = emqtt:publish(Client, <<"counter">>, integer_to_binary(I), qos1)
+     || I <- lists:seq(1, 10)
+    ],
+    %% Trigger filesync:
+    {ok, #{size := TotalSize}} = emqx_trace:log_details(Name),
+    %% Continue reading the stream:
+    {Bins, Cursor2} = stream_until_eof(Name, Cursor1, StreamLimit),
+    %% Verify that "tailing" the file works:
+    {ok, <<>>, {eof, Cursor3}} = emqx_trace:stream_log(Name, {cont, Cursor2}, undefined),
+    %% Verify continuity:
+    Content = [Bin1 | Bins],
+    ?assertEqual(TotalSize, iolist_size(Content), Content),
+    ?assertEqual(
+        [integer_to_binary(I) || I <- lists:seq(1, 10)],
+        trace_extract_payloads(Content)
+    ),
+    %% Publish more than max file size allows:
+    lists:foreach(
+        fun(I) ->
+            %% Publish message:
+            {ok, _} = emqtt:publish(Client, <<"counter">>, integer_to_binary(I), qos1),
+            %% Introduce delay to make sure not all files are rotated in the same second:
+            ok = timer:sleep(1000 div 40)
+        end,
+        lists:seq(11, 160)
+    ),
+    %% Trigger filesync:
+    {ok, #{}} = emqx_trace:log_details(Name),
+    %% Stream observes discontinuity:
+    ?assertMatch(
+        {error, Reason} when Reason == {file_error, enoent}; Reason == stale_cursor,
+        emqx_trace:stream_log(Name, {cont, Cursor3}, undefined)
+    ),
+    %% Cleanup:
+    ok = emqx_trace:delete(Name),
+    ok = emqtt:disconnect(Client),
+    ok = emqx_config:put([trace, max_file_size], MaxSizeDefault).
 
-build_old_trace_data() ->
-    Now = erlang:system_time(second),
-    OldAttrs = [name, type, filter, enable, start_at, end_at],
-    {atomic, ok} = mnesia:transform_table(emqx_trace, ignore, OldAttrs, emqx_trace),
-    OldTrace =
-        {emqx_trace, <<"test_topic_migrate_old">>, topic, <<"topic">>, true, Now - 10, Now + 100},
-    ok = mnesia:dirty_write(OldTrace),
-    ok.
+t_stream_tailf(_Config) ->
+    test_stream_tailf(<<"test_tailf">>, 25 * 1024, 400, 1024, 120, 1).
 
-reload() ->
-    catch ok = gen_server:stop(emqx_trace),
-    case emqx_trace:start_link() of
-        {ok, _Pid} = Res ->
-            Res;
-        NotOKRes ->
-            ct:pal(
-                "emqx_trace:start_link() gave result: ~p\n"
-                "(perhaps it is already started)",
-                [NotOKRes]
-            )
+t_stream_tailf_small_reads(_Config) ->
+    test_stream_tailf(<<"test_tailf_sm">>, 25 * 1024, 400, 32, 80, 3).
+
+t_stream_tailf_whole_reads(_Config) ->
+    test_stream_tailf(<<"test_tailf_wh">>, 15 * 1024, 400, undefined, 120, 1).
+
+t_stream_tailf_const_inode(_Config) ->
+    meck:new(emqx_trace_handler, [passthrough]),
+    meck:expect(emqx_trace_handler, read_file_info_impl, fun read_file_info_const_inode/1),
+    try
+        test_stream_tailf(<<"test_tailf_inode">>, 25 * 1024, 400, 1024, 120, 40)
+    after
+        meck:unload()
     end.
 
-wait_filesync() ->
-    %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
-    timer:sleep(2 * 100).
+test_stream_tailf(Pre, MaxSize, PayloadLimit, StreamReadSize, NMsg, Cooldown) ->
+    TCPid = self(),
+    %% Configure relatively low size limit:
+    MaxSizeDefault = emqx_config:get([trace, max_file_size]),
+    ok = emqx_config:put([trace, max_file_size], MaxSize),
+    %% Start a trace:
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Name = iolist_to_binary([Pre, integer_to_binary(erlang:system_time(millisecond))]),
+    {ok, _} = emqx_trace:create(#{
+        name => Name,
+        filter => {clientid, ClientId},
+        payload_limit => PayloadLimit
+    }),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    %% Spawn a log stream receiver:
+    Receiver = fun Receiver(Cursor0, Acc0) ->
+        {Bins, Cursor} = stream_until_eof(Name, Cursor0, StreamReadSize),
+        Acc = [Acc0 | Bins],
+        receive
+            {TCPid, stop} ->
+                exit({received, Acc})
+        after Cooldown ->
+            Receiver(Cursor, Acc)
+        end
+    end,
+    {ReceiverPid, MRef} = spawn_monitor(fun() ->
+        Receiver(start, [])
+    end),
+    %% Publish a lot of messages:
+    lists:foreach(
+        fun(I) ->
+            ok = timer:sleep(Cooldown),
+            {ok, _} = emqtt:publish(Client, <<"c">>, integer_to_binary(I), qos1)
+        end,
+        lists:seq(1, NMsg)
+    ),
+    ok = timer:sleep(NMsg),
+    %% Trigger filesync:
+    {ok, #{size := CurrentSize}} = emqx_trace:log_details(Name),
+    %% Ask the receiver to stop and hand us the log stream it has accumulated:
+    ok = timer:sleep(10),
+    ReceiverPid ! {self(), stop},
+    Signal = ?assertReceive({'DOWN', MRef, process, _Pid, {received, _}}),
+    {received, Content} = element(5, Signal),
+    ?assertEqual(
+        [integer_to_binary(I) || I <- lists:seq(1, NMsg)],
+        trace_extract_payloads(Content)
+    ),
+    %% We were able to stream much more than what is currently used by the log:
+    ?assert(
+        CurrentSize < iolist_size(Content),
+        {CurrentSize, iolist_size(Content)}
+    ),
+    %% Cleanup:
+    ok = emqx_trace:delete(Name),
+    ok = emqtt:disconnect(Client),
+    ok = emqx_config:put([trace, max_file_size], MaxSizeDefault).
+
+trace_extract_payloads(TraceContent) ->
+    Lines = string:split(TraceContent, "\n", all),
+    [
+        M
+     || L <- Lines,
+        {match, [M]} <- [re:run(L, "payload: ([0-9]+)", [{capture, all_but_first, binary}])]
+    ].
+
+stream_until_eof(Name, Cursor0, Limit) ->
+    case Cursor0 of
+        start ->
+            Cont = start;
+        _ ->
+            Cont = {cont, Cursor0}
+    end,
+    case emqx_trace:stream_log(Name, Cont, Limit) of
+        {ok, Bin, {eof, CursorLast}} ->
+            {[Bin], CursorLast};
+        {ok, Bin, {X, Cursor}} ->
+            case X of
+                retry -> timer:sleep(10);
+                cont -> ok
+            end,
+            {Acc, CursorLast} = stream_until_eof(Name, Cursor, Limit),
+            {[Bin | Acc], CursorLast};
+        {error, Reason} ->
+            error(Reason, [Name, Cont, Limit])
+    end.
+
+read_file_info_const_inode(Filename) ->
+    case meck:passthrough([Filename]) of
+        {ok, Info = #file_info{}} ->
+            {ok, Info#file_info{inode = 0}};
+        Error ->
+            Error
+    end.
