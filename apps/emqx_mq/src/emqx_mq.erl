@@ -117,7 +117,7 @@ on_message_nack(_Msg, true) ->
 
 on_client_handle_info(
     ClientInfo,
-    #info_to_mq_sub{subscriber_ref = SubscriberRef, message = InfoMsg},
+    #info_to_mq_sub{subscriber_ref = SubscriberRef, info = InfoMsg},
     #{deliver := Delivers} = Acc
 ) ->
     case with_sub(SubscriberRef, handle_info, [InfoMsg]) of

@@ -34,6 +34,18 @@ It uses two timers:
     handle_disconnect/1
 ]).
 
+-export([
+    connected/2,
+    ping/1,
+    message/3
+]).
+
+-export([
+    connected_v1/2,
+    ping_v1/1,
+    message_v1/3
+]).
+
 -record(finding_mq, {
     find_mq_retry_tref :: reference()
 }).
@@ -154,45 +166,17 @@ handle_info(Sub, #mq_sub_ping{}) ->
     % ?tp(warning, mq_sub_ping, #{sub => info(Sub)}),
     {ok, reset_consumer_timeout_timer(Sub)};
 handle_info(
-    #{
-        status := #connected{
-            buffer = Buffer0, inflight = Inflight, publish_retry_tref = PublishRetryTRef, mq = MQ
-        } = Status
-    } = Sub0,
+    #{status := #connected{}} = Sub,
     #mq_sub_message{message = Msg}
 ) ->
-    % ?tp(warning, mq_sub_message, #{sub => info(Sub0), message => Msg}),
-    Sub1 = reset_consumer_timeout_timer(Sub0),
-    Buffer = emqx_mq_sub_buffer:add(Buffer0, Msg),
-    Sub2 =
-        case PublishRetryTRef of
-            undefined ->
-                case map_size(Inflight) < max_inflight(MQ) of
-                    true ->
-                        schedule_publish_retry(0, Sub1);
-                    false ->
-                        Sub1
-                end;
-            _ ->
-                Sub1
-        end,
-    {ok, Sub2#{status => Status#connected{buffer = Buffer}}};
-handle_info(#{status := #connecting{mq = MQ} = _Status} = Sub0, #mq_sub_connected{
-    consumer_ref = ConsumerRef
+    handle_message(Sub, Msg);
+handle_info(#{status := #connecting{}} = Sub0, #mq_sub_message{
+    message = Msg, consumer_ref = ConsumerRef
 }) ->
-    ?tp(warning, mq_sub_connected, #{sub => info(Sub0), consumer_ref => ConsumerRef}),
-    Sub = Sub0#{
-        status => #connected{
-            mq = MQ,
-            consumer_ref = ConsumerRef,
-            inflight = #{},
-            buffer = emqx_mq_sub_buffer:new(),
-            ping_tref = undefined,
-            consumer_timeout_tref = undefined,
-            publish_retry_tref = undefined
-        }
-    },
-    {ok, reset_timers(Sub)};
+    Sub = handle_connected(Sub0, ConsumerRef),
+    handle_message(Sub, Msg);
+handle_info(#{status := #connecting{}} = Sub, #mq_sub_connected{consumer_ref = ConsumerRef}) ->
+    {ok, handle_connected(Sub, ConsumerRef)};
 %%
 %% Self-initiated messages
 %%
@@ -244,8 +228,93 @@ handle_disconnect(Sub) ->
     destroy(Sub).
 
 %%--------------------------------------------------------------------
+%% RPC
+%%--------------------------------------------------------------------
+
+-spec connected(emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref()) -> ok.
+connected(SubscriberRef, ConsumerRef) when node(SubscriberRef) =:= node() ->
+    connected_v1(SubscriberRef, ConsumerRef);
+connected(SubscriberRef, ConsumerRef) ->
+    emqx_mq_sub_proto_v1:mq_sub_connected(node(SubscriberRef), SubscriberRef, ConsumerRef).
+
+-spec ping(emqx_mq_types:subscriber_ref()) -> ok.
+ping(SubscriberRef) when node(SubscriberRef) =:= node() ->
+    ping_v1(SubscriberRef);
+ping(SubscriberRef) ->
+    emqx_mq_sub_proto_v1:mq_sub_ping(node(SubscriberRef), SubscriberRef).
+
+-spec message(emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref(), emqx_types:message()) ->
+    ok.
+message(SubscriberRef, ConsumerRef, Message) when node(SubscriberRef) =:= node() ->
+    message_v1(SubscriberRef, ConsumerRef, Message);
+message(SubscriberRef, ConsumerRef, Message) ->
+    true = emqx_mq_sub_proto_v1:mq_sub_message(
+        node(SubscriberRef), SubscriberRef, ConsumerRef, Message
+    ),
+    ok.
+
+%%--------------------------------------------------------------------
+%% RPC targets
+%%--------------------------------------------------------------------
+
+-spec connected_v1(emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref()) -> ok.
+connected_v1(SubscriberRef, ConsumerRef) ->
+    send_info_to_subscriber(SubscriberRef, #mq_sub_connected{consumer_ref = ConsumerRef}).
+
+-spec ping_v1(emqx_mq_types:subscriber_ref()) -> ok.
+ping_v1(SubscriberRef) ->
+    send_info_to_subscriber(SubscriberRef, #mq_sub_ping{}).
+
+-spec message_v1(
+    emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref(), emqx_types:message()
+) -> ok.
+message_v1(SubscriberRef, ConsumerRef, Message) ->
+    send_info_to_subscriber(SubscriberRef, #mq_sub_message{
+        consumer_ref = ConsumerRef, message = Message
+    }).
+
+%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+handle_connected(#{status := #connecting{mq = MQ}} = Sub, ConsumerRef) ->
+    ?tp(warning, handle_connected, #{sub => info(Sub), consumer_ref => ConsumerRef}),
+    Sub#{
+        status => #connected{
+            mq = MQ,
+            consumer_ref = ConsumerRef,
+            inflight = #{},
+            buffer = emqx_mq_sub_buffer:new(),
+            ping_tref = undefined,
+            consumer_timeout_tref = undefined,
+            publish_retry_tref = undefined
+        }
+    }.
+
+handle_message(
+    #{
+        status := #connected{
+            buffer = Buffer0, inflight = Inflight, publish_retry_tref = PublishRetryTRef, mq = MQ
+        } = Status
+    } = Sub0,
+    Msg
+) ->
+    % ?tp(warning, mq_sub_message, #{sub => info(Sub0), message => Msg}),
+    Sub1 = reset_consumer_timeout_timer(Sub0),
+    Buffer = emqx_mq_sub_buffer:add(Buffer0, Msg),
+    Sub2 =
+        case PublishRetryTRef of
+            undefined ->
+                case map_size(Inflight) < max_inflight(MQ) of
+                    true ->
+                        schedule_publish_retry(0, Sub1);
+                    false ->
+                        Sub1
+                end;
+            _ ->
+                Sub1
+        end,
+    {ok, Sub2#{status => Status#connected{buffer = Buffer}}}.
 
 do_handle_ack(
     #{status := #connected{inflight = Inflight0, buffer = Buffer0, mq = MQ} = Status} = Sub0,
@@ -307,6 +376,12 @@ do_handle_ack(
 destroy(#{subscriber_ref := SubscriberRef} = Sub) ->
     _ = unalias(SubscriberRef),
     _Sub = cancel_timers(Sub),
+    ok.
+
+send_info_to_subscriber(SubscriberRef, InfoMsg) ->
+    _ = erlang:send(SubscriberRef, #info_to_mq_sub{
+        subscriber_ref = SubscriberRef, info = InfoMsg
+    }),
     ok.
 
 %%--------------------------------------------------------------------
@@ -388,10 +463,10 @@ schedule_publish_retry(Interval, Sub0) ->
         }
     }.
 
-send_after(#{subscriber_ref := SubscriberRef}, Interval, Message) ->
+send_after(#{subscriber_ref := SubscriberRef}, Interval, InfoMessage) ->
     erlang:send_after(
         Interval, self(), #info_to_mq_sub{
-            subscriber_ref = SubscriberRef, message = Message
+            subscriber_ref = SubscriberRef, info = InfoMessage
         }
     ).
 

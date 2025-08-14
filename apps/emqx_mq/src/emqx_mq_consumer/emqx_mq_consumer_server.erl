@@ -318,7 +318,7 @@ dispatch_to_subscriber(
     SubscriberData = SubscriberData0#{inflight_messages => InflightMessages},
     Subscribers = Subscribers0#{SubscriberRef => SubscriberData},
     State = State0#state{subscribers = Subscribers},
-    ok = send_message_to_subscriber(MessageId, Message, SubscriberRef),
+    ok = send_message_to_subscriber(SubscriberRef, MessageId, Message),
     State.
 
 update_client_timers(#state{subscribers = Subscribers} = State0) when map_size(Subscribers) =:= 0 ->
@@ -460,24 +460,15 @@ redispatch_interval(#state{mq = #{redispatch_interval_ms := RedispatchIntervalMs
 mq_topic_filter(#state{mq = #{topic_filter := TopicFilter}}) ->
     TopicFilter.
 
-%% TODO
-%% use proto
-
-send_info_to_subscriber(SubscriberRef, InfoMsg) ->
-    _ = erlang:send(SubscriberRef, #info_to_mq_sub{
-        subscriber_ref = SubscriberRef, message = InfoMsg
-    }),
-    ok.
+send_connected_to_subscriber(SubscriberRef) ->
+    ok = emqx_mq_sub:connected(SubscriberRef, self_consumer_ref()).
 
 send_ping_to_subscriber(SubscriberRef) ->
-    send_info_to_subscriber(SubscriberRef, #mq_sub_ping{}).
+    ok = emqx_mq_sub:ping(SubscriberRef).
 
-send_message_to_subscriber(MessageId, Message0, SubscriberRef) ->
+send_message_to_subscriber(SubscriberRef, MessageId, Message0) ->
     Message1 = emqx_message:set_headers(#{?MQ_HEADER_MESSAGE_ID => MessageId}, Message0),
-    send_info_to_subscriber(SubscriberRef, #mq_sub_message{message = Message1}).
-
-send_connected_to_subscriber(SubscriberRef) ->
-    send_info_to_subscriber(SubscriberRef, #mq_sub_connected{consumer_ref = self_consumer_ref()}).
+    emqx_mq_sub:message(SubscriberRef, self_consumer_ref(), Message1).
 
 self_consumer_ref() ->
     self().

@@ -14,15 +14,16 @@
 
 -record(info_to_mq_sub, {
     subscriber_ref :: emqx_mq_types:subscriber_ref(),
-    message :: term()
+    info :: term()
 }).
--record(mq_sub_message, {
-    message :: term()
-}).
--record(mq_sub_ping, {}).
 -record(mq_sub_connected, {
     consumer_ref :: emqx_mq_types:consumer_ref()
 }).
+-record(mq_sub_message, {
+    consumer_ref :: emqx_mq_types:consumer_ref(),
+    message :: term()
+}).
+-record(mq_sub_ping, {}).
 
 -record(info_to_mq_server, {
     message :: term()

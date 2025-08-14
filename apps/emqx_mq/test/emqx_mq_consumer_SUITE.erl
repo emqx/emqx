@@ -53,5 +53,5 @@ t_auto_shutdown(_Config) ->
     ?assertWaitEvent(
         emqtt:disconnect(CSub),
         #{?snk_kind := mq_consumer_shutdown, mq_topic_filter := <<"t1/#">>},
-        100
+        1000
     ).

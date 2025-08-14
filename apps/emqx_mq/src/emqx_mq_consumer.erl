@@ -22,8 +22,7 @@ Consumer's responsibilities:
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
-    start_link/1,
-    stop/1
+    start_link/1
 ]).
 
 -export([
@@ -37,8 +36,18 @@ Consumer's responsibilities:
 -export([
     connect/3,
     disconnect/2,
+    ack/4,
     ping/2,
-    ack/4
+    stop/1
+]).
+
+%% RPC targets
+-export([
+    connect_v1/3,
+    disconnect_v1/2,
+    ack_v1/4,
+    ping_v1/2,
+    stop_v1/1
 ]).
 
 -record(state, {
@@ -74,9 +83,7 @@ connect(#{topic_filter := MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
                 client_id => ClientId,
                 consumer_ref => ConsumerRef
             }),
-            send_to_consumer_server(ConsumerRef, #mq_server_connect{
-                subscriber_ref = SubscriberRef, client_id = ClientId
-            });
+            do_connect(ConsumerRef, SubscriberRef, ClientId);
         queue_removed ->
             ?tp(warning, mq_consumer_find_consumer_queue_removed, #{
                 mq_topic_filter => MQTopicFilter,
@@ -93,27 +100,64 @@ connect(#{topic_filter := MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
             {error, consumer_not_found}
     end.
 
--spec disconnect(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.
-disconnect(Pid, SubscriberRef) ->
-    send_to_consumer_server(Pid, #mq_server_disconnect{subscriber_ref = SubscriberRef}).
+disconnect(ConsumerRef, SubscriberRef) when node(ConsumerRef) =:= node() ->
+    disconnect_v1(ConsumerRef, SubscriberRef);
+disconnect(ConsumerRef, SubscriberRef) ->
+    emqx_mq_consumer_proto_v1:mq_server_disconnect(node(ConsumerRef), ConsumerRef, SubscriberRef).
 
--spec ack(
+ack(ConsumerRef, SubscriberRef, MessageId, Ack) when node(ConsumerRef) =:= node() ->
+    ack_v1(ConsumerRef, SubscriberRef, MessageId, Ack);
+ack(ConsumerRef, SubscriberRef, MessageId, Ack) ->
+    emqx_mq_consumer_proto_v1:mq_server_ack(
+        node(ConsumerRef), ConsumerRef, SubscriberRef, MessageId, Ack
+    ).
+
+ping(ConsumerRef, SubscriberRef) when node(ConsumerRef) =:= node() ->
+    ping_v1(ConsumerRef, SubscriberRef);
+ping(ConsumerRef, SubscriberRef) ->
+    emqx_mq_consumer_proto_v1:mq_server_ping(node(ConsumerRef), ConsumerRef, SubscriberRef).
+
+stop(ConsumerRef) when node(ConsumerRef) =:= node() ->
+    stop_v1(ConsumerRef);
+stop(ConsumerRef) ->
+    emqx_mq_consumer_proto_v1:mq_server_stop(node(ConsumerRef), ConsumerRef).
+
+%%--------------------------------------------------------------------
+%% RPC targets
+%%--------------------------------------------------------------------
+
+-spec connect_v1(
+    emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref(), emqx_types:clientid()
+) -> ok.
+connect_v1(ConsumerRef, SubscriberRef, ClientId) ->
+    send_to_consumer_server(ConsumerRef, #mq_server_connect{
+        subscriber_ref = SubscriberRef, client_id = ClientId
+    }).
+
+-spec disconnect_v1(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.
+disconnect_v1(ConsumerRef, SubscriberRef) ->
+    ?tp(warning, mq_consumer_disconnect_v1, #{
+        consumer_ref => ConsumerRef, subscriber_ref => SubscriberRef
+    }),
+    send_to_consumer_server(ConsumerRef, #mq_server_disconnect{subscriber_ref = SubscriberRef}).
+
+-spec ack_v1(
     emqx_mq_types:consumer_ref(),
     emqx_mq_types:subscriber_ref(),
     emqx_mq_types:message_id(),
     emqx_mq_types:ack()
 ) -> ok.
-ack(Pid, SubscriberRef, MessageId, Ack) ->
+ack_v1(Pid, SubscriberRef, MessageId, Ack) ->
     send_to_consumer_server(Pid, #mq_server_ack{
         subscriber_ref = SubscriberRef, message_id = MessageId, ack = Ack
     }).
 
--spec ping(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.
-ping(Pid, SubscriberRef) ->
+-spec ping_v1(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.
+ping_v1(Pid, SubscriberRef) ->
     send_to_consumer_server(Pid, #mq_server_ping{subscriber_ref = SubscriberRef}).
 
--spec stop(emqx_mq_types:consumer_ref()) -> ok.
-stop(Pid) ->
+-spec stop_v1(emqx_mq_types:consumer_ref()) -> ok.
+stop_v1(Pid) ->
     try
         gen_server:call(Pid, stop, infinity)
     catch
@@ -238,6 +282,13 @@ handle_shutdown(#state{mq = #{topic_filter := MQTopicFilter} = MQ} = State) ->
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
+
+do_connect(ConsumerRef, SubscriberRef, ClientId) when node(ConsumerRef) =:= node() ->
+    connect_v1(ConsumerRef, SubscriberRef, ClientId);
+do_connect(ConsumerRef, SubscriberRef, ClientId) ->
+    emqx_mq_consumer_proto_v1:mq_server_connect(
+        node(ConsumerRef), ConsumerRef, SubscriberRef, ClientId
+    ).
 
 find_consumer(#{topic_filter := MQTopicFilter} = _MQ, 0) ->
     ?tp(error, mq_consumer_find_consumer_error, #{
