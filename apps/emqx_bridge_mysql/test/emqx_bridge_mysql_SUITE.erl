@@ -416,9 +416,13 @@ t_rule_action(matrix) ->
 t_rule_action(TCConfig) when is_list(TCConfig) ->
     PostPublishFn = fun(Context) ->
         #{payload := Payload} = Context,
-        ?assertMatch(
-            {ok, [<<"payload">>], [[Payload]]},
-            connect_and_get_payload(TCConfig)
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                {ok, [<<"payload">>], [[Payload]]},
+                connect_and_get_payload(TCConfig)
+            )
         )
     end,
     Opts = #{
