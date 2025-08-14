@@ -179,7 +179,9 @@ filesync(HandlerId) ->
     %% Inode number from the filesystem (always 0 if unsupported):
     in := integer(),
     %% Modification time:
-    mt := integer()
+    mt := integer(),
+    %% Last seen file size:
+    ls := non_neg_integer()
 }.
 
 -doc """
@@ -205,8 +207,8 @@ obtained through a call to this function.
     | {error, stale | file:posix()}.
 find_log_fragment(first, Basename) ->
     find_oldest_log_fragment(Basename);
-find_log_fragment({next, #{i := I0, mt := MTime, in := Inode}}, Basename) ->
-    case find_log_fragment(I0, MTime, Inode, Basename) of
+find_log_fragment({next, #{i := I0, mt := MTime, in := Inode, ls := LastSz}}, Basename) ->
+    case find_log_fragment(I0, MTime, Inode, LastSz, Basename) of
         #{i := I} ->
             next_log_fragment(I, Basename);
         Error ->
@@ -228,62 +230,72 @@ find_oldest_log_fragment(Basename) ->
     end,
     find_boundary(SearchFun, 1, ?LOG_HANDLER_ROTATION_N_FILES, none).
 
-find_log_fragment(I, MTime, Inode, Basename) ->
-    find_log_fragment(I, MTime, Inode, I =:= 1, Basename).
+find_log_fragment(I, MTime, Inode, LastSz, Basename) ->
+    find_log_fragment(I, MTime, Inode, LastSz, I =:= 1, Basename).
 
-find_log_fragment(I, MTime, Inode, Topmost, Basename) ->
+find_log_fragment(I, MTime, Inode, LastSz, Topmost, Basename) ->
     %% First we need to make sure the given fragment still resides under
     %% the same index / filename.
     Filename = mk_log_fragment_filename(Basename, I),
-    case match_log_fragment(read_file_info(Filename), I, MTime, Inode, Topmost, Basename) of
+    InfoRet = read_file_info(Filename),
+    case match_log_fragment(InfoRet, I, MTime, Inode, LastSz, Topmost, Basename) of
         Fragment = #{} ->
             Fragment;
         nomatch ->
             %% Let's try the next older fragment.
-            find_log_fragment(I + 1, MTime, Inode, Topmost, Basename);
+            find_log_fragment(I + 1, MTime, Inode, LastSz, Topmost, Basename);
         Error ->
             Error
     end.
 
-match_log_fragment(InfoRet, I, MTime, Inode, Topmost, Basename) ->
+match_log_fragment(InfoRet, I, MTime, Inode, LastSz, Topmost, Basename) ->
     %% Basically:
     %% * Topmost fragments should have the same inode + same or newer mtime.
     %% * Non-topmost fragments should have the same inode + same mtime.
     case InfoRet of
-        {ok, #file_info{mtime = MTime, inode = Inode} = Info} ->
-            %% Fragment is there.
-            mk_log_fragment(I, Info);
-        {ok, #file_info{mtime = Newer, inode = Inode} = Info} when Newer > MTime andalso I =:= 1 ->
-            %% Fragment is there, it is the topmost fragment.
-            mk_log_fragment(I, Info);
-        {ok, #file_info{mtime = Newer, inode = Inode} = Info} when Newer > MTime andalso Topmost ->
-            %% Ambiguity, need to check mtime of the older fragment:
-            case read_file_info(mk_log_fragment_filename(Basename, I + 1)) of
-                {ok, #file_info{mtime = AlsoNewer}} when AlsoNewer > MTime ->
+        {ok, #file_info{mtime = MTime1, inode = Inode1, size = Size} = Info} ->
+            case has_match(Topmost, MTime, Inode, LastSz, MTime1, Inode1, Size) of
+                true ->
+                    mk_log_fragment(I, Info);
+                false ->
                     nomatch;
-                {ok, #file_info{mtime = _Older}} ->
-                    %% Fragment is there, it was the topmost fragment.
-                    mk_log_fragment(I, Info);
-                {error, enoent} ->
-                    %% Fragment is there, it was the topmost fragment, now it's the last one.
-                    mk_log_fragment(I, Info);
+                ambiguous ->
+                    InfoRetNext = read_file_info(mk_log_fragment_filename(Basename, I + 1)),
+                    case resolve_ambiguity(InfoRetNext, MTime) of
+                        true -> mk_log_fragment(I, Info);
+                        false -> nomatch;
+                        Error -> Error
+                    end;
                 Error ->
                     Error
             end;
-        {ok, #file_info{mtime = Newer}} when Newer >= MTime ->
-            %% Fragment was rotated in the meantime, try to find it first.
-            nomatch;
         {error, enoent} when I < ?LOG_HANDLER_ROTATION_N_FILES ->
             %% Fragment is likely being rotated right now, try to find it.
             nomatch;
         {error, enoent} ->
             %% Fragment was rotated _and_ deleted, there's a discontinuity.
             {error, stale};
-        {ok, #file_info{}} ->
-            {error, stale};
         Error ->
             Error
     end.
+
+%% Must be the same file:
+has_match(_, MTime, Inode, LastSz, MTime, Inode, LastSz) -> true;
+%% If the size is smaller than what was seen last time, definitely look further:
+has_match(_, _, _, LastSz, _, _, Size) when Size < LastSz -> false;
+%% This is unexpected, fragment should have either the same or newer mtime:
+has_match(_, MTime, _, _, Older, _, _) when Older < MTime -> {error, stale};
+%% This is ambiguous, topmost fragment may have been updated and then rotated N times:
+has_match(true, MTime, Inode, _, Newer, Inode, _) when Newer >= MTime -> ambiguous;
+%% Otherwise, look further:
+has_match(_, _, _, _, _, _, _) -> false.
+
+%% The current fragment is same or newer, and has same or larger size.
+%% If the next one is same or older, the current one is or was the topmost fragment:
+resolve_ambiguity({ok, #file_info{mtime = MTimeNext}}, MTime) -> MTimeNext =< MTime;
+%% The current fragment supposedly was the topmost fragment, now it's the last one:
+resolve_ambiguity({error, enoent}, _) -> true;
+resolve_ambiguity(Error, _) -> Error.
 
 next_log_fragment(1, _Basename) ->
     none;
@@ -337,17 +349,17 @@ log rotation rate.
     _NBytes :: pos_integer()
 ) ->
     {ok, binary(), log_fragment()} | {error, stale | file:posix()}.
-read_log_fragment_at(#{i := I, mt := MTime, in := Inode}, Basename, Pos, NBytes) ->
-    read_log_fragment_at(I, MTime, Inode, I =:= 1, Basename, Pos, NBytes).
+read_log_fragment_at(#{i := I, mt := MTime, in := Inode, ls := LastSz}, Basename, Pos, NBytes) ->
+    read_log_fragment_at(I, MTime, Inode, LastSz, I =:= 1, Basename, Pos, NBytes).
 
-read_log_fragment_at(I, MTime, Inode, Topmost, Basename, Pos, NBytes) ->
+read_log_fragment_at(I, MTime, Inode, LastSz, Topmost, Basename, Pos, NBytes) ->
     Filename = mk_log_fragment_filename(Basename, I),
     case file:open(Filename, [read, raw, binary]) of
         {ok, FD} ->
             Result =
                 try
                     InfoRet = read_file_info(FD),
-                    case match_log_fragment(InfoRet, I, MTime, Inode, Topmost, Basename) of
+                    case match_log_fragment(InfoRet, I, MTime, Inode, LastSz, Topmost, Basename) of
                         Fragment = #{} ->
                             chunk(file:pread(FD, Pos, NBytes), Fragment);
                         Otherwise ->
@@ -361,7 +373,9 @@ read_log_fragment_at(I, MTime, Inode, Topmost, Basename, Pos, NBytes) ->
                     Ok;
                 nomatch ->
                     %% MTime mismatch, let's look inside the older fragment.
-                    read_log_fragment_at(I + 1, MTime, Inode, Topmost, Basename, Pos, NBytes);
+                    read_log_fragment_at(
+                        I + 1, MTime, Inode, LastSz, Topmost, Basename, Pos, NBytes
+                    );
                 Error ->
                     Error
             end;
@@ -379,8 +393,8 @@ chunk(eof, Fragment) ->
 chunk(Error, _Fragment) ->
     Error.
 
-mk_log_fragment(I, #file_info{mtime = MTime, inode = Inode}) ->
-    #{i => I, mt => MTime, in => Inode}.
+mk_log_fragment(I, #file_info{mtime = MTime, inode = Inode, size = Size}) ->
+    #{i => I, mt => MTime, in => Inode, ls => Size}.
 
 mk_log_fragment_filename(Basename, 1) ->
     Basename;
