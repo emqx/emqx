@@ -322,8 +322,6 @@ process_update_request(#conf_info{update_args = {{update, _}, Opts}} = ConfInfo)
         {ok, NewRawConf, OverrideConf, Opts}
     end.
 
-%% FIXME: change how allowed roots are injected, since they are not `hocon_schema:field()`...
--dialyzer({nowarn_function, validate_root_is_allowed/2}).
 validate_root_is_allowed(Namespace, RootKeyBin) when is_binary(Namespace) ->
     AllowedNSRoots = emqx_config:namespaced_config_allowed_roots(),
     case is_map_key(RootKeyBin, AllowedNSRoots) of
