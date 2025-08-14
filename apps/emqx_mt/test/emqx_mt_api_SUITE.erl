@@ -238,7 +238,13 @@ update_managed_ns_config(Ns, Body) ->
 bulk_import_configs(Body) ->
     Path = emqx_mgmt_api_test_util:api_path(["mt", "bulk_import_configs"]),
     Res = simple_request(post, Path, Body),
-    ct:pal("bulk import config result:\n  ~p", [Res]),
+    ct:pal("bulk import configs result:\n  ~p", [Res]),
+    Res.
+
+bulk_transform_configs(Body) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "bulk_transform_configs"]),
+    Res = simple_request(post, Path, Body),
+    ct:pal("bulk transform configs result:\n  ~p", [Res]),
     Res.
 
 kick_all_clients(Ns) ->

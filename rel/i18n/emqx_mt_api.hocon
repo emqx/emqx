@@ -71,6 +71,10 @@ emqx_mt_api {
         desc: "Upsert namespace configurations in bulk"
         label: "Upsert namespace configurations in bulk"
     }
+    bulk_transform_configs {
+        desc: "Transform multiple namespaced configurations using `jq`"
+        label: "Transform multiple namespaced configurations using `jq`"
+    }
     kick_all_clients {
         desc: "Kick all clients in namespace (async)"
         label: "Kick all clients in namespace (async)"

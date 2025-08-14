@@ -26,6 +26,7 @@
     '/mt/managed_ns_list'/2,
     '/mt/managed_ns_list_details'/2,
     '/mt/bulk_import_configs'/2,
+    '/mt/bulk_transform_configs'/2,
     '/mt/bulk_delete_ns'/2,
     '/mt/ns/:ns'/2,
     '/mt/ns/:ns/config'/2,
@@ -64,6 +65,7 @@ paths() ->
         "/mt/ns/:ns/config",
         "/mt/ns/:ns/kick_all_clients",
         "/mt/bulk_import_configs",
+        "/mt/bulk_transform_configs",
         "/mt/bulk_delete_ns"
     ].
 
@@ -291,6 +293,25 @@ schema("/mt/bulk_import_configs") ->
                 }
         }
     };
+schema("/mt/bulk_transform_configs") ->
+    #{
+        'operationId' => '/mt/bulk_transform_configs',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Transform multiple namespaced configurations using `jq`">>,
+            description => ?DESC("bulk_transform_configs"),
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(bulk_transform_config_in),
+                example_bulk_transform_configs_in()
+            ),
+            responses =>
+                #{
+                    204 => <<"">>,
+                    400 => error_schema('BAD_REQUEST', "Invalid configurations"),
+                    500 => error_schema('INTERNAL_ERROR', "Some side-effects failed to execute")
+                }
+        }
+    };
 schema("/mt/bulk_delete_ns") ->
     #{
         'operationId' => '/mt/bulk_delete_ns',
@@ -382,6 +403,13 @@ fields(bulk_config_in) ->
         {ns, mk(binary(), #{})},
         {config, mk(ref(config_in), #{})}
     ];
+fields(bulk_transform_config_in) ->
+    [
+        {namespaces, mk(hoconsc:array(binary()), #{required => true})},
+        {transformation, mk(binary(), #{required => true})},
+        {dry_run, mk(boolean(), #{required => true})},
+        {timeout, mk(emqx_schema:timeout_duration_ms(), #{default => <<"15s">>})}
+    ];
 fields(bulk_delete_ns_in) ->
     [
         {nss, mk(hoconsc:array(binary()), #{})}
@@ -470,6 +498,9 @@ error_schema(Code, Message) ->
 '/mt/bulk_import_configs'(post, #{body := Params}) ->
     handle_bulk_import_configs(Params).
 
+'/mt/bulk_transform_configs'(post, #{body := Params}) ->
+    handle_bulk_transform_configs(Params).
+
 '/mt/ns/:ns/kick_all_clients'(post, #{bindings := #{ns := Ns}}) ->
     with_known_ns(Ns, fun() -> handle_kick_all_clients(Ns) end).
 
@@ -545,6 +576,24 @@ handle_bulk_import_configs(Entries) ->
                 lists:join(<<", ">>, Duplicated)
             ]),
             ?BAD_REQUEST(Msg);
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
+    end.
+
+handle_bulk_transform_configs(Params) ->
+    #{
+        transformation := Transformation,
+        namespaces := Namespaces
+    } = Params,
+    maybe
+        ok ?= is_jq_program_valid(Transformation),
+        ok ?= validate_namespaces_existence(Namespaces),
+        {ok, ConfigsOut} ?= apply_transformation(Params),
+        ?OK(ConfigsOut)
+    else
+        {error, #{reason := Reason} = Details0} ->
+            Details = maps:remove(reason, Details0),
+            ?BAD_REQUEST_MAP(Reason, Details);
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
     end.
@@ -675,6 +724,15 @@ example_bulk_configs_in() ->
             ]
     }.
 
+example_bulk_transform_configs_in() ->
+    #{
+        <<"bulk_transform_configs">> =>
+            #{
+                <<"namespaces">> => [<<"ns1">>, <<"ns2">>],
+                <<"transform">> => <<"todo">>
+            }
+    }.
+
 example_bulk_delete_ns_in() ->
     #{
         <<"bulk_delete_ns">> =>
@@ -746,6 +804,115 @@ undefined_to_null(undefined) ->
     null;
 undefined_to_null(X) ->
     X.
+
+is_jq_program_valid(Transformation) ->
+    case jq:process_json(Transformation, <<"{}">>) of
+        {error, {jq_err_compile, Reason}} ->
+            {error, #{reason => <<"bad_jq_program">>, hint => Reason}};
+        _ ->
+            %% Even if the program doesn't apply correctly to the dummy input, it was
+            %% compiled successfully.
+            ok
+    end.
+
+validate_namespaces_existence(Namespaces) ->
+    UnknownNss = lists:filter(
+        fun(Ns) -> not emqx_mt_config:is_known_managed_ns(Ns) end,
+        Namespaces
+    ),
+    case UnknownNss of
+        [] ->
+            ok;
+        _ ->
+            {error, #{reason => <<"unknown_namespaces">>, unknown => UnknownNss}}
+    end.
+
+apply_transformation(Params) ->
+    #{
+        transformation := Transformation,
+        namespaces := Namespaces,
+        dry_run := IsDryRun,
+        timeout := Timeout
+    } = Params,
+    SchemaMod = emqx_conf:schema_module(),
+    AllowedNSRoots = maps:keys(emqx_config:namespaced_config_allowed_roots()),
+    {ConfigsOut, Errors} = lists:foldl(
+        fun(Namespace, {OkAcc, ErrAcc}) ->
+            maybe
+                ConfigIn = emqx_config:get_all_roots_from_namespace(Namespace),
+                {ok, ConfigOut} ?=
+                    do_apply_transformation(
+                        SchemaMod,
+                        AllowedNSRoots,
+                        Transformation,
+                        ConfigIn,
+                        Timeout
+                    ),
+                ok ?= save_config(IsDryRun, Namespace, ConfigOut, ConfigIn),
+                {OkAcc#{Namespace => ConfigOut}, ErrAcc}
+            else
+                {error, Reason} ->
+                    {OkAcc, ErrAcc#{Namespace => Reason}}
+            end
+        end,
+        {#{}, #{}},
+        Namespaces
+    ),
+    case map_size(Errors) == 0 of
+        true ->
+            {ok, ConfigsOut};
+        false ->
+            {error, #{reason => <<"errors_applying_transformation">>, errors => Errors}}
+    end.
+
+do_apply_transformation(
+    SchemaMod, AllowedNSRoots, Transformation, #{} = ConfigIn, Timeout
+) ->
+    maybe
+        {ok, ConfigOut0} ?= apply_jq(Transformation, ConfigIn, Timeout),
+        {ok, ConfigOut} ?=
+            check_namespaced_config(SchemaMod, ConfigOut0, AllowedNSRoots),
+        {ok, ConfigOut}
+    end.
+
+check_namespaced_config(SchemaMod, Config, AllowedNSRoots) ->
+    maybe
+        {error, Errors} ?=
+            emqx_config:check_config_namespaced(SchemaMod, Config, AllowedNSRoots, binary),
+        {error, #{reason => <<"bad_resulting_configuration">>, details => Errors}}
+    end.
+
+save_config(_IsDryRun = true, _Namespace, _NewConfig, _OldConfig) ->
+    ok;
+save_config(_IsDryRun = false, Namespace, NewConfig0, OldConfig) ->
+    #{added := Added, changed := Changed0} =
+        emqx_utils_maps:diff_maps(NewConfig0, OldConfig),
+    Changed = maps:map(fun(_K, {_, V}) -> V end, Changed0),
+    NewConfig = maps:merge(Added, Changed),
+    maps:foreach(
+        fun(RootKey, Config) ->
+            {ok, _} = emqx:update_config([RootKey], Config, #{namespace => Namespace})
+        end,
+        NewConfig
+    ).
+
+apply_jq(Transformation, #{} = ConfigIn, Timeout) ->
+    ConfigInBin = emqx_utils_json:encode(ConfigIn),
+    maybe
+        {ok, [ConfigOutBin]} ?= jq:process_json(Transformation, ConfigInBin, Timeout),
+        {ok, ConfigOut} ?= emqx_utils_json:safe_decode(ConfigOutBin),
+        true ?= is_map(ConfigOut) orelse {error, {<<"jq_did_not_yield_an_object">>, ConfigOut}},
+        {ok, ConfigOut}
+    else
+        {ok, Yielded} when is_list(Yielded) ->
+            {error, #{reason => <<"jq_must_yield_exactly_one_result">>, yielded => Yielded}};
+        {ok, X} ->
+            {error, #{reason => <<"bad_jq_result">>, result => X}};
+        {error, {Type, Details}} ->
+            {error, #{reason => Type, details => Details}};
+        {error, Reason} ->
+            {error, #{reason => Reason}}
+    end.
 
 with_known_managed_ns(Ns, Fn) ->
     case emqx_mt_config:is_known_managed_ns(Ns) of
