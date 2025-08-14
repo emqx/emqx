@@ -109,7 +109,7 @@ handle_info(State, #timer_message{timer_name = ?shutdown_timer}) ->
 handle_info(State, #timer_message{timer_name = ?dispatch_timer}) ->
     {ok, [], handle_dispatch(State)};
 handle_info(State, #subscriber_timeout{subscriber_ref = SubscriberRef}) ->
-    {ok, [], handle_subscriber_timeout(SubscriberRef, State)}.
+    {ok, [], handle_subscriber_timeout(State, SubscriberRef)}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -200,8 +200,8 @@ handle_ping_subscribers(#state{subscribers = Subscribers} = State0) ->
     ),
     ensure_timer(?ping_timer, State1).
 
-handle_subscriber_timeout(SubscriberRef, State) ->
-    handle_disconnect(SubscriberRef, State).
+handle_subscriber_timeout(State, SubscriberRef) ->
+    handle_disconnect(State, SubscriberRef).
 
 handle_dispatch(State) ->
     dispatch(State).

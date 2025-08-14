@@ -24,7 +24,8 @@ It uses two timers:
 
 -export([
     mq_topic_filter/1,
-    subscriber_ref/1
+    subscriber_ref/1,
+    info/1
 ]).
 
 -export([
@@ -98,6 +99,11 @@ mq_topic_filter(#{topic_filter := TopicFilter}) ->
 subscriber_ref(#{subscriber_ref := SubscriberRef}) ->
     SubscriberRef.
 
+-spec info(t()) -> map().
+info(#{status := Status} = Sub) ->
+    Info = maps:with([client_id, topic_filter, subscriber_ref], Sub),
+    Info#{status => status_info(Status)}.
+
 -spec handle_connect(emqx_types:clientinfo(), emqx_mq_types:mq_topic()) -> t().
 handle_connect(#{clientid := ClientId}, MQTopic) ->
     SubscriberRef = alias(),
@@ -163,7 +169,7 @@ handle_ack(
 %% Messages from the consumer
 %%
 handle_info(Sub, #mq_sub_ping{}) ->
-    % ?tp_debug(mq_sub_ping, #{sub => info(Sub)}),
+    ?tp(warning, mq_sub_ping, #{sub => info(Sub)}),
     {ok, reset_consumer_timeout_timer(Sub)};
 handle_info(
     #{status := #connected{}} = Sub,
@@ -185,6 +191,11 @@ handle_info(#{status := #finding_mq{}, topic_filter := TopicFilter} = _Sub, #fin
     {error, recreate};
 handle_info(
     #{status := #connecting{}, topic_filter := TopicFilter} = _Sub, #consumer_connect_timeout{}
+) ->
+    ?tp(error, mq_sub_consumer_connect_timeout, #{mq_topic_filter => TopicFilter, sub => info(_Sub)}),
+    {error, recreate};
+handle_info(
+    #{status := #connected{}, topic_filter := TopicFilter} = _Sub, #consumer_timeout{}
 ) ->
     ?tp(error, mq_sub_consumer_timeout, #{mq_topic_filter => TopicFilter, sub => info(_Sub)}),
     {error, recreate};
@@ -277,9 +288,9 @@ message_v1(SubscriberRef, ConsumerRef, Message) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-handle_connected(#{status := #connecting{mq = MQ}} = Sub, ConsumerRef) ->
+handle_connected(#{status := #connecting{mq = MQ}} = Sub0, ConsumerRef) ->
     ?tp_debug(handle_connected, #{sub => info(Sub), consumer_ref => ConsumerRef}),
-    Sub#{
+    Sub = Sub0#{
         status => #connected{
             mq = MQ,
             consumer_ref = ConsumerRef,
@@ -289,7 +300,8 @@ handle_connected(#{status := #connecting{mq = MQ}} = Sub, ConsumerRef) ->
             consumer_timeout_tref = undefined,
             publish_retry_tref = undefined
         }
-    }.
+    },
+    reset_consumer_timeout_timer(reset_ping_timer(Sub)).
 
 handle_message(
     #{
@@ -300,21 +312,21 @@ handle_message(
     Msg
 ) ->
     % ?tp_debug(mq_sub_message, #{sub => info(Sub0), message => Msg}),
-    Sub1 = reset_consumer_timeout_timer(Sub0),
     Buffer = emqx_mq_sub_buffer:add(Buffer0, Msg),
-    Sub2 =
+    Sub1 =
         case PublishRetryTRef of
             undefined ->
                 case map_size(Inflight) < max_inflight(MQ) of
                     true ->
-                        schedule_publish_retry(0, Sub1);
+                        schedule_publish_retry(0, Sub0);
                     false ->
-                        Sub1
+                        Sub0
                 end;
             _ ->
-                Sub1
+                Sub0
         end,
-    {ok, Sub2#{status => Status#connected{buffer = Buffer}}}.
+    Sub = Sub1#{status => Status#connected{buffer = Buffer}},
+    {ok, Sub}.
 
 do_handle_ack(
     #{status := #connected{inflight = Inflight0, buffer = Buffer0, mq = MQ} = Status} = Sub0,
@@ -391,6 +403,7 @@ send_info_to_subscriber(SubscriberRef, InfoMsg) ->
 reset_consumer_timeout_timer(
     #{status := #connected{consumer_timeout_tref = TRef, mq = MQ} = Status} = Sub
 ) ->
+    ?tp(warning, mq_sub_reset_consumer_timeout_timer, #{sub => info(Sub)}),
     _ = emqx_utils:cancel_timer(TRef),
     Sub#{
         status => Status#connected{
@@ -415,10 +428,6 @@ cancel_publish_retry_timer(#{status := #connected{publish_retry_tref = TRef} = S
             publish_retry_tref = undefined
         }
     }.
-
-reset_timers(Sub0) ->
-    Sub1 = reset_consumer_timeout_timer(Sub0),
-    reset_ping_timer(Sub1).
 
 cancel_timers(#{status := #finding_mq{find_mq_retry_tref = TRef}} = Sub) ->
     _ = emqx_utils:cancel_timer(TRef),
@@ -496,20 +505,26 @@ max_inflight(#{local_max_inflight := LocalMaxInflight} = _MQ) ->
 %% Introspection helpers
 %%--------------------------------------------------------------------
 
-info(#{status := Status} = Sub) ->
-    Info = maps:with([client_id, topic_filter, subscriber_ref], Sub),
-    Info#{status => status_info(Status)}.
-
-status_info(#connected{buffer = Buffer, inflight = Inflight, publish_retry_tref = PublishRetryTRef}) ->
+status_info(
+    #connected{
+        buffer = Buffer,
+        inflight = Inflight,
+        consumer_ref = ConsumerRef,
+        consumer_timeout_tref = ConsumerTimeoutTRef,
+        ping_tref = PingTRef,
+        publish_retry_tref = PublishRetryTRef
+    }
+) ->
     #{
         name => connected,
         buffer_size => emqx_mq_sub_buffer:size(Buffer),
         inflight => sets:to_list(Inflight),
+        consumer_ref => ConsumerRef,
+        consumer_timeout_tref => ConsumerTimeoutTRef,
+        ping_tref => PingTRef,
         publish_retry_tref => PublishRetryTRef
     };
 status_info(#connecting{}) ->
-    #{
-        name => connecting
-    };
+    #{name => connecting};
 status_info(#finding_mq{}) ->
     #{name => finding_mq}.

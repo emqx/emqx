@@ -20,6 +20,9 @@
     subscriber_ref :: emqx_mq_types:subscriber_ref(),
     info :: term()
 }).
+
+-record(info_mq_info, {receiver :: reference()}).
+
 -record(mq_sub_connected, {
     consumer_ref :: emqx_mq_types:consumer_ref()
 }).

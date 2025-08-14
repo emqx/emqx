@@ -115,6 +115,13 @@ on_message_nack(Msg, false) ->
 on_message_nack(_Msg, true) ->
     ok.
 
+on_client_handle_info(_ClientInfo, #info_mq_info{receiver = Receiver}, Acc) ->
+    InfoList = lists:map(
+        fun(Sub) -> emqx_mq_sub:info(Sub) end,
+        emqx_mq_sub_registry:all()
+    ),
+    erlang:send(Receiver, {Receiver, InfoList}),
+    {ok, Acc};
 on_client_handle_info(
     ClientInfo,
     #info_to_mq_sub{subscriber_ref = SubscriberRef, info = InfoMsg},
@@ -173,32 +180,25 @@ with_sub(SubscriberRef, Handler, Args) ->
     end.
 
 recreate_sub(SubscriberRef, ClientInfo) ->
-    OldSub = #{topic := Topic} = emqx_mq_sub_registry:delete(SubscriberRef),
+    OldSub = emqx_mq_sub_registry:delete(SubscriberRef),
     ok = emqx_mq_sub:handle_disconnect(OldSub),
-    case emqx_mq_sub:handle_connect(ClientInfo, Topic) of
-        {error, queue_removed} ->
-            ok;
-        {ok, NewSub} ->
-            ok = emqx_mq_sub_registry:register(NewSub)
-    end.
+    NewSub = emqx_mq_sub:handle_connect(ClientInfo, emqx_mq_sub:mq_topic_filter(OldSub)),
+    emqx_mq_sub_registry:register(NewSub).
 
 ack_from_rc(?RC_SUCCESS) -> ?MQ_ACK;
 ack_from_rc(_) -> ?MQ_REJECTED.
 
-publish_to_queue(MQ, #message{headers = Headers} = Message) ->
-    Props = maps:get(properties, Headers, #{}),
-    UserProperties = maps:get('User-Property', Props, []),
-    CompactionKey = proplists:get_value(
-        ?MQ_COMPACTION_KEY_USER_PROPERTY, UserProperties, undefined
-    ),
-    emqx_mq_message_db:insert(MQ, Message, CompactionKey).
+publish_to_queue(MQ, #message{} = Message) ->
+    emqx_mq_message_db:insert(MQ, [Message]).
 
 delivers(SubscriberRef, Messages) ->
     lists:map(
         fun(Message0) ->
-            Message = emqx_message:set_headers(
+            Message1 = emqx_message:set_headers(
                 #{?MQ_HEADER_SUBSCRIBER_ID => SubscriberRef}, Message0
             ),
+            %% Override QoS to 1 to require ack from the client
+            Message = Message1#message{qos = ?QOS_1},
             Topic = emqx_message:topic(Message),
             {deliver, Topic, Message}
         end,
