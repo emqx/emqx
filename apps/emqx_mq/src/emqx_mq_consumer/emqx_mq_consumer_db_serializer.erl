@@ -76,7 +76,7 @@ encode_consumer_data(#{
         {v1, #'ConsumerStateV1'{
             progress = lists:map(fun pack_shard_progress/1, maps:to_list(ShardProgress))
         }},
-    ?tp(warning, mq_consumer_db_encode_consumer_data, #{consumer_state => ConsumerState}),
+    ?tp_debug(mq_consumer_db_encode_consumer_data, #{consumer_state => ConsumerState}),
     {ok, Bin} = 'ConsumerState':encode('ConsumerState', ConsumerState),
     Bin.
 

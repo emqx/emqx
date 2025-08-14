@@ -9,7 +9,7 @@ The module is a small wrapper around the process dictionary to store subscriptio
 of channels to the Message Queue consumers.
 """.
 
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("emqx_mq_internal.hrl").
 
 -export([
     register/1,
@@ -30,7 +30,7 @@ of channels to the Message Queue consumers.
 register(Sub) ->
     SubscriberRef = emqx_mq_sub:subscriber_ref(Sub),
     MQTopicFilter = emqx_mq_sub:mq_topic_filter(Sub),
-    ?tp(warning, mq_sub_registry_register, #{
+    ?tp_debug(mq_sub_registry_register, #{
         subscriber_ref => SubscriberRef, mq_topic_filter => MQTopicFilter, sub => Sub
     }),
     _ = erlang:put(?SUB_PD_KEY(SubscriberRef), maps:without([subscriber_ref], Sub)),

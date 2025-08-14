@@ -116,7 +116,7 @@ handle_info(State, #subscriber_timeout{subscriber_ref = SubscriberRef}) ->
 %%--------------------------------------------------------------------
 
 handle_connect(#state{subscribers = Subscribers0} = State, SubscriberRef, ClientId) ->
-    ?tp(warning, mq_consumer_handle_connect, #{
+    ?tp_debug(mq_consumer_handle_connect, #{
         subscriber_ref => SubscriberRef, client_id => ClientId
     }),
     case Subscribers0 of
@@ -150,7 +150,7 @@ handle_ack(
     MessageId,
     Ack
 ) ->
-    ?tp(warning, mq_consumer_handle_ack, #{
+    ?tp_debug(mq_consumer_handle_ack, #{
         subscriber_ref => SubscriberRef, message_id => MessageId, ack => Ack
     }),
     maybe
@@ -190,7 +190,7 @@ handle_ping(#state{subscribers = Subscribers0} = State, SubscriberRef) ->
     end.
 
 handle_ping_subscribers(#state{subscribers = Subscribers} = State0) ->
-    ?tp(warning, mq_consumer_handle_ping_subscribers, #{subscribers => maps:keys(Subscribers)}),
+    ?tp_debug(mq_consumer_handle_ping_subscribers, #{subscribers => maps:keys(Subscribers)}),
     State1 = cancel_timer(?ping_timer, State0),
     ok = maps:foreach(
         fun(SubscriberRef, _SubscriberData) ->
@@ -252,7 +252,7 @@ schedule_for_dispatch(#state{dispatch_queue = DispatchQueue0} = State, MessageId
     State#state{dispatch_queue = DispatchQueue1}.
 
 redispatch_on_reject(State, RejectedSubscriberRef, MessageId) ->
-    ?tp(warning, mq_consumer_redispatch_on_reject, #{
+    ?tp_debug(mq_consumer_redispatch_on_reject, #{
         rejected_subscriber_ref => RejectedSubscriberRef, message_id => MessageId
     }),
     case dispatch_message(MessageId, [RejectedSubscriberRef], State) of
@@ -293,7 +293,7 @@ dispatch_message(
 ) ->
     Message = maps:get(MessageId, Messages),
     PickResult = pick_subscriber(Message, ExcludedSubscriberRefs, State),
-    ?tp(warning, mq_consumer_dispatch_message, #{
+    ?tp_debug(mq_consumer_dispatch_message, #{
         message_id => MessageId,
         pick_result => PickResult,
         excluded_subscriber_refs => ExcludedSubscriberRefs,
@@ -399,7 +399,7 @@ pick_subscriber_hash(Message, Expression, #state{subscribers = Subscribers} = St
             SelectedSubscriberRef = lists:nth(SelectedIdx + 1, SubscriberRefs),
             {ok, SelectedSubscriberRef};
         {error, Error} ->
-            ?tp(warning, mq_consumer_pick_subscriber_hash_error, #{
+            ?tp_debug(mq_consumer_pick_subscriber_hash_error, #{
                 message => Message, error => Error, mq_topic_filter => mq_topic_filter(State)
             }),
             pick_subscriber_random(Message, [], State)

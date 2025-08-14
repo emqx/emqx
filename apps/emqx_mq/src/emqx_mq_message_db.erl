@@ -70,10 +70,10 @@ open() ->
 -spec insert(emqx_mq_types:mq(), emqx_types:message(), _CompactionKey :: undefined | binary()) ->
     ok.
 insert(#{is_compacted := true} = MQ, _Message, undefined) ->
-    ?tp(warning, mq_db_insert_error, #{mq => MQ, reason => undefined_compaction_key}),
+    ?tp_debug(mq_db_insert_error, #{mq => MQ, reason => undefined_compaction_key}),
     ok;
 insert(#{is_compacted := false} = MQ, _Message, CompactionKey) when CompactionKey =/= undefined ->
-    ?tp(warning, mq_db_insert_error, #{
+    ?tp_debug(mq_db_insert_error, #{
         mq => MQ, compaction_key => CompactionKey, reason => compaction_key_set_for_non_compacted_mq
     }),
     ok;
@@ -87,7 +87,7 @@ insert(#{is_compacted := true} = MQ, Message, CompactionKey) ->
         retries => ?MQ_MESSAGE_DB_APPEND_RETRY
     },
     Value = encode_message(Message),
-    % ?tp(warning, mq_message_db_insert, #{topic => Topic, generation => 1, value => Value}),
+    % ?tp_debug(mq_message_db_insert, #{topic => Topic, generation => 1, value => Value}),
     emqx_ds:trans(TxOpts, fun() ->
         emqx_ds:tx_del_topic(Topic),
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
@@ -108,7 +108,7 @@ insert(#{is_compacted := false} = MQ, Message, undefined) ->
     Res = emqx_ds:trans(TxOpts, fun() ->
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
     end),
-    ?tp(warning, mq_message_db_insert, #{
+    ?tp_debug(mq_message_db_insert, #{
         topic => Topic,
         shard => Shard,
         generation => Generation,

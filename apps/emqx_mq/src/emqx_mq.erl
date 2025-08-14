@@ -73,11 +73,11 @@ on_delivery_completed(Msg, Info) ->
     end.
 
 on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = FullTopic, _SubOpts) ->
-    ?tp(warning, mq_on_session_subscribed, #{full_topic => FullTopic, handle => true}),
+    ?tp_debug(mq_on_session_subscribed, #{full_topic => FullTopic, handle => true}),
     Sub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
     ok = emqx_mq_sub_registry:register(Sub);
 on_session_subscribed(_ClientInfo, FullTopic, _SubOpts) ->
-    ?tp(warning, mq_on_session_subscribed, #{full_topic => FullTopic, handle => false}),
+    ?tp_debug(mq_on_session_subscribed, #{full_topic => FullTopic, handle => false}),
     ok.
 
 on_session_unsubscribed(_ClientInfo, <<"$q/", Topic/binary>>) ->
@@ -131,7 +131,7 @@ on_client_handle_info(
             ok = recreate_sub(SubscriberRef, ClientInfo)
     end;
 on_client_handle_info(_ClientInfo, Message, Acc) ->
-    ?tp(warning, mq_on_client_handle_info, #{message => Message}),
+    ?tp_debug(mq_on_client_handle_info, #{message => Message}),
     {ok, Acc}.
 
 on_session_disonnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->

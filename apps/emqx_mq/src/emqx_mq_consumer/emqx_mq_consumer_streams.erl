@@ -113,7 +113,7 @@ progress(#cs{state = #{shards := Shards}}) ->
     {ok, [{emqx_mq_types:message_id(), emqx_types:message()}], t()}.
 handle_ds_info(#cs{ds_client = DSC0, state = State0} = CS0, GenericMessage) ->
     Res = emqx_ds_client:dispatch_message(GenericMessage, DSC0, State0),
-    ?tp(warning, emqx_mq_consumer_streams_handle_ds_info, #{res => Res, info => GenericMessage}),
+    ?tp_debug(emqx_mq_consumer_streams_handle_ds_info, #{res => Res, info => GenericMessage}),
     case Res of
         ignore ->
             ignore;
@@ -131,7 +131,7 @@ handle_ack(
     } = CS,
     {{Shard, Generation}, StreamMessageId} = MessagesId
 ) ->
-    ?tp(warning, emqx_mq_consumer_streams_handle_ack, #{
+    ?tp_debug(emqx_mq_consumer_streams_handle_ack, #{
         message_id => MessagesId, shards => maps:keys(Shards0)
     }),
     maybe
@@ -193,7 +193,7 @@ get_current_generation(?SUB_ID, Shard, #{shards := Shards}) ->
             _ ->
                 0
         end,
-    ?tp(warning, emqx_mq_consumer_streams_get_current_generation, #{
+    ?tp_debug(emqx_mq_consumer_streams_get_current_generation, #{
         shard => Shard, result => Result
     }),
     Result.
@@ -201,7 +201,7 @@ get_current_generation(?SUB_ID, Shard, #{shards := Shards}) ->
 on_advance_generation(
     ?SUB_ID, Shard, Generation, #{shards := Shards} = State
 ) ->
-    ?tp(warning, mq_consumer_streams_on_advance_generation, #{
+    ?tp_debug(mq_consumer_streams_on_advance_generation, #{
         shard => Shard, generation => Generation
     }),
     case Shards of
@@ -235,7 +235,7 @@ get_iterator(?SUB_ID, {Shard, Generation}, Stream, #{shards := Shards}) ->
             _ ->
                 undefined
         end,
-    ?tp(warning, emqx_mq_consumer_streams_get_iterator, #{
+    ?tp_debug(emqx_mq_consumer_streams_get_iterator, #{
         slab => {Shard, Generation}, stream => Stream, result => Result
     }),
     Result.
@@ -248,7 +248,7 @@ on_new_iterator(
     #{mq := MQ, streams := Streams, shards := Shards} =
         State0
 ) ->
-    ?tp(warning, emqx_mq_consumer_streams_on_new_iterator, #{
+    ?tp_debug(emqx_mq_consumer_streams_on_new_iterator, #{
         slab => {Shard, Generation}, stream => Stream
     }),
     case Shards of
@@ -383,11 +383,11 @@ handle_ds_reply(#cs{state = #{streams := Streams, shards := Shards}} = CS, Strea
     maybe
         #{Stream := Shard} ?= Streams,
         #{Shard := #{status := active} = ShardState} ?= Shards,
-        ?tp(warning, emqx_mq_consumer_streams_handle_ds_reply_stream_exists, #{stream => Stream}),
+        ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_exists, #{stream => Stream}),
         do_handle_ds_reply(CS, Stream, Shard, ShardState, Handle, DSReply)
     else
         _ ->
-            ?tp(warning, emqx_mq_consumer_streams_handle_ds_reply_stream_not_exists, #{
+            ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_not_exists, #{
                 stream => Stream
             }),
             {ok, [], CS}
@@ -402,12 +402,12 @@ do_handle_ds_reply(
     #ds_sub_reply{ref = SRef} = DSReply
 ) ->
     Slab = {Shard, Generation},
-    ?tp(warning, emqx_mq_consumer_streams_do_handle_ds_reply, #{
+    ?tp_debug(emqx_mq_consumer_streams_do_handle_ds_reply, #{
         slab => Slab, stream => Stream, handle => Handle, ds_reply => DSReply
     }),
     case emqx_mq_consumer_stream_buffer:handle_ds_reply(SB, Handle, DSReply) of
         {ok, Messages0, SB1} ->
-            ?tp(warning, emqx_mq_consumer_streams_do_handle_ds_reply_ok, #{
+            ?tp_debug(emqx_mq_consumer_streams_do_handle_ds_reply_ok, #{
                 slab => Slab, sb => buffer_info(SB1)
             }),
             Messages = [
@@ -433,7 +433,7 @@ do_handle_ds_reply(
             {DSC, #{shards := Shards1} = State} = emqx_ds_client:complete_stream(
                 DSC0, SRef, State1
             ),
-            ?tp(warning, mq_consumer_streams_do_handle_ds_reply_finished_complete_stream_end, #{
+            ?tp_debug(mq_consumer_streams_do_handle_ds_reply_finished_complete_stream_end, #{
                 slab => Slab, shards => maps:keys(Shards1)
             }),
             {ok, [], CS#cs{ds_client = DSC, state = State}}

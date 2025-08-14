@@ -72,12 +72,12 @@ start_link(MQTopicFilter) ->
 -spec connect(binary(), emqx_mq_types:subscriber_ref(), emqx_types:clientid()) ->
     ok | {error, term()}.
 connect(#{topic_filter := MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
-    ?tp(warning, mq_consumer_connect, #{
+    ?tp_debug(mq_consumer_connect, #{
         mq_topic_filter => MQTopicFilter, subscriber_ref => SubscriberRef, client_id => ClientId
     }),
     case find_consumer(MQ, _Retries = 2) of
         {ok, ConsumerRef} ->
-            ?tp(warning, mq_consumer_find_consumer_success, #{
+            ?tp_debug(mq_consumer_find_consumer_success, #{
                 mq_topic_filter => MQTopicFilter,
                 subscriber_ref => SubscriberRef,
                 client_id => ClientId,
@@ -85,14 +85,14 @@ connect(#{topic_filter := MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
             }),
             do_connect(ConsumerRef, SubscriberRef, ClientId);
         queue_removed ->
-            ?tp(warning, mq_consumer_find_consumer_queue_removed, #{
+            ?tp_debug(mq_consumer_find_consumer_queue_removed, #{
                 mq_topic_filter => MQTopicFilter,
                 subscriber_ref => SubscriberRef,
                 client_id => ClientId
             }),
             {error, queue_removed};
         not_found ->
-            ?tp(warning, mq_consumer_find_consumer_not_found, #{
+            ?tp_debug(mq_consumer_find_consumer_not_found, #{
                 mq_topic_filter => MQTopicFilter,
                 subscriber_ref => SubscriberRef,
                 client_id => ClientId
@@ -136,7 +136,7 @@ connect_v1(ConsumerRef, SubscriberRef, ClientId) ->
 
 -spec disconnect_v1(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.
 disconnect_v1(ConsumerRef, SubscriberRef) ->
-    ?tp(warning, mq_consumer_disconnect_v1, #{
+    ?tp_debug(mq_consumer_disconnect_v1, #{
         consumer_ref => ConsumerRef, subscriber_ref => SubscriberRef
     }),
     send_to_consumer_server(ConsumerRef, #mq_server_disconnect{subscriber_ref = SubscriberRef}).
@@ -172,7 +172,7 @@ stop_v1(Pid) ->
 init([#{topic_filter := MQTopicFilter} = MQ]) ->
     erlang:process_flag(trap_exit, true),
     ClaimRes = emqx_mq_consumer_db:claim_leadership(MQ, self_consumer_ref(), now_ms()),
-    ?tp(warning, mq_consumer_init, #{mq_topic_filter => MQTopicFilter, claim_res => ClaimRes}),
+    ?tp_debug(mq_consumer_init, #{mq_topic_filter => MQTopicFilter, claim_res => ClaimRes}),
     case ClaimRes of
         {ok, ConsumerData} ->
             erlang:send_after(
@@ -196,7 +196,7 @@ handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
 handle_cast(Request, State) ->
-    ?tp(warning, mq_consumer_cast_unknown_request, #{request => Request}),
+    ?tp_debug(mq_consumer_cast_unknown_request, #{request => Request}),
     {noreply, State}.
 
 handle_info(#info_to_mq_server{message = Message}, State) ->
@@ -204,10 +204,10 @@ handle_info(#info_to_mq_server{message = Message}, State) ->
 handle_info(#persist_consumer_data{}, State) ->
     handle_persist_consumer_data(State);
 handle_info(Request, #state{mq = #{topic_filter := MQTopicFilter}} = State0) ->
-    ?tp(warning, mq_consumer_handle_info, #{request => Request, mq_topic_filter => MQTopicFilter}),
+    ?tp_debug(mq_consumer_handle_info, #{request => Request, mq_topic_filter => MQTopicFilter}),
     case handle_ds_info(Request, State0) of
         ignore ->
-            ?tp(warning, mq_consumer_unknown_info, #{request => Request, mq_topic => MQTopicFilter}),
+            ?tp_debug(mq_consumer_unknown_info, #{request => Request, mq_topic => MQTopicFilter}),
             {noreply, State0};
         {ok, State} ->
             {noreply, State}
@@ -257,7 +257,7 @@ persist_consumer_data(#state{mq = #{topic_filter := MQTopicFilter} = MQ, streams
     PersistData = #{
         progress => emqx_mq_consumer_streams:progress(Streams)
     },
-    ?tp(warning, mq_consumer_handle_persist_streams_data, #{
+    ?tp_debug(mq_consumer_handle_persist_streams_data, #{
         mq_topic_filter => MQTopicFilter,
         streams_info => emqx_mq_consumer_streams:info(Streams),
         persist_streams_data => PersistData
@@ -272,7 +272,7 @@ persist_consumer_data(#state{mq = #{topic_filter := MQTopicFilter} = MQ, streams
 handle_shutdown(#state{mq = #{topic_filter := MQTopicFilter} = MQ} = State) ->
     PersistRes = persist_consumer_data(State),
     DropLeadershipRes = emqx_mq_consumer_db:drop_leadership(MQ),
-    ?tp(warning, mq_consumer_shutdown, #{
+    ?tp_debug(mq_consumer_shutdown, #{
         mq_topic_filter => MQTopicFilter,
         persist_res => PersistRes,
         drop_leadership_res => DropLeadershipRes
@@ -306,7 +306,7 @@ find_consumer(#{topic_filter := MQTopicFilter} = MQ, Retries) ->
                 {ok, ConsumerRef} ->
                     {ok, ConsumerRef};
                 {error, _} = Error ->
-                    ?tp(warning, mq_consumer_find_consumer_error, #{
+                    ?tp_debug(mq_consumer_find_consumer_error, #{
                         error => Error, retries => Retries, mq_topic_filter => MQTopicFilter
                     }),
                     find_consumer(MQ, Retries - 1)

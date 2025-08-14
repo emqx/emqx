@@ -8,7 +8,7 @@
 The module contains the registry of Message Queues.
 """.
 
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("emqx_mq_internal.hrl").
 
 -export([
     create_tables/0,
@@ -95,7 +95,7 @@ Find the MQ by its topic filter.
 """.
 -spec find(emqx_mq_types:mq_topic()) -> {ok, emqx_mq_types:mq()} | not_found.
 find(TopicFilter) ->
-    ?tp(warning, mq_registry_find, #{topic_filter => TopicFilter}),
+    ?tp_debug(mq_registry_find, #{topic_filter => TopicFilter}),
     Key = make_key(TopicFilter),
     case ets:lookup(?MQ_REGISTRY_TAB, Key) of
         [] ->
@@ -109,7 +109,7 @@ Delete the MQ by its topic filter.
 """.
 -spec delete(emqx_mq_types:mq_topic()) -> ok.
 delete(TopicFilter) ->
-    ?tp(warning, mq_registry_delete, #{topic_filter => TopicFilter}),
+    ?tp_debug(mq_registry_delete, #{topic_filter => TopicFilter}),
     case find(TopicFilter) of
         {ok, MQ} ->
             Key = make_key(TopicFilter),
