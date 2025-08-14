@@ -54,11 +54,6 @@ end_per_testcase(_TestCase, _Config) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-injected_fields() ->
-    #{
-        'config.allowed_namespaced_roots' => [<<"sysmon">>, <<"mqtt">>]
-    }.
-
 fake_mfa(TxId, Node, MFA) ->
     Func = fun() ->
         MFARec = #cluster_rpc_mfa{
@@ -77,7 +72,7 @@ mk_cluster_spec(Opts) ->
     BaseAppSpec = #{
         before_start =>
             fun(App, AppOpts) ->
-                ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
+                ok = emqx_config:add_allowed_namespaced_config_root(<<"mqtt">>),
                 emqx_cth_suite:inhibit_config_loader(App, AppOpts)
             end
     },
@@ -213,11 +208,7 @@ t_fix(Config) when is_list(Config) ->
     %% fix inconsistent_tnx_id_key. tnx_id and key are updated.
     ?ON(Node1, fake_mfa(TxId1 + 1, Node1, {?MODULE, undef, []})),
     %% 2 -> fake_mfa, 3-> mark_begin_log, 4-> mqtt 5 -> zones
-    TxId2 =
-        case Namespace of
-            ?global_ns -> 5;
-            _ -> 6
-        end,
+    TxId2 = 5,
     ?ON(Node2, begin
         ok = cli_admin("fix", []),
         ?assertMatch(
@@ -240,7 +231,7 @@ t_fix(Config) when is_list(Config) ->
     TxId3 =
         case Namespace of
             ?global_ns -> 8;
-            _ -> 11
+            _ -> 9
         end,
     ?ON(Node1, begin
         ok = cli_admin("fix", []),
@@ -277,7 +268,8 @@ t_namespaced_config_restart(Config) ->
         {emqx, #{
             before_start =>
                 fun(App, AppOpts) ->
-                    ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
+                    ok = emqx_config:add_allowed_namespaced_config_root(<<"sysmon">>),
+                    ok = emqx_config:add_allowed_namespaced_config_root(<<"mqtt">>),
                     emqx_cth_suite:inhibit_config_loader(App, AppOpts)
                 end
         }},

@@ -92,6 +92,7 @@
 
 %% Namespaced configs
 -export([
+    add_allowed_namespaced_config_root/1,
     get_namespaced/2,
     get_namespaced/3,
     get_raw_namespaced/2,
@@ -130,6 +131,7 @@
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
 -define(INVALID_NS_CONF_PT_KEY(NS), {?MODULE, {corrupt_ns_conf, NS}}).
+-define(ALLOWED_NS_ROOT_KEYS_PT_KEY, {?MODULE, allowed_ns_root_key}).
 
 -export_type([
     namespace/0,
@@ -930,14 +932,22 @@ save_schema_mod_and_names(SchemaMod) ->
     }).
 
 namespaced_config_allowed_roots() ->
-    Roots = emqx_schema_hooks:list_injection_point('config.allowed_namespaced_roots', []),
+    Roots = persistent_term:get(?ALLOWED_NS_ROOT_KEYS_PT_KEY, []),
     maps:from_keys(Roots, true).
+
+add_allowed_namespaced_config_root(RootKeyBins) when is_list(RootKeyBins) ->
+    lists:foreach(fun add_allowed_namespaced_config_root/1, RootKeyBins);
+add_allowed_namespaced_config_root(RootKeyBin) when is_binary(RootKeyBin) ->
+    Roots0 = persistent_term:get(?ALLOWED_NS_ROOT_KEYS_PT_KEY, []),
+    Roots = [RootKeyBin | Roots0 -- [RootKeyBin]],
+    persistent_term:put(?ALLOWED_NS_ROOT_KEYS_PT_KEY, Roots).
 
 -ifdef(TEST).
 erase_all() ->
     Names = get_root_names(),
     lists:foreach(fun erase/1, Names),
     persistent_term:erase(?PERSIS_SCHEMA_MODS),
+    persistent_term:erase(?ALLOWED_NS_ROOT_KEYS_PT_KEY),
     try mnesia:table_info(?CONFIG_TAB, attributes) of
         _ ->
             Namespaces0 =

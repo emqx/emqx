@@ -118,7 +118,9 @@ app_specs_no_dashboard() ->
                         end,
                         Mods
                     ),
-                    ok = emqx_schema_hooks:inject_from_modules(Mods),
+                    emqx_config:add_allowed_namespaced_config_root([
+                        <<"connectors">>, <<"actions">>, <<"sources">>, <<"rule_engine">>
+                    ]),
                     emqx_cth_suite:inhibit_config_loader(App, AppOpts)
                 end
         }},

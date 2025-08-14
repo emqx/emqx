@@ -21,6 +21,7 @@
 start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_cluster_rpc:create_tables()),
     _ = emqx_config:create_tables(),
+    ensure_allowed_namespaced_root_keys(),
     try
         ok = init_conf()
     catch
@@ -91,6 +92,14 @@ sync_data_from_node() ->
 %% ------------------------------------------------------------------------------
 %% Internal functions
 %% ------------------------------------------------------------------------------
+
+ensure_allowed_namespaced_root_keys() ->
+    emqx_config:add_allowed_namespaced_config_root([
+        <<"actions">>,
+        <<"connectors">>,
+        <<"rule_engine">>,
+        <<"sources">>
+    ]).
 
 init_load(TnxId) ->
     case emqx_app:get_config_loader() of
