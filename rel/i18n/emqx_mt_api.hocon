@@ -71,9 +71,13 @@ emqx_mt_api {
         desc: "Upsert namespace configurations in bulk"
         label: "Upsert namespace configurations in bulk"
     }
-    bulk_transform_configs {
-        desc: "Transform multiple namespaced configurations using `jq`"
-        label: "Transform multiple namespaced configurations using `jq`"
+    bulk_export_ns_configs {
+        desc: "Export multiple namespaced configurations"
+        label: "Export multiple namespaced configurations"
+    }
+    bulk_import_ns_configs {
+        desc: "Import multiple namespaced configurations"
+        label: "Import multiple namespaced configurations"
     }
     kick_all_clients {
         desc: "Kick all clients in namespace (async)"
@@ -82,5 +86,9 @@ emqx_mt_api {
     bulk_delete_ns {
         desc: "Bulk delete namespaces"
         label: "Bulk delete namespaces"
+    }
+    bulk_config_bad_request {
+        desc: "Invalid configurations"
+        label: "Invalid configurations"
     }
 }

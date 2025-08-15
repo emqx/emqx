@@ -14,6 +14,7 @@
 -export([
     namespace/0,
     api_spec/0,
+    check_api_schema/2,
     fields/1,
     paths/0,
     schema/1
@@ -26,7 +27,8 @@
     '/mt/managed_ns_list'/2,
     '/mt/managed_ns_list_details'/2,
     '/mt/bulk_import_configs'/2,
-    '/mt/bulk_transform_configs'/2,
+    '/mt/bulk_export_ns_configs'/2,
+    '/mt/bulk_import_ns_configs'/2,
     '/mt/bulk_delete_ns'/2,
     '/mt/ns/:ns'/2,
     '/mt/ns/:ns/config'/2,
@@ -50,8 +52,13 @@ namespace() -> "mt".
 api_spec() ->
     emqx_dashboard_swagger:spec(
         ?MODULE,
-        #{check_schema => true, translate_body => {true, atom_keys}}
+        #{check_schema => fun ?MODULE:check_api_schema/2}
     ).
+
+check_api_schema(Req, #{path := "/mt/bulk_import_ns_configs"} = Meta) ->
+    emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(Req, Meta);
+check_api_schema(Req, Meta) ->
+    emqx_dashboard_swagger:filter_check_request_and_translate_body_atom_keys(Req, Meta).
 
 paths() ->
     [
@@ -65,7 +72,8 @@ paths() ->
         "/mt/ns/:ns/config",
         "/mt/ns/:ns/kick_all_clients",
         "/mt/bulk_import_configs",
-        "/mt/bulk_transform_configs",
+        "/mt/bulk_export_ns_configs",
+        "/mt/bulk_import_ns_configs",
         "/mt/bulk_delete_ns"
     ].
 
@@ -293,22 +301,47 @@ schema("/mt/bulk_import_configs") ->
                 }
         }
     };
-schema("/mt/bulk_transform_configs") ->
+schema("/mt/bulk_export_ns_configs") ->
     #{
-        'operationId' => '/mt/bulk_transform_configs',
+        'operationId' => '/mt/bulk_export_ns_configs',
         post => #{
             tags => ?TAGS,
-            summary => <<"Transform multiple namespaced configurations using `jq`">>,
-            description => ?DESC("bulk_transform_configs"),
+            summary => <<"Export multiple namespaced configurations">>,
+            description => ?DESC("bulk_export_ns_configs"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                ref(bulk_transform_config_in),
-                example_bulk_transform_configs_in()
+                ref(bulk_export_ns_configs_in),
+                example_bulk_export_ns_configs_in()
             ),
             responses =>
                 #{
-                    204 => <<"">>,
-                    400 => error_schema('BAD_REQUEST', "Invalid configurations"),
-                    500 => error_schema('INTERNAL_ERROR', "Some side-effects failed to execute")
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            map(),
+                            example_bulk_export_ns_configs_out()
+                        ),
+                    400 => error_schema('BAD_REQUEST', ?DESC("bulk_config_bad_request"))
+                }
+        }
+    };
+schema("/mt/bulk_import_ns_configs") ->
+    #{
+        'operationId' => '/mt/bulk_import_ns_configs',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Import multiple namespaced configurations">>,
+            description => ?DESC("bulk_import_ns_configs"),
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(bulk_import_ns_configs_in),
+                example_bulk_import_ns_configs_in()
+            ),
+            responses =>
+                #{
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            map(),
+                            example_bulk_export_ns_configs_out()
+                        ),
+                    400 => error_schema('BAD_REQUEST', ?DESC("bulk_config_bad_request"))
                 }
         }
     };
@@ -403,12 +436,14 @@ fields(bulk_config_in) ->
         {ns, mk(binary(), #{})},
         {config, mk(ref(config_in), #{})}
     ];
-fields(bulk_transform_config_in) ->
+fields(bulk_export_ns_configs_in) ->
     [
-        {namespaces, mk(hoconsc:array(binary()), #{required => true})},
-        {transformation, mk(binary(), #{required => true})},
-        {dry_run, mk(boolean(), #{required => true})},
-        {timeout, mk(emqx_schema:timeout_duration_ms(), #{default => <<"15s">>})}
+        {namespaces, mk(hoconsc:array(binary()), #{required => true})}
+    ];
+fields(bulk_import_ns_configs_in) ->
+    [
+        {configs, mk(hoconsc:map(name, map()), #{required => true})},
+        {dry_run, mk(boolean(), #{required => true})}
     ];
 fields(bulk_delete_ns_in) ->
     [
@@ -431,9 +466,12 @@ fields(ns_with_details_out) ->
         {created_at, mk(integer(), #{})}
     ].
 
-error_schema(Code, Message) ->
+error_schema(Code, Message) when is_list(Message) ->
     BinMsg = unicode:characters_to_binary(Message),
-    emqx_dashboard_swagger:error_codes([Code], BinMsg).
+    emqx_dashboard_swagger:error_codes([Code], BinMsg);
+error_schema(Code, MessageRef) ->
+    %% ?DESC(...)
+    emqx_dashboard_swagger:error_codes([Code], MessageRef).
 
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' handlers
@@ -498,8 +536,11 @@ error_schema(Code, Message) ->
 '/mt/bulk_import_configs'(post, #{body := Params}) ->
     handle_bulk_import_configs(Params).
 
-'/mt/bulk_transform_configs'(post, #{body := Params}) ->
-    handle_bulk_transform_configs(Params).
+'/mt/bulk_export_ns_configs'(post, #{body := Params}) ->
+    handle_bulk_export_ns_configs(Params).
+
+'/mt/bulk_import_ns_configs'(post, #{body := Params}) ->
+    handle_bulk_import_ns_configs(Params).
 
 '/mt/ns/:ns/kick_all_clients'(post, #{bindings := #{ns := Ns}}) ->
     with_known_ns(Ns, fun() -> handle_kick_all_clients(Ns) end).
@@ -580,15 +621,34 @@ handle_bulk_import_configs(Entries) ->
             ?BAD_REQUEST(Reason)
     end.
 
-handle_bulk_transform_configs(Params) ->
-    #{
-        transformation := Transformation,
-        namespaces := Namespaces
-    } = Params,
+handle_bulk_export_ns_configs(Params) ->
+    #{namespaces := Namespaces} = Params,
     maybe
-        ok ?= is_jq_program_valid(Transformation),
         ok ?= validate_namespaces_existence(Namespaces),
-        {ok, ConfigsOut} ?= apply_transformation(Params),
+        ConfigsOut =
+            lists:foldl(
+                fun(Namespace, Acc) ->
+                    ConfigOut = emqx_config:get_all_roots_from_namespace(Namespace),
+                    Acc#{Namespace => ConfigOut}
+                end,
+                #{},
+                Namespaces
+            ),
+        ?OK(ConfigsOut)
+    else
+        {error, #{reason := Reason} = Details0} ->
+            Details = maps:remove(reason, Details0),
+            ?BAD_REQUEST_MAP(Reason, Details);
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
+    end.
+
+handle_bulk_import_ns_configs(Params) ->
+    #{<<"configs">> := NssToConfigs} = Params,
+    Namespaces = maps:keys(NssToConfigs),
+    maybe
+        ok ?= validate_namespaces_existence(Namespaces),
+        {ok, ConfigsOut} ?= do_bulk_import_ns_configs(NssToConfigs, Params),
         ?OK(ConfigsOut)
     else
         {error, #{reason := Reason} = Details0} ->
@@ -724,12 +784,31 @@ example_bulk_configs_in() ->
             ]
     }.
 
-example_bulk_transform_configs_in() ->
+example_bulk_export_ns_configs_in() ->
     #{
-        <<"bulk_transform_configs">> =>
+        <<"bulk_export_ns_configs">> =>
             #{
-                <<"namespaces">> => [<<"ns1">>, <<"ns2">>],
-                <<"transform">> => <<"todo">>
+                <<"namespaces">> => [<<"ns1">>, <<"ns2">>]
+            }
+    }.
+
+example_bulk_export_ns_configs_out() ->
+    #{
+        <<"bulk_export_ns_configs">> =>
+            #{
+                <<"ns1">> => #{<<"foo">> => <<"bar">>},
+                <<"ns2">> => #{<<"foo">> => <<"bar">>}
+            }
+    }.
+
+example_bulk_import_ns_configs_in() ->
+    #{
+        <<"bulk_import_ns_configs">> =>
+            #{
+                <<"configs">> => #{
+                    <<"ns1">> => #{<<"foo">> => <<"bar">>},
+                    <<"ns2">> => #{<<"foo">> => <<"bar">>}
+                }
             }
     }.
 
@@ -805,16 +884,6 @@ undefined_to_null(undefined) ->
 undefined_to_null(X) ->
     X.
 
-is_jq_program_valid(Transformation) ->
-    case jq:process_json(Transformation, <<"{}">>) of
-        {error, {jq_err_compile, Reason}} ->
-            {error, #{reason => <<"bad_jq_program">>, hint => Reason}};
-        _ ->
-            %% Even if the program doesn't apply correctly to the dummy input, it was
-            %% compiled successfully.
-            ok
-    end.
-
 validate_namespaces_existence(Namespaces) ->
     UnknownNss = lists:filter(
         fun(Ns) -> not emqx_mt_config:is_known_managed_ns(Ns) end,
@@ -827,28 +896,16 @@ validate_namespaces_existence(Namespaces) ->
             {error, #{reason => <<"unknown_namespaces">>, unknown => UnknownNss}}
     end.
 
-apply_transformation(Params) ->
-    #{
-        transformation := Transformation,
-        namespaces := Namespaces,
-        dry_run := IsDryRun,
-        timeout := Timeout
-    } = Params,
+do_bulk_import_ns_configs(NssToConfigs, Params) ->
+    #{<<"dry_run">> := IsDryRun} = Params,
     SchemaMod = emqx_conf:schema_module(),
     AllowedNSRoots = maps:keys(emqx_config:namespaced_config_allowed_roots()),
-    {ConfigsOut, Errors} = lists:foldl(
-        fun(Namespace, {OkAcc, ErrAcc}) ->
+    {ConfigsOut, Errors} = maps:fold(
+        fun(Namespace, ConfigIn, {OkAcc, ErrAcc}) ->
+            OldConfig = emqx_config:get_all_roots_from_namespace(Namespace),
             maybe
-                ConfigIn = emqx_config:get_all_roots_from_namespace(Namespace),
-                {ok, ConfigOut} ?=
-                    do_apply_transformation(
-                        SchemaMod,
-                        AllowedNSRoots,
-                        Transformation,
-                        ConfigIn,
-                        Timeout
-                    ),
-                ok ?= save_config(IsDryRun, Namespace, ConfigOut, ConfigIn),
+                {ok, ConfigOut} ?= check_namespaced_config(SchemaMod, ConfigIn, AllowedNSRoots),
+                ok ?= save_config(IsDryRun, Namespace, ConfigOut, OldConfig),
                 {OkAcc#{Namespace => ConfigOut}, ErrAcc}
             else
                 {error, Reason} ->
@@ -856,23 +913,13 @@ apply_transformation(Params) ->
             end
         end,
         {#{}, #{}},
-        Namespaces
+        NssToConfigs
     ),
     case map_size(Errors) == 0 of
         true ->
             {ok, ConfigsOut};
         false ->
-            {error, #{reason => <<"errors_applying_transformation">>, errors => Errors}}
-    end.
-
-do_apply_transformation(
-    SchemaMod, AllowedNSRoots, Transformation, #{} = ConfigIn, Timeout
-) ->
-    maybe
-        {ok, ConfigOut0} ?= apply_jq(Transformation, ConfigIn, Timeout),
-        {ok, ConfigOut} ?=
-            check_namespaced_config(SchemaMod, ConfigOut0, AllowedNSRoots),
-        {ok, ConfigOut}
+            {error, #{reason => <<"errors_importing_configurations">>, errors => Errors}}
     end.
 
 check_namespaced_config(SchemaMod, Config, AllowedNSRoots) ->
@@ -895,24 +942,6 @@ save_config(_IsDryRun = false, Namespace, NewConfig0, OldConfig) ->
         end,
         NewConfig
     ).
-
-apply_jq(Transformation, #{} = ConfigIn, Timeout) ->
-    ConfigInBin = emqx_utils_json:encode(ConfigIn),
-    maybe
-        {ok, [ConfigOutBin]} ?= jq:process_json(Transformation, ConfigInBin, Timeout),
-        {ok, ConfigOut} ?= emqx_utils_json:safe_decode(ConfigOutBin),
-        true ?= is_map(ConfigOut) orelse {error, {<<"jq_did_not_yield_an_object">>, ConfigOut}},
-        {ok, ConfigOut}
-    else
-        {ok, Yielded} when is_list(Yielded) ->
-            {error, #{reason => <<"jq_must_yield_exactly_one_result">>, yielded => Yielded}};
-        {ok, X} ->
-            {error, #{reason => <<"bad_jq_result">>, result => X}};
-        {error, {Type, Details}} ->
-            {error, #{reason => Type, details => Details}};
-        {error, Reason} ->
-            {error, #{reason => Reason}}
-    end.
 
 with_known_managed_ns(Ns, Fn) ->
     case emqx_mt_config:is_known_managed_ns(Ns) of

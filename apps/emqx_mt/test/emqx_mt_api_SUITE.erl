@@ -241,10 +241,16 @@ bulk_import_configs(Body) ->
     ct:pal("bulk import configs result:\n  ~p", [Res]),
     Res.
 
-bulk_transform_configs(Body) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "bulk_transform_configs"]),
+bulk_export_ns_configs(Body) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "bulk_export_ns_configs"]),
     Res = simple_request(post, Path, Body),
-    ct:pal("bulk transform configs result:\n  ~p", [Res]),
+    ct:pal("bulk export ns configs result:\n  ~p", [Res]),
+    Res.
+
+bulk_import_ns_configs(Body) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "bulk_import_ns_configs"]),
+    Res = simple_request(post, Path, Body),
+    ct:pal("bulk import ns configs result:\n  ~p", [Res]),
     Res.
 
 kick_all_clients(Ns) ->

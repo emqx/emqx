@@ -159,6 +159,16 @@ setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
         set_type_fn => SetType
     }.
 
+apply_jq(Transformation, NssToConfigs) ->
+    maps:map(
+        fun(_Ns, CfgIn) ->
+            CfgInBin = emqx_utils_json:encode(CfgIn),
+            {ok, [CfgOutBin]} = jq:process_json(Transformation, CfgInBin),
+            #{} = emqx_utils_json:decode(CfgOutBin)
+        end,
+        NssToConfigs
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -502,29 +512,24 @@ t_namespaced_bad_config_bulk_fix(TCConfig) when is_list(TCConfig) ->
     GlobalAuthHeader = ?ON(N1, emqx_mgmt_api_test_util:auth_header_()),
     emqx_mt_api_SUITE:put_auth_header(GlobalAuthHeader),
 
-    %% Bad jq program
-    ?assertMatch(
-        {400, #{<<"message">> := <<"bad_jq_program">>}},
-        emqx_mt_api_SUITE:bulk_transform_configs(#{
-            <<"namespaces">> => CorruptNamespaces,
-            <<"transformation">> => <<"unknown_fn">>,
-            <<"dry_run">> => false
-        })
-    ),
+    {200, BadNssToConfigs} = emqx_mt_api_SUITE:bulk_export_ns_configs(#{
+        <<"namespaces">> => CorruptNamespaces
+    }),
+    ?assertEqual(lists:sort(CorruptNamespaces), lists:sort(maps:keys(BadNssToConfigs))),
+
     %% Unknown namespaces
     ?assertMatch(
         {400, #{<<"message">> := <<"unknown_namespaces">>, <<"unknown">> := [<<"unknown_ns">>]}},
-        emqx_mt_api_SUITE:bulk_transform_configs(#{
-            <<"namespaces">> => [<<"unknown_ns">>],
-            <<"transformation">> => <<".foo.bar=123">>,
-            <<"dry_run">> => false
+        emqx_mt_api_SUITE:bulk_export_ns_configs(#{
+            <<"namespaces">> => [<<"unknown_ns">>]
         })
     ),
 
     %% Lets try to fix the namespaces with the wrong transformations; should fail.
-    %%   i) bad type
+    %%   - bad type
     ?assertMatch(
         {400, #{
+            <<"message">> := <<"errors_importing_configurations">>,
             <<"errors">> := #{
                 <<"ns1">> := #{
                     <<"reason">> := <<"bad_resulting_configuration">>,
@@ -536,100 +541,18 @@ t_namespaced_bad_config_bulk_fix(TCConfig) when is_list(TCConfig) ->
                 }
             }
         }},
-        emqx_mt_api_SUITE:bulk_transform_configs(#{
-            <<"namespaces">> => CorruptNamespaces,
-            <<"transformation">> => <<".foo.bar=\"still_wrong_type\"">>,
+        emqx_mt_api_SUITE:bulk_import_ns_configs(#{
+            <<"configs">> => apply_jq(
+                <<".foo.bar=\"still_wrong_type\"">>,
+                BadNssToConfigs
+            ),
             <<"dry_run">> => false
         })
     ),
-    %%   ii) bad program (runtime)
+    %%   - resulting config has unknown keys
     ?assertMatch(
         {400, #{
-            <<"message">> := <<"errors_applying_transformation">>,
-            <<"errors">> := #{
-                <<"ns1">> := #{
-                    <<"reason">> := <<"jq_err_process">>,
-                    <<"details">> := <<"jq error:", _/binary>>
-                },
-                <<"ns2">> := #{
-                    <<"reason">> := <<"jq_err_process">>,
-                    <<"details">> := <<"jq error:", _/binary>>
-                }
-            }
-        }},
-        emqx_mt_api_SUITE:bulk_transform_configs(#{
-            <<"namespaces">> => CorruptNamespaces,
-            <<"transformation">> => <<".foo.bar[]=123">>,
-            <<"dry_run">> => false
-        })
-    ),
-    %%   iii) jq yields something that is not an object
-    ?assertMatch(
-        {400, #{
-            <<"message">> := <<"errors_applying_transformation">>,
-            <<"errors">> := #{
-                <<"ns1">> := #{
-                    <<"reason">> := <<"jq_did_not_yield_an_object">>,
-                    <<"details">> := _
-                },
-                <<"ns2">> := #{
-                    <<"reason">> := <<"jq_did_not_yield_an_object">>,
-                    <<"details">> := _
-                }
-            }
-        }},
-        emqx_mt_api_SUITE:bulk_transform_configs(#{
-            <<"namespaces">> => CorruptNamespaces,
-            <<"transformation">> => <<"[.foo.bar=123, .foo.bar=234]">>,
-            <<"dry_run">> => false
-        })
-    ),
-    %%   iv) jq yields multiple results
-    ?assertMatch(
-        {400, #{
-            <<"message">> := <<"errors_applying_transformation">>,
-            <<"errors">> := #{
-                <<"ns1">> := #{
-                    <<"reason">> := <<"jq_must_yield_exactly_one_result">>,
-                    <<"yielded">> := [_, _]
-                },
-                <<"ns2">> := #{
-                    <<"reason">> := <<"jq_must_yield_exactly_one_result">>,
-                    <<"yielded">> := [_, _]
-                }
-            }
-        }},
-        emqx_mt_api_SUITE:bulk_transform_configs(#{
-            <<"namespaces">> => CorruptNamespaces,
-            <<"transformation">> => <<"[{},{}] | .[] | .foo.bar=123">>,
-            <<"dry_run">> => false
-        })
-    ),
-    %%   v) jq yields no results
-    ?assertMatch(
-        {400, #{
-            <<"message">> := <<"errors_applying_transformation">>,
-            <<"errors">> := #{
-                <<"ns1">> := #{
-                    <<"reason">> := <<"jq_must_yield_exactly_one_result">>,
-                    <<"yielded">> := _
-                },
-                <<"ns2">> := #{
-                    <<"reason">> := <<"jq_must_yield_exactly_one_result">>,
-                    <<"yielded">> := _
-                }
-            }
-        }},
-        emqx_mt_api_SUITE:bulk_transform_configs(#{
-            <<"namespaces">> => CorruptNamespaces,
-            <<"transformation">> => <<"empty">>,
-            <<"dry_run">> => false
-        })
-    ),
-    %%   vi) resulting config has unknown keys
-    ?assertMatch(
-        {400, #{
-            <<"message">> := <<"errors_applying_transformation">>,
+            <<"message">> := <<"errors_importing_configurations">>,
             <<"errors">> := #{
                 <<"ns1">> := #{
                     <<"reason">> := <<"bad_resulting_configuration">>,
@@ -641,9 +564,11 @@ t_namespaced_bad_config_bulk_fix(TCConfig) when is_list(TCConfig) ->
                 }
             }
         }},
-        emqx_mt_api_SUITE:bulk_transform_configs(#{
-            <<"namespaces">> => CorruptNamespaces,
-            <<"transformation">> => <<".foo.bar=123 | .foo.unknown_key=true">>,
+        emqx_mt_api_SUITE:bulk_import_ns_configs(#{
+            <<"configs">> => apply_jq(
+                <<".foo.bar=123 | .foo.unknown_key=true">>,
+                BadNssToConfigs
+            ),
             <<"dry_run">> => false
         })
     ),
@@ -654,9 +579,11 @@ t_namespaced_bad_config_bulk_fix(TCConfig) when is_list(TCConfig) ->
             <<"ns1">> := #{<<"foo">> := #{<<"bar">> := 123}},
             <<"ns2">> := #{<<"foo">> := #{<<"bar">> := 123}}
         }},
-        emqx_mt_api_SUITE:bulk_transform_configs(#{
-            <<"namespaces">> => CorruptNamespaces,
-            <<"transformation">> => <<".foo.bar=123">>,
+        emqx_mt_api_SUITE:bulk_import_ns_configs(#{
+            <<"configs">> => apply_jq(
+                <<".foo.bar=123">>,
+                BadNssToConfigs
+            ),
             <<"dry_run">> => true
         })
     ),
@@ -686,9 +613,11 @@ t_namespaced_bad_config_bulk_fix(TCConfig) when is_list(TCConfig) ->
             <<"ns1">> := #{<<"foo">> := #{<<"bar">> := 123}},
             <<"ns2">> := #{<<"foo">> := #{<<"bar">> := 123}}
         }},
-        emqx_mt_api_SUITE:bulk_transform_configs(#{
-            <<"namespaces">> => CorruptNamespaces,
-            <<"transformation">> => <<".foo.bar=123">>,
+        emqx_mt_api_SUITE:bulk_import_ns_configs(#{
+            <<"configs">> => apply_jq(
+                <<".foo.bar=123">>,
+                BadNssToConfigs
+            ),
             <<"dry_run">> => false
         })
     ),
