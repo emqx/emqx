@@ -48,8 +48,8 @@ init_per_suite(TCConfig) ->
         #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
     ),
     HelperCfg = [
-        {pgsql_host, "toxiproxy"},
-        {pgsql_port, 6432},
+        {postgres_host, "toxiproxy"},
+        {postgres_port, 6432},
         {enable_tls, false}
     ],
     emqx_bridge_pgsql_SUITE:connect_and_create_table(HelperCfg),
