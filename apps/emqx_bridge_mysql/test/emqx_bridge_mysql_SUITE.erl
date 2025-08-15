@@ -1048,53 +1048,29 @@ t_simple_sql_query(TCConfig) ->
     end,
     ok.
 
-t_update_with_invalid_prepare(Config) ->
-    ConnectorName = ?config(connector_name, Config),
-    BridgeName = ?config(action_name, Config),
-    {ok, _} = emqx_bridge_v2_testlib:create_bridge_api(Config),
-    %% arrivedx is a bad column name
-    BadSQL = <<
-        "INSERT INTO mqtt_test(payload, arrivedx) "
-        "VALUES (${payload}, FROM_UNIXTIME(${timestamp}/1000))"
-    >>,
-    Override = #{<<"parameters">> => #{<<"sql">> => BadSQL}},
-    {ok, {{_, 200, "OK"}, _Headers1, Body1}} =
-        emqx_bridge_v2_testlib:update_bridge_api(Config, Override),
-    ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
-    Error1 = maps:get(<<"error">>, Body1),
-    case re:run(Error1, <<"Unknown column">>, [{capture, none}]) of
-        match ->
-            ok;
-        nomatch ->
-            ct:fail(#{
-                expected_pattern => "undefined_column",
-                got => Error1
-            })
-    end,
-    %% assert that although there was an error returned, the invliad SQL is actually put
-    {200, Action} = get_action_api(Config),
-    #{<<"parameters">> := #{<<"sql">> := FetchedSQL}} = Action,
-    ?assertEqual(FetchedSQL, BadSQL),
-
-    %% update again with the original sql
-    {ok, {{_, 200, "OK"}, _Headers2, Body2}} =
-        emqx_bridge_v2_testlib:update_bridge_api(Config, #{}),
-    %% the error should be gone now, and status should be 'connected'
-    ?assertMatch(#{<<"error">> := <<>>, <<"status">> := <<"connected">>}, Body2),
-    %% finally check if ecpool worker should have exactly one of reconnect callback
-    ConnectorResId = <<"connector:mysql:", ConnectorName/binary>>,
-    Workers = ecpool:workers(ConnectorResId),
-    [_ | _] = WorkerPids = lists:map(fun({_, Pid}) -> Pid end, Workers),
-    lists:foreach(
-        fun(Pid) ->
-            [{emqx_mysql, prepare_sql_to_conn, Args}] =
-                ecpool_worker:get_reconnect_callbacks(Pid),
-            Sig = emqx_mysql:get_reconnect_callback_signature(Args),
-            BridgeResId = <<"action:mysql:", BridgeName/binary, $:, ConnectorResId/binary>>,
-            ?assertEqual(BridgeResId, Sig)
-        end,
-        WorkerPids
-    ),
+t_update_with_invalid_prepare(TCConfig) ->
+    Opts = #{
+        bad_sql =>
+            %% arrivedx is a bad column name
+            <<
+                "INSERT INTO mqtt_test(payload, arrivedx) "
+                "VALUES (${payload}, FROM_UNIXTIME(${timestamp}/1000))"
+            >>,
+        reconnect_cb => {emqx_mysql, prepare_sql_to_conn},
+        get_sig_fn => fun emqx_mysql:get_reconnect_callback_signature/1,
+        check_expected_error_fn => fun(Error) ->
+            case re:run(Error, <<"Unknown column">>, [{capture, none}]) of
+                match ->
+                    ok;
+                nomatch ->
+                    ct:fail(#{
+                        expected_pattern => "undefined_column",
+                        got => Error
+                    })
+            end
+        end
+    },
+    emqx_bridge_v2_testlib:t_update_with_invalid_prepare(TCConfig, Opts),
     ok.
 
 t_timeout_disconnected_then_recover() ->
