@@ -813,52 +813,28 @@ t_disable_prepared_statements(TCConfig) ->
     ok.
 
 t_update_with_invalid_prepare(TCConfig) ->
-    {201, _} = create_connector_api(TCConfig, #{}),
-    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
-    %% arrivedx is a bad column name
-    BadSQL = <<
-        "INSERT INTO mqtt_test(payload, arrivedx) "
-        "VALUES (${payload}, TO_TIMESTAMP((${timestamp} :: bigint)/1000))"
-    >>,
-    Overrides = #{<<"parameters">> => #{<<"sql">> => BadSQL}},
-    {200, Body1} = update_action_api(TCConfig, Overrides),
-    ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
-    Error1 = maps:get(<<"error">>, Body1),
-    case re:run(Error1, <<"undefined_column">>, [{capture, none}]) of
-        match ->
-            ok;
-        nomatch ->
-            ct:fail(#{
-                expected_pattern => "undefined_column",
-                got => Error1
-            })
-    end,
-    %% assert that although there was an error returned, the invliad SQL is actually put\
-    ?assertMatch(
-        {200, #{<<"parameters">> := #{<<"sql">> := BadSQL}}},
-        get_action_api(TCConfig)
-    ),
-
-    %% update again with the original sql
-    %% the error should be gone now, and status should be 'connected'
-    ?assertMatch(
-        {200, #{<<"status">> := <<"connected">>}},
-        update_action_api(TCConfig, #{})
-    ),
-    %% finally check if ecpool worker should have exactly one of reconnect callback
-    ConnectorResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
-    ActionResId = emqx_bridge_v2_testlib:resource_id(TCConfig),
-    Workers = ecpool:workers(ConnectorResId),
-    [_ | _] = WorkerPids = lists:map(fun({_, Pid}) -> Pid end, Workers),
-    lists:foreach(
-        fun(Pid) ->
-            [{emqx_postgresql, prepare_sql_to_conn, Args}] =
-                ecpool_worker:get_reconnect_callbacks(Pid),
-            Sig = emqx_postgresql:get_reconnect_callback_signature(Args),
-            ?assertEqual(ActionResId, Sig)
-        end,
-        WorkerPids
-    ),
+    Opts = #{
+        bad_sql =>
+            %% arrivedx is a bad column name
+            <<
+                "INSERT INTO mqtt_test(payload, arrivedx) "
+                "VALUES (${payload}, TO_TIMESTAMP((${timestamp} :: bigint)/1000))"
+            >>,
+        reconnect_cb => {emqx_postgresql, prepare_sql_to_conn},
+        get_sig_fn => fun emqx_postgresql:get_reconnect_callback_signature/1,
+        check_expected_error_fn => fun(Error) ->
+            case re:run(Error, <<"undefined_column">>, [{capture, none}]) of
+                match ->
+                    ok;
+                nomatch ->
+                    ct:fail(#{
+                        expected_pattern => "undefined_column",
+                        got => Error
+                    })
+            end
+        end
+    },
+    emqx_bridge_v2_testlib:t_update_with_invalid_prepare(TCConfig, Opts),
     ok.
 
 %% Checks that furnishing `epgsql' a value that cannot be encoded to a timestamp results
