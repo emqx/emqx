@@ -658,11 +658,13 @@ ranch_opts(ListenerId, Type, Opts = #{bind := ListenOn}) ->
     NumAcceptors = maps:get(acceptors, Opts, 4),
     MaxConnections = maps:get(max_connections, Opts, 1024),
     LimiterClient = emqx_limiter:create_listener_limiter_client(Zone, ListenerId),
+    Capacity = emqx_ranch_limiter:create_capacity(MaxConnections),
     Limiter =
         {emqx_ranch_limiter, #{
             listener => ListenerId,
             rate_limiter => LimiterClient,
-            max_connections => MaxConnections
+            max_connections => MaxConnections,
+            capacity => Capacity
         }},
     SocketOpts =
         case Type of
