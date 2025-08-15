@@ -1681,8 +1681,8 @@ t_on_get_status(Config, Opts) ->
     %% Since the connection process is async, we give it some time to
     %% stabilize and avoid flakiness.
     ?retry(
-        _Sleep = 1_000,
-        _Attempts = 20,
+        _Sleep = 200,
+        _Attempts = 100,
         ?assertEqual(
             {ok, NormalStatus},
             emqx_resource_manager:health_check(ResourceId),
@@ -1720,8 +1720,8 @@ t_on_get_status(Config, Opts) ->
             end),
             %% Check that it recovers itself.
             ?retry(
-                _Sleep = 1_000,
-                _Attempts = 20,
+                _Sleep = 200,
+                _Attempts = 100,
                 ?assertEqual({ok, NormalStatus}, emqx_resource_manager:health_check(ResourceId))
             )
     end,

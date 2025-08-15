@@ -100,7 +100,7 @@ init_per_group(?async, TCConfig) ->
 init_per_group(?sync, TCConfig) ->
     [{query_mode, sync} | TCConfig];
 init_per_group(?with_batch, TCConfig0) ->
-    [{batch_size, 100} | TCConfig0];
+    [{batch_size, 100}, {batch_time, <<"200ms">>} | TCConfig0];
 init_per_group(?without_batch, TCConfig0) ->
     [{batch_size, 1} | TCConfig0];
 init_per_group(_Group, TCConfig) ->
@@ -123,6 +123,7 @@ init_per_testcase(TestCase, TCConfig) ->
         <<"connector">> => ConnectorName,
         <<"resource_opts">> => #{
             <<"batch_size">> => get_config(batch_size, TCConfig, 1),
+            <<"batch_time">> => get_config(batch_time, TCConfig, <<"0ms">>),
             <<"query_mode">> => get_config(query_mode, TCConfig, <<"sync">>)
         }
     }),
@@ -290,8 +291,9 @@ get_connector_api(Config) ->
     ).
 
 get_action_api(TCConfig) ->
-    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
-    emqx_bridge_v2_testlib:get_bridge__api(action, Type, Name).
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_action_api(TCConfig)
+    ).
 
 probe_action_api(TCConfig, Overrides) ->
     #{
@@ -1070,8 +1072,7 @@ t_update_with_invalid_prepare(Config) ->
             })
     end,
     %% assert that although there was an error returned, the invliad SQL is actually put
-    C1 = [{action_name, BridgeName}, {action_type, mysql} | Config],
-    {ok, {{_, 200, "OK"}, _, Action}} = emqx_bridge_v2_testlib:get_action_api(C1),
+    {200, Action} = get_action_api(Config),
     #{<<"parameters">> := #{<<"sql">> := FetchedSQL}} = Action,
     ?assertEqual(FetchedSQL, BadSQL),
 
