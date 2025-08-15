@@ -112,6 +112,9 @@
     namespaced_config_allowed_roots/0
 ]).
 
+%% Internal exports for `emqx_mt` application.
+-export([check_config_namespaced/4]).
+
 -ifdef(TEST).
 -export([erase_all/0, backup_and_write/2, cluster_hocon_file/0, base_hocon_file/0]).
 -export([
@@ -681,7 +684,7 @@ do_load_namespaced_config(SchemaMod, AllowedNSRoots, Namespace, RootKeyBin) ->
     [#?CONFIG_TAB{raw_value = RawConf0}] = mnesia:dirty_read(?CONFIG_TAB, Key),
     RootKeyAtom = atom(RootKeyBin),
     RawConf = #{RootKeyBin => RawConf0},
-    case check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) of
+    case check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots, atom) of
         {ok, #{} = CheckedRoot} ->
             CheckedConf = maps:get(RootKeyAtom, CheckedRoot, #{}),
             clear_invalid_namespaced_config(Namespace, RootKeyBin),
@@ -819,13 +822,23 @@ do_check_config(SchemaMod, RawConf, Opts0) ->
         hocon_tconf:map_translate(SchemaMod, RawConf, Opts),
     {AppEnvs, unsafe_atom_checked_hocon_key_map(CheckedConf)}.
 
-check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) ->
-    Opts = #{return_plain => true, format => map, required => false},
+check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots, KeyType) ->
+    Opts0 = #{return_plain => true, format => map, required => false},
     Roots0 = [R || {R, _} <- hocon_schema:roots(SchemaMod)],
     Roots = lists:filter(fun(R) -> lists:member(R, AllowedNSRoots) end, Roots0),
-    try hocon_tconf:check_plain(SchemaMod, RawConf, Opts, Roots) of
-        CheckedConf ->
-            {ok, unsafe_atom_checked_hocon_key_map(CheckedConf)}
+    try hocon_tconf:check_plain(SchemaMod, RawConf, Opts0, Roots) of
+        CheckedConf when KeyType == atom ->
+            {ok, unsafe_atom_checked_hocon_key_map(CheckedConf)};
+        _CheckedConf when KeyType == binary ->
+            %% We can't give `check_plain` `make_serializable` before because it might
+            %% make some validations to be ignored.
+            CheckedConf = hocon_tconf:check_plain(
+                SchemaMod,
+                RawConf,
+                Opts0#{make_serializable => true},
+                Roots
+            ),
+            {ok, CheckedConf}
     catch
         throw:{SchemaMod, Errors} ->
             {error, Errors}

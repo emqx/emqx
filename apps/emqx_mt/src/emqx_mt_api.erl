@@ -14,6 +14,7 @@
 -export([
     namespace/0,
     api_spec/0,
+    check_api_schema/2,
     fields/1,
     paths/0,
     schema/1
@@ -26,6 +27,8 @@
     '/mt/managed_ns_list'/2,
     '/mt/managed_ns_list_details'/2,
     '/mt/bulk_import_configs'/2,
+    '/mt/bulk_export_ns_configs'/2,
+    '/mt/bulk_import_ns_configs'/2,
     '/mt/bulk_delete_ns'/2,
     '/mt/ns/:ns'/2,
     '/mt/ns/:ns/config'/2,
@@ -49,8 +52,13 @@ namespace() -> "mt".
 api_spec() ->
     emqx_dashboard_swagger:spec(
         ?MODULE,
-        #{check_schema => true, translate_body => {true, atom_keys}}
+        #{check_schema => fun ?MODULE:check_api_schema/2}
     ).
+
+check_api_schema(Req, #{path := "/mt/bulk_import_ns_configs"} = Meta) ->
+    emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(Req, Meta);
+check_api_schema(Req, Meta) ->
+    emqx_dashboard_swagger:filter_check_request_and_translate_body_atom_keys(Req, Meta).
 
 paths() ->
     [
@@ -64,6 +72,8 @@ paths() ->
         "/mt/ns/:ns/config",
         "/mt/ns/:ns/kick_all_clients",
         "/mt/bulk_import_configs",
+        "/mt/bulk_export_ns_configs",
+        "/mt/bulk_import_ns_configs",
         "/mt/bulk_delete_ns"
     ].
 
@@ -291,6 +301,50 @@ schema("/mt/bulk_import_configs") ->
                 }
         }
     };
+schema("/mt/bulk_export_ns_configs") ->
+    #{
+        'operationId' => '/mt/bulk_export_ns_configs',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Export multiple namespaced configurations">>,
+            description => ?DESC("bulk_export_ns_configs"),
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(bulk_export_ns_configs_in),
+                example_bulk_export_ns_configs_in()
+            ),
+            responses =>
+                #{
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            map(),
+                            example_bulk_export_ns_configs_out()
+                        ),
+                    400 => error_schema('BAD_REQUEST', ?DESC("bulk_config_bad_request"))
+                }
+        }
+    };
+schema("/mt/bulk_import_ns_configs") ->
+    #{
+        'operationId' => '/mt/bulk_import_ns_configs',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"Import multiple namespaced configurations">>,
+            description => ?DESC("bulk_import_ns_configs"),
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                ref(bulk_import_ns_configs_in),
+                example_bulk_import_ns_configs_in()
+            ),
+            responses =>
+                #{
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            map(),
+                            example_bulk_export_ns_configs_out()
+                        ),
+                    400 => error_schema('BAD_REQUEST', ?DESC("bulk_config_bad_request"))
+                }
+        }
+    };
 schema("/mt/bulk_delete_ns") ->
     #{
         'operationId' => '/mt/bulk_delete_ns',
@@ -382,6 +436,15 @@ fields(bulk_config_in) ->
         {ns, mk(binary(), #{})},
         {config, mk(ref(config_in), #{})}
     ];
+fields(bulk_export_ns_configs_in) ->
+    [
+        {namespaces, mk(hoconsc:array(binary()), #{required => true})}
+    ];
+fields(bulk_import_ns_configs_in) ->
+    [
+        {configs, mk(hoconsc:map(name, map()), #{required => true})},
+        {dry_run, mk(boolean(), #{required => true})}
+    ];
 fields(bulk_delete_ns_in) ->
     [
         {nss, mk(hoconsc:array(binary()), #{})}
@@ -403,9 +466,12 @@ fields(ns_with_details_out) ->
         {created_at, mk(integer(), #{})}
     ].
 
-error_schema(Code, Message) ->
+error_schema(Code, Message) when is_list(Message) ->
     BinMsg = unicode:characters_to_binary(Message),
-    emqx_dashboard_swagger:error_codes([Code], BinMsg).
+    emqx_dashboard_swagger:error_codes([Code], BinMsg);
+error_schema(Code, MessageRef) ->
+    %% ?DESC(...)
+    emqx_dashboard_swagger:error_codes([Code], MessageRef).
 
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' handlers
@@ -469,6 +535,12 @@ error_schema(Code, Message) ->
 
 '/mt/bulk_import_configs'(post, #{body := Params}) ->
     handle_bulk_import_configs(Params).
+
+'/mt/bulk_export_ns_configs'(post, #{body := Params}) ->
+    handle_bulk_export_ns_configs(Params).
+
+'/mt/bulk_import_ns_configs'(post, #{body := Params}) ->
+    handle_bulk_import_ns_configs(Params).
 
 '/mt/ns/:ns/kick_all_clients'(post, #{bindings := #{ns := Ns}}) ->
     with_known_ns(Ns, fun() -> handle_kick_all_clients(Ns) end).
@@ -545,6 +617,43 @@ handle_bulk_import_configs(Entries) ->
                 lists:join(<<", ">>, Duplicated)
             ]),
             ?BAD_REQUEST(Msg);
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
+    end.
+
+handle_bulk_export_ns_configs(Params) ->
+    #{namespaces := Namespaces} = Params,
+    maybe
+        ok ?= validate_namespaces_existence(Namespaces),
+        ConfigsOut =
+            lists:foldl(
+                fun(Namespace, Acc) ->
+                    ConfigOut = emqx_config:get_all_roots_from_namespace(Namespace),
+                    Acc#{Namespace => ConfigOut}
+                end,
+                #{},
+                Namespaces
+            ),
+        ?OK(ConfigsOut)
+    else
+        {error, #{reason := Reason} = Details0} ->
+            Details = maps:remove(reason, Details0),
+            ?BAD_REQUEST_MAP(Reason, Details);
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
+    end.
+
+handle_bulk_import_ns_configs(Params) ->
+    #{<<"configs">> := NssToConfigs} = Params,
+    Namespaces = maps:keys(NssToConfigs),
+    maybe
+        ok ?= validate_namespaces_existence(Namespaces),
+        {ok, ConfigsOut} ?= do_bulk_import_ns_configs(NssToConfigs, Params),
+        ?OK(ConfigsOut)
+    else
+        {error, #{reason := Reason} = Details0} ->
+            Details = maps:remove(reason, Details0),
+            ?BAD_REQUEST_MAP(Reason, Details);
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
     end.
@@ -675,6 +784,34 @@ example_bulk_configs_in() ->
             ]
     }.
 
+example_bulk_export_ns_configs_in() ->
+    #{
+        <<"bulk_export_ns_configs">> =>
+            #{
+                <<"namespaces">> => [<<"ns1">>, <<"ns2">>]
+            }
+    }.
+
+example_bulk_export_ns_configs_out() ->
+    #{
+        <<"bulk_export_ns_configs">> =>
+            #{
+                <<"ns1">> => #{<<"foo">> => <<"bar">>},
+                <<"ns2">> => #{<<"foo">> => <<"bar">>}
+            }
+    }.
+
+example_bulk_import_ns_configs_in() ->
+    #{
+        <<"bulk_import_ns_configs">> =>
+            #{
+                <<"configs">> => #{
+                    <<"ns1">> => #{<<"foo">> => <<"bar">>},
+                    <<"ns2">> => #{<<"foo">> => <<"bar">>}
+                }
+            }
+    }.
+
 example_bulk_delete_ns_in() ->
     #{
         <<"bulk_delete_ns">> =>
@@ -746,6 +883,65 @@ undefined_to_null(undefined) ->
     null;
 undefined_to_null(X) ->
     X.
+
+validate_namespaces_existence(Namespaces) ->
+    UnknownNss = lists:filter(
+        fun(Ns) -> not emqx_mt_config:is_known_managed_ns(Ns) end,
+        Namespaces
+    ),
+    case UnknownNss of
+        [] ->
+            ok;
+        _ ->
+            {error, #{reason => <<"unknown_namespaces">>, unknown => UnknownNss}}
+    end.
+
+do_bulk_import_ns_configs(NssToConfigs, Params) ->
+    #{<<"dry_run">> := IsDryRun} = Params,
+    SchemaMod = emqx_conf:schema_module(),
+    AllowedNSRoots = maps:keys(emqx_config:namespaced_config_allowed_roots()),
+    {ConfigsOut, Errors} = maps:fold(
+        fun(Namespace, ConfigIn, {OkAcc, ErrAcc}) ->
+            OldConfig = emqx_config:get_all_roots_from_namespace(Namespace),
+            maybe
+                {ok, ConfigOut} ?= check_namespaced_config(SchemaMod, ConfigIn, AllowedNSRoots),
+                ok ?= save_config(IsDryRun, Namespace, ConfigOut, OldConfig),
+                {OkAcc#{Namespace => ConfigOut}, ErrAcc}
+            else
+                {error, Reason} ->
+                    {OkAcc, ErrAcc#{Namespace => Reason}}
+            end
+        end,
+        {#{}, #{}},
+        NssToConfigs
+    ),
+    case map_size(Errors) == 0 of
+        true ->
+            {ok, ConfigsOut};
+        false ->
+            {error, #{reason => <<"errors_importing_configurations">>, errors => Errors}}
+    end.
+
+check_namespaced_config(SchemaMod, Config, AllowedNSRoots) ->
+    maybe
+        {error, Errors} ?=
+            emqx_config:check_config_namespaced(SchemaMod, Config, AllowedNSRoots, binary),
+        {error, #{reason => <<"bad_resulting_configuration">>, details => Errors}}
+    end.
+
+save_config(_IsDryRun = true, _Namespace, _NewConfig, _OldConfig) ->
+    ok;
+save_config(_IsDryRun = false, Namespace, NewConfig0, OldConfig) ->
+    #{added := Added, changed := Changed0} =
+        emqx_utils_maps:diff_maps(NewConfig0, OldConfig),
+    Changed = maps:map(fun(_K, {_, V}) -> V end, Changed0),
+    NewConfig = maps:merge(Added, Changed),
+    maps:foreach(
+        fun(RootKey, Config) ->
+            {ok, _} = emqx:update_config([RootKey], Config, #{namespace => Namespace})
+        end,
+        NewConfig
+    ).
 
 with_known_managed_ns(Ns, Fn) ->
     case emqx_mt_config:is_known_managed_ns(Ns) of
