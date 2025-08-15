@@ -141,6 +141,10 @@ init(_) ->
 
 handle_continue({build_serdes, Schemas}, State) ->
     do_build_serdes(Schemas),
+    {noreply, State, {continue, load_external_registries}};
+handle_continue(load_external_registries, State) ->
+    do_load_external_registries(),
+    ?tp("external_registries_loaded", #{}),
     {noreply, State}.
 
 handle_call(_Call, _From, State) ->
@@ -186,6 +190,27 @@ do_build_serdes(Schemas) ->
     %% different serde to avoid duplicate work.  Maybe ekka_locker?
     maps:foreach(fun do_build_serde/2, Schemas),
     ?tp(schema_registry_serdes_built, #{}).
+
+%% Async load external registries during node start up.
+do_load_external_registries() ->
+    maps:foreach(
+        fun(Name, RegistryRaw) ->
+            case emqx_schema_registry_config:upsert_external_registry(Name, RegistryRaw) of
+                {ok, _} ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(
+                        error,
+                        #{
+                            msg => "error_loading_external_registry",
+                            name => Name,
+                            error => Reason
+                        }
+                    )
+            end
+        end,
+        emqx_schema_registry_config:list_external_registries_raw()
+    ).
 
 maybe_build_sparkplug_b_serde() ->
     case get_schema(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME) of
