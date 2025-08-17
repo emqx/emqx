@@ -1032,10 +1032,12 @@ commit_tx(DB, TxContext, TxOps) ->
     ?module(DB):commit_tx(DB, TxContext, TxOps).
 
 -doc """
-
 Process asynchronous DS transaction commit reply and return
 the outcome of commit.
 
+WARNING: the process that created an async transaction MUST call this
+function eventually. It may release some objects created for handling
+the transaction that may leak otherwise.
 """.
 -spec tx_commit_outcome(db(), reference(), term()) ->
     commit_result().

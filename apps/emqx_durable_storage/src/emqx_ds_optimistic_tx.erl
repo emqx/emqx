@@ -164,6 +164,8 @@
 
 -define(ds_tx_monotonic_ts, ds_tx_monotonic_ts).
 
+-define(tx_timeout_tref, emqx_ds_optimistic_tx_timeout_tref).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -220,6 +222,7 @@ commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
     %% track the pending transactions and ignore unexpected commit
     %% notifications.
     TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
+    put({?tx_timeout_tref, Ref}, TRef),
     gen_statem:cast(Leader, #ds_tx{
         ctx = Ctx, ops = Ops, from = self(), ref = Ref, meta = TRef
     }),
@@ -228,18 +231,16 @@ commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
 -spec tx_commit_outcome(term()) -> {ok, emqx_ds:tx_serial()} | emqx_ds:error(_).
 tx_commit_outcome(Reply) ->
     case Reply of
-        ?ds_tx_commit_ok(Ref, TRef, Serial) ->
+        ?ds_tx_commit_ok(Ref, _Meta, Serial) ->
             demonitor(Ref, [flush]),
-            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+            cancel_tx_timeout_timer(Ref),
             {ok, Serial};
-        ?ds_tx_commit_error(Ref, TRef, Class, Info) ->
+        ?ds_tx_commit_error(Ref, _Meta, Class, Info) ->
             demonitor(Ref, [flush]),
-            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+            cancel_tx_timeout_timer(Ref),
             {error, Class, Info};
-        {'DOWN', _Ref, Type, Object, Info} ->
-            %% This is likely a real monitor message. It doesn't contain TRef,
-            %% so the caller will receive the timeout message after the fact.
-            %% There's not much we can do about it.
+        {'DOWN', Ref, Type, Object, Info} ->
+            cancel_tx_timeout_timer(Ref),
             ?err_rec({Type, Object, Info})
     end.
 
@@ -710,6 +711,20 @@ reply_error(From, Ref, Meta, Class, Error) ->
             ok;
         undefined ->
             ok
+    end.
+
+cancel_tx_timeout_timer(Ref) ->
+    case erase({?tx_timeout_tref, Ref}) of
+        undefined ->
+            ok;
+        TRef when is_reference(TRef) ->
+            _ = erlang:cancel_timer(TRef),
+            receive
+                {'DOWN', Ref, _Type, _Obj, commit_timeout} ->
+                    ok
+            after 0 ->
+                ok
+            end
     end.
 
 %%================================================================================
