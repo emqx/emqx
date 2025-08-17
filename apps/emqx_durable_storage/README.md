@@ -7,9 +7,16 @@ This makes the storage disk requirements very predictable: only the number of _p
 
 # Features
 
-## Callback modules
+## Utility modules
 
-### Backend
+Business logic is advised to use utility modules provided by this application:
+
+- `emqx_ds_client` for consuming stream-like data
+- `emqx_ds_pmap` for key-value data
+
+## Backends
+
+### Backend behavior
 
 DS _backend_ is a callback module that implements `emqx_ds` behavior.
 
@@ -52,7 +59,6 @@ Messages are organized in the following hierarchy:
    In fact, in order to change the layout of the data the application must create a new generation, so the previously recorded messages remain readable without having to perform a heavy migration procedure.
    Generations can also be used for the garbage collection and message retention policies: since all messages in the generation belong to a certain interval of time, old messages can be efficiently deleted by dropping the entire generation.
 
-
 4. *Stream*.
    Finally, messages in each shard and generation are split into streams.
    Every stream can contain messages from multiple topics.
@@ -67,6 +73,8 @@ Messages are organized in the following hierarchy:
 
 `emqx_ds` provides `store_batch/3` function that saves a list of MQTT messages to the durable storage.
 
+Additionally, `trans/2` function can be used to perform multiple read and write operations atomically.
+
 ## Message replay
 
 All the API functions in EMQX DS are batch-oriented.
@@ -75,17 +83,16 @@ Consumption of messages is done in several stages:
 
 1. The consumer calls `emqx_ds:get_streams` function to get the list of streams that contain messages from a given topic filter, and a given time range.
 
-2. `get_streams` returns the list of streams together with their _ranks_.
-   The rank of the stream is a tuple with two elements, called `X` and `Y`.
+2. `get_streams` returns the list of streams together with their shards and generations.
 
    The consumer must follow the below rules to avoid reordering of the messages:
 
-   - Streams with different `X`-ranks can always be replayed in parallel, regardless of their `Y`-rank.
-   - Streams with the same `X` and `Y`-rank can be replayed in parallel.
-   - Groups of streams with the same `X` rank should be replayed in order of their `Y`-rank
+   - Streams from different shards can always be replayed in parallel, regardless of their generation.
+   - Streams from the same shard and generation can be replayed in parallel.
+   - Groups of streams with the same shard should be replayed in order of their generation.
 
 3. In order to start replay of the stream, the consumer calls `emqx_ds:make_iterator` function that returns an _iterator_ object.
-   Iterators are the pointers to a particular position in the stream, they can be saved and restored as regular Erlang terms.
+   Iterators are the pointers to a particular position in the stream, they can be saved and restored as regular Erlang terms or using `emqx_ds:iterator_to_binary` function.
 
 4. The consumer then proceeds to call `emqx_ds:next` function to fetch messages.
    - If this function returns `{ok, end_of_stream}`, it means the stream is fully replayed.
@@ -95,20 +102,20 @@ Consumption of messages is done in several stages:
    It cannot rely on an assumption that it can reach the end of a stream in a finite time.
 
 5. The consumer must periodically refresh the list of streams as explained in 1, because new streams can appear from time to time.
+   `emqx_ds_new_streams` allows to subscribe to new stream events.
+
+## Subscriptions
+
+EMQX DS allows to subscribe to new messages.
+It's best done using `emqx_ds_client` module that automates stream management, creation of iterators, advancement of generations and error handling.
 
 # Limitation
-
-- There is no local cache of messages, which may result in transferring the same data multiple times
 
 # Documentation links
 
 https://docs.emqx.com/en/enterprise/latest/durability/durability_introduction.html
 
 # Usage
-
-Currently it's only used to implement persistent sessions.
-
-In the future it can serve as a storage for retained messages or as a generic message buffering layer for the bridges.
 
 # Configurations
 
