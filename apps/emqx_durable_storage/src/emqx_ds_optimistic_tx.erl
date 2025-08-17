@@ -28,6 +28,7 @@
     start_link/3,
 
     where/2,
+    global/2,
 
     new_kv_tx_ctx/5,
     commit_kv_tx/3,
@@ -166,6 +167,8 @@
 
 -define(tx_timeout_tref, emqx_ds_optimistic_tx_timeout_tref).
 
+-define(global(DB, SHARD), {?MODULE, DB, SHARD}).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -173,6 +176,10 @@
 -spec where(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 where(DB, Shard) ->
     gproc:where(?name(DB, Shard)).
+
+-spec global(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
+global(DB, Shard) ->
+    global:whereis_name(?global(DB, Shard)).
 
 -spec start_link(emqx_ds:db(), emqx_ds:shard(), module()) -> {ok, pid()}.
 start_link(DB, Shard, CBM) ->
@@ -211,22 +218,23 @@ new_kv_tx_ctx(CBM, DB, Shard, Generation0, Opts) ->
             ?err_rec(leader_down)
     end.
 
-commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
+commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}, shard = Shard}, Ops) ->
     ?tp(emqx_ds_optimistic_tx_commit_begin, #{db => DB, ctx => Ctx, ops => Ops}),
-    #kv_tx_ctx{leader = Leader} = Ctx,
-    Ref = monitor(process, Leader),
-    %% Note: currently timer is not canceled when commit abort is
-    %% signalled via the monitor message (i.e. when the leader process
-    %% is down). In this case the caller _will_ receive double `DOWN'.
-    %% There's no trivial way to fix it. It's up to the client to
-    %% track the pending transactions and ignore unexpected commit
-    %% notifications.
-    TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
-    put({?tx_timeout_tref, Ref}, TRef),
-    gen_statem:cast(Leader, #ds_tx{
-        ctx = Ctx, ops = Ops, from = self(), ref = Ref, meta = TRef
-    }),
-    Ref.
+    case global(DB, Shard) of
+        Leader when is_pid(Leader) ->
+            #kv_tx_ctx{} = Ctx,
+            Ref = monitor(process, Leader),
+            TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
+            put({?tx_timeout_tref, Ref}, TRef),
+            gen_statem:cast(Leader, #ds_tx{
+                ctx = Ctx, ops = Ops, from = self(), ref = Ref, meta = TRef
+            }),
+            Ref;
+        undefined ->
+            Ref = make_ref(),
+            self() ! ?ds_tx_commit_error(Ref, undefined, recoverable, leader_down),
+            Ref
+    end.
 
 -spec tx_commit_outcome(term()) -> {ok, emqx_ds:tx_serial()} | emqx_ds:error(_).
 tx_commit_outcome(Reply) ->
@@ -340,6 +348,8 @@ handle_event(ET, Event, State, _D) ->
 async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
     maybe
         {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
+        global:unregister_name(?global(DB, Shard)),
+        yes = global:register_name(?global(DB, Shard), self()),
         %% Issue a dummy transaction to trigger metadata update:
         ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
@@ -421,8 +431,9 @@ try_commit(
         meta = Meta
     } = Tx,
     Ops = preprocess_ops(PresumedCommitSerial, Ops0),
-    #kv_tx_ctx{serial = TxStartSerial} = Ctx,
+    #kv_tx_ctx{serial = TxStartSerial, leader = TxLeader} = Ctx,
     maybe
+        ok ?= check_tx_leader(TxLeader),
         ok ?= check_latest_generation(CBM, DBShard, Ctx),
         ok ?= check_conflicts(DirtyW0, DirtyD0, TxStartSerial, SafeToReadSerial, Ops),
         ok ?= verify_preconditions(DBShard, CBM, Gen, Ops),
@@ -447,6 +458,17 @@ try_commit(
             ),
             reply_error(From, Ref, Meta, Class, Error),
             aborted
+    end.
+
+-doc """
+Check that the transaction was created while this process was the leader.
+""".
+check_tx_leader(TxLeader) ->
+    case self() of
+        TxLeader ->
+            ok;
+        _ ->
+            ?err_rec({leader_conflict, TxLeader, self()})
     end.
 
 check_latest_generation(_, _, #kv_tx_ctx{latest_generation = false}) ->
