@@ -10,10 +10,6 @@ Main interface module for `emqx_durable_storage' application.
 It takes care of forwarding calls to the underlying DBMS.
 """.
 
--include_lib("emqx_durable_storage/include/emqx_ds.hrl").
--include_lib("snabbkaffe/include/trace.hrl").
--include("emqx_ds_builtin_tx.hrl").
-
 %% Management API:
 -export([
     register_backend/2,
@@ -77,7 +73,9 @@ It takes care of forwarding calls to the underlying DBMS.
     stream_to_binary/2,
     binary_to_stream/2,
     iterator_to_binary/2,
-    binary_to_iterator/2
+    binary_to_iterator/2,
+    multi_iterator_to_binary/1,
+    binary_to_multi_iterator/1
 ]).
 
 %% Utility functions:
@@ -155,6 +153,11 @@ It takes care of forwarding calls to the underlying DBMS.
     multi_iterator/0,
     multi_iter_opts/0
 ]).
+
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_ds_builtin_tx.hrl").
+-include("../gen_src/DSBuiltinMetadata.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -496,12 +499,10 @@ Options for the `subscribe` API.
 
 -type fold_result(R) :: {R, [fold_error()]} | R.
 
--record(m_iter, {
+-opaque multi_iterator() :: #'MultiIterator'{
     stream :: stream(),
-    it :: iterator()
-}).
-
--type multi_iterator() :: #m_iter{}.
+    iterator :: iterator()
+}.
 
 -type multi_iter_opts() ::
     #{
@@ -1348,6 +1349,23 @@ iterator_to_binary(DB, Iterator) ->
 binary_to_iterator(DB, Iterator) ->
     ?module(DB):binary_to_iterator(DB, Iterator).
 
+-doc """
+Serialize multi_iterator to a compact binary representation.
+
+Note: currently this function is implemented only for TTV databases.
+""".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec multi_iterator_to_binary(multi_iterator() | end_of_stream) ->
+    {ok, binary()} | {error, _}.
+multi_iterator_to_binary(It = #'MultiIterator'{}) ->
+    'DSBuiltinMetadata':encode('MultiIterator', It).
+
+-doc "De-serialize a binary produced by `multi_iterator_to_binary/1`.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec binary_to_multi_iterator(binary()) -> {ok, multi_iterator()} | {error, _}.
+binary_to_multi_iterator(Bin) ->
+    'DSBuiltinMetadata':decode('MultiIterator', Bin).
+
 -doc "Restart the transaction.".
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
 -spec reset_trans(term()) -> no_return().
@@ -1574,7 +1592,7 @@ create the iterator.
     pos_integer()
 ) ->
     {[payload()], multi_iterator() | '$end_of_table'}.
-multi_iterator_next(UserOpts, TF, It = #m_iter{}, N) ->
+multi_iterator_next(UserOpts, TF, It = #'MultiIterator'{}, N) ->
     do_multi_iterator_next(multi_iter_opts(UserOpts), TF, It, N, []);
 multi_iterator_next(_, _, '$end_of_table', _) ->
     {[], '$end_of_table'}.
@@ -1862,7 +1880,9 @@ do_multi_iterator_next(_Opts, _TF, '$end_of_table', _N, Acc) ->
     {Acc, '$end_of_table'};
 do_multi_iterator_next(_Opts, _TF, MIt, N, Acc) when N =< 0 ->
     {Acc, MIt};
-do_multi_iterator_next(Opts = #{db := DB}, TF, MIt0 = #m_iter{it = It0, stream = Stream}, N, Acc0) ->
+do_multi_iterator_next(
+    Opts = #{db := DB}, TF, MIt0 = #'MultiIterator'{iterator = It0, stream = Stream}, N, Acc0
+) ->
     Result = next(DB, It0, N),
     Len =
         case Result of
@@ -1873,7 +1893,7 @@ do_multi_iterator_next(Opts = #{db := DB}, TF, MIt0 = #m_iter{it = It0, stream =
         end,
     case Result of
         {ok, It, Batch} when Len >= N ->
-            {Acc0 ++ Batch, MIt0#m_iter{it = It}};
+            {Acc0 ++ Batch, MIt0#'MultiIterator'{iterator = It}};
         Other ->
             Acc =
                 case Other of
@@ -1915,7 +1935,7 @@ do_multi_iter_make_it(_Opts, _TopicFilter, '$end_of_table') ->
     '$end_of_table';
 do_multi_iter_make_it(#{db := DB, start_time := StartTime}, TopicFilter, {ok, Stream}) ->
     {ok, It} = make_iterator(DB, Stream, TopicFilter, StartTime),
-    #m_iter{
+    #'MultiIterator'{
         stream = Stream,
-        it = It
+        iterator = It
     }.
