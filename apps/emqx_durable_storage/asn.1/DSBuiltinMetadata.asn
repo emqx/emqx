@@ -33,4 +33,9 @@ BEGIN
     endOfStream NULL,
     value Iterator
   }
+
+  MultiIterator ::= SEQUENCE {
+    stream Stream,
+    iterator Iterator
+  }
 END
