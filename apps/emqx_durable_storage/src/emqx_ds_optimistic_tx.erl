@@ -165,7 +165,13 @@
 
 -define(ds_tx_monotonic_ts, ds_tx_monotonic_ts).
 
--define(tx_timeout_tref, emqx_ds_optimistic_tx_timeout_tref).
+%% Entry that is stored in the process dictionary of a process that
+%% initiated commit of the transaction:
+-record(client_pending_commit, {
+    timeout_tref :: reference(),
+    alias :: reference()
+}).
+-define(pending_commit, emqx_ds_optimistic_tx_pending_commit).
 
 -define(global(DB, SHARD), {?MODULE, DB, SHARD}).
 
@@ -225,14 +231,18 @@ commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}, shard = Shard}, 
             #kv_tx_ctx{} = Ctx,
             Ref = monitor(process, Leader),
             TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
-            put({?tx_timeout_tref, Ref}, TRef),
+            Alias = erlang:alias([reply]),
+            put({?pending_commit, Ref}, #client_pending_commit{
+                timeout_tref = TRef,
+                alias = Alias
+            }),
             gen_statem:cast(Leader, #ds_tx{
-                ctx = Ctx, ops = Ops, from = self(), ref = Ref, meta = TRef
+                ctx = Ctx, ops = Ops, from = Alias, ref = Ref, meta = TRef
             }),
             Ref;
         undefined ->
             Ref = make_ref(),
-            self() ! ?ds_tx_commit_error(Ref, undefined, recoverable, leader_down),
+            self() ! ?ds_tx_commit_error(Ref, undefined, recoverable, leader_unavailable),
             Ref
     end.
 
@@ -240,15 +250,13 @@ commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}, shard = Shard}, 
 tx_commit_outcome(Reply) ->
     case Reply of
         ?ds_tx_commit_ok(Ref, _Meta, Serial) ->
-            demonitor(Ref, [flush]),
-            cancel_tx_timeout_timer(Ref),
+            client_post_commit_cleanup(Ref),
             {ok, Serial};
         ?ds_tx_commit_error(Ref, _Meta, Class, Info) ->
-            demonitor(Ref, [flush]),
-            cancel_tx_timeout_timer(Ref),
+            client_post_commit_cleanup(Ref),
             {error, Class, Info};
         {'DOWN', Ref, Type, Object, Info} ->
-            cancel_tx_timeout_timer(Ref),
+            client_post_commit_cleanup(Ref),
             ?err_rec({Type, Object, Info})
     end.
 
@@ -735,18 +743,24 @@ reply_error(From, Ref, Meta, Class, Error) ->
             ok
     end.
 
-cancel_tx_timeout_timer(Ref) ->
-    case erase({?tx_timeout_tref, Ref}) of
+client_post_commit_cleanup(Ref) ->
+    demonitor(Ref),
+    case erase({?pending_commit, Ref}) of
         undefined ->
             ok;
-        TRef when is_reference(TRef) ->
-            _ = erlang:cancel_timer(TRef),
-            receive
-                {'DOWN', Ref, _Type, _Obj, commit_timeout} ->
-                    ok
-            after 0 ->
-                ok
-            end
+        #client_pending_commit{timeout_tref = TRef, alias = Alias} ->
+            _ = erlang:unalias(Alias),
+            _ = is_reference(TRef) andalso erlang:cancel_timer(TRef),
+            ok
+    end,
+    flush_messages(Ref).
+
+flush_messages(Ref) ->
+    receive
+        {'DOWN', Ref, _Type, _Obj, _Info} ->
+            flush_messages(Ref)
+    after 0 ->
+        ok
     end.
 
 %%================================================================================
