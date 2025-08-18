@@ -29,6 +29,10 @@
     code_change/3
 ]).
 
+-export([
+    authns/2
+]).
+
 -record(state, {
     name :: gateway_name(),
     config :: emqx_config:config(),
@@ -204,7 +208,6 @@ handle_info(Info, State) ->
 
 terminate(_Reason, State = #state{child_pids = Pids}) ->
     Pids /= [] andalso (_ = cb_gateway_unload(State)),
-    _ = remove_all_authns(State),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -263,26 +266,6 @@ ensure_authn_running(#state{name = GwName, config = Config}, Enable) ->
 %% temporarily disable authenticators after gateway disabled
 disable_authns(State) ->
     ensure_authn_running(State, false).
-
-%% remove all authns if gateway unloaded
-remove_all_authns(#state{name = GwName, config = Config}) ->
-    lists:foreach(
-        fun({ChainName, _}) ->
-            case emqx_authn_chains:delete_chain(ChainName) of
-                ok ->
-                    ok;
-                {error, {not_found, _}} ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "failed_to_clean_authn_chain",
-                        chain_name => ChainName,
-                        reason => Reason
-                    })
-            end
-        end,
-        authns(GwName, Config)
-    ).
 
 ensure_authenticator_created(ChainName, Confs) ->
     case emqx_authn_chains:list_authenticators(ChainName) of

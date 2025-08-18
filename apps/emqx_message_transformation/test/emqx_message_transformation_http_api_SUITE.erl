@@ -2130,3 +2130,28 @@ t_many_transformations_order(_Config) ->
     Topic = <<"t/a">>,
     ?assertIndexOrder(Names, Topic),
     ok.
+
+%% Original issue: https://emqx.atlassian.net/browse/EMQX-14604
+t_delete_then_disable(_TCConfig) ->
+    %% 1) Create two enabled MTs/SVs (no need to have overlapping topics).
+    Name1 = <<"will_be_deleted">>,
+    Transformation1 = transformation(Name1, [dummy_operation()]),
+    {201, _} = insert(Transformation1),
+    Name2 = <<"will_be_disabled">>,
+    Transformation2 = transformation(Name2, [dummy_operation()], #{
+        <<"topics">> => [<<"u/+">>]
+    }),
+    {201, _} = insert(Transformation2),
+    %% 2) Delete MT/SV no. 1.  This will make no. 2 become no. 1.
+    {204, _} = delete(Name1),
+    %% 3) Disable the new no. 1 (previous no. 2).
+    {204, _} = disable(Name2),
+    %% 4) Original problem: metrics keep increasing (topic index is corrupt and still
+    %% triggers the MT/SV).
+    Topic = <<"u/1">>,
+    ?assertIndexOrder([], Topic),
+    C = connect(<<"c1">>),
+    {ok, _, [_]} = emqtt:subscribe(C, <<"u/+/+">>),
+    ok = publish(C, Topic, #{t => <<"t">>}),
+    ?assertNotReceive({publish, _}),
+    ok.
