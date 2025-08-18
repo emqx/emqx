@@ -933,6 +933,45 @@ t_external_registry_load_config(_Config) ->
     ?assertMatch([_], emqx_schema_registry_http_api_SUITE:find_external_registry_worker(Name3)),
     ?assertMatch([], emqx_schema_registry_http_api_SUITE:find_external_registry_worker(Name2)),
 
+    ?assertMatch([Name0], emqx_schema_registry_external:list()),
+
+    ok.
+
+%% Checks that we initialize external HTTP registries
+t_external_registry_load_config_on_startup(TCConfig) ->
+    Name = <<"will_be_loaded">>,
+    URL = <<"http://url:8081">>,
+    ExternalHTTPConfig = emqx_schema_registry_http_api_SUITE:confluent_schema_registry_with_basic_auth(
+        #{
+            <<"url">> => URL
+        }
+    ),
+    Config = #{
+        <<"schema_registry">> => #{
+            <<"external">> => #{
+                Name => ExternalHTTPConfig
+            }
+        }
+    },
+    AppSpecs = [
+        emqx_conf,
+        emqx_rule_engine,
+        {emqx_schema_registry, #{config => Config}}
+    ],
+    ClusterSpec = [{external_http_load1, #{apps => AppSpecs}}],
+    [N1] = emqx_cth_cluster:start(
+        ClusterSpec,
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, TCConfig)}
+    ),
+    on_exit(fun() -> emqx_cth_cluster:stop([N1]) end),
+    {ok, _} = ?block_until(
+        #{
+            ?snk_kind := "external_registries_loaded",
+            ?snk_meta := #{node := N1}
+        },
+        10_000
+    ),
+    ?assertMatch([Name], ?ON(N1, emqx_schema_registry_external:list())),
     ok.
 
 t_import_config(_Config) ->

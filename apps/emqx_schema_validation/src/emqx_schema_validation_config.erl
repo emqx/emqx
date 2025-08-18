@@ -157,9 +157,10 @@ post_config_update(
         ok = emqx_schema_validation_registry:update(OldValidation, Pos, NewValidation),
         ok
     end;
-post_config_update(?VALIDATIONS_CONF_PATH, {delete, Name}, _New, Old, _AppEnvs) ->
+post_config_update(?VALIDATIONS_CONF_PATH, {delete, Name}, New, Old, _AppEnvs) ->
     {Pos, Validation} = fetch_with_index(Old, Name),
     ok = emqx_schema_validation_registry:delete(Validation, Pos),
+    ok = emqx_schema_validation_registry:reindex_positions(New, Old),
     ok;
 post_config_update(?VALIDATIONS_CONF_PATH, {reorder, _Order}, New, Old, _AppEnvs) ->
     ok = emqx_schema_validation_registry:reindex_positions(New, Old),
