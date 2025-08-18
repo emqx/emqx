@@ -21,6 +21,8 @@
     provider_sctype_api/1
 ]).
 
+-export([check_provider/1]).
+
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
 %%------------------------------------------------------------------------------
@@ -265,6 +267,19 @@ provider_sctype_api(get) ->
     );
 provider_sctype_api(post) ->
     provider_sctype().
+
+check_provider(ProviderRaw) ->
+    Options = #{atom_key => true},
+    Schema = #{roots => [{provider, mk(provider_sctype_api(put), #{})}]},
+    try
+        #{provider := Provider} = hocon_tconf:check_plain(
+            Schema, #{<<"provider">> => ProviderRaw}, Options
+        ),
+        {ok, Provider}
+    catch
+        throw:Error ->
+            {error, {invalid_provider, Error}}
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal fns

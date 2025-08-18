@@ -162,7 +162,12 @@ bin(L) when is_list(L) ->
     iolist_to_binary(L).
 
 req_options(#state{transport_options = TransportOptions, hackney_pool = HackneyPool}) ->
-    [{pool, HackneyPool}] ++
+    pool_req_option(HackneyPool) ++
         maps:to_list(
             maps:with([connect_timeout, recv_timeout, checkout_timeout], TransportOptions)
         ).
+
+pool_req_option(undefined) ->
+    [];
+pool_req_option(Pool) ->
+    [{pool, Pool}].
