@@ -78,7 +78,8 @@ groups() ->
             t_sock_closed_quickly,
             t_sub_non_utf8_topic,
             t_congestion_send_timeout,
-            t_congestion_decongested
+            t_congestion_decongested,
+            t_occasional_missing_pubacks
         ]},
         {socket, [], [
             t_sock_keepalive,
@@ -156,6 +157,7 @@ end_per_testcase(_Case, _Config) ->
     emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], disabled),
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     emqx_config:put_zone_conf(default, [mqtt, clientid_override], disabled),
+    emqx_config:put_zone_conf(default, [mqtt, max_inflight], 32),
     emqx_config:put_listener_conf(tcp, default, [tcp_options, keepalive], "none"),
     ok.
 
@@ -782,6 +784,88 @@ t_congestion_decongested(_) ->
     exit(PublisherPid, shutdown),
     exit(ConsumerPid, shutdown),
     ok = gen_tcp:close(Socket).
+
+%% Verify that occasional missing PUBACKs from clients do not cause any trouble,
+%% even if Packet-ID wraps around.
+t_occasional_missing_pubacks(_Config) ->
+    %% Configure more generous Max-Inflight:
+    MaxInflight = 100,
+    ok = emqx_config:put_zone_conf(default, [mqtt, max_inflight], 100),
+    %% Keep each 1000th message unacked:
+    %% Meaning that session should be able to process ~100k messages before getting
+    %% its inflight full, which is larger than Packet-ID range.
+    UnackedEach = 1000,
+    %% Few knobs for Consumer state machine:
+    PubBatchSize = 500,
+    DrainTime = 5,
+    DrainStuckTimeout = 100,
+    %% Start the client, tell it to not ack anything automatically:
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    {ok, Client} = emqtt:start_link([
+        {port, 1883},
+        {clientid, ClientId},
+        {auto_ack, never}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, [1]} = emqtt:subscribe(Client, <<"t/+">>, ?QOS_1),
+    %% Monitor respective channel process:
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    _MRef = erlang:monitor(process, ChanPid),
+    %% Consumer state machine:
+    Consumer = fun
+        %% Batch is fully produced, get back to draining incoming messages:
+        Consumer({batch, 0}, St) ->
+            Consumer({drain, DrainTime}, St);
+        %% Producing batch of publishes directly through broker:
+        Consumer({batch, NBatch}, St = #{n_pubs := NR}) ->
+            Topic = emqx_topic:join(["t", integer_to_binary(NR)]),
+            Msg = emqx_message:make(<<?MODULE_STRING>>, ?QOS_1, Topic, <<>>),
+            _ = emqx:publish(Msg),
+            Consumer({batch, NBatch - 1}, St#{n_pubs := NR + 1});
+        %% Draining incoming messages:
+        Consumer({drain, Time}, St = #{n_recv := NR, n_pubs := NPubs}) ->
+            case ?drainMailbox(Time) of
+                Publishes = [_ | _] ->
+                    %% Process incoming messages:
+                    Consumer(Publishes, St);
+                [] when NR =:= NPubs ->
+                    %% Need another batch:
+                    Consumer({batch, PubBatchSize}, St);
+                [] when Time > DrainStuckTimeout ->
+                    %% No incoming message for a while, bail out:
+                    {timeout, St};
+                [] ->
+                    %% Retry:
+                    Consumer({drain, Time * 2}, St)
+            end;
+        %% Processing incoming message:
+        Consumer([{publish, Msg} | Rest], St = #{n_recv := NR, unacked := Acc}) ->
+            #{packet_id := PacketId} = Msg,
+            case NR rem UnackedEach of
+                1 when length(Acc) =:= MaxInflight - 1 ->
+                    {full, St#{unacked := [PacketId | Acc]}};
+                1 ->
+                    ct:pal("[msgin] NR:~p skipping puback PacketId:~p", [NR, PacketId]),
+                    Consumer(Rest, St#{n_recv := NR + 1, unacked := [PacketId | Acc]});
+                _ ->
+                    ok = emqtt:puback(Client, PacketId),
+                    Consumer(Rest, St#{n_recv := NR + 1})
+            end;
+        %% No more incoming messages, try to drain some more:
+        Consumer([], St) ->
+            Consumer({drain, DrainTime}, St)
+    end,
+    try
+        true = erlang:unlink(Client),
+        {full, St = #{unacked := Unacked}} = Consumer(
+            {drain, DrainTime},
+            #{n_pubs => 0, n_recv => 0, unacked => []}
+        ),
+        ct:pal("[tc] inflight is full: ~p", [self(), St]),
+        lists:foreach(fun(PacketId) -> emqtt:puback(Client, PacketId) end, Unacked)
+    after
+        catch emqtt:stop(Client)
+    end.
 
 %%--------------------------------------------------------------------
 %% Helper functions
