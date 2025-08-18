@@ -110,6 +110,7 @@ assert_connect_refused(Host, Port, Config) ->
         Client -> error({"Connection accepted over capacity", Client})
     catch
         error:{tcp_closed, _} when Type == tcp -> ok;
+        error:{closed, _} when Type == tcp -> ok;
         error:{ws_upgrade_failed, closed} when Type == ws -> ok;
         error:timeout when Type == wss -> ok
     end.
