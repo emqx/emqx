@@ -10,7 +10,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -type borrower_id() :: ?borrower_id(
-    emqx_persistent_session_ds_shared_subs_agent:subscription_id(),
+    emqx_ds_shared_sub_agent:subscription_id(),
     emqx_persistent_session_ds:id(),
     reference()
 ).
@@ -173,7 +173,7 @@ send_to_borrower(ToBorrowerId, ?leader_invalidate_match(FromLeader)) ->
     ).
 
 %%--------------------------------------------------------------------
-%% RPC Targets
+%% RPC Targets2
 %%--------------------------------------------------------------------
 
 %% borrower -> leader messages
@@ -230,7 +230,7 @@ leader_invalidate_v3(ToBorrowerId, FromLeader) ->
 
 -spec borrower_id(
     emqx_persistent_session_ds:id(),
-    emqx_persistent_session_ds_shared_subs_agent:subscription_id(),
+    emqx_ds_shared_sub_agent:subscription_id(),
     reference()
 ) ->
     borrower_id().
@@ -241,8 +241,7 @@ borrower_id(SessionId, SubscriptionId, PidRef) ->
 borrower_pidref(BorrowerId) ->
     ?borrower_pidref(BorrowerId).
 
--spec borrower_subscription_id(borrower_id()) ->
-    emqx_persistent_session_ds_shared_subs_agent:subscription_id().
+-spec borrower_subscription_id(borrower_id()) -> emqx_ds_shared_sub_agent:subscription_id().
 borrower_subscription_id(BorrowerId) ->
     ?borrower_subscription_id(BorrowerId).
 

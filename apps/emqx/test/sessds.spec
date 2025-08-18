@@ -11,4 +11,5 @@
 {groups, "../../emqx_management/test", emqx_mgmt_api_publish_SUITE, [persistence_enabled]}.
 {groups, "../../emqx_management/test", emqx_mgmt_api_clients_SUITE, [persistence_enabled]}.
 {groups, "../../emqx_management/test", emqx_mgmt_api_subscription_SUITE, [persistence_enabled]}.
-{suites, "../../emqx_ds_shared_sub/test", all}.
+
+{specs, join, ["ds_shared_sub.spec"]}.

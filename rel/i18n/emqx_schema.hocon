@@ -620,7 +620,7 @@ fields_mqtt_opts_tcp_backend.desc:
 
 - `socket`: Experimental backend, looking to improve message latency and compute resource usage.
     Note that some `tcp_options` settings will have no effect when using this backend, e.g.: `high_watermark` and `send_timeout_close`.
-    
+
 Changing the backend require restarting the listener, which will terminate all its active connections."""
 
 fields_mqtt_opts_tcp_backend.label:
@@ -1147,7 +1147,7 @@ base_listener_limiter.label:
 """Type of the rate limit."""
 
 alarm_validity_period.desc:
-"""The validity period of historical alarms. Calculated from the time of activation of the historical alarm instead of the time of cancelation.
+"""The validity period of historical alarms. Calculated from the time of activation of the historical alarm instead of the time of cancellation.
 
 If it exists longer than the validity period, the alarm will be deleted."""
 
@@ -1576,7 +1576,7 @@ Advantages of Disabling<br/>
 - Improved Performance: Without the overhead of maintaining a global registry, the node can process client connections faster."""
 
 broker_session_history_retain.desc:
-"""The duration to retain the session registration history. Setting this to a value greater than `0s` will increase memory usage and impact peformance.
+"""The duration to retain the session registration history. Setting this to a value greater than `0s` will increase memory usage and impact performance.
 This retained history can be used to monitor how many sessions were registered in the past configured duration.
 Note: This config has no effect if `enable_session_registry` is set to `false`.<br/>
 Note: If the clients are using random client IDs, it's not recommended to enable this feature, at least not for a long retention period.<br/>
@@ -1758,7 +1758,7 @@ resource_tags.desc:
 """Tags to annotate this config entry."""
 
 durable_sessions.label:
-"""Durable sessoins"""
+"""Durable sessions"""
 durable_sessions.desc:
 """Settings related to the durable session feature."""
 
@@ -1785,7 +1785,7 @@ session_ds_commit_timeout.desc:
 """Transaction timeout for committing durable session state to the storage."""
 
 session_ds_message_retention_period.label:
-"""Message retenetion period"""
+"""Message retention period"""
 session_ds_message_retention_period.desc:
 """Broker keeps messages sent to the durable sessions for this period of time."""
 
@@ -1804,6 +1804,35 @@ durable_storage.desc: """~
     Configuration related to the EMQX durable storages.
 
     EMQX uses durable storages to offload various data, such as MQTT messages, to disc."""
+
+durable_shared_subs.label: "Durable shared subscriptions"
+durable_shared_subs.desc: """~
+    Configuration related to shared subscriptions of durable sessions."""
+
+ds_shared_sub_checkpoint_interval.label: "Checkpoint interval"
+ds_shared_sub_checkpoint_interval.desc: """~
+    Shared subscription leader periodically commits progress of the topic replay to the database.
+    This parameter specifies minimum interval between such commits.
+    """
+
+ds_shared_sub_realloc_interval.label: "Reallocation interval"
+ds_shared_sub_realloc_interval.desc: """~
+    Shared subscription leader accumulates changes to the group (such as subscribers joining or leaving the group)
+    over this period of time before re-distributing the work between the subscribers.
+
+    This is done to avoid unnecessary work when multiple subscribers join or leave the group in short succession.
+    """
+
+
+ds_shared_sub_revocation_timeout.label: "Revocation timeout"
+ds_shared_sub_revocation_timeout.desc: """~
+    Maximum time given to the shared subscriber to complete processing of the last batch of messages.
+
+    Re-balancing of a shared subscription group may involve taking work from one subscriber and transferring it to another.
+    The first subscriber is allowed to finish the remaining work on the revoked tasks during this interval.
+
+    If subscriber fails to reply in time, it's kicked from the group and all its work is redistributed.
+    """
 
 client_attrs_init {
   label: "Client Attributes Initialization"
