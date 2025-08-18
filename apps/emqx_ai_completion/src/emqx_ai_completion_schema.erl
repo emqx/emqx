@@ -52,6 +52,9 @@ fields(ai) ->
                 }
             )}
     ];
+%%
+%% OpenAI /chat/messages provider
+%%
 fields(openai_provider) ->
     base_provider_fields() ++
         [
@@ -63,6 +66,22 @@ fields(openai_provider) ->
                     default => <<"https://api.openai.com/v1">>
                 })}
         ];
+fields(openai_provider_api_get) ->
+    fields(openai_provider);
+fields(openai_provider_api_put) ->
+    without_fields([name], fields(openai_provider));
+%%
+%% OpenAI /responses provider
+%%
+fields(openai_response_provider) ->
+    fields(openai_provider);
+fields(openai_response_provider_api_get) ->
+    fields(openai_response_provider);
+fields(openai_response_provider_api_put) ->
+    without_fields([name], fields(openai_response_provider));
+%%
+%% Anthropic provider
+%%
 fields(anthropic_provider) ->
     base_provider_fields() ++
         [
@@ -78,45 +97,12 @@ fields(anthropic_provider) ->
                     default => <<"https://api.anthropic.com/v1">>
                 })}
         ];
-fields(transport_options) ->
-    [
-        {connect_timeout,
-            mk(emqx_schema:timeout_duration_ms(), #{
-                required => false,
-                default => <<"1s">>,
-                desc => ?DESC(connect_timeout),
-                importance => ?IMPORTANCE_LOW
-            })},
-        {recv_timeout,
-            mk(emqx_schema:timeout_duration_ms(), #{
-                required => false,
-                default => <<"5s">>,
-                desc => ?DESC(recv_timeout),
-                importance => ?IMPORTANCE_LOW
-            })},
-        {checkout_timeout,
-            mk(emqx_schema:timeout_duration_ms(), #{
-                required => false,
-                default => <<"1s">>,
-                desc => ?DESC(checkout_timeout),
-                importance => ?IMPORTANCE_LOW
-            })},
-        {max_connections,
-            mk(pos_integer(), #{
-                required => false,
-                default => 50,
-                desc => ?DESC(max_connections),
-                importance => ?IMPORTANCE_LOW
-            })}
-    ];
-fields(openai_provider_api_get) ->
-    fields(openai_provider);
-fields(openai_provider_api_put) ->
-    without_fields([name], fields(openai_provider));
 fields(anthropic_provider_api_get) ->
     fields(anthropic_provider);
 fields(anthropic_provider_api_put) ->
     without_fields([name], fields(anthropic_provider));
+%%
+%% OpenAI /chat/messages completion profile
 fields(openai_completion_profile) ->
     [
         {name,
@@ -134,6 +120,24 @@ fields(openai_completion_profile_api_get) ->
     fields(openai_completion_profile);
 fields(openai_completion_profile_api_put) ->
     without_fields([name], fields(openai_completion_profile));
+%%
+%% OpenAI /responses completion profile
+%%
+fields(openai_response_completion_profile) ->
+    without_fields([type], fields(openai_completion_profile)) ++
+        [
+            {type,
+                mk(openai_response, #{
+                    default => openai_response, required => true, desc => ?DESC(type)
+                })}
+        ];
+fields(openai_response_completion_profile_api_get) ->
+    fields(openai_response_completion_profile);
+fields(openai_response_completion_profile_api_put) ->
+    without_fields([name], fields(openai_response_completion_profile));
+%%
+%% Anthropic completion profile
+%%
 fields(anthropic_completion_profile) ->
     [
         {name,
@@ -166,7 +170,38 @@ fields(anthropic_completion_profile) ->
 fields(anthropic_completion_profile_api_get) ->
     fields(anthropic_completion_profile);
 fields(anthropic_completion_profile_api_put) ->
-    without_fields([name], fields(anthropic_completion_profile)).
+    without_fields([name], fields(anthropic_completion_profile));
+fields(transport_options) ->
+    [
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                required => false,
+                default => <<"1s">>,
+                desc => ?DESC(connect_timeout),
+                importance => ?IMPORTANCE_LOW
+            })},
+        {recv_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                required => false,
+                default => <<"5s">>,
+                desc => ?DESC(recv_timeout),
+                importance => ?IMPORTANCE_LOW
+            })},
+        {checkout_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                required => false,
+                default => <<"1s">>,
+                desc => ?DESC(checkout_timeout),
+                importance => ?IMPORTANCE_LOW
+            })},
+        {max_connections,
+            mk(pos_integer(), #{
+                required => false,
+                default => 50,
+                desc => ?DESC(max_connections),
+                importance => ?IMPORTANCE_LOW
+            })}
+    ].
 
 base_provider_fields() ->
     [
@@ -177,7 +212,7 @@ base_provider_fields() ->
                 validator => fun validate_name/1
             })},
         {type,
-            mk(hoconsc:enum([openai, anthropic]), #{
+            mk(hoconsc:enum([openai, openai_response, anthropic]), #{
                 default => openai, required => true, desc => ?DESC(type)
             })},
         {api_key, emqx_schema_secret:mk(#{required => true, desc => ?DESC(api_key)})},
@@ -193,10 +228,14 @@ desc(ai) ->
     ?DESC(ai);
 desc(openai_provider) ->
     ?DESC(openai_provider);
+desc(openai_response_provider) ->
+    ?DESC(openai_response_provider);
 desc(anthropic_provider) ->
     ?DESC(anthropic_provider);
 desc(openai_completion_profile) ->
     ?DESC(openai_completion_profile);
+desc(openai_response_completion_profile) ->
+    ?DESC(openai_response_completion_profile);
 desc(anthropic_completion_profile) ->
     ?DESC(anthropic_completion_profile);
 desc(transport_options) ->
@@ -209,6 +248,7 @@ completion_profile_sctype() ->
         type,
         #{
             <<"openai">> => ref(openai_completion_profile),
+            <<"openai_response">> => ref(openai_response_completion_profile),
             <<"anthropic">> => ref(anthropic_completion_profile)
         },
         <<"openai">>
@@ -219,6 +259,7 @@ completion_profile_sctype_api(get) ->
         type,
         #{
             <<"openai">> => ref(openai_completion_profile_api_get),
+            <<"openai_response">> => ref(openai_response_completion_profile_api_get),
             <<"anthropic">> => ref(anthropic_completion_profile_api_get)
         },
         <<"openai">>
@@ -228,6 +269,7 @@ completion_profile_sctype_api(put) ->
         type,
         #{
             <<"openai">> => ref(openai_completion_profile_api_put),
+            <<"openai_response">> => ref(openai_response_completion_profile_api_put),
             <<"anthropic">> => ref(anthropic_completion_profile_api_put)
         },
         <<"openai">>
@@ -240,6 +282,7 @@ provider_sctype() ->
         type,
         #{
             <<"openai">> => ref(openai_provider),
+            <<"openai_response">> => ref(openai_response_provider),
             <<"anthropic">> => ref(anthropic_provider)
         },
         <<"openai">>
@@ -250,6 +293,7 @@ provider_sctype_api(put) ->
         type,
         #{
             <<"openai">> => ref(openai_provider_api_put),
+            <<"openai_response">> => ref(openai_response_provider_api_put),
             <<"anthropic">> => ref(anthropic_provider_api_put)
         },
         <<"openai">>
@@ -259,6 +303,7 @@ provider_sctype_api(get) ->
         type,
         #{
             <<"openai">> => ref(openai_provider_api_get),
+            <<"openai_response">> => ref(openai_response_provider_api_get),
             <<"anthropic">> => ref(anthropic_provider_api_get)
         },
         <<"openai">>
