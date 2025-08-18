@@ -81,7 +81,7 @@ jobs:
           - master
           - release-58
         os:
-          - macos-14-arm64
+          - macos-14
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
