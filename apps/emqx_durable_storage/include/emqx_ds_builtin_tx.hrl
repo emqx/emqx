@@ -6,6 +6,8 @@
 
 -record(kv_tx_ctx, {
     shard :: emqx_ds:shard(),
+    %% Leader at the time of transaction start. It is used for
+    %% verification rather than message routing:
     leader :: pid(),
     serial :: term(),
     generation :: emqx_ds:generation(),

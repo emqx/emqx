@@ -28,6 +28,7 @@
     start_link/3,
 
     where/2,
+    global/2,
 
     new_kv_tx_ctx/5,
     commit_kv_tx/3,
@@ -164,6 +165,16 @@
 
 -define(ds_tx_monotonic_ts, ds_tx_monotonic_ts).
 
+%% Entry that is stored in the process dictionary of a process that
+%% initiated commit of the transaction:
+-record(client_pending_commit, {
+    timeout_tref :: reference(),
+    alias :: reference()
+}).
+-define(pending_commit, emqx_ds_optimistic_tx_pending_commit).
+
+-define(global(DB, SHARD), {?MODULE, DB, SHARD}).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -171,6 +182,10 @@
 -spec where(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 where(DB, Shard) ->
     gproc:where(?name(DB, Shard)).
+
+-spec global(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
+global(DB, Shard) ->
+    global:whereis_name(?global(DB, Shard)).
 
 -spec start_link(emqx_ds:db(), emqx_ds:shard(), module()) -> {ok, pid()}.
 start_link(DB, Shard, CBM) ->
@@ -209,37 +224,39 @@ new_kv_tx_ctx(CBM, DB, Shard, Generation0, Opts) ->
             ?err_rec(leader_down)
     end.
 
-commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
+commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}, shard = Shard}, Ops) ->
     ?tp(emqx_ds_optimistic_tx_commit_begin, #{db => DB, ctx => Ctx, ops => Ops}),
-    #kv_tx_ctx{leader = Leader} = Ctx,
-    Ref = monitor(process, Leader),
-    %% Note: currently timer is not canceled when commit abort is
-    %% signalled via the monitor message (i.e. when the leader process
-    %% is down). In this case the caller _will_ receive double `DOWN'.
-    %% There's no trivial way to fix it. It's up to the client to
-    %% track the pending transactions and ignore unexpected commit
-    %% notifications.
-    TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
-    gen_statem:cast(Leader, #ds_tx{
-        ctx = Ctx, ops = Ops, from = self(), ref = Ref, meta = TRef
-    }),
-    Ref.
+    case global(DB, Shard) of
+        Leader when is_pid(Leader) ->
+            #kv_tx_ctx{} = Ctx,
+            Ref = monitor(process, Leader),
+            TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
+            Alias = erlang:alias([reply]),
+            put({?pending_commit, Ref}, #client_pending_commit{
+                timeout_tref = TRef,
+                alias = Alias
+            }),
+            gen_statem:cast(Leader, #ds_tx{
+                ctx = Ctx, ops = Ops, from = Alias, ref = Ref, meta = TRef
+            }),
+            Ref;
+        undefined ->
+            Ref = make_ref(),
+            self() ! ?ds_tx_commit_error(Ref, undefined, recoverable, leader_unavailable),
+            Ref
+    end.
 
 -spec tx_commit_outcome(term()) -> {ok, emqx_ds:tx_serial()} | emqx_ds:error(_).
 tx_commit_outcome(Reply) ->
     case Reply of
-        ?ds_tx_commit_ok(Ref, TRef, Serial) ->
-            demonitor(Ref, [flush]),
-            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+        ?ds_tx_commit_ok(Ref, _Meta, Serial) ->
+            client_post_commit_cleanup(Ref),
             {ok, Serial};
-        ?ds_tx_commit_error(Ref, TRef, Class, Info) ->
-            demonitor(Ref, [flush]),
-            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+        ?ds_tx_commit_error(Ref, _Meta, Class, Info) ->
+            client_post_commit_cleanup(Ref),
             {error, Class, Info};
-        {'DOWN', _Ref, Type, Object, Info} ->
-            %% This is likely a real monitor message. It doesn't contain TRef,
-            %% so the caller will receive the timeout message after the fact.
-            %% There's not much we can do about it.
+        {'DOWN', Ref, Type, Object, Info} ->
+            client_post_commit_cleanup(Ref),
             ?err_rec({Type, Object, Info})
     end.
 
@@ -339,6 +356,8 @@ handle_event(ET, Event, State, _D) ->
 async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
     maybe
         {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
+        global:unregister_name(?global(DB, Shard)),
+        yes = global:register_name(?global(DB, Shard), self()),
         %% Issue a dummy transaction to trigger metadata update:
         ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
@@ -420,8 +439,9 @@ try_commit(
         meta = Meta
     } = Tx,
     Ops = preprocess_ops(PresumedCommitSerial, Ops0),
-    #kv_tx_ctx{serial = TxStartSerial} = Ctx,
+    #kv_tx_ctx{serial = TxStartSerial, leader = TxLeader} = Ctx,
     maybe
+        ok ?= check_tx_leader(TxLeader),
         ok ?= check_latest_generation(CBM, DBShard, Ctx),
         ok ?= check_conflicts(DirtyW0, DirtyD0, TxStartSerial, SafeToReadSerial, Ops),
         ok ?= verify_preconditions(DBShard, CBM, Gen, Ops),
@@ -446,6 +466,17 @@ try_commit(
             ),
             reply_error(From, Ref, Meta, Class, Error),
             aborted
+    end.
+
+-doc """
+Check that the transaction was created while this process was the leader.
+""".
+check_tx_leader(TxLeader) ->
+    case self() of
+        TxLeader ->
+            ok;
+        _ ->
+            ?err_rec({leader_conflict, TxLeader, self()})
     end.
 
 check_latest_generation(_, _, #kv_tx_ctx{latest_generation = false}) ->
@@ -710,6 +741,26 @@ reply_error(From, Ref, Meta, Class, Error) ->
             ok;
         undefined ->
             ok
+    end.
+
+client_post_commit_cleanup(Ref) ->
+    demonitor(Ref),
+    case erase({?pending_commit, Ref}) of
+        undefined ->
+            ok;
+        #client_pending_commit{timeout_tref = TRef, alias = Alias} ->
+            _ = erlang:unalias(Alias),
+            _ = is_reference(TRef) andalso erlang:cancel_timer(TRef),
+            ok
+    end,
+    flush_messages(Ref).
+
+flush_messages(Ref) ->
+    receive
+        {'DOWN', Ref, _Type, _Obj, _Info} ->
+            flush_messages(Ref)
+    after 0 ->
+        ok
     end.
 
 %%================================================================================
