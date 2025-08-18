@@ -37,6 +37,8 @@
     do_cleanup_channels/1
 ]).
 
+-export([count_dirty/0]).
+
 -ifdef(TEST).
 %% For testing only
 -export([
@@ -61,6 +63,9 @@ start_link() ->
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
+-spec count_dirty() -> non_neg_integer().
+count_dirty() ->
+    mnesia:table_info(?CHAN_REG_TAB, size).
 
 %% @doc Is the global registry enabled?
 -spec is_enabled() -> boolean().
@@ -143,6 +148,7 @@ unregister_channel2(#channel{chid = ClientId} = Record) ->
 -spec lookup_channels(emqx_types:clientid()) -> list(pid()).
 lookup_channels(ClientId) ->
     Chans = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
+    %% @NOTE: remote node PID is always "alive".
     [ChanPid || #channel{pid = ChanPid} <- Chans, is_pid_alive(ChanPid) =/= false].
 
 %% Return 'true' or 'false' if it's a local pid.

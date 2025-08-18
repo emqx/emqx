@@ -1552,6 +1552,26 @@ Advantages of Disabling<br/>
 - Reduced Memory Usage: Turning off the session registry can lower the overall memory footprint of the system.
 - Improved Performance: Without the overhead of maintaining a global registry, the node can process client connections faster."""
 
+broker_linear_session_registry.desc:
+"""Enable the Linearizable Session Registry (LSR) for improved correctness.
+Default: Disabled
+
+In real-world scenarios, a client may establish multiple network connections to the same or different nodes within a cluster due to repeated reconnection attempts.
+The LSR feature ensures that the most recent client connection is prioritized and accepted, rather than being rejected in favor of older ones.
+This assumes that the network latency between the client and broker is generally higher than the time synchronization differences between EMQX nodes.
+
+LSR is intended to replace the legacy session registry controlled by the `enable_session_registry` option. Once LSR is enabled, the `enable_session_registry` option is ignored.
+
+To enable LSR on a fresh installation:
+
+<code>broker.linear_session_registry = enabled</code>
+
+During a rolling upgrade:
+If this feature is not yet enabled or supported on all nodes, set it to `migration_enabled`.
+Note that this introduces additional overhead, as session data is written to/read from both the legacy and new registries, also the cluster session
+count will become inaccurate due to the double countings.
+Once the upgrade or migration is complete, set it to `enabled` to complete the transition to LSR."""
+
 broker_session_history_retain.desc:
 """The duration to retain the session registration history. Setting this to a value greater than `0s` will increase memory usage and impact peformance.
 This retained history can be used to monitor how many sessions were registered in the past configured duration.

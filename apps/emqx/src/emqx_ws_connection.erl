@@ -264,7 +264,7 @@ check_origin_header(_Req, #{check_origin_enable := false}) ->
     ok.
 
 websocket_init([ConnInfo, Opts]) ->
-    init_connection(ConnInfo, Opts).
+    init_connection(ConnInfo#{transport_started_at => erlang:system_time(millisecond)}, Opts).
 
 get_current_connections(Req) ->
     %% NOTE: Involves a gen:call to the connections supervisor.
