@@ -13,6 +13,14 @@
 -define(GWNAME, mqttsn).
 -define(CONF_DEFAULT, <<"gateway {}">>).
 
+-define(AUTHN_CONF, #{
+    enable => true,
+    mechanism => password_based,
+    backend => built_in_database,
+    password_hash_algorithm => #{name => sha256, salt_position => suffix},
+    user_id_type => username
+}).
+
 %%--------------------------------------------------------------------
 %% setups
 %%--------------------------------------------------------------------
@@ -171,6 +179,60 @@ t_get_basic_usage_info_2(_Config) ->
         },
         emqx_gateway:get_basic_usage_info()
     ).
+
+t_authn_data_not_be_cleared_when_gateway_app_restarted(_Config) ->
+    GwName = stomp,
+    ChainName = emqx_gateway_utils:global_chain(GwName),
+    AssertUserExists = fun() ->
+        ?assertMatch(
+            #{
+                data := [
+                    #{
+                        user_id := <<"test">>
+                    }
+                ]
+            },
+            emqx_authn_chains:list_users(
+                ChainName,
+                <<"password_based:built_in_database">>,
+                #{like_user_id => <<"test">>}
+            )
+        )
+    end,
+
+    {ok, _} = emqx_gateway:load(GwName, #{authentication => ?AUTHN_CONF}),
+    emqx_authn_chains:add_user(
+        ChainName,
+        <<"password_based:built_in_database">>,
+        #{user_id => <<"test">>, password => <<"test">>}
+    ),
+
+    %% user added successfully
+    AssertUserExists(),
+    %% restart gateway app
+    application:stop(emqx_gateway),
+    application:start(emqx_gateway),
+    %% assert: user should not be deleted if the gateway app is restarted
+    AssertUserExists(),
+
+    %% delete user
+    emqx_authn_chains:delete_user(
+        ChainName,
+        <<"password_based:built_in_database">>,
+        <<"test">>
+    ),
+    %% user deleted successfully
+    ?assertMatch(
+        #{
+            data := []
+        },
+        emqx_authn_chains:list_users(
+            ChainName,
+            <<"password_based:built_in_database">>,
+            #{like_user_id => <<"test">>}
+        )
+    ),
+    ok.
 
 %%--------------------------------------------------------------------
 %% helper functions
