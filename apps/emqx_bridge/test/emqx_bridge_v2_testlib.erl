@@ -742,6 +742,9 @@ get_action_api(Config) ->
     ct:pal("get action (http) result:\n  ~p", [Res]),
     Res.
 
+get_action_api2(Config) ->
+    simplify_result(get_action_api(Config)).
+
 get_action_metrics_api(Config) ->
     ActionName = ?config(action_name, Config),
     ActionType = ?config(action_type, Config),
@@ -751,6 +754,9 @@ get_action_metrics_api(Config) ->
     Res = request(get, Path, []),
     ct:pal("get action (http) result:\n  ~p", [Res]),
     simplify_result(Res).
+
+update_bridge_api2(TCConfig, Overrides) ->
+    simplify_result(update_bridge_api(TCConfig, Overrides)).
 
 update_bridge_api(Config) ->
     update_bridge_api(Config, _Overrides = #{}).
@@ -843,6 +849,9 @@ probe_connector_api(Config, Overrides) ->
     Res = request(Method, Path, Params),
     ct:pal("probing connector (~s, http) result:\n  ~p", [Type, Res]),
     Res.
+
+probe_connector_api2(TCConfig, Overrides) ->
+    simplify_result(probe_connector_api(TCConfig, Overrides)).
 
 list_bridges_http_api_v1() ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
@@ -2222,6 +2231,52 @@ t_rule_test_trace(Config, Opts) ->
     ),
     {204, _} = stop_rule_test_trace(TraceNameErr),
 
+    ok.
+
+-doc """
+For SQL-like bridges that use ecpool reconnect callbacks, checks that starting with a bad
+SQL and then updating the config to the correct one updates the DB connection session
+state properly.
+""".
+t_update_with_invalid_prepare(TCConfig, #{} = Opts) ->
+    #{
+        bad_sql := BadSQL,
+        reconnect_cb := {Mod, ReconnectFn},
+        get_sig_fn := GetSigFn,
+        check_expected_error_fn := CheckExpectedErrorFn
+    } = Opts,
+    {201, _} = create_connector_api2(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api2(TCConfig, #{}),
+    Overrides = #{<<"parameters">> => #{<<"sql">> => BadSQL}},
+    {200, Body1} = update_bridge_api2(TCConfig, Overrides),
+    ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
+    CheckExpectedErrorFn(maps:get(<<"error">>, Body1)),
+    %% assert that although there was an error returned, the invliad SQL is actually put\
+    ?assertMatch(
+        {200, #{<<"parameters">> := #{<<"sql">> := BadSQL}}},
+        get_action_api2(TCConfig)
+    ),
+
+    %% update again with the original sql
+    %% the error should be gone now, and status should be 'connected'
+    ?assertMatch(
+        {200, #{<<"status">> := <<"connected">>}},
+        update_bridge_api2(TCConfig, #{})
+    ),
+    %% finally check if ecpool worker should have exactly one of reconnect callback
+    ConnectorResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ActionResId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    Workers = ecpool:workers(ConnectorResId),
+    [_ | _] = WorkerPids = lists:map(fun({_, Pid}) -> Pid end, Workers),
+    lists:foreach(
+        fun(Pid) ->
+            [{Mod, ReconnectFn, Args}] =
+                ecpool_worker:get_reconnect_callbacks(Pid),
+            Sig = GetSigFn(Args),
+            ?assertEqual(ActionResId, Sig)
+        end,
+        WorkerPids
+    ),
     ok.
 
 snk_timetrap() ->
