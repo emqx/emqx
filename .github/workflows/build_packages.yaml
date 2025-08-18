@@ -115,7 +115,6 @@ jobs:
           - ubuntu20.04
           - debian12
           - debian11
-          - debian10
           - el9
           - el8
           - el7
