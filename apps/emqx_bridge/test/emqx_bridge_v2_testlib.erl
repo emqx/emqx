@@ -553,11 +553,11 @@ create_kind_api(Config, Overrides) ->
     ct:pal("bridge create (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
-enable_kind_api(Kind, ConnectorType, ConnectorName) ->
-    do_enable_disable_kind_api(Kind, ConnectorType, ConnectorName, enable).
+enable_kind_api(Kind, Type, Name) ->
+    do_enable_disable_kind_api(Kind, Type, Name, enable).
 
-disable_kind_api(Kind, ConnectorType, ConnectorName) ->
-    do_enable_disable_kind_api(Kind, ConnectorType, ConnectorName, disable).
+disable_kind_api(Kind, Type, Name) ->
+    do_enable_disable_kind_api(Kind, Type, Name, disable).
 
 do_enable_disable_kind_api(Kind, Type, Name, Op) ->
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
@@ -832,6 +832,9 @@ probe_bridge_api(Kind, BridgeType, BridgeName, BridgeConfig) ->
     ct:pal("bridge probe (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
+probe_bridge_api2(TCConfig, Overrides) ->
+    simplify_result(probe_bridge_api(TCConfig, Overrides)).
+
 probe_connector_api(Config) ->
     probe_connector_api(Config, _Overrides = #{}).
 
@@ -1086,6 +1089,15 @@ stop_rule_test_trace(TraceName) ->
     URL = emqx_mgmt_api_test_util:api_path(["trace", TraceName]),
     simple_request(#{
         method => delete,
+        url => URL
+    }).
+
+trace_log_stream_api(TraceName, Opts) ->
+    QueryParams = maps:get(query_params, Opts, #{}),
+    URL = emqx_mgmt_api_test_util:api_path(["trace", TraceName, "log"]),
+    simple_request(#{
+        query_params => QueryParams,
+        method => get,
         url => URL
     }).
 

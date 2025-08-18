@@ -434,9 +434,12 @@ resume_connector_resource(ConnectorResID, Config) ->
 http_connector_config() ->
     http_connector_config(_Overrides = #{}).
 http_connector_config(Overrides) ->
-    Params0 = emqx_bridge_http_v2_SUITE:make_connector_config([{http_server, #{port => 18083}}]),
-    Params = emqx_utils_maps:deep_merge(Params0, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check_connector(<<"http">>, <<"x">>, Params).
+    emqx_bridge_http_SUITE:connector_config(
+        emqx_utils_maps:deep_merge(
+            #{<<"url">> => <<"http://127.0.0.1:18083">>},
+            Overrides
+        )
+    ).
 
 ensure_namespaced_api_key(Namespace, TCConfig) ->
     ensure_namespaced_api_key(Namespace, _Opts = #{}, TCConfig).
@@ -1601,7 +1604,7 @@ t_namespaced_load_on_restart(TCConfig) ->
 
     [N1] = emqx_cth_cluster:restart([N1Spec]),
 
-    ?assertMatch({200, [#{<<"status">> := <<"connected">>}]}, list(TCConfigNS1)),
+    ?retry(500, 10, ?assertMatch({200, [#{<<"status">> := <<"connected">>}]}, list(TCConfigNS1))),
     ConnResId = emqx_connector_resource:resource_id(NS1, ConnectorType, ConnectorName1),
     ?assertMatch({ok, _, _}, ?ON(N1, emqx_resource:get_instance(ConnResId))),
 
