@@ -43,7 +43,8 @@ do_authenticate(
         base_dn_template := BaseDNTemplate,
         filter_template := FilterTemplate,
         method := #{
-            is_superuser_attribute := IsSuperuserAttribute
+            is_superuser_attribute := IsSuperuserAttribute,
+            clientid_override_attribute := ClientIdOverrideAttribute
         }
     } = State
 ) ->
@@ -53,7 +54,8 @@ do_authenticate(
     Result = emqx_resource:simple_sync_query(
         ResourceId,
         {query, BaseDN, Filter, [
-            {attributes, [IsSuperuserAttribute | AclAttributes]}, {timeout, Timeout}
+            {attributes, [IsSuperuserAttribute, ClientIdOverrideAttribute | AclAttributes]},
+            {timeout, Timeout}
         ]}
     ),
     case Result of
@@ -105,11 +107,21 @@ format_authentication_result(
     ),
     case emqx_auth_ldap_acl:acl_from_entry(State, Entry) of
         {ok, AclFields} ->
-            {ok, AclFields#{is_superuser => IsSuperuser}};
+            AuthResult0 = AclFields#{is_superuser => IsSuperuser},
+            AuthResult = maps:merge(AuthResult0, clientid_override(Entry, State)),
+            {ok, AuthResult};
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "ldap_bind_invalid_acl_rules", #{
                 resource => ResourceId,
                 reason => Reason
             }),
             {error, bad_username_or_password}
+    end.
+
+clientid_override(Entry, #{method := #{clientid_override_attribute := Attr}} = _State) ->
+    case emqx_auth_ldap_utils:get_bin_attribute(Attr, Entry, undefined) of
+        ClientIdOverride when is_binary(ClientIdOverride), ClientIdOverride /= <<"">> ->
+            #{clientid_override => ClientIdOverride};
+        _ ->
+            #{}
     end.

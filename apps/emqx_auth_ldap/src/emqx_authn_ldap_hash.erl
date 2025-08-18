@@ -29,7 +29,8 @@ authenticate(
     #{
         method := #{
             password_attribute := PasswordAttr,
-            is_superuser_attribute := IsSuperuserAttr
+            is_superuser_attribute := IsSuperuserAttr,
+            clientid_override_attribute := ClientIdOverrideAttr
         },
         query_timeout := Timeout,
         resource_id := ResourceId,
@@ -43,7 +44,13 @@ authenticate(
         BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Credential),
         Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Credential),
         AclAttributes = emqx_auth_ldap_acl:acl_attributes(State),
-        Attributes = [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR | AclAttributes],
+        Attributes = [
+            PasswordAttr,
+            IsSuperuserAttr,
+            ClientIdOverrideAttr,
+            ?ISENABLED_ATTR
+            | AclAttributes
+        ],
         {query, BaseDN, Filter, [{attributes, Attributes}, {timeout, Timeout}]}
     end,
     Result = emqx_authn_utils:cached_simple_sync_query(CacheKey, ResourceId, Query),
@@ -67,7 +74,7 @@ do_authenticate(Password, Entry, #{resource_id := ResourceId} = State) ->
         ok ?= verify_user_enabled(Entry),
         ok ?= ensure_password(Password, Entry, State),
         {ok, AclFields} ?= emqx_auth_ldap_acl:acl_from_entry(State, Entry),
-        {ok, maps:merge(AclFields, is_superuser(Entry, State))}
+        {ok, maps:merge(AclFields, authn_result(Entry, State))}
     else
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "ldap_authentication_failed", #{
@@ -76,6 +83,11 @@ do_authenticate(Password, Entry, #{resource_id := ResourceId} = State) ->
             }),
             {error, bad_username_or_password}
     end.
+
+authn_result(Entry, State) ->
+    Res0 = is_superuser(Entry, State),
+    Res1 = clientid_override(Entry, State),
+    maps:merge(Res0, Res1).
 
 ensure_password(
     Password,
@@ -164,6 +176,14 @@ verify_password(Algorithm, LDAPPasswordType, LDAPPassword, Salt, Position, Passw
 is_superuser(Entry, #{method := #{is_superuser_attribute := Attr}} = _State) ->
     IsSuperuser = emqx_auth_ldap_utils:get_bool_attribute(Attr, Entry, false),
     #{is_superuser => IsSuperuser}.
+
+clientid_override(Entry, #{method := #{clientid_override_attribute := Attr}} = _State) ->
+    case emqx_auth_ldap_utils:get_bin_attribute(Attr, Entry, undefined) of
+        ClientIdOverride when is_binary(ClientIdOverride), ClientIdOverride /= <<"">> ->
+            #{clientid_override => ClientIdOverride};
+        _ ->
+            #{}
+    end.
 
 safe_base64_decode(Data) ->
     try

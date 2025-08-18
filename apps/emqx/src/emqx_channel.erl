@@ -2304,14 +2304,21 @@ log_auth_failure(Reason) ->
 %% 2. `expire_at`: Authentication validity deadline, the client will be disconnected after this time
 %% 3. `acl': ACL rules from JWT, HTTP auth backend
 %% 4. `client_attrs': Extra client attributes from JWT, HTTP auth backend
-%% 5. Maybe more non-standard fields used by hook callbacks
-merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_map(AuthResult0) ->
+%% 5. `clientid_override': This result should override the current clientid.
+%% 6. Maybe more non-standard fields used by hook callbacks
+merge_auth_result(ClientInfo0, AuthResult0) when is_map(ClientInfo0) andalso is_map(AuthResult0) ->
     IsSuperuser = maps:get(is_superuser, AuthResult0, false),
     ExpireAt = maps:get(expire_at, AuthResult0, undefined),
     AuthResult = maps:without([client_attrs, expire_at], AuthResult0),
-    Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
+    Attrs0 = maps:get(client_attrs, ClientInfo0, #{}),
     Attrs1 = maps:get(client_attrs, AuthResult0, #{}),
     Attrs = maps:merge(Attrs0, Attrs1),
+    ClientIdOverride = maps:get(clientid_override, AuthResult0, undefined),
+    ClientInfo =
+        case is_binary(ClientIdOverride) andalso ClientIdOverride /= <<"">> of
+            true -> ClientInfo0#{clientid => ClientIdOverride};
+            false -> ClientInfo0
+        end,
     maps:merge(
         ClientInfo#{client_attrs => Attrs},
         AuthResult#{

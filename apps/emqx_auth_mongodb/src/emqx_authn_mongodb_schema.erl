@@ -77,6 +77,7 @@ common_fields() ->
         {password_hash_field, fun password_hash_field/1},
         {salt_field, fun salt_field/1},
         {is_superuser_field, fun is_superuser_field/1},
+        {clientid_override_field, fun clientid_override_field/1},
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++ emqx_authn_schema:common_fields().
 
@@ -113,3 +114,9 @@ is_superuser_field(desc) -> ?DESC(?FUNCTION_NAME);
 is_superuser_field(required) -> false;
 is_superuser_field(default) -> <<"is_superuser">>;
 is_superuser_field(_) -> undefined.
+
+clientid_override_field(type) -> binary();
+clientid_override_field(desc) -> ?DESC(?FUNCTION_NAME);
+clientid_override_field(required) -> false;
+clientid_override_field(default) -> <<"clientid_override">>;
+clientid_override_field(_) -> undefined.

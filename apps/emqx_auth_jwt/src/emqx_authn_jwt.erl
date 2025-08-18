@@ -263,9 +263,10 @@ extra_to_auth_data(Extra, JWT, AclClaimName, DisconnectAfterExpire) ->
     IsSuperuser = emqx_authn_utils:is_superuser(Extra),
     Attrs = emqx_authn_utils:client_attrs(Extra),
     ExpireAt = expire_at(DisconnectAfterExpire, Extra),
+    ClientIdOverride = emqx_authn_utils:clientid_override(Extra),
     try
         ACL = acl(Extra, AclClaimName),
-        Result = merge_maps([ExpireAt, IsSuperuser, ACL, Attrs]),
+        Result = merge_maps([ExpireAt, IsSuperuser, ACL, Attrs, ClientIdOverride]),
         {ok, Result}
     catch
         throw:{bad_acl_rule, Reason} ->

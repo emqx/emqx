@@ -203,3 +203,18 @@ objectClass: dashboardUser
 uid: viewer2
 ugroup: group1
 userPassword: {SHA}SR0qZpf8pYKKAbn6ILFvX91JuQg=
+
+## create user=mqttuser0010,
+#         password=mqttuser0010,
+#         passhash={SHA}znSPP0hz/0QGs88iiEB4D8qnwOw=
+#         base64passhash=e1NIQX16blNQUDBoei8wUUdzODhpaUVCNEQ4cW53T3c9
+dn:uid=mqttuser0010,ou=testdevice,dc=emqx,dc=io
+objectClass: top
+objectClass: mqttUser
+objectClass: mqttDevice
+objectClass: mqttSecurity
+uid: mqttuser0010
+isEnabled: TRUE
+clientIdOverride: overridden_clientid
+mqttAccountName: user10
+userPassword:: e1NIQX16blNQUDBoei8wUUdzODhpaUVCNEQ4cW53T3c9

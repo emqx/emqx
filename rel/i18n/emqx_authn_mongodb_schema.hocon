@@ -21,6 +21,12 @@ is_superuser_field.desc:
 is_superuser_field.label:
 """Is Superuser Field"""
 
+clientid_override_field.desc:
+"""Document field that defines a clientid override for the client."""
+
+clientid_override_field.label:
+"""ClientId Override Field"""
+
 password_hash_field.desc:
 """Document field that contains password hash."""
 

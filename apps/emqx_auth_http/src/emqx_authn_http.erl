@@ -224,7 +224,8 @@ extract_auth_data(Source, Body) ->
     try
         ExpireAt = expire_at(Body),
         ACL = acl(ExpireAt, Source, Body),
-        Result = merge_maps([ExpireAt, IsSuperuser, ACL, Attrs]),
+        ClientIdOverride = clientid_override(Body),
+        Result = merge_maps([ExpireAt, IsSuperuser, ACL, ClientIdOverride, Attrs]),
         {ok, Result}
     catch
         throw:{bad_acl_rule, Reason} ->
@@ -292,6 +293,13 @@ acl(_NoExpire, Source, #{<<"acl">> := Rules}) ->
         }
     };
 acl(_, _, _) ->
+    #{}.
+
+clientid_override(#{<<"clientid_override">> := ClientIdOverride} = _Body) when
+    is_binary(ClientIdOverride)
+->
+    #{clientid_override => ClientIdOverride};
+clientid_override(_Body) ->
     #{}.
 
 safely_parse_body(ContentType, Body) ->
