@@ -72,12 +72,12 @@ emqx_mt_api {
         label: "Upsert namespace configurations in bulk"
     }
     bulk_export_ns_configs {
-        desc: "Export multiple namespaced configurations"
-        label: "Export multiple namespaced configurations"
+        desc: "Export one or more namespaced configurations."
+        label: "Bulk Export Namespaced Configurations"
     }
     bulk_import_ns_configs {
-        desc: "Import multiple namespaced configurations"
-        label: "Import multiple namespaced configurations"
+        desc: "Import one or more namespaced configurations."
+        label: "Build Import Namespaced Configs"
     }
     kick_all_clients {
         desc: "Kick all clients in namespace (async)"
