@@ -146,9 +146,10 @@ post_config_update(?TRANSFORMATIONS_CONF_PATH, {update, #{<<"name">> := Name}}, 
     {Pos, NewTransformation} = fetch_with_index(New, Name),
     ok = emqx_message_transformation_registry:update(OldTransformation, Pos, NewTransformation),
     ok;
-post_config_update(?TRANSFORMATIONS_CONF_PATH, {delete, Name}, _New, Old, _AppEnvs) ->
+post_config_update(?TRANSFORMATIONS_CONF_PATH, {delete, Name}, New, Old, _AppEnvs) ->
     {Pos, Transformation} = fetch_with_index(Old, Name),
     ok = emqx_message_transformation_registry:delete(Transformation, Pos),
+    ok = emqx_message_transformation_registry:reindex_positions(New, Old),
     ok;
 post_config_update(?TRANSFORMATIONS_CONF_PATH, {reorder, _Order}, New, Old, _AppEnvs) ->
     ok = emqx_message_transformation_registry:reindex_positions(New, Old),

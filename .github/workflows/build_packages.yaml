@@ -59,7 +59,7 @@ on:
       otp_vsn:
         required: false
         type: string
-        default: '27.3.4.2-1'
+        default: '27.3.4.2-2'
       elixir_vsn:
         required: false
         type: string
@@ -67,7 +67,7 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.5-5'
+        default: '5.6-1'
 
 permissions:
   contents: read
@@ -154,7 +154,6 @@ jobs:
           - ubuntu20.04
           - debian12
           - debian11
-          - debian10
           - el9
           - el8
           - el7

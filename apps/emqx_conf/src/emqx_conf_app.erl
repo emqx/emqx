@@ -20,14 +20,7 @@
 
 start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_cluster_rpc:create_tables()),
-    try
-        ok = init_conf()
-    catch
-        C:E:St ->
-            %% logger is not quite ready.
-            io:format(standard_error, "Failed to load config~n~p~n~p~n~p~n", [C, E, St]),
-            init:stop(1)
-    end,
+    ok = init_conf(),
     ok = emqx_config_logger:refresh_config(),
     emqx_conf_sup:start_link().
 
