@@ -347,6 +347,8 @@ supported.
         %% topic-time-value triples.
         %%
         store_ttv => boolean(),
+        %% Relevant when store_ttv = true:
+        payload_transform => emqx_ds_payload_transform:t(),
         %% Backend-specific options:
         _ => _
     }.
@@ -1222,12 +1224,12 @@ have to be proper unicode and levels can contain slashes.
 
 """.
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
--spec tx_write({topic(), time() | ?ds_tx_ts_monotonic, binary() | ?ds_tx_serial}) -> ok.
+-spec tx_write({topic(), time() | ?ds_tx_ts_monotonic, binary() | ?ds_tx_serial | tuple()}) -> ok.
 tx_write({Topic, Time, Value}) ->
     case
         is_topic(Topic) andalso
             (is_integer(Time) orelse Time =:= ?ds_tx_ts_monotonic) andalso
-            (is_binary(Value) orelse Value =:= ?ds_tx_serial)
+            (is_binary(Value) orelse Value =:= ?ds_tx_serial orelse is_tuple(Value))
     of
         true ->
             tx_push_op(?tx_ops_write, {Topic, Time, Value});
@@ -1652,14 +1654,16 @@ topic_words(Bin) -> emqx_topic:words(Bin).
 set_db_defaults(Opts = #{store_ttv := true}) ->
     Defaults = #{
         append_only => false,
-        atomic_batches => true
+        atomic_batches => true,
+        payload_transform => ?ds_pt_identity
     },
     maps:merge(Defaults, Opts);
 set_db_defaults(Opts) ->
     Defaults = #{
         append_only => true,
         atomic_batches => false,
-        store_ttv => false
+        store_ttv => false,
+        payload_transform => ?ds_pt_identity
     },
     maps:merge(Defaults, Opts).
 

@@ -1819,14 +1819,7 @@ fast_forward(
         DBShard,
         begin
             Now = current_timestamp(DB, Shard),
-            case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize) of
-                {ok, end_of_stream} ->
-                    {ok, end_of_stream};
-                {ok, Pos, Data} ->
-                    {ok, Pos, Data};
-                {error, _, _} = Err ->
-                    Err
-            end
+            emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize)
         end
     ).
 

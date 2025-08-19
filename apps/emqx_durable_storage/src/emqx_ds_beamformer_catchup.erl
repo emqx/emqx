@@ -217,11 +217,11 @@ do_fulfill(
         Metrics, erlang:monotonic_time(microsecond) - T0
     ),
     case ScanResult of
-        {ok, EndKey, []} ->
+        {ok, _PTrans, EndKey, []} ->
             %% Empty batch? Try to move request to the RT queue:
             move_to_realtime(S, Stream, TopicFilter, StartKey, EndKey);
-        {ok, EndKey, Batch} ->
-            fulfill_batch(S, Stream, TopicFilter, StartKey, EndKey, Batch);
+        {ok, PTrans, EndKey, Batch} ->
+            fulfill_batch(S, PTrans, Stream, TopicFilter, StartKey, EndKey, Batch);
         {error, recoverable, Err} ->
             ?tp(
                 warning,
@@ -332,6 +332,7 @@ handover_complete(
 
 -spec fulfill_batch(
     s(),
+    emqx_ds_payload_transform:t(),
     emqx_ds:stream(),
     emqx_ds:topic_filter(),
     emqx_ds:message_key(),
@@ -340,6 +341,7 @@ handover_complete(
 ) -> s().
 fulfill_batch(
     S = #s{shard_id = ShardId, sub_tab = SubTab, metrics_id = Metrics, module = CBM, queue = Queue},
+    PTrans,
     Stream,
     TopicFilter,
     StartKey,
@@ -361,6 +363,7 @@ fulfill_batch(
             emqx_ds_beamformer:beams_init(
                 CBM,
                 ShardId,
+                PTrans,
                 SubTab,
                 true,
                 fun(Req) -> queue_drop(Queue, Req) end,

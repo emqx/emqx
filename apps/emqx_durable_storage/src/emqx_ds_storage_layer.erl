@@ -267,6 +267,7 @@
     %% This generation should only contain messages timestamped no earlier than that.
     %% The very first generation will have `since` equal 0.
     since := emqx_ds:time(),
+    ptrans := emqx_ds_payload_transform:t(),
     until := emqx_ds:time() | undefined
 }.
 
@@ -286,6 +287,7 @@
     current_generation := gen_id(),
     %% This data is used to create new generation:
     prototype := prototype(),
+    ptrans := emqx_ds_payload_transform:t(),
     %% Generations:
     ?GEN_KEY(gen_id()) => GenData,
     %% DB handle (runtime only).
@@ -717,19 +719,26 @@ scan_stream(
     Shard, ?stream_v2(GenId, Inner), TopicFilter, Now, StartMsg, BatchSize
 ) ->
     case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            IsCurrent = GenId =:= generation_current(Shard),
-            Mod:scan_stream(
-                Shard, GenData, Inner, TopicFilter, StartMsg, BatchSize, Now, IsCurrent
-            );
+        #{module := Mod, data := GenData, ptrans := PTrans} ->
+            maybe
+                IsCurrent = GenId =:= generation_current(Shard),
+                {ok, Key, Batch} ?=
+                    Mod:scan_stream(
+                        Shard, GenData, Inner, TopicFilter, StartMsg, BatchSize, Now, IsCurrent
+                    ),
+                {ok, PTrans, Key, Batch}
+            end;
         not_found ->
             ?ERR_GEN_GONE
     end.
 
 fast_forward(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, Key, Now, BatchSize) ->
     case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            Mod:fast_forward(Shard, GenData, Inner0, Key, Now, BatchSize);
+        #{module := Mod, data := GenData, ptrans := PTrans} ->
+            maybe
+                {ok, A, B} ?= Mod:fast_forward(Shard, GenData, Inner0, Key, Now, BatchSize),
+                {ok, PTrans, A, B}
+            end;
         not_found ->
             ?ERR_GEN_GONE
     end.
@@ -1237,12 +1246,17 @@ open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
 
 -spec create_new_shard_schema(dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts()) ->
     {shard_schema(), cf_refs()}.
-create_new_shard_schema(ShardId, DB, CFRefs, Options = #{storage := Prototype}) ->
-    ?tp(notice, ds_create_new_shard_schema, #{shard => ShardId, prototype => Prototype}),
+create_new_shard_schema(
+    ShardId, DB, CFRefs, Options = #{storage := Prototype, payload_transform := PTrans}
+) ->
+    ?tp(notice, ds_create_new_shard_schema, #{
+        shard => ShardId, prototype => Prototype, payload_transform => PTrans
+    }),
     %% TODO: read prototype from options/config
     Schema0 = #{
         current_generation => 0,
-        prototype => Prototype
+        prototype => Prototype,
+        ptrans => PTrans
     },
     DBOpts = filter_layout_db_opts(Options),
     {_NewGenId, Schema, NewCFRefs} =
@@ -1259,7 +1273,7 @@ create_new_shard_schema(ShardId, DB, CFRefs, Options = #{storage := Prototype}) 
 ) ->
     {gen_id(), shard_schema(), cf_refs()}.
 new_generation(ShardId, DB, Schema0, Shard0, Since, DBOpts) ->
-    #{current_generation := PrevGenId, prototype := {Mod, ModConf}} = Schema0,
+    #{current_generation := PrevGenId, prototype := {Mod, ModConf}, ptrans := Ptrans} = Schema0,
     case Shard0 of
         #{?GEN_KEY(PrevGenId) := #{module := Mod} = PrevGen} ->
             %% When the new generation's module is the same as the last one, we might want
@@ -1276,6 +1290,7 @@ new_generation(ShardId, DB, Schema0, Shard0, Since, DBOpts) ->
         data => GenData,
         cf_names => cf_names(NewCFRefs),
         created_at => erlang:system_time(millisecond),
+        ptrans => Ptrans,
         since => Since,
         until => undefined
     },

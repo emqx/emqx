@@ -98,6 +98,7 @@
 
 -callback prepare_tx(
     emqx_ds_storage_layer:dbshard(),
+    emqx_ds_payload_transform:t(),
     emqx_ds_storage_layer:generation_data(),
     emqx_ds:tx_serial(),
     emqx_ds_storage_layer:batch_prepare_opts(),
@@ -156,7 +157,8 @@
     it_pos(),
     pos_integer(),
     emqx_ds:time() | infinity,
-    boolean()
+    boolean(),
+    emqx_ds_payload_transform:t()
 ) ->
     {ok, it_pos(), [emqx_ds:ttv()]} | {ok, end_of_stream} | emqx_ds:error(_).
 
@@ -231,12 +233,12 @@ prepare_tx(DBShard, GenId, TXSerial, Tx, Options) ->
         shard => DBShard, generation => GenId, batch => Tx, options => Options
     }),
     case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
-        #{module := Mod, data := GenData} ->
+        #{module := Mod, data := GenData, ptrans := PTrans} ->
             T0 = erlang:monotonic_time(microsecond),
             Writes = maps:get(?ds_tx_write, Tx, []),
             DeleteTopics = maps:get(?ds_tx_delete_topic, Tx, []),
             Result = Mod:prepare_tx(
-                DBShard, GenData, TXSerial, Options, Writes, DeleteTopics
+                DBShard, PTrans, GenData, TXSerial, Options, Writes, DeleteTopics
             ),
             T1 = erlang:monotonic_time(microsecond),
             %% TODO store->prepare
@@ -397,9 +399,13 @@ scan_stream(
     DBShard = {DB, Shard}, #'Stream'{inner = Inner0, generation = Gen}, TF, Now, Pos, BatchSize
 ) ->
     case emqx_ds_storage_layer:generation_get(DBShard, Gen) of
-        #{module := Mod, data := GenData} ->
+        #{module := Mod, data := GenData, ptrans := PTrans} ->
             IsCurrent = Gen =:= emqx_ds_storage_layer:generation_current(DBShard),
-            Mod:scan_stream(DB, Shard, GenData, Inner0, TF, Pos, BatchSize, Now, IsCurrent);
+            maybe
+                {ok, Key, Batch} ?=
+                    Mod:scan_stream(DB, Shard, GenData, Inner0, TF, Pos, BatchSize, Now, IsCurrent),
+                {ok, PTrans, Key, Batch}
+            end;
         not_found ->
             ?ERR_GEN_GONE
     end.
@@ -426,10 +432,20 @@ next(
 ) ->
     DBShard = {DB, Shard},
     case emqx_ds_storage_layer:generation_get(DBShard, Generation) of
-        #{module := Mod, data := GenData} ->
+        #{module := Mod, data := GenData, ptrans := PTransform} ->
             IsCurrent = Generation =:= emqx_ds_storage_layer:generation_current(DBShard),
             case
-                Mod:next(DB, Shard, GenData, InnerStatic, InnerPos0, BatchSize, MaxTS, IsCurrent)
+                Mod:next(
+                    DB,
+                    Shard,
+                    GenData,
+                    InnerStatic,
+                    InnerPos0,
+                    BatchSize,
+                    MaxTS,
+                    IsCurrent,
+                    PTransform
+                )
             of
                 {ok, InnerPos, Batch} ->
                     {ok, It0#'Iterator'{innerPos = InnerPos}, Batch};
@@ -452,8 +468,14 @@ fast_forward({DB, Shard} = DBShard, It0, Target, MaxTS, BatchSize) ->
         generation = Generation, innerStatic = InnerStatic, innerPos = InnerPos0
     } = It0,
     case emqx_ds_storage_layer:generation_get(DBShard, Generation) of
-        #{module := Mod, data := GenData} ->
-            Mod:fast_forward(DB, Shard, GenData, InnerStatic, InnerPos0, BatchSize, MaxTS, Target);
+        #{module := Mod, data := GenData, ptrans := PTrans} ->
+            maybe
+                {ok, Key, Batch} ?=
+                    Mod:fast_forward(
+                        DB, Shard, GenData, InnerStatic, InnerPos0, BatchSize, MaxTS, Target
+                    ),
+                {ok, PTrans, Key, Batch}
+            end;
         not_found ->
             ?ERR_GEN_GONE
     end.
