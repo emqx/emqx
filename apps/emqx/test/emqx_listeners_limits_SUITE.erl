@@ -43,7 +43,6 @@ t_max_conns(Config) ->
         Type,
         #{
             <<"bind">> => format_bind({"127.0.0.1", Port}),
-            <<"acceptors">> => 1,
             <<"max_connections">> => MaxConns
         },
         Config
@@ -78,8 +77,9 @@ t_max_conn_rate(Config) ->
         Type,
         #{
             <<"bind">> => format_bind({"127.0.0.1", Port}),
-            <<"acceptors">> => 1,
-            <<"max_conn_rate">> => <<"5/500ms">>
+            <<"max_conn_rate">> => <<"5/500ms">>,
+            %% NOTE: Rate limits are per-acceptor, use single acceptor for predictability.
+            <<"acceptors">> => 1
         },
         Config
     ),
