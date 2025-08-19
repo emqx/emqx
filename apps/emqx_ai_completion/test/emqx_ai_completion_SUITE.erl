@@ -46,11 +46,69 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_openai_completion(_Config) ->
+t_openai_chat_completions_completion(_Config) ->
     %% Setup completion profiles
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"type">> => <<"openai">>,
+            <<"name">> => <<"openai-chat-completions-provider">>,
+            <<"api_key">> => <<"sk-proj-1234567890">>,
+            <<"base_url">> => <<"http://localhost:33330/v1">>
+        }}
+    ),
+    ok = emqx_ai_completion_config:update_completion_profiles_raw(
+        {add, #{
+            <<"name">> => <<"openai-chat-completions-profile">>,
+            <<"type">> => <<"openai">>,
+            <<"model">> => <<"gpt-4o">>,
+            <<"provider_name">> => <<"openai-chat-completions-provider">>,
+            <<"system_prompt">> => <<"pls do something">>
+        }}
+    ),
+    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_chat_completions),
+    %% Setup republish rule
+    RepublishTopic = <<"republish/ai_completion">>,
+    Params = #{
+        <<"id">> => ?RULE_ID,
+        <<"sql">> =>
+            <<
+                "SELECT\n"
+                "  ai_completion('openai-chat-completions-profile', 'some prompt', payload) as result_openai_1,\n"
+                "  ai_completion('openai-chat-completions-profile', payload) as result_openai_2\n"
+                "FROM\n"
+                "  't/#'"
+            >>,
+        <<"enable">> => true,
+        <<"actions">> => [
+            #{
+                <<"function">> => <<"republish">>,
+                <<"args">> =>
+                    #{
+                        <<"topic">> => RepublishTopic,
+                        <<"qos">> => 0,
+                        <<"retain">> => false,
+                        <<"payload">> => <<"${result_openai_1}-${result_openai_2}">>,
+                        <<"mqtt_properties">> => #{},
+                        <<"direct_dispatch">> => false
+                    }
+            }
+        ]
+    },
+    {ok, _} = emqx_bridge_v2_testlib:create_rule_directly(Params),
+
+    %% Verify rule is triggered correctly
+    verify_republish(
+        <<"t/1">>,
+        <<"hello">>,
+        RepublishTopic,
+        <<"some completion-some completion">>
+    ).
+
+t_openai_response_completion(_Config) ->
+    %% Setup completion profiles
+    ok = emqx_ai_completion_config:update_providers_raw(
+        {add, #{
+            <<"type">> => <<"openai_response">>,
             <<"name">> => <<"openai-provider">>,
             <<"api_key">> => <<"sk-proj-1234567890">>,
             <<"base_url">> => <<"http://localhost:33330/v1">>
@@ -59,13 +117,13 @@ t_openai_completion(_Config) ->
     ok = emqx_ai_completion_config:update_completion_profiles_raw(
         {add, #{
             <<"name">> => <<"openai-profile">>,
-            <<"type">> => <<"openai">>,
+            <<"type">> => <<"openai_response">>,
             <<"model">> => <<"gpt-4o">>,
             <<"provider_name">> => <<"openai-provider">>,
             <<"system_prompt">> => <<"pls do something">>
         }}
     ),
-    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_chat_completion),
+    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_responses),
     %% Setup republish rule
     RepublishTopic = <<"republish/ai_completion">>,
     Params = #{

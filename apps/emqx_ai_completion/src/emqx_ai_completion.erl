@@ -71,5 +71,7 @@ provider(Name) ->
 
 completion_module(openai) ->
     emqx_ai_completion_openai;
+completion_module(openai_response) ->
+    emqx_ai_completion_openai_response;
 completion_module(anthropic) ->
     emqx_ai_completion_anthropic.

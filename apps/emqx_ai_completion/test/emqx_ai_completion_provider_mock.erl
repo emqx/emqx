@@ -24,8 +24,10 @@ stop() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-set_handler(openai_chat_completion) ->
-    set_handler(fun openai_chat_completion/2);
+set_handler(openai_chat_completions) ->
+    set_handler(fun openai_chat_completions/2);
+set_handler(openai_responses) ->
+    set_handler(fun openai_responses/2);
 set_handler(anthropic_messages) ->
     set_handler(fun anthropic_messages/2);
 set_handler(openai_models) ->
@@ -37,7 +39,58 @@ set_handler(anthropic_models_paginated) ->
 set_handler(Fun) ->
     emqx_utils_http_test_server:set_handler(Fun).
 
-openai_chat_completion(#{path := <<"/v1/responses">>} = Req0, State) ->
+openai_chat_completions(#{path := <<"/v1/chat/completions">>} = Req0, State) ->
+    {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+    Body = emqx_utils_json:decode(RawBody),
+    #{
+        <<"messages">> :=
+            [
+                #{<<"content">> := _, <<"role">> := <<"system">>},
+                #{<<"content">> := _, <<"role">> := <<"user">>}
+            ],
+        <<"model">> := _
+    } =
+        Body,
+    %% https://platform.openai.com/docs/api-reference/chat/object
+    Data = #{
+        <<"id">> => <<"chatcmpl-B9MHDbslfkBeAs8l4bebGdFOJ6PeG">>,
+        <<"object">> => <<"chat.completion">>,
+        <<"created">> => 1741570283,
+        <<"model">> => <<"gpt-4o-2024-08-06">>,
+        <<"choices">> => [
+            #{
+                <<"index">> => 0,
+                <<"message">> => #{
+                    <<"role">> => <<"assistant">>,
+                    <<"content">> => <<"some completion">>,
+                    <<"refusal">> => null,
+                    <<"annotations">> => []
+                },
+                <<"logprobs">> => null,
+                <<"finish_reason">> => <<"stop">>
+            }
+        ],
+        <<"usage">> => #{
+            <<"prompt_tokens">> => 1117,
+            <<"completion_tokens">> => 46,
+            <<"total_tokens">> => 1163,
+            <<"prompt_tokens_details">> => #{
+                <<"cached_tokens">> => 0,
+                <<"audio_tokens">> => 0
+            },
+            <<"completion_tokens_details">> => #{
+                <<"reasoning_tokens">> => 0,
+                <<"audio_tokens">> => 0,
+                <<"accepted_prediction_tokens">> => 0,
+                <<"rejected_prediction_tokens">> => 0
+            }
+        },
+        <<"service_tier">> => <<"default">>,
+        <<"system_fingerprint">> => <<"fp_fc9f1d7035">>
+    },
+    reply_ok(Data, Req1, State).
+
+openai_responses(#{path := <<"/v1/responses">>} = Req0, State) ->
     {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
     Body = emqx_utils_json:decode(RawBody),
     #{
