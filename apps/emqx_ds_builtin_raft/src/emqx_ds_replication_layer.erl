@@ -19,6 +19,7 @@
     drop_slab/2,
     drop_db/1,
     store_batch/3,
+    dirty_append/2,
     get_streams/4,
     get_delete_streams/3,
     make_iterator/4,
@@ -415,6 +416,9 @@ store_batch_atomic(DB, Batch, _Opts) ->
         [_ | _] ->
             {error, unrecoverable, atomic_batch_spans_multiple_shards}
     end.
+
+dirty_append(#{db := _, shard := _} = Opts, Data) ->
+    emqx_ds_optimistic_tx:dirty_append(Opts, Data).
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time(), emqx_ds:get_streams_opts()) ->
     emqx_ds:get_streams_result().

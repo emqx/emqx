@@ -23,6 +23,7 @@
     drop_slab/2,
     drop_db/1,
     store_batch/3,
+    dirty_append/2,
     get_streams/4,
     get_delete_streams/3,
     make_iterator/4,
@@ -268,6 +269,9 @@ store_batch(DB, Batch, Opts) ->
         _ ->
             store_batch_buffered(DB, Batch, Opts)
     end.
+
+dirty_append(#{db := _, shard := _} = Opts, Data) ->
+    emqx_ds_optimistic_tx:dirty_append(Opts, Data).
 
 -spec new_tx(emqx_ds:db(), emqx_ds:transaction_opts()) ->
     {ok, tx_context()} | emqx_ds:error(_).
