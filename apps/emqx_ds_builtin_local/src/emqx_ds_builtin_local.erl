@@ -550,14 +550,7 @@ fast_forward(DBShard, It = #'Iterator'{}, Key, BatchSize) ->
     emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now, BatchSize);
 fast_forward(DBShard, #{?tag := ?IT, ?enc := Inner0}, Key, BatchSize) ->
     Now = current_timestamp(DBShard),
-    case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize) of
-        {ok, end_of_stream} ->
-            {ok, end_of_stream};
-        {ok, Pos, Data} ->
-            {ok, Pos, Data};
-        {error, _, _} = Err ->
-            Err
-    end.
+    emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize).
 
 message_match_context(DBShard, Stream = #'Stream'{}, MsgKey, TTV) ->
     emqx_ds_storage_layer_ttv:message_match_context(DBShard, Stream, MsgKey, TTV);
