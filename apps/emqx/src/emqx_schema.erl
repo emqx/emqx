@@ -1852,6 +1852,22 @@ fields("durable_sessions") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
+        {"commit_retry_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"1s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"commit_retries",
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 10,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"subscription_count_refresh_interval",
             sc(
                 timeout_duration(),

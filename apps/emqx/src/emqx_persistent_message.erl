@@ -49,7 +49,7 @@ reasonable stages, this function should be removed, and creation of
 durable storages should become a prerequisite for start of EMQX
 business applications.
 """.
--spec wait_readiness(timeout()) -> ok | disabled.
+-spec wait_readiness(timeout()) -> ok | disabled | timeout.
 wait_readiness(Timeout) ->
     case is_persistence_enabled() of
         true ->
