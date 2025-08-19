@@ -173,9 +173,9 @@ open(
 drop(_ShardId, _DBHandle, _GenId, _CFRefs, #s{gs = GS}) ->
     emqx_ds_gen_skipstream_lts:drop(GS).
 
-prepare_tx(_DBShard, PTrans, S, TXID, _Options, TxWrites, TxDeleteTopics) ->
+prepare_tx(_DBShard, PTSchema, S, TXID, _Options, TxWrites, TxDeleteTopics) ->
     _ = emqx_ds_gen_skipstream_lts:pop_lts_persist_ops(),
-    PTransFun = emqx_ds_payload_transform:serialize_payload_fun(PTrans),
+    PTransFun = emqx_ds_payload_transform:ser_fun(PTSchema),
     try
         OperationsCooked = cook_blob_deletes(
             S, TxDeleteTopics, cook_blob_writes(PTransFun, S, TXID, TxWrites, [])
@@ -468,8 +468,8 @@ next_internal(
             Err
     end.
 
-next_cb_without_key(PTrans) ->
-    Fun = emqx_ds_payload_transform:deserialize_fun(PTrans),
+next_cb_without_key(PTSchema) ->
+    Fun = emqx_ds_payload_transform:deser_fun(PTSchema),
     fun(TopicStructure, _DSKey, Varying, TS, Val, Acc) ->
         Topic = emqx_ds_lts:decompress_topic(TopicStructure, Varying),
         [Fun({Topic, TS, Val}) | Acc]
