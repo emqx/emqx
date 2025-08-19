@@ -35,7 +35,7 @@ It takes care of forwarding calls to the underlying DBMS.
 ]).
 
 %% Message storage API:
--export([store_batch/2, store_batch/3]).
+-export([store_batch/2, store_batch/3, dirty_append/2]).
 
 %% Transactional API (low-level):
 -export([new_tx/2, commit_tx/3]).
@@ -114,6 +114,8 @@ It takes care of forwarding calls to the underlying DBMS.
     iterator_id/0,
     message_key/0,
     message_store_opts/0,
+    dirty_append_opts/0,
+    dirty_append_data/0,
     next_limit/0,
     next_result/1, next_result/0,
     delete_next_result/1, delete_next_result/0,
@@ -156,8 +158,13 @@ It takes care of forwarding calls to the underlying DBMS.
     multi_iter_opts/0
 ]).
 
+%% -deprecated([
+%%     {store_batch, 2, "use `dirty_append` instead"},
+%%     {store_batch, 3, "use `dirty_append` instead"}
+%% ]).
+
 %%================================================================================
-%% Type declarations
+%% type declarations
 %%================================================================================
 
 -doc "Identifier of the DB.".
@@ -301,6 +308,16 @@ Earliest possible timestamp is 0.
         %% Default: `false'.
         atomic => boolean()
     }.
+
+-type dirty_append_opts() :: #{
+    db := db(),
+    shard := shard(),
+    reply => boolean()
+}.
+
+-type dirty_append_data() :: [
+    {topic(), ?ds_tx_ts_monotonic, binary() | emqx_ds_payload_transform:payload()}, ...
+].
 
 -doc """
 Common options for creation of a DS database.
@@ -567,6 +584,9 @@ must not assume the default values.
 
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
 
+-callback dirty_append(dirty_append_opts(), dirty_append_data()) ->
+    reference() | noreply.
+
 %% Synchronous read API:
 -callback get_streams(db(), topic_filter(), time(), get_streams_opts()) -> get_streams_result().
 
@@ -824,6 +844,31 @@ store_batch(DB, Msgs, Opts) ->
 -spec store_batch(db(), batch()) -> store_batch_result().
 store_batch(DB, Msgs) ->
     store_batch(DB, Msgs, #{}).
+
+-doc """
+This function is used to stream data into a DB with as little overhead as possible.
+It adds data to the latest generation of the shard.
+This function is asynchronous.
+
+WARNING: this function breaks atomiticy of `trans/2`.
+Data written using `dirty_append` doesn't appear in the conflict tracking structures used by optimistic transactions.
+Generally, transactions and dirty_appends should not be mixed in one DB.
+
+Options:
+
+- **`reply`**: a boolean indicating whether or not DS should notify the caller when data is committed.
+  If set to `false`, function returns `noreply` and DS will not send back anything.
+  "Fire and forget" mode.
+
+  If set to `true`, this function will return a reference
+  that can be used to match the reply from DS using `?tx_commit_reply(Ref, Reply)` macro.
+
+  Note that the reply is not guaranteed at all, so the caller should implement
+  a reasonable timeout and error handling policy on its own.
+""".
+-spec dirty_append(dirty_append_opts(), dirty_append_data()) -> reference() | noreply.
+dirty_append(#{db := DB, shard := _} = Opts, Data) ->
+    ?module(DB):dirty_append(Opts, Data).
 
 -doc "Simplified version of `get_streams/4` that ignores the errors.".
 -spec get_streams(db(), topic_filter(), time()) -> [{slab(), stream()}].
