@@ -17,7 +17,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([ensure_running/0, start_top/0, restart_worker_sup/0, start_worker/4]).
+-export([ensure_running/0, start_top/0, stop_all_workers/0, start_worker/4]).
 
 %% behavior callbacks:
 -export([init/1]).
@@ -45,17 +45,13 @@
 start_top() ->
     supervisor:start_link({local, ?TOP}, ?MODULE, ?TOP).
 
--spec restart_worker_sup() -> ok.
-restart_worker_sup() ->
-    _ = supervisor:terminate_child(?SYSTEM, ?WORKERS_SUP),
-    case supervisor:restart_child(?SYSTEM, ?WORKERS_SUP) of
-        {ok, _} ->
-            ok;
-        {ok, _, _} ->
-            ok;
-        {error, running} ->
-            ok
-    end.
+-spec stop_all_workers() -> ok.
+stop_all_workers() ->
+    Children = supervisor:which_children(?WORKERS_SUP),
+    lists:foreach(
+        fun({_, Child, _, _}) -> supervisor:terminate_child(?WORKERS_SUP, Child) end,
+        Children
+    ).
 
 -spec start_worker(
     emqx_durable_timer_worker:kind(),

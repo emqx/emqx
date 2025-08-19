@@ -110,7 +110,6 @@
 %%================================================================================
 
 %% @doc Open a session
-%% TODO: combine opening with updating metadata to make it a one transaction
 -spec open(emqx_ds:generation(), emqx_types:clientid()) ->
     {ok, emqx_persistent_session_ds_state:t()} | undefined.
 open(Generation, ClientId) ->
@@ -119,8 +118,8 @@ open(Generation, ClientId) ->
         generation => Generation,
         shard => {auto, ClientId},
         timeout => trans_timeout(),
-        retries => 10,
-        retry_interval => 100
+        retries => trans_retries(),
+        retry_interval => trans_retry_interval()
     },
     Ret = emqx_ds:trans(
         Opts,
@@ -198,8 +197,8 @@ commit(
         generation => Generation,
         sync => Sync,
         timeout => trans_timeout(),
-        retries => 5,
-        retry_interval => 1000
+        retries => trans_retries(),
+        retry_interval => trans_retry_interval()
     },
     Result =
         emqx_ds:trans(
@@ -673,6 +672,12 @@ unwrap_subopts(Misc) ->
 
 trans_timeout() ->
     emqx_config:get([durable_sessions, commit_timeout]).
+
+trans_retries() ->
+    emqx_config:get([durable_sessions, commit_retries]).
+
+trans_retry_interval() ->
+    emqx_config:get([durable_sessions, commit_retry_interval]).
 
 pmap_name(Pmap) ->
     case Pmap of
