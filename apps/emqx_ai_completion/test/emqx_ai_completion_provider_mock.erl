@@ -111,21 +111,29 @@ openai_responses(#{path := <<"/v1/responses">>} = Req0, State) ->
             <<"instructions">> => null,
             <<"max_output_tokens">> => null,
             <<"model">> => <<"gpt-4.1-2025-04-14">>,
-            <<"output">> => [
-                #{
-                    <<"type">> => <<"message">>,
-                    <<"id">> => <<"msg_67ccd2bf17f0819081ff3bb2cf6508e60bb6a6b452d3795b">>,
-                    <<"status">> => <<"completed">>,
-                    <<"role">> => <<"assistant">>,
-                    <<"content">> => [
-                        #{
-                            <<"type">> => <<"output_text">>,
-                            <<"text">> => <<"some completion">>,
-                            <<"annotations">> => []
-                        }
-                    ]
-                }
-            ],
+            <<"output">> =>
+                [
+                    #{
+                        <<"id">> => <<"rs_689c31cac8348195b1cff9d8f1d3a7b50d623e416147c0e2">>,
+                        <<"summary">> => [],
+                        <<"type">> => <<"reasoning">>
+                    },
+                    #{
+                        <<"content">> =>
+                            [
+                                #{
+                                    <<"annotations">> => [],
+                                    <<"logprobs">> => [],
+                                    <<"text">> => <<"some completion">>,
+                                    <<"type">> => <<"output_text">>
+                                }
+                            ],
+                        <<"id">> => <<"msg_689c31cca6648195a2bef2be2bfbbe5e0d623e416147c0e2">>,
+                        <<"role">> => <<"assistant">>,
+                        <<"status">> => <<"completed">>,
+                        <<"type">> => <<"message">>
+                    }
+                ],
             <<"parallel_tool_calls">> => true,
             <<"previous_response_id">> => null,
             <<"reasoning">> => #{
