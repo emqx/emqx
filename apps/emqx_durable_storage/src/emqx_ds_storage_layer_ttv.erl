@@ -98,7 +98,7 @@
 
 -callback prepare_tx(
     emqx_ds_storage_layer:dbshard(),
-    emqx_ds_payload_transform:t(),
+    emqx_ds_payload_transform:schema(),
     emqx_ds_storage_layer:generation_data(),
     emqx_ds:tx_serial(),
     emqx_ds_storage_layer:batch_prepare_opts(),
@@ -158,7 +158,7 @@
     pos_integer(),
     emqx_ds:time() | infinity,
     boolean(),
-    emqx_ds_payload_transform:t()
+    emqx_ds_payload_transform:schema()
 ) ->
     {ok, it_pos(), [emqx_ds:ttv()]} | {ok, end_of_stream} | emqx_ds:error(_).
 

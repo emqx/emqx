@@ -334,6 +334,10 @@ Common options for creation of a DS database.
   NOTE: this flag is meant to be temporary. Eventually the APIs
   should converge.
 
+- **`payload_type`** - Use fixed payload (de)serialization schema.
+  This option is meant to optimize fan-out of MQTT messages to
+  subscribers.
+
 Note: all backends MUST handle all options listed here; even if it
 means throwing an exception that says that certain option is not
 supported.
@@ -348,7 +352,7 @@ supported.
         %%
         store_ttv => boolean(),
         %% Relevant when store_ttv = true:
-        payload_transform => emqx_ds_payload_transform:t(),
+        payload_type => emqx_ds_payload_transform:type(),
         %% Backend-specific options:
         _ => _
     }.
@@ -1655,7 +1659,7 @@ set_db_defaults(Opts = #{store_ttv := true}) ->
     Defaults = #{
         append_only => false,
         atomic_batches => true,
-        payload_transform => ?ds_pt_identity
+        payload_type => ?ds_pt_ttv
     },
     maps:merge(Defaults, Opts);
 set_db_defaults(Opts) ->
@@ -1663,7 +1667,7 @@ set_db_defaults(Opts) ->
         append_only => true,
         atomic_batches => false,
         store_ttv => false,
-        payload_transform => ?ds_pt_identity
+        payload_type => ?ds_pt_ttv
     },
     maps:merge(Defaults, Opts).
 

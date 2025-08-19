@@ -119,6 +119,10 @@
 %% Type declarations
 %%================================================================================
 
+%% Compatibility with old DBs. Should be replaced with `emqx_ds:ttv()`
+%% when such compatibility is dropped.
+-type ttv_or_msg() :: emqx_ds:ttv() | emqx_types:message().
+
 %% States:
 -define(initializing, initializing).
 -define(idle, idle).
@@ -215,10 +219,7 @@
 
 %% Response:
 
--type pack() ::
-    [{emqx_ds:message_key(), emqx_types:message()}]
-    | end_of_stream
-    | emqx_ds:error(_).
+-type pack() :: [ttv_or_msg()] | end_of_stream | emqx_ds:error(_).
 
 %% obsolete
 -record(beam, {iterators, pack, misc = #{}}).
@@ -237,8 +238,8 @@
 -type beam() :: beam(_ItKey, _Iterator).
 
 -type stream_scan_return() ::
-    {ok, emqx_ds_payload_transform:t(), emqx_ds:message_key(), [
-        {emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}
+    {ok, emqx_ds_payload_transform:schema(), emqx_ds:message_key(), [
+        {emqx_ds:message_key(), ttv_or_msg()}
     ]}
     | {ok, end_of_stream}
     | emqx_ds:error(_).
@@ -276,7 +277,7 @@
 %% Global builder:
 -record(beam_builder, {
     cbm :: module(),
-    ptrans :: emqx_ds_payload_transform:t(),
+    ptrans :: emqx_ds_payload_transform:schema(),
     sub_tab :: sub_tab(),
     lagging :: boolean(),
     shard_id :: _Shard,
@@ -327,8 +328,8 @@ If this function returns `{ok, LastSeenKey, Batch}`, it means:
    is contained in the batch.
 """.
 -callback fast_forward(dbshard(), _Iterator, emqx_ds:message_key(), pos_integer()) ->
-    {ok, emqx_ds_payload_transform:t(), emqx_ds:message_key(), [
-        {emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}
+    {ok, emqx_ds_payload_transform:schema(), emqx_ds:message_key(), [
+        {emqx_ds:message_key(), ttv_or_msg()}
     ]}
     | emqx_ds:error(_).
 
@@ -341,7 +342,7 @@ c_i := iterator_match_context(iterator[client])
 
 then dispatch_matrix[message, client] = c_i(c_m)
 """.
--callback message_match_context(dbshard(), _Stream, emqx_ds:message_key(), emqx_types:message()) ->
+-callback message_match_context(dbshard(), _Stream, emqx_ds:message_key(), ttv_or_msg()) ->
     {ok, _MatchCtxMsg}.
 
 -callback iterator_match_context(dbshard(), _Iterator) -> fun((_MatchCtxMsg) -> boolean()).
@@ -501,7 +502,7 @@ send_out_final_beam(DBShard, SubTab, Term, Reqs) ->
 %% @doc Create an object that is used to incrementally build
 %% destinations for the batch.
 -spec beams_init(
-    module(), dbshard(), emqx_ds_payload_transform:t(), sub_tab(), boolean(), fun(), fun()
+    module(), dbshard(), emqx_ds_payload_transform:schema(), sub_tab(), boolean(), fun(), fun()
 ) -> beam_builder().
 beams_init(CBM, DBShard, PTrans, SubTab, Lagging, Drop, UpdateQueue) ->
     #beam_builder{
@@ -545,7 +546,7 @@ beams_n_matched(#beam_builder{per_node = PerNode}) ->
 -spec beams_add(
     _Stream,
     emqx_ds:message_key(),
-    emqx_types:message(),
+    ttv_or_msg(),
     [{node(), reference()}],
     beam_builder()
 ) -> beam_builder().
@@ -661,8 +662,8 @@ high_watermark(Mod, Shard, Stream) ->
     Mod:high_watermark(Shard, Stream).
 
 -spec fast_forward(module(), dbshard(), _Iterator, emqx_ds:message_key(), pos_integer()) ->
-    {ok, emqx_ds_payload_transform:t(), emqx_ds:message_key(), [
-        {emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}
+    {ok, emqx_ds_payload_transform:schema(), emqx_ds:message_key(), [
+        {emqx_ds:message_key(), ttv_or_msg()}
     ]}
     | ?err_unrec(has_data | old_key)
     | emqx_ds:error(_).
@@ -1097,7 +1098,7 @@ do_dispatch(_) ->
     dbshard(),
     ets:tid(),
     non_neg_integer(),
-    emqx_types:message(),
+    ttv_or_msg(),
     _MatchCtx,
     emqx_ds:sub_ref(),
     bbn()
@@ -1277,7 +1278,7 @@ send_out_final_term_to_node(DBShard, SubTab, Term, Node, Reqs) ->
         end,
         Reqs
     ),
-    send_out(DBShard, ?ds_pt_identity, Node, Term, Destinations).
+    send_out(DBShard, ?ds_pt_ttv, Node, Term, Destinations).
 
 diff_gens(_DBShard, Old, New) ->
     %% TODO: filter by shard
