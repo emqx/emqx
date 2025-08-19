@@ -36,8 +36,9 @@ t_global_chain(_Config) ->
     Names = emqx_gateway_schema:gateway_names(),
     lists:foreach(
         fun(Name) ->
-            ?assertNotEqual(emqx_gateway_utils:global_chain(Name), 'unknown:global')
+            %% no exception is expected
+            _ = emqx_gateway_utils:global_chain(Name)
         end,
         Names
     ),
-    ?assertEqual(emqx_gateway_utils:global_chain('Others'), 'unknown:global').
+    ?assertError(invalid_protocol_name, emqx_gateway_utils:global_chain('Others')).

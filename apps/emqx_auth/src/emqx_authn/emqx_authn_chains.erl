@@ -788,7 +788,7 @@ global_chain(gbt32960) ->
 global_chain(jt808) ->
     'jt808:global';
 global_chain(_) ->
-    'unknown:global'.
+    error(invalid_protocol_name).
 
 maybe_hook(#{hooked := false} = State) ->
     case
