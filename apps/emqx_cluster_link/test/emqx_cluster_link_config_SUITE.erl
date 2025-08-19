@@ -349,10 +349,12 @@ t_config_update_ds(Config) ->
     NameA = ?config(name_a, Config),
     NameB = ?config(name_b, Config),
 
+    ct:pal("~b: starting clients", [?LINE]),
     ClientA = start_client("t_config_a", NodeA1, false),
     ClientB = start_client("t_config_b", NodeB1, false),
     {ok, _, _} = emqtt:subscribe(ClientA, <<"t/test/1/+">>, qos1),
     {ok, _, _} = emqtt:subscribe(ClientB, <<"t/test-topic">>, qos1),
+    ct:pal("~b: started clients", [?LINE]),
 
     LinkConfA = #{
         <<"enable">> => true,
@@ -375,8 +377,10 @@ t_config_update_ds(Config) ->
         6,
         30_000
     ),
+    ct:pal("~b: updating configs", [?LINE]),
     ?assertMatch({ok, _}, erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA]])),
     ?assertMatch({ok, _}, erpc:call(NodeB1, emqx_cluster_link_config, update, [[LinkConfB]])),
+    ct:pal("~b: updated configs", [?LINE]),
 
     ?assertMatch(
         [#{ps_actor_incarnation := 0}], erpc:call(NodeA1, emqx, get_config, [[cluster, links]])
@@ -384,14 +388,17 @@ t_config_update_ds(Config) ->
     ?assertMatch(
         [#{ps_actor_incarnation := 0}], erpc:call(NodeB1, emqx, get_config, [[cluster, links]])
     ),
+    ct:pal("~b: checked configs", [?LINE]),
 
     ?assertMatch(
         {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef)
     ),
 
+    ct:pal("~b: publishing", [?LINE]),
     {ok, _} = emqtt:publish(ClientA, <<"t/test-topic">>, <<"hello-from-a">>, qos1),
     {ok, _} = emqtt:publish(ClientB, <<"t/test/1/1">>, <<"hello-from-b">>, qos1),
+    ct:pal("~b: published", [?LINE]),
 
     ?assertReceive(
         {publish, #{
@@ -405,6 +412,7 @@ t_config_update_ds(Config) ->
         }},
         10_000
     ),
+    ct:pal("~b: received publishes", [?LINE]),
     %% no more messages expected
     ?assertNotReceive({publish, _Message = #{}}),
     {ok, SubRef1} = snabbkaffe:subscribe(
@@ -413,16 +421,20 @@ t_config_update_ds(Config) ->
         3,
         30_000
     ),
+    ct:pal("~b: received events", [?LINE]),
 
     %% update link
 
+    ct:pal("~b: updating again", [?LINE]),
     LinkConfA1 = LinkConfA#{<<"pool_size">> => 2, <<"topics">> => [<<"t/new/+">>]},
     ?assertMatch({ok, _}, erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA1]])),
 
+    ct:pal("~b: waiting events", [?LINE]),
     ?assertMatch(
         {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef1)
     ),
+    ct:pal("~b: received events", [?LINE]),
 
     %% wait for route sync on ClientA node
     {{ok, _, _}, {ok, _}} = ?wait_async_action(
@@ -435,14 +447,17 @@ t_config_update_ds(Config) ->
         },
         10_000
     ),
+    ct:pal("~b: subscribed", [?LINE]),
     %% not expected to be received anymore
     {ok, _} = emqtt:publish(ClientB, <<"t/test/1/1">>, <<"not-expected-hello-from-b">>, qos1),
     {ok, _} = emqtt:publish(ClientB, <<"t/new/1">>, <<"hello-from-b-1">>, qos1),
+    ct:pal("~b: published again", [?LINE]),
     ?assertReceive(
         {publish, #{topic := <<"t/new/1">>, payload := <<"hello-from-b-1">>, client_pid := ClientA}},
         10_000
     ),
     ?assertNotReceive({publish, _Message = #{}}),
+    ct:pal("~b: received publishes again", [?LINE]),
 
     ?assertMatch(
         [#{ps_actor_incarnation := 1}], erpc:call(NodeA1, emqx, get_config, [[cluster, links]])
@@ -450,6 +465,7 @@ t_config_update_ds(Config) ->
     ?assertMatch(
         [#{ps_actor_incarnation := 1}], erpc:call(NodeA1, emqx, get_config, [[cluster, links]])
     ),
+    ct:pal("~b: checked configs again", [?LINE]),
 
     ok = emqtt:stop(ClientA),
     ok = emqtt:stop(ClientB).
