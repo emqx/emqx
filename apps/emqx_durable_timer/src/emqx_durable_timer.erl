@@ -239,6 +239,11 @@ handle_event(_, ?heartbeat, State, Data) ->
 handle_event(state_enter, From, To, _Data) ->
     ?tp(debug, ?tp_state_change, #{from => From, to => To}),
     keep_state_and_data;
+handle_event(info, {'EXIT', _, Reason}, _, _) ->
+    case Reason of
+        normal -> keep_state_and_data;
+        _ -> {stop, shutdown}
+    end;
 handle_event(ET, Event, State, Data) ->
     ?tp(error, ?tp_unknown_event, #{m => ?MODULE, ET => Event, state => State, d => Data}),
     keep_state_and_data.
@@ -246,7 +251,7 @@ handle_event(ET, Event, State, Data) ->
 terminate(Reason, ?s_normal, #s{this_epoch = Epoch}) ->
     ?tp(?tp_terminate, #{m => ?MODULE, reason => Reason, s => ?s_normal, epoch => Epoch}),
     optvar:unset(?epoch_optvar),
-    emqx_durable_timer_sup:restart_worker_sup(),
+    emqx_durable_timer_sup:stop_all_workers(),
     _ = emqx_durable_timer_dl:update_epoch(node(), Epoch, now_ms(), false),
     ok;
 terminate(_Reason, _State, _D) ->
@@ -280,7 +285,7 @@ enter_isolated(PrevState, NextEpoch, D0) ->
         ?s_normal ->
             ?tp(error, ?tp_state_change, #{from => PrevState, to => ?s_isolated(NextEpoch)}),
             optvar:unset(?epoch_optvar),
-            emqx_durable_timer_sup:restart_worker_sup()
+            emqx_durable_timer_sup:stop_all_workers()
     end,
     D = D0#s{peer_info = #{}},
     {keep_state, D}.
