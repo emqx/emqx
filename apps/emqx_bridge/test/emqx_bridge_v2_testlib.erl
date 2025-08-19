@@ -832,7 +832,7 @@ probe_bridge_api(Kind, BridgeType, BridgeName, BridgeConfig) ->
     ct:pal("bridge probe (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
-probe_bridge_api2(TCConfig, Overrides) ->
+probe_bridge_api_simple(TCConfig, Overrides) ->
     simplify_result(probe_bridge_api(TCConfig, Overrides)).
 
 probe_connector_api(Config) ->

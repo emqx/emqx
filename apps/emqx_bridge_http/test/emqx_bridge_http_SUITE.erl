@@ -277,7 +277,7 @@ trace_log_stream_api(TraceName, Opts) ->
     emqx_bridge_v2_testlib:trace_log_stream_api(TraceName, Opts).
 
 probe_action_api(TCConfig, Overrides) ->
-    emqx_bridge_v2_testlib:probe_bridge_api2(TCConfig, Overrides).
+    emqx_bridge_v2_testlib:probe_bridge_api_simple(TCConfig, Overrides).
 
 start_connector_api(TCConfig) ->
     #{connector_type := Type, connector_name := Name} =

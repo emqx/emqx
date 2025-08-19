@@ -64,7 +64,36 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(TestCase, TCConfig) ->
-    emqx_bridge_http_SUITE:init_per_testcase(TestCase, TCConfig).
+    Path = group_path(TCConfig, no_groups),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    HTTPPath = get_tc_prop(TestCase, http_path, <<"/path">>),
+    ServerSSLOpts = false,
+    {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
+        _Port = random, HTTPPath, ServerSSLOpts
+    ),
+    ok = emqx_bridge_http_connector_test_server:set_handler(
+        emqx_bridge_http_SUITE:success_http_handler(#{})
+    ),
+    ConnectorName = atom_to_binary(TestCase),
+    ConnectorConfig = emqx_bridge_http_SUITE:connector_config(#{
+        <<"url">> => emqx_bridge_v2_testlib:fmt(<<"http://localhost:${p}">>, #{p => HTTPPort})
+    }),
+    ActionName = ConnectorName,
+    ActionConfig = emqx_bridge_http_SUITE:action_config(#{
+        <<"connector">> => ConnectorName
+    }),
+    snabbkaffe:start_trace(),
+    [
+        {bridge_kind, action},
+        {connector_type, http},
+        {connector_name, ConnectorName},
+        {connector_config, ConnectorConfig},
+        {action_type, http},
+        {action_name, ActionName},
+        {action_config, ActionConfig},
+        {http_server, #{port => HTTPPort, path => Path}}
+        | TCConfig
+    ].
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_bridge_http_connector_test_server:stop(),
@@ -94,6 +123,21 @@ get_action(Config) ->
             console_print_action();
         _ ->
             make_http_bridge(Config)
+    end.
+
+group_path(Config, Default) ->
+    case emqx_common_test_helpers:group_path(Config) of
+        [] -> Default;
+        Path -> Path
+    end.
+
+get_tc_prop(TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(?MODULE, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
+        Val
+    else
+        _ -> Default
     end.
 
 make_http_bridge(TCConfig) ->
