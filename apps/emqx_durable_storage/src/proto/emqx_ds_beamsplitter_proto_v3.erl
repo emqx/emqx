@@ -25,14 +25,14 @@
     _SerializationToken,
     node(),
     emqx_ds:db(),
-    emqx_ds_payload_transform:t(),
+    emqx_ds_payload_transform:schema(),
     emqx_ds_beamsplitter:pack_v3(),
     [emqx_ds_beamsplitter:destination()],
     map()
 ) -> true.
-dispatch(SerializationToken, Node, DB, PTrans, Pack, Destinations, Misc) ->
+dispatch(SerializationToken, Node, DB, PTSchema, Pack, Destinations, Misc) ->
     emqx_rpc:cast(SerializationToken, Node, emqx_ds_beamsplitter, dispatch_v3, [
-        DB, PTrans, Pack, Destinations, Misc
+        DB, PTSchema, Pack, Destinations, Misc
     ]).
 
 %%================================================================================

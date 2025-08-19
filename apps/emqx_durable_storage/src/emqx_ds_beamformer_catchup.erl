@@ -332,12 +332,12 @@ handover_complete(
 
 -spec fulfill_batch(
     s(),
-    emqx_ds_payload_transform:t(),
+    emqx_ds_payload_transform:schema(),
     emqx_ds:stream(),
     emqx_ds:topic_filter(),
     emqx_ds:message_key(),
     emqx_ds:message_key(),
-    [{emqx_ds:message_key(), emqx_types:message()}]
+    [{emqx_ds:message_key(), emqx_ds:ttv()}]
 ) -> s().
 fulfill_batch(
     S = #s{shard_id = ShardId, sub_tab = SubTab, metrics_id = Metrics, module = CBM, queue = Queue},
@@ -383,7 +383,7 @@ fulfill_batch(
     s(),
     emqx_ds:stream(),
     emqx_ds:topic_filter(),
-    [{emqx_ds:message_key(), emqx_types:message()}],
+    [{emqx_ds:message_key(), emqx_ds:ttv()}],
     [emqx_ds_beamformer:sub_state()],
     emqx_ds_beamformer:beam_builder()
 ) -> emqx_ds_beamformer:beam_builder().
