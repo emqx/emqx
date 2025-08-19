@@ -7,7 +7,7 @@
 -include_lib("emqx_utils/include/bpapi.hrl").
 
 %% API:
--export([dispatch/6]).
+-export([dispatch/7]).
 
 %% behavior callbacks:
 -export([introduced_in/0]).
@@ -25,13 +25,14 @@
     _SerializationToken,
     node(),
     emqx_ds:db(),
+    emqx_ds_payload_transform:t(),
     emqx_ds_beamsplitter:pack_v3(),
     [emqx_ds_beamsplitter:destination()],
     map()
 ) -> true.
-dispatch(SerializationToken, Node, DB, Pack, Destinations, Misc) ->
+dispatch(SerializationToken, Node, DB, PTrans, Pack, Destinations, Misc) ->
     emqx_rpc:cast(SerializationToken, Node, emqx_ds_beamsplitter, dispatch_v3, [
-        DB, Pack, Destinations, Misc
+        DB, PTrans, Pack, Destinations, Misc
     ]).
 
 %%================================================================================

@@ -80,7 +80,7 @@
     on_worker_down/2
 ]).
 -export([owner_tab/1, handle_recoverable_error/2]).
--export([beams_init/6, beams_add/5, beams_conclude/3, beams_n_matched/1]).
+-export([beams_init/7, beams_add/5, beams_conclude/3, beams_n_matched/1]).
 -export([metrics_id/2, send_out_final_beam/4]).
 -export([cfg_batch_size/0, cfg_housekeeping_interval/0, cfg_workers_per_shard/0]).
 
@@ -237,7 +237,9 @@
 -type beam() :: beam(_ItKey, _Iterator).
 
 -type stream_scan_return() ::
-    {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+    {ok, emqx_ds_payload_transform:t(), emqx_ds:message_key(), [
+        {emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}
+    ]}
     | {ok, end_of_stream}
     | emqx_ds:error(_).
 
@@ -274,6 +276,7 @@
 %% Global builder:
 -record(beam_builder, {
     cbm :: module(),
+    ptrans :: emqx_ds_payload_transform:t(),
     sub_tab :: sub_tab(),
     lagging :: boolean(),
     shard_id :: _Shard,
@@ -324,7 +327,9 @@ If this function returns `{ok, LastSeenKey, Batch}`, it means:
    is contained in the batch.
 """.
 -callback fast_forward(dbshard(), _Iterator, emqx_ds:message_key(), pos_integer()) ->
-    {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+    {ok, emqx_ds_payload_transform:t(), emqx_ds:message_key(), [
+        {emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}
+    ]}
     | emqx_ds:error(_).
 
 -doc """
@@ -495,10 +500,13 @@ send_out_final_beam(DBShard, SubTab, Term, Reqs) ->
 
 %% @doc Create an object that is used to incrementally build
 %% destinations for the batch.
--spec beams_init(module(), dbshard(), sub_tab(), boolean(), fun(), fun()) -> beam_builder().
-beams_init(CBM, DBShard, SubTab, Lagging, Drop, UpdateQueue) ->
+-spec beams_init(
+    module(), dbshard(), emqx_ds_payload_transform:t(), sub_tab(), boolean(), fun(), fun()
+) -> beam_builder().
+beams_init(CBM, DBShard, PTrans, SubTab, Lagging, Drop, UpdateQueue) ->
     #beam_builder{
         cbm = CBM,
+        ptrans = PTrans,
         sub_tab = SubTab,
         shard_id = DBShard,
         lagging = Lagging,
@@ -652,8 +660,10 @@ scan_stream(Mod, Shard, Stream, TopicFilter, StartKey, BatchSize) ->
 high_watermark(Mod, Shard, Stream) ->
     Mod:high_watermark(Shard, Stream).
 
--spec fast_forward(module(), dbshard(), Iterator, emqx_ds:message_key(), pos_integer()) ->
-    {ok, Iterator, [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+-spec fast_forward(module(), dbshard(), _Iterator, emqx_ds:message_key(), pos_integer()) ->
+    {ok, emqx_ds_payload_transform:t(), emqx_ds:message_key(), [
+        {emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}
+    ]}
     | ?err_unrec(has_data | old_key)
     | emqx_ds:error(_).
 fast_forward(Mod, Shard, It, Key, BatchSize) ->
@@ -1193,7 +1203,8 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
         sub_tab = SubTab,
         lagging = IsLagging,
         queue_drop = QueueDrop,
-        queue_update = QueueUpdate
+        queue_update = QueueUpdate,
+        ptrans = PTrans
     } = BeamMaker,
     #beam_builder_node{
         n_msgs = BatchSize,
@@ -1249,7 +1260,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
             Subscribers
         ),
     %% Send the beam to the destination node:
-    send_out(DBShard, Node, lists:reverse(PackRev), Destinations).
+    send_out(DBShard, PTrans, Node, lists:reverse(PackRev), Destinations).
 
 send_out_final_term_to_node(DBShard, SubTab, Term, Node, Reqs) ->
     Mask = emqx_ds_dispatch_mask:encode([true]),
@@ -1266,7 +1277,7 @@ send_out_final_term_to_node(DBShard, SubTab, Term, Node, Reqs) ->
         end,
         Reqs
     ),
-    send_out(DBShard, Node, Term, Destinations).
+    send_out(DBShard, ?ds_pt_identity, Node, Term, Destinations).
 
 diff_gens(_DBShard, Old, New) ->
     %% TODO: filter by shard
@@ -1325,7 +1336,7 @@ drop_from_pending(SubId, Pending) ->
         Pending
     ).
 
-send_out(DBShard = {DB, _}, Node, Pack, Destinations) ->
+send_out(DBShard = {DB, _}, PTrans, Node, Pack, Destinations) ->
     ?tp(debug, beamformer_out, #{
         dest_node => Node,
         destinations => Destinations
@@ -1333,9 +1344,11 @@ send_out(DBShard = {DB, _}, Node, Pack, Destinations) ->
     case {node(), proto_vsn(Node)} of
         {Node, _} ->
             %% TODO: Introduce a separate worker for local fanout?
-            emqx_ds_beamsplitter:dispatch_v3(DB, Pack, Destinations, #{});
+            emqx_ds_beamsplitter:dispatch_v3(DB, PTrans, Pack, Destinations, #{});
         {_, Vsn} when Vsn >= 3 ->
-            emqx_ds_beamsplitter_proto_v3:dispatch(DBShard, Node, DB, Pack, Destinations, #{});
+            emqx_ds_beamsplitter_proto_v3:dispatch(
+                DBShard, Node, DB, PTrans, Pack, Destinations, #{}
+            );
         {_, 2} ->
             %% Compatibility with the old version. Add fake DSKeys.
             PackCompat =

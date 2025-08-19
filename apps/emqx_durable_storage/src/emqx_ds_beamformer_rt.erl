@@ -251,10 +251,10 @@ This function is called during hand-over from catch-up to realtime worker.
 If more data was published while the subscription was in hand-over
 state, RT worker uses this function to send it to the client.
 """.
-complete_takeover(_, _, {ok, _, []}) ->
+complete_takeover(_, _, {ok, _, _, []}) ->
     ok;
 complete_takeover(
-    S, #sub_state{client = Client, req_id = ReqId, stream = Stream}, {ok, EndKey, Batch}
+    S, #sub_state{client = Client, req_id = ReqId, stream = Stream}, {ok, PTrans, EndKey, Batch}
 ) ->
     #s{
         shard = DBShard,
@@ -266,6 +266,7 @@ complete_takeover(
     BB0 = emqx_ds_beamformer:beams_init(
         CBM,
         DBShard,
+        PTrans,
         SubTab,
         true,
         fun(SubS) -> queue_drop(Queue, SubS) end,
@@ -326,7 +327,7 @@ do_process_stream_event(
         Metrics, erlang:monotonic_time(microsecond) - T0
     ),
     case ScanResult of
-        {ok, LastKey, []} ->
+        {ok, _PTrans, LastKey, []} ->
             ?tp(beamformer_rt_batch, #{
                 shard => DBShard, from => StartKey, to => LastKey, stream => Stream, empty => true
             }),
@@ -343,13 +344,14 @@ do_process_stream_event(
                     erlang:send_after(100, Parent, stream_event(Stream, RetriesOnEmpty - 1))
                 end,
             set_high_watermark(Stream, LastKey, S);
-        {ok, LastKey, Batch} ->
+        {ok, PTrans, LastKey, Batch} ->
             ?tp(beamformer_rt_batch, #{
                 shard => DBShard, from => StartKey, to => LastKey, stream => Stream
             }),
             Beams = emqx_ds_beamformer:beams_init(
                 CBM,
                 DBShard,
+                PTrans,
                 SubTab,
                 false,
                 fun(SubS) -> queue_drop(Queue, SubS) end,
