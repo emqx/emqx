@@ -306,8 +306,11 @@ terminate(Reason, State, _Data) ->
         end,
     ?tp(Level, ds_otx_terminate, #{state => State, reason => Reason}).
 
-handle_event(info, {'EXIT', _, _Reason}, _State, _Data) ->
-    {stop, shutdown};
+handle_event(info, {'EXIT', _, Reason}, _State, _Data) ->
+    case Reason of
+        normal -> keep_state_and_data;
+        _ -> {stop, shutdown}
+    end;
 handle_event(enter, _OldState, ?leader(?pending), #d{flush_interval = T}) ->
     %% Schedule unconditional flush after the given interval:
     {keep_state_and_data, {state_timeout, T, ?timeout_flush}};
