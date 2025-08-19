@@ -256,7 +256,7 @@ t_case_exproto(_) ->
             ?FUNCTOR(Sock, Mod:close(Sock)),
             fun(Sock) ->
                 Client = #{
-                    proto_name => <<"demo">>,
+                    proto_name => <<"exproto">>,
                     proto_ver => <<"v0.1">>,
                     clientid => <<"test_client_1">>,
                     username => Username
@@ -265,7 +265,7 @@ t_case_exproto(_) ->
                 ConnBin = SvrMod:frame_connect(Client, Password),
 
                 Mod:send(Sock, ConnBin),
-                {ok, Recv} = Mod:recv(Sock, 5000),
+                {ok, Recv} = Mod:recv(Sock, 10_000),
                 C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin, [return_maps])),
                 ?assertEqual(C(Expect), C(Recv))
             end

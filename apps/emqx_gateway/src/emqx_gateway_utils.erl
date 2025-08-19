@@ -454,19 +454,26 @@ is_running(ListenerId, ListenOn0) ->
         _:_ ->
             false
     end.
-
 %% same with emqx_authn_chains:global_chain/1
 -spec global_chain(GatewayName :: atom()) -> atom().
+global_chain(stomp) ->
+    'stomp:global';
 global_chain('mqttsn') ->
     'mqtt-sn:global';
 global_chain(coap) ->
     'coap:global';
 global_chain(lwm2m) ->
     'lwm2m:global';
-global_chain(stomp) ->
-    'stomp:global';
+global_chain(exproto) ->
+    'exproto:global';
+global_chain(jt808) ->
+    'jt808:global';
+global_chain(gbt32960) ->
+    'gbt32960:global';
+global_chain(ocpp) ->
+    'ocpp:global';
 global_chain(_) ->
-    'unknown:global'.
+    error(invalid_protocol_name).
 
 listener_chain(GwName, Type, LisName) ->
     listener_id(GwName, Type, LisName).
