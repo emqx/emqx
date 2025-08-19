@@ -148,8 +148,8 @@ adjust_limiter(Context, _Limiter) ->
 zone_group(Zone) ->
     {zone, Zone}.
 
-listener_group(ListenerId) ->
-    {listener, ListenerId}.
+channel_group(ListenerId) ->
+    {channel, ListenerId}.
 
 tenant_group(Ns) ->
     {mt_tenant, Ns}.
@@ -204,9 +204,10 @@ create_client_limiters(ListenerId, Ns, Name) ->
             ClientLimiterClient = emqx_limiter:connect(ClientLimiterId),
             [ClientLimiterClient];
         _ ->
-            ListenerLimiterId = {listener_group(ListenerId), Name},
-            ListenerLimiterClient = emqx_limiter:connect(ListenerLimiterId),
-            [ListenerLimiterClient]
+            %% TODO: Isolate implementation details in `emqx_limiter` API.
+            ChannelLimiterId = {channel_group(ListenerId), Name},
+            ChannelLimiterClient = emqx_limiter:connect(ChannelLimiterId),
+            [ChannelLimiterClient]
     end.
 
 ensure_group_absent(Group) ->
