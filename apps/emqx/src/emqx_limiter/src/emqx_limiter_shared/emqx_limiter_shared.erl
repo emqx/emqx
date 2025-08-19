@@ -45,15 +45,18 @@
     inspect/1
 ]).
 
+-record(atomic_value, {
+    aref :: atomics:atomics_ref(),
+    index :: pos_integer()
+}).
+
+-type atomic_value() :: #atomic_value{}.
+
 -type bucket_ref() :: #{
-    mini_tokens_cref := counters:counters_ref(),
-    mini_tokens_index := pos_integer(),
-    last_time_aref := atomics:atomics_ref(),
-    last_time_index := pos_integer(),
-    burst_tokens_aref := atomics:atomics_ref(),
-    burst_tokens_index := pos_integer(),
-    last_burst_time_aref := atomics:atomics_ref(),
-    last_burst_time_index := pos_integer()
+    mini_tokens := atomic_value(),
+    last_time := atomic_value(),
+    burst_tokens := atomic_value(),
+    last_burst_time := atomic_value()
 }.
 
 -type client_state() :: #{
@@ -95,14 +98,14 @@
 ]) -> ok | {error, term()}.
 create_group(Group, LimiterConfigs) when length(LimiterConfigs) > 0 ->
     Size = length(LimiterConfigs),
-    MiniTokensCRef = counters:new(Size, [write_concurrency]),
-    %% Factor 3 is because we have 3 atomics per limiter:
+    %% Factor 3 is because we have 4 atomics per limiter:
+    %% mini_tokens
     %% last_time
     %% burst_tokens
     %% last_burst_time
-    ARef = atomics:new(Size * 3, []),
+    ARef = atomics:new(Size * 4, []),
     NowUs = now_us_monotonic(),
-    Buckets = make_buckets(LimiterConfigs, MiniTokensCRef, ARef, NowUs),
+    Buckets = make_buckets(LimiterConfigs, ARef, NowUs),
     ok = emqx_limiter_bucket_registry:insert_buckets(Group, Buckets).
 
 -spec delete_group(emqx_limiter:group()) -> ok | {error, term()}.
@@ -163,27 +166,25 @@ try_consume(#{limiter_id := LimiterId} = State, Amount) ->
 put_back(#{bucket_ref := BucketRef, mode := Mode} = State, Amount) ->
     case Mode of
         #token_mode{us_per_token = UsPerToken} ->
-            #{last_time_aref := LastTimeARef, last_time_index := LastTimeIndex} = BucketRef,
-            ok = atomics:sub(LastTimeARef, LastTimeIndex, UsPerToken * Amount);
+            #{last_time := LastTime} = BucketRef,
+            ok = atomic_sub(LastTime, UsPerToken * Amount);
         #mini_token_mode{} ->
-            #{mini_tokens_cref := MiniTokensCRef, mini_tokens_index := MiniTokensIndex} = BucketRef,
+            #{mini_tokens := MiniTokens} = BucketRef,
             AmountMini = Amount * 1000,
-            ok = counters:add(MiniTokensCRef, MiniTokensIndex, AmountMini)
+            ok = atomic_add(MiniTokens, AmountMini)
     end,
     State.
 
 -spec inspect(client_state()) -> map().
 inspect(#{bucket_ref := BucketRef, mode := Mode, options := Options} = _State) ->
-    #{last_time_aref := LastTimeARef, last_time_index := LastTimeIndex} = BucketRef,
-    LastTimeUs = atomics:get(LastTimeARef, LastTimeIndex),
-    #{mini_tokens_cref := MiniTokensCRef, mini_tokens_index := MiniTokensIndex} = BucketRef,
-    MiniTokens = counters:get(MiniTokensCRef, MiniTokensIndex),
+    #{last_time := LastTime, mini_tokens := MiniTokens} = BucketRef,
+    LastTimeUs = atomic_get(LastTime),
     #{capacity := Capacity, interval := IntervalMs} = Options,
     TimeLeftUs = now_us_monotonic() - LastTimeUs,
     #{
         mode => Mode,
         time_left_us => TimeLeftUs,
-        mini_tokens => MiniTokens,
+        mini_tokens => atomic_get(MiniTokens),
         tokens_left => ((TimeLeftUs * Capacity) div IntervalMs) div 1000
     }.
 
@@ -191,28 +192,24 @@ inspect(#{bucket_ref := BucketRef, mode := Mode, options := Options} = _State) -
 %%  Internal functions
 %%--------------------------------------------------------------------
 
-make_buckets(Names, MiniTokensCRef, ARef, NowUs) ->
-    make_buckets(Names, MiniTokensCRef, ARef, NowUs, 1, []).
+make_buckets(Names, ARef, NowUs) ->
+    make_buckets(Names, ARef, NowUs, 1, []).
 
-make_buckets([], _MiniTokensCRef, _ARef, _NowUs, _Index, Res) ->
+make_buckets([], _ARef, _NowUs, _Index, Res) ->
     lists:reverse(Res);
 make_buckets(
-    [{Name, Options} | Names], MiniTokensCRef, ARef, NowUs, Index, Res
+    [{Name, Options} | Names], ARef, NowUs, Index, Res
 ) ->
     BucketRef = #{
-        mini_tokens_cref => MiniTokensCRef,
-        mini_tokens_index => Index,
-        last_time_aref => ARef,
-        last_time_index => 3 * Index - 2,
-        last_burst_time_aref => ARef,
-        last_burst_time_index => 3 * Index - 1,
-        burst_tokens_aref => ARef,
-        burst_tokens_index => 3 * Index
+        mini_tokens => #atomic_value{aref = ARef, index = 4 * Index - 3},
+        last_time => #atomic_value{aref = ARef, index = 4 * Index - 2},
+        last_burst_time => #atomic_value{aref = ARef, index = 4 * Index - 1},
+        burst_tokens => #atomic_value{aref = ARef, index = 4 * Index}
     },
     Mode = calc_mode(Options),
     ok = init_last_time(BucketRef, Mode, Options, NowUs),
     ok = apply_burst(BucketRef, Options, NowUs),
-    make_buckets(Names, MiniTokensCRef, ARef, NowUs, Index + 1, [
+    make_buckets(Names, ARef, NowUs, Index + 1, [
         {Name, BucketRef} | Res
     ]).
 
@@ -245,25 +242,21 @@ try_consume(State, Mode, Options, Amount, NowUs) ->
             end
     end.
 
--doc """
-First try to consume from the accumulated burst tokens in case there was a recent burst.
-If there are not enough burst tokens, then try to consume regular tokens.
-""".
-
 try_consume_accumulated_burst(#{bucket_ref := BucketRef}, Amount) ->
     #{
-        burst_tokens_aref := BurstTokensARef,
-        burst_tokens_index := BurstTokensIndex,
-        last_burst_time_aref := LastBurstTimeARef,
-        last_burst_time_index := LastBurstTimeIndex
+        burst_tokens := BurstTokens,
+        last_burst_time := LastBurstTime
     } = BucketRef,
-    LastBurstTimeUs = atomics:get(LastBurstTimeARef, LastBurstTimeIndex),
-    case atomics:get(BurstTokensARef, BurstTokensIndex) - Amount >= 0 of
+    %% The order of getting LastBurstTime and checking tokens is important.
+    %% If we check tokens first, we may fail while having right to burst:
+    %% * we see no tokens
+    %% * another process concurrently applies burst
+    %% * we check LastBurstTime and see the new value
+    %% * conclude that the burst was already done recently and fail
+    LastBurstTimeUs = atomic_get(LastBurstTime),
+    case atomic_sub_get(BurstTokens, Amount) >= 0 of
         true ->
-            %% We ignore possible overconsumption of burst tokens due to non-atomic get and set.
-            %% This is not a big deal, because burst tokens are granted rarely
-            %% and provide large amount of tokens.
-            ok = atomics:sub(BurstTokensARef, BurstTokensIndex, Amount);
+            ok;
         false ->
             {failed, LastBurstTimeUs}
     end.
@@ -295,13 +288,13 @@ try_consume_regular(
     Amount,
     NowUs
 ) ->
-    #{mini_tokens_cref := MiniTokensCRef, mini_tokens_index := MiniTokensIndex} = BucketRef,
+    #{mini_tokens := MiniTokens} = BucketRef,
     AmountMini = Amount * 1000,
     %% First try to consume the tokens from the leftovers
     %% If there are not enough, we calculate the required time to advance the last_time
-    case counters:get(MiniTokensCRef, MiniTokensIndex) - AmountMini >= 0 of
+    case atomic_get(MiniTokens) - AmountMini >= 0 of
         true ->
-            ok = counters:sub(MiniTokensCRef, MiniTokensIndex, AmountMini);
+            ok = atomic_sub(MiniTokens, AmountMini);
         false ->
             %% In mini-token mode, we the granularity of tokens consumpton is > 1,
             %% so we may have left-over tokens
@@ -311,7 +304,7 @@ try_consume_regular(
             %% To succeed, at least UsRequired microseconds must pass since the last time stored in the bucket.
             case advance_last_time(BucketRef, UsRequired, NowUs, MaxTimeUs) of
                 ok ->
-                    ok = counters:add(MiniTokensCRef, MiniTokensIndex, LeftOver);
+                    ok = atomic_add(MiniTokens, LeftOver);
                 retry ->
                     try_consume_regular(State, Mode, Options, Amount, now_us_monotonic());
                 failed ->
@@ -336,10 +329,8 @@ try_burst(
 
 apply_burst(BucketRef, #{burst_capacity := BurstCapacity} = _Options, NowUs) ->
     #{
-        last_burst_time_aref := LastBurstTimeARef,
-        last_burst_time_index := LastBurstTimeIndex,
-        burst_tokens_aref := BurstTokensARef,
-        burst_tokens_index := BurstTokensIndex
+        last_burst_time := LastBurstTime,
+        burst_tokens := BurstTokens
     } = BucketRef,
     %% Here we don't care that the read and write are not atomic.
     %% The worst case is that several processes see the same old burst time
@@ -355,16 +346,15 @@ apply_burst(BucketRef, #{burst_capacity := BurstCapacity} = _Options, NowUs) ->
     %% * see still not updated burst tokens
     %% * fail
     %% while having a right for a burst.
-    ok = atomics:put(BurstTokensARef, BurstTokensIndex, BurstCapacity),
-    ok = atomics:put(LastBurstTimeARef, LastBurstTimeIndex, NowUs);
+    ok = atomic_put(BurstTokens, BurstCapacity),
+    ok = atomic_put(LastBurstTime, NowUs);
 apply_burst(BucketRef, #{} = _Options, NowUs) ->
-    #{last_burst_time_aref := LastBurstTimeARef, last_burst_time_index := LastBurstTimeIndex} =
-        BucketRef,
-    ok = atomics:put(LastBurstTimeARef, LastBurstTimeIndex, NowUs).
+    #{last_burst_time := LastBurstTime} = BucketRef,
+    ok = atomic_put(LastBurstTime, NowUs).
 
 advance_last_time(BucketRef, UsRequired, NowUs, MaxTimeUs) ->
-    #{last_time_aref := LastTimeARef, last_time_index := LastTimeIndex} = BucketRef,
-    LastTimeUs = atomics:get(LastTimeARef, LastTimeIndex),
+    #{last_time := LastTime} = BucketRef,
+    LastTimeUs = atomic_get(LastTime),
     case NowUs - LastTimeUs >= UsRequired of
         true ->
             %% There is enough capacity to advance the LastTime by UsRequired.
@@ -372,7 +362,7 @@ advance_last_time(BucketRef, UsRequired, NowUs, MaxTimeUs) ->
             %% If LastTimeUs is very old (e.g. limiter was not used for a long time),
             %% we take NowUs - MaxTimeUs instead of LastTimeUs to limit the bucket capacity.
             LastTimeUsNew = UsRequired + max(LastTimeUs, NowUs - MaxTimeUs),
-            case atomics:compare_exchange(LastTimeARef, LastTimeIndex, LastTimeUs, LastTimeUsNew) of
+            case atomic_compare_exchange(LastTime, LastTimeUs, LastTimeUsNew) of
                 ok ->
                     ok;
                 _ ->
@@ -385,19 +375,19 @@ advance_last_time(BucketRef, UsRequired, NowUs, MaxTimeUs) ->
     end.
 
 init_last_time(
-    #{last_time_aref := LastTimeARef, last_time_index := LastTimeIndex} = _BucketRef,
+    #{last_time := LastTime} = _BucketRef,
     #token_mode{max_time_us = MaxTimeUs} = _Mode,
     #{} = _Options,
     NowUs
 ) ->
-    ok = atomics:put(LastTimeARef, LastTimeIndex, NowUs - MaxTimeUs);
+    ok = atomic_put(LastTime, NowUs - MaxTimeUs);
 init_last_time(
-    #{last_time_aref := LastTimeARef, last_time_index := LastTimeIndex} = _BucketRef,
+    #{last_time := LastTime} = _BucketRef,
     #mini_token_mode{max_time_us = MaxTimeUs} = _Mode,
     #{} = _Options,
     NowUs
 ) ->
-    ok = atomics:put(LastTimeARef, LastTimeIndex, NowUs - MaxTimeUs).
+    ok = atomic_put(LastTime, NowUs - MaxTimeUs).
 
 now_us_monotonic() ->
     erlang:monotonic_time(microsecond).
@@ -438,3 +428,25 @@ amount_to_required_time_and_leftover(MiniTokensPerMs, AmountMini) ->
             LeftOver = MiniTokensPerMs - Rem
     end,
     {MsRequired * 1000, LeftOver}.
+
+%%--------------------------------------------------------------------
+%% Atomic helpers
+%%--------------------------------------------------------------------
+
+atomic_add(#atomic_value{aref = ARef, index = Index}, Amount) ->
+    atomics:add(ARef, Index, Amount).
+
+atomic_sub(#atomic_value{aref = ARef, index = Index}, Amount) ->
+    atomics:sub(ARef, Index, Amount).
+
+atomic_get(#atomic_value{aref = ARef, index = Index}) ->
+    atomics:get(ARef, Index).
+
+atomic_sub_get(#atomic_value{aref = ARef, index = Index}, Amount) ->
+    atomics:sub_get(ARef, Index, Amount).
+
+atomic_put(#atomic_value{aref = ARef, index = Index}, Value) ->
+    atomics:put(ARef, Index, Value).
+
+atomic_compare_exchange(#atomic_value{aref = ARef, index = Index}, OldValue, NewValue) ->
+    atomics:compare_exchange(ARef, Index, OldValue, NewValue).
