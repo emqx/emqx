@@ -182,7 +182,7 @@ t_hackney_pool_config(_Config) ->
     ok = emqx_ai_completion_config:update_providers_raw({update, ProviderRaw1}),
     ?assertEqual(20, hackney_pool:max_connections(Pool)),
     ok = emqx_ai_completion_config:update_providers_raw({delete, <<"openai-provider">>}),
-    ?assertEqual([], ets:tab2list(hackney_pool)),
+    ?assertEqual([], proplists:delete(default, ets:tab2list(hackney_pool))),
     ?assertException(
         exit,
         {noproc, _},

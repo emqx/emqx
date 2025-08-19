@@ -38,12 +38,16 @@ call_completion(Name, Data, Options) ->
         {ok, Module:call_completion(CompletionProfile, Data, Options)}
     end.
 
--spec list_models(binary()) -> {ok, list(model())} | {error, provider_not_found | term()}.
-list_models(Name) ->
+-spec list_models(binary() | provider()) ->
+    {ok, list(model())} | {error, provider_not_found | term()}.
+list_models(Name) when is_binary(Name) ->
     maybe
         {ok, Module, Provider} ?= provider(Name),
         Module:list_models(Provider)
-    end.
+    end;
+list_models(#{type := Type} = Provider) ->
+    Module = completion_module(Type),
+    Module:list_models(Provider).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
