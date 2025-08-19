@@ -865,9 +865,13 @@ Options:
 
   Note that the reply is not guaranteed at all, so the caller should implement
   a reasonable timeout and error handling policy on its own.
+
+
+  Default: `true`.
 """.
 -spec dirty_append(dirty_append_opts(), dirty_append_data()) -> reference() | noreply.
-dirty_append(#{db := DB, shard := _} = Opts, Data) ->
+dirty_append(#{db := DB, shard := _} = UserOpts, Data) ->
+    Opts = maps:merge(#{reply => true}, UserOpts),
     ?module(DB):dirty_append(Opts, Data).
 
 -doc "Simplified version of `get_streams/4` that ignores the errors.".

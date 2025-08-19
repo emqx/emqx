@@ -165,6 +165,7 @@
     pending_dirty = [] :: [dirty_append()],
     gens = #{} :: generations()
 }).
+-type d() :: #d{}.
 
 -define(ds_tx_monotonic_ts, ds_tx_monotonic_ts).
 
@@ -362,7 +363,7 @@ handle_event(ET, Evt, ?initial, _) ->
 handle_event(cast, Tx = #ds_tx{}, ?leader(LeaderState), D0) ->
     %% Enqueue transaction commit:
     case handle_tx(D0, Tx) of
-        {ok, D} ->
+        {ok, _PresumedCommitSerial, D} ->
             to_pending(LeaderState, D, []);
         aborted ->
             keep_state_and_data
@@ -416,25 +417,49 @@ handle_dirty_append(#cast_dirty_append{reply_to = Pid, ref = Ref}, _OtherState, 
     reply_error(Pid, Ref, dirty, recoverable, not_the_leader),
     keep_state_and_data.
 
-cook_all_dirty(D = #d{pending_dirty = []}) ->
-    D;
-cook_all_dirty(D0 = #d{db = DB, shard = Shard, cbm = CBM, pending_dirty = Pending}) ->
+-spec send_dirty_append_replies(ok | false | emqx_ds:error(_), serial(), [dirty_append()]) -> ok.
+send_dirty_append_replies(Result, Serial, PendingReplies) ->
+    case Result of
+        ok ->
+            lists:foreach(
+                fun(#cast_dirty_append{reply_to = From, ref = Ref}) ->
+                    reply_success(From, Ref, dirty, Serial)
+                end,
+                PendingReplies
+            );
+        _ ->
+            lists:foreach(
+                fun(#cast_dirty_append{reply_to = From, ref = Ref}) ->
+                    reply_error(From, Ref, dirty, recoverable, Result)
+                end,
+                PendingReplies
+            )
+    end.
+
+-spec cook_dirty_appends(d()) -> {Success, serial() | undefined, [dirty_append()], d()} when
+    Success :: boolean().
+cook_dirty_appends(D = #d{pending_dirty = []}) ->
+    {true, undefined, [], D};
+cook_dirty_appends(D0 = #d{db = DB, shard = Shard, cbm = CBM, pending_dirty = Pending}) ->
     Gen = CBM:otx_get_latest_generation(DB, Shard),
     Result = with_time_and_generation(
         Gen,
         D0,
         fun(GenData, PresumedCommitSerial) ->
-            do_cook_dirty(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pending)
+            do_cook_dirty_appends(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pending)
         end
     ),
+    %% Optimization: here we return the original `Pending' list to be
+    %% passed to `send_dirty_append_replies' function. This should
+    %% prevent extra list allocations when sending replies.
     case Result of
-        {ok, D} ->
-            D#d{pending_dirty = []};
+        {ok, PresumedCommitSerial, D} ->
+            {true, PresumedCommitSerial, Pending, D#d{pending_dirty = []}};
         aborted ->
-            D0#d{pending_dirty = []}
+            {false, undefined, Pending, D0#d{pending_dirty = []}}
     end.
 
-do_cook_dirty(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pending) ->
+do_cook_dirty_appends(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pending) ->
     maybe
         #gen_data{
             buffer = Buff,
@@ -455,7 +480,6 @@ do_cook_dirty(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pending) ->
                 #{?ds_tx_write => Writes},
                 #{}
             ),
-        %% FIXME: handle replies.
         {ok, GenData#gen_data{
             buffer = [CookedDirty | Buff]
         }}
@@ -470,6 +494,16 @@ to_pending(?idle, D = #d{idle_flush_interval = IdleInterval}, Actions) ->
 to_pending(_, D, Actions) ->
     {keep_state, D, Actions}.
 
+-doc """
+A wrapper that sets up the environment for calling CBM:tx_prepare_tx.
+
+If successful, it updates generation data, current monotonic time and
+commit serial in the global state.
+""".
+-spec with_time_and_generation(emqx_ds:generation(), d(), fun(
+    (gen_data(), serial()) -> {ok, gen_data()} | aborted
+)) ->
+    {ok, serial(), d()} | aborted.
 with_time_and_generation(
     Gen,
     D = #d{
@@ -492,7 +526,7 @@ with_time_and_generation(
     put(?ds_tx_monotonic_ts, Timestamp),
     case Fun(GenData0, PresumedCommitSerial) of
         {ok, GenData} ->
-            {ok, D#d{
+            {ok, PresumedCommitSerial, D#d{
                 serial = PresumedCommitSerial,
                 gens = Gens#{Gen => GenData},
                 timestamp = erase(?ds_tx_monotonic_ts)
@@ -532,11 +566,31 @@ handle_tx(
                     generation => {IsLatest, Gen}
                 }
             ),
-            try_commit(DBShard, Gen, CBM, SafeToReadSerial, PresumedCommitSerial, Tx, GenData)
+            try_schedule_transaction(
+                DBShard, Gen, CBM, SafeToReadSerial, PresumedCommitSerial, Tx, GenData
+            )
         end
     ).
 
-try_commit(
+-doc """
+This function verifies that a transaction doesn't conflict with data
+that was either committed or is scheduled for commit, and that
+transaction preconditions are satisfied.
+
+If all checks pass then the transaction is cooked and scheduled for
+commit, and conflict tracking is updated.
+""".
+-spec try_schedule_transaction(
+    {emqx_ds:db(), emqx_ds:shard()},
+    emqx_ds:generation(),
+    module(),
+    serial(),
+    serial(),
+    #ds_tx{},
+    gen_data()
+) ->
+    {ok, gen_data()} | aborted.
+try_schedule_transaction(
     DBShard,
     Gen,
     CBM,
@@ -633,7 +687,7 @@ update_dirty_w(Serial, Ops, Dirty) ->
     ).
 
 flush(D0) ->
-    D = cook_all_dirty(D0),
+    {CookDirtySuccess, PresumedDirtyCommitSerial, OldDirtyAppends, D} = cook_dirty_appends(D0),
     #d{
         db = DB,
         shard = Shard,
@@ -648,6 +702,9 @@ flush(D0) ->
     Batch = make_batch(Gens0),
     Result = CBM:otx_commit_tx_batch(DBShard, SerCtl, Serial, Timestamp, Batch),
     Gens = clean_buffers_and_reply(Result, Gens0),
+    send_dirty_append_replies(
+        CookDirtySuccess andalso Result, PresumedDirtyCommitSerial, OldDirtyAppends
+    ),
     #{flush_interval := FI, idle_flush_interval := IFI, conflict_window := CW} = CBM:otx_get_runtime_config(
         DB
     ),

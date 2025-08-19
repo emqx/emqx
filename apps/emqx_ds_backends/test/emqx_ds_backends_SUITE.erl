@@ -18,7 +18,7 @@
 
 %% A simple smoke test that verifies that opening/closing the DB
 %% doesn't crash, and not much else
-t_00_smoke_open_drop(Config) ->
+t_00_old_smoke_open_drop(Config) ->
     DB = 'DB',
     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     %% Reopen the DB and make sure the operation is idempotent:
@@ -26,9 +26,19 @@ t_00_smoke_open_drop(Config) ->
     %% Close the DB:
     ?assertMatch(ok, emqx_ds:drop_db(DB)).
 
+%% A simple smoke test that verifies that opening/closing the DB
+%% doesn't crash, and not much else
+t_00_smoke_open_drop(Config) ->
+    DB = 'DB',
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
+    %% Reopen the DB and make sure the operation is idempotent:
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
+    %% Close the DB:
+    ?assertMatch(ok, emqx_ds:drop_db(DB)).
+
 %% A simple smoke test that verifies that storing the messages doesn't
 %% crash
-t_01_smoke_store(Config) ->
+t_01_old_smoke_store(Config) ->
     ?check_trace(
         #{timetrap => 10_000},
         begin
@@ -40,10 +50,38 @@ t_01_smoke_store(Config) ->
         []
     ).
 
+%% A simple smoke test that verifies that storing the messages doesn't
+%% crash
+t_01_smoke_store(Config) ->
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            DB = default,
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
+            Msg = ttv_mqtt(<<"foo/bar">>, <<"foo">>, 0),
+            Shard = hd(emqx_ds:list_shards(DB)),
+            %% Store sync:
+            Ref = emqx_ds:dirty_append(#{db => DB, shard => Shard}, [Msg]),
+            ?assert(is_reference(Ref)),
+            receive
+                ?ds_tx_commit_reply(Ref, Reply) ->
+                    ?assertMatch(
+                        {ok, Serial} when is_binary(Serial),
+                        emqx_ds:tx_commit_outcome(DB, Ref, Reply)
+                    )
+            end,
+            %% Store async:
+            ?assertMatch(
+                noreply, emqx_ds:dirty_append(#{db => DB, shard => Shard, reply => false}, [Msg])
+            )
+        end,
+        []
+    ).
+
 %% A simple smoke test that verifies that getting the list of streams
 %% doesn't crash, iterators can be opened, and that it's possible to iterate
 %% over messages.
-t_02_smoke_iterate(Config) ->
+t_02_old_smoke_iterate(Config) ->
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     StartTime = 0,
@@ -60,6 +98,70 @@ t_02_smoke_iterate(Config) ->
     {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
     emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs, Batch).
 
+%% A simple smoke test that verifies that getting the list of streams
+%% doesn't crash, iterators can be opened, and that it's possible to iterate
+%% over messages.
+t_02_smoke_iterate(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
+    Msgs = [
+        message(<<"foo/bar">>, <<"1">>, 0),
+        message(<<"foo/bar">>, <<"2">>, 1),
+        message(<<"foo/bar">>, <<"3">>, 2)
+    ],
+    ok = dirty_append(DB, Msgs),
+    Batch = dump_topic(DB, ['#']),
+    emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs, Batch).
+
+%% This testcase verifies ordering of data added to the DB via
+%% dirty_append. It submits a few batches in a very short succession
+%% to make sure they are added to the buffer at the same time. When
+%% the batch is committed, we verify that messages from all batches
+%% were written in order.
+t_03_dirty_append_ordering(Config) ->
+    DB = ?FUNCTION_NAME,
+    DBOpts = emqx_utils_maps:deep_merge(opts(Config), #{
+        store_ttv => true,
+        transaction => #{idle_flush_interval => 1000, flush_interval => 1000},
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+    }),
+    ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
+    %% Add a few batches async-ly:
+    Topic = [<<"t">>],
+    AsyncOpts = #{db => DB, shard => first_shard(DB), reply => false},
+    noreply = emqx_ds:dirty_append(AsyncOpts, [
+        {Topic, ?ds_tx_ts_monotonic, <<0>>},
+        {Topic, ?ds_tx_ts_monotonic, <<1>>},
+        {Topic, ?ds_tx_ts_monotonic, <<2>>}
+    ]),
+    noreply = emqx_ds:dirty_append(AsyncOpts, [
+        {Topic, ?ds_tx_ts_monotonic, <<3>>},
+        {Topic, ?ds_tx_ts_monotonic, <<4>>}
+    ]),
+    noreply = emqx_ds:dirty_append(AsyncOpts, [
+        {Topic, ?ds_tx_ts_monotonic, <<5>>},
+        {Topic, ?ds_tx_ts_monotonic, <<6>>}
+    ]),
+    %% Wait for the last batch:
+    ok = dirty_append(AsyncOpts, [{Topic, ?ds_tx_ts_monotonic, <<7>>}]),
+    %% Fetch messages:
+    {[{_, Stream}], []} = emqx_ds:get_streams(DB, Topic, 0, #{}),
+    {ok, Iterator} = emqx_ds:make_iterator(DB, Stream, Topic, 0),
+    ?assertMatch(
+        {ok, _, [
+            {Topic, _, <<0>>},
+            {Topic, _, <<1>>},
+            {Topic, _, <<2>>},
+            {Topic, _, <<3>>},
+            {Topic, _, <<4>>},
+            {Topic, _, <<5>>},
+            {Topic, _, <<6>>},
+            {Topic, _, <<7>>}
+        ]},
+        emqx_ds:next(DB, Iterator, 1000)
+    ),
+    ok.
+
 %% Verify that iterators survive restart of the application. This is
 %% an important property, since the lifetime of the iterators is tied
 %% to the external resources, such as clients' sessions, and they
@@ -67,7 +169,7 @@ t_02_smoke_iterate(Config) ->
 %% they are left off.
 t_05_restart(Config) ->
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     TopicFilter = ['#'],
     StartTime = 0,
     Msgs = [
@@ -75,17 +177,16 @@ t_05_restart(Config) ->
         message(<<"foo/bar">>, <<"2">>, 1),
         message(<<"foo/bar">>, <<"3">>, 2)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs, #{sync => true})),
-    timer:sleep(1_000),
+    ok = dirty_append(DB, Msgs),
     {[{_, Stream}], []} = emqx_ds:get_streams(DB, TopicFilter, StartTime, #{}),
-    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
+    {ok, Iterator} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
     %% Restart the application:
     ?tp(warning, emqx_ds_SUITE_restart_app, #{}),
     ok = application:stop(emqx_durable_storage),
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
     ok = emqx_ds_open_db(DB, opts(Config)),
     %% The old iterator should be still operational:
-    {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
+    {ok, _Iter, Batch} = emqx_ds:next(DB, Iterator, 100),
     emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs, Batch).
 
 t_06_smoke_add_generation(Config) ->
@@ -184,7 +285,7 @@ t_08_smoke_list_drop_generation(Config) ->
     ),
     ok.
 
-t_09_atomic_store_batch(Config) ->
+t_09_old_atomic_store_batch(Config) ->
     ct:pal("store batch ~p", [Config]),
     DB = ?FUNCTION_NAME,
     ?check_trace(
@@ -205,7 +306,7 @@ t_09_atomic_store_batch(Config) ->
     ),
     ok.
 
-t_10_non_atomic_store_batch(Config) ->
+t_10_old_non_atomic_store_batch(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
@@ -239,7 +340,7 @@ t_10_non_atomic_store_batch(Config) ->
     ),
     ok.
 
-t_11_batch_preconditions(Config) ->
+t_11_old_batch_preconditions(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
@@ -295,7 +396,7 @@ t_11_batch_preconditions(Config) ->
         []
     ).
 
-t_12_batch_precondition_conflicts(Config) ->
+t_12_old_batch_precondition_conflicts(Config) ->
     DB = ?FUNCTION_NAME,
     NBatches = 50,
     NMessages = 10,
@@ -359,7 +460,7 @@ t_12_batch_precondition_conflicts(Config) ->
         []
     ).
 
-t_smoke_delete_next(Config) ->
+t_old_smoke_delete_next(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         begin
@@ -2541,6 +2642,9 @@ message(Topic, Payload, PublishedAt) ->
         id = emqx_guid:gen()
     }.
 
+ttv_mqtt(Topic, Payload, PublishedAt) ->
+    emqx_ds_payload_transform:message_to_ttv(message(Topic, Payload, PublishedAt)).
+
 matcher(ClientID, Topic, Payload, Timestamp) ->
     #message_matcher{
         from = ClientID,
@@ -2653,6 +2757,13 @@ backends() ->
 opts(Config) ->
     proplists:get_value(ds_conf, Config).
 
+opts_mqtt(Config) ->
+    maps:merge(opts(Config), #{
+        store_ttv => true,
+        payload_type => ?ds_pt_mqtt,
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+    }).
+
 %% Subscription-related helper functions:
 
 %% @doc Recieve poll replies with given SubRef:
@@ -2737,3 +2848,35 @@ mailbox() ->
     after 0 ->
         []
     end.
+
+%% Sync wrapper over `dirty_append' API. If shard is not specified, data is added to the first shard.
+dirty_append(DB, MsgsOrTTVs) when is_atom(DB) ->
+    dirty_append(#{db => DB, shard => first_shard(DB)}, MsgsOrTTVs);
+dirty_append(Opts = #{db := DB}, MsgsOrTTVs) ->
+    TTVs =
+        case MsgsOrTTVs of
+            [#message{} | _] ->
+                [emqx_ds_payload_transform:message_to_ttv(I) || I <- MsgsOrTTVs];
+            [{_, _, _} | _] ->
+                MsgsOrTTVs
+        end,
+    Ref = emqx_ds:dirty_append(Opts#{reply => true}, TTVs),
+    ?assert(is_reference(Ref)),
+    receive
+        ?ds_tx_commit_reply(Ref, Reply) ->
+            ?assertMatch(
+                {ok, Serial} when is_binary(Serial),
+                emqx_ds:tx_commit_outcome(DB, Ref, Reply)
+            )
+    end,
+    ok.
+
+%% Dump messages from the topic, preserving message ordering within each stream.
+dump_topic(DB, Topic) ->
+    %% Reverse is needed due to internal implementation details of
+    %% `emqx_ds:dirty_read': it's a fold that adds elements to the
+    %% head.
+    lists:reverse(emqx_ds:dirty_read(DB, Topic)).
+
+first_shard(DB) ->
+    hd(lists:sort(emqx_ds:list_shards(DB))).
