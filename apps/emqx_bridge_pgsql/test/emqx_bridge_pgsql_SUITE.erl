@@ -718,23 +718,32 @@ t_table_removed(TCConfig) ->
     ?check_trace(
         begin
             {201, _} = create_connector_api(TCConfig, #{}),
-            {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+            {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+                <<"resource_opts">> => #{<<"health_check_interval">> => <<"200ms">>}
+            }),
             #{topic := Topic} = simple_create_rule_api(TCConfig),
             C = start_client(),
             ct:pal("dropping table"),
             connect_and_drop_table(TCConfig),
+            ?retry(
+                500,
+                10,
+                ?assertMatch(
+                    {200, #{
+                        <<"status">> := <<"disconnected">>,
+                        <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+                    }},
+                    get_action_api(TCConfig)
+                )
+            ),
             Payload = unique_payload(),
             ct:pal("sending query"),
-            {_, {ok, Event}} =
+            {_, {ok, _}} =
                 ?wait_async_action(
                     emqtt:publish(C, Topic, Payload, [{qos, 1}]),
-                    #{?snk_kind := buffer_worker_flush_ack},
+                    #{?snk_kind := "rule_runtime_unhealthy_target"},
                     15_000
                 ),
-            ?assertMatch(
-                #{result := {error, {unrecoverable_error, _}}},
-                Event
-            ),
             ok
         end,
         []
