@@ -161,8 +161,8 @@ handle_ds_reply(
                 ),
                 SB1 = SB0#{upper_buffer => UpperBuffer},
                 SB2 = update_last_seen_message_id(SB1, LastMessageId),
-                %% TODO check if is paused also
-                case is_buffer_full(SB2, UpperBuffer) of
+                % TODO check if is paused also
+                case is_buffer_full(SB2, UpperBuffer) orelse is_paused(SB2) of
                     true ->
                         pause(SB2, Handle, SeqNo);
                     false ->
@@ -173,6 +173,7 @@ handle_ds_reply(
 %% End of stream occured while restoring the buffer
 handle_ds_reply(
     #{
+        mq := MQ,
         status := restoring,
         it_begin := ItBegin,
         actual_unacked := ActualUnacked,
@@ -184,6 +185,7 @@ handle_ds_reply(
     #ds_sub_reply{payload = {ok, end_of_stream}, seqno = SeqNo}
 ) ->
     SB0 = #{
+        mq => MQ,
         status => active,
         options => Options,
         lower_buffer => #{
@@ -202,12 +204,11 @@ handle_ds_reply(#{status := restoring} = SB0, Handle, #ds_sub_reply{
     payload = {ok, It, NewTTVs}, seqno = SeqNo, size = _Size
 }) ->
     case handle_restore(SB0, NewTTVs, 0, It) of
-        {ok, TTVs, #{status := active} = SB1} ->
-            SB2 = pause(SB1, Handle, SeqNo),
+        {ok, TTVs, #{status := active} = SB} ->
             ?tp_debug(emqx_mq_consumer_stream_buffer_handle_ds_reply_buffer_restored, #{
-                sb => info(SB2)
+                sb => info(SB)
             }),
-            {ok, TTVs, SB2};
+            {ok, TTVs, suback(SB, Handle, SeqNo)};
         {ok, TTVs, #{status := restoring} = SB} ->
             {ok, TTVs, suback(SB, Handle, SeqNo)}
     end.
@@ -484,6 +485,11 @@ resume(#{upper_seqno := undefined} = SB) ->
     SB;
 resume(#{upper_seqno := {Handle, SeqNo}} = SB) ->
     suback(SB, Handle, SeqNo).
+
+is_paused(#{upper_seqno := undefined} = _SB) ->
+    false;
+is_paused(#{upper_seqno := {_Handle, _SeqNo}} = _SB) ->
+    true.
 
 info_buffer(undefined) -> undefined;
 info_buffer(#{n := N, unacked := Unacked} = _Buffer) -> #{n => N, unacked => map_size(Unacked)}.

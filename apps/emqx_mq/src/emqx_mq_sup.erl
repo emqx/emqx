@@ -39,7 +39,7 @@ init(?ROOT_SUP) ->
         intensity => 10,
         period => 10
     },
-    ChildSpecs = [consumer_sup_child_spec()],
+    ChildSpecs = [emqx_mq_metrics:child_spec(), consumer_sup_child_spec()],
     {ok, {SupFlags, ChildSpecs}};
 init(?CONSUMER_SUP) ->
     SupFlags = #{

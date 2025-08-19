@@ -38,7 +38,8 @@ Consumer's responsibilities:
     disconnect/2,
     ack/4,
     ping/2,
-    stop/1
+    stop/1,
+    info/2
 ]).
 
 %% RPC targets
@@ -61,6 +62,7 @@ Consumer's responsibilities:
 %%--------------------------------------------------------------------
 
 -record(persist_consumer_data, {}).
+-record(get_state_info, {}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -100,11 +102,18 @@ connect(#{topic_filter := MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
             {error, consumer_not_found}
     end.
 
+-spec disconnect(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.
 disconnect(ConsumerRef, SubscriberRef) when node(ConsumerRef) =:= node() ->
     disconnect_v1(ConsumerRef, SubscriberRef);
 disconnect(ConsumerRef, SubscriberRef) ->
     emqx_mq_consumer_proto_v1:mq_server_disconnect(node(ConsumerRef), ConsumerRef, SubscriberRef).
 
+-spec ack(
+    emqx_mq_types:consumer_ref(),
+    emqx_mq_types:subscriber_ref(),
+    emqx_mq_types:message_id(),
+    emqx_mq_types:ack()
+) -> ok.
 ack(ConsumerRef, SubscriberRef, MessageId, Ack) when node(ConsumerRef) =:= node() ->
     ack_v1(ConsumerRef, SubscriberRef, MessageId, Ack);
 ack(ConsumerRef, SubscriberRef, MessageId, Ack) ->
@@ -112,15 +121,21 @@ ack(ConsumerRef, SubscriberRef, MessageId, Ack) ->
         node(ConsumerRef), ConsumerRef, SubscriberRef, MessageId, Ack
     ).
 
+-spec ping(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.
 ping(ConsumerRef, SubscriberRef) when node(ConsumerRef) =:= node() ->
     ping_v1(ConsumerRef, SubscriberRef);
 ping(ConsumerRef, SubscriberRef) ->
     emqx_mq_consumer_proto_v1:mq_server_ping(node(ConsumerRef), ConsumerRef, SubscriberRef).
 
+-spec stop(emqx_mq_types:consumer_ref()) -> ok.
 stop(ConsumerRef) when node(ConsumerRef) =:= node() ->
     stop_v1(ConsumerRef);
 stop(ConsumerRef) ->
     emqx_mq_consumer_proto_v1:mq_server_stop(node(ConsumerRef), ConsumerRef).
+
+-spec info(emqx_mq_types:consumer_ref(), timeout()) -> emqx_types:infos().
+info(ConsumerRef, Timeout) ->
+    gen_server:call(ConsumerRef, #get_state_info{}, Timeout).
 
 %%--------------------------------------------------------------------
 %% RPC targets
@@ -192,6 +207,8 @@ init([#{topic_filter := MQTopicFilter} = MQ]) ->
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
+handle_call(#get_state_info{}, _From, State) ->
+    {reply, handle_get_state_info(State), State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
@@ -219,6 +236,15 @@ terminate(_Reason, #state{} = State) ->
 %%--------------------------------------------------------------------
 %% Handlers
 %%--------------------------------------------------------------------
+
+handle_get_state_info(#state{
+    mq = #{topic_filter := TopicFilter} = _MQ, streams = Streams, server = Server
+}) ->
+    #{
+        mq_topic_filter => TopicFilter,
+        streams => emqx_mq_consumer_streams:info(Streams),
+        server => emqx_mq_consumer_server:info(Server)
+    }.
 
 handle_mq_server_info(Message, #state{server = Server0} = State) ->
     {ok, Events, Server} = emqx_mq_consumer_server:handle_info(Server0, Message),

@@ -19,6 +19,10 @@ channels subscribed to a Message Queue.
     handle_info/2
 ]).
 
+-export([
+    info/1
+]).
+
 %%--------------------------------------------------------------------
 %% Types
 %%--------------------------------------------------------------------
@@ -111,9 +115,30 @@ handle_info(State, #timer_message{timer_name = ?dispatch_timer}) ->
 handle_info(State, #subscriber_timeout{subscriber_ref = SubscriberRef}) ->
     {ok, [], handle_subscriber_timeout(State, SubscriberRef)}.
 
+info(#state{
+    subscribers = Subscribers, messages = Messages, dispatch_queue = DispatchQueue, timers = Timers
+}) ->
+    #{
+        subscribers => lists:map(fun subscriber_info/1, maps:to_list(Subscribers)),
+        messages => map_size(Messages),
+        dispatch_queue => emqx_mq_consumer_dispatchq:size(DispatchQueue),
+        timers => [Name || {Name, Timer} <- maps:to_list(Timers), Timer =/= undefined]
+    }.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+subscriber_info(
+    {_SubscriberRef, #{
+        client_id := ClientId, inflight_messages := InflightMessages, last_ack_ts := LastAckTs
+    }}
+) ->
+    #{
+        client_id => ClientId,
+        inflight_messages => map_size(InflightMessages),
+        last_ack_ts_ago_ms => now_ms_monotonic() - LastAckTs
+    }.
 
 handle_connect(#state{subscribers = Subscribers0} = State, SubscriberRef, ClientId) ->
     ?tp_debug(mq_consumer_handle_connect, #{

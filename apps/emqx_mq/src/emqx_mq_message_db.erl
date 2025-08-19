@@ -48,7 +48,7 @@ Facade for all operations with the message database.
     <<"topic">>, MQ_TOPIC, MQ_ID, <<"key">>, COMPACTION_KEY
 ]).
 
--define(SHARDS_PER_SITE, 3).
+-define(SHARDS_PER_SITE, 10).
 
 %% TODO: increase
 -define(REPLICATION_FACTOR, 1).

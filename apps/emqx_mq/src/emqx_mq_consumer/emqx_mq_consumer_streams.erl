@@ -380,6 +380,7 @@ restore_stream(
     end.
 
 handle_ds_reply(#cs{state = #{streams := Streams, shards := Shards}} = CS, Stream, Handle, DSReply) ->
+    ok = inc_received_message_stat(DSReply),
     maybe
         #{Stream := Shard} ?= Streams,
         #{Shard := #{status := active} = ShardState} ?= Shards,
@@ -453,3 +454,8 @@ buffer_info(undefined) ->
     undefined;
 buffer_info(SB) ->
     emqx_mq_consumer_stream_buffer:info(SB).
+
+inc_received_message_stat(#ds_sub_reply{payload = {ok, _It, TTVs}}) ->
+    emqx_mq_metrics:inc(ds, received_messages, length(TTVs));
+inc_received_message_stat(_DsSubReply) ->
+    ok.

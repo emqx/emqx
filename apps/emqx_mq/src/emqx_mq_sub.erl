@@ -120,7 +120,7 @@ handle_connect(#{clientid := ClientId}, MQTopic) ->
             %% and react on queue creation immediately.
             Status = #finding_mq{
                 find_mq_retry_tref = send_after(
-                    SubscriberRef, find_mq_retry_interval(), #find_mq_retry{}
+                    Sub, find_mq_retry_interval(), #find_mq_retry{}
                 )
             },
             Sub#{status => Status};
@@ -169,7 +169,7 @@ handle_ack(
 %% Messages from the consumer
 %%
 handle_info(Sub, #mq_sub_ping{}) ->
-    ?tp(warning, mq_sub_ping, #{sub => info(Sub)}),
+    % ?tp(warning, mq_sub_ping, #{sub => info(Sub)}),
     {ok, reset_consumer_timeout_timer(Sub)};
 handle_info(
     #{status := #connected{}} = Sub,
@@ -289,7 +289,7 @@ message_v1(SubscriberRef, ConsumerRef, Message) ->
 %%--------------------------------------------------------------------
 
 handle_connected(#{status := #connecting{mq = MQ}} = Sub0, ConsumerRef) ->
-    ?tp_debug(handle_connected, #{sub => info(Sub), consumer_ref => ConsumerRef}),
+    ?tp_debug(handle_connected, #{sub => info(Sub0), consumer_ref => ConsumerRef}),
     Sub = Sub0#{
         status => #connected{
             mq = MQ,
@@ -403,7 +403,7 @@ send_info_to_subscriber(SubscriberRef, InfoMsg) ->
 reset_consumer_timeout_timer(
     #{status := #connected{consumer_timeout_tref = TRef, mq = MQ} = Status} = Sub
 ) ->
-    ?tp(warning, mq_sub_reset_consumer_timeout_timer, #{sub => info(Sub)}),
+    % ?tp(warning, mq_sub_reset_consumer_timeout_timer, #{sub => info(Sub)}),
     _ = emqx_utils:cancel_timer(TRef),
     Sub#{
         status => Status#connected{

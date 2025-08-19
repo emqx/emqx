@@ -21,7 +21,8 @@ This module implements the dispatch queue (time-based priority) for the MQ consu
     add/2,
     add_redispatch/3,
     fetch/1,
-    to_list/1
+    to_list/1,
+    size/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -83,6 +84,10 @@ fetch(#dispatch_queue{queue = Queue0} = DispatchQueue) ->
 -spec to_list(t()) -> [entry()].
 to_list(#dispatch_queue{queue = Queue}) ->
     gb_sets:to_list(Queue).
+
+-spec size(t()) -> non_neg_integer().
+size(#dispatch_queue{queue = Queue}) ->
+    gb_sets:size(Queue).
 
 %%--------------------------------------------------------------------
 %% Internal functions
