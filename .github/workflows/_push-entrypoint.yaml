@@ -198,7 +198,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh --repo emqx/emqx-i18n workflow run sync-en-doc.yaml -f version=${GITHUB_REF_NAME##[v|e]} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
+          gh --repo emqx/emqx-i18n workflow run sync-en-doc.yaml --ref v58 -f version=${GITHUB_REF_NAME##[v|e]} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
 
   run_emqx_app_tests:
     if: needs.prepare.outputs.release != 'true'
