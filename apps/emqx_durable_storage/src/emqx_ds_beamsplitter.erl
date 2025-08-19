@@ -50,10 +50,12 @@ dispatch_v2(DB, Pack0, Destinations, Misc) ->
             true -> emqx_ds_storage_layer:rid_of_dskeys(Pack0);
             false -> Pack0
         end,
-    dispatch_v3(DB, ?ds_pt_identity, Pack, Destinations, Misc).
+    dispatch_v3(DB, ?ds_pt_ttv, Pack, Destinations, Misc).
 
 %% @doc Third version of the API dropped DSKeys from the pack
--spec dispatch_v3(emqx_ds:db(), emqx_ds_payload_transform:t(), pack_v3(), [destination()], map()) ->
+-spec dispatch_v3(
+    emqx_ds:db(), emqx_ds_payload_transform:schema(), pack_v3(), [destination()], map()
+) ->
     ok.
 dispatch_v3(DB, PTrans, Pack0, Destinations, _Misc) ->
     %% TODO: paralellize fanout? Perhaps sharding messages in the DB
@@ -64,7 +66,7 @@ dispatch_v3(DB, PTrans, Pack0, Destinations, _Misc) ->
     T0 = erlang:monotonic_time(microsecond),
     Pack =
         case is_list(Pack0) of
-            true -> [emqx_ds_payload_transform:deserialize(PTrans, I) || I <- Pack0];
+            true -> emqx_ds_payload_transform:deser_batch(PTrans, Pack0);
             false -> Pack0
         end,
     lists:foreach(
