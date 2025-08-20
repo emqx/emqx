@@ -42,7 +42,7 @@ bridge_types() ->
     [?ACTION_TYPE].
 
 resource_callback_module() ->
-    emqx_postgresql.
+    emqx_bridge_redshift_impl.
 
 config_schema() ->
     {?CONNECTOR_TYPE,

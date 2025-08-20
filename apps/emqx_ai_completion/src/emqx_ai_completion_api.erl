@@ -17,6 +17,7 @@
 
 %% API callbacks
 -export([
+    '/ai/models'/2,
     '/ai/providers'/2,
     '/ai/providers/:name'/2,
     '/ai/providers/:name/models'/2,
@@ -37,6 +38,7 @@ api_spec() ->
 
 paths() ->
     [
+        "/ai/models",
         "/ai/providers",
         "/ai/providers/:name",
         "/ai/providers/:name/models",
@@ -44,6 +46,34 @@ paths() ->
         "/ai/completion_profiles/:name"
     ].
 
+schema("/ai/models") ->
+    #{
+        'operationId' => '/ai/models',
+        post => #{
+            tags => ?TAGS,
+            summary => <<"List all AI models for a provider type">>,
+            description => ?DESC(ai_model_list),
+            'requestBody' => emqx_dashboard_swagger:schema_with_example(
+                emqx_ai_completion_schema:provider_sctype_api(put),
+                post_provider_example()
+            ),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    hoconsc:array(binary()),
+                    [get_models_example()]
+                ),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND'], <<"Provider not found">>
+                ),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['INVALID_CREDENTIAL'], <<"Invalid provider">>
+                ),
+                503 => emqx_dashboard_swagger:error_codes(
+                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
+                )
+            }
+        }
+    };
 schema("/ai/providers") ->
     #{
         'operationId' => '/ai/providers',
@@ -317,6 +347,24 @@ get_models_example() ->
 %%--------------------------------------------------------------------
 %% Minirest handlers
 %%--------------------------------------------------------------------
+
+'/ai/models'(post, #{body := CompletionProfileRaw}) ->
+    case emqx_ai_completion_schema:check_provider(CompletionProfileRaw) of
+        {ok, Provider} ->
+            case emqx_ai_completion:list_models(Provider#{name => <<"test-provider">>}) of
+                {ok, Models} ->
+                    {200, Models};
+                {error, Reason} ->
+                    {503, #{
+                        code => 'SERVICE_UNAVAILABLE',
+                        message => emqx_utils:readable_error_msg(Reason)
+                    }}
+            end;
+        {error, Reason} ->
+            {400, #{
+                code => 'INVALID_PROVIDER', message => emqx_utils:readable_error_msg(Reason)
+            }}
+    end.
 
 '/ai/providers'(get, _Params) ->
     {200, get_providers_for_output()};

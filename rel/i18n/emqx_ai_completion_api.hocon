@@ -18,6 +18,9 @@ ai_providers_delete.desc:
 ai_providers_model_list.desc:
 """List all AI models available for a provider."""
 
+ai_model_list.desc:
+"""List all AI models available for a provider type"""
+
 ai_completion_profiles_list.desc:
 """List all AI completion profiles."""
 

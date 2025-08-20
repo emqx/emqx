@@ -50,6 +50,9 @@
     on_get_status_prepares/1
 ]).
 
+%% Allocatable resources
+-define(conn_pool, conn_pool).
+
 -define(PGSQL_HOST_OPTIONS, #{
     default_port => ?PGSQL_DEFAULT_PORT
 }).
@@ -57,6 +60,7 @@
 -type template() :: {unicode:chardata(), emqx_template_sql:row_template()}.
 -type state() ::
     #{
+        installed_channels := #{action_resource_id() => map()},
         pool_name := binary(),
         query_templates := #{binary() => template()},
         prepares := disabled | #{binary() => epgsql:statement()} | {error, _}
@@ -128,8 +132,7 @@ on_start(
     } = Config
 ) ->
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?PGSQL_HOST_OPTIONS),
-    ?SLOG(info, #{
-        msg => "starting_postgresql_connector",
+    ?tp(info, "starting_postgresql_connector", #{
         connector => InstId,
         config => emqx_utils:redact(Config)
     }),
@@ -147,17 +150,20 @@ on_start(
             false ->
                 [{ssl, false}]
         end,
-    Options = [
+    Codecs = maps:get(codecs, Config, undefined),
+    Options = lists:flatten([
         {host, Host},
         {port, Port},
         {username, User},
         {password, maps:get(password, Config, emqx_secret:wrap(""))},
         {database, DB},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
-        {pool_size, PoolSize}
-    ],
+        {pool_size, PoolSize},
+        [{codecs, []} || Codecs /= undefined]
+    ]),
     State1 = parse_sql_template(Config, <<"send_message">>),
     State2 = State1#{installed_channels => #{}},
+    ok = emqx_resource:allocate_resource(InstId, ?MODULE, ?conn_pool, InstId),
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
             Prepares =
@@ -192,6 +198,8 @@ on_stop(InstId, State) ->
 close_connections(#{pool_name := PoolName} = _State) ->
     WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     close_connections_with_worker_pids(WorkerPids),
+    ok;
+close_connections(_) ->
     ok.
 
 close_connections_with_worker_pids([WorkerPid | Rest]) ->
@@ -620,7 +628,9 @@ connect(Opts) ->
     Username = proplists:get_value(username, Opts),
     %% TODO: teach `epgsql` to accept 0-arity closures as passwords.
     Password = emqx_secret:unwrap(proplists:get_value(password, Opts)),
-    case epgsql:connect(Host, Username, Password, conn_opts(Opts)) of
+    ConnOpts = conn_opts(Opts),
+    ?tp("postgres_epgsql_connect", #{opts => ConnOpts}),
+    case epgsql:connect(Host, Username, Password, ConnOpts) of
         {ok, _Conn} = Ok ->
             Ok;
         {error, Reason} ->
@@ -672,6 +682,8 @@ conn_opts([Opt = {port, _} | Opts], Acc) ->
 conn_opts([Opt = {timeout, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
 conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {codecs, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
 conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
