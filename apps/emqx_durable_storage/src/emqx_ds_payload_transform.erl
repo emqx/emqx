@@ -101,7 +101,11 @@ because the write side of DS APIs still works with data wrappind in a TTV triple
 -spec message_to_ttv(emqx_types:message()) ->
     {emqx_ds:topic(), ?ds_tx_ts_monotonic, emqx_types:message()}.
 message_to_ttv(Msg = #message{topic = TopicBin}) ->
-    {emqx_ds:topic_words(TopicBin), ?ds_tx_ts_monotonic, Msg#message{topic = <<>>}}.
+    {
+        emqx_ds:topic_words(TopicBin),
+        ?ds_tx_ts_monotonic,
+        Msg#message{topic = <<>>, timestamp = 0, id = <<>>}
+    }.
 
 -spec ser_fun(schema()) -> ser_fun().
 ser_fun(?ds_pt_ttv) ->
@@ -113,9 +117,12 @@ ser_fun({?ds_pt_mqtt, asn1}) ->
 deser_fun(?ds_pt_ttv) ->
     fun id/1;
 deser_fun({?ds_pt_mqtt, asn1}) ->
-    fun({Topic, _, Binary}) ->
+    fun({Topic, TimeUs, Binary}) ->
         Msg = emqx_ds_msg_serializer:deserialize_asn1(Binary),
-        Msg#message{topic = emqx_topic:join(Topic)}
+        Msg#message{
+            topic = emqx_topic:join(Topic),
+            timestamp = erlang:convert_time_unit(TimeUs, microsecond, millisecond)
+        }
     end.
 
 -spec deser_batch(schema(), [emqx_ds:ttv()]) -> [payload()].
