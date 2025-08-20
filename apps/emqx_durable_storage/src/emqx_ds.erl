@@ -35,7 +35,7 @@ It takes care of forwarding calls to the underlying DBMS.
 ]).
 
 %% Message storage API:
--export([store_batch/2, store_batch/3, dirty_append/2]).
+-export([store_batch/2, store_batch/3, dirty_append/2, dirty_append_outcome/2]).
 
 %% Transactional API (low-level):
 -export([new_tx/2, commit_tx/3]).
@@ -864,11 +864,11 @@ Options:
   "Fire and forget" mode.
 
   If set to `true`, this function will return a reference
-  that can be used to match the reply from DS using `?tx_commit_reply(Ref, Reply)` macro.
+  that can be used to match the reply from DS using `?ds_tx_commit_reply(Ref, Reply)` macro.
+  The outcome can be then extracted from the reply using `dirty_append_outcome/2` function.
 
   Note that the reply is not guaranteed at all, so the caller should implement
   a reasonable timeout and error handling policy on its own.
-
 
   Default: `true`.
 """.
@@ -876,6 +876,16 @@ Options:
 dirty_append(#{db := DB, shard := _} = UserOpts, Data) ->
     Opts = maps:merge(#{reply => true}, UserOpts),
     ?module(DB):dirty_append(Opts, Data).
+
+-spec dirty_append_outcome(reference(), term()) ->
+    {ok, tx_serial()} | emqx_ds:error(_).
+dirty_append_outcome(Ref, ?ds_tx_commit_reply(Ref, Reply)) when is_reference(Ref) ->
+    case Reply of
+        ?ds_tx_commit_ok(_, _Reserved, Serial) ->
+            {ok, Serial};
+        ?ds_tx_commit_error(_, _Reserved, Class, Info) ->
+            {error, Class, Info}
+    end.
 
 -doc "Simplified version of `get_streams/4` that ignores the errors.".
 -spec get_streams(db(), topic_filter(), time()) -> [{slab(), stream()}].
