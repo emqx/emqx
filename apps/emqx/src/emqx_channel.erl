@@ -2247,7 +2247,8 @@ authentication_pipeline(Credential, Channel) ->
             fun do_authenticate/2,
             fun fix_mountpoint/2,
             %% We call `set_log_meta' again here because authentication may have injected
-            %% different attributes.
+            %% different attributes.  Note that `clientid` might have changed as well, if
+            %% authentication returned a non-empty `clientid_override` value.
             fun set_log_meta/2,
             fun adjust_limiter/2
         ]
