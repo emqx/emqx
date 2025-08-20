@@ -1,0 +1,1 @@
+Listener connection rate limits (`max_conn_rate` and `max_conn_burst`) are now enforced per listener rather than per acceptor, restoring the pre-5.9.0 behavior. As a result, configurations from versions 5.9.0, 5.9.1 and 5.10.0 are incompatible: specified rates must be scaled up by the number of acceptors configured for respective listeners.
