@@ -4,7 +4,8 @@
 -module(emqx_ds_payload_transform).
 -moduledoc """
 This module injects payload (de)serialization callbacks directly into DS.
-Enabling it for a DB changes behavior of DS API: some functions may return de-serialized data instead of normal TTV triples.
+Enabling it for a DB changes behavior of DS API:
+some functions may return de-serialized data instead of normal TTV triples.
 
 The following APIs are affected:
 
@@ -13,10 +14,11 @@ The following APIs are affected:
 - `emqx_ds:next` - batch may consist of values of arbitrary type
 - `emqx_ds:subscribe` - same as next
 
-WARNING: this injection mechanism is _only_ meant for last-ditch optimization of broadcasting and fan-out to DS subscriptions.
+WARNING: this injection mechanism is _only_ meant for last-ditch optimization
+of broadcasting and fan-out to DS subscriptions.
 It's neither flexible nor easily extendable, and it won't help with anything else.
 
-Only use it in the situations where
+One should consider using it only use it in the situation where
 
 1) The same payload is likely to be broadcast to multiple `emqx_ds:subscribe`ers.
 2) It's provable that de-serialization of data creates a bottleneck.
@@ -30,6 +32,9 @@ Internally, injection is done in three places:
 - `StorageLayout:next` - deserialization
 - `StorageLayout:otx_prepare_tx` - serialization of writes
 - `emqx_ds_beamsplitter:dispatch` - deserialization of beams' packs
+
+This optimization _only_ makes the difference in the beamsplitter,
+where it allows deserialization to happen before the fanout.
 """.
 
 %% API:
