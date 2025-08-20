@@ -613,10 +613,12 @@ t_mixed_qos_subscription_mode_switch(_Config) ->
     Received1 = emqx_common_test_helpers:wait_publishes(4, 5_000),
     Received = Received0 ++ Received1,
     %% Verify that there are no duplicate messages:
-    ?assertNotReceive(_, 300, emqx_persistent_session_ds_state:print_session(CIDSub)),
+    ?assertNotReceive(_, 300, #{
+        sess => emqx_persistent_session_ds_state:print_session(CIDSub), recv => Received
+    }),
     ReceivedS1 = [M || M = #{properties := #{?PROP_SUBID := 1}} <- Received],
     ReceivedS2 = [M || M = #{properties := #{?PROP_SUBID := 2}} <- Received],
-    %% Subscription 1 messages preserve per-topic publishing order.
+    %% Subscription 1's messages preserve per-topic publishing order.
     %% We expect not to receive any messages after downgrade.
     ?assertMatch(
         [
@@ -626,7 +628,7 @@ t_mixed_qos_subscription_mode_switch(_Config) ->
         ReceivedS1,
         Received
     ),
-    %% Subscription 2 messages preserve publishing order before upgrade,
+    %% Subscription 2's messages preserve publishing order before upgrade,
     %% per-topic publishing order after upgrade.
     ?assertMatch(
         [
@@ -1291,73 +1293,77 @@ t_crashed_node_session_gc(Config) ->
     ),
     ok.
 
-%% Verify that the session recovers smoothly from transient errors during
-%% replay.
-t_session_replay_retry(init, Config) ->
-    start_local(?FUNCTION_NAME, Config).
-t_session_replay_retry(_Config) ->
-    ?check_trace(
-        begin
-            ?SETUP_MOD:init_mock_transient_failure(),
-            ClientId = mk_clientid(?FUNCTION_NAME, sub),
-            NClients = 10,
-            ClientSubOpts = #{
-                clientid => ClientId,
-                auto_ack => never
-            },
-            ClientSub = start_connect_client(ClientSubOpts),
-            ?assertMatch(
-                {ok, _, [?RC_GRANTED_QOS_1]},
-                emqtt:subscribe(ClientSub, <<"t/#">>, ?QOS_1)
-            ),
-
-            ClientsPub = [
-                start_connect_client(#{
-                    clientid => mk_clientid(?FUNCTION_NAME, I),
-                    properties => #{'Session-Expiry-Interval' => 0}
-                })
-             || I <- lists:seq(1, NClients)
-            ],
-            lists:foreach(
-                fun(Client) ->
-                    Index = integer_to_binary(rand:uniform(NClients)),
-                    Topic = <<"t/", Index/binary>>,
-                    ?assertMatch({ok, #{}}, emqtt:publish(Client, Topic, Index, 1))
-                end,
-                ClientsPub
-            ),
-
-            Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 5_000),
-            NPubs = length(Pubs0),
-            ?assertEqual(NClients, NPubs, ?drainMailbox(2_500)),
-
-            ok = emqtt:stop(ClientSub),
-
-            %% Make `emqx_ds` believe that roughly half of the shards are unavailable.
-            ?SETUP_MOD:mock_transient_failure(),
-
-            _ClientSub = start_connect_client(ClientSubOpts#{clean_start => false}),
-
-            Pubs1 = emqx_common_test_helpers:wait_publishes(NPubs, 5_000),
-            ?assert(length(Pubs1) < length(Pubs0), #{
-                num_pubs1 => length(Pubs1),
-                num_pubs0 => length(Pubs0),
-                pubs1 => Pubs1,
-                pubs0 => Pubs0
-            }),
-
-            %% "Recover" the shards.
-            ?SETUP_MOD:unmock_transient_failure(),
-
-            Pubs2 = emqx_common_test_helpers:wait_publishes(NPubs - length(Pubs1), 5_000),
-            snabbkaffe_diff:assert_lists_eq(
-                [maps:with([topic, payload, qos], P) || P <- Pubs0],
-                [maps:with([topic, payload, qos], P) || P <- Pubs1 ++ Pubs2],
-                #{comment => emqx_persistent_session_ds:print_session(ClientId)}
-            )
-        end,
-        []
-    ).
+%% FIXME: This testcase relies too much on the implementation details.
+%% There should be a standard mechanism for emulating partial failures
+%% that doesn't rely on mocking.
+%%
+%% %% Verify that the session recovers smoothly from transient errors during
+%% %% replay.
+%% t_session_replay_retry(init, Config) ->
+%%     start_local(?FUNCTION_NAME, Config).
+%% t_session_replay_retry(_Config) ->
+%%     ?check_trace(
+%%         begin
+%%             ?SETUP_MOD:init_mock_transient_failure(),
+%%             ClientId = mk_clientid(?FUNCTION_NAME, sub),
+%%             NClients = 10,
+%%             ClientSubOpts = #{
+%%                 clientid => ClientId,
+%%                 auto_ack => never
+%%             },
+%%             ClientSub = start_connect_client(ClientSubOpts),
+%%             ?assertMatch(
+%%                 {ok, _, [?RC_GRANTED_QOS_1]},
+%%                 emqtt:subscribe(ClientSub, <<"t/#">>, ?QOS_1)
+%%             ),
+%%
+%%             ClientsPub = [
+%%                 start_connect_client(#{
+%%                     clientid => mk_clientid(?FUNCTION_NAME, I),
+%%                     properties => #{'Session-Expiry-Interval' => 0}
+%%                 })
+%%              || I <- lists:seq(1, NClients)
+%%             ],
+%%             lists:foreach(
+%%                 fun(Client) ->
+%%                     Index = integer_to_binary(rand:uniform(NClients)),
+%%                     Topic = <<"t/", Index/binary>>,
+%%                     ?assertMatch({ok, #{}}, emqtt:publish(Client, Topic, Index, 1))
+%%                 end,
+%%                 ClientsPub
+%%             ),
+%%
+%%             Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 5_000),
+%%             NPubs = length(Pubs0),
+%%             ?assertEqual(NClients, NPubs, ?drainMailbox(2_500)),
+%%
+%%             ok = emqtt:stop(ClientSub),
+%%
+%%             %% Make `emqx_ds` believe that roughly half of the shards are unavailable.
+%%             ?SETUP_MOD:mock_transient_failure(),
+%%
+%%             _ClientSub = start_connect_client(ClientSubOpts#{clean_start => false}),
+%%
+%%             Pubs1 = emqx_common_test_helpers:wait_publishes(NPubs, 5_000),
+%%             ?assert(length(Pubs1) < length(Pubs0), #{
+%%                 num_pubs1 => length(Pubs1),
+%%                 num_pubs0 => length(Pubs0),
+%%                 pubs1 => Pubs1,
+%%                 pubs0 => Pubs0
+%%             }),
+%%
+%%             %% "Recover" the shards.
+%%             ?SETUP_MOD:unmock_transient_failure(),
+%%
+%%             Pubs2 = emqx_common_test_helpers:wait_publishes(NPubs - length(Pubs1), 5_000),
+%%             snabbkaffe_diff:assert_lists_eq(
+%%                 [maps:with([topic, payload, qos], P) || P <- Pubs0],
+%%                 [maps:with([topic, payload, qos], P) || P <- Pubs1 ++ Pubs2],
+%%                 #{comment => emqx_persistent_session_ds:print_session(ClientId)}
+%%             )
+%%         end,
+%%         []
+%%     ).
 
 %% Check that we send will messages when performing GC without relying on timers set by
 %% the channel process.
@@ -1578,6 +1584,11 @@ start_local(TestCase, Config0) ->
     Opts = #{
         durable_storage_opts =>
             #{
+                <<"messages">> =>
+                    #{
+                        <<"backend">> => builtin_local,
+                        <<"transaction">> => #{<<"idle_flush_interval">> => 0}
+                    },
                 <<"sessions">> =>
                     #{
                         <<"backend">> => builtin_local,
