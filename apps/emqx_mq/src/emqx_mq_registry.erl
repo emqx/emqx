@@ -15,7 +15,9 @@ The module contains the registry of Message Queues.
     create/1,
     find/1,
     match/1,
-    delete/1
+    delete/1,
+    update/2,
+    list/0
 ]).
 
 %% Only for testing/debugging.
@@ -61,16 +63,18 @@ Create a new MQ.
 """.
 -spec create(emqx_mq_types:mq()) -> {ok, emqx_mq_types:mq()} | {error, queue_exists}.
 create(#{topic_filter := TopicFilter} = MQ) ->
-    case find(TopicFilter) of
-        not_found ->
-            Id = emqx_guid:gen(),
-            Key = make_key(TopicFilter),
-            RegistryMQ = maps:remove(topic_filter, MQ#{id => Id}),
-            ok = mria:dirty_write(#?MQ_REGISTRY_TAB{key = Key, mq = RegistryMQ}),
-            {ok, MQ#{id => Id}};
-        {ok, _MQ} ->
-            {error, queue_exists}
-    end.
+    Key = make_key(TopicFilter),
+    {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
+        case mnesia:read(?MQ_REGISTRY_TAB, Key, write) of
+            [] ->
+                Id = emqx_guid:gen(),
+                ok = mnesia:write(to_record(Key, MQ#{id => Id})),
+                {ok, MQ#{id => Id}};
+            [_] ->
+                {error, queue_exists}
+        end
+    end),
+    Result.
 
 -doc """
 Find all MQs matching the given concrete topic.
@@ -107,13 +111,23 @@ find(TopicFilter) ->
 -doc """
 Delete the MQ by its topic filter.
 """.
--spec delete(emqx_mq_types:mq_topic()) -> ok.
+-spec delete(emqx_mq_types:mq_topic()) -> ok | not_found.
 delete(TopicFilter) ->
     ?tp_debug(mq_registry_delete, #{topic_filter => TopicFilter}),
-    case find(TopicFilter) of
+    Key = make_key(TopicFilter),
+    {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
+        case mnesia:read(?MQ_REGISTRY_TAB, Key, write) of
+            [] ->
+                not_found;
+            [#?MQ_REGISTRY_TAB{} = Record] ->
+                ok = mnesia:delete(?MQ_REGISTRY_TAB, Key, write),
+                {ok, from_record(Record)}
+        end
+    end),
+    case Result of
+        not_found ->
+            not_found;
         {ok, MQ} ->
-            Key = make_key(TopicFilter),
-            ok = mria:dirty_delete(?MQ_REGISTRY_TAB, Key),
             case emqx_mq_consumer_db:drop_claim(MQ, now_ms()) of
                 {ok, ConsumerRef} ->
                     ok = emqx_mq_consumer:stop(ConsumerRef);
@@ -121,13 +135,11 @@ delete(TopicFilter) ->
                     ok
             end,
             ok = emqx_mq_consumer_db:drop_consumer_data(MQ),
-            ok = emqx_mq_message_db:drop(MQ);
-        not_found ->
-            ok
+            ok = emqx_mq_message_db:drop(MQ)
     end.
 
 -doc """
-Delete all MQs.
+Delete all MQs. Only for testing/maintenance.
 """.
 -spec delete_all() -> ok.
 delete_all() ->
@@ -138,6 +150,40 @@ delete_all() ->
         end
     ),
     ok.
+
+-doc """
+Update the MQ by its topic filter.
+`is_compacted` is not allowed to be updated.
+""".
+-spec update(emqx_mq_types:mq_topic(), emqx_mq_types:mq()) -> ok | not_found.
+update(TopicFilter, UpdateFields0) ->
+    Key = make_key(TopicFilter),
+    UpdateFields = maps:without([topic_filter, id, is_compacted], UpdateFields0),
+    {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
+        case mnesia:read(?MQ_REGISTRY_TAB, Key, write) of
+            [] ->
+                not_found;
+            [#?MQ_REGISTRY_TAB{} = Record] ->
+                MQ = maps:merge(from_record(Record), UpdateFields),
+                ok = mnesia:write(to_record(Key, MQ)),
+                {ok, MQ}
+        end
+    end),
+    Result.
+
+%% TODO
+%% support pagination
+-doc """
+List all MQs.
+""".
+-spec list() -> [emqx_mq_types:mq()].
+list() ->
+    lists:map(
+        fun(Record) ->
+            from_record(Record)
+        end,
+        ets:tab2list(?MQ_REGISTRY_TAB)
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -151,6 +197,9 @@ from_record(#?MQ_REGISTRY_TAB{
     mq = MQ
 }) ->
     MQ#{topic_filter => emqx_topic_index:get_topic(Key)}.
+
+to_record(Key, MQ) ->
+    #?MQ_REGISTRY_TAB{key = Key, mq = maps:remove(topic_filter, MQ)}.
 
 now_ms() ->
     erlang:system_time(millisecond).

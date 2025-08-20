@@ -8,7 +8,8 @@
     child_spec/0,
     inc/2,
     inc/3,
-    get_rates/1
+    get_rates/1,
+    get_counters/1
 ]).
 
 -define(MQ_METRICS_WORKER, mq_metrics).
@@ -35,3 +36,7 @@ inc(Id, Metric, Val) ->
 get_rates(Id) ->
     #{rate := Rates} = emqx_metrics_worker:get_metrics(?MQ_METRICS_WORKER, Id),
     Rates.
+
+get_counters(Id) ->
+    #{counters := Counters} = emqx_metrics_worker:get_metrics(?MQ_METRICS_WORKER, Id),
+    Counters.

@@ -1,0 +1,25 @@
+emqx_mq_api {
+    message_queues_list {
+        desc: """~
+            List all message queues
+            The message queues are sorted in lexicographical order,
+            so this API can be used for prefix based fuzzy search.~"""
+        label: "List Message Queues"
+    }
+    message_queues_create {
+        desc: "Create message queue"
+        label: "Create Message Queue"
+    }
+    message_queues_get {
+        desc: "Get message queue"
+        label: "Get Message Queue"
+    }
+    message_queues_update {
+        desc: "Update message queue"
+        label: "Update Message Queue"
+    }
+    message_queues_delete {
+        desc: "Delete message queue"
+        label: "Delete Message Queue"
+    }
+}

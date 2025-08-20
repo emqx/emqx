@@ -30,14 +30,17 @@ The module contains basic types for the Message Queue application.
     topic_filter := mq_topic(),
     id := binary(),
     is_compacted := boolean(),
-    consumer_max_inactive_ms := interval_ms(),
-    ping_interval_ms := interval_ms(),
-    redispatch_interval_ms := interval_ms(),
+    consumer_max_inactive := interval_ms(),
+    ping_interval := interval_ms(),
+    redispatch_interval := interval_ms(),
     dispatch_strategy := dispatch_strategy(),
+    dispatch_expression := emqx_variform:compiled(),
     local_max_inflight := non_neg_integer(),
     busy_session_retry_interval := interval_ms(),
     stream_max_buffer_size := non_neg_integer(),
-    stream_max_unacked := non_neg_integer()
+    stream_max_unacked := non_neg_integer(),
+    consumer_persistence_interval := interval_ms(),
+    data_retention_period := interval_ms()
 }.
 -export_type([
     subscriber_ref/0,

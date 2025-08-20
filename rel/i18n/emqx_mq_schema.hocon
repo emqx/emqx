@@ -1,0 +1,8 @@
+emqx_mq_schema {
+    gc_interval {
+        desc: """~
+            The interval at which the MQ will be garbage collected.
+            ~"""
+        label: "GC Interval"
+    }
+}

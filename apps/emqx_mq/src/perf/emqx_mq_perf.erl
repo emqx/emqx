@@ -11,65 +11,72 @@ Performance test utilities for the MQ application.
 -include_lib("../emqx_mq_internal.hrl").
 
 -export([
-    create_mq_regular/0,
-    mq_regular/0,
-    populate_regular/2,
-    cleanup_mq_regular_consumption_progress/0,
-    subsctriber_info/0,
-    consumer_info_regular/0,
-    info_regular/0
+    create_mq_regular/1,
+    mq_regular/1,
+    populate_regular/3,
+    cleanup_mq_regular_consumption_progress/1,
+    subsctriber_info/1,
+    consumer_info_regular/1,
+    info_regular/1
 ]).
 
--define(MQ_TOPIC_REGULAR, <<"test/#">>).
 -define(MQ_REGULAR, #{
-    topic_filter => ?MQ_TOPIC_REGULAR,
     is_compacted => false,
-    consumer_max_inactive_ms => 1000,
-    ping_interval_ms => 10000,
-    redispatch_interval_ms => 100,
+    consumer_max_inactive => 1000,
+    ping_interval => 10000,
+    redispatch_interval => 100,
     dispatch_strategy => random,
     local_max_inflight => 20,
     busy_session_retry_interval => 100,
     stream_max_buffer_size => 100,
-    stream_max_unacked => 100
+    stream_max_unacked => 100,
+    consumer_persistence_interval => 10000,
+    data_retention_period => 3600_000
 }).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
-create_mq_regular() ->
-    _ = emqx_mq_registry:delete(?MQ_TOPIC_REGULAR),
-    {ok, MQ} = emqx_mq_registry:create(?MQ_REGULAR),
+create_mq_regular(TopicFilter) ->
+    _ = emqx_mq_registry:delete(TopicFilter),
+    {ok, MQ} = emqx_mq_registry:create(maps:merge(?MQ_REGULAR, #{topic_filter => TopicFilter})),
     ok = wait_for_mq_created(MQ),
     MQ.
 
-mq_regular() ->
-    emqx_mq_registry:find(?MQ_TOPIC_REGULAR).
+mq_regular(TopicFilter) ->
+    emqx_mq_registry:find(TopicFilter).
 
-cleanup_mq_regular_consumption_progress() ->
+cleanup_mq_regular_consumption_progress(TopicFilter) when is_binary(TopicFilter) ->
     ok = stop_all_consumers(),
-    {ok, MQ} = emqx_mq_registry:find(?MQ_TOPIC_REGULAR),
-    ok = emqx_mq_consumer_db:drop_consumer_data(MQ).
+    {ok, MQ} = emqx_mq_registry:find(TopicFilter),
+    ok = emqx_mq_consumer_db:drop_consumer_data(MQ);
+cleanup_mq_regular_consumption_progress(TopicFilters) when is_list(TopicFilters) ->
+    lists:foreach(
+        fun(TopicFilter) ->
+            cleanup_mq_regular_consumption_progress(TopicFilter)
+        end,
+        TopicFilters
+    ).
 
-populate_regular(N, BatchSize) ->
-    MQ = create_mq_regular(),
+populate_regular(TopicFilter, N, BatchSize) ->
+    MQ = create_mq_regular(TopicFilter),
     populate_regular(MQ, N, 0, now_ms_monotonic(), BatchSize).
 
-info_regular() ->
+info_regular(TopicFilter) ->
     #{
-        subscribers => subsctriber_info(),
-        consumer => consumer_info_regular()
+        subscribers => subsctriber_info(TopicFilter),
+        consumer => consumer_info_regular(TopicFilter)
     }.
 
-subsctriber_info() ->
-    lists:map(
-        fun(ChanPid) -> emqx_mq_util:mq_info(ChanPid) end,
+subsctriber_info(TopicFilter) ->
+    lists:flatmap(
+        fun(ChanPid) -> emqx_mq_utils:mq_info(ChanPid, TopicFilter) end,
         emqx_cm:all_channels()
     ).
 
-consumer_info_regular() ->
-    {ok, MQ} = emqx_mq_registry:find(?MQ_TOPIC_REGULAR),
+consumer_info_regular(TopicFilter) ->
+    {ok, MQ} = emqx_mq_registry:find(TopicFilter),
     case emqx_mq_consumer_db:find_consumer(MQ, now_ms()) of
         {ok, Pid} ->
             try

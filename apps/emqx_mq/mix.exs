@@ -37,6 +37,7 @@ defmodule EMQXMQ.MixProject do
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_durable_storage, in_umbrella: true},
+      UMP.common_dep(:minirest),
       UMP.common_dep(:gproc)
     ]
   end

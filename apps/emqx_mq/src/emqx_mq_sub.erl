@@ -489,7 +489,7 @@ send_after(#{subscriber_ref := SubscriberRef}, Interval, InfoMessage) ->
 find_mq_retry_interval() ->
     ?FIND_MQ_RETRY_INTERVAL.
 
-ping_interval(#{ping_interval_ms := ConsumerPingIntervalMs} = _MQ) ->
+ping_interval(#{ping_interval := ConsumerPingIntervalMs} = _MQ) ->
     ConsumerPingIntervalMs.
 
 retry_interval(#{busy_session_retry_interval := BusySessionRetryInterval} = _MQ) ->

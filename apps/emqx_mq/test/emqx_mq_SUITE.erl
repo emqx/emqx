@@ -313,7 +313,8 @@ t_hash_dispatch(_Config) ->
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
-            dispatch_strategy => {hash, <<"m.topic(message)">>}
+            dispatch_strategy => hash,
+            dispatch_expression => emqx_mq_test_utils:compile_variform(<<"m.topic(message)">>)
         }),
 
     %% Subscribe to the queue
@@ -507,7 +508,7 @@ t_progress_restoration(_Config) ->
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
-            consumer_max_inactive_ms => 50
+            consumer_max_inactive => 50
         }),
 
     %% Publish 20 messages to the queue
@@ -587,7 +588,7 @@ t_progress_restoration_full_buffer(_Config) ->
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
-            consumer_max_inactive_ms => 50,
+            consumer_max_inactive => 50,
             local_max_inflight => 100
         }),
 
@@ -700,7 +701,7 @@ t_redispatch(Config) ->
             topic_filter => <<"t/#">>,
             is_compacted => false,
             dispatch_strategy => ?config(dispatch_strategy, Config),
-            redispatch_interval_ms => 1000
+            redispatch_interval => 1000
         }),
 
     %% Connect two subscribers
@@ -754,8 +755,9 @@ t_redispatch_on_reject_hash(_Config) ->
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
             is_compacted => false,
-            dispatch_strategy => {hash, <<"m.topic(message)">>},
-            redispatch_interval_ms => 100
+            dispatch_strategy => hash,
+            dispatch_expression => emqx_mq_test_utils:compile_variform(<<"m.topic(message)">>),
+            redispatch_interval => 100
         }),
 
     %% Connect two subscribers

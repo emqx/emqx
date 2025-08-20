@@ -115,12 +115,17 @@ on_message_nack(Msg, false) ->
 on_message_nack(_Msg, true) ->
     ok.
 
-on_client_handle_info(_ClientInfo, #info_mq_info{receiver = Receiver}, Acc) ->
-    InfoList = lists:map(
-        fun(Sub) -> emqx_mq_sub:info(Sub) end,
-        emqx_mq_sub_registry:all()
-    ),
-    erlang:send(Receiver, {Receiver, InfoList}),
+on_client_handle_info(
+    _ClientInfo, #info_mq_info{receiver = Receiver, topic_filter = TopicFilter}, Acc
+) ->
+    Info =
+        case emqx_mq_registry:find(TopicFilter) of
+            {ok, MQ} ->
+                emqx_mq_sub:info(MQ);
+            not_found ->
+                undefined
+        end,
+    erlang:send(Receiver, {Receiver, Info}),
     {ok, Acc};
 on_client_handle_info(
     ClientInfo,

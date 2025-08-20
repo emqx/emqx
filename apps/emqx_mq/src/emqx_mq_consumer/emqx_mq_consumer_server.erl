@@ -465,21 +465,22 @@ send_after(Timeout, Message) ->
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
 
-timeout(?ping_timer, #state{mq = #{ping_interval_ms := ConsumerPingIntervalMs}}) ->
+timeout(?ping_timer, #state{mq = #{ping_interval := ConsumerPingIntervalMs}}) ->
     ConsumerPingIntervalMs;
-timeout(?shutdown_timer, #state{mq = #{consumer_max_inactive_ms := ConsumerMaxInactiveMs}}) ->
+timeout(?shutdown_timer, #state{mq = #{consumer_max_inactive := ConsumerMaxInactiveMs}}) ->
     ConsumerMaxInactiveMs.
 
 dispatch_strategy(#{dispatch_strategy := random}) ->
     random;
 dispatch_strategy(#{dispatch_strategy := least_inflight}) ->
     least_inflight;
-dispatch_strategy(#{dispatch_strategy := {hash, Expression}}) ->
-    %% Need additionally check if the expression is valid?
-    Compiled = emqx_mq_utils:dispatch_variform_compile(Expression),
-    {hash, Compiled}.
+dispatch_strategy(#{dispatch_strategy := hash, dispatch_expression := Expression}) ->
+    Compiled = emqx_mq_utils:transform_dispatch_variform_expr(Expression),
+    {hash, Compiled};
+dispatch_strategy(_) ->
+    random.
 
-redispatch_interval(#state{mq = #{redispatch_interval_ms := RedispatchIntervalMs}}) ->
+redispatch_interval(#state{mq = #{redispatch_interval := RedispatchIntervalMs}}) ->
     RedispatchIntervalMs.
 
 mq_topic_filter(#state{mq = #{topic_filter := TopicFilter}}) ->

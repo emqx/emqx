@@ -184,14 +184,14 @@ stop_v1(Pid) ->
 %% Gen Server Callbacks
 %%--------------------------------------------------------------------
 
-init([#{topic_filter := MQTopicFilter} = MQ]) ->
+init([#{topic_filter := MQTopicFilter, consumer_persistence_interval := PersistenceInterval} = MQ]) ->
     erlang:process_flag(trap_exit, true),
     ClaimRes = emqx_mq_consumer_db:claim_leadership(MQ, self_consumer_ref(), now_ms()),
     ?tp_debug(mq_consumer_init, #{mq_topic_filter => MQTopicFilter, claim_res => ClaimRes}),
     case ClaimRes of
         {ok, ConsumerData} ->
             erlang:send_after(
-                ?DEFAULT_CONSUMER_PERSISTENCE_INTERVAL, self(), #persist_consumer_data{}
+                PersistenceInterval, self(), #persist_consumer_data{}
             ),
             Progress = maps:get(progress, ConsumerData, #{}),
             Streams = emqx_mq_consumer_streams:new(MQ, Progress),
@@ -267,11 +267,13 @@ handle_ds_info(Request, #state{streams = Streams0, server = Server0} = State) ->
             ignore
     end.
 
-handle_persist_consumer_data(State) ->
+handle_persist_consumer_data(
+    #state{mq = #{consumer_persistence_interval := PersistenceInterval}} = State
+) ->
     case persist_consumer_data(State) of
         ok ->
             erlang:send_after(
-                ?DEFAULT_CONSUMER_PERSISTENCE_INTERVAL, self(), #persist_consumer_data{}
+                PersistenceInterval, self(), #persist_consumer_data{}
             ),
             {noreply, State};
         Error ->

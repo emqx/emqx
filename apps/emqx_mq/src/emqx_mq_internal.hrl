@@ -21,7 +21,7 @@
     info :: term()
 }).
 
--record(info_mq_info, {receiver :: reference()}).
+-record(info_mq_info, {receiver :: reference(), topic_filter :: emqx_mq_types:mq_topic()}).
 
 -record(mq_sub_connected, {
     consumer_ref :: emqx_mq_types:consumer_ref()
@@ -65,22 +65,5 @@
 -record(tombstone, {
     last_seen_timestamp :: non_neg_integer()
 }).
-
-%% TODO
-%% make configurable, increase
-
--define(MQ_CONSUMER_MAX_UNACKED, 5).
-
-%% TODO
-%% make configurable
-
-%% 10 seconds
--define(DEFAULT_SUBSCRIBER_TIMEOUT, 10_000).
-%% 10 seconds
--define(DEFAULT_CONSUMER_TIMEOUT, 10_000).
-%% 5 seconds
--define(DEFAULT_PING_INTERVAL, 5_000).
-%% 10 seconds
--define(DEFAULT_CONSUMER_PERSISTENCE_INTERVAL, 10_000).
 
 -endif.

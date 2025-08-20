@@ -20,6 +20,8 @@
 
 -export([cleanup_mqs/0, stop_all_consumers/0]).
 
+-export([compile_variform/1]).
+
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -72,14 +74,16 @@ create_mq(Topic) when is_binary(Topic) ->
 create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     Default = #{
         is_compacted => false,
-        consumer_max_inactive_ms => 1000,
-        ping_interval_ms => 5000,
-        redispatch_interval_ms => 100,
+        consumer_max_inactive => 1000,
+        ping_interval => 5000,
+        redispatch_interval => 100,
         dispatch_strategy => random,
         local_max_inflight => 4,
         busy_session_retry_interval => 100,
         stream_max_buffer_size => 10,
-        stream_max_unacked => 5
+        stream_max_unacked => 5,
+        consumer_persistence_interval => 1000,
+        data_retention_period => 3600_000
     },
     MQ1 = maps:merge(Default, MQ0),
 
@@ -137,3 +141,7 @@ stop_all_consumers() ->
         end,
         ConsumerPids
     ).
+
+compile_variform(Expression) ->
+    {ok, Compiled} = emqx_variform:compile(Expression),
+    Compiled.

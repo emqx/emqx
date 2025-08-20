@@ -44,7 +44,7 @@ end_per_testcase(_TestCase, _Config) ->
 t_auto_shutdown(_Config) ->
     %% Create a non-compacted Queue
     _ = emqx_mq_test_utils:create_mq(#{
-        topic_filter => <<"t1/#">>, is_compacted => false, consumer_max_inactive_ms => 50
+        topic_filter => <<"t1/#">>, is_compacted => false, consumer_max_inactive => 50
     }),
 
     CSub = emqx_mq_test_utils:emqtt_connect([]),

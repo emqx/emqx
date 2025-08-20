@@ -379,18 +379,31 @@ restore_stream(
             }
     end.
 
-handle_ds_reply(#cs{state = #{streams := Streams, shards := Shards}} = CS, Stream, Handle, DSReply) ->
+handle_ds_reply(
+    #cs{state = #{streams := Streams, shards := Shards, mq := MQ}, ds_client = DSC0} = CS,
+    Stream,
+    Handle,
+    #ds_sub_reply{seqno = SeqNo} = DSReply
+) ->
     ok = inc_received_message_stat(DSReply),
-    maybe
-        #{Stream := Shard} ?= Streams,
-        #{Shard := #{status := active} = ShardState} ?= Shards,
-        ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_exists, #{stream => Stream}),
-        do_handle_ds_reply(CS, Stream, Shard, ShardState, Handle, DSReply)
-    else
-        _ ->
-            ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_not_exists, #{
-                stream => Stream
-            }),
+    case persistent_term:get(mq_nullify_handling, false) of
+        false ->
+            maybe
+                #{Stream := Shard} ?= Streams,
+                #{Shard := #{status := active} = ShardState} ?= Shards,
+                ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_exists, #{
+                    stream => Stream
+                }),
+                do_handle_ds_reply(CS, Stream, Shard, ShardState, Handle, DSReply)
+            else
+                _ ->
+                    ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_not_exists, #{
+                        stream => Stream
+                    }),
+                    {ok, [], CS}
+            end;
+        true ->
+            ok = emqx_mq_message_db:suback(MQ, Handle, SeqNo),
             {ok, [], CS}
     end.
 
