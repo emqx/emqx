@@ -94,6 +94,7 @@ It takes care of forwarding calls to the underlying DBMS.
     db_opts/0,
     db/0,
     time/0,
+    time_ms/0,
     topic_filter/0,
     topic/0,
     batch/0,
@@ -292,11 +293,16 @@ Options for limiting the number of streams.
 -type error(Reason) :: {error, recoverable | unrecoverable, Reason}.
 
 -doc """
-Timestamp
-Each message must have unique timestamp.
+Timestamp in `erlang:system_time(microsecond)` format.
+
 Earliest possible timestamp is 0.
 """.
 -type time() :: non_neg_integer().
+
+-doc """
+Epoch time in milliseconds.
+""".
+-type time_ms() :: non_neg_integer().
 
 -type tx_serial() :: binary().
 
@@ -420,9 +426,9 @@ Options for the `subscribe` API.
     }.
 
 -type slab_info() :: #{
-    created_at := time(),
-    since := time(),
-    until := time() | undefined
+    created_at := time_ms(),
+    since := time_ms(),
+    until := time_ms() | undefined
 }.
 
 %% Subscription:
