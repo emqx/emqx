@@ -886,6 +886,8 @@ dirty_append(#{db := DB, shard := _} = UserOpts, Data) ->
 -spec dirty_append_outcome(reference(), term()) ->
     {ok, tx_serial()} | emqx_ds:error(_).
 dirty_append_outcome(Ref, ?ds_tx_commit_reply(Ref, Reply)) when is_reference(Ref) ->
+    %% Note: here we simply assume that Ref is a monitor reference.
+    demonitor(Ref),
     case Reply of
         ?ds_tx_commit_ok(_, _Reserved, Serial) ->
             {ok, Serial};
