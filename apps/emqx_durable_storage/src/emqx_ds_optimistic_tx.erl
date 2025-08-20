@@ -48,6 +48,7 @@
 ]).
 
 -export_type([
+    tx/0,
     ctx/0,
     serial/0,
     runtime_config/0
@@ -64,6 +65,8 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type tx() :: #ds_tx{}.
 
 -type serial() :: integer().
 
@@ -586,7 +589,7 @@ commit, and conflict tracking is updated.
     module(),
     serial(),
     serial(),
-    #ds_tx{},
+    tx(),
     gen_data()
 ) ->
     {ok, gen_data()} | aborted.
