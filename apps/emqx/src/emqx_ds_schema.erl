@@ -60,7 +60,7 @@ schema() ->
             )},
         {messages,
             db_schema(
-                [builtin_raft_messages, builtin_local_messages],
+                [builtin_raft_ttv, builtin_local_ttv],
                 #{
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(messages)
@@ -270,6 +270,15 @@ fields(layout_builtin_reference) ->
     ];
 fields(optimistic_transaction) ->
     [
+        {conflict_window,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "5s",
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(otx_conflict_window)
+                }
+            )},
         {flush_interval,
             sc(
                 emqx_schema:duration_ms(),
@@ -288,13 +297,12 @@ fields(optimistic_transaction) ->
                     desc => ?DESC(otx_idle_flush_interval)
                 }
             )},
-        {conflict_window,
+        {max_pending,
             sc(
-                emqx_schema:duration_ms(),
+                pos_integer(),
                 #{
-                    default => "5s",
-                    importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(otx_conflict_window)
+                    default => 10000,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )}
     ];
@@ -496,7 +504,7 @@ translate_backend(
     Cfg2 =
         case Input of
             #{transaction := Transaction} ->
-                Cfg1#{transaction => Transaction};
+                Cfg1#{transaction => translate_otx_opts(Transaction)};
             #{} ->
                 Cfg1
         end,
@@ -517,6 +525,19 @@ translate_backend(
         builtin_local ->
             Cfg
     end.
+
+translate_otx_opts(#{
+    conflict_window := CW,
+    flush_interval := FI,
+    idle_flush_interval := IFI,
+    max_pending := MaxItems
+}) ->
+    #{
+        conflict_window => CW,
+        flush_interval => FI,
+        idle_flush_interval => IFI,
+        max_items => MaxItems
+    }.
 
 translate_rocksdb_options(Input = #{max_open_files := MOF}) ->
     Input#{

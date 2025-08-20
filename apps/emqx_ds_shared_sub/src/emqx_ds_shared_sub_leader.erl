@@ -850,10 +850,17 @@ stable_borrowers(#{borrowers := Borrowers, stream_owners := StreamOwners} = _St)
 %% DS helpers
 
 get_streams(TopicFilter, StartTime) ->
-    emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime).
+    emqx_ds:get_streams(
+        ?PERSISTENT_MESSAGE_DB, TopicFilter, emqx_persistent_session_ds:to_ds_time(StartTime)
+    ).
 
 make_iterator(Stream, TopicFilter, StartTime) ->
-    emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime).
+    emqx_ds:make_iterator(
+        ?PERSISTENT_MESSAGE_DB,
+        Stream,
+        TopicFilter,
+        emqx_persistent_session_ds:to_ds_time(StartTime)
+    ).
 
 %% Leader store
 

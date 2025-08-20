@@ -877,9 +877,11 @@ do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YS
         DiscoveredStreams
     ).
 
--spec get_streams(emqx_ds:topic_filter(), emqx_ds:time()) -> stream_map().
+-spec get_streams(emqx_ds:topic_filter(), emqx_persistent_session_ds:millisecond()) -> stream_map().
 get_streams(TopicFilter, StartTime) ->
-    L = emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
+    L = emqx_ds:get_streams(
+        ?PERSISTENT_MESSAGE_DB, TopicFilter, emqx_persistent_session_ds:to_ds_time(StartTime)
+    ),
     maps:groups_from_list(
         fun({{RankX, _}, _}) -> RankX end,
         fun({{_, RankY}, Stream}) -> {RankY, Stream} end,
@@ -1090,7 +1092,14 @@ to_BQ12(Key, SRS, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
 make_iterator(TopicFilter, Subscription, RankX, RankY, Stream, S) ->
     #{id := SubId, start_time := StartTime, current_state := CurrentSubState} = Subscription,
     Key = {SubId, Stream},
-    case emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime) of
+    case
+        emqx_ds:make_iterator(
+            ?PERSISTENT_MESSAGE_DB,
+            Stream,
+            TopicFilter,
+            emqx_persistent_session_ds:to_ds_time(StartTime)
+        )
+    of
         {ok, Iterator} ->
             ?tp(?sessds_stream_state_trans, #{
                 key => Key, to => r, from => p, start_time => StartTime

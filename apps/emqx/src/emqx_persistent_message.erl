@@ -24,10 +24,14 @@
 
 %% Message persistence
 -export([
-    persist/1
+    persist/2,
+    store_batch/2
 ]).
 
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("emqx_persistent_message.hrl").
+
+-type persist_opts() :: #{sync => boolean() | noreply}.
 
 -define(optvar_ready, emqx_persistent_message_ready).
 
@@ -73,7 +77,16 @@ is_persistence_enabled(Zone) ->
 
 -spec get_db_config() -> emqx_ds:create_db_opts().
 get_db_config() ->
-    emqx_ds_schema:db_config_messages().
+    Opts = emqx_ds_schema:db_config_messages(),
+    Storage =
+        {emqx_ds_storage_skipstream_lts_v2, #{
+            timestamp_bytes => 8
+        }},
+    Opts#{
+        store_ttv => true,
+        payload_type => ?ds_pt_mqtt,
+        storage => Storage
+    }.
 
 %% Dev-only option: force all messages to go through
 %% `emqx_persistent_session_ds':
@@ -96,13 +109,16 @@ pre_config_update(_Root, _NewConf, _OldConf) ->
 
 %%--------------------------------------------------------------------
 
--spec persist(emqx_types:message()) ->
-    emqx_ds:store_batch_result() | {skipped, needs_no_persistence}.
-persist(Msg) ->
+-doc """
+Check if a message has durable subscribers and save message to `messages` DB if so.
+""".
+-spec persist(emqx_types:message(), persist_opts()) ->
+    noreply | {skipped, needs_no_persistence} | reference().
+persist(Msg, Opts) ->
     ?WITH_DURABILITY_ENABLED(
         case needs_persistence(Msg) andalso has_subscribers(Msg) of
             true ->
-                store_message(Msg);
+                store_batch([Msg], Opts);
             false ->
                 {skipped, needs_no_persistence}
         end
@@ -111,13 +127,61 @@ persist(Msg) ->
 needs_persistence(Msg) ->
     not emqx_message:get_flag(dup, Msg).
 
--spec store_message(emqx_types:message()) -> emqx_ds:store_batch_result().
-store_message(Msg) ->
-    emqx_metrics:inc('messages.persisted'),
-    emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [Msg], #{sync => false}).
-
 has_subscribers(#message{topic = Topic}) ->
     emqx_persistent_session_ds_router:has_any_route(Topic).
+
+-doc """
+Unconditionally save messages to the DS DB.
+
+WARNING: this function assumes (without checking) that all messages originate from the same publisher.
+Shard is decided by client ID of the *first* message.
+""".
+-spec store_batch
+    ([emqx_types:message(), ...], #{sync := true}) -> ok | emqx_ds:error(_);
+    ([emqx_types:message(), ...], #{sync := false}) -> reference();
+    ([emqx_types:message(), ...], #{sync := noreply}) -> noreply.
+store_batch([#message{from = From} | _] = Msgs, Opts) ->
+    Shard = emqx_ds:shard_of(?PERSISTENT_MESSAGE_DB, From),
+    {Count, TTVs} = count_and_convert(Msgs),
+    emqx_metrics:inc('messages.persisted', Count),
+    Sync = maps:get(sync, Opts, true),
+    MaybeRef = emqx_ds:dirty_append(
+        #{
+            db => ?PERSISTENT_MESSAGE_DB,
+            shard => Shard,
+            reply => Sync =/= noreply
+        },
+        TTVs
+    ),
+    case Sync of
+        true ->
+            receive
+                ?ds_tx_commit_reply(MaybeRef, Reply) ->
+                    case emqx_ds:dirty_append_outcome(MaybeRef, Reply) of
+                        {ok, _Serial} ->
+                            ok;
+                        {error, _, _} = Err ->
+                            Err
+                    end
+            after 5_000 ->
+                ?err_rec(commit_timeout)
+            end;
+        false ->
+            MaybeRef;
+        noreply ->
+            noreply
+    end.
+
+count_and_convert([Msg]) ->
+    {1, [emqx_ds_payload_transform:message_to_ttv(Msg)]};
+count_and_convert(L) ->
+    count_and_convert(L, 0, []).
+
+count_and_convert([], Count, Acc) ->
+    {Count, lists:reverse(Acc)};
+count_and_convert([Msg | Rest], Count, Acc0) ->
+    Acc = [emqx_ds_payload_transform:message_to_ttv(Msg) | Acc0],
+    count_and_convert(Rest, Count + 1, Acc).
 
 %%--------------------------------------------------------------------
 
