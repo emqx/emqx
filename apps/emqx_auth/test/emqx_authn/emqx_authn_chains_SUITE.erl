@@ -56,6 +56,10 @@ authenticate(#{username := <<"emqx_authn_ignore_for_hook_good">>}, _State) ->
     ignore;
 authenticate(#{username := <<"emqx_authn_ignore_for_hook_bad">>}, _State) ->
     ignore;
+authenticate(#{username := <<"authn_clientid_override">>}, _State) ->
+    {ok, #{clientid_override => <<"overridden_clientid">>}};
+authenticate(#{username := <<"hook_clientid_override">>}, _State) ->
+    ignore;
 authenticate(#{username := _}, _State) ->
     {error, bad_username_or_password}.
 
@@ -71,6 +75,8 @@ hook_authenticate(#{username := <<"emqx_authn_ignore_for_hook_good">>}, _AuthRes
     {ok, {ok, ?NOT_SUPERUSER}};
 hook_authenticate(#{username := <<"emqx_authn_ignore_for_hook_bad">>}, _AuthResult) ->
     {stop, {error, invalid_username}};
+hook_authenticate(#{username := <<"hook_clientid_override">>}, _AuthResult) ->
+    {ok, {ok, #{clientid_override => <<"overridden_clientid">>}}};
 hook_authenticate(_ClientId, AuthResult) ->
     {ok, AuthResult}.
 
@@ -548,6 +554,16 @@ t_combine_authn_and_callback(Config) when is_list(Config) ->
     ?assertAuthFailureForUser(hook_user_finally_bad),
     ?assertAuthFailureForUser(hook_user_good),
     ?assertAuthFailureForUser(hook_user_bad),
+
+    %% clientid override in authn results
+    ?assertMatch(
+        {ok, #{clientid_override := <<"overridden_clientid">>}},
+        emqx_access_control:authenticate(ClientInfo#{username => <<"authn_clientid_override">>})
+    ),
+    ?assertMatch(
+        {ok, #{clientid_override := <<"overridden_clientid">>}},
+        emqx_access_control:authenticate(ClientInfo#{username => <<"hook_clientid_override">>})
+    ),
 
     ok = unhook();
 t_combine_authn_and_callback({'end', Config}) ->

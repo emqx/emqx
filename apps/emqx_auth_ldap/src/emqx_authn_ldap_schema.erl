@@ -45,12 +45,14 @@ fields(hash_method) ->
     [
         {type, method_type(hash)},
         {password_attribute, password_attribute()},
-        {is_superuser_attribute, is_superuser_attribute()}
+        {is_superuser_attribute, is_superuser_attribute()},
+        {clientid_override_attribute, clientid_override_attribute()}
     ];
 fields(bind_method) ->
     [
         {type, method_type(bind)},
         {is_superuser_attribute, is_superuser_attribute()},
+        {clientid_override_attribute, clientid_override_attribute()},
         {bind_password,
             ?HOCON(
                 binary(),
@@ -156,6 +158,15 @@ is_superuser_attribute() ->
         #{
             desc => ?DESC(?FUNCTION_NAME),
             default => <<"isSuperuser">>
+        }
+    ).
+
+clientid_override_attribute() ->
+    ?HOCON(
+        string(),
+        #{
+            desc => ?DESC(?FUNCTION_NAME),
+            default => <<"clientIdOverride">>
         }
     ).
 

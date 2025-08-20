@@ -15,6 +15,12 @@ is_superuser_attribute.desc:
 is_superuser_attribute.label:
 """IsSuperuser Attribute"""
 
+clientid_override_attribute.desc:
+"""Indicates which attribute is used to represent a clientid override value."""
+
+clientid_override_attribute.label:
+"""ClientIdOverride Attribute"""
+
 query_timeout.desc:
 """Timeout for the LDAP query."""
 
