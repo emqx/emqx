@@ -181,16 +181,12 @@
 
 %% Entry that is stored in the process dictionary of a process that
 %% initiated commit of the transaction:
--record(client_pending_commit, {
-    timeout_tref :: reference(),
-    alias :: reference()
-}).
--define(pending_commit, emqx_ds_optimistic_tx_pending_commit).
+-define(pending_commit_timer, emqx_ds_optimistic_tx_pending_commit).
 
 -define(global(DB, SHARD), {?MODULE, DB, SHARD}).
 
 -record(cast_dirty_append, {
-    reply_to :: pid() | undefined,
+    reply_to :: pid() | reference() | undefined,
     ref :: reference() | undefined,
     data :: emqx_ds:dirty_append_data(),
     reserved
@@ -227,15 +223,14 @@ dirty_append(#{db := DB, shard := Shard} = Opts, Data = [{_, ?ds_tx_ts_monotonic
         Leader when is_pid(Leader) ->
             case Reply of
                 true ->
-                    ReplyTo = self(),
-                    Result = Ref = monitor(process, Leader);
+                    Alias = Result = monitor(process, Leader, [{alias, reply_demonitor}]);
                 false ->
-                    ReplyTo = Ref = undefined,
+                    Alias = undefined,
                     Result = noreply
             end,
             gen_statem:cast(Leader, #cast_dirty_append{
-                reply_to = ReplyTo,
-                ref = Ref,
+                reply_to = Alias,
+                ref = Alias,
                 data = Data
             }),
             Result;
@@ -285,21 +280,18 @@ commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}, shard = Shard}, 
     case global(DB, Shard) of
         Leader when is_pid(Leader) ->
             #kv_tx_ctx{} = Ctx,
-            Ref = monitor(process, Leader),
-            TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
-            Alias = erlang:alias([reply]),
-            put({?pending_commit, Ref}, #client_pending_commit{
-                timeout_tref = TRef,
-                alias = Alias
-            }),
-            gen_statem:cast(Leader, #ds_tx{
-                ctx = Ctx, ops = Ops, from = Alias, ref = Ref, meta = TRef
-            }),
-            Ref;
+            Alias = monitor(process, Leader, [{alias, reply_demonitor}]),
+            TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Alias)),
+            put({?pending_commit_timer, Alias}, TRef),
+            gen_statem:cast(
+                Leader,
+                #ds_tx{ctx = Ctx, ops = Ops, from = Alias, ref = Alias}
+            ),
+            Alias;
         undefined ->
-            Ref = make_ref(),
-            self() ! ?ds_tx_commit_error(Ref, undefined, recoverable, leader_unavailable),
-            Ref
+            Alias = make_ref(),
+            self() ! ?ds_tx_commit_error(Alias, undefined, recoverable, leader_unavailable),
+            Alias
     end.
 
 -spec tx_commit_outcome(term()) -> {ok, emqx_ds:tx_serial()} | emqx_ds:error(_).
@@ -1012,25 +1004,18 @@ reply_error(From, Ref, Meta, Class, Error) ->
     end.
 
 -spec client_post_commit_cleanup(reference()) -> ok.
-client_post_commit_cleanup(Ref) ->
-    demonitor(Ref),
-    case erase({?pending_commit, Ref}) of
-        undefined ->
+client_post_commit_cleanup(Alias) ->
+    %% This cleanup procedure leaves a slight chance that timeout
+    %% message will still arrive. However, trying to flush it is a bad
+    %% idea! Erlang cannot use ref trick here to optimize selective
+    %% receive, so flush will lead to a full mailbox scan.
+    demonitor(Alias),
+    case erase({?pending_commit_timer, Alias}) of
+        TRef when is_reference(TRef) ->
+            _ = erlang:cancel_timer(TRef),
             ok;
-        #client_pending_commit{timeout_tref = TRef, alias = Alias} ->
-            _ = erlang:unalias(Alias),
-            _ = is_reference(TRef) andalso erlang:cancel_timer(TRef),
+        _ ->
             ok
-    end,
-    flush_messages(Ref).
-
--spec flush_messages(reference()) -> ok.
-flush_messages(Ref) ->
-    receive
-        {'DOWN', Ref, _Type, _Obj, _Info} ->
-            flush_messages(Ref)
-    after 0 ->
-        ok
     end.
 
 %%================================================================================
