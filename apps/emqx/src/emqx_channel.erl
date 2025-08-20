@@ -2317,8 +2317,14 @@ merge_auth_result(ClientInfo0, AuthResult0) when is_map(ClientInfo0) andalso is_
     ClientIdOverride = maps:get(clientid_override, AuthResult0, undefined),
     ClientInfo =
         case is_binary(ClientIdOverride) andalso ClientIdOverride /= <<"">> of
-            true -> ClientInfo0#{clientid => ClientIdOverride};
-            false -> ClientInfo0
+            true ->
+                ?TRACE("MQTT", "clientid_overridden_by_authn", #{
+                    clientid => ClientIdOverride,
+                    original_clientid => maps:get(clientid, ClientInfo0, undefined)
+                }),
+                ClientInfo0#{clientid => ClientIdOverride};
+            false ->
+                ClientInfo0
         end,
     maps:merge(
         ClientInfo#{client_attrs => Attrs},
