@@ -2852,7 +2852,7 @@ mailbox() ->
 %% Sync wrapper over `dirty_append' API. If shard is not specified, data is added to the first shard.
 dirty_append(DB, MsgsOrTTVs) when is_atom(DB) ->
     dirty_append(#{db => DB, shard => first_shard(DB)}, MsgsOrTTVs);
-dirty_append(Opts = #{db := DB}, MsgsOrTTVs) ->
+dirty_append(Opts, MsgsOrTTVs) ->
     TTVs =
         case MsgsOrTTVs of
             [#message{} | _] ->
@@ -2866,7 +2866,7 @@ dirty_append(Opts = #{db := DB}, MsgsOrTTVs) ->
         ?ds_tx_commit_reply(Ref, Reply) ->
             ?assertMatch(
                 {ok, Serial} when is_binary(Serial),
-                emqx_ds:tx_commit_outcome(DB, Ref, Reply)
+                emqx_ds:dirty_append_outcome(Ref, Reply)
             )
     end,
     ok.
