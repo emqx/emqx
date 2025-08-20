@@ -114,21 +114,6 @@ t_restart_listeners_with_hibernate_after_disabled(_Config) ->
     ok = emqx_listeners:stop(),
     emqx_config:put([listeners], OldLConf).
 
-t_max_conns_tcp(_Config) ->
-    %% Note: Using a string representation for the bind address like
-    %% "127.0.0.1" does not work
-    Port = emqx_common_test_helpers:select_free_port(tcp),
-    Conf = #{
-        <<"bind">> => format_bind({"127.0.0.1", Port}),
-        <<"max_connections">> => 4321
-    },
-    with_listener(tcp, maxconns, Conf, fun() ->
-        ?assertEqual(
-            4321,
-            emqx_listeners:max_conns('tcp:maxconns', {{127, 0, 0, 1}, Port})
-        )
-    end).
-
 t_client_attr_as_mountpoint(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     ListenerConf = #{

@@ -113,5 +113,5 @@ default_sql() ->
     <<
         "insert into t_mqtt_msg(msgid, topic, qos, payload, arrived) "
         "values (${id}, ${topic}, ${qos}, ${payload}, "
-        "(((${timestamp} :: bigint)/1000) :: bigint) :: timestamp))"
+        "(((${timestamp} :: bigint)/1000) :: bigint) :: timestamp)"
     >>.

@@ -123,12 +123,12 @@ try_consume_regular(#{last_time := LastTime} = State0, #{interval := Interval}, 
     {false, State0};
 try_consume_regular(
     #{last_time := LastTime, tokens := Tokens0} = State0,
-    #{capacity := Capacity, burst_capacity := BurstCapacity, interval := Interval},
+    #{capacity := Capacity, interval := Interval},
     Amount,
     Now
 ) ->
     Inc = Capacity * (Now - LastTime) / Interval,
-    Tokens = erlang:min(Capacity + BurstCapacity, Tokens0 + Inc),
+    Tokens = erlang:min(Capacity, Tokens0 + Inc),
     State1 = State0#{last_time := Now, tokens := Tokens},
     case Tokens >= Amount of
         true ->

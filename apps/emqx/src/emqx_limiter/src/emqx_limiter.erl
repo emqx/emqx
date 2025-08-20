@@ -22,6 +22,7 @@
 %% API for limiter clients (channel, esockd)
 -export([
     create_esockd_limiter_client/2,
+    create_listener_limiter_client/2,
     create_channel_client_container/2
 ]).
 
@@ -122,6 +123,10 @@ create_channel_client_container(ZoneName, ListenerId) ->
 create_esockd_limiter_client(ZoneName, ListenerId) ->
     LimiterClient = create_listener_limiter(ZoneName, ListenerId, max_conn),
     emqx_esockd_limiter:create_options(LimiterClient).
+
+-spec create_listener_limiter_client(zone(), listener_id()) -> emqx_limiter_client:t().
+create_listener_limiter_client(ZoneName, ListenerId) ->
+    create_listener_limiter(ZoneName, ListenerId, max_conn).
 
 %%--------------------------------------------------------------------
 %% Generic limiter client API

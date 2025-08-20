@@ -231,7 +231,7 @@ ranch_opts(Options) ->
     SocketOpts = maps:fold(
         fun filter_false/3,
         [],
-        maps:without([inet6, ipv6_v6only, proxy_header | Keys], Options)
+        maps:without([inet6, ipv6_v6only, proxy_header, user_lookup_fun | Keys], Options)
     ),
     InetOpts =
         case Options of
