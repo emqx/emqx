@@ -158,7 +158,7 @@ create_new_subscription(ShareTopicFilter, SubOpts, #{
             Subscription = #{
                 id => SubId,
                 current_state => SStateId,
-                start_time => now_ms()
+                start_time => emqx_persistent_session_ds:now_ms()
             },
             S = emqx_persistent_session_ds_state:put_subscription(
                 ShareTopicFilter, Subscription, S3
@@ -579,9 +579,6 @@ fold_shared_stream_states(Fun, Acc, S) ->
 
 agent_opts(#{session_id := SessionId}) ->
     #{session_id => SessionId}.
-
-now_ms() ->
-    erlang:system_time(millisecond).
 
 is_use_finished(#srs{unsubscribed = Unsubscribed}) ->
     Unsubscribed.
