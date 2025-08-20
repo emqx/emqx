@@ -71,15 +71,13 @@ init_per_testcase(TestCase, TCConfig) ->
     {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
         _Port = random, HTTPPath, ServerSSLOpts
     ),
-    ok = emqx_bridge_http_connector_test_server:set_handler(
-        emqx_bridge_http_SUITE:success_http_handler(#{})
-    ),
+    ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler(#{})),
     ConnectorName = atom_to_binary(TestCase),
-    ConnectorConfig = emqx_bridge_http_SUITE:connector_config(#{
+    ConnectorConfig = emqx_bridge_schema_testlib:http_connector_config(#{
         <<"url">> => emqx_bridge_v2_testlib:fmt(<<"http://localhost:${p}">>, #{p => HTTPPort})
     }),
     ActionName = ConnectorName,
-    ActionConfig = emqx_bridge_http_SUITE:action_config(#{
+    ActionConfig = emqx_bridge_schema_testlib:http_action_config(#{
         <<"connector">> => ConnectorName
     }),
     snabbkaffe:start_trace(),
@@ -143,8 +141,8 @@ get_tc_prop(TestCase, Key, Default) ->
 make_http_bridge(TCConfig) ->
     #{type := Type, name := Name} =
         emqx_bridge_v2_testlib:get_common_values(TCConfig),
-    {201, _} = emqx_bridge_http_SUITE:create_connector_api(TCConfig, #{}),
-    {201, _} = emqx_bridge_http_SUITE:create_action_api(TCConfig, #{
+    {201, _} = emqx_bridge_v2_testlib:create_connector_api2(TCConfig, #{}),
+    {201, _} = emqx_bridge_v2_testlib:create_action_api2(TCConfig, #{
         <<"parameters">> => #{<<"body">> => <<"${.id}">>}
     }),
     emqx_bridge_resource:bridge_id(Type, Name).
@@ -743,3 +741,23 @@ read_rule_trace_file(TraceName, _TraceType, From) ->
     timer:sleep(2 * 100),
     {ok, Bin} = file:read_file(emqx_trace:log_file(TraceName, From)),
     Bin.
+
+success_http_handler(Opts) ->
+    ResponseDelay = maps:get(response_delay, Opts, 0),
+    TestPid = self(),
+    fun(Req0, State) ->
+        {ok, Body, Req} = cowboy_req:read_body(Req0),
+        Headers = cowboy_req:headers(Req),
+        ct:pal("http request received: ~p", [
+            #{body => Body, headers => Headers, response_delay => ResponseDelay}
+        ]),
+        ResponseDelay > 0 andalso timer:sleep(ResponseDelay),
+        TestPid ! {http, Headers, Body},
+        Rep = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"text/plain">>},
+            <<"hello">>,
+            Req
+        ),
+        {ok, Rep, State}
+    end.

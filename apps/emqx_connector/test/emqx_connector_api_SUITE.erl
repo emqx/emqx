@@ -434,7 +434,7 @@ resume_connector_resource(ConnectorResID, Config) ->
 http_connector_config() ->
     http_connector_config(_Overrides = #{}).
 http_connector_config(Overrides) ->
-    emqx_bridge_http_SUITE:connector_config(
+    emqx_bridge_schema_testlib:http_connector_config(
         emqx_utils_maps:deep_merge(
             #{<<"url">> => <<"http://127.0.0.1:18083">>},
             Overrides
