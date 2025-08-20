@@ -97,18 +97,26 @@ create_zone_limiters() ->
 
 -spec create_listener_limiters(listener_id(), term()) -> ok.
 create_listener_limiters(ListenerId, ListenerConfig) ->
-    ListenerLimiters = limiter_options(ListenerConfig),
-    create_group(exclusive, listener_group(ListenerId), ListenerLimiters).
+    ListenerLimiters = limiter_options([max_conn], ListenerConfig),
+    ChannelLimiters = limiter_options([messages, bytes], ListenerConfig),
+    ok = create_group(shared, listener_group(ListenerId), ListenerLimiters),
+    ok = create_group(exclusive, channel_group(ListenerId), ChannelLimiters).
 
 -spec update_listener_limiters(listener_id(), term()) -> ok.
 update_listener_limiters(ListenerId, ListenerConfig) ->
-    ListenerLimiters = limiter_options(ListenerConfig),
-    update_group(listener_group(ListenerId), ListenerLimiters).
+    ListenerLimiters = limiter_options([max_conn], ListenerConfig),
+    ChannelLimiters = limiter_options([messages, bytes], ListenerConfig),
+    ok = update_group(listener_group(ListenerId), ListenerLimiters),
+    ok = update_group(channel_group(ListenerId), ChannelLimiters).
 
 -spec delete_listener_limiters(listener_id()) -> ok.
 delete_listener_limiters(ListenerId) ->
+    ok = try_delete_group(listener_group(ListenerId)),
+    ok = try_delete_group(channel_group(ListenerId)).
+
+try_delete_group(Group) ->
     try
-        delete_group(listener_group(ListenerId))
+        delete_group(Group)
     catch
         error:{limiter_group_not_found, _} ->
             ok
@@ -327,6 +335,11 @@ delete_limiters_for_zones(Zones) ->
 listener_group(ListenerId) ->
     {listener, ListenerId}.
 
+%% Channel-related
+
+channel_group(ListenerId) ->
+    {channel, ListenerId}.
+
 %% General helper functions
 
 create_listener_limiter(ZoneName, ListenerId, Name) ->
@@ -338,10 +351,19 @@ create_listener_limiter(ZoneName, ListenerId, Name) ->
         ZoneLimiterClient, ListenerLimiterClient
     ]).
 
+create_channel_limiter(ZoneName, ListenerId, Name) ->
+    ZoneLimiterId = {zone_group(ZoneName), Name},
+    ZoneLimiterClient = connect(ZoneLimiterId),
+    ChannelLimiterId = {channel_group(ListenerId), Name},
+    ChannelLimiterClient = connect(ChannelLimiterId),
+    emqx_limiter_composite:new([
+        ZoneLimiterClient, ChannelLimiterClient
+    ]).
+
 create_client_container(ZoneName, ListenerId, Names) ->
     Clients = lists:map(
         fun(Name) ->
-            LimiterClient = create_listener_limiter(ZoneName, ListenerId, Name),
+            LimiterClient = create_channel_limiter(ZoneName, ListenerId, Name),
             {Name, LimiterClient}
         end,
         Names
@@ -359,12 +381,10 @@ to_burst_key(Name) ->
     list_to_atom(NameStr ++ "_burst").
 
 limiter_options(Config) ->
-    lists:map(
-        fun(Name) ->
-            {Name, config(Name, Config)}
-        end,
-        emqx_limiter_schema:mqtt_limiter_names()
-    ).
+    limiter_options(emqx_limiter_schema:mqtt_limiter_names(), Config).
+
+limiter_options(Names, Config) ->
+    [{Name, config(Name, Config)} || Name <- Names].
 
 zones() ->
     maps:keys(emqx_config:get([zones])).
