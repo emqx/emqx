@@ -441,9 +441,14 @@ handle_flush(D0, Actions) ->
     {next_state, ?leader(?idle), D, Actions}.
 
 -spec handle_dirty_append(dirty_append(), state(), d()) -> leader_loop_result().
-handle_dirty_append(DirtyAppend, ?leader(LeaderState), D0 = #d{pending_dirty = Buff}) ->
+handle_dirty_append(
+    DirtyAppend, ?leader(LeaderState), D0 = #d{pending_dirty = Buff, n_items = NItems}
+) ->
     %% Note: all dirty appends are cooked in a single `otx_prepare_tx` call during the flush:
-    D = D0#d{pending_dirty = [DirtyAppend | Buff]},
+    D = D0#d{
+        pending_dirty = [DirtyAppend | Buff],
+        n_items = NItems + 1
+    },
     finalize_add_pending(LeaderState, D, []).
 
 -spec send_dirty_append_replies(ok | false | emqx_ds:error(_), serial(), [dirty_append()]) -> ok.
@@ -744,7 +749,9 @@ update_dirty_w(Serial, Ops, Dirty) ->
     ).
 
 -spec flush(d()) -> d().
-flush(D0) ->
+flush(D0 = #d{n_items = NItems}) ->
+    %% Note: we take n_items before cooking_dirty_append to avoid
+    %% off-by-one error when it adds a batch.
     {CookDirtySuccess, PresumedDirtyCommitSerial, OldDirtyAppends, D} = cook_dirty_appends(D0),
     #d{
         db = DB,
