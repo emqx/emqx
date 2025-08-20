@@ -31,16 +31,14 @@ jobs:
         with:
           result-encoding: string
           script: |
-            const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts(
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                run_id: context.runId,
-                per_page: 100
-              },
-              res => res.data.artifacts
-            );
-            return artifacts.some(a => a.name === `${{ env.PROFILE }}-schema-dump`);
+            const { data } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100
+            });
+            const list = data.artifacts ?? [];
+            return list.some(a => a.name === `${process.env.PROFILE}-schema-dump`);
 
       - name: Compile
         if: steps.check-artifact.outputs.result == 'false'
