@@ -165,6 +165,7 @@ open_db(DB, CreateOpts0) ->
             transaction => #{
                 flush_interval => 1_000,
                 idle_flush_interval => 1,
+                max_items => 1000,
                 conflict_window => 5_000
             }
         },

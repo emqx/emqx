@@ -111,6 +111,7 @@
 -type runtime_config() :: #{
     flush_interval := non_neg_integer(),
     idle_flush_interval := non_neg_integer(),
+    max_items := pos_integer(),
     conflict_window := pos_integer()
 }.
 
@@ -138,6 +139,10 @@
 -define(idle, idle).
 -define(pending, pending).
 
+-type leader_state() :: ?idle | ?pending.
+%% Note: not including ?initial here because it shouldn't occur normally.
+-type state() :: ?leader(leader_state()).
+
 %% Timeouts
 -define(timeout_initialize, timeout_initialize).
 %%   Flush pending transactions to the storage:
@@ -161,7 +166,9 @@
     flush_interval :: pos_integer(),
     idle_flush_interval :: pos_integer(),
     rotate_interval :: pos_integer(),
+    max_items :: pos_integer(),
     last_rotate_ts,
+    n_items = 0,
     serial :: non_neg_integer() | undefined,
     timestamp :: emqx_ds:time() | undefined,
     committed_serial :: non_neg_integer() | undefined,
@@ -188,6 +195,12 @@
     data :: emqx_ds:dirty_append_data()
 }).
 -type dirty_append() :: #cast_dirty_append{}.
+
+-type leader_loop_result() ::
+    {next_state, ?leader(leader_state()), d(), [gen_statem:action()]}
+    | {keep_state, d(), [gen_statem:action()] | gen_statem:action()}
+    | {keep_state, d()}
+    | keep_state_and_data.
 
 %%================================================================================
 %% API functions
@@ -302,7 +315,12 @@ tx_commit_outcome(Reply) ->
             ?err_rec({Type, Object, Info})
     end.
 
-%% NOTE: should be called in the optimistic_tx process.
+-doc """
+Get shard's monotonic timestamp.
+
+This function must be called only in the optimistic_tx process, inside
+`with_time_and_generation` wrapper.
+""".
 -spec get_monotonic_timestamp() -> emqx_ds:time().
 get_monotonic_timestamp() ->
     TS = max(get(?ds_tx_monotonic_ts) + 1, erlang:system_time(microsecond)),
@@ -323,7 +341,8 @@ init([DB, Shard, CBM]) ->
     #{
         flush_interval := FI,
         idle_flush_interval := IFI,
-        conflict_window := CW
+        conflict_window := CW,
+        max_items := MaxItems
     } = CBM:otx_get_runtime_config(DB),
     D = #d{
         db = DB,
@@ -332,7 +351,8 @@ init([DB, Shard, CBM]) ->
         rotate_interval = CW,
         last_rotate_ts = erlang:monotonic_time(millisecond),
         flush_interval = FI,
-        idle_flush_interval = IFI
+        idle_flush_interval = IFI,
+        max_items = MaxItems
     },
     {ok, ?initial, D, {state_timeout, 0, ?timeout_initialize}}.
 
@@ -367,7 +387,7 @@ handle_event(cast, Tx = #ds_tx{}, ?leader(LeaderState), D0) ->
     %% Enqueue transaction commit:
     case handle_tx(D0, Tx) of
         {ok, _PresumedCommitSerial, D} ->
-            to_pending(LeaderState, D, []);
+            finalize_add_pending(LeaderState, D, []);
         aborted ->
             keep_state_and_data
     end;
@@ -376,13 +396,10 @@ handle_event(cast, #ds_tx{from = From, ref = Ref, meta = Meta}, _Other, _) ->
     keep_state_and_data;
 handle_event(cast, #cast_dirty_append{} = DirtyAppend, State, D) ->
     handle_dirty_append(DirtyAppend, State, D);
-handle_event(ET, ?timeout_flush, ?leader(_LeaderState), D0) when
+handle_event(ET, ?timeout_flush, ?leader(_LeaderState), D) when
     ET =:= state_timeout; ET =:= timeout
 ->
-    %% Execute flush. After flushing the buffer it's safe to rotate
-    %% the conflict tree.
-    D = maybe_rotate(flush(D0)),
-    {next_state, ?leader(?idle), D};
+    handle_flush(D, []);
 handle_event(ET, Event, State, _D) ->
     ?tp(
         error,
@@ -395,6 +412,7 @@ handle_event(ET, Event, State, _D) ->
 %% Internal functions
 %%================================================================================
 
+-spec async_init(d()) -> leader_loop_result() | {stop, _}.
 async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
     maybe
         {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
@@ -413,12 +431,19 @@ async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
             {stop, {init_failed, Err}}
     end.
 
+-spec handle_flush(d(), [gen_statem:action()]) ->
+    leader_loop_result().
+handle_flush(D0, Actions) ->
+    %% Execute flush. After flushing the buffer it's safe to rotate
+    %% the conflict tree.
+    D = maybe_rotate(flush(D0)),
+    {next_state, ?leader(?idle), D, Actions}.
+
+-spec handle_dirty_append(dirty_append(), state(), d()) -> leader_loop_result().
 handle_dirty_append(DirtyAppend, ?leader(LeaderState), D0 = #d{pending_dirty = Buff}) ->
+    %% Note: all dirty appends are cooked in a single `otx_prepare_tx` call during the flush:
     D = D0#d{pending_dirty = [DirtyAppend | Buff]},
-    to_pending(LeaderState, D, []);
-handle_dirty_append(#cast_dirty_append{reply_to = Pid, ref = Ref}, _OtherState, _D) ->
-    reply_error(Pid, Ref, dirty, recoverable, not_the_leader),
-    keep_state_and_data.
+    finalize_add_pending(LeaderState, D, []).
 
 -spec send_dirty_append_replies(ok | false | emqx_ds:error(_), serial(), [dirty_append()]) -> ok.
 send_dirty_append_replies(Result, Serial, PendingReplies) ->
@@ -490,11 +515,21 @@ do_cook_dirty_appends(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pendin
         _ -> aborted
     end.
 
-to_pending(?idle, D = #d{idle_flush_interval = IdleInterval}, Actions) ->
+-doc """
+This function must be called after adding a new item pending for commit.
+It (re)schedules flushing of the data.
+""".
+-spec finalize_add_pending(leader_state(), d(), [gen_statem:action()]) ->
+    leader_loop_result().
+finalize_add_pending(_, D = #d{n_items = N, max_items = MaxItems}, Actions) when
+    N >= MaxItems, MaxItems > 0
+->
+    handle_flush(D, Actions);
+finalize_add_pending(?idle, D = #d{idle_flush_interval = IdleInterval}, Actions) ->
     %% Schedule early flush if the shard is idle:
     Timeout = {timeout, IdleInterval, ?timeout_flush},
     {next_state, ?leader(?pending), D, [Timeout | Actions]};
-to_pending(_, D, Actions) ->
+finalize_add_pending(_, D, Actions) ->
     {keep_state, D, Actions}.
 
 -doc """
@@ -510,6 +545,7 @@ commit serial in the global state.
 with_time_and_generation(
     Gen,
     D = #d{
+        n_items = NItems,
         serial = Serial,
         timestamp = Timestamp,
         gens = Gens
@@ -532,13 +568,15 @@ with_time_and_generation(
             {ok, PresumedCommitSerial, D#d{
                 serial = PresumedCommitSerial,
                 gens = Gens#{Gen => GenData},
-                timestamp = erase(?ds_tx_monotonic_ts)
+                timestamp = erase(?ds_tx_monotonic_ts),
+                n_items = NItems + 1
             }};
         aborted ->
             _ = erase(?ds_tx_monotonic_ts),
             aborted
     end.
 
+-spec handle_tx(d(), tx()) -> {ok, serial(), d()} | aborted.
 handle_tx(
     D = #d{
         db = DB,
@@ -643,6 +681,7 @@ try_schedule_transaction(
 -doc """
 Check that the transaction was created while this process was the leader.
 """.
+-spec check_tx_leader(pid()) -> ok | emqx_ds:error(_).
 check_tx_leader(TxLeader) ->
     case self() of
         TxLeader ->
@@ -651,6 +690,8 @@ check_tx_leader(TxLeader) ->
             ?err_rec({leader_conflict, TxLeader, self()})
     end.
 
+-spec check_latest_generation(module(), {emqx_ds:db(), emqx_ds:shard()}, ctx()) ->
+    ok | emqx_ds:error(_).
 check_latest_generation(_, _, #kv_tx_ctx{latest_generation = false}) ->
     %% This transaction was created for a constant generation that
     %% doesn't have to be the latest. This always succeeds.
@@ -663,6 +704,8 @@ check_latest_generation(CBM, {DB, Shard}, #kv_tx_ctx{latest_generation = true, g
             ?err_rec({not_the_latest_generation, Gen, Latest})
     end.
 
+-spec update_dirty_d(serial(), emqx_ds:tx_ops(), emqx_ds_tx_conflict_trie:t()) ->
+    emqx_ds_tx_conflict_trie:t().
 update_dirty_d(Serial, Ops, Dirty) ->
     %% Mark all deleted topics as dirty:
     lists:foldl(
@@ -679,6 +722,8 @@ update_dirty_d(Serial, Ops, Dirty) ->
         maps:get(?ds_tx_delete_topic, Ops, [])
     ).
 
+-spec update_dirty_w(serial(), emqx_ds:tx_ops(), emqx_ds_tx_conflict_trie:t()) ->
+    emqx_ds_tx_conflict_trie:t().
 update_dirty_w(Serial, Ops, Dirty) ->
     %% Mark written topics as dirty:
     lists:foldl(
@@ -689,6 +734,7 @@ update_dirty_w(Serial, Ops, Dirty) ->
         maps:get(?ds_tx_write, Ops, [])
     ).
 
+-spec flush(d()) -> d().
 flush(D0) ->
     {CookDirtySuccess, PresumedDirtyCommitSerial, OldDirtyAppends, D} = cook_dirty_appends(D0),
     #d{
@@ -708,18 +754,22 @@ flush(D0) ->
     send_dirty_append_replies(
         CookDirtySuccess andalso Result, PresumedDirtyCommitSerial, OldDirtyAppends
     ),
-    #{flush_interval := FI, idle_flush_interval := IFI, conflict_window := CW} = CBM:otx_get_runtime_config(
-        DB
-    ),
+    #{
+        flush_interval := FI,
+        idle_flush_interval := IFI,
+        max_items := MaxItems,
+        conflict_window := CW
+    } = CBM:otx_get_runtime_config(DB),
     case Result of
         ok ->
-            %% TODO:
-            %% erlang:garbage_collect(),
+            erlang:garbage_collect(),
             D#d{
                 committed_serial = Serial,
                 gens = Gens,
                 flush_interval = FI,
                 idle_flush_interval = IFI,
+                max_items = MaxItems,
+                n_items = 0,
                 rotate_interval = CW
             };
         _ ->
@@ -761,9 +811,11 @@ clean_buffers_and_reply(Reply, Generations) ->
         Generations
     ).
 
+-spec serial_bin(serial()) -> binary().
 serial_bin(A) ->
     <<A:128>>.
 
+-spec maybe_rotate(d()) -> d().
 maybe_rotate(D = #d{rotate_interval = RI, last_rotate_ts = LastRotTS}) ->
     case erlang:monotonic_time(millisecond) - LastRotTS > RI of
         true ->
@@ -772,6 +824,7 @@ maybe_rotate(D = #d{rotate_interval = RI, last_rotate_ts = LastRotTS}) ->
             D
     end.
 
+-spec rotate(d()) -> d().
 rotate(D = #d{gens = Gens0}) ->
     Gens = maps:map(
         fun(_, GS = #gen_data{dirty_w = Dirty}) ->
@@ -786,6 +839,7 @@ rotate(D = #d{gens = Gens0}) ->
         last_rotate_ts = erlang:monotonic_time(millisecond)
     }.
 
+-spec preprocess_ops(serial(), emqx_ds:tx_ops()) -> emqx_ds:tx_ops().
 preprocess_ops(_PresumedCommitSerial, Tx) ->
     MonotonicTS = get_monotonic_timestamp(),
     maps:map(
@@ -798,6 +852,8 @@ preprocess_ops(_PresumedCommitSerial, Tx) ->
         Tx
     ).
 
+-spec preprocess_deletes(emqx_ds:time(), [emqx_ds:topic_range()]) ->
+    [{emqx_ds:topic(), emqx_ds:time(), emqx_ds:time() | infinity}].
 preprocess_deletes(MonotonicTS, Ops) ->
     lists:map(
         fun
@@ -809,6 +865,10 @@ preprocess_deletes(MonotonicTS, Ops) ->
         Ops
     ).
 
+-spec check_conflicts(
+    emqx_ds_tx_conflict_trie:t(), emqx_ds_tx_conflict_trie:t(), serial(), serial(), emqx_ds:tx_ops()
+) ->
+    ok | emqx_ds:error(_).
 check_conflicts(DirtyW, DirtyD, TxStartSerial, SafeToReadSerial, Ops) ->
     maybe
         %% Check reads against writes and deletions:
@@ -827,6 +887,9 @@ check_conflicts(DirtyW, DirtyD, TxStartSerial, SafeToReadSerial, Ops) ->
         ok ?= do_check_conflicts(DirtyW, SafeToReadSerial, UnexpectedTopics)
     end.
 
+-spec do_check_conflicts(emqx_ds_tx_conflict_trie:t(), serial(), [
+    {emqx_ds:topic(), emqx_ds:time(), emqx_ds:time() | infinity}
+]) -> ok | ?err_rec(_).
 do_check_conflicts(Dirty, Serial, Topics) ->
     Errors = lists:filtermap(
         fun({ReadTF, FromTime, ToTime}) ->
@@ -848,6 +911,10 @@ do_check_conflicts(Dirty, Serial, Topics) ->
             ?err_rec({read_conflict, Errors})
     end.
 
+-spec verify_preconditions(
+    {emqx_ds:db(), emqx_ds:shard()}, module(), emqx_ds:generation(), emqx_ds:tx_ops()
+) ->
+    ok | ?err_unrec(_).
 verify_preconditions(DBShard, CBM, GenId, Ops) ->
     %% Verify expected values:
     Unrecoverable0 = lists:foldl(
@@ -920,6 +987,7 @@ reply_error(From, Ref, Meta, Class, Error) ->
             ok
     end.
 
+-spec client_post_commit_cleanup(reference()) -> ok.
 client_post_commit_cleanup(Ref) ->
     demonitor(Ref),
     case erase({?pending_commit, Ref}) of
@@ -932,6 +1000,7 @@ client_post_commit_cleanup(Ref) ->
     end,
     flush_messages(Ref).
 
+-spec flush_messages(reference()) -> ok.
 flush_messages(Ref) ->
     receive
         {'DOWN', Ref, _Type, _Obj, _Info} ->
