@@ -25,11 +25,11 @@ defmodule EMQXAuthKerberos.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_utils, in_umbrella: true},
       {:emqx, in_umbrella: true, runtime: false},
       {:emqx_auth, in_umbrella: true},
-      UMP.common_dep(:sasl_auth)
-    ]
+      :sasl_auth
+    ])
   end
 end

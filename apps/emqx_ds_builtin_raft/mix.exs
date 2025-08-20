@@ -25,11 +25,11 @@ defmodule EMQXDsBuiltinRaft.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_durable_storage, in_umbrella: true},
       {:emqx_bpapi, in_umbrella: true},
-      UMP.common_dep(:gproc),
-      UMP.common_dep(:ra)
-    ]
+      :gproc,
+      :ra
+    ])
   end
 end

@@ -30,10 +30,10 @@ defmodule EMQXBridgeHTTP.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      UMP.common_dep(:ehttpc)
-    ]
+      :ehttpc
+    ])
   end
 end

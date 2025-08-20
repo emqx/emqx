@@ -53,27 +53,29 @@ defmodule EMQX.MixProject do
   end
 
   def deps() do
-    [
-      {:emqx_mix_utils, in_umbrella: true, runtime: false},
-      {:emqx_utils, in_umbrella: true},
-      {:emqx_bpapi, in_umbrella: true},
-      {:emqx_durable_storage, in_umbrella: true},
-      {:emqx_ds_backends, in_umbrella: true},
-      {:emqx_durable_timer, in_umbrella: true},
-      UMP.common_dep(:gproc),
-      UMP.common_dep(:gen_rpc),
-      UMP.common_dep(:ekka),
-      UMP.common_dep(:esockd),
-      UMP.common_dep(:cowboy),
-      UMP.common_dep(:lc),
-      UMP.common_dep(:hocon),
-      UMP.common_dep(:ranch),
-      UMP.common_dep(:bcrypt),
-      UMP.common_dep(:emqx_http_lib),
-      UMP.common_dep(:typerefl),
-      UMP.common_dep(:snabbkaffe),
-      UMP.common_dep(:recon)
-    ] ++ UMP.quicer_dep()
+    UMP.deps(
+      [
+        {:emqx_mix_utils, in_umbrella: true, runtime: false},
+        {:emqx_utils, in_umbrella: true},
+        {:emqx_bpapi, in_umbrella: true},
+        {:emqx_durable_storage, in_umbrella: true},
+        {:emqx_ds_backends, in_umbrella: true},
+        {:emqx_durable_timer, in_umbrella: true},
+        :gproc,
+        :gen_rpc,
+        :ekka,
+        :esockd,
+        :cowboy,
+        :lc,
+        :hocon,
+        :ranch,
+        :bcrypt,
+        :emqx_http_lib,
+        :typerefl,
+        :snabbkaffe,
+        :recon
+      ] ++ UMP.quicer_dep()
+    )
   end
 
   defp erlc_paths() do

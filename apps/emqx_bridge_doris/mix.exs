@@ -31,10 +31,10 @@ defmodule EMQXBridgeDoris.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge_mysql, in_umbrella: true}
-    ]
+    ])
   end
 
   defp extra_dirs() do

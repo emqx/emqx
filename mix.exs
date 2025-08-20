@@ -142,6 +142,23 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
+  @doc """
+  Helper function to wrap dependency specs in applications' `mix.exs` files.
+
+  Dependencies that are common dependencies (i.e., have a clause in `common_dep/1`) may be
+  specified just as their atom name.
+  """
+  def deps(dep_specs) do
+    common_deps() ++
+      Enum.map(dep_specs, fn
+        name when is_atom(name) ->
+          common_dep(name)
+
+        dep_spec ->
+          dep_spec
+      end)
+  end
+
   def common_dep(dep_name, overrides) do
     case common_dep(dep_name) do
       {^dep_name, opts} ->

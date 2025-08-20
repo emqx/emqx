@@ -22,10 +22,10 @@ defmodule EMQXGatewayLwm2m.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_gateway, in_umbrella: true},
       {:emqx_gateway_coap, in_umbrella: true}
-    ]
+    ])
   end
 end

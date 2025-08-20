@@ -22,10 +22,10 @@ defmodule EMQXRedis.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:eredis_cluster, github: "emqx/eredis_cluster", tag: "0.8.8"}
-    ]
+    ])
   end
 end

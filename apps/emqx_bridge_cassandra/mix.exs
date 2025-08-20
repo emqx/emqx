@@ -28,11 +28,11 @@ defmodule EMQXBridgeCassandra.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:ecql, github: "emqx/ecql", tag: "v0.7.1"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
-    ]
+    ])
   end
 end

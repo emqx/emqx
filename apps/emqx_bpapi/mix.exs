@@ -25,8 +25,8 @@ defmodule EMQXBPAPI.MixProject do
   end
 
   def deps() do
-    [
-      UMP.common_dep(:snabbkaffe)
-    ]
+    UMP.deps([
+      :snabbkaffe
+    ])
   end
 end

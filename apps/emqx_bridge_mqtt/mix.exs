@@ -30,11 +30,11 @@ defmodule EMQXBridgeMQTT.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      UMP.common_dep(:emqtt)
-    ]
+      :emqtt
+    ])
   end
 end

@@ -34,10 +34,10 @@ defmodule EMQXDurableTimer.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_ds_backends, in_umbrella: true},
-      UMP.common_dep(:gproc),
-      UMP.common_dep(:optvar)
-    ]
+      :gproc,
+      :optvar
+    ])
   end
 end
