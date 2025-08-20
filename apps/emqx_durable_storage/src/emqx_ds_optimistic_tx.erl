@@ -789,7 +789,15 @@ flush(D0) ->
 make_batch(Generations) ->
     maps:fold(
         fun(Generation, #gen_data{buffer = Buf}, Acc) ->
-            [{Generation, Buf} | Acc]
+            case Buf of
+                [] ->
+                    %% Avoid touching generations that don't have
+                    %% data. They could be deleted. TODO: drop deleted
+                    %% generations from the state record.
+                    Acc;
+                _ ->
+                    [{Generation, Buf} | Acc]
+            end
         end,
         [],
         Generations
