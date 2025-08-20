@@ -475,7 +475,7 @@ Options for the `subscribe` API.
 
 -type commit_result() :: {ok, tx_serial()} | error(_).
 
--type payload() :: emqx_types:message() | ttv().
+-type payload() :: ttv() | emqx_ds_payload_transform:payload().
 
 -type fold_fun(Acc) :: fun(
     (
@@ -1290,7 +1290,11 @@ have to be proper unicode and levels can contain slashes.
 
 """.
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
--spec tx_write({topic(), time() | ?ds_tx_ts_monotonic, binary() | ?ds_tx_serial | tuple()}) -> ok.
+-spec tx_write({
+    topic(),
+    time() | ?ds_tx_ts_monotonic,
+    binary() | ?ds_tx_serial | emqx_ds_payload_transform:payload()
+}) -> ok.
 tx_write({Topic, Time, Value}) ->
     case
         is_topic(Topic) andalso
