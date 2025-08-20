@@ -28,12 +28,12 @@ defmodule EMQXBridgeEs.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false},
       {:emqx_bridge_http, in_umbrella: true}
-    ]
+    ])
   end
 end

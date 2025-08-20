@@ -22,10 +22,10 @@ defmodule EMQXEnterprise.MixProject do
   end
 
   def deps() do
-    [
-      UMP.common_dep(:snabbkaffe),
-      UMP.common_dep(:typerefl),
-      UMP.common_dep(:hocon)
-    ]
+    UMP.deps([
+      :snabbkaffe,
+      :typerefl,
+      :hocon
+    ])
   end
 end

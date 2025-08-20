@@ -28,7 +28,7 @@ defmodule EMQXMachine.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true, runtime: false},
       {:emqx_utils, in_umbrella: true, runtime: false},
       {:emqx_ctl, in_umbrella: true},
@@ -36,7 +36,7 @@ defmodule EMQXMachine.MixProject do
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       {:emqx_management, in_umbrella: true, runtime: false},
       UMP.common_dep(:system_monitor, runtime: false),
-      UMP.common_dep(:redbug)
-    ]
+      :redbug
+    ])
   end
 end

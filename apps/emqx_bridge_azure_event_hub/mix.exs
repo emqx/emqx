@@ -28,16 +28,16 @@ defmodule EMQXBridgeAzureEventHub.MixProject do
   end
 
   def deps() do
-    [
-      UMP.common_dep(:wolff),
-      UMP.common_dep(:kafka_protocol),
-      UMP.common_dep(:brod_gssapi),
-      UMP.common_dep(:brod),
-      UMP.common_dep(:snappyer),
-      UMP.common_dep(:telemetry),
+    UMP.deps([
+      :wolff,
+      :kafka_protocol,
+      :brod_gssapi,
+      :brod,
+      :snappyer,
+      :telemetry,
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
-    ]
+    ])
   end
 end

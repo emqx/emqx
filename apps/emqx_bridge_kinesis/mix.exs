@@ -27,12 +27,12 @@ defmodule EMQXBridgeKinesis.MixProject do
   end
 
   def deps() do
-    [
-      UMP.common_dep(:erlcloud),
+    UMP.deps([
+      :erlcloud,
       {:emqx, in_umbrella: true, runtime: false},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
-    ]
+    ])
   end
 end

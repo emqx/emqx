@@ -31,10 +31,10 @@ defmodule EMQXBridgeCockroachdb.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_resource, in_umbrella: true}
-    ]
+    ])
   end
 
   defp extra_dirs() do

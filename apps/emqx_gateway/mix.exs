@@ -38,13 +38,13 @@ defmodule EMQXGateway.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_ctl, in_umbrella: true},
       {:emqx_auth, in_umbrella: true}
-    ]
+    ])
   end
 
   defp extra_dirs() do

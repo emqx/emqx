@@ -25,9 +25,9 @@ defmodule EMQXDsBuiltinLocal.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_utils, in_umbrella: true},
       {:emqx_durable_storage, in_umbrella: true}
-    ]
+    ])
   end
 end

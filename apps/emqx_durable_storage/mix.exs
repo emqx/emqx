@@ -37,14 +37,14 @@ defmodule EMQXDurableStorage.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx_utils, in_umbrella: true},
       {:emqx_bpapi, in_umbrella: true},
-      UMP.common_dep(:rocksdb),
-      UMP.common_dep(:gproc),
-      UMP.common_dep(:gen_rpc),
-      UMP.common_dep(:ra)
-    ]
+      :rocksdb,
+      :gproc,
+      :gen_rpc,
+      :ra
+    ])
   end
 end

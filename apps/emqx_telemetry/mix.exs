@@ -25,12 +25,12 @@ defmodule EMQXTelemetry.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_conf, in_umbrella: true}
-    ]
+    ])
   end
 
   defp extra_dirs() do

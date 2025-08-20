@@ -22,11 +22,13 @@ defmodule EMQXConnectorAggregator.MixProject do
   end
 
   def deps() do
-    test_deps() ++
-      [
-        {:emqx, in_umbrella: true},
-        UMP.common_dep(:gproc)
-      ]
+    UMP.deps(
+      test_deps() ++
+        [
+          {:emqx, in_umbrella: true},
+          :gproc
+        ]
+    )
   end
 
   defp test_deps() do
