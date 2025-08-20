@@ -63,8 +63,35 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(Apps),
     ok.
 
-init_per_testcase(_Case, Config) ->
-    emqx_bridge_http_test_lib:init_http_success_server(Config).
+init_per_testcase(TestCase, TCConfig) ->
+    Path = group_path(TCConfig, no_groups),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    HTTPPath = get_tc_prop(TestCase, http_path, <<"/path">>),
+    ServerSSLOpts = false,
+    {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
+        _Port = random, HTTPPath, ServerSSLOpts
+    ),
+    ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler(#{})),
+    ConnectorName = atom_to_binary(TestCase),
+    ConnectorConfig = emqx_bridge_schema_testlib:http_connector_config(#{
+        <<"url">> => emqx_bridge_v2_testlib:fmt(<<"http://localhost:${p}">>, #{p => HTTPPort})
+    }),
+    ActionName = ConnectorName,
+    ActionConfig = emqx_bridge_schema_testlib:http_action_config(#{
+        <<"connector">> => ConnectorName
+    }),
+    snabbkaffe:start_trace(),
+    [
+        {bridge_kind, action},
+        {connector_type, http},
+        {connector_name, ConnectorName},
+        {connector_config, ConnectorConfig},
+        {action_type, http},
+        {action_name, ActionName},
+        {action_config, ActionConfig},
+        {http_server, #{port => HTTPPort, path => Path}}
+        | TCConfig
+    ].
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_bridge_http_connector_test_server:stop(),
@@ -75,16 +102,16 @@ end_per_testcase(_TestCase, _Config) ->
     ok.
 
 t_basic_apply_rule_trace_ruleid(Config) ->
-    basic_apply_rule_test_helper(get_action(Config), ruleid, false, text).
+    basic_apply_rule_test_helper(?FUNCTION_NAME, get_action(Config), ruleid, false, text).
 
 t_basic_apply_rule_trace_ruleid_hidden_payload(Config) ->
-    basic_apply_rule_test_helper(get_action(Config), ruleid, false, hidden).
+    basic_apply_rule_test_helper(?FUNCTION_NAME, get_action(Config), ruleid, false, hidden).
 
 t_basic_apply_rule_trace_clientid(Config) ->
-    basic_apply_rule_test_helper(get_action(Config), clientid, false, text).
+    basic_apply_rule_test_helper(?FUNCTION_NAME, get_action(Config), clientid, false, text).
 
 t_basic_apply_rule_trace_ruleid_stop_after_render(Config) ->
-    basic_apply_rule_test_helper(get_action(Config), ruleid, true, text).
+    basic_apply_rule_test_helper(?FUNCTION_NAME, get_action(Config), ruleid, true, text).
 
 get_action(Config) ->
     case ?config(group_name, Config) of
@@ -96,15 +123,29 @@ get_action(Config) ->
             make_http_bridge(Config)
     end.
 
-make_http_bridge(Config) ->
-    HTTPServerConfig = ?config(http_server, Config),
-    emqx_bridge_http_test_lib:make_bridge(HTTPServerConfig),
-    #{status := connected} = emqx_bridge_v2_testlib:force_health_check(#{
-        type => http,
-        name => emqx_bridge_http_test_lib:bridge_name()
+group_path(Config, Default) ->
+    case emqx_common_test_helpers:group_path(Config) of
+        [] -> Default;
+        Path -> Path
+    end.
+
+get_tc_prop(TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(?MODULE, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
+        Val
+    else
+        _ -> Default
+    end.
+
+make_http_bridge(TCConfig) ->
+    #{type := Type, name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    {201, _} = emqx_bridge_v2_testlib:create_connector_api2(TCConfig, #{}),
+    {201, _} = emqx_bridge_v2_testlib:create_action_api2(TCConfig, #{
+        <<"parameters">> => #{<<"body">> => <<"${.id}">>}
     }),
-    BridgeName = ?config(bridge_name, Config),
-    emqx_bridge_resource:bridge_id(http, BridgeName).
+    emqx_bridge_resource:bridge_id(Type, Name).
 
 republish_action() ->
     #{
@@ -123,7 +164,7 @@ republish_action() ->
 console_print_action() ->
     #{<<"function">> => <<"console">>}.
 
-basic_apply_rule_test_helper(Action, TraceType, StopAfterRender, PayloadEncode) ->
+basic_apply_rule_test_helper(TestCase, Action, TraceType, StopAfterRender, PayloadEncode) ->
     %% Create Rule
     RuleTopic = iolist_to_binary([<<"my_rule_topic/">>, atom_to_binary(?FUNCTION_NAME)]),
     SQL = <<"SELECT payload.id as id, payload as payload FROM \"", RuleTopic/binary, "\"">>,
@@ -206,7 +247,7 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender, PayloadEncode) 
                     Bin = read_rule_trace_file(TraceName, TraceType, Now),
                     ct:pal("THELOG3:~n~s", [Bin]),
                     ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_success">>])),
-                    do_final_log_check(Action, Bin)
+                    do_final_log_check(TestCase, Action, Bin)
                 end
             )
     end,
@@ -223,7 +264,8 @@ basic_apply_rule_test_helper(Action, TraceType, StopAfterRender, PayloadEncode) 
     ],
     ok.
 
-do_final_log_check(Action, Bin0) when is_binary(Action) ->
+do_final_log_check(TestCase, Action, Bin0) when is_binary(Action) ->
+    TestCaseBin = atom_to_binary(TestCase),
     %% The last line in the Bin should be the action_success entry
     Bin1 = string:trim(Bin0),
     LastEntry = unicode:characters_to_binary(lists:last(string:split(Bin1, <<"\n">>, all))),
@@ -236,7 +278,7 @@ do_final_log_check(Action, Bin0) when is_binary(Action) ->
                 #{
                     <<"action_info">> :=
                         #{
-                            <<"name">> := <<"emqx_bridge_http_test_lib">>,
+                            <<"name">> := TestCaseBin,
                             <<"type">> := <<"http">>
                         },
                     <<"clientid">> := <<"c_emqx">>,
@@ -264,7 +306,7 @@ do_final_log_check(Action, Bin0) when is_binary(Action) ->
         },
         LastEntryJSON
     );
-do_final_log_check(_, _) ->
+do_final_log_check(_, _, _) ->
     ok.
 
 create_trace(TraceName, TraceType, TraceValue, PayloadEncode) ->
@@ -605,7 +647,7 @@ do_apply_rule_test_format_action_failed_test(BatchSize, CheckLastTraceEntryFun) 
     ok.
 
 meck_in_test_connector() ->
-    MeckOpts = [passthrough, no_link, no_history, non_strict],
+    MeckOpts = [passthrough, no_history],
     catch meck:new(emqx_connector_info, MeckOpts),
     meck:expect(
         emqx_connector_info,
@@ -699,3 +741,23 @@ read_rule_trace_file(TraceName, _TraceType, From) ->
     timer:sleep(2 * 100),
     {ok, Bin} = file:read_file(emqx_trace:log_file(TraceName, From)),
     Bin.
+
+success_http_handler(Opts) ->
+    ResponseDelay = maps:get(response_delay, Opts, 0),
+    TestPid = self(),
+    fun(Req0, State) ->
+        {ok, Body, Req} = cowboy_req:read_body(Req0),
+        Headers = cowboy_req:headers(Req),
+        ct:pal("http request received: ~p", [
+            #{body => Body, headers => Headers, response_delay => ResponseDelay}
+        ]),
+        ResponseDelay > 0 andalso timer:sleep(ResponseDelay),
+        TestPid ! {http, Headers, Body},
+        Rep = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"text/plain">>},
+            <<"hello">>,
+            Req
+        ),
+        {ok, Rep, State}
+    end.
