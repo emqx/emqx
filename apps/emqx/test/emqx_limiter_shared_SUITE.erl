@@ -209,6 +209,45 @@ test_concurrent(Capacity, Interval) ->
     ]),
     ?assert(RelativeError < 0.01).
 
+t_try_consume_burst_wide_interval(_) ->
+    ok = emqx_limiter:create_group(shared, group1, [
+        {limiter1, #{
+            capacity => 10,
+            interval => 200,
+            %% The burst rate much higher than the regular rate, which is abnormal.
+            %% However, we check that the burst rate is not applied
+            %% once the burst tokens are consumed.
+            burst_capacity => 1000,
+            burst_interval => 3000
+        }}
+    ]),
+    Client0 = emqx_limiter:connect({group1, limiter1}),
+
+    %% Consume regular + burst capacity
+    Client1 = lists:foldl(
+        fun(_, ClientAcc0) ->
+            {true, ClientAcc1} = emqx_limiter_client:try_consume(ClientAcc0, 1),
+            ClientAcc1
+        end,
+        Client0,
+        lists:seq(1, 10 + 1000)
+    ),
+    {false, Client2, _} = emqx_limiter_client:try_consume(Client1, 1),
+
+    %% Wait for considerably more than one regular refill interval
+    ct:sleep(1000),
+
+    %% Only regularly refilled tokens are available
+    Client3 = lists:foldl(
+        fun(_, ClientAcc0) ->
+            {true, ClientAcc1} = emqx_limiter_client:try_consume(ClientAcc0, 1),
+            ClientAcc1
+        end,
+        Client2,
+        lists:seq(1, 10)
+    ),
+    {false, _Client, _} = emqx_limiter_client:try_consume(Client3, 1).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
