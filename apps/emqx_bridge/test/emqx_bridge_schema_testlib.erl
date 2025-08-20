@@ -43,3 +43,52 @@ http_action_config(Overrides) ->
     },
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
     emqx_bridge_v2_testlib:parse_and_check(action, <<"http">>, <<"x">>, InnerConfigMap).
+
+mqtt_connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"pool_size">> => 3,
+        <<"proto_ver">> => <<"v5">>,
+        <<"clean_start">> => true,
+        <<"connect_timeout">> => <<"5s">>,
+        <<"server">> => <<"127.0.0.1:1883">>,
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(<<"mqtt">>, <<"x">>, InnerConfigMap).
+
+mqtt_action_config(Overrides) ->
+    Defaults =
+        #{
+            <<"enable">> => true,
+            <<"connector">> => <<"please override">>,
+            <<"parameters">> =>
+                #{
+                    <<"topic">> => <<"remote/topic">>,
+                    <<"qos">> => 2
+                },
+            <<"resource_opts">> =>
+                maps:without(
+                    [<<"batch_time">>, <<"batch_size">>],
+                    emqx_bridge_v2_testlib:common_action_resource_opts()
+                )
+        },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, <<"mqtt">>, <<"x">>, InnerConfigMap).
+
+mqtt_source_config(Overrides) ->
+    Defaults =
+        #{
+            <<"enable">> => true,
+            <<"connector">> => <<"please override">>,
+            <<"parameters">> =>
+                #{
+                    <<"topic">> => <<"remote/topic">>,
+                    <<"qos">> => 2
+                },
+            <<"resource_opts">> => emqx_bridge_v2_testlib:common_source_resource_opts()
+        },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(source, <<"mqtt">>, <<"x">>, InnerConfigMap).

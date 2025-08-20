@@ -1484,12 +1484,20 @@ t_modification_dates_when_replicating(Config) ->
     snabbkaffe:start_trace(),
     try
         ConnectorName = mod_dates,
-        {201, _} = emqx_bridge_mqtt_v2_publisher_SUITE:create_connector_api(
-            [
-                {connector_type, mqtt},
-                {connector_name, ConnectorName},
-                {connector_config, emqx_bridge_mqtt_v2_publisher_SUITE:connector_config()}
-            ],
+        BridgeConfigs = [
+            {connector_type, mqtt},
+            {connector_name, ConnectorName},
+            {connector_config, emqx_bridge_schema_testlib:mqtt_connector_config(#{})},
+            {bridge_kind, action},
+            {action_type, mqtt},
+            {action_name, ConnectorName},
+            {action_config,
+                emqx_bridge_schema_testlib:mqtt_action_config(#{
+                    <<"connector">> => bin(ConnectorName)
+                })}
+        ],
+        {201, _} = emqx_bridge_v2_testlib:create_connector_api2(
+            BridgeConfigs,
             #{}
         ),
         snabbkaffe_nemesis:inject_crash(
@@ -1501,16 +1509,8 @@ t_modification_dates_when_replicating(Config) ->
                 false
             end
         ),
-        {201, _} = emqx_bridge_mqtt_v2_publisher_SUITE:create_action_api(
-            [
-                {bridge_kind, action},
-                {action_type, mqtt},
-                {action_name, ConnectorName},
-                {action_config,
-                    emqx_bridge_mqtt_v2_publisher_SUITE:action_config(#{
-                        <<"connector">> => ConnectorName
-                    })}
-            ],
+        {201, _} = emqx_bridge_v2_testlib:create_action_api2(
+            BridgeConfigs,
             #{}
         ),
         #{
