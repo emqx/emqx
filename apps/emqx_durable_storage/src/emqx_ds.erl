@@ -158,10 +158,13 @@ It takes care of forwarding calls to the underlying DBMS.
     multi_iter_opts/0
 ]).
 
-%% -deprecated([
-%%     {store_batch, 2, "use `dirty_append` instead"},
-%%     {store_batch, 3, "use `dirty_append` instead"}
-%% ]).
+-deprecated([
+    {get_delete_streams, 3, "use `tx_del_topic` instead"},
+    {make_delete_iterator, 4, "use `tx_del_topic` instead"},
+    {delete_next, 4, "use `tx_del_topic` instead"}
+    %%     {store_batch, 2, "use `dirty_append` instead"},
+    %%     {store_batch, 3, "use `dirty_append` instead"}
+]).
 
 %%================================================================================
 %% type declarations
