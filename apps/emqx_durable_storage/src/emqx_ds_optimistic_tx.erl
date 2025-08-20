@@ -456,10 +456,18 @@ send_dirty_append_replies(Result, Serial, PendingReplies) ->
                 end,
                 PendingReplies
             );
-        _ ->
+        Other ->
+            case Other of
+                false ->
+                    %% Failed to cook:
+                    ErrClass = recoverable,
+                    Error = aborted;
+                {error, ErrClass, Error} ->
+                    ok
+            end,
             lists:foreach(
                 fun(#cast_dirty_append{reply_to = From, ref = Ref, reserved = Reserved}) ->
-                    reply_error(From, Ref, Reserved, recoverable, Result)
+                    reply_error(From, Ref, Reserved, ErrClass, Error)
                 end,
                 PendingReplies
             )
