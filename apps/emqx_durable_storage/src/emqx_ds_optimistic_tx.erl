@@ -192,7 +192,8 @@
 -record(cast_dirty_append, {
     reply_to :: pid() | undefined,
     ref :: reference() | undefined,
-    data :: emqx_ds:dirty_append_data()
+    data :: emqx_ds:dirty_append_data(),
+    meta
 }).
 -type dirty_append() :: #cast_dirty_append{}.
 
@@ -450,15 +451,15 @@ send_dirty_append_replies(Result, Serial, PendingReplies) ->
     case Result of
         ok ->
             lists:foreach(
-                fun(#cast_dirty_append{reply_to = From, ref = Ref}) ->
-                    reply_success(From, Ref, dirty, Serial)
+                fun(#cast_dirty_append{reply_to = From, ref = Ref, meta = Meta}) ->
+                    reply_success(From, Ref, Meta, Serial)
                 end,
                 PendingReplies
             );
         _ ->
             lists:foreach(
-                fun(#cast_dirty_append{reply_to = From, ref = Ref}) ->
-                    reply_error(From, Ref, dirty, recoverable, Result)
+                fun(#cast_dirty_append{reply_to = From, ref = Ref, meta = Meta}) ->
+                    reply_error(From, Ref, Meta, recoverable, Result)
                 end,
                 PendingReplies
             )
