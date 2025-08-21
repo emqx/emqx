@@ -54,8 +54,8 @@ defmodule AppsVersionCheck do
 
   def mix_exs_at(filepath, git_ref) do
     System.cmd(
-      "git",
-      ["show", "#{git_ref}:#{filepath}"]
+      "bash",
+      ["-c", "git show '#{git_ref}:#{filepath}' 2>/dev/null"]
     )
     |> case do
       {out, 0} ->
