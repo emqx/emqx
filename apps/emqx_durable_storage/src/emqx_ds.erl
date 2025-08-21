@@ -859,7 +859,7 @@ This function is used to stream data into a DB with as little overhead as possib
 It adds data to the latest generation of the shard.
 This function is asynchronous.
 
-WARNING: this function breaks atomiticy of `trans/2`.
+WARNING: this function breaks isolation of transactions.
 Data written using `dirty_append` doesn't appear in the conflict tracking structures used by optimistic transactions.
 Generally, transactions and dirty_appends should not be mixed in one DB.
 
