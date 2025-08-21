@@ -4,12 +4,7 @@
 
 -module(emqx_ai_completion_provider).
 
--export([
-    create/1,
-    delete/1,
-    update/2,
-    hackney_pool/1
-]).
+-export([create/1, delete/1, update/2, hackney_pool/1]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -17,19 +12,17 @@
 
 -spec create(emqx_ai_completion_config:provider()) -> ok | {error, term()}.
 create(#{transport_options := #{max_connections := MaxConnections}} = Provider) ->
-    hackney_pool:start_pool(
-        hackney_pool(Provider),
-        [
-            {max_connections, MaxConnections}
-        ]
-    ).
+    hackney_pool:start_pool(hackney_pool(Provider), [{max_connections, MaxConnections}]).
 
 -spec delete(emqx_ai_completion_config:provider()) -> ok.
 delete(Provider) ->
     _ = hackney_pool:stop_pool(hackney_pool(Provider)),
     ok.
 
--spec update(emqx_ai_completion_config:provider(), emqx_ai_completion_config:provider()) ->
+-spec update(
+    emqx_ai_completion_config:provider(),
+    emqx_ai_completion_config:provider()
+) ->
     ok | {error, term()}.
 update(
     #{transport_options := #{max_connections := MaxConnectionsOld}} = OldProvider,
@@ -42,6 +35,11 @@ update(
             hackney_pool:set_max_connections(hackney_pool(OldProvider), MaxConnectionsNew)
     end.
 
--spec hackney_pool(emqx_ai_completion_config:provider()) -> term().
+-spec hackney_pool(emqx_ai_completion_config:provider()) -> undefined | term().
 hackney_pool(#{name := Name} = _Provider) ->
-    {?MODULE, Name}.
+    case hackney_pool:find_pool(Name) of
+        undefined ->
+            undefined;
+        _Pid ->
+            {?MODULE, Name}
+    end.

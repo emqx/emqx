@@ -13,6 +13,11 @@
     list_models/1
 ]).
 
+%% Internal exports
+-export([
+    create_client/1
+]).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -31,30 +36,22 @@ call_completion(
     Client = create_client(Provider),
     Request = #{
         <<"model">> => Model,
-        <<"input">> => Data,
-        <<"instructions">> => Prompt
+        <<"messages">> => [
+            #{<<"role">> => <<"system">>, <<"content">> => Prompt},
+            #{<<"role">> => <<"user">>, <<"content">> => Data}
+        ]
     },
     ?tp(debug, emqx_ai_completion_request, #{
         request => Request
     }),
-    case emqx_ai_completion_client:api_post(Client, responses, Request) of
-        {ok, #{
-            <<"status">> := <<"completed">>,
-            <<"output">> := [
-                #{
-                    <<"type">> := <<"message">>,
-                    <<"status">> := <<"completed">>,
-                    <<"content">> := [#{<<"type">> := <<"output_text">>, <<"text">> := Output} | _]
-                }
-                | _
-            ]
-        }} ->
+    case emqx_ai_completion_client:api_post(Client, <<"chat/completions">>, Request) of
+        {ok, #{<<"choices">> := [#{<<"message">> := #{<<"content">> := Content}}]}} ->
             ?tp(debug, emqx_ai_completion_result, #{
-                result => Output,
+                result => Content,
                 provider => ProviderName,
                 completion_profile => Name
             }),
-            Output;
+            Content;
         {error, Reason} ->
             ?tp(error, emqx_ai_completion_error, #{
                 reason => Reason,
@@ -66,7 +63,7 @@ call_completion(
 
 list_models(Provider) ->
     Client = create_client(Provider),
-    case emqx_ai_completion_client:api_get(Client, models) of
+    case emqx_ai_completion_client:api_get(Client, <<"models">>) of
         {ok, #{<<"data">> := Models}} when is_list(Models) ->
             ModelIds = [Model || #{<<"id">> := Model} <- Models],
             {ok, ModelIds};
@@ -77,7 +74,7 @@ list_models(Provider) ->
     end.
 
 %%------------------------------------------------------------------------------
-%% Internal functions
+%% Internal API
 %%------------------------------------------------------------------------------
 
 create_client(

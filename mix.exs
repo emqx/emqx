@@ -119,7 +119,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ssl_verify_fun, "1.1.7", override: true},
       common_dep(:bcrypt),
       common_dep(:uuid),
-      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
+      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.7", override: true},
       common_dep(:ra),
       {:mimerl, "1.2.0", override: true},
       common_dep(:sasl_auth),
@@ -163,7 +163,7 @@ defmodule EMQXUmbrella.MixProject do
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, "2.1.0", override: true}
   # in conflict by cowboy_swagger and cowboy
-  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-1", override: true}
+  def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-3", override: true}
 
   def common_dep(:ehttpc),
     do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.1", override: true}
@@ -200,7 +200,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:system_monitor),
     do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.6"}
 
-  def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true}
+  def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.7.1", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
   def common_dep(:observer_cli), do: {:observer_cli, "1.8.2"}
 

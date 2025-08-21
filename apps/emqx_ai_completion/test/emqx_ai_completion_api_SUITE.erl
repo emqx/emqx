@@ -361,6 +361,37 @@ t_models(_Config) ->
         api_get([ai, providers, <<"non-existent-provider">>, models])
     ).
 
+t_models_no_provider(_Config) ->
+    %% Setup mock
+    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_models),
+
+    %% Succeed to fetch models of the test provider
+    ?assertMatch(
+        {ok, 200, [<<"gpt-4-0613">>, <<"gpt-4">>, <<"gpt-3.5-turbo">>]},
+        api_post([ai, models], #{
+            type => <<"openai">>,
+            api_key => <<"test-api-key">>,
+            base_url => <<"http://localhost:33330/v1">>
+        })
+    ),
+
+    %% Fail to fetch models of invalid provider
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([ai, models], #{
+            xxx => <<"test-provider">>
+        })
+    ),
+    ?assertMatch(
+        {ok, 503, _},
+        api_post([ai, models], #{
+            type => <<"openai">>,
+            api_key => <<"test-api-key">>,
+            %% invalid port
+            base_url => <<"http://localhost:33333/v1">>
+        })
+    ).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

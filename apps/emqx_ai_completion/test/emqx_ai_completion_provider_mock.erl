@@ -24,8 +24,10 @@ stop() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-set_handler(openai_chat_completion) ->
-    set_handler(fun openai_chat_completion/2);
+set_handler(openai_chat_completions) ->
+    set_handler(fun openai_chat_completions/2);
+set_handler(openai_responses) ->
+    set_handler(fun openai_responses/2);
 set_handler(anthropic_messages) ->
     set_handler(fun anthropic_messages/2);
 set_handler(openai_models) ->
@@ -37,7 +39,58 @@ set_handler(anthropic_models_paginated) ->
 set_handler(Fun) ->
     emqx_utils_http_test_server:set_handler(Fun).
 
-openai_chat_completion(#{path := <<"/v1/responses">>} = Req0, State) ->
+openai_chat_completions(#{path := <<"/v1/chat/completions">>} = Req0, State) ->
+    {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+    Body = emqx_utils_json:decode(RawBody),
+    #{
+        <<"messages">> :=
+            [
+                #{<<"content">> := _, <<"role">> := <<"system">>},
+                #{<<"content">> := _, <<"role">> := <<"user">>}
+            ],
+        <<"model">> := _
+    } =
+        Body,
+    %% https://platform.openai.com/docs/api-reference/chat/object
+    Data = #{
+        <<"id">> => <<"chatcmpl-B9MHDbslfkBeAs8l4bebGdFOJ6PeG">>,
+        <<"object">> => <<"chat.completion">>,
+        <<"created">> => 1741570283,
+        <<"model">> => <<"gpt-4o-2024-08-06">>,
+        <<"choices">> => [
+            #{
+                <<"index">> => 0,
+                <<"message">> => #{
+                    <<"role">> => <<"assistant">>,
+                    <<"content">> => <<"some completion">>,
+                    <<"refusal">> => null,
+                    <<"annotations">> => []
+                },
+                <<"logprobs">> => null,
+                <<"finish_reason">> => <<"stop">>
+            }
+        ],
+        <<"usage">> => #{
+            <<"prompt_tokens">> => 1117,
+            <<"completion_tokens">> => 46,
+            <<"total_tokens">> => 1163,
+            <<"prompt_tokens_details">> => #{
+                <<"cached_tokens">> => 0,
+                <<"audio_tokens">> => 0
+            },
+            <<"completion_tokens_details">> => #{
+                <<"reasoning_tokens">> => 0,
+                <<"audio_tokens">> => 0,
+                <<"accepted_prediction_tokens">> => 0,
+                <<"rejected_prediction_tokens">> => 0
+            }
+        },
+        <<"service_tier">> => <<"default">>,
+        <<"system_fingerprint">> => <<"fp_fc9f1d7035">>
+    },
+    reply_ok(Data, Req1, State).
+
+openai_responses(#{path := <<"/v1/responses">>} = Req0, State) ->
     {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
     Body = emqx_utils_json:decode(RawBody),
     #{
@@ -58,21 +111,29 @@ openai_chat_completion(#{path := <<"/v1/responses">>} = Req0, State) ->
             <<"instructions">> => null,
             <<"max_output_tokens">> => null,
             <<"model">> => <<"gpt-4.1-2025-04-14">>,
-            <<"output">> => [
-                #{
-                    <<"type">> => <<"message">>,
-                    <<"id">> => <<"msg_67ccd2bf17f0819081ff3bb2cf6508e60bb6a6b452d3795b">>,
-                    <<"status">> => <<"completed">>,
-                    <<"role">> => <<"assistant">>,
-                    <<"content">> => [
-                        #{
-                            <<"type">> => <<"output_text">>,
-                            <<"text">> => <<"some completion">>,
-                            <<"annotations">> => []
-                        }
-                    ]
-                }
-            ],
+            <<"output">> =>
+                [
+                    #{
+                        <<"id">> => <<"rs_689c31cac8348195b1cff9d8f1d3a7b50d623e416147c0e2">>,
+                        <<"summary">> => [],
+                        <<"type">> => <<"reasoning">>
+                    },
+                    #{
+                        <<"content">> =>
+                            [
+                                #{
+                                    <<"annotations">> => [],
+                                    <<"logprobs">> => [],
+                                    <<"text">> => <<"some completion">>,
+                                    <<"type">> => <<"output_text">>
+                                }
+                            ],
+                        <<"id">> => <<"msg_689c31cca6648195a2bef2be2bfbbe5e0d623e416147c0e2">>,
+                        <<"role">> => <<"assistant">>,
+                        <<"status">> => <<"completed">>,
+                        <<"type">> => <<"message">>
+                    }
+                ],
             <<"parallel_tool_calls">> => true,
             <<"previous_response_id">> => null,
             <<"reasoning">> => #{

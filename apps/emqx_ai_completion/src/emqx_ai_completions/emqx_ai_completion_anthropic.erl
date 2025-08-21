@@ -71,7 +71,7 @@ list_models(Provider) ->
 
 list_models(Client, ModelsAcc, AfterId) ->
     QS = list_models_qs(AfterId),
-    case emqx_ai_completion_client:api_get(Client, models, QS) of
+    case emqx_ai_completion_client:api_get(Client, <<"models">>, QS) of
         {ok, #{<<"data">> := Models, <<"has_more">> := HasMore, <<"last_id">> := LastId}} when
             is_list(Models) andalso is_boolean(HasMore) andalso is_binary(LastId)
         ->
