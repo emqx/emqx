@@ -1792,9 +1792,7 @@ t_on_get_status(Config) ->
     t_on_get_status(Config, _Opts = #{}).
 
 t_on_get_status(Config, Opts) ->
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyName = ?config(proxy_name, Config),
+    ProxyHost = get_value(proxy_host, Config, undefined),
     FailureStatus = maps:get(failure_status, Opts, ?status_disconnected),
     NormalStatus = maps:get(normal_status, Opts, ?status_connected),
     ?assertMatch({ok, _}, create_bridge_api(Config)),
@@ -1814,6 +1812,8 @@ t_on_get_status(Config, Opts) ->
         undefined ->
             ok;
         _ ->
+            ProxyPort = get_value(proxy_port, Config),
+            ProxyName = get_value(proxy_name, Config),
             emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
                 case is_list(FailureStatus) of
                     true ->
