@@ -1,4 +1,1 @@
 #!/usr/bin/env bash
-
-git tag -d v5.1.99 >/dev/null
-git tag -d e5.1.99 >/dev/null
