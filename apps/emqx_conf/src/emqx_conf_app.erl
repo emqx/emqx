@@ -21,6 +21,7 @@
 start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_cluster_rpc:create_tables()),
     _ = emqx_config:create_tables(),
+    ensure_allowed_namespaced_root_keys(),
     try
         ok = init_conf()
     catch
@@ -92,6 +93,14 @@ sync_data_from_node() ->
 %% Internal functions
 %% ------------------------------------------------------------------------------
 
+ensure_allowed_namespaced_root_keys() ->
+    emqx_config:add_allowed_namespaced_config_root([
+        <<"actions">>,
+        <<"connectors">>,
+        <<"rule_engine">>,
+        <<"sources">>
+    ]).
+
 init_load(TnxId) ->
     case emqx_app:get_config_loader() of
         Module when Module == emqx; Module == emqx_conf ->
@@ -133,7 +142,7 @@ sync_cluster_conf() ->
 
 %% @private Some core nodes are running, try to sync the cluster config from them.
 sync_cluster_conf2(Nodes) ->
-    {Results, Failed} = emqx_conf_proto_v4:get_override_config_file(Nodes),
+    {Results, Failed} = emqx_conf_proto_v5:get_override_config_file(Nodes),
     {Ready, NotReady} = lists:partition(fun(Res) -> element(1, Res) =:= ok end, Results),
     LogData = #{peer_nodes => Nodes, self_node => node()},
     case Failed ++ NotReady of

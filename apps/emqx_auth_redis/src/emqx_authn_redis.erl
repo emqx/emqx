@@ -84,7 +84,7 @@ authenticate(
                         )
                     of
                         ok ->
-                            {ok, emqx_authn_utils:is_superuser(Selected)};
+                            {ok, authn_result(Selected)};
                         {error, _Reason} = Error ->
                             Error
                     end;
@@ -111,6 +111,11 @@ authenticate(
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+authn_result(Selected) ->
+    Res0 = emqx_authn_utils:is_superuser(Selected),
+    Res1 = emqx_authn_utils:clientid_override(Selected),
+    maps:merge(Res0, Res1).
 
 create_state(
     ResourceId,
@@ -156,7 +161,13 @@ validate_cmd(Cmd) ->
         [
             not_empty,
             {command_name, [<<"hget">>, <<"hmget">>]},
-            {allowed_fields, [<<"password_hash">>, <<"password">>, <<"salt">>, <<"is_superuser">>]},
+            {allowed_fields, [
+                <<"password_hash">>,
+                <<"password">>,
+                <<"salt">>,
+                <<"is_superuser">>,
+                <<"clientid_override">>
+            ]},
             {required_field_one_of, [<<"password_hash">>, <<"password">>]}
         ],
         Cmd

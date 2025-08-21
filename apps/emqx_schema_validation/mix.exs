@@ -22,11 +22,11 @@ defmodule EMQXSchemaValidation.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_rule_engine, in_umbrella: true},
       {:emqx_schema_registry, in_umbrella: true}
-    ]
+    ])
   end
 end

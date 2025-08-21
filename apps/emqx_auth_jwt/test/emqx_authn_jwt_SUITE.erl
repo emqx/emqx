@@ -858,6 +858,38 @@ t_schema(_Config) ->
         check_schema(<<"val">>)
     ).
 
+-doc """
+Checks that, if an authentication backend returns the `clientid_override` attribute, it's
+used to override.
+""".
+t_clientid_override(TCConfig) when is_list(TCConfig) ->
+    OverriddenClientId = <<"overridden_clientid">>,
+    Username = <<"overriden_clientid">>,
+    Secret = <<"secret">>,
+    Payload = #{
+        <<"username">> => Username,
+        <<"clientid_override">> => OverriddenClientId
+    },
+    Password = generate_jws('hmac-based', Payload, <<"secret">>),
+    MkConfigFn = fun() ->
+        #{
+            <<"mechanism">> => <<"jwt">>,
+            <<"use_jwks">> => false,
+            <<"algorithm">> => <<"hmac-based">>,
+            <<"secret">> => Secret
+        }
+    end,
+    Opts = #{
+        client_opts => #{
+            username => Username,
+            password => Password
+        },
+        mk_config_fn => MkConfigFn,
+        overridden_clientid => OverriddenClientId
+    },
+    emqx_authn_test_lib:t_clientid_override(TCConfig, Opts),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

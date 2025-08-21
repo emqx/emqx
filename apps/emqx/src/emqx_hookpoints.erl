@@ -64,7 +64,8 @@
     'alarm.deactivated',
     'tls_handshake.psk_lookup',
     'config.zones_updated',
-    'api_actor.pre_create'
+    'api_actor.pre_create',
+    'namespace.delete'
 ]).
 
 -define(HOOKPOINTS, (?MQTT_CLIENT_LIFECYCLE_HOOKPOINTS ++ ?MANAGEMENT_HOOKPOINTS)).
@@ -260,6 +261,11 @@ when
     emqx_config:maybe_namespace(), emqx_dashboard_admin:actor_props()
 ) ->
     fold_callback_result(ok | {error, term()}).
+
+%% NOTE
+%% Executed out of channel process context
+%% Implementations must be idempotent.
+-callback 'namespace.delete'(emqx_config:namespace()) -> callback_result().
 
 %%-----------------------------------------------------------------------------
 %% API

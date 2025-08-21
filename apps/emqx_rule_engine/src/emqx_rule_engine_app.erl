@@ -17,8 +17,8 @@ start(_Type, _Args) ->
     ok = emqx_rule_engine:load_rules(),
     ok = emqx_rule_events:reload(),
     RulePath = [RuleEngine | _] = ?KEY_PATH,
-    ok = emqx_conf:add_handler(RulePath ++ ['?'], emqx_rule_engine),
-    ok = emqx_conf:add_handler([RuleEngine], emqx_rule_engine),
+    ok = emqx_conf:add_handler(RulePath ++ ['?'], emqx_rule_engine_config),
+    ok = emqx_conf:add_handler([RuleEngine], emqx_rule_engine_config),
     ok = emqx_conf:add_handler([rule_engine, jq_implementation_module], emqx_rule_engine_schema),
     emqx_rule_engine_cli:load(),
     SupRet.

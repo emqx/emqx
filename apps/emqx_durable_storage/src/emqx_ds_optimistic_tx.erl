@@ -28,6 +28,7 @@
     start_link/3,
 
     where/2,
+    global/2,
 
     new_kv_tx_ctx/5,
     commit_kv_tx/3,
@@ -115,6 +116,9 @@
 -callback otx_become_leader(emqx_ds:db(), emqx_ds:shard()) ->
     {ok, serial(), emqx_ds:time()} | {error, _}.
 
+%% Executed by the leader
+-callback otx_get_latest_generation(emqx_ds:db(), emqx_ds:shard()) -> emqx_ds:generation().
+
 %% Executed by the readers
 -callback otx_get_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 
@@ -135,7 +139,8 @@
 -define(timeout_flush, timout_flush).
 
 -record(gen_data, {
-    dirty :: emqx_ds_tx_conflict_trie:t(),
+    dirty_w :: emqx_ds_tx_conflict_trie:t(),
+    dirty_d :: emqx_ds_tx_conflict_trie:t(),
     buffer = [],
     pending_replies = []
 }).
@@ -160,6 +165,16 @@
 
 -define(ds_tx_monotonic_ts, ds_tx_monotonic_ts).
 
+%% Entry that is stored in the process dictionary of a process that
+%% initiated commit of the transaction:
+-record(client_pending_commit, {
+    timeout_tref :: reference(),
+    alias :: reference()
+}).
+-define(pending_commit, emqx_ds_optimistic_tx_pending_commit).
+
+-define(global(DB, SHARD), {?MODULE, DB, SHARD}).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -168,14 +183,29 @@
 where(DB, Shard) ->
     gproc:where(?name(DB, Shard)).
 
+-spec global(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
+global(DB, Shard) ->
+    global:whereis_name(?global(DB, Shard)).
+
 -spec start_link(emqx_ds:db(), emqx_ds:shard(), module()) -> {ok, pid()}.
 start_link(DB, Shard, CBM) ->
     gen_statem:start_link(?via(DB, Shard), ?MODULE, [DB, Shard, CBM], []).
 
 -spec new_kv_tx_ctx(
-    module(), emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), emqx_ds:transaction_opts()
+    module(),
+    emqx_ds:db(),
+    emqx_ds:shard(),
+    emqx_ds:generation() | latest,
+    emqx_ds:transaction_opts()
 ) -> {ok, ctx()} | emqx_ds:error(_).
-new_kv_tx_ctx(CBM, DB, Shard, Generation, Opts) ->
+new_kv_tx_ctx(CBM, DB, Shard, Generation0, Opts) ->
+    case Generation0 of
+        latest ->
+            Generation = CBM:otx_get_latest_generation(DB, Shard),
+            IsLatest = true;
+        Generation when is_integer(Generation) ->
+            IsLatest = false
+    end,
     maybe
         Leader = CBM:otx_get_leader(DB, Shard),
         true ?= is_pid(Leader),
@@ -185,6 +215,7 @@ new_kv_tx_ctx(CBM, DB, Shard, Generation, Opts) ->
             leader = Leader,
             serial = Serial,
             generation = Generation,
+            latest_generation = IsLatest,
             opts = Opts
         },
         {ok, Ctx}
@@ -193,35 +224,39 @@ new_kv_tx_ctx(CBM, DB, Shard, Generation, Opts) ->
             ?err_rec(leader_down)
     end.
 
-commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
+commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}, shard = Shard}, Ops) ->
     ?tp(emqx_ds_optimistic_tx_commit_begin, #{db => DB, ctx => Ctx, ops => Ops}),
-    #kv_tx_ctx{leader = Leader} = Ctx,
-    Ref = monitor(process, Leader),
-    %% Note: currently timer is not canceled when commit abort is
-    %% signalled via the monitor message (i.e. when the leader process
-    %% is down). In this case the caller _will_ receive double `DOWN'.
-    %% There's no trivial way to fix it. It's up to the client to
-    %% track the pending transactions and ignore unexpected commit
-    %% notifications.
-    TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
-    gen_statem:cast(Leader, #ds_tx{
-        ctx = Ctx, ops = Ops, from = self(), ref = Ref, meta = TRef
-    }),
-    Ref.
+    case global(DB, Shard) of
+        Leader when is_pid(Leader) ->
+            #kv_tx_ctx{} = Ctx,
+            Ref = monitor(process, Leader),
+            TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Ref)),
+            Alias = erlang:alias([reply]),
+            put({?pending_commit, Ref}, #client_pending_commit{
+                timeout_tref = TRef,
+                alias = Alias
+            }),
+            gen_statem:cast(Leader, #ds_tx{
+                ctx = Ctx, ops = Ops, from = Alias, ref = Ref, meta = TRef
+            }),
+            Ref;
+        undefined ->
+            Ref = make_ref(),
+            self() ! ?ds_tx_commit_error(Ref, undefined, recoverable, leader_unavailable),
+            Ref
+    end.
 
 -spec tx_commit_outcome(term()) -> {ok, emqx_ds:tx_serial()} | emqx_ds:error(_).
 tx_commit_outcome(Reply) ->
     case Reply of
-        ?ds_tx_commit_ok(Ref, TRef, Serial) ->
-            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+        ?ds_tx_commit_ok(Ref, _Meta, Serial) ->
+            client_post_commit_cleanup(Ref),
             {ok, Serial};
-        ?ds_tx_commit_error(Ref, TRef, Class, Info) ->
-            emqx_ds_lib:cancel_timer(TRef, tx_timeout_msg(Ref)),
+        ?ds_tx_commit_error(Ref, _Meta, Class, Info) ->
+            client_post_commit_cleanup(Ref),
             {error, Class, Info};
-        {'DOWN', _Ref, Type, Object, Info} ->
-            %% This is likely a real monitor message. It doesn't contain TRef,
-            %% so the caller will receive the timeout message after the fact.
-            %% There's not much we can do about it.
+        {'DOWN', Ref, Type, Object, Info} ->
+            client_post_commit_cleanup(Ref),
             ?err_rec({Type, Object, Info})
     end.
 
@@ -271,8 +306,11 @@ terminate(Reason, State, _Data) ->
         end,
     ?tp(Level, ds_otx_terminate, #{state => State, reason => Reason}).
 
-handle_event(info, {'EXIT', _, _Reason}, _State, _Data) ->
-    {stop, shutdown};
+handle_event(info, {'EXIT', _, Reason}, _State, _Data) ->
+    case Reason of
+        normal -> keep_state_and_data;
+        _ -> {stop, shutdown}
+    end;
 handle_event(enter, _OldState, ?leader(?pending), #d{flush_interval = T}) ->
     %% Schedule unconditional flush after the given interval:
     {keep_state_and_data, {state_timeout, T, ?timeout_flush}};
@@ -321,6 +359,8 @@ handle_event(ET, Event, State, _D) ->
 async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
     maybe
         {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
+        global:unregister_name(?global(DB, Shard)),
+        yes = global:register_name(?global(DB, Shard), self()),
         %% Issue a dummy transaction to trigger metadata update:
         ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
@@ -347,7 +387,10 @@ handle_tx(
     Tx
 ) ->
     DBShard = {DB, Shard},
-    #ds_tx{ref = TxRef, ctx = #kv_tx_ctx{generation = Gen}} = Tx,
+    #ds_tx{
+        ref = TxRef,
+        ctx = #kv_tx_ctx{generation = Gen, latest_generation = IsLatest}
+    } = Tx,
     ?tp(
         emqx_ds_optimistic_tx_commit_received,
         #{
@@ -355,14 +398,18 @@ handle_tx(
             serial => Serial,
             committed_serial => SafeToReadSerial,
             ref => TxRef,
-            tx => Tx
+            tx => Tx,
+            generation => {IsLatest, Gen}
         }
     ),
     case Gens of
         #{Gen := GS0} ->
             ok;
         #{} ->
-            GS0 = #gen_data{dirty = emqx_ds_tx_conflict_trie:new(Serial, infinity)}
+            GS0 = #gen_data{
+                dirty_w = emqx_ds_tx_conflict_trie:new(Serial, infinity),
+                dirty_d = emqx_ds_tx_conflict_trie:new(Serial, infinity)
+            }
     end,
     PresumedCommitSerial = Serial + 1,
     put(?ds_tx_monotonic_ts, Timestamp),
@@ -385,26 +432,29 @@ try_commit(
     SafeToReadSerial,
     PresumedCommitSerial,
     Tx,
-    GS = #gen_data{dirty = Dirty0, buffer = Buff, pending_replies = Pending}
+    GS = #gen_data{dirty_w = DirtyW0, dirty_d = DirtyD0, buffer = Buff, pending_replies = Pending}
 ) ->
     #ds_tx{
         ctx = Ctx,
-        ops = Ops,
+        ops = Ops0,
         from = From,
         ref = Ref,
         meta = Meta
     } = Tx,
-    #kv_tx_ctx{serial = TxStartSerial} = Ctx,
+    Ops = preprocess_ops(PresumedCommitSerial, Ops0),
+    #kv_tx_ctx{serial = TxStartSerial, leader = TxLeader} = Ctx,
     maybe
-        ok ?= check_conflicts(Dirty0, TxStartSerial, SafeToReadSerial, Ops),
+        ok ?= check_tx_leader(TxLeader),
+        ok ?= check_latest_generation(CBM, DBShard, Ctx),
+        ok ?= check_conflicts(DirtyW0, DirtyD0, TxStartSerial, SafeToReadSerial, Ops),
         ok ?= verify_preconditions(DBShard, CBM, Gen, Ops),
         {ok, CookedTx} ?=
             CBM:otx_prepare_tx(
                 DBShard, Gen, serial_bin(PresumedCommitSerial), Ops, #{}
             ),
-        Dirty = update_dirty(PresumedCommitSerial, Ops, Dirty0),
         {ok, GS#gen_data{
-            dirty = Dirty,
+            dirty_w = update_dirty_w(PresumedCommitSerial, Ops, DirtyW0),
+            dirty_d = update_dirty_d(PresumedCommitSerial, Ops, DirtyD0),
             buffer = [CookedTx | Buff],
             pending_replies = [{From, Ref, Meta, PresumedCommitSerial} | Pending]
         }}
@@ -421,25 +471,52 @@ try_commit(
             aborted
     end.
 
-update_dirty(Serial, Ops, Dirty0) ->
+-doc """
+Check that the transaction was created while this process was the leader.
+""".
+check_tx_leader(TxLeader) ->
+    case self() of
+        TxLeader ->
+            ok;
+        _ ->
+            ?err_rec({leader_conflict, TxLeader, self()})
+    end.
+
+check_latest_generation(_, _, #kv_tx_ctx{latest_generation = false}) ->
+    %% This transaction was created for a constant generation that
+    %% doesn't have to be the latest. This always succeeds.
+    ok;
+check_latest_generation(CBM, {DB, Shard}, #kv_tx_ctx{latest_generation = true, generation = Gen}) ->
+    case CBM:otx_get_latest_generation(DB, Shard) of
+        Gen ->
+            ok;
+        Latest ->
+            ?err_rec({not_the_latest_generation, Gen, Latest})
+    end.
+
+update_dirty_d(Serial, Ops, Dirty) ->
     %% Mark all deleted topics as dirty:
-    Dirty1 = lists:foldl(
-        fun(TF, Acc) ->
-            emqx_ds_tx_conflict_trie:push(
+    lists:foldl(
+        fun({TF, FromTime, ToTime}, Acc) ->
+            emqx_ds_tx_conflict_trie:push_topic(
                 emqx_ds_tx_conflict_trie:topic_filter_to_conflict_domain(TF),
+                FromTime,
+                ToTime,
                 Serial,
                 Acc
             )
         end,
-        Dirty0,
+        Dirty,
         maps:get(?ds_tx_delete_topic, Ops, [])
-    ),
+    ).
+
+update_dirty_w(Serial, Ops, Dirty) ->
     %% Mark written topics as dirty:
     lists:foldl(
-        fun({TF, _TS, _Val}, Acc) ->
-            emqx_ds_tx_conflict_trie:push(TF, Serial, Acc)
+        fun({TF, TS, _Val}, Acc) ->
+            emqx_ds_tx_conflict_trie:push_topic(TF, TS, TS, Serial, Acc)
         end,
-        Dirty1,
+        Dirty,
         maps:get(?ds_tx_write, Ops, [])
     ).
 
@@ -523,9 +600,9 @@ maybe_rotate(D = #d{rotate_interval = RI, last_rotate_ts = LastRotTS}) ->
 
 rotate(D = #d{gens = Gens0}) ->
     Gens = maps:map(
-        fun(_, GS = #gen_data{dirty = Dirty}) ->
+        fun(_, GS = #gen_data{dirty_w = Dirty}) ->
             GS#gen_data{
-                dirty = emqx_ds_tx_conflict_trie:rotate(Dirty)
+                dirty_w = emqx_ds_tx_conflict_trie:rotate(Dirty)
             }
         end,
         Gens0
@@ -535,37 +612,59 @@ rotate(D = #d{gens = Gens0}) ->
         last_rotate_ts = erlang:monotonic_time(millisecond)
     }.
 
-check_conflicts(Dirty, TxStartSerial, SafeToReadSerial, Ops) ->
+preprocess_ops(_PresumedCommitSerial, Tx) ->
+    MonotonicTS = get_monotonic_timestamp(),
+    maps:map(
+        fun
+            (?ds_tx_delete_topic, Ops) ->
+                preprocess_deletes(MonotonicTS, Ops);
+            (_Key, Ops) ->
+                Ops
+        end,
+        Tx
+    ).
+
+preprocess_deletes(MonotonicTS, Ops) ->
+    lists:map(
+        fun
+            ({TopicFilter, From, ?ds_tx_ts_monotonic}) ->
+                {TopicFilter, From, MonotonicTS};
+            (A) ->
+                A
+        end,
+        Ops
+    ).
+
+check_conflicts(DirtyW, DirtyD, TxStartSerial, SafeToReadSerial, Ops) ->
     maybe
-        ok ?= do_check_conflicts(Dirty, TxStartSerial, maps:get(?ds_tx_read, Ops, [])),
+        %% Check reads against writes and deletions:
+        Reads = maps:get(?ds_tx_read, Ops, []),
+        ok ?= do_check_conflicts(DirtyW, TxStartSerial, Reads),
+        ok ?= do_check_conflicts(DirtyD, TxStartSerial, Reads),
         %% Deletion of topics involves scanning of the storage. We
         %% can't do it when there is potentially buffered data:
-        ok ?= do_check_conflicts(Dirty, SafeToReadSerial, maps:get(?ds_tx_delete_topic, Ops, [])),
+        ok ?= do_check_conflicts(DirtyW, SafeToReadSerial, maps:get(?ds_tx_delete_topic, Ops, [])),
         %% Verifying precondition requires reading from the storage
         %% too. Make sure we don't ignore the cache:
-        ExpectedTopics = [Topic || {Topic, _, _} <- maps:get(?ds_tx_expected, Ops, [])],
-        ok ?= do_check_conflicts(Dirty, SafeToReadSerial, ExpectedTopics),
-        UnexpectedTopics = [Topic || {Topic, _} <- maps:get(?ds_tx_unexpected, Ops, [])],
-        ok ?= do_check_conflicts(Dirty, SafeToReadSerial, UnexpectedTopics)
+        ExpectedTopics = [{Topic, TS, TS} || {Topic, TS, _} <- maps:get(?ds_tx_expected, Ops, [])],
+        ok ?= do_check_conflicts(DirtyW, SafeToReadSerial, ExpectedTopics),
+        ok ?= do_check_conflicts(DirtyD, SafeToReadSerial, ExpectedTopics),
+        UnexpectedTopics = [{Topic, TS, TS} || {Topic, TS} <- maps:get(?ds_tx_unexpected, Ops, [])],
+        ok ?= do_check_conflicts(DirtyW, SafeToReadSerial, UnexpectedTopics)
     end.
 
 do_check_conflicts(Dirty, Serial, Topics) ->
-    Errors = lists:foldl(
-        fun(ReadTF, Acc) ->
-            case
-                emqx_ds_tx_conflict_trie:is_dirty(
-                    emqx_ds_tx_conflict_trie:topic_filter_to_conflict_domain(ReadTF),
-                    Serial,
-                    Dirty
-                )
-            of
-                false ->
-                    Acc;
-                true ->
-                    [{ReadTF, Serial} | Acc]
-            end
+    Errors = lists:filtermap(
+        fun({ReadTF, FromTime, ToTime}) ->
+            emqx_ds_tx_conflict_trie:is_dirty_topic(
+                emqx_ds_tx_conflict_trie:topic_filter_to_conflict_domain(ReadTF),
+                FromTime,
+                ToTime,
+                Serial,
+                Dirty
+            ) andalso
+                {true, {ReadTF, {FromTime, ToTime}, Serial}}
         end,
-        [],
         Topics
     ),
     case Errors of
@@ -625,8 +724,13 @@ reply_success(From, Ref, Meta, Serial) ->
         emqx_ds_optimistic_tx_commit_success,
         #{client => From, ref => Ref, meta => Meta, serial => Serial}
     ),
-    From ! ?ds_tx_commit_ok(Ref, Meta, serial_bin(Serial)),
-    ok.
+    case From of
+        _ when is_pid(From) orelse is_reference(From) ->
+            From ! ?ds_tx_commit_ok(Ref, Meta, serial_bin(Serial)),
+            ok;
+        undefined ->
+            ok
+    end.
 
 reply_error(From, Ref, Meta, Class, Error) ->
     ?tp(
@@ -634,8 +738,33 @@ reply_error(From, Ref, Meta, Class, Error) ->
         emqx_ds_optimistic_tx_commit_abort,
         #{client => From, ref => Ref, meta => Meta, ec => Class, reason => Error, stage => final}
     ),
-    From ! ?ds_tx_commit_error(Ref, Meta, Class, Error),
-    ok.
+    case From of
+        _ when is_pid(From) orelse is_reference(From) ->
+            From ! ?ds_tx_commit_error(Ref, Meta, Class, Error),
+            ok;
+        undefined ->
+            ok
+    end.
+
+client_post_commit_cleanup(Ref) ->
+    demonitor(Ref),
+    case erase({?pending_commit, Ref}) of
+        undefined ->
+            ok;
+        #client_pending_commit{timeout_tref = TRef, alias = Alias} ->
+            _ = erlang:unalias(Alias),
+            _ = is_reference(TRef) andalso erlang:cancel_timer(TRef),
+            ok
+    end,
+    flush_messages(Ref).
+
+flush_messages(Ref) ->
+    receive
+        {'DOWN', Ref, _Type, _Obj, _Info} ->
+            flush_messages(Ref)
+    after 0 ->
+        ok
+    end.
 
 %%================================================================================
 %% Tests

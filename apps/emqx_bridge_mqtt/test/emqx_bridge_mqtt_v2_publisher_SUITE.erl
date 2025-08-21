@@ -248,9 +248,7 @@ bridge_id(Config) ->
     emqx_bridge_resource:bridge_id(Type, Name).
 
 connector_resource_id(Config) ->
-    Type = ?config(connector_type, Config),
-    Name = ?config(connector_name, Config),
-    emqx_connector_resource:resource_id(Type, Name).
+    emqx_bridge_v2_testlib:connector_resource_id(Config).
 
 get_tcp_mqtt_port(Node) ->
     {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),

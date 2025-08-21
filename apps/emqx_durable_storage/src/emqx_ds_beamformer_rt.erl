@@ -31,6 +31,8 @@
 %% Type declarations
 %%================================================================================
 
+-define(MAX_RETRIES, 10).
+
 %% Whenever we receive a notification that a stream has new data, we
 %% add this stream to this table. Events are deduplicated.
 -record(active_streams, {
@@ -63,7 +65,7 @@
 
 -define(housekeeping_loop, housekeeping_loop).
 
--record(shard_event, {event}).
+-record(shard_event, {stream, retries}).
 -record(seal_event, {rank}).
 
 %%================================================================================
@@ -89,7 +91,7 @@ shard_event(Shard, Events) ->
     lists:foreach(
         fun(Stream) ->
             Worker = gproc_pool:pick_worker(Pool, Stream),
-            Worker ! stream_event(Stream)
+            Worker ! stream_event(Stream, ?MAX_RETRIES)
         end,
         Events
     ).
@@ -141,7 +143,7 @@ handle_cast(#seal_event{rank = Rank}, S0) ->
         %% for each known stream that has the matching rank:
         Streams = emqx_ds_beamformer_waitq:streams_of_rank(Rank, Queue),
         %% TODO: pass it through the event queue too
-        _ = [process_stream_event(self(), false, Stream, S) || Stream <- Streams],
+        _ = [process_stream_event(self(), 0, Stream, S) || Stream <- Streams],
         S
     end,
     push_cmd(S0, Fun);
@@ -159,7 +161,7 @@ handle_info({Ref, Result}, S0 = #s{worker_ref = Ref}) ->
 handle_info(
     ?housekeeping_loop, S0 = #s{name = Name, metrics_id = Metrics, queue = Queue}
 ) ->
-    %% Reload configuration according from environment variables:
+    %% Reload configuration according to the environment variables:
     S = S0#s{
         batch_size = emqx_ds_beamformer:cfg_batch_size()
     },
@@ -218,62 +220,20 @@ do_enqueue(
         client = Client
     },
     From,
-    S = #s{shard = Shard, queue = Queue, module = CBM, sub_tab = SubTab}
+    S = #s{shard = Shard, queue = Queue, module = CBM, sub_tab = SubTab, batch_size = BatchSize}
 ) ->
     Reply =
         case high_watermark(Stream, S) of
             {ok, HighWatermark} ->
-                FFRes = emqx_ds_beamformer:fast_forward(CBM, Shard, It0, HighWatermark),
-                case FFRes of
-                    {ok, It} ->
-                        ?tp(beamformer_push_rt, #{
-                            req_id => ReqId, stream => Stream, key => Key, it => It
-                        }),
-                        emqx_ds_beamformer_waitq:insert(
-                            Stream, TF, {node(Client), ReqId}, Rank, Queue
-                        ),
-                        emqx_ds_beamformer:take_ownership(Shard, SubTab, Req),
-                        ok;
-                    {error, unrecoverable, has_data} ->
-                        %% TODO: This piece of code is very
-                        %% problematic, because it can cause an
-                        %% infinite back and forth loop.
-                        %%
-                        %% Alt. 1: Instead of kicking the subscription
-                        %% back we could attempt to simply read the
-                        %% data and deliver it to the client before
-                        %% adding it to the queue. This may, of
-                        %% course, introduce latency to the other
-                        %% clients in the RT queue. But the effect
-                        %% will be temporary, and only happen when a
-                        %% new subscription joins.
-                        %%
-                        %% Assuming that catchup worker has done all
-                        %% the heavy lifting, the impact on the
-                        %% latency should be small under normal
-                        %% circumstances.
-                        %%
-                        %% Alt. 2: Kill the subsription when this
-                        %% happens with a reason indicating overload
-                        %% and so the client re-subscribes.
-                        %%
-                        %% This should spread the load over time, but
-                        %% it's not the perfect solution.
-                        ?tp(info, beamformer_push_rt_downgrade, #{
-                            req_id => ReqId, stream => Stream, key => Key
-                        }),
-                        {error, unrecoverable, stale};
-                    Error = {error, _, _} ->
-                        ?tp(
-                            error,
-                            beamformer_rt_cannot_fast_forward,
-                            #{
-                                it => It0,
-                                reason => Error
-                            }
-                        ),
-                        Error
-                end;
+                ?tp(beamformer_push_rt, #{
+                    req_id => ReqId, stream => Stream, key => Key, it => It0
+                }),
+                emqx_ds_beamformer_waitq:insert(
+                    Stream, TF, {node(Client), ReqId}, Rank, Queue
+                ),
+                emqx_ds_beamformer:take_ownership(Shard, SubTab, Req),
+                FFRes = emqx_ds_beamformer:fast_forward(CBM, Shard, It0, HighWatermark, BatchSize),
+                complete_takeover(S, Req, FFRes);
             undefined ->
                 ?tp(
                     warning,
@@ -285,9 +245,61 @@ do_enqueue(
     ok = gen_server:reply(From, Reply),
     S.
 
-process_stream_event(Parent, RetryOnEmpty, Stream, S) ->
+-doc """
+This function is called during hand-over from catch-up to realtime worker.
+
+If more data was published while the subscription was in hand-over
+state, RT worker uses this function to send it to the client.
+""".
+complete_takeover(_, _, {ok, _, []}) ->
+    ok;
+complete_takeover(
+    S, #sub_state{client = Client, req_id = ReqId, stream = Stream}, {ok, EndKey, Batch}
+) ->
+    #s{
+        shard = DBShard,
+        module = CBM,
+        queue = Queue,
+        sub_tab = SubTab,
+        metrics_id = Metrics
+    } = S,
+    BB0 = emqx_ds_beamformer:beams_init(
+        CBM,
+        DBShard,
+        SubTab,
+        true,
+        fun(SubS) -> queue_drop(Queue, SubS) end,
+        fun(_OldSubState, _SubState) -> ok end
+    ),
+    Node = node(Client),
+    BB = lists:foldl(
+        fun({Key, Msg}, BB1) ->
+            emqx_ds_beamformer:beams_add(Stream, Key, Msg, [{Node, ReqId}], BB1)
+        end,
+        BB0,
+        Batch
+    ),
+    emqx_ds_builtin_metrics:inc_beams_sent(Metrics, 1),
+    emqx_ds_builtin_metrics:observe_sharing(Metrics, 1),
+    emqx_ds_beamformer:beams_conclude(DBShard, EndKey, BB),
+    ok;
+complete_takeover(
+    S,
+    Req = #sub_state{client = Client, req_id = ReqId, stream = Stream, topic_filter = TF},
+    Pack = {error, _, _}
+) ->
+    #s{
+        shard = DBShard,
+        sub_tab = SubTab,
+        queue = Queue
+    } = S,
+    emqx_ds_beamformer:send_out_final_beam(DBShard, SubTab, Pack, [Req]),
+    emqx_ds_beamformer_waitq:delete(Stream, TF, {node(Client), ReqId}, Queue),
+    ok.
+
+process_stream_event(Parent, RetriesOnEmpty, Stream, S) ->
     T0 = erlang:monotonic_time(microsecond),
-    do_process_stream_event(Parent, RetryOnEmpty, Stream, S),
+    do_process_stream_event(Parent, RetriesOnEmpty, Stream, S),
     emqx_ds_builtin_metrics:observe_beamformer_fulfill_time(
         S#s.metrics_id,
         erlang:monotonic_time(microsecond) - T0
@@ -296,7 +308,7 @@ process_stream_event(Parent, RetryOnEmpty, Stream, S) ->
 
 do_process_stream_event(
     Parent,
-    RetryOnEmpty,
+    RetriesOnEmpty,
     Stream,
     S = #s{
         shard = DBShard,
@@ -318,12 +330,17 @@ do_process_stream_event(
             ?tp(beamformer_rt_batch, #{
                 shard => DBShard, from => StartKey, to => LastKey, stream => Stream, empty => true
             }),
-            %% Race condition: event arrived before the data became
-            %% available. Retry later:
-            RetryOnEmpty andalso
+            %% Potential race condition: event arrived before the data
+            %% became available. Alternatively, the backend was not
+            %% careful: it added some data _before_ the stream high
+            %% watermark and send the event. Ideally, such events
+            %% should be avoided. Retry later:
+            RetriesOnEmpty > 0 andalso
                 begin
-                    ?tp(debug, beamformer_rt_retry_event, #{stream => Stream}),
-                    erlang:send_after(10, Parent, stream_event(Stream))
+                    ?tp(debug, beamformer_rt_retry_event, #{
+                        stream => Stream, retries => RetriesOnEmpty
+                    }),
+                    erlang:send_after(100, Parent, stream_event(Stream, RetriesOnEmpty - 1))
                 end,
             set_high_watermark(Stream, LastKey, S);
         {ok, LastKey, Batch} ->
@@ -340,7 +357,7 @@ do_process_stream_event(
             ),
             process_batch(Stream, LastKey, Batch, S, Beams),
             set_high_watermark(Stream, LastKey, S),
-            do_process_stream_event(Parent, false, Stream, S);
+            do_process_stream_event(Parent, 0, Stream, S);
         {error, recoverable, _Err} ->
             %% FIXME:
             exit(retry);
@@ -385,8 +402,10 @@ process_batch(Stream, EndKey, [{Key, Msg} | Rest], S, Beams0) ->
     Beams = emqx_ds_beamformer:beams_add(Stream, Key, Msg, Candidates, Beams0),
     process_batch(Stream, EndKey, Rest, S, Beams).
 
-queue_search(#s{queue = Queue}, Stream, _MsgKey, Msg) ->
-    Topic = emqx_topic:tokens(Msg#message.topic),
+queue_search(#s{queue = Queue}, Stream, _MsgKey, {Topic, _Time, _Value}) ->
+    emqx_ds_beamformer_waitq:matching_keys(Stream, Topic, Queue);
+queue_search(#s{queue = Queue}, Stream, _MsgKey, #message{topic = TopicBin}) ->
+    Topic = emqx_topic:tokens(TopicBin),
     emqx_ds_beamformer_waitq:matching_keys(Stream, Topic, Queue).
 
 queue_drop(Queue, #sub_state{stream = Stream, topic_filter = TF, req_id = ID, client = Client}) ->
@@ -419,9 +438,9 @@ set_high_watermark(Stream, LastSeenKey, #s{high_watermark = Tab}) ->
     ?tp(debug, beamformer_rt_set_high_watermark, #{stream => Stream, key => LastSeenKey}),
     ets:insert(Tab, {Stream, LastSeenKey}).
 
--compile({inline, stream_event/1}).
-stream_event(Stream) ->
-    #shard_event{event = Stream}.
+-compile({inline, stream_event/2}).
+stream_event(Stream, Retries) ->
+    #shard_event{stream = Stream, retries = Retries}.
 
 %% Add a callback to the pending command queue. It will be executed
 %% when the worker process is not running.
@@ -451,7 +470,7 @@ exec_pending_cmds(S0 = #s{cmd_queue = Q}) ->
 
 active_streams_new() ->
     #active_streams{
-        t = ets:new(evt_queue, [private, ordered_set, {keypos, #shard_event.event}])
+        t = ets:new(evt_queue, [private, ordered_set, {keypos, #shard_event.stream}])
     }.
 
 maybe_dispatch_event(S = #s{worker_ref = W}) when is_reference(W) ->
@@ -460,11 +479,11 @@ maybe_dispatch_event(S = #s{active_streams = AS0, worker_ref = undefined, queue 
     case active_streams_pop(AS0) of
         undefined ->
             S;
-        {ok, Stream, AS} ->
+        {ok, #shard_event{stream = Stream, retries = Retries}, AS} ->
             case emqx_ds_beamformer_waitq:has_candidates(Stream, Queue) of
                 true ->
                     {ok, Pid, Ref} = emqx_ds_lib:with_worker(
-                        ?MODULE, process_stream_event, [self(), true, Stream, S]
+                        ?MODULE, process_stream_event, [self(), Retries, Stream, S]
                     ),
                     S#s{worker = Pid, worker_ref = Ref, active_streams = AS};
                 false ->
@@ -476,8 +495,9 @@ maybe_dispatch_event(S = #s{active_streams = AS0, worker_ref = undefined, queue 
             end
     end.
 
-active_streams_push(#active_streams{t = T}, Event = #shard_event{}) ->
-    _ = ets:insert_new(T, Event),
+active_streams_push(#active_streams{t = T}, #shard_event{stream = Key, retries = Retries}) ->
+    Op = {#shard_event.retries, Retries, ?MAX_RETRIES, ?MAX_RETRIES},
+    _ = ets:update_counter(T, Key, Op, #shard_event{retries = 0}),
     ok.
 
 active_streams_pop(Q = #active_streams{t = T, last_key = K0}) ->
@@ -487,10 +507,10 @@ active_streams_pop(Q = #active_streams{t = T, last_key = K0}) ->
                 '$end_of_table' ->
                     undefined;
                 Key ->
-                    [#shard_event{event = Stream}] = ets:take(T, Key),
-                    {ok, Stream, Q#active_streams{last_key = Key}}
+                    [Event] = ets:take(T, Key),
+                    {ok, Event, Q#active_streams{last_key = Key}}
             end;
         Key ->
-            [#shard_event{event = Stream}] = ets:take(T, Key),
-            {ok, Stream, Q#active_streams{last_key = Key}}
+            [Event] = ets:take(T, Key),
+            {ok, Event, Q#active_streams{last_key = Key}}
     end.

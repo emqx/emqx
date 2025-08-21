@@ -77,7 +77,7 @@
     handle_timeout/3,
     handle_info/3,
     disconnect/2,
-    terminate/2
+    terminate/3
 ]).
 
 -export([
@@ -800,8 +800,8 @@ disconnect(Session = #session{}, _ConnInfo) ->
     % TODO: isolate expiry timer / timeout handling here?
     {idle, Session}.
 
--spec terminate(Reason :: term(), session()) -> ok.
-terminate(Reason, Session) ->
+-spec terminate(emqx_types:clientinfo(), _Reason, session()) -> ok.
+terminate(_ClienInfo, Reason, Session) ->
     maybe_redispatch_shared_messages(Reason, Session),
     ok.
 

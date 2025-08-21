@@ -73,7 +73,7 @@ create_db(UserOpts = #{db := DB, type := ds}) ->
         reads => local_preferred
     },
     Opts = emqx_utils_maps:deep_merge(Defaults, maps:remove(db, UserOpts)),
-    multicall(fun() -> emqx_ds:open_db(DB, Opts) end);
+    multicall(fun() -> emqx_ds:open_db(DB, Opts), emqx_ds:wait_db(DB, all, infinity) end);
 create_db(UserOpts = #{db := DB, type := mria}) ->
     Opts = maps:merge(
         #{type => ordered_set, storage => rocksdb_copies, rlog_shard => ?MRIA_SHARD},

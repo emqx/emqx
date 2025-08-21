@@ -27,7 +27,7 @@
     unpack_iterator/3,
     scan_stream/8,
     message_matcher/3,
-    fast_forward/5,
+    fast_forward/6,
     message_match_context/5,
     iterator_match_context/3,
 
@@ -327,18 +327,23 @@ make_iterator(
     TopicFilter,
     StartTime
 ) ->
-    ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_make_iterator, #{
-        static_index => StaticIdx, topic_filter => TopicFilter, start_time => StartTime
-    }),
-    {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
-    CompressedTF = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
-    MHB = master_hash_bits(S, CompressedTF),
-    LastSK = dec_stream_key(stream_key(StartTime, 0, MHB), MHB),
-    {ok, #it{
-        static_index = StaticIdx,
-        last_key = LastSK,
-        compressed_tf = emqx_topic:join(CompressedTF)
-    }}.
+    try
+        ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_make_iterator, #{
+            static_index => StaticIdx, topic_filter => TopicFilter, start_time => StartTime
+        }),
+        {ok, TopicStructure} = emqx_ds_lts:reverse_lookup(Trie, StaticIdx),
+        CompressedTF = emqx_ds_lts:compress_topic(StaticIdx, TopicStructure, TopicFilter),
+        MHB = master_hash_bits(S, CompressedTF),
+        LastSK = dec_stream_key(stream_key(StartTime, 0, MHB), MHB),
+        {ok, #it{
+            static_index = StaticIdx,
+            last_key = LastSK,
+            compressed_tf = emqx_topic:join(CompressedTF)
+        }}
+    catch
+        {Class, Err} ->
+            {error, Class, Err}
+    end.
 
 message_matcher(
     _Shard,
@@ -380,7 +385,7 @@ unpack_iterator(_Shard, S = #s{trie = Trie}, #it{
     MHB = master_hash_bits(S, CTF),
     DSKey = mk_master_key(StaticIdx, LSK, MHB),
     TopicFilter = emqx_ds_lts:decompress_topic(get_topic_structure(Trie, StaticIdx), words(CTF)),
-    {#stream{static_index = StaticIdx}, TopicFilter, DSKey, stream_key_ts(LSK, MHB)}.
+    {#stream{static_index = StaticIdx}, TopicFilter, DSKey}.
 
 scan_stream(
     Shard,
@@ -408,49 +413,52 @@ scan_stream(
             Other
     end.
 
+fast_forward(
+    ShardId,
+    S = #s{master_hash_bits = MHB},
+    It0 = #it{static_index = StaticIdx, compressed_tf = _Varying},
+    FFToKey,
+    TMax,
+    BatchSize
+) ->
+    case match_stream_key(It0#it.static_index, FFToKey) of
+        false ->
+            ?err_unrec(<<"Invalid datastream key">>);
+        FFToStreamKey ->
+            case stream_key_ts(FFToStreamKey, MHB) of
+                FFToTimestamp when FFToTimestamp =< TMax ->
+                    %% Why =<? See start_next_loop: it increments TMax.
+                    case next(ShardId, S, It0, BatchSize + 1, TMax, true) of
+                        {ok, #it{last_key = LSK}, Data} when length(Data) =< BatchSize ->
+                            %% Since FFtoTimestamp is less than TMax
+                            %% we can rely on the fact that if size of
+                            %% the data is less than batch size + 1,
+                            %% it means all data from It0 to It has
+                            %% been consumed:
+                            DSKey = mk_master_key(StaticIdx, LSK, MHB),
+                            {ok, DSKey, Data};
+                        {ok, _It, _Data} ->
+                            %% There are more messages than batch size.
+                            ?err_rec(cannot_fast_forward);
+                        Err ->
+                            Err
+                    end;
+                FFToTimestamp ->
+                    ?err_rec(#{
+                        msg => <<"Key is too far in the future">>, max => TMax, ts => FFToTimestamp
+                    })
+            end
+    end.
+
 make_delete_iterator(Shard, Data, Stream, TopicFilter, StartTime) ->
     make_iterator(Shard, Data, Stream, TopicFilter, StartTime).
 
 update_iterator(_Shard, _Data, OldIter, DSKey) ->
     case match_stream_key(OldIter#it.static_index, DSKey) of
         false ->
-            ?err_unrec("Invalid datastream key");
+            ?err_unrec(#{reason => "Invalid datastream key", it => OldIter, key => DSKey});
         StreamKey ->
             {ok, OldIter#it{last_key = StreamKey}}
-    end.
-
-fast_forward(
-    ShardId,
-    S = #s{master_hash_bits = MHB},
-    It0 = #it{last_key = LastSeenKey0, static_index = _StaticIdx, compressed_tf = _CompressedTF},
-    FFToKey,
-    TMax
-) ->
-    case match_stream_key(It0#it.static_index, FFToKey) of
-        false ->
-            ?err_unrec(<<"Invalid datastream key">>);
-        FFToStreamKey ->
-            LastSeenTS = stream_key_ts(LastSeenKey0, MHB),
-            case stream_key_ts(FFToStreamKey, MHB) of
-                FFToTimestamp when FFToTimestamp > TMax ->
-                    ?err_unrec(<<"Key is too far in the future">>);
-                FFToTimestamp when FFToTimestamp =< LastSeenTS ->
-                    %% The new position is earlier than the current position.
-                    %% We keep the original position to prevent duplication of
-                    %% messages. De-duplication is performed by
-                    %% `message_matcher' callback that filters out messages
-                    %% with TS older than the iterator's.
-                    {ok, It0};
-                _FFToTimestamp ->
-                    case next(ShardId, S, It0, 1, TMax, true) of
-                        {ok, #it{last_key = LastSeenKey}, [_]} when LastSeenKey =< FFToKey ->
-                            ?err_unrec(has_data);
-                        {ok, It, _} ->
-                            {ok, It};
-                        Err ->
-                            Err
-                    end
-            end
     end.
 
 -record(match_ctx, {compressed_topic, stream_key}).

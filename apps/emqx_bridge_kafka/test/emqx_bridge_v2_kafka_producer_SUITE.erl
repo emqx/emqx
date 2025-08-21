@@ -659,7 +659,7 @@ t_create_connector_while_connection_is_down(Config) ->
                     #{<<"health_check_interval">> => <<"500ms">>}
             }),
             ConnectorName = <<"c1">>,
-            ConnectorId = emqx_connector_resource:resource_id(Type, ConnectorName),
+            ConnectorId = emqx_connector_resource:resource_id(?global_ns, Type, ConnectorName),
             ConnectorParams = [
                 {connector_config, ConnectorConfig},
                 {connector_name, ConnectorName},

@@ -356,6 +356,41 @@ t_node_cache(_Config) ->
         emqx_auth_cache:metrics(?AUTHN_CACHE)
     ).
 
+-doc """
+Checks that, if an authentication backend returns the `clientid_override` attribute, it's
+used to override.
+""".
+t_clientid_override(TCConfig) when is_list(TCConfig) ->
+    OverriddenClientId = <<"overridden_clientid">>,
+    Username = <<"overriden_clientid">>,
+    Password = <<"password">>,
+    MkConfigFn = fun() ->
+        ok = create_user(
+            <<"mqtt_user:", Username/binary>>, #{
+                clientid_override => OverriddenClientId,
+                password_hash => Password,
+                salt => <<"">>
+            }
+        ),
+        maps:merge(
+            raw_redis_auth_config(),
+            #{
+                <<"cmd">> =>
+                    <<"HMGET mqtt_user:${username} password_hash salt clientid_override">>
+            }
+        )
+    end,
+    Opts = #{
+        client_opts => #{
+            username => Username,
+            password => Password
+        },
+        mk_config_fn => MkConfigFn,
+        overridden_clientid => OverriddenClientId
+    },
+    emqx_authn_test_lib:t_clientid_override(TCConfig, Opts),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

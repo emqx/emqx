@@ -22,11 +22,13 @@ defmodule EMQXGatewayCoap.MixProject do
   end
 
   def deps() do
-    [
-      {:emqx, in_umbrella: true},
-      {:emqx_utils, in_umbrella: true},
-      {:emqx_gateway, in_umbrella: true}
-    ] ++ test_deps()
+    UMP.deps(
+      [
+        {:emqx, in_umbrella: true},
+        {:emqx_utils, in_umbrella: true},
+        {:emqx_gateway, in_umbrella: true}
+      ] ++ test_deps()
+    )
   end
 
   defp test_deps() do

@@ -6,6 +6,8 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+
 -behaviour(minirest_api).
 
 -export([api_spec/0, namespace/0]).
@@ -27,22 +29,14 @@
 -define(OPTS, #{rawconf_with_defaults => true, override_to => cluster}).
 -define(TAGS, ["Configs"]).
 
--if(?EMQX_RELEASE_EDITION == ee).
--define(ROOT_KEYS_EE, [
-    <<"file_transfer">>
-]).
--else.
--define(ROOT_KEYS_EE, []).
--endif.
-
 -define(ROOT_KEYS, [
     <<"dashboard">>,
     <<"alarm">>,
     <<"sys_topics">>,
     <<"sysmon">>,
     <<"log">>,
-    <<"broker">>
-    | ?ROOT_KEYS_EE
+    <<"broker">>,
+    <<"file_transfer">>
 ]).
 
 %% erlfmt-ignore
@@ -326,9 +320,10 @@ configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
         {error, _} = Error -> {400, #{code => 'INVALID_ACCEPT', message => ?ERR_MSG(Error)}}
     end;
 configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode} = QS}, _Req) ->
+    %% Note: currently, this API is available only for global namespace.
     IgnoreReadonly = maps:get(<<"ignore_readonly">>, QS, false),
     case
-        emqx_conf_cli:load_config(Conf, #{
+        emqx_conf_cli:load_config(?global_ns, Conf, #{
             mode => Mode, log => none, ignore_readonly => IgnoreReadonly
         })
     of
@@ -390,9 +385,9 @@ get_configs_v2(QueryStr) ->
     Conf =
         case maps:find(<<"key">>, QueryStr) of
             error ->
-                emqx_conf_proto_v4:get_hocon_config(Node);
+                emqx_conf_proto_v5:get_hocon_config(Node, ?global_ns);
             {ok, Key} ->
-                emqx_conf_proto_v4:get_hocon_config(Node, atom_to_binary(Key))
+                emqx_conf_proto_v5:get_hocon_config(Node, ?global_ns, atom_to_binary(Key))
         end,
     {
         200,

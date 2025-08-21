@@ -987,47 +987,62 @@ do_ds(["info"]) ->
     emqx_ds_builtin_raft_meta:print_status(),
     ok;
 do_ds(["set-replicas", DBStr | SitesStr]) ->
-    case emqx_utils:safe_to_existing_atom(DBStr) of
-        {ok, DB} ->
+    case string_to_ds_dbs(DBStr) of
+        [] ->
+            emqx_ctl:warning("Unknown durable storage");
+        DBs ->
             Sites = lists:map(fun list_to_binary/1, SitesStr),
-            case emqx_mgmt_api_ds:update_db_sites(DB, Sites, cli) of
-                {ok, _} ->
-                    emqx_ctl:print("ok~n");
-                {error, Description} ->
-                    emqx_ctl:warning("Unable to update replicas: ~s~n", [Description])
-            end;
-        {error, _} ->
-            emqx_ctl:warning("Unknown durable storage")
+            lists:foreach(
+                fun(DB) ->
+                    case emqx_mgmt_api_ds:update_db_sites(DB, Sites, cli) of
+                        {ok, _} ->
+                            emqx_ctl:print("ok~n");
+                        {error, Description} ->
+                            emqx_ctl:warning("Unable to update replicas: ~s~n", [Description])
+                    end
+                end,
+                DBs
+            )
     end;
 do_ds(["set_replicas" | Args]) ->
     do_ds(["set-replicas" | Args]);
 do_ds(["join", DBStr, Site]) ->
-    case emqx_utils:safe_to_existing_atom(DBStr) of
-        {ok, DB} ->
-            case emqx_mgmt_api_ds:join(DB, list_to_binary(Site), cli) of
-                {ok, unchanged} ->
-                    emqx_ctl:print("unchanged~n");
-                {ok, _} ->
-                    emqx_ctl:print("ok~n");
-                {error, Description} ->
-                    emqx_ctl:warning("Unable to update replicas: ~s~n", [Description])
-            end;
-        {error, _} ->
-            emqx_ctl:warning("Unknown durable storage~n")
+    case string_to_ds_dbs(DBStr) of
+        [] ->
+            emqx_ctl:warning("Unknown durable storage~n");
+        DBs ->
+            lists:foreach(
+                fun(DB) ->
+                    case emqx_mgmt_api_ds:join(DB, list_to_binary(Site), cli) of
+                        {ok, unchanged} ->
+                            emqx_ctl:print("unchanged~n");
+                        {ok, _} ->
+                            emqx_ctl:print("ok~n");
+                        {error, Description} ->
+                            emqx_ctl:warning("Unable to update replicas: ~s~n", [Description])
+                    end
+                end,
+                DBs
+            )
     end;
 do_ds(["leave", DBStr, Site]) ->
-    case emqx_utils:safe_to_existing_atom(DBStr) of
-        {ok, DB} ->
-            case emqx_mgmt_api_ds:leave(DB, list_to_binary(Site), cli) of
-                {ok, unchanged} ->
-                    emqx_ctl:print("unchanged~n");
-                {ok, _} ->
-                    emqx_ctl:print("ok~n");
-                {error, Description} ->
-                    emqx_ctl:warning("Unable to update replicas: ~s~n", [Description])
-            end;
-        {error, _} ->
-            emqx_ctl:warning("Unknown durable storage~n")
+    case string_to_ds_dbs(DBStr) of
+        [] ->
+            emqx_ctl:warning("Unknown durable storage~n");
+        DBs ->
+            lists:foreach(
+                fun(DB) ->
+                    case emqx_mgmt_api_ds:leave(DB, list_to_binary(Site), cli) of
+                        {ok, unchanged} ->
+                            emqx_ctl:print("unchanged~n");
+                        {ok, _} ->
+                            emqx_ctl:print("ok~n");
+                        {error, Description} ->
+                            emqx_ctl:warning("Unable to update replicas: ~s~n", [Description])
+                    end
+                end,
+                DBs
+            )
     end;
 do_ds(["forget", Site]) ->
     case emqx_mgmt_api_ds:forget(list_to_binary(Site), cli) of
@@ -1039,10 +1054,10 @@ do_ds(["forget", Site]) ->
 do_ds(_) ->
     emqx_ctl:usage([
         {"ds info", "Show overview of the embedded durable storage state"},
-        {"ds set-replicas <storage> <site1> <site2> ...",
-            "Change the replica set of the durable storage"},
-        {"ds join <storage> <site>", "Add site to the replica set of the storage"},
-        {"ds leave <storage> <site>", "Remove site from the replica set of the storage"},
+        {"ds set-replicas <storage>|all <site1> <site2> ...",
+            "Change the replica set of the durable storage(s)"},
+        {"ds join <storage>|all <site>", "Add site to the replica set of the storage(s)"},
+        {"ds leave <storage>|all <site>", "Remove site from the replica set of the storage(s)"},
         {"ds forget <site>", "Remove a site from the list of known sites"}
     ]).
 
@@ -1051,6 +1066,16 @@ ds_cluster_leave_safeguards() ->
         [_ | _] -> [nonempty_ds_site];
         [] -> [];
         false -> []
+    end.
+
+string_to_ds_dbs("all") ->
+    [DB || {DB, builtin_raft} <- emqx_ds:which_dbs()];
+string_to_ds_dbs(DBStr) ->
+    case emqx_utils:safe_to_existing_atom(DBStr) of
+        {ok, DB} ->
+            [DB];
+        {error, _} ->
+            []
     end.
 
 %%--------------------------------------------------------------------

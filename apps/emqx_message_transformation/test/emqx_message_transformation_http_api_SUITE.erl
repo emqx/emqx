@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -1651,7 +1652,7 @@ t_load_config(_Config) ->
         }
     },
     ConfigToLoadBin1 = iolist_to_binary(hocon_pp:do(ConfigToLoad1, #{})),
-    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin1, #{mode => merge})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin1, #{mode => merge})),
     ExpectedTransformations1 = [
         Transformation1A,
         Transformation2A,
@@ -1664,7 +1665,7 @@ t_load_config(_Config) ->
                 <<"transformations">> := ExpectedTransformations1
             }
         },
-        emqx_conf_cli:get_config(<<"message_transformation">>)
+        emqx_conf_cli:get_config_namespaced(?global_ns, <<"message_transformation">>)
     ),
     ?assertIndexOrder([Name1, Name2, Name3, Name4], <<"t/a">>),
 
@@ -1686,7 +1687,7 @@ t_load_config(_Config) ->
         }
     },
     ConfigToLoadBin2 = iolist_to_binary(hocon_pp:do(ConfigToLoad2, #{})),
-    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin2, #{mode => replace})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin2, #{mode => replace})),
     ExpectedTransformations2 = [
         Transformation4B,
         Transformation3,
@@ -1698,7 +1699,7 @@ t_load_config(_Config) ->
                 <<"transformations">> := ExpectedTransformations2
             }
         },
-        emqx_conf_cli:get_config(<<"message_transformation">>)
+        emqx_conf_cli:get_config_namespaced(?global_ns, <<"message_transformation">>)
     ),
     ?assertIndexOrder([Name4, Name3, Name5], <<"t/a">>),
 

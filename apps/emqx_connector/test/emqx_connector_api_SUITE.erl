@@ -112,7 +112,8 @@
             %% `emqx_config:init_load` runs and encounters a namespaced root key, it knows
             %% the schema module for it.
             emqx_config:init_load(emqx_connector_schema, <<"">>),
-            ok = emqx_schema_hooks:inject_from_modules([?MODULE, emqx_connector_schema]),
+            emqx_config:add_allowed_namespaced_config_root(<<"connectors">>),
+            ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
             emqx_cth_suite:inhibit_config_loader(App, AppConfig)
         end
     }},
@@ -433,9 +434,12 @@ resume_connector_resource(ConnectorResID, Config) ->
 http_connector_config() ->
     http_connector_config(_Overrides = #{}).
 http_connector_config(Overrides) ->
-    Params0 = emqx_bridge_http_v2_SUITE:make_connector_config([{http_server, #{port => 18083}}]),
-    Params = emqx_utils_maps:deep_merge(Params0, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check_connector(<<"http">>, <<"x">>, Params).
+    emqx_bridge_schema_testlib:http_connector_config(
+        emqx_utils_maps:deep_merge(
+            #{<<"url">> => <<"http://127.0.0.1:18083">>},
+            Overrides
+        )
+    ).
 
 ensure_namespaced_api_key(Namespace, TCConfig) ->
     ensure_namespaced_api_key(Namespace, _Opts = #{}, TCConfig).
@@ -1002,11 +1006,16 @@ t_create_with_bad_name(Config) ->
     ok.
 
 %% Checks that we correctly handle `throw({bad_ssl_config, _})' from
-%% `emqx_connector:convert_certs' and massage the error message accordingly.
+%% `emqx_connector_ssl:convert_certs' and massage the error message accordingly.
 t_create_with_bad_tls_files(Config) ->
     ConnectorName = atom_to_binary(?FUNCTION_NAME),
     Conf0 = ?KAFKA_CONNECTOR(ConnectorName),
-    Conf = Conf0#{<<"ssl">> => #{<<"cacertfile">> => <<"bad_pem_file">>}},
+    Conf = Conf0#{
+        <<"ssl">> => #{
+            <<"enable">> => true,
+            <<"cacertfile">> => <<"bad_pem_file">>
+        }
+    },
     ?check_trace(
         begin
             {ok, 400, #{
@@ -1177,7 +1186,9 @@ t_list_disabled_channels(Config) ->
         )
     ),
     %% This should be fast even if the connector resource process is unresponsive.
-    ConnectorResID = emqx_connector_resource:resource_id(?CONNECTOR_TYPE, ?CONNECTOR_NAME),
+    ConnectorResID = emqx_connector_resource:resource_id(
+        ?global_ns, ?CONNECTOR_TYPE, ?CONNECTOR_NAME
+    ),
     suspend_connector_resource(ConnectorResID, Config),
     try
         ?assertMatch(
@@ -1593,7 +1604,7 @@ t_namespaced_load_on_restart(TCConfig) ->
 
     [N1] = emqx_cth_cluster:restart([N1Spec]),
 
-    ?assertMatch({200, [#{<<"status">> := <<"connected">>}]}, list(TCConfigNS1)),
+    ?retry(500, 10, ?assertMatch({200, [#{<<"status">> := <<"connected">>}]}, list(TCConfigNS1))),
     ConnResId = emqx_connector_resource:resource_id(NS1, ConnectorType, ConnectorName1),
     ?assertMatch({ok, _, _}, ?ON(N1, emqx_resource:get_instance(ConnResId))),
 

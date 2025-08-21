@@ -2,6 +2,8 @@
 %% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_auth).
+
+-include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -29,6 +31,8 @@
 -export([post_config_update/5]).
 
 -export([backup_tables/0, validate_mnesia_backup/1]).
+
+-export([delete_all_keys_from_namespace/1]).
 
 %% Internal exports (RPC)
 -export([
@@ -176,6 +180,15 @@ do_delete(Name) ->
         [] -> mnesia:abort(not_found);
         [_App] -> mnesia:delete({?APP, Name})
     end.
+
+delete_all_keys_from_namespace(Namespace) when is_binary(Namespace) ->
+    MS = ets:fun2ms(
+        fun(#?APP{name = Name, extra = #{?namespace := Ns}}) when Ns == Namespace ->
+            Name
+        end
+    ),
+    APIKeyNames = ets:select(?APP, MS),
+    lists:foreach(fun delete/1, APIKeyNames).
 
 format(App = #{expired_at := ExpiredAt, created_at := CreateAt}) ->
     format_app_extend(App#{

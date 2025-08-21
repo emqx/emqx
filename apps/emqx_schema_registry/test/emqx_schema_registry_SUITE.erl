@@ -883,7 +883,7 @@ t_external_registry_load_config(_Config) ->
         }
     },
     ConfigToLoad1Bin = iolist_to_binary(hocon_pp:do(ConfigToLoad1, #{})),
-    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoad1Bin, #{mode => merge})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoad1Bin, #{mode => merge})),
 
     Path = [schema_registry, external],
     PathBin = [emqx_utils_conv:bin(PS) || PS <- Path],
@@ -921,7 +921,7 @@ t_external_registry_load_config(_Config) ->
         }
     },
     ConfigToLoad2Bin = iolist_to_binary(hocon_pp:do(ConfigToLoad2, #{})),
-    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoad2Bin, #{mode => replace})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoad2Bin, #{mode => replace})),
 
     Name3Atom = binary_to_atom(Name3),
     ?assertMatch(
@@ -1601,7 +1601,7 @@ t_protobuf_bundle_cluster_sync_join_later(Config) ->
         fun(N) ->
             ok = ?ON(N, begin
                 Res0 = emqx_schema_registry:get_serde(Name),
-                ?assertMatch({ok, #serde{}}, Res0, #{node => N}),
+                ?retry(200, 10, ?assertMatch({ok, #serde{}}, Res0, #{node => N})),
                 {ok, Serde} = Res0,
                 ?assertEqual(
                     Data1,

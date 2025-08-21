@@ -22,6 +22,6 @@ defmodule EMQXPsk.MixProject do
   end
 
   def deps() do
-    [{:emqx, in_umbrella: true}]
+    UMP.deps([{:emqx, in_umbrella: true}])
   end
 end

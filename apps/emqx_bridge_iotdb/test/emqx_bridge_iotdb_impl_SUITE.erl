@@ -425,7 +425,7 @@ t_on_get_status(Config) ->
 t_device_id(Config) ->
     %% Create without device_id configured
     ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
-    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
     BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
     ?retry(
         _Sleep = 1_000,
@@ -507,7 +507,7 @@ t_template(Config) ->
             }
         }),
 
-    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
     BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
     Topic = <<"some/random/topic">>,
     Payload1 = make_iotdb_payload(DeviceId, "test", "boolean", true),

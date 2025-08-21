@@ -114,7 +114,7 @@
     post_config_update/6
 ]).
 
-%% Data backup
+%% `emqx_config_backup` API
 -export([
     import_config/2
 ]).
@@ -639,7 +639,7 @@ combine_connector_and_bridge_v2_config(
         end,
     case ConnectorConfig of
         undefined ->
-            alarm_connector_not_found(BridgeV2Type, BridgeName, ConnectorName),
+            alarm_connector_not_found(Namespace, BridgeV2Type, BridgeName, ConnectorName),
             {error, #{
                 reason => <<"connector_not_found_or_wrong_type">>,
                 namespace => Namespace,
@@ -1210,7 +1210,7 @@ bridge_v2_type_to_connector_type(Type) ->
     emqx_action_info:action_type_to_connector_type(Type).
 
 %%====================================================================
-%% Data backup API
+%% `emqx_config_backup` API
 %%====================================================================
 
 import_config(Namespace, RawConf) ->
@@ -1344,9 +1344,11 @@ pre_config_update([ConfRootKey], Conf = #{}, OldConfs, ExtraContext) when
 
 %% This top level handler will be triggered when the actions path is updated
 %% with calls to emqx_conf:update([actions], BridgesConf, #{}).
-post_config_update([ConfRootKey], _Req, NewConf, OldConf, _AppEnv, ExtraContext) when
+post_config_update([ConfRootKey], _Req, NewConf0, OldConf0, _AppEnv, ExtraContext) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS; ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
+    NewConf = remove_computed_fields(NewConf0),
+    OldConf = remove_computed_fields(OldConf0),
     Namespace = emqx_config_handler:get_namespace(ExtraContext),
     #{added := Added, removed := Removed, changed := Updated} =
         diff_confs(NewConf, OldConf),
@@ -1536,7 +1538,9 @@ bridge_v1_is_valid(ConfRootKey, BridgeV1Type, BridgeName) ->
             true;
         #{connector := ConnectorName} ->
             ConnectorType = connector_type(BridgeV2Type),
-            ConnectorResourceId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
+            ConnectorResourceId = emqx_connector_resource:resource_id(
+                ?global_ns, ConnectorType, ConnectorName
+            ),
             case emqx_resource:get_channels(ConnectorResourceId) of
                 {ok, [_Channel]} -> true;
                 %% not_found, [], [_|_]
@@ -2313,10 +2317,10 @@ to_connector(ConnectorNameBin, BridgeType) ->
             {error, not_found}
     end.
 
-alarm_connector_not_found(ActionType, ActionName, ConnectorName) ->
+alarm_connector_not_found(Namespace, ActionType, ActionName, ConnectorName) ->
     ConnectorType = connector_type(to_existing_atom(ActionType)),
     ResId = emqx_connector_resource:resource_id(
-        ConnectorType, ConnectorName
+        Namespace, ConnectorType, ConnectorName
     ),
     _ = emqx_alarm:safe_activate(
         ResId,
@@ -2350,3 +2354,11 @@ with_namespace(UpdateOpts, Namespace) when is_binary(Namespace) ->
 get_root_config_from_all_namespaces(RootKey, Default) ->
     NamespacedConfigs = emqx_config:get_root_from_all_namespaces(RootKey, Default),
     NamespacedConfigs#{?global_ns => emqx:get_config([RootKey], Default)}.
+
+remove_computed_fields(#{} = Map) ->
+    maps:map(
+        fun(_K, V) -> remove_computed_fields(V) end,
+        maps:remove(?COMPUTED, Map)
+    );
+remove_computed_fields(X) ->
+    X.

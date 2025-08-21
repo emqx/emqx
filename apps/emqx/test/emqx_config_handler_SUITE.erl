@@ -44,7 +44,7 @@ init_per_suite(Config) ->
             {emqx, #{
                 after_start =>
                     fun() ->
-                        ok = emqx_schema_hooks:inject_from_modules([?MODULE])
+                        ok = emqx_config:add_allowed_namespaced_config_root(<<"sysmon">>)
                     end
             }}
         ],
@@ -72,11 +72,6 @@ end_per_testcase(_Case, _Config) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
-
-injected_fields() ->
-    #{
-        'config.allowed_namespaced_roots' => [<<"sysmon">>]
-    }.
 
 update_config_opts(TCConfig) ->
     update_config_opts(TCConfig, _Overrides = #{}).
@@ -665,5 +660,21 @@ t_independent_namespace_configs(TCConfig) when is_list(TCConfig) ->
             {propagated_pre, #{extra_context := #{namespace := OtherNS}}}
         ],
         lists:sort(ets:tab2list(?pre_post_table))
+    ),
+    ok.
+
+-doc """
+If a config root key is not part of the explicit allow list for namespaced configurations,
+we should reject the config update.
+""".
+t_non_namespaced_root_key() ->
+    [{matrix, true}].
+t_non_namespaced_root_key(matrix) ->
+    [[?namespace]];
+t_non_namespaced_root_key(TCConfig) when is_list(TCConfig) ->
+    %% `config_backup_interval` is currently not an allowed root key for namespaces.
+    ?assertMatch(
+        {error, {root_key_not_namespaced, <<"config_backup_interval">>}},
+        emqx:update_config([config_backup_interval], <<"10m">>, #{namespace => ?NS})
     ),
     ok.

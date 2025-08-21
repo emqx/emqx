@@ -701,7 +701,7 @@ query_resource(Config, Request) ->
     Name = ?config(sqlserver_name, Config),
     BridgeType = ?config(sqlserver_bridge_type, Config),
     ID = id(BridgeType, Name),
-    ResID = emqx_connector_resource:resource_id(BridgeType, Name),
+    ResID = emqx_connector_resource:resource_id(?global_ns, BridgeType, Name),
     emqx_resource:query(ID, Request, #{timeout => 1_000, connector_resource_id => ResID}).
 
 query_resource_async(Config, Request) ->

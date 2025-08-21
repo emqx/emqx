@@ -170,7 +170,7 @@ t_start_broken_update_restart(Config) ->
         {ok, {{_HTTP, 201, _}, _, _}},
         emqx_bridge_v2_testlib:create_connector_api(Name, Type, ConnectorConfBroken)
     ),
-    ConnectorId = emqx_connector_resource:resource_id(Type, Name),
+    ConnectorId = emqx_bridge_v2_testlib:connector_resource_id(Config),
     ?retry(
         _Sleep = 1_000,
         _Attempts = 20,

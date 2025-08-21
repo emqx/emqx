@@ -13,6 +13,7 @@
 
 -include("emqx_lwm2m.hrl").
 -include("../../emqx_gateway_coap/include/emqx_coap.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -57,7 +58,7 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    ok = emqx_conf_cli:load_config(emqx_lwm2m_SUITE:default_config(), #{mode => replace}),
+    ok = emqx_conf_cli:load_config(?global_ns, emqx_lwm2m_SUITE:default_config(), #{mode => replace}),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -65,7 +66,7 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_AllTestCase, Config) ->
-    ok = emqx_conf_cli:load_config(emqx_lwm2m_SUITE:default_config(), #{mode => replace}),
+    ok = emqx_conf_cli:load_config(?global_ns, emqx_lwm2m_SUITE:default_config(), #{mode => replace}),
     {ok, ClientUdpSock} = gen_udp:open(0, [binary, {active, false}]),
 
     {ok, C} = emqtt:start_link([{host, "localhost"}, {port, 1883}, {clientid, <<"c1">>}]),
