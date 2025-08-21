@@ -163,6 +163,10 @@
     db :: emqx_ds:db(),
     shard :: emqx_ds:shard(),
     cbm :: module(),
+    metrics :: emqx_ds_builtin_metrics:shard_metrics_id(),
+    %% Timestamp when the FSM changed state from idle to pending, used
+    %% to estimate latency induced by buffering:
+    entered_pending_at :: integer() | undefined,
     flush_interval :: pos_integer(),
     idle_flush_interval :: pos_integer(),
     rotate_interval :: pos_integer(),
@@ -337,10 +341,12 @@ init([DB, Shard, CBM]) ->
         conflict_window := CW,
         max_items := MaxItems
     } = CBM:otx_get_runtime_config(DB),
+    ok = emqx_ds_builtin_metrics:init_for_buffer(DB, Shard),
     D = #d{
         db = DB,
         shard = Shard,
         cbm = CBM,
+        metrics = emqx_ds_builtin_metrics:metric_id([{db, DB}, {shard, Shard}]),
         rotate_interval = CW,
         last_rotate_ts = erlang:monotonic_time(millisecond),
         flush_interval = FI,
@@ -366,9 +372,10 @@ handle_event(info, {'EXIT', _, Reason}, _State, _Data) ->
         normal -> keep_state_and_data;
         _ -> {stop, shutdown}
     end;
-handle_event(enter, _OldState, ?leader(?pending), #d{flush_interval = T}) ->
+handle_event(enter, _OldState, ?leader(?pending), D0 = #d{flush_interval = T}) ->
     %% Schedule unconditional flush after the given interval:
-    {keep_state_and_data, {state_timeout, T, ?timeout_flush}};
+    D = D0#d{entered_pending_at = erlang:monotonic_time(millisecond)},
+    {keep_state, D, {state_timeout, T, ?timeout_flush}};
 handle_event(enter, _, _, _) ->
     keep_state_and_data;
 handle_event(state_timeout, ?timeout_initialize, ?initial, D) ->
@@ -749,6 +756,8 @@ flush(D0 = #d{n_items = NItems}) ->
         db = DB,
         shard = Shard,
         cbm = CBM,
+        metrics = Metrics,
+        entered_pending_at = EnteredPendingAt,
         committed_serial = SerCtl,
         serial = Serial,
         gens = Gens0,
@@ -757,7 +766,10 @@ flush(D0 = #d{n_items = NItems}) ->
     DBShard = {DB, Shard},
     ?tp(debug, emqx_ds_optimistic_tx_flush, #{}),
     Batch = make_batch(Gens0),
+    T0 = erlang:monotonic_time(microsecond),
     Result = CBM:otx_commit_tx_batch(DBShard, SerCtl, Serial, Timestamp, Batch),
+    T1 = erlang:monotonic_time(microsecond),
+    emqx_ds_builtin_metrics:observe_buffer_flush_time(Metrics, T1 - T0),
     Gens = clean_buffers_and_reply(Result, Gens0),
     send_dirty_append_replies(
         CookDirtySuccess andalso Result, PresumedDirtyCommitSerial, OldDirtyAppends
@@ -770,6 +782,10 @@ flush(D0 = #d{n_items = NItems}) ->
     } = CBM:otx_get_runtime_config(DB),
     case Result of
         ok ->
+            Latency = erlang:monotonic_time(millisecond) - EnteredPendingAt,
+            emqx_ds_builtin_metrics:inc_buffer_batches(Metrics),
+            emqx_ds_builtin_metrics:inc_buffer_messages(Metrics, NItems),
+            emqx_ds_builtin_metrics:observe_buffer_latency(Metrics, Latency),
             erlang:garbage_collect(),
             D#d{
                 committed_serial = Serial,
@@ -781,6 +797,7 @@ flush(D0 = #d{n_items = NItems}) ->
                 rotate_interval = CW
             };
         _ ->
+            emqx_ds_builtin_metrics:inc_buffer_batches_failed(Metrics),
             exit({flush_failed, #{db => DB, shard => Shard, result => Result}})
     end.
 
