@@ -297,7 +297,7 @@ fields("cluster") ->
             sc(
                 emqx_schema:duration_ms(),
                 #{
-                    default => <<"5s">>,
+                    default => <<"10s">>,
                     desc => ?DESC(durable_timer_heartbeat_interval),
                     importance => ?IMPORTANCE_HIDDEN,
                     mapping => "emqx_durable_timer.heartbeat_interval"
@@ -307,7 +307,7 @@ fields("cluster") ->
             sc(
                 pos_integer(),
                 #{
-                    default => 5,
+                    default => 6,
                     desc => ?DESC(durable_timer_missed_heartbeats),
                     importance => ?IMPORTANCE_HIDDEN,
                     mapping => "emqx_durable_timer.missed_heartbeats"
