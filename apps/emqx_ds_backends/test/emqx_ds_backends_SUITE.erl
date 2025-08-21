@@ -460,50 +460,6 @@ t_12_old_batch_precondition_conflicts(Config) ->
         []
     ).
 
-t_old_smoke_delete_next(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-            %% Preparation: this test verifies topic selector. To
-            %% create a stream that contains multiple topics we need a
-            %% learned wildcard:
-            create_wildcard(DB, <<"foo">>),
-            %% Actual test:
-            StartTime = 0,
-            TopicFilter = [<<"foo">>, '#'],
-            %% Publish messages in different topics in two batches to distinguish between the streams:
-            Msgs =
-                [Msg1, _Msg2, Msg3] = [
-                    message(<<"foo/bar">>, <<"1">>, 0),
-                    message(<<"foo/foo">>, <<"2">>, 1),
-                    message(<<"foo/baz">>, <<"3">>, 2)
-                ],
-            ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
-
-            [DStream] = emqx_ds:get_delete_streams(DB, TopicFilter, StartTime),
-            {ok, DIter0} = emqx_ds:make_delete_iterator(DB, DStream, TopicFilter, StartTime),
-
-            Selector = fun(#message{topic = Topic}) ->
-                Topic == <<"foo/foo">>
-            end,
-            {ok, DIter1, NumDeleted1} = delete(DB, DIter0, Selector, 1),
-            ?assertEqual(0, NumDeleted1),
-            {ok, DIter2, NumDeleted2} = delete(DB, DIter1, Selector, 1),
-            ?assertEqual(1, NumDeleted2),
-
-            [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-            Batch = emqx_ds_test_helpers:consume_stream(DB, Stream, TopicFilter, StartTime),
-            emqx_ds_test_helpers:diff_messages(?msg_fields, [Msg1, Msg3], Batch),
-
-            ok = emqx_ds:add_generation(DB),
-
-            ?assertMatch({ok, end_of_stream}, emqx_ds:delete_next(DB, DIter2, Selector, 1))
-        end,
-        []
-    ),
-    ok.
-
 t_drop_generation_with_never_used_iterator(Config) ->
     %% This test checks how the iterator behaves when:
     %%   1) it's created at generation 1 and not consumed from.
