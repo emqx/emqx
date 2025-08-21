@@ -82,7 +82,7 @@ pool(Shard) ->
 %% behavior callbacks
 %%================================================================================
 
-init([CBM, ShardId, Name, _Opts]) ->
+init([CBM, ShardId = {DB, _}, Name, _Opts]) ->
     process_flag(trap_exit, true),
     logger:update_process_metadata(#{dbshard => ShardId, name => Name}),
     %% Attach this worker to the pool:
@@ -95,7 +95,7 @@ init([CBM, ShardId, Name, _Opts]) ->
         metrics_id = emqx_ds_beamformer:metrics_id(ShardId, catchup),
         name = Name,
         queue = queue_new(),
-        batch_size = emqx_ds_beamformer:cfg_batch_size()
+        batch_size = maps:get(batch_size, emqx_ds_beamformer:runtime_config(CBM, DB))
     },
     self() ! ?housekeeping_loop,
     {ok, S}.
@@ -115,15 +115,19 @@ handle_info(?fulfill_loop, S0) ->
     {noreply, S};
 handle_info(
     ?housekeeping_loop,
-    S0 = #s{metrics_id = Metrics, name = Name, queue = Queue}
+    S0 = #s{module = CBM, shard_id = {DB, _}, metrics_id = Metrics, name = Name, queue = Queue}
 ) ->
     %% Reload configuration:
+    #{
+        batch_size := BatchSize,
+        housekeeping_interval := HouseKeepingInterval
+    } = emqx_ds_beamformer:runtime_config(CBM, DB),
     S = S0#s{
-        batch_size = emqx_ds_beamformer:cfg_batch_size()
+        batch_size = BatchSize
     },
     %% Update metrics:
     emqx_ds_builtin_metrics:set_subs_count(Metrics, Name, ets:info(Queue, size)),
-    erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
+    erlang:send_after(HouseKeepingInterval, self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(#unsub_req{id = SubId}, S = #s{sub_tab = SubTab, queue = Queue}) ->
     case emqx_ds_beamformer:sub_tab_take(SubTab, SubId) of

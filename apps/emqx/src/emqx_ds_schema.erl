@@ -138,6 +138,8 @@ fields(rocksdb_options) ->
             )}
     ];
 fields(builtin_write_buffer) ->
+    %% TODO: this setting becomes obsolete after all DBs are switch to
+    %% TTV style
     [
         {max_items,
             sc(
@@ -295,6 +297,33 @@ fields(optimistic_transaction) ->
                     desc => ?DESC(otx_conflict_window)
                 }
             )}
+    ];
+fields(subscriptions) ->
+    [
+        {batch_size,
+            sc(
+                pos_integer(),
+                #{
+                    default => 1000,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {n_workers_per_shard,
+            sc(
+                pos_integer(),
+                #{
+                    default => 10,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {housekeeping_interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"1s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
     ].
 
 make_local(StoreTTV) ->
@@ -383,20 +412,10 @@ common_builtin_fields(StoreTTV) ->
                     desc => ?DESC(builtin_rocksdb_options)
                 }
             )},
-        {poll_workers_per_shard,
+        {subscriptions,
             sc(
-                pos_integer(),
+                ref(subscriptions),
                 #{
-                    default => 10,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    mapping => "emqx_durable_storage.beamformer_workers_per_shard"
-                }
-            )},
-        {poll_batch_size,
-            sc(
-                pos_integer(),
-                #{
-                    default => 100,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
@@ -465,16 +484,14 @@ translate_backend(
         backend := Backend,
         n_shards := NShards,
         rocksdb := RocksDBOptions,
-        poll_batch_size := PollBatchSize,
-        poll_workers_per_shard := PollWorkersPerShard
+        subscriptions := Subscriptions
     } = Input
 ) when Backend =:= builtin_local; Backend =:= builtin_raft ->
     Cfg1 = #{
         backend => Backend,
         n_shards => NShards,
-        poll_workers_per_shard => PollWorkersPerShard,
-        poll_batch_size => PollBatchSize,
-        rocksdb => translate_rocksdb_options(RocksDBOptions)
+        rocksdb => translate_rocksdb_options(RocksDBOptions),
+        subscriptions => Subscriptions
     },
     Cfg2 =
         case Input of

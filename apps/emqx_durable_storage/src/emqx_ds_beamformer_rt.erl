@@ -110,12 +110,13 @@ seal_generation(DBShard, Rank) ->
 %% behavior callbacks
 %%================================================================================
 
-init([CBM, DBShard, Name, _Opts]) ->
+init([CBM, DBShard = {DB, _}, Name, _Opts]) ->
     process_flag(trap_exit, true),
     logger:update_process_metadata(#{dbshard => DBShard, name => Name}),
     Pool = pool(DBShard),
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
+    #{batch_size := BatchSize} = emqx_ds_beamformer:runtime_config(CBM, DB),
     S = #s{
         module = CBM,
         shard = DBShard,
@@ -124,7 +125,7 @@ init([CBM, DBShard, Name, _Opts]) ->
         name = Name,
         high_watermark = ets:new(high_watermark, [ordered_set, public]),
         queue = emqx_ds_beamformer_waitq:new(),
-        batch_size = emqx_ds_beamformer:cfg_batch_size()
+        batch_size = BatchSize
     },
     self() ! ?housekeeping_loop,
     {ok, S}.
@@ -159,17 +160,22 @@ handle_info({Ref, Result}, S0 = #s{worker_ref = Ref}) ->
     S = exec_pending_cmds(S0#s{worker = undefined, worker_ref = undefined}),
     {noreply, maybe_dispatch_event(S)};
 handle_info(
-    ?housekeeping_loop, S0 = #s{name = Name, metrics_id = Metrics, queue = Queue}
+    ?housekeeping_loop,
+    S0 = #s{module = CBM, shard = {DB, _}, name = Name, metrics_id = Metrics, queue = Queue}
 ) ->
-    %% Reload configuration according to the environment variables:
+    %% Reload configuration:
+    #{
+        batch_size := BatchSize,
+        housekeeping_interval := HouseKeepingInterval
+    } = emqx_ds_beamformer:runtime_config(CBM, DB),
     S = S0#s{
-        batch_size = emqx_ds_beamformer:cfg_batch_size()
+        batch_size = BatchSize
     },
     %% Report metrics:
     PQLen = emqx_ds_beamformer_waitq:size(Queue),
     emqx_ds_builtin_metrics:set_subs_count(Metrics, Name, PQLen),
     %% Continue the loop:
-    erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
+    erlang:send_after(HouseKeepingInterval, self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(
     #unsub_req{id = SubId}, S0

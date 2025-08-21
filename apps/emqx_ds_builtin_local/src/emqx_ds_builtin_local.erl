@@ -43,6 +43,7 @@
     tx_commit_outcome/1,
 
     %% `beamformer':
+    beamformer_config/1,
     unpack_iterator/2,
     scan_stream/5,
     high_watermark/2,
@@ -132,7 +133,8 @@
         storage := emqx_ds_storage_layer:prototype(),
 
         n_shards := pos_integer(),
-        poll_workers_per_shard => pos_integer(),
+        %% Beamformer config:
+        subscriptions => emqx_ds_beamformer:opts(),
         %% Equivalent to `append_only' from `emqx_ds:create_db_opts':
         force_monotonic_timestamps := boolean(),
         atomic_batches := boolean(),
@@ -156,22 +158,8 @@
 %%================================================================================
 
 -spec open_db(emqx_ds:db(), db_opts()) -> ok | {error, _}.
-open_db(DB, CreateOpts0) ->
-    %% Rename `append_only' flag to `force_monotonic_timestamps':
-    AppendOnly = maps:get(append_only, CreateOpts0),
-    CreateOpts1 = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
-    CreateOpts = emqx_utils_maps:deep_merge(
-        #{
-            transaction => #{
-                flush_interval => 1_000,
-                idle_flush_interval => 1,
-                max_items => 1000,
-                conflict_window => 5_000
-            }
-        },
-        CreateOpts1
-    ),
-    case emqx_ds_builtin_local_sup:start_db(DB, CreateOpts) of
+open_db(DB, CreateOpts) ->
+    case emqx_ds_builtin_local_sup:start_db(DB, config_with_defaults(CreateOpts)) of
         {ok, _} ->
             emqx_ds:set_db_ready(DB, true),
             ok;
@@ -213,7 +201,7 @@ add_generation(DB) ->
 
 -spec update_db_config(emqx_ds:db(), db_opts()) -> ok | {error, _}.
 update_db_config(DB, CreateOpts) ->
-    Opts = #{} = emqx_ds_builtin_local_meta:update_db_config(DB, CreateOpts),
+    Opts = #{} = emqx_ds_builtin_local_meta:update_db_config(DB, config_with_defaults(CreateOpts)),
     lists:foreach(
         fun(Shard) ->
             ShardId = {DB, Shard},
@@ -536,6 +524,11 @@ unsubscribe(DB, {Shard, SubId}) ->
 suback(DB, {Shard, SubRef}, SeqNo) ->
     emqx_ds_beamformer:suback({DB, Shard}, SubRef, SeqNo).
 
+-spec beamformer_config(emqx_ds:db()) -> emqx_ds_beamformer:opts().
+beamformer_config(DB) ->
+    #{subscriptions := Val} = emqx_ds_builtin_local_meta:db_config(DB),
+    Val.
+
 unpack_iterator(DBShard, Iterator = #'Iterator'{}) ->
     emqx_ds_storage_layer_ttv:unpack_iterator(DBShard, Iterator);
 unpack_iterator(DBShard, #{?tag := ?IT, ?enc := Iterator}) ->
@@ -819,6 +812,27 @@ get_tx_persistent_serial(DB, Shard) ->
         not_found ->
             {ok, 0}
     end.
+
+config_with_defaults(CreateOpts0) ->
+    %% Rename `append_only' flag to `force_monotonic_timestamps':
+    AppendOnly = maps:get(append_only, CreateOpts0),
+    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
+    emqx_utils_maps:deep_merge(
+        #{
+            transaction => #{
+                flush_interval => 1_000,
+                idle_flush_interval => 1,
+                max_items => 1000,
+                conflict_window => 5_000
+            },
+            subscriptions => #{
+                n_workers_per_shard => 10,
+                batch_size => 1000,
+                housekeeping_interval => 1000
+            }
+        },
+        CreateOpts
+    ).
 
 %%================================================================================
 %% Common test options
