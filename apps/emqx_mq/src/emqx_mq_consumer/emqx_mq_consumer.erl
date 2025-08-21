@@ -17,7 +17,7 @@ Consumer's responsibilities:
 * Track consumption progeress of the topic streams.
 """.
 
--include("emqx_mq_internal.hrl").
+-include("../emqx_mq_internal.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
