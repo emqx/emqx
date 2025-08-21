@@ -61,45 +61,48 @@ schema() ->
         {messages,
             db_schema(
                 [builtin_raft_ttv, builtin_local_ttv],
-                #{
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(messages)
-                }
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(messages),
+                #{}
             )},
         {sessions,
             db_schema(
                 [builtin_raft_ttv, builtin_local_ttv],
-                #{
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(sessions)
-                }
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(sessions),
+                #{}
             )},
         {timers,
             db_schema(
                 [builtin_raft_ttv, builtin_local_ttv],
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(timers),
+                %% Latency for this DB should be low:
                 #{
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(timers)
+                    <<"transaction">> => #{
+                        <<"idle_flush_interval">> => <<"1ms">>,
+                        <<"flush_interval">> => <<"10ms">>
+                    }
                 }
             )},
         %% TODO: switch shared subs to use TTV and rename the DB to shared_sub
         {queues,
             db_schema(
                 [builtin_raft_messages, builtin_local_messages],
-                #{
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(shared_subs)
-                }
+                ?IMPORTANCE_HIDDEN,
+                ?DESC(shared_subs),
+                #{}
             )}
     ] ++ emqx_schema_hooks:list_injection_point('durable_storage', []).
 
-db_schema(Backends, ExtraOptions) ->
-    Options = #{
-        default => #{<<"backend">> => ?DEFAULT_BACKEND}
-    },
+db_schema(Backends, Importance, Desc, Defaults) ->
     sc(
         hoconsc:union([ref(I) || I <- Backends]),
-        maps:merge(Options, ExtraOptions)
+        #{
+            default => maps:merge(#{<<"backend">> => ?DEFAULT_BACKEND}, Defaults),
+            importance => Importance,
+            desc => Desc
+        }
     ).
 
 fields(builtin_local_messages) ->
