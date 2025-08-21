@@ -108,14 +108,15 @@ otel_config_example() ->
                 trace_all => false,
                 trace_mode => legacy,
                 e2e_tracing_options => #{
-                    attribute_meta_value => "emqxcl",
+                    cluster_identifier => "emqxcl",
                     msg_trace_level => 0,
                     clientid_match_rules_max => 30,
                     topic_match_rules_max => 30,
                     sample_ratio => "10%",
                     client_connect_disconnect => true,
                     client_subscribe_unsubscribe => true,
-                    client_publish => true
+                    client_messaging => true,
+                    follow_traceparent => true
                 }
             }
         }

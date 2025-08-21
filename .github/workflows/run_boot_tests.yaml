@@ -38,4 +38,4 @@ jobs:
         run: |
           apt-get update
           apt-get install -y bats
-      - run: bats ./scripts/test/emqx-boot.bats
+      - run: bats --verbose-run ./scripts/test/emqx-boot.bats
