@@ -155,6 +155,7 @@ defmodule AppsVersionCheck do
 
     src_file = Path.join(["apps", app, "mix.exs"])
     current_app_version = src_file |> File.read!() |> get_version()
+    is_first_v6_release = latest_release.major < 6
     old_app_version = app_version_at(src_file, git_ref)
     current_follows_convention? = follows_convention?(current_app_version, context)
 
@@ -166,6 +167,17 @@ defmodule AppsVersionCheck do
     auto_fix? = Map.get(context, :auto_fix, false)
 
     cond do
+      is_first_v6_release ->
+        desired_version = Version.parse!("6.0.0")
+
+        if current_app_version != desired_version do
+          log_err("#{src_file}: app version must be 6.0.0 but got #{current_app_version}")
+          auto_fix? && fix_vsn(src_file, current_app_version, desired_version)
+          false
+        else
+          true
+        end
+
       not current_follows_convention? ->
         log_err("#{src_file}: app version must be of form `#{convention}`")
 
@@ -197,7 +209,7 @@ defmodule AppsVersionCheck do
 
       current_app_version.patch != old_app_version.patch + 1 ->
         log_err([
-          "#{src_file} non-strict semver version bump from",
+          "#{src_file} non-strict semver version bump from ",
           "#{old_app_version} to #{current_app_version}"
         ])
 
