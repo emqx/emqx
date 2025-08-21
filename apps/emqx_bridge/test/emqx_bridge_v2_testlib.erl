@@ -1469,6 +1469,7 @@ t_rule_action(TCConfig, Opts) ->
                 RuleCreationOpts,
                 emqx_topic:join([<<"test">>, emqx_utils_conv:bin(Type)])
             ),
+            ct:pal("creating rule"),
             {ok, _} = create_rule_and_action_http(Type, RuleTopic, TCConfig, RuleCreationOpts),
             ResourceId = connector_resource_id(TCConfig),
             ?retry(
@@ -1477,8 +1478,11 @@ t_rule_action(TCConfig, Opts) ->
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
             Context0 = #{rule_topic => RuleTopic, payload_fn => PayloadFn},
+            ct:pal("preparing to publish payload"),
             Context1 = PrePublishFn(Context0),
+            ct:pal("publishing payload"),
             Context2 = PublishFn(Context1),
+            ct:pal("checking results"),
             PostPublishFn(Context2),
             ok
         end,
