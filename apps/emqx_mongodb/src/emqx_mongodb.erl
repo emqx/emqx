@@ -220,7 +220,9 @@ on_stop(InstId, _State) ->
         msg => "stopping_mongodb_connector",
         connector => InstId
     }),
-    emqx_resource_pool:stop(InstId).
+    Res = emqx_resource_pool:stop(InstId),
+    ?tp("mongodb_connector_stop", #{instance_id => InstId}),
+    Res.
 
 on_query(
     InstId,
