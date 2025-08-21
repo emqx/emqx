@@ -262,7 +262,7 @@
     cf_names := [string()],
     %% Time at which this was created.  Might differ from `since', in particular for the
     %% first generation.
-    created_at := emqx_message:timestamp(),
+    created_at := emqx_ds:time(),
     %% When should this generation become active?
     %% This generation should only contain messages timestamped no earlier than that.
     %% The very first generation will have `since` equal 0.
@@ -1291,7 +1291,7 @@ new_generation(ShardId, DB, Schema0, Shard0, Since, DBOpts) ->
         module => Mod,
         data => GenData,
         cf_names => cf_names(NewCFRefs),
-        created_at => erlang:system_time(millisecond),
+        created_at => emqx_ds:timestamp_us(),
         ptrans => PTrans,
         since => Since,
         until => undefined
