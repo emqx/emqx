@@ -5,7 +5,6 @@
 -module(emqx_rule_engine).
 
 -behaviour(gen_server).
--behaviour(emqx_config_handler).
 
 -include("rule_engine.hrl").
 -include("emqx_rule_engine_internal.hrl").
@@ -15,10 +14,6 @@
 -include_lib("emqx/include/emqx_config.hrl").
 
 -export([start_link/0]).
-
--export([
-    post_config_update/6
-]).
 
 %% Rule Management
 
@@ -156,50 +151,6 @@
 -spec start_link() -> {ok, pid()} | ignore | {error, Reason :: term()}.
 start_link() ->
     gen_server:start_link({local, ?RULE_ENGINE}, ?MODULE, [], []).
-
-%%------------------------------------------------------------------------------
-%% `emqx_config_handler' API
-%%------------------------------------------------------------------------------
-
-post_config_update(?RULE_PATH(RuleId), '$remove', undefined, _OldRule, _AppEnvs, ExtraContext) ->
-    Namespace = emqx_config_handler:get_namespace(ExtraContext),
-    delete_rule(Namespace, bin(RuleId));
-post_config_update(?RULE_PATH(RuleId), _Req, NewRule, undefined, _AppEnvs, ExtraContext) ->
-    Namespace = emqx_config_handler:get_namespace(ExtraContext),
-    create_rule(NewRule#{id => bin(RuleId), ?namespace => Namespace});
-post_config_update(?RULE_PATH(RuleId), _Req, NewRule, _OldRule, _AppEnvs, ExtraContext) ->
-    Namespace = emqx_config_handler:get_namespace(ExtraContext),
-    update_rule(NewRule#{id => bin(RuleId), ?namespace => Namespace});
-post_config_update(
-    [rule_engine], _Req, #{rules := NewRules}, #{rules := OldRules}, _AppEnvs, ExtraContext
-) ->
-    Namespace = emqx_config_handler:get_namespace(ExtraContext),
-    #{added := Added, removed := Removed, changed := Updated} =
-        emqx_utils_maps:diff_maps(NewRules, OldRules),
-    try
-        maps:foreach(
-            fun(Id, {_Old, New}) ->
-                {ok, _} = update_rule(New#{id => bin(Id), ?namespace => Namespace})
-            end,
-            Updated
-        ),
-        maps:foreach(
-            fun(Id, _Rule) ->
-                ok = delete_rule(Namespace, bin(Id))
-            end,
-            Removed
-        ),
-        maps:foreach(
-            fun(Id, Rule) ->
-                {ok, _} = create_rule(Rule#{id => bin(Id), ?namespace => Namespace})
-            end,
-            Added
-        ),
-        ok
-    catch
-        throw:#{kind := _} = Error ->
-            {error, Error}
-    end.
 
 %%----------------------------------------------------------------------------------------
 %% APIs for rules

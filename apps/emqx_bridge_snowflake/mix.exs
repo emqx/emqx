@@ -35,14 +35,14 @@ defmodule EMQXBridgeSnowflake.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_resource, in_umbrella: true},
       {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_connector_jwt, in_umbrella: true},
       {:emqx_connector_aggregator, in_umbrella: true},
-      UMP.common_dep(:ehttpc),
-      UMP.common_dep(:ecpool),
-      UMP.common_dep(:gproc)
-    ]
+      :ehttpc,
+      :ecpool,
+      :gproc
+    ])
   end
 end

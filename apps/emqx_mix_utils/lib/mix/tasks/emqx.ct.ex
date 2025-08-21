@@ -27,6 +27,8 @@ defmodule Mix.Tasks.Emqx.Ct do
     * `--cover-export-name` - filename to export cover data to.  Defaults to `ct`.  Always
       get `.coverdata` appended to it.
 
+    * `--repeat N` - repeat the tests N times
+
   ## Examples
 
       $ mix emqx.ct --suites apps/emqx/test/emqx_SUITE.erl,apps/emqx/test/emqx_alarm_SUITE.erl
@@ -86,7 +88,7 @@ defmodule Mix.Tasks.Emqx.Ct do
 
     symlink_to_last_run(logdir)
 
-    case results do
+    case sum_results(results) do
       {_success, failed, {_user_skipped, auto_skipped}} when failed > 0 or auto_skipped > 0 ->
         Mix.raise("failures running tests: #{failed} failed, #{auto_skipped} auto skipped")
 
@@ -97,6 +99,15 @@ defmodule Mix.Tasks.Emqx.Ct do
 
         if cover_enabled?(), do: write_coverdata(opts)
     end
+  end
+
+  def sum_results(l) do
+    init_acc = {0, 0, {0, 0}}
+
+    Enum.reduce(l, init_acc, fn {success, failed, {skipped, auto_skipped}},
+                                {s_acc, f_acc, {sk_acc, as_acc}} ->
+      {success + s_acc, failed + f_acc, {skipped + sk_acc, auto_skipped + as_acc}}
+    end)
   end
 
   def run_suites(opts, context) do
@@ -117,7 +128,8 @@ defmodule Mix.Tasks.Emqx.Ct do
       readable: ~c"true",
       name: node_name,
       ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
-      logdir: to_charlist(logdir)
+      logdir: to_charlist(logdir),
+      repeat: opts[:repeat]
     )
   end
 
@@ -136,7 +148,8 @@ defmodule Mix.Tasks.Emqx.Ct do
       readable: ~c"true",
       name: node_name,
       ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
-      logdir: to_charlist(logdir)
+      logdir: to_charlist(logdir),
+      repeat: opts[:repeat]
     )
   end
 
@@ -317,7 +330,8 @@ defmodule Mix.Tasks.Emqx.Ct do
           suites: :string,
           group_paths: :string,
           cases: :string,
-          spec: :string
+          spec: :string,
+          repeat: :integer
         ]
       )
 
@@ -349,7 +363,8 @@ defmodule Mix.Tasks.Emqx.Ct do
       suites: suites,
       group_paths: group_paths,
       cases: cases,
-      spec: spec
+      spec: spec,
+      repeat: Keyword.get(opts, :repeat, 1)
     }
   end
 

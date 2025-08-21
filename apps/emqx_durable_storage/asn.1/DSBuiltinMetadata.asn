@@ -11,13 +11,21 @@ BEGIN
   Stream ::= SEQUENCE {
     shard OCTET STRING,
     generation INTEGER,
-    inner DSBuiltinStorageLayer.Stream
+    inner OCTET STRING
   }
 
   Iterator ::= SEQUENCE {
     shard OCTET STRING,
     generation INTEGER,
-    inner DSBuiltinStorageLayer.Iterator
+    -- The most frequent operation on the iterators is
+    -- `update_iterator` done by beamformer. To avoid constant
+    -- transconding, we split iterator record into static and varying
+    -- parts:
+    --
+    --   Layout-specific metadata
+    innerStatic OCTET STRING,
+    --   Layout-specific variable position information
+    innerPos OCTET STRING
   }
 
   -- Encoding of iterator or end_of_stream

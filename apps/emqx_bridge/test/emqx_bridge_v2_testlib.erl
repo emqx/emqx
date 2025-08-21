@@ -238,8 +238,12 @@ source_hookpoint(Config) ->
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
     emqx_bridge_v2:source_hookpoint(BridgeId).
 
+bridge_hookpoint(TCConfig) ->
+    action_hookpoint(TCConfig).
+
+%% fixme: this should actually be called `bridge_hookpoint`...
 action_hookpoint(Config) ->
-    #{kind := action, type := Type, name := Name} = get_common_values(Config),
+    #{type := Type, name := Name} = get_common_values(Config),
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
     emqx_bridge_resource:bridge_hookpoint(BridgeId).
 
@@ -252,17 +256,20 @@ add_source_hookpoint(Config) ->
 %% action/source resource id
 resource_id(Config) ->
     #{
+        resource_namespace := Namespace,
         kind := Kind,
         type := Type,
         name := Name,
         connector_name := ConnectorName
     } = get_common_values(Config),
-    case Kind of
-        source ->
-            emqx_bridge_v2:source_id(Type, Name, ConnectorName);
-        action ->
-            emqx_bridge_resource:resource_id(Type, Name)
-    end.
+    ConfRootKey =
+        case Kind of
+            action -> actions;
+            source -> sources
+        end,
+    emqx_bridge_v2:id_with_root_and_connector_names(
+        Namespace, ConfRootKey, Type, Name, ConnectorName
+    ).
 
 create_bridge(Config) ->
     create_bridge(Config, _Overrides = #{}).
@@ -546,11 +553,11 @@ create_kind_api(Config, Overrides) ->
     ct:pal("bridge create (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
-enable_kind_api(Kind, ConnectorType, ConnectorName) ->
-    do_enable_disable_kind_api(Kind, ConnectorType, ConnectorName, enable).
+enable_kind_api(Kind, Type, Name) ->
+    do_enable_disable_kind_api(Kind, Type, Name, enable).
 
-disable_kind_api(Kind, ConnectorType, ConnectorName) ->
-    do_enable_disable_kind_api(Kind, ConnectorType, ConnectorName, disable).
+disable_kind_api(Kind, Type, Name) ->
+    do_enable_disable_kind_api(Kind, Type, Name, disable).
 
 do_enable_disable_kind_api(Kind, Type, Name, Op) ->
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
@@ -735,6 +742,9 @@ get_action_api(Config) ->
     ct:pal("get action (http) result:\n  ~p", [Res]),
     Res.
 
+get_action_api2(Config) ->
+    simplify_result(get_action_api(Config)).
+
 get_action_metrics_api(Config) ->
     ActionName = ?config(action_name, Config),
     ActionType = ?config(action_type, Config),
@@ -744,6 +754,9 @@ get_action_metrics_api(Config) ->
     Res = request(get, Path, []),
     ct:pal("get action (http) result:\n  ~p", [Res]),
     simplify_result(Res).
+
+update_bridge_api2(TCConfig, Overrides) ->
+    simplify_result(update_bridge_api(TCConfig, Overrides)).
 
 update_bridge_api(Config) ->
     update_bridge_api(Config, _Overrides = #{}).
@@ -796,12 +809,15 @@ op_bridge_api(Kind, Op, BridgeType, BridgeName) ->
 probe_bridge_api(Config) ->
     probe_bridge_api(Config, _Overrides = #{}).
 
-probe_bridge_api(Config, Overrides) ->
-    BridgeType = ?config(bridge_type, Config),
-    BridgeName = ?config(bridge_name, Config),
-    BridgeConfig0 = ?config(bridge_config, Config),
-    BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-    probe_bridge_api(BridgeType, BridgeName, BridgeConfig).
+probe_bridge_api(TCConfig, Overrides) ->
+    #{
+        kind := Kind,
+        type := Type,
+        name := Name,
+        config := KindConfig0
+    } = get_common_values_with_configs(TCConfig),
+    KindConfig = emqx_utils_maps:deep_merge(KindConfig0, Overrides),
+    probe_bridge_api(Kind, Type, Name, KindConfig).
 
 probe_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
     probe_bridge_api(action, BridgeType, BridgeName, BridgeConfig).
@@ -815,6 +831,9 @@ probe_bridge_api(Kind, BridgeType, BridgeName, BridgeConfig) ->
     Res = request(Method, Path, Params),
     ct:pal("bridge probe (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
+
+probe_bridge_api_simple(TCConfig, Overrides) ->
+    simplify_result(probe_bridge_api(TCConfig, Overrides)).
 
 probe_connector_api(Config) ->
     probe_connector_api(Config, _Overrides = #{}).
@@ -833,6 +852,9 @@ probe_connector_api(Config, Overrides) ->
     Res = request(Method, Path, Params),
     ct:pal("probing connector (~s, http) result:\n  ~p", [Type, Res]),
     Res.
+
+probe_connector_api2(TCConfig, Overrides) ->
+    simplify_result(probe_connector_api(TCConfig, Overrides)).
 
 list_bridges_http_api_v1() ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
@@ -1021,6 +1043,21 @@ create_rule_api2(Params, Opts) ->
         auth_header => AuthHeader
     }).
 
+simple_create_rule_api(TCConfig) ->
+    simple_create_rule_api(<<"select * from \"${t}\" ">>, TCConfig).
+
+simple_create_rule_api(SQL, TCConfig) ->
+    #{rule_action_id := ActionId} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    RuleTopic = <<"t">>,
+    {201, #{<<"id">> := RuleId}} = emqx_bridge_v2_testlib:create_rule_api2(
+        #{
+            <<"sql">> => emqx_bridge_v2_testlib:fmt(SQL, #{t => RuleTopic}),
+            <<"actions">> => [ActionId],
+            <<"description">> => <<"bridge_v2 test rule">>
+        }
+    ),
+    #{topic => RuleTopic, id => RuleId}.
+
 delete_rule_api(RuleId) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules", RuleId]),
     simplify_result(request(delete, Path, "")).
@@ -1052,6 +1089,15 @@ stop_rule_test_trace(TraceName) ->
     URL = emqx_mgmt_api_test_util:api_path(["trace", TraceName]),
     simple_request(#{
         method => delete,
+        url => URL
+    }).
+
+trace_log_stream_api(TraceName, Opts) ->
+    QueryParams = maps:get(query_params, Opts, #{}),
+    URL = emqx_mgmt_api_test_util:api_path(["trace", TraceName, "log"]),
+    simple_request(#{
+        query_params => QueryParams,
+        method => get,
         url => URL
     }).
 
@@ -1137,12 +1183,15 @@ get_common_values(Config) ->
     Kind = proplists:get_value(bridge_kind, Config, action),
     case Kind of
         action ->
+            Type = get_ct_config_with_fallback(Config, [action_type, bridge_type]),
+            Name = get_ct_config_with_fallback(Config, [action_name, bridge_name]),
             #{
                 resource_namespace => proplists:get_value(resource_namespace, Config, ?global_ns),
                 conf_root_key => actions,
                 kind => Kind,
-                type => get_ct_config_with_fallback(Config, [action_type, bridge_type]),
-                name => get_ct_config_with_fallback(Config, [action_name, bridge_name]),
+                rule_action_id => emqx_bridge_resource:bridge_id(Type, Name),
+                type => Type,
+                name => Name,
                 connector_type => get_value(connector_type, Config),
                 connector_name => get_value(connector_name, Config)
             };
@@ -1171,8 +1220,12 @@ get_common_values_with_configs(Config) ->
     Values#{config => KindConfig, connector_config => ConnectorConfig}.
 
 connector_resource_id(Config) ->
-    #{connector_type := Type, connector_name := Name} = get_common_values(Config),
-    emqx_connector_resource:resource_id(Type, Name).
+    #{
+        resource_namespace := Namespace,
+        connector_type := Type,
+        connector_name := Name
+    } = get_common_values(Config),
+    emqx_connector_resource:resource_id(Namespace, Type, Name).
 
 health_check_connector(Config) ->
     ConnectorResId = connector_resource_id(Config),
@@ -1238,7 +1291,7 @@ t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     ?check_trace(
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
-            ResourceId = resource_id(Config),
+            ResourceId = connector_resource_id(Config),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
@@ -1250,7 +1303,7 @@ t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
             ok
         end,
         fun(Trace) ->
-            ResourceId = resource_id(Config),
+            ResourceId = connector_resource_id(Config),
             ?assertMatch([#{instance_id := ResourceId}], ?of_kind(TracePoint, Trace))
         end
     ),
@@ -1264,7 +1317,7 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     ?check_trace(
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
-            ResourceId = resource_id(Config),
+            ResourceId = connector_resource_id(Config),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
@@ -1287,7 +1340,7 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
             ok
         end,
         fun(Trace) ->
-            ResourceId = resource_id(Config),
+            ResourceId = connector_resource_id(Config),
             ?assertMatch([#{instance_id := ResourceId}], ?of_kind(TracePoint, Trace))
         end
     ),
@@ -1308,12 +1361,13 @@ t_rule_action(TCConfig, Opts) ->
     PostPublishFn = maps:get(post_publish_fn, Opts, fun(Context) -> Context end),
     PrePublishFn = maps:get(pre_publish_fn, Opts, fun(Context) -> Context end),
     PayloadFn = maps:get(payload_fn, Opts, fun() -> emqx_guid:to_hexstr(emqx_guid:gen()) end),
+    StartClientOpts = maps:get(start_client_opts, Opts, #{clean_start => true}),
     PublishFn = maps:get(
         publish_fn,
         Opts,
         fun(#{rule_topic := RuleTopic, payload_fn := PayloadFnIn} = Context) ->
             Payload = PayloadFnIn(),
-            {ok, C} = emqtt:start_link(#{clean_start => true}),
+            {ok, C} = emqtt:start_link(StartClientOpts),
             {ok, _} = emqtt:connect(C),
             ?assertMatch({ok, _}, emqtt:publish(C, RuleTopic, Payload, [{qos, 2}])),
             ok = emqtt:stop(C),
@@ -1334,7 +1388,7 @@ t_rule_action(TCConfig, Opts) ->
                 emqx_topic:join([<<"test">>, emqx_utils_conv:bin(Type)])
             ),
             {ok, _} = create_rule_and_action_http(Type, RuleTopic, TCConfig, RuleCreationOpts),
-            ResourceId = resource_id(TCConfig),
+            ResourceId = connector_resource_id(TCConfig),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
@@ -1380,7 +1434,7 @@ t_sync_query_down(Config, Opts) ->
             ?assertMatch({ok, _}, create_bridge_api(Config)),
             RuleTopic = emqx_topic:join([<<"test">>, emqx_utils_conv:bin(Type)]),
             {ok, _} = create_rule_and_action_http(Type, RuleTopic, Config),
-            ResourceId = resource_id(Config),
+            ResourceId = connector_resource_id(Config),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
@@ -1644,13 +1698,17 @@ t_on_get_status(Config, Opts) ->
     FailureStatus = maps:get(failure_status, Opts, ?status_disconnected),
     NormalStatus = maps:get(normal_status, Opts, ?status_connected),
     ?assertMatch({ok, _}, create_bridge_api(Config)),
-    ResourceId = resource_id(Config),
+    ResourceId = connector_resource_id(Config),
     %% Since the connection process is async, we give it some time to
     %% stabilize and avoid flakiness.
     ?retry(
-        _Sleep = 1_000,
-        _Attempts = 20,
-        ?assertEqual({ok, NormalStatus}, emqx_resource_manager:health_check(ResourceId))
+        _Sleep = 200,
+        _Attempts = 100,
+        ?assertEqual(
+            {ok, NormalStatus},
+            emqx_resource_manager:health_check(ResourceId),
+            #{resource_id => ResourceId}
+        )
     ),
     case ProxyHost of
         undefined ->
@@ -1683,8 +1741,8 @@ t_on_get_status(Config, Opts) ->
             end),
             %% Check that it recovers itself.
             ?retry(
-                _Sleep = 1_000,
-                _Attempts = 20,
+                _Sleep = 200,
+                _Attempts = 100,
                 ?assertEqual({ok, NormalStatus}, emqx_resource_manager:health_check(ResourceId))
             )
     end,
@@ -1885,7 +1943,7 @@ t_rule_test_trace(Config, Opts) ->
         end,
     ActionName = bin(ActionName0),
     ActionType = bin(ActionType0),
-    ct:print(asciiart:visible($+, "testing primary action success", [])),
+    ct:pal(asciiart:visible($+, "testing primary action success", [])),
     ct:pal("namespace: ~p", [Namespace]),
     ?tpal("creating connector and actions"),
     {201, #{<<"status">> := <<"connected">>}} =
@@ -2070,7 +2128,7 @@ t_rule_test_trace(Config, Opts) ->
     Context3 = CleanupFn(Context2),
 
     %% Now we test fallback action traces
-    ct:print(asciiart:visible($+, "testing primary action failure with fallbacks", [])),
+    ct:pal(asciiart:visible($+, "testing primary action failure with fallbacks", [])),
     ?tpal("starting fallback action test trace"),
     {200, #{<<"name">> := TraceNameErr}} = start_rule_test_trace(RuleId, AuthHeaderOpts),
     AssertFallbackLogFn = maps:get(assert_fallback_log_fn, Opts, fun(TraceNameIn) ->
@@ -2185,6 +2243,52 @@ t_rule_test_trace(Config, Opts) ->
     ),
     {204, _} = stop_rule_test_trace(TraceNameErr),
 
+    ok.
+
+-doc """
+For SQL-like bridges that use ecpool reconnect callbacks, checks that starting with a bad
+SQL and then updating the config to the correct one updates the DB connection session
+state properly.
+""".
+t_update_with_invalid_prepare(TCConfig, #{} = Opts) ->
+    #{
+        bad_sql := BadSQL,
+        reconnect_cb := {Mod, ReconnectFn},
+        get_sig_fn := GetSigFn,
+        check_expected_error_fn := CheckExpectedErrorFn
+    } = Opts,
+    {201, _} = create_connector_api2(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api2(TCConfig, #{}),
+    Overrides = #{<<"parameters">> => #{<<"sql">> => BadSQL}},
+    {200, Body1} = update_bridge_api2(TCConfig, Overrides),
+    ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
+    CheckExpectedErrorFn(maps:get(<<"error">>, Body1)),
+    %% assert that although there was an error returned, the invliad SQL is actually put\
+    ?assertMatch(
+        {200, #{<<"parameters">> := #{<<"sql">> := BadSQL}}},
+        get_action_api2(TCConfig)
+    ),
+
+    %% update again with the original sql
+    %% the error should be gone now, and status should be 'connected'
+    ?assertMatch(
+        {200, #{<<"status">> := <<"connected">>}},
+        update_bridge_api2(TCConfig, #{})
+    ),
+    %% finally check if ecpool worker should have exactly one of reconnect callback
+    ConnectorResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ActionResId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    Workers = ecpool:workers(ConnectorResId),
+    [_ | _] = WorkerPids = lists:map(fun({_, Pid}) -> Pid end, Workers),
+    lists:foreach(
+        fun(Pid) ->
+            [{Mod, ReconnectFn, Args}] =
+                ecpool_worker:get_reconnect_callbacks(Pid),
+            Sig = GetSigFn(Args),
+            ?assertEqual(ActionResId, Sig)
+        end,
+        WorkerPids
+    ),
     ok.
 
 snk_timetrap() ->
@@ -2324,7 +2428,7 @@ common_source_resource_opts() ->
     #{
         <<"health_check_interval">> => <<"1s">>,
         <<"health_check_interval_jitter">> => <<"0s">>,
-        <<"health_check_timeout">> => <<"30s">>,
+        <<"health_check_timeout">> => <<"1s">>,
         <<"resume_interval">> => <<"1s">>
     }.
 

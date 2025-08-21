@@ -92,6 +92,7 @@
 
 %% Namespaced configs
 -export([
+    add_allowed_namespaced_config_root/1,
     get_namespaced/2,
     get_namespaced/3,
     get_raw_namespaced/2,
@@ -106,15 +107,19 @@
     save_configs_namespaced_tx/5,
     get_all_namespace_config_errors/0,
     get_namespace_config_errors/1,
-    clear_all_invalid_namespaced_configs/0
+    clear_all_invalid_namespaced_configs/0,
+    erase_namespaced_configs/1,
+    namespaced_config_allowed_roots/0
 ]).
+
+%% Internal exports for `emqx_mt` application.
+-export([check_config_namespaced/4]).
 
 -ifdef(TEST).
 -export([erase_all/0, backup_and_write/2, cluster_hocon_file/0, base_hocon_file/0]).
 -export([
     seed_defaults_for_all_roots_namespaced/2,
-    seed_defaults_for_all_roots_namespaced/3,
-    erase_namespaced_configs/1
+    seed_defaults_for_all_roots_namespaced/3
 ]).
 -endif.
 
@@ -129,8 +134,10 @@
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
 -define(INVALID_NS_CONF_PT_KEY(NS), {?MODULE, {corrupt_ns_conf, NS}}).
+-define(ALLOWED_NS_ROOT_KEYS_PT_KEY, {?MODULE, allowed_ns_root_key}).
 
 -export_type([
+    namespace/0,
     maybe_namespace/0,
     update_request/0,
     raw_config/0,
@@ -178,7 +185,8 @@
 }.
 -type cluster_rpc_opts() :: #{kind => ?KIND_INITIATE | ?KIND_REPLICATE}.
 
--type maybe_namespace() :: ?global_ns | binary().
+-type namespace() :: binary().
+-type maybe_namespace() :: ?global_ns | namespace().
 
 %% raw_config() is the config that is NOT parsed and translated by hocon schema
 -type raw_config() :: #{binary() => term()} | list() | undefined.
@@ -219,6 +227,7 @@ get_all_namespaces_containing(RootKey0) ->
     MS = [{MatchHead, [], ['$1']}],
     lists:usort(mnesia:dirty_select(?CONFIG_TAB, MS)).
 
+-spec get_all_raw_namespaced_configs() -> #{namespace() => #{binary() => term()}}.
 get_all_raw_namespaced_configs() ->
     MatchHead = erlang:make_tuple(record_info(size, ?CONFIG_TAB), '_'),
     lists:foldl(
@@ -462,10 +471,14 @@ get_raw([Root | _] = KeyPath, Default) when is_binary(Root) -> do_get_raw(KeyPat
 get_raw([Root | T], Default) -> get_raw([bin(Root) | T], Default);
 get_raw([], Default) -> do_get_raw([], Default).
 
+get_raw_namespaced([], Namespace) ->
+    get_all_roots_from_namespace(Namespace);
 get_raw_namespaced([_Root | _] = KeyPath0, Namespace) ->
     KeyPath = lists:map(fun bin/1, KeyPath0),
     do_get_raw_namespaced(KeyPath, Namespace, error).
 
+get_raw_namespaced([], Namespace, _Default) ->
+    get_all_roots_from_namespace(Namespace);
 get_raw_namespaced([_Root | _] = KeyPath0, Namespace, Default) ->
     KeyPath = lists:map(fun bin/1, KeyPath0),
     do_get_raw_namespaced(KeyPath, Namespace, {value, Default}).
@@ -628,6 +641,8 @@ seed_defaults_for_all_roots_namespaced(SchemaMod, Namespace, _ClusterRPCOpts) wh
     put_namespaced(Namespace, CheckedConf),
     ok.
 
+-endif.
+
 erase_namespaced_configs(Namespace) when is_binary(Namespace) ->
     MS = erlang:make_tuple(
         record_info(size, ?CONFIG_TAB),
@@ -642,7 +657,6 @@ erase_namespaced_configs(Namespace) when is_binary(Namespace) ->
         get_root_names()
     ),
     ok.
--endif.
 
 load_namespaced_configs() ->
     %% Ensure tables are ready when loading.
@@ -670,7 +684,7 @@ do_load_namespaced_config(SchemaMod, AllowedNSRoots, Namespace, RootKeyBin) ->
     [#?CONFIG_TAB{raw_value = RawConf0}] = mnesia:dirty_read(?CONFIG_TAB, Key),
     RootKeyAtom = atom(RootKeyBin),
     RawConf = #{RootKeyBin => RawConf0},
-    case check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) of
+    case check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots, atom) of
         {ok, #{} = CheckedRoot} ->
             CheckedConf = maps:get(RootKeyAtom, CheckedRoot, #{}),
             clear_invalid_namespaced_config(Namespace, RootKeyBin),
@@ -808,11 +822,23 @@ do_check_config(SchemaMod, RawConf, Opts0) ->
         hocon_tconf:map_translate(SchemaMod, RawConf, Opts),
     {AppEnvs, unsafe_atom_checked_hocon_key_map(CheckedConf)}.
 
-check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots) ->
-    Opts = #{return_plain => true, format => map, required => false},
-    try hocon_tconf:check_plain(SchemaMod, RawConf, Opts, AllowedNSRoots) of
-        CheckedConf ->
-            {ok, unsafe_atom_checked_hocon_key_map(CheckedConf)}
+check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots, KeyType) ->
+    Opts0 = #{return_plain => true, format => map, required => false},
+    Roots0 = [R || {R, _} <- hocon_schema:roots(SchemaMod)],
+    Roots = lists:filter(fun(R) -> lists:member(R, AllowedNSRoots) end, Roots0),
+    try hocon_tconf:check_plain(SchemaMod, RawConf, Opts0, Roots) of
+        CheckedConf when KeyType == atom ->
+            {ok, unsafe_atom_checked_hocon_key_map(CheckedConf)};
+        _CheckedConf when KeyType == binary ->
+            %% We can't give `check_plain` `make_serializable` before because it might
+            %% make some validations to be ignored.
+            CheckedConf = hocon_tconf:check_plain(
+                SchemaMod,
+                RawConf,
+                Opts0#{make_serializable => true},
+                Roots
+            ),
+            {ok, CheckedConf}
     catch
         throw:{SchemaMod, Errors} ->
             {error, Errors}
@@ -919,14 +945,22 @@ save_schema_mod_and_names(SchemaMod) ->
     }).
 
 namespaced_config_allowed_roots() ->
-    Roots = emqx_schema_hooks:list_injection_point('config.allowed_namespaced_roots', []),
+    Roots = persistent_term:get(?ALLOWED_NS_ROOT_KEYS_PT_KEY, []),
     maps:from_keys(Roots, true).
+
+add_allowed_namespaced_config_root(RootKeyBins) when is_list(RootKeyBins) ->
+    lists:foreach(fun add_allowed_namespaced_config_root/1, RootKeyBins);
+add_allowed_namespaced_config_root(RootKeyBin) when is_binary(RootKeyBin) ->
+    Roots0 = persistent_term:get(?ALLOWED_NS_ROOT_KEYS_PT_KEY, []),
+    Roots = [RootKeyBin | Roots0 -- [RootKeyBin]],
+    persistent_term:put(?ALLOWED_NS_ROOT_KEYS_PT_KEY, Roots).
 
 -ifdef(TEST).
 erase_all() ->
     Names = get_root_names(),
     lists:foreach(fun erase/1, Names),
     persistent_term:erase(?PERSIS_SCHEMA_MODS),
+    persistent_term:erase(?ALLOWED_NS_ROOT_KEYS_PT_KEY),
     try mnesia:table_info(?CONFIG_TAB, attributes) of
         _ ->
             Namespaces0 =

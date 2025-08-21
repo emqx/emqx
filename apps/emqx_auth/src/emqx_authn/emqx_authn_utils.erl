@@ -19,6 +19,7 @@
     parse_sql/2,
     is_superuser/1,
     client_attrs/1,
+    clientid_override/1,
     bin/1,
     ensure_apps_started/1,
     cleanup_resources/0,
@@ -131,6 +132,13 @@ client_attrs(#{<<"client_attrs">> := Attrs}) ->
     #{client_attrs => drop_invalid_attr(Attrs)};
 client_attrs(_) ->
     #{client_attrs => #{}}.
+
+clientid_override(#{<<"clientid_override">> := Value}) when
+    is_binary(Value) andalso Value /= <<"">>
+->
+    #{clientid_override => Value};
+clientid_override(_) ->
+    #{}.
 
 drop_invalid_attr(Map) when is_map(Map) ->
     maps:from_list(do_drop_invalid_attr(maps:to_list(Map))).

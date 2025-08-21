@@ -24,11 +24,11 @@ defmodule EMQXAuthPostgreSQL.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_auth, in_umbrella: true},
       {:emqx_postgresql, in_umbrella: true}
-    ]
+    ])
   end
 end

@@ -304,12 +304,12 @@ t_raw_float_value(Config) ->
 
 t_list_tags(Config) ->
     ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
-    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
     BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
     ?retry(
         _Sleep = 1_000,
         _Attempts = 10,
-        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+        ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(Config))
     ),
 
     ?assertMatch(
@@ -349,12 +349,12 @@ t_list_tags(Config) ->
 
 t_list_tags_with_var(Config) ->
     ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
-    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
     BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
     ?retry(
         _Sleep = 1_000,
         _Attempts = 10,
-        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+        ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(Config))
     ),
 
     ?assertMatch(
@@ -394,12 +394,12 @@ t_list_tags_with_var(Config) ->
 
 raw_value_test(Metric, RawValue, Config) ->
     ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
-    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
     BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
     ?retry(
         _Sleep = 1_000,
         _Attempts = 10,
-        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+        ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(Config))
     ),
 
     ?assertMatch(

@@ -158,7 +158,7 @@ con_name() ->
     my_connector.
 
 connector_resource_id() ->
-    emqx_connector_resource:resource_id(con_type(), con_name()).
+    emqx_connector_resource:resource_id(?global_ns, con_type(), con_name()).
 
 bridge_type() ->
     test_bridge_type.
@@ -406,7 +406,7 @@ t_create_disabled_bridge(_) ->
     BridgeType = bridge_type(),
     {ok, _} = create(BridgeType, my_enable_bridge, Config),
     {ok, _} = create(BridgeType, my_disable_bridge, Disable),
-    ConnectorId = emqx_connector_resource:resource_id(con_type(), Connector),
+    ConnectorId = emqx_connector_resource:resource_id(?global_ns, con_type(), Connector),
     ?assertMatch(
         [
             {_, #{
@@ -1458,7 +1458,7 @@ t_async_load_config_cli(_Config) ->
     ConfigToLoadBin = iolist_to_binary(hocon_pp:do(RawConfig, #{})),
     ct:pal("loading config..."),
     ct:timetrap(5_000),
-    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin, #{mode => merge})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin, #{mode => merge})),
     ct:pal("config loaded"),
 
     ok.

@@ -37,11 +37,13 @@ defmodule EMQXDsBackends.MixProject do
         do: [{:emqx_ds_builtin_raft, in_umbrella: true}],
         else: []
 
-    ee_deps ++
-      [
-        {:emqx_utils, in_umbrella: true},
-        {:emqx_durable_storage, in_umbrella: true},
-        {:emqx_ds_builtin_local, in_umbrella: true}
-      ]
+    UMP.deps(
+      ee_deps ++
+        [
+          {:emqx_utils, in_umbrella: true},
+          {:emqx_durable_storage, in_umbrella: true},
+          {:emqx_ds_builtin_local, in_umbrella: true}
+        ]
+    )
   end
 end

@@ -466,6 +466,7 @@ do_handle_action(Rule, ActId, Selected, Envs) ->
             emqx_metrics_worker:inc(rule_metrics, RuleResId, 'actions.failed'),
             emqx_metrics_worker:inc(rule_metrics, RuleResId, 'actions.failed.unknown');
         throw:{failed, unhealthy_target} ->
+            ?tp("rule_runtime_unhealthy_target", #{}),
             emqx_metrics_worker:inc(rule_metrics, RuleResId, 'actions.failed'),
             emqx_metrics_worker:inc(rule_metrics, RuleResId, 'actions.failed.out_of_service'),
             trace_action(ActId, "action_failed", #{reason => unhealthy_target}, error);

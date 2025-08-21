@@ -30,7 +30,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
 
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
     StartTime = 0,
@@ -44,7 +44,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
 
     ok = emqx_ds:add_generation(DB),
-    ok = emqx_ds:drop_generation(DB, GenId0),
+    ok = emqx_ds:drop_slab(DB, GenId0),
 
     Now = emqx_message:timestamp_now(),
     Msgs1 = [
@@ -78,7 +78,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
 
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
     StartTime = 0,
@@ -93,10 +93,10 @@ t_drop_generation_with_used_once_iterator(Config) ->
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
     {ok, Iter1, Batch1} = emqx_ds:next(DB, Iter0, 1),
     ?assertNotEqual(end_of_stream, Iter1),
-    ?assertEqual([Msg0], [Msg || {_Key, Msg} <- Batch1]),
+    ?assertEqual([Msg0], Batch1),
 
     ok = emqx_ds:add_generation(DB),
-    ok = emqx_ds:drop_generation(DB, GenId0),
+    ok = emqx_ds:drop_slab(DB, GenId0),
 
     Now = emqx_message:timestamp_now(),
     Msgs1 = [
@@ -116,7 +116,7 @@ t_make_iterator_stale_stream(Config) ->
 
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
-    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+    [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
     StartTime = 0,
@@ -129,7 +129,7 @@ t_make_iterator_stale_stream(Config) ->
     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
 
     ok = emqx_ds:add_generation(DB),
-    ok = emqx_ds:drop_generation(DB, GenId0),
+    ok = emqx_ds:drop_slab(DB, GenId0),
 
     ?assertEqual(
         {error, unrecoverable, generation_not_found},
@@ -148,7 +148,7 @@ t_get_streams_concurrently_with_drop_generation(Config) ->
         begin
             ?assertMatch(ok, emqx_ds:open_db(DB, opts(Config))),
 
-            [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+            [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
             ok = emqx_ds:add_generation(DB),
             ok = emqx_ds:add_generation(DB),
 
@@ -164,7 +164,7 @@ t_get_streams_concurrently_with_drop_generation(Config) ->
 
             spawn_link(fun() ->
                 {ok, _} = ?block_until(#{?snk_kind := get_streams_all_gens}),
-                ok = emqx_ds:drop_generation(DB, GenId0),
+                ok = emqx_ds:drop_slab(DB, GenId0),
                 ?tp(dropped_gen, #{})
             end),
 

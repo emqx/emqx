@@ -23,6 +23,6 @@ defmodule EMQXGenBridge.MixProject do
   end
 
   def deps() do
-    UMP.common_deps()
+    UMP.deps([])
   end
 end

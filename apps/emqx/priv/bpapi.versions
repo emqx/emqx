@@ -23,6 +23,7 @@
 {emqx_conf,2}.
 {emqx_conf,3}.
 {emqx_conf,4}.
+{emqx_conf,5}.
 {emqx_connector,1}.
 {emqx_connector,2}.
 {emqx_dashboard,1}.
@@ -32,9 +33,11 @@
 {emqx_delayed,3}.
 {emqx_ds,4}.
 {emqx_ds,5}.
+{emqx_ds,6}.
 {emqx_ds_beamformer,1}.
 {emqx_ds_beamsplitter,1}.
 {emqx_ds_beamsplitter,2}.
+{emqx_ds_beamsplitter,3}.
 {emqx_ds_new_streams,1}.
 {emqx_ds_otx,1}.
 {emqx_ds_shared_sub,3}.

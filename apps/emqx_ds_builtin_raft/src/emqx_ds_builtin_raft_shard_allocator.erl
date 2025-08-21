@@ -9,6 +9,7 @@
 -module(emqx_ds_builtin_raft_shard_allocator).
 
 -include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_ds_replication_layer.hrl").
 
 -export([start_link/1]).
 
@@ -20,6 +21,7 @@
 -behaviour(gen_server).
 -export([
     init/1,
+    handle_continue/2,
     handle_call/3,
     handle_cast/2,
     handle_info/2,
@@ -82,10 +84,13 @@ shards(DB) ->
     timers := #{atom() => reference()}
 }.
 
--spec init(emqx_ds:db()) -> {ok, state()}.
+-spec init(emqx_ds:db()) -> {ok, undefined, {continue, {init, emqx_ds:db()}}}.
 init(DB) ->
     _ = erlang:process_flag(trap_exit, true),
     _ = logger:set_process_metadata(#{db => DB, domain => [emqx, ds, DB, shard_allocator]}),
+    {ok, undefined, {continue, {init, DB}}}.
+
+handle_continue({init, DB}, _) ->
     State = #{
         db => DB,
         shards => [],
@@ -93,7 +98,7 @@ init(DB) ->
         transitions => #{},
         timers => #{}
     },
-    {ok, handle_allocate_shards(State)}.
+    {noreply, handle_allocate_shards(State)}.
 
 -spec handle_call(_Call, _From, state()) -> {reply, ignored, state()}.
 handle_call(_Call, _From, State) ->
@@ -488,6 +493,7 @@ allocate_shards(State = #{db := DB}) ->
                 fun(S) -> ok = emqx_ds_builtin_raft_metrics:init_local_shard(DB, S) end,
                 Shards
             ),
+            emqx_ds:set_db_ready(DB, true),
             {ok, State#{shards => Shards, status := ready}};
         {error, Reason} ->
             {error, Reason}
@@ -520,12 +526,15 @@ save_db_meta(DB, Shards) ->
 cache_shard_info(DB, Shards) when is_list(Shards) ->
     lists:foreach(fun(Shard) -> cache_shard_info(DB, Shard) end, Shards);
 cache_shard_info(DB, Shard) ->
-    emqx_ds_builtin_raft_shard:cache_shard_servers(DB, Shard).
+    emqx_ds_builtin_raft_shard:cache_shard_servers(DB, Shard),
+    emqx_ds:set_shard_ready(DB, Shard, true).
 
 erase_db_meta(DB) ->
+    emqx_ds:set_db_ready(DB, false),
     persistent_term:erase(?db_meta(DB)).
 
 clear_shard_cache(DB, Shards) when is_list(Shards) ->
     lists:foreach(fun(Shard) -> clear_shard_cache(DB, Shard) end, Shards);
 clear_shard_cache(DB, Shard) ->
+    emqx_ds:set_shard_ready(DB, Shard, false),
     emqx_ds_builtin_raft_shard:clear_cache(DB, Shard).

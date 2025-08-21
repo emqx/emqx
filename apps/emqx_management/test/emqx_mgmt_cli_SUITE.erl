@@ -367,10 +367,13 @@ t_leave_rejected_ds_nonempty('init', Config) ->
     ok = snabbkaffe:start_trace(),
     AppSpec = [
         emqx_conf,
-        {emqx,
-            "durable_sessions.enable = true \n"
-            "durable_storage.messages.backend = builtin_raft \n"
-            "durable_storage.messages.n_sites = 2 \n"},
+        {emqx, """
+        durable_sessions.enable = true
+        durable_storage.messages.backend = builtin_raft
+        durable_storage.sessions.backend = builtin_raft
+        durable_storage.timers.backend = builtin_raft
+        durable_storage.n_sites = 2
+        """},
         emqx_management
     ],
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(
@@ -386,16 +389,18 @@ t_leave_rejected_ds_nonempty('end', Config) ->
     ok = snabbkaffe:stop(),
     emqx_cth_cluster:stop(?config(cluster, Config)).
 
+%% This testcase verifies that `emqx_ctl leave` command checks if the
+%% leaving node holds replicas of DS DBs. Node hosting the replicas of
+%% DS shards should not be able to leave the cluster.
 t_leave_rejected_ds_nonempty(Config) ->
     _Specs = [_, NS2] = ?config(nodespecs, Config),
     Nodes = [N1, N2] = ?config(cluster, Config),
     S2 = ?ON(N2, emqx_ds_builtin_raft_meta:this_site()),
-    DB = messages,
-    DBArg = "messages",
     S2Arg = binary_to_list(S2),
 
-    %% Ensure DS has been bootstrapped.
-    ok = emqx_ds_raft_test_helpers:wait_db_bootstrapped(Nodes, DB),
+    %% Ensure DSs have been bootstrapped.
+    ok = emqx_ds_raft_test_helpers:wait_db_bootstrapped(Nodes, messages),
+    ok = emqx_ds_raft_test_helpers:wait_db_bootstrapped(Nodes, sessions),
     ?ON(N1, emqx_mgmt_cli:ds(["info"])),
 
     %% Should not be possible to leave, because there are shard replicas.
@@ -405,8 +410,10 @@ t_leave_rejected_ds_nonempty(Config) ->
     ),
 
     %% Ask to leave DS DB replication, wait until transitions are finished.
-    ?assertEqual(ok, ?ON(N1, emqx_mgmt_cli:ds(["leave", DBArg, S2Arg]))),
-    ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(DB)),
+    ?assertEqual(ok, ?ON(N1, emqx_mgmt_cli:ds(["leave", "all", S2Arg]))),
+    ?assertEqual(ok, ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(messages))),
+    ?assertEqual(ok, ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(sessions))),
+    ?assertEqual(ok, ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(timers))),
 
     %% Now leave the cluster again.
     ?assertEqual(ok, ?ON(N2, emqx_mgmt_cli:cluster(["leave"]))),
@@ -422,7 +429,7 @@ t_leave_rejected_ds_nonempty(Config) ->
     ?ON(N1, emqx_mgmt_cli:ds(["info"])),
 
     %% Ask to be DS DB replication site again.
-    ?assertEqual(ok, ?ON(N1, emqx_mgmt_cli:ds(["join", DBArg, S2Arg]))),
+    ?assertEqual(ok, ?ON(N1, emqx_mgmt_cli:ds(["join", "all", S2Arg]))),
     %% Should not be possible to leave, even if transitions are still in-progress.
     ?assertEqual(
         {error, [nonempty_ds_site]},

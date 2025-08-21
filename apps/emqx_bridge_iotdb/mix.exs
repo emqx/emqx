@@ -28,12 +28,12 @@ defmodule EMQXBridgeIotdb.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:iotdb, github: "emqx/iotdb-client-erl", tag: "0.2.1"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false},
       {:emqx_bridge_http, in_umbrella: true, runtime: false}
-    ]
+    ])
   end
 end

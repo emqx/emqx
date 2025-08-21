@@ -1,7 +1,6 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
 -module(emqx_bridge_gcp_pubsub_producer_SUITE).
 
 -compile(nowarn_export_all).
@@ -10,72 +9,44 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("jose/include/jose_jwt.hrl").
 -include_lib("jose/include/jose_jws.hrl").
 
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
+
+-import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(ACTION_TYPE, gcp_pubsub_producer).
 -define(ACTION_TYPE_BIN, <<"gcp_pubsub_producer">>).
 -define(CONNECTOR_TYPE, gcp_pubsub_producer).
 -define(CONNECTOR_TYPE_BIN, <<"gcp_pubsub_producer">>).
--define(BRIDGE_V1_TYPE, gcp_pubsub).
--define(BRIDGE_V1_TYPE_BIN, <<"gcp_pubsub">>).
 
--import(emqx_common_test_helpers, [on_exit/1]).
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(PROXY_NAME, "gcp_emulator").
+
+-define(mocked_gcp, mocked_gcp).
+-define(async, async).
+-define(sync, sync).
+-define(with_batch, with_batch).
+-define(without_batch, without_batch).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    SimpleTCs = single_config_tests(),
-    [
-        {group, with_batch},
-        {group, without_batch}
-        | SimpleTCs
-    ].
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
-    SimpleTCs = single_config_tests(),
-    MatrixTCs = TCs -- SimpleTCs,
-    SynchronyGroups = [
-        {group, sync_query},
-        {group, async_query}
-    ],
-    SyncTCs = MatrixTCs,
-    AsyncTCs = MatrixTCs -- only_sync_tests(),
-    [
-        {with_batch, SynchronyGroups},
-        {without_batch, SynchronyGroups},
-        {sync_query, SyncTCs},
-        {async_query, AsyncTCs}
-    ].
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
-%% these should not be influenced by the batch/no
-%% batch/sync/async/queueing matrix.
-single_config_tests() ->
-    [
-        t_not_a_json,
-        t_not_of_service_account_type,
-        t_json_missing_fields,
-        t_invalid_private_key,
-        t_truncated_private_key,
-        t_jose_error_tuple,
-        t_jose_other_error,
-        t_stop,
-        t_get_status_ok,
-        t_get_status_down,
-        t_get_status_no_worker,
-        t_get_status_timeout_calling_workers,
-        t_on_start_ehttpc_pool_already_started,
-        t_attributes,
-        t_bad_attributes
-    ].
-
-only_sync_tests() ->
-    [t_query_sync].
-
-init_per_suite(Config) ->
-    emqx_common_test_helpers:clear_screen(),
+init_per_suite(TCConfig) ->
+    reset_proxy(),
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -84,178 +55,205 @@ init_per_suite(Config) ->
             emqx_bridge,
             emqx_rule_engine,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
     ),
-    {ok, _Api} = emqx_common_test_http:create_default_app(),
-    persistent_term:put({emqx_bridge_gcp_pubsub_client, pubsub, transport}, tls),
-    [{apps, Apps} | Config].
+    set_emulator_host_env(),
+    [
+        {apps, Apps}
+        | TCConfig
+    ].
 
 end_per_suite(Config) ->
-    Apps = ?config(apps, Config),
+    reset_proxy(),
+    Apps = get_config(apps, Config),
     emqx_cth_suite:stop(Apps),
     persistent_term:erase({emqx_bridge_gcp_pubsub_client, pubsub, transport}),
+    os:unsetenv("PUBSUB_EMULATOR_HOST"),
     ok.
 
-init_per_group(sync_query, Config) ->
-    [{query_mode, sync} | Config];
-init_per_group(async_query, Config) ->
-    [{query_mode, async} | Config];
-init_per_group(with_batch, Config) ->
-    [{batch_size, 100} | Config];
-init_per_group(without_batch, Config) ->
-    [{batch_size, 1} | Config];
-init_per_group(_Group, Config) ->
-    Config.
+init_per_group(?sync, TCConfig) ->
+    [{query_mode, sync} | TCConfig];
+init_per_group(?async, TCConfig) ->
+    [{query_mode, async} | TCConfig];
+init_per_group(?with_batch, TCConfig) ->
+    [{batch_size, 100}, {batch_time, <<"200ms">>} | TCConfig];
+init_per_group(?without_batch, TCConfig) ->
+    [{batch_size, 1} | TCConfig];
+init_per_group(?mocked_gcp, TCConfig) ->
+    TCConfig;
+init_per_group(_Group, TCConfig) ->
+    TCConfig.
 
-end_per_group(gcp_pubsub, Config) ->
-    delete_bridge(Config),
-    ok;
-end_per_group(_Group, _Config) ->
+end_per_group(_Group, _TCConfig) ->
     ok.
 
-init_per_testcase(TestCase, Config0) when
-    TestCase =:= t_publish_success_batch
-->
-    ct:timetrap({seconds, 30}),
-    case ?config(batch_size, Config0) of
-        1 ->
-            [{skip_due_to_no_batching, true}];
-        _ ->
-            Tid = install_telemetry_handler(TestCase),
-            Config = generate_config(Config0),
-            put(telemetry_table, Tid),
-            {ok, HttpServer} = start_echo_http_server(),
-            [{telemetry_table, Tid}, {http_server, HttpServer} | Config]
-    end;
-init_per_testcase(TestCase, Config0) ->
-    ct:timetrap({seconds, 30}),
-    {ok, HttpServer} = start_echo_http_server(),
+init_per_testcase(TestCase, TCConfig) ->
+    reset_proxy(),
+    Path = group_path(TCConfig, no_groups),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    GUID = emqx_guid:to_hexstr(emqx_guid:gen()),
+    PubSubTopic = <<(atom_to_binary(?MODULE))/binary, GUID/binary>>,
+    ConnectorName = atom_to_binary(TestCase),
+    ServiceAccountJSON = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
+    ConnectorConfig = connector_config(#{
+        <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON)
+    }),
+    ActionName = ConnectorName,
+    ActionConfig = action_config(#{
+        <<"connector">> => ConnectorName,
+        <<"parameters">> => #{<<"pubsub_topic">> => PubSubTopic},
+        <<"resource_opts">> => #{
+            <<"query_mode">> => get_config(query_mode, TCConfig, <<"sync">>),
+            <<"batch_size">> => get_config(batch_size, TCConfig, 1),
+            <<"batch_time">> => get_config(batch_time, TCConfig, <<"0ms">>)
+        }
+    }),
     Tid = install_telemetry_handler(TestCase),
-    Config = generate_config(Config0),
     put(telemetry_table, Tid),
-    [{telemetry_table, Tid}, {http_server, HttpServer} | Config].
+    HTTPServer = start_echo_http_server(TCConfig),
+    snabbkaffe:start_trace(),
+    persistent_term:put({?MODULE, test_pid}, self()),
+    [
+        {bridge_kind, action},
+        {connector_type, ?CONNECTOR_TYPE},
+        {connector_name, ConnectorName},
+        {connector_config, ConnectorConfig},
+        {action_type, ?ACTION_TYPE},
+        {action_name, ActionName},
+        {action_config, ActionConfig},
+        {telemetry_table, Tid},
+        {http_server, HTTPServer},
+        {service_account_json, ServiceAccountJSON}
+        | TCConfig
+    ].
 
-end_per_testcase(_TestCase, _Config) ->
-    ok = snabbkaffe:stop(),
+end_per_testcase(_TestCase, _TCConfig) ->
+    snabbkaffe:stop(),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    ok = stop_echo_http_server(),
     emqx_common_test_helpers:call_janitor(),
+    stop_echo_http_server(),
+    persistent_term:erase({?MODULE, test_pid}),
     ok.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-generate_config(Config0) ->
-    #{
-        name := ActionName,
-        config_string := ConfigString,
-        pubsub_config := PubSubConfig,
-        service_account_json := ServiceAccountJSON
-    } = gcp_pubsub_config(Config0),
-    ConnectorName = ActionName,
-    ConnectorResourceId = <<"connector:", ?CONNECTOR_TYPE_BIN/binary, ":", ConnectorName/binary>>,
-    ActionResourceId = emqx_bridge_v2_testlib:make_chan_id(#{
-        type => ?ACTION_TYPE_BIN,
-        name => ActionName,
-        connector_name => ConnectorName
-    }),
-    BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_V1_TYPE_BIN, ActionName),
-    [
-        {gcp_pubsub_name, ActionName},
-        {gcp_pubsub_config, PubSubConfig},
-        {gcp_pubsub_config_string, ConfigString},
-        {service_account_json, ServiceAccountJSON},
-        {connector_resource_id, ConnectorResourceId},
-        {action_resource_id, ActionResourceId},
-        {bridge_id, BridgeId}
-        | Config0
-    ].
+connector_config() ->
+    connector_config(_Overrides = #{}).
 
-delete_bridge(Config) ->
-    Type = ?BRIDGE_V1_TYPE,
-    Name = ?config(gcp_pubsub_name, Config),
-    ct:pal("deleting bridge ~p", [{Type, Name}]),
-    emqx_bridge:remove(Type, Name).
-
-create_bridge(Config) ->
-    create_bridge(Config, _GCPPubSubConfigOverrides = #{}).
-
-create_bridge(Config, GCPPubSubConfigOverrides) ->
-    TypeBin = ?BRIDGE_V1_TYPE_BIN,
-    Name = ?config(gcp_pubsub_name, Config),
-    GCPPubSubConfig0 = ?config(gcp_pubsub_config, Config),
-    GCPPubSubConfig = emqx_utils_maps:deep_merge(GCPPubSubConfig0, GCPPubSubConfigOverrides),
-    ct:pal("creating bridge: ~p", [GCPPubSubConfig]),
-    Res = emqx_bridge_testlib:create_bridge_api(TypeBin, Name, GCPPubSubConfig),
-    ct:pal("bridge creation result: ~p", [Res]),
-    case Res of
-        {error, {Status, Headers, Body0}} ->
-            {error, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}};
-        {ok, {Status, Headers, Body0}} ->
-            {ok, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}}
-    end.
-
-create_bridge_http(Config) ->
-    create_bridge_http(Config, _GCPPubSubConfigOverrides = #{}).
-
-create_bridge_http(Config, GCPPubSubConfigOverrides) ->
-    TypeBin = ?BRIDGE_V1_TYPE_BIN,
-    Name = ?config(gcp_pubsub_name, Config),
-    GCPPubSubConfig0 = ?config(gcp_pubsub_config, Config),
-    GCPPubSubConfig = emqx_utils_maps:deep_merge(GCPPubSubConfig0, GCPPubSubConfigOverrides),
-    Params = GCPPubSubConfig#{<<"type">> => TypeBin, <<"name">> => Name},
-    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    ProbePath = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
-    Opts = #{return_all => true},
-    ProbeResult = emqx_mgmt_api_test_util:request_api(
-        post, ProbePath, "", AuthHeader, Params, Opts
-    ),
-    ct:pal("creating bridge (via http): ~p", [Params]),
-    ct:pal("probe result: ~p", [ProbeResult]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
-            {ok, {Status, Headhers, Res0}} ->
-                TypeV1 = emqx_action_info:bridge_v1_type_to_action_type(TypeBin),
-                _ = emqx_bridge_v2_testlib:kickoff_action_health_check(TypeV1, Name),
-                {ok, {Status, Headhers, emqx_utils_json:decode(Res0)}};
-            {error, {Status, Headers, Body0}} ->
-                {error, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}};
-            Error ->
-                Error
-        end,
-    ct:pal("bridge creation result: ~p", [Res]),
-    ?assertEqual(element(1, ProbeResult), element(1, Res), #{
-        creation_result => Res, probe_result => ProbeResult
-    }),
-    case ProbeResult of
-        {error, {{_, 500, _}, _, _}} -> error({bad_probe_result, ProbeResult});
-        _ -> ok
-    end,
-    Res.
-
-create_rule_and_action_http(Config) ->
-    GCPPubSubName = ?config(gcp_pubsub_name, Config),
-    BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_V1_TYPE_BIN, GCPPubSubName),
-    Params = #{
-        enable => true,
-        sql => <<"SELECT * FROM \"t/topic\"">>,
-        actions => [BridgeId]
+connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"connect_timeout">> => <<"5s">>,
+        <<"pool_size">> => 8,
+        <<"pipelining">> => 100,
+        <<"max_inactive">> => <<"10s">>,
+        <<"max_retries">> => 2,
+        <<"service_account_json">> => <<"please override">>,
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
     },
-    Path = emqx_mgmt_api_test_util:api_path(["rules"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
-        Error -> Error
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+action_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"parameters">> =>
+            #{
+                <<"attributes_template">> => [],
+                <<"ordering_key_template">> => <<"">>,
+                <<"payload_template">> => <<"">>,
+                <<"pubsub_topic">> => <<"please override">>
+            },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_action_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
+group_path(Config, Default) ->
+    case emqx_common_test_helpers:group_path(Config) of
+        [] -> Default;
+        Path -> Path
     end.
+
+get_tc_prop(TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(?MODULE, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
+        Val
+    else
+        _ -> Default
+    end.
+
+reset_proxy() ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT).
+
+with_failure(FailureType, Fn) ->
+    emqx_common_test_helpers:with_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn).
+
+is_mocked_gcp(TCConfig) ->
+    case emqx_common_test_helpers:get_matrix_prop(TCConfig, [?mocked_gcp], undefined) of
+        ?mocked_gcp -> true;
+        _ -> false
+    end.
+
+start_echo_http_server(TCConfig) ->
+    maybe
+        true ?= is_mocked_gcp(TCConfig),
+        HTTPHost = "localhost",
+        HTTPPath = '_',
+        ServerSSLOpts =
+            [
+                {verify, verify_none},
+                {versions, ['tlsv1.2', 'tlsv1.3']},
+                {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
+            ] ++ certs(),
+        {ok, {HTTPPort, Pid}} = emqx_bridge_http_connector_test_server:start_link(
+            random, HTTPPath, ServerSSLOpts
+        ),
+        unlink(Pid),
+        ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler()),
+        HostPort = HTTPHost ++ ":" ++ integer_to_list(HTTPPort),
+        true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
+        persistent_term:put({emqx_bridge_gcp_pubsub_client, pubsub, transport}, tls),
+        #{
+            host_port => HostPort,
+            host => HTTPHost,
+            port => HTTPPort
+        }
+    end.
+
+stop_echo_http_server() ->
+    ok = emqx_bridge_http_connector_test_server:stop(),
+    persistent_term:erase({emqx_bridge_gcp_pubsub_client, pubsub, transport}),
+    set_emulator_host_env(),
+    ok.
+
+test_pid() ->
+    persistent_term:get({?MODULE, test_pid}).
+
+set_emulator_host_env() ->
+    HostPort = "toxiproxy:8085",
+    true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
+    ok.
 
 success_http_handler() ->
-    TestPid = self(),
     fun(Req0, State) ->
+        TestPid = test_pid(),
         case {cowboy_req:method(Req0), cowboy_req:path(Req0)} of
             {<<"GET">>, <<"/v1/projects/myproject/topics/", _/binary>>} ->
                 Rep = cowboy_req:reply(
@@ -278,30 +276,48 @@ success_http_handler() ->
         end
     end.
 
-start_echo_http_server() ->
-    HTTPHost = "localhost",
-    HTTPPath = '_',
-    ServerSSLOpts =
-        [
-            {verify, verify_none},
-            {versions, ['tlsv1.2', 'tlsv1.3']},
-            {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
-        ] ++ certs(),
-    {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
-        random, HTTPPath, ServerSSLOpts
-    ),
-    ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler()),
-    HostPort = HTTPHost ++ ":" ++ integer_to_list(HTTPPort),
-    true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
-    {ok, #{
-        host_port => HostPort,
-        host => HTTPHost,
-        port => HTTPPort
-    }}.
-
-stop_echo_http_server() ->
-    os:unsetenv("PUBSUB_EMULATOR_HOST"),
-    ok = emqx_bridge_http_connector_test_server:stop().
+%% Only for errors
+fixed_status_handler(StatusCode, FailureAttempts) ->
+    Tid = ets:new(requests, [public]),
+    GetAndBump = fun(Method, Path, Body) ->
+        K = {Method, Path, Body},
+        ets:update_counter(Tid, K, 1, {K, 0})
+    end,
+    fun(Req0, State) ->
+        case {cowboy_req:method(Req0), cowboy_req:path(Req0)} of
+            {<<"GET">>, <<"/v1/projects/myproject/topics/", _/binary>>} ->
+                Rep = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    <<"{}">>,
+                    Req0
+                ),
+                {ok, Rep, State};
+            {Method, Path} ->
+                {ok, Body, Req} = cowboy_req:read_body(Req0),
+                N = GetAndBump(Method, Path, Body),
+                Rep =
+                    case N > FailureAttempts of
+                        false ->
+                            ?tp(request_fail, #{body => Body, method => Method, path => Path}),
+                            cowboy_req:reply(
+                                StatusCode,
+                                #{<<"content-type">> => <<"application/json">>},
+                                emqx_utils_json:encode(#{<<"gcp">> => <<"is down">>}),
+                                Req
+                            );
+                        true ->
+                            ?tp(retry_succeeded, #{body => Body, method => Method, path => Path}),
+                            cowboy_req:reply(
+                                200,
+                                #{<<"content-type">> => <<"application/json">>},
+                                emqx_utils_json:encode(#{<<"gcp">> => <<"is back up">>}),
+                                Req
+                            )
+                    end,
+                {ok, Rep, State}
+        end
+    end.
 
 certs() ->
     CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
@@ -311,60 +327,141 @@ certs() ->
         {cacertfile, filename:join([CertsPath, "cacert.pem"])}
     ].
 
-gcp_pubsub_config(Config) ->
-    QueryMode = proplists:get_value(query_mode, Config, sync),
-    BatchSize = proplists:get_value(batch_size, Config, 100),
-    BatchTime = proplists:get_value(batch_time, Config, <<"20ms">>),
-    PayloadTemplate = proplists:get_value(payload_template, Config, ""),
-    PubSubTopic = proplists:get_value(pubsub_topic, Config, <<"mytopic">>),
-    PipelineSize = proplists:get_value(pipeline_size, Config, 100),
-    ServiceAccountJSON = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
-    ServiceAccountJSONStr = emqx_utils_json:encode(ServiceAccountJSON),
-    GUID = emqx_guid:to_hexstr(emqx_guid:gen()),
-    Name = <<(atom_to_binary(?MODULE))/binary, (GUID)/binary>>,
-    ConfigString =
-        io_lib:format(
-            "bridges.gcp_pubsub.~s {\n"
-            "  enable = true\n"
-            "  connect_timeout = 5s\n"
-            "  service_account_json = ~s\n"
-            "  payload_template = ~p\n"
-            "  pubsub_topic = ~s\n"
-            "  pool_size = 1\n"
-            "  pipelining = ~b\n"
-            "  resource_opts = {\n"
-            "    request_ttl = 500ms\n"
-            "    metrics_flush_interval = 700ms\n"
-            "    worker_pool_size = 1\n"
-            "    query_mode = ~s\n"
-            "    batch_size = ~b\n"
-            "    batch_time = \"~s\"\n"
-            "  }\n"
-            "}\n",
-            [
-                Name,
-                ServiceAccountJSONStr,
-                PayloadTemplate,
-                PubSubTopic,
-                PipelineSize,
-                QueryMode,
-                BatchSize,
-                BatchTime
-            ]
-        ),
-    #{
-        name => Name,
-        config_string => ConfigString,
-        pubsub_config => parse_and_check(ConfigString, Name),
-        service_account_json => ServiceAccountJSON
-    }.
+kill_gun_process(EhttpcPid) ->
+    State = ehttpc:get_state(EhttpcPid, minimal),
+    GunPid = maps:get(client, State),
+    true = is_pid(GunPid),
+    _ = exit(GunPid, kill),
+    ok.
 
-parse_and_check(ConfigString, Name) ->
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    TypeBin = <<"gcp_pubsub">>,
-    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"bridges">> := #{TypeBin := #{Name := Config}}} = RawConf,
-    Config.
+kill_gun_processes(TCConfig) ->
+    ConnectorResourceId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    Pool = ehttpc:workers(ConnectorResourceId),
+    Workers = lists:map(fun({_, Pid}) -> Pid end, Pool),
+    %% assert there is at least one pool member
+    ?assertMatch([_ | _], Workers),
+    lists:foreach(fun(Pid) -> kill_gun_process(Pid) end, Workers).
+
+install_telemetry_handler(TestCase) ->
+    Tid = ets:new(TestCase, [ordered_set, public]),
+    HandlerId = TestCase,
+    TestPid = self(),
+    _ = telemetry:attach_many(
+        HandlerId,
+        emqx_resource_metrics:events(),
+        fun(EventName, Measurements, Metadata, _Config) ->
+            Data = #{
+                name => EventName,
+                measurements => Measurements,
+                metadata => Metadata
+            },
+            ets:insert(Tid, {erlang:monotonic_time(), Data}),
+            TestPid ! {telemetry, Data},
+            ok
+        end,
+        unused_config
+    ),
+    on_exit(fun() ->
+        telemetry:detach(HandlerId),
+        ets:delete(Tid)
+    end),
+    Tid.
+
+wait_telemetry_event(EventName, TCConfig) ->
+    wait_telemetry_event(EventName, TCConfig, #{timeout => 5_000, n_events => 1}).
+
+wait_telemetry_event(
+    EventName,
+    TCConfig,
+    _Opts = #{
+        timeout := Timeout,
+        n_events := NEvents
+    }
+) ->
+    TelemetryTable = get_config(telemetry_table, TCConfig),
+    ResourceId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    wait_n_events(TelemetryTable, ResourceId, NEvents, Timeout, EventName).
+
+wait_n_events(_TelemetryTable, _ResourceId, NEvents, _Timeout, _EventName) when NEvents =< 0 ->
+    ok;
+wait_n_events(TelemetryTable, ResourceId, NEvents, Timeout, EventName) ->
+    receive
+        {telemetry, #{name := [_, _, EventName], measurements := #{counter_inc := Inc}} = Event} ->
+            ct:pal("telemetry event: ~p", [Event]),
+            wait_n_events(TelemetryTable, ResourceId, NEvents - Inc, Timeout, EventName)
+    after Timeout ->
+        RecordedEvents = ets:tab2list(TelemetryTable),
+        CurrentMetrics = current_metrics(ResourceId),
+        ct:pal("recorded events: ~p", [RecordedEvents]),
+        ct:pal("current metrics: ~p", [CurrentMetrics]),
+        error({timeout_waiting_for_telemetry, EventName})
+    end.
+
+receive_http_request(TCConfig) ->
+    %% Assert
+    #{} = get_config(http_server, TCConfig),
+    ServiceAccountJSON = get_config(service_account_json, TCConfig),
+    receive
+        {http, Headers, Body} ->
+            ct:pal("received publish:\n  ~p", [#{headers => Headers, body => Body}]),
+            assert_valid_request_headers(Headers, ServiceAccountJSON),
+            #{<<"messages">> := Msgs} = emqx_utils_json:decode(Body),
+            lists:map(
+                fun(Msg) ->
+                    #{<<"data">> := Content64} = Msg,
+                    Content = base64:decode(Content64),
+                    Decoded = emqx_utils_json:decode(Content),
+                    Msg#{<<"data">> := Decoded}
+                end,
+                Msgs
+            )
+    after 5_000 ->
+        {messages, Mailbox} = process_info(self(), messages),
+        error({timeout, #{mailbox => Mailbox}})
+    end.
+
+receive_http_requests(TCConfig, Opts) ->
+    Default = #{n => 1},
+    #{n := N} = maps:merge(Default, Opts),
+    lists:flatmap(fun(_) -> receive_http_request(TCConfig) end, lists:seq(1, N)).
+
+receive_all_events(EventName, Timeout, MaxEvents, FilterFn) ->
+    receive_all_events(EventName, Timeout, MaxEvents, FilterFn, _Count = 0, _Acc = []).
+
+receive_all_events(_EventName, _Timeout, MaxEvents, _FilterFn, Count, Acc) when
+    Count >= MaxEvents
+->
+    lists:reverse(Acc);
+receive_all_events(EventName, Timeout, MaxEvents, FilterFn, Count, Acc) ->
+    receive
+        {telemetry, #{name := [_, _, EventName]} = Event} ->
+            case FilterFn(Event) of
+                true ->
+                    receive_all_events(
+                        EventName,
+                        Timeout,
+                        MaxEvents,
+                        FilterFn,
+                        Count + 1,
+                        [Event | Acc]
+                    );
+                false ->
+                    receive_all_events(
+                        EventName,
+                        Timeout,
+                        MaxEvents,
+                        FilterFn,
+                        Count,
+                        Acc
+                    )
+            end
+    after Timeout ->
+        lists:reverse(Acc)
+    end.
+
+dump_telemetry_table(TCConfig) ->
+    TelemetryTable = get_config(telemetry_table, TCConfig),
+    ets:tab2list(TelemetryTable).
 
 metrics_mapping() ->
     #{
@@ -385,6 +482,10 @@ metrics_mapping() ->
         success => fun emqx_resource_metrics:success_get/1
     }.
 
+current_action_metrics(TCConfig) ->
+    ResourceId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    current_metrics(ResourceId).
+
 current_metrics(ResourceId) ->
     Mapping = metrics_mapping(),
     maps:from_list([
@@ -392,7 +493,20 @@ current_metrics(ResourceId) ->
      || {Metric, F} <- maps:to_list(Mapping)
     ]).
 
-assert_metrics(ExpectedMetrics, ResourceId) ->
+assert_empty_metrics(TCConfig) ->
+    Mapping = metrics_mapping(),
+    ExpectedMetrics =
+        lists:foldl(
+            fun(Metric, Acc) ->
+                Acc#{Metric => 0}
+            end,
+            #{},
+            maps:keys(Mapping)
+        ),
+    assert_metrics(ExpectedMetrics, TCConfig).
+
+assert_metrics(ExpectedMetrics, TCConfig) ->
+    ResourceId = emqx_bridge_v2_testlib:resource_id(TCConfig),
     Mapping = metrics_mapping(),
     Metrics =
         lists:foldl(
@@ -417,17 +531,83 @@ assert_metrics(ExpectedMetrics, ResourceId) ->
     ),
     ok.
 
-assert_empty_metrics(ResourceId) ->
-    Mapping = metrics_mapping(),
-    ExpectedMetrics =
-        lists:foldl(
-            fun(Metric, Acc) ->
-                Acc#{Metric => 0}
-            end,
-            #{},
-            maps:keys(Mapping)
-        ),
-    assert_metrics(ExpectedMetrics, ResourceId).
+mk_res_id_filter(TCConfig) ->
+    ResourceId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    fun(Event) ->
+        case Event of
+            #{metadata := #{resource_id := ResId}} when ResId =:= ResourceId ->
+                true;
+            _ ->
+                false
+        end
+    end.
+
+wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
+    wait_until_gauge_is(#{
+        gauge_name => GaugeName,
+        expected => ExpectedValue,
+        timeout => Timeout
+    }).
+
+wait_until_gauge_is(#{} = Opts) ->
+    GaugeName = maps:get(gauge_name, Opts),
+    ExpectedValue = maps:get(expected, Opts),
+    Timeout = maps:get(timeout, Opts),
+    MaxEvents = maps:get(max_events, Opts, 10),
+    FilterFn = maps:get(filter_fn, Opts, fun(_Event) -> true end),
+    Events = receive_all_events(GaugeName, Timeout, MaxEvents, FilterFn),
+    case length(Events) > 0 andalso lists:last(Events) of
+        #{measurements := #{gauge_set := ExpectedValue}} ->
+            ok;
+        #{measurements := #{gauge_set := Value}} ->
+            ct:pal("events: ~p", [Events]),
+            ct:fail(
+                "gauge ~p didn't reach expected value ~p; last value: ~p",
+                [GaugeName, ExpectedValue, Value]
+            );
+        false ->
+            ct:pal("no ~p gauge events received!", [GaugeName])
+    end.
+
+assert_http_request(TCConfig) ->
+    ServiceAccountJSON = get_config(service_account_json, TCConfig),
+    receive
+        {http, Headers, Body} ->
+            assert_valid_request_headers(Headers, ServiceAccountJSON),
+            assert_valid_request_body(Body)
+    after 5_000 ->
+        {messages, Mailbox} = process_info(self(), messages),
+        error({timeout, #{mailbox => Mailbox}})
+    end.
+
+assert_valid_request_headers(Headers, ServiceAccountJSON) ->
+    case Headers of
+        #{<<"authorization">> := <<"Bearer ", JWT/binary>>} ->
+            verify_token(ServiceAccountJSON, JWT),
+            ok;
+        _ ->
+            %% better to raise a value than to use `ct:fail'
+            %% because it doesn't output very well...
+            error({expected_bearer_authn_header, #{headers => Headers}})
+    end.
+
+assert_valid_request_body(Body) ->
+    BodyMap = emqx_utils_json:decode(Body),
+    ?assertMatch(#{<<"messages">> := [_ | _]}, BodyMap),
+    ct:pal("request: ~p", [BodyMap]),
+    #{<<"messages">> := Messages} = BodyMap,
+    lists:map(
+        fun(Msg) ->
+            ?assertMatch(#{<<"data">> := <<_/binary>>}, Msg),
+            #{<<"data">> := Content64} = Msg,
+            Content = base64:decode(Content64),
+            Decoded = emqx_utils_json:decode(Content),
+            ct:pal("decoded payload: ~p", [Decoded]),
+            ?assert(is_map(Decoded)),
+            Decoded
+        end,
+        Messages
+    ).
 
 verify_token(ServiceAccountJSON, JWTBin) ->
     #{
@@ -476,225 +656,95 @@ verify_token(ServiceAccountJSON, JWTBin) ->
     }),
     ok.
 
-assert_valid_request_headers(Headers, ServiceAccountJSON) ->
-    case Headers of
-        #{<<"authorization">> := <<"Bearer ", JWT/binary>>} ->
-            verify_token(ServiceAccountJSON, JWT),
-            ok;
-        _ ->
-            %% better to raise a value than to use `ct:fail'
-            %% because it doesn't output very well...
-            error({expected_bearer_authn_header, #{headers => Headers}})
-    end.
-
-assert_valid_request_body(Body) ->
-    BodyMap = emqx_utils_json:decode(Body),
-    ?assertMatch(#{<<"messages">> := [_ | _]}, BodyMap),
-    ct:pal("request: ~p", [BodyMap]),
-    #{<<"messages">> := Messages} = BodyMap,
-    lists:map(
-        fun(Msg) ->
-            ?assertMatch(#{<<"data">> := <<_/binary>>}, Msg),
-            #{<<"data">> := Content64} = Msg,
-            Content = base64:decode(Content64),
-            Decoded = emqx_utils_json:decode(Content),
-            ct:pal("decoded payload: ~p", [Decoded]),
-            ?assert(is_map(Decoded)),
-            Decoded
-        end,
-        Messages
+create_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
     ).
 
-assert_http_request(ServiceAccountJSON) ->
-    receive
-        {http, Headers, Body} ->
-            assert_valid_request_headers(Headers, ServiceAccountJSON),
-            assert_valid_request_body(Body)
-    after 5_000 ->
-        {messages, Mailbox} = process_info(self(), messages),
-        error({timeout, #{mailbox => Mailbox}})
-    end.
+create_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
 
-receive_http_requests(ServiceAccountJSON, Opts) ->
-    Default = #{n => 1},
-    #{n := N} = maps:merge(Default, Opts),
-    lists:flatmap(fun(_) -> receive_http_request(ServiceAccountJSON) end, lists:seq(1, N)).
+delete_connector_api(TCConfig) ->
+    emqx_bridge_v2_testlib:delete_connector_api(TCConfig).
 
-receive_http_request(ServiceAccountJSON) ->
-    receive
-        {http, Headers, Body} ->
-            ct:pal("received publish:\n  ~p", [#{headers => Headers, body => Body}]),
-            assert_valid_request_headers(Headers, ServiceAccountJSON),
-            #{<<"messages">> := Msgs} = emqx_utils_json:decode(Body),
-            lists:map(
-                fun(Msg) ->
-                    #{<<"data">> := Content64} = Msg,
-                    Content = base64:decode(Content64),
-                    Decoded = emqx_utils_json:decode(Content),
-                    Msg#{<<"data">> := Decoded}
-                end,
-                Msgs
-            )
-    after 5_000 ->
-        {messages, Mailbox} = process_info(self(), messages),
-        error({timeout, #{mailbox => Mailbox}})
-    end.
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
 
-install_telemetry_handler(TestCase) ->
-    Tid = ets:new(TestCase, [ordered_set, public]),
-    HandlerId = TestCase,
-    TestPid = self(),
-    _ = telemetry:attach_many(
-        HandlerId,
-        emqx_resource_metrics:events(),
-        fun(EventName, Measurements, Metadata, _Config) ->
-            Data = #{
-                name => EventName,
-                measurements => Measurements,
-                metadata => Metadata
-            },
-            ets:insert(Tid, {erlang:monotonic_time(), Data}),
-            TestPid ! {telemetry, Data},
-            ok
-        end,
-        unused_config
+get_action_api(Config) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_action_api(
+            Config
+        )
+    ).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+probe_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:probe_bridge_api(TCConfig, Overrides)
+    ).
+
+start_client() ->
+    start_client(_Opts = #{}).
+
+start_client(Opts) ->
+    {ok, C} = emqtt:start_link(Opts),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+assert_persisted_service_account_json_is_binary(TCConfig) ->
+    #{connector_name := ConnectorName} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    %% ensure cluster.hocon has a binary encoded json string as the value
+    {ok, Hocon} = hocon:files([application:get_env(emqx, cluster_hocon_file, undefined)]),
+    ?assertMatch(
+        Bin when is_binary(Bin),
+        emqx_utils_maps:deep_get(
+            [
+                <<"connectors">>,
+                <<"gcp_pubsub_producer">>,
+                ConnectorName,
+                <<"service_account_json">>
+            ],
+            Hocon
+        )
     ),
-    on_exit(fun() ->
-        telemetry:detach(HandlerId),
-        ets:delete(Tid)
-    end),
-    Tid.
-
-mk_res_id_filter(ResourceId) ->
-    fun(Event) ->
-        case Event of
-            #{metadata := #{resource_id := ResId}} when ResId =:= ResourceId ->
-                true;
-            _ ->
-                false
-        end
-    end.
-
-wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
-    wait_until_gauge_is(#{
-        gauge_name => GaugeName,
-        expected => ExpectedValue,
-        timeout => Timeout
-    }).
-
-wait_until_gauge_is(#{} = Opts) ->
-    GaugeName = maps:get(gauge_name, Opts),
-    ExpectedValue = maps:get(expected, Opts),
-    Timeout = maps:get(timeout, Opts),
-    MaxEvents = maps:get(max_events, Opts, 10),
-    FilterFn = maps:get(filter_fn, Opts, fun(_Event) -> true end),
-    Events = receive_all_events(GaugeName, Timeout, MaxEvents, FilterFn),
-    case length(Events) > 0 andalso lists:last(Events) of
-        #{measurements := #{gauge_set := ExpectedValue}} ->
-            ok;
-        #{measurements := #{gauge_set := Value}} ->
-            ct:pal("events: ~p", [Events]),
-            ct:fail(
-                "gauge ~p didn't reach expected value ~p; last value: ~p",
-                [GaugeName, ExpectedValue, Value]
-            );
-        false ->
-            ct:pal("no ~p gauge events received!", [GaugeName])
-    end.
-
-receive_all_events(EventName, Timeout, MaxEvents, FilterFn) ->
-    receive_all_events(EventName, Timeout, MaxEvents, FilterFn, _Count = 0, _Acc = []).
-
-receive_all_events(_EventName, _Timeout, MaxEvents, _FilterFn, Count, Acc) when
-    Count >= MaxEvents
-->
-    lists:reverse(Acc);
-receive_all_events(EventName, Timeout, MaxEvents, FilterFn, Count, Acc) ->
-    receive
-        {telemetry, #{name := [_, _, EventName]} = Event} ->
-            case FilterFn(Event) of
-                true ->
-                    receive_all_events(
-                        EventName,
-                        Timeout,
-                        MaxEvents,
-                        FilterFn,
-                        Count + 1,
-                        [Event | Acc]
-                    );
-                false ->
-                    receive_all_events(
-                        EventName,
-                        Timeout,
-                        MaxEvents,
-                        FilterFn,
-                        Count,
-                        Acc
-                    )
-            end
-    after Timeout ->
-        lists:reverse(Acc)
-    end.
-
-wait_telemetry_event(TelemetryTable, EventName, ResourceId) ->
-    wait_telemetry_event(TelemetryTable, EventName, ResourceId, #{timeout => 5_000, n_events => 1}).
-
-wait_telemetry_event(
-    TelemetryTable,
-    EventName,
-    ResourceId,
-    _Opts = #{
-        timeout := Timeout,
-        n_events := NEvents
-    }
-) ->
-    wait_n_events(TelemetryTable, ResourceId, NEvents, Timeout, EventName).
-
-wait_n_events(_TelemetryTable, _ResourceId, NEvents, _Timeout, _EventName) when NEvents =< 0 ->
-    ok;
-wait_n_events(TelemetryTable, ResourceId, NEvents, Timeout, EventName) ->
-    receive
-        {telemetry, #{name := [_, _, EventName], measurements := #{counter_inc := Inc}} = Event} ->
-            ct:pal("telemetry event: ~p", [Event]),
-            wait_n_events(TelemetryTable, ResourceId, NEvents - Inc, Timeout, EventName)
-    after Timeout ->
-        RecordedEvents = ets:tab2list(TelemetryTable),
-        CurrentMetrics = current_metrics(ResourceId),
-        ct:pal("recorded events: ~p", [RecordedEvents]),
-        ct:pal("current metrics: ~p", [CurrentMetrics]),
-        error({timeout_waiting_for_telemetry, EventName})
-    end.
-
-kill_gun_process(EhttpcPid) ->
-    State = ehttpc:get_state(EhttpcPid, minimal),
-    GunPid = maps:get(client, State),
-    true = is_pid(GunPid),
-    _ = exit(GunPid, kill),
     ok.
 
-kill_gun_processes(ConnectorResourceId) ->
-    Pool = ehttpc:workers(ConnectorResourceId),
-    Workers = lists:map(fun({_, Pid}) -> Pid end, Pool),
-    %% assert there is at least one pool member
-    ?assertMatch([_ | _], Workers),
-    lists:foreach(fun(Pid) -> kill_gun_process(Pid) end, Workers).
-
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
-t_publish_success(Config) ->
-    ActionResourceId = ?config(action_resource_id, Config),
-    ServiceAccountJSON = ?config(service_account_json, Config),
-    TelemetryTable = ?config(telemetry_table, Config),
-    Topic = <<"t/topic">>,
-    ?assertMatch({ok, _}, create_bridge(Config)),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
-    assert_empty_metrics(ActionResourceId),
+t_start_stop() ->
+    [{matrix, true}].
+t_start_stop(matrix) ->
+    [[?mocked_gcp]];
+t_start_stop(Config) when is_list(Config) ->
+    emqx_bridge_v2_testlib:t_start_stop(Config, gcp_client_stop).
+
+t_on_get_status(Config) when is_list(Config) ->
+    emqx_bridge_v2_testlib:t_on_get_status(Config).
+
+t_publish_success() ->
+    [{matrix, true}].
+t_publish_success(matrix) ->
+    [[?mocked_gcp, ?with_batch], [?mocked_gcp, ?without_batch]];
+t_publish_success(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic, id := RuleId} = simple_create_rule_api(TCConfig),
+    assert_empty_metrics(TCConfig),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
     emqx:publish(Message),
-    DecodedMessages = assert_http_request(ServiceAccountJSON),
+    DecodedMessages = assert_http_request(TCConfig),
     ?assertMatch(
         [
             #{
@@ -706,7 +756,7 @@ t_publish_success(Config) ->
         DecodedMessages
     ),
     %% to avoid test flakiness
-    wait_telemetry_event(TelemetryTable, success, ActionResourceId),
+    wait_telemetry_event(success, TCConfig),
     wait_until_gauge_is(queuing, 0, 500),
     wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
@@ -719,21 +769,24 @@ t_publish_success(Config) ->
             retried => 0,
             success => 1
         },
-        ActionResourceId
+        TCConfig
     ),
     ok.
 
-t_publish_success_infinity_timeout(Config) ->
-    ServiceAccountJSON = ?config(service_account_json, Config),
-    Topic = <<"t/topic">>,
-    {ok, _} = create_bridge(Config, #{
+t_publish_success_infinity_timeout() ->
+    [{matrix, true}].
+t_publish_success_infinity_timeout(matrix) ->
+    [[?mocked_gcp]];
+t_publish_success_infinity_timeout(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
         <<"resource_opts">> => #{<<"request_ttl">> => <<"infinity">>}
     }),
-    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
+    #{topic := Topic, id := RuleId} = simple_create_rule_api(TCConfig),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
     emqx:publish(Message),
-    DecodedMessages = assert_http_request(ServiceAccountJSON),
+    DecodedMessages = assert_http_request(TCConfig),
     ?assertMatch(
         [
             #{
@@ -746,66 +799,21 @@ t_publish_success_infinity_timeout(Config) ->
     ),
     ok.
 
-t_publish_success_local_topic(Config) ->
-    ActionResourceId = ?config(action_resource_id, Config),
-    ServiceAccountJSON = ?config(service_account_json, Config),
-    TelemetryTable = ?config(telemetry_table, Config),
-    LocalTopic = <<"local/topic">>,
-    {ok, _} = create_bridge(Config, #{<<"local_topic">> => LocalTopic}),
-    assert_empty_metrics(ActionResourceId),
-    Payload = <<"payload">>,
-    Message = emqx_message:make(LocalTopic, Payload),
-    emqx:publish(Message),
-    DecodedMessages = assert_http_request(ServiceAccountJSON),
-    ?assertMatch(
-        [
-            #{
-                <<"topic">> := LocalTopic,
-                <<"payload">> := Payload
-            }
-        ],
-        DecodedMessages
-    ),
-    %% to avoid test flakiness
-    wait_telemetry_event(TelemetryTable, success, ActionResourceId),
-    wait_until_gauge_is(queuing, 0, 500),
-    wait_until_gauge_is(inflight, 0, 500),
-    assert_metrics(
-        #{
-            dropped => 0,
-            failed => 0,
-            inflight => 0,
-            matched => 1,
-            queuing => 0,
-            retried => 0,
-            success => 1
-        },
-        ActionResourceId
-    ),
-    ok.
-
-t_create_via_http(Config) ->
-    ?assertMatch({ok, _}, create_bridge_http(Config)),
-    ok.
-
-t_publish_templated(Config) ->
-    ActionResourceId = ?config(action_resource_id, Config),
-    ServiceAccountJSON = ?config(service_account_json, Config),
-    TelemetryTable = ?config(telemetry_table, Config),
-    Topic = <<"t/topic">>,
+t_publish_templated() ->
+    [{matrix, true}].
+t_publish_templated(matrix) ->
+    [[?mocked_gcp]];
+t_publish_templated(TCConfig) ->
     PayloadTemplate = <<
         "{\"payload\": \"${payload}\","
         " \"pub_props\": ${pub_props}}"
     >>,
-    ?assertMatch(
-        {ok, _},
-        create_bridge(
-            Config,
-            #{<<"payload_template">> => PayloadTemplate}
-        )
-    ),
-    {ok, _} = create_rule_and_action_http(Config),
-    assert_empty_metrics(ActionResourceId),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"payload_template">> => PayloadTemplate}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    assert_empty_metrics(TCConfig),
     Payload = <<"payload">>,
     Message =
         emqx_message:set_header(
@@ -814,7 +822,7 @@ t_publish_templated(Config) ->
             emqx_message:make(Topic, Payload)
         ),
     emqx:publish(Message),
-    DecodedMessages = assert_http_request(ServiceAccountJSON),
+    DecodedMessages = assert_http_request(TCConfig),
     ?assertMatch(
         [
             #{
@@ -831,7 +839,7 @@ t_publish_templated(Config) ->
         DecodedMessages
     ),
     %% to avoid test flakiness
-    wait_telemetry_event(TelemetryTable, success, ActionResourceId),
+    wait_telemetry_event(success, TCConfig),
     wait_until_gauge_is(queuing, 0, 500),
     wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
@@ -844,42 +852,27 @@ t_publish_templated(Config) ->
             retried => 0,
             success => 1
         },
-        ActionResourceId
+        TCConfig
     ),
     ok.
 
-t_publish_success_batch(Config) ->
-    case proplists:get_bool(skip_due_to_no_batching, Config) of
-        true ->
-            ct:pal("this test case is skipped due to non-applicable config"),
-            ok;
-        false ->
-            test_publish_success_batch(Config)
-    end.
-
-test_publish_success_batch(Config) ->
-    ActionResourceId = ?config(action_resource_id, Config),
-    ServiceAccountJSON = ?config(service_account_json, Config),
-    TelemetryTable = ?config(telemetry_table, Config),
-    Topic = <<"t/topic">>,
-    BatchSize = 5,
-    %% to give it time to form a batch
-    BatchTime = <<"2s">>,
-    ?assertMatch(
-        {ok, _},
-        create_bridge(
-            Config,
-            #{
-                <<"resource_opts">> =>
-                    #{
-                        <<"batch_size">> => BatchSize,
-                        <<"batch_time">> => BatchTime
-                    }
-            }
-        )
-    ),
-    {ok, _} = create_rule_and_action_http(Config),
-    assert_empty_metrics(ActionResourceId),
+t_publish_success_batch() ->
+    [{matrix, true}].
+t_publish_success_batch(matrix) ->
+    [[?mocked_gcp, ?with_batch]];
+t_publish_success_batch(TCConfig) ->
+    BatchSize = get_config(batch_size, TCConfig),
+    BatchTime = get_config(batch_time, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"resource_opts">> => #{
+            <<"worker_pool_size">> => 1,
+            <<"batch_time">> => BatchTime,
+            <<"batch_size">> => BatchSize
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    assert_empty_metrics(TCConfig),
     NumMessages = BatchSize * 2,
     Messages = [emqx_message:make(Topic, integer_to_binary(N)) || N <- lists:seq(1, NumMessages)],
     %% publish in parallel to avoid each client blocking and then
@@ -887,9 +880,9 @@ test_publish_success_batch(Config) ->
     %% size for the resource (replayq buffering) must be set to 1 to
     %% avoid further segmentation of batches.
     emqx_utils:pmap(fun emqx:publish/1, Messages),
-    DecodedMessages0 = assert_http_request(ServiceAccountJSON),
+    DecodedMessages0 = assert_http_request(TCConfig),
     ?assertEqual(BatchSize, length(DecodedMessages0)),
-    DecodedMessages1 = assert_http_request(ServiceAccountJSON),
+    DecodedMessages1 = assert_http_request(TCConfig),
     ?assertEqual(BatchSize, length(DecodedMessages1)),
     PublishedPayloads =
         sets:from_list(
@@ -903,9 +896,8 @@ test_publish_success_batch(Config) ->
         ),
     ?assertEqual(ExpectedPayloads, PublishedPayloads),
     wait_telemetry_event(
-        TelemetryTable,
         success,
-        ActionResourceId,
+        TCConfig,
         #{timeout => 15_000, n_events => NumMessages}
     ),
     wait_until_gauge_is(queuing, 0, _Timeout = 400),
@@ -920,23 +912,22 @@ test_publish_success_batch(Config) ->
             retried => 0,
             success => NumMessages
         },
-        ActionResourceId
+        TCConfig
     ),
     ok.
 
-t_not_a_json(Config) ->
+t_not_a_json(TCConfig) ->
     ?assertMatch(
-        {error,
-            {_, _, #{
-                <<"message">> := #{
-                    <<"kind">> := <<"validation_error">>,
-                    <<"reason">> := <<"not a json">>,
-                    %% should be censored as it contains secrets
-                    <<"value">> := <<"******">>
-                }
-            }}},
-        create_bridge(
-            Config,
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"not a json">>,
+                %% should be censored as it contains secrets
+                <<"value">> := <<"******">>
+            }
+        }},
+        create_connector_api(
+            TCConfig,
             #{
                 <<"service_account_json">> => <<"not a json">>
             }
@@ -944,74 +935,70 @@ t_not_a_json(Config) ->
     ),
     ok.
 
-t_not_of_service_account_type(Config) ->
+t_not_of_service_account_type(TCConfig) ->
+    JSON = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
     ?assertMatch(
-        {error,
-            {{_, 400, _}, _, #{
-                <<"message">> := #{
-                    <<"kind">> := <<"validation_error">>,
-                    <<"reason">> := #{<<"wrong_type">> := <<"not a service account">>},
-                    %% should be censored as it contains secrets
-                    <<"value">> := <<"******">>
-                }
-            }}},
-        create_bridge_http(
-            Config,
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := #{<<"wrong_type">> := <<"not a service account">>},
+                %% should be censored as it contains secrets
+                <<"value">> := <<"******">>
+            }
+        }},
+        create_connector_api(
+            TCConfig,
             #{
-                <<"service_account_json">> => #{<<"type">> => <<"not a service account">>}
+                <<"service_account_json">> => JSON#{<<"type">> := <<"not a service account">>}
             }
         )
     ),
     ok.
 
-t_json_missing_fields(Config) ->
-    GCPPubSubConfig0 = ?config(gcp_pubsub_config, Config),
+t_json_missing_fields(TCConfig) ->
     ?assertMatch(
-        {error,
-            {{_, 400, _}, _, #{
-                <<"message">> := #{
-                    <<"kind">> := <<"validation_error">>,
-                    <<"reason">> :=
-                        #{
-                            <<"missing_keys">> := [
-                                <<"client_email">>,
-                                <<"private_key">>,
-                                <<"private_key_id">>,
-                                <<"project_id">>,
-                                <<"type">>
-                            ]
-                        },
-                    %% should be censored as it contains secrets
-                    <<"value">> := <<"******">>
-                }
-            }}},
-        create_bridge_http([
-            {gcp_pubsub_config, GCPPubSubConfig0#{<<"service_account_json">> := #{}}}
-            | Config
-        ])
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> :=
+                    #{
+                        <<"missing_keys">> := [
+                            <<"client_email">>,
+                            <<"private_key">>,
+                            <<"private_key_id">>,
+                            <<"project_id">>,
+                            <<"type">>
+                        ]
+                    },
+                %% should be censored as it contains secrets
+                <<"value">> := <<"******">>
+            }
+        }},
+        create_connector_api(
+            TCConfig,
+            #{
+                <<"service_account_json">> => #{}
+            }
+        )
     ),
     ok.
 
-t_invalid_private_key(Config) ->
+t_invalid_private_key(TCConfig) ->
     InvalidPrivateKeyPEM = <<"xxxxxx">>,
+    JSON = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
     ?check_trace(
         begin
-            {Res, {ok, _Event}} =
+            {{201, _}, {ok, _Event}} =
                 ?wait_async_action(
-                    create_bridge(
-                        Config,
-                        #{
-                            <<"service_account_json">> =>
-                                #{<<"private_key">> => InvalidPrivateKeyPEM}
-                        }
-                    ),
+                    create_connector_api(TCConfig, #{
+                        <<"service_account_json">> =>
+                            JSON#{<<"private_key">> => InvalidPrivateKeyPEM}
+                    }),
                     #{?snk_kind := gcp_client_startup_error},
                     20_000
-                ),
-            Res
+                )
         end,
-        fun(Res, Trace) ->
-            ?assertMatch({ok, _}, Res),
+        fun(Trace) ->
             ?assertMatch(
                 [#{error := empty_key}],
                 ?of_kind(gcp_client_startup_error, Trace)
@@ -1021,26 +1008,22 @@ t_invalid_private_key(Config) ->
     ),
     ok.
 
-t_truncated_private_key(Config) ->
+t_truncated_private_key(TCConfig) ->
     InvalidPrivateKeyPEM = <<"-----BEGIN PRIVATE KEY-----\nMIIEvQI...">>,
+    JSON = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
     ?check_trace(
         begin
-            {Res, {ok, _Event}} =
+            {{201, _}, {ok, _Event}} =
                 ?wait_async_action(
-                    create_bridge(
-                        Config,
-                        #{
-                            <<"service_account_json">> =>
-                                #{<<"private_key">> => InvalidPrivateKeyPEM}
-                        }
-                    ),
+                    create_connector_api(TCConfig, #{
+                        <<"service_account_json">> =>
+                            JSON#{<<"private_key">> => InvalidPrivateKeyPEM}
+                    }),
                     #{?snk_kind := gcp_client_startup_error},
                     20_000
-                ),
-            Res
+                )
         end,
-        fun(Res, Trace) ->
-            ?assertMatch({ok, _}, Res),
+        fun(Trace) ->
             ?assertMatch(
                 [#{error := invalid_private_key}],
                 ?of_kind(gcp_client_startup_error, Trace)
@@ -1050,24 +1033,24 @@ t_truncated_private_key(Config) ->
     ),
     ok.
 
-t_jose_error_tuple(Config) ->
+t_jose_error_tuple(TCConfig) ->
     ?check_trace(
         begin
-            {Res, {ok, _Event}} =
+            {{201, _}, {ok, _Event}} =
                 ?wait_async_action(
                     emqx_common_test_helpers:with_mock(
                         jose_jwk,
                         from_pem,
                         fun(_PrivateKeyPEM) -> {error, some_error} end,
-                        fun() -> create_bridge(Config) end
+                        fun() ->
+                            create_connector_api(TCConfig, #{})
+                        end
                     ),
                     #{?snk_kind := gcp_client_startup_error},
                     20_000
-                ),
-            Res
+                )
         end,
-        fun(Res, Trace) ->
-            ?assertMatch({ok, _}, Res),
+        fun(Trace) ->
             ?assertMatch(
                 [#{error := {invalid_private_key, some_error}}],
                 ?of_kind(gcp_client_startup_error, Trace)
@@ -1077,24 +1060,24 @@ t_jose_error_tuple(Config) ->
     ),
     ok.
 
-t_jose_other_error(Config) ->
+t_jose_other_error(TCConfig) ->
     ?check_trace(
         begin
-            {Res, {ok, _Event}} =
+            {{201, _}, {ok, _Event}} =
                 ?wait_async_action(
                     emqx_common_test_helpers:with_mock(
                         jose_jwk,
                         from_pem,
                         fun(_PrivateKeyPEM) -> {unknown, error} end,
-                        fun() -> create_bridge(Config) end
+                        fun() ->
+                            create_connector_api(TCConfig, #{})
+                        end
                     ),
                     #{?snk_kind := gcp_client_startup_error},
                     20_000
-                ),
-            Res
+                )
         end,
-        fun(Res, Trace) ->
-            ?assertMatch({ok, _}, Res),
+        fun(Trace) ->
             ?assertMatch(
                 [#{error := {invalid_private_key, {unknown, error}}} | _],
                 ?of_kind(gcp_client_startup_error, Trace)
@@ -1104,37 +1087,52 @@ t_jose_other_error(Config) ->
     ),
     ok.
 
-t_publish_econnrefused(Config) ->
-    ResourceId = ?config(connector_resource_id, Config),
+t_publish_econnrefused() ->
+    [{matrix, true}].
+t_publish_econnrefused(matrix) ->
+    [[?mocked_gcp]];
+t_publish_econnrefused(TCConfig) ->
     %% set pipelining to 1 so that one of the 2 requests is `pending'
     %% in ehttpc.
-    {ok, _} = create_bridge(
-        Config,
+    {201, _} = create_connector_api(
+        TCConfig,
         #{
             <<"pipelining">> => 1,
             <<"resource_opts">> => #{<<"resume_interval">> => <<"15s">>}
         }
     ),
-    {ok, _} = create_rule_and_action_http(Config),
-    assert_empty_metrics(ResourceId),
+    {201, _} = create_action_api(TCConfig, #{}),
+    assert_empty_metrics(TCConfig),
     ok = emqx_bridge_http_connector_test_server:stop(),
-    do_econnrefused_or_timeout_test(Config, econnrefused).
+    do_econnrefused_or_timeout_test(TCConfig, econnrefused).
 
-t_publish_timeout(Config) ->
-    ActionResourceId = ?config(action_resource_id, Config),
+t_publish_timeout() ->
+    [{matrix, true}].
+t_publish_timeout(matrix) ->
+    [[?mocked_gcp]];
+t_publish_timeout(TCConfig) ->
     %% set pipelining to 1 so that one of the 2 requests is `pending'
     %% in ehttpc. also, we set the batch size to 1 to also ensure the
     %% requests are done separately.
-    {ok, _} = create_bridge(Config, #{
-        <<"pipelining">> => 1,
-        <<"resource_opts">> => #{
-            <<"batch_size">> => 1,
-            <<"resume_interval">> => <<"1s">>,
-            <<"metrics_flush_interval">> => <<"700ms">>
+    {201, _} = create_connector_api(
+        TCConfig,
+        #{
+            <<"pipelining">> => 1,
+            <<"resource_opts">> => #{<<"resume_interval">> => <<"15s">>}
         }
-    }),
-    {ok, _} = create_rule_and_action_http(Config),
-    assert_empty_metrics(ActionResourceId),
+    ),
+    {201, _} = create_action_api(
+        TCConfig,
+        #{
+            <<"resource_opts">> => #{
+                <<"batch_size">> => 1,
+                <<"resume_interval">> => <<"1s">>,
+                <<"request_ttl">> => <<"500ms">>,
+                <<"metrics_flush_interval">> => <<"700ms">>
+            }
+        }
+    ),
+    assert_empty_metrics(TCConfig),
     TestPid = self(),
     TimeoutHandler =
         fun(Req0, State) ->
@@ -1154,15 +1152,12 @@ t_publish_timeout(Config) ->
             {ok, Rep, State}
         end,
     ok = emqx_bridge_http_connector_test_server:set_handler(TimeoutHandler),
-    do_econnrefused_or_timeout_test(Config, timeout).
+    do_econnrefused_or_timeout_test(TCConfig, timeout).
 
-do_econnrefused_or_timeout_test(Config, Error) ->
-    ActionResourceId = ?config(action_resource_id, Config),
-    ConnectorResourceId = ?config(connector_resource_id, Config),
-    TelemetryTable = ?config(telemetry_table, Config),
-    Topic = <<"t/topic">>,
+do_econnrefused_or_timeout_test(TCConfig, Error) ->
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
     Payload = <<"payload">>,
-    Message = emqx_message:make(Topic, Payload),
+    C = start_client(),
     ?check_trace(
         begin
             case Error of
@@ -1176,8 +1171,8 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                     {_, {ok, _}} =
                         ?wait_async_action(
                             begin
-                                emqx:publish(Message),
-                                emqx:publish(Message)
+                                emqtt:publish(C, Topic, Payload, [{qos, 0}]),
+                                emqtt:publish(C, Topic, Payload, [{qos, 0}])
                             end,
                             #{
                                 ?snk_kind := gcp_client_request_failed,
@@ -1191,8 +1186,8 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                     %% (even if they arrive late, or never
                     %% arrive at all).
                     %% with the timeout delay, this'll succeed.
-                    emqx:publish(Message),
-                    emqx:publish(Message),
+                    emqtt:publish(C, Topic, Payload, [{qos, 0}]),
+                    emqtt:publish(C, Topic, Payload, [{qos, 0}]),
                     {ok, _} = snabbkaffe:block_until(
                         ?match_n_events(2, #{
                             ?snk_kind := handle_async_reply_expired,
@@ -1206,18 +1201,14 @@ do_econnrefused_or_timeout_test(Config, Error) ->
             case Error of
                 econnrefused ->
                     case ?of_kind(gcp_client_request_failed, Trace) of
-                        [#{reason := Reason, connector := ConnectorResourceId} | _] when
+                        [#{reason := Reason} | _] when
                             Reason == Error;
                             Reason == closed;
                             element(2, Reason) == closed
                         ->
                             ok;
                         Trace0 ->
-                            error(
-                                {unexpected_trace, Trace0, #{
-                                    expected_connector_id => ConnectorResourceId
-                                }}
-                            )
+                            error({unexpected_trace, Trace0})
                     end;
                 timeout ->
                     ?assertMatch(
@@ -1237,9 +1228,9 @@ do_econnrefused_or_timeout_test(Config, Error) ->
             %% even waiting, hard to avoid flakiness... simpler to just sleep
             %% a bit until stabilization.
             ct:sleep(200),
-            CurrentMetrics = current_metrics(ActionResourceId),
-            RecordedEvents = ets:tab2list(TelemetryTable),
-            ct:pal("telemetry events: ~p", [RecordedEvents]),
+            CurrentMetrics = current_action_metrics(TCConfig),
+            RecordedEvents = dump_telemetry_table(TCConfig),
+            ct:pal("telemetry events:\n  ~p", [RecordedEvents]),
             ?assertMatch(
                 #{
                     dropped := Dropped,
@@ -1254,15 +1245,14 @@ do_econnrefused_or_timeout_test(Config, Error) ->
             );
         timeout ->
             wait_telemetry_event(
-                TelemetryTable,
                 late_reply,
-                ActionResourceId,
+                TCConfig,
                 #{timeout => 5_000, n_events => 2}
             ),
             wait_until_gauge_is(#{
                 gauge_name => inflight,
                 expected => 0,
-                filter_fn => mk_res_id_filter(ActionResourceId),
+                filter_fn => mk_res_id_filter(TCConfig),
                 timeout => 1_000,
                 max_events => 20
             }),
@@ -1278,15 +1268,18 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                     success => 0,
                     late_reply => 2
                 },
-                ActionResourceId
+                TCConfig
             )
     end,
-
     ok.
 
 %% for complete coverage; pubsub actually returns a body with message
 %% ids
-t_success_no_body(Config) ->
+t_success_no_body() ->
+    [{matrix, true}].
+t_success_no_body(matrix) ->
+    [[?mocked_gcp]];
+t_success_no_body(TCConfig) ->
     TestPid = self(),
     SuccessNoBodyHandler =
         fun(Req0, State) ->
@@ -1301,15 +1294,15 @@ t_success_no_body(Config) ->
             {ok, Rep, State}
         end,
     ok = emqx_bridge_http_connector_test_server:set_handler(SuccessNoBodyHandler),
-    Topic = <<"t/topic">>,
-    {ok, _} = create_bridge(Config),
-    {ok, _} = create_rule_and_action_http(Config),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
     Payload = <<"payload">>,
-    Message = emqx_message:make(Topic, Payload),
     ?check_trace(
         {_, {ok, _}} =
             ?wait_async_action(
-                emqx:publish(Message),
+                emqtt:publish(C, Topic, Payload),
                 #{?snk_kind := gcp_pubsub_response},
                 5_000
             ),
@@ -1323,55 +1316,11 @@ t_success_no_body(Config) ->
     ),
     ok.
 
-t_failure_with_body(Config) ->
-    TestPid = self(),
-    FailureWithBodyHandler =
-        fun(Req0, State) ->
-            case {cowboy_req:method(Req0), cowboy_req:path(Req0)} of
-                {<<"GET">>, <<"/v1/projects/myproject/topics/", _/binary>>} ->
-                    Rep = cowboy_req:reply(
-                        200,
-                        #{<<"content-type">> => <<"application/json">>},
-                        <<"{}">>,
-                        Req0
-                    ),
-                    {ok, Rep, State};
-                _ ->
-                    {ok, Body, Req} = cowboy_req:read_body(Req0),
-                    TestPid ! {http, cowboy_req:headers(Req), Body},
-                    Rep = cowboy_req:reply(
-                        400,
-                        #{<<"content-type">> => <<"application/json">>},
-                        emqx_utils_json:encode(#{}),
-                        Req
-                    ),
-                    {ok, Rep, State}
-            end
-        end,
-    ok = emqx_bridge_http_connector_test_server:set_handler(FailureWithBodyHandler),
-    Topic = <<"t/topic">>,
-    {ok, _} = create_bridge(Config),
-    {ok, _} = create_rule_and_action_http(Config),
-    Payload = <<"payload">>,
-    Message = emqx_message:make(Topic, Payload),
-    ?check_trace(
-        {_, {ok, _}} =
-            ?wait_async_action(
-                emqx:publish(Message),
-                #{?snk_kind := gcp_pubsub_response},
-                5_000
-            ),
-        fun(Trace) ->
-            ?assertMatch(
-                [#{response := {ok, 400, _Headers, _Body}}],
-                ?of_kind(gcp_pubsub_response, Trace)
-            ),
-            ok
-        end
-    ),
-    ok.
-
-t_failure_no_body(Config) ->
+t_failure_no_body() ->
+    [{matrix, true}].
+t_failure_no_body(matrix) ->
+    [[?mocked_gcp]];
+t_failure_no_body(TCConfig) ->
     TestPid = self(),
     FailureNoBodyHandler =
         fun(Req0, State) ->
@@ -1397,15 +1346,15 @@ t_failure_no_body(Config) ->
             end
         end,
     ok = emqx_bridge_http_connector_test_server:set_handler(FailureNoBodyHandler),
-    Topic = <<"t/topic">>,
-    {ok, _} = create_bridge(Config),
-    {ok, _} = create_rule_and_action_http(Config),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
     Payload = <<"payload">>,
-    Message = emqx_message:make(Topic, Payload),
     ?check_trace(
         {_, {ok, _}} =
             ?wait_async_action(
-                emqx:publish(Message),
+                emqtt:publish(C, Topic, Payload),
                 #{?snk_kind := gcp_pubsub_response},
                 5_000
             ),
@@ -1419,10 +1368,11 @@ t_failure_no_body(Config) ->
     ),
     ok.
 
-t_unrecoverable_error(Config) ->
-    ActionResourceId = ?config(action_resource_id, Config),
-    ConnectorResourceId = ?config(connector_resource_id, Config),
-    TelemetryTable = ?config(telemetry_table, Config),
+t_unrecoverable_error() ->
+    [{matrix, true}].
+t_unrecoverable_error(matrix) ->
+    [[?mocked_gcp]];
+t_unrecoverable_error(TCConfig) ->
     TestPid = self(),
     FailureNoBodyHandler =
         fun(Req0, State) ->
@@ -1441,7 +1391,7 @@ t_unrecoverable_error(Config) ->
                     %% kill the gun process while it's waiting for the
                     %% response so we provoke an `{error, _}' response from
                     %% ehttpc.
-                    ok = kill_gun_processes(ConnectorResourceId),
+                    ok = kill_gun_processes(TCConfig),
                     Rep = cowboy_req:reply(
                         200,
                         #{<<"content-type">> => <<"application/json">>},
@@ -1452,16 +1402,16 @@ t_unrecoverable_error(Config) ->
             end
         end,
     ok = emqx_bridge_http_connector_test_server:set_handler(FailureNoBodyHandler),
-    Topic = <<"t/topic">>,
-    {ok, _} = create_bridge(Config),
-    assert_empty_metrics(ActionResourceId),
-    {ok, _} = create_rule_and_action_http(Config),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    assert_empty_metrics(TCConfig),
     Payload = <<"payload">>,
-    Message = emqx_message:make(Topic, Payload),
     ?check_trace(
         {_, {ok, _}} =
             ?wait_async_action(
-                emqx:publish(Message),
+                emqtt:publish(C, Topic, Payload),
                 #{?snk_kind := gcp_pubsub_request_failed},
                 5_000
             ),
@@ -1481,7 +1431,7 @@ t_unrecoverable_error(Config) ->
     %% removed, this inflight should be 1, because we retry if
     %% the worker is killed.
     wait_until_gauge_is(inflight, 0, _Timeout = 400),
-    wait_telemetry_event(TelemetryTable, failed, ActionResourceId),
+    wait_telemetry_event(failed, TCConfig),
     assert_metrics(
         #{
             dropped => 0,
@@ -1494,21 +1444,51 @@ t_unrecoverable_error(Config) ->
             retried => 0,
             success => 0
         },
-        ActionResourceId
+        TCConfig
     ),
     ok.
 
-t_stop(Config) ->
-    Name = ?config(gcp_pubsub_name, Config),
-    {ok, _} = create_bridge(Config),
+%% Usually not called, since the bridge has `async_if_possible' callback mode.
+t_query_sync() ->
+    [{matrix, true}].
+t_query_sync(matrix) ->
+    [[?mocked_gcp, ?without_batch], [?mocked_gcp, ?with_batch]];
+t_query_sync(TCConfig) ->
+    Payload = <<"payload">>,
+    BatchSize = get_config(batch_size, TCConfig, 1),
     ?check_trace(
-        ?wait_async_action(
-            emqx_bridge_resource:stop(?BRIDGE_V1_TYPE, Name),
-            #{?snk_kind := gcp_client_stop},
-            5_000
+        emqx_common_test_helpers:with_mock(
+            emqx_bridge_gcp_pubsub_impl_producer,
+            callback_mode,
+            fun() -> always_sync end,
+            fun() ->
+                {201, _} = create_connector_api(TCConfig, #{}),
+                {201, _} = create_action_api(TCConfig, #{}),
+                #{topic := Topic} = simple_create_rule_api(TCConfig),
+                C = start_client(),
+                emqx_utils:pmap(
+                    fun(_) -> emqtt:publish(C, Topic, Payload, [{qos, 0}]) end,
+                    lists:seq(1, BatchSize)
+                ),
+                DecodedMessages = assert_http_request(TCConfig),
+                ?assertEqual(BatchSize, length(DecodedMessages)),
+                ok
+            end
         ),
-        fun(Res, Trace) ->
-            ?assertMatch({ok, {ok, _}}, Res),
+        []
+    ),
+    ok.
+
+t_stop(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ?check_trace(
+        {{204, _}, {ok, _}} =
+            ?wait_async_action(
+                delete_connector_api(TCConfig),
+                #{?snk_kind := gcp_client_stop},
+                5_000
+            ),
+        fun(Trace) ->
             ?assertMatch([_], ?of_kind(gcp_client_stop, Trace)),
             ?assertMatch([_ | _], ?of_kind(connector_jwt_deleted, Trace)),
             ok
@@ -1516,29 +1496,28 @@ t_stop(Config) ->
     ),
     ok.
 
-t_get_status_ok(Config) ->
-    ResourceId = ?config(connector_resource_id, Config),
-    {ok, _} = create_bridge(Config),
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
-    ok.
-
-t_get_status_no_worker(Config) ->
-    ResourceId = ?config(connector_resource_id, Config),
-    {ok, _} = create_bridge(Config),
+t_get_status_no_worker(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
     emqx_common_test_helpers:with_mock(
         ehttpc,
         workers,
         fun(_Poolname) -> [] end,
         fun() ->
-            ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId)),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"disconnected">>}},
+                    get_connector_api(TCConfig)
+                )
+            ),
             ok
         end
     ),
     ok.
 
-t_get_status_down(Config) ->
-    ResourceId = ?config(connector_resource_id, Config),
-    {ok, _} = create_bridge(Config),
+t_get_status_down(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
     emqx_common_test_helpers:with_mock(
         ehttpc,
         health_check,
@@ -1546,15 +1525,21 @@ t_get_status_down(Config) ->
             {error, connect_timeout}
         end,
         fun() ->
-            ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId)),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"disconnected">>}},
+                    get_connector_api(TCConfig)
+                )
+            ),
             ok
         end
     ),
     ok.
 
-t_get_status_timeout_calling_workers(Config) ->
-    ResourceId = ?config(connector_resource_id, Config),
-    {ok, _} = create_bridge(Config, #{<<"connect_timeout">> => <<"1s">>}),
+t_get_status_timeout_calling_workers(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{<<"connect_timeout">> => <<"1s">>}),
     emqx_common_test_helpers:with_mock(
         ehttpc,
         health_check,
@@ -1567,14 +1552,17 @@ t_get_status_timeout_calling_workers(Config) ->
             ?retry(
                 _Sleep0 = 100,
                 _Attempts0 = 20,
-                ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId))
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"disconnected">>}},
+                    get_connector_api(TCConfig)
+                )
             ),
             ok
         end
     ),
     ok.
 
-t_on_start_ehttpc_pool_already_started(Config) ->
+t_on_start_ehttpc_pool_already_started(TCConfig) ->
     ?check_trace(
         begin
             ?force_ordering(
@@ -1589,7 +1577,9 @@ t_on_start_ehttpc_pool_already_started(Config) ->
                     end,
                     5_000
                 ),
-            spawn_link(fun() -> {ok, _} = create_bridge(Config) end),
+            spawn_link(fun() ->
+                {201, _} = create_connector_api(TCConfig, #{})
+            end),
             {ok, [#{pool_name := PoolName, pool_opts := PoolOpts}]} = snabbkaffe:receive_events(
                 SubRef
             ),
@@ -1608,14 +1598,14 @@ t_on_start_ehttpc_pool_already_started(Config) ->
     ),
     ok.
 
-t_on_start_ehttpc_pool_start_failure(Config) ->
+t_on_start_ehttpc_pool_start_failure(TCConfig) ->
     ?check_trace(
         emqx_common_test_helpers:with_mock(
             ehttpc_sup,
             start_pool,
             fun(_PoolName, _PoolOpts) -> {error, some_error} end,
             fun() ->
-                {ok, _} = create_bridge(Config)
+                {201, _} = create_connector_api(TCConfig, #{})
             end
         ),
         fun(Trace) ->
@@ -1628,42 +1618,17 @@ t_on_start_ehttpc_pool_start_failure(Config) ->
     ),
     ok.
 
-%% Usually not called, since the bridge has `async_if_possible' callback mode.
-t_query_sync(Config) ->
-    BatchSize0 = ?config(batch_size, Config),
-    ServiceAccountJSON = ?config(service_account_json, Config),
-    BatchSize = min(2, BatchSize0),
-    Topic = <<"t/topic">>,
-    Payload = <<"payload">>,
-    ?check_trace(
-        emqx_common_test_helpers:with_mock(
-            emqx_bridge_gcp_pubsub_impl_producer,
-            callback_mode,
-            fun() -> always_sync end,
-            fun() ->
-                {ok, _} = create_bridge(Config),
-                {ok, _} = create_rule_and_action_http(Config),
-                Message = emqx_message:make(Topic, Payload),
-                emqx_utils:pmap(fun(_) -> emqx:publish(Message) end, lists:seq(1, BatchSize)),
-                DecodedMessages = assert_http_request(ServiceAccountJSON),
-                ?assertEqual(BatchSize, length(DecodedMessages)),
-                ok
-            end
-        ),
-        []
-    ),
-    ok.
-
-t_attributes(Config) ->
-    Name = ?config(gcp_pubsub_name, Config),
-    ServiceAccountJSON = ?config(service_account_json, Config),
-    LocalTopic = <<"t/topic">>,
+t_attributes() ->
+    [{matrix, true}].
+t_attributes(matrix) ->
+    [[?mocked_gcp]];
+t_attributes(TCConfig) ->
+    Name = get_config(action_name, TCConfig),
     ?check_trace(
         begin
-            {ok, _} = create_bridge_http(
-                Config,
-                #{
-                    <<"local_topic">> => LocalTopic,
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_action_api(TCConfig, #{
+                <<"parameters">> => #{
                     <<"attributes_template">> =>
                         [
                             #{
@@ -1685,7 +1650,9 @@ t_attributes(Config) ->
                         ],
                     <<"ordering_key_template">> => <<"${.payload.ok}">>
                 }
-            ),
+            }),
+            #{topic := Topic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
             %% without ordering key
             Payload0 =
                 emqx_utils_json:encode(
@@ -1694,9 +1661,8 @@ t_attributes(Config) ->
                         <<"key">> => <<"payload_key">>
                     }
                 ),
-            Message0 = emqx_message:make(LocalTopic, Payload0),
-            emqx:publish(Message0),
-            DecodedMessages0 = receive_http_request(ServiceAccountJSON),
+            emqtt:publish(C, Topic, Payload0),
+            DecodedMessages0 = receive_http_request(TCConfig),
             ?assertMatch(
                 [
                     #{
@@ -1724,9 +1690,8 @@ t_attributes(Config) ->
                         <<"ok">> => <<"ordering_key">>
                     }
                 ),
-            Message1 = emqx_message:make(LocalTopic, Payload1),
-            emqx:publish(Message1),
-            DecodedMessages1 = receive_http_request(ServiceAccountJSON),
+            emqtt:publish(C, Topic, Payload1),
+            DecodedMessages1 = receive_http_request(TCConfig),
             ?assertMatch(
                 [
                     #{
@@ -1754,9 +1719,8 @@ t_attributes(Config) ->
                         <<"ok">> => <<"ordering_key">>
                     }
                 ),
-            Message2 = emqx_message:make(LocalTopic, Payload2),
-            emqx:publish(Message2),
-            [DecodedMessage2] = receive_http_request(ServiceAccountJSON),
+            emqtt:publish(C, Topic, Payload2),
+            [DecodedMessage2] = receive_http_request(TCConfig),
             ?assertEqual(
                 #{
                     <<"fixed_key">> => <<"fixed_value">>,
@@ -1796,15 +1760,16 @@ t_attributes(Config) ->
     ),
     ok.
 
-t_bad_attributes(Config) ->
-    ServiceAccountJSON = ?config(service_account_json, Config),
-    LocalTopic = <<"t/topic">>,
+t_bad_attributes() ->
+    [{matrix, true}].
+t_bad_attributes(matrix) ->
+    [[?mocked_gcp, ?with_batch]];
+t_bad_attributes(TCConfig) ->
     ?check_trace(
         begin
-            {ok, _} = create_bridge_http(
-                Config,
-                #{
-                    <<"local_topic">> => LocalTopic,
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_action_api(TCConfig, #{
+                <<"parameters">> => #{
                     <<"attributes_template">> =>
                         [
                             #{
@@ -1814,7 +1779,9 @@ t_bad_attributes(Config) ->
                         ],
                     <<"ordering_key_template">> => <<"${.payload.ok}">>
                 }
-            ),
+            }),
+            #{topic := Topic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
             %% Ok: attribute value is a map or list
             lists:foreach(
                 fun(OkValue) ->
@@ -1826,15 +1793,14 @@ t_bad_attributes(Config) ->
                                 <<"key">> => <<"attr_key">>
                             }
                         ),
-                    Message0 = emqx_message:make(LocalTopic, Payload0),
-                    emqx:publish(Message0)
+                    emqtt:publish(C, Topic, Payload0, [{qos, 0}])
                 end,
                 [
                     #{<<"some">> => <<"map">>},
                     [1, <<"str">>, #{<<"deep">> => true}]
                 ]
             ),
-            DecodedMessages0 = receive_http_requests(ServiceAccountJSON, #{n => 1}),
+            DecodedMessages0 = receive_http_requests(TCConfig, #{n => 1}),
             ?assertMatch(
                 [
                     #{
@@ -1861,8 +1827,7 @@ t_bad_attributes(Config) ->
                                 <<"ok">> => BadKey
                             }
                         ),
-                    Message1 = emqx_message:make(LocalTopic, Payload1),
-                    emqx:publish(Message1)
+                    emqtt:publish(C, Topic, Payload1, [{qos, 0}])
                 end,
                 [
                     #{<<"some">> => <<"map">>},
@@ -1871,7 +1836,7 @@ t_bad_attributes(Config) ->
                     false
                 ]
             ),
-            DecodedMessages1 = receive_http_request(ServiceAccountJSON),
+            DecodedMessages1 = receive_http_request(TCConfig),
             lists:foreach(
                 fun(DMsg) ->
                     ?assertNot(is_map_key(<<"orderingKey">>, DMsg), #{decoded_message => DMsg}),
@@ -1901,39 +1866,136 @@ t_bad_attributes(Config) ->
     ),
     ok.
 
-t_deprecated_connector_resource_opts(Config) ->
+t_create_via_http_json_object_service_account(TCConfig) ->
+    %% After the config goes through the roundtrip with `hocon_tconf:check_plain', service
+    %% account json comes back as a binary even if the input is a json object.
+    ServiceAccountJSON = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
+    true = is_map(ServiceAccountJSON),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"service_account_json">> => ServiceAccountJSON
+    }),
+    assert_persisted_service_account_json_is_binary(TCConfig),
+    ok.
+
+%% Check that creating an action (V2) with a non-existent topic returns an error.
+t_bad_topic(TCConfig) ->
     ?check_trace(
         begin
-            ServiceAccountJSON = ?config(service_account_json, Config),
-            AllResOpts = #{
-                <<"batch_size">> => 1,
-                <<"batch_time">> => <<"0ms">>,
-                <<"buffer_mode">> => <<"memory_only">>,
-                <<"buffer_seg_bytes">> => <<"10MB">>,
-                <<"health_check_interval">> => <<"15s">>,
-                <<"inflight_window">> => 100,
-                <<"max_buffer_bytes">> => <<"256MB">>,
-                <<"metrics_flush_interval">> => <<"1s">>,
-                <<"query_mode">> => <<"sync">>,
-                <<"request_ttl">> => <<"45s">>,
-                <<"resume_interval">> => <<"15s">>,
-                <<"start_after_created">> => true,
-                <<"start_timeout">> => <<"5s">>,
-                <<"worker_pool_size">> => <<"1">>
-            },
-            RawConnectorConfig = #{
-                <<"enable">> => true,
-                <<"service_account_json">> => ServiceAccountJSON,
-                <<"resource_opts">> => AllResOpts
-            },
+            {201, _} = create_connector_api(TCConfig, #{}),
             ?assertMatch(
-                {ok, _},
-                emqx:update_config([connectors, ?CONNECTOR_TYPE, c], RawConnectorConfig, #{})
+                {201, #{<<"status">> := <<"disconnected">>}},
+                create_action_api(TCConfig, #{
+                    <<"parameters">> => #{<<"pubsub_topic">> => <<"i-dont-exist">>}
+                })
             ),
+            ProbeRes = probe_action_api(
+                TCConfig,
+                #{<<"parameters">> => #{<<"pubsub_topic">> => <<"i-dont-exist">>}}
+            ),
+            ?assertMatch({400, _}, ProbeRes),
+            {400, #{<<"message">> := Msg}} = ProbeRes,
+            ?assertMatch(match, re:run(Msg, <<"unhealthy_target">>, [{capture, none}]), #{
+                msg => Msg
+            }),
+            ?assertMatch(match, re:run(Msg, <<"Topic does not exist">>, [{capture, none}]), #{
+                msg => Msg
+            }),
             ok
         end,
-        fun(_Trace) ->
+        []
+    ),
+    ok.
+
+%% Verifies the backoff and retry behavior when we receive a 502 or 503 error back.
+t_backoff_retry() ->
+    [{matrix, true}].
+t_backoff_retry(matrix) ->
+    [[?mocked_gcp]];
+t_backoff_retry(TCConfig) ->
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+                <<"resource_opts">> => #{
+                    <<"health_check_interval">> => <<"1s">>,
+                    <<"resume_interval">> => <<"1s">>
+                }
+            }),
+            {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+                <<"resource_opts">> => #{
+                    <<"health_check_interval">> => <<"1s">>
+                }
+            }),
+            #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_action_api(TCConfig)
+                )
+            ),
+            C = start_client(),
+
+            ok = emqx_bridge_http_connector_test_server:set_handler(fixed_status_handler(502, 2)),
+            {{ok, _}, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, <<"{}">>, [{qos, 1}]),
+                    #{?snk_kind := retry_succeeded}
+                ),
+
+            ok = emqx_bridge_http_connector_test_server:set_handler(fixed_status_handler(503, 2)),
+            {{ok, _}, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:publish(C, RuleTopic, <<"{}">>, [{qos, 1}]),
+                    #{?snk_kind := retry_succeeded}
+                ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that we massage the error reason in case `jose_jwk:from_pem/1' raises a
+%% `function_clause' error.  Currently, this can be caused by deleting one line from the
+%% private key PEM in the service account JSON.  Instead of logging `{error,
+%% function_clause}', we transform it to something more soothing to the user's eyes.
+t_jose_jwk_function_clause(TCConfig) ->
+    JSON0 =
+        #{<<"private_key">> := PKey0} =
+        emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
+    Lines0 = binary:split(PKey0, <<"\n">>),
+    NumLines = length(Lines0),
+    {Lines1, [_ | Lines2]} = lists:split(NumLines div 2, Lines0),
+    Lines = iolist_to_binary(lists:join(<<"\n">>, Lines1 ++ Lines2)),
+    JSON = emqx_utils_json:encode(JSON0#{<<"private_key">> := Lines}),
+    ?check_trace(
+        {201, _} = create_connector_api(TCConfig, #{
+            <<"service_account_json">> => JSON
+        }),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{error := invalid_private_key} | _],
+                ?of_kind(gcp_client_startup_error, Trace)
+            ),
             ok
         end
+    ),
+    ok.
+
+%% Checks that we return a pretty reason when health check fails.
+t_connector_health_check_timeout(TCConfig) ->
+    ?check_trace(
+        begin
+            with_failure(down, fun() ->
+                ?assertMatch(
+                    {201, #{<<"status_reason">> := <<"Connection refused">>}},
+                    create_connector_api(TCConfig, #{})
+                )
+            end),
+            ok
+        end,
+        []
     ),
     ok.

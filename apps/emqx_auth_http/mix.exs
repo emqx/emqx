@@ -24,14 +24,14 @@ defmodule EMQXAuthHTTP.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_auth, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector, in_umbrella: true},
       {:emqx_bridge_http, in_umbrella: true},
-      UMP.common_dep(:hocon)
-    ]
+      :hocon
+    ])
   end
 end

@@ -28,11 +28,11 @@ defmodule EMQXBridgeInfluxdb.MixProject do
   end
 
   def deps() do
-    [
-      UMP.common_dep(:influxdb),
+    UMP.deps([
+      :influxdb,
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
-    ]
+    ])
   end
 end

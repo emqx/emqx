@@ -1482,9 +1482,6 @@ no_persistent_sessions() ->
             true
     end.
 
-is_expired(#{last_alive_at := LastAliveAt, expiry_interval := ExpiryInterval}) ->
-    LastAliveAt + ExpiryInterval < erlang:system_time(millisecond).
-
 do_persistent_session_query(ResultAcc, QueryState) ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
@@ -1514,13 +1511,17 @@ do_persistent_session_query1(ResultAcc, QueryState, Iter0) ->
 
 check_for_live_and_expired(Rows) ->
     lists:filtermap(
-        fun({ClientId, _Session}) ->
+        fun(ClientId) ->
             case is_live_session(ClientId) of
                 true ->
                     false;
                 false ->
-                    DSSession = emqx_persistent_session_ds_state:print_session(ClientId),
-                    {true, {ClientId, DSSession}}
+                    case emqx_persistent_session_ds_state:print_channel(ClientId) of
+                        [ChanInfo] ->
+                            {true, ChanInfo};
+                        _ ->
+                            false
+                    end
             end
         end,
         Rows
@@ -1711,7 +1712,7 @@ does_offline_chan_info_match(_, _) ->
     false.
 
 does_offline_row_match_query(
-    {_Id, #{metadata := #{offline_info := #{chan_info := ChanInfo}}}}, CompiledQueryString
+    {_Id, ChanInfo, _Stats}, CompiledQueryString
 ) ->
     lists:all(
         fun(FieldQuery) -> does_offline_chan_info_match(FieldQuery, ChanInfo) end,
@@ -1730,18 +1731,7 @@ fuzzy_filter_fun(Fuzzy) ->
 
 run_fuzzy_filter(_, []) ->
     true;
-run_fuzzy_filter(
-    Row = {_, #{metadata := #{clientinfo := ClientInfo}}},
-    [{Key, like, SubStr} | RestArgs]
-) ->
-    %% Row from DS
-    run_fuzzy_filter1(ClientInfo, Key, SubStr) andalso
-        run_fuzzy_filter(Row, RestArgs);
-run_fuzzy_filter(
-    Row = {_, #{metadata := #{clientinfo := ClientInfo}}},
-    [{Key, in, Xs} | RestArgs]
-) ->
-    %% Row from DS
+run_fuzzy_filter(Row = {_, #{clientinfo := ClientInfo}, _}, [{Key, in, Xs} | RestArgs]) ->
     IsMatch =
         case maps:find(Key, ClientInfo) of
             {ok, X} ->
@@ -1752,7 +1742,6 @@ run_fuzzy_filter(
     IsMatch andalso
         run_fuzzy_filter(Row, RestArgs);
 run_fuzzy_filter(Row = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} | RestArgs]) ->
-    %% Row from ETS
     run_fuzzy_filter1(ClientInfo, Key, SubStr) andalso
         run_fuzzy_filter(Row, RestArgs).
 
@@ -1769,10 +1758,7 @@ run_fuzzy_filter1(ClientInfo, Key, SubStr) ->
 
 format_channel_info(ChannInfo = {_, _ClientInfo, _ClientStats}) ->
     %% channel info from ETS table (live and/or in-memory session)
-    format_channel_info(node(), ChannInfo);
-format_channel_info({ClientId, PSInfo}) ->
-    %% offline persistent session
-    format_persistent_session_info(ClientId, PSInfo).
+    format_channel_info(node(), ChannInfo).
 
 format_channel_info(WhichNode, ChanInfo) ->
     DefaultOpts = #{fields => all},
@@ -1813,77 +1799,7 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}, Opts) ->
             with_client_info_fields(ClientInfoMap, RequestedFields),
             TimesKeys
         )
-    );
-format_channel_info(undefined, {ClientId, PSInfo0 = #{}}, _Opts) ->
-    format_persistent_session_info(ClientId, PSInfo0);
-format_channel_info(undefined, {ClientId, undefined = _PSInfo}, _Opts) ->
-    %% Durable session missing its metadata: possibly a race condition, such as the client
-    %% being kicked while the API is enumerating clients.  There's nothing much to do, we
-    %% just return an almost empty map to avoid crashing this function.  The client may
-    %% just retry listing in such cases.
-    #{clientid => ClientId}.
-
-format_persistent_session_info(
-    _ClientId,
-    #{
-        metadata := #{?offline_info := #{chan_info := ChanInfo, stats := Stats} = OfflineInfo} =
-            Metadata
-    } =
-        PSInfo
-) ->
-    Info0 = format_channel_info(_Node = undefined, {_Key = undefined, ChanInfo, Stats}, #{
-        fields => all
-    }),
-    LastConnectedToNode = maps:get(last_connected_to, OfflineInfo, undefined),
-    DisconnectedAt = maps:get(disconnected_at, OfflineInfo, undefined),
-    %% `created_at' and `connected_at' have already been formatted by this point.
-    Info = result_format_time_fun(
-        disconnected_at,
-        Info0#{
-            connected => false,
-            disconnected_at => DisconnectedAt,
-            durable => true,
-            is_persistent => true,
-            is_expired => is_expired(Metadata),
-            node => LastConnectedToNode,
-            subscriptions_cnt => maps:size(maps:get(subscriptions, PSInfo, #{}))
-        }
-    ),
-    result_format_undefined_to_null(Info);
-format_persistent_session_info(ClientId, PSInfo0) ->
-    Metadata = maps:get(metadata, PSInfo0, #{}),
-    {ProtoName, ProtoVer} = maps:get(protocol, Metadata),
-    PSInfo1 = maps:with([created_at, expiry_interval], Metadata),
-    CreatedAt = maps:get(created_at, PSInfo1),
-    case Metadata of
-        #{peername := PeerName} ->
-            {IpAddress, Port} = peername_dispart(PeerName);
-        _ ->
-            IpAddress = undefined,
-            Port = undefined
-    end,
-    PSInfo2 = convert_expiry_interval_unit(PSInfo1),
-    PSInfo3 = PSInfo2#{
-        clientid => ClientId,
-        connected => false,
-        connected_at => CreatedAt,
-        durable => true,
-        ip_address => IpAddress,
-        is_expired => is_expired(Metadata),
-        is_persistent => true,
-        port => Port,
-        heap_size => 0,
-        mqueue_len => 0,
-        proto_name => ProtoName,
-        proto_ver => ProtoVer,
-        subscriptions_cnt => maps:size(maps:get(subscriptions, PSInfo0, #{}))
-    },
-    PSInfo = lists:foldl(
-        fun result_format_time_fun/2,
-        PSInfo3,
-        [created_at, connected_at]
-    ),
-    result_format_undefined_to_null(PSInfo).
+    ).
 
 with_client_info_fields(ClientInfoMap, all) ->
     RemoveList =

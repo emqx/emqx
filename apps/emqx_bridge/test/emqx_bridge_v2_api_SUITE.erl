@@ -114,17 +114,6 @@
 -define(SOURCE_TYPE, <<?SOURCE_TYPE_STR>>).
 -define(SOURCE_CONNECTOR_TYPE, ?SOURCE_TYPE).
 
--define(APPSPECS, [
-    emqx_conf,
-    emqx,
-    emqx_auth,
-    emqx_management,
-    emqx_connector,
-    emqx_bridge_mqtt,
-    emqx_bridge,
-    emqx_rule_engine
-]).
-
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 %%------------------------------------------------------------------------------
@@ -177,7 +166,7 @@ init_per_group(cluster_later_join = Name, Config) ->
 init_per_group(single = Group, Config) ->
     WorkDir = work_dir_random_suffix(Group, Config),
     Apps = emqx_cth_suite:start(
-        ?APPSPECS ++ [emqx_mgmt_api_test_util:emqx_dashboard()],
+        app_specs_without_dashboard() ++ [emqx_mgmt_api_test_util:emqx_dashboard()],
         #{work_dir => WorkDir}
     ),
     [{group, single}, {group_apps, Apps}, {node, node()} | Config];
@@ -198,12 +187,24 @@ init_per_group(sources, Config) ->
 init_per_group(_Group, Config) ->
     Config.
 
+app_specs_without_dashboard() ->
+    [
+        emqx_conf,
+        emqx,
+        emqx_auth,
+        emqx_management,
+        emqx_connector,
+        emqx_bridge_mqtt,
+        emqx_bridge,
+        emqx_rule_engine
+    ].
+
 mk_cluster(Name, Config) ->
     mk_cluster(Name, Config, #{}).
 
 mk_cluster(Name, Config, Opts) ->
-    Node1Apps = ?APPSPECS ++ [emqx_mgmt_api_test_util:emqx_dashboard()],
-    Node2Apps = ?APPSPECS,
+    Node1Apps = app_specs_without_dashboard() ++ [emqx_mgmt_api_test_util:emqx_dashboard()],
+    Node2Apps = app_specs_without_dashboard(),
     WorkDir = work_dir_random_suffix(Name, Config),
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(
         [

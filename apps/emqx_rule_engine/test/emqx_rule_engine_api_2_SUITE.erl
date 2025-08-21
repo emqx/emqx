@@ -107,9 +107,20 @@ app_specs_no_dashboard() ->
                     %% CTH, we need to manually load the schema below so that when
                     %% `emqx_config:init_load` runs and encounters a namespaced root key, it knows
                     %% the schema module for it.
-                    Mod = emqx_rule_engine_schema,
-                    emqx_config:init_load(Mod, <<"">>),
-                    ok = emqx_schema_hooks:inject_from_modules([?MODULE, Mod]),
+                    Mods = [
+                        emqx_rule_engine_schema,
+                        emqx_bridge_v2_schema,
+                        emqx_connector_schema
+                    ],
+                    lists:foreach(
+                        fun(Mod) ->
+                            emqx_config:init_load(Mod, <<"">>)
+                        end,
+                        Mods
+                    ),
+                    emqx_config:add_allowed_namespaced_config_root([
+                        <<"connectors">>, <<"actions">>, <<"sources">>, <<"rule_engine">>
+                    ]),
                     emqx_cth_suite:inhibit_config_loader(App, AppOpts)
                 end
         }},
@@ -568,11 +579,11 @@ setup_namespaced_actions_sources_scenario(TCConfig0) ->
 %% Sets up only one namespace with both an action and a source with a rule referencing
 %% both.
 setup_namespaced_actions_sources_scenario2(TCConfig0) ->
+    Namespace = proplists:get_value(namespace, TCConfig0, <<"my_namespace">>),
     Node = get_value(node, TCConfig0),
     MQTTPort = get_tcp_mqtt_port(Node),
     Server = <<"127.0.0.1:", (integer_to_binary(MQTTPort))/binary>>,
 
-    Namespace = <<"my_namespace">>,
     AuthHeader = ?ON(
         Node, emqx_bridge_v2_testlib:ensure_namespaced_api_key(#{namespace => Namespace})
     ),
@@ -630,7 +641,83 @@ setup_namespaced_actions_sources_scenario2(TCConfig0) ->
     #{
         namespace => Namespace,
         auth_header => AuthHeader,
+        source_hookpoint => SourceHookPoint,
         tc_config => TCConfigNS
+    }.
+
+peer_name(TestCase, N) ->
+    binary_to_atom(emqx_bridge_v2_testlib:fmt(<<"${tc}_${n}">>, #{tc => TestCase, n => N})).
+
+setup_namespaced_actions_sources_deletion_scenario(TestCase, TCConfig0) ->
+    Apps = [
+        emqx_conf,
+        emqx_mt,
+        emqx_bridge_mqtt,
+        emqx_bridge,
+        emqx_rule_engine,
+        emqx_management
+    ],
+    Dashboard = [emqx_mgmt_api_test_util:emqx_dashboard()],
+    DashboardNoListener = [
+        emqx_mgmt_api_test_util:emqx_dashboard(
+            "dashboard.listeners.http { enable = false }"
+        )
+    ],
+    Nodes = emqx_cth_cluster:start(
+        [
+            {peer_name(TestCase, 1), #{apps => Apps ++ Dashboard}},
+            {peer_name(TestCase, 2), #{apps => Apps ++ DashboardNoListener}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, TCConfig0)}
+    ),
+    on_exit(fun() -> ok = emqx_cth_cluster:stop(Nodes) end),
+    [N1 | _] = Nodes,
+    TCConfig1 = [{node, N1} | TCConfig0],
+    Namespace = <<"some_namespace">>,
+    GlobalAuthHeader = ?ON(N1, emqx_mgmt_api_test_util:auth_header_()),
+    GlobalAdminHeader = ?ON(N1, emqx_dashboard_admin_SUITE:create_superuser()),
+    emqx_mt_api_SUITE:put_auth_header(GlobalAuthHeader),
+
+    {204, _} = emqx_mt_api_SUITE:create_managed_ns(Namespace),
+    Username = <<"iminans">>,
+    Password = <<"superSecureP@ss">>,
+    AdminRole = <<"ns:", Namespace/binary, "::administrator">>,
+    {200, #{<<"namespace">> := Namespace}} = emqx_dashboard_admin_SUITE:create_user_api(
+        #{
+            <<"username">> => Username,
+            <<"password">> => Password,
+            <<"role">> => AdminRole,
+            <<"description">> => <<"???">>
+        },
+        GlobalAdminHeader
+    ),
+    #{
+        tc_config := TCConfigNS,
+        source_hookpoint := SourceHookPoint
+    } = setup_namespaced_actions_sources_scenario2([
+        {namespace, Namespace}
+        | TCConfig1
+    ]),
+
+    %% Sanity checks: resources were created
+    ?assertMatch(
+        [_Connector],
+        ?ON(N1, emqx_resource:list_instances())
+    ),
+    ?assertMatch(
+        [_Rule],
+        ?ON(N1, emqx_rule_engine:get_rules_for_topic(SourceHookPoint))
+    ),
+    ?assertMatch(
+        [_User],
+        ?ON(N1, emqx_dashboard_admin:lookup_user(Username))
+    ),
+    #{
+        tc_config => TCConfigNS,
+        source_hookpoint => SourceHookPoint,
+        namespace => Namespace,
+        username => Username,
+        nodes => Nodes
     }.
 
 namespace_of(TCConfig) ->
@@ -2293,6 +2380,7 @@ t_namespaced_restart(TCConfig0) when is_list(TCConfig0) ->
         list(TCConfigNS1)
     ),
 
+    ct:pal("restarting node"),
     [Node] = emqx_cth_cluster:restart([N1Spec]),
 
     ?assertMatch(
@@ -2441,6 +2529,163 @@ t_namespaced_export_import_config_api(TCConfig0) when is_list(TCConfig0) ->
     ?assertMatch(
         {200, #{<<"data">> := []}},
         list(TCConfigNS)
+    ),
+
+    ok.
+
+-doc """
+Verifies that, when we delete a managed namespace, we "cascade" delete all its resources.
+
+  - Configs (including config roots)
+  - Connectors
+  - Sources
+  - Actions
+  - Rules
+  - Dashboard users (and their tokens)
+  - API keys
+""".
+t_namespaced_resources_cleanup_on_ns_deletion() ->
+    [{matrix, true}].
+t_namespaced_resources_cleanup_on_ns_deletion(matrix) ->
+    [[?custom_cluster]];
+t_namespaced_resources_cleanup_on_ns_deletion(TCConfig0) when is_list(TCConfig0) ->
+    #{
+        tc_config := TCConfigNS,
+        source_hookpoint := SourceHookPoint,
+        namespace := Namespace,
+        username := Username,
+        nodes := [N1 | _]
+    } = setup_namespaced_actions_sources_deletion_scenario(?FUNCTION_NAME, TCConfig0),
+
+    {204, _} = emqx_mt_api_SUITE:delete_managed_ns(Namespace),
+    ct:pal("waiting for tombstone to be cleared"),
+    ?retry(250, 10, false = ?ON(N1, emqx_mt_state:is_tombstoned(Namespace))),
+
+    ?assertMatch(
+        deleted,
+        ?ON(N1, emqx_config:get_raw_namespaced([connectors], Namespace, deleted))
+    ),
+    ?assertMatch(
+        deleted,
+        ?ON(N1, emqx_config:get_raw_namespaced([sources], Namespace, deleted))
+    ),
+    ?assertMatch(
+        deleted,
+        ?ON(N1, emqx_config:get_raw_namespaced([actions], Namespace, deleted))
+    ),
+    ?assertMatch(
+        deleted,
+        ?ON(N1, emqx_config:get_raw_namespaced([rule_engine], Namespace, deleted))
+    ),
+
+    %% Hooks should have cleared the resources
+    ?assertMatch(
+        [],
+        ?ON(N1, emqx_resource:list_instances())
+    ),
+    ?assertMatch(
+        [],
+        ?ON(N1, emqx_rule_engine:get_rules_for_topic(SourceHookPoint))
+    ),
+    ?assertMatch(
+        [],
+        ?ON(N1, emqx_dashboard_admin:lookup_user(Username))
+    ),
+
+    %% After deleting the namespace, namespaced users / api keys are deleted.
+    ?assertMatch(
+        {401, _},
+        emqx_connector_api_SUITE:list(TCConfigNS)
+    ),
+    ?assertMatch(
+        {401, _},
+        emqx_bridge_v2_api_SUITE:list([{conf_root_key, actions} | TCConfigNS])
+    ),
+    ?assertMatch(
+        {401, _},
+        emqx_bridge_v2_api_SUITE:list([{conf_root_key, sources} | TCConfigNS])
+    ),
+    ?assertMatch(
+        {401, _},
+        list(TCConfigNS)
+    ),
+
+    ok.
+
+-doc """
+Same as `t_namespaced_resources_cleanup_on_ns_deletion`, but simulates failures while
+attempting to "delete cascade" configurations in a namespace.
+
+In this case, we should not remove this namespace's tombstone, so retries may be attempted
+by the janitor process.  Configuration should be kept as well, until all resources are
+successfully removed.
+""".
+t_namespaced_delete_cascade_partial_failure() ->
+    [{matrix, true}].
+t_namespaced_delete_cascade_partial_failure(matrix) ->
+    [[?custom_cluster]];
+t_namespaced_delete_cascade_partial_failure(TCConfig0) when is_list(TCConfig0) ->
+    #{
+        tc_config := _TCConfigNS,
+        source_hookpoint := _SourceHookPoint,
+        namespace := Namespace,
+        username := _Username,
+        nodes := [N1 | _] = Nodes
+    } = setup_namespaced_actions_sources_deletion_scenario(?FUNCTION_NAME, TCConfig0),
+
+    %% Simulating some failure during resource deletion.
+    SetupMock = fun() ->
+        ok = meck:new(emqx_connector, [passthrough, no_history]),
+        ok = meck:expect(emqx_connector, post_config_update, fun(
+            _KeyPath, _Req, _NewConf, _OldConf, _AppEnv, _ExtraContext
+        ) ->
+            throw(mocked_error)
+        end),
+        receive
+            die -> ok
+        end
+    end,
+    MockerPids = lists:map(fun(N) -> spawn_link(N, SetupMock) end, Nodes),
+
+    InitialConnectorConfig =
+        #{} =
+        ?ON(N1, emqx_config:get_raw_namespaced([connectors], Namespace)),
+
+    ct:pal("deleting namespace"),
+    ct:timetrap({seconds, 15}),
+    ok = snabbkaffe:start_trace(),
+    {{204, _}, {ok, _}} =
+        ?wait_async_action(
+            ?ON(N1, emqx_mt_api_SUITE:delete_managed_ns(Namespace)),
+            #{?snk_kind := "mt_janitor_finished_ns", failed := true}
+        ),
+    ct:pal("checking if still tombstoned"),
+    ?assert(?ON(N1, emqx_mt_state:is_tombstoned(Namespace))),
+    %% Stuff that failed to be removed
+    ?assertMatch(
+        [_Connector],
+        ?ON(N1, emqx_resource:list_instances())
+    ),
+    ?assertEqual(
+        InitialConnectorConfig,
+        ?ON(N1, emqx_config:get_raw_namespaced([connectors], Namespace, deleted))
+    ),
+
+    %% Janitor should keep retrying the cleanup.
+    ct:pal("removing failure and waiting for retry"),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            lists:foreach(fun(Pid) -> Pid ! die end, MockerPids),
+            #{?snk_kind := "mt_janitor_finished_ns", failed := false}
+        ),
+    ?assertNot(?ON(N1, emqx_mt_state:is_tombstoned(Namespace))),
+    ?assertMatch(
+        [],
+        ?ON(N1, emqx_resource:list_instances())
+    ),
+    ?assertEqual(
+        deleted,
+        ?ON(N1, emqx_config:get_raw_namespaced([connectors], Namespace, deleted))
     ),
 
     ok.

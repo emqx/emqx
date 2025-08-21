@@ -29,16 +29,16 @@ defmodule EMQXSchemaRegistry.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_bridge_http, in_umbrella: true},
       {:emqx_rule_engine, in_umbrella: true},
-      UMP.common_dep(:erlavro),
-      UMP.common_dep(:jesse),
+      :erlavro,
+      :jesse,
       UMP.common_dep(:gpb, runtime: true),
       {:avlizer, github: "emqx/avlizer", tag: "0.5.1.1"}
-    ]
+    ])
   end
 
   defp extra_dirs() do

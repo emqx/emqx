@@ -24,12 +24,12 @@ defmodule EMQXDashboard.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:pot, "1.0.2"},
       {:emqx_ctl, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx, in_umbrella: true},
-      UMP.common_dep(:minirest)
-    ]
+      :minirest
+    ])
   end
 end

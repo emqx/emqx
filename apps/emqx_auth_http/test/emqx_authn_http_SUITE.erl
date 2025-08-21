@@ -982,6 +982,37 @@ t_precondition_check_cert_cn(_Config) ->
     {ok, _} = emqtt:connect(C2),
     ok = emqtt:disconnect(C2).
 
+-doc """
+Checks that, if an authentication backend returns the `clientid_override` attribute, it's
+used to override.
+""".
+t_clientid_override(TCConfig) when is_list(TCConfig) ->
+    OverriddenClientId = <<"overridden_clientid">>,
+    MkConfigFn = fun raw_http_auth_config/0,
+    PostConfigFn = fun() ->
+        ok = emqx_utils_http_test_server:set_handler(
+            fun(Req0, State) ->
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    emqx_utils_json:encode(#{
+                        result => allow,
+                        clientid_override => <<"overridden_clientid">>
+                    }),
+                    Req0
+                ),
+                {ok, Req, State}
+            end
+        )
+    end,
+    Opts = #{
+        mk_config_fn => MkConfigFn,
+        post_config_fn => PostConfigFn,
+        overridden_clientid => OverriddenClientId
+    },
+    emqx_authn_test_lib:t_clientid_override(TCConfig, Opts),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

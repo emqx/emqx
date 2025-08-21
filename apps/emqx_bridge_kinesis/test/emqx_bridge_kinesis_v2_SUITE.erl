@@ -721,8 +721,6 @@ t_action_health_check_throttled(TCConfig) ->
 t_connector_health_check_no_core() ->
     [{cluster, true}].
 t_connector_health_check_no_core(TCConfig) when is_list(TCConfig) ->
-    Type = emqx_bridge_v2_testlib:get_value(connector_type, TCConfig),
-    Name = emqx_bridge_v2_testlib:get_value(connector_name, TCConfig),
     ct:timetrap({seconds, 30}),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
@@ -739,7 +737,7 @@ t_connector_health_check_no_core(TCConfig) when is_list(TCConfig) ->
             ok = emqx_cth_cluster:stop([C1]),
             ct:sleep(2_000),
             %% Should not have crashed due to lack of cores.
-            ConnResId = emqx_connector_resource:resource_id(Type, Name),
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
             ?assertMatch(
                 #{status := ?status_connected},
                 ?ON(R1, emqx_resource_cache:read_status(ConnResId))

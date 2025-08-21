@@ -258,6 +258,45 @@ t_node_cache(_Config) ->
         emqx_auth_cache:metrics(?AUTHN_CACHE)
     ).
 
+-doc """
+Checks that, if an authentication backend returns the `clientid_override` attribute, it's
+used to override.
+""".
+t_clientid_override(TCConfig) when is_list(TCConfig) ->
+    OverriddenClientId = <<"overridden_clientid">>,
+    Username = <<"overriden_clientid">>,
+    Password = <<"password">>,
+    MkConfigFn = fun() ->
+        ok = create_user(#{
+            username => Username,
+            password_hash => Password,
+            salt => <<"">>,
+            clientid_override => OverriddenClientId
+        }),
+        maps:merge(
+            raw_mysql_auth_config(),
+            #{
+                <<"query">> =>
+                    iolist_to_binary([
+                        "SELECT ",
+                        ["'", OverriddenClientId, "' as clientid_override, "],
+                        "password_hash, salt FROM users ",
+                        "where username = ${username} LIMIT 1"
+                    ])
+            }
+        )
+    end,
+    Opts = #{
+        client_opts => #{
+            username => Username,
+            password => Password
+        },
+        mk_config_fn => MkConfigFn,
+        overridden_clientid => OverriddenClientId
+    },
+    emqx_authn_test_lib:t_clientid_override(TCConfig, Opts),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

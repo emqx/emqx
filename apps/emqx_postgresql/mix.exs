@@ -22,10 +22,10 @@ defmodule EMQXPostgresql.MixProject do
   end
 
   def deps() do
-    [
-      UMP.common_dep(:epgsql),
+    UMP.deps([
+      :epgsql,
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true}
-    ]
+    ])
   end
 end

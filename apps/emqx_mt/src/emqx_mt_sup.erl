@@ -33,7 +33,14 @@ init([]) ->
             start => {emqx_mt_cluster_watch, start_link, []},
             type => worker,
             restart => transient,
-            shutdown => 1000
+            shutdown => 1_000
+        },
+        #{
+            id => emqx_mt_config_janitor,
+            start => {emqx_mt_config_janitor, start_link, []},
+            type => worker,
+            restart => permanent,
+            shutdown => 5_000
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.

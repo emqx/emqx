@@ -541,9 +541,10 @@ on_sql_query(InstId, SQLFunc, SQLOrKey, Params, Timeout, #{pool_name := PoolName
 do_sql_query(SQLFunc, Conn, SQLOrKey, Params, Timeout, LogMeta) ->
     try mysql:SQLFunc(Conn, SQLOrKey, Params, no_filtermap_fun, Timeout) of
         {error, disconnected} ->
-            ?SLOG(
+            ?tp(
                 error,
-                LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => disconnected}
+                "mysql_connector_do_sql_query_failed",
+                LogMeta#{reason => disconnected}
             ),
             %% kill the pool worker to trigger reconnection
             _ = exit(Conn, restart),
@@ -560,15 +561,17 @@ do_sql_query(SQLFunc, Conn, SQLOrKey, Params, Timeout, LogMeta) ->
             Error;
         {error, {1053, <<"08S01">>, Reason}} ->
             %% mysql sql server shutdown in progress
-            ?SLOG(
+            ?tp(
                 error,
-                LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
+                "mysql_connector_do_sql_query_failed",
+                LogMeta#{reason => Reason}
             ),
             {error, {recoverable_error, Reason}};
         {error, Reason} ->
-            ?SLOG(
+            ?tp(
                 error,
-                LogMeta#{msg => "mysql_connector_do_sql_query_failed", reason => Reason}
+                "mysql_connector_do_sql_query_failed",
+                LogMeta#{reason => Reason}
             ),
             {error, {unrecoverable_error, Reason}};
         Result ->

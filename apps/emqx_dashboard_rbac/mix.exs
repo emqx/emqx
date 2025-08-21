@@ -22,6 +22,6 @@ defmodule EMQXDashboardRbac.MixProject do
   end
 
   def deps() do
-    [{:emqx_dashboard, in_umbrella: true}]
+    UMP.deps([{:emqx_dashboard, in_umbrella: true}])
   end
 end

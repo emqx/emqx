@@ -20,7 +20,7 @@
     desc/1
 ]).
 
--export([bridge_v2_examples/1]).
+-export([bridge_v2_examples/1, connector_examples/1]).
 
 -define(CONNECTOR_TYPE, rule_engine_test).
 -define(ACTION_TYPE, ?CONNECTOR_TYPE).
@@ -103,4 +103,7 @@ desc(_) ->
     undefined.
 
 bridge_v2_examples(_Method) ->
+    [].
+
+connector_examples(_Method) ->
     [].

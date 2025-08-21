@@ -72,8 +72,7 @@ init_per_testcase(t_message_gc_too_young = TestCase, Config) ->
 init_per_testcase(TestCase, Config) ->
     DurableSessonsOpts = #{
         <<"enable">> => true,
-        <<"heartbeat_interval">> => <<"100ms">>,
-        <<"session_gc_interval">> => <<"2s">>
+        <<"checkpoint_interval">> => <<"100ms">>
     },
     Opts = #{
         durable_sessions_opts => DurableSessonsOpts
@@ -85,7 +84,9 @@ common_init_per_testcase(TestCase, Config, Opts0) ->
         work_dir => emqx_cth_suite:work_dir(TestCase, Config),
         start_emqx_conf => false
     },
-    emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts).
+    Result = emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts),
+    ok = emqx_persistent_message:wait_readiness(5_000),
+    Result.
 
 end_per_testcase(_TestCase, Config) ->
     emqx_common_test_helpers:call_janitor(60_000),
@@ -469,8 +470,8 @@ consume(It) ->
     case emqx_ds:next(?PERSISTENT_MESSAGE_DB, It, 100) of
         {ok, _NIt, _Msgs = []} ->
             [];
-        {ok, NIt, MsgsAndKeys} ->
-            [Msg || {_DSKey, Msg} <- MsgsAndKeys] ++ consume(NIt);
+        {ok, NIt, Batch} ->
+            Batch ++ consume(NIt);
         {ok, end_of_stream} ->
             []
     end.

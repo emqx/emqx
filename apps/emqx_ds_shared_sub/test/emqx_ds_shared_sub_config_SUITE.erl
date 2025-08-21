@@ -21,8 +21,7 @@ init_per_suite(Config) ->
             {emqx_conf, #{
                 config => #{
                     <<"durable_sessions">> => #{
-                        <<"enable">> => true,
-                        <<"renew_streams_interval">> => "100ms"
+                        <<"enable">> => true
                     },
                     <<"durable_storage">> => #{
                         <<"messages">> => #{
@@ -46,6 +45,7 @@ init_per_suite(Config) ->
         ],
         #{work_dir => ?config(priv_dir, Config)}
     ),
+    ok = emqx_persistent_message:wait_readiness(5_000),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->

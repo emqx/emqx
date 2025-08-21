@@ -385,5 +385,5 @@ t_async_load_config_cli(Config) when is_list(Config) ->
     RawConf = #{<<"connectors">> => #{ConnectorType => #{ConnectorName => connector_config()}}},
     ConfigToLoadBin = iolist_to_binary(hocon_pp:do(RawConf, #{})),
     ct:timetrap(5_000),
-    ?assertMatch(ok, emqx_conf_cli:load_config(ConfigToLoadBin, #{mode => merge})),
+    ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin, #{mode => merge})),
     ok.

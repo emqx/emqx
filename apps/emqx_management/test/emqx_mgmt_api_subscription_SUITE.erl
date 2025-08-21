@@ -26,18 +26,18 @@
 
 all() ->
     [
-        {group, mem},
-        {group, persistent}
+        {group, persistence_disabled},
+        {group, persistence_enabled}
     ].
 
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
     CommonTCs = AllTCs -- persistent_only_tcs(),
     [
-        {mem, CommonTCs},
+        {persistence_disabled, CommonTCs},
         %% Persistent shared subscriptions are an EE app.
         %% So they are tested outside emqx_management app which is CE.
-        {persistent,
+        {persistence_enabled,
             (CommonTCs --
                 [t_list_with_shared_sub, t_list_with_invalid_match_topic, t_subscription_api]) ++
                 persistent_only_tcs()}
@@ -52,7 +52,7 @@ persistent_only_tcs() ->
 init_per_suite(Config) ->
     DurableSessionsOpts = #{
         <<"enable">> => true,
-        <<"renew_streams_interval">> => <<"100ms">>
+        <<"checkpoint_interval">> => 0
     },
     ExtraApps = [
         emqx_management,
@@ -64,7 +64,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_common_test_helpers:stop_apps_ds(Config).
 
-init_per_group(persistent, Config) ->
+init_per_group(persistence_enabled, Config) ->
     ClientConfig = #{
         username => ?USERNAME,
         clientid => ?CLIENTID,
@@ -72,8 +72,9 @@ init_per_group(persistent, Config) ->
         clean_start => true,
         properties => #{'Session-Expiry-Interval' => 300}
     },
+    _ = emqx_persistent_message:wait_readiness(5_000),
     [{client_config, ClientConfig}, {durable, true} | Config];
-init_per_group(mem, Config) ->
+init_per_group(persistence_disabled, Config) ->
     ClientConfig = #{
         username => ?USERNAME, clientid => ?CLIENTID, proto_ver => v5, clean_start => true
     },
@@ -163,6 +164,8 @@ t_mixed_persistent_sessions(Config) ->
 
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(PersistentClient, <<"t/1">>, 1),
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(MemClient, <<"t/1">>, 1),
+    emqx_persistent_session_ds:sync(PersistentClient),
+    ct:sleep(1000),
 
     %% First page with sufficient limit should have both mem and DS clients.
     ?assertMatch(
@@ -243,6 +246,8 @@ t_subscription_fuzzy_search(Config) ->
         <<"topic/foo/baz">>
     ],
     [{ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client, T, ?QOS_1) || T <- Topics],
+    emqx_persistent_session_ds:sync(Client),
+    ct:sleep(1000),
 
     Headers = emqx_mgmt_api_test_util:auth_header_(),
     MatchQs = [
@@ -256,8 +261,8 @@ t_subscription_fuzzy_search(Config) ->
     ?assertEqual(1, maps:get(<<"page">>, MatchMeta1)),
     ?assertEqual(emqx_mgmt:default_row_limit(), maps:get(<<"limit">>, MatchMeta1)),
     %% count is undefined in fuzzy searching
-    ?assertNot(maps:is_key(<<"count">>, MatchMeta1)),
-    ?assertMatch(3, length(maps:get(<<"data">>, MatchData1))),
+    ?assertNot(maps:is_key(<<"count">>, MatchMeta1), MatchData1),
+    ?assertMatch(3, length(maps:get(<<"data">>, MatchData1)), MatchData1),
     ?assertEqual(false, maps:get(<<"hasnext">>, MatchMeta1)),
 
     LimitMatchQuery = [
