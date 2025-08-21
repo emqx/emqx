@@ -619,6 +619,7 @@ do_create_connector_api2(Params, Opts) ->
         auth_header => auth_header_lazy(Opts)
     }).
 
+%% Prefer to use `update_connector_api_simple`
 update_connector_api(ConnectorName, ConnectorType, ConnectorConfig) ->
     ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
     Path = emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
@@ -626,6 +627,30 @@ update_connector_api(ConnectorName, ConnectorType, ConnectorConfig) ->
     Res = request(put, Path, ConnectorConfig),
     ct:pal("connector update (http) result:\n  ~p", [Res]),
     Res.
+
+update_connector_api_params(TCConfig, Overrides) when is_list(TCConfig) ->
+    #{connector_config := ConnectorConfig} = get_common_values_with_configs(TCConfig),
+    emqx_utils_maps:deep_merge(
+        ConnectorConfig,
+        Overrides
+    ).
+
+update_connector_api_simple(TCConfig, #{} = Overrides) ->
+    #{
+        connector_type := Type,
+        connector_name := Name
+    } = get_common_values(TCConfig),
+    ConnectorId = emqx_connector_resource:connector_id(Type, Name),
+    Params = update_connector_api_params(TCConfig, Overrides),
+    do_update_connector_api(ConnectorId, Params, _Opts = #{}).
+
+do_update_connector_api(ConnectorId, Params, Opts) ->
+    simple_request(#{
+        method => put,
+        url => emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
+        body => Params,
+        auth_header => auth_header_lazy(Opts)
+    }).
 
 start_connector_api(ConnectorName, ConnectorType) ->
     ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
@@ -1220,6 +1245,9 @@ get_value(Key, Config) ->
             Value
     end.
 
+get_value(Key, Config, Default) ->
+    proplists:get_value(Key, Config, Default).
+
 get_common_values(Config) ->
     Kind = proplists:get_value(bridge_kind, Config, action),
     case Kind of
@@ -1259,11 +1287,16 @@ get_common_values_with_configs(Config) ->
     KindConfig =
         case Kind of
             action ->
-                get_value(action_config, Config);
+                get_value(action_config, Config, undefined);
             source ->
-                get_value(source_config, Config)
+                get_value(source_config, Config, undefined)
         end,
-    Values#{config => KindConfig, connector_config => ConnectorConfig}.
+    emqx_utils_maps:put_if(
+        Values#{connector_config => ConnectorConfig},
+        config,
+        KindConfig,
+        KindConfig /= undefined
+    ).
 
 connector_resource_id(Config) ->
     #{
