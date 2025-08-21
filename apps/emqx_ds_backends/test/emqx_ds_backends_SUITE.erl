@@ -585,7 +585,7 @@ t_sub_unsub(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             {ok, Handle, _MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
@@ -614,12 +614,12 @@ t_sub_unsub(Config) ->
 %% unsubscribing. We test this by creating a subscription from a
 %% temporary process that exits normally. DS should automatically
 %% remove this subscription.
-t_sub_dead_subscriber_cleanup(Config) ->
+t_sub_mqtt_dead_subscriber_cleanup(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             Parent = self(),
@@ -660,12 +660,12 @@ t_sub_dead_subscriber_cleanup(Config) ->
 
 %% @doc Verify that a client receives `DOWN' message when the server
 %% goes down:
-t_sub_shard_down_notify(Config) ->
+t_sub_mqtt_shard_down_notify(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             {ok, _Handle, MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
@@ -677,12 +677,12 @@ t_sub_shard_down_notify(Config) ->
 
 %% @doc Verify that a client is notified when the beamformer worker
 %% currently owning the subscription dies:
-t_sub_worker_down_notify(Config) ->
+t_sub_mqtt_worker_down_notify(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{},
         try
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             {ok, _Handle, MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
@@ -713,12 +713,14 @@ t_sub_worker_down_notify(Config) ->
 %% @doc Verify behavior of a subscription that replayes old messages.
 %% This testcase focuses on the correctness of `catchup' beamformer
 %% workers.
-t_sub_catchup(Config) ->
+t_sub_mqtt_catchup(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Opts = maps:merge(opts_mqtt(Config), #{subscriptions => #{batch_size => 5}}),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            application:set_env(emqx_durable_storage, poll_batch_size, 5),
             Stream = make_stream(Config),
             %% Fill the storage and close the generation:
             publish_seq(DB, <<"t">>, 1, 9),
@@ -746,7 +748,7 @@ t_sub_catchup(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef, 5)
+                recv(SubRef, 2)
             ),
             %% Ack and receive the rest of the messages:
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 5)),
@@ -767,7 +769,7 @@ t_sub_catchup(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef, 5)
+                recv(SubRef, 2)
             ),
             %% Ack and receive `end_of_stream':
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 10)),
@@ -789,16 +791,16 @@ t_sub_catchup(Config) ->
 %% @doc Verify behavior of a subscription that always stays at the top
 %% of the stream. This testcase focuses on the correctness of
 %% `rt' beamformer workers.
-t_sub_realtime(Config) ->
+t_sub_mqtt_realtime(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             %% Subscribe:
             {ok, It} = emqx_ds:make_iterator(
-                DB, Stream, [<<"t">>], erlang:system_time(millisecond)
+                DB, Stream, [<<"t">>], erlang:system_time(microsecond)
             ),
             {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
             timer:sleep(1_000),
@@ -865,7 +867,7 @@ t_sub_wildcard(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             create_wildcard(DB, <<"t">>),
             %% Insert some data before starting the clients to test catchup:
             Expect1 = [publish_seq(DB, Topic, 0, 9) || Topic <- Topics],
@@ -901,11 +903,9 @@ t_sub_wildcard(Config) ->
 %% error. No duplication of messages occur.
 t_sub_unclean_handover(Config) ->
     DB = ?FUNCTION_NAME,
-    DefaultBatchSize = emqx_ds_beamformer:cfg_batch_size(),
     ?check_trace(
         #{timetrap => 30_000},
-        try
-            application:set_env(emqx_durable_storage, poll_batch_size, 3),
+        begin
             %% Delay handover to RT until data is published:
             ?force_ordering(
                 #{?snk_kind := test_added_data},
@@ -919,7 +919,8 @@ t_sub_unclean_handover(Config) ->
                         timestamp_bytes => 8,
                         %% Create a single stream:
                         lts_threshold_spec => {simple, {0}}
-                    }}
+                    }},
+                subscriptions => #{batch_size => 3}
             },
             ?assertMatch(ok, emqx_ds_open_db(DB, maps:merge(opts(Config), Opts))),
             Shard = emqx_ds:shard_of(DB, <<>>),
@@ -1030,8 +1031,6 @@ t_sub_unclean_handover(Config) ->
                 error({subscription_not_received, Sub2, mailbox()})
             end,
             ok
-        after
-            application:set_env(emqx_durable_storage, poll_batch_size, DefaultBatchSize)
         end,
         []
     ).
@@ -1054,7 +1053,7 @@ t_sub_slow(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             %% Subscribe:
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
@@ -1133,7 +1132,8 @@ t_sub_catchup_unrecoverable(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Opts = maps:merge(opts_mqtt(Config), #{subscriptions => #{batch_size => 5}}),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
             Stream = make_stream(Config),
             %% Fill the storage and close the generation:
             publish_seq(DB, <<"t">>, 1, 9),
@@ -2166,7 +2166,7 @@ t_25_get_streams_generation_min(Config) ->
     end,
     %%
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     %% Make streams in the 1st generation:
     _ = publish_seq(DB, <<>>, 0, 100),
     ct:sleep(100),
@@ -2672,15 +2672,7 @@ suite() ->
 
 init_per_testcase(TC, Config) ->
     Backend = proplists:get_value(backend, Config),
-    %% TODO: add a nicer way to deal with transient configuration. It
-    %% should be possible to pass options like this to `open_db':
-    AppConfig =
-        case TC of
-            _ when TC =:= t_sub_catchup; TC =:= t_sub_catchup_unrecoverable ->
-                #{emqx_durable_storage => #{override_env => [{poll_batch_size, 5}]}};
-            _ ->
-                #{}
-        end,
+    AppConfig = #{},
     Apps = emqx_cth_suite:start(Backend:test_applications(AppConfig), #{
         work_dir => emqx_cth_suite:work_dir(TC, Config)
     }),
@@ -2763,7 +2755,7 @@ publish_seq(DB, Topic, Start, End) ->
         emqx_message:make(<<"pub">>, Topic, integer_to_binary(I))
      || I <- lists:seq(Start, End)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Batch)),
+    ?assertMatch(ok, dirty_append(DB, Batch)),
     Batch.
 
 %% @doc Create a learned wildcard for a given topic prefix:
@@ -2771,7 +2763,7 @@ create_wildcard(DB, Prefix) ->
     %% Introduce enough topics to learn the wildcard:
     ?assertMatch(
         ok,
-        emqx_ds:store_batch(
+        dirty_append(
             DB,
             [message({"~s/~p", [Prefix, I]}, <<"">>, 0) || I <- lists:seq(1, 100)]
         )

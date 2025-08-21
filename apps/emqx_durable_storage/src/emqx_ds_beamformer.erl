@@ -82,7 +82,7 @@
 -export([owner_tab/1, handle_recoverable_error/2]).
 -export([beams_init/7, beams_add/5, beams_conclude/3, beams_n_matched/1]).
 -export([metrics_id/2, send_out_final_beam/4]).
--export([cfg_batch_size/0, cfg_housekeeping_interval/0, cfg_workers_per_shard/0]).
+-export([runtime_config/2]).
 
 %% internal exports:
 -export([do_dispatch/1]).
@@ -167,7 +167,9 @@
 -type event_topic_filter() :: emqx_ds:topic_filter().
 
 -type opts() :: #{
-    n_workers := non_neg_integer()
+    n_workers_per_shard := non_neg_integer(),
+    batch_size := pos_integer(),
+    housekeeping_interval := pos_integer()
 }.
 
 %% Request:
@@ -302,6 +304,11 @@
     rank := emqx_ds:slab()
 }.
 
+-doc """
+Query runtime configuration from the callback module.
+""".
+-callback beamformer_config(emqx_ds:db()) -> opts().
+
 -callback unpack_iterator(dbshard(), _Iterator) ->
     unpack_iterator_result(_Stream) | emqx_ds:error(_).
 
@@ -365,6 +372,10 @@ then dispatch_matrix[message, client] = c_i(c_m)
 -spec start_link(dbshard(), module()) -> {ok, pid()}.
 start_link(DBShard, CBM) ->
     gen_statem:start_link(?via(DBShard), ?MODULE, [DBShard, CBM], []).
+
+-spec runtime_config(module(), emqx_ds:db()) -> opts().
+runtime_config(CBM, DB) ->
+    CBM:beamformer_config(DB).
 
 %% @doc Display all `{DB, Shard}' pairs for beamformers running on the
 %% node:
@@ -623,17 +634,6 @@ keep_and_seqno(_SubTab, #sub_state{flowcontrol = FC}, NMsgs) ->
 
 is_sub_active(SeqNo, Acked, Window) ->
     SeqNo - Acked < Window.
-
-%% Dynamic config (currently it's global for all DBs):
-
-cfg_batch_size() ->
-    application:get_env(emqx_durable_storage, poll_batch_size, 1000).
-
-cfg_housekeeping_interval() ->
-    application:get_env(emqx_durable_storage, beamformer_housekeeping_interval, 1000).
-
-cfg_workers_per_shard() ->
-    application:get_env(emqx_durable_storage, beamformer_workers_per_shard, 10).
 
 %%================================================================================
 %% behavior callback wrappers
