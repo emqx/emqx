@@ -191,7 +191,8 @@ t_05_restart(Config) ->
 
 t_06_smoke_add_generation(Config) ->
     DB = ?FUNCTION_NAME,
-    BeginTime = os:system_time(millisecond),
+    %% Make sure all units are in μs:
+    BeginTime = os:system_time(microsecond),
 
     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     [{Gen1, #{created_at := Created1, since := Since1, until := undefined}}] = maps:to_list(
@@ -204,10 +205,10 @@ t_06_smoke_add_generation(Config) ->
         {_Gen2, #{created_at := Created2, since := Since2, until := undefined}}
     ] = maps:to_list(emqx_ds:list_slabs(DB)),
     %% Check units of the return values (+/- 10s from test begin time):
-    ?give_or_take(BeginTime, 10_000, Created1),
-    ?give_or_take(BeginTime, 10_000, Created2),
-    ?give_or_take(BeginTime, 10_000, Since2),
-    ?give_or_take(BeginTime, 10_000, Until1).
+    ?give_or_take(BeginTime, 10_000_000, Created1),
+    ?give_or_take(BeginTime, 10_000_000, Created2),
+    ?give_or_take(BeginTime, 10_000_000, Since2),
+    ?give_or_take(BeginTime, 10_000_000, Until1).
 
 t_07_smoke_update_config(Config) ->
     DB = ?FUNCTION_NAME,
@@ -1030,6 +1031,108 @@ t_sub_unclean_handover(Config) ->
             after 1000 ->
                 error({subscription_not_received, Sub2, mailbox()})
             end,
+            ok
+        end,
+        []
+    ).
+
+%% This testcase verifies all operations that use time as an input or
+%% return it as an output. It ensures that all APIs work with the same
+%% unit: μs.
+t_time_unit(Config) ->
+    DB = ?FUNCTION_NAME,
+    Owner = <<"test_clientid">>,
+    Topic = [<<"t">>],
+    ?check_trace(
+        begin
+            Opts = maps:merge(opts(Config), #{
+                n_shards => 1,
+                store_ttv => true,
+                storage => {emqx_ds_storage_skipstream_lts_v2, #{}},
+                transaction => #{flush_interval => 1, idle_flush_interval => 0}
+            }),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            Now = erlang:system_time(microsecond),
+            %% Create a transaction that adds two entries with monotonic timestamps:
+            {atomic, _, _} = emqx_ds:trans(
+                #{db => DB, shard => {auto, Owner}, generation => latest},
+                fun() ->
+                    emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, <<0>>}),
+                    emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, <<1>>})
+                end
+            ),
+            %% Get monotonic timestamps of the entries:
+            [{_, T1, <<0>>}, {_, T2, <<1>>}] = dump_topic(DB, [<<"t">>]),
+            %% Both timestamps should be within 100ms from `Now':
+            ?give_or_take(Now, 100_000, T1),
+            ?give_or_take(Now, 100_000, T2),
+            %% Now create a bunch of iterators with different start
+            %% time and verify that they point at the correct message:
+            [{_, Stream1}] = emqx_ds:get_streams(DB, Topic, T1),
+            {ok, ItT1} = emqx_ds:make_iterator(DB, Stream1, Topic, T1),
+            ?assertMatch(
+                {ok, _, [{_, T1, <<0>>}, {_, T2, <<1>>}]},
+                emqx_ds:next(DB, ItT1, 100)
+            ),
+            {ok, ItT2} = emqx_ds:make_iterator(DB, Stream1, Topic, T2),
+            ?assertMatch(
+                {ok, _, [{_, T2, <<1>>}]},
+                emqx_ds:next(DB, ItT2, 100)
+            ),
+            {ok, ItT2Plus} = emqx_ds:make_iterator(DB, Stream1, Topic, T2 + 1),
+            ?assertMatch(
+                {ok, _, []},
+                emqx_ds:next(DB, ItT2Plus, 100)
+            ),
+            %% Verify next limit with timestamp:
+            ?assertMatch(
+                {ok, _, [{_, T1, <<0>>}]},
+                emqx_ds:next(DB, ItT1, {time, T2, 100})
+            ),
+            ?assertMatch(
+                {ok, _, [{_, T1, <<0>>}, {_, T2, <<1>>}]},
+                emqx_ds:next(DB, ItT1, {time, T2 + 1, 100})
+            ),
+            %% Now verify that `emqx_ds:list_slabs' uses correct timestamps:
+            ?assertMatch(ok, emqx_ds:add_generation(DB)),
+            Slabs = lists:sort(maps:to_list(emqx_ds:list_slabs(DB))),
+            [
+                {{_, 1}, #{since := _Since1, until := Until1}},
+                {{_, 2}, #{since := Since2, until := undefined}}
+            ] = Slabs,
+            %% Lifetime of the slabs should be within 10s from Now:
+            ?give_or_take(Now, 10_000_000, Until1),
+            ?give_or_take(Now, 10_000_000, Since2),
+            %% Now verify that `get_streams' respects timestamps as
+            %% well. First, create a new stream in the new generation:
+            {atomic, _, _} = emqx_ds:trans(
+                #{db => DB, shard => {auto, Owner}, generation => latest},
+                fun() ->
+                    emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, <<2>>})
+                end
+            ),
+            %%
+            [{{_, 1}, Stream1}, {{_, 2}, Stream2}] = lists:sort(emqx_ds:get_streams(DB, Topic, T1)),
+            [{{_, 1}, Stream1}, {{_, 2}, Stream2}] = lists:sort(emqx_ds:get_streams(DB, Topic, T2)),
+            [{{_, 2}, Stream2}] = emqx_ds:get_streams(DB, Topic, Until1 + 1),
+            %% Get timestamp of the third message:
+            {ok, It3} = emqx_ds:make_iterator(DB, Stream2, Topic, T2),
+            {ok, _, [{_, T3, <<2>>}]} = emqx_ds:next(DB, It3, 100),
+            %% Now verify high-level wrappers (dirty_read):
+            ?assertMatch(
+                [{_, T2, <<1>>}],
+                lists:sort(emqx_ds:dirty_read(#{db => DB, start_time => T2, end_time => T3}, Topic))
+            ),
+            ?assertMatch(
+                [{_, T1, <<0>>}, {_, T2, <<1>>}],
+                lists:sort(emqx_ds:dirty_read(#{db => DB, start_time => T1, end_time => T3}, Topic))
+            ),
+            ?assertMatch(
+                [{_, T1, <<0>>}, {_, T2, <<1>>}, {_, T3, <<2>>}],
+                lists:sort(
+                    emqx_ds:dirty_read(#{db => DB, start_time => T1, end_time => T3 + 1}, Topic)
+                )
+            ),
             ok
         end,
         []
