@@ -1384,11 +1384,8 @@ ra_list_slabs(DB, Shard) ->
     case Reply of
         Gens = #{} ->
             maps:map(
-                fun(_GenId, Data = #{since := Since, until := Until}) ->
-                    Data#{
-                        since := timeus_to_timestamp(Since),
-                        until := emqx_maybe:apply(fun timeus_to_timestamp/1, Until)
-                    }
+                fun(_GenId, Data = #{since := _, until := _}) ->
+                    Data
                 end,
                 Gens
             );
@@ -1789,9 +1786,6 @@ ensure_monotonic_timestamp(_TimestampUs, Latest) ->
 %% FIXME: time unit conversion = always wrong. Remove it from DS.
 timestamp_to_timeus(TimestampMs) ->
     TimestampMs * 1000.
-
-timeus_to_timestamp(TimestampUs) ->
-    TimestampUs div 1000.
 
 snapshot_module() ->
     emqx_ds_builtin_raft_server_snapshot.
