@@ -218,12 +218,7 @@ list_slabs(DB) ->
     lists:foldl(
         fun(Shard, Acc) ->
             maps:fold(
-                fun(GenId, Data0, Acc1) ->
-                    Data = maps:update_with(
-                        until,
-                        fun timeus_to_timestamp/1,
-                        maps:update_with(since, fun timeus_to_timestamp/1, Data0)
-                    ),
+                fun(GenId, Data, Acc1) ->
                     Acc1#{{Shard, GenId} => Data}
                 end,
                 Acc,
@@ -425,7 +420,7 @@ get_streams(DB, TopicFilter, StartTime, Opts) ->
                 lists:flatmap(
                     fun(Shard) ->
                         Streams = emqx_ds_storage_layer:get_streams(
-                            {DB, Shard}, TopicFilter, timestamp_to_timeus(StartTime), MinGeneration
+                            {DB, Shard}, TopicFilter, StartTime, MinGeneration
                         ),
                         lists:map(
                             fun({Generation, InnerStream}) ->
@@ -441,7 +436,7 @@ get_streams(DB, TopicFilter, StartTime, Opts) ->
                 lists:flatmap(
                     fun(Shard) ->
                         Streams = emqx_ds_storage_layer_ttv:get_streams(
-                            {DB, Shard}, TopicFilter, timestamp_to_timeus(StartTime), MinGeneration
+                            {DB, Shard}, TopicFilter, StartTime, MinGeneration
                         ),
                         [
                             {{Shard, Stream#'Stream'.generation}, Stream}
@@ -461,11 +456,7 @@ make_iterator(DB, Stream = #'Stream'{}, TopicFilter, StartTime) ->
     emqx_ds_storage_layer_ttv:make_iterator(DB, Stream, TopicFilter, StartTime);
 make_iterator(DB, ?stream(Shard, InnerStream), TopicFilter, StartTime) ->
     ShardId = {DB, Shard},
-    case
-        emqx_ds_storage_layer:make_iterator(
-            ShardId, InnerStream, TopicFilter, timestamp_to_timeus(StartTime)
-        )
-    of
+    case emqx_ds_storage_layer:make_iterator(ShardId, InnerStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
         Error = {error, _, _} ->
@@ -586,7 +577,7 @@ get_delete_streams(DB, TopicFilter, StartTime) ->
     lists:flatmap(
         fun(Shard) ->
             Streams = emqx_ds_storage_layer:get_delete_streams(
-                {DB, Shard}, TopicFilter, timestamp_to_timeus(StartTime)
+                {DB, Shard}, TopicFilter, StartTime
             ),
             lists:map(
                 fun(InnerStream) ->
@@ -606,7 +597,7 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
     ShardId = {DB, Shard},
     case
         emqx_ds_storage_layer:make_delete_iterator(
-            ShardId, InnerStream, TopicFilter, timestamp_to_timeus(StartTime)
+            ShardId, InnerStream, TopicFilter, StartTime
         )
     of
         {ok, Iter} ->
@@ -796,14 +787,6 @@ batch_size_and_time_limit(true, _DB, _Shard, {time, MaxTS, BatchSize}) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-timestamp_to_timeus(TimestampMs) ->
-    TimestampMs * 1000.
-
-timeus_to_timestamp(undefined) ->
-    undefined;
-timeus_to_timestamp(TimestampUs) ->
-    TimestampUs div 1000.
 
 get_tx_persistent_serial(DB, Shard) ->
     case emqx_ds_storage_layer:fetch_global({DB, Shard}, ?serial_key) of
