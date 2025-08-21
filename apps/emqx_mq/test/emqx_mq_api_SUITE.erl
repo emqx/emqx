@@ -28,7 +28,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx,
-            emqx_mq,
+            {emqx_mq, emqx_mq_test_utils:config()},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],

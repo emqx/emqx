@@ -22,6 +22,8 @@
 
 -export([compile_variform/1]).
 
+-export([config/0]).
+
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -145,3 +147,6 @@ stop_all_consumers() ->
 compile_variform(Expression) ->
     {ok, Compiled} = emqx_variform:compile(Expression),
     Compiled.
+
+config() ->
+    <<"mq.gc_interval = 1h">>.

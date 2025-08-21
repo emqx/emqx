@@ -22,7 +22,8 @@ Consumer's responsibilities:
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
-    start_link/1
+    start_link/1,
+    child_spec/2
 ]).
 
 -export([
@@ -68,10 +69,20 @@ Consumer's responsibilities:
 %% API
 %%--------------------------------------------------------------------
 
+-spec start_link(emqx_mq_types:mq_topic()) -> gen_server:startlink_ret().
 start_link(MQTopicFilter) ->
     gen_server:start_link(?MODULE, [MQTopicFilter], []).
 
--spec connect(binary(), emqx_mq_types:subscriber_ref(), emqx_types:clientid()) ->
+-spec child_spec(emqx_mq_types:consumer_sup_id(), [emqx_mq_types:mq()]) -> supervisor:child_spec().
+child_spec(Id, Args) ->
+    #{
+        id => Id,
+        start => {emqx_mq_consumer, start_link, Args},
+        restart => temporary,
+        shutdown => 5000
+    }.
+
+-spec connect(emqx_mq_types:mq(), emqx_mq_types:subscriber_ref(), emqx_types:clientid()) ->
     ok | {error, term()}.
 connect(#{topic_filter := MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
     ?tp_debug(mq_consumer_connect, #{

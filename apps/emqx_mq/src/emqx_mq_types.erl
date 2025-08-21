@@ -21,6 +21,7 @@ The module contains basic types for the Message Queue application.
 }.
 -type ack() :: ?MQ_ACK | ?MQ_NACK.
 -type mq_topic() :: binary().
+-type consumer_sup_id() :: mq_topic().
 
 -type dispatch_variform_expr() :: binary().
 
@@ -49,6 +50,7 @@ The module contains basic types for the Message Queue application.
     channel_pid/0,
     consumer_ref/0,
     consumer_data/0,
+    consumer_sup_id/0,
     ack/0,
     mq_topic/0,
     mq/0

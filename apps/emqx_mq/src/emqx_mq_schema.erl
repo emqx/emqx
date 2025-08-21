@@ -26,7 +26,9 @@ tags() ->
 fields(mq) ->
     [
         {gc_interval,
-            mk(emqx_schema:duration_ms(), #{default => <<"1h">>, desc => ?DESC(gc_interval)})}
+            mk(emqx_schema:duration_ms(), #{
+                default => <<"1h">>, required => true, desc => ?DESC(gc_interval)
+            })}
     ];
 fields(message_queue) ->
     [

@@ -66,4 +66,7 @@
     last_seen_timestamp :: non_neg_integer()
 }).
 
+-define(MQ_GC_REGULAR, gc_regular).
+-define(MQ_GC_COMPACTED, gc_compacted).
+
 -endif.
