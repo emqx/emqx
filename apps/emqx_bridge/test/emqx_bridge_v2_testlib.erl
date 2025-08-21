@@ -1087,7 +1087,8 @@ do_action_simple_create_rule_api(ActionId, SQL0, _TCConfig) ->
             auto -> <<"select * from \"${t}\" ">>;
             _ when is_binary(SQL0) -> SQL0
         end,
-    RuleTopic = <<"t">>,
+    UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
+    RuleTopic = <<"t/", UniqueNum/binary>>,
     {201, #{<<"id">> := RuleId}} = create_rule_api2(
         #{
             <<"sql">> => fmt(SQL, #{t => RuleTopic}),
