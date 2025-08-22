@@ -293,13 +293,21 @@ create_bridge(Config, Overrides) ->
     ct:pal("creating bridge with config:\n  ~p", [ActionConfig]),
     emqx_bridge_v2:create(?global_ns, ?ROOT_KEY_ACTIONS, ActionType, ActionName, ActionConfig).
 
-get_ct_config_with_fallback(Config, [Key]) ->
-    ?config(Key, Config);
-get_ct_config_with_fallback(Config, [Key | Rest]) ->
-    case ?config(Key, Config) of
-        undefined ->
-            get_ct_config_with_fallback(Config, Rest);
-        X ->
+get_ct_config_with_fallback(TCConfig, KeyPath) ->
+    get_ct_config_with_fallback(TCConfig, KeyPath, undefined).
+
+get_ct_config_with_fallback(Config, [Key], Default) ->
+    case lists:keyfind(Key, 1, Config) of
+        false ->
+            Default;
+        {Key, X} ->
+            X
+    end;
+get_ct_config_with_fallback(Config, [Key | Rest], Default) ->
+    case lists:keyfind(Key, 1, Config) of
+        false ->
+            get_ct_config_with_fallback(Config, Rest, Default);
+        {Key, X} ->
             X
     end.
 
@@ -1073,19 +1081,25 @@ create_rule_api2(Params, Opts) ->
 simple_create_rule_api(TCConfig) ->
     simple_create_rule_api(auto, TCConfig).
 
-simple_create_rule_api(SQL, TCConfig) ->
+simple_create_rule_api(SQLOrOpts, TCConfig) ->
+    Opts =
+        case is_map(SQLOrOpts) of
+            true -> SQLOrOpts;
+            false when is_binary(SQLOrOpts) -> #{sql => SQLOrOpts};
+            false when SQLOrOpts == auto -> #{sql => SQLOrOpts}
+        end,
     case get_common_values(TCConfig) of
         #{kind := action, rule_action_id := ActionId} ->
-            do_action_simple_create_rule_api(ActionId, SQL, TCConfig);
+            do_action_simple_create_rule_api(ActionId, Opts, TCConfig);
         #{kind := source, source_hookpoint := Hookpoint} ->
-            do_source_simple_create_rule_api(Hookpoint, SQL, TCConfig)
+            do_source_simple_create_rule_api(Hookpoint, Opts, TCConfig)
     end.
 
-do_action_simple_create_rule_api(ActionId, SQL0, _TCConfig) ->
+do_action_simple_create_rule_api(ActionId, Opts, _TCConfig) ->
     SQL =
-        case SQL0 of
+        case maps:get(sql, Opts) of
             auto -> <<"select * from \"${t}\" ">>;
-            _ when is_binary(SQL0) -> SQL0
+            SQL0 when is_binary(SQL0) -> SQL0
         end,
     UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
     RuleTopic = <<"t/", UniqueNum/binary>>,
@@ -1098,28 +1112,32 @@ do_action_simple_create_rule_api(ActionId, SQL0, _TCConfig) ->
     ),
     #{topic => RuleTopic, id => RuleId}.
 
-do_source_simple_create_rule_api(Hookpoint, SQL0, _TCConfig) ->
-    RepublishTopic = <<"republish/topic">>,
+do_source_simple_create_rule_api(Hookpoint, Opts, _TCConfig) ->
     SQL =
-        case SQL0 of
+        case maps:get(sql, Opts) of
             auto -> <<"select * from \"${t}\" ">>;
-            _ when is_binary(SQL0) -> SQL0
+            SQL0 when is_binary(SQL0) -> SQL0
         end,
+    RepublishOverrides = maps:get(republish_overrides, Opts, #{}),
+    RepublishParams = #{
+        <<"function">> => <<"republish">>,
+        <<"args">> =>
+            maps:merge(
+                #{
+                    <<"topic">> => <<"republish/topic">>,
+                    <<"payload">> => <<"${.}">>,
+                    <<"qos">> => 2,
+                    <<"retain">> => false,
+                    <<"user_properties">> => <<"${.pub_props.'User-Property'}">>
+                },
+                RepublishOverrides
+            )
+    },
+    #{<<"args">> := #{<<"topic">> := RepublishTopic}} = RepublishParams,
     {201, #{<<"id">> := RuleId}} = create_rule_api2(
         #{
             <<"sql">> => fmt(SQL, #{t => Hookpoint}),
-            <<"actions">> => [
-                #{
-                    <<"function">> => <<"republish">>,
-                    <<"args">> => #{
-                        <<"topic">> => RepublishTopic,
-                        <<"payload">> => <<"${.}">>,
-                        <<"qos">> => 2,
-                        <<"retain">> => false,
-                        <<"user_properties">> => <<"${.pub_props.'User-Property'}">>
-                    }
-                }
-            ],
+            <<"actions">> => [RepublishParams],
             <<"description">> => <<"bridge_v2 test rule">>
         }
     ),
@@ -1797,10 +1815,13 @@ t_on_get_status(Config) ->
     t_on_get_status(Config, _Opts = #{}).
 
 t_on_get_status(Config, Opts) ->
+    ConnOverrides = get_value(connector_overrides, Config, #{}),
+    KindOverrides = get_ct_config_with_fallback(Config, [action_overrides, source_overrides], #{}),
     ProxyHost = get_value(proxy_host, Config, undefined),
     FailureStatus = maps:get(failure_status, Opts, ?status_disconnected),
     NormalStatus = maps:get(normal_status, Opts, ?status_connected),
-    ?assertMatch({ok, _}, create_bridge_api(Config)),
+    ?assertMatch({201, _}, create_connector_api2(Config, ConnOverrides)),
+    ?assertMatch({201, _}, simplify_result(create_kind_api(Config, KindOverrides))),
     ResourceId = connector_resource_id(Config),
     %% Since the connection process is async, we give it some time to
     %% stabilize and avoid flakiness.
