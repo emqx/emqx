@@ -77,6 +77,7 @@
 -type schema() ::
     #{
         timestamp_bytes := non_neg_integer(),
+        topic_index_bytes := non_neg_integer(),
         %% Number of index key bytes allocated for the hash of topic level.
         wildcard_hash_bytes := pos_integer(),
         lts_threshold_spec => emqx_ds_lts:threshold_spec()

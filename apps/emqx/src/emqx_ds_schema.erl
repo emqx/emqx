@@ -22,6 +22,14 @@
 
 -define(DEFAULT_BACKEND, builtin_raft).
 
+-type backend() ::
+    builtin_raft
+    | builtin_local
+    | builtin_raft_queues
+    | builtin_local_queues
+    | builtin_raft_messages
+    | builtin_local_messages.
+
 %%================================================================================
 %% API
 %%================================================================================
@@ -60,21 +68,21 @@ schema() ->
             )},
         {messages,
             db_schema(
-                [builtin_raft_ttv, builtin_local_ttv],
+                [builtin_raft_messages, builtin_local_messages],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(messages),
                 #{}
             )},
         {sessions,
             db_schema(
-                [builtin_raft_ttv, builtin_local_ttv],
+                [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(sessions),
                 #{}
             )},
         {timers,
             db_schema(
-                [builtin_raft_ttv, builtin_local_ttv],
+                [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(timers),
                 %% Latency for this DB should be low:
@@ -88,13 +96,17 @@ schema() ->
         %% TODO: switch shared subs to use TTV and rename the DB to shared_sub
         {queues,
             db_schema(
-                [builtin_raft_messages, builtin_local_messages],
+                [builtin_raft_queues, builtin_local_queues],
                 ?IMPORTANCE_HIDDEN,
                 ?DESC(shared_subs),
                 #{}
             )}
     ] ++ emqx_schema_hooks:list_injection_point('durable_storage', []).
 
+-spec db_schema([backend()], _Importance, ?DESC(_), Defaults) ->
+    #{type := _, _ => _}
+when
+    Defaults :: map().
 db_schema(Backends, Importance, Desc, Defaults) ->
     sc(
         hoconsc:union([ref(I) || I <- Backends]),
@@ -106,13 +118,17 @@ db_schema(Backends, Importance, Desc, Defaults) ->
     ).
 
 fields(builtin_local_messages) ->
-    make_local(false);
+    make_local(messages);
 fields(builtin_raft_messages) ->
-    make_raft(false);
-fields(builtin_local_ttv) ->
-    make_local(true);
-fields(builtin_raft_ttv) ->
-    make_raft(true);
+    make_raft(messages);
+fields(builtin_local_queues) ->
+    make_local(queues);
+fields(builtin_raft_queues) ->
+    make_raft(queues);
+fields(builtin_local) ->
+    make_local(generic);
+fields(builtin_raft) ->
+    make_raft(generic);
 fields(rocksdb_options) ->
     [
         {cache_size,
@@ -176,6 +192,7 @@ fields(builtin_write_buffer) ->
             )}
     ];
 fields(layout_builtin_wildcard_optimized) ->
+    %% Settings for `emqx_ds_storage_skipstream_lts_v2':
     [
         {type,
             sc(
@@ -183,43 +200,6 @@ fields(layout_builtin_wildcard_optimized) ->
                 #{
                     'readOnly' => true,
                     default => wildcard_optimized,
-                    desc => ?DESC(layout_builtin_wildcard_optimized_type)
-                }
-            )},
-        {bits_per_topic_level,
-            sc(
-                range(1, 64),
-                #{
-                    default => 64,
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        {epoch_bits,
-            sc(
-                range(0, 64),
-                #{
-                    default => 20,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(wildcard_optimized_epoch_bits)
-                }
-            )},
-        {topic_index_bytes,
-            sc(
-                pos_integer(),
-                #{
-                    default => 4,
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )}
-    ];
-fields(layout_builtin_wildcard_optimized_v2) ->
-    [
-        {type,
-            sc(
-                wildcard_optimized_v2,
-                #{
-                    'readOnly' => true,
-                    default => wildcard_optimized_v2,
                     desc => ?DESC(layout_builtin_wildcard_optimized_type)
                 }
             )},
@@ -239,14 +219,6 @@ fields(layout_builtin_wildcard_optimized_v2) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {serialization_schema,
-            sc(
-                emqx_ds_msg_serializer:schema(),
-                #{
-                    default => asn1,
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
         {wildcard_thresholds,
             sc(
                 hoconsc:array(hoconsc:union([non_neg_integer(), infinity])),
@@ -256,22 +228,18 @@ fields(layout_builtin_wildcard_optimized_v2) ->
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(lts_wildcard_thresholds)
                 }
-            )}
-    ];
-fields(layout_builtin_reference) ->
-    [
-        {type,
+            )},
+        {timestamp_bytes,
             sc(
-                reference,
+                pos_integer(),
                 #{
-                    'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
-                    default => reference,
-                    desc => ?DESC(layout_builtin_reference_type)
+                    default => 8,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )}
     ];
 fields(optimistic_transaction) ->
+    %% `emqx_ds_optimistic_tx' settings:
     [
         {conflict_window,
             sc(
@@ -310,6 +278,7 @@ fields(optimistic_transaction) ->
             )}
     ];
 fields(subscriptions) ->
+    %% Beamformer settings:
     [
         {batch_size,
             sc(
@@ -337,7 +306,8 @@ fields(subscriptions) ->
             )}
     ].
 
-make_local(StoreTTV) ->
+-spec make_local(generic | messages | queues) -> hocon_schema:fields().
+make_local(Flavor) ->
     [
         {backend,
             sc(
@@ -349,10 +319,11 @@ make_local(StoreTTV) ->
                     desc => ?DESC(backend_type)
                 }
             )}
-        | common_builtin_fields(StoreTTV)
+        | common_builtin_fields(Flavor)
     ].
 
-make_raft(StoreTTV) ->
+-spec make_raft(generic | messages | queues) -> hocon_schema:fields().
+make_raft(Flavor) ->
     [
         {backend,
             sc(
@@ -382,11 +353,11 @@ make_raft(StoreTTV) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-        | common_builtin_fields(StoreTTV)
+        | common_builtin_fields(Flavor)
     ].
 
 %% This function returns fields common for builtin_local and builtin_raft backends.
-common_builtin_fields(StoreTTV) ->
+common_builtin_fields(Flavor) ->
     [
         {data_dir,
             sc(
@@ -407,14 +378,6 @@ common_builtin_fields(StoreTTV) ->
                     desc => ?DESC(builtin_n_shards)
                 }
             )},
-        {local_write_buffer,
-            sc(
-                ref(builtin_write_buffer),
-                #{
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(builtin_write_buffer)
-                }
-            )},
         {rocksdb,
             sc(
                 ref(rocksdb_options),
@@ -430,8 +393,20 @@ common_builtin_fields(StoreTTV) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-        | case StoreTTV of
-            true ->
+        | case Flavor of
+            queues ->
+                %% TODO: after migration of shared subs to TTV this flavor should be removed (-> generic)
+                [
+                    {local_write_buffer,
+                        sc(
+                            ref(builtin_write_buffer),
+                            #{
+                                importance => ?IMPORTANCE_HIDDEN,
+                                desc => ?DESC(builtin_write_buffer)
+                            }
+                        )}
+                ];
+            _ ->
                 [
                     {transaction,
                         sc(
@@ -441,32 +416,38 @@ common_builtin_fields(StoreTTV) ->
                                 desc => ?DESC(builtin_optimistic_transaction)
                             }
                         )}
-                ];
-            false ->
-                [
-                    {layout,
-                        sc(
-                            hoconsc:union(builtin_layouts()),
-                            #{
-                                desc => ?DESC(builtin_layout),
-                                importance => ?IMPORTANCE_MEDIUM,
-                                default =>
-                                    #{
-                                        <<"type">> => wildcard_optimized_v2
-                                    }
-                            }
-                        )}
+                    | case Flavor of
+                        generic ->
+                            %% Generic DBs use preconfigured storage layout
+                            [];
+                        messages ->
+                            %% `messages` DB lets user customize storage layout:
+                            [
+                                {layout,
+                                    sc(
+                                        hoconsc:union(builtin_layouts()),
+                                        #{
+                                            desc => ?DESC(builtin_layout),
+                                            importance => ?IMPORTANCE_MEDIUM,
+                                            default =>
+                                                #{
+                                                    <<"type">> => wildcard_optimized
+                                                }
+                                        }
+                                    )}
+                            ]
+                    end
                 ]
         end
     ].
 
-desc(builtin_raft_ttv) ->
+desc(Backend) when
+    Backend =:= builtin_raft; Backend =:= builtin_raft_messages; Backend =:= builtin_raft_queues
+->
     ?DESC(builtin_raft);
-desc(builtin_raft_messages) ->
-    ?DESC(builtin_raft);
-desc(builtin_local_ttv) ->
-    ?DESC(builtin_local);
-desc(builtin_local_messages) ->
+desc(Backend) when
+    Backend =:= builtin_local; Backend =:= builtin_local_messages; Backend =:= builtin_local_queues
+->
     ?DESC(builtin_local);
 desc(builtin_write_buffer) ->
     ?DESC(builtin_write_buffer);
@@ -553,44 +534,23 @@ translate_rocksdb_options(Input = #{max_open_files := MOF}) ->
 
 translate_layout(
     #{
-        type := wildcard_optimized_v2,
+        type := wildcard_optimized,
         bytes_per_topic_level := BytesPerTopicLevel,
         topic_index_bytes := TopicIndexBytes,
-        serialization_schema := SSchema,
-        wildcard_thresholds := WildcardThresholds
+        wildcard_thresholds := WildcardThresholds,
+        timestamp_bytes := TSBytes
     }
 ) ->
-    {emqx_ds_storage_skipstream_lts, #{
+    {emqx_ds_storage_skipstream_lts_v2, #{
         wildcard_hash_bytes => BytesPerTopicLevel,
         topic_index_bytes => TopicIndexBytes,
-        serialization_schema => SSchema,
-        lts_threshold_spec => translate_lts_wildcard_thresholds(WildcardThresholds)
-    }};
-translate_layout(
-    #{
-        type := wildcard_optimized,
-        bits_per_topic_level := BitsPerTopicLevel,
-        epoch_bits := EpochBits,
-        topic_index_bytes := TIBytes
-    }
-) ->
-    {emqx_ds_storage_bitfield_lts, #{
-        bits_per_topic_level => BitsPerTopicLevel,
-        topic_index_bytes => TIBytes,
-        epoch_bits => EpochBits
-    }};
-translate_layout(#{type := reference}) ->
-    {emqx_ds_storage_reference, #{}}.
+        lts_threshold_spec => translate_lts_wildcard_thresholds(WildcardThresholds),
+        timestamp_bytes => TSBytes
+    }}.
 
 builtin_layouts() ->
-    %% Reference layout stores everything in one stream, so it's not
-    %% suitable for production use. However, it's very simple and
-    %% produces a very predictabale replay order, which can be useful
-    %% for testing and debugging:
     [
-        ref(layout_builtin_wildcard_optimized_v2),
-        ref(layout_builtin_wildcard_optimized),
-        ref(layout_builtin_reference)
+        ref(layout_builtin_wildcard_optimized)
     ].
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
