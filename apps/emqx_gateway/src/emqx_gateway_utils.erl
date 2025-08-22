@@ -202,6 +202,12 @@ start_listener(
                 [GwName, Type, LisName, ListenOnStr]
             ),
             {ok, {ListenerId, ListenOn, Pid}};
+        {error, {already_started, Pid}} ->
+            console_print(
+                "Gateway ~ts:~ts:~ts on ~ts already started.~n",
+                [GwName, Type, LisName, ListenOnStr]
+            ),
+            {ok, {ListenerId, ListenOn, Pid}};
         {error, Reason} ->
             ?ELOG(
                 "Gateway failed to start ~ts:~ts:~ts on ~ts: ~0p~n",

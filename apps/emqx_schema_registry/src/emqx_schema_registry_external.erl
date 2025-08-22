@@ -21,6 +21,9 @@
     decode/4
 ]).
 
+%% Debugging API
+-export([list/0]).
+
 %% `gen_server' API
 -export([
     init/1,
@@ -105,6 +108,13 @@ decode(Name, Data, Args, Opts) ->
     with_registry(Name, fun(Context) ->
         do_decode(Name, Context, Data, Args, Opts)
     end).
+
+%%------------------------------------------------------------------------------
+%% Debugging API
+%%------------------------------------------------------------------------------
+
+list() ->
+    [Id || {Id, _} <- ets:tab2list(?EXTERNAL_REGISTRY_TAB)].
 
 %%------------------------------------------------------------------------------
 %% `gen_server' API
