@@ -197,7 +197,6 @@ t_http_test_json_formatter(_Config) ->
     ),
 
     %% Check that the log is empty
-    ok = wait_filesync(),
     {ok, _Detail} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/log_detail")),
     %% Trace is empty which results in a not found error
     {error, _} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/download")),
@@ -274,7 +273,6 @@ t_http_test_json_formatter(_Config) ->
         %% We should not convert this to a map as we will lose information
         map_key => [{a, a}, {a, b}]
     }),
-    ok = wait_filesync(),
     {ok, _Detail2} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/log_detail")),
     {ok, Bin} = request_api(get, api_path("trace/" ++ binary_to_list(Name) ++ "/download")),
     {ok, [
@@ -536,7 +534,6 @@ t_log_file(_Config) ->
         {error, {"HTTP/1.1", 404, "Not Found"}},
         request_api(get, api_path("trace/test_client_not_found/log_detail"))
     ),
-    ok = wait_filesync(),
     {ok, Detail} = request_api(get, api_path("trace/test_client_id/log_detail")),
     ?assertMatch([#{<<"mtime">> := _, <<"size">> := _, <<"node">> := _}], json(Detail)),
     {ok, Binary} = request_api(get, api_path("trace/test_client_id/download")),
@@ -607,10 +604,11 @@ t_create_rule_trace(_Config) ->
     create_rule_trace(atom_to_binary(?FUNCTION_NAME)).
 
 t_stream_log(_Config) ->
+    TraceDir = emqx_trace:trace_dir(),
     ClientId = <<"client-stream">>,
     Now = erlang:system_time(second),
-    Name = <<"test_stream_log">>,
-    create_trace(Name, ClientId, Now - 10),
+    Name = "test_stream_log",
+    create_trace(list_to_binary(Name), ClientId, Now - 10),
     {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(Client),
     [
@@ -623,44 +621,97 @@ t_stream_log(_Config) ->
     emqtt:publish(Client, <<"/good">>, #{}, <<"ghood2">>, [{qos, 0}]),
     ok = emqtt:disconnect(Client),
     ct:sleep(200),
-    File = emqx_trace:log_file(Name, Now),
-    ct:pal("FileName: ~p", [File]),
-    {ok, FileBin} = file:read_file(File),
+    {ok, Files} = file:list_dir(TraceDir),
+    TraceFile = hd([filename:join(TraceDir, F) || F <- Files, string:find(F, Name) /= nomatch]),
+    ct:pal("FileName: ~p", [TraceFile]),
+    {ok, FileBin} = file:read_file(TraceFile),
     ct:pal("FileBin: ~p ~s", [byte_size(FileBin), FileBin]),
     {ok, Binary} = request_api(get, api_path("trace/test_stream_log/log?bytes=10")),
     #{<<"meta">> := Meta, <<"items">> := Bin} = json(Binary),
     ?assertEqual(10, byte_size(Bin)),
-    ?assertEqual(#{<<"position">> => 10, <<"bytes">> => 10}, Meta),
-    Path = api_path("trace/test_stream_log/log?position=20&bytes=10"),
-    {ok, Binary1} = request_api(get, Path),
+    ?assertMatch(#{<<"position">> := _, <<"bytes">> := 10}, Meta),
+    #{<<"position">> := Pos} = Meta,
+    {ok, Binary1} =
+        request_api(get, api_path(["trace/test_stream_log/log?bytes=10&position=", Pos])),
     #{<<"meta">> := Meta1, <<"items">> := Bin1} = json(Binary1),
-    ?assertEqual(#{<<"position">> => 30, <<"bytes">> => 10}, Meta1),
+    ?assertMatch(#{<<"position">> := _, <<"bytes">> := 10}, Meta1),
     ?assertEqual(10, byte_size(Bin1)),
     ct:pal("~p vs ~p", [Bin, Bin1]),
     %% in theory they could be the same but we know they shouldn't
     ?assertNotEqual(Bin, Bin1),
-    BadReqPath = api_path("trace/test_stream_log/log?&bytes=1000000000000"),
-    {error, {_, 400, _}} = request_api(get, BadReqPath),
+    #{<<"position">> := Pos1} = Meta1,
+    {ok, Binary2} =
+        request_api(get, api_path(["trace/test_stream_log/log?bytes=100000&position=", Pos1])),
+    #{<<"meta">> := Meta2, <<"items">> := _} = json(Binary2),
+    ?assertMatch(#{<<"position">> := _, <<"hint">> := <<"eof">>}, Meta2).
+
+t_stream_log_errors(_Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Now = erlang:system_time(second),
+    create_trace(<<"err_stream_log">>, ClientId, Now - 10),
     meck:new(file, [passthrough, unstick]),
-    meck:expect(file, read, 2, {error, enomem}),
-    {error, {_, 503, _}} = request_api(get, Path),
+    meck:expect(file, pread, 2, {error, enomem}),
+    meck:expect(file, pread, 3, {error, enomem}),
+    {error, {_, 503, _}} =
+        request_api(get, api_path("trace/err_stream_log/log")),
     meck:unload(file),
+    {error, {_, 400, _}} =
+        request_api(get, api_path("trace/err_stream_log/log?&bytes=1000000000000")),
+    %% Bad cursor:
+    {error, {_, 400, _}} =
+        request_api(get, api_path("trace/err_stream_log/log?&bytes=10&position=invalid")),
+    {error, {_, 400, _}} =
+        request_api(get, api_path("trace/err_stream_log/log?&bytes=10&position=g3QAAAABdwFzYSK")),
     {error, {_, 404, _}} =
+        request_api(get, api_path("trace/err_stream_log/log?node=unknown_node")),
+    % known atom but not a node
+    {error, {_, 404, _}} =
+        request_api(get, api_path("trace/err_stream_log/log?node=undefined")),
+    {error, {_, 404, _}} =
+        request_api(get, api_path("trace/err_stream_log_not_found/log")).
+
+t_stream_log_stale(_Config) ->
+    %% Configure relatively low size limit:
+    MaxSize = 100 * 1024,
+    MaxSizeDefault = emqx_config:get([trace, max_file_size]),
+    ok = emqx_config:put([trace, max_file_size], MaxSize),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Now = erlang:system_time(second),
+    create_trace(<<"stale_stream_log">>, ClientId, Now - 10),
+    %% Start the client and publish some messages:
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    ok = lists:foreach(
+        fun(_) -> emqtt:publish(Client, <<"t/" ?MODULE_STRING>>, <<"HELLO">>, qos1) end,
+        lists:seq(1, 100)
+    ),
+    ok = timer:sleep(500),
+    %% Start streaming the log:
+    {ok, Resp1} = request_api(get, api_path("trace/stale_stream_log/log?bytes=40")),
+    #{<<"meta">> := #{<<"position">> := P1}, <<"items">> := _} = json(Resp1),
+    {ok, Resp2} = request_api(get, api_path(["trace/stale_stream_log/log?bytes=40&position=", P1])),
+    #{<<"meta">> := #{<<"position">> := P2}, <<"items">> := _} = json(Resp2),
+    %% Overwhelm the trace log:
+    ok = lists:foreach(
+        fun(_) -> emqtt:publish(Client, <<"t/" ?MODULE_STRING>>, <<"HELLO">>, qos1) end,
+        lists:seq(1, 400)
+    ),
+    ok = timer:sleep(500),
+    %% Cursor is now stale:
+    {error, {{_, 400, _}, _, RespErr}} =
         request_api(
             get,
-            api_path("trace/test_stream_log/log?node=unknown_node")
+            api_path(["trace/stale_stream_log/log?&bytes=40&position=", P2]),
+            [],
+            #{return_all => true}
         ),
-    {error, {_, 404, _}} =
-        request_api(
-            get,
-            % known atom but not a node
-            api_path("trace/test_stream_log/log?node=undefined")
-        ),
-    {error, {_, 404, _}} =
-        request_api(
-            get,
-            api_path("trace/test_stream_log_not_found/log")
-        ).
+    ?assertEqual(
+        #{<<"code">> => <<"STALE_CURSOR">>, <<"message">> => <<"Stale cursor">>},
+        json(RespErr)
+    ),
+    %% Cleanup:
+    ok = emqx_config:put([trace, max_file_size], MaxSizeDefault),
+    ok = emqtt:disconnect(Client).
 
 t_trace_files_are_deleted_after_download(_Config) ->
     ClientId = <<"client-test-delete-after-download">>,
@@ -676,7 +727,6 @@ t_trace_files_are_deleted_after_download(_Config) ->
      || _ <- lists:seq(1, 5)
     ],
     ok = emqtt:disconnect(Client),
-    ok = wait_filesync(),
 
     %% Check that files have been removed after download and that zip
     %% directories uses unique session ids
@@ -691,12 +741,11 @@ t_trace_files_are_deleted_after_download(_Config) ->
         end,
         fun(Trace) ->
             [
-                #{session_id := SessionId1, zip_dir := ZipDir1},
-                #{session_id := SessionId2, zip_dir := ZipDir2}
+                #{zip_dir := ZipDir1},
+                #{zip_dir := ZipDir2}
             ] = ?of_kind(trace_api_download_trace_log, Trace),
             ?assertEqual({error, enoent}, file:list_dir(ZipDir1)),
             ?assertEqual({error, enoent}, file:list_dir(ZipDir2)),
-            ?assertNotEqual(SessionId1, SessionId2),
             ?assertNotEqual(ZipDir1, ZipDir2)
         end
     ),
@@ -707,7 +756,6 @@ t_download_empty_trace(_Config) ->
     Now = erlang:system_time(second),
     Name = <<"test_client_id_empty_trace">>,
     create_trace(Name, ClientId, Now),
-    ok = wait_filesync(),
     ?check_trace(
         begin
             ?wait_async_action(
@@ -722,19 +770,14 @@ t_download_empty_trace(_Config) ->
     {error, {{_, 404, _}, _Headers, Body}} =
         request_api(get, api_path(<<"trace/", Name/binary, "/download">>), [], #{return_all => true}),
     ?assertMatch(#{<<"message">> := <<"Trace is empty">>}, emqx_utils_json:decode(Body)),
-    File = emqx_trace:log_file(Name, Now),
-    ct:pal("FileName: ~p", [File]),
-    ?assertEqual({ok, <<>>}, file:read_file(File)),
-    ?assertEqual(ok, file:delete(File)),
+    TraceDir = emqx_trace:trace_dir(),
+    ?assertEqual(ok, file:del_dir_r(TraceDir)),
+    ?assertEqual(ok, file:make_dir(TraceDir)),
     %% return 404 if trace file is not found
-    {error, {{_, 404, _}, _Headers, Body}} =
+    {error, {{_, 404, _}, _, _}} =
         request_api(get, api_path(<<"trace/", Name/binary, "/download">>), [], #{return_all => true}),
     ?assertMatch(#{<<"message">> := <<"Trace is empty">>}, emqx_utils_json:decode(Body)),
     ok.
-
-wait_filesync() ->
-    %% NOTE: Twice `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
-    timer:sleep(2 * 100).
 
 to_rfc3339(Second) ->
     list_to_binary(calendar:system_time_to_rfc3339(Second)).

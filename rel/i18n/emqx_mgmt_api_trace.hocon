@@ -110,10 +110,18 @@ max_response_bytes.desc:
 max_response_bytes.label:
 """Maximum response bytes"""
 
-current_trace_offset.desc:
-"""Offset from the current trace position."""
-current_trace_offset.label:
-"""Offset from the current trace position."""
+current_trace_cursor.desc:
+"""Cursor for the current trace position."""
+current_trace_cursor.label:
+"""Trace Cursor"""
+
+current_trace_stream_hint.desc:
+"""Hint on the state of the current log stream.
+* `eof`: Stream has reached the end of the log.
+* `retry`: Stream is temporarily unavailable, will recover quickly."""
+
+current_trace_stream_hint.label:
+"""Current Trace Stream Hint"""
 
 trace_log_formatter.desc:
 """The formatter that will be used to format the trace log entries. Set this to text to format the log entries as plain text (default). Set it to json to format each log entry as a JSON object."""
