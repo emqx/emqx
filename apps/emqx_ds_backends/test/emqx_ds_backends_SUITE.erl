@@ -18,16 +18,6 @@
 
 %% A simple smoke test that verifies that opening/closing the DB
 %% doesn't crash, and not much else
-t_00_old_smoke_open_drop(Config) ->
-    DB = 'DB',
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-    %% Reopen the DB and make sure the operation is idempotent:
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-    %% Close the DB:
-    ?assertMatch(ok, emqx_ds:drop_db(DB)).
-
-%% A simple smoke test that verifies that opening/closing the DB
-%% doesn't crash, and not much else
 t_00_smoke_open_drop(Config) ->
     DB = 'DB',
     ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
@@ -35,20 +25,6 @@ t_00_smoke_open_drop(Config) ->
     ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     %% Close the DB:
     ?assertMatch(ok, emqx_ds:drop_db(DB)).
-
-%% A simple smoke test that verifies that storing the messages doesn't
-%% crash
-t_01_old_smoke_store(Config) ->
-    ?check_trace(
-        #{timetrap => 10_000},
-        begin
-            DB = default,
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-            Msg = message(<<"foo/bar">>, <<"foo">>, 0),
-            ?assertMatch(ok, emqx_ds:store_batch(DB, [Msg]))
-        end,
-        []
-    ).
 
 %% A simple smoke test that verifies that storing the messages doesn't
 %% crash
@@ -77,26 +53,6 @@ t_01_smoke_store(Config) ->
         end,
         []
     ).
-
-%% A simple smoke test that verifies that getting the list of streams
-%% doesn't crash, iterators can be opened, and that it's possible to iterate
-%% over messages.
-t_02_old_smoke_iterate(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-    StartTime = 0,
-    TopicFilter = ['#'],
-    Msgs = [
-        message(<<"foo/bar">>, <<"1">>, 0),
-        message(<<"foo/bar">>, <<"2">>, 1),
-        message(<<"foo/bar">>, <<"3">>, 2)
-    ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs, #{sync => true})),
-    timer:sleep(1000),
-    {[{_, Stream}], []} = emqx_ds:get_streams(DB, TopicFilter, StartTime, #{}),
-    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-    {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
-    emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs, Batch).
 
 %% A simple smoke test that verifies that getting the list of streams
 %% doesn't crash, iterators can be opened, and that it's possible to iterate
@@ -285,181 +241,6 @@ t_08_smoke_list_drop_generation(Config) ->
         []
     ),
     ok.
-
-t_09_old_atomic_store_batch(Config) ->
-    ct:pal("store batch ~p", [Config]),
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        begin
-            DBOpts = (opts(Config))#{atomic_batches => true},
-            ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
-            Msgs = [
-                message(<<"1">>, <<"1">>, 0),
-                message(<<"2">>, <<"2">>, 1),
-                message(<<"3">>, <<"3">>, 2)
-            ],
-            ?assertEqual(
-                ok,
-                emqx_ds:store_batch(DB, Msgs, #{sync => true})
-            )
-        end,
-        []
-    ),
-    ok.
-
-t_10_old_non_atomic_store_batch(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        begin
-            application:set_env(emqx_durable_storage, egress_batch_size, 1),
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-            Msgs = [
-                message(<<"1">>, <<"1">>, 0),
-                message(<<"2">>, <<"2">>, 1),
-                message(<<"3">>, <<"3">>, 2)
-            ],
-            %% Non-atomic batches may be split.
-            ?assertEqual(
-                ok,
-                emqx_ds:store_batch(DB, Msgs, #{
-                    atomic => false,
-                    sync => true
-                })
-            ),
-            timer:sleep(1000)
-        end,
-        fun(Trace) ->
-            %% Should contain one flush per message.
-            Batches = ?projection(batch, ?of_kind(emqx_ds_buffer_flush, Trace)),
-            ?assertMatch([_], Batches),
-            ?assertMatch(
-                [_, _, _],
-                lists:append(Batches)
-            ),
-            ok
-        end
-    ),
-    ok.
-
-t_11_old_batch_preconditions(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        begin
-            DBOpts = (opts(Config))#{
-                atomic_batches => true,
-                append_only => false
-            },
-            ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
-
-            %% Conditional delete
-            TS = 42,
-            Batch1 = #dsbatch{
-                preconditions = [{if_exists, matcher(<<"c1">>, <<"t/a">>, '_', TS)}],
-                operations = [{delete, matcher(<<"c1">>, <<"t/a">>, '_', TS)}]
-            },
-            %% Conditional insert
-            M1 = message(<<"c1">>, <<"t/a">>, <<"M1">>, TS),
-            Batch2 = #dsbatch{
-                preconditions = [{unless_exists, matcher(<<"c1">>, <<"t/a">>, '_', TS)}],
-                operations = [M1]
-            },
-
-            %% No such message yet, precondition fails:
-            ?assertEqual(
-                {error, unrecoverable, {precondition_failed, not_found}},
-                emqx_ds:store_batch(DB, Batch1)
-            ),
-            %% No such message yet, `unless` precondition holds:
-            ?assertEqual(
-                ok,
-                emqx_ds:store_batch(DB, Batch2)
-            ),
-            %% Now there's such message, `unless` precondition now fails:
-            ?assertMatch(
-                {error, unrecoverable,
-                    {precondition_failed, #message{topic = <<"t/a">>, payload = <<"M1">>}}},
-                emqx_ds:store_batch(DB, Batch2)
-            ),
-            %% On the other hand, `if` precondition now holds:
-            ?assertEqual(
-                ok,
-                emqx_ds:store_batch(DB, Batch1)
-            ),
-
-            %% Wait at least until current epoch ends.
-            ct:sleep(1000),
-            %% There's no messages in the DB.
-            ?assertEqual(
-                [],
-                emqx_ds:dirty_read(DB, emqx_topic:words(<<"t/#">>))
-            )
-        end,
-        []
-    ).
-
-t_12_old_batch_precondition_conflicts(Config) ->
-    DB = ?FUNCTION_NAME,
-    NBatches = 50,
-    NMessages = 10,
-    ?check_trace(
-        begin
-            DBOpts = (opts(Config))#{
-                atomic_batches => true,
-                append_only => false
-            },
-            ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
-
-            ConflictBatches = [
-                #dsbatch{
-                    %% If the slot is free...
-                    preconditions = [{if_exists, matcher(<<"c1">>, <<"t/slot">>, _Free = <<>>, 0)}],
-                    %% Take it and write NMessages extra messages, so that batches take longer to
-                    %% process and have higher chances to conflict with each other.
-                    operations =
-                        [
-                            message(<<"c1">>, <<"t/slot">>, integer_to_binary(I), _TS = 0)
-                            | [
-                                message(<<"c1">>, {"t/owner/~p/~p", [I, J]}, <<>>, I * 100 + J)
-                             || J <- lists:seq(1, NMessages)
-                            ]
-                        ]
-                }
-             || I <- lists:seq(1, NBatches)
-            ],
-
-            %% Run those batches concurrently.
-            ok = emqx_ds:store_batch(DB, [message(<<"c1">>, <<"t/slot">>, <<>>, 0)]),
-            Results = emqx_utils:pmap(
-                fun(B) -> emqx_ds:store_batch(DB, B) end,
-                ConflictBatches,
-                infinity
-            ),
-
-            %% Only one should have succeeded.
-            ?assertEqual([ok], [Ok || Ok = ok <- Results]),
-
-            %% While other failed with an identical `precondition_failed`.
-            Failures = lists:usort([PreconditionFailed || {error, _, PreconditionFailed} <- Results]),
-            ?assertMatch(
-                [{precondition_failed, #message{topic = <<"t/slot">>, payload = <<_/bytes>>}}],
-                Failures
-            ),
-
-            %% Wait at least until current epoch ends.
-            ct:sleep(1000),
-            %% Storage should contain single batch's messages.
-            [{precondition_failed, #message{payload = IOwner}}] = Failures,
-            WinnerBatch = lists:nth(binary_to_integer(IOwner), ConflictBatches),
-            BatchMessages = lists:sort(WinnerBatch#dsbatch.operations),
-            DBMessages = emqx_ds:dirty_read(DB, emqx_topic:words(<<"t/#">>)),
-            emqx_ds_test_helpers:diff_messages(
-                ?msg_fields,
-                lists:sort(BatchMessages),
-                lists:sort(DBMessages)
-            )
-        end,
-        []
-    ).
 
 t_drop_generation_with_never_used_iterator(Config) ->
     %% This test checks how the iterator behaves when:
