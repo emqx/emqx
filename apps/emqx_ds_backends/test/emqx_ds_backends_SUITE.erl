@@ -2919,6 +2919,8 @@ dirty_append(Opts, MsgsOrTTVs) ->
                 {ok, Serial} when is_binary(Serial),
                 emqx_ds:dirty_append_outcome(Ref, Reply)
             )
+    after 5_000 ->
+        error(timeout)
     end,
     ok.
 
