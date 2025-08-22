@@ -24,13 +24,13 @@ defmodule EMQXResource.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
-      UMP.common_dep(:ecpool),
-      UMP.common_dep(:gproc),
-      UMP.common_dep(:telemetry),
-      UMP.common_dep(:hocon),
-      UMP.common_dep(:replayq)
-    ]
+      :ecpool,
+      :gproc,
+      :telemetry,
+      :hocon,
+      :replayq
+    ])
   end
 end

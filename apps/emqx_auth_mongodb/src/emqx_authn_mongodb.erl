@@ -103,7 +103,7 @@ authenticate_with_filter(
         {ok, Doc} ->
             case check_password(Password, Doc, State) of
                 ok ->
-                    {ok, is_superuser(Doc, State)};
+                    {ok, authn_result(Doc, State)};
                 {error, {cannot_find_password_hash_field, PasswordHashField}} ->
                     ?TRACE_AUTHN_PROVIDER(error, "cannot_find_password_hash_field", #{
                         resource => ResourceId,
@@ -133,6 +133,7 @@ create_state(ResourceId, #{filter := Filter} = Config) ->
                 password_hash_field,
                 salt_field,
                 is_superuser_field,
+                clientid_override_field,
                 password_hash_algorithm,
                 salt_position
             ],
@@ -188,3 +189,14 @@ is_superuser(Doc, #{is_superuser_field := IsSuperuserField}) ->
     emqx_authn_utils:is_superuser(#{<<"is_superuser">> => IsSuperuser});
 is_superuser(_, _) ->
     emqx_authn_utils:is_superuser(#{<<"is_superuser">> => false}).
+
+clientid_override(Doc, #{clientid_override_field := ClientIdOverrideField}) ->
+    ClientIdOverride = maps:get(ClientIdOverrideField, Doc, undefined),
+    emqx_authn_utils:clientid_override(#{<<"clientid_override">> => ClientIdOverride});
+clientid_override(_Doc, _State) ->
+    #{}.
+
+authn_result(Doc, State) ->
+    Res0 = is_superuser(Doc, State),
+    Res1 = clientid_override(Doc, State),
+    maps:merge(Res0, Res1).

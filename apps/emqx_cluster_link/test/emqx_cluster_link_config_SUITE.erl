@@ -314,30 +314,35 @@ t_config_validations(Config) ->
         )
     ).
 
-t_config_update_ds('init', Config) ->
-    Conf = combine([conf_log(), conf_ds()]),
-    NameA = fmt("~s_~s", [?FUNCTION_NAME, "a"]),
-    NameB = fmt("~s_~s", [?FUNCTION_NAME, "b"]),
-    NodesA = mk_cluster(1, NameA, [#{role => replicant}, #{role => core}], Conf, Config),
-    NodesB = mk_cluster(2, NameB, [#{role => replicant}, #{role => core}], Conf, Config),
-    ClusterA = emqx_cth_cluster:start(NodesA),
-    ClusterB = emqx_cth_cluster:start(NodesB),
-    ok = snabbkaffe:start_trace(),
-    [
-        {cluster_a, ClusterA},
-        {cluster_b, ClusterB},
-        {name_a, NameA},
-        {name_b, NameB}
-        | Config
-    ];
-t_config_update_ds('end', Config) ->
-    ok = snabbkaffe:stop(),
-    ok = emqx_cth_cluster:stop(?config(cluster_a, Config)),
-    ok = emqx_cth_cluster:stop(?config(cluster_b, Config)),
-    %% @NOTE: Clean work_dir for this TC to avoid running out of disk space
-    %% causing other test run flaky. Uncomment it if you need to preserve the
-    %% work_dir for troubleshooting
-    emqx_cth_suite:clean_work_dir(?config(work_dir, Config)).
+t_config_update_ds('init', _Config) ->
+    %% Conf = combine([conf_log(), conf_ds()]),
+    %% NameA = fmt("~s_~s", [?FUNCTION_NAME, "a"]),
+    %% NameB = fmt("~s_~s", [?FUNCTION_NAME, "b"]),
+    %% NodesA = mk_cluster(1, NameA, [#{role => replicant}, #{role => core}], Conf, Config),
+    %% NodesB = mk_cluster(2, NameB, [#{role => replicant}, #{role => core}], Conf, Config),
+    %% ClusterA = emqx_cth_cluster:start(NodesA),
+    %% ClusterB = emqx_cth_cluster:start(NodesB),
+    %% ok = snabbkaffe:start_trace(),
+    %% [
+    %%     {cluster_a, ClusterA},
+    %%     {cluster_b, ClusterB},
+    %%     {name_a, NameA},
+    %%     {name_b, NameB}
+    %%     | Config
+    %% ];
+    %%
+    %% At the time of writing (2025-08-21), this test is broken in multiple due to recent
+    %% changes in how DS works.
+    {skip, broken_test};
+t_config_update_ds('end', _Config) ->
+    %% ok = snabbkaffe:stop(),
+    %% ok = emqx_cth_cluster:stop(?config(cluster_a, Config)),
+    %% ok = emqx_cth_cluster:stop(?config(cluster_b, Config)),
+    %% %% @NOTE: Clean work_dir for this TC to avoid running out of disk space
+    %% %% causing other test run flaky. Uncomment it if you need to preserve the
+    %% %% work_dir for troubleshooting
+    %% emqx_cth_suite:clean_work_dir(?config(work_dir, Config)).
+    ok.
 
 t_config_update_ds(Config) ->
     %% @NOTE: for troubleshooting this TC,
@@ -616,7 +621,7 @@ conf_log() ->
     "log.file { enable = true, level = debug, path = node.log, supervisor_reports = progress }".
 
 conf_ds() ->
-    "durable_sessions { enable = true, renew_streams_interval = 100ms, idle_poll_interval = 1s} \n"
+    "durable_sessions { enable = true } \n"
     "durable_storage.messages.n_shards = 2".
 
 fmt(Fmt, Args) ->

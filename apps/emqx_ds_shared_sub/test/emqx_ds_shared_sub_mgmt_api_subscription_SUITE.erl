@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(CLIENTID, <<"api_clientid">>).
 -define(USERNAME, <<"api_username">>).
@@ -18,11 +19,12 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx_conf,
-                "durable_sessions {"
-                "\n     enable = true"
-                "\n     renew_streams_interval = 10ms"
-                "\n }"},
+            {emqx_conf, """
+            durable_sessions {
+              enable = true
+              checkpoint_interval = 0
+            }
+            """},
             {emqx_ds_shared_sub, #{
                 config => #{
                     <<"durable_queues">> => #{
@@ -37,6 +39,7 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    ok = emqx_persistent_message:wait_readiness(5_000),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -87,9 +90,13 @@ t_list_with_shared_sub(Config) ->
     ],
     Headers = emqx_mgmt_api_test_util:auth_header_(),
 
-    ?assertMatch(
-        #{<<"data">> := [#{<<"clientid">> := ?CLIENTID}, #{<<"clientid">> := ?CLIENTID}]},
-        request_json(get, QS0, Headers)
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"data">> := [#{<<"clientid">> := ?CLIENTID}, #{<<"clientid">> := ?CLIENTID}]},
+            request_json(get, QS0, Headers)
+        )
     ),
 
     QS1 = [

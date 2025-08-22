@@ -77,7 +77,6 @@ app_specs() ->
 
 injected_fields() ->
     #{
-        'config.allowed_namespaced_roots' => [<<"sysmon">>, <<"foo">>],
         'roots.high' => [{foo, hoconsc:mk(hoconsc:ref(?MODULE, foo), #{})}]
     }.
 
@@ -105,6 +104,70 @@ connect(Opts0) ->
             end,
             erlang:error(E)
     end.
+
+setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
+    {ok, Agent} = emqx_utils_agent:start_link(_BarType0 = binary()),
+    SetType = fun() ->
+        BarType = emqx_utils_agent:get(Agent),
+        persistent_term:put({?MODULE, bar_type}, BarType)
+    end,
+    AppSpecs = [
+        {emqx_conf, #{
+            before_start =>
+                fun(App, AppCfg) ->
+                    SetType(),
+                    ok = emqx_config:add_allowed_namespaced_config_root(<<"foo">>),
+                    ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
+                    emqx_cth_suite:inhibit_config_loader(App, AppCfg)
+                end
+        }},
+        emqx,
+        emqx_management,
+        {emqx_mt, #{
+            after_start =>
+                fun() ->
+                    {ok, _} = emqx:update_config(
+                        [mqtt, client_attrs_init],
+                        [
+                            #{
+                                <<"expression">> => <<"username">>,
+                                <<"set_as_attr">> => <<"tns">>
+                            }
+                        ]
+                    )
+                end
+        }}
+    ],
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {corrupt_namespace_cfg1, #{
+                apps => AppSpecs ++ [emqx_mgmt_api_test_util:emqx_dashboard()]
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
+    ),
+    ct:pal("starting cluster"),
+    Nodes = [N1] = emqx_cth_cluster:start(NodeSpecs),
+    on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
+    ct:timetrap({seconds, 15}),
+    ct:pal("cluster started"),
+    ?assertMatch([_], ?ON(N1, emqx:get_config([mqtt, client_attrs_init]))),
+    #{
+        nodes => Nodes,
+        node_specs => NodeSpecs,
+        schema_agent => Agent,
+        set_type_fn => SetType
+    }.
+
+apply_jq(Transformation, NssToConfigs) ->
+    maps:map(
+        fun(_Ns, CfgIn) ->
+            CfgInBin = emqx_utils_json:encode(CfgIn),
+            {ok, [CfgOutBin]} = jq:process_json(Transformation, CfgInBin),
+            #{} = emqx_utils_json:decode(CfgOutBin)
+        end,
+        NssToConfigs
+    ).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -280,49 +343,11 @@ t_namespaced_bad_config_during_start({'end', _Config}) ->
     ok;
 t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
     Ns = <<"some_namespace">>,
-    {ok, Agent} = emqx_utils_agent:start_link(_BarType0 = binary()),
-    SetType = fun() ->
-        BarType = emqx_utils_agent:get(Agent),
-        persistent_term:put({?MODULE, bar_type}, BarType)
-    end,
-    AppSpecs = [
-        {emqx_conf, #{
-            before_start =>
-                fun(App, AppCfg) ->
-                    SetType(),
-                    ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
-                    emqx_cth_suite:inhibit_config_loader(App, AppCfg)
-                end
-        }},
-        emqx,
-        {emqx_mt, #{
-            after_start =>
-                fun() ->
-                    {ok, _} = emqx:update_config(
-                        [mqtt, client_attrs_init],
-                        [
-                            #{
-                                <<"expression">> => <<"username">>,
-                                <<"set_as_attr">> => <<"tns">>
-                            }
-                        ]
-                    )
-                end
-        }}
-    ],
-    NodeSpecs =
-        [N1Spec] = emqx_cth_cluster:mk_nodespecs(
-            [
-                {corrupt_namespace_cfg1, #{apps => AppSpecs}}
-            ],
-            #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
-        ),
-    ct:pal("starting cluster"),
-    Nodes = [N1] = emqx_cth_cluster:start(NodeSpecs),
-    on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
-    ct:timetrap({seconds, 15}),
-    ct:pal("cluster started"),
-    ?assertMatch([_], ?ON(N1, emqx:get_config([mqtt, client_attrs_init]))),
+    #{
+        nodes := [N1 | _],
+        node_specs := [N1Spec | _],
+        schema_agent := Agent
+    } = setup_corrupt_namespace_scenario(?FUNCTION_NAME, Config),
     ct:pal("seeding namespace"),
     ?ON(
         N1,
@@ -339,7 +364,7 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
     }} =
         ?ON(N1, emqx_conf:update([foo], #{<<"bar">> => <<"hello">>}, #{namespace => Ns})),
     ct:pal("injecting failure"),
-    _ = emqx_utils_agent:get_and_update(Agent, fun(_Old) -> {unused, _BarType1 = integer()} end),
+    ok = emqx_utils_agent:set(Agent, _BarType1 = integer()),
     ct:pal("restarting node; should not fail to start"),
     {[N1], {ok, _}} =
         ?wait_async_action(
@@ -394,4 +419,231 @@ t_namespaced_bad_config_during_start(Config) when is_list(Config) ->
     ?assertMatch(1, ?ON(N1, emqx:get_raw_namespaced_config(Ns, KeyPath))),
     Alarms2 = ?ON(N1, emqx_alarm:get_alarms(activated)),
     ?assertMatch([], [A || A = #{name := ?ALARM} <- Alarms2]),
+    ok.
+
+-doc """
+Verifies the behavior of the bulk fix API for corrupt namespaced configurations.
+
+When (re)starting a node, it's possible that due to a bug or to intentionally
+non-backwards compatible schema changes, we have persisted namespaced configs that are
+invalid in mnesia.
+
+Assuming that such problems will happen to multiple namespaces in a similar way (due to
+bugs or intentional breaking changes), we have introduced this API which uses `jq`
+programs to apply the same transformation to multiple configurations without the need to
+manually go through each one.
+""".
+t_namespaced_bad_config_bulk_fix({init, TCConfig}) ->
+    TCConfig;
+t_namespaced_bad_config_bulk_fix({'end', _TCConfig}) ->
+    ok;
+t_namespaced_bad_config_bulk_fix(TCConfig) when is_list(TCConfig) ->
+    #{
+        nodes := [N1 | _] = Nodes,
+        node_specs := NodeSpecs,
+        schema_agent := Agent
+    } = setup_corrupt_namespace_scenario(?FUNCTION_NAME, TCConfig),
+    Namespaces = [<<"ns", (integer_to_binary(I))/binary>> || I <- lists:seq(1, 4)],
+    {CorruptNamespaces, OtherNamespaces} = lists:split(2, Namespaces),
+    ct:pal("seeding namespaces"),
+    ?ON(
+        N1,
+        lists:foreach(
+            fun(Ns) ->
+                {204, _} = emqx_mt_api_SUITE:create_managed_ns(Ns),
+                ok = emqx_common_test_helpers:seed_defaults_for_all_roots_namespaced_cluster(
+                    emqx_schema, Ns
+                )
+            end,
+            Namespaces
+        )
+    ),
+    ct:pal("seeded namespaces"),
+    ct:pal("updating config that will become \"corrupt\" later on"),
+    ?ON(
+        N1,
+        lists:foreach(
+            fun(Ns) ->
+                {ok, #{
+                    config := #{bar := <<"hello">>},
+                    namespace := Ns,
+                    raw_config := #{<<"bar">> := <<"hello">>}
+                }} =
+                    ?ON(
+                        N1, emqx_conf:update([foo], #{<<"bar">> => <<"hello">>}, #{namespace => Ns})
+                    )
+            end,
+            CorruptNamespaces
+        )
+    ),
+    ct:pal("injecting failure"),
+    ok = emqx_utils_agent:set(Agent, _BarType1 = integer()),
+    ct:pal("restarting node; should not fail to start"),
+    {Nodes, {ok, _}} =
+        ?wait_async_action(
+            emqx_cth_cluster:restart(NodeSpecs),
+            #{?snk_kind := "corrupt_ns_checker_started"}
+        ),
+    %% Adding new, valid value to other namespaces
+    ?ON(
+        N1,
+        lists:foreach(
+            fun(Ns) ->
+                {ok, #{
+                    config := #{bar := 1},
+                    namespace := Ns,
+                    raw_config := #{<<"bar">> := 1}
+                }} =
+                    ?ON(N1, emqx_conf:update([foo], #{<<"bar">> => 1}, #{namespace => Ns}))
+            end,
+            OtherNamespaces
+        )
+    ),
+    Alarms1 = ?ON(N1, emqx_alarm:get_alarms(activated)),
+    [
+        #{
+            name := ?ALARM,
+            message := <<"Namespaces with invalid configurations">>,
+            details := #{problems := Problems1}
+        }
+    ] = [A || A = #{name := ?ALARM} <- Alarms1],
+    ?assertEqual(lists:sort(CorruptNamespaces), lists:sort(maps:keys(Problems1))),
+
+    GlobalAuthHeader = ?ON(N1, emqx_mgmt_api_test_util:auth_header_()),
+    emqx_mt_api_SUITE:put_auth_header(GlobalAuthHeader),
+
+    {200, BadNssToConfigs} = emqx_mt_api_SUITE:bulk_export_ns_configs(#{
+        <<"namespaces">> => CorruptNamespaces
+    }),
+    ?assertEqual(lists:sort(CorruptNamespaces), lists:sort(maps:keys(BadNssToConfigs))),
+
+    %% Unknown namespaces
+    ?assertMatch(
+        {400, #{<<"message">> := <<"unknown_namespaces">>, <<"unknown">> := [<<"unknown_ns">>]}},
+        emqx_mt_api_SUITE:bulk_export_ns_configs(#{
+            <<"namespaces">> => [<<"unknown_ns">>]
+        })
+    ),
+
+    %% Lets try to fix the namespaces with the wrong transformations; should fail.
+    %%   - bad type
+    ?assertMatch(
+        {400, #{
+            <<"message">> := <<"errors_importing_configurations">>,
+            <<"errors">> := #{
+                <<"ns1">> := #{
+                    <<"reason">> := <<"bad_resulting_configuration">>,
+                    <<"details">> := [#{<<"kind">> := <<"validation_error">>}]
+                },
+                <<"ns2">> := #{
+                    <<"reason">> := <<"bad_resulting_configuration">>,
+                    <<"details">> := [#{<<"kind">> := <<"validation_error">>}]
+                }
+            }
+        }},
+        emqx_mt_api_SUITE:bulk_import_ns_configs(#{
+            <<"configs">> => apply_jq(
+                <<".foo.bar=\"still_wrong_type\"">>,
+                BadNssToConfigs
+            ),
+            <<"dry_run">> => false
+        })
+    ),
+    %%   - resulting config has unknown keys
+    ?assertMatch(
+        {400, #{
+            <<"message">> := <<"errors_importing_configurations">>,
+            <<"errors">> := #{
+                <<"ns1">> := #{
+                    <<"reason">> := <<"bad_resulting_configuration">>,
+                    <<"details">> := [#{<<"kind">> := <<"validation_error">>}]
+                },
+                <<"ns2">> := #{
+                    <<"reason">> := <<"bad_resulting_configuration">>,
+                    <<"details">> := [#{<<"kind">> := <<"validation_error">>}]
+                }
+            }
+        }},
+        emqx_mt_api_SUITE:bulk_import_ns_configs(#{
+            <<"configs">> => apply_jq(
+                <<".foo.bar=123 | .foo.unknown_key=true">>,
+                BadNssToConfigs
+            ),
+            <<"dry_run">> => false
+        })
+    ),
+    %% Now, lets fix the namespaces in bulk.
+    %% First a dry-run; shouldn't do anything
+    ?assertMatch(
+        {200, #{
+            <<"ns1">> := #{<<"foo">> := #{<<"bar">> := 123}},
+            <<"ns2">> := #{<<"foo">> := #{<<"bar">> := 123}}
+        }},
+        emqx_mt_api_SUITE:bulk_import_ns_configs(#{
+            <<"configs">> => apply_jq(
+                <<".foo.bar=123">>,
+                BadNssToConfigs
+            ),
+            <<"dry_run">> => true
+        })
+    ),
+    lists:foreach(
+        fun(Ns) ->
+            ?assertMatch(
+                <<"hello">>,
+                ?ON(N1, emqx:get_raw_namespaced_config(Ns, [<<"foo">>, <<"bar">>])),
+                #{ns => Ns}
+            )
+        end,
+        CorruptNamespaces
+    ),
+    lists:foreach(
+        fun(Ns) ->
+            ?assertMatch(
+                1,
+                ?ON(N1, emqx:get_raw_namespaced_config(Ns, [<<"foo">>, <<"bar">>])),
+                #{ns => Ns}
+            )
+        end,
+        OtherNamespaces
+    ),
+    %% Now for real.
+    ?assertMatch(
+        {200, #{
+            <<"ns1">> := #{<<"foo">> := #{<<"bar">> := 123}},
+            <<"ns2">> := #{<<"foo">> := #{<<"bar">> := 123}}
+        }},
+        emqx_mt_api_SUITE:bulk_import_ns_configs(#{
+            <<"configs">> => apply_jq(
+                <<".foo.bar=123">>,
+                BadNssToConfigs
+            ),
+            <<"dry_run">> => false
+        })
+    ),
+    lists:foreach(
+        fun(Ns) ->
+            ?assertMatch(
+                123,
+                ?ON(N1, emqx:get_raw_namespaced_config(Ns, [<<"foo">>, <<"bar">>])),
+                #{ns => Ns}
+            )
+        end,
+        CorruptNamespaces
+    ),
+    lists:foreach(
+        fun(Ns) ->
+            ?assertMatch(
+                1,
+                ?ON(N1, emqx:get_raw_namespaced_config(Ns, [<<"foo">>, <<"bar">>])),
+                #{ns => Ns}
+            )
+        end,
+        OtherNamespaces
+    ),
+    Alarms2 = ?ON(N1, emqx_alarm:get_alarms(activated)),
+    ?assertEqual(
+        [],
+        [A || A = #{name := ?ALARM} <- Alarms2]
+    ),
     ok.

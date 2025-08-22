@@ -9,6 +9,7 @@
 %% API:
 -export([
     with_worker/3,
+    shard_marker/2,
     terminate/3,
     send_after/3,
     cancel_timer/2,
@@ -18,7 +19,7 @@
 ]).
 
 %% internal exports:
--export([]).
+-export([shard_marker_entrypoint/2]).
 
 -export_type([]).
 
@@ -52,6 +53,19 @@ with_worker(Mod, Function, Args) ->
         [link, {min_heap_size, 10000}]
     ),
     {ok, Pid, ReplyTo}.
+
+-doc """
+Return supervisor child specification that allows to tie shard
+readiness optvar to a supervisor.
+""".
+-spec shard_marker(emqx_ds:db(), emqx_ds:shard()) -> supervisor:child_spec().
+shard_marker(DB, Shard) ->
+    #{
+        id => shard_up_marker,
+        start => {proc_lib, start_link, [?MODULE, shard_marker_entrypoint, [DB, Shard]]},
+        shutdown => 100,
+        type => worker
+    }.
 
 -spec terminate(module(), _Reason, map()) -> ok.
 terminate(Module, Reason, Misc) when Reason =:= shutdown; Reason =:= normal ->
@@ -125,6 +139,20 @@ asn1_to_tf(ASN1) ->
 %%================================================================================
 %% Internal exports
 %%================================================================================
+
+-doc """
+Entrypoint for the "shard marker" process that handles shard readiness optvar.
+""".
+-spec shard_marker_entrypoint(emqx_ds:db(), emqx_ds:shard()) -> ok.
+shard_marker_entrypoint(DB, Shard) ->
+    process_flag(trap_exit, true),
+    emqx_ds:set_shard_ready(DB, Shard, true),
+    proc_lib:init_ack({ok, self()}),
+    receive
+        {'EXIT', _} ->
+            emqx_ds:set_shard_ready(DB, Shard, false),
+            ok
+    end.
 
 %%================================================================================
 %% Internal functions

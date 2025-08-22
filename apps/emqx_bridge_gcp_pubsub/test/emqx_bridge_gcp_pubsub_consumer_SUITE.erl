@@ -1,7 +1,6 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
 -module(emqx_bridge_gcp_pubsub_consumer_SUITE).
 
 -compile(nowarn_export_all).
@@ -10,12 +9,27 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
--define(BRIDGE_TYPE, gcp_pubsub_consumer).
--define(BRIDGE_TYPE_BIN, <<"gcp_pubsub_consumer">>).
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
+
+-import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(local, local).
+-define(custom_cluster, custom_cluster).
+
+-define(CONNECTOR_TYPE, gcp_pubsub_consumer).
 -define(CONNECTOR_TYPE_BIN, <<"gcp_pubsub_consumer">>).
+-define(SOURCE_TYPE, gcp_pubsub_consumer).
 -define(SOURCE_TYPE_BIN, <<"gcp_pubsub_consumer">>).
--define(REPUBLISH_TOPIC, <<"republish/t">>).
+
+-define(PROXY_NAME, "gcp_emulator").
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+
 -define(PREPARED_REQUEST(METHOD, PATH, BODY),
     {prepared_request, {METHOD, PATH, BODY}, #{request_ttl => 1_000}}
 ).
@@ -23,618 +37,152 @@
     {prepared_request, {METHOD, PATH, BODY}, _}
 ).
 
--import(emqx_common_test_helpers, [on_exit/1]).
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, ?local},
+        {group, ?custom_cluster}
+    ].
 
-init_per_suite(Config) ->
-    emqx_common_test_helpers:clear_screen(),
-    GCPEmulatorHost = os:getenv("GCP_EMULATOR_HOST", "toxiproxy"),
-    GCPEmulatorPortStr = os:getenv("GCP_EMULATOR_PORT", "8085"),
-    GCPEmulatorPort = list_to_integer(GCPEmulatorPortStr),
-    ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
-    ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
-    ProxyName = "gcp_emulator",
-    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    case emqx_common_test_helpers:is_tcp_server_available(GCPEmulatorHost, GCPEmulatorPort) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx,
-                    emqx_conf,
-                    emqx_bridge_gcp_pubsub,
-                    emqx_bridge,
-                    emqx_rule_engine,
-                    emqx_management,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            HostPort = GCPEmulatorHost ++ ":" ++ GCPEmulatorPortStr,
-            true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
-            Client = start_control_client(GCPEmulatorHost, GCPEmulatorPort),
-            [
-                {apps, Apps},
-                {proxy_name, ProxyName},
-                {proxy_host, ProxyHost},
-                {proxy_port, ProxyPort},
-                {gcp_emulator_host, GCPEmulatorHost},
-                {gcp_emulator_port, GCPEmulatorPort},
-                {client, Client}
-                | Config
-            ];
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_gcp_emulator);
-                _ ->
-                    {skip, no_gcp_emulator}
-            end
-    end.
+groups() ->
+    AllTCs0 = emqx_common_test_helpers:all_with_matrix(?MODULE),
+    AllTCs = lists:filter(
+        fun
+            ({group, _}) -> false;
+            (_) -> true
+        end,
+        AllTCs0
+    ),
+    CustomMatrix = emqx_common_test_helpers:groups_with_matrix(?MODULE),
+    LocalTCs = merge_custom_groups(?local, AllTCs, CustomMatrix),
+    ClusterTCs = merge_custom_groups(?custom_cluster, [], CustomMatrix),
+    [
+        {?local, LocalTCs},
+        {?custom_cluster, ClusterTCs}
+    ].
 
-end_per_suite(Config) ->
-    Apps = ?config(apps, Config),
-    Client = ?config(client, Config),
-    stop_control_client(Client),
-    emqx_cth_suite:stop(Apps),
-    os:unsetenv("PUBSUB_EMULATOR_HOST"),
+merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
+    CustomMatrix =
+        lists:flatmap(
+            fun
+                ({G, _, SubGroup}) when G == RootGroup ->
+                    SubGroup;
+                (_) ->
+                    []
+            end,
+            CustomMatrix0
+        ),
+    CustomMatrix ++ GroupTCs.
+
+init_per_suite(TCConfig) ->
+    TCConfig.
+
+end_per_suite(_TCConfig) ->
     ok.
 
-init_per_testcase(TestCase, Config0) when
-    TestCase =:= t_multiple_topic_mappings;
-    TestCase =:= t_topic_deleted_while_consumer_is_running
-->
-    UniqueNum = integer_to_binary(erlang:unique_integer()),
-    TopicMapping = [
-        #{
-            pubsub_topic => <<"pubsub-1-", UniqueNum/binary>>,
-            mqtt_topic => <<"mqtt/topic/1/", UniqueNum/binary>>,
-            qos => 2,
-            payload_template => <<"${.}">>
-        },
-        #{
-            pubsub_topic => <<"pubsub-2-", UniqueNum/binary>>,
-            mqtt_topic => <<"mqtt/topic/2/", UniqueNum/binary>>,
-            qos => 1,
-            payload_template => to_payload_template(
-                #{
-                    <<"v">> => <<"${.value}">>,
-                    <<"a">> => <<"${.attributes.key}">>
-                }
-            )
-        }
-    ],
-    Config = [{topic_mapping, TopicMapping} | Config0],
-    common_init_per_testcase(TestCase, Config);
-init_per_testcase(TestCase, Config) ->
-    common_init_per_testcase(TestCase, Config).
+init_per_group(?local = Group, TCConfig) ->
+    reset_proxy(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_gcp_pubsub,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Group, TCConfig)}
+    ),
+    HostPort = "toxiproxy:8085",
+    true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
+    Client = start_control_client("toxiproxy", 8085),
+    [
+        {apps, Apps},
+        {proxy_host, ?PROXY_HOST},
+        {proxy_port, ?PROXY_PORT},
+        {proxy_name, ?PROXY_NAME},
+        {client, Client}
+        | TCConfig
+    ];
+init_per_group(?custom_cluster = Group, TCConfig) ->
+    Apps = emqx_cth_suite:start(
+        [
+            ehttpc,
+            emqx_conf,
+            emqx_connector_jwt,
+            emqx_bridge,
+            emqx_rule_engine
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Group, TCConfig)}
+    ),
+    HostPort = "toxiproxy:8085",
+    true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
+    Client = start_control_client("toxiproxy", 8085),
+    [
+        {apps, Apps},
+        {proxy_host, ?PROXY_HOST},
+        {proxy_port, ?PROXY_PORT},
+        {proxy_name, ?PROXY_NAME},
+        {client, Client}
+        | TCConfig
+    ].
 
-common_init_per_testcase(TestCase, Config0) ->
-    ct:timetrap(timer:seconds(60)),
-    emqx_bridge_testlib:delete_all_bridges(),
-    emqx_config:delete_override_conf_files(),
-    ConsumerTopic =
-        <<
-            (atom_to_binary(TestCase))/binary,
-            (emqx_guid:to_hexstr(emqx_guid:gen()))/binary
-        >>,
+end_per_group(_Group, TCConfig) ->
+    reset_proxy(),
+    Client = get_config(client, TCConfig),
+    stop_control_client(Client),
+    Apps = get_config(apps, TCConfig),
+    emqx_cth_suite:stop(Apps),
+    ok.
+
+init_per_testcase(TestCase, TCConfig0) ->
+    reset_proxy(),
+    Path = group_path(TCConfig0, no_groups),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
-    MQTTTopic = proplists:get_value(mqtt_topic, Config0, <<"mqtt/topic/", UniqueNum/binary>>),
-    MQTTQoS = proplists:get_value(mqtt_qos, Config0, 0),
-    DefaultTopicMapping = [
-        #{
-            pubsub_topic => ConsumerTopic,
-            mqtt_topic => MQTTTopic,
-            qos => MQTTQoS,
-            payload_template => <<"${.}">>
-        }
-    ],
-    TopicMapping = proplists:get_value(topic_mapping, Config0, DefaultTopicMapping),
+    Name = <<(atom_to_binary(TestCase))/binary, UniqueNum/binary>>,
+    ConnectorName = atom_to_binary(TestCase),
     ServiceAccountJSON =
         #{<<"project_id">> := ProjectId} =
         emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
-    Config = [
-        {consumer_topic, ConsumerTopic},
-        {topic_mapping, TopicMapping},
-        {service_account_json, ServiceAccountJSON},
-        {project_id, ProjectId}
-        | Config0
-    ],
-    {Name, ConfigString, ConsumerConfig} = consumer_config(TestCase, Config),
-    ensure_topics(Config),
-    ok = snabbkaffe:start_trace(),
+    ConnectorConfig = connector_config(#{
+        <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON)
+    }),
+    SourceName = ConnectorName,
+    PubSubTopic = Name,
+    SourceConfig = source_config(#{
+        <<"connector">> => ConnectorName,
+        <<"parameters">> => #{
+            <<"topic">> => PubSubTopic
+        }
+    }),
+    TCConfig1 = [{project_id, ProjectId} | TCConfig0],
+    ensure_topic(TCConfig1, PubSubTopic),
+    snabbkaffe:start_trace(),
     [
         {bridge_kind, source},
-        {bridge_type, ?BRIDGE_TYPE},
-        {bridge_name, Name},
-        {bridge_config, ConsumerConfig},
-        {consumer_name, Name},
-        {consumer_config_string, ConfigString},
-        {consumer_config, ConsumerConfig}
-        | Config
+        {connector_type, ?CONNECTOR_TYPE},
+        {connector_name, ConnectorName},
+        {connector_config, ConnectorConfig},
+        {source_type, ?SOURCE_TYPE},
+        {source_name, SourceName},
+        {source_config, SourceConfig},
+        {pubsub_topic, PubSubTopic}
+        | TCConfig1
     ].
 
-end_per_testcase(_Testcase, Config) ->
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+end_per_testcase(_TestCase, _TCConfig) ->
+    snabbkaffe:stop(),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    emqx_common_test_helpers:call_janitor(60_000),
-    ok = snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
-
-%%------------------------------------------------------------------------------
-%% Helper fns
-%%------------------------------------------------------------------------------
-
-consumer_config(TestCase, Config) ->
-    UniqueNum = integer_to_binary(erlang:unique_integer()),
-    ConsumerTopic = ?config(consumer_topic, Config),
-    ServiceAccountJSON = ?config(service_account_json, Config),
-    Name = <<
-        (atom_to_binary(TestCase))/binary, UniqueNum/binary
-    >>,
-    ServiceAccountJSONStr = emqx_utils_json:encode(ServiceAccountJSON),
-    MQTTTopic = proplists:get_value(mqtt_topic, Config, <<"mqtt/topic/", UniqueNum/binary>>),
-    MQTTQoS = proplists:get_value(mqtt_qos, Config, 0),
-    DefaultTopicMapping = [
-        #{
-            pubsub_topic => ConsumerTopic,
-            mqtt_topic => MQTTTopic,
-            qos => MQTTQoS,
-            payload_template => <<"${.}">>
-        }
-    ],
-    TopicMapping0 = proplists:get_value(topic_mapping, Config, DefaultTopicMapping),
-    TopicMappingStr = topic_mapping(TopicMapping0),
-    ConfigString =
-        io_lib:format(
-            "bridges.gcp_pubsub_consumer.~s {\n"
-            "  enable = true\n"
-            %% gcp pubsub emulator doesn't do pipelining very well...
-            "  pipelining = 1\n"
-            "  connect_timeout = \"5s\"\n"
-            "  service_account_json = ~s\n"
-            "  consumer {\n"
-            "    ack_deadline = \"10s\"\n"
-            "    ack_retry_interval = \"1s\"\n"
-            "    pull_max_messages = 10\n"
-            "    consumer_workers_per_topic = 1\n"
-            %% topic mapping
-            "~s"
-            "  }\n"
-            "  max_retries = 2\n"
-            "  pool_size = 8\n"
-            "  resource_opts {\n"
-            "    health_check_interval = \"1s\"\n"
-            %% to fail and retry pulling faster
-            "    request_ttl = \"1s\"\n"
-            "  }\n"
-            "}\n",
-            [
-                Name,
-                ServiceAccountJSONStr,
-                TopicMappingStr
-            ]
-        ),
-    {Name, ConfigString, parse_and_check(ConfigString, Name)}.
-
-parse_and_check(ConfigString, Name) ->
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    TypeBin = ?BRIDGE_TYPE_BIN,
-    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"bridges">> := #{TypeBin := #{Name := Config}}} = RawConf,
-    ct:pal("config:\n  ~p", [Config]),
-    Config.
-
-topic_mapping(TopicMapping0) ->
-    Template0 = <<
-        "{pubsub_topic = \"{{ pubsub_topic }}\","
-        " mqtt_topic = \"{{ mqtt_topic }}\","
-        " qos = {{ qos }},"
-        " payload_template = \"{{{ payload_template }}}\" }"
-    >>,
-    Template = bbmustache:parse_binary(Template0),
-    Entries =
-        lists:map(
-            fun(Params) ->
-                bbmustache:compile(Template, Params, [{key_type, atom}])
-            end,
-            TopicMapping0
-        ),
-    iolist_to_binary(
-        [
-            "  topic_mapping = [",
-            lists:join(<<",\n">>, Entries),
-            "]\n"
-        ]
-    ).
-
-ensure_topics(Config) ->
-    TopicMapping = ?config(topic_mapping, Config),
-    lists:foreach(
-        fun(#{pubsub_topic := T}) ->
-            ensure_topic(Config, T)
-        end,
-        TopicMapping
-    ).
-
-ensure_topic(Config, Topic) ->
-    ProjectId = ?config(project_id, Config),
-    Client = ?config(client, Config),
-    Method = put,
-    Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
-    Body = <<"{}">>,
-    Res = emqx_bridge_gcp_pubsub_client:query_sync(
-        ?PREPARED_REQUEST(Method, Path, Body),
-        Client
-    ),
-    case Res of
-        {ok, _} ->
-            ok;
-        {error, #{status_code := 409}} ->
-            %% already exists
-            ok
-    end,
-    ok.
-
-start_control_client(GCPEmulatorHost, GCPEmulatorPort) ->
-    RawServiceAccount = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
-    ClientConfig =
-        #{
-            connect_timeout => 5_000,
-            max_retries => 0,
-            pool_size => 1,
-            service_account_json => RawServiceAccount,
-            jwt_opts => #{aud => <<"https://pubsub.googleapis.com/">>},
-            transport => tcp,
-            host => GCPEmulatorHost,
-            port => GCPEmulatorPort
-        },
-    PoolName = <<"control_connector">>,
-    {ok, Client} = emqx_bridge_gcp_pubsub_client:start(PoolName, ClientConfig),
-    Client.
-
-stop_control_client(Client) ->
-    ok = emqx_bridge_gcp_pubsub_client:stop(Client),
-    ok.
-
-pubsub_publish(Config, Topic, Messages0) ->
-    Client = ?config(client, Config),
-    ProjectId = ?config(project_id, Config),
-    Method = post,
-    Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary, ":publish">>,
-    Messages =
-        lists:map(
-            fun(Msg) ->
-                emqx_utils_maps:update_if_present(
-                    <<"data">>,
-                    fun
-                        (D) when is_binary(D) -> base64:encode(D);
-                        (M) when is_map(M) -> base64:encode(emqx_utils_json:encode(M))
-                    end,
-                    Msg
-                )
-            end,
-            Messages0
-        ),
-    Body = emqx_utils_json:encode(#{<<"messages">> => Messages}),
-    {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
-        ?PREPARED_REQUEST(Method, Path, Body),
-        Client
-    ),
-    ok.
-
-delete_topic(Config, Topic) ->
-    Client = ?config(client, Config),
-    ProjectId = ?config(project_id, Config),
-    Method = delete,
-    Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
-    Body = <<>>,
-    {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
-        ?PREPARED_REQUEST(Method, Path, Body),
-        Client
-    ),
-    ok.
-
-delete_subscription(Config, SubscriptionId) ->
-    Client = ?config(client, Config),
-    ProjectId = ?config(project_id, Config),
-    Method = delete,
-    Path = <<"/v1/projects/", ProjectId/binary, "/subscriptions/", SubscriptionId/binary>>,
-    Body = <<>>,
-    {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
-        ?PREPARED_REQUEST(Method, Path, Body),
-        Client
-    ),
-    ok.
-
-create_bridge(Config) ->
-    create_bridge(Config, _Overrides = #{}).
-
-create_bridge(Config, Overrides) ->
-    Type = ?BRIDGE_TYPE_BIN,
-    Name = ?config(consumer_name, Config),
-    BridgeConfig0 = ?config(consumer_config, Config),
-    BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-    Res = emqx_bridge_testlib:create_bridge_api(Type, Name, BridgeConfig),
-    _ = emqx_bridge_v2_testlib:kickoff_source_health_check(Type, Name),
-    Res.
-
-remove_bridge(Config) ->
-    Type = ?BRIDGE_TYPE_BIN,
-    Name = ?config(consumer_name, Config),
-    emqx_bridge:remove(Type, Name).
-
-create_bridge_api(Config) ->
-    create_bridge_api(Config, _Overrides = #{}).
-
-create_bridge_api(Config, Overrides) ->
-    TypeBin = ?BRIDGE_TYPE_BIN,
-    Name = ?config(consumer_name, Config),
-    BridgeConfig0 = ?config(consumer_config, Config),
-    BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-    Params = BridgeConfig#{<<"type">> => TypeBin, <<"name">> => Name},
-    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_all => true},
-    ct:pal("creating bridge (via http): ~p", [Params]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
-            {ok, {Status, Headers, Body0}} ->
-                {ok, {Status, Headers, emqx_utils_json:decode(Body0)}};
-            Error ->
-                Error
-        end,
-    ct:pal("bridge create result: ~p", [Res]),
-    Res.
-
-probe_bridge_api(Config) ->
-    TypeBin = ?BRIDGE_TYPE_BIN,
-    Name = ?config(consumer_name, Config),
-    ConsumerConfig = ?config(consumer_config, Config),
-    emqx_bridge_testlib:probe_bridge_api(TypeBin, Name, ConsumerConfig).
-
-start_and_subscribe_mqtt(Config) ->
-    TopicMapping = ?config(topic_mapping, Config),
-    {ok, C} = emqtt:start_link([{proto_ver, v5}]),
-    on_exit(fun() -> emqtt:stop(C) end),
-    {ok, _} = emqtt:connect(C),
-    lists:foreach(
-        fun(#{mqtt_topic := MQTTTopic}) ->
-            {ok, _, [2]} = emqtt:subscribe(C, MQTTTopic, _QoS = 2)
-        end,
-        TopicMapping
-    ),
-    ok.
-
-resource_id(Config) ->
-    Name = ?config(consumer_name, Config),
-    emqx_bridge_v2:source_id(?SOURCE_TYPE_BIN, Name, Name).
-
-connector_resource_id(Config) ->
-    Name = ?config(consumer_name, Config),
-    emqx_connector_resource:resource_id(?CONNECTOR_TYPE_BIN, Name).
-
-health_check(Config) ->
-    #{status := Status} = health_check_channel(Config),
-    {ok, Status}.
-
-health_check_channel(Config) ->
-    Name = ?config(consumer_name, Config),
-    ConnectorResId = emqx_connector_resource:resource_id(?CONNECTOR_TYPE_BIN, Name),
-    SourceResId = resource_id(Config),
-    emqx_resource_manager:channel_health_check(ConnectorResId, SourceResId).
-
-bridge_id(Config) ->
-    Type = ?BRIDGE_TYPE_BIN,
-    Name = ?config(consumer_name, Config),
-    emqx_bridge_resource:bridge_id(Type, Name).
-
-receive_published() ->
-    receive_published(#{}).
-
-receive_published(Opts0) ->
-    Default = #{n => 1, timeout => 20_000},
-    Opts = maps:merge(Default, Opts0),
-    receive_published(Opts, []).
-
-receive_published(#{n := N, timeout := _Timeout}, Acc) when N =< 0 ->
-    {ok, lists:reverse(Acc)};
-receive_published(#{n := N, timeout := Timeout} = Opts, Acc) ->
-    receive
-        {publish, Msg0 = #{payload := Payload}} ->
-            Msg =
-                case emqx_utils_json:safe_decode(Payload) of
-                    {ok, Decoded} -> Msg0#{payload := Decoded};
-                    {error, _} -> Msg0
-                end,
-            receive_published(Opts#{n := N - 1}, [Msg | Acc])
-    after Timeout ->
-        {timeout, #{
-            msgs_so_far => Acc,
-            mailbox => process_info(self(), messages),
-            expected_remaining => N
-        }}
-    end.
-
-create_rule_and_action_http(Config) ->
-    ConsumerName = ?config(consumer_name, Config),
-    BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_BIN, ConsumerName),
-    ActionFn = <<(atom_to_binary(?MODULE))/binary, ":action_response">>,
-    Params = #{
-        enable => true,
-        sql => <<"SELECT * FROM \"$bridges/", BridgeId/binary, "\"">>,
-        actions =>
-            [
-                #{
-                    <<"function">> => <<"republish">>,
-                    <<"args">> =>
-                        #{
-                            <<"topic">> => ?REPUBLISH_TOPIC,
-                            <<"payload">> => <<>>,
-                            <<"qos">> => 0,
-                            <<"retain">> => false,
-                            <<"user_properties">> => <<"${headers}">>
-                        }
-                },
-                #{<<"function">> => ActionFn}
-            ]
-    },
-    Path = emqx_mgmt_api_test_util:api_path(["rules"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    ct:pal("rule action params: ~p", [Params]),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} ->
-            {ok, emqx_utils_json:decode(Res)};
-        Error ->
-            Error
-    end.
-
-action_response(Selected, Envs, Args) ->
-    ?tp(action_response, #{
-        selected => Selected,
-        envs => Envs,
-        args => Args
-    }),
-    ok.
-
-assert_non_received_metrics(BridgeName) ->
-    Metrics = emqx_bridge:get_metrics(?BRIDGE_TYPE, BridgeName),
-    #{counters := Counters0, gauges := Gauges} = Metrics,
-    Counters = maps:remove(received, Counters0),
-    ?assert(lists:all(fun(V) -> V == 0 end, maps:values(Counters)), #{metrics => Metrics}),
-    ?assert(lists:all(fun(V) -> V == 0 end, maps:values(Gauges)), #{metrics => Metrics}),
-    ok.
-
-to_payload_template(Map) ->
-    PayloadTemplate0 = emqx_utils_json:encode(Map),
-    PayloadTemplate1 = io_lib:format("~p", [binary_to_list(PayloadTemplate0)]),
-    string:strip(lists:flatten(PayloadTemplate1), both, $").
-
-wait_acked(Opts) ->
-    N = maps:get(n, Opts),
-    Timeout = maps:get(timeout, Opts, 30_000),
-    %% no need to check return value; we check the property in
-    %% the check phase.  this is just to give it a chance to do
-    %% so and avoid flakiness.  should be fast.
-    ct:pal("waiting ~b ms until acked...", [Timeout]),
-    Res = snabbkaffe:block_until(
-        ?match_n_events(N, #{?snk_kind := gcp_pubsub_consumer_worker_acknowledged}),
-        Timeout
-    ),
-    case Res of
-        {ok, _} ->
-            ok;
-        {timeout, Evts} ->
-            %% Fixme: apparently, snabbkaffe may timeout but still return the expected
-            %% events here.
-            case length(Evts) >= N of
-                true ->
-                    ok;
-                false ->
-                    ct:pal("timed out waiting for acks;\n expected: ~b\n received:\n  ~p", [N, Evts])
-            end
-    end,
-    ok.
-
-wait_forgotten() ->
-    wait_forgotten(_Opts = #{}).
-
-wait_forgotten(Opts0) ->
-    Timeout = maps:get(timeout, Opts0, 15_000),
-    %% no need to check return value; we check the property in
-    %% the check phase.  this is just to give it a chance to do
-    %% so and avoid flakiness.
-    ?block_until(
-        #{?snk_kind := gcp_pubsub_consumer_worker_message_ids_forgotten},
-        Timeout
-    ),
-    ok.
-
-get_pull_worker_pids(Config) ->
-    ResourceId = resource_id(Config),
-    Pids =
-        [
-            PullWorkerPid
-         || {_WorkerName, PoolWorkerPid} <- ecpool:workers(ResourceId),
-            {ok, PullWorkerPid} <- [ecpool_worker:client(PoolWorkerPid)]
-        ],
-    %% assert
-    [_ | _] = Pids,
-    Pids.
-
-get_async_worker_pids(Config) ->
-    ResourceId = connector_resource_id(Config),
-    Pids =
-        [
-            AsyncWorkerPid
-         || {_WorkerName, AsyncWorkerPid} <- gproc_pool:active_workers(ehttpc:name(ResourceId))
-        ],
-    %% assert
-    [_ | _] = Pids,
-    Pids.
-
-projection_optional_span(Trace) ->
-    [
-        case maps:get(?snk_span, Evt, undefined) of
-            undefined ->
-                K;
-            start ->
-                {K, start};
-            {complete, _} ->
-                {K, complete}
-        end
-     || #{?snk_kind := K} = Evt <- Trace
-    ].
-
-setup_and_start_listeners(Node, NodeOpts) ->
-    erpc:call(
-        Node,
-        fun() ->
-            lists:foreach(
-                fun(Type) ->
-                    Port = emqx_common_test_helpers:listener_port(NodeOpts, Type),
-                    ok = emqx_config:put(
-                        [listeners, Type, default, bind],
-                        {{127, 0, 0, 1}, Port}
-                    ),
-                    ok = emqx_config:put_raw(
-                        [listeners, Type, default, bind],
-                        iolist_to_binary([<<"127.0.0.1:">>, integer_to_binary(Port)])
-                    ),
-                    ok
-                end,
-                [tcp, ssl, ws, wss]
-            ),
-            ok = emqx_listeners:start(),
-            ok
-        end
-    ).
-
-dedup([]) ->
-    [];
-dedup([X]) ->
-    [X];
-dedup([X | Rest]) ->
-    [X | dedup(X, Rest)].
-
-dedup(X, [X | Rest]) ->
-    dedup(X, Rest);
-dedup(_X, [Y | Rest]) ->
-    [Y | dedup(Y, Rest)];
-dedup(_X, []) ->
-    [].
-
-get_mqtt_port(Node) ->
-    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
-    Port.
 
 %%------------------------------------------------------------------------------
 %% Trace properties
@@ -735,6 +283,383 @@ prop_acked_ids_eventually_forgotten(Trace) ->
         }
     ),
     ok.
+
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
+
+connector_config() ->
+    connector_config(_Overrides = #{}).
+
+connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"max_retries">> => 2,
+        <<"pool_size">> => 8,
+        <<"pipelining">> => 1,
+        <<"connect_timeout">> => <<"5s">>,
+        <<"max_inactive">> => <<"10s">>,
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+source_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"parameters">> => #{
+            <<"topic">> => <<"please override">>,
+            <<"ack_deadline">> => <<"10s">>,
+            <<"ack_retry_interval">> => <<"1s">>,
+            <<"pull_max_messages">> => 10,
+            <<"consumer_workers_per_topic">> => 1
+        },
+        <<"resource_opts">> =>
+            emqx_utils_maps:deep_merge(
+                emqx_bridge_v2_testlib:common_source_resource_opts(),
+                #{
+                    %% to fail and retry pulling faster
+                    <<"request_ttl">> => <<"1s">>
+                }
+            )
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(source, ?SOURCE_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+
+group_path(Config, Default) ->
+    case emqx_common_test_helpers:group_path(Config) of
+        [] -> Default;
+        Path -> Path
+    end.
+
+get_tc_prop(TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(?MODULE, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
+        Val
+    else
+        _ -> Default
+    end.
+
+reset_proxy() ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT).
+
+with_failure(FailureType, Fn) ->
+    emqx_common_test_helpers:with_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn).
+
+enable_failure(FailureType) ->
+    emqx_common_test_helpers:enable_failure(
+        FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT
+    ).
+
+heal_failure(FailureType) ->
+    emqx_common_test_helpers:heal_failure(
+        FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT
+    ).
+
+create_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
+    ).
+
+create_source_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:create_source_api(TCConfig, Overrides).
+
+delete_connector_api(TCConfig) ->
+    emqx_bridge_v2_testlib:delete_connector_api(TCConfig).
+
+delete_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:delete_kind_api(source, Type, Name).
+
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
+
+get_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_source_api(Type, Name)
+    ).
+
+disable_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:disable_kind_api(source, Type, Name).
+
+enable_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:enable_kind_api(source, Type, Name).
+
+probe_source_api(TCConfig) ->
+    probe_source_api(TCConfig, _Overrides = #{}).
+
+probe_source_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:probe_bridge_api(TCConfig, Overrides)
+    ).
+
+ensure_topic(TCConfig, Topic) ->
+    ProjectId = get_config(project_id, TCConfig),
+    Client = get_config(client, TCConfig),
+    Method = put,
+    Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
+    Body = <<"{}">>,
+    Res = emqx_bridge_gcp_pubsub_client:query_sync(
+        ?PREPARED_REQUEST(Method, Path, Body),
+        Client
+    ),
+    case Res of
+        {ok, _} ->
+            ok;
+        {error, #{status_code := 409}} ->
+            %% already exists
+            ok
+    end,
+    ok.
+
+delete_topic(TCConfig, Topic) ->
+    Client = get_config(client, TCConfig),
+    ProjectId = get_config(project_id, TCConfig),
+    Method = delete,
+    Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
+    Body = <<>>,
+    {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
+        ?PREPARED_REQUEST(Method, Path, Body),
+        Client
+    ),
+    ok.
+
+delete_subscription(TCConfig, SubscriptionId) ->
+    Client = get_config(client, TCConfig),
+    ProjectId = get_config(project_id, TCConfig),
+    Method = delete,
+    Path = <<"/v1/projects/", ProjectId/binary, "/subscriptions/", SubscriptionId/binary>>,
+    Body = <<>>,
+    {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
+        ?PREPARED_REQUEST(Method, Path, Body),
+        Client
+    ),
+    ok.
+
+start_control_client(GCPEmulatorHost, GCPEmulatorPort) ->
+    RawServiceAccount = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
+    ClientConfig =
+        #{
+            connect_timeout => 5_000,
+            max_retries => 0,
+            pool_size => 1,
+            service_account_json => RawServiceAccount,
+            jwt_opts => #{aud => <<"https://pubsub.googleapis.com/">>},
+            transport => tcp,
+            host => GCPEmulatorHost,
+            port => GCPEmulatorPort
+        },
+    PoolName = <<"control_connector">>,
+    {ok, Client} = emqx_bridge_gcp_pubsub_client:start(PoolName, ClientConfig),
+    Client.
+
+stop_control_client(Client) ->
+    ok = emqx_bridge_gcp_pubsub_client:stop(Client),
+    ok.
+
+pubsub_publish(TCConfig, Topic, Messages0) ->
+    Client = get_config(client, TCConfig),
+    ProjectId = get_config(project_id, TCConfig),
+    Method = post,
+    Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary, ":publish">>,
+    Messages =
+        lists:map(
+            fun(Msg) ->
+                emqx_utils_maps:update_if_present(
+                    <<"data">>,
+                    fun
+                        (D) when is_binary(D) -> base64:encode(D);
+                        (M) when is_map(M) -> base64:encode(emqx_utils_json:encode(M))
+                    end,
+                    Msg
+                )
+            end,
+            Messages0
+        ),
+    Body = emqx_utils_json:encode(#{<<"messages">> => Messages}),
+    {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
+        ?PREPARED_REQUEST(Method, Path, Body),
+        Client
+    ),
+    ok.
+
+receive_published() ->
+    receive_published(#{}).
+
+receive_published(Opts0) ->
+    Default = #{n => 1, timeout => 20_000},
+    Opts = maps:merge(Default, Opts0),
+    receive_published(Opts, []).
+
+receive_published(#{n := N, timeout := _Timeout}, Acc) when N =< 0 ->
+    {ok, lists:reverse(Acc)};
+receive_published(#{n := N, timeout := Timeout} = Opts, Acc) ->
+    receive
+        {publish, Msg0 = #{payload := Payload}} ->
+            Msg =
+                case emqx_utils_json:safe_decode(Payload) of
+                    {ok, Decoded} -> Msg0#{payload := Decoded};
+                    {error, _} -> Msg0
+                end,
+            receive_published(Opts#{n := N - 1}, [Msg | Acc])
+    after Timeout ->
+        {timeout, #{
+            msgs_so_far => Acc,
+            mailbox => process_info(self(), messages),
+            expected_remaining => N
+        }}
+    end.
+
+wait_acked(Opts) ->
+    N = maps:get(n, Opts),
+    Timeout = maps:get(timeout, Opts, 30_000),
+    %% no need to check return value; we check the property in
+    %% the check phase.  this is just to give it a chance to do
+    %% so and avoid flakiness.  should be fast.
+    ct:pal("waiting ~b ms until acked...", [Timeout]),
+    Res = snabbkaffe:block_until(
+        ?match_n_events(N, #{?snk_kind := gcp_pubsub_consumer_worker_acknowledged}),
+        Timeout
+    ),
+    case Res of
+        {ok, _} ->
+            ok;
+        {timeout, Evts} ->
+            %% Fixme: apparently, snabbkaffe may timeout but still return the expected
+            %% events here.
+            case length(Evts) >= N of
+                true ->
+                    ok;
+                false ->
+                    ct:pal("timed out waiting for acks;\n expected: ~b\n received:\n  ~p", [N, Evts])
+            end
+    end,
+    ok.
+
+wait_forgotten() ->
+    wait_forgotten(_Opts = #{}).
+
+wait_forgotten(Opts0) ->
+    Timeout = maps:get(timeout, Opts0, 15_000),
+    %% no need to check return value; we check the property in
+    %% the check phase.  this is just to give it a chance to do
+    %% so and avoid flakiness.
+    ?block_until(
+        #{?snk_kind := gcp_pubsub_consumer_worker_message_ids_forgotten},
+        Timeout
+    ),
+    ok.
+
+dedup([]) ->
+    [];
+dedup([X]) ->
+    [X];
+dedup([X | Rest]) ->
+    [X | dedup(X, Rest)].
+
+dedup(X, [X | Rest]) ->
+    dedup(X, Rest);
+dedup(_X, [Y | Rest]) ->
+    [Y | dedup(Y, Rest)];
+dedup(_X, []) ->
+    [].
+
+projection_optional_span(Trace) ->
+    [
+        case maps:get(?snk_span, Evt, undefined) of
+            undefined ->
+                K;
+            start ->
+                {K, start};
+            {complete, _} ->
+                {K, complete}
+        end
+     || #{?snk_kind := K} = Evt <- Trace
+    ].
+
+assert_non_received_metrics(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    Metrics = emqx_bridge:get_metrics(Type, Name),
+    #{counters := Counters0, gauges := Gauges} = Metrics,
+    Counters = maps:remove(received, Counters0),
+    ?assert(lists:all(fun(V) -> V == 0 end, maps:values(Counters)), #{metrics => Metrics}),
+    ?assert(lists:all(fun(V) -> V == 0 end, maps:values(Gauges)), #{metrics => Metrics}),
+    ok.
+
+get_pull_worker_pids(Config) ->
+    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    Pids =
+        [
+            PullWorkerPid
+         || {_WorkerName, PoolWorkerPid} <- ecpool:workers(ResourceId),
+            {ok, PullWorkerPid} <- [ecpool_worker:client(PoolWorkerPid)]
+        ],
+    %% assert
+    [_ | _] = Pids,
+    Pids.
+
+get_async_worker_pids(TCConfig) ->
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    Pids =
+        [
+            AsyncWorkerPid
+         || {_WorkerName, AsyncWorkerPid} <- gproc_pool:active_workers(ehttpc:name(ResourceId))
+        ],
+    %% assert
+    [_ | _] = Pids,
+    Pids.
+
+start_client() ->
+    start_client(_Opts = #{}).
+
+start_client(Opts) ->
+    {ok, C} = emqtt:start_link(Opts),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+simple_create_rule_api(TCConfig) ->
+    RepublishTopic = <<"republish/topic">>,
+    {201, #{<<"id">> := RuleId}} = emqx_bridge_v2_testlib:create_rule_api2(
+        #{
+            <<"sql">> =>
+                emqx_bridge_v2_testlib:fmt(
+                    <<"select * from \"${bhp}\" ">>,
+                    #{bhp => emqx_bridge_v2_testlib:bridge_hookpoint(TCConfig)}
+                ),
+            <<"actions">> => [
+                #{
+                    <<"args">> => #{
+                        <<"topic">> => <<"republish/topic">>,
+                        <<"mqtt_properties">> => #{},
+                        <<"payload">> => <<"">>,
+                        <<"qos">> => 2,
+                        <<"retain">> => false,
+                        <<"user_properties">> => [],
+                        <<"direct_dispatch">> => false
+                    },
+                    <<"function">> => <<"republish">>
+                }
+            ],
+            <<"description">> => <<"">>
+        }
+    ),
+    #{topic => RepublishTopic, id => RuleId}.
 
 permission_denied_response() ->
     Link =
@@ -849,12 +774,34 @@ unauthenticated_response() ->
         status_code => 401
     }}.
 
+get_mqtt_port(Node) ->
+    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
+
+assert_persisted_service_account_json_is_binary(TCConfig) ->
+    #{connector_name := ConnectorName} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    %% ensure cluster.hocon has a binary encoded json string as the value
+    {ok, Hocon} = hocon:files([application:get_env(emqx, cluster_hocon_file, undefined)]),
+    ?assertMatch(
+        Bin when is_binary(Bin),
+        emqx_utils_maps:deep_get(
+            [
+                <<"connectors">>,
+                <<"gcp_pubsub_consumer">>,
+                ConnectorName,
+                <<"service_account_json">>
+            ],
+            Hocon
+        )
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
-t_start_stop(Config) ->
-    [#{pubsub_topic := PubSubTopic} | _] = ?config(topic_mapping, Config),
+t_start_stop(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     ?check_trace(
         begin
             {ok, SRef0} =
@@ -862,11 +809,17 @@ t_start_stop(Config) ->
                     ?match_event(#{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"}),
                     40_000
                 ),
-            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?assertMatch(
+                {201, #{<<"status">> := <<"connected">>}},
+                create_connector_api(TCConfig, #{})
+            ),
+            ?assertMatch(
+                {201, #{<<"status">> := <<"connected">>}},
+                create_source_api(TCConfig, #{})
+            ),
             {ok, _} = snabbkaffe:receive_events(SRef0),
-            ?assertMatch({ok, connected}, health_check(Config)),
-
-            ?assertMatch(ok, remove_bridge(Config)),
+            ?assertMatch({204, _}, delete_source_api(TCConfig)),
+            ?assertMatch({204, _}, delete_connector_api(TCConfig)),
             ok
         end,
         [
@@ -880,28 +833,54 @@ t_start_stop(Config) ->
     ),
     ok.
 
-t_consume_ok(Config) ->
-    BridgeName = ?config(consumer_name, Config),
-    TopicMapping = ?config(topic_mapping, Config),
-    ResourceId = resource_id(Config),
+t_on_get_status(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{failure_status => ?status_connecting}),
+    %% no workers alive
+    ?retry(
+        _Interval0 = 200,
+        _NAttempts0 = 20,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_source_api(TCConfig)
+        )
+    ),
+    WorkerPids = get_pull_worker_pids(TCConfig),
+    emqx_utils:pmap(
+        fun(Pid) ->
+            Ref = monitor(process, Pid),
+            exit(Pid, kill),
+            receive
+                {'DOWN', Ref, process, Pid, killed} ->
+                    ok
+            end
+        end,
+        WorkerPids
+    ),
+    ?assertMatch(
+        #{status := ?status_connecting},
+        emqx_bridge_v2_testlib:health_check_channel(TCConfig)
+    ),
+    ok.
+
+t_consume_ok(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
         begin
-            start_and_subscribe_mqtt(Config),
+            {201, _} = create_connector_api(TCConfig, #{}),
             ?assertMatch(
-                {{ok, _}, {ok, _}},
+                {{201, _}, {ok, _}},
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_source_api(TCConfig, #{}),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     40_000
                 )
             ),
-            [
-                #{
-                    pubsub_topic := Topic,
-                    mqtt_topic := MQTTTopic,
-                    qos := QoS
-                }
-            ] = TopicMapping,
+            #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
+            QoS = 2,
+            {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, QoS}]),
+
             Payload0 = emqx_guid:to_hexstr(emqx_guid:gen()),
             Messages0 = [
                 #{
@@ -910,21 +889,21 @@ t_consume_ok(Config) ->
                     <<"orderingKey">> => <<"some_ordering_key">>
                 }
             ],
-            pubsub_publish(Config, Topic, Messages0),
+            pubsub_publish(TCConfig, PubSubTopic, Messages0),
             {ok, Published0} = receive_published(),
             EncodedData0 = emqx_utils_json:encode(Data0),
             ?assertMatch(
                 [
                     #{
                         qos := QoS,
-                        topic := MQTTTopic,
+                        topic := RepublishTopic,
                         payload :=
                             #{
                                 <<"attributes">> := Attributes0,
                                 <<"message_id">> := MsgId,
                                 <<"ordering_key">> := <<"some_ordering_key">>,
                                 <<"publish_time">> := PubTime,
-                                <<"topic">> := Topic,
+                                <<"topic">> := PubSubTopic,
                                 <<"value">> := EncodedData0
                             }
                     }
@@ -935,7 +914,12 @@ t_consume_ok(Config) ->
             ?retry(
                 _Interval = 200,
                 _NAttempts = 20,
-                ?assertEqual(1, emqx_resource_metrics:received_get(ResourceId))
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> := #{<<"received">> := 1}
+                    }},
+                    emqx_bridge_v2_testlib:get_source_metrics_api(TCConfig)
+                )
             ),
 
             %% Batch with only data and only attributes
@@ -944,14 +928,14 @@ t_consume_ok(Config) ->
                 #{<<"data">> => Data1 = #{<<"val">> => Payload1}},
                 #{<<"attributes">> => Attributes1 = #{<<"other_key">> => <<"other_value">>}}
             ],
-            pubsub_publish(Config, Topic, Messages1),
+            pubsub_publish(TCConfig, PubSubTopic, Messages1),
             {ok, Published1} = receive_published(#{n => 2}),
             EncodedData1 = emqx_utils_json:encode(Data1),
             ?assertMatch(
                 [
                     #{
                         qos := QoS,
-                        topic := MQTTTopic,
+                        topic := RepublishTopic,
                         payload :=
                             #{
                                 <<"message_id">> := _,
@@ -962,7 +946,7 @@ t_consume_ok(Config) ->
                     },
                     #{
                         qos := QoS,
-                        topic := MQTTTopic,
+                        topic := RepublishTopic,
                         payload :=
                             #{
                                 <<"attributes">> := Attributes1,
@@ -992,20 +976,25 @@ t_consume_ok(Config) ->
             ?retry(
                 _Interval = 200,
                 _NAttempts = 20,
-                ?assertEqual(3, emqx_resource_metrics:received_get(ResourceId))
+                ?assertMatch(
+                    {200, #{
+                        <<"metrics">> := #{<<"received">> := 3}
+                    }},
+                    emqx_bridge_v2_testlib:get_source_metrics_api(TCConfig)
+                )
             ),
 
             %% Check that the bridge probe API doesn't leak atoms.
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, probe_bridge_api(Config)),
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, probe_bridge_api(Config)),
+            ?assertMatch({204, _}, probe_source_api(TCConfig)),
+            ?assertMatch({204, _}, probe_source_api(TCConfig)),
             AtomsBefore = erlang:system_info(atom_count),
             %% Probe again; shouldn't have created more atoms.
-            ProbeRes1 = probe_bridge_api(Config),
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
+            ProbeRes1 = probe_source_api(TCConfig),
+            ?assertMatch({204, _}, ProbeRes1),
             AtomsAfter = erlang:system_info(atom_count),
             ?assertEqual(AtomsBefore, AtomsAfter),
 
-            assert_non_received_metrics(BridgeName),
+            assert_non_received_metrics(TCConfig),
             ?block_until(
                 #{?snk_kind := gcp_pubsub_consumer_worker_message_ids_forgotten, message_ids := Ids} when
                     map_size(Ids) =:= 2,
@@ -1022,270 +1011,50 @@ t_consume_ok(Config) ->
     ),
     ok.
 
-t_bridge_rule_action_source(Config) ->
-    BridgeName = ?config(consumer_name, Config),
-    TopicMapping = ?config(topic_mapping, Config),
-    ResourceId = resource_id(Config),
-    ?check_trace(
-        begin
-            ?assertMatch(
-                {{ok, _}, {ok, _}},
-                ?wait_async_action(
-                    create_bridge(Config),
-                    #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
-                    40_000
-                )
-            ),
-            {ok, _} = create_rule_and_action_http(Config),
-
-            [#{pubsub_topic := PubSubTopic}] = TopicMapping,
-            {ok, C} = emqtt:start_link([{proto_ver, v5}]),
-            on_exit(fun() -> emqtt:stop(C) end),
-            {ok, _} = emqtt:connect(C),
-            {ok, _, [0]} = emqtt:subscribe(C, ?REPUBLISH_TOPIC),
-
-            Payload0 = emqx_guid:to_hexstr(emqx_guid:gen()),
-            Messages0 = [
-                #{
-                    <<"data">> => Data0 = #{<<"payload">> => Payload0},
-                    <<"attributes">> => Attributes0 = #{<<"key">> => <<"value">>}
-                }
-            ],
-            {_, {ok, _}} =
-                ?wait_async_action(
-                    pubsub_publish(Config, PubSubTopic, Messages0),
-                    #{?snk_kind := action_response},
-                    5_000
-                ),
-            Published0 = receive_published(),
-            EncodedData0 = emqx_utils_json:encode(Data0),
-            ?assertMatch(
-                {ok, [
-                    #{
-                        topic := ?REPUBLISH_TOPIC,
-                        qos := 0,
-                        payload := #{
-                            <<"event">> := <<"$bridges/", _/binary>>,
-                            <<"message_id">> := _,
-                            <<"metadata">> := #{<<"rule_id">> := _},
-                            <<"publish_time">> := _,
-                            <<"topic">> := PubSubTopic,
-                            <<"attributes">> := Attributes0,
-                            <<"value">> := EncodedData0
-                        }
-                    }
-                ]},
-                Published0
-            ),
-            ?retry(
-                _Interval = 200,
-                _NAttempts = 20,
-                ?assertEqual(1, emqx_resource_metrics:received_get(ResourceId))
-            ),
-
-            assert_non_received_metrics(BridgeName),
-
-            #{payload => Payload0}
-        end,
-        [
-            prop_handled_only_once()
-        ]
-    ),
-    ok.
-
-t_on_get_status(Config) ->
-    emqx_bridge_testlib:t_on_get_status(Config, #{failure_status => connecting}),
-    %% no workers alive
-    ?retry(
-        _Interval0 = 200,
-        _NAttempts0 = 20,
-        ?assertMatch({ok, connected}, health_check(Config))
-    ),
-    WorkerPids = get_pull_worker_pids(Config),
-    emqx_utils:pmap(
-        fun(Pid) ->
-            Ref = monitor(process, Pid),
-            exit(Pid, kill),
-            receive
-                {'DOWN', Ref, process, Pid, killed} ->
-                    ok
-            end
-        end,
-        WorkerPids
-    ),
-    ?assertMatch({ok, connecting}, health_check(Config)),
-    ok.
-
-t_create_update_via_http_api(Config) ->
-    emqx_bridge_testlib:t_create_via_http(Config),
-    ok.
-
-t_multiple_topic_mappings(Config) ->
-    BridgeName = ?config(consumer_name, Config),
-    TopicMapping = ?config(topic_mapping, Config),
-    ResourceId = resource_id(Config),
-    ?check_trace(
-        begin
-            start_and_subscribe_mqtt(Config),
-            ?assertMatch(
-                {{ok, _}, {ok, _}},
-                ?wait_async_action(
-                    create_bridge(
-                        Config,
-                        #{
-                            <<"consumer">> => #{<<"ack_deadline">> => <<"10m">>}
-                        }
-                    ),
-                    #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
-                    40_000
-                )
-            ),
-            [
-                #{
-                    pubsub_topic := Topic0,
-                    mqtt_topic := MQTTTopic0,
-                    qos := QoS0
-                },
-                #{
-                    pubsub_topic := Topic1,
-                    mqtt_topic := MQTTTopic1,
-                    qos := QoS1
-                }
-            ] = TopicMapping,
-            Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
-            Messages = [
-                #{
-                    <<"data">> => Payload,
-                    <<"attributes">> => Attributes = #{<<"key">> => <<"value">>},
-                    <<"orderingKey">> => <<"some_ordering_key">>
-                }
-            ],
-            pubsub_publish(Config, Topic0, Messages),
-            pubsub_publish(Config, Topic1, Messages),
-            {ok, Published0} = receive_published(#{n => 2}),
-            Published =
-                lists:sort(
-                    fun(#{topic := TA}, #{topic := TB}) ->
-                        TA =< TB
-                    end,
-                    Published0
-                ),
-            ?assertMatch(
-                [
-                    #{
-                        qos := QoS0,
-                        topic := MQTTTopic0,
-                        payload :=
-                            #{
-                                <<"attributes">> := Attributes,
-                                <<"message_id">> := _,
-                                <<"ordering_key">> := <<"some_ordering_key">>,
-                                <<"publish_time">> := _,
-                                <<"topic">> := _Topic,
-                                <<"value">> := Payload
-                            }
-                    },
-                    #{
-                        qos := QoS1,
-                        topic := MQTTTopic1,
-                        payload := #{
-                            <<"v">> := Payload,
-                            <<"a">> := <<"value">>
-                        }
-                    }
-                ],
-                Published
-            ),
-            ?block_until(#{?snk_kind := gcp_pubsub_consumer_worker_acknowledged}, 20_000),
-            ?retry(
-                _Interval = 200,
-                _NAttempts = 20,
-                ?assertEqual(2, emqx_resource_metrics:received_get(ResourceId))
-            ),
-
-            assert_non_received_metrics(BridgeName),
-
-            ok
-        end,
-        [
-            prop_all_pulled_are_acked(),
-            prop_handled_only_once()
-        ]
-    ),
-    ok.
-
-t_nonexistent_topic(Config) ->
-    BridgeName = ?config(bridge_name, Config),
-    [Mapping0] = ?config(topic_mapping, Config),
+t_nonexistent_topic(TCConfig) when is_list(TCConfig) ->
     PubSubTopic = <<"nonexistent-", (emqx_guid:to_hexstr(emqx_guid:gen()))/binary>>,
-    TopicMapping0 = [Mapping0#{pubsub_topic := PubSubTopic}],
-    TopicMapping = emqx_utils_maps:binary_key_map(TopicMapping0),
     ?check_trace(
         begin
-            {ok, _} =
-                create_bridge(
-                    Config,
-                    #{
-                        <<"consumer">> =>
-                            #{<<"topic_mapping">> => TopicMapping}
-                    }
-                ),
+            {201, _} = create_connector_api(TCConfig, #{}),
             ?assertMatch(
-                {ok, disconnected},
-                health_check(Config)
+                {201, #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"status_reason">> :=
+                        <<"{unhealthy_target,\"GCP PubSub topics are invalid.", _/binary>>
+                }},
+                create_source_api(TCConfig, #{
+                    <<"parameters">> => #{<<"topic">> => PubSubTopic}
+                })
             ),
-            ?assertMatch(
-                #{
-                    status := disconnected,
-                    error := {unhealthy_target, "GCP PubSub topics are invalid" ++ _}
-                },
-                health_check_channel(Config)
-            ),
+
             %% now create the topic and restart the bridge
-            ensure_topic(Config, PubSubTopic),
-            ?assertMatch(
-                ok,
-                emqx_bridge_resource:restart(?BRIDGE_TYPE, BridgeName)
-            ),
+            ensure_topic(TCConfig, PubSubTopic),
             ?retry(
-                _Interval0 = 200,
+                _Interval0 = 500,
                 _NAttempts0 = 20,
-                ?assertMatch({ok, connected}, health_check(Config))
-            ),
-            ?assertMatch(
-                #{
-                    status := connected,
-                    error := undefined
-                },
-                health_check_channel(Config)
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_source_api(TCConfig)
+                )
             ),
             ok
         end,
-        [
-            fun(Trace) ->
-                %% client is stopped after first failure
-                ?assertMatch([_], ?of_kind(gcp_client_stop, Trace)),
-                ok
-            end
-        ]
+        []
     ),
     ok.
 
-t_topic_deleted_while_consumer_is_running(Config) ->
-    TopicMapping = [#{pubsub_topic := PubSubTopic} | _] = ?config(topic_mapping, Config),
-    NTopics = length(TopicMapping),
+t_topic_deleted_while_consumer_is_running(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     ?check_trace(
         begin
             {ok, SRef0} =
                 snabbkaffe:subscribe(
                     ?match_event(#{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"}),
-                    NTopics,
                     40_000
                 ),
-            {ok, _} = create_bridge(Config),
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, #{<<"status">> := <<"connected">>}} = create_source_api(TCConfig, #{}),
             {ok, _} = snabbkaffe:receive_events(SRef0),
-
-            ?assertMatch({ok, connected}, health_check(Config)),
 
             %% curiously, gcp pubsub doesn't seem to return any errors from the
             %% subscription if the topic is deleted while the subscription still exists...
@@ -1298,7 +1067,7 @@ t_topic_deleted_while_consumer_is_running(Config) ->
                     2,
                     40_000
                 ),
-            delete_topic(Config, PubSubTopic),
+            delete_topic(TCConfig, PubSubTopic),
             {ok, _} = snabbkaffe:receive_events(SRef1),
 
             ok
@@ -1307,10 +1076,7 @@ t_topic_deleted_while_consumer_is_running(Config) ->
     ),
     ok.
 
-t_connection_down_before_starting(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
+t_connection_down_before_starting(TCConfig) ->
     ?check_trace(
         begin
             ?force_ordering(
@@ -1323,7 +1089,7 @@ t_connection_down_before_starting(Config) ->
             ),
             spawn_link(fun() ->
                 ?tp(notice, will_cut_connection, #{}),
-                emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort),
+                enable_failure(down),
                 ?tp(notice, connection_down, #{})
             end),
             %% check retries
@@ -1333,18 +1099,39 @@ t_connection_down_before_starting(Config) ->
                     _NEvents0 = 2,
                     10_000
                 ),
-            {ok, _} = create_bridge(Config),
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_source_api(TCConfig, #{}),
             {ok, _} = snabbkaffe:receive_events(SRef0),
-            ?assertMatch(
-                {ok, Status} when Status =:= connecting orelse Status =:= disconnected,
-                health_check(Config)
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connecting">>}},
+                    get_source_api(TCConfig)
+                )
             ),
 
-            emqx_common_test_helpers:heal_failure(down, ProxyName, ProxyHost, ProxyPort),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connecting">>}},
+                get_connector_api(TCConfig)
+            ),
+
+            heal_failure(down),
             ?retry(
                 _Interval0 = 200,
                 _NAttempts0 = 20,
-                ?assertMatch({ok, connected}, health_check(Config))
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_source_api(TCConfig)
+                )
+            ),
+            ?retry(
+                _Interval0 = 200,
+                _NAttempts0 = 20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_connector_api(TCConfig)
+                )
             ),
 
             ok
@@ -1353,30 +1140,24 @@ t_connection_down_before_starting(Config) ->
     ),
     ok.
 
-t_connection_timeout_before_starting(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
+t_connection_timeout_before_starting(TCConfig) ->
     ?check_trace(
         begin
-            emqx_common_test_helpers:with_failure(
-                timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-                    ?assertMatch(
-                        {{ok, _}, {ok, _}},
-                        ?wait_async_action(
-                            create_bridge(Config),
-                            #{?snk_kind := gcp_pubsub_consumer_worker_init},
-                            10_000
-                        )
-                    ),
-                    ?assertMatch({ok, connecting}, health_check(Config)),
-                    ok
-                end
-            ),
+            with_failure(timeout, fun() ->
+                {201, _} = create_connector_api(TCConfig, #{}),
+                ?assertMatch(
+                    {201, #{<<"status">> := Status}} when
+                        Status == <<"connecting">> orelse Status == <<"disconnected">>,
+                    create_source_api(TCConfig, #{})
+                )
+            end),
             ?retry(
                 _Interval0 = 200,
                 _NAttempts0 = 20,
-                ?assertMatch({ok, connected}, health_check(Config))
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_connector_api(TCConfig)
+                )
             ),
             ok
         end,
@@ -1384,19 +1165,20 @@ t_connection_timeout_before_starting(Config) ->
     ),
     ok.
 
-t_pull_worker_death(Config) ->
+t_pull_worker_death(TCConfig) ->
     ?check_trace(
         begin
+            {201, _} = create_connector_api(TCConfig, #{}),
             ?assertMatch(
-                {{ok, _}, {ok, _}},
+                {{201, _}, {ok, _}},
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_source_api(TCConfig, #{}),
                     #{?snk_kind := gcp_pubsub_consumer_worker_init},
                     10_000
                 )
             ),
 
-            [PullWorkerPid | _] = get_pull_worker_pids(Config),
+            [PullWorkerPid | _] = get_pull_worker_pids(TCConfig),
             Ref = monitor(process, PullWorkerPid),
             sys:terminate(PullWorkerPid, die, 20_000),
             receive
@@ -1404,13 +1186,19 @@ t_pull_worker_death(Config) ->
                     ok
             after 500 -> ct:fail("pull worker didn't die")
             end,
-            ?assertMatch({ok, connecting}, health_check(Config)),
+            ?assertMatch(
+                #{status := ?status_connecting},
+                emqx_bridge_v2_testlib:health_check_channel(TCConfig)
+            ),
 
             %% recovery
             ?retry(
                 _Interval0 = 200,
                 _NAttempts0 = 20,
-                ?assertMatch({ok, connected}, health_check(Config))
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_connector_api(TCConfig)
+                )
             ),
 
             ok
@@ -1419,15 +1207,13 @@ t_pull_worker_death(Config) ->
     ),
     ok.
 
-t_async_worker_death_mid_pull(Config) ->
+t_async_worker_death_mid_pull(TCConfig) ->
     ct:timetrap({seconds, 122}),
-    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
     ?check_trace(
-        #{timetrap => 120_000},
+        emqx_bridge_v2_testlib:snk_timetrap(),
         begin
-            start_and_subscribe_mqtt(Config),
-
             ?force_ordering(
                 #{
                     ?snk_kind := gcp_pubsub_consumer_worker_pull_async,
@@ -1448,10 +1234,10 @@ t_async_worker_death_mid_pull(Config) ->
                         %% produce a message while worker is being killed
                         Messages = [#{<<"data">> => Payload}],
                         ct:pal("publishing message"),
-                        pubsub_publish(Config, PubSubTopic, Messages),
+                        pubsub_publish(TCConfig, PubSubTopic, Messages),
                         ct:pal("published message"),
 
-                        AsyncWorkerPids = get_async_worker_pids(Config),
+                        AsyncWorkerPids = get_async_worker_pids(TCConfig),
                         Timeout = 20_000,
                         emqx_utils:pmap(
                             fun(AsyncWorkerPid) ->
@@ -1476,24 +1262,25 @@ t_async_worker_death_mid_pull(Config) ->
                 ct:pal("killed async workers")
             end),
 
+            {201, _} = create_connector_api(TCConfig, #{<<"pool_size">> => 1}),
             ?assertMatch(
-                {{ok, _}, {ok, _}},
+                {{201, _}, {ok, _}},
                 ?wait_async_action(
-                    create_bridge(
-                        Config,
-                        #{
-                            <<"pool_size">> => 1,
-                            <<"consumer">> => #{
-                                <<"ack_deadline">> => <<"10s">>,
-                                <<"ack_retry_interval">> => <<"1s">>
-                            }
+                    create_source_api(TCConfig, #{
+                        <<"parameters">> => #{
+                            <<"ack_deadline">> => <<"10s">>,
+                            <<"ack_retry_interval">> => <<"1s">>
                         }
-                    ),
+                    }),
                     #{?snk_kind := gcp_pubsub_consumer_worker_init},
                     10_000
                 )
             ),
+            #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
+            {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
 
+            ct:pal("waiting for consumer workers to be down"),
             {ok, _} =
                 ?block_until(
                     #{?snk_kind := gcp_pubsub_consumer_worker_handled_async_worker_down},
@@ -1502,6 +1289,7 @@ t_async_worker_death_mid_pull(Config) ->
 
             %% check that we eventually received the message.
             %% for some reason, this can take forever in ci...
+            ct:pal("waiting for message to eventually be received"),
             {ok, Published} = receive_published(#{timeout => 60_000}),
             ?assertMatch([#{payload := #{<<"value">> := Payload}}], Published),
 
@@ -1539,10 +1327,7 @@ t_async_worker_death_mid_pull(Config) ->
     ),
     ok.
 
-t_connection_error_while_creating_subscription(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
+t_connection_error_while_creating_subscription(TCConfig) ->
     ?check_trace(
         begin
             ?force_ordering(
@@ -1555,7 +1340,9 @@ t_connection_error_while_creating_subscription(Config) ->
             ),
             spawn_link(fun() ->
                 ?tp(notice, will_cut_connection, #{}),
-                emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort),
+                emqx_common_test_helpers:enable_failure(
+                    down, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT
+                ),
                 ?tp(notice, connection_down, #{})
             end),
             %% check retries
@@ -1565,9 +1352,12 @@ t_connection_error_while_creating_subscription(Config) ->
                     _NEvents0 = 2,
                     10_000
                 ),
-            {ok, _} = create_bridge(Config),
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_source_api(TCConfig, #{}),
             {ok, _} = snabbkaffe:receive_events(SRef0),
-            emqx_common_test_helpers:heal_failure(down, ProxyName, ProxyHost, ProxyPort),
+            emqx_common_test_helpers:heal_failure(
+                down, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT
+            ),
 
             %% should eventually succeed
             ?tp(notice, "waiting for recovery", #{}),
@@ -1582,22 +1372,22 @@ t_connection_error_while_creating_subscription(Config) ->
     ),
     ok.
 
-t_subscription_already_exists(Config) ->
-    BridgeName = ?config(bridge_name, Config),
+t_subscription_already_exists(TCConfig) ->
     ?check_trace(
         begin
-            {{ok, _}, {ok, _}} =
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, _}} =
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_source_api(TCConfig, #{}),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_created"},
                     10_000
                 ),
             %% now restart the same bridge
-            {ok, _} = emqx_bridge:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
+            {204, _} = disable_source_api(TCConfig),
 
-            {{ok, _}, {ok, _}} =
+            {{204, _}, {ok, _}} =
                 ?wait_async_action(
-                    emqx_bridge:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
+                    enable_source_api(TCConfig),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     10_000
                 ),
@@ -1626,21 +1416,18 @@ t_subscription_already_exists(Config) ->
     ),
     ok.
 
-t_subscription_patch_error(Config) ->
-    BridgeName = ?config(bridge_name, Config),
-    ProxyName = ?config(proxy_name, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
+t_subscription_patch_error(TCConfig) ->
     ?check_trace(
         begin
-            {{ok, _}, {ok, _}} =
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, _}} =
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_source_api(TCConfig, #{}),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_created"},
                     10_000
                 ),
             %% now restart the same bridge
-            {ok, _} = emqx_bridge:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
+            {204, _} = disable_source_api(TCConfig),
 
             ?force_ordering(
                 #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_already_exists"},
@@ -1654,20 +1441,20 @@ t_subscription_patch_error(Config) ->
                 ?tp_span(
                     cut_connection,
                     #{},
-                    emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort)
+                    enable_failure(down)
                 )
             end),
 
-            {{ok, _}, {ok, _}} =
+            {{204, _}, {ok, _}} =
                 ?wait_async_action(
-                    emqx_bridge:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
+                    enable_source_api(TCConfig),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_patch_error"},
                     10_000
                 ),
 
             {{ok, _}, {ok, _}} =
                 ?wait_async_action(
-                    emqx_common_test_helpers:heal_failure(down, ProxyName, ProxyHost, ProxyPort),
+                    heal_failure(down),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     10_000
                 ),
@@ -1678,8 +1465,8 @@ t_subscription_patch_error(Config) ->
     ),
     ok.
 
-t_topic_deleted_while_creating_subscription(Config) ->
-    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
+t_topic_deleted_while_creating_subscription(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     ?check_trace(
         begin
             ?force_ordering(
@@ -1694,35 +1481,35 @@ t_topic_deleted_while_creating_subscription(Config) ->
                 ?tp_span(
                     delete_topic,
                     #{},
-                    delete_topic(Config, PubSubTopic)
+                    delete_topic(TCConfig, PubSubTopic)
                 )
             end),
-            {{ok, _}, {ok, _}} =
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, #{<<"status">> := <<"disconnected">>}}, {ok, _}} =
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_source_api(TCConfig, #{}),
                     #{?snk_kind := gcp_pubsub_consumer_worker_terminate},
                     10_000
                 ),
-            ?assertMatch({ok, disconnected}, health_check(Config)),
             ok
         end,
         []
     ),
     ok.
 
-t_topic_deleted_while_patching_subscription(Config) ->
-    BridgeName = ?config(bridge_name, Config),
-    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
+t_topic_deleted_while_patching_subscription(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     ?check_trace(
         begin
-            {{ok, _}, {ok, _}} =
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, _}} =
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_source_api(TCConfig, #{}),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_created"},
                     10_000
                 ),
             %% now restart the same bridge
-            {ok, _} = emqx_bridge:disable_enable(disable, ?BRIDGE_TYPE, BridgeName),
+            {204, _} = disable_source_api(TCConfig),
 
             ?force_ordering(
                 #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_already_exists"},
@@ -1736,30 +1523,38 @@ t_topic_deleted_while_patching_subscription(Config) ->
                 ?tp_span(
                     delete_topic,
                     #{},
-                    delete_topic(Config, PubSubTopic)
+                    delete_topic(TCConfig, PubSubTopic)
                 )
             end),
             %% as with deleting the topic of an existing subscription, patching after the
             %% topic does not exist anymore doesn't return errors either...
-            {{ok, _}, {ok, _}} =
+            {{204, _}, {ok, _}} =
                 ?wait_async_action(
-                    emqx_bridge:disable_enable(enable, ?BRIDGE_TYPE, BridgeName),
+                    enable_source_api(TCConfig),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     10_000
                 ),
-            ?assertMatch({ok, connected}, health_check(Config)),
+            ?retry(
+                500,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_source_api(TCConfig)
+                )
+            ),
             ok
         end,
         []
     ),
     ok.
 
-t_subscription_deleted_while_consumer_is_running(Config) ->
+t_subscription_deleted_while_consumer_is_running(TCConfig) ->
     ?check_trace(
         begin
-            {{ok, _}, {ok, #{subscription_id := SubscriptionId}}} =
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, #{subscription_id := SubscriptionId}}} =
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_source_api(TCConfig, #{}),
                     #{
                         ?snk_kind := gcp_pubsub_consumer_worker_pull_async,
                         ?snk_span := {complete, _}
@@ -1780,39 +1575,13 @@ t_subscription_deleted_while_consumer_is_running(Config) ->
                     ),
                     30_000
                 ),
-            delete_subscription(Config, SubscriptionId),
+            delete_subscription(TCConfig, SubscriptionId),
             {ok, _} = snabbkaffe:receive_events(SRef0),
             {ok, _} = snabbkaffe:receive_events(SRef1),
 
-            ?assertMatch({ok, connected}, health_check(Config)),
-            ok
-        end,
-        []
-    ),
-    ok.
-
-t_subscription_and_topic_deleted_while_consumer_is_running(Config) ->
-    ct:timetrap({seconds, 90}),
-    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
-    ?check_trace(
-        begin
-            {{ok, _}, {ok, #{subscription_id := SubscriptionId}}} =
-                ?wait_async_action(
-                    create_bridge(Config),
-                    #{
-                        ?snk_kind := gcp_pubsub_consumer_worker_pull_async,
-                        ?snk_span := {complete, _}
-                    },
-                    10_000
-                ),
-            delete_topic(Config, PubSubTopic),
-            delete_subscription(Config, SubscriptionId),
-            {ok, _} = ?block_until(#{?snk_kind := gcp_pubsub_consumer_worker_terminate}, 60_000),
-
-            ?retry(
-                _Sleep0 = 100,
-                _Retries = 20,
-                ?assertMatch({ok, disconnected}, health_check(Config))
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connected">>}},
+                get_source_api(TCConfig)
             ),
             ok
         end,
@@ -1820,24 +1589,53 @@ t_subscription_and_topic_deleted_while_consumer_is_running(Config) ->
     ),
     ok.
 
-t_connection_down_during_ack(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
+t_subscription_and_topic_deleted_while_consumer_is_running(TCConfig) ->
+    ct:timetrap({seconds, 90}),
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     ?check_trace(
         begin
-            start_and_subscribe_mqtt(Config),
-
-            {{ok, _}, {ok, _}} =
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, #{subscription_id := SubscriptionId}}} =
                 ?wait_async_action(
-                    create_bridge(
-                        Config,
-                        #{<<"consumer">> => #{<<"ack_retry_interval">> => <<"1s">>}}
-                    ),
+                    create_source_api(TCConfig, #{}),
+                    #{
+                        ?snk_kind := gcp_pubsub_consumer_worker_pull_async,
+                        ?snk_span := {complete, _}
+                    },
+                    10_000
+                ),
+            delete_topic(TCConfig, PubSubTopic),
+            delete_subscription(TCConfig, SubscriptionId),
+            {ok, _} = ?block_until(#{?snk_kind := gcp_pubsub_consumer_worker_terminate}, 60_000),
+
+            ?retry(
+                _Sleep0 = 100,
+                _Retries = 20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"disconnected">>}},
+                    get_source_api(TCConfig)
+                )
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_connection_down_during_ack(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
+    ?check_trace(
+        begin
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, _}} =
+                ?wait_async_action(
+                    create_source_api(TCConfig, #{}),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     10_000
                 ),
+            #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
+            {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
 
             ?force_ordering(
                 #{
@@ -1854,18 +1652,18 @@ t_connection_down_during_ack(Config) ->
                 ?tp_span(
                     cut_connection,
                     #{},
-                    emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort)
+                    enable_failure(down)
                 )
             end),
 
             Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
             Messages = [#{<<"data">> => Payload}],
-            pubsub_publish(Config, PubSubTopic, Messages),
+            pubsub_publish(TCConfig, PubSubTopic, Messages),
             {ok, _} = ?block_until(#{?snk_kind := "gcp_pubsub_consumer_worker_ack_error"}, 10_000),
 
             {{ok, _}, {ok, _}} =
                 ?wait_async_action(
-                    emqx_common_test_helpers:heal_failure(down, ProxyName, ProxyHost, ProxyPort),
+                    heal_failure(down),
                     #{?snk_kind := gcp_pubsub_consumer_worker_acknowledged},
                     30_000
                 ),
@@ -1889,19 +1687,18 @@ t_connection_down_during_ack(Config) ->
     ),
     ok.
 
-t_connection_down_during_ack_redeliver(Config) ->
+t_connection_down_during_ack_redeliver(TCConfig) ->
     ct:timetrap({seconds, 120}),
-    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     ?check_trace(
         begin
-            start_and_subscribe_mqtt(Config),
-
-            {{ok, _}, {ok, _}} =
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, _}} =
                 ?wait_async_action(
-                    create_bridge(
-                        Config,
+                    create_source_api(
+                        TCConfig,
                         #{
-                            <<"consumer">> => #{
+                            <<"parameters">> => #{
                                 <<"ack_deadline">> => <<"12s">>,
                                 <<"ack_retry_interval">> => <<"1s">>
                             },
@@ -1913,6 +1710,9 @@ t_connection_down_during_ack_redeliver(Config) ->
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     10_000
                 ),
+            #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
+            {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
 
             emqx_common_test_helpers:with_mock(
                 emqx_bridge_gcp_pubsub_client,
@@ -1929,7 +1729,7 @@ t_connection_down_during_ack_redeliver(Config) ->
                 fun() ->
                     Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
                     Messages = [#{<<"data">> => Payload}],
-                    pubsub_publish(Config, PubSubTopic, Messages),
+                    pubsub_publish(TCConfig, PubSubTopic, Messages),
                     {ok, _} = snabbkaffe:block_until(
                         ?match_n_events(2, #{?snk_kind := "gcp_pubsub_consumer_worker_ack_error"}),
                         20_000
@@ -1966,29 +1766,28 @@ t_connection_down_during_ack_redeliver(Config) ->
     ),
     ok.
 
-t_connection_down_during_pull(Config) ->
+t_connection_down_during_pull(TCConfig) ->
     ct:timetrap({seconds, 90}),
-    ProxyName = ?config(proxy_name, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     FailureType = timeout,
     ?check_trace(
         begin
-            start_and_subscribe_mqtt(Config),
-
-            {{ok, _}, {ok, _}} =
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, _}} =
                 ?wait_async_action(
-                    create_bridge(
-                        Config,
+                    create_source_api(
+                        TCConfig,
                         #{
-                            <<"consumer">> => #{<<"ack_retry_interval">> => <<"1s">>},
+                            <<"parameters">> => #{<<"ack_retry_interval">> => <<"1s">>},
                             <<"resource_opts">> => #{<<"request_ttl">> => <<"11s">>}
                         }
                     ),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     10_000
                 ),
+            #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
+            {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
 
             ?force_ordering(
                 #{
@@ -2011,17 +1810,15 @@ t_connection_down_during_pull(Config) ->
                     begin
                         Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
                         Messages = [#{<<"data">> => Payload}],
-                        pubsub_publish(Config, PubSubTopic, Messages),
-                        emqx_common_test_helpers:enable_failure(
-                            FailureType, ProxyName, ProxyHost, ProxyPort
-                        ),
+                        pubsub_publish(TCConfig, PubSubTopic, Messages),
+                        enable_failure(FailureType),
                         ok
                     end
                 )
             end),
 
             ?block_until("gcp_pubsub_consumer_worker_pull_error", 10_000),
-            emqx_common_test_helpers:heal_failure(FailureType, ProxyName, ProxyHost, ProxyPort),
+            heal_failure(FailureType),
 
             {ok, _Published} = receive_published(),
 
@@ -2048,19 +1845,20 @@ t_connection_down_during_pull(Config) ->
     ok.
 
 %% debugging api
-t_get_subscription(Config) ->
+t_get_subscription(TCConfig) ->
     ?check_trace(
         begin
+            {201, _} = create_connector_api(TCConfig, #{}),
             ?assertMatch(
-                {{ok, _}, {ok, _}},
+                {{201, _}, {ok, _}},
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_source_api(TCConfig, #{}),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     10_000
                 )
             ),
 
-            [PullWorkerPid | _] = get_pull_worker_pids(Config),
+            [PullWorkerPid | _] = get_pull_worker_pids(TCConfig),
             ?retry(
                 _Interval0 = 200,
                 _NAttempts0 = 20,
@@ -2076,8 +1874,8 @@ t_get_subscription(Config) ->
     ),
     ok.
 
-t_permission_denied_topic_check(Config) ->
-    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
+t_permission_denied_topic_check(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     ?check_trace(
         begin
             %% the emulator does not check any credentials
@@ -2094,17 +1892,14 @@ t_permission_denied_topic_check(Config) ->
                     end
                 end,
                 fun() ->
-                    {ok, _} = create_bridge(Config),
+                    {201, _} = create_connector_api(TCConfig, #{}),
                     ?assertMatch(
-                        {ok, disconnected},
-                        health_check(Config)
-                    ),
-                    ?assertMatch(
-                        #{
-                            status := disconnected,
-                            error := {unhealthy_target, "Permission denied" ++ _}
-                        },
-                        health_check_channel(Config)
+                        {201, #{
+                            <<"status">> := <<"disconnected">>,
+                            <<"status_reason">> :=
+                                <<"{unhealthy_target,\"Permission denied", _/binary>>
+                        }},
+                        create_source_api(TCConfig, #{})
                     ),
                     ok
                 end
@@ -2115,7 +1910,7 @@ t_permission_denied_topic_check(Config) ->
     ),
     ok.
 
-t_permission_denied_worker(Config) ->
+t_permission_denied_worker(TCConfig) ->
     ?check_trace(
         begin
             emqx_common_test_helpers:with_mock(
@@ -2130,11 +1925,10 @@ t_permission_denied_worker(Config) ->
                     end
                 end,
                 fun() ->
-                    {{ok, _}, {ok, _}} =
+                    {201, _} = create_connector_api(TCConfig, #{}),
+                    {{201, _}, {ok, _}} =
                         ?wait_async_action(
-                            create_bridge(
-                                Config
-                            ),
+                            create_source_api(TCConfig, #{}),
                             #{?snk_kind := gcp_pubsub_consumer_worker_terminate},
                             10_000
                         ),
@@ -2148,8 +1942,8 @@ t_permission_denied_worker(Config) ->
     ),
     ok.
 
-t_unauthenticated_topic_check(Config) ->
-    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
+t_unauthenticated_topic_check(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
     ?check_trace(
         begin
             %% the emulator does not check any credentials
@@ -2166,17 +1960,14 @@ t_unauthenticated_topic_check(Config) ->
                     end
                 end,
                 fun() ->
-                    {ok, _} = create_bridge(Config),
+                    {201, _} = create_connector_api(TCConfig, #{}),
                     ?assertMatch(
-                        {ok, disconnected},
-                        health_check(Config)
-                    ),
-                    ?assertMatch(
-                        #{
-                            status := disconnected,
-                            error := {unhealthy_target, "Permission denied" ++ _}
-                        },
-                        health_check_channel(Config)
+                        {201, #{
+                            <<"status">> := <<"disconnected">>,
+                            <<"status_reason">> :=
+                                <<"{unhealthy_target,\"Permission denied", _/binary>>
+                        }},
+                        create_source_api(TCConfig, #{})
                     ),
                     ok
                 end
@@ -2187,7 +1978,7 @@ t_unauthenticated_topic_check(Config) ->
     ),
     ok.
 
-t_unauthenticated_worker(Config) ->
+t_unauthenticated_worker(TCConfig) ->
     ?check_trace(
         begin
             emqx_common_test_helpers:with_mock(
@@ -2202,15 +1993,13 @@ t_unauthenticated_worker(Config) ->
                     end
                 end,
                 fun() ->
-                    {{ok, _}, {ok, _}} =
+                    {201, _} = create_connector_api(TCConfig, #{}),
+                    {{201, _}, {ok, _}} =
                         ?wait_async_action(
-                            create_bridge(
-                                Config
-                            ),
+                            create_source_api(TCConfig, #{}),
                             #{?snk_kind := gcp_pubsub_consumer_worker_terminate},
                             10_000
                         ),
-
                     ok
                 end
             ),
@@ -2220,46 +2009,39 @@ t_unauthenticated_worker(Config) ->
     ),
     ok.
 
-t_cluster_subscription(Config) ->
-    [
-        #{
-            mqtt_topic := MQTTTopic,
-            pubsub_topic := PubSubTopic
-        }
-    ] = ?config(topic_mapping, Config),
-    BridgeId = bridge_id(Config),
-    AppSpecs = [emqx_conf, emqx_rule_engine, emqx_bridge_gcp_pubsub, emqx_bridge],
+t_cluster_subscription() ->
+    [{matrix, true}].
+t_cluster_subscription(matrix) ->
+    [[?custom_cluster]];
+t_cluster_subscription(TCConfig) when is_list(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
+    AppSpecs = [
+        emqx_conf,
+        emqx_bridge_gcp_pubsub,
+        emqx_bridge,
+        emqx_rule_engine,
+        emqx_management
+    ],
     ?check_trace(
         begin
             Nodes =
-                [N1, N2] = emqx_cth_cluster:start(
+                [N1, _N2] = emqx_cth_cluster:start(
                     [
                         {gcp_pubsub_consumer_subscription1, #{apps => AppSpecs}},
                         {gcp_pubsub_consumer_subscription2, #{
                             apps => AppSpecs ++
-                                [
-                                    emqx_management,
-                                    emqx_mgmt_api_test_util:emqx_dashboard(
-                                        "dashboard.listeners.http.bind = 28083"
-                                    )
-                                ]
+                                [emqx_mgmt_api_test_util:emqx_dashboard()]
                         }}
                     ],
-                    #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+                    #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, TCConfig)}
                 ),
             on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
+            Fun = fun() -> ?ON(N1, emqx_mgmt_api_test_util:auth_header_()) end,
+            emqx_bridge_v2_testlib:set_auth_header_getter(Fun),
             NumNodes = length(Nodes),
-            erpc:call(N2, fun() -> {ok, _} = create_bridge(Config) end),
-            lists:foreach(
-                fun(N) ->
-                    ?assertMatch(
-                        {ok, _},
-                        erpc:call(N, emqx_bridge, lookup, [BridgeId]),
-                        #{node => N}
-                    )
-                end,
-                Nodes
-            ),
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_source_api(TCConfig, #{}),
+            #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
             {ok, _} = snabbkaffe:block_until(
                 ?match_n_events(
                     NumNodes,
@@ -2272,11 +2054,11 @@ t_cluster_subscription(Config) ->
             {ok, C1} = emqtt:start_link([{port, TCPPort1}, {proto_ver, v5}]),
             on_exit(fun() -> catch emqtt:stop(C1) end),
             {ok, _} = emqtt:connect(C1),
-            {ok, _, [2]} = emqtt:subscribe(C1, MQTTTopic, 2),
+            {ok, _, [2]} = emqtt:subscribe(C1, RepublishTopic, 2),
 
             Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
             Messages = [#{<<"data">> => Payload}],
-            pubsub_publish(Config, PubSubTopic, Messages),
+            pubsub_publish(TCConfig, PubSubTopic, Messages),
 
             ?assertMatch({ok, _Published}, receive_published()),
 
@@ -2284,4 +2066,64 @@ t_cluster_subscription(Config) ->
         end,
         [prop_handled_only_once()]
     ),
+    ok.
+
+t_consume(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
+    Payload = #{<<"key">> => <<"value">>},
+    Attributes = #{<<"hkey">> => <<"hval">>},
+    ProduceFn = fun() ->
+        pubsub_publish(
+            TCConfig,
+            PubSubTopic,
+            [
+                #{
+                    <<"data">> => Payload,
+                    <<"orderingKey">> => <<"ok">>,
+                    <<"attributes">> => Attributes
+                }
+            ]
+        )
+    end,
+    Encoded = emqx_utils_json:encode(Payload),
+    CheckFn = fun(Message) ->
+        ?assertMatch(
+            #{
+                attributes := Attributes,
+                message_id := _,
+                ordering_key := <<"ok">>,
+                publish_time := _,
+                topic := PubSubTopic,
+                value := Encoded
+            },
+            Message
+        )
+    end,
+    ok = emqx_bridge_v2_testlib:t_consume(
+        TCConfig,
+        #{
+            consumer_ready_tracepoint => ?match_event(
+                #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"}
+            ),
+            produce_fn => ProduceFn,
+            check_fn => CheckFn,
+            produce_tracepoint => ?match_event(
+                #{
+                    ?snk_kind := "gcp_pubsub_consumer_worker_handle_message",
+                    ?snk_span := {complete, _}
+                }
+            )
+        }
+    ),
+    ok.
+
+t_create_via_http_json_object_service_account(TCConfig) ->
+    %% After the config goes through the roundtrip with `hocon_tconf:check_plain', service
+    %% account json comes back as a binary even if the input is a json object.
+    ServiceAccountJSON = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
+    true = is_map(ServiceAccountJSON),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"service_account_json">> => ServiceAccountJSON
+    }),
+    assert_persisted_service_account_json_is_binary(TCConfig),
     ok.

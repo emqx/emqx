@@ -22,10 +22,10 @@ defmodule EMQXNodeRebalance.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_ctl, in_umbrella: true},
       {:emqx_eviction_agent, in_umbrella: true}
-    ]
+    ])
   end
 end

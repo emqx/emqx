@@ -69,7 +69,7 @@
 %% API:
 -export([start_link/2, where/1]).
 -export([poll/5, subscribe/5, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
--export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/4]).
+-export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/5]).
 -export([
     make_subtab/1,
     take_ownership/3,
@@ -100,6 +100,7 @@
     return_addr/1,
     unpack_iterator_result/1,
     event_topic/0,
+    event_topic_filter/0,
     stream_scan_return/0,
     beam_builder/0,
     sub_tab/0
@@ -236,7 +237,7 @@
 -type beam() :: beam(_ItKey, _Iterator).
 
 -type stream_scan_return() ::
-    {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message()}]}
+    {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
     | {ok, end_of_stream}
     | emqx_ds:error(_).
 
@@ -265,7 +266,7 @@
     global_n_msgs :: non_neg_integer() | undefined,
     n_msgs = 0 :: non_neg_integer(),
     %% List of messages and keys, reversed:
-    pack = [] :: [{emqx_ds:message_key(), emqx_types:message()}],
+    pack = [] :: [emqx_ds:payload()],
     subs = #{} :: #{reference() => #beam_builder_sub{}}
 }).
 -type bbn() :: #beam_builder_node{}.
@@ -310,18 +311,31 @@
 
 -callback high_watermark(dbshard(), _Stream) -> {ok, emqx_ds:message_key()} | emqx_ds:error(_).
 
-%% @doc This callback is used to safely advance the iterator to the
-%% position represented by the key.
--callback fast_forward(dbshard(), Iterator, emqx_ds:message_key()) ->
-    {ok, Iterator} | {ok, end_of_stream} | emqx_ds:error(_).
+-doc """
+This callback is used to safely advance an iterator to the
+position represented by the key.
 
-%% @doc These two callbacks are used to create the dispatch matrix of
-%% the beam.
-%%
-%% Let c_m := message_match_context(key, message),
-%% c_i := iterator_match_context(iterator[client])
-%%
-%% then dispatch_matrix[message, client] = c_i(c_m)
+If this function returns `{ok, LastSeenKey, Batch}`, it means:
+
+1. The iterator can be advanced to LastSeenKey,
+   which is a key that is greater than or equal to the fast-forward target key.
+
+2. All data contained between the initial and the final position of the iterator
+   is contained in the batch.
+""".
+-callback fast_forward(dbshard(), _Iterator, emqx_ds:message_key(), pos_integer()) ->
+    {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+    | emqx_ds:error(_).
+
+-doc """
+These two callbacks are used to create the dispatch matrix of
+the beam.
+
+Let c_m := message_match_context(key, message),
+c_i := iterator_match_context(iterator[client])
+
+then dispatch_matrix[message, client] = c_i(c_m)
+""".
 -callback message_match_context(dbshard(), _Stream, emqx_ds:message_key(), emqx_types:message()) ->
     {ok, _MatchCtxMsg}.
 
@@ -550,7 +564,7 @@ beams_add(
     %% 3. Iterate over candidates.
     PerNode = fold_with_groups(
         fun(SubRef, NodeS) ->
-            beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef, NodeS)
+            beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Msg, MatchCtx, SubRef, NodeS)
         end,
         #beam_builder_node{},
         Candidates,
@@ -638,10 +652,12 @@ scan_stream(Mod, Shard, Stream, TopicFilter, StartKey, BatchSize) ->
 high_watermark(Mod, Shard, Stream) ->
     Mod:high_watermark(Shard, Stream).
 
--spec fast_forward(module(), dbshard(), Iterator, emqx_ds:message_key()) ->
-    {ok, Iterator} | ?err_unrec(has_data | old_key) | emqx_ds:error(_).
-fast_forward(Mod, Shard, It, Key) ->
-    Mod:fast_forward(Shard, It, Key).
+-spec fast_forward(module(), dbshard(), Iterator, emqx_ds:message_key(), pos_integer()) ->
+    {ok, Iterator, [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+    | ?err_unrec(has_data | old_key)
+    | emqx_ds:error(_).
+fast_forward(Mod, Shard, It, Key, BatchSize) ->
+    Mod:fast_forward(Shard, It, Key, BatchSize).
 
 %%================================================================================
 %% Internal subscription management API (RPC target)
@@ -1011,7 +1027,7 @@ do_handle_event(enter, _OldState, _NewState, _D) ->
     keep_state_and_data;
 %% Perform initialization:
 do_handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, _}}) ->
-    try emqx_ds:list_generations_with_lifetimes(DB) of
+    try emqx_ds:list_slabs(DB) of
         Generations ->
             {next_state, ?busy, D#d{generations = Generations}}
     catch
@@ -1033,8 +1049,8 @@ do_handle_event(
     D = #d{dbshard = DBShard, generations = Gens0}
 ) ->
     {DB, _} = DBShard,
-    %% Find generatins that have been sealed:
-    Gens = emqx_ds:list_generations_with_lifetimes(DB),
+    %% Find slabs that have been sealed:
+    Gens = emqx_ds:list_slabs(DB),
     Sealed = diff_gens(DBShard, Gens0, Gens),
     %% Notify the RT workers:
     _ = [emqx_ds_beamformer_rt:seal_generation(DBShard, I) || I <- Sealed],
@@ -1071,14 +1087,13 @@ do_dispatch(_) ->
     dbshard(),
     ets:tid(),
     non_neg_integer(),
-    emqx_ds:message_key(),
     emqx_types:message(),
     _MatchCtx,
     emqx_ds:sub_ref(),
     bbn()
 ) ->
     bbn().
-beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef, NodeS0) ->
+beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Msg, MatchCtx, SubRef, NodeS0) ->
     #beam_builder_node{subs = Subscribers, global_n_msgs = MyGlobalN, pack = Pack, n_msgs = NMsgs} =
         NodeS0,
     %% Lookup subscription's matching parameters (SubS) and
@@ -1117,7 +1132,7 @@ beams_add_per_node(Mod, DBShard, SubTab, GlobalNMsgs, Key, Msg, MatchCtx, SubRef
                     %% 1.1 Add message to the pack and increase n_msgs:
                     NodeS1 = NodeS0#beam_builder_node{
                         global_n_msgs = GlobalNMsgs,
-                        pack = [{Key, Msg} | Pack],
+                        pack = [Msg | Pack],
                         n_msgs = NMsgs + 1
                     },
                     %% 1.2 Index of this message in the pack = (NMsgs + 1) - 1:
@@ -1292,7 +1307,7 @@ remove_subscription(
     case ets:take(owner_tab(DBShard), SubId) of
         [#owner_tab{owner = Owner, mref = MRef}] ->
             %% Remove client monitoring:
-            demonitor(MRef, [flush]),
+            demonitor(MRef),
             ets:delete(MTab, MRef),
             %% Remove stuck subscription (if stuck):
             ets:delete(disowned_sub_tab(DBShard), SubId),
@@ -1315,12 +1330,27 @@ send_out(DBShard = {DB, _}, Node, Pack, Destinations) ->
         dest_node => Node,
         destinations => Destinations
     }),
-    case node() of
-        Node ->
+    case {node(), proto_vsn(Node)} of
+        {Node, _} ->
             %% TODO: Introduce a separate worker for local fanout?
-            emqx_ds_beamsplitter:dispatch_v2(DB, Pack, Destinations, #{});
-        _ ->
-            emqx_ds_beamsplitter_proto_v2:dispatch(DBShard, Node, DB, Pack, Destinations, #{})
+            emqx_ds_beamsplitter:dispatch_v3(DB, Pack, Destinations, #{});
+        {_, Vsn} when Vsn >= 3 ->
+            emqx_ds_beamsplitter_proto_v3:dispatch(DBShard, Node, DB, Pack, Destinations, #{});
+        {_, 2} ->
+            %% Compatibility with the old version. Add fake DSKeys.
+            PackCompat =
+                case Pack of
+                    L when is_list(L) ->
+                        [{<<"fake_dskey">>, I} || I <- L];
+                    _ ->
+                        Pack
+                end,
+            emqx_ds_beamsplitter_proto_v2:dispatch(
+                DBShard, Node, DB, PackCompat, Destinations, #{}
+            );
+        Incompat ->
+            %% Should not happen:
+            ?tp(warning, ?MODULE_STRING "_incompatible_remote_node", #{node => Incompat})
     end.
 
 -compile({inline, gvar/1}).
@@ -1435,4 +1465,10 @@ fold_with_groups(Fun, InitialState, CurrentGroup, CurrentGroupState, [{Group, El
                         Acc
                     )
             end
+    end.
+
+proto_vsn(Node) ->
+    case emqx_bpapi:supported_version(Node, emqx_ds_beamsplitter) of
+        undefined -> -1;
+        N when is_integer(N) -> N
     end.

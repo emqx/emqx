@@ -26,9 +26,9 @@ defmodule EMQXConnectorJWT.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_resource, in_umbrella: true},
-      UMP.common_dep(:jose)
-    ]
+      :jose
+    ])
   end
 end

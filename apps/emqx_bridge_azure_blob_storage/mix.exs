@@ -29,11 +29,11 @@ defmodule EMQXBridgeAzureBlobStorage.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_resource, in_umbrella: true},
       {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_connector_aggregator, in_umbrella: true},
       {:erlazure, github: "emqx/erlazure", tag: "0.4.0.1"}
-    ]
+    ])
   end
 end

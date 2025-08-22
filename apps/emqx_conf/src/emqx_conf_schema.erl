@@ -174,13 +174,25 @@ validations() ->
 validate_durable_sessions_strategy(Conf) ->
     DSEnabled = hocon_maps:get("durable_sessions.enable", Conf),
     DiscoveryStrategy = hocon_maps:get("cluster.discovery_strategy", Conf),
-    DSBackend = hocon_maps:get("durable_storage.messages.backend", Conf),
-    case {DSEnabled, DSBackend} of
-        {true, builtin_local} when DiscoveryStrategy =/= singleton ->
-            {error, <<
-                "cluster discovery strategy must be 'singleton' when"
-                " durable storage backend is 'builtin_local'"
-            >>};
+    LocalBackends = lists:filter(
+        fun(Key) ->
+            hocon_maps:get(Key, Conf) =:= builtin_local
+        end,
+        [
+            "durable_storage.messages.backend",
+            "durable_storage.sessions.backend",
+            "durable_storage.timers.backend"
+        ]
+    ),
+    case LocalBackends of
+        [_ | _] when DSEnabled, DiscoveryStrategy =/= singleton ->
+            throw(#{
+                explain =>
+                    "Cluster discovery strategy must be 'singleton' when"
+                    " 'builtin_local' durable storage backend is used.",
+                keys =>
+                    LocalBackends
+            });
         _ ->
             ok
     end.
@@ -280,6 +292,31 @@ fields("cluster") ->
                     default => false,
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {"heartbeat_interval",
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"5s">>,
+                    desc => ?DESC(durable_timer_heartbeat_interval),
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "emqx_durable_timer.heartbeat_interval"
+                }
+            )},
+        {"missed_heartbeats",
+            sc(
+                pos_integer(),
+                #{
+                    default => 5,
+                    desc => ?DESC(durable_timer_missed_heartbeats),
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "emqx_durable_timer.missed_heartbeats"
+                }
+            )},
+        {"durable_timers",
+            sc(
+                ?R_REF(durable_timers),
+                #{}
             )}
     ] ++ emqx_schema_hooks:list_injection_point(cluster);
 fields(cluster_static) ->
@@ -1082,7 +1119,29 @@ fields("log_throttling") ->
     ];
 fields("authorization") ->
     emqx_schema:authz_fields() ++
-        emqx_authz_schema:authz_fields().
+        emqx_authz_schema:authz_fields();
+fields(durable_timers) ->
+    [
+        {"replay_retry_interval",
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"100ms">>,
+                    desc => ?DESC(durable_timer_retry_interval),
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "emqx_durable_timer.replay_retry_interval"
+                }
+            )},
+        {"batch_size",
+            sc(
+                pos_integer(),
+                #{
+                    default => 100,
+                    desc => ?DESC(durable_timer_batch_size),
+                    mapping => "emqx_durable_timer.batch_size"
+                }
+            )}
+    ].
 
 desc("cluster") ->
     ?DESC("desc_cluster");
@@ -1116,6 +1175,8 @@ desc("authorization") ->
     ?DESC("desc_authorization");
 desc("log_throttling") ->
     ?DESC("desc_log_throttling");
+desc(durable_timers) ->
+    ?DESC("desc_durable_timers");
 desc(_) ->
     undefined.
 

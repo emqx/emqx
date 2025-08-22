@@ -100,7 +100,7 @@ now_ms() ->
     erlang:system_time(millisecond).
 
 maybe_gc() ->
-    AllGens = emqx_ds:list_generations_with_lifetimes(?PERSISTENT_MESSAGE_DB),
+    AllGens = emqx_ds:list_slabs(?PERSISTENT_MESSAGE_DB),
     NowMS = now_ms(),
     RetentionPeriod = emqx_config:get([durable_sessions, message_retention_period]),
     TimeThreshold = NowMS - RetentionPeriod,
@@ -119,7 +119,7 @@ maybe_gc() ->
             ExpiredGenIds = maps:keys(ExpiredGens),
             lists:foreach(
                 fun(GenId) ->
-                    ok = emqx_ds:drop_generation(?PERSISTENT_MESSAGE_DB, GenId),
+                    ok = emqx_ds:drop_slab(?PERSISTENT_MESSAGE_DB, GenId),
                     ?tp(message_gc_generation_dropped, #{gen_id => GenId})
                 end,
                 ExpiredGenIds

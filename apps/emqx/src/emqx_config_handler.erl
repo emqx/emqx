@@ -301,21 +301,37 @@ process_update_request(#conf_info{conf_key_path = [_], update_args = {remove, _O
 process_update_request(
     #conf_info{conf_key_path = ConfKeyPath, update_args = {remove, Opts}} = ConfInfo
 ) ->
-    OldRawConf = get_root_raw(ConfKeyPath, ConfInfo#conf_info.namespace),
-    BinKeyPath = bin_path(ConfKeyPath),
-    NewRawConf = emqx_utils_maps:deep_remove(BinKeyPath, OldRawConf),
-    OverrideConf = remove_from_override_config(BinKeyPath, Opts),
-    {ok, NewRawConf, OverrideConf, Opts};
+    [RootKey | _] = ConfKeyPath,
+    Namespace = ConfInfo#conf_info.namespace,
+    maybe
+        ok ?= validate_root_is_allowed(Namespace, bin(RootKey)),
+        OldRawConf = get_root_raw(ConfKeyPath, Namespace),
+        BinKeyPath = bin_path(ConfKeyPath),
+        NewRawConf = emqx_utils_maps:deep_remove(BinKeyPath, OldRawConf),
+        OverrideConf = remove_from_override_config(BinKeyPath, Opts),
+        {ok, NewRawConf, OverrideConf, Opts}
+    end;
 process_update_request(#conf_info{update_args = {{update, _}, Opts}} = ConfInfo) ->
-    ConfKeyPath = ConfInfo#conf_info.conf_key_path,
-    OldRawConf = get_root_raw(ConfKeyPath, ConfInfo#conf_info.namespace),
-    case do_update_config(ConfInfo, OldRawConf) of
-        {ok, NewRawConf} ->
-            OverrideConf = merge_to_override_config(NewRawConf, Opts),
-            {ok, NewRawConf, OverrideConf, Opts};
-        Error ->
-            Error
+    ConfKeyPath = [RootKey | _] = ConfInfo#conf_info.conf_key_path,
+    Namespace = ConfInfo#conf_info.namespace,
+    maybe
+        ok ?= validate_root_is_allowed(Namespace, bin(RootKey)),
+        OldRawConf = get_root_raw(ConfKeyPath, Namespace),
+        {ok, NewRawConf} ?= do_update_config(ConfInfo, OldRawConf),
+        OverrideConf = merge_to_override_config(NewRawConf, Opts),
+        {ok, NewRawConf, OverrideConf, Opts}
     end.
+
+validate_root_is_allowed(Namespace, RootKeyBin) when is_binary(Namespace) ->
+    AllowedNSRoots = emqx_config:namespaced_config_allowed_roots(),
+    case is_map_key(RootKeyBin, AllowedNSRoots) of
+        true ->
+            ok;
+        false ->
+            {error, {root_key_not_namespaced, RootKeyBin}}
+    end;
+validate_root_is_allowed(?global_ns, _RootKeyBin) ->
+    ok.
 
 do_update_config(ConfInfo, OldRawConf) ->
     ConfKeyPath = ConfInfo#conf_info.conf_key_path,

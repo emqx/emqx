@@ -22,6 +22,6 @@ defmodule EMQXCtl.MixProject do
   end
 
   def deps() do
-    []
+    UMP.deps([])
   end
 end

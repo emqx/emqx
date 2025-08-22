@@ -31,16 +31,16 @@ defmodule EMQXOpentelemetry.MixProject do
       override: true
     ]
 
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      UMP.common_dep(:minirest),
+      :minirest,
       {:opentelemetry_api, opentelemetry ++ [sparse: "apps/opentelemetry_api"]},
       {:opentelemetry, opentelemetry ++ [sparse: "apps/opentelemetry"]},
       {:opentelemetry_experimental, opentelemetry ++ [sparse: "apps/opentelemetry_experimental"]},
       {:opentelemetry_api_experimental,
        opentelemetry ++ [sparse: "apps/opentelemetry_api_experimental"]},
       {:opentelemetry_exporter, opentelemetry ++ [sparse: "apps/opentelemetry_exporter"]}
-    ]
+    ])
   end
 end

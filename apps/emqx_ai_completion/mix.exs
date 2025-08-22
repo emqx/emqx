@@ -25,11 +25,11 @@ defmodule EMQXAICompletion.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
-      UMP.common_dep(:minirest),
-      UMP.common_dep(:hackney)
-    ]
+      :minirest,
+      :hackney
+    ])
   end
 end

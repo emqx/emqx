@@ -21,9 +21,9 @@ defmodule EMQXMixUtils.MixProject do
   end
 
   def deps() do
-    [
-      UMP.common_dep(:gpb),
-      UMP.common_dep(:proper)
-    ]
+    UMP.deps([
+      :gpb,
+      :proper
+    ])
   end
 end

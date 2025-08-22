@@ -77,7 +77,7 @@ check_api_schema(Request, #{path := "/connectors/:id", method := put = Method} =
             %% error messages.
             {_, Ref} = emqx_connector_info:api_schema(ConnectorType, atom_to_list(Method)),
             Schema = hoconsc:mk(Ref),
-            emqx_dashboard_swagger:filter_check_request(
+            emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(
                 Request, refine_api_schema(Schema, Metadata)
             )
     catch
@@ -85,7 +85,7 @@ check_api_schema(Request, #{path := "/connectors/:id", method := put = Method} =
             ?NOT_FOUND(<<"Invalid connector id, ", Reason/binary>>)
     end;
 check_api_schema(Request, Metadata) ->
-    emqx_dashboard_swagger:filter_check_request(Request, Metadata).
+    emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(Request, Metadata).
 
 refine_api_schema(Schema, Metadata = #{path := Path, method := Method}) ->
     Spec = maps:get(Method, schema(Path)),
@@ -356,7 +356,7 @@ schema("/connectors_probe") ->
     case is_ok(NodeReplies) of
         {ok, NodeConnectors} ->
             AllConnectors = [
-                [format_resource(Data, Node) || Data <- Connectors]
+                [format_resource(Namespace, Data, Node) || Data <- Connectors]
              || {Node, Connectors} <- lists:zip(Nodes, NodeConnectors)
             ],
             ?OK(zip_connectors(AllConnectors));
@@ -473,7 +473,7 @@ lookup_from_local_node(ConnectorType, ConnectorName) ->
 %% RPC Target
 v2_lookup(Namespace, ConnectorType, ConnectorName) ->
     case emqx_connector:lookup(Namespace, ConnectorType, ConnectorName) of
-        {ok, Res} -> {ok, format_resource(Res, node())};
+        {ok, Res} -> {ok, format_resource(Namespace, Res, node())};
         Error -> Error
     end.
 
@@ -686,6 +686,7 @@ aggregate_status(AllStatus) ->
     end.
 
 format_resource(
+    Namespace,
     #{
         type := Type,
         name := ConnectorName,
@@ -694,7 +695,7 @@ format_resource(
     },
     Node
 ) ->
-    ResourceData = lookup_channels(Type, ConnectorName, ResourceData0),
+    ResourceData = lookup_channels(Namespace, Type, ConnectorName, ResourceData0),
     RawConf = fill_defaults(Type, RawConf0),
     redact(
         maps:merge(
@@ -707,8 +708,8 @@ format_resource(
         )
     ).
 
-lookup_channels(Type, Name, ResourceData0) ->
-    ConnectorResId = emqx_connector_resource:resource_id(Type, Name),
+lookup_channels(Namespace, Type, Name, ResourceData0) ->
+    ConnectorResId = emqx_connector_resource:resource_id(Namespace, Type, Name),
     case emqx_resource:get_channels(ConnectorResId) of
         {ok, Channels} ->
             ResourceData0#{channels => maps:from_list(Channels)};

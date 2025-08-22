@@ -84,16 +84,6 @@
     [<<"cluster">>, <<"links">>]
 ]).
 
-%% emqx_bridge_v2 depends on emqx_connector, so connectors need to be imported first.
-%% So do message transformation and schema validation on schema registry.
--define(IMPORT_ORDER, [
-    emqx_connector,
-    emqx_bridge_v2,
-    emqx_schema_registry_config,
-    emqx_schema_validation_config,
-    emqx_message_transformation_config
-]).
-
 -define(DEFAULT_OPTS, #{}).
 
 -define(HOCON_NS_INTERNAL_TAR_PATH(BASE_NAME, NAMESPACE), [
@@ -1075,7 +1065,7 @@ validate_cluster_hocon(RawConf) ->
 do_import_conf(Namespace, RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(Namespace, RawConf))),
     maybe_print_conf_errors(GenConfErrs, Opts),
-    Modules = sort_importer_modules(find_behaviours(emqx_config_backup)),
+    Modules = emqx_conf_dep_registry:sorted_importer_modules(),
     Errors = lists:foldl(
         print_ok_results_collect_errors(Namespace, RawConf, Opts),
         GenConfErrs,
@@ -1114,22 +1104,6 @@ collect_errors(Results, Errors) ->
         Errors,
         Results
     ).
-
-sort_importer_modules(Modules) ->
-    lists:sort(
-        fun(M1, M2) -> order(M1, ?IMPORT_ORDER) =< order(M2, ?IMPORT_ORDER) end,
-        Modules
-    ).
-
-order(Elem, List) ->
-    order(Elem, List, 0).
-
-order(_Elem, [], Order) ->
-    Order;
-order(Elem, [Elem | _], Order) ->
-    Order;
-order(Elem, [_ | T], Order) ->
-    order(Elem, T, Order + 1).
 
 import_generic_conf(Namespace, Data) ->
     lists:map(
@@ -1220,39 +1194,7 @@ maybe_print_mnesia_import_err(TabName, Error, Opts) ->
     ).
 
 find_behaviours(Behaviour) ->
-    find_behaviours(Behaviour, apps(), []).
-
-%% Based on minirest_api:find_api_modules/1
-find_behaviours(_Behaviour, [] = _Apps, Acc) ->
-    Acc;
-find_behaviours(Behaviour, [App | Apps], Acc) ->
-    case application:get_key(App, modules) of
-        undefined ->
-            Acc;
-        {ok, Modules} ->
-            NewAcc = lists:filter(
-                fun(Module) ->
-                    Info = Module:module_info(attributes),
-                    Bhvrs = lists:flatten(
-                        proplists:get_all_values(behavior, Info) ++
-                            proplists:get_all_values(behaviour, Info)
-                    ),
-                    lists:member(Behaviour, Bhvrs)
-                end,
-                Modules
-            ),
-            find_behaviours(Behaviour, Apps, NewAcc ++ Acc)
-    end.
-
-apps() ->
-    [
-        App
-     || {App, _, _} <- application:loaded_applications(),
-        case re:run(atom_to_list(App), "^emqx") of
-            {match, [{0, 4}]} -> true;
-            _ -> false
-        end
-    ].
+    emqx_behaviour_utils:find_behaviours(Behaviour).
 
 -spec table_set_to_tables_mapping() -> #{binary() => module()}.
 table_set_to_tables_mapping() ->

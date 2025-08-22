@@ -44,9 +44,7 @@ init_per_suite(Config) ->
                         <<"port_discovery">> => <<"manual">>
                     },
                     <<"durable_sessions">> => #{
-                        <<"enable">> => true,
-                        <<"renew_streams_interval">> => "100ms",
-                        <<"idle_poll_interval">> => "1s"
+                        <<"enable">> => true
                     },
                     <<"durable_storage">> => #{
                         <<"messages">> => #{
@@ -68,6 +66,7 @@ init_per_suite(Config) ->
         ],
         #{work_dir => ?config(priv_dir, Config)}
     ),
+    ok = emqx_persistent_message:wait_readiness(5_000),
     [{apps, Apps} | Config].
 
 init_per_group(GroupName, Config) ->

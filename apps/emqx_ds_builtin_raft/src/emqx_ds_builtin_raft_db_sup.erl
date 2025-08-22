@@ -364,11 +364,7 @@ egress_spec(DB, Shard) ->
         type => worker
     }.
 
-shard_beamformers_spec(_DB, _Shard, #{store_ttv := true}) ->
-    %% TODO: Currently beamformer is not compatible with TTV-style
-    %% storage.
-    [];
-shard_beamformers_spec(DB, Shard, #{store_ttv := false}) ->
+shard_beamformers_spec(DB, Shard, _Opts) ->
     %% TODO: don't hardcode value
     BeamformerOpts = #{
         n_workers => 5

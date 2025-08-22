@@ -19,12 +19,12 @@
     commit_batch/3,
     dispatch_events/3,
 
-    get_streams/3,
+    get_streams/4,
     get_delete_streams/3,
     make_iterator/4,
     make_delete_iterator/4,
     update_iterator/3,
-    next/4,
+    next/5,
 
     generation/1,
 
@@ -32,7 +32,7 @@
     unpack_iterator/2,
     scan_stream/6,
     high_watermark/3,
-    fast_forward/4,
+    fast_forward/5,
     message_match_context/4,
     iterator_match_context/2,
 
@@ -44,11 +44,11 @@
     %% Generations
     update_config/3,
     add_generation/2,
-    list_generations_with_lifetimes/1,
-    drop_generation/2,
+    list_slabs/1,
+    drop_slab/2,
     find_generation/2,
 
-    %% Globals
+    %% Global
     store_global/3,
     fetch_global/2,
 
@@ -58,7 +58,9 @@
     accept_snapshot/1,
 
     %% Custom events
-    handle_event/3
+    handle_event/3,
+    %% Misc:
+    rid_of_dskeys/1
 ]).
 
 %% gen_server
@@ -73,7 +75,24 @@
 ]).
 
 %% internal exports:
--export([db_dir/1, base_dir/0, generation_get/2, get_gvars/1, ls_shards/1, get_stats/1]).
+-export([
+    db_dir/1,
+    base_dir/0,
+    generation_get/2,
+    generation_current/1,
+    generations_since/2,
+    get_gvars/1,
+    ls_shards/1,
+    get_stats/1
+]).
+
+%% Metadata serialization API (old iterator):
+-export([
+    old_stream_to_new/2,
+    new_stream_to_old/1,
+    old_iterator_to_new/2,
+    new_iterator_to_old/1
+]).
 
 -export_type([
     rocksdb_options/0,
@@ -99,6 +118,12 @@
 
 -include("emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("../gen_src/DSBuiltinSLSkipstreamV1.hrl").
+-include("../gen_src/DSBuiltinMetadata.hrl").
+
+-elvis([{elvis_style, atom_naming_convention, disable}]).
+%% https://github.com/erlang/otp/issues/9841
+-dialyzer({nowarn_function, [encode_inner_it/1, decode_inner_it/2]}).
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
 
@@ -156,7 +181,7 @@
 -type cf_refs() :: [cf_ref()].
 
 -type gen_id() :: 0..16#ffff.
--type gen_info() :: #{
+-type slab_info() :: #{
     created_at := emqx_ds:time(),
     since := emqx_ds:time(),
     until := undefined | emqx_ds:time(),
@@ -514,25 +539,28 @@ dispatch_events(
     Events = Mod:batch_events(Shard, GenData, CookedBatch),
     DispatchF([?stream_v2(GenId, InnerStream) || InnerStream <- Events]).
 
--spec get_streams(dbshard(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+-spec get_streams(dbshard(), emqx_ds:topic_filter(), emqx_ds:time(), emqx_ds:generation()) ->
     [{integer(), stream()}].
-get_streams(Shard, TopicFilter, StartTime) ->
+get_streams(Shard, TopicFilter, StartTime, MinGeneration) ->
     Gens = generations_since(Shard, StartTime),
     ?tp(get_streams_all_gens, #{gens => Gens}),
     lists:flatmap(
-        fun(GenId) ->
-            ?tp(get_streams_get_gen, #{gen_id => GenId}),
-            case generation_get(Shard, GenId) of
-                #{module := Mod, data := GenData} ->
-                    Streams = Mod:get_streams(Shard, GenData, TopicFilter, StartTime),
-                    [
-                        {GenId, ?stream_v2(GenId, InnerStream)}
-                     || InnerStream <- Streams
-                    ];
-                not_found ->
-                    %% race condition: generation was dropped before getting its streams?
-                    []
-            end
+        fun
+            (GenId) when GenId >= MinGeneration ->
+                ?tp(get_streams_get_gen, #{gen_id => GenId}),
+                case generation_get(Shard, GenId) of
+                    #{module := Mod, data := GenData} ->
+                        Streams = Mod:get_streams(Shard, GenData, TopicFilter, StartTime),
+                        [
+                            {GenId, ?stream_v2(GenId, InnerStream)}
+                         || InnerStream <- Streams
+                        ];
+                    not_found ->
+                        %% race condition: generation was dropped before getting its streams?
+                        []
+                end;
+            (_) ->
+                []
         end,
         Gens
     ).
@@ -574,7 +602,7 @@ make_iterator(
                         ?generation => GenId,
                         ?enc => Iter
                     }};
-                {error, _} = Err ->
+                {error, _, _} = Err ->
                     Err
             end;
         not_found ->
@@ -629,14 +657,27 @@ update_iterator(
 generation(#{?tag := ?IT, ?generation := GenId}) ->
     GenId.
 
--spec next(dbshard(), iterator(), pos_integer(), emqx_ds:time()) ->
+-spec next(dbshard(), iterator(), pos_integer(), emqx_ds:time(), boolean()) ->
     emqx_ds:next_result(iterator()).
-next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, BatchSize, Now) ->
+next(
+    Shard,
+    Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0},
+    BatchSize,
+    TimeLimit,
+    WithKeys
+) ->
     case generation_get(Shard, GenId) of
         #{module := Mod, data := GenData} ->
             IsCurrent = GenId =:= generation_current(Shard),
-            case Mod:next(Shard, GenData, GenIter0, BatchSize, Now, IsCurrent) of
-                {ok, GenIter, Batch} ->
+            case Mod:next(Shard, GenData, GenIter0, BatchSize, TimeLimit, IsCurrent) of
+                {ok, GenIter, Batch0} ->
+                    %% TODO: remove this when support for old
+                    %% replication layer API is dropped.
+                    Batch =
+                        case WithKeys of
+                            true -> Batch0;
+                            false -> rid_of_dskeys(Batch0)
+                        end,
                     {ok, Iter#{?enc := GenIter}, Batch};
                 {ok, end_of_stream} ->
                     {ok, end_of_stream};
@@ -656,7 +697,7 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
 unpack_iterator(DBShard = {_, Shard}, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
     case generation_get(DBShard, GenId) of
         #{module := Mod, data := GenData} ->
-            {InnerStream, TopicFilter, Key, _TS} = Mod:unpack_iterator(DBShard, GenData, Inner),
+            {InnerStream, TopicFilter, Key} = Mod:unpack_iterator(DBShard, GenData, Inner),
             #{
                 stream => ?stream_v2(GenId, InnerStream),
                 topic_filter => TopicFilter,
@@ -685,26 +726,21 @@ scan_stream(
             ?ERR_GEN_GONE
     end.
 
+fast_forward(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, Key, Now, BatchSize) ->
+    case generation_get(Shard, GenId) of
+        #{module := Mod, data := GenData} ->
+            Mod:fast_forward(Shard, GenData, Inner0, Key, Now, BatchSize);
+        not_found ->
+            ?ERR_GEN_GONE
+    end.
+
 high_watermark(Shard, ?stream_v2(_, _) = Stream, Now) ->
-    case make_iterator(Shard, Stream, ['#'], Now) of
+    case make_iterator(Shard, Stream, ['#'], max(0, Now - 1)) of
         {ok, It} ->
             #{last_seen_key := LSK} = unpack_iterator(Shard, It),
             {ok, LSK};
         Err ->
             Err
-    end.
-
-fast_forward(Shard, It = #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, Key, Now) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            case Mod:fast_forward(Shard, GenData, Inner0, Key, Now) of
-                {ok, Inner} ->
-                    {ok, It#{?enc := Inner}};
-                Other ->
-                    Other
-            end;
-        not_found ->
-            ?ERR_GEN_GONE
     end.
 
 message_match_context(Shard, ?stream_v2(GenId, Inner), MsgKey, Message) ->
@@ -819,17 +855,17 @@ lookup_message(ShardId, Matcher = #message_matcher{timestamp = Time}) ->
             not_found
     end.
 
--spec list_generations_with_lifetimes(dbshard()) ->
-    #{gen_id() => gen_info()}.
-list_generations_with_lifetimes(ShardId) ->
+-spec list_slabs(dbshard()) ->
+    #{gen_id() => slab_info()}.
+list_slabs(ShardId) ->
     gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
 
--spec drop_generation(dbshard(), gen_id()) -> ok | {error, _}.
-drop_generation(ShardId, GenId) ->
+-spec drop_slab(dbshard(), gen_id()) -> ok | {error, _}.
+drop_slab(ShardId, GenId) ->
     gen_server:call(?REF(ShardId), #call_drop_generation{gen_id = GenId}, infinity).
 
 -spec find_generation(dbshard(), current | _At :: emqx_ds:time()) ->
-    {gen_id(), gen_info()} | not_found.
+    {gen_id(), slab_info()} | not_found.
 find_generation(ShardId, current) ->
     GenId = generation_current(ShardId),
     GenData = #{} = generation_get(ShardId, GenId),
@@ -869,6 +905,13 @@ take_snapshot(ShardId) ->
 accept_snapshot(ShardId) ->
     ok = drop_shard(ShardId),
     handle_accept_snapshot(ShardId).
+
+-doc "List shards of the DB".
+-spec ls_shards(emqx_ds:db()) -> [emqx_ds:shard()].
+ls_shards(DB) ->
+    ShardMS = {n, l, {?MODULE, {DB, '$1'}}},
+    MS = {{ShardMS, '_', '_'}, [], ['$1']},
+    gproc:select({local, names}, [MS]).
 
 %%================================================================================
 %% gen_server for the shard
@@ -1417,6 +1460,12 @@ handle_event(Shard, Time, Event) ->
     GenId = generation_current(Shard),
     handle_event(Shard, Time, ?mk_storage_event(GenId, Event)).
 
+-spec rid_of_dskeys([{K, V}]) -> [V] when
+    K :: emqx_ds:message_key(),
+    V :: emqx_ds:payload().
+rid_of_dskeys(L) ->
+    [P || {_, P} <- L].
+
 filter_layout_db_opts(Options) ->
     maps:with(?STORAGE_LAYOUT_DB_OPTS, Options).
 
@@ -1434,6 +1483,118 @@ cf_ref(Name, CFRefs) ->
 -spec cf_handle(_Name :: string(), cf_refs()) -> rocksdb:cf_handle().
 cf_handle(Name, CFRefs) ->
     element(2, cf_ref(Name, CFRefs)).
+
+%%--------------------------------------------------------------------------------
+%% Metadata serialization
+%%--------------------------------------------------------------------------------
+
+-define(meta_generic, 0:8).
+-define(meta_lts_v1, 1:8).
+
+%% Note: functions in this group don't comply to the usual pattern
+%% where calls are dynamically dispatched to the callback module based
+%% on the schema. This is because metadata (de)serialization should be
+%% supported even for generations that are gone or otherwise
+%% unavailable.
+
+old_stream_to_new(Shard, ?stream_v2(Generation, Inner)) ->
+    #'Stream'{
+        shard = Shard,
+        generation = Generation,
+        inner = encode_inner_stream(Inner)
+    }.
+
+new_stream_to_old(#'Stream'{
+    shard = Shard,
+    generation = Generation,
+    inner = InnerBin
+}) ->
+    maybe
+        {ok, Inner} ?= decode_inner_stream(InnerBin),
+        {ok, Shard, ?stream_v2(Generation, Inner)}
+    end.
+
+encode_inner_stream({stream, Bin}) when is_binary(Bin) ->
+    %% Skipstream LTS v1 (the only actively used layout) gets special
+    %% treatment:
+    <<?meta_lts_v1, Bin/binary>>;
+encode_inner_stream(A) ->
+    %% Default case:
+    Bin = term_to_binary(A),
+    <<?meta_generic, Bin/binary>>.
+
+decode_inner_stream(<<?meta_lts_v1, Bin/binary>>) ->
+    %% Skipstream LTS v1 gets special treatment:
+    {ok, {stream, Bin}};
+decode_inner_stream(<<?meta_generic, Bin/binary>>) ->
+    %% Default case:
+    try binary_to_term(Bin, [safe]) of
+        Term ->
+            {ok, Term}
+    catch
+        EC:Err ->
+            {error, {invalid_erlang_term, EC, Err}}
+    end;
+decode_inner_stream(Other) ->
+    {error, {unknown_stream_format, Other}}.
+
+old_iterator_to_new(Shard, #{?tag := ?IT, ?generation := Gen, ?enc := Inner}) ->
+    {StaticBin, PosBin} = encode_inner_it(Inner),
+    #'Iterator'{
+        shard = Shard,
+        generation = Gen,
+        innerPos = PosBin,
+        innerStatic = StaticBin
+    }.
+
+new_iterator_to_old(#'Iterator'{
+    shard = Shard,
+    generation = Gen,
+    innerPos = PosBin,
+    innerStatic = StaticBin
+}) ->
+    maybe
+        {ok, Inner} ?= decode_inner_it(StaticBin, PosBin),
+        {ok, Shard, #{?tag => ?IT, ?generation => Gen, ?enc => Inner}}
+    end.
+
+encode_inner_it({it, StaticIdx, LastKey, CompressedTF, _}) ->
+    %% Skipstream LTS v1 (the only actively used layout) gets special
+    %% treatment:
+    {ok, Bin} = 'DSBuiltinSLSkipstreamV1':encode(
+        'IteratorSkipstreamLTSV1', #'IteratorSkipstreamLTSV1'{
+            static = StaticIdx,
+            lastKey = LastKey,
+            compressedTf = CompressedTF
+        }
+    ),
+    {<<?meta_lts_v1>>, Bin};
+encode_inner_it(Inner) ->
+    %% Default case:
+    {<<?meta_generic>>, term_to_binary(Inner)}.
+
+decode_inner_it(<<?meta_lts_v1>>, Bin) ->
+    %% Skipstream LTS v1 (the only actively used layout) gets special
+    %% treatment:
+    maybe
+        {ok, #'IteratorSkipstreamLTSV1'{
+            static = StaticIdx,
+            lastKey = LastKey,
+            compressedTf = CompressedTF
+        }} ?= 'DSBuiltinSLSkipstreamV1':decode('IteratorSkipstreamLTSV1', Bin),
+        {ok, {it, StaticIdx, LastKey, CompressedTF, []}}
+    end;
+decode_inner_it(<<?meta_generic>>, Bin) ->
+    %% Default case:
+    try binary_to_term(Bin, [safe]) of
+        Term ->
+            {ok, Term}
+    catch
+        _EC:Err ->
+            {error, {invalid_erlang_term, Err}}
+    end;
+decode_inner_it(Other, Bin) ->
+    {error, {unknown_iterator_format, Other, Bin}}.
 
 %%--------------------------------------------------------------------------------
 %% Schema access
@@ -1514,13 +1675,6 @@ get_schema_runtime(Shard = {_, _}) ->
 get_gvars(DBShard) ->
     #{gvars := GVars} = get_schema_runtime(DBShard),
     GVars.
-
--doc "List shards of the DB".
--spec ls_shards(emqx_ds:db()) -> [emqx_ds:shard()].
-ls_shards(DB) ->
-    ShardMS = {n, l, {?MODULE, {DB, '$1'}}},
-    MS = {{ShardMS, '_', '_'}, [], ['$1']},
-    gproc:select({local, names}, [MS]).
 
 -spec get_stats(emqx_ds:db()) -> map().
 get_stats(DB) ->

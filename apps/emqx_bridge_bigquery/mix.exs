@@ -31,12 +31,12 @@ defmodule EMQXBridgeBigQuery.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector_jwt, in_umbrella: true},
       {:emqx_bridge_gcp_pubsub, in_umbrella: true},
-      UMP.common_dep(:ehttpc)
-    ]
+      :ehttpc
+    ])
   end
 
   defp extra_dirs() do

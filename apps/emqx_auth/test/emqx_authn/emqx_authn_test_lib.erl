@@ -5,9 +5,12 @@
 -module(emqx_authn_test_lib).
 
 -include("emqx_authn.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -compile(nowarn_export_all).
 -compile(export_all).
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 authenticator_example(Id) ->
     #{Id := #{value := Example}} = emqx_authn_api:authenticator_examples(),
@@ -71,4 +74,33 @@ enable_node_cache(Enable) ->
         [authentication_settings, node_cache],
         #{<<"enable">> => Enable}
     ),
+    ok.
+
+-doc """
+Checks that, if an authentication backend returns the `clientid_override` attribute, it's
+used to override.
+""".
+t_clientid_override(TCConfig, Opts) when is_list(TCConfig) ->
+    #{
+        mk_config_fn := MkConfigFn,
+        overridden_clientid := OverriddenClientId
+    } = Opts,
+    PostConfigFn = maps:get(post_config_fn, Opts, fun() -> ok end),
+    ClientOpts = maps:get(client_opts, Opts, #{}),
+    Config = MkConfigFn(),
+    on_exit(fun() -> _ = emqx_authn_test_lib:delete_authenticators([?CONF_NS_ATOM], ?GLOBAL) end),
+    {ok, _} = emqx:update_config(
+        [?CONF_NS_ATOM],
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    PostConfigFn(),
+    OriginalClientId = <<"original_clientid">>,
+    {ok, C} = emqtt:start_link(ClientOpts#{clientid => OriginalClientId}),
+    {ok, _} = emqtt:connect(C),
+    %% We use the clientid override internally.
+    ?assertMatch([OverriddenClientId], emqx_cm:all_client_ids()),
+    %% We don't return `'Assigned-Client-Identifier'` in `CONNACK` properties because the
+    %% client did not specify an empty clientid.
+    ?assertMatch(OriginalClientId, proplists:get_value(clientid, emqtt:info(C))),
+    ok = emqtt:stop(C),
     ok.

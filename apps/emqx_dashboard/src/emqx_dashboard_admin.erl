@@ -62,6 +62,8 @@
 
 -export([add_sso_user/4, lookup_user/2]).
 
+-export([remove_all_users_from_namespace/1]).
+
 -ifdef(TEST).
 -export([unsafe_update_user/1, default_password/0]).
 -endif.
@@ -414,6 +416,15 @@ update_user(Username, Role0, Desc) ->
             Error
     end.
 
+remove_all_users_from_namespace(Namespace) when is_binary(Namespace) ->
+    MS = ets:fun2ms(
+        fun(#?ADMIN{username = U, extra = #{?namespace := Ns}}) when Ns == Namespace ->
+            U
+        end
+    ),
+    Usernames = ets:select(?ADMIN, MS),
+    lists:foreach(fun remove_user/1, Usernames).
+
 hash(Password) ->
     SaltBin = emqx_dashboard_token:salt(),
     <<SaltBin/binary, (sha256(SaltBin, Password))/binary>>.
@@ -547,8 +558,8 @@ all_users() ->
 
 -spec admin_users() -> [map()].
 admin_users() ->
-    Ms = ets:fun2ms(fun(#?ADMIN{role = ?ROLE_SUPERUSER} = User) -> User end),
-    Admins = ets:select(?ADMIN, Ms),
+    MS = ets:fun2ms(fun(#?ADMIN{role = ?ROLE_SUPERUSER} = User) -> User end),
+    Admins = ets:select(?ADMIN, MS),
     lists:map(fun to_external_user/1, Admins).
 
 to_external_user(UserRecord) ->

@@ -321,8 +321,8 @@ t_same_name_azure_kafka_bridges(Config) ->
     ),
     ok = emqx_bridge_v2_testlib:t_create_via_http(ConfigKafka),
 
-    AehResourceId = emqx_bridge_v2_testlib:resource_id(Config),
-    KafkaResourceId = emqx_bridge_v2_testlib:resource_id(ConfigKafka),
+    AehResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
+    KafkaResourceId = emqx_bridge_v2_testlib:connector_resource_id(ConfigKafka),
     %% check that both bridges are healthy
     ?assertEqual({ok, connected}, emqx_resource_manager:health_check(AehResourceId)),
     ?assertEqual({ok, connected}, emqx_resource_manager:health_check(KafkaResourceId)),

@@ -293,6 +293,35 @@ t_node_cache(_Config) ->
         emqx_auth_cache:metrics(?AUTHN_CACHE)
     ).
 
+-doc """
+Checks that, if an authentication backend returns the `clientid_override` attribute, it's
+used to override.
+""".
+t_clientid_override(TCConfig) when is_list(TCConfig) ->
+    OverriddenClientId = <<"overridden_clientid">>,
+    Username = <<"mqttuser0010">>,
+    Password = <<"mqttuser0010">>,
+    MkConfigFn = fun() ->
+        maps:merge(raw_ldap_auth_config(), #{
+            <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
+            <<"method">> => #{
+                <<"type">> => <<"bind">>,
+                <<"bind_password">> => <<"${password}">>,
+                <<"clientid_override_attribute">> => <<"clientIdOverride">>
+            }
+        })
+    end,
+    Opts = #{
+        client_opts => #{
+            username => Username,
+            password => Password
+        },
+        mk_config_fn => MkConfigFn,
+        overridden_clientid => OverriddenClientId
+    },
+    emqx_authn_test_lib:t_clientid_override(TCConfig, Opts),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

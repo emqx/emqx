@@ -67,9 +67,6 @@
 
 -export_type([action_type/0, source_type/0]).
 
-%% `emqx_schema_hooks' API
--export([injected_fields/0]).
-
 %% Should we explicitly list them here so dialyzer may be more helpful?
 -type action_type() :: atom().
 -type source_type() :: atom().
@@ -532,15 +529,6 @@ top_level_common_source_keys() ->
         <<"parameters">>,
         <<"resource_opts">>
     ].
-
-%%======================================================================================
-%% `emqx_schema_hooks' API
-%%======================================================================================
-
-injected_fields() ->
-    #{
-        'config.allowed_namespaced_roots' => [<<"actions">>, <<"sources">>]
-    }.
 
 %%======================================================================================
 %% Helper functions for making HOCON Schema

@@ -1516,6 +1516,7 @@ ensure_loaded(Mod) ->
 %%------------------------------------------------------------------------------
 
 start_apps_ds(Config, ExtraApps, Opts) ->
+    DurableStorageOpts = maps:get(durable_storage_opts, Opts, #{}),
     DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
     WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
@@ -1528,7 +1529,8 @@ start_apps_ds(Config, ExtraApps, Opts) ->
                     config => emqx_utils_maps:deep_merge(EMQXOpts, #{
                         <<"durable_sessions">> => durable_sessions_config(
                             DurableSessionsOpts
-                        )
+                        ),
+                        <<"durable_storage">> => DurableStorageOpts
                     })
                 }}
                 | ExtraApps
@@ -1536,6 +1538,7 @@ start_apps_ds(Config, ExtraApps, Opts) ->
         ),
         #{work_dir => WorkDir}
     ),
+    emqx_persistent_message:wait_readiness(5_000),
     [{apps, Apps} | Config].
 
 stop_apps_ds(Config) ->
@@ -1544,8 +1547,7 @@ stop_apps_ds(Config) ->
 durable_sessions_config(Opts) ->
     emqx_utils_maps:deep_merge(
         #{
-            <<"enable">> => true,
-            <<"renew_streams_interval">> => <<"100ms">>
+            <<"enable">> => true
         },
         Opts
     ).
@@ -1556,8 +1558,16 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
     BaseApps = [
         emqx_conf,
+        {emqx_durable_timer, #{
+            override_env =>
+                [
+                    {heartbeat_interval, 500},
+                    {missed_heartbeats, 3}
+                ]
+        }},
         {emqx, #{
             config => maps:merge(EMQXOpts, #{
+                <<"durable_storage">> => #{<<"n_sites">> => length(ClusterSpec0)},
                 <<"durable_sessions">> => durable_sessions_config(
                     DurableSessionsOpts
                 )
@@ -1574,6 +1584,7 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
     ClusterOpts = #{work_dir => WorkDir},
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
     Nodes = emqx_cth_cluster:start(ClusterSpec, ClusterOpts),
+    erpc:multicall(Nodes, emqx_persistent_message, wait_readiness, [5_000], infinity),
     [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config].
 
 stop_cluster_ds(Config) ->
@@ -1588,6 +1599,7 @@ stop_cluster_ds(Config) ->
 restart_node_ds(Node, NodeSpec) ->
     emqx_cth_cluster:restart(NodeSpec),
     wait_nodeup(Node),
+    erpc:call(Node, emqx_persistent_message, wait_readiness, [5_000], infinity),
     ok.
 
 wait_nodeup(Node) ->

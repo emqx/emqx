@@ -24,9 +24,9 @@ defmodule EMQXConf.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true, runtime: false},
       {:emqx_auth, in_umbrella: true, runtime: false}
-    ]
+    ])
   end
 end

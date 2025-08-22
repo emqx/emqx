@@ -10,58 +10,12 @@ services:
           - toxiproxy.emqx.net
     volumes:
       - "./toxiproxy.json:/config/toxiproxy.json"
-    ports:
-      # Toxiproxy management API
-      - 8474:8474
-      # InfluxDB
-      - 8086:8086
-      # InfluxDB TLS
-      - 8087:8087
-      # SQL Server
-      - 11433:1433
-      # MySQL
-      - 13306:3306
-      # MySQL TLS
-      - 13307:3307
-      # PostgreSQL
-      - 15432:5432
-      # PostgreSQL TLS
-      - 15433:5433
-      # TDengine
-      - 16041:6041
-      # DynamoDB
-      - 18000:8000
-      # RocketMQ
-      - 19876:9876
-      # Cassandra
-      - 19042:9042
-      # Cassandra TLS
-      - 19142:9142
-      # Cassandra No Auth
-      - 19043:9043
-      # Cassandra TLS No Auth
-      - 19143:9143
-      # S3
-      - 19000:19000
-      # S3 TLS
-      - 19100:19100
-      # IOTDB (3 total)
-      - 14242:4242
-      - 28080:18080
-      - 38080:38080
-      # HStreamDB
-      - 15670:5670
-      # Kinesis
-      - 4566:4566
-      # GreptimeDB
-      - 4000:4000
-      - 4001:4001
-      # Datalayers
-      - 8360:8360
-      - 8361:8361
-      # Datalayers TLS
-      # - 8362:8362
-      # - 8363:8363
+    # toxiproxy do not export ports anymore
+    # try connect toxiproxy directly by container name/container ip
+    # ```
+    # docker container inspect toxiproxy \
+    #   -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+    # ```
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"

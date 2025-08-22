@@ -30,13 +30,13 @@ defmodule EMQXBridgeDatalayers.MixProject do
   end
 
   def deps() do
-    [
-      UMP.common_dep(:influxdb),
+    UMP.deps([
+      :influxdb,
       {:datalayers, github: "datalayers-io/datalayers-adapter-erl", tag: "0.1.0", override: true},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
-    ]
+    ])
   end
 
   defp extra_dirs() do

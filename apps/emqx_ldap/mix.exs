@@ -23,6 +23,6 @@ defmodule EMQXLdap.MixProject do
   end
 
   def deps() do
-    [{:emqx_connector, in_umbrella: true}, {:emqx_resource, in_umbrella: true}]
+    UMP.deps([{:emqx_connector, in_umbrella: true}, {:emqx_resource, in_umbrella: true}])
   end
 end

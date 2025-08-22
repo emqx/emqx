@@ -1,0 +1,55 @@
+ChannelInfo DEFINITIONS ::=
+BEGIN
+  OtherProtocol ::= SEQUENCE {
+    proto [0] OCTET STRING,
+    ver [1] INTEGER
+  }
+
+  ProtoVer ::= CHOICE {
+    mqtt [0] INTEGER(0..255),
+    mqtt-sn [1] INTEGER(0..255),
+    coap [2] INTEGER(0..255),
+    other [3] OtherProtocol
+  }
+
+  ChannelInfo ::= SEQUENCE {
+    -- Stats:
+    recvOct [0] INTEGER,
+    recvCnt [1] INTEGER,
+    recvPkt [2] INTEGER,
+    recvMsg [3] INTEGER,
+    recvMsgQos0 [4] INTEGER,
+    recvMsgQos1 [5] INTEGER,
+    recvMsgQos2 [6] INTEGER,
+    recvMsgDropped [7] INTEGER,
+    recvMsgDroppedAwaitPubrelTimeout [8] INTEGER,
+
+    sendOct [9] INTEGER,
+    sendCnt [10] INTEGER,
+    sendPkt [11] INTEGER,
+    sendMsg [12] INTEGER,
+    sendMsgQos0 [13] INTEGER,
+    sendMsgQos1 [14] INTEGER,
+    sendMsgQos2 [15] INTEGER,
+    sendMsgDropped [16] INTEGER,
+    sendMsgDroppedExpired [17] INTEGER,
+    sendMsgDroppedQueueFull [18] INTEGER,
+    sendMsgDroppedTooLarge [19] INTEGER,
+
+    subscriptionsMax [21] INTEGER OPTIONAL,
+    awaitingRelMax [22] INTEGER OPTIONAL,
+    inflightMax [23] INTEGER OPTIONAL,
+    --
+    connectedAt [50] INTEGER,
+    disconnectedAt [51] INTEGER OPTIONAL,
+    username [52] OCTET STRING OPTIONAL,
+    mountpoint [53] OCTET STRING OPTIONAL,
+    protocol [54] ProtoVer,
+    peername [55] OCTET STRING (SIZE(6..18)) OPTIONAL, -- 4 or 16 octets for IP address + 2 octets for port
+    listener [56] OCTET STRING,
+    keepalive [57] INTEGER,
+    node [58] OCTET STRING,
+    cleanStart [59] BOOLEAN,
+    isBridge [60] BOOLEAN
+  }
+END

@@ -88,7 +88,7 @@ authenticate(
                 )
             of
                 ok ->
-                    {ok, emqx_authn_utils:is_superuser(Selected)};
+                    {ok, authn_result(Selected)};
                 {error, Reason} ->
                     {error, Reason}
             end;
@@ -125,3 +125,12 @@ create_state(
         [query, query_timeout, password_hash_algorithm], Config
     ),
     {ok, ResourceConfig#{prepare_statement => #{?PREPARE_KEY => PrepareSql}}, State}.
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
+authn_result(Selected) ->
+    Res0 = emqx_authn_utils:is_superuser(Selected),
+    Res1 = emqx_authn_utils:clientid_override(Selected),
+    maps:merge(Res0, Res1).

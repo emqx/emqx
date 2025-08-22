@@ -25,14 +25,14 @@ defmodule EMQXS3.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx, in_umbrella: true},
-      UMP.common_dep(:gproc),
-      UMP.common_dep(:hackney),
-      UMP.common_dep(:erlcloud),
+      :gproc,
+      :hackney,
+      :erlcloud,
       {:emqx_bridge_http, in_umbrella: true, runtime: false}
-    ]
+    ])
   end
 
   defp extra_dirs() do

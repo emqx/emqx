@@ -77,15 +77,16 @@ t_max_conn_rate(Config) ->
         Type,
         #{
             <<"bind">> => format_bind({"127.0.0.1", Port}),
-            <<"max_conn_rate">> => <<"5/500ms">>,
-            %% NOTE: Rate limits are per-acceptor, use single acceptor for predictability.
-            <<"acceptors">> => 1
+            <<"max_conn_rate">> => <<"5/1000ms">>
         },
         Config
     ),
     with_listener(Type, Name, LConf, fun() ->
         %% Spawn 5 connections, exhausting the rate limit:
-        Clients = [emqtt_connect("127.0.0.1", Port, Config) || _ <- lists:seq(1, 5)],
+        Clients = emqx_utils:pmap(
+            fun(_) -> emqtt_connect("127.0.0.1", Port, Config) end,
+            lists:seq(1, 5)
+        ),
         ?assertEqual(
             [pong || _ <- Clients],
             [emqtt:ping(C) || C <- Clients]
@@ -93,9 +94,12 @@ t_max_conn_rate(Config) ->
         %% One more client:
         assert_connect_refused("127.0.0.1", Port, Config),
         %% Wait for listener to cool down:
-        ok = timer:sleep(500),
+        ok = timer:sleep(600),
         %% Few more clients should be allowed now:
-        ExtraClients = [emqtt_connect("127.0.0.1", Port, Config) || _ <- lists:seq(1, 5)],
+        ExtraClients = emqx_utils:pmap(
+            fun(_) -> emqtt_connect("127.0.0.1", Port, Config) end,
+            lists:seq(1, 3)
+        ),
         ?assertEqual(
             [pong || _ <- Clients],
             [emqtt:ping(C) || C <- Clients]
@@ -137,18 +141,21 @@ emqtt_connect(Host, Port, Config) ->
 emqtt_connect_tcp(Host, Port) ->
     emqtt_do_connect(fun emqtt:connect/1, #{
         hosts => [{Host, Port}],
+        proto_ver => v5,
         connect_timeout => 1
     }).
 
 emqtt_connect_ws(Host, Port) ->
     emqtt_do_connect(fun emqtt:ws_connect/1, #{
         hosts => [{Host, Port}],
+        proto_ver => v5,
         connect_timeout => 1
     }).
 
 emqtt_connect_wss(Host, Port, SSLOpts) ->
     emqtt_do_connect(fun emqtt:ws_connect/1, #{
         hosts => [{Host, Port}],
+        proto_ver => v5,
         connect_timeout => 1,
         ws_transport_options => [
             {protocols, [http]},

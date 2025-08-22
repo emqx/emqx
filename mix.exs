@@ -142,6 +142,23 @@ defmodule EMQXUmbrella.MixProject do
     ]
   end
 
+  @doc """
+  Helper function to wrap dependency specs in applications' `mix.exs` files.
+
+  Dependencies that are common dependencies (i.e., have a clause in `common_dep/1`) may be
+  specified just as their atom name.
+  """
+  def deps(dep_specs) do
+    common_deps() ++
+      Enum.map(dep_specs, fn
+        name when is_atom(name) ->
+          common_dep(name)
+
+        dep_spec ->
+          dep_spec
+      end)
+  end
+
   def common_dep(dep_name, overrides) do
     case common_dep(dep_name) do
       {^dep_name, opts} ->
@@ -285,6 +302,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:proper),
     # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
     do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}
+
+  def common_dep(:optvar),
+    do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
 
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
@@ -501,6 +521,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_s3,
             :emqx_opentelemetry,
             :emqx_durable_storage,
+            :emqx_durable_timer,
             :emqx_ds_builtin_local,
             :emqx_ds_builtin_raft,
             :rabbit_common,
@@ -1014,8 +1035,9 @@ defmodule EMQXUmbrella.MixProject do
       :DSBuiltinSLReference,
       :DSBuiltinSLSkipstreamV1,
       :DSBuiltinSLSkipstreamV2,
-      :DSBuiltinStorageLayer,
-      :DSMetadataCommon
+      :DSMetadataCommon,
+      :DurableSession,
+      :ChannelInfo
     ]
   end
 
@@ -1104,7 +1126,7 @@ defmodule EMQXUmbrella.MixProject do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [
-        {:quicer, github: "emqx/quic", tag: "0.2.5", override: true}
+        {:quicer, github: "emqx/quic", tag: "0.2.9", override: true}
       ],
       else: []
   end

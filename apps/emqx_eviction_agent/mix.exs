@@ -22,10 +22,10 @@ defmodule EMQXEvictionAgent.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_ctl, in_umbrella: true},
-      UMP.common_dep(:minirest)
-    ]
+      :minirest
+    ])
   end
 end

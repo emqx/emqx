@@ -148,8 +148,9 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Children = [
         shard_storage_spec(DB, Shard, Opts),
         shard_buffer_spec(DB, Shard, Opts),
-        shard_batch_serializer_spec(DB, Shard, Opts)
-        | shard_beamformers_spec(DB, Shard, Opts)
+        shard_batch_serializer_spec(DB, Shard, Opts),
+        shard_beamformers_spec(DB, Shard, Opts),
+        emqx_ds_lib:shard_marker(DB, Shard)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -225,22 +226,17 @@ shard_batch_serializer_spec(DB, Shard, Opts = #{store_ttv := false}) ->
         type => worker
     }.
 
-shard_beamformers_spec(_DB, _Shard, #{store_ttv := true}) ->
-    %% Currently subscribe API is not supported for KV
-    [];
 shard_beamformers_spec(DB, Shard, _Opts) ->
     BeamformerOpts = #{n_workers => emqx_ds_beamformer:cfg_workers_per_shard()},
-    [
-        #{
-            id => {Shard, beamformers},
-            type => supervisor,
-            shutdown => infinity,
-            start =>
-                {emqx_ds_beamformer_sup, start_link, [
-                    emqx_ds_builtin_local, {DB, Shard}, BeamformerOpts
-                ]}
-        }
-    ].
+    #{
+        id => {Shard, beamformers},
+        type => supervisor,
+        shutdown => infinity,
+        start =>
+            {emqx_ds_beamformer_sup, start_link, [
+                emqx_ds_builtin_local, {DB, Shard}, BeamformerOpts
+            ]}
+    }.
 
 ensure_started(Res) ->
     case Res of

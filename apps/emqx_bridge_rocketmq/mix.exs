@@ -28,11 +28,11 @@ defmodule EMQXBridgeRocketmq.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:rocketmq, github: "emqx/rocketmq-client-erl", tag: "v0.6.1"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
-    ]
+    ])
   end
 end

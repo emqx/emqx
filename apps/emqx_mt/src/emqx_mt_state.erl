@@ -40,7 +40,9 @@
     get_root_configs/1,
     update_root_configs/2,
 
-    bulk_import_configs/1
+    bulk_import_configs/1,
+
+    tombstoned_namespaces/0
 ]).
 
 %% Limiter
@@ -56,10 +58,12 @@
     bulk_update_root_configs_txn/1
 ]).
 
-%% Internal exports for `emqx_mt_config`.
+%% Internal exports for `emqx_mt_config{,_janitor}`.
 -export([
     tables_to_backup/0,
-    ensure_ns_added/1
+    ensure_ns_added/1,
+    clear_tombstone/1,
+    is_tombstoned/1
 ]).
 
 -ifdef(TEST).
@@ -120,6 +124,18 @@
     extra = #{} :: map()
 }).
 
+-doc """
+Mria table to mark a namespace as deleted and needing cleanup.  Once we finish cleaning up
+the namespace (deleting all of its resources), we may delete the corresponding entry here.
+We must forbid creating a namespace if its name is an entry in this table.
+""".
+-record(?TOMBSTONE_TAB, {
+    %% :: tns()
+    key,
+    %% :: map()
+    extra = #{}
+}).
+
 %% ETS table to keep track of the session pid for each client.
 -define(MONITOR(Pid, Key), {Pid, Key}).
 -define(CCACHE(Ns, Ts, Cnt), {Ns, Ts, Cnt}).
@@ -162,11 +178,18 @@ create_tables() ->
         {storage, disc_copies},
         {attributes, record_info(fields, ?CONFIG_TAB)}
     ]),
+    ok = mria:create_table(?TOMBSTONE_TAB, [
+        {type, ordered_set},
+        {rlog_shard, ?EMQX_MT_SHARD},
+        {storage, disc_copies},
+        {attributes, record_info(fields, ?TOMBSTONE_TAB)}
+    ]),
     ok = mria:wait_for_tables([
         ?NS_TAB,
         ?RECORD_TAB,
         ?COUNTER_TAB,
-        ?CONFIG_TAB
+        ?CONFIG_TAB,
+        ?TOMBSTONE_TAB
     ]),
     _ = ets:new(?MONITOR_TAB, [
         set,
@@ -309,12 +332,12 @@ update_ccache(Ns) ->
     Cnt.
 
 do_count_clients(Ns) ->
-    Ms = ets:fun2ms(fun(#?COUNTER_TAB{key = ?COUNTER_KEY(Ns0, _), count = Count}) when
+    MS = ets:fun2ms(fun(#?COUNTER_TAB{key = ?COUNTER_KEY(Ns0, _), count = Count}) when
         Ns0 =:= Ns
     ->
         Count
     end),
-    lists:sum(ets:select(?COUNTER_TAB, Ms)).
+    lists:sum(ets:select(?COUNTER_TAB, MS)).
 
 %% @doc Returns true if it is a known namespace.
 -spec is_known_ns(tns()) -> boolean().
@@ -383,6 +406,19 @@ ensure_ns_added(Ns) ->
             ok = mria:dirty_write(?NS_TAB, #?NS_TAB{ns = Ns, value = Extra})
     end.
 
+-spec clear_tombstone(tns()) -> ok.
+clear_tombstone(Ns) ->
+    ok = mria:dirty_delete(?TOMBSTONE_TAB, Ns).
+
+-spec is_tombstoned(tns()) -> boolean().
+is_tombstoned(Ns) ->
+    case mnesia:dirty_read(?TOMBSTONE_TAB, Ns) of
+        [] ->
+            false;
+        [_] ->
+            true
+    end.
+
 %% @doc delete a client.
 -spec del(pid()) -> ok.
 del(Pid) ->
@@ -440,7 +476,9 @@ evict_ccache(Ns) ->
     ok.
 
 -spec create_managed_ns(emqx_mt:tns()) ->
-    ok | {error, {aborted, _}} | {error, table_is_full}.
+    ok
+    | {error, {aborted, _}}
+    | {error, table_is_full | already_exists | namespace_being_deleted}.
 create_managed_ns(Ns) ->
     ensure_ns_added(Ns),
     transaction(fun create_managed_ns_txn/1, [Ns]).
@@ -487,6 +525,11 @@ get_limiter_config(Ns, Kind) ->
 bulk_import_configs(Entries) ->
     transaction(fun ?MODULE:bulk_update_root_configs_txn/1, [Entries]).
 
+tombstoned_namespaces() ->
+    MatchHead = #?TOMBSTONE_TAB{key = '$1', _ = '_'},
+    MS = [{MatchHead, [], ['$1']}],
+    mnesia:dirty_select(?TOMBSTONE_TAB, MS).
+
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
@@ -500,20 +543,24 @@ transaction(Fn, Args) ->
     end.
 
 create_managed_ns_txn(Ns) ->
-    case mnesia:read(?CONFIG_TAB, Ns, write) of
-        [] ->
-            Size = tns_config_size(),
-            case Size >= ?MAX_NUM_TNS_CONFIGS of
-                true ->
-                    {error, table_is_full};
-                false ->
-                    Extra = #{created_at => now_s()},
-                    Rec = #?CONFIG_TAB{key = Ns, configs = #{}, extra = Extra},
-                    ok = mnesia:write(?CONFIG_TAB, Rec, write),
-                    ok
-            end;
-        [_] ->
-            {error, already_exists}
+    maybe
+        [] ?= mnesia:read(?TOMBSTONE_TAB, Ns, read),
+        [] ?= mnesia:read(?CONFIG_TAB, Ns, write),
+        Size = tns_config_size(),
+        case Size >= ?MAX_NUM_TNS_CONFIGS of
+            true ->
+                {error, table_is_full};
+            false ->
+                Extra = #{created_at => now_s()},
+                Rec = #?CONFIG_TAB{key = Ns, configs = #{}, extra = Extra},
+                ok = mnesia:write(?CONFIG_TAB, Rec, write),
+                ok
+        end
+    else
+        [#?CONFIG_TAB{}] ->
+            {error, already_exists};
+        [#?TOMBSTONE_TAB{}] ->
+            {error, namespace_being_deleted}
     end.
 
 delete_ns_txn(Ns) ->
@@ -523,6 +570,7 @@ delete_ns_txn(Ns) ->
             {ok, #{}};
         [#?CONFIG_TAB{configs = Configs}] ->
             ok = mnesia:delete(?CONFIG_TAB, Ns, write),
+            ok = mnesia:write(?TOMBSTONE_TAB, #?TOMBSTONE_TAB{key = Ns}, write),
             {ok, Configs}
     end.
 

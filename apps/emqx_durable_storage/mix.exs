@@ -31,20 +31,20 @@ defmodule EMQXDurableStorage.MixProject do
   # Run "mix help compile.app" to learn about applications
   def application do
     [
-      extra_applications: [:mria] ++ UMP.extra_applications(),
+      extra_applications: [:mria, :optvar] ++ UMP.extra_applications(),
       mod: {:emqx_ds_app, []}
     ]
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx_utils, in_umbrella: true},
       {:emqx_bpapi, in_umbrella: true},
-      UMP.common_dep(:rocksdb),
-      UMP.common_dep(:gproc),
-      UMP.common_dep(:gen_rpc),
-      UMP.common_dep(:ra)
-    ]
+      :rocksdb,
+      :gproc,
+      :gen_rpc,
+      :ra
+    ])
   end
 end

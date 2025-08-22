@@ -22,6 +22,6 @@ defmodule EMQXGatewayMqttsn.MixProject do
   end
 
   def deps() do
-    [{:emqx, in_umbrella: true}, {:emqx_gateway, in_umbrella: true}]
+    UMP.deps([{:emqx, in_umbrella: true}, {:emqx_gateway, in_umbrella: true}])
   end
 end

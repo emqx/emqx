@@ -92,9 +92,9 @@
     %% Callback function:
     | {mf, module(), atom()}.
 
--type parent_token() :: root | '+' | binary().
+-type root_token() :: undefined | binary().
 
--type threshold_fun() :: fun((_Depth :: non_neg_integer(), parent_token()) -> non_neg_integer()).
+-type threshold_fun() :: fun((_Depth :: non_neg_integer(), root_token()) -> non_neg_integer()).
 
 -type persist_callback() :: fun((_Key, _Val) -> ok).
 
@@ -228,15 +228,15 @@ trie_copy_learned_paths(OldTrie, NewTrie) ->
 
 %% @doc Lookup the topic key. Create a new one, if not found.
 -spec topic_key(trie(), threshold_fun(), [level()]) -> msg_storage_key().
-topic_key(Trie, ThresholdFun, [<<"$", _/bytes>> | _] = Tokens) ->
+topic_key(Trie, ThresholdFun, [<<"$", _/bytes>> | L] = Tokens) ->
     %% [MQTT-4.7.2-1]
     %% Put any topic starting with `$` into a separate _special_ root.
     %% Using a special root only when the topic and the filter start with $<X>
     %% prevents special topics from matching with + or # pattern, but not with
     %% $<X>/+ or $<X>/# pattern. See also `match_topics/2`.
-    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX_SPECIAL, Tokens, root, [], []);
+    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX_SPECIAL, Tokens, topic_root(L), [], []);
 topic_key(Trie, ThresholdFun, Tokens) ->
-    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX, Tokens, root, [], []).
+    do_topic_key(Trie, ThresholdFun, 0, ?PREFIX, Tokens, topic_root(Tokens), [], []).
 
 %% @doc Return an exisiting topic key if it exists.
 -spec lookup_topic_key(trie(), [level()]) -> {ok, msg_storage_key()} | undefined.
@@ -557,10 +557,10 @@ do_lookup_topic_key(Trie, State, [Tok | Rest], Varying) ->
             undefined
     end.
 
-do_topic_key(Trie, ThresholdFun, Depth, State, [], Parent, Tokens, Varying) ->
+do_topic_key(Trie, ThresholdFun, Depth, State, [], Root, Tokens, Varying) ->
     %% We reached the end of topic. Assert: Trie node that corresponds
     %% to EOT cannot be a wildcard.
-    {Updated, false, Static} = trie_next_(Trie, ThresholdFun, Depth, Parent, State, ?EOT),
+    {Updated, false, Static} = trie_next_(Trie, ThresholdFun, Depth, Root, State, ?EOT),
     _ =
         case Trie#trie.rlookups andalso Updated of
             false ->
@@ -569,8 +569,8 @@ do_topic_key(Trie, ThresholdFun, Depth, State, [], Parent, Tokens, Varying) ->
                 trie_insert(Trie, rlookup, Static, lists:reverse(Tokens))
         end,
     {Static, lists:reverse(Varying)};
-do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Parent, Tokens, Varying0) ->
-    {_, IsWildcard, NextState} = trie_next_(Trie, ThresholdFun, Depth, Parent, State, Tok),
+do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Root, Tokens, Varying0) ->
+    {_, IsWildcard, NextState} = trie_next_(Trie, ThresholdFun, Depth, Root, State, Tok),
     Varying =
         case IsWildcard of
             false ->
@@ -591,14 +591,14 @@ do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Parent, Tokens, Var
         Depth + 1,
         NextState,
         Rest,
-        TokOrWildcard,
+        Root,
         [TokOrWildcard | Tokens],
         Varying
     ).
 
 %% @doc Has side effects! Inserts missing elements.
 -spec trie_next_(
-    trie(), threshold_fun(), non_neg_integer(), parent_token(), state(), binary() | ?EOT
+    trie(), threshold_fun(), non_neg_integer(), root_token(), state(), binary() | ?EOT
 ) ->
     {New, IsWildcard, state()}
 when
@@ -739,6 +739,11 @@ decompress_topic([StaticLevel | TStructL], TopicL, Acc) ->
     decompress_topic(TStructL, TopicL, [StaticLevel | Acc]);
 decompress_topic([], [], Acc) ->
     lists:reverse(Acc).
+
+topic_root([]) ->
+    undefined;
+topic_root([A | _]) ->
+    A.
 
 %%================================================================================
 %% Tests
@@ -1321,6 +1326,34 @@ decompress_topic_test() ->
         [<<"foo">>, '+', <<"bar">>, '+', ''],
         decompress_topic([<<"foo">>, '+', <<"bar">>, '+', ''], ['+', '+'])
     ).
+
+%% This testcase verifies arguments passed to the wildcard threshold
+%% callback:
+threshold_cb_test() ->
+    T = trie_create(),
+    %% Create a callback function that sends its argement to the process:
+    ThresholdFun = fun(Depth, Root) ->
+        self() ! {?FUNCTION_NAME, Depth, Root},
+        infinity
+    end,
+    %% Collect the messages:
+    Recv = fun F() ->
+        receive
+            {?FUNCTION_NAME, Depth, Root} ->
+                [{Depth, Root} | F()]
+        after 0 ->
+            []
+        end
+    end,
+    %% Empty topic:
+    _ = test_key(T, ThresholdFun, []),
+    ?assertMatch([], Recv()),
+    %% Single level:
+    _ = test_key(T, ThresholdFun, [1]),
+    ?assertMatch([{0, <<"1">>}], Recv()),
+    %% Multiple levels:
+    _ = test_key(T, ThresholdFun, [0, 1, 2, 3]),
+    ?assertMatch([{0, <<"0">>}, {1, <<"0">>}, {2, <<"0">>}, {3, <<"0">>}], Recv()).
 
 %% This test verifies that changing the threshold doesn't affect the
 %% nodes that already exist:

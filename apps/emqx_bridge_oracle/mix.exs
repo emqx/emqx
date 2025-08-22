@@ -28,10 +28,10 @@ defmodule EMQXBridgeOracle.MixProject do
   end
 
   def deps() do
-    [
+    UMP.deps([
       {:emqx_oracle, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
-    ]
+    ])
   end
 end
