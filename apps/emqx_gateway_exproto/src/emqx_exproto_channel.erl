@@ -782,20 +782,10 @@ auth_connect(
         clientinfo = ClientInfo
     }
 ) ->
-    #{
-        clientid := ClientId,
-        username := Username
-    } = ClientInfo,
     case emqx_gateway_ctx:authenticate(Ctx, ClientInfo#{password => Password}) of
         {ok, NClientInfo} ->
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "client_login_failed",
-                clientid => ClientId,
-                username => Username,
-                reason => Reason
-            }),
             {error, Reason}
     end.
 

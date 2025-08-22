@@ -79,7 +79,7 @@ codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=r
 for f in \
         asn1rt_nif.so \
         bcrypt_nif.so \
-        crc32cer_nif.so \
+        libcrc32cer_nif.so \
         crypto.so \
         crypto_callback.so \
         ezstd_nif.so \
