@@ -124,7 +124,7 @@ stats(#channel{subscriptions = Subs}) ->
 init(
     ConnInfo = #{
         socktype := Socktype,
-        peername := Peername,
+        peername := PeerName,
         sockname := Sockname,
         peercert := Peercert
     },
@@ -166,7 +166,7 @@ init(
                 Peercert,
                 #{
                     socktype => socktype(Socktype),
-                    peername => address(Peername),
+                    peername => address(PeerName),
                     sockname => address(Sockname)
                 }
             )
