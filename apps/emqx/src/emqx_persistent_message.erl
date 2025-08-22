@@ -78,14 +78,9 @@ is_persistence_enabled(Zone) ->
 -spec get_db_config() -> emqx_ds:create_db_opts().
 get_db_config() ->
     Opts = emqx_ds_schema:db_config_messages(),
-    Storage =
-        {emqx_ds_storage_skipstream_lts_v2, #{
-            timestamp_bytes => 8
-        }},
     Opts#{
         store_ttv => true,
-        payload_type => ?ds_pt_mqtt,
-        storage => Storage
+        payload_type => ?ds_pt_mqtt
     }.
 
 %% Dev-only option: force all messages to go through
