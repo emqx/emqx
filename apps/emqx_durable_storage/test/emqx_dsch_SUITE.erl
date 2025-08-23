@@ -304,7 +304,10 @@ t_update_db_config(_Config) ->
         emqx_dsch:get_db_schema(test_db)
     ).
 
-%% This testcase verifies setting and deletion of the cluster ID.
+%% This testcase verifies operations with the cluster and peers.
+%%
+%% Peers cannot join to a singleton cluster; cluster cannot become
+%% singleton while having peers.
 t_set_cluster(_Config) ->
     Sch0 = emqx_dsch:get_site_schema(),
     %% Try invalid cluster ID:
@@ -316,6 +319,16 @@ t_set_cluster(_Config) ->
         {error, badarg},
         emqx_dsch:set_cluster(invalid)
     ),
+    %% Verify that peers cannot be added while in singleton mode:
+    ?assertMatch(
+        {error, cannot_add_peers_while_in_singleton_mode},
+        emqx_dsch:set_peer(<<"peer1">>, active)
+    ),
+    %% Deleting a peer that doesn't exist should succeed though:
+    ?assertMatch(
+        ok,
+        emqx_dsch:delete_peer(<<"peer1">>)
+    ),
     %% Set cluster to a correct value:
     CID = <<"my_cluster">>,
     ok = emqx_dsch:set_cluster(CID),
@@ -323,15 +336,29 @@ t_set_cluster(_Config) ->
         Sch0#{cluster => CID},
         emqx_dsch:get_site_schema()
     ),
+    %% Add some peers:
+    ok = emqx_dsch:set_peer(<<"peer1">>, active),
+    ok = emqx_dsch:set_peer(<<"peer2">>, banned),
     %% Restart the application and make sure the changes are persisted:
     application:stop(emqx_durable_storage),
     application:start(emqx_durable_storage),
     ?assertEqual(
-        Sch0#{cluster => CID},
+        Sch0#{cluster => CID, peers => #{<<"peer1">> => active, <<"peer2">> => banned}},
         emqx_dsch:get_site_schema()
     ),
-    %% Erase the cluster ID:
-    ok = emqx_dsch:set_cluster(undefined),
+    %% Try to enter singleton mode while having peers. This should fail:
+    ?assertMatch(
+        {error, has_peers},
+        emqx_dsch:set_cluster(singleton)
+    ),
+    %% Delete peers and try again:
+    ok = emqx_dsch:delete_peer(<<"peer1">>),
+    ok = emqx_dsch:delete_peer(<<"peer2">>),
+    ?assertMatch(
+        ok,
+        emqx_dsch:set_cluster(singleton)
+    ),
+    %% Schema should return to the original state:
     ?assertEqual(
         Sch0,
         emqx_dsch:get_site_schema()
