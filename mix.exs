@@ -119,7 +119,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ssl_verify_fun, "1.1.7", override: true},
       common_dep(:bcrypt),
       common_dep(:uuid),
-      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.7", override: true},
+      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.7.1", override: true},
       common_dep(:ra),
       {:mimerl, "1.2.0", override: true},
       common_dep(:sasl_auth),
