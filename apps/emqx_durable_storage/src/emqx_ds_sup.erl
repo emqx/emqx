@@ -57,6 +57,13 @@ which_dbs() ->
 init(top) ->
     _ = ets:new(?TAB, [public, set, named_table]),
     Children = [
+        #{
+            id => schema,
+            start => {emqx_dsch, start_link, []},
+            type => worker,
+            restart => permanent,
+            shutdown => 5_000
+        },
         emqx_ds_builtin_metrics:child_spec(),
         #{
             id => new_streams_watch_sup,
