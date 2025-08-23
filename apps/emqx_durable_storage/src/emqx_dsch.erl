@@ -55,11 +55,15 @@ This module separates state of the durable storage in three parts:
 
 %% API:
 -export([
+    register_backend/2,
+
     this_site/0,
     get_site_schema/0,
-    set_cluster/1,
 
-    register_backend/2,
+    %% Cluster API:
+    set_cluster/1,
+    set_peer/2,
+    delete_peer/1,
 
     %% DB API:
     ensure_db_schema/2,
@@ -85,12 +89,17 @@ This module separates state of the durable storage in three parts:
 ]).
 
 -export_type([
-    wal/0,
+    site/0,
+    cluster/0,
+    peer_state/0,
     schema/0,
-    dbshard/0,
     db_schema/0,
+
     db_runtime/0,
-    db_runtime_config/0
+    db_runtime_config/0,
+
+    wal/0,
+    dbshard/0
 ]).
 
 -include("emqx_ds.hrl").
@@ -109,7 +118,7 @@ This module separates state of the durable storage in three parts:
 
 -type cluster() :: binary().
 
--type peer_state() :: active.
+-type peer_state() :: atom().
 
 -define(empty, empty).
 
@@ -139,8 +148,8 @@ operations and other metadata.
 -type schema() :: #{
     ver := 1,
     site := site(),
-    cluster := cluster() | undefined,
-    peers := [site()],
+    cluster := cluster() | singleton,
+    peers := #{site() => peer_state()},
     dbs := #{emqx_ds:db() => db_schema()}
 }.
 
@@ -148,7 +157,7 @@ operations and other metadata.
 %%    Create a new site and schema:
 -record(sop_init, {ver = 1 :: 1, id :: site()}).
 %%%   Operation with the cluster
--record(sop_set_cluster, {cluster :: cluster() | undefined}).
+-record(sop_set_cluster, {cluster :: cluster() | singleton}).
 -record(sop_set_peer, {peer :: site(), state :: peer_state()}).
 -record(sop_delete_peer, {peer :: site()}).
 %%    Set DB schema:
@@ -244,18 +253,32 @@ get_site_schema() ->
     persistent_term:get(?dsch_pt_schema).
 
 -doc """
-Set or erase cluster ID.
+Update cluster ID.
+
+Setting cluster to a special value `singleton` prevents peers from
+joining.
 
 Cluster ID isn't used by this module directly, but it's stored in the
 schema anyway, because most backends likely want to make sure that
 they share data and communicate only with the nodes that belong to the
 same cluster.
+
+Cluster cannot be set to `singleton` when there are peers, they should
+be removed first.
 """.
--spec set_cluster(cluster() | undefined) -> ok | {error, badarg}.
-set_cluster(Cluster) when is_binary(Cluster); Cluster =:= undefined ->
+-spec set_cluster(cluster() | singleton) -> ok | {error, badarg}.
+set_cluster(Cluster) when is_binary(Cluster); Cluster =:= singleton ->
     gen_server:call(?SERVER, #sop_set_cluster{cluster = Cluster});
 set_cluster(_) ->
     {error, badarg}.
+
+-spec set_peer(site(), peer_state()) -> ok | {error, _}.
+set_peer(Site, State) when is_binary(Site), is_atom(State) ->
+    gen_server:call(?SERVER, #sop_set_peer{peer = Site, state = State}).
+
+-spec delete_peer(site()) -> ok | {error, _}.
+delete_peer(Site) when is_binary(Site) ->
+    gen_server:call(?SERVER, #sop_delete_peer{peer = Site}).
 
 -spec get_db_schema(emqx_ds:db()) -> db_schema() | undefined.
 get_db_schema(DB) ->
@@ -353,8 +376,10 @@ The WAL should be opened and empty.
 -spec dump(schema(), wal()) -> ok | {error, _}.
 dump(#{ver := Ver, site := Site, cluster := Cluster, dbs := DBs}, WAL) ->
     Ops =
-        [#sop_init{ver = Ver, id = Site}] ++
-            [#sop_set_cluster{cluster = Cluster} || is_binary(Cluster)] ++
+        [
+            #sop_init{ver = Ver, id = Site},
+            #sop_set_cluster{cluster = Cluster}
+        ] ++
             [#sop_set_db{db = DB, schema = DBSchema} || {DB, DBSchema} <- maps:to_list(DBs)],
     case safe_add_l(WAL, Ops, ?empty) of
         {ok, _} ->
@@ -392,8 +417,12 @@ handle_call(#sop_drop_db{db = DB}, _From, S) ->
     do_drop_db(DB, S);
 handle_call(#call_register_backend{alias = Alias, cbm = CBM}, _From, S) ->
     do_register_backend(Alias, CBM, S);
-handle_call(#sop_set_cluster{cluster = Cluster}, _From, S) ->
-    do_set_cluster(Cluster, S);
+handle_call(SchemaOp, _From, S) when
+    is_record(SchemaOp, sop_set_peer);
+    is_record(SchemaOp, sop_delete_peer);
+    is_record(SchemaOp, sop_set_cluster)
+->
+    do_update_cluster(SchemaOp, S);
 handle_call(Call, From, S) ->
     ?tp(error, emqx_dsch_unkown_call, #{from => From, call => Call, state => S}),
     {reply, {error, unknown_call}, S}.
@@ -530,10 +559,29 @@ do_drop_db(DB, S0 = #s{sch = Schema0, dbs = OpenDBs}) ->
             {reply, {error, no_db_schema}, S0}
     end.
 
--spec do_set_cluster(cluster() | undefined, s()) -> {reply, ok, s()}.
-do_set_cluster(MaybeCluster, S = #s{sch = Schema0}) ->
-    {ok, Schema} = modify_schema([#sop_set_cluster{cluster = MaybeCluster}], Schema0),
-    {reply, ok, S#s{sch = Schema}}.
+-spec do_update_cluster(schema_op(), s()) -> {reply, ok, s()}.
+do_update_cluster(Op, S = #s{sch = Schema0}) ->
+    #{cluster := Cluster0, peers := Peers0} = Schema0,
+    HasPeers = maps:size(Peers0) > 0,
+    case Op of
+        #sop_set_cluster{cluster = NewCS} when NewCS =:= singleton, HasPeers ->
+            %% Check: cannot set cluster to singleton when there are peers:
+            Schema = Schema0,
+            Reply = {error, has_peers};
+        #sop_set_peer{} when Cluster0 =:= singleton ->
+            %% Cannot join peers to a singleton node:
+            Schema = Schema0,
+            Reply = {error, cannot_add_peers_while_in_singleton_mode};
+        Other ->
+            case Other of
+                #sop_set_cluster{} -> ok;
+                #sop_set_peer{} -> ok;
+                #sop_delete_peer{} -> ok
+            end,
+            {ok, Schema} = modify_schema([Op], Schema0),
+            Reply = ok
+    end,
+    {reply, Reply, S#s{sch = Schema}}.
 
 -doc """
 Open `current` log and apply all entries contained there to the empty
@@ -572,8 +620,8 @@ new_empty_schema(Ver, Site) ->
     #{
         ver => Ver,
         site => Site,
-        cluster => undefined,
-        peers => [],
+        cluster => singleton,
+        peers => #{},
         dbs => #{}
     }.
 
@@ -600,6 +648,14 @@ pure_mutate(#sop_drop_db{db = DB}, Schema = #{dbs := DBs}) ->
 pure_mutate(#sop_set_cluster{cluster = Cluster}, Schema) ->
     {ok, Schema#{
         cluster := Cluster
+    }};
+pure_mutate(#sop_set_peer{peer = Site, state = State}, Schema = #{peers := Peers}) ->
+    {ok, Schema#{
+        peers => Peers#{Site => State}
+    }};
+pure_mutate(#sop_delete_peer{peer = Site}, Schema = #{peers := Peers}) ->
+    {ok, Schema#{
+        peers => maps:remove(Site, Peers)
     }};
 pure_mutate(Cmd, _S) ->
     {error, {unknown_comand, Cmd}}.
