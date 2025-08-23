@@ -371,6 +371,88 @@ t_set_cluster(_Config) ->
         emqx_dsch:get_site_schema()
     ).
 
+%% This testcase verifies various scenarios where schema migration is interrupted:
+t_aborted_schema_migrations(_Config) ->
+    ListBackups = fun() ->
+        {ok, Files} = file:list_dir(filename:dirname(emqx_dsch:schema_file())),
+        [FN || FN <- Files, string:find(FN, "BAK") =/= nomatch]
+    end,
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            %% No backup files should originally exist:
+            ?assertMatch(
+                [],
+                ListBackups()
+            ),
+            New = emqx_dsch:schema_file() ++ ".NEW",
+            %% Fill schema with data:
+            ok = emqx_dsch:register_backend(test, ?MODULE),
+            ok = emqx_dsch:set_cluster(<<"my_cluster">>),
+            ok = emqx_dsch:set_peer(<<"peer1">>, active),
+            ok = emqx_dsch:set_peer(<<"peer2">>, banned),
+            {ok, _} = emqx_dsch:ensure_db_schema(test_db1, #{backend => test, foo => bar}),
+            {ok, _} = emqx_dsch:ensure_db_schema(test_db2, #{backend => test, bar => baz}),
+            Schema = emqx_dsch:get_site_schema(),
+            %% Stop application and imitate aborted attempt to migrate
+            %% the site schema by creating a "NEW" file filled with
+            %% junk. `emqx_dsch' server should discard it without
+            %% trying to read it.
+            application:stop(emqx_durable_storage),
+            ok = file:write_file(New, <<"garbage">>),
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    application:start(emqx_durable_storage),
+                    #{?snk_kind := emqx_dsch_discard_new_schema, file := New}
+                )
+            ),
+            ?assertNot(filelib:is_file(New)),
+            ?assertEqual(
+                Schema,
+                emqx_dsch:get_site_schema()
+            ),
+            %% Since this was unusual, we leave a backup:
+            ?assertMatch(
+                [_],
+                ListBackups()
+            ),
+            %% Stop application and move current schema to NEW. This
+            %% is unusual, but should be handled too.
+            application:stop(emqx_durable_storage),
+            ok = file:rename(emqx_dsch:schema_file(), New),
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    application:start(emqx_durable_storage),
+                    #{?snk_kind := "Restoring schema from NEW file", file := New}
+                )
+            ),
+            ?assertEqual(
+                Schema,
+                emqx_dsch:get_site_schema()
+            ),
+            %% Since this was very unusual, we leave another backup:
+            ?assertMatch(
+                [_, _],
+                ListBackups()
+            ),
+            %% Restart application normally and verify that this
+            %% didn't leave new BAK files:
+            application:stop(emqx_durable_storage),
+            application:start(emqx_durable_storage),
+            ?assertMatch(
+                [_, _],
+                ListBackups()
+            ),
+            ?assertEqual(
+                Schema,
+                emqx_dsch:get_site_schema()
+            )
+        end,
+        []
+    ).
+
 %%
 
 all() -> emqx_common_test_helpers:all(?MODULE).
