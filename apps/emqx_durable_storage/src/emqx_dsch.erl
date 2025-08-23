@@ -197,6 +197,7 @@ Name of the disk log, as in `disk_log:open([{name, Name}, ...])`
 }.
 
 -define(log_new, emqx_ds_dbschema_new).
+-define(log_old, emqx_ds_dbschema_old).
 -define(log_current, emqx_ds_dbschema_current).
 
 %% Calls:
@@ -374,13 +375,17 @@ Dump schema to a WAL.
 The WAL should be opened and empty.
 """.
 -spec dump(schema(), wal()) -> ok | {error, _}.
-dump(#{ver := Ver, site := Site, cluster := Cluster, dbs := DBs}, WAL) ->
+dump(#{ver := Ver, site := Site, cluster := Cluster, dbs := DBs, peers := Peers}, WAL) ->
     Ops =
         [
             #sop_init{ver = Ver, id = Site},
             #sop_set_cluster{cluster = Cluster}
         ] ++
-            [#sop_set_db{db = DB, schema = DBSchema} || {DB, DBSchema} <- maps:to_list(DBs)],
+            [#sop_set_db{db = DB, schema = DBSchema} || {DB, DBSchema} <- maps:to_list(DBs)] ++
+            [
+                #sop_set_peer{peer = Peer, state = PeerState}
+             || {Peer, PeerState} <- maps:to_list(Peers)
+            ],
     case safe_add_l(WAL, Ops, ?empty) of
         {ok, _} ->
             ok;
@@ -450,6 +455,7 @@ terminate(_Reason, undefined) ->
     persistent_term:erase(?dsch_pt_schema),
     _ = disk_log:close(?log_current),
     _ = disk_log:close(?log_new),
+    _ = disk_log:close(?log_old),
     ok.
 
 %%================================================================================
@@ -592,27 +598,17 @@ random site ID.
 """.
 -spec restore_or_init_schema() -> schema().
 restore_or_init_schema() ->
+    compress_and_migrate_schema(1),
     File = schema_file(),
     _ = filelib:ensure_dir(File),
-    case
-        disk_log:open([
-            {name, ?log_current},
-            {file, File},
-            {repair, true},
-            {type, halt}
-        ])
-    of
+    case open_log(?log_current, File) of
+        ok ->
+            ensure_site_schema(restore_from_wal(?log_current));
         {error, Reason} ->
             ?tp(critical, "Failed to read durable storage schema", #{
                 reason => Reason, file => File
             }),
-            exit(badschema);
-        Ok ->
-            case Ok of
-                {ok, _} -> ok;
-                {repaired, _, _, _} -> ok
-            end,
-            ensure_site_schema(restore_from_wal(?log_current))
+            exit(badschema)
     end.
 
 -spec new_empty_schema(1, site()) -> schema().
@@ -735,15 +731,6 @@ safe_add_l(WAL, Commands, Schema0) ->
             {error, unknown}
     end.
 
--spec wal_backup(file:filename()) -> ok.
-wal_backup(Filename) ->
-    NewFilename = binary_to_list(
-        iolist_to_binary(
-            io_lib:format("~s.BAK.~p", [Filename, os:system_time(millisecond)])
-        )
-    ),
-    file:rename(Filename, NewFilename).
-
 -spec set_db_runtime(emqx_ds:db(), module(), ets:tid(), db_runtime_config()) -> ok.
 set_db_runtime(DB, CBM, GVars, RuntimeConf) ->
     persistent_term:put(
@@ -777,3 +764,94 @@ lookup_backend_cbm(Backend, #s{backends = Backends}) ->
         #{} ->
             {error, {no_such_backend, Backend}}
     end.
+
+-spec compress_and_migrate_schema(Attempt) -> ok when
+    Attempt :: pos_integer().
+compress_and_migrate_schema(Attempt) when Attempt < 3 ->
+    %% Compressed and migrated schema will be dumped to a temporary
+    %% log. Once everything's complete, it will replace the current
+    %% schema dump:
+    New = schema_file() ++ ".NEW",
+    HasCurrent = filelib:is_file(schema_file()),
+    HasNew = filelib:is_file(New),
+    case {HasCurrent, HasNew} of
+        {false, false} ->
+            %% This is a new deployment:
+            ok;
+        {true, false} ->
+            %% Normal situation:
+            ok = open_log(?log_old, schema_file()),
+            ok = open_log(?log_new, New),
+            Schema = maybe_migrate_schema(restore_from_wal(?log_old)),
+            case dump(Schema, ?log_new) of
+                ok ->
+                    disk_log:close(?log_old),
+                    disk_log:close(?log_new),
+                    %% Discard the old schema and replaced it with
+                    %% compressed one:
+                    file:rename(New, schema_file());
+                Wrong ->
+                    %% Migration went wrong.
+                    disk_log:close(?log_old),
+                    disk_log:close(?log_new),
+                    ?tp(
+                        critical,
+                        "Failed to read or migrate old durable storage schema",
+                        #{
+                            old_schema => Schema,
+                            result => Wrong
+                        }
+                    ),
+                    exit(failed_to_migrate_schema)
+            end;
+        {true, true} ->
+            %% There's a NEW log from the previous migration attempt
+            %% that was aborted. Discard the it (since it may be
+            %% incomplete or otherwise broken) and migrate again:
+            ?tp(debug, emqx_dsch_discard_new_schema, #{file => New}),
+            ok = file:rename(New, file_backup(New)),
+            compress_and_migrate_schema(Attempt + 1);
+        {false, true} ->
+            %% This shouldn't really happen (rename failed?). But make NEW log current
+            %% and attempt again (back it up first):
+            Bak = file_backup(New),
+            _ = file:copy(New, Bak),
+            ?tp(warning, "Restoring schema from NEW file", #{file => New, backup => Bak}),
+            ok = file:rename(New, schema_file()),
+            compress_and_migrate_schema(Attempt + 1)
+    end;
+compress_and_migrate_schema(Attempt) ->
+    %% Prevent an infinite loop and fail:
+    ?tp(critical, "Too many attempts to migrate durable storage schema. Exiting.", #{}),
+    exit(failed_to_migrate_schema).
+
+maybe_migrate_schema(?empty) ->
+    ?empty;
+maybe_migrate_schema(Schema = #{ver := 1}) ->
+    Schema.
+
+open_log(Name, File) ->
+    case
+        disk_log:open([
+            {name, Name},
+            {file, File},
+            {repair, true},
+            {type, halt}
+        ])
+    of
+        {ok, _} ->
+            ok;
+        {repaired, _, _, _} = Result ->
+            ?tp(warning, "Durable schema repaired", #{result => Result, file => File}),
+            ok;
+        Other ->
+            Other
+    end.
+
+-spec file_backup(file:filename()) -> file:filename().
+file_backup(Filename) ->
+    binary_to_list(
+        iolist_to_binary(
+            io_lib:format("~s.BAK.~p", [Filename, os:system_time(millisecond)])
+        )
+    ).
