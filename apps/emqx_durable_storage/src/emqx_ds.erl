@@ -88,6 +88,7 @@ It takes care of forwarding calls to the underlying DBMS.
 ]).
 
 -export_type([
+    backend/0,
     create_db_opts/0,
     db_opts/0,
     db/0,
@@ -332,6 +333,8 @@ Epoch time in milliseconds.
     {topic(), ?ds_tx_ts_monotonic, binary() | emqx_ds_payload_transform:payload()}, ...
 ].
 
+-type backend() :: atom().
+
 -doc """
 Common options for creation of a DS database.
 
@@ -374,7 +377,7 @@ supported.
 """.
 -type create_db_opts() ::
     #{
-        backend := atom(),
+        backend := backend(),
         append_only => boolean(),
         atomic_batches => boolean(),
         %% Whether the DB stores values of type `#message{}' or
