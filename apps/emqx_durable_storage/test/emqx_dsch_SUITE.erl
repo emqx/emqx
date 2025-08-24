@@ -16,7 +16,7 @@
 %% 1. Backend registration
 %%
 %% 2. Creation and persistence of the site ID
-t_initialization(_Config) ->
+t_010_initialization(_Config) ->
     %% Test gen_server boilerplate code for handling unknown calls, casts, and infos:
     ?assertMatch({error, unknown_call}, gen_server:call(emqx_dsch, garbage)),
     gen_server:cast(emqx_dsch, garbage),
@@ -51,11 +51,11 @@ t_initialization(_Config) ->
     ).
 
 %% This testcase verifies creation and persistence of the DB schemas.
-t_ensure_schema(_Config) ->
+t_020_ensure_schema(_Config) ->
     emqx_dsch:register_backend(test, ?MODULE),
     emqx_dsch:register_backend(test2, ?MODULE),
     ?assertMatch(
-        {ok, #{backend := test, foo := bar}},
+        {ok, true, #{backend := test, foo := bar}},
         emqx_dsch:ensure_db_schema(test_db, #{backend => test, foo => bar})
     ),
     ?assertMatch(
@@ -69,7 +69,7 @@ t_ensure_schema(_Config) ->
     %% Attempt to override schema with the same backend and different
     %% perameters (original schema should be preserved):
     ?assertMatch(
-        {ok, #{backend := test, foo := bar}},
+        {ok, false, #{backend := test, foo := bar}},
         emqx_dsch:ensure_db_schema(test_db, #{backend => test, foo => 1})
     ),
     ?assertMatch(
@@ -87,7 +87,7 @@ t_ensure_schema(_Config) ->
     ),
     %% Create a new DB with different backend:
     ?assertMatch(
-        {ok, #{backend := test2, bar := baz}},
+        {ok, true, #{backend := test2, bar := baz}},
         emqx_dsch:ensure_db_schema(test_db2, #{backend => test2, bar => baz})
     ),
     %% Restart application. DB schemas should be restored:
@@ -118,7 +118,7 @@ t_ensure_schema(_Config) ->
 %% 2. Proper cleanup when application is stopped.
 %%
 %% 3. Proper cleanup when DB is stopped.
-t_open_close_db(_Config) ->
+t_030_open_close_db(_Config) ->
     RTconf = #{bar => baz},
     emqx_dsch:register_backend(test, ?MODULE),
     %% Try to open DB without a schema, it should fail:
@@ -127,7 +127,7 @@ t_open_close_db(_Config) ->
         emqx_dsch:open_db(test_db, RTconf)
     ),
     %% Create schema and open DB normally. Its global state should be initialized:
-    {ok, DBSchema} = emqx_dsch:ensure_db_schema(test_db, #{backend => test, foo => bar}),
+    {ok, true, DBSchema} = emqx_dsch:ensure_db_schema(test_db, #{backend => test, foo => bar}),
     ?assertMatch(ok, emqx_dsch:open_db(test_db, RTconf)),
     %% Try to re-open (it should fail, the original config should remain):
     ?assertMatch(
@@ -214,7 +214,7 @@ t_open_close_db(_Config) ->
     ).
 
 %% This testcase verifies `drop_db_schema' function
-t_drop_db_schema(_Config) ->
+t_040_drop_db_schema(_Config) ->
     Site = emqx_dsch:this_site(),
     ok = emqx_dsch:register_backend(test, ?MODULE),
     %% It's impossible to drop a DB that doesn't exist:
@@ -224,11 +224,11 @@ t_drop_db_schema(_Config) ->
     ),
     %% Create and open two DBs:
     ?assertMatch(
-        {ok, _},
+        {ok, _, _},
         emqx_dsch:ensure_db_schema(test_db, #{backend => test})
     ),
     ?assertMatch(
-        {ok, _},
+        {ok, _, _},
         emqx_dsch:ensure_db_schema(test_db2, #{backend => test})
     ),
     ?assertMatch(
@@ -267,11 +267,11 @@ t_drop_db_schema(_Config) ->
 %% 2. Runtime config should be merged using `deep_merge'
 %%
 %% 3. Other constants (Schema, CBM, gvars table) shouldn't change
-t_update_db_config(_Config) ->
+t_050_update_db_config(_Config) ->
     RTconf1 = #{foo => #{1 => 2, 2 => 3}, bar => baz},
     Patch1 = #{foo => #{1 => 3}, baz => quux},
     ok = emqx_dsch:register_backend(test, ?MODULE),
-    {ok, DBSchema} = emqx_dsch:ensure_db_schema(test_db, #{backend => test, foo => bar}),
+    {ok, true, DBSchema} = emqx_dsch:ensure_db_schema(test_db, #{backend => test, foo => bar}),
     %% It should be impossible to update state of a closed db:
     ?assertMatch(
         {error, {database_is_not_open, test_db}},
@@ -308,7 +308,7 @@ t_update_db_config(_Config) ->
 %%
 %% Peers cannot join to a singleton cluster; cluster cannot become
 %% singleton while having peers.
-t_set_cluster(_Config) ->
+t_060_set_cluster(_Config) ->
     Sch0 = emqx_dsch:get_site_schema(),
     %% Try invalid cluster ID:
     ?assertMatch(
@@ -372,7 +372,7 @@ t_set_cluster(_Config) ->
     ).
 
 %% This testcase verifies various scenarios where schema migration is interrupted:
-t_aborted_schema_migrations(_Config) ->
+t_070_aborted_schema_migrations(_Config) ->
     ListBackups = fun() ->
         {ok, Files} = file:list_dir(filename:dirname(emqx_dsch:schema_file())),
         [FN || FN <- Files, string:find(FN, "BAK") =/= nomatch]
@@ -391,8 +391,8 @@ t_aborted_schema_migrations(_Config) ->
             ok = emqx_dsch:set_cluster(<<"my_cluster">>),
             ok = emqx_dsch:set_peer(<<"peer1">>, active),
             ok = emqx_dsch:set_peer(<<"peer2">>, banned),
-            {ok, _} = emqx_dsch:ensure_db_schema(test_db1, #{backend => test, foo => bar}),
-            {ok, _} = emqx_dsch:ensure_db_schema(test_db2, #{backend => test, bar => baz}),
+            {ok, true, _} = emqx_dsch:ensure_db_schema(test_db1, #{backend => test, foo => bar}),
+            {ok, true, _} = emqx_dsch:ensure_db_schema(test_db2, #{backend => test, bar => baz}),
             Schema = emqx_dsch:get_site_schema(),
             %% Stop application and imitate aborted attempt to migrate
             %% the site schema by creating a "NEW" file filled with

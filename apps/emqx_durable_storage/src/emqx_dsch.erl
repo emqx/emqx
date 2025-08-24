@@ -304,7 +304,8 @@ return the original schema.
 
 Return an error otherwise.
 """.
--spec ensure_db_schema(emqx_ds:db(), db_schema()) -> {ok, db_schema()} | {error, _}.
+-spec ensure_db_schema(emqx_ds:db(), db_schema()) -> {ok, IsNew, db_schema()} | {error, _} when
+    IsNew :: boolean().
 ensure_db_schema(DB, Schema = #{backend := _}) ->
     gen_server:call(?SERVER, #call_ensure_db_schema{db = DB, schema = Schema}).
 
@@ -531,14 +532,14 @@ do_register_backend(Alias, CBM, S = #s{backends = B0}) ->
     end.
 
 -spec do_ensure_db_schema(emqx_ds:db(), db_schema(), s()) ->
-    {reply, {ok, db_schema()} | {error, _}, s()}.
+    {reply, {ok, boolean(), db_schema()} | {error, _}, s()}.
 do_ensure_db_schema(DB, NewDBSchema, S0 = #s{sch = Schema0}) ->
     #{backend := Backend} = NewDBSchema,
     #{dbs := DBs} = Schema0,
     case DBs of
         #{DB := OldDBSchema = #{backend := Backend}} ->
             %% Backend matches. Return the original schema:
-            Reply = {ok, OldDBSchema},
+            Reply = {ok, false, OldDBSchema},
             {reply, Reply, S0};
         #{DB := #{backend := OldBackend}} when OldBackend =/= Backend ->
             Reply = {error, {backend_mismatch, OldBackend, Backend}},
@@ -546,7 +547,7 @@ do_ensure_db_schema(DB, NewDBSchema, S0 = #s{sch = Schema0}) ->
         #{} ->
             {ok, Schema} = modify_schema([#sop_set_db{db = DB, schema = NewDBSchema}], Schema0),
             S = S0#s{sch = Schema},
-            Reply = {ok, NewDBSchema},
+            Reply = {ok, true, NewDBSchema},
             {reply, Reply, S}
     end.
 
