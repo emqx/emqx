@@ -348,6 +348,11 @@ t_060_set_cluster(_Config) ->
     %% Set cluster to a correct value:
     CID = <<"my_cluster">>,
     ok = emqx_dsch:set_cluster(CID),
+    %% Now it can't be overwritten:
+    ?assertMatch(
+        {error, cannot_change_cluster_existing_id},
+        emqx_dsch:set_cluster(<<"other_cluster">>)
+    ),
     ?assertEqual(
         Sch0#{cluster => CID},
         emqx_dsch:get_site_schema()
@@ -387,8 +392,46 @@ t_060_set_cluster(_Config) ->
         emqx_dsch:get_site_schema()
     ).
 
+%% This testcase verifies that node owning the site ID can be located
+%% via global.
+t_070_global_registration(_Config) ->
+    ?check_trace(
+        begin
+            #{site := Site} = Schema = emqx_dsch:get_site_schema(),
+            ?assertEqual(
+                node(),
+                emqx_dsch:whereis_site(Site)
+            ),
+            ?assertEqual(
+                undefined,
+                emqx_dsch:whereis_site(<<"bad">>)
+            ),
+            %% Try to access schema via RPC:
+            ?assertEqual(
+                {ok, Schema},
+                emqx_dsch:get_site_schema(Site)
+            ),
+            ?assertEqual(
+                {error, down},
+                emqx_dsch:get_site_schema(<<"bad">>)
+            ),
+            %% Server should detect name conflicts:
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    begin
+                        Pid = global:whereis_name(?global_name(Site)),
+                        Pid ! {global_name_conflict, ?global_name(Site)}
+                    end,
+                    #{?snk_kind := global_site_conflict, site := Site}
+                )
+            )
+        end,
+        []
+    ).
+
 %% This testcase verifies various scenarios where schema migration is interrupted:
-t_070_aborted_schema_migrations(_Config) ->
+t_080_aborted_schema_migrations(_Config) ->
     ListBackups = fun() ->
         {ok, Files} = file:list_dir(filename:dirname(emqx_dsch:schema_file())),
         [FN || FN <- Files, string:find(FN, "BAK") =/= nomatch]
