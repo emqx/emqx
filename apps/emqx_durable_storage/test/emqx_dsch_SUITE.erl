@@ -56,7 +56,7 @@ t_010_initialization(_Config) ->
     %%
     %% Test self-check: to later verify that persistent terms are
     %% erased, we make sure they're present in the first place:
-    ?assertMatch(#{ver := _, site := Site}, persistent_term:get(?dsch_pt_schema)),
+    ?assertMatch(#{site := Site}, persistent_term:get(?dsch_pt_schema)),
     ?assertMatch(#{foo := _}, persistent_term:get(?dsch_pt_backends)),
     %%    Stop the application. Verify that persistent terms are gone:
     application:stop(emqx_durable_storage),
@@ -67,13 +67,18 @@ t_010_initialization(_Config) ->
 t_020_ensure_schema(_Config) ->
     emqx_dsch:register_backend(test, ?MODULE),
     emqx_dsch:register_backend(test2, ?MODULE),
+    %% Try to create a DB using nonexistent backend (it should fail):
+    ?assertMatch(
+        {error, {no_such_backend, bad}},
+        emqx_dsch:ensure_db_schema(test_db, #{backend => bad, foo => bar})
+    ),
+    %% Successful creation:
     ?assertMatch(
         {ok, true, #{backend := test, foo := bar}},
         emqx_dsch:ensure_db_schema(test_db, #{backend => test, foo => bar})
     ),
     ?assertMatch(
         #{
-            ver := 1,
             site := _,
             dbs := #{test_db := #{backend := test, foo := bar}}
         },
@@ -87,7 +92,6 @@ t_020_ensure_schema(_Config) ->
     ),
     ?assertMatch(
         #{
-            ver := 1,
             site := _,
             dbs := #{test_db := #{backend := test, foo := bar}}
         },
@@ -107,7 +111,6 @@ t_020_ensure_schema(_Config) ->
     SchemaBeforeRestart = emqx_dsch:get_site_schema(),
     ?assertMatch(
         #{
-            ver := 1,
             site := _,
             dbs := #{
                 test_db := _,
@@ -250,7 +253,7 @@ t_040_drop_db_schema(_Config) ->
     ),
     %% It's impossible to drop schema of an open DB:
     ?assertMatch(
-        {error, database_is_open},
+        {error, database_is_currently_open},
         emqx_dsch:drop_db_schema(test_db)
     ),
     %% Close DB. Now its schema can be dropped:
