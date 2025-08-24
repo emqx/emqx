@@ -8,6 +8,7 @@
 
 %% Persistent terms:
 -define(dsch_pt_schema, emqx_dsch_schema).
+-define(dsch_pt_backends, emqx_dsch_backend_cbms).
 -define(dsch_pt_db_runtime(DB), {emqx_dsch_db_runtime, DB}).
 
 -define(with_dsch(DB, VAR, BODY),

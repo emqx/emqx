@@ -56,6 +56,7 @@ This module separates state of the durable storage in three parts:
 %% API:
 -export([
     register_backend/2,
+    get_backend_cbm/1,
 
     this_site/0,
     get_site_schema/0,
@@ -291,9 +292,18 @@ get_db_schema(DB) ->
         _ -> undefined
     end.
 
--spec register_backend(atom(), module()) -> ok | {error, _}.
+-spec register_backend(emqx_ds:backend(), module()) -> ok | {error, _}.
 register_backend(Alias, CBM) when is_atom(Alias), is_atom(CBM) ->
     gen_server:call(?SERVER, #call_register_backend{alias = Alias, cbm = CBM}).
+
+-spec get_backend_cbm(emqx_ds:backend()) -> {ok, module()} | {error, _}.
+get_backend_cbm(Backend) ->
+    case persistent_term:get(?dsch_pt_backends, #{}) of
+        #{Backend := #bs{cbm = Mod}} ->
+            {ok, Mod};
+        #{} ->
+            {error, {no_such_backend, Backend}}
+    end.
 
 -doc """
 If database schema wasn't present before, create schema it (equal to the
@@ -454,6 +464,7 @@ terminate(Reason, S0 = #s{dbs = DBs}) ->
     terminate(Reason, undefined);
 terminate(_Reason, undefined) ->
     persistent_term:erase(?dsch_pt_schema),
+    persistent_term:erase(?dsch_pt_backends),
     _ = disk_log:close(?log_current),
     _ = disk_log:close(?log_new),
     _ = disk_log:close(?log_old),
@@ -519,17 +530,21 @@ do_close_db(DB, S = #s{dbs = DBs}) ->
     end.
 
 -spec do_register_backend(emqx_ds:backend(), module(), s()) -> {reply, ok | {error, _}, s()}.
-do_register_backend(Alias, CBM, S = #s{backends = B0}) ->
-    case B0 of
+do_register_backend(Alias, CBM, S = #s{backends = Backends0}) ->
+    case Backends0 of
         #{Alias := #bs{cbm = CBM}} ->
             {reply, ok, S};
         #{Alias := Other} ->
             Err = {error, {conflict, Other}},
             {reply, Err, S};
         #{} ->
-            BS = #bs{cbm = CBM},
-            {reply, ok, S#s{backends = B0#{Alias => BS}}}
+            Backends = Backends0#{Alias => #bs{cbm = CBM}},
+            set_backend_cbms_pt(Backends),
+            {reply, ok, S#s{backends = Backends}}
     end.
+
+set_backend_cbms_pt(Backends) ->
+    persistent_term:put(?dsch_pt_backends, Backends).
 
 -spec do_ensure_db_schema(emqx_ds:db(), db_schema(), s()) ->
     {reply, {ok, boolean(), db_schema()} | {error, _}, s()}.
@@ -599,10 +614,10 @@ random site ID.
 """.
 -spec restore_or_init_schema() -> schema().
 restore_or_init_schema() ->
-    compress_and_migrate_schema(1),
+    ok = compress_and_migrate_schema(1),
     File = schema_file(),
     _ = filelib:ensure_dir(File),
-    case open_log(?log_current, File) of
+    case open_log(read_write, ?log_current, File) of
         ok ->
             ensure_site_schema(restore_from_wal(?log_current));
         {error, Reason} ->
@@ -781,20 +796,17 @@ compress_and_migrate_schema(Attempt) when Attempt < 3 ->
             ok;
         {true, false} ->
             %% Normal situation:
-            ok = open_log(?log_old, schema_file()),
-            ok = open_log(?log_new, New),
+            ok = open_log(read_only, ?log_old, schema_file()),
+            ok = open_log(read_write, ?log_new, New),
             Schema = maybe_migrate_schema(restore_from_wal(?log_old)),
             case dump(Schema, ?log_new) of
                 ok ->
-                    disk_log:close(?log_old),
-                    disk_log:close(?log_new),
+                    ok = disk_log:close(?log_old),
+                    ok = disk_log:close(?log_new),
                     %% Discard the old schema and replaced it with
                     %% compressed one:
                     file:rename(New, schema_file());
                 Wrong ->
-                    %% Migration went wrong.
-                    disk_log:close(?log_old),
-                    disk_log:close(?log_new),
                     ?tp(
                         critical,
                         "Failed to read or migrate old durable storage schema",
@@ -803,6 +815,9 @@ compress_and_migrate_schema(Attempt) when Attempt < 3 ->
                             result => Wrong
                         }
                     ),
+                    %% Migration went wrong.
+                    _ = disk_log:close(?log_old),
+                    _ = disk_log:close(?log_new),
                     exit(failed_to_migrate_schema)
             end;
         {true, true} ->
@@ -822,8 +837,10 @@ compress_and_migrate_schema(Attempt) when Attempt < 3 ->
             compress_and_migrate_schema(Attempt + 1)
     end;
 compress_and_migrate_schema(Attempt) ->
-    %% Prevent an infinite loop and fail:
-    ?tp(critical, "Too many attempts to migrate durable storage schema. Exiting.", #{}),
+    %% Prevent infinite loop and fail:
+    ?tp(critical, "Too many attempts to migrate durable storage schema. Exiting.", #{
+        attempts => Attempt
+    }),
     exit(failed_to_migrate_schema).
 
 maybe_migrate_schema(?empty) ->
@@ -831,9 +848,10 @@ maybe_migrate_schema(?empty) ->
 maybe_migrate_schema(Schema = #{ver := 1}) ->
     Schema.
 
-open_log(Name, File) ->
+open_log(Mode, Name, File) ->
     case
         disk_log:open([
+            {mode, Mode},
             {name, Name},
             {file, File},
             {repair, true},
