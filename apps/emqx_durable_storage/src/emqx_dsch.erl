@@ -66,12 +66,12 @@ This makes scheama very cheap to read and hard to update.
 So don't update it often.
 
 All operations that mutate the scheama are synchronously written to the WAL.
-For simplicity, WAL never trunkated while the application is running.
-It is only done when the server starts.
+For simplicity, WAL is not trunkated while the application is running.
+It is only compressed when the server starts.
 
 When the server starts, it first completely replays the WAL to get to
 the latest schema state, then this state is potentially migrated, and
-dumped to another WAL. Which is then read again to initialize the
+dumped to another WAL. The latter is read again to initialize the
 server state.
 """.
 
@@ -84,11 +84,11 @@ server state.
 
     this_site/0,
     get_site_schema/0,
+    get_site_schema/1,
+    get_site_schema/2,
 
     %% Cluster API:
-    set_cluster/1,
-    set_peer/2,
-    delete_peer/1,
+    whereis_site/1,
 
     %% DB API:
     ensure_db_schema/2,
@@ -110,7 +110,14 @@ server state.
     start_link/0,
     schema_file/0,
     restore_from_wal/1,
-    dump/2
+    dump/2,
+
+    %% Low-level cluster API:
+    set_cluster/1,
+    set_peer/2,
+    delete_peer/1,
+
+    safe_call_backend/4
 ]).
 
 -export_type([
@@ -147,8 +154,6 @@ server state.
 -type cluster() :: binary().
 
 -type peer_state() :: atom().
-
--define(empty, empty).
 
 -doc """
 Schema is an immutable term associated with the DS DB.
@@ -291,12 +296,49 @@ this_site() ->
     #{site := Site} = get_site_schema(),
     Site.
 
+-spec whereis_site(site()) -> node() | undefined.
+whereis_site(Site) ->
+    case global:whereis_name(?global_name(Site)) of
+        undefined ->
+            undefined;
+        Pid ->
+            node(Pid)
+    end.
+
 -doc """
 Get the entire schema of the site.
 """.
--spec get_site_schema() -> schema() | undefined.
+-spec get_site_schema() -> schema() | ?empty_schema.
 get_site_schema() ->
-    persistent_term:get(?dsch_pt_schema).
+    persistent_term:get(?dsch_pt_schema, ?empty_schema).
+
+-doc """
+Equivalent to `get_site_schema(NodeOrSite, 5_000)`
+""".
+-spec get_site_schema(node() | site()) -> {ok, schema() | ?empty_schema} | {error, _}.
+get_site_schema(NodeOrSite) ->
+    %% Note: this is an RPC target.
+    get_site_schema(NodeOrSite, 5_000).
+
+-doc """
+Get schema of a remote site.
+""".
+-spec get_site_schema(node() | site(), timeout()) -> {ok, schema() | ?empty_schema} | {error, _}.
+get_site_schema(Site, Timeout) when is_binary(Site) ->
+    case whereis_site(Site) of
+        undefined ->
+            {error, down};
+        Node ->
+            get_site_schema(Node, Timeout)
+    end;
+get_site_schema(Node, Timeout) when is_atom(Node) ->
+    case emqx_dsch_proto_v1:get_site_schemas([Node], Timeout) of
+        [{ok, _} = Ret] ->
+            Ret;
+        [Other] ->
+            %% TODO: better error reason
+            {error, Other}
+    end.
 
 -doc """
 Update cluster ID.
@@ -318,6 +360,12 @@ set_cluster(Cluster) when is_binary(Cluster); Cluster =:= singleton ->
 set_cluster(_) ->
     {error, badarg}.
 
+-doc """
+Unconditionally add peer site to the cluster.
+
+WARNING: This function doesn't check if the peer belongs to the same
+cluster and therefore it's unsafe for general use.
+""".
 -spec set_peer(site(), peer_state()) -> ok | {error, _}.
 set_peer(Site, State) when is_binary(Site), is_atom(State) ->
     gen_server:call(?SERVER, #sop_set_peer{peer = Site, state = State}).
@@ -412,9 +460,9 @@ Re-create the schema state by reading the WAL.
 
 WAL should be opened using `disk_log:open(...)`.
 """.
--spec restore_from_wal(wal()) -> pstate() | ?empty.
+-spec restore_from_wal(wal()) -> pstate() | ?empty_schema.
 restore_from_wal(Log) ->
-    replay_wal(Log, ?empty, start).
+    replay_wal(Log, ?empty_schema, start).
 
 -doc """
 Return location of the node's schema file.
@@ -442,7 +490,7 @@ dump(#{ver := Ver, schema := Schema}, WAL) ->
                 #sop_set_peer{peer = Peer, state = PeerState}
              || {Peer, PeerState} <- maps:to_list(Peers)
             ],
-    case safe_add_l(WAL, Ops, ?empty) of
+    case safe_add_l(WAL, Ops, ?empty_schema) of
         {ok, _} ->
             ok;
         {error, _} = Err ->
@@ -458,6 +506,8 @@ init(_) ->
     Pstate = #{} = restore_or_init_pstate(),
     persistent_term:put(?dsch_pt_schema, maps:get(schema, Pstate)),
     S = #s{sch = Pstate},
+    #{schema := #{site := Site}} = Pstate,
+    global:register_name(?global_name(Site), self(), fun global:random_notify_name/3),
     {ok, S}.
 
 handle_call(#call_open_db{db = DB, conf = RuntimeConf}, _From, S0) ->
@@ -478,12 +528,17 @@ handle_call(#sop_drop_db{db = DB}, _From, S) ->
     do_drop_db(DB, S);
 handle_call(#call_register_backend{alias = Alias, cbm = CBM}, _From, S) ->
     do_register_backend(Alias, CBM, S);
-handle_call(SchemaOp, _From, S) when
+handle_call(SchemaOp, _From, S0) when
     is_record(SchemaOp, sop_set_peer);
     is_record(SchemaOp, sop_delete_peer);
     is_record(SchemaOp, sop_set_cluster)
 ->
-    do_update_cluster(SchemaOp, S);
+    case do_update_cluster(SchemaOp, S0) of
+        {ok, S} ->
+            {reply, ok, S};
+        {error, _} = Err ->
+            {reply, Err, S0}
+    end;
 handle_call(Call, From, S) ->
     ?tp(error, emqx_dsch_unkown_call, #{from => From, call => Call, state => S}),
     {reply, {error, unknown_call}, S}.
@@ -492,6 +547,16 @@ handle_cast(Cast, S) ->
     ?tp(error, emqx_dsch_unkown_cast, #{call => Cast, state => S}),
     {noreply, S}.
 
+handle_info({global_name_conflict, ?global_name(Site)}, S = #s{sch = Pstate}) ->
+    #{schema := #{site := MySite}} = Pstate,
+    case Site =:= MySite of
+        true ->
+            Expl = "Another node claimed site ID. All sites must be unique",
+            ?tp(error, global_site_conflict, #{site => Site, exlanation => Expl}),
+            {stop, site_conflict, S};
+        false ->
+            {noreply, S}
+    end;
 handle_info({'EXIT', From, Reason}, S) ->
     case Reason of
         normal ->
@@ -633,25 +698,23 @@ do_drop_db(DB, S0 = #s{dbs = OpenDBs}) ->
             {reply, Err, S0}
     end.
 
--spec do_update_cluster(schema_op(), s()) -> {reply, ok, s()}.
+-spec do_update_cluster(schema_op(), s()) -> {ok, s()} | {error, _}.
 do_update_cluster(Op, S0 = #s{sch = Pstate0}) ->
-    #{schema := #{cluster := OldCS, peers := Peers0}} = Pstate0,
+    #{schema := #{cluster := OldCID, peers := Peers0}} = Pstate0,
     HasPeers = maps:size(Peers0) > 0,
-    maybe
-        ok ?=
-            case Op of
-                #sop_set_cluster{cluster = NewCS} when NewCS =:= singleton, HasPeers ->
-                    {error, has_peers};
-                #sop_set_peer{} when OldCS =:= singleton ->
-                    {error, cannot_add_peers_while_in_singleton_mode};
-                _ ->
-                    ok
-            end,
-        {ok, S} ?= modify_schema([Op], S0),
-        {reply, ok, S}
-    else
-        Err ->
-            {reply, Err, S0}
+    case Op of
+        #sop_set_cluster{cluster = NewCID} when is_binary(OldCID), NewCID =:= singleton, HasPeers ->
+            {error, has_peers};
+        #sop_set_cluster{cluster = NewCID} when
+            is_binary(NewCID), is_binary(OldCID), NewCID =/= OldCID
+        ->
+            %% TODO: ask backends if they're ok with the change
+            %% instead of simply rejecting?
+            {error, cannot_change_cluster_existing_id};
+        #sop_set_peer{} when OldCID =:= singleton ->
+            {error, cannot_add_peers_while_in_singleton_mode};
+        _ ->
+            modify_schema([Op], S0)
     end.
 
 -doc """
@@ -707,8 +770,9 @@ A pure function that mutates the state record accoring to a command.
 
 Note: this function has to maintain backward-compatibility.
 """.
--spec pure_mutate(schema_op(), pstate() | ?empty) -> {ok, pstate() | ?empty} | {error, _}.
-pure_mutate(Command, ?empty) ->
+-spec pure_mutate(schema_op(), pstate() | ?empty_schema) ->
+    {ok, pstate() | ?empty_schema} | {error, _}.
+pure_mutate(Command, ?empty_schema) ->
     %% Only one command is allowed in the empty state:
     case Command of
         #sop_init{ver = Ver, id = Site} ->
@@ -766,7 +830,8 @@ with_schema(Key, Pstate = #{schema := Schema}, Fun) ->
     Val = Fun(Val0),
     {ok, Pstate#{schema := Schema#{Key := Val}}}.
 
--spec pure_mutate_l([schema_op()], pstate() | ?empty) -> {ok, pstate() | ?empty} | {error, _}.
+-spec pure_mutate_l([schema_op()], pstate() | ?empty_schema) ->
+    {ok, pstate() | ?empty_schema} | {error, _}.
 pure_mutate_l([], S) ->
     {ok, S};
 pure_mutate_l([Command | L], S0) ->
@@ -775,7 +840,8 @@ pure_mutate_l([Command | L], S0) ->
         {error, _} = Err -> Err
     end.
 
--spec replay_wal(wal(), pstate() | ?empty, disk_log:continuation() | start) -> pstate() | ?empty.
+-spec replay_wal(wal(), pstate() | ?empty_schema, disk_log:continuation() | start) ->
+    pstate() | ?empty_schema.
 replay_wal(Log, Schema0, Cont0) ->
     case disk_log:chunk(Log, Cont0, ?replay_chunk_size) of
         {Cont, Cmds} ->
@@ -794,11 +860,11 @@ replay_wal(Log, Schema0, Cont0) ->
             Schema0
     end.
 
--spec ensure_site_schema(pstate() | ?empty) -> pstate().
-ensure_site_schema(?empty) ->
+-spec ensure_site_schema(pstate() | ?empty_schema) -> pstate().
+ensure_site_schema(?empty_schema) ->
     Site = binary:encode_hex(crypto:strong_rand_bytes(8)),
     ?tp(notice, "Initializing durable storage for the first time", #{site => binary_to_list(Site)}),
-    {ok, Pstate} = safe_add_l(?log_current, [#sop_init{id = Site}], ?empty),
+    {ok, Pstate} = safe_add_l(?log_current, [#sop_init{id = Site}], ?empty_schema),
     Pstate;
 ensure_site_schema(Pstate = #{ver := _}) ->
     Pstate.
@@ -812,7 +878,8 @@ This function does it in three steps:
 2. Append the commands to the WAL.
 3. Return the mutated schema.
 """.
--spec safe_add_l(wal(), [schema_op()], pstate() | ?empty) -> {ok, pstate() | ?empty} | {error, _}.
+-spec safe_add_l(wal(), [schema_op()], pstate() | ?empty_schema) ->
+    {ok, pstate() | ?empty_schema} | {error, _}.
 safe_add_l(WAL, Commands, Pstate0) ->
     try pure_mutate_l(Commands, Pstate0) of
         {ok, Pstate = #{ver := _, schema := #{site := _}}} ->
@@ -955,3 +1022,17 @@ file_backup(Filename) ->
             io_lib:format("~s.BAK.~p", [Filename, os:system_time(millisecond)])
         )
     ).
+
+-spec safe_call_backend(module(), atom(), list(), Ret) -> {ok, Ret} | error.
+safe_call_backend(Mod, Fun, Args, Default) ->
+    try
+        Mod:Fun(Args)
+    catch
+        error:undef ->
+            {ok, Default};
+        EC:Err:Stack ->
+            ?tp(error, dsch_backend_callback_error, #{
+                mod => Mod, 'fun' => Fun, args => Args, EC => Err, stack => Stack
+            }),
+            error
+    end.
