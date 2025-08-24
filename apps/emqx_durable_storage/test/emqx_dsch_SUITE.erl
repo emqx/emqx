@@ -24,13 +24,8 @@ t_010_initialization(_Config) ->
     %% Verify initialization of the site ID:
     Site = emqx_dsch:this_site(),
     ?assert(is_binary(Site)),
-    %% Test self-check: to later verify that persistent term is
-    %% erased, we make sure it's present in the first place:
-    ?assertMatch(#{ver := _, site := Site}, persistent_term:get(?dsch_pt_schema)),
-    %%    Stop the application. Verify that site's persistent term is gone:
+    %% Restart application. Previous site ID should be restored:
     application:stop(emqx_durable_storage),
-    ?assertMatch(undefined, persistent_term:get(?dsch_pt_schema, undefined)),
-    %%    Restart application. Previous site ID should be restored:
     application:start(emqx_durable_storage),
     ?assertMatch(Site, emqx_dsch:this_site()),
     %%    Verity `get_schema' API:
@@ -41,14 +36,32 @@ t_010_initialization(_Config) ->
     ?assertMatch(0, maps:size(DBs)),
 
     %% Verify registration of backends:
+    ?assertMatch(
+        {error, {no_such_backend, foo}},
+        emqx_dsch:get_backend_cbm(foo)
+    ),
     ?assertMatch(ok, emqx_dsch:register_backend(foo, ?MODULE)),
+    ?assertMatch(
+        {ok, ?MODULE},
+        emqx_dsch:get_backend_cbm(foo)
+    ),
     %%    Check idempotency:
     ?assertMatch(ok, emqx_dsch:register_backend(foo, ?MODULE)),
     %%    Conflicts should be detected:
     ?assertMatch(
         {error, {conflict, _}},
         emqx_dsch:register_backend(foo, bar)
-    ).
+    ),
+    %% Verify clean-up of persistent terms.
+    %%
+    %% Test self-check: to later verify that persistent terms are
+    %% erased, we make sure they're present in the first place:
+    ?assertMatch(#{ver := _, site := Site}, persistent_term:get(?dsch_pt_schema)),
+    ?assertMatch(#{foo := _}, persistent_term:get(?dsch_pt_backends)),
+    %%    Stop the application. Verify that persistent terms are gone:
+    application:stop(emqx_durable_storage),
+    ?assertMatch(undefined, persistent_term:get(?dsch_pt_schema, undefined)),
+    ?assertMatch(undefined, persistent_term:get(?dsch_pt_backends, undefined)).
 
 %% This testcase verifies creation and persistence of the DB schemas.
 t_020_ensure_schema(_Config) ->
