@@ -1,7 +1,6 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
 -module(emqx_bridge_opents_SUITE).
 
 -compile(nowarn_export_all).
@@ -10,178 +9,153 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
-% DB defaults
--define(BRIDGE_TYPE_BIN, <<"opents">>).
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
+
+-import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(CONNECTOR_TYPE, opents).
+-define(CONNECTOR_TYPE_BIN, <<"opents">>).
+-define(ACTION_TYPE, opents).
+-define(ACTION_TYPE_BIN, <<"opents">>).
+
+-define(PROXY_NAME, "opents").
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    [
-        {group, default}
-    ].
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
 
 groups() ->
-    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
+
+init_per_suite(TCConfig) ->
+    reset_proxy(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_opents,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
+    ),
     [
-        {default, AllTCs}
+        {apps, Apps},
+        {proxy_host, ?PROXY_HOST},
+        {proxy_port, ?PROXY_PORT},
+        {proxy_name, ?PROXY_NAME}
+        | TCConfig
     ].
 
-init_per_suite(Config) ->
-    emqx_bridge_v2_testlib:init_per_suite(Config, [
-        emqx,
-        emqx_conf,
-        emqx_bridge_opents,
-        emqx_connector,
-        emqx_bridge,
-        emqx_rule_engine,
-        emqx_management,
-        emqx_mgmt_api_test_util:emqx_dashboard()
-    ]).
-
 end_per_suite(Config) ->
-    emqx_bridge_v2_testlib:end_per_suite(Config).
-
-init_per_group(default, Config0) ->
-    Host = os:getenv("OPENTS_HOST", "toxiproxy.emqx.net"),
-    Port = list_to_integer(os:getenv("OPENTS_PORT", "4242")),
-    ProxyName = "opents",
-    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
-        true ->
-            Config = emqx_bridge_v2_testlib:init_per_group(default, ?BRIDGE_TYPE_BIN, Config0),
-            [
-                {bridge_host, Host},
-                {bridge_port, Port},
-                {proxy_name, ProxyName}
-                | Config
-            ];
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_opents);
-                _ ->
-                    {skip, no_opents}
-            end
-    end;
-init_per_group(_Group, Config) ->
-    Config.
-
-end_per_group(default, Config) ->
-    emqx_bridge_v2_testlib:end_per_group(Config),
-    ok;
-end_per_group(_Group, _Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    reset_proxy(),
     ok.
 
-init_per_testcase(TestCase, Config0) ->
-    Type = ?config(bridge_type, Config0),
-    UniqueNum = integer_to_binary(erlang:unique_integer()),
-    Name = <<
-        (atom_to_binary(TestCase))/binary, UniqueNum/binary
-    >>,
-    {_ConfigString, ConnectorConfig} = connector_config(Name, Config0),
-    {_, ActionConfig} = action_config(Name, Config0),
-    Config = [
-        {connector_type, Type},
-        {connector_name, Name},
+init_per_testcase(TestCase, TCConfig) ->
+    reset_proxy(),
+    Path = group_path(TCConfig, no_groups),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    ConnectorName = atom_to_binary(TestCase),
+    ConnectorConfig = connector_config(#{}),
+    ActionName = ConnectorName,
+    ActionConfig = action_config(#{
+        <<"connector">> => ConnectorName
+    }),
+    snabbkaffe:start_trace(),
+    [
+        {bridge_kind, action},
+        {connector_type, ?CONNECTOR_TYPE},
+        {connector_name, ConnectorName},
         {connector_config, ConnectorConfig},
-        {bridge_type, Type},
-        {bridge_name, Name},
-        {bridge_config, ActionConfig}
-        | Config0
-    ],
-    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    ok = snabbkaffe:start_trace(),
-    Config.
+        {action_type, ?ACTION_TYPE},
+        {action_name, ActionName},
+        {action_config, ActionConfig}
+        | TCConfig
+    ].
 
-end_per_testcase(TestCase, Config) ->
-    emqx_bridge_v2_testlib:end_per_testcase(TestCase, Config).
+end_per_testcase(_TestCase, _TCConfig) ->
+    snabbkaffe:stop(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-action_config(Name, Config) ->
-    Type = ?config(bridge_type, Config),
-    ConfigString =
-        io_lib:format(
-            "actions.~s.~s {\n"
-            "  enable = true\n"
-            "  connector = \"~s\"\n"
-            "  parameters = {\n"
-            "     data = []\n"
-            "  }\n"
-            "}\n",
-            [
-                Type,
-                Name,
-                Name
-            ]
-        ),
-    ct:pal("ActionConfig:~ts~n", [ConfigString]),
-    {ConfigString, parse_action_and_check(ConfigString, Type, Name)}.
+connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"server">> => <<"http://toxiproxy.emqx.net:4242">>,
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
 
-connector_config(Name, Config) ->
-    Host = ?config(bridge_host, Config),
-    Port = ?config(bridge_port, Config),
-    Type = ?config(bridge_type, Config),
-    ServerURL = opents_server_url(Host, Port),
-    ConfigString =
-        io_lib:format(
-            "connectors.~s.~s {\n"
-            "  enable = true\n"
-            "  server = \"~s\"\n"
-            "}\n",
-            [
-                Type,
-                Name,
-                ServerURL
-            ]
-        ),
-    ct:pal("ConnectorConfig:~ts~n", [ConfigString]),
-    {ConfigString, parse_connector_and_check(ConfigString, Type, Name)}.
+action_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"parameters">> => #{
+            <<"data">> => []
+        },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_action_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
 
-parse_action_and_check(ConfigString, BridgeType, Name) ->
-    parse_and_check(ConfigString, emqx_bridge_schema, <<"actions">>, BridgeType, Name).
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
 
-parse_connector_and_check(ConfigString, ConnectorType, Name) ->
-    parse_and_check(
-        ConfigString, emqx_connector_schema, <<"connectors">>, ConnectorType, Name
-    ).
-%%    emqx_utils_maps:safe_atom_key_map(Config).
+group_path(Config, Default) ->
+    case emqx_common_test_helpers:group_path(Config) of
+        [] -> Default;
+        Path -> Path
+    end.
 
-parse_and_check(ConfigString, SchemaMod, RootKey, Type0, Name) ->
-    Type = to_bin(Type0),
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    hocon_tconf:check_plain(SchemaMod, RawConf, #{required => false, atom_key => false}),
-    #{RootKey := #{Type := #{Name := Config}}} = RawConf,
-    Config.
+get_tc_prop(TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(?MODULE, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
+        Val
+    else
+        _ -> Default
+    end.
 
-to_bin(List) when is_list(List) ->
-    unicode:characters_to_binary(List, utf8);
-to_bin(Atom) when is_atom(Atom) ->
-    erlang:atom_to_binary(Atom);
-to_bin(Bin) when is_binary(Bin) ->
-    Bin.
+reset_proxy() ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT).
 
-opents_server_url(Host, Port) ->
-    iolist_to_binary([
-        "http://",
-        Host,
-        ":",
-        integer_to_binary(Port)
-    ]).
+with_failure(FailureType, Fn) ->
+    emqx_common_test_helpers:with_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn).
 
-is_success_check({ok, 200, #{failed := Failed}}) ->
-    ?assertEqual(0, Failed);
-is_success_check(Ret) ->
-    ?assert(false, Ret).
+opentsdb_query(TCConfig) ->
+    ?retry(200, 10, begin
+        {ok, {{_, 200, _}, _, IoTDBResult}} = do_opentsdb_query(TCConfig),
+        emqx_utils_json:decode(IoTDBResult)
+    end).
 
-is_error_check(Result) ->
-    ?assertMatch({error, {400, #{failed := 1}}}, Result).
-
-opentds_query(Config, Metric) ->
+do_opentsdb_query(TCConfig) ->
+    Metric = get_config(action_name, TCConfig),
     Path = <<"/api/query">>,
     Opts = #{return_all => true},
     Body = #{
@@ -199,76 +173,121 @@ opentds_query(Config, Metric) ->
         showQuery => false,
         delete => false
     },
-    opentsdb_request(Config, Path, Body, Opts).
+    opentsdb_request(Path, Body, Opts).
 
-opentsdb_request(Config, Path, Body) ->
-    opentsdb_request(Config, Path, Body, #{}).
+opentsdb_request(Path, Body) ->
+    opentsdb_request(Path, Body, #{}).
 
-opentsdb_request(Config, Path, Body, Opts) ->
-    Host = ?config(bridge_host, Config),
-    Port = ?config(bridge_port, Config),
-    ServerURL = opents_server_url(Host, Port),
+opentsdb_request(Path, Body, Opts) ->
+    ServerURL = <<"http://toxiproxy.emqx.net:4242">>,
     URL = <<ServerURL/binary, Path/binary>>,
     emqx_mgmt_api_test_util:request_api(post, URL, [], [], Body, Opts).
 
-make_data(Metric, Value) ->
-    #{
-        metric => Metric,
-        tags => #{
-            <<"host">> => <<"serverA">>
-        },
-        value => Value
-    }.
-
-%%------------------------------------------------------------------------------
-%% Testcases
-%%------------------------------------------------------------------------------
-
-t_query_simple(Config) ->
-    Metric = <<"t_query_simple">>,
-    Value = 12,
-    MakeMessageFun = fun() -> make_data(Metric, Value) end,
-    ok = emqx_bridge_v2_testlib:t_sync_query(
-        Config, MakeMessageFun, fun is_success_check/1, opents_bridge_on_query
-    ),
-    {ok, {{_, 200, _}, _, IoTDBResult}} = opentds_query(Config, Metric),
-    QResult = emqx_utils_json:decode(IoTDBResult),
-    ?assertMatch(
-        [
-            #{
-                <<"metric">> := Metric,
-                <<"dps">> := _
-            }
-        ],
-        QResult
-    ),
-    [#{<<"dps">> := Dps}] = QResult,
-    ?assertMatch([Value | _], maps:values(Dps)).
-
-t_create_via_http(Config) ->
-    emqx_bridge_v2_testlib:t_create_via_http(Config).
-
-t_start_stop(Config) ->
-    emqx_bridge_v2_testlib:t_start_stop(Config, opents_bridge_stopped).
-
-t_on_get_status(Config) ->
-    emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}).
-
-t_query_invalid_data(Config) ->
-    Metric = <<"t_query_invalid_data">>,
-    Value = 12,
-    MakeMessageFun = fun() -> maps:remove(value, make_data(Metric, Value)) end,
-    ok = emqx_bridge_v2_testlib:t_sync_query(
-        Config, MakeMessageFun, fun is_error_check/1, opents_bridge_on_query
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
     ).
 
-t_tags_validator(Config) ->
-    %% Create without data  configured
-    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+create_action_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
+    ).
 
+update_action_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:update_bridge_api2(Config, Overrides).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+simple_create_rule_api(SQL, TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(SQL, TCConfig).
+
+default_rule_sql() ->
+    <<
+        "select payload.metric as metric,"
+        " payload.tags as tags,"
+        " payload.value as value"
+        " from \"${t}\" "
+    >>.
+
+start_client() ->
+    {ok, C} = emqtt:start_link(),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
+
+t_start_stop(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_start_stop(TCConfig, opents_bridge_stopped).
+
+t_on_get_status(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{
+        failure_status => ?status_connecting
+    }).
+
+t_rule_action(TCConfig) when is_list(TCConfig) ->
+    Value = 12,
+    PayloadFn = fun() ->
+        emqx_utils_json:encode(#{
+            <<"metric">> => atom_to_binary(?FUNCTION_NAME),
+            <<"tags">> => #{<<"host">> => <<"serverA">>},
+            <<"value">> => Value
+        })
+    end,
+    PostPublishFn = fun(_Context) ->
+        ?retry(200, 10, begin
+            QResult = opentsdb_query(TCConfig),
+            ?assertMatch(
+                [
+                    #{
+                        <<"metric">> := _,
+                        <<"dps">> := _
+                    }
+                ],
+                QResult
+            ),
+            [#{<<"dps">> := Dps}] = QResult,
+            ?assertMatch([Value | _], maps:values(Dps))
+        end)
+    end,
+    RuleTopic = atom_to_binary(?FUNCTION_NAME),
+    RuleSQL = emqx_bridge_v2_testlib:fmt(default_rule_sql(), #{t => RuleTopic}),
+    Opts = #{
+        rule_topic => RuleTopic,
+        sql => RuleSQL,
+        payload_fn => PayloadFn,
+        post_publish_fn => PostPublishFn
+    },
+    emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+t_query_invalid_data(TCConfig) ->
+    %% Missing `value` key
+    Payload = emqx_utils_json:encode(#{
+        <<"metric">> => atom_to_binary(?FUNCTION_NAME),
+        <<"tags">> => #{<<"host">> => <<"serverA">>}
+    }),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(default_rule_sql(), TCConfig),
+    C = start_client(),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:publish(C, Topic, Payload),
+            #{?snk_kind := opents_connector_query_return},
+            5_000
+        ),
+    ok.
+
+t_tags_validator(TCConfig) ->
+    %% Create without data  configured
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
     ?assertMatch(
-        {ok, _},
-        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
+        {200, _},
+        update_action_api(TCConfig, #{
             <<"parameters">> => #{
                 <<"data">> => [
                     #{
@@ -280,10 +299,9 @@ t_tags_validator(Config) ->
             }
         })
     ),
-
     ?assertMatch(
-        {error, _},
-        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
+        {400, _},
+        update_action_api(TCConfig, #{
             <<"parameters">> => #{
                 <<"data">> => [
                     #{
@@ -294,146 +312,124 @@ t_tags_validator(Config) ->
                 ]
             }
         })
-    ).
+    ),
+    ok.
 
-t_raw_int_value(Config) ->
-    raw_value_test(<<"t_raw_int_value">>, 42, Config).
-
-t_raw_float_value(Config) ->
-    raw_value_test(<<"t_raw_float_value">>, 42.5, Config).
-
-t_list_tags(Config) ->
-    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
-    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
-    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
+t_list_tags(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"data">> => [
+                #{
+                    <<"metric">> => <<"${metric}">>,
+                    <<"tags">> => #{<<"host">> => <<"valueA">>},
+                    <<"value">> => <<"${value}">>
+                }
+            ]
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(default_rule_sql(), TCConfig),
+    C = start_client(),
+    Metric = atom_to_binary(?FUNCTION_NAME),
+    Payload = emqx_utils_json:encode(#{
+        <<"value">> => 12,
+        <<"metric">> => Metric,
+        <<"tags">> => #{<<"host">> => <<"serverA">>}
+    }),
+    emqtt:publish(C, Topic, Payload),
     ?retry(
-        _Sleep = 1_000,
-        _Attempts = 10,
-        ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(Config))
+        200,
+        10,
+        ?assertMatch(
+            [
+                #{
+                    <<"metric">> := Metric,
+                    <<"tags">> := #{<<"host">> := <<"valueA">>}
+                }
+            ],
+            opentsdb_query(TCConfig)
+        )
     ),
+    ok.
 
-    ?assertMatch(
-        {ok, _},
-        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
-            <<"parameters">> => #{
-                <<"data">> => [
-                    #{
-                        <<"metric">> => <<"${metric}">>,
-                        <<"tags">> => #{<<"host">> => <<"valueA">>},
-                        value => <<"${value}">>
-                    }
-                ]
-            }
-        })
-    ),
+t_raw_int_value(TCConfig) ->
+    raw_value_test(42, TCConfig).
 
-    Metric = <<"t_list_tags">>,
+t_raw_float_value(TCConfig) ->
+    raw_value_test(42.5, TCConfig).
+
+raw_value_test(RawValue, TCConfig) ->
+    Metric = get_config(action_name, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"data">> => [
+                #{
+                    <<"metric">> => <<"${metric}">>,
+                    <<"tags">> => <<"${tags}">>,
+                    <<"value">> => RawValue
+                }
+            ]
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(default_rule_sql(), TCConfig),
+    C = start_client(),
     Value = 12,
-    MakeMessageFun = fun() -> make_data(Metric, Value) end,
+    Payload = emqx_utils_json:encode(#{
+        <<"value">> => Value,
+        <<"metric">> => Metric,
+        <<"tags">> => #{<<"host">> => <<"serverA">>}
+    }),
+    emqtt:publish(C, Topic, Payload),
+    ?retry(200, 10, begin
+        QResult = opentsdb_query(TCConfig),
+        ?assertMatch(
+            [
+                #{
+                    <<"metric">> := Metric,
+                    <<"dps">> := _
+                }
+            ],
+            QResult
+        ),
+        [#{<<"dps">> := Dps}] = QResult,
+        ?assertMatch([RawValue | _], maps:values(Dps))
+    end),
+    ok.
 
-    is_success_check(
-        emqx_resource:simple_sync_query(ResourceId, {BridgeId, MakeMessageFun()})
-    ),
-
-    {ok, {{_, 200, _}, _, IoTDBResult}} = opentds_query(Config, Metric),
-    QResult = emqx_utils_json:decode(IoTDBResult),
-    ?assertMatch(
-        [
-            #{
-                <<"metric">> := Metric,
-                <<"tags">> := #{<<"host">> := <<"valueA">>}
-            }
-        ],
-        QResult
-    ).
-
-t_list_tags_with_var(Config) ->
-    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
-    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
-    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
+t_list_tags_with_var(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"data">> => [
+                #{
+                    <<"metric">> => <<"${metric}">>,
+                    <<"tags">> => #{<<"host">> => <<"${value}">>},
+                    <<"value">> => <<"${value}">>
+                }
+            ]
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(default_rule_sql(), TCConfig),
+    C = start_client(),
+    Metric = atom_to_binary(?FUNCTION_NAME),
+    Payload = emqx_utils_json:encode(#{
+        <<"value">> => 12,
+        <<"metric">> => Metric,
+        <<"tags">> => #{<<"host">> => <<"serverA">>}
+    }),
+    emqtt:publish(C, Topic, Payload),
     ?retry(
-        _Sleep = 1_000,
-        _Attempts = 10,
-        ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(Config))
+        200,
+        10,
+        ?assertMatch(
+            [
+                #{
+                    <<"metric">> := Metric,
+                    <<"tags">> := #{<<"host">> := <<"12">>}
+                }
+            ],
+            opentsdb_query(TCConfig)
+        )
     ),
-
-    ?assertMatch(
-        {ok, _},
-        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
-            <<"parameters">> => #{
-                <<"data">> => [
-                    #{
-                        <<"metric">> => <<"${metric}">>,
-                        <<"tags">> => #{<<"host">> => <<"${value}">>},
-                        value => <<"${value}">>
-                    }
-                ]
-            }
-        })
-    ),
-
-    Metric = <<"t_list_tags_with_var">>,
-    Value = 12,
-    MakeMessageFun = fun() -> make_data(Metric, Value) end,
-
-    is_success_check(
-        emqx_resource:simple_sync_query(ResourceId, {BridgeId, MakeMessageFun()})
-    ),
-
-    {ok, {{_, 200, _}, _, IoTDBResult}} = opentds_query(Config, Metric),
-    QResult = emqx_utils_json:decode(IoTDBResult),
-    ?assertMatch(
-        [
-            #{
-                <<"metric">> := Metric,
-                <<"tags">> := #{<<"host">> := <<"12">>}
-            }
-        ],
-        QResult
-    ).
-
-raw_value_test(Metric, RawValue, Config) ->
-    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
-    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config),
-    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
-    ?retry(
-        _Sleep = 1_000,
-        _Attempts = 10,
-        ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(Config))
-    ),
-
-    ?assertMatch(
-        {ok, _},
-        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
-            <<"parameters">> => #{
-                <<"data">> => [
-                    #{
-                        <<"metric">> => <<"${metric}">>,
-                        <<"tags">> => <<"${tags}">>,
-                        <<"value">> => RawValue
-                    }
-                ]
-            }
-        })
-    ),
-
-    Value = 12,
-    MakeMessageFun = fun() -> make_data(Metric, Value) end,
-
-    is_success_check(
-        emqx_resource:simple_sync_query(ResourceId, {BridgeId, MakeMessageFun()})
-    ),
-
-    {ok, {{_, 200, _}, _, IoTDBResult}} = opentds_query(Config, Metric),
-    QResult = emqx_utils_json:decode(IoTDBResult),
-    ?assertMatch(
-        [
-            #{
-                <<"metric">> := Metric,
-                <<"dps">> := _
-            }
-        ],
-        QResult
-    ),
-    [#{<<"dps">> := Dps}] = QResult,
-    ?assertMatch([RawValue | _], maps:values(Dps)).
+    ok.

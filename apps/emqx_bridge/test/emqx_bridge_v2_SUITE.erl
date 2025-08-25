@@ -119,28 +119,27 @@ end_per_group(?custom_cluster, _TCConfig) ->
 end_per_group(_Group, _TCConfig) ->
     ok.
 
-init_per_testcase(t_modification_dates_when_replicating, Config) ->
-    Config;
-init_per_testcase(_TestCase, Config) ->
-    %% Setting up mocks for fake connector and bridge V2
-    setup_mocks(),
-    ets:new(fun_table_name(), [named_table, public]),
-    %% Create a fake connector
-    {ok, _} = emqx_connector:create(?global_ns, con_type(), con_name(), con_config()),
+init_per_testcase(TestCase, Config) ->
+    maybe
+        true ?= needs_mock(TestCase),
+        %% Setting up mocks for fake connector and bridge V2
+        setup_mocks(),
+        ets:new(fun_table_name(), [named_table, public]),
+        %% Create a fake connector
+        {ok, _} = emqx_connector:create(?global_ns, con_type(), con_name(), con_config())
+    end,
     Config.
 
-end_per_testcase(t_modification_dates_when_replicating, _Config) ->
+end_per_testcase(TestCase, _Config) ->
+    maybe
+        true ?= needs_mock(TestCase),
+        ets:delete(fun_table_name()),
+        emqx_action_info:clean_cache(),
+        update_root_config(#{})
+    end,
     emqx_common_test_helpers:call_janitor(),
     emqx_bridge_v2_testlib:delete_all_rules(),
     delete_all_bridges_and_connectors(),
-    meck:unload(),
-    ok;
-end_per_testcase(_TestCase, _Config) ->
-    ets:delete(fun_table_name()),
-    emqx_common_test_helpers:call_janitor(),
-    emqx_bridge_v2_testlib:delete_all_rules(),
-    delete_all_bridges_and_connectors(),
-    update_root_config(#{}),
     meck:unload(),
     ok.
 
@@ -183,7 +182,8 @@ fields(connector_config) ->
         {resource_opts, hoconsc:mk(typerefl:map(), #{})},
         {on_start_fun, hoconsc:mk(typerefl:binary(), #{})},
         {on_get_status_fun, hoconsc:mk(typerefl:binary(), #{})},
-        {on_add_channel_fun, hoconsc:mk(typerefl:binary(), #{})}
+        {on_add_channel_fun, hoconsc:mk(typerefl:binary(), #{})},
+        {ssl, hoconsc:mk(typerefl:map(), #{})}
     ];
 fields(action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
@@ -239,6 +239,11 @@ fun_table_name() ->
 
 registered_process_name() ->
     my_registered_process.
+
+needs_mock(TestCase) ->
+    not lists:member(TestCase, [
+        t_modification_dates_when_replicating
+    ]).
 
 setup_mocks() ->
     MeckOpts = [passthrough, no_link, no_history],
@@ -390,6 +395,14 @@ id(Type, Name, ConnName) ->
         name => Name,
         connector_name => ConnName
     }).
+
+cert_file(Name) ->
+    data_file(filename:join(["certs", Name])).
+
+data_file(Name) ->
+    Dir = code:lib_dir(emqx_bridge),
+    {ok, Bin} = file:read_file(filename:join([Dir, "test", "data", Name])),
+    Bin.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -1484,12 +1497,20 @@ t_modification_dates_when_replicating(Config) ->
     snabbkaffe:start_trace(),
     try
         ConnectorName = mod_dates,
-        {201, _} = emqx_bridge_mqtt_v2_publisher_SUITE:create_connector_api(
-            [
-                {connector_type, mqtt},
-                {connector_name, ConnectorName},
-                {connector_config, emqx_bridge_mqtt_v2_publisher_SUITE:connector_config()}
-            ],
+        BridgeConfigs = [
+            {connector_type, mqtt},
+            {connector_name, ConnectorName},
+            {connector_config, emqx_bridge_schema_testlib:mqtt_connector_config(#{})},
+            {bridge_kind, action},
+            {action_type, mqtt},
+            {action_name, ConnectorName},
+            {action_config,
+                emqx_bridge_schema_testlib:mqtt_action_config(#{
+                    <<"connector">> => bin(ConnectorName)
+                })}
+        ],
+        {201, _} = emqx_bridge_v2_testlib:create_connector_api2(
+            BridgeConfigs,
             #{}
         ),
         snabbkaffe_nemesis:inject_crash(
@@ -1501,16 +1522,8 @@ t_modification_dates_when_replicating(Config) ->
                 false
             end
         ),
-        {201, _} = emqx_bridge_mqtt_v2_publisher_SUITE:create_action_api(
-            [
-                {bridge_kind, action},
-                {action_type, mqtt},
-                {action_name, ConnectorName},
-                {action_config,
-                    emqx_bridge_mqtt_v2_publisher_SUITE:action_config(#{
-                        <<"connector">> => ConnectorName
-                    })}
-            ],
+        {201, _} = emqx_bridge_v2_testlib:create_action_api2(
+            BridgeConfigs,
             #{}
         ),
         #{
@@ -1939,4 +1952,26 @@ t_fallback_actions_different_namespaces(_Config) ->
         end,
         []
     ),
+    ok.
+
+t_update_ssl_conf(_TCConfig) ->
+    Type = bridge_type(),
+    Name = atom_to_binary(?FUNCTION_NAME),
+    CertDir = filename:join([emqx:mutable_certs_dir(), connectors, Type, Name]),
+    EnableSSLConf = #{
+        <<"ssl">> =>
+            #{
+                <<"cacertfile">> => cert_file("cafile"),
+                <<"certfile">> => cert_file("certfile"),
+                <<"enable">> => true,
+                <<"keyfile">> => cert_file("keyfile"),
+                <<"verify">> => <<"verify_peer">>
+            }
+    },
+    {ok, _} = emqx_connector:create(?global_ns, con_type(), Name, EnableSSLConf),
+    ?assertMatch({ok, [_, _, _]}, file:list_dir(CertDir)),
+    NoSSLConf = EnableSSLConf#{<<"ssl">> := #{<<"enable">> => false}},
+    {ok, _} = emqx_connector:create(?global_ns, con_type(), Name, NoSSLConf),
+    {ok, _} = emqx_tls_certfile_gc:force(),
+    ?assertMatch({error, enoent}, file:list_dir(CertDir)),
     ok.

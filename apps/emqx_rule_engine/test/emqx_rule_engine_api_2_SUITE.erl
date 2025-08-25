@@ -1602,14 +1602,14 @@ t_action_details(TCConfig0) ->
             {connector_type, <<"mqtt">>},
             {connector_name, Name},
             {connector_config,
-                emqx_bridge_mqtt_v2_publisher_SUITE:connector_config(#{
+                emqx_bridge_schema_testlib:mqtt_connector_config(#{
                     <<"server">> => <<"127.0.0.1:", (integer_to_binary(MQTTPort))/binary>>
                 })},
             {bridge_kind, action},
             {action_type, <<"mqtt">>},
             {action_name, Name},
             {action_config,
-                emqx_bridge_mqtt_v2_publisher_SUITE:action_config(#{
+                emqx_bridge_schema_testlib:mqtt_action_config(#{
                     <<"connector">> => Name
                 })}
             | TCConfig

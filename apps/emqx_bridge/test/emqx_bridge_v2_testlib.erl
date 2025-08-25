@@ -10,8 +10,10 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
@@ -249,8 +251,8 @@ action_hookpoint(Config) ->
 
 add_source_hookpoint(Config) ->
     Hookpoint = source_hookpoint(Config),
-    ok = emqx_hooks:add(Hookpoint, {?MODULE, source_hookpoint_callback, [self()]}, 1000),
     on_exit(fun() -> emqx_hooks:del(Hookpoint, {?MODULE, source_hookpoint_callback}) end),
+    ok = emqx_hooks:add(Hookpoint, {?MODULE, source_hookpoint_callback, [self()]}, 1000),
     ok.
 
 %% action/source resource id
@@ -291,13 +293,21 @@ create_bridge(Config, Overrides) ->
     ct:pal("creating bridge with config:\n  ~p", [ActionConfig]),
     emqx_bridge_v2:create(?global_ns, ?ROOT_KEY_ACTIONS, ActionType, ActionName, ActionConfig).
 
-get_ct_config_with_fallback(Config, [Key]) ->
-    ?config(Key, Config);
-get_ct_config_with_fallback(Config, [Key | Rest]) ->
-    case ?config(Key, Config) of
-        undefined ->
-            get_ct_config_with_fallback(Config, Rest);
-        X ->
+get_ct_config_with_fallback(TCConfig, KeyPath) ->
+    get_ct_config_with_fallback(TCConfig, KeyPath, undefined).
+
+get_ct_config_with_fallback(Config, [Key], Default) ->
+    case lists:keyfind(Key, 1, Config) of
+        false ->
+            Default;
+        {Key, X} ->
+            X
+    end;
+get_ct_config_with_fallback(Config, [Key | Rest], Default) ->
+    case lists:keyfind(Key, 1, Config) of
+        false ->
+            get_ct_config_with_fallback(Config, Rest, Default);
+        {Key, X} ->
             X
     end.
 
@@ -617,6 +627,7 @@ do_create_connector_api2(Params, Opts) ->
         auth_header => auth_header_lazy(Opts)
     }).
 
+%% Prefer to use `update_connector_api_simple`
 update_connector_api(ConnectorName, ConnectorType, ConnectorConfig) ->
     ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
     Path = emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
@@ -624,6 +635,30 @@ update_connector_api(ConnectorName, ConnectorType, ConnectorConfig) ->
     Res = request(put, Path, ConnectorConfig),
     ct:pal("connector update (http) result:\n  ~p", [Res]),
     Res.
+
+update_connector_api_params(TCConfig, Overrides) when is_list(TCConfig) ->
+    #{connector_config := ConnectorConfig} = get_common_values_with_configs(TCConfig),
+    emqx_utils_maps:deep_merge(
+        ConnectorConfig,
+        Overrides
+    ).
+
+update_connector_api_simple(TCConfig, #{} = Overrides) ->
+    #{
+        connector_type := Type,
+        connector_name := Name
+    } = get_common_values(TCConfig),
+    ConnectorId = emqx_connector_resource:connector_id(Type, Name),
+    Params = update_connector_api_params(TCConfig, Overrides),
+    do_update_connector_api(ConnectorId, Params, _Opts = #{}).
+
+do_update_connector_api(ConnectorId, Params, Opts) ->
+    simple_request(#{
+        method => put,
+        url => emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
+        body => Params,
+        auth_header => auth_header_lazy(Opts)
+    }).
 
 start_connector_api(ConnectorName, ConnectorType) ->
     ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
@@ -1044,19 +1079,69 @@ create_rule_api2(Params, Opts) ->
     }).
 
 simple_create_rule_api(TCConfig) ->
-    simple_create_rule_api(<<"select * from \"${t}\" ">>, TCConfig).
+    simple_create_rule_api(auto, TCConfig).
 
-simple_create_rule_api(SQL, TCConfig) ->
-    #{rule_action_id := ActionId} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
-    RuleTopic = <<"t">>,
-    {201, #{<<"id">> := RuleId}} = emqx_bridge_v2_testlib:create_rule_api2(
+simple_create_rule_api(SQLOrOpts, TCConfig) ->
+    Opts =
+        case is_map(SQLOrOpts) of
+            true -> SQLOrOpts;
+            false when is_binary(SQLOrOpts) -> #{sql => SQLOrOpts};
+            false when SQLOrOpts == auto -> #{sql => SQLOrOpts}
+        end,
+    case get_common_values(TCConfig) of
+        #{kind := action, rule_action_id := ActionId} ->
+            do_action_simple_create_rule_api(ActionId, Opts, TCConfig);
+        #{kind := source, source_hookpoint := Hookpoint} ->
+            do_source_simple_create_rule_api(Hookpoint, Opts, TCConfig)
+    end.
+
+do_action_simple_create_rule_api(ActionId, Opts, _TCConfig) ->
+    SQL =
+        case maps:get(sql, Opts) of
+            auto -> <<"select * from \"${t}\" ">>;
+            SQL0 when is_binary(SQL0) -> SQL0
+        end,
+    UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
+    RuleTopic = <<"t/", UniqueNum/binary>>,
+    {201, #{<<"id">> := RuleId}} = create_rule_api2(
         #{
-            <<"sql">> => emqx_bridge_v2_testlib:fmt(SQL, #{t => RuleTopic}),
+            <<"sql">> => fmt(SQL, #{t => RuleTopic}),
             <<"actions">> => [ActionId],
             <<"description">> => <<"bridge_v2 test rule">>
         }
     ),
     #{topic => RuleTopic, id => RuleId}.
+
+do_source_simple_create_rule_api(Hookpoint, Opts, _TCConfig) ->
+    SQL =
+        case maps:get(sql, Opts) of
+            auto -> <<"select * from \"${t}\" ">>;
+            SQL0 when is_binary(SQL0) -> SQL0
+        end,
+    RepublishOverrides = maps:get(republish_overrides, Opts, #{}),
+    RepublishParams = #{
+        <<"function">> => <<"republish">>,
+        <<"args">> =>
+            maps:merge(
+                #{
+                    <<"topic">> => <<"republish/topic">>,
+                    <<"payload">> => <<"${.}">>,
+                    <<"qos">> => 2,
+                    <<"retain">> => false,
+                    <<"user_properties">> => <<"${.pub_props.'User-Property'}">>
+                },
+                RepublishOverrides
+            )
+    },
+    #{<<"args">> := #{<<"topic">> := RepublishTopic}} = RepublishParams,
+    {201, #{<<"id">> := RuleId}} = create_rule_api2(
+        #{
+            <<"sql">> => fmt(SQL, #{t => Hookpoint}),
+            <<"actions">> => [RepublishParams],
+            <<"description">> => <<"bridge_v2 test rule">>
+        }
+    ),
+    #{topic => RepublishTopic, id => RuleId}.
 
 delete_rule_api(RuleId) ->
     Path = emqx_mgmt_api_test_util:api_path(["rules", RuleId]),
@@ -1179,6 +1264,9 @@ get_value(Key, Config) ->
             Value
     end.
 
+get_value(Key, Config, Default) ->
+    proplists:get_value(Key, Config, Default).
+
 get_common_values(Config) ->
     Kind = proplists:get_value(bridge_kind, Config, action),
     case Kind of
@@ -1196,14 +1284,19 @@ get_common_values(Config) ->
                 connector_name => get_value(connector_name, Config)
             };
         source ->
+            Type = get_value(source_type, Config),
+            Name = get_value(source_name, Config),
+            BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
             #{
                 resource_namespace => proplists:get_value(resource_namespace, Config, ?global_ns),
                 conf_root_key => sources,
                 kind => Kind,
-                type => get_value(source_type, Config),
-                name => get_value(source_name, Config),
+                type => Type,
+                name => Name,
                 connector_type => get_value(connector_type, Config),
-                connector_name => get_value(connector_name, Config)
+                connector_name => get_value(connector_name, Config),
+                bridge_hookpoint => emqx_bridge_resource:bridge_hookpoint(BridgeId),
+                source_hookpoint => emqx_bridge_v2:source_hookpoint(BridgeId)
             }
     end.
 
@@ -1213,11 +1306,16 @@ get_common_values_with_configs(Config) ->
     KindConfig =
         case Kind of
             action ->
-                get_value(action_config, Config);
+                get_value(action_config, Config, undefined);
             source ->
-                get_value(source_config, Config)
+                get_value(source_config, Config, undefined)
         end,
-    Values#{config => KindConfig, connector_config => ConnectorConfig}.
+    emqx_utils_maps:put_if(
+        Values#{connector_config => ConnectorConfig},
+        config,
+        KindConfig,
+        KindConfig /= undefined
+    ).
 
 connector_resource_id(Config) ->
     #{
@@ -1375,8 +1473,10 @@ t_rule_action(TCConfig, Opts) ->
         end
     ),
     RuleCreationOpts = maps:with([sql, rule_topic], Opts),
+    ActionOverrides = maps:get(action_overrides, Opts, #{}),
     CreateBridgeFn = maps:get(create_bridge_fn, Opts, fun() ->
-        ?assertMatch({ok, _}, create_bridge_api(TCConfig))
+        ?assertMatch({201, _}, create_connector_api2(TCConfig, #{})),
+        ?assertMatch({201, _}, create_action_api2(TCConfig, ActionOverrides))
     end),
     ?check_trace(
         begin
@@ -1387,6 +1487,7 @@ t_rule_action(TCConfig, Opts) ->
                 RuleCreationOpts,
                 emqx_topic:join([<<"test">>, emqx_utils_conv:bin(Type)])
             ),
+            ct:pal("creating rule"),
             {ok, _} = create_rule_and_action_http(Type, RuleTopic, TCConfig, RuleCreationOpts),
             ResourceId = connector_resource_id(TCConfig),
             ?retry(
@@ -1395,8 +1496,11 @@ t_rule_action(TCConfig, Opts) ->
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
             Context0 = #{rule_topic => RuleTopic, payload_fn => PayloadFn},
+            ct:pal("preparing to publish payload"),
             Context1 = PrePublishFn(Context0),
+            ct:pal("publishing payload"),
             Context2 = PublishFn(Context1),
+            ct:pal("checking results"),
             PostPublishFn(Context2),
             ok
         end,
@@ -1486,32 +1590,42 @@ t_sync_query_down(Config, Opts) ->
     ),
     ok.
 
-%% - `ProduceFn': produces a message in the remote system that shall be consumed.  May be
-%%    a `{function(), integer()}' tuple.
-%% - `Tracepoint': marks the end of consumed message processing.
+-doc """
+- `produce_fn': produces a message in the remote system that shall be consumed.  May be a
+   `{function(), integer()}' tuple.  Omit or set to `false` to disable.
+
+- `produce_tracepoint': marks the end of consumed message processing.
+""".
 t_consume(Config, Opts) ->
     #{
-        consumer_ready_tracepoint := ConsumerReadyTPFn,
         produce_fn := ProduceFn,
         check_fn := CheckFn,
         produce_tracepoint := TracePointFn
     } = Opts,
     TestTimeout = maps:get(test_timeout, Opts, 60_000),
+    ConsumerReadyTPFn = maps:get(consumer_ready_tracepoint, Opts, false),
+    SourceOverrides = maps:get(source_overrides, Opts, #{}),
     ?check_trace(
         #{timetrap => TestTimeout},
         begin
             ConsumerReadyTimeout = maps:get(consumer_ready_timeout, Opts, 15_000),
             case ConsumerReadyTPFn of
+                false ->
+                    Receive0 = fun(not_used) -> {ok, not_used} end,
+                    SRef0 = not_used;
                 {Predicate, NEvents} when is_function(Predicate) ->
+                    Receive0 = fun snabbkaffe:receive_events/1,
                     {ok, SRef0} = snabbkaffe:subscribe(Predicate, NEvents, ConsumerReadyTimeout);
                 Predicate when is_function(Predicate) ->
+                    Receive0 = fun snabbkaffe:receive_events/1,
                     {ok, SRef0} = snabbkaffe:subscribe(
                         Predicate, _NEvents = 1, ConsumerReadyTimeout
                     )
             end,
             ?tpal("creating connector and source"),
-            ?assertMatch({ok, _}, create_bridge_api(Config)),
-            ?assertMatch({ok, _}, snabbkaffe:receive_events(SRef0)),
+            ?assertMatch({201, _}, create_connector_api2(Config, #{})),
+            ?assertMatch({201, _}, create_source_api(Config, SourceOverrides)),
+            ?assertMatch({ok, _}, Receive0(SRef0)),
             ?tpal("adding hookpoint"),
             ok = add_source_hookpoint(Config),
             ?tpal("waiting until connected"),
@@ -1539,6 +1653,15 @@ t_consume(Config, Opts) ->
             after 5_000 ->
                 error({timeout, process_info(self(), messages)})
             end,
+            ?assertMatch(
+                {200, #{
+                    <<"metrics">> := #{
+                        <<"matched">> := 0,
+                        <<"received">> := 1
+                    }
+                }},
+                get_source_metrics_api(Config)
+            ),
             ok
         end,
         []
@@ -1692,12 +1815,13 @@ t_on_get_status(Config) ->
     t_on_get_status(Config, _Opts = #{}).
 
 t_on_get_status(Config, Opts) ->
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyName = ?config(proxy_name, Config),
+    ConnOverrides = get_value(connector_overrides, Config, #{}),
+    KindOverrides = get_ct_config_with_fallback(Config, [action_overrides, source_overrides], #{}),
+    ProxyHost = get_value(proxy_host, Config, undefined),
     FailureStatus = maps:get(failure_status, Opts, ?status_disconnected),
     NormalStatus = maps:get(normal_status, Opts, ?status_connected),
-    ?assertMatch({ok, _}, create_bridge_api(Config)),
+    ?assertMatch({201, _}, create_connector_api2(Config, ConnOverrides)),
+    ?assertMatch({201, _}, simplify_result(create_kind_api(Config, KindOverrides))),
     ResourceId = connector_resource_id(Config),
     %% Since the connection process is async, we give it some time to
     %% stabilize and avoid flakiness.
@@ -1714,6 +1838,8 @@ t_on_get_status(Config, Opts) ->
         undefined ->
             ok;
         _ ->
+            ProxyPort = get_value(proxy_port, Config),
+            ProxyName = get_value(proxy_name, Config),
             emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
                 case is_list(FailureStatus) of
                     true ->
@@ -2243,6 +2369,50 @@ t_rule_test_trace(Config, Opts) ->
     ),
     {204, _} = stop_rule_test_trace(TraceNameErr),
 
+    ok.
+
+-doc """
+Smoke integration test to check that fallback action are triggered.
+""".
+t_fallback_actions(TCConfig) ->
+    {201, _} = create_connector_api2(TCConfig, _Overrides = #{}),
+    RepublishTopic = <<"republish/fallback">>,
+    RepublishArgs = #{
+        <<"topic">> => RepublishTopic,
+        <<"qos">> => 1,
+        <<"retain">> => false,
+        <<"payload">> => <<"${payload}">>,
+        <<"mqtt_properties">> => #{},
+        <<"user_properties">> => <<"${pub_props.'User-Property'}">>,
+        <<"direct_dispatch">> => false
+    },
+    {201, _} =
+        create_action_api2(
+            TCConfig,
+            #{
+                <<"fallback_actions">> => [
+                    #{
+                        <<"kind">> => <<"republish">>,
+                        <<"args">> => RepublishArgs
+                    }
+                ],
+                %% Simple way to make the requests fail: make the buffer overflow
+                <<"resource_opts">> => #{
+                    <<"max_buffer_bytes">> => <<"0B">>,
+                    <<"buffer_seg_bytes">> => <<"0B">>
+                }
+            }
+        ),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    {ok, C} = emqtt:start_link(#{proto_ver => v5}),
+    {ok, _} = emqtt:connect(C),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C, RepublishTopic, 1),
+    Payload = emqx_utils_json:encode(#{
+        <<"k">> => <<"aaaaaaaaaaaaaaaaa">>
+    }),
+    {ok, _} = emqtt:publish(C, RuleTopic, Payload, [{qos, ?QOS_1}]),
+    ?assertReceive({publish, #{topic := RepublishTopic, payload := Payload}}),
     ok.
 
 -doc """

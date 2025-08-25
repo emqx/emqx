@@ -19,7 +19,7 @@ type_name() ->
     mongodb.
 
 bridge_types() ->
-    [mongodb, mongodb_rs, mongodb_sharded, mongodb_single].
+    [mongodb].
 
 resource_callback_module() ->
     emqx_bridge_mongodb_connector.

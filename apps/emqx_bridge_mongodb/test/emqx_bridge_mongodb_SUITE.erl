@@ -1,7 +1,6 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
 -module(emqx_bridge_mongodb_SUITE).
 
 -compile(nowarn_export_all).
@@ -10,432 +9,404 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
--import(emqx_utils_conv, [bin/1]).
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
+
+-import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(ACTION_TYPE, mongodb).
+-define(ACTION_TYPE_BIN, <<"mongodb">>).
+-define(CONNECTOR_TYPE, mongodb).
+-define(CONNECTOR_TYPE_BIN, <<"mongodb">>).
+
+%% Only for single mode
+-define(PROXY_NAME, "mongo_single_tcp").
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+
+-define(rs, rs).
+-define(sharded, sharded).
+-define(single, single).
+
+-define(sync, sync).
+-define(async, async).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    [
-        {group, async},
-        {group, sync}
-        | (emqx_common_test_helpers:all(?MODULE) -- group_tests())
-    ].
-
-group_tests() ->
-    [
-        t_setup_via_config_and_publish,
-        t_setup_via_http_api_and_publish,
-        t_payload_template,
-        t_collection_template,
-        t_mongo_date_rule_engine_functions,
-        t_get_status_server_selection_too_short,
-        t_use_legacy_protocol_option
-    ].
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
 
 groups() ->
-    TypeGroups = [
-        {group, rs},
-        {group, sharded},
-        {group, single}
-    ],
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
+
+init_per_suite(TCConfig) ->
+    reset_proxy(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_mongodb,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
+    ),
     [
-        {async, TypeGroups},
-        {sync, TypeGroups},
-        {rs, group_tests()},
-        {sharded, group_tests()},
-        {single, group_tests()}
+        {apps, Apps}
+        | TCConfig
     ].
 
-init_per_group(async, Config) ->
-    [{query_mode, async} | Config];
-init_per_group(sync, Config) ->
-    [{query_mode, sync} | Config];
-init_per_group(Type = rs, Config) ->
-    MongoHost = os:getenv("MONGO_RS_HOST", "mongo1"),
-    MongoPort = list_to_integer(os:getenv("MONGO_RS_PORT", "27017")),
-    case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
-        true ->
-            Apps = start_apps(Config),
-            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
-            [
-                {apps, Apps},
-                {mongo_host, MongoHost},
-                {mongo_port, MongoPort},
-                {mongo_config, MongoConfig},
-                {mongo_type, Type},
-                {mongo_name, Name}
-                | Config
-            ];
-        false ->
-            {skip, no_mongo}
-    end;
-init_per_group(Type = sharded, Config) ->
-    MongoHost = os:getenv("MONGO_SHARDED_HOST", "mongosharded3"),
-    MongoPort = list_to_integer(os:getenv("MONGO_SHARDED_PORT", "27017")),
-    case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
-        true ->
-            Apps = start_apps(Config),
-            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
-            [
-                {apps, Apps},
-                {mongo_host, MongoHost},
-                {mongo_port, MongoPort},
-                {mongo_config, MongoConfig},
-                {mongo_type, Type},
-                {mongo_name, Name}
-                | Config
-            ];
-        false ->
-            {skip, no_mongo}
-    end;
-init_per_group(Type = single, Config) ->
-    MongoHost = os:getenv("MONGO_SINGLE_HOST", "mongo"),
-    MongoPort = list_to_integer(os:getenv("MONGO_SINGLE_PORT", "27017")),
-    case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
-        true ->
-            Apps = start_apps(Config),
-            %% NOTE: `mongo-single` has auth enabled, see `credentials.env`.
-            AuthSource = bin(os:getenv("MONGO_AUTHSOURCE", "admin")),
-            Username = bin(os:getenv("MONGO_USERNAME", "")),
-            Password = bin(os:getenv("MONGO_PASSWORD", "")),
-            Passfile = filename:join(?config(priv_dir, Config), "passfile"),
-            ok = file:write_file(Passfile, Password),
-            NConfig = [
-                {mongo_authsource, AuthSource},
-                {mongo_username, Username},
-                {mongo_password, Password},
-                {mongo_passfile, Passfile}
-                | Config
-            ],
-            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, NConfig),
-            [
-                {apps, Apps},
-                {mongo_host, MongoHost},
-                {mongo_port, MongoPort},
-                {mongo_config, MongoConfig},
-                {mongo_type, Type},
-                {mongo_name, Name}
-                | NConfig
-            ];
-        false ->
-            {skip, no_mongo}
-    end.
-
-end_per_group(Type, Config) when
-    Type =:= rs;
-    Type =:= sharded;
-    Type =:= single
-->
-    Apps = ?config(apps, Config),
+end_per_suite(TCConfig) ->
+    Apps = ?config(apps, TCConfig),
     emqx_cth_suite:stop(Apps),
-    ok;
-end_per_group(_Type, _Config) ->
+    reset_proxy(),
     ok.
 
-init_per_suite(Config) ->
-    Config.
+init_per_group(?rs, TCConfig) ->
+    Host = os:getenv("MONGO_RS_HOST", "mongo1"),
+    Port = list_to_integer(os:getenv("MONGO_RS_PORT", "27017")),
+    [
+        {mongo_host, Host},
+        {mongo_port, Port},
+        {mongo_type, ?rs}
+        | TCConfig
+    ];
+init_per_group(?sharded, TCConfig) ->
+    Host = os:getenv("MONGO_SHARDED_HOST", "mongosharded3"),
+    Port = list_to_integer(os:getenv("MONGO_SHARDED_PORT", "27017")),
+    [
+        {mongo_host, Host},
+        {mongo_port, Port},
+        {mongo_type, ?sharded}
+        | TCConfig
+    ];
+init_per_group(?single, TCConfig) ->
+    Host = os:getenv("MONGO_SINGLE_HOST", "mongo"),
+    Port = list_to_integer(os:getenv("MONGO_SINGLE_PORT", "27017")),
+    [
+        {mongo_host, Host},
+        {mongo_port, Port},
+        {mongo_type, ?single},
+        {proxy_host, ?PROXY_HOST},
+        {proxy_port, ?PROXY_PORT},
+        {proxy_name, ?PROXY_NAME}
+        | TCConfig
+    ];
+init_per_group(?async, TCConfig) ->
+    [{query_mode, async} | TCConfig];
+init_per_group(?sync, TCConfig) ->
+    [{query_mode, sync} | TCConfig];
+init_per_group(_Group, TCConfig) ->
+    TCConfig.
 
-end_per_suite(_Config) ->
+end_per_group(_Group, _TCConfig) ->
     ok.
 
-init_per_testcase(_Testcase, Config) ->
-    clear_db(Config),
-    emqx_bridge_v2_testlib:delete_all_rules(),
-    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+init_per_testcase(TestCase, TCConfig) ->
+    reset_proxy(),
+    Path = group_path(TCConfig, no_groups),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    ConnectorName = atom_to_binary(TestCase),
+    ConnTypeConfig =
+        case get_config(mongo_type, TCConfig, ?single) of
+            ?single -> single_connector_config();
+            ?sharded -> sharded_connector_config();
+            ?rs -> rs_connector_config()
+        end,
+    ConnectorConfig = connector_config(ConnTypeConfig),
+    ActionName = ConnectorName,
+    ActionConfig = action_config(#{
+        <<"connector">> => ConnectorName,
+        <<"resource_opts">> => #{
+            <<"query_mode">> => get_config(query_mode, TCConfig, <<"sync">>)
+        }
+    }),
     snabbkaffe:start_trace(),
-    Config.
+    [
+        {bridge_kind, action},
+        {connector_type, ?CONNECTOR_TYPE},
+        {connector_name, ConnectorName},
+        {connector_config, ConnectorConfig},
+        {action_type, ?ACTION_TYPE},
+        {action_name, ActionName},
+        {action_config, ActionConfig}
+        | TCConfig
+    ].
 
-end_per_testcase(_Testcase, Config) ->
-    clear_db(Config),
+end_per_testcase(_TestCase, TCConfig) ->
+    reset_proxy(),
+    snabbkaffe:stop(),
+    clear_db(TCConfig),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-start_apps(Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            emqx,
-            emqx_conf,
-            emqx_connector,
-            emqx_bridge,
-            emqx_bridge_mongodb,
-            emqx_rule_engine,
-            emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    {ok, _Api} = emqx_common_test_http:create_default_app(),
-    Apps.
+connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"srv_record">> => false,
+        <<"pool_size">> => <<"8">>,
+        <<"use_legacy_protocol">> => <<"auto">>,
+        <<"database">> => <<"mqtt">>,
+        <<"topology">> => #{
+            <<"max_overflow">> => 0,
+            <<"overflow_ttl">> => <<"1s">>,
+            <<"overflow_check_period">> => <<"1s">>,
+            <<"local_threshold_ms">> => <<"1s">>,
+            <<"connect_timeout_ms">> => <<"1s">>,
+            <<"socket_timeout_ms">> => <<"1s">>,
+            <<"server_selection_timeout_ms">> => <<"1s">>,
+            <<"wait_queue_timeout_ms">> => <<"1s">>,
+            <<"heartbeat_frequency_ms">> => <<"200s">>,
+            <<"min_heartbeat_frequency_ms">> => <<"1s">>
+        },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
 
-ensure_loaded() ->
-    _ = application:load(emqtt),
-    ok = emqx_utils:interactive_load(emqx_bridge_enterprise).
+rs_connector_config() ->
+    #{
+        <<"parameters">> => #{
+            <<"mongo_type">> => <<"rs">>,
+            <<"servers">> => <<"mongo1:27017">>,
+            <<"w_mode">> => <<"unsafe">>,
+            <<"r_mode">> => <<"master">>,
+            <<"replica_set_name">> => <<"rs0">>
+        }
+    }.
 
-mongo_type(Config) ->
-    case ?config(mongo_type, Config) of
-        rs ->
-            {rs, maps:get(<<"replica_set_name">>, ?config(mongo_config, Config))};
-        sharded ->
+sharded_connector_config() ->
+    #{
+        <<"parameters">> => #{
+            <<"mongo_type">> => <<"sharded">>,
+            <<"servers">> => <<"mongosharded3:27017">>,
+            <<"w_mode">> => <<"unsafe">>
+        }
+    }.
+
+single_connector_config() ->
+    #{
+        <<"parameters">> => #{
+            <<"mongo_type">> => <<"single">>,
+            <<"server">> => <<"toxiproxy:27017">>,
+            <<"w_mode">> => <<"unsafe">>
+        },
+        %% NOTE: `mongo-single` has auth enabled, see `credentials.env`.
+        <<"username">> => <<"emqx">>,
+        <<"password">> => <<"passw0rd">>,
+        <<"auth_source">> => <<"admin">>
+    }.
+
+merge_maps(Maps) ->
+    lists:foldl(fun maps:merge/2, #{}, Maps).
+
+action_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"parameters">> => #{
+            <<"collection">> => <<"mycol">>,
+            <<"payload_template">> => <<"${.}">>
+        },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_action_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
+group_path(TCConfig, Default) ->
+    case emqx_common_test_helpers:group_path(TCConfig) of
+        [] -> Default;
+        Path -> Path
+    end.
+
+get_tc_prop(TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(?MODULE, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
+        Val
+    else
+        _ -> Default
+    end.
+
+reset_proxy() ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT).
+
+with_failure(FailureType, Fn) ->
+    emqx_common_test_helpers:with_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn).
+
+mongo_type(TCConfig) ->
+    case get_config(mongo_type, TCConfig, ?single) of
+        ?rs ->
+            ConnectorConfig = get_config(connector_config, TCConfig),
+            RSName = emqx_utils_maps:deep_get(
+                [<<"parameters">>, <<"replica_set_name">>],
+                ConnectorConfig
+            ),
+            {rs, RSName};
+        ?sharded ->
             sharded;
-        single ->
+        ?single ->
             single
     end.
 
-mongo_type_bin(rs) ->
-    <<"mongodb_rs">>;
-mongo_type_bin(sharded) ->
-    <<"mongodb_sharded">>;
-mongo_type_bin(single) ->
-    <<"mongodb_single">>.
-
-mongo_config(MongoHost, MongoPort0, rs = Type, Config) ->
-    QueryMode = ?config(query_mode, Config),
-    MongoPort = integer_to_list(MongoPort0),
-    Servers = MongoHost ++ ":" ++ MongoPort,
-    Name = atom_to_binary(?MODULE),
-    ConfigString =
-        io_lib:format(
-            "bridges.mongodb_rs.~s {"
-            "\n   enable = true"
-            "\n   collection = mycol"
-            "\n   replica_set_name = rs0"
-            "\n   servers = [~p]"
-            "\n   w_mode = safe"
-            "\n   use_legacy_protocol = auto"
-            "\n   database = mqtt"
-            "\n   mongo_type = rs"
-            "\n   resource_opts = {"
-            "\n     query_mode = ~s"
-            "\n     worker_pool_size = 1"
-            "\n     health_check_interval = 15s"
-            "\n     start_timeout = 5s"
-            "\n     start_after_created = true"
-            "\n     request_ttl = 45s"
-            "\n     inflight_window = 100"
-            "\n     max_buffer_bytes = 256MB"
-            "\n     buffer_mode = memory_only"
-            "\n     metrics_flush_interval = 5s"
-            "\n     resume_interval = 15s"
-            "\n   }"
-            "\n }",
-            [
-                Name,
-                Servers,
-                QueryMode
-            ]
-        ),
-    {Name, parse_and_check(ConfigString, Type, Name)};
-mongo_config(MongoHost, MongoPort0, sharded = Type, Config) ->
-    QueryMode = ?config(query_mode, Config),
-    MongoPort = integer_to_list(MongoPort0),
-    Servers = MongoHost ++ ":" ++ MongoPort,
-    Name = atom_to_binary(?MODULE),
-    ConfigString =
-        io_lib:format(
-            "bridges.mongodb_sharded.~s {"
-            "\n   enable = true"
-            "\n   collection = mycol"
-            "\n   servers = [~p]"
-            "\n   w_mode = safe"
-            "\n   use_legacy_protocol = auto"
-            "\n   database = mqtt"
-            "\n   mongo_type = sharded"
-            "\n   resource_opts = {"
-            "\n     query_mode = ~s"
-            "\n     worker_pool_size = 1"
-            "\n     health_check_interval = 15s"
-            "\n     start_timeout = 5s"
-            "\n     start_after_created = true"
-            "\n     request_ttl = 45s"
-            "\n     inflight_window = 100"
-            "\n     max_buffer_bytes = 256MB"
-            "\n     buffer_mode = memory_only"
-            "\n     metrics_flush_interval = 5s"
-            "\n     resume_interval = 15s"
-            "\n   }"
-            "\n }",
-            [
-                Name,
-                Servers,
-                QueryMode
-            ]
-        ),
-    {Name, parse_and_check(ConfigString, Type, Name)};
-mongo_config(MongoHost, MongoPort0, single = Type, Config) ->
-    QueryMode = ?config(query_mode, Config),
-    MongoPort = integer_to_list(MongoPort0),
-    Server = MongoHost ++ ":" ++ MongoPort,
-    Name = atom_to_binary(?MODULE),
-    ConfigString =
-        io_lib:format(
-            "bridges.mongodb_single.~s {"
-            "\n   enable = true"
-            "\n   collection = mycol"
-            "\n   server = ~p"
-            "\n   w_mode = safe"
-            "\n   use_legacy_protocol = auto"
-            "\n   database = mqtt"
-            "\n   auth_source = ~s"
-            "\n   username = ~s"
-            "\n   password = \"file://~s\""
-            "\n   mongo_type = single"
-            "\n   resource_opts = {"
-            "\n     query_mode = ~s"
-            "\n     worker_pool_size = 1"
-            "\n     health_check_interval = 15s"
-            "\n     start_timeout = 5s"
-            "\n     start_after_created = true"
-            "\n     request_ttl = 45s"
-            "\n     inflight_window = 100"
-            "\n     max_buffer_bytes = 256MB"
-            "\n     buffer_mode = memory_only"
-            "\n     metrics_flush_interval = 5s"
-            "\n     resume_interval = 15s"
-            "\n   }"
-            "\n }",
-            [
-                Name,
-                Server,
-                ?config(mongo_authsource, Config),
-                ?config(mongo_username, Config),
-                ?config(mongo_passfile, Config),
-                QueryMode
-            ]
-        ),
-    {Name, parse_and_check(ConfigString, Type, Name)}.
-
-parse_and_check(ConfigString, Type, Name) ->
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    TypeBin = mongo_type_bin(Type),
-    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"bridges">> := #{TypeBin := #{Name := Config}}} = RawConf,
-    Config.
-
-create_bridge(Config) ->
-    create_bridge(Config, _Overrides = #{}).
-
-create_bridge(Config, Overrides) ->
-    Type = mongo_type_bin(?config(mongo_type, Config)),
-    Name = ?config(mongo_name, Config),
-    MongoConfig0 = ?config(mongo_config, Config),
-    MongoConfig = emqx_utils_maps:deep_merge(MongoConfig0, Overrides),
-    ct:pal("creating ~p bridge with config:\n ~p", [Type, MongoConfig]),
-    emqx_bridge_testlib:create_bridge_api(Type, Name, MongoConfig).
-
-delete_bridge(Config) ->
-    Type = mongo_type_bin(?config(mongo_type, Config)),
-    Name = ?config(mongo_name, Config),
-    emqx_bridge:check_deps_and_remove(Type, Name, [connector, rule_actions]).
-
-create_bridge_http(Params) ->
-    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    case
-        emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, #{
-            return_all => true
-        })
-    of
-        {ok, {{_, 201, _}, _, Body}} ->
-            #{<<"type">> := Type0, <<"name">> := Name} = Params,
-            Type = emqx_action_info:bridge_v1_type_to_action_type(Type0),
-            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
-            {ok, emqx_utils_json:decode(Body)};
-        Error ->
-            Error
-    end.
-
-clear_db(Config) ->
-    Type = mongo_type(Config),
-    Host = ?config(mongo_host, Config),
-    Port = ?config(mongo_port, Config),
-    Server = Host ++ ":" ++ integer_to_list(Port),
-    #{
-        <<"database">> := Db,
-        <<"collection">> := Collection
-    } = ?config(mongo_config, Config),
-    WorkerOpts = [
-        {database, Db},
-        {w_mode, unsafe}
-        | lists:flatmap(
-            fun
-                ({mongo_authsource, AS}) -> [{auth_source, AS}];
-                ({mongo_username, User}) -> [{login, User}];
-                ({mongo_password, Pass}) -> [{password, Pass}];
-                (_) -> []
-            end,
-            Config
-        )
-    ],
-    {ok, Client} = mongo_api:connect(Type, [Server], [], WorkerOpts),
+clear_db(TCConfig) ->
+    #{<<"parameters">> := #{<<"collection">> := Collection}} =
+        get_config(action_config, TCConfig),
+    {ok, Client} = mk_mongo_connection(TCConfig),
     {true, _} = mongo_api:delete(Client, Collection, _Selector = #{}),
-    mongo_api:disconnect(Client).
+    mongo_api:disconnect(Client),
+    ?retry(200, 10, ?assertMatch([], find_all(TCConfig))),
+    ok.
 
-find_all(Config) ->
-    #{<<"collection">> := Collection} = ?config(mongo_config, Config),
-    ResourceID = resource_id(Config),
-    emqx_resource:simple_sync_query(ResourceID, {find, Collection, #{}, #{}}).
-
-find_all_wait_until_non_empty(Config) ->
-    wait_until(
-        fun() ->
-            case find_all(Config) of
-                {ok, []} -> false;
-                _ -> true
-            end
-        end,
-        5_000
+mk_mongo_connection(TCConfig) ->
+    ConnectorConfig = get_config(connector_config, TCConfig),
+    Server = emqx_utils_maps:deep_get(
+        [<<"parameters">>, <<"servers">>],
+        ConnectorConfig,
+        emqx_utils_maps:deep_get(
+            [<<"parameters">>, <<"server">>],
+            ConnectorConfig,
+            undefined
+        )
     ),
-    find_all(Config).
+    {true, Server} = {is_binary(Server), Server},
+    #{<<"database">> := Database} = ConnectorConfig,
+    #{<<"parameters">> := #{<<"collection">> := Collection}} =
+        get_config(action_config, TCConfig),
+    AuthOpts =
+        case get_config(mongo_type, TCConfig, ?single) of
+            ?single ->
+                [
+                    {login, <<"emqx">>},
+                    {password, <<"passw0rd">>},
+                    {auth_source, <<"admin">>}
+                ];
+            _ ->
+                []
+        end,
+    WorkerOpts = [
+        {database, Database},
+        {w_mode, safe}
+        | AuthOpts
+    ],
+    ct:pal("db: ~p\ncoll: ~p", [Database, Collection]),
+    MongoType = mongo_type(TCConfig),
+    mongo_api:connect(MongoType, [Server], [], WorkerOpts).
 
-wait_until(Fun, Timeout) when Timeout >= 0 ->
-    case Fun() of
-        true ->
-            ok;
-        false ->
-            timer:sleep(100),
-            wait_until(Fun, Timeout - 100)
+find_all(TCConfig) ->
+    #{<<"parameters">> := #{<<"collection">> := Collection}} =
+        get_config(action_config, TCConfig),
+    find_all(Collection, TCConfig).
+
+find_all(Collection, TCConfig) ->
+    {ok, Client} = mk_mongo_connection(TCConfig),
+    Filter = #{},
+    Projector = #{},
+    Skip = 0,
+    BatchSize = 100,
+    case mongo_api:find(Client, Collection, Filter, Projector, Skip, BatchSize) of
+        {ok, Cursor} when is_pid(Cursor) ->
+            Limit = 1_000,
+            Res = mc_cursor:take(Cursor, Limit),
+            mongo_api:disconnect(Client),
+            {ok, Res};
+        Res ->
+            mongo_api:disconnect(Client),
+            Res
     end.
 
-send_message(Config, Payload) ->
-    Name = ?config(mongo_name, Config),
-    Type = mongo_type_bin(?config(mongo_type, Config)),
-    BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
-    emqx_bridge:send_message(BridgeID, Payload).
+full_matrix() ->
+    [
+        [Type, Sync]
+     || Type <- [?single, ?rs, ?sharded],
+        Sync <- [?sync, ?async]
+    ].
 
-probe_bridge_api(Config) ->
-    probe_bridge_api(Config, _Overrides = #{}).
+create_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
+    ).
 
-probe_bridge_api(Config, Overrides) ->
-    Name = ?config(mongo_name, Config),
-    TypeBin = mongo_type_bin(?config(mongo_type, Config)),
-    MongoConfig0 = ?config(mongo_config, Config),
-    MongoConfig = emqx_utils_maps:deep_merge(MongoConfig0, Overrides),
-    emqx_bridge_testlib:probe_bridge_api(TypeBin, Name, MongoConfig).
+create_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
 
-resource_id(Config) ->
-    Type0 = ?config(mongo_type, Config),
-    Name = ?config(mongo_name, Config),
-    Type = mongo_type_bin(Type0),
-    emqx_bridge_resource:resource_id(Type, Name).
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
 
-get_worker_pids(Config) ->
-    ResourceID = resource_id(Config),
+simple_create_rule_api(SQL, TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(SQL, TCConfig).
+
+probe_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:probe_connector_api2(TCConfig, Overrides).
+
+get_action_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_action_api(
+            TCConfig
+        )
+    ).
+
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
+
+update_connector_api(TCConfig, Overrides) ->
+    #{
+        connector_type := Type,
+        connector_name := Name,
+        connector_config := Cfg0
+    } =
+        emqx_bridge_v2_testlib:get_common_values_with_configs(TCConfig),
+    Cfg = emqx_utils_maps:deep_merge(Cfg0, Overrides),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:update_connector_api(Name, Type, Cfg)
+    ).
+
+start_client() ->
+    {ok, C} = emqtt:start_link(),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+unique_payload() ->
+    integer_to_binary(erlang:unique_integer()).
+
+get_worker_pids(TCConfig) ->
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
     %% abusing health check api a bit...
     GetWorkerPid = fun(TopologyPid) ->
         mongoc:transaction_query(TopologyPid, fun(#{pool := WorkerPid}) -> WorkerPid end)
     end,
     {ok, WorkerPids = [_ | _]} =
         emqx_resource_pool:health_check_workers(
-            ResourceID,
+            ConnResId,
             GetWorkerPid,
             5_000,
             #{return_values => true}
@@ -443,188 +414,251 @@ get_worker_pids(Config) ->
     WorkerPids.
 
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
-t_setup_via_config_and_publish(Config) ->
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
-    Val = erlang:unique_integer(),
-    {ok, {ok, _}} =
-        ?wait_async_action(
-            send_message(Config, #{key => Val}),
-            #{?snk_kind := mongo_bridge_connector_on_query_return},
-            5_000
-        ),
-    ?assertMatch(
-        {ok, [#{<<"key">> := Val}]},
-        find_all(Config)
-    ),
-    ok.
+t_start_stop() ->
+    [{matrix, true}].
+t_start_stop(matrix) ->
+    [
+        [Type, ?sync]
+     || Type <- [?single, ?rs, ?sharded]
+    ];
+t_start_stop(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_start_stop(TCConfig, "mongodb_connector_stop").
 
-t_setup_via_http_api_and_publish(Config) ->
-    Type = ?config(mongo_type, Config),
-    Name = ?config(mongo_name, Config),
-    MongoConfig0 = ?config(mongo_config, Config),
-    MongoConfig1 = MongoConfig0#{
-        <<"name">> => Name,
-        <<"type">> => mongo_type_bin(Type)
+t_on_get_status() ->
+    [{matrix, true}].
+t_on_get_status(matrix) ->
+    [
+        [Type, ?sync]
+     || Type <- [?single, ?rs, ?sharded]
+    ];
+t_on_get_status(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
+
+t_rule_action() ->
+    [{matrix, true}].
+t_rule_action(matrix) ->
+    full_matrix();
+t_rule_action(TCConfig) when is_list(TCConfig) ->
+    PostPublishFn = fun(Context) ->
+        #{payload := Payload} = Context,
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                {ok, [#{<<"payload">> := Payload}]},
+                find_all(TCConfig),
+                #{payload => Payload}
+            )
+        )
+    end,
+    Opts = #{
+        post_publish_fn => PostPublishFn
     },
-    MongoConfig =
-        case Type of
-            single ->
-                %% NOTE: using literal password with HTTP API requests.
-                MongoConfig1#{<<"password">> => ?config(mongo_password, Config)};
-            _ ->
-                MongoConfig1
-        end,
-    ?assertMatch(
-        {ok, _},
-        create_bridge_http(MongoConfig)
-    ),
-    Val = erlang:unique_integer(),
+    emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+t_payload_template(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"payload_template">> => <<"{\"foo\": \"${payload}\"}">>}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = unique_payload(),
     {ok, {ok, _}} =
         ?wait_async_action(
-            send_message(Config, #{key => Val}),
+            emqtt:publish(C, Topic, Payload),
             #{?snk_kind := mongo_bridge_connector_on_query_return},
             5_000
         ),
     ?assertMatch(
-        {ok, [#{<<"key">> := Val}]},
-        find_all(Config)
+        {ok, [#{<<"foo">> := Payload}]},
+        find_all(TCConfig)
     ),
     ok.
 
-t_payload_template(Config) ->
-    {ok, _} = create_bridge(Config, #{<<"payload_template">> => <<"{\"foo\": \"${clientid}\"}">>}),
-    Val = erlang:unique_integer(),
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+t_collection_template(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"payload_template">> => <<"{\"foo\": \"${payload}\"}">>,
+            <<"collection">> => <<"${payload}">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = unique_payload(),
     {ok, {ok, _}} =
         ?wait_async_action(
-            send_message(Config, #{key => Val, clientid => ClientId}),
+            emqtt:publish(C, Topic, Payload),
             #{?snk_kind := mongo_bridge_connector_on_query_return},
             5_000
         ),
     ?assertMatch(
-        {ok, [#{<<"foo">> := ClientId}]},
-        find_all(Config)
+        {ok, [#{<<"foo">> := Payload}]},
+        find_all(Payload, TCConfig)
     ),
     ok.
 
-t_collection_template(Config) ->
-    {ok, _} = create_bridge(
-        Config,
-        #{
-            <<"payload_template">> => <<"{\"foo\": \"${clientid}\"}">>,
-            <<"collection">> => <<"${mycollectionvar}">>
+t_mongo_date_rule_engine_functions(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"payload_template">> =>
+                <<"{\"date_0\": ${date_0}, \"date_1\": ${date_1}, \"date_2\": ${date_2}}">>
         }
+    }),
+    #{topic := Topic} = simple_create_rule_api(
+        <<
+            "SELECT mongo_date() as date_0,"
+            " mongo_date(1000) as date_1,"
+            " mongo_date(1, 'second') as date_2 "
+            " FROM \"${t}\" "
+        >>,
+        TCConfig
     ),
-    Val = erlang:unique_integer(),
-    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
-    {ok, {ok, _}} =
-        ?wait_async_action(
-            send_message(Config, #{
-                key => Val,
-                clientid => ClientId,
-                mycollectionvar => <<"mycol">>
-            }),
-            #{?snk_kind := mongo_bridge_connector_on_query_return},
-            5_000
-        ),
-    ?assertMatch(
-        {ok, [#{<<"foo">> := ClientId}]},
-        find_all(Config)
-    ),
-    ok.
-
-t_mongo_date_rule_engine_functions(Config) ->
-    {ok, _} =
-        create_bridge(
-            Config,
-            #{
-                <<"payload_template">> =>
-                    <<"{\"date_0\": ${date_0}, \"date_1\": ${date_1}, \"date_2\": ${date_2}}">>
-            }
-        ),
-    Type = mongo_type_bin(?config(mongo_type, Config)),
-    Name = ?config(mongo_name, Config),
-    SQL =
-        "SELECT mongo_date() as date_0, mongo_date(1000) as date_1, mongo_date(1, 'second') as date_2 FROM "
-        "\"t_mongo_date_rule_engine_functions/topic\"",
-    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
-    {201, _} = emqx_bridge_v2_testlib:create_rule_api2(
-        #{
-            <<"id">> => <<"t_mongo_date_rule_engine_functions">>,
-            <<"sql">> => SQL,
-            <<"actions">> => [
-                BridgeId,
-                #{<<"function">> => <<"console">>}
-            ],
-            <<"description">> => <<"to mongo bridge">>
-        }
-    ),
-    %% Send a message to topic
-    {ok, Client} = emqtt:start_link([{clientid, <<"pub-02">>}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(Client),
-    emqtt:publish(Client, <<"t_mongo_date_rule_engine_functions/topic">>, #{}, <<"{\"x\":1}">>, [
-        {qos, 2}
-    ]),
-    emqtt:stop(Client),
-    ?assertMatch(
-        {ok, [
-            #{
-                <<"date_0">> := {_, _, _},
-                <<"date_1">> := {0, 1, 0},
-                <<"date_2">> := {0, 1, 0}
-            }
-        ]},
-        find_all_wait_until_non_empty(Config)
-    ),
-    ok.
-
-t_get_status_server_selection_too_short(Config) ->
-    Res = probe_bridge_api(
-        Config,
-        #{
-            <<"topology">> => #{<<"server_selection_timeout_ms">> => <<"1ms">>}
-        }
-    ),
-    ?assertMatch({error, {{_, 400, _}, _Headers, _Body}}, Res),
-    {error, {{_, 400, _}, _Headers, Body}} = Res,
-    ?assertMatch(
-        #{
-            <<"code">> := <<"TEST_FAILED">>,
-            <<"message">> := <<"timeout">>
-        },
-        emqx_utils_json:decode(Body)
-    ),
-    ok.
-
-t_use_legacy_protocol_option(Config) ->
-    {ok, _} = create_bridge(Config, #{<<"use_legacy_protocol">> => <<"true">>}),
-    ResourceID = resource_id(Config),
+    C = start_client(),
+    emqtt:publish(C, Topic, <<"hey">>),
     ?retry(
-        _Interval0 = 200,
-        _NAttempts0 = 20,
-        ?assertMatch({ok, connected}, emqx_resource_manager:health_check(ResourceID))
+        200,
+        10,
+        ?assertMatch(
+            {ok, [
+                #{
+                    <<"date_0">> := {_, _, _},
+                    <<"date_1">> := {0, 1, 0},
+                    <<"date_2">> := {0, 1, 0}
+                }
+            ]},
+            find_all(TCConfig)
+        )
     ),
-    WorkerPids0 = get_worker_pids(Config),
+    ok.
+
+t_get_status_server_selection_too_short(TCConfig) ->
+    ?assertMatch(
+        {400, #{<<"message">> := <<"timeout">>}},
+        probe_connector_api(
+            TCConfig,
+            #{
+                <<"topology">> => #{<<"server_selection_timeout_ms">> => <<"1ms">>}
+            }
+        )
+    ),
+    ok.
+
+t_use_legacy_protocol_option(TCConfig) ->
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"use_legacy_protocol">> => true}),
+    WorkerPids0 = get_worker_pids(TCConfig),
     Expected0 = maps:from_keys(WorkerPids0, true),
     LegacyOptions0 = maps:from_list([{Pid, mc_utils:use_legacy_protocol(Pid)} || Pid <- WorkerPids0]),
     ?assertEqual(Expected0, LegacyOptions0),
-    ok = delete_bridge(Config),
 
-    {ok, _} = create_bridge(Config, #{<<"use_legacy_protocol">> => <<"false">>}),
-    ?retry(
-        _Interval0 = 200,
-        _NAttempts0 = 20,
-        ?assertMatch({ok, connected}, emqx_resource_manager:health_check(ResourceID))
-    ),
-    WorkerPids1 = get_worker_pids(Config),
+    {200, #{<<"status">> := <<"connected">>}} =
+        update_connector_api(TCConfig, #{<<"use_legacy_protocol">> => false}),
+    WorkerPids1 = get_worker_pids(TCConfig),
     Expected1 = maps:from_keys(WorkerPids1, false),
     LegacyOptions1 = maps:from_list([{Pid, mc_utils:use_legacy_protocol(Pid)} || Pid <- WorkerPids1]),
     ?assertEqual(Expected1, LegacyOptions1),
 
+    ok.
+
+%% Checks that we don't mangle the connector state if the underlying connector
+%% implementation returns a tuple with new state.
+%% See also: https://emqx.atlassian.net/browse/EMQX-13496.
+t_timeout_during_connector_health_check(TCConfig) ->
+    Overrides = #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"700ms">>}},
+    ?check_trace(
+        begin
+            {201, _} = create_connector_api(TCConfig, Overrides),
+            {201, _} = create_action_api(TCConfig, Overrides),
+
+            %% Wait until it's disconnected
+            emqx_common_test_helpers:with_mock(
+                emqx_resource_pool,
+                health_check_workers,
+                fun(_Pool, _Fun, _Timeout, _Opts) -> {error, timeout} end,
+                fun() ->
+                    ?retry(
+                        1_000,
+                        10,
+                        ?assertMatch(
+                            {200, #{<<"status">> := <<"disconnected">>}},
+                            get_connector_api(TCConfig)
+                        )
+                    ),
+                    ?retry(
+                        1_000,
+                        10,
+                        ?assertMatch(
+                            {200, #{<<"status">> := <<"disconnected">>}},
+                            get_action_api(TCConfig)
+                        )
+                    ),
+                    ok
+                end
+            ),
+
+            %% Wait for recovery
+            ?retry(
+                1_000,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_connector_api(TCConfig)
+                )
+            ),
+
+            RuleTopic = <<"t/timeout">>,
+            {ok, _} = emqx_bridge_v2_testlib:create_rule_and_action_http(
+                ?ACTION_TYPE, RuleTopic, TCConfig
+            ),
+
+            %% Action should be fine, including its metrics.
+            ?retry(
+                1_000,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_action_api(TCConfig)
+                )
+            ),
+            emqx:publish(emqx_message:make(RuleTopic, <<"hey">>)),
+            ?retry(
+                1_000,
+                10,
+                ?assertMatch(
+                    {200, #{<<"metrics">> := #{<<"matched">> := 1}}},
+                    emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind("health_check_exception", Trace)),
+            ?assertEqual([], ?of_kind("remove_channel_failed", Trace)),
+            ok
+        end
+    ),
+    ok.
+
+-doc """
+Currently, we try to find documents in a collection called "foo" to do connector health
+checks.
+
+If the connector's user does not have permissions to find stuff in such collection, it
+should not render the status `?status_disconnected`.
+""".
+t_connector_health_check_permission_denied(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{
+            <<"username">> => <<"user1">>,
+            <<"password">> => <<"abc123">>,
+            <<"auth_source">> => <<"mqtt">>
+        })
+    ),
     ok.

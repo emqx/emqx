@@ -910,7 +910,8 @@ do_inc_action_metrics(#{rule_res_id := RuleResId, action_id := ActId} = TraceCon
                 "action_success",
                 maps:merge(#{result => FormatterRes}, TraceContext1)
             ),
-            emqx_metrics_worker:inc(rule_metrics, RuleResId, 'actions.success')
+            emqx_metrics_worker:inc(rule_metrics, RuleResId, 'actions.success'),
+            ?tp("rule_runtime_action_success", #{})
     end.
 
 trace_formatted_result({{bridge_v2, Type, _Name}, R}) ->
