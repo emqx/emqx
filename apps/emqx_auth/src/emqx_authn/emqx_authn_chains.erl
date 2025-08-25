@@ -819,8 +819,18 @@ global_chain(lwm2m) ->
     'lwm2m:global';
 global_chain(stomp) ->
     'stomp:global';
+global_chain(exproto) ->
+    'exproto:global';
+global_chain(ocpp) ->
+    'ocpp:global';
+global_chain(gbt32960) ->
+    'gbt32960:global';
+global_chain(jt808) ->
+    'jt808:global';
+global_chain(nats) ->
+    'nats:global';
 global_chain(_) ->
-    'unknown:global'.
+    error(invalid_protocol_name).
 
 hook() ->
     ok = emqx_hooks:put('client.authenticate', {?MODULE, authenticate, []}, ?HP_AUTHN).
