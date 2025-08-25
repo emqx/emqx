@@ -23,16 +23,11 @@ init_per_suite(Config) ->
             durable_sessions {
               enable = true
               checkpoint_interval = 0
+              shared_subs = {
+                leader_timeout = 1200ms
+              }
             }
             """},
-            {emqx_ds_shared_sub, #{
-                config => #{
-                    <<"durable_queues">> => #{
-                        <<"enable">> => true,
-                        <<"session_find_leader_timeout">> => "1200ms"
-                    }
-                }
-            }},
             emqx,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()

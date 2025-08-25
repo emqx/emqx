@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ds_shared_sub_api).
+-module(emqx_mgmt_api_ds_shared_sub).
 
 -behaviour(minirest_api).
 
@@ -15,19 +15,20 @@
     {400, #{code => <<"BAD_REQUEST">>, message => MSG}}
 ).
 
--define(DESC_NOT_FOUND, <<"Queue not found">>).
--define(DESC_DISABLED, <<"Feature is disabled">>).
+-define(DESC_NOT_FOUND, <<"Subscription not found">>).
 -define(RESP_NOT_FOUND, ?RESP_NOT_FOUND(?DESC_NOT_FOUND)).
 -define(RESP_NOT_FOUND(MSG),
     {404, #{code => <<"NOT_FOUND">>, message => MSG}}
 ).
 
--define(DESC_CREATE_CONFICT, <<"Queue with given group name and topic filter already exists">>).
+-define(DESC_CREATE_CONFICT,
+    <<"Subscription with given group name and topic filter already exists">>
+).
 -define(RESP_CREATE_CONFLICT,
     {409, #{code => <<"CONFLICT">>, message => ?DESC_CREATE_CONFICT}}
 ).
 
--define(DESC_DELETE_CONFLICT, <<"Queue is currently active">>).
+-define(DESC_DELETE_CONFLICT, <<"Subscription is currently active">>).
 -define(RESP_DELETE_CONFLICT,
     {409, #{code => <<"CONFLICT">>, message => ?DESC_DELETE_CONFLICT}}
 ).
@@ -49,12 +50,12 @@
     roots/0
 ]).
 
--define(TAGS, [<<"Durable Queues">>]).
+-define(TAGS, [<<"Durable Shared Subscription">>]).
 
 %% API callbacks
 -export([
-    '/durable_queues'/2,
-    '/durable_queues/:id'/2
+    '/durable_shared_subs'/2,
+    '/durable_shared_subs/:id'/2
 ]).
 
 %% Internal exports
@@ -65,7 +66,7 @@
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
-namespace() -> "durable_queues".
+namespace() -> "durable_shared_subs".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{
@@ -75,62 +76,60 @@ api_spec() ->
 
 paths() ->
     [
-        "/durable_queues",
-        "/durable_queues/:id"
+        "/durable_shared_subs",
+        "/durable_shared_subs/:id"
     ].
 
-schema("/durable_queues") ->
+schema("/durable_shared_subs") ->
     #{
-        'operationId' => '/durable_queues',
+        'operationId' => '/durable_shared_subs',
         get => #{
             tags => ?TAGS,
-            summary => <<"List declared durable queues">>,
-            description => ?DESC("durable_queues_get"),
+            summary => <<"List declared durable subscriptions">>,
+            description => ?DESC("get_subs"),
             parameters => [
-                hoconsc:ref(emqx_dashboard_swagger, cursor),
-                hoconsc:ref(emqx_dashboard_swagger, limit)
+                ref(emqx_dashboard_swagger, cursor),
+                ref(emqx_dashboard_swagger, limit)
             ],
             responses => #{
-                200 => resp_list_durable_queues(),
-                400 => error_codes(['BAD_REQUEST'], ?DESC_BAD_REQUEST),
-                404 => error_codes(['NOT_FOUND'], ?DESC_DISABLED)
+                200 => resp_list_subs(),
+                400 => error_codes(['BAD_REQUEST'], ?DESC_BAD_REQUEST)
             }
         },
         post => #{
             tags => ?TAGS,
-            summary => <<"Declare a durable queue">>,
-            description => ?DESC("durable_queues_post"),
-            'requestBody' => durable_queue_post(),
+            summary => <<"Declare a durable shared subscription">>,
+            description => ?DESC("post_sub"),
+            'requestBody' => post_sub(),
             responses => #{
-                201 => resp_create_durable_queue(),
-                409 => error_codes(['CONFLICT'], ?DESC_CREATE_CONFICT),
-                404 => error_codes(['NOT_FOUND'], ?DESC_DISABLED)
+                201 => resp_create_sub(),
+                409 => error_codes(['CONFLICT'], ?DESC_CREATE_CONFICT)
             }
         }
     };
-schema("/durable_queues/:id") ->
+schema("/durable_shared_subs/:id") ->
     #{
-        'operationId' => '/durable_queues/:id',
+        'operationId' => '/durable_shared_subs/:id',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get a declared durable queue">>,
-            description => ?DESC("durable_queue_get"),
-            parameters => [param_queue_id()],
+            summary => <<"Get a declared durable shared subscription">>,
+            description => ?DESC("get_sub"),
+            parameters => [param_sub_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    durable_queue_get(),
-                    durable_queue_get_example()
+                    get_sub(),
+                    get_sub_example()
                 ),
                 404 => error_codes(['NOT_FOUND'], ?DESC_NOT_FOUND)
             }
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete a declared durable queue">>,
-            description => ?DESC("durable_queue_delete"),
-            parameters => [param_queue_id()],
+            summary => <<"Delete a declared durable shared subscription">>,
+            description => ?DESC("delete_sub"),
+            parameters => [param_sub_id()],
             responses => #{
-                200 => <<"Queue deleted">>,
+                200 => <<"Subscription deleted">>,
                 404 => error_codes(['NOT_FOUND'], ?DESC_NOT_FOUND),
                 409 => error_codes(['CONFLICT'], ?DESC_DELETE_CONFLICT)
             }
@@ -143,12 +142,12 @@ check_enabled(Request, _ReqMeta) ->
         false -> ?RESP_NOT_FOUND(<<"Durable sessions are disabled">>)
     end.
 
-'/durable_queues'(get, #{query_string := QString}) ->
+'/durable_shared_subs'(get, #{query_string := QString}) ->
     Cursor = maps:get(<<"cursor">>, QString, undefined),
     Limit = maps:get(<<"limit">>, QString),
-    try queue_list(Cursor, Limit) of
-        {Queues, CursorNext} ->
-            Data = [encode_props(ID, Props) || {ID, Props} <- Queues],
+    try do_list_subs(Cursor, Limit) of
+        {Subs, CursorNext} ->
+            Data = [encode_props(Id, Props) || {Id, Props} <- Subs],
             case CursorNext of
                 undefined ->
                     Meta = #{hasnext => false};
@@ -160,27 +159,27 @@ check_enabled(Request, _ReqMeta) ->
         throw:Error ->
             ?RESP_BAD_REQUEST(emqx_utils:readable_error_msg(Error))
     end;
-'/durable_queues'(post, #{body := Params}) ->
-    case queue_declare(Params) of
-        {ok, Queue} ->
-            {201, encode_queue(Queue)};
+'/durable_shared_subs'(post, #{body := Params}) ->
+    case do_declare_sub(Params) of
+        {ok, Subscription} ->
+            {201, encode_shared_sub(Subscription)};
         %% exists ->
         %%     ?RESP_CREATE_CONFLICT;
         {error, _Class, Reason} ->
             ?RESP_INTERNAL_ERROR(emqx_utils:readable_error_msg(Reason))
     end.
 
-'/durable_queues/:id'(get, Params) ->
-    case queue_get(Params) of
-        {ok, Queue} ->
-            {200, encode_queue(Queue)};
+'/durable_shared_subs/:id'(get, Params) ->
+    case do_get_sub(Params) of
+        {ok, Subscription} ->
+            {200, encode_shared_sub(Subscription)};
         false ->
             ?RESP_NOT_FOUND
     end;
-'/durable_queues/:id'(delete, Params) ->
-    case queue_delete(Params) of
+'/durable_shared_subs/:id'(delete, Params) ->
+    case do_delete_sub(Params) of
         ok ->
-            {200, <<"Queue deleted">>};
+            {200, <<"Shared subscription deleted">>};
         not_found ->
             ?RESP_NOT_FOUND;
         {error, recoverable, _} ->
@@ -189,16 +188,16 @@ check_enabled(Request, _ReqMeta) ->
             ?RESP_INTERNAL_ERROR(emqx_utils:readable_error_msg(Reason))
     end.
 
-queue_list(Cursor, Limit) ->
+do_list_subs(Cursor, Limit) ->
     emqx_ds_shared_sub:list(Cursor, Limit).
 
-queue_get(#{bindings := #{id := ID}}) ->
-    emqx_ds_shared_sub:lookup(ID).
+do_get_sub(#{bindings := #{id := Id}}) ->
+    emqx_ds_shared_sub:lookup(Id).
 
-queue_delete(#{bindings := #{id := ID}}) ->
-    emqx_ds_shared_sub:destroy(ID).
+do_delete_sub(#{bindings := #{id := Id}}) ->
+    emqx_ds_shared_sub:destroy(Id).
 
-queue_declare(#{<<"group">> := Group, <<"topic">> := TopicFilter} = Params) ->
+do_declare_sub(#{<<"group">> := Group, <<"topic">> := TopicFilter} = Params) ->
     Options = maps:fold(
         fun
             (<<"start_time">>, T, Acc) ->
@@ -213,54 +212,54 @@ queue_declare(#{<<"group">> := Group, <<"topic">> := TopicFilter} = Params) ->
 
 %%--------------------------------------------------------------------
 
-encode_queue(Queue) ->
-    emqx_ds_shared_sub:lookup(Queue).
+encode_shared_sub(Sub) ->
+    emqx_ds_shared_sub:lookup(Sub).
 
-encode_props(ID, Props) ->
-    maps:merge(#{id => ID}, Props).
+encode_props(Id, Props) ->
+    maps:merge(#{id => Id}, Props).
 
 %%--------------------------------------------------------------------
 %% Schemas
 %%--------------------------------------------------------------------
 
-param_queue_id() ->
+param_sub_id() ->
     {
         id,
         mk(binary(), #{
             in => path,
-            desc => ?DESC(param_queue_id),
+            desc => ?DESC(param_sub_id),
             required => true,
-            validator => fun validate_queue_id/1
+            validator => fun validate_sub_id/1
         })
     }.
 
-resp_list_durable_queues() ->
+resp_list_subs() ->
     emqx_dashboard_swagger:schema_with_example(
-        ref(resp_list_durable_queues),
-        durable_queues_list_example()
+        ref(resp_list_durable_shared_subs),
+        sub_list_example()
     ).
 
-resp_create_durable_queue() ->
+resp_create_sub() ->
     emqx_dashboard_swagger:schema_with_example(
-        durable_queue_post(),
-        durable_queue_get_example()
+        post_sub(),
+        get_sub_example()
     ).
 
-validate_queue_id(Id) ->
+validate_sub_id(Id) ->
     case emqx_topic:words(Id) of
         [Segment] when is_binary(Segment) -> true;
-        _ -> {error, <<"Invalid queue id">>}
+        _ -> {error, <<"Invalid shared sub id">>}
     end.
 
-durable_queue_get() ->
-    ref(durable_queue).
+get_sub() ->
+    ref(durable_shared_sub).
 
-durable_queue_post() ->
-    ref(durable_queue_args).
+post_sub() ->
+    ref(durable_shared_sub_args).
 
 roots() -> [].
 
-fields(durable_queue) ->
+fields(durable_shared_sub) ->
     [
         {id,
             mk(binary(), #{
@@ -268,27 +267,27 @@ fields(durable_queue) ->
             })},
         {created_at,
             mk(emqx_utils_calendar:epoch_millisecond(), #{
-                desc => <<"Queue creation time">>
+                desc => <<"Creation time">>
             })}
-        | fields(durable_queue_args)
+        | fields(durable_shared_sub_args)
     ];
-fields(durable_queue_args) ->
+fields(durable_shared_sub_args) ->
     [
         {group, mk(binary(), #{required => true})},
         {topic, mk(binary(), #{required => true})},
         {start_time, mk(emqx_utils_calendar:epoch_millisecond(), #{})}
     ];
-fields(resp_list_durable_queues) ->
+fields(resp_list_durable_shared_subs) ->
     [
-        {data, hoconsc:mk(hoconsc:array(durable_queue_get()), #{})},
-        {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta_with_cursor), #{})}
+        {data, mk(hoconsc:array(get_sub()), #{})},
+        {meta, mk(ref(emqx_dashboard_swagger, meta_with_cursor), #{})}
     ].
 
 %%--------------------------------------------------------------------
 %% Examples
 %%--------------------------------------------------------------------
 
-durable_queue_get_example() ->
+get_sub_example() ->
     #{
         id => <<"mygrp:1234EF">>,
         created_at => <<"2024-01-01T12:34:56.789+02:00">>,
@@ -297,10 +296,10 @@ durable_queue_get_example() ->
         start_time => <<"2024-01-01T00:00:00.000+02:00">>
     }.
 
-durable_queues_list_example() ->
+sub_list_example() ->
     #{
         data => [
-            durable_queue_get_example(),
+            get_sub_example(),
             #{
                 id => <<"mygrp:567890AABBCC">>,
                 created_at => <<"2024-02-02T22:33:44.000+02:00">>,
