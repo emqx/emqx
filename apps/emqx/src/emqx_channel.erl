@@ -1320,7 +1320,13 @@ handle_out(connack, ReasonCode, Channel) when is_integer(ReasonCode) ->
 handle_out(connack, {ReasonCode, ReasonString}, Channel = #channel{conninfo = ConnInfo}) ->
     Reason = emqx_reason_codes:name(ReasonCode),
     AckProps0 = emqx_mqtt_props:new(),
-    AckProps1 = emqx_mqtt_props:set('Reason-String', ReasonString, AckProps0),
+    AckProps1 =
+        case ReasonString =:= <<>> of
+            true ->
+                AckProps0;
+            false ->
+                emqx_mqtt_props:set('Reason-String', ReasonString, AckProps0)
+        end,
     AckProps = run_hooks('client.connack', [ConnInfo, Reason], AckProps1),
     AckPacket = ?CONNACK_PACKET(
         case maps:get(proto_ver, ConnInfo) of
