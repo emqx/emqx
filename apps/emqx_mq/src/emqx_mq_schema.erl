@@ -26,8 +26,12 @@ tags() ->
 fields(mq) ->
     [
         {gc_interval,
-            mk(emqx_schema:duration_ms(), #{
+            mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1h">>, required => true, desc => ?DESC(gc_interval)
+            })},
+        {regular_queue_retention_period,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"1d">>, required => true, desc => ?DESC(regular_queue_retention_period)
             })}
     ];
 fields(message_queue) ->

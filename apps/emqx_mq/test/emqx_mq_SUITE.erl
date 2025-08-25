@@ -33,7 +33,7 @@ init_per_suite(Config) ->
             [
                 {emqx_durable_storage, #{override_env => [{poll_batch_size, 1}]}},
                 emqx,
-                {emqx_mq, emqx_mq_test_utils:config()}
+                {emqx_mq, emqx_mq_test_utils:cth_config()}
             ],
             #{work_dir => emqx_cth_suite:work_dir(Config)}
         ),
@@ -917,6 +917,41 @@ t_disconnected_session_does_not_receive_messages(_Config) ->
 
     %% Clean up
     ok = emqtt:disconnect(CSub1).
+
+%% Verify that the expired messages are not received
+t_expired_messages(_Config) ->
+    %% Create a non-compacted Queue
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false, data_retention_period => 1000}),
+
+    %% Publish some messages to the queue
+    ok = emqx_mq_test_utils:populate(10, fun(I) ->
+        IBin = integer_to_binary(I),
+        Topic = <<"t/", IBin/binary>>,
+        Payload = <<"payload-expired-", IBin/binary>>,
+        {Topic, Payload}
+    end),
+
+    %% Wait for the messages to expire
+    ct:sleep(1000),
+
+    %% Publish a few more messages
+    ok = emqx_mq_test_utils:populate(5, fun(I) ->
+        IBin = integer_to_binary(I),
+        Topic = <<"t/", IBin/binary>>,
+        Payload = <<"payload-new-", IBin/binary>>,
+        {Topic, Payload}
+    end),
+
+    %% Connect a client
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+
+    %% Verify that only new messages are received
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 5, _Timeout = 1000),
+    ?assertEqual(5, length(Msgs)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
 
 %%--------------------------------------------------------------------
 %% Helpers

@@ -227,7 +227,10 @@ post_message_queue_example() ->
 %%--------------------------------------------------------------------
 
 get_message_queues() ->
-    [emqx_mq_config:mq_to_raw_config(MQ) || MQ <- emqx_mq_registry:list()].
+    [
+        emqx_mq_config:mq_to_raw_config(MQ)
+     || MQ <- emqx_utils_stream:consume(emqx_mq_registry:list())
+    ].
 
 add_message_queue(NewMessageQueueRaw) ->
     NewMessageQueue = emqx_mq_config:mq_from_raw_config(NewMessageQueueRaw),

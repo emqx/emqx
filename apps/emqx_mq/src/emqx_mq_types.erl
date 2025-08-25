@@ -21,6 +21,7 @@ The module contains basic types for the Message Queue application.
 }.
 -type ack() :: ?MQ_ACK | ?MQ_NACK.
 -type mq_topic() :: binary().
+-type mqid() :: binary().
 -type consumer_sup_id() :: mq_topic().
 
 -type dispatch_variform_expr() :: binary().
@@ -28,8 +29,8 @@ The module contains basic types for the Message Queue application.
 -type dispatch_strategy() :: random | least_inflight | {hash, dispatch_variform_expr()}.
 
 -type mq() :: #{
+    id := mqid(),
     topic_filter := mq_topic(),
-    id := binary(),
     is_compacted := boolean(),
     consumer_max_inactive := interval_ms(),
     ping_interval := interval_ms(),
@@ -43,6 +44,14 @@ The module contains basic types for the Message Queue application.
     consumer_persistence_interval := interval_ms(),
     data_retention_period := interval_ms()
 }.
+
+%% Minimal data necessary to write data into the MQ.
+-type mq_handle() :: #{
+    id := mqid(),
+    topic_filter := mq_topic(),
+    is_compacted := boolean()
+}.
+
 -export_type([
     subscriber_ref/0,
     message_id/0,
@@ -53,5 +62,7 @@ The module contains basic types for the Message Queue application.
     consumer_sup_id/0,
     ack/0,
     mq_topic/0,
-    mq/0
+    mqid/0,
+    mq/0,
+    mq_handle/0
 ]).

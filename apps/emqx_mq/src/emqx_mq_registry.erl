@@ -25,16 +25,20 @@ The module contains the registry of Message Queues.
     delete_all/0
 ]).
 
--define(MQ_REGISTRY_TAB, emqx_mq_registry).
+-define(MQ_REGISTRY_INDEX_TAB, emqx_mq_registry_index).
+-define(MQ_REGISTRY_TAB, emqx_mq_registry_data).
 -define(MQ_REGISTRY_SHARD, emqx_mq_registry_shard).
 
-%% NOTE
-%% emqx_mq_types:mq() without topic_filter
--type registry_mq() :: map().
+-record(?MQ_REGISTRY_INDEX_TAB, {
+    key :: emqx_topic_index:key(nil()) | '_',
+    id :: emqx_mq_types:mqid() | '_',
+    is_compacted :: boolean() | '_',
+    extra = #{} :: map() | '_'
+}).
 
 -record(?MQ_REGISTRY_TAB, {
-    key :: emqx_topic_index:key(nil()) | '_',
-    mq :: registry_mq() | '_'
+    id :: emqx_mq_types:mqid() | '_',
+    mq :: emqx_mq_types:mq() | '_'
 }).
 
 %%--------------------------------------------------------------------
@@ -43,8 +47,21 @@ The module contains the registry of Message Queues.
 
 -spec create_tables() -> [atom()].
 create_tables() ->
-    ok = mria:create_table(?MQ_REGISTRY_TAB, [
+    ok = mria:create_table(?MQ_REGISTRY_INDEX_TAB, [
         {type, ordered_set},
+        {rlog_shard, ?MQ_REGISTRY_SHARD},
+        {storage, disc_copies},
+        {record_name, ?MQ_REGISTRY_INDEX_TAB},
+        {attributes, record_info(fields, ?MQ_REGISTRY_INDEX_TAB)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]),
+    ok = mria:create_table(?MQ_REGISTRY_TAB, [
+        {type, set},
         {rlog_shard, ?MQ_REGISTRY_SHARD},
         {storage, disc_copies},
         {record_name, ?MQ_REGISTRY_TAB},
@@ -56,39 +73,54 @@ create_tables() ->
             ]}
         ]}
     ]),
-    [?MQ_REGISTRY_TAB].
+    [?MQ_REGISTRY_INDEX_TAB, ?MQ_REGISTRY_TAB].
 
 -doc """
 Create a new MQ.
 """.
 -spec create(emqx_mq_types:mq()) -> {ok, emqx_mq_types:mq()} | {error, queue_exists}.
-create(#{topic_filter := TopicFilter} = MQ) ->
+create(#{topic_filter := TopicFilter, is_compacted := IsCompacted} = MQ0) ->
     Key = make_key(TopicFilter),
+    Id = emqx_guid:gen(),
     {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
-        case mnesia:read(?MQ_REGISTRY_TAB, Key, write) of
+        case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
             [] ->
-                Id = emqx_guid:gen(),
-                ok = mnesia:write(to_record(Key, MQ#{id => Id})),
-                {ok, MQ#{id => Id}};
+                ok = mnesia:write(#?MQ_REGISTRY_INDEX_TAB{
+                    key = Key, id = Id, is_compacted = IsCompacted
+                }),
+                ok;
             [_] ->
                 {error, queue_exists}
         end
     end),
-    Result.
+    case Result of
+        ok ->
+            MQ = MQ0#{id => Id},
+            ok = mnesia:dirty_write(#?MQ_REGISTRY_TAB{id = Id, mq = MQ}),
+            {ok, MQ};
+        {error, _} = Error ->
+            Error
+    end.
 
 -doc """
 Find all MQs matching the given concrete topic.
 """.
--spec match(emqx_types:topic()) -> [emqx_mq_types:mq()].
+-spec match(emqx_types:topic()) -> [emqx_mq_types:mq_write_handle()].
 match(Topic) ->
-    Keys = emqx_topic_index:matches(Topic, ?MQ_REGISTRY_TAB, []),
+    Keys = emqx_topic_index:matches(Topic, ?MQ_REGISTRY_INDEX_TAB, []),
     lists:flatmap(
         fun(Key) ->
-            case ets:lookup(?MQ_REGISTRY_TAB, Key) of
+            case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
                 [] ->
                     [];
-                [#?MQ_REGISTRY_TAB{} = Record] ->
-                    [from_record(Record)]
+                [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_compacted = IsCompacted}] ->
+                    [
+                        #{
+                            id => Id,
+                            topic_filter => emqx_topic_index:get_topic(Key),
+                            is_compacted => IsCompacted
+                        }
+                    ]
             end
         end,
         Keys
@@ -101,11 +133,16 @@ Find the MQ by its topic filter.
 find(TopicFilter) ->
     ?tp_debug(mq_registry_find, #{topic_filter => TopicFilter}),
     Key = make_key(TopicFilter),
-    case ets:lookup(?MQ_REGISTRY_TAB, Key) of
+    case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
         [] ->
             not_found;
-        [#?MQ_REGISTRY_TAB{} = Record] ->
-            {ok, from_record(Record)}
+        [#?MQ_REGISTRY_INDEX_TAB{id = Id}] ->
+            case mnesia:dirty_read(?MQ_REGISTRY_TAB, Id) of
+                [] ->
+                    not_found;
+                [#?MQ_REGISTRY_TAB{mq = MQ}] ->
+                    {ok, MQ}
+            end
     end.
 
 -doc """
@@ -116,26 +153,31 @@ delete(TopicFilter) ->
     ?tp_debug(mq_registry_delete, #{topic_filter => TopicFilter}),
     Key = make_key(TopicFilter),
     {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
-        case mnesia:read(?MQ_REGISTRY_TAB, Key, write) of
+        case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
             [] ->
                 not_found;
-            [#?MQ_REGISTRY_TAB{} = Record] ->
-                ok = mnesia:delete(?MQ_REGISTRY_TAB, Key, write),
-                {ok, from_record(Record)}
+            [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_compacted = IsCompacted}] ->
+                ok = mnesia:delete(?MQ_REGISTRY_INDEX_TAB, Key, write),
+                {ok, #{
+                    id => Id,
+                    topic_filter => emqx_topic_index:get_topic(Key),
+                    is_compacted => IsCompacted
+                }}
         end
     end),
     case Result of
         not_found ->
             not_found;
-        {ok, MQ} ->
-            case emqx_mq_consumer_db:drop_claim(MQ, now_ms()) of
+        {ok, #{id := Id} = MQHandle} ->
+            ok = mria:dirty_delete(?MQ_REGISTRY_TAB, Id),
+            case emqx_mq_consumer_db:drop_claim(MQHandle, now_ms()) of
                 {ok, ConsumerRef} ->
                     ok = emqx_mq_consumer:stop(ConsumerRef);
                 not_found ->
                     ok
             end,
-            ok = emqx_mq_consumer_db:drop_consumer_data(MQ),
-            ok = emqx_mq_message_db:drop(MQ)
+            ok = emqx_mq_consumer_db:drop_consumer_data(MQHandle),
+            ok = emqx_mq_message_db:drop(MQHandle)
     end.
 
 -doc """
@@ -146,6 +188,7 @@ delete_all() ->
     {atomic, ok} = mria:async_dirty(
         ?MQ_REGISTRY_SHARD,
         fun() ->
+            mria:match_delete(?MQ_REGISTRY_INDEX_TAB, #?MQ_REGISTRY_INDEX_TAB{_ = '_'}),
             mria:match_delete(?MQ_REGISTRY_TAB, #?MQ_REGISTRY_TAB{_ = '_'})
         end
     ),
@@ -155,51 +198,52 @@ delete_all() ->
 Update the MQ by its topic filter.
 `is_compacted` is not allowed to be updated.
 """.
--spec update(emqx_mq_types:mq_topic(), emqx_mq_types:mq()) -> ok | not_found.
+-spec update(emqx_mq_types:mq_topic(), emqx_mq_types:mq()) -> {ok, emqx_mq_types:mq()} | not_found.
 update(TopicFilter, UpdateFields0) ->
     Key = make_key(TopicFilter),
     UpdateFields = maps:without([topic_filter, id, is_compacted], UpdateFields0),
-    {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
-        case mnesia:read(?MQ_REGISTRY_TAB, Key, write) of
-            [] ->
-                not_found;
-            [#?MQ_REGISTRY_TAB{} = Record] ->
-                MQ = maps:merge(from_record(Record), UpdateFields),
-                ok = mnesia:write(to_record(Key, MQ)),
-                {ok, MQ}
-        end
-    end),
-    Result.
+    case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
+        [] ->
+            not_found;
+        [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_compacted = IsCompacted}] ->
+            case mnesia:dirty_read(?MQ_REGISTRY_TAB, Id) of
+                [#?MQ_REGISTRY_TAB{mq = #{is_compacted := IsCompacted} = MQ0}] ->
+                    MQ = maps:merge(MQ0, UpdateFields),
+                    ok = mnesia:dirty_write(#?MQ_REGISTRY_TAB{id = Id, mq = MQ}),
+                    {ok, MQ};
+                _ ->
+                    not_found
+            end
+    end.
 
 %% TODO
 %% support pagination
 -doc """
 List all MQs.
 """.
--spec list() -> [emqx_mq_types:mq()].
+-spec list() -> emqx_utils_stream:stream(emqx_mq_types:mq()).
 list() ->
-    lists:map(
-        fun(Record) ->
-            from_record(Record)
+    emqx_utils_stream:map(
+        fun(#?MQ_REGISTRY_TAB{mq = MQ}) ->
+            MQ
         end,
-        ets:tab2list(?MQ_REGISTRY_TAB)
+        mq_record_stream()
     ).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
+mq_record_stream() ->
+    emqx_utils_stream:ets(fun
+        (undefined) ->
+            ets:match_object(?MQ_REGISTRY_TAB, #?MQ_REGISTRY_TAB{_ = '_'}, 1);
+        (Cont) ->
+            ets:match_object(Cont)
+    end).
+
 make_key(TopicFilter) ->
     emqx_topic_index:make_key(TopicFilter, []).
-
-from_record(#?MQ_REGISTRY_TAB{
-    key = Key,
-    mq = MQ
-}) ->
-    MQ#{topic_filter => emqx_topic_index:get_topic(Key)}.
-
-to_record(Key, MQ) ->
-    #?MQ_REGISTRY_TAB{key = Key, mq = maps:remove(topic_filter, MQ)}.
 
 now_ms() ->
     erlang:system_time(millisecond).

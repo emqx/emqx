@@ -21,7 +21,7 @@ init_per_suite(Config) ->
         [
             {emqx_durable_storage, #{override_env => [{poll_batch_size, 1}]}},
             emqx,
-            {emqx_mq, emqx_mq_test_utils:config()}
+            {emqx_mq, emqx_mq_test_utils:cth_config()}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),

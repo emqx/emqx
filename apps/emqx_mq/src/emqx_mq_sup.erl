@@ -11,7 +11,7 @@
     start_consumer_sup/0,
     start_gc_sup/0,
     start_consumer/2,
-    start_gc/1
+    start_gc/0
 ]).
 
 -export([init/1]).
@@ -39,8 +39,8 @@ start_consumer(Id, Args) ->
             {error, Reason}
     end.
 
-start_gc(GCType) ->
-    case supervisor:start_child(?GC_SUP, emqx_mq_gc_worker:child_spec(GCType)) of
+start_gc() ->
+    case supervisor:start_child(?GC_SUP, emqx_mq_gc_worker:child_spec()) of
         {ok, _Pid} ->
             ok;
         {error, {already_started, _Pid}} ->
@@ -51,7 +51,7 @@ start_gc(GCType) ->
 
 init(?ROOT_SUP) ->
     SupFlags = #{
-        strategy => one_for_all,
+        strategy => one_for_one,
         intensity => 10,
         period => 10
     },
@@ -64,7 +64,7 @@ init(?ROOT_SUP) ->
     {ok, {SupFlags, ChildSpecs}};
 init(?CONSUMER_SUP) ->
     SupFlags = #{
-        strategy => one_for_all,
+        strategy => one_for_one,
         intensity => 10,
         period => 10
     },
@@ -72,7 +72,7 @@ init(?CONSUMER_SUP) ->
     {ok, {SupFlags, ChildSpecs}};
 init(?GC_SUP) ->
     SupFlags = #{
-        strategy => one_for_all,
+        strategy => one_for_one,
         intensity => 10,
         period => 10
     },

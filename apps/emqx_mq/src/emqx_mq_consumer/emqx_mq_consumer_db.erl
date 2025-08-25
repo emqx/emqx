@@ -125,10 +125,11 @@ find_consumer(#{topic_filter := MQTopic} = MQ, TS) ->
             end
     end.
 
--spec drop_claim(emqx_mq_types:mq(), timestamp()) -> {ok, consumer_ref()} | not_found.
-drop_claim(MQ, TS) ->
-    TxOpts = tx_opts(MQ),
-    LeadershipTopic = topic_leadership(MQ),
+-spec drop_claim(emqx_mq_types:mq_handle() | emqx_mq_types:mq(), timestamp()) ->
+    {ok, consumer_ref()} | not_found.
+drop_claim(MQHandle, TS) ->
+    TxOpts = tx_opts(MQHandle),
+    LeadershipTopic = topic_leadership(MQHandle),
     TombstoneClaim = #tombstone{last_seen_timestamp = TS},
     TxRes = emqx_ds:trans(TxOpts, fun() ->
         case read_claim(LeadershipTopic) of
@@ -143,7 +144,8 @@ drop_claim(MQ, TS) ->
     end),
     get_result(TxRes).
 
--spec drop_consumer_data(emqx_mq_types:mq()) -> ok | emqx_ds:error(term()).
+-spec drop_consumer_data(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) ->
+    ok | emqx_ds:error(term()).
 drop_consumer_data(MQ) ->
     TxOpts = tx_opts(MQ),
     DataTopic = topic_consumer_data(MQ),

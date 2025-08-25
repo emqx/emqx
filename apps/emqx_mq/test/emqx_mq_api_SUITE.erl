@@ -28,7 +28,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx,
-            {emqx_mq, emqx_mq_test_utils:config()},
+            {emqx_mq, emqx_mq_test_utils:cth_config()},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -65,6 +65,14 @@ t_crud(_Config) ->
         {ok, 200, _},
         api_post([message_queues], #{<<"topic_filter">> => <<"t/1">>, <<"ping_interval">> => 9999})
     ),
+    ?retry(
+        5,
+        20,
+        ?assertMatch(
+            {ok, 200, [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 9999}]},
+            api_get([message_queues])
+        )
+    ),
     ?assertMatch(
         {ok, 200, [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 9999}]},
         api_get([message_queues])
@@ -73,9 +81,13 @@ t_crud(_Config) ->
         {ok, 404, _},
         api_put([message_queues, urlencode(<<"t/2">>)], #{<<"ping_interval">> => 10000})
     ),
-    ?assertMatch(
-        {ok, 200, #{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}},
-        api_put([message_queues, urlencode(<<"t/1">>)], #{<<"ping_interval">> => 10000})
+    ?retry(
+        5,
+        20,
+        ?assertMatch(
+            {ok, 200, #{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}},
+            api_put([message_queues, urlencode(<<"t/1">>)], #{<<"ping_interval">> => 10000})
+        )
     ),
     ?assertMatch(
         {ok, 200, [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}]},
@@ -93,9 +105,13 @@ t_crud(_Config) ->
         {ok, 204},
         api_delete([message_queues, urlencode(<<"t/1">>)])
     ),
-    ?assertMatch(
-        {ok, 200, []},
-        api_get([message_queues])
+    ?retry(
+        5,
+        20,
+        ?assertMatch(
+            {ok, 200, []},
+            api_get([message_queues])
+        )
     ).
 
 %%--------------------------------------------------------------------

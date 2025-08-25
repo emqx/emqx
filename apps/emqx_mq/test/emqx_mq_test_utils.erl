@@ -22,7 +22,7 @@
 
 -export([compile_variform/1]).
 
--export([config/0]).
+-export([cth_config/0, cth_config/1]).
 
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -85,7 +85,8 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
         stream_max_buffer_size => 10,
         stream_max_unacked => 5,
         consumer_persistence_interval => 1000,
-        data_retention_period => 3600_000
+        data_retention_period => 3600_000,
+        gc_interval => 3600_000
     },
     MQ1 = maps:merge(Default, MQ0),
 
@@ -148,5 +149,16 @@ compile_variform(Expression) ->
     {ok, Compiled} = emqx_variform:compile(Expression),
     Compiled.
 
-config() ->
-    <<"mq.gc_interval = 1h">>.
+cth_config() ->
+    cth_config(#{}).
+
+cth_config(ConfigOverrides) ->
+    DefaultConfig = #{
+        <<"mq">> => #{
+            <<"gc_interval">> => <<"1h">>
+        }
+    },
+    Config = emqx_utils_maps:deep_merge(DefaultConfig, ConfigOverrides),
+    #{
+        config => Config
+    }.

@@ -28,15 +28,18 @@ Facade for all operations with the message database.
     decode_message/1
 ]).
 
-%% For testing/maintenance
 -export([
     add_regular_db_generation/0,
-    last_regular_db_generations/0
+    delete_compacted_data/2,
+    regular_db_slab_info/0,
+    drop_regular_db_slab/1,
+    initial_generations/1
 ]).
 
 %% For testing/maintenance
 -export([
-    delete_all/0
+    delete_all/0,
+    dirty_read_all/1
 ]).
 
 -define(MQ_MESSAGE_DB_APPEND_RETRY, 5).
@@ -48,7 +51,7 @@ Facade for all operations with the message database.
     <<"topic">>, MQ_TOPIC, MQ_ID, <<"key">>, COMPACTION_KEY
 ]).
 
--define(SHARDS_PER_SITE, 10).
+-define(SHARDS_PER_SITE, 3).
 
 %% TODO: increase
 -define(REPLICATION_FACTOR, 1).
@@ -82,12 +85,13 @@ insert(#{is_compacted := false} = MQ, Messages) ->
 
 insert(MQ, Messages, TxInsertFun) ->
     TopicValueByShard = group_by_shard(MQ, Messages),
+    DB = db(MQ),
     Results = lists:map(
         fun({Shard, TVs}) ->
             TxOpts = #{
-                db => db(MQ),
+                db => DB,
                 shard => Shard,
-                generation => insert_generation(MQ),
+                generation => insert_generation(DB),
                 sync => true,
                 retries => ?MQ_MESSAGE_DB_APPEND_RETRY
             },
@@ -110,9 +114,9 @@ insert(MQ, Messages, TxInsertFun) ->
     ),
     format_insert_tx_results(Results).
 
--spec drop(emqx_mq_types:mq()) -> ok.
-drop(MQ) ->
-    delete(db(MQ), mq_message_topic(MQ, '#')).
+-spec drop(emqx_mq_types:mq_handle()) -> ok.
+drop(MQHandle) ->
+    delete(db(MQHandle), mq_message_topic(MQHandle, '#')).
 
 -spec delete_all() -> ok.
 delete_all() ->
@@ -158,15 +162,53 @@ encode_message(Message) ->
 decode_message(Bin) ->
     emqx_ds_msg_serializer:deserialize(asn1, Bin).
 
-%%--------------------------------------------------------------------
-%% Maintenance API
-%%--------------------------------------------------------------------
-
+-spec add_regular_db_generation() -> ok.
 add_regular_db_generation() ->
     ok = emqx_ds:add_generation(?MQ_MESSAGE_REGULAR_DB).
 
-last_regular_db_generations() ->
-    maps:values(maps:from_list(lists:sort(maps:keys(emqx_ds:list_slabs(?MQ_MESSAGE_REGULAR_DB))))).
+-spec delete_compacted_data([emqx_mq_types:mq()], non_neg_integer()) -> ok.
+delete_compacted_data(MQs, TimeThreshold) ->
+    Shards = emqx_ds:list_shards(?MQ_MESSAGE_COMPACTED_DB),
+    lists:foreach(
+        fun(Shard) ->
+            TxOpts = #{
+                db => ?MQ_MESSAGE_COMPACTED_DB,
+                shard => Shard,
+                generation => insert_generation(?MQ_MESSAGE_COMPACTED_DB),
+                sync => true,
+                retries => ?MQ_MESSAGE_DB_APPEND_RETRY
+            },
+            emqx_ds:trans(TxOpts, fun() ->
+                lists:foreach(
+                    fun(#{is_compacted := true, data_retention_period := DataRetentionPeriod} = MQ) ->
+                        Topic = mq_message_topic(MQ, '#'),
+                        DeleteTill = max(TimeThreshold - DataRetentionPeriod, 0),
+                        emqx_ds:tx_del_topic(Topic, 0, DeleteTill)
+                    end,
+                    MQs
+                )
+            end)
+        end,
+        Shards
+    ).
+
+-spec regular_db_slab_info() -> #{emqx_ds:slab() => emqx_ds:slab_info()}.
+regular_db_slab_info() ->
+    emqx_ds:list_slabs(?MQ_MESSAGE_REGULAR_DB).
+
+-spec initial_generations(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) ->
+    #{emqx_ds:slab() => emqx_ds:generation()}.
+initial_generations(MQ) ->
+    SlabInfo = emqx_ds:list_slabs(db(MQ)),
+    maps:from_list(lists:reverse(lists:sort(maps:keys(SlabInfo)))).
+
+-spec drop_regular_db_slab(emqx_ds:slab()) -> ok.
+drop_regular_db_slab(Slab) ->
+    ok = emqx_ds:drop_slab(?MQ_MESSAGE_REGULAR_DB, Slab).
+
+-spec dirty_read_all(emqx_mq_types:mq()) -> [emqx_ds:ttv()].
+dirty_read_all(MQ) ->
+    emqx_ds:dirty_read(db(MQ), mq_message_topic(MQ, '#')).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -195,14 +237,11 @@ group_by_shard(#{is_compacted := true} = MQ, Messages) ->
             ),
             case CompactionKey of
                 undefined ->
-                    ?tp(warning, mq_message_db_insert_error, #{
+                    ?tp_debug(mq_message_db_insert_error, #{
                         mq => MQ, message => Message, reason => undefined_compaction_key
                     }),
                     Acc;
                 _ ->
-                    ?tp(warning, mq_message_db_insert_error, #{
-                        mq => MQ, reason => compaction_key_set_for_compacted_mq
-                    }),
                     Shard = emqx_ds:shard_of(?MQ_MESSAGE_COMPACTED_DB, CompactionKey),
                     Topic = mq_message_topic(MQ, CompactionKey),
                     Value = encode_message(Message),
@@ -250,7 +289,7 @@ delete(DB, Topic) ->
                 emqx_ds:tx_del_topic(Topic)
             end)
         end,
-        maps:keys(emqx_ds:list_slabs(?MQ_MESSAGE_REGULAR_DB))
+        maps:keys(emqx_ds:list_slabs(DB))
     ).
 
 mq_message_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, CompactionKey) ->
@@ -261,9 +300,9 @@ db(#{is_compacted := true} = _MQ) ->
 db(#{is_compacted := false} = _MQ) ->
     ?MQ_MESSAGE_REGULAR_DB.
 
-insert_generation(#{is_compacted := true} = _MQ) ->
+insert_generation(?MQ_MESSAGE_COMPACTED_DB) ->
     1;
-insert_generation(#{is_compacted := false} = _MQ) ->
+insert_generation(?MQ_MESSAGE_REGULAR_DB) ->
     latest.
 
 settings() ->

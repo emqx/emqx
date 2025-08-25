@@ -31,7 +31,8 @@ Performance test utilities for the MQ application.
     stream_max_buffer_size => 100,
     stream_max_unacked => 100,
     consumer_persistence_interval => 10000,
-    data_retention_period => 3600_000
+    data_retention_period => 3600_000,
+    gc_interval => 3600_000
 }).
 
 %%--------------------------------------------------------------------

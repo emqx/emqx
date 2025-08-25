@@ -74,6 +74,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
     streams := #{
         emqx_ds:stream() => emqx_ds:shard()
     },
+    initial_generations := #{emqx_ds:shard() => emqx_ds:generation()},
     shards := shard_state()
 }.
 
@@ -98,7 +99,8 @@ new(MQ, Progress) ->
     State0 = #{
         mq => MQ,
         streams => #{},
-        shards => #{}
+        shards => #{},
+        initial_generations => emqx_mq_message_db:initial_generations(MQ)
     },
     State1 = restore_streams(State0, Progress),
     DSClient0 = emqx_mq_message_db:create_client(?MODULE),
@@ -118,7 +120,8 @@ handle_ds_info(#cs{ds_client = DSC0, state = State0} = CS0, GenericMessage) ->
         ignore ->
             ignore;
         {data, ?SUB_ID, Stream, Handle, DSReply} ->
-            {ok, Messages, CS} = handle_ds_reply(CS0, Stream, Handle, DSReply),
+            {ok, Messages0, CS1} = handle_ds_reply(CS0, Stream, Handle, DSReply),
+            {Messages, CS} = ack_expired_messages(CS1, Messages0),
             {ok, Messages, CS};
         {DSC, State} ->
             {ok, [], CS0#cs{ds_client = DSC, state = State}}
@@ -183,7 +186,9 @@ info(#cs{state = #{shards := Shards, streams := Streams}}) ->
 %% emqx_ds_client callbacks
 %%--------------------------------------------------------------------
 
-get_current_generation(?SUB_ID, Shard, #{shards := Shards}) ->
+get_current_generation(?SUB_ID, Shard, #{
+    shards := Shards, initial_generations := InitialGenerations
+}) ->
     Result =
         case Shards of
             #{Shard := #{status := finished, generation := Generation}} ->
@@ -191,7 +196,7 @@ get_current_generation(?SUB_ID, Shard, #{shards := Shards}) ->
             #{Shard := #{generation := Generation}} ->
                 Generation;
             _ ->
-                0
+                maps:get(Shard, InitialGenerations, 0)
         end,
     ?tp_debug(emqx_mq_consumer_streams_get_current_generation, #{
         shard => Shard, result => Result
@@ -273,10 +278,18 @@ on_new_iterator(
             }),
             {ignore, State0};
         _ ->
-            ?tp(error, emqx_mq_consumer_streams_on_new_iterator_shard_not_found, #{
-                slab => {Shard, Generation}
-            }),
-            {ignore, State0}
+            ShardState = #{
+                status => active,
+                generation => Generation,
+                stream_buffer => emqx_mq_consumer_stream_buffer:new(It, MQ),
+                sub_ref => undefined,
+                stream => Stream
+            },
+            State = State0#{
+                shards => Shards#{Shard => ShardState},
+                streams => Streams#{Stream => Shard}
+            },
+            {subscribe, State}
     end.
 
 on_unrecoverable_error(
@@ -453,6 +466,21 @@ do_handle_ds_reply(
             {ok, [], CS#cs{ds_client = DSC, state = State}}
     end.
 
+ack_expired_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
+    {CS, Messages} = lists:foldl(
+        fun({Id, Message} = MesssageWithId, {CSAcc, MessagesAcc}) ->
+            case is_expired(MQ, Message) of
+                true ->
+                    {handle_ack(CSAcc, Id), MessagesAcc};
+                false ->
+                    {CSAcc, [MesssageWithId | MessagesAcc]}
+            end
+        end,
+        {CS0, []},
+        Messages0
+    ),
+    {lists:reverse(Messages), CS}.
+
 shards_info(Shards) ->
     maps:map(fun(_Shard, ShardState) -> shard_info(ShardState) end, Shards).
 
@@ -472,3 +500,13 @@ inc_received_message_stat(#ds_sub_reply{payload = {ok, _It, TTVs}}) ->
     emqx_mq_metrics:inc(ds, received_messages, length(TTVs));
 inc_received_message_stat(_DsSubReply) ->
     ok.
+
+is_expired(#{data_retention_period := infinity} = _MQ, _Message) ->
+    false;
+is_expired(#{data_retention_period := DataRetentionPeriod} = _MQ, Message) when
+    is_integer(DataRetentionPeriod)
+->
+    emqx_message:timestamp(Message) < now_ms() - DataRetentionPeriod.
+
+now_ms() ->
+    erlang:system_time(millisecond).
