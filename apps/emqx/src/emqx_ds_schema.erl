@@ -213,7 +213,7 @@ fields(optimistic_transaction) ->
                 emqx_schema:duration_ms(),
                 #{
                     default => "10ms",
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(otx_flush_interval)
                 }
             )},
@@ -222,7 +222,7 @@ fields(optimistic_transaction) ->
                 emqx_schema:duration_ms(),
                 #{
                     default => "1ms",
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(otx_idle_flush_interval)
                 }
             )},
@@ -231,7 +231,8 @@ fields(optimistic_transaction) ->
                 pos_integer(),
                 #{
                     default => 10000,
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(otx_max_pending)
                 }
             )}
     ];
