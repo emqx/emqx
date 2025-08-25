@@ -75,7 +75,7 @@ dumped to another WAL. The latter is read again to initialize the
 server state.
 """.
 
--behavior(gen_server).
+-behaviour(gen_server).
 
 %% API:
 -export([
@@ -134,7 +134,8 @@ server state.
     pending/0,
 
     wal/0,
-    dbshard/0
+    dbshard/0,
+    human_readable/0
 ]).
 
 -include("emqx_ds.hrl").
@@ -286,6 +287,49 @@ Backends should re-register themselves on restart of DS application.
 -else.
 -define(replay_chunk_size, 1000).
 -endif.
+
+-type human_readable() :: string:string().
+
+%%--------------------------------------------------------------------------------
+%% Backend callbacks
+%%--------------------------------------------------------------------------------
+
+-doc """
+Return human-readable information about the DB useful for the operator.
+""".
+-callback db_info(emqx_ds:db()) -> {ok, human_readable()} | undefined.
+
+-doc """
+Validate configuration of a DB and split it into variable and permanent (schema) parts.
+""".
+-callback validate_db_opts(emqx_ds:create_db_opts()) ->
+    {ok, db_schema(), db_runtime_config()}
+    | {error, _}.
+
+-doc """
+Used to politely ask the backend about the consequences of removing site from the cluster.
+""".
+-callback verify_peer_leave(emqx_ds:db(), site()) -> ok | {warning, human_readable()}.
+
+-doc """
+Notify the backend that a site has been removed from the cluster.
+
+Note: avoid long-running computation in this callback.
+If some actions should be taken to handle the situation they should be implemented
+using "pending" mechanism.
+""".
+-callback on_peer_leave(emqx_ds:db(), site()) -> {ok, [pending()]}.
+
+-doc """
+Notify the backend that a new site has been added to the cluster.
+
+Note: avoid long-running computation in this callback.
+If some actions should be taken to handle the situation they should be implemented
+using "pending" mechanism.
+""".
+-callback on_peer_join(emqx_ds:db(), site()) -> {ok, [pending()]}.
+
+-optional_callbacks([verify_peer_leave/2, on_peer_join/2, on_peer_leave/2]).
 
 %%================================================================================
 %% API functions
