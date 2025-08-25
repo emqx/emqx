@@ -227,7 +227,8 @@ shard_batch_serializer_spec(DB, Shard, Opts = #{store_ttv := false}) ->
     }.
 
 shard_beamformers_spec(DB, Shard, _Opts) ->
-    BeamformerOpts = #{n_workers => emqx_ds_beamformer:cfg_workers_per_shard()},
+    #{n_workers_per_shard := NWorkers} = emqx_ds_builtin_local:beamformer_config(DB),
+    BeamformerOpts = #{n_workers => NWorkers},
     #{
         id => {Shard, beamformers},
         type => supervisor,

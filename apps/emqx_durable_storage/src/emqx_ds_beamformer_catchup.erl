@@ -82,7 +82,7 @@ pool(Shard) ->
 %% behavior callbacks
 %%================================================================================
 
-init([CBM, ShardId, Name, _Opts]) ->
+init([CBM, ShardId = {DB, _}, Name, _Opts]) ->
     process_flag(trap_exit, true),
     logger:update_process_metadata(#{dbshard => ShardId, name => Name}),
     %% Attach this worker to the pool:
@@ -95,7 +95,7 @@ init([CBM, ShardId, Name, _Opts]) ->
         metrics_id = emqx_ds_beamformer:metrics_id(ShardId, catchup),
         name = Name,
         queue = queue_new(),
-        batch_size = emqx_ds_beamformer:cfg_batch_size()
+        batch_size = maps:get(batch_size, emqx_ds_beamformer:runtime_config(CBM, DB))
     },
     self() ! ?housekeeping_loop,
     {ok, S}.
@@ -115,15 +115,19 @@ handle_info(?fulfill_loop, S0) ->
     {noreply, S};
 handle_info(
     ?housekeeping_loop,
-    S0 = #s{metrics_id = Metrics, name = Name, queue = Queue}
+    S0 = #s{module = CBM, shard_id = {DB, _}, metrics_id = Metrics, name = Name, queue = Queue}
 ) ->
     %% Reload configuration:
+    #{
+        batch_size := BatchSize,
+        housekeeping_interval := HouseKeepingInterval
+    } = emqx_ds_beamformer:runtime_config(CBM, DB),
     S = S0#s{
-        batch_size = emqx_ds_beamformer:cfg_batch_size()
+        batch_size = BatchSize
     },
     %% Update metrics:
     emqx_ds_builtin_metrics:set_subs_count(Metrics, Name, ets:info(Queue, size)),
-    erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
+    erlang:send_after(HouseKeepingInterval, self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(#unsub_req{id = SubId}, S = #s{sub_tab = SubTab, queue = Queue}) ->
     case emqx_ds_beamformer:sub_tab_take(SubTab, SubId) of
@@ -217,11 +221,11 @@ do_fulfill(
         Metrics, erlang:monotonic_time(microsecond) - T0
     ),
     case ScanResult of
-        {ok, EndKey, []} ->
+        {ok, _PTrans, EndKey, []} ->
             %% Empty batch? Try to move request to the RT queue:
             move_to_realtime(S, Stream, TopicFilter, StartKey, EndKey);
-        {ok, EndKey, Batch} ->
-            fulfill_batch(S, Stream, TopicFilter, StartKey, EndKey, Batch);
+        {ok, PTrans, EndKey, Batch} ->
+            fulfill_batch(S, PTrans, Stream, TopicFilter, StartKey, EndKey, Batch);
         {error, recoverable, Err} ->
             ?tp(
                 warning,
@@ -332,14 +336,16 @@ handover_complete(
 
 -spec fulfill_batch(
     s(),
+    emqx_ds_payload_transform:schema(),
     emqx_ds:stream(),
     emqx_ds:topic_filter(),
     emqx_ds:message_key(),
     emqx_ds:message_key(),
-    [{emqx_ds:message_key(), emqx_types:message()}]
+    [{emqx_ds:message_key(), emqx_ds:ttv()}]
 ) -> s().
 fulfill_batch(
     S = #s{shard_id = ShardId, sub_tab = SubTab, metrics_id = Metrics, module = CBM, queue = Queue},
+    PTrans,
     Stream,
     TopicFilter,
     StartKey,
@@ -361,6 +367,7 @@ fulfill_batch(
             emqx_ds_beamformer:beams_init(
                 CBM,
                 ShardId,
+                PTrans,
                 SubTab,
                 true,
                 fun(Req) -> queue_drop(Queue, Req) end,
@@ -380,7 +387,7 @@ fulfill_batch(
     s(),
     emqx_ds:stream(),
     emqx_ds:topic_filter(),
-    [{emqx_ds:message_key(), emqx_types:message()}],
+    [{emqx_ds:message_key(), emqx_ds:ttv()}],
     [emqx_ds_beamformer:sub_state()],
     emqx_ds_beamformer:beam_builder()
 ) -> emqx_ds_beamformer:beam_builder().

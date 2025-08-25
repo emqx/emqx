@@ -35,7 +35,7 @@ It takes care of forwarding calls to the underlying DBMS.
 ]).
 
 %% Message storage API:
--export([store_batch/2, store_batch/3]).
+-export([store_batch/2, store_batch/3, dirty_append/2, dirty_append_outcome/2]).
 
 %% Transactional API (low-level):
 -export([new_tx/2, commit_tx/3]).
@@ -94,6 +94,7 @@ It takes care of forwarding calls to the underlying DBMS.
     db_opts/0,
     db/0,
     time/0,
+    time_ms/0,
     topic_filter/0,
     topic/0,
     batch/0,
@@ -114,6 +115,8 @@ It takes care of forwarding calls to the underlying DBMS.
     iterator_id/0,
     message_key/0,
     message_store_opts/0,
+    dirty_append_opts/0,
+    dirty_append_data/0,
     next_limit/0,
     next_result/1, next_result/0,
     delete_next_result/1, delete_next_result/0,
@@ -156,8 +159,16 @@ It takes care of forwarding calls to the underlying DBMS.
     multi_iter_opts/0
 ]).
 
+-deprecated([
+    {get_delete_streams, 3, "use `tx_del_topic` instead"},
+    {make_delete_iterator, 4, "use `tx_del_topic` instead"},
+    {delete_next, 4, "use `tx_del_topic` instead"}
+    %%     {store_batch, 2, "use `dirty_append` instead"},
+    %%     {store_batch, 3, "use `dirty_append` instead"}
+]).
+
 %%================================================================================
-%% Type declarations
+%% type declarations
 %%================================================================================
 
 -doc "Identifier of the DB.".
@@ -282,11 +293,16 @@ Options for limiting the number of streams.
 -type error(Reason) :: {error, recoverable | unrecoverable, Reason}.
 
 -doc """
-Timestamp
-Each message must have unique timestamp.
+Timestamp in `erlang:system_time(microsecond)` format.
+
 Earliest possible timestamp is 0.
 """.
 -type time() :: non_neg_integer().
+
+-doc """
+Epoch time in milliseconds.
+""".
+-type time_ms() :: non_neg_integer().
 
 -type tx_serial() :: binary().
 
@@ -301,6 +317,16 @@ Earliest possible timestamp is 0.
         %% Default: `false'.
         atomic => boolean()
     }.
+
+-type dirty_append_opts() :: #{
+    db := db(),
+    shard := shard(),
+    reply => boolean()
+}.
+
+-type dirty_append_data() :: [
+    {topic(), ?ds_tx_ts_monotonic, binary() | emqx_ds_payload_transform:payload()}, ...
+].
 
 -doc """
 Common options for creation of a DS database.
@@ -334,6 +360,10 @@ Common options for creation of a DS database.
   NOTE: this flag is meant to be temporary. Eventually the APIs
   should converge.
 
+- **`payload_type`** - Use fixed payload (de)serialization schema.
+  This option is meant to optimize fan-out of MQTT messages to
+  subscribers.
+
 Note: all backends MUST handle all options listed here; even if it
 means throwing an exception that says that certain option is not
 supported.
@@ -347,6 +377,8 @@ supported.
         %% topic-time-value triples.
         %%
         store_ttv => boolean(),
+        %% Relevant when store_ttv = true:
+        payload_type => emqx_ds_payload_transform:type(),
         %% Backend-specific options:
         _ => _
     }.
@@ -394,9 +426,9 @@ Options for the `subscribe` API.
     }.
 
 -type slab_info() :: #{
-    created_at := time(),
-    since := time(),
-    until := time() | undefined
+    created_at := time_ms(),
+    since := time_ms(),
+    until := time_ms() | undefined
 }.
 
 %% Subscription:
@@ -449,7 +481,7 @@ Options for the `subscribe` API.
 
 -type commit_result() :: {ok, tx_serial()} | error(_).
 
--type payload() :: emqx_types:message() | ttv().
+-type payload() :: ttv() | emqx_ds_payload_transform:payload().
 
 -type fold_fun(Acc) :: fun(
     (
@@ -560,6 +592,9 @@ must not assume the default values.
 -callback shard_of(db(), emqx_types:clientid() | topic()) -> shard().
 
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
+
+-callback dirty_append(dirty_append_opts(), dirty_append_data()) ->
+    reference() | noreply.
 
 %% Synchronous read API:
 -callback get_streams(db(), topic_filter(), time(), get_streams_opts()) -> get_streams_result().
@@ -818,6 +853,47 @@ store_batch(DB, Msgs, Opts) ->
 -spec store_batch(db(), batch()) -> store_batch_result().
 store_batch(DB, Msgs) ->
     store_batch(DB, Msgs, #{}).
+
+-doc """
+This function is used to stream data into a DB with as little overhead as possible.
+It adds data to the latest generation of the shard.
+This function is asynchronous.
+
+WARNING: this function breaks isolation of transactions.
+Data written using `dirty_append` doesn't appear in the conflict tracking structures used by optimistic transactions.
+Generally, transactions and dirty_appends should not be mixed in one DB.
+
+Options:
+
+- **`reply`**: a boolean indicating whether or not DS should notify the caller when data is committed.
+  If set to `false`, function returns `noreply` and DS will not send back anything.
+  "Fire and forget" mode.
+
+  If set to `true`, this function will return a reference
+  that can be used to match the reply from DS using `?ds_tx_commit_reply(Ref, Reply)` macro.
+  The outcome can be then extracted from the reply using `dirty_append_outcome/2` function.
+
+  Note that the reply is not guaranteed at all, so the caller should implement
+  a reasonable timeout and error handling policy on its own.
+
+  Default: `true`.
+""".
+-spec dirty_append(dirty_append_opts(), dirty_append_data()) -> reference() | noreply.
+dirty_append(#{db := DB, shard := _} = UserOpts, Data) ->
+    Opts = maps:merge(#{reply => true}, UserOpts),
+    ?module(DB):dirty_append(Opts, Data).
+
+-spec dirty_append_outcome(reference(), term()) ->
+    {ok, tx_serial()} | emqx_ds:error(_).
+dirty_append_outcome(Ref, ?ds_tx_commit_reply(Ref, Reply)) when is_reference(Ref) ->
+    %% Note: here we simply assume that Ref is a monitor reference.
+    demonitor(Ref),
+    case Reply of
+        ?ds_tx_commit_ok(_, _Reserved, Serial) ->
+            {ok, Serial};
+        ?ds_tx_commit_error(_, _Reserved, Class, Info) ->
+            {error, Class, Info}
+    end.
 
 -doc "Simplified version of `get_streams/4` that ignores the errors.".
 -spec get_streams(db(), topic_filter(), time()) -> [{slab(), stream()}].
@@ -1222,12 +1298,16 @@ have to be proper unicode and levels can contain slashes.
 
 """.
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
--spec tx_write({topic(), time() | ?ds_tx_ts_monotonic, binary() | ?ds_tx_serial}) -> ok.
+-spec tx_write({
+    topic(),
+    time() | ?ds_tx_ts_monotonic,
+    binary() | ?ds_tx_serial | emqx_ds_payload_transform:payload()
+}) -> ok.
 tx_write({Topic, Time, Value}) ->
     case
         is_topic(Topic) andalso
             (is_integer(Time) orelse Time =:= ?ds_tx_ts_monotonic) andalso
-            (is_binary(Value) orelse Value =:= ?ds_tx_serial)
+            (is_binary(Value) orelse Value =:= ?ds_tx_serial orelse is_tuple(Value))
     of
         true ->
             tx_push_op(?tx_ops_write, {Topic, Time, Value});
@@ -1652,14 +1732,16 @@ topic_words(Bin) -> emqx_topic:words(Bin).
 set_db_defaults(Opts = #{store_ttv := true}) ->
     Defaults = #{
         append_only => false,
-        atomic_batches => true
+        atomic_batches => true,
+        payload_type => ?ds_pt_ttv
     },
     maps:merge(Defaults, Opts);
 set_db_defaults(Opts) ->
     Defaults = #{
         append_only => true,
         atomic_batches => false,
-        store_ttv => false
+        store_ttv => false,
+        payload_type => ?ds_pt_ttv
     },
     maps:merge(Defaults, Opts).
 

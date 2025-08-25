@@ -19,6 +19,7 @@
     drop_slab/2,
     drop_db/1,
     store_batch/3,
+    dirty_append/2,
     get_streams/4,
     get_delete_streams/3,
     make_iterator/4,
@@ -93,6 +94,7 @@
 
 -behaviour(emqx_ds_beamformer).
 -export([
+    beamformer_config/1,
     unpack_iterator/2,
     high_watermark/2,
     scan_stream/5,
@@ -206,6 +208,8 @@
         %% Equivalent to `append_only' from `emqx_ds:create_db_opts'
         force_monotonic_timestamps => boolean(),
         atomic_batches => boolean(),
+        %% Beamformer:
+        subscriptions => emqx_ds_beamformer:opts(),
         %% Optimistic transaction:
         transaction => emqx_ds_optimistic_tx:runtime_config()
     }.
@@ -291,23 +295,8 @@ list_shards(DB) ->
     emqx_ds_builtin_raft_meta:shards(DB).
 
 -spec open_db(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
-open_db(DB, CreateOpts0) ->
-    %% Rename `append_only' flag to `force_monotonic_timestamps':
-    AppendOnly = maps:get(append_only, CreateOpts0),
-    CreateOpts1 = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
-    CreateOpts = emqx_utils_maps:deep_merge(
-        #{
-            transaction => #{
-                flush_interval => 1_000,
-                idle_flush_interval => 1,
-                conflict_window => 5_000
-            },
-            replication_options => #{},
-            n_sites => application:get_env(emqx_ds_builtin_raft, n_sites, 1)
-        },
-        CreateOpts1
-    ),
-    case emqx_ds_builtin_raft_sup:start_db(DB, CreateOpts) of
+open_db(DB, CreateOpts) ->
+    case emqx_ds_builtin_raft_sup:start_db(DB, config_with_defaults(CreateOpts)) of
         {ok, _} ->
             ok;
         {error, {already_started, _}} ->
@@ -315,6 +304,29 @@ open_db(DB, CreateOpts0) ->
         {error, Err} ->
             {error, Err}
     end.
+
+config_with_defaults(CreateOpts0) ->
+    %% Rename `append_only' flag to `force_monotonic_timestamps':
+    AppendOnly = maps:get(append_only, CreateOpts0),
+    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
+    emqx_utils_maps:deep_merge(
+        #{
+            transaction => #{
+                flush_interval => 1_000,
+                idle_flush_interval => 1,
+                max_items => 1000,
+                conflict_window => 5_000
+            },
+            subscriptions => #{
+                n_workers_per_shard => 10,
+                batch_size => 1000,
+                housekeeping_interval => 1000
+            },
+            replication_options => #{},
+            n_sites => application:get_env(emqx_ds_builtin_raft, n_sites, 1)
+        },
+        CreateOpts
+    ).
 
 -spec close_db(emqx_ds:db()) -> ok.
 close_db(DB) ->
@@ -329,15 +341,6 @@ add_generation(DB, Since) ->
     foreach_shard(
         DB,
         fun(Shard) -> ok = ra_add_generation(DB, Shard, Since) end
-    ).
-
--spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
-update_db_config(DB, CreateOpts) ->
-    Opts = #{} = emqx_ds_builtin_raft_meta:update_db_config(DB, CreateOpts),
-    Since = emqx_ds:timestamp_us(),
-    foreach_shard(
-        DB,
-        fun(Shard) -> ok = ra_update_config(DB, Shard, Opts, Since) end
     ).
 
 -spec list_slabs(emqx_ds:db()) ->
@@ -415,6 +418,9 @@ store_batch_atomic(DB, Batch, _Opts) ->
         [_ | _] ->
             {error, unrecoverable, atomic_batch_spans_multiple_shards}
     end.
+
+dirty_append(#{db := _, shard := _} = Opts, Data) ->
+    emqx_ds_optimistic_tx:dirty_append(Opts, Data).
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time(), emqx_ds:get_streams_opts()) ->
     emqx_ds:get_streams_result().
@@ -1378,11 +1384,8 @@ ra_list_slabs(DB, Shard) ->
     case Reply of
         Gens = #{} ->
             maps:map(
-                fun(_GenId, Data = #{since := Since, until := Until}) ->
-                    Data#{
-                        since := timeus_to_timestamp(Since),
-                        until := emqx_maybe:apply(fun timeus_to_timestamp/1, Until)
-                    }
+                fun(_GenId, Data = #{since := _, until := _}) ->
+                    Data
                 end,
                 Gens
             );
@@ -1784,11 +1787,13 @@ ensure_monotonic_timestamp(_TimestampUs, Latest) ->
 timestamp_to_timeus(TimestampMs) ->
     TimestampMs * 1000.
 
-timeus_to_timestamp(TimestampUs) ->
-    TimestampUs div 1000.
-
 snapshot_module() ->
     emqx_ds_builtin_raft_server_snapshot.
+
+-spec beamformer_config(emqx_ds:db()) -> emqx_ds_beamformer:opts().
+beamformer_config(DB) ->
+    #{subscriptions := Val} = emqx_ds_builtin_raft_meta:db_config(DB),
+    Val.
 
 unpack_iterator(Shard, Iterator = #'Iterator'{}) ->
     emqx_ds_storage_layer_ttv:unpack_iterator(Shard, Iterator);
@@ -1819,14 +1824,7 @@ fast_forward(
         DBShard,
         begin
             Now = current_timestamp(DB, Shard),
-            case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize) of
-                {ok, end_of_stream} ->
-                    {ok, end_of_stream};
-                {ok, Pos, Data} ->
-                    {ok, Pos, Data};
-                {error, _, _} = Err ->
-                    Err
-            end
+            emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize)
         end
     ).
 
@@ -1989,6 +1987,15 @@ batch_size_and_time_limit(true, _DB, _Shard, BatchSize) when is_integer(BatchSiz
     {BatchSize, infinity};
 batch_size_and_time_limit(true, _DB, _Shard, {time, MaxTS, BatchSize}) ->
     {BatchSize, MaxTS}.
+
+-spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
+update_db_config(DB, CreateOpts) ->
+    Opts = #{} = emqx_ds_builtin_raft_meta:update_db_config(DB, config_with_defaults(CreateOpts)),
+    Since = emqx_ds:timestamp_us(),
+    foreach_shard(
+        DB,
+        fun(Shard) -> ok = ra_update_config(DB, Shard, Opts, Since) end
+    ).
 
 -ifdef(TEST).
 

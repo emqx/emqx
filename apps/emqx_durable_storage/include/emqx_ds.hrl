@@ -74,4 +74,10 @@
 %% Client
 -record(emqx_ds_client_retry, {ref :: reference()}).
 
+%% Payload transformations:
+%%
+%%   Identity transform from TTV to TTV:
+-define(ds_pt_ttv, ttv).
+-define(ds_pt_mqtt, mqtt).
+
 -endif.
