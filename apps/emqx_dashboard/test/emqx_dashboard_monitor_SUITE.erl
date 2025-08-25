@@ -87,7 +87,6 @@ init_per_group(common = Group, Config0) ->
     Config = emqx_common_test_helpers:start_apps_ds(
         Config0,
         lists:flatten([
-            emqx_ds_shared_sub,
             {emqx_retainer, ?BASE_RETAINER_CONF},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard(
