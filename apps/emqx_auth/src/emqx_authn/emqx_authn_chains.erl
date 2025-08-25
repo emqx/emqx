@@ -827,6 +827,8 @@ global_chain(gbt32960) ->
     'gbt32960:global';
 global_chain(jt808) ->
     'jt808:global';
+global_chain(nats) ->
+    'nats:global';
 global_chain(_) ->
     error(invalid_protocol_name).
 
