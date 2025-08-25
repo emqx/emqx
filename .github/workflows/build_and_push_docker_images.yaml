@@ -69,7 +69,7 @@ jobs:
           - arm64
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: build release tarball
@@ -112,11 +112,11 @@ jobs:
       EMQX_EXTRA_BASE_IMAGE_TAGS: emqx/emqx
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ github.event.inputs.ref }}
 
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           pattern: "${{ matrix.profile }}-*.tar.gz"
           path: _packages
@@ -139,7 +139,7 @@ jobs:
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Login to hub.docker.com
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
         if: inputs.publish
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
@@ -234,7 +234,7 @@ jobs:
       FILENAME: "${{ matrix.profile }}-${{ needs.build.outputs.PKG_VSN }}-docker-${{ matrix.arch }}.tar.gz"
 
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: "${{ matrix.profile }}-docker-image-tag"
 
@@ -251,7 +251,7 @@ jobs:
           name: ${{ matrix.profile }}-docker-image-${{ matrix.arch }}
           path: ${{ env.FILENAME }}
 
-      - uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
