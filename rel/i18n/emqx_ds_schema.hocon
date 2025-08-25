@@ -113,6 +113,14 @@ emqx_ds_schema {
       If shard doesn't receive new transactions within this period, the buffer is flushed early.~"""
   }
 
+  otx_max_pending {
+    label: "Maximum pending operations"
+    desc:
+      """~
+      Specifies the maximum number of operations that can be held in the buffer.
+      When this value is exceeded, the buffer is flushed regardless of other factors.~"""
+  }
+
   otx_conflict_window {
     label: "Conflict tracking window"
     desc:
