@@ -805,6 +805,9 @@ code_change(_OldVsn, State, _Extra) ->
 handle_reg_pids(Pids) ->
     lists:foreach(fun(Pid) -> _ = erlang:monitor(process, Pid) end, Pids).
 
+handle_down_pids([]) ->
+    %% do not submit a no-op async task
+    ok;
 handle_down_pids(Pids) ->
     lists:foreach(fun mark_channel_disconnected/1, Pids),
     ok = emqx_pool:async_submit_to_pool(?CM_POOL, fun ?MODULE:clean_down/1, [Pids]).
