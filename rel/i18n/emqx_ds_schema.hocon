@@ -1,215 +1,245 @@
 emqx_ds_schema {
+  // Databases:
 
-messages.label: "MQTT message storage"
-messages.desc:
-  """~
-  Configuration of the durable storage for MQTT messages.~"""
+  messages {
+    label: "MQTT message storage"
+    desc:
+      """~
+      Configuration of the durable storage for MQTT messages.~"""
+  }
 
-sessions.label: "MQTT session storage"
-sessions.desc:
-  """~
-  Configuration of the durable storage containing state and metadata of the durable sessions.~"""
+  sessions {
+    label: "MQTT session storage"
+    desc:
+      """~
+      Configuration of the durable storage containing state and metadata of the durable sessions.~"""
+  }
 
-timers.label: "Durable timers storage"
-timers.desc:
-  """~
-  Configuration of the durable storage containing timers.~"""
+  timers {
+     label: "Durable timers storage"
+     desc:
+       """~
+       Configuration of the durable storage containing timers.~"""
+  }
 
-builtin_raft.label: "Builtin backend with Raft replication"
-builtin_raft.desc:
-  """~
-  Builtin storage backend utilizing embedded RocksDB key-value store.~"""
+  shared_subs {
+     label: "Durable shared subscriptions"
+     desc:
+       """~
+       Configuration of the durable storage containing metadata and topic replay progress by shared subscriptions.~"""
+  }
 
-builtin_local.label: "Builtin backend"
-builtin_local.desc:
-  """~
-  Builtin storage backend utilizing embedded RocksDB key-value store.
-  It's recommended for use in single-node installations.
-  This backend doesn't support clustering.
+  // Backends types:
 
-  Please note that it's impossible to switch the backend without losing the data.~"""
+  backend_type {
+    label: "Backend type"
+    desc:
+      """~
+      Durable storage backend.
 
-backend_type.label: "Backend type"
-backend_type.desc:
-  """~
-  Backend type.~"""
+      Please note that it's impossible to change the backend of existing durable storages without losing the data.~"""
+  }
 
-builtin_data_dir.label: "Database location"
-builtin_data_dir.desc:
-  """~
-  File system directory where the database is located.
+  builtin_raft {
+    label: "Builtin Raft"
+    desc:
+      """~
+      An embedded durable storage backend with support for data replication.
 
-  By default, it is equal to `node.data_dir`.~"""
+      This backend is intetended for use in clustered EMQX deployments.
+      It replicates data for each durable storage shard on several EMQX nodes.~"""
+  }
 
-builtin_n_shards.label: "Number of shards"
-builtin_n_shards.desc:
-  """~
-  The built-in durable storage partitions data into shards.
-  This configuration parameter defines the number of shards.
-  Please note that it takes effect only during the initialization of the durable storage database.
-  Changing this configuration parameter after the database has been already created won't take any effect.~"""
+  builtin_local {
+    label: "Builtin Local"
+    desc:
+      """~
+      An embedded durable storage backend without network capabilities.
 
-builtin_raft_replication_factor.label: "Replication factor"
-builtin_raft_replication_factor.desc:
-  """~
-  Number of identical replicas each shard should have.
-  Increasing this number improves durability and availability at the expense of greater resource consumption.
-  Quorum of replicas is needed to be healthy for the replication to work, hence an odd number of replicas is a good pick in general.
-  Please note that it takes effect only during the initialization of the durable storage database.
-  Changing this configuration parameter after the database has been already created won't take any effect.~"""
+      This backend doesn't support clustering, but it has lower overhead than `builtin_raft`.
+      It's recommended for use in strictly single-node deployments.~"""
+  }
 
-builtin_raft_n_sites.label: "Initial number of sites"
-builtin_raft_n_sites.desc:
-  """~
-  Number of storage sites that need to share responsibility over the set of storage shards.
-  In this context, sites are EMQX nodes with message durability enabled.
-  Please note that it takes effect only during the initialization of the durable storage database.
-  During this phase at least that many sites should come online to distribute shards between them, otherwise message storage will be unavailable until then.
-  After the initialization is complete, sites may be offline, which will affect availability depending on the number of offline sites and replication factor.~"""
+  // Common options
 
-builtin_write_buffer.label: "Local write buffer"
-builtin_write_buffer.desc:
-  """~
-  Configuration related to the buffering of messages sent from the local node to the shard leader.
+  builtin_n_shards {
+    label: "Number of shards"
+    desc:
+      """~
+      The durable storage partitions data into shards.
+      This configuration parameter defines the number of shards.
+      Please note that it takes effect only during the initialization of the durable storage database.
+      Changing this configuration parameter after the database has been already created won't take any effect.~"""
+  }
 
-  EMQX accumulates PUBLISH messages from the local clients in a write buffer before committing them to the durable storage.
-  This helps to hide network latency between EMQX nodes and improves write throughput.~"""
 
-builtin_write_buffer_max_items.label: "Max items"
-builtin_write_buffer_max_items.desc:
-  """~
-  This configuration parameter defines maximum number of messages stored in the local write buffer.~"""
+  // Common options of builtin backends:
 
-builtin_write_buffer_flush_interval.label: "Flush interval"
-builtin_write_buffer_flush_interval.desc:
-  """~
-  Maximum linger time for the buffered messages.
-  Local write buffer will be flushed _at least_ as often as `flush_interval`.
+  builtin_data_dir {
+    label: "Database location"
+    desc:
+      """~
+      Root directory for the data related to built-in storage backends.
 
-  Larger values of `flush_interval` may lead to higher throughput and better overall performance, but may increase end-to-end latency.~"""
+      By default it is equal to `node.data_dir`.~"""
+  }
 
-builtin_layout.label: "Storage layout"
-builtin_layout.desc:
-  """~
-  Storage layout is a method of arranging messages from various topics and clients on disc.
+  // OTX
 
-  Depending on the type of workload and the topic structure, different types of strategies for storing the data can be employed to maximize efficiency of reading messages from the durable storage.~"""
+  optimistic_transaction {
+    label: "Transaction"
+    desc:
+      """~
+      Transaction settings for built-in durable storage backends.~"""
+  }
 
-layout_builtin_wildcard_optimized.label: "Wildcard-optimized storage layout"
-layout_builtin_wildcard_optimized.desc:
-  """~
-  _Wildcard-optimized_ layout is designed to maximize the throughput of wildcard subscriptions covering large numbers of topics.
+  builtin_optimistic_transaction {
+    label: "Transaction settings"
+    desc: "Transaction settings."
+  }
 
-  For example, it can handle scenarios where a very large number of clients publish data to the topics containing their client ID, such as: `sensor/%device-version%/%clientid%/temperature`, `sensor/%device-version%/%clientid%/pressure`, etc.
-  This layout will automatically group such topics into a single stream, so a client subscribing to a topic filter containing wildcards (such as `sensor/+/+/temperature`) will be able to consume messages published by all devices as a single batch.
+  otx_flush_interval {
+    label: "Transaction flush interval"
+    desc:
+      """~
+      Specifies the maximum time operations may linger in the buffer before they are committed to the storage.
+      Larger values of the parameter may improve the throughput while negatively affecting the latency.~"""
+  }
 
-  This layout is efficient for non-wildcard subscriptions as well.~"""
+  otx_idle_flush_interval {
+    label: "Idle transaction flush interval"
+    desc:
+      """~
+      If shard doesn't receive new transactions within this period, the buffer is flushed early.~"""
+  }
 
-layout_builtin_wildcard_optimized_type.label: "Layout type"
-layout_builtin_wildcard_optimized_type.desc:
-  """~
-  Wildcard-optimized layout type.~"""
+  otx_conflict_window {
+    label: "Conflict tracking window"
+    desc:
+      """~
+      Built-in durable storage backends track recent updates over a period of time known as the conflict tracking window.
 
-wildcard_optimized_epoch_bits.label: "Epoch bits"
-wildcard_optimized_epoch_bits.desc:
-  """~
-  Wildcard-optimized layout partitions messages recorded at different times into "epochs".
-  Reading messages from a single epoch can be done very efficiently, so larger epochs improve the throughput of subscribers, but may increase end-to-end latency.
+      Transactions that started earlier than the beginning of the window are automatically rejected.
+      So, effectively, this parameter limits the time the transactions can run.
 
-  Time span covered by each epoch grows exponentially with the value of `epoch_bits`:
+      Higher values reduce the risk of rejecting transactions due to long run time, but may increase RAM demands.
 
-  - `epoch_bits = 1`: epoch time = 2 microseconds
-  - `epoch_bits = 2`: 4 microseconds
-  ...
-  - `epoch_bits = 20`: ~1s
-  ...~"""
+      This value should be greater than the flush interval.~"""
+  }
 
-layout_builtin_reference.label: "Reference layout"
-layout_builtin_reference.desc:
-  """~
-  A simplistic layout type that stores all messages from all topics in chronological order in a single stream.
+  // RocksDB tuning:
 
-  Not recommended for production use.~"""
+  rocksdb_options {
+    label: "RocksDB options"
+    desc:
+      """~
+      Options concerning behavior of RocksDB databases used by the built-in durable storage backends.~"""
+  }
 
-layout_builtin_reference_type.label: "Layout type"
-layout_builtin_reference_type.desc: "Reference layout type."
+  rocksdb_cache_size {
+    label: "RocksDB cache size"
+    desc:
+      """~
+      Size of the RocksDB block cache.
 
-optimistic_transaction.label: "Transaction"
-optimistic_transaction.desc:
-  """~
-  Transaction settings for built-in durable storage backends.~"""
+      Note that increasing this value may not necessarily reduce I/O, since the compressed data may reside in the OS's page cache, but it can reduce CPU load at the expense of memory usage.
 
-builtin_optimistic_transaction.label: "Transaction settings"
-builtin_optimistic_transaction.desc: "Transaction settings."
+      Each shard of the database has its own cache.~"""
+  }
 
-otx_flush_interval.label: "Transaction flush interval"
-otx_flush_interval.desc:
-  """~
-  Specifies the maximum time operations may linger in the buffer before they are committed to the storage.~"""
+  rocksdb_write_buffer_size {
+    label: "RocksDB write buffer size"
+    desc:
+      """~
+      Maximum size of the RocksDB memtables.
 
-otx_idle_flush_interval.label: "Idle transaction flush interval"
-otx_idle_flush_interval.desc:
-  """~
-  If shard doesn't receive new transactions within this period, the buffer is flushed early.~"""
+      Memtable is a buffer where newly written data is kept before it is flushed to disk.
 
-otx_conflict_window.label: "Conflict tracking window"
-otx_conflict_window.desc:
-  """~
-  Built-in durable storage backends track recent updates over a period of time known as the conflict tracking window.
+      Each shard of the database has its own memtable.~"""
+  }
 
-  Transactions that started earlier than the beginning of the window are automatically rejected.
-  So, effectively, this parameter limits the time the transactions can run.
+  rocksdb_max_open_files {
+    label: "Maximum open files"
+    desc:
+      """~
+      Maximum number of open file descriptors per shard.~"""
+  }
 
-  Higher values reduce the risk of rejecting transactions due to long run time, but may increase RAM demands.
+  // Raft-specific settings
 
-  This value should be greater than the flush interval.~"""
+  builtin_raft_replication_factor {
+    label: "Replication factor"
+    desc:
+      """~
+      Number of identical replicas each shard should have.
+      Increasing this number improves durability and availability at the expense of greater resource consumption.
+      Quorum of replicas is needed to be healthy for the replication to work, hence an odd number of replicas is a good pick in general.
+      Please note that it takes effect only during the initialization of the durable storage database.
+      Changing this configuration parameter after the database has been already created won't take any effect.~"""
+  }
 
-rocksdb_options.label: "RocksDB options"
-rocksdb_options.desc:
-  """~
-  Options concerning behavior of RocksDB databases used by the built-in durable storage backends.~"""
 
-rocksdb_cache_size.label: "RocksDB cache size"
-rocksdb_cache_size.desc:
-  """~
-  Size of the RocksDB block cache.
+  builtin_raft_n_sites {
+      label: "Initial number of sites"
+      desc:
+        """~
+        Number of storage sites that need to share responsibility over the set of storage shards.
+        In this context, sites are EMQX nodes with message durability enabled.
+        Please note that it takes effect only during the initialization of the durable storage database.
+        During this phase at least that many sites should come online to distribute shards between them, otherwise message storage will be unavailable until then.
+        After the initialization is complete, sites may be offline, which will affect availability depending on the number of offline sites and replication factor.~"""
+  }
 
-  Note that increasing this value may not necessarily reduce I/O, since the compressed data may reside in the OS's page cache, but it can reduce CPU load at the expense of memory usage.
+  // Storage layouts:
 
-  Each shard of the database has its own cache.~"""
+  builtin_layout {
+    label: "Storage layout"
+    desc:
+      """~
+      Storage layout is a method of arranging messages from various topics and clients on disc.
 
-rocksdb_write_buffer_size.label: "RocksDB write buffer size"
-rocksdb_write_buffer_size.desc:
-  """~
-  Maximum size of the RocksDB memtables.
+      Depending on the type of workload and the topic structure, different types of strategies for storing the data can be employed to maximize efficiency of reading messages from the durable storage.~"""
+  }
 
-  Memtable is a buffer where newly written data is kept before it is flushed to disk.
+  layout_builtin_wildcard_optimized_type {
+    label: "Layout type"
+    desc:
+      """~
+      Wildcard-optimized layout type.~"""
+  }
 
-  Each shard of the database has its own memtable.~"""
+  layout_builtin_wildcard_optimized {
+    label: "Wildcard-optimized storage layout"
+    desc:
+      """~
+      _Wildcard-optimized_ layout is designed to maximize the throughput of wildcard subscriptions covering large numbers of topics.
 
-rocksdb_max_open_files.label: "Maximum open files"
-rocksdb_max_open_files.desc:
-  """~
-  Maximum number of open file descriptors per shard.~"""
+      For example, it can handle scenarios where a very large number of clients publish data to the topics containing their client ID, such as: `sensor/%device-version%/%clientid%/temperature`, `sensor/%device-version%/%clientid%/pressure`, etc.
+      This layout will automatically group such topics into a single stream, so a client subscribing to a topic filter containing wildcards (such as `sensor/+/+/temperature`) will be able to consume messages published by all devices as a single batch.
 
-lts_wildcard_thresholds.label: "Wildcard thresholds"
-lts_wildcard_thresholds.desc:
-  """~
-  Array of wildcard thresholds for different topic levels.
+      This layout is efficient for non-wildcard subscriptions as well.~"""
+  }
 
-  EMQX can automatically group similar topic together to increase efficiency of message storage and retrieval.
+  lts_wildcard_thresholds {
+    label: "Wildcard thresholds"
+    desc:
+      """~
+      Array of wildcard thresholds for different topic levels.
 
-  To understand the meaning of this configuration one can think of MQTT topics as a tree.
-  When the number of children of a particular tree node reaches the threshold, EMQX performs the grouping.
+      EMQX can automatically group similar topic together to increase efficiency of message storage and retrieval.
 
-  Adjusting this parameter helps when the topic structure is known in advance.
-  For example, in the situations where multiple clients publish messages to a topic containing their client ID,
-  such as `sensor/<clientid>/temperature/<room>`.
-  Since `<clientid>` and `<room>` parts of the topic are variable, one can lower the wildcard threshold for topic levels 2 and 4 by setting this parameter to `[100, 0, 100, 0, 100]`.
+      To understand the meaning of this configuration one can think of MQTT topics as a tree.
+      When the number of children of a particular tree node reaches the threshold, EMQX performs the grouping.
 
-  Each element of the array corresponds to a particular level of the topic.
+      Adjusting this parameter helps when the topic structure is known in advance.
+      For example, in the situations where multiple clients publish messages to a topic containing their client ID,
+      such as `sensor/<clientid>/temperature/<room>`.
+      Since `<clientid>` and `<room>` parts of the topic are variable, one can lower the wildcard threshold for topic levels 2 and 4 by setting this parameter to `[100, 0, 100, 0, 100]`.
 
-  The last element of the array corresponds to all remaining levels as well.
+      Each element of the array corresponds to a particular level of the topic.
 
-  The array can't be empty.~"""
+      The last element of the array corresponds to all remaining levels as well.
+
+      The array can't be empty.~"""
+  }
 }
