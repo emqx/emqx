@@ -65,9 +65,9 @@ Contents of the schema are mirrored in a persistent term.
 This makes scheama very cheap to read and hard to update.
 So don't update it often.
 
-All operations that mutate the scheama are synchronously written to the WAL.
-For simplicity, WAL is not trunkated while the application is running.
-It is only compressed when the server starts.
+All operations that mutate the scheama are synchronously written to
+the WAL. For simplicity, WAL is not truncated or compressed while the
+application is running. It is happens when the server starts.
 
 When the server starts, it first completely replays the WAL to get to
 the latest schema state, then this state is potentially migrated, and
@@ -89,6 +89,12 @@ server state.
 
     %% Cluster API:
     whereis_site/1,
+
+    %% Pending action API:
+    add_pending/3,
+    list_pending/0,
+    list_pending/1,
+    del_pending/1,
 
     %% DB API:
     ensure_db_schema/2,
@@ -131,6 +137,7 @@ server state.
     db_runtime_config/0,
 
     pending_id/0,
+    pending_scope/0,
     pending/0,
 
     wal/0,
@@ -163,12 +170,14 @@ It is unaffected by `update_config` operation.
 """.
 -type db_schema() :: #{backend := emqx_ds:backend(), atom() => _}.
 
+-type pending_scope() :: site | {db, emqx_ds:db()}.
+
 %% Pending command:
 -type pending_id() :: pos_integer().
 
 -type pending() :: #{
     start_time := integer(),
-    scope := emqx_ds:db(),
+    scope := pending_scope(),
     command := atom(),
     atom() => _
 }.
@@ -206,6 +215,9 @@ Persistent state of the node including some private data.
 %%    Set DB schema:
 -record(sop_set_db, {db :: emqx_ds:db(), schema :: db_schema()}).
 -record(sop_drop_db, {db :: emqx_ds:db()}).
+%%    Pending actions:
+-record(sop_add_pending, {id :: pending_id(), p :: pending()}).
+-record(sop_del_pending, {id :: pending_id()}).
 
 -doc """
 A type of WAL entries.
@@ -216,7 +228,9 @@ A type of WAL entries.
     | #sop_set_db{}
     | #sop_drop_db{}
     | #sop_set_peer{}
-    | #sop_delete_peer{}.
+    | #sop_delete_peer{}
+    | #sop_add_pending{}
+    | #sop_del_pending{}.
 
 %%--------------------------------------------------------------------------------
 %% Server state and misc. types
@@ -248,6 +262,8 @@ Name of the disk log, as in `disk_log:open([{name, Name}, ...])`
 -record(call_ensure_db_schema, {
     db :: emqx_ds:db(), backend :: emqx_ds:backend(), schema :: db_schema()
 }).
+-record(call_add_pending, {scope :: pending_scope(), cmd :: atom(), data :: #{atom() => _}}).
+-record(call_list_pending, {scope :: pending_scope() | all}).
 -record(call_open_db, {db :: emqx_ds:db(), conf :: db_runtime_config()}).
 -record(call_close_db, {db :: emqx_ds:db()}).
 -record(call_update_db_config, {db :: emqx_ds:db(), conf :: db_runtime_config()}).
@@ -288,7 +304,7 @@ Backends should re-register themselves on restart of DS application.
 -define(replay_chunk_size, 1000).
 -endif.
 
--type human_readable() :: string:string().
+-type human_readable() :: string().
 
 %%--------------------------------------------------------------------------------
 %% Backend callbacks
@@ -442,6 +458,29 @@ get_backend_cbm(Backend) ->
     end.
 
 -doc """
+Add a pending action.
+""".
+-spec add_pending(pending_scope(), Command, Data) -> ok | {error, _} when
+    Command :: atom(), Data :: #{atom() => _}.
+add_pending(Scope, Command, Data) ->
+    gen_server:call(?SERVER, #call_add_pending{scope = Scope, cmd = Command, data = Data}).
+
+-spec list_pending() -> #{pending_id() => pending()}.
+list_pending() ->
+    list_pending(all).
+
+-spec list_pending(pending_scope() | all) -> #{pending_id() => pending()}.
+list_pending(Scope) ->
+    gen_server:call(?SERVER, #call_list_pending{scope = Scope}).
+
+-doc """
+Delete pending operation with the given ID.
+""".
+-spec del_pending(pending_id()) -> ok.
+del_pending(Id) ->
+    gen_server:call(?SERVER, #sop_del_pending{id = Id}).
+
+-doc """
 If database schema wasn't present before, create schema it (equal to the
 second argument of the function).
 
@@ -518,11 +557,12 @@ schema_file() ->
 
 -doc """
 Dump schema to a WAL.
-
-The WAL should be opened and empty.
+The WAL should be open; all data previously stored there is discarded.
 """.
 -spec dump(pstate(), wal()) -> ok | {error, _}.
-dump(#{ver := Ver, schema := Schema}, WAL) ->
+dump(Pstate, WAL) ->
+    ok = disk_log:truncate(WAL),
+    #{ver := Ver, schema := Schema, pending_ctr := PendingCtr, pending := Pending} = Pstate,
     #{site := Site, cluster := Cluster, dbs := DBs, peers := Peers} = Schema,
     Ops =
         [
@@ -533,7 +573,8 @@ dump(#{ver := Ver, schema := Schema}, WAL) ->
             [
                 #sop_set_peer{peer = Peer, state = PeerState}
              || {Peer, PeerState} <- maps:to_list(Peers)
-            ],
+            ] ++
+            dump_pending(PendingCtr, Pending),
     case safe_add_l(WAL, Ops, ?empty_schema) of
         {ok, _} ->
             ok;
@@ -572,6 +613,15 @@ handle_call(#sop_drop_db{db = DB}, _From, S) ->
     do_drop_db(DB, S);
 handle_call(#call_register_backend{alias = Alias, cbm = CBM}, _From, S) ->
     do_register_backend(Alias, CBM, S);
+handle_call(#call_add_pending{scope = Scope, cmd = Command, data = Data}, _From, S0) ->
+    case do_add_pending(Scope, Command, Data, S0) of
+        {ok, S} -> {reply, ok, S};
+        {error, _} = Err -> {reply, Err, S0}
+    end;
+handle_call(#call_list_pending{scope = Scope}, _From, S) ->
+    {reply, do_list_pending(Scope, S), S};
+handle_call(#sop_del_pending{id = Id}, _From, S) ->
+    {reply, ok, do_del_pending(Id, S)};
 handle_call(SchemaOp, _From, S0) when
     is_record(SchemaOp, sop_set_peer);
     is_record(SchemaOp, sop_delete_peer);
@@ -705,6 +755,66 @@ do_register_backend(Alias, CBM, S = #s{backends = Backends0}) ->
 
 set_backend_cbms_pt(Backends) ->
     persistent_term:put(?dsch_pt_backends, Backends).
+
+do_list_pending(Scope, #s{sch = #{pending := Pending}}) ->
+    maps:filter(
+        fun(_Id, #{scope := Sc}) ->
+            Scope =:= all orelse Sc =:= Scope
+        end,
+        Pending
+    ).
+
+do_add_pending(Scope, Command, Data, S0) ->
+    maybe
+        {ok, Wrapper} ?= verify_pending(Scope, Command, Data),
+        #s{sch = #{pending_ctr := LastId}} = S0,
+        modify_schema([#sop_add_pending{id = LastId, p = Wrapper}], S0)
+    end.
+
+-spec dump_pending(pending_id(), #{pending_id() => pending()}) -> [schema_op()].
+dump_pending(PendingCtr, Pending) ->
+    Nop = #sop_add_pending{id = PendingCtr, p = #{start_time => 0, scope => site, command => nop}},
+    maps:fold(
+        fun(Id, Val, Acc) ->
+            [#sop_add_pending{id = Id, p = Val} | Acc]
+        end,
+        [Nop],
+        Pending
+    ).
+
+verify_pending(site, Command, Data) when is_atom(Command), is_map(Data) ->
+    case Command of
+        _ ->
+            {error, unknown_site_command}
+    end;
+verify_pending(Scope = {db, DB}, Command, Data) when is_atom(Command), is_map(Data) ->
+    %% Note: this function runs before command is persisted, and while
+    %% server is running, so it's safe to use persistent term:
+    maybe
+        %% DB should exist, other than that we don't run additional
+        %% checks: backend should cancel actions it doesn't
+        %% understand.
+        #{} ?= get_db_schema(DB),
+        {ok, Data#{
+            start_time => os:system_time(millisecond),
+            scope => Scope,
+            command => Command
+        }}
+    else
+        _ -> {error, no_db}
+    end;
+verify_pending(_, _, _) ->
+    {error, badarg}.
+
+do_del_pending(Id, S0 = #s{sch = Pdata}) ->
+    #{pending := Pend0} = Pdata,
+    case Pend0 of
+        #{Id := _} ->
+            {ok, S} = modify_schema([#sop_del_pending{id = Id}], S0),
+            S;
+        #{} ->
+            S0
+    end.
 
 -spec do_ensure_db_schema(emqx_ds:db(), emqx_ds:backend(), db_schema(), s()) ->
     {reply, {ok, boolean(), db_schema()} | {error, _}, s()}.
@@ -864,6 +974,18 @@ pure_mutate(#sop_delete_peer{peer = Site}, S) ->
             maps:remove(Site, Peers)
         end
     );
+pure_mutate(#sop_add_pending{id = Id, p = Pending}, S0 = #{pending := Pend0}) ->
+    S =
+        case Pending of
+            #{scope := site, command := nop} ->
+                S0#{pending_ctr := Id};
+            _ ->
+                S0#{pending := Pend0#{Id => Pending}, pending_ctr := Id + 1}
+        end,
+    {ok, S};
+pure_mutate(#sop_del_pending{id = Id}, S0 = #{pending := Pend0}) ->
+    S = S0#{pending := maps:remove(Id, Pend0)},
+    {ok, S};
 pure_mutate(Cmd, _S) ->
     {error, {unknown_comand, Cmd}}.
 
