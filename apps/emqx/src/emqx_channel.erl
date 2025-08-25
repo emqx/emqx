@@ -608,10 +608,12 @@ post_process_connect(
             },
             handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
-            handle_out(connack, ?RC_CLIENT_IDENTIFIER_NOT_VALID, Channel);
+            ReasonString = <<"In progress Client ID registration/deregistration. Retry later!">>,
+            handle_out(connack, {?RC_CLIENT_IDENTIFIER_NOT_VALID, ReasonString}, Channel);
         {error, Reason} ->
+            ReasonString = <<"Failed to open session">>,
             ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
-            handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
+            handle_out(connack, {?RC_UNSPECIFIED_ERROR, ReasonString}, Channel)
     end.
 
 %%--------------------------------------------------------------------
@@ -1313,9 +1315,13 @@ handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = Conn
         ?CONNACK_PACKET(?RC_SUCCESS, SP, NAckProps),
         ensure_keepalive(NAckProps, Channel)
     );
-handle_out(connack, ReasonCode, Channel = #channel{conninfo = ConnInfo}) ->
+handle_out(connack, ReasonCode, Channel) when is_integer(ReasonCode) ->
+    handle_out(connack, {ReasonCode, <<>>}, Channel);
+handle_out(connack, {ReasonCode, ReasonString}, Channel = #channel{conninfo = ConnInfo}) ->
     Reason = emqx_reason_codes:name(ReasonCode),
-    AckProps = run_hooks('client.connack', [ConnInfo, Reason], emqx_mqtt_props:new()),
+    AckProps0 = emqx_mqtt_props:new(),
+    AckProps1 = emqx_mqtt_props:set('Reason-String', ReasonString, AckProps0),
+    AckProps = run_hooks('client.connack', [ConnInfo, Reason], AckProps1),
     AckPacket = ?CONNACK_PACKET(
         case maps:get(proto_ver, ConnInfo) of
             ?MQTT_PROTO_V5 -> ReasonCode;
