@@ -512,6 +512,91 @@ t_080_aborted_schema_migrations(_Config) ->
         []
     ).
 
+%% This testcase verifies that schema server can manage list of
+%% pending actions.
+%%
+%% 1. Each new action is assigned a unique ID.
+%%
+%% 2. There's basic validation of actions
+%%
+%% 3. Actions can be deleted by their ID.
+%%
+%% 4. Actions can be listed and filtered by scope
+%%
+%% 5. They survive node restart
+t_090_add_pending(_Config) ->
+    DB = test_db,
+    ?check_trace(
+        begin
+            %% Invalid scope should be rejected:
+            ?assertMatch(
+                {error, badarg},
+                emqx_dsch:add_pending(bad_scope, cmd, #{})
+            ),
+            %% Invalid commands with `site` scope should be rejected:
+            ?assertMatch(
+                {error, unknown_site_command},
+                emqx_dsch:add_pending(site, cmd, #{})
+            ),
+            %% Cannot submit commands to a non-existent DB:
+            ?assertMatch(
+                {error, no_db},
+                emqx_dsch:add_pending({db, DB}, cmd, #{})
+            ),
+            %% Create a DB:
+            emqx_dsch:register_backend(test, ?MODULE),
+            ?assertMatch(
+                {ok, _, _},
+                emqx_dsch:ensure_db_schema(DB, #{backend => test})
+            ),
+            %% Now command should succeed:
+            ?assertMatch(
+                ok,
+                emqx_dsch:add_pending({db, DB}, cmd, #{})
+            ),
+            %% Verify filtering of results by scope:
+            ?assertMatch(
+                [{1, #{scope := {db, DB}, command := cmd, start_time := _}}],
+                maps:to_list(emqx_dsch:list_pending())
+            ),
+            ?assertMatch(
+                [{1, #{scope := {db, DB}, command := cmd, start_time := _}}],
+                maps:to_list(emqx_dsch:list_pending({db, DB}))
+            ),
+            ?assertMatch(
+                [],
+                maps:to_list(emqx_dsch:list_pending({db, other}))
+            ),
+            ?assertMatch(
+                [],
+                maps:to_list(emqx_dsch:list_pending(site))
+            ),
+            %% Add two more action, their ids should be 2 and 3:
+            ok = emqx_dsch:add_pending({db, DB}, cmd, #{foo => bar}),
+            ok = emqx_dsch:add_pending({db, DB}, cmd2, #{}),
+            ?assertMatch(
+                [{1, #{}}, {2, #{command := cmd}}, {3, #{command := cmd2}}],
+                maps:to_list(emqx_dsch:list_pending())
+            ),
+            %% Delete 1 and 3 and restart the node:
+            ok = emqx_dsch:del_pending(1),
+            ok = emqx_dsch:del_pending(3),
+            ?assertMatch(
+                [{2, #{scope := {db, DB}, command := cmd, foo := bar}}],
+                maps:to_list(emqx_dsch:list_pending())
+            ),
+            application:stop(emqx_durable_storage),
+            application:start(emqx_durable_storage),
+            %% Old action should be preserved together with the IDs counter:
+            ok = emqx_dsch:add_pending({db, DB}, cmd3, #{}),
+            ?assertMatch(
+                [{2, #{command := cmd, foo := bar}}, {4, #{command := cmd3}}],
+                maps:to_list(emqx_dsch:list_pending())
+            )
+        end,
+        []
+    ).
+
 %%
 
 all() -> emqx_common_test_helpers:all(?MODULE).
