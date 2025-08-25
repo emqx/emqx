@@ -14,7 +14,6 @@ schemas(Edition) ->
         cluster_linking(Edition) ++
         authn(Edition) ++
         authz() ++
-        shared_subs(Edition) ++
         bridges(Edition) ++
         customized(Edition).
 
@@ -58,9 +57,6 @@ authz_mods() ->
         emqx_authz_mongodb_schema,
         emqx_authz_ldap_schema
     ].
-
-shared_subs(ee) ->
-    [emqx_ds_shared_sub_schema].
 
 bridges(ee) ->
     [
