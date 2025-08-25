@@ -1374,7 +1374,7 @@ base_dir() ->
 
 -spec db_dir(dbshard()) -> file:filename().
 db_dir({DB, ShardId}) ->
-    filename:join([base_dir(), DB, binary_to_list(ShardId)]).
+    filename:join([base_dir(), "ds", DB, binary_to_list(ShardId)]).
 
 -spec checkpoints_dir(dbshard()) -> file:filename().
 checkpoints_dir({DB, ShardId}) ->
