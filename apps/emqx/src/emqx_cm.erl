@@ -293,14 +293,35 @@ set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
         replay => _ReplayContext
     }}
     | {error, Reason :: term()}.
-open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
+open_session(CleanStart, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
+    Pids = emqx_cm_registry:lookup_all_channels(ClientId),
+    {Local, Remote} = lists:partition(fun(Pid) -> node(Pid) =:= node() end, Pids),
+    {LocalAlive, LocalDown} = lists:partition(fun erlang:is_process_alive/1, Local),
+    case length(LocalDown) > 0 of
+        true ->
+            %% At least one old session is in the middle of getting cleaned up.
+            %% i.e. emqx_cm_pool is busy handling the async clean_down messages.
+            %% Do not accept this client ID in this node.
+            ?SLOG(warning, #{
+                msg => "clientid_registration_throttled",
+                local_alive => length(LocalAlive),
+                local_down => length(LocalDown),
+                remote => length(Remote)
+            }),
+            {error, client_id_unavailable};
+        false ->
+            do_open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg)
+    end.
+
+%% @private
+do_open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
     Self = self(),
     emqx_cm_locker:trans(ClientId, fun(_) ->
         ok = discard_session(ClientId),
         ok = emqx_session:destroy(ClientInfo, ConnInfo),
         create_register_session(ClientInfo, ConnInfo, MaybeWillMsg, Self)
     end);
-open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
+do_open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
     Self = self(),
     emqx_cm_locker:trans(ClientId, fun(_) ->
         case emqx_session:open(ClientInfo, ConnInfo, MaybeWillMsg) of
