@@ -46,7 +46,7 @@ emqx_ds_schema {
       """~
       An embedded durable storage backend with support for data replication.
 
-      This backend is intetended for use in clustered EMQX deployments.
+      This backend is intended for use in clustered EMQX deployments.
       It replicates data for each durable storage shard on several EMQX nodes.~"""
   }
 
@@ -81,7 +81,7 @@ emqx_ds_schema {
       """~
       Root directory for the data related to built-in storage backends.
 
-      By default it is equal to `node.data_dir`.~"""
+      By default, it is equal to `node.data_dir/ds/`.~"""
   }
 
   // OTX
