@@ -14,7 +14,7 @@ to the members of shared subscription group.
              /       |                            |            x
            yes       |                            |            ^
           /          |                            |            |
-*--has---<   {DOWN from leader}-normal-->x       yes           |
+*--has---<   {DOWN from leader}--normal-->x      yes           |
  leader?  \          |                            |       idle timeout
            no        |                            |            |
             \        v                            |            |
@@ -159,8 +159,16 @@ to the members of shared subscription group.
 %%================================================================================
 
 -spec start_link(emqx_types:share(), emqx_ds_shared_sub:options()) -> {ok, pid()}.
-start_link(Share, Options) ->
-    gen_statem:start_link(?MODULE, {Share, Options}, []).
+start_link(Share = #share{group = Grp, topic = Topic}, Options) ->
+    maybe
+        true ?= is_binary(Grp),
+        true ?= is_binary(Topic),
+        true ?= is_integer(maps:get(start_time, Options, 0)),
+        true ?= is_valid_strategy(Options),
+        gen_statem:start_link(?MODULE, {Share, Options}, [])
+    else
+        _ -> {error, badarg}
+    end.
 
 -doc """
 Query global about pid of the leader.
@@ -192,7 +200,7 @@ wait_leader(Pid) ->
 Send a command to the shared sub leader to destroy all data associated
 with the shared sub group.
 """.
--spec destroy(pid()) -> ok.
+-spec destroy(pid()) -> boolean().
 destroy(Pid) ->
     try
         gen_statem:call(Pid, #call_destroy{}, 5_000)
@@ -381,7 +389,7 @@ do_cleanup(Group = #share{topic = Topic}, From, #ls{h = HS = #hs{borrowers = B}}
     _ = emqx_persistent_session_ds_router:do_delete_route(Topic, Id),
     %% Remove data:
     _ = emqx_ds_shared_sub_dl:destroy(Id),
-    {stop_and_reply, normal, [{reply, From, ok}]}.
+    {stop_and_reply, normal, [{reply, From, true}]}.
 
 %%--------------------------------------------------------------------------------
 %% Reallocation
@@ -921,3 +929,9 @@ cfg_revocation_timeout(S) ->
 -spec cfg_leader_max_idle_time() -> non_neg_integer().
 cfg_leader_max_idle_time() ->
     emqx_config:get([durable_sessions, shared_subs, max_idle_time]).
+
+-spec is_valid_strategy(emqx_ds_shared_sub:options()) -> boolean().
+is_valid_strategy(#{strategy := Strat}) ->
+    Strat =:= shard;
+is_valid_strategy(#{}) ->
+    true.
