@@ -85,7 +85,7 @@ schema("/durable_shared_subs") ->
         'operationId' => '/durable_shared_subs',
         get => #{
             tags => ?TAGS,
-            summary => <<"List declared durable subscriptions">>,
+            summary => <<"List durable shared subscriptions">>,
             description => ?DESC("get_subs"),
             parameters => [
                 ref(emqx_dashboard_swagger, cursor),
@@ -98,7 +98,7 @@ schema("/durable_shared_subs") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => <<"Declare a durable shared subscription">>,
+            summary => <<"Explicitly declare a durable shared subscription">>,
             description => ?DESC("post_sub"),
             'requestBody' => post_sub(),
             responses => #{
@@ -112,7 +112,7 @@ schema("/durable_shared_subs/:id") ->
         'operationId' => '/durable_shared_subs/:id',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get a declared durable shared subscription">>,
+            summary => <<"Get a durable shared subscription">>,
             description => ?DESC("get_sub"),
             parameters => [param_sub_id()],
             responses => #{
@@ -125,7 +125,7 @@ schema("/durable_shared_subs/:id") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete a declared durable shared subscription">>,
+            summary => <<"Delete a durable shared subscription">>,
             description => ?DESC("delete_sub"),
             parameters => [param_sub_id()],
             responses => #{
@@ -143,16 +143,22 @@ check_enabled(Request, _ReqMeta) ->
     end.
 
 '/durable_shared_subs'(get, #{query_string := QString}) ->
-    Cursor = maps:get(<<"cursor">>, QString, undefined),
+    Cursor =
+        case QString of
+            #{<<"cursor">> := EncodedCursor} ->
+                emqx_base62:decode(EncodedCursor);
+            #{} ->
+                undefined
+        end,
     Limit = maps:get(<<"limit">>, QString),
     try do_list_subs(Cursor, Limit) of
-        {Subs, CursorNext} ->
-            Data = [encode_props(Id, Props) || {Id, Props} <- Subs],
+        {SubIds, CursorNext} ->
+            Data = [format_leader_state(Info) || Info <- SubIds],
             case CursorNext of
-                undefined ->
+                '$end_of_table' ->
                     Meta = #{hasnext => false};
                 _Cursor ->
-                    Meta = #{hasnext => true, cursor => CursorNext}
+                    Meta = #{hasnext => true, cursor => emqx_base62:encode(CursorNext)}
             end,
             {200, #{data => Data, meta => Meta}}
     catch
@@ -162,25 +168,25 @@ check_enabled(Request, _ReqMeta) ->
 '/durable_shared_subs'(post, #{body := Params}) ->
     case do_declare_sub(Params) of
         {ok, Subscription} ->
-            {201, encode_shared_sub(Subscription)};
+            {201, format_leader_state(Subscription)};
         %% exists ->
         %%     ?RESP_CREATE_CONFLICT;
-        {error, _Class, Reason} ->
+        {error, Reason} ->
             ?RESP_INTERNAL_ERROR(emqx_utils:readable_error_msg(Reason))
     end.
 
 '/durable_shared_subs/:id'(get, Params) ->
     case do_get_sub(Params) of
-        {ok, Subscription} ->
-            {200, encode_shared_sub(Subscription)};
-        false ->
-            ?RESP_NOT_FOUND
+        undefined ->
+            ?RESP_NOT_FOUND;
+        {ok, Data} ->
+            {200, Data}
     end;
 '/durable_shared_subs/:id'(delete, Params) ->
     case do_delete_sub(Params) of
-        ok ->
+        true ->
             {200, <<"Shared subscription deleted">>};
-        not_found ->
+        false ->
             ?RESP_NOT_FOUND;
         {error, recoverable, _} ->
             ?RESP_DELETE_CONFLICT;
@@ -191,32 +197,61 @@ check_enabled(Request, _ReqMeta) ->
 do_list_subs(Cursor, Limit) ->
     emqx_ds_shared_sub:list(Cursor, Limit).
 
-do_get_sub(#{bindings := #{id := Id}}) ->
-    emqx_ds_shared_sub:lookup(Id).
+do_get_sub(#{bindings := #{id := IdEnc}}) ->
+    Id = emqx_base62:decode(IdEnc),
+    case emqx_ds_shared_sub:lookup(Id) of
+        undefined ->
+            undefined;
+        #{} = Info ->
+            {ok, format_leader_state(Info)}
+    end.
 
-do_delete_sub(#{bindings := #{id := Id}}) ->
+do_delete_sub(#{bindings := #{id := IdEnc}}) ->
+    Id = emqx_base62:decode(IdEnc),
     emqx_ds_shared_sub:destroy(Id).
 
 do_declare_sub(#{<<"group">> := Group, <<"topic">> := TopicFilter} = Params) ->
-    Options = maps:fold(
-        fun
-            (<<"start_time">>, T, Acc) ->
-                [{start_time, T} | Acc];
-            (_, _, Acc) ->
-                Acc
-        end,
-        [],
-        Params
-    ),
-    emqx_ds_shared_sub:declare(Group, TopicFilter, maps:from_list(Options)).
+    try
+        Options = maps:map(
+            fun
+                (<<"start_time">>, StartTime) when is_integer(StartTime) ->
+                    %% Assuming epoch time:
+                    StartTime;
+                (<<"start_time">>, RFC3339) when is_binary(RFC3339) ->
+                    case emqx_utils_calendar:to_epoch_millisecond(binary_to_list(RFC3339)) of
+                        {ok, StartTime} ->
+                            StartTime;
+                        {error, _} = Err ->
+                            throw(Err)
+                    end;
+                (_, Val) ->
+                    Val
+            end,
+            Params
+        ),
+        emqx_ds_shared_sub:declare(Group, TopicFilter, Options)
+    catch
+        Err -> Err
+    end.
 
 %%--------------------------------------------------------------------
 
-encode_shared_sub(Sub) ->
-    emqx_ds_shared_sub:lookup(Sub).
-
-encode_props(Id, Props) ->
-    maps:merge(#{id => Id}, Props).
+format_leader_state(
+    #{
+        id := Id,
+        created_at := CreatedAt,
+        start_time := StartTime,
+        group := Group,
+        topic := Topic
+    }
+) ->
+    #{
+        <<"id">> => emqx_base62:encode(Id),
+        <<"group">> => Group,
+        <<"topic">> => Topic,
+        <<"created_at">> => emqx_utils_calendar:epoch_to_rfc3339(CreatedAt),
+        <<"start_time">> => emqx_utils_calendar:epoch_to_rfc3339(StartTime)
+    }.
 
 %%--------------------------------------------------------------------
 %% Schemas
@@ -266,8 +301,9 @@ fields(durable_shared_sub) ->
                 desc => <<"Identifier assigned at creation time">>
             })},
         {created_at,
-            mk(emqx_utils_calendar:epoch_millisecond(), #{
-                desc => <<"Creation time">>
+            mk(binary(), #{
+                desc => <<"RFC3339 creation time">>,
+                format => <<"date-time">>
             })}
         | fields(durable_shared_sub_args)
     ];
@@ -275,7 +311,11 @@ fields(durable_shared_sub_args) ->
     [
         {group, mk(binary(), #{required => true})},
         {topic, mk(binary(), #{required => true})},
-        {start_time, mk(emqx_utils_calendar:epoch_millisecond(), #{})}
+        {start_time,
+            mk(binary(), #{
+                desc => <<"RFC3339 date time of the replay position start">>,
+                format => <<"date-time">>
+            })}
     ];
 fields(resp_list_durable_shared_subs) ->
     [
@@ -289,7 +329,7 @@ fields(resp_list_durable_shared_subs) ->
 
 get_sub_example() ->
     #{
-        id => <<"mygrp:1234EF">>,
+        id => <<"MAugBAQCc3OhAwQBID">>,
         created_at => <<"2024-01-01T12:34:56.789+02:00">>,
         group => <<"mygrp">>,
         topic => <<"t/devices/#">>,
@@ -301,7 +341,7 @@ sub_list_example() ->
         data => [
             get_sub_example(),
             #{
-                id => <<"mygrp:567890AABBCC">>,
+                id => <<"MAugBAQCc3OhAwQBID">>,
                 created_at => <<"2024-02-02T22:33:44.000+02:00">>,
                 group => <<"mygrp">>,
                 topic => <<"t/devices/#">>,

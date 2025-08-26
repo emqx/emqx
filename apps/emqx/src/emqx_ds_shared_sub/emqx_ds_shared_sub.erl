@@ -23,13 +23,15 @@
 
 -include("emqx_mqtt.hrl").
 
+-type id() :: emqx_ds_shared_sub_dl:id().
+
 -type options() :: #{
     start_time => emqx_ds:time(),
     strategy => strategy()
 }.
 
 -type info() :: #{
-    id := binary(),
+    id := id(),
     created_at := integer(),
     group := emqx_types:group(),
     topic := emqx_types:topic(),
@@ -41,7 +43,9 @@
 %%
 
 -spec declare(emqx_types:group(), emqx_types:topic(), options()) -> {ok, info()} | emqx_ds:error(_).
-declare(Group, Topic, Options = #{}) ->
+declare(Group, Topic, Options = #{}) when
+    is_binary(Group), is_binary(Topic)
+->
     maybe
         Share = #share{group = Group, topic = Topic},
         {ok, _Pid} ?= emqx_ds_shared_sub_registry:get_leader_sync(Share, Options),
@@ -55,11 +59,11 @@ declare(Group, Topic, Options = #{}) ->
 
 -spec lookup(emqx_types:group(), emqx_types:topic()) -> info() | undefined.
 lookup(Group, Topic) ->
-    lookup(#share{group = Group, topic = Topic}).
+    lookup(emqx_ds_shared_sub_dl:mk_id(Group, Topic)).
 
--spec lookup(emqx_types:share()) -> info() | undefined.
-lookup(Share = #share{}) ->
-    emqx_ds_shared_sub_dl:dirty_read_props(emqx_ds_shared_sub_dl:mk_id(Share)).
+-spec lookup(id()) -> info() | undefined.
+lookup(Id) ->
+    emqx_ds_shared_sub_dl:dirty_read_props(Id).
 
 -spec exists(emqx_types:group(), emqx_types:topic()) -> boolean().
 exists(Group, Topic) ->
@@ -67,17 +71,24 @@ exists(Group, Topic) ->
 
 -spec destroy(emqx_types:group(), emqx_types:topic()) -> ok | emqx_ds:error(_).
 destroy(Group, Topic) ->
-    destroy(#share{group = Group, topic = Topic}).
+    destroy(emqx_ds_shared_sub_dl:mk_id(Group, Topic)).
 
--spec destroy(emqx_types:share()) -> ok | emqx_ds:error(_).
-destroy(Share) ->
+-spec destroy(id()) -> boolean() | emqx_ds:error(_).
+destroy(Id) ->
     maybe
+        true ?= emqx_ds_shared_sub_dl:exists(Id),
+        Share = emqx_ds_shared_sub_dl:decode_id(Id),
+        %% Destruction is done via the leader:
         {ok, Leader} ?= emqx_ds_shared_sub_registry:get_leader_sync(Share, #{}),
         emqx_ds_shared_sub_leader:destroy(Leader)
     end.
 
+-spec list(emqx_ds_shared_sub_dl:cursor() | undefined, pos_integer()) ->
+    {[info()], emqx_ds_shared_sub_dl:cursor() | '$end_of_table'}.
 list(undefined, Limit) ->
     list(emqx_ds_shared_sub_dl:make_iterator(), Limit);
+list('$end_of_table' = EOT, _) ->
+    {[], EOT};
 list(Cursor, Limit) when is_binary(Cursor) ->
     emqx_ds_shared_sub_dl:iterator_next(Cursor, Limit).
 
