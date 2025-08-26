@@ -95,6 +95,21 @@ assert_fields_exist(Ks, Map) ->
 load_all_gateway_apps() ->
     emqx_cth_suite:load_apps(all_gateway_apps()).
 
+-ifdef(EMQX_RELEASE_EDITION).
+-if(?EMQX_RELEASE_EDITION == ee).
+
+all_gateway_apps() ->
+    [
+        emqx_gateway_stomp,
+        emqx_gateway_mqttsn,
+        emqx_gateway_coap,
+        emqx_gateway_lwm2m,
+        emqx_gateway_exproto,
+        emqx_gateway_jt808,
+        emqx_gateway_gbt32960,
+        emqx_gateway_ocpp
+    ].
+-else.
 all_gateway_apps() ->
     [
         emqx_gateway_stomp,
@@ -103,6 +118,17 @@ all_gateway_apps() ->
         emqx_gateway_lwm2m,
         emqx_gateway_exproto
     ].
+-endif.
+-else.
+all_gateway_apps() ->
+    [
+        emqx_gateway_stomp,
+        emqx_gateway_mqttsn,
+        emqx_gateway_coap,
+        emqx_gateway_lwm2m,
+        emqx_gateway_exproto
+    ].
+-endif.
 
 %%--------------------------------------------------------------------
 %% http
