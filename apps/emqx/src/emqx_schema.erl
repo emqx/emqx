@@ -1950,6 +1950,14 @@ fields(durable_shared_subs) ->
                     default => <<"10s">>,
                     desc => ?DESC(ds_shared_sub_revocation_timeout)
                 }
+            )},
+        {max_idle_time,
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"30s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ];
 fields(durable_storage) ->
