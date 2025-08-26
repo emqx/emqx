@@ -707,8 +707,7 @@ t_connack_client_id_unavailable(Config) ->
         {error, ConnAck} = emqtt:ConnFun(Client),
         ?assertMatch(
             {client_identifier_not_valid, #{
-                'Reason-String' :=
-                    <<"In progress", _/binary>>
+                'Reason-String' := <<"THROTTLED">>
             }},
             ConnAck
         )

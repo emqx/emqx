@@ -608,12 +608,11 @@ post_process_connect(
             },
             handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
-            ReasonString = <<"In progress Client ID registration/deregistration. Retry later!">>,
+            ReasonString = <<"THROTTLED">>,
             handle_out(connack, {?RC_CLIENT_IDENTIFIER_NOT_VALID, ReasonString}, Channel);
         {error, Reason} ->
-            ReasonString = <<"Failed to open session">>,
             ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
-            handle_out(connack, {?RC_UNSPECIFIED_ERROR, ReasonString}, Channel)
+            handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
 
 %%--------------------------------------------------------------------
