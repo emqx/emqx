@@ -597,7 +597,69 @@ t_090_add_pending(_Config) ->
         []
     ).
 
+%% The following testcase verifies execution of the pending tasks.
 %%
+%% Pending actions with "DB" scope should only be executed when the
+%% corresponding DB is open.
+t_100_action_execution(_Config) ->
+    DB = test_db,
+    ?check_trace(
+        begin
+            %% Create a DB without opening it:
+            emqx_dsch:register_backend(test, ?MODULE),
+            ?assertMatch(
+                {ok, _, _},
+                emqx_dsch:ensure_db_schema(DB, #{backend => test})
+            ),
+            %% Add cluster, then add and remove a peer, it should
+            %% create pending actions for the DB:
+            ok = emqx_dsch:set_cluster(<<"my_cluster">>),
+            ok = emqx_dsch:set_peer(<<"peer">>, active),
+            ok = emqx_dsch:delete_peer(<<"peer">>),
+            %% Start the DB. It should now receive and process all
+            %% events:
+            {ok, SRef1} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := test_schema_change}),
+                3,
+                5_000
+            ),
+            ?tp(test_open_db, #{}),
+            ok = emqx_dsch:open_db(DB, #{}),
+            {ok, Changes} = snabbkaffe:receive_events(SRef1),
+            ?assertMatch(
+                [
+                    {DB, #{command := set_cluster, cluster := <<"my_cluster">>}},
+                    {DB, #{command := set_peer, site := <<"peer">>, state := active}},
+                    {DB, #{command := delete_peer, site := <<"peer">>}}
+                ],
+                ?projection([db, task], Changes)
+            ),
+            %% Test closing of a DB with pending tasks:
+            ?force_ordering(
+                #{?snk_kind := test_close_db},
+                #{?snk_kind := test_schema_change}
+            ),
+            ?assertMatch(
+                {ok, {ok, _}},
+                ?wait_async_action(
+                    emqx_dsch:close_db(DB),
+                    #{?snk_kind := "Interrupted ongoing schema change"}
+                )
+            )
+        end,
+        [
+            {no_failed_start, fun(Trace) ->
+                ?assertMatch(
+                    [],
+                    ?of_kind(?tp_pending_spawn_fail, Trace)
+                )
+            end}
+        ]
+    ).
+
+handle_schema_change(DB, ChangeId, Task) ->
+    ?tp(info, test_schema_change, #{db => DB, id => ChangeId, task => Task}),
+    emqx_dsch:del_pending(ChangeId).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 

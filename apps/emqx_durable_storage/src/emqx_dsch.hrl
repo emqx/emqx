@@ -24,4 +24,7 @@
     end
 ).
 
+%% Tracepoints:
+-define(tp_pending_spawn_fail, "Failed to start a pending schema task").
+
 -endif.
