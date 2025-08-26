@@ -156,6 +156,14 @@
 -define(ENABLED(X), (X =/= undefined)).
 
 -define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
+-define(IS_NORMAL_SOCKET_ERROR(R),
+    % Normal close
+    (R =:= closed orelse
+        % Socket handle is no longer valid in os
+        R =:= einval orelse
+        % Some race condition may cause enotconn instead of einval, hard to reproduce
+        R =:= enotconn)
+).
 
 -dialyzer({no_match, [info/2]}).
 -dialyzer(
@@ -384,15 +392,13 @@ run_loop(
     end.
 
 -spec exit_on_sock_error(any()) -> no_return().
-exit_on_sock_error(Reason) when
-    Reason =:= einval;
-    Reason =:= enotconn;
-    Reason =:= closed
-->
+exit_on_sock_error(Reason) when ?IS_NORMAL_SOCKET_ERROR(Reason) ->
     erlang:exit(normal);
 exit_on_sock_error(timeout) ->
     erlang:exit({shutdown, ssl_upgrade_timeout});
 exit_on_sock_error(Reason) ->
+    %% econnreset falls here so it shows up in shutdown-counters
+    %% of the listener
     erlang:exit({shutdown, Reason}).
 
 %%--------------------------------------------------------------------
@@ -992,9 +998,12 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
             handle_info({sock_error, Reason}, State)
     end;
 handle_info({sock_error, Reason}, State) ->
-    case Reason =/= closed andalso Reason =/= einval of
-        true -> ?SLOG(warning, #{msg => "socket_error", reason => Reason});
-        false -> ok
+    %% Do not log warning for econnreset
+    case ?IS_NORMAL_SOCKET_ERROR(Reason) orelse Reason =:= econnreset of
+        true ->
+            ok;
+        false ->
+            ?SLOG(warning, #{msg => "socket_error", reason => Reason})
     end,
     handle_info({sock_closed, Reason}, close_socket(State));
 %% handle QUIC control stream events

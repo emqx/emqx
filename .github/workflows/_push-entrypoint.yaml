@@ -226,7 +226,7 @@ jobs:
     secrets: inherit
 
   update_public_broker:
-    if: needs.prepare.outputs.release == 'true'
+    if: needs.prepare.outputs.release == 'true' && needs.prepare.outputs.latest == 'true'
     needs:
       - init
       - prepare

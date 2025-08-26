@@ -18,4 +18,4 @@ if [ -z "${PREV_TAG_MATCH_PATTERN:-}" ]; then
     esac
 fi
 
-git describe --abbrev=0 --tags --match "${PREV_TAG_MATCH_PATTERN}" --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*' --exclude '*docker*'
+git describe --abbrev=0 --tags --match "${PREV_TAG_MATCH_PATTERN}" --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*' --exclude '*docker*' --exclude '*-M*'

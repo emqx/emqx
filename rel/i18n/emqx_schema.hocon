@@ -1110,15 +1110,18 @@ fields_ws_opts_supported_subprotocols.desc:
 fields_ws_opts_supported_subprotocols.label:
 """Supported subprotocols"""
 
-mqtt_shared_subscription_strategy.desc:
-"""Dispatch strategy for shared subscription.
- - `random`: Randomly select a subscriber for dispatch;
- - `round_robin`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each publisher, so two adjacent messages from **different publishers** may be consumed by the same client in the subscription group;
- - `round_robin_per_group`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each node, so two adjacent messages from **different nodes** may be consumed by the same client in the subscription group;
- - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster;
- - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends. The initial selection is made based on `mqtt_shared_subscription_initial_sticky_pick`;
- - `hash_clientid`: Hash the publisher's client ID to select a subscriber;
- - `hash_topic`: Hash the publishing topic to select a subscriber."""
+mqtt_shared_subscription_strategy.desc: """~
+  Dispatch strategy for shared subscription.
+  EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client’s connection state**.  
+  If the publishing client disconnects and reconnects, this state is lost and must be re-initialized
+
+  - `random`: Randomly select a subscriber for dispatch;
+  - `round_robin`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each publisher, so two adjacent messages from **different publishers** may be consumed by the same client in the subscription group;
+  - `round_robin_per_group`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each node, so two adjacent messages from **different nodes** may be consumed by the same client in the subscription group;
+  - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster;
+  - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends. The initial selection is made based on `mqtt_shared_subscription_initial_sticky_pick`;
+  - `hash_clientid`: Hash the publisher's client ID to select a subscriber;
+  - `hash_topic`: Hash the publishing topic to select a subscriber.~"""
 
 mqtt_shared_subscription_initial_sticky_pick.desc:
 """The strategy to use for the initial subscriber pick when shared_subscription_strategy is `sticky`.
@@ -1285,15 +1288,18 @@ fields_deflate_opts_strategy.desc:
 fields_deflate_opts_strategy.label:
 """compression strategy"""
 
-shared_subscription_strategy_enum.desc:
-"""Dispatch strategy for shared subscription.
- - `random`: Randomly select a subscriber for dispatch;
- - `round_robin`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each publisher, so two adjacent messages from **different publishers** may be consumed by the same client in the subscription group;
- - `round_robin_per_group`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each node, so two adjacent messages from **different nodes** may be consumed by the same client in the subscription group;
- - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster;
- - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends. The initial selection is made based on the value of `initial_sticky_pick`;
- - `hash_clientid`: Hash the publisher's client ID to select a subscriber;
- - `hash_topic`: Hash the publishing topic to select a subscriber."""
+shared_subscription_strategy_enum.desc: """~
+  Dispatch strategy for shared subscription.
+  EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client’s connection state**.  
+  If the publishing client disconnects and reconnects, this state is lost and must be re-initialized
+
+  - `random`: Randomly select a subscriber for dispatch;
+  - `round_robin`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each publisher, so two adjacent messages from **different publishers** may be consumed by the same client in the subscription group;
+  - `round_robin_per_group`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each node, so two adjacent messages from **different nodes** may be consumed by the same client in the subscription group;
+  - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster;
+  - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends. The initial selection is made based on the value of `initial_sticky_pick`;
+  - `hash_clientid`: Hash the publisher's client ID to select a subscriber;
+  - `hash_topic`: Hash the publishing topic to select a subscriber.~"""
 
 shared_subscription_initial_sticky_pick_enum.desc:
 """The strategy to use for the initial subscriber pick when the shared subscription strategy is `sticky`.

@@ -40,4 +40,12 @@ name.desc:
 node.desc:
 """The name of the node that triggered this alarm."""
 
+force_deactivate_alarm_api.desc:
+"""Force deactivate an alarm. This operation will forcefully deactivate an active alarm."""
+
+force_deactivate_alarm_api_response204.desc:
+"""The alarm has been successfully deactivated."""
+
+force_deactivate_alarm_api_response400.desc:
+"""The alarm does not exist or has already been deactivated."""
 }

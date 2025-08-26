@@ -146,6 +146,15 @@
 
 -define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
 
+-define(IS_NORMAL_SOCKET_ERROR(R),
+    % Normal close
+    (R =:= closed orelse
+        % Socket handle is no longer valid in os
+        R =:= einval orelse
+        % Some race condition may cause enotconn instead of einval, hard to reproduce
+        R =:= enotconn)
+).
+
 -spec start_link(esockd_socket, socket:socket(), emqx_channel:opts()) -> {ok, pid()}.
 start_link(Transport, Socket, Options) ->
     Args = [self(), Transport, Socket, Options],
@@ -372,13 +381,11 @@ run_loop(
     end.
 
 -spec exit_on_sock_error(any()) -> no_return().
-exit_on_sock_error(Reason) when
-    Reason =:= einval;
-    Reason =:= enotconn;
-    Reason =:= closed
-->
+exit_on_sock_error(Reason) when ?IS_NORMAL_SOCKET_ERROR(Reason) ->
     erlang:exit(normal);
 exit_on_sock_error(Reason) ->
+    %% econnreset falls here so it shows up in shutdown-counters
+    %% of the listener
     erlang:exit({shutdown, Reason}).
 
 %%--------------------------------------------------------------------
@@ -1062,9 +1069,12 @@ trigger_gc(NPkts, NBytes, ActiveN, State) ->
 %% Handle Info
 
 handle_info({sock_error, Reason}, State) ->
-    case Reason =/= closed andalso Reason =/= einval of
-        true -> ?SLOG(warning, #{msg => "socket_error", reason => Reason});
-        false -> ok
+    %% Do not log warning for econnreset
+    case ?IS_NORMAL_SOCKET_ERROR(Reason) orelse Reason =:= econnreset of
+        true ->
+            ok;
+        false ->
+            ?SLOG(warning, #{msg => "socket_error", reason => Reason})
     end,
     handle_info({sock_closed, Reason}, ensure_close_socket(Reason, State));
 handle_info(Info, State) ->

@@ -119,7 +119,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ssl_verify_fun, "1.1.7", override: true},
       common_dep(:bcrypt),
       common_dep(:uuid),
-      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
+      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.7.1", override: true},
       common_dep(:ra),
       {:mimerl, "1.2.0", override: true},
       common_dep(:sasl_auth),
@@ -217,7 +217,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:system_monitor),
     do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.6"}
 
-  def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true}
+  def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.7.1", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
   def common_dep(:observer_cli), do: {:observer_cli, "1.8.2"}
 
@@ -270,18 +270,17 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.0.9"}
+  def common_dep(:wolff), do: {:wolff, "4.0.11"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
-    do: {:kafka_protocol, "4.2.3", override: true}
+    do: {:kafka_protocol, "4.2.8", override: true}
 
-  def common_dep(:brod), do: {:brod, "4.4.4"}
-
+  def common_dep(:brod), do: {:brod, "4.4.6"}
   ## TODO: remove `mix.exs` from `wolff` and remove this override
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}
-  def common_dep(:crc32cer), do: {:crc32cer, "0.1.12", override: true}
+  def common_dep(:crc32cer), do: {:crc32cer, "1.0.4", override: true}
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
 
   def common_dep(:erlavro),
