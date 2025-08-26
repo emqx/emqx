@@ -171,6 +171,8 @@ server state.
 -include("emqx_dsch.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+-elvis([{elvis_style, no_single_clause_case, disable}]).
+
 %%================================================================================
 %% Type declarations
 %%================================================================================

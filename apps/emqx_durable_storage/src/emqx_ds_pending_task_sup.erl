@@ -6,7 +6,7 @@
 A supervisor for pending schema migration tasks.
 """.
 
--behavior(supervisor).
+-behaviour(supervisor).
 
 %% API:
 -export([start_link/0, spawn_task/3, terminate_task/2]).
