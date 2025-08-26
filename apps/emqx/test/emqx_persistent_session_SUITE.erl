@@ -312,7 +312,7 @@ do_publish(Messages = [_ | _], PublishFun, WaitForUnregister) ->
                     {clientid, ClientID},
                     {port, 1883}
                 ]),
-                {ok, _} = emqtt:connect(Client),
+                {ok, _} = emqtt_connect(connect, Client),
                 lists:foreach(fun(Message) -> PublishFun(Client, Message) end, Messages),
                 ok = emqtt:disconnect(Client),
                 %% Snabbkaffe sometimes fails unless all processes are gone.
@@ -337,7 +337,7 @@ t_choose_impl(Config) ->
         {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client),
+    {ok, _} = emqtt_connect(ConnFun, Client),
     [ChanPid] = emqx_cm:lookup_channels(ClientId),
     ?assertEqual(
         case ?config(persistence, Config) of
@@ -359,12 +359,12 @@ t_connect_discards_existing_client(Config) ->
     ],
 
     {ok, Client1} = emqtt:start_link(ClientOpts),
-    true = unlink(Client1),
     MRef = erlang:monitor(process, Client1),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
+    true = unlink(Client1),
 
     {ok, Client2} = emqtt:start_link(ClientOpts),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
 
     receive
         {'DOWN', MRef, process, Client1, Reason} ->
@@ -389,7 +389,7 @@ t_connect_session_expiry_interval(Config) ->
         {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client1, STopic, ?QOS_1),
     ok = emqtt:disconnect(Client1),
 
@@ -404,7 +404,7 @@ t_connect_session_expiry_interval(Config) ->
         {clean_start, false}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
     [Msg | _] = receive_messages(1),
     ?assertEqual({ok, iolist_to_binary(Topic)}, maps:find(topic, Msg)),
     ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
@@ -425,7 +425,7 @@ t_connect_session_expiry_interval_qos2(Config) ->
         {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
     {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
     ok = emqtt:disconnect(Client1),
 
@@ -440,7 +440,7 @@ t_connect_session_expiry_interval_qos2(Config) ->
         {clean_start, false}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
     [Msg | _] = receive_messages(1),
     ?assertEqual({ok, iolist_to_binary(Topic)}, maps:find(topic, Msg)),
     ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
@@ -448,8 +448,6 @@ t_connect_session_expiry_interval_qos2(Config) ->
     ok = emqtt:disconnect(Client2).
 
 t_without_client_id(Config) ->
-    %% Emqtt client dies
-    process_flag(trap_exit, true),
     ConnFun = ?config(conn_fun, Config),
     {ok, Client0} = emqtt:start_link([
         {proto_ver, v5},
@@ -457,7 +455,7 @@ t_without_client_id(Config) ->
         {clean_start, false}
         | Config
     ]),
-    {error, {client_identifier_not_valid, _}} = emqtt:ConnFun(Client0),
+    {error, {client_identifier_not_valid, _}} = emqtt_connect(ConnFun, Client0),
     ok.
 
 t_assigned_clientid_persistent_session(Config) ->
@@ -468,7 +466,7 @@ t_assigned_clientid_persistent_session(Config) ->
         {clean_start, true}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
 
     AssignedClientId = client_info(clientid, Client1),
     ok = emqtt:disconnect(Client1),
@@ -481,7 +479,7 @@ t_assigned_clientid_persistent_session(Config) ->
         {clean_start, false}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
     ?assertEqual(1, client_info(session_present, Client2)),
     ok = emqtt:disconnect(Client2).
 
@@ -498,7 +496,7 @@ t_cancel_on_disconnect(Config) ->
         {clean_start, true}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
     ok = emqtt:disconnect(Client1, 0, #{'Session-Expiry-Interval' => 0}),
 
     wait_connection_process_unregistered(ClientId),
@@ -510,7 +508,7 @@ t_cancel_on_disconnect(Config) ->
         {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
     ?assertEqual(0, client_info(session_present, Client2)),
     ok = emqtt:disconnect(Client2).
 
@@ -528,7 +526,7 @@ t_persist_on_disconnect(Config) ->
         {clean_start, true}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
 
     %% Strangely enough, the disconnect is reported as successful by emqtt.
     ok = emqtt:disconnect(Client1, 0, #{'Session-Expiry-Interval' => 30}),
@@ -542,7 +540,7 @@ t_persist_on_disconnect(Config) ->
         {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
     %% The session should not be known, since it wasn't persisted because of the
     %% changed expiry interval in the disconnect call.
     ?assertEqual(0, client_info(session_present, Client2)),
@@ -566,7 +564,7 @@ t_process_dies_session_expires(Config) ->
                 {clean_start, true}
                 | Config
             ]),
-            {ok, _} = emqtt:ConnFun(Client1),
+            {ok, _} = emqtt_connect(ConnFun, Client1),
             {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
             ok = emqtt:disconnect(Client1),
 
@@ -583,7 +581,7 @@ t_process_dies_session_expires(Config) ->
                 {clean_start, false}
                 | Config
             ]),
-            {ok, _} = emqtt:ConnFun(Client2),
+            {ok, _} = emqtt_connect(ConnFun, Client2),
             ?assertEqual(0, client_info(session_present, Client2)),
 
             %% We should not receive the pending message
@@ -610,7 +608,7 @@ t_publish_while_client_is_gone_qos1(Config) ->
         {clean_start, true}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
     {ok, _, [1]} = emqtt:subscribe(Client1, STopic, qos1),
 
     ok = emqtt:disconnect(Client1),
@@ -625,7 +623,7 @@ t_publish_while_client_is_gone_qos1(Config) ->
         {clean_start, false}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
     Msgs = receive_messages(2),
     ?assertMatch([_, _], Msgs),
     [Msg1, Msg2] = Msgs,
@@ -651,7 +649,7 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
         {auto_ack, never}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
 
     STopics = [
         <<"t/+/foo">>,
@@ -728,7 +726,7 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
         | Config
     ]),
 
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
 
     %% Try to receive _at most_ `NPubs` messages.
     %% There shouldn't be that much unacked messages in the replay anyway,
@@ -776,7 +774,7 @@ t_publish_while_client_is_gone(Config) ->
         {clean_start, true}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
     {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
 
     ok = emqtt:disconnect(Client1),
@@ -791,7 +789,7 @@ t_publish_while_client_is_gone(Config) ->
         {clean_start, false}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
     Msgs = receive_messages(2),
     ?assertMatch([_, _], Msgs),
     [Msg1, Msg2] = Msgs,
@@ -823,7 +821,7 @@ t_publish_many_while_client_is_gone(Config) ->
     ],
 
     {ok, Client1} = emqtt:start_link([{clean_start, true} | ClientOpts]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
     {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, <<"t">>, ?QOS_2),
 
     Pubs1 = [
@@ -889,7 +887,7 @@ t_publish_many_while_client_is_gone(Config) ->
     NPubs2 = length(Pubs2),
 
     {ok, Client2} = emqtt:start_link([{clean_start, false} | ClientOpts]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
 
     %% Try to receive _at most_ `NPubs` messages.
     %% There shouldn't be that much unacked messages in the replay anyway,
@@ -946,7 +944,7 @@ t_publish_many_while_client_is_gone(Config) ->
     maybe_kill_connection_process(ClientId, Config),
 
     {ok, Client3} = emqtt:start_link([{clean_start, false} | ClientOpts]),
-    {ok, _} = emqtt:ConnFun(Client3),
+    {ok, _} = emqtt_connect(ConnFun, Client3),
 
     %% Check that we receive the rest of the messages:
     Msgs3 = receive_messages(NPubs, _Timeout = 2000),
@@ -982,7 +980,7 @@ t_clean_start_drops_subscriptions(Config) ->
         {clean_start, true}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
     {ok, _, [1]} = emqtt:subscribe(Client1, STopic, qos1),
 
     ok = emqtt:disconnect(Client1),
@@ -1001,7 +999,7 @@ t_clean_start_drops_subscriptions(Config) ->
         {clean_start, true}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
     ?assertEqual(0, client_info(session_present, Client2)),
     {ok, _, [1]} = emqtt:subscribe(Client2, STopic, qos1),
 
@@ -1022,7 +1020,7 @@ t_clean_start_drops_subscriptions(Config) ->
         {clean_start, false}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client3),
+    {ok, _} = emqtt_connect(ConnFun, Client3),
 
     ok = publish(Topic, Payload3, ?QOS_1),
     [Msg2] = receive_messages(1),
@@ -1041,7 +1039,7 @@ t_unsubscribe(Config) ->
         {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client),
+    {ok, _} = emqtt_connect(ConnFun, Client),
     {ok, _, [2]} = emqtt:subscribe(Client, STopic, qos2),
     ?assertMatch([_], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic]),
     {ok, _, _} = emqtt:unsubscribe(Client, STopic),
@@ -1063,7 +1061,7 @@ t_unsubscribe_replay(Config) ->
         | Config
     ],
     {ok, Sub} = emqtt:start_link([{clean_start, true}, {auto_ack, never} | ClientOpts]),
-    {ok, _} = emqtt:ConnFun(Sub),
+    {ok, _} = emqtt_connect(ConnFun, Sub),
     %% 1. Make two subscriptions, one is to be deleted:
     Topic1 = iolist_to_binary([TopicPrefix, $/, <<"unsub">>]),
     Topic2 = iolist_to_binary([TopicPrefix, $/, <<"sub">>]),
@@ -1100,7 +1098,7 @@ t_unsubscribe_replay(Config) ->
     %% 4. Reconnect the client. It must only receive only four
     %% messages from the time when it was subscribed:
     {ok, Sub1} = emqtt:start_link([{clean_start, false}, {auto_ack, true} | ClientOpts]),
-    ?assertMatch({ok, _}, emqtt:ConnFun(Sub1)),
+    ?assertMatch({ok, _}, emqtt_connect(ConnFun, Sub1)),
     %% Note: we ask for 6 messages, but expect only 4, it's
     %% intentional:
     ?assertMatch(
@@ -1157,7 +1155,7 @@ t_transient(Config) ->
     Topic3 = <<TopicPrefix/binary, "/3">>,
     %% 1. Start the client and subscribe to the topic:
     {ok, Sub} = emqtt:start_link([{clean_start, true}, {auto_ack, never} | ClientOpts]),
-    ?assertMatch({ok, _}, emqtt:ConnFun(Sub)),
+    ?assertMatch({ok, _}, emqtt_connect(ConnFun, Sub)),
     ?assertMatch({ok, _, _}, emqtt:subscribe(Sub, <<TopicPrefix/binary, "/#">>, qos2)),
     %% 2. Publish regular messages:
     publish(Topic1, <<"1">>, ?QOS_1),
@@ -1185,7 +1183,7 @@ t_transient(Config) ->
     %% 5. Reconnect the client:
     ok = emqtt:disconnect(Sub),
     {ok, Sub1} = emqtt:start_link([{clean_start, false}, {auto_ack, true} | ClientOpts]),
-    ?assertMatch({ok, _}, emqtt:ConnFun(Sub1)),
+    ?assertMatch({ok, _}, emqtt_connect(ConnFun, Sub1)),
     %% 6. Recieve the historic messages and check that their packet IDs didn't change:
     %% Note: durable session currenty WON'T replay transient messages.
     ProcessMessage = fun(#{payload := P, packet_id := ID}) -> {ID, P} end,
@@ -1223,7 +1221,7 @@ t_multiple_subscription_matches(Config) ->
         {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
     {ok, _, [2]} = emqtt:subscribe(Client1, STopic1, qos2),
     {ok, _, [2]} = emqtt:subscribe(Client1, STopic2, qos2),
     ok = emqtt:disconnect(Client1),
@@ -1239,7 +1237,7 @@ t_multiple_subscription_matches(Config) ->
         {clean_start, false}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
 
     %% We will receive the same message twice because it matches two subscriptions.
     [Msg1, Msg2] = receive_messages(2),
@@ -1273,7 +1271,7 @@ t_no_will_message(Config) ->
                 {will_props, #{'Will-Delay-Interval' => 0}}
                 | Config
             ]),
-            {ok, _} = emqtt:ConnFun(Client),
+            {ok, _} = emqtt_connect(ConnFun, Client),
             ok = emqtt:disconnect(Client, ?RC_SUCCESS),
 
             %% No will message
@@ -1330,7 +1328,7 @@ do_t_will_message(Config, Opts) ->
                 {will_props, #{'Will-Delay-Interval' => WillDelay}}
                 | Config
             ]),
-            {ok, _} = emqtt:ConnFun(Client),
+            {ok, _} = emqtt_connect(ConnFun, Client),
             ok = emqtt:disconnect(Client, ?RC_UNSPECIFIED_ERROR),
 
             ?assertReceive({deliver, WillTopic, #message{payload = WillPayload}}, 10_000),
@@ -1355,7 +1353,7 @@ t_sys_message_delivery(Config) ->
         {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _} = emqtt_connect(ConnFun, Client1),
     {ok, _, [1]} = emqtt:subscribe(Client1, SysTopicFilter, [{qos, 1}, {rh, 2}]),
     ?assertMatch(
         [
@@ -1374,11 +1372,30 @@ t_sys_message_delivery(Config) ->
         {clean_start, false}
         | Config
     ]),
-    {ok, _} = emqtt:ConnFun(Client2),
+    {ok, _} = emqtt_connect(ConnFun, Client2),
     ?assertMatch(
         [#{topic := SysTopic, qos := 0, retain := false, payload := _Uptime3}],
         receive_messages(1)
     ).
+
+emqtt_connect(ConnFun, ClientPid) ->
+    unlink(ClientPid),
+    case apply(emqtt, ConnFun, [ClientPid]) of
+        {ok, ConnAck} ->
+            link(ClientPid),
+            {ok, ConnAck};
+        {error, Reason} ->
+            %% ensure failed client is killed
+            exit(ClientPid, kill),
+            case Reason of
+                {server_busy, _ConnAckProps} ->
+                    timer:sleep(10),
+                    ct:pal("reconnect after delay, clientid", []),
+                    emqtt_connect(ConnFun, ClientPid);
+                _ ->
+                    {error, Reason}
+            end
+    end.
 
 get_topicwise_order(Msgs) ->
     maps:groups_from_list(fun get_msgpub_topic/1, fun get_msgpub_payload/1, Msgs).

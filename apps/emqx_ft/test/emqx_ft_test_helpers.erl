@@ -86,8 +86,16 @@ start_client(ClientId) ->
 start_client(ClientId, Node) ->
     Port = tcp_port(Node),
     {ok, Client} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId}, {port, Port}]),
-    {ok, _} = emqtt:connect(Client),
-    Client.
+    unlink(Client),
+    case emqtt:connect(Client) of
+        {error, {server_busy, _}} ->
+            timer:sleep(10),
+            ct:pal("clientid=~s reconnect after delay", [ClientId]),
+            start_client(ClientId, Node);
+        {ok, _ConnAck} ->
+            link(Client),
+            Client
+    end.
 
 upload_file(ClientId, FileId, Name, Data) ->
     upload_file(sync, ClientId, FileId, Name, Data).
