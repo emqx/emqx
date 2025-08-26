@@ -548,7 +548,8 @@ zone_global_defaults() ->
                         leader_timeout => 5000,
                         checkpoint_interval => 5000,
                         realloc_interval => 100,
-                        revocation_timeout => 10000
+                        revocation_timeout => 10000,
+                        max_idle_time => 30000
                     }
             }
     }.

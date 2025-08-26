@@ -5,6 +5,26 @@
 -moduledoc """
 This module implements logic responsible for allocation of streams
 to the members of shared subscription group.
+
+## State machine
+
+```
+
+              ,-->(standby)<----------<-----------.
+             /       |                            |            x
+           yes       |                            |            ^
+          /          |                            |            |
+*--has---<   {DOWN from leader}-normal-->x       yes           |
+ leader?  \          |                            |       idle timeout
+           no        |                            |            |
+            \        v                            |            |
+             '--->(candidate)---random-----has----+---no--(leader,idle)---client--->(leader,!idle)
+                                sleep    leader?      .        ^          joined        |
+                                                      .        |                        |
+                                                   register    `----<--last client -----'
+                                                    global               left
+                                                     name
+```
 """.
 
 -behaviour(gen_statem).
@@ -100,6 +120,7 @@ to the members of shared subscription group.
 -record(to_checkpoint, {}).
 -record(to_borrowers, {}).
 -record(to_realloc, {}).
+-record(to_idle_stop, {}).
 
 %% Leader data:
 -type borrowers() :: #{emqx_ds_shared_sub_proto:borrower_id() => borrower_state()}.
@@ -210,23 +231,30 @@ handle_event(info, #to_checkpoint{}, #st_leader{}, Data) ->
     handle_checkpoint(Data);
 handle_event(info, #to_realloc{}, #st_leader{}, Data) ->
     {keep_state, handle_realloc(Data)};
-handle_event(state_timeout, #to_borrowers{}, #st_leader{}, Data) ->
-    leader_state(handle_borrower_timeouts(Data));
+handle_event(state_timeout, #to_borrowers{}, #st_leader{gr = Gr}, Data) ->
+    leader_loop(Gr, handle_borrower_timeouts(Data));
 handle_event({call, From}, #call_get_leader{}, #st_leader{gr = Gr}, _) ->
     {keep_state_and_data, handle_get_leader(From, Gr)};
+handle_event(state_timeout, #to_idle_stop{}, #st_leader{gr = Gr}, _) ->
+    ?tp(info, ds_shared_sub_leader_idle_stop, #{group => Gr}),
+    {stop, normal};
 %%    Borrower messages:
 handle_event(
-    info, ?borrower_connect_match(BorrowerId, _ShareTopicFilter), #st_leader{gr = Group}, Data
+    info, ?borrower_connect_match(BorrowerId, _ShareTopicFilter), #st_leader{gr = Gr}, Data
 ) ->
-    leader_state(handle_borrower_connect(Group, BorrowerId, Data));
-handle_event(info, ?borrower_ping_match(BorrowerId), #st_leader{gr = Group}, Data) ->
-    leader_state(handle_borrower_ping(Group, BorrowerId, Data));
-handle_event(info, ?borrower_update_progress_match(BorrowerId, StreamProgress), #st_leader{}, Data) ->
-    leader_state(handle_borrower_progress(BorrowerId, StreamProgress, Data));
-handle_event(info, ?borrower_revoke_finished_match(BorrowerId, Stream), #st_leader{}, Data) ->
-    leader_state(handle_borrower_revoke_finished(BorrowerId, Stream, Data));
-handle_event(info, ?borrower_disconnect_match(BorrowerId, StreamProgresses), #st_leader{}, Data) ->
-    leader_state(handle_borrower_disconnect(BorrowerId, StreamProgresses, Data));
+    leader_loop(Gr, handle_borrower_connect(Gr, BorrowerId, Data));
+handle_event(info, ?borrower_ping_match(BorrowerId), #st_leader{gr = Gr}, Data) ->
+    leader_loop(Gr, handle_borrower_ping(Gr, BorrowerId, Data));
+handle_event(
+    info, ?borrower_update_progress_match(BorrowerId, StreamProgress), #st_leader{gr = Gr}, Data
+) ->
+    leader_loop(Gr, handle_borrower_progress(BorrowerId, StreamProgress, Data));
+handle_event(info, ?borrower_revoke_finished_match(BorrowerId, Stream), #st_leader{gr = Gr}, Data) ->
+    leader_loop(Gr, handle_borrower_revoke_finished(BorrowerId, Stream, Data));
+handle_event(
+    info, ?borrower_disconnect_match(BorrowerId, StreamProgresses), #st_leader{gr = Gr}, Data
+) ->
+    leader_loop(Gr, handle_borrower_disconnect(BorrowerId, StreamProgresses, Data));
 %%    DS client messages:
 handle_event(info, Event, #st_leader{gr = Group}, Data) ->
     handle_client_msg(Event, Group, Data);
@@ -240,8 +268,16 @@ handle_event(enter, _, #st_standby{}, _) ->
     keep_state_and_data;
 handle_event({call, From}, #call_get_leader{}, #st_standby{gr = Gr}, _) ->
     {keep_state_and_data, handle_get_leader(From, Gr)};
-handle_event(info, {'DOWN', MRef, _, _, _}, #st_standby{gr = Group, mref = MRef}, Data) ->
-    {next_state, #st_candidate{gr = Group}, Data};
+handle_event(info, {'DOWN', MRef, _, _, Reason}, #st_standby{gr = Group, mref = MRef}, Data) ->
+    case Reason of
+        normal ->
+            %% Previous leader stopped with Reason `normal`. This can
+            %% only happen due to idle timeout. So we shouldn't take
+            %% over either.
+            {stop, normal};
+        _ ->
+            {next_state, #st_candidate{gr = Group}, Data}
+    end;
 %% Cleanup:
 handle_event(enter, _, #st_cleanup{gr = Group, from = From}, Data) ->
     do_cleanup(Group, From, Data);
@@ -327,6 +363,7 @@ handle_destroy(_, #st_candidate{}, _) ->
     {keep_state_and_data, postpone}.
 
 do_cleanup(Group = #share{topic = Topic}, From, #ls{h = HS = #hs{borrowers = B}}) ->
+    ?tp(info, ds_shared_sub_leader_destroy, #{group => Group}),
     Id = emqx_ds_shared_sub_dl:mk_id(Group),
     %% Notify borrowers:
     maps:foreach(
@@ -433,10 +470,17 @@ realloc_notify_granted(S, Borrowers, Allocs0, Plan) ->
 %% Handling of borrower protocol messages
 %%--------------------------------------------------------------------------------
 
--spec leader_state(ls()) -> {keep_state, ls(), [gen_statem:action()]}.
-leader_state(Data = #ls{h = #hs{borrowers = B}}) ->
-    %% TODO: check borrowers and set idle flag
-    {keep_state, Data, [{state_timeout, cfg_heartbeat_interval(), #to_borrowers{}}]}.
+-spec leader_loop(emqx_types:share(), ls()) -> {keep_state, ls(), [gen_statem:action()]}.
+leader_loop(Group, Data = #ls{h = #hs{borrowers = B}}) ->
+    case maps:size(B) of
+        0 ->
+            IdleTimeout = cfg_leader_max_idle_time(),
+            Action = {state_timeout, IdleTimeout, #to_idle_stop{}},
+            {next_state, #st_leader{gr = Group, idle = true}, Data, [Action]};
+        _ ->
+            Action = {state_timeout, cfg_heartbeat_interval(), #to_borrowers{}},
+            {keep_state, Data, [Action]}
+    end.
 
 -spec handle_borrower_connect(emqx_types:share(), emqx_ds_shared_sub_proto:borrower_id(), ls()) ->
     ls().
@@ -544,7 +588,7 @@ On success it saves the state of the stream to the durable storage
 and optionally reports `end_of_stream` to the DS client.
 """.
 maybe_handle_stream_progress(
-    Data0 = #ls{c = CS0, h = HS0 = #hs{s = S0, allocations = Allocs0, borrowers = Borrowers0}},
+    Data0 = #ls{c = CS0, h = HS0 = #hs{s = S0, allocations = Allocs0}},
     BorrowerId,
     Progress
 ) ->
@@ -609,6 +653,7 @@ drop_invalidate_borrower(HS0, BorrowerId, Reason) ->
 
 -spec invalidate_subscriber(hs(), emqx_ds_shared_sub_proto:borrower_id(), _Reason) -> ok.
 invalidate_subscriber(_, BorrowerId, Reason) ->
+    ?tp(debug, ds_shared_sub_leader_invalidate_sub, #{id => BorrowerId, reason => Reason}),
     ok = emqx_ds_shared_sub_proto:send_to_borrower(
         BorrowerId,
         ?leader_invalidate(leader())
@@ -638,7 +683,6 @@ drop_borrower(
 
 -spec update_borrower_deadline(emqx_ds_shared_sub_proto:borrower_id(), hs()) -> hs().
 update_borrower_deadline(BorrowerId, #hs{borrowers = Borrowers0} = HS) ->
-    Now = now_ms_monotonic(),
     case Borrowers0 of
         #{BorrowerId := BS0} ->
             NewDeadline = ping_deadline(),
@@ -661,7 +705,7 @@ handle_borrower_timeouts(Data = #ls{h = HS0}) ->
     Now = now_ms_monotonic(),
     %% Drop borrowers that didn't send ping message in time:
     HS1 = maps:fold(
-        fun(BorrowerId, BS = #bs{validity_deadline = Deadline}, Acc) ->
+        fun(BorrowerId, #bs{validity_deadline = Deadline}, Acc) ->
             case Now < Deadline of
                 true ->
                     %% Borrower sent ping in time. Keep it.
@@ -873,3 +917,7 @@ cfg_revocation_timeout(S) ->
         N when is_integer(N) ->
             N
     end.
+
+-spec cfg_leader_max_idle_time() -> non_neg_integer().
+cfg_leader_max_idle_time() ->
+    emqx_config:get([durable_sessions, shared_subs, max_idle_time]).
