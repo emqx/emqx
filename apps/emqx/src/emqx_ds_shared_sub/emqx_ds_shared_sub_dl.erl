@@ -18,6 +18,7 @@ This module abstracts all CRUD operations on the shared sub leader durable state
 
     mk_id/1,
     mk_id/2,
+    decode_id/1,
 
     create_new/1,
     commit/2,
@@ -99,7 +100,7 @@ This module abstracts all CRUD operations on the shared sub leader durable state
 -type lifetime() :: new | up.
 
 %% base62-encoded binary
--type cursor() :: binary().
+-type cursor() :: binary() | '$end_of_table'.
 
 %%================================================================================
 %% API functions
@@ -133,6 +134,11 @@ mk_id(Group, Topic) ->
         group = Group,
         topic = Topic
     }).
+
+-spec decode_id(id()) -> emqx_types:share().
+decode_id(Id) ->
+    #'Id'{group = Grp, topic = Topic} = 'DSSharedSub':decode('Id', Id),
+    #share{group = Grp, topic = Topic}.
 
 -spec dirty_read_props(id()) -> emqx_ds_shared_sub:info() | undefined.
 dirty_read_props(Id) ->
@@ -329,7 +335,7 @@ fold_stream_states(Fun, Acc0, Rec) ->
 make_iterator() ->
     it2cursor(emqx_ds:make_multi_iterator(multi_iter_opts(), ?guard_topic('+'))).
 
--spec iterator_next(cursor(), pos_integer()) -> {[id()], cursor()}.
+-spec iterator_next(cursor(), pos_integer()) -> {[emqx_ds_shared_sub:info()], cursor()}.
 iterator_next(Cursor, Limit) ->
     {TTVs, It} = emqx_ds:multi_iterator_next(
         multi_iter_opts(), ?guard_topic('+'), cursor2it(Cursor), Limit
@@ -432,16 +438,16 @@ trans_opts(Id) ->
         generation => 1
     }.
 
-it2cursor('$end_of_table') ->
-    <<>>;
+it2cursor('$end_of_table' = EOT) ->
+    EOT;
 it2cursor(It) ->
     {ok, Bin} = emqx_ds:multi_iterator_to_binary(It),
-    emqx_base62:encode(Bin).
+    Bin.
 
-cursor2it(<<>>) ->
-    '$end_of_table';
+cursor2it('$end_of_table' = EOT) ->
+    EOT;
 cursor2it(Bin) ->
-    {ok, It} = emqx_ds:binary_to_multi_iterator(emqx_base62:decode(Bin)),
+    {ok, It} = emqx_ds:binary_to_multi_iterator(Bin),
     It.
 
 -spec multi_iter_opts() -> emqx_ds:multi_iter_opts().

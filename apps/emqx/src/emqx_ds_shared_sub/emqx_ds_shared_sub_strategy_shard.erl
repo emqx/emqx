@@ -72,3 +72,9 @@ assign_shards_to_borrowers(Borrowers, Iter0, [Shard | Rest], Acc) ->
         none ->
             assign_shards_to_borrowers(Borrowers, maps:iterator(Borrowers), [Shard | Rest], Acc)
     end.
+
+%%================================================================================
+%% Tests
+%%================================================================================
+
+%% TODO
