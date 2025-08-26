@@ -26,9 +26,10 @@ start(_StartType, _StartArgs) ->
         ok = init_conf()
     catch
         C:E:St ->
-            %% logger is not quite ready.
-            io:format(standard_error, "Failed to load config~n~p~n~p~n~p~n", [C, E, St]),
-            init:stop(1)
+            ?SLOG(error, #{
+                msg => "failed_to_load_config", error => C, reason => E, stacktrace => St
+            }),
+            exit_loop(1)
     end,
     ok = emqx_config_logger:refresh_config(),
     emqx_conf_sup:start_link().
@@ -36,6 +37,11 @@ start(_StartType, _StartArgs) ->
 stop(_State) ->
     emqx_config:clear_all_invalid_namespaced_configs(),
     ok.
+
+exit_loop(ExitCode) ->
+    timer:sleep(100),
+    init:stop(ExitCode),
+    exit_loop(ExitCode).
 
 %% @doc emqx_conf relies on this flag to synchronize configuration between nodes.
 %% Therefore, we must clean up this flag when emqx application is restarted by mria.
