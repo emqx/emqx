@@ -497,8 +497,7 @@ t_clientid_registration_throttled(_) ->
     #{conninfo := ConnInfo} = ChanInfo,
     ok = emqx_cm:register_channel(ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}),
     ?assertEqual({error, client_id_unavailable}, open_session(true, ClientInfo, ConnInfo)),
-    true = emqx_cm:do_unregister_channel({ClientId, DeadPid}),
-    ok.
+    ok = emqx_cm:do_unregister_channel({ClientId, DeadPid}).
 
 spawn_dummy_chann(Mod, Count) ->
     #{conninfo := ConnInfo0} = ?ChanInfo,
