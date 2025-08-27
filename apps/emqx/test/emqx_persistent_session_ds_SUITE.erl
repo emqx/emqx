@@ -951,7 +951,7 @@ t_fuzz(_Config) ->
                 ]),
                 %% Initialize the system:
                 emqx_persistent_session_ds_fuzzer:cleanup(),
-                drop_all_ds_messages(),
+                emqx_common_test_helpers:drop_all_ds_messages(),
                 %% Run test:
                 {_History, State, Result} = proper_statem:run_commands(
                     emqx_persistent_session_ds_fuzzer, Cmds
@@ -1608,15 +1608,3 @@ start_local(TestCase, Config0) ->
         end,
     ok = emqx_persistent_message:wait_readiness(5_000),
     [{cleanup, Cleanup} | Config].
-
-%% This function cleans up `messages' DB by rotating generations.
-drop_all_ds_messages() ->
-    DB = ?PERSISTENT_MESSAGE_DB,
-    OldSlabs = maps:keys(emqx_ds:list_slabs(DB)),
-    ok = emqx_ds:add_generation(DB),
-    lists:foreach(
-        fun(Slab) ->
-            ok = emqx_ds:drop_slab(DB, Slab)
-        end,
-        OldSlabs
-    ).
