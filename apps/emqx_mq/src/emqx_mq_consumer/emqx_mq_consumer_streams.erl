@@ -51,6 +51,8 @@ The module holds a stream_buffers for all streams of a single Message Queue.
     emqx_ds:shard() => shard_progress()
 }.
 
+-export_type([shard_progress/0, progress/0]).
+
 %%--------------------------------------------------------------------
 %% Runtime state
 %%--------------------------------------------------------------------
@@ -75,7 +77,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
         emqx_ds:stream() => emqx_ds:shard()
     },
     initial_generations := #{emqx_ds:shard() => emqx_ds:generation()},
-    shards := shard_state()
+    shards := #{emqx_ds:shard() => shard_state()}
 }.
 
 -record(cs, {
@@ -112,7 +114,7 @@ progress(#cs{state = #{shards := Shards}}) ->
     maps:map(fun shard_progress/2, Shards).
 
 -spec handle_ds_info(t(), term()) ->
-    {ok, [{emqx_mq_types:message_id(), emqx_types:message()}], t()}.
+    {ok, [{emqx_mq_types:message_id(), emqx_types:message()}], t()} | ignore.
 handle_ds_info(#cs{ds_client = DSC0, state = State0} = CS0, GenericMessage) ->
     Res = emqx_ds_client:dispatch_message(GenericMessage, DSC0, State0),
     ?tp_debug(emqx_mq_consumer_streams_handle_ds_info, #{res => Res, info => GenericMessage}),
@@ -147,8 +149,6 @@ handle_ack(
                 stream := Stream
             } = ShardState0
         } ?= Shards0,
-        false ?= (SubRef =:= undefined),
-        false ?= (Stream =:= undefined),
         case emqx_mq_consumer_stream_buffer:handle_ack(SB, StreamMessageId) of
             {ok, SB1} ->
                 CS#cs{
@@ -225,7 +225,7 @@ on_advance_generation(
             }
     end.
 
-get_iterator(?SUB_ID, {Shard, Generation}, Stream, #{shards := Shards}) ->
+get_iterator(?SUB_ID, {Shard, Generation}, _Stream, #{shards := Shards}) ->
     Result =
         case Shards of
             #{Shard := #{status := active, generation := Generation, stream_buffer := SB}} ->
@@ -243,7 +243,7 @@ get_iterator(?SUB_ID, {Shard, Generation}, Stream, #{shards := Shards}) ->
                 undefined
         end,
     ?tp_debug(emqx_mq_consumer_streams_get_iterator, #{
-        slab => {Shard, Generation}, stream => Stream, result => Result
+        slab => {Shard, Generation}, stream => _Stream, result => Result
     }),
     Result.
 
@@ -401,7 +401,7 @@ handle_ds_reply(
 
 do_handle_ds_reply(
     #cs{state = #{shards := Shards0} = State0, ds_client = DSC0} = CS,
-    Stream,
+    _Stream,
     Shard,
     #{stream_buffer := SB, generation := Generation} = ShardState,
     Handle,
@@ -409,12 +409,12 @@ do_handle_ds_reply(
 ) ->
     Slab = {Shard, Generation},
     ?tp_debug(emqx_mq_consumer_streams_do_handle_ds_reply, #{
-        slab => Slab, stream => Stream, handle => Handle, ds_reply => DSReply
+        slab => Slab, stream => _Stream, handle => Handle, ds_reply => DSReply
     }),
     case emqx_mq_consumer_stream_buffer:handle_ds_reply(SB, Handle, DSReply) of
         {ok, Messages0, SB1} ->
             ?tp_debug(emqx_mq_consumer_streams_do_handle_ds_reply_ok, #{
-                slab => Slab, sb => buffer_info(SB1)
+                slab => Slab, sb => emqx_mq_consumer_stream_buffer:info(SB1)
             }),
             Messages = [
                 {{Slab, StreamMessageId}, emqx_mq_message_db:decode_message(Payload)}
@@ -436,11 +436,11 @@ do_handle_ds_reply(
                     Shard => #{status => finished, generation => Generation}
                 }
             },
-            {DSC, #{shards := Shards1} = State} = emqx_ds_client:complete_stream(
+            {DSC, #{shards := _Shards1} = State} = emqx_ds_client:complete_stream(
                 DSC0, SRef, State1
             ),
             ?tp_debug(mq_consumer_streams_do_handle_ds_reply_finished_complete_stream_end, #{
-                slab => Slab, shards => maps:keys(Shards1)
+                slab => Slab, shards => maps:keys(_Shards1)
             }),
             {ok, [], CS#cs{ds_client = DSC, state = State}}
     end.
@@ -487,11 +487,6 @@ shard_info(#{status := active, stream_buffer := SB} = ShardState) ->
     };
 shard_info(ShardState) ->
     ShardState.
-
-buffer_info(undefined) ->
-    undefined;
-buffer_info(SB) ->
-    emqx_mq_consumer_stream_buffer:info(SB).
 
 inc_received_message_stat(#ds_sub_reply{payload = {ok, _It, TTVs}}) ->
     emqx_mq_metrics:inc(ds, received_messages, length(TTVs));

@@ -412,7 +412,11 @@ pick_subscriber_least_inflight(
 
 %% Hash dispatch strategy
 
-pick_subscriber_hash(Message, Expression, #state{subscribers = Subscribers} = State) ->
+pick_subscriber_hash(
+    Message,
+    Expression,
+    #state{subscribers = Subscribers, mq = #{topic_filter := _TopicFilter}} = State
+) ->
     %% NOTE
     %% We may render hashed value on publish to significantly reduce
     %% the load on the server process.
@@ -423,9 +427,9 @@ pick_subscriber_hash(Message, Expression, #state{subscribers = Subscribers} = St
             SelectedIdx = erlang:phash2(Value, SubscriberCount),
             SelectedSubscriberRef = lists:nth(SelectedIdx + 1, SubscriberRefs),
             {ok, SelectedSubscriberRef};
-        {error, Error} ->
+        {error, _Error} ->
             ?tp_debug(mq_consumer_pick_subscriber_hash_error, #{
-                message => Message, error => Error, mq_topic_filter => mq_topic_filter(State)
+                message => Message, error => _Error, mq_topic_filter => _TopicFilter
             }),
             pick_subscriber_random(Message, [], State)
     end.
@@ -482,9 +486,6 @@ dispatch_strategy(_) ->
 
 redispatch_interval(#state{mq = #{redispatch_interval := RedispatchIntervalMs}}) ->
     RedispatchIntervalMs.
-
-mq_topic_filter(#state{mq = #{topic_filter := TopicFilter}}) ->
-    TopicFilter.
 
 send_connected_to_subscriber(SubscriberRef) ->
     ok = emqx_mq_sub:connected(SubscriberRef, self_consumer_ref()).

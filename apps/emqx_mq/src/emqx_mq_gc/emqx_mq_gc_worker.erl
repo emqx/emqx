@@ -63,8 +63,8 @@ handle_cast(_Request, State) ->
 handle_info(#gc{}, State) ->
     gc_next_compacted_batch(State).
 
-terminate(Reason, _State) ->
-    ?tp_debug(mq_gc_worker_terminated, #{reason => Reason}),
+terminate(_Reason, _State) ->
+    ?tp_debug(mq_gc_worker_terminated, #{reason => _Reason}),
     ok.
 
 %%--------------------------------------------------------------------
@@ -88,9 +88,6 @@ gc_next_compacted_batch(#{stream := Stream0} = State) ->
             {noreply, State#{stream => Stream}};
         MQs when is_list(MQs) ->
             ok = gc_compacted_queues(MQs),
-            ?tp(warning, mq_gc_done, #{}),
-            {stop, normal, State};
-        [] ->
             ?tp(warning, mq_gc_done, #{}),
             {stop, normal, State}
     end.

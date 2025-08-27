@@ -27,14 +27,14 @@
 register_hooks() ->
     %% TODO
     %% Select better priorities for the hooks
-    emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
-    emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
-    emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
-    emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
-    emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
-    emqx_hooks:add('session.disonnected', {?MODULE, on_session_disonnected, []}, ?HP_LOWEST),
-    emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_LOWEST),
-    emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
+    ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
+    ok = emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('session.disonnected', {?MODULE, on_session_disonnected, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
@@ -72,12 +72,12 @@ on_delivery_completed(Msg, Info) ->
             ok = with_sub(SubscriberRef, handle_ack, [Msg, ack_from_rc(ReasonCode)])
     end.
 
-on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = FullTopic, _SubOpts) ->
-    ?tp_debug(mq_on_session_subscribed, #{full_topic => FullTopic, handle => true}),
+on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = _FullTopic, _SubOpts) ->
+    ?tp_debug(mq_on_session_subscribed, #{full_topic => _FullTopic, handle => true}),
     Sub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
     ok = emqx_mq_sub_registry:register(Sub);
-on_session_subscribed(_ClientInfo, FullTopic, _SubOpts) ->
-    ?tp_debug(mq_on_session_subscribed, #{full_topic => FullTopic, handle => false}),
+on_session_subscribed(_ClientInfo, _FullTopic, _SubOpts) ->
+    ?tp_debug(mq_on_session_subscribed, #{full_topic => _FullTopic, handle => false}),
     ok.
 
 on_session_unsubscribed(_ClientInfo, <<"$q/", Topic/binary>>) ->
@@ -142,8 +142,8 @@ on_client_handle_info(
         {error, recreate} ->
             ok = recreate_sub(SubscriberRef, ClientInfo)
     end;
-on_client_handle_info(_ClientInfo, Message, Acc) ->
-    ?tp_debug(mq_on_client_handle_info, #{message => Message}),
+on_client_handle_info(_ClientInfo, _Message, Acc) ->
+    ?tp_debug(mq_on_client_handle_info, #{message => _Message}),
     {ok, Acc}.
 
 on_session_disonnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->

@@ -80,7 +80,7 @@ claim_leadership(MQ, ConsumerRef, TS) ->
     DataTopic = topic_consumer_data(MQ),
     Claim = #claim{consumer_ref = ConsumerRef, last_seen_timestamp = TS},
     TxRes = emqx_ds:trans(TxOpts, fun() ->
-        case read_claim(LeadershipTopic) of
+        case read_claim_tx(LeadershipTopic) of
             not_found ->
                 ok = write_claim(LeadershipTopic, Claim),
                 {ok, read_or_init_consumer_data(DataTopic)};
@@ -94,7 +94,7 @@ claim_leadership(MQ, ConsumerRef, TS) ->
                 %% Outdated claim, we can replace it
                 ok = write_claim(LeadershipTopic, Claim),
                 {ok, read_or_init_consumer_data(DataTopic)};
-            {ok, {ExistingConsumerRef, _OldTS}} ->
+            {ok, #claim{consumer_ref = ExistingConsumerRef}} ->
                 {error, unrecoverable, {active_consumer, ExistingConsumerRef}}
         end
     end),
@@ -102,7 +102,7 @@ claim_leadership(MQ, ConsumerRef, TS) ->
 
 -spec find_consumer(emqx_mq_types:mq(), timestamp()) ->
     {ok, consumer_ref()} | not_found | queue_removed.
-find_consumer(#{topic_filter := MQTopic} = MQ, TS) ->
+find_consumer(#{topic_filter := _MQTopic} = MQ, TS) ->
     LeadershipTopic = topic_leadership(MQ),
     case emqx_ds:dirty_read(?MQ_CONSUMER_DB, LeadershipTopic) of
         [] ->
@@ -113,7 +113,7 @@ find_consumer(#{topic_filter := MQTopic} = MQ, TS) ->
                     OldTS > TS - ?LEADER_TTL
                 ->
                     ?tp_debug(mq_consumer_db_find_consumer_success, #{
-                        mq_topic => MQTopic,
+                        mq_topic => _MQTopic,
                         active_ago_ms => TS - OldTS,
                         consumer_ref => ConsumerRef
                     }),
@@ -132,7 +132,7 @@ drop_claim(MQHandle, TS) ->
     LeadershipTopic = topic_leadership(MQHandle),
     TombstoneClaim = #tombstone{last_seen_timestamp = TS},
     TxRes = emqx_ds:trans(TxOpts, fun() ->
-        case read_claim(LeadershipTopic) of
+        case read_claim_tx(LeadershipTopic) of
             {ok, #claim{consumer_ref = ConsumerRef}} ->
                 %% TODO
                 %% GC tombstones
@@ -163,7 +163,7 @@ update_consumer_data(MQ, ConsumerRef, ConsumerData, TS) ->
     LeadershipTopic = topic_leadership(MQ),
     DataTopic = topic_consumer_data(MQ),
     TxRes = emqx_ds:trans(TxOpts, fun() ->
-        case read_claim(LeadershipTopic) of
+        case read_claim_tx(LeadershipTopic) of
             {ok, #tombstone{}} ->
                 {error, unrecoverable, queue_removed};
             {ok, #claim{consumer_ref = ConsumerRef}} ->
@@ -174,9 +174,7 @@ update_consumer_data(MQ, ConsumerRef, ConsumerData, TS) ->
             {ok, #claim{consumer_ref = OtherConsumer}} ->
                 {error, unrecoverable, {claim_lost, OtherConsumer}};
             not_found ->
-                {error, unrecoverable, claim_disappeared};
-            Error ->
-                Error
+                {error, unrecoverable, claim_disappeared}
         end
     end),
     get_result(TxRes).
@@ -221,7 +219,7 @@ init_consumer_data() ->
         progress => #{}
     }.
 
-read_claim(LeadershipTopic) ->
+read_claim_tx(LeadershipTopic) ->
     case emqx_ds:tx_read(LeadershipTopic) of
         [] ->
             not_found;
@@ -248,8 +246,8 @@ read_or_init_consumer_data(DataTopic) ->
     end.
 
 write_consumer_data(DataTopic, Data) ->
-    TTV = {DataTopic, 0, Data},
-    ?tp_debug(mq_consumer_db_write_consumer_data, #{ttv => TTV}),
+    _TTV = {DataTopic, 0, Data},
+    ?tp_debug(mq_consumer_db_write_consumer_data, #{ttv => _TTV}),
     emqx_ds:tx_write({DataTopic, 0, encode_consumer_data(Data)}).
 
 decode_claim(ClaimBin) ->

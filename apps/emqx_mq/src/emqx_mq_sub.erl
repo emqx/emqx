@@ -48,11 +48,11 @@ It uses two timers:
 ]).
 
 -record(finding_mq, {
-    find_mq_retry_tref :: reference()
+    find_mq_retry_tref :: reference() | undefined
 }).
 -record(connecting, {
     mq :: emqx_mq_types:mq(),
-    connect_timeout_tref :: reference()
+    connect_timeout_tref :: reference() | undefined
 }).
 -record(connected, {
     mq :: emqx_mq_types:mq(),
@@ -68,7 +68,7 @@ It uses two timers:
 
 -type t() :: #{
     status := status(),
-    client_id := emqx_types:client_id(),
+    clientid := emqx_types:clientid(),
     topic_filter := emqx_mq_types:mq_topic(),
     subscriber_ref := emqx_mq_types:subscriber_ref()
 }.
@@ -101,14 +101,14 @@ subscriber_ref(#{subscriber_ref := SubscriberRef}) ->
 
 -spec info(t()) -> map().
 info(#{status := Status} = Sub) ->
-    Info = maps:with([client_id, topic_filter, subscriber_ref], Sub),
+    Info = maps:with([clientid, topic_filter, subscriber_ref], Sub),
     Info#{status => status_info(Status)}.
 
 -spec handle_connect(emqx_types:clientinfo(), emqx_mq_types:mq_topic()) -> t().
 handle_connect(#{clientid := ClientId}, MQTopic) ->
     SubscriberRef = alias(),
     Sub = #{
-        client_id => ClientId,
+        clientid => ClientId,
         topic_filter => MQTopic,
         subscriber_ref => SubscriberRef
     },
@@ -126,14 +126,14 @@ handle_connect(#{clientid := ClientId}, MQTopic) ->
             Sub#{status => Status};
         {ok, MQ} ->
             case emqx_mq_consumer:connect(MQ, SubscriberRef, ClientId) of
-                {error, Reason} ->
+                {error, _Reason} ->
                     %% MQ found but something went wrong with the consumer.
                     %% Retry to find the queue later.
                     ?tp_debug(mq_sub_handle_connect_error, #{
-                        reason => Reason,
+                        reason => _Reason,
                         mq_topic_filter => MQTopic,
                         subscriber_ref => SubscriberRef,
-                        client_id => ClientId
+                        clientid => ClientId
                     }),
                     Status = #finding_mq{
                         find_mq_retry_tref = send_after(
@@ -153,7 +153,7 @@ handle_connect(#{clientid := ClientId}, MQTopic) ->
             end
     end.
 
--spec handle_ack(t(), emqx_types:msg(), emqx_mq_types:ack()) -> ok.
+-spec handle_ack(t(), emqx_types:message(), emqx_mq_types:ack()) -> ok.
 handle_ack(
     #{status := #connected{}} = Sub, Msg, Ack
 ) ->
@@ -164,7 +164,7 @@ handle_ack(
             {ok, do_handle_ack(Sub, MessageId, Ack)}
     end.
 
--spec handle_info(t(), term()) -> {ok, t()} | {ok, t(), emqx_types:msg()} | {error, term()}.
+-spec handle_info(t(), term()) -> {ok, t()} | {ok, t(), emqx_types:message()} | {error, term()}.
 %%
 %% Messages from the consumer
 %%
@@ -186,18 +186,20 @@ handle_info(#{status := #connecting{}} = Sub, #mq_sub_connected{consumer_ref = C
 %%
 %% Self-initiated messages
 %%
-handle_info(#{status := #finding_mq{}, topic_filter := TopicFilter} = _Sub, #find_mq_retry{}) ->
-    ?tp_debug(mq_sub_find_mq_retry, #{mq_topic_filter => TopicFilter, sub => info(_Sub)}),
+handle_info(#{status := #finding_mq{}, topic_filter := _TopicFilter} = _Sub, #find_mq_retry{}) ->
+    ?tp_debug(mq_sub_find_mq_retry, #{mq_topic_filter => _TopicFilter, sub => info(_Sub)}),
     {error, recreate};
 handle_info(
-    #{status := #connecting{}, topic_filter := TopicFilter} = _Sub, #consumer_connect_timeout{}
+    #{status := #connecting{}, topic_filter := _TopicFilter} = _Sub, #consumer_connect_timeout{}
 ) ->
-    ?tp(error, mq_sub_consumer_connect_timeout, #{mq_topic_filter => TopicFilter, sub => info(_Sub)}),
+    ?tp(error, mq_sub_consumer_connect_timeout, #{
+        mq_topic_filter => _TopicFilter, sub => info(_Sub)
+    }),
     {error, recreate};
 handle_info(
-    #{status := #connected{}, topic_filter := TopicFilter} = _Sub, #consumer_timeout{}
+    #{status := #connected{}, topic_filter := _TopicFilter} = _Sub, #consumer_timeout{}
 ) ->
-    ?tp(error, mq_sub_consumer_timeout, #{mq_topic_filter => TopicFilter, sub => info(_Sub)}),
+    ?tp(error, mq_sub_consumer_timeout, #{mq_topic_filter => _TopicFilter, sub => info(_Sub)}),
     {error, recreate};
 handle_info(
     #{status := #connected{consumer_ref = ConsumerRef}, subscriber_ref := SubscriberRef} = Sub,
@@ -259,7 +261,7 @@ ping(SubscriberRef) ->
 message(SubscriberRef, ConsumerRef, Message) when node(SubscriberRef) =:= node() ->
     message_v1(SubscriberRef, ConsumerRef, Message);
 message(SubscriberRef, ConsumerRef, Message) ->
-    true = emqx_mq_sub_proto_v1:mq_sub_message(
+    ok = emqx_mq_sub_proto_v1:mq_sub_message(
         node(SubscriberRef), SubscriberRef, ConsumerRef, Message
     ),
     ok.
@@ -429,17 +431,17 @@ cancel_publish_retry_timer(#{status := #connected{publish_retry_tref = TRef} = S
         }
     }.
 
-cancel_timers(#{status := #finding_mq{find_mq_retry_tref = TRef}} = Sub) ->
+cancel_timers(#{status := #finding_mq{find_mq_retry_tref = TRef} = Status} = Sub) ->
     _ = emqx_utils:cancel_timer(TRef),
     Sub#{
-        status => #finding_mq{
+        status => Status#finding_mq{
             find_mq_retry_tref = undefined
         }
     };
-cancel_timers(#{status := #connecting{connect_timeout_tref = TRef}} = Sub) ->
+cancel_timers(#{status := #connecting{connect_timeout_tref = TRef} = Status} = Sub) ->
     _ = emqx_utils:cancel_timer(TRef),
     Sub#{
-        status => #connecting{
+        status => Status#connecting{
             connect_timeout_tref = undefined
         }
     };
@@ -449,25 +451,25 @@ cancel_timers(
             consumer_timeout_tref = TRef,
             ping_tref = PingTRef,
             publish_retry_tref = PublishRetryTRef
-        }
+        } = Status
     } = Sub
 ) ->
     _ = emqx_utils:cancel_timer(TRef),
     _ = emqx_utils:cancel_timer(PingTRef),
     _ = emqx_utils:cancel_timer(PublishRetryTRef),
     Sub#{
-        status => #connected{
+        status => Status#connected{
             consumer_timeout_tref = undefined,
             ping_tref = undefined,
             publish_retry_tref = undefined
         }
     }.
 
-schedule_publish_retry(Interval, Sub0) ->
+schedule_publish_retry(Interval, #{status := #connected{} = Status} = Sub0) ->
     Sub = cancel_publish_retry_timer(Sub0),
     % ?tp_debug(mq_sub_schedule_publish_retry, #{sub => info(Sub), interval => Interval}),
     Sub#{
-        status => #connected{
+        status => Status#connected{
             publish_retry_tref = send_after(Sub, Interval, #publish_retry{})
         }
     }.
@@ -518,7 +520,7 @@ status_info(
     #{
         name => connected,
         buffer_size => emqx_mq_sub_buffer:size(Buffer),
-        inflight => sets:to_list(Inflight),
+        inflight => maps:keys(Inflight),
         consumer_ref => ConsumerRef,
         consumer_timeout_tref => ConsumerTimeoutTRef,
         ping_tref => PingTRef,

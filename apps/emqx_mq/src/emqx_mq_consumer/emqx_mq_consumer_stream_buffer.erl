@@ -42,6 +42,7 @@ The module represents a consumer of a single stream of the Message Queue data.
 %% State of the active stream buffer, receiving messages from DS and dispatching them to the consumer
 -type st_active() :: #{
     status := active,
+    mq := emqx_mq_types:mq(),
     options := options(),
     lower_buffer := buffer(),
     upper_buffer := undefined | buffer(),
@@ -55,6 +56,7 @@ The module represents a consumer of a single stream of the Message Queue data.
 %% After successfully restoring the buffer, the state is transitioned to st_active.
 -type st_restoring() :: #{
     status := restoring,
+    mq := emqx_mq_types:mq(),
     options := options(),
     it_begin := emqx_ds:iterator(),
     %% NOTE

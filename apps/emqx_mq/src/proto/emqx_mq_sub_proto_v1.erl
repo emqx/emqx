@@ -14,7 +14,7 @@
 
 -export([
     mq_sub_connected/3,
-    mq_sub_message/3,
+    mq_sub_message/4,
     mq_sub_ping/2
 ]).
 
@@ -25,9 +25,11 @@ introduced_in() ->
 mq_sub_connected(Node, SubscriberRef, ConsumerRef) ->
     erpc:cast(Node, emqx_mq_sub, connected, [SubscriberRef, ConsumerRef]).
 
--spec mq_sub_message(node(), emqx_mq_types:subscriber_ref(), emqx_types:message()) -> ok.
-mq_sub_message(Node, SubscriberRef, Message) ->
-    erpc:cast(Node, emqx_mq_sub, message, [SubscriberRef, Message]).
+-spec mq_sub_message(
+    node(), emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref(), emqx_types:message()
+) -> ok.
+mq_sub_message(Node, SubscriberRef, ConsumerRef, Message) ->
+    erpc:cast(Node, emqx_mq_sub, message, [SubscriberRef, ConsumerRef, Message]).
 
 -spec mq_sub_ping(node(), emqx_mq_types:subscriber_ref()) -> ok.
 mq_sub_ping(Node, SubscriberRef) ->

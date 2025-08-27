@@ -38,7 +38,7 @@
 }).
 -record(mq_server_connect, {
     subscriber_ref :: emqx_mq_types:subscriber_ref(),
-    client_id :: emqx_types:client_id()
+    client_id :: emqx_types:clientid()
 }).
 -record(mq_server_disconnect, {
     subscriber_ref :: emqx_mq_types:subscriber_ref()

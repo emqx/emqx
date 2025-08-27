@@ -71,7 +71,8 @@ open() ->
         _ -> error(failed_to_open_mq_databases)
     end.
 
--spec insert(emqx_mq_types:mq(), emqx_types:message()) -> ok | {error, list(emqx_ds:error())}.
+-spec insert(emqx_mq_types:mq(), list(emqx_types:message())) ->
+    ok | {error, list(emqx_ds:error(_Reason))}.
 insert(#{is_compacted := true} = MQ, Messages) ->
     % ?tp_debug(mq_message_db_insert, #{topic => Topic, generation => 1, value => Value}),
     insert(MQ, Messages, fun(_MQ, Topic, Value) ->
@@ -131,9 +132,9 @@ create_client(Module) ->
     emqx_mq_types:mq(),
     emqx_ds_client:t(),
     emqx_ds_client:sub_id(),
-    emqx_mq_consumer_stream_buffer:state()
+    State
 ) ->
-    {ok, emqx_ds_client:t(), emqx_mq_consumer_stream_buffer:state()}.
+    {ok, emqx_ds_client:t(), State}.
 subscribe(#{stream_max_unacked := StreamMaxUnacked} = MQ, DSClient0, SubId, State0) ->
     SubOpts = #{
         db => db(MQ),
@@ -147,7 +148,7 @@ subscribe(#{stream_max_unacked := StreamMaxUnacked} = MQ, DSClient0, SubId, Stat
     {ok, DSClient, State}.
 
 -spec suback(
-    emqx_mq_types:mq() | emqx_ds:db(), emqx_ds_client:sub_handle(), emqx_ds_client:sub_seqno()
+    emqx_mq_types:mq() | emqx_ds:db(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()
 ) -> ok.
 suback(MQ, SubHandle, SeqNo) when is_map(MQ) ->
     emqx_ds:suback(db(MQ), SubHandle, SeqNo);

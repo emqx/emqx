@@ -105,7 +105,7 @@ create(#{topic_filter := TopicFilter, is_compacted := IsCompacted} = MQ0) ->
 -doc """
 Find all MQs matching the given concrete topic.
 """.
--spec match(emqx_types:topic()) -> [emqx_mq_types:mq_write_handle()].
+-spec match(emqx_types:topic()) -> [emqx_mq_types:mq_handle()].
 match(Topic) ->
     Keys = emqx_topic_index:matches(Topic, ?MQ_REGISTRY_INDEX_TAB, []),
     lists:flatmap(
@@ -188,8 +188,8 @@ delete_all() ->
     {atomic, ok} = mria:async_dirty(
         ?MQ_REGISTRY_SHARD,
         fun() ->
-            mria:match_delete(?MQ_REGISTRY_INDEX_TAB, #?MQ_REGISTRY_INDEX_TAB{_ = '_'}),
-            mria:match_delete(?MQ_REGISTRY_TAB, #?MQ_REGISTRY_TAB{_ = '_'})
+            _ = mria:match_delete(?MQ_REGISTRY_INDEX_TAB, #?MQ_REGISTRY_INDEX_TAB{_ = '_'}),
+            _ = mria:match_delete(?MQ_REGISTRY_TAB, #?MQ_REGISTRY_TAB{_ = '_'})
         end
     ),
     ok.

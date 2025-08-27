@@ -38,7 +38,7 @@ register(Sub) ->
     ok.
 
 -spec delete(emqx_mq_types:subscriber_ref() | emqx_types:topic()) ->
-    emqx_mq_sub:sub() | undefined.
+    emqx_mq_sub:t() | undefined.
 delete(SubscriberRef) when is_reference(SubscriberRef) ->
     case erlang:erase(?SUB_PD_KEY(SubscriberRef)) of
         undefined ->
@@ -56,7 +56,8 @@ delete(MQTopicFilter) when is_binary(MQTopicFilter) ->
             delete(SubscriberRef)
     end.
 
--spec find(emqx_mq_types:subscriber_ref()) -> emqx_mq_sub:t() | undefined.
+-spec find(emqx_mq_types:subscriber_ref() | emqx_mq_types:mq_topic()) ->
+    emqx_mq_sub:t() | undefined.
 find(SubscriberRef) when is_reference(SubscriberRef) ->
     case erlang:get(?SUB_PD_KEY(SubscriberRef)) of
         undefined ->

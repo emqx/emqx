@@ -47,7 +47,7 @@ This module implements the dispatch queue (time-based priority) for the MQ consu
 -spec new() -> t().
 new() ->
     #dispatch_queue{
-        queue = gb_trees:empty()
+        queue = gb_sets:empty()
     }.
 
 -spec add(t(), [emqx_mq_types:message_id()]) -> t().
