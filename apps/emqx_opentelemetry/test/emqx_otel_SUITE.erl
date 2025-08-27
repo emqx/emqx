@@ -100,16 +100,6 @@ groups() ->
         t_metrics
     ],
 
-    TraceConnTypeGroups = [
-        {group, tcp},
-        {group, ssl},
-        {group, ws},
-        {group, wss}
-    ],
-    TraceGroups = [
-        {group, trace_legacy_mode},
-        {group, trace_e2e_mode}
-    ],
     E2ETraceGroups = [
         {group, e2e_with_traceparent},
         {group, e2e_no_traceparent}
@@ -130,25 +120,25 @@ groups() ->
         t_e2e_cilent_publish_qos2_with_forward,
         t_e2e_cilent_borker_publish_whitelist
     ],
-    FeatureGroups = [
-        {group, logs},
-        {group, metrics},
-        {group, traces}
-    ],
+
     [
-        {otel_tcp, FeatureGroups},
-        {otel_tls, FeatureGroups},
+        %% OTEL TCP cover all MQTT tcp conns (TCP and TLS)
+        %% OTEL TLS cover all MQTT websocket conns (WS and WSS)
+        {otel_tcp, [{group, logs}, {group, metrics}, {group, trace_tcp_conn}]},
+        {otel_tls, [{group, logs}, {group, metrics}, {group, traces_ws_conn}]},
 
         %% FeatureGroups
         {logs, LogsCases},
         {metrics, MetricsCases},
-        {traces, TraceConnTypeGroups},
+        {trace_tcp_conn, [{group, tcp}, {group, ssl}]},
+        {traces_ws_conn, [{group, ws}, {group, wss}]},
 
-        %% TraceConnTypeGroups
-        {tcp, TraceGroups},
-        {ssl, TraceGroups},
-        {ws, TraceGroups},
-        {wss, TraceGroups},
+        %% TCP/WSS conn cover legacy mode only
+        %% TLS/WS conn cover only E2E mode
+        {tcp, [{group, trace_legacy_mode}]},
+        {ssl, [{group, trace_e2e_mode}]},
+        {ws, [{group, trace_e2e_mode}]},
+        {wss, [{group, trace_legacy_mode}]},
 
         %% TraceGroups
         {trace_legacy_mode, LegacyModeTraceCases},
