@@ -238,6 +238,8 @@ get_iterator(?SUB_ID, {Shard, Generation}, Stream, #{shards := Shards}) ->
                         {subscribe, It}
                 end;
             _ ->
+                %% TODO: create It ourselves with start_time
+                %% to skip outdated messages on the DS level
                 undefined
         end,
     ?tp_debug(emqx_mq_consumer_streams_get_iterator, #{
@@ -247,11 +249,10 @@ get_iterator(?SUB_ID, {Shard, Generation}, Stream, #{shards := Shards}) ->
 
 on_new_iterator(
     ?SUB_ID,
-    {Shard, Generation},
+    {Shard, Generation} = Slab,
     Stream,
     It,
-    #{mq := MQ, streams := Streams, shards := Shards} =
-        State0
+    #{shards := Shards} = State
 ) ->
     ?tp_debug(emqx_mq_consumer_streams_on_new_iterator, #{
         slab => {Shard, Generation}, stream => Stream
@@ -260,36 +261,14 @@ on_new_iterator(
         #{Shard := #{status := finished, generation := OldGeneration}} when
             OldGeneration < Generation
         ->
-            ShardState = #{
-                status => active,
-                generation => Generation,
-                stream_buffer => emqx_mq_consumer_stream_buffer:new(It, MQ),
-                sub_ref => undefined,
-                stream => Stream
-            },
-            State = State0#{
-                shards => Shards#{Shard => ShardState},
-                streams => Streams#{Stream => Shard}
-            },
-            {subscribe, State};
+            {subscribe, init_shard_state(State, Slab, Stream, It)};
         #{Shard := #{status := Status, generation := OldGeneration}} ->
             ?tp(error, emqx_mq_consumer_streams_on_new_iterator_wrong_shard_state, #{
                 slab => {Shard, Generation}, old_generation => OldGeneration, status => Status
             }),
-            {ignore, State0};
+            {ignore, State};
         _ ->
-            ShardState = #{
-                status => active,
-                generation => Generation,
-                stream_buffer => emqx_mq_consumer_stream_buffer:new(It, MQ),
-                sub_ref => undefined,
-                stream => Stream
-            },
-            State = State0#{
-                shards => Shards#{Shard => ShardState},
-                streams => Streams#{Stream => Shard}
-            },
-            {subscribe, State}
+            {subscribe, init_shard_state(State, Slab, Stream, It)}
     end.
 
 on_unrecoverable_error(
@@ -480,6 +459,24 @@ ack_expired_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->
         Messages0
     ),
     {lists:reverse(Messages), CS}.
+
+init_shard_state(
+    #{shards := Shards, streams := Streams, mq := MQ} = State,
+    {Shard, Generation} = _Slab,
+    Stream,
+    It
+) ->
+    ShardState = #{
+        status => active,
+        generation => Generation,
+        stream_buffer => emqx_mq_consumer_stream_buffer:new(It, MQ),
+        sub_ref => undefined,
+        stream => Stream
+    },
+    State#{
+        shards => Shards#{Shard => ShardState},
+        streams => Streams#{Stream => Shard}
+    }.
 
 shards_info(Shards) ->
     maps:map(fun(_Shard, ShardState) -> shard_info(ShardState) end, Shards).

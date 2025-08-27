@@ -57,12 +57,19 @@ delete(MQTopicFilter) when is_binary(MQTopicFilter) ->
     end.
 
 -spec find(emqx_mq_types:subscriber_ref()) -> emqx_mq_sub:t() | undefined.
-find(SubscriberRef) ->
+find(SubscriberRef) when is_reference(SubscriberRef) ->
     case erlang:get(?SUB_PD_KEY(SubscriberRef)) of
         undefined ->
             undefined;
         Sub ->
             Sub#{subscriber_ref => SubscriberRef}
+    end;
+find(MQTopicFilter) when is_binary(MQTopicFilter) ->
+    case erlang:get(?TOPIC_PD_KEY(MQTopicFilter)) of
+        undefined ->
+            undefined;
+        SubscriberRef ->
+            find(SubscriberRef)
     end.
 
 -spec update(emqx_mq_types:subscriber_ref(), emqx_mq_sub:t()) -> ok.

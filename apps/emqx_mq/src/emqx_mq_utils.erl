@@ -23,8 +23,8 @@ mq_info(ChannelPid, TopicFilter) ->
     Self = alias([reply]),
     erlang:send(ChannelPid, #info_mq_info{receiver = Self, topic_filter = TopicFilter}),
     receive
-        {Self, InfoList} ->
-            InfoList
+        {Self, Info} ->
+            Info
     end.
 
 dispatch_variform_compile(Expression) ->

@@ -85,8 +85,7 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
         stream_max_buffer_size => 10,
         stream_max_unacked => 5,
         consumer_persistence_interval => 1000,
-        data_retention_period => 3600_000,
-        gc_interval => 3600_000
+        data_retention_period => 3600_000
     },
     MQ1 = maps:merge(Default, MQ0),
 

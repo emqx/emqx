@@ -119,11 +119,11 @@ on_client_handle_info(
     _ClientInfo, #info_mq_info{receiver = Receiver, topic_filter = TopicFilter}, Acc
 ) ->
     Info =
-        case emqx_mq_registry:find(TopicFilter) of
-            {ok, MQ} ->
-                emqx_mq_sub:info(MQ);
-            not_found ->
-                undefined
+        case emqx_mq_sub_registry:find(TopicFilter) of
+            undefined ->
+                undefined;
+            Sub ->
+                emqx_mq_sub:info(Sub)
         end,
     erlang:send(Receiver, {Receiver, Info}),
     {ok, Acc};

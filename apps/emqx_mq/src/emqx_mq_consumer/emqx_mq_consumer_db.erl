@@ -134,6 +134,8 @@ drop_claim(MQHandle, TS) ->
     TxRes = emqx_ds:trans(TxOpts, fun() ->
         case read_claim(LeadershipTopic) of
             {ok, #claim{consumer_ref = ConsumerRef}} ->
+                %% TODO
+                %% GC tombstones
                 ok = write_claim(LeadershipTopic, TombstoneClaim),
                 {ok, ConsumerRef};
             {ok, #tombstone{}} ->

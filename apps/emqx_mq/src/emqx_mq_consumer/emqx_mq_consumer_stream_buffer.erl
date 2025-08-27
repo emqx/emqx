@@ -36,8 +36,7 @@ The module represents a consumer of a single stream of the Message Queue data.
     it_begin := emqx_ds:iterator() | end_of_stream,
     it_end := emqx_ds:iterator() | end_of_stream,
     n := non_neg_integer(),
-    unacked := #{message_id() => true},
-    actual_unacked := #{message_id() => true}
+    unacked := #{message_id() => true}
 }.
 
 %% State of the active stream buffer, receiving messages from DS and dispatching them to the consumer
@@ -58,7 +57,13 @@ The module represents a consumer of a single stream of the Message Queue data.
     status := restoring,
     options := options(),
     it_begin := emqx_ds:iterator(),
+    %% NOTE
+    %% We need to keep both unacked and actual_unacked because in the moment of restoration
+    %% some unacked messages may have been deleted from the DS.
+    %% So in the end of restoration the actual set of messages requiring acknowledgement
+    %% may be smaller than the set of messages in the preserved unacked set.
     unacked := #{message_id() => true},
+    actual_unacked := #{message_id() => true},
     last_message_id := message_id(),
     messages := [emqx_ds:ttv()]
 }.

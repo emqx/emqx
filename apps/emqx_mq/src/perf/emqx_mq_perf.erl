@@ -31,8 +31,7 @@ Performance test utilities for the MQ application.
     stream_max_buffer_size => 100,
     stream_max_unacked => 100,
     consumer_persistence_interval => 10000,
-    data_retention_period => 3600_000,
-    gc_interval => 3600_000
+    data_retention_period => 3600_000
 }).
 
 %%--------------------------------------------------------------------
@@ -72,7 +71,14 @@ info_regular(TopicFilter) ->
 
 subsctriber_info(TopicFilter) ->
     lists:flatmap(
-        fun(ChanPid) -> emqx_mq_utils:mq_info(ChanPid, TopicFilter) end,
+        fun(ChanPid) ->
+            case emqx_mq_utils:mq_info(ChanPid, TopicFilter) of
+                undefined ->
+                    [];
+                Info ->
+                    [Info]
+            end
+        end,
         emqx_cm:all_channels()
     ).
 
@@ -94,18 +100,15 @@ consumer_info_regular(TopicFilter) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-populate_regular(#{topic_filter := _TopicFilter} = MQ, N, NGenerated, StartTime, BatchSize) when
+populate_regular(#{topic_filter := TopicFilter} = MQ, N, NGenerated, StartTime, BatchSize) when
     NGenerated < N
 ->
-    BatchSize = min(BatchSize, N - NGenerated),
-    Messages = generate_regular_messages(NGenerated, NGenerated + BatchSize - 1),
+    ActualBatchSize = min(BatchSize, N - NGenerated),
+    Messages = generate_regular_messages(NGenerated, NGenerated + ActualBatchSize - 1),
     ok = emqx_mq_message_db:insert(MQ, Messages),
-    % ?tp(warning, populate_regular, #{
-    %     topic_filter => TopicFilter,
-    %     n => N,
-    %     n_generated => NGenerated,
-    %     elapsed => now_ms_monotonic() - StartTime
-    % }),
+    io:format("populate_regular tf=~p generated ~p(~p), elapsed ~p~n", [
+        TopicFilter, N, NGenerated, now_ms_monotonic() - StartTime
+    ]),
     populate_regular(MQ, N, NGenerated + BatchSize, StartTime, BatchSize);
 populate_regular(_MQ, _N, _NGenerated, _StartTime, _BatchSize) ->
     ok.
