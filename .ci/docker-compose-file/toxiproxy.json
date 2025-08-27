@@ -109,25 +109,25 @@
     "enabled": true
   },
   {
-    "name": "cassa_tcp",
+    "name": "cassandra_tcp",
     "listen": "0.0.0.0:9042",
     "upstream": "cassandra:9042",
     "enabled": true
   },
   {
-    "name": "cassa_tls",
+    "name": "cassandra_tls",
     "listen": "0.0.0.0:9142",
     "upstream": "cassandra:9142",
     "enabled": true
   },
   {
-    "name": "cassa_no_auth_tcp",
+    "name": "cassandra_no_auth_tcp",
     "listen": "0.0.0.0:9043",
     "upstream": "cassandra_noauth:9042",
     "enabled": true
   },
   {
-    "name": "cassa_no_auth_tls",
+    "name": "cassandra_no_auth_tls",
     "listen": "0.0.0.0:9143",
     "upstream": "cassandra_noauth:9142",
     "enabled": true

@@ -1,7 +1,6 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
 -module(emqx_bridge_cassandra_SUITE).
 
 -compile(nowarn_export_all).
@@ -10,160 +9,152 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
-%% To run this test locally:
-%%   ./scripts/ct/run.sh --app apps/emqx_bridge_cassandra --only-up
-%%   PROFILE=emqx-enterprise PROXY_HOST=localhost CASSA_TLS_HOST=localhost \
-%%     CASSA_TLS_PORT=19142 CASSA_TCP_HOST=localhost CASSA_TCP_NO_AUTH_HOST=localhost \
-%%     CASSA_TCP_PORT=19042 CASSA_TCP_NO_AUTH_PORT=19043 \
-%%     ./rebar3 ct --name 'test@127.0.0.1' -v --suite \
-%%     apps/emqx_bridge_cassandra/test/emqx_bridge_cassandra_SUITE
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
-% SQL definitions
--define(SQL_BRIDGE,
-    "insert into mqtt_msg_test(topic, payload, arrived) "
-    "values (${topic}, ${payload}, ${timestamp})"
-).
--define(SQL_CREATE_TABLE,
-    ""
-    "\n"
-    "CREATE TABLE mqtt.mqtt_msg_test (\n"
-    "    topic text,\n"
-    "    payload text,\n"
-    "    arrived timestamp,\n"
-    "    PRIMARY KEY (topic)\n"
-    ");\n"
-    ""
-).
--define(SQL_DROP_TABLE, "DROP TABLE mqtt.mqtt_msg_test").
--define(SQL_DELETE, "TRUNCATE mqtt.mqtt_msg_test").
--define(SQL_SELECT, "SELECT payload FROM mqtt.mqtt_msg_test").
+-define(CONNECTOR_TYPE, cassandra).
+-define(CONNECTOR_TYPE_BIN, <<"cassandra">>).
+-define(ACTION_TYPE, cassandra).
+-define(ACTION_TYPE_BIN, <<"cassandra">>).
 
-% DB defaults
--define(CASSA_KEYSPACE, "mqtt").
--define(CASSA_USERNAME, "cassandra").
--define(CASSA_PASSWORD, "cassandra").
--define(BATCH_SIZE, 10).
+-define(PROXY_NAME_TCP, "cassandra_tcp").
+-define(PROXY_NAME_TLS, "cassandra_tls").
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
 
-%% cert files for client
--define(CERT_ROOT,
-    filename:join([emqx_common_test_helpers:proj_root(), ".ci", "docker-compose-file", "certs"])
-).
-
--define(CAFILE, filename:join(?CERT_ROOT, ["ca.crt"])).
--define(CERTFILE, filename:join(?CERT_ROOT, ["client.pem"])).
--define(KEYFILE, filename:join(?CERT_ROOT, ["client.key"])).
-
-%% How to run it locally:
-%%  1. Start all deps services
-%%    sudo docker compose -f .ci/docker-compose-file/docker-compose.yaml \
-%%                        -f .ci/docker-compose-file/docker-compose-cassandra.yaml \
-%%                        -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
-%%                        up --build
-%%
-%%  2. Run use cases with special environment variables
-%%    CASSA_TCP_HOST=127.0.0.1 CASSA_TCP_PORT=19042 \
-%%    CASSA_TLS_HOST=127.0.0.1 CASSA_TLS_PORT=19142 \
-%%    PROXY_HOST=127.0.0.1 ./rebar3 as test ct -c -v --name ct@127.0.0.1 \
-%%    --suite apps/emqx_bridge_cassandra/test/emqx_bridge_cassandra_SUITE.erl
-%%
+-define(async, async).
+-define(sync, sync).
+-define(tcp, tcp).
+-define(tls, tls).
+-define(with_batch, with_batch).
+-define(without_batch, without_batch).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    [
-        {group, tcp},
-        {group, tls}
-    ].
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
-    NonBatchCases = [t_write_timeout, t_simple_sql_query],
-    QueryModeGroups = [{group, async}, {group, sync}],
-    BatchingGroups = [
-        {group, with_batch},
-        {group, without_batch}
-    ],
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
+
+init_per_suite(TCConfig) ->
+    reset_proxy(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_cassandra,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
+    ),
     [
-        {tcp, QueryModeGroups},
-        {tls, QueryModeGroups},
-        {async, BatchingGroups},
-        {sync, BatchingGroups},
-        {with_batch, TCs -- NonBatchCases},
-        {without_batch, TCs}
+        {apps, Apps},
+        {proxy_host, ?PROXY_HOST},
+        {proxy_port, ?PROXY_PORT}
+        | TCConfig
     ].
 
-init_per_group(tcp, Config) ->
-    Host = os:getenv("CASSA_TCP_HOST", "toxiproxy"),
-    Port = list_to_integer(os:getenv("CASSA_TCP_PORT", "9042")),
-    [
-        {cassa_host, Host},
-        {cassa_port, Port},
-        {enable_tls, false},
-        {proxy_name, "cassa_tcp"}
-        | Config
-    ];
-init_per_group(tls, Config) ->
-    Host = os:getenv("CASSA_TLS_HOST", "toxiproxy"),
-    Port = list_to_integer(os:getenv("CASSA_TLS_PORT", "9142")),
-    [
-        {cassa_host, Host},
-        {cassa_port, Port},
-        {enable_tls, true},
-        {proxy_name, "cassa_tls"}
-        | Config
-    ];
-init_per_group(async, Config) ->
-    [{query_mode, async} | Config];
-init_per_group(sync, Config) ->
-    [{query_mode, sync} | Config];
-init_per_group(with_batch, Config0) ->
-    Config = [{enable_batch, true} | Config0],
-    common_init(Config);
-init_per_group(without_batch, Config0) ->
-    Config = [{enable_batch, false} | Config0],
-    common_init(Config);
-init_per_group(_Group, Config) ->
-    Config.
-
-end_per_group(Group, Config) when
-    Group == with_batch;
-    Group == without_batch
-->
-    connect_and_drop_table(Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
-    ok;
-end_per_group(_Group, _Config) ->
+    reset_proxy(),
     ok.
 
-init_per_suite(Config) ->
-    Config.
+init_per_group(?tcp, TCConfig) ->
+    Host = os:getenv("CASSANDRA_TCP_HOST", "toxiproxy"),
+    Port = list_to_integer(os:getenv("CASSANDRA_TCP_PORT", "9042")),
+    [
+        {cassandra_host, Host},
+        {cassandra_port, Port},
+        {enable_tls, false},
+        {proxy_name, ?PROXY_NAME_TCP}
+        | TCConfig
+    ];
+init_per_group(?tls, TCConfig) ->
+    Host = os:getenv("CASSANDRA_TLS_HOST", "toxiproxy"),
+    Port = list_to_integer(os:getenv("CASSANDRA_TLS_PORT", "9142")),
+    [
+        {cassandra_host, Host},
+        {cassandra_port, Port},
+        {enable_tls, true},
+        {proxy_name, ?PROXY_NAME_TLS}
+        | TCConfig
+    ];
+init_per_group(?async, TCConfig) ->
+    [{query_mode, async} | TCConfig];
+init_per_group(?sync, TCConfig) ->
+    [{query_mode, sync} | TCConfig];
+init_per_group(?with_batch, TCConfig0) ->
+    [{batch_size, 100}, {batch_time, <<"200ms">>} | TCConfig0];
+init_per_group(?without_batch, TCConfig0) ->
+    [{batch_size, 1} | TCConfig0];
+init_per_group(_Group, TCConfig) ->
+    TCConfig.
 
-end_per_suite(_Config) ->
+end_per_group(_Group, _TCConfig) ->
     ok.
 
-init_per_testcase(_Testcase, Config) ->
-    connect_and_clear_table(Config),
-    delete_bridge(Config),
+init_per_testcase(TestCase, TCConfig) ->
+    reset_proxy(),
+    Path = group_path(TCConfig, no_groups),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    ConnectorName = atom_to_binary(TestCase),
+    SSL =
+        case get_config(enable_tls, TCConfig, false) of
+            true ->
+                #{
+                    <<"enable">> => true,
+                    <<"cacertfile">> => bin(cacertfile()),
+                    <<"certfile">> => bin(certfile()),
+                    <<"keyfile">> => bin(keyfile())
+                };
+            false ->
+                #{<<"enable">> => false}
+        end,
+    ConnectorConfig = connector_config(#{
+        <<"servers">> => server(TCConfig),
+        <<"ssl">> => SSL
+    }),
+    ActionName = ConnectorName,
+    ActionConfig = action_config(#{
+        <<"connector">> => ConnectorName,
+        <<"resource_opts">> => #{
+            <<"batch_size">> => get_config(batch_size, TCConfig, 1),
+            <<"batch_time">> => get_config(batch_time, TCConfig, <<"0ms">>),
+            <<"query_mode">> => get_config(query_mode, TCConfig, <<"sync">>)
+        }
+    }),
+    catch connect_and_drop_table(TCConfig),
+    connect_and_create_table(TCConfig),
     snabbkaffe:start_trace(),
-    Config.
+    [
+        {bridge_kind, action},
+        {connector_type, ?CONNECTOR_TYPE},
+        {connector_name, ConnectorName},
+        {connector_config, ConnectorConfig},
+        {action_type, ?ACTION_TYPE},
+        {action_name, ActionName},
+        {action_config, ActionConfig}
+        | TCConfig
+    ].
 
-end_per_testcase(_Testcase, Config) ->
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    ok = snabbkaffe:stop(),
-    connect_and_clear_table(Config),
-    delete_bridge(Config),
+end_per_testcase(_TestCase, _TCConfig) ->
+    snabbkaffe:stop(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -171,205 +162,107 @@ end_per_testcase(_Testcase, Config) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-common_init(Config0) ->
-    ct:pal("commit_init: ~p~n", [Config0]),
-    BridgeType = proplists:get_value(bridge_type, Config0, <<"cassandra">>),
-    Host = ?config(cassa_host, Config0),
-    Port = ?config(cassa_port, Config0),
-    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
-        true ->
-            % Setup toxiproxy
-            ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
-            ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
-            emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx,
-                    emqx_conf,
-                    emqx_bridge_cassandra,
-                    emqx_bridge,
-                    emqx_rule_engine,
-                    emqx_management,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config0)}
-            ),
-            % Connect to cassnadra directly and create the table
-            catch connect_and_drop_table(Config0),
-            connect_and_create_table(Config0),
-            {Name, CassaConf} = cassa_config(BridgeType, Config0),
-            Config =
-                [
-                    {apps, Apps},
-                    {cassa_config, CassaConf},
-                    {cassa_bridge_type, BridgeType},
-                    {cassa_name, Name},
-                    {bridge_type, BridgeType},
-                    {bridge_name, Name},
-                    {bridge_config, CassaConf},
-                    {proxy_host, ProxyHost},
-                    {proxy_port, ProxyPort}
-                    | Config0
-                ],
-            Config;
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_cassandra);
-                _ ->
-                    {skip, no_cassandra}
-            end
+server(TCConfig) ->
+    Host = get_config(cassandra_host, TCConfig, <<"toxiproxy">>),
+    Port = get_config(cassandra_port, TCConfig, 9042),
+    emqx_bridge_v2_testlib:fmt(<<"${h}:${p}">>, #{h => Host, p => Port}).
+
+connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"servers">> => <<"toxiproxy:9042">>,
+        <<"keyspace">> => <<"mqtt">>,
+        <<"username">> => <<"cassandra">>,
+        <<"password">> => <<"cassandra">>,
+        <<"ssl">> => #{
+            <<"server_name_indication">> => <<"disable">>
+        },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+action_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"parameters">> => #{
+            <<"cql">> => <<
+                "insert into mqtt_msg_test(topic, payload, arrived) "
+                "values (${topic}, ${payload}, ${timestamp})"
+            >>
+        },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_action_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
+bin(X) -> emqx_utils_conv:bin(X).
+
+group_path(Config, Default) ->
+    case emqx_common_test_helpers:group_path(Config) of
+        [] -> Default;
+        Path -> Path
     end.
 
-cassa_config(BridgeType, Config) ->
-    Port = integer_to_list(?config(cassa_port, Config)),
-    Server = ?config(cassa_host, Config) ++ ":" ++ Port,
-    Name = atom_to_binary(?MODULE),
-    BatchSize =
-        case ?config(enable_batch, Config) of
-            true -> ?BATCH_SIZE;
-            false -> 1
-        end,
-    QueryMode = ?config(query_mode, Config),
-    TlsEnabled = ?config(enable_tls, Config),
-    ConfigString =
-        io_lib:format(
-            "bridges.~s.~s {\n"
-            "  enable = true\n"
-            "  servers = ~p\n"
-            "  keyspace = ~p\n"
-            "  username = ~p\n"
-            "  password = ~p\n"
-            "  cql = ~p\n"
-            "  resource_opts = {\n"
-            "    request_ttl = 500ms\n"
-            "    batch_size = ~b\n"
-            "    query_mode = ~s\n"
-            "  }\n"
-            "  ssl = {\n"
-            "    enable = ~w\n"
-            "    cacertfile = \"~s\"\n"
-            "    certfile = \"~s\"\n"
-            "    keyfile = \"~s\"\n"
-            "    server_name_indication = disable\n"
-            "  }\n"
-            "}",
-            [
-                BridgeType,
-                Name,
-                Server,
-                ?CASSA_KEYSPACE,
-                ?CASSA_USERNAME,
-                ?CASSA_PASSWORD,
-                ?SQL_BRIDGE,
-                BatchSize,
-                QueryMode,
-                TlsEnabled,
-                ?CAFILE,
-                ?CERTFILE,
-                ?KEYFILE
-            ]
-        ),
-    {Name, parse_and_check(ConfigString, BridgeType, Name)}.
-
-parse_and_check(ConfigString, BridgeType, Name) ->
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"bridges">> := #{BridgeType := #{Name := Config}}} = RawConf,
-    Config.
-
-create_bridge(Config) ->
-    create_bridge(Config, _Overrides = #{}).
-
-create_bridge(Config, Overrides) ->
-    BridgeType = ?config(cassa_bridge_type, Config),
-    Name = ?config(cassa_name, Config),
-    BridgeConfig0 = ?config(cassa_config, Config),
-    BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-    emqx_bridge_testlib:create_bridge_api(BridgeType, Name, BridgeConfig).
-
-delete_bridge(Config) ->
-    BridgeType = ?config(cassa_bridge_type, Config),
-    Name = ?config(cassa_name, Config),
-    emqx_bridge:remove(BridgeType, Name).
-
-create_bridge_http(Params) ->
-    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} ->
-            #{<<"type">> := Type, <<"name">> := Name} = Params,
-            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
-            {ok, emqx_utils_json:decode(Res)};
-        Error ->
-            Error
+get_tc_prop(TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(?MODULE, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
+        Val
+    else
+        _ -> Default
     end.
 
-bridges_probe_http(Params) ->
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, _} -> ok;
-        Error -> Error
-    end.
+reset_proxy() ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT).
 
-send_message(Config, Payload) ->
-    Name = ?config(cassa_name, Config),
-    BridgeType = ?config(cassa_bridge_type, Config),
-    BridgeID = emqx_bridge_resource:bridge_id(BridgeType, Name),
-    emqx_bridge:send_message(BridgeID, Payload).
+with_failure(FailureType, TCConfig, Fn) ->
+    ProxyName = get_config(proxy_name, TCConfig),
+    emqx_common_test_helpers:with_failure(FailureType, ProxyName, ?PROXY_HOST, ?PROXY_PORT, Fn).
 
-query_resource(Config, Request) ->
-    Name = ?config(cassa_name, Config),
-    BridgeType = ?config(cassa_bridge_type, Config),
-    BridgeV2Id = id(BridgeType, Name),
-    ConnectorResId = emqx_connector_resource:resource_id(?global_ns, BridgeType, Name),
-    emqx_resource:query(BridgeV2Id, Request, #{
-        timeout => 1_000, connector_resource_id => ConnectorResId
-    }).
+cert_root() ->
+    filename:join([emqx_common_test_helpers:proj_root(), ".ci", "docker-compose-file", "certs"]).
 
-query_resource_async(Config, Request) ->
-    Name = ?config(cassa_name, Config),
-    BridgeType = ?config(cassa_bridge_type, Config),
-    Ref = alias([reply]),
-    AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
-    BridgeV2Id = id(BridgeType, Name),
-    ConnectorResId = emqx_connector_resource:resource_id(?global_ns, BridgeType, Name),
-    Return = emqx_resource:query(BridgeV2Id, Request, #{
-        timeout => 500,
-        async_reply_fun => {AsyncReplyFun, []},
-        connector_resource_id => ConnectorResId,
-        query_mode => async
-    }),
-    {Return, Ref}.
+cacertfile() ->
+    filename:join(cert_root(), ["ca.crt"]).
 
-receive_result(Ref, Timeout) when is_reference(Ref) ->
-    receive
-        {result, Ref, Result} ->
-            {ok, Result};
-        {Ref, Result} ->
-            {ok, Result}
-    after Timeout ->
-        timeout
-    end.
+certfile() ->
+    filename:join(cert_root(), ["client.pem"]).
 
-connect_direct_cassa(Config) ->
+keyfile() ->
+    filename:join(cert_root(), ["client.key"]).
+
+connect_direct_cassandra(TCConfig) ->
     Opts = #{
-        nodes => [{?config(cassa_host, Config), ?config(cassa_port, Config)}],
-        username => ?CASSA_USERNAME,
-        password => ?CASSA_PASSWORD,
-        keyspace => ?CASSA_KEYSPACE
+        nodes => [
+            {
+                get_config(cassandra_host, TCConfig, "toxiproxy"),
+                get_config(cassandra_port, TCConfig, 9042)
+            }
+        ],
+        username => <<"cassandra">>,
+        password => <<"cassandra">>,
+        keyspace => <<"mqtt">>
     },
     SslOpts =
-        case ?config(enable_tls, Config) of
+        case get_config(enable_tls, TCConfig, false) of
             true ->
                 Opts#{
                     ssl => emqx_tls_lib:to_client_opts(
                         #{
                             enable => true,
-                            cacertfile => ?CAFILE,
-                            certfile => ?CERTFILE,
-                            keyfile => ?KEYFILE
+                            cacertfile => cacertfile(),
+                            certfile => certfile(),
+                            keyfile => keyfile()
                         }
                     )
                 };
@@ -379,9 +272,16 @@ connect_direct_cassa(Config) ->
     {ok, Con} = ecql:connect(maps:to_list(SslOpts)),
     Con.
 
-% These funs connect and then stop the cassandra connection
 connect_and_create_table(Config) ->
-    connect_and_create_table(Config, ?SQL_CREATE_TABLE).
+    SQL = iolist_to_binary([
+        "CREATE TABLE mqtt.mqtt_msg_test (\n"
+        "    topic text,\n"
+        "    payload text,\n"
+        "    arrived timestamp,\n"
+        "    PRIMARY KEY (topic)\n"
+        ")"
+    ]),
+    connect_and_create_table(Config, SQL).
 
 connect_and_create_table(Config, SQL) ->
     with_direct_conn(Config, fun(Conn) ->
@@ -389,7 +289,8 @@ connect_and_create_table(Config, SQL) ->
     end).
 
 connect_and_drop_table(Config) ->
-    connect_and_drop_table(Config, ?SQL_DROP_TABLE).
+    SQL = <<"DROP TABLE mqtt.mqtt_msg_test">>,
+    connect_and_drop_table(Config, SQL).
 
 connect_and_drop_table(Config, SQL) ->
     with_direct_conn(Config, fun(Conn) ->
@@ -397,12 +298,17 @@ connect_and_drop_table(Config, SQL) ->
     end).
 
 connect_and_clear_table(Config) ->
+    SQL = <<"TRUNCATE mqtt.mqtt_msg_test">>,
+    connect_and_clear_table(Config, SQL).
+
+connect_and_clear_table(Config, SQL) ->
     with_direct_conn(Config, fun(Conn) ->
-        ok = ecql:query(Conn, ?SQL_DELETE)
+        ok = ecql:query(Conn, SQL)
     end).
 
 connect_and_get_payload(Config) ->
-    connect_and_get_payload(Config, ?SQL_SELECT).
+    SQL = <<"SELECT payload FROM mqtt.mqtt_msg_test">>,
+    connect_and_get_payload(Config, SQL).
 
 connect_and_get_payload(Config, SQL) ->
     with_direct_conn(Config, fun(Conn) ->
@@ -411,136 +317,294 @@ connect_and_get_payload(Config, SQL) ->
     end).
 
 with_direct_conn(Config, Fn) ->
-    Conn = connect_direct_cassa(Config),
+    Conn = connect_direct_cassandra(Config),
     try
         Fn(Conn)
     after
         ok = ecql:close(Conn)
     end.
 
-id(Type, Name) ->
-    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
-        kind => action,
-        type => Type,
-        name => Name
-    }).
+-doc """
+N.B.: directly querying the resource like this is bad for refactoring, besides not
+actually exercising the full real path that leads to bridge requests.  Thus, it should be
+avoid as much as possible.  This function is given an ugly name to remind callers of that.
+""".
+directly_query_resource_even_if_it_should_be_avoided(TCConfig, Request) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2:query(?global_ns, Type, Name, Request, #{timeout => 500}).
+
+-doc "See docs on `directly_query_resource_even_if_it_should_be_avoided`".
+directly_query_resource_async_even_if_it_should_be_avoided(TCConfig, Request) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    Ref = alias([reply]),
+    AsyncReplyFun = fun(#{result := Result}) -> Ref ! {result, Ref, Result} end,
+    Return = emqx_bridge_v2:query(?global_ns, Type, Name, Request, #{
+        timeout => 500,
+        query_mode => async,
+        async_reply_fun => {AsyncReplyFun, []}
+    }),
+    {Return, Ref}.
+
+receive_result(Ref, Timeout) ->
+    receive
+        {result, Ref, Result} ->
+            {ok, Result}
+    after Timeout ->
+        timeout
+    end.
+
+full_matrix() ->
+    [
+        [Conn, Sync, Batch]
+     || Conn <- [?tcp, ?tls],
+        Sync <- [?sync, ?async],
+        Batch <- [?with_batch, ?without_batch]
+    ].
+
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+    ).
+
+create_action_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
+    ).
+
+update_action_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:update_bridge_api2(Config, Overrides).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+simple_create_rule_api(SQL, TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(SQL, TCConfig).
+
+start_client() ->
+    {ok, C} = emqtt:start_link(),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+unique_payload() ->
+    integer_to_binary(erlang:unique_integer()).
 
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
 
-t_setup_via_config_and_publish(Config) ->
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
-    Val = integer_to_binary(erlang:unique_integer()),
-    SentData = #{
-        topic => atom_to_binary(?FUNCTION_NAME),
-        payload => Val,
-        timestamp => 1668602148000
+t_start_stop() ->
+    [{matrix, true}].
+t_start_stop(matrix) ->
+    [
+        [Conn, ?sync, ?without_batch]
+     || Conn <- [?tcp, ?tls]
+    ];
+t_start_stop(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_start_stop(TCConfig, "cassandra_connector_stop").
+
+t_on_get_status() ->
+    [{matrix, true}].
+t_on_get_status(matrix) ->
+    [
+        [Conn, ?sync, ?without_batch]
+     || Conn <- [?tcp, ?tls]
+    ];
+t_on_get_status(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{
+        failure_status => [?status_connecting, ?status_disconnected]
+    }).
+
+t_rule_action() ->
+    [{matrix, true}].
+t_rule_action(matrix) ->
+    full_matrix();
+t_rule_action(TCConfig) when is_list(TCConfig) ->
+    PostPublishFn = fun(Context) ->
+        #{payload := Payload} = Context,
+        ?retry(200, 10, ?assertMatch(Payload, connect_and_get_payload(TCConfig)))
+    end,
+    Opts = #{
+        post_publish_fn => PostPublishFn
     },
+    emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+t_insert_null_into_int_column(TCConfig) ->
+    connect_and_create_table(
+        TCConfig,
+        <<
+            "CREATE TABLE mqtt.mqtt_msg_test2 (\n"
+            "  topic text,\n"
+            "  payload text,\n"
+            "  arrived timestamp,\n"
+            "  x int,\n"
+            "  PRIMARY KEY (topic)\n"
+            ")"
+        >>
+    ),
+    on_exit(fun() -> connect_and_drop_table(TCConfig, "DROP TABLE mqtt.mqtt_msg_test2") end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"cql">> => <<
+                "insert into mqtt_msg_test2(topic, payload, x, arrived) "
+                "values (${topic}, ${payload}, ${x}, ${timestamp})"
+            >>
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(
+        <<"select *, first(jq('null', payload)) as x from \"${t}\"">>,
+        TCConfig
+    ),
+    Payload = <<"{}">>,
+    Msg = emqx_message:make(RuleTopic, Payload),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx:publish(Msg),
+            #{?snk_kind := cassandra_connector_query_return},
+            10_000
+        ),
+
+    %% Would return `1853189228' if it encodes `null' as an integer...
+    ?assertEqual(null, connect_and_get_payload(TCConfig, "select x from mqtt.mqtt_msg_test2")),
+    ok.
+
+t_update_action_sql(TCConfig) ->
+    connect_and_create_table(
+        TCConfig,
+        <<
+            "CREATE TABLE mqtt.mqtt_msg_test2 (\n"
+            "  topic text,\n"
+            "  qos int,\n"
+            "  payload text,\n"
+            "  arrived timestamp,\n"
+            "  PRIMARY KEY (topic)\n"
+            ")"
+        >>
+    ),
+    on_exit(fun() -> connect_and_drop_table(TCConfig, "DROP TABLE mqtt.mqtt_msg_test2") end),
+
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"cql">> => <<
+                "insert into mqtt_msg_test2(topic, payload, arrived) "
+                "values (${topic}, ${payload}, ${timestamp})"
+            >>
+        }
+    }),
+
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+
+    Payload = <<"{}">>,
+    Msg = emqx_message:make(RuleTopic, Payload),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx:publish(Msg),
+            #{?snk_kind := cassandra_connector_query_return},
+            10_000
+        ),
+
+    ?assertEqual(
+        null,
+        connect_and_get_payload(TCConfig, "select qos from mqtt.mqtt_msg_test2")
+    ),
+    connect_and_clear_table(TCConfig, <<"truncate mqtt.mqtt_msg_test2">>),
+
+    %% Update a correct SQL Teamplate
+    {200, _} =
+        update_action_api(
+            TCConfig,
+            #{
+                <<"parameters">> => #{
+                    <<"cql">> => <<
+                        "insert into mqtt_msg_test2(topic, qos, payload, arrived) "
+                        "values (${topic}, ${qos}, ${payload}, ${timestamp})"
+                    >>
+                }
+            }
+        ),
+
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx:publish(Msg),
+            #{?snk_kind := cassandra_connector_query_return},
+            10_000
+        ),
+
+    ?assertEqual(
+        0,
+        connect_and_get_payload(TCConfig, "select qos from mqtt.mqtt_msg_test2")
+    ),
+    connect_and_clear_table(TCConfig, <<"truncate mqtt.mqtt_msg_test2">>),
+
+    %% Update a wrong SQL Teamplate
+    BadSQL =
+        <<
+            "insert into mqtt_msg_test2(topic, qos, payload, bad_col_name) "
+            "values (${topic}, ${qos}, ${payload}, ${timestamp})"
+        >>,
+    {200, #{
+        <<"status">> := <<"connecting">>,
+        <<"status_reason">> := Error1,
+        <<"parameters">> := #{<<"cql">> := BadSQL}
+    }} =
+        update_action_api(
+            TCConfig,
+            #{
+                <<"parameters">> => #{
+                    <<"cql">> => BadSQL
+                }
+            }
+        ),
+    case re:run(Error1, <<"Undefined column name bad_col_name">>, [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            ct:fail(#{
+                expected_pattern => "undefined_column",
+                got => Error1
+            })
+    end,
+
+    %% Update again with a correct SQL Teamplate
+    {200, #{<<"status">> := <<"connected">>}} =
+        update_action_api(
+            TCConfig,
+            #{
+                <<"parameters">> => #{
+                    <<"cql">> => <<
+                        "insert into mqtt_msg_test2(topic, qos, payload, arrived) "
+                        "values (${topic}, ${qos}, ${payload}, ${timestamp})"
+                    >>
+                }
+            }
+        ),
+
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqx:publish(Msg),
+            #{?snk_kind := cassandra_connector_query_return},
+            10_000
+        ),
+
+    ?assertEqual(
+        0,
+        connect_and_get_payload(TCConfig, "select qos from mqtt.mqtt_msg_test2")
+    ),
+    ok.
+
+t_create_disconnected() ->
+    [{matrix, true}].
+t_create_disconnected(matrix) ->
+    [
+        [Conn, ?sync, ?without_batch]
+     || Conn <- [?tcp, ?tls]
+    ];
+t_create_disconnected(TCConfig) ->
     ?check_trace(
-        begin
-            ?wait_async_action(
-                ?assertEqual(ok, send_message(Config, SentData)),
-                #{?snk_kind := cassandra_connector_query_return},
-                10_000
-            ),
-            ?assertMatch(
-                Val,
-                connect_and_get_payload(Config)
-            ),
-            ok
-        end,
-        fun(Trace0) ->
-            Trace = ?of_kind(cassandra_connector_query_return, Trace0),
-            ?assertMatch([#{result := {ok, _Pid}}], Trace),
-            ok
-        end
-    ),
-    ok.
-
-t_setup_via_http_api_and_publish(Config) ->
-    BridgeType = ?config(cassa_bridge_type, Config),
-    Name = ?config(cassa_name, Config),
-    BridgeConfig0 = ?config(cassa_config, Config),
-    BridgeConfig = BridgeConfig0#{
-        <<"name">> => Name,
-        <<"type">> => BridgeType
-    },
-    ?assertMatch(
-        {ok, _},
-        create_bridge_http(BridgeConfig)
-    ),
-    Val = integer_to_binary(erlang:unique_integer()),
-    SentData = #{
-        topic => atom_to_binary(?FUNCTION_NAME),
-        payload => Val,
-        timestamp => 1668602148000
-    },
-    ?check_trace(
-        begin
-            ?wait_async_action(
-                ?assertEqual(ok, send_message(Config, SentData)),
-                #{?snk_kind := cassandra_connector_query_return},
-                10_000
-            ),
-            ?assertMatch(
-                Val,
-                connect_and_get_payload(Config)
-            ),
-            ok
-        end,
-        fun(Trace0) ->
-            Trace = ?of_kind(cassandra_connector_query_return, Trace0),
-            ?assertMatch([#{result := {ok, _Pid}}], Trace),
-            ok
-        end
-    ),
-    ok.
-
-t_get_status(Config) ->
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyName = ?config(proxy_name, Config),
-
-    Name = ?config(cassa_name, Config),
-    BridgeType = ?config(cassa_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID)),
-    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertMatch(
-            {ok, Status} when Status =:= disconnected orelse Status =:= connecting,
-            emqx_resource_manager:health_check(ResourceID)
-        )
-    end),
-    ok.
-
-t_bridges_probe_via_http(Config) ->
-    BridgeType = ?config(cassa_bridge_type, Config),
-    Name = ?config(cassa_name, Config),
-    BridgeConfig0 = ?config(cassa_config, Config),
-    BridgeConfig = BridgeConfig0#{
-        <<"name">> => Name,
-        <<"type">> => BridgeType
-    },
-    ?assertMatch(ok, bridges_probe_http(BridgeConfig)),
-
-    ok.
-
-t_create_disconnected(Config) ->
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyName = ?config(proxy_name, Config),
-    ?check_trace(
-        emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-            ?assertMatch({ok, _}, create_bridge(Config))
+        with_failure(down, TCConfig, fun() ->
+            ?assertMatch({201, _}, create_connector_api(TCConfig, #{}))
         end),
         fun(Trace) ->
             ?assertMatch(
@@ -552,37 +616,21 @@ t_create_disconnected(Config) ->
     ),
     ok.
 
-t_write_failure(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    QueryMode = ?config(query_mode, Config),
-    {ok, _} = create_bridge(
-        Config,
-        #{
-            <<"resource_opts">> =>
-                #{
-                    <<"resume_interval">> => <<"100ms">>,
-                    <<"health_check_interval">> => <<"100ms">>
-                }
-        }
-    ),
-    Val = integer_to_binary(erlang:unique_integer()),
-    SentData = #{
-        topic => atom_to_binary(?FUNCTION_NAME),
-        payload => Val,
-        timestamp => 1668602148000
-    },
+t_write_failure() ->
+    [{matrix, true}].
+t_write_failure(matrix) ->
+    full_matrix();
+t_write_failure(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = unique_payload(),
     ?check_trace(
-        emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+        with_failure(down, TCConfig, fun() ->
             {_, {ok, _}} =
                 ?wait_async_action(
-                    case QueryMode of
-                        sync ->
-                            ?assertMatch({error, _}, send_message(Config, SentData));
-                        async ->
-                            send_message(Config, SentData)
-                    end,
+                    emqtt:publish(C, RuleTopic, Payload),
                     #{?snk_kind := Evt} when
                         Evt =:= buffer_worker_flush_nack orelse
                             Evt =:= buffer_worker_retry_inflight_failed,
@@ -608,67 +656,55 @@ t_write_failure(Config) ->
     ),
     ok.
 
-%% This test doesn't work with batch enabled since it is not possible
-%% to set the timeout directly for batch queries
-%%
-%% XXX: parameter with request timeout is not supported yet.
-%%
-%t_write_timeout(Config) ->
-%    ProxyName = ?config(proxy_name, Config),
-%    ProxyPort = ?config(proxy_port, Config),
-%    ProxyHost = ?config(proxy_host, Config),
-%    {ok, _} = create_bridge(Config),
-%    Val = integer_to_binary(erlang:unique_integer()),
-%    SentData = #{payload => Val, timestamp => 1668602148000},
-%    Timeout = 1000,
-%    emqx_common_test_helpers:with_failure(timeout, ProxyName, ProxyHost, ProxyPort, fun() ->
-%        ?assertMatch(
-%            {error, {resource_error, #{reason := timeout}}},
-%            query_resource(Config, {send_message, SentData, [], Timeout})
-%        )
-%    end),
-%    ok.
-
-t_simple_sql_query(Config) ->
-    QueryMode = ?config(query_mode, Config),
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
+%% Test for ad-hoc queries, even though this bridge does not serve authn/authz....
+t_simple_sql_query() ->
+    [{matrix, true}].
+t_simple_sql_query(matrix) ->
+    [
+        [?tcp, Sync, ?without_batch]
+     || Sync <- [?sync, ?async]
+    ];
+t_simple_sql_query(TCConfig) ->
+    QueryMode = get_config(query_mode, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
     Request = {query, <<"SELECT count(1) AS T FROM system.local">>},
     Result =
         case QueryMode of
             sync ->
-                query_resource(Config, Request);
+                directly_query_resource_even_if_it_should_be_avoided(TCConfig, Request);
             async ->
-                {_, Ref} = query_resource_async(Config, Request),
+                {_, Ref} = directly_query_resource_async_even_if_it_should_be_avoided(
+                    TCConfig, Request
+                ),
                 {ok, Res} = receive_result(Ref, 2_000),
                 Res
         end,
     ?assertMatch({ok, {<<"system.local">>, _, [[1]]}}, Result),
     ok.
 
-t_missing_data(Config) ->
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
+t_missing_data(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(
+        <<"select nope from \"${t}\" ">>,
+        TCConfig
     ),
+    C = start_client(),
+    Payload = unique_payload(),
     %% emqx_bridge_cassandra_connector will send missed data as a `null` atom
     %% to ecql driver
     ?check_trace(
-        #{timetrap => 10_000},
         begin
             {_, {ok, _}} =
                 ?wait_async_action(
-                    send_message(Config, #{}),
-                    #{?snk_kind := handle_async_reply, result := {error, {8704, _}}},
-                    5_000
+                    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+                    #{?snk_kind := cassandra_connector_query_return},
+                    2_000
                 ),
-            ?block_until(#{?snk_kind := cassandra_connector_query_return}),
             ok
         end,
         fun(Trace0) ->
-            ct:pal("trace:\n  ~p", [Trace0]),
             %% 1. ecql driver will return `ok` first in async query
             Trace = ?of_kind(cassandra_connector_query_return, Trace0),
             ?assertMatch([#{result := {ok, _Pid}}], Trace),
@@ -680,28 +716,27 @@ t_missing_data(Config) ->
     ),
     ok.
 
-t_bad_sql_parameter(Config) ->
-    QueryMode = ?config(query_mode, Config),
-    ?assertMatch(
-        {ok, _},
-        create_bridge(
-            Config,
-            #{
-                <<"resource_opts">> => #{
-                    <<"request_ttl">> => <<"500ms">>,
-                    <<"resume_interval">> => <<"100ms">>,
-                    <<"health_check_interval">> => <<"100ms">>
-                }
-            }
-        )
-    ),
+%% Test for ad-hoc queries, even though this bridge does not serve authn/authz....
+t_bad_sql_parameter() ->
+    [{matrix, true}].
+t_bad_sql_parameter(matrix) ->
+    [
+        [?tcp, Sync, ?without_batch]
+     || Sync <- [?sync, ?async]
+    ];
+t_bad_sql_parameter(TCConfig) ->
+    QueryMode = get_config(query_mode, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
     Request = {query, <<"">>, [bad_parameter]},
     Result =
         case QueryMode of
             sync ->
-                query_resource(Config, Request);
+                directly_query_resource_even_if_it_should_be_avoided(TCConfig, Request);
             async ->
-                {_, Ref} = query_resource_async(Config, Request),
+                {_, Ref} = directly_query_resource_async_even_if_it_should_be_avoided(
+                    TCConfig, Request
+                ),
                 case receive_result(Ref, 5_000) of
                     {ok, Res} ->
                         Res;
@@ -713,200 +748,11 @@ t_bad_sql_parameter(Config) ->
     ?assertMatch({error, _}, Result),
     ok.
 
-t_nasty_sql_string(Config) ->
-    ?assertMatch({ok, _}, create_bridge(Config)),
+t_nasty_sql_string(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
     Payload = list_to_binary(lists:seq(1, 127)),
-    Message = #{
-        topic => atom_to_binary(?FUNCTION_NAME),
-        payload => Payload,
-        timestamp => erlang:system_time(millisecond)
-    },
-    %% XXX: why ok instead of {ok, AffectedLines}?
-    ?assertEqual(ok, send_message(Config, Message)),
-    ?assertEqual(Payload, connect_and_get_payload(Config)).
-
-t_insert_null_into_int_column(Config) ->
-    BridgeType = ?config(bridge_type, Config),
-    connect_and_create_table(
-        Config,
-        <<
-            "CREATE TABLE mqtt.mqtt_msg_test2 (\n"
-            "  topic text,\n"
-            "  payload text,\n"
-            "  arrived timestamp,\n"
-            "  x int,\n"
-            "  PRIMARY KEY (topic)\n"
-            ")"
-        >>
-    ),
-    on_exit(fun() -> connect_and_drop_table(Config, "DROP TABLE mqtt.mqtt_msg_test2") end),
-    {ok, {{_, 201, _}, _, _}} =
-        emqx_bridge_testlib:create_bridge_api(
-            Config,
-            #{
-                <<"cql">> => <<
-                    "insert into mqtt_msg_test2(topic, payload, x, arrived) "
-                    "values (${topic}, ${payload}, ${x}, ${timestamp})"
-                >>
-            }
-        ),
-    RuleTopic = <<"t/c">>,
-    Opts = #{
-        sql => <<"select *, first(jq('null', payload)) as x from \"", RuleTopic/binary, "\"">>
-    },
-    {ok, _} = emqx_bridge_testlib:create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts),
-
-    Payload = <<"{}">>,
-    Msg = emqx_message:make(RuleTopic, Payload),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            emqx:publish(Msg),
-            #{?snk_kind := cassandra_connector_query_return},
-            10_000
-        ),
-
-    %% Would return `1853189228' if it encodes `null' as an integer...
-    ?assertEqual(null, connect_and_get_payload(Config, "select x from mqtt.mqtt_msg_test2")),
-    ok.
-
-t_update_action_sql(Config) ->
-    BridgeType = ?config(bridge_type, Config),
-    connect_and_create_table(
-        Config,
-        <<
-            "CREATE TABLE mqtt.mqtt_msg_test2 (\n"
-            "  topic text,\n"
-            "  qos int,\n"
-            "  payload text,\n"
-            "  arrived timestamp,\n"
-            "  PRIMARY KEY (topic)\n"
-            ")"
-        >>
-    ),
-    on_exit(fun() -> connect_and_drop_table(Config, "DROP TABLE mqtt.mqtt_msg_test2") end),
-    {ok, {{_, 201, _}, _, _}} =
-        emqx_bridge_testlib:create_bridge_api(
-            Config,
-            #{
-                <<"cql">> => <<
-                    "insert into mqtt_msg_test2(topic, payload, arrived) "
-                    "values (${topic}, ${payload}, ${timestamp})"
-                >>
-            }
-        ),
-    RuleTopic = <<"t/a">>,
-    Opts = #{
-        sql => <<"select * from \"", RuleTopic/binary, "\"">>
-    },
-    {ok, _} = emqx_bridge_testlib:create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts),
-
-    Payload = <<"{}">>,
-    Msg = emqx_message:make(RuleTopic, Payload),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            emqx:publish(Msg),
-            #{?snk_kind := cassandra_connector_query_return},
-            10_000
-        ),
-
-    ?assertEqual(
-        null,
-        connect_and_get_payload(Config, "select qos from mqtt.mqtt_msg_test2 where topic = 't/a'")
-    ),
-
-    %% Update a correct SQL Teamplate
-    {ok, _} =
-        emqx_bridge_testlib:update_bridge_api(
-            Config,
-            #{
-                <<"cql">> => <<
-                    "insert into mqtt_msg_test2(topic, qos, payload, arrived) "
-                    "values (${topic}, ${qos}, ${payload}, ${timestamp})"
-                >>
-            }
-        ),
-
-    RuleTopic1 = <<"t/b">>,
-    Opts1 = #{
-        sql => <<"select * from \"", RuleTopic1/binary, "\"">>
-    },
-    {ok, _} = emqx_bridge_testlib:create_rule_and_action_http(
-        BridgeType, RuleTopic1, Config, Opts1
-    ),
-
-    Msg1 = emqx_message:make(RuleTopic1, Payload),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            emqx:publish(Msg1),
-            #{?snk_kind := cassandra_connector_query_return},
-            10_000
-        ),
-
-    ?assertEqual(
-        0,
-        connect_and_get_payload(Config, "select qos from mqtt.mqtt_msg_test2 where topic = 't/b'")
-    ),
-
-    %% Update a wrong SQL Teamplate
-    BadSQL =
-        <<
-            "insert into mqtt_msg_test2(topic, qos, payload, bad_col_name) "
-            "values (${topic}, ${qos}, ${payload}, ${timestamp})"
-        >>,
-    {ok, _} =
-        emqx_bridge_testlib:update_bridge_api(
-            Config,
-            #{
-                <<"cql">> => BadSQL
-            }
-        ),
-    {ok, Body} = emqx_bridge_testlib:get_bridge_api(Config),
-    ?assertMatch(#{<<"status">> := <<"connecting">>}, Body),
-    Error1 = maps:get(<<"status_reason">>, Body),
-    case re:run(Error1, <<"Undefined column name bad_col_name">>, [{capture, none}]) of
-        match ->
-            ok;
-        nomatch ->
-            ct:fail(#{
-                expected_pattern => "undefined_column",
-                got => Error1
-            })
-    end,
-    %% assert that although there was an error returned, the invliad SQL is actually put
-    {ok, BridgeResp} = emqx_bridge_testlib:get_bridge_api(Config),
-    #{<<"cql">> := FetchedSQL} = BridgeResp,
-    ?assertEqual(FetchedSQL, BadSQL),
-
-    %% Update again with a correct SQL Teamplate
-    {ok, _} =
-        emqx_bridge_testlib:update_bridge_api(
-            Config,
-            #{
-                <<"cql">> => <<
-                    "insert into mqtt_msg_test2(topic, qos, payload, arrived) "
-                    "values (${topic}, ${qos}, ${payload}, ${timestamp})"
-                >>
-            }
-        ),
-
-    RuleTopic2 = <<"t/c">>,
-    Opts2 = #{
-        sql => <<"select * from \"", RuleTopic2/binary, "\"">>
-    },
-    {ok, _} = emqx_bridge_testlib:create_rule_and_action_http(
-        BridgeType, RuleTopic2, Config, Opts2
-    ),
-
-    Msg2 = emqx_message:make(RuleTopic2, Payload),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            emqx:publish(Msg2),
-            #{?snk_kind := cassandra_connector_query_return},
-            10_000
-        ),
-
-    ?assertEqual(
-        0,
-        connect_and_get_payload(Config, "select qos from mqtt.mqtt_msg_test2 where topic = 't/c'")
-    ),
-    ok.
+    emqtt:publish(C, RuleTopic, Payload),
+    ?assertEqual(Payload, connect_and_get_payload(TCConfig)).

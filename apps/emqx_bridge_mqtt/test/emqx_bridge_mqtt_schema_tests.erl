@@ -13,7 +13,7 @@ parse_and_check_connector(InnerConfig) ->
     emqx_bridge_v2_testlib:parse_and_check_connector(<<"mqtt">>, <<"name">>, InnerConfig).
 
 connector_config(Overrides) ->
-    emqx_bridge_mqtt_v2_publisher_SUITE:connector_config(Overrides).
+    emqx_bridge_schema_testlib:mqtt_connector_config(Overrides).
 
 %%------------------------------------------------------------------------------
 %% Test cases
