@@ -696,6 +696,26 @@ t_connack_assigned_clientid(Config) ->
     ?assert(is_binary(client_info(clientid, Client1))),
     ok = emqtt:disconnect(Client1).
 
+t_connack_client_id_unavailable(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    DeadPid = spawn(fun() -> exit(normal) end),
+    ok = emqx_cm_registry:register_channel({ClientId, DeadPid}),
+    try
+        {ok, Client} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId} | Config]),
+        unlink(Client),
+        {error, ConnAck} = emqtt:ConnFun(Client),
+        ?assertMatch(
+            {server_busy, #{
+                'Reason-String' := <<"THROTTLED">>
+            }},
+            ConnAck
+        )
+    after
+        ok = emqx_cm_registry:unregister_channel({ClientId, DeadPid})
+    end,
+    ok.
+
 %%--------------------------------------------------------------------
 %% Publish
 %%--------------------------------------------------------------------
