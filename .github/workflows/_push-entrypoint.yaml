@@ -8,6 +8,7 @@ on:
   push:
     tags:
       - 'v*'
+      - 'e*'
     branches:
       - 'master'
       - 'release-5[0-9]'
@@ -249,3 +250,25 @@ jobs:
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
       ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}
+
+  trigger_regression_testing:
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() && contains(join(needs.*.result, ','), 'success') }}
+    needs:
+      - build_packages
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Trigger EMQX Regression Testing Workflow
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        shell: bash
+        run: |
+          gh --repo emqx/emqx-qa workflow run regression_testing_emqx.yaml \
+            -f froms="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

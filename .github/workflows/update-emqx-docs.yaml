@@ -3,6 +3,7 @@ on:
   push:
     tags:
       - 'v*'
+      - 'e*'
   workflow_dispatch:
     inputs:
       tag:

@@ -2,8 +2,6 @@
 Profile = case os:getenv("PROFILE") of
             "emqx-enterprise" ++ _ ->
               ee;
-            "emqx-platform" ++ _ ->
-              platform;
             false ->
               io:format(user, "WARN: environment variable PROFILE is not set, using 'emqx-enterprise'~n", []),
               ee;
@@ -20,16 +18,9 @@ EEDeps =
     [
         {emqx_ds_builtin_raft, {path, "../emqx_ds_builtin_raft"}}
     ],
-PlatformDeps =
-    [
-        {emqx_fdb_ds, {path, "../emqx_fdb_ds"}},
-        {emqx_ds_fdb_backend, {path, "../emqx_ds_fdb_backend"}}
-    ],
 case Profile of
   ee ->
     [{deps, CEDeps ++ EEDeps}];
-  platform ->
-    [{deps, CEDeps ++ EEDeps ++ PlatformDeps}];
   ce ->
     [{deps, CEDeps}]
 end.

@@ -83,7 +83,7 @@ jobs:
           if-no-files-found: error
 
   docker:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || 'aws-ubuntu22.04-amd64' }}
+    runs-on: ubuntu-22.04
     needs:
       - build
     defaults:
@@ -216,9 +216,118 @@ jobs:
         run: |
           ./build ${PROFILE} docker
 
+  docker-sfodbc:
+    runs-on: ubuntu-22.04
+    if: inputs.publish && inputs.profile == 'emqx-enterprise'
+    needs:
+      - build
+      - docker
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+
+    env:
+      PROFILE: ${{ inputs.profile }}
+      DOCKER_REGISTRY: 'docker.io'
+      DOCKER_ORG: ${{ github.repository_owner }}
+      DOCKER_LATEST: false
+      PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: "${{ env.PROFILE }}-docker-image-tag"
+
+      - name: Enable containerd image store on Docker Engine
+        run: |
+          echo "$(sudo cat /etc/docker/daemon.json | jq '. += {"features": {"containerd-snapshotter": true}}')" > daemon.json
+          sudo mv daemon.json /etc/docker/daemon.json
+          sudo systemctl restart docker
+
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Login to hub.docker.com
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Build docker image
+        env:
+          DOCKER_PUSH: false
+          DOCKER_BUILD_NOCACHE: true
+          EMQX_DOCKERFILE: "deploy/docker/Dockerfile.sfodbc"
+        run: |
+          export BUILD_FROM=$(cat docker-image-tag)
+          # strip registry from tag in docker-image-tag file
+          export BUILD_FROM=${BUILD_FROM#*/}
+          export EMQX_IMAGE_TAG="${BUILD_FROM}-sf"
+          echo "BUILD_FROM=$BUILD_FROM" >> $GITHUB_ENV
+          echo "EMQX_IMAGE_TAG=$EMQX_IMAGE_TAG" >> $GITHUB_ENV
+          ./build ${PROFILE} docker
+          echo "Built tags:"
+          echo "==========="
+          cat .emqx_docker_image_tags
+          echo "==========="
+          echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
+          head -n 1 .emqx_docker_image_tags > docker-image-tag
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: "${{ env.PROFILE }}-sf-docker-image-tag"
+          path: "docker-image-tag"
+          retention-days: 7
+
+      - name: Verify that size of docker image is less than 300 MB
+        run: |
+          docker image inspect $_EMQX_DOCKER_IMAGE_TAG --format='{{.Size}}' | xargs -I {} test {} -lt 300000000
+
+      - name: smoke test
+        timeout-minutes: 1
+        run: |
+          CID=$(docker run -d -p 18083:18083 $_EMQX_DOCKER_IMAGE_TAG)
+          HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
+          ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+          docker rm -f $CID
+
+      - name: dashboard tests
+        working-directory: ./scripts/ui-tests
+        timeout-minutes: 5
+        run: |
+          set -eu
+          docker compose up --abort-on-container-exit --exit-code-from selenium
+          docker compose rm -fsv
+
+      - name: test node_dump
+        run: |
+          CID=$(docker run -d -P $_EMQX_DOCKER_IMAGE_TAG)
+          docker exec -t -u root -w /root $CID bash -c 'apt-get -y update && apt-get -y install net-tools'
+          docker exec -t -u root $CID node_dump
+          docker rm -f $CID
+
+      - name: Publish docker image
+        if: inputs.publish || github.repository_owner != 'emqx'
+        env:
+          DOCKER_PUSH: true
+          DOCKER_BUILD_NOCACHE: false
+          DOCKER_PLATFORMS: linux/amd64,linux/arm64
+          DOCKER_LOAD: false
+          EMQX_DOCKERFILE: "deploy/docker/Dockerfile.sfodbc"
+          BUILD_FROM: "${{ env.BUILD_FROM }}"
+          EMQX_IMAGE_TAG: "${{ env.EMQX_IMAGE_TAG }}"
+        run: |
+          ./build ${PROFILE} docker
 
   upload:
-    runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
+    runs-on: ubuntu-22.04
     if: inputs.publish || github.repository_owner != 'emqx'
 
     needs:
