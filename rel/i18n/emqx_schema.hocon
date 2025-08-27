@@ -1818,16 +1818,14 @@ durable_shared_subs.desc: """~
 ds_shared_sub_checkpoint_interval.label: "Checkpoint interval"
 ds_shared_sub_checkpoint_interval.desc: """~
     Shared subscription leader periodically commits progress of the topic replay to the database.
-    This parameter specifies minimum interval between such commits.
-    """
+    This parameter specifies minimum interval between such commits."""
 
 ds_shared_sub_realloc_interval.label: "Reallocation interval"
 ds_shared_sub_realloc_interval.desc: """~
     Shared subscription leader accumulates changes to the group (such as subscribers joining or leaving the group)
     over this period of time before re-distributing the work between the subscribers.
 
-    This is done to avoid unnecessary work when multiple subscribers join or leave the group in short succession.
-    """
+    This is done to avoid unnecessary work when multiple subscribers join or leave the group in short succession."""
 
 
 ds_shared_sub_revocation_timeout.label: "Revocation timeout"
@@ -1837,8 +1835,7 @@ ds_shared_sub_revocation_timeout.desc: """~
     Re-balancing of a shared subscription group may involve taking work from one subscriber and transferring it to another.
     The first subscriber is allowed to finish the remaining work on the revoked tasks during this interval.
 
-    If subscriber fails to reply in time, it's kicked from the group and all its work is redistributed.
-    """
+    If subscriber fails to reply in time, it's kicked from the group and all its work is redistributed."""
 
 client_attrs_init {
   label: "Client Attributes Initialization"
