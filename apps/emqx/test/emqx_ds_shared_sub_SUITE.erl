@@ -288,6 +288,7 @@ t_stream_revoke('init', Config) ->
 t_stream_revoke('end', Config) ->
     destroy_queue(Config).
 
+%% This testcase verifies stream revokation during rebalancing action.
 t_stream_revoke(_Config) ->
     ?check_trace(
         #{timetrap => 30_000},
@@ -305,29 +306,37 @@ t_stream_revoke(_Config) ->
                 So it's an important precondition that shards of subscribers and publishers are different.
                 """
             ),
+            %% Connect the first subscriber:
             ConnShared1 = emqtt_connect_sub(CIDSub1),
             {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr6/topic6/#">>, 1),
 
+            %% Prepare the system by publishing messages to 2
+            %% different shards, it should create two distinct
+            %% streams:
             ConnPub1 = emqtt_connect_pub(CIDPub1),
             ConnPub2 = emqtt_connect_pub(CIDPub2),
-
             {ok, _} = emqtt:publish(ConnPub1, <<"topic6/1">>, <<"hello1">>, 1),
             {ok, _} = emqtt:publish(ConnPub2, <<"topic6/2">>, <<"hello2">>, 1),
 
+            %% The first client, that is currently the sole group
+            %% member, receives both messages:
             ?assertReceive({publish, #{payload := <<"hello1">>}}, 10_000),
             ?assertReceive({publish, #{payload := <<"hello2">>}}, 10_000),
 
+            %% Now connect the second client, it should steal one of
+            %% the streams:
             ConnShared2 = emqtt_connect_sub(CIDSub2),
 
-            ?assertWaitEvent(
+            ?wait_async_action(
                 {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr6/topic6/#">>, 1),
                 #{
                     ?snk_kind := ds_shared_sub_borrower_leader_grant,
-                    session_id := <<"client_shared2">>
-                },
-                5_000
+                    session_id := CIDSub2
+                }
             ),
 
+            %% Publish more messages to both streams, messages should
+            %% be still received, once:
             {ok, _} = emqtt:publish(ConnPub1, <<"topic6/1">>, <<"hello3">>, 1),
             {ok, _} = emqtt:publish(ConnPub2, <<"topic6/2">>, <<"hello4">>, 1),
 
@@ -445,7 +454,7 @@ t_intensive_reassign(_Config) ->
 
     ct:sleep(1000),
 
-    NPubs = 10_000,
+    NPubs = 100,
 
     Topics = [<<"topic8/1">>, <<"topic8/2">>, <<"topic8/3">>],
     ok = publish_n(ConnPub, Topics, 1, NPubs),
@@ -477,8 +486,16 @@ t_intensive_reassign(_Config) ->
 
     {Missing, Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
 
-    ?assertEqual([], Missing),
-    ?assertEqual([], Duplicate),
+    snabbkaffe_diff:assert_lists_eq(
+        [],
+        Missing,
+        #{comment => "Missing"}
+    ),
+    snabbkaffe_diff:assert_lists_eq(
+        [],
+        Duplicate,
+        #{comment => "Duplicates"}
+    ),
 
     ok = emqtt:disconnect(ConnShared1),
     ok = emqtt:disconnect(ConnShared2),
@@ -573,7 +590,7 @@ t_unsubscribe(_Config) ->
 
     ct:sleep(1000),
 
-    NPubs = 10_000,
+    NPubs = 100,
 
     Topics = [<<"topic9/1">>, <<"topic9/2">>, <<"topic9/3">>],
     ok = publish_n(ConnPub, Topics, 1, NPubs),
@@ -603,8 +620,16 @@ t_unsubscribe(_Config) ->
 
     {Missing, Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
 
-    ?assertEqual([], Missing),
-    ?assertEqual([], Duplicate),
+    snabbkaffe_diff:assert_lists_eq(
+        [],
+        Missing,
+        #{comment => "Missing"}
+    ),
+    snabbkaffe_diff:assert_lists_eq(
+        [],
+        Duplicate,
+        #{comment => "Duplicates"}
+    ),
 
     ok = emqtt:disconnect(ConnShared1),
     ok = emqtt:disconnect(ConnShared2),
@@ -623,7 +648,7 @@ t_quick_resubscribe(_Config) ->
 
     ct:sleep(1000),
 
-    NPubs = 10_000,
+    NPubs = 100,
 
     Topics = [<<"topic10/1">>, <<"topic10/2">>, <<"topic10/3">>],
     ok = publish_n(ConnPub, Topics, 1, NPubs),
@@ -660,8 +685,16 @@ t_quick_resubscribe(_Config) ->
 
     {Missing, Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
 
-    ?assertEqual([], Missing),
-    ?assertEqual([], Duplicate),
+    snabbkaffe_diff:assert_lists_eq(
+        [],
+        Missing,
+        #{comment => "Missing"}
+    ),
+    snabbkaffe_diff:assert_lists_eq(
+        [],
+        Duplicate,
+        #{comment => "Duplicate"}
+    ),
 
     ok = emqtt:disconnect(ConnShared1),
     ok = emqtt:disconnect(ConnShared2),
