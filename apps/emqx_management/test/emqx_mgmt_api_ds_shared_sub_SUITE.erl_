@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ds_shared_sub_api_SUITE).
+-module(emqx_mgmt_api_ds_shared_sub_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
