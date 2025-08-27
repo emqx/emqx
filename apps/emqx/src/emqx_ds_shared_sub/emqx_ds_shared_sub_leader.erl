@@ -267,10 +267,10 @@ handle_event(
 handle_event(info, Event, #st_leader{gr = Group}, Data) ->
     handle_client_msg(Event, Group, Data);
 %% Candidate:
-handle_event(enter, _, #st_candidate{gr = Group}, _) ->
+handle_event(enter, _, #st_candidate{gr = Group}, _Options) ->
     enter_candidate(Group);
-handle_event(state_timeout, #to_become{}, #st_candidate{gr = Group}, Data) ->
-    try_become_leader(Group, Data);
+handle_event(state_timeout, #to_become{}, #st_candidate{gr = Group}, Options) ->
+    try_become_leader(Group, Options);
 %% Standby:
 handle_event(enter, _, #st_standby{}, _) ->
     keep_state_and_data;

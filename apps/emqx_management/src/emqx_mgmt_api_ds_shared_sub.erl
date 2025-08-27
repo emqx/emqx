@@ -198,12 +198,12 @@ do_list_subs(Cursor, Limit) ->
     emqx_ds_shared_sub:list(Cursor, Limit).
 
 do_get_sub(#{bindings := #{id := IdEnc}}) ->
-    Id = emqx_base62:decode(IdEnc),
-    case emqx_ds_shared_sub:lookup(Id) of
-        undefined ->
-            undefined;
-        #{} = Info ->
-            {ok, format_leader_state(Info)}
+    maybe
+        {ok, Id} ?= base62_decode(IdEnc),
+        #{} ?= Info = emqx_ds_shared_sub:lookup(Id),
+        {ok, format_leader_state(Info)}
+    else
+        _ -> undefined
     end.
 
 do_delete_sub(#{bindings := #{id := IdEnc}}) ->
@@ -212,26 +212,28 @@ do_delete_sub(#{bindings := #{id := IdEnc}}) ->
 
 do_declare_sub(#{<<"group">> := Group, <<"topic">> := TopicFilter} = Params) ->
     try
-        Options = maps:map(
-            fun
-                (<<"start_time">>, StartTime) when is_integer(StartTime) ->
-                    %% Assuming epoch time:
-                    StartTime;
-                (<<"start_time">>, RFC3339) when is_binary(RFC3339) ->
-                    case emqx_utils_calendar:to_epoch_millisecond(binary_to_list(RFC3339)) of
-                        {ok, StartTime} ->
-                            StartTime;
-                        {error, _} = Err ->
-                            throw(Err)
-                    end;
-                (_, Val) ->
-                    Val
+        Options =
+            case Params of
+                #{<<"start_time">> := ST} ->
+                    #{start_time => start_time_to_epoch(ST)};
+                #{} ->
+                    #{}
             end,
-            Params
-        ),
         emqx_ds_shared_sub:declare(Group, TopicFilter, Options)
     catch
         Err -> Err
+    end.
+
+start_time_to_epoch(Epoch) when is_integer(Epoch) ->
+    %% If input parameter is a number, we assume it's epoch time:
+    Epoch;
+start_time_to_epoch(RFC3339) when is_binary(RFC3339) ->
+    %% Otherwise assume RFC3339 timestamp:
+    case emqx_utils_calendar:to_epoch_millisecond(binary_to_list(RFC3339)) of
+        {ok, StartTime} ->
+            StartTime;
+        {error, _} = Err ->
+            throw(Err)
     end.
 
 %%--------------------------------------------------------------------
@@ -252,6 +254,13 @@ format_leader_state(
         <<"created_at">> => emqx_utils_calendar:epoch_to_rfc3339(CreatedAt),
         <<"start_time">> => emqx_utils_calendar:epoch_to_rfc3339(StartTime)
     }.
+
+base62_decode(Bin) ->
+    try
+        {ok, emqx_base62:decode(Bin)}
+    catch
+        _:_ -> {error, bad_id}
+    end.
 
 %%--------------------------------------------------------------------
 %% Schemas
