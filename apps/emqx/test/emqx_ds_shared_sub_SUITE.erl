@@ -186,7 +186,7 @@ t_destroy_queue_live_clients(_Config) ->
     ?assertReceive({publish, #{payload := <<"hello3">>}}, 2_000),
     ?assertReceive({publish, #{payload := <<"hello4">>}}, 2_000),
 
-    ok = emqx_ds_shared_sub:destroy(<<"dqlc">>, <<"t1337/#">>),
+    ?assertMatch(true, emqx_ds_shared_sub:destroy(<<"dqlc">>, <<"t1337/#">>)),
 
     %% No more publishes after the queue was destroyed.
     {ok, _} = emqtt:publish(ConnPub, <<"t1337/1">>, <<"hello5">>, 1),
@@ -787,19 +787,18 @@ t_renew_lease_timeout('end', Config) ->
 
 t_renew_lease_timeout(_Config) ->
     ?check_trace(
+        #{timetrap => 20_000},
         begin
             ConnShared = emqtt_connect_sub(<<"client_shared">>),
 
-            ?assertWaitEvent(
+            ?wait_async_action(
                 {ok, _, [1]} = emqtt:subscribe(ConnShared, <<"$share/gr3/topic3/#">>, 1),
-                #{?snk_kind := ?tp_leader_borrower_connect},
-                5_000
+                #{?snk_kind := ?tp_leader_borrower_connect}
             ),
 
             ?wait_async_action(
                 ok = emqx_ds_shared_sub_registry:purge(),
-                #{?snk_kind := ?tp_leader_borrower_connect},
-                10_000
+                #{?snk_kind := ?tp_leader_borrower_connect}
             ),
 
             ok = emqtt:disconnect(ConnShared)

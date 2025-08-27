@@ -11,13 +11,13 @@ to the members of shared subscription group.
 ```
 
               ,-->(standby)<----------<-----------.
-             /       |                            |            x
-           yes       |                            |            ^
-          /          |                            |            |
-*--has---<   {DOWN from leader}--normal-->x      yes           |
- leader?  \          |                            |       idle timeout
-           no        |                            |            |
-            \        v                            |            |
+             /       |                            |            x                        x
+           yes       |                            |            ^                        ^
+          /          |                            |            |                        |
+*--has---{     {DOWN from leader}--normal-->x    yes           |                        |
+ leader?  \          |                            |       idle timeout  .---->----#call_destroy{}
+           no        |                            |            |       /                |
+            \        v                            |            |      /                 |
              '--->(candidate)---random-----has----+---no--(leader,idle)---client--->(leader,!idle)
                                 sleep    leader?      .        ^          joined        |
                                                       .        |                        |
