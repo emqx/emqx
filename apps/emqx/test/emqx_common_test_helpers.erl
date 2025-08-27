@@ -107,7 +107,8 @@
     stop_apps_ds/1,
     start_cluster_ds/3,
     stop_cluster_ds/1,
-    restart_node_ds/2
+    restart_node_ds/2,
+    drop_all_ds_messages/0
 ]).
 
 -export([capture_io_format/1]).
@@ -1601,6 +1602,20 @@ restart_node_ds(Node, NodeSpec) ->
     wait_nodeup(Node),
     erpc:call(Node, emqx_persistent_message, wait_readiness, [5_000], infinity),
     ok.
+
+-doc """
+Quickly drop all durable messages by rotating the generations.
+""".
+drop_all_ds_messages() ->
+    DB = messages,
+    OldSlabs = maps:keys(emqx_ds:list_slabs(DB)),
+    ok = emqx_ds:add_generation(DB),
+    lists:foreach(
+        fun(Slab) ->
+            ok = emqx_ds:drop_slab(DB, Slab)
+        end,
+        OldSlabs
+    ).
 
 wait_nodeup(Node) ->
     ?retry(

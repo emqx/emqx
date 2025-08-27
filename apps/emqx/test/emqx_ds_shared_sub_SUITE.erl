@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include("../src/emqx_ds_shared_sub/emqx_ds_shared_sub_format.hrl").
 
@@ -87,15 +88,16 @@ init_per_testcase(TC, Config) ->
 end_per_testcase(TC, Config) ->
     ok = snabbkaffe:stop(),
     ok = emqx_ds_shared_sub_registry:purge(),
+    emqx_common_test_helpers:drop_all_ds_messages(),
     emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
 
-declare_queue_if_needed(Group, Topic, Config) ->
+declare_group_if_needed(Group, Topic, Config) ->
     case proplists:get_value(queue_need_declare, Config) of
-        true -> declare_queue(Group, Topic, Config);
+        true -> declare_group(Group, Topic, Config);
         false -> Config
     end.
 
-declare_queue(Group, Topic, Config) ->
+declare_group(Group, Topic, Config) ->
     {ok, Queue} = emqx_ds_shared_sub:declare(Group, Topic, #{start_time => 0}),
     [
         {queue_group, Group},
@@ -104,7 +106,7 @@ declare_queue(Group, Topic, Config) ->
         | Config
     ].
 
-destroy_queue(Config) ->
+destroy_group(Config) ->
     Group = proplists:get_value(queue_group, Config),
     Topic = proplists:get_value(queue_topic, Config),
     case Group of
@@ -113,10 +115,9 @@ destroy_queue(Config) ->
     end.
 
 t_lease_initial('init', Config) ->
-    declare_queue_if_needed(<<"gr1">>, <<"topic1/#">>, Config);
+    declare_group_if_needed(<<"gr1">>, <<"topic1/#">>, Config);
 t_lease_initial('end', Config) ->
-    destroy_queue(Config).
-
+    destroy_group(Config).
 t_lease_initial(_Config) ->
     ConnShared = emqtt_connect_sub(<<"client_shared">>),
     {ok, _, [1]} = emqtt:subscribe(ConnShared, <<"$share/gr1/topic1/#">>, 1),
@@ -136,9 +137,9 @@ t_lease_initial(_Config) ->
 t_declare_triggers_persistence(groups, _Groups) ->
     [declare_explicit];
 t_declare_triggers_persistence('init', Config) ->
-    declare_queue(<<"dtp">>, <<"topic1/#">>, Config);
+    declare_group(<<"dtp">>, <<"topic1/#">>, Config);
 t_declare_triggers_persistence('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
 t_declare_triggers_persistence(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
@@ -164,33 +165,33 @@ t_declare_triggers_persistence(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_destroy_queue_live_clients('init', Config) ->
-    declare_queue_if_needed(<<"dqlc">>, <<"t1337/#">>, Config);
+    declare_group_if_needed(<<"dqlc">>, <<"t/#">>, Config);
 t_destroy_queue_live_clients('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
 t_destroy_queue_live_clients(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
     ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
-    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/dqlc/t1337/#">>, 1),
-    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/dqlc/t1337/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/dqlc/t/#">>, 1),
+    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/dqlc/t/#">>, 1),
 
-    {ok, _} = emqtt:publish(ConnPub, <<"t1337/1">>, <<"hello1">>, 1),
-    {ok, _} = emqtt:publish(ConnPub, <<"t1337/2">>, <<"hello2">>, 1),
-    {ok, _} = emqtt:publish(ConnPub, <<"t1337/3/4">>, <<"hello3">>, 1),
-    {ok, _} = emqtt:publish(ConnPub, <<"t1337/5/6">>, <<"hello4">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"t/1">>, <<"hello1">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"t/2">>, <<"hello2">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"t/3/4">>, <<"hello3">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"t/5/6">>, <<"hello4">>, 1),
 
     ?assertReceive({publish, #{payload := <<"hello1">>}}, 2_000),
     ?assertReceive({publish, #{payload := <<"hello2">>}}, 2_000),
     ?assertReceive({publish, #{payload := <<"hello3">>}}, 2_000),
     ?assertReceive({publish, #{payload := <<"hello4">>}}, 2_000),
 
-    ?assertMatch(true, emqx_ds_shared_sub:destroy(<<"dqlc">>, <<"t1337/#">>)),
+    ?assertMatch(true, emqx_ds_shared_sub:destroy(<<"dqlc">>, <<"t/#">>)),
 
     %% No more publishes after the queue was destroyed.
-    {ok, _} = emqtt:publish(ConnPub, <<"t1337/1">>, <<"hello5">>, 1),
-    {ok, _} = emqtt:publish(ConnPub, <<"t1337/2">>, <<"hello6">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"t/1">>, <<"hello5">>, 1),
+    {ok, _} = emqtt:publish(ConnPub, <<"t/2">>, <<"hello6">>, 1),
     ?assertNotReceive({publish, #{payload := _}}, 2_000),
 
     ok = emqtt:disconnect(ConnShared1),
@@ -198,9 +199,9 @@ t_destroy_queue_live_clients(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_two_clients('init', Config) ->
-    declare_queue_if_needed(<<"gr4">>, <<"topic4/#">>, Config);
+    declare_group_if_needed(<<"gr4">>, <<"topic4/#">>, Config);
 t_two_clients('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
 t_two_clients(_Config) ->
     ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
@@ -227,9 +228,9 @@ t_two_clients(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_client_loss('init', Config) ->
-    declare_queue_if_needed(<<"gr5">>, <<"topic5/#">>, Config);
+    declare_group_if_needed(<<"gr5">>, <<"topic5/#">>, Config);
 t_client_loss('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
 t_client_loss(_Config) ->
     ?check_trace(
@@ -263,9 +264,9 @@ t_client_loss(_Config) ->
     ).
 
 t_stream_revoke('init', Config) ->
-    declare_queue_if_needed(<<"gr6">>, <<"topic6/#">>, Config);
+    declare_group_if_needed(<<"gr6">>, <<"topic6/#">>, Config);
 t_stream_revoke('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
 %% This testcase verifies stream revokation during rebalancing action.
 t_stream_revoke(_Config) ->
@@ -331,9 +332,9 @@ t_stream_revoke(_Config) ->
     ).
 
 t_graceful_disconnect('init', Config) ->
-    declare_queue_if_needed(<<"gr4">>, <<"topic7/#">>, Config);
+    declare_group_if_needed(<<"gr4">>, <<"topic7/#">>, Config);
 t_graceful_disconnect('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
 t_graceful_disconnect(_Config) ->
     ?check_trace(
@@ -375,111 +376,71 @@ t_graceful_disconnect(_Config) ->
         []
     ).
 
-t_leader_state_preserved('init', Config) ->
-    declare_queue_if_needed(<<"lsp">>, <<"topic42/#">>, Config);
-t_leader_state_preserved('end', Config) ->
-    destroy_queue(Config).
+t_intensive_reassign('init', Config) ->
+    declare_group_if_needed(<<"gr8">>, <<"topic8/#">>, Config);
+t_intensive_reassign('end', Config) ->
+    destroy_group(Config).
 
-t_leader_state_preserved(_Config) ->
+t_intensive_reassign(_Config) ->
     ?check_trace(
         begin
-            ConnShared1 = emqtt_connect_sub(<<"client1">>),
-            {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/lsp/topic42/#">>, 1),
-
-            ConnShared2 = emqtt_connect_sub(<<"client2">>),
-            {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/lsp/topic42/#">>, 1),
-
             ConnPub = emqtt_connect_pub(<<"client_pub">>),
 
-            {ok, _} = emqtt:publish(ConnPub, <<"topic42/1/2">>, <<"hello1">>, 1),
-            {ok, _} = emqtt:publish(ConnPub, <<"topic42/3/4">>, <<"hello2">>, 1),
-            ?assertReceive({publish, #{payload := <<"hello1">>}}, 2_000),
-            ?assertReceive({publish, #{payload := <<"hello2">>}}, 2_000),
+            ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
+            {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr8/topic8/#">>, 1),
+
+            ct:sleep(1000),
+
+            NPubs = 100,
+
+            Topics = [<<"topic8/1">>, <<"topic8/2">>, <<"topic8/3">>],
+            ok = publish_n(ConnPub, Topics, 1, NPubs),
+
+            Self = self(),
+            _ = spawn_link(fun() ->
+                ok = publish_n(ConnPub, Topics, NPubs + 1, 2 * NPubs),
+                Self ! publish_done
+            end),
+
+            ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
+            ConnShared3 = emqtt_connect_sub(<<"client_shared3">>),
+            {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr8/topic8/#">>, 1),
+            {ok, _, [1]} = emqtt:subscribe(ConnShared3, <<"$share/gr8/topic8/#">>, 1),
+
+            receive
+                publish_done -> ok
+            end,
+
+            Pubs = drain_publishes(),
+
+            ClientByBid = fun(Pid) ->
+                case Pid of
+                    ConnShared1 -> <<"client_shared1">>;
+                    ConnShared2 -> <<"client_shared2">>;
+                    ConnShared3 -> <<"client_shared3">>
+                end
+            end,
+
+            {Missing, Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
+
+            snabbkaffe_diff:assert_lists_eq(
+                [],
+                Missing,
+                #{comment => "Missing"}
+            ),
+            snabbkaffe_diff:assert_lists_eq(
+                [],
+                Duplicate,
+                #{comment => "Duplicates"}
+            ),
 
             ok = emqtt:disconnect(ConnShared1),
             ok = emqtt:disconnect(ConnShared2),
-
-            %% Equivalent to node restart.
-            ?tp(test_purge, #{}),
-            ok = emqx_ds_shared_sub_registry:purge(),
-            ok = timer:sleep(1_000),
-            ct:pal("Saved data: ~p", [emqx_ds:dirty_read(shared_subs, ['#'])]),
-
-            {ok, _} = emqtt:publish(ConnPub, <<"topic42/1/2">>, <<"hello3">>, 1),
-            {ok, _} = emqtt:publish(ConnPub, <<"topic42/3/4">>, <<"hello4">>, 1),
-
-            ConnShared3 = emqtt_connect_sub(<<"client3">>),
-            {ok, _, [1]} = emqtt:subscribe(ConnShared3, <<"$share/lsp/topic42/#">>, 1),
-
-            ?assertReceive({publish, #{payload := <<"hello3">>}}, 2_000),
-            ?assertReceive({publish, #{payload := <<"hello4">>}}, 2_000),
-
             ok = emqtt:disconnect(ConnShared3),
             ok = emqtt:disconnect(ConnPub)
         end,
         []
     ).
-
-t_intensive_reassign('init', Config) ->
-    declare_queue_if_needed(<<"gr8">>, <<"topic8/#">>, Config);
-t_intensive_reassign('end', Config) ->
-    destroy_queue(Config).
-
-t_intensive_reassign(_Config) ->
-    ConnPub = emqtt_connect_pub(<<"client_pub">>),
-
-    ConnShared1 = emqtt_connect_sub(<<"client_shared1">>),
-    {ok, _, [1]} = emqtt:subscribe(ConnShared1, <<"$share/gr8/topic8/#">>, 1),
-
-    ct:sleep(1000),
-
-    NPubs = 100,
-
-    Topics = [<<"topic8/1">>, <<"topic8/2">>, <<"topic8/3">>],
-    ok = publish_n(ConnPub, Topics, 1, NPubs),
-
-    Self = self(),
-    _ = spawn_link(fun() ->
-        ok = publish_n(ConnPub, Topics, NPubs + 1, 2 * NPubs),
-        Self ! publish_done
-    end),
-
-    ConnShared2 = emqtt_connect_sub(<<"client_shared2">>),
-    ConnShared3 = emqtt_connect_sub(<<"client_shared3">>),
-    {ok, _, [1]} = emqtt:subscribe(ConnShared2, <<"$share/gr8/topic8/#">>, 1),
-    {ok, _, [1]} = emqtt:subscribe(ConnShared3, <<"$share/gr8/topic8/#">>, 1),
-
-    receive
-        publish_done -> ok
-    end,
-
-    Pubs = drain_publishes(),
-
-    ClientByBid = fun(Pid) ->
-        case Pid of
-            ConnShared1 -> <<"client_shared1">>;
-            ConnShared2 -> <<"client_shared2">>;
-            ConnShared3 -> <<"client_shared3">>
-        end
-    end,
-
-    {Missing, Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
-
-    snabbkaffe_diff:assert_lists_eq(
-        [],
-        Missing,
-        #{comment => "Missing"}
-    ),
-    snabbkaffe_diff:assert_lists_eq(
-        [],
-        Duplicate,
-        #{comment => "Duplicates"}
-    ),
-
-    ok = emqtt:disconnect(ConnShared1),
-    ok = emqtt:disconnect(ConnShared2),
-    ok = emqtt:disconnect(ConnShared3),
-    ok = emqtt:disconnect(ConnPub).
 
 t_multiple_groups(groups, _Groups) ->
     [declare_explicit];
@@ -557,9 +518,9 @@ wildcard(Topic) ->
     emqx_topic:join([Topic, '#']).
 
 t_unsubscribe('init', Config) ->
-    declare_queue_if_needed(<<"gr9">>, <<"topic9/#">>, Config);
+    declare_group_if_needed(<<"gr9">>, <<"topic9/#">>, Config);
 t_unsubscribe('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
 t_unsubscribe(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
@@ -615,9 +576,9 @@ t_unsubscribe(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_quick_resubscribe('init', Config) ->
-    declare_queue_if_needed(<<"gr10">>, <<"topic10/#">>, Config);
+    declare_group_if_needed(<<"gr10">>, <<"topic10/#">>, Config);
 t_quick_resubscribe('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
 t_quick_resubscribe(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
@@ -680,9 +641,9 @@ t_quick_resubscribe(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_disconnect_no_double_replay1('init', Config) ->
-    declare_queue_if_needed(<<"gr11">>, <<"topic11/#">>, Config);
+    declare_group_if_needed(<<"gr11">>, <<"topic11/#">>, Config);
 t_disconnect_no_double_replay1('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
 t_disconnect_no_double_replay1(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
@@ -733,9 +694,9 @@ t_disconnect_no_double_replay1(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_disconnect_no_double_replay2('init', Config) ->
-    declare_queue_if_needed(<<"gr12">>, <<"topic12/#">>, Config);
+    declare_group_if_needed(<<"gr12">>, <<"topic12/#">>, Config);
 t_disconnect_no_double_replay2('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
 t_disconnect_no_double_replay2(_Config) ->
     ConnPub = emqtt_connect_pub(<<"client_pub">>),
@@ -770,10 +731,10 @@ t_disconnect_no_double_replay2(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_lease_reconnect('init', Config) ->
-    declare_queue_if_needed(<<"gr2">>, <<"topic2/#">>, Config);
+    declare_group_if_needed(<<"gr2">>, <<"topic2/#">>, Config);
 t_lease_reconnect('end', Config) ->
     meck:unload(),
-    destroy_queue(Config).
+    destroy_group(Config).
 
 t_lease_reconnect(_Config) ->
     ?check_trace(
@@ -814,10 +775,12 @@ t_lease_reconnect(_Config) ->
     ).
 
 t_renew_lease_timeout('init', Config) ->
-    declare_queue_if_needed(<<"gr3">>, <<"topic3/#">>, Config);
+    declare_group_if_needed(<<"gr3">>, <<"topic3/#">>, Config);
 t_renew_lease_timeout('end', Config) ->
-    destroy_queue(Config).
+    destroy_group(Config).
 
+%% Verify that borrower reconnects if the leader doesn't respond to
+%% pings for a long time.
 t_renew_lease_timeout(_Config) ->
     ?check_trace(
         #{timetrap => 20_000},
