@@ -481,6 +481,25 @@ t_live_connection_stream(_) ->
     ?assertEqual(ExpectedPids, StreamedPids),
     ok.
 
+%% Stub the channel registry with a local dead pid to verify
+%% that emqx_cm:open_session will return client_id_unavailable error
+t_clientid_registration_throttled(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    ClientInfo = #{
+        zone => default,
+        listener => 'tcp:default',
+        clientid => ClientId,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1}
+    },
+    DeadPid = spawn(fun() -> exit(normal) end),
+    ChanInfo = ?ChanInfo,
+    #{conninfo := ConnInfo} = ChanInfo,
+    ok = emqx_cm:register_channel(ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}),
+    ?assertEqual({error, client_id_unavailable}, open_session(true, ClientInfo, ConnInfo)),
+    true = emqx_cm:do_unregister_channel({ClientId, DeadPid}),
+    ok.
+
 spawn_dummy_chann(Mod, Count) ->
     #{conninfo := ConnInfo0} = ?ChanInfo,
     ConnInfo = ConnInfo0#{conn_mod => Mod},
