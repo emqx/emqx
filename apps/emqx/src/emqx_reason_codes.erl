@@ -30,7 +30,7 @@ name(1, _Ver) ->
 name(2, _Ver) ->
     client_identifier_not_valid;
 name(3, _Ver) ->
-    server_unavaliable;
+    server_unavailable;
 name(4, _Ver) ->
     malformed_username_or_password;
 name(5, _Ver) ->
@@ -92,7 +92,7 @@ text(1, _Ver) ->
 text(2, _Ver) ->
     <<"client_identifier_not_valid">>;
 text(3, _Ver) ->
-    <<"server_unavaliable">>;
+    <<"server_unavailable">>;
 text(4, _Ver) ->
     <<"malformed_username_or_password">>;
 text(5, _Ver) ->
