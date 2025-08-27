@@ -411,6 +411,9 @@ handle_realloc(Data = #ls{h = HS0}) ->
 -spec realloc_notify_revoked(emqx_ds_shared_sub_dl:t(), allocations(), alloc_plan()) ->
     allocations().
 realloc_notify_revoked(S, Allocs0, Plan) ->
+    %% Fold over planned items and compare the new stream owners with
+    %% the old ones, currently recorded in the state. Send revoke
+    %% notification to the owner that don't match with the new plan:
     lists:foldl(
         fun({_Slab, Stream, BorrowerId}, Allocs) ->
             case Allocs of
@@ -419,13 +422,16 @@ realloc_notify_revoked(S, Allocs0, Plan) ->
                     Status =:= ?stream_granting orelse Status =:= ?stream_granted
                 ->
                     %% This stream has been reallocated to a different owner:
+                    ?tp(ds_shared_sub_leader_notify_revoke, #{
+                        borrower_id => Owner,
+                        stream => Stream
+                    }),
                     emqx_ds_shared_sub_proto:send_to_borrower(
-                        BorrowerId,
+                        Owner,
                         ?leader_revoke(leader(), Stream)
                     ),
                     A = A0#alloc{
                         status = ?stream_revoking,
-                        next_owner = BorrowerId,
                         deadline = now_ms_monotonic() + cfg_revocation_timeout(S)
                     },
                     Allocs#{Stream => A};
@@ -545,12 +551,15 @@ handle_borrower_progress(BorrowerId, Progress, Data0 = #ls{h = HS0}) ->
     ls()
 ) -> ls().
 handle_borrower_revoke_finished(BorrowerId, Stream, Data = #ls{h = HS0}) ->
+    ?tp(debug, ds_shared_sub_leader_complete_revoke, #{
+        borrower_id => BorrowerId, stream => Stream
+    }),
     case HS0#hs.allocations of
         Allocs = #{Stream := #alloc{owner = BorrowerId}} ->
             HS1 = HS0#hs{
                 allocations = maps:remove(Stream, Allocs)
             },
-            HS = schedule_realloc(later, HS1),
+            HS = schedule_realloc(now, HS1),
             Data#ls{h = HS};
         #{} ->
             HS = drop_invalidate_borrower(HS0, BorrowerId, invalid_stream_revoke),

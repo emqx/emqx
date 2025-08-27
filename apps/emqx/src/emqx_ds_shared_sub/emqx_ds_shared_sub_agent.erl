@@ -69,6 +69,7 @@
 -type opts() :: #{
     session_id := session_id()
 }.
+
 -type stream_lease() :: #{
     type => lease,
     subscription_id := subscription_id(),
