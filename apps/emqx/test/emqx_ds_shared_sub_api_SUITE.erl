@@ -35,15 +35,24 @@ init_per_suite(Config) ->
 
     Apps = emqx_cth_suite:start(
         [
-            {emqx, #{config => AppConfig}},
-            {emqx_conf, #{config => AppConfig}},
-            {emqx_ds_shared_sub, #{
+            {emqx_conf, #{
                 config => #{
-                    <<"durable_queues">> => #{
+                    <<"durable_sessions">> => #{
                         <<"enable">> => true
+                    },
+                    <<"durable_storage">> => #{
+                        <<"messages">> => #{
+                            <<"backend">> => <<"builtin_raft">>,
+                            <<"n_shards">> => 4
+                        },
+                        <<"shared_subs">> => #{
+                            <<"backend">> => <<"builtin_raft">>,
+                            <<"n_shards">> => 4
+                        }
                     }
                 }
             }},
+            emqx,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -65,6 +74,7 @@ end_per_testcase(TC, Config) ->
     ok = emqx_ds_shared_sub_registry:purge(),
     ok = destroy_queues(),
     ok.
+
 %%--------------------------------------------------------------------
 %% Tests
 %%--------------------------------------------------------------------
@@ -250,21 +260,6 @@ t_duplicate_queue(_Config) ->
             <<"group">> => <<"g1">>,
             <<"topic">> => <<"#">>,
             <<"start_time">> => 0
-        })
-    ).
-
-t_404_when_disable('init', Config) ->
-    {ok, _} = emqx_conf:update([durable_queues], #{<<"enable">> => false}, #{}),
-    Config;
-t_404_when_disable('end', _Config) ->
-    {ok, _} = emqx_conf:update([durable_queues], #{<<"enable">> => true}, #{}).
-
-t_404_when_disable(_Config) ->
-    ?assertMatch(
-        {ok, 404, #{}},
-        api(post, ["durable_queues"], #{
-            <<"group">> => <<"disabled">>,
-            <<"topic">> => <<"#">>
         })
     ).
 
