@@ -19,10 +19,11 @@
     start_link/0
 ]).
 
-%% Tests only
+-ifdef(TEST).
 -export([
     purge/0
 ]).
+-endif.
 
 -behaviour(supervisor).
 -export([init/1]).
@@ -73,13 +74,27 @@ start_local(ShareTopic, Options) ->
 
 %%------------------------------------------------------------------------------
 
+-ifdef(TEST).
+-doc """
+Permanently destroy **ALL** shared groups.
+""".
 -spec purge() -> ok.
 purge() ->
-    Children = supervisor:which_children(?MODULE),
-    lists:foreach(
-        fun({_, Child, _, _}) -> supervisor:terminate_child(?MODULE, Child) end,
-        Children
-    ).
+    Go = fun
+        Go('$end_of_table') ->
+            ok;
+        Go(It0) ->
+            {Items, It} = emqx_ds_shared_sub:list(It0, 100),
+            lists:foreach(
+                fun(#{id := Id}) ->
+                    emqx_ds_shared_sub:destroy(Id)
+                end,
+                Items
+            ),
+            Go(It)
+    end,
+    Go(undefined).
+-endif.
 
 %%------------------------------------------------------------------------------
 %% supervisor behaviour callbacks
