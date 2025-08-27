@@ -759,6 +759,7 @@ handle_borrower_timeouts(Data = #ls{h = HS0}) ->
 %%--------------------------------------------------------------------------------
 
 enter_leader(ShareTF = #share{group = Group, topic = Topic}, Idle, Options = #{}) ->
+    ?tp(debug, ds_shared_sub_become_leader, Options#{group => Group, topic => Topic}),
     SId = emqx_ds_shared_sub_dl:mk_id(ShareTF),
     %% Open durable state, or create a new one:
     case emqx_ds_shared_sub_dl:open(SId) of
