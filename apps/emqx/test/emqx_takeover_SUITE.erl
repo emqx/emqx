@@ -975,7 +975,7 @@ t_ongoing_takeover(Config) ->
     end,
     sys:resume(ServerPid1),
     receive
-        {'EXIT', CPid, {shutdown, _}} = Msg ->
+        {'EXIT', CPid, {shutdown, _}} ->
             ok
     after 1000 -> ct:fail("No EXIT")
     end,

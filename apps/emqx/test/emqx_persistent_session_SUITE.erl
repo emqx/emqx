@@ -1363,7 +1363,7 @@ t_sys_message_delivery(Config) ->
 
     ok = emqtt:disconnect(Client1),
 
-    {ok, _Client2} = emqtt_start_and_connect(ConnFun, [
+    {ok, Client2} = emqtt_start_and_connect(ConnFun, [
         {clientid, ClientId},
         {proto_ver, v5},
         {properties, #{'Session-Expiry-Interval' => 30}},
