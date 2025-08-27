@@ -831,6 +831,56 @@ t_kick_session(Config) ->
     %% Cleanup
     emqtt:stop(CPidSub).
 
+t_ongoing_takeover(Config) ->
+    process_flag(trap_exit, true),
+    MqttVer = ?config(mqtt_vsn, Config),
+    ClientId = make_client_id(?FUNCTION_NAME, Config),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    InitCtx = #{},
+    QoS = 0,
+    ClientOpts = [
+        {proto_ver, MqttVer},
+        {clean_start, false}
+        | [{properties, #{'Session-Expiry-Interval' => 6000}} || v5 == MqttVer]
+    ],
+
+    true = emqx:get_config([broker, enable_session_registry]),
+
+    _ = start_client(InitCtx, ClientId, Topic, QoS, ClientOpts),
+    ?retry(
+        3_000,
+        100,
+        true = is_map(emqx_cm:get_chan_info(ClientId))
+    ),
+
+    [ServerPid1] = emqx_cm:lookup_channels(ClientId),
+    sys:suspend(ServerPid1),
+
+    %% GIVEN: A ongoing session takeover stuck
+    _ = start_client(InitCtx, ClientId, Topic, QoS, ClientOpts),
+
+    timer:sleep(500),
+
+    %% WHEN: Yet another client connects to takeover
+    _ = start_client(InitCtx, ClientId, Topic, QoS, ClientOpts),
+
+    {ok, CPid} = emqtt:start_link([{clientid, ClientId} | ClientOpts]),
+
+    %% THEN: This client get connack with or RC_SERVER_BUSY
+    case MqttVer of
+        v3 ->
+            ?assertMatch({error, {server_unavailable, _}}, emqtt:connect(CPid));
+        v5 ->
+            ?assertMatch({error, {server_busy, _}}, emqtt:connect(CPid))
+    end,
+    sys:resume(ServerPid1),
+    receive
+        {'EXIT', CPid, {shutdown, _}} ->
+            ok
+    after 1000 -> ct:fail("No EXIT")
+    end,
+    ok.
+
 %% t_takover_in_cluster(_) ->
 %%     todo.
 
