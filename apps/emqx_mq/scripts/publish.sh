@@ -14,7 +14,7 @@ n=0
 
 while true; do
     n=$((n + 1))
-    key="key$(($RANDOM % $keys))"
+    key="key$((RANDOM % keys))"
     payload="dummy message $n $key"
     mosquitto_pub -t "$topic" -m "$payload" -D publish user-property mq-key "$key"
     sleep 0.3
