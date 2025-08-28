@@ -43,7 +43,7 @@ channels subscribed to a Message Queue.
 -define(shutdown_timer, shutdown_timer).
 -define(dispatch_timer, dispatch_timer).
 
--type dispatch_strategy() :: random | least_inflight | {hash, emqx_variform:compiled()}.
+-type dispatch_strategy() :: emqx_mq_types:dispatch_strategy().
 
 -record(state, {
     mq :: emqx_mq_types:mq(),
@@ -363,11 +363,7 @@ pick_subscriber(Message, ExcludedSubscriberRefs, #state{dispatch_strategy = rand
 pick_subscriber(
     Message, ExcludedSubscriberRefs, #state{dispatch_strategy = least_inflight} = State
 ) ->
-    pick_subscriber_least_inflight(Message, ExcludedSubscriberRefs, State);
-pick_subscriber(Message, [], #state{dispatch_strategy = {hash, Expression}} = State) ->
-    pick_subscriber_hash(Message, Expression, State);
-pick_subscriber(_Message, _ExcludedSubscriberRefs, #state{dispatch_strategy = {hash, _}}) ->
-    no_subscriber.
+    pick_subscriber_least_inflight(Message, ExcludedSubscriberRefs, State).
 
 %% Random dispatch strategy
 
@@ -408,30 +404,6 @@ pick_subscriber_least_inflight(
             no_subscriber;
         _ ->
             {ok, SubscriberRef}
-    end.
-
-%% Hash dispatch strategy
-
-pick_subscriber_hash(
-    Message,
-    Expression,
-    #state{subscribers = Subscribers, mq = #{topic_filter := _TopicFilter}} = State
-) ->
-    %% NOTE
-    %% We may render hashed value on publish to significantly reduce
-    %% the load on the server process.
-    case emqx_variform:render(Expression, #{message => Message}, #{eval_as_string => false}) of
-        {ok, Value} ->
-            SubscriberRefs = maps:keys(Subscribers),
-            SubscriberCount = length(SubscriberRefs),
-            SelectedIdx = erlang:phash2(Value, SubscriberCount),
-            SelectedSubscriberRef = lists:nth(SelectedIdx + 1, SubscriberRefs),
-            {ok, SelectedSubscriberRef};
-        {error, _Error} ->
-            ?tp_debug(mq_consumer_pick_subscriber_hash_error, #{
-                message => Message, error => _Error, mq_topic_filter => _TopicFilter
-            }),
-            pick_subscriber_random(Message, [], State)
     end.
 
 %%--------------------------------------------------------------------
@@ -478,9 +450,6 @@ dispatch_strategy(#{dispatch_strategy := random}) ->
     random;
 dispatch_strategy(#{dispatch_strategy := least_inflight}) ->
     least_inflight;
-dispatch_strategy(#{dispatch_strategy := hash, dispatch_expression := Expression}) ->
-    Compiled = emqx_mq_utils:transform_dispatch_variform_expr(Expression),
-    {hash, Compiled};
 dispatch_strategy(_) ->
     random.
 

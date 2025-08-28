@@ -112,17 +112,10 @@ fields(message_queue) ->
                 default => <<"7d">>
             })},
         {dispatch_strategy,
-            mk(enum([random, least_inflight, hash]), #{
+            mk(enum([random, least_inflight]), #{
                 desc => ?DESC(dispatch_strategy),
                 required => false,
                 default => random
-            })},
-        {dispatch_expression,
-            mk(typerefl:alias("string", any()), #{
-                desc => ?DESC(hash_dispatch_expr),
-                required => false,
-                converter => fun compile_variform/2,
-                default => <<"m.clientid(message)">>
             })}
     ];
 fields(message_queue_api_put) ->

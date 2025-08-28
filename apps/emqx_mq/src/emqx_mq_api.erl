@@ -168,7 +168,6 @@ get_message_queue_example() ->
         <<"consumer_max_inactive">> => 30000,
         <<"consumer_persistence_interval">> => 10000,
         <<"data_retention_period">> => 604800000,
-        <<"dispatch_expression">> => <<"m.clientid(message)">>,
         <<"dispatch_strategy">> => <<"random">>,
         <<"is_lastvalue">> => false,
         <<"local_max_inflight">> => 10,

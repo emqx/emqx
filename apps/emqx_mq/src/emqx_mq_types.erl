@@ -24,9 +24,7 @@ The module contains basic types for the Message Queue application.
 -type mqid() :: binary().
 -type consumer_sup_id() :: mq_topic().
 
--type dispatch_variform_expr() :: binary().
-
--type dispatch_strategy() :: random | least_inflight | {hash, dispatch_variform_expr()}.
+-type dispatch_strategy() :: random | least_inflight.
 
 -type mq() :: #{
     id => mqid(),
@@ -36,7 +34,6 @@ The module contains basic types for the Message Queue application.
     ping_interval := interval_ms(),
     redispatch_interval := interval_ms(),
     dispatch_strategy := dispatch_strategy(),
-    dispatch_expression => emqx_variform:compiled(),
     local_max_inflight := non_neg_integer(),
     busy_session_retry_interval := interval_ms(),
     stream_max_buffer_size := non_neg_integer(),
@@ -64,5 +61,6 @@ The module contains basic types for the Message Queue application.
     mq_topic/0,
     mqid/0,
     mq/0,
-    mq_handle/0
+    mq_handle/0,
+    dispatch_strategy/0
 ]).

@@ -306,62 +306,6 @@ t_random_dispatch(_Config) ->
     ?assert(length(Sub0Msgs) > 0),
     ?assert(length(Sub1Msgs) > 0).
 
-%% Cooperatively consume online messages with hash dispatching
-t_hash_dispatch(_Config) ->
-    %% Create a non-lastvalue Queue
-    _ =
-        emqx_mq_test_utils:create_mq(#{
-            topic_filter => <<"t/#">>,
-            is_lastvalue => false,
-            dispatch_strategy => hash,
-            dispatch_expression => emqx_mq_test_utils:compile_variform(<<"m.topic(message)">>)
-        }),
-
-    %% Subscribe to the queue
-    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
-    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
-
-    %% Publish 100 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            100,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-", IBin/binary>>,
-                Topic = <<"t/", (integer_to_binary(I rem 10))/binary>>,
-                {Topic, Payload}
-            end
-        ),
-
-    %% Drain the messages
-    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 500),
-    ok = emqtt:disconnect(CSub0),
-    ok = emqtt:disconnect(CSub1),
-
-    %% Verify the messages: check that messages with the same topic
-    %% were not delivered to different clients
-    ?assertEqual(100, length(Msgs)),
-    ClientsByTopic =
-        lists:foldl(
-            fun(#{client_pid := Pid, topic := Topic}, Acc) ->
-                case Acc of
-                    #{Topic := Pids} -> Acc#{Topic => Pids#{Pid => true}};
-                    _ -> Acc#{Topic => #{Pid => true}}
-                end
-            end,
-            #{},
-            Msgs
-        ),
-    ?assert(
-        lists:all(
-            fun({_Topic, Pids}) -> map_size(Pids) == 1 end,
-            maps:to_list(ClientsByTopic)
-        ),
-        "Same topic delivered to different clients"
-    ).
-
 %% Cooperatively consume online messages with least inflight dispatching
 t_least_inflight_dispatch(_Config) ->
     %% Create a non-lastvalue Queue
@@ -741,57 +685,6 @@ t_redispatch(Config) ->
     after 100 ->
         ct:fail("t/0 message from MQ not received by the other subscriber")
     end,
-
-    %% Clean up
-    ok = emqtt:disconnect(CSub0),
-    ok = emqtt:disconnect(CSub1).
-
-%% Verify that the consumer re-dispatches the message to the same subscriber
-%% after a delay if a subscriber rejected the message
-%% (hash dispatch strategy)
-t_redispatch_on_reject_hash(_Config) ->
-    %% Create a non-lastvalue Queue
-    _ =
-        emqx_mq_test_utils:create_mq(#{
-            topic_filter => <<"t/#">>,
-            is_lastvalue => false,
-            dispatch_strategy => hash,
-            dispatch_expression => emqx_mq_test_utils:compile_variform(<<"m.topic(message)">>),
-            redispatch_interval => 100
-        }),
-
-    %% Connect two subscribers
-    CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
-
-    %% Publish 1 message to the queue
-    ok = emqx_mq_test_utils:populate(1, fun(_I) -> {<<"t/0">>, <<"payload-0">>} end),
-
-    %% Receive the message and reject it
-    CSub =
-        receive
-            {publish, #{
-                topic := <<"t/0">>,
-                client_pid := Pid,
-                packet_id := PacketId
-            }} ->
-                ok = emqtt:puback(Pid, PacketId, ?RC_UNSPECIFIED_ERROR),
-                Pid
-        after 1000 ->
-            ct:fail("t/0 message from MQ not received")
-        end,
-
-    %% Verify that the message is re-delivered to the same subscriber
-    Now = now_ms(),
-    receive
-        {publish, #{topic := <<"t/0">>, client_pid := CSub}} ->
-            ok
-    after 200 ->
-        ct:fail("t/0 message from MQ not received by the same subscriber")
-    end,
-    ?assert(now_ms() - Now >= 100, "Message was re-delivered too early"),
 
     %% Clean up
     ok = emqtt:disconnect(CSub0),
