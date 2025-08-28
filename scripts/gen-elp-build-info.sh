@@ -58,7 +58,7 @@ generate_json_content() {
     done
 
     # 2. Conditionally compile dependencies
-    if [ -d "_build/default/lib" ] && [ -d "_build/test/lib" ]; then
+    if [ -d "_build/emqx-enterprise/lib" ] && [ -d "_build/emqx-enterprise-test/lib" ]; then
         echo -e "Build directories found, skipping compilation."
     else
         echo -e "Build directories not found or incomplete. Running ${beginfmt}'make test-compile'...${endfmt}\n"
@@ -66,7 +66,7 @@ generate_json_content() {
     fi
 
     # 3. Process dependencies with advanced filtering
-    local DEP_ROOTS=('_build/default/lib' '_build/test/lib')
+    local DEP_ROOTS=('_build/emqx-enterprise/lib' '_build/emqx-enterprise-test/lib')
     # shellcheck disable=SC2155
     local PROJECT_ROOT=$(pwd)
     echo -e "Processing dependencies in ${beginfmt}${DEP_ROOTS[*]}${endfmt}..."
@@ -78,9 +78,9 @@ generate_json_content() {
         fi
         find "$dep_root" -mindepth 1 -maxdepth 1 -not -name ".rebar3" | while read -r dep_path;
         do
-            if [[ "$dep_root" == "_build/test/lib" ]] && [ -L "$dep_path" ]; then
+            if [[ "$dep_root" == "_build/emqx-enterprise-test/lib" ]] && [ -L "$dep_path" ]; then
                 target_path=$(readlink -f "$dep_path")
-                if [[ "$target_path" == */"_build/default/lib/"* ]]; then continue; fi
+                if [[ "$target_path" == */"_build/emqx-enterprise/lib/"* ]]; then continue; fi
             fi
             is_in_project_app=false
             for subdir_to_check in src include; do
