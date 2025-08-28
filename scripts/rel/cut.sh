@@ -148,21 +148,6 @@ rel_branch() {
     esac
 }
 
-assert_profile() {
-    local tag="$1"
-    local allowed_prefix
-    if [ -f .emqx-platform ]; then
-        allowed_prefix='e'
-    else
-        allowed_prefix='v'
-    fi
-    if [[ "${tag}" != "${allowed_prefix}"* ]]; then
-        logerr "Expecting a '${allowed_prefix}' tag on this commit"
-        exit 1
-    fi
-}
-assert_profile "$TAG"
-
 ## Ensure the current work branch
 assert_work_branch() {
     local tag="$1"
@@ -304,10 +289,6 @@ if [ "$DRYRUN" = 'yes' ]; then
 else
     git tag "$TAG"
     logmsg "$TAG is created OK."
-    PUSH_TO="both emqx.git and emqx-platform.git!"
-    if [ -f .emqx-platform ]; then
-        PUSH_TO="emqx-platform.git but NOT emqx.git!"
-    fi
-    logwarn "Don't forget to push the tag to ${PUSH_TO}"
+    logwarn "Don't forget to push the tag to emqx/emqx"
     echo "git push origin $TAG"
 fi

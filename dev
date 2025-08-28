@@ -161,9 +161,6 @@ case "${PROFILE}" in
     ee|emqx-enterprise)
         PROFILE='emqx-enterprise'
         ;;
-    pe|emqx-platform)
-        PROFILE='emqx-platform'
-        ;;
     ce-ex|emqx-elixir)
         export IS_ELIXIR=yes
         PROFILE='emqx'
@@ -183,7 +180,7 @@ case "${PROFILE}" in
     emqx|emqx-elixir)
         export SCHEMA_MOD='emqx_conf_schema'
         ;;
-    emqx-enterprise|emqx-enterprise-elixir|emqx-platform)
+    emqx-enterprise|emqx-enterprise-elixir)
         export SCHEMA_MOD='emqx_enterprise_schema'
         ;;
 esac

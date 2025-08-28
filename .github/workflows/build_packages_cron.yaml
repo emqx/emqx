@@ -23,6 +23,7 @@ jobs:
         profile:
           - ['emqx', 'master']
           - ['emqx', 'release-58']
+          - ['emqx-enterprise', 'release-58']
         os:
           - ubuntu22.04
           - amzn2023

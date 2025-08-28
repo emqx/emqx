@@ -2,8 +2,6 @@
 Profile = case os:getenv("PROFILE") of
             "emqx-enterprise" ++ _ ->
               ee;
-            "emqx-platform" ++ _ ->
-              platform;
             false ->
               io:format(user, "WARN: environment variable PROFILE is not set, using 'emqx-enterprise'~n", []),
               ee;
@@ -15,9 +13,7 @@ Backends = case Profile of
              ce ->
                [emqx_ds_builtin_local];
              ee ->
-               [emqx_ds_builtin_local, emqx_ds_builtin_raft];
-             platform ->
-               [emqx_ds_builtin_local, emqx_ds_builtin_raft, emqx_fdb_ds, emqx_ds_fdb_backend]
+               [emqx_ds_builtin_local, emqx_ds_builtin_raft]
            end,
 
 io:format(user, "DS backends available for this release (~p): ~0p~n", [Profile, Backends]),

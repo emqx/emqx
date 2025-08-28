@@ -27,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx", "elixir", "amd64"]
+          - ["emqx", "erlang", "amd64"]
           - ["emqx", "elixir", "arm64"]
           - ["emqx-enterprise", "erlang", "amd64"]
 
