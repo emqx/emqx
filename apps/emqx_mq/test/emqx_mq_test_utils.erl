@@ -16,7 +16,7 @@
 
 -export([create_mq/1]).
 
--export([populate/2, populate_compacted/2]).
+-export([populate/2, populate_lastvalue/2]).
 
 -export([cleanup_mqs/0, stop_all_consumers/0]).
 
@@ -34,9 +34,9 @@ emqtt_connect(Opts) ->
     {ok, _} = emqtt:connect(C),
     C.
 
-emqtt_pub_mq(Client, Topic, Payload, CompactionKey) ->
+emqtt_pub_mq(Client, Topic, Payload, Key) ->
     PubOpts = [{qos, 1}],
-    Properties = #{'User-Property' => [{?MQ_COMPACTION_KEY_USER_PROPERTY, CompactionKey}]},
+    Properties = #{'User-Property' => [{?MQ_KEY_USER_PROPERTY, Key}]},
     emqtt:publish(Client, Topic, Properties, Payload, PubOpts).
 
 emqtt_pub_mq(Client, Topic, Payload) ->
@@ -75,7 +75,7 @@ create_mq(Topic) when is_binary(Topic) ->
     create_mq(#{topic_filter => Topic});
 create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     Default = #{
-        is_compacted => false,
+        is_lastvalue => false,
         consumer_max_inactive => 1000,
         ping_interval => 5000,
         redispatch_interval => 100,
@@ -118,12 +118,12 @@ populate(N, Fun) ->
     ),
     ok = emqtt:disconnect(C).
 
-populate_compacted(N, Fun) ->
+populate_lastvalue(N, Fun) ->
     C = emqx_mq_test_utils:emqtt_connect([]),
     lists:foreach(
         fun(I) ->
-            {Topic, Payload, CompactionKey} = Fun(I),
-            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, CompactionKey)
+            {Topic, Payload, Key} = Fun(I),
+            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, Key)
         end,
         lists:seq(0, N - 1)
     ),

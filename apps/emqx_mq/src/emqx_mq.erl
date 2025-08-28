@@ -25,8 +25,6 @@
 
 -spec register_hooks() -> ok.
 register_hooks() ->
-    %% TODO
-    %% Select better priorities for the hooks
     ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
     ok = emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),

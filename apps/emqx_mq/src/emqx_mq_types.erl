@@ -31,7 +31,7 @@ The module contains basic types for the Message Queue application.
 -type mq() :: #{
     id => mqid(),
     topic_filter := mq_topic(),
-    is_compacted := boolean(),
+    is_lastvalue := boolean(),
     consumer_max_inactive := interval_ms(),
     ping_interval := interval_ms(),
     redispatch_interval := interval_ms(),
@@ -49,7 +49,7 @@ The module contains basic types for the Message Queue application.
 -type mq_handle() :: #{
     id := mqid(),
     topic_filter := mq_topic(),
-    is_compacted := boolean()
+    is_lastvalue := boolean()
 }.
 
 -export_type([

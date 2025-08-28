@@ -65,10 +65,10 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-%% Consume some history messages from a non-compacted queue
+%% Consume some history messages from a non-lastvalue queue
 t_publish_and_consume(_Config) ->
-    %% Create a non-compacted Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
+    %% Create a non-lastvalue Queue
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
 
     %% Publish 100 messages to the queue
     ok =
@@ -116,22 +116,22 @@ t_publish_and_consume(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
-%% Consume some history messages from a compacted queue
-t_publish_and_consume_compacted(_Config) ->
-    %% Create a non-compacted Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => true}),
+%% Consume some history messages from a lastvalue queue
+t_publish_and_consume_lastvalue(_Config) ->
+    %% Create a non-lastvalue Queue
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
 
     %% Publish 100 messages to the queue
     ok =
-        emqx_mq_test_utils:populate_compacted(
+        emqx_mq_test_utils:populate_lastvalue(
             100,
             fun(I) ->
                 IBin = integer_to_binary(I),
                 Payload = <<"payload-", IBin/binary>>,
-                CompactionKey =
+                Key =
                     <<"k-", (integer_to_binary(I rem 10))/binary>>,
                 Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload, CompactionKey}
+                {Topic, Payload, Key}
             end
         ),
 
@@ -149,11 +149,11 @@ t_publish_and_consume_compacted(_Config) ->
 t_backpressure(_Config) ->
     StreamMaxUnacked = 5,
     StreamMaxBufferSize = 10,
-    %% Create a non-compacted Queue
+    %% Create a non-lastvalue Queue
     _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
-            is_compacted => false,
+            is_lastvalue => false,
             local_max_inflight => 100,
             stream_max_unacked => StreamMaxUnacked,
             stream_max_buffer_size => StreamMaxBufferSize
@@ -214,8 +214,8 @@ t_backpressure(_Config) ->
 %% Verify that the consumer re-dispatches the message to another subscriber
 %% if a subscriber received the message but disconnected before acknowledging it
 t_redispatch_on_disconnect(_Config) ->
-    %% Create a non-compacted Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
+    %% Create a non-lastvalue Queue
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
 
     %% Connect two subscribers
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
@@ -265,8 +265,8 @@ t_redispatch_on_disconnect(_Config) ->
 
 %% Cooperatively consume online messages with random dispatching
 t_random_dispatch(_Config) ->
-    %% Create a non-compacted Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
+    %% Create a non-lastvalue Queue
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
 
     %% Subscribe to the queue
     CSub0 = emqx_mq_test_utils:emqtt_connect([]),
@@ -308,11 +308,11 @@ t_random_dispatch(_Config) ->
 
 %% Cooperatively consume online messages with hash dispatching
 t_hash_dispatch(_Config) ->
-    %% Create a non-compacted Queue
+    %% Create a non-lastvalue Queue
     _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
-            is_compacted => false,
+            is_lastvalue => false,
             dispatch_strategy => hash,
             dispatch_expression => emqx_mq_test_utils:compile_variform(<<"m.topic(message)">>)
         }),
@@ -364,11 +364,11 @@ t_hash_dispatch(_Config) ->
 
 %% Cooperatively consume online messages with least inflight dispatching
 t_least_inflight_dispatch(_Config) ->
-    %% Create a non-compacted Queue
+    %% Create a non-lastvalue Queue
     _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
-            is_compacted => false,
+            is_lastvalue => false,
             dispatch_strategy => least_inflight
         }),
 
@@ -430,11 +430,11 @@ t_least_inflight_dispatch(_Config) ->
 %% Verify that messages are eventually delivered to a busy session,
 %% i.e. a session that exhausted the limit of inflight messages
 t_busy_session(_Config) ->
-    %% Create a non-compacted Queue
+    %% Create a non-lastvalue Queue
     _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
-            is_compacted => false,
+            is_lastvalue => false,
             local_max_inflight => 4
         }),
 
@@ -503,11 +503,11 @@ t_busy_session(_Config) ->
 %% * unacked messages are re-delivered
 t_progress_restoration(_Config) ->
     ok = emqx_mq_message_db:add_regular_db_generation(),
-    %% Create a non-compacted Queue
+    %% Create a non-lastvalue Queue
     MQ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
-            is_compacted => false,
+            is_lastvalue => false,
             consumer_max_inactive => 50
         }),
 
@@ -583,11 +583,11 @@ t_progress_restoration(_Config) ->
 %% We check that the consumption progress is restored correctly
 %% when the consumption buffer is full
 t_progress_restoration_full_buffer(_Config) ->
-    %% Create a non-compacted Queue
+    %% Create a non-lastvalue Queue
     MQ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
-            is_compacted => false,
+            is_lastvalue => false,
             consumer_max_inactive => 50,
             local_max_inflight => 100
         }),
@@ -632,11 +632,11 @@ t_progress_restoration_full_buffer(_Config) ->
 %% Verify that the consumer re-dispatches the message to another subscriber
 %% if a subscriber rejected the message
 t_redispatch_on_reject_random(_Config) ->
-    %% Create a non-compacted Queue
+    %% Create a non-lastvalue Queue
     _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
-            is_compacted => false,
+            is_lastvalue => false,
             dispatch_strategy => random
         }),
 
@@ -695,11 +695,11 @@ t_redispatch_on_reject_random(_Config) ->
 %% immediately if a subscriber rejected the message
 %% (random & least_inflight dispatch strategies)
 t_redispatch(Config) ->
-    %% Create a non-compacted Queue
+    %% Create a non-lastvalue Queue
     _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
-            is_compacted => false,
+            is_lastvalue => false,
             dispatch_strategy => ?config(dispatch_strategy, Config),
             redispatch_interval => 1000
         }),
@@ -750,11 +750,11 @@ t_redispatch(Config) ->
 %% after a delay if a subscriber rejected the message
 %% (hash dispatch strategy)
 t_redispatch_on_reject_hash(_Config) ->
-    %% Create a non-compacted Queue
+    %% Create a non-lastvalue Queue
     _ =
         emqx_mq_test_utils:create_mq(#{
             topic_filter => <<"t/#">>,
-            is_compacted => false,
+            is_lastvalue => false,
             dispatch_strategy => hash,
             dispatch_expression => emqx_mq_test_utils:compile_variform(<<"m.topic(message)">>),
             redispatch_interval => 100
@@ -798,10 +798,10 @@ t_redispatch_on_reject_hash(_Config) ->
     ok = emqtt:disconnect(CSub1).
 
 t_queue_deletion(_Config) ->
-    %% Create a non-compacted Queue
+    %% Create a non-lastvalue Queue
     MQ0 = emqx_mq_test_utils:create_mq(#{
         topic_filter => <<"t/#">>,
-        is_compacted => false,
+        is_lastvalue => false,
         dispatch_strategy => random
     }),
 
@@ -835,7 +835,7 @@ t_queue_deletion(_Config) ->
     %% Create a new queue with the same topic filter
     _MQ1 = emqx_mq_test_utils:create_mq(#{
         topic_filter => <<"t/#">>,
-        is_compacted => false,
+        is_lastvalue => false,
         dispatch_strategy => random
     }),
 
@@ -872,8 +872,8 @@ t_queue_deletion(_Config) ->
 
 %% Check that a session of a disconnected client does not receive messages
 t_disconnected_session_does_not_receive_messages(_Config) ->
-    %% Create a non-compacted Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false}),
+    %% Create a non-lastvalue Queue
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
 
     %% Publish some messages to the queue
     ok = emqx_mq_test_utils:populate(1, fun(I) ->
@@ -920,8 +920,10 @@ t_disconnected_session_does_not_receive_messages(_Config) ->
 
 %% Verify that the expired messages are not received
 t_expired_messages(_Config) ->
-    %% Create a non-compacted Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_compacted => false, data_retention_period => 1000}),
+    %% Create a non-lastvalue Queue
+    _ = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>, is_lastvalue => false, data_retention_period => 1000
+    }),
 
     %% Publish some messages to the queue
     ok = emqx_mq_test_utils:populate(10, fun(I) ->

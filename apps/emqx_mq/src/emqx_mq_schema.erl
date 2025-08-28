@@ -37,11 +37,11 @@ fields(mq) ->
 fields(message_queue) ->
     [
         {topic_filter, mk(binary(), #{desc => ?DESC(topic_filter), required => true})},
-        {is_compacted,
+        {is_lastvalue,
             mk(
                 boolean(),
                 #{
-                    desc => ?DESC(is_compacted),
+                    desc => ?DESC(is_lastvalue),
                     required => false,
                     %% TODO
                     %% Change to true
@@ -126,7 +126,7 @@ fields(message_queue) ->
             })}
     ];
 fields(message_queue_api_put) ->
-    without_fields([topic_filter, is_compacted], fields(message_queue)).
+    without_fields([topic_filter, is_lastvalue], fields(message_queue)).
 
 desc(_) ->
     undefined.

@@ -52,10 +52,10 @@
     subscriber_ref :: emqx_mq_types:subscriber_ref()
 }).
 
--define(MQ_COMPACTION_KEY_USER_PROPERTY, <<"mq-key">>).
+-define(MQ_KEY_USER_PROPERTY, <<"mq-key">>).
 
 -define(MQ_CONSUMER_DB, mq_consumer).
--define(MQ_MESSAGE_COMPACTED_DB, mq_message_compacted).
+-define(MQ_MESSAGE_LASTVALUE_DB, mq_message_lastvalue).
 -define(MQ_MESSAGE_REGULAR_DB, mq_message_regular).
 
 -record(claim, {
@@ -68,6 +68,6 @@
 }).
 
 -define(MQ_GC_REGULAR, gc_regular).
--define(MQ_GC_COMPACTED, gc_compacted).
+-define(MQ_GC_LASTVALUE, gc_lastvalue).
 
 -endif.

@@ -32,7 +32,7 @@ The module contains the registry of Message Queues.
 -record(?MQ_REGISTRY_INDEX_TAB, {
     key :: emqx_topic_index:key(nil()) | '_',
     id :: emqx_mq_types:mqid() | '_',
-    is_compacted :: boolean() | '_',
+    is_lastvalue :: boolean() | '_',
     extra = #{} :: map() | '_'
 }).
 
@@ -79,14 +79,14 @@ create_tables() ->
 Create a new MQ.
 """.
 -spec create(emqx_mq_types:mq()) -> {ok, emqx_mq_types:mq()} | {error, queue_exists}.
-create(#{topic_filter := TopicFilter, is_compacted := IsCompacted} = MQ0) ->
+create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) ->
     Key = make_key(TopicFilter),
     Id = emqx_guid:gen(),
     {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
         case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
             [] ->
                 ok = mnesia:write(#?MQ_REGISTRY_INDEX_TAB{
-                    key = Key, id = Id, is_compacted = IsCompacted
+                    key = Key, id = Id, is_lastvalue = IsLastValue
                 }),
                 ok;
             [_] ->
@@ -113,12 +113,12 @@ match(Topic) ->
             case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
                 [] ->
                     [];
-                [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_compacted = IsCompacted}] ->
+                [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_lastvalue = IsLastValue}] ->
                     [
                         #{
                             id => Id,
                             topic_filter => emqx_topic_index:get_topic(Key),
-                            is_compacted => IsCompacted
+                            is_lastvalue => IsLastValue
                         }
                     ]
             end
@@ -156,12 +156,12 @@ delete(TopicFilter) ->
         case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
             [] ->
                 not_found;
-            [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_compacted = IsCompacted}] ->
+            [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_lastvalue = IsLastValue}] ->
                 ok = mnesia:delete(?MQ_REGISTRY_INDEX_TAB, Key, write),
                 {ok, #{
                     id => Id,
                     topic_filter => emqx_topic_index:get_topic(Key),
-                    is_compacted => IsCompacted
+                    is_lastvalue => IsLastValue
                 }}
         end
     end),
@@ -196,18 +196,18 @@ delete_all() ->
 
 -doc """
 Update the MQ by its topic filter.
-`is_compacted` is not allowed to be updated.
+`is_lastvalue` is not allowed to be updated.
 """.
 -spec update(emqx_mq_types:mq_topic(), emqx_mq_types:mq()) -> {ok, emqx_mq_types:mq()} | not_found.
 update(TopicFilter, UpdateFields0) ->
     Key = make_key(TopicFilter),
-    UpdateFields = maps:without([topic_filter, id, is_compacted], UpdateFields0),
+    UpdateFields = maps:without([topic_filter, id, is_lastvalue], UpdateFields0),
     case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
         [] ->
             not_found;
-        [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_compacted = IsCompacted}] ->
+        [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_lastvalue = IsLastValue}] ->
             case mnesia:dirty_read(?MQ_REGISTRY_TAB, Id) of
-                [#?MQ_REGISTRY_TAB{mq = #{is_compacted := IsCompacted} = MQ0}] ->
+                [#?MQ_REGISTRY_TAB{mq = #{is_lastvalue := IsLastValue} = MQ0}] ->
                     MQ = maps:merge(MQ0, UpdateFields),
                     ok = mnesia:dirty_write(#?MQ_REGISTRY_TAB{id = Id, mq = MQ}),
                     {ok, MQ};

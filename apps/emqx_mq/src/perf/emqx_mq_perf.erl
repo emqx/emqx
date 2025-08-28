@@ -21,7 +21,7 @@ Performance test utilities for the MQ application.
 ]).
 
 -define(MQ_REGULAR, #{
-    is_compacted => false,
+    is_lastvalue => false,
     consumer_max_inactive => 1000,
     ping_interval => 10000,
     redispatch_interval => 100,

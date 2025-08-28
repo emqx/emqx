@@ -99,14 +99,14 @@ connect(#{topic_filter := _MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
             do_connect(ConsumerRef, SubscriberRef, ClientId);
         queue_removed ->
             ?tp_debug(mq_consumer_find_consumer_queue_removed, #{
-                mq_topic_filter => MQTopicFilter,
+                mq_topic_filter => _MQTopicFilter,
                 subscriber_ref => SubscriberRef,
                 client_id => ClientId
             }),
             {error, queue_removed};
         not_found ->
             ?tp_debug(mq_consumer_find_consumer_not_found, #{
-                mq_topic_filter => MQTopicFilter,
+                mq_topic_filter => _MQTopicFilter,
                 subscriber_ref => SubscriberRef,
                 client_id => ClientId
             }),

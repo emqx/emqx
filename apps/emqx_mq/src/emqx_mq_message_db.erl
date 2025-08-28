@@ -30,7 +30,7 @@ Facade for all operations with the message database.
 
 -export([
     add_regular_db_generation/0,
-    delete_compacted_data/2,
+    delete_lastvalue_data/2,
     regular_db_slab_info/0,
     drop_regular_db_slab/1,
     initial_generations/1
@@ -47,8 +47,8 @@ Facade for all operations with the message database.
     %% "topic/TOPIC/key/СOMPACTION_KEY"
     lts_threshold_spec => {simple, {100, 0, 0, 100, 0, 100}}
 }).
--define(MQ_MESSAGE_DB_TOPIC(MQ_TOPIC, MQ_ID, COMPACTION_KEY), [
-    <<"topic">>, MQ_TOPIC, MQ_ID, <<"key">>, COMPACTION_KEY
+-define(MQ_MESSAGE_DB_TOPIC(MQ_TOPIC, MQ_ID, KEY), [
+    <<"topic">>, MQ_TOPIC, MQ_ID, <<"key">>, KEY
 ]).
 
 -define(SHARDS_PER_SITE, 3).
@@ -63,9 +63,9 @@ Facade for all operations with the message database.
 -spec open() -> ok.
 open() ->
     maybe
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_COMPACTED_DB, settings()),
+        ok ?= emqx_ds:open_db(?MQ_MESSAGE_LASTVALUE_DB, settings()),
         ok ?= emqx_ds:open_db(?MQ_MESSAGE_REGULAR_DB, settings()),
-        ok ?= emqx_ds:wait_db(?MQ_MESSAGE_COMPACTED_DB, all, infinity),
+        ok ?= emqx_ds:wait_db(?MQ_MESSAGE_LASTVALUE_DB, all, infinity),
         ok ?= emqx_ds:wait_db(?MQ_MESSAGE_REGULAR_DB, all, infinity)
     else
         _ -> error(failed_to_open_mq_databases)
@@ -73,13 +73,13 @@ open() ->
 
 -spec insert(emqx_mq_types:mq(), list(emqx_types:message())) ->
     ok | {error, list(emqx_ds:error(_Reason))}.
-insert(#{is_compacted := true} = MQ, Messages) ->
+insert(#{is_lastvalue := true} = MQ, Messages) ->
     % ?tp_debug(mq_message_db_insert, #{topic => Topic, generation => 1, value => Value}),
     insert(MQ, Messages, fun(_MQ, Topic, Value) ->
         emqx_ds:tx_del_topic(Topic),
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
     end);
-insert(#{is_compacted := false} = MQ, Messages) ->
+insert(#{is_lastvalue := false} = MQ, Messages) ->
     insert(MQ, Messages, fun(_MQ, Topic, Value) ->
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
     end).
@@ -121,7 +121,7 @@ drop(MQHandle) ->
 
 -spec delete_all() -> ok.
 delete_all() ->
-    delete(?MQ_MESSAGE_COMPACTED_DB, ['#']),
+    delete(?MQ_MESSAGE_LASTVALUE_DB, ['#']),
     delete(?MQ_MESSAGE_REGULAR_DB, ['#']).
 
 -spec create_client(module()) -> emqx_ds_client:t().
@@ -167,21 +167,21 @@ decode_message(Bin) ->
 add_regular_db_generation() ->
     ok = emqx_ds:add_generation(?MQ_MESSAGE_REGULAR_DB).
 
--spec delete_compacted_data([emqx_mq_types:mq()], non_neg_integer()) -> ok.
-delete_compacted_data(MQs, TimeThreshold) ->
-    Shards = emqx_ds:list_shards(?MQ_MESSAGE_COMPACTED_DB),
+-spec delete_lastvalue_data([emqx_mq_types:mq()], non_neg_integer()) -> ok.
+delete_lastvalue_data(MQs, TimeThreshold) ->
+    Shards = emqx_ds:list_shards(?MQ_MESSAGE_LASTVALUE_DB),
     lists:foreach(
         fun(Shard) ->
             TxOpts = #{
-                db => ?MQ_MESSAGE_COMPACTED_DB,
+                db => ?MQ_MESSAGE_LASTVALUE_DB,
                 shard => Shard,
-                generation => insert_generation(?MQ_MESSAGE_COMPACTED_DB),
+                generation => insert_generation(?MQ_MESSAGE_LASTVALUE_DB),
                 sync => true,
                 retries => ?MQ_MESSAGE_DB_APPEND_RETRY
             },
             emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(
-                    fun(#{is_compacted := true, data_retention_period := DataRetentionPeriod} = MQ) ->
+                    fun(#{is_lastvalue := true, data_retention_period := DataRetentionPeriod} = MQ) ->
                         Topic = mq_message_topic(MQ, '#'),
                         DeleteTill = max(TimeThreshold - DataRetentionPeriod, 0),
                         emqx_ds:tx_del_topic(Topic, 0, DeleteTill)
@@ -215,7 +215,7 @@ dirty_read_all(MQ) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-group_by_shard(#{is_compacted := false} = MQ, Messages) ->
+group_by_shard(#{is_lastvalue := false} = MQ, Messages) ->
     ByShard = lists:foldl(
         fun(Message, Acc) ->
             ClientId = emqx_message:from(Message),
@@ -228,23 +228,23 @@ group_by_shard(#{is_compacted := false} = MQ, Messages) ->
         Messages
     ),
     groupped_by_shard_to_list(ByShard);
-group_by_shard(#{is_compacted := true} = MQ, Messages) ->
+group_by_shard(#{is_lastvalue := true} = MQ, Messages) ->
     ByShard = lists:foldl(
         fun(Message, Acc) ->
             Props = emqx_message:get_header(properties, Message, #{}),
             UserProperties = maps:get('User-Property', Props, []),
-            CompactionKey = proplists:get_value(
-                ?MQ_COMPACTION_KEY_USER_PROPERTY, UserProperties, undefined
+            Key = proplists:get_value(
+                ?MQ_KEY_USER_PROPERTY, UserProperties, undefined
             ),
-            case CompactionKey of
+            case Key of
                 undefined ->
                     ?tp_debug(mq_message_db_insert_error, #{
-                        mq => MQ, message => Message, reason => undefined_compaction_key
+                        mq => MQ, message => Message, reason => undefined_key
                     }),
                     Acc;
                 _ ->
-                    Shard = emqx_ds:shard_of(?MQ_MESSAGE_COMPACTED_DB, CompactionKey),
-                    Topic = mq_message_topic(MQ, CompactionKey),
+                    Shard = emqx_ds:shard_of(?MQ_MESSAGE_LASTVALUE_DB, Key),
+                    Topic = mq_message_topic(MQ, Key),
                     Value = encode_message(Message),
                     maps:update_with(
                         Shard, fun(Msgs) -> [{Topic, Value} | Msgs] end, [{Topic, Value}], Acc
@@ -293,15 +293,15 @@ delete(DB, Topic) ->
         maps:keys(emqx_ds:list_slabs(DB))
     ).
 
-mq_message_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, CompactionKey) ->
-    ?MQ_MESSAGE_DB_TOPIC(TopicFilter, Id, CompactionKey).
+mq_message_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, Key) ->
+    ?MQ_MESSAGE_DB_TOPIC(TopicFilter, Id, Key).
 
-db(#{is_compacted := true} = _MQ) ->
-    ?MQ_MESSAGE_COMPACTED_DB;
-db(#{is_compacted := false} = _MQ) ->
+db(#{is_lastvalue := true} = _MQ) ->
+    ?MQ_MESSAGE_LASTVALUE_DB;
+db(#{is_lastvalue := false} = _MQ) ->
     ?MQ_MESSAGE_REGULAR_DB.
 
-insert_generation(?MQ_MESSAGE_COMPACTED_DB) ->
+insert_generation(?MQ_MESSAGE_LASTVALUE_DB) ->
     1;
 insert_generation(?MQ_MESSAGE_REGULAR_DB) ->
     latest.

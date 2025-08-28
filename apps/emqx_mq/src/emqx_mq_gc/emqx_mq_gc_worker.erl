@@ -52,7 +52,7 @@ init([]) ->
 handle_continue(gc_regular_queues, #{}) ->
     ok = gc_regular_queues(),
     ?tp(info, mq_gc_regular_done, #{}),
-    {noreply, start_gc_compacted_queues()}.
+    {noreply, start_gc_lastvalue_queues()}.
 
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
@@ -61,7 +61,7 @@ handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info(#gc{}, State) ->
-    gc_next_compacted_batch(State).
+    gc_next_lastvalue_batch(State).
 
 terminate(_Reason, _State) ->
     ?tp_debug(mq_gc_worker_terminated, #{reason => _Reason}),
@@ -72,34 +72,34 @@ terminate(_Reason, _State) ->
 %%--------------------------------------------------------------------
 
 %%
-%% Compact Queues GC
+%% LastValue Queues GC
 %%
 
-start_gc_compacted_queues() ->
-    ?tp_debug(mq_gc_compacted_queues_started, #{}),
+start_gc_lastvalue_queues() ->
+    ?tp_debug(mq_gc_lastvalue_queues_started, #{}),
     erlang:send_after(0, self(), #gc{}),
-    #{stream => compacted_mq_stream()}.
+    #{stream => lastvalue_mq_stream()}.
 
-gc_next_compacted_batch(#{stream := Stream0} = State) ->
+gc_next_lastvalue_batch(#{stream := Stream0} = State) ->
     case emqx_utils_stream:consume(?CONSUME_BATCH_SIZE, Stream0) of
         {MQs, Stream} ->
-            ok = gc_compacted_queues(MQs),
+            ok = gc_lastvalue_queues(MQs),
             erlang:send_after(0, self(), #gc{}),
             {noreply, State#{stream => Stream}};
         MQs when is_list(MQs) ->
-            ok = gc_compacted_queues(MQs),
+            ok = gc_lastvalue_queues(MQs),
             ?tp(warning, mq_gc_done, #{}),
             {stop, normal, State}
     end.
 
-gc_compacted_queues(MQs) ->
+gc_lastvalue_queues(MQs) ->
     NowMS = now_ms(),
-    emqx_mq_message_db:delete_compacted_data(MQs, NowMS).
+    emqx_mq_message_db:delete_lastvalue_data(MQs, NowMS).
 
-compacted_mq_stream() ->
+lastvalue_mq_stream() ->
     emqx_utils_stream:filter(
         fun
-            (#{is_compacted := true}) ->
+            (#{is_lastvalue := true}) ->
                 true;
             (_) ->
                 false

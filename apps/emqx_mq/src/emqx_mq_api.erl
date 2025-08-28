@@ -160,7 +160,7 @@ topic_filter_param() ->
         })}.
 
 put_message_queue_example() ->
-    maps:without([<<"topic_filter">>, <<"is_compacted">>], get_message_queue_example()).
+    maps:without([<<"topic_filter">>, <<"is_lastvalue">>], get_message_queue_example()).
 
 get_message_queue_example() ->
     #{
@@ -170,7 +170,7 @@ get_message_queue_example() ->
         <<"data_retention_period">> => 604800000,
         <<"dispatch_expression">> => <<"m.clientid(message)">>,
         <<"dispatch_strategy">> => <<"random">>,
-        <<"is_compacted">> => false,
+        <<"is_lastvalue">> => false,
         <<"local_max_inflight">> => 10,
         <<"ping_interval">> => 10000,
         <<"redispatch_interval">> => 100,

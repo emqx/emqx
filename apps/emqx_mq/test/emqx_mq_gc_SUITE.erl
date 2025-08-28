@@ -51,18 +51,18 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-%% Consume some history messages from a non-compacted queue
+%% Consume some history messages from a non-lastvalue queue
 t_gc(_Config) ->
-    % %% Create a compacted Queue
-    MQC = emqx_mq_test_utils:create_mq(#{topic_filter => <<"tc/#">>, is_compacted => true}),
-    %% Create a non-compacted Queue
+    % %% Create a lastvalue Queue
+    MQC = emqx_mq_test_utils:create_mq(#{topic_filter => <<"tc/#">>, is_lastvalue => true}),
+    %% Create a non-lastvalue Queue
     MQR = emqx_mq_test_utils:create_mq(#{
-        topic_filter => <<"tr/#">>, is_compacted => false, data_retention_period => 1000
+        topic_filter => <<"tr/#">>, is_lastvalue => false, data_retention_period => 1000
     }),
 
     % Publish 10 messages to the queue
     ok =
-        emqx_mq_test_utils:populate_compacted(
+        emqx_mq_test_utils:populate_lastvalue(
             10,
             fun(I) ->
                 IBin = integer_to_binary(I),
@@ -91,7 +91,7 @@ t_gc(_Config) ->
 
     % Publish 10 messages to the queue
     ok =
-        emqx_mq_test_utils:populate_compacted(
+        emqx_mq_test_utils:populate_lastvalue(
             10,
             fun(I) ->
                 IBin = integer_to_binary(I),
@@ -118,9 +118,9 @@ t_gc(_Config) ->
     RegularDBGens1 = maps:values(emqx_mq_message_db:initial_generations(MQR)),
     ?assertEqual([2], lists:usort(RegularDBGens1)),
 
-    %% Check that the compacted messages are deleted
-    CompactedRecords = emqx_mq_message_db:dirty_read_all(MQC),
-    ?assertEqual(10, length(CompactedRecords)).
+    %% Check that only last messages are available
+    Records = emqx_mq_message_db:dirty_read_all(MQC),
+    ?assertEqual(10, length(Records)).
 
 %%--------------------------------------------------------------------
 %% Helpers
