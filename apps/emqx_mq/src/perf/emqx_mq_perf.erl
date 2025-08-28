@@ -15,9 +15,9 @@ Performance test utilities for the MQ application.
     mq_regular/1,
     populate_regular/3,
     cleanup_mq_regular_consumption_progress/1,
-    subsctriber_info/1,
-    consumer_info_regular/1,
-    info_regular/1
+    subscriber_inspect/1,
+    consumer_inspect_regular/1,
+    inspect_regular/1
 ]).
 
 -define(MQ_REGULAR, #{
@@ -63,16 +63,16 @@ populate_regular(TopicFilter, N, BatchSize) ->
     MQ = create_mq_regular(TopicFilter),
     populate_regular(MQ, N, 0, now_ms_monotonic(), BatchSize).
 
-info_regular(TopicFilter) ->
+inspect_regular(TopicFilter) ->
     #{
-        subscribers => subsctriber_info(TopicFilter),
-        consumer => consumer_info_regular(TopicFilter)
+        subscribers => subscriber_inspect(TopicFilter),
+        consumer => consumer_inspect_regular(TopicFilter)
     }.
 
-subsctriber_info(TopicFilter) ->
+subscriber_inspect(TopicFilter) ->
     lists:flatmap(
         fun(ChanPid) ->
-            case emqx_mq_utils:mq_info(ChanPid, TopicFilter) of
+            case emqx_mq:inspect(ChanPid, TopicFilter) of
                 undefined ->
                     [];
                 Info ->
@@ -82,12 +82,12 @@ subsctriber_info(TopicFilter) ->
         emqx_cm:all_channels()
     ).
 
-consumer_info_regular(TopicFilter) ->
+consumer_inspect_regular(TopicFilter) ->
     {ok, MQ} = emqx_mq_registry:find(TopicFilter),
     case emqx_mq_consumer_db:find_consumer(MQ, now_ms()) of
         {ok, Pid} ->
             try
-                emqx_mq_consumer:info(Pid, 1000)
+                emqx_mq_consumer:inspect(Pid, 1000)
             catch
                 exit:{timeout, _} ->
                     #{error => timeout, pid => Pid}
@@ -141,7 +141,10 @@ now_ms() ->
     erlang:system_time(millisecond).
 
 stop_all_consumers() ->
-    ConsumerPids = [Pid || {_, Pid, _, _} <- supervisor:which_children(emqx_mq_consumer_sup)],
+    ConsumerPids = [
+        Pid
+     || {_, Pid, _, _} <- supervisor:which_children(emqx_mq_consumer_sup), is_pid(Pid)
+    ],
     ok = lists:foreach(
         fun(Pid) ->
             ok = emqx_mq_consumer:stop(Pid)

@@ -22,7 +22,7 @@
     info :: term()
 }).
 
--record(info_mq_info, {receiver :: reference(), topic_filter :: emqx_mq_types:mq_topic()}).
+-record(info_mq_inspect, {receiver :: reference(), topic_filter :: emqx_mq_types:mq_topic()}).
 
 -record(mq_sub_connected, {
     consumer_ref :: emqx_mq_types:consumer_ref()

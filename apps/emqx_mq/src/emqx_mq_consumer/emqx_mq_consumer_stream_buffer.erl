@@ -19,7 +19,7 @@ The module represents a consumer of a single stream of the Message Queue data.
     handle_ack/2,
     progress/1,
     iterator/1,
-    info/1
+    inspect/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -213,7 +213,7 @@ handle_ds_reply(#{status := restoring} = SB0, Handle, #ds_sub_reply{
     case handle_restore(SB0, NewTTVs, 0, It) of
         {ok, TTVs, #{status := active} = SB} ->
             ?tp_debug(emqx_mq_consumer_stream_buffer_handle_ds_reply_buffer_restored, #{
-                sb => info(SB)
+                sb => inspect(SB)
             }),
             {ok, TTVs, suback(SB, Handle, SeqNo)};
         {ok, TTVs, #{status := restoring} = SB} ->
@@ -273,7 +273,7 @@ iterator(#{status := active, lower_buffer := #{it_begin := ItBegin}} = _SB) ->
 iterator(#{status := restoring, it_begin := ItBegin} = _SB) ->
     ItBegin.
 
--spec info(t()) ->
+-spec inspect(t()) ->
     #{
         status := active,
         lower_buffer := undefined | #{n := non_neg_integer(), unacked := non_neg_integer()},
@@ -289,7 +289,7 @@ iterator(#{status := restoring, it_begin := ItBegin} = _SB) ->
         actual_unacked := non_neg_integer(),
         messages := non_neg_integer()
     }.
-info(
+inspect(
     #{
         status := active,
         lower_buffer := LowerBuffer,
@@ -305,7 +305,7 @@ info(
         finished => is_finished(SB),
         last_message_id => LastMessageId
     };
-info(
+inspect(
     #{
         status := restoring,
         last_message_id := LastMessageId,

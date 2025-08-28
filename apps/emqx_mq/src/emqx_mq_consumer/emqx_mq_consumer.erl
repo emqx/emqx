@@ -40,7 +40,7 @@ Consumer's responsibilities:
     ack/4,
     ping/2,
     stop/1,
-    info/2
+    inspect/2
 ]).
 
 %% RPC targets
@@ -63,7 +63,7 @@ Consumer's responsibilities:
 %%--------------------------------------------------------------------
 
 -record(persist_consumer_data, {}).
--record(get_state_info, {}).
+-record(inspect, {}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -144,9 +144,9 @@ stop(ConsumerRef) when node(ConsumerRef) =:= node() ->
 stop(ConsumerRef) ->
     emqx_mq_consumer_proto_v1:mq_server_stop(node(ConsumerRef), ConsumerRef).
 
--spec info(emqx_mq_types:consumer_ref(), timeout()) -> emqx_types:infos().
-info(ConsumerRef, Timeout) ->
-    gen_server:call(ConsumerRef, #get_state_info{}, Timeout).
+-spec inspect(emqx_mq_types:consumer_ref(), timeout()) -> emqx_types:infos().
+inspect(ConsumerRef, Timeout) ->
+    gen_server:call(ConsumerRef, #inspect{}, Timeout).
 
 %%--------------------------------------------------------------------
 %% RPC targets
@@ -218,8 +218,8 @@ init([#{topic_filter := _MQTopicFilter, consumer_persistence_interval := Persist
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
-handle_call(#get_state_info{}, _From, State) ->
-    {reply, handle_get_state_info(State), State};
+handle_call(#inspect{}, _From, State) ->
+    {reply, handle_inspect(State), State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
@@ -250,13 +250,13 @@ terminate(_Reason, #state{} = State) ->
 %% Handlers
 %%--------------------------------------------------------------------
 
-handle_get_state_info(#state{
+handle_inspect(#state{
     mq = #{topic_filter := TopicFilter} = _MQ, streams = Streams, server = Server
 }) ->
     #{
         mq_topic_filter => TopicFilter,
-        streams => emqx_mq_consumer_streams:info(Streams),
-        server => emqx_mq_consumer_server:info(Server)
+        streams => emqx_mq_consumer_streams:inspect(Streams),
+        server => emqx_mq_consumer_server:inspect(Server)
     }.
 
 handle_mq_server_info(Message, #state{server = Server0} = State) ->
@@ -300,7 +300,7 @@ persist_consumer_data(#state{mq = #{topic_filter := _MQTopicFilter} = MQ, stream
     },
     ?tp_debug(mq_consumer_handle_persist_streams_data, #{
         mq_topic_filter => _MQTopicFilter,
-        streams_info => emqx_mq_consumer_streams:info(Streams),
+        streams => emqx_mq_consumer_streams:inspect(Streams),
         persist_streams_data => PersistData
     }),
     emqx_mq_consumer_db:update_consumer_data(

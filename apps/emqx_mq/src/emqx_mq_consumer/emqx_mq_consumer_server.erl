@@ -20,7 +20,7 @@ channels subscribed to a Message Queue.
 ]).
 
 -export([
-    info/1
+    inspect/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -117,11 +117,11 @@ handle_info(State, #timer_message{timer_name = ?dispatch_timer}) ->
 handle_info(State, #subscriber_timeout{subscriber_ref = SubscriberRef}) ->
     {ok, [], handle_subscriber_timeout(State, SubscriberRef)}.
 
-info(#state{
+inspect(#state{
     subscribers = Subscribers, messages = Messages, dispatch_queue = DispatchQueue, timers = Timers
 }) ->
     #{
-        subscribers => lists:map(fun subscriber_info/1, maps:to_list(Subscribers)),
+        subscribers => lists:map(fun subscriber_inspect/1, maps:to_list(Subscribers)),
         messages => map_size(Messages),
         dispatch_queue => emqx_mq_consumer_dispatchq:size(DispatchQueue),
         timers => [Name || {Name, Timer} <- maps:to_list(Timers), Timer =/= undefined]
@@ -131,7 +131,7 @@ info(#state{
 %% Internal functions
 %%--------------------------------------------------------------------
 
-subscriber_info(
+subscriber_inspect(
     {_SubscriberRef, #{
         client_id := ClientId, inflight_messages := InflightMessages, last_ack_ts := LastAckTs
     }}

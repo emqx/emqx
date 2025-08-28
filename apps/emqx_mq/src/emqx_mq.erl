@@ -23,6 +23,10 @@
     on_client_handle_info/3
 ]).
 
+-export([
+    inspect/2
+]).
+
 -spec register_hooks() -> ok.
 register_hooks() ->
     ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
@@ -114,14 +118,14 @@ on_message_nack(_Msg, true) ->
     ok.
 
 on_client_handle_info(
-    _ClientInfo, #info_mq_info{receiver = Receiver, topic_filter = TopicFilter}, Acc
+    _ClientInfo, #info_mq_inspect{receiver = Receiver, topic_filter = TopicFilter}, Acc
 ) ->
     Info =
         case emqx_mq_sub_registry:find(TopicFilter) of
             undefined ->
                 undefined;
             Sub ->
-                emqx_mq_sub:info(Sub)
+                emqx_mq_sub:inspect(Sub)
         end,
     erlang:send(Receiver, {Receiver, Info}),
     {ok, Acc};
@@ -154,6 +158,18 @@ on_session_disonnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
         end,
         Subs
     ).
+
+%%
+%% Introspection
+%%
+
+inspect(ChannelPid, TopicFilter) ->
+    Self = alias([reply]),
+    erlang:send(ChannelPid, #info_mq_inspect{receiver = Self, topic_filter = TopicFilter}),
+    receive
+        {Self, Info} ->
+            Info
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

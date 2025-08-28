@@ -25,7 +25,7 @@ It uses two timers:
 -export([
     mq_topic_filter/1,
     subscriber_ref/1,
-    info/1
+    inspect/1
 ]).
 
 -export([
@@ -99,10 +99,10 @@ mq_topic_filter(#{topic_filter := TopicFilter}) ->
 subscriber_ref(#{subscriber_ref := SubscriberRef}) ->
     SubscriberRef.
 
--spec info(t()) -> map().
-info(#{status := Status} = Sub) ->
+-spec inspect(t()) -> map().
+inspect(#{status := Status} = Sub) ->
     Info = maps:with([clientid, topic_filter, subscriber_ref], Sub),
-    Info#{status => status_info(Status)}.
+    Info#{status => status_inspect(Status)}.
 
 -spec handle_connect(emqx_types:clientinfo(), emqx_mq_types:mq_topic()) -> t().
 handle_connect(#{clientid := ClientId}, MQTopic) ->
@@ -169,7 +169,7 @@ handle_ack(
 %% Messages from the consumer
 %%
 handle_info(Sub, #mq_sub_ping{}) ->
-    % ?tp(warning, mq_sub_ping, #{sub => info(Sub)}),
+    % ?tp(warning, mq_sub_ping, #{sub => inspect(Sub)}),
     {ok, reset_consumer_timeout_timer(Sub)};
 handle_info(
     #{status := #connected{}} = Sub,
@@ -187,32 +187,32 @@ handle_info(#{status := #connecting{}} = Sub, #mq_sub_connected{consumer_ref = C
 %% Self-initiated messages
 %%
 handle_info(#{status := #finding_mq{}, topic_filter := _TopicFilter} = _Sub, #find_mq_retry{}) ->
-    ?tp_debug(mq_sub_find_mq_retry, #{mq_topic_filter => _TopicFilter, sub => info(_Sub)}),
+    ?tp_debug(mq_sub_find_mq_retry, #{mq_topic_filter => _TopicFilter, sub => inspect(_Sub)}),
     {error, recreate};
 handle_info(
     #{status := #connecting{}, topic_filter := _TopicFilter} = _Sub, #consumer_connect_timeout{}
 ) ->
     ?tp(error, mq_sub_consumer_connect_timeout, #{
-        mq_topic_filter => _TopicFilter, sub => info(_Sub)
+        mq_topic_filter => _TopicFilter, sub => inspect(_Sub)
     }),
     {error, recreate};
 handle_info(
     #{status := #connected{}, topic_filter := _TopicFilter} = _Sub, #consumer_timeout{}
 ) ->
-    ?tp(error, mq_sub_consumer_timeout, #{mq_topic_filter => _TopicFilter, sub => info(_Sub)}),
+    ?tp(error, mq_sub_consumer_timeout, #{mq_topic_filter => _TopicFilter, sub => inspect(_Sub)}),
     {error, recreate};
 handle_info(
     #{status := #connected{consumer_ref = ConsumerRef}, subscriber_ref := SubscriberRef} = Sub,
     #ping_consumer{}
 ) ->
-    % ?tp_debug(mq_sub_handle_info, #{sub => info(Sub), info_msg => ping}),
+    % ?tp_debug(mq_sub_handle_info, #{sub => inspect(Sub), info_msg => ping}),
     ok = emqx_mq_consumer:ping(ConsumerRef, SubscriberRef),
     {ok, reset_ping_timer(Sub)};
 handle_info(
     #{status := #connected{inflight = Inflight0, buffer = Buffer0, mq = MQ} = Status} = Sub0,
     #publish_retry{}
 ) ->
-    % ?tp_debug(mq_sub_handle_info_publish_retry_start, #{sub => info(Sub0)}),
+    % ?tp_debug(mq_sub_handle_info_publish_retry_start, #{sub => inspect(Sub0)}),
     NPublish = max_inflight(MQ) - map_size(Inflight0),
     {MessagesWithIds, Buffer} = emqx_mq_sub_buffer:take(Buffer0, NPublish),
     {Inflight, Messages0} = lists:foldl(
@@ -225,10 +225,10 @@ handle_info(
     Messages = lists:reverse(Messages0),
     Sub1 = cancel_publish_retry_timer(Sub0),
     Sub = Sub1#{status => Status#connected{inflight = Inflight, buffer = Buffer}},
-    % ?tp_debug(mq_sub_handle_info_publish_retry_end, #{sub => info(Sub), messages => Messages}),
+    % ?tp_debug(mq_sub_handle_info_publish_retry_end, #{sub => inspect(Sub), messages => Messages}),
     {ok, Sub, Messages};
 handle_info(Sub, _InfoMsg) ->
-    % ?tp_debug(mq_sub_handle_info, #{sub => info(Sub), info_msg => _InfoMsg}),
+    % ?tp_debug(mq_sub_handle_info, #{sub => inspect(Sub), info_msg => _InfoMsg}),
     {ok, Sub}.
 
 -spec handle_disconnect(t()) -> ok.
@@ -291,7 +291,7 @@ message_v1(SubscriberRef, ConsumerRef, Message) ->
 %%--------------------------------------------------------------------
 
 handle_connected(#{status := #connecting{mq = MQ}} = Sub0, ConsumerRef) ->
-    ?tp_debug(handle_connected, #{sub => info(Sub0), consumer_ref => ConsumerRef}),
+    ?tp_debug(handle_connected, #{sub => inspect(Sub0), consumer_ref => ConsumerRef}),
     Sub = Sub0#{
         status => #connected{
             mq = MQ,
@@ -313,7 +313,7 @@ handle_message(
     } = Sub0,
     Msg
 ) ->
-    % ?tp_debug(mq_sub_message, #{sub => info(Sub0), message => Msg}),
+    % ?tp_debug(mq_sub_message, #{sub => inspect(Sub0), message => Msg}),
     Buffer = emqx_mq_sub_buffer:add(Buffer0, Msg),
     Sub1 =
         case PublishRetryTRef of
@@ -335,7 +335,7 @@ do_handle_ack(
     MessageId,
     ?MQ_NACK
 ) ->
-    % ?tp_debug(mq_sub_handle_nack, #{sub => info(Sub0), message_id => MessageId}),
+    % ?tp_debug(mq_sub_handle_nack, #{sub => inspect(Sub0), message_id => MessageId}),
     Message = maps:get(MessageId, Inflight0),
     Buffer = emqx_mq_sub_buffer:add(Buffer0, Message),
     Inflight = maps:remove(MessageId, Inflight0),
@@ -344,7 +344,7 @@ do_handle_ack(
             0 ->
                 %% Channel rejected all our messages, probably it's busy.
                 %% We will retry to publish the messages later.
-                ?tp_debug(mq_sub_handle_nack_session_busy, #{sub => info(Sub0)}),
+                ?tp_debug(mq_sub_handle_nack_session_busy, #{sub => inspect(Sub0)}),
                 schedule_publish_retry(retry_interval(MQ), Sub0);
             _ ->
                 %% We do not try to refill the inflight buffer on NACK
@@ -367,7 +367,7 @@ do_handle_ack(
     MessageId,
     Ack
 ) ->
-    % ?tp_debug(mq_sub_handle_ack, #{sub => info(Sub0), message_id => MessageId, ack => Ack}),
+    % ?tp_debug(mq_sub_handle_ack, #{sub => inspect(Sub0), message_id => MessageId, ack => Ack}),
     Inflight = maps:remove(MessageId, Inflight0),
     ok = emqx_mq_consumer:ack(ConsumerRef, SubscriberRef, MessageId, Ack),
     Sub1 =
@@ -405,7 +405,7 @@ send_info_to_subscriber(SubscriberRef, InfoMsg) ->
 reset_consumer_timeout_timer(
     #{status := #connected{consumer_timeout_tref = TRef, mq = MQ} = Status} = Sub
 ) ->
-    % ?tp(warning, mq_sub_reset_consumer_timeout_timer, #{sub => info(Sub)}),
+    % ?tp(warning, mq_sub_reset_consumer_timeout_timer, #{sub => inspect(Sub)}),
     _ = emqx_utils:cancel_timer(TRef),
     Sub#{
         status => Status#connected{
@@ -467,7 +467,7 @@ cancel_timers(
 
 schedule_publish_retry(Interval, #{status := #connected{} = Status} = Sub0) ->
     Sub = cancel_publish_retry_timer(Sub0),
-    % ?tp_debug(mq_sub_schedule_publish_retry, #{sub => info(Sub), interval => Interval}),
+    % ?tp_debug(mq_sub_schedule_publish_retry, #{sub => inspect(Sub), interval => Interval}),
     Sub#{
         status => Status#connected{
             publish_retry_tref = send_after(Sub, Interval, #publish_retry{})
@@ -507,7 +507,7 @@ max_inflight(#{local_max_inflight := LocalMaxInflight} = _MQ) ->
 %% Introspection helpers
 %%--------------------------------------------------------------------
 
-status_info(
+status_inspect(
     #connected{
         buffer = Buffer,
         inflight = Inflight,
@@ -526,7 +526,7 @@ status_info(
         ping_tref => PingTRef,
         publish_retry_tref => PublishRetryTRef
     };
-status_info(#connecting{}) ->
+status_inspect(#connecting{}) ->
     #{name => connecting};
-status_info(#finding_mq{}) ->
+status_inspect(#finding_mq{}) ->
     #{name => finding_mq}.

@@ -19,7 +19,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
     progress/1,
     handle_ds_info/2,
     handle_ack/2,
-    info/1
+    inspect/1
 ]).
 
 -export([
@@ -168,15 +168,15 @@ handle_ack(
         _ ->
             ?tp(error, emqx_mq_consumer_streams_handle_ack_shard_not_found, #{
                 messages_id => MessagesId,
-                cs => info(CS)
+                cs => inspect(CS)
             }),
             CS
     end.
 
--spec info(t()) -> map().
-info(#cs{state = #{shards := Shards, streams := Streams}}) ->
+-spec inspect(t()) -> map().
+inspect(#cs{state = #{shards := Shards, streams := Streams}}) ->
     #{
-        shards => shards_info(Shards),
+        shards => shards_inspect(Shards),
         streams => Streams
     }.
 
@@ -414,7 +414,7 @@ do_handle_ds_reply(
     case emqx_mq_consumer_stream_buffer:handle_ds_reply(SB, Handle, DSReply) of
         {ok, Messages0, SB1} ->
             ?tp_debug(emqx_mq_consumer_streams_do_handle_ds_reply_ok, #{
-                slab => Slab, sb => emqx_mq_consumer_stream_buffer:info(SB1)
+                slab => Slab, sb => emqx_mq_consumer_stream_buffer:inspect(SB1)
             }),
             Messages = [
                 {{Slab, StreamMessageId}, emqx_mq_message_db:decode_message(Payload)}
@@ -468,14 +468,14 @@ init_shard_state(
         streams => Streams#{Stream => Shard}
     }.
 
-shards_info(Shards) ->
-    maps:map(fun(_Shard, ShardState) -> shard_info(ShardState) end, Shards).
+shards_inspect(Shards) ->
+    maps:map(fun(_Shard, ShardState) -> shard_inspect(ShardState) end, Shards).
 
-shard_info(#{status := active, stream_buffer := SB} = ShardState) ->
+shard_inspect(#{status := active, stream_buffer := SB} = ShardState) ->
     ShardState#{
-        stream_buffer => emqx_mq_consumer_stream_buffer:info(SB)
+        stream_buffer => emqx_mq_consumer_stream_buffer:inspect(SB)
     };
-shard_info(ShardState) ->
+shard_inspect(ShardState) ->
     ShardState.
 
 inc_received_message_stat(#ds_sub_reply{payload = {ok, _It, TTVs}}) ->
