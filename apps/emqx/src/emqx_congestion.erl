@@ -24,7 +24,7 @@
 -elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_congestion]}}]).
 
 -define(ALARM_CONN_CONGEST(Channel, Reason),
-    list_to_binary(
+    unicode:characters_to_binary(
         io_lib:format(
             "~ts/~ts/~ts",
             [
