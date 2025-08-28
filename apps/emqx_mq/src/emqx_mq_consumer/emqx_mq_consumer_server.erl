@@ -43,7 +43,9 @@ channels subscribed to a Message Queue.
 -define(shutdown_timer, shutdown_timer).
 -define(dispatch_timer, dispatch_timer).
 
--type dispatch_strategy() :: emqx_mq_types:dispatch_strategy().
+-type round_robin_iterator() :: maps:iterator(subscriber_ref(), subscriber_data()).
+
+-type dispatch_strategy() :: random | least_inflight | {round_robin, round_robin_iterator()}.
 
 -record(state, {
     mq :: emqx_mq_types:mq(),
@@ -154,7 +156,7 @@ handle_connect(#state{subscribers = Subscribers0} = State, SubscriberRef, Client
                 SubscriberRef => initial_subscriber_data(State, SubscriberRef, ClientId)
             },
             ok = send_connected_to_subscriber(SubscriberRef),
-            dispatch(update_client_timers(State#state{subscribers = Subscribers1}))
+            dispatch(handle_subscriber_change(State#state{subscribers = Subscribers1}))
     end.
 
 handle_disconnect(#state{subscribers = Subscribers0} = State0, SubscriberRef) ->
@@ -164,7 +166,7 @@ handle_disconnect(#state{subscribers = Subscribers0} = State0, SubscriberRef) ->
             Subscribers = maps:remove(SubscriberRef, Subscribers0),
             State1 = State0#state{subscribers = Subscribers},
             State = schedule_for_dispatch(State1, maps:keys(InflightMessages)),
-            dispatch(update_client_timers(State));
+            dispatch(handle_subscriber_change(State));
         _ ->
             State0
     end.
@@ -314,10 +316,10 @@ dispatch(#state{dispatch_queue = DispatchQueue} = State0) ->
 dispatch_message(
     MessageId,
     ExcludedSubscriberRefs,
-    #state{messages = Messages, dispatch_queue = DispatchQueue0} = State
+    #state{messages = Messages, dispatch_queue = DispatchQueue0} = State0
 ) ->
     Message = maps:get(MessageId, Messages),
-    PickResult = pick_subscriber(Message, ExcludedSubscriberRefs, State),
+    {PickResult, State} = pick_subscriber(Message, ExcludedSubscriberRefs, State0),
     ?tp_debug(mq_consumer_dispatch_message, #{
         message_id => MessageId,
         pick_result => PickResult,
@@ -346,6 +348,10 @@ dispatch_to_subscriber(
     ok = send_message_to_subscriber(SubscriberRef, MessageId, Message),
     State.
 
+handle_subscriber_change(State0) ->
+    State = update_dispatch_strategy(State0),
+    update_client_timers(State).
+
 update_client_timers(#state{subscribers = Subscribers} = State0) when map_size(Subscribers) =:= 0 ->
     State1 = cancel_timer(?ping_timer, State0),
     State2 = cancel_timer(?dispatch_timer, State1),
@@ -354,16 +360,30 @@ update_client_timers(#state{} = State0) ->
     State1 = ensure_timer(?ping_timer, State0),
     cancel_timer(?shutdown_timer, State1).
 
+update_dispatch_strategy(
+    #state{dispatch_strategy = {round_robin, _}, subscribers = Subscribers} = State
+) ->
+    State#state{dispatch_strategy = {round_robin, maps:iterator(Subscribers)}};
+update_dispatch_strategy(State) ->
+    State.
+
 %%--------------------------------------------------------------------
 %% Dispatch strategies
 %%--------------------------------------------------------------------
 
 pick_subscriber(Message, ExcludedSubscriberRefs, #state{dispatch_strategy = random} = State) ->
-    pick_subscriber_random(Message, ExcludedSubscriberRefs, State);
+    ?tp(warning, pick_subscriber, #{dispatch_strategy => random}),
+    {pick_subscriber_random(Message, ExcludedSubscriberRefs, State), State};
 pick_subscriber(
     Message, ExcludedSubscriberRefs, #state{dispatch_strategy = least_inflight} = State
 ) ->
-    pick_subscriber_least_inflight(Message, ExcludedSubscriberRefs, State).
+    ?tp(warning, pick_subscriber, #{dispatch_strategy => least_inflight}),
+    {pick_subscriber_least_inflight(Message, ExcludedSubscriberRefs, State), State};
+pick_subscriber(
+    Message, ExcludedSubscriberRefs, #state{dispatch_strategy = {round_robin, _}} = State
+) ->
+    ?tp(warning, pick_subscriber, #{dispatch_strategy => round_robin}),
+    pick_subscriber_round_robin(Message, ExcludedSubscriberRefs, State).
 
 %% Random dispatch strategy
 
@@ -404,6 +424,32 @@ pick_subscriber_least_inflight(
             no_subscriber;
         _ ->
             {ok, SubscriberRef}
+    end.
+
+%% Round robin dispatch strategy
+
+pick_subscriber_round_robin(
+    _Message,
+    ExcludedSubscriberRefs,
+    #state{dispatch_strategy = {round_robin, Iterator0}, subscribers = Subscribers} = State
+) ->
+    Seen0 = maps:from_keys(ExcludedSubscriberRefs, 0),
+    Seen = Seen0#{none => 0},
+    {Iterator, Result} = find_next_subscriber(maps:next(Iterator0), Subscribers, Seen),
+    {Result, State#state{dispatch_strategy = {round_robin, Iterator}}}.
+
+find_next_subscriber(none, Subscribers, #{none := 0} = Seen) ->
+    find_next_subscriber(maps:next(maps:iterator(Subscribers)), Subscribers, Seen#{none => 1});
+find_next_subscriber(none, Subscribers, #{none := 1} = _Seen) ->
+    {maps:iterator(Subscribers), no_subscriber};
+find_next_subscriber({SubscriberRef, _SubscriberData, NextIterator}, Subscribers, Seen) ->
+    case Seen of
+        #{SubscriberRef := 0} ->
+            find_next_subscriber(maps:next(NextIterator), Subscribers, Seen#{SubscriberRef => 1});
+        #{SubscriberRef := 1} ->
+            {NextIterator, no_subscriber};
+        _ ->
+            {NextIterator, {ok, SubscriberRef}}
     end.
 
 %%--------------------------------------------------------------------
@@ -450,6 +496,9 @@ dispatch_strategy(#{dispatch_strategy := random}) ->
     random;
 dispatch_strategy(#{dispatch_strategy := least_inflight}) ->
     least_inflight;
+dispatch_strategy(#{dispatch_strategy := round_robin}) ->
+    % will be initialized when the first subscriber connects
+    {round_robin, maps:iterator(#{})};
 dispatch_strategy(_) ->
     random.
 

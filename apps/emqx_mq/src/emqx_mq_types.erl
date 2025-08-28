@@ -24,7 +24,7 @@ The module contains basic types for the Message Queue application.
 -type mqid() :: binary().
 -type consumer_sup_id() :: mq_topic().
 
--type dispatch_strategy() :: random | least_inflight.
+-type dispatch_strategy() :: random | least_inflight | round_robin.
 
 -type mq() :: #{
     id => mqid(),

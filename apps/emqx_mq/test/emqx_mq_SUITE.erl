@@ -16,15 +16,15 @@
 -include("../src/emqx_mq_internal.hrl").
 
 all() ->
-    [{group, all}, {group, redispatch}].
+    [{group, all}, {group, random}, {group, least_inflight}, {group, round_robin}].
 
 groups() ->
-    All = emqx_common_test_helpers:all(?MODULE) -- [t_redispatch],
+    All = emqx_common_test_helpers:all(?MODULE) -- [t_redispatch, t_redispatch_delay],
     [
         {all, [], All},
-        {redispatch, [], [{group, random}, {group, least_inflight}]},
-        {random, [], [t_redispatch]},
-        {least_inflight, [], [t_redispatch]}
+        {random, [], [t_redispatch, t_redispatch_delay]},
+        {least_inflight, [], [t_redispatch, t_redispatch_delay]},
+        {round_robin, [], [t_redispatch, t_redispatch_delay]}
     ].
 
 init_per_suite(Config) ->
@@ -43,7 +43,9 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_group(DispatchStrategy, Config) when
-    DispatchStrategy =:= random; DispatchStrategy =:= least_inflight
+    DispatchStrategy =:= random;
+    DispatchStrategy =:= least_inflight;
+    DispatchStrategy =:= round_robin
 ->
     [{dispatch_strategy, DispatchStrategy} | Config];
 init_per_group(_Group, Config) ->
@@ -264,7 +266,7 @@ t_redispatch_on_disconnect(_Config) ->
     ok = emqtt:disconnect(OtherCSub).
 
 %% Cooperatively consume online messages with random dispatching
-t_random_dispatch(_Config) ->
+t_dispatch_random(_Config) ->
     %% Create a non-lastvalue Queue
     _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
 
@@ -306,8 +308,63 @@ t_random_dispatch(_Config) ->
     ?assert(length(Sub0Msgs) > 0),
     ?assert(length(Sub1Msgs) > 0).
 
+%% Cooperatively consume online messages with round-robin dispatching
+t_dispatch_round_robin(_Config) ->
+    %% Create a non-lastvalue Queue
+    _ = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>, is_lastvalue => false, dispatch_strategy => round_robin
+    }),
+
+    %% Subscribe to the queue
+    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    CSub2 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub2, <<"t/#">>),
+
+    %% Verify with snabbkaffe because of much asynchrony.
+    %% Messages may be received out of order
+    ?check_trace(
+        begin
+            %% Publish 6 messages to the queue
+            ok =
+                emqx_mq_test_utils:populate(
+                    6,
+                    fun(I) ->
+                        IBin = integer_to_binary(I),
+                        Payload = <<"payload-", IBin/binary>>,
+                        Topic = <<"t/", IBin/binary>>,
+                        {Topic, Payload}
+                    end
+                ),
+
+            %% Drain the messages
+            {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 6, _Timeout = 500),
+            ?assertEqual(6, length(Msgs))
+        end,
+        fun(Trace) ->
+            %% Verify the messages were dispatched cyclically by the subscribers
+            DispatchSubscribers =
+                [
+                    SubscriberRef
+                 || #{pick_result := {ok, SubscriberRef}} <- ?of_kind(
+                        mq_consumer_dispatch_message, Trace
+                    )
+                ],
+            ?assertEqual(6, length(DispatchSubscribers)),
+            {Head, Tail} = lists:split(3, DispatchSubscribers),
+            ?assertEqual(Head, Tail)
+        end
+    ),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub0),
+    ok = emqtt:disconnect(CSub1),
+    ok = emqtt:disconnect(CSub2).
+
 %% Cooperatively consume online messages with least inflight dispatching
-t_least_inflight_dispatch(_Config) ->
+t_dispatch_least_inflight(_Config) ->
     %% Create a non-lastvalue Queue
     _ =
         emqx_mq_test_utils:create_mq(#{
@@ -574,70 +631,7 @@ t_progress_restoration_full_buffer(_Config) ->
     ok = emqtt:disconnect(CSub1).
 
 %% Verify that the consumer re-dispatches the message to another subscriber
-%% if a subscriber rejected the message
-t_redispatch_on_reject_random(_Config) ->
-    %% Create a non-lastvalue Queue
-    _ =
-        emqx_mq_test_utils:create_mq(#{
-            topic_filter => <<"t/#">>,
-            is_lastvalue => false,
-            dispatch_strategy => random
-        }),
-
-    %% Connect two subscribers
-    CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
-
-    %% Publish 1 message to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            1,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
-
-    %% Receive the message and reject it
-    CSub =
-        receive
-            {publish, #{
-                topic := <<"t/0">>,
-                client_pid := Pid,
-                packet_id := PacketId
-            }} ->
-                ok = emqtt:puback(Pid, PacketId, ?RC_UNSPECIFIED_ERROR),
-                Pid
-        after 100 ->
-            ct:fail("t/0 message from MQ not received")
-        end,
-
-    %% Verify that the message is re-delivered to the other subscriber
-    OtherCSub =
-        case CSub of
-            CSub0 ->
-                CSub1;
-            CSub1 ->
-                CSub0
-        end,
-    receive
-        {publish, #{topic := <<"t/0">>, client_pid := OtherCSub}} ->
-            ok
-    after 100 ->
-        ct:fail("t/0 message from MQ not received by the other subscriber")
-    end,
-
-    %% Clean up
-    ok = emqtt:disconnect(CSub0),
-    ok = emqtt:disconnect(CSub1).
-
-%% Verify that the consumer re-dispatches the message to another subscriber
 %% immediately if a subscriber rejected the message
-%% (random & least_inflight dispatch strategies)
 t_redispatch(Config) ->
     %% Create a non-lastvalue Queue
     _ =
@@ -689,6 +683,58 @@ t_redispatch(Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub0),
     ok = emqtt:disconnect(CSub1).
+
+%% Verify that the consumer re-dispatches after a delay
+%% if a subscriber rejected the message and there are no other subscribers
+t_redispatch_delay(Config) ->
+    %% Create a non-lastvalue Queue
+    RedispatchInterval = 500,
+    _ =
+        emqx_mq_test_utils:create_mq(#{
+            topic_filter => <<"t/#">>,
+            is_lastvalue => false,
+            dispatch_strategy => ?config(dispatch_strategy, Config),
+            redispatch_interval => RedispatchInterval
+        }),
+
+    %% Connect two subscribers
+    CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+
+    %% Publish 1 message to the queue
+    ok = emqx_mq_test_utils:populate(1, fun(_I) -> {<<"t/0">>, <<"payload-0">>} end),
+
+    %% Receive the message and reject it
+    RecieveTime =
+        receive
+            {publish, #{
+                topic := <<"t/0">>,
+                client_pid := Pid,
+                packet_id := PacketId
+            }} ->
+                ok = emqtt:puback(Pid, PacketId, ?RC_UNSPECIFIED_ERROR),
+                now_ms()
+        after 100 ->
+            ct:fail("t/0 message from MQ not received")
+        end,
+
+    %% Verify that the message is re-delivered to the other subscriber
+    WaitTime = RedispatchInterval * 2,
+    receive
+        {publish, #{topic := <<"t/0">>, client_pid := CSub}} ->
+            ElapsedTime = now_ms() - RecieveTime,
+            ?assert(
+                ElapsedTime >= RedispatchInterval,
+                binfmt("Messsage received in ~p ms which is less than redispatch interval ~p ms", [
+                    ElapsedTime, RedispatchInterval
+                ])
+            )
+    after WaitTime ->
+        ct:fail("t/0 message from MQ not received by the other subscriber")
+    end,
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
 
 t_queue_deletion(_Config) ->
     %% Create a non-lastvalue Queue

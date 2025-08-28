@@ -424,13 +424,6 @@ do_handle_ds_reply(
             State = State0#{shards => Shards},
             {ok, Messages, CS#cs{state = State}};
         finished ->
-            ?tp(
-                warning,
-                mq_consumer_streams_do_handle_ds_reply_finished_complete_stream_start,
-                #{
-                    slab => Slab
-                }
-            ),
             State1 = State0#{
                 shards => Shards0#{
                     Shard => #{status => finished, generation => Generation}
@@ -439,9 +432,6 @@ do_handle_ds_reply(
             {DSC, #{shards := _Shards1} = State} = emqx_ds_client:complete_stream(
                 DSC0, SRef, State1
             ),
-            ?tp_debug(mq_consumer_streams_do_handle_ds_reply_finished_complete_stream_end, #{
-                slab => Slab, shards => maps:keys(_Shards1)
-            }),
             {ok, [], CS#cs{ds_client = DSC, state = State}}
     end.
 

@@ -16,11 +16,9 @@
 
 -export([create_mq/1]).
 
--export([populate/2, populate_lastvalue/2]).
+-export([populate/2, populate/3, populate_lastvalue/2, populate_lastvalue/3]).
 
 -export([cleanup_mqs/0, stop_all_consumers/0]).
-
--export([compile_variform/1]).
 
 -export([cth_config/0, cth_config/1]).
 
@@ -108,22 +106,32 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     MQ.
 
 populate(N, Fun) ->
+    populate(N, Fun, #{}).
+
+populate(N, Fun, Opts) ->
+    Interval = maps:get(interval, Opts, 0),
     C = emqx_mq_test_utils:emqtt_connect([]),
     lists:foreach(
         fun(I) ->
             {Topic, Payload} = Fun(I),
-            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload)
+            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload),
+            timer:sleep(Interval)
         end,
         lists:seq(0, N - 1)
     ),
     ok = emqtt:disconnect(C).
 
 populate_lastvalue(N, Fun) ->
+    populate_lastvalue(N, Fun, #{}).
+
+populate_lastvalue(N, Fun, Opts) ->
+    Interval = maps:get(interval, Opts, 0),
     C = emqx_mq_test_utils:emqtt_connect([]),
     lists:foreach(
         fun(I) ->
             {Topic, Payload, Key} = Fun(I),
-            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, Key)
+            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, Key),
+            timer:sleep(Interval)
         end,
         lists:seq(0, N - 1)
     ),
@@ -143,10 +151,6 @@ stop_all_consumers() ->
         end,
         ConsumerPids
     ).
-
-compile_variform(Expression) ->
-    {ok, Compiled} = emqx_variform:compile(Expression),
-    Compiled.
 
 cth_config() ->
     cth_config(#{}).

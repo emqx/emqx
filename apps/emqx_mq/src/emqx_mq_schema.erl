@@ -112,7 +112,7 @@ fields(message_queue) ->
                 default => <<"7d">>
             })},
         {dispatch_strategy,
-            mk(enum([random, least_inflight]), #{
+            mk(enum([random, least_inflight, round_robin]), #{
                 desc => ?DESC(dispatch_strategy),
                 required => false,
                 default => random
@@ -132,21 +132,6 @@ mk(Type, Meta) ->
     hoconsc:mk(Type, Meta).
 
 enum(Values) -> hoconsc:enum(Values).
-
-compile_variform(Expression, #{make_serializable := true}) ->
-    case is_binary(Expression) of
-        true ->
-            Expression;
-        false ->
-            emqx_variform:decompile(Expression)
-    end;
-compile_variform(Expression, _Opts) ->
-    case emqx_variform:compile(Expression) of
-        {ok, Compiled} ->
-            Compiled;
-        {error, Reason} ->
-            throw(#{expression => Expression, reason => Reason})
-    end.
 
 without_fields(FieldNames, Fields) ->
     lists:filter(
