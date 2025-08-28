@@ -2656,3 +2656,80 @@ create_rule_directly(#{<<"id">> := Id} = Opts0) ->
 fmt(FmtStr, Context) ->
     Template = emqx_template:parse(FmtStr),
     iolist_to_binary(emqx_template:render_strict(Template, Context)).
+
+-doc """
+A helper to construct the `groups/0` CT callback for suites where we run part of the test
+cases locally and part in a separate CTH cluster.
+
+It relies on tests that wish to run in the cluster to specify the `?FUNCION_NAME/0`
+callback, which should return a proplist with `{ClusterGroup, true}`.
+
+E.g.:
+
+```
+t_some_cluster_test() ->
+    [{cluster, true}].
+t_some_cluster_test(TCConfig) ->
+    ...
+```
+
+Test cases that don't set `{ClusterGroup, true}` will run in the `LocalGroup`.
+
+# Params
+
+  * `LocalGroup` - the group name that identifies local tests (typically `local`).
+  * `ClusterGroup` - the group name that identifies cluster tests (typically `cluster`).
+
+""".
+local_and_cluster_groups(Module, LocalGroup, ClusterGroup) ->
+    AllTCs0 = emqx_common_test_helpers:all_with_matrix(Module),
+    AllTCs = lists:filter(
+        fun
+            ({group, _}) -> false;
+            (_) -> true
+        end,
+        AllTCs0
+    ),
+    CustomMatrix0 = emqx_common_test_helpers:groups_with_matrix(Module),
+    CustomMatrix = lists:filter(
+        fun
+            (Spec) when element(1, Spec) == ClusterGroup ->
+                false;
+            (_) ->
+                true
+        end,
+        CustomMatrix0
+    ),
+    ClusterTCs0 = cluster_testcases(Module, ClusterGroup),
+    LocalTCs = merge_custom_groups(
+        ClusterGroup, (AllTCs ++ CustomMatrix) -- ClusterTCs0, CustomMatrix
+    ),
+    ClusterTCs = merge_custom_groups(ClusterGroup, ClusterTCs0, CustomMatrix),
+    [
+        {ClusterGroup, ClusterTCs},
+        {LocalGroup, LocalTCs}
+    ].
+
+merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
+    CustomMatrix =
+        lists:flatmap(
+            fun
+                ({G, _, SubGroup}) when G == RootGroup ->
+                    SubGroup;
+                (_) ->
+                    []
+            end,
+            CustomMatrix0
+        ),
+    CustomMatrix ++ GroupTCs.
+
+cluster_testcases(Module, ClusterKey) ->
+    lists:filter(
+        fun
+            ({testcase, TestCase, _Opts}) ->
+                emqx_common_test_helpers:get_tc_prop(Module, TestCase, ClusterKey, false);
+            (TestCase) ->
+                emqx_common_test_helpers:get_tc_prop(Module, TestCase, ClusterKey, false)
+        end,
+        emqx_common_test_helpers:all(Module)
+    ).
