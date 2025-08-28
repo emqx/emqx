@@ -32,7 +32,8 @@
             sockname => {{127, 0, 0, 1}, 1883},
             peercert => nossl,
             conn_mod => emqx_connection,
-            receive_maximum => 100
+            receive_maximum => 100,
+            expiry_interval => 0
         }
 }).
 
