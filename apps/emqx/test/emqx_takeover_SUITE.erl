@@ -846,7 +846,7 @@ t_ongoing_takeover(Config) ->
 
     true = emqx:get_config([broker, enable_session_registry]),
 
-    _ = start_client(InitCtx, ClientId, Topic, QoS, ClientOpts),
+    _ = start_client_async_subscribe(InitCtx, ClientId, Topic, QoS, ClientOpts),
     ?retry(
         3_000,
         100,
@@ -857,12 +857,12 @@ t_ongoing_takeover(Config) ->
     sys:suspend(ServerPid1),
 
     %% GIVEN: A ongoing session takeover stuck
-    _ = start_client(InitCtx, ClientId, Topic, QoS, ClientOpts),
+    _ = start_client_async_subscribe(InitCtx, ClientId, Topic, QoS, ClientOpts),
 
     timer:sleep(500),
 
     %% WHEN: Yet another client connects to takeover
-    _ = start_client(InitCtx, ClientId, Topic, QoS, ClientOpts),
+    _ = start_client_async_subscribe(InitCtx, ClientId, Topic, QoS, ClientOpts),
 
     {ok, CPid} = emqtt:start_link([{clientid, ClientId} | ClientOpts]),
 
@@ -939,8 +939,18 @@ stop_the_last_client(Ctx = #{client := [CPid | _]}) ->
 
 start_connect_client(ClientId, Opts) ->
     {ok, CPid} = emqtt:start_link([{clientid, ClientId} | Opts]),
-    {ok, _} = emqtt:connect(CPid),
-    CPid.
+    unlink(CPid),
+    case emqtt:connect(CPid) of
+        {ok, _} ->
+            link(CPid),
+            CPid;
+        {error, {server_busy, _}} ->
+            timer:sleep(10),
+            ct:pal("server busy, clientid=~s retry connect after delay", [ClientId]),
+            start_connect_client(ClientId, Opts);
+        {error, Reason} ->
+            error(Reason)
+    end.
 
 assert_messages_missed(Ls1, Ls2) ->
     Missed = lists:filtermap(
