@@ -1226,11 +1226,14 @@ shared_subscription_initial_sticky_pick_enum.desc:
  - `hash_clientid`: Hash the publisher's client ID to select a subscriber;
  - `hash_topic`: Hash the publishing topic to select a subscriber."""
 
-mqtt_mqueue_store_qos0.desc:
-"""Specifies whether to store QoS 0 messages in the message queue while the connection is down but the session remains."""
+mqtt_mqueue_store_qos0.desc: """~
+  Controls how QoS 0 messages are handled when the client connection is down or the inflight window (used for QoS 1 and 2) is full.
+  - When set to `true`, QoS 0 messages are buffered in the session’s message queue.
+  - When set to `false`, QoS 0 messages are dropped immediately.
+  This setting applies only to non-durable sessions.~"""
 
 mqtt_mqueue_store_qos0.label:
-"""Store QoS 0 Message"""
+"""Buffer QoS 0 Messages"""
 
 server_ssl_opts_schema_client_renegotiation.desc:
 """In protocols that support client-initiated renegotiation,
