@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(CM, emqx_cm).
 -define(ChanInfo, #{
@@ -32,7 +33,8 @@
             sockname => {{127, 0, 0, 1}, 1883},
             peercert => nossl,
             conn_mod => emqx_connection,
-            receive_maximum => 100
+            receive_maximum => 100,
+            expiry_interval => 0
         }
 }).
 
@@ -503,9 +505,10 @@ t_clientid_registration_throttled(_) ->
         username => <<"username">>,
         peerhost => {127, 0, 0, 1}
     },
-    DeadPid = spawn(fun() -> exit(normal) end),
+    {DeadPid, MRef} = spawn_monitor(fun() -> exit(normal) end),
     ChanInfo = ?ChanInfo,
     #{conninfo := ConnInfo} = ChanInfo,
+    ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
     ok = emqx_cm:register_channel(ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}),
     ?assertEqual({error, client_id_unavailable}, open_session(true, ClientInfo, ConnInfo)),
     true = emqx_cm:do_unregister_channel({ClientId, DeadPid}),
