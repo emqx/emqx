@@ -58,6 +58,11 @@
     set_subopts/2
 ]).
 
+-export([
+    ensure_sub_socket/2,
+    remove_sub_socket/1
+]).
+
 -export([topics/0]).
 
 %% gen_server callbacks
@@ -129,7 +134,8 @@ create_tabs() ->
     %% bag: O(n) insert
     %% However, the factor is small: high-fanout topics are _sharded_ into
     %% buckets of constant length (e.g. 1024).
-    ok = emqx_utils_ets:new(?SUBSCRIBER, [bag | TabOpts]).
+    ok = emqx_utils_ets:new(?SUBSCRIBER, [bag | TabOpts]),
+    ok = emqx_utils_ets:new(?SUB_SOCKET, [ordered_set | TabOpts]).
 
 -spec init_config() -> ok.
 init_config() ->
@@ -143,6 +149,16 @@ init_config() ->
 %%------------------------------------------------------------------------------
 %% Subscribe API
 %%------------------------------------------------------------------------------
+
+-spec ensure_sub_socket(pid(), Socket :: term()) -> ok.
+ensure_sub_socket(SubPid, Socket) ->
+    true = ets:insert(?SUB_SOCKET, {SubPid, Socket}),
+    ok.
+
+-spec remove_sub_socket(pid()) -> ok.
+remove_sub_socket(SubPid) ->
+    _ = ets:delete(?SUB_SOCKET, SubPid),
+    ok.
 
 -spec subscribe(emqx_types:topic() | emqx_types:share()) -> ok.
 subscribe(Topic) when ?IS_TOPIC(Topic) ->
@@ -774,12 +790,37 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
             {ok, DispN}
     end.
 
+do_dispatch_chans(_Deliver, [], N) ->
+    N;
+do_dispatch_chans({deliver, _Topic, Msg} = Deliver, Subscribers, N) ->
+    case Msg#message.extra of
+        #{fast_forward := #{proto_ver := ProtoVer}} ->
+            Packet = emqx_message:to_packet(undefined, Msg),
+            Opts = #{version => ProtoVer, max_size => infinity, strict_mode => false},
+            IoData = emqx_frame:serialize_pkt(Packet, Opts),
+            do_dispatch_fast_forward(Deliver, Subscribers, IoData, N);
+        _ ->
+            do_dispatch_regular(Deliver, Subscribers, N)
+    end.
+
+do_dispatch_fast_forward(Deliver, [SubPid | Rest], IoData, N) ->
+    _ =
+        case ets:lookup(?SUB_SOCKET, SubPid) of
+            [{_, Socket}] ->
+                socket:send(Socket, IoData);
+            [] ->
+                erlang:send(SubPid, Deliver)
+        end,
+    do_dispatch_fast_forward(Deliver, Rest, IoData, N + 1);
+do_dispatch_fast_forward(_Deliver, [], _IoData, N) ->
+    N.
+
 %% Don't dispatch to share subscriber here.
 %% we do it in `emqx_shared_sub.erl` with configured strategy
-do_dispatch_chans(Deliver, [SubPid | Rest], N) ->
-    SubPid ! Deliver,
-    do_dispatch_chans(Deliver, Rest, N + 1);
-do_dispatch_chans(_Deliver, [], N) ->
+do_dispatch_regular(Deliver, [SubPid | Rest], N) ->
+    _ = erlang:send(SubPid, Deliver),
+    do_dispatch_regular(Deliver, Rest, N + 1);
+do_dispatch_regular(_Deliver, [], N) ->
     N.
 
 do_dispatch_shards(Topic, Deliver, [I | Rest], N0) ->
@@ -798,8 +839,6 @@ do_dispatch_shards_async(Topic, Msg, [I | Rest], N) ->
     do_dispatch_shards_async(Topic, Msg, Rest, N + 1);
 do_dispatch_shards_async(_Topic, _Msg, [], N) ->
     N.
-
-%%
 
 assert_ok_result(ok) -> ok;
 assert_ok_result(Ref) when is_reference(Ref) -> ok.

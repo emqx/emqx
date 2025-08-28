@@ -16,5 +16,6 @@
 -define(SUBOPTION, emqx_suboption).
 -define(SUBSCRIBER, emqx_subscriber).
 -define(SUBSCRIPTION, emqx_subscription).
+-define(SUB_SOCKET, emqx_subsocket).
 
 -endif.

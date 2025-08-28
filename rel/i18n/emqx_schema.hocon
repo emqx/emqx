@@ -1112,7 +1112,7 @@ fields_ws_opts_supported_subprotocols.label:
 
 mqtt_shared_subscription_strategy.desc: """~
   Dispatch strategy for shared subscription.
-  EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client’s connection state**.  
+  EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client's connection state**.
   If the publishing client disconnects and reconnects, this state is lost and must be re-initialized
 
   - `random`: Randomly select a subscriber for dispatch;
@@ -1290,7 +1290,7 @@ fields_deflate_opts_strategy.label:
 
 shared_subscription_strategy_enum.desc: """~
   Dispatch strategy for shared subscription.
-  EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client’s connection state**.  
+  EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client's connection state**.
   If the publishing client disconnects and reconnects, this state is lost and must be re-initialized
 
   - `random`: Randomly select a subscriber for dispatch;
@@ -1313,6 +1313,19 @@ mqtt_mqueue_store_qos0.desc:
 
 mqtt_mqueue_store_qos0.label:
 """Store QoS 0 Message"""
+
+mqtt_fast_forward_qos0.desc: """~
+  When enabled, QoS 0 messages will be forwarded directly to subscriber sockets without entering the session state. If the socket buffer is full, the message is silently dropped.
+  Fast forwarding improves message delivery latency but has the following limitations:
+  - Publisher and subscriber must use the same MQTT version.
+  - No support for subscription identifier.
+  - No support for topic alias.
+  - No metrics are recorded for these messages.
+  - No events are emitted when messages are dropped.
+  - Message ordering becomes non-deterministic when mixed with QoS 1 and 2 messages that route through subscriber sessions.~"""
+
+mqtt_fast_forward_qos0.label:
+"""Fast Forward QoS 0"""
 
 server_ssl_opts_schema_client_renegotiation.desc:
 """In protocols that support client-initiated renegotiation,

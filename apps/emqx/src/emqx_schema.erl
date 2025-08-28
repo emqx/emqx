@@ -4074,6 +4074,15 @@ mqtt_session() ->
                     importance => ?IMPORTANCE_LOW
                 }
             )},
+        {fast_forward_qos0,
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(mqtt_fast_forward_qos0),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {"max_mqueue_len",
             sc(
                 hoconsc:union([non_neg_integer(), infinity]),
