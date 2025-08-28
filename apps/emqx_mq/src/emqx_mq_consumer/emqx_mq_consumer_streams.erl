@@ -76,7 +76,6 @@ The module holds a stream_buffers for all streams of a single Message Queue.
     streams := #{
         emqx_ds:stream() => emqx_ds:shard()
     },
-    initial_generations := #{emqx_ds:shard() => emqx_ds:generation()},
     shards := #{emqx_ds:shard() => shard_state()}
 }.
 
@@ -101,8 +100,7 @@ new(MQ, Progress) ->
     State0 = #{
         mq => MQ,
         streams => #{},
-        shards => #{},
-        initial_generations => emqx_mq_message_db:initial_generations(MQ)
+        shards => #{}
     },
     State1 = restore_streams(State0, Progress),
     DSClient0 = emqx_mq_message_db:create_client(?MODULE),
@@ -187,7 +185,7 @@ info(#cs{state = #{shards := Shards, streams := Streams}}) ->
 %%--------------------------------------------------------------------
 
 get_current_generation(?SUB_ID, Shard, #{
-    shards := Shards, initial_generations := InitialGenerations
+    shards := Shards
 }) ->
     Result =
         case Shards of
@@ -196,7 +194,7 @@ get_current_generation(?SUB_ID, Shard, #{
             #{Shard := #{generation := Generation}} ->
                 Generation;
             _ ->
-                maps:get(Shard, InitialGenerations, 0)
+                0
         end,
     ?tp_debug(emqx_mq_consumer_streams_get_current_generation, #{
         shard => Shard, result => Result
