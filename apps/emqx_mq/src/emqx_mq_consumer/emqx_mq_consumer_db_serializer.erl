@@ -128,7 +128,7 @@ pack_buffer_progress(#{it := It, last_message_id := LastMessageId, unacked := Un
     #'StreamBufferProgress'{
         it = pack_it(It),
         lastMessageId = pack_last_message_id(LastMessageId),
-        unacked = Unacked
+        unacked = maps:keys(emqx_mq_utils:merge_maps(Unacked))
     }.
 
 pack_consumer_ref(ConsumerRef) ->
@@ -173,7 +173,7 @@ unpack_buffer_progress(
     #{
         it => unpack_it(ItPacked),
         last_message_id => unpack_last_message_id(LastMessageIdPacked),
-        unacked => Unacked
+        unacked => [maps:from_keys(Unacked, true)]
     }.
 
 unpack_consumer_ref(ConsumerRefBin) ->

@@ -76,7 +76,7 @@ The module represents a consumer of a single stream of the Message Queue data.
     #{
         it := emqx_ds:iterator(),
         last_message_id := message_id(),
-        unacked := [message_id()]
+        unacked := [#{message_id() => true}]
     }.
 
 -export_type([t/0, progress/0, options/0]).
@@ -107,13 +107,13 @@ new(StartIterator, MQ) ->
 restore(#{last_message_id := undefined, it_begin := It}, MQ) ->
     new(It, MQ);
 %% The previous buffer saw some messages, so we need to restore the buffer from the saved state
-restore(#{it := It, last_message_id := LastMessageId, unacked := Unacked}, MQ) ->
+restore(#{it := It, last_message_id := LastMessageId, unacked := UnackedMaps}, MQ) ->
     #{
         status => restoring,
         mq => MQ,
         options => handle_options(MQ),
         it_begin => It,
-        unacked => maps:from_keys(Unacked, true),
+        unacked => emqx_mq_utils:merge_maps(UnackedMaps),
         actual_unacked => #{},
         last_message_id => LastMessageId,
         messages => []
@@ -234,7 +234,7 @@ handle_ack(
                     {true, UpperBuffer} ->
                         SB0#{upper_buffer => UpperBuffer};
                     false ->
-                        error({message_not_found, MessageId})
+                        SB0
                 end
         end,
     compact(SB).
@@ -255,7 +255,7 @@ progress(
             #{unacked := Unacked} ->
                 Unacked
         end,
-    AllUnacked = maps:keys(maps:merge(LowerUnacked, UpperUnacked)),
+    AllUnacked = [LowerUnacked, UpperUnacked],
     #{it => ItBegin, last_message_id => LastMessageId, unacked => AllUnacked};
 progress(
     #{
@@ -265,7 +265,7 @@ progress(
         unacked := Unacked
     } = _SB
 ) ->
-    #{it => ItBegin, last_message_id => LastMessageId, unacked => maps:keys(Unacked)}.
+    #{it => ItBegin, last_message_id => LastMessageId, unacked => [Unacked]}.
 
 -spec iterator(t()) -> emqx_ds:iterator() | end_of_stream.
 iterator(#{status := active, lower_buffer := #{it_begin := ItBegin}} = _SB) ->

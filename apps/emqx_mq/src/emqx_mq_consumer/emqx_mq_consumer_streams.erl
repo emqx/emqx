@@ -216,7 +216,9 @@ on_advance_generation(
                 old_generation => OldGeneration,
                 new_generation => Generation
             }),
-            State;
+            State#{
+                shards => Shards#{Shard => #{status => finished, generation => Generation - 1}}
+            };
         _ ->
             State#{
                 shards => Shards#{Shard => #{status => finished, generation => Generation - 1}}
