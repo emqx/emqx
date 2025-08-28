@@ -11,7 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_channel.hrl").
 
--define(CLIENT_ID, <<"client_with_session">>).
+-define(CLIENT_ID, iolist_to_binary(["client_with_session-", atom_to_list(?FUNCTION_NAME)])).
 
 -import(
     emqx_eviction_agent_test_helpers,
