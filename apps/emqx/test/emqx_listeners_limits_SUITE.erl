@@ -33,6 +33,8 @@ init_per_group(Group, Config) ->
 end_per_group(_Group, Config) ->
     Config.
 
+%% Verify "total number of connections" limit is respected per listener.
+%% Connections over limit are expected to be quickly rejected.
 t_max_conns(Config) ->
     Type = ?config(proto, Config),
     Name = ?FUNCTION_NAME,
@@ -69,6 +71,9 @@ t_max_conns(Config) ->
         ok = emqtt:disconnect(ExtraClient)
     end).
 
+%% Verify connection rate limit is respected per listener.
+%% The limit for the whole listnener, regardless of configured number of acceptors.
+%% Connections exceeding specified connection rate are expected to be quickly rejected.
 t_max_conn_rate(Config) ->
     Type = ?config(proto, Config),
     Name = ?FUNCTION_NAME,
@@ -108,14 +113,66 @@ t_max_conn_rate(Config) ->
         lists:foreach(fun emqtt:disconnect/1, Clients ++ ExtraClients)
     end).
 
+%% Verify connection rate limit takes effect as soon as it's updated.
+t_max_conn_rate_update(Config) ->
+    Type = ?config(proto, Config),
+    Name = ?FUNCTION_NAME,
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    LConf = listener_config(
+        Type,
+        #{
+            <<"bind">> => format_bind({"127.0.0.1", Port}),
+            <<"max_conn_rate">> => <<"1/1s">>,
+            <<"max_conn_burst">> => <<"1/1m">>
+        },
+        Config
+    ),
+    with_listener(Type, Name, LConf, fun() ->
+        %% Spawn 3 connections:
+        %% NOTE
+        %% All of them should be allowed as burst capacity are currently computed
+        %% as sum of burst _and_ regular rate tokens.
+        Clients1 = emqx_utils:pmap(
+            fun(_) -> emqtt_connect("127.0.0.1", Port, Config) end,
+            [1, 2, 3]
+        ),
+        ?assertEqual([pong], lists:usort([emqtt:ping(C) || C <- Clients1])),
+        %% One more client, both rate and burst limits are exhausted:
+        assert_connect_refused("127.0.0.1", Port, Config),
+        %% Wait for listener to cool down:
+        ok = timer:sleep(1000),
+        %% One more client should be allowed now, more bursts are not allowed:
+        Client2 = emqtt_connect("127.0.0.1", Port, Config),
+        ?assertEqual(pong, emqtt:ping(Client2)),
+        assert_connect_refused("127.0.0.1", Port, Config),
+        %% Update the limit, allowing for much higher bursts:
+        ?assertMatch(
+            {ok, _},
+            emqx:update_config(
+                [listeners, Type, Name],
+                {update, #{<<"max_conn_burst">> => <<"20/1m">>}}
+            )
+        ),
+        %% Connection burst should be allowed right after:
+        Clients3 = emqx_utils:pmap(
+            fun(_) -> emqtt_connect("127.0.0.1", Port, Config) end,
+            lists:seq(1, 10)
+        ),
+        ?assertEqual([pong], lists:usort([emqtt:ping(C) || C <- Clients3])),
+        %% Cleanup:
+        lists:foreach(fun emqtt:disconnect/1, Clients1 ++ [Client2] ++ Clients3)
+    end).
+
 assert_connect_refused(Host, Port, Config) ->
     Type = ?config(proto, Config),
     try emqtt_connect(Host, Port, Config) of
         Client -> error({"Connection accepted over capacity", Client})
     catch
-        error:{tcp_closed, _} when Type == tcp -> ok;
+        error:closed when Type == tcp -> ok;
         error:{closed, _} when Type == tcp -> ok;
+        error:{tcp_closed, _} when Type == tcp -> ok;
         error:{ws_upgrade_failed, closed} when Type == ws -> ok;
+        error:{ws_upgrade_failed, {error, closed}} when Type == ws -> ok;
         error:timeout when Type == wss -> ok
     end.
 
