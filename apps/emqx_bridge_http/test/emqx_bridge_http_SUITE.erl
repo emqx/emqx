@@ -348,20 +348,17 @@ t_send_get_trace_messages(TCConfig) ->
             emqx_bridge_v2_testlib:get_rule_metrics(RuleId)
         )
     ),
-    %% NOTE: See `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
-    ?retry(2 * 200, 20, begin
-        emqx_trace:check(),
-        {200, #{<<"items">> := Bin}} = trace_log_stream_api(TraceName, #{
-            query_params => #{
-                <<"bytes">> => integer_to_binary(1 bsl 20)
-            }
-        }),
-        ?assertNotEqual(nomatch, binary:match(Bin, [<<"rule_activated">>])),
-        ?assertNotEqual(nomatch, binary:match(Bin, [<<"SQL_yielded_result">>])),
-        ?assertNotEqual(nomatch, binary:match(Bin, [<<"bridge_action">>])),
-        ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_template_rendered">>])),
-        ?assertNotEqual(nomatch, binary:match(Bin, [<<"QUERY_ASYNC">>]))
-    end),
+    emqx_trace:check(),
+    {200, #{<<"items">> := Bin}} = trace_log_stream_api(TraceName, #{
+        query_params => #{
+            <<"bytes">> => integer_to_binary(1 bsl 20)
+        }
+    }),
+    ?assertNotEqual(nomatch, binary:match(Bin, [<<"rule_activated">>])),
+    ?assertNotEqual(nomatch, binary:match(Bin, [<<"SQL_yielded_result">>])),
+    ?assertNotEqual(nomatch, binary:match(Bin, [<<"bridge_action">>])),
+    ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_template_rendered">>])),
+    ?assertNotEqual(nomatch, binary:match(Bin, [<<"QUERY_ASYNC">>])),
     ok.
 
 t_async_free_retries(TCConfig) ->

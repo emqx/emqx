@@ -1125,9 +1125,7 @@ trigger_rule_test_trace_flow(Opts) ->
 
 get_test_trace_log(TraceName) ->
     URL = emqx_mgmt_api_test_util:api_path(["trace", TraceName, "log"]),
-    QueryParams = #{
-        <<"bytes">> => integer_to_binary(trunc(math:pow(2, 30)))
-    },
+    QueryParams = #{<<"bytes">> => integer_to_binary(1 bsl 24)},
     maybe
         {200, #{<<"items">> := Bin}} ?=
             simple_request(#{

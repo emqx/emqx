@@ -31,13 +31,15 @@
 
 -export([validate_name/1]).
 
-%% for rpc
+%% RPC Targets:
 -export([
-    read_trace_file/3,
-    get_trace_size/0
+    get_trace_size/0,
+    get_trace_details/1,
+    read_trace_file/3
 ]).
 
--define(MAX_SINT32, 2147483647).
+-define(MAX_READ_TRACE_BYTES, 64 * 1024 * 1024).
+-define(STREAM_TRACE_RETRY_TIMEOUT, 20).
 
 -define(TO_BIN(_B_), iolist_to_binary(_B_)).
 -define(NOT_FOUND_WITH_MSG(N), ?NOT_FOUND(?TO_BIN([N, " NOT FOUND"]))).
@@ -176,10 +178,10 @@ schema("/trace/:name/log") ->
                 200 =>
                     [
                         {items, hoconsc:mk(binary(), #{example => "TEXT-LOG-ITEMS"})},
-                        {meta, fields(bytes) ++ fields(position)}
+                        {meta, fields(bytes) ++ fields(position) ++ fields(stream_hint)}
                     ],
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Bad input parameter">>
+                    ['BAD_REQUEST', 'INVALID_PARAMETER', 'STALE_CURSOR'], <<"Bad input parameter">>
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND', 'NODE_ERROR'], <<"Trace Name or Node Not Found">>
@@ -359,9 +361,7 @@ fields(bytes) ->
     [
         {bytes,
             hoconsc:mk(
-                %% This seems to be the minimum max value we may encounter
-                %% across different OS
-                range(0, ?MAX_SINT32),
+                range(0, ?MAX_READ_TRACE_BYTES),
                 #{
                     description => ?DESC(max_response_bytes),
                     in => query,
@@ -374,12 +374,24 @@ fields(position) ->
     [
         {position,
             hoconsc:mk(
-                integer(),
+                hoconsc:union([integer(), binary()]),
                 #{
-                    description => ?DESC(current_trace_offset),
+                    description => ?DESC(current_trace_cursor),
                     in => query,
                     required => false,
                     default => 0
+                }
+            )}
+    ];
+fields(stream_hint) ->
+    [
+        {hint,
+            hoconsc:mk(
+                hoconsc:enum([eof, retry]),
+                #{
+                    description => ?DESC(current_trace_stream_hint),
+                    in => query,
+                    required => false
                 }
             )}
     ].
@@ -410,16 +422,14 @@ trace(get, _Params) ->
                 fun(#{start_at := A}, #{start_at := B}) -> A > B end,
                 List0
             ),
-            Now = erlang:system_time(second),
+            Now = emqx_trace:now_second(),
             Nodes = emqx:running_nodes(),
-            TraceSize = wrap_rpc(emqx_mgmt_trace_proto_v2:get_trace_size(Nodes)),
-            AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
+            AllTraceSizes = cluster_get_trace_size(),
             Traces =
                 lists:map(
-                    fun(TraceIn = #{name := Name, start_at := Start}) ->
+                    fun(TraceIn = #{name := Name}) ->
                         Trace = format_trace(TraceIn, Now, Nodes),
-                        FileName = emqx_trace:filename(Name, Start),
-                        LogSize = collect_file_size(Nodes, FileName, AllFileSize),
+                        LogSize = collect_file_size(Nodes, Name, AllTraceSizes),
                         Trace#{log_size => LogSize}
                     end,
                     List
@@ -479,11 +489,10 @@ mk_trace(Params, Namespace) ->
     }.
 
 format_trace(Trace) ->
-    format_trace(Trace, erlang:system_time(second), emqx:running_nodes()).
+    format_trace(Trace, emqx_trace:now_second(), emqx:running_nodes()).
 
 format_trace(
     Trace = #{
-        enable := Enable,
         name := Name,
         start_at := Start,
         end_at := End,
@@ -503,8 +512,8 @@ format_trace(
         type => Type,
         Type => iolist_to_binary(Filter),
         start_at => emqx_utils_calendar:epoch_to_rfc3339(Start, second),
-        end_at => emqx_utils_calendar:epoch_to_rfc3339(Start, second),
-        status => status(Enable, Start, End, Now),
+        end_at => emqx_utils_calendar:epoch_to_rfc3339(End, second),
+        status => emqx_trace:status(Trace, Now),
         log_size => LogSize
     }.
 
@@ -523,12 +532,13 @@ update_trace(put, #{bindings := #{name := Name}}) ->
 %% if HTTP request headers include accept-encoding: gzip and file size > 300 bytes.
 %% cowboy_compress_h will auto encode gzip format.
 download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) ->
-    case emqx_trace:get_trace_filename(Name) of
-        {ok, TraceLog} ->
+    case emqx_trace:get(Name) of
+        {ok, Trace} ->
             case parse_node(Query, undefined) of
+                {ok, undefined} ->
+                    gather_trace_logs(Trace, supported_running_nodes());
                 {ok, Node} ->
-                    TraceFiles = collect_trace_file(Node, TraceLog),
-                    maybe_download_trace_log(Name, TraceLog, TraceFiles);
+                    gather_trace_logs(Trace, [Node]);
                 {error, not_found} ->
                     ?NOT_FOUND_WITH_MSG(<<"Node">>)
             end;
@@ -536,29 +546,95 @@ download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) -
             ?NOT_FOUND_WITH_MSG(Name)
     end.
 
-maybe_download_trace_log(Name, TraceLog, TraceFiles) ->
-    case group_trace_files(TraceLog, TraceFiles) of
-        #{nonempty := Files} ->
-            do_download_trace_log(Name, TraceLog, Files);
-        #{error := Reasons} ->
-            ?INTERNAL_ERROR(Reasons);
-        #{empty := _} ->
-            ?NOT_FOUND(<<"Trace is empty">>)
-    end.
-
-do_download_trace_log(Name, TraceLog, TraceFiles) ->
+gather_trace_logs(Trace = #{name := Name}, Nodes) ->
     %% We generate a session ID so that we name files
     %% with unique names. Then we won't cause
     %% overwrites for concurrent requests.
     SessionId = emqx_utils:gen_id(),
     ZipDir = filename:join([emqx_trace:zip_dir(), SessionId]),
-    ok = file:make_dir(ZipDir),
+    NodeResults = [{N, stream_trace_log_into(N, Trace, ZipDir)} || N <- Nodes],
+    Result = maps:groups_from_list(
+        fun
+            ({_Node, {ok, 0, _}}) ->
+                empty;
+            ({_Node, {ok, _, _}}) ->
+                nonempty;
+            ({_Node, {error, {file_error, enoent}}}) ->
+                empty;
+            ({_Node, {error, not_found}}) ->
+                empty;
+            ({Node, {error, Reason}}) ->
+                ?SLOG(error, #{
+                    msg => "stream_trace_log_error",
+                    node => Node,
+                    trace => Name,
+                    reason => Reason
+                }),
+                error
+        end,
+        NodeResults
+    ),
+    case Result of
+        #{nonempty := NonEmpty = [_ | _]} ->
+            TraceFiles = [Filename || {_Node, {ok, _, Filename}} <- NonEmpty],
+            serve_trace_log_archive(Trace, ZipDir, TraceFiles);
+        #{error := Reasons} ->
+            ok = file:del_dir_r(ZipDir),
+            ?INTERNAL_ERROR(Reasons);
+        #{empty := _} ->
+            ?NOT_FOUND(<<"Trace is empty">>)
+    end.
+
+stream_trace_log_into(Node, Trace = #{name := Name}, ZipDir) ->
+    Filename = atom_to_list(Node) ++ "-" ++ emqx_trace:log_filename(Trace),
+    Filepath = filename:join(ZipDir, Filename),
+    case stream_trace_log(Node, Name, Filepath) of
+        NWritten when is_integer(NWritten) ->
+            {ok, NWritten, Filename};
+        Error ->
+            Error
+    end.
+
+stream_trace_log(Node, Name, Filepath) ->
+    case node_stream_trace_log(Node, Name, start, undefined) of
+        {ok, <<>>, {eof, _}} ->
+            0;
+        {ok, Chunk, Cont} ->
+            ok = filelib:ensure_dir(Filepath),
+            {ok, FD} = file:open(Filepath, [raw, write, binary]),
+            try
+                ok = file:write(FD, Chunk),
+                NRetry = 2,
+                stream_trace_log(Node, Name, Cont, byte_size(Chunk), NRetry, FD)
+            after
+                ok = file:close(FD)
+            end;
+        Error ->
+            Error
+    end.
+
+stream_trace_log(Node, Name, {cont, _} = Cont, NWritten, NRetry, FD) ->
+    case node_stream_trace_log(Node, Name, Cont, undefined) of
+        {ok, Chunk, NCont} ->
+            ok = file:write(FD, Chunk),
+            stream_trace_log(Node, Name, NCont, NWritten + byte_size(Chunk), NRetry, FD);
+        Error ->
+            Error
+    end;
+stream_trace_log(_Node, _Name, {retry, _}, _NWritten, 0, _FD) ->
+    {error, inconsistent};
+stream_trace_log(Node, Name, {retry, Cursor}, NWritten, NRetry, FD) ->
+    ok = timer:sleep(?STREAM_TRACE_RETRY_TIMEOUT),
+    stream_trace_log(Node, Name, {cont, Cursor}, NWritten, NRetry - 1, FD);
+stream_trace_log(_Node, _Name, {eof, _}, NWritten, _NRetry, _FD) ->
+    NWritten.
+
+serve_trace_log_archive(_Trace = #{name := Name}, ZipDir, Files) ->
     %% Write files to ZipDir and create an in-memory zip file
-    Zips = group_trace_file(ZipDir, TraceLog, TraceFiles),
     ZipName = binary_to_list(Name) ++ ".zip",
     Binary =
         try
-            {ok, {ZipName, Bin}} = zip:zip(ZipName, Zips, [memory, {cwd, ZipDir}]),
+            {ok, {ZipName, Bin}} = zip:zip(ZipName, Files, [memory, {cwd, ZipDir}]),
             Bin
         after
             %% emqx_trace:delete_files_after_send(ZipFileName, Zips),
@@ -566,9 +642,8 @@ do_download_trace_log(Name, TraceLog, TraceFiles) ->
             ok = file:del_dir_r(ZipDir)
         end,
     ?tp(trace_api_download_trace_log, #{
-        files => Zips,
+        files => Files,
         name => Name,
-        session_id => SessionId,
         zip_dir => ZipDir,
         zip_name => ZipName
     }),
@@ -580,72 +655,22 @@ do_download_trace_log(Name, TraceLog, TraceFiles) ->
     },
     {200, Headers, {file_binary, ZipName, Binary}}.
 
-group_trace_files(TraceLog, TraceFiles) ->
-    maps:groups_from_list(
-        fun
-            ({ok, _Node, <<>>}) ->
-                empty;
-            ({ok, _Node, _Bin}) ->
-                nonempty;
-            ({error, _Node, enoent}) ->
-                empty;
-            ({error, Node, Reason}) ->
-                ?SLOG(error, #{
-                    msg => "download_trace_log_error",
-                    node => Node,
-                    log => TraceLog,
-                    reason => Reason
-                }),
-                error
-        end,
-        TraceFiles
-    ).
-
-group_trace_file(ZipDir, TraceLog, TraceFiles) ->
-    lists:foldl(
-        fun({ok, Node, Bin}, Acc) ->
-            FileName = Node ++ "-" ++ TraceLog,
-            ZipName = filename:join([ZipDir, FileName]),
-            case file:write_file(ZipName, Bin) of
-                ok -> [FileName | Acc];
-                _ -> Acc
-            end
-        end,
-        [],
-        TraceFiles
-    ).
-
-collect_trace_file(undefined, TraceLog) ->
-    Nodes = emqx:running_nodes(),
-    wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file(Nodes, TraceLog));
-collect_trace_file(Node, TraceLog) ->
-    wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file([Node], TraceLog)).
-
-collect_trace_file_detail(TraceLog) ->
-    Nodes = emqx:running_nodes(),
-    wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file_detail(Nodes, TraceLog)).
-
-wrap_rpc({GoodRes, BadNodes}) ->
-    BadNodes =/= [] andalso
-        ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes}),
-    GoodRes.
-
 log_file_detail(get, #{bindings := #{name := Name}}) ->
-    case emqx_trace:get_trace_filename(Name) of
-        {ok, TraceLog} ->
-            TraceFiles = collect_trace_file_detail(TraceLog),
-            {200, group_trace_file_detail(TraceFiles)};
+    case emqx_trace:get(Name) of
+        {ok, _Trace} ->
+            Details = cluster_trace_details(Name),
+            {200, filter_trace_details(Details)};
         {error, not_found} ->
             ?NOT_FOUND_WITH_MSG(Name)
     end.
 
-group_trace_file_detail(TraceLogDetail) ->
+filter_trace_details(TraceLogDetail) ->
     GroupFun =
         fun
             ({ok, Info}, Acc) ->
                 [Info | Acc];
             ({error, Error}, Acc) ->
-                ?SLOG(error, Error#{msg => "read_trace_file_failed"}),
+                ?SLOG(error, Error#{msg => "get_trace_details_failed"}),
                 Acc
         end,
     lists:foldl(GroupFun, [], TraceLogDetail).
@@ -653,96 +678,43 @@ group_trace_file_detail(TraceLogDetail) ->
 stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
     Position = maps:get(<<"position">>, Query, 0),
     Bytes = maps:get(<<"bytes">>, Query, 1000),
-    case parse_node(Query, node()) of
-        {ok, Node} ->
-            case emqx_mgmt_trace_proto_v2:read_trace_file(Node, Name, Position, Bytes) of
-                {ok, Bin} ->
-                    Meta = #{<<"position">> => Position + byte_size(Bin), <<"bytes">> => Bytes},
-                    {200, #{meta => Meta, items => Bin}};
-                {eof, Size} ->
-                    Meta = #{<<"position">> => Size, <<"bytes">> => Bytes},
-                    {200, #{meta => Meta, items => <<"">>}};
-                %% the waiting trace should return "" not error.
-                {error, enoent} ->
-                    Meta = #{<<"position">> => Position, <<"bytes">> => Bytes},
-                    {200, #{meta => Meta, items => <<"">>}};
-                {error, not_found} ->
-                    ?NOT_FOUND_WITH_MSG(Name);
-                {error, enomem} ->
-                    ?SLOG(warning, #{
-                        code => not_enough_mem,
-                        msg => "Requested chunk size too big",
-                        bytes => Bytes,
-                        name => Name
-                    }),
-                    ?SERVICE_UNAVAILABLE(<<"Requested chunk size too big">>);
-                {badrpc, nodedown} ->
-                    ?NOT_FOUND_WITH_MSG(<<"Node">>)
-            end;
+    maybe
+        {ok, Node} ?= parse_node(Query, node()),
+        {ok, Cont} ?= parse_position(Position),
+        case node_stream_trace_log(Node, Name, Cont, Bytes) of
+            {ok, Bin, NCont} ->
+                Meta = encode_meta(NCont, Bytes),
+                {200, #{meta => Meta, items => Bin}};
+            %% the waiting trace should return "" not error.
+            {error, {file_error, enoent}} ->
+                Meta = #{
+                    <<"position">> => Position,
+                    <<"hint">> => <<"eof">>,
+                    <<"bytes">> => Bytes
+                },
+                {200, #{meta => Meta, items => <<>>}};
+            {error, {file_error, enomem}} ->
+                ?SLOG(warning, #{
+                    code => not_enough_mem,
+                    msg => "Requested chunk size too big",
+                    bytes => Bytes,
+                    name => Name
+                }),
+                ?SERVICE_UNAVAILABLE(<<"Requested chunk size too big">>);
+            {error, not_found} ->
+                ?NOT_FOUND_WITH_MSG(Name);
+            {error, bad_cursor} ->
+                ?BAD_REQUEST(<<"INVALID_PARAMETER">>, <<"Invalid cursor">>);
+            {error, stale_cursor} ->
+                ?BAD_REQUEST(<<"STALE_CURSOR">>, <<"Stale cursor">>);
+            {badrpc, nodedown} ->
+                ?SERVICE_UNAVAILABLE(<<"Node is unavailable">>)
+        end
+    else
         {error, not_found} ->
-            ?NOT_FOUND_WITH_MSG(<<"Node">>)
-    end.
-
--spec get_trace_size() -> #{{node(), file:name_all()} => non_neg_integer()}.
-get_trace_size() ->
-    TraceDir = emqx_trace:trace_dir(),
-    Node = node(),
-    case file:list_dir(TraceDir) of
-        {ok, AllFiles} ->
-            lists:foldl(
-                fun(File, Acc) ->
-                    FullFileName = filename:join(TraceDir, File),
-                    Acc#{{Node, File} => filelib:file_size(FullFileName)}
-                end,
-                #{},
-                lists:delete("zip", AllFiles)
-            );
-        _ ->
-            #{}
-    end.
-
-%% this is an rpc call for stream_log_file/2
--spec read_trace_file(
-    binary(),
-    non_neg_integer(),
-    non_neg_integer()
-) ->
-    {ok, binary()}
-    | {error, _}
-    | {eof, non_neg_integer()}.
-read_trace_file(Name, Position, Limit) ->
-    case emqx_trace:get_trace_filename(Name) of
-        {error, _} = Error ->
-            Error;
-        {ok, TraceFile} ->
-            TraceDir = emqx_trace:trace_dir(),
-            TracePath = filename:join([TraceDir, TraceFile]),
-            read_file(TracePath, Position, Limit)
-    end.
-
-read_file(Path, Offset, Bytes) ->
-    case file:open(Path, [read, raw, binary]) of
-        {ok, IoDevice} ->
-            try
-                _ =
-                    case Offset of
-                        0 -> ok;
-                        _ -> file:position(IoDevice, {bof, Offset})
-                    end,
-                case file:read(IoDevice, Bytes) of
-                    {ok, Bin} ->
-                        {ok, Bin};
-                    {error, Reason} ->
-                        {error, Reason};
-                    eof ->
-                        {ok, #file_info{size = Size}} = file:read_file_info(IoDevice),
-                        {eof, Size}
-                end
-            after
-                file:close(IoDevice)
-            end;
-        {error, Reason} ->
-            {error, Reason}
+            ?NOT_FOUND_WITH_MSG(<<"Node">>);
+        {error, bad_cursor} ->
+            ?BAD_REQUEST(<<"Invalid cursor">>)
     end.
 
 parse_node(Query, Default) ->
@@ -760,17 +732,105 @@ parse_node(Query, Default) ->
             {error, not_found}
     end.
 
-collect_file_size(Nodes, FileName, AllFiles) ->
+parse_position(Bin) when is_binary(Bin) ->
+    try
+        {ok, {cont, binary_to_term(emqx_base62:decode(Bin), [safe])}}
+    catch
+        error:_ ->
+            {error, bad_cursor}
+    end;
+parse_position(0) ->
+    %% NOTE: Backward compatibility.
+    {ok, start};
+parse_position(_) ->
+    {error, bad_cursor}.
+
+encode_meta(Cont = {What, _}, Bytes) ->
+    Meta = #{<<"position">> => encode_position(Cont), <<"bytes">> => Bytes},
+    case What of
+        cont -> Meta;
+        eof -> Meta#{<<"hint">> => <<"eof">>};
+        retry -> Meta#{<<"hint">> => <<"retry">>}
+    end.
+
+encode_position({_, Cursor}) ->
+    emqx_base62:encode(term_to_binary(Cursor)).
+
+collect_file_size(Nodes, Name, AllTraceSizes) ->
     lists:foldl(
         fun(Node, Acc) ->
-            Size = maps:get({Node, FileName}, AllFiles, 0),
+            Size = maps:get({Node, Name}, AllTraceSizes, 0),
             Acc#{Node => Size}
         end,
         #{},
         Nodes
     ).
 
-status(false, _Start, _End, _Now) -> <<"stopped">>;
-status(true, Start, _End, Now) when Now < Start -> <<"waiting">>;
-status(true, _Start, End, Now) when Now >= End -> <<"stopped">>;
-status(true, _Start, _End, _Now) -> <<"running">>.
+%% RPC
+
+cluster_get_trace_size() ->
+    Nodes = supported_running_nodes(),
+    Responses = filter_bad_replies(emqx_mgmt_trace_proto_v3:list_trace_sizes(Nodes)),
+    lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, Responses).
+
+cluster_trace_details(Name) ->
+    Nodes = supported_running_nodes(),
+    filter_bad_replies(emqx_mgmt_trace_proto_v3:get_trace_details(Nodes, Name)).
+
+node_stream_trace_log(Node, Name, Cont, Limit) ->
+    emqx_mgmt_trace_proto_v3:stream_trace_log(Node, Name, Cont, Limit).
+
+filter_bad_replies({GoodRes, BadNodes}) ->
+    BadNodes =/= [] andalso
+        ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes}),
+    GoodRes.
+
+supported_running_nodes() ->
+    emqx_bpapi:nodes_supporting_bpapi_version(emqx_mgmt_trace, 3).
+
+%% RPC Targets
+
+%% See `emqx_mgmt_trace_proto_v3:list_trace_sizes/1`.
+%% Name is kept for backward compatibility.
+-spec get_trace_size() -> #{{node(), binary()} => non_neg_integer()}.
+get_trace_size() ->
+    lists:foldl(
+        fun(#{name := Name}, Acc) ->
+            case emqx_trace:log_details(Name) of
+                {ok, #{size := Size}} ->
+                    Acc#{{node(), Name} => Size};
+                {error, _} ->
+                    Acc
+            end
+        end,
+        #{},
+        emqx_trace:list()
+    ).
+
+%% See `emqx_mgmt_trace_proto_v3:get_trace_details/2`.
+-spec get_trace_details(emqx_trace:name()) ->
+    {ok, #{
+        size => non_neg_integer(),
+        mtime => file:date_time() | non_neg_integer(),
+        node => atom()
+    }}
+    | {error, #{
+        reason => term(),
+        node => atom()
+    }}.
+get_trace_details(Name) ->
+    maybe
+        {ok, Details} ?= emqx_trace:log_details(Name),
+        {ok, Details#{node => node()}}
+    else
+        {error, Reason} ->
+            {error, #{reason => Reason, node => node()}}
+    end.
+
+%% See `emqx_mgmt_trace_proto_v3:stream_trace_log/4`.
+%% Name is kept for backward compatibility.
+read_trace_file(_Name, _Position = 0, _Limit) ->
+    %% NOTE: Backward compatibility measure.
+    {ok, <<>>};
+read_trace_file(Name, Cont, Limit) ->
+    emqx_trace:stream_log(Name, Cont, Limit).

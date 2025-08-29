@@ -1181,8 +1181,10 @@ fields_trace_payload_encode.label:
 """Payload encode"""
 
 fields_trace_max_file_size.desc:
-"""Specifies how large _each_ trace file may become.
-Once a trace file reaches this size, no additional events will be recorded, even if the trace remains active."""
+"""Defines the maximum storage space _each_ trace can use.
+Once the total size of trace log files reaches this limit, the oldest events are gradually discarded.
+
+The limit is not strict, total size may briefly exceed it, usually by no more than several KBs."""
 
 fields_trace_max_file_size.label:
 """Max Trace File Size"""
