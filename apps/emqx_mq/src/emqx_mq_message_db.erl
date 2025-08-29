@@ -16,6 +16,7 @@ Facade for all operations with the message database.
 
 -export([
     open/0,
+    close/0,
     insert/2,
     suback/3,
     create_client/1,
@@ -53,8 +54,7 @@ Facade for all operations with the message database.
 
 -define(SHARDS_PER_SITE, 3).
 
-%% TODO: increase
--define(REPLICATION_FACTOR, 1).
+-define(REPLICATION_FACTOR, 3).
 
 %%--------------------------------------------------------------------
 %% API
@@ -70,6 +70,11 @@ open() ->
     else
         _ -> error(failed_to_open_mq_databases)
     end.
+
+-spec close() -> ok.
+close() ->
+    ok = emqx_ds:close_db(?MQ_MESSAGE_LASTVALUE_DB),
+    ok = emqx_ds:close_db(?MQ_MESSAGE_REGULAR_DB).
 
 -spec insert(emqx_mq_types:mq(), list(emqx_types:message())) ->
     ok | {error, list(emqx_ds:error(_Reason))}.
@@ -318,6 +323,7 @@ settings() ->
         storage =>
             {emqx_ds_storage_skipstream_lts_v2, ?MQ_MESSAGE_DB_LTS_SETTINGS},
         store_ttv => true,
+        atomic_batches => true,
         backend => builtin_raft,
         n_shards => NSites * ?SHARDS_PER_SITE,
         replication_options => #{},
