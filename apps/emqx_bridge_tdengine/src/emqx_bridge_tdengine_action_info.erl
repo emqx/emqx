@@ -6,7 +6,6 @@
 -behaviour(emqx_action_info).
 
 -export([
-    bridge_v1_type_name/0,
     action_type_name/0,
     connector_type_name/0,
     schema_module/0
@@ -14,9 +13,6 @@
 
 -define(ACTION_TYPE, tdengine).
 -define(SCHEMA_MODULE, emqx_bridge_tdengine).
-
-bridge_v1_type_name() ->
-    ?ACTION_TYPE.
 
 action_type_name() ->
     ?ACTION_TYPE.
