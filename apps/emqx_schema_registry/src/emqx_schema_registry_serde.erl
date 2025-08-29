@@ -85,12 +85,36 @@ handle_rule_function(sparkplug_decode, [Data | MoreArgs]) ->
         schema_decode,
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data | MoreArgs]
     );
+handle_rule_function(sparkplug_decode_v2, [Data]) ->
+    Res = handle_rule_function(
+        schema_decode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data, <<"Payload">>]
+    ),
+    map_decoded_sparkplug(Res);
+handle_rule_function(sparkplug_decode_v2, [Data | MoreArgs]) ->
+    Res = handle_rule_function(
+        schema_decode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data | MoreArgs]
+    ),
+    map_decoded_sparkplug(Res);
 handle_rule_function(sparkplug_encode, [Term]) ->
     handle_rule_function(
         schema_encode,
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term, <<"Payload">>]
     );
 handle_rule_function(sparkplug_encode, [Term | MoreArgs]) ->
+    handle_rule_function(
+        schema_encode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
+    );
+handle_rule_function(sparkplug_encode_v2, [Term0]) ->
+    Term = map_sparkplug_to_encode(Term0),
+    handle_rule_function(
+        schema_encode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term, <<"Payload">>]
+    );
+handle_rule_function(sparkplug_encode_v2, [Term0 | MoreArgs]) ->
+    Term = map_sparkplug_to_encode(Term0),
     handle_rule_function(
         schema_encode,
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
@@ -317,6 +341,45 @@ jesse_validate(Name, Map) ->
 
 jesse_name(Str) ->
     unicode:characters_to_list(Str).
+
+map_sparkplug_to_encode(#{} = Input) ->
+    emqx_utils_maps:update_if_present(
+        <<"metrics">>,
+        fun(Ms) ->
+            lists:map(
+                fun
+                    (#{<<"bytes_value">> := Bytes64} = M) ->
+                        RawBytes = base64:decode(Bytes64),
+                        M#{<<"bytes_value">> := RawBytes};
+                    (M) ->
+                        M
+                end,
+                Ms
+            )
+        end,
+        Input
+    );
+map_sparkplug_to_encode(Term) ->
+    %% Invalid input, leave it as is so that the error is thrown by the encode attempt.
+    Term.
+
+map_decoded_sparkplug(#{} = Result) ->
+    emqx_utils_maps:update_if_present(
+        <<"metrics">>,
+        fun(Ms) ->
+            lists:map(
+                fun
+                    (#{<<"bytes_value">> := RawBytes} = M) ->
+                        Bytes64 = base64:encode(RawBytes),
+                        M#{<<"bytes_value">> := Bytes64};
+                    (M) ->
+                        M
+                end,
+                Ms
+            )
+        end,
+        Result
+    ).
 
 -spec make_protobuf_serde_mod(schema_name(), schema_source()) -> {protobuf_cache_key(), module()}.
 make_protobuf_serde_mod(Name, Source) ->
