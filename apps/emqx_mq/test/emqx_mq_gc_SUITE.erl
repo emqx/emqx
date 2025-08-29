@@ -132,9 +132,9 @@ binfmt(Format, Args) ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-wait_for_consumer_stop(MQ, Ms) when Ms > 5 ->
+wait_for_consumer_stop(#{id := Id} = _MQ, Ms) when Ms > 5 ->
     ?retry(
         5,
         1 + Ms div 5,
-        ?assert(emqx_mq_consumer_db:find_consumer(MQ, now_ms()) == not_found)
+        ?assert(emqx_mq_consumer:find(Id) == not_found)
     ).

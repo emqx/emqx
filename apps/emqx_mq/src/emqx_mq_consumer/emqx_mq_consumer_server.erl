@@ -372,17 +372,14 @@ update_dispatch_strategy(State) ->
 %%--------------------------------------------------------------------
 
 pick_subscriber(Message, ExcludedSubscriberRefs, #state{dispatch_strategy = random} = State) ->
-    ?tp(warning, pick_subscriber, #{dispatch_strategy => random}),
     {pick_subscriber_random(Message, ExcludedSubscriberRefs, State), State};
 pick_subscriber(
     Message, ExcludedSubscriberRefs, #state{dispatch_strategy = least_inflight} = State
 ) ->
-    ?tp(warning, pick_subscriber, #{dispatch_strategy => least_inflight}),
     {pick_subscriber_least_inflight(Message, ExcludedSubscriberRefs, State), State};
 pick_subscriber(
     Message, ExcludedSubscriberRefs, #state{dispatch_strategy = {round_robin, _}} = State
 ) ->
-    ?tp(warning, pick_subscriber, #{dispatch_strategy => round_robin}),
     pick_subscriber_round_robin(Message, ExcludedSubscriberRefs, State).
 
 %% Random dispatch strategy

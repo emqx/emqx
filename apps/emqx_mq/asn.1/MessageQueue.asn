@@ -1,0 +1,49 @@
+MessageQueue DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+
+  StreamBufferProgress ::= SEQUENCE {
+    it OCTET STRING,
+    lastMessageId INTEGER OPTIONAL,
+    unacked SEQUENCE OF INTEGER
+  }
+
+  FinishedShardProgress ::= SEQUENCE {
+    generation INTEGER
+  }
+
+  ActiveShardProgress ::= SEQUENCE {
+    generation INTEGER,
+    stream OCTET STRING,
+    bufferProgress StreamBufferProgress
+  }
+
+  --TODO clarify about schema extensibility
+
+  ShardProgress ::= SEQUENCE {
+    progress CHOICE {
+      active ActiveShardProgress,
+      finished FinishedShardProgress
+    },
+    ...
+  }
+
+  --TODO clarify about schema extensibility
+
+  MQ ::= SEQUENCE {
+    id OCTET STRING,
+    topicFilter OCTET STRING,
+    isLastvalue BOOLEAN,
+    consumerMaxInactive INTEGER,
+    pingInterval INTEGER,
+    redispatchInterval INTEGER,
+    dispatchStrategy OCTET STRING,
+    localMaxInflight INTEGER,
+    busySessionRetryInterval INTEGER,
+    streamMaxBufferSize INTEGER,
+    streamMaxUnacked INTEGER,
+    consumerPersistenceInterval INTEGER,
+    dataRetentionPeriod INTEGER,
+    ...
+  }
+
+END

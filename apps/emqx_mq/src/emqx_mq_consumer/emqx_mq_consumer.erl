@@ -36,6 +36,7 @@ Consumer's responsibilities:
 
 -export([
     connect/3,
+    find/1,
     disconnect/2,
     ack/4,
     ping/2,
@@ -55,7 +56,8 @@ Consumer's responsibilities:
 -record(state, {
     mq :: emqx_mq_types:mq(),
     streams :: emqx_mq_consumer_streams:t(),
-    server :: emqx_mq_consumer_server:t()
+    server :: emqx_mq_consumer_server:t(),
+    consumer_state :: emqx_mq_state_storage:consumer_state()
 }).
 
 %%--------------------------------------------------------------------
@@ -82,13 +84,22 @@ child_spec(Id, Args) ->
         shutdown => 5000
     }.
 
+-spec find(emqx_mq_types:mq_id()) -> {ok, emqx_mq_types:consumer_ref()} | not_found.
+find(Id) ->
+    case global:whereis_name(global_name(Id)) of
+        ConsumerRef when is_pid(ConsumerRef) ->
+            {ok, ConsumerRef};
+        undefined ->
+            not_found
+    end.
+
 -spec connect(emqx_mq_types:mq(), emqx_mq_types:subscriber_ref(), emqx_types:clientid()) ->
     ok | {error, term()}.
 connect(#{topic_filter := _MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
     ?tp_debug(mq_consumer_connect, #{
         mq_topic_filter => _MQTopicFilter, subscriber_ref => SubscriberRef, client_id => ClientId
     }),
-    case find_consumer(MQ, _Retries = 2) of
+    case find_or_start(MQ) of
         {ok, ConsumerRef} ->
             ?tp_debug(mq_consumer_find_consumer_success, #{
                 mq_topic_filter => _MQTopicFilter,
@@ -97,13 +108,6 @@ connect(#{topic_filter := _MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
                 consumer_ref => ConsumerRef
             }),
             do_connect(ConsumerRef, SubscriberRef, ClientId);
-        queue_removed ->
-            ?tp_debug(mq_consumer_find_consumer_queue_removed, #{
-                mq_topic_filter => _MQTopicFilter,
-                subscriber_ref => SubscriberRef,
-                client_id => ClientId
-            }),
-            {error, queue_removed};
         not_found ->
             ?tp_debug(mq_consumer_find_consumer_not_found, #{
                 mq_topic_filter => _MQTopicFilter,
@@ -197,23 +201,29 @@ stop_v1(Pid) ->
 
 init([#{topic_filter := _MQTopicFilter, consumer_persistence_interval := PersistenceInterval} = MQ]) ->
     erlang:process_flag(trap_exit, true),
-    ClaimRes = emqx_mq_consumer_db:claim_leadership(MQ, self_consumer_ref(), now_ms()),
-    ?tp_debug(mq_consumer_init, #{mq_topic_filter => _MQTopicFilter, claim_res => ClaimRes}),
-    case ClaimRes of
-        {ok, ConsumerData} ->
-            erlang:send_after(
-                PersistenceInterval, self(), #persist_consumer_data{}
-            ),
-            Progress = maps:get(progress, ConsumerData, #{}),
-            Streams = emqx_mq_consumer_streams:new(MQ, Progress),
-            Server = emqx_mq_consumer_server:new(MQ),
-            {ok, #state{
-                mq = MQ,
-                streams = Streams,
-                server = Server
-            }};
-        {error, _, _} = Error ->
-            {stop, Error}
+    case try_register_consumer(MQ) of
+        ok ->
+            ConsumerStateRes = emqx_mq_state_storage:open_consumer_state(MQ),
+            ?tp_debug(mq_consumer_init, #{mq_topic_filter => _MQTopicFilter}),
+            case ConsumerStateRes of
+                {ok, ConsumerState} ->
+                    erlang:send_after(
+                        PersistenceInterval, self(), #persist_consumer_data{}
+                    ),
+                    Progress = emqx_mq_state_storage:get_shards_progress(ConsumerState),
+                    Streams = emqx_mq_consumer_streams:new(MQ, Progress),
+                    Server = emqx_mq_consumer_server:new(MQ),
+                    {ok, #state{
+                        mq = MQ,
+                        streams = Streams,
+                        server = Server,
+                        consumer_state = ConsumerState
+                    }};
+                {error, _} = Error ->
+                    {stop, Error}
+            end;
+        {error, already_registered} ->
+            {stop, already_registered}
     end.
 
 handle_call(stop, _From, State) ->
@@ -265,64 +275,82 @@ handle_mq_server_info(Message, #state{server = Server0} = State) ->
 
 handle_events([], State) ->
     {noreply, State};
-handle_events([{ds_ack, MessageId} | Rest], #state{streams = Streams0} = State) ->
-    Streams = emqx_mq_consumer_streams:handle_ack(Streams0, MessageId),
-    handle_events(Rest, State#state{streams = Streams});
+handle_events(
+    [{ds_ack, MessageId} | Rest],
+    #state{streams = Streams0, consumer_state = ConsumerState0} = State
+) ->
+    Streams1 = emqx_mq_consumer_streams:handle_ack(Streams0, MessageId),
+    {ProgressUpdates, Streams} = emqx_mq_consumer_streams:fetch_progress_updates(Streams1),
+    ConsumerState = put_progress_updates(ConsumerState0, ProgressUpdates),
+    handle_events(Rest, State#state{streams = Streams, consumer_state = ConsumerState});
 handle_events([shutdown | _Rest], State) ->
     {stop, normal, State}.
 
-handle_ds_info(Request, #state{streams = Streams0, server = Server0} = State) ->
+handle_ds_info(
+    Request, #state{streams = Streams0, server = Server0, consumer_state = ConsumerState0} = State
+) ->
     case emqx_mq_consumer_streams:handle_ds_info(Streams0, Request) of
-        {ok, Messages, Streams} ->
+        {ok, Messages, Streams1} ->
+            {ProgressUpdates, Streams} = emqx_mq_consumer_streams:fetch_progress_updates(Streams1),
+            ConsumerState = put_progress_updates(ConsumerState0, ProgressUpdates),
             Server = emqx_mq_consumer_server:handle_messages(Server0, Messages),
-            {ok, State#state{streams = Streams, server = Server}};
+            {ok, State#state{streams = Streams, server = Server, consumer_state = ConsumerState}};
         ignore ->
             ignore
     end.
 
 handle_persist_consumer_data(
-    #state{mq = #{consumer_persistence_interval := PersistenceInterval}} = State
+    #state{mq = #{consumer_persistence_interval := PersistenceInterval}} = State0
 ) ->
-    case persist_consumer_data(State) of
-        ok ->
+    case persist_consumer_data(_ClaimLeadership = true, State0) of
+        {ok, State} ->
             erlang:send_after(
                 PersistenceInterval, self(), #persist_consumer_data{}
             ),
             {noreply, State};
         Error ->
             ?tp(error, mq_consumer_persist_consumer_data_error, #{error => Error}),
-            {stop, Error, State}
+            {stop, Error, State0}
     end.
 
-persist_consumer_data(#state{mq = #{topic_filter := _MQTopicFilter} = MQ, streams = Streams}) ->
-    PersistData = #{
-        progress => emqx_mq_consumer_streams:progress(Streams)
-    },
-    ?tp_debug(mq_consumer_handle_persist_streams_data, #{
-        mq_topic_filter => _MQTopicFilter,
-        streams => emqx_mq_consumer_streams:inspect(Streams),
-        persist_streams_data => PersistData
+persist_consumer_data(
+    ClaimLeadership,
+    #state{consumer_state = ConsumerState0, mq = #{topic_filter := _MQTopicFilter}} = State
+) ->
+    ?tp_debug(mq_consumer_handle_persist_consumer_state, #{
+        mq_topic_filter => _MQTopicFilter
     }),
-    emqx_mq_consumer_db:update_consumer_data(
-        MQ,
-        self_consumer_ref(),
-        PersistData,
-        now_ms()
+    case emqx_mq_state_storage:commit_consumer_state(ClaimLeadership, ConsumerState0) of
+        {ok, ConsumerState} ->
+            {ok, State#state{consumer_state = ConsumerState}};
+        {error, _} = Error ->
+            Error
+    end.
+
+handle_shutdown(#state{mq = #{topic_filter := _MQTopicFilter} = _MQ} = State) ->
+    ?tp_debug(mq_consumer_shutdown, #{mq_topic_filter => _MQTopicFilter}),
+    case persist_consumer_data(_ClaimLeadership = false, State) of
+        {ok, _State} ->
+            ok;
+        {error, Reason} ->
+            ?tp(error, mq_consumer_shutdown_error, #{
+                mq_topic_filter => _MQTopicFilter,
+                reason => Reason
+            })
+    end.
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
+put_progress_updates(ConsumerState, ProgressUpdates) ->
+    maps:fold(
+        fun(Shard, Progress, ConsumerStateAcc) ->
+            emqx_mq_state_storage:put_shard_progress(Shard, Progress, ConsumerStateAcc)
+        end,
+        ConsumerState,
+        ProgressUpdates
     ).
-
-handle_shutdown(#state{mq = #{topic_filter := _MQTopicFilter} = MQ} = State) ->
-    _PersistRes = persist_consumer_data(State),
-    _DropLeadershipRes = emqx_mq_consumer_db:drop_leadership(MQ),
-    ?tp_debug(mq_consumer_shutdown, #{
-        mq_topic_filter => _MQTopicFilter,
-        persist_res => _PersistRes,
-        drop_leadership_res => _DropLeadershipRes
-    }),
-    ok.
-
-%%--------------------------------------------------------------------
-%% Internal Functions
-%%--------------------------------------------------------------------
 
 do_connect(ConsumerRef, SubscriberRef, ClientId) when node(ConsumerRef) =:= node() ->
     connect_v1(ConsumerRef, SubscriberRef, ClientId);
@@ -331,34 +359,37 @@ do_connect(ConsumerRef, SubscriberRef, ClientId) ->
         node(ConsumerRef), ConsumerRef, SubscriberRef, ClientId
     ).
 
-find_consumer(#{topic_filter := MQTopicFilter} = _MQ, 0) ->
-    ?tp(error, mq_consumer_find_consumer_error, #{
-        error => retries_exhausted, mq_topic_filter => MQTopicFilter
-    }),
-    not_found;
-find_consumer(#{topic_filter := MQTopicFilter} = MQ, Retries) ->
-    case emqx_mq_consumer_db:find_consumer(MQ, now_ms()) of
+find_or_start(#{id := Id, topic_filter := _MQTopicFilter} = MQ) ->
+    case find(Id) of
         {ok, ConsumerRef} ->
             {ok, ConsumerRef};
-        queue_removed ->
-            queue_removed;
         not_found ->
-            case emqx_mq_sup:start_consumer(_ChildId = MQTopicFilter, [MQ]) of
+            case emqx_mq_sup:start_consumer(_ChildId = Id, [MQ]) of
                 {ok, ConsumerRef} ->
                     {ok, ConsumerRef};
                 {error, _} = _Error ->
                     ?tp_debug(mq_consumer_find_consumer_error, #{
-                        error => _Error, retries => Retries, mq_topic_filter => MQTopicFilter
+                        error => _Error, mq_topic_filter => _MQTopicFilter
                     }),
-                    find_consumer(MQ, Retries - 1)
+                    not_found
             end
     end.
 
-now_ms() ->
-    erlang:system_time(millisecond).
+try_register_consumer(#{id := Id, topic_filter := MQTopicFilter} = _MQ) ->
+    case emqx_mq_registry:find(MQTopicFilter) of
+        {ok, #{id := Id}} ->
+            case global:register_name(global_name(Id), self()) of
+                yes ->
+                    ok;
+                no ->
+                    {error, already_registered}
+            end;
+        _ ->
+            {error, no_mq}
+    end.
 
-self_consumer_ref() ->
-    self().
+global_name(Id) ->
+    {?MODULE, Id}.
 
 send_to_consumer_server(Pid, InfoMsg) ->
     _ = erlang:send(Pid, #info_to_mq_server{message = InfoMsg}),

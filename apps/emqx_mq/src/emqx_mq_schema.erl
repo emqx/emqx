@@ -10,6 +10,16 @@
 %% `hocon_schema' API
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
+-export([db_mq_state/0]).
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
+
+-spec db_mq_state() -> emqx_ds:create_db_opts().
+db_mq_state() ->
+    emqx_ds_schema:db_config([mq, state_db]).
+
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
 %%------------------------------------------------------------------------------
@@ -25,6 +35,14 @@ tags() ->
 
 fields(mq) ->
     [
+        {state_db,
+            emqx_ds_schema:db_schema(
+                [builtin_raft_ttv, builtin_local_ttv],
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(state_db)
+                }
+            )},
         {gc_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1h">>, required => true, desc => ?DESC(gc_interval)

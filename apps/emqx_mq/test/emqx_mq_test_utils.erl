@@ -69,8 +69,6 @@ emqtt_drain(MinMsg, Timeout, AccMsgs, AccNReceived) ->
         end
     end.
 
-create_mq(Topic) when is_binary(Topic) ->
-    create_mq(#{topic_filter => Topic});
 create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     Default = #{
         is_lastvalue => false,
@@ -141,7 +139,7 @@ cleanup_mqs() ->
     ok = stop_all_consumers(),
     ok = emqx_mq_registry:delete_all(),
     ok = emqx_mq_message_db:delete_all(),
-    ok = emqx_mq_consumer_db:delete_all().
+    ok = emqx_mq_state_storage:delete_all().
 
 stop_all_consumers() ->
     ConsumerPids = [Pid || {_, Pid, _, _} <- supervisor:which_children(emqx_mq_consumer_sup)],

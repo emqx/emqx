@@ -812,7 +812,7 @@ t_redispatch_delay(Config) ->
 
 t_queue_deletion(_Config) ->
     %% Create a non-lastvalue Queue
-    MQ0 = emqx_mq_test_utils:create_mq(#{
+    #{id := Id} = emqx_mq_test_utils:create_mq(#{
         topic_filter => <<"t/#">>,
         is_lastvalue => false,
         dispatch_strategy => random
@@ -831,7 +831,7 @@ t_queue_deletion(_Config) ->
     emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
 
     %% Find the consumer
-    {ok, ConsumerRef} = emqx_mq_consumer_db:find_consumer(MQ0, now_ms()),
+    {ok, ConsumerRef} = emqx_mq_consumer:find(Id),
     MRef = erlang:monitor(process, ConsumerRef),
 
     %% Delete the queue
@@ -978,9 +978,9 @@ binfmt(Format, Args) ->
 now_ms() ->
     erlang:system_time(millisecond).
 
-wait_for_consumer_stop(MQ, Ms) when Ms > 5 ->
+wait_for_consumer_stop(#{id := Id} = _MQ, Ms) when Ms > 5 ->
     ?retry(
         5,
         1 + Ms div 5,
-        ?assert(emqx_mq_consumer_db:find_consumer(MQ, now_ms()) == not_found)
+        ?assert(emqx_mq_consumer:find(Id) == not_found)
     ).

@@ -50,7 +50,7 @@ mq_regular(TopicFilter) ->
 cleanup_mq_regular_consumption_progress(TopicFilter) when is_binary(TopicFilter) ->
     ok = stop_all_consumers(),
     {ok, MQ} = emqx_mq_registry:find(TopicFilter),
-    ok = emqx_mq_consumer_db:drop_consumer_data(MQ);
+    ok = emqx_mq_state_storage:destroy_consumer_state(MQ);
 cleanup_mq_regular_consumption_progress(TopicFilters) when is_list(TopicFilters) ->
     lists:foreach(
         fun(TopicFilter) ->
@@ -83,8 +83,8 @@ subscriber_inspect(TopicFilter) ->
     ).
 
 consumer_inspect_regular(TopicFilter) ->
-    {ok, MQ} = emqx_mq_registry:find(TopicFilter),
-    case emqx_mq_consumer_db:find_consumer(MQ, now_ms()) of
+    {ok, #{id := Id} = _MQ} = emqx_mq_registry:find(TopicFilter),
+    case emqx_mq_consumer:find(Id) of
         {ok, Pid} ->
             try
                 emqx_mq_consumer:inspect(Pid, 1000)
@@ -136,9 +136,6 @@ wait_for_mq_created(#{topic_filter := TopicFilter} = MQ) ->
 
 now_ms_monotonic() ->
     erlang:monotonic_time(millisecond).
-
-now_ms() ->
-    erlang:system_time(millisecond).
 
 stop_all_consumers() ->
     ConsumerPids = [

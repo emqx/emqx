@@ -16,7 +16,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
 
 -export([
     new/2,
-    progress/1,
+    fetch_progress_updates/1,
     handle_ds_info/2,
     handle_ack/2,
     inspect/1
@@ -76,7 +76,9 @@ The module holds a stream_buffers for all streams of a single Message Queue.
     streams := #{
         emqx_ds:stream() => emqx_ds:shard()
     },
-    shards := #{emqx_ds:shard() => shard_state()}
+    shards := #{emqx_ds:shard() => shard_state()},
+    %% Accumulated progress updates to be persisted
+    progress_updates := progress()
 }.
 
 -record(cs, {
@@ -100,16 +102,13 @@ new(MQ, Progress) ->
     State0 = #{
         mq => MQ,
         streams => #{},
-        shards => #{}
+        shards => #{},
+        progress_updates => #{}
     },
     State1 = restore_streams(State0, Progress),
     DSClient0 = emqx_mq_message_db:create_client(?MODULE),
     {ok, DSClient, State} = emqx_mq_message_db:subscribe(MQ, DSClient0, ?SUB_ID, State1),
     #cs{state = State, ds_client = DSClient}.
-
--spec progress(t()) -> progress().
-progress(#cs{state = #{shards := Shards}}) ->
-    maps:map(fun shard_progress/2, Shards).
 
 -spec handle_ds_info(t(), term()) ->
     {ok, [{emqx_mq_types:message_id(), emqx_types:message()}], t()} | ignore.
@@ -149,11 +148,11 @@ handle_ack(
         } ?= Shards0,
         case emqx_mq_consumer_stream_buffer:handle_ack(SB, StreamMessageId) of
             {ok, SB1} ->
-                CS#cs{
-                    state = State0#{
-                        shards => Shards0#{Shard => ShardState0#{stream_buffer => SB1}}
-                    }
-                };
+                State1 = State0#{
+                    shards => Shards0#{Shard => ShardState0#{stream_buffer => SB1}}
+                },
+                State = save_progress_update(State1, Shard),
+                CS#cs{state = State};
             finished ->
                 Streams = maps:remove(Stream, Streams0),
                 ShardState = ShardState0#{status => finished, generation => Generation},
@@ -161,7 +160,8 @@ handle_ack(
                     shards => Shards0#{Shard => ShardState},
                     streams => Streams
                 },
-                {DSC, State} = emqx_ds_client:complete_stream(DSC0, SubRef, State1),
+                {DSC, State2} = emqx_ds_client:complete_stream(DSC0, SubRef, State1),
+                State = save_progress_update(State2, Shard),
                 CS#cs{state = State, ds_client = DSC}
         end
     else
@@ -172,6 +172,10 @@ handle_ack(
             }),
             CS
     end.
+
+-spec fetch_progress_updates(t()) -> {progress(), t()}.
+fetch_progress_updates(#cs{state = #{progress_updates := ProgressUpdates} = State} = CS) ->
+    {ProgressUpdates, CS#cs{state = State#{progress_updates => #{}}}}.
 
 -spec inspect(t()) -> map().
 inspect(#cs{state = #{shards := Shards, streams := Streams}}) ->
@@ -316,7 +320,12 @@ on_subscription_down(
 %% Internal functions
 %%--------------------------------------------------------------------
 
-shard_progress(_Shard, #{
+save_progress_update(State, Shard) ->
+    #{shards := #{Shard := ShardState}, progress_updates := ProgressUpdates} = State,
+    Progress = shard_progress(ShardState),
+    State#{progress_updates => ProgressUpdates#{Shard => Progress}}.
+
+shard_progress(#{
     status := active, generation := Generation, stream := Stream, stream_buffer := StreamBuffer
 }) ->
     #{
@@ -325,7 +334,7 @@ shard_progress(_Shard, #{
         generation => Generation,
         buffer_progress => emqx_mq_consumer_stream_buffer:progress(StreamBuffer)
     };
-shard_progress(_Shard, #{status := finished, generation := Generation}) ->
+shard_progress(#{status := finished, generation := Generation}) ->
     #{
         status => finished,
         generation => Generation
@@ -372,31 +381,28 @@ restore_stream(
     end.
 
 handle_ds_reply(
-    #cs{state = #{streams := Streams, shards := Shards, mq := MQ}, ds_client = DSC0} = CS,
+    #cs{state = #{streams := Streams, shards := Shards}} = CS0,
     Stream,
     Handle,
-    #ds_sub_reply{seqno = SeqNo} = DSReply
+    #ds_sub_reply{} = DSReply
 ) ->
     ok = inc_received_message_stat(DSReply),
-    case persistent_term:get(mq_nullify_handling, false) of
-        false ->
-            maybe
-                #{Stream := Shard} ?= Streams,
-                #{Shard := #{status := active} = ShardState} ?= Shards,
-                ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_exists, #{
-                    stream => Stream
-                }),
-                do_handle_ds_reply(CS, Stream, Shard, ShardState, Handle, DSReply)
-            else
-                _ ->
-                    ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_not_exists, #{
-                        stream => Stream
-                    }),
-                    {ok, [], CS}
-            end;
-        true ->
-            ok = emqx_mq_message_db:suback(MQ, Handle, SeqNo),
-            {ok, [], CS}
+    maybe
+        #{Stream := Shard} ?= Streams,
+        #{Shard := #{status := active} = ShardState} ?= Shards,
+        ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_exists, #{
+            stream => Stream
+        }),
+        {Messages, #cs{state = State} = CS} = do_handle_ds_reply(
+            CS0, Stream, Shard, ShardState, Handle, DSReply
+        ),
+        {ok, Messages, CS#cs{state = save_progress_update(State, Shard)}}
+    else
+        _ ->
+            ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_not_exists, #{
+                stream => Stream
+            }),
+            {ok, [], CS0}
     end.
 
 do_handle_ds_reply(
@@ -422,7 +428,7 @@ do_handle_ds_reply(
             ],
             Shards = Shards0#{Shard => ShardState#{stream_buffer => SB1, sub_ref => SRef}},
             State = State0#{shards => Shards},
-            {ok, Messages, CS#cs{state = State}};
+            {Messages, CS#cs{state = State}};
         finished ->
             State1 = State0#{
                 shards => Shards0#{
@@ -432,7 +438,7 @@ do_handle_ds_reply(
             {DSC, #{shards := _Shards1} = State} = emqx_ds_client:complete_stream(
                 DSC0, SRef, State1
             ),
-            {ok, [], CS#cs{ds_client = DSC, state = State}}
+            {[], CS#cs{ds_client = DSC, state = State}}
     end.
 
 ack_expired_messages(#cs{state = #{mq := MQ}} = CS0, Messages0) ->

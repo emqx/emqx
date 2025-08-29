@@ -39,7 +39,8 @@ The module contains basic types for the Message Queue application.
     stream_max_buffer_size := non_neg_integer(),
     stream_max_unacked := non_neg_integer(),
     consumer_persistence_interval := interval_ms(),
-    data_retention_period := interval_ms() | infinity
+    data_retention_period := interval_ms(),
+    _ => _
 }.
 
 %% Minimal data necessary to write data into the MQ.

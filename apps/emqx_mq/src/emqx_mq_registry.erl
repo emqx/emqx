@@ -169,14 +169,14 @@ delete(TopicFilter) ->
         not_found ->
             not_found;
         {ok, #{id := Id} = MQHandle} ->
-            ok = mria:dirty_delete(?MQ_REGISTRY_TAB, Id),
-            case emqx_mq_consumer_db:drop_claim(MQHandle, now_ms()) of
+            case emqx_mq_consumer:find(Id) of
                 {ok, ConsumerRef} ->
                     ok = emqx_mq_consumer:stop(ConsumerRef);
                 not_found ->
                     ok
             end,
-            ok = emqx_mq_consumer_db:drop_consumer_data(MQHandle),
+            ok = mria:dirty_delete(?MQ_REGISTRY_TAB, Id),
+            ok = emqx_mq_state_storage:destroy_consumer_state(MQHandle),
             ok = emqx_mq_message_db:drop(MQHandle)
     end.
 
@@ -244,6 +244,3 @@ mq_record_stream() ->
 
 make_key(TopicFilter) ->
     emqx_topic_index:make_key(TopicFilter, []).
-
-now_ms() ->
-    erlang:system_time(millisecond).
