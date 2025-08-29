@@ -1,9 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bridge_kinesis_v2_SUITE).
-
--feature(maybe_expr, enable).
+-module(emqx_bridge_kinesis_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -16,23 +14,27 @@
 -include_lib("emqx_resource/include/emqx_resource_runtime.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
--import(emqx_common_test_helpers, [on_exit/1]).
-
 %%------------------------------------------------------------------------------
 %% Defs
 %%------------------------------------------------------------------------------
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(CONNECTOR_TYPE, kinesis).
 -define(CONNECTOR_TYPE_BIN, <<"kinesis">>).
+-define(ACTION_TYPE, kinesis).
 -define(ACTION_TYPE_BIN, <<"kinesis">>).
-
--define(ACCESS_KEY_ID, <<"aws_access_key_id">>).
--define(SECRET_ACCESS_KEY, <<"aws_secret_access_key">>).
-
--define(STREAM_NAME, <<"stream0">>).
 
 -define(PROXY_NAME, "kinesis").
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).
+
+-define(local, local).
+-define(cluster, cluster).
+-define(without_batch, without_batch).
+-define(with_batch, with_batch).
+
+-define(STREAM_NAME, <<"stream0">>).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
@@ -42,55 +44,12 @@
 
 all() ->
     [
-        {group, local},
-        {group, cluster}
+        {group, ?cluster},
+        {group, ?local}
     ].
-
-matrix_cases() ->
-    lists:filter(
-        fun
-            ({testcase, TestCase, _Opts}) ->
-                get_tc_prop(TestCase, matrix, false);
-            (TestCase) ->
-                get_tc_prop(TestCase, matrix, false)
-        end,
-        emqx_common_test_helpers:all(?MODULE)
-    ).
 
 groups() ->
-    All0 = emqx_common_test_helpers:all(?MODULE),
-    ClusterCases = cluster_cases(),
-    All = All0 -- (matrix_cases() ++ ClusterCases),
-    MatrixGroups = emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()),
-    Groups = lists:map(fun({G, _, _}) -> {group, G} end, MatrixGroups),
-    [
-        {cluster, ClusterCases},
-        {local, Groups ++ All}
-        | MatrixGroups
-    ].
-
-cluster_cases() ->
-    lists:filter(
-        fun(TestCase) ->
-            maybe
-                true ?= erlang:function_exported(?MODULE, TestCase, 0),
-                {cluster, true} ?= proplists:lookup(cluster, ?MODULE:TestCase()),
-                true
-            else
-                _ -> false
-            end
-        end,
-        emqx_common_test_helpers:all(?MODULE)
-    ).
-
-get_tc_prop(TestCase, Key, Default) ->
-    maybe
-        true ?= erlang:function_exported(?MODULE, TestCase, 0),
-        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
-        Val
-    else
-        _ -> Default
-    end.
+    emqx_bridge_v2_testlib:local_and_cluster_groups(?MODULE, ?local, ?cluster).
 
 init_per_suite(TCConfig) ->
     TCConfig.
@@ -98,7 +57,8 @@ init_per_suite(TCConfig) ->
 end_per_suite(_TCConfig) ->
     ok.
 
-init_per_group(local, TCConfig) ->
+init_per_group(?local = Group, TCConfig) ->
+    reset_proxy(),
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -109,59 +69,82 @@ init_per_group(local, TCConfig) ->
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
+        #{work_dir => emqx_cth_suite:work_dir(Group, TCConfig)}
     ),
     [
         {apps, Apps}
         | TCConfig
     ];
+init_per_group(?cluster = Group, TCConfig) ->
+    reset_proxy(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_kinesis,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Group, TCConfig)}
+    ),
+    [
+        {apps, Apps}
+        | TCConfig
+    ];
+init_per_group(?with_batch, TCConfig0) ->
+    [{batch_size, 100}, {batch_time, <<"200ms">>} | TCConfig0];
+init_per_group(?without_batch, TCConfig0) ->
+    [{batch_size, 1}, {batch_time, <<"0ms">>} | TCConfig0];
 init_per_group(_Group, TCConfig) ->
     TCConfig.
 
-end_per_group(local, TCConfig) ->
-    Apps = ?config(apps, TCConfig),
+end_per_group(?local, TCConfig) ->
+    Apps = get_config(apps, TCConfig),
+    emqx_cth_suite:stop(Apps),
+    reset_proxy(),
+    ok;
+end_per_group(?cluster, TCConfig) ->
+    Apps = get_config(apps, TCConfig),
     emqx_cth_suite:stop(Apps),
     reset_proxy(),
     ok;
 end_per_group(_Group, _TCConfig) ->
     ok.
 
-init_per_testcase(TestCase, TCConfig0) ->
+init_per_testcase(TestCase, TCConfig) ->
     reset_proxy(),
-    Path = group_path(TCConfig0, no_groups),
-    ct:print(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
-    TCConfig =
-        case erlang:function_exported(?MODULE, TestCase, 2) of
-            true ->
-                ?MODULE:TestCase(init, TCConfig0);
-            false ->
-                TCConfig0
-        end,
+    Path = group_path(TCConfig, no_groups),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
     ConnectorName = atom_to_binary(TestCase),
-    ConnectorConfig = connector_config(),
+    ConnectorConfig = connector_config(#{}),
     ActionName = ConnectorName,
-    ActionConfig = action_config(#{<<"connector">> => ConnectorName}),
+    ActionConfig = action_config(#{
+        <<"connector">> => ConnectorName,
+        <<"resource_opts">> => #{
+            <<"batch_size">> => get_config(batch_size, TCConfig, 1),
+            <<"batch_time">> => get_config(batch_time, TCConfig, <<"0ms">>)
+        }
+    }),
     create_stream(?STREAM_NAME),
+    ErlcloudConfig = mk_erlcloud_config(ConnectorConfig),
     snabbkaffe:start_trace(),
     [
         {bridge_kind, action},
-        {connector_type, ?CONNECTOR_TYPE_BIN},
+        {connector_type, ?CONNECTOR_TYPE},
         {connector_name, ConnectorName},
         {connector_config, ConnectorConfig},
-        {action_type, ?ACTION_TYPE_BIN},
+        {action_type, ?ACTION_TYPE},
         {action_name, ActionName},
-        {action_config, ActionConfig}
+        {action_config, ActionConfig},
+        {erlcloud_config, ErlcloudConfig}
         | TCConfig
     ].
 
-end_per_testcase(TestCase, TCConfig) ->
-    case erlang:function_exported(?MODULE, TestCase, 2) of
-        true ->
-            ?MODULE:TestCase('end', TCConfig);
-        false ->
-            ok
-    end,
+end_per_testcase(_TestCase, _TCConfig) ->
     snabbkaffe:stop(),
+    reset_proxy(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
     ok.
@@ -170,23 +153,14 @@ end_per_testcase(TestCase, TCConfig) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-reset_proxy() ->
-    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT).
-
-group_path(Config, Default) ->
-    case emqx_common_test_helpers:group_path(Config) of
-        [] -> Default;
-        Path -> Path
-    end.
-
-connector_config() ->
-    connector_config(_Overrides = #{}).
-
 connector_config(Overrides) ->
     Defaults = #{
-        <<"aws_access_key_id">> => ?ACCESS_KEY_ID,
-        <<"aws_secret_access_key">> => ?SECRET_ACCESS_KEY,
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
         <<"endpoint">> => <<"http://toxiproxy:4566">>,
+        <<"aws_access_key_id">> => <<"aws_access_key_id">>,
+        <<"aws_secret_access_key">> => <<"aws_secret_access_key">>,
         <<"max_retries">> => 3,
         <<"pool_size">> => 2,
         <<"resource_opts">> =>
@@ -197,7 +171,9 @@ connector_config(Overrides) ->
 
 action_config(Overrides) ->
     Defaults = #{
-        <<"connector">> => <<"please override">>,
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
         <<"parameters">> => #{
             <<"payload_template">> => <<"${.}">>,
             <<"partition_key">> => <<"key">>,
@@ -209,42 +185,178 @@ action_config(Overrides) ->
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
     emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
 
-create_connector_api(Config) ->
-    create_connector_api(Config, _Overrides = #{}).
-create_connector_api(Config, Overrides) ->
-    emqx_bridge_v2_testlib:simplify_result(
-        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
+group_path(TCConfig, Default) ->
+    case emqx_common_test_helpers:group_path(TCConfig) of
+        [] -> Default;
+        Path -> Path
+    end.
+
+get_tc_prop(TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(?MODULE, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
+        Val
+    else
+        _ -> Default
+    end.
+
+reset_proxy() ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT).
+
+with_failure(FailureType, Fn) ->
+    emqx_common_test_helpers:with_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn).
+
+create_stream(StreamName) ->
+    Host = "toxiproxy.emqx.net",
+    Port = 4566,
+    ErlcloudConfig = erlcloud_kinesis:new("access_key", "secret", Host, Port, "http://"),
+    {ok, _} = application:ensure_all_started(erlcloud),
+    delete_stream(StreamName, ErlcloudConfig),
+    {ok, _} = erlcloud_kinesis:create_stream(StreamName, 1, ErlcloudConfig),
+    ?retry(
+        _Sleep = 100,
+        _Attempts = 10,
+        begin
+            {ok, [{<<"StreamDescription">>, StreamInfo}]} =
+                erlcloud_kinesis:describe_stream(StreamName, ErlcloudConfig),
+            ?assertEqual(
+                <<"ACTIVE">>,
+                proplists:get_value(<<"StreamStatus">>, StreamInfo)
+            )
+        end
+    ),
+    on_exit(fun() -> delete_stream(StreamName, ErlcloudConfig) end),
+    ok.
+
+delete_stream(TCConfig) when is_list(TCConfig) ->
+    #{<<"parameters">> := #{<<"stream_name">> := StreamName}} =
+        get_config(action_config, TCConfig),
+    ErlcloudConfig = get_config(erlcloud_config, TCConfig),
+    delete_stream(StreamName, ErlcloudConfig).
+
+delete_stream(StreamName, ErlcloudConfig) ->
+    case erlcloud_kinesis:delete_stream(StreamName, ErlcloudConfig) of
+        {ok, _} ->
+            ?retry(
+                _Sleep = 100,
+                _Attempts = 10,
+                ?assertMatch(
+                    {error, {<<"ResourceNotFoundException">>, _}},
+                    erlcloud_kinesis:describe_stream(StreamName, ErlcloudConfig)
+                )
+            );
+        _ ->
+            ok
+    end,
+    ok.
+
+mk_erlcloud_config(ConnectorConfig) ->
+    #{<<"endpoint">> := Endpoint} = ConnectorConfig,
+    #{scheme := Scheme, hostname := Host, port := Port} =
+        emqx_schema:parse_server(
+            Endpoint,
+            #{
+                default_port => 443,
+                supported_schemes => ["http", "https"]
+            }
+        ),
+    erlcloud_kinesis:new("access_key", "secret", Host, Port, Scheme ++ "://").
+
+wait_record(TCConfig) ->
+    ShardIt = get_shard_iterator(TCConfig),
+    wait_record(ShardIt, TCConfig).
+
+wait_record(ShardIt, TCConfig) ->
+    Timeout = 300,
+    Attempts = 10,
+    [Record] = wait_records(TCConfig, ShardIt, 1, Timeout, Attempts),
+    Record.
+
+wait_records(TCConfig, ShardIt, Count, Timeout, Attempts) ->
+    ErlcloudTCConfig = get_config(erlcloud_config, TCConfig),
+    ?retry(
+        Timeout,
+        Attempts,
+        begin
+            {ok, Ret} = erlcloud_kinesis:get_records(ShardIt, ErlcloudTCConfig),
+            Records = proplists:get_value(<<"Records">>, Ret),
+            Count = length(Records),
+            Records
+        end
     ).
+
+get_shard_iterator(TCConfig) ->
+    get_shard_iterator(TCConfig, 1).
+
+get_shard_iterator(TCConfig, Index) ->
+    #{<<"parameters">> := #{<<"stream_name">> := StreamName}} =
+        get_config(action_config, TCConfig),
+    ErlcloudConfig = get_config(erlcloud_config, TCConfig),
+    {ok, [{<<"Shards">>, Shards}]} = erlcloud_kinesis:list_shards(StreamName, ErlcloudConfig),
+    Shard = lists:nth(Index, lists:sort(Shards)),
+    ShardId = proplists:get_value(<<"ShardId">>, Shard),
+    {ok, [{<<"ShardIterator">>, ShardIt}]} =
+        erlcloud_kinesis:get_shard_iterator(StreamName, ShardId, <<"LATEST">>, ErlcloudConfig),
+    ShardIt.
+
+create_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
+    ).
+
+create_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
+
+probe_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:probe_connector_api2(TCConfig, Overrides).
 
 get_connector_api(TCConfig) ->
-    Type = emqx_bridge_v2_testlib:get_value(connector_type, TCConfig),
-    Name = emqx_bridge_v2_testlib:get_value(connector_name, TCConfig),
+    #{connector_type := ConnectorType, connector_name := ConnectorName} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
     emqx_bridge_v2_testlib:simplify_result(
-        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+        emqx_bridge_v2_testlib:get_connector_api(
+            ConnectorType, ConnectorName
+        )
     ).
 
-update_connector_api(Config) ->
-    update_connector_api(Config, _Overrides = #{}).
-update_connector_api(Config, Overrides) ->
-    Type = emqx_bridge_v2_testlib:get_value(connector_type, Config),
-    Name = emqx_bridge_v2_testlib:get_value(connector_name, Config),
-    Cfg0 = emqx_bridge_v2_testlib:get_value(connector_config, Config),
+update_connector_api(TCConfig, Overrides) ->
+    #{
+        connector_type := Type,
+        connector_name := Name,
+        connector_config := Cfg0
+    } =
+        emqx_bridge_v2_testlib:get_common_values_with_configs(TCConfig),
     Cfg = emqx_utils_maps:deep_merge(Cfg0, Overrides),
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:update_connector_api(Name, Type, Cfg)
     ).
 
-create_action_api(Config) ->
-    create_action_api(Config, _Overrides = #{}).
-create_action_api(Config, Overrides) ->
-    emqx_bridge_v2_testlib:simplify_result(
-        emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
-    ).
+update_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:update_bridge_api2(TCConfig, Overrides).
 
-update_action_api(Config, Overrides) ->
-    emqx_bridge_v2_testlib:simplify_result(
-        emqx_bridge_v2_testlib:update_bridge_api(Config, Overrides)
-    ).
+get_action_api(TCConfig) ->
+    emqx_bridge_v2_testlib:get_action_api2(TCConfig).
+
+get_action_metrics_api(TCConfig) ->
+    emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+start_client() ->
+    start_client(_Opts = #{}).
+
+start_client(Opts0) ->
+    Opts = maps:merge(#{proto_ver => v5}, Opts0),
+    {ok, C} = emqtt:start_link(Opts),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
 
 fmt_atom(Fmt, Args) ->
     binary_to_atom(
@@ -303,52 +415,326 @@ start_cluster(TestCase, Specs, TCConfig) ->
     emqx_bridge_v2_testlib:set_auth_header_getter(Fun),
     Nodes.
 
-delete_stream(StreamName, ErlcloudConfig) ->
-    case erlcloud_kinesis:delete_stream(StreamName, ErlcloudConfig) of
-        {ok, _} ->
-            ?retry(
-                _Sleep = 100,
-                _Attempts = 10,
-                ?assertMatch(
-                    {error, {<<"ResourceNotFoundException">>, _}},
-                    erlcloud_kinesis:describe_stream(StreamName, ErlcloudConfig)
-                )
-            );
-        _ ->
-            ok
-    end,
-    ok.
-
-create_stream(StreamName) ->
-    Host = "toxiproxy.emqx.net",
-    Port = 4566,
-    ErlcloudConfig = erlcloud_kinesis:new("access_key", "secret", Host, Port, "http://"),
-    {ok, _} = application:ensure_all_started(erlcloud),
-    delete_stream(StreamName, ErlcloudConfig),
-    {ok, _} = erlcloud_kinesis:create_stream(StreamName, 1, ErlcloudConfig),
-    ?retry(
-        _Sleep = 100,
-        _Attempts = 10,
-        begin
-            {ok, [{<<"StreamDescription">>, StreamInfo}]} =
-                erlcloud_kinesis:describe_stream(StreamName, ErlcloudConfig),
-            ?assertEqual(
-                <<"ACTIVE">>,
-                proplists:get_value(<<"StreamStatus">>, StreamInfo)
-            )
-        end
-    ),
-    on_exit(fun() -> delete_stream(StreamName, ErlcloudConfig) end),
-    ok.
-
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
 
+t_start_stop(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_start_stop(TCConfig, "kinesis_connector_stop").
+
+t_on_get_status(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
+
+t_rule_action() ->
+    [{matrix, true}].
+t_rule_action(matrix) ->
+    [[?without_batch], [?with_batch]];
+t_rule_action(TCConfig) when is_list(TCConfig) ->
+    PrePublishFn = fun(Context) ->
+        ShardIt = get_shard_iterator(TCConfig),
+        Context#{shard_it => ShardIt}
+    end,
+    PostPublishFn = fun(Context) ->
+        #{payload := Payload, shard_it := ShardIt} = Context,
+        ?retry(200, 10, begin
+            Record = wait_record(ShardIt, TCConfig),
+            ct:pal("record:\n  ~p", [Record]),
+            {<<"Data">>, PayloadRaw} = lists:keyfind(<<"Data">>, 1, Record),
+            ?assertMatch(#{<<"payload">> := Payload}, emqx_utils_json:decode(PayloadRaw))
+        end)
+    end,
+    Opts = #{
+        pre_publish_fn => PrePublishFn,
+        post_publish_fn => PostPublishFn
+    },
+    emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+t_publish_success_with_template(TCConfig) ->
+    PayloadFn = fun() -> <<"{\"key\":\"my_key\", \"data\":\"my_data\"}">> end,
+    PrePublishFn = fun(Context) ->
+        ShardIt = get_shard_iterator(TCConfig),
+        Context#{shard_it => ShardIt}
+    end,
+    PostPublishFn = fun(Context) ->
+        #{shard_it := ShardIt} = Context,
+        ?retry(200, 10, begin
+            Record = wait_record(ShardIt, TCConfig),
+            ct:pal("record:\n  ~p", [Record]),
+            {<<"Data">>, Payload} = lists:keyfind(<<"Data">>, 1, Record),
+            ?assertMatch(<<"my_data">>, Payload),
+            {<<"PartitionKey">>, Key} = lists:keyfind(<<"PartitionKey">>, 1, Record),
+            ?assertMatch(<<"my_key">>, Key)
+        end)
+    end,
+    ActionOverrides = #{
+        <<"parameters">> => #{
+            <<"payload_template">> => <<"${payload.data}">>,
+            <<"partition_key">> => <<"${payload.key}">>
+        }
+    },
+    Opts = #{
+        payload_fn => PayloadFn,
+        pre_publish_fn => PrePublishFn,
+        post_publish_fn => PostPublishFn,
+        action_overrides => ActionOverrides
+    },
+    emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+t_create_unhealthy(TCConfig) ->
+    delete_stream(TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+        }},
+        create_action_api(TCConfig, #{})
+    ),
+    ok.
+
+t_start_failed_then_fix(TCConfig) ->
+    with_failure(down, fun() ->
+        ?assertMatch(
+            {201, #{
+                <<"status">> := <<"disconnected">>,
+                <<"status_reason">> := <<"Connection refused">>
+            }},
+            create_connector_api(TCConfig, #{})
+        )
+    end),
+    ?retry(
+        _Sleep1 = 1_000,
+        _Attempts1 = 30,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_connector_api(TCConfig)
+        )
+    ),
+    ok.
+
+t_get_status_unhealthy(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    delete_stream(TCConfig),
+    ?retry(
+        100,
+        100,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_action_api(TCConfig)
+        )
+    ),
+    ok.
+
+t_publish_unhealthy(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    ShardIt = get_shard_iterator(TCConfig),
+    Payload = <<"payload">>,
+    delete_stream(TCConfig),
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    ?assertError(
+        {badmatch, {error, {<<"ResourceNotFoundException">>, _}}},
+        wait_record(ShardIt, TCConfig)
+    ),
+    %% to avoid test flakiness
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"dropped">> := 0,
+                    <<"failed">> := 1,
+                    <<"inflight">> := 0,
+                    <<"matched">> := 1,
+                    <<"queuing">> := 0,
+                    <<"retried">> := 0,
+                    <<"success">> := 0
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+    ?retry(
+        100,
+        100,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"disconnected">>}},
+            get_action_api(TCConfig)
+        )
+    ),
+    ok.
+
+t_publish_big_msg(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    % Maximum size is 1MB. Using 1MB + 1 here.
+    Payload = binary:copy(<<"a">>, 1 * 1024 * 1024 + 1),
+    emqx:publish(emqx_message:make(Topic, Payload)),
+    %% to avoid test flakiness
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"dropped">> := 0,
+                    <<"failed">> := 1,
+                    <<"inflight">> := 0,
+                    <<"matched">> := 1,
+                    <<"queuing">> := 0,
+                    <<"retried">> := 0,
+                    <<"success">> := 0
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+    ok.
+
+t_publish_connection_down(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    ShardIt = get_shard_iterator(TCConfig),
+    Payload = <<"payload">>,
+    with_failure(down, fun() ->
+        ct:sleep(200),
+        ?wait_async_action(
+            emqtt:publish(C, Topic, Payload),
+            #{?snk_kind := emqx_bridge_kinesis_impl_producer_sync_query},
+            5_000
+        )
+    end),
+    %% Wait for reconnection.
+    ?retry(
+        _Sleep3 = 500,
+        _Attempts3 = 20,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_connector_api(TCConfig)
+        )
+    ),
+    Record = wait_record(ShardIt, TCConfig),
+    %% to avoid test flakiness
+    Data = proplists:get_value(<<"Data">>, Record),
+    ?assertMatch(#{<<"payload">> := Payload}, emqx_utils_json:decode(Data)),
+    ok.
+
+t_wrong_server(TCConfig) ->
+    Overrides = #{
+        <<"max_retries">> => 0,
+        <<"endpoint">> => <<"https://wrong_server:12345">>
+    },
+    ?assertMatch(
+        {400, _},
+        probe_connector_api(TCConfig, Overrides)
+    ),
+    {201, #{
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := ErrMsg
+    }} = create_connector_api(TCConfig, Overrides),
+    ?assertEqual(
+        match,
+        re:run(ErrMsg, <<"Could not resolve host">>, [{capture, none}]),
+        #{msg => ErrMsg}
+    ),
+    ok.
+
+t_access_denied(TCConfig) ->
+    AccessError = {<<"AccessDeniedException">>, <<>>},
+    emqx_common_test_helpers:with_mock(
+        erlcloud_kinesis,
+        list_streams,
+        fun() -> {error, AccessError} end,
+        fun() ->
+            %% probe
+            ?assertMatch(
+                {400, _},
+                probe_connector_api(TCConfig, #{})
+            ),
+            %% create
+            {201, #{
+                <<"status">> := <<"disconnected">>,
+                <<"status_reason">> := ErrMsg
+            }} = create_connector_api(TCConfig, #{}),
+            ?assertEqual(
+                match,
+                re:run(ErrMsg, <<"AccessDeniedException">>, [{capture, none}]),
+                #{msg => ErrMsg}
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_empty_payload_template(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(TCConfig0, action_config, fun(Old) ->
+        emqx_utils_maps:deep_remove([<<"parameters">>, <<"payload_template">>], Old)
+    end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    ShardIt = get_shard_iterator(TCConfig),
+    Payload = <<"payload">>,
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    %% to avoid test flakiness
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"dropped">> := 0,
+                    <<"failed">> := 0,
+                    <<"inflight">> := 0,
+                    <<"matched">> := 1,
+                    <<"queuing">> := 0,
+                    <<"retried">> := 0,
+                    <<"success">> := 1
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+    Record = wait_record(ShardIt, TCConfig),
+    Data = proplists:get_value(<<"Data">>, Record),
+    ?assertMatch(
+        #{<<"payload">> := <<"payload">>, <<"topic">> := Topic},
+        emqx_utils_json:decode(Data)
+    ),
+    ok.
+
+t_validate_static_constraints(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    %% From <https://docs.aws.amazon.com/kinesis/latest/APIReference/API_PutRecords.html>:
+    %% "Each PutRecords request can support up to 500 records.
+    %%  Each record in the request can be as large as 1 MiB,
+    %%  up to a limit of 5 MiB for the entire request, including partition keys."
+    %%
+    %% Message size and request size shall be controlled by user, so there is no validators
+    %% for them - if exceeded, it will fail like on `t_publish_big_msg` test.
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"value">> := 501
+            }
+        }},
+        create_action_api(TCConfig, #{<<"resource_opts">> => #{<<"batch_size">> => 501}})
+    ),
+    ok.
+
 %% Checks that we throttle control plance APIs when doing connector health checks.
 %% For connector HCs, AWS quota is 5 TPS.
 t_connector_health_check_rate_limit() ->
-    [{cluster, true}].
+    [{?cluster, true}].
 t_connector_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
     %% Using long enough interval with few nodes, should not hit limit
     ct:pal("Testing with 1 node, no rate limit"),
@@ -484,7 +870,7 @@ t_connector_health_check_rate_limit_call_timeout(TCConfig) when is_list(TCConfig
 %% Checks that we throttle control plance APIs when doing action health checks.
 %% For action HCs, AWS quota is 10 TPS.
 t_action_health_check_rate_limit() ->
-    [{cluster, true}].
+    [{?cluster, true}].
 t_action_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
     %% Using long enough interval with few nodes, should not hit limit
     ct:pal("Testing with 1 node, no rate limit"),
@@ -494,7 +880,7 @@ t_action_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
         begin
             Specs = [#{role => core}],
             Nodes = start_cluster(?FUNCTION_NAME, Specs, TCConfig),
-            {201, _} = create_connector_api(TCConfig),
+            {201, _} = create_connector_api(TCConfig, #{}),
             {201, _} = create_action_api(TCConfig, #{
                 <<"resource_opts">> => #{<<"health_check_interval">> => <<"200ms">>}
             }),
@@ -517,7 +903,7 @@ t_action_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
         begin
             Specs = [#{role => core}],
             Nodes = start_cluster(?FUNCTION_NAME, Specs, TCConfig),
-            {201, _} = create_connector_api(TCConfig),
+            {201, _} = create_connector_api(TCConfig, #{}),
             {201, _} = create_action_api(TCConfig, #{
                 <<"resource_opts">> => #{<<"health_check_interval">> => <<"50ms">>}
             }),
@@ -540,7 +926,7 @@ t_action_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
         begin
             Specs = [#{role => core}, #{role => core}, #{role => replicant}],
             Nodes = start_cluster(?FUNCTION_NAME, Specs, TCConfig),
-            {201, _} = create_connector_api(TCConfig),
+            {201, _} = create_connector_api(TCConfig, #{}),
             {201, _} = create_action_api(TCConfig, #{
                 %% With more nodes, we trigger quota limit earlier
                 <<"resource_opts">> => #{<<"health_check_interval">> => <<"200ms">>}
@@ -569,7 +955,7 @@ t_action_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
         begin
             Specs = [#{role => core}],
             Nodes = start_cluster(?FUNCTION_NAME, Specs, TCConfig),
-            {201, _} = create_connector_api(TCConfig),
+            {201, _} = create_connector_api(TCConfig, #{}),
             {201, _} = CreateNamedAction(<<"a">>),
             {201, _} = CreateNamedAction(<<"b">>),
             {201, _} = CreateNamedAction(<<"c">>),
@@ -591,7 +977,7 @@ t_action_health_check_rate_limit_timeout(TCConfig) when is_list(TCConfig) ->
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin
-            {201, _} = create_connector_api(TCConfig),
+            {201, _} = create_connector_api(TCConfig, #{}),
             {201, _} = create_action_api(TCConfig, #{
                 <<"resource_opts">> => #{
                     <<"health_check_timeout">> => <<"400ms">>,
@@ -631,7 +1017,7 @@ t_action_health_check_rate_limit_call_timeout(TCConfig) when is_list(TCConfig) -
                     meck:passthrough([StreamName])
                 end,
                 fun() ->
-                    {201, _} = create_connector_api(TCConfig),
+                    {201, _} = create_connector_api(TCConfig, #{}),
                     {201, _} = create_action_api(TCConfig, #{
                         <<"resource_opts">> => #{
                             <<"health_check_interval">> => <<"100ms">>
@@ -653,9 +1039,9 @@ t_action_health_check_rate_limit_call_timeout(TCConfig) when is_list(TCConfig) -
 
 %% Checks that we handle limiter config updates accordingly.
 t_limiter_config_updates(TCConfig) when is_list(TCConfig) ->
-    {201, _} = create_connector_api(TCConfig),
-    {201, _} = create_action_api(TCConfig),
-    {200, _} = update_connector_api(TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    {200, _} = update_connector_api(TCConfig, #{}),
     {200, _} = update_action_api(TCConfig, #{}),
     ok.
 
@@ -709,8 +1095,8 @@ t_action_health_check_throttled(TCConfig) ->
             {error, {<<"LimitExceededException">>, <<"Rate exceeded for account 123456789012.">>}}
         end,
         fun() ->
-            {201, _} = create_connector_api(TCConfig),
-            {201, _} = create_action_api(TCConfig),
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_action_api(TCConfig, #{}),
             ?block_until(#{?snk_kind := "kinesis_producer_action_hc_throttled"})
         end
     ),
@@ -759,15 +1145,15 @@ t_connector_health_check_no_core(TCConfig) when is_list(TCConfig) ->
 t_action_health_check_no_core() ->
     [{cluster, true}].
 t_action_health_check_no_core(TCConfig) when is_list(TCConfig) ->
-    Type = emqx_bridge_v2_testlib:get_value(action_type, TCConfig),
-    Name = emqx_bridge_v2_testlib:get_value(action_name, TCConfig),
+    Type = get_config(action_type, TCConfig),
+    Name = get_config(action_name, TCConfig),
     ct:timetrap({seconds, 30}),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin
             Specs = [#{role => core}, #{role => replicant}],
             [C1, R1] = Nodes = start_cluster(?FUNCTION_NAME, Specs, TCConfig),
-            {201, _} = create_connector_api(TCConfig),
+            {201, _} = create_connector_api(TCConfig, #{}),
             {201, _} = create_action_api(TCConfig, #{
                 <<"resource_opts">> => #{<<"health_check_interval">> => <<"200ms">>}
             }),
