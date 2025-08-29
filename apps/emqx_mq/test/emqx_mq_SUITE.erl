@@ -582,6 +582,81 @@ t_progress_restoration(_Config) ->
     ok = emqtt:disconnect(CSub1).
 
 %% We check that the consumption progress is restored correctly
+%% when the generation where the consumer stopped is removed
+t_progress_restoration_from_removed_gen(_Config) ->
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+    %% Create a non-lastvalue Queue
+    MQ =
+        emqx_mq_test_utils:create_mq(#{
+            topic_filter => <<"t/#">>,
+            is_lastvalue => false,
+            consumer_max_inactive => 50
+        }),
+
+    %% Publish 20 messages to the queue
+    ok =
+        emqx_mq_test_utils:populate(
+            20,
+            fun(I) ->
+                IBin = integer_to_binary(I),
+                Payload = <<"payload-old", IBin/binary>>,
+                Topic = <<"t/", IBin/binary>>,
+                {Topic, Payload}
+            end
+        ),
+
+    %% Start to consume the messages from the queue
+    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 20, _Timeout1 = 500),
+    ?assertEqual(20, length(Msgs0)),
+
+    %% Disconnect the client and wait for the consumer to stop and save the progress
+    ok = emqtt:disconnect(CSub0),
+    ok = wait_for_consumer_stop(MQ, 100),
+
+    %% Add some messages to the new generation and delete the old one (where the consumer stopped)
+    SlabInfo = emqx_mq_message_db:regular_db_slab_info(),
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+    ok =
+        emqx_mq_test_utils:populate(
+            20,
+            fun(I) ->
+                IBin = integer_to_binary(I),
+                Payload = <<"payload-new-", IBin/binary>>,
+                Topic = <<"t/", IBin/binary>>,
+                {Topic, Payload}
+            end
+        ),
+    ok = lists:foreach(
+        fun(Slab) ->
+            emqx_mq_message_db:drop_regular_db_slab(Slab)
+        end,
+        maps:keys(SlabInfo)
+    ),
+
+    %% Start the client and the consumer again
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+
+    %% Verify that we receive all new messages
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 20, _Timeout1 = 500),
+    ?assertEqual(20, length(Msgs1), binfmt("Expected 20 messages, got: ~p", [length(Msgs1)])),
+    ?assert(
+        lists:all(
+            fun
+                (#{payload := <<"payload-new-", _/binary>>}) -> true;
+                (_) -> false
+            end,
+            Msgs1
+        ),
+        binfmt("Expected all messages to be from new generation with payload-new-* payload", [])
+    ),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub1).
+
+%% We check that the consumption progress is restored correctly
 %% when the consumption buffer is full
 t_progress_restoration_full_buffer(_Config) ->
     %% Create a non-lastvalue Queue
