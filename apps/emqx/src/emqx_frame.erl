@@ -1165,7 +1165,9 @@ serialize_variable_byte_integer(N) when N < (1 bsl 28) ->
     >>.
 
 %% Is the frame too large?
--spec is_too_large(iodata(), pos_integer()) -> boolean().
+-spec is_too_large(iodata(), pos_integer() | infinity) -> boolean().
+is_too_large(_IoData, infinity) ->
+    false;
 is_too_large(IoData, MaxSize) ->
     iolist_size(IoData) >= MaxSize.
 
