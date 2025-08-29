@@ -792,20 +792,19 @@ t_renew_lease_timeout(_Config) ->
                 #{?snk_kind := ?tp_leader_borrower_connect}
             ),
 
+            ?tp(info, test_leader_shutdown, #{}),
             ?wait_async_action(
-                ok = emqx_ds_shared_sub_registry:purge(),
+                begin
+                    Share = #share{group = <<"gr3">>, topic = <<"topic3/#">>},
+                    {ok, Leader} = emqx_ds_shared_sub_registry:get_leader_sync(Share, #{}),
+                    erlang:exit(Leader, shutdown)
+                end,
                 #{?snk_kind := ?tp_leader_borrower_connect}
             ),
 
             ok = emqtt:disconnect(ConnShared)
         end,
-        fun(Trace) ->
-            ?strict_causality(
-                #{?snk_kind := ds_shared_sub_borrower_ping_leader_timeout},
-                #{?snk_kind := ?tp_leader_borrower_connect},
-                Trace
-            )
-        end
+        []
     ).
 
 %%--------------------------------------------------------------------

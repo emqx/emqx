@@ -25,6 +25,9 @@ to the members of shared subscription group.
                                                     global               left
                                                      name
 ```
+
+Note: global name conflicts are resolved using `random_exit_name` strategy.
+
 """.
 
 -behaviour(gen_statem).
@@ -232,6 +235,12 @@ init({ShareTF, Options}) ->
             {ok, #st_candidate{gr = ShareTF}, Options}
     end.
 
+%% Shutdown protocol:
+handle_event(info, {'EXIT', _, Reason}, _State, _Data) ->
+    case Reason of
+        normal -> keep_state_and_data;
+        _ -> {stop, Reason}
+    end;
 %% Leader:
 handle_event(enter, _, #st_leader{gr = Group, idle = Idle}, Data) ->
     enter_leader(Group, Idle, Data);
@@ -292,8 +301,6 @@ handle_event(enter, _, #st_cleanup{gr = Group, from = From}, Data) ->
 %% Common:
 handle_event({call, From}, #call_destroy{}, State, Data) ->
     handle_destroy(From, State, Data);
-handle_event(info, {'EXIT', _, shutdown}, _State, _Data) ->
-    {stop, shutdown};
 handle_event({call, _}, #call_get_leader{}, _State, _Data) ->
     {keep_state_and_data, [postpone]};
 handle_event(ET, Event, State, Data) ->
@@ -859,9 +866,12 @@ schedule_checkpoint(When, HS = #hs{s = S, checkpoint_timer = undefined}) ->
 %% Candidate/standby
 %%--------------------------------------------------------------------------------
 
-handle_client_msg(Message, _Group, #ls{c = CS0, h = HS0}) ->
+handle_client_msg(Message, Group, Data = #ls{c = CS0, h = HS0}) ->
     case emqx_ds_client:dispatch_message(Message, CS0, HS0) of
         ignore ->
+            ?tp(error, ?tp_unknown_event, #{
+                m => ?MODULE, info => Message, state => #st_leader{gr = Group}, data => Data
+            }),
             keep_state_and_data;
         {CS, HS} ->
             {keep_state, #ls{c = CS, h = HS}}
