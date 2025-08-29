@@ -401,7 +401,12 @@ apply_template([{Key, _} | _] = Reqs, Templates, ContextFn) ->
     end.
 
 client_id(ResourceId) ->
-    erlang:binary_to_atom(ResourceId, utf8).
+    case emqx_resource:is_dry_run(ResourceId) of
+        true ->
+            emqx_probe;
+        false ->
+            erlang:binary_to_atom(ResourceId, utf8)
+    end.
 
 redact(Msg) ->
     emqx_utils:redact(Msg, fun is_sensitive_key/1).
