@@ -85,13 +85,13 @@ handle_rule_function(sparkplug_decode, [Data | MoreArgs]) ->
         schema_decode,
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data | MoreArgs]
     );
-handle_rule_function(sparkplug_decode_v2, [Data]) ->
+handle_rule_function(spb_decode, [Data]) ->
     Res = handle_rule_function(
         schema_decode,
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data, <<"Payload">>]
     ),
     map_decoded_sparkplug(Res);
-handle_rule_function(sparkplug_decode_v2, [Data | MoreArgs]) ->
+handle_rule_function(spb_decode, [Data | MoreArgs]) ->
     Res = handle_rule_function(
         schema_decode,
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data | MoreArgs]
@@ -107,13 +107,13 @@ handle_rule_function(sparkplug_encode, [Term | MoreArgs]) ->
         schema_encode,
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
     );
-handle_rule_function(sparkplug_encode_v2, [Term0]) ->
+handle_rule_function(spb_encode, [Term0]) ->
     Term = map_sparkplug_to_encode(Term0),
     handle_rule_function(
         schema_encode,
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term, <<"Payload">>]
     );
-handle_rule_function(sparkplug_encode_v2, [Term0 | MoreArgs]) ->
+handle_rule_function(spb_encode, [Term0 | MoreArgs]) ->
     Term = map_sparkplug_to_encode(Term0),
     handle_rule_function(
         schema_encode,

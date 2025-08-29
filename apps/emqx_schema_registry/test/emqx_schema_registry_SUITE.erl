@@ -1033,7 +1033,7 @@ t_sparkplug_decode_bytes(_TCConfig) ->
     SQL =
         <<
             "select\n"
-            "  sparkplug_decode_v2(payload) as decoded\n"
+            "  spb_decode(payload) as decoded\n"
             "from t\n"
         >>,
     PayloadHex = <<
@@ -1077,7 +1077,7 @@ t_sparkplug_encode_bytes(_TCConfig) ->
     SQL =
         <<
             "select\n"
-            "  sparkplug_encode_v2(json_decode(payload)) as encoded\n"
+            "  spb_encode(json_decode(payload)) as encoded\n"
             "from t\n"
         >>,
     {ok, _} = create_rule_http(#{sql => SQL}),
