@@ -17,9 +17,6 @@ node {
     ##   - replicant: This is a stateless worker node
     ## role = core
 
-    ## Maximum number of simultaneously existing processes for this Erlang system
-    process_limit = 2097152
-
     ## Maximum number of simultaneously open files and sockets for this Erlang system
     max_ports = 1048576
 

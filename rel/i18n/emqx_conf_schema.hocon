@@ -530,19 +530,20 @@ cluster_autoclean.desc:
 cluster_autoclean.label:
 """Cluster Auto Clean"""
 
-process_limit.desc:
-"""Maximum number of simultaneously existing processes for this Erlang system.
-For more information, see: https://www.erlang.org/doc/man/erl.html"""
+max_ports.desc: """~
+  Translated to the `+Q` flag of the Erlang VM.
+  Specifies the maximum number of simultaneously open ports (files, sockets, etc.) allowed by this Erlang system.  
 
-process_limit.label:
-"""Erlang Process Limit"""
+  Note: The actual limit chosen by the runtime may be larger than the number configured here.
+  In most cases, the VM rounds the value up to the next power of two for internal efficiency.
 
-max_ports.desc:
-"""Maximum number of simultaneously open files and sockets for this Erlang system.
-For more information, see: https://www.erlang.org/doc/man/erl.html"""
+  EMQX automatically sets the Erlang process limit (`+P` flag) to twice this value, so users only need to configure `max_ports`.
+  The corresponding `+P` flag controls the maximum number of Erlang processes.
+
+  The effective values can be observed from the dashboard node monitoring tab.~"""
 
 max_ports.label:
-"""Erlang Port Limit"""
+"""Erlang Port and Process Limit"""
 
 desc_log_rotation.desc:
 """By default, the logs are stored in `./log` directory (for installation from zip file) or in `/var/log/emqx` (for binary installation).<br/>
