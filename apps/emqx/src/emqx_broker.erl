@@ -103,7 +103,7 @@
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->
     gen_server:start_link(
-        {local, emqx_utils:proc_name(?BROKER, Id)},
+        {local, emqx_utils:proc_name(Pool, Id)},
         ?MODULE,
         [Pool, Id],
         []
@@ -183,7 +183,7 @@ with_subid(SubId, SubOpts) ->
 do_subscribe(Topic, SubPid, SubOpts) when is_binary(Topic) ->
     I = emqx_broker_helper:assign_sub_shard(Topic),
     true = ets:insert(?SUBOPTION, {{Topic, SubPid}, with_shard_idx(I, SubOpts)}),
-    Sync = call(pick({Topic, I}), {subscribe, Topic, SubPid, I}),
+    Sync = call(pick_sub({Topic, I}), {subscribe, Topic, SubPid, I}),
     case Sync of
         ok ->
             ok;
@@ -237,7 +237,7 @@ do_unsubscribe_regular(Topic, SubPid, SubOpts) ->
         0 -> emqx_exclusive_subscription:unsubscribe(Topic, SubOpts);
         _ -> ok
     end,
-    cast(pick({Topic, I}), {unsubscribed, Topic, SubPid, I}).
+    cast(pick_sub({Topic, I}), {unsubscribed, Topic, SubPid, I}).
 
 %%--------------------------------------------------------------------
 %% Publish
@@ -636,7 +636,7 @@ topics() ->
 %% call, cast, pick
 %%--------------------------------------------------------------------
 
--compile({inline, [call/2, cast/2, pick/1]}).
+-compile({inline, [call/2, cast/2, pick_sub/1, pick_pub/1]}).
 
 call(Broker, Req) ->
     gen_server:call(Broker, Req, infinity).
@@ -644,9 +644,13 @@ call(Broker, Req) ->
 cast(Broker, Req) ->
     gen_server:cast(Broker, Req).
 
-%% Pick a broker
-pick(TopicShard) ->
+%% Pick a pool worker to handle subscribe request
+pick_sub(TopicShard) ->
     gproc_pool:pick_worker(broker_pool, TopicShard).
+
+%% Pick a pool worker to handle message publish
+pick_pub(TopicShard) ->
+    gproc_pool:pick_worker(dispatcher_pool, TopicShard).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -682,7 +686,7 @@ handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
                 %% Even if this happens, this cast is expected to be processed eventually
                 %% and the route should be added (unless the worker restarts...)
                 ?cast_or_eval(
-                    pick({Topic, 0}),
+                    pick_sub({Topic, 0}),
                     {subscribed, Topic, shard, I},
                     sync_route(add, Topic, #{})
                 ),
@@ -723,7 +727,7 @@ handle_cast({unsubscribed, Topic, SubPid, I}, State) ->
             %% let it be handled only by the same pool worker per topic (0 shard),
             %% so that all route deletes are serialized.
             ?cast_or_eval(
-                pick({Topic, 0}),
+                pick_sub({Topic, 0}),
                 {unsubscribed, Topic, shard, I},
                 maybe_delete_route(Topic)
             );
@@ -793,7 +797,7 @@ do_dispatch_shards_async(Topic, Msg, [I | Rest], N) ->
     %% Ordering guarantees should still hold:
     %% * Each subscriber is part of exactly one shard.
     %% * Each topic-shard is always dispatched through the same process.
-    cast(pick({Topic, I}), {dispatch, Topic, I, Msg}),
+    cast(pick_pub({Topic, I}), {dispatch, Topic, I, Msg}),
     %% Assuming shard is non-empty.
     do_dispatch_shards_async(Topic, Msg, Rest, N + 1);
 do_dispatch_shards_async(_Topic, _Msg, [], N) ->
