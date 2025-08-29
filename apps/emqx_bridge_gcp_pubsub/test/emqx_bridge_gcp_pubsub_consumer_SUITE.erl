@@ -1262,7 +1262,10 @@ t_async_worker_death_mid_pull(TCConfig) ->
                 ct:pal("killed async workers")
             end),
 
-            {201, _} = create_connector_api(TCConfig, #{<<"pool_size">> => 1}),
+            {201, _} = create_connector_api(TCConfig, #{
+                <<"max_inactive">> => <<"1s">>,
+                <<"pool_size">> => 1
+            }),
             ?assertMatch(
                 {{201, _}, {ok, _}},
                 ?wait_async_action(
@@ -1270,7 +1273,8 @@ t_async_worker_death_mid_pull(TCConfig) ->
                         <<"parameters">> => #{
                             <<"ack_deadline">> => <<"10s">>,
                             <<"ack_retry_interval">> => <<"1s">>
-                        }
+                        },
+                        <<"resource_opts">> => #{<<"request_ttl">> => <<"5s">>}
                     }),
                     #{?snk_kind := gcp_pubsub_consumer_worker_init},
                     10_000
