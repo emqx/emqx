@@ -1,0 +1,26 @@
+emqx_mgmt_api_ds_shared_sub {
+  param_sub_id = {
+    label = "Shared Subcription ID"
+    desc = "Unique identifier of a durable shared subscription."
+  }
+
+  get_subs = {
+    label = "Durable Shared Subscription"
+    desc = "Get the list of durable shared subscriptions."
+  }
+
+  get_sub = {
+    label = "Durable Shared Subscription"
+    desc = "Get the information of a durable shared subscription."
+  }
+
+  delete_sub = {
+    label = "Delete Durable Shared Subscription"
+    desc = "Delete a durable shared subscription."
+  }
+
+  post_sub = {
+    label = "Declare Durable Shared Subscription"
+    desc = "Explicitly declare a new durable shared subscription."
+  }
+}

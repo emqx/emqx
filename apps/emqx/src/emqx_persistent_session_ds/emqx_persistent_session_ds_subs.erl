@@ -58,7 +58,7 @@
     %% Reference to the current subscription state:
     current_state := subscription_state_id(),
     %% Time when the subscription was added:
-    start_time := emqx_ds:time()
+    start_time := emqx_persistent_session_ds:millisecond()
 }.
 
 -type subscription_state_id() :: integer().
@@ -172,7 +172,7 @@ create_subscription(TopicFilter, SubOpts, UpgradeQoS, S0) ->
     Subscription = #{
         id => SubId,
         current_state => SStateId,
-        start_time => now_ms()
+        start_time => emqx_persistent_session_ds:now_ms()
     },
     S3 = emqx_persistent_session_ds_state:put_subscription_state(SStateId, SState, S2),
     S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Subscription, S3),
@@ -502,9 +502,6 @@ add_direct_route(SessionId, Topic, SubOpts) ->
 
 delete_direct_route(_SessionId, Topic) ->
     emqx_broker:unsubscribe(Topic).
-
-now_ms() ->
-    erlang:system_time(millisecond).
 
 %%================================================================================
 %% Test

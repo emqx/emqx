@@ -1,39 +1,36 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ds_beamsplitter_proto_v3).
+-module(emqx_dsch_proto_v1).
 
 -behavior(emqx_bpapi).
--include_lib("emqx_utils/include/bpapi.hrl").
 
 %% API:
--export([dispatch/7]).
+-export([get_site_schemas/2]).
 
 %% behavior callbacks:
 -export([introduced_in/0]).
 
-%% Changelog:
-%%
-%% == v3 ==
-%% Packs no longer include DSKeys
+%% internal exports:
+-export([]).
+
+-export_type([]).
+
+-include_lib("emqx_utils/include/bpapi.hrl").
+-include("../emqx_dsch.hrl").
+
+%%================================================================================
+%% Type declarations
+%%================================================================================
 
 %%================================================================================
 %% API functions
 %%================================================================================
 
--spec dispatch(
-    _SerializationToken,
-    node(),
-    emqx_ds:db(),
-    emqx_ds_payload_transform:schema(),
-    emqx_ds_beamsplitter:pack_v3(),
-    [emqx_ds_beamsplitter:destination()],
-    map()
-) -> true.
-dispatch(SerializationToken, Node, DB, PTSchema, Pack, Destinations, Misc) ->
-    emqx_rpc:cast(SerializationToken, Node, emqx_ds_beamsplitter, dispatch_v3, [
-        DB, PTSchema, Pack, Destinations, Misc
-    ]).
+-spec get_site_schemas([node()], timeout()) ->
+    [{ok, emqx_dsch:schema() | ?empty_schema} | _Err].
+get_site_schemas(Nodes, Timeout) ->
+    erpc:multicall(Nodes, emqx_dsch, get_site_schema, [], Timeout).
 
 %%================================================================================
 %% behavior callbacks

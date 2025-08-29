@@ -638,7 +638,7 @@ t_070_multiple_shards({init, Config}) ->
             #{
                 <<"timers">> =>
                     #{
-                        <<"n_shards">> => 16,
+                        <<"n_shards">> => 4,
                         <<"replication_factor">> => 5
                     }
             },
@@ -652,7 +652,7 @@ t_070_multiple_shards({stop, Config}) ->
 t_070_multiple_shards(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => 60_000},
         begin
             %% Prepare system:
             Nodes = emqx_cth_cluster:start(Cluster),

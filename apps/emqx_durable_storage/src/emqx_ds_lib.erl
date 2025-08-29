@@ -143,15 +143,15 @@ asn1_to_tf(ASN1) ->
 -doc """
 Entrypoint for the "shard marker" process that handles shard readiness optvar.
 """.
--spec shard_marker_entrypoint(emqx_ds:db(), emqx_ds:shard()) -> ok.
+-spec shard_marker_entrypoint(emqx_ds:db(), emqx_ds:shard()) -> no_return().
 shard_marker_entrypoint(DB, Shard) ->
     process_flag(trap_exit, true),
     emqx_ds:set_shard_ready(DB, Shard, true),
     proc_lib:init_ack({ok, self()}),
     receive
-        {'EXIT', _} ->
+        {'EXIT', _, _Reason} ->
             emqx_ds:set_shard_ready(DB, Shard, false),
-            ok
+            exit(shutdown)
     end.
 
 %%================================================================================

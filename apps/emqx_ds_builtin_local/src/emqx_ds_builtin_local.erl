@@ -23,6 +23,7 @@
     drop_slab/2,
     drop_db/1,
     store_batch/3,
+    dirty_append/2,
     get_streams/4,
     get_delete_streams/3,
     make_iterator/4,
@@ -42,6 +43,7 @@
     tx_commit_outcome/1,
 
     %% `beamformer':
+    beamformer_config/1,
     unpack_iterator/2,
     scan_stream/5,
     high_watermark/2,
@@ -131,7 +133,8 @@
         storage := emqx_ds_storage_layer:prototype(),
 
         n_shards := pos_integer(),
-        poll_workers_per_shard => pos_integer(),
+        %% Beamformer config:
+        subscriptions => emqx_ds_beamformer:opts(),
         %% Equivalent to `append_only' from `emqx_ds:create_db_opts':
         force_monotonic_timestamps := boolean(),
         atomic_batches := boolean(),
@@ -155,21 +158,8 @@
 %%================================================================================
 
 -spec open_db(emqx_ds:db(), db_opts()) -> ok | {error, _}.
-open_db(DB, CreateOpts0) ->
-    %% Rename `append_only' flag to `force_monotonic_timestamps':
-    AppendOnly = maps:get(append_only, CreateOpts0),
-    CreateOpts1 = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
-    CreateOpts = emqx_utils_maps:deep_merge(
-        #{
-            transaction => #{
-                flush_interval => 1_000,
-                idle_flush_interval => 1,
-                conflict_window => 5_000
-            }
-        },
-        CreateOpts1
-    ),
-    case emqx_ds_builtin_local_sup:start_db(DB, CreateOpts) of
+open_db(DB, CreateOpts) ->
+    case emqx_ds_builtin_local_sup:start_db(DB, config_with_defaults(CreateOpts)) of
         {ok, _} ->
             emqx_ds:set_db_ready(DB, true),
             ok;
@@ -211,7 +201,7 @@ add_generation(DB) ->
 
 -spec update_db_config(emqx_ds:db(), db_opts()) -> ok | {error, _}.
 update_db_config(DB, CreateOpts) ->
-    Opts = #{} = emqx_ds_builtin_local_meta:update_db_config(DB, CreateOpts),
+    Opts = #{} = emqx_ds_builtin_local_meta:update_db_config(DB, config_with_defaults(CreateOpts)),
     lists:foreach(
         fun(Shard) ->
             ShardId = {DB, Shard},
@@ -228,12 +218,7 @@ list_slabs(DB) ->
     lists:foldl(
         fun(Shard, Acc) ->
             maps:fold(
-                fun(GenId, Data0, Acc1) ->
-                    Data = maps:update_with(
-                        until,
-                        fun timeus_to_timestamp/1,
-                        maps:update_with(since, fun timeus_to_timestamp/1, Data0)
-                    ),
+                fun(GenId, Data, Acc1) ->
                     Acc1#{{Shard, GenId} => Data}
                 end,
                 Acc,
@@ -268,6 +253,9 @@ store_batch(DB, Batch, Opts) ->
         _ ->
             store_batch_buffered(DB, Batch, Opts)
     end.
+
+dirty_append(#{db := _, shard := _} = Opts, Data) ->
+    emqx_ds_optimistic_tx:dirty_append(Opts, Data).
 
 -spec new_tx(emqx_ds:db(), emqx_ds:transaction_opts()) ->
     {ok, tx_context()} | emqx_ds:error(_).
@@ -432,7 +420,7 @@ get_streams(DB, TopicFilter, StartTime, Opts) ->
                 lists:flatmap(
                     fun(Shard) ->
                         Streams = emqx_ds_storage_layer:get_streams(
-                            {DB, Shard}, TopicFilter, timestamp_to_timeus(StartTime), MinGeneration
+                            {DB, Shard}, TopicFilter, StartTime, MinGeneration
                         ),
                         lists:map(
                             fun({Generation, InnerStream}) ->
@@ -448,7 +436,7 @@ get_streams(DB, TopicFilter, StartTime, Opts) ->
                 lists:flatmap(
                     fun(Shard) ->
                         Streams = emqx_ds_storage_layer_ttv:get_streams(
-                            {DB, Shard}, TopicFilter, timestamp_to_timeus(StartTime), MinGeneration
+                            {DB, Shard}, TopicFilter, StartTime, MinGeneration
                         ),
                         [
                             {{Shard, Stream#'Stream'.generation}, Stream}
@@ -468,11 +456,7 @@ make_iterator(DB, Stream = #'Stream'{}, TopicFilter, StartTime) ->
     emqx_ds_storage_layer_ttv:make_iterator(DB, Stream, TopicFilter, StartTime);
 make_iterator(DB, ?stream(Shard, InnerStream), TopicFilter, StartTime) ->
     ShardId = {DB, Shard},
-    case
-        emqx_ds_storage_layer:make_iterator(
-            ShardId, InnerStream, TopicFilter, timestamp_to_timeus(StartTime)
-        )
-    of
+    case emqx_ds_storage_layer:make_iterator(ShardId, InnerStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
         Error = {error, _, _} ->
@@ -531,6 +515,11 @@ unsubscribe(DB, {Shard, SubId}) ->
 suback(DB, {Shard, SubRef}, SeqNo) ->
     emqx_ds_beamformer:suback({DB, Shard}, SubRef, SeqNo).
 
+-spec beamformer_config(emqx_ds:db()) -> emqx_ds_beamformer:opts().
+beamformer_config(DB) ->
+    #{subscriptions := Val} = emqx_ds_builtin_local_meta:db_config(DB),
+    Val.
+
 unpack_iterator(DBShard, Iterator = #'Iterator'{}) ->
     emqx_ds_storage_layer_ttv:unpack_iterator(DBShard, Iterator);
 unpack_iterator(DBShard, #{?tag := ?IT, ?enc := Iterator}) ->
@@ -550,14 +539,7 @@ fast_forward(DBShard, It = #'Iterator'{}, Key, BatchSize) ->
     emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now, BatchSize);
 fast_forward(DBShard, #{?tag := ?IT, ?enc := Inner0}, Key, BatchSize) ->
     Now = current_timestamp(DBShard),
-    case emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize) of
-        {ok, end_of_stream} ->
-            {ok, end_of_stream};
-        {ok, Pos, Data} ->
-            {ok, Pos, Data};
-        {error, _, _} = Err ->
-            Err
-    end.
+    emqx_ds_storage_layer:fast_forward(DBShard, Inner0, Key, Now, BatchSize).
 
 message_match_context(DBShard, Stream = #'Stream'{}, MsgKey, TTV) ->
     emqx_ds_storage_layer_ttv:message_match_context(DBShard, Stream, MsgKey, TTV);
@@ -595,7 +577,7 @@ get_delete_streams(DB, TopicFilter, StartTime) ->
     lists:flatmap(
         fun(Shard) ->
             Streams = emqx_ds_storage_layer:get_delete_streams(
-                {DB, Shard}, TopicFilter, timestamp_to_timeus(StartTime)
+                {DB, Shard}, TopicFilter, StartTime
             ),
             lists:map(
                 fun(InnerStream) ->
@@ -615,7 +597,7 @@ make_delete_iterator(DB, ?delete_stream(Shard, InnerStream), TopicFilter, StartT
     ShardId = {DB, Shard},
     case
         emqx_ds_storage_layer:make_delete_iterator(
-            ShardId, InnerStream, TopicFilter, timestamp_to_timeus(StartTime)
+            ShardId, InnerStream, TopicFilter, StartTime
         )
     of
         {ok, Iter} ->
@@ -806,14 +788,6 @@ batch_size_and_time_limit(true, _DB, _Shard, {time, MaxTS, BatchSize}) ->
 %% Internal functions
 %%================================================================================
 
-timestamp_to_timeus(TimestampMs) ->
-    TimestampMs * 1000.
-
-timeus_to_timestamp(undefined) ->
-    undefined;
-timeus_to_timestamp(TimestampUs) ->
-    TimestampUs div 1000.
-
 get_tx_persistent_serial(DB, Shard) ->
     case emqx_ds_storage_layer:fetch_global({DB, Shard}, ?serial_key) of
         {ok, <<Val:128>>} ->
@@ -821,6 +795,27 @@ get_tx_persistent_serial(DB, Shard) ->
         not_found ->
             {ok, 0}
     end.
+
+config_with_defaults(CreateOpts0) ->
+    %% Rename `append_only' flag to `force_monotonic_timestamps':
+    AppendOnly = maps:get(append_only, CreateOpts0),
+    CreateOpts = maps:put(force_monotonic_timestamps, AppendOnly, CreateOpts0),
+    emqx_utils_maps:deep_merge(
+        #{
+            transaction => #{
+                flush_interval => 1_000,
+                idle_flush_interval => 1,
+                max_items => 1000,
+                conflict_window => 5_000
+            },
+            subscriptions => #{
+                n_workers_per_shard => 10,
+                batch_size => 1000,
+                housekeeping_interval => 1000
+            }
+        },
+        CreateOpts
+    ).
 
 %%================================================================================
 %% Common test options

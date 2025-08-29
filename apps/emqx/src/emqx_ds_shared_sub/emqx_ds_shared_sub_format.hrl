@@ -2,6 +2,9 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
+-ifndef(EMQX_DS_SHARED_SUB_FORMAT_HRL).
+-define(EMQX_DS_SHARED_SUB_FORMAT_HRL, true).
+
 %% Logging helpers
 
 -ifdef(TEST).
@@ -39,15 +42,25 @@
 -endif.
 
 -define(log_borrower_msg(ToLeader, Msg),
-    ?tp(debug, borrower_to_leader, #{
+    ?tp(debug, ds_shared_sub_borrower_to_leader, #{
         to_leader => ToLeader,
         proto_msg => ?format_borrower_msg(Msg)
     })
 ).
 
 -define(log_leader_msg(ToBorrowerId, Msg),
-    ?tp(debug, leader_to_borrower, #{
+    ?tp(debug, ds_shared_sub_leader_to_borrower, #{
         to_borrower => ?format_borrower_id(ToBorrowerId),
         proto_msg => ?format_leader_msg(Msg)
     })
 ).
+
+-define(tp_unknown_event, ds_shared_sub_unknown_event).
+-define(tp_leader_started, ds_shared_sub_leader_started).
+-define(tp_leader_terminate, ds_shared_sub_leader_terminate).
+-define(tp_leader_borrower_connect, ds_shared_sub_leader_borrower_connect).
+-define(tp_leader_borrower_disconnect, ds_shared_sub_leader_borrower_disconnect).
+-define(tp_leader_disconnect_borrower, ds_shared_sub_leader_disconnect_borrower).
+-define(tp_leader_realloc, ds_shared_sub_leader_realloc).
+
+-endif.

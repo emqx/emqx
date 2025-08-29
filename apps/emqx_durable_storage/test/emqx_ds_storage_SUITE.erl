@@ -7,11 +7,12 @@
 -compile(nowarn_export_all).
 
 -include("../../emqx/include/emqx.hrl").
+-include("emqx_ds.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 opts() ->
-    #{storage => {emqx_ds_storage_reference, #{}}}.
+    #{storage => {emqx_ds_storage_reference, #{}}, payload_type => ?ds_pt_ttv}.
 
 %%
 

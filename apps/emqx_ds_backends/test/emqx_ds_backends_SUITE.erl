@@ -20,9 +20,9 @@
 %% doesn't crash, and not much else
 t_00_smoke_open_drop(Config) ->
     DB = 'DB',
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     %% Reopen the DB and make sure the operation is idempotent:
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     %% Close the DB:
     ?assertMatch(ok, emqx_ds:drop_db(DB)).
 
@@ -33,9 +33,23 @@ t_01_smoke_store(Config) ->
         #{timetrap => 10_000},
         begin
             DB = default,
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-            Msg = message(<<"foo/bar">>, <<"foo">>, 0),
-            ?assertMatch(ok, emqx_ds:store_batch(DB, [Msg]))
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
+            Msg = ttv_mqtt(<<"foo/bar">>, <<"foo">>, 0),
+            Shard = hd(emqx_ds:list_shards(DB)),
+            %% Store sync:
+            Ref = emqx_ds:dirty_append(#{db => DB, shard => Shard}, [Msg]),
+            ?assert(is_reference(Ref)),
+            receive
+                ?ds_tx_commit_reply(Ref, Reply) ->
+                    ?assertMatch(
+                        {ok, Serial} when is_binary(Serial),
+                        emqx_ds:tx_commit_outcome(DB, Ref, Reply)
+                    )
+            end,
+            %% Store async:
+            ?assertMatch(
+                noreply, emqx_ds:dirty_append(#{db => DB, shard => Shard, reply => false}, [Msg])
+            )
         end,
         []
     ).
@@ -45,20 +59,64 @@ t_01_smoke_store(Config) ->
 %% over messages.
 t_02_smoke_iterate(Config) ->
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-    StartTime = 0,
-    TopicFilter = ['#'],
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     Msgs = [
         message(<<"foo/bar">>, <<"1">>, 0),
         message(<<"foo/bar">>, <<"2">>, 1),
         message(<<"foo/bar">>, <<"3">>, 2)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs, #{sync => true})),
-    timer:sleep(1000),
-    {[{_, Stream}], []} = emqx_ds:get_streams(DB, TopicFilter, StartTime, #{}),
-    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-    {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
+    ok = dirty_append(DB, Msgs),
+    Batch = dump_topic(DB, ['#']),
     emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs, Batch).
+
+%% This testcase verifies ordering of data added to the DB via
+%% dirty_append. It submits a few batches in a very short succession
+%% to make sure they are added to the buffer at the same time. When
+%% the batch is committed, we verify that messages from all batches
+%% were written in order.
+t_03_dirty_append_ordering(Config) ->
+    DB = ?FUNCTION_NAME,
+    DBOpts = emqx_utils_maps:deep_merge(opts(Config), #{
+        store_ttv => true,
+        transaction => #{idle_flush_interval => 1000, flush_interval => 1000},
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+    }),
+    ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
+    %% Add a few batches async-ly:
+    Topic = [<<"t">>],
+    AsyncOpts = #{db => DB, shard => first_shard(DB), reply => false},
+    noreply = emqx_ds:dirty_append(AsyncOpts, [
+        {Topic, ?ds_tx_ts_monotonic, <<0>>},
+        {Topic, ?ds_tx_ts_monotonic, <<1>>},
+        {Topic, ?ds_tx_ts_monotonic, <<2>>}
+    ]),
+    noreply = emqx_ds:dirty_append(AsyncOpts, [
+        {Topic, ?ds_tx_ts_monotonic, <<3>>},
+        {Topic, ?ds_tx_ts_monotonic, <<4>>}
+    ]),
+    noreply = emqx_ds:dirty_append(AsyncOpts, [
+        {Topic, ?ds_tx_ts_monotonic, <<5>>},
+        {Topic, ?ds_tx_ts_monotonic, <<6>>}
+    ]),
+    %% Wait for the last batch:
+    ok = dirty_append(AsyncOpts, [{Topic, ?ds_tx_ts_monotonic, <<7>>}]),
+    %% Fetch messages:
+    {[{_, Stream}], []} = emqx_ds:get_streams(DB, Topic, 0, #{}),
+    {ok, Iterator} = emqx_ds:make_iterator(DB, Stream, Topic, 0),
+    ?assertMatch(
+        {ok, _, [
+            {Topic, _, <<0>>},
+            {Topic, _, <<1>>},
+            {Topic, _, <<2>>},
+            {Topic, _, <<3>>},
+            {Topic, _, <<4>>},
+            {Topic, _, <<5>>},
+            {Topic, _, <<6>>},
+            {Topic, _, <<7>>}
+        ]},
+        emqx_ds:next(DB, Iterator, 1000)
+    ),
+    ok.
 
 %% Verify that iterators survive restart of the application. This is
 %% an important property, since the lifetime of the iterators is tied
@@ -67,7 +125,7 @@ t_02_smoke_iterate(Config) ->
 %% they are left off.
 t_05_restart(Config) ->
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     TopicFilter = ['#'],
     StartTime = 0,
     Msgs = [
@@ -75,22 +133,22 @@ t_05_restart(Config) ->
         message(<<"foo/bar">>, <<"2">>, 1),
         message(<<"foo/bar">>, <<"3">>, 2)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs, #{sync => true})),
-    timer:sleep(1_000),
+    ok = dirty_append(DB, Msgs),
     {[{_, Stream}], []} = emqx_ds:get_streams(DB, TopicFilter, StartTime, #{}),
-    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
+    {ok, Iterator} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
     %% Restart the application:
     ?tp(warning, emqx_ds_SUITE_restart_app, #{}),
     ok = application:stop(emqx_durable_storage),
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
     ok = emqx_ds_open_db(DB, opts(Config)),
     %% The old iterator should be still operational:
-    {ok, _Iter, Batch} = emqx_ds_test_helpers:consume_iter(DB, Iter0),
+    {ok, _Iter, Batch} = emqx_ds:next(DB, Iterator, 100),
     emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs, Batch).
 
 t_06_smoke_add_generation(Config) ->
     DB = ?FUNCTION_NAME,
-    BeginTime = os:system_time(millisecond),
+    %% Make sure all units are in μs:
+    BeginTime = os:system_time(microsecond),
 
     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
     [{Gen1, #{created_at := Created1, since := Since1, until := undefined}}] = maps:to_list(
@@ -103,10 +161,10 @@ t_06_smoke_add_generation(Config) ->
         {_Gen2, #{created_at := Created2, since := Since2, until := undefined}}
     ] = maps:to_list(emqx_ds:list_slabs(DB)),
     %% Check units of the return values (+/- 10s from test begin time):
-    ?give_or_take(BeginTime, 10_000, Created1),
-    ?give_or_take(BeginTime, 10_000, Created2),
-    ?give_or_take(BeginTime, 10_000, Since2),
-    ?give_or_take(BeginTime, 10_000, Until1).
+    ?give_or_take(BeginTime, 10_000_000, Created1),
+    ?give_or_take(BeginTime, 10_000_000, Created2),
+    ?give_or_take(BeginTime, 10_000_000, Since2),
+    ?give_or_take(BeginTime, 10_000_000, Until1).
 
 t_07_smoke_update_config(Config) ->
     DB = ?FUNCTION_NAME,
@@ -179,225 +237,6 @@ t_08_smoke_list_drop_generation(Config) ->
                 lists:sort(maps:to_list(Generations3)),
                 #{gens => Generations3}
             )
-        end,
-        []
-    ),
-    ok.
-
-t_09_atomic_store_batch(Config) ->
-    ct:pal("store batch ~p", [Config]),
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        begin
-            DBOpts = (opts(Config))#{atomic_batches => true},
-            ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
-            Msgs = [
-                message(<<"1">>, <<"1">>, 0),
-                message(<<"2">>, <<"2">>, 1),
-                message(<<"3">>, <<"3">>, 2)
-            ],
-            ?assertEqual(
-                ok,
-                emqx_ds:store_batch(DB, Msgs, #{sync => true})
-            )
-        end,
-        []
-    ),
-    ok.
-
-t_10_non_atomic_store_batch(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        begin
-            application:set_env(emqx_durable_storage, egress_batch_size, 1),
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-            Msgs = [
-                message(<<"1">>, <<"1">>, 0),
-                message(<<"2">>, <<"2">>, 1),
-                message(<<"3">>, <<"3">>, 2)
-            ],
-            %% Non-atomic batches may be split.
-            ?assertEqual(
-                ok,
-                emqx_ds:store_batch(DB, Msgs, #{
-                    atomic => false,
-                    sync => true
-                })
-            ),
-            timer:sleep(1000)
-        end,
-        fun(Trace) ->
-            %% Should contain one flush per message.
-            Batches = ?projection(batch, ?of_kind(emqx_ds_buffer_flush, Trace)),
-            ?assertMatch([_], Batches),
-            ?assertMatch(
-                [_, _, _],
-                lists:append(Batches)
-            ),
-            ok
-        end
-    ),
-    ok.
-
-t_11_batch_preconditions(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        begin
-            DBOpts = (opts(Config))#{
-                atomic_batches => true,
-                append_only => false
-            },
-            ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
-
-            %% Conditional delete
-            TS = 42,
-            Batch1 = #dsbatch{
-                preconditions = [{if_exists, matcher(<<"c1">>, <<"t/a">>, '_', TS)}],
-                operations = [{delete, matcher(<<"c1">>, <<"t/a">>, '_', TS)}]
-            },
-            %% Conditional insert
-            M1 = message(<<"c1">>, <<"t/a">>, <<"M1">>, TS),
-            Batch2 = #dsbatch{
-                preconditions = [{unless_exists, matcher(<<"c1">>, <<"t/a">>, '_', TS)}],
-                operations = [M1]
-            },
-
-            %% No such message yet, precondition fails:
-            ?assertEqual(
-                {error, unrecoverable, {precondition_failed, not_found}},
-                emqx_ds:store_batch(DB, Batch1)
-            ),
-            %% No such message yet, `unless` precondition holds:
-            ?assertEqual(
-                ok,
-                emqx_ds:store_batch(DB, Batch2)
-            ),
-            %% Now there's such message, `unless` precondition now fails:
-            ?assertMatch(
-                {error, unrecoverable,
-                    {precondition_failed, #message{topic = <<"t/a">>, payload = <<"M1">>}}},
-                emqx_ds:store_batch(DB, Batch2)
-            ),
-            %% On the other hand, `if` precondition now holds:
-            ?assertEqual(
-                ok,
-                emqx_ds:store_batch(DB, Batch1)
-            ),
-
-            %% Wait at least until current epoch ends.
-            ct:sleep(1000),
-            %% There's no messages in the DB.
-            ?assertEqual(
-                [],
-                emqx_ds:dirty_read(DB, emqx_topic:words(<<"t/#">>))
-            )
-        end,
-        []
-    ).
-
-t_12_batch_precondition_conflicts(Config) ->
-    DB = ?FUNCTION_NAME,
-    NBatches = 50,
-    NMessages = 10,
-    ?check_trace(
-        begin
-            DBOpts = (opts(Config))#{
-                atomic_batches => true,
-                append_only => false
-            },
-            ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
-
-            ConflictBatches = [
-                #dsbatch{
-                    %% If the slot is free...
-                    preconditions = [{if_exists, matcher(<<"c1">>, <<"t/slot">>, _Free = <<>>, 0)}],
-                    %% Take it and write NMessages extra messages, so that batches take longer to
-                    %% process and have higher chances to conflict with each other.
-                    operations =
-                        [
-                            message(<<"c1">>, <<"t/slot">>, integer_to_binary(I), _TS = 0)
-                            | [
-                                message(<<"c1">>, {"t/owner/~p/~p", [I, J]}, <<>>, I * 100 + J)
-                             || J <- lists:seq(1, NMessages)
-                            ]
-                        ]
-                }
-             || I <- lists:seq(1, NBatches)
-            ],
-
-            %% Run those batches concurrently.
-            ok = emqx_ds:store_batch(DB, [message(<<"c1">>, <<"t/slot">>, <<>>, 0)]),
-            Results = emqx_utils:pmap(
-                fun(B) -> emqx_ds:store_batch(DB, B) end,
-                ConflictBatches,
-                infinity
-            ),
-
-            %% Only one should have succeeded.
-            ?assertEqual([ok], [Ok || Ok = ok <- Results]),
-
-            %% While other failed with an identical `precondition_failed`.
-            Failures = lists:usort([PreconditionFailed || {error, _, PreconditionFailed} <- Results]),
-            ?assertMatch(
-                [{precondition_failed, #message{topic = <<"t/slot">>, payload = <<_/bytes>>}}],
-                Failures
-            ),
-
-            %% Wait at least until current epoch ends.
-            ct:sleep(1000),
-            %% Storage should contain single batch's messages.
-            [{precondition_failed, #message{payload = IOwner}}] = Failures,
-            WinnerBatch = lists:nth(binary_to_integer(IOwner), ConflictBatches),
-            BatchMessages = lists:sort(WinnerBatch#dsbatch.operations),
-            DBMessages = emqx_ds:dirty_read(DB, emqx_topic:words(<<"t/#">>)),
-            emqx_ds_test_helpers:diff_messages(
-                ?msg_fields,
-                lists:sort(BatchMessages),
-                lists:sort(DBMessages)
-            )
-        end,
-        []
-    ).
-
-t_smoke_delete_next(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-            %% Preparation: this test verifies topic selector. To
-            %% create a stream that contains multiple topics we need a
-            %% learned wildcard:
-            create_wildcard(DB, <<"foo">>),
-            %% Actual test:
-            StartTime = 0,
-            TopicFilter = [<<"foo">>, '#'],
-            %% Publish messages in different topics in two batches to distinguish between the streams:
-            Msgs =
-                [Msg1, _Msg2, Msg3] = [
-                    message(<<"foo/bar">>, <<"1">>, 0),
-                    message(<<"foo/foo">>, <<"2">>, 1),
-                    message(<<"foo/baz">>, <<"3">>, 2)
-                ],
-            ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
-
-            [DStream] = emqx_ds:get_delete_streams(DB, TopicFilter, StartTime),
-            {ok, DIter0} = emqx_ds:make_delete_iterator(DB, DStream, TopicFilter, StartTime),
-
-            Selector = fun(#message{topic = Topic}) ->
-                Topic == <<"foo/foo">>
-            end,
-            {ok, DIter1, NumDeleted1} = delete(DB, DIter0, Selector, 1),
-            ?assertEqual(0, NumDeleted1),
-            {ok, DIter2, NumDeleted2} = delete(DB, DIter1, Selector, 1),
-            ?assertEqual(1, NumDeleted2),
-
-            [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-            Batch = emqx_ds_test_helpers:consume_stream(DB, Stream, TopicFilter, StartTime),
-            emqx_ds_test_helpers:diff_messages(?msg_fields, [Msg1, Msg3], Batch),
-
-            ok = emqx_ds:add_generation(DB),
-
-            ?assertMatch({ok, end_of_stream}, emqx_ds:delete_next(DB, DIter2, Selector, 1))
         end,
         []
     ),
@@ -528,7 +367,7 @@ t_sub_unsub(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             {ok, Handle, _MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
@@ -557,12 +396,12 @@ t_sub_unsub(Config) ->
 %% unsubscribing. We test this by creating a subscription from a
 %% temporary process that exits normally. DS should automatically
 %% remove this subscription.
-t_sub_dead_subscriber_cleanup(Config) ->
+t_sub_mqtt_dead_subscriber_cleanup(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             Parent = self(),
@@ -603,12 +442,12 @@ t_sub_dead_subscriber_cleanup(Config) ->
 
 %% @doc Verify that a client receives `DOWN' message when the server
 %% goes down:
-t_sub_shard_down_notify(Config) ->
+t_sub_mqtt_shard_down_notify(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             {ok, _Handle, MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
@@ -620,12 +459,12 @@ t_sub_shard_down_notify(Config) ->
 
 %% @doc Verify that a client is notified when the beamformer worker
 %% currently owning the subscription dies:
-t_sub_worker_down_notify(Config) ->
+t_sub_mqtt_worker_down_notify(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{},
         try
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
             {ok, _Handle, MRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
@@ -656,12 +495,14 @@ t_sub_worker_down_notify(Config) ->
 %% @doc Verify behavior of a subscription that replayes old messages.
 %% This testcase focuses on the correctness of `catchup' beamformer
 %% workers.
-t_sub_catchup(Config) ->
+t_sub_mqtt_catchup(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Opts = maps:merge(opts_mqtt(Config), #{subscriptions => #{batch_size => 5}}),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            application:set_env(emqx_durable_storage, poll_batch_size, 5),
             Stream = make_stream(Config),
             %% Fill the storage and close the generation:
             publish_seq(DB, <<"t">>, 1, 9),
@@ -689,7 +530,7 @@ t_sub_catchup(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef, 5)
+                recv(SubRef, 2)
             ),
             %% Ack and receive the rest of the messages:
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 5)),
@@ -710,7 +551,7 @@ t_sub_catchup(Config) ->
                             ]}
                     }
                 ],
-                recv(SubRef, 5)
+                recv(SubRef, 2)
             ),
             %% Ack and receive `end_of_stream':
             ?assertMatch(ok, emqx_ds:suback(DB, Handle, 10)),
@@ -732,16 +573,16 @@ t_sub_catchup(Config) ->
 %% @doc Verify behavior of a subscription that always stays at the top
 %% of the stream. This testcase focuses on the correctness of
 %% `rt' beamformer workers.
-t_sub_realtime(Config) ->
+t_sub_mqtt_realtime(Config) ->
     DB = ?FUNCTION_NAME,
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             %% Subscribe:
             {ok, It} = emqx_ds:make_iterator(
-                DB, Stream, [<<"t">>], erlang:system_time(millisecond)
+                DB, Stream, [<<"t">>], erlang:system_time(microsecond)
             ),
             {ok, Handle, SubRef} = emqx_ds:subscribe(DB, It, #{max_unacked => 100}),
             timer:sleep(1_000),
@@ -808,7 +649,7 @@ t_sub_wildcard(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             create_wildcard(DB, <<"t">>),
             %% Insert some data before starting the clients to test catchup:
             Expect1 = [publish_seq(DB, Topic, 0, 9) || Topic <- Topics],
@@ -844,11 +685,9 @@ t_sub_wildcard(Config) ->
 %% error. No duplication of messages occur.
 t_sub_unclean_handover(Config) ->
     DB = ?FUNCTION_NAME,
-    DefaultBatchSize = emqx_ds_beamformer:cfg_batch_size(),
     ?check_trace(
         #{timetrap => 30_000},
-        try
-            application:set_env(emqx_durable_storage, poll_batch_size, 3),
+        begin
             %% Delay handover to RT until data is published:
             ?force_ordering(
                 #{?snk_kind := test_added_data},
@@ -862,7 +701,8 @@ t_sub_unclean_handover(Config) ->
                         timestamp_bytes => 8,
                         %% Create a single stream:
                         lts_threshold_spec => {simple, {0}}
-                    }}
+                    }},
+                subscriptions => #{batch_size => 3}
             },
             ?assertMatch(ok, emqx_ds_open_db(DB, maps:merge(opts(Config), Opts))),
             Shard = emqx_ds:shard_of(DB, <<>>),
@@ -973,8 +813,108 @@ t_sub_unclean_handover(Config) ->
                 error({subscription_not_received, Sub2, mailbox()})
             end,
             ok
-        after
-            application:set_env(emqx_durable_storage, poll_batch_size, DefaultBatchSize)
+        end,
+        []
+    ).
+
+%% This testcase verifies all operations that use time as an input or
+%% return it as an output. It ensures that all APIs work with the same
+%% unit: μs.
+t_time_unit(Config) ->
+    DB = ?FUNCTION_NAME,
+    Owner = <<"test_clientid">>,
+    Topic = [<<"t">>],
+    ?check_trace(
+        begin
+            Opts = maps:merge(opts(Config), #{
+                n_shards => 1,
+                store_ttv => true,
+                storage => {emqx_ds_storage_skipstream_lts_v2, #{}},
+                transaction => #{flush_interval => 1, idle_flush_interval => 0}
+            }),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            Now = erlang:system_time(microsecond),
+            %% Create a transaction that adds two entries with monotonic timestamps:
+            {atomic, _, _} = emqx_ds:trans(
+                #{db => DB, shard => {auto, Owner}, generation => latest},
+                fun() ->
+                    emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, <<0>>}),
+                    emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, <<1>>})
+                end
+            ),
+            %% Get monotonic timestamps of the entries:
+            [{_, T1, <<0>>}, {_, T2, <<1>>}] = dump_topic(DB, [<<"t">>]),
+            %% Both timestamps should be within 100ms from `Now':
+            ?give_or_take(Now, 100_000, T1),
+            ?give_or_take(Now, 100_000, T2),
+            %% Now create a bunch of iterators with different start
+            %% time and verify that they point at the correct message:
+            [{_, Stream1}] = emqx_ds:get_streams(DB, Topic, T1),
+            {ok, ItT1} = emqx_ds:make_iterator(DB, Stream1, Topic, T1),
+            ?assertMatch(
+                {ok, _, [{_, T1, <<0>>}, {_, T2, <<1>>}]},
+                emqx_ds:next(DB, ItT1, 100)
+            ),
+            {ok, ItT2} = emqx_ds:make_iterator(DB, Stream1, Topic, T2),
+            ?assertMatch(
+                {ok, _, [{_, T2, <<1>>}]},
+                emqx_ds:next(DB, ItT2, 100)
+            ),
+            {ok, ItT2Plus} = emqx_ds:make_iterator(DB, Stream1, Topic, T2 + 1),
+            ?assertMatch(
+                {ok, _, []},
+                emqx_ds:next(DB, ItT2Plus, 100)
+            ),
+            %% Verify next limit with timestamp:
+            ?assertMatch(
+                {ok, _, [{_, T1, <<0>>}]},
+                emqx_ds:next(DB, ItT1, {time, T2, 100})
+            ),
+            ?assertMatch(
+                {ok, _, [{_, T1, <<0>>}, {_, T2, <<1>>}]},
+                emqx_ds:next(DB, ItT1, {time, T2 + 1, 100})
+            ),
+            %% Now verify that `emqx_ds:list_slabs' uses correct timestamps:
+            ?assertMatch(ok, emqx_ds:add_generation(DB)),
+            Slabs = lists:sort(maps:to_list(emqx_ds:list_slabs(DB))),
+            [
+                {{_, 1}, #{since := _Since1, until := Until1}},
+                {{_, 2}, #{since := Since2, until := undefined}}
+            ] = Slabs,
+            %% Lifetime of the slabs should be within 10s from Now:
+            ?give_or_take(Now, 10_000_000, Until1),
+            ?give_or_take(Now, 10_000_000, Since2),
+            %% Now verify that `get_streams' respects timestamps as
+            %% well. First, create a new stream in the new generation:
+            {atomic, _, _} = emqx_ds:trans(
+                #{db => DB, shard => {auto, Owner}, generation => latest},
+                fun() ->
+                    emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, <<2>>})
+                end
+            ),
+            %%
+            [{{_, 1}, Stream1}, {{_, 2}, Stream2}] = lists:sort(emqx_ds:get_streams(DB, Topic, T1)),
+            [{{_, 1}, Stream1}, {{_, 2}, Stream2}] = lists:sort(emqx_ds:get_streams(DB, Topic, T2)),
+            [{{_, 2}, Stream2}] = emqx_ds:get_streams(DB, Topic, Until1 + 1),
+            %% Get timestamp of the third message:
+            {ok, It3} = emqx_ds:make_iterator(DB, Stream2, Topic, T2),
+            {ok, _, [{_, T3, <<2>>}]} = emqx_ds:next(DB, It3, 100),
+            %% Now verify high-level wrappers (dirty_read):
+            ?assertMatch(
+                [{_, T2, <<1>>}],
+                lists:sort(emqx_ds:dirty_read(#{db => DB, start_time => T2, end_time => T3}, Topic))
+            ),
+            ?assertMatch(
+                [{_, T1, <<0>>}, {_, T2, <<1>>}],
+                lists:sort(emqx_ds:dirty_read(#{db => DB, start_time => T1, end_time => T3}, Topic))
+            ),
+            ?assertMatch(
+                [{_, T1, <<0>>}, {_, T2, <<1>>}, {_, T3, <<2>>}],
+                lists:sort(
+                    emqx_ds:dirty_read(#{db => DB, start_time => T1, end_time => T3 + 1}, Topic)
+                )
+            ),
+            ok
         end,
         []
     ).
@@ -997,7 +937,7 @@ t_sub_slow(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Stream = make_stream(Config),
             %% Subscribe:
             {ok, It} = emqx_ds:make_iterator(DB, Stream, [<<"t">>], 0),
@@ -1076,7 +1016,8 @@ t_sub_catchup_unrecoverable(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+            Opts = maps:merge(opts_mqtt(Config), #{subscriptions => #{batch_size => 5}}),
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
             Stream = make_stream(Config),
             %% Fill the storage and close the generation:
             publish_seq(DB, <<"t">>, 1, 9),
@@ -2109,7 +2050,7 @@ t_25_get_streams_generation_min(Config) ->
     end,
     %%
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     %% Make streams in the 1st generation:
     _ = publish_seq(DB, <<>>, 0, 100),
     ct:sleep(100),
@@ -2541,6 +2482,9 @@ message(Topic, Payload, PublishedAt) ->
         id = emqx_guid:gen()
     }.
 
+ttv_mqtt(Topic, Payload, PublishedAt) ->
+    emqx_ds_payload_transform:message_to_ttv(message(Topic, Payload, PublishedAt)).
+
 matcher(ClientID, Topic, Payload, Timestamp) ->
     #message_matcher{
         from = ClientID,
@@ -2612,15 +2556,7 @@ suite() ->
 
 init_per_testcase(TC, Config) ->
     Backend = proplists:get_value(backend, Config),
-    %% TODO: add a nicer way to deal with transient configuration. It
-    %% should be possible to pass options like this to `open_db':
-    AppConfig =
-        case TC of
-            _ when TC =:= t_sub_catchup; TC =:= t_sub_catchup_unrecoverable ->
-                #{emqx_durable_storage => #{override_env => [{poll_batch_size, 5}]}};
-            _ ->
-                #{}
-        end,
+    AppConfig = #{},
     Apps = emqx_cth_suite:start(Backend:test_applications(AppConfig), #{
         work_dir => emqx_cth_suite:work_dir(TC, Config)
     }),
@@ -2652,6 +2588,13 @@ backends() ->
 
 opts(Config) ->
     proplists:get_value(ds_conf, Config).
+
+opts_mqtt(Config) ->
+    maps:merge(opts(Config), #{
+        store_ttv => true,
+        payload_type => ?ds_pt_mqtt,
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+    }).
 
 %% Subscription-related helper functions:
 
@@ -2696,7 +2639,7 @@ publish_seq(DB, Topic, Start, End) ->
         emqx_message:make(<<"pub">>, Topic, integer_to_binary(I))
      || I <- lists:seq(Start, End)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Batch)),
+    ?assertMatch(ok, dirty_append(DB, Batch)),
     Batch.
 
 %% @doc Create a learned wildcard for a given topic prefix:
@@ -2704,7 +2647,7 @@ create_wildcard(DB, Prefix) ->
     %% Introduce enough topics to learn the wildcard:
     ?assertMatch(
         ok,
-        emqx_ds:store_batch(
+        dirty_append(
             DB,
             [message({"~s/~p", [Prefix, I]}, <<"">>, 0) || I <- lists:seq(1, 100)]
         )
@@ -2737,3 +2680,37 @@ mailbox() ->
     after 0 ->
         []
     end.
+
+%% Sync wrapper over `dirty_append' API. If shard is not specified, data is added to the first shard.
+dirty_append(DB, MsgsOrTTVs) when is_atom(DB) ->
+    dirty_append(#{db => DB, shard => first_shard(DB)}, MsgsOrTTVs);
+dirty_append(Opts, MsgsOrTTVs) ->
+    TTVs =
+        case MsgsOrTTVs of
+            [#message{} | _] ->
+                [emqx_ds_payload_transform:message_to_ttv(I) || I <- MsgsOrTTVs];
+            [{_, _, _} | _] ->
+                MsgsOrTTVs
+        end,
+    Ref = emqx_ds:dirty_append(Opts#{reply => true}, TTVs),
+    ?assert(is_reference(Ref)),
+    receive
+        ?ds_tx_commit_reply(Ref, Reply) ->
+            ?assertMatch(
+                {ok, Serial} when is_binary(Serial),
+                emqx_ds:dirty_append_outcome(Ref, Reply)
+            )
+    after 5_000 ->
+        error(timeout)
+    end,
+    ok.
+
+%% Dump messages from the topic, preserving message ordering within each stream.
+dump_topic(DB, Topic) ->
+    %% Reverse is needed due to internal implementation details of
+    %% `emqx_ds:dirty_read': it's a fold that adds elements to the
+    %% head.
+    lists:reverse(emqx_ds:dirty_read(DB, Topic)).
+
+first_shard(DB) ->
+    hd(lists:sort(emqx_ds:list_shards(DB))).

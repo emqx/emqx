@@ -96,15 +96,12 @@ try_gc() ->
             ok
     end.
 
-now_ms() ->
-    erlang:system_time(millisecond).
-
 maybe_gc() ->
     AllGens = emqx_ds:list_slabs(?PERSISTENT_MESSAGE_DB),
-    NowMS = now_ms(),
+    NowMS = emqx_persistent_session_ds:now_ms(),
     RetentionPeriod = emqx_config:get([durable_sessions, message_retention_period]),
-    TimeThreshold = NowMS - RetentionPeriod,
-    maybe_create_new_generation(AllGens, TimeThreshold),
+    TimeThresholdUs = emqx_persistent_session_ds:to_ds_time(NowMS - RetentionPeriod),
+    maybe_create_new_generation(AllGens, TimeThresholdUs),
     ?tp_span(
         ps_message_gc,
         #{},
@@ -112,7 +109,7 @@ maybe_gc() ->
             ExpiredGens =
                 maps:filter(
                     fun(_GenId, #{until := Until}) ->
-                        is_number(Until) andalso Until =< TimeThreshold
+                        is_number(Until) andalso Until =< TimeThresholdUs
                     end,
                     AllGens
                 ),
@@ -127,11 +124,11 @@ maybe_gc() ->
         end
     ).
 
-maybe_create_new_generation(AllGens, TimeThreshold) ->
+maybe_create_new_generation(AllGens, TimeThresholdUs) ->
     NeedNewGen =
         lists:all(
             fun({_GenId, #{created_at := CreatedAt}}) ->
-                CreatedAt =< TimeThreshold
+                CreatedAt =< TimeThresholdUs
             end,
             maps:to_list(AllGens)
         ),

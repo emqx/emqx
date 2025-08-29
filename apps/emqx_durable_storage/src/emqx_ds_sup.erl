@@ -57,12 +57,27 @@ which_dbs() ->
 init(top) ->
     _ = ets:new(?TAB, [public, set, named_table]),
     Children = [
+        #{
+            id => pending_tasks,
+            start => {emqx_ds_pending_task_sup, start_link, []},
+            type => supervisor,
+            restart => permanent,
+            shutdown => infinity
+        },
+        #{
+            id => schema,
+            start => {emqx_dsch, start_link, []},
+            type => worker,
+            restart => permanent,
+            shutdown => 5_000
+        },
         emqx_ds_builtin_metrics:child_spec(),
         #{
             id => new_streams_watch_sup,
             start => {?MODULE, start_link_watch_sup, []},
             type => supervisor,
-            restart => permanent
+            restart => permanent,
+            shutdown => infinity
         }
     ],
     SupFlags = #{

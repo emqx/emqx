@@ -13,7 +13,13 @@
 -export([serialize/2, deserialize/2, check_schema/1]).
 
 %% internal exports:
--export([encode_ip_port/3, decode_ip_port/2, asn1_encode_proto_ver/1]).
+-export([
+    encode_ip_port/3,
+    decode_ip_port/2,
+    asn1_encode_proto_ver/1,
+    serialize_asn1/1,
+    deserialize_asn1/1
+]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("typerefl/include/types.hrl").

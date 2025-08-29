@@ -110,12 +110,13 @@ seal_generation(DBShard, Rank) ->
 %% behavior callbacks
 %%================================================================================
 
-init([CBM, DBShard, Name, _Opts]) ->
+init([CBM, DBShard = {DB, _}, Name, _Opts]) ->
     process_flag(trap_exit, true),
     logger:update_process_metadata(#{dbshard => DBShard, name => Name}),
     Pool = pool(DBShard),
     gproc_pool:add_worker(Pool, Name),
     gproc_pool:connect_worker(Pool, Name),
+    #{batch_size := BatchSize} = emqx_ds_beamformer:runtime_config(CBM, DB),
     S = #s{
         module = CBM,
         shard = DBShard,
@@ -124,7 +125,7 @@ init([CBM, DBShard, Name, _Opts]) ->
         name = Name,
         high_watermark = ets:new(high_watermark, [ordered_set, public]),
         queue = emqx_ds_beamformer_waitq:new(),
-        batch_size = emqx_ds_beamformer:cfg_batch_size()
+        batch_size = BatchSize
     },
     self() ! ?housekeeping_loop,
     {ok, S}.
@@ -159,17 +160,22 @@ handle_info({Ref, Result}, S0 = #s{worker_ref = Ref}) ->
     S = exec_pending_cmds(S0#s{worker = undefined, worker_ref = undefined}),
     {noreply, maybe_dispatch_event(S)};
 handle_info(
-    ?housekeeping_loop, S0 = #s{name = Name, metrics_id = Metrics, queue = Queue}
+    ?housekeeping_loop,
+    S0 = #s{module = CBM, shard = {DB, _}, name = Name, metrics_id = Metrics, queue = Queue}
 ) ->
-    %% Reload configuration according to the environment variables:
+    %% Reload configuration:
+    #{
+        batch_size := BatchSize,
+        housekeeping_interval := HouseKeepingInterval
+    } = emqx_ds_beamformer:runtime_config(CBM, DB),
     S = S0#s{
-        batch_size = emqx_ds_beamformer:cfg_batch_size()
+        batch_size = BatchSize
     },
     %% Report metrics:
     PQLen = emqx_ds_beamformer_waitq:size(Queue),
     emqx_ds_builtin_metrics:set_subs_count(Metrics, Name, PQLen),
     %% Continue the loop:
-    erlang:send_after(emqx_ds_beamformer:cfg_housekeeping_interval(), self(), ?housekeeping_loop),
+    erlang:send_after(HouseKeepingInterval, self(), ?housekeeping_loop),
     {noreply, S};
 handle_info(
     #unsub_req{id = SubId}, S0
@@ -251,10 +257,10 @@ This function is called during hand-over from catch-up to realtime worker.
 If more data was published while the subscription was in hand-over
 state, RT worker uses this function to send it to the client.
 """.
-complete_takeover(_, _, {ok, _, []}) ->
+complete_takeover(_, _, {ok, _, _, []}) ->
     ok;
 complete_takeover(
-    S, #sub_state{client = Client, req_id = ReqId, stream = Stream}, {ok, EndKey, Batch}
+    S, #sub_state{client = Client, req_id = ReqId, stream = Stream}, {ok, PTrans, EndKey, Batch}
 ) ->
     #s{
         shard = DBShard,
@@ -266,6 +272,7 @@ complete_takeover(
     BB0 = emqx_ds_beamformer:beams_init(
         CBM,
         DBShard,
+        PTrans,
         SubTab,
         true,
         fun(SubS) -> queue_drop(Queue, SubS) end,
@@ -326,7 +333,7 @@ do_process_stream_event(
         Metrics, erlang:monotonic_time(microsecond) - T0
     ),
     case ScanResult of
-        {ok, LastKey, []} ->
+        {ok, _PTrans, LastKey, []} ->
             ?tp(beamformer_rt_batch, #{
                 shard => DBShard, from => StartKey, to => LastKey, stream => Stream, empty => true
             }),
@@ -343,13 +350,14 @@ do_process_stream_event(
                     erlang:send_after(100, Parent, stream_event(Stream, RetriesOnEmpty - 1))
                 end,
             set_high_watermark(Stream, LastKey, S);
-        {ok, LastKey, Batch} ->
+        {ok, PTrans, LastKey, Batch} ->
             ?tp(beamformer_rt_batch, #{
                 shard => DBShard, from => StartKey, to => LastKey, stream => Stream
             }),
             Beams = emqx_ds_beamformer:beams_init(
                 CBM,
                 DBShard,
+                PTrans,
                 SubTab,
                 false,
                 fun(SubS) -> queue_drop(Queue, SubS) end,
