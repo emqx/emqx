@@ -114,7 +114,13 @@ delete_group(Group) ->
 
 -spec update_group(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) ->
     ok.
-update_group(_Group, _LimiterConfigs) ->
+update_group(Group, LimiterConfigs) ->
+    NowUs = now_us_monotonic(),
+    Buckets = [
+        emqx_limiter_bucket_registry:find_bucket({Group, Name})
+     || {Name, _} <- LimiterConfigs
+    ],
+    ok = reset_buckets(LimiterConfigs, Buckets, NowUs),
     ok.
 
 -spec connect(emqx_limiter:id()) -> emqx_limiter_client:t().
@@ -206,12 +212,22 @@ make_buckets(
         last_burst_time => #atomic_value{aref = ARef, index = 4 * Index - 1},
         burst_tokens => #atomic_value{aref = ARef, index = 4 * Index}
     },
-    Mode = calc_mode(Options),
-    ok = init_last_time(BucketRef, Mode, Options, NowUs),
-    ok = apply_burst(BucketRef, Options, NowUs),
+    init_bucket(BucketRef, Options, NowUs),
     make_buckets(Names, ARef, NowUs, Index + 1, [
         {Name, BucketRef} | Res
     ]).
+
+reset_buckets([], [], _NowUs) ->
+    ok;
+reset_buckets([{_Name, Options} | Names], [BucketRef | Buckets], NowUs) ->
+    init_bucket(BucketRef, Options, NowUs),
+    reset_buckets(Names, Buckets, NowUs).
+
+init_bucket(BucketRef, Options, NowUs) ->
+    Mode = calc_mode(Options),
+    ok = init_last_time(BucketRef, Mode, Options, NowUs),
+    ok = apply_burst(BucketRef, Options, NowUs),
+    ok.
 
 try_consume(State0, Options, Amount) ->
     {Mode, State1} = mode(State0, Options),

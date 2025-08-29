@@ -160,9 +160,14 @@ update_group(Group, Options) ->
     case emqx_limiter_registry:find_group(Group) of
         undefined ->
             error({limiter_group_not_found, Group});
-        {Module, _OldLimiterConfigs} ->
-            ok = emqx_limiter_registry:register_group(Group, Module, Options),
-            ok = Module:update_group(Group, Options)
+        {Module, OldOptions} ->
+            Diff = lists:foldl(fun lists:delete/2, OldOptions, Options),
+            Diff =/= [] andalso
+                begin
+                    ok = emqx_limiter_registry:register_group(Group, Module, Options),
+                    ok = Module:update_group(Group, Options)
+                end,
+            ok
     end.
 
 -spec delete_group(group()) -> ok.
