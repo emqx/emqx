@@ -534,6 +534,9 @@ check_if_table_exists(Conn, SQL, Tokens0) ->
         {ok, [{proc_result, 942, _Description}]} ->
             %% Target table is not created
             {error, undefined_table};
+        {ok, [{proc_result, 1013, _Description}]} ->
+            %% "ORA-01013: user requested cancel of current operation"
+            check_if_table_exists(Conn, SQL, Tokens0);
         {ok, [{proc_result, _, Description}]} ->
             % only the last result is returned, so we need to check on description if it
             % contains the "Table doesn't exist" error as it can not be the last one.
