@@ -490,7 +490,7 @@ test_stream_tailf(Pre, MaxSize, PayloadLimit, StreamReadSize, NMsg, Cooldown) ->
     %% Trigger filesync:
     {ok, #{size := CurrentSize}} = emqx_trace:log_details(Name),
     %% Ask the receiver to stop and hand us the log stream it has accumulated:
-    ok = timer:sleep(10),
+    ok = timer:sleep(100),
     ReceiverPid ! {self(), stop},
     Signal = ?assertReceive({'DOWN', MRef, process, _Pid, {received, _}}),
     {received, Content} = element(5, Signal),
