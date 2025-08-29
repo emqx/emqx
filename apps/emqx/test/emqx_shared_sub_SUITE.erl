@@ -46,6 +46,8 @@
 -define(ack, shared_sub_ack).
 -define(no_ack, no_ack).
 
+-define(CLIENTID(I), iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-", integer_to_list(I)])).
+
 all() -> emqx_common_test_helpers:all(?SUITE).
 
 init_per_suite(Config) ->
@@ -114,7 +116,7 @@ t_maybe_ack(Config) when is_list(Config) ->
 
 t_random_basic(Config) when is_list(Config) ->
     ok = ensure_config(random),
-    ClientId = <<"ClientId">>,
+    ClientId = ?CLIENTID(1),
     Topic = <<"foo">>,
     Payload = <<"hello">>,
     Group = <<"group1">>,
@@ -148,8 +150,8 @@ t_random_basic(Config) when is_list(Config) ->
 t_no_connection_nack(Config) when is_list(Config) ->
     ok = ensure_config(sticky),
     Publisher = <<"publisher">>,
-    Subscriber1 = <<"Subscriber1">>,
-    Subscriber2 = <<"Subscriber2">>,
+    Subscriber1 = ?CLIENTID(1),
+    Subscriber2 = ?CLIENTID(2),
     QoS = 1,
     Group = <<"g1">>,
     Topic = <<"foo/bar">>,
@@ -195,9 +197,11 @@ t_round_robin_per_group(Config) when is_list(Config) ->
 t_round_robin_per_group_even_distribution_one_group(Config) when is_list(Config) ->
     ok = ensure_config(round_robin_per_group, true),
     Topic = <<"foo/bar">>,
-    Group = <<"group1">>,
-    {ok, ConnPid1} = emqtt:start_link([{clientid, <<"C0">>}]),
-    {ok, ConnPid2} = emqtt:start_link([{clientid, <<"C1">>}]),
+    Group = <<"group2">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}]),
     {ok, _} = emqtt:connect(ConnPid1),
     {ok, _} = emqtt:connect(ConnPid2),
 
@@ -205,7 +209,7 @@ t_round_robin_per_group_even_distribution_one_group(Config) when is_list(Config)
     emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, "/", Topic/binary>>, 0}),
 
     %% publisher with persistent connection
-    {ok, PublisherPid} = emqtt:start_link(),
+    {ok, PublisherPid} = emqtt:start_link([{clientid, ?CLIENTID(3)}]),
     {ok, _} = emqtt:connect(PublisherPid),
 
     lists:foreach(
@@ -259,10 +263,10 @@ t_round_robin_per_group_even_distribution_one_group(Config) when is_list(Config)
 t_round_robin_per_group_even_distribution_two_groups(Config) when is_list(Config) ->
     ok = ensure_config(round_robin_per_group, true),
     Topic = <<"foo/bar">>,
-    {ok, ConnPid1} = emqtt:start_link([{clientid, <<"C0">>}]),
-    {ok, ConnPid2} = emqtt:start_link([{clientid, <<"C1">>}]),
-    {ok, ConnPid3} = emqtt:start_link([{clientid, <<"C2">>}]),
-    {ok, ConnPid4} = emqtt:start_link([{clientid, <<"C3">>}]),
+    {ok, ConnPid1} = emqtt:start_link([{clientid, ?CLIENTID(1)}]),
+    {ok, ConnPid2} = emqtt:start_link([{clientid, ?CLIENTID(2)}]),
+    {ok, ConnPid3} = emqtt:start_link([{clientid, ?CLIENTID(3)}]),
+    {ok, ConnPid4} = emqtt:start_link([{clientid, ?CLIENTID(4)}]),
     ConnPids = [ConnPid1, ConnPid2, ConnPid3, ConnPid4],
     lists:foreach(fun(P) -> emqtt:connect(P) end, ConnPids),
 
@@ -360,8 +364,8 @@ t_sticky_initial_pick_hash_topic(Config) when is_list(Config) ->
 t_sticky_unsubscribe(Config) when is_list(Config) ->
     ok = ensure_config(sticky, false),
     Topic = <<"foo/bar/sticky-unsub">>,
-    ClientId1 = <<"c1-sticky-unsub">>,
-    ClientId2 = <<"c2-sticky-unsub">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
     Group = <<"gsu">>,
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
     {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}]),
@@ -397,8 +401,8 @@ t_hash_clientid(Config) when is_list(Config) ->
 
 t_hash_topic(Config) when is_list(Config) ->
     ok = ensure_config(hash_topic, false),
-    ClientId1 = <<"ClientId1">>,
-    ClientId2 = <<"ClientId2">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
     {ok, _} = emqtt:connect(ConnPid1),
     {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}]),
@@ -442,8 +446,8 @@ t_hash_topic(Config) when is_list(Config) ->
 %% if the original subscriber dies, change to another one alive
 t_not_so_sticky(Config) when is_list(Config) ->
     ok = ensure_config(sticky),
-    ClientId1 = <<"ClientId1">>,
-    ClientId2 = <<"ClientId2">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
     {ok, C1} = emqtt:start_link([{clientid, ClientId1}]),
     {ok, _} = emqtt:connect(C1),
     {ok, C2} = emqtt:start_link([{clientid, ClientId2}]),
@@ -469,8 +473,8 @@ test_two_messages(Strategy) ->
 
 test_two_messages(Strategy, Group) ->
     Topic = <<"foo/bar">>,
-    ClientId1 = <<"ClientId1">>,
-    ClientId2 = <<"ClientId2">>,
+    ClientId1 = <<"test-two-msgs-1">>,
+    ClientId2 = <<"test-two-msgs-2">>,
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
     {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}]),
     {ok, _} = emqtt:connect(ConnPid1),
@@ -481,7 +485,7 @@ test_two_messages(Strategy, Group) ->
 
     Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
     Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
-    ct:sleep(100),
+    wait_for_sub(Group, 2),
 
     emqx:publish(Message1),
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
@@ -499,7 +503,39 @@ test_two_messages(Strategy, Group) ->
         hash_clientid -> ?assertEqual(UsedSubPid1, UsedSubPid2);
         _ -> ok
     end,
+    wait_for_unsub(Group),
     ok.
+
+wait_for_sub(Group, N) ->
+    wait_for_sub(Group, N, 10).
+
+wait_for_sub(_Group, _N, 0) ->
+    error(timeout);
+wait_for_sub(Group, N, T) ->
+    Subs = ets:lookup(emqx_shared_subscription, Group),
+    case length(Subs) of
+        N ->
+            ok;
+        X when X < N ->
+            timer:sleep(100),
+            wait_for_sub(Group, N, T - 1);
+        _ ->
+            error({unexpected_number_of_subs, #{expected => N, got => Subs}})
+    end.
+
+wait_for_unsub(Group) ->
+    wait_for_unsub(Group, 10).
+
+wait_for_unsub(Group, 0) ->
+    error({timeout, Group});
+wait_for_unsub(Group, N) ->
+    case ets:lookup(emqx_shared_subscription, Group) of
+        [] ->
+            ok;
+        [_ | _] ->
+            timer:sleep(100),
+            wait_for_unsub(Group, N - 1)
+    end.
 
 last_message(ExpectedPayload, Pids) ->
     last_message(ExpectedPayload, Pids, 1000).
@@ -579,8 +615,8 @@ t_local(Config) when is_list(Config) ->
     ok = ensure_group_config(Node, GroupConfig),
 
     Topic = <<"local_foo/bar">>,
-    ClientId1 = <<"ClientId1">>,
-    ClientId2 = <<"ClientId2">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
     {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {port, get_tcp_mqtt_port(Node)}]),
@@ -634,8 +670,8 @@ t_remote(Config) when is_list(Config) ->
     ok = ensure_group_config(Node, GroupConfig),
 
     Topic = <<"foo/bar">>,
-    ClientIdLocal = <<"ClientId1">>,
-    ClientIdRemote = <<"ClientId2">>,
+    ClientIdLocal = ?CLIENTID(1),
+    ClientIdRemote = ?CLIENTID(2),
 
     {ok, ConnPidLocal} = emqtt:start_link([{clientid, ClientIdLocal}]),
     {ok, ConnPidRemote} = emqtt:start_link([
@@ -678,8 +714,8 @@ t_local_fallback(Config) when is_list(Config) ->
     }),
 
     Topic = <<"local_foo/bar">>,
-    ClientId1 = <<"ClientId1">>,
-    ClientId2 = <<"ClientId2">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
     %% Use a different base port for each test case to avoid flakiness
     BasePort = 11888,
     Node = start_peer('local_fallback_shared_sub_1', BasePort),
@@ -716,7 +752,7 @@ t_stats(Config) when is_list(Config) ->
     ok = ensure_group_config(GroupConfig),
     ok = ensure_group_config(Node, GroupConfig),
     SharedTopic = format_share(<<"local_group">>, <<"local_foo/bar">>),
-    ClientId1 = <<"ClientId1">>,
+    ClientId1 = ?CLIENTID(1),
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {port, get_tcp_mqtt_port(Node)}]),
     {ok, _} = emqtt:connect(ConnPid1),
     emqtt:subscribe(ConnPid1, {SharedTopic, 0}),
@@ -755,8 +791,8 @@ test_redispatch_qos1(_Config, AckEnabled) ->
     ok = ensure_config(sticky, AckEnabled),
     Group = <<"group1">>,
     Topic = <<"foo/bar">>,
-    ClientId1 = <<"ClientId1">>,
-    ClientId2 = <<"ClientId2">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {auto_ack, false}]),
     {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {auto_ack, false}]),
     {ok, _} = emqtt:connect(ConnPid1),
@@ -781,12 +817,12 @@ test_redispatch_qos1(_Config, AckEnabled) ->
 
 t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
     ok = ensure_config(sticky, true),
-    Group = <<"group1">>,
+    Group = iolist_to_binary(["group-", integer_to_list(?LINE)]),
     Topic = <<"foo/bar">>,
-    ClientId1 = <<"ClientId1">>,
-    ClientId2 = <<"ClientId2">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
     SubOpts = [{clean_start, false}],
-    {ok, ConnPub} = emqtt:start_link([{clientid, <<"pub">>}]),
+    {ok, ConnPub} = emqtt:start_link([]),
     {ok, _} = emqtt:connect(ConnPub),
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1} | SubOpts]),
@@ -799,8 +835,15 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
 
     ok = emqtt:stop(ConnPid1),
     ok = emqtt:stop(ConnPid2),
-
     [Pid1, Pid2] = emqx_shared_sub:subscribers(Group, Topic),
+    ?retry(
+        100,
+        10,
+        begin
+            false = emqx_cm:is_channel_connected(Pid1),
+            false = emqx_cm:is_channel_connected(Pid2)
+        end
+    ),
     ?assert(is_process_alive(Pid1)),
     ?assert(is_process_alive(Pid2)),
 
@@ -816,6 +859,9 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
         end
     ),
     emqtt:stop(ConnPub),
+    exit(Pid1, kill),
+    exit(Pid2, kill),
+    wait_for_unsub(Group),
     ok.
 
 get_mqueue(ConnPid) ->
@@ -834,8 +880,8 @@ t_dispatch_qos2({'end', Config}) when is_list(Config) ->
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0);
 t_dispatch_qos2(Config) when is_list(Config) ->
     Topic = <<"foo/bar/1">>,
-    ClientId1 = <<"ClientId1">>,
-    ClientId2 = <<"ClientId2">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {auto_ack, false}]),
     {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {auto_ack, true}]),
@@ -899,8 +945,8 @@ t_dispatch_qos0({'end', Config}) when is_list(Config) ->
 t_dispatch_qos0(Config) when is_list(Config) ->
     ok = ensure_config(round_robin, _AckEnabled = false),
     Topic = <<"foo/bar/1">>,
-    ClientId1 = <<"ClientId1">>,
-    ClientId2 = <<"ClientId2">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {auto_ack, false}]),
     {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {auto_ack, true}]),
@@ -992,8 +1038,8 @@ t_session_kicked({'end', Config}) when is_list(Config) ->
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0);
 t_session_kicked(Config) when is_list(Config) ->
     Topic = <<"foo/bar/1">>,
-    ClientId1 = <<"ClientId1">>,
-    ClientId2 = <<"ClientId2">>,
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}, {auto_ack, false}]),
     {ok, ConnPid2} = emqtt:start_link([{clientid, ClientId2}, {auto_ack, true}]),
