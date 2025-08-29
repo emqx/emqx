@@ -224,7 +224,6 @@ on_stop(InstanceId, _State) ->
         msg => "stopping_rocketmq_connector",
         connector => InstanceId
     }),
-
     lists:foreach(
         fun
             ({_, client_id, ClientId}) ->
@@ -234,7 +233,9 @@ on_stop(InstanceId, _State) ->
                 _ = rocketmq:stop_and_delete_supervised_producers(Producer)
         end,
         emqx_resource:get_allocated_resources_list(InstanceId)
-    ).
+    ),
+    ?tp("rocketmq_connector_stop", #{instance_id => InstanceId}),
+    ok.
 
 on_query(InstanceId, Query, State) ->
     do_query(InstanceId, Query, send_sync, State).
