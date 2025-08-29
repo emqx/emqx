@@ -67,7 +67,7 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-%% Consume some history messages from a non-lastvalue queue
+%% Consume some history messages from a non-lastvalue(regular) queue
 t_publish_and_consume(_Config) ->
     %% Create a non-lastvalue Queue
     _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
@@ -120,7 +120,7 @@ t_publish_and_consume(_Config) ->
 
 %% Consume some history messages from a lastvalue queue
 t_publish_and_consume_lastvalue(_Config) ->
-    %% Create a non-lastvalue Queue
+    %% Create a lastvalue Queue
     _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
 
     %% Publish 100 messages to the queue
@@ -213,7 +213,7 @@ t_backpressure(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
-%% Verify that the consumer re-dispatches the message to another subscriber
+%% Verify that the consumer re-dispatches a message to another subscriber
 %% if a subscriber received the message but disconnected before acknowledging it
 t_redispatch_on_disconnect(_Config) ->
     %% Create a non-lastvalue Queue
@@ -344,7 +344,7 @@ t_dispatch_round_robin(_Config) ->
             ?assertEqual(6, length(Msgs))
         end,
         fun(Trace) ->
-            %% Verify the messages were dispatched cyclically by the subscribers
+            %% Verify the messages were dispatched cyclically to the subscribers
             DispatchSubscribers =
                 [
                     SubscriberRef
@@ -451,8 +451,7 @@ t_busy_session(_Config) ->
             end
         ),
 
-    %% Consume the messages from the queue
-    %% Set max_inflight to 0 to avoid nacking messages by the client's session
+    %% Connect with max_inflight=10
     emqx_config:put([mqtt, max_inflight], 10),
     CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
 
