@@ -14,6 +14,7 @@
 -export([init/1]).
 
 -define(broker_pool, broker_pool).
+-define(dispatcher_pool, dispatcher_pool).
 
 start_link() ->
     ok = mria:wait_for_tables(emqx_shared_sub:create_tables()),
@@ -35,9 +36,18 @@ init([]) ->
     %% Broker pool
     ok = emqx_broker:create_tabs(),
     ok = emqx_broker:init_config(),
+    %% broker pool manages subscriptions
+    %% dispatcher pool dispatches messgess
+    %% the two pool should share same config
     PoolSize = emqx:get_config([node, broker_pool_size], emqx_vm:schedulers() * 2),
     BrokerPool = emqx_pool_sup:spec(broker_pool_sup, permanent, [
         ?broker_pool,
+        hash,
+        PoolSize,
+        {emqx_broker, start_link, []}
+    ]),
+    DispatcherPool = emqx_pool_sup:spec(dispatcher_pool_sup, permanent, [
+        ?dispatcher_pool,
         hash,
         PoolSize,
         {emqx_broker, start_link, []}
@@ -98,6 +108,7 @@ init([]) ->
             MetricsWorker,
             SyncerPool,
             BrokerPool,
+            DispatcherPool,
             SharedSub,
             SharedSubPostStart,
             Helper,
