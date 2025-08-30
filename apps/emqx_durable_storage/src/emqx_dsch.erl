@@ -126,7 +126,14 @@ server state.
     close_db/1,
     update_db_config/2,
     get_db_runtime/1,
-    db_gvars/1
+    db_gvars/1,
+    gvar_set/4,
+    gvar_unset/3,
+    gvar_get/3,
+    gvar_set/5,
+    gvar_get/4,
+    gvar_unset/4,
+    gvar_unset_all/3
 ]).
 
 %% behavior callbacks:
@@ -571,6 +578,55 @@ Get an ETS table containing global variables of the DB.
 db_gvars(DB) ->
     #{gvars := ETS} = persistent_term:get(?dsch_pt_db_runtime(DB)),
     ETS.
+
+-spec gvar_set(emqx_ds:db(), atom(), _Key, _Val) -> ok.
+gvar_set(DB, Scope, Key, Val) when Scope =/= '_' ->
+    true = ets:insert(db_gvars(DB), {{db, Scope, Key}, Val}),
+    ok.
+
+-spec gvar_unset(emqx_ds:db(), atom(), _Key) -> ok.
+gvar_unset(DB, Scope, Key) ->
+    true = ets:delete(db_gvars(DB), {db, Scope, Key}),
+    ok.
+
+-spec gvar_get(emqx_ds:db(), atom(), _Key) -> {ok, _Value} | undefined.
+gvar_get(DB, Scope, Key) ->
+    case ets:lookup(db_gvars(DB), {db, Scope, Key}) of
+        [{_, Val}] ->
+            {ok, Val};
+        [] ->
+            undefined
+    end.
+
+-spec gvar_set(emqx_ds:db(), emqx_ds:shard(), atom(), _Key, _Val) -> ok.
+gvar_set(DB, Shard, Scope, Key, Val) when Scope =/= '_' ->
+    true = ets:insert(db_gvars(DB), {{shard, Shard, Scope, Key}, Val}),
+    ok.
+
+-spec gvar_unset(emqx_ds:db(), emqx_ds:shard(), atom(), _Key) -> ok.
+gvar_unset(DB, Shard, Scope, Key) ->
+    true = ets:delete(db_gvars(DB), {shard, Shard, Scope, Key}),
+    ok.
+
+-spec gvar_get(emqx_ds:db(), emqx_ds:shard(), atom(), _Key) -> {ok, _Value} | undefined.
+gvar_get(DB, Shard, Scope, Key) ->
+    case ets:lookup(db_gvars(DB), {shard, Shard, Scope, Key}) of
+        [{_, Val}] ->
+            {ok, Val};
+        [] ->
+            undefined
+    end.
+
+-doc """
+Helper function that deletes all gvars that belong to the given shard.
+
+When `Scope = '_'` this function will delete variable from all scopes.
+""".
+-spec gvar_unset_all(emqx_ds:db(), emqx_ds:shard(), atom()) -> ok.
+gvar_unset_all(DB, Shard, Scope) ->
+    Pattern = {{shard, Shard, Scope, '_'}, '_'},
+    true = ets:match_delete(db_gvars(DB), Pattern),
+    ok.
 
 %%================================================================================
 %% Internal exports
