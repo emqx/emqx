@@ -118,6 +118,7 @@ on_start(
 on_stop(InstanceId, _State) ->
     Res = emqx_resource_pool:stop(InstanceId),
     ensure_limiter_group_deleted(InstanceId),
+    ?tp("kinesis_connector_stop", #{instance_id => InstanceId}),
     Res.
 
 -spec on_get_status(resource_id(), state()) ->

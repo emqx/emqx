@@ -63,56 +63,7 @@ all() ->
     ].
 
 groups() ->
-    AllTCs0 = emqx_common_test_helpers:all_with_matrix(?MODULE),
-    AllTCs = lists:filter(
-        fun
-            ({group, _}) -> false;
-            (_) -> true
-        end,
-        AllTCs0
-    ),
-    CustomMatrix0 = emqx_common_test_helpers:groups_with_matrix(?MODULE),
-    CustomMatrix = lists:filter(
-        fun
-            (Spec) when element(1, Spec) == ?cluster ->
-                false;
-            (_) ->
-                true
-        end,
-        CustomMatrix0
-    ),
-    ClusterTCs0 = cluster_testcases(),
-    LocalTCs = merge_custom_groups(?local, (AllTCs ++ CustomMatrix) -- ClusterTCs0, CustomMatrix),
-    ClusterTCs = merge_custom_groups(?cluster, ClusterTCs0, CustomMatrix),
-    [
-        {?cluster, ClusterTCs},
-        {?local, LocalTCs}
-    ].
-
-merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
-    CustomMatrix =
-        lists:flatmap(
-            fun
-                ({G, _, SubGroup}) when G == RootGroup ->
-                    SubGroup;
-                (_) ->
-                    []
-            end,
-            CustomMatrix0
-        ),
-    CustomMatrix ++ GroupTCs.
-
-cluster_testcases() ->
-    Key = ?cluster,
-    lists:filter(
-        fun
-            ({testcase, TestCase, _Opts}) ->
-                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false);
-            (TestCase) ->
-                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false)
-        end,
-        emqx_common_test_helpers:all(?MODULE)
-    ).
+    emqx_bridge_v2_testlib:local_and_cluster_groups(?MODULE, ?local, ?cluster).
 
 init_per_suite(TCConfig) ->
     TCConfig.
