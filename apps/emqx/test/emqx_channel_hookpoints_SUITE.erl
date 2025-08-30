@@ -1,8 +1,8 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_channel_delayed_puback_SUITE).
+-module(emqx_channel_hookpoints_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -48,6 +48,26 @@ t_delayed_puback(_Config) ->
     ),
     emqtt:disconnect(ConnPid).
 
+t_deliver_via_handle_info({init, Config}) ->
+    emqx_hooks:put('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
+    emqx_hooks:put('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST),
+    Config;
+t_deliver_via_handle_info({'end', _Config}) ->
+    emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
+    emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info});
+t_deliver_via_handle_info(_Config) ->
+    {ok, ConnPid} = emqtt:start_link([{clientid, <<"clientid">>}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(ConnPid),
+    {ok, _, _} = emqtt:subscribe(ConnPid, <<"$test/topic">>, 1),
+    receive
+        {publish, #{payload := <<"test message">>, topic := <<"topic">>}} ->
+            ok;
+        Message ->
+            ct:fail("unexpected message: ~p", [Message])
+    after 1000 ->
+        ct:fail("no publish received")
+    end.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -55,3 +75,17 @@ t_delayed_puback(_Config) ->
 on_message_puback(PacketId, _Msg, PubRes, _RC) ->
     erlang:send(self(), {puback, PacketId, PubRes, ?RC_UNSPECIFIED_ERROR}),
     {stop, undefined}.
+
+on_session_subscribed(#{clientid := _ClientId}, <<"$test/", Topic/binary>>, _SubOpts) ->
+    _ = erlang:send_after(0, self(), {test_message, Topic}),
+    ok;
+on_session_subscribed(_ClientInfo, _Topic, _SubOpts) ->
+    ok.
+
+on_client_handle_info(#{clientid := ClientId}, {test_message, Topic}, #{deliver := Delivers} = Acc) ->
+    Msg = emqx_message:make(ClientId, Topic, <<"test message">>),
+    Deliver = {deliver, Topic, Msg},
+    _ = erlang:send_after(1000, self(), {test_message, Topic}),
+    {ok, Acc#{deliver => [Deliver | Delivers]}};
+on_client_handle_info(_ClientInfo, _Info, Acc) ->
+    {ok, Acc}.

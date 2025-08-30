@@ -302,6 +302,7 @@ do_flush(
             S#s{
                 n = 0,
                 n_bytes = 0,
+
                 queue = queue:new(),
                 pending_replies = [],
                 oldest_message_timestamp = undefined

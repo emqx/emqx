@@ -23,7 +23,8 @@
     emqx_ft_schema,
     emqx_ds_shared_sub_schema,
     emqx_mt_schema,
-    emqx_ai_completion_schema
+    emqx_ai_completion_schema,
+    emqx_mq_schema
 ]).
 
 %% Callback to upgrade config after loaded from config file but before validation.
