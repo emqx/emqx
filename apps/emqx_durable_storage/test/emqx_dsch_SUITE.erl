@@ -657,6 +657,52 @@ t_100_action_execution(_Config) ->
         ]
     ).
 
+%% This testcase verifies operations with the DB global variables.
+t_200_gvars(_Config) ->
+    %% Setup:
+    DB = test_db,
+    Scope = scope,
+    Shard = <<"1">>,
+    OtherShard = <<"2">>,
+    ok = emqx_dsch:register_backend(test, ?MODULE),
+    ?assertMatch({ok, _, _}, emqx_dsch:ensure_db_schema(DB, #{backend => test})),
+    ?assertMatch(ok, emqx_dsch:open_db(DB, #{})),
+    %% DB gvars:
+    ?assertEqual(undefined, emqx_dsch:gvar_get(DB, Scope, foo)),
+    ?assertEqual(ok, emqx_dsch:gvar_set(DB, Scope, foo, bar)),
+    ?assertEqual({ok, bar}, emqx_dsch:gvar_get(DB, Scope, foo)),
+    ?assertEqual(ok, emqx_dsch:gvar_unset(DB, Scope, foo)),
+    ?assertEqual(undefined, emqx_dsch:gvar_get(DB, Scope, foo)),
+    %% Shard gvars:
+    %%   Test simple set and unset:
+    ?assertEqual(undefined, emqx_dsch:gvar_get(DB, Shard, Scope, foo)),
+    ?assertEqual(ok, emqx_dsch:gvar_set(DB, Shard, Scope, foo, foo)),
+    ?assertEqual({ok, foo}, emqx_dsch:gvar_get(DB, Shard, Scope, foo)),
+    ?assertEqual(ok, emqx_dsch:gvar_unset(DB, Shard, Scope, foo)),
+    ?assertEqual(undefined, emqx_dsch:gvar_get(DB, Shard, Scope, foo)),
+    %%   Now verify batch deletion of gvars of the shard.
+    %%   This data should be deleted:
+    ?assertEqual(ok, emqx_dsch:gvar_set(DB, Shard, Scope, bar, bar)),
+    ?assertEqual(ok, emqx_dsch:gvar_set(DB, Shard, Scope, baz, baz)),
+    %%   This data should be preserved:
+    ?assertEqual(ok, emqx_dsch:gvar_set(DB, Shard, other_scope, foo, foo)),
+    ?assertEqual(ok, emqx_dsch:gvar_set(DB, OtherShard, Scope, bar, bar)),
+    ?assertEqual(ok, emqx_dsch:gvar_set(DB, OtherShard, Scope, baz, baz)),
+    ?assertEqual(ok, emqx_dsch:gvar_set(DB, Scope, foo, foo)),
+    %%   Delete all gvars that belong to `Shard':
+    ?assertEqual(ok, emqx_dsch:gvar_unset_all(DB, Shard, Scope)),
+    %%   Verify what's left:
+    L = lists:sort(ets:tab2list(emqx_dsch:db_gvars(DB))),
+    ?assertEqual(
+        [
+            {{db, Scope, foo}, foo},
+            {{shard, Shard, other_scope, foo}, foo},
+            {{shard, OtherShard, Scope, bar}, bar},
+            {{shard, OtherShard, Scope, baz}, baz}
+        ],
+        L
+    ).
+
 handle_schema_change(DB, ChangeId, Task) ->
     ?tp(info, test_schema_change, #{db => DB, id => ChangeId, task => Task}),
     emqx_dsch:del_pending(ChangeId).
