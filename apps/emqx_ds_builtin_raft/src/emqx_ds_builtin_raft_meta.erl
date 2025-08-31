@@ -9,7 +9,6 @@
 %% implementation details from this module.
 -module(emqx_ds_builtin_raft_meta).
 
--feature(maybe_expr, enable).
 -compile(inline).
 
 -export([print_status/3]).
@@ -926,49 +925,12 @@ run_migrations(_Version = "6." ++ _) ->
     ok.
 
 ensure_site() ->
-    Filename = filename:join(emqx_ds_storage_layer:base_dir(), "emqx_ds_builtin_site.eterm"),
-    case file_read_term(Filename) of
-        {ok, Entry} ->
-            Site = migrate_site_id(Entry);
-        {error, Error} when Error =:= enoent; Error =:= empty ->
-            Site = binary:encode_hex(crypto:strong_rand_bytes(8)),
-            logger:notice("Creating a new site with ID=~s", [Site]),
-            ok = filelib:ensure_dir(Filename),
-            {ok, FD} = file:open(Filename, [write]),
-            io:format(FD, "~p.", [Site]),
-            file:close(FD)
-    end,
+    Site = emqx_dsch:this_site(),
     case transaction(fun ?MODULE:claim_site_trans/2, [Site, node()]) of
         ok ->
             persistent_term:put(?emqx_ds_builtin_site, Site);
         {error, Reason} ->
             logger:error("Attempt to claim site with ID=~s failed: ~p", [Site, Reason])
-    end.
-
-file_read_term(Filename) ->
-    %% NOTE
-    %% This mess is needed because `file:consult/1` trips over binaries encoded as
-    %% latin1, which 5.4.0 code could have produced with `io:format(FD, "~p.", [Site])`.
-    maybe
-        {ok, FD} ?= file:open(Filename, [read, {encoding, latin1}]),
-        {ok, Term, _} ?= io:read(FD, '', _Line = 1),
-        ok = file:close(FD),
-        {ok, Term}
-    else
-        {error, Reason} ->
-            {error, Reason};
-        {error, Reason, _} ->
-            {error, Reason};
-        {eof, _} ->
-            {error, empty}
-    end.
-
-migrate_site_id(Site) ->
-    case re:run(Site, "^[0-9A-F]+$") of
-        {match, _} ->
-            Site;
-        nomatch ->
-            binary:encode_hex(Site)
     end.
 
 forget_node(Node) ->
