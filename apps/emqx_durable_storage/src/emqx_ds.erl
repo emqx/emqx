@@ -896,7 +896,9 @@ dirty_append_outcome(Ref, ?ds_tx_commit_reply(Ref, Reply)) when is_reference(Ref
         ?ds_tx_commit_ok(_, _Reserved, Serial) ->
             {ok, Serial};
         ?ds_tx_commit_error(_, _Reserved, Class, Info) ->
-            {error, Class, Info}
+            {error, Class, Info};
+        {'DOWN', _Ref, Type, Object, Info} ->
+            ?err_rec({Type, Object, Info})
     end.
 
 -doc "Simplified version of `get_streams/4` that ignores the errors.".
