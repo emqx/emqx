@@ -65,7 +65,7 @@ init_mock_transient_failure() ->
 mock_transient_failure() ->
     ok = emqx_ds_test_helpers:mock_rpc_result(
         fun
-            (_Node, emqx_ds_replication_layer, _Function, [messages, Shard | _]) ->
+            (_Node, emqx_ds_builtin_raft, _Function, [messages, Shard | _]) ->
                 case erlang:phash2(Shard) rem 2 of
                     0 -> unavailable;
                     1 -> passthrough

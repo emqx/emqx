@@ -81,12 +81,7 @@
 ]).
 
 %% Migrations:
--export([
-    migrate_node_table/0,
-    migrate_shard_table/0,
-    migrate_node_table_trans/1,
-    migrate_shard_table_trans/1
-]).
+-export([]).
 
 -export_type([
     site/0,
@@ -106,13 +101,11 @@
 
 -define(RLOG_SHARD, emqx_ds_builtin_metadata_shard).
 %% DS database metadata:
--define(META_TAB, emqx_ds_builtin_metadata_tab).
+-define(META_TAB, emqx_ds_builtin_metadata_tab2).
 %% Mapping from Site to the actual Erlang node:
--define(NODE_TAB, emqx_ds_builtin_node_tab2).
--define(NODE_TAB_LEGACY, emqx_ds_builtin_node_tab).
+-define(NODE_TAB, emqx_ds_builtin_node_tab3).
 %% Shard metadata:
--define(SHARD_TAB, emqx_ds_builtin_shard_tab2).
--define(SHARD_TAB_LEGACY, emqx_ds_builtin_shard_tab).
+-define(SHARD_TAB, emqx_ds_builtin_shard_tab3).
 %% Membership transitions:
 -define(TRANSITION_TAB, emqx_ds_builtin_trans_tab).
 
@@ -929,12 +922,6 @@ ensure_tables() ->
 run_migrations() ->
     run_migrations(emqx_release:version()).
 
-run_migrations(_Version = "5.8." ++ _) ->
-    run_migrations_e58();
-run_migrations(_Version = "5.9." ++ _) ->
-    run_migrations_e58();
-run_migrations(_Version = "5.10." ++ _) ->
-    run_migrations_e58();
 run_migrations(_Version = "6." ++ _) ->
     ok.
 
@@ -1121,137 +1108,6 @@ notify_subscribers(EventSubject, Event, #s{subs = Subs}) ->
         end,
         Subs
     ).
-
-%%====================================================================
-%% Migrations / 5.8 Release
-%%====================================================================
-
-run_migrations_e58() ->
-    _ = migrate_node_table(),
-    _ = migrate_shard_table(),
-    ok.
-
-migrate_node_table() ->
-    Tab = ?NODE_TAB_LEGACY,
-    migrate_node_table(Tab, table_info_safe(Tab)).
-
-migrate_node_table(Tab, #{attributes := [_Site, _Node, _Misc]}) ->
-    %% Table is present and looks migratable.
-    ok = mria:wait_for_tables([Tab]),
-    case transaction(fun ?MODULE:migrate_node_table_trans/1, [Tab]) of
-        {migrated, [], []} ->
-            ok;
-        {migrated, Migrated, Dups} ->
-            logger:notice("Table '~p' migrated ~p entries", [Tab, length(Migrated)]),
-            Dups =/= [] andalso
-                logger:warning("Table '~p' duplicated entries, skipped: ~p", [Tab, Dups]),
-            {atomic, ok} = mria:clear_table(Tab);
-        {error, Reason} ->
-            logger:warning("Table '~p' unusable, migration skipped: ~p", [Tab, Reason])
-    end;
-migrate_node_table(_Tab, undefined) ->
-    %% No legacy table exists.
-    ok.
-
-migrate_node_table_trans(Tab) ->
-    %% NOTE
-    %% This table could have been populated when running 5.4.0 release, but the
-    %% representation of site IDs has changed in following versions. Legacy site IDs
-    %% need to be passed through `migrate_site_id/1`, otherwise expectations of the
-    %% existing code of those IDs to be "printable" will be broken.
-    %% This should be no-op when running > 5.4.0 releases.
-    Migstamp = mk_migstamp(),
-    Records = mnesia:match_object(Tab, {Tab, '_', '_', '_'}, read),
-    {Migrate, Dups} = unique_node_recs([migrate_node_rec(R) || R <- Records]),
-    lists:foreach(
-        fun(R) -> mnesia:write(?NODE_TAB, attach_migstamp(Migstamp, R), write) end,
-        Migrate
-    ),
-    {migrated, Migrate, Dups}.
-
-migrate_node_rec({?NODE_TAB_LEGACY, Site, Node, Misc}) ->
-    #?NODE_TAB{site = migrate_site_id(Site), node = Node, misc = Misc}.
-
-unique_node_recs(Records) ->
-    %% NOTE
-    %% Unlikely but possible that a 5.4.0 node could have assigned more than 1 Site ID
-    %% to itself, because of occasional inability to read back Site ID with
-    %% `file:consult/1. In this case it's impossible to tell in 100% of cases which one
-    %% was the most recent, so let's just drop all of such node's records. It will
-    %% insert the correct record by itself anyway, once upgraded to the recent release
-    %% and restarted.
-    Dups = Records -- lists:ukeysort(#?NODE_TAB.node, Records),
-    DupNodes = [Node || #?NODE_TAB{node = Node} <- Dups],
-    lists:partition(fun(R) -> not lists:member(R#?NODE_TAB.node, DupNodes) end, Records).
-
-migrate_shard_table() ->
-    Tab = ?SHARD_TAB_LEGACY,
-    migrate_shard_table(Tab, table_info_safe(Tab)).
-
-migrate_shard_table(Tab, #{attributes := [_Shard, _ReplicaSet, _TargetSet, _Misc]}) ->
-    %% Table is present and looks migratable.
-    ok = mria:wait_for_tables([Tab]),
-    case transaction(fun ?MODULE:migrate_shard_table_trans/1, [Tab]) of
-        {migrated, []} ->
-            ok;
-        {migrated, Migrated} ->
-            logger:notice("Table '~p' migrated ~p entries", [Tab, length(Migrated)]),
-            {atomic, ok} = mria:clear_table(Tab);
-        {error, Reason} ->
-            logger:warning("Table '~p' unusable, migration skipped: ~p", [Tab, Reason])
-    end;
-migrate_shard_table(Tab, #{attributes := _Incompatible}) ->
-    %% Table is present and is incompatible.
-    ok = mria:wait_for_tables([Tab]),
-    case mnesia:table_info(Tab, size) of
-        0 ->
-            ok;
-        Size ->
-            logger:warning("Table '~p' has ~p legacy entries to be abandoned", [Size, Tab]),
-            {atomic, ok} = mria:clear_table(Tab)
-    end;
-migrate_shard_table(_Tab, undefined) ->
-    %% No legacy table exists.
-    ok.
-
-migrate_shard_table_trans(Tab) ->
-    %% NOTE
-    %% This table could have been instantiated with a different schema when running
-    %% 5.4.0 release but most likely never populated, so it should be fine to abandon it.
-    %% This table could also have been instantiated and populated when running 5.7.0
-    %% release with the same schema, so we just have to migrate all the recoards verbatim.
-    Migstamp = mk_migstamp(),
-    Records = mnesia:match_object(Tab, {Tab, '_', '_', '_', '_'}, read),
-    Migrate = [migrate_shard_rec(R) || R <- Records],
-    lists:foreach(
-        fun(R) -> mnesia:write(?SHARD_TAB, attach_migstamp(Migstamp, R), write) end,
-        Migrate
-    ),
-    {migrated, Migrate}.
-
-migrate_shard_rec({?SHARD_TAB_LEGACY, Shard, ReplicaSet, TargetSet, Misc}) ->
-    #?SHARD_TAB{shard = Shard, replica_set = ReplicaSet, target_set = TargetSet, misc = Misc}.
-
-mk_migstamp() ->
-    %% NOTE: Piece of information describing when and how records were migrated.
-    #{
-        at => erlang:system_time(millisecond),
-        on => emqx_release:version()
-    }.
-
-attach_migstamp(Migstamp, Node = #?NODE_TAB{misc = Misc}) ->
-    Node#?NODE_TAB{misc = Misc#{migrated => Migstamp}};
-attach_migstamp(Migstamp, Shard = #?SHARD_TAB{misc = Misc}) ->
-    Shard#?SHARD_TAB{misc = Misc#{migrated => Migstamp}}.
-
-table_info_safe(Tab) ->
-    try mnesia:table_info(Tab, all) of
-        Props ->
-            maps:from_list(Props)
-    catch
-        exit:{aborted, {no_exists, Tab, _}} ->
-            undefined
-    end.
 
 %%====================================================================
 
