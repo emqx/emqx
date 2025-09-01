@@ -10,7 +10,7 @@
 
 %% API:
 -export([
-    start_db/2,
+    start_db/4,
     start_shard/1,
     stop_shard/1,
     terminate_storage/1,
@@ -48,9 +48,14 @@
 %% API functions
 %%================================================================================
 
--spec start_db(emqx_ds:db(), emqx_ds_builtin_local:db_opts()) -> {ok, pid()}.
-start_db(DB, Opts) ->
-    start_link_sup(#?db_sup{db = DB}, Opts).
+-spec start_db(
+    emqx_ds:db(),
+    boolean(),
+    emqx_ds_builtin_local:db_schema(),
+    emqx_ds_builtin_local:db_runtime_config()
+) -> {ok, pid()}.
+start_db(DB, Create, Schema, RTOpts) ->
+    start_link_sup(#?db_sup{db = DB}, {Create, Schema, RTOpts}).
 
 -spec start_shard(emqx_ds_storage_layer:dbshard()) ->
     supervisor:startchild_ret().
@@ -113,13 +118,17 @@ get_shard_workers(DB) ->
 %% behaviour callbacks
 %%================================================================================
 
-init({#?db_sup{db = DB}, DefaultOpts}) ->
+init({#?db_sup{db = DB}, {_Create, _Schema, RTConf}}) ->
     %% Spec for the top-level supervisor for the database:
     logger:notice("Starting DS DB ~p", [DB]),
     emqx_ds_builtin_metrics:init_for_db(DB),
-    Opts = emqx_ds_builtin_local_meta:open_db(DB, DefaultOpts),
     Children = [
-        sup_spec(#?shards_sup{db = DB}, Opts),
+        emqx_ds_lib:autoclean(
+            20_000,
+            fun() -> ok = emqx_dsch:open_db(DB, RTConf) end,
+            fun() -> ok = emqx_dsch:close_db(DB) end
+        ),
+        sup_spec(#?shards_sup{db = DB}, undefined),
         meta_spec(DB)
     ],
     SupFlags = #{
@@ -128,7 +137,7 @@ init({#?db_sup{db = DB}, DefaultOpts}) ->
         period => 1
     },
     {ok, {SupFlags, Children}};
-init({#?shards_sup{db = DB}, _Opts}) ->
+init({#?shards_sup{db = DB}, _}) ->
     %% Spec for the supervisor that manages the supervisors for
     %% each local shard of the DB:
     SupFlags = #{
@@ -145,12 +154,13 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         period => 100
     },
     Opts = emqx_ds_builtin_local_meta:db_config(DB),
+    Setup = fun() -> emqx_ds:set_shard_ready(DB, Shard, true) end,
+    Teardown = fun() -> emqx_ds:set_shard_ready(DB, Shard, false) end,
     Children = [
         shard_storage_spec(DB, Shard, Opts),
-        shard_buffer_spec(DB, Shard, Opts),
-        shard_batch_serializer_spec(DB, Shard, Opts),
-        shard_beamformers_spec(DB, Shard, Opts),
-        emqx_ds_lib:shard_marker(DB, Shard)
+        otx_leader_spec(DB, Shard),
+        shard_beamformers_spec(DB, Shard),
+        emqx_ds_lib:autoclean(5_000, Setup, Teardown)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -200,33 +210,16 @@ shard_storage_spec(DB, Shard, Opts) ->
         type => worker
     }.
 
-shard_buffer_spec(DB, Shard, Options) ->
+otx_leader_spec(DB, Shard) ->
     #{
-        id => {Shard, buffer},
-        start => {emqx_ds_buffer, start_link, [emqx_ds_builtin_local, Options, DB, Shard]},
-        shutdown => 5_000,
-        restart => permanent,
-        type => worker
-    }.
-
-shard_batch_serializer_spec(DB, Shard, #{store_ttv := true}) ->
-    #{
-        id => {Shard, batch_serializer},
+        id => {Shard, otx_leader},
         start => {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_local]},
         shutdown => 5_000,
         restart => permanent,
         type => worker
-    };
-shard_batch_serializer_spec(DB, Shard, Opts = #{store_ttv := false}) ->
-    #{
-        id => {Shard, batch_serializer},
-        start => {emqx_ds_builtin_local_batch_serializer, start_link, [DB, Shard, Opts]},
-        shutdown => 5_000,
-        restart => permanent,
-        type => worker
     }.
 
-shard_beamformers_spec(DB, Shard, _Opts) ->
+shard_beamformers_spec(DB, Shard) ->
     #{n_workers_per_shard := NWorkers} = emqx_ds_builtin_local:beamformer_config(DB),
     BeamformerOpts = #{n_workers => NWorkers},
     #{
