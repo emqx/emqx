@@ -12,32 +12,6 @@
     drop_shard/1,
     shard_info/2,
 
-    %% Data
-    store_batch/3,
-    store_batch/4,
-    prepare_batch/3,
-    commit_batch/3,
-    dispatch_events/3,
-
-    get_streams/4,
-    get_delete_streams/3,
-    make_iterator/4,
-    make_delete_iterator/4,
-    update_iterator/3,
-    next/5,
-
-    generation/1,
-
-    %% Beamformer
-    unpack_iterator/2,
-    scan_stream/6,
-    high_watermark/3,
-    fast_forward/5,
-    message_match_context/4,
-    iterator_match_context/2,
-
-    delete_next/5,
-
     %% Preconditions
     lookup_message/2,
 
@@ -86,33 +60,20 @@
     get_stats/1
 ]).
 
-%% Metadata serialization API (old iterator):
--export([
-    old_stream_to_new/2,
-    new_stream_to_old/1,
-    old_iterator_to_new/2,
-    new_iterator_to_old/1
-]).
-
 -export_type([
     rocksdb_options/0,
+    batch_prepare_opts/0,
+    batch_store_opts/0,
     gen_id/0,
     generation/0,
     generation_data/0,
-    batch/0,
-    batch_prepare_opts/0,
     cf_refs/0,
     stream/0,
-    delete_stream/0,
-    stream_v1/0,
     iterator/0,
-    delete_iterator/0,
     dbshard/0,
     options/0,
     prototype/0,
     cooked_batch/0,
-    batch_store_opts/0,
-    poll_iterators/0,
     event_dispatch_f/0
 ]).
 
@@ -121,14 +82,12 @@
 -include("../gen_src/DSBuiltinSLSkipstreamV1.hrl").
 -include("../gen_src/DSBuiltinMetadata.hrl").
 
--elvis([{elvis_style, atom_naming_convention, disable}]).
-%% https://github.com/erlang/otp/issues/9841
--dialyzer({nowarn_function, [encode_inner_it/1, decode_inner_it/2]}).
+-elvis([
+    {elvis_style, atom_naming_convention, disable},
+    {elvis_style, invalid_dynamic_call, disable}
+]).
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
-
--define(stream_v2(GENERATION, INNER), [GENERATION | INNER]).
--define(delete_stream(GENERATION, INNER), [GENERATION | INNER]).
 
 %% Wrappers for the storage events:
 -define(storage_event(GEN_ID, PAYLOAD), #{0 := 3333, 1 := GEN_ID, 2 := PAYLOAD}).
@@ -151,11 +110,21 @@
     }.
 
 -type storage_layer_opts() :: #{
-    rocksdb => rocksdb_options(),
-    append_only => boolean(),
-    atomic_batches => boolean(),
-    store_ttv => boolean()
+    rocksdb => rocksdb_options()
 }.
+
+-type batch_prepare_opts() :: #{}.
+
+%% Options affecting how batches should be stored.
+%% See also: `emqx_ds:message_store_opts()'.
+-type batch_store_opts() ::
+    #{
+        %% Should the storage make sure that the batch is written durably? Non-durable
+        %% writes are in general unsafe but require much less resources, i.e. with RocksDB
+        %% non-durable (WAL-less) writes do not usually involve _any_ disk I/O.
+        %% Default: `true'.
+        durable => boolean()
+    }.
 
 %% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
 %% records over the wire.
@@ -171,9 +140,7 @@
 -define(enc, 3).
 
 -type prototype() ::
-    {emqx_ds_storage_reference, emqx_ds_storage_reference:options()}
-    | {emqx_ds_storage_bitfield_lts, emqx_ds_storage_bitfield_lts:options()}
-    | {emqx_ds_storage_skipstream_lts, emqx_ds_storage_skipstream_lts:schema()}.
+    {emqx_ds_storage_skipstream_lts_v2, emqx_ds_storage_skipstream_lts_v2:schema()}.
 
 -type dbshard() :: {emqx_ds:db(), binary()}.
 
@@ -188,57 +155,11 @@
     _ => _
 }.
 
--type batch() :: [
-    {emqx_ds:time(), emqx_types:message()}
-    | emqx_ds:deletion()
-].
-
-%% Options affecting how batches should be stored.
-%% See also: `emqx_ds:message_store_opts()'.
--type batch_store_opts() ::
-    #{
-        %% Whether the whole batch given to `store_batch' should be inserted atomically as
-        %% a unit. Default: `false'.
-        atomic => boolean(),
-        %% Should the storage make sure that the batch is written durably? Non-durable
-        %% writes are in general unsafe but require much less resources, i.e. with RocksDB
-        %% non-durable (WAL-less) writes do not usually involve _any_ disk I/O.
-        %% Default: `true'.
-        durable => boolean()
-    }.
-
-%% Options affecting how batches should be prepared.
--type batch_prepare_opts() :: #{}.
-
-%% TODO: kept for BPAPI compatibility. Remove me on EMQX v5.6
--opaque stream_v1() ::
-    #{
-        ?tag := ?STREAM,
-        ?generation := gen_id(),
-        ?enc := term()
-    }.
+%% Note: this might be stored permanently on a remote node.
+-opaque stream() :: #'Stream'{}.
 
 %% Note: this might be stored permanently on a remote node.
--opaque stream() :: nonempty_maybe_improper_list(gen_id(), term()).
-
-%% Note: this might be stored permanently on a remote node.
--opaque delete_stream() :: stream().
-
-%% Note: this might be stored permanently on a remote node.
--opaque iterator() ::
-    #{
-        ?tag := ?IT,
-        ?generation := gen_id(),
-        ?enc := term()
-    }.
-
-%% Note: this might be stored permanently on a remote node.
--opaque delete_iterator() ::
-    #{
-        ?tag := ?DELETE_IT,
-        ?generation := gen_id(),
-        ?enc := term()
-    }.
+-type iterator() :: #'Iterator'{}.
 
 -opaque cooked_batch() ::
     #{
@@ -314,108 +235,8 @@
 
 -type options() :: map().
 
--type poll_iterators() :: [{_UserData, iterator()}].
-
 -define(ERR_GEN_GONE, {error, unrecoverable, generation_not_found}).
 -define(ERR_BUFF_FULL, {error, recoverable, reached_max}).
-
-%%================================================================================
-%% Generation callbacks
-%%================================================================================
-
-%% Create the new schema given generation id and the options.
-%% Create rocksdb column families.
--callback create(
-    dbshard(),
-    rocksdb:db_handle(),
-    gen_id(),
-    Options :: map(),
-    generation_data() | undefined,
-    emqx_ds:db_opts()
-) ->
-    {_Schema, cf_refs()}.
-
-%% Open the existing schema
--callback open(dbshard(), rocksdb:db_handle(), gen_id(), cf_refs(), _Schema) ->
-    generation_data().
-
-%% Delete the schema and data
--callback drop(dbshard(), rocksdb:db_handle(), gen_id(), cf_refs(), generation_data()) ->
-    ok | {error, _Reason}.
-
--callback prepare_batch(
-    dbshard(),
-    generation_data(),
-    [{emqx_ds:time(), emqx_types:message()}, ...],
-    batch_store_opts()
-) ->
-    {ok, term()} | emqx_ds:error(_).
-
--callback commit_batch(
-    dbshard(),
-    generation_data(),
-    _CookedBatch | [_CookedBatch],
-    batch_store_opts()
-) -> ok | emqx_ds:error(_).
-
--callback get_streams(
-    dbshard(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
-) ->
-    [_Stream].
-
--callback get_delete_streams(
-    dbshard(), generation_data(), emqx_ds:topic_filter(), emqx_ds:time()
-) ->
-    [_Stream].
-
--callback make_iterator(
-    dbshard(), generation_data(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()
-) ->
-    emqx_ds:make_iterator_result(_Iterator).
-
--callback make_delete_iterator(
-    dbshard(), generation_data(), _DeleteStream, emqx_ds:topic_filter(), emqx_ds:time()
-) ->
-    emqx_ds:make_delete_iterator_result(_Iterator).
-
--callback next(
-    dbshard(), generation_data(), Iter, pos_integer(), emqx_ds:time(), _IsCurrent :: boolean()
-) ->
-    {ok, Iter, [emqx_types:message()]} | {ok, end_of_stream} | {error, _}.
-
--callback delete_next(
-    dbshard(),
-    generation_data(),
-    DeleteIterator,
-    emqx_ds:delete_selector(),
-    pos_integer(),
-    emqx_ds:time(),
-    _IsCurrentGeneration :: boolean()
-) ->
-    {ok, DeleteIterator, _NDeleted :: non_neg_integer(), _IteratedOver :: non_neg_integer()}
-    | {ok, end_of_stream}
-    | emqx_ds:error(_).
-
-%% Lookup a single message, for preconditions to work.
--callback lookup_message(dbshard(), generation_data(), emqx_ds_precondition:matcher()) ->
-    emqx_types:message() | not_found | emqx_ds:error(_).
-
--callback handle_event(dbshard(), generation_data(), emqx_ds:time(), CustomEvent | tick) ->
-    [CustomEvent].
-
-%% Stream event API:
-
--callback batch_events(
-    dbshard(),
-    generation_data(),
-    _CookedBatch
-) -> [_Stream].
-
--optional_callbacks([
-    handle_event/4,
-    %% FIXME: should be mandatory:
-    batch_events/3
-]).
 
 %%================================================================================
 %% API for the replication layer
@@ -434,367 +255,6 @@
 drop_shard(Shard) ->
     ok = rocksdb:destroy(db_dir(Shard), []).
 
-%% @doc This is a convenicence wrapper that combines `prepare' and
-%% `commit' operations.
--spec store_batch(dbshard(), batch(), batch_store_opts()) ->
-    emqx_ds:store_batch_result().
-store_batch(Shard, Batch, Options) ->
-    DispatchF = fun(_) -> ok end,
-    store_batch(Shard, Batch, Options, DispatchF).
-
-%% @doc This is a convenicence wrapper that combines `prepare',
-%% `commit' and `dispatch_events' operations.
--spec store_batch(
-    dbshard(),
-    batch(),
-    batch_store_opts(),
-    event_dispatch_f()
-) ->
-    emqx_ds:store_batch_result().
-store_batch(Shard, Batch, Options, DispatchF) ->
-    case prepare_batch(Shard, Batch, #{}) of
-        {ok, CookedBatch} ->
-            Result = commit_batch(Shard, CookedBatch, Options),
-            dispatch_events(Shard, CookedBatch, DispatchF),
-            Result;
-        ignore ->
-            ok;
-        Error = {error, _, _} ->
-            Error
-    end.
-
-%% @doc Transform a batch of messages into a "cooked batch" that can
-%% be stored in the transaction log or transfered over the network.
-%%
-%% Important: the caller MUST ensure that timestamps within the shard
-%% form a strictly increasing monotonic sequence through out the whole
-%% lifetime of the shard.
-%%
-%% The underlying storage layout MAY use timestamp as a unique message
-%% ID.
--spec prepare_batch(dbshard(), batch(), batch_prepare_opts()) ->
-    {ok, cooked_batch()} | ignore | emqx_ds:error(_).
-prepare_batch(Shard, Batch, Options) ->
-    %% NOTE
-    %% We assume that batches do not span generations. Callers should enforce this.
-    ?tp(emqx_ds_storage_layer_prepare_batch, #{
-        shard => Shard, batch => Batch, options => Options
-    }),
-    %% FIXME: always store messages in the current generation
-    Time = batch_starts_at(Batch),
-    case is_integer(Time) andalso generation_at(Shard, Time) of
-        {GenId, #{module := Mod, data := GenData}} ->
-            T0 = erlang:monotonic_time(microsecond),
-            Result =
-                case Mod:prepare_batch(Shard, GenData, Batch, Options) of
-                    {ok, CookedBatch} ->
-                        {ok, #{?tag => ?COOKED_BATCH, ?generation => GenId, ?enc => CookedBatch}};
-                    Error = {error, _, _} ->
-                        Error
-                end,
-            T1 = erlang:monotonic_time(microsecond),
-            %% TODO store->prepare
-            emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
-            Result;
-        false ->
-            %% No write operations in this batch.
-            ignore;
-        not_found ->
-            %% Generation is likely already GCed.
-            ignore
-    end.
-
--spec batch_starts_at(batch()) -> emqx_ds:time() | undefined.
-batch_starts_at([{Time, _Message} | _]) when is_integer(Time) ->
-    Time;
-batch_starts_at([{delete, #message_matcher{timestamp = Time}} | _]) ->
-    Time;
-batch_starts_at([]) ->
-    undefined.
-
-%% @doc Commit cooked batch to the storage.
-%%
-%% The underlying storage layout must guarantee that this operation is
-%% idempotent.
--spec commit_batch(
-    dbshard(),
-    cooked_batch(),
-    batch_store_opts()
-) -> emqx_ds:store_batch_result().
-commit_batch(Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}, Options) ->
-    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
-    T0 = erlang:monotonic_time(microsecond),
-    Result = Mod:commit_batch(Shard, GenData, CookedBatch, Options),
-    T1 = erlang:monotonic_time(microsecond),
-    emqx_ds_builtin_metrics:observe_store_batch_time(Shard, T1 - T0),
-    Result.
-
--spec dispatch_events(
-    dbshard(),
-    cooked_batch(),
-    event_dispatch_f()
-) -> ok.
-dispatch_events(
-    Shard, #{?tag := ?COOKED_BATCH, ?generation := GenId, ?enc := CookedBatch}, DispatchF
-) ->
-    #{?GEN_KEY(GenId) := #{module := Mod, data := GenData}} = get_schema_runtime(Shard),
-    Events = Mod:batch_events(Shard, GenData, CookedBatch),
-    DispatchF([?stream_v2(GenId, InnerStream) || InnerStream <- Events]).
-
--spec get_streams(dbshard(), emqx_ds:topic_filter(), emqx_ds:time(), emqx_ds:generation()) ->
-    [{integer(), stream()}].
-get_streams(Shard, TopicFilter, StartTime, MinGeneration) ->
-    Gens = generations_since(Shard, StartTime),
-    ?tp(get_streams_all_gens, #{gens => Gens}),
-    lists:flatmap(
-        fun
-            (GenId) when GenId >= MinGeneration ->
-                ?tp(get_streams_get_gen, #{gen_id => GenId}),
-                case generation_get(Shard, GenId) of
-                    #{module := Mod, data := GenData} ->
-                        Streams = Mod:get_streams(Shard, GenData, TopicFilter, StartTime),
-                        [
-                            {GenId, ?stream_v2(GenId, InnerStream)}
-                         || InnerStream <- Streams
-                        ];
-                    not_found ->
-                        %% race condition: generation was dropped before getting its streams?
-                        []
-                end;
-            (_) ->
-                []
-        end,
-        Gens
-    ).
-
--spec get_delete_streams(dbshard(), emqx_ds:topic_filter(), emqx_ds:time()) ->
-    [delete_stream()].
-get_delete_streams(Shard, TopicFilter, StartTime) ->
-    Gens = generations_since(Shard, StartTime),
-    ?tp(get_streams_all_gens, #{gens => Gens}),
-    lists:flatmap(
-        fun(GenId) ->
-            ?tp(get_streams_get_gen, #{gen_id => GenId}),
-            case generation_get(Shard, GenId) of
-                #{module := Mod, data := GenData} ->
-                    Streams = Mod:get_delete_streams(Shard, GenData, TopicFilter, StartTime),
-                    [
-                        ?delete_stream(GenId, InnerStream)
-                     || InnerStream <- Streams
-                    ];
-                not_found ->
-                    %% race condition: generation was dropped before getting its streams?
-                    []
-            end
-        end,
-        Gens
-    ).
-
--spec make_iterator(dbshard(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
-    emqx_ds:make_iterator_result(iterator()).
-make_iterator(
-    Shard, ?stream_v2(GenId, Stream), TopicFilter, StartTime
-) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            case Mod:make_iterator(Shard, GenData, Stream, TopicFilter, StartTime) of
-                {ok, Iter} ->
-                    {ok, #{
-                        ?tag => ?IT,
-                        ?generation => GenId,
-                        ?enc => Iter
-                    }};
-                {error, _, _} = Err ->
-                    Err
-            end;
-        not_found ->
-            {error, unrecoverable, generation_not_found}
-    end.
-
--spec make_delete_iterator(dbshard(), delete_stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
-    emqx_ds:make_delete_iterator_result(delete_iterator()).
-make_delete_iterator(
-    Shard, ?delete_stream(GenId, Stream), TopicFilter, StartTime
-) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            case Mod:make_delete_iterator(Shard, GenData, Stream, TopicFilter, StartTime) of
-                {ok, Iter} ->
-                    {ok, #{
-                        ?tag => ?DELETE_IT,
-                        ?generation => GenId,
-                        ?enc => Iter
-                    }};
-                {error, Err} ->
-                    {error, unrecoverable, Err}
-            end;
-        not_found ->
-            {error, unrecoverable, generation_not_found}
-    end.
-
--spec update_iterator(dbshard(), iterator(), emqx_ds:message_key()) ->
-    emqx_ds:make_iterator_result(iterator()).
-update_iterator(
-    Shard,
-    #{?tag := ?IT, ?generation := GenId, ?enc := OldIter},
-    DSKey
-) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            case Mod:update_iterator(Shard, GenData, OldIter, DSKey) of
-                {ok, Iter} ->
-                    {ok, #{
-                        ?tag => ?IT,
-                        ?generation => GenId,
-                        ?enc => Iter
-                    }};
-                {error, Err} ->
-                    {error, unrecoverable, Err}
-            end;
-        not_found ->
-            ?ERR_GEN_GONE
-    end.
-
--spec generation(iterator()) -> gen_id().
-generation(#{?tag := ?IT, ?generation := GenId}) ->
-    GenId.
-
--spec next(dbshard(), iterator(), pos_integer(), emqx_ds:time(), boolean()) ->
-    emqx_ds:next_result(iterator()).
-next(
-    Shard,
-    Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0},
-    BatchSize,
-    TimeLimit,
-    WithKeys
-) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            IsCurrent = GenId =:= generation_current(Shard),
-            case Mod:next(Shard, GenData, GenIter0, BatchSize, TimeLimit, IsCurrent) of
-                {ok, GenIter, Batch0} ->
-                    %% TODO: remove this when support for old
-                    %% replication layer API is dropped.
-                    Batch =
-                        case WithKeys of
-                            true -> Batch0;
-                            false -> rid_of_dskeys(Batch0)
-                        end,
-                    {ok, Iter#{?enc := GenIter}, Batch};
-                {ok, end_of_stream} ->
-                    {ok, end_of_stream};
-                Error = {error, _, _} ->
-                    Error
-            end;
-        not_found ->
-            %% generation was possibly dropped by GC
-            ?ERR_GEN_GONE
-    end.
-
-%% Internal API for fetching data with multiple iterators in one
-%% sweep. This API does not suppose precise batch size.
-
-%%    When doing multi-next, we group iterators by stream:
-%% @TODO we need add it to the callback
-unpack_iterator(DBShard = {_, Shard}, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
-    case generation_get(DBShard, GenId) of
-        #{module := Mod, data := GenData} ->
-            {InnerStream, TopicFilter, Key} = Mod:unpack_iterator(DBShard, GenData, Inner),
-            #{
-                stream => ?stream_v2(GenId, InnerStream),
-                topic_filter => TopicFilter,
-                last_seen_key => Key,
-                message_matcher => Mod:message_matcher(DBShard, GenData, Inner),
-                rank => {Shard, GenId}
-            };
-        not_found ->
-            %% generation was possibly dropped by GC
-            ?ERR_GEN_GONE
-    end.
-
-%% @doc This callback is similar in nature to `next'. It is used by
-%% the beamformer module, and it allows to fetch data for multiple
-%% iterators at once.
-scan_stream(
-    Shard, ?stream_v2(GenId, Inner), TopicFilter, Now, StartMsg, BatchSize
-) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            maybe
-                IsCurrent = GenId =:= generation_current(Shard),
-                {ok, Key, Batch} ?=
-                    Mod:scan_stream(
-                        Shard, GenData, Inner, TopicFilter, StartMsg, BatchSize, Now, IsCurrent
-                    ),
-                {ok, ?ds_pt_ttv, Key, Batch}
-            end;
-        not_found ->
-            ?ERR_GEN_GONE
-    end.
-
-fast_forward(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner0}, Key, Now, BatchSize) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            maybe
-                {ok, A, B} ?= Mod:fast_forward(Shard, GenData, Inner0, Key, Now, BatchSize),
-                {ok, ?ds_pt_ttv, A, B}
-            end;
-        not_found ->
-            ?ERR_GEN_GONE
-    end.
-
-high_watermark(Shard, ?stream_v2(_, _) = Stream, Now) ->
-    case make_iterator(Shard, Stream, ['#'], max(0, Now - 1)) of
-        {ok, It} ->
-            #{last_seen_key := LSK} = unpack_iterator(Shard, It),
-            {ok, LSK};
-        Err ->
-            Err
-    end.
-
-message_match_context(Shard, ?stream_v2(GenId, Inner), MsgKey, Message) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            Mod:message_match_context(Shard, GenData, Inner, MsgKey, Message);
-        not_found ->
-            ?ERR_GEN_GONE
-    end.
-
-iterator_match_context(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := Inner}) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            Mod:iterator_match_context(Shard, GenData, Inner);
-        not_found ->
-            ?ERR_GEN_GONE
-    end.
-
--spec delete_next(
-    dbshard(), delete_iterator(), emqx_ds:delete_selector(), pos_integer(), emqx_ds:time()
-) ->
-    emqx_ds:delete_next_result(delete_iterator()).
-delete_next(
-    Shard,
-    Iter = #{?tag := ?DELETE_IT, ?generation := GenId, ?enc := GenIter0},
-    Selector,
-    BatchSize,
-    Now
-) ->
-    case generation_get(Shard, GenId) of
-        #{module := Mod, data := GenData} ->
-            IsCurrent = GenId =:= generation_current(Shard),
-            case Mod:delete_next(Shard, GenData, GenIter0, Selector, BatchSize, Now, IsCurrent) of
-                {ok, GenIter, NumDeleted, _IteratedOver} ->
-                    {ok, Iter#{?enc := GenIter}, NumDeleted};
-                EOS = {ok, end_of_stream} ->
-                    EOS;
-                Error = {error, _} ->
-                    Error
-            end;
-        not_found ->
-            %% generation was possibly dropped by GC
-            {ok, end_of_stream}
-    end.
-
 %% @doc Persist a bunch of key/value pairs in the storage globally, in the "outside
 %% of specific generation" sense. Once persisted, values can be read back by calling
 %% `fetch_global/2`.
@@ -808,7 +268,7 @@ delete_next(
 %% `atomic` option, it is atomic by default: either all of pairs are persisted, or none
 %% at all. Writes are durable by default, but this is optional, see `batch_store_opts()`
 %% for details.
--spec store_global(dbshard(), _KVs :: #{binary() => binary()}, batch_store_opts()) ->
+-spec store_global(dbshard(), _KVs :: #{binary() => binary()}, #{durable => boolean()}) ->
     ok | emqx_ds:error(_).
 store_global(ShardId, KVs, Options) ->
     #{db := DB} = get_schema_runtime(ShardId),
@@ -1507,111 +967,6 @@ cf_handle(Name, CFRefs) ->
 
 -define(meta_generic, 0:8).
 -define(meta_lts_v1, 1:8).
-
-%% Note: functions in this group don't comply to the usual pattern
-%% where calls are dynamically dispatched to the callback module based
-%% on the schema. This is because metadata (de)serialization should be
-%% supported even for generations that are gone or otherwise
-%% unavailable.
-
-old_stream_to_new(Shard, ?stream_v2(Generation, Inner)) ->
-    #'Stream'{
-        shard = Shard,
-        generation = Generation,
-        inner = encode_inner_stream(Inner)
-    }.
-
-new_stream_to_old(#'Stream'{
-    shard = Shard,
-    generation = Generation,
-    inner = InnerBin
-}) ->
-    maybe
-        {ok, Inner} ?= decode_inner_stream(InnerBin),
-        {ok, Shard, ?stream_v2(Generation, Inner)}
-    end.
-
-encode_inner_stream({stream, Bin}) when is_binary(Bin) ->
-    %% Skipstream LTS v1 (the only actively used layout) gets special
-    %% treatment:
-    <<?meta_lts_v1, Bin/binary>>;
-encode_inner_stream(A) ->
-    %% Default case:
-    Bin = term_to_binary(A),
-    <<?meta_generic, Bin/binary>>.
-
-decode_inner_stream(<<?meta_lts_v1, Bin/binary>>) ->
-    %% Skipstream LTS v1 gets special treatment:
-    {ok, {stream, Bin}};
-decode_inner_stream(<<?meta_generic, Bin/binary>>) ->
-    %% Default case:
-    try binary_to_term(Bin, [safe]) of
-        Term ->
-            {ok, Term}
-    catch
-        EC:Err ->
-            {error, {invalid_erlang_term, EC, Err}}
-    end;
-decode_inner_stream(Other) ->
-    {error, {unknown_stream_format, Other}}.
-
-old_iterator_to_new(Shard, #{?tag := ?IT, ?generation := Gen, ?enc := Inner}) ->
-    {StaticBin, PosBin} = encode_inner_it(Inner),
-    #'Iterator'{
-        shard = Shard,
-        generation = Gen,
-        innerPos = PosBin,
-        innerStatic = StaticBin
-    }.
-
-new_iterator_to_old(#'Iterator'{
-    shard = Shard,
-    generation = Gen,
-    innerPos = PosBin,
-    innerStatic = StaticBin
-}) ->
-    maybe
-        {ok, Inner} ?= decode_inner_it(StaticBin, PosBin),
-        {ok, Shard, #{?tag => ?IT, ?generation => Gen, ?enc => Inner}}
-    end.
-
-encode_inner_it({it, StaticIdx, LastKey, CompressedTF, _}) ->
-    %% Skipstream LTS v1 (the only actively used layout) gets special
-    %% treatment:
-    {ok, Bin} = 'DSBuiltinSLSkipstreamV1':encode(
-        'IteratorSkipstreamLTSV1', #'IteratorSkipstreamLTSV1'{
-            static = StaticIdx,
-            lastKey = LastKey,
-            compressedTf = CompressedTF
-        }
-    ),
-    {<<?meta_lts_v1>>, Bin};
-encode_inner_it(Inner) ->
-    %% Default case:
-    {<<?meta_generic>>, term_to_binary(Inner)}.
-
-decode_inner_it(<<?meta_lts_v1>>, Bin) ->
-    %% Skipstream LTS v1 (the only actively used layout) gets special
-    %% treatment:
-    maybe
-        {ok, #'IteratorSkipstreamLTSV1'{
-            static = StaticIdx,
-            lastKey = LastKey,
-            compressedTf = CompressedTF
-        }} ?= 'DSBuiltinSLSkipstreamV1':decode('IteratorSkipstreamLTSV1', Bin),
-        {ok, {it, StaticIdx, LastKey, CompressedTF, []}}
-    end;
-decode_inner_it(<<?meta_generic>>, Bin) ->
-    %% Default case:
-    try binary_to_term(Bin, [safe]) of
-        Term ->
-            {ok, Term}
-    catch
-        _EC:Err ->
-            {error, {invalid_erlang_term, Err}}
-    end;
-decode_inner_it(Other, Bin) ->
-    {error, {unknown_iterator_format, Other, Bin}}.
 
 %%--------------------------------------------------------------------------------
 %% Schema access

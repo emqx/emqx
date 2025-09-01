@@ -68,7 +68,7 @@
 
 %% API:
 -export([start_link/2, where/1]).
--export([poll/5, subscribe/5, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
+-export([subscribe/5, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/5]).
 -export([
     make_subtab/1,
@@ -154,7 +154,7 @@
 %% metadata:
 -define(init_timeout, init_timeout).
 
--type dbshard() :: {emqx_ds:db(), _Shard}.
+-type dbshard() :: {emqx_ds:db(), emqx_ds:shard()}.
 
 %% `event_topic' and `event_topic_filter' types are structurally (but
 %% not semantically) equivalent to their `emqx_ds' counterparts.
@@ -393,12 +393,6 @@ ls(DB) ->
     maps:from_list(
         [emqx_ds_beamformer_sup:info({DB, I}) || I <- Shards]
     ).
-
-%% @obsolete Submit a poll request
--spec poll(node(), return_addr(_ItKey), dbshard(), _Iterator, emqx_ds:poll_opts()) ->
-    ok.
-poll(_Node, _ReturnAddr, _Shard, _Iterator, #{timeout := _Timeout}) ->
-    ok.
 
 %% @doc Create a local subscription registry
 -spec make_subtab(dbshard()) -> sub_tab().
@@ -1349,18 +1343,6 @@ send_out(DBShard = {DB, _}, PTrans, Node, Pack, Destinations) ->
         {_, Vsn} when Vsn >= 3 ->
             emqx_ds_beamsplitter_proto_v3:dispatch(
                 DBShard, Node, DB, PTrans, Pack, Destinations, #{}
-            );
-        {_, 2} ->
-            %% Compatibility with the old version. Add fake DSKeys.
-            PackCompat =
-                case Pack of
-                    L when is_list(L) ->
-                        [{<<"fake_dskey">>, I} || I <- L];
-                    _ ->
-                        Pack
-                end,
-            emqx_ds_beamsplitter_proto_v2:dispatch(
-                DBShard, Node, DB, PackCompat, Destinations, #{}
             );
         Incompat ->
             %% Should not happen:

@@ -25,12 +25,14 @@
 
 %% API:
 -export([
+    ls/0,
     start_link/3,
 
     where/2,
     global/2,
 
     dirty_append/2,
+    add_generation/2,
 
     new_kv_tx_ctx/5,
     commit_kv_tx/3,
@@ -51,7 +53,8 @@
     tx/0,
     ctx/0,
     serial/0,
-    runtime_config/0
+    runtime_config/0,
+    batch/0
 ]).
 
 -include("emqx_ds.hrl").
@@ -70,7 +73,7 @@
 
 -type serial() :: integer().
 
--type batch() :: {emqx_ds:generation(), [_CookedTx]}.
+-type batch() :: [{emqx_ds:generation(), [_CookedTx]}].
 
 %% Get the last committed transaction ID on the local replica
 -callback otx_get_tx_serial(emqx_ds:db(), emqx_ds:shard()) ->
@@ -95,6 +98,9 @@
     _NewTimestamp :: emqx_ds:time(),
     batch()
 ) ->
+    ok | emqx_ds:error(_).
+
+-callback otx_add_generation(emqx_ds:db(), emqx_ds:shard(), emqx_ds:time()) ->
     ok | emqx_ds:error(_).
 
 %% Lookup a value identified by topic and timestamp. This callback is
@@ -197,6 +203,8 @@
 }).
 -type dirty_append() :: #cast_dirty_append{}.
 
+-record(call_add_generation, {}).
+
 -type leader_loop_result() ::
     {next_state, ?leader(leader_state()), d(), [gen_statem:action()]}
     | {keep_state, d(), [gen_statem:action()] | gen_statem:action()}
@@ -218,6 +226,11 @@ global(DB, Shard) ->
 -spec start_link(emqx_ds:db(), emqx_ds:shard(), module()) -> {ok, pid()}.
 start_link(DB, Shard, CBM) ->
     gen_statem:start_link(?via(DB, Shard), ?MODULE, [DB, Shard, CBM], []).
+
+-spec ls() -> [{emqx_ds:db(), emqx_ds:shard()}].
+ls() ->
+    MS = {{?name('$1', '$2'), '_', '_'}, [], [{{'$1', '$2'}}]},
+    gproc:select({local, names}, [MS]).
 
 -spec dirty_append(emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
     reference() | noreply.
@@ -244,6 +257,15 @@ dirty_append(#{db := DB, shard := Shard} = Opts, Data = [{_, ?ds_tx_ts_monotonic
             Ref;
         undefined ->
             noreply
+    end.
+
+-spec add_generation(emqx_ds:db(), emqx_ds:shard()) -> ok | emqx_ds:error(_).
+add_generation(DB, Shard) ->
+    case global(DB, Shard) of
+        Leader when is_pid(Leader) ->
+            gen_statem:call(Leader, #call_add_generation{}, infinity);
+        undefined ->
+            ?err_rec(leader_down)
     end.
 
 -spec new_kv_tx_ctx(
@@ -396,6 +418,8 @@ handle_event(cast, #ds_tx{from = From, ref = Ref, meta = Meta}, _Other, _) ->
     keep_state_and_data;
 handle_event(cast, #cast_dirty_append{} = DirtyAppend, State, D) ->
     handle_dirty_append(DirtyAppend, State, D);
+handle_event({call, From}, #call_add_generation{}, ?leader(_LeaderState), D) ->
+    handle_add_generation(From, D);
 handle_event(ET, ?timeout_flush, ?leader(_LeaderState), D) when
     ET =:= state_timeout; ET =:= timeout
 ->
@@ -449,6 +473,15 @@ handle_dirty_append(
         n_items = NItems + 1
     },
     finalize_add_pending(LeaderState, D, []).
+
+-spec handle_add_generation(gen_statem:from(), d()) -> leader_loop_result().
+handle_add_generation(From, D = #d{db = DB, shard = Shard, cbm = CBM, timestamp = TS0}) ->
+    put(?ds_tx_monotonic_ts, TS0),
+    TS = get_monotonic_timestamp(),
+    _ = erase(?ds_tx_monotonic_ts),
+    Reply = CBM:otx_add_generation(DB, Shard, TS),
+    %% TODO: commit an empty batch to persist down timestamp:
+    {keep_state, D#d{timestamp = TS}, {reply, From, Reply}}.
 
 -spec send_dirty_append_replies(ok | false | emqx_ds:error(_), serial(), [dirty_append()]) -> ok.
 send_dirty_append_replies(Result, Serial, PendingReplies) ->

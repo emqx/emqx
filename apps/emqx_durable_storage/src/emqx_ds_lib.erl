@@ -9,7 +9,7 @@
 %% API:
 -export([
     with_worker/3,
-    shard_marker/2,
+    autoclean/3,
     terminate/3,
     send_after/3,
     cancel_timer/2,
@@ -19,7 +19,7 @@
 ]).
 
 %% internal exports:
--export([shard_marker_entrypoint/2]).
+-export([autoclean_entrypoint/3]).
 
 -export_type([]).
 
@@ -58,13 +58,16 @@ with_worker(Mod, Function, Args) ->
 Return supervisor child specification that allows to tie shard
 readiness optvar to a supervisor.
 """.
--spec shard_marker(emqx_ds:db(), emqx_ds:shard()) -> supervisor:child_spec().
-shard_marker(DB, Shard) ->
+-spec autoclean(timeout(), Setup, Teardown) -> supervisor:child_spec() when
+    Setup :: fun(() -> _),
+    Teardown :: fun(() -> _).
+autoclean(CleanupTimeout, Setup, Teardown) ->
     #{
         id => shard_up_marker,
-        start => {proc_lib, start_link, [?MODULE, shard_marker_entrypoint, [DB, Shard]]},
-        shutdown => 100,
-        type => worker
+        start => {proc_lib, start_link, [?MODULE, autoclean_entrypoint, [self(), Setup, Teardown]]},
+        shutdown => CleanupTimeout,
+        type => worker,
+        restart => permanent
     }.
 
 -spec terminate(module(), _Reason, map()) -> ok.
@@ -140,19 +143,20 @@ asn1_to_tf(ASN1) ->
 %% Internal exports
 %%================================================================================
 
--doc """
-Entrypoint for the "shard marker" process that handles shard readiness optvar.
-""".
--spec shard_marker_entrypoint(emqx_ds:db(), emqx_ds:shard()) -> no_return().
-shard_marker_entrypoint(DB, Shard) ->
+autoclean_entrypoint(Parent, Setup, Teardown) ->
     process_flag(trap_exit, true),
-    emqx_ds:set_shard_ready(DB, Shard, true),
+    Setup(),
     proc_lib:init_ack({ok, self()}),
-    receive
-        {'EXIT', _, _Reason} ->
-            emqx_ds:set_shard_ready(DB, Shard, false),
-            exit(shutdown)
-    end.
+    Loop = fun Loop() ->
+        receive
+            {'EXIT', Parent, shutdown} ->
+                Teardown(),
+                exit(shutdown);
+            _ ->
+                Loop()
+        end
+    end,
+    Loop().
 
 %%================================================================================
 %% Internal functions
