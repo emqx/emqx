@@ -50,6 +50,8 @@ sparkplug_tests() ->
     [
         t_sparkplug_decode,
         t_sparkplug_encode,
+        t_sparkplug_decode_bytes,
+        t_sparkplug_encode_bytes,
         t_sparkplug_decode_encode_with_message_name,
         t_sparkplug_encode_float_to_uint64_key,
         t_decode_fail
@@ -1022,6 +1024,91 @@ t_sparkplug_encode(_Config) ->
     emqx:publish(emqx_message:make(<<"t">>, PayloadJSONBin)),
     Res = receive_action_results(),
     ?assertMatch(#{data := ExpectedRuleOutput}, Res),
+    ok.
+
+%% Original issue: the input/output of `bytes` values were not base64 decoded/encoded,
+%% respectively, and thus were not following the Protobuf spec.
+%% See also: https://emqx.atlassian.net/browse/EMQX-14659
+t_sparkplug_decode_bytes(_TCConfig) ->
+    SQL =
+        <<
+            "select\n"
+            "  spb_decode(payload) as decoded\n"
+            "from t\n"
+        >>,
+    PayloadHex = <<
+        "08b0da90dd8e33122d0a04626c6f6218b0da90dd8e33201182011ba3ffa0ffa4"
+        "ffa3ffa6ff9dffa4ff9fffa2ff9cffa0ffa2ffa2ffa318a901"
+    >>,
+    {ok, _} = create_rule_http(#{sql => SQL}),
+    PayloadBin = binary:decode_hex(PayloadHex),
+    ExpectedRuleOutput =
+        #{
+            <<"decoded">> =>
+                #{
+                    <<"metrics">> =>
+                        [
+                            #{
+                                <<"bytes_value">> =>
+                                    <<"o/+g/6T/o/+m/53/pP+f/6L/nP+g/6L/ov+j">>,
+                                <<"datatype">> => 17,
+                                <<"name">> => <<"blob">>,
+                                <<"timestamp">> => 1756300062000
+                            }
+                        ],
+                    <<"seq">> => 169,
+                    <<"timestamp">> => 1756300062000
+                }
+        },
+    wait_for_sparkplug_schema_registered(),
+    emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
+    Res = receive_action_results(),
+    ?assertMatch(
+        #{data := ExpectedRuleOutput},
+        Res,
+        #{expected => ExpectedRuleOutput}
+    ),
+    ok.
+
+%% Original issue: the input/output of `bytes` values were not base64 decoded/encoded,
+%% respectively, and thus were not following the Protobuf spec.
+%% See also: https://emqx.atlassian.net/browse/EMQX-14659
+t_sparkplug_encode_bytes(_TCConfig) ->
+    SQL =
+        <<
+            "select\n"
+            "  spb_encode(json_decode(payload)) as encoded\n"
+            "from t\n"
+        >>,
+    {ok, _} = create_rule_http(#{sql => SQL}),
+    Payload = #{
+        <<"metrics">> =>
+            [
+                #{
+                    <<"bytes_value">> =>
+                        <<"o/+g/6T/o/+m/53/pP+f/6L/nP+g/6L/ov+j">>,
+                    <<"datatype">> => 17,
+                    <<"name">> => <<"blob">>,
+                    <<"timestamp">> => 1756300062000
+                }
+            ],
+        <<"seq">> => 169,
+        <<"timestamp">> => 1756300062000
+    },
+    PayloadBin = emqx_utils_json:encode(Payload),
+    ResultHex = <<
+        "08b0da90dd8e33122d0a04626c6f6218b0da90dd8e33201182011ba3ffa0ffa4"
+        "ffa3ffa6ff9dffa4ff9fffa2ff9cffa0ffa2ffa2ffa318a901"
+    >>,
+    ExpectedRuleOutput = #{<<"encoded">> => binary:decode_hex(ResultHex)},
+    wait_for_sparkplug_schema_registered(),
+    emqx:publish(emqx_message:make(<<"t">>, PayloadBin)),
+    Res = receive_action_results(),
+    ?assertMatch(
+        #{data := ExpectedRuleOutput},
+        Res,
+        #{expected => ExpectedRuleOutput}
+    ),
     ok.
 
 t_sparkplug_encode_float_to_uint64_key(_Config) ->
