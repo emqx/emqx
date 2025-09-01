@@ -1786,93 +1786,9 @@ t_21_ttv_subscription(Config) ->
         []
     ).
 
-%% This testcase verifies metadata serialization and deserialization
-%% for databases with store_ttv => false.
-t_22_metadata_serialization(Config) ->
+t_23_metadata_serialization(Config) ->
     DB = ?FUNCTION_NAME,
     Opts = opts(Config),
-    Topics =
-        [<<"foo">>, <<>>] ++
-            [emqx_topic:join([<<"foo">>, integer_to_binary(N)]) || N <- lists:seq(1, 100)] ++
-            [
-                emqx_topic:join([<<"$foo">>, <<"bar">>, integer_to_binary(N)])
-             || N <- lists:seq(1, 100)
-            ],
-    TopicFilters =
-        [
-            <<>>,
-            <<"foo/#">>,
-            <<"#">>,
-            <<"+/+">>,
-            <<"$foo/#">>,
-            <<"foo/1">>,
-            <<"foo/99">>,
-            <<"$foo/bar/#">>,
-            <<"$foo/bar/99">>
-        ],
-    Batch = [message(Topic, <<>>, 0) || Topic <- Topics],
-    ?check_trace(
-        begin
-            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
-            %% 1. Create generations using different layouts and
-            %% insert data there to create a variety of streams and
-            %% iterators.
-            %%
-            %%   1.1 Reference:
-            ok = emqx_ds:update_db_config(DB, Opts#{storage => {emqx_ds_storage_reference, #{}}}),
-            ok = emqx_ds:add_generation(DB),
-            ok = emqx_ds:store_batch(DB, Batch),
-            %%   1.2 Bitfield:
-            ok = emqx_ds:update_db_config(DB, Opts#{storage => {emqx_ds_storage_bitfield_lts, #{}}}),
-            ok = emqx_ds:add_generation(DB),
-            ok = emqx_ds:store_batch(DB, Batch),
-            %%   1.3 Skipstream:
-            ok = emqx_ds:update_db_config(DB, Opts#{
-                storage => {emqx_ds_storage_skipstream_lts, #{}}
-            }),
-            ok = emqx_ds:add_generation(DB),
-            ok = emqx_ds:store_batch(DB, Batch),
-            %%
-            %% 2. Get streams and create iterators:
-            timer:sleep(1000),
-            {_, Streams = [_ | _]} = lists:unzip(emqx_ds:get_streams(DB, ['#'], 0)),
-            Iterators = [
-                It
-             || Stream <- Streams,
-                TopicFilter <- TopicFilters,
-                {ok, It} <- [emqx_ds:make_iterator(DB, Stream, TopicFilter, 0)]
-            ],
-            ReplayPositions = [end_of_stream | Iterators],
-            %% 3. Check transcoding of streams:
-            [
-                begin
-                    {ok, Bin} = emqx_ds:stream_to_binary(DB, Stream),
-                    ?defer_assert(
-                        ?assertEqual({ok, Stream}, emqx_ds:binary_to_stream(DB, Bin))
-                    )
-                end
-             || Stream <- Streams
-            ],
-            %% 4. Check transcoding of replay positions:
-            [
-                begin
-                    {ok, Bin} = emqx_ds:iterator_to_binary(DB, Pos),
-                    ?defer_assert(
-                        ?assertEqual({ok, Pos}, emqx_ds:binary_to_iterator(DB, Bin))
-                    )
-                end
-             || Pos <- ReplayPositions
-            ]
-        end,
-        []
-    ).
-
-t_23_ttv_metadata_serialization(Config) ->
-    DB = ?FUNCTION_NAME,
-    Opts = maps:merge(opts(Config), #{
-        store_ttv => true,
-        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
-    }),
     Topics =
         [[], [<<"foo">>]] ++
             [[<<"foo">>, <<I:32>>] || I <- lists:seq(1, 100)] ++
