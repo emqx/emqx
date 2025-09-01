@@ -67,7 +67,7 @@ end_per_testcase(_TC, Config) ->
     _ = emqtt:disconnect(Client),
     Group = proplists:get_value(queue_group, Config),
     Topic = proplists:get_value(queue_topic, Config),
-    ok = emqx_ds_shared_sub:destroy(Group, Topic).
+    _ = emqx_ds_shared_sub:destroy(Group, Topic).
 
 t_list_with_shared_sub(Config) ->
     Client = proplists:get_value(client, Config),
