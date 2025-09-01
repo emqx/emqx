@@ -2351,6 +2351,90 @@ t_multi_iterator(Config) ->
             emqx_ds:multi_iterator_next(ItOpts, ['#'], MIt3, 4)
     end)().
 
+%% This testcase verifies that the backend gracefully handles attempts
+%% to store invalid data:
+t_invalid_data(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    TXOpts = #{db => DB, shard => {auto, <<"blah">>}, generation => 1},
+    TxWrite = fun(Payload) ->
+        emqx_ds:trans(
+            TXOpts,
+            fun() ->
+                emqx_ds:tx_write(Payload)
+            end
+        )
+    end,
+    DirtyWrite = fun(Payload) ->
+        emqx_ds_test_helpers:dirty_append(DB, [Payload])
+    end,
+    %% Invalid payload:
+    %%    Try to put message into a pure TTV backend:
+    ?assertMatch(
+        {error, unrecoverable, _},
+        TxWrite({[<<"foo">>], 0, emqx_message:make([], <<>>)})
+    ),
+    %% FIXME: currently the error is reported as recoverable.
+    ?assertMatch(
+        {error, recoverable, aborted},
+        DirtyWrite(emqx_message:make(<<"foo">>, <<>>))
+    ),
+    %% Invalid topic:
+    ?assertError(
+        badarg,
+        TxWrite({1, ?ds_tx_ts_monotonic, <<>>})
+    ),
+    ?assertMatch(
+        {error, _, _},
+        DirtyWrite({1, ?ds_tx_ts_monotonic, <<>>})
+    ),
+    %%    Note: DS doesn't allow replacing empty topic levels with ''
+    ?assertError(
+        badarg,
+        TxWrite({'', ?ds_tx_ts_monotonic, <<>>})
+    ),
+    ?assertMatch(
+        {error, _, _},
+        DirtyWrite({'', ?ds_tx_ts_monotonic, <<>>})
+    ),
+    %%
+    ?assertError(
+        badarg,
+        TxWrite({[<<"foo">>, '', <<>>], ?ds_tx_ts_monotonic, <<>>})
+    ),
+    ?assertMatch(
+        {error, _, _},
+        DirtyWrite({[<<"foo">>, '', <<>>], ?ds_tx_ts_monotonic, <<>>})
+    ),
+    %% Wildcards are not allowed in writes:
+    ?assertError(
+        badarg,
+        TxWrite({[<<"foo">>, '#'], ?ds_tx_ts_monotonic, <<>>})
+    ),
+    ?assertMatch(
+        {error, _, _},
+        DirtyWrite({[<<"foo">>, '#'], ?ds_tx_ts_monotonic, <<>>})
+    ),
+    %%
+    ?assertError(
+        badarg,
+        TxWrite({[<<"foo">>, '+', <<"bar">>], ?ds_tx_ts_monotonic, <<>>})
+    ),
+    ?assertMatch(
+        {error, _, _},
+        DirtyWrite({[<<"foo">>, '+', <<"bar">>], ?ds_tx_ts_monotonic, <<>>})
+    ),
+    %% Verify that the shard survived the whole ordeal and is capable
+    %% of storing and fetching data:
+    ?assertMatch(
+        {atomic, _, _},
+        TxWrite({[], ?ds_tx_ts_monotonic, <<"success">>})
+    ),
+    ?assertMatch(
+        [{[], _, <<"success">>}],
+        emqx_ds:dirty_read(DB, ['#'])
+    ).
+
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),
     Msg#message{from = ClientId}.
