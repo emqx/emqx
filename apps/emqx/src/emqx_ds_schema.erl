@@ -416,28 +416,23 @@ translate_backend(
         backend := Backend,
         n_shards := NShards,
         rocksdb := RocksDBOptions,
-        subscriptions := Subscriptions
+        subscriptions := Subscriptions,
+        transaction := Transaction
     } = Input
 ) when Backend =:= builtin_local; Backend =:= builtin_raft ->
     Cfg1 = #{
         backend => Backend,
         n_shards => NShards,
         rocksdb => translate_rocksdb_options(RocksDBOptions),
-        subscriptions => Subscriptions
+        subscriptions => Subscriptions,
+        transactions => translate_otx_opts(Transaction)
     },
-    Cfg2 =
-        case Input of
-            #{transaction := Transaction} ->
-                Cfg1#{transaction => translate_otx_opts(Transaction)};
-            #{} ->
-                Cfg1
-        end,
     Cfg =
         case Input of
             #{layout := Layout} ->
-                Cfg2#{storage => translate_layout(Layout)};
+                Cfg1#{storage => translate_layout(Layout)};
             #{} ->
-                Cfg2
+                Cfg1
         end,
     case Backend of
         builtin_raft ->
