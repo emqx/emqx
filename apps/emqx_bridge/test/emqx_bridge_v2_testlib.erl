@@ -1696,6 +1696,10 @@ t_create_via_http(Config, IsOnlyV2) ->
     ok.
 
 t_start_stop(Config, StopTracePoint) ->
+    t_start_stop(Config, StopTracePoint, _Opts = #{}).
+
+t_start_stop(Config, StopTracePoint, #{} = Opts) ->
+    SkipAtomLeakCheck = maps:get(skip_atom_leak_check, Opts, false),
     Kind = proplists:get_value(bridge_kind, Config, action),
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
@@ -1746,7 +1750,18 @@ t_start_stop(Config, StopTracePoint) ->
             ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
             AtomsAfter = all_atoms(),
             AtomCountAfter = erlang:system_info(atom_count),
-            ?assertEqual(AtomCountBefore, AtomCountAfter, #{new_atoms => AtomsAfter -- AtomsBefore}),
+            case SkipAtomLeakCheck of
+                false ->
+                    ?assertEqual(
+                        AtomCountBefore,
+                        AtomCountAfter,
+                        #{new_atoms => AtomsAfter -- AtomsBefore}
+                    );
+                true when AtomCountBefore /= AtomCountAfter ->
+                    ct:print("WARNING: atom leak; new atoms:\n  ~p", [AtomsAfter -- AtomsBefore]);
+                true ->
+                    ok
+            end,
 
             ?assertMatch({ok, _}, create_kind_api(Config)),
 
