@@ -784,7 +784,7 @@ enter_leader(ShareTF = #share{group = Group, topic = Topic}, Idle, Options = #{}
         id => ?subid,
         db => ?PERSISTENT_MESSAGE_DB,
         topic => emqx_ds:topic_words(Topic),
-        start_time => StartTime
+        start_time => emqx_persistent_session_ds:to_ds_time(StartTime)
     },
     %% Create route:
     _ = emqx_persistent_session_ds_router:do_add_route(Topic, SId),
