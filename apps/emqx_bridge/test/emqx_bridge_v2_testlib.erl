@@ -1386,22 +1386,28 @@ source_hookpoint_callback(Message, _Namespace, TestPid) ->
 %%------------------------------------------------------------------------------
 
 t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
+    t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint, _Opts = #{}).
+
+t_sync_query(TCConfig, MakeMessageFun, IsSuccessCheck, TracePoint, Opts) ->
+    ConnectorOverrides = maps:get(connector_overrides, Opts, #{}),
+    ActionOverrides = maps:get(action_overrides, Opts, #{}),
     ?check_trace(
         begin
-            ?assertMatch({ok, _}, create_bridge_api(Config)),
-            ResourceId = connector_resource_id(Config),
+            ?assertMatch({201, _}, create_connector_api2(TCConfig, ConnectorOverrides)),
+            ?assertMatch({201, _}, create_action_api2(TCConfig, ActionOverrides)),
+            ResourceId = connector_resource_id(TCConfig),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
-            BridgeId = bridge_id(Config),
+            BridgeId = bridge_id(TCConfig),
             Message = {BridgeId, MakeMessageFun()},
             IsSuccessCheck(emqx_resource:simple_sync_query(ResourceId, Message)),
             ok
         end,
         fun(Trace) ->
-            ResourceId = connector_resource_id(Config),
+            ResourceId = connector_resource_id(TCConfig),
             ?assertMatch([#{instance_id := ResourceId}], ?of_kind(TracePoint, Trace))
         end
     ),
@@ -1429,6 +1435,7 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
                 {ok, {ok, _}},
                 ?wait_async_action(
                     emqx_bridge_v2:query(?global_ns, ActionType, ActionName, Message, #{
+                        query_mode => async,
                         async_reply_fun => {ReplyFun, [self()]}
                     }),
                     #{?snk_kind := TracePoint, instance_id := ResourceId},

@@ -14,7 +14,7 @@ services:
       - "9101:9101"
     healthcheck:
       test: ["CMD", "curl", "-k", "-f", "https://localhost:9100/minio/health/live"]
-      interval: 30s
+      interval: 5s
       timeout: 5s
       retries: 3
     networks:

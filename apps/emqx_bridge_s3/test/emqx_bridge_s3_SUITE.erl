@@ -13,7 +13,7 @@
 -include_lib("emqx/include/emqx_config.hrl").
 
 %% See `emqx_bridge_s3.hrl`.
--define(BRIDGE_TYPE, <<"s3">>).
+-define(ACTION_TYPE, <<"s3">>).
 -define(CONNECTOR_TYPE, <<"s3">>).
 
 -define(PROXY_NAME, "minio_tcp").
@@ -63,12 +63,13 @@ init_per_testcase(TestCase, Config) ->
     ConnectorConfig = connector_config(Name, Config),
     ActionConfig = action_config(Name, Name),
     [
+        {bridge_kind, action},
         {connector_type, ?CONNECTOR_TYPE},
         {connector_name, Name},
         {connector_config, ConnectorConfig},
-        {bridge_type, ?BRIDGE_TYPE},
-        {bridge_name, Name},
-        {bridge_config, ActionConfig}
+        {action_type, ?ACTION_TYPE},
+        {action_name, Name},
+        {action_config, ActionConfig}
         | Config
     ].
 
@@ -105,7 +106,7 @@ connector_config(Name, _Config) ->
 
 action_config(Name, ConnectorId) ->
     emqx_bridge_s3_test_helpers:parse_and_check_config(
-        <<"actions">>, ?BRIDGE_TYPE, Name, #{
+        <<"actions">>, ?ACTION_TYPE, Name, #{
             <<"enable">> => true,
             <<"connector">> => ConnectorId,
             <<"parameters">> => #{
@@ -226,7 +227,7 @@ t_sync_query(Config) ->
 t_query_retry_recoverable(Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     Bucket = emqx_s3_test_helpers:unique_bucket(),
     Topic = "d/e/f",
     Payload = rand:bytes(1024),
@@ -248,7 +249,7 @@ t_query_retry_recoverable(Config) ->
     Message = emqx_bridge_s3_test_helpers:mk_message_event(Bucket, Topic, Payload),
     %% Verify that the message is sent eventually.
     %% todo: messages should be sent via rules in tests...
-    ok = emqx_bridge_v2:send_message(?global_ns, ?BRIDGE_TYPE, BridgeName, Message, #{}),
+    ok = emqx_bridge_v2:send_message(?global_ns, ?ACTION_TYPE, BridgeName, Message, #{}),
     ?assertMatch(
         #{content := Payload},
         maps:from_list(erlcloud_s3:get_object(Bucket, Topic, AwsConfig))
