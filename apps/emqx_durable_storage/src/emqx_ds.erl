@@ -561,7 +561,8 @@ open_db(DB, UserOpts = #{backend := Backend}) ->
                 DB,
                 NewSchema#{backend => Backend}
             ),
-        Mod:open_db(DB, IsNew, Schema, RuntimeConf)
+        ok ?= Mod:open_db(DB, IsNew, Schema, RuntimeConf),
+        emqx_ds_sup:ensure_new_stream_watch(DB)
     end.
 
 -doc """
@@ -631,7 +632,14 @@ List open DBs and their backends.
 """.
 -spec which_dbs() -> [{db(), _Backend :: atom()}].
 which_dbs() ->
-    emqx_ds_sup:which_dbs().
+    #{dbs := DBs} = emqx_dsch:get_site_schema(),
+    maps:fold(
+        fun(DB, #{backend := Backend}, Acc) ->
+            [{DB, Backend} | Acc]
+        end,
+        [],
+        DBs
+    ).
 
 -doc """
 Add a new generation within each shard.
