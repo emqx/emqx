@@ -103,7 +103,7 @@ init_per_group(?sync, TCConfig) ->
 init_per_group(?with_batch, TCConfig0) ->
     [{batch_size, 100}, {batch_time, <<"200ms">>} | TCConfig0];
 init_per_group(?without_batch, TCConfig0) ->
-    [{batch_size, 1} | TCConfig0];
+    [{batch_size, 1}, {batch_time, <<"0ms">>} | TCConfig0];
 init_per_group(_Group, TCConfig) ->
     TCConfig.
 
