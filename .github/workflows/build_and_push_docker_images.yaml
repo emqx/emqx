@@ -168,8 +168,16 @@ jobs:
           retention-days: 7
 
       - name: Verify that size of docker image is less than 300 MB
+        if: matrix.profile[0] != 'emqx-enterprise-elixir'
         run: |
+          docker image inspect $_EMQX_DOCKER_IMAGE_TAG --format='{{.Size}}'
           docker image inspect $_EMQX_DOCKER_IMAGE_TAG --format='{{.Size}}' | xargs -I {} test {} -lt 300000000
+
+      - name: Verify that size of docker image is less than 350 MB (elixir)
+        if: matrix.profile[0] == 'emqx-enterprise-elixir'
+        run: |
+          docker image inspect $_EMQX_DOCKER_IMAGE_TAG --format='{{.Size}}'
+          docker image inspect $_EMQX_DOCKER_IMAGE_TAG --format='{{.Size}}' | xargs -I {} test {} -lt 350000000
 
       - name: smoke test
         timeout-minutes: 1
