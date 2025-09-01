@@ -4,8 +4,13 @@
 
 -module(emqx_ds_builtin_raft_app).
 
--export([start/2]).
+-behaviour(application).
+
+-export([start/2, stop/1]).
 
 start(_Type, _Args) ->
-    emqx_ds:register_backend(builtin_raft, emqx_ds_replication_layer),
+    ok = emqx_dsch:register_backend(builtin_raft, emqx_ds_builtin_raft),
     emqx_ds_builtin_raft_sup:start_top().
+
+stop(_) ->
+    ok.

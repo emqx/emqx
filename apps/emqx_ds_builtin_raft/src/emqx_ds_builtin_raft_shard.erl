@@ -14,7 +14,7 @@
 
 %% Server API
 -export([
-    start_link/3,
+    start_link/4,
     server_info/2,
     server_metrics/1
 ]).
@@ -86,14 +86,14 @@
 %% @doc Starts a local server, an Erlang process running an instance of Raft
 %% protocol for a single shard on this node. Together with other servers of the shard
 %% it forms a Raft consensus group.
-start_link(DB, Shard, Opts) ->
-    gen_server:start_link(?MODULE, {DB, Shard, Opts}, []).
+start_link(DB, Shard, Schema, RTConf) ->
+    gen_server:start_link(?MODULE, {DB, Shard, Schema, RTConf}, []).
 
 %% @doc Return a list of servers comprising a shard, according to the information
 %% in the DB metadata storage.
 %% Note that this indicates which servers _should_ be members of respective Ra
 %% cluster, but may at times be out-of-sync with the actual Ra cluster membership.
--spec shard_servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> [server()].
+-spec shard_servers(emqx_ds:db(), emqx_ds:shard()) -> [server()].
 shard_servers(DB, Shard) ->
     ReplicaSet = emqx_ds_builtin_raft_meta:replica_set(DB, Shard),
     shard_servers(DB, Shard, ReplicaSet).
@@ -117,7 +117,7 @@ known_shard_servers(DB, Shard) ->
 %% @doc Return a term identifying a server for the shard located on specified site.
 -spec shard_server(
     emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
+    emqx_ds:shard(),
     emqx_ds_builtin_raft_meta:site()
 ) -> server() | undefined.
 shard_server(DB, Shard, Site) ->
@@ -129,7 +129,7 @@ shard_server(DB, Shard, Site) ->
     end.
 
 %% @doc Return a term identifying a local server for the shard.
--spec local_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> server().
+-spec local_server(emqx_ds:db(), emqx_ds:shard()) -> server().
 local_server(DB, Shard) ->
     {server_name(DB, Shard, local_site()), node()}.
 
@@ -144,12 +144,12 @@ server_name(DB, Shard, Site) ->
     DBBin = atom_to_binary(DB),
     binary_to_atom(<<"ds_", DBBin/binary, Shard/binary, "_", Site/binary>>).
 
--spec cache_shard_servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> ok.
+-spec cache_shard_servers(emqx_ds:db(), emqx_ds:shard()) -> ok.
 cache_shard_servers(DB, Shard) ->
     Servers = shard_servers(DB, Shard),
     persistent_term:put(?PTERM(DB, Shard, servers), Servers).
 
--spec clear_cache(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> boolean().
+-spec clear_cache(emqx_ds:db(), emqx_ds:shard()) -> boolean().
 clear_cache(DB, Shard) ->
     persistent_term:erase(?PTERM(DB, Shard, servers)).
 
@@ -166,7 +166,7 @@ clear_cache(DB, Shard) ->
 %%    Note: result is _NOT_ shuffled. This can be bad for the load balancing, but it
 %%    makes results more deterministic. Caller that doesn't care about that can shuffle
 %%    the results by itself.
--spec servers(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), Order) -> [server()] when
+-spec servers(emqx_ds:db(), emqx_ds:shard(), Order) -> [server()] when
     Order :: leader_preferred | local_preferred | leader | undefined.
 servers(DB, Shard, leader_preferred) ->
     get_servers_leader_preferred(DB, Shard);
@@ -250,7 +250,7 @@ local_site() ->
 
 %%
 
--spec shard_info(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), _Info) -> _Value.
+-spec shard_info(emqx_ds:db(), emqx_ds:shard(), _Info) -> _Value.
 shard_info(DB, Shard, ready) ->
     get_shard_info(DB, Shard, ready, false).
 
@@ -293,7 +293,7 @@ try_servers([], _Fun, _Args) ->
 %% @doc Add a local server to the shard cluster.
 %% It's recommended to have the local server running before calling this function.
 %% This function is idempotent.
--spec add_local_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec add_local_server(emqx_ds:db(), emqx_ds:shard()) ->
     ok | emqx_ds:error(_Reason).
 add_local_server(DB, Shard) ->
     ShardServers = known_shard_servers(DB, Shard),
@@ -339,7 +339,7 @@ add_local_server(_DB, _Shard, _ShardServers = []) ->
 %% @doc Remove a local server from the shard cluster and clean up on-disk data.
 %% It's required to have the local server running before calling this function.
 %% This function is idempotent.
--spec drop_local_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec drop_local_server(emqx_ds:db(), emqx_ds:shard()) ->
     ok | emqx_ds:error(_Reason).
 drop_local_server(DB, Shard) ->
     %% NOTE: Timeouts are ignored, it's a best effort attempt.
@@ -356,7 +356,7 @@ drop_local_server(DB, Shard) ->
 %% The server might not be running when calling this function, e.g. the node
 %% might be offline. Because of this, on-disk data will not be cleaned up.
 %% This function is idempotent.
--spec remove_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), server()) ->
+-spec remove_server(emqx_ds:db(), emqx_ds:shard(), server()) ->
     ok | emqx_ds:error(_Reason).
 remove_server(DB, Shard, Server) ->
     ShardServers = known_shard_servers(DB, Shard),
@@ -380,7 +380,7 @@ remove_server(_Server, _ShardServers = []) ->
 %% @doc Make shard cluster "forget" a remote server residing on a "lost" site.
 %% This is UNSAFE as it works directly with Ra log, and is designed to get out of
 %% situations where quorum is unlikely to ever recover.
--spec forget_server(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), server()) ->
+-spec forget_server(emqx_ds:db(), emqx_ds:shard(), server()) ->
     ok | emqx_ds:error(_Reason).
 forget_server(DB, Shard, Server) ->
     ShardServers = shard_servers(DB, Shard),
@@ -532,15 +532,15 @@ ra_overview_termidx(Overview) ->
 
 -record(st, {
     db :: emqx_ds:db(),
-    shard :: emqx_ds_replication_layer:shard_id(),
+    shard :: emqx_ds:shard(),
     server :: server(),
     bootstrapped :: boolean(),
     stage :: term()
 }).
 
-init({DB, Shard, Opts}) ->
+init({DB, Shard, Schema, RTConf}) ->
     _ = process_flag(trap_exit, true),
-    case start_server(DB, Shard, Opts) of
+    case start_server(DB, Shard, Schema, RTConf) of
         {_New = true, Server} ->
             NextStage = trigger_election;
         {_New = false, Server} ->
@@ -628,7 +628,7 @@ bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, se
 
 %%
 
-start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
+start_server(DB, Shard, Schema, #{replication_options := ReplicationOpts}) ->
     ClusterName = cluster_name(DB, Shard),
     LocalServer = local_server(DB, Shard),
     Servers = known_shard_servers(DB, Shard),
@@ -636,7 +636,10 @@ start_server(DB, Shard, #{replication_options := ReplicationOpts}) ->
     case ra:restart_server(DB, LocalServer, MutableConfig) of
         {error, name_not_registered} ->
             UID = server_uid(DB, Shard),
-            Machine = {module, emqx_ds_replication_layer, #{db => DB, shard => Shard}},
+            Machine =
+                {module, emqx_ds_builtin_raft_machine, #{
+                    db => DB, shard => Shard, schema => Schema
+                }},
             LogOpts = maps:with(
                 [
                     snapshot_interval,

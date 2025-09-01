@@ -10,15 +10,13 @@
 
 %% API:
 -export([
-    start_db/2,
+    start_db/4,
     start_shard/1,
-    start_egress/1,
     stop_shard/1,
     shard_info/2,
     terminate_storage/1,
     restart_storage/1,
     ensure_shard/1,
-    ensure_egress/1,
 
     start_shard_leader_sup/2,
     stop_shard_leader_sup/2
@@ -27,7 +25,6 @@
 
 %% Debug:
 -export([
-    get_egress_workers/1,
     get_shard_workers/1
 ]).
 
@@ -36,6 +33,8 @@
 
 %% internal exports:
 -export([start_link_sup/2, start_link_sentinel/1, init_sentinel/2]).
+
+-include("emqx_ds_builtin_raft.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -46,14 +45,12 @@
 
 -define(db_sup, ?MODULE).
 -define(shards_sup, emqx_ds_builtin_raft_db_shards_sup).
--define(egress_sup, emqx_ds_builtin_raft_db_egress_sup).
 -define(shard_sup, emqx_ds_builtin_raft_db_shard_sup).
 -define(shard_sentinel, emqx_ds_builtin_raft_db_shard_sentinel).
 -define(shard_leader_sup, emqx_ds_builtin_raft_db_shard_leader_sup).
 
 -record(?db_sup, {db}).
 -record(?shards_sup, {db}).
--record(?egress_sup, {db}).
 -record(?shard_sup, {db, shard}).
 -record(?shard_sentinel, {shardid}).
 -record(?shard_leader_sup, {db, shard}).
@@ -62,19 +59,16 @@
 %% API functions
 %%================================================================================
 
--spec start_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) -> {ok, pid()}.
-start_db(DB, Opts) ->
-    start_link_sup(#?db_sup{db = DB}, Opts).
+-spec start_db(
+    emqx_ds:db(), Create, emqx_ds_builtin_raft:db_schema(), emqx_ds_builtin_raft:db_runtime_config()
+) -> {ok, pid()} when Create :: boolean().
+start_db(DB, Create, Schema, RTConf) ->
+    start_link_sup(#?db_sup{db = DB}, [Create, Schema, RTConf]).
 
 -spec start_shard(emqx_ds_storage_layer:dbshard()) ->
     supervisor:startchild_ret().
 start_shard({DB, Shard}) ->
     supervisor:start_child(?via(#?shards_sup{db = DB}), shard_spec(DB, Shard)).
-
--spec start_egress(emqx_ds_storage_layer:dbshard()) ->
-    supervisor:startchild_ret().
-start_egress({DB, Shard}) ->
-    supervisor:start_child(?via(#?egress_sup{db = DB}), egress_spec(DB, Shard)).
 
 -spec stop_shard(emqx_ds_storage_layer:dbshard()) -> ok | {error, not_found}.
 stop_shard({DB, Shard}) ->
@@ -108,12 +102,7 @@ restart_storage({DB, Shard}) ->
 ensure_shard(Shard) ->
     ensure_started(start_shard(Shard)).
 
--spec ensure_egress(emqx_ds_storage_layer:dbshard()) ->
-    ok | {error, _Reason}.
-ensure_egress(Shard) ->
-    ensure_started(start_egress(Shard)).
-
--spec which_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+-spec which_shards(emqx_ds:db()) -> [emqx_ds:shard()].
 which_shards(DB) ->
     Key = {n, l, #?shard_sup{db = DB, shard = '$1', _ = '_'}},
     gproc:select({local, names}, [{{Key, '_', '_'}, [], ['$1']}]).
@@ -124,13 +113,6 @@ which_shards(DB) ->
 which_dbs() ->
     Key = {n, l, #?db_sup{_ = '_', db = '$1'}},
     gproc:select({local, names}, [{{Key, '_', '_'}, [], ['$1']}]).
-
-%% @doc Get pids of all local egress servers for the given DB.
--spec get_egress_workers(emqx_ds:db()) -> #{_Shard => pid()}.
-get_egress_workers(DB) ->
-    Children = supervisor:which_children(?via(#?egress_sup{db = DB})),
-    L = [{Shard, Child} || {Shard, Child, _, _} <- Children, is_pid(Child)],
-    maps:from_list(L).
 
 %% @doc Get pids of all local shard servers for the given DB.
 -spec get_shard_workers(emqx_ds:db()) -> #{_Shard => pid()}.
@@ -179,16 +161,21 @@ stop_shard_leader_sup(DB, Shard) ->
 %%================================================================================
 
 %% erlfmt-ignore
-init({#?db_sup{db = DB}, DefaultOpts}) ->
+init({#?db_sup{db = DB}, [_Create, Schema, RTConf]}) ->
     %% Spec for the top-level supervisor for the database:
     logger:notice("Starting DS DB ~p", [DB]),
-    emqx_ds_builtin_raft_sup:clean_gvars(DB),
+    %% FIXME: remove
+    DefaultOpts = maps:merge(Schema, RTConf),
     emqx_ds_builtin_metrics:init_for_db(DB),
     Opts = emqx_ds_builtin_raft_meta:open_db(DB, DefaultOpts),
     ok = start_ra_system(DB, Opts),
     Children = [
+        emqx_ds_lib:autoclean(
+          20_000,
+          fun() -> ok = emqx_dsch:open_db(DB, RTConf) end,
+          fun() -> ok = emqx_dsch:close_db(DB) end
+         ),
         sup_spec(#?shards_sup{db = DB}, []),
-        sup_spec(#?egress_sup{db = DB}, []),
         shard_allocator_spec(DB)
     ],
     SupFlags = #{
@@ -206,15 +193,6 @@ init({#?shards_sup{db = _DB}, _}) ->
         period => 1
     },
     {ok, {SupFlags, []}};
-init({#?egress_sup{db = _DB}, _}) ->
-    %% Spec for the supervisor that manages the egress proxy processes
-    %% managing traffic towards each of the shards of the DB:
-    SupFlags = #{
-        strategy => one_for_one,
-        intensity => 0,
-        period => 1
-    },
-    {ok, {SupFlags, []}};
 init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     ok = emqx_ds_builtin_raft_metrics:init_local_shard(DB, Shard),
     SupFlags = #{
@@ -222,10 +200,12 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         intensity => 10,
         period => 100
     },
-    Opts = emqx_ds_builtin_raft_meta:db_config(DB),
+    Schema = emqx_dsch:get_db_schema(DB),
+    #{runtime := RTConf} = emqx_dsch:get_db_runtime(DB),
+    Opts = maps:merge(Schema, RTConf),
     Children =
         [shard_storage_spec(DB, Shard, Opts),
-         shard_replication_spec(DB, Shard, Opts)] ++
+         shard_replication_spec(DB, Shard, Schema, RTConf)] ++
          shard_beamformers_spec(DB, Shard, Opts) ++
         [shard_sentinel_spec(DB, Shard)],
     {ok, {SupFlags, Children}};
@@ -237,7 +217,10 @@ init({#?shard_leader_sup{db = DB, shard = Shard}, _}) ->
                  intensity => 10,
                  period => 100
                 },
+    Setup = fun() -> ok end,
+    Teardown = fun() -> emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader) end,
     Children = [
+                emqx_ds_lib:autoclean(5_000, Setup, Teardown),
                 shard_optimistic_tx_spec(DB, Shard)
                ],
     {ok, {SupFlags, Children}}.
@@ -337,10 +320,10 @@ shard_storage_spec(DB, Shard, Opts) ->
         type => worker
     }.
 
-shard_replication_spec(DB, Shard, Opts) ->
+shard_replication_spec(DB, Shard, Schema, RTConf) ->
     #{
         id => {Shard, replication},
-        start => {emqx_ds_builtin_raft_shard, start_link, [DB, Shard, Opts]},
+        start => {emqx_ds_builtin_raft_shard, start_link, [DB, Shard, Schema, RTConf]},
         shutdown => 10_000,
         restart => permanent,
         type => worker
@@ -350,16 +333,6 @@ shard_allocator_spec(DB) ->
     #{
         id => shard_allocator,
         start => {emqx_ds_builtin_raft_shard_allocator, start_link, [DB]},
-        restart => permanent,
-        type => worker
-    }.
-
-egress_spec(DB, Shard) ->
-    Options = #{},
-    #{
-        id => Shard,
-        start => {emqx_ds_buffer, start_link, [emqx_ds_replication_layer, Options, DB, Shard]},
-        shutdown => 5_000,
         restart => permanent,
         type => worker
     }.
@@ -376,7 +349,7 @@ shard_beamformers_spec(DB, Shard, _Opts) ->
             shutdown => infinity,
             start =>
                 {emqx_ds_beamformer_sup, start_link, [
-                    emqx_ds_replication_layer, {DB, Shard}, BeamformerOpts
+                    emqx_ds_builtin_raft, {DB, Shard}, BeamformerOpts
                 ]}
         }
     ].
@@ -388,7 +361,7 @@ shard_optimistic_tx_spec(DB, Shard) ->
         shutdown => 1_000,
         restart => permanent,
         start =>
-            {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_replication_layer]}
+            {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_raft]}
     }.
 
 shard_sentinel_spec(DB, Shard) ->
