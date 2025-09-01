@@ -311,6 +311,24 @@ make_raft(Flavor) ->
                     default => #{},
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {max_retries,
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 10,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_raft_max_retries)
+                }
+            )},
+        {retry_interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"10s">>,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_raft_retry_interval)
+                }
             )}
         | common_builtin_fields(Flavor)
     ].

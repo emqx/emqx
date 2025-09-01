@@ -188,14 +188,28 @@ emqx_ds_schema {
 
 
   builtin_raft_n_sites {
-      label: "Initial number of sites"
-      desc:
-        """~
-        Number of storage sites that need to share responsibility over the set of storage shards.
-        In this context, sites are EMQX nodes with message durability enabled.
-        Please note that it takes effect only during the initialization of the durable storage database.
-        During this phase at least that many sites should come online to distribute shards between them, otherwise message storage will be unavailable until then.
-        After the initialization is complete, sites may be offline, which will affect availability depending on the number of offline sites and replication factor.~"""
+    label: "Initial number of sites"
+    desc:
+      """~
+      Number of storage sites that need to share responsibility over the set of storage shards.
+      In this context, sites are EMQX nodes with message durability enabled.
+      Please note that it takes effect only during the initialization of the durable storage database.
+      During this phase at least that many sites should come online to distribute shards between them, otherwise message storage will be unavailable until then.
+      After the initialization is complete, sites may be offline, which will affect availability depending on the number of offline sites and replication factor.~"""
+  }
+
+  builtin_raft_max_retries {
+    label: "Maximum retries"
+    desc:
+      """~
+      Maximum number of retry attempts when encountering a recoverable intermittent failure.~"""
+  }
+
+  builtin_raft_retry_interval {
+    label: "Retry interval"
+    desc:
+      """~
+      Sleep time between retry attempts.~"""
   }
 
   // Storage layouts:
