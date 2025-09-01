@@ -191,6 +191,14 @@ This is the entrypoint into the `builtin_raft` backend.
     end
 ).
 
+%% FIXME: this mechanism should be reworked.
+%%
+%% 1. Distinguish between read and write paths.
+%%
+%% 2. Make sure the read path uses cache
+%%
+%% 3. Use optimistic_tx_leader's pid (which is registered in `global`)
+%% to locate the leader?
 -define(SHARD_RPC(DB, SHARD, NODE, BODY),
     case
         emqx_ds_builtin_raft_shard:servers(
