@@ -39,7 +39,7 @@ t_01_smoke_store(Config) ->
     ?check_trace(
         #{timetrap => 10_000},
         begin
-            DB = default,
+            DB = ?FUNCTION_NAME,
             ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             Msg = ttv_mqtt(<<"foo/bar">>, <<"foo">>, 0),
             Shard = hd(emqx_ds:list_shards(DB)),
@@ -72,7 +72,7 @@ t_02_smoke_iterate(Config) ->
         message(<<"foo/bar">>, <<"2">>, 1),
         message(<<"foo/bar">>, <<"3">>, 2)
     ],
-    ok = dirty_append(DB, Msgs),
+    ok = emqx_ds_test_helpers:dirty_append(DB, Msgs),
     Batch = dump_topic(DB, ['#']),
     emqx_ds_test_helpers:diff_messages(?msg_fields, Msgs, Batch).
 
@@ -84,14 +84,12 @@ t_02_smoke_iterate(Config) ->
 t_03_dirty_append_ordering(Config) ->
     DB = ?FUNCTION_NAME,
     DBOpts = emqx_utils_maps:deep_merge(opts(Config), #{
-        store_ttv => true,
-        transaction => #{idle_flush_interval => 1000, flush_interval => 1000},
-        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+        transaction => #{idle_flush_interval => 1000, flush_interval => 1000}
     }),
     ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
     %% Add a few batches async-ly:
     Topic = [<<"t">>],
-    AsyncOpts = #{db => DB, shard => first_shard(DB), reply => false},
+    AsyncOpts = #{db => DB, shard => emqx_ds_test_helpers:first_shard(DB), reply => false},
     noreply = emqx_ds:dirty_append(AsyncOpts, [
         {Topic, ?ds_tx_ts_monotonic, <<0>>},
         {Topic, ?ds_tx_ts_monotonic, <<1>>},
@@ -106,7 +104,7 @@ t_03_dirty_append_ordering(Config) ->
         {Topic, ?ds_tx_ts_monotonic, <<6>>}
     ]),
     %% Wait for the last batch:
-    ok = dirty_append(AsyncOpts, [{Topic, ?ds_tx_ts_monotonic, <<7>>}]),
+    ok = emqx_ds_test_helpers:dirty_append(AsyncOpts, [{Topic, ?ds_tx_ts_monotonic, <<7>>}]),
     %% Fetch messages:
     {[{_, Stream}], []} = emqx_ds:get_streams(DB, Topic, 0, #{}),
     {ok, Iterator} = emqx_ds:make_iterator(DB, Stream, Topic, 0),
@@ -181,6 +179,7 @@ t_07_smoke_update_config(Config) ->
         maps:to_list(emqx_ds:list_slabs(DB))
     ),
     ?assertMatch(ok, emqx_ds:update_db_config(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds:add_generation(DB)),
     ?assertMatch(
         [{_, _}, {_, _}],
         maps:to_list(emqx_ds:list_slabs(DB))
@@ -255,7 +254,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
     %% In this case, the iterator won't see any messages and the stream will end.
 
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
@@ -264,7 +263,6 @@ t_drop_generation_with_never_used_iterator(Config) ->
         message(<<"foo/bar">>, <<"1">>, 0),
         message(<<"foo/bar">>, <<"2">>, 1)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0, #{sync => true})),
     ?assertMatch(ok, emqx_ds_test_helpers:dirty_append(DB, Msgs0)),
     timer:sleep(1_000),
 
@@ -305,7 +303,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
     %% In this case, the iterator should see no more messages and the stream will end.
 
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
@@ -344,7 +342,7 @@ t_make_iterator_stale_stream(Config) ->
     %% the stream has been dropped.
 
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
+    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
     [GenId0] = maps:keys(emqx_ds:list_slabs(DB)),
 
     TopicFilter = emqx_topic:words(<<"foo/+">>),
@@ -701,7 +699,6 @@ t_sub_unclean_handover(Config) ->
             ),
             %% Prepare SUT:
             Opts = #{
-                store_ttv => true,
                 storage =>
                     {emqx_ds_storage_skipstream_lts_v2, #{
                         timestamp_bytes => 8,
@@ -834,8 +831,6 @@ t_time_unit(Config) ->
         begin
             Opts = maps:merge(opts(Config), #{
                 n_shards => 1,
-                store_ttv => true,
-                storage => {emqx_ds_storage_skipstream_lts_v2, #{}},
                 transaction => #{flush_interval => 1, idle_flush_interval => 0}
             }),
             ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
@@ -1074,16 +1069,13 @@ t_sub_catchup_unrecoverable(Config) ->
     ).
 
 %% Verify functionality of the low-level transaction API.
-t_13_smoke_ttv_tx(Config) ->
+t_13_smoke_tx(Config) ->
     DB = ?FUNCTION_NAME,
     Owner = <<"test_clientid">>,
     ?check_trace(
         begin
             %% Open the database
-            Opts = maps:merge(opts(Config), #{
-                store_ttv => true,
-                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
-            }),
+            Opts = opts(Config),
             ?assertMatch(
                 ok,
                 emqx_ds_open_db(DB, Opts)
@@ -1150,14 +1142,13 @@ t_13_smoke_ttv_tx(Config) ->
 
 %% Verify correctness of wildcard topic deletions in the transactional
 %% API
-t_14_ttv_wildcard_deletes(Config) ->
+t_14_wildcard_deletes(Config) ->
     DB = ?FUNCTION_NAME,
     TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     ?check_trace(
         begin
             %% Open the database
             Opts = maps:merge(opts(Config), #{
-                store_ttv => true,
                 storage =>
                     {emqx_ds_storage_skipstream_lts_v2, #{
                         timestamp_bytes => 0
@@ -1214,17 +1205,14 @@ t_14_ttv_wildcard_deletes(Config) ->
 
 %% Verify that `?ds_tx_serial' is properly substituted with the
 %% transaction serial.
-t_15_ttv_write_serial(Config) ->
+t_15_write_serial(Config) ->
     DB = ?FUNCTION_NAME,
     TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     Topic = [<<"foo">>],
     ?check_trace(
         begin
             %% Open the database
-            Opts = maps:merge(opts(Config), #{
-                store_ttv => true,
-                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
-            }),
+            Opts = opts(Config),
             ?assertMatch(
                 ok,
                 emqx_ds_open_db(DB, Opts)
@@ -1252,7 +1240,7 @@ t_15_ttv_write_serial(Config) ->
         []
     ).
 
-t_16_ttv_preconditions(Config) ->
+t_16_preconditions(Config) ->
     DB = ?FUNCTION_NAME,
     TXOpts = #{shard => {auto, <<"me">>}, timeout => infinity, generation => 1},
     Topic1 = [<<"foo">>],
@@ -1260,10 +1248,7 @@ t_16_ttv_preconditions(Config) ->
     ?check_trace(
         begin
             %% Open the database
-            Opts = maps:merge(opts(Config), #{
-                store_ttv => true,
-                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
-            }),
+            Opts = opts(Config),
             ?assertMatch(
                 ok,
                 emqx_ds_open_db(DB, Opts)
@@ -1349,7 +1334,6 @@ t_17_tx_wrapper(Config) ->
         begin
             %% Open the database
             Opts = maps:merge(opts(Config), #{
-                store_ttv => true,
                 storage =>
                     {emqx_ds_storage_skipstream_lts_v2, #{
                         timestamp_bytes => 0
@@ -1434,10 +1418,7 @@ t_18_async_trans(Config) ->
     ?check_trace(
         begin
             %% Open the database
-            Opts = maps:merge(opts(Config), #{
-                store_ttv => true,
-                storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
-            }),
+            Opts = opts(Config),
             ?assertMatch(
                 ok,
                 emqx_ds_open_db(DB, Opts)
@@ -1522,13 +1503,7 @@ t_20_tx_monotonic_ts(Config) ->
     ?check_trace(
         begin
             %% Open the database
-            Opts = maps:merge(opts(Config), #{
-                store_ttv => true,
-                storage =>
-                    {emqx_ds_storage_skipstream_lts_v2, #{
-                        timestamp_bytes => 8
-                    }}
-            }),
+            Opts = opts(Config),
             ?assertMatch(
                 ok,
                 emqx_ds_open_db(DB, Opts)
@@ -1593,8 +1568,8 @@ t_20_tx_monotonic_ts(Config) ->
         []
     ).
 
-%% This testcase verifies that subscriptions work for TTV style of databases.
-t_21_ttv_subscription(Config) ->
+%% This testcase verifies basic properties of subscriptions
+t_21_subscription(Config) ->
     DB = ?FUNCTION_NAME,
     TXOpts = #{db => DB, shard => {auto, <<"me">>}, generation => 1, retries => 10},
     Topic0 = [<<>>],
@@ -1604,7 +1579,6 @@ t_21_ttv_subscription(Config) ->
         begin
             %% Open the database
             Opts = maps:merge(opts(Config), #{
-                store_ttv => true,
                 storage =>
                     {emqx_ds_storage_skipstream_lts_v2, #{
                         timestamp_bytes => 8,
@@ -1858,10 +1832,7 @@ t_23_metadata_serialization(Config) ->
 %% This testcase verifies `emqx_ds:tx_on_success' API.
 t_24_tx_side_effects(Config) ->
     DB = ?FUNCTION_NAME,
-    Opts = maps:merge(opts(Config), #{
-        store_ttv => true,
-        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
-    }),
+    Opts = opts(Config),
     TxOpts = #{db => DB, shard => {auto, <<>>}, generation => 1, retries => 10},
     %% Emit a trace as a side effect:
     SideEffect = fun(Id, Expected) ->
@@ -1989,10 +1960,9 @@ t_25_get_streams_generation_min(Config) ->
     {Streams3, []} = emqx_ds:get_streams(DB, ['#'], 0, #{generation_min => 2}),
     ?assertMatch([2], Generations(Streams3)).
 
-t_26_ttv_next_with_upper_time_limit(Config) ->
+t_26_next_with_upper_time_limit(Config) ->
     DB = ?FUNCTION_NAME,
     Opts = maps:merge(opts(Config), #{
-        store_ttv => true,
         storage => {emqx_ds_storage_skipstream_lts_v2, #{timestamp_bytes => 8}}
     }),
     ?check_trace(
@@ -2085,10 +2055,7 @@ t_26_ttv_next_with_upper_time_limit(Config) ->
 
 t_27_tx_read_conflicts(Config) ->
     DB = ?FUNCTION_NAME,
-    Opts = maps:merge(opts(Config), #{
-        store_ttv => true,
-        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
-    }),
+    Opts = opts(Config),
     TXOpts = #{shard => {auto, <<"me">>}, generation => 1, timeout => infinity},
     %% Record that should not be present in the DB:
     Canary = [{[<<"canary">>], 0, <<>>}],
@@ -2198,12 +2165,9 @@ t_27_tx_read_conflicts(Config) ->
     ).
 
 %% This testcase verifies time limiting functionality of reads and topic deletions.
-t_28_ttv_time_limited(Config) ->
+t_28_time_limited(Config) ->
     DB = ?FUNCTION_NAME,
-    Opts = maps:merge(opts(Config), #{
-        store_ttv => true,
-        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
-    }),
+    Opts = opts(Config),
     Trans = fun(Fun) ->
         ?assertMatch(
             {atomic, _, _},
@@ -2313,10 +2277,7 @@ t_28_ttv_time_limited(Config) ->
 %% a recoverable error.
 t_29_tx_latest_generation_race_condition(Config) ->
     DB = ?FUNCTION_NAME,
-    Opts = maps:merge(opts(Config), #{
-        store_ttv => true,
-        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
-    }),
+    Opts = opts(Config),
     ?check_trace(
         begin
             ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
@@ -2345,9 +2306,7 @@ t_29_tx_latest_generation_race_condition(Config) ->
 t_multi_iterator(Config) ->
     DB = ?FUNCTION_NAME,
     Opts = maps:merge(opts(Config), #{
-        n_shards => 5,
-        store_ttv => true,
-        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+        n_shards => 5
     }),
     ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
     Slabs = maps:keys(emqx_ds:list_slabs(DB)),
@@ -2449,14 +2408,6 @@ groups() ->
         backends()
     ).
 
-init_per_group(emqx_ds_builtin_raft, Config) ->
-    %% Raft backend is an odd one, as its main module is named
-    %% `emqx_ds_replication_layer' for historical reasons:
-    [
-        {backend, emqx_ds_replication_layer},
-        {ds_conf, emqx_ds_replication_layer:test_db_config(Config)}
-        | Config
-    ];
 init_per_group(Backend, Config) ->
     [
         {backend, Backend},
@@ -2513,9 +2464,7 @@ opts(Config) ->
 
 opts_mqtt(Config) ->
     maps:merge(opts(Config), #{
-        store_ttv => true,
-        payload_type => ?ds_pt_mqtt,
-        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+        payload_type => ?ds_pt_mqtt
     }).
 
 %% Subscription-related helper functions:
@@ -2561,7 +2510,7 @@ publish_seq(DB, Topic, Start, End) ->
         emqx_message:make(<<"pub">>, Topic, integer_to_binary(I))
      || I <- lists:seq(Start, End)
     ],
-    ?assertMatch(ok, dirty_append(DB, Batch)),
+    ?assertMatch(ok, emqx_ds_test_helpers:dirty_append(DB, Batch)),
     Batch.
 
 %% @doc Create a learned wildcard for a given topic prefix:
@@ -2569,7 +2518,7 @@ create_wildcard(DB, Prefix) ->
     %% Introduce enough topics to learn the wildcard:
     ?assertMatch(
         ok,
-        dirty_append(
+        emqx_ds_test_helpers:dirty_append(
             DB,
             [message({"~s/~p", [Prefix, I]}, <<"">>, 0) || I <- lists:seq(1, 100)]
         )
