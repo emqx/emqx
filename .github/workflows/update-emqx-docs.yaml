@@ -55,7 +55,7 @@ jobs:
           name: changes
           path: changes.tar.gz
           retention-days: 7
-          
+
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
@@ -70,4 +70,3 @@ jobs:
         run: |
           gh --repo emqx/emqx-docs workflow run update-api-and-cfg-manual.yaml -f version=${TAG##e} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
           gh --repo emqx/emqx-docs workflow run update-changelog.yaml -f version=${TAG} -f repository=${GITHUB_REPOSITORY} -f run_id=${GITHUB_RUN_ID}
-
