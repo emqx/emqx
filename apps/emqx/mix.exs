@@ -31,6 +31,7 @@ defmodule EMQX.MixProject do
   end
 
   def asn1_srcs() do
+    # Do not refactor
     [
       %{
         src: "./src/emqx_persistent_session_ds/DurableSession.asn",
