@@ -172,14 +172,13 @@ t_replication_transfers_snapshots(Config) ->
     {Stream, TopicStreams} = emqx_ds_test_helpers:interleaved_topic_messages(
         ?FUNCTION_NAME, NClients, NMsgs
     ),
-
     Nodes = [Node, NodeOffline | _] = ?config(nodes, Config),
     _Specs = [_, SpecOffline | _] = ?config(specs, Config),
     ?check_trace(
         #{timetrap => 30_000},
         begin
             %% Initialize DB on all nodes and wait for it to be online.
-            Opts = opts(Config, #{n_shards => 1, n_sites => 3}),
+            Opts = opts(Config, #{n_shards => 1, n_sites => 3, payload_type => ?ds_pt_mqtt}),
             emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
 
             %% Stop the DB on the "offline" node.
@@ -201,7 +200,10 @@ t_replication_transfers_snapshots(Config) ->
                 })
             ),
 
-            ok = ?ON(NodeOffline, open_db(?DB, opts(Config, #{}))),
+            ok = ?ON(
+                NodeOffline,
+                open_db(?DB, opts(Config, #{n_shards => 1, payload_type => ?ds_pt_mqtt}))
+            ),
 
             %% Trigger storage operation and wait the replica to be restored.
             ok = ?ON(Node, emqx_ds:add_generation(?DB)),
@@ -465,13 +467,15 @@ t_rebalance_chaotic_converges(Config) ->
     ),
 
     ?check_trace(
-        #{},
+        #{timetrap => 60_000},
         begin
             Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
             ct:pal("Sites: ~p~n", [Sites]),
 
             %% Initialize DB on first two nodes.
-            Opts = opts(Config, #{n_shards => 16, n_sites => 2, replication_factor => 3}),
+            Opts = opts(Config, #{
+                n_shards => 16, n_sites => 2, replication_factor => 3, payload_type => ?ds_pt_mqtt
+            }),
 
             %% Open DB:
             emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
@@ -719,6 +723,7 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
     ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
 
     ?check_trace(
+        #{timetrap => 30_000},
         begin
             %% Store a bunch of messages.
             {Msgs1, MsgStream1} = emqx_utils_stream:consume(20, MsgStream),
@@ -808,8 +813,8 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
             MsgsPersisted = ?ON(N2, emqx_ds_test_helpers:consume(?DB, ['#'])),
             ok = emqx_ds_test_helpers:diff_messages(
                 [from, topic, payload],
-                lists:sort(Msgs1 ++ Msgs2 ++ Msgs3),
-                lists:sort(MsgsPersisted)
+                sort_canonical_forms(Msgs1 ++ Msgs2 ++ Msgs3),
+                sort_canonical_forms(MsgsPersisted)
             ),
 
             %% Attempt to forget lost sites should succeed.
@@ -1080,14 +1085,14 @@ message(ClientId, Topic, Payload, PublishedAt) ->
         id = emqx_guid:gen()
     }.
 
-compare_message(M1, M2) ->
-    {M1#message.from, M1#message.timestamp} < {M2#message.from, M2#message.timestamp}.
-
 consume(Node, DB, TopicFilter, StartTime) ->
     erpc:call(Node, emqx_ds_test_helpers, consume, [DB, TopicFilter, StartTime]).
 
 consume_shard(Node, DB, Shard, TopicFilter, StartTime) ->
     erpc:call(Node, emqx_ds_test_helpers, storage_consume, [{DB, Shard}, TopicFilter, StartTime]).
+
+sort_canonical_forms(Msgs) ->
+    lists:sort([emqx_ds_test_helpers:message_canonical_form(I) || I <- Msgs]).
 
 %%
 

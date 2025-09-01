@@ -160,16 +160,13 @@ assert_same_set(Expected, Got, Comment) ->
             })
     end.
 
-message_eq(Fields, {_Key, Msg1 = #message{}}, Msg2) ->
-    message_eq(Fields, Msg1, Msg2);
-message_eq(Fields, Msg1, {_Key, Msg2 = #message{}}) ->
-    message_eq(Fields, Msg1, Msg2);
 message_eq(Fields, Msg1 = #message{}, Msg2 = #message{}) ->
-    maps:with(Fields, message_canonical_form(Msg1)) =:=
-        maps:with(Fields, message_canonical_form(Msg2)).
+    message_eq(Fields, message_canonical_form(Msg1), message_canonical_form(Msg2));
+message_eq(Fields, Msg1 = #{}, Msg2 = #{}) ->
+    maps:with(Fields, Msg1) =:= maps:with(Fields, Msg2).
 
 diff_messages(Expected, Got) ->
-    Fields = [id, qos, from, flags, headers, topic, payload, extra],
+    Fields = [qos, from, flags, headers, topic, payload, extra],
     diff_messages(Fields, Expected, Got).
 
 diff_messages(Fields, Expected, Got) ->
