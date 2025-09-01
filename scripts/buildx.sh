@@ -43,7 +43,7 @@ help() {
     echo "    Docker image to use for building"
     echo "    E.g. ${EMQX_BUILDER}"
     echo "    For hot upgrading tar.gz, specify a builder image with the same OS distribution as the running one."
-    echo "    Specifically, for EMQX's docker containers hot upgrading, please use the debian12-based builder. "
+    echo "    Specifically, for EMQX's docker containers hot upgrading, please use the debian13-based builder. "
 }
 
 die() {
