@@ -140,13 +140,12 @@ t_05_restart(Config) ->
         message(<<"foo/bar">>, <<"2">>, 1),
         message(<<"foo/bar">>, <<"3">>, 2)
     ],
-    ok = dirty_append(DB, Msgs),
+    ok = emqx_ds_test_helpers:dirty_append(DB, Msgs),
     {[{_, Stream}], []} = emqx_ds:get_streams(DB, TopicFilter, StartTime, #{}),
     {ok, Iterator} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
     %% Restart the application:
     ?tp(warning, emqx_ds_SUITE_restart_app, #{}),
-    ok = application:stop(emqx_durable_storage),
-    {ok, _} = application:ensure_all_started(emqx_durable_storage),
+    restart_apps(Config),
     ok = emqx_ds_open_db(DB, opts(Config)),
     %% The old iterator should be still operational:
     {ok, _Iter, Batch} = emqx_ds:next(DB, Iterator, 100),
@@ -234,8 +233,7 @@ t_08_smoke_list_drop_generation(Config) ->
             ?assertEqual({error, not_found}, emqx_ds:drop_slab(DB, GenId0)),
 
             %% Should persist surviving generation list
-            ok = application:stop(emqx_durable_storage),
-            {ok, _} = application:ensure_all_started(emqx_durable_storage),
+            restart_apps(Config),
             ok = emqx_ds_open_db(DB, opts(Config)),
 
             Generations3 = emqx_ds:list_slabs(DB),
@@ -267,6 +265,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
         message(<<"foo/bar">>, <<"2">>, 1)
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0, #{sync => true})),
+    ?assertMatch(ok, emqx_ds_test_helpers:dirty_append(DB, Msgs0)),
     timer:sleep(1_000),
 
     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
@@ -283,7 +282,7 @@ t_drop_generation_with_never_used_iterator(Config) ->
         message(<<"foo/bar">>, <<"3">>, Now + 100),
         message(<<"foo/bar">>, <<"4">>, Now + 101)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1, #{sync => true})),
+    ?assertMatch(ok, emqx_ds_test_helpers:dirty_append(DB, Msgs1)),
     timer:sleep(1_000),
 
     ?assertError(
@@ -316,7 +315,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
             message(<<"foo/bar">>, <<"1">>, 0),
             message(<<"foo/bar">>, <<"2">>, 1)
         ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
+    ?assertMatch(ok, emqx_ds_test_helpers:dirty_append(DB, Msgs0)),
     timer:sleep(1_000),
 
     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
@@ -333,7 +332,7 @@ t_drop_generation_with_used_once_iterator(Config) ->
         message(<<"foo/bar">>, <<"3">>, Now + 100),
         message(<<"foo/bar">>, <<"4">>, Now + 101)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
+    ?assertMatch(ok, emqx_ds_test_helpers:dirty_append(DB, Msgs1)),
 
     ?assertError(
         {error, unrecoverable, generation_not_found},
@@ -354,7 +353,7 @@ t_make_iterator_stale_stream(Config) ->
         message(<<"foo/bar">>, <<"1">>, 0),
         message(<<"foo/bar">>, <<"2">>, 1)
     ],
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
+    ?assertMatch(ok, emqx_ds_test_helpers:dirty_append(DB, Msgs0)),
     timer:sleep(1_000),
 
     [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
@@ -2604,30 +2603,6 @@ mailbox() ->
         []
     end.
 
-%% Sync wrapper over `dirty_append' API. If shard is not specified, data is added to the first shard.
-dirty_append(DB, MsgsOrTTVs) when is_atom(DB) ->
-    dirty_append(#{db => DB, shard => first_shard(DB)}, MsgsOrTTVs);
-dirty_append(Opts, MsgsOrTTVs) ->
-    TTVs =
-        case MsgsOrTTVs of
-            [#message{} | _] ->
-                [emqx_ds_payload_transform:message_to_ttv(I) || I <- MsgsOrTTVs];
-            [{_, _, _} | _] ->
-                MsgsOrTTVs
-        end,
-    Ref = emqx_ds:dirty_append(Opts#{reply => true}, TTVs),
-    ?assert(is_reference(Ref)),
-    receive
-        ?ds_tx_commit_reply(Ref, Reply) ->
-            ?assertMatch(
-                {ok, Serial} when is_binary(Serial),
-                emqx_ds:dirty_append_outcome(Ref, Reply)
-            )
-    after 5_000 ->
-        error(timeout)
-    end,
-    ok.
-
 %% Dump messages from the topic, preserving message ordering within each stream.
 dump_topic(DB, Topic) ->
     %% Reverse is needed due to internal implementation details of
@@ -2635,5 +2610,9 @@ dump_topic(DB, Topic) ->
     %% head.
     lists:reverse(emqx_ds:dirty_read(DB, Topic)).
 
-first_shard(DB) ->
-    hd(lists:sort(emqx_ds:list_shards(DB))).
+restart_apps(Config) ->
+    Backend = proplists:get_value(backend, Config),
+    ok = application:stop(Backend),
+    ok = application:stop(emqx_durable_storage),
+    {ok, Apps} = application:ensure_all_started(Backend),
+    ?tp(warning, test_restarted_apps, #{apps => Apps}).
