@@ -33,8 +33,6 @@ channels subscribed to a Message Queue.
 -type subscriber_data() :: #{
     timeout_tref := reference(),
     client_id := emqx_types:clientid(),
-    %% TODO
-    %% add stale message redispatch
     inflight_messages := #{message_id() => monotonic_timestamp_ms()},
     last_ack_ts := monotonic_timestamp_ms()
 }.
@@ -278,45 +276,80 @@ schedule_for_dispatch(#state{dispatch_queue = DispatchQueue0} = State, MessageId
     DispatchQueue1 = emqx_mq_consumer_dispatchq:add(DispatchQueue0, MessageIds),
     State#state{dispatch_queue = DispatchQueue1}.
 
-redispatch_on_reject(State, RejectedSubscriberRef, MessageId) ->
+redispatch_on_reject(
+    #state{dispatch_queue = DispatchQueue0} = State, RejectedSubscriberRef, MessageId
+) ->
     ?tp_debug(mq_consumer_redispatch_on_reject, #{
         rejected_subscriber_ref => RejectedSubscriberRef, message_id => MessageId
     }),
-    case dispatch_message(MessageId, [RejectedSubscriberRef], State) of
-        {dispatched, State1} ->
-            State1;
-        {delayed, State1} ->
-            %% NOTE to enable timer
-            dispatch(State1)
+    case dispatch_action(MessageId, [RejectedSubscriberRef], State) of
+        {dispatch, SubscriberRef} ->
+            dispatch_to_subscriber([MessageId], SubscriberRef, State);
+        {delay, Interval} ->
+            %% NOTE
+            %% to enable timer
+            DispatchQueue = emqx_mq_consumer_dispatchq:add_redispatch(
+                DispatchQueue0, MessageId, Interval
+            ),
+            dispatch(State#state{dispatch_queue = DispatchQueue})
     end.
 
 dispatch(#state{subscribers = Subscribers} = State) when map_size(Subscribers) =:= 0 ->
     cancel_timer(?dispatch_timer, State);
-dispatch(#state{dispatch_queue = DispatchQueue} = State0) ->
+dispatch(State0) ->
+    {State1, MessagesBySubscriber} = collect_messages_for_dispatch(State0, #{}),
+    maps:fold(
+        fun(SubscriberRef, MessageIds, StateAcc) ->
+            dispatch_to_subscriber(lists:reverse(MessageIds), SubscriberRef, StateAcc)
+        end,
+        State1,
+        MessagesBySubscriber
+    ).
+
+collect_messages_for_dispatch(#state{dispatch_queue = DispatchQueue0} = State0, Messages0) ->
     State1 = cancel_timer(?dispatch_timer, State0),
-    case emqx_mq_consumer_dispatchq:fetch(DispatchQueue) of
+    case emqx_mq_consumer_dispatchq:fetch(DispatchQueue0) of
         empty ->
-            State1;
+            {State1, Messages0};
         {ok, MessageIds, DispatchQueue1} ->
-            State2 = State0#state{dispatch_queue = DispatchQueue1},
-            State3 = lists:foldl(
-                fun(MessageId, StateAcc0) ->
-                    {_, StateAcc} = dispatch_message(MessageId, [], StateAcc0),
-                    StateAcc
+            {Messages, DispatchQueue} = lists:foldl(
+                fun(MessageId, {MessagesAcc, DispatchQueueAcc}) ->
+                    case dispatch_action(MessageId, [], State1) of
+                        {dispatch, SubscriberRef} ->
+                            {
+                                maps:update_with(
+                                    SubscriberRef,
+                                    fun(SubscriberMessageIds) ->
+                                        [MessageId | SubscriberMessageIds]
+                                    end,
+                                    [MessageId],
+                                    MessagesAcc
+                                ),
+                                DispatchQueueAcc
+                            };
+                        {delay, Interval} ->
+                            {MessagesAcc,
+                                emqx_mq_consumer_dispatchq:add_redispatch(
+                                    DispatchQueueAcc, MessageId, Interval
+                                )}
+                    end
                 end,
-                State2,
+                {Messages0, DispatchQueue1},
                 MessageIds
             ),
-            dispatch(State3);
+            State = State1#state{dispatch_queue = DispatchQueue},
+            collect_messages_for_dispatch(State, Messages);
         {delay, DelayMs} ->
-            ensure_timer(?dispatch_timer, DelayMs, State1)
+            State = ensure_timer(?dispatch_timer, DelayMs, State1),
+            {State, Messages0}
     end.
 
--spec dispatch_message(message_id(), [subscriber_ref()], t()) -> {dispatched, t()} | {delayed, t()}.
-dispatch_message(
+-spec dispatch_action(message_id(), [subscriber_ref()], t()) ->
+    {dispatch, subscriber_ref()} | {delay, pos_integer()}.
+dispatch_action(
     MessageId,
     ExcludedSubscriberRefs,
-    #state{messages = Messages, dispatch_queue = DispatchQueue0} = State0
+    #state{messages = Messages} = State0
 ) ->
     Message = maps:get(MessageId, Messages),
     {PickResult, State} = pick_subscriber(Message, ExcludedSubscriberRefs, State0),
@@ -328,24 +361,22 @@ dispatch_message(
     }),
     case PickResult of
         {ok, SubscriberRef} ->
-            {dispatched, dispatch_to_subscriber(MessageId, Message, SubscriberRef, State)};
+            {dispatch, SubscriberRef};
         no_subscriber ->
-            DispatchQueue = emqx_mq_consumer_dispatchq:add_redispatch(
-                DispatchQueue0, MessageId, redispatch_interval(State)
-            ),
-            {delayed, State#state{dispatch_queue = DispatchQueue}}
+            {delay, redispatch_interval(State)}
     end.
 
 dispatch_to_subscriber(
-    MessageId, Message, SubscriberRef, #state{subscribers = Subscribers0} = State0
+    MessageIds, SubscriberRef, #state{subscribers = Subscribers0, messages = Messages} = State0
 ) ->
     #{inflight_messages := InflightMessages0} =
         SubscriberData0 = maps:get(SubscriberRef, Subscribers0),
-    InflightMessages = InflightMessages0#{MessageId => now_ms_monotonic()},
+    InflightMessages = add_message_ids_to_inflight(MessageIds, InflightMessages0),
     SubscriberData = SubscriberData0#{inflight_messages => InflightMessages},
     Subscribers = Subscribers0#{SubscriberRef => SubscriberData},
     State = State0#state{subscribers = Subscribers},
-    ok = send_message_to_subscriber(SubscriberRef, MessageId, Message),
+    MessagesToSend = enrich_messages_with_id(MessageIds, Messages),
+    ok = send_messages_to_subscriber(SubscriberRef, MessagesToSend),
     State.
 
 handle_subscriber_change(State0) ->
@@ -371,21 +402,23 @@ update_dispatch_strategy(State) ->
 %% Dispatch strategies
 %%--------------------------------------------------------------------
 
-pick_subscriber(Message, ExcludedSubscriberRefs, #state{dispatch_strategy = random} = State) ->
-    {pick_subscriber_random(Message, ExcludedSubscriberRefs, State), State};
+%% NOTE
+%% Currently, no strategy actually takes the message into account.
+pick_subscriber(_Message, ExcludedSubscriberRefs, #state{dispatch_strategy = random} = State) ->
+    {pick_subscriber_random(ExcludedSubscriberRefs, State), State};
 pick_subscriber(
-    Message, ExcludedSubscriberRefs, #state{dispatch_strategy = least_inflight} = State
+    _Message, ExcludedSubscriberRefs, #state{dispatch_strategy = least_inflight} = State
 ) ->
-    {pick_subscriber_least_inflight(Message, ExcludedSubscriberRefs, State), State};
+    {pick_subscriber_least_inflight(ExcludedSubscriberRefs, State), State};
 pick_subscriber(
-    Message, ExcludedSubscriberRefs, #state{dispatch_strategy = {round_robin, _}} = State
+    _Message, ExcludedSubscriberRefs, #state{dispatch_strategy = {round_robin, _}} = State
 ) ->
-    pick_subscriber_round_robin(Message, ExcludedSubscriberRefs, State).
+    pick_subscriber_round_robin(ExcludedSubscriberRefs, State).
 
 %% Random dispatch strategy
 
 pick_subscriber_random(
-    _Message, ExcludedSubscriberRefs, #state{subscribers = Subscribers} = _State
+    ExcludedSubscriberRefs, #state{subscribers = Subscribers} = _State
 ) ->
     case maps:keys(Subscribers) -- ExcludedSubscriberRefs of
         [] ->
@@ -398,7 +431,7 @@ pick_subscriber_random(
 %% Least inflight dispatch strategy
 
 pick_subscriber_least_inflight(
-    _Message, ExcludedSubscriberRefs, #state{subscribers = Subscribers} = _State
+    ExcludedSubscriberRefs, #state{subscribers = Subscribers} = _State
 ) ->
     {SubscriberRef, _} = maps:fold(
         fun(
@@ -426,7 +459,6 @@ pick_subscriber_least_inflight(
 %% Round robin dispatch strategy
 
 pick_subscriber_round_robin(
-    _Message,
     ExcludedSubscriberRefs,
     #state{dispatch_strategy = {round_robin, Iterator0}, subscribers = Subscribers} = State
 ) ->
@@ -502,15 +534,34 @@ dispatch_strategy(_) ->
 redispatch_interval(#state{mq = #{redispatch_interval := RedispatchIntervalMs}}) ->
     RedispatchIntervalMs.
 
+add_message_ids_to_inflight(MessageIds, InflightMessages0) ->
+    NowMsMonotonic = now_ms_monotonic(),
+    lists:foldl(
+        fun(MessageId, InflightMessagesAcc) ->
+            InflightMessagesAcc#{MessageId => NowMsMonotonic}
+        end,
+        InflightMessages0,
+        MessageIds
+    ).
+
 send_connected_to_subscriber(SubscriberRef) ->
     ok = emqx_mq_sub:connected(SubscriberRef, self_consumer_ref()).
 
 send_ping_to_subscriber(SubscriberRef) ->
     ok = emqx_mq_sub:ping(SubscriberRef).
 
-send_message_to_subscriber(SubscriberRef, MessageId, Message0) ->
-    Message1 = emqx_message:set_headers(#{?MQ_HEADER_MESSAGE_ID => MessageId}, Message0),
-    emqx_mq_sub:message(SubscriberRef, self_consumer_ref(), Message1).
+enrich_messages_with_id(MessageIds, Messages) ->
+    lists:map(
+        fun(MessageId) ->
+            emqx_message:set_headers(
+                #{?MQ_HEADER_MESSAGE_ID => MessageId}, maps:get(MessageId, Messages)
+            )
+        end,
+        MessageIds
+    ).
+
+send_messages_to_subscriber(SubscriberRef, Messages) ->
+    emqx_mq_sub:messages(SubscriberRef, self_consumer_ref(), Messages).
 
 self_consumer_ref() ->
     self().

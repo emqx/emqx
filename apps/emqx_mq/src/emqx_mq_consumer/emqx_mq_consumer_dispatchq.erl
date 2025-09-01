@@ -11,7 +11,7 @@ This module implements the dispatch queue (time-based priority) for the MQ consu
 %% NOTE
 %% May improve introducing a separate simple queue for messages that are
 %% added for the first time.
-%% Thus in the case of normal functioning and the absense of re-dispatches
+%% Thus in the case of normal functioning and the absense of redispatches
 %% we will avoid time-based calculations.
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").

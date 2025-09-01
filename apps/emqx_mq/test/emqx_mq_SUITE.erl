@@ -213,7 +213,7 @@ t_backpressure(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
-%% Verify that the consumer re-dispatches a message to another subscriber
+%% Verify that the consumer redispatches a message to another subscriber
 %% if a subscriber received the message but disconnected before acknowledging it
 t_redispatch_on_disconnect(_Config) ->
     %% Create a non-lastvalue Queue
@@ -704,7 +704,7 @@ t_progress_restoration_full_buffer(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub1).
 
-%% Verify that the consumer re-dispatches the message to another subscriber
+%% Verify that the consumer redispatches the message to another subscriber
 %% immediately if a subscriber rejected the message
 t_redispatch(Config) ->
     %% Create a non-lastvalue Queue
@@ -758,7 +758,7 @@ t_redispatch(Config) ->
     ok = emqtt:disconnect(CSub0),
     ok = emqtt:disconnect(CSub1).
 
-%% Verify that the consumer re-dispatches after a delay
+%% Verify that the consumer redispatches after a delay
 %% if a subscriber rejected the message and there are no other subscribers
 t_redispatch_delay(Config) ->
     %% Create a non-lastvalue Queue

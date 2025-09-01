@@ -38,13 +38,13 @@ It uses two timers:
 -export([
     connected/2,
     ping/1,
-    message/3
+    messages/3
 ]).
 
 -export([
     connected_v1/2,
     ping_v1/1,
-    message_v1/3
+    messages_v1/3
 ]).
 
 -record(finding_mq, {
@@ -173,14 +173,14 @@ handle_info(Sub, #mq_sub_ping{}) ->
     {ok, reset_consumer_timeout_timer(Sub)};
 handle_info(
     #{status := #connected{}} = Sub,
-    #mq_sub_message{message = Msg}
+    #mq_sub_messages{messages = Msgs}
 ) ->
-    handle_message(Sub, Msg);
-handle_info(#{status := #connecting{}} = Sub0, #mq_sub_message{
-    message = Msg, consumer_ref = ConsumerRef
+    {ok, handle_messages(Sub, Msgs)};
+handle_info(#{status := #connecting{}} = Sub0, #mq_sub_messages{
+    messages = Msgs, consumer_ref = ConsumerRef
 }) ->
     Sub = handle_connected(Sub0, ConsumerRef),
-    handle_message(Sub, Msg);
+    {ok, handle_messages(Sub, Msgs)};
 handle_info(#{status := #connecting{}} = Sub, #mq_sub_connected{consumer_ref = ConsumerRef}) ->
     {ok, handle_connected(Sub, ConsumerRef)};
 %%
@@ -256,13 +256,13 @@ ping(SubscriberRef) when node(SubscriberRef) =:= node() ->
 ping(SubscriberRef) ->
     emqx_mq_sub_proto_v1:mq_sub_ping(node(SubscriberRef), SubscriberRef).
 
--spec message(emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref(), emqx_types:message()) ->
+-spec messages(emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref(), [emqx_types:message()]) ->
     ok.
-message(SubscriberRef, ConsumerRef, Message) when node(SubscriberRef) =:= node() ->
-    message_v1(SubscriberRef, ConsumerRef, Message);
-message(SubscriberRef, ConsumerRef, Message) ->
-    ok = emqx_mq_sub_proto_v1:mq_sub_message(
-        node(SubscriberRef), SubscriberRef, ConsumerRef, Message
+messages(SubscriberRef, ConsumerRef, Messages) when node(SubscriberRef) =:= node() ->
+    messages_v1(SubscriberRef, ConsumerRef, Messages);
+messages(SubscriberRef, ConsumerRef, Messages) ->
+    ok = emqx_mq_sub_proto_v1:mq_sub_messages(
+        node(SubscriberRef), SubscriberRef, ConsumerRef, Messages
     ),
     ok.
 
@@ -278,12 +278,12 @@ connected_v1(SubscriberRef, ConsumerRef) ->
 ping_v1(SubscriberRef) ->
     send_info_to_subscriber(SubscriberRef, #mq_sub_ping{}).
 
--spec message_v1(
+-spec messages_v1(
     emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref(), emqx_types:message()
 ) -> ok.
-message_v1(SubscriberRef, ConsumerRef, Message) ->
-    send_info_to_subscriber(SubscriberRef, #mq_sub_message{
-        consumer_ref = ConsumerRef, message = Message
+messages_v1(SubscriberRef, ConsumerRef, Messages) ->
+    send_info_to_subscriber(SubscriberRef, #mq_sub_messages{
+        consumer_ref = ConsumerRef, messages = Messages
     }).
 
 %%--------------------------------------------------------------------
@@ -305,17 +305,20 @@ handle_connected(#{status := #connecting{mq = MQ}} = Sub0, ConsumerRef) ->
     },
     reset_consumer_timeout_timer(reset_ping_timer(Sub)).
 
+handle_messages(Sub, Msgs) ->
+    lists:foldl(fun handle_message/2, Sub, Msgs).
+
 handle_message(
+    Msg,
     #{
         status := #connected{
             buffer = Buffer0, inflight = Inflight, publish_retry_tref = PublishRetryTRef, mq = MQ
         } = Status
-    } = Sub0,
-    Msg
+    } = Sub0
 ) ->
-    % ?tp_debug(mq_sub_message, #{sub => inspect(Sub0), message => Msg}),
+    % ?tp_debug(mq_sub_messages, #{sub => inspect(Sub0), message => Msg}),
     Buffer = emqx_mq_sub_buffer:add(Buffer0, Msg),
-    Sub1 =
+    Sub =
         case PublishRetryTRef of
             undefined ->
                 case map_size(Inflight) < max_inflight(MQ) of
@@ -327,8 +330,7 @@ handle_message(
             _ ->
                 Sub0
         end,
-    Sub = Sub1#{status => Status#connected{buffer = Buffer}},
-    {ok, Sub}.
+    Sub#{status => Status#connected{buffer = Buffer}}.
 
 do_handle_ack(
     #{status := #connected{inflight = Inflight0, buffer = Buffer0, mq = MQ} = Status} = Sub0,

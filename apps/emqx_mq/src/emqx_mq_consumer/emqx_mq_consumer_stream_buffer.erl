@@ -168,7 +168,6 @@ handle_ds_reply(
                 ),
                 SB1 = SB0#{upper_buffer => UpperBuffer},
                 SB2 = update_last_seen_message_id(SB1, LastMessageId),
-                % TODO check if is paused also
                 case is_buffer_full(SB2, UpperBuffer) orelse is_paused(SB2) of
                     true ->
                         pause(SB2, Handle, SeqNo);

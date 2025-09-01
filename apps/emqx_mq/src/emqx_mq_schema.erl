@@ -61,9 +61,7 @@ fields(message_queue) ->
                 #{
                     desc => ?DESC(is_lastvalue),
                     required => false,
-                    %% TODO
-                    %% Change to true
-                    default => false
+                    default => true
                 }
             )},
         {consumer_max_inactive,

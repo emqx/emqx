@@ -242,8 +242,11 @@ get_iterator(?SUB_ID, {Shard, Generation}, _Stream, #{shards := Shards}) ->
                         {subscribe, It}
                 end;
             _ ->
-                %% TODO: create It ourselves with start_time
-                %% to skip outdated messages on the DS level
+                %% NOTE
+                %% It would be nice to create It ourselves with start_time
+                %% to skip outdated messages on the DS level.
+                %% But currently this is not possible because we cannot put the created It into
+                %% our state, and the ds client won't give it to us back in on_new_iterator callback.
                 undefined
         end,
     ?tp_debug(emqx_mq_consumer_streams_get_iterator, #{

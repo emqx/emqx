@@ -27,9 +27,9 @@
 -record(mq_sub_connected, {
     consumer_ref :: emqx_mq_types:consumer_ref()
 }).
--record(mq_sub_message, {
+-record(mq_sub_messages, {
     consumer_ref :: emqx_mq_types:consumer_ref(),
-    message :: term()
+    messages :: [emqx_types:message()]
 }).
 -record(mq_sub_ping, {}).
 
