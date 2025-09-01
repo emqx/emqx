@@ -129,9 +129,6 @@
 %% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
 %% records over the wire.
 %% tags:
--define(STREAM, 1).
--define(IT, 2).
--define(DELETE_IT, 3).
 -define(COOKED_BATCH, 4).
 
 %% keys:
@@ -234,9 +231,6 @@
 -define(GLOBAL(K), <<"G/", K/binary>>).
 
 -type options() :: map().
-
--define(ERR_GEN_GONE, {error, unrecoverable, generation_not_found}).
--define(ERR_BUFF_FULL, {error, recoverable, reached_max}).
 
 %%================================================================================
 %% API for the replication layer

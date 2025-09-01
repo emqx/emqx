@@ -227,30 +227,30 @@ consume_iter(DB, It0, Opts) ->
         Opts
     ).
 
-storage_consume(ShardId, TopicFilter) ->
-    storage_consume(ShardId, TopicFilter, 0).
+storage_consume(DBShard, TopicFilter) ->
+    storage_consume(DBShard, TopicFilter, 0).
 
-storage_consume(ShardId, TopicFilter, StartTime) ->
-    Streams = emqx_ds_storage_layer:get_streams(ShardId, TopicFilter, StartTime, 0),
+storage_consume(DBShard, TopicFilter, StartTime) ->
+    Streams = emqx_ds_storage_layer_ttv:get_streams(DBShard, TopicFilter, StartTime, 0),
     lists:flatmap(
-        fun({_Rank, Stream}) ->
-            storage_consume_stream(ShardId, Stream, TopicFilter, StartTime)
+        fun(Stream) ->
+            storage_consume_stream(DBShard, Stream, TopicFilter, StartTime)
         end,
         Streams
     ).
 
-storage_consume_stream(ShardId, Stream, TopicFilter, StartTime) ->
-    {ok, It0} = emqx_ds_storage_layer:make_iterator(ShardId, Stream, TopicFilter, StartTime),
-    {ok, _It, Msgs} = storage_consume_iter(ShardId, It0),
+storage_consume_stream(DBShard = {DB, _}, Stream, TopicFilter, StartTime) ->
+    {ok, It0} = emqx_ds_storage_layer_ttv:make_iterator(DB, Stream, TopicFilter, StartTime),
+    {ok, _It, Msgs} = storage_consume_iter(DBShard, It0),
     Msgs.
 
-storage_consume_iter(ShardId, It) ->
-    storage_consume_iter(ShardId, It, #{}).
+storage_consume_iter(DBShard, It) ->
+    storage_consume_iter(DBShard, It, #{}).
 
-storage_consume_iter(ShardId, It0, Opts) ->
+storage_consume_iter({DB, _}, It0, Opts) ->
     consume_iter_with(
         fun(It, BatchSize) ->
-            emqx_ds_storage_layer:next(ShardId, It, BatchSize, emqx_ds:timestamp_us(), false)
+            emqx_ds_storage_layer_ttv:next(DB, It, BatchSize, emqx_ds:timestamp_us())
         end,
         It0,
         Opts
