@@ -69,7 +69,7 @@ lookup(Id) ->
 exists(Group, Topic) ->
     emqx_ds_shared_sub_dl:exists(emqx_ds_shared_sub_dl:mk_id(Group, Topic)).
 
--spec destroy(emqx_types:group(), emqx_types:topic()) -> ok | emqx_ds:error(_).
+-spec destroy(emqx_types:group(), emqx_types:topic()) -> boolean() | emqx_ds:error(_).
 destroy(Group, Topic) ->
     destroy(emqx_ds_shared_sub_dl:mk_id(Group, Topic)).
 
