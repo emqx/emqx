@@ -245,13 +245,7 @@ t_redispatch_on_disconnect(_Config) ->
     ok = emqtt:disconnect(CSub),
 
     %% The other subscriber should receive the message now
-    OtherCSub =
-        case CSub of
-            CSub0 ->
-                CSub1;
-            CSub1 ->
-                CSub0
-        end,
+    [OtherCSub] = [CSub0, CSub1] -- [CSub],
     {ok, [
         #{
             client_pid := OtherCSub,
@@ -396,13 +390,7 @@ t_dispatch_least_inflight(_Config) ->
         after 100 ->
             ct:fail("No messages from MQ received")
         end,
-    OtherCSub =
-        case CSub of
-            CSub0 ->
-                CSub1;
-            CSub1 ->
-                CSub0
-        end,
+    [OtherCSub] = [CSub0, CSub1] -- [CSub],
     receive
         {publish, #{topic := <<"t/1">>, client_pid := OtherCSub}} ->
             ok
@@ -740,13 +728,7 @@ t_redispatch(Config) ->
         end,
 
     %% Verify that the message is re-delivered to the other subscriber
-    OtherCSub =
-        case CSub of
-            CSub0 ->
-                CSub1;
-            CSub1 ->
-                CSub0
-        end,
+    [OtherCSub] = [CSub0, CSub1] -- [CSub],
     receive
         {publish, #{topic := <<"t/0">>, client_pid := OtherCSub}} ->
             ok
