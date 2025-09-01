@@ -130,7 +130,9 @@ This is the entrypoint into the `builtin_raft` backend.
         replication_options => map(),
         subscriptions => emqx_ds_beamformer:opts(),
         transactions => emqx_ds_optimistic_tx:runtime_config(),
-        rocksdb => emqx_ds_storage_layer:rocksdb_options()
+        rocksdb => emqx_ds_storage_layer:rocksdb_options(),
+        ra_retries => non_neg_integer(),
+        ra_timeout => pos_integer()
     }.
 
 -type db_schema() :: #{
@@ -151,7 +153,10 @@ This is the entrypoint into the `builtin_raft` backend.
     %% Optimistic transaction:
     transactions := emqx_ds_optimistic_tx:runtime_config(),
     %% RocksDB options:
-    rocksdb := emqx_ds_storage_layer:rocksdb_options()
+    rocksdb := emqx_ds_storage_layer:rocksdb_options(),
+    %% Retry options:
+    ra_retries := non_neg_integer(),
+    ra_timeout := pos_integer()
 }.
 
 -type stream() :: emqx_ds_storage_layer_ttv:stream().
@@ -216,10 +221,6 @@ This is the entrypoint into the `builtin_raft` backend.
 
 -define(ERR_UPGRADE(NODE, VSN), ?err_rec({node_needs_upgrade, #{node => NODE, api_vsn => VSN}})).
 
-%% TODO
-%% Too large for normal operation, need better backpressure mechanism.
--define(RA_TIMEOUT, 60 * 1000).
-
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -247,7 +248,9 @@ default_db_opts() ->
         replication_options => #{},
         n_sites => application:get_env(emqx_ds_builtin_raft, n_sites, 1),
         rocksdb => #{},
-        storage => {emqx_ds_storage_skipstream_lts_v2, #{}}
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}},
+        ra_retries => 10,
+        ra_timeout => 5_000
     }.
 
 -spec verify_db_opts(emqx_ds:db(), db_opts()) ->
@@ -287,9 +290,7 @@ close_db(DB) ->
 add_generation(DB) ->
     foreach_shard(
         DB,
-        fun(Shard) ->
-            ok = emqx_ds_optimistic_tx:add_generation(DB, Shard)
-        end
+        fun(Shard) -> ok = add_generation_to_shard(DB, Shard, ra_retries(DB)) end
     ).
 
 -spec update_db_config(emqx_ds:db(), emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()) ->
@@ -339,13 +340,13 @@ list_slabs(DB) ->
 -spec drop_slab(emqx_ds:db(), emqx_ds:slab()) -> ok | {error, _}.
 drop_slab(DB, {Shard, Generation}) ->
     Command = emqx_ds_builtin_raft_machine:drop_generation(Generation),
-    ra_command(DB, Shard, Command, ra_retries()).
+    ra_command(DB, Shard, Command, ra_retries(DB)).
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
     foreach_shard(DB, fun(Shard) ->
         {ok, _} = ra:delete_cluster(
-            emqx_ds_builtin_raft_shard:shard_servers(DB, Shard), ?RA_TIMEOUT
+            emqx_ds_builtin_raft_shard:shard_servers(DB, Shard), ra_timeout(DB)
         )
     end),
     _ = emqx_ds_builtin_raft_proto_v1:drop_db(list_nodes(), DB),
@@ -705,7 +706,7 @@ otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
     end.
 
 otx_add_generation(DB, Shard, Since) ->
-    ra_command(DB, Shard, emqx_ds_builtin_raft_machine:add_generation(Since), ra_retries()).
+    ra_command(DB, Shard, emqx_ds_builtin_raft_machine:add_generation(Since), ra_retries(DB)).
 
 otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
     emqx_ds_storage_layer_ttv:lookup(DBShard, GenId, Topic, Timestamp).
@@ -806,6 +807,18 @@ do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
 %% Internal functions
 %%================================================================================
 
+-spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) -> ok.
+add_generation_to_shard(DB, Shard, Retries) ->
+    case emqx_ds_optimistic_tx:add_generation(DB, Shard) of
+        ok ->
+            ok;
+        ?err_rec(_) when Retries > 0 ->
+            timer:sleep(ra_timeout(DB)),
+            add_generation_to_shard(DB, Shard, Retries - 1);
+        Other ->
+            Other
+    end.
+
 -spec update_shards_schema(
     emqx_ds:db(), emqx_dsch:pending_id(), emqx_dsch:site(), Schema, Schema
 ) -> ok when
@@ -815,7 +828,7 @@ update_shards_schema(DB, PendingId, Site, _OldSchema, NewSchema) ->
     foreach_shard(
         DB,
         fun(Shard) ->
-            ra_command(DB, Shard, Command, ra_retries())
+            ra_command(DB, Shard, Command, ra_retries(DB))
         end
     ).
 
@@ -833,7 +846,9 @@ verify_db_opts(Opts) ->
             replication_options := ReplOpts,
             subscriptions := Subs,
             transactions := Trans,
-            rocksdb := RocksDB
+            rocksdb := RocksDB,
+            ra_retries := RaRetries,
+            ra_timeout := RaTimeout
         } ?= Opts,
         true ?= is_integer(NShards) andalso NShards > 0,
         true ?= is_integer(NSites) andalso NSites > 0,
@@ -843,6 +858,8 @@ verify_db_opts(Opts) ->
         true ?= is_map(Subs),
         true ?= is_map(Trans),
         true ?= is_map(RocksDB),
+        true ?= is_integer(RaRetries) andalso RaRetries >= 0,
+        true ?= is_integer(RaTimeout) andalso RaTimeout > 0,
         Schema = #{
             backend => builtin_raft,
             n_shards => NShards,
@@ -856,7 +873,9 @@ verify_db_opts(Opts) ->
             replication_options => ReplOpts,
             subscriptions => Subs,
             transactions => Trans,
-            rocksdb => RocksDB
+            rocksdb => RocksDB,
+            ra_retries => RaRetries,
+            ra_timeout => RaTimeout
         },
         {ok, Schema, RTOpts}
     else
@@ -939,17 +958,21 @@ list_nodes() ->
     %% TODO: list sites via dsch
     mria:running_nodes().
 
-ra_retries() ->
-    %% TODO: make configurable
-    10.
+ra_retries(DB) ->
+    #{runtime := #{ra_retries := Val}} = emqx_dsch:get_db_runtime(DB),
+    Val.
+
+ra_timeout(DB) ->
+    #{runtime := #{ra_timeout := Val}} = emqx_dsch:get_db_runtime(DB),
+    Val.
 
 ra_command(DB, Shard, Command, Retries) ->
     Servers = emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred),
-    case ra:process_command(Servers, Command, ?RA_TIMEOUT) of
+    case ra:process_command(Servers, Command, ra_timeout(DB)) of
         {ok, Result, _Leader} ->
             Result;
         _Error when Retries > 0 ->
-            timer:sleep(?RA_TIMEOUT),
+            timer:sleep(ra_timeout(DB)),
             ra_command(DB, Shard, Command, Retries - 1);
         Error ->
             error(Error, [DB, Shard])
