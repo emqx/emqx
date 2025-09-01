@@ -212,6 +212,7 @@ cook_blob_writes(PTransFun, S = #s{}, TXID, [{Topic, TS0, Value0} | Rest], Acc) 
             _ ->
                 PTransFun(Value0)
         end,
+    is_binary(Value) orelse throw({unrecoverable, {invalid_data, Value}}),
     cook_blob_writes(PTransFun, S, TXID, Rest, [?cooked_msg_op(Static, Varying, TS, Value) | Acc]).
 
 cook_blob_deletes(S, Topics, Acc0) ->

@@ -547,7 +547,8 @@ do_cook_dirty_appends(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pendin
             Pending
         ),
         {ok, CookedDirty} ?=
-            CBM:otx_prepare_tx(
+            prepare_tx(
+                CBM,
                 {DB, Shard},
                 Gen,
                 serial_bin(PresumedCommitSerial),
@@ -700,10 +701,7 @@ try_schedule_transaction(
         ok ?= check_latest_generation(CBM, DBShard, Ctx),
         ok ?= check_conflicts(DirtyW0, DirtyD0, TxStartSerial, SafeToReadSerial, Ops),
         ok ?= verify_preconditions(DBShard, CBM, Gen, Ops),
-        {ok, CookedTx} ?=
-            CBM:otx_prepare_tx(
-                DBShard, Gen, serial_bin(PresumedCommitSerial), Ops, #{}
-            ),
+        {ok, CookedTx} ?= prepare_tx(CBM, DBShard, Gen, serial_bin(PresumedCommitSerial), Ops, #{}),
         ?tp(emqx_ds_optimistic_tx_commit_pending, #{ref => Ref}),
         {ok, GS#gen_data{
             dirty_w = update_dirty_w(PresumedCommitSerial, Ops, DirtyW0),
@@ -1066,6 +1064,14 @@ client_post_commit_cleanup(Alias) ->
             ok;
         _ ->
             ok
+    end.
+
+prepare_tx(CBM, DBShard, Gen, SerialBin, Ops, CookOpts) ->
+    try
+        CBM:otx_prepare_tx(DBShard, Gen, SerialBin, Ops, CookOpts)
+    catch
+        EC:Err:Stack ->
+            {error, recoverable, {EC, Err, Stack}}
     end.
 
 %%================================================================================
