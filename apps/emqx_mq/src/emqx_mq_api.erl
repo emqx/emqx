@@ -97,6 +97,9 @@ schema("/message_queues/:topic_filter") ->
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND'], <<"Message queue not found">>
+                ),
+                503 => emqx_dashboard_swagger:error_codes(
+                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
                 )
             }
         },
@@ -211,7 +214,9 @@ post_message_queue_example() ->
         not_found ->
             {404, #{code => 'NOT_FOUND', message => <<"Message queue not found">>}};
         {ok, MQRaw} ->
-            {200, MQRaw}
+            {200, MQRaw};
+        {error, _} = Error ->
+            {503, #{code => 'SERVICE_UNAVAILABLE', message => emqx_utils:readable_error_msg(Error)}}
     end;
 '/message_queues/:topic_filter'(delete, #{bindings := #{topic_filter := TopicFilter}}) ->
     case delete_message_queue(TopicFilter) of
@@ -254,7 +259,9 @@ update_message_queue(TopicFilter, UpdatedMessageQueueRaw) ->
         {ok, MQ} ->
             {ok, emqx_mq_config:mq_to_raw_config(MQ)};
         not_found ->
-            not_found
+            not_found;
+        {error, _} = Error ->
+            Error
     end.
 
 delete_message_queue(TopicFilter) ->

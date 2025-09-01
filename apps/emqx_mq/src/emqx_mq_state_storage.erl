@@ -31,7 +31,7 @@ Persistence of Message queue state:
 
 -export([
     create_mq_state/1,
-    update_mq_state/1,
+    update_mq_state/2,
     destroy_mq_state/1,
     find_mq/1
 ]).
@@ -190,17 +190,21 @@ destroy_consumer_state(MQHandle) ->
 
 -spec create_mq_state(emqx_mq_types:mq()) -> ok.
 create_mq_state(MQ) ->
+    Id = mq_state_id(MQ),
+    TransOpts = trans_opts(Id),
     TxRes = emqx_ds:trans(
-        trans_opts(mq_state_id(MQ)),
+        TransOpts,
         fun() ->
-            MQStateRec =
-                case open_mq_state_tx(mq_state_id(MQ)) of
-                    undefined ->
-                        put_mq(MQ, new_mq_state(MQ));
-                    FoundMQStateRec ->
-                        FoundMQStateRec
-                end,
-            persist_mq_state_tx(MQStateRec)
+            case open_mq_state_tx(Id) of
+                undefined ->
+                    MQStateNewRec0 = put_mq(MQ, new_mq_state(MQ)),
+                    %% Token is used just as collection presence marker.
+                    %% We do not have concept of MQ state ownership.
+                    emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
+                    persist_mq_state_tx(MQStateNewRec0);
+                FoundMQStateRec ->
+                    FoundMQStateRec
+            end
         end
     ),
     case TxRes of
@@ -212,16 +216,23 @@ create_mq_state(MQ) ->
             {error, {failed_to_create_mq_state, Err}}
     end.
 
-update_mq_state(MQ) ->
+-spec update_mq_state(emqx_mq_types:mq_id(), map()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
+update_mq_state(MQId, MQFields) ->
+    Id = mq_state_id(MQId),
+    TransOpts = trans_opts(Id),
     TxRes = emqx_ds:trans(
-        trans_opts(mq_state_id(MQ)),
+        TransOpts,
         fun() ->
-            case open_mq_state_tx(mq_state_id(MQ)) of
+            case open_mq_state_tx(Id) of
                 undefined ->
                     not_found;
-                MQStateRec ->
-                    put_mq(MQ, MQStateRec),
-                    ok
+                MQStateRec0 ->
+                    MQ0 = emqx_ds_pmap:collection_get(?col_mq, ?mq_key, MQStateRec0),
+                    MQ = maps:merge(MQ0, MQFields),
+                    MQStateRec = put_mq(MQ, MQStateRec0),
+                    _ = persist_mq_state_tx(MQStateRec),
+                    {ok, MQ}
             end
         end
     ),
@@ -231,7 +242,7 @@ update_mq_state(MQ) ->
         {nop, Res} ->
             Res;
         Err ->
-            error({failed_to_update_mq_state, Err})
+            {error, {failed_to_update_mq_state, Err}}
     end.
 
 find_mq(MQId) ->
@@ -350,7 +361,7 @@ pmap_encode_val(
         consumerMaxInactive = ConsumerMaxInactive,
         pingInterval = PingInterval,
         redispatchInterval = RedispatchInterval,
-        dispatchStrategy = DispatchStrategy,
+        dispatchStrategy = atom_to_binary(DispatchStrategy),
         localMaxInflight = LocalMaxInflight,
         busySessionRetryInterval = BusySessionRetryInterval,
         streamMaxBufferSize = StreamMaxBufferSize,
@@ -414,7 +425,7 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         consumer_max_inactive => ConsumerMaxInactive,
         ping_interval => PingInterval,
         redispatch_interval => RedispatchInterval,
-        dispatch_strategy => DispatchStrategy,
+        dispatch_strategy => binary_to_existing_atom(DispatchStrategy),
         local_max_inflight => LocalMaxInflight,
         busy_session_retry_interval => BusySessionRetryInterval,
         stream_max_buffer_size => StreamMaxBufferSize,
@@ -479,13 +490,7 @@ new_mq_state(MQ) ->
 
 -spec put_mq(emqx_mq_types:mq(), mq_state()) -> mq_state().
 put_mq(MQ, MQStateRec) ->
-    maps:fold(
-        fun(Key, Val, AccMQStateRec) ->
-            emqx_ds_pmap:collection_put(?col_mq, Key, Val, AccMQStateRec)
-        end,
-        MQStateRec,
-        MQ
-    ).
+    emqx_ds_pmap:collection_put(?col_mq, ?mq_key, MQ, MQStateRec).
 
 -spec open_mq_state_tx(id()) -> {ok, mq_state()} | undefined.
 open_mq_state_tx(Id) ->
@@ -518,7 +523,7 @@ consumer_state_id(#{id := Id}) ->
     <<"c-", Id/binary>>.
 
 mq_state_id(#{id := Id}) ->
-    <<"m-", Id/binary>>;
+    mq_state_id(Id);
 mq_state_id(Id) when is_binary(Id) ->
     <<"m-", Id/binary>>.
 

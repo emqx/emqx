@@ -26,7 +26,6 @@ The module contains the registry of Message Queues.
 ]).
 
 -define(MQ_REGISTRY_INDEX_TAB, emqx_mq_registry_index).
--define(MQ_REGISTRY_TAB, emqx_mq_registry_data).
 -define(MQ_REGISTRY_SHARD, emqx_mq_registry_shard).
 
 -record(?MQ_REGISTRY_INDEX_TAB, {
@@ -34,11 +33,6 @@ The module contains the registry of Message Queues.
     id :: emqx_mq_types:mqid() | '_',
     is_lastvalue :: boolean() | '_',
     extra = #{} :: map() | '_'
-}).
-
--record(?MQ_REGISTRY_TAB, {
-    id :: emqx_mq_types:mqid() | '_',
-    mq :: emqx_mq_types:mq() | '_'
 }).
 
 %%--------------------------------------------------------------------
@@ -60,20 +54,7 @@ create_tables() ->
             ]}
         ]}
     ]),
-    ok = mria:create_table(?MQ_REGISTRY_TAB, [
-        {type, set},
-        {rlog_shard, ?MQ_REGISTRY_SHARD},
-        {storage, disc_copies},
-        {record_name, ?MQ_REGISTRY_TAB},
-        {attributes, record_info(fields, ?MQ_REGISTRY_TAB)},
-        {storage_properties, [
-            {ets, [
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ]}
-        ]}
-    ]),
-    [?MQ_REGISTRY_INDEX_TAB, ?MQ_REGISTRY_TAB].
+    [?MQ_REGISTRY_INDEX_TAB].
 
 -doc """
 Create a new MQ.
@@ -96,7 +77,7 @@ create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) ->
     case Result of
         ok ->
             MQ = MQ0#{id => Id},
-            ok = mnesia:dirty_write(#?MQ_REGISTRY_TAB{id = Id, mq = MQ}),
+            {ok, _} = emqx_mq_state_storage:create_mq_state(MQ),
             {ok, MQ};
         {error, _} = Error ->
             Error
@@ -137,12 +118,7 @@ find(TopicFilter) ->
         [] ->
             not_found;
         [#?MQ_REGISTRY_INDEX_TAB{id = Id}] ->
-            case mnesia:dirty_read(?MQ_REGISTRY_TAB, Id) of
-                [] ->
-                    not_found;
-                [#?MQ_REGISTRY_TAB{mq = MQ}] ->
-                    {ok, MQ}
-            end
+            emqx_mq_state_storage:find_mq(Id)
     end.
 
 -doc """
@@ -175,7 +151,7 @@ delete(TopicFilter) ->
                 not_found ->
                     ok
             end,
-            ok = mria:dirty_delete(?MQ_REGISTRY_TAB, Id),
+            ok = emqx_mq_state_storage:destroy_mq_state(MQHandle),
             ok = emqx_mq_state_storage:destroy_consumer_state(MQHandle),
             ok = emqx_mq_message_db:drop(MQHandle)
     end.
@@ -185,47 +161,39 @@ Delete all MQs. Only for testing/maintenance.
 """.
 -spec delete_all() -> ok.
 delete_all() ->
-    {atomic, ok} = mria:async_dirty(
-        ?MQ_REGISTRY_SHARD,
-        fun() ->
-            _ = mria:match_delete(?MQ_REGISTRY_INDEX_TAB, #?MQ_REGISTRY_INDEX_TAB{_ = '_'}),
-            _ = mria:match_delete(?MQ_REGISTRY_TAB, #?MQ_REGISTRY_TAB{_ = '_'})
-        end
-    ),
+    _ = mria:clear_table(?MQ_REGISTRY_INDEX_TAB),
+    _ = emqx_mq_state_storage:delete_all(),
     ok.
 
 -doc """
 Update the MQ by its topic filter.
 `is_lastvalue` is not allowed to be updated.
 """.
--spec update(emqx_mq_types:mq_topic(), emqx_mq_types:mq()) -> {ok, emqx_mq_types:mq()} | not_found.
+-spec update(emqx_mq_types:mq_topic(), emqx_mq_types:mq()) ->
+    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
 update(TopicFilter, UpdateFields0) ->
     Key = make_key(TopicFilter),
     UpdateFields = maps:without([topic_filter, id, is_lastvalue], UpdateFields0),
     case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
         [] ->
             not_found;
-        [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_lastvalue = IsLastValue}] ->
-            case mnesia:dirty_read(?MQ_REGISTRY_TAB, Id) of
-                [#?MQ_REGISTRY_TAB{mq = #{is_lastvalue := IsLastValue} = MQ0}] ->
-                    MQ = maps:merge(MQ0, UpdateFields),
-                    ok = mnesia:dirty_write(#?MQ_REGISTRY_TAB{id = Id, mq = MQ}),
-                    {ok, MQ};
-                _ ->
-                    not_found
-            end
+        [#?MQ_REGISTRY_INDEX_TAB{id = Id}] ->
+            emqx_mq_state_storage:update_mq_state(Id, UpdateFields)
     end.
 
-%% TODO
-%% support pagination
 -doc """
 List all MQs.
 """.
 -spec list() -> emqx_utils_stream:stream(emqx_mq_types:mq()).
 list() ->
-    emqx_utils_stream:map(
-        fun(#?MQ_REGISTRY_TAB{mq = MQ}) ->
-            MQ
+    emqx_utils_stream:chainmap(
+        fun(#?MQ_REGISTRY_INDEX_TAB{id = Id}) ->
+            case emqx_mq_state_storage:find_mq(Id) of
+                {ok, MQ} ->
+                    [MQ];
+                not_found ->
+                    []
+            end
         end,
         mq_record_stream()
     ).
@@ -237,7 +205,7 @@ list() ->
 mq_record_stream() ->
     emqx_utils_stream:ets(fun
         (undefined) ->
-            ets:match_object(?MQ_REGISTRY_TAB, #?MQ_REGISTRY_TAB{_ = '_'}, 1);
+            ets:match_object(?MQ_REGISTRY_INDEX_TAB, #?MQ_REGISTRY_INDEX_TAB{_ = '_'}, 1);
         (Cont) ->
             ets:match_object(Cont)
     end).
