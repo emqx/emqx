@@ -47,6 +47,11 @@
     emqx_ds_proto_v1,
     emqx_ds_proto_v2,
     emqx_ds_proto_v3,
+    emqx_ds_proto_v4,
+    emqx_ds_proto_v5,
+    emqx_ds_otx_proto_v1,
+    emqx_ds_beamspliiter_proto_v1,
+    emqx_ds_beamsplitter_proto_v2,
     emqx_ds_shared_sub_proto_v1,
     emqx_ds_shared_sub_proto_v2
 ]).
@@ -58,6 +63,11 @@
     {emqx_ds, 1},
     {emqx_ds, 2},
     {emqx_ds, 3},
+    {emqx_ds, 4},
+    {emqx_ds, 5},
+    {emqx_ds_otx, 1},
+    {emqx_ds_beamspliiter, 1},
+    {emqx_ds_beamspliiter, 2},
     {emqx_node_rebalance_purge, 1},
     {emqx_ds_shared_sub, 1},
     {emqx_ds_shared_sub, 2}

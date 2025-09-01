@@ -110,7 +110,7 @@
 
 -record(?META_TAB, {
     db :: emqx_ds:db(),
-    db_props :: emqx_ds_replication_layer:builtin_db_opts()
+    db_props :: emqx_ds_builtin_raft:db_opts()
 }).
 
 -record(?NODE_TAB, {
@@ -120,7 +120,7 @@
 }).
 
 -record(?SHARD_TAB, {
-    shard :: {emqx_ds:db(), emqx_ds_replication_layer:shard_id()},
+    shard :: {emqx_ds:db(), emqx_ds:shard()},
     %% Sites that currently contain the data:
     replica_set :: [site()],
     %% Sites that should contain the data when the cluster is in the
@@ -130,7 +130,7 @@
 }).
 
 -record(?TRANSITION_TAB, {
-    shard :: {emqx_ds:db(), emqx_ds_replication_layer:shard_id()},
+    shard :: {emqx_ds:db(), emqx_ds:shard()},
     transition :: transition(),
     misc = #{} :: map()
 }).
@@ -161,7 +161,7 @@
 
 %% Event for the subscription:
 -type subscription_event() ::
-    {changed, {shard, emqx_ds:db(), emqx_ds_replication_layer:shard_id()}}.
+    {changed, {shard, emqx_ds:db(), emqx_ds:shard()}}.
 
 %% Peristent term key:
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
@@ -204,12 +204,12 @@ n_shards(DB) ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+-spec shards(emqx_ds:db()) -> [emqx_ds:shard()].
 shards(DB) ->
     Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
     [Shard || #?SHARD_TAB{shard = {_, Shard}} <- Recs].
 
--spec shard_info(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec shard_info(emqx_ds:db(), emqx_ds:shard()) ->
     shard_info() | undefined.
 shard_info(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
@@ -244,7 +244,7 @@ shard_info(DB, Shard) ->
 site_info(Site) ->
     #{status => node_status(?MODULE:node(Site))}.
 
--spec my_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+-spec my_shards(emqx_ds:db()) -> [emqx_ds:shard()].
 my_shards(DB) ->
     Site = this_site(),
     Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
@@ -440,7 +440,7 @@ print_table(Header, Rows) ->
 %% DB API
 %%===============================================================================
 
--spec db_config(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts() | #{}.
+-spec db_config(emqx_ds:db()) -> emqx_ds_builtin_raft:db_opts() | #{}.
 db_config(DB) ->
     case mnesia:dirty_read(?META_TAB, DB) of
         [#?META_TAB{db_props = Opts}] ->
@@ -449,13 +449,13 @@ db_config(DB) ->
             #{}
     end.
 
--spec open_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
-    emqx_ds_replication_layer:builtin_db_opts().
+-spec open_db(emqx_ds:db(), emqx_ds_builtin_raft:db_opts()) ->
+    emqx_ds_builtin_raft:db_opts().
 open_db(DB, DefaultOpts) ->
     transaction(fun ?MODULE:open_db_trans/2, [DB, DefaultOpts]).
 
--spec update_db_config(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
-    emqx_ds_replication_layer:builtin_db_opts() | {error, nonexistent_db}.
+-spec update_db_config(emqx_ds:db(), emqx_ds_builtin_raft:db_opts()) ->
+    emqx_ds_builtin_raft:db_opts() | {error, nonexistent_db}.
 update_db_config(DB, DefaultOpts) ->
     transaction(fun ?MODULE:update_db_config_trans/2, [DB, DefaultOpts]).
 
@@ -506,7 +506,7 @@ db_target_sites(DB) ->
 
 %% @doc List the sequence of transitions that should be conducted in order to
 %% bring the set of replicas for a DB shard in line with the target set.
--spec replica_set_transitions(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec replica_set_transitions(emqx_ds:db(), emqx_ds:shard()) ->
     [transition()] | undefined.
 replica_set_transitions(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
@@ -519,19 +519,19 @@ replica_set_transitions(DB, Shard) ->
 %% @doc Claim the intention to start the replica set transition for the given shard.
 %% To be called before starting acting on transition, so that information about this
 %% will not get lost. Once it finishes, call `update_replica_set/3`.
--spec claim_transition(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), transition()) ->
+-spec claim_transition(emqx_ds:db(), emqx_ds:shard(), transition()) ->
     ok | {error, {conflict, transition()} | {outdated, _Expected :: [transition()]}}.
 claim_transition(DB, Shard, Trans) ->
     transaction(fun ?MODULE:claim_transition_trans/3, [DB, Shard, Trans]).
 
 %% @doc Update the set of replication sites for a shard.
 %% To be called after a `transition()` has been conducted successfully.
--spec update_replica_set(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), transition()) -> ok.
+-spec update_replica_set(emqx_ds:db(), emqx_ds:shard(), transition()) -> ok.
 update_replica_set(DB, Shard, Trans) ->
     transaction(fun ?MODULE:update_replica_set_trans/3, [DB, Shard, Trans]).
 
 %% @doc Get the current set of replication sites for a shard.
--spec replica_set(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec replica_set(emqx_ds:db(), emqx_ds:shard()) ->
     [site()] | undefined.
 replica_set(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
@@ -544,7 +544,7 @@ replica_set(DB, Shard) ->
 %% @doc Get the target set of replication sites for a DB shard.
 %% Target set is updated every time the set of replication sites for the DB changes.
 %% See `join_db_site/2`, `leave_db_site/2`, `assign_db_sites/2`.
--spec target_set(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec target_set(emqx_ds:db(), emqx_ds:shard()) ->
     [site()] | undefined.
 target_set(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
@@ -608,8 +608,8 @@ terminate(_Reason, #s{}) ->
 %% Internal exports
 %%================================================================================
 
--spec open_db_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
-    emqx_ds_replication_layer:builtin_db_opts().
+-spec open_db_trans(emqx_ds:db(), emqx_ds_builtin_raft:db_opts()) ->
+    emqx_ds_builtin_raft:db_opts().
 open_db_trans(DB, CreateOpts) ->
     case mnesia:wread({?META_TAB, DB}) of
         [] ->
@@ -629,7 +629,7 @@ open_db_trans(DB, CreateOpts) ->
             end
     end.
 
--spec allocate_shards_trans(site(), emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+-spec allocate_shards_trans(site(), emqx_ds:db()) -> [emqx_ds:shard()].
 allocate_shards_trans(Site, DB) ->
     case mnesia:read(?NODE_TAB, Site) of
         [_] ->
@@ -781,8 +781,8 @@ update_replica_set_trans(DB, Shard, Trans) ->
             mnesia:abort({nonexistent_shard, {DB, Shard}})
     end.
 
--spec update_db_config_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
-    emqx_ds_replication_layer:builtin_db_opts().
+-spec update_db_config_trans(emqx_ds:db(), emqx_ds_builtin_raft:db_opts()) ->
+    emqx_ds_builtin_raft:db_opts().
 update_db_config_trans(DB, UpdateOpts) ->
     Opts = db_config_trans(DB, write),
     %% Since this is an update and not a reopen,
@@ -796,7 +796,7 @@ update_db_config_trans(DB, UpdateOpts) ->
     }),
     EffectiveOpts.
 
--spec db_config_trans(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts().
+-spec db_config_trans(emqx_ds:db()) -> emqx_ds_builtin_raft:db_opts().
 db_config_trans(DB) ->
     db_config_trans(DB, read).
 
@@ -966,7 +966,7 @@ get_shard_target_sites(#?SHARD_TAB{target_set = Sites}) when is_list(Sites) ->
 get_shard_target_sites(#?SHARD_TAB{target_set = undefined} = Shard) ->
     get_shard_sites(Shard).
 
--spec compute_allocation([Shard], [Site], emqx_ds_replication_layer:builtin_db_opts()) ->
+-spec compute_allocation([Shard], [Site], emqx_ds_builtin_raft:db_opts()) ->
     [{Shard, [Site, ...]}].
 compute_allocation(Shards, Sites, Opts) ->
     NSites = length(Sites),

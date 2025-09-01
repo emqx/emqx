@@ -28,7 +28,7 @@
 -record(rs, {
     phase :: machine_state | storage_snapshot,
     started_at :: _Time :: integer(),
-    state :: emqx_ds_replication_layer:ra_state() | undefined,
+    state :: emqx_ds_builtin_raft_machine:ra_state() | undefined,
     reader :: emqx_ds_storage_snapshot:reader() | undefined
 }).
 
@@ -38,14 +38,14 @@
     started_at :: _Time :: integer(),
     dir :: file:filename(),
     meta :: ra_snapshot:meta(),
-    state :: emqx_ds_replication_layer:ra_state() | undefined,
+    state :: emqx_ds_builtin_raft_machine:ra_state() | undefined,
     writer :: emqx_ds_storage_snapshot:writer() | undefined
 }).
 
 -type rs() :: #rs{}.
 -type ws() :: #ws{}.
 
--type ra_state() :: emqx_ds_replication_layer:ra_state().
+-type ra_state() :: emqx_ds_builtin_raft_machine:ra_state().
 
 %% Writing a snapshot.
 %% This process is exactly the same as writing a ra log snapshot: store the

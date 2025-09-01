@@ -35,8 +35,6 @@
 {emqx_ds,5}.
 {emqx_ds,6}.
 {emqx_ds_beamformer,1}.
-{emqx_ds_beamsplitter,1}.
-{emqx_ds_beamsplitter,2}.
 {emqx_ds_beamsplitter,3}.
 {emqx_ds_new_streams,1}.
 {emqx_ds_otx,1}.

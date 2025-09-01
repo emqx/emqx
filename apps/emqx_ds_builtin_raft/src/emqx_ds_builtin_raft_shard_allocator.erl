@@ -9,7 +9,7 @@
 -module(emqx_ds_builtin_raft_shard_allocator).
 
 -include_lib("snabbkaffe/include/trace.hrl").
--include("emqx_ds_replication_layer.hrl").
+%%-include("emqx_ds_replication_layer.hrl").
 
 -export([start_link/1]).
 
@@ -63,7 +63,7 @@ n_shards(DB) ->
     Meta = persistent_term:get(?db_meta(DB)),
     maps:get(n_shards, Meta).
 
--spec shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+-spec shards(emqx_ds:db()) -> [emqx_ds:shard()].
 shards(DB) ->
     Meta = persistent_term:get(?db_meta(DB)),
     maps:get(shards, Meta, []).
@@ -71,14 +71,14 @@ shards(DB) ->
 %%
 
 -record(transhdl, {
-    shard :: emqx_ds_replication_layer:shard_id(),
+    shard :: emqx_ds:shard(),
     trans :: emqx_ds_builtin_raft_meta:transition(),
     pid :: pid()
 }).
 
 -type state() :: #{
     db := emqx_ds:db(),
-    shards := [emqx_ds_replication_layer:shard_id()],
+    shards := [emqx_ds:shard()],
     status := allocating | ready,
     transitions := #{_Track => #transhdl{}},
     timers := #{atom() => reference()}
@@ -486,7 +486,6 @@ allocate_shards(State = #{db := DB}) ->
         {ok, Shards} ->
             logger:info(#{msg => "Shards allocated", shards => Shards}),
             ok = start_shards(DB, emqx_ds_builtin_raft_meta:my_shards(DB)),
-            ok = start_egresses(DB, Shards),
             ok = save_db_meta(DB, Shards),
             ok = cache_shard_info(DB, Shards),
             ok = lists:foreach(
@@ -505,14 +504,6 @@ start_shards(DB, Shards) ->
 start_shard(DB, Shard) ->
     ok = emqx_ds_builtin_raft_db_sup:ensure_shard({DB, Shard}),
     ok = logger:info(#{msg => "Shard started", shard => Shard}),
-    ok.
-
-start_egresses(DB, Shards) ->
-    lists:foreach(fun(Shard) -> start_egress(DB, Shard) end, Shards).
-
-start_egress(DB, Shard) ->
-    ok = emqx_ds_builtin_raft_db_sup:ensure_egress({DB, Shard}),
-    ok = logger:info(#{msg => "Egress started", shard => Shard}),
     ok.
 
 %%

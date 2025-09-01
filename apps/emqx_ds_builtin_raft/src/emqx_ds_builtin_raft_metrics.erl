@@ -317,7 +317,7 @@ shards() ->
 shards(DB) ->
     gather_metrics(fun(Shard) -> shard(DB, Shard) end, emqx_ds_builtin_raft_meta:shards(DB)).
 
--spec shard(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> metrics().
+-spec shard(emqx_ds:db(), emqx_ds:shard()) -> metrics().
 shard(DB, Shard) ->
     Labels = [{db, DB}, {shard, Shard}],
     #{
@@ -461,7 +461,7 @@ local_shards(DB, Labels) ->
         Shards
     ).
 
--spec local_shard(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), boolean(), [label()]) ->
+-spec local_shard(emqx_ds:db(), emqx_ds:shard(), boolean(), [label()]) ->
     metrics().
 local_shard(DB, Shard, IsActive, Labels0) ->
     Labels = [{db, DB}, {shard, Shard} | Labels0],
@@ -485,7 +485,7 @@ local_shard(DB, Shard, IsActive, Labels0) ->
     end.
 
 current_timestamp(DB, Shard, Ls) ->
-    [{Ls, emqx_ds_replication_layer:current_timestamp(DB, Shard)}].
+    [{Ls, emqx_ds_builtin_raft:current_timestamp(DB, Shard)}].
 
 rasrv_lifecycle(Counters, Ls, Acc) ->
     Acc#{

@@ -19,7 +19,7 @@ defmodule EMQXDsBuiltinRaft.MixProject do
 
   def application do
     [
-      extra_applications: [:mria | UMP.extra_applications()],
+      extra_applications: [:mria, :emqx_durable_storage | UMP.extra_applications()],
       mod: {:emqx_ds_builtin_raft_app, []}
     ]
   end

@@ -95,7 +95,7 @@ shard_server_info(Node, DB, Shard, Site, Info) ->
     ).
 
 -spec db_transitions(emqx_ds:db()) ->
-    [{emqx_ds_replication_layer:shard_id(), emqx_ds_builtin_raft_meta:transition()}].
+    [{emqx_ds:shard(), emqx_ds_builtin_raft_meta:transition()}].
 db_transitions(DB) ->
     Shards = emqx_ds_builtin_raft_meta:shards(DB),
     [
@@ -129,7 +129,7 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
                     #{n => N}
                 )
             ),
-            ?ON(Node, emqx_ds:store_batch(DB, [Msg], #{sync => true})),
+            ?ON(Node, emqx_ds_test_helpers:dirty_append(#{db => DB, retries => 10}, [Msg])),
             apply_stream(DB, NodeStream, Stream, N + 1);
         [add_generation | Stream] ->
             ?tp(notice, test_add_generation, #{}),
@@ -178,38 +178,28 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
 ds_topic_stream(DB, ClientId, TopicBin, Node) ->
     Topic = emqx_topic:words(TopicBin),
     Shard = shard_of_clientid(DB, Node, ClientId),
-    {ShardId, DSStreams} =
+    DSStreams =
         ?ON(
             Node,
-            begin
-                DBShard = {DB, Shard},
-                {DBShard, emqx_ds_storage_layer:get_streams(DBShard, Topic, 0, 0)}
-            end
+            emqx_ds_builtin_raft:do_get_streams_v1(DB, Shard, Topic, 0, 0)
         ),
     ct:pal("Streams for ~p, ~p @ ~p:~n    ~p", [ClientId, TopicBin, Node, DSStreams]),
     %% Sort streams by their rank Y, and chain them together:
     emqx_utils_stream:chain([
-        ds_topic_generation_stream(DB, Node, ShardId, Topic, S)
-     || {_RankY, S} <- lists:sort(DSStreams)
+        ds_topic_generation_stream(DB, Node, Shard, Topic, S)
+     || S <- lists:sort(DSStreams)
     ]).
 
 ds_topic_generation_stream(DB, Node, Shard, Topic, Stream) ->
     {ok, Iterator} = ?ON(
         Node,
-        emqx_ds_storage_layer:make_iterator(Shard, Stream, Topic, 0)
+        emqx_ds_builtin_raft:do_make_iterator_v1(DB, Shard, Stream, Topic, 0)
     ),
     do_ds_topic_generation_stream(DB, Node, Shard, Iterator).
 
 do_ds_topic_generation_stream(DB, Node, Shard, It0) ->
     fun() ->
-        case
-            ?ON(
-                Node,
-                begin
-                    emqx_ds_storage_layer:next(Shard, It0, 1, _Now = 1 bsl 63, false)
-                end
-            )
-        of
+        case ?ON(Node, emqx_ds_builtin_raft:do_next_v1(DB, It0, 1)) of
             {ok, _It, []} ->
                 [];
             {ok, end_of_stream} ->
@@ -270,5 +260,5 @@ nodes_of_clientid(DB, ClientId, Nodes = [N0 | _]) ->
 shard_of_clientid(DB, Node, ClientId) ->
     ?ON(
         Node,
-        emqx_ds_buffer:shard_of_operation(DB, #message{from = ClientId}, clientid)
+        emqx_ds:shard_of(DB, ClientId)
     ).

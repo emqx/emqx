@@ -19,12 +19,10 @@
     emqx_ds_test_helpers:on(NODES, fun() -> BODY end)
 ).
 
-opts(Config, Overrides) ->
-    Layout = ?config(layout, Config),
+opts(_Config, Overrides) ->
     emqx_utils_maps:deep_merge(
         #{
             backend => builtin_raft,
-            storage => Layout,
             n_shards => 16,
             n_sites => 1,
             replication_factor => 3,
@@ -67,7 +65,6 @@ t_metadata(_Config) ->
     NShards = 1,
     Options = #{
         backend => builtin_raft,
-        storage => {emqx_ds_storage_reference, #{}},
         n_shards => NShards,
         n_sites => 1,
         replication_factor => 1,
@@ -224,152 +221,6 @@ t_replication_transfers_snapshots(Config) ->
         []
     ).
 
-t_preconditions_idempotent(init, Config) ->
-    Apps = [appspec(ra), appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
-    Specs = emqx_cth_cluster:mk_nodespecs(
-        [
-            {t_preconditions_idempotent1, #{apps => Apps}},
-            {t_preconditions_idempotent2, #{apps => Apps}}
-        ],
-        #{work_dir => ?config(work_dir, Config)}
-    ),
-    Nodes = emqx_cth_cluster:start(Specs),
-    [{nodes, Nodes}, {specs, Specs} | Config];
-t_preconditions_idempotent('end', Config) ->
-    ok = emqx_cth_cluster:stop(?config(nodes, Config)).
-
-t_preconditions_idempotent(Config) ->
-    C1 = <<"C1">>,
-    Topic1 = <<"t/foo">>,
-    Topic2 = <<"t/bar/xyz">>,
-
-    Nodes = [N1, N2] = ?config(nodes, Config),
-    _Specs = [NS1, _] = ?config(specs, Config),
-    Opts = opts(Config, #{
-        n_shards => 1,
-        n_sites => 2,
-        replication_factor => 3,
-        append_only => false,
-        replication_options => #{
-            %% Make sure snapshots are taken eagerly, each `add_generation`.
-            snapshot_interval => 1
-        }
-    }),
-    ?check_trace(
-        #{timetrap => 30_000},
-        begin
-            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
-
-            %% Store several messages.
-            Messages = [
-                message(C1, Topic1, <<"T1/0">>, 0),
-                message(C1, Topic2, <<"T2/0">>, 0),
-                message(C1, Topic1, <<"T1/1">>, 1),
-                message(C1, Topic2, <<"T2/2">>, 1),
-                message(C1, Topic1, <<"T1/2">>, 2),
-                message(C1, Topic2, <<"T2/2">>, 2),
-                message(C1, Topic1, <<"T1/100">>, 100)
-            ],
-            [ok = ?ON(N2, emqx_ds:store_batch(?DB, [M], #{sync => true})) || M <- Messages],
-
-            %% Add a generation. This will cause the storage layer to flush.
-            Since1 = 300,
-            ok = ?ON(N2, emqx_ds_replication_layer:add_generation(?DB, Since1)),
-
-            %% Store batches with preconditions.
-            Batch1 = #dsbatch{
-                preconditions = [
-                    %% Appears later, as part of `Batch2`.
-                    {if_exists, #message_matcher{
-                        from = C1, topic = Topic1, timestamp = 400, payload = '_'
-                    }}
-                ],
-                operations = [
-                    message(C1, Topic1, <<"Should not be here">>, 500)
-                ]
-            },
-            ?assertMatch(
-                %% No `{Topic1, _TS = 400}` message yet, should fail.
-                {error, _, {precondition_failed, _}},
-                ?ON(N2, emqx_ds:store_batch(?DB, Batch1, #{sync => true}))
-            ),
-            Batch2 = [
-                message(C1, Topic1, <<"T1/400">>, 400),
-                message(C1, Topic2, <<"T2/400">>, 400)
-            ],
-            ?assertEqual(
-                %% Only now `{Topic1, _TS = 400}` should be stored.
-                ok,
-                ?ON(N2, emqx_ds:store_batch(?DB, Batch2, #{sync => true}))
-            ),
-
-            %% Restart N1 and wait until it is ready.
-            [N1] = emqx_cth_cluster:restart(NS1),
-            RestartedAt1 = erlang:monotonic_time(millisecond),
-            ok = ?ON(N1, open_db(?DB, Opts)),
-            SinceRestarted1 = erlang:monotonic_time(millisecond) - RestartedAt1,
-            emqx_ds_raft_test_helpers:wait_db_bootstrapped([N1], ?DB, infinity, SinceRestarted1),
-
-            %% Both replicas should still contain the same set of messages.
-            [N1Msgs1, N2Msgs1] = ?ON(
-                Nodes,
-                emqx_ds_test_helpers:storage_consume({?DB, <<"0">>}, ['#'])
-            ),
-            emqx_ds_test_helpers:assert_same_set(N1Msgs1, N2Msgs1),
-
-            Batch3 = #dsbatch{
-                preconditions = [
-                    %% Exists at this point.
-                    {unless_exists, #message_matcher{
-                        from = C1, topic = Topic1, timestamp = 400, payload = '_'
-                    }}
-                ],
-                operations = [
-                    message(C1, Topic2, <<"Should not be here">>, 500)
-                ]
-            },
-            ?assertMatch(
-                %% There is `{Topic1, _TS = 400}` message yet, should fail.
-                {error, _, {precondition_failed, _}},
-                ?ON(N2, emqx_ds:store_batch(?DB, Batch3, #{sync => true}))
-            ),
-            Batch4 = [
-                {delete, #message_matcher{
-                    from = C1, topic = Topic1, timestamp = 400, payload = '_'
-                }}
-            ],
-            ?assertEqual(
-                %% Only now `{Topic1, _TS = 400}` should be deleted.
-                ok,
-                ?ON(N2, emqx_ds:store_batch(?DB, Batch4, #{sync => true}))
-            ),
-
-            %% Restart N1 and wait until it is ready.
-            [N1] = emqx_cth_cluster:restart(NS1),
-            RestartedAt2 = erlang:monotonic_time(millisecond),
-            ok = ?ON(N1, open_db(?DB, Opts)),
-            SinceRestarted2 = erlang:monotonic_time(millisecond) - RestartedAt2,
-            emqx_ds_raft_test_helpers:wait_db_bootstrapped([N1], ?DB, infinity, SinceRestarted2),
-
-            %% But both replicas should still contain the same set of messages.
-            [N1Msgs2, N2Msgs2] = ?ON(
-                Nodes,
-                emqx_ds_test_helpers:storage_consume({?DB, <<"0">>}, ['#'])
-            ),
-            emqx_ds_test_helpers:assert_same_set(N1Msgs2, N2Msgs2)
-        end,
-        fun(Trace) ->
-            %% Expect Raft log entries following `add_generation/2` to be reapplied
-            %% twice, once per each restart.
-            Events = ?of_kind(ds_ra_apply_batch, ?of_node(N1, Trace)),
-            ?assertMatch(
-                %% Batch1, Batch2, Batch1, Batch2, Batch3, Batch4, Batch1, Batch2, Batch3, Batch4
-                [_, _, _, _, _, _, _, _, _, _],
-                [E || E = #{latest := L} <- Events, L > (_Since1 = 300)]
-            )
-        end
-    ).
-
 t_rebalance(init, Config) ->
     Apps = [appspec(ra), appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Nodes = emqx_cth_cluster:start(
@@ -402,7 +253,9 @@ t_rebalance(Config) ->
         begin
             Sites = [S1, S2 | _] = [ds_repl_meta(N, this_site) || N <- Nodes],
             %% 1. Initialize DB on the first node.
-            Opts = opts(Config, #{n_shards => 16, n_sites => 1, replication_factor => 3}),
+            Opts = opts(Config, #{
+                n_shards => 16, n_sites => 1, replication_factor => 3, payload_type => ?ds_pt_mqtt
+            }),
             emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
 
             %% 1.1 Kick all sites except S1 from the replica set as
@@ -764,7 +617,9 @@ t_rebalance_tolerate_lost(Config) ->
     %% Start and initialize DB on a first node.
     %% The same usually happens with current defaults.
     [N1] = emqx_cth_cluster:start([NS1]),
-    Opts = opts(Config, #{n_shards => 4, n_sites => 1, replication_factor => 3}),
+    Opts = opts(Config, #{
+        n_shards => 4, n_sites => 1, replication_factor => 3, payload_type => ?ds_pt_mqtt
+    }),
     emqx_ds_raft_test_helpers:assert_db_open([N1], ?DB, Opts),
 
     %% Start and initialize DB on rest of the nodes.
@@ -810,8 +665,8 @@ t_rebalance_tolerate_lost(Config) ->
     %% Messages can now again be persisted successfully.
     {Msgs1, MsgStream1} = emqx_utils_stream:consume(50, MsgStream),
     {Msgs2, _MsgStream} = emqx_utils_stream:consume(50, MsgStream1),
-    ?assertEqual(ok, ?ON(N2, emqx_ds:store_batch(?DB, Msgs1))),
-    ?assertEqual(ok, ?ON(N3, emqx_ds:store_batch(?DB, Msgs2))),
+    ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(?DB, Msgs1))),
+    ?assertEqual(ok, ?ON(N3, emqx_ds_test_helpers:dirty_append(?DB, Msgs2))),
     MsgsPersisted = ?ON(N2, emqx_ds_test_helpers:consume(?DB, ['#'])),
     ok = emqx_ds_test_helpers:diff_messages(Msgs1 ++ Msgs2, MsgsPersisted),
 
@@ -852,7 +707,9 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
 
     %% Start and initialize DB on all 4 nodes.
     NShards = 3,
-    Opts = opts(Config, #{n_shards => NShards, n_sites => 4, replication_factor => 4}),
+    Opts = opts(Config, #{
+        n_shards => NShards, n_sites => 4, replication_factor => 4, payload_type => ?ds_pt_mqtt
+    }),
     emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
 
     %% Find out which sites are there.
@@ -865,7 +722,7 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
         begin
             %% Store a bunch of messages.
             {Msgs1, MsgStream1} = emqx_utils_stream:consume(20, MsgStream),
-            ?assertEqual(ok, ?ON(N1, emqx_ds:store_batch(?DB, Msgs1, #{sync => true}))),
+            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(?DB, Msgs1))),
 
             %% Stop N2.
             ok = emqx_cth_cluster:stop_node(N2),
@@ -873,7 +730,7 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
 
             %% Store another bunch of messages.
             {Msgs2, MsgStream2} = emqx_utils_stream:consume(20, MsgStream1),
-            ?assertEqual(ok, ?ON(N1, emqx_ds:store_batch(?DB, Msgs2, #{sync => true}))),
+            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(?DB, Msgs2))),
 
             %% Stop N3 and N4 and expunge them out of the cluster.
             ok = emqx_cth_cluster:stop([N3, N4]),
@@ -946,7 +803,7 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
 
             %% Messages can now again be persisted successfully.
             {Msgs3, _MsgStream} = emqx_utils_stream:consume(20, MsgStream2),
-            ?assertEqual(ok, ?ON(N2, emqx_ds:store_batch(?DB, Msgs3, #{sync => true}))),
+            ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(?DB, Msgs3))),
             %% ...And the original messages still available in the DB.
             MsgsPersisted = ?ON(N2, emqx_ds_test_helpers:consume(?DB, ['#'])),
             ok = emqx_ds_test_helpers:diff_messages(
@@ -994,252 +851,74 @@ t_drop_generation(Config) ->
                 work_dir => ?config(work_dir, Config)
             }
         ),
-
-    Nodes = [N1, _, N3] = emqx_cth_cluster:start(NodeSpecs),
     ?check_trace(
-        try
-            %% Initialize DB on all 3 nodes.
-            Opts = opts(Config, #{n_shards => 1, n_sites => 3, replication_factor => 3}),
-            ?assertEqual(
-                [{ok, ok} || _ <- Nodes],
-                erpc:multicall(Nodes, emqx_ds, open_db, [?DB, Opts])
-            ),
-            timer:sleep(1000),
-            %% Create a generation while all nodes are online:
-            ?ON(N1, ?assertMatch(ok, emqx_ds:add_generation(?DB))),
-            ?ON(
-                Nodes,
+        #{timetrap => 30_000},
+        begin
+            Nodes = [N1, _, N3] = emqx_cth_cluster:start(NodeSpecs),
+            try
+                %% Initialize DB on all 3 nodes.
+                Opts = opts(Config, #{n_shards => 1, n_sites => 3, replication_factor => 3}),
                 ?assertEqual(
-                    [{<<"0">>, 1}, {<<"0">>, 2}],
-                    maps:keys(emqx_ds:list_slabs(?DB))
+                    [{ok, ok} || _ <- Nodes],
+                    erpc:multicall(Nodes, ?MODULE, open_db, [?DB, Opts])
+                ),
+                ct:sleep(3000),
+                %% Create a generation while all nodes are online:
+                ?ON(N1, ?assertMatch(ok, emqx_ds:add_generation(?DB))),
+                ct:sleep(100),
+                ?ON(
+                    Nodes,
+                    ?assertEqual(
+                        [{<<"0">>, 1}, {<<"0">>, 2}],
+                        maps:keys(emqx_ds:list_slabs(?DB))
+                    )
+                ),
+                %% Drop generation while all nodes are online:
+                ?ON(N1, ?assertMatch(ok, emqx_ds:drop_slab(?DB, {<<"0">>, 1}))),
+                timer:sleep(1000),
+                ?ON(
+                    Nodes,
+                    ?assertEqual(
+                        [{<<"0">>, 2}],
+                        maps:keys(emqx_ds:list_slabs(?DB))
+                    )
+                ),
+                %% Ston N3, then create and drop generation when it's offline:
+                ok = emqx_cth_cluster:stop_node(N3),
+                ct:sleep(3000),
+                ?ON(
+                    N1,
+                    begin
+                        ok = emqx_ds:add_generation(?DB),
+                        ok = emqx_ds:drop_slab(?DB, {<<"0">>, 2})
+                    end
+                ),
+                %% Restart N3 and verify that it reached the consistent state:
+                emqx_cth_cluster:restart(NS3),
+                ok = ?ON(N3, open_db(?DB, Opts)),
+                %% N3 can be in unstalbe state right now, but it still
+                %% must successfully return streams:
+                ?ON(
+                    Nodes,
+                    ?assertEqual([], emqx_ds:get_streams(?DB, ['#'], 0))
+                ),
+                ct:sleep(1000),
+                ?ON(
+                    Nodes,
+                    ?assertEqual(
+                        [{<<"0">>, 3}],
+                        maps:keys(emqx_ds:list_slabs(?DB))
+                    )
                 )
-            ),
-            %% Drop generation while all nodes are online:
-            ?ON(N1, ?assertMatch(ok, emqx_ds:drop_slab(?DB, {<<"0">>, 1}))),
-            ?ON(
-                Nodes,
-                ?assertEqual(
-                    [{<<"0">>, 2}],
-                    maps:keys(emqx_ds:list_slabs(?DB))
-                )
-            ),
-            %% Ston N3, then create and drop generation when it's offline:
-            ok = emqx_cth_cluster:stop_node(N3),
-            ?ON(
-                N1,
-                begin
-                    ok = emqx_ds:add_generation(?DB),
-                    ok = emqx_ds:drop_slab(?DB, {<<"0">>, 2})
-                end
-            ),
-            %% Restart N3 and verify that it reached the consistent state:
-            emqx_cth_cluster:restart(NS3),
-            ok = ?ON(N3, open_db(?DB, Opts)),
-            %% N3 can be in unstalbe state right now, but it still
-            %% must successfully return streams:
-            ?ON(
-                Nodes,
-                ?assertEqual([], emqx_ds:get_streams(?DB, ['#'], 0))
-            ),
-            timer:sleep(1000),
-            ?ON(
-                Nodes,
-                ?assertEqual(
-                    [{<<"0">>, 3}],
-                    maps:keys(emqx_ds:list_slabs(?DB))
-                )
-            )
-        after
-            emqx_cth_cluster:stop(Nodes)
+            after
+                emqx_cth_cluster:stop(Nodes)
+            end
         end,
         fun(_Trace) ->
             %% TODO: some idempotency errors still happen
             %% ?assertMatch([], ?of_kind(ds_storage_layer_failed_to_drop_generation, Trace)),
             true
         end
-    ).
-
-t_error_mapping(init, Config) ->
-    Apps = emqx_cth_suite:start([emqx_ds_builtin_raft], #{
-        work_dir => ?config(work_dir, Config)
-    }),
-    ok = snabbkaffe:start_trace(),
-    ok = emqx_ds_test_helpers:mock_rpc(),
-    [{apps, Apps} | Config];
-t_error_mapping('end', Config) ->
-    emqx_ds_test_helpers:unmock_rpc(),
-    snabbkaffe:stop(),
-    emqx_cth_suite:stop(?config(apps, Config)),
-    Config.
-
-t_error_mapping(Config) ->
-    %% This checks that the replication layer maps recoverable errors correctly.
-
-    DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, open_db(DB, opts(Config, #{n_shards => 2}))),
-    [Shard1, Shard2] = emqx_ds_builtin_raft_meta:shards(DB),
-
-    TopicFilter = emqx_topic:words(<<"foo/#">>),
-    Msgs = [
-        message(<<"C1">>, <<"foo/bar">>, <<"1">>, 0),
-        message(<<"C1">>, <<"foo/baz">>, <<"2">>, 1),
-        message(<<"C2">>, <<"foo/foo">>, <<"3">>, 2),
-        message(<<"C3">>, <<"foo/xyz">>, <<"4">>, 3),
-        message(<<"C4">>, <<"foo/bar">>, <<"5">>, 4),
-        message(<<"C5">>, <<"foo/oof">>, <<"6">>, 5)
-    ],
-
-    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
-
-    ?block_until(#{?snk_kind := emqx_ds_buffer_flush, shard := Shard1}),
-    ?block_until(#{?snk_kind := emqx_ds_buffer_flush, shard := Shard2}),
-
-    Streams0 = emqx_ds:get_streams(DB, TopicFilter, 0),
-    Iterators0 = lists:map(
-        fun({_Rank, S}) ->
-            {ok, Iter} = emqx_ds:make_iterator(DB, S, TopicFilter, 0),
-            Iter
-        end,
-        Streams0
-    ),
-
-    %% Disrupt the link to the second shard.
-    ok = emqx_ds_test_helpers:mock_rpc_result(
-        fun(_Node, emqx_ds_replication_layer, _Function, Args) ->
-            case Args of
-                [DB, Shard1 | _] -> passthrough;
-                [DB, Shard2 | _] -> unavailable
-            end
-        end
-    ),
-
-    %% Result of `emqx_ds:get_streams/3` will just contain partial results, not an error.
-    Streams1 = emqx_ds:get_streams(DB, TopicFilter, 0),
-    ?assert(
-        length(Streams1) > 0 andalso length(Streams1) =< length(Streams0),
-        Streams1
-    ),
-
-    %% At least one of `emqx_ds:make_iterator/4` will end in an error.
-    Results1 = lists:map(
-        fun({_Rank, S}) ->
-            case emqx_ds:make_iterator(DB, S, TopicFilter, 0) of
-                Ok = {ok, _Iter} ->
-                    Ok;
-                Error = {error, recoverable, {erpc, _}} ->
-                    Error;
-                Other ->
-                    ct:fail({unexpected_result, Other})
-            end
-        end,
-        Streams0
-    ),
-    ?assert(
-        length([error || {error, _, _} <- Results1]) > 0,
-        Results1
-    ),
-
-    %% At least one of `emqx_ds:next/3` over initial set of iterators will end in an error.
-    Results2 = lists:map(
-        fun(Iter) ->
-            case emqx_ds:next(DB, Iter, _BatchSize = 42) of
-                Ok = {ok, _Iter, _} ->
-                    Ok;
-                Error = {error, recoverable, {badrpc, _}} ->
-                    Error;
-                Other ->
-                    ct:fail({unexpected_result, Other})
-            end
-        end,
-        Iterators0
-    ),
-    ?assert(
-        length([error || {error, _, _} <- Results2]) > 0,
-        Results2
-    ).
-
-%% This testcase verifies the behavior of `store_batch' operation
-%% when the underlying code experiences recoverable or unrecoverable
-%% problems.
-t_store_batch_fail(init, Config) ->
-    Apps = emqx_cth_suite:start([emqx_ds_builtin_raft], #{
-        work_dir => ?config(work_dir, Config)
-    }),
-    [{apps, Apps} | Config];
-t_store_batch_fail('end', Config) ->
-    emqx_cth_suite:stop(?config(apps, Config)),
-    Config.
-
-t_store_batch_fail(Config) ->
-    DB = ?FUNCTION_NAME,
-    ?check_trace(
-        #{timetrap => 15_000},
-        try
-            ok = meck:new(emqx_ds_storage_layer, [passthrough, no_history]),
-            ?assertMatch(ok, open_db(DB, opts(Config, #{n_shards => 2}))),
-            %% Success:
-            Batch1 = [
-                message(<<"C1">>, <<"foo/bar">>, <<"1">>, 1),
-                message(<<"C1">>, <<"foo/bar">>, <<"2">>, 1)
-            ],
-            ?assertMatch(ok, emqx_ds:store_batch(DB, Batch1, #{sync => true})),
-            %% Inject unrecoverable error:
-            ok = meck:expect(emqx_ds_storage_layer, store_batch, fun(_DB, _Shard, _Messages, _) ->
-                {error, unrecoverable, mock}
-            end),
-            Batch2 = [
-                message(<<"C1">>, <<"foo/bar">>, <<"3">>, 1),
-                message(<<"C1">>, <<"foo/bar">>, <<"4">>, 1)
-            ],
-            ?assertMatch(
-                {error, unrecoverable, mock}, emqx_ds:store_batch(DB, Batch2, #{sync => true})
-            ),
-            ok = meck:unload(emqx_ds_storage_layer),
-            %% Inject a recoveralbe error:
-            ok = meck:new(ra, [passthrough, no_history]),
-            ok = meck:expect(ra, process_command, fun(Servers, Shard, Command) ->
-                ?tp(ra_command, #{servers => Servers, shard => Shard, command => Command}),
-                {timeout, mock}
-            end),
-            Batch3 = [
-                message(<<"C1">>, <<"foo/bar">>, <<"5">>, 2),
-                message(<<"C2">>, <<"foo/bar">>, <<"6">>, 2),
-                message(<<"C1">>, <<"foo/bar">>, <<"7">>, 3),
-                message(<<"C2">>, <<"foo/bar">>, <<"8">>, 3)
-            ],
-            %% Note: due to idempotency issues the number of retries
-            %% is currently set to 0:
-            ?assertMatch(
-                {error, recoverable, {timeout, mock}},
-                emqx_ds:store_batch(DB, Batch3, #{sync => true})
-            ),
-            ok = meck:unload(ra),
-            ?assertMatch(ok, emqx_ds:store_batch(DB, Batch3, #{sync => true})),
-            lists:sort(emqx_ds_test_helpers:consume_per_stream(DB, ['#'], 0))
-        after
-            meck:unload()
-        end,
-        [
-            {"message ordering", fun(StoredMessages, _Trace) ->
-                [{_, Stream1}, {_, Stream2}] = StoredMessages,
-                ?assertMatch(
-                    [
-                        #message{payload = <<"1">>},
-                        #message{payload = <<"2">>},
-                        #message{payload = <<"5">>},
-                        #message{payload = <<"7">>}
-                    ],
-                    Stream1
-                ),
-                ?assertMatch(
-                    [
-                        #message{payload = <<"6">>},
-                        #message{payload = <<"8">>}
-                    ],
-                    Stream2
-                )
-            end}
-        ]
     ).
 
 t_crash_restart_recover(init, Config) ->
@@ -1262,7 +941,9 @@ t_crash_restart_recover(Config) ->
     %% correctly preserved.
     Nodes = [N1, N2, N3] = ?config(nodes, Config),
     _Specs = [_, NS2, NS3] = ?config(nodespecs, Config),
-    DBOpts = opts(Config, #{n_shards => 16, n_sites => 3, replication_factor => 3}),
+    DBOpts = opts(Config, #{
+        n_shards => 1, n_sites => 3, replication_factor => 3, payload_type => ?ds_pt_mqtt
+    }),
 
     %% Prepare test event stream.
     NMsgs = 400,
@@ -1413,26 +1094,7 @@ consume_shard(Node, DB, Shard, TopicFilter, StartTime) ->
 suite() -> [{timetrap, {seconds, 120}}].
 
 all() ->
-    [{group, Grp} || {Grp, _} <- groups()].
-
-groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
-    [
-        {skipstream_lts, TCs},
-        {bitfield_lts,
-            TCs --
-                [
-                    %% Not sensitive to a choice of layout.
-                    t_metadata,
-                    t_shard_allocation,
-                    t_drop_generation,
-                    t_join_leave_errors,
-                    t_store_batch_fail,
-                    t_crash_restart_recover,
-                    %% Not supported.
-                    t_poll
-                ]}
-    ].
+    emqx_common_test_helpers:all(?MODULE).
 
 flaky_tests() ->
     #{
@@ -1440,19 +1102,6 @@ flaky_tests() ->
         t_crash_restart_recover => 3,
         t_rebalance_chaotic_converges => 3
     }.
-
-init_per_group(Group, Config) ->
-    LayoutConf =
-        case Group of
-            skipstream_lts ->
-                {emqx_ds_storage_skipstream_lts, #{with_guid => true}};
-            bitfield_lts ->
-                {emqx_ds_storage_bitfield_lts, #{}}
-        end,
-    [{layout, LayoutConf} | Config].
-
-end_per_group(_Group, Config) ->
-    Config.
 
 init_per_testcase(TCName, Config0) ->
     Config1 = [{work_dir, emqx_cth_suite:work_dir(TCName, Config0)} | Config0],
@@ -1466,5 +1115,7 @@ end_per_testcase(TCName, Config) ->
     Result.
 
 open_db(DB, Opts) ->
-    ?assertMatch(ok, emqx_ds:open_db(DB, Opts)),
-    ?assertMatch(ok, emqx_ds:wait_db(DB, all, infinity)).
+    maybe
+        ok ?= emqx_ds:open_db(DB, Opts),
+        ok ?= emqx_ds:wait_db(DB, all, infinity)
+    end.
