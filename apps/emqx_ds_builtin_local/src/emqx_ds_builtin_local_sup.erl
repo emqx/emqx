@@ -10,7 +10,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_db/2, stop_db/1]).
+-export([start_db/4, stop_db/1]).
 
 %% behavior callbacks:
 -export([init/1]).
@@ -35,12 +35,17 @@
 start_top() ->
     supervisor:start_link({local, ?top}, ?MODULE, ?top).
 
--spec start_db(emqx_ds:db(), emqx_ds_builtin_local:db_opts()) ->
+-spec start_db(
+    emqx_ds:db(),
+    boolean(),
+    emqx_ds_builtin_local:db_schema(),
+    emqx_ds_builtin_local:db_runtime_config()
+) ->
     supervisor:startchild_ret().
-start_db(DB, Opts) ->
+start_db(DB, Create, Schema, RTOpts) ->
     ChildSpec = #{
         id => DB,
-        start => {?databases, start_db, [DB, Opts]},
+        start => {?databases, start_db, [DB, Create, Schema, RTOpts]},
         type => supervisor,
         shutdown => infinity
     },
