@@ -276,21 +276,21 @@ prometheus_meta() ->
 
 prometheus_collect(Labels0) ->
     collect_beamformer_metrics(
-        Labels0, collect_buffer_metrics(Labels0, collect_db_metrics(Labels0))
+        Labels0, collect_otx_metrics(Labels0, collect_db_metrics(Labels0))
     ).
 
 collect_db_metrics(Labels0) ->
     Instances = [[{db, DB}] || {DB, _Backend} <- emqx_ds:which_dbs()],
     collect(Labels0, Instances, #{}).
 
-collect_buffer_metrics(Labels0, Acc) ->
-    Instances = [[{db, DB}, {shard, Shard}] || {DB, Shard} <- emqx_ds_buffer:ls()],
+collect_otx_metrics(Labels0, Acc) ->
+    Instances = [[{db, DB}, {shard, Shard}] || {DB, Shard} <- emqx_ds_optimistic_tx:ls()],
     collect(Labels0, Instances, Acc).
 
 collect_beamformer_metrics(Labels0, Acc) ->
     Instances = [
         [{db, DB}, {shard, Shard}, {type, Type}]
-     || {DB, Shard} <- emqx_ds_buffer:ls(),
+     || {DB, Shard} <- emqx_ds_beamformer:ls(),
         Type <- [rt, catchup]
     ],
     collect(Labels0, Instances, Acc).

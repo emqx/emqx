@@ -19,12 +19,19 @@
 %% A simple smoke test that verifies that opening/closing the DB
 %% doesn't crash, and not much else
 t_00_smoke_open_drop(Config) ->
-    DB = 'DB',
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
-    %% Reopen the DB and make sure the operation is idempotent:
-    ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
-    %% Close the DB:
-    ?assertMatch(ok, emqx_ds:drop_db(DB)).
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            DB = ?FUNCTION_NAME,
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
+            %% Reopen the DB and make sure the operation is idempotent:
+            ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
+            %% Drop the DB:
+            ?assertMatch(ok, emqx_ds:drop_db(DB)),
+            ?assertMatch(undefined, emqx_dsch:get_db_schema(DB))
+        end,
+        []
+    ).
 
 %% A simple smoke test that verifies that storing the messages doesn't
 %% crash

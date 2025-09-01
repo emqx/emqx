@@ -101,7 +101,7 @@
     emqx_ds_payload_transform:schema(),
     emqx_ds_storage_layer:generation_data(),
     emqx_ds:tx_serial(),
-    emqx_ds_storage_layer:batch_prepare_opts(),
+    map(),
     _TxWrites :: [
         {emqx_ds:topic(), emqx_ds:time() | ?ds_tx_ts_monotonic, binary() | ?ds_tx_serial}
     ],
@@ -280,9 +280,9 @@ set_read_tx_serial(DBShard, Serial) ->
 
 -spec commit_batch(
     emqx_ds_storage_layer:dbshard(),
-    [{emqx_ds:generation(), [cooked_tx()]}],
+    emqx_ds_optimistic_tx:batch(),
     emqx_ds_storage_layer:batch_store_opts()
-) -> emqx_ds:store_batch_result().
+) -> ok | emqx_ds:error(_).
 commit_batch(DBShard, [{Generation, GenBatches} | Rest], Opts) ->
     case do_commit_batch(DBShard, Generation, GenBatches, Opts) of
         ok ->
@@ -513,7 +513,7 @@ iterator_match_context(DBShard, #'Iterator'{
     emqx_ds:generation(),
     [cooked_tx()],
     emqx_ds_storage_layer:batch_store_opts()
-) -> emqx_ds:store_batch_result().
+) -> ok | emqx_ds:error(_).
 do_commit_batch(DBShard, GenId, CookedTransactions, Options) ->
     case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
         #{module := Mod, data := GenData} ->
