@@ -7,7 +7,7 @@
 
 This module implements a node-local persistent storage for the database schemas,
 as well as a tracking mechanism for open databases and cluster state.
-It is designed an an alternative to the Mnesia schema.
+It is designed as an alternative to the Mnesia schema.
 
 Responsibilities of this module include:
 
@@ -66,9 +66,10 @@ Actions scoped by DB are executed when the corresponding durable
 storage is open. The durable storage is completely responsible for
 their lifetime.
 
-There are two predefined actions: `add_peer` and `remove_peer`. They
-are submitted to the existing (not necessarily open) DBs by the schema
-manager itself when it changes the cluster.
+There is a number of predefined pending events that are create
+automatically to each existing (but not necessarily open) DBs by the
+schema manager itself when it changes the cluster or DB schema. See
+documentation for `handle_schema_event` callback for more details.
 
 ## Cluster tracking
 
@@ -121,6 +122,7 @@ server state.
     ensure_db_schema/2,
     get_db_schema/1,
     drop_db_schema/1,
+    update_db_schema/2,
 
     open_db/2,
     close_db/1,
@@ -297,6 +299,9 @@ Name of the disk log, as in `disk_log:open([{name, Name}, ...])`
 -record(call_list_pending, {scope :: pending_scope() | all}).
 -record(call_open_db, {db :: emqx_ds:db(), conf :: db_runtime_config()}).
 -record(call_close_db, {db :: emqx_ds:db()}).
+-record(call_update_db_schema, {
+    db :: emqx_ds:db(), backend :: emqx_ds:backend(), schema :: db_schema()
+}).
 -record(call_update_db_config, {db :: emqx_ds:db(), conf :: db_runtime_config()}).
 -record(dispatch_pending, {scope :: pending_scope()}).
 
@@ -350,6 +355,11 @@ Return human-readable information about the DB useful for the operator.
 -callback db_info(emqx_ds:db()) -> {ok, human_readable()} | undefined.
 
 -doc """
+This is called when runtime config changes.
+""".
+-callback handle_db_config_change(emqx_ds:db(), db_runtime_config()) -> ok.
+
+-doc """
 Process schema event.
 
 This callback is called when a schema change affecting the DB is
@@ -392,9 +402,14 @@ via cluster change event.
 #{command := delete_peer, site := site()}
 ```
 
+4. Database schema has been updated:
+
+```
+#{command := change_schema, old := db_schema(), new := db_schema(), originator := site()}
+```
 
 """.
--callback handle_schema_change(emqx_ds:db(), pending_id(), pending()) -> _.
+-callback handle_schema_event(emqx_ds:db(), pending_id(), pending()) -> _.
 
 %%================================================================================
 %% API functions
@@ -540,8 +555,17 @@ Return an error otherwise.
 """.
 -spec ensure_db_schema(emqx_ds:db(), db_schema()) -> {ok, IsNew, db_schema()} | {error, _} when
     IsNew :: boolean().
-ensure_db_schema(DB, Schema = #{backend := Backend}) ->
+ensure_db_schema(DB, Schema = #{backend := Backend}) when is_atom(Backend) ->
     gen_server:call(?SERVER, #call_ensure_db_schema{db = DB, backend = Backend, schema = Schema}).
+
+-doc """
+Update DB schema.
+Backend will be notified via a pending command `change_schema`.
+""".
+-spec update_db_schema(emqx_ds:db(), db_schema()) -> ok | {error, _}.
+update_db_schema(DB, NewSchema = #{backend := Backend}) when is_atom(Backend) ->
+    %% TODO: first check that schema change operation isn't already pending.
+    gen_server:call(?SERVER, #call_update_db_schema{db = DB, backend = Backend, schema = NewSchema}).
 
 -spec drop_db_schema(emqx_ds:db()) -> ok | {error, _}.
 drop_db_schema(DB) ->
@@ -557,7 +581,6 @@ close_db(DB) ->
 
 -doc """
 Update runtime configuration of an open DB.
-Configurations are merged using `emqx_utils_maps:deep_merge` function.
 """.
 -spec update_db_config(emqx_ds:db(), db_runtime_config()) -> ok | {error, _}.
 update_db_config(DB, Config) ->
@@ -647,9 +670,9 @@ pending_task_entrypoint(Id, TaskDefn) ->
     case TaskDefn of
         #{scope := {db, DB}} ->
             #{cbm := CBM} = get_db_runtime(DB),
-            case erlang:function_exported(CBM, handle_schema_change, 3) of
+            case erlang:function_exported(CBM, handle_schema_event, 3) of
                 true ->
-                    CBM:handle_schema_change(DB, Id, TaskDefn);
+                    CBM:handle_schema_event(DB, Id, TaskDefn);
                 false ->
                     del_pending(Id)
             end
@@ -726,6 +749,8 @@ handle_call(#call_close_db{db = DB}, _From, S0) ->
     {reply, ok, do_close_db(DB, S0)};
 handle_call(#call_ensure_db_schema{db = DB, backend = Backend, schema = NewDBSchema}, _From, S) ->
     do_ensure_db_schema(DB, Backend, NewDBSchema, S);
+handle_call(#call_update_db_schema{db = DB, backend = NewBackend, schema = NewSchema}, _From, S) ->
+    do_update_db_schema(DB, NewBackend, NewSchema, S);
 handle_call(#sop_drop_db{db = DB}, _From, S) ->
     do_drop_db(DB, S);
 handle_call(#call_register_backend{alias = Alias, cbm = CBM}, _From, S) ->
@@ -828,16 +853,26 @@ do_open_db(DB, RuntimeConf, S0 = #s{dbs = DBs}) ->
 -spec do_update_db_config(emqx_ds:db(), db_runtime_config(), s()) -> {ok, s()} | {error, _}.
 do_update_db_config(DB, NewConf, S0 = #s{dbs = DBs}) ->
     maybe
-        #{DB := DBstate0 = #dbs{rtconf = OldConf, gvars = GVars}} ?= DBs,
+        #{DB := DBstate0 = #dbs{gvars = GVars}} ?= DBs,
         {ok, DBSchema} ?= lookup_db_schema(DB, S0),
         #{backend := Backend} = DBSchema,
         {ok, CBM} ?= lookup_backend_cbm(Backend, S0),
-        MergedConf = emqx_utils_maps:deep_merge(OldConf, NewConf),
-        DBstate = DBstate0#dbs{rtconf = MergedConf},
+        DBstate = DBstate0#dbs{rtconf = NewConf},
         S = S0#s{
             dbs = DBs#{DB := DBstate}
         },
-        set_db_runtime(DB, CBM, GVars, MergedConf),
+        set_db_runtime(DB, CBM, GVars, NewConf),
+        %% Notify backend:
+        try
+            _ = CBM:handle_db_config_change(DB, NewConf)
+        catch
+            EC:Err:Stack ->
+                ?tp(
+                    warning,
+                    emqx_dsch_handle_update_config_crash,
+                    #{db => DB, conf => NewConf, EC => Err, stack => Stack}
+                )
+        end,
         {ok, S}
     else
         #{} ->
@@ -929,7 +964,7 @@ do_del_pending(Id, S0 = #s{sch = Pdata, pending = Tasks0}) ->
     case Pend0 of
         #{Id := _} ->
             Tasks = emqx_ds_pending_task_sup:terminate_task(Id, Tasks0),
-            ?tp(warning, "Interrupted ongoing schema change", #{id => Id}),
+            ?tp(info, "Completed schema change", #{id => Id}),
             {ok, S} = modify_schema([#sop_del_pending{id = Id}], S0),
             S#s{pending = Tasks};
         #{} ->
@@ -993,6 +1028,31 @@ do_ensure_db_schema(DB, Backend, NewDBSchema, S0) ->
             Reply1 = {error, {backend_mismatch, OldBackend, Backend}},
             {reply, Reply1, S0};
         {error, _} = Err ->
+            {reply, Err, S0}
+    end.
+
+-spec do_update_db_schema(emqx_ds:db(), emqx_ds:backend(), db_schema(), s()) ->
+    {reply, ok | {error, _}, s()}.
+do_update_db_schema(DB, NewBackend, NewDBSchema, S0) ->
+    maybe
+        {ok, OldDBSchema} ?= lookup_db_schema(DB, S0),
+        #{backend := OldBackend} = OldDBSchema,
+        true ?= OldBackend =:= NewBackend orelse {error, backend_cannot_be_changed},
+        {ok, S1} ?= modify_schema([#sop_set_db{db = DB, schema = NewDBSchema}], S0),
+        {ok, S} ?=
+            do_add_pending(
+                {db, DB},
+                change_schema,
+                #{
+                    old => OldDBSchema,
+                    new => NewDBSchema,
+                    originator => this_site()
+                },
+                S1
+            ),
+        {reply, ok, S}
+    else
+        Err ->
             {reply, Err, S0}
     end.
 

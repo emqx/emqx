@@ -280,44 +280,96 @@ t_040_drop_db_schema(_Config) ->
 %%
 %% 1. It's impossible to update runtime configuration of a DB that isn't open.
 %%
-%% 2. Runtime config should be merged using `deep_merge'
+%% 2. Backend is notified about the changes
 %%
 %% 3. Other constants (Schema, CBM, gvars table) shouldn't change
 t_050_update_db_config(_Config) ->
     RTconf1 = #{foo => #{1 => 2, 2 => 3}, bar => baz},
     Patch1 = #{foo => #{1 => 3}, baz => quux},
-    ok = emqx_dsch:register_backend(test, ?MODULE),
-    {ok, true, DBSchema} = emqx_dsch:ensure_db_schema(test_db, #{backend => test, foo => bar}),
-    %% It should be impossible to update state of a closed db:
-    ?assertMatch(
-        {error, {database_is_not_open, test_db}},
-        emqx_dsch:update_db_config(test_db, Patch1)
-    ),
-    %% Open DB:
-    ?assertMatch(ok, emqx_dsch:open_db(test_db, RTconf1)),
-    #{
-        cbm := ?MODULE,
-        gvars := GVars,
-        runtime := RTconf1
-    } = emqx_dsch:get_db_runtime(test_db),
-    %% Patch its config:
-    ?assertMatch(ok, emqx_dsch:update_db_config(test_db, Patch1)),
-    #{
-        cbm := ?MODULE,
-        gvars := GVars,
-        runtime := #{foo := #{1 := 3, 2 := 3}, bar := baz, baz := quux}
-    } = emqx_dsch:get_db_runtime(test_db),
-    %% Patch it again (without actual changes):
-    ?assertMatch(ok, emqx_dsch:update_db_config(test_db, #{})),
-    #{
-        cbm := ?MODULE,
-        gvars := GVars,
-        runtime := #{foo := #{1 := 3, 2 := 3}, bar := baz, baz := quux}
-    } = emqx_dsch:get_db_runtime(test_db),
-    %% DB schema is not affected by any of this:
-    ?assertEqual(
-        DBSchema,
-        emqx_dsch:get_db_schema(test_db)
+    ?check_trace(
+        begin
+            ok = emqx_dsch:register_backend(test, ?MODULE),
+            {ok, true, DBSchema} = emqx_dsch:ensure_db_schema(test_db, #{
+                backend => test, foo => bar
+            }),
+            %% It should be impossible to update state of a closed db:
+            ?assertMatch(
+                {error, {database_is_not_open, test_db}},
+                emqx_dsch:update_db_config(test_db, Patch1)
+            ),
+            %% Open DB:
+            ?assertMatch(ok, emqx_dsch:open_db(test_db, RTconf1)),
+            #{
+                cbm := ?MODULE,
+                gvars := GVars,
+                runtime := RTconf1
+            } = emqx_dsch:get_db_runtime(test_db),
+            %% Patch its config:
+            ?assertMatch(ok, emqx_dsch:update_db_config(test_db, Patch1)),
+            #{
+                cbm := ?MODULE,
+                gvars := GVars,
+                runtime := Patch1
+            } = emqx_dsch:get_db_runtime(test_db),
+            %% Patch it again (without actual changes):
+            ?assertMatch(ok, emqx_dsch:update_db_config(test_db, #{})),
+            #{
+                cbm := ?MODULE,
+                gvars := GVars,
+                runtime := #{}
+            } = emqx_dsch:get_db_runtime(test_db),
+            %% DB schema is not affected by any of this:
+            ?assertEqual(
+                DBSchema,
+                emqx_dsch:get_db_schema(test_db)
+            )
+        end,
+        fun(Trace) ->
+            %% Verify that callbacks have been executed:
+            ?assertEqual(
+                [
+                    {test_db, Patch1},
+                    {test_db, #{}}
+                ],
+                ?projection([db, conf], ?of_kind(test_config_change, Trace))
+            )
+        end
+    ).
+
+%% This testcase verifies that DB schema can be updated while DB is
+%% offline, and the backend is notified about the changes.
+t_051_update_db_schema(_Config) ->
+    DB = test_db,
+    ?check_trace(
+        begin
+            ok = emqx_dsch:register_backend(test, ?MODULE),
+            {ok, true, _} = emqx_dsch:ensure_db_schema(DB, #{
+                backend => test, foo => bar
+            }),
+            ?assertMatch(
+                {error, backend_cannot_be_changed},
+                emqx_dsch:update_db_schema(DB, #{backend => other})
+            ),
+            ?assertMatch(
+                ok,
+                emqx_dsch:update_db_schema(DB, #{backend => test, foo => baz})
+            ),
+            ?assertMatch(
+                #{backend := test, foo := baz},
+                emqx_dsch:get_db_schema(DB)
+            ),
+            ?assertMatch(
+                [
+                    {_, #{
+                        command := change_schema,
+                        old := #{backend := test, foo := bar},
+                        new := #{backend := test, foo := baz}
+                    }}
+                ],
+                maps:to_list(emqx_dsch:list_pending({db, DB}))
+            )
+        end,
+        []
     ).
 
 %% This testcase verifies operations with the cluster and peers.
@@ -643,7 +695,7 @@ t_100_action_execution(_Config) ->
                 {ok, {ok, _}},
                 ?wait_async_action(
                     emqx_dsch:close_db(DB),
-                    #{?snk_kind := "Interrupted ongoing schema change"}
+                    #{?snk_kind := "Completed schema change"}
                 )
             )
         end,
@@ -703,9 +755,12 @@ t_200_gvars(_Config) ->
         L
     ).
 
-handle_schema_change(DB, ChangeId, Task) ->
+handle_schema_event(DB, ChangeId, Task) ->
     ?tp(info, test_schema_change, #{db => DB, id => ChangeId, task => Task}),
     emqx_dsch:del_pending(ChangeId).
+
+handle_db_config_change(DB, NewConf) ->
+    ?tp(info, test_config_change, #{db => DB, conf => NewConf}).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
