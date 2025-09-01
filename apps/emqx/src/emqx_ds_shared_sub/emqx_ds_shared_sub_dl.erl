@@ -99,7 +99,6 @@ This module abstracts all CRUD operations on the shared sub leader durable state
 
 -type lifetime() :: new | up.
 
-%% base62-encoded binary
 -type cursor() :: binary() | '$end_of_table'.
 
 %%================================================================================
