@@ -79,9 +79,9 @@ emqx_prepare(){
     if [ ! -d "${PAHO_MQTT_TESTING_PATH}" ]; then
         git clone -b develop-4.0 https://github.com/emqx/paho.mqtt.testing.git "${PAHO_MQTT_TESTING_PATH}"
     fi
-    # Debian 12 and Ubuntu 24.04 complain if we don't use venv
+    # Debian 12/13 and Ubuntu 24.04 complain if we don't use venv
     case "${SYSTEM:-}" in
-        debian12|ubuntu24.04)
+        debian12|debian13|ubuntu24.04)
             apt-get update -y && apt-get install -y virtualenv
             virtualenv venv
             # https://www.shellcheck.net/wiki/SC1091

@@ -1,5 +1,5 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.5-5:1.15.7-26.2.5.14-1-debian12
-ARG RUN_FROM=debian:12-slim
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.6-1:1.15.7-26.2.5.14-1-debian13
+ARG RUN_FROM=debian:13-slim
 ARG SOURCE_TYPE=src # tgz
 
 FROM ${BUILD_FROM} AS builder_src
@@ -10,7 +10,7 @@ ARG PROFILE=emqx
 ARG PKG_VSN
 ARG SUFFIX
 ARG TARGETARCH
-ONBUILD COPY ${PROFILE}-${PKG_VSN}${SUFFIX}-debian12-$TARGETARCH.tar.gz /${PROFILE}.tar.gz
+ONBUILD COPY ${PROFILE}-${PKG_VSN}${SUFFIX}-debian13-$TARGETARCH.tar.gz /${PROFILE}.tar.gz
 
 FROM builder_${SOURCE_TYPE} AS builder
 
