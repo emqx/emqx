@@ -27,7 +27,7 @@ tags() ->
     [<<"Rule Engine">>].
 
 roots() ->
-    [{"rule_engine", ?HOCON(?R_REF("rule_engine"), #{importance => ?IMPORTANCE_HIDDEN})}].
+    [{"rule_engine", ?HOCON(?R_REF("rule_engine"), #{})}].
 
 fields("rule_engine") ->
     rule_engine_settings() ++
