@@ -135,7 +135,14 @@ fields(message_queue) ->
             })}
     ];
 fields(message_queue_api_put) ->
-    without_fields([topic_filter, is_lastvalue], fields(message_queue)).
+    without_fields([topic_filter, is_lastvalue], fields(message_queue));
+fields(message_queue_api_get) ->
+    fields(message_queue);
+fields(message_queues_api_get) ->
+    [
+        {data, mk(array(ref(message_queue_api_get)), #{})},
+        {meta, mk(ref(emqx_dashboard_swagger, meta_with_cursor), #{})}
+    ].
 
 desc(_) ->
     undefined.
@@ -146,6 +153,9 @@ desc(_) ->
 
 mk(Type, Meta) ->
     hoconsc:mk(Type, Meta).
+ref(Struct) -> hoconsc:ref(?MODULE, Struct).
+ref(Module, Struct) -> hoconsc:ref(Module, Struct).
+array(Type) -> hoconsc:array(Type).
 
 enum(Values) -> hoconsc:enum(Values).
 

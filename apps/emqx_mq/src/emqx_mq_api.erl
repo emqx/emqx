@@ -46,14 +46,17 @@ schema("/message_queues") ->
             tags => ?TAGS,
             summary => <<"List all message queues">>,
             description => ?DESC(message_queues_list),
-            parameters => [],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, cursor),
+                hoconsc:ref(emqx_dashboard_swagger, limit)
+            ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    hoconsc:array(ref(emqx_mq_schema, message_queue)),
-                    [get_message_queue_example()]
+                    hoconsc:array(ref(emqx_mq_schema, message_queues_api_get)),
+                    get_message_queues_example()
                 ),
-                404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Message queue not found">>
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'], <<"Bad cursor">>
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
@@ -184,14 +187,37 @@ get_message_queue_example() ->
 post_message_queue_example() ->
     get_message_queue_example().
 
+get_message_queues_example() ->
+    #{
+        data => [get_message_queue_example()],
+        meta => #{
+            <<"cursor">> => <<"g2wAAAADYQFhAm0AAAACYzJq">>,
+            <<"hasnext">> => true
+        }
+    }.
+
 %%--------------------------------------------------------------------
 %% Minirest handlers
 %%--------------------------------------------------------------------
 
-'/message_queues'(get, _Params) ->
-    %% TODO
-    %% Add pagination
-    {200, get_message_queues()};
+'/message_queues'(get, #{query_string := QString}) ->
+    EncodedCursor = maps:get(<<"cursor">>, QString, undefined),
+    Limit = maps:get(<<"limit">>, QString),
+    case decode_cursor(EncodedCursor) of
+        {ok, Cursor} ->
+            {MessageQueues, CursorNext} = get_message_queues(Cursor, Limit),
+            case CursorNext of
+                undefined ->
+                    {200, #{data => MessageQueues, meta => #{hasnext => false}}};
+                _ ->
+                    {200, #{
+                        data => MessageQueues,
+                        meta => #{cursor => encode_cursor(CursorNext), hasnext => true}
+                    }}
+            end;
+        bad_cursor ->
+            {400, #{code => 'BAD_REQUEST', message => <<"Bad cursor">>}}
+    end;
 '/message_queues'(post, #{body := NewMessageQueueRaw}) ->
     case add_message_queue(NewMessageQueueRaw) of
         {ok, CreatedMessageQueueRaw} ->
@@ -230,11 +256,22 @@ post_message_queue_example() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-get_message_queues() ->
-    [
-        emqx_mq_config:mq_to_raw_config(MQ)
-     || MQ <- emqx_utils_stream:consume(emqx_mq_registry:list())
-    ].
+get_message_queues(Cursor, Limit) ->
+    {MessageQueues, CursorNext} = emqx_mq_registry:list(Cursor, Limit),
+    {[emqx_mq_config:mq_to_raw_config(MQ) || MQ <- MessageQueues], CursorNext}.
+
+encode_cursor(Cursor) ->
+    emqx_base62:encode(Cursor).
+
+decode_cursor(undefined) ->
+    {ok, undefined};
+decode_cursor(EncodedCursor) ->
+    try
+        {ok, emqx_base62:decode(EncodedCursor)}
+    catch
+        _:_ ->
+            bad_cursor
+    end.
 
 add_message_queue(NewMessageQueueRaw) ->
     NewMessageQueue = emqx_mq_config:mq_from_raw_config(NewMessageQueueRaw),

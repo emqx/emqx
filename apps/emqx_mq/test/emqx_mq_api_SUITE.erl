@@ -54,7 +54,7 @@ end_per_testcase(_CaseName, _Config) ->
 
 t_crud(_Config) ->
     ?assertMatch(
-        {ok, 200, []},
+        {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
         api_get([message_queues])
     ),
     ?assertMatch(
@@ -69,13 +69,12 @@ t_crud(_Config) ->
         5,
         20,
         ?assertMatch(
-            {ok, 200, [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 9999}]},
+            {ok, 200, #{
+                <<"data">> := [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 9999}],
+                <<"meta">> := #{<<"hasnext">> := false}
+            }},
             api_get([message_queues])
         )
-    ),
-    ?assertMatch(
-        {ok, 200, [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 9999}]},
-        api_get([message_queues])
     ),
     ?assertMatch(
         {ok, 404, _},
@@ -90,7 +89,10 @@ t_crud(_Config) ->
         )
     ),
     ?assertMatch(
-        {ok, 200, [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}]},
+        {ok, 200, #{
+            <<"data">> := [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}],
+            <<"meta">> := #{<<"hasnext">> := false}
+        }},
         api_get([message_queues])
     ),
     ?assertMatch(
@@ -109,9 +111,33 @@ t_crud(_Config) ->
         5,
         20,
         ?assertMatch(
-            {ok, 200, []},
+            {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
             api_get([message_queues])
         )
+    ).
+
+t_pagination(_Config) ->
+    %% Create 10 MQs and fetch them in batches of 6.
+    lists:foreach(
+        fun(I) ->
+            IBin = integer_to_binary(I),
+            api_post([message_queues], #{<<"topic_filter">> => <<"t/", IBin/binary>>})
+        end,
+        lists:seq(1, 10)
+    ),
+    {ok, 200, #{
+        <<"data">> := Data0, <<"meta">> := #{<<"hasnext">> := true, <<"cursor">> := Cursor}
+    }} =
+        api_get([message_queues, "?limit=6"]),
+    ?assertEqual(6, length(Data0)),
+    {ok, 200, #{<<"data">> := Data1, <<"meta">> := #{<<"hasnext">> := false}}} =
+        api_get([message_queues, "?limit=6&cursor=" ++ urlencode(Cursor)]),
+    ?assertEqual(4, length(Data1)),
+
+    %% Check that we do not crash on invalid cursor
+    ?assertMatch(
+        {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        api_get([message_queues, "?limit=6&cursor=%10%13"])
     ).
 
 %%--------------------------------------------------------------------

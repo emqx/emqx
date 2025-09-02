@@ -17,7 +17,8 @@ The module contains the registry of Message Queues.
     match/1,
     delete/1,
     update/2,
-    list/0
+    list/0,
+    list/2
 ]).
 
 %% Only for testing/debugging.
@@ -34,6 +35,8 @@ The module contains the registry of Message Queues.
     is_lastvalue :: boolean() | '_',
     extra = #{} :: map() | '_'
 }).
+
+-type cursor() :: emqx_topic_index:key(nil()) | undefined.
 
 %%--------------------------------------------------------------------
 %% API
@@ -186,6 +189,63 @@ List all MQs.
 """.
 -spec list() -> emqx_utils_stream:stream(emqx_mq_types:mq()).
 list() ->
+    mq_record_stream_to_queues(mq_record_stream()).
+
+-doc """
+List at most `Limit` MQs starting from `Cursor` position.
+""".
+-spec list(cursor(), non_neg_integer()) -> {[emqx_mq_types:mq()], cursor()}.
+list(Cursor, Limit) ->
+    MQs = emqx_utils_stream:consume(
+        emqx_utils_stream:limit_length(
+            Limit,
+            mq_record_stream_to_queues(mq_record_stream(Cursor))
+        )
+    ),
+    case length(MQs) < Limit of
+        true ->
+            {MQs, undefined};
+        false ->
+            #{topic_filter := TopicFilter} = lists:last(MQs),
+            NewCursor = TopicFilter,
+            {MQs, NewCursor}
+    end.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+mq_record_stream() ->
+    mq_record_stream(undefined).
+
+mq_record_stream(Cursor) ->
+    Stream = mq_ets_record_stream(key_from_cursor(Cursor)),
+    emqx_utils_stream:chainmap(
+        fun(L) -> L end,
+        Stream
+    ).
+
+key_from_cursor(undefined) ->
+    undefined;
+key_from_cursor(Cursor) ->
+    make_key(Cursor).
+
+mq_ets_record_stream(Key) ->
+    fun() ->
+        case next_key(Key) of
+            '$end_of_table' ->
+                [];
+            NextKey ->
+                [ets:lookup(?MQ_REGISTRY_INDEX_TAB, NextKey) | mq_ets_record_stream(NextKey)]
+        end
+    end.
+
+next_key(undefined) ->
+    ets:first(?MQ_REGISTRY_INDEX_TAB);
+next_key(Key) ->
+    ets:next(?MQ_REGISTRY_INDEX_TAB, Key).
+
+mq_record_stream_to_queues(Stream) ->
     emqx_utils_stream:chainmap(
         fun(#?MQ_REGISTRY_INDEX_TAB{id = Id}) ->
             case emqx_mq_state_storage:find_mq(Id) of
@@ -195,20 +255,8 @@ list() ->
                     []
             end
         end,
-        mq_record_stream()
+        Stream
     ).
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-mq_record_stream() ->
-    emqx_utils_stream:ets(fun
-        (undefined) ->
-            ets:match_object(?MQ_REGISTRY_INDEX_TAB, #?MQ_REGISTRY_INDEX_TAB{_ = '_'}, 1);
-        (Cont) ->
-            ets:match_object(Cont)
-    end).
 
 make_key(TopicFilter) ->
     emqx_topic_index:make_key(TopicFilter, []).
