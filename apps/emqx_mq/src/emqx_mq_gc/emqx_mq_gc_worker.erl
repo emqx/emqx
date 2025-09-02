@@ -4,8 +4,22 @@
 
 -module(emqx_mq_gc_worker).
 
--moduledoc "The module is responsible for garbage collection of Message "
-"Queue data.".
+-moduledoc """
+The module is responsible for garbage collection of Message Queue data (expired messages).
+
+This worker is periodically installed into MQ GC supervisor, runs one time GC,
+and exits.
+
+The logic of GC is different for different types of queues.
+
+- For regular queues, we use the same logic as the regular message database, i.e.
+regularly delete the expired slabs.
+- Then, for lastvalue queues, we iterate over all the queues and delete the expired data
+via ranged `tx_del_topic`.
+
+Each lastvalue queue GC is implemented as handling an individual message, to make
+the worker easily interruptable.
+""".
 
 -behaviour(gen_server).
 
