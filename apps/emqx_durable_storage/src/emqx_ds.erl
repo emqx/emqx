@@ -25,6 +25,7 @@ It takes care of forwarding calls to the underlying DBMS.
     shard_of/2,
     list_shards/1,
     list_slabs/1,
+    list_slabs/2,
     drop_slab/2,
     drop_db/1
 ]).
@@ -202,6 +203,14 @@ enabled are expected to support preconditions in batches.
 -type slab() :: {shard(), generation()}.
 
 -opaque iterator() :: ds_specific_iterator().
+
+-type list_slabs_opts() :: #{shard => shard()}.
+
+-type list_slabs_result() ::
+    {
+        _Slabs :: #{slab() => slab_info()},
+        _Errors :: [{shard(), error(_)}]
+    }.
 
 -doc """
 Options for limiting the number of streams.
@@ -483,8 +492,7 @@ must not assume the default values.
 -callback update_db_config(db(), emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()) ->
     {ok, emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()} | {error, _}.
 
--callback list_slabs(db()) ->
-    #{slab() => slab_info()}.
+-callback list_slabs(db(), list_slabs_opts()) -> list_slabs_result().
 
 -callback drop_slab(db(), slab()) -> ok | {error, _}.
 
@@ -712,10 +720,15 @@ update_db_config(DB, Patch) ->
 
 -spec list_slabs(db()) -> #{slab() => slab_info()}.
 list_slabs(DB) ->
+    {Ret, _Err} = list_slabs(DB, #{}),
+    Ret.
+
+-spec list_slabs(db(), list_slabs_opts()) -> list_slabs_result().
+list_slabs(DB, Opts) ->
     ?with_dsch(
         DB,
         #{cbm := Mod},
-        Mod:list_slabs(DB)
+        Mod:list_slabs(DB, Opts)
     ).
 
 -doc """
