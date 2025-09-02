@@ -74,10 +74,10 @@ jobs:
           name: changes
           path: changes.tar.gz
           retention-days: 7
-          
-      - name: Trigger update-changelog.yaml workflow in emqx/emqx-docs
+
+      - name: Trigger workflows in emqx/emqx-docs
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          gh --repo emqx/emqx-docs workflow run update-api-and-cfg-manual.yaml -f version=${TAG##e} -f run_id=${GITHUB_RUN_ID}
           gh --repo emqx/emqx-docs workflow run update-changelog.yaml -f version=${TAG} -f run_id=${GITHUB_RUN_ID}
-
