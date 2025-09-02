@@ -89,7 +89,8 @@ This is the entrypoint into the `builtin_raft` backend.
 
 %% Internal exports:
 -export([
-    current_timestamp/2
+    current_timestamp/2,
+    rpc_target_preference/1
 ]).
 
 -ifdef(TEST).
@@ -191,26 +192,25 @@ This is the entrypoint into the `builtin_raft` backend.
     end
 ).
 
-%% FIXME: this mechanism should be reworked.
-%%
-%% 1. Distinguish between read and write paths.
-%%
-%% 2. Make sure the read path uses cache
-%%
-%% 3. Use optimistic_tx_leader's pid (which is registered in `global`)
-%% to locate the leader?
--define(SHARD_RPC(DB, SHARD, NODE, BODY),
-    case
-        emqx_ds_builtin_raft_shard:servers(
-            DB, SHARD, rpc_target_preference(DB)
-        )
-    of
-        [{_, NODE} | _] ->
+-define(READ_RPC(DB, SHARD, NODE, BODY),
+    case reads_from_node(DB, SHARD) of
+        undefined ->
+            ?err_rec(replica_offline);
+        {ok, NODE} ->
             begin
                 BODY
-            end;
-        [] ->
-            ?err_rec(replica_offline)
+            end
+    end
+).
+
+-define(LEADER_RPC(DB, SHARD, NODE, BODY),
+    case leader_node(DB, SHARD) of
+        undefined ->
+            ?err_rec(leader_offline);
+        {ok, NODE} ->
+            begin
+                BODY
+            end
     end
 ).
 
@@ -315,7 +315,7 @@ list_slabs(DB) ->
     Shards = list_shards(DB),
     lists:foldl(
         fun(Shard, GensAcc) ->
-            Result = ?SHARD_RPC(
+            Result = ?READ_RPC(
                 DB,
                 Shard,
                 Node,
@@ -388,7 +388,7 @@ get_streams(DB, TopicFilter, StartTime, Opts) ->
         end,
     MinGeneration = maps:get(generation_min, Opts, 0),
     Fun = fun(Shard, {Acc, AccErr}) ->
-        Result = ?SHARD_RPC(
+        Result = ?READ_RPC(
             DB,
             Shard,
             Node,
@@ -423,7 +423,7 @@ get_streams(DB, TopicFilter, StartTime, Opts) ->
 -spec make_iterator(emqx_ds:db(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(emqx_ds:ds_specific_iterator()).
 make_iterator(DB, Stream = #'Stream'{shard = Shard}, TopicFilter, StartTime) ->
-    ?SHARD_RPC(
+    ?READ_RPC(
         DB,
         Shard,
         Node,
@@ -442,7 +442,7 @@ make_iterator(DB, Stream = #'Stream'{shard = Shard}, TopicFilter, StartTime) ->
 -spec next(emqx_ds:db(), iterator(), emqx_ds:next_limit()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter = #'Iterator'{shard = Shard}, Limit) ->
     T0 = erlang:monotonic_time(microsecond),
-    Result = ?SHARD_RPC(
+    Result = ?READ_RPC(
         DB,
         Shard,
         Node,
@@ -464,7 +464,7 @@ next(DB, Iter = #'Iterator'{shard = Shard}, Limit) ->
 -spec subscribe(emqx_ds:db(), iterator(), emqx_ds:sub_opts()) ->
     {ok, emqx_ds:subscription_handle(), emqx_ds:sub_ref()} | emqx_ds:error(_).
 subscribe(DB, #'Iterator'{shard = Shard} = It, SubOpts) ->
-    ?SHARD_RPC(
+    ?LEADER_RPC(
         DB,
         Shard,
         Node,
@@ -558,7 +558,7 @@ new_tx(DB, Options = #{shard := ShardOpt, generation := Generation}) ->
         Shard ->
             ok
     end,
-    ?SHARD_RPC(
+    ?LEADER_RPC(
         DB,
         Shard,
         Node,
@@ -1005,6 +1005,31 @@ proto_vsn(API, Node) ->
     case emqx_bpapi:supported_version(Node, API) of
         undefined -> -1;
         N when is_integer(N) -> N
+    end.
+
+reads_from_node(DB, Shard) ->
+    %% TODO: Investigate whether reading from the followers can boost
+    %% performance at all.
+    %%
+    %% case rpc_target_preference(DB) of
+    %%     leader_preferred ->
+    %%         leader_node(DB, Shard);
+    %%     local_preferred ->
+    %%         case emqx_ds_builtin_raft_shard:servers(DB, Shard, local_preferred) of
+    %%             [{_, Node} | _] ->
+    %%                 {ok, Node};
+    %%             [] ->
+    %%                 undefined
+    %%         end
+    %% end.
+    leader_node(DB, Shard).
+
+leader_node(DB, Shard) ->
+    case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred) of
+        [{_, Node} | _] ->
+            {ok, Node};
+        [] ->
+            undefined
     end.
 
 -ifdef(TEST).
