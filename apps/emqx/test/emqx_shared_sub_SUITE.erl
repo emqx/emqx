@@ -1408,6 +1408,7 @@ setup_node(Node, Port) ->
             ok = emqx_config:put([listeners, ssl, default, bind], {{127, 0, 0, 1}, Port + 1}),
             ok = emqx_config:put([listeners, ws, default, bind], {{127, 0, 0, 1}, Port + 3}),
             ok = emqx_config:put([listeners, wss, default, bind], {{127, 0, 0, 1}, Port + 4}),
+            ok = emqx_config:put([authorization, no_match], allow),
             ok
         end,
 
