@@ -61,6 +61,11 @@ jobs:
               echo "s3dir=emqx-ee" >> $GITHUB_OUTPUT
               ;;
           esac
+      - uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
       - name: Get packages
         run: |
           BUCKET=${{ secrets.AWS_S3_BUCKET }}
@@ -100,6 +105,8 @@ jobs:
           push "debian/bullseye" "packages/$PROFILE-$VERSION-debian11-arm64.deb"
           push "debian/bookworm" "packages/$PROFILE-$VERSION-debian12-amd64.deb"
           push "debian/bookworm" "packages/$PROFILE-$VERSION-debian12-arm64.deb"
+          push "debian/trixie" "packages/$PROFILE-$VERSION-debian13-amd64.deb"
+          push "debian/trixie" "packages/$PROFILE-$VERSION-debian13-arm64.deb"
           push "ubuntu/focal" "packages/$PROFILE-$VERSION-ubuntu20.04-amd64.deb"
           push "ubuntu/focal" "packages/$PROFILE-$VERSION-ubuntu20.04-arm64.deb"
           push "ubuntu/jammy" "packages/$PROFILE-$VERSION-ubuntu22.04-amd64.deb"

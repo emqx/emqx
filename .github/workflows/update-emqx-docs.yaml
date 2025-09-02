@@ -92,4 +92,5 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          gh --repo emqx/emqx-docs workflow run update-api-and-cfg-manual.yaml -f version=${TAG##e} -f run_id=${GITHUB_RUN_ID}
           gh --repo emqx/emqx-docs workflow run update-changelog.yaml -f version=${TAG} -f run_id=${GITHUB_RUN_ID}

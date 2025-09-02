@@ -304,9 +304,9 @@ update_listener(Type, Name, Conf = #{enable := true}, #{enable := false}) ->
 update_listener(Type, Name, #{enable := false}, Conf = #{enable := true}) ->
     start_listener(Type, Name, Conf);
 update_listener(Type, Name, OldConf, NewConf) ->
+    ok = emqx_limiter:update_listener_limiters(listener_id(Type, Name), NewConf),
     case do_update_listener(Type, Name, OldConf, NewConf) of
         ok ->
-            ok = emqx_limiter:update_listener_limiters(listener_id(Type, Name), NewConf),
             ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
             ok;
         {skip, Error} when Type =:= quic ->

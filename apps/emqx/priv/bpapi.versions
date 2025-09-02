@@ -71,8 +71,8 @@
 {emqx_mgmt_cluster,3}.
 {emqx_mgmt_data_backup,1}.
 {emqx_mgmt_data_backup,2}.
-{emqx_mgmt_trace,1}.
 {emqx_mgmt_trace,2}.
+{emqx_mgmt_trace,3}.
 {emqx_mt_config,1}.
 {emqx_node_rebalance,1}.
 {emqx_node_rebalance,2}.

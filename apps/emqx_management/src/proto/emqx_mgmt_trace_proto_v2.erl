@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     trace_file/2,
     trace_file_detail/2,
@@ -19,6 +20,9 @@
 
 introduced_in() ->
     "5.0.10".
+
+deprecated_since() ->
+    "5.10.0".
 
 -spec get_trace_size([node()]) ->
     emqx_rpc:multicall_result(#{{node(), file:name_all()} => non_neg_integer()}).
