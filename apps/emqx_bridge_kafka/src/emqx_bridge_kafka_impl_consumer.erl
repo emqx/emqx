@@ -665,7 +665,14 @@ check_client_connectivity(ClientPid) ->
             {?status_disconnected, maybe_clean_error(Reason)};
         {error, Reason} ->
             %% `brod' should have already logged the client being down.
-            {?status_disconnected, maybe_clean_error(Reason)};
+            case maybe_clean_error(Reason) of
+                {group_authorization_failed, _} ->
+                    %% We're connected.
+                    ?tp("kafka_consumer_hc_group_acl_deny", #{}),
+                    ?status_connected;
+                CleanReason ->
+                    {?status_disconnected, CleanReason}
+            end;
         {ok, _Metadata} ->
             ?status_connected
     end.
