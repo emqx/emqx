@@ -222,89 +222,10 @@ no_tls() ->
     #{<<"enable">> => false}.
 
 connector_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my connector">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"bootstrap_hosts">> => <<"kafka-1.emqx.net:9092">>,
-        <<"connect_timeout">> => <<"5s">>,
-        <<"metadata_request_timeout">> => <<"5s">>,
-        <<"min_metadata_refresh_interval">> => <<"3s">>,
-        <<"socket_opts">> =>
-            #{
-                <<"recbuf">> => <<"1024KB">>,
-                <<"sndbuf">> => <<"1024KB">>,
-                <<"tcp_keepalive">> => <<"none">>
-            },
-        <<"ssl">> =>
-            #{
-                <<"ciphers">> => [],
-                <<"depth">> => 10,
-                <<"enable">> => false,
-                <<"hibernate_after">> => <<"5s">>,
-                <<"log_level">> => <<"notice">>,
-                <<"reuse_sessions">> => true,
-                <<"secure_renegotiate">> => true,
-                <<"verify">> => <<"verify_peer">>,
-                <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
-            },
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_connector_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_kafka_testlib:action_connector_config(Overrides).
 
 action_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my action">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"parameters">> => #{
-            <<"buffer">> => #{
-                <<"memory_overload_protection">> => false,
-                <<"mode">> => <<"memory">>,
-                <<"per_partition_limit">> => <<"2GB">>,
-                <<"segment_bytes">> => <<"100MB">>
-            },
-            <<"compression">> => <<"no_compression">>,
-            <<"kafka_header_value_encode_mode">> => <<"json">>,
-            <<"max_linger_time">> => <<"0ms">>,
-            <<"max_linger_bytes">> => <<"10MB">>,
-            <<"max_batch_bytes">> => <<"896KB">>,
-            <<"max_inflight">> => 10,
-            <<"message">> => #{
-                <<"key">> => <<"${.clientid}">>,
-                <<"timestamp">> => <<"${.timestamp}">>,
-                <<"value">> => <<"${.payload}">>
-            },
-            <<"partition_count_refresh_interval">> => <<"60s">>,
-            <<"partition_strategy">> => <<"random">>,
-            <<"query_mode">> => <<"sync">>,
-            <<"required_acks">> => <<"all_isr">>,
-            <<"sync_query_timeout">> => <<"5s">>,
-            <<"topic">> => <<"test-topic-one-partition">>
-        },
-        <<"resource_opts">> =>
-            maps:without(
-                [
-                    <<"batch_size">>,
-                    <<"batch_time">>,
-                    <<"buffer_mode">>,
-                    <<"buffer_seg_bytes">>,
-                    <<"health_check_interval_jitter">>,
-                    <<"inflight_window">>,
-                    <<"max_buffer_bytes">>,
-                    <<"metrics_flush_interval">>,
-                    <<"query_mode">>,
-                    <<"request_ttl">>,
-                    <<"resume_interval">>,
-                    <<"worker_pool_size">>
-                ],
-                emqx_bridge_v2_testlib:common_action_resource_opts()
-            )
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_kafka_testlib:action_config(Overrides).
 
 no_auth() ->
     emqx_bridge_kafka_testlib:no_auth().

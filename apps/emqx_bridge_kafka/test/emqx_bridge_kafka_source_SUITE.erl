@@ -262,40 +262,10 @@ no_tls() ->
     #{<<"enable">> => false}.
 
 connector_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my connector">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"bootstrap_hosts">> => <<"kafka-1.emqx.net:9092">>,
-        <<"authentication">> => no_auth(),
-        <<"connect_timeout">> => <<"5s">>,
-        <<"metadata_request_timeout">> => <<"5s">>,
-        <<"min_metadata_refresh_interval">> => <<"3s">>,
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_connector_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_kafka_testlib:source_connector_config(Overrides).
 
 source_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my action">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"parameters">> => #{
-            <<"key_encoding_mode">> => <<"none">>,
-            <<"max_batch_bytes">> => <<"896KB">>,
-            <<"max_wait_time">> => <<"500ms">>,
-            <<"max_rejoin_attempts">> => <<"5">>,
-            <<"offset_reset_policy">> => <<"earliest">>,
-            <<"topic">> => <<"please override">>,
-            <<"value_encoding_mode">> => <<"none">>
-        },
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_source_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check(source, ?SOURCE_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_kafka_testlib:source_config(Overrides).
 
 no_auth() ->
     emqx_bridge_kafka_testlib:no_auth().
