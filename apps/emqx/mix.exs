@@ -35,7 +35,7 @@ defmodule EMQX.MixProject do
     [
       %{
         src: "./src/emqx_persistent_session_ds/DurableSession.asn",
-        compile_opts: [:per, :noobj, :no_ok_wrapper, outdir: ~c"gen_src"]
+        compile_opts: [:ber, :noobj, :no_ok_wrapper, outdir: ~c"gen_src"]
       },
       %{
         src: "./src/emqx_persistent_session_ds/ChannelInfo.asn",

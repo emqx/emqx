@@ -1,54 +1,57 @@
-DurableSession DEFINITIONS AUTOMATIC TAGS ::=
+DurableSession DEFINITIONS ::=
 BEGIN
   ID ::= INTEGER(0..MAX)
 
   TopicFilter ::= SEQUENCE {
-    topic OCTET STRING,
-    group OCTET STRING OPTIONAL
+    topic [0] OCTET STRING,
+    group [1] OCTET STRING OPTIONAL
   }
 
   Subscription ::= SEQUENCE {
-    id ID,
-    currentState ID,
-    startTime INTEGER
+    id [0] ID,
+    currentState [1] ID,
+    startTime [2] INTEGER,
+    ...
   }
 
   Misc ::= SEQUENCE {
-    key OCTET STRING,
-    val OCTET STRING
+    key [0] OCTET STRING,
+    val [1] OCTET STRING
   }
 
   SubState ::= SEQUENCE {
-    parentSub ID,
+    parentSub [0] ID,
     -- Flags
-    upgradeQos BOOLEAN,
-    durable BOOLEAN,
+    upgradeQos [1] BOOLEAN,
+    durable [2] BOOLEAN,
     --
-    supersededBy ID OPTIONAL,
-    shareTopicFilter TopicFilter OPTIONAL,
+    supersededBy [3] ID OPTIONAL,
+    shareTopicFilter [4] TopicFilter OPTIONAL,
     --
-    miscSubopts SEQUENCE OF Misc
+    miscSubopts [5] SEQUENCE OF Misc,
+    ...
   }
 
   StreamKey ::= SEQUENCE {
-    subId ID,
-    stream OCTET STRING
+    subId [0] ID,
+    stream [1] OCTET STRING
   }
 
   SRS ::= SEQUENCE {
-    shard OCTET STRING,
-    generation INTEGER,
-    itBegin OCTET STRING,
+    shard [0] OCTET STRING,
+    generation [1] INTEGER,
+    itBegin [2] OCTET STRING,
     -- Strictly speaking, we don't have to store itEnd, as can be
     -- derived from batchSize and itBegin. It's used as for some
     -- checks, so it's worth having.
-    itEnd OCTET STRING OPTIONAL,
-    batchSize INTEGER,
-    firstSeqNoQoS1 INTEGER,
-    firstSeqNoQoS2 INTEGER,
-    lastSeqNoQoS1 INTEGER,
-    lastSeqNoQoS2 INTEGER,
-    unsubscribed BOOLEAN,
-    subscriptionState ID
+    itEnd [3] OCTET STRING OPTIONAL,
+    batchSize [4] INTEGER,
+    firstSeqNoQoS1 [5] INTEGER,
+    firstSeqNoQoS2 [6] INTEGER,
+    lastSeqNoQoS1 [7] INTEGER,
+    lastSeqNoQoS2 [8] INTEGER,
+    unsubscribed [9] BOOLEAN,
+    subscriptionState [10] ID,
+    ...
   }
 END
