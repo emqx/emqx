@@ -1031,10 +1031,10 @@ do_handle_event(enter, _OldState, ?recovering, _D) ->
 do_handle_event(enter, _OldState, _NewState, _D) ->
     keep_state_and_data;
 %% Perform initialization:
-do_handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, _}}) ->
-    try emqx_ds:list_slabs(DB) of
-        Generations ->
-            {next_state, ?busy, D#d{generations = Generations}}
+do_handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, Shard}}) ->
+    try
+        {Generations, []} = emqx_ds:list_slabs(DB, #{shard => Shard}),
+        {next_state, ?busy, D#d{generations = Generations}}
     catch
         _:_ ->
             {keep_state_and_data, {state_timeout, 1000, ?init_timeout}}
@@ -1053,9 +1053,14 @@ do_handle_event(
     _State,
     D = #d{dbshard = DBShard, generations = Gens0}
 ) ->
-    {DB, _} = DBShard,
+    {DB, Shard} = DBShard,
     %% Find slabs that have been sealed:
-    Gens = emqx_ds:list_slabs(DB),
+    {Gens, []} = ?tp_span(
+        debug,
+        ?MODULE_STRING "_generation_event",
+        #{db => DB, shard => Shard},
+        emqx_ds:list_slabs(DB, #{shard => Shard})
+    ),
     Sealed = diff_gens(DBShard, Gens0, Gens),
     %% Notify the RT workers:
     _ = [emqx_ds_beamformer_rt:seal_generation(DBShard, I) || I <- Sealed],
