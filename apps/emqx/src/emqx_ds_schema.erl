@@ -83,11 +83,14 @@ schema() ->
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(timers),
-                %% Latency for this DB should be low:
+                %% Latency for this DB should be low. Currently timers
+                %% are mostly used for events that have 1s resolution
+                %% (session expiration, will delay), so anything under
+                %% this value should be ok.
                 #{
                     <<"transaction">> => #{
                         <<"idle_flush_interval">> => <<"1ms">>,
-                        <<"flush_interval">> => <<"10ms">>
+                        <<"flush_interval">> => <<"500ms">>
                     }
                 }
             )},
