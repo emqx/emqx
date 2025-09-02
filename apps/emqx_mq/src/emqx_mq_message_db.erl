@@ -52,19 +52,20 @@ Facade for all operations with the message database.
     <<"topic">>, MQ_TOPIC, MQ_ID, <<"key">>, KEY
 ]).
 
--define(SHARDS_PER_SITE, 3).
-
--define(REPLICATION_FACTOR, 3).
-
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 -spec open() -> ok.
 open() ->
+    Config = maps:merge(emqx_mq_schema:db_mq_message(), #{
+        storage => {emqx_ds_storage_skipstream_lts_v2, ?MQ_MESSAGE_DB_LTS_SETTINGS},
+        store_ttv => true,
+        atomic_batches => true
+    }),
     maybe
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_LASTVALUE_DB, settings()),
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_REGULAR_DB, settings()),
+        ok ?= emqx_ds:open_db(?MQ_MESSAGE_LASTVALUE_DB, Config),
+        ok ?= emqx_ds:open_db(?MQ_MESSAGE_REGULAR_DB, Config),
         ok ?= emqx_ds:wait_db(?MQ_MESSAGE_LASTVALUE_DB, all, infinity),
         ok ?= emqx_ds:wait_db(?MQ_MESSAGE_REGULAR_DB, all, infinity)
     else
@@ -310,23 +311,3 @@ insert_generation(?MQ_MESSAGE_LASTVALUE_DB) ->
     1;
 insert_generation(?MQ_MESSAGE_REGULAR_DB) ->
     latest.
-
-settings() ->
-    NSites = length(emqx:running_nodes()),
-    #{
-        transaction =>
-            #{
-                flush_interval => 100,
-                idle_flush_interval => 20,
-                conflict_window => 5000
-            },
-        storage =>
-            {emqx_ds_storage_skipstream_lts_v2, ?MQ_MESSAGE_DB_LTS_SETTINGS},
-        store_ttv => true,
-        atomic_batches => true,
-        backend => builtin_raft,
-        n_shards => NSites * ?SHARDS_PER_SITE,
-        replication_options => #{},
-        n_sites => NSites,
-        replication_factor => ?REPLICATION_FACTOR
-    }.

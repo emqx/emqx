@@ -10,7 +10,7 @@
 %% `hocon_schema' API
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
--export([db_mq_state/0]).
+-export([db_mq_state/0, db_mq_message/0]).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -19,6 +19,10 @@
 -spec db_mq_state() -> emqx_ds:create_db_opts().
 db_mq_state() ->
     emqx_ds_schema:db_config([mq, state_db]).
+
+-spec db_mq_message() -> emqx_ds:create_db_opts().
+db_mq_message() ->
+    emqx_ds_schema:db_config([mq, message_db]).
 
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
@@ -43,6 +47,14 @@ fields(mq) ->
                     desc => ?DESC(state_db)
                 }
             )},
+        {message_db,
+            emqx_ds_schema:db_schema(
+                [builtin_raft_ttv, builtin_local_ttv],
+                #{
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(message_db)
+                }
+            )},
         {gc_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1h">>, required => true, desc => ?DESC(gc_interval)
@@ -64,6 +76,18 @@ fields(message_queue) ->
                     default => true
                 }
             )},
+        {data_retention_period,
+            mk(emqx_schema:duration_ms(), #{
+                desc => ?DESC(data_retention_period),
+                required => false,
+                default => <<"7d">>
+            })},
+        {dispatch_strategy,
+            mk(enum([random, least_inflight, round_robin]), #{
+                desc => ?DESC(dispatch_strategy),
+                required => false,
+                default => random
+            })},
         {consumer_max_inactive,
             mk(emqx_schema:duration_ms(), #{
                 desc => ?DESC(consumer_max_inactive),
@@ -119,19 +143,6 @@ fields(message_queue) ->
                 required => false,
                 importance => ?IMPORTANCE_HIDDEN,
                 default => <<"10s">>
-            })},
-        {data_retention_period,
-            mk(emqx_schema:duration_ms(), #{
-                desc => ?DESC(data_retention_period),
-                required => false,
-                importance => ?IMPORTANCE_HIDDEN,
-                default => <<"7d">>
-            })},
-        {dispatch_strategy,
-            mk(enum([random, least_inflight, round_robin]), #{
-                desc => ?DESC(dispatch_strategy),
-                required => false,
-                default => random
             })}
     ];
 fields(message_queue_api_put) ->
@@ -144,6 +155,8 @@ fields(message_queues_api_get) ->
         {meta, mk(ref(emqx_dashboard_swagger, meta_with_cursor), #{})}
     ].
 
+desc(mq) ->
+    ?DESC(mq);
 desc(_) ->
     undefined.
 

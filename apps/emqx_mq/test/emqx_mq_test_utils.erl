@@ -156,7 +156,14 @@ cth_config() ->
 cth_config(ConfigOverrides) ->
     DefaultConfig = #{
         <<"mq">> => #{
-            <<"gc_interval">> => <<"1h">>
+            <<"gc_interval">> => <<"1h">>,
+            <<"message_db">> => #{
+                <<"transaction">> => #{
+                    <<"flush_interval">> => 100,
+                    <<"idle_flush_interval">> => 20,
+                    <<"conflict_window">> => 5000
+                }
+            }
         }
     },
     Config = emqx_utils_maps:deep_merge(DefaultConfig, ConfigOverrides),
