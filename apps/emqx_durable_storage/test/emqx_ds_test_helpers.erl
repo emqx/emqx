@@ -304,6 +304,7 @@ retry_dirty_append(Shard, Opts, TTVs, Retries) ->
         ok ->
             ok;
         _ when Retries > 0 ->
+            timer:sleep(500),
             retry_dirty_append(Shard, Opts, TTVs, Retries - 1);
         _ ->
             Result
