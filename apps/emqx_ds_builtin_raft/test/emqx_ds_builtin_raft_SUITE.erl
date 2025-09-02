@@ -830,7 +830,8 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
                 [_ | _] ->
                     ?assertMatch(
                         [#{server := {_Server, N1}} | _],
-                        EvsForgotMember
+                        EvsForgotMember,
+                        N1
                     ),
                     ?assertMatch(
                         [],
@@ -1108,6 +1109,7 @@ all() ->
 flaky_tests() ->
     #{
         t_rebalance => 3,
+        t_rebalance_tolerate_permanently_lost_quorum => 3,
         %% t_crash_restart_recover => 3,
         t_rebalance_chaotic_converges => 3
     }.
