@@ -22,6 +22,8 @@
 -export([
     rsf_sparkplug_decode/1,
     rsf_sparkplug_encode/1,
+    rsf_spb_decode/1,
+    rsf_spb_encode/1,
     rsf_schema_decode/1,
     rsf_schema_encode/1,
     rsf_schema_check/1,
@@ -89,6 +91,28 @@ rsf_sparkplug_encode([Term]) ->
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term, <<"Payload">>]
     );
 rsf_sparkplug_encode([Term | MoreArgs]) ->
+    rsf_schema_encode(
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
+    ).
+
+rsf_spb_decode([Data]) ->
+    Res = rsf_schema_decode(
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data, <<"Payload">>]
+    ),
+    map_decoded_sparkplug(Res);
+rsf_spb_decode([Data | MoreArgs]) ->
+    Res = rsf_schema_decode(
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data | MoreArgs]
+    ),
+    map_decoded_sparkplug(Res).
+
+rsf_spb_encode([Term0]) ->
+    Term = map_sparkplug_to_encode(Term0),
+    rsf_schema_encode(
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term, <<"Payload">>]
+    );
+rsf_spb_encode([Term0 | MoreArgs]) ->
+    Term = map_sparkplug_to_encode(Term0),
     rsf_schema_encode(
         [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
     ).
@@ -355,6 +379,45 @@ jesse_validate(Name, Map) ->
 
 jesse_name(Str) ->
     unicode:characters_to_list(Str).
+
+map_sparkplug_to_encode(#{} = Input) ->
+    emqx_utils_maps:update_if_present(
+        <<"metrics">>,
+        fun(Ms) ->
+            lists:map(
+                fun
+                    (#{<<"bytes_value">> := Bytes64} = M) ->
+                        RawBytes = base64:decode(Bytes64),
+                        M#{<<"bytes_value">> := RawBytes};
+                    (M) ->
+                        M
+                end,
+                Ms
+            )
+        end,
+        Input
+    );
+map_sparkplug_to_encode(Term) ->
+    %% Invalid input, leave it as is so that the error is thrown by the encode attempt.
+    Term.
+
+map_decoded_sparkplug(#{} = Result) ->
+    emqx_utils_maps:update_if_present(
+        <<"metrics">>,
+        fun(Ms) ->
+            lists:map(
+                fun
+                    (#{<<"bytes_value">> := RawBytes} = M) ->
+                        Bytes64 = base64:encode(RawBytes),
+                        M#{<<"bytes_value">> := Bytes64};
+                    (M) ->
+                        M
+                end,
+                Ms
+            )
+        end,
+        Result
+    ).
 
 -spec make_protobuf_serde_mod(schema_name(), schema_source()) -> {protobuf_cache_key(), module()}.
 make_protobuf_serde_mod(Name, Source) ->
