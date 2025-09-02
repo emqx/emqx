@@ -129,7 +129,9 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
                     #{n => N}
                 )
             ),
-            ?ON(Node, emqx_ds_test_helpers:dirty_append(#{db => DB, retries => 10}, [Msg])),
+            ?assertMatch(
+                ok, ?ON(Node, emqx_ds_test_helpers:dirty_append(#{db => DB, retries => 10}, [Msg]))
+            ),
             apply_stream(DB, NodeStream, Stream, N + 1);
         [add_generation | Stream] ->
             ?tp(notice, test_add_generation, #{}),
