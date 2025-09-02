@@ -21,11 +21,9 @@ defmodule EMQXMQ.MixProject do
   end
 
   def asn1_srcs() do
-    "./asn.1/*.asn"
-    |> Path.wildcard()
-    |> Enum.map(fn src ->
-      %{src: src, compile_opts: [:per, :noobj, outdir: ~c"gen_src"]}
-    end)
+    [
+      %{src: "asn.1/MessageQueue.asn", compile_opts: [:ber, :noobj, outdir: ~c"gen_src"]}
+    ]
   end
 
   def application do
