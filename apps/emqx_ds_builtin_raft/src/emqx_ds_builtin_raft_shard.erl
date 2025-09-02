@@ -243,7 +243,7 @@ get_local_server(DB, Shard) ->
     memoize(fun local_server/2, [DB, Shard]).
 
 get_shard_servers(DB, Shard) ->
-    persistent_term:get(?PTERM(DB, Shard, servers)).
+    persistent_term:get(?PTERM(DB, Shard, servers), []).
 
 local_site() ->
     emqx_ds_builtin_raft_meta:this_site().
