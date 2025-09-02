@@ -93,11 +93,8 @@ It takes care of forwarding calls to the underlying DBMS.
     time_ms/0,
     topic_filter/0,
     topic/0,
-    batch/0,
-    dsbatch/0,
-    operation/0,
-    deletion/0,
-    precondition/0,
+    list_slabs_opts/0,
+    list_slabs_result/0,
     get_streams_opts/0,
     get_streams_result/0,
     stream/0,
@@ -161,40 +158,8 @@ It takes care of forwarding calls to the underlying DBMS.
 -doc "Parsed topic filter.".
 -type topic_filter() :: list(binary() | '+' | '#' | '').
 
--type message() :: emqx_types:message().
-
--doc "Message matcher.".
--type message_matcher(Payload) :: #message_matcher{payload :: Payload}.
-
--doc "A batch of storage operations.".
--type batch() :: [operation()] | dsbatch().
-
--type dsbatch() :: #dsbatch{}.
-
--type operation() ::
-    %% Store a message.
-    message()
-    %% Delete a message.
-    %% Does nothing if the message does not exist.
-    | deletion().
-
--type deletion() :: {delete, message_matcher('_')}.
-
 -doc "Topic-Time-Value triple. It's used as the basic storage unit.".
 -type ttv() :: {topic(), time(), binary()}.
-
--doc """
-Precondition.
-Fails whole batch if the storage already has the matching message (`if_exists'),
-or does not yet have (`unless_exists'). Here "matching" means that it either
-just exists (when pattern is '_') or has exactly the same payload, rest of the
-message fields are irrelevant.
-Useful to construct batches with "compare-and-set" semantics.
-Note: backends may not support this, but if they do only DBs with `atomic_batches'
-enabled are expected to support preconditions in batches.
-""".
--type precondition() ::
-    {if_exists | unless_exists, message_matcher(iodata() | '_')}.
 
 -type shard() :: binary().
 

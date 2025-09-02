@@ -12,9 +12,6 @@
     drop_shard/1,
     shard_info/2,
 
-    %% Preconditions
-    lookup_message/2,
-
     %% Generations
     update_config/3,
     add_generation/2,
@@ -307,16 +304,6 @@ update_config(ShardId, Since, Options) ->
     ok | {error, overlaps_existing_generations}.
 add_generation(ShardId, Since) ->
     gen_server:call(?REF(ShardId), #call_add_generation{since = Since}, infinity).
-
--spec lookup_message(dbshard(), emqx_ds_precondition:matcher()) ->
-    emqx_types:message() | not_found | emqx_ds:error(_).
-lookup_message(ShardId, Matcher = #message_matcher{timestamp = Time}) ->
-    case generation_at(ShardId, Time) of
-        {_GenId, #{module := Mod, data := GenData}} ->
-            Mod:lookup_message(ShardId, GenData, Matcher);
-        not_found ->
-            not_found
-    end.
 
 -spec list_slabs(dbshard()) ->
     #{gen_id() => slab_info()}.
