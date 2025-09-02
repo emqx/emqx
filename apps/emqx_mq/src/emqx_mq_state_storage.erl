@@ -322,7 +322,7 @@ pmap_encode_val(?pn_shard_progress, _Key, #{
                     bufferProgress = #'StreamBufferProgress'{
                         it = ItBin,
                         lastMessageId = to_optional_integer(LastMessageId),
-                        unacked = maps:keys(emqx_mq_utils:merge_maps(Unacked))
+                        unacked = maps:keys(emqx_utils_maps:merge(Unacked))
                     }
                 }}
         },

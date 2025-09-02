@@ -113,7 +113,7 @@ restore(#{it := It, last_message_id := LastMessageId, unacked := UnackedMaps}, M
         mq => MQ,
         options => handle_options(MQ),
         it_begin => It,
-        unacked => emqx_mq_utils:merge_maps(UnackedMaps),
+        unacked => emqx_utils_maps:merge(UnackedMaps),
         actual_unacked => #{},
         last_message_id => LastMessageId,
         messages => []

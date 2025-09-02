@@ -42,7 +42,8 @@
     unsafe_atom_key_map/1,
     update_if_present/3,
     printable_props/1,
-    find_key/2
+    find_key/2,
+    merge/1
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -421,6 +422,17 @@ find_key(Value, Map) ->
         end
     end,
     Go(Value, maps:iterator(Map)).
+
+-doc """
+Merge a list of maps into a single map.
+""".
+-spec merge(list(map())) -> map().
+merge(Maps) ->
+    lists:foldl(fun(Map, Acc) -> maps:merge(Acc, Map) end, #{}, Maps).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 ntoa(undefined) ->
     undefined;
