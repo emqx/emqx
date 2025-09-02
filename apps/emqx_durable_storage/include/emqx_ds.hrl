@@ -4,11 +4,6 @@
 -ifndef(EMQX_DS_HRL).
 -define(EMQX_DS_HRL, true).
 
--record(dsbatch, {
-    operations :: [emqx_ds:operation()],
-    preconditions = [] :: [emqx_ds:precondition()]
-}).
-
 -record(message_matcher, {
     %% Fields identifying the message:
     %% Client identifier
