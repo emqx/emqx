@@ -588,7 +588,7 @@ handle_ds_reply(Ref, DSReply, D = #s{pending_tab = Tab}) ->
                 end,
             active_schedule_wake_up(Time, active_ensure_iterator(D), {reply, From, Result});
         undefined ->
-            ?tp(error, ?tp_unknown_event, #{m => ?MODULE, event => DSReply}),
+            ?tp(debug, ?tp_unknown_event, #{m => ?MODULE, event => DSReply}),
             keep_state_and_data
     end.
 
