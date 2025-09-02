@@ -20,7 +20,7 @@
 
     add_generation/1,
     drop_slab/2,
-    list_slabs/1,
+    list_slabs/2,
 
     dirty_append/2,
     get_streams/4,
@@ -213,10 +213,16 @@ update_db_config(DB, NewSchema, NewRTConf) ->
         ok ?= emqx_dsch:update_db_config(DB, NewRTConf)
     end.
 
--spec list_slabs(emqx_ds:db()) ->
-    #{emqx_ds:slab() => emqx_ds:slab_info()}.
-list_slabs(DB) ->
-    lists:foldl(
+-spec list_slabs(emqx_ds:db(), emqx_ds:list_slabs_opts()) -> emqx_ds:list_slabs_result().
+list_slabs(DB, Opts) ->
+    Shards =
+        case Opts of
+            #{shard := Shrd} ->
+                [Shrd];
+            #{} ->
+                emqx_ds_builtin_local_meta:shards(DB)
+        end,
+    Result = lists:foldl(
         fun(Shard, Acc) ->
             maps:fold(
                 fun(GenId, Data, Acc1) ->
@@ -227,8 +233,9 @@ list_slabs(DB) ->
             )
         end,
         #{},
-        emqx_ds_builtin_local_meta:shards(DB)
-    ).
+        Shards
+    ),
+    {Result, []}.
 
 -spec drop_slab(emqx_ds:db(), emqx_ds:slab()) -> ok | {error, _}.
 drop_slab(DB, {Shard, GenId}) ->

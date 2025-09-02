@@ -23,7 +23,7 @@ This is the entrypoint into the `builtin_raft` backend.
 
     add_generation/1,
     drop_slab/2,
-    list_slabs/1,
+    list_slabs/2,
 
     dirty_append/2,
     get_streams/4,
@@ -310,11 +310,17 @@ update_db_config(DB, NewSchema, NewRTConf) ->
         ok ?= emqx_dsch:update_db_config(DB, NewRTConf)
     end.
 
--spec list_slabs(emqx_ds:db()) -> #{emqx_ds:slab() => emqx_ds:slab_info()}.
-list_slabs(DB) ->
-    Shards = list_shards(DB),
+-spec list_slabs(emqx_ds:db(), emqx_ds:list_slabs_opts()) -> emqx_ds:list_slabs_result().
+list_slabs(DB, Opts) ->
+    Shards =
+        case Opts of
+            #{shard := Shrd} ->
+                [Shrd];
+            #{} ->
+                list_shards(DB)
+        end,
     lists:foldl(
-        fun(Shard, GensAcc) ->
+        fun(Shard, {GensAcc0, ErrAcc0}) ->
             Result = ?READ_RPC(
                 DB,
                 Shard,
@@ -327,21 +333,22 @@ list_slabs(DB) ->
                 end
             ),
             case Result of
-                Gens = #{} ->
-                    ok;
-                {error, _Class, _Reason} ->
-                    %% TODO: report errors
-                    Gens = #{}
+                ShardGens = #{} ->
+                    GensAcc = maps:fold(
+                        fun(GenId, Data, AccInner) ->
+                            AccInner#{{Shard, GenId} => Data}
+                        end,
+                        GensAcc0,
+                        ShardGens
+                    ),
+                    ErrAcc = ErrAcc0;
+                {error, _, _} = Err ->
+                    GensAcc = GensAcc0,
+                    ErrAcc = [{Shard, Err} | ErrAcc0]
             end,
-            maps:fold(
-                fun(GenId, Data, AccInner) ->
-                    AccInner#{{Shard, GenId} => Data}
-                end,
-                GensAcc,
-                Gens
-            )
+            {GensAcc, ErrAcc}
         end,
-        #{},
+        {#{}, []},
         Shards
     ).
 
