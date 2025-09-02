@@ -48,6 +48,8 @@ t_delayed_puback(_Config) ->
     ),
     emqtt:disconnect(ConnPid).
 
+%% Verify that 'client.handle_info' hook callbacks are able to inject delivers (messages)
+%% that are delivered to the session of the channel.
 t_deliver_via_handle_info({init, Config}) ->
     emqx_hooks:put('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
     emqx_hooks:put('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST),
