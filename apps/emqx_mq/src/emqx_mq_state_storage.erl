@@ -14,6 +14,9 @@ Persistence of Message queue state:
 * MQ consumption state
 """.
 
+%% ASN1-generated struct field names are in camelCase.
+-elvis([{elvis_style, atom_naming_convention, #{regex => "^[a-z]\\w*$"}}]).
+
 -behaviour(emqx_ds_pmap).
 
 -export([
