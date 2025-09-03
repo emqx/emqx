@@ -67,10 +67,11 @@ Persistence of Message queue state:
 
 -type consumer_state() :: #{
     id := id(),
-    mq := emqx_mq_types:mq(),
     ?collection_dirty := boolean(),
     ?collection_guard := emqx_ds_pmap:guard() | undefined,
-    ?col_shard_progress := emqx_ds_pmap:pmap(emqx_ds:shard(), emqx_mq_types:progress())
+    ?col_shard_progress := emqx_ds_pmap:pmap(
+        emqx_ds:shard(), emqx_mq_consumer_streams:shard_progress()
+    )
 }.
 
 -type mq_state() :: #{
@@ -191,7 +192,7 @@ destroy_consumer_state(MQHandle) ->
             {error, {failed_to_destroy_consumer_state, Err}}
     end.
 
--spec create_mq_state(emqx_mq_types:mq()) -> ok.
+-spec create_mq_state(emqx_mq_types:mq()) -> {ok, mq_state()} | {error, term()}.
 create_mq_state(MQ) ->
     Id = mq_state_id(MQ),
     TransOpts = trans_opts(Id),
@@ -219,7 +220,7 @@ create_mq_state(MQ) ->
             {error, {failed_to_create_mq_state, Err}}
     end.
 
--spec update_mq_state(emqx_mq_types:mq_id(), map()) ->
+-spec update_mq_state(emqx_mq_types:mqid(), map()) ->
     {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
 update_mq_state(MQId, MQFields) ->
     Id = mq_state_id(MQId),
@@ -445,25 +446,23 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
 new_consumer_state(MQ) ->
     #{
         id => consumer_state_id(MQ),
-        mq => MQ,
         ?collection_dirty => true,
         ?collection_guard => undefined,
         ?col_shard_progress => emqx_ds_pmap:new_pmap(?MODULE, ?pn_shard_progress)
     }.
 
--spec open_consumer_state_tx(id()) -> consumer_state().
+-spec open_consumer_state_tx(id()) -> consumer_state() | undefined.
 open_consumer_state_tx(Id) ->
     case emqx_ds_pmap:tx_guard(Id) of
         undefined ->
             undefined;
         Guard ->
-            Rec = #{
+            #{
                 id => Id,
                 ?collection_guard => Guard,
                 ?collection_dirty => false,
                 ?col_shard_progress => emqx_ds_pmap:tx_restore(?MODULE, ?pn_shard_progress, Id)
-            },
-            Rec
+            }
     end.
 
 persist_consumer_state_tx(
@@ -485,7 +484,6 @@ persist_consumer_state_tx(
 new_mq_state(MQ) ->
     #{
         id => mq_state_id(MQ),
-        mq => MQ,
         ?collection_dirty => true,
         ?collection_guard => undefined,
         ?col_mq => emqx_ds_pmap:new_pmap(?MODULE, ?pn_mq)
@@ -495,7 +493,7 @@ new_mq_state(MQ) ->
 put_mq(MQ, MQStateRec) ->
     emqx_ds_pmap:collection_put(?col_mq, ?mq_key, MQ, MQStateRec).
 
--spec open_mq_state_tx(id()) -> {ok, mq_state()} | undefined.
+-spec open_mq_state_tx(id()) -> mq_state() | undefined.
 open_mq_state_tx(Id) ->
     case emqx_ds_pmap:tx_guard(Id) of
         undefined ->

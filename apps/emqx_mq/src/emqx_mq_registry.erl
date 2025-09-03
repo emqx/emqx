@@ -21,6 +21,8 @@ The module contains the registry of Message Queues.
     list/2
 ]).
 
+-dialyzer(no_improper_lists).
+
 %% Only for testing/debugging.
 -export([
     delete_all/0
@@ -36,7 +38,7 @@ The module contains the registry of Message Queues.
     extra = #{} :: map() | '_'
 }).
 
--type cursor() :: emqx_topic_index:key(nil()) | undefined.
+-type cursor() :: binary() | undefined.
 
 %%--------------------------------------------------------------------
 %% API

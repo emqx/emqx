@@ -84,7 +84,7 @@ child_spec(Id, Args) ->
         shutdown => 5000
     }.
 
--spec find(emqx_mq_types:mq_id()) -> {ok, emqx_mq_types:consumer_ref()} | not_found.
+-spec find(emqx_mq_types:mqid()) -> {ok, emqx_mq_types:consumer_ref()} | not_found.
 find(Id) ->
     case global:whereis_name(global_name(Id)) of
         ConsumerRef when is_pid(ConsumerRef) ->

@@ -50,7 +50,7 @@ mq_regular(TopicFilter) ->
 cleanup_mq_regular_consumption_progress(TopicFilter) when is_binary(TopicFilter) ->
     ok = stop_all_consumers(),
     {ok, MQ} = emqx_mq_registry:find(TopicFilter),
-    ok = emqx_mq_state_storage:destroy_consumer_state(MQ);
+    ok = emqx_mq_state_storage:destroy_consumer_state(to_handle(MQ));
 cleanup_mq_regular_consumption_progress(TopicFilters) when is_list(TopicFilters) ->
     lists:foreach(
         fun(TopicFilter) ->
@@ -148,3 +148,6 @@ stop_all_consumers() ->
         end,
         ConsumerPids
     ).
+
+to_handle(#{id := Id, topic_filter := TopicFilter, is_lastvalue := IsLastvalue} = _MQ) ->
+    #{id => Id, topic_filter => TopicFilter, is_lastvalue => IsLastvalue}.

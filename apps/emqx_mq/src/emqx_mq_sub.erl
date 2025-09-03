@@ -285,7 +285,7 @@ ping_v1(SubscriberRef) ->
     send_info_to_subscriber(SubscriberRef, #mq_sub_ping{}).
 
 -spec messages_v1(
-    emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref(), emqx_types:message()
+    emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref(), list(emqx_types:message())
 ) -> ok.
 messages_v1(SubscriberRef, ConsumerRef, Messages) ->
     send_info_to_subscriber(SubscriberRef, #mq_sub_messages{

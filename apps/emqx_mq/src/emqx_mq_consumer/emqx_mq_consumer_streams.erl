@@ -492,8 +492,6 @@ inc_received_message_stat(#ds_sub_reply{payload = {ok, _It, TTVs}}) ->
 inc_received_message_stat(_DsSubReply) ->
     ok.
 
-is_expired(#{data_retention_period := infinity} = _MQ, _Message) ->
-    false;
 is_expired(#{data_retention_period := DataRetentionPeriod} = _MQ, Message) when
     is_integer(DataRetentionPeriod)
 ->
