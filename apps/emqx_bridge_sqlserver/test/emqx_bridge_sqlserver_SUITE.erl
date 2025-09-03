@@ -1,317 +1,497 @@
 %%--------------------------------------------------------------------
-% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
 -module(emqx_bridge_sqlserver_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("../include/emqx_bridge_sqlserver.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
-% SQL definitions
--define(SQL_BRIDGE,
-    "insert into t_mqtt_msg(msgid, topic, qos, payload) values ( ${id}, ${topic}, ${qos}, ${payload})"
-).
--define(SQL_SERVER_DRIVER, "ms-sql").
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
 
--define(SQL_CREATE_DATABASE_IF_NOT_EXISTS,
-    " IF NOT EXISTS(SELECT name FROM sys.databases WHERE name = 'mqtt')"
-    " BEGIN"
-    " CREATE DATABASE mqtt;"
-    " END"
-).
+-import(emqx_common_test_helpers, [on_exit/1]).
 
--define(SQL_CREATE_TABLE_IN_DB_MQTT,
-    " CREATE TABLE mqtt.dbo.t_mqtt_msg"
-    " (id int PRIMARY KEY IDENTITY(1000000001,1) NOT NULL,"
-    " msgid   VARCHAR(64) NULL,"
-    " topic   VARCHAR(100) NULL,"
-    " qos     tinyint NOT NULL DEFAULT 0,"
-    %% use VARCHAR to use utf8 encoding
-    %% for default, sqlserver use utf16 encoding NVARCHAR()
-    " payload VARCHAR(100) NULL,"
-    " arrived DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)"
-).
+-define(CONNECTOR_TYPE, sqlserver).
+-define(CONNECTOR_TYPE_BIN, <<"sqlserver">>).
+-define(ACTION_TYPE, sqlserver).
+-define(ACTION_TYPE_BIN, <<"sqlserver">>).
 
--define(SQL_DROP_DB_MQTT, "DROP DATABASE mqtt").
--define(SQL_DROP_TABLE, "DROP TABLE mqtt.dbo.t_mqtt_msg").
--define(SQL_DELETE, "DELETE from mqtt.dbo.t_mqtt_msg").
--define(SQL_SELECT, "SELECT payload FROM mqtt.dbo.t_mqtt_msg").
--define(SQL_SELECT_COUNT, "SELECT COUNT(*) FROM mqtt.dbo.t_mqtt_msg").
-% DB defaults
--define(SQL_SERVER_DATABASE, "mqtt").
--define(SQL_SERVER_USERNAME, "sa").
--define(SQL_SERVER_PASSWORD, "mqtt_public1").
--define(BATCH_SIZE, 10).
--define(REQUEST_TIMEOUT_MS, 2_000).
+-define(PROXY_NAME, "sqlserver").
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
 
--define(WORKER_POOL_SIZE, 4).
-
--define(WITH_CON(Process),
-    Con = connect_direct_sqlserver(Config),
-    Process,
-    ok = disconnect(Con)
-).
-
-%% How to run it locally (all commands are run in $PROJ_ROOT dir):
-%%   A: run ct on host
-%%     1. Start all deps services
-%%       ```bash
-%%       sudo docker compose -f .ci/docker-compose-file/docker-compose.yaml \
-%%                           -f .ci/docker-compose-file/docker-compose-sqlserver.yaml \
-%%                           -f .ci/docker-compose-file/docker-compose-toxiproxy.yaml \
-%%                           up --build
-%%       ```
-%%
-%%     2. Run use cases with special environment variables
-%%       11433 is toxiproxy exported port.
-%%       Local:
-%%       ```bash
-%%       SQLSERVER_HOST=toxiproxy SQLSERVER_PORT=11433 \
-%%           PROXY_HOST=toxiproxy PROXY_PORT=1433 \
-%%           ./rebar3 as test ct -c -v --readable true --name ct@127.0.0.1 \
-%%                               --suite apps/emqx_bridge_sqlserver/test/emqx_bridge_sqlserver_SUITE.erl
-%%       ```
-%%
-%%   B: run ct in docker container
-%%     run script:
-%%     ```bash
-%%     ./scripts/ct/run.sh --ci --app apps/emqx_bridge_sqlserver/ -- \
-%%                         --name 'test@127.0.0.1' -c -v --readable true \
-%%                         --suite apps/emqx_bridge_sqlserver/test/emqx_bridge_sqlserver_SUITE.erl
-%%     ````
+-define(async, async).
+-define(sync, sync).
+-define(with_batch, with_batch).
+-define(without_batch, without_batch).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    [
-        {group, async},
-        {group, sync},
-        {group, health_check}
-    ].
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
-    NonBatchCases = [t_write_timeout],
-    BatchingGroups = [{group, with_batch}, {group, without_batch}],
-    SyncNoBatchCases = [t_table_not_found],
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
+
+init_per_suite(TCConfig) ->
+    reset_proxy(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge_sqlserver,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
+    ),
+    %% Connect to sqlserver directly
+    %% drop old db and table, and then create new ones
+    try
+        connect_and_drop_table(),
+        connect_and_drop_db()
+    catch
+        _:_ ->
+            ok
+    end,
+    connect_and_create_db_and_table(),
     [
-        {async, BatchingGroups},
-        {sync, BatchingGroups},
-        {with_batch, TCs -- (NonBatchCases ++ SyncNoBatchCases)},
-        {without_batch, TCs -- SyncNoBatchCases},
-        {sync_no_batch, SyncNoBatchCases},
-        {health_check, [health_check_return_error]}
+        {apps, Apps},
+        {proxy_host, ?PROXY_HOST},
+        {proxy_port, ?PROXY_PORT},
+        {proxy_name, ?PROXY_NAME}
+        | TCConfig
     ].
 
-init_per_group(async, Config) ->
-    [{query_mode, async} | Config];
-init_per_group(sync, Config) ->
-    [{query_mode, sync} | Config];
-init_per_group(with_batch, Config0) ->
-    Config = [{enable_batch, true}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
-    common_init(Config);
-init_per_group(without_batch, Config0) ->
-    Config = [{enable_batch, false}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
-    common_init(Config);
-init_per_group(health_check, Config0) ->
-    Config = [{query_mode, async}, {enable_batch, false}, {pool_size, 1} | Config0],
-    common_init(Config);
-init_per_group(sync_no_batch, Config0) ->
-    Config = [{query_mode, sync}, {enable_batch, false}, {pool_size, 1} | Config0],
-    common_init(Config);
-init_per_group(_Group, Config) ->
-    Config.
-
-end_per_group(Group, Config) when
-    Group =:= with_batch;
-    Group =:= without_batch;
-    Group =:= sync_no_batch;
-    Group =:= health_check
-->
-    connect_and_drop_table(Config),
-    connect_and_drop_db(Config),
-    Apps = ?config(apps, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+end_per_suite(TCConfig) ->
+    Apps = get_config(apps, TCConfig),
     emqx_cth_suite:stop(Apps),
-    ok;
-end_per_group(_Group, _Config) ->
+    reset_proxy(),
     ok.
 
-init_per_suite(Config) ->
-    Passfile = filename:join(?config(priv_dir, Config), "passfile"),
-    ok = file:write_file(Passfile, <<?SQL_SERVER_PASSWORD>>),
-    [{sqlserver_passfile, Passfile} | Config].
+init_per_group(?async, TCConfig) ->
+    [{query_mode, async} | TCConfig];
+init_per_group(?sync, TCConfig) ->
+    [{query_mode, sync} | TCConfig];
+init_per_group(?with_batch, TCConfig0) ->
+    [{batch_size, 100}, {batch_time, <<"200ms">>} | TCConfig0];
+init_per_group(?without_batch, TCConfig0) ->
+    [{batch_size, 1}, {batch_time, <<"0ms">>} | TCConfig0];
+init_per_group(_Group, TCConfig) ->
+    TCConfig.
 
-end_per_suite(_Config) ->
+end_per_group(_Group, _TCConfig) ->
     ok.
 
-init_per_testcase(_Testcase, Config) ->
-    %% drop database and table
-    %% connect_and_clear_table(Config),
-    %% create a new one
-    %% TODO: create a new database for each test case
-    delete_bridge(Config),
+init_per_testcase(TestCase, TCConfig) ->
+    reset_proxy(),
+    Path = group_path(TCConfig, no_groups),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    ConnectorName = atom_to_binary(TestCase),
+    ConnectorConfig = connector_config(#{}),
+    ActionName = ConnectorName,
+    ActionConfig = action_config(#{
+        <<"connector">> => ConnectorName,
+        <<"resource_opts">> => #{
+            <<"batch_size">> => get_config(batch_size, TCConfig, 1),
+            <<"batch_time">> => get_config(batch_time, TCConfig, <<"0ms">>),
+            <<"query_mode">> => get_config(query_mode, TCConfig, <<"sync">>)
+        }
+    }),
+    connect_and_clear_table(),
     snabbkaffe:start_trace(),
-    Config.
+    [
+        {bridge_kind, action},
+        {connector_type, ?CONNECTOR_TYPE},
+        {connector_name, ConnectorName},
+        {connector_config, ConnectorConfig},
+        {action_type, ?ACTION_TYPE},
+        {action_name, ActionName},
+        {action_config, ActionConfig}
+        | TCConfig
+    ].
 
-end_per_testcase(_Testcase, Config) ->
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    connect_and_clear_table(Config),
-    ok = snabbkaffe:stop(),
-    delete_bridge(Config),
+end_per_testcase(_TestCase, _TCConfig) ->
+    snabbkaffe:stop(),
+    reset_proxy(),
+    connect_and_clear_table(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
-health_check(Type, Name) ->
-    emqx_bridge_v2_testlib:force_health_check(#{
-        type => Type,
-        name => Name,
-        namespace => ?global_ns,
-        kind => action
-    }).
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
 
-id(Type, Name) ->
-    emqx_bridge_v2_testlib:lookup_chan_id_in_conf(#{
-        kind => action,
-        type => Type,
-        name => Name
-    }).
+connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"server">> => <<"toxiproxy:1433">>,
+        <<"database">> => <<"mqtt">>,
+        <<"username">> => <<"sa">>,
+        <<"password">> => <<"mqtt_public1">>,
+        <<"pool_size">> => 1,
+        <<"driver">> => <<"ms-sql">>,
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+action_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"parameters">> => #{
+            <<"sql">> =>
+                iolist_to_binary([
+                    <<"insert into t_mqtt_msg(msgid, topic, qos, payload)">>,
+                    <<" values ( ${id}, ${topic}, ${qos}, ${payload})">>
+                ]),
+            <<"undefined_vars_as_null">> => false
+        },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_action_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
+group_path(TCConfig, Default) ->
+    case emqx_common_test_helpers:group_path(TCConfig) of
+        [] -> Default;
+        Path -> Path
+    end.
+
+get_tc_prop(TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(?MODULE, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, ?MODULE:TestCase()),
+        Val
+    else
+        _ -> Default
+    end.
+
+reset_proxy() ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT).
+
+with_failure(FailureType, Fn) ->
+    emqx_common_test_helpers:with_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn).
+
+bin(X) -> emqx_utils_conv:bin(X).
+str(X) -> emqx_utils_conv:str(X).
+
+connect_direct_sqlserver() ->
+    Opts = [
+        {host, "sqlserver"},
+        {port, 1433},
+        {username, "sa"},
+        {password, "mqtt_public1"},
+        {driver, "ms-sql"},
+        {pool_size, 1}
+    ],
+    {ok, Con} = connect(Opts),
+    Con.
+
+connect(Options) ->
+    ConnectStr = lists:concat(conn_str(Options, [])),
+    Opts = proplists:get_value(options, Options, []),
+    odbc:connect(ConnectStr, Opts).
+
+conn_str([], Acc) ->
+    lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);
+conn_str([{driver, Driver} | Opts], Acc) ->
+    conn_str(Opts, ["Driver=" ++ str(Driver) | Acc]);
+conn_str([{host, Host} | Opts], Acc) ->
+    Port = proplists:get_value(port, Opts, "1433"),
+    NOpts = proplists:delete(port, Opts),
+    conn_str(NOpts, ["Server=" ++ str(Host) ++ "," ++ str(Port) | Acc]);
+conn_str([{port, Port} | Opts], Acc) ->
+    Host = proplists:get_value(host, Opts, "localhost"),
+    NOpts = proplists:delete(host, Opts),
+    conn_str(NOpts, ["Server=" ++ str(Host) ++ "," ++ str(Port) | Acc]);
+conn_str([{database, Database} | Opts], Acc) ->
+    conn_str(Opts, ["Database=" ++ str(Database) | Acc]);
+conn_str([{username, Username} | Opts], Acc) ->
+    conn_str(Opts, ["UID=" ++ str(Username) | Acc]);
+conn_str([{password, Password} | Opts], Acc) ->
+    conn_str(Opts, ["PWD=" ++ str(Password) | Acc]);
+conn_str([{_, _} | Opts], Acc) ->
+    conn_str(Opts, Acc).
+
+disconnect(Ref) ->
+    odbc:disconnect(Ref).
+
+with_conn(Fn) ->
+    Conn = connect_direct_sqlserver(),
+    try
+        Fn(Conn)
+    after
+        ok = tdengine:stop(Conn)
+    end.
+
+connect_and_create_db_and_table() ->
+    SQL1 =
+        " IF NOT EXISTS(SELECT name FROM sys.databases WHERE name = 'mqtt')"
+        " BEGIN"
+        " CREATE DATABASE mqtt;"
+        " END",
+    SQL2 =
+        " CREATE TABLE mqtt.dbo.t_mqtt_msg"
+        " (id int PRIMARY KEY IDENTITY(1000000001,1) NOT NULL,"
+        " msgid   VARCHAR(64) NULL,"
+        " topic   VARCHAR(100) NULL,"
+        " qos     tinyint NOT NULL DEFAULT 0,"
+        %% use VARCHAR to use utf8 encoding
+        %% for default, sqlserver use utf16 encoding NVARCHAR()
+        " payload VARCHAR(100) NULL,"
+        " arrived DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+    with_conn(fun(Conn) ->
+        {updated, undefined} = directly_query(Conn, SQL1),
+        {updated, undefined} = directly_query(Conn, SQL2)
+    end).
+
+connect_and_drop_db() ->
+    with_conn(fun(Conn) ->
+        {updated, undefined} = directly_query(Conn, "DROP DATABASE mqtt")
+    end).
+
+connect_and_drop_table() ->
+    with_conn(fun(Conn) ->
+        {updated, undefined} = directly_query(Conn, "DROP TABLE mqtt.dbo.t_mqtt_msg")
+    end).
+
+connect_and_clear_table() ->
+    with_conn(fun(Conn) ->
+        {updated, _} = directly_query(Conn, "DELETE from mqtt.dbo.t_mqtt_msg")
+    end).
+
+connect_and_get_payload() ->
+    with_conn(fun(Conn) ->
+        {selected, ["payload"], Rows} = directly_query(
+            Conn, "SELECT payload FROM mqtt.dbo.t_mqtt_msg"
+        ),
+        Rows
+    end).
+
+connect_and_get_count() ->
+    SQL = "SELECT COUNT(*) FROM mqtt.dbo.t_mqtt_msg",
+    with_conn(fun(Conn) ->
+        {selected, [[]], [{Count}]} = directly_query(Conn, SQL),
+        Count
+    end).
+
+directly_query(Con, Query) ->
+    directly_query(Con, Query, _Timeout = 2_000).
+
+directly_query(Con, Query, Timeout) ->
+    odbc:sql_query(Con, Query, Timeout).
+
+create_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
+    ).
+
+create_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
+
+get_action_api(TCConfig) ->
+    emqx_bridge_v2_testlib:get_action_api2(TCConfig).
+
+get_connector_api(TCConfig) ->
+    #{connector_type := ConnectorType, connector_name := ConnectorName} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(
+            ConnectorType, ConnectorName
+        )
+    ).
+
+simple_create_rule_api(TCConfig) ->
+    simple_create_rule_api(
+        <<
+            "select *,"
+            " 1668602148000 as timestamp from \"${t}\" "
+        >>,
+        TCConfig
+    ).
+
+simple_create_rule_api(SQL, TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(SQL, TCConfig).
+
+start_client() ->
+    {ok, C} = emqtt:start_link(),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+unique_payload() ->
+    integer_to_binary(erlang:unique_integer()).
 
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
 
-t_setup_via_config_and_publish(Config) ->
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
-    Val = str(erlang:unique_integer()),
-    SentData = sent_data(Val),
-    ?check_trace(
-        begin
-            ?wait_async_action(
-                ?assertEqual(ok, send_message(Config, SentData)),
-                #{?snk_kind := sqlserver_connector_query_return},
-                10_000
-            ),
-            ?assertMatch(
-                [{Val}],
-                connect_and_get_payload(Config)
-            ),
-            ok
-        end,
-        fun(Trace0) ->
-            Trace = ?of_kind(sqlserver_connector_query_return, Trace0),
-            ?assertMatch([#{result := ok}], Trace),
-            ok
-        end
-    ),
-    ok.
+t_start_stop(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_start_stop(TCConfig, sqlserver_connector_on_stop).
 
-t_undefined_vars_as_null(Config) ->
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config, #{<<"undefined_vars_as_null">> => true})
+t_on_get_status(TCConfig) when is_list(TCConfig) ->
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{failure_status => ?status_connecting}).
+
+t_rule_action() ->
+    [{matrix, true}].
+t_rule_action(matrix) ->
+    [
+        [Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
+    ];
+t_rule_action(TCConfig) when is_list(TCConfig) ->
+    PostPublishFn = fun(Context) ->
+        #{payload := Payload} = Context,
+        PayloadStr = str(Payload),
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                [{PayloadStr}],
+                connect_and_get_payload(),
+                #{payload => Payload}
+            )
+        )
+    end,
+    Opts = #{
+        post_publish_fn => PostPublishFn
+    },
+    emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+t_undefined_vars_as_null(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"undefined_vars_as_null">> => true}
+    }),
+    #{topic := Topic} = simple_create_rule_api(
+        <<"select id, qos, timestamp from \"${t}\" ">>,
+        TCConfig
     ),
-    SentData = maps:put(payload, undefined, sent_data("tmp")),
+    C = start_client(),
     ?check_trace(
         begin
             ?wait_async_action(
-                ?assertEqual(ok, send_message(Config, SentData)),
+                emqtt:publish(C, Topic, <<"hey">>),
                 #{?snk_kind := sqlserver_connector_query_return},
                 10_000
             ),
             ?assertMatch(
                 [{null}],
-                connect_and_get_payload(Config)
+                connect_and_get_payload()
             ),
             ok
         end,
-        fun(Trace0) ->
-            Trace = ?of_kind(sqlserver_connector_query_return, Trace0),
-            ?assertMatch([#{result := ok}], Trace),
+        fun(Trace) ->
+            ?assertMatch([#{result := ok}], ?of_kind(sqlserver_connector_query_return, Trace)),
             ok
         end
     ),
     ok.
 
-t_setup_via_http_api_and_publish(Config) ->
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    Name = ?config(sqlserver_name, Config),
-    SQLServerConfig0 = ?config(sqlserver_config, Config),
-    SQLServerConfig = SQLServerConfig0#{
-        <<"name">> => Name,
-        <<"type">> => BridgeType,
-        %% NOTE: using literal password with HTTP API requests.
-        <<"password">> => <<?SQL_SERVER_PASSWORD>>
-    },
-    ?assertMatch(
-        {ok, _},
-        create_bridge_http(SQLServerConfig)
+t_create_disconnected(TCConfig) ->
+    with_failure(down, fun() ->
+        {201, #{<<"status">> := <<"connecting">>}} = create_connector_api(TCConfig, #{}),
+        {201, #{<<"status">> := <<"disconnected">>}} = create_action_api(TCConfig, #{})
+    end),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_action_api(TCConfig)
+        )
     ),
-    Val = str(erlang:unique_integer()),
-    SentData = sent_data(Val),
+    ok.
+
+t_create_with_invalid_password(TCConfig) ->
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {201, _},
+                create_connector_api(TCConfig, #{<<"password">> => <<"wrong_password">>})
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{error := {start_pool_failed, _, _}}],
+                ?of_kind(sqlserver_connector_start_failed, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_batch_write() ->
+    [{matrix, true}].
+t_batch_write(matrix) ->
+    [[?sync, ?with_batch], [?async, ?with_batch]];
+t_batch_write(TCConfig) ->
+    BatchSize = get_config(batch_size, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Payloads = [unique_payload() || _ <- lists:seq(1, BatchSize)],
     ?check_trace(
         begin
             ?wait_async_action(
-                ?assertEqual(ok, send_message(Config, SentData)),
+                lists:foreach(
+                    fun(Payload) -> emqx:publish(emqx_message:make(Topic, Payload)) end,
+                    Payloads
+                ),
                 #{?snk_kind := sqlserver_connector_query_return},
                 10_000
             ),
+            %% just assert the data count is correct
             ?assertMatch(
-                [{Val}],
-                connect_and_get_payload(Config)
+                BatchSize,
+                connect_and_get_count()
             ),
-            ok
+            %% assert the data order is correct
+            ?assertEqual(
+                Payloads,
+                [list_to_binary(P) || {P} <- connect_and_get_payload()]
+            )
         end,
         fun(Trace0) ->
             Trace = ?of_kind(sqlserver_connector_query_return, Trace0),
-            ?assertMatch([#{result := ok}], Trace),
+            case BatchSize of
+                1 ->
+                    ?assertMatch([#{result := ok}], Trace);
+                _ ->
+                    [?assertMatch(#{result := ok}, Trace1) || Trace1 <- Trace]
+            end,
             ok
         end
     ),
     ok.
 
-t_get_status(Config) ->
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyName = ?config(proxy_name, Config),
-
-    health_check_resource_ok(Config),
-    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        health_check_resource_down(Config)
-    end),
-    ok.
-
-t_create_disconnected(Config) ->
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyName = ?config(proxy_name, Config),
-    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ?assertMatch({ok, _}, create_bridge(Config)),
-        health_check_resource_down(Config)
-    end),
-    timer:sleep(10_000),
-    health_check_resource_ok(Config),
-    ok.
-
-health_check_return_error(Config) ->
+t_health_check_return_error(TCConfig) ->
     %% use an ets table for mocked health-check fault injection
     Ets = ets:new(test, [public]),
     true = ets:insert(Ets, {result, {selected, [[]], [{1}]}}),
@@ -330,17 +510,31 @@ health_check_return_error(Config) ->
         end
     end),
     try
+        {201, _} = create_connector_api(TCConfig, #{}),
         ?assertMatch(
-            {ok, _},
-            create_bridge(Config)
+            {200, #{<<"status">> := <<"connected">>}},
+            get_connector_api(TCConfig)
         ),
-        health_check_resource_ok(Config),
         [{conn, Conn1}] = ets:lookup(Ets, conn),
         true = ets:insert(Ets, {result, {error, <<"injected failure">>}}),
-        ok = health_check_resource_down(Config),
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connecting">>}},
+                get_connector_api(TCConfig)
+            )
+        ),
         %% remove injected failure
         true = ets:insert(Ets, {result, {selected, [[]], [{1}]}}),
-        health_check_resource_ok(Config),
+        ?retry(
+            200,
+            10,
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connected">>}},
+                get_connector_api(TCConfig)
+            )
+        ),
         [{conn, Conn2}] = ets:lookup(Ets, conn),
         ?assertNotEqual(Conn1, Conn2)
     after
@@ -349,183 +543,47 @@ health_check_return_error(Config) ->
     end,
     ok.
 
-t_create_with_invalid_password(Config) ->
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    Name = ?config(sqlserver_name, Config),
-    SQLServerConfig0 = ?config(sqlserver_config, Config),
-    SQLServerConfig = SQLServerConfig0#{
-        <<"name">> => Name,
-        <<"type">> => BridgeType,
-        <<"password">> => <<"wrong_password">>
-    },
-    ?check_trace(
-        begin
-            ?assertMatch(
-                {ok, _},
-                create_bridge_http(SQLServerConfig)
-            )
-        end,
-        fun(Trace) ->
-            ?assertMatch(
-                [#{error := {start_pool_failed, _, _}}],
-                ?of_kind(sqlserver_connector_start_failed, Trace)
-            ),
-            ok
-        end
+t_missing_data(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(
+        <<"select missing_stuff from \"${t}\" ">>,
+        TCConfig
     ),
-    ok.
-
-t_write_failure(Config) ->
-    ProxyName = ?config(proxy_name, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyHost = ?config(proxy_host, Config),
-    QueryMode = ?config(query_mode, Config),
-    Val = str(erlang:unique_integer()),
-    SentData = sent_data(Val),
-    {{ok, _}, {ok, _}} =
+    C = start_client(),
+    {_, {ok, #{error := Error}}} =
         ?wait_async_action(
-            create_bridge(Config),
-            #{?snk_kind := resource_connected_enter},
-            20_000
+            emqtt:publish(C, Topic, <<"hey">>),
+            #{?snk_kind := sqlserver_connector_query_return, error := _},
+            10_000
         ),
-    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        case QueryMode of
-            sync ->
-                ?assertMatch(
-                    {error, {resource_error, #{reason := timeout}}},
-                    send_message(Config, SentData)
-                );
-            async ->
-                ?assertMatch(
-                    ok, send_message(Config, SentData)
-                )
-        end
-    end),
-    ok.
-
-t_write_timeout(_Config) ->
-    %% msodbc driver handled all connection exceptions
-    %% the case is same as t_write_failure/1
-    ok.
-
-t_simple_query(Config) ->
-    BatchSize = batch_size(Config),
+    ExpectedError =
+        "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
+        "Conversion failed when converting the varchar value 'undefined' to"
+        " data type tinyint. SQLSTATE IS: 22018",
     ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
+        {unrecoverable_error, {invalid_request, ExpectedError}},
+        Error
     ),
-
-    {Requests, Vals} = gen_batch_req(Config, BatchSize),
-    ?check_trace(
-        begin
-            ?wait_async_action(
-                begin
-                    [?assertEqual(ok, query_resource(Config, Request)) || Request <- Requests]
-                end,
-                #{?snk_kind := sqlserver_connector_query_return},
-                10_000
-            ),
-            %% just assert the data count is correct
-            ?assertMatch(
-                BatchSize,
-                connect_and_get_count(Config)
-            ),
-            %% assert the data order is correct
-            ?assertMatch(
-                Vals,
-                connect_and_get_payload(Config)
-            )
-        end,
-        fun(Trace0) ->
-            Trace = ?of_kind(sqlserver_connector_query_return, Trace0),
-            case BatchSize of
-                1 ->
-                    ?assertMatch([#{result := ok}], Trace);
-                _ ->
-                    [?assertMatch(#{result := ok}, Trace1) || Trace1 <- Trace]
-            end,
-            ok
-        end
-    ),
-    ok.
-
--define(MISSING_TINYINT_ERROR,
-    "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
-    "Conversion failed when converting the varchar value 'undefined' to data type tinyint. SQLSTATE IS: 22018"
-).
-
-t_missing_data(Config) ->
-    QueryMode = ?config(query_mode, Config),
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
-    Result = send_message(Config, #{}),
-    case QueryMode of
-        sync ->
-            ?assertMatch(
-                {error, {unrecoverable_error, {invalid_request, ?MISSING_TINYINT_ERROR}}},
-                Result
-            );
-        async ->
-            ?assertMatch(
-                ok, send_message(Config, #{})
-            )
-    end,
-    ok.
-
-t_bad_parameter(Config) ->
-    QueryMode = ?config(query_mode, Config),
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
-    Result = send_message(Config, #{}),
-    case QueryMode of
-        sync ->
-            ?assertMatch(
-                {error, {unrecoverable_error, {invalid_request, ?MISSING_TINYINT_ERROR}}},
-                Result
-            );
-        async ->
-            ?assertMatch(
-                ok, send_message(Config, #{})
-            )
-    end,
     ok.
 
 %% Note: it's not possible to setup a true named instance in linux/docker; we only verify
 %% here that the notation for named instances work.  When explicitly defining the port,
 %% the ODBC driver will connect to whatever instance is running on said port, regardless
 %% of what's given as instance name.
-t_named_instance_mismatch(Config) ->
-    Host = ?config(sqlserver_host, Config),
-    Port = ?config(sqlserver_port, Config),
+t_named_instance_mismatch(TCConfig) ->
     %% Note: we connect to the default instance here, despite explicitly definining an
     %% instance name, because we're using the default instance port.
     ServerWithInstanceName = iolist_to_binary([
-        Host,
+        <<"toxiproxy">>,
         $\\,
         <<"NamedInstance">>,
         $:,
-        integer_to_binary(Port)
+        <<"1433">>
     ]),
-    ?assertMatch(
-        {ok, _},
-        create_bridge(
-            Config,
-            #{<<"server">> => ServerWithInstanceName}
-        )
-    ),
-    {ok, Res} = emqx_bridge_testlib:get_bridge_api(Config),
-    ?assertMatch(
-        #{
-            <<"status">> := <<"disconnected">>,
-            <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
-        },
-        Res
-    ),
-    #{<<"status_reason">> := Msg} = Res,
+    {201, #{<<"status">> := <<"disconnected">>, <<"status_reason">> := Msg}} =
+        create_connector_api(TCConfig, #{<<"server">> => ServerWithInstanceName}),
+    ?assertMatch(<<"{unhealthy_target,", _/binary>>, Msg),
     ?assertEqual(
         match,
         re:run(
@@ -536,343 +594,22 @@ t_named_instance_mismatch(Config) ->
     ),
     ok.
 
-t_table_not_found(Config) ->
-    ?assertMatch(
-        {ok, _},
-        create_bridge(
-            Config,
-            #{<<"sql">> => <<"insert into i_don_exist(id) values (${id})">>}
-        )
-    ),
+t_table_not_found(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} =
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{<<"sql">> => <<"insert into i_don_exist(id) values (${id})">>}
+        }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    {_, {ok, #{error := Error}}} =
+        ?wait_async_action(
+            emqtt:publish(C, Topic, <<"hey">>),
+            #{?snk_kind := sqlserver_connector_query_return, error := _},
+            10_000
+        ),
     ?assertEqual(
-        {error, {unrecoverable_error, {invalid_request, <<"table_or_view_not_found">>}}},
-        send_message(Config, #{id => <<"123">>})
+        {unrecoverable_error, {invalid_request, <<"table_or_view_not_found">>}},
+        Error
     ),
     ok.
-
-%%------------------------------------------------------------------------------
-%% Helper fns
-%%------------------------------------------------------------------------------
-
-common_init(ConfigT) ->
-    ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
-    ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
-    Host = os:getenv("SQLSERVER_HOST", "toxiproxy"),
-    Port = list_to_integer(os:getenv("SQLSERVER_PORT", str(?SQLSERVER_DEFAULT_PORT))),
-    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    Config0 = [
-        {sqlserver_host, Host},
-        {sqlserver_port, Port},
-        %% see also for `proxy_name` : $PROJ_ROOT/.ci/docker-compose-file/toxiproxy.json
-        {proxy_name, "sqlserver"},
-        {batch_size, batch_size(ConfigT)}
-        | ConfigT
-    ],
-    BridgeType = proplists:get_value(bridge_type, Config0, <<"sqlserver">>),
-    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx_conf,
-                    emqx_bridge_sqlserver,
-                    emqx_bridge,
-                    emqx_management,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config0)}
-            ),
-            % Connect to sqlserver directly
-            % drop old db and table, and then create new ones
-            try
-                connect_and_drop_table(Config0),
-                connect_and_drop_db(Config0)
-            catch
-                _:_ ->
-                    ok
-            end,
-            connect_and_create_db_and_table(Config0),
-            {Name, SQLServerConf} = sqlserver_config(BridgeType, Config0),
-            Config =
-                [
-                    {apps, Apps},
-                    {sqlserver_config, SQLServerConf},
-                    {sqlserver_bridge_type, BridgeType},
-                    {sqlserver_name, Name},
-                    {bridge_type, BridgeType},
-                    {bridge_name, Name},
-                    {proxy_host, ProxyHost},
-                    {proxy_port, ProxyPort}
-                    | Config0
-                ],
-            Config;
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_sqlserver);
-                _ ->
-                    {skip, no_sqlserver}
-            end
-    end.
-
-sqlserver_config(BridgeType, Config) ->
-    Port = integer_to_list(?config(sqlserver_port, Config)),
-    Server = ?config(sqlserver_host, Config) ++ ":" ++ Port,
-    Name = atom_to_binary(?MODULE),
-    BatchSize = batch_size(Config),
-    QueryMode = ?config(query_mode, Config),
-    Passfile = ?config(sqlserver_passfile, Config),
-    PoolSize = ?config(pool_size, Config),
-    ConfigString =
-        io_lib:format(
-            "bridges.~s.~s {\n"
-            "  enable = true\n"
-            "  server = ~p\n"
-            "  database = ~p\n"
-            "  username = ~p\n"
-            "  password = ~p\n"
-            "  pool_size = ~p\n"
-            "  sql = ~p\n"
-            "  driver = ~p\n"
-            "  resource_opts = {\n"
-            "    request_ttl = 500ms\n"
-            "    batch_size = ~b\n"
-            "    query_mode = ~s\n"
-            "    worker_pool_size = ~b\n"
-            "    health_check_interval = 2s\n"
-            "  }\n"
-            "}",
-            [
-                BridgeType,
-                Name,
-                Server,
-                ?SQL_SERVER_DATABASE,
-                ?SQL_SERVER_USERNAME,
-                "file://" ++ Passfile,
-                PoolSize,
-                ?SQL_BRIDGE,
-                ?SQL_SERVER_DRIVER,
-                BatchSize,
-                QueryMode,
-                ?WORKER_POOL_SIZE
-            ]
-        ),
-    {Name, parse_and_check(ConfigString, BridgeType, Name)}.
-
-parse_and_check(ConfigString, BridgeType, Name) ->
-    {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"bridges">> := #{BridgeType := #{Name := Config}}} = RawConf,
-    Config.
-
-create_bridge(Config) ->
-    create_bridge(Config, _Overrides = #{}).
-
-create_bridge(Config, Overrides) ->
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    Name = ?config(sqlserver_name, Config),
-    SSConfig0 = ?config(sqlserver_config, Config),
-    SSConfig = emqx_utils_maps:deep_merge(SSConfig0, Overrides),
-    emqx_bridge_testlib:create_bridge_api(BridgeType, Name, SSConfig).
-
-delete_bridge(Config) ->
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    Name = ?config(sqlserver_name, Config),
-    emqx_bridge:remove(BridgeType, Name).
-
-create_bridge_http(Params) ->
-    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} ->
-            #{<<"type">> := Type, <<"name">> := Name} = Params,
-            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(Type, Name),
-            {ok, emqx_utils_json:decode(Res)};
-        Error ->
-            Error
-    end.
-
-send_message(Config, Payload) ->
-    Name = ?config(sqlserver_name, Config),
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    ActionId = id(BridgeType, Name),
-    emqx_bridge_v2:query(?global_ns, BridgeType, Name, {ActionId, Payload}, #{}).
-
-query_resource(Config, Request) ->
-    Name = ?config(sqlserver_name, Config),
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    ID = id(BridgeType, Name),
-    ResID = emqx_connector_resource:resource_id(?global_ns, BridgeType, Name),
-    emqx_resource:query(ID, Request, #{timeout => 1_000, connector_resource_id => ResID}).
-
-query_resource_async(Config, Request) ->
-    Name = ?config(sqlserver_name, Config),
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    Ref = alias([reply]),
-    AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    Return = emqx_resource:query(ResourceID, Request, #{
-        timeout => 500, async_reply_fun => {AsyncReplyFun, []}
-    }),
-    {Return, Ref}.
-
-resource_id(Config) ->
-    Name = ?config(sqlserver_name, Config),
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    _ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name).
-
-health_check_resource_ok(Config) ->
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    Name = ?config(sqlserver_name, Config),
-    % Wait for reconnection.
-    ?retry(
-        _Sleep = 1_000,
-        _Attempts = 10,
-        begin
-            ?assertEqual({ok, connected}, emqx_resource_manager:health_check(resource_id(Config))),
-            ?assertMatch(#{status := connected}, health_check(BridgeType, Name))
-        end
-    ).
-
-health_check_resource_down(Config) ->
-    case emqx_resource_manager:health_check(resource_id(Config)) of
-        {ok, Status} when Status =:= disconnected orelse Status =:= connecting ->
-            ok;
-        {error, timeout} ->
-            ok;
-        Other ->
-            ?assert(
-                false, lists:flatten(io_lib:format("invalid health check result:~p~n", [Other]))
-            )
-    end.
-
-receive_result(Ref, Timeout) ->
-    receive
-        {result, Ref, Result} ->
-            {ok, Result};
-        {Ref, Result} ->
-            {ok, Result}
-    after Timeout ->
-        timeout
-    end.
-
-connect_direct_sqlserver(Config) ->
-    Opts = [
-        {host, ?config(sqlserver_host, Config)},
-        {port, ?config(sqlserver_port, Config)},
-        {username, ?SQL_SERVER_USERNAME},
-        {password, ?SQL_SERVER_PASSWORD},
-        {driver, ?SQL_SERVER_DRIVER},
-        {pool_size, 1}
-    ],
-    {ok, Con} = connect(Opts),
-    Con.
-
-connect(Options) ->
-    ConnectStr = lists:concat(conn_str(Options, [])),
-    Opts = proplists:get_value(options, Options, []),
-    odbc:connect(ConnectStr, Opts).
-
-disconnect(Ref) ->
-    odbc:disconnect(Ref).
-
-% These funs connect and then stop the sqlserver connection
-connect_and_create_db_and_table(Config) ->
-    ?WITH_CON(begin
-        {updated, undefined} = directly_query(Con, ?SQL_CREATE_DATABASE_IF_NOT_EXISTS),
-        {updated, undefined} = directly_query(Con, ?SQL_CREATE_TABLE_IN_DB_MQTT)
-    end).
-
-connect_and_drop_db(Config) ->
-    ?WITH_CON({updated, undefined} = directly_query(Con, ?SQL_DROP_DB_MQTT)).
-
-connect_and_drop_table(Config) ->
-    ?WITH_CON({updated, undefined} = directly_query(Con, ?SQL_DROP_TABLE)).
-
-connect_and_clear_table(Config) ->
-    ?WITH_CON({updated, _} = directly_query(Con, ?SQL_DELETE)).
-
-connect_and_get_payload(Config) ->
-    ?WITH_CON(
-        {selected, ["payload"], Rows} = directly_query(Con, ?SQL_SELECT)
-    ),
-    Rows.
-
-connect_and_get_count(Config) ->
-    ?WITH_CON(
-        {selected, [[]], [{Count}]} = directly_query(Con, ?SQL_SELECT_COUNT)
-    ),
-    Count.
-
-directly_query(Con, Query) ->
-    directly_query(Con, Query, ?REQUEST_TIMEOUT_MS).
-
-directly_query(Con, Query, Timeout) ->
-    odbc:sql_query(Con, Query, Timeout).
-
-%%--------------------------------------------------------------------
-%% help functions
-%%--------------------------------------------------------------------
-
-batch_size(Config) ->
-    case ?config(enable_batch, Config) of
-        true -> ?BATCH_SIZE;
-        false -> 1
-    end.
-
-conn_str([], Acc) ->
-    lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);
-conn_str([{driver, Driver} | Opts], Acc) ->
-    conn_str(Opts, ["Driver=" ++ str(Driver) | Acc]);
-conn_str([{host, Host} | Opts], Acc) ->
-    Port = proplists:get_value(port, Opts, str(?SQLSERVER_DEFAULT_PORT)),
-    NOpts = proplists:delete(port, Opts),
-    conn_str(NOpts, ["Server=" ++ str(Host) ++ "," ++ str(Port) | Acc]);
-conn_str([{port, Port} | Opts], Acc) ->
-    Host = proplists:get_value(host, Opts, "localhost"),
-    NOpts = proplists:delete(host, Opts),
-    conn_str(NOpts, ["Server=" ++ str(Host) ++ "," ++ str(Port) | Acc]);
-conn_str([{database, Database} | Opts], Acc) ->
-    conn_str(Opts, ["Database=" ++ str(Database) | Acc]);
-conn_str([{username, Username} | Opts], Acc) ->
-    conn_str(Opts, ["UID=" ++ str(Username) | Acc]);
-conn_str([{password, Password} | Opts], Acc) ->
-    conn_str(Opts, ["PWD=" ++ str(Password) | Acc]);
-conn_str([{_, _} | Opts], Acc) ->
-    conn_str(Opts, Acc).
-
-sent_data(Payload) ->
-    #{
-        payload => to_bin(Payload),
-        id => <<"0005F8F84FFFAFB9F44200000D810002">>,
-        topic => <<"test/topic">>,
-        qos => 0
-    }.
-
-gen_batch_req(Config, Count) when
-    is_integer(Count) andalso Count > 0
-->
-    BridgeType = ?config(sqlserver_bridge_type, Config),
-    Name = ?config(sqlserver_name, Config),
-    ActionId = id(BridgeType, Name),
-    Vals = [{str(erlang:unique_integer())} || _Seq <- lists:seq(1, Count)],
-    Requests = [{ActionId, sent_data(Payload)} || {Payload} <- Vals],
-    {Requests, Vals};
-gen_batch_req(_Config, Count) ->
-    ct:pal("Gen batch requests failed with unexpected Count: ~p", [Count]).
-
-str(List) when is_list(List) ->
-    unicode:characters_to_list(List, utf8);
-str(Bin) when is_binary(Bin) ->
-    unicode:characters_to_list(Bin, utf8);
-str(Num) when is_number(Num) ->
-    number_to_list(Num).
-
-number_to_list(Int) when is_integer(Int) ->
-    integer_to_list(Int);
-number_to_list(Float) when is_float(Float) ->
-    float_to_list(Float, [{decimals, 10}, compact]).
-
-to_bin(List) when is_list(List) ->
-    unicode:characters_to_binary(List, utf8);
-to_bin(Bin) when is_binary(Bin) ->
-    Bin.

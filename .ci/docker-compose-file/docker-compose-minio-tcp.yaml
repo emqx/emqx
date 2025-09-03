@@ -13,7 +13,7 @@ services:
       - "9001:9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
+      interval: 5s
       timeout: 5s
       retries: 3
     networks:

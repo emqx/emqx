@@ -3,8 +3,8 @@ services:
     container_name: dynamo
     image: public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local:${DYNAMO_TAG}
     restart: always
-    ports:
-      - "8000:8000"
+    expose:
+      - 8000
     environment:
       AWS_ACCESS_KEY_ID: root
       AWS_SECRET_ACCESS_KEY: public

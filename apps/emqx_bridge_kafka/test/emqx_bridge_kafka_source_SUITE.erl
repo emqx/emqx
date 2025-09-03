@@ -63,56 +63,7 @@ all() ->
     ].
 
 groups() ->
-    AllTCs0 = emqx_common_test_helpers:all_with_matrix(?MODULE),
-    AllTCs = lists:filter(
-        fun
-            ({group, _}) -> false;
-            (_) -> true
-        end,
-        AllTCs0
-    ),
-    CustomMatrix0 = emqx_common_test_helpers:groups_with_matrix(?MODULE),
-    CustomMatrix = lists:filter(
-        fun
-            (Spec) when element(1, Spec) == ?cluster ->
-                false;
-            (_) ->
-                true
-        end,
-        CustomMatrix0
-    ),
-    ClusterTCs0 = cluster_testcases(),
-    LocalTCs = merge_custom_groups(?local, (AllTCs ++ CustomMatrix) -- ClusterTCs0, CustomMatrix),
-    ClusterTCs = merge_custom_groups(?cluster, ClusterTCs0, CustomMatrix),
-    [
-        {?cluster, ClusterTCs},
-        {?local, LocalTCs}
-    ].
-
-merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
-    CustomMatrix =
-        lists:flatmap(
-            fun
-                ({G, _, SubGroup}) when G == RootGroup ->
-                    SubGroup;
-                (_) ->
-                    []
-            end,
-            CustomMatrix0
-        ),
-    CustomMatrix ++ GroupTCs.
-
-cluster_testcases() ->
-    Key = ?cluster,
-    lists:filter(
-        fun
-            ({testcase, TestCase, _Opts}) ->
-                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false);
-            (TestCase) ->
-                emqx_common_test_helpers:get_tc_prop(?MODULE, TestCase, Key, false)
-        end,
-        emqx_common_test_helpers:all(?MODULE)
-    ).
+    emqx_bridge_v2_testlib:local_and_cluster_groups(?MODULE, ?local, ?cluster).
 
 init_per_suite(TCConfig) ->
     TCConfig.
@@ -311,40 +262,10 @@ no_tls() ->
     #{<<"enable">> => false}.
 
 connector_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my connector">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"bootstrap_hosts">> => <<"kafka-1.emqx.net:9092">>,
-        <<"authentication">> => no_auth(),
-        <<"connect_timeout">> => <<"5s">>,
-        <<"metadata_request_timeout">> => <<"5s">>,
-        <<"min_metadata_refresh_interval">> => <<"3s">>,
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_connector_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_kafka_testlib:source_connector_config(Overrides).
 
 source_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my action">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"parameters">> => #{
-            <<"key_encoding_mode">> => <<"none">>,
-            <<"max_batch_bytes">> => <<"896KB">>,
-            <<"max_wait_time">> => <<"500ms">>,
-            <<"max_rejoin_attempts">> => <<"5">>,
-            <<"offset_reset_policy">> => <<"earliest">>,
-            <<"topic">> => <<"please override">>,
-            <<"value_encoding_mode">> => <<"none">>
-        },
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_source_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check(source, ?SOURCE_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_kafka_testlib:source_config(Overrides).
 
 no_auth() ->
     emqx_bridge_kafka_testlib:no_auth().

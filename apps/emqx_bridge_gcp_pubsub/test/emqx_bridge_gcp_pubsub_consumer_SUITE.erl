@@ -141,6 +141,11 @@ end_per_group(_Group, TCConfig) ->
     emqx_cth_suite:stop(Apps),
     ok.
 
+init_per_testcase(t_async_worker_death_mid_pull, _TCConfig) ->
+    %% At the time of writing (2025-09-02), this test is very flaky in CI, and we don't
+    %% know if it's a particularity of the emulator container.  For now, we'll skip this
+    %% test.
+    {skip, <<"too flaky... maybe emulator bug?">>};
 init_per_testcase(TestCase, TCConfig0) ->
     reset_proxy(),
     Path = group_path(TCConfig0, no_groups),

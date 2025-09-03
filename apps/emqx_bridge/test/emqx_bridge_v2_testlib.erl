@@ -1386,22 +1386,28 @@ source_hookpoint_callback(Message, _Namespace, TestPid) ->
 %%------------------------------------------------------------------------------
 
 t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
+    t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint, _Opts = #{}).
+
+t_sync_query(TCConfig, MakeMessageFun, IsSuccessCheck, TracePoint, Opts) ->
+    ConnectorOverrides = maps:get(connector_overrides, Opts, #{}),
+    ActionOverrides = maps:get(action_overrides, Opts, #{}),
     ?check_trace(
         begin
-            ?assertMatch({ok, _}, create_bridge_api(Config)),
-            ResourceId = connector_resource_id(Config),
+            ?assertMatch({201, _}, create_connector_api2(TCConfig, ConnectorOverrides)),
+            ?assertMatch({201, _}, create_action_api2(TCConfig, ActionOverrides)),
+            ResourceId = connector_resource_id(TCConfig),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
-            BridgeId = bridge_id(Config),
+            BridgeId = bridge_id(TCConfig),
             Message = {BridgeId, MakeMessageFun()},
             IsSuccessCheck(emqx_resource:simple_sync_query(ResourceId, Message)),
             ok
         end,
         fun(Trace) ->
-            ResourceId = connector_resource_id(Config),
+            ResourceId = connector_resource_id(TCConfig),
             ?assertMatch([#{instance_id := ResourceId}], ?of_kind(TracePoint, Trace))
         end
     ),
@@ -1429,6 +1435,7 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
                 {ok, {ok, _}},
                 ?wait_async_action(
                     emqx_bridge_v2:query(?global_ns, ActionType, ActionName, Message, #{
+                        query_mode => async,
                         async_reply_fun => {ReplyFun, [self()]}
                     }),
                     #{?snk_kind := TracePoint, instance_id := ResourceId},
@@ -1696,6 +1703,10 @@ t_create_via_http(Config, IsOnlyV2) ->
     ok.
 
 t_start_stop(Config, StopTracePoint) ->
+    t_start_stop(Config, StopTracePoint, _Opts = #{}).
+
+t_start_stop(Config, StopTracePoint, #{} = Opts) ->
+    SkipAtomLeakCheck = maps:get(skip_atom_leak_check, Opts, false),
     Kind = proplists:get_value(bridge_kind, Config, action),
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
@@ -1746,7 +1757,18 @@ t_start_stop(Config, StopTracePoint) ->
             ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
             AtomsAfter = all_atoms(),
             AtomCountAfter = erlang:system_info(atom_count),
-            ?assertEqual(AtomCountBefore, AtomCountAfter, #{new_atoms => AtomsAfter -- AtomsBefore}),
+            case SkipAtomLeakCheck of
+                false ->
+                    ?assertEqual(
+                        AtomCountBefore,
+                        AtomCountAfter,
+                        #{new_atoms => AtomsAfter -- AtomsBefore}
+                    );
+                true when AtomCountBefore /= AtomCountAfter ->
+                    ct:print("WARNING: atom leak; new atoms:\n  ~p", [AtomsAfter -- AtomsBefore]);
+                true ->
+                    ok
+            end,
 
             ?assertMatch({ok, _}, create_kind_api(Config)),
 
@@ -2656,3 +2678,80 @@ create_rule_directly(#{<<"id">> := Id} = Opts0) ->
 fmt(FmtStr, Context) ->
     Template = emqx_template:parse(FmtStr),
     iolist_to_binary(emqx_template:render_strict(Template, Context)).
+
+-doc """
+A helper to construct the `groups/0` CT callback for suites where we run part of the test
+cases locally and part in a separate CTH cluster.
+
+It relies on tests that wish to run in the cluster to specify the `?FUNCION_NAME/0`
+callback, which should return a proplist with `{ClusterGroup, true}`.
+
+E.g.:
+
+```
+t_some_cluster_test() ->
+    [{cluster, true}].
+t_some_cluster_test(TCConfig) ->
+    ...
+```
+
+Test cases that don't set `{ClusterGroup, true}` will run in the `LocalGroup`.
+
+# Params
+
+  * `LocalGroup` - the group name that identifies local tests (typically `local`).
+  * `ClusterGroup` - the group name that identifies cluster tests (typically `cluster`).
+
+""".
+local_and_cluster_groups(Module, LocalGroup, ClusterGroup) ->
+    AllTCs0 = emqx_common_test_helpers:all_with_matrix(Module),
+    AllTCs = lists:filter(
+        fun
+            ({group, _}) -> false;
+            (_) -> true
+        end,
+        AllTCs0
+    ),
+    CustomMatrix0 = emqx_common_test_helpers:groups_with_matrix(Module),
+    CustomMatrix = lists:filter(
+        fun
+            (Spec) when element(1, Spec) == ClusterGroup ->
+                false;
+            (_) ->
+                true
+        end,
+        CustomMatrix0
+    ),
+    ClusterTCs0 = cluster_testcases(Module, ClusterGroup),
+    LocalTCs = merge_custom_groups(
+        ClusterGroup, (AllTCs ++ CustomMatrix) -- ClusterTCs0, CustomMatrix
+    ),
+    ClusterTCs = merge_custom_groups(ClusterGroup, ClusterTCs0, CustomMatrix),
+    [
+        {ClusterGroup, ClusterTCs},
+        {LocalGroup, LocalTCs}
+    ].
+
+merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
+    CustomMatrix =
+        lists:flatmap(
+            fun
+                ({G, _, SubGroup}) when G == RootGroup ->
+                    SubGroup;
+                (_) ->
+                    []
+            end,
+            CustomMatrix0
+        ),
+    CustomMatrix ++ GroupTCs.
+
+cluster_testcases(Module, ClusterKey) ->
+    lists:filter(
+        fun
+            ({testcase, TestCase, _Opts}) ->
+                emqx_common_test_helpers:get_tc_prop(Module, TestCase, ClusterKey, false);
+            (TestCase) ->
+                emqx_common_test_helpers:get_tc_prop(Module, TestCase, ClusterKey, false)
+        end,
+        emqx_common_test_helpers:all(Module)
+    ).

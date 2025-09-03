@@ -224,7 +224,6 @@ on_stop(InstanceId, _State) ->
         msg => "stopping_rocketmq_connector",
         connector => InstanceId
     }),
-
     lists:foreach(
         fun
             ({_, client_id, ClientId}) ->
@@ -234,7 +233,9 @@ on_stop(InstanceId, _State) ->
                 _ = rocketmq:stop_and_delete_supervised_producers(Producer)
         end,
         emqx_resource:get_allocated_resources_list(InstanceId)
-    ).
+    ),
+    ?tp("rocketmq_connector_stop", #{instance_id => InstanceId}),
+    ok.
 
 on_query(InstanceId, Query, State) ->
     do_query(InstanceId, Query, send_sync, State).
@@ -401,7 +402,12 @@ apply_template([{Key, _} | _] = Reqs, Templates, ContextFn) ->
     end.
 
 client_id(ResourceId) ->
-    erlang:binary_to_atom(ResourceId, utf8).
+    case emqx_resource:is_dry_run(ResourceId) of
+        true ->
+            emqx_probe;
+        false ->
+            erlang:binary_to_atom(ResourceId, utf8)
+    end.
 
 redact(Msg) ->
     emqx_utils:redact(Msg, fun is_sensitive_key/1).

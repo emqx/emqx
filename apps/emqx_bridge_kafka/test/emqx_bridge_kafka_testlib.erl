@@ -9,6 +9,11 @@
 -export([
     wait_until_kafka_is_up/0,
 
+    action_connector_config/1,
+    source_connector_config/1,
+    action_config/1,
+    source_config/1,
+
     shared_secret_path/0,
     shared_secret/1,
 
@@ -29,6 +34,138 @@
 ]).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(ACTION_CONNECTOR_TYPE_BIN, <<"kafka_producer">>).
+-define(ACTION_TYPE_BIN, <<"kafka_producer">>).
+-define(SOURCE_CONNECTOR_TYPE_BIN, <<"kafka_consumer">>).
+-define(SOURCE_TYPE_BIN, <<"kafka_consumer">>).
+
+action_connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"bootstrap_hosts">> => <<"kafka-1.emqx.net:9092">>,
+        <<"connect_timeout">> => <<"5s">>,
+        <<"metadata_request_timeout">> => <<"5s">>,
+        <<"min_metadata_refresh_interval">> => <<"3s">>,
+        <<"socket_opts">> =>
+            #{
+                <<"recbuf">> => <<"1024KB">>,
+                <<"sndbuf">> => <<"1024KB">>,
+                <<"tcp_keepalive">> => <<"none">>
+            },
+        <<"ssl">> =>
+            #{
+                <<"ciphers">> => [],
+                <<"depth">> => 10,
+                <<"enable">> => false,
+                <<"hibernate_after">> => <<"5s">>,
+                <<"log_level">> => <<"notice">>,
+                <<"reuse_sessions">> => true,
+                <<"secure_renegotiate">> => true,
+                <<"verify">> => <<"verify_peer">>,
+                <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
+            },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(
+        ?ACTION_CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap
+    ).
+
+source_connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"bootstrap_hosts">> => <<"kafka-1.emqx.net:9092">>,
+        <<"authentication">> => no_auth(),
+        <<"connect_timeout">> => <<"5s">>,
+        <<"metadata_request_timeout">> => <<"5s">>,
+        <<"min_metadata_refresh_interval">> => <<"3s">>,
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(
+        ?SOURCE_CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap
+    ).
+
+action_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"connector">> => <<"please override">>,
+        <<"parameters">> => #{
+            <<"buffer">> => #{
+                <<"memory_overload_protection">> => false,
+                <<"mode">> => <<"memory">>,
+                <<"per_partition_limit">> => <<"2GB">>,
+                <<"segment_bytes">> => <<"100MB">>
+            },
+            <<"compression">> => <<"no_compression">>,
+            <<"kafka_header_value_encode_mode">> => <<"json">>,
+            <<"max_linger_time">> => <<"0ms">>,
+            <<"max_linger_bytes">> => <<"10MB">>,
+            <<"max_batch_bytes">> => <<"896KB">>,
+            <<"max_inflight">> => 10,
+            <<"message">> => #{
+                <<"key">> => <<"${.clientid}">>,
+                <<"timestamp">> => <<"${.timestamp}">>,
+                <<"value">> => <<"${.payload}">>
+            },
+            <<"partition_count_refresh_interval">> => <<"60s">>,
+            <<"partition_strategy">> => <<"random">>,
+            <<"query_mode">> => <<"sync">>,
+            <<"required_acks">> => <<"all_isr">>,
+            <<"sync_query_timeout">> => <<"5s">>,
+            <<"topic">> => <<"test-topic-one-partition">>
+        },
+        <<"resource_opts">> =>
+            maps:without(
+                [
+                    <<"batch_size">>,
+                    <<"batch_time">>,
+                    <<"buffer_mode">>,
+                    <<"buffer_seg_bytes">>,
+                    <<"health_check_interval_jitter">>,
+                    <<"inflight_window">>,
+                    <<"max_buffer_bytes">>,
+                    <<"metrics_flush_interval">>,
+                    <<"query_mode">>,
+                    <<"request_ttl">>,
+                    <<"resume_interval">>,
+                    <<"worker_pool_size">>
+                ],
+                emqx_bridge_v2_testlib:common_action_resource_opts()
+            )
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+source_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"connector">> => <<"please override">>,
+        <<"parameters">> => #{
+            <<"key_encoding_mode">> => <<"none">>,
+            <<"max_batch_bytes">> => <<"896KB">>,
+            <<"max_wait_time">> => <<"500ms">>,
+            <<"max_rejoin_attempts">> => <<"5">>,
+            <<"offset_reset_policy">> => <<"earliest">>,
+            <<"topic">> => <<"please override">>,
+            <<"value_encoding_mode">> => <<"none">>
+        },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_source_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(source, ?SOURCE_TYPE_BIN, <<"x">>, InnerConfigMap).
 
 shared_secret_path() ->
     os:getenv("CI_SHARED_SECRET_PATH", "/var/lib/secret").
