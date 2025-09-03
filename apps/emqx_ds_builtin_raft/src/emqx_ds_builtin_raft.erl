@@ -627,14 +627,16 @@ unpack_iterator(Shard, Iterator = #'Iterator'{}) ->
     emqx_ds_storage_layer_ttv:unpack_iterator(Shard, Iterator).
 
 high_watermark(DBShard = {DB, Shard}, Stream = #'Stream'{}) ->
-    Now = current_timestamp(DB, Shard),
-    emqx_ds_storage_layer_ttv:high_watermark(DBShard, Stream, Now).
+    maybe
+        {ok, Now} ?= current_timestamp(DB, Shard),
+        emqx_ds_storage_layer_ttv:high_watermark(DBShard, Stream, Now)
+    end.
 
 fast_forward(DBShard = {DB, Shard}, It = #'Iterator'{}, Key, BatchSize) ->
     ?IF_SHARD_READY(
         DBShard,
-        begin
-            Now = current_timestamp(DB, Shard),
+        maybe
+            {ok, Now} ?= current_timestamp(DB, Shard),
             emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now, BatchSize)
         end
     ).
@@ -648,9 +650,9 @@ iterator_match_context(DBShard, Iterator = #'Iterator'{}) ->
 scan_stream(DBShard = {DB, Shard}, Stream = #'Stream'{}, TopicFilter, StartMsg, BatchSize) ->
     ?IF_SHARD_READY(
         DBShard,
-        begin
+        maybe
             %% TODO: this has been changed during refactoring. Double-check.
-            Now = current_timestamp(DB, Shard),
+            {ok, Now} ?= current_timestamp(DB, Shard),
             emqx_ds_storage_layer_ttv:scan_stream(
                 DBShard, Stream, TopicFilter, Now, StartMsg, BatchSize
             )
@@ -737,10 +739,14 @@ otx_get_runtime_config(DB) ->
 -doc """
 Messages have been replicated up to this timestamp on the local replica.
 """.
--spec current_timestamp(emqx_ds:db(), emqx_ds:shard()) -> emqx_ds:time().
+-spec current_timestamp(emqx_ds:db(), emqx_ds:shard()) -> {ok, emqx_ds:time()} | emqx_ds:error(_).
 current_timestamp(DB, Shard) ->
-    {ok, Val} = emqx_dsch:gvar_get(DB, Shard, ?gv_sc_replica, ?gv_timestamp),
-    Val.
+    case emqx_dsch:gvar_get(DB, Shard, ?gv_sc_replica, ?gv_timestamp) of
+        {ok, _} = Ok ->
+            Ok;
+        undefined ->
+            ?err_rec(replica_offline)
+    end.
 
 %%================================================================================
 %% RPC targets

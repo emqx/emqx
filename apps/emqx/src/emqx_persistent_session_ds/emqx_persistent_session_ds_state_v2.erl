@@ -323,7 +323,12 @@ delete(
     #{?collection_guard := Guard, ?id := ClientId}
 ) ->
     Opts = #{
-        db => ?DB, shard => {auto, ClientId}, generation => Generation, timeout => trans_timeout()
+        db => ?DB,
+        shard => {auto, ClientId},
+        generation => Generation,
+        timeout => trans_timeout(),
+        retries => trans_retries(),
+        retry_interval => trans_retry_interval()
     },
     {atomic, _, _} =
         emqx_ds:trans(
