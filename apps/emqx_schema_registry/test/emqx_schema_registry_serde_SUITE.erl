@@ -220,6 +220,34 @@ t_protobuf_invalid_schema(_Config) ->
     ),
     ok.
 
+t_protobuf_map_types(_Config) ->
+    Source = iolist_to_binary([
+        [
+            "message test {",
+            "  map<string, string> args = 1;",
+            "}",
+            "message union {",
+            "  oneof u {",
+            "    int32 a = 1;",
+            "    string b = 2;",
+            "  }",
+            "}"
+        ]
+    ]),
+    Params = #{type => protobuf, source => Source},
+    SerdeName = <<"maps">>,
+    ok = emqx_schema_registry:add_schema(SerdeName, Params),
+    ExtraArgs0 = [<<"test">>],
+    Original0 = #{<<"args">> => #{<<"hello">> => <<"world">>}},
+    assert_roundtrip(SerdeName, Original0, ExtraArgs0, ExtraArgs0),
+    ExtraArgs1 = [<<"union">>],
+    Original1 = #{<<"a">> => 1},
+    assert_roundtrip(SerdeName, Original1, ExtraArgs1, ExtraArgs1),
+    ExtraArgs2 = [<<"union">>],
+    Original2 = #{<<"b">> => <<"hey">>},
+    assert_roundtrip(SerdeName, Original2, ExtraArgs2, ExtraArgs2),
+    ok.
+
 %% Checks that we unload code and clear code generation cache after destroying a protobuf
 %% serde.
 t_destroy_protobuf(_Config) ->
