@@ -8,15 +8,21 @@
 The module represents a subscription to a Message Queue consumer.
 It handles interactions between a channel and a consumer.
 
-It has two states:
+It has states:
 * `#finding_mq{}` - no MQ found, we are waiting for it to be created.
 * `#connecting{}` - MQ found, the subscription is trying to connect to the consumer.
 * `#connected{}` - the subscription is established and the consumer is connected.
 
-It uses two timers:
-* `consumer_timeout` - the timeout for the consumer to report about itself
+It uses timers:
+* In `#finding_mq{}` state:
+  * `find_mq_retry` - the timeout for the next retry to find the MQ (if it is not present).
+* In `#connecting{}` state:
+  * `connect_timeout` - the timeout for the consumer to connect to the MQ.
+* In `#connected{}` state:
+  * `consumer_timeout` - the timeout for the consumer to report about itself
     (either by ping, message, or connection confirmation).
-* `ping` - the timeout for the ping message to be sent to the consumer.
+  * `ping` - the timeout for the ping message to be sent to the consumer.
+  * `publish_retry` - the timeout for the next retry to push buffered messages into the session's inflight.
 """.
 
 -include("emqx_mq_internal.hrl").
