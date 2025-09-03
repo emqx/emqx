@@ -48,17 +48,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_get_basic_usage_info_1, _Config) ->
-    lists:foreach(
-        fun({BridgeType, BridgeName}) ->
-            ok = emqx_bridge:remove(BridgeType, BridgeName)
-        end,
-        [
-            %% Keep using the old bridge names to avoid breaking the tests
-            {webhook, <<"basic_usage_info_webhook">>},
-            {webhook, <<"basic_usage_info_webhook_disabled">>},
-            {mqtt, <<"basic_usage_info_mqtt">>}
-        ]
-    ),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok = emqx_config:delete_override_conf_files(),
     ok = emqx_config:put([bridges], #{}),
     ok = emqx_config:put_raw([bridges], #{}),
@@ -92,91 +82,61 @@ t_get_basic_usage_info_1(_Config) ->
     ).
 
 setup_fake_telemetry_data() ->
-    MQTTConfig1 = #{
-        server => "127.0.0.1:1883",
-        enable => true,
-        ingress => #{
-            remote => #{
-                topic => <<"aws/#">>,
-                qos => 1
-            }
-        }
-    },
-    MQTTConfig2 = #{
-        server => "127.0.0.1:1884",
-        enable => true,
-        ingress => #{
-            remote => #{
-                topic => <<"$bridges/mqtt:some_bridge_in">>,
-                qos => 1
-            }
-        }
-    },
-    HTTPConfig = #{
-        url => <<"http://localhost:9901/messages/${topic}">>,
-        enable => true,
-        local_topic => "emqx_http/#",
-        method => post,
-        body => <<"${payload}">>,
-        headers => #{},
-        request_timeout => "15s"
-    },
-    %% Keep use the old bridge names to test the backward compatibility
-    {ok, _} = emqx_bridge_testlib:create_bridge_api(
-        <<"webhook">>,
-        <<"basic_usage_info_webhook">>,
-        HTTPConfig
-    ),
-    {ok, _} = emqx_bridge_testlib:create_bridge_api(
-        <<"webhook">>,
-        <<"basic_usage_info_webhook_disabled">>,
-        HTTPConfig#{enable => false}
-    ),
-    {ok, _} = emqx_bridge_testlib:create_bridge_api(
-        <<"mqtt">>,
-        <<"basic_usage_info_mqtt">>,
-        MQTTConfig1
-    ),
-    {ok, _} = emqx_bridge_testlib:create_bridge_api(
-        <<"mqtt">>,
-        <<"basic_usage_info_mqtt_from_select">>,
-        MQTTConfig2
-    ),
-    ok.
-
-t_update_ssl_conf(Config) ->
-    [_Root, Type, Name] = proplists:get_value(config_path, Config),
-    CertDir = filename:join([emqx:mutable_certs_dir(), connectors, Type, Name]),
-    EnableSSLConf = #{
-        <<"bridge_mode">> => false,
-        <<"clean_start">> => true,
-        <<"keepalive">> => <<"60s">>,
-        <<"proto_ver">> => <<"v4">>,
-        <<"server">> => <<"127.0.0.1:1883">>,
-        <<"egress">> => #{
-            <<"local">> => #{<<"topic">> => <<"t">>},
-            <<"remote">> => #{<<"topic">> => <<"remote/t">>}
-        },
-        <<"ssl">> =>
-            #{
-                <<"cacertfile">> => cert_file("cafile"),
-                <<"certfile">> => cert_file("certfile"),
-                <<"enable">> => true,
-                <<"keyfile">> => cert_file("keyfile"),
-                <<"verify">> => <<"verify_peer">>
-            }
-    },
-    CreateCfg = [
-        {bridge_name, Name},
-        {bridge_type, Type},
-        {bridge_config, #{}}
+    HTTPTCConfig1 = [
+        {bridge_kind, action},
+        {connector_type, <<"http">>},
+        {connector_name, <<"basic_usage_info_webhook">>},
+        {connector_config,
+            emqx_bridge_schema_testlib:http_connector_config(#{
+                <<"url">> => <<"http://localhost:9901/">>
+            })},
+        {action_type, <<"http">>},
+        {action_name, <<"basic_usage_info_webhook">>},
+        {action_config,
+            emqx_bridge_schema_testlib:http_action_config(#{
+                <<"connector">> => <<"basic_usage_info_webhook">>
+            })}
     ],
-    {ok, _} = emqx_bridge_testlib:create_bridge_api(CreateCfg, EnableSSLConf),
-    ?assertMatch({ok, [_, _, _]}, file:list_dir(CertDir)),
-    NoSSLConf = EnableSSLConf#{<<"ssl">> := #{<<"enable">> => false}},
-    {ok, _} = emqx_bridge_testlib:update_bridge_api(CreateCfg, NoSSLConf),
-    {ok, _} = emqx_tls_certfile_gc:force(),
-    ?assertMatch({error, enoent}, file:list_dir(CertDir)),
+    {201, _} = emqx_bridge_v2_testlib:create_connector_api2(HTTPTCConfig1, #{}),
+    {201, _} = emqx_bridge_v2_testlib:create_action_api2(HTTPTCConfig1, #{}),
+    HTTPTCConfig2 = [
+        {connector_name, <<"basic_usage_info_webhook_disabled">>},
+        {action_name, <<"basic_usage_info_webhook_disabled">>}
+        | HTTPTCConfig1
+    ],
+    {201, _} = emqx_bridge_v2_testlib:create_connector_api2(HTTPTCConfig2, #{
+        <<"enable">> => false
+    }),
+    {201, _} = emqx_bridge_v2_testlib:create_action_api2(HTTPTCConfig2, #{
+        <<"enable">> => false
+    }),
+    MQTTTCConfig1 = [
+        {bridge_kind, action},
+        {connector_type, <<"mqtt">>},
+        {connector_name, <<"basic_usage_info_mqtt">>},
+        {connector_config, emqx_bridge_schema_testlib:mqtt_connector_config(#{})},
+        {action_type, <<"mqtt">>},
+        {action_name, <<"basic_usage_info_mqtt">>},
+        {action_config,
+            emqx_bridge_schema_testlib:mqtt_action_config(#{
+                <<"connector">> => <<"basic_usage_info_mqtt">>
+            })}
+    ],
+    {201, _} = emqx_bridge_v2_testlib:create_connector_api2(MQTTTCConfig1, #{}),
+    {201, _} = emqx_bridge_v2_testlib:create_action_api2(MQTTTCConfig1, #{}),
+    MQTTTCConfig2 = [
+        {bridge_kind, source},
+        {connector_type, <<"mqtt">>},
+        {connector_name, <<"basic_usage_info_mqtt">>},
+        {connector_config, emqx_bridge_schema_testlib:mqtt_connector_config(#{})},
+        {source_type, <<"mqtt">>},
+        {source_name, <<"basic_usage_info_mqtt_from_select">>},
+        {source_config,
+            emqx_bridge_schema_testlib:mqtt_source_config(#{
+                <<"connector">> => <<"basic_usage_info_mqtt">>
+            })}
+    ],
+    {201, _} = emqx_bridge_v2_testlib:create_source_api(MQTTTCConfig2, #{}),
     ok.
 
 t_create_with_bad_name(_Config) ->

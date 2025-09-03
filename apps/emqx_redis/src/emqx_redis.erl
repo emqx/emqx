@@ -166,18 +166,21 @@ on_stop(InstId, _State) ->
         msg => "stopping_redis_connector",
         connector => InstId
     }),
-    case emqx_resource:get_allocated_resources(InstId) of
-        #{pool_name := PoolName, type := cluster} ->
-            case eredis_cluster:stop_pool(PoolName) of
-                {error, not_found} -> ok;
-                ok -> ok;
-                Error -> Error
-            end;
-        #{pool_name := PoolName, type := _} ->
-            emqx_resource_pool:stop(PoolName);
-        _ ->
-            ok
-    end.
+    Res =
+        case emqx_resource:get_allocated_resources(InstId) of
+            #{pool_name := PoolName, type := cluster} ->
+                case eredis_cluster:stop_pool(PoolName) of
+                    {error, not_found} -> ok;
+                    ok -> ok;
+                    Error -> Error
+                end;
+            #{pool_name := PoolName, type := _} ->
+                emqx_resource_pool:stop(PoolName);
+            _ ->
+                ok
+        end,
+    ?tp("redis_connector_stop", #{instance_id => InstId}),
+    Res.
 
 on_query(InstId, {cmd, _} = Query, State) ->
     do_query(InstId, Query, State);

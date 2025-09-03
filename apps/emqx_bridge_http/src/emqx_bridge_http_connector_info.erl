@@ -19,7 +19,7 @@ type_name() ->
     http.
 
 bridge_types() ->
-    [webhook, http].
+    [http].
 
 resource_callback_module() ->
     emqx_bridge_http_connector.

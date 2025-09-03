@@ -75,6 +75,7 @@ on_message_received(Msg, HookPoints, ResId, Namespace) ->
         end,
         HookPoints
     ),
+    ?tp("mqtt_ingress_processed_message", #{}),
     ok.
 
 %% ===================================================================

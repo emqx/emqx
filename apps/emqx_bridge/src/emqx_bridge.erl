@@ -624,7 +624,7 @@ get_basic_usage_info() ->
     try
         lists:foldl(
             fun
-                (#{resource_data := #{config := #{enable := false}}}, Acc) ->
+                (#{raw_config := #{<<"enable">> := false}}, Acc) ->
                     Acc;
                 (#{type := BridgeType}, Acc) ->
                     NumBridges = maps:get(num_bridges, Acc),
@@ -641,7 +641,8 @@ get_basic_usage_info() ->
                     }
             end,
             InitialAcc,
-            list()
+            emqx_bridge_v2:list(?global_ns, actions) ++
+                emqx_bridge_v2:list(?global_ns, sources)
         )
     catch
         %% for instance, when the bridge app is not ready yet.
