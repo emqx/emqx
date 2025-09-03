@@ -1648,11 +1648,18 @@ handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInf
     Acc = emqx_hooks:run_fold('client.handle_info', [ClientInfo, Info], Acc0),
     Delivers = maps:get(deliver, Acc, []),
     Replies = maps:get(replies, Acc, []),
-    case handle_deliver(Delivers, Channel1) of
-        {ok, Channel} ->
-            {ok, Replies, Channel};
-        {ok, DeliverReplies, Channel2} ->
-            {ok, append_replies(DeliverReplies, Replies), Channel2}
+    {AllReplies, Channel} =
+        case handle_deliver(Delivers, Channel1) of
+            {ok, Channel2} ->
+                {Replies, Channel2};
+            {ok, DeliverReplies, Channel2} ->
+                {append_replies(DeliverReplies, Replies), Channel2}
+        end,
+    case AllReplies of
+        [] ->
+            {ok, Channel};
+        _ ->
+            {ok, AllReplies, Channel}
     end.
 
 append_replies(Replies1, Replies2) ->
