@@ -485,7 +485,12 @@ local_shard(DB, Shard, IsActive, Labels0) ->
     end.
 
 current_timestamp(DB, Shard, Ls) ->
-    [{Ls, emqx_ds_builtin_raft:current_timestamp(DB, Shard)}].
+    case emqx_ds_builtin_raft:current_timestamp(DB, Shard) of
+        {ok, TS} ->
+            [{Ls, TS}];
+        {error, _, _} ->
+            []
+    end.
 
 rasrv_lifecycle(Counters, Ls, Acc) ->
     Acc#{
