@@ -597,7 +597,7 @@ cancel_timer(Name, Timers0) ->
 -spec disconnect(clientinfo(), conninfo(), t()) ->
     {idle | shutdown, t()}.
 disconnect(ClientInfo, ConnInfo, Session) ->
-    run_hook('session.disonnected', [ClientInfo, info(Session)]),
+    run_hook('session.disconnected', [ClientInfo, info(Session)]),
     ?IMPL(Session):disconnect(Session, ConnInfo).
 
 -spec terminate(clientinfo(), Reason :: term(), t()) ->

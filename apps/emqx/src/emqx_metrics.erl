@@ -495,7 +495,7 @@ reserved_idx('session.resumed') -> 221;
 reserved_idx('session.takenover') -> 222;
 reserved_idx('session.discarded') -> 223;
 reserved_idx('session.terminated') -> 224;
-reserved_idx('session.disonnected') -> 225;
+reserved_idx('session.disconnected') -> 225;
 reserved_idx('authorization.allow') -> 300;
 reserved_idx('authorization.deny') -> 301;
 reserved_idx('authorization.cache_hit') -> 302;
@@ -638,7 +638,7 @@ client_metrics() ->
 session_metrics() ->
     [
         {counter, 'session.created', ?DESC("session_created")},
-        {counter, 'session.disonnected', ?DESC("session_disonnected")},
+        {counter, 'session.disconnected', ?DESC("session_disonnected")},
         {counter, 'session.resumed', ?DESC("session_resumed")},
         {counter, 'session.takenover', ?DESC("session_takenover")},
         {counter, 'session.discarded', ?DESC("session_discarded")},

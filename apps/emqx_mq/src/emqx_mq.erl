@@ -34,7 +34,7 @@ register_hooks() ->
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('session.disonnected', {?MODULE, on_session_disonnected, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('session.disconnected', {?MODULE, on_session_disonnected, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
 
@@ -45,7 +45,7 @@ unregister_hooks() ->
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
-    emqx_hooks:del('session.disonnected', {?MODULE, on_session_disonnected}),
+    emqx_hooks:del('session.disconnected', {?MODULE, on_session_disonnected}),
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
 
