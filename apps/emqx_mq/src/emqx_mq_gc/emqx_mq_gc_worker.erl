@@ -60,12 +60,12 @@ child_spec() ->
 
 init([]) ->
     erlang:process_flag(trap_exit, true),
-    ?tp_debug(mq_gc_worker_started, #{}),
+    ?tp(info, mq_gc_worker_started, #{}),
     {ok, #{}, {continue, gc_regular_queues}}.
 
 handle_continue(gc_regular_queues, #{}) ->
     ok = gc_regular_queues(),
-    ?tp(info, mq_gc_regular_done, #{}),
+    ?tp_debug(mq_gc_regular_done, #{}),
     {noreply, start_gc_lastvalue_queues()}.
 
 handle_call(_Request, _From, State) ->
@@ -102,7 +102,7 @@ gc_next_lastvalue_batch(#{stream := Stream0} = State) ->
             {noreply, State#{stream => Stream}};
         MQs when is_list(MQs) ->
             ok = gc_lastvalue_queues(MQs),
-            ?tp(warning, mq_gc_done, #{}),
+            ?tp(info, mq_gc_done, #{}),
             {stop, normal, State}
     end.
 
@@ -144,12 +144,12 @@ gc_regular_queues() ->
             end,
             maps:to_list(SlabInfo)
         ),
-    ?tp(warning, mq_gc_regular, #{expired_slabs => ExpiredSlabInfo}),
+    ?tp(info, mq_gc_regular, #{expired_slabs => ExpiredSlabInfo}),
     {ExpiredSlabs, _} = lists:unzip(ExpiredSlabInfo),
     lists:foreach(
         fun(Slab) ->
             ok = emqx_mq_message_db:drop_regular_db_slab(Slab),
-            ?tp(mq_message_gc_regular_db_slab_dropped, #{slab => Slab})
+            ?tp(info, mq_message_gc_regular_db_slab_dropped, #{slab => Slab})
         end,
         ExpiredSlabs
     ).

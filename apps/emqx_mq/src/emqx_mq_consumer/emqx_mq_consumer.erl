@@ -308,8 +308,8 @@ handle_persist_consumer_data(
                 PersistenceInterval, self(), #persist_consumer_data{}
             ),
             {noreply, State};
-        Error ->
-            ?tp(error, mq_consumer_persist_consumer_data_error, #{error => Error}),
+        {error, Reason} = Error ->
+            ?tp(error, mq_consumer_persist_consumer_data_error, #{reason => Reason, on => timer}),
             {stop, Error, State0}
     end.
 
@@ -333,10 +333,7 @@ handle_shutdown(#state{mq = #{topic_filter := _MQTopicFilter} = _MQ} = State) ->
         {ok, _State} ->
             ok;
         {error, Reason} ->
-            ?tp(error, mq_consumer_shutdown_error, #{
-                mq_topic_filter => _MQTopicFilter,
-                reason => Reason
-            })
+            ?tp(error, mq_consumer_persist_consumer_data_error, #{on => shutdown, reason => Reason})
     end.
 
 %%--------------------------------------------------------------------

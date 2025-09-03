@@ -80,7 +80,6 @@ close() ->
 -spec insert(emqx_mq_types:mq(), list(emqx_types:message())) ->
     ok | {error, list(emqx_ds:error(_Reason))}.
 insert(#{is_lastvalue := true} = MQ, Messages) ->
-    % ?tp_debug(mq_message_db_insert, #{topic => Topic, generation => 1, value => Value}),
     insert(MQ, Messages, fun(_MQ, Topic, Value) ->
         emqx_ds:tx_del_topic(Topic),
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
@@ -234,7 +233,7 @@ group_by_shard(#{is_lastvalue := false} = MQ, Messages) ->
         Messages
     ),
     groupped_by_shard_to_list(ByShard);
-group_by_shard(#{is_lastvalue := true} = MQ, Messages) ->
+group_by_shard(#{is_lastvalue := true, topic_filter := _TopicFilter} = MQ, Messages) ->
     ByShard = lists:foldl(
         fun(Message, Acc) ->
             Props = emqx_message:get_header(properties, Message, #{}),
@@ -244,8 +243,10 @@ group_by_shard(#{is_lastvalue := true} = MQ, Messages) ->
             ),
             case Key of
                 undefined ->
-                    ?tp_debug(mq_message_db_insert_error, #{
-                        mq => MQ, message => Message, reason => undefined_key
+                    ?tp(warning, mq_message_db_insert_error, #{
+                        mq => _TopicFilter,
+                        from => emqx_message:from(Message),
+                        reason => undefined_key
                     }),
                     Acc;
                 _ ->
