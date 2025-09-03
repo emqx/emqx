@@ -22,6 +22,12 @@
 
 -define(DEFAULT_BACKEND, builtin_raft).
 
+-type backend() ::
+    builtin_raft
+    | builtin_local
+    | builtin_raft_messages
+    | builtin_local_messages.
+
 %%================================================================================
 %% API
 %%================================================================================
@@ -37,7 +43,7 @@ db_config_timers() ->
     db_config([durable_storage, timers]).
 
 db_config_shared_subs() ->
-    db_config([durable_storage, queues]).
+    db_config([durable_storage, shared_subs]).
 
 %%================================================================================
 %% Behavior callbacks
@@ -61,55 +67,64 @@ schema() ->
         {messages,
             db_schema(
                 [builtin_raft_messages, builtin_local_messages],
-                #{
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(messages)
-                }
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(messages),
+                #{}
             )},
         {sessions,
             db_schema(
-                [builtin_raft_ttv, builtin_local_ttv],
-                #{
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(sessions)
-                }
+                [builtin_raft, builtin_local],
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(sessions),
+                #{}
             )},
         {timers,
             db_schema(
-                [builtin_raft_ttv, builtin_local_ttv],
+                [builtin_raft, builtin_local],
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(timers),
+                %% Latency for this DB should be low. Currently timers
+                %% are mostly used for events that have 1s resolution
+                %% (session expiration, will delay), so anything under
+                %% this value should be ok.
                 #{
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(timers)
+                    <<"transaction">> => #{
+                        <<"idle_flush_interval">> => <<"1ms">>,
+                        <<"flush_interval">> => <<"500ms">>
+                    }
                 }
             )},
-        %% TODO: switch shared subs to use TTV and rename the DB to shared_sub
-        {queues,
+        {shared_subs,
             db_schema(
-                [builtin_raft_messages, builtin_local_messages],
-                #{
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(shared_subs)
-                }
+                [builtin_raft, builtin_local],
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(shared_subs),
+                #{}
             )}
     ] ++ emqx_schema_hooks:list_injection_point('durable_storage', []).
 
-db_schema(Backends, ExtraOptions) ->
-    Options = #{
-        default => #{<<"backend">> => ?DEFAULT_BACKEND}
-    },
+-spec db_schema([backend()], _Importance, ?DESC(_), Defaults) ->
+    #{type := _, _ => _}
+when
+    Defaults :: map().
+db_schema(Backends, Importance, Desc, Defaults) ->
     sc(
         hoconsc:union([ref(I) || I <- Backends]),
-        maps:merge(Options, ExtraOptions)
+        #{
+            default => maps:merge(#{<<"backend">> => ?DEFAULT_BACKEND}, Defaults),
+            importance => Importance,
+            desc => Desc
+        }
     ).
 
 fields(builtin_local_messages) ->
-    make_local(false);
+    make_local(messages);
 fields(builtin_raft_messages) ->
-    make_raft(false);
-fields(builtin_local_ttv) ->
-    make_local(true);
-fields(builtin_raft_ttv) ->
-    make_raft(true);
+    make_raft(messages);
+fields(builtin_local) ->
+    make_local(generic);
+fields(builtin_raft) ->
+    make_raft(generic);
 fields(rocksdb_options) ->
     [
         {cache_size,
@@ -137,40 +152,8 @@ fields(rocksdb_options) ->
                 }
             )}
     ];
-fields(builtin_write_buffer) ->
-    [
-        {max_items,
-            sc(
-                emqx_ds_buffer:size_limit(),
-                #{
-                    default => 1000,
-                    mapping => "emqx_durable_storage.egress_batch_size",
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(builtin_write_buffer_max_items)
-                }
-            )},
-        {max_bytes,
-            sc(
-                emqx_ds_buffer:size_limit(),
-                #{
-                    default => infinity,
-                    mapping => "emqx_durable_storage.egress_batch_bytes",
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(builtin_write_buffer_max_items)
-                }
-            )},
-        {flush_interval,
-            sc(
-                emqx_schema:timeout_duration_ms(),
-                #{
-                    default => 100,
-                    mapping => "emqx_durable_storage.egress_flush_interval",
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(builtin_write_buffer_flush_interval)
-                }
-            )}
-    ];
 fields(layout_builtin_wildcard_optimized) ->
+    %% Settings for `emqx_ds_storage_skipstream_lts_v2':
     [
         {type,
             sc(
@@ -178,43 +161,6 @@ fields(layout_builtin_wildcard_optimized) ->
                 #{
                     'readOnly' => true,
                     default => wildcard_optimized,
-                    desc => ?DESC(layout_builtin_wildcard_optimized_type)
-                }
-            )},
-        {bits_per_topic_level,
-            sc(
-                range(1, 64),
-                #{
-                    default => 64,
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
-        {epoch_bits,
-            sc(
-                range(0, 64),
-                #{
-                    default => 20,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(wildcard_optimized_epoch_bits)
-                }
-            )},
-        {topic_index_bytes,
-            sc(
-                pos_integer(),
-                #{
-                    default => 4,
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )}
-    ];
-fields(layout_builtin_wildcard_optimized_v2) ->
-    [
-        {type,
-            sc(
-                wildcard_optimized_v2,
-                #{
-                    'readOnly' => true,
-                    default => wildcard_optimized_v2,
                     desc => ?DESC(layout_builtin_wildcard_optimized_type)
                 }
             )},
@@ -234,14 +180,6 @@ fields(layout_builtin_wildcard_optimized_v2) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {serialization_schema,
-            sc(
-                emqx_ds_msg_serializer:schema(),
-                #{
-                    default => asn1,
-                    importance => ?IMPORTANCE_HIDDEN
-                }
-            )},
         {wildcard_thresholds,
             sc(
                 hoconsc:array(hoconsc:union([non_neg_integer(), infinity])),
@@ -251,41 +189,19 @@ fields(layout_builtin_wildcard_optimized_v2) ->
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(lts_wildcard_thresholds)
                 }
-            )}
-    ];
-fields(layout_builtin_reference) ->
-    [
-        {type,
+            )},
+        {timestamp_bytes,
             sc(
-                reference,
+                pos_integer(),
                 #{
-                    'readOnly' => true,
-                    importance => ?IMPORTANCE_LOW,
-                    default => reference,
-                    desc => ?DESC(layout_builtin_reference_type)
+                    default => 8,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )}
     ];
 fields(optimistic_transaction) ->
+    %% `emqx_ds_optimistic_tx' settings:
     [
-        {flush_interval,
-            sc(
-                emqx_schema:duration_ms(),
-                #{
-                    default => "10ms",
-                    importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(otx_flush_interval)
-                }
-            )},
-        {idle_flush_interval,
-            sc(
-                emqx_schema:duration_ms(),
-                #{
-                    default => "1ms",
-                    importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC(otx_idle_flush_interval)
-                }
-            )},
         {conflict_window,
             sc(
                 emqx_schema:duration_ms(),
@@ -294,10 +210,66 @@ fields(optimistic_transaction) ->
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(otx_conflict_window)
                 }
+            )},
+        {flush_interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "10ms",
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(otx_flush_interval)
+                }
+            )},
+        {idle_flush_interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => "1ms",
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(otx_idle_flush_interval)
+                }
+            )},
+        {max_pending,
+            sc(
+                pos_integer(),
+                #{
+                    default => 10000,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(otx_max_pending)
+                }
+            )}
+    ];
+fields(subscriptions) ->
+    %% Beamformer settings:
+    [
+        {batch_size,
+            sc(
+                pos_integer(),
+                #{
+                    default => 1000,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {n_workers_per_shard,
+            sc(
+                pos_integer(),
+                #{
+                    default => 10,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {housekeeping_interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"1s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ].
 
-make_local(StoreTTV) ->
+-spec make_local(generic | messages | queues) -> hocon_schema:fields().
+make_local(Flavor) ->
     [
         {backend,
             sc(
@@ -309,10 +281,11 @@ make_local(StoreTTV) ->
                     desc => ?DESC(backend_type)
                 }
             )}
-        | common_builtin_fields(StoreTTV)
+        | common_builtin_fields(Flavor)
     ].
 
-make_raft(StoreTTV) ->
+-spec make_raft(generic | messages | queues) -> hocon_schema:fields().
+make_raft(Flavor) ->
     [
         {backend,
             sc(
@@ -341,12 +314,30 @@ make_raft(StoreTTV) ->
                     default => #{},
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {max_retries,
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 10,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_raft_max_retries)
+                }
+            )},
+        {retry_interval,
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"10s">>,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(builtin_raft_retry_interval)
+                }
             )}
-        | common_builtin_fields(StoreTTV)
+        | common_builtin_fields(Flavor)
     ].
 
 %% This function returns fields common for builtin_local and builtin_raft backends.
-common_builtin_fields(StoreTTV) ->
+common_builtin_fields(Flavor) ->
     [
         {data_dir,
             sc(
@@ -367,14 +358,6 @@ common_builtin_fields(StoreTTV) ->
                     desc => ?DESC(builtin_n_shards)
                 }
             )},
-        {local_write_buffer,
-            sc(
-                ref(builtin_write_buffer),
-                #{
-                    importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(builtin_write_buffer)
-                }
-            )},
         {rocksdb,
             sc(
                 ref(rocksdb_options),
@@ -383,36 +366,27 @@ common_builtin_fields(StoreTTV) ->
                     desc => ?DESC(builtin_rocksdb_options)
                 }
             )},
-        {poll_workers_per_shard,
+        {subscriptions,
             sc(
-                pos_integer(),
+                ref(subscriptions),
                 #{
-                    default => 10,
-                    importance => ?IMPORTANCE_HIDDEN,
-                    mapping => "emqx_durable_storage.beamformer_workers_per_shard"
-                }
-            )},
-        {poll_batch_size,
-            sc(
-                pos_integer(),
-                #{
-                    default => 100,
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {transaction,
+            sc(
+                ref(optimistic_transaction),
+                #{
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(builtin_optimistic_transaction)
+                }
             )}
-        | case StoreTTV of
-            true ->
-                [
-                    {transaction,
-                        sc(
-                            ref(optimistic_transaction),
-                            #{
-                                importance => ?IMPORTANCE_LOW,
-                                desc => ?DESC(builtin_optimistic_transaction)
-                            }
-                        )}
-                ];
-            false ->
+        | case Flavor of
+            generic ->
+                %% Generic DBs use preconfigured storage layout
+                [];
+            messages ->
+                %% `messages' DB lets user customize storage layout:
                 [
                     {layout,
                         sc(
@@ -422,7 +396,7 @@ common_builtin_fields(StoreTTV) ->
                                 importance => ?IMPORTANCE_MEDIUM,
                                 default =>
                                     #{
-                                        <<"type">> => wildcard_optimized_v2
+                                        <<"type">> => wildcard_optimized
                                     }
                             }
                         )}
@@ -430,16 +404,14 @@ common_builtin_fields(StoreTTV) ->
         end
     ].
 
-desc(builtin_raft_ttv) ->
+desc(Backend) when
+    Backend =:= builtin_raft; Backend =:= builtin_raft_messages
+->
     ?DESC(builtin_raft);
-desc(builtin_raft_messages) ->
-    ?DESC(builtin_raft);
-desc(builtin_local_ttv) ->
+desc(Backend) when
+    Backend =:= builtin_local; Backend =:= builtin_local_messages
+->
     ?DESC(builtin_local);
-desc(builtin_local_messages) ->
-    ?DESC(builtin_local);
-desc(builtin_write_buffer) ->
-    ?DESC(builtin_write_buffer);
 desc(layout_builtin_wildcard_optimized) ->
     ?DESC(layout_builtin_wildcard_optimized);
 desc(layout_builtin_wildcard_optimized_v2) ->
@@ -465,30 +437,23 @@ translate_backend(
         backend := Backend,
         n_shards := NShards,
         rocksdb := RocksDBOptions,
-        poll_batch_size := PollBatchSize,
-        poll_workers_per_shard := PollWorkersPerShard
+        subscriptions := Subscriptions,
+        transaction := Transaction
     } = Input
 ) when Backend =:= builtin_local; Backend =:= builtin_raft ->
     Cfg1 = #{
         backend => Backend,
         n_shards => NShards,
-        poll_workers_per_shard => PollWorkersPerShard,
-        poll_batch_size => PollBatchSize,
-        rocksdb => translate_rocksdb_options(RocksDBOptions)
+        rocksdb => translate_rocksdb_options(RocksDBOptions),
+        subscriptions => Subscriptions,
+        transactions => translate_otx_opts(Transaction)
     },
-    Cfg2 =
-        case Input of
-            #{transaction := Transaction} ->
-                Cfg1#{transaction => Transaction};
-            #{} ->
-                Cfg1
-        end,
     Cfg =
         case Input of
             #{layout := Layout} ->
-                Cfg2#{storage => translate_layout(Layout)};
+                Cfg1#{storage => translate_layout(Layout)};
             #{} ->
-                Cfg2
+                Cfg1
         end,
     case Backend of
         builtin_raft ->
@@ -501,6 +466,19 @@ translate_backend(
             Cfg
     end.
 
+translate_otx_opts(#{
+    conflict_window := CW,
+    flush_interval := FI,
+    idle_flush_interval := IFI,
+    max_pending := MaxItems
+}) ->
+    #{
+        conflict_window => CW,
+        flush_interval => FI,
+        idle_flush_interval => IFI,
+        max_items => MaxItems
+    }.
+
 translate_rocksdb_options(Input = #{max_open_files := MOF}) ->
     Input#{
         max_open_files :=
@@ -512,44 +490,23 @@ translate_rocksdb_options(Input = #{max_open_files := MOF}) ->
 
 translate_layout(
     #{
-        type := wildcard_optimized_v2,
+        type := wildcard_optimized,
         bytes_per_topic_level := BytesPerTopicLevel,
         topic_index_bytes := TopicIndexBytes,
-        serialization_schema := SSchema,
-        wildcard_thresholds := WildcardThresholds
+        wildcard_thresholds := WildcardThresholds,
+        timestamp_bytes := TSBytes
     }
 ) ->
-    {emqx_ds_storage_skipstream_lts, #{
+    {emqx_ds_storage_skipstream_lts_v2, #{
         wildcard_hash_bytes => BytesPerTopicLevel,
         topic_index_bytes => TopicIndexBytes,
-        serialization_schema => SSchema,
-        lts_threshold_spec => translate_lts_wildcard_thresholds(WildcardThresholds)
-    }};
-translate_layout(
-    #{
-        type := wildcard_optimized,
-        bits_per_topic_level := BitsPerTopicLevel,
-        epoch_bits := EpochBits,
-        topic_index_bytes := TIBytes
-    }
-) ->
-    {emqx_ds_storage_bitfield_lts, #{
-        bits_per_topic_level => BitsPerTopicLevel,
-        topic_index_bytes => TIBytes,
-        epoch_bits => EpochBits
-    }};
-translate_layout(#{type := reference}) ->
-    {emqx_ds_storage_reference, #{}}.
+        lts_threshold_spec => translate_lts_wildcard_thresholds(WildcardThresholds),
+        timestamp_bytes => TSBytes
+    }}.
 
 builtin_layouts() ->
-    %% Reference layout stores everything in one stream, so it's not
-    %% suitable for production use. However, it's very simple and
-    %% produces a very predictabale replay order, which can be useful
-    %% for testing and debugging:
     [
-        ref(layout_builtin_wildcard_optimized_v2),
-        ref(layout_builtin_wildcard_optimized),
-        ref(layout_builtin_reference)
+        ref(layout_builtin_wildcard_optimized)
     ].
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).

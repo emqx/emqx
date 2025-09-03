@@ -20,7 +20,14 @@ Host MUST call `emqx_ds:suback` function when it's done processing the batch.
 
 %% API:
 -export([
-    new/2, destroy/2, subscribe/3, unsubscribe/3, dispatch_message/3, complete_stream/3, inspect/1
+    new/2,
+    destroy/2,
+    subscribe/3,
+    unsubscribe/3,
+    dispatch_message/3,
+    complete_stream/3,
+    complete_stream/5,
+    inspect/1
 ]).
 
 -export_type([sub_id/0, t/0, sub_options/0]).
@@ -220,8 +227,14 @@ specified by `get_iterator` callback.
 
 The purpose of this callback is to prevent duplication of messages.
 For example, if the host is caching stream messages, it should drop the cache.
+
+This callback is optional, but it *has* to be implemented
+if the host ever intends to return `{subscribe, _}`
+from `get_iterator` or `on_new_iterator` callbacks (and thus creates a subscription).
 """.
 -callback on_subscription_down(sub_id(), emqx_ds:slab(), emqx_ds:stream(), HostState) -> HostState.
+
+-optional_callbacks([on_subscription_down/4]).
 
 %%================================================================================
 %% API functions
@@ -306,9 +319,26 @@ dispatch_message(Message, CS0, HS0) ->
             execute(Field, CS, HS)
     end.
 
+-doc """
+Called by the host when it's done processing all data from a stream
+that ended with `end_of_stream`.
+""".
 -spec complete_stream(t(), emqx_ds:sub_ref(), HostState) -> {t(), HostState}.
 complete_stream(CS0, SRef, HS0) ->
     {CS, HS} = complete_stream_(CS0, SRef, HS0),
+    execute(#cs.plan, CS, HS).
+
+-doc """
+This function is similar to `complete_stream/3`,
+but it's meant for clients that doesn't subscribe to the streams,
+and therefore don't have the subscription reference.
+
+In fact, this function must NOT be used when subscription exists, as it may leak.
+""".
+-spec complete_stream(t(), sub_id(), emqx_ds:slab(), emqx_ds:stream(), HostState) ->
+    {t(), HostState}.
+complete_stream(CS0, SubId, Slab, Stream, HS0) ->
+    {CS, HS} = complete_unsubscribed_stream_(CS0, SubId, Slab, Stream, HS0),
     execute(#cs.plan, CS, HS).
 
 -doc """
@@ -334,6 +364,9 @@ inspect(CS = #cs{streams = Streams, ds_subs = DSSubs}) ->
 %% Internal functions
 %%================================================================================
 
+-doc """
+Complete stream with lookup by subscription ID.
+""".
 -spec complete_stream_(t(), emqx_ds:sub_ref(), HostState) -> {t(), HostState}.
 complete_stream_(CS0 = #cs{ds_subs = DSSubs}, SRef, HS) ->
     case DSSubs of
@@ -359,6 +392,27 @@ complete_stream_(CS0 = #cs{ds_subs = DSSubs}, SRef, HS) ->
         #{} ->
             {CS0, HS}
     end.
+
+-doc """
+Complete a stream that doesn't have a DS subscription.
+""".
+-spec complete_unsubscribed_stream_(t(), sub_id(), emqx_ds:slab(), emqx_ds:stream(), HostState) ->
+    {t(), HostState}.
+complete_unsubscribed_stream_(CS0, SubId, {Shard, _}, Stream, HS) ->
+    with_stream_cache(
+        SubId,
+        Shard,
+        CS0,
+        HS,
+        fun(Cache0 = #stream_cache{active = Active, replayed = Replayed}) ->
+            %% Remove stream from active and move it to replayed:
+            Cache = Cache0#stream_cache{
+                replayed = Replayed#{Stream => true},
+                active = maps:remove(Stream, Active)
+            },
+            maybe_advance_generation(SubId, Shard, Cache, CS0, HS)
+        end
+    ).
 
 -spec do_dispatch_message(_Message, t(), HostState) ->
     {integer(), t(), HostState}

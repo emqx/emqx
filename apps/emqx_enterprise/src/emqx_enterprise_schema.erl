@@ -21,7 +21,6 @@
     emqx_schema_validation_schema,
     emqx_message_transformation_schema,
     emqx_ft_schema,
-    emqx_ds_shared_sub_schema,
     emqx_mt_schema,
     emqx_ai_completion_schema
 ]).

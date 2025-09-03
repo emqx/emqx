@@ -54,10 +54,14 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(persistence_enabled = Group, Config) ->
+    %% This testsuite is time-sensitive. Set aggressive retry settings
+    %% to make sure takover happens faster:
     DurableSessionsOpts = #{
         <<"enable">> => true,
         <<"force_persistence">> => true,
-        <<"checkpoint_interval">> => <<"100ms">>
+        <<"checkpoint_interval">> => <<"1ms">>,
+        <<"commit_retry_interval">> => <<"1ms">>,
+        <<"commit_retries">> => 100
     },
     Opts = #{
         durable_sessions_opts => DurableSessionsOpts,
@@ -131,6 +135,7 @@ t_takeover(Config) ->
     end),
 
     Sleep = maps:get(PersistenceEnabled, #{true => 2000, false => ?SLEEP}),
+
     Commands =
         lists:flatten([
             {fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
@@ -683,66 +688,78 @@ t_takeover_session_then_abnormal_disconnect(Config) ->
     ?assert(not is_process_alive(CPid2)),
     ok.
 
+%% This testcase verifies that delivery of a delayed will message is
+%% cancelled if the client reconnects within the Will-Delay-Interval.
 t_takeover_session_then_abnormal_disconnect_2(Config) ->
-    ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
-    process_flag(trap_exit, true),
-    ClientId = atom_to_binary(?FUNCTION_NAME),
-    ClientIdSub = <<ClientId/binary, "_willsub">>,
-    WillTopic = <<ClientId/binary, "willtopic">>,
-    Client1Msgs = messages(ClientId, 0, 10),
-    ClientOpts = [
-        {proto_ver, ?config(mqtt_vsn, Config)},
-        {clean_start, false},
-        {will_topic, WillTopic},
-        {will_payload, <<"willpayload_delay1">>},
-        {will_qos, 1},
-        {will_props, #{'Will-Delay-Interval' => 1}},
-        {properties, #{'Session-Expiry-Interval' => 3}}
-    ],
-    ClientOpts2 = [
-        {proto_ver, ?config(mqtt_vsn, Config)},
-        {clean_start, false},
-        {will_topic, WillTopic},
-        {will_payload, <<"willpayload_delay2">>},
-        {will_qos, 1},
-        {will_props, #{'Will-Delay-Interval' => 0}},
-        {properties, #{'Session-Expiry-Interval' => 3}}
-    ],
-    Commands =
-        [
-            {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
-            {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]}
-        ] ++
-            [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
-            %% GIVEN: client *reconnect* with willmsg payload <<"willpayload_delay2">>
-            %%        and will-delay-interval 0s, session expiry 3s.
-            [{fun start_client_async_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts2]}],
+    ?check_trace(
+        begin
+            ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
+            process_flag(trap_exit, true),
+            ClientId = atom_to_binary(?FUNCTION_NAME),
+            ClientIdSub = <<ClientId/binary, "_willsub">>,
+            WillTopic = <<ClientId/binary, "willtopic">>,
+            Client1Msgs = messages(ClientId, 0, 10),
+            ClientOpts = [
+                {proto_ver, ?config(mqtt_vsn, Config)},
+                {clean_start, false},
+                {will_topic, WillTopic},
+                {will_payload, <<"willpayload_delay1">>},
+                {will_qos, 1},
+                {will_props, #{'Will-Delay-Interval' => 1}},
+                {properties, #{'Session-Expiry-Interval' => 3}}
+            ],
+            ClientOpts2 = [
+                {proto_ver, ?config(mqtt_vsn, Config)},
+                {clean_start, false},
+                {will_topic, WillTopic},
+                {will_payload, <<"willpayload_delay2">>},
+                {will_qos, 1},
+                {will_props, #{'Will-Delay-Interval' => 0}},
+                {properties, #{'Session-Expiry-Interval' => 3}}
+            ],
+            Commands =
+                [
+                    {fun start_client_subscribe/5, [ClientId, ClientId, ?QOS_1, ClientOpts]},
+                    {fun start_client_async_subscribe/5, [ClientIdSub, WillTopic, ?QOS_1, []]}
+                ] ++
+                    [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
+                    %% GIVEN: client *reconnect* with willmsg payload <<"willpayload_delay2">>
+                    %%        and will-delay-interval 0s, session expiry 3s.
+                    [
+                        {fun start_client_async_subscribe/5, [
+                            ClientId, ClientId, ?QOS_1, ClientOpts2
+                        ]}
+                    ],
 
-    FCtx = lists:foldl(
-        fun({Fun, Args}, Ctx) ->
-            ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
-            apply(Fun, [Ctx | Args])
+            FCtx = lists:foldl(
+                fun({Fun, Args}, Ctx) ->
+                    ?tp(test_command, #{fn => Fun, args => Args}),
+                    ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
+                    apply(Fun, [Ctx | Args])
+                end,
+                #{},
+                Commands
+            ),
+            #{client := [CPid2, CPidSub, CPid1]} = FCtx,
+            assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
+            %% WHEN: client disconnect abnormally
+            emqtt:disconnect(CPid2, ?RC_DISCONNECT_WITH_WILL_MESSAGE),
+            Received = [Msg || {publish, Msg} <- ?drainMailbox(5000)],
+            ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
+            {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload_delay1">>),
+            %% THEN: willmsg1 of old conn is not published because will-delay-interval > 0
+            ?assertNot(IsWill),
+            ?assertNotEqual([], ReceivedNoWill),
+            %% THEN: willmsg1 is published because will-delay-interval is 0
+            {IsWill2, _} = filter_payload(Received, <<"willpayload_delay2">>),
+            ?assert(IsWill2),
+            emqtt:stop(CPidSub),
+            ?assert(not is_process_alive(CPid1)),
+            ?assert(not is_process_alive(CPid2)),
+            ok
         end,
-        #{},
-        Commands
-    ),
-    #{client := [CPid2, CPidSub, CPid1]} = FCtx,
-    assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
-    %% WHEN: client disconnect abnormally
-    emqtt:disconnect(CPid2, ?RC_DISCONNECT_WITH_WILL_MESSAGE),
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(2000)],
-    ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
-    {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload_delay1">>),
-    %% THEN: willmsg1 of old conn is not published because will-delay-interval > 0
-    ?assertNot(IsWill),
-    ?assertNotEqual([], ReceivedNoWill),
-    %% THEN: willmsg1 is published because will-delay-interval is 0
-    {IsWill2, _} = filter_payload(Received, <<"willpayload_delay2">>),
-    ?assert(IsWill2),
-    emqtt:stop(CPidSub),
-    ?assert(not is_process_alive(CPid1)),
-    ?assert(not is_process_alive(CPid2)),
-    ok.
+        []
+    ).
 
 t_takeover_before_willmsg_expire(Config) ->
     ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),

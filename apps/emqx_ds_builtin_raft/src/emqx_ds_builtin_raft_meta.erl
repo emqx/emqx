@@ -9,7 +9,6 @@
 %% implementation details from this module.
 -module(emqx_ds_builtin_raft_meta).
 
--feature(maybe_expr, enable).
 -compile(inline).
 
 -export([print_status/3]).
@@ -81,12 +80,7 @@
 ]).
 
 %% Migrations:
--export([
-    migrate_node_table/0,
-    migrate_shard_table/0,
-    migrate_node_table_trans/1,
-    migrate_shard_table_trans/1
-]).
+-export([]).
 
 -export_type([
     site/0,
@@ -106,19 +100,17 @@
 
 -define(RLOG_SHARD, emqx_ds_builtin_metadata_shard).
 %% DS database metadata:
--define(META_TAB, emqx_ds_builtin_metadata_tab).
+-define(META_TAB, emqx_ds_builtin_metadata_tab2).
 %% Mapping from Site to the actual Erlang node:
--define(NODE_TAB, emqx_ds_builtin_node_tab2).
--define(NODE_TAB_LEGACY, emqx_ds_builtin_node_tab).
+-define(NODE_TAB, emqx_ds_builtin_node_tab3).
 %% Shard metadata:
--define(SHARD_TAB, emqx_ds_builtin_shard_tab2).
--define(SHARD_TAB_LEGACY, emqx_ds_builtin_shard_tab).
+-define(SHARD_TAB, emqx_ds_builtin_shard_tab3).
 %% Membership transitions:
 -define(TRANSITION_TAB, emqx_ds_builtin_trans_tab).
 
 -record(?META_TAB, {
     db :: emqx_ds:db(),
-    db_props :: emqx_ds_replication_layer:builtin_db_opts()
+    db_props :: emqx_ds_builtin_raft:db_opts()
 }).
 
 -record(?NODE_TAB, {
@@ -128,7 +120,7 @@
 }).
 
 -record(?SHARD_TAB, {
-    shard :: {emqx_ds:db(), emqx_ds_replication_layer:shard_id()},
+    shard :: {emqx_ds:db(), emqx_ds:shard()},
     %% Sites that currently contain the data:
     replica_set :: [site()],
     %% Sites that should contain the data when the cluster is in the
@@ -138,7 +130,7 @@
 }).
 
 -record(?TRANSITION_TAB, {
-    shard :: {emqx_ds:db(), emqx_ds_replication_layer:shard_id()},
+    shard :: {emqx_ds:db(), emqx_ds:shard()},
     transition :: transition(),
     misc = #{} :: map()
 }).
@@ -169,7 +161,7 @@
 
 %% Event for the subscription:
 -type subscription_event() ::
-    {changed, {shard, emqx_ds:db(), emqx_ds_replication_layer:shard_id()}}.
+    {changed, {shard, emqx_ds:db(), emqx_ds:shard()}}.
 
 %% Peristent term key:
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
@@ -212,12 +204,12 @@ n_shards(DB) ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+-spec shards(emqx_ds:db()) -> [emqx_ds:shard()].
 shards(DB) ->
     Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
     [Shard || #?SHARD_TAB{shard = {_, Shard}} <- Recs].
 
--spec shard_info(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec shard_info(emqx_ds:db(), emqx_ds:shard()) ->
     shard_info() | undefined.
 shard_info(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
@@ -252,7 +244,7 @@ shard_info(DB, Shard) ->
 site_info(Site) ->
     #{status => node_status(?MODULE:node(Site))}.
 
--spec my_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+-spec my_shards(emqx_ds:db()) -> [emqx_ds:shard()].
 my_shards(DB) ->
     Site = this_site(),
     Recs = mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT({DB, '_'})),
@@ -448,7 +440,7 @@ print_table(Header, Rows) ->
 %% DB API
 %%===============================================================================
 
--spec db_config(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts() | #{}.
+-spec db_config(emqx_ds:db()) -> emqx_ds_builtin_raft:db_opts() | #{}.
 db_config(DB) ->
     case mnesia:dirty_read(?META_TAB, DB) of
         [#?META_TAB{db_props = Opts}] ->
@@ -457,13 +449,13 @@ db_config(DB) ->
             #{}
     end.
 
--spec open_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
-    emqx_ds_replication_layer:builtin_db_opts().
+-spec open_db(emqx_ds:db(), emqx_ds_builtin_raft:db_opts()) ->
+    emqx_ds_builtin_raft:db_opts().
 open_db(DB, DefaultOpts) ->
     transaction(fun ?MODULE:open_db_trans/2, [DB, DefaultOpts]).
 
--spec update_db_config(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
-    emqx_ds_replication_layer:builtin_db_opts() | {error, nonexistent_db}.
+-spec update_db_config(emqx_ds:db(), emqx_ds_builtin_raft:db_opts()) ->
+    emqx_ds_builtin_raft:db_opts() | {error, nonexistent_db}.
 update_db_config(DB, DefaultOpts) ->
     transaction(fun ?MODULE:update_db_config_trans/2, [DB, DefaultOpts]).
 
@@ -514,7 +506,7 @@ db_target_sites(DB) ->
 
 %% @doc List the sequence of transitions that should be conducted in order to
 %% bring the set of replicas for a DB shard in line with the target set.
--spec replica_set_transitions(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec replica_set_transitions(emqx_ds:db(), emqx_ds:shard()) ->
     [transition()] | undefined.
 replica_set_transitions(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
@@ -527,19 +519,19 @@ replica_set_transitions(DB, Shard) ->
 %% @doc Claim the intention to start the replica set transition for the given shard.
 %% To be called before starting acting on transition, so that information about this
 %% will not get lost. Once it finishes, call `update_replica_set/3`.
--spec claim_transition(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), transition()) ->
+-spec claim_transition(emqx_ds:db(), emqx_ds:shard(), transition()) ->
     ok | {error, {conflict, transition()} | {outdated, _Expected :: [transition()]}}.
 claim_transition(DB, Shard, Trans) ->
     transaction(fun ?MODULE:claim_transition_trans/3, [DB, Shard, Trans]).
 
 %% @doc Update the set of replication sites for a shard.
 %% To be called after a `transition()` has been conducted successfully.
--spec update_replica_set(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), transition()) -> ok.
+-spec update_replica_set(emqx_ds:db(), emqx_ds:shard(), transition()) -> ok.
 update_replica_set(DB, Shard, Trans) ->
     transaction(fun ?MODULE:update_replica_set_trans/3, [DB, Shard, Trans]).
 
 %% @doc Get the current set of replication sites for a shard.
--spec replica_set(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec replica_set(emqx_ds:db(), emqx_ds:shard()) ->
     [site()] | undefined.
 replica_set(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
@@ -552,7 +544,7 @@ replica_set(DB, Shard) ->
 %% @doc Get the target set of replication sites for a DB shard.
 %% Target set is updated every time the set of replication sites for the DB changes.
 %% See `join_db_site/2`, `leave_db_site/2`, `assign_db_sites/2`.
--spec target_set(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec target_set(emqx_ds:db(), emqx_ds:shard()) ->
     [site()] | undefined.
 target_set(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
@@ -616,8 +608,8 @@ terminate(_Reason, #s{}) ->
 %% Internal exports
 %%================================================================================
 
--spec open_db_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
-    emqx_ds_replication_layer:builtin_db_opts().
+-spec open_db_trans(emqx_ds:db(), emqx_ds_builtin_raft:db_opts()) ->
+    emqx_ds_builtin_raft:db_opts().
 open_db_trans(DB, CreateOpts) ->
     case mnesia:wread({?META_TAB, DB}) of
         [] ->
@@ -637,7 +629,7 @@ open_db_trans(DB, CreateOpts) ->
             end
     end.
 
--spec allocate_shards_trans(site(), emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
+-spec allocate_shards_trans(site(), emqx_ds:db()) -> [emqx_ds:shard()].
 allocate_shards_trans(Site, DB) ->
     case mnesia:read(?NODE_TAB, Site) of
         [_] ->
@@ -789,8 +781,8 @@ update_replica_set_trans(DB, Shard, Trans) ->
             mnesia:abort({nonexistent_shard, {DB, Shard}})
     end.
 
--spec update_db_config_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
-    emqx_ds_replication_layer:builtin_db_opts().
+-spec update_db_config_trans(emqx_ds:db(), emqx_ds_builtin_raft:db_opts()) ->
+    emqx_ds_builtin_raft:db_opts().
 update_db_config_trans(DB, UpdateOpts) ->
     Opts = db_config_trans(DB, write),
     %% Since this is an update and not a reopen,
@@ -804,7 +796,7 @@ update_db_config_trans(DB, UpdateOpts) ->
     }),
     EffectiveOpts.
 
--spec db_config_trans(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts().
+-spec db_config_trans(emqx_ds:db()) -> emqx_ds_builtin_raft:db_opts().
 db_config_trans(DB) ->
     db_config_trans(DB, read).
 
@@ -929,59 +921,16 @@ ensure_tables() ->
 run_migrations() ->
     run_migrations(emqx_release:version()).
 
-run_migrations(_Version = "5.8." ++ _) ->
-    run_migrations_e58();
-run_migrations(_Version = "5.9." ++ _) ->
-    run_migrations_e58();
-run_migrations(_Version = "5.10." ++ _) ->
-    run_migrations_e58();
 run_migrations(_Version = "6." ++ _) ->
     ok.
 
 ensure_site() ->
-    Filename = filename:join(emqx_ds_storage_layer:base_dir(), "emqx_ds_builtin_site.eterm"),
-    case file_read_term(Filename) of
-        {ok, Entry} ->
-            Site = migrate_site_id(Entry);
-        {error, Error} when Error =:= enoent; Error =:= empty ->
-            Site = binary:encode_hex(crypto:strong_rand_bytes(8)),
-            logger:notice("Creating a new site with ID=~s", [Site]),
-            ok = filelib:ensure_dir(Filename),
-            {ok, FD} = file:open(Filename, [write]),
-            io:format(FD, "~p.", [Site]),
-            file:close(FD)
-    end,
+    Site = emqx_dsch:this_site(),
     case transaction(fun ?MODULE:claim_site_trans/2, [Site, node()]) of
         ok ->
             persistent_term:put(?emqx_ds_builtin_site, Site);
         {error, Reason} ->
             logger:error("Attempt to claim site with ID=~s failed: ~p", [Site, Reason])
-    end.
-
-file_read_term(Filename) ->
-    %% NOTE
-    %% This mess is needed because `file:consult/1` trips over binaries encoded as
-    %% latin1, which 5.4.0 code could have produced with `io:format(FD, "~p.", [Site])`.
-    maybe
-        {ok, FD} ?= file:open(Filename, [read, {encoding, latin1}]),
-        {ok, Term, _} ?= io:read(FD, '', _Line = 1),
-        ok = file:close(FD),
-        {ok, Term}
-    else
-        {error, Reason} ->
-            {error, Reason};
-        {error, Reason, _} ->
-            {error, Reason};
-        {eof, _} ->
-            {error, empty}
-    end.
-
-migrate_site_id(Site) ->
-    case re:run(Site, "^[0-9A-F]+$") of
-        {match, _} ->
-            Site;
-        nomatch ->
-            binary:encode_hex(Site)
     end.
 
 forget_node(Node) ->
@@ -1017,7 +966,7 @@ get_shard_target_sites(#?SHARD_TAB{target_set = Sites}) when is_list(Sites) ->
 get_shard_target_sites(#?SHARD_TAB{target_set = undefined} = Shard) ->
     get_shard_sites(Shard).
 
--spec compute_allocation([Shard], [Site], emqx_ds_replication_layer:builtin_db_opts()) ->
+-spec compute_allocation([Shard], [Site], emqx_ds_builtin_raft:db_opts()) ->
     [{Shard, [Site, ...]}].
 compute_allocation(Shards, Sites, Opts) ->
     NSites = length(Sites),
@@ -1121,137 +1070,6 @@ notify_subscribers(EventSubject, Event, #s{subs = Subs}) ->
         end,
         Subs
     ).
-
-%%====================================================================
-%% Migrations / 5.8 Release
-%%====================================================================
-
-run_migrations_e58() ->
-    _ = migrate_node_table(),
-    _ = migrate_shard_table(),
-    ok.
-
-migrate_node_table() ->
-    Tab = ?NODE_TAB_LEGACY,
-    migrate_node_table(Tab, table_info_safe(Tab)).
-
-migrate_node_table(Tab, #{attributes := [_Site, _Node, _Misc]}) ->
-    %% Table is present and looks migratable.
-    ok = mria:wait_for_tables([Tab]),
-    case transaction(fun ?MODULE:migrate_node_table_trans/1, [Tab]) of
-        {migrated, [], []} ->
-            ok;
-        {migrated, Migrated, Dups} ->
-            logger:notice("Table '~p' migrated ~p entries", [Tab, length(Migrated)]),
-            Dups =/= [] andalso
-                logger:warning("Table '~p' duplicated entries, skipped: ~p", [Tab, Dups]),
-            {atomic, ok} = mria:clear_table(Tab);
-        {error, Reason} ->
-            logger:warning("Table '~p' unusable, migration skipped: ~p", [Tab, Reason])
-    end;
-migrate_node_table(_Tab, undefined) ->
-    %% No legacy table exists.
-    ok.
-
-migrate_node_table_trans(Tab) ->
-    %% NOTE
-    %% This table could have been populated when running 5.4.0 release, but the
-    %% representation of site IDs has changed in following versions. Legacy site IDs
-    %% need to be passed through `migrate_site_id/1`, otherwise expectations of the
-    %% existing code of those IDs to be "printable" will be broken.
-    %% This should be no-op when running > 5.4.0 releases.
-    Migstamp = mk_migstamp(),
-    Records = mnesia:match_object(Tab, {Tab, '_', '_', '_'}, read),
-    {Migrate, Dups} = unique_node_recs([migrate_node_rec(R) || R <- Records]),
-    lists:foreach(
-        fun(R) -> mnesia:write(?NODE_TAB, attach_migstamp(Migstamp, R), write) end,
-        Migrate
-    ),
-    {migrated, Migrate, Dups}.
-
-migrate_node_rec({?NODE_TAB_LEGACY, Site, Node, Misc}) ->
-    #?NODE_TAB{site = migrate_site_id(Site), node = Node, misc = Misc}.
-
-unique_node_recs(Records) ->
-    %% NOTE
-    %% Unlikely but possible that a 5.4.0 node could have assigned more than 1 Site ID
-    %% to itself, because of occasional inability to read back Site ID with
-    %% `file:consult/1. In this case it's impossible to tell in 100% of cases which one
-    %% was the most recent, so let's just drop all of such node's records. It will
-    %% insert the correct record by itself anyway, once upgraded to the recent release
-    %% and restarted.
-    Dups = Records -- lists:ukeysort(#?NODE_TAB.node, Records),
-    DupNodes = [Node || #?NODE_TAB{node = Node} <- Dups],
-    lists:partition(fun(R) -> not lists:member(R#?NODE_TAB.node, DupNodes) end, Records).
-
-migrate_shard_table() ->
-    Tab = ?SHARD_TAB_LEGACY,
-    migrate_shard_table(Tab, table_info_safe(Tab)).
-
-migrate_shard_table(Tab, #{attributes := [_Shard, _ReplicaSet, _TargetSet, _Misc]}) ->
-    %% Table is present and looks migratable.
-    ok = mria:wait_for_tables([Tab]),
-    case transaction(fun ?MODULE:migrate_shard_table_trans/1, [Tab]) of
-        {migrated, []} ->
-            ok;
-        {migrated, Migrated} ->
-            logger:notice("Table '~p' migrated ~p entries", [Tab, length(Migrated)]),
-            {atomic, ok} = mria:clear_table(Tab);
-        {error, Reason} ->
-            logger:warning("Table '~p' unusable, migration skipped: ~p", [Tab, Reason])
-    end;
-migrate_shard_table(Tab, #{attributes := _Incompatible}) ->
-    %% Table is present and is incompatible.
-    ok = mria:wait_for_tables([Tab]),
-    case mnesia:table_info(Tab, size) of
-        0 ->
-            ok;
-        Size ->
-            logger:warning("Table '~p' has ~p legacy entries to be abandoned", [Size, Tab]),
-            {atomic, ok} = mria:clear_table(Tab)
-    end;
-migrate_shard_table(_Tab, undefined) ->
-    %% No legacy table exists.
-    ok.
-
-migrate_shard_table_trans(Tab) ->
-    %% NOTE
-    %% This table could have been instantiated with a different schema when running
-    %% 5.4.0 release but most likely never populated, so it should be fine to abandon it.
-    %% This table could also have been instantiated and populated when running 5.7.0
-    %% release with the same schema, so we just have to migrate all the recoards verbatim.
-    Migstamp = mk_migstamp(),
-    Records = mnesia:match_object(Tab, {Tab, '_', '_', '_', '_'}, read),
-    Migrate = [migrate_shard_rec(R) || R <- Records],
-    lists:foreach(
-        fun(R) -> mnesia:write(?SHARD_TAB, attach_migstamp(Migstamp, R), write) end,
-        Migrate
-    ),
-    {migrated, Migrate}.
-
-migrate_shard_rec({?SHARD_TAB_LEGACY, Shard, ReplicaSet, TargetSet, Misc}) ->
-    #?SHARD_TAB{shard = Shard, replica_set = ReplicaSet, target_set = TargetSet, misc = Misc}.
-
-mk_migstamp() ->
-    %% NOTE: Piece of information describing when and how records were migrated.
-    #{
-        at => erlang:system_time(millisecond),
-        on => emqx_release:version()
-    }.
-
-attach_migstamp(Migstamp, Node = #?NODE_TAB{misc = Misc}) ->
-    Node#?NODE_TAB{misc = Misc#{migrated => Migstamp}};
-attach_migstamp(Migstamp, Shard = #?SHARD_TAB{misc = Misc}) ->
-    Shard#?SHARD_TAB{misc = Misc#{migrated => Migstamp}}.
-
-table_info_safe(Tab) ->
-    try mnesia:table_info(Tab, all) of
-        Props ->
-            maps:from_list(Props)
-    catch
-        exit:{aborted, {no_exists, Tab, _}} ->
-            undefined
-    end.
 
 %%====================================================================
 
