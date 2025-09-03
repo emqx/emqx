@@ -14,7 +14,7 @@ Consumer's responsibilities:
 * Consume messages from the Message Queue topic streams.
 * Dispatch messages to the consumer clients (channels).
 * Receive message acknowledgements from the consumer clients.
-* Track consumption progeress of the topic streams.
+* Track consumption progress of the topic streams.
 """.
 
 -include("../emqx_mq_internal.hrl").
