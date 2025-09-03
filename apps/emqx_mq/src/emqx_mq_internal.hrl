@@ -53,18 +53,8 @@
 
 -define(MQ_KEY_USER_PROPERTY, <<"mq-key">>).
 
--define(MQ_CONSUMER_DB, mq_consumer).
 -define(MQ_MESSAGE_LASTVALUE_DB, mq_message_lastvalue).
 -define(MQ_MESSAGE_REGULAR_DB, mq_message_regular).
-
--record(claim, {
-    consumer_ref :: emqx_mq_types:consumer_ref(),
-    last_seen_timestamp :: non_neg_integer()
-}).
-
--record(tombstone, {
-    last_seen_timestamp :: non_neg_integer()
-}).
 
 -define(MQ_GC_REGULAR, gc_regular).
 -define(MQ_GC_LASTVALUE, gc_lastvalue).
