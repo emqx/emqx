@@ -321,6 +321,10 @@ with_ccache(Ns) ->
     case lookup_counter_from_cache(Ns) of
         false ->
             update_ccache(Ns);
+        Cnt when Cnt < 1_000 ->
+            %% If the cached count is low, we always perform a full count for faster
+            %% responses to connecting clients; useful if the default max sessions is low.
+            update_ccache(Ns);
         Cnt ->
             Cnt
     end.
