@@ -15,16 +15,17 @@
 
 -include("../src/emqx_mq_internal.hrl").
 
+-define(COMMON_DISPATCH_TESTS, [t_redispatch, t_redispatch_delay]).
+
 all() ->
-    [{group, all}, {group, random}, {group, least_inflight}, {group, round_robin}].
+    All = emqx_common_test_helpers:all(?MODULE) -- ?COMMON_DISPATCH_TESTS,
+    All ++ [{group, random}, {group, least_inflight}, {group, round_robin}].
 
 groups() ->
-    All = emqx_common_test_helpers:all(?MODULE) -- [t_redispatch, t_redispatch_delay],
     [
-        {all, [], All},
-        {random, [], [t_redispatch, t_redispatch_delay]},
-        {least_inflight, [], [t_redispatch, t_redispatch_delay]},
-        {round_robin, [], [t_redispatch, t_redispatch_delay]}
+        {random, [], ?COMMON_DISPATCH_TESTS},
+        {least_inflight, [], ?COMMON_DISPATCH_TESTS},
+        {round_robin, [], ?COMMON_DISPATCH_TESTS}
     ].
 
 init_per_suite(Config) ->
