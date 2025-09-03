@@ -348,6 +348,8 @@ t_dispatch_round_robin(_Config) ->
                 ],
             ?assertEqual(6, length(DispatchSubscribers)),
             {Head, Tail} = lists:split(3, DispatchSubscribers),
+            %% Check that the subscribers are different
+            ?assertEqual(3, length(lists:usort(Head))),
             ?assertEqual(Head, Tail)
         end
     ),

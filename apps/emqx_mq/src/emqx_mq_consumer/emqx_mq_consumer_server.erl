@@ -277,15 +277,15 @@ schedule_for_dispatch(#state{dispatch_queue = DispatchQueue0} = State, MessageId
     State#state{dispatch_queue = DispatchQueue1}.
 
 redispatch_on_reject(
-    #state{dispatch_queue = DispatchQueue0} = State, RejectedSubscriberRef, MessageId
+    #state{dispatch_queue = DispatchQueue0} = State0, RejectedSubscriberRef, MessageId
 ) ->
     ?tp_debug(mq_consumer_redispatch_on_reject, #{
         rejected_subscriber_ref => RejectedSubscriberRef, message_id => MessageId
     }),
-    case dispatch_action(MessageId, [RejectedSubscriberRef], State) of
-        {dispatch, SubscriberRef} ->
+    case dispatch_action(MessageId, [RejectedSubscriberRef], State0) of
+        {dispatch, SubscriberRef, State} ->
             dispatch_to_subscriber([MessageId], SubscriberRef, State);
-        {delay, Interval} ->
+        {delay, Interval, State} ->
             %% NOTE
             %% to enable timer
             DispatchQueue = emqx_mq_consumer_dispatchq:add_redispatch(
@@ -306,16 +306,20 @@ dispatch(State0) ->
         MessagesBySubscriber
     ).
 
-collect_messages_for_dispatch(#state{dispatch_queue = DispatchQueue0} = State0, Messages0) ->
+collect_messages_for_dispatch(
+    #state{dispatch_queue = DispatchQueue0} = State0, MessagesBySubscriber0
+) ->
     State1 = cancel_timer(?dispatch_timer, State0),
     case emqx_mq_consumer_dispatchq:fetch(DispatchQueue0) of
         empty ->
-            {State1, Messages0};
+            {State1, MessagesBySubscriber0};
         {ok, MessageIds, DispatchQueue1} ->
-            {Messages, DispatchQueue} = lists:foldl(
-                fun(MessageId, {MessagesAcc, DispatchQueueAcc}) ->
-                    case dispatch_action(MessageId, [], State1) of
-                        {dispatch, SubscriberRef} ->
+            State2 = State1#state{dispatch_queue = DispatchQueue1},
+            {MessagesBySubscriber, State} = lists:foldl(
+                fun(MessageId, {MessagesBySubscriberAcc, StateAcc0}) ->
+                    case dispatch_action(MessageId, [], StateAcc0) of
+                        %% Acumulate the message for sending to the selected subscriber
+                        {dispatch, SubscriberRef, StateAcc} ->
                             {
                                 maps:update_with(
                                     SubscriberRef,
@@ -323,25 +327,28 @@ collect_messages_for_dispatch(#state{dispatch_queue = DispatchQueue0} = State0, 
                                         [MessageId | SubscriberMessageIds]
                                     end,
                                     [MessageId],
-                                    MessagesAcc
+                                    MessagesBySubscriberAcc
                                 ),
-                                DispatchQueueAcc
+                                StateAcc
                             };
-                        {delay, Interval} ->
-                            {MessagesAcc,
-                                emqx_mq_consumer_dispatchq:add_redispatch(
-                                    DispatchQueueAcc, MessageId, Interval
-                                )}
+                        %% Do not acumulate the message, put it back to the dispatch queue
+                        %% for further redispatch
+                        {delay, Interval, #state{dispatch_queue = DispatchQueueAcc} = StateAcc} ->
+                            {MessagesBySubscriberAcc, StateAcc#state{
+                                dispatch_queue =
+                                    emqx_mq_consumer_dispatchq:add_redispatch(
+                                        DispatchQueueAcc, MessageId, Interval
+                                    )
+                            }}
                     end
                 end,
-                {Messages0, DispatchQueue1},
+                {MessagesBySubscriber0, State2},
                 MessageIds
             ),
-            State = State1#state{dispatch_queue = DispatchQueue},
-            collect_messages_for_dispatch(State, Messages);
+            collect_messages_for_dispatch(State, MessagesBySubscriber);
         {delay, DelayMs} ->
             State = ensure_timer(?dispatch_timer, DelayMs, State1),
-            {State, Messages0}
+            {State, MessagesBySubscriber0}
     end.
 
 -spec dispatch_action(message_id(), [subscriber_ref()], t()) ->
@@ -349,21 +356,22 @@ collect_messages_for_dispatch(#state{dispatch_queue = DispatchQueue0} = State0, 
 dispatch_action(
     MessageId,
     ExcludedSubscriberRefs,
-    #state{messages = Messages} = State0
+    #state{messages = Messages, subscribers = Subscribers} = State0
 ) ->
     Message = maps:get(MessageId, Messages),
     {PickResult, State} = pick_subscriber(Message, ExcludedSubscriberRefs, State0),
     ?tp_debug(mq_consumer_dispatch_message, #{
         message_id => MessageId,
         pick_result => PickResult,
+        subscribers => maps:keys(Subscribers),
         excluded_subscriber_refs => ExcludedSubscriberRefs,
         message_topic => emqx_message:topic(Message)
     }),
     case PickResult of
         {ok, SubscriberRef} ->
-            {dispatch, SubscriberRef};
+            {dispatch, SubscriberRef, State};
         no_subscriber ->
-            {delay, redispatch_interval(State)}
+            {delay, redispatch_interval(State), State}
     end.
 
 dispatch_to_subscriber(
@@ -464,7 +472,13 @@ pick_subscriber_round_robin(
 ) ->
     Seen0 = maps:from_keys(ExcludedSubscriberRefs, 0),
     Seen = Seen0#{none => 0},
-    {Iterator, Result} = find_next_subscriber(maps:next(Iterator0), Subscribers, Seen),
+    InitialNextValue = maps:next(Iterator0),
+    ?tp_debug(mq_consumer_pick_subscriber_round_robin, #{
+        iterator => Iterator0,
+        seen => Seen,
+        initial_next_iterator => InitialNextValue
+    }),
+    {Iterator, Result} = find_next_subscriber(InitialNextValue, Subscribers, Seen),
     {Result, State#state{dispatch_strategy = {round_robin, Iterator}}}.
 
 find_next_subscriber(none, Subscribers, #{none := 0} = Seen) ->
