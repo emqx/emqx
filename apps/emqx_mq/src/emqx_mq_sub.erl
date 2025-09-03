@@ -267,7 +267,7 @@ ping(SubscriberRef) ->
 messages(SubscriberRef, ConsumerRef, Messages) when node(SubscriberRef) =:= node() ->
     messages_v1(SubscriberRef, ConsumerRef, Messages);
 messages(SubscriberRef, ConsumerRef, Messages) ->
-    ok = emqx_mq_sub_proto_v1:mq_sub_messages(
+    true = emqx_mq_sub_proto_v1:mq_sub_messages(
         node(SubscriberRef), SubscriberRef, ConsumerRef, Messages
     ),
     ok.

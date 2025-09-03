@@ -27,9 +27,9 @@ mq_sub_connected(Node, SubscriberRef, ConsumerRef) ->
 
 -spec mq_sub_messages(
     node(), emqx_mq_types:subscriber_ref(), emqx_mq_types:consumer_ref(), [emqx_types:message()]
-) -> ok.
+) -> true.
 mq_sub_messages(Node, SubscriberRef, ConsumerRef, Messages) ->
-    erpc:cast(Node, emqx_mq_sub, messages, [SubscriberRef, ConsumerRef, Messages]).
+    emqx_rpc:cast(Node, emqx_mq_sub, messages, [SubscriberRef, ConsumerRef, Messages]).
 
 -spec mq_sub_ping(node(), emqx_mq_types:subscriber_ref()) -> ok.
 mq_sub_ping(Node, SubscriberRef) ->
