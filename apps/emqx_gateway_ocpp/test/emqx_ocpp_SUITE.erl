@@ -257,6 +257,43 @@ t_listeners_status(_Config) ->
         Listener2
     ).
 
+t_active_n(_Config) ->
+    {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
+    UniqueId = <<"3335862321">>,
+    BootNotification = #{
+        id => UniqueId,
+        type => ?OCPP_MSG_TYPE_ID_CALL,
+        action => <<"BootNotification">>,
+        payload => #{
+            <<"chargePointVendor">> => <<"vendor1">>,
+            <<"chargePointModel">> => <<"model1">>
+        }
+    },
+    ok = send_msg(Client, BootNotification),
+    timer:sleep(1000),
+    AckPayload = emqx_utils_json:encode(#{
+        <<"MessageTypeId">> => ?OCPP_MSG_TYPE_ID_CALLRESULT,
+        <<"UniqueId">> => UniqueId,
+        <<"Payload">> => #{
+            <<"currentTime">> => "2023-06-21T14:20:39+00:00",
+            <<"interval">> => 300,
+            <<"status">> => <<"Accepted">>
+        }
+    }),
+    lists:foreach(
+        fun(_) ->
+            _ = emqx:publish(emqx_message:make(<<"ocpp/cs/client1">>, AckPayload)),
+            {ok, _Resp} = receive_msg(Client)
+        end,
+        lists:seq(1, 20)
+    ),
+    %% close conns
+    close(Client),
+    timer:sleep(1000),
+    %% assert:
+    ?assertEqual(undefined, emqx_gateway_cm:get_chan_info(ocpp, <<"client1">>)),
+    ok.
+
 %%--------------------------------------------------------------------
 %% ocpp simple client
 
