@@ -31,7 +31,7 @@ init_per_suite(Config) ->
     Apps =
         emqx_cth_suite:start(
             [
-                {emqx_durable_storage, #{override_env => [{poll_batch_size, 1}]}},
+                emqx_durable_storage,
                 emqx,
                 {emqx_mq, emqx_mq_test_utils:cth_config()}
             ],

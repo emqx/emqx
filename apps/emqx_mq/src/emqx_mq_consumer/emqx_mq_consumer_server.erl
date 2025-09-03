@@ -352,7 +352,7 @@ collect_messages_for_dispatch(
     end.
 
 -spec dispatch_action(message_id(), [subscriber_ref()], t()) ->
-    {dispatch, subscriber_ref()} | {delay, pos_integer()}.
+    {dispatch, subscriber_ref(), t()} | {delay, pos_integer(), t()}.
 dispatch_action(
     MessageId,
     ExcludedSubscriberRefs,

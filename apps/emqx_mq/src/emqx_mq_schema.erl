@@ -41,19 +41,17 @@ fields(mq) ->
     [
         {state_db,
             emqx_ds_schema:db_schema(
-                [builtin_raft_ttv, builtin_local_ttv],
-                #{
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(state_db)
-                }
+                [builtin_raft, builtin_local],
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(state_db),
+                #{}
             )},
         {message_db,
             emqx_ds_schema:db_schema(
-                [builtin_raft_ttv, builtin_local_ttv],
-                #{
-                    importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(message_db)
-                }
+                [builtin_raft, builtin_local],
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(message_db),
+                #{}
             )},
         {gc_interval,
             mk(emqx_schema:timeout_duration_ms(), #{

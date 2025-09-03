@@ -135,7 +135,7 @@ gc_regular_queues() ->
     ExpiredSlabInfo =
         lists:filtermap(
             fun({Slab, #{until := Until}}) ->
-                case is_number(Until) andalso Until =< TimeThreshold of
+                case is_number(Until) andalso slab_time_to_ms(Until) =< TimeThreshold of
                     true ->
                         {true, {Slab, #{finished_ago => NowMS - Until}}};
                     false ->
@@ -157,7 +157,9 @@ gc_regular_queues() ->
 maybe_create_new_generation(SlabInfo, TimeThreshold) ->
     NeedNewGen =
         lists:all(
-            fun({_SlabId, #{created_at := CreatedAt}}) -> CreatedAt =< TimeThreshold end,
+            fun({_SlabId, #{since := Since}}) ->
+                slab_time_to_ms(Since) =< TimeThreshold
+            end,
             maps:to_list(SlabInfo)
         ),
     case NeedNewGen of
@@ -173,3 +175,6 @@ maybe_create_new_generation(SlabInfo, TimeThreshold) ->
 
 now_ms() ->
     erlang:system_time(millisecond).
+
+slab_time_to_ms(CreatedAt) ->
+    erlang:convert_time_unit(CreatedAt, microsecond, millisecond).
