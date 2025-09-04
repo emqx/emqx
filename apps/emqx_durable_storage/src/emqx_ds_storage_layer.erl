@@ -76,7 +76,6 @@
 
 -include("emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include("../gen_src/DSBuiltinSLSkipstreamV1.hrl").
 -include("../gen_src/DSBuiltinMetadata.hrl").
 
 -elvis([

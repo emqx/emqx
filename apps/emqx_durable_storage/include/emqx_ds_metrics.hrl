@@ -4,7 +4,7 @@
 -ifndef(EMQX_DS_METRICS_HRL).
 -define(EMQX_DS_METRICS_HRL, true).
 
-%%%% Egress metrics:
+%%%% Write metrics:
 
 %% Number of successfully flushed batches:
 -define(DS_BUFFER_BATCHES, emqx_ds_buffer_batches).
