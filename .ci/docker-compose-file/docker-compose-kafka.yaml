@@ -85,7 +85,7 @@ services:
         condition: service_started
     networks:
       emqx_bridge:
-    restart: no
+    restart: on-failure:3
     command:
       - bash
       - "-c"
@@ -96,6 +96,11 @@ services:
             --add \
             --deny-principal User:limiteduser \
             --group ____emqx_consumer_probe
+
+        bin/kafka-acls.sh --bootstrap-server kafka-1.emqx.net:9092 \
+            --add \
+            --deny-principal User:limiteduser \
+            --topic limited-topic
 
         bin/kafka-acls.sh --bootstrap-server kafka-1.emqx.net:9092 \
             --add \
