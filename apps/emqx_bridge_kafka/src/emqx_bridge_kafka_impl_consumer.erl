@@ -552,8 +552,12 @@ do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
                 "Leader connection not available. Please check the Kafka topic used,"
                 " the connection parameters and Kafka cluster health",
             {?status_disconnected, Message};
-        _ ->
-            ?status_disconnected
+        {error, topic_authorization_failed} ->
+            Message =
+                "Unauthorized topic. Please check your configurations and Kafka ACLs",
+            {?status_disconnected, Message};
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end;
 do_get_status(_ClientID, _KafkaTopics = [], _SubscriberId) ->
     ?status_connected.
