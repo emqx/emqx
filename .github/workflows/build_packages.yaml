@@ -155,6 +155,7 @@ jobs:
           - ubuntu24.04
           - ubuntu22.04
           - ubuntu20.04
+          - debian13
           - debian12
           - debian11
           - el9

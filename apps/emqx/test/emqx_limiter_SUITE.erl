@@ -226,6 +226,38 @@ t_handle_global_zone_change(_Config) ->
         proplists:get_value(messages, LimiterOptions1)
     ).
 
+t_update_group_no_change(_Config) ->
+    %% Ensure that limiter impl is not asked to be updated if config hasn't changed.
+    Group = ?MODULE,
+    LConf = #{
+        capacity => 42,
+        interval => 100,
+        burst_capacity => 42_000,
+        burst_interval => 100_000
+    },
+    ok = emqx_limiter:create_group(?MODULE, Group, [{conn, LConf}, {byte, LConf}]),
+    ?assertEqual(
+        ok,
+        emqx_limiter:update_group(Group, [{byte, LConf}, {conn, LConf}])
+    ).
+
+%%--------------------------------------------------------------------
+%% Limiter implementation (see `t_update_group_no_change/1`)
+%%--------------------------------------------------------------------
+
+-spec create_group(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) -> ok.
+create_group(_Group, _LimiterConfigs) ->
+    ok.
+
+-spec delete_group(emqx_limiter:group()) -> ok.
+delete_group(_Group) ->
+    ok.
+
+-spec update_group(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) ->
+    ok.
+update_group(_Group, _LimiterConfigs) ->
+    error(should_not_happen).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------

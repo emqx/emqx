@@ -125,7 +125,8 @@ fields(publish_message) ->
             hoconsc:mk(hoconsc:enum([plain, base64]), #{
                 desc => ?DESC(payload_encoding),
                 required => false,
-                default => plain
+                default => plain,
+                aliases => [encoding]
             })}
     ] ++ fields(message);
 fields(message_properties) ->

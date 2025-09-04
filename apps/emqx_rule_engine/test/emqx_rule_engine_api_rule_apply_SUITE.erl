@@ -200,13 +200,12 @@ basic_apply_rule_test_helper(TestCase, Action, TraceType, StopAfterRender, Paylo
         <<"context">> => Context,
         <<"stop_action_after_template_rendering">> => StopAfterRender
     },
-    Now = erlang:system_time(second) - 10,
     ?assertMatch({ok, _}, call_apply_rule_api(RuleId, Params)),
     ?retry(
         _Interval0 = 200,
         _NAttempts0 = 20,
         begin
-            Bin = read_rule_trace_file(TraceName, TraceType, Now),
+            Bin = read_rule_trace_file(TraceName),
             ct:pal("THELOG:~n~s", [Bin]),
             case PayloadEncode of
                 hidden ->
@@ -232,7 +231,7 @@ basic_apply_rule_test_helper(TestCase, Action, TraceType, StopAfterRender, Paylo
                 _Interval0 = 200,
                 _NAttempts0 = 20,
                 begin
-                    Bin = read_rule_trace_file(TraceName, TraceType, Now),
+                    Bin = read_rule_trace_file(TraceName),
                     ct:pal("THELOG2:~n~s", [Bin]),
                     ?assertNotEqual(
                         nomatch, binary:match(Bin, [<<"action_stopped_after_template_rendering">>])
@@ -244,7 +243,7 @@ basic_apply_rule_test_helper(TestCase, Action, TraceType, StopAfterRender, Paylo
                 _Interval0 = 200,
                 _NAttempts0 = 20,
                 begin
-                    Bin = read_rule_trace_file(TraceName, TraceType, Now),
+                    Bin = read_rule_trace_file(TraceName),
                     ct:pal("THELOG3:~n~s", [Bin]),
                     ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_success">>])),
                     do_final_log_check(TestCase, Action, Bin)
@@ -252,7 +251,7 @@ basic_apply_rule_test_helper(TestCase, Action, TraceType, StopAfterRender, Paylo
             )
     end,
     %% Check that rule_trigger_ts meta field is present in all log entries
-    Log0 = read_rule_trace_file(TraceName, TraceType, Now),
+    Log0 = read_rule_trace_file(TraceName),
     Log1 = binary:split(Log0, <<"\n">>, [global, trim]),
     Log2 = lists:join(<<",\n">>, Log1),
     Log3 = iolist_to_binary(["[", Log2, "]"]),
@@ -363,7 +362,6 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
         SQL
     ),
     create_trace(Name, ruleid, RuleID, text),
-    Now = erlang:system_time(second) - 10,
     %% Stop
     ParmsStopAfterRender = apply_rule_parms(true, Name),
     ParmsNoStopAfterRender = apply_rule_parms(false, Name),
@@ -422,7 +420,7 @@ t_apply_rule_test_batch_separation_stop_after_render(_Config) ->
         _Interval0 = 200,
         _NAttempts0 = 20,
         begin
-            Bin = read_rule_trace_file(Name, ruleid, Now),
+            Bin = read_rule_trace_file(Name),
             ?assertNotEqual(nomatch, binary:match(Bin, [<<"action_success">>])),
             ?assertNotEqual(
                 nomatch, binary:match(Bin, [<<"action_stopped_after_template_rendering">>])
@@ -631,7 +629,6 @@ do_apply_rule_test_format_action_failed_test(BatchSize, CheckLastTraceEntryFun) 
         SQL
     ),
     create_trace(Name, ruleid, RuleID, text),
-    Now = erlang:system_time(second) - 10,
     %% Stop
     ParmsNoStopAfterRender = apply_rule_parms(false, Name),
     {ok, _} = call_apply_rule_api(RuleID, ParmsNoStopAfterRender),
@@ -640,7 +637,7 @@ do_apply_rule_test_format_action_failed_test(BatchSize, CheckLastTraceEntryFun) 
         _Interval0 = 200,
         _NAttempts0 = 100,
         begin
-            Bin = read_rule_trace_file(Name, ruleid, Now),
+            Bin = read_rule_trace_file(Name),
             CheckLastTraceEntryFun(Bin)
         end
     ),
@@ -735,11 +732,11 @@ maybe_json_decode(X) ->
         {error, _} -> X
     end.
 
-read_rule_trace_file(TraceName, _TraceType, From) ->
-    emqx_trace:check(),
-    %% NOTE: Twice as long as `?LOG_HANDLER_FILESYNC_INTERVAL` in `emqx_trace_handler`.
-    timer:sleep(2 * 100),
-    {ok, Bin} = file:read_file(emqx_trace:log_file(TraceName, From)),
+read_rule_trace_file(TraceName) ->
+    read_rule_trace_file(TraceName, start).
+
+read_rule_trace_file(TraceName, Cont) ->
+    {ok, Bin, _} = emqx_trace:stream_log(TraceName, Cont, undefined),
     Bin.
 
 success_http_handler(Opts) ->

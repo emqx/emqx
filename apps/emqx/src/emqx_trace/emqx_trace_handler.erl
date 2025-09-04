@@ -8,7 +8,7 @@
 -include("emqx_trace.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
--logger_header("[Tracer]").
+-include_lib("kernel/include/file.hrl").
 
 %% APIs
 -export([
@@ -24,6 +24,11 @@
     log/2
 ]).
 
+-export([
+    find_log_fragment/2,
+    read_log_fragment_at/4
+]).
+
 %% For logger handler filters callbacks
 -export([
     filter_ruleid/2,
@@ -35,7 +40,12 @@
 -export([fallback_handler_id/2]).
 -export([payload_encode/0]).
 
+-ifdef(TEST).
+-export([read_file_info_impl/1]).
+-endif.
+
 -export_type([log_handler/0]).
+-export_type([log_fragment/0]).
 
 %% Tracer, prototype for a log handler:
 -type tracer() :: #{
@@ -67,6 +77,9 @@
 -type filter_fun() :: {function(), #filterctx{}}.
 -opaque log_handler() :: {logger:handler_id(), filter_fun()}.
 
+-define(LOG_HANDLER_ROTATION_N_FILES, 10).
+-define(LOG_HANDLER_FILESYNC_INTERVAL, 5_000).
+-define(LOG_HANDLER_FILECHECK_INTERVAL, 60_000).
 -define(LOG_HANDLER_OLP_KILL_MEM_SIZE, 50 * 1024 * 1024).
 -define(LOG_HANDLER_OLP_KILL_QLEN, 20000).
 
@@ -74,8 +87,7 @@
 -type maybe_namespace() :: ?global_ns | namespace().
 
 -ifdef(TEST).
--define(LOG_HANDLER_FILESYNC_INTERVAL, 5_000).
--else.
+-undef(LOG_HANDLER_FILESYNC_INTERVAL).
 -define(LOG_HANDLER_FILESYNC_INTERVAL, 100).
 -endif.
 
@@ -114,17 +126,22 @@ install(HandlerId, Who, Level, LogFile) ->
         filters => logger_filters(Who),
         config => logger_config(LogFile)
     },
-    Res = logger:add_handler(HandlerId, logger_disk_log_h, Config),
+    Res = logger:add_handler(HandlerId, logger_std_h, Config),
     show_prompts(Res, Who, "start_trace"),
     Res.
 
 logger_config(LogFile) ->
     MaxBytes = emqx_config:get([trace, max_file_size]),
+    NFiles = ?LOG_HANDLER_ROTATION_N_FILES,
     #{
-        type => halt,
+        type => file,
         file => LogFile,
-        max_no_bytes => MaxBytes,
+        %% Split `MaxBytes` across allowed number of files:
+        max_no_bytes => MaxBytes div NFiles,
+        %% Number of "archives" is one less than allowed number of files:
+        max_no_files => NFiles - 1,
         filesync_repeat_interval => ?LOG_HANDLER_FILESYNC_INTERVAL,
+        file_check => ?LOG_HANDLER_FILECHECK_INTERVAL,
         overload_kill_enable => true,
         overload_kill_mem_size => ?LOG_HANDLER_OLP_KILL_MEM_SIZE,
         overload_kill_qlen => ?LOG_HANDLER_OLP_KILL_QLEN,
@@ -150,9 +167,259 @@ filesync(HandlerId) ->
             try
                 Mod:filesync(HandlerId)
             catch
-                error:undef ->
-                    {error, unsupported}
+                exit:{noproc, _} -> ok;
+                exit:{{shutdown, _}, _} -> ok;
+                error:undef -> {error, unsupported}
             end;
+        Error ->
+            Error
+    end.
+
+%%
+
+-opaque log_fragment() :: #{
+    %% Log fragment index:
+    i := non_neg_integer(),
+    %% Inode number from the filesystem (always 0 if unsupported):
+    in := integer(),
+    %% Modification time:
+    mt := integer(),
+    %% Last seen file size:
+    ls := non_neg_integer()
+}.
+
+-doc """
+Find either the first log fragment to read data from, or the next to the one previously
+obtained through a call to this function.
+
+* `none`
+  There's no more fragments, either the last (most recent) fragment was reached,
+  or there is actually zero fragments.
+
+* `{error, stale}`
+  It's now impossible to find the next fragment because too much log rotation happened
+  in the meantime.
+
+* `{error, enoent}`
+  No such file, can actually mean concurrent log rotation is in progress, and the
+  caller may choose to retry.
+
+""".
+-spec find_log_fragment(first | {next, _After :: log_fragment()}, file:filename()) ->
+    {ok, file:filename(), file:file_info(), log_fragment()}
+    | none
+    | {error, stale | file:posix()}.
+find_log_fragment(first, Basename) ->
+    find_oldest_log_fragment(Basename);
+find_log_fragment({next, #{i := I0, mt := MTime, in := Inode, ls := LastSz}}, Basename) ->
+    case find_log_fragment(I0, MTime, Inode, LastSz, Basename) of
+        #{i := I} ->
+            next_log_fragment(I, Basename);
+        Error ->
+            Error
+    end.
+
+%% Find the oldest existing log fragment file.
+find_oldest_log_fragment(Basename) ->
+    SearchFun = fun(I) ->
+        Filename = mk_log_fragment_filename(Basename, I),
+        case read_file_info(Filename) of
+            {ok, Info} ->
+                {true, {ok, Filename, Info, mk_log_fragment(I, Info)}};
+            {error, enoent} ->
+                false;
+            {error, Reason} ->
+                {error, Reason}
+        end
+    end,
+    find_boundary(SearchFun, 1, ?LOG_HANDLER_ROTATION_N_FILES, none).
+
+find_log_fragment(I, MTime, Inode, LastSz, Basename) ->
+    find_log_fragment(I, MTime, Inode, LastSz, I =:= 1, Basename).
+
+find_log_fragment(I, MTime, Inode, LastSz, Topmost, Basename) ->
+    %% First we need to make sure the given fragment still resides under
+    %% the same index / filename.
+    Filename = mk_log_fragment_filename(Basename, I),
+    InfoRet = read_file_info(Filename),
+    case match_log_fragment(InfoRet, I, MTime, Inode, LastSz, Topmost, Basename) of
+        Fragment = #{} ->
+            Fragment;
+        nomatch ->
+            %% Let's try the next older fragment.
+            find_log_fragment(I + 1, MTime, Inode, LastSz, Topmost, Basename);
+        Error ->
+            Error
+    end.
+
+match_log_fragment(InfoRet, I, MTime, Inode, LastSz, Topmost, Basename) ->
+    %% Basically:
+    %% * Topmost fragments should have the same inode + same or newer mtime.
+    %% * Non-topmost fragments should have the same inode + same mtime.
+    case InfoRet of
+        {ok, #file_info{mtime = MTime1, inode = Inode1, size = Size} = Info} ->
+            case has_match(Topmost, MTime, Inode, LastSz, MTime1, Inode1, Size) of
+                true ->
+                    mk_log_fragment(I, Info);
+                false ->
+                    nomatch;
+                ambiguous ->
+                    InfoRetNext = read_file_info(mk_log_fragment_filename(Basename, I + 1)),
+                    case resolve_ambiguity(InfoRetNext, MTime) of
+                        true -> mk_log_fragment(I, Info);
+                        false -> nomatch;
+                        Error -> Error
+                    end;
+                Error ->
+                    Error
+            end;
+        {error, enoent} when I < ?LOG_HANDLER_ROTATION_N_FILES ->
+            %% Fragment is likely being rotated right now, try to find it.
+            nomatch;
+        {error, enoent} ->
+            %% Fragment was rotated _and_ deleted, there's a discontinuity.
+            {error, stale};
+        Error ->
+            Error
+    end.
+
+%% Must be the same file:
+has_match(_, MTime, Inode, LastSz, MTime, Inode, LastSz) -> true;
+%% If the size is smaller than what was seen last time, definitely look further:
+has_match(_, _, _, LastSz, _, _, Size) when Size < LastSz -> false;
+%% This is unexpected, fragment should have either the same or newer mtime:
+has_match(_, MTime, _, _, Older, _, _) when Older < MTime -> {error, stale};
+%% This is ambiguous, topmost fragment may have been updated and then rotated N times:
+has_match(true, MTime, Inode, _, Newer, Inode, _) when Newer >= MTime -> ambiguous;
+%% Otherwise, look further:
+has_match(_, _, _, _, _, _, _) -> false.
+
+%% The current fragment is same or newer, and has same or larger size.
+%% If the next one is same or older, the current one is or was the topmost fragment:
+resolve_ambiguity({ok, #file_info{mtime = MTimeNext}}, MTime) -> MTimeNext =< MTime;
+%% The current fragment supposedly was the topmost fragment, now it's the last one:
+resolve_ambiguity({error, enoent}, _) -> true;
+resolve_ambiguity(Error, _) -> Error.
+
+next_log_fragment(1, _Basename) ->
+    none;
+next_log_fragment(I, Basename) ->
+    %% NOTE
+    %% Subject to races with `logger_std_h:rotate_files/3`, highly unlikely though.
+    %% 1. We can accidentally skip one fragment.
+    %% 2. We can get `{error, enoent}` for a fragment in the process of rotation.
+    %% Currently, upper layer blindly considers `{error, enoent}` as retry-worthy,
+    %% i.e. by returning `{retry, Cursor}` as continuation to the user code.
+    Filename = mk_log_fragment_filename(Basename, I - 1),
+    case read_file_info(Filename) of
+        {ok, Info} ->
+            {ok, Filename, Info, mk_log_fragment(I - 1, Info)};
+        Error ->
+            Error
+    end.
+
+%% Binary search a boundary where SF turns from `{true, _}` to `false`.
+find_boundary(SF, I1, I2, Found0) ->
+    IMid = (I1 + I2) div 2,
+    case SF(IMid) of
+        {true, Found} when I2 > I1 -> find_boundary(SF, IMid + 1, I2, Found);
+        {true, Found} -> Found;
+        false when I2 > I1 -> find_boundary(SF, I1, IMid - 1, Found0);
+        false -> Found0;
+        Error -> Error
+    end.
+
+-doc """
+Read a portion of log fragment, starting from the given position.
+Fragment is previously obtained through a call to `find_log_fragment/2`.
+
+Read consistency under concurrent log rotation is preserved as realistically possible,
+however there's no strong guarantee. Avoid having configurations that allow for high
+log rotation rate.
+
+* `{error, stale}`
+  It's now impossible to have consistent read because too much log rotation happened
+  in the meantime.
+
+* `{error, enoent}`
+  No such file, again can actually mean concurrent log rotation is in progress, and
+  the caller may choose to retry.
+
+""".
+-spec read_log_fragment_at(
+    log_fragment(),
+    file:filename(),
+    _Pos :: non_neg_integer(),
+    _NBytes :: pos_integer()
+) ->
+    {ok, binary(), log_fragment()} | {error, stale | file:posix()}.
+read_log_fragment_at(#{i := I, mt := MTime, in := Inode, ls := LastSz}, Basename, Pos, NBytes) ->
+    read_log_fragment_at(I, MTime, Inode, LastSz, I =:= 1, Basename, Pos, NBytes).
+
+read_log_fragment_at(I, MTime, Inode, LastSz, Topmost, Basename, Pos, NBytes) ->
+    Filename = mk_log_fragment_filename(Basename, I),
+    case file:open(Filename, [read, raw, binary]) of
+        {ok, FD} ->
+            Result =
+                try
+                    InfoRet = read_file_info(FD),
+                    case match_log_fragment(InfoRet, I, MTime, Inode, LastSz, Topmost, Basename) of
+                        Fragment = #{} ->
+                            chunk(file:pread(FD, Pos, NBytes), Fragment);
+                        Otherwise ->
+                            Otherwise
+                    end
+                after
+                    file:close(FD)
+                end,
+            case Result of
+                Ok when element(1, Ok) == ok ->
+                    Ok;
+                nomatch ->
+                    %% MTime mismatch, let's look inside the older fragment.
+                    read_log_fragment_at(
+                        I + 1, MTime, Inode, LastSz, Topmost, Basename, Pos, NBytes
+                    );
+                Error ->
+                    Error
+            end;
+        {error, enoent} when I >= ?LOG_HANDLER_ROTATION_N_FILES ->
+            %% Fragment was rotated _and_ deleted, there's a discontinuity.
+            {error, stale};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+chunk({ok, Chunk}, Fragment) ->
+    {ok, Chunk, Fragment};
+chunk(eof, Fragment) ->
+    {ok, <<>>, Fragment};
+chunk(Error, _Fragment) ->
+    Error.
+
+mk_log_fragment(I, #file_info{mtime = MTime, inode = Inode, size = Size}) ->
+    #{i => I, mt => MTime, in => Inode, ls => Size}.
+
+mk_log_fragment_filename(Basename, 1) ->
+    Basename;
+mk_log_fragment_filename(Basename, I) ->
+    Basename ++ "." ++ integer_to_list(I - 2).
+
+-ifndef(TEST).
+read_file_info(Filename) ->
+    read_file_info_impl(Filename).
+-else.
+read_file_info(Filename) ->
+    ?MODULE:read_file_info_impl(Filename).
+-endif.
+
+%% NOTE: Mocked in `emqx_trace_SUITE`.
+read_file_info_impl(Filename) ->
+    case file:read_file_info(Filename, [raw, {time, posix}]) of
+        {ok, #file_info{type = regular} = Info} ->
+            {ok, Info};
+        {ok, #file_info{type = Type}} ->
+            {error, Type};
         Error ->
             Error
     end.
@@ -163,7 +430,7 @@ filesync(HandlerId) ->
 mk_log_handler(Info = #{id := HandlerId}) ->
     {HandlerId, mk_filter_fun(Info)}.
 
--spec log(logger:log_event(), [log_handler()]) -> ok.
+-spec log(_LoggerEvent, [log_handler()]) -> ok.
 log(Log, [{Id, {FilterFun, Ctx}} | Rest]) ->
     case FilterFun(Log, Ctx) of
         stop ->
@@ -177,21 +444,27 @@ log(Log, [{Id, {FilterFun, Ctx}} | Rest]) ->
                     try
                         Module:log(NLog, HandlerConfig)
                     catch
-                        C:R:S ->
+                        Kind:Error:Stacktrace ->
                             case logger:remove_handler(Id) of
                                 ok ->
-                                    logger:internal_log(
-                                        error, {removed_failing_handler, Id, C, R, S}
-                                    );
+                                    ?SLOG(error, #{
+                                        msg => "trace_log_handler_failing_removed",
+                                        handler_id => Id,
+                                        reason => {Kind, Error},
+                                        stacktrace => Stacktrace
+                                    });
                                 {error, {not_found, _}} ->
                                     %% Probably already removed by other client
                                     %% Don't report again
                                     ok;
                                 {error, Reason} ->
-                                    logger:internal_log(
-                                        error,
-                                        {removed_handler_failed, Id, Reason, C, R, S}
-                                    )
+                                    ?SLOG(error, #{
+                                        msg => "trace_log_handler_failing_removal_error",
+                                        removal_error => Reason,
+                                        handler_id => Id,
+                                        reason => {Kind, Error},
+                                        stacktrace => Stacktrace
+                                    })
                             end
                     end;
                 {error, {not_found, _}} ->
