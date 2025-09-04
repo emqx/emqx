@@ -333,7 +333,13 @@ import_users(ChainName, AuthenticatorID, Filename) ->
 -spec add_user(chain_name(), authenticator_id(), user_info()) ->
     {ok, user_info()} | {error, term()}.
 add_user(ChainName, AuthenticatorID, UserInfo) ->
-    call({add_user, ChainName, AuthenticatorID, UserInfo}).
+    #{user_id := UserID} = UserInfo,
+    case validate_user_id(UserID) of
+        ok ->
+            call({add_user, ChainName, AuthenticatorID, UserInfo});
+        Error ->
+            Error
+    end.
 
 -spec delete_user(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
 delete_user(ChainName, AuthenticatorID, UserID) ->
@@ -1033,3 +1039,6 @@ to_list(M) when is_map(M) -> [M];
 to_list(L) when is_list(L) -> L.
 
 call(Call) -> gen_server:call(?MODULE, Call, infinity).
+
+validate_user_id(<<"">>) -> {error, invalid_user_id};
+validate_user_id(_) -> ok.

@@ -142,7 +142,9 @@ test_authenticator_users(PathPrefix) ->
     InvalidUsers = [
         #{clientid => <<"u1">>, password => <<"p1">>},
         #{user_id => <<"u2">>},
-        #{user_id => <<"u3">>, password => <<"p3">>, foobar => <<"foobar">>}
+        #{user_id => <<"u3">>, password => <<"p3">>, foobar => <<"foobar">>},
+        %% Empty username
+        #{user_id => <<"">>, password => <<"p3">>}
     ],
 
     lists:foreach(
