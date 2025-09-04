@@ -265,7 +265,8 @@ handle_call(_Request, _From, State0) ->
     {reply, {error, unknown_call}, State0}.
 
 handle_cast(pull_async, State0) ->
-    State = do_pull_async(State0),
+    State1 = cancel_pull_timer(State0),
+    State = do_pull_async(State1),
     {noreply, State};
 handle_cast({process_pull_response, RespBody}, State0) ->
     ?tp(gcp_pubsub_consumer_worker_pull_response_received, #{}),
@@ -290,7 +291,8 @@ handle_info(
 ->
     Workers = maps:remove(AsyncWorkerPid, Workers0),
     State1 = State0#{async_workers := Workers},
-    State = do_pull_async(State1),
+    State2 = cancel_pull_timer(State1),
+    State = do_pull_async(State2),
     ?tp(gcp_pubsub_consumer_worker_handled_async_worker_down, #{async_worker_pid => AsyncWorkerPid}),
     {noreply, State};
 handle_info({forget_message_ids, MsgIds}, State0) ->
@@ -349,10 +351,12 @@ ensure_ack_timer(State = #{ack_timer := TRef, pending_acks := PendingAcks}) ->
     end.
 
 -spec ensure_pull_timer(state()) -> state().
-ensure_pull_timer(State = #{pull_timer := TRef}) when is_reference(TRef) ->
-    State;
 ensure_pull_timer(State = #{pull_retry_interval := PullRetryInterval}) ->
     State#{pull_timer := emqx_utils:start_timer(PullRetryInterval, pull)}.
+
+cancel_pull_timer(State = #{pull_timer := TRef}) ->
+    emqx_utils:cancel_timer(TRef),
+    State#{pull_timer := undefined}.
 
 -spec ensure_subscription_exists(state()) ->
     continue | retry | not_found | permission_denied | bad_credentials | already_exists.

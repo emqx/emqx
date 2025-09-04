@@ -130,7 +130,7 @@ do_request_api(Method, Request, Opts) ->
     ReturnAll = maps:get(return_all, Opts, false),
     CompatibleMode = maps:get(compatible_mode, Opts, false),
     HttpcReqOpts = maps:get(httpc_req_opts, Opts, []),
-    ct:pal("~p: ~p~nOpts: ~p", [Method, Request, Opts]),
+    ct:pal("~p:\n  ~p~n  Opts: ~p", [Method, format_request(Request), Opts]),
     case httpc:request(Method, Request, [], HttpcReqOpts) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
@@ -149,6 +149,23 @@ do_request_api(Method, Request, Opts) ->
         {ok, {Reason, _Headers, _Body}} ->
             {error, Reason}
     end.
+
+format_request({URI, Headers}) ->
+    #{
+        uri => iolist_to_binary(URI),
+        headers => Headers
+    };
+format_request({URI, Headers, ContentType, Body}) ->
+    #{
+        uri => iolist_to_binary(URI),
+        headers => Headers,
+        content_type => ContentType,
+        body =>
+            case emqx_utils_json:safe_decode(Body) of
+                {ok, Decoded} -> Decoded;
+                {error, _} -> Body
+            end
+    }.
 
 simplify_result(Res) ->
     case Res of

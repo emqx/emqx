@@ -3767,8 +3767,8 @@ t_get_basic_usage_info_1(_Config) ->
                     [
                         #{function => <<"erlang:hibernate">>, args => #{}},
                         #{function => console},
-                        <<"webhook:my_webhook">>,
-                        <<"webhook:my_webhook">>
+                        <<"http:my_webhook">>,
+                        <<"http:my_webhook">>
                     ]
             }
         ),
@@ -3780,7 +3780,7 @@ t_get_basic_usage_info_1(_Config) ->
                 actions =>
                     [
                         <<"mqtt:my_mqtt_bridge">>,
-                        <<"webhook:my_webhook">>
+                        <<"http:my_webhook">>
                     ]
             }
         ),
@@ -3889,7 +3889,23 @@ do_test_rule_metrics_fail(QMode) ->
     ).
 
 do_test_rule_metrics(QMode) ->
-    BridgeId = create_bridge(?BRIDGE_TYPE, ?BRIDGE_NAME, ?BRIDGE_CONFIG(QMode)),
+    ConnectorName = ?BRIDGE_NAME,
+    Cfg = [
+        {bridge_kind, action},
+        {connector_type, mqtt},
+        {connector_name, ConnectorName},
+        {connector_config, emqx_bridge_schema_testlib:mqtt_connector_config(#{})},
+        {action_type, mqtt},
+        {action_name, ConnectorName},
+        {action_config,
+            emqx_bridge_schema_testlib:mqtt_action_config(#{
+                <<"connector">> => ConnectorName,
+                <<"resource_opts">> => #{<<"query_mode">> => QMode}
+            })}
+    ],
+    {201, _} = emqx_bridge_v2_testlib:create_connector_api2(Cfg, #{}),
+    {201, _} = emqx_bridge_v2_testlib:create_action_api2(Cfg, #{}),
+    #{rule_action_id := BridgeId} = emqx_bridge_v2_testlib:get_common_values(Cfg),
     RuleId = <<"rule:test_metrics_bridge_action">>,
     {ok, #{id := RuleId}} =
         create_rule(
@@ -3918,10 +3934,6 @@ do_test_rule_metrics(QMode) ->
         end
     ),
     emqx_metrics_worker:get_counters(rule_metrics, RuleId).
-
-create_bridge(Type, Name, Config) ->
-    {ok, _Bridge} = emqx_bridge_testlib:create_bridge_api(Type, Name, Config),
-    emqx_bridge_resource:bridge_id(Type, Name).
 
 create_rule(Name, SQL) ->
     Rule = emqx_rule_engine_SUITE:make_simple_rule(Name, SQL),

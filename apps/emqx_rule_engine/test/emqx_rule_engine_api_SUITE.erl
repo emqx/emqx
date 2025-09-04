@@ -304,30 +304,6 @@ t_rule_engine(_) ->
     }),
     {400, _} = emqx_rule_engine_api:'/rule_engine'(put, #{body => #{<<"something">> => <<"weird">>}}).
 
-t_dont_downgrade_bridge_type(_) ->
-    case emqx_release:edition() of
-        ee ->
-            do_t_dont_downgrade_bridge_type();
-        ce ->
-            %% downgrade is not supported in CE
-            ok
-    end.
-
-do_t_dont_downgrade_bridge_type() ->
-    %% Create a rule using a bridge V1 ID
-    #{id := RuleId} = create_rule((?SIMPLE_RULE(<<>>))#{<<"actions">> => [<<"kafka:name">>]}),
-    ?assertMatch(
-        %% returns an action ID
-        {200, #{data := [#{actions := [<<"kafka_producer:name">>]}]}},
-        emqx_rule_engine_api:'/rules'(get, #{query_string => #{}})
-    ),
-    ?assertMatch(
-        %% returns an action ID
-        {200, #{actions := [<<"kafka_producer:name">>]}},
-        emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleId}})
-    ),
-    ok.
-
 rules_fixture(N) ->
     lists:map(
         fun(Seq0) ->

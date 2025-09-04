@@ -141,7 +141,9 @@ on_stop(ResourceID, _State) ->
         end,
         ecpool:workers(ResourceID)
     ),
-    emqx_resource_pool:stop(ResourceID).
+    Res = emqx_resource_pool:stop(ResourceID),
+    ?tp("rabbitmq_connector_stop", #{instance_id => ResourceID}),
+    Res.
 
 %% This is the callback function that is called by ecpool
 -spec connect(term()) -> {ok, {pid(), pid()}, map()} | {error, term()}.

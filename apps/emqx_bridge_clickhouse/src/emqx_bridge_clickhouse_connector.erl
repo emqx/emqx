@@ -349,7 +349,9 @@ on_stop(InstanceId, _State) ->
         msg => "stopping clickouse connector",
         connector => InstanceId
     }),
-    emqx_resource_pool:stop(InstanceId).
+    Res = emqx_resource_pool:stop(InstanceId),
+    ?tp("clickhouse_connector_stop", #{instance_id => InstanceId}),
+    Res.
 
 %% -------------------------------------------------------------------
 %% channel related emqx_resouce callbacks
