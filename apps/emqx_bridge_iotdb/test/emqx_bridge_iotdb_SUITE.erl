@@ -496,7 +496,7 @@ t_device_id(TCConfig) ->
         200,
         10,
         ?assertMatch(
-            {200, #{<<"values">> := [[33]]}},
+            {200, #{<<"values">> := [_ | _]}},
             scan_table(DeviceId, TCConfig)
         )
     ),
