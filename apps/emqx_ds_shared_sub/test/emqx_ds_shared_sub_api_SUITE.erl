@@ -16,26 +16,27 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    AppConfig = #{
+        <<"durable_sessions">> => #{
+            <<"enable">> => true
+        },
+        <<"durable_storage">> => #{
+            <<"messages">> => #{
+                <<"backend">> => <<"builtin_raft">>,
+                <<"n_shards">> => 4
+            },
+            <<"queues">> => #{
+                <<"backend">> => <<"builtin_raft">>,
+                <<"n_shards">> => 4
+            }
+        },
+        <<"authorization">> => #{<<"no_match">> => <<"allow">>}
+    },
+
     Apps = emqx_cth_suite:start(
         [
-            {emqx_conf, #{
-                config => #{
-                    <<"durable_sessions">> => #{
-                        <<"enable">> => true
-                    },
-                    <<"durable_storage">> => #{
-                        <<"messages">> => #{
-                            <<"backend">> => <<"builtin_raft">>,
-                            <<"n_shards">> => 4
-                        },
-                        <<"queues">> => #{
-                            <<"backend">> => <<"builtin_raft">>,
-                            <<"n_shards">> => 4
-                        }
-                    }
-                }
-            }},
-            emqx,
+            {emqx, #{config => AppConfig}},
+            {emqx_conf, #{config => AppConfig}},
             {emqx_ds_shared_sub, #{
                 config => #{
                     <<"durable_queues">> => #{

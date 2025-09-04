@@ -225,7 +225,7 @@ check_authorization_cache(ClientInfo, Action, Topic) ->
     end.
 
 do_authorize(ClientInfo, Action, Topic) ->
-    NoMatch = emqx:get_config([authorization, no_match], allow),
+    NoMatch = emqx:get_config([authorization, no_match], deny),
     Default = #{result => NoMatch, from => default},
     case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->

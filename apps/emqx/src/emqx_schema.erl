@@ -2729,7 +2729,7 @@ authz_fields() ->
             sc(
                 hoconsc:enum([allow, deny]),
                 #{
-                    default => allow,
+                    default => deny,
                     required => true,
                     desc => ?DESC(fields_authorization_no_match)
                 }
