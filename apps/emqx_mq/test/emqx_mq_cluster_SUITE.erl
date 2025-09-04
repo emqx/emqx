@@ -46,7 +46,7 @@ end_per_testcase(_TCName, Config) ->
     ok = emqx_cth_cluster:stop(Nodes).
 
 %% Test that inter-cluster message dispatching works
-t_cluster(Config) ->
+t_cluster_smoke(Config) ->
     [PubNode, Sub0Node, Sub1Node] = _Nodes = ?config(nodes, Config),
 
     %% Create Message Queue and make sure it is available on all nodes
@@ -100,3 +100,78 @@ t_cluster(Config) ->
     ok = emqtt:disconnect(PubClient),
     ok = emqtt:disconnect(SubClient0),
     ok = emqtt:disconnect(SubClient1).
+
+%% Verify that the subscribers ping the consumer
+%% and try to reconnect if the consumer is not responding
+t_ping_consumer(Config) ->
+    [PubNode, Sub0Node, Sub1Node] = Nodes = ?config(nodes, Config),
+
+    %% Create a non-lastvalue Queue
+    erpc:call(PubNode, emqx_mq_test_utils, create_mq, [
+        #{
+            topic_filter => <<"t/#">>,
+            ping_interval => 500
+        }
+    ]),
+    ?retry(
+        5,
+        100,
+        begin
+            ?assertMatch(
+                {ok, #{topic_filter := <<"t/#">>}},
+                erpc:call(Sub0Node, emqx_mq_registry, find, [<<"t/#">>])
+            ),
+            ?assertMatch(
+                {ok, #{topic_filter := <<"t/#">>}},
+                erpc:call(Sub1Node, emqx_mq_registry, find, [<<"t/#">>])
+            )
+        end
+    ),
+
+    %% Connect clients and wait for the consumer to be started
+    PubClient = emqx_mq_test_utils:emqtt_connect([{port, ?PUB_PORT}]),
+    CSub0 = emqx_mq_test_utils:emqtt_connect([{port, ?SUB0_PORT}]),
+    CSub1 = emqx_mq_test_utils:emqtt_connect([{port, ?SUB1_PORT}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    ?retry(
+        10,
+        100,
+        ?assertMatch([_], all_consumers(Nodes))
+    ),
+
+    %% Kill the consumer
+    ok = stop_all_consumers(Nodes),
+
+    %% Publish a message
+    emqx_mq_test_utils:emqtt_pub_mq(PubClient, <<"t/1">>, <<"test message">>),
+
+    %% Verify that the consumer is restarted
+    %% and we receive the message
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
+    ?assertEqual(1, length(Msgs)),
+
+    %% Clean up
+    ok = emqtt:disconnect(PubClient),
+    ok = emqtt:disconnect(CSub0),
+    ok = emqtt:disconnect(CSub1).
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+all_consumers(Nodes) ->
+    lists:flatmap(
+        fun(Node) ->
+            erpc:call(Node, emqx_mq_test_utils, all_consumers, [])
+        end,
+        Nodes
+    ).
+
+stop_all_consumers(Nodes) ->
+    lists:foreach(
+        fun(Node) ->
+            erpc:call(Node, emqx_mq_test_utils, stop_all_consumers, [])
+        end,
+        Nodes
+    ).

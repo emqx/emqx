@@ -19,7 +19,7 @@
 
 -export([populate/2, populate_lastvalue/2]).
 
--export([cleanup_mqs/0, stop_all_consumers/0]).
+-export([cleanup_mqs/0, stop_all_consumers/0, all_consumers/0]).
 
 -export([cth_config/0, cth_config/1]).
 
@@ -159,13 +159,15 @@ cleanup_mqs() ->
     ok = emqx_mq_state_storage:delete_all().
 
 stop_all_consumers() ->
-    ConsumerPids = [Pid || {_, Pid, _, _} <- supervisor:which_children(emqx_mq_consumer_sup)],
     ok = lists:foreach(
         fun(Pid) ->
             ok = emqx_mq_consumer:stop(Pid)
         end,
-        ConsumerPids
+        all_consumers()
     ).
+
+all_consumers() ->
+    [Pid || {_, Pid, _, _} <- supervisor:which_children(emqx_mq_consumer_sup), is_pid(Pid)].
 
 cth_config() ->
     cth_config(#{}).

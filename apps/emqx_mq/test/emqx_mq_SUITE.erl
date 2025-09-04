@@ -834,6 +834,95 @@ t_expired_messages(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify the queue handles acking messages from the finished generation
+t_ack_from_finished_generation(_Config) ->
+    %% Create a non-lastvalue Queue
+    emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        local_max_inflight => 20,
+        stream_max_buffer_size => 16
+    }),
+
+    % Publish 10 messages to the queue
+    emqx_mq_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+
+    %% Connect a client
+    CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+
+    %% Drain the messages
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 2000),
+    ?assertEqual(10, length(Msgs0)),
+
+    %% Add a generation
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+    ct:sleep(100),
+
+    %% Acknowledge the messages and disconnect the client
+    ok = emqx_mq_test_utils:emqtt_ack(Msgs0),
+    ok = emqtt:disconnect(CSub0),
+
+    %% Now publish some more messages and connect a new client
+    emqx_mq_test_utils:populate(10, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-new-">>
+    }),
+
+    %% The new client should receive the new messages, the old one
+    %% should have been successfully acknowledged
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 1000),
+    ?assertEqual(10, length(Msgs1)),
+    ok = emqtt:disconnect(CSub1).
+
+%% Verify the consumer progress is saved and restored correctly when
+%% there are unacked messages in the finished generation
+t_save_and_restore_unacked_messages_in_finished_generation(_Config) ->
+    %% Create a non-lastvalue Queue
+    emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        local_max_inflight => 100,
+        stream_max_buffer_size => 16
+    }),
+
+    % Publish 10 messages to the queue
+    emqx_mq_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+
+    %% Connect a client
+    CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+
+    %% Drain the messages but do not acknowledge them
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 2000),
+    ?assertEqual(10, length(Msgs0)),
+
+    %% Add a generation
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+    ct:sleep(100),
+
+    %% Drop the consumer
+    ok = emqx_mq_test_utils:stop_all_consumers(),
+    ok = emqtt:disconnect(CSub0),
+
+    %% Publish some more messages (in the new generation)
+    emqx_mq_test_utils:populate(10, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-new-">>
+    }),
+
+    %% Start the consumer again
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+
+    %% Verify we receive the unacknowledged messages both
+    %% from the old generation and the new one
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 20, _Timeout1 = 1000),
+    ?assertEqual(20, length(Msgs1)),
+    ok = emqtt:disconnect(CSub1).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

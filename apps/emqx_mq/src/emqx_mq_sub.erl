@@ -81,7 +81,7 @@ It uses timers:
 
 -export_type([t/0]).
 
--define(FIND_MQ_RETRY_INTERVAL, 1000).
+-define(FIND_MQ_RETRY_INTERVAL, 5000).
 
 %%--------------------------------------------------------------------
 %% Messages
