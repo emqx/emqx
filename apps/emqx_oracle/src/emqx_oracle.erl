@@ -68,6 +68,8 @@
 -type state() ::
     #{
         pool_name := binary(),
+        installed_channels := map(),
+        health_check_timeout := timeout(),
         prepare_sql := prepares(),
         params_tokens := params_tokens(),
         batch_params_tokens := params_tokens()
@@ -119,9 +121,11 @@ on_start(
         {app_name, "EMQX Data To Oracle Database Action"}
     ],
     PoolName = InstId,
+    HCTimeout = emqx_resource:get_health_check_timeout(Config),
     State = #{
         pool_name => PoolName,
-        installed_channels => #{}
+        installed_channels => #{},
+        health_check_timeout => HCTimeout
     },
     case emqx_resource_pool:start(InstId, ?MODULE, Options) of
         ok ->
@@ -337,16 +341,36 @@ insert_array_marker_if_list(List) when is_list(List) ->
 insert_array_marker_if_list(Item) ->
     Item.
 
-on_get_status(_InstId, #{pool_name := Pool} = _State) ->
-    case emqx_resource_pool:health_check_workers(Pool, fun ?MODULE:do_get_status/1) of
-        true ->
-            ?status_connected;
-        false ->
-            ?status_disconnected
+on_get_status(_InstId, #{pool_name := Pool} = ConnState) ->
+    #{health_check_timeout := HCTimeout} = ConnState,
+    Res0 = emqx_resource_pool:health_check_workers(
+        Pool, fun ?MODULE:do_get_status/1, HCTimeout, #{return_values => true}
+    ),
+    case Res0 of
+        {ok, []} ->
+            {?status_connecting, <<"pool_initializing">>};
+        {ok, Res1} ->
+            case lists:filter(fun(X) -> X /= ok end, Res1) of
+                [] ->
+                    ?status_connected;
+                [Err | _] ->
+                    {?status_disconnected, Err}
+            end;
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 do_get_status(Conn) ->
-    ok == element(1, jamdb_oracle:sql_query(Conn, "select 1 from dual")).
+    Res = jamdb_oracle:sql_query(Conn, "select 1 from dual"),
+    case ok == element(1, Res) of
+        true ->
+            ok;
+        false ->
+            case Res of
+                {error, _Reason} -> Res;
+                _ -> {error, Res}
+            end
+    end.
 
 do_check_prepares(
     _ChannelId,
