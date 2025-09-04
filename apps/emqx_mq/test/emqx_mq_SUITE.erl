@@ -74,16 +74,7 @@ t_publish_and_consume(_Config) ->
     _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
 
     %% Publish 100 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            100,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
 
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
@@ -99,16 +90,7 @@ t_publish_and_consume(_Config) ->
     ok = emqx_mq_message_db:add_regular_db_generation(),
 
     %% Publish 100 more messages to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            100,
-            fun(I) ->
-                IBin = integer_to_binary(100 + I),
-                Payload = <<"payload-", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
 
     %% Consume the rest messages
     {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 100, _Timeout1 = 1000),
@@ -125,18 +107,11 @@ t_publish_and_consume_lastvalue(_Config) ->
     _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
 
     %% Publish 100 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate_lastvalue(
-            100,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-", IBin/binary>>,
-                Key =
-                    <<"k-", (integer_to_binary(I rem 10))/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload, Key}
-            end
-        ),
+    emqx_mq_test_utils:populate_lastvalue(100, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-">>,
+        n_keys => 10
+    }),
 
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
@@ -163,16 +138,7 @@ t_backpressure(_Config) ->
         }),
 
     %% Publish 100 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            100,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
 
     %% Consume the messages from the queue
     %% Set max_inflight to 0 to avoid nacking messages by the client's session
@@ -192,13 +158,7 @@ t_backpressure(_Config) ->
     ),
 
     %% Acknowledge the messages
-    ok =
-        lists:foreach(
-            fun(#{client_pid := Pid, packet_id := PacketId}) ->
-                emqtt:puback(Pid, PacketId)
-            end,
-            Msgs0
-        ),
+    ok = emqx_mq_test_utils:emqtt_ack(Msgs0),
 
     %% After acknowledging, the messages should start being dispatched again
     {ok, Msgs1} =
@@ -227,16 +187,7 @@ t_redispatch_on_disconnect(_Config) ->
     emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
 
     %% Publish just 1 message to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            1,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Drain the message
     {ok, [#{client_pid := CSub, payload := <<"payload-0">>}]} =
@@ -272,16 +223,7 @@ t_dispatch_random(_Config) ->
     emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
 
     %% Publish 100 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            100,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
 
     %% Drain the messages
     {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 500),
@@ -323,16 +265,7 @@ t_dispatch_round_robin(_Config) ->
     ?check_trace(
         begin
             %% Publish 6 messages to the queue
-            ok =
-                emqx_mq_test_utils:populate(
-                    6,
-                    fun(I) ->
-                        IBin = integer_to_binary(I),
-                        Payload = <<"payload-", IBin/binary>>,
-                        Topic = <<"t/", IBin/binary>>,
-                        {Topic, Payload}
-                    end
-                ),
+            emqx_mq_test_utils:populate(6, #{topic_prefix => <<"t/">>}),
 
             %% Drain the messages
             {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 6, _Timeout = 500),
@@ -431,16 +364,7 @@ t_busy_session(_Config) ->
         }),
 
     %% Publish 100 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            100,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
 
     %% Connect with max_inflight=10
     emqx_config:put([mqtt, max_inflight], 10),
@@ -503,16 +427,7 @@ t_progress_restoration(_Config) ->
         }),
 
     %% Publish 20 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            20,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate(20, #{topic_prefix => <<"t/">>}),
 
     %% Start to consume the messages from the queue
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
@@ -584,16 +499,10 @@ t_progress_restoration_from_removed_gen(_Config) ->
         }),
 
     %% Publish 20 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            20,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-old", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate(20, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-old-">>
+    }),
 
     %% Start to consume the messages from the queue
     CSub0 = emqx_mq_test_utils:emqtt_connect([]),
@@ -608,16 +517,10 @@ t_progress_restoration_from_removed_gen(_Config) ->
     %% Add some messages to the new generation and delete the old one (where the consumer stopped)
     SlabInfo = emqx_mq_message_db:regular_db_slab_info(),
     ok = emqx_mq_message_db:add_regular_db_generation(),
-    ok =
-        emqx_mq_test_utils:populate(
-            20,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-new-", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate(20, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-new-">>
+    }),
     ok = lists:foreach(
         fun(Slab) ->
             emqx_mq_message_db:drop_regular_db_slab(Slab)
@@ -659,16 +562,7 @@ t_progress_restoration_full_buffer(_Config) ->
         }),
 
     %% Publish 20 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate(
-            100,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-", IBin/binary>>,
-                Topic = <<"t/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
 
     %% Start to consume the messages from the queue
     emqx_config:put([mqtt, max_inflight], 100),
@@ -714,7 +608,7 @@ t_redispatch(Config) ->
     emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
 
     %% Publish 1 message to the queue
-    ok = emqx_mq_test_utils:populate(1, fun(_I) -> {<<"t/0">>, <<"payload-0">>} end),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Receive the message and reject it
     CSub =
@@ -761,7 +655,7 @@ t_redispatch_delay(Config) ->
     emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
 
     %% Publish 1 message to the queue
-    ok = emqx_mq_test_utils:populate(1, fun(_I) -> {<<"t/0">>, <<"payload-0">>} end),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Receive the message and reject it
     RecieveTime =
@@ -804,12 +698,10 @@ t_queue_deletion(_Config) ->
     }),
 
     %% Publish 20 messages to the queue
-    ok = emqx_mq_test_utils:populate(20, fun(I) ->
-        IBin = integer_to_binary(I),
-        Topic = <<"t/", IBin/binary>>,
-        Payload = <<"payload-1-", IBin/binary>>,
-        {Topic, Payload}
-    end),
+    emqx_mq_test_utils:populate(20, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-1-">>
+    }),
 
     %% Connect and start a consumer
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
@@ -838,12 +730,10 @@ t_queue_deletion(_Config) ->
     }),
 
     %% Publish 20 messages to the new queue
-    ok = emqx_mq_test_utils:populate(20, fun(I) ->
-        IBin = integer_to_binary(I),
-        Topic = <<"t/", IBin/binary>>,
-        Payload = <<"payload-2-", IBin/binary>>,
-        {Topic, Payload}
-    end),
+    emqx_mq_test_utils:populate(20, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-2-">>
+    }),
 
     %% Connect and start a consumer
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
@@ -874,12 +764,7 @@ t_disconnected_session_does_not_receive_messages(_Config) ->
     _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
 
     %% Publish some messages to the queue
-    ok = emqx_mq_test_utils:populate(1, fun(I) ->
-        IBin = integer_to_binary(I),
-        Topic = <<"t/", IBin/binary>>,
-        Payload = <<"payload-", IBin/binary>>,
-        {Topic, Payload}
-    end),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Connect a client
     CSub0 = emqx_mq_test_utils:emqtt_connect([
@@ -924,23 +809,19 @@ t_expired_messages(_Config) ->
     }),
 
     %% Publish some messages to the queue
-    ok = emqx_mq_test_utils:populate(10, fun(I) ->
-        IBin = integer_to_binary(I),
-        Topic = <<"t/", IBin/binary>>,
-        Payload = <<"payload-expired-", IBin/binary>>,
-        {Topic, Payload}
-    end),
+    emqx_mq_test_utils:populate(10, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-expired-">>
+    }),
 
     %% Wait for the messages to expire
     ct:sleep(1000),
 
     %% Publish a few more messages
-    ok = emqx_mq_test_utils:populate(5, fun(I) ->
-        IBin = integer_to_binary(I),
-        Topic = <<"t/", IBin/binary>>,
-        Payload = <<"payload-new-", IBin/binary>>,
-        {Topic, Payload}
-    end),
+    ok = emqx_mq_test_utils:populate(5, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-new-">>
+    }),
 
     %% Connect a client
     CSub = emqx_mq_test_utils:emqtt_connect([]),

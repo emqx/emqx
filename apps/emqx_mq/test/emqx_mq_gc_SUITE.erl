@@ -18,7 +18,7 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(Config) ->
+init_per_testcase(TestCase, Config) ->
     Apps =
         emqx_cth_suite:start(
             [
@@ -33,25 +33,22 @@ init_per_suite(Config) ->
                             }
                     })}
             ],
-            #{work_dir => emqx_cth_suite:work_dir(Config)}
+            #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
         ),
+    ok = snabbkaffe:start_trace(),
     [{suite_apps, Apps} | Config].
 
-end_per_suite(Config) ->
+end_per_testcase(_TestCase, Config) ->
+    ok = snabbkaffe:stop(),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
-
-init_per_testcase(_CaseName, Config) ->
-    ok = snabbkaffe:start_trace(),
-    Config.
-
-end_per_testcase(_CaseName, _Config) ->
-    ok = snabbkaffe:stop().
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
-%% Consume some history messages from a non-lastvalue queue
+%% Verify that the GC works as expected:
+%% *drops expired generations for regular queues
+%% *drops expired messages for lastvalue queues
 t_gc(_Config) ->
     % %% Create a lastvalue Queue
     MQC = emqx_mq_test_utils:create_mq(#{topic_filter => <<"tc/#">>, is_lastvalue => true}),
@@ -60,27 +57,15 @@ t_gc(_Config) ->
         topic_filter => <<"tr/#">>, is_lastvalue => false, data_retention_period => 1000
     }),
 
-    % Publish 10 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate_lastvalue(
-            10,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-old-", IBin/binary>>,
-                Topic = <<"tc/", IBin/binary>>,
-                {Topic, Payload, IBin}
-            end
-        ),
-    ok =
-        emqx_mq_test_utils:populate(
-            10,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-old-", IBin/binary>>,
-                Topic = <<"tr/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    % Publish 10 messages to the queues
+    emqx_mq_test_utils:populate_lastvalue(10, #{
+        topic_prefix => <<"tc/">>,
+        payload_prefix => <<"payload-old-">>
+    }),
+    emqx_mq_test_utils:populate(10, #{
+        topic_prefix => <<"tr/">>,
+        payload_prefix => <<"payload-old-">>
+    }),
 
     %% Wait for data retention period
     ct:sleep(1000),
@@ -90,26 +75,14 @@ t_gc(_Config) ->
     ?assertEqual([1], lists:usort(RegularDBGens0)),
 
     % Publish 10 messages to the queue
-    ok =
-        emqx_mq_test_utils:populate_lastvalue(
-            10,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-new-", IBin/binary>>,
-                Topic = <<"tc/", IBin/binary>>,
-                {Topic, Payload, IBin}
-            end
-        ),
-    ok =
-        emqx_mq_test_utils:populate(
-            10,
-            fun(I) ->
-                IBin = integer_to_binary(I),
-                Payload = <<"payload-new-", IBin/binary>>,
-                Topic = <<"tr/", IBin/binary>>,
-                {Topic, Payload}
-            end
-        ),
+    emqx_mq_test_utils:populate_lastvalue(10, #{
+        topic_prefix => <<"tc/">>,
+        payload_prefix => <<"payload-new-">>
+    }),
+    emqx_mq_test_utils:populate(10, #{
+        topic_prefix => <<"tr/">>,
+        payload_prefix => <<"payload-new-">>
+    }),
 
     %% Wait for the data retention period
     ct:sleep(1000),

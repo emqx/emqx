@@ -11,12 +11,13 @@
     emqtt_sub_mq/2,
     emqtt_drain/0,
     emqtt_drain/1,
-    emqtt_drain/2
+    emqtt_drain/2,
+    emqtt_ack/1
 ]).
 
 -export([create_mq/1]).
 
--export([populate/2, populate/3, populate_lastvalue/2, populate_lastvalue/3]).
+-export([populate/2, populate_lastvalue/2]).
 
 -export([cleanup_mqs/0, stop_all_consumers/0]).
 
@@ -69,6 +70,14 @@ emqtt_drain(MinMsg, Timeout, AccMsgs, AccNReceived) ->
         end
     end.
 
+emqtt_ack(Msgs) ->
+    ok = lists:foreach(
+        fun(#{client_pid := Pid, packet_id := PacketId}) ->
+            emqtt:puback(Pid, PacketId)
+        end,
+        Msgs
+    ).
+
 create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     Default = #{
         is_lastvalue => false,
@@ -103,33 +112,41 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     ),
     MQ.
 
+populate(N, #{topic_prefix := TopicPrefix} = Opts) ->
+    PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),
+    populate(N, fun(I) ->
+        IBin = integer_to_binary(I),
+        Topic = <<TopicPrefix/binary, IBin/binary>>,
+        Payload = <<PayloadPrefix/binary, IBin/binary>>,
+        {Topic, Payload}
+    end);
 populate(N, Fun) ->
-    populate(N, Fun, #{}).
-
-populate(N, Fun, Opts) ->
-    Interval = maps:get(interval, Opts, 0),
     C = emqx_mq_test_utils:emqtt_connect([]),
     lists:foreach(
         fun(I) ->
             {Topic, Payload} = Fun(I),
-            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload),
-            timer:sleep(Interval)
+            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload)
         end,
         lists:seq(0, N - 1)
     ),
     ok = emqtt:disconnect(C).
 
+populate_lastvalue(N, #{topic_prefix := TopicPrefix} = Opts) ->
+    PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),
+    NKeys = maps:get(n_keys, Opts, N),
+    populate_lastvalue(N, fun(I) ->
+        IBin = integer_to_binary(I),
+        Topic = <<TopicPrefix/binary, IBin/binary>>,
+        Payload = <<PayloadPrefix/binary, IBin/binary>>,
+        Key = <<"k-", (integer_to_binary(I rem NKeys))/binary>>,
+        {Topic, Payload, Key}
+    end);
 populate_lastvalue(N, Fun) ->
-    populate_lastvalue(N, Fun, #{}).
-
-populate_lastvalue(N, Fun, Opts) ->
-    Interval = maps:get(interval, Opts, 0),
     C = emqx_mq_test_utils:emqtt_connect([]),
     lists:foreach(
         fun(I) ->
             {Topic, Payload, Key} = Fun(I),
-            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, Key),
-            timer:sleep(Interval)
+            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, Key)
         end,
         lists:seq(0, N - 1)
     ),
