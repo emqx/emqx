@@ -45,8 +45,8 @@ Facade for all operations with the message database.
 
 -define(MQ_MESSAGE_DB_APPEND_RETRY, 5).
 -define(MQ_MESSAGE_DB_LTS_SETTINGS, #{
-    %% "topic/TOPIC/key/СOMPACTION_KEY"
-    lts_threshold_spec => {simple, {100, 0, 0, 100, 0, 100}}
+    %% "topic/MQ_TOPIC/MQ_ID/key/СOMPACTION_KEY"
+    lts_threshold_spec => {simple, {100, 0, 0, 100, 0}}
 }).
 -define(MQ_MESSAGE_DB_TOPIC(MQ_TOPIC, MQ_ID, KEY), [
     <<"topic">>, MQ_TOPIC, MQ_ID, <<"key">>, KEY
