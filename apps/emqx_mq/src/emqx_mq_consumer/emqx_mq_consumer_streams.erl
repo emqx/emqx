@@ -155,7 +155,7 @@ handle_ack(
                 CS#cs{state = State};
             finished ->
                 Streams = maps:remove(Stream, Streams0),
-                ShardState = ShardState0#{status => finished, generation => Generation},
+                ShardState = #{status => finished, generation => Generation},
                 State1 = State0#{
                     shards => Shards0#{Shard => ShardState},
                     streams => Streams
