@@ -240,11 +240,11 @@ handle_shutdown(State) ->
 %%--------------------------------------------------------------------
 
 add_new_messages(#state{messages = Messages0} = State, MessagesWithIds) ->
-    {MessageIds, Messages} = lists:foldl(
-        fun({MessageId, Message}, {IdsAcc, MessagesAcc}) ->
-            {[MessageId | IdsAcc], MessagesAcc#{MessageId => Message}}
+    {MessageIds, Messages} = lists:mapfoldl(
+        fun({MessageId, Message}, Acc) ->
+            {MessageId, Acc#{MessageId => Message}}
         end,
-        {[], Messages0},
+        Messages0,
         MessagesWithIds
     ),
     schedule_for_dispatch(State#state{messages = Messages}, MessageIds).
