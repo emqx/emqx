@@ -38,7 +38,7 @@ add(Tree, Msg) ->
     gb_trees:insert({SlabMessageId, Slab}, Msg, Tree).
 
 -spec take(t(), non_neg_integer()) -> {[{emqx_mq_types:message_id(), emqx_types:message()}], t()}.
-take(Tree, N) ->
+take(Tree, N) when N >= 0 ->
     do_take(Tree, N, []).
 
 -spec size(t()) -> non_neg_integer().
