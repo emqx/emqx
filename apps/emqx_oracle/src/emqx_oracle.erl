@@ -361,7 +361,7 @@ on_get_status(_InstId, #{pool_name := Pool} = ConnState) ->
     end.
 
 do_get_status(Conn) ->
-    Res = jamdb_oracle:sql_query(Conn, "select 1 from dual"),
+    Res = do_sql_query(Conn, "select 1 from dual"),
     case ok == element(1, Res) of
         true ->
             ok;
@@ -434,15 +434,27 @@ sql_params_to_str(Params) when is_list(Params) ->
     ).
 
 query(Conn, SQL, Params) ->
-    Ret = jamdb_oracle:sql_query(Conn, {sql_query_to_str(SQL), sql_params_to_str(Params)}),
+    Ret = do_sql_query(Conn, {sql_query_to_str(SQL), sql_params_to_str(Params)}),
     ?tp(oracle_query, #{conn => Conn, sql => SQL, params => Params, result => Ret}),
     handle_result(Ret).
 
 execute_batch(Conn, SQL, ParamsList) ->
     ParamsListStr = lists:map(fun sql_params_to_str/1, ParamsList),
-    Ret = jamdb_oracle:sql_query(Conn, {batch, sql_query_to_str(SQL), ParamsListStr}),
+    Ret = do_sql_query(Conn, {batch, sql_query_to_str(SQL), ParamsListStr}),
     ?tp(oracle_batch_query, #{conn => Conn, sql => SQL, params => ParamsList, result => Ret}),
     handle_result(Ret).
+
+do_sql_query(Conn, Req) ->
+    try
+        jamdb_oracle:sql_query(Conn, Req)
+    catch
+        exit:{noproc, _} = Reason ->
+            %% Note [jamdb oracle race condition]
+            %% Race condition?  Maybe the connection process within the ecpool worker is
+            %% restarting after an update?
+            %% Trying again should not fail consistently.
+            {error, Reason}
+    end.
 
 parse_prepare_sql(ChannelId, Config) ->
     SQL =
@@ -510,7 +522,8 @@ do_prepare_sql([], _Prepares, _PoolName, _TokensMap, LastSts) ->
 prepare_sql_to_conn(Conn, Prepares, TokensMap) ->
     prepare_sql_to_conn(Conn, Prepares, TokensMap, #{}).
 
-prepare_sql_to_conn(Conn, [], _TokensMap, Statements) when is_pid(Conn) -> {ok, Statements};
+prepare_sql_to_conn(Conn, [], _TokensMap, Statements) when is_pid(Conn) ->
+    {ok, Statements};
 prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], TokensMap, Statements) when is_pid(Conn) ->
     LogMeta = #{msg => "oracle_prepare_statement", name => Key, prepare_sql => SQL},
     Tokens = maps:get(Key, TokensMap, []),
@@ -552,7 +565,7 @@ check_if_table_exists(Conn, SQL, Tokens0) ->
     ),
     SqlQuery = "begin " ++ binary_to_list(SQL) ++ "; rollback; end;",
     Params = emqx_placeholder:proc_sql(Tokens, Event),
-    case jamdb_oracle:sql_query(Conn, {SqlQuery, Params}) of
+    case do_sql_query(Conn, {SqlQuery, Params}) of
         {ok, [{proc_result, 0, _Description}]} ->
             ok;
         {ok, [{proc_result, 942, _Description}]} ->
@@ -598,6 +611,11 @@ check_if_table_exists(Conn, SQL, Tokens0) ->
                 _ ->
                     {error, Description}
             end;
+        {error, {noproc, _}} ->
+            %% See Note [jamdb oracle race condition]
+            check_if_table_exists(Conn, SQL, Tokens0);
+        {error, socket, closed} ->
+            check_if_table_exists(Conn, SQL, Tokens0);
         Reason ->
             {error, Reason}
     end.
@@ -613,6 +631,9 @@ handle_result({error, {unrecoverable_error, _Error}} = Res) ->
     Res;
 handle_result({error, disconnected}) ->
     {error, {recoverable_error, disconnected}};
+handle_result({error, {noproc, _}}) ->
+    %% See Note [jamdb oracle race condition]
+    {error, {recoverable_error, worker_restarting}};
 handle_result({error, Error}) ->
     {error, {unrecoverable_error, Error}};
 handle_result({error, socket, closed} = Error) ->
