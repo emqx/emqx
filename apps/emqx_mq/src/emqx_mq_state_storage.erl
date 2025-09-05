@@ -336,7 +336,9 @@ pmap_encode_val(?pn_shard_progress, _Key, #{
     status := finished,
     generation := Generation
 }) ->
-    Rec = {v1, {finished, #'FinishedShardProgress'{generation = Generation}}},
+    Rec = #'ShardProgress'{
+        progress = {finished, #'FinishedShardProgress'{generation = Generation}}
+    },
     {ok, Bin} = 'MessageQueue':encode('ShardProgress', Rec),
     Bin;
 pmap_encode_val(
