@@ -7,6 +7,7 @@
 -behaviour(minirest_api).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -208,12 +209,12 @@ get_message_queues_example() ->
             {MessageQueues, CursorNext} = get_message_queues(Cursor, Limit),
             case CursorNext of
                 undefined ->
-                    {200, #{data => MessageQueues, meta => #{hasnext => false}}};
+                    ?OK(#{data => MessageQueues, meta => #{hasnext => false}});
                 _ ->
-                    {200, #{
+                    ?OK(#{
                         data => MessageQueues,
                         meta => #{cursor => encode_cursor(CursorNext), hasnext => true}
-                    }}
+                    })
             end;
         bad_cursor ->
             {400, #{code => 'BAD_REQUEST', message => <<"Bad cursor">>}}
@@ -221,35 +222,35 @@ get_message_queues_example() ->
 '/message_queues'(post, #{body := NewMessageQueueRaw}) ->
     case add_message_queue(NewMessageQueueRaw) of
         {ok, CreatedMessageQueueRaw} ->
-            {200, CreatedMessageQueueRaw};
+            ?OK(CreatedMessageQueueRaw);
         {error, queue_exists} ->
-            {400, #{code => 'ALREADY_EXISTS', message => <<"Message queue already exists">>}}
+            ?BAD_REQUEST('ALREADY_EXISTS', <<"Message queue already exists">>)
     end.
 
 '/message_queues/:topic_filter'(get, #{bindings := #{topic_filter := TopicFilter}}) ->
     case get_message_queue(TopicFilter) of
         not_found ->
-            {404, #{code => 'NOT_FOUND', message => <<"Message queue not found">>}};
+            ?NOT_FOUND(<<"Message queue not found">>);
         {ok, MessageQueue} ->
-            {200, MessageQueue}
+            ?OK(MessageQueue)
     end;
 '/message_queues/:topic_filter'(put, #{
     body := UpdatedMessageQueue, bindings := #{topic_filter := TopicFilter}
 }) ->
     case update_message_queue(TopicFilter, UpdatedMessageQueue) of
         not_found ->
-            {404, #{code => 'NOT_FOUND', message => <<"Message queue not found">>}};
+            ?NOT_FOUND(<<"Message queue not found">>);
         {ok, MQRaw} ->
-            {200, MQRaw};
+            ?OK(MQRaw);
         {error, _} = Error ->
-            {503, #{code => 'SERVICE_UNAVAILABLE', message => emqx_utils:readable_error_msg(Error)}}
+            ?SERVICE_UNAVAILABLE(Error)
     end;
 '/message_queues/:topic_filter'(delete, #{bindings := #{topic_filter := TopicFilter}}) ->
     case delete_message_queue(TopicFilter) of
         not_found ->
-            {204};
+            ?NO_CONTENT;
         ok ->
-            {204}
+            ?NO_CONTENT
     end.
 
 %%--------------------------------------------------------------------
