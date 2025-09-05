@@ -84,7 +84,7 @@ consumer_sup_child_spec() ->
         id => ?CONSUMER_SUP,
         start => {?MODULE, start_consumer_sup, []},
         restart => permanent,
-        shutdown => 5000,
+        shutdown => infinity,
         type => supervisor,
         modules => [?MODULE]
     }.
