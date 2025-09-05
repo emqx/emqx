@@ -94,7 +94,7 @@ gc_sup_child_spec() ->
         id => ?GC_SUP,
         start => {?MODULE, start_gc_sup, []},
         restart => permanent,
-        shutdown => 5000,
+        shutdown => infinity,
         type => supervisor,
         modules => [?MODULE]
     }.
