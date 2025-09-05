@@ -100,6 +100,7 @@ fields("server_configs") ->
                 #{
                     desc => ?DESC("static_clientid_entry"),
                     default => [],
+                    converter => fun static_clientid_converter/2,
                     validator => fun static_clientid_validator/1
                 }
             )},
@@ -326,13 +327,28 @@ fields("egress_remote") ->
     ];
 fields(static_clientid_entry) ->
     [
-        {node, mk(binary(), #{desc => ?DESC("static_clientid_entry_node"), required => true})},
+        {node,
+            mk(
+                binary(),
+                #{desc => ?DESC("static_clientid_entry_node"), required => true}
+            )},
         {ids,
-            mk(hoconsc:array(binary()), #{
-                desc => ?DESC("static_clientid_entry_ids"),
-                required => true,
-                validator => fun static_clientid_validate_clientids_length/1
-            })}
+            mk(
+                hoconsc:array(hoconsc:union([binary(), ref(?MODULE, static_clientid_entry_tuple)])),
+                #{
+                    desc => ?DESC("static_clientid_entry_ids"),
+                    required => true,
+                    validator => fun static_clientid_validate_clientids_length/1
+                }
+            )}
+    ];
+fields(static_clientid_entry_tuple) ->
+    [
+        {clientid,
+            mk(binary(), #{required => true, desc => ?DESC("static_clientid_entry_clientid")})},
+        {username,
+            mk(binary(), #{required => false, desc => ?DESC("static_clientid_entry_username")})},
+        {password, emqx_schema_secret:mk(#{required => false, desc => ?DESC("password")})}
     ];
 fields(Field) when
     Field == "get_connector";
@@ -374,6 +390,8 @@ desc(resource_opts) ->
     ?DESC(emqx_resource_schema, <<"resource_opts">>);
 desc(static_clientid_entry) ->
     ?DESC("static_clientid_entry");
+desc(static_clientid_entry_tuple) ->
+    ?DESC("static_clientid_entry");
 desc(_) ->
     undefined.
 
@@ -389,7 +407,7 @@ unique_static_clientid_validator(#{<<"mqtt">> := MQTTConnectors}) ->
          || {Name, #{<<"static_clientids">> := CIdMappings, <<"server">> := Server}} <-
                 maps:to_list(MQTTConnectors),
             #{<<"ids">> := ClientIds} <- CIdMappings,
-            ClientId <- ClientIds
+            #{<<"clientid">> := ClientId} <- ClientIds
         ],
     StaticClientIdsToNames =
         maps:groups_from_list(
@@ -469,6 +487,27 @@ connector_example(put) ->
         }
     }.
 
+static_clientid_converter(undefined, _HoconOpts) ->
+    undefined;
+static_clientid_converter(Entries, _HoconOpts) ->
+    lists:map(fun static_clientid_converter1/1, Entries).
+
+static_clientid_converter1(#{node := _} = Entry0) ->
+    Entry = emqx_utils_maps:binary_key_map(Entry0),
+    static_clientid_converter1(Entry);
+static_clientid_converter1(#{<<"ids">> := Ids0} = Entry0) ->
+    Ids =
+        lists:map(
+            fun
+                (Id) when is_binary(Id) ->
+                    #{<<"clientid">> => Id};
+                (M) when is_map(M) ->
+                    M
+            end,
+            Ids0
+        ),
+    Entry0#{<<"ids">> := Ids}.
+
 static_clientid_validator([]) ->
     ok;
 static_clientid_validator([#{node := _} | _] = Entries0) ->
@@ -506,13 +545,19 @@ static_clientid_validate_distinct_nodes(Entries) ->
     end.
 
 static_clientid_validate_distinct_clientids(Entries) ->
-    AllIds = lists:flatmap(fun(#{<<"ids">> := Ids}) -> Ids end, Entries),
+    AllIds = lists:flatmap(
+        fun(#{<<"ids">> := Ids}) ->
+            lists:map(fun(#{<<"clientid">> := ClientId}) -> ClientId end, Ids)
+        end,
+        Entries
+    ),
     UniqueIds = lists:uniq(AllIds),
     case AllIds -- UniqueIds of
         [] ->
             ok;
         [_ | _] = DuplicatedIds0 ->
             DuplicatedIds = lists:join(<<", ">>, lists:usort(DuplicatedIds0)),
+
             Msg = iolist_to_binary([
                 <<"clientids must be unique; duplicated clientids: ">>,
                 DuplicatedIds
@@ -521,7 +566,7 @@ static_clientid_validate_distinct_clientids(Entries) ->
     end.
 
 static_clientid_validate_clientids_length(Ids) ->
-    case lists:any(fun(Id) -> Id == <<"">> end, Ids) of
+    case lists:any(fun(#{<<"clientid">> := Id}) -> Id == <<"">> end, Ids) of
         true ->
             {error, <<"clientids must be non-empty">>};
         false ->
