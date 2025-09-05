@@ -678,9 +678,9 @@ handle_outgoing(Packets, State = #state{active_n = ActiveN, piggyback = Piggybac
     NState =
         case emqx_pd:get_counter(outgoing_pubs) > ActiveN of
             true ->
-                Cnt = emqx_pd:reset_counter(outgoing_pubs),
-                Oct = emqx_pd:reset_counter(outgoing_bytes),
-                postpone({check_gc, Cnt, Oct}, State);
+                Cnt1 = emqx_pd:reset_counter(outgoing_pubs),
+                Oct1 = emqx_pd:reset_counter(outgoing_bytes),
+                postpone({check_gc, Cnt1, Oct1}, State);
             false ->
                 State
         end,

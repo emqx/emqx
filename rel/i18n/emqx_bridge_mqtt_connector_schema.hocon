@@ -159,7 +159,7 @@ mode.label:
 """MQTT Bridge Mode"""
 
 password.desc:
-"""The password of the MQTT protocol"""
+"""The password of the MQTT protocol.  Note that if static clientids are used, this option is ignored."""
 
 password.label:
 """Password"""
@@ -197,7 +197,7 @@ server_configs.label:
 """Server Configs"""
 
 username.desc:
-"""The username of the MQTT protocol"""
+"""The username of the MQTT protocol.  Note that if static clientids are used, this option is ignored."""
 
 username.label:
 """Username"""
@@ -223,7 +223,22 @@ static_clientid_entry_node.desc:
 static_clientid_entry_ids.label:
 """Static clientids"""
 static_clientid_entry_ids.desc:
-"""Array of static client IDs assigned to this node."""
+"""Array of static client IDs (and usernames/passwords) assigned to this node."""
+
+static_clientid_entry_clientid.label:
+"""Static clientid"""
+static_clientid_entry_clientid.desc:
+"""Static client ID assigned to this node."""
+
+static_clientid_entry_username.label:
+"""Username"""
+static_clientid_entry_username.desc:
+"""Username associated with the static clientid."""
+
+static_clientid_entry_password.label:
+"""Password"""
+static_clientid_entry_password.desc:
+"""Password associated with the static clientid."""
 
 connect_timeout.label:
 """Connect Timeout"""

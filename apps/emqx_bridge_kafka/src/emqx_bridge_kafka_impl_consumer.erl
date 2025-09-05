@@ -552,8 +552,12 @@ do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
                 "Leader connection not available. Please check the Kafka topic used,"
                 " the connection parameters and Kafka cluster health",
             {?status_disconnected, Message};
-        _ ->
-            ?status_disconnected
+        {error, topic_authorization_failed} ->
+            Message =
+                "Unauthorized topic. Please check your configurations and Kafka ACLs",
+            {?status_disconnected, Message};
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end;
 do_get_status(_ClientID, _KafkaTopics = [], _SubscriberId) ->
     ?status_connected.
@@ -657,7 +661,14 @@ check_client_connectivity(ClientPid) ->
             {?status_disconnected, maybe_clean_error(Reason)};
         {error, Reason} ->
             %% `brod' should have already logged the client being down.
-            {?status_disconnected, maybe_clean_error(Reason)};
+            case maybe_clean_error(Reason) of
+                {group_authorization_failed, _} ->
+                    %% We're connected.
+                    ?tp("kafka_consumer_hc_group_acl_deny", #{}),
+                    ?status_connected;
+                CleanReason ->
+                    {?status_disconnected, CleanReason}
+            end;
         {ok, _Metadata} ->
             ?status_connected
     end.

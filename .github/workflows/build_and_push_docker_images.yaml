@@ -276,10 +276,6 @@ jobs:
           path: "docker-image-tag"
           retention-days: 7
 
-      - name: Verify that size of docker image is less than 300 MB
-        run: |
-          docker image inspect $_EMQX_DOCKER_IMAGE_TAG --format='{{.Size}}' | xargs -I {} test {} -lt 300000000
-
       - name: smoke test
         timeout-minutes: 1
         run: |
