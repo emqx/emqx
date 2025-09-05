@@ -124,7 +124,7 @@ schema("/message_queues/:topic_filter") ->
                     ['NOT_FOUND'], <<"Message queue not found">>
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CREDENTIAL'], <<"Invalid message queue">>
+                    ['BAD_REQUEST'], <<"Invalid message queue">>
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
@@ -142,7 +142,7 @@ schema("/message_queues/:topic_filter") ->
                     ['NOT_FOUND'], <<"Message queue not found">>
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CREDENTIAL'], <<"Invalid message queue">>
+                    ['BAD_REQUEST'], <<"Invalid message queue">>
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
