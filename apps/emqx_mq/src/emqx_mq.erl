@@ -17,7 +17,7 @@
     on_session_subscribed/3,
     on_session_unsubscribed/2,
     on_session_resumed/2,
-    on_session_disonnected/2,
+    on_session_disconnected/2,
     on_delivery_completed/2,
     on_message_nack/2,
     on_client_handle_info/3
@@ -34,7 +34,7 @@ register_hooks() ->
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('session.disconnected', {?MODULE, on_session_disonnected, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('session.disconnected', {?MODULE, on_session_disconnected, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
 
@@ -45,7 +45,7 @@ unregister_hooks() ->
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
-    emqx_hooks:del('session.disconnected', {?MODULE, on_session_disonnected}),
+    emqx_hooks:del('session.disconnected', {?MODULE, on_session_disconnected}),
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
 
@@ -148,7 +148,7 @@ on_client_handle_info(_ClientInfo, _Message, Acc) ->
     ?tp_debug(mq_on_client_handle_info, #{message => _Message}),
     {ok, Acc}.
 
-on_session_disonnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
+on_session_disconnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ok = maps:foreach(
         fun
             (<<"$q/", _/binary>> = FullTopic, _SubOpts) ->
