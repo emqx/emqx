@@ -81,8 +81,6 @@ It uses timers:
 
 -export_type([t/0]).
 
--define(FIND_MQ_RETRY_INTERVAL, 5000).
-
 %%--------------------------------------------------------------------
 %% Messages
 %%--------------------------------------------------------------------
@@ -497,7 +495,7 @@ send_after(#{subscriber_ref := SubscriberRef}, Interval, InfoMessage) ->
 %% Cannot be configured individually for each MQ
 %% because MQ is still not known when we try to find it.
 find_mq_retry_interval() ->
-    ?FIND_MQ_RETRY_INTERVAL.
+    emqx_config:get([mq, find_queue_retry_interval]).
 
 ping_interval(#{ping_interval := ConsumerPingIntervalMs} = _MQ) ->
     ConsumerPingIntervalMs.

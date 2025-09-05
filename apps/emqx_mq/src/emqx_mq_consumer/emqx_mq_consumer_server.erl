@@ -205,6 +205,7 @@ handle_ack(
     end.
 
 handle_ping(#state{subscribers = Subscribers0} = State, SubscriberRef) ->
+    ?tp_debug(mq_consumer_handle_ping, #{subscriber_ref => SubscriberRef}),
     case Subscribers0 of
         #{SubscriberRef := SubscriberData0} ->
             SubscriberData = refresh_subscriber_timeout(State, SubscriberRef, SubscriberData0),

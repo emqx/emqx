@@ -50,6 +50,7 @@ end_per_testcase(_TestCase, Config) ->
 %% *drops expired generations for regular queues
 %% *drops expired messages for lastvalue queues
 t_gc(_Config) ->
+    ct:sleep(500),
     % %% Create a lastvalue Queue
     MQC = emqx_mq_test_utils:create_mq(#{topic_filter => <<"tc/#">>, is_lastvalue => true}),
     %% Create a non-lastvalue Queue

@@ -923,6 +923,108 @@ t_save_and_restore_unacked_messages_in_finished_generation(_Config) ->
     ?assertEqual(20, length(Msgs1)),
     ok = emqtt:disconnect(CSub1).
 
+%% Verify that the queue is eventually found even if it is not present when
+%% subscribing
+t_find_queue(_Config) ->
+    emqx_config:put([mq, find_queue_retry_interval], 100),
+
+    %% Connect a client and subscribe to a non-existent queue
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"noexistent/#">>),
+
+    %% Create the queue
+    emqx_mq_test_utils:create_mq(#{topic_filter => <<"noexistent/#">>}),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"noexistent/">>}),
+
+    %% Verify that the message is received
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
+    ?assertEqual(1, length(Msgs)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
+%% Verify that the inspect functions work
+t_inspect(_Config) ->
+    %% Create queue and a client
+    emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>}),
+    CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}, {clientid, <<"csub">>}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
+
+    %% Inspect the consumer and the subscriber
+    [ConsumerRef] = emqx_mq_test_utils:all_consumers(),
+    ?assertMatch(
+        #{
+            server := _,
+            streams := _
+        },
+        emqx_mq_consumer:inspect(ConsumerRef, 1000)
+    ),
+    [ChanPid] = emqx_cm:lookup_channels(<<"csub">>),
+    ?assertMatch(
+        #{
+            status := #{name := connected}
+        },
+        emqx_mq:inspect(ChanPid, <<"t/#">>)
+    ),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
+%% Verify that
+%% * the offline client does not receive messages
+%% * the client receives messages when it reconnects
+t_offline_session(_Config) ->
+    %% Create a non-lastvalue Queue and two clients
+    emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, dispatch_strategy => round_robin}),
+    CSub0 = emqx_mq_test_utils:emqtt_connect([
+        {clientid, <<"csub0">>},
+        {properties, #{'Session-Expiry-Interval' => 1000}},
+        {clean_start, false}
+    ]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    CSub1 = emqx_mq_test_utils:emqtt_connect([
+        {clientid, <<"csub1">>},
+        {properties, #{'Session-Expiry-Interval' => 1000}},
+        {clean_start, false}
+    ]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+
+    %% Disconnect the first client
+    ok = emqtt:disconnect(CSub0),
+
+    %% Publish messages to the queue
+    emqx_mq_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+
+    %% All messages should be received by the second client
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 1000),
+    ?assertEqual(10, length(Msgs0)),
+    lists:foreach(
+        fun(#{client_pid := Pid}) ->
+            ?assertEqual(CSub1, Pid)
+        end,
+        Msgs0
+    ),
+
+    %% Reconnect the first client
+    CSub01 = emqx_mq_test_utils:emqtt_connect([
+        {clientid, <<"csub0">>},
+        {properties, #{'Session-Expiry-Interval' => 1000}},
+        {clean_start, false}
+    ]),
+
+    %% Publish messages to the queue
+    emqx_mq_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+
+    %% Messages should be received by both clients
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 1000),
+    ?assertEqual(5, length([Pid || #{client_pid := Pid} <- Msgs1, Pid =:= CSub01])),
+    ?assertEqual(5, length([Pid || #{client_pid := Pid} <- Msgs1, Pid =:= CSub1])),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub01),
+    ok = emqtt:disconnect(CSub1).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

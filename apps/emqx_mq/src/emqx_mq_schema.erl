@@ -60,6 +60,13 @@ fields(mq) ->
         {regular_queue_retention_period,
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1d">>, required => true, desc => ?DESC(regular_queue_retention_period)
+            })},
+        {find_queue_retry_interval,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"10s">>,
+                required => true,
+                desc => ?DESC(find_queue_retry_interval),
+                importance => ?IMPORTANCE_HIDDEN
             })}
     ];
 fields(message_queue) ->

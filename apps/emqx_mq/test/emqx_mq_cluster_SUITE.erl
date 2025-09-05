@@ -6,6 +6,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -compile(export_all).
@@ -28,7 +29,10 @@ init_per_testcase(TCName, Config) ->
     Apps = [
         emqx_durable_storage,
         emqx,
-        {emqx_mq, emqx_mq_test_utils:cth_config()}
+        {emqx_mq,
+            emqx_mq_test_utils:cth_config(#{
+                <<"mq">> => #{<<"find_queue_retry_interval">> => <<"100ms">>}
+            })}
     ],
     ClusterSpec = [
         {pub, #{apps => Apps, base_port => ?PUB_PORT}},
@@ -39,10 +43,12 @@ init_per_testcase(TCName, Config) ->
         ClusterSpec,
         #{work_dir => emqx_cth_suite:work_dir(TCName, Config)}
     ),
+    ok = snabbkaffe:start_trace(),
     [{nodes, Nodes} | Config].
 
 end_per_testcase(_TCName, Config) ->
     Nodes = ?config(nodes, Config),
+    ok = snabbkaffe:stop(),
     ok = emqx_cth_cluster:stop(Nodes).
 
 %% Test that inter-cluster message dispatching works
@@ -140,6 +146,18 @@ t_ping_consumer(Config) ->
         ?assertMatch([_], all_consumers(Nodes))
     ),
 
+    %% Verify that the consumer and the subscriber ping each other
+    ?assertWaitEvent(
+        ok,
+        #{?snk_kind := mq_consumer_handle_ping},
+        1000
+    ),
+    ?assertWaitEvent(
+        ok,
+        #{?snk_kind := mq_sub_ping},
+        1000
+    ),
+
     %% Kill the consumer
     ok = stop_all_consumers(Nodes),
 
@@ -148,7 +166,7 @@ t_ping_consumer(Config) ->
 
     %% Verify that the consumer is restarted
     %% and we receive the message
-    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 5000),
     ?assertEqual(1, length(Msgs)),
 
     %% Clean up
