@@ -12,8 +12,8 @@ A Message Queue is a collection of messages with the following properties:
 - Clients may subscribe to the queue's `$q/topic/filter` to consume messages from the queue cooperatively.
 - A Queue is capped by time or size.
 - A Queue is not strictly ordered.A queue may have "Last-Value" semantics. When enabled,
-- Each message should have `mq-key` user property set to be saved in the queue.
-- Messages overwrite previous messages with the same key in the same topic.
+  - Each message should have `mq-key` user property set to be saved in the queue.
+  - Messages overwrite previous messages with the same key in the same topic.
 
 ## Internal Implementation
 
@@ -24,7 +24,7 @@ Message Queue application
 * Is integrated via hooks into the EMQX core.
 
 The major components are:
-* Local subcsription registry ([emqx_mq_sub_registry.erl](./src/emqx_mq_sub_registry.erl), [emqx_mq_sub.erl](./src/emqx_mq_sub.erl), [emqx_mq_sub_buffer.erl](./src/emqx_mq_sub_buffer.erl)). These are data structures
+* Local subscription registry ([emqx_mq_sub_registry.erl](./src/emqx_mq_sub_registry.erl), [emqx_mq_sub.erl](./src/emqx_mq_sub.erl), [emqx_mq_sub_buffer.erl](./src/emqx_mq_sub_buffer.erl)). These are data structures
 facilitating channel's connections to the Message Queues. They are stored in the process dictionary of the channel.
 * Message Queue registry ([emqx_mq_registry.erl](./src/emqx_mq_registry.erl)). This is a registry responsible for keeping track of the Message Queues: creating, updating, deleting, and looking up.
 * Message Queue state storage ([emqx_mq_state_storage.erl](./src/emqx_mq_state_storage.erl)). This is a storage layer responsible for storing the Message Queue metadata and state of consumption.
@@ -42,7 +42,7 @@ facilitating channel's connections to the Message Queues. They are stored in the
 
 ### Subscribing/Consuming
 
-* A client subscribes to `some/topic`.
+* A client subscribes to some topic.
 * An MQ hook is triggered to handle the subscription.
 * If the topic is a Message Queue topic (`$q/some/topic`), the hook initializes a subscription in the Channel's state and
 initiates a connection to the Message Queue Consumer.
