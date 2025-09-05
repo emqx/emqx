@@ -192,9 +192,7 @@ with_sub(SubscriberRef, Handler, Args) ->
                     ok;
                 {ok, NewSub, Result} ->
                     ok = emqx_mq_sub_registry:update(SubscriberRef, NewSub),
-                    {ok, Result};
-                _ ->
-                    error({invalid_return_value_from_handler, Handler})
+                    {ok, Result}
             end
     end.
 
