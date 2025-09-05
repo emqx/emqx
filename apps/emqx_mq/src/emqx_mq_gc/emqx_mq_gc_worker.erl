@@ -137,7 +137,7 @@ gc_regular_queues() ->
             fun({Slab, #{until := Until}}) ->
                 case is_number(Until) andalso slab_time_to_ms(Until) =< TimeThreshold of
                     true ->
-                        {true, {Slab, #{finished_ago => NowMS - Until}}};
+                        {true, {Slab, #{finished_ago => NowMS - slab_time_to_ms(Until)}}};
                     false ->
                         false
                 end
