@@ -6,7 +6,6 @@
 
 -export([
     child_spec/0,
-    inc/2,
     inc/3,
     get_rates/1,
     get_counters/1
@@ -26,9 +25,6 @@ child_spec() ->
             {ds, [{counter, received_messages}]}
         ]
     ).
-
-inc(Id, Metric) ->
-    emqx_metrics_worker:inc(?MQ_METRICS_WORKER, Id, Metric).
 
 inc(Id, Metric, Val) ->
     emqx_metrics_worker:inc(?MQ_METRICS_WORKER, Id, Metric, Val).

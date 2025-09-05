@@ -1025,6 +1025,23 @@ t_offline_session(_Config) ->
     ok = emqtt:disconnect(CSub01),
     ok = emqtt:disconnect(CSub1).
 
+%% Verify that the metrics are updated correctly
+t_metrics(_Config) ->
+    #{received_messages := ReceivedMessages0} = emqx_mq_metrics:get_counters(ds),
+
+    %% Create a queue, publish and consume some messages
+    _MQ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>}),
+    emqx_mq_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 1000),
+    ?assertEqual(10, length(Msgs)),
+
+    %% Verify that the metrics are updated correctly
+    #{received_messages := ReceivedMessages1} = emqx_mq_metrics:get_counters(ds),
+    ?assertEqual(10, ReceivedMessages1 - ReceivedMessages0),
+    ok = emqtt:disconnect(CSub).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
