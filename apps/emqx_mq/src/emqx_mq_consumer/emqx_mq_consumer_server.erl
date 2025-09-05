@@ -357,14 +357,14 @@ collect_messages_for_dispatch(
 dispatch_action(
     MessageId,
     ExcludedSubscriberRefs,
-    #state{messages = Messages, subscribers = Subscribers} = State0
+    #state{messages = Messages, subscribers = _Subscribers} = State0
 ) ->
     Message = maps:get(MessageId, Messages),
     {PickResult, State} = pick_subscriber(Message, ExcludedSubscriberRefs, State0),
     ?tp_debug(mq_consumer_dispatch_message, #{
         message_id => MessageId,
         pick_result => PickResult,
-        subscribers => maps:keys(Subscribers),
+        subscribers => maps:keys(_Subscribers),
         excluded_subscriber_refs => ExcludedSubscriberRefs,
         message_topic => emqx_message:topic(Message)
     }),
