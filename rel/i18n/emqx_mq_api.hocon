@@ -19,4 +19,23 @@ emqx_mq_api {
         desc: "Delete message queue."
         label: "Delete Message Queue"
     }
+
+    bad_cursor {
+        desc: "Bad cursor"
+    }
+    message_queue_already_exists {
+        desc: "Message queue already exists"
+    }
+    message_queue_not_found {
+        desc: "Message queue not found"
+    }
+    service_unavailable {
+        desc: "Service unavailable"
+    }
+    invalid_message_queue {
+        desc: "Invalid message queue"
+    }
+    topic_filter {
+        desc: "Topic filter"
+    }
 }

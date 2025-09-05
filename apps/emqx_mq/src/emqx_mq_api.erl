@@ -57,10 +57,10 @@ schema("/message_queues") ->
                     get_message_queues_example()
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Bad cursor">>
+                    ['BAD_REQUEST'], ?DESC(bad_cursor)
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
+                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
                 )
             }
         },
@@ -78,10 +78,10 @@ schema("/message_queues") ->
                     get_message_queue_example()
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['ALREADY_EXISTS'], <<"Message queue already exists">>
+                    ['ALREADY_EXISTS'], ?DESC(message_queue_already_exists)
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
+                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
                 )
             }
         }
@@ -100,10 +100,10 @@ schema("/message_queues/:topic_filter") ->
                     get_message_queue_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Message queue not found">>
+                    ['NOT_FOUND'], ?DESC(message_queue_not_found)
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
+                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
                 )
             }
         },
@@ -122,13 +122,13 @@ schema("/message_queues/:topic_filter") ->
                     get_message_queue_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Message queue not found">>
+                    ['NOT_FOUND'], ?DESC(message_queue_not_found)
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Invalid message queue">>
+                    ['BAD_REQUEST'], ?DESC(invalid_message_queue)
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
+                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
                 )
             }
         },
@@ -140,13 +140,13 @@ schema("/message_queues/:topic_filter") ->
             responses => #{
                 204 => <<"Operation success">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Message queue not found">>
+                    ['NOT_FOUND'], ?DESC(message_queue_not_found)
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Invalid message queue">>
+                    ['BAD_REQUEST'], ?DESC(invalid_message_queue)
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
+                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
                 )
             }
         }
@@ -161,7 +161,7 @@ topic_filter_param() ->
         hoconsc:mk(binary(), #{
             default => <<>>,
             required => true,
-            desc => ?DESC(name),
+            desc => ?DESC(topic_filter),
             validator => fun emqx_schema:non_empty_string/1,
             in => path
         })}.
@@ -217,7 +217,7 @@ get_message_queues_example() ->
                     })
             end;
         bad_cursor ->
-            {400, #{code => 'BAD_REQUEST', message => <<"Bad cursor">>}}
+            ?BAD_REQUEST(<<"Invalid cursor">>)
     end;
 '/message_queues'(post, #{body := NewMessageQueueRaw}) ->
     case add_message_queue(NewMessageQueueRaw) of
