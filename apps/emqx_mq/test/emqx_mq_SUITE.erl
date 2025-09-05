@@ -1040,6 +1040,10 @@ t_metrics(_Config) ->
     %% Verify that the metrics are updated correctly
     #{received_messages := ReceivedMessages1} = emqx_mq_metrics:get_counters(ds),
     ?assertEqual(10, ReceivedMessages1 - ReceivedMessages0),
+    #{received_messages := #{current := Current}} = emqx_mq_metrics:get_rates(ds),
+    ?assert(Current > 0),
+
+    %% Clean up
     ok = emqtt:disconnect(CSub).
 
 %%--------------------------------------------------------------------
