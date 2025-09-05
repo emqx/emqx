@@ -183,7 +183,7 @@ handle_ack(
         #{inflight_messages := InflightMessages0} ?= SubscriberData0,
         #{MessageId := _} ?= InflightMessages0,
         InflightMessages = maps:remove(MessageId, InflightMessages0),
-        SubscriberData1 = SubscriberData0#{inflight_messages => InflightMessages},
+        SubscriberData1 = SubscriberData0#{inflight_messages := InflightMessages},
         SubscriberData2 = refresh_subscriber_timeout(State0, SubscriberRef, SubscriberData1),
         SubscriberData3 = update_last_ack(SubscriberData2),
         Subscribers = Subscribers0#{SubscriberRef => SubscriberData3},
@@ -255,14 +255,14 @@ refresh_subscriber_timeout(State, SubscriberRef, SubscriberData0) ->
         2 * timeout(?ping_timer, State),
         #subscriber_timeout{subscriber_ref = SubscriberRef}
     ),
-    SubscriberData#{timeout_tref => TimeoutTRef}.
+    SubscriberData#{timeout_tref := TimeoutTRef}.
 
 update_last_ack(SubscriberData0) ->
-    SubscriberData0#{last_ack_ts => now_ms_monotonic()}.
+    SubscriberData0#{last_ack_ts := now_ms_monotonic()}.
 
 cancel_subscriber_timeout(#{timeout_tref := TimeoutTRef} = SubscriberData) ->
     emqx_utils:cancel_timer(TimeoutTRef),
-    SubscriberData#{timeout_tref => undefined}.
+    SubscriberData#{timeout_tref := undefined}.
 
 initial_subscriber_data(State, SubscriberRef, ClientId) ->
     SubscriberData = #{
@@ -381,7 +381,7 @@ dispatch_to_subscriber(
     #{inflight_messages := InflightMessages0} =
         SubscriberData0 = maps:get(SubscriberRef, Subscribers0),
     InflightMessages = add_message_ids_to_inflight(MessageIds, InflightMessages0),
-    SubscriberData = SubscriberData0#{inflight_messages => InflightMessages},
+    SubscriberData = SubscriberData0#{inflight_messages := InflightMessages},
     Subscribers = Subscribers0#{SubscriberRef => SubscriberData},
     State = State0#state{subscribers = Subscribers},
     MessagesToSend = enrich_messages_with_id(MessageIds, Messages),
