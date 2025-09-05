@@ -56,6 +56,7 @@ services:
       - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
       - ./kerberos/krb5.conf:/etc/krb5.conf
     command: kafka-entrypoint.sh
+
   kafka_2:
     <<: *kafka
     container_name: kafka-2.emqx.net
@@ -71,3 +72,48 @@ services:
       - ./kafka/kafka-entrypoint.sh:/bin/kafka-entrypoint.sh
       - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
       - ./kerberos/krb5.conf:/etc/krb5.conf
+
+  kafka_setup_acls:
+    image: wurstmeister/kafka:2.13-2.8.1
+    container_name: kafka_setup_acls
+    depends_on:
+      kafka_1:
+        condition: service_started
+      kafka_2:
+        condition: service_started
+    networks:
+      emqx_bridge:
+    restart: on-failure:3
+    command:
+      - bash
+      - "-c"
+      - |
+        cd /opt/kafka
+
+        bin/kafka-acls.sh --bootstrap-server kafka-1.emqx.net:9092 \
+            --add \
+            --deny-principal User:limiteduser \
+            --group ____emqx_consumer_probe
+
+        bin/kafka-acls.sh --bootstrap-server kafka-1.emqx.net:9092 \
+            --add \
+            --deny-principal User:limiteduser \
+            --topic limited-topic
+
+        bin/kafka-acls.sh --bootstrap-server kafka-1.emqx.net:9092 \
+            --add \
+            --allow-principal "User:*" \
+            --group "*"
+
+  kafka_setup_acls_done:
+    image: wurstmeister/kafka:2.13-2.8.1
+    container_name: kafka_setup_acls_done
+    depends_on:
+      kafka_setup_acls:
+        condition: service_completed_successfully
+    networks:
+      emqx_bridge:
+    command:
+      - bash
+      - "-c"
+      - tail -f /dev/null
