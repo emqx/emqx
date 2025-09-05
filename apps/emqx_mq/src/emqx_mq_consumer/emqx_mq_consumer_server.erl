@@ -201,7 +201,7 @@ handle_ack(
             ?tp(error, mq_consumer_handle_ack_unknown_subscriber, #{
                 subscriber_ref => SubscriberRef, message_id => MessageId, ack => Ack
             }),
-            State0
+            {ok, [], State0}
     end.
 
 handle_ping(#state{subscribers = Subscribers0} = State, SubscriberRef) ->
