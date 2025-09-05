@@ -232,7 +232,7 @@ group_by_shard(#{is_lastvalue := false} = MQ, Messages) ->
         #{},
         Messages
     ),
-    groupped_by_shard_to_list(ByShard);
+    grouped_by_shard_to_list(ByShard);
 group_by_shard(#{is_lastvalue := true, topic_filter := _TopicFilter} = MQ, Messages) ->
     ByShard = lists:foldl(
         fun(Message, Acc) ->
@@ -261,9 +261,9 @@ group_by_shard(#{is_lastvalue := true, topic_filter := _TopicFilter} = MQ, Messa
         #{},
         Messages
     ),
-    groupped_by_shard_to_list(ByShard).
+    grouped_by_shard_to_list(ByShard).
 
-groupped_by_shard_to_list(ByShard) ->
+grouped_by_shard_to_list(ByShard) ->
     lists:map(
         fun({Shard, TVs}) ->
             {Shard, lists:reverse(TVs)}
