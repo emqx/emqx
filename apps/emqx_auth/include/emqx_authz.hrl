@@ -167,3 +167,5 @@
     {client_info, emqx_authz_client_info},
     {file, emqx_authz_file}
 ]).
+
+-define(ALL_TOPICS, 'ALL_TOPICS').
