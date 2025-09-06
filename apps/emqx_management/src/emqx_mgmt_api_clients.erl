@@ -934,18 +934,21 @@ do_list_clients_v2(Nodes, Cursor = #{type := ?CURSOR_TYPE_ETS, node := Node}, QS
         end
     end;
 do_list_clients_v2(Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0}, QString0, Acc0) ->
-    #{limit := Limit} = Acc0,
+    #{limit := Limit, remaining := Remaining0} = Acc0,
     {Rows0, Iter} = emqx_persistent_session_ds_state:session_iterator_next(Iter0, Limit),
     NewCursor = next_ds_cursor(Iter),
     Rows1 = check_for_live_and_expired(Rows0),
-    Rows = run_filters(Rows1, QString0),
+    Rows2 = run_filters(Rows1, QString0),
+    Rows = lists:sublist(Rows2, Remaining0),
     Acc1 = maps:update_with(rows, fun(Rs) -> [{undefined, Rows} | Rs] end, Acc0),
     Acc = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
     case N >= Limit of
         true ->
             format_results(Acc, NewCursor);
         false ->
-            do_list_clients_v2(Nodes, NewCursor, QString0, Acc)
+            do_list_clients_v2(Nodes, NewCursor, QString0, Acc#{
+                remaining := Remaining0 - length(Rows)
+            })
     end.
 
 format_results(Acc, Cursor) ->
