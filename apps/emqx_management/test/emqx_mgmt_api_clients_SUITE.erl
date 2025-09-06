@@ -1818,7 +1818,7 @@ t_list_clients_v2_limit(Config) ->
                 end
              || {ClientId, _, Pid} <- Stop
             ],
-            ct:sleep(1000),
+            ct:sleep(1500),
             %% Verify result:
             {ok, {{_, 200, _}, _, Res1}} = list_v2_request(
                 QP,
