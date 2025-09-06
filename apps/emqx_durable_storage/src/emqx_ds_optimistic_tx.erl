@@ -576,6 +576,27 @@ finalize_add_pending(?idle, D = #d{idle_flush_interval = IdleInterval}, Actions)
     %% Schedule early flush if the shard is idle:
     Timeout = {timeout, IdleInterval, ?timeout_flush},
     {next_state, ?leader(?pending), D, [Timeout | Actions]};
+finalize_add_pending(
+    ?pending,
+    #d{
+        entered_pending_at = EnteredPendingAt,
+        flush_interval = FlushInterval,
+        idle_flush_interval = IdleInterval
+    } = D,
+    Actions
+) ->
+    Now = erlang:monotonic_time(millisecond),
+    %% If new data arrived before the early flush, delay the early flush,
+    %% but not beyond the regular flush interval.
+    FlushDeadline = min(EnteredPendingAt + FlushInterval, Now + IdleInterval),
+    TimeToFlush = max(FlushDeadline - Now, 0),
+    case TimeToFlush of
+        0 ->
+            handle_flush(D, Actions);
+        _ ->
+            Timeout = {timeout, TimeToFlush, ?timeout_flush},
+            {next_state, ?leader(?pending), D, [Timeout | Actions]}
+    end;
 finalize_add_pending(_, D, Actions) ->
     {keep_state, D, Actions}.
 
