@@ -503,6 +503,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_dashboard_sso,
             :emqx_audit,
             :emqx_mt,
+            :emqx_mq,
             :emqx_resource,
             :emqx_connector,
             :emqx_exhook,
@@ -1036,7 +1037,8 @@ defmodule EMQXUmbrella.MixProject do
       :DSBuiltinSLSkipstreamV2,
       :DSMetadataCommon,
       :DurableSession,
-      :ChannelInfo
+      :ChannelInfo,
+      :MQMessage
     ]
   end
 

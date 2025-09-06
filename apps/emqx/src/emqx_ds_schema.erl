@@ -9,6 +9,9 @@
 -export([schema/0]).
 -export([db_config_messages/0, db_config_sessions/0, db_config_timers/0, db_config_shared_subs/0]).
 
+%% API for external apps using DS databases:
+-export([db_config/1, db_schema/4]).
+
 %% Behavior callbacks:
 -export([fields/1, desc/1, namespace/0]).
 
@@ -103,7 +106,7 @@ schema() ->
             )}
     ] ++ emqx_schema_hooks:list_injection_point('durable_storage', []).
 
--spec db_schema([backend()], _Importance, ?DESC(_), Defaults) ->
+-spec db_schema([backend()], _Importance, ?DESC(_, _), Defaults) ->
     #{type := _, _ => _}
 when
     Defaults :: map().

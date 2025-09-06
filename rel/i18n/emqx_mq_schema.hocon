@@ -1,0 +1,109 @@
+emqx_mq_schema {
+    gc_interval {
+        desc: """~
+            The interval at which the Message Queues will clean up expired messages."""
+        label: "GC Interval"
+    }
+
+    regular_queue_retention_period {
+        desc: """~
+            The maximum retention period of messages in regular Message Queues.
+            Individual Message Queues may set a shorter retention period."""
+        label: "Regular Queue Retention Period"
+    }
+
+    state_db {
+        desc: """~
+            Settings for the database storing the Message Queue state."""
+        label: "State DB Settings"
+    }
+
+    message_db {
+        desc: """~
+            Settings for the database storing the Message Queue messages."""
+        label: "Message DB Settings"
+    }
+
+    mq {
+        desc: """~
+            Settings for an individual Message Queue."""
+        label: "Message Queue Settings"
+    }
+
+    topic_filter {
+        desc: """~
+            The filter used to determine which messages are getting into the message queue."""
+        label: "Topic Filter"
+    }
+
+    is_lastvalue {
+        desc: """~
+            Indicates if the message has Last-Value semantics. Last-Value semantics means that
+            messages overwrite previous messages with the same queue key in the same topic."""
+        label: "Is Last Value"
+    }
+
+    consumer_max_inactive {
+        desc: """~
+            The maximum duration a consumer waits for any message queue subscribers after the last
+            subscriber disconnected."""
+        label: "Consumer Max Inactive"
+    }
+
+    ping_interval {
+        desc: """~
+            The interval at which subscribers and the consumer process ping each other to ensure connectivity."""
+        label: "Ping Interval"
+    }
+
+    redispatch_interval {
+        desc: """~
+            The interval at which messages are redispatched if rejected."""
+        label: "Redispatch Interval"
+    }
+
+    local_max_inflight {
+        desc: """~
+            The maximum number of messages from a Message Queue that may be inflight to an MQTT client."""
+        label: "Local Max Inflight"
+    }
+
+    busy_session_retry_interval {
+        desc: """~
+            The interval at which Message Queue messages are retried to deliver to an MQTT client that has
+            its inflight window full."""
+        label: "Busy Session Retry Interval"
+    }
+
+    stream_max_buffer_size {
+        desc: """~
+            The maximum number of messages from a DS stream buffered by the Message Queue consumer."""
+        label: "Stream Max Buffer Size"
+    }
+
+    stream_max_unacked {
+        desc: """~
+            Threshold at which the DS stops delivering messages to a Message Queue consumer stream after its
+            buffer is full."""
+        label: "Stream Max Unacked"
+    }
+
+    consumer_persistence_interval {
+        desc: """~
+            The interval at which Message Queue state of consumption is persisted."""
+        label: "Consumer Persistence Interval"
+    }
+
+    data_retention_period {
+        desc: """~
+            The period for which data is retained in the Message Queue."""
+        label: "Data Retention Period"
+    }
+
+    dispatch_strategy {
+        desc: """~
+            The strategy used for dispatching messages from Message Queue to the Queue subscribers."""
+        label: "Dispatch Strategy"
+    }
+
+}

@@ -748,11 +748,11 @@ puback_reason_code(_PacketId, _Msg, disconnect) ->
 %%--------------------------------------------------------------------
 
 process_puback(
-    ?PUBACK_PACKET(PacketId, _ReasonCode, Properties),
+    ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
     Channel =
         #channel{clientinfo = ClientInfo, session = Session}
 ) ->
-    case emqx_session:puback(ClientInfo, PacketId, Session) of
+    case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, Msg, [], NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Properties),
             {ok, Channel#channel{session = NSession}};
@@ -824,12 +824,12 @@ process_pubrel(
 %%--------------------------------------------------------------------
 
 process_pubcomp(
-    ?PUBCOMP_PACKET(PacketId, _ReasonCode),
+    ?PUBCOMP_PACKET(PacketId, ReasonCode),
     Channel = #channel{
         clientinfo = ClientInfo, session = Session
     }
 ) ->
-    case emqx_session:pubcomp(ClientInfo, PacketId, Session) of
+    case emqx_session:pubcomp(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, [], NSession} ->
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
@@ -1160,10 +1160,11 @@ do_handle_deliver(
     end.
 
 %% Nack delivers from shared subscription
-maybe_nack(Delivers) ->
-    lists:filter(fun not_nacked/1, Delivers).
+maybe_nack(Delivers0) ->
+    Delivers = lists:filter(fun not_nacked_by_shared_sub/1, Delivers0),
+    lists:filter(fun not_nacked_by_hook/1, Delivers).
 
-not_nacked({deliver, _Topic, Msg}) ->
+not_nacked_by_shared_sub({deliver, _Topic, Msg}) ->
     case emqx_shared_sub:is_ack_required(Msg) of
         true ->
             ok = emqx_shared_sub:nack_no_connection(Msg),
@@ -1171,6 +1172,11 @@ not_nacked({deliver, _Topic, Msg}) ->
         false ->
             true
     end.
+
+not_nacked_by_hook({deliver, _Topic, Msg}) ->
+    %% NOTE if a callback nacks a message, it returns `true`
+    %% nack'ed messages will be dropped from the session.
+    not emqx_hooks:run_fold('message.nack', [Msg], false).
 
 %%--------------------------------------------------------------------
 %% Handle Frame Error
@@ -1637,16 +1643,30 @@ handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
 handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
     Session = emqx_session:handle_info(Info, Session0, ClientInfo),
-    Channel = Channel0#channel{session = Session},
-    case Info of
-        {'DOWN', Ref, process, Pid, Reason} ->
-            case emqx_hooks:run_fold('client.monitored_process_down', [Ref, Pid, Reason], []) of
-                [] -> {ok, Channel};
-                Msgs -> {ok, Msgs, Channel}
-            end;
+    Channel1 = Channel0#channel{session = Session},
+    Acc0 = #{deliver => [], replies => []},
+    Acc = emqx_hooks:run_fold('client.handle_info', [ClientInfo, Info], Acc0),
+    Delivers = maps:get(deliver, Acc, []),
+    Replies = maps:get(replies, Acc, []),
+    {AllReplies, Channel} =
+        case handle_deliver(Delivers, Channel1) of
+            {ok, Channel2} ->
+                {Replies, Channel2};
+            {ok, DeliverReplies, Channel2} ->
+                {append_replies(DeliverReplies, Replies), Channel2}
+        end,
+    case AllReplies of
+        [] ->
+            {ok, Channel};
         _ ->
-            {ok, Channel}
+            {ok, AllReplies, Channel}
     end.
+
+append_replies(Replies1, Replies2) ->
+    replies_as_list(Replies1) ++ replies_as_list(Replies2).
+
+replies_as_list(Replies) when is_list(Replies) -> Replies;
+replies_as_list(Replies) -> [Replies].
 
 -ifdef(TEST).
 

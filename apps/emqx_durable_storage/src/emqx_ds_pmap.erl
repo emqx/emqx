@@ -31,7 +31,7 @@ commits the changes must contain the following operations:
 
 ```
 tx_assert_guard(Id, OldGuard),
-tx_assert_guard(Id, ?ds_tx_serial)
+tx_write_guard(Id, ?ds_tx_serial)
 ```
 
 to ensure that data hasn't changed between the two transactions and to

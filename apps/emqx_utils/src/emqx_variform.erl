@@ -35,7 +35,7 @@
 -export_type([compiled/0]).
 
 -type compiled() :: #{expr := string(), form := term()}.
--type opts() :: #{eval_coalesce => boolean()}.
+-type opts() :: #{eval_coalesce => boolean(), eval_as_string => boolean()}.
 -define(BIF_MOD, emqx_variform_bif).
 -define(IS_ALLOWED_MOD(M),
     (M =:= ?BIF_MOD orelse

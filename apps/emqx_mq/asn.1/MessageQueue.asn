@@ -1,0 +1,45 @@
+MessageQueue DEFINITIONS ::=
+BEGIN
+
+  StreamBufferProgress ::= SEQUENCE {
+    it [0] OCTET STRING,
+    lastMessageId [1] INTEGER OPTIONAL,
+    unacked [2] SEQUENCE OF INTEGER
+  }
+
+  FinishedShardProgress ::= SEQUENCE {
+    generation [0] INTEGER
+  }
+
+  ActiveShardProgress ::= SEQUENCE {
+    generation [0] INTEGER,
+    stream [1] OCTET STRING,
+    bufferProgress [2] StreamBufferProgress
+  }
+
+  ShardProgress ::= SEQUENCE {
+    progress [0] CHOICE {
+      active [0] ActiveShardProgress,
+      finished [1] FinishedShardProgress
+    },
+    ...
+  }
+
+  MQ ::= SEQUENCE {
+    id [0] OCTET STRING,
+    topicFilter [1] OCTET STRING,
+    isLastvalue [2] BOOLEAN,
+    consumerMaxInactive [3] INTEGER,
+    pingInterval [4] INTEGER,
+    redispatchInterval [5] INTEGER,
+    dispatchStrategy [6] OCTET STRING,
+    localMaxInflight [7] INTEGER,
+    busySessionRetryInterval [8] INTEGER,
+    streamMaxBufferSize [9] INTEGER,
+    streamMaxUnacked [10] INTEGER,
+    consumerPersistenceInterval [11] INTEGER,
+    dataRetentionPeriod [12] INTEGER,
+    ...
+  }
+
+END
