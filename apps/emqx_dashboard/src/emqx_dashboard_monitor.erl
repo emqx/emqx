@@ -28,11 +28,12 @@
 -export([
     samplers/0,
     samplers/2,
-    current_rate/1
+    current_rate/1,
+    local_tps/1
 ]).
 
 %% for rpc
--export([do_sample/2]).
+-export([do_sample/2, lookup_data/1]).
 
 %% For tests
 -export([
@@ -105,6 +106,23 @@ clear_table() ->
 
 %% -------------------------------------------------------------------------------------------------
 %% API
+
+%% @doc Get the latest TPS of the local node.
+%% To get cluster TPS, the caller is responsible to sum up the TPS of all nodes.
+%% The TPS is calculated from the latest delta-sampled datapoint stored in the database.
+%% To compensate potential time skew or delay, it is not exactly the most recent datapoint,
+%% but one sample interval before the current time.
+%% The assumption is that the time skew or delay is not as significant as the sample interval.
+-spec local_tps(Time :: integer()) -> number().
+local_tps(Time) ->
+    Interval = sample_interval(),
+    TimeKey = round_down(Time, Interval) - Interval,
+    case lookup_data(TimeKey) of
+        [] ->
+            0;
+        [Data] ->
+            (maps:get(sent, Data, 0) + maps:get(received, Data, 0)) * 1000 / Interval
+    end.
 
 samplers() ->
     format(sample_fill_gap(all, 0)).
@@ -324,7 +342,7 @@ randomize(Count, Data, Age) when is_map(Data) andalso is_integer(Age) ->
         fun(_) ->
             Ts = round_down(StartTs + rand:uniform(Age), timer:seconds(10)),
             Record = #emqx_monit{time = Ts, data = Data},
-            case ets:lookup(?TAB, Ts) of
+            case lookup(Ts) of
                 [] ->
                     store(Record);
                 [#emqx_monit{data = D} = R] ->
@@ -634,11 +652,14 @@ start_clean_timer() ->
 %%  The monitor will start working at full seconds, as like 00:00:00, 00:00:10, 00:00:20 ...
 %% Ensure that the monitor data of all nodes in the cluster are aligned in time
 next_interval() ->
-    Interval = emqx_conf:get([dashboard, sample_interval], ?DEFAULT_SAMPLE_INTERVAL) * 1000,
+    Interval = sample_interval(),
     Now = now_ts(),
     NextTime = round_down(Now, Interval) + Interval,
     Remaining = NextTime - Now,
     {NextTime, Remaining}.
+
+sample_interval() ->
+    emqx_conf:get([dashboard, sample_interval], ?DEFAULT_SAMPLE_INTERVAL) * 1000.
 
 %% -------------------------------------------------------------------------------------------------
 %% data
@@ -743,6 +764,11 @@ delta(LastData, NowData) ->
             Data#{Key => Value}
         end,
     lists:foldl(Fun, NowData, ?DELTA_SAMPLER_LIST).
+
+%% @doc Lookup the sampled data from the database.
+-spec lookup_data(integer()) -> [map()].
+lookup_data(Ts) ->
+    lists:map(fun(#emqx_monit{data = Data}) -> Data end, lookup(Ts)).
 
 lookup(Ts) ->
     ets:lookup(?TAB, Ts).
