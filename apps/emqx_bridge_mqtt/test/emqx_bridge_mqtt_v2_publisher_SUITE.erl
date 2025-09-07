@@ -453,6 +453,93 @@ t_static_clientids(Config) ->
 
     ok.
 
+%% Checks that we utilize the new tuple format of specifying static clientids along with
+%% usernames and passwords.
+t_static_clientids_username_password_tuples(TCConfig) ->
+    NodeBin = atom_to_binary(node()),
+    ?check_trace(
+        begin
+            {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+                %% Root username and password are ignored if static clientids are used.
+                <<"username">> => <<"should_not_use_this">>,
+                <<"password">> => <<"should_not_use_this">>,
+                <<"static_clientids">> => [
+                    #{
+                        <<"node">> => NodeBin,
+                        <<"ids">> => [
+                            #{
+                                <<"clientid">> => <<"1">>,
+                                <<"username">> => <<"u1">>,
+                                <<"password">> => <<"p1">>
+                            },
+                            #{
+                                <<"clientid">> => <<"2">>,
+                                <<"username">> => <<"u2">>
+                            },
+                            #{<<"clientid">> => <<"3">>}
+                        ]
+                    }
+                ]
+            }),
+            ConnectedClients0 =
+                lists:map(
+                    fun(ConnPid) ->
+                        ConnState = sys:get_state(ConnPid),
+                        emqx_connection:info({channel, [clientid, username]}, ConnState)
+                    end,
+                    emqx_cm:all_channels()
+                ),
+            ConnectedClients1 = lists:sort(ConnectedClients0),
+            ConnectedClients = lists:map(fun maps:from_list/1, ConnectedClients1),
+            ?assertMatch(
+                [
+                    #{
+                        clientid := <<"1">>,
+                        username := <<"u1">>
+                    },
+                    #{
+                        clientid := <<"2">>,
+                        username := <<"u2">>
+                    },
+                    #{
+                        clientid := <<"3">>,
+                        username := undefined
+                    }
+                ],
+                ConnectedClients
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            SubTrace = ?of_kind("mqtt_emqtt_client_about_to_start", Trace),
+            Opts0 = lists:map(fun(#{opts := Opts}) -> Opts end, SubTrace),
+            Opts = lists:sort(fun(#{clientid := C1}, #{clientid := C2}) -> C1 =< C2 end, Opts0),
+            %% Checking used passwords
+            ?assertMatch(
+                [
+                    #{
+                        clientid := <<"1">>,
+                        username := <<"u1">>,
+                        password := _
+                    },
+                    #{
+                        clientid := <<"2">>,
+                        username := <<"u2">>
+                    },
+                    #{clientid := <<"3">>}
+                ],
+                Opts
+            ),
+            [C1, C2, C3] = Opts,
+            ?assertEqual(<<"p1">>, emqx_secret:unwrap(maps:get(password, C1)), #{opts => C1}),
+            ?assertNot(is_map_key(password, C2), #{opts => C2}),
+            ?assertNot(is_map_key(username, C3), #{opts => C3}),
+            ?assertNot(is_map_key(password, C3), #{opts => C3}),
+            ok
+        end
+    ),
+    ok.
+
 %% Checks that we can forward original MQTT user properties via this action.  Also
 %% verifies that extra properties may be added via templates.
 t_forward_user_properties(Config) ->
