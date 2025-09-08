@@ -73,12 +73,12 @@ t_connection_count(_Config) ->
     meck:new(emqx_cm, [passthrough]),
     meck:expect(emqx_cm, get_sessions_count, fun() -> 10 end),
 
-    meck:new(emqx_license_proto_v2, [passthrough]),
+    meck:new(emqx_license_proto_v3, [passthrough]),
 
     meck:expect(
-        emqx_license_proto_v2,
-        remote_connection_counts,
-        fun(_Nodes) -> [{ok, 21}] end
+        emqx_license_proto_v3,
+        stats,
+        fun(_Nodes, _Now) -> [{ok, #{sessions => 21, tps => 2}}] end
     ),
     ?check_trace(
         begin
@@ -96,10 +96,11 @@ t_connection_count(_Config) ->
     ?assertReceive({alarm_activated, <<"License: sessions quota exceeds 80%">>}, 100),
 
     meck:expect(
-        emqx_license_proto_v2,
-        remote_connection_counts,
-        fun(Nodes) ->
-            [{ok, 5}, {error, some_error}] ++ meck:passthrough([Nodes])
+        emqx_license_proto_v3,
+        stats,
+        fun(Nodes, Time) ->
+            RpcRes = meck:passthrough([Nodes, Time]),
+            [{ok, #{sessions => 5, tps => 3}}, {error, some_error}] ++ RpcRes
         end
     ),
 
@@ -118,7 +119,7 @@ t_connection_count(_Config) ->
     ),
     ?assertReceive(alarm_deactivated, 100),
 
-    meck:unload(emqx_license_proto_v2),
+    meck:unload(emqx_license_proto_v3),
     meck:unload(emqx_cm),
     meck:unload(emqx_alarm).
 

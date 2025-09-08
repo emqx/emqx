@@ -771,7 +771,11 @@ lookup_data(Ts) ->
     lists:map(fun(#emqx_monit{data = Data}) -> Data end, lookup(Ts)).
 
 lookup(Ts) ->
-    ets:lookup(?TAB, Ts).
+    try
+        ets:lookup(?TAB, Ts)
+    catch
+        error:badarg -> []
+    end.
 
 store(MonitData) ->
     {atomic, ok} =
