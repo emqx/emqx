@@ -39,8 +39,7 @@ groups() ->
         t_setup_proxy_via_http_api,
         t_setup_forwarder_via_config,
         t_setup_forwarder_via_http_api,
-        t_get_status,
-        t_list_v1_bridges_forwarder
+        t_get_status
     ],
     Write = TCs -- Lifecycle,
     BatchingGroups = [{group, with_batch}, {group, without_batch}],
@@ -404,46 +403,6 @@ t_forward(Config) ->
         ?assertMatch({ok, _}, receive_msg())
     ),
     emqx_broker:unsubscribe(?TOPIC),
-    ok.
-
-t_list_v1_bridges_forwarder(Config) ->
-    ?check_trace(
-        begin
-            Name = create_both_bridges(Config),
-
-            ?assertMatch(
-                {ok, {{_, 200, _}, _, []}}, emqx_bridge_v2_testlib:list_bridges_http_api_v1()
-            ),
-            ?assertMatch(
-                {ok, {{_, 200, _}, _, [_]}}, emqx_bridge_v2_testlib:list_actions_http_api()
-            ),
-            ?assertMatch(
-                {ok, {{_, 200, _}, _, [_, _]}}, emqx_bridge_v2_testlib:list_connectors_http_api()
-            ),
-
-            RuleTopic = <<"t/c">>,
-            {ok, #{<<"id">> := RuleId0}} =
-                emqx_bridge_v2_testlib:create_rule_and_action_http(
-                    <<"syskeeper_forwarder">>,
-                    RuleTopic,
-                    [{bridge_name, Name} | Config],
-                    #{overrides => #{enable => true}}
-                ),
-            ?assert(emqx_bridge_v2_testlib:is_rule_enabled(RuleId0)),
-            ?assertMatch(
-                {ok, {{_, 200, _}, _, _}}, emqx_bridge_v2_testlib:enable_rule_http(RuleId0)
-            ),
-            ?assert(emqx_bridge_v2_testlib:is_rule_enabled(RuleId0)),
-
-            ?assertMatch(
-                {error, no_v1_equivalent},
-                emqx_action_info:bridge_v1_type_name(syskeeper_forwarder)
-            ),
-
-            ok
-        end,
-        []
-    ),
     ok.
 
 %% Apparently, `proxy` connector does not have any associated action type.

@@ -28,7 +28,7 @@
 %% emqx_connector_resource behaviour callbacks
 -export([connector_config/2]).
 
--export([producer_converter/2, host_opts/0]).
+-export([host_opts/0]).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -425,7 +425,18 @@ auth_overrides() ->
 %% Azure must use SSL
 ssl_overrides() ->
     #{
-        "enable" => mk(true, #{default => true})
+        "enable" => mk(true, #{default => true}),
+        "server_name_indication" =>
+            mk(
+                hoconsc:union([auto, disable, string()]),
+                #{
+                    example => auto,
+                    default => <<"auto">>,
+                    converter => fun server_name_indication_converter/2,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC("server_name_indication")
+                }
+            )
     }.
 
 kafka_producer_overrides() ->
@@ -466,18 +477,13 @@ override(Fields, Overrides) ->
         Fields
     ).
 
-producer_converter(undefined, _HoconOpts) ->
+server_name_indication_converter(undefined, _HoconOpts) ->
     undefined;
-producer_converter(
-    Opts = #{<<"ssl">> := #{<<"server_name_indication">> := <<"auto">>}}, _HoconOpts
-) ->
+server_name_indication_converter(<<"auto">>, _HoconOpts) ->
     %% Azure Event Hub's SNI is just the hostname without the Event Hub Namespace...
-    emqx_utils_maps:deep_merge(
-        Opts,
-        #{<<"ssl">> => #{<<"server_name_indication">> => <<"servicebus.windows.net">>}}
-    );
-producer_converter(Opts, _HoconOpts) ->
-    Opts.
+    <<"servicebus.windows.net">>;
+server_name_indication_converter(SNI, _HoconOpts) ->
+    SNI.
 
 host_opts() ->
     #{default_port => 9093}.

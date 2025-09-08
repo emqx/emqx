@@ -199,14 +199,21 @@ parse_and_check(Kind, Type, Name, InnerConfigMap0) ->
         end,
     TypeBin = emqx_utils_conv:bin(Type),
     RawConf = #{RootBin => #{TypeBin => #{Name => InnerConfigMap0}}},
-    do_parse_and_check(RootBin, TypeBin, Name, emqx_bridge_v2_schema, RawConf).
+    do_parse_and_check(RootBin, TypeBin, Name, emqx_bridge_v2_schema, RawConf, #{}).
 
 parse_and_check_connector(Type, Name, InnerConfigMap0) ->
     TypeBin = emqx_utils_conv:bin(Type),
     RawConf = #{<<"connectors">> => #{TypeBin => #{Name => InnerConfigMap0}}},
-    do_parse_and_check(<<"connectors">>, TypeBin, Name, emqx_connector_schema, RawConf).
+    do_parse_and_check(<<"connectors">>, TypeBin, Name, emqx_connector_schema, RawConf, #{}).
 
-do_parse_and_check(RootBin, TypeBin, NameBin, SchemaMod, RawConf) ->
+%% To check defaults for hidden fields
+parse_and_check_connector_not_seriailzable(Type, Name, InnerConfigMap0) ->
+    TypeBin = emqx_utils_conv:bin(Type),
+    RawConf = #{<<"connectors">> => #{TypeBin => #{Name => InnerConfigMap0}}},
+    Opts = #{final_hocon_pass_opts_override => #{make_serializable => false}},
+    do_parse_and_check(<<"connectors">>, TypeBin, Name, emqx_connector_schema, RawConf, Opts).
+
+do_parse_and_check(RootBin, TypeBin, NameBin, SchemaMod, RawConf, Opts) ->
     #{RootBin := #{TypeBin := #{NameBin := _}}} = hocon_tconf:check_plain(
         SchemaMod,
         RawConf,
@@ -217,14 +224,18 @@ do_parse_and_check(RootBin, TypeBin, NameBin, SchemaMod, RawConf) ->
             make_serializable => false
         }
     ),
+    FinalHoconPassOptsOverride = maps:get(final_hocon_pass_opts_override, Opts, #{}),
     #{RootBin := #{TypeBin := #{NameBin := InnerConfigMap}}} = hocon_tconf:check_plain(
         SchemaMod,
         RawConf,
-        #{
-            required => false,
-            atom_key => false,
-            make_serializable => true
-        }
+        maps:merge(
+            #{
+                required => false,
+                atom_key => false,
+                make_serializable => true
+            },
+            FinalHoconPassOptsOverride
+        )
     ),
     InnerConfigMap.
 
@@ -1667,8 +1678,6 @@ t_consume(Config, Opts) ->
     ok.
 
 t_create_via_http(Config) ->
-    t_create_via_http(Config, false).
-t_create_via_http(Config, IsOnlyV2) ->
     ?check_trace(
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
