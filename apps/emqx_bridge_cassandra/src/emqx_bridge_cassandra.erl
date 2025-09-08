@@ -21,7 +21,6 @@
 %% Examples
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -43,16 +42,6 @@
 
 %%--------------------------------------------------------------------
 %% schema examples
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"cassandra">> => #{
-                summary => <<"Cassandra Bridge">>,
-                value => values(Method, cassandra)
-            }
-        }
-    ].
 
 bridge_v2_examples(Method) ->
     ParamsExample = #{

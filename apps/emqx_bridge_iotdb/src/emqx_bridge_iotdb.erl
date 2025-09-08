@@ -11,8 +11,7 @@
 -import(hoconsc, [mk/2, enum/1, ref/2, array/1]).
 
 -export([
-    bridge_v2_examples/1,
-    conn_bridge_examples/1
+    bridge_v2_examples/1
 ]).
 
 %% hocon_schema API
@@ -298,45 +297,5 @@ action_values() ->
             ],
             is_aligned => false,
             device_id => <<"my_device">>
-        }
-    }.
-
-%%-------------------------------------------------------------------------------------------------
-%% v1 examples
-%%-------------------------------------------------------------------------------------------------
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"iotdb">> =>
-                #{
-                    summary => <<"Apache IoTDB Bridge">>,
-                    value => conn_bridge_example(Method, iotdb)
-                }
-        }
-    ].
-
-conn_bridge_example(_Method, Type) ->
-    #{
-        name => <<"My IoTDB Bridge">>,
-        type => Type,
-        enable => true,
-        authentication => #{
-            <<"username">> => <<"root">>,
-            <<"password">> => <<"*****">>
-        },
-        is_aligned => false,
-        device_id => <<"my_device">>,
-        base_url => <<"http://iotdb.local:18080/">>,
-        iotdb_version => ?VSN_1_1_X,
-        connect_timeout => <<"15s">>,
-        pool_type => <<"random">>,
-        pool_size => 8,
-        enable_pipelining => 100,
-        ssl => #{enable => false},
-        resource_opts => #{
-            worker_pool_size => 8,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            query_mode => async,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
         }
     }.

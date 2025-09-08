@@ -19,7 +19,6 @@
 
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -222,16 +221,6 @@ desc(action_resource_opts) ->
 desc(_) ->
     undefined.
 
-conn_bridge_examples(_Method) ->
-    [
-        #{
-            <<"kinesis_producer">> => #{
-                summary => <<"Amazon Kinesis Producer Bridge">>,
-                value => conn_bridge_values()
-            }
-        }
-    ].
-
 connector_examples(Method) ->
     [
         #{
@@ -273,26 +262,6 @@ action_values() ->
             <<"partition_key">> => <<"any_key">>,
             <<"payload_template">> => <<"${.}">>,
             <<"stream_name">> => <<"my_stream">>
-        }
-    }.
-
-conn_bridge_values() ->
-    #{
-        enable => true,
-        type => kinesis_producer,
-        name => <<"foo">>,
-        aws_access_key_id => <<"aws_access_key_id">>,
-        aws_secret_access_key => <<"******">>,
-        endpoint => <<"https://kinesis.us-east-1.amazonaws.com">>,
-        max_retries => 3,
-        stream_name => <<"stream_name">>,
-        partition_key => <<"key">>,
-        resource_opts => #{
-            worker_pool_size => 1,
-            health_check_interval => 15000,
-            query_mode => async,
-            inflight_window => 100,
-            max_buffer_bytes => 100 * 1024 * 1024
         }
     }.
 

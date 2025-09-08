@@ -25,14 +25,12 @@
 
 %% Examples
 -export([
-    bridge_v2_examples/1,
-    conn_bridge_examples/1
+    bridge_v2_examples/1
 ]).
 
 %% Exported for timescale and matrix bridges
 -export([
-    values/1,
-    values_conn_bridge_examples/2
+    values/1
 ]).
 
 -define(ACTION_TYPE, pgsql).
@@ -148,16 +146,6 @@ bridge_v2_examples(Method) ->
         }
     ].
 
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"pgsql">> => #{
-                summary => <<"PostgreSQL Bridge">>,
-                value => values_conn_bridge_examples(Method, pgsql)
-            }
-        }
-    ].
-
 values({get, PostgreSQLType}) ->
     maps:merge(
         #{
@@ -203,40 +191,5 @@ values(parameters) ->
                     "  TO_TIMESTAMP((${timestamp} :: bigint))\n"
                     ")"
                 >>
-        }
-    }.
-
-values_conn_bridge_examples(get, Type) ->
-    maps:merge(
-        #{
-            status => <<"connected">>,
-            node_status => [
-                #{
-                    node => <<"emqx@localhost">>,
-                    status => <<"connected">>
-                }
-            ]
-        },
-        values_conn_bridge_examples(post, Type)
-    );
-values_conn_bridge_examples(_Method, Type) ->
-    #{
-        enable => true,
-        type => Type,
-        name => <<"foo">>,
-        server => <<"127.0.0.1:5432">>,
-        database => <<"mqtt">>,
-        pool_size => 8,
-        username => <<"root">>,
-        password => <<"******">>,
-        sql => default_sql(),
-        local_topic => <<"local/topic/#">>,
-        resource_opts => #{
-            worker_pool_size => 8,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            batch_size => ?DEFAULT_BATCH_SIZE,
-            batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => async,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
         }
     }.

@@ -23,9 +23,6 @@
 
 -export([upgrade_raw_conf/1]).
 
-%% emqx_bridge_enterprise "unofficial" API
--export([conn_bridge_examples/1]).
-
 -define(DEFAULT_PIPELINE_SIZE, 100).
 
 %%-------------------------------------------------------------------------------------------------
@@ -265,101 +262,6 @@ desc(consumer) ->
     ?DESC("consumer");
 desc(_) ->
     undefined.
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"gcp_pubsub">> => #{
-                summary => <<"GCP PubSub Producer Bridge">>,
-                value => values(producer, Method)
-            }
-        },
-        #{
-            <<"gcp_pubsub_consumer">> => #{
-                summary => <<"GCP PubSub Consumer Bridge">>,
-                value => values(consumer, Method)
-            }
-        }
-    ].
-
-values(producer, _Method) ->
-    #{
-        pubsub_topic => <<"mytopic">>,
-        service_account_json =>
-            #{
-                auth_provider_x509_cert_url =>
-                    <<"https://www.googleapis.com/oauth2/v1/certs">>,
-                auth_uri =>
-                    <<"https://accounts.google.com/o/oauth2/auth">>,
-                client_email =>
-                    <<"test@myproject.iam.gserviceaccount.com">>,
-                client_id => <<"123812831923812319190">>,
-                client_x509_cert_url =>
-                    <<
-                        "https://www.googleapis.com/robot/v1/"
-                        "metadata/x509/test%40myproject.iam.gserviceaccount.com"
-                    >>,
-                private_key =>
-                    <<
-                        "-----BEGIN PRIVATE KEY-----\n"
-                        "MIIEvQI..."
-                    >>,
-                private_key_id => <<"kid">>,
-                project_id => <<"myproject">>,
-                token_uri =>
-                    <<"https://oauth2.googleapis.com/token">>,
-                type => <<"service_account">>
-            }
-    };
-values(consumer, _Method) ->
-    #{
-        connect_timeout => <<"15s">>,
-        consumer =>
-            #{
-                pull_max_messages => 100,
-                topic_mapping => [
-                    #{
-                        pubsub_topic => <<"pubsub-topic-1">>,
-                        mqtt_topic => <<"mqtt/topic/1">>,
-                        qos => 1,
-                        payload_template => <<"${.}">>
-                    },
-                    #{
-                        pubsub_topic => <<"pubsub-topic-2">>,
-                        mqtt_topic => <<"mqtt/topic/2">>,
-                        qos => 2,
-                        payload_template =>
-                            <<"v = ${.value}, a = ${.attributes}, o = ${.ordering_key}">>
-                    }
-                ]
-            },
-        resource_opts => #{request_ttl => <<"20s">>},
-        service_account_json =>
-            #{
-                auth_provider_x509_cert_url =>
-                    <<"https://www.googleapis.com/oauth2/v1/certs">>,
-                auth_uri =>
-                    <<"https://accounts.google.com/o/oauth2/auth">>,
-                client_email =>
-                    <<"test@myproject.iam.gserviceaccount.com">>,
-                client_id => <<"123812831923812319190">>,
-                client_x509_cert_url =>
-                    <<
-                        "https://www.googleapis.com/robot/v1/"
-                        "metadata/x509/test%40myproject.iam.gserviceaccount.com"
-                    >>,
-                private_key =>
-                    <<
-                        "-----BEGIN PRIVATE KEY-----\n"
-                        "MIIEvQI..."
-                    >>,
-                private_key_id => <<"kid">>,
-                project_id => <<"myproject">>,
-                token_uri =>
-                    <<"https://oauth2.googleapis.com/token">>,
-                type => <<"service_account">>
-            }
-    }.
 
 upgrade_raw_conf(RawConf0) ->
     lists:foldl(

@@ -4,13 +4,6 @@
 {emqx_auth_cache,1}.
 {emqx_authn,1}.
 {emqx_authz,1}.
-{emqx_bridge,1}.
-{emqx_bridge,2}.
-{emqx_bridge,3}.
-{emqx_bridge,4}.
-{emqx_bridge,5}.
-{emqx_bridge,6}.
-{emqx_bridge,7}.
 {emqx_bridge,8}.
 {emqx_bridge_kinesis,1}.
 {emqx_broker,1}.

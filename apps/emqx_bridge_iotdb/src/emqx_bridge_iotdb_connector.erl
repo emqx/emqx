@@ -294,8 +294,6 @@ callback_mode(#{driver := thrift}) ->
 
 -spec on_start(manager_id(), config()) -> {ok, state()} | no_return().
 on_start(InstanceId, #{driver := restapi, iotdb_version := Version} = Config) ->
-    %% [FIXME] The configuration passed in here is pre-processed and transformed
-    %% in emqx_bridge_resource:parse_confs/2.
     case emqx_bridge_http_connector:on_start(InstanceId, Config) of
         {ok, State} ->
             ?SLOG(info, #{

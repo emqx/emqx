@@ -13,7 +13,6 @@
 
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -51,16 +50,6 @@ bridge_v2_examples(Method) ->
 action_values() ->
     #{parameters => #{sql => ?DEFAULT_SQL}}.
 
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"mysql">> => #{
-                summary => <<"MySQL Bridge">>,
-                value => values(Method)
-            }
-        }
-    ].
-
 connector_examples(Method) ->
     [
         #{
@@ -82,28 +71,6 @@ connector_values() ->
         username => <<"root">>,
         password => <<"******">>,
         resource_opts => #{health_check_interval => <<"20s">>}
-    }.
-
-values(_Method) ->
-    #{
-        enable => true,
-        type => mysql,
-        name => <<"foo">>,
-        server => <<"127.0.0.1:3306">>,
-        database => <<"test">>,
-        pool_size => 8,
-        username => <<"root">>,
-        password => <<"******">>,
-        sql => ?DEFAULT_SQL,
-        local_topic => <<"local/topic/#">>,
-        resource_opts => #{
-            worker_pool_size => 1,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            batch_size => ?DEFAULT_BATCH_SIZE,
-            batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => async,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-        }
     }.
 
 %% -------------------------------------------------------------------------------------------------

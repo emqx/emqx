@@ -9,7 +9,7 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
--export([conn_bridge_examples/1, values/1, bridge_v2_examples/1]).
+-export([bridge_v2_examples/1]).
 -export([namespace/0, roots/0, fields/1, desc/1]).
 
 -define(DEFAULT_SQL, <<
@@ -19,34 +19,6 @@
 >>).
 -define(CONNECTOR_TYPE, tdengine).
 -define(ACTION_TYPE, ?CONNECTOR_TYPE).
-
-%% -------------------------------------------------------------------------------------------------
-%% v1 examples
-conn_bridge_examples(Method) ->
-    [#{<<"tdengine">> => #{summary => <<"TDengine Bridge">>, value => values(Method)}}].
-
-values(_Method) ->
-    #{
-        enable => true,
-        type => tdengine,
-        name => <<"foo">>,
-        server => <<"127.0.0.1:6041">>,
-        database => <<"mqtt">>,
-        pool_size => 8,
-        username => <<"root">>,
-        password => <<"******">>,
-        sql => ?DEFAULT_SQL,
-        local_topic => <<"local/topic/#">>,
-        resource_opts =>
-            #{
-                worker_pool_size => 8,
-                health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-                batch_size => ?DEFAULT_BATCH_SIZE,
-                batch_time => ?DEFAULT_BATCH_TIME,
-                query_mode => sync,
-                max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-            }
-    }.
 
 %% -------------------------------------------------------------------------------------------------
 %% v2 examples

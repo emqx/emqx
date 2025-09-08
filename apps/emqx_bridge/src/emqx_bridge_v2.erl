@@ -17,15 +17,6 @@
 -include_lib("hocon/include/hocon.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
-%% Deprecated RPC target (`emqx_bridge_proto_v5`).
--deprecated({list, 0, "use list/3 instead"}).
-%% Deprecated RPC target (`emqx_bridge_proto_v{6,7}`).
--deprecated({list, 1, "use list/3 instead"}).
-%% Deprecated RPC target (`emqx_bridge_proto_v5`).
--deprecated({start, 2, "use start/4 instead"}).
-%% Deprecated RPC target (`emqx_bridge_proto_v6`).
--deprecated({start, 3, "use start/4 instead"}).
-
 %% Note: this is strange right now, because it lives in `emqx_bridge_v2', but it shall be
 %% refactored into a new module/application with appropriate name.
 -define(ROOT_KEY_ACTIONS, actions).
@@ -44,10 +35,6 @@
 %% CRUD API
 
 -export([
-    %% Deprecated RPC target (`emqx_bridge_proto_v5`).
-    list/0,
-    %% Deprecated RPC target (`emqx_bridge_proto_v{6,7}`).
-    list/1,
     list/2,
     lookup/4,
     lookup_raw_conf/4,
@@ -69,10 +56,6 @@
     disable_enable/5,
     send_message/5,
     query/5,
-    %% Deprecated RPC target (`emqx_bridge_proto_v5`).
-    start/2,
-    %% Deprecated RPC target (`emqx_bridge_proto_v6`).
-    start/3,
     start/4,
     reset_metrics/4,
     create_dry_run/4,
@@ -126,6 +109,9 @@
     is_bridge_v2_type/1,
     connector_type/1
 ]).
+
+%% `emqx_telemetry` callback
+-export([get_basic_usage_info/0]).
 
 %% Compatibility Layer API
 %% All public functions for the compatibility layer should be prefixed with
@@ -333,15 +319,6 @@ lookup(Namespace, ConfRootName, Type, Name) ->
                 error => ErrorMsg
             }}
     end.
-
-%% Deprecated RPC target (`emqx_bridge_proto_v5`).
--spec list() -> [bridge_v2_info()] | {error, term()}.
-list() ->
-    list(?ROOT_KEY_ACTIONS).
-
-%% Deprecated RPC target (`emqx_bridge_proto_v{6,7}`).
-list(ConfRootKey) ->
-    list(?global_ns, ConfRootKey).
 
 -spec list(maybe_namespace(), root_cfg_key()) -> [bridge_v2_info()] | {error, term()}.
 list(Namespace, ConfRootKey) ->
@@ -677,16 +654,6 @@ disable_enable(Namespace, ConfRootKey, EnableOrDisable, BridgeType, BridgeName) 
         {EnableOrDisable, #{now => now_ms()}},
         with_namespace(#{override_to => cluster}, Namespace)
     ).
-
-%% Deprecated RPC target (`emqx_bridge_proto_v5`).
--spec start(term(), term()) -> ok | {error, Reason :: term()}.
-start(ActionOrSourceType, Name) ->
-    start(?global_ns, ?ROOT_KEY_ACTIONS, ActionOrSourceType, Name).
-
-%% Deprecated RPC target (`emqx_bridge_proto_v6`).
--spec start(root_cfg_key(), term(), term()) -> ok | {error, Reason :: term()}.
-start(ConfRootKey, ActionOrSourceType, Name) ->
-    start(?global_ns, ConfRootKey, ActionOrSourceType, Name).
 
 %% Manually start connector. This function can speed up reconnection when
 %% waiting for auto reconnection. The function forwards the start request to
@@ -1514,6 +1481,49 @@ unpack_bridge_conf(Type, PackedConf, TopLevelConf) ->
     #{TopLevelConf := Bridges} = PackedConf,
     #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
     RawConf.
+
+%%====================================================================
+%% `emqx_telemetry` callback
+%%====================================================================
+
+-spec get_basic_usage_info() ->
+    #{
+        num_bridges => non_neg_integer(),
+        count_by_type =>
+            #{BridgeType => non_neg_integer()}
+    }
+when
+    BridgeType :: atom().
+get_basic_usage_info() ->
+    InitialAcc = #{num_bridges => 0, count_by_type => #{}},
+    try
+        lists:foldl(
+            fun
+                (#{raw_config := #{<<"enable">> := false}}, Acc) ->
+                    Acc;
+                (#{type := BridgeType}, Acc) ->
+                    NumBridges = maps:get(num_bridges, Acc),
+                    CountByType0 = maps:get(count_by_type, Acc),
+                    CountByType = maps:update_with(
+                        binary_to_atom(BridgeType, utf8),
+                        fun(X) -> X + 1 end,
+                        1,
+                        CountByType0
+                    ),
+                    Acc#{
+                        num_bridges => NumBridges + 1,
+                        count_by_type => CountByType
+                    }
+            end,
+            InitialAcc,
+            emqx_bridge_v2:list(?global_ns, actions) ++
+                emqx_bridge_v2:list(?global_ns, sources)
+        )
+    catch
+        %% for instance, when the bridge app is not ready yet.
+        _:_ ->
+            InitialAcc
+    end.
 
 %%====================================================================
 %% Compatibility API

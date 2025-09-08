@@ -11,58 +11,11 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    conn_bridge_examples/1
-]).
-
--export([
     namespace/0,
     roots/0,
     fields/1,
     desc/1
 ]).
-
-%% -------------------------------------------------------------------------------------------------
-%% Callback used by HTTP API v1
-%% -------------------------------------------------------------------------------------------------
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"rabbitmq">> => #{
-                summary => <<"RabbitMQ Bridge">>,
-                value => values(Method, "rabbitmq")
-            }
-        }
-    ].
-
-values(_Method, Type) ->
-    #{
-        enable => true,
-        type => Type,
-        name => <<"foo">>,
-        server => <<"localhost">>,
-        port => 5672,
-        username => <<"guest">>,
-        password => <<"******">>,
-        pool_size => 8,
-        timeout => 5,
-        virtual_host => <<"/">>,
-        heartbeat => <<"30s">>,
-        auto_reconnect => <<"2s">>,
-        exchange => <<"messages">>,
-        exchange_type => <<"topic">>,
-        routing_key => <<"my_routing_key">>,
-        durable => false,
-        payload_template => <<"">>,
-        resource_opts => #{
-            worker_pool_size => 8,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            batch_size => ?DEFAULT_BATCH_SIZE,
-            batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => async,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-        }
-    }.
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions

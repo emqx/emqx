@@ -240,7 +240,6 @@ defmodule Mix.Tasks.Emqx.Ct do
   defp load_common_helpers!() do
     Code.ensure_all_loaded!([
       :emqx_common_test_helpers,
-      :emqx_bridge_testlib,
       :emqx_bridge_v2_testlib,
       :emqx_utils_http_test_server
     ])

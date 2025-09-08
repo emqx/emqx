@@ -26,7 +26,6 @@
 %% Examples
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -45,21 +44,6 @@ write_syntax_type() ->
     typerefl:alias("template", write_syntax()).
 
 %% Examples
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"influxdb_api_v1">> => #{
-                summary => <<"InfluxDB HTTP API V1 Bridge">>,
-                value => values("influxdb_api_v1", Method)
-            }
-        },
-        #{
-            <<"influxdb_api_v2">> => #{
-                summary => <<"InfluxDB HTTP API V2 Bridge">>,
-                value => values("influxdb_api_v2", Method)
-            }
-        }
-    ].
 
 bridge_v2_examples(Method) ->
     WriteExample =
@@ -126,39 +110,6 @@ basic_connector_values() ->
         pool_size => 8,
         ssl => #{enable => false}
     }.
-
-values(Protocol, get) ->
-    values(Protocol, post);
-values("influxdb_api_v2", post) ->
-    SupportUint = <<"uint_value=${payload.uint_key}u,">>,
-    TypeOpts = connector_values_v(influxdb_api_v2),
-    values(common, "influxdb_api_v2", SupportUint, TypeOpts);
-values("influxdb_api_v1", post) ->
-    SupportUint = <<>>,
-    TypeOpts = connector_values_v(influxdb_api_v1),
-    values(common, "influxdb_api_v1", SupportUint, TypeOpts);
-values(Protocol, put) ->
-    values(Protocol, post).
-
-values(common, Protocol, SupportUint, TypeOpts) ->
-    CommonConfigs = #{
-        type => list_to_atom(Protocol),
-        name => <<"demo">>,
-        enable => true,
-        local_topic => <<"local/topic/#">>,
-        write_syntax =>
-            <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
-                "${clientid}_int_value=${payload.int_key}i,", SupportUint/binary,
-                "bool=${payload.bool}">>,
-        precision => ms,
-        resource_opts => #{
-            batch_size => 100,
-            batch_time => <<"20ms">>
-        },
-        server => <<"127.0.0.1:8086">>,
-        ssl => #{enable => false}
-    },
-    maps:merge(TypeOpts, CommonConfigs).
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions

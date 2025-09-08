@@ -8,8 +8,6 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/1, ref/2]).
 
--export([conn_bridge_examples/1]).
-
 -export([type_name_fields/1, connector_fields/1]).
 
 -export([
@@ -18,81 +16,6 @@
     fields/1,
     desc/1
 ]).
-
-%% -------------------------------------------------------------------------------------------------
-%% api
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"redis_single">> => #{
-                summary => <<"Redis Single Node Bridge">>,
-                value => values("single", Method)
-            }
-        },
-        #{
-            <<"redis_sentinel">> => #{
-                summary => <<"Redis Sentinel Bridge">>,
-                value => values("sentinel", Method)
-            }
-        },
-        #{
-            <<"redis_cluster">> => #{
-                summary => <<"Redis Cluster Bridge">>,
-                value => values("cluster", Method)
-            }
-        }
-    ].
-
-values(Protocol, get) ->
-    values(Protocol, post);
-values("single", post) ->
-    SpecificOpts = #{
-        server => <<"127.0.0.1:6379">>,
-        redis_type => single,
-        database => 1
-    },
-    values(common, "single", SpecificOpts);
-values("sentinel", post) ->
-    SpecificOpts = #{
-        servers => [<<"127.0.0.1:26379">>],
-        redis_type => sentinel,
-        sentinel => <<"mymaster">>,
-        database => 1
-    },
-    values(common, "sentinel", SpecificOpts);
-values("cluster", post) ->
-    SpecificOpts = #{
-        servers => [<<"127.0.0.1:6379">>],
-        redis_type => cluster
-    },
-    values(common, "cluster", SpecificOpts);
-values(Protocol, put) ->
-    maps:without([type, name], values(Protocol, post)).
-
-values(common, RedisType, SpecificOpts) ->
-    Config = #{
-        type => list_to_atom("redis_" ++ RedisType),
-        name => <<"redis_bridge">>,
-        enable => true,
-        local_topic => <<"local/topic/#">>,
-        pool_size => 8,
-        password => <<"******">>,
-        command_template => [<<"LPUSH">>, <<"MSGS">>, <<"${payload}">>],
-        resource_opts => values(resource_opts, RedisType, #{}),
-        ssl => #{enable => false}
-    },
-    maps:merge(Config, SpecificOpts);
-values(resource_opts, "cluster", SpecificOpts) ->
-    SpecificOpts;
-values(resource_opts, _RedisType, SpecificOpts) ->
-    maps:merge(
-        #{
-            batch_size => 1,
-            batch_time => <<"20ms">>
-        },
-        SpecificOpts
-    ).
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions

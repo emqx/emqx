@@ -22,7 +22,6 @@
 %% Examples
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -31,16 +30,6 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% api
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"greptimedb">> => #{
-                summary => <<"Greptimedb HTTP API V2 Bridge">>,
-                value => bridge_v1_values(Method)
-            }
-        }
-    ].
 
 bridge_v2_examples(Method) ->
     ParamsExample = #{

@@ -12,8 +12,7 @@
 
 -export([
     bridge_v2_examples/1,
-    source_examples/1,
-    conn_bridge_examples/1
+    source_examples/1
 ]).
 
 -define(ACTION_TYPE, mqtt).
@@ -189,16 +188,6 @@ source_examples(Method) ->
                         }
                     }
                 )
-            }
-        }
-    ].
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"mqtt">> => #{
-                summary => <<"MQTT Producer Action">>,
-                value => emqx_bridge_api:mqtt_v1_example(Method)
             }
         }
     ].

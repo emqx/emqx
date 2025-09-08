@@ -22,7 +22,6 @@
 %% `emqx_bridge_v2_schema' "unofficial" API
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -155,9 +154,6 @@ connector_examples(Method) ->
             }
         }
     ].
-
-conn_bridge_examples(Method) ->
-    emqx_bridge_gcp_pubsub:conn_bridge_examples(Method).
 
 action_example(post) ->
     maps:merge(

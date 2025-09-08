@@ -891,13 +891,6 @@ probe_connector_api(Config, Overrides) ->
 probe_connector_api2(TCConfig, Overrides) ->
     simplify_result(probe_connector_api(TCConfig, Overrides)).
 
-list_bridges_http_api_v1() ->
-    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
-    ct:pal("list bridges (http v1)"),
-    Res = request(get, Path, _Params = []),
-    ct:pal("list bridges (http v1) result:\n  ~p", [Res]),
-    Res.
-
 list_actions_http_api() ->
     Path = emqx_mgmt_api_test_util:api_path(["actions"]),
     ct:pal("list actions (http v2)"),
@@ -1679,21 +1672,12 @@ t_create_via_http(Config, IsOnlyV2) ->
     ?check_trace(
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
-
             ?assertMatch(
                 {ok, _},
                 update_bridge_api(
                     Config
                 )
             ),
-
-            %% check that v1 list API is fine
-            (not IsOnlyV2) andalso
-                ?assertMatch(
-                    {ok, {{_, 200, _}, _, _}},
-                    list_bridges_http_api_v1()
-                ),
-
             ok
         end,
         []

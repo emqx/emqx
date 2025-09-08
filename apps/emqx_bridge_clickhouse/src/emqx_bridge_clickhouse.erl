@@ -14,7 +14,6 @@
 %% Examples
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -32,16 +31,6 @@
 %% -------------------------------------------------------------------------------------------------
 %% Callback used by HTTP API
 %% -------------------------------------------------------------------------------------------------
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"clickhouse">> => #{
-                summary => <<"Clickhouse Bridge">>,
-                value => values(Method, "clickhouse")
-            }
-        }
-    ].
 
 bridge_v2_examples(Method) ->
     ParamsExample = #{
@@ -78,29 +67,6 @@ connector_examples(Method) ->
             }
         }
     ].
-
-values(_Method, Type) ->
-    #{
-        enable => true,
-        type => Type,
-        name => <<"foo">>,
-        url => <<"http://127.0.0.1:8123">>,
-        database => <<"mqtt">>,
-        pool_size => 8,
-        username => <<"default">>,
-        password => <<"******">>,
-        sql => ?DEFAULT_SQL,
-        batch_value_separator => ?DEFAULT_BATCH_VALUE_SEPARATOR,
-        local_topic => <<"local/topic/#">>,
-        resource_opts => #{
-            worker_pool_size => 8,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            batch_size => ?DEFAULT_BATCH_SIZE,
-            batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => async,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-        }
-    }.
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions

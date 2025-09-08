@@ -768,14 +768,9 @@ validate_bridge_existence_in_actions(#{} = Rule) ->
     BridgeIds0 =
         lists:map(
             fun(BridgeId) ->
-                %% FIXME: this supposedly returns an upgraded type, but it's fuzzy: it
-                %% returns v1 types when attempting to "upgrade".....
                 #{type := Type, name := Name} =
                     emqx_bridge_resource:parse_bridge_id(BridgeId, #{atom_name => false}),
-                case emqx_action_info:is_action_type(Type) of
-                    true -> {source, Type, Name};
-                    false -> {bridge_v1, Type, Name}
-                end
+                {source, Type, Name}
             end,
             get_referenced_hookpoints(Froms)
         ),
@@ -783,7 +778,6 @@ validate_bridge_existence_in_actions(#{} = Rule) ->
         lists:filtermap(
             fun
                 ({bridge_v2, Type, Name}) -> {true, {action, Type, Name}};
-                ({bridge, Type, Name, _ResId}) -> {true, {bridge_v1, Type, Name}};
                 (_) -> false
             end,
             Actions
@@ -800,9 +794,7 @@ validate_bridge_existence_in_actions(#{} = Rule) ->
                         source ->
                             fun(Type1, Name1) ->
                                 emqx_bridge_v2:is_source_exist(Namespace, Type1, Name1)
-                            end;
-                        bridge_v1 ->
-                            fun emqx_bridge:is_exist_v1/2
+                            end
                     end,
                 try
                     not IsExist(Type, Name)

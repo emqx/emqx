@@ -441,42 +441,6 @@ t_check_replay(TCConfig) ->
     ),
     ok.
 
-%% check that we provide correct examples
-t_check_values(_TCConfig) ->
-    Sc = fun(StructName) ->
-        #{
-            fields => #{},
-            translations => #{},
-            validations => [],
-            namespace => undefined,
-            roots => [{root, hoconsc:ref(emqx_bridge_redis, StructName)}]
-        }
-    end,
-    lists:foreach(
-        fun(Method) ->
-            lists:foreach(
-                fun({RedisType, #{value := Value}}) ->
-                    MethodBin = atom_to_binary(Method),
-                    Type = string:slice(RedisType, length("redis_")),
-                    RefName = binary_to_list(<<MethodBin/binary, "_", Type/binary>>),
-                    Schema = Sc(RefName),
-                    ?assertMatch(
-                        #{},
-                        hocon_tconf:check_plain(Schema, #{<<"root">> => Value}, #{
-                            atom_key => true,
-                            required => false
-                        })
-                    )
-                end,
-                lists:flatmap(
-                    fun maps:to_list/1,
-                    emqx_bridge_redis:conn_bridge_examples(Method)
-                )
-            )
-        end,
-        [put, post, get]
-    ).
-
 t_permanent_error() ->
     [{matrix, true}].
 t_permanent_error(matrix) ->

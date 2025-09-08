@@ -22,7 +22,6 @@
 %% `emqx_bridge_v2_schema' "unofficial" API
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -180,16 +179,6 @@ connector_examples(Method) ->
         }
     ].
 
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"azure_event_hub_producer">> => #{
-                summary => <<"Azure Event Hub Producer Bridge">>,
-                value => values({Method, producer})
-            }
-        }
-    ].
-
 values({get, connector}) ->
     maps:merge(
         #{
@@ -241,17 +230,6 @@ values({post, connector}) ->
             }
         }
     );
-values({post, producer}) ->
-    maps:merge(
-        #{
-            name => <<"my_azure_event_hub_producer">>,
-            type => <<"azure_event_hub_producer">>
-        },
-        maps:merge(
-            values(common_config),
-            values(producer)
-        )
-    );
 values({put, connector}) ->
     values(common_config);
 values({put, bridge_v2}) ->
@@ -262,8 +240,6 @@ values({put, bridge_v2}) ->
             connector => <<"my_azure_event_hub_producer_connector">>
         }
     );
-values({put, producer}) ->
-    values({post, producer});
 values(common_config) ->
     #{
         authentication => #{

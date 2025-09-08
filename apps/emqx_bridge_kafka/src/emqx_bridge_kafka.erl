@@ -15,7 +15,6 @@
 
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -61,22 +60,6 @@ bridge_v2_examples(Method) ->
             <<"kafka_producer">> => #{
                 summary => <<"Kafka Producer Action">>,
                 value => values({Method, bridge_v2_producer})
-            }
-        }
-    ].
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"kafka_producer">> => #{
-                summary => <<"Kafka Producer Bridge">>,
-                value => values({Method, producer})
-            }
-        },
-        #{
-            <<"kafka_consumer">> => #{
-                summary => <<"Kafka Consumer Bridge">>,
-                value => values({Method, consumer})
             }
         }
     ].
@@ -159,11 +142,6 @@ values(common_config) ->
             tcp_keepalive => <<"none">>
         }
     };
-values(producer) ->
-    #{
-        kafka => values(producer_values),
-        local_topic => <<"mqtt/local/topic">>
-    };
 values(producer_values) ->
     #{
         topic => <<"kafka-topic">>,
@@ -199,30 +177,6 @@ values(producer_values) ->
             segment_bytes => <<"10MB">>,
             memory_overload_protection => true
         }
-    };
-values(consumer) ->
-    #{
-        kafka => #{
-            max_batch_bytes => <<"896KB">>,
-            offset_reset_policy => <<"latest">>,
-            offset_commit_interval_seconds => 5
-        },
-        key_encoding_mode => <<"none">>,
-        topic_mapping => [
-            #{
-                kafka_topic => <<"kafka-topic-1">>,
-                mqtt_topic => <<"mqtt/topic/${.offset}">>,
-                qos => 1,
-                payload_template => <<"${.}">>
-            },
-            #{
-                kafka_topic => <<"kafka-topic-2">>,
-                mqtt_topic => <<"mqtt/topic/2">>,
-                qos => 2,
-                payload_template => <<"v = ${.value}">>
-            }
-        ],
-        value_encoding_mode => <<"none">>
     }.
 
 %% -------------------------------------------------------------------------------------------------

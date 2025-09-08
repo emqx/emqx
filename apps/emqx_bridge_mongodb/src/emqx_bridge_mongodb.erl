@@ -15,7 +15,6 @@
 %% emqx_bridge_enterprise "callbacks"
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -180,28 +179,6 @@ bridge_v2_examples(Method) ->
         }
     ].
 
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"mongodb_rs">> => #{
-                summary => <<"MongoDB (Replica Set) Bridge">>,
-                value => values(mongodb_rs, Method)
-            }
-        },
-        #{
-            <<"mongodb_sharded">> => #{
-                summary => <<"MongoDB (Sharded) Bridge">>,
-                value => values(mongodb_sharded, Method)
-            }
-        },
-        #{
-            <<"mongodb_single">> => #{
-                summary => <<"MongoDB (Standalone) Bridge">>,
-                value => values(mongodb_single, Method)
-            }
-        }
-    ].
-
 connector_examples(Method) ->
     [
         #{
@@ -260,46 +237,6 @@ desc(_) ->
 %%=================================================================================================
 %% Internal fns
 %%=================================================================================================
-
-values(MongoType, Method) ->
-    maps:merge(
-        mongo_type_opts(MongoType),
-        bridge_values(MongoType, Method)
-    ).
-
-mongo_type_opts(mongodb_rs) ->
-    #{
-        mongo_type => <<"rs">>,
-        servers => <<"localhost:27017, localhost:27018">>,
-        w_mode => <<"safe">>,
-        r_mode => <<"safe">>,
-        replica_set_name => <<"rs">>
-    };
-mongo_type_opts(mongodb_sharded) ->
-    #{
-        mongo_type => <<"sharded">>,
-        servers => <<"localhost:27017, localhost:27018">>,
-        w_mode => <<"safe">>
-    };
-mongo_type_opts(mongodb_single) ->
-    #{
-        mongo_type => <<"single">>,
-        server => <<"localhost:27017">>,
-        w_mode => <<"safe">>
-    }.
-
-bridge_values(Type, _Method) ->
-    %% [FIXME] _Method makes a difference since PUT doesn't allow name and type
-    %% for connectors.
-    TypeBin = atom_to_binary(Type),
-    maps:merge(
-        #{
-            name => <<TypeBin/binary, "_demo">>,
-            type => TypeBin,
-            collection => <<"mycol">>
-        },
-        connector_values()
-    ).
 
 connector_values() ->
     #{

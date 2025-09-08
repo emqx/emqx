@@ -13,10 +13,6 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    values/1
-]).
-
--export([
     namespace/0,
     roots/0,
     fields/1,
@@ -25,8 +21,7 @@
 
 -export([
     bridge_v2_examples/1,
-    connector_examples/1,
-    conn_bridge_examples/1
+    connector_examples/1
 ]).
 
 -define(CONNECTOR_TYPE, dynamo).
@@ -35,38 +30,6 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% api
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"dynamo">> => #{
-                summary => <<"DynamoDB Bridge">>,
-                value => values(Method)
-            }
-        }
-    ].
-
-values(_Method) ->
-    #{
-        enable => true,
-        type => dynamo,
-        name => <<"foo">>,
-        url => <<"http://127.0.0.1:8000">>,
-        table => <<"mqtt">>,
-        pool_size => 8,
-        aws_access_key_id => <<"root">>,
-        aws_secret_access_key => <<"******">>,
-        template => ?DEFAULT_TEMPLATE,
-        local_topic => <<"local/topic/#">>,
-        resource_opts => #{
-            worker_pool_size => 8,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            batch_size => ?DEFAULT_BATCH_SIZE,
-            batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => sync,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-        }
-    }.
 
 connector_examples(Method) ->
     [
