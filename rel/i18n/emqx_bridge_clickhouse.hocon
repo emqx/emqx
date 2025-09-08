@@ -40,16 +40,6 @@ desc_type.desc:
 desc_type.label:
 """Bridge Type"""
 
-local_topic.desc:
-"""The MQTT topic filter to be forwarded to Clickhouse. All MQTT 'PUBLISH' messages with the topic
-matching the local_topic will be forwarded.<br/>
-NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also local_topic is
-configured, then both the data got from the rule and the MQTT messages that match local_topic
-will be forwarded."""
-
-local_topic.label:
-"""Local Topic"""
-
 sql_template.desc:
 """The template string can contain ${field} placeholders for message metadata and payload field. Make sure that the inserted values are formatted and escaped correctly. [Prepared Statement](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridges.html#Prepared-Statement) is not supported."""
 

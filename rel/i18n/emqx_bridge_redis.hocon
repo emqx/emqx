@@ -39,16 +39,6 @@ desc_type.desc:
 desc_type.label:
 """Action Type"""
 
-desc_local_topic.desc:
-"""The MQTT topic filter to be forwarded to Redis. All MQTT 'PUBLISH' messages with the topic
-matching the local_topic will be forwarded.<br/>
-NOTE: If this action is used as the action of a rule (EMQX rule engine), and also local_topic is
-configured, then both the data got from the rule and the MQTT messages that match local_topic
-will be forwarded."""
-
-desc_local_topic.label:
-"""Local Topic"""
-
 desc_action_parameters.desc:
 """The parameters of the action."""
 desc_action_parameters.label:

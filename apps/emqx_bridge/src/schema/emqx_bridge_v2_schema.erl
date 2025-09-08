@@ -509,7 +509,6 @@ top_level_common_action_keys() ->
         <<"created_at">>,
         <<"last_modified_at">>,
         <<"enable">>,
-        <<"local_topic">>,
         <<"parameters">>,
         <<"resource_opts">>
     ].
@@ -535,10 +534,7 @@ make_producer_action_schema(ActionParametersRef) ->
 
 make_producer_action_schema(ActionParametersRef, Opts) ->
     ResourceOptsRef = maps:get(resource_opts_ref, Opts, ref(?MODULE, action_resource_opts)),
-    [
-        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})}
-        | common_action_schema(ActionParametersRef, Opts)
-    ] ++
+    common_action_schema(ActionParametersRef, Opts) ++
         [
             {resource_opts,
                 mk(ResourceOptsRef, #{
@@ -736,16 +732,11 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
         [] ->
             false;
         _ ->
-            %% elasticsearch is new and doesn't have local_topic
-            case MissingFields of
-                [local_topic] when Module =:= emqx_bridge_es -> false;
-                _ ->
-                    {true, #{
-                        schema_module => Module,
-                        type_name => TypeName,
-                        missing_fields => MissingFields
-                    }}
-            end
+            {true, #{
+                schema_module => Module,
+                type_name => TypeName,
+                missing_fields => MissingFields
+            }}
     end.
 
 -endif.

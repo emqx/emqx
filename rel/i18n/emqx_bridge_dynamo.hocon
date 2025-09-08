@@ -24,16 +24,6 @@ desc_type.desc:
 desc_type.label:
 """Bridge Type"""
 
-local_topic.desc:
-"""The MQTT topic filter to be forwarded to DynamoDB. All MQTT `PUBLISH` messages with the topic
-matching the `local_topic` will be forwarded.<br/>
-NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also `local_topic` is
-configured, then both the data got from the rule and the MQTT messages that match `local_topic`
-will be forwarded."""
-
-local_topic.label:
-"""Local Topic"""
-
 template.desc:
 """Template, the default value is empty. When this value is empty the whole message will be stored in the database.<br>
 The template can be any valid JSON with placeholders and make sure all keys for table are here, example:<br>

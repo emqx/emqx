@@ -118,7 +118,6 @@ values(bridge_v2_producer) ->
         enable => true,
         connector => <<"my_kafka_producer_connector">>,
         parameters => values(producer_values),
-        local_topic => <<"mqtt/local/topic">>,
         resource_opts => #{
             health_check_interval => "32s"
         }
@@ -654,10 +653,6 @@ kafka_connector_config_fields() ->
 
 producer_opts(ActionOrBridgeV1) ->
     [
-        %% Note: there's an implicit convention in `emqx_bridge' that,
-        %% for egress bridges with this config, the published messages
-        %% will be forwarded to such bridges.
-        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
         parameters_field(ActionOrBridgeV1)
     ] ++ [resource_opts() || ActionOrBridgeV1 =:= action].
 
@@ -706,16 +701,9 @@ kafka_producer_converter(
     #{<<"producer">> := OldOpts0, <<"bootstrap_hosts">> := _} = Config0, _HoconOpts
 ) ->
     %% prior to e5.0.2
-    MQTTOpts = maps:get(<<"mqtt">>, OldOpts0, #{}),
-    LocalTopic = maps:get(<<"topic">>, MQTTOpts, undefined),
     KafkaOpts = maps:get(<<"kafka">>, OldOpts0),
     Config = maps:without([<<"producer">>], Config0),
-    case LocalTopic =:= undefined of
-        true ->
-            Config#{<<"parameters">> => KafkaOpts};
-        false ->
-            Config#{<<"parameters">> => KafkaOpts, <<"local_topic">> => LocalTopic}
-    end;
+    Config#{<<"parameters">> => KafkaOpts};
 kafka_producer_converter(
     #{<<"kafka">> := _} = Config0, _HoconOpts
 ) ->

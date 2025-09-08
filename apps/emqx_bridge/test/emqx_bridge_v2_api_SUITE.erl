@@ -57,7 +57,6 @@
 -define(ACTIONS_CONNECTOR(Name), ?KAFKA_CONNECTOR(Name, ?KAFKA_BOOTSTRAP_HOST)).
 -define(ACTIONS_CONNECTOR, ?ACTIONS_CONNECTOR(?ACTION_CONNECTOR_NAME)).
 
--define(MQTT_LOCAL_TOPIC, <<"mqtt/local/topic">>).
 -define(BRIDGE_NAME, (atom_to_binary(?FUNCTION_NAME))).
 -define(ACTION_TYPE_STR, "kafka_producer").
 -define(ACTION_TYPE, <<?ACTION_TYPE_STR>>).
@@ -99,7 +98,6 @@
         <<"required_acks">> => <<"all_isr">>,
         <<"topic">> => <<"kafka-topic">>
     },
-    <<"local_topic">> => ?MQTT_LOCAL_TOPIC,
     <<"resource_opts">> => #{
         <<"health_check_interval">> => <<"32s">>
     }
@@ -1098,12 +1096,6 @@ t_bridges_lifecycle(Config) ->
         CreateRes,
         #{name => BridgeName, type => Type, connector => DefaultConnectorName}
     ),
-    case Kind of
-        actions ->
-            ?assertMatch({ok, 201, #{<<"local_topic">> := _}}, CreateRes);
-        sources ->
-            ok
-    end,
 
     %% list all bridges, assert bridge is in it
     ?assertMatch(
@@ -1326,10 +1318,9 @@ t_broken_bridge_config(Config) ->
                 " {\n"
                 "      connector = does_not_exist\n"
                 "      enable = true\n"
-                "      kafka {\n"
+                "      parameters {\n"
                 "        topic = test-topic-one-partition\n"
                 "      }\n"
-                "      local_topic = \"mqtt/local/topic\"\n"
                 "      resource_opts {health_check_interval = 32s}\n"
                 "    }\n"
                 "  }\n"
@@ -1383,10 +1374,9 @@ t_fix_broken_bridge_config(Config) ->
                 " {\n"
                 "      connector = does_not_exist\n"
                 "      enable = true\n"
-                "      kafka {\n"
+                "      parameters {\n"
                 "        topic = test-topic-one-partition\n"
                 "      }\n"
-                "      local_topic = \"mqtt/local/topic\"\n"
                 "      resource_opts {health_check_interval = 32s}\n"
                 "    }\n"
                 "  }\n"
@@ -1730,6 +1720,13 @@ t_metrics(Config) ->
             Config
         )
     ),
+    #{topic := Topic} = emqx_bridge_v2_testlib:simple_create_rule_api([
+        {bridge_kind, action},
+        {connector_type, ?ACTION_CONNECTOR_TYPE},
+        {connector_name, ?ACTION_CONNECTOR_NAME},
+        {action_type, ?ACTION_TYPE},
+        {action_name, ?BRIDGE_NAME}
+    ]),
 
     ActionID = emqx_bridge_resource:bridge_id(?ACTION_TYPE, ActionName),
 
@@ -1757,7 +1754,7 @@ t_metrics(Config) ->
     ?assertNot(maps:is_key(<<"node_metrics">>, Bridge)),
 
     Body = <<"my msg">>,
-    _ = publish_message(?MQTT_LOCAL_TOPIC, Body, Config),
+    _ = publish_message(Topic, Body, Config),
 
     %% check for non-empty bridge metrics
     ?retry(
@@ -1804,11 +1801,18 @@ t_reset_metrics(Config) ->
             Config
         )
     ),
+    #{topic := Topic} = emqx_bridge_v2_testlib:simple_create_rule_api([
+        {bridge_kind, action},
+        {connector_type, ?ACTION_CONNECTOR_TYPE},
+        {connector_name, ?ACTION_CONNECTOR_NAME},
+        {action_type, ?ACTION_TYPE},
+        {action_name, ?BRIDGE_NAME}
+    ]),
     ActionID = emqx_bridge_resource:bridge_id(?ACTION_TYPE, ActionName),
 
     Body = <<"my msg">>,
     OtherNode = maybe_get_other_node(Config),
-    _ = publish_message(?MQTT_LOCAL_TOPIC, Body, OtherNode, Config),
+    _ = publish_message(Topic, Body, OtherNode, Config),
     ?retry(
         _Sleep0 = 200,
         _Retries0 = 20,

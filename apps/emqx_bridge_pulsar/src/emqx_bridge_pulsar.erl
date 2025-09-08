@@ -32,8 +32,6 @@ fields(pulsar_producer) ->
     fields(config) ++
         emqx_bridge_pulsar_pubsub_schema:fields(action_parameters) ++
         [
-            {local_topic,
-                mk(binary(), #{required => false, desc => ?DESC("producer_local_topic")})},
             {resource_opts,
                 mk(
                     ref(producer_resource_opts),

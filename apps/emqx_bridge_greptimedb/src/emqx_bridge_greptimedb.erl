@@ -65,7 +65,6 @@ bridge_v1_values(_Method) ->
         type => greptimedb,
         name => <<"demo">>,
         enable => true,
-        local_topic => <<"local/topic/#">>,
         write_syntax => write_syntax_value(),
         precision => ms,
         resource_opts => #{
@@ -162,7 +161,6 @@ method_fields(put, ConnectorType) ->
 greptimedb_bridge_common_fields() ->
     emqx_bridge_schema:common_bridge_fields() ++
         [
-            {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
             {write_syntax, fun write_syntax/1}
         ] ++
         emqx_resource_schema:fields("resource_opts").

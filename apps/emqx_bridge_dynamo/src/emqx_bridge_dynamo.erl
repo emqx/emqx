@@ -173,11 +173,6 @@ fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {template, template_field_schema()},
-        {local_topic,
-            mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
-            )},
         {hash_key,
             mk(
                 binary(),

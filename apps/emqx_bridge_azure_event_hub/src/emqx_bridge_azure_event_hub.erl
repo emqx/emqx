@@ -290,8 +290,7 @@ values(producer) ->
                 segment_bytes => <<"100MB">>,
                 memory_overload_protection => true
             }
-        },
-        local_topic => <<"mqtt/local/topic">>
+        }
     }.
 
 %%-------------------------------------------------------------------------------------------------

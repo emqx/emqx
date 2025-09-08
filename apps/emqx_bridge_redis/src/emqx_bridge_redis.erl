@@ -81,7 +81,6 @@ method_fields(put, ConnectorType) ->
 redis_bridge_common_fields(Type) ->
     emqx_bridge_schema:common_bridge_fields() ++
         [
-            {local_topic, mk(binary(), #{required => false, desc => ?DESC("desc_local_topic")})},
             command_template()
         ] ++
         v1_resource_fields(Type).

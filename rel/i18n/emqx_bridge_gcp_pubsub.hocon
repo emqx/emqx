@@ -24,16 +24,6 @@ desc_type.desc:
 desc_type.label:
 """Action Type"""
 
-local_topic.desc:
-"""The MQTT topic filter to be forwarded to GCP PubSub. All MQTT 'PUBLISH' messages with the topic
-matching `local_topic` will be forwarded.<br/>
-NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also local_topic is
-configured, then both the data got from the rule and the MQTT messages that match local_topic
-will be forwarded."""
-
-local_topic.label:
-"""Local Topic"""
-
 max_retries.desc:
 """Max retry times if an error occurs when sending a request."""
 

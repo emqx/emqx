@@ -190,11 +190,6 @@ fields("config") ->
                 emqx_schema:template(),
                 #{desc => ?DESC("template"), default => ?DEFAULT_TEMPLATE}
             )},
-        {local_topic,
-            mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), required => false}
-            )},
         {strategy,
             mk(
                 hoconsc:union([roundrobin, binary()]),

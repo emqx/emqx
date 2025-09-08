@@ -120,11 +120,6 @@ fields("config") ->
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         sql_field(),
         batch_value_separator_field(),
-        {local_topic,
-            mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
-            )},
         {resource_opts,
             mk(
                 ref(?MODULE, "creation_opts"),

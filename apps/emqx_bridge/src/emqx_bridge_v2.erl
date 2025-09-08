@@ -62,10 +62,6 @@
     get_metrics/4
 ]).
 
-%% On message publish hook (for local_topics)
-
--export([on_message_publish/1]).
-
 %% Convenience functions for connector implementations
 
 -export([
@@ -142,7 +138,6 @@
 load() ->
     load_bridges(?ROOT_KEY_ACTIONS),
     load_bridges(?ROOT_KEY_SOURCES),
-    load_message_publish_hook(),
     ok = emqx_config_handler:add_handler(config_key_path_leaf(), emqx_bridge_v2),
     ok = emqx_config_handler:add_handler(config_key_path(), emqx_bridge_v2),
     ok = emqx_config_handler:add_handler(config_key_path_leaf_sources(), emqx_bridge_v2),
@@ -181,7 +176,6 @@ do_load_bridges(Namespace, RootName, RootConfig) ->
 unload() ->
     unload_bridges(?ROOT_KEY_ACTIONS),
     unload_bridges(?ROOT_KEY_SOURCES),
-    unload_message_publish_hook(),
     emqx_conf:remove_handler(config_key_path()),
     emqx_conf:remove_handler(config_key_path_leaf()),
     ok.
@@ -637,10 +631,10 @@ start(Namespace, ConfRootKey, BridgeV2Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
         emqx_connector_resource:start(Namespace, ConnectorType, ConnectorName)
     end,
-    connector_operation_helper(Namespace, ConfRootKey, BridgeV2Type, Name, ConnectorOpFun, true).
+    connector_operation_helper(Namespace, ConfRootKey, BridgeV2Type, Name, ConnectorOpFun).
 
 connector_operation_helper(
-    Namespace, ConfRootKey, BridgeV2Type, Name, ConnectorOpFun, DoHealthCheck
+    Namespace, ConfRootKey, BridgeV2Type, Name, ConnectorOpFun
 ) ->
     maybe
         #{} = PreviousConf ?= lookup_conf(Namespace, ConfRootKey, BridgeV2Type, Name),
@@ -650,8 +644,7 @@ connector_operation_helper(
             BridgeV2Type,
             Name,
             PreviousConf,
-            ConnectorOpFun,
-            DoHealthCheck
+            ConnectorOpFun
         )
     end.
 
@@ -661,8 +654,7 @@ connector_operation_helper_with_conf(
     _BridgeV2Type,
     _Name,
     #{enable := false},
-    _ConnectorOpFun,
-    _DoHealthCheck
+    _ConnectorOpFun
 ) ->
     ok;
 connector_operation_helper_with_conf(
@@ -671,17 +663,14 @@ connector_operation_helper_with_conf(
     BridgeV2Type,
     Name,
     #{connector := ConnectorName},
-    ConnectorOpFun,
-    DoHealthCheck
+    ConnectorOpFun
 ) ->
     ConnectorType = connector_type(BridgeV2Type),
     ConnectorOpFunResult = ConnectorOpFun(ConnectorType, ConnectorName),
-    case {DoHealthCheck, ConnectorOpFunResult} of
-        {false, _} ->
-            ConnectorOpFunResult;
-        {true, {error, Reason}} ->
+    case ConnectorOpFunResult of
+        {error, Reason} ->
             {error, Reason};
-        {true, ok} ->
+        ok ->
             case health_check(Namespace, ConfRootKey, BridgeV2Type, Name) of
                 #{status := ?status_connected} ->
                     ok;
@@ -881,136 +870,6 @@ create_dry_run_helper(Namespace, ConfRootKey, BridgeV2Type, ConnectorRawConf, Br
 get_metrics(Namespace, ConfRootKey, Type, Name) ->
     ChanResId = lookup_chan_id_in_conf(Namespace, ConfRootKey, Type, Name),
     emqx_resource:get_metrics(ChanResId).
-
-%%====================================================================
-%% On message publish hook (for local topics)
-%%====================================================================
-
-%% The following functions are more or less copied from emqx_bridge.erl
-
-reload_message_publish_hook(NamespaceOverride) ->
-    ok = unload_message_publish_hook(),
-    ok = load_message_publish_hook(NamespaceOverride).
-
-load_message_publish_hook() ->
-    load_message_publish_hook(_NamespaceOverride = #{}).
-
-load_message_publish_hook(NamespaceOverride) ->
-    NamespaceToRoots0 = get_root_config_from_all_namespaces(?ROOT_KEY_ACTIONS, #{}),
-    NamespaceToRoots = maps:merge(NamespaceToRoots0, NamespaceOverride),
-    RootConfigs = maps:values(NamespaceToRoots),
-    lists:foreach(fun load_message_publish_hook1/1, RootConfigs).
-
-load_message_publish_hook1(Bridges) ->
-    lists:foreach(
-        fun
-            ({?COMPUTED, _}) ->
-                ok;
-            ({Type, Bridge}) ->
-                lists:foreach(
-                    fun({_Name, BridgeConf}) ->
-                        do_load_message_publish_hook(Type, BridgeConf)
-                    end,
-                    maps:to_list(Bridge)
-                )
-        end,
-        maps:to_list(Bridges)
-    ).
-
-do_load_message_publish_hook(_Type, #{local_topic := LocalTopic}) when is_binary(LocalTopic) ->
-    emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
-do_load_message_publish_hook(_Type, _Conf) ->
-    ok.
-
-unload_message_publish_hook() ->
-    ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}).
-
-%% This is a deprecated hook: it only hooks up actions that have the also deprecated
-%% `local_topic` parameters, which is a legacy config from before
-%% connectors/actions/sources were introduced.  Currently, the only official and correct
-%% way to funnel messages into actions is via rules.
-on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
-    case maps:get(sys, Flags, false) of
-        false ->
-            {Msg, _} = emqx_rule_events:eventmsg_publish(Message),
-            send_to_matched_egress_bridges(Topic, Msg);
-        true ->
-            ok
-    end,
-    {ok, Message}.
-
-send_to_matched_egress_bridges(Topic, Msg) ->
-    MatchedBridgeIds = get_matched_egress_bridges(Topic),
-    lists:foreach(
-        fun({Namespace, Type, Name}) ->
-            try send_message(Namespace, Type, Name, Msg, #{}) of
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "send_message_to_bridge_failed",
-                        bridge_type => Type,
-                        bridge_name => Name,
-                        error => Reason
-                    });
-                _ ->
-                    ok
-            catch
-                Err:Reason:ST ->
-                    ?SLOG(error, #{
-                        msg => "send_message_to_bridge_exception",
-                        bridge_type => Type,
-                        bridge_name => Name,
-                        error => Err,
-                        reason => Reason,
-                        stacktrace => ST
-                    })
-            end
-        end,
-        MatchedBridgeIds
-    ).
-
-get_matched_egress_bridges(Topic) ->
-    NamespaceToActions = get_root_config_from_all_namespaces(?ROOT_KEY_ACTIONS, #{}),
-    maps:fold(
-        fun(Namespace, RootConfig, Acc) ->
-            do_get_matched_egress_bridges(Topic, Namespace, RootConfig, Acc)
-        end,
-        [],
-        NamespaceToActions
-    ).
-
-do_get_matched_egress_bridges(Topic, Namespace, RootConfig, AccIn) ->
-    maps:fold(
-        fun
-            (?COMPUTED, _, Acc) ->
-                Acc;
-            (BType, Conf, Acc0) ->
-                maps:fold(
-                    fun(BName, BConf, Acc1) ->
-                        get_matched_bridge_id(Namespace, BType, BConf, Topic, BName, Acc1)
-                    end,
-                    Acc0,
-                    Conf
-                )
-        end,
-        AccIn,
-        RootConfig
-    ).
-
-get_matched_bridge_id(_Namespace, _BType, #{enable := false}, _Topic, _BName, Acc) ->
-    Acc;
-get_matched_bridge_id(Namespace, BType, Conf, Topic, BName, Acc) ->
-    case maps:get(local_topic, Conf, undefined) of
-        undefined ->
-            Acc;
-        Filter ->
-            do_get_matched_bridge_id(Namespace, Topic, Filter, BType, BName, Acc)
-    end.
-
-do_get_matched_bridge_id(Namespace, Topic, Filter, BType, BName, Acc) ->
-    case emqx_topic:match(Topic, Filter) of
-        true -> [{Namespace, BType, BName} | Acc];
-        false -> Acc
-    end.
 
 %%====================================================================
 %% Convenience functions for connector implementations
@@ -1306,7 +1165,6 @@ post_config_update([ConfRootKey], _Req, NewConf0, OldConf0, _AppEnv, ExtraContex
         },
         #{action => UpdateFun, action_name => update, data => Updated}
     ]),
-    reload_message_publish_hook(#{Namespace => NewConf}),
     ?tp(bridge_post_config_update_done, #{}),
     Result;
 %% Don't crash even when the bridge is not found
@@ -1319,9 +1177,7 @@ post_config_update([ConfRootKey, Type, Name], '$remove', _, _OldConf, _AppEnvs, 
         undefined ->
             ok;
         Action ->
-            ok = uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, Action),
-            Bridges = emqx_utils_maps:deep_remove([Type, Name], AllBridges),
-            reload_message_publish_hook(#{Namespace => Bridges})
+            ok = uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, Action)
     end,
     ?tp(bridge_post_config_update_done, #{}),
     ok;
@@ -1333,11 +1189,6 @@ post_config_update(
 ->
     Namespace = emqx_config_handler:get_namespace(ExtraContext),
     ok = install_bridge_v2(Namespace, ConfRootKey, BridgeType, BridgeName, NewConf),
-    PreviousConfig = get_config(Namespace, [ConfRootKey], #{}),
-    Bridges = emqx_utils_maps:deep_put(
-        [BridgeType, BridgeName], PreviousConfig, NewConf
-    ),
-    reload_message_publish_hook(#{Namespace => Bridges}),
     ?tp(bridge_post_config_update_done, #{}),
     ok;
 %% update bridges fails if the connector is not found (already checked in pre_config_update)
@@ -1355,9 +1206,6 @@ post_config_update(
             throw(<<"Referenced connector not found">>)
     end,
     ok = install_bridge_v2(Namespace, ConfRootKey, BridgeType, BridgeName, NewConf),
-    PreviousRootConf = get_config(Namespace, [ConfRootKey], #{}),
-    Bridges = emqx_utils_maps:deep_put([BridgeType, BridgeName], PreviousRootConf, NewConf),
-    reload_message_publish_hook(#{Namespace => Bridges}),
     ?tp(bridge_post_config_update_done, #{}),
     ok.
 

@@ -62,8 +62,7 @@ fields("config") ->
                     format => <<"sql">>
                 }
             )},
-        emqx_bridge_v2_schema:undefined_as_null_field(),
-        {local_topic, mk(binary(), #{desc => ?DESC("local_topic"), default => undefined})}
+        emqx_bridge_v2_schema:undefined_as_null_field()
     ] ++
         emqx_resource_schema:fields("resource_opts") ++
         emqx_bridge_tdengine_connector:fields(config);

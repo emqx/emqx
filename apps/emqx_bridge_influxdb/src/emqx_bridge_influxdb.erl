@@ -189,7 +189,6 @@ method_fields(put, ConnectorType) ->
 influxdb_bridge_common_fields() ->
     emqx_bridge_schema:common_bridge_fields() ++
         [
-            {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
             {write_syntax, fun write_syntax/1}
         ] ++
         emqx_resource_schema:fields("resource_opts").

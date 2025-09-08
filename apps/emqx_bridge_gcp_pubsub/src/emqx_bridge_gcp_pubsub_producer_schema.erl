@@ -60,16 +60,7 @@ fields(producer_action) ->
         )
     );
 fields(action_parameters) ->
-    lists:map(
-        fun
-            ({local_topic, Sc}) ->
-                Override = #{importance => ?IMPORTANCE_HIDDEN},
-                {local_topic, hocon_schema:override(Sc, Override)};
-            (Field) ->
-                Field
-        end,
-        emqx_bridge_gcp_pubsub:fields(producer)
-    );
+    emqx_bridge_gcp_pubsub:fields(producer);
 %%=========================================
 %% Connector fields
 %%=========================================
@@ -181,7 +172,6 @@ action_example(put) ->
         enable => true,
         connector => <<"my_connector_name">>,
         description => <<"My action">>,
-        local_topic => <<"local/topic">>,
         resource_opts =>
             #{batch_size => 5},
         parameters =>

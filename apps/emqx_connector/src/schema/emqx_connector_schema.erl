@@ -86,7 +86,6 @@ top_level_common_connector_keys() ->
     [
         <<"enable">>,
         <<"connector">>,
-        <<"local_topic">>,
         <<"resource_opts">>,
         <<"description">>,
         <<"parameters">>

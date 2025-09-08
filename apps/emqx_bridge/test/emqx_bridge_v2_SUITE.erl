@@ -705,26 +705,6 @@ t_send_message_through_rule(_) ->
     ok = remove(bridge_type(), BridgeName),
     ok.
 
-t_send_message_through_local_topic(_) ->
-    %% Bridge configuration with local topic
-    BridgeName = my_test_bridge,
-    TopicName = <<"t/b">>,
-    BridgeConfig = (bridge_config())#{
-        <<"local_topic">> => TopicName
-    },
-    {ok, _} = create(bridge_type(), BridgeName, BridgeConfig),
-    %% Register name for this process
-    register(registered_process_name(), self()),
-    %% Send message to the topic
-    ClientId = atom_to_binary(?FUNCTION_NAME),
-    Payload = <<"hej">>,
-    Msg = emqx_message:make(ClientId, 0, TopicName, Payload),
-    emqx:publish(Msg),
-    ?assertReceive({query_called, #{message := #{payload := Payload}}}),
-    unregister(registered_process_name()),
-    ok = remove(bridge_type(), BridgeName),
-    ok.
-
 t_send_message_unhealthy_channel(_) ->
     OnGetStatusResponseETS = ets:new(on_get_status_response_ets, [public]),
     ets:insert(OnGetStatusResponseETS, {status_value, {error, my_error}}),

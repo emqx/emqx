@@ -62,18 +62,6 @@ fields(action) ->
 fields("http_action") ->
     emqx_bridge_v2_schema:common_action_fields() ++
         [
-            %% Note: there's an implicit convention in `emqx_bridge' that,
-            %% for egress bridges with this config, the published messages
-            %% will be forwarded to such bridges.
-            {local_topic,
-                mk(
-                    binary(),
-                    #{
-                        required => false,
-                        desc => ?DESC("config_local_topic"),
-                        importance => ?IMPORTANCE_HIDDEN
-                    }
-                )},
             %% Since e5.3.2, we split the http bridge to two parts: a) connector. b) actions.
             %% some fields are moved to connector, some fields are moved to actions and composed into the
             %% `parameters` field.
@@ -173,14 +161,6 @@ request_config() ->
                 #{
                     required => {false, recursively},
                     deprecated => {since, "5.0.12"}
-                }
-            )},
-        {local_topic,
-            mk(
-                binary(),
-                #{
-                    desc => ?DESC("config_local_topic"),
-                    required => false
                 }
             )},
         method_field(),

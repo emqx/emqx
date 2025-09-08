@@ -28,11 +28,6 @@ roots() -> [].
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {local_topic,
-            mk(
-                binary(),
-                #{desc => ?DESC("local_topic")}
-            )},
         {resource_opts,
             mk(
                 ref(?MODULE, "creation_opts"),

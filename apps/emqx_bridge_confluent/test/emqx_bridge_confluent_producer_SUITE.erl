@@ -202,9 +202,7 @@ bridge_config(Name, ConnectorId, KafkaTopic) ->
                     <<"required_acks">> => <<"all_isr">>,
                     <<"sync_query_timeout">> => <<"5s">>,
                     <<"topic">> => KafkaTopic
-                },
-            <<"local_topic">> => <<"t/confluent">>
-            %%,
+                }
         },
     InnerConfigMap = serde_roundtrip(InnerConfigMap0),
     ExtraConfig =

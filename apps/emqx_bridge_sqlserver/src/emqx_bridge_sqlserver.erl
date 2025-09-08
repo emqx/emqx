@@ -120,11 +120,6 @@ fields("config") ->
                 binary(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
             )},
-        {local_topic,
-            mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
-            )},
         {resource_opts,
             mk(
                 ref(?MODULE, "creation_opts"),

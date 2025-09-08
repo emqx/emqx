@@ -145,11 +145,6 @@ fields("config") ->
             hoconsc:mk(
                 emqx_schema:template(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
-            )},
-        {local_topic,
-            hoconsc:mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
         fields(connector_fields);

@@ -87,11 +87,6 @@ fields("config") ->
             hoconsc:mk(
                 binary(),
                 #{desc => ?DESC("sql_template"), default => default_sql(), format => <<"sql">>}
-            )},
-        {local_topic,
-            hoconsc:mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
         proplists:delete(

@@ -54,7 +54,7 @@ fields(action) ->
             }
         )};
 fields(action_parameters) ->
-    proplists:delete(local_topic, fields(producer));
+    fields(producer);
 fields(kinesis_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         hoconsc:mk(
@@ -172,16 +172,6 @@ fields(producer) ->
                 #{
                     required => true,
                     desc => ?DESC("partition_key")
-                }
-            )}
-    ] ++ fields(local_topic);
-fields(local_topic) ->
-    [
-        {local_topic,
-            sc(
-                binary(),
-                #{
-                    desc => ?DESC("local_topic")
                 }
             )}
     ];
