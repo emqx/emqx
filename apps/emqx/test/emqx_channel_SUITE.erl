@@ -266,7 +266,7 @@ t_handle_in_puback_ok(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _PacketId, Session) -> {ok, Msg, [], Session} end
+        fun(_, _PacketId, _ReasonCode, Session) -> {ok, Msg, [], Session} end
     ),
     Channel = channel(#{conn_state => connected}),
     {ok, _NChannel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), Channel).
@@ -276,7 +276,7 @@ t_handle_in_puback_id_in_use(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _, _Session) ->
+        fun(_, _, _ReasonCode, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE}
         end
     ),
@@ -287,7 +287,7 @@ t_handle_in_puback_id_not_found(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _, _Session) ->
+        fun(_, _, _ReasonCode, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
@@ -365,7 +365,7 @@ t_handle_in_pubrel_not_found_error(_) ->
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubcomp_ok(_) ->
-    ok = meck:expect(emqx_session, pubcomp, fun(_, _, Session) -> {ok, [], Session} end),
+    ok = meck:expect(emqx_session, pubcomp, fun(_, _, _ReasonCode, Session) -> {ok, [], Session} end),
     {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), channel()).
 % ?assertEqual(#{pubcomp_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
@@ -373,7 +373,7 @@ t_handle_in_pubcomp_not_found_error(_) ->
     ok = meck:expect(
         emqx_session,
         pubcomp,
-        fun(_, _PacketId, _Session) ->
+        fun(_, _PacketId, _ReasonCode, _Session) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),

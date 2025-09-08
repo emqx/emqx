@@ -257,7 +257,7 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
             % NOTE
             % Here we aggregate and deduplicate remote and local pending deliveries,
             % throwing away any local deliveries that are part of some shared
-            % subscription. Remote deliviries pertaining to shared subscriptions should
+            % subscription. Remote deliveries pertaining to shared subscriptions should
             % already have been thrown away by `emqx_channel:handle_deliver/2`.
             % See also:
             % * `emqx_channel:maybe_resume_session/1`,

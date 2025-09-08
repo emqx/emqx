@@ -36,6 +36,7 @@
 -include("emqx.hrl").
 -include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -63,10 +64,10 @@
 
 -export([
     publish/4,
-    puback/3,
+    puback/4,
     pubrec/3,
     pubrel/3,
-    pubcomp/3,
+    pubcomp/4,
     replay/3
 ]).
 
@@ -382,13 +383,13 @@ publish(_ClientInfo, PacketId, Msg, Session) ->
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
 
--spec puback(clientinfo(), emqx_types:packet_id(), t()) ->
+-spec puback(clientinfo(), emqx_types:packet_id(), emqx_types:reason_code(), t()) ->
     {ok, message(), replies(), t()}
     | {error, emqx_types:reason_code()}.
-puback(ClientInfo, PacketId, Session) ->
+puback(ClientInfo, PacketId, ReasonCode, Session) ->
     case ?IMPL(Session):puback(ClientInfo, PacketId, Session) of
         {ok, Msg, Replies, Session1} = Ok ->
-            _ = on_delivery_completed(Msg, ClientInfo, Session1),
+            _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
             _ = on_replies_delivery_completed(Replies, ClientInfo, Session1),
             Ok;
         {error, _} = Error ->
@@ -421,13 +422,13 @@ pubrel(_ClientInfo, PacketId, Session) ->
             Error
     end.
 
--spec pubcomp(clientinfo(), emqx_types:packet_id(), t()) ->
+-spec pubcomp(clientinfo(), emqx_types:packet_id(), emqx_types:reason_code(), t()) ->
     {ok, replies(), t()}
     | {error, emqx_types:reason_code()}.
-pubcomp(ClientInfo, PacketId, Session) ->
+pubcomp(ClientInfo, PacketId, ReasonCode, Session) ->
     case ?IMPL(Session):pubcomp(ClientInfo, PacketId, Session) of
         {ok, Msg, Replies, Session1} ->
-            _ = on_delivery_completed(Msg, ClientInfo, Session1),
+            _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
             _ = on_replies_delivery_completed(Replies, ClientInfo, Session1),
             {ok, Replies, Session1};
         {error, _} = Error ->
@@ -595,7 +596,8 @@ cancel_timer(Name, Timers0) ->
 
 -spec disconnect(clientinfo(), conninfo(), t()) ->
     {idle | shutdown, t()}.
-disconnect(_ClientInfo, ConnInfo, Session) ->
+disconnect(ClientInfo, ConnInfo, Session) ->
+    run_hook('session.disconnected', [ClientInfo, info(Session)]),
     ?IMPL(Session):disconnect(Session, ConnInfo).
 
 -spec terminate(clientinfo(), Reason :: term(), t()) ->
@@ -638,7 +640,20 @@ stats(Session) ->
 %% Common message events
 %%--------------------------------------------------------------------
 
-on_delivery_completed(Msg, #{clientid := ClientId}, Session) ->
+on_delivery_completed(Msg, ReasonCode, #{clientid := ClientId}, Session) ->
+    emqx_hooks:run(
+        'delivery.completed',
+        [
+            Msg,
+            #{
+                session_birth_time => ?IMPL(Session):info(created_at, Session),
+                clientid => ClientId,
+                reason_code => ReasonCode
+            }
+        ]
+    ).
+
+on_delivery_completed_qos0(Msg, #{clientid := ClientId}, Session) ->
     emqx_hooks:run(
         'delivery.completed',
         [
@@ -655,7 +670,11 @@ on_replies_delivery_completed(Replies, ClientInfo, Session) ->
         fun({_PacketId, Msg}) ->
             case Msg of
                 #message{qos = ?QOS_0} ->
-                    on_delivery_completed(Msg, ClientInfo, Session);
+                    %% NOTE
+                    %% Session returned some new messages to send to the client.
+                    %% The client will not send PUBACK for QoS 0 messages.
+                    %% So we call the callback for them here.
+                    on_delivery_completed_qos0(Msg, ClientInfo, Session);
                 _ ->
                     ok
             end
