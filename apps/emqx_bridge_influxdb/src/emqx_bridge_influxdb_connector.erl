@@ -41,8 +41,6 @@
     desc/1
 ]).
 
--export([transform_bridge_v1_config_to_connector_config/1]).
-
 -export([precision_field/0]).
 
 %% only for test
@@ -226,22 +224,6 @@ on_get_status(_InstId, #{client := Client}) ->
         false ->
             ?status_disconnected
     end.
-
-transform_bridge_v1_config_to_connector_config(BridgeV1Config) ->
-    IndentKeys = [username, password, database, token, bucket, org],
-    ConnConfig0 = maps:without([write_syntax, precision], BridgeV1Config),
-    ConnConfig1 =
-        case emqx_utils_maps:indent(parameters, IndentKeys, ConnConfig0) of
-            #{parameters := #{database := _} = Params} = Conf ->
-                Conf#{parameters => Params#{influxdb_type => influxdb_api_v1}};
-            #{parameters := #{bucket := _} = Params} = Conf ->
-                Conf#{parameters => Params#{influxdb_type => influxdb_api_v2}}
-        end,
-    emqx_utils_maps:update_if_present(
-        resource_opts,
-        fun emqx_connector_schema:project_to_connector_resource_opts/1,
-        ConnConfig1
-    ).
 
 %% -------------------------------------------------------------------------------------------------
 %% schema

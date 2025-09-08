@@ -34,11 +34,7 @@
 ]).
 
 %% Exported for mocking
-%% TODO: refactor emqx_bridge_v1_compatibility_layer_SUITE so we don't need to
-%% export this
 -export([
-    registered_actions_api_schemas/1,
-    registered_sources_api_schemas/1,
     registered_action_types/0
 ]).
 
@@ -91,11 +87,11 @@ actions_post_request() ->
     actions_api_schema("post").
 
 actions_api_schema(Method) ->
-    APISchemas = ?MODULE:registered_actions_api_schemas(Method),
+    APISchemas = registered_actions_api_schemas(Method),
     hoconsc:union(bridge_api_union(APISchemas)).
 
 action_api_schema(Method, BridgeV2Type) ->
-    APISchemas = ?MODULE:registered_actions_api_schemas(Method),
+    APISchemas = registered_actions_api_schemas(Method),
     case lists:keyfind(atom_to_binary(BridgeV2Type), 1, APISchemas) of
         {_, SchemaRef} ->
             hoconsc:mk(SchemaRef);
@@ -159,11 +155,11 @@ sources_post_request() ->
     sources_api_schema("post").
 
 sources_api_schema(Method) ->
-    APISchemas = ?MODULE:registered_sources_api_schemas(Method),
+    APISchemas = registered_sources_api_schemas(Method),
     hoconsc:union(bridge_api_union(APISchemas)).
 
 source_api_schema(Method, SourceType) ->
-    APISchemas = ?MODULE:registered_sources_api_schemas(Method),
+    APISchemas = registered_sources_api_schemas(Method),
     case lists:keyfind(atom_to_binary(SourceType), 1, APISchemas) of
         {_, SchemaRef} ->
             hoconsc:mk(SchemaRef);

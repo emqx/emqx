@@ -243,7 +243,7 @@ bridge_id(Config) ->
     BridgeType = get_ct_config_with_fallback(Config, [action_type, bridge_type]),
     BridgeName = get_ct_config_with_fallback(Config, [action_name, bridge_name]),
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
-    ConnectorId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+    ConnectorId = connector_resource_id(Config),
     <<"action:", BridgeId/binary, ":", ConnectorId/binary>>.
 
 source_hookpoint(Config) ->
@@ -1809,8 +1809,8 @@ t_start_stop(Config, StopTracePoint, #{} = Opts) ->
                 ?assertEqual({error, resource_is_stopped}, health_check_connector(Config))
             ),
 
-            ResourceId = emqx_bridge_resource:resource_id(conf_root_key(Kind), Type, Name),
-            #{resource_id => ResourceId}
+            ConnResId = connector_resource_id(Config),
+            #{resource_id => ConnResId}
         end,
         fun(Res, Trace) ->
             #{resource_id := ResourceId} = Res,

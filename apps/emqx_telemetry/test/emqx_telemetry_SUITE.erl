@@ -121,7 +121,7 @@ init_per_testcase(t_send_after_enable, Config) ->
     Config;
 init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    ok = emqx_bridge_SUITE:setup_fake_telemetry_data(),
+    ok = emqx_bridge_v2_SUITE:setup_fake_telemetry_data(),
     ok = setup_fake_rule_engine_data(),
     Config;
 init_per_testcase(t_exhook_info, Config) ->
