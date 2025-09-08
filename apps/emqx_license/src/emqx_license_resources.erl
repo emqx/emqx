@@ -100,7 +100,7 @@ connection_quota_early_alarm({ok, #{max_connections := Max}}) when is_integer(Ma
         begin
             HighPercent = float_to_binary(High * 100, [{decimals, 0}]),
             Message = iolist_to_binary([
-                "License: live connection number exceeds ", HighPercent, "%"
+                "License: sessions quota exceeds ", HighPercent, "%"
             ]),
             ?OK(emqx_alarm:activate(license_quota, #{high_watermark => HighPercent}, Message))
         end,
