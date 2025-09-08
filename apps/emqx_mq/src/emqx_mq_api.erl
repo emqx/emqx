@@ -19,8 +19,9 @@
 
 %% API callbacks
 -export([
-    '/message_queues'/2,
-    '/message_queues/:topic_filter'/2
+    '/message_queues/queues'/2,
+    '/message_queues/queues/:topic_filter'/2,
+    '/message_queues/config'/2
 ]).
 
 -define(TAGS, [<<"Message Queue">>]).
@@ -36,13 +37,14 @@ api_spec() ->
 
 paths() ->
     [
-        "/message_queues",
-        "/message_queues/:topic_filter"
+        "/message_queues/queues",
+        "/message_queues/queues/:topic_filter",
+        "/message_queues/config"
     ].
 
-schema("/message_queues") ->
+schema("/message_queues/queues") ->
     #{
-        'operationId' => '/message_queues',
+        'operationId' => '/message_queues/queues',
         get => #{
             tags => ?TAGS,
             summary => <<"List all message queues">>,
@@ -86,9 +88,9 @@ schema("/message_queues") ->
             }
         }
     };
-schema("/message_queues/:topic_filter") ->
+schema("/message_queues/queues/:topic_filter") ->
     #{
-        'operationId' => '/message_queues/:topic_filter',
+        'operationId' => '/message_queues/queues/:topic_filter',
         get => #{
             tags => ?TAGS,
             summary => <<"Get message queue">>,
@@ -138,7 +140,7 @@ schema("/message_queues/:topic_filter") ->
             description => ?DESC(message_queues_delete),
             parameters => [topic_filter_param()],
             responses => #{
-                204 => <<"Operation success">>,
+                204 => ?DESC(message_queues_delete_success),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND'], ?DESC(message_queue_not_found)
                 ),
@@ -147,6 +149,36 @@ schema("/message_queues/:topic_filter") ->
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                )
+            }
+        }
+    };
+schema("/message_queues/config") ->
+    #{
+        'operationId' => '/message_queues/config',
+        get => #{
+            tags => ?TAGS,
+            summary => <<"Get message queue config">>,
+            description => ?DESC(message_queues_config_get),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(emqx_mq_schema, api_config_get),
+                    get_message_queue_config_example()
+                )
+            }
+        },
+        put => #{
+            tags => ?TAGS,
+            summary => <<"Update message queue config">>,
+            description => ?DESC(message_queues_config_update),
+            'requestBody' => emqx_dashboard_swagger:schema_with_example(
+                ref(emqx_mq_schema, api_config_put),
+                put_message_queue_config_example()
+            ),
+            responses => #{
+                204 => ?DESC(message_queues_config_update_success),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'], ?DESC(invalid_message_queue_config)
                 )
             }
         }
@@ -197,11 +229,21 @@ get_message_queues_example() ->
         }
     }.
 
+get_message_queue_config_example() ->
+    #{
+        <<"gc_interval">> => <<"1h">>,
+        <<"regular_queue_retention_period">> => <<"7d">>,
+        <<"find_queue_retry_interval">> => <<"10s">>
+    }.
+
+put_message_queue_config_example() ->
+    get_message_queue_config_example().
+
 %%--------------------------------------------------------------------
 %% Minirest handlers
 %%--------------------------------------------------------------------
 
-'/message_queues'(get, #{query_string := QString}) ->
+'/message_queues/queues'(get, #{query_string := QString}) ->
     EncodedCursor = maps:get(<<"cursor">>, QString, undefined),
     Limit = maps:get(<<"limit">>, QString),
     case decode_cursor(EncodedCursor) of
@@ -219,7 +261,7 @@ get_message_queues_example() ->
         bad_cursor ->
             ?BAD_REQUEST(<<"Invalid cursor">>)
     end;
-'/message_queues'(post, #{body := NewMessageQueueRaw}) ->
+'/message_queues/queues'(post, #{body := NewMessageQueueRaw}) ->
     case add_message_queue(NewMessageQueueRaw) of
         {ok, CreatedMessageQueueRaw} ->
             ?OK(CreatedMessageQueueRaw);
@@ -227,14 +269,14 @@ get_message_queues_example() ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"Message queue already exists">>)
     end.
 
-'/message_queues/:topic_filter'(get, #{bindings := #{topic_filter := TopicFilter}}) ->
+'/message_queues/queues/:topic_filter'(get, #{bindings := #{topic_filter := TopicFilter}}) ->
     case get_message_queue(TopicFilter) of
         not_found ->
             ?NOT_FOUND(<<"Message queue not found">>);
         {ok, MessageQueue} ->
             ?OK(MessageQueue)
     end;
-'/message_queues/:topic_filter'(put, #{
+'/message_queues/queues/:topic_filter'(put, #{
     body := UpdatedMessageQueue, bindings := #{topic_filter := TopicFilter}
 }) ->
     case update_message_queue(TopicFilter, UpdatedMessageQueue) of
@@ -245,12 +287,22 @@ get_message_queues_example() ->
         {error, _} = Error ->
             ?SERVICE_UNAVAILABLE(Error)
     end;
-'/message_queues/:topic_filter'(delete, #{bindings := #{topic_filter := TopicFilter}}) ->
+'/message_queues/queues/:topic_filter'(delete, #{bindings := #{topic_filter := TopicFilter}}) ->
     case delete_message_queue(TopicFilter) of
         not_found ->
             ?NO_CONTENT;
         ok ->
             ?NO_CONTENT
+    end.
+
+'/message_queues/config'(get, _) ->
+    ?OK(emqx_mq_config:raw_api_config());
+'/message_queues/config'(put, #{body := Body}) ->
+    case emqx_mq_config:update_config(Body) of
+        {ok, _} ->
+            ?NO_CONTENT;
+        {error, Reason} ->
+            ?BAD_REQUEST(Reason)
     end.
 
 %%--------------------------------------------------------------------

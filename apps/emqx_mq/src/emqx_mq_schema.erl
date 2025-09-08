@@ -59,7 +59,7 @@ fields(mq) ->
             })},
         {regular_queue_retention_period,
             mk(emqx_schema:timeout_duration_ms(), #{
-                default => <<"1d">>, required => true, desc => ?DESC(regular_queue_retention_period)
+                default => <<"7d">>, required => true, desc => ?DESC(regular_queue_retention_period)
             })},
         {find_queue_retry_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
@@ -158,7 +158,11 @@ fields(message_queues_api_get) ->
     [
         {data, mk(array(ref(message_queue_api_get)), #{})},
         {meta, mk(ref(emqx_dashboard_swagger, meta_with_cursor), #{})}
-    ].
+    ];
+fields(api_config_get) ->
+    without_fields([state_db, message_db], fields(mq));
+fields(api_config_put) ->
+    fields(api_config_get).
 
 desc(mq) ->
     ?DESC(mq);
