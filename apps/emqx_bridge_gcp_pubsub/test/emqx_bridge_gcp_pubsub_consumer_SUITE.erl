@@ -598,7 +598,9 @@ projection_optional_span(Trace) ->
     ].
 
 assert_non_received_metrics(TCConfig) ->
-    Metrics = emqx_bridge_v2_testlib:get_metrics(TCConfig),
+    Metrics = emqx_bridge_v2_testlib:get_metrics(
+        emqx_bridge_v2_testlib:get_common_values(TCConfig)
+    ),
     #{counters := Counters0, gauges := Gauges} = Metrics,
     Counters = maps:remove(received, Counters0),
     ?assert(lists:all(fun(V) -> V == 0 end, maps:values(Counters)), #{metrics => Metrics}),

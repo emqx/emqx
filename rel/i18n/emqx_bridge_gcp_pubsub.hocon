@@ -114,11 +114,6 @@ service_account_json.label:
     label: "Maximum Messages to Pull"
   }
 
-  consumer_topic_mapping {
-    desc: "Defines the mapping between GCP PubSub topics and MQTT topics. Must contain at least one item."
-    label: "Topic Mapping"
-  }
-
   consumer_pubsub_topic {
     desc: "GCP PubSub topic to consume from."
     label: "GCP PubSub"

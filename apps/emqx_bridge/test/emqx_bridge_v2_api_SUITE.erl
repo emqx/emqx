@@ -1946,7 +1946,7 @@ t_older_version_nodes_in_cluster(Config) ->
             end),
             erpc:call(OtherNode, fun() ->
                 meck:new(emqx_bridge_v2, [no_history, passthrough, no_link]),
-                meck:expect(emqx_bridge_v2, list, fun(_ConfRootKey) ->
+                meck:expect(emqx_bridge_v2, list, fun(_Namespace, _ConfRootKey) ->
                     error(should_not_be_called)
                 end)
             end),

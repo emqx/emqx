@@ -174,29 +174,6 @@ fields(consumer) ->
                     default => 1,
                     importance => ?IMPORTANCE_HIDDEN
                 }
-            )},
-        {topic_mapping,
-            mk(
-                hoconsc:array(ref(consumer_topic_mapping)),
-                #{
-                    required => true,
-                    validator => fun consumer_topic_mapping_validator/1,
-                    desc => ?DESC("consumer_topic_mapping")
-                }
-            )}
-    ];
-fields(consumer_topic_mapping) ->
-    [
-        {pubsub_topic, mk(binary(), #{required => true, desc => ?DESC(consumer_pubsub_topic)})},
-        {mqtt_topic, mk(binary(), #{required => true, desc => ?DESC(consumer_mqtt_topic)})},
-        {qos, mk(emqx_schema:qos(), #{default => 0, desc => ?DESC(consumer_mqtt_qos)})},
-        {payload_template,
-            mk(
-                emqx_schema:template(),
-                #{
-                    default => <<"${.}">>,
-                    desc => ?DESC(consumer_mqtt_payload)
-                }
             )}
     ];
 fields("consumer_resource_opts") ->
@@ -249,8 +226,6 @@ desc("config_consumer") ->
     ?DESC("desc_config");
 desc("consumer_resource_opts") ->
     ?DESC(emqx_resource_schema, "creation_opts");
-desc(consumer_topic_mapping) ->
-    ?DESC("consumer_topic_mapping");
 desc(consumer) ->
     ?DESC("consumer");
 desc(_) ->
@@ -334,20 +309,6 @@ service_account_json_converter(Val, _Opts) ->
             emqx_utils_json:decode(Str);
         _ ->
             Val
-    end.
-
-consumer_topic_mapping_validator(_TopicMapping = []) ->
-    {error, "There must be at least one GCP PubSub-MQTT topic mapping"};
-consumer_topic_mapping_validator(TopicMapping0 = [_ | _]) ->
-    TopicMapping = [emqx_utils_maps:binary_key_map(TM) || TM <- TopicMapping0],
-    NumEntries = length(TopicMapping),
-    PubSubTopics = [KT || #{<<"pubsub_topic">> := KT} <- TopicMapping],
-    DistinctPubSubTopics = length(lists:usort(PubSubTopics)),
-    case DistinctPubSubTopics =:= NumEntries of
-        true ->
-            ok;
-        false ->
-            {error, "GCP PubSub topics must not be repeated in a bridge"}
     end.
 
 deep_update(Path, Fun, Map) ->
