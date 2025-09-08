@@ -212,6 +212,7 @@ stats() ->
     GatewayConnections = emqx_gateway_cm_registry:get_connected_client_count(),
     #{sessions => Sessions + GatewayConnections, tps => erlang:round(TPS)}.
 
+-spec stats(list(node()), integer()) -> #{sessions := non_neg_integer(), tps := number()}.
 stats(Nodes, Now) ->
     Results = emqx_license_proto_v3:stats(Nodes, Now),
     lists:foldl(

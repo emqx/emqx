@@ -27,6 +27,7 @@
     license_type/1,
     expiry_date/1,
     max_sessions/1,
+    max_tps/1,
     max_uptime_seconds/1
 ]).
 
@@ -53,7 +54,8 @@ dump(
         email := Email,
         deployment := Deployment,
         date_start := DateStart,
-        max_sessions := MaxSessions
+        max_sessions := MaxSessions,
+        max_tps := MaxTPS
     } = License
 ) ->
     DateExpiry = expiry_date(License),
@@ -65,6 +67,7 @@ dump(
         {email, Email},
         {deployment, Deployment},
         {max_sessions, MaxSessions},
+        {max_tps, MaxTPS},
         {start_at, format_date(DateStart)},
         {expiry_at, format_date(DateExpiry)},
         {type, format_type(Type)},
@@ -76,13 +79,15 @@ summary(
     #{
         deployment := Deployment,
         date_start := DateStart,
-        max_sessions := MaxSessions
+        max_sessions := MaxSessions,
+        max_tps := MaxTPS
     } = License
 ) ->
     DateExpiry = expiry_date(License),
     #{
         deployment => Deployment,
         max_sessions => MaxSessions,
+        max_tps => MaxTPS,
         start_at => format_date(DateStart),
         expiry_at => format_date(DateExpiry)
     }.
@@ -106,6 +111,9 @@ max_uptime_seconds(License) ->
 
 max_sessions(#{max_sessions := MaxSessions}) ->
     MaxSessions.
+
+max_tps(#{max_tps := MaxTPS}) ->
+    MaxTPS.
 
 %%------------------------------------------------------------------------------
 %% Private functions
@@ -142,22 +150,54 @@ parse_payload(Payload) ->
     ),
     case Lines of
         [?LICENSE_VERSION, Type, CType, Customer, Email, Deployment, DateStart, Days, MaxSessions] ->
-            TypeParseRes = parse_type(Type),
-            CTypeParseRes = parse_customer_type(CType),
-            collect_fields([
-                {type, TypeParseRes},
-                {customer_type, CTypeParseRes},
-                {customer, {ok, Customer}},
-                {email, {ok, Email}},
-                {deployment, {ok, Deployment}},
-                {date_start, parse_date_start(DateStart)},
-                {days, parse_days(Days)},
-                {max_sessions, parse_max_sessions(TypeParseRes, CTypeParseRes, MaxSessions)}
-            ]);
-        [_Version, _Type, _CType, _Customer, _Email, _Deployment, _DateStart, _Days, _MaxSessions] ->
-            {error, invalid_version};
+            parse_lines(
+                Type, CType, Customer, Email, Deployment, DateStart, Days, MaxSessions, <<"Inf">>
+            );
+        [
+            ?LICENSE_VERSION,
+            Type,
+            CType,
+            Customer,
+            Email,
+            Deployment,
+            DateStart,
+            Days,
+            MaxSessions,
+            MaxTPS
+        ] ->
+            parse_lines(
+                Type, CType, Customer, Email, Deployment, DateStart, Days, MaxSessions, MaxTPS
+            );
+        [?LICENSE_VERSION | _] ->
+            {error, unexpected_number_of_fields};
         _ ->
-            {error, unexpected_number_of_fields}
+            {error, invalid_license_format}
+    end.
+
+parse_lines(Type, CType, Customer, Email, Deployment, DateStart, Days, MaxSessions, MaxTPS) ->
+    TypeParseRes = parse_type(Type),
+    CTypeParseRes = parse_customer_type(CType),
+    collect_fields([
+        {type, TypeParseRes},
+        {customer_type, CTypeParseRes},
+        {customer, {ok, Customer}},
+        {email, {ok, Email}},
+        {deployment, {ok, Deployment}},
+        {date_start, parse_date_start(DateStart)},
+        {days, parse_days(Days)},
+        {max_sessions, parse_max_sessions(TypeParseRes, CTypeParseRes, MaxSessions)},
+        {max_tps, parse_max_tps(MaxTPS)}
+    ]).
+
+parse_max_tps(MaxTPS) ->
+    case string:lowercase(MaxTPS) of
+        <<"inf", _/binary>> ->
+            {ok, infinity};
+        _ ->
+            case parse_int(MaxTPS) of
+                {ok, Num} when Num > 0 -> {ok, Num};
+                _ -> {error, invalid_max_tps}
+            end
     end.
 
 parse_type(TypeStr) ->

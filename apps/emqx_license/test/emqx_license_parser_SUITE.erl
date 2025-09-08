@@ -56,7 +56,7 @@ t_parse(_Config) ->
     ),
     ?assertMatch({error, _}, Res1),
     {error, Err1} = Res1,
-    ?assertMatch(#{error := invalid_version}, find_error(Parser, Err1)),
+    ?assertMatch(#{error := invalid_license_format}, find_error(Parser, Err1)),
 
     %% invalid field number
     Res2 = emqx_license_parser:parse(
