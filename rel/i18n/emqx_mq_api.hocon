@@ -1,4 +1,7 @@
 emqx_mq_api {
+
+    ## Method descriptions
+
     message_queues_list {
         desc: "List message queues with pagination."
         label: "List Message Queues"
@@ -19,9 +22,22 @@ emqx_mq_api {
         desc: "Delete message queue."
         label: "Delete Message Queue"
     }
+    message_queues_config_get {
+        desc: "Get message queue config."
+        label: "Get Message Queue Config"
+    }
+    message_queues_config_update {
+        desc: "Update message queue config."
+        label: "Update Message Queue Config"
+    }
+
+    ## Request/Response elements
 
     bad_cursor {
         desc: "Bad cursor"
+    }
+    message_queues_delete_success {
+        desc: "Message queue deleted successfully"
     }
     message_queue_already_exists {
         desc: "Message queue already exists"
@@ -34,6 +50,9 @@ emqx_mq_api {
     }
     invalid_message_queue {
         desc: "Invalid message queue"
+    }
+    invalid_message_queue_config {
+        desc: "Invalid message queue config"
     }
     topic_filter {
         desc: "Topic filter"

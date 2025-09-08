@@ -55,15 +55,17 @@ end_per_testcase(_CaseName, _Config) ->
 t_crud(_Config) ->
     ?assertMatch(
         {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
-        api_get([message_queues])
+        api_get([message_queues, queues])
     ),
     ?assertMatch(
         {ok, 404, _},
-        api_get([message_queues, urlencode(<<"t/1">>)])
+        api_get([message_queues, queues, urlencode(<<"t/1">>)])
     ),
     ?assertMatch(
         {ok, 200, _},
-        api_post([message_queues], #{<<"topic_filter">> => <<"t/1">>, <<"ping_interval">> => 9999})
+        api_post([message_queues, queues], #{
+            <<"topic_filter">> => <<"t/1">>, <<"ping_interval">> => 9999
+        })
     ),
     ?retry(
         5,
@@ -73,19 +75,19 @@ t_crud(_Config) ->
                 <<"data">> := [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 9999}],
                 <<"meta">> := #{<<"hasnext">> := false}
             }},
-            api_get([message_queues])
+            api_get([message_queues, queues])
         )
     ),
     ?assertMatch(
         {ok, 404, _},
-        api_put([message_queues, urlencode(<<"t/2">>)], #{<<"ping_interval">> => 10000})
+        api_put([message_queues, queues, urlencode(<<"t/2">>)], #{<<"ping_interval">> => 10000})
     ),
     ?retry(
         5,
         20,
         ?assertMatch(
             {ok, 200, #{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}},
-            api_put([message_queues, urlencode(<<"t/1">>)], #{<<"ping_interval">> => 10000})
+            api_put([message_queues, queues, urlencode(<<"t/1">>)], #{<<"ping_interval">> => 10000})
         )
     ),
     ?assertMatch(
@@ -93,26 +95,26 @@ t_crud(_Config) ->
             <<"data">> := [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}],
             <<"meta">> := #{<<"hasnext">> := false}
         }},
-        api_get([message_queues])
+        api_get([message_queues, queues])
     ),
     ?assertMatch(
         {ok, 200, #{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}},
-        api_get([message_queues, urlencode(<<"t/1">>)])
+        api_get([message_queues, queues, urlencode(<<"t/1">>)])
     ),
     ?assertMatch(
         {ok, 204},
-        api_delete([message_queues, urlencode(<<"t/2">>)])
+        api_delete([message_queues, queues, urlencode(<<"t/2">>)])
     ),
     ?assertMatch(
         {ok, 204},
-        api_delete([message_queues, urlencode(<<"t/1">>)])
+        api_delete([message_queues, queues, urlencode(<<"t/1">>)])
     ),
     ?retry(
         5,
         20,
         ?assertMatch(
             {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
-            api_get([message_queues])
+            api_get([message_queues, queues])
         )
     ).
 
@@ -121,23 +123,49 @@ t_pagination(_Config) ->
     lists:foreach(
         fun(I) ->
             IBin = integer_to_binary(I),
-            api_post([message_queues], #{<<"topic_filter">> => <<"t/", IBin/binary>>})
+            api_post([message_queues, queues], #{<<"topic_filter">> => <<"t/", IBin/binary>>})
         end,
         lists:seq(1, 10)
     ),
     {ok, 200, #{
         <<"data">> := Data0, <<"meta">> := #{<<"hasnext">> := true, <<"cursor">> := Cursor}
     }} =
-        api_get([message_queues, "?limit=6"]),
+        api_get([message_queues, queues, "?limit=6"]),
     ?assertEqual(6, length(Data0)),
     {ok, 200, #{<<"data">> := Data1, <<"meta">> := #{<<"hasnext">> := false}}} =
-        api_get([message_queues, "?limit=6&cursor=" ++ urlencode(Cursor)]),
+        api_get([message_queues, queues, "?limit=6&cursor=" ++ urlencode(Cursor)]),
     ?assertEqual(4, length(Data1)),
 
     %% Check that we do not crash on invalid cursor
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
-        api_get([message_queues, "?limit=6&cursor=%10%13"])
+        api_get([message_queues, queues, "?limit=6&cursor=%10%13"])
+    ).
+
+t_config(_Config) ->
+    ?assertMatch(
+        {ok, 200, _},
+        api_get([message_queues, config])
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_put([message_queues, config], #{<<"gc_interval">> => <<"-10h">>})
+    ),
+    ?assertMatch(
+        {ok, 204},
+        api_put([message_queues, config], #{
+            <<"gc_interval">> => <<"2h">>,
+            <<"regular_queue_retention_period">> => <<"14d">>,
+            <<"find_queue_retry_interval">> => <<"20s">>
+        })
+    ),
+    ?assertMatch(
+        {ok, 200, #{
+            <<"gc_interval">> := <<"2h">>,
+            <<"regular_queue_retention_period">> := <<"14d">>,
+            <<"find_queue_retry_interval">> := <<"20s">>
+        }},
+        api_get([message_queues, config])
     ).
 
 %%--------------------------------------------------------------------
