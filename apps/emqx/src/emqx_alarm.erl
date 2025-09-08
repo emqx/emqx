@@ -32,6 +32,12 @@
     safe_deactivate/1
 ]).
 
+%% API for license
+-export([
+    read_details/1,
+    update_details/2
+]).
+
 %% gen_server callbacks
 -export([
     init/1,
@@ -52,17 +58,20 @@
     worker_loop/0
 ]).
 
+-type name() :: binary() | atom().
+-type details() :: map() | list().
+
 -record(activated_alarm, {
-    name :: binary() | atom(),
-    details :: map() | list(),
+    name :: name(),
+    details :: details(),
     message :: binary(),
     activate_at :: integer()
 }).
 
 -record(deactivated_alarm, {
     activate_at :: integer(),
-    name :: binary() | atom(),
-    details :: map() | list() | no_details,
+    name :: name(),
+    details :: details() | no_details,
     message :: binary(),
     deactivate_at :: integer() | infinity
 }).
@@ -161,6 +170,21 @@ safe_deactivate(Name) ->
 delete_all_deactivated_alarms() ->
     gen_server:call(?MODULE, delete_all_deactivated_alarms).
 
+%% @doc Read the details of an alarm.
+-spec read_details(name()) -> {ok, details()} | {error, not_found}.
+read_details(Name) ->
+    case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
+        [] ->
+            {error, not_found};
+        [Alarm] ->
+            {ok, Alarm#activated_alarm.details}
+    end.
+
+%% @doc Update the details of an alarm.
+-spec update_details(name(), details()) -> ok | {error, not_found}.
+update_details(Name, Details) ->
+    gen_server:call(?MODULE, {update_details, Name, Details}).
+
 get_alarms() ->
     get_alarms(all).
 
@@ -242,6 +266,14 @@ handle_call({deactivate_alarm, Name, Details, Message}, _From, State) ->
             {reply, {error, not_found}, State};
         [Alarm] ->
             deactivate_alarm(Alarm, Details, Message, State),
+            {reply, ok, State, get_validity_period()}
+    end;
+handle_call({update_details, Name, Details}, _From, State) ->
+    case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
+        [] ->
+            {reply, {error, not_found}, State};
+        [Alarm] ->
+            ok = mria:dirty_write(?ACTIVATED_ALARM, Alarm#activated_alarm{details = Details}),
             {reply, ok, State, get_validity_period()}
     end;
 handle_call(delete_all_deactivated_alarms, _From, State) ->
