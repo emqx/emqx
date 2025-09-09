@@ -57,12 +57,6 @@ init_per_suite(Config) ->
             },
             <<"shared_subs">> => #{
                 <<"backend">> => <<"builtin_raft">>
-            },
-            <<"queues">> => #{
-                <<"backend">> => <<"builtin_raft">>,
-                <<"local_write_buffer">> => #{
-                    <<"flush_interval">> => <<"10ms">>
-                }
             }
         },
         <<"authorization">> => #{<<"no_match">> => <<"allow">>}
@@ -70,10 +64,8 @@ init_per_suite(Config) ->
 
     Apps = emqx_cth_suite:start(
         [
-            {emqx, #{config => AppConfig}},
-            {emqx_ds_shared_sub, #{
-                config => "durable_queues { enable = true }"
-            }}
+            {emqx_conf, #{config => AppConfig}},
+            {emqx, #{config => AppConfig}}
         ],
         #{work_dir => ?config(priv_dir, Config)}
     ),
