@@ -14,7 +14,6 @@ This module defines a protocol for RPC to the remote builtin_raft shards.
     get_streams/6,
     make_iterator/6,
     list_slabs/3,
-    drop_slab/4,
     next/5,
     new_kv_tx_ctx/5
 ]).
@@ -50,7 +49,7 @@ This module defines a protocol for RPC to the remote builtin_raft shards.
 %%
 %% No longer returns the keys
 %%
-%% === get_delete_streams, delete_next, make_delete_iterator ===
+%% === get_delete_streams, delete_next, make_delete_iterator, drop_slab ===
 %%
 %% APIs have been removed
 
@@ -117,16 +116,6 @@ next(Node, DB, Shard, Iter, NextLimit) ->
     #{emqx_ds:generation() => emqx_ds:slab_info()}.
 list_slabs(Node, DB, Shard) ->
     erpc:call(Node, ?mod, do_list_slabs_v1, [DB, Shard]).
-
--spec drop_slab(
-    node(),
-    emqx_ds:db(),
-    emqx_ds:shard(),
-    emqx_ds_storage_layer:gen_id()
-) ->
-    ok | {error, _}.
-drop_slab(Node, DB, Shard, GenId) ->
-    erpc:call(Node, ?mod, do_drop_slab_v1, [DB, Shard, GenId]).
 
 -spec new_kv_tx_ctx(
     node(), emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), emqx_ds:transaction_opts()

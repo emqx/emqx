@@ -266,7 +266,7 @@ t_session_reconnect(_Config) ->
             3000
         )
     ),
-    ok = emqx_mt_state:evict_ccache(Ns),
+    %% ok = emqx_mt_state:evict_ccache(Ns),
     ?assertEqual({ok, 0}, emqx_mt:count_clients(Ns)),
     ok.
 

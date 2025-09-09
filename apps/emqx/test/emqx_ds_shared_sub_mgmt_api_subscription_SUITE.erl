@@ -17,18 +17,19 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    AppConfig = #{
+        <<"durable_sessions">> => #{
+            <<"enable">> => true,
+            <<"checkpoint_interval">> => 0,
+            <<"shared_subs">> => #{
+                <<"leader_timeout">> => <<"1200ms">>
+            }
+        }
+    },
     Apps = emqx_cth_suite:start(
         [
-            {emqx_conf, """
-            durable_sessions {
-              enable = true
-              checkpoint_interval = 0
-              shared_subs = {
-                leader_timeout = 1200ms
-              }
-            }
-            """},
-            emqx,
+            {emqx_conf, #{config => AppConfig}},
+            {emqx, #{config => AppConfig}},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],

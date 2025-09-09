@@ -299,8 +299,7 @@ eval_decode(#serde{type = ?protobuf}, [#{} = DecodedData, MessageType]) ->
 eval_decode(#serde{type = ?protobuf, eval_context = SerdeMod}, [EncodedData, MessageType0]) ->
     MessageType = binary_to_existing_atom(MessageType0, utf8),
     try
-        Decoded = apply(SerdeMod, decode_msg, [EncodedData, MessageType]),
-        emqx_utils_maps:binary_key_map(Decoded)
+        apply(SerdeMod, decode_msg, [EncodedData, MessageType])
     catch
         error:{gpb_error, {decoding_failure, {_Data, _Schema, {error, function_clause, _Stack}}}} ->
             #{schema_name := SchemaName} = logger:get_process_metadata(),
@@ -326,8 +325,7 @@ eval_decode(#serde{type = ?external_http, name = Name, eval_context = Context}, 
 
 eval_encode(#serde{type = ?avro, name = Name, eval_context = Store}, [Data]) ->
     avro_binary_encoder:encode(Store, Name, Data);
-eval_encode(#serde{type = ?protobuf, eval_context = SerdeMod}, [DecodedData0, MessageName0]) ->
-    DecodedData = emqx_utils_maps:safe_atom_key_map(DecodedData0),
+eval_encode(#serde{type = ?protobuf, eval_context = SerdeMod}, [DecodedData, MessageName0]) ->
     MessageName = binary_to_existing_atom(MessageName0, utf8),
     apply(SerdeMod, encode_msg, [DecodedData, MessageName]);
 eval_encode(#serde{type = ?json, name = Name}, [Map]) ->
@@ -551,10 +549,7 @@ base_protobuf_opts() ->
         binary,
         strings_as_binaries,
         {maps, true},
-        %% Fixme: currently, some bug in `gpb' prevents this
-        %% option from working with `oneof' types...  We're then
-        %% forced to use atom key maps.
-        %% {maps_key_type, binary},
+        {maps_key_type, binary},
         {maps_oneof, flat},
         {verify, always},
         {maps_unset_optional, omitted}

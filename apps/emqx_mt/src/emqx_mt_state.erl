@@ -167,7 +167,7 @@ create_tables() ->
         {attributes, record_info(fields, ?RECORD_TAB)}
     ]),
     ok = mria:create_table(?COUNTER_TAB, [
-        {type, set},
+        {type, ordered_set},
         {rlog_shard, ?EMQX_MT_SHARD},
         {storage, ram_copies},
         {attributes, record_info(fields, ?COUNTER_TAB)}
@@ -192,12 +192,12 @@ create_tables() ->
         ?TOMBSTONE_TAB
     ]),
     _ = ets:new(?MONITOR_TAB, [
-        set,
+        ordered_set,
         named_table,
         public
     ]),
     _ = ets:new(?CCACHE_TAB, [
-        set,
+        ordered_set,
         named_table,
         public
     ]),
@@ -320,6 +320,10 @@ lookup_counter_from_cache(Ns) ->
 with_ccache(Ns) ->
     case lookup_counter_from_cache(Ns) of
         false ->
+            update_ccache(Ns);
+        Cnt when Cnt < 1_000 ->
+            %% If the cached count is low, we always perform a full count for faster
+            %% responses to connecting clients; useful if the default max sessions is low.
             update_ccache(Ns);
         Cnt ->
             Cnt

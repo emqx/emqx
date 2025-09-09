@@ -169,7 +169,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.0", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.1", override: true}
 
   def common_dep(:esockd),
     do: {:esockd, github: "emqx/esockd", tag: "5.15.0", override: true}
@@ -206,7 +206,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:getopt), do: {:getopt, "1.0.2", override: true}
   def common_dep(:telemetry), do: {:telemetry, "1.3.0", manager: :rebar3, override: true}
   # in conflict by grpc and eetcd
-  def common_dep(:gpb), do: {:gpb, "4.21.1", override: true, runtime: false}
+  def common_dep(:gpb),
+    do: {:gpb, github: "emqx/gpb", tag: "4.21.4.1", override: true, runtime: false}
+
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.15.2-emqx-3", override: true}
 
   # in conflict by emqx_connector and system_monitor
@@ -219,7 +221,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.7.1", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
-  def common_dep(:observer_cli), do: {:observer_cli, "1.8.2"}
+  def common_dep(:observer_cli), do: {:observer_cli, "1.8.4"}
 
   def common_dep(:jose),
     do: {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true}
@@ -985,6 +987,12 @@ defmodule EMQXUmbrella.MixProject do
       f = Path.join(erts_bin_dir, f)
       File.rm!(f)
     end)
+
+    ## mix copies `include` and `priv` dirs from apps, when they exist
+    [release.path, "lib", "*", "include"]
+    |> Path.join()
+    |> Path.wildcard()
+    |> Enum.each(&File.rm_rf!/1)
 
     release
   end

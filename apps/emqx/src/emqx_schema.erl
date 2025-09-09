@@ -1063,7 +1063,7 @@ fields("tcp_opts") ->
             sc(
                 non_neg_integer(),
                 #{
-                    default => 100,
+                    default => 10,
                     desc => ?DESC(fields_tcp_opts_active_n)
                 }
             )},
@@ -2789,7 +2789,7 @@ authz_fields() ->
             sc(
                 hoconsc:enum([allow, deny]),
                 #{
-                    default => allow,
+                    default => deny,
                     required => true,
                     desc => ?DESC(fields_authorization_no_match)
                 }

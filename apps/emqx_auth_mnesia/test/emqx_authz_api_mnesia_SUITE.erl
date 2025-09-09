@@ -23,11 +23,11 @@ groups() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
+            emqx,
             {emqx_conf,
                 "authorization.cache { enable = false },"
                 "authorization.no_match = deny,"
                 "authorization.sources = [{type = built_in_database, max_rules = 7}]"},
-            emqx,
             emqx_auth,
             emqx_auth_mnesia,
             emqx_management,

@@ -38,33 +38,34 @@ groups_per_testcase(TC, Groups) ->
     end.
 
 init_per_suite(Config) ->
+    AppConfig = #{
+        <<"rpc">> => #{
+            <<"port_discovery">> => <<"manual">>
+        },
+        <<"durable_sessions">> => #{
+            <<"enable">> => true,
+            <<"shared_subs">> => #{
+                <<"heartbeat_interval">> => 100,
+                <<"revocation_timeout">> => 100,
+                <<"leader_timeout">> => 100,
+                <<"checkpoint_interval">> => 10
+            }
+        },
+        <<"durable_storage">> => #{
+            <<"messages">> => #{
+                <<"backend">> => <<"builtin_raft">>
+            },
+            <<"shared_subs">> => #{
+                <<"backend">> => <<"builtin_raft">>
+            }
+        },
+        <<"authorization">> => #{<<"no_match">> => <<"allow">>}
+    },
+
     Apps = emqx_cth_suite:start(
         [
-            {emqx_conf, #{
-                config => #{
-                    <<"rpc">> => #{
-                        <<"port_discovery">> => <<"manual">>
-                    },
-                    <<"durable_sessions">> => #{
-                        <<"enable">> => true,
-                        <<"shared_subs">> => #{
-                            <<"heartbeat_interval">> => 100,
-                            <<"revocation_timeout">> => 100,
-                            <<"leader_timeout">> => 100,
-                            <<"checkpoint_interval">> => 10
-                        }
-                    },
-                    <<"durable_storage">> => #{
-                        <<"messages">> => #{
-                            <<"backend">> => <<"builtin_raft">>
-                        },
-                        <<"shared_subs">> => #{
-                            <<"backend">> => <<"builtin_raft">>
-                        }
-                    }
-                }
-            }},
-            emqx
+            {emqx_conf, #{config => AppConfig}},
+            {emqx, #{config => AppConfig}}
         ],
         #{work_dir => ?config(priv_dir, Config)}
     ),
