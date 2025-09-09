@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include("emqx_license.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -21,7 +22,7 @@ init_per_suite(Config) ->
             emqx,
             emqx_conf,
             {emqx_license, #{
-                config => #{license => #{key => emqx_license_test_lib:default_license()}}
+                config => #{license => #{key => ?DEFAULT_EVALUATION_LICENSE_KEY}}
             }}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
