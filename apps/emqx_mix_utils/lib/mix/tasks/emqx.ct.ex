@@ -322,7 +322,7 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   defp parse_args!(args) do
-    {opts, _rest} =
+    {opts, rest} =
       OptionParser.parse!(
         args,
         strict: [
@@ -334,6 +334,10 @@ defmodule Mix.Tasks.Emqx.Ct do
           repeat: :integer
         ]
       )
+
+    if rest != [] do
+      Mix.raise("Unknown options:\n  #{inspect(rest, pretty: true)}")
+    end
 
     suites = get_name_list(opts, :suites)
 

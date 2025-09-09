@@ -78,7 +78,7 @@ defmodule Mix.Tasks.Emqx.Eunit do
   end
 
   defp parse_args!(args) do
-    {opts, _rest} =
+    {opts, rest} =
       OptionParser.parse!(
         args,
         strict: [
@@ -87,6 +87,10 @@ defmodule Mix.Tasks.Emqx.Eunit do
           modules: :string
         ]
       )
+
+    if rest != [] do
+      Mix.raise("Unknown options:\n  #{inspect(rest, pretty: true)}")
+    end
 
     cases =
       opts
