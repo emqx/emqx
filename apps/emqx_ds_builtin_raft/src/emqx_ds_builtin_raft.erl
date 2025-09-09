@@ -1009,7 +1009,7 @@ rpc_target_preference(DB) ->
     Reads.
 
 proto_vsn(Node) ->
-    proto_vsn(emqx_ds, Node).
+    proto_vsn(emqx_ds_builtin_raft, Node).
 
 beam_proto_vsn(Node) ->
     proto_vsn(emqx_ds_beamformer, Node).
