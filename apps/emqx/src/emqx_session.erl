@@ -456,13 +456,15 @@ deliver(ClientInfo, Delivers, Session) ->
 
 enrich_delivers(ClientInfo, Delivers, Session) ->
     UpgradeQoS = ?IMPL(Session):info(upgrade_qos, Session),
-    enrich_delivers(ClientInfo, Delivers, UpgradeQoS, Session).
+    do_enrich_delivers(ClientInfo, UpgradeQoS, Session, Delivers, []).
 
-enrich_delivers(_ClientInfo, [], _UpgradeQoS, _Session) ->
-    [];
-enrich_delivers(ClientInfo, [D | Rest], UpgradeQoS, Session) ->
-    enrich_deliver(ClientInfo, D, UpgradeQoS, Session) ++
-        enrich_delivers(ClientInfo, Rest, UpgradeQoS, Session).
+do_enrich_delivers(_ClientInfo, _UpgradeQoS, _Session, [], Acc) ->
+    lists:reverse(Acc);
+do_enrich_delivers(ClientInfo, UpgradeQoS, Session, [D | Rest], Acc0) ->
+    %% Note: `enrich_deliver' always returns a list containing 0 or 1
+    %% elements.
+    Acc = enrich_deliver(ClientInfo, D, UpgradeQoS, Session) ++ Acc0,
+    do_enrich_delivers(ClientInfo, UpgradeQoS, Session, Rest, Acc).
 
 enrich_deliver(ClientInfo, {deliver, Topic, Msg}, UpgradeQoS, Session) ->
     SubOpts =
