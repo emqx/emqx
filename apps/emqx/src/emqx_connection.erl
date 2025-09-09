@@ -155,7 +155,13 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
--define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
+-define(LOG(Level, Data),
+    ?SLOG(Level, begin
+        Data
+    end#{
+        tag => "MQTT"
+    })
+).
 -define(IS_NORMAL_SOCKET_ERROR(R),
     % Normal close
     (R =:= closed orelse
