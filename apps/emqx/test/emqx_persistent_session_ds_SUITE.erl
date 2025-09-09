@@ -1186,13 +1186,13 @@ t_session_gc(Config) ->
         #{timetrap => 30_000},
         begin
             ClientId1 = <<"session_gc1">>,
-            Client1 = StartClient(ClientId1, Port1, 30),
+            Client1 = ?retry(100, 10, StartClient(ClientId1, Port1, 30)),
 
             ClientId2 = <<"session_gc2">>,
-            Client2 = StartClient(ClientId2, Port2, 1),
+            Client2 = ?retry(100, 10, StartClient(ClientId2, Port2, 1)),
 
             ClientId3 = <<"session_gc3">>,
-            Client3 = StartClient(ClientId3, Port3, 1),
+            Client3 = ?retry(100, 10, StartClient(ClientId3, Port3, 1)),
 
             lists:foreach(
                 fun(Client) ->
