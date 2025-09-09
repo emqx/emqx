@@ -19,7 +19,8 @@ defmodule EMQXDsBackends.MixProject do
 
   def application do
     [
-      extra_applications: UMP.extra_applications(),
+      extra_applications:
+        [:emqx_ds_builtin_local, :emqx_ds_builtin_raft] ++ UMP.extra_applications(),
       env: [
         available_backends: [
           :emqx_ds_builtin_local,
@@ -30,20 +31,11 @@ defmodule EMQXDsBackends.MixProject do
   end
 
   def deps() do
-    %{edition_type: edition_type} = UMP.profile_info()
-
-    ee_deps =
-      if edition_type == :enterprise,
-        do: [{:emqx_ds_builtin_raft, in_umbrella: true}],
-        else: []
-
-    UMP.deps(
-      ee_deps ++
-        [
-          {:emqx_utils, in_umbrella: true},
-          {:emqx_durable_storage, in_umbrella: true},
-          {:emqx_ds_builtin_local, in_umbrella: true}
-        ]
-    )
+    UMP.deps([
+      {:emqx_utils, in_umbrella: true},
+      {:emqx_durable_storage, in_umbrella: true},
+      {:emqx_ds_builtin_local, in_umbrella: true},
+      {:emqx_ds_builtin_raft, in_umbrella: true}
+    ])
   end
 end

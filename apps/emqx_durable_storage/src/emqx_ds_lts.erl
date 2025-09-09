@@ -64,7 +64,7 @@
 -define(EOT, []).
 -define(PLUS, '+').
 
--type level() :: binary() | ''.
+-type level() :: binary().
 
 -type edge() :: level() | ?EOT | ?PLUS.
 
@@ -569,7 +569,9 @@ do_topic_key(Trie, ThresholdFun, Depth, State, [], Root, Tokens, Varying) ->
                 trie_insert(Trie, rlookup, Static, lists:reverse(Tokens))
         end,
     {Static, lists:reverse(Varying)};
-do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Root, Tokens, Varying0) ->
+do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Root, Tokens, Varying0) when
+    is_binary(Tok)
+->
     {_, IsWildcard, NextState} = trie_next_(Trie, ThresholdFun, Depth, Root, State, Tok),
     Varying =
         case IsWildcard of
@@ -658,7 +660,7 @@ emanating(#trie{trie = Tab}, State, ?EOT) ->
         [#trans{next = Next}] -> [{?EOT, Next}];
         [] -> []
     end;
-emanating(#trie{trie = Tab}, State, Token) when is_binary(Token); Token =:= '' ->
+emanating(#trie{trie = Tab}, State, Token) when is_binary(Token) ->
     [
         {Edge, Next}
      || #trans{key = {_, Edge}, next = Next} <-
@@ -920,7 +922,7 @@ topic_match_test() ->
         {S11, []} = test_key(T, ThresholdFun, [1, 1]),
         {S12, []} = test_key(T, ThresholdFun, [1, 2]),
         {S111, []} = test_key(T, ThresholdFun, [1, 1, 1]),
-        {S11e, []} = test_key(T, ThresholdFun, [1, 1, '']),
+        {S11e, []} = test_key(T, ThresholdFun, [1, 1, <<>>]),
         %% Match concrete topics:
         assert_match_topics(T, [1], [{S1, []}]),
         assert_match_topics(T, [1, 1], [{S11, []}]),
@@ -928,7 +930,7 @@ topic_match_test() ->
         %% Match topics with +:
         assert_match_topics(T, [1, '+'], [{S11, []}, {S12, []}]),
         assert_match_topics(T, [1, '+', 1], [{S111, []}]),
-        assert_match_topics(T, [1, '+', ''], [{S11e, []}]),
+        assert_match_topics(T, [1, '+', <<>>], [{S11e, []}]),
         %% Match topics with #:
         assert_match_topics(T, [1, '#'],
                             [{S1, []},
@@ -970,7 +972,7 @@ rlookup_test() ->
     {S11, []} = test_key(T, ThresholdFun, [1, 1]),
     {S12, []} = test_key(T, ThresholdFun, [1, 2]),
     {S111, []} = test_key(T, ThresholdFun, [1, 1, 1]),
-    {S11e, []} = test_key(T, ThresholdFun, [1, 1, '']),
+    {S11e, []} = test_key(T, ThresholdFun, [1, 1, <<>>]),
     %% Now add learned wildcards:
     {S21, []} = test_key(T, ThresholdFun, [2, 1]),
     {S22, []} = test_key(T, ThresholdFun, [2, 2]),
@@ -983,7 +985,7 @@ rlookup_test() ->
     ?assertEqual({ok, [<<"1">>, <<"1">>]}, reverse_lookup(T, S11)),
     ?assertEqual({ok, [<<"1">>, <<"2">>]}, reverse_lookup(T, S12)),
     ?assertEqual({ok, [<<"1">>, <<"1">>, <<"1">>]}, reverse_lookup(T, S111)),
-    ?assertEqual({ok, [<<"1">>, <<"1">>, '']}, reverse_lookup(T, S11e)),
+    ?assertEqual({ok, [<<"1">>, <<"1">>, <<>>]}, reverse_lookup(T, S11e)),
     ?assertEqual({ok, [<<"2">>, <<"1">>]}, reverse_lookup(T, S21)),
     ?assertEqual({ok, [<<"2">>, <<"2">>]}, reverse_lookup(T, S22)),
     ?assertEqual({ok, [<<"2">>, '+']}, reverse_lookup(T, S2_)),
@@ -1109,8 +1111,7 @@ assert_match_topics(Trie, Filter0, Expected) ->
 
 %% erlfmt-ignore
 test_key(Trie, Threshold, Topic0) ->
-    Topic = lists:map(fun('') -> '';
-                         (I) when is_integer(I) -> integer_to_binary(I);
+    Topic = lists:map(fun(I) when is_integer(I) -> integer_to_binary(I);
                          (Bin) when is_binary(Bin) -> Bin
                       end,
                       Topic0),
@@ -1151,13 +1152,13 @@ paths_test() ->
     end,
     PathsToInsert =
         [
-            [''],
+            [<<>>],
             [1],
             [2, 2],
             [3, 3, 3],
             [2, 3, 4]
         ] ++ [[4, I, 4] || I <- lists:seq(1, Threshold + 2)] ++
-            [['', I, ''] || I <- lists:seq(1, Threshold + 2)],
+            [[<<>>, I, <<>>] || I <- lists:seq(1, Threshold + 2)],
     lists:foreach(
         fun(PathSpec) ->
             test_key(T, ThresholdFun, PathSpec)
@@ -1171,16 +1172,16 @@ paths_test() ->
     ExpectedWildcardPaths =
         [
             [4, '+', 4],
-            ['', '+', '']
+            [<<>>, '+', <<>>]
         ],
     ExpectedPaths =
         [
-            [''],
+            [<<>>],
             [1],
             [2, 2],
             [3, 3, 3]
         ] ++ [[4, I, 4] || I <- lists:seq(1, Threshold)] ++
-            [['', I, ''] || I <- lists:seq(1, Threshold)] ++
+            [[<<>>, I, <<>>] || I <- lists:seq(1, Threshold)] ++
             ExpectedWildcardPaths,
     FormatPathSpec =
         fun(PathSpec) ->
@@ -1245,14 +1246,14 @@ compress_topic_test() ->
     %% Structure without wildcards:
     ?assertEqual([], compress_topic(42, [], [])),
     ?assertEqual([], compress_topic(42, [<<"foo">>, <<"bar">>], [<<"foo">>, <<"bar">>])),
-    ?assertEqual([], compress_topic(42, [<<"foo">>, ''], [<<"foo">>, ''])),
-    ?assertEqual([], compress_topic(42, [<<"foo">>, ''], [<<"foo">>, '+'])),
-    ?assertEqual([], compress_topic(42, [<<"foo">>, ''], ['+', '+'])),
-    ?assertEqual([], compress_topic(42, [<<"foo">>, <<"bar">>, ''], ['#'])),
-    ?assertEqual([], compress_topic(42, [<<"foo">>, <<"bar">>, ''], [<<"foo">>, <<"bar">>, '#'])),
-    ?assertEqual([], compress_topic(42, [<<"foo">>, <<"bar">>, ''], ['+', '#'])),
+    ?assertEqual([], compress_topic(42, [<<"foo">>, <<>>], [<<"foo">>, <<>>])),
+    ?assertEqual([], compress_topic(42, [<<"foo">>, <<>>], [<<"foo">>, '+'])),
+    ?assertEqual([], compress_topic(42, [<<"foo">>, <<>>], ['+', '+'])),
+    ?assertEqual([], compress_topic(42, [<<"foo">>, <<"bar">>, <<>>], ['#'])),
+    ?assertEqual([], compress_topic(42, [<<"foo">>, <<"bar">>, <<>>], [<<"foo">>, <<"bar">>, '#'])),
+    ?assertEqual([], compress_topic(42, [<<"foo">>, <<"bar">>, <<>>], ['+', '#'])),
     ?assertEqual(
-        [], compress_topic(42, [<<"foo">>, <<"bar">>, ''], [<<"foo">>, <<"bar">>, '', '#'])
+        [], compress_topic(42, [<<"foo">>, <<"bar">>, <<>>], [<<"foo">>, <<"bar">>, <<>>, '#'])
     ),
     %% With wildcards:
     ?assertEqual(
@@ -1302,9 +1303,9 @@ compress_topic_test() ->
     ?assertException(_, {unrecoverable, _}, compress_topic(42, [<<"foo">>], [<<"bar">>])),
     ?assertException(_, {unrecoverable, _}, compress_topic(42, [], [<<"bar">>])),
     ?assertException(_, {unrecoverable, _}, compress_topic(42, [<<"foo">>], [])),
-    ?assertException(_, {unrecoverable, _}, compress_topic(42, ['', ''], ['', '', ''])),
-    ?assertException(_, {unrecoverable, _}, compress_topic(42, ['', ''], [<<"foo">>, '#'])),
-    ?assertException(_, {unrecoverable, _}, compress_topic(42, ['', ''], ['+', '+', '+', '#'])),
+    ?assertException(_, {unrecoverable, _}, compress_topic(42, [<<>>, <<>>], [<<>>, <<>>, <<>>])),
+    ?assertException(_, {unrecoverable, _}, compress_topic(42, [<<>>, <<>>], [<<"foo">>, '#'])),
+    ?assertException(_, {unrecoverable, _}, compress_topic(42, [<<>>, <<>>], ['+', '+', '+', '#'])),
     ?assertException(_, {unrecoverable, _}, compress_topic(42, ['+'], [<<"bar">>, '+'])),
     ?assertException(
         _, {unrecoverable, _}, compress_topic(42, [<<"foo">>, '+'], [<<"bar">>, <<"baz">>])
@@ -1314,17 +1315,17 @@ decompress_topic_test() ->
     %% Structure without wildcards:
     ?assertEqual([], decompress_topic([], [])),
     ?assertEqual(
-        [<<"foo">>, '', <<"bar">>],
-        decompress_topic([<<"foo">>, '', <<"bar">>], [])
+        [<<"foo">>, <<>>, <<"bar">>],
+        decompress_topic([<<"foo">>, <<>>, <<"bar">>], [])
     ),
     %% With wildcards:
     ?assertEqual(
-        [<<"foo">>, '', <<"bar">>, <<"baz">>],
-        decompress_topic([<<"foo">>, '+', <<"bar">>, '+'], ['', <<"baz">>])
+        [<<"foo">>, <<>>, <<"bar">>, <<"baz">>],
+        decompress_topic([<<"foo">>, '+', <<"bar">>, '+'], [<<>>, <<"baz">>])
     ),
     ?assertEqual(
-        [<<"foo">>, '+', <<"bar">>, '+', ''],
-        decompress_topic([<<"foo">>, '+', <<"bar">>, '+', ''], ['+', '+'])
+        [<<"foo">>, '+', <<"bar">>, '+', <<>>],
+        decompress_topic([<<"foo">>, '+', <<"bar">>, '+', <<>>], ['+', '+'])
     ).
 
 %% This testcase verifies arguments passed to the wildcard threshold

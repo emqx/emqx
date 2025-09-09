@@ -573,7 +573,10 @@ maybe_ack(Msg) ->
     emqx_shared_sub:maybe_ack(Msg).
 
 maybe_nack(Msg) ->
-    emqx_shared_sub:maybe_nack_dropped(Msg).
+    maybe
+        false ?= emqx_shared_sub:maybe_nack_dropped(Msg),
+        emqx_hooks:run_fold('message.nack', [Msg], false)
+    end.
 
 mark_begin_deliver(Msg) ->
     emqx_message:set_header(deliver_begin_at, erlang:system_time(millisecond), Msg).
@@ -594,11 +597,9 @@ handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
 %% Geneic messages
 %%--------------------------------------------------------------------
 
+%% Mem session doesn't handle any messages
 -spec handle_info(term(), session(), clientinfo()) -> session().
-handle_info({'DOWN', _Ref, _Kind, _Pid, _Reason}, Session, _ClientInfo) ->
-    Session;
-handle_info(Msg, Session, _ClientInfo) ->
-    ?SLOG(warning, #{msg => emqx_session_mem_unknown_message, message => Msg}),
+handle_info(_Msg, Session, _ClientInfo) ->
     Session.
 
 %%--------------------------------------------------------------------

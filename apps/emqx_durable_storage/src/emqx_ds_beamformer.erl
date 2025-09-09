@@ -68,7 +68,7 @@
 
 %% API:
 -export([start_link/2, where/1]).
--export([poll/5, subscribe/5, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
+-export([subscribe/5, unsubscribe/2, shard_event/2, generation_event/1, suback/3]).
 -export([unpack_iterator/3, update_iterator/4, scan_stream/6, high_watermark/3, fast_forward/5]).
 -export([
     make_subtab/1,
@@ -80,9 +80,9 @@
     on_worker_down/2
 ]).
 -export([owner_tab/1, handle_recoverable_error/2]).
--export([beams_init/6, beams_add/5, beams_conclude/3, beams_n_matched/1]).
+-export([beams_init/7, beams_add/5, beams_conclude/3, beams_n_matched/1]).
 -export([metrics_id/2, send_out_final_beam/4]).
--export([cfg_batch_size/0, cfg_housekeeping_interval/0, cfg_workers_per_shard/0]).
+-export([runtime_config/2]).
 
 %% internal exports:
 -export([do_dispatch/1]).
@@ -119,6 +119,10 @@
 %% Type declarations
 %%================================================================================
 
+%% Compatibility with old DBs. Should be replaced with `emqx_ds:ttv()`
+%% when such compatibility is dropped.
+-type ttv_or_msg() :: emqx_ds:ttv() | emqx_types:message().
+
 %% States:
 -define(initializing, initializing).
 -define(idle, idle).
@@ -150,7 +154,7 @@
 %% metadata:
 -define(init_timeout, init_timeout).
 
--type dbshard() :: {emqx_ds:db(), _Shard}.
+-type dbshard() :: {emqx_ds:db(), emqx_ds:shard()}.
 
 %% `event_topic' and `event_topic_filter' types are structurally (but
 %% not semantically) equivalent to their `emqx_ds' counterparts.
@@ -163,7 +167,9 @@
 -type event_topic_filter() :: emqx_ds:topic_filter().
 
 -type opts() :: #{
-    n_workers := non_neg_integer()
+    n_workers_per_shard := non_neg_integer(),
+    batch_size := pos_integer(),
+    housekeeping_interval := pos_integer()
 }.
 
 %% Request:
@@ -215,10 +221,7 @@
 
 %% Response:
 
--type pack() ::
-    [{emqx_ds:message_key(), emqx_types:message()}]
-    | end_of_stream
-    | emqx_ds:error(_).
+-type pack() :: [ttv_or_msg()] | end_of_stream | emqx_ds:error(_).
 
 %% obsolete
 -record(beam, {iterators, pack, misc = #{}}).
@@ -237,7 +240,9 @@
 -type beam() :: beam(_ItKey, _Iterator).
 
 -type stream_scan_return() ::
-    {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+    {ok, emqx_ds_payload_transform:schema(), emqx_ds:message_key(), [
+        {emqx_ds:message_key(), ttv_or_msg()}
+    ]}
     | {ok, end_of_stream}
     | emqx_ds:error(_).
 
@@ -274,6 +279,7 @@
 %% Global builder:
 -record(beam_builder, {
     cbm :: module(),
+    ptrans :: emqx_ds_payload_transform:schema(),
     sub_tab :: sub_tab(),
     lagging :: boolean(),
     shard_id :: _Shard,
@@ -297,6 +303,11 @@
     last_seen_key := emqx_ds:message_key(),
     rank := emqx_ds:slab()
 }.
+
+-doc """
+Query runtime configuration from the callback module.
+""".
+-callback beamformer_config(emqx_ds:db()) -> opts().
 
 -callback unpack_iterator(dbshard(), _Iterator) ->
     unpack_iterator_result(_Stream) | emqx_ds:error(_).
@@ -324,7 +335,9 @@ If this function returns `{ok, LastSeenKey, Batch}`, it means:
    is contained in the batch.
 """.
 -callback fast_forward(dbshard(), _Iterator, emqx_ds:message_key(), pos_integer()) ->
-    {ok, emqx_ds:message_key(), [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+    {ok, emqx_ds_payload_transform:schema(), emqx_ds:message_key(), [
+        {emqx_ds:message_key(), ttv_or_msg()}
+    ]}
     | emqx_ds:error(_).
 
 -doc """
@@ -336,7 +349,7 @@ c_i := iterator_match_context(iterator[client])
 
 then dispatch_matrix[message, client] = c_i(c_m)
 """.
--callback message_match_context(dbshard(), _Stream, emqx_ds:message_key(), emqx_types:message()) ->
+-callback message_match_context(dbshard(), _Stream, emqx_ds:message_key(), ttv_or_msg()) ->
     {ok, _MatchCtxMsg}.
 
 -callback iterator_match_context(dbshard(), _Iterator) -> fun((_MatchCtxMsg) -> boolean()).
@@ -360,6 +373,10 @@ then dispatch_matrix[message, client] = c_i(c_m)
 start_link(DBShard, CBM) ->
     gen_statem:start_link(?via(DBShard), ?MODULE, [DBShard, CBM], []).
 
+-spec runtime_config(module(), emqx_ds:db()) -> opts().
+runtime_config(CBM, DB) ->
+    CBM:beamformer_config(DB).
+
 %% @doc Display all `{DB, Shard}' pairs for beamformers running on the
 %% node:
 -spec ls() -> [dbshard()].
@@ -376,12 +393,6 @@ ls(DB) ->
     maps:from_list(
         [emqx_ds_beamformer_sup:info({DB, I}) || I <- Shards]
     ).
-
-%% @obsolete Submit a poll request
--spec poll(node(), return_addr(_ItKey), dbshard(), _Iterator, emqx_ds:poll_opts()) ->
-    ok.
-poll(_Node, _ReturnAddr, _Shard, _Iterator, #{timeout := _Timeout}) ->
-    ok.
 
 %% @doc Create a local subscription registry
 -spec make_subtab(dbshard()) -> sub_tab().
@@ -495,10 +506,13 @@ send_out_final_beam(DBShard, SubTab, Term, Reqs) ->
 
 %% @doc Create an object that is used to incrementally build
 %% destinations for the batch.
--spec beams_init(module(), dbshard(), sub_tab(), boolean(), fun(), fun()) -> beam_builder().
-beams_init(CBM, DBShard, SubTab, Lagging, Drop, UpdateQueue) ->
+-spec beams_init(
+    module(), dbshard(), emqx_ds_payload_transform:schema(), sub_tab(), boolean(), fun(), fun()
+) -> beam_builder().
+beams_init(CBM, DBShard, PTrans, SubTab, Lagging, Drop, UpdateQueue) ->
     #beam_builder{
         cbm = CBM,
+        ptrans = PTrans,
         sub_tab = SubTab,
         shard_id = DBShard,
         lagging = Lagging,
@@ -537,7 +551,7 @@ beams_n_matched(#beam_builder{per_node = PerNode}) ->
 -spec beams_add(
     _Stream,
     emqx_ds:message_key(),
-    emqx_types:message(),
+    ttv_or_msg(),
     [{node(), reference()}],
     beam_builder()
 ) -> beam_builder().
@@ -615,17 +629,6 @@ keep_and_seqno(_SubTab, #sub_state{flowcontrol = FC}, NMsgs) ->
 is_sub_active(SeqNo, Acked, Window) ->
     SeqNo - Acked < Window.
 
-%% Dynamic config (currently it's global for all DBs):
-
-cfg_batch_size() ->
-    application:get_env(emqx_durable_storage, poll_batch_size, 1000).
-
-cfg_housekeeping_interval() ->
-    application:get_env(emqx_durable_storage, beamformer_housekeeping_interval, 1000).
-
-cfg_workers_per_shard() ->
-    application:get_env(emqx_durable_storage, beamformer_workers_per_shard, 10).
-
 %%================================================================================
 %% behavior callback wrappers
 %%================================================================================
@@ -652,8 +655,10 @@ scan_stream(Mod, Shard, Stream, TopicFilter, StartKey, BatchSize) ->
 high_watermark(Mod, Shard, Stream) ->
     Mod:high_watermark(Shard, Stream).
 
--spec fast_forward(module(), dbshard(), Iterator, emqx_ds:message_key(), pos_integer()) ->
-    {ok, Iterator, [{emqx_ds:message_key(), emqx_types:message() | emqx_ds:ttv()}]}
+-spec fast_forward(module(), dbshard(), _Iterator, emqx_ds:message_key(), pos_integer()) ->
+    {ok, emqx_ds_payload_transform:schema(), emqx_ds:message_key(), [
+        {emqx_ds:message_key(), ttv_or_msg()}
+    ]}
     | ?err_unrec(has_data | old_key)
     | emqx_ds:error(_).
 fast_forward(Mod, Shard, It, Key, BatchSize) ->
@@ -1026,10 +1031,10 @@ do_handle_event(enter, _OldState, ?recovering, _D) ->
 do_handle_event(enter, _OldState, _NewState, _D) ->
     keep_state_and_data;
 %% Perform initialization:
-do_handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, _}}) ->
-    try emqx_ds:list_slabs(DB) of
-        Generations ->
-            {next_state, ?busy, D#d{generations = Generations}}
+do_handle_event(state_timeout, ?init_timeout, ?initializing, D = #d{dbshard = {DB, Shard}}) ->
+    try
+        {Generations, []} = emqx_ds:list_slabs(DB, #{shard => Shard}),
+        {next_state, ?busy, D#d{generations = Generations}}
     catch
         _:_ ->
             {keep_state_and_data, {state_timeout, 1000, ?init_timeout}}
@@ -1048,9 +1053,14 @@ do_handle_event(
     _State,
     D = #d{dbshard = DBShard, generations = Gens0}
 ) ->
-    {DB, _} = DBShard,
+    {DB, Shard} = DBShard,
     %% Find slabs that have been sealed:
-    Gens = emqx_ds:list_slabs(DB),
+    {Gens, []} = ?tp_span(
+        debug,
+        ?MODULE_STRING "_generation_event",
+        #{db => DB, shard => Shard},
+        emqx_ds:list_slabs(DB, #{shard => Shard})
+    ),
     Sealed = diff_gens(DBShard, Gens0, Gens),
     %% Notify the RT workers:
     _ = [emqx_ds_beamformer_rt:seal_generation(DBShard, I) || I <- Sealed],
@@ -1087,7 +1097,7 @@ do_dispatch(_) ->
     dbshard(),
     ets:tid(),
     non_neg_integer(),
-    emqx_types:message(),
+    ttv_or_msg(),
     _MatchCtx,
     emqx_ds:sub_ref(),
     bbn()
@@ -1193,7 +1203,8 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
         sub_tab = SubTab,
         lagging = IsLagging,
         queue_drop = QueueDrop,
-        queue_update = QueueUpdate
+        queue_update = QueueUpdate,
+        ptrans = PTrans
     } = BeamMaker,
     #beam_builder_node{
         n_msgs = BatchSize,
@@ -1249,7 +1260,7 @@ beams_conclude_node(DBShard, NextKey, BeamMaker, Node, BeamMakerNode) ->
             Subscribers
         ),
     %% Send the beam to the destination node:
-    send_out(DBShard, Node, lists:reverse(PackRev), Destinations).
+    send_out(DBShard, PTrans, Node, lists:reverse(PackRev), Destinations).
 
 send_out_final_term_to_node(DBShard, SubTab, Term, Node, Reqs) ->
     Mask = emqx_ds_dispatch_mask:encode([true]),
@@ -1266,7 +1277,7 @@ send_out_final_term_to_node(DBShard, SubTab, Term, Node, Reqs) ->
         end,
         Reqs
     ),
-    send_out(DBShard, Node, Term, Destinations).
+    send_out(DBShard, ?ds_pt_ttv, Node, Term, Destinations).
 
 diff_gens(_DBShard, Old, New) ->
     %% TODO: filter by shard
@@ -1325,7 +1336,7 @@ drop_from_pending(SubId, Pending) ->
         Pending
     ).
 
-send_out(DBShard = {DB, _}, Node, Pack, Destinations) ->
+send_out(DBShard = {DB, _}, PTrans, Node, Pack, Destinations) ->
     ?tp(debug, beamformer_out, #{
         dest_node => Node,
         destinations => Destinations
@@ -1333,20 +1344,10 @@ send_out(DBShard = {DB, _}, Node, Pack, Destinations) ->
     case {node(), proto_vsn(Node)} of
         {Node, _} ->
             %% TODO: Introduce a separate worker for local fanout?
-            emqx_ds_beamsplitter:dispatch_v3(DB, Pack, Destinations, #{});
+            emqx_ds_beamsplitter:dispatch_v3(DB, PTrans, Pack, Destinations, #{});
         {_, Vsn} when Vsn >= 3 ->
-            emqx_ds_beamsplitter_proto_v3:dispatch(DBShard, Node, DB, Pack, Destinations, #{});
-        {_, 2} ->
-            %% Compatibility with the old version. Add fake DSKeys.
-            PackCompat =
-                case Pack of
-                    L when is_list(L) ->
-                        [{<<"fake_dskey">>, I} || I <- L];
-                    _ ->
-                        Pack
-                end,
-            emqx_ds_beamsplitter_proto_v2:dispatch(
-                DBShard, Node, DB, PackCompat, Destinations, #{}
+            emqx_ds_beamsplitter_proto_v3:dispatch(
+                DBShard, Node, DB, PTrans, Pack, Destinations, #{}
             );
         Incompat ->
             %% Should not happen:

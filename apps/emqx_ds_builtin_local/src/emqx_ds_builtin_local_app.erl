@@ -3,24 +3,18 @@
 %%--------------------------------------------------------------------
 -module(emqx_ds_builtin_local_app).
 
-%% API:
--export([]).
+-behaviour(application).
 
 %% behavior callbacks:
--export([start/2]).
+-export([start/2, stop/1]).
 
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
 
 start(_StartType, _StartArgs) ->
-    emqx_ds:register_backend(builtin_local, emqx_ds_builtin_local),
+    ok = emqx_dsch:register_backend(builtin_local, emqx_ds_builtin_local),
     emqx_ds_builtin_local_sup:start_top().
 
-%%================================================================================
-%% Internal exports
-%%================================================================================
-
-%%================================================================================
-%% Internal functions
-%%================================================================================
+stop(_) ->
+    ok.

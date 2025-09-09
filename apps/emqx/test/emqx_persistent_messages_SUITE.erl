@@ -345,7 +345,7 @@ t_message_gc(Config) ->
                 message(<<"foo/bar">>, <<"1">>, 0),
                 message(<<"foo/baz">>, <<"2">>, 1)
             ],
-            ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, Msgs0, #{sync => true}),
+            ok = emqx_persistent_message:store_batch(Msgs0, #{sync => true}),
             ?tp(inserted_batch, #{}),
             {ok, _} = ?block_until(#{?snk_kind := ps_message_gc_added_gen}),
 
@@ -354,7 +354,7 @@ t_message_gc(Config) ->
                 message(<<"foo/bar">>, <<"3">>, Now + 100),
                 message(<<"foo/baz">>, <<"4">>, Now + 101)
             ],
-            ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, Msgs1, #{sync => true}),
+            ok = emqx_persistent_message:store_batch(Msgs1, #{sync => true}),
 
             {ok, _} = snabbkaffe:block_until(
                 ?match_n_events(NShards, #{?snk_kind := message_gc_generation_dropped}),

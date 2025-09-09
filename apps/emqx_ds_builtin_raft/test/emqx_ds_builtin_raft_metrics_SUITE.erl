@@ -7,6 +7,7 @@
 -compile(nowarn_export_all).
 
 -include("../../emqx/include/emqx.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("../../emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
@@ -22,7 +23,6 @@ opts(Overrides) ->
     emqx_utils_maps:deep_merge(
         #{
             backend => builtin_raft,
-            storage => {emqx_ds_storage_skipstream_lts, #{}},
             n_shards => 8,
             n_sites => 1,
             replication_factor => 3,
@@ -337,7 +337,7 @@ t_snapshot_metrics(Config) ->
     [NS1, NS2, NS3] = ?config(specs, Config),
     [N1] = emqx_cth_cluster:start([NS1]),
     %% Initialize DB on the first node and wait for it to be online.
-    Opts = opts(#{n_shards => 2, n_sites => 1, replication_factor => 3}),
+    Opts = opts(#{n_shards => 2, n_sites => 1, replication_factor => 3, payload_type => ?ds_pt_mqtt}),
     emqx_ds_raft_test_helpers:assert_db_open([N1], ?DB, Opts),
     %% Start rest of the nodes.
     [N2, N3] = emqx_cth_cluster:start([NS2, NS3]),
@@ -452,7 +452,7 @@ t_replication_metrics(Config) ->
     %% Initialize DB and wait for it to be online.
     Nodes = [N1 | _] = ?config(nodes, Config),
     TS0 = ?ON(N1, emqx_ds:timestamp_us()),
-    Opts = opts(#{n_shards => 2, n_sites => 1, replication_factor => 3}),
+    Opts = opts(#{n_shards => 2, n_sites => 1, replication_factor => 3, payload_type => ?ds_pt_mqtt}),
     emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
     %% Spin up non-trivial workload.
     {Stream, _} = emqx_ds_test_helpers:interleaved_topic_messages(?FUNCTION_NAME, 25, 80),

@@ -10,13 +10,8 @@ Main interface module for `emqx_durable_storage' application.
 It takes care of forwarding calls to the underlying DBMS.
 """.
 
--include_lib("emqx_durable_storage/include/emqx_ds.hrl").
--include_lib("snabbkaffe/include/trace.hrl").
--include("emqx_ds_builtin_tx.hrl").
-
 %% Management API:
 -export([
-    register_backend/2,
     set_shard_ready/3,
     set_db_ready/2,
 
@@ -30,12 +25,13 @@ It takes care of forwarding calls to the underlying DBMS.
     shard_of/2,
     list_shards/1,
     list_slabs/1,
+    list_slabs/2,
     drop_slab/2,
     drop_db/1
 ]).
 
 %% Message storage API:
--export([store_batch/2, store_batch/3]).
+-export([dirty_append/2, dirty_append_outcome/2]).
 
 %% Transactional API (low-level):
 -export([new_tx/2, commit_tx/3]).
@@ -44,11 +40,7 @@ It takes care of forwarding calls to the underlying DBMS.
 -export([get_streams/3, get_streams/4, make_iterator/4, next/3]).
 -export([subscribe/3, unsubscribe/2, suback/3, subscription_info/2]).
 
-%% Message delete API:
--export([get_delete_streams/3, make_delete_iterator/4, delete_next/4]).
-
 %% Misc. API:
--export([count/1]).
 -export([timestamp_us/0]).
 -export([topic_words/1]).
 
@@ -77,7 +69,9 @@ It takes care of forwarding calls to the underlying DBMS.
     stream_to_binary/2,
     binary_to_stream/2,
     iterator_to_binary/2,
-    binary_to_iterator/2
+    binary_to_iterator/2,
+    multi_iterator_to_binary/1,
+    binary_to_multi_iterator/1
 ]).
 
 %% Utility functions:
@@ -90,37 +84,31 @@ It takes care of forwarding calls to the underlying DBMS.
 ]).
 
 -export_type([
+    backend/0,
     create_db_opts/0,
+    verify_db_opts_result/0,
     db_opts/0,
     db/0,
     time/0,
+    time_ms/0,
     topic_filter/0,
     topic/0,
-    batch/0,
-    dsbatch/0,
-    operation/0,
-    deletion/0,
-    precondition/0,
+    list_slabs_opts/0,
+    list_slabs_result/0,
     get_streams_opts/0,
     get_streams_result/0,
     stream/0,
-    delete_stream/0,
-    delete_selector/0,
     shard/0,
     generation/0,
     slab/0,
     iterator/0,
-    delete_iterator/0,
-    iterator_id/0,
     message_key/0,
-    message_store_opts/0,
+    dirty_append_opts/0,
+    dirty_append_data/0,
     next_limit/0,
     next_result/1, next_result/0,
-    delete_next_result/1, delete_next_result/0,
     topic_range/0,
-    store_batch_result/0,
     make_iterator_result/1, make_iterator_result/0,
-    make_delete_iterator_result/1, make_delete_iterator_result/0,
 
     error/1,
 
@@ -129,12 +117,7 @@ It takes care of forwarding calls to the underlying DBMS.
 
     ds_specific_stream/0,
     ds_specific_iterator/0,
-    ds_specific_delete_stream/0,
-    ds_specific_delete_iterator/0,
     slab_info/0,
-
-    poll_iterators/0,
-    poll_opts/0,
 
     sub_opts/0,
     subscription_handle/0,
@@ -156,8 +139,14 @@ It takes care of forwarding calls to the underlying DBMS.
     multi_iter_opts/0
 ]).
 
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_ds_builtin_tx.hrl").
+-include("../gen_src/DSBuiltinMetadata.hrl").
+-include("emqx_dsch.hrl").
+
 %%================================================================================
-%% Type declarations
+%% type declarations
 %%================================================================================
 
 -doc "Identifier of the DB.".
@@ -169,53 +158,24 @@ It takes care of forwarding calls to the underlying DBMS.
 -doc "Parsed topic filter.".
 -type topic_filter() :: list(binary() | '+' | '#' | '').
 
--type message() :: emqx_types:message().
-
--doc "Message matcher.".
--type message_matcher(Payload) :: #message_matcher{payload :: Payload}.
-
--doc "A batch of storage operations.".
--type batch() :: [operation()] | dsbatch().
-
--type dsbatch() :: #dsbatch{}.
-
--type operation() ::
-    %% Store a message.
-    message()
-    %% Delete a message.
-    %% Does nothing if the message does not exist.
-    | deletion().
-
--type deletion() :: {delete, message_matcher('_')}.
-
 -doc "Topic-Time-Value triple. It's used as the basic storage unit.".
 -type ttv() :: {topic(), time(), binary()}.
 
--doc """
-Precondition.
-Fails whole batch if the storage already has the matching message (`if_exists'),
-or does not yet have (`unless_exists'). Here "matching" means that it either
-just exists (when pattern is '_') or has exactly the same payload, rest of the
-message fields are irrelevant.
-Useful to construct batches with "compare-and-set" semantics.
-Note: backends may not support this, but if they do only DBs with `atomic_batches'
-enabled are expected to support preconditions in batches.
-""".
--type precondition() ::
-    {if_exists | unless_exists, message_matcher(iodata() | '_')}.
-
--type shard() :: term().
+-type shard() :: binary().
 
 -type generation() :: integer().
 
 -type slab() :: {shard(), generation()}.
 
-%% TODO: Not implemented
--type iterator_id() :: term().
-
 -opaque iterator() :: ds_specific_iterator().
 
--opaque delete_iterator() :: ds_specific_delete_iterator().
+-type list_slabs_opts() :: #{shard => shard()}.
+
+-type list_slabs_result() ::
+    {
+        _Slabs :: #{slab() => slab_info()},
+        _Errors :: [{shard(), error(_)}]
+    }.
 
 -doc """
 Options for limiting the number of streams.
@@ -237,17 +197,11 @@ Options for limiting the number of streams.
 
 -opaque stream() :: ds_specific_stream().
 
--opaque delete_stream() :: ds_specific_delete_stream().
-
--type delete_selector() :: fun((emqx_types:message()) -> boolean()).
-
 -type ds_specific_iterator() :: term().
 
 -type ds_specific_stream() :: term().
 
 -type message_key() :: binary().
-
--type store_batch_result() :: ok | error(_).
 
 -type make_iterator_result(Iterator) :: {ok, Iterator} | error(_).
 
@@ -261,46 +215,35 @@ Options for limiting the number of streams.
 
 -type next_result() :: next_result(iterator()).
 
--type ds_specific_delete_iterator() :: term().
-
--type ds_specific_delete_stream() :: term().
-
--type make_delete_iterator_result(DeleteIterator) :: {ok, DeleteIterator} | error(_).
-
--type make_delete_iterator_result() :: make_delete_iterator_result(delete_iterator()).
-
--type delete_next_result(DeleteIterator) ::
-    {ok, DeleteIterator, non_neg_integer()} | {ok, end_of_stream} | {error, term()}.
-
-%% obsolete
--type poll_iterators() :: [{_UserData, iterator()}].
-
--type delete_next_result() :: delete_next_result(delete_iterator()).
-
 -type topic_range() :: {topic(), time(), time() | ?ds_tx_ts_monotonic | infinity}.
 
 -type error(Reason) :: {error, recoverable | unrecoverable, Reason}.
 
 -doc """
-Timestamp
-Each message must have unique timestamp.
+Timestamp in `erlang:system_time(microsecond)` format.
+
 Earliest possible timestamp is 0.
 """.
 -type time() :: non_neg_integer().
 
+-doc """
+Epoch time in milliseconds.
+""".
+-type time_ms() :: non_neg_integer().
+
 -type tx_serial() :: binary().
 
--type message_store_opts() ::
-    #{
-        %% Whether to wait until the message storage has been acknowledged to return from
-        %% `store_batch'.
-        %% Default: `true'.
-        sync => boolean(),
-        %% Whether to store this batch as a single unit.  Currently not supported by
-        %% builtin backends.
-        %% Default: `false'.
-        atomic => boolean()
-    }.
+-type dirty_append_opts() :: #{
+    db := db(),
+    shard := shard(),
+    reply => boolean()
+}.
+
+-type dirty_append_data() :: [
+    {topic(), ?ds_tx_ts_monotonic, binary() | emqx_ds_payload_transform:payload()}, ...
+].
+
+-type backend() :: atom().
 
 -doc """
 Common options for creation of a DS database.
@@ -315,24 +258,9 @@ Common options for creation of a DS database.
    - **`builtin_raft`**: an embedded backend based on RocksDB using
        Raft algorithm for data replication. Suitable for clusters.
 
-- **`append_only`** - a semantic switch. If enabled, DS will prevent
-  overwriting of records by automatically reassigning their
-  timestamps. Timestamps of all messages within the shard will be
-  monotonically increasing.
-
-  Default: `true`.
-
-- **`atomic_batches`** - deprecated in favor of **`store_ttv`**.
-   Whether the whole batch given to `store_batch' should be processed
-   and inserted atomically as a unit, in isolation from other batches.
-
-   Default: `false'. The whole batch must be crafted so that it
-   belongs to a single shard (if applicable to the backend).
-
-- **`store_ttv`** - enables optimistic transactions.
-
-  NOTE: this flag is meant to be temporary. Eventually the APIs
-  should converge.
+- **`payload_type`** - Use fixed payload (de)serialization schema.
+  This option is meant to optimize fan-out of MQTT messages to
+  subscribers.
 
 Note: all backends MUST handle all options listed here; even if it
 means throwing an exception that says that certain option is not
@@ -340,37 +268,19 @@ supported.
 """.
 -type create_db_opts() ::
     #{
-        backend := atom(),
-        append_only => boolean(),
-        atomic_batches => boolean(),
-        %% Whether the DB stores values of type `#message{}' or
-        %% topic-time-value triples.
-        %%
-        store_ttv => boolean(),
+        backend := backend(),
+        payload_type => emqx_ds_payload_transform:type(),
         %% Backend-specific options:
         _ => _
     }.
 
+-type verify_db_opts_result() ::
+    {ok, emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()} | error(_).
+
 -doc """
 See respective `create_db_opts()` fields.
 """.
--type db_opts() :: #{
-    append_only => boolean(),
-    atomic_batches => boolean(),
-    store_ttv => boolean()
-}.
-
-%% obsolete
--type poll_opts() ::
-    #{
-        %% Expire poll request after this timeout
-        timeout := pos_integer(),
-        %% (Optional) Provide an explicit process alias for receiving
-        %% replies. It must be created with `explicit_unalias' flag,
-        %% otherwise replies will get lost. If not specified, DS will
-        %% create a new alias.
-        reply_to => reference()
-    }.
+-type db_opts() :: #{atom() => _}.
 
 -doc """
 Options for the `subscribe` API.
@@ -394,9 +304,9 @@ Options for the `subscribe` API.
     }.
 
 -type slab_info() :: #{
-    created_at := time(),
-    since := time(),
-    until := time() | undefined
+    created_at := time_ms(),
+    since := time_ms(),
+    until := time_ms() | undefined
 }.
 
 %% Subscription:
@@ -449,7 +359,7 @@ Options for the `subscribe` API.
 
 -type commit_result() :: {ok, tx_serial()} | error(_).
 
--type payload() :: emqx_types:message() | ttv().
+-type payload() :: ttv() | emqx_ds_payload_transform:payload().
 
 -type fold_fun(Acc) :: fun(
     (
@@ -496,12 +406,10 @@ Options for the `subscribe` API.
 
 -type fold_result(R) :: {R, [fold_error()]} | R.
 
--record(m_iter, {
+-opaque multi_iterator() :: #'MultiIterator'{
     stream :: stream(),
-    it :: iterator()
-}).
-
--type multi_iterator() :: #m_iter{}.
+    iterator :: iterator()
+}.
 
 -type multi_iter_opts() ::
     #{
@@ -510,11 +418,6 @@ Options for the `subscribe` API.
         shard => shard() | '_',
         start_time => time()
     }.
-
-%% Internal:
--define(persistent_term(DB), {emqx_ds_db_backend, DB}).
-
--define(module(DB), (persistent_term:get(?persistent_term(DB)))).
 
 -define(is_time_range(FROM, TO),
     (is_integer(FROM) andalso
@@ -531,6 +434,10 @@ Options for the `subscribe` API.
 %% Behavior callbacks
 %%================================================================================
 
+-callback default_db_opts() -> map().
+
+-callback verify_db_opts(emqx_ds:db(), create_db_opts()) -> verify_db_opts_result().
+
 -doc """
 Create or open a DB.
 
@@ -540,16 +447,17 @@ even if it means throwing an error that certain option is unsupported.
 NOTE: All `create_db_opts()` are present in the input map. The backend
 must not assume the default values.
 """.
--callback open_db(db(), create_db_opts()) -> ok | {error, _}.
+-callback open_db(db(), _CreateNew :: boolean(), _Schema, _RuntimeConfig) ->
+    ok | {error, _}.
 
 -callback close_db(db()) -> ok.
 
 -callback add_generation(db()) -> ok | {error, _}.
 
--callback update_db_config(db(), create_db_opts()) -> ok | {error, _}.
+-callback update_db_config(db(), emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()) ->
+    {ok, emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()} | {error, _}.
 
--callback list_slabs(db()) ->
-    #{slab() => slab_info()}.
+-callback list_slabs(db(), list_slabs_opts()) -> list_slabs_result().
 
 -callback drop_slab(db(), slab()) -> ok | {error, _}.
 
@@ -559,7 +467,8 @@ must not assume the default values.
 
 -callback shard_of(db(), emqx_types:clientid() | topic()) -> shard().
 
--callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
+-callback dirty_append(dirty_append_opts(), dirty_append_data()) ->
+    reference() | noreply.
 
 %% Synchronous read API:
 -callback get_streams(db(), topic_filter(), time(), get_streams_opts()) -> get_streams_result().
@@ -567,16 +476,17 @@ must not assume the default values.
 -callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
     make_iterator_result(ds_specific_iterator()).
 
--callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
+-callback next(db(), Iterator, next_limit()) -> next_result(Iterator).
 
-%% Deletion API:
--callback get_delete_streams(db(), topic_filter(), time()) -> [ds_specific_delete_stream()].
+%% Subscription API
+-callback subscribe(db(), ds_specific_iterator(), sub_opts()) ->
+    {ok, subscription_handle(), sub_ref()} | error(_).
 
--callback make_delete_iterator(db(), ds_specific_delete_stream(), topic_filter(), time()) ->
-    make_delete_iterator_result(ds_specific_delete_iterator()).
+-callback unsubscribe(db(), subscription_handle()) -> boolean().
 
--callback delete_next(db(), DeleteIterator, delete_selector(), pos_integer()) ->
-    delete_next_result(DeleteIterator).
+-callback suback(db(), subscription_handle(), non_neg_integer()) -> ok.
+
+-callback subscription_info(db(), subscription_handle()) -> sub_info() | undefined.
 
 %% Metadata API:
 -callback stream_to_binary(db(), ds_specific_stream()) -> {ok, binary()} | {error, _}.
@@ -584,9 +494,6 @@ must not assume the default values.
 
 -callback binary_to_stream(db(), binary()) -> {ok, ds_specific_stream()} | {error, _}.
 -callback binary_to_iterator(db(), binary()) -> {ok, ds_specific_iterator()} | {error, _}.
-
-%% Statistics API:
--callback count(db()) -> non_neg_integer().
 
 %% Blob transaction API:
 -callback new_tx(db(), transaction_opts()) ->
@@ -597,26 +504,9 @@ must not assume the default values.
 -callback tx_commit_outcome({'DOWN', reference(), _, _, _}) ->
     commit_result().
 
--optional_callbacks([
-    get_delete_streams/3,
-    make_delete_iterator/4,
-    delete_next/4,
-
-    count/1
-]).
-
 %%================================================================================
 %% API functions
 %%================================================================================
-
--doc """
-Internal API called by the backend application to register
-itself as a viable backend.
-""".
--doc #{title => <<"Backend API">>}.
--spec register_backend(atom(), module()) -> ok.
-register_backend(Name, Module) ->
-    persistent_term:put({emqx_ds_backend_module, Name}, Module).
 
 -doc """
 Create a new DS database or open an existing one.
@@ -629,26 +519,23 @@ Database is considered initialized once `wait_db/3` function returns.
 This separation of functionality simplifies startup procedure of the
 EMQX application.
 """.
--spec open_db(db(), create_db_opts()) -> ok.
-open_db(DB, UserOpts) ->
-    Opts = #{backend := Backend} = set_db_defaults(UserOpts),
-    %% Sanity checks:
-    case Opts of
-        #{store_ttv := true, append_only := true} ->
-            %% Currently `append_only' semantic is not supported for
-            %% TTV databases.
-            error({incompatible_options, [store_ttv, append_only]});
-        _ ->
-            ok
-    end,
-    %% Call backend:
-    case persistent_term:get({emqx_ds_backend_module, Backend}, undefined) of
-        undefined ->
-            error({no_such_backend, Backend});
-        Module ->
-            persistent_term:put(?persistent_term(DB), Module),
-            emqx_ds_sup:register_db(DB, Backend),
-            ?module(DB):open_db(DB, Opts)
+-spec open_db(db(), create_db_opts()) -> ok | {error, _}.
+open_db(DB, UserOpts = #{backend := Backend}) ->
+    maybe
+        {ok, Mod} ?= emqx_dsch:get_backend_cbm(Backend),
+        GlobalDefaults = #{payload_type => ?ds_pt_ttv},
+        Opts = emqx_utils_maps:deep_merge(
+            emqx_utils_maps:deep_merge(GlobalDefaults, Mod:default_db_opts()),
+            UserOpts
+        ),
+        {ok, NewSchema, RuntimeConf} ?= Mod:verify_db_opts(DB, Opts),
+        {ok, IsNew, Schema} ?=
+            emqx_dsch:ensure_db_schema(
+                DB,
+                NewSchema#{backend => Backend}
+            ),
+        ok ?= Mod:open_db(DB, IsNew, Schema, RuntimeConf),
+        emqx_ds_sup:ensure_new_stream_watch(DB)
     end.
 
 -doc """
@@ -702,18 +589,30 @@ set_db_ready(DB, false) ->
 -doc """
 Gracefully close a DB.
 """.
--spec close_db(db()) -> ok.
+-spec close_db(db()) -> ok | error(_).
 close_db(DB) ->
-    set_db_ready(DB, false),
-    emqx_ds_sup:unregister_db(DB),
-    ?module(DB):close_db(DB).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        maybe
+            ok ?= Mod:close_db(DB),
+            emqx_dsch:close_db(DB)
+        end
+    ).
 
 -doc """
 List open DBs and their backends.
 """.
 -spec which_dbs() -> [{db(), _Backend :: atom()}].
 which_dbs() ->
-    emqx_ds_sup:which_dbs().
+    #{dbs := DBs} = emqx_dsch:get_site_schema(),
+    maps:fold(
+        fun(DB, #{backend := Backend}, Acc) ->
+            [{DB, Backend} | Acc]
+        end,
+        [],
+        DBs
+    ).
 
 -doc """
 Add a new generation within each shard.
@@ -751,24 +650,51 @@ change the default layout, followed by `add_generation/1`.
   process that moves and transforms data to the new generation.
 
 """.
--spec add_generation(db()) -> ok.
+-spec add_generation(db()) -> ok | error(_).
 add_generation(DB) ->
-    ?module(DB):add_generation(DB).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:add_generation(DB)
+    ).
 
 -doc """
 Update settings of a database.
 
 Note: certain settings, such as backend, number of shards and certain
 semantic flags cannot be changed for the existing DBs.
-
 """.
--spec update_db_config(db(), create_db_opts()) -> ok.
-update_db_config(DB, Opts) ->
-    ?module(DB):update_db_config(DB, set_db_defaults(Opts)).
+-spec update_db_config(db(), #{atom() => _}) -> ok | error(_).
+update_db_config(DB, Patch) ->
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        maybe
+            #{} ?= emqx_dsch:get_db_runtime(DB),
+            {ok, NewSchema, NewRTConf} ?= Mod:verify_db_opts(DB, Patch),
+            Mod:update_db_config(DB, NewSchema, NewRTConf)
+        else
+            {error, Err} ->
+                ?err_unrec(Err);
+            {error, _, _} = Err ->
+                Err;
+            undefined ->
+                ?err_rec(db_is_closed)
+        end
+    ).
 
 -spec list_slabs(db()) -> #{slab() => slab_info()}.
 list_slabs(DB) ->
-    ?module(DB):list_slabs(DB).
+    {Ret, _Err} = list_slabs(DB, #{}),
+    Ret.
+
+-spec list_slabs(db(), list_slabs_opts()) -> list_slabs_result().
+list_slabs(DB, Opts) ->
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:list_slabs(DB, Opts)
+    ).
 
 -doc """
 Delete an entire slab `Slab` from the database `DB`.
@@ -777,20 +703,28 @@ This operation is the most efficient way to delete data.
 """.
 -spec drop_slab(db(), slab()) -> ok | {error, _}.
 drop_slab(DB, Slab) ->
-    ?module(DB):drop_slab(DB, Slab).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:drop_slab(DB, Slab)
+    ).
 
 -doc """
 Drop DB and destroy all data stored there.
 """.
--spec drop_db(db()) -> ok.
+-spec drop_db(db()) -> ok | {error, _}.
 drop_db(DB) ->
-    set_db_ready(DB, false),
-    case persistent_term:get(?persistent_term(DB), undefined) of
+    maybe
+        #{backend := Backend} ?= emqx_dsch:get_db_schema(DB),
+        {ok, Mod} ?= emqx_dsch:get_backend_cbm(Backend),
+        %% TODO: readiness should be handled by the DB's own logic:
+        set_db_ready(DB, false),
+        Mod:drop_db(DB)
+    else
         undefined ->
-            ok;
-        Module ->
-            _ = persistent_term:erase(?persistent_term(DB)),
-            Module:drop_db(DB)
+            {error, no_such_db};
+        {error, _} = Err ->
+            Err
     end.
 
 -doc """
@@ -798,7 +732,11 @@ List all shards of the database.
 """.
 -spec list_shards(db()) -> [shard()].
 list_shards(DB) ->
-    ?module(DB):list_shards(DB).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:list_shards(DB)
+    ).
 
 -doc """
 Get shard of a client ID or a topic.
@@ -809,15 +747,60 @@ DB using client ID for sharding and vice versa.
 """.
 -spec shard_of(db(), emqx_types:clientid() | topic()) -> shard().
 shard_of(DB, ClientId) ->
-    ?module(DB):shard_of(DB, ClientId).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:shard_of(DB, ClientId)
+    ).
 
--spec store_batch(db(), batch(), message_store_opts()) -> store_batch_result().
-store_batch(DB, Msgs, Opts) ->
-    ?module(DB):store_batch(DB, Msgs, Opts).
+-doc """
+This function is used to stream data into a DB with as little overhead as possible.
+It adds data to the latest generation of the shard.
+This function is asynchronous.
 
--spec store_batch(db(), batch()) -> store_batch_result().
-store_batch(DB, Msgs) ->
-    store_batch(DB, Msgs, #{}).
+WARNING: this function breaks isolation of transactions.
+Data written using `dirty_append` doesn't appear in the conflict tracking structures used by optimistic transactions.
+Generally, transactions and dirty_appends should not be mixed in one DB.
+
+Options:
+
+- **`reply`**: a boolean indicating whether or not DS should notify the caller when data is committed.
+  If set to `false`, function returns `noreply` and DS will not send back anything.
+  "Fire and forget" mode.
+
+  If set to `true`, this function will return a reference
+  that can be used to match the reply from DS using `?ds_tx_commit_reply(Ref, Reply)` macro.
+  The outcome can be then extracted from the reply using `dirty_append_outcome/2` function.
+
+  Note that the reply is not guaranteed at all, so the caller should implement
+  a reasonable timeout and error handling policy on its own.
+
+  Default: `true`.
+""".
+-spec dirty_append(dirty_append_opts(), dirty_append_data()) -> reference() | noreply | error(_).
+dirty_append(#{db := DB, shard := _} = UserOpts, Data) ->
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        begin
+            Opts = maps:merge(#{reply => true}, UserOpts),
+            Mod:dirty_append(Opts, Data)
+        end
+    ).
+
+-spec dirty_append_outcome(reference(), term()) ->
+    {ok, tx_serial()} | emqx_ds:error(_).
+dirty_append_outcome(Ref, ?ds_tx_commit_reply(Ref, Reply)) when is_reference(Ref) ->
+    %% Note: here we simply assume that Ref is a monitor reference.
+    demonitor(Ref),
+    case Reply of
+        ?ds_tx_commit_ok(_, _Reserved, Serial) ->
+            {ok, Serial};
+        ?ds_tx_commit_error(_, _Reserved, Class, Info) ->
+            {error, Class, Info};
+        {'DOWN', _Ref, Type, Object, Info} ->
+            ?err_rec({Type, Object, Info})
+    end.
 
 -doc "Simplified version of `get_streams/4` that ignores the errors.".
 -spec get_streams(db(), topic_filter(), time()) -> [{slab(), stream()}].
@@ -877,7 +860,11 @@ filter may be cumbersome, it opens up some possibilities:
 """.
 -spec get_streams(db(), topic_filter(), time(), get_streams_opts()) -> get_streams_result().
 get_streams(DB, TopicFilter, StartTime, Opts) ->
-    ?module(DB):get_streams(DB, TopicFilter, StartTime, Opts).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:get_streams(DB, TopicFilter, StartTime, Opts)
+    ).
 
 -doc """
 Make an iterator that can be used to traverse the given stream and topic filter.
@@ -888,7 +875,11 @@ StartTime: timestamp of the first payload *included* in the batch.
 """.
 -spec make_iterator(db(), stream(), topic_filter(), time()) -> make_iterator_result().
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
-    ?module(DB):make_iterator(DB, Stream, TopicFilter, StartTime).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:make_iterator(DB, Stream, TopicFilter, StartTime)
+    ).
 
 -doc """
 Fetch a batch of payloads from the DB, starting from position marked by the iterator.
@@ -903,7 +894,11 @@ Size of the batch is controlled by the NextLimit parameter.
 """.
 -spec next(db(), iterator(), next_limit()) -> next_result(iterator()).
 next(DB, It, NextLimit) ->
-    ?module(DB):next(DB, It, NextLimit).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:next(DB, It, NextLimit)
+    ).
 
 -doc """
 
@@ -949,12 +944,20 @@ iterator.
 -spec subscribe(db(), iterator(), sub_opts()) ->
     {ok, subscription_handle(), sub_ref()} | error(_).
 subscribe(DB, Iterator, SubOpts) ->
-    ?module(DB):subscribe(DB, Iterator, SubOpts).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:subscribe(DB, Iterator, SubOpts)
+    ).
 
 -doc #{title => <<"Subscriptions">>, since => <<"5.9.0">>}.
 -spec unsubscribe(db(), subscription_handle()) -> boolean().
-unsubscribe(DB, SubRef) ->
-    ?module(DB):unsubscribe(DB, SubRef).
+unsubscribe(DB, SubHandle) ->
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:unsubscribe(DB, SubHandle)
+    ).
 
 -doc """
 
@@ -966,39 +969,21 @@ with the acks are paused.
 """.
 -doc #{title => <<"Subscriptions">>, since => <<"5.9.0">>}.
 -spec suback(db(), subscription_handle(), non_neg_integer()) -> ok.
-suback(DB, SubRef, SeqNo) ->
-    ?module(DB):suback(DB, SubRef, SeqNo).
+suback(DB, SubHandle, SeqNo) ->
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:suback(DB, SubHandle, SeqNo)
+    ).
 
 -doc "Get information about the subscription.".
 -spec subscription_info(db(), subscription_handle()) -> sub_info() | undefined.
 subscription_info(DB, Handle) ->
-    ?module(DB):subscription_info(DB, Handle).
-
--spec get_delete_streams(db(), topic_filter(), time()) -> [delete_stream()].
-get_delete_streams(DB, TopicFilter, StartTime) ->
-    Mod = ?module(DB),
-    call_if_implemented(Mod, get_delete_streams, [DB, TopicFilter, StartTime], []).
-
--spec make_delete_iterator(db(), ds_specific_delete_stream(), topic_filter(), time()) ->
-    make_delete_iterator_result().
-make_delete_iterator(DB, Stream, TopicFilter, StartTime) ->
-    Mod = ?module(DB),
-    call_if_implemented(
-        Mod, make_delete_iterator, [DB, Stream, TopicFilter, StartTime], {error, not_implemented}
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:subscription_info(DB, Handle)
     ).
-
--spec delete_next(db(), delete_iterator(), delete_selector(), pos_integer()) ->
-    delete_next_result().
-delete_next(DB, Iter, Selector, BatchSize) ->
-    Mod = ?module(DB),
-    call_if_implemented(
-        Mod, delete_next, [DB, Iter, Selector, BatchSize], {error, not_implemented}
-    ).
-
--spec count(db()) -> non_neg_integer() | {error, not_implemented}.
-count(DB) ->
-    Mod = ?module(DB),
-    call_if_implemented(Mod, count, [DB], {error, not_implemented}).
 
 -doc """
 Low-level transaction API. Obtain context for an optimistic
@@ -1007,7 +992,11 @@ transaction.
 -doc #{title => <<"Low-level transactions">>, since => <<"5.10.0">>}.
 -spec new_tx(db(), transaction_opts()) -> {ok, tx_context()} | error(_).
 new_tx(DB, Opts) ->
-    ?module(DB):new_tx(DB, Opts).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:new_tx(DB, Opts)
+    ).
 
 -doc """
 
@@ -1029,7 +1018,11 @@ function.
     (db(), tx_context(), tx_ops()) -> reference();
     (db(), tx_context(), tx_ops()) -> reference().
 commit_tx(DB, TxContext, TxOps) ->
-    ?module(DB):commit_tx(DB, TxContext, TxOps).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:commit_tx(DB, TxContext, TxOps)
+    ).
 
 -doc """
 Process asynchronous DS transaction commit reply and return
@@ -1042,14 +1035,20 @@ the transaction that may leak otherwise.
 -spec tx_commit_outcome(db(), reference(), term()) ->
     commit_result().
 tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
-    SideEffects = tx_pop_side_effects(Ref),
-    case ?module(DB):tx_commit_outcome(Reply) of
-        {ok, _} = Ok ->
-            tx_eval_side_effects(SideEffects),
-            Ok;
-        Other ->
-            Other
-    end.
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        begin
+            SideEffects = tx_pop_side_effects(Ref),
+            case Mod:tx_commit_outcome(Reply) of
+                {ok, _} = Ok ->
+                    tx_eval_side_effects(SideEffects),
+                    Ok;
+                Other ->
+                    Other
+            end
+        end
+    ).
 
 %%================================================================================
 %% Utility functions
@@ -1096,9 +1095,6 @@ The following is guaranteed, though:
   particular, transaction side effects become visible _eventually_
   after the successful commit. They are not visible inside the
   transaction environment.
-
-- Currently this API is supported only for DBs created with
-  `store_ttv = true`.
 
 - Transaction API is entirely optimistic, and it's not at all
   optimized to handle conflicts. When DS _suspects_ a potential
@@ -1222,12 +1218,16 @@ have to be proper unicode and levels can contain slashes.
 
 """.
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
--spec tx_write({topic(), time() | ?ds_tx_ts_monotonic, binary() | ?ds_tx_serial}) -> ok.
+-spec tx_write({
+    topic(),
+    time() | ?ds_tx_ts_monotonic,
+    binary() | ?ds_tx_serial | emqx_ds_payload_transform:payload()
+}) -> ok.
 tx_write({Topic, Time, Value}) ->
     case
         is_topic(Topic) andalso
             (is_integer(Time) orelse Time =:= ?ds_tx_ts_monotonic) andalso
-            (is_binary(Value) orelse Value =:= ?ds_tx_serial)
+            (is_binary(Value) orelse Value =:= ?ds_tx_serial orelse is_tuple(Value))
     of
         true ->
             tx_push_op(?tx_ops_write, {Topic, Time, Value});
@@ -1328,25 +1328,58 @@ tx_on_success(Fun) ->
 -doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
 -spec stream_to_binary(db(), stream()) -> {ok, binary()} | {error, _}.
 stream_to_binary(DB, Stream) ->
-    ?module(DB):stream_to_binary(DB, Stream).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:stream_to_binary(DB, Stream)
+    ).
 
 -doc "De-serialize a binary produced by `stream_to_binary/2`.".
 -doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
 -spec binary_to_stream(db(), binary()) -> {ok, stream()} | {error, _}.
 binary_to_stream(DB, Stream) ->
-    ?module(DB):binary_to_stream(DB, Stream).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:binary_to_stream(DB, Stream)
+    ).
 
 -doc "Serialize iterator to a compact binary representation.".
 -doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
 -spec iterator_to_binary(db(), iterator() | end_of_stream) -> {ok, binary()} | {error, _}.
 iterator_to_binary(DB, Iterator) ->
-    ?module(DB):iterator_to_binary(DB, Iterator).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:iterator_to_binary(DB, Iterator)
+    ).
 
 -doc "De-serialize a binary produced by `iterator_to_binary/2`.".
 -doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
 -spec binary_to_iterator(db(), binary()) -> {ok, iterator() | end_of_stream} | {error, _}.
 binary_to_iterator(DB, Iterator) ->
-    ?module(DB):binary_to_iterator(DB, Iterator).
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:binary_to_iterator(DB, Iterator)
+    ).
+
+-doc """
+Serialize multi_iterator to a compact binary representation.
+
+Note: currently this function is implemented only for TTV databases.
+""".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec multi_iterator_to_binary(multi_iterator() | end_of_stream) ->
+    {ok, binary()} | {error, _}.
+multi_iterator_to_binary(It = #'MultiIterator'{}) ->
+    'DSBuiltinMetadata':encode('MultiIterator', It).
+
+-doc "De-serialize a binary produced by `multi_iterator_to_binary/1`.".
+-doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.
+-spec binary_to_multi_iterator(binary()) -> {ok, multi_iterator()} | {error, _}.
+binary_to_multi_iterator(Bin) ->
+    'DSBuiltinMetadata':decode('MultiIterator', Bin).
 
 -doc "Restart the transaction.".
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
@@ -1574,7 +1607,7 @@ create the iterator.
     pos_integer()
 ) ->
     {[payload()], multi_iterator() | '$end_of_table'}.
-multi_iterator_next(UserOpts, TF, It = #m_iter{}, N) ->
+multi_iterator_next(UserOpts, TF, It = #'MultiIterator'{}, N) ->
     do_multi_iterator_next(multi_iter_opts(UserOpts), TF, It, N, []);
 multi_iterator_next(_, _, '$end_of_table', _) ->
     {[], '$end_of_table'}.
@@ -1637,39 +1670,24 @@ timestamp_us() ->
     erlang:system_time(microsecond).
 
 -doc """
-
-Version of `emqx_topic:words()' that doesn't transform empty topic into atom ''.
-
+Version of `emqx_topic:words()' that doesn't transform empty topic or
+empty topic-level into atom ''.
 """.
--spec topic_words(binary()) -> topic().
-topic_words(<<>>) -> [];
-topic_words(Bin) -> emqx_topic:words(Bin).
+-spec topic_words(binary()) -> topic_filter().
+topic_words(Bin) ->
+    Tokens = binary:split(Bin, <<"/">>, [global]),
+    lists:map(
+        fun
+            (<<"+">>) -> '+';
+            (<<"#">>) -> '#';
+            (W) -> W
+        end,
+        Tokens
+    ).
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-set_db_defaults(Opts = #{store_ttv := true}) ->
-    Defaults = #{
-        append_only => false,
-        atomic_batches => true
-    },
-    maps:merge(Defaults, Opts);
-set_db_defaults(Opts) ->
-    Defaults = #{
-        append_only => true,
-        atomic_batches => false,
-        store_ttv => false
-    },
-    maps:merge(Defaults, Opts).
-
-call_if_implemented(Mod, Fun, Args, Default) ->
-    case erlang:function_exported(Mod, Fun, length(Args)) of
-        true ->
-            apply(Mod, Fun, Args);
-        false ->
-            Default
-    end.
 
 -spec trans_maybe_retry(
     db(),
@@ -1862,7 +1880,9 @@ do_multi_iterator_next(_Opts, _TF, '$end_of_table', _N, Acc) ->
     {Acc, '$end_of_table'};
 do_multi_iterator_next(_Opts, _TF, MIt, N, Acc) when N =< 0 ->
     {Acc, MIt};
-do_multi_iterator_next(Opts = #{db := DB}, TF, MIt0 = #m_iter{it = It0, stream = Stream}, N, Acc0) ->
+do_multi_iterator_next(
+    Opts = #{db := DB}, TF, MIt0 = #'MultiIterator'{iterator = It0, stream = Stream}, N, Acc0
+) ->
     Result = next(DB, It0, N),
     Len =
         case Result of
@@ -1873,7 +1893,7 @@ do_multi_iterator_next(Opts = #{db := DB}, TF, MIt0 = #m_iter{it = It0, stream =
         end,
     case Result of
         {ok, It, Batch} when Len >= N ->
-            {Acc0 ++ Batch, MIt0#m_iter{it = It}};
+            {Acc0 ++ Batch, MIt0#'MultiIterator'{iterator = It}};
         Other ->
             Acc =
                 case Other of
@@ -1915,7 +1935,7 @@ do_multi_iter_make_it(_Opts, _TopicFilter, '$end_of_table') ->
     '$end_of_table';
 do_multi_iter_make_it(#{db := DB, start_time := StartTime}, TopicFilter, {ok, Stream}) ->
     {ok, It} = make_iterator(DB, Stream, TopicFilter, StartTime),
-    #m_iter{
+    #'MultiIterator'{
         stream = Stream,
-        it = It
+        iterator = It
     }.

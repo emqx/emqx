@@ -9,6 +9,8 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include("emqx_ds.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -spec on([node()] | node(), fun(() -> A)) -> A | [A].
 on(Node, Fun) when is_atom(Node) ->
@@ -117,7 +119,12 @@ message_canonical_form(#{flags := Flags0, headers := _Headers0, payload := Paylo
         fun(_Key, Val) -> Val end,
         Flags0
     ),
-    Msg#{flags := Flags, payload := iolist_to_binary(Payload0)}.
+    %% Note: timestamp is assigned by DS, so it's impossible to
+    %% compare it. ID may be dropped as well.
+    maps:merge(
+        maps:with([qos, from, headers, topic, extra], Msg),
+        #{flags => Flags, payload => iolist_to_binary(Payload0)}
+    ).
 
 sublist(L) ->
     PrintMax = 20,
@@ -153,16 +160,13 @@ assert_same_set(Expected, Got, Comment) ->
             })
     end.
 
-message_eq(Fields, {_Key, Msg1 = #message{}}, Msg2) ->
-    message_eq(Fields, Msg1, Msg2);
-message_eq(Fields, Msg1, {_Key, Msg2 = #message{}}) ->
-    message_eq(Fields, Msg1, Msg2);
 message_eq(Fields, Msg1 = #message{}, Msg2 = #message{}) ->
-    maps:with(Fields, message_canonical_form(Msg1)) =:=
-        maps:with(Fields, message_canonical_form(Msg2)).
+    message_eq(Fields, message_canonical_form(Msg1), message_canonical_form(Msg2));
+message_eq(Fields, Msg1 = #{}, Msg2 = #{}) ->
+    maps:with(Fields, Msg1) =:= maps:with(Fields, Msg2).
 
 diff_messages(Expected, Got) ->
-    Fields = [id, qos, from, flags, headers, topic, payload, extra],
+    Fields = [qos, from, flags, headers, topic, payload, extra],
     diff_messages(Fields, Expected, Got).
 
 diff_messages(Fields, Expected, Got) ->
@@ -220,30 +224,30 @@ consume_iter(DB, It0, Opts) ->
         Opts
     ).
 
-storage_consume(ShardId, TopicFilter) ->
-    storage_consume(ShardId, TopicFilter, 0).
+storage_consume(DBShard, TopicFilter) ->
+    storage_consume(DBShard, TopicFilter, 0).
 
-storage_consume(ShardId, TopicFilter, StartTime) ->
-    Streams = emqx_ds_storage_layer:get_streams(ShardId, TopicFilter, StartTime, 0),
+storage_consume(DBShard, TopicFilter, StartTime) ->
+    Streams = emqx_ds_storage_layer_ttv:get_streams(DBShard, TopicFilter, StartTime, 0),
     lists:flatmap(
-        fun({_Rank, Stream}) ->
-            storage_consume_stream(ShardId, Stream, TopicFilter, StartTime)
+        fun(Stream) ->
+            storage_consume_stream(DBShard, Stream, TopicFilter, StartTime)
         end,
         Streams
     ).
 
-storage_consume_stream(ShardId, Stream, TopicFilter, StartTime) ->
-    {ok, It0} = emqx_ds_storage_layer:make_iterator(ShardId, Stream, TopicFilter, StartTime),
-    {ok, _It, Msgs} = storage_consume_iter(ShardId, It0),
+storage_consume_stream(DBShard = {DB, _}, Stream, TopicFilter, StartTime) ->
+    {ok, It0} = emqx_ds_storage_layer_ttv:make_iterator(DB, Stream, TopicFilter, StartTime),
+    {ok, _It, Msgs} = storage_consume_iter(DBShard, It0),
     Msgs.
 
-storage_consume_iter(ShardId, It) ->
-    storage_consume_iter(ShardId, It, #{}).
+storage_consume_iter(DBShard, It) ->
+    storage_consume_iter(DBShard, It, #{}).
 
-storage_consume_iter(ShardId, It0, Opts) ->
+storage_consume_iter({DB, _}, It0, Opts) ->
     consume_iter_with(
         fun(It, BatchSize) ->
-            emqx_ds_storage_layer:next(ShardId, It, BatchSize, emqx_ds:timestamp_us(), false)
+            emqx_ds_storage_layer_ttv:next(DB, It, BatchSize, emqx_ds:timestamp_us())
         end,
         It0,
         Opts
@@ -262,3 +266,49 @@ consume_iter_with(NextFun, It0, Opts) ->
         {error, Class, Reason} ->
             error({error, Class, Reason})
     end.
+
+%% Sync wrapper over `dirty_append' API. If shard is not specified and
+%% payload type is TTV, then data is added to the first shard. If
+%% payload type is MQTT message, then shard is selected according to
+%% the `from' field of the *first* message.
+dirty_append(DB, MsgsOrTTVs) when is_atom(DB) ->
+    dirty_append(#{db => DB}, MsgsOrTTVs);
+dirty_append(Opts = #{db := DB}, MsgsOrTTVs) ->
+    Retries = maps:get(retries, Opts, 0),
+    case MsgsOrTTVs of
+        [#message{from = ClientId} | _] ->
+            Shard = emqx_ds:shard_of(DB, ClientId),
+            TTVs = [emqx_ds_payload_transform:message_to_ttv(I) || I <- MsgsOrTTVs];
+        [{_, _, _} | _] ->
+            Shard = maps:get(shard, Opts, first_shard(DB)),
+            TTVs = MsgsOrTTVs
+    end,
+    retry_dirty_append(Shard, Opts, TTVs, Retries).
+
+retry_dirty_append(Shard, Opts, TTVs, Retries) ->
+    Ref = emqx_ds:dirty_append(Opts#{reply => true, shard => Shard}, TTVs),
+    ?assert(is_reference(Ref)),
+    Result =
+        receive
+            ?ds_tx_commit_reply(Ref, Reply) ->
+                case emqx_ds:dirty_append_outcome(Ref, Reply) of
+                    {ok, Serial} when is_binary(Serial) ->
+                        ok;
+                    Other ->
+                        Other
+                end
+        after 5_000 ->
+            {error, recoverable, timeout}
+        end,
+    case Result of
+        ok ->
+            ok;
+        _ when Retries > 0 ->
+            timer:sleep(500),
+            retry_dirty_append(Shard, Opts, TTVs, Retries - 1);
+        _ ->
+            Result
+    end.
+
+first_shard(DB) ->
+    hd(lists:sort(emqx_ds:list_shards(DB))).

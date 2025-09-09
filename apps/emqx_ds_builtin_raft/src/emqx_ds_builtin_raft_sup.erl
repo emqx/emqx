@@ -10,8 +10,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_top/0, start_db/2, stop_db/1, which_dbs/0]).
--export([set_gvar/3, get_gvar/3, clean_gvars/1]).
+-export([start_top/0, start_db/4, stop_db/1, which_dbs/0]).
 
 %% behavior callbacks:
 -export([init/1]).
@@ -42,12 +41,16 @@
 start_top() ->
     supervisor:start_link({local, ?top}, ?MODULE, ?top).
 
--spec start_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
-    supervisor:startchild_ret().
-start_db(DB, Opts) ->
+-spec start_db(
+    emqx_ds:db(), Create, emqx_ds_builtin_raft:db_schema(), emqx_ds_builtin_raft:db_runtime_config()
+) ->
+    supervisor:startchild_ret()
+when
+    Create :: boolean().
+start_db(DB, Create, Schema, RTConf) ->
     ChildSpec = #{
         id => DB,
-        start => {emqx_ds_builtin_raft_db_sup, start_db, [DB, Opts]},
+        start => {emqx_ds_builtin_raft_db_sup, start_db, [DB, Create, Schema, RTConf]},
         type => supervisor,
         shutdown => infinity
     },
@@ -58,8 +61,7 @@ stop_db(DB) ->
     case whereis(?databases) of
         Pid when is_pid(Pid) ->
             _ = supervisor:terminate_child(?databases, DB),
-            _ = supervisor:delete_child(?databases, DB),
-            clean_gvars(DB);
+            _ = supervisor:delete_child(?databases, DB);
         undefined ->
             ok
     end.
@@ -72,21 +74,6 @@ which_dbs() ->
         undefined ->
             {error, inactive}
     end.
-
-%% @doc Set a DB-global variable. Please don't abuse this API.
--spec set_gvar(emqx_ds:db(), _Key, _Val) -> ok.
-set_gvar(DB, Key, Val) ->
-    ets:insert(?gvar_tab, #gvar{k = {DB, Key}, v = Val}),
-    ok.
-
--spec get_gvar(emqx_ds:db(), _Key, Val) -> Val.
-get_gvar(DB, Key, Default) ->
-    ets:lookup_element(?gvar_tab, {DB, Key}, #gvar.v, Default).
-
--spec clean_gvars(emqx_ds:db()) -> ok.
-clean_gvars(DB) ->
-    ets:match_delete(?gvar_tab, #gvar{k = {DB, '_'}, _ = '_'}),
-    ok.
 
 %%================================================================================
 %% behavior callbacks
