@@ -594,6 +594,9 @@ probe_connector_api(Config, Overrides) ->
     ct:pal("probing connector (~s, http) result:\n  ~p", [Type, Res]),
     Res.
 
+probe_connector_api2(TCConfig, Overrides) ->
+    simplify_result(probe_connector_api(TCConfig, Overrides)).
+
 list_bridges_http_api_v1() ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     ct:pal("list bridges (http v1)"),
@@ -787,6 +790,9 @@ get_value(Key, Config) ->
             Value
     end.
 
+get_value(Key, Config, Default) ->
+    proplists:get_value(Key, Config, Default).
+
 get_common_values(Config) ->
     Kind = proplists:get_value(bridge_kind, Config, action),
     case Kind of
@@ -809,6 +815,23 @@ get_common_values(Config) ->
                 connector_name => get_value(connector_name, Config)
             }
     end.
+
+get_common_values_with_configs(Config) ->
+    Values = #{kind := Kind} = get_common_values(Config),
+    ConnectorConfig = get_value(connector_config, Config),
+    KindConfig =
+        case Kind of
+            action ->
+                get_value(action_config, Config, undefined);
+            source ->
+                get_value(source_config, Config, undefined)
+        end,
+    emqx_utils_maps:put_if(
+        Values#{connector_config => ConnectorConfig},
+        config,
+        KindConfig,
+        KindConfig /= undefined
+    ).
 
 connector_resource_id(Config) ->
     #{connector_type := Type, connector_name := Name} = get_common_values(Config),
