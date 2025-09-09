@@ -51,13 +51,20 @@
 -define(MAX_PREFIX_BYTES, 19).
 -define(AUTO_RECONNECT_INTERVAL_S, 2).
 
+-define(available_clientid_info, available_clientid_info).
+
 -type clientid() :: binary().
+-type clientid_info() :: #{
+    clientid := clientid(),
+    username => binary(),
+    password => emqx_schema_secret:secret()
+}.
 -type channel_resource_id() :: action_resource_id() | source_resource_id().
 -type connector_state() :: #{
     pool_name := connector_resource_id(),
     installed_channels := #{channel_resource_id() => channel_state()},
     clean_start := boolean(),
-    available_clientids := [clientid()],
+    ?available_clientid_info := [clientid_info()],
     topic_to_handler_index := ets:table(),
     server := string()
 }.
@@ -202,11 +209,11 @@ on_get_channel_status(
     _ResId,
     ChannelId,
     #{
-        available_clientids := AvailableClientids,
+        ?available_clientid_info := AvailableClientidInfo,
         installed_channels := Channels
     } = _State
 ) when is_map_key(ChannelId, Channels) ->
-    case AvailableClientids of
+    case AvailableClientidInfo of
         [] ->
             %% We should mark this connector as unhealthy so messages fail fast and an
             %% alarm is raised.
@@ -223,14 +230,14 @@ start_mqtt_clients(ResourceId, Conf) ->
     ClientOpts = mk_ecpool_client_opts(ResourceId, Conf),
     start_mqtt_clients(ResourceId, Conf, ClientOpts).
 
-find_my_static_clientids(#{static_clientids := [_ | _] = Entries}) ->
+find_my_static_clientid_info(#{static_clientids := [_ | _] = Entries}) ->
     NodeBin = atom_to_binary(node()),
     MyConfig =
         lists:filtermap(
-            fun(#{node := N, ids := Ids}) ->
+            fun(#{node := N, ids := Info}) ->
                 case N =:= NodeBin of
                     true ->
-                        {true, Ids};
+                        {true, Info};
                     false ->
                         false
                 end
@@ -238,44 +245,45 @@ find_my_static_clientids(#{static_clientids := [_ | _] = Entries}) ->
             Entries
         ),
     {ok, lists:flatten(MyConfig)};
-find_my_static_clientids(#{} = _Conf) ->
+find_my_static_clientid_info(#{} = _Conf) ->
     error.
 
 start_mqtt_clients(ResourceId, StartConf, ClientOpts) ->
     PoolName = ResourceId,
     PoolSize = get_pool_size(StartConf),
-    AvailableClientids = get_available_clientids(StartConf, ClientOpts),
+    AvailableClientidInfo = get_available_clientid_info(StartConf, ClientOpts),
     Options = [
         {name, PoolName},
         {pool_size, PoolSize},
-        {available_clientids, AvailableClientids},
+        {?available_clientid_info, AvailableClientidInfo},
         {client_opts, ClientOpts},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S}
     ],
     ok = emqx_resource:allocate_resource(ResourceId, ?MODULE, pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
         ok ->
-            {ok, #{pool_name => PoolName, available_clientids => AvailableClientids}};
+            {ok, #{pool_name => PoolName, ?available_clientid_info => AvailableClientidInfo}};
         {error, {start_pool_failed, _, Reason}} ->
             {error, Reason}
     end.
 
 get_pool_size(#{static_clientids := [_ | _]} = Conf) ->
-    {ok, Ids} = find_my_static_clientids(Conf),
-    length(Ids);
+    {ok, Info} = find_my_static_clientid_info(Conf),
+    length(Info);
 get_pool_size(#{pool_size := PoolSize}) ->
     PoolSize.
 
-get_available_clientids(#{} = Conf, ClientOpts) ->
-    case find_my_static_clientids(Conf) of
-        {ok, Ids} ->
-            Ids;
+get_available_clientid_info(#{} = Conf, ClientOpts) ->
+    case find_my_static_clientid_info(Conf) of
+        {ok, Info} ->
+            Info;
         error ->
             #{pool_size := PoolSize} = Conf,
             #{clientid := ClientIdPrefix} = ClientOpts,
             lists:map(
                 fun(WorkerId) ->
-                    mk_clientid(WorkerId, ClientIdPrefix)
+                    Opts = maps:with([username, password], ClientOpts),
+                    Opts#{clientid => mk_clientid(WorkerId, ClientIdPrefix)}
                 end,
                 lists:seq(1, PoolSize)
             )
@@ -451,10 +459,10 @@ combine_status(Statuses, ConnState) ->
     %% Natural order of statuses: [connected, connecting, disconnected]
     %% * `disconnected` wins over any other status
     %% * `connecting` wins over `connected`
-    #{available_clientids := AvailableClientids} = ConnState,
+    #{?available_clientid_info := AvailableClientidInfo} = ConnState,
     ExpectedNoClientids =
-        case AvailableClientids of
-            _ when length(AvailableClientids) == 0 ->
+        case AvailableClientidInfo of
+            _ when length(AvailableClientidInfo) == 0 ->
                 true;
             _ ->
                 false
@@ -528,7 +536,7 @@ mk_ecpool_client_opts(
         namespace := Namespace
     } =
         emqx_connector_resource:parse_connector_id(ConnResId, #{atom_name => false}),
-    mk_client_opt_password(Options#{
+    Options#{
         hosts => [HostPort],
         clientid => clientid(Namespace, Name, Config),
         connect_timeout => ConnectTimeoutS,
@@ -536,13 +544,7 @@ mk_ecpool_client_opts(
         force_ping => true,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))
-    }).
-
-mk_client_opt_password(Options = #{password := Secret}) ->
-    %% TODO: Teach `emqtt` to accept 0-arity closures as passwords.
-    Options#{password := emqx_secret:unwrap(Secret)};
-mk_client_opt_password(Options) ->
-    Options.
+    }.
 
 ms_to_s(Ms) ->
     erlang:ceil(Ms / 1000).
@@ -572,8 +574,10 @@ connect(Options) ->
     }),
     Name = proplists:get_value(name, Options),
     ClientOpts = proplists:get_value(client_opts, Options),
-    AvailableClientids = proplists:get_value(available_clientids, Options),
-    case emqtt:start_link(mk_emqtt_client_opts(Name, WorkerId, AvailableClientids, ClientOpts)) of
+    AvailableClientidInfo = proplists:get_value(?available_clientid_info, Options),
+    EmqttClientOpts = mk_emqtt_client_opts(Name, WorkerId, AvailableClientidInfo, ClientOpts),
+    ?tp("mqtt_emqtt_client_about_to_start", #{opts => EmqttClientOpts}),
+    case emqtt:start_link(EmqttClientOpts) of
         {ok, Pid} ->
             connect(Pid, Name);
         {error, Reason} = Error ->
@@ -590,16 +594,34 @@ connect(Options) ->
 mk_emqtt_client_opts(
     Name,
     WorkerId,
-    AvailableClientids,
-    ClientOpts = #{
+    AvailableClientidInfo,
+    ClientOpts0 = #{
         topic_to_handler_index := TopicToHandlerIndex
     }
 ) ->
     %% WorkerId :: 1..inf
-    ClientOpts#{
-        clientid := lists:nth(WorkerId, AvailableClientids),
+    ClientidInfo = lists:nth(WorkerId, AvailableClientidInfo),
+    %% `clientid` is always present.
+    ClientId = maps:get(clientid, ClientidInfo),
+    Username = maps:get(username, ClientidInfo, undefined),
+    Password = maps:get(password, ClientidInfo, undefined),
+    ClientOpts1 = ClientOpts0#{
+        clientid := ClientId,
         msg_handler => mk_client_event_handler(Name, TopicToHandlerIndex)
-    }.
+    },
+    ClientOpts2 =
+        case Username /= undefined of
+            true ->
+                ClientOpts1#{username => Username};
+            false ->
+                maps:remove(username, ClientOpts1)
+        end,
+    case Password /= undefined of
+        true ->
+            ClientOpts2#{password => Password};
+        false ->
+            maps:remove(password, ClientOpts2)
+    end.
 
 mk_clientid(WorkerId, {Prefix, ClientId}) when ?IS_NO_PREFIX(Prefix) ->
     %% When there is no prefix, try to keep the client ID length within 23 bytes

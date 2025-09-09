@@ -747,7 +747,7 @@ value_type(Val0) ->
         case unicode:characters_to_binary(Val0, utf8) of
             Val1 when is_binary(Val1) ->
                 [Val1];
-            Error ->
+            _Error ->
                 throw({unrecoverable_error, {non_utf8_string_value, Val0}})
         end,
     #{values => #{string_values => Val}, datatype => 'STRING'}.
