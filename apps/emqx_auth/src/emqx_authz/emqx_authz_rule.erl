@@ -56,7 +56,7 @@
 -type qos_condition() :: [qos()].
 -type retain_condition() :: retain() | all.
 
--type topic_condition() :: list(emqx_types:topic() | {eq, emqx_types:topic()}).
+-type topic_condition() :: list(emqx_types:topic() | {eq, emqx_types:topic()} | ?ALL_TOPICS).
 
 -type rule() :: {permission_resolution(), who_condition(), action_condition(), topic_condition()}.
 
@@ -124,7 +124,10 @@
 -type topic_precompile() :: topic_condition() | binary() | string().
 
 -type rule_precompile() :: {
-    permission_resolution_precompile(), who_condition(), action_precompile(), [topic_precompile()]
+    permission_resolution_precompile(),
+    who_condition(),
+    action_precompile(),
+    all | [topic_precompile()]
 }.
 
 -export_type([
@@ -153,10 +156,10 @@ compile(Permission, Who, Action, TopicFilters) ->
     compile({Permission, Who, Action, TopicFilters}).
 
 -spec compile({permission_resolution_precompile(), all} | rule_precompile()) -> rule().
-compile({Permission, all}) when
-    ?IS_PERMISSION(Permission)
-->
-    {Permission, all, all, [compile_topic(<<"#">>)]};
+compile({Permission, all}) when ?IS_PERMISSION(Permission) ->
+    compile({Permission, all, all, all});
+compile({Permission, Who, Action, all}) when ?IS_PERMISSION(Permission) ->
+    {Permission, compile_who(Who), compile_action(Action), [?ALL_TOPICS]};
 compile({Permission, Who, Action, TopicFilters}) when
     ?IS_PERMISSION(Permission) andalso is_list(TopicFilters)
 ->
@@ -175,6 +178,8 @@ compile(BadRule) ->
         value => BadRule
     }).
 
+compile_action(all) ->
+    all;
 compile_action(Action) ->
     compile_action(emqx_authz:feature_available(rich_actions), Action).
 
@@ -445,6 +450,8 @@ is_re_match(Value, Pattern) ->
 
 match_topics(_ClientInfo, _Topic, []) ->
     false;
+match_topics(_ClientInfo, _Topic, [?ALL_TOPICS | _Filters]) ->
+    true;
 match_topics(ClientInfo, Topic, [{pattern, PatternFilter} | Filters]) ->
     TopicFilter = render_topic(PatternFilter, ClientInfo),
     (is_binary(TopicFilter) andalso
