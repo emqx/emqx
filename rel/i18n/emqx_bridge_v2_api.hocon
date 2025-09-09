@@ -1,5 +1,28 @@
 emqx_bridge_v2_api {
 
+desc_node_status.desc:
+"""Node status."""
+
+desc_node_status.label:
+"""Node Status"""
+
+desc_status.desc:
+"""The status of the bridge<br/>
+- <code>connecting</code>: the initial state before any health probes were made.<br/>
+- <code>connected</code>: when the bridge passes the health probes.<br/>
+- <code>disconnected</code>: when the bridge can not pass health probes.<br/>
+- <code>stopped</code>: when the bridge resource is requested to be stopped.<br/>
+- <code>inconsistent</code>: When not all the nodes are at the same status."""
+
+desc_status.label:
+"""Bridge Status"""
+
+desc_status_reason.desc:
+"""This is the reason given in case a bridge is failing to connect."""
+
+desc_status_reason.label:
+"""Failure reason"""
+
 desc_api1.desc:
 """List all created bridges."""
 

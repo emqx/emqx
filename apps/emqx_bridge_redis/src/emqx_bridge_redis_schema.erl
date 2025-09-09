@@ -89,16 +89,16 @@ fields("post_connector") ->
 fields("put_connector") ->
     fields("config_connector");
 fields("get_connector") ->
-    emqx_bridge_schema:status_fields() ++
+    emqx_bridge_v2_api:status_fields() ++
         fields("post_connector");
 fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2");
+    emqx_bridge_v2_api:status_fields() ++ fields("post_bridge_v2");
 fields("post_bridge_v2") ->
     emqx_bridge_redis:type_name_fields(?TYPE) ++ fields("put_bridge_v2");
 fields("put_bridge_v2") ->
     fields(redis_action);
 fields("get_single") ->
-    emqx_bridge_schema:status_fields() ++ fields("put_single");
+    emqx_bridge_v2_api:status_fields() ++ fields("put_single");
 fields("put_single") ->
     fields("config_connector");
 fields("post_single") ->

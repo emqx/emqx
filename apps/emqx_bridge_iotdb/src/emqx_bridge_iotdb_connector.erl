@@ -218,7 +218,7 @@ fields("post_" ++ Driver) ->
 fields("put_" ++ Driver) ->
     fields("config_" ++ Driver);
 fields("get_" ++ Driver) ->
-    emqx_bridge_schema:status_fields() ++ fields("post_" ++ Driver).
+    emqx_bridge_v2_api:status_fields() ++ fields("post_" ++ Driver).
 
 common_fields(Driver) ->
     [

@@ -170,7 +170,7 @@ fields(auth_token) ->
             })}
     ];
 fields("get_" ++ Type) ->
-    emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
+    emqx_bridge_v2_api:status_fields() ++ fields("post_" ++ Type);
 fields("put_" ++ Type) ->
     fields("config_" ++ Type);
 fields("post_" ++ Type) ->

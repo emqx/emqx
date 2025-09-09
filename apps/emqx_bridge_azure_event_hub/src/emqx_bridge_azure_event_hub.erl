@@ -64,7 +64,7 @@ fields("put_bridge_v2") ->
     ),
     override_documentations(Fields);
 fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++
+    emqx_bridge_v2_api:status_fields() ++
         fields("post_bridge_v2");
 fields("post_bridge_v2") ->
     Fields = override(

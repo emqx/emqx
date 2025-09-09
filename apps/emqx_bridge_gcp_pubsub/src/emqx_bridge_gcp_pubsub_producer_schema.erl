@@ -86,7 +86,7 @@ fields(connector_resource_opts) ->
 %% HTTP API fields: action
 %%=========================================
 fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2");
+    emqx_bridge_v2_api:status_fields() ++ fields("post_bridge_v2");
 fields("post_bridge_v2") ->
     [type_field(), name_field() | fields("put_bridge_v2")];
 fields("put_bridge_v2") ->

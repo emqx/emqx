@@ -45,6 +45,7 @@
 
 -export([
     api_fields/3,
+    type_and_name_fields/1,
     undefined_as_null_field/0
 ]).
 
@@ -285,15 +286,15 @@ method_values(_Kind, put, _Type) ->
 api_fields("get_bridge_v2", Type, Fields) ->
     lists:append(
         [
-            emqx_bridge_schema:type_and_name_fields(Type),
-            emqx_bridge_schema:status_fields(),
+            type_and_name_fields(Type),
+            emqx_bridge_v2_api:status_fields(),
             Fields
         ]
     );
 api_fields("post_bridge_v2", Type, Fields) ->
     lists:append(
         [
-            emqx_bridge_schema:type_and_name_fields(Type),
+            type_and_name_fields(Type),
             Fields
         ]
     );
@@ -302,20 +303,26 @@ api_fields("put_bridge_v2", _Type, Fields) ->
 api_fields("get_source", Type, Fields) ->
     lists:append(
         [
-            emqx_bridge_schema:type_and_name_fields(Type),
-            emqx_bridge_schema:status_fields(),
+            type_and_name_fields(Type),
+            emqx_bridge_v2_api:status_fields(),
             Fields
         ]
     );
 api_fields("post_source", Type, Fields) ->
     lists:append(
         [
-            emqx_bridge_schema:type_and_name_fields(Type),
+            type_and_name_fields(Type),
             Fields
         ]
     );
 api_fields("put_source", _Type, Fields) ->
     Fields.
+
+type_and_name_fields(ConnectorType) ->
+    [
+        {type, mk(ConnectorType, #{required => true, desc => ?DESC("desc_type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
+    ].
 
 undefined_as_null_field() ->
     {undefined_vars_as_null,

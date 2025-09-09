@@ -121,18 +121,6 @@ fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         emqx_bridge_influxdb_connector:fields("connector") ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
-fields("post_api_v1") ->
-    method_fields(post, influxdb_api_v1);
-fields("post_api_v2") ->
-    method_fields(post, influxdb_api_v2);
-fields("put_api_v1") ->
-    method_fields(put, influxdb_api_v1);
-fields("put_api_v2") ->
-    method_fields(put, influxdb_api_v2);
-fields("get_api_v1") ->
-    method_fields(get, influxdb_api_v1);
-fields("get_api_v2") ->
-    method_fields(get, influxdb_api_v2);
 fields(action) ->
     {influxdb,
         mk(
@@ -166,41 +154,7 @@ fields(Field) when
     Field == "post_bridge_v2";
     Field == "put_bridge_v2"
 ->
-    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(influxdb_action));
-fields(Type) when
-    Type == influxdb_api_v1 orelse Type == influxdb_api_v2
-->
-    influxdb_bridge_common_fields() ++
-        connector_fields(Type).
-
-method_fields(post, ConnectorType) ->
-    influxdb_bridge_common_fields() ++
-        connector_fields(ConnectorType) ++
-        type_name_fields(ConnectorType);
-method_fields(get, ConnectorType) ->
-    influxdb_bridge_common_fields() ++
-        connector_fields(ConnectorType) ++
-        type_name_fields(ConnectorType) ++
-        emqx_bridge_schema:status_fields();
-method_fields(put, ConnectorType) ->
-    influxdb_bridge_common_fields() ++
-        connector_fields(ConnectorType).
-
-influxdb_bridge_common_fields() ->
-    emqx_bridge_schema:common_bridge_fields() ++
-        [
-            {write_syntax, fun write_syntax/1}
-        ] ++
-        emqx_resource_schema:fields("resource_opts").
-
-connector_fields(Type) ->
-    emqx_bridge_influxdb_connector:fields(Type).
-
-type_name_fields(Type) ->
-    [
-        {type, mk(Type, #{required => true, desc => ?DESC("desc_type")})},
-        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
-    ].
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(influxdb_action)).
 
 desc("config") ->
     ?DESC("desc_config");

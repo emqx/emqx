@@ -179,7 +179,7 @@ parse_and_check(ConfigString, SchemaMod, RootKey, Type0, Name) ->
     Config.
 
 parse_bridge_and_check(ConfigString, BridgeType, Name) ->
-    parse_and_check(ConfigString, emqx_bridge_schema, <<"actions">>, BridgeType, Name).
+    parse_and_check(ConfigString, emqx_bridge_v2_schema, <<"actions">>, BridgeType, Name).
 
 parse_connectors_and_check(ConfigString, ConnectorType, Name) ->
     Config = parse_and_check(

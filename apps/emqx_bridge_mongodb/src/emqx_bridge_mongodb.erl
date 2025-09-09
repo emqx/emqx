@@ -143,11 +143,11 @@ fields(Field) when
 ->
     emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(mongodb_action));
 fields("post_rs") ->
-    fields(mongodb_rs) ++ emqx_bridge_schema:type_and_name_fields(mongodb_rs);
+    fields(mongodb_rs) ++ emqx_bridge_v2_schema:type_and_name_fields(mongodb_rs);
 fields("post_sharded") ->
-    fields(mongodb_sharded) ++ emqx_bridge_schema:type_and_name_fields(mongodb_sharded);
+    fields(mongodb_sharded) ++ emqx_bridge_v2_schema:type_and_name_fields(mongodb_sharded);
 fields("post_single") ->
-    fields(mongodb_single) ++ emqx_bridge_schema:type_and_name_fields(mongodb_single);
+    fields(mongodb_single) ++ emqx_bridge_v2_schema:type_and_name_fields(mongodb_single);
 fields("put_rs") ->
     fields(mongodb_rs);
 fields("put_sharded") ->
@@ -155,17 +155,17 @@ fields("put_sharded") ->
 fields("put_single") ->
     fields(mongodb_single);
 fields("get_rs") ->
-    emqx_bridge_schema:status_fields() ++
+    emqx_bridge_v2_api:status_fields() ++
         fields(mongodb_rs) ++
-        emqx_bridge_schema:type_and_name_fields(mongodb_rs);
+        emqx_bridge_v2_schema:type_and_name_fields(mongodb_rs);
 fields("get_sharded") ->
-    emqx_bridge_schema:status_fields() ++
+    emqx_bridge_v2_api:status_fields() ++
         fields(mongodb_sharded) ++
-        emqx_bridge_schema:type_and_name_fields(mongodb_sharded);
+        emqx_bridge_v2_schema:type_and_name_fields(mongodb_sharded);
 fields("get_single") ->
-    emqx_bridge_schema:status_fields() ++
+    emqx_bridge_v2_api:status_fields() ++
         fields(mongodb_single) ++
-        emqx_bridge_schema:type_and_name_fields(mongodb_single).
+        emqx_bridge_v2_schema:type_and_name_fields(mongodb_single).
 
 bridge_v2_examples(Method) ->
     [

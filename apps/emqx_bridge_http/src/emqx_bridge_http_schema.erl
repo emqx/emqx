@@ -24,30 +24,6 @@ namespace() -> "bridge_http".
 roots() -> [].
 
 %%--------------------------------------------------------------------
-%% v1 bridges http api
-%% see: emqx_bridge_schema:get_response/0, put_request/0, post_request/0
-fields("post") ->
-    [
-        old_type_field(),
-        name_field()
-    ] ++ fields("config");
-fields("put") ->
-    fields("config");
-fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post");
-%%--- v1 bridges config file
-%% see: emqx_bridge_schema:fields(bridges)
-fields("config") ->
-    basic_config() ++
-        request_config() ++
-        emqx_connector_schema:resource_opts_ref(?MODULE, "v1_resource_opts");
-fields("v1_resource_opts") ->
-    UnsupportedOpts = [enable_batch, batch_size, batch_time],
-    lists:filter(
-        fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
-        emqx_resource_schema:fields("creation_opts")
-    );
-%%--------------------------------------------------------------------
 %% v2: configuration
 fields(action) ->
     {http,
@@ -105,7 +81,7 @@ fields("post_" ++ Type) ->
 fields("put_" ++ Type) ->
     fields("config_" ++ Type);
 fields("get_" ++ Type) ->
-    emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
+    emqx_bridge_v2_api:status_fields() ++ fields("post_" ++ Type);
 fields("config_bridge_v2") ->
     fields("http_action");
 fields("config_connector") ->
@@ -136,41 +112,6 @@ desc(_) ->
     undefined.
 
 %%--------------------------------------------------------------------
-%% helpers for v1 only
-
-basic_config() ->
-    [
-        {enable,
-            mk(
-                boolean(),
-                #{
-                    desc => ?DESC("config_enable_bridge"),
-                    default => true
-                }
-            )},
-        {tags, emqx_schema:tags_schema()},
-        {description, emqx_schema:description_schema()}
-    ] ++ connector_opts().
-
-request_config() ->
-    [
-        url_field(),
-        {direction,
-            mk(
-                egress,
-                #{
-                    required => {false, recursively},
-                    deprecated => {since, "5.0.12"}
-                }
-            )},
-        method_field(),
-        headers_field(),
-        body_field(),
-        max_retries_field(),
-        request_timeout_field()
-    ].
-
-%%--------------------------------------------------------------------
 %% helpers for v2 only
 
 connector_url_headers() ->
@@ -178,17 +119,6 @@ connector_url_headers() ->
 
 %%--------------------------------------------------------------------
 %% common funcs
-
-%% `webhook` is kept for backward compatibility.
-old_type_field() ->
-    {type,
-        mk(
-            enum([webhook, http]),
-            #{
-                required => true,
-                desc => ?DESC("desc_type")
-            }
-        )}.
 
 type_field() ->
     {type,

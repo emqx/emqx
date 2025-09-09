@@ -202,7 +202,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    emqx_bridge_v2_api:status_fields() ++ fields("post").
 
 desc("config") ->
     ?DESC("desc_config");

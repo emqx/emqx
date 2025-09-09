@@ -234,7 +234,7 @@ fields("post_" ++ Type) ->
 fields("put_" ++ Type) ->
     fields("config_" ++ Type);
 fields("get_" ++ Type) ->
-    emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
+    emqx_bridge_v2_api:status_fields() ++ fields("post_" ++ Type);
 fields("config_bridge_v2") ->
     fields(kafka_producer_action);
 fields("config_connector") ->

@@ -80,30 +80,6 @@ fields(action_resource_opts) ->
             }}
         ]
     );
-fields("config_producer") ->
-    emqx_bridge_schema:common_bridge_fields() ++
-        fields("resource_opts") ++
-        fields(connector_config) ++
-        fields(producer);
-fields("resource_opts") ->
-    [
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts"),
-                #{
-                    required => false,
-                    default => #{},
-                    desc => ?DESC(emqx_resource_schema, "creation_opts")
-                }
-            )}
-    ];
-fields("creation_opts") ->
-    emqx_resource_schema:create_opts([
-        {batch_size, #{
-            type => range(1, 500),
-            validator => emqx_resource_validator:max(int, 500)
-        }}
-    ]);
 fields(connector_config) ->
     [
         {aws_access_key_id,
@@ -175,12 +151,6 @@ fields(producer) ->
                 }
             )}
     ];
-fields("get_producer") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_producer");
-fields("post_producer") ->
-    [type_field_producer(), name_field() | fields("config_producer")];
-fields("put_producer") ->
-    fields("config_producer");
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         fields(connector_config) ++
@@ -194,10 +164,6 @@ fields(Field) when
 ->
     emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(kinesis_action)).
 
-desc("config_producer") ->
-    ?DESC("desc_config");
-desc("creation_opts") ->
-    ?DESC(emqx_resource_schema, "creation_opts");
 desc("config_connector") ->
     ?DESC("config_connector");
 desc(kinesis_action) ->
@@ -262,13 +228,3 @@ action_values() ->
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
-
-enum(OfSymbols) -> hoconsc:enum(OfSymbols).
-
-ref(Module, Name) -> hoconsc:ref(Module, Name).
-
-type_field_producer() ->
-    {type, mk(enum([kinesis_producer]), #{required => true, desc => ?DESC("desc_type")})}.
-
-name_field() ->
-    {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.

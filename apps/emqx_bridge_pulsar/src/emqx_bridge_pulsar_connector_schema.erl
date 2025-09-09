@@ -20,7 +20,7 @@ namespace() -> ?TYPE.
 roots() -> [].
 
 fields("config_connector") ->
-    emqx_bridge_schema:common_bridge_fields() ++
+    emqx_connector_schema:common_fields() ++
         lists:keydelete(enable, 1, emqx_bridge_pulsar:fields(config)) ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
@@ -30,7 +30,7 @@ fields("post") ->
 fields("put") ->
     fields("config_connector");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("config_connector").
+    emqx_bridge_v2_api:status_fields() ++ fields("config_connector").
 
 desc("config_connector") ->
     ?DESC(emqx_bridge_pulsar, "config_connector");

@@ -133,11 +133,11 @@ fields(action_parameters_data) ->
             )}
     ];
 fields("post_bridge_v2") ->
-    emqx_bridge_schema:type_and_name_fields(enum([iotdb])) ++ fields(action_config);
+    emqx_bridge_v2_schema:type_and_name_fields(enum([iotdb])) ++ fields(action_config);
 fields("put_bridge_v2") ->
     fields(action_config);
 fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2");
+    emqx_bridge_v2_api:status_fields() ++ fields("post_bridge_v2");
 %%-------------------------------------------------------------------------------------------------
 %% v1 schema
 %%-------------------------------------------------------------------------------------------------
@@ -156,11 +156,11 @@ fields(auth_basic) ->
             })}
     ];
 fields("post") ->
-    emqx_bridge_schema:type_and_name_fields(enum([iotdb])) ++ fields("config");
+    emqx_bridge_v2_schema:type_and_name_fields(enum([iotdb])) ++ fields("config");
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    emqx_bridge_v2_api:status_fields() ++ fields("post").
 
 desc("config") ->
     ?DESC("desc_config");

@@ -35,55 +35,7 @@ fields(action_parameters) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ];
-fields("post_single") ->
-    method_fields(post, redis_single);
-fields("post_sentinel") ->
-    method_fields(post, redis_sentinel);
-fields("post_cluster") ->
-    method_fields(post, redis_cluster);
-fields("put_single") ->
-    method_fields(put, redis_single);
-fields("put_sentinel") ->
-    method_fields(put, redis_sentinel);
-fields("put_cluster") ->
-    method_fields(put, redis_cluster);
-fields("get_single") ->
-    method_fields(get, redis_single);
-fields("get_sentinel") ->
-    method_fields(get, redis_sentinel);
-fields("get_cluster") ->
-    method_fields(get, redis_cluster);
-%% old bridge v1 schema
-fields(Type) when
-    Type == redis_single;
-    Type == redis_sentinel;
-    Type == redis_cluster
-->
-    redis_bridge_common_fields(Type) ++
-        connector_fields(Type);
-fields("creation_opts_" ++ Type) ->
-    resource_creation_fields(Type).
-
-method_fields(post, ConnectorType) ->
-    redis_bridge_common_fields(ConnectorType) ++
-        connector_fields(ConnectorType) ++
-        type_name_fields(ConnectorType);
-method_fields(get, ConnectorType) ->
-    redis_bridge_common_fields(ConnectorType) ++
-        connector_fields(ConnectorType) ++
-        type_name_fields(ConnectorType) ++
-        emqx_bridge_schema:status_fields();
-method_fields(put, ConnectorType) ->
-    redis_bridge_common_fields(ConnectorType) ++
-        connector_fields(ConnectorType).
-
-redis_bridge_common_fields(Type) ->
-    emqx_bridge_schema:common_bridge_fields() ++
-        [
-            command_template()
-        ] ++
-        v1_resource_fields(Type).
+    ].
 
 connector_fields(Type) ->
     emqx_redis:fields(Type).
@@ -93,27 +45,6 @@ type_name_fields(Type) ->
         {type, mk(Type, #{required => true, desc => ?DESC("desc_type")})},
         {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
     ].
-
-v1_resource_fields(Type) ->
-    [
-        {resource_opts,
-            mk(
-                ?R_REF("creation_opts_" ++ atom_to_list(Type)),
-                #{
-                    required => false,
-                    default => #{},
-                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
-                }
-            )}
-    ].
-
-resource_creation_fields("redis_cluster") ->
-    % TODO
-    % Cluster bridge is currently incompatible with batching.
-    Fields = emqx_resource_schema:fields("creation_opts"),
-    lists:foldl(fun proplists:delete/2, Fields, [batch_size, batch_time, enable_batch]);
-resource_creation_fields(_) ->
-    emqx_resource_schema:fields("creation_opts").
 
 desc(action_parameters) ->
     ?DESC("desc_action_parameters");

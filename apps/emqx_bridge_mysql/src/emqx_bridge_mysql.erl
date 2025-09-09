@@ -124,7 +124,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post");
+    emqx_bridge_v2_api:status_fields() ++ fields("post");
 fields(Field) when
     Field == "get_bridge_v2";
     Field == "post_bridge_v2";

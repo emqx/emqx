@@ -35,21 +35,6 @@ namespace() ->
 roots() ->
     [].
 
-fields("config_producer") ->
-    emqx_bridge_schema:common_bridge_fields() ++
-        emqx_resource_schema:fields("resource_opts") ++
-        fields(connector_config) ++ fields(producer);
-fields("config_consumer") ->
-    emqx_bridge_schema:common_bridge_fields() ++
-        [
-            {resource_opts,
-                mk(
-                    ref("consumer_resource_opts"),
-                    #{required => true, desc => ?DESC(emqx_resource_schema, "creation_opts")}
-                )}
-        ] ++
-        fields(connector_config) ++
-        [{consumer, mk(ref(consumer), #{required => true, desc => ?DESC(consumer_opts)})}];
 fields(connector_config) ->
     [
         {connect_timeout,
@@ -206,13 +191,13 @@ fields(key_value_pair) ->
             })}
     ];
 fields("get_producer") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_producer");
+    emqx_bridge_v2_api:status_fields() ++ fields("post_producer");
 fields("post_producer") ->
     [type_field_producer(), name_field() | fields("config_producer")];
 fields("put_producer") ->
     fields("config_producer");
 fields("get_consumer") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_consumer");
+    emqx_bridge_v2_api:status_fields() ++ fields("post_consumer");
 fields("post_consumer") ->
     [type_field_consumer(), name_field() | fields("config_consumer")];
 fields("put_consumer") ->
