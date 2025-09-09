@@ -74,10 +74,11 @@ t_connection_count(_Config) ->
 
     meck:new(emqx_license_proto_v2, [passthrough]),
 
+    TooManyConnections = 10_000_001,
     meck:expect(
         emqx_license_proto_v2,
         remote_connection_counts,
-        fun(_Nodes) -> [{ok, 21}] end
+        fun(_Nodes) -> [{ok, TooManyConnections}] end
     ),
     ?check_trace(
         begin
@@ -89,7 +90,7 @@ t_connection_count(_Config) ->
             emqx_license_resources:cached_connection_count()
         end,
         fun(ConnCount, _Trace) ->
-            ?assertEqual(21, ConnCount)
+            ?assertEqual(TooManyConnections, ConnCount)
         end
     ),
     ?assertReceive({alarm_activated, <<"License: sessions quota exceeds 80%">>}, 100),
