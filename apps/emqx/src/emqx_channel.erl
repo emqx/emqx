@@ -1284,7 +1284,11 @@ handle_out(connack, {ReasonCode, ReasonString}, Channel = #channel{conninfo = Co
         sp(false),
         AckProps
     ),
-    shutdown(Reason, AckPacket, Channel);
+    %% Per MQTT v5: If a Server sends a CONNACK with a Reason Code other than 0x00 (Success),
+    %% the Will Message MUST NOT be published.
+    %% Per MQTT v3: If the Will Flag is set to 1 this indicates that,
+    %% if the Connect request is accepted, a Will Message MUST be stored…
+    shutdown(Reason, AckPacket, Channel#channel{will_msg = undefined});
 %% Optimize?
 handle_out(publish, [], Channel) ->
     {ok, Channel};

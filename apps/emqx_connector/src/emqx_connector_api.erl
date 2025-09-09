@@ -362,8 +362,8 @@ schema("/connectors_probe") ->
         Id,
         case emqx_connector:is_exist(ConnectorType, ConnectorName) of
             true ->
-                RawConf = emqx:get_raw_config([connectors, ConnectorType, ConnectorName], #{}),
-                Conf = emqx_utils:deobfuscate(Conf1, RawConf),
+                OldRawConf = emqx:get_raw_config([connectors, ConnectorType, ConnectorName], #{}),
+                Conf = deobfuscate(ConnectorType, Conf1, OldRawConf),
                 update_connector(ConnectorType, ConnectorName, Conf);
             false ->
                 ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName)
@@ -423,8 +423,8 @@ maybe_deobfuscate_connector_probe(
 ) ->
     case emqx_connector:is_exist(ConnectorType, ConnectorName) of
         true ->
-            RawConf = emqx:get_raw_config([connectors, ConnectorType, ConnectorName], #{}),
-            emqx_utils:deobfuscate(Params, RawConf);
+            OldRawConf = emqx:get_raw_config([connectors, ConnectorType, ConnectorName], #{}),
+            deobfuscate(ConnectorType, Params, OldRawConf);
         false ->
             %% A connector may be probed before it's created, so not finding it here is fine
             Params
@@ -830,3 +830,57 @@ maybe_focus_on_request_connector(Reason0, Type, Name) ->
         _ ->
             Reason0
     end.
+
+deobfuscate(Type, #{} = NewRawConf0, #{} = OldRawConf) ->
+    NewRawConf1 = emqx_utils:deobfuscate(NewRawConf0, OldRawConf),
+    %% This is needed because MQTT connector has an array field which contains secrets
+    %% within it, and `emqx_utils:deobfuscate` cannot handle general arrays, as there's no
+    %% general way to map input configs (in which entries might have been added or removed
+    %% in relation to old config).  For this connector, however, we enforce that clientids
+    %% are unique, so we can leverage that as a key of such entry.
+    case bin(Type) of
+        <<"mqtt">> ->
+            deobfuscate_mqtt_connector(NewRawConf1, OldRawConf);
+        _ ->
+            NewRawConf1
+    end;
+deobfuscate(_Type, NewRawConf, _OldRawConf) ->
+    NewRawConf.
+
+deobfuscate_mqtt_connector(NewRawConf, OldRawConf) ->
+    OldStaticClientidInfo = maps:get(<<"static_clientids">>, OldRawConf),
+    NewStaticClientidInfo0 = maps:get(<<"static_clientids">>, NewRawConf),
+    OldIndex = lists:foldl(
+        fun(#{<<"node">> := Node} = Info, Acc) ->
+            Acc#{Node => Info}
+        end,
+        #{},
+        OldStaticClientidInfo
+    ),
+    NewStaticClientidInfo = lists:map(
+        fun(#{<<"node">> := Node} = NewInfo) ->
+            OldInfo = maps:get(Node, OldIndex, #{}),
+            deobfuscate_mqtt_connector_for_node(NewInfo, OldInfo)
+        end,
+        NewStaticClientidInfo0
+    ),
+    maps:put(<<"static_clientids">>, NewStaticClientidInfo, NewRawConf).
+
+deobfuscate_mqtt_connector_for_node(NewInfo0, OldInfo) ->
+    OldIds = maps:get(<<"ids">>, OldInfo, []),
+    NewIds0 = maps:get(<<"ids">>, NewInfo0, []),
+    OldIndex = lists:foldl(
+        fun(#{<<"clientid">> := ClientId} = Id, Acc) ->
+            Acc#{ClientId => Id}
+        end,
+        #{},
+        OldIds
+    ),
+    NewIds = lists:map(
+        fun(#{<<"clientid">> := ClientId} = NewId) ->
+            OldId = maps:get(ClientId, OldIndex, #{}),
+            emqx_utils:deobfuscate(NewId, OldId)
+        end,
+        NewIds0
+    ),
+    maps:put(<<"ids">>, NewIds, NewInfo0).
