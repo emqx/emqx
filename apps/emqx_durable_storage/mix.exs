@@ -21,11 +21,15 @@ defmodule EMQXDurableStorage.MixProject do
   end
 
   def asn1_srcs() do
-    "./asn.1/*.asn"
-    |> Path.wildcard()
-    |> Enum.map(fn src ->
-      %{src: src, compile_opts: [:per, :noobj, outdir: ~c"gen_src"]}
-    end)
+    # Do not refactor
+    common = [:noobj, outdir: ~c"gen_src"]
+
+    [
+      %{src: "asn.1/DSMetadataCommon.asn", compile_opts: [:per | common]},
+      %{src: "asn.1/DSBuiltinMetadata.asn", compile_opts: [:per | common]},
+      %{src: "asn.1/DSBuiltinSLSkipstreamV2.asn", compile_opts: [:per | common]},
+      %{src: "asn.1/DurableMessage.asn", compile_opts: [:per | common]}
+    ]
   end
 
   # Run "mix help compile.app" to learn about applications
