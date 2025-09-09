@@ -19,7 +19,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx_conf, """
+            {emqx, """
             durable_sessions {
               enable = true
               checkpoint_interval = 0
@@ -28,7 +28,6 @@ init_per_suite(Config) ->
               }
             }
             """},
-            emqx,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
