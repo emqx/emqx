@@ -35,7 +35,8 @@
 %% API for license
 -export([
     read_details/1,
-    update_details/2
+    update_details/2,
+    make_persistent_details/1
 ]).
 
 %% gen_server callbacks
@@ -44,6 +45,7 @@
     handle_call/3,
     handle_cast/2,
     handle_info/2,
+    handle_continue/2,
     terminate/2
 ]).
 
@@ -79,6 +81,8 @@
 -define(worker, worker).
 
 -record(work, {mod :: module(), fn :: atom(), args :: [term()]}).
+
+-define(PERSISTENCE, '_persistence').
 
 -ifdef(TEST).
 -compile(export_all).
@@ -170,6 +174,11 @@ safe_deactivate(Name) ->
 delete_all_deactivated_alarms() ->
     gen_server:call(?MODULE, delete_all_deactivated_alarms).
 
+%% @doc Make the details of an alarm persistent.
+-spec make_persistent_details(map()) -> map().
+make_persistent_details(Details) ->
+    Details#{?PERSISTENCE => true}.
+
 %% @doc Read the details of an alarm.
 -spec read_details(name()) -> {ok, details()} | {error, not_found}.
 read_details(Name) ->
@@ -210,7 +219,7 @@ format(Node, #activated_alarm{name = Name, message = Message, activate_at = At, 
         %% to millisecond
         duration => (Now - At) div 1000,
         activate_at => to_rfc3339(At),
-        details => Details
+        details => maps:without([?PERSISTENCE], Details)
     };
 format(Node, #deactivated_alarm{
     name = Name,
@@ -227,7 +236,7 @@ format(Node, #deactivated_alarm{
         duration => (DAt - At) div 1000,
         activate_at => to_rfc3339(At),
         deactivate_at => to_rfc3339(DAt),
-        details => Details
+        details => maps:without([?PERSISTENCE], Details)
     }.
 
 to_rfc3339(Timestamp) ->
@@ -243,13 +252,16 @@ init([]) ->
     %% ?LC_ALARM_ID_RUNQ}`) just as the `emqx` application is starting, we need to ensure
     %% the tables are ready.
     _ = mria:wait_for_tables(emqx_alarm:create_tables()),
-    deactivate_all_alarms(),
     process_flag(trap_exit, true),
     State = #{
         ?worker => start_worker(),
         pmon => #{}
     },
-    {ok, State, get_validity_period()}.
+    {ok, State, {continue, deactivate_ephermrial_alarms}}.
+
+handle_continue(deactivate_ephermrial_alarms, State) ->
+    deactivate_ephermrial_alarms(),
+    {noreply, State, get_validity_period()}.
 
 handle_call({activate_alarm, Pid, Name, Details, Message}, _From, State) ->
     case create_activate_alarm(Name, Details, Message) of
@@ -411,30 +423,42 @@ make_deactivated_alarm(ActivateAt, Name, Details, Message, DeactivateAt) ->
         deactivate_at = DeactivateAt
     }.
 
-deactivate_all_alarms() ->
+%% All alarms are by default ephermrial unless there is a '_persistence' flag set in details map.
+deactivate_ephermrial_alarms() ->
     lists:foreach(
-        fun(
-            #activated_alarm{
-                name = Name,
-                details = Details,
-                message = Message,
-                activate_at = ActivateAt
-            }
-        ) ->
-            mria:dirty_write(
-                ?DEACTIVATED_ALARM,
-                #deactivated_alarm{
-                    activate_at = ActivateAt,
-                    name = Name,
-                    details = Details,
-                    message = Message,
-                    deactivate_at = erlang:system_time(microsecond)
-                }
-            )
+        fun(Alarm) ->
+            case is_ephermrial_alarm(Alarm) of
+                true ->
+                    move_to_deactivated_alarm(Alarm);
+                false ->
+                    ok
+            end
         end,
         ets:tab2list(?ACTIVATED_ALARM)
+    ).
+
+is_ephermrial_alarm(#activated_alarm{details = #{?PERSISTENCE := Persistence}}) ->
+    not Persistence;
+is_ephermrial_alarm(_) ->
+    true.
+
+move_to_deactivated_alarm(#activated_alarm{
+    name = Name,
+    details = Details,
+    message = Message,
+    activate_at = ActivateAt
+}) ->
+    mria:dirty_write(
+        ?DEACTIVATED_ALARM,
+        #deactivated_alarm{
+            activate_at = ActivateAt,
+            name = Name,
+            details = Details,
+            message = Message,
+            deactivate_at = erlang:system_time(microsecond)
+        }
     ),
-    clear_table(?ACTIVATED_ALARM).
+    mria:dirty_delete(?ACTIVATED_ALARM, Name).
 
 %% Delete all records from the given table, ignore result.
 clear_table(TableName) ->
