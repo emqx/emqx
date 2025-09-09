@@ -30,8 +30,11 @@ init_per_suite(Config) ->
     %% Session Meck
     ok = meck:new(emqx_session, [passthrough, no_history, no_link]),
     %% Ban
-    meck:new(emqx_banned, [passthrough, no_history, no_link]),
+    ok = meck:new(emqx_banned, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_banned, check, fun(_ConnInfo) -> false end),
+    %% Authz
+    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
     Apps = emqx_cth_suite:start(
         [
             {emqx, #{
@@ -65,7 +68,8 @@ end_per_suite(Config) ->
         emqx_session,
         emqx_broker,
         emqx_cm,
-        emqx_banned
+        emqx_banned,
+        emqx_access_control
     ]).
 
 %%--------------------------------------------------------------------

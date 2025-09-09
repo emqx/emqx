@@ -257,7 +257,8 @@ maybe_configure_app(_App, #{}) ->
 
 configure_app(SchemaModule, Config) ->
     _ = emqx_config:create_tables(),
-    ok = emqx_config:init_load(SchemaModule, render_config(Config)),
+    Rendered = render_config(Config),
+    ok = emqx_config:init_load(SchemaModule, Rendered),
     ok.
 
 maybe_override_env(App, #{override_env := Env = [{_, _} | _]}) ->
@@ -326,7 +327,8 @@ default_appspec(emqx, SuiteOpts) ->
         % NOTE
         % We inform `emqx` of our config loader before starting it so that it won't
         % overwrite everything with a default configuration.
-        before_start => fun inhibit_config_loader/2
+        before_start => fun inhibit_config_loader/2,
+        config => #{authorization => #{no_match => allow}}
     };
 default_appspec(emqx_conf, SuiteOpts) ->
     Config = #{
@@ -334,7 +336,8 @@ default_appspec(emqx_conf, SuiteOpts) ->
             name => node(),
             cookie => erlang:get_cookie(),
             data_dir => unicode:characters_to_binary(maps:get(work_dir, SuiteOpts, "data"))
-        }
+        },
+        authorization => #{no_match => allow}
     },
     % NOTE
     % Since `emqx_conf_schema` manages config for a lot of applications, it's good to include

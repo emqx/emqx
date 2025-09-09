@@ -38,33 +38,42 @@ groups_per_testcase(TC, Groups) ->
     end.
 
 init_per_suite(Config) ->
+    AppConfig = #{
+        <<"rpc">> => #{
+            <<"port_discovery">> => <<"manual">>
+        },
+        <<"durable_sessions">> => #{
+            <<"enable">> => true,
+            <<"shared_subs">> => #{
+                <<"heartbeat_interval">> => 100,
+                <<"revocation_timeout">> => 100,
+                <<"leader_timeout">> => 100,
+                <<"checkpoint_interval">> => 10
+            }
+        },
+        <<"durable_storage">> => #{
+            <<"messages">> => #{
+                <<"backend">> => <<"builtin_raft">>
+            },
+            <<"shared_subs">> => #{
+                <<"backend">> => <<"builtin_raft">>
+            },
+            <<"queues">> => #{
+                <<"backend">> => <<"builtin_raft">>,
+                <<"local_write_buffer">> => #{
+                    <<"flush_interval">> => <<"10ms">>
+                }
+            }
+        },
+        <<"authorization">> => #{<<"no_match">> => <<"allow">>}
+    },
+
     Apps = emqx_cth_suite:start(
         [
-            {emqx_conf, #{
-                config => #{
-                    <<"rpc">> => #{
-                        <<"port_discovery">> => <<"manual">>
-                    },
-                    <<"durable_sessions">> => #{
-                        <<"enable">> => true,
-                        <<"shared_subs">> => #{
-                            <<"heartbeat_interval">> => 100,
-                            <<"revocation_timeout">> => 100,
-                            <<"leader_timeout">> => 100,
-                            <<"checkpoint_interval">> => 10
-                        }
-                    },
-                    <<"durable_storage">> => #{
-                        <<"messages">> => #{
-                            <<"backend">> => <<"builtin_raft">>
-                        },
-                        <<"shared_subs">> => #{
-                            <<"backend">> => <<"builtin_raft">>
-                        }
-                    }
-                }
-            }},
-            emqx
+            {emqx, #{config => AppConfig}},
+            {emqx_ds_shared_sub, #{
+                config => "durable_queues { enable = true }"
+            }}
         ],
         #{work_dir => ?config(priv_dir, Config)}
     ),

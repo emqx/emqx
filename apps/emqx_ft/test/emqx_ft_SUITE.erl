@@ -72,6 +72,7 @@ init_per_suite(Config) ->
     FTConfig = emqx_ft_test_helpers:config(Storage, #{<<"assemble_timeout">> => <<"2s">>}),
     Apps = emqx_cth_suite:start(
         [
+            emqx,
             {emqx_ft, #{config => FTConfig}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}

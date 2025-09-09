@@ -15,6 +15,7 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
+            emqx,
             {emqx_ft, "file_transfer { enable = true, assemble_timeout = 1s}"}
         ],
         #{work_dir => ?config(priv_dir, Config)}
