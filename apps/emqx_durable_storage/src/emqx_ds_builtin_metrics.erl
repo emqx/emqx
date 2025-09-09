@@ -35,10 +35,6 @@
     observe_beamformer_scan_time/2,
     observe_beamsplitter_fanout_time/2,
 
-    inc_lts_seek_counter/2,
-    inc_lts_next_counter/2,
-    inc_lts_collision_counter/2,
-
     collect_shard_counter/3
 ]).
 
@@ -67,9 +63,6 @@
 
 -define(STORAGE_LAYER_METRICS, [
     {counter, slide, ?DS_STORE_BATCH_TIME},
-    {counter, counter, ?DS_BITFIELD_LTS_SEEK_COUNTER},
-    {counter, counter, ?DS_BITFIELD_LTS_NEXT_COUNTER},
-    {counter, counter, ?DS_BITFIELD_LTS_COLLISION_COUNTER},
     {counter, counter, ?DS_SKIPSTREAM_LTS_SEEK},
     {counter, counter, ?DS_SKIPSTREAM_LTS_NEXT},
     {counter, counter, ?DS_SKIPSTREAM_LTS_HASH_COLLISION},
@@ -252,18 +245,6 @@ observe_beamformer_scan_time(Id, Time) ->
 observe_beamsplitter_fanout_time(DB, Time) ->
     ?CATCH(emqx_metrics_worker:observe(?WORKER, DB, ?DS_SUBS_FANOUT_TIME, Time)).
 
--spec inc_lts_seek_counter({emqx_ds:db(), emqx_ds:shard()}, non_neg_integer()) -> ok.
-inc_lts_seek_counter({DB, _}, Inc) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_SEEK_COUNTER, Inc)).
-
--spec inc_lts_next_counter({emqx_ds:db(), emqx_ds:shard()}, non_neg_integer()) -> ok.
-inc_lts_next_counter({DB, _}, Inc) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_NEXT_COUNTER, Inc)).
-
--spec inc_lts_collision_counter({emqx_ds:db(), emqx_ds:shard()}, non_neg_integer()) -> ok.
-inc_lts_collision_counter({DB, _}, Inc) ->
-    ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, ?DS_BITFIELD_LTS_COLLISION_COUNTER, Inc)).
-
 -spec collect_shard_counter({emqx_ds:db(), emqx_ds:shard()}, atom(), non_neg_integer()) -> ok.
 collect_shard_counter({DB, _}, Key, Inc) ->
     ?CATCH(emqx_metrics_worker:inc(?WORKER, DB, Key, Inc)).
@@ -276,21 +257,21 @@ prometheus_meta() ->
 
 prometheus_collect(Labels0) ->
     collect_beamformer_metrics(
-        Labels0, collect_buffer_metrics(Labels0, collect_db_metrics(Labels0))
+        Labels0, collect_otx_metrics(Labels0, collect_db_metrics(Labels0))
     ).
 
 collect_db_metrics(Labels0) ->
     Instances = [[{db, DB}] || {DB, _Backend} <- emqx_ds:which_dbs()],
     collect(Labels0, Instances, #{}).
 
-collect_buffer_metrics(Labels0, Acc) ->
-    Instances = [[{db, DB}, {shard, Shard}] || {DB, Shard} <- emqx_ds_buffer:ls()],
+collect_otx_metrics(Labels0, Acc) ->
+    Instances = [[{db, DB}, {shard, Shard}] || {DB, Shard} <- emqx_ds_optimistic_tx:ls()],
     collect(Labels0, Instances, Acc).
 
 collect_beamformer_metrics(Labels0, Acc) ->
     Instances = [
         [{db, DB}, {shard, Shard}, {type, Type}]
-     || {DB, Shard} <- emqx_ds_buffer:ls(),
+     || {DB, Shard} <- emqx_ds_beamformer:ls(),
         Type <- [rt, catchup]
     ],
     collect(Labels0, Instances, Acc).

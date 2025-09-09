@@ -7,11 +7,16 @@
 -compile(nowarn_export_all).
 
 -include("../../emqx/include/emqx.hrl").
+-include("emqx_ds.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 opts() ->
-    #{storage => {emqx_ds_storage_reference, #{}}}.
+    #{
+        storage => {emqx_ds_storage_skipstream_lts_v2, #{}},
+        payload_type => ?ds_pt_ttv,
+        rocksdb => #{}
+    }.
 
 %%
 
@@ -19,22 +24,22 @@ t_snapshot_take_restore(_Config) ->
     Shard = {?FUNCTION_NAME, _ShardId = <<"42">>},
     {ok, Pid} = emqx_ds_storage_layer:start_link(Shard, opts()),
 
-    %% Push some messages to the shard.
-    Msgs1 = [gen_message(N) || N <- lists:seq(1000, 2000)],
-    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, batch(Msgs1), #{})),
+    %% Push some data to the shard.
+    Batch1 = [gen_payload(N) || N <- lists:seq(1000, 2000)],
+    ?assertEqual(ok, store_batch(Shard, 1, 1, Batch1)),
 
     %% Add new generation and push some more.
     ?assertEqual(ok, emqx_ds_storage_layer:add_generation(Shard, 3000)),
-    Msgs2 = [gen_message(N) || N <- lists:seq(4000, 5000)],
-    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, batch(Msgs2), #{})),
+    Batch2 = [gen_payload(N) || N <- lists:seq(4000, 5000)],
+    ?assertEqual(ok, store_batch(Shard, 2, 2, Batch2)),
     ?assertEqual(ok, emqx_ds_storage_layer:add_generation(Shard, 6000)),
 
     %% Take a snapshot of the shard.
     {ok, SnapReader} = emqx_ds_storage_layer:take_snapshot(Shard),
 
     %% Push even more messages to the shard AFTER taking the snapshot.
-    Msgs3 = [gen_message(N) || N <- lists:seq(7000, 8000)],
-    ?assertEqual(ok, emqx_ds_storage_layer:store_batch(Shard, batch(Msgs3), #{})),
+    Batch3 = [gen_payload(N) || N <- lists:seq(7000, 8000)],
+    ?assertEqual(ok, store_batch(Shard, 2, 3, Batch3)),
 
     %% Destroy the shard.
     ok = stop_shard(Pid),
@@ -47,8 +52,9 @@ t_snapshot_take_restore(_Config) ->
     %% Verify that the restored shard contains the messages up until the snapshot.
     {ok, _Pid} = emqx_ds_storage_layer:start_link(Shard, opts()),
     snabbkaffe_diff:assert_lists_eq(
-        Msgs1 ++ Msgs2,
-        lists:keysort(#message.timestamp, emqx_ds_test_helpers:storage_consume(Shard, ['#']))
+        Batch1 ++ Batch2,
+        %% Sort by timestamp (2nd element):
+        lists:keysort(2, emqx_ds_test_helpers:storage_consume(Shard, ['#']))
     ).
 
 transfer_snapshot(Reader, Writer) ->
@@ -80,25 +86,27 @@ transfer_snapshot(Reader, Writer) ->
 
 %%
 
-batch(Msgs) ->
-    [{emqx_message:timestamp(Msg), Msg} || Msg <- Msgs].
-
-gen_message(N) ->
-    Topic = emqx_topic:join([<<"foo">>, <<"bar">>, integer_to_binary(N)]),
-    message(Topic, crypto:strong_rand_bytes(16), N).
-
-message(Topic, Payload, PublishedAt) ->
-    #message{
-        from = <<?MODULE_STRING>>,
-        topic = Topic,
-        payload = Payload,
-        timestamp = PublishedAt,
-        id = emqx_guid:gen()
-    }.
+gen_payload(N) ->
+    Topic = [<<"foo">>, <<"bar">>, integer_to_binary(N)],
+    {Topic, N, crypto:strong_rand_bytes(16)}.
 
 stop_shard(Pid) ->
     _ = unlink(Pid),
     proc_lib:stop(Pid, shutdown, infinity).
+
+store_batch(DBShard, Generation, Serial, Batch) ->
+    {ok, CookedBatch} = emqx_ds_storage_layer_ttv:prepare_tx(
+        DBShard,
+        Generation,
+        <<Serial:64>>,
+        #{?ds_tx_write => Batch},
+        #{}
+    ),
+    emqx_ds_storage_layer_ttv:commit_batch(
+        DBShard,
+        [{Generation, [CookedBatch]}],
+        #{durable => true}
+    ).
 
 %%
 

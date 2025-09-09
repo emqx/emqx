@@ -8,12 +8,9 @@
 %% API:
 -export([
     start_link/0,
-    open_db/2,
-    drop_db/1,
     n_shards/1,
     shards/1,
     db_config/1,
-    update_db_config/2,
 
     current_timestamp/1,
     set_current_timestamp/2,
@@ -33,12 +30,6 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
-
--define(META_TAB, emqx_ds_builtin_local_metadata_tab).
--record(?META_TAB, {
-    db :: emqx_ds:db(),
-    db_props :: emqx_ds_builtin_local:db_opts()
-}).
 
 %% We save timestamp of the last written message to a mnesia table.
 %% The saved value is restored when the node restarts. This is needed
@@ -60,62 +51,21 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec open_db(emqx_ds:db(), emqx_ds_builtin_local:db_opts()) ->
-    emqx_ds_builtin_local:db_opts().
-open_db(DB, CreateOpts = #{backend := builtin_local, storage := _, n_shards := _}) ->
-    transaction(
-        fun() ->
-            case mnesia:wread({?META_TAB, DB}) of
-                [] ->
-                    mnesia:write(#?META_TAB{db = DB, db_props = CreateOpts}),
-                    CreateOpts;
-                [#?META_TAB{db_props = Opts}] ->
-                    Opts
-            end
-        end
-    ).
-
--spec drop_db(emqx_ds:db()) -> ok.
-drop_db(DB) ->
-    transaction(
-        fun() ->
-            MS = ets:fun2ms(fun(#?TS_TAB{id = ID}) when element(1, ID) =:= DB ->
-                ID
-            end),
-            Timestamps = mnesia:select(?TS_TAB, MS, write),
-            [mnesia:delete({?TS_TAB, I}) || I <- Timestamps],
-            mnesia:delete({?META_TAB, DB})
-        end
-    ).
-
--spec update_db_config(emqx_ds:db(), emqx_ds_builtin_local:db_opts()) ->
-    emqx_ds_builtin_local:db_opts().
-update_db_config(DB, Opts) ->
-    transaction(
-        fun() ->
-            mnesia:write(#?META_TAB{db = DB, db_props = Opts}),
-            Opts
-        end
-    ).
-
 -spec n_shards(emqx_ds:db()) -> pos_integer().
 n_shards(DB) ->
-    #{n_shards := NShards} = db_config(DB),
+    #{n_shards := NShards} = emqx_dsch:get_db_schema(DB),
     NShards.
 
--spec shards(emqx_ds:db()) -> [emqx_ds_builtin_local:shard()].
+-spec shards(emqx_ds:db()) -> [emqx_ds:shard()].
 shards(DB) ->
     NShards = n_shards(DB),
     [integer_to_binary(Shard) || Shard <- lists:seq(0, NShards - 1)].
 
 -spec db_config(emqx_ds:db()) -> emqx_ds_builtin_local:db_opts().
 db_config(DB) ->
-    case mnesia:dirty_read(?META_TAB, DB) of
-        [#?META_TAB{db_props = Props}] ->
-            Props;
-        [] ->
-            error({no_such_db, DB})
-    end.
+    #{runtime := RTC} = emqx_dsch:get_db_runtime(DB),
+    Schema = emqx_dsch:get_db_schema(DB),
+    maps:merge(Schema, RTC).
 
 -spec set_current_timestamp(emqx_ds_storage_layer:dbshard(), emqx_ds:time()) -> ok.
 set_current_timestamp(ShardId, Time) ->
@@ -167,13 +117,6 @@ terminate(_Reason, _S) ->
 %%================================================================================
 
 ensure_tables() ->
-    ok = mria:create_table(?META_TAB, [
-        {local_content, true},
-        {type, ordered_set},
-        {storage, disc_copies},
-        {record_name, ?META_TAB},
-        {attributes, record_info(fields, ?META_TAB)}
-    ]),
     ok = mria:create_table(?TS_TAB, [
         {local_content, true},
         {type, set},
@@ -182,11 +125,3 @@ ensure_tables() ->
         {attributes, record_info(fields, ?TS_TAB)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]).
-
-transaction(Fun) ->
-    case mria:transaction(mria:local_content_shard(), Fun) of
-        {atomic, Result} ->
-            Result;
-        {aborted, Reason} ->
-            {error, Reason}
-    end.

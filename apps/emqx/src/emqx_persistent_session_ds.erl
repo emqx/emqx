@@ -91,6 +91,9 @@
 %% internal export used by session GC process
 -export([destroy_session/1]).
 
+%% Time management:
+-export([now_ms/0, to_ds_time/1]).
+
 -export([print_session/1, seqno_diff/4]).
 
 -ifdef(TEST).
@@ -106,6 +109,7 @@
     id/0,
     seqno/0,
     timestamp/0,
+    millisecond/0,
     topic_filter/0,
     subscription_id/0,
     subscription/0,
@@ -151,7 +155,7 @@
 %% state.
 -type subscription() :: #{
     id := subscription_id(),
-    start_time := emqx_ds:time(),
+    start_time := millisecond(),
     mode => emqx_persistent_session_ds_subs:subscription_mode(),
     current_state := emqx_persistent_session_ds_subs:subscription_state_id(),
     subopts := map()
@@ -365,6 +369,20 @@ info({MsgsQ, _PagerParams}, _Session) when MsgsQ =:= mqueue_msgs; MsgsQ =:= infl
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) ->
     info(?STATS_KEYS, Session).
+
+-doc """
+Return current timestamp in the unit native for the session (ms).
+""".
+-spec now_ms() -> millisecond().
+now_ms() ->
+    erlang:system_time(millisecond).
+
+-doc """
+Convert timestamp in session's native unit (ms) to time scale used by DS (μs).
+""".
+-spec to_ds_time(millisecond()) -> emqx_ds:time().
+to_ds_time(Time) ->
+    erlang:convert_time_unit(Time, millisecond, microsecond).
 
 %% Used by management API
 -spec print_session(emqx_types:clientid()) -> map() | undefined.
@@ -1071,9 +1089,6 @@ session_drop(SessionId, Reason) ->
         undefined ->
             ok
     end.
-
-now_ms() ->
-    erlang:system_time(millisecond).
 
 %%--------------------------------------------------------------------
 %% Normal replay:
@@ -2010,7 +2025,7 @@ tprop_seqnos(Trace) ->
         M
     ),
     %% Bypass elvis idiocy:
-    apply(ct, pal, ["~p: Verified sequence numbers in ~p tracks.", [?FUNCTION_NAME, maps:size(M)]]),
+    apply(ct, log, ["~p: Verified sequence numbers in ~p tracks.", [?FUNCTION_NAME, maps:size(M)]]),
     true.
 
 %% @doc Check invariantss for a living session

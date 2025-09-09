@@ -155,7 +155,13 @@
 
 -define(ENABLED(X), (X =/= undefined)).
 
--define(LOG(Level, Data), ?SLOG(Level, (Data)#{tag => "MQTT"})).
+-define(LOG(Level, Data),
+    ?SLOG(Level, begin
+        Data
+    end#{
+        tag => "MQTT"
+    })
+).
 -define(IS_NORMAL_SOCKET_ERROR(R),
     % Normal close
     (R =:= closed orelse
@@ -904,10 +910,39 @@ handle_outgoing(Packets, State = #state{channel = _Channel}) ->
     Res.
 
 do_handle_outgoing(Packets, State) when is_list(Packets) ->
-    N = length(Packets),
-    send(N, [serialize_and_inc_stats(State, Packet) || Packet <- Packets], State);
+    %% TODO: research the best value for `MaxBufSize'. Current value of
+    %% 1MB is more or less arbitrary.
+    MaxBufSize = 16#100_000,
+    do_handle_outgoing_loop(MaxBufSize, Packets, State, 0, 0, []);
 do_handle_outgoing(Packet, State) ->
-    send(1, serialize_and_inc_stats(State, Packet), State).
+    IOList = serialize_and_inc_stats(State, Packet),
+    send(1, iolist_size(IOList), IOList, State).
+
+-spec do_handle_outgoing_loop(
+    pos_integer(), [emqx_types:packet()], state(), non_neg_integer(), non_neg_integer(), iolist()
+) -> {ok, state()} | {ok, {sock_error, _}, state()}.
+do_handle_outgoing_loop(_, [], State, N, BufOctets, Buf) ->
+    send(N, BufOctets, lists:reverse(Buf), State);
+do_handle_outgoing_loop(MaxBufFize, [Packet | Rest], State, N, BufOctets, Buf0) when
+    BufOctets =< MaxBufFize
+->
+    NewData = serialize_and_inc_stats(State, Packet),
+    Buf = [NewData | Buf0],
+    do_handle_outgoing_loop(
+        MaxBufFize,
+        Rest,
+        State,
+        N + 1,
+        BufOctets + iolist_size(NewData),
+        Buf
+    );
+do_handle_outgoing_loop(MaxBufSize, Rest, State0, N, BufOctets, Buf) ->
+    case send(N, BufOctets, lists:reverse(Buf), State0) of
+        {ok, State} ->
+            do_handle_outgoing_loop(MaxBufSize, Rest, State, 0, 0, []);
+        Err ->
+            Err
+    end.
 
 serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
     try emqx_frame:serialize_pkt(Packet, Serialize) of
@@ -946,9 +981,9 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
 %%--------------------------------------------------------------------
 %% Send data
 
--spec send(non_neg_integer(), iodata(), state()) -> {ok, state()}.
-send(Num, IoData, #state{transport = Transport, socket = Socket} = State) ->
-    Oct = iolist_size(IoData),
+-spec send(non_neg_integer(), non_neg_integer(), iodata(), state()) ->
+    {ok, state()} | {ok, {sock_error, _}, state()}.
+send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) ->
     emqx_metrics:inc('bytes.sent', Oct),
     case Transport:send(Socket, IoData) of
         ok ->
@@ -972,6 +1007,7 @@ send(Num, IoData, #state{transport = Transport, socket = Socket} = State) ->
     end.
 
 %% Some bytes sent
+-spec sent(non_neg_integer(), non_neg_integer(), state()) -> {ok, state()}.
 sent(Num, Oct, State = #state{gc_tracker = {ActiveN, In, {Pkts, Bytes}}}) ->
     %% Run GC and check OOM after certain amount of messages or bytes sent.
     NBytes = Bytes + Oct,

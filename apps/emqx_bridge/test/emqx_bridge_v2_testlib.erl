@@ -2453,7 +2453,7 @@ t_update_with_invalid_prepare(TCConfig, #{} = Opts) ->
     {200, Body1} = update_bridge_api2(TCConfig, Overrides),
     ?assertMatch(#{<<"status">> := <<"disconnected">>}, Body1),
     CheckExpectedErrorFn(maps:get(<<"error">>, Body1)),
-    %% assert that although there was an error returned, the invliad SQL is actually put\
+    %% assert that although there was an error returned, the invliad SQL is actually set
     ?assertMatch(
         {200, #{<<"parameters">> := #{<<"sql">> := BadSQL}}},
         get_action_api2(TCConfig)

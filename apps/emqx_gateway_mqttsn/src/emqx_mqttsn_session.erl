@@ -4,6 +4,8 @@
 
 -module(emqx_mqttsn_session).
 
+-include_lib("emqx/include/emqx_mqtt.hrl").
+
 -export([registry/1, set_registry/2]).
 
 -export([
@@ -64,7 +66,7 @@ stats(#{session := Session}) ->
     emqx_session:stats(Session).
 
 puback(ClientInfo, MsgId, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, MsgId], Session).
+    with_sess(?FUNCTION_NAME, [ClientInfo, MsgId, ?RC_SUCCESS], Session).
 
 pubrec(ClientInfo, MsgId, Session) ->
     with_sess(?FUNCTION_NAME, [ClientInfo, MsgId], Session).
@@ -73,7 +75,7 @@ pubrel(ClientInfo, MsgId, Session) ->
     with_sess(?FUNCTION_NAME, [ClientInfo, MsgId], Session).
 
 pubcomp(ClientInfo, MsgId, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, MsgId], Session).
+    with_sess(?FUNCTION_NAME, [ClientInfo, MsgId, ?RC_SUCCESS], Session).
 
 publish(ClientInfo, MsgId, Msg, Session) ->
     with_sess(?FUNCTION_NAME, [ClientInfo, MsgId, Msg], Session).

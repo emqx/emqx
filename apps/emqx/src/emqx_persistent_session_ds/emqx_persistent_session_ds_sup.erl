@@ -78,7 +78,8 @@ init(system) ->
         worker(message_gc_worker, emqx_persistent_message_ds_gc_worker, [])
     ],
     AnyNodeChildren = [
-        worker(session_bookkeeper, emqx_persistent_session_bookkeeper, [])
+        worker(session_bookkeeper, emqx_persistent_session_bookkeeper, []),
+        worker(shared_sub_registry, emqx_ds_shared_sub_registry, [])
     ],
     Children =
         case mria_rlog:role() of

@@ -189,15 +189,7 @@ message(MsgSeqNo, #{subs := Subs}) ->
             qos = QoS,
             from = From,
             topic = Topic,
-            %% Note: currently faking time in DS is not trivial. For
-            %% example, when clock of
-            %% `emqx_persistent_session_ds_subs' deviates from
-            %% `emqx_ds_replication_layer''s clock iterators may point
-            %% too far into the future. So we have no choice but to
-            %% use real clock in this test. However, for the sake of
-            %% model determinism we don't assign the timestamp in the
-            %% generator and do it later in the action:
-            timestamp = undefined,
+            timestamp = 0,
             %% Message payload is unique:
             payload = <<Topic/binary, " ", From/binary, " ", (integer_to_binary(MsgSeqNo))/binary>>
         }
@@ -263,14 +255,11 @@ disconnect(#{conninfo := ConnInfo = #{client_pid := CPid}}) ->
     wait_stepdown(ConnInfo),
     flush_client_messages(CPid).
 
-publish(Batch) ->
+publish(Msgs) ->
     %% Produce traces for each message we're about to publish:
-    [?tp(?log_level, ?sessds_test_out_publish, emqx_message:to_map(Msg)) || Msg <- Batch],
+    [?tp(?log_level, ?sessds_test_out_publish, emqx_message:to_map(Msg)) || Msg <- Msgs],
     %% We bypass persistent session router for simplicity:
-    ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [
-        Msg#message{timestamp = emqx_message:timestamp_now()}
-     || Msg <- Batch
-    ]).
+    ok = emqx_persistent_message:store_batch(Msgs, #{sync => true}).
 
 add_generation() ->
     ?tp(?log_level, ?sessds_test_add_generation, #{}),
