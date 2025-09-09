@@ -987,6 +987,12 @@ defmodule EMQXUmbrella.MixProject do
       File.rm!(f)
     end)
 
+    ## mix copies `include` and `priv` dirs from apps, when they exist
+    [release.path, "lib", "*", "include"]
+    |> Path.join()
+    |> Path.wildcard()
+    |> Enum.each(&File.rm_rf!/1)
+
     release
   end
 

@@ -829,7 +829,7 @@ get_trace_details(Name) ->
 
 %% See `emqx_mgmt_trace_proto_v3:stream_trace_log/4`.
 %% Name is kept for backward compatibility.
-read_trace_file(_Name, _Position = 0, _Limit) ->
+read_trace_file(_Name, Position, _Limit) when is_integer(Position) ->
     %% NOTE: Backward compatibility measure.
     {ok, <<>>};
 read_trace_file(Name, Cont, Limit) ->
