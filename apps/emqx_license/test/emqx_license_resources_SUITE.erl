@@ -122,6 +122,3 @@ t_connection_count(_Config) ->
     meck:unload(emqx_license_proto_v3),
     meck:unload(emqx_cm),
     meck:unload(emqx_alarm).
-
-t_emqx_license_proto(_Config) ->
-    ?assert("5.0.0" =< emqx_license_proto_v2:introduced_in()).
