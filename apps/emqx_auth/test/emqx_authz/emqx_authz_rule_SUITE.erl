@@ -58,7 +58,11 @@ t_compile(_) ->
     % Some of the following testcase are relying on the internal representation of
     % `emqx_template:t()`. If the internal representation is changed, these testcases
     % may fail.
-    ?assertEqual({deny, all, all, [['#']]}, emqx_authz_rule:compile({deny, all})),
+    ?assertEqual({deny, all, all, ['ALL_TOPICS']}, emqx_authz_rule:compile({deny, all})),
+    ?assertEqual({deny, all, all, ['ALL_TOPICS']}, emqx_authz_rule:compile({deny, all, all, all})),
+    ?assertEqual(
+        {deny, all, subscribe, ['ALL_TOPICS']}, emqx_authz_rule:compile({deny, all, subscribe, all})
+    ),
 
     ?assertEqual(
         {allow, {ipaddr, {{127, 0, 0, 1}, {127, 0, 0, 1}, 32}}, all, [{eq, ['#']}, {eq, ['+']}]},
@@ -171,6 +175,12 @@ t_compile(_) ->
         )
     ),
 
+    ?assertMatch(
+        {allow, {client_attr, <<"a2">>, {re_pattern, _, _, _, _}}, all, ['ALL_TOPICS']},
+        emqx_authz_rule:compile(
+            {allow, {client_attr, "a2", {re, "v2.*"}}, all, all}
+        )
+    ),
     ok.
 
 t_match(_) ->
@@ -656,6 +666,15 @@ t_match(_) ->
         )
     ),
 
+    ?assertEqual(
+        {matched, deny},
+        emqx_authz_rule:match(
+            client_info(),
+            #{action_type => subscribe, qos => 0},
+            <<"$topic/test">>,
+            emqx_authz_rule:compile({deny, all})
+        )
+    ),
     ok.
 
 t_invalid_rule(_) ->
