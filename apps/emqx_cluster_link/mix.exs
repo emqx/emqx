@@ -25,6 +25,7 @@ defmodule EMQXClusterLink.MixProject do
     UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
+      :minirest,
       :emqtt
     ])
   end
