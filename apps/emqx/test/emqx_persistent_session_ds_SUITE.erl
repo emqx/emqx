@@ -126,9 +126,29 @@ start_client(Opts0 = #{}) ->
     Client.
 
 start_connect_client(Opts = #{}) ->
-    Client = start_client(Opts),
-    ?assertMatch({ok, _}, emqtt:connect(Client)),
-    Client.
+    Pid = start_client(Opts),
+    case emqtt_connect(Pid) of
+        {ok, _ConnAck} ->
+            Pid;
+        {error, {server_busy, _ConnAckProps}} ->
+            timer:sleep(10),
+            ClientId = proplists:get_value(clientid, Opts),
+            ct:pal("~s reconnect after delay", [ClientId]),
+            start_connect_client(Opts);
+        {error, Reason} ->
+            error(Reason)
+    end.
+
+emqtt_connect(ClientPid) ->
+    unlink(ClientPid),
+    case emqtt:connect(ClientPid) of
+        {ok, ConnAck} ->
+            {ok, ConnAck};
+        {error, Reason} ->
+            %% ensure failed client is killed
+            exit(ClientPid, kill),
+            {error, Reason}
+    end.
 
 mk_clientid(Prefix, ID) ->
     iolist_to_binary(io_lib:format("~p/~p", [Prefix, ID])).
@@ -249,12 +269,10 @@ t_storage_generations(Config) ->
         #{timetrap => 30_000},
         begin
             %% Start subscriber:
-            Sub = start_client(#{port => Port, clientid => ClientId, auto_ack => never}),
-            {ok, _} = emqtt:connect(Sub),
+            Sub = start_connect_client(#{port => Port, clientid => ClientId, auto_ack => never}),
             {ok, _, _} = emqtt:subscribe(Sub, TopicFilter, qos2),
             %% Start publisher:
-            Pub = start_client(#{port => Port, clientid => mk_clientid(?FUNCTION_NAME, pub)}),
-            {ok, _} = emqtt:connect(Pub),
+            Pub = start_connect_client(#{port => Port, clientid => mk_clientid(?FUNCTION_NAME, pub)}),
             %% Publish 3 messages. Subscriber receives them, but
             %% doesn't ack them initially.
             ?tp(notice, "test: Publish first batch", #{}),
@@ -322,8 +340,7 @@ t_session_subscription_idempotency(Config) ->
             spawn_link(fun() -> restart_node(Node1, Node1Spec) end),
 
             ?tp(notice, "starting 1", #{}),
-            Client0 = start_client(#{port => Port, clientid => ClientId}),
-            {ok, _} = emqtt:connect(Client0),
+            Client0 = start_connect_client(#{port => Port, clientid => ClientId}),
             ?tp(notice, "subscribing 1", #{}),
             process_flag(trap_exit, true),
             catch emqtt:subscribe(Client0, SubTopicFilter, qos2),
@@ -336,8 +353,7 @@ t_session_subscription_idempotency(Config) ->
 
             {ok, _} = ?block_until(#{?snk_kind := restarted_node}, 15_000),
             ?tp(notice, "starting 2", #{}),
-            Client1 = start_client(#{port => Port, clientid => ClientId}),
-            {ok, _} = emqtt:connect(Client1),
+            Client1 = start_connect_client(#{port => Port, clientid => ClientId}),
             ?tp(notice, "subscribing 2", #{}),
             {ok, _, [2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
             ok = stop_and_commit(Client1)
@@ -379,8 +395,7 @@ t_session_unsubscription_idempotency(Config) ->
             spawn_link(fun() -> restart_node(Node1, Node1Spec) end),
 
             ?tp(notice, "starting 1", #{}),
-            Client0 = start_client(#{port => Port, clientid => ClientId}),
-            {ok, _} = emqtt:connect(Client0),
+            Client0 = start_connect_client(#{port => Port, clientid => ClientId}),
             ?tp(notice, "subscribing 1", #{}),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client0, SubTopicFilter, qos2),
             ?tp(notice, "unsubscribing 1", #{}),
@@ -395,8 +410,7 @@ t_session_unsubscription_idempotency(Config) ->
 
             {ok, _} = ?block_until(#{?snk_kind := restarted_node}, 15_000),
             ?tp(notice, "starting 2", #{}),
-            Client1 = start_client(#{port => Port, clientid => ClientId}),
-            {ok, _} = emqtt:connect(Client1),
+            Client1 = start_connect_client(#{port => Port, clientid => ClientId}),
             ?tp(notice, "subscribing 2", #{}),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
             ?tp(notice, "unsubscribing 2", #{}),
@@ -440,10 +454,8 @@ t_subscription_state_change(Config) ->
         #{timetrap => 30_000},
         begin
             %% Init:
-            Sub = start_client(#{port => Port, clientid => ClientId, auto_ack => never}),
-            {ok, _} = emqtt:connect(Sub),
-            Pub = start_client(#{port => Port, clientid => mk_clientid(?FUNCTION_NAME, pub)}),
-            {ok, _} = emqtt:connect(Pub),
+            Sub = start_connect_client(#{port => Port, clientid => ClientId, auto_ack => never}),
+            Pub = start_connect_client(#{port => Port, clientid => mk_clientid(?FUNCTION_NAME, pub)}),
             %% Subscribe to the topic using QoS1 initially:
             {ok, _, _} = emqtt:subscribe(Sub, TopicFilter, ?QOS_1),
             #{subscriptions := Subs1} = GetS(),
@@ -670,8 +682,7 @@ t_new_stream_notifications(Config) ->
         #{timetrap => 30_000},
         begin
             %% Init:
-            Sub0 = start_client(#{port => Port, clientid => ClientId}),
-            {ok, _} = emqtt:connect(Sub0),
+            Sub0 = start_connect_client(#{port => Port, clientid => ClientId}),
             %% 1. Sessions should start watching streams when they
             %% subscribe to the topics:
             ?wait_async_action(
@@ -690,8 +701,7 @@ t_new_stream_notifications(Config) ->
                 2,
                 timer:seconds(10)
             ),
-            Sub1 = start_client(#{port => Port, clientid => ClientId, clean_start => false}),
-            {ok, _} = emqtt:connect(Sub1),
+            Sub1 = start_connect_client(#{port => Port, clientid => ClientId, clean_start => false}),
             %% Verify that both subscriptions have been renewed:
             {ok, EventsAfterRestart} = snabbkaffe:receive_events(SNKsub),
             ?assertMatch(
@@ -1022,13 +1032,12 @@ do_t_session_discard(Params) ->
         #{timetrap => 30_000},
         begin
             ?tp(notice, "starting", #{}),
-            Client0 = start_client(#{
+            Client0 = start_connect_client(#{
                 clientid => ClientId,
                 clean_start => true,
                 properties => #{'Session-Expiry-Interval' => 30},
                 proto_ver => v5
             }),
-            {ok, _} = emqtt:connect(Client0),
             ?tp(notice, "subscribing", #{}),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client0, SubTopicFilter, qos2),
             %% Store some matching messages so that streams and iterators are created.
@@ -1045,8 +1054,7 @@ do_t_session_discard(Params) ->
             ?tp(notice, "reconnecting", #{}),
             %% we still have the session:
             ?assertMatch(#{}, emqx_persistent_session_ds_state:print_session(ClientId)),
-            Client1 = start_client(ReconnectOpts),
-            {ok, _} = emqtt:connect(Client1),
+            Client1 = start_connect_client(ReconnectOpts),
             ?assertEqual([], emqtt:subscriptions(Client1)),
             case is_persistent_connect_opts(ReconnectOpts) of
                 true ->
@@ -1118,8 +1126,7 @@ do_t_session_expiration(Opts) ->
         begin
             Topic = <<"some/topic">>,
             Params0 = maps:merge(CommonParams, FirstConn),
-            Client0 = start_client(Params0),
-            {ok, _} = emqtt:connect(Client0),
+            Client0 = start_connect_client(Params0),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client0, Topic, ?QOS_2),
             #{s := #{subscriptions := Subs0}} = emqx_persistent_session_ds:print_session(ClientId),
             ?assertEqual(1, map_size(Subs0), #{subs => Subs0}),
@@ -1128,8 +1135,7 @@ do_t_session_expiration(Opts) ->
             emqtt:disconnect(Client0, ?RC_NORMAL_DISCONNECTION, FirstDisconn),
 
             Params1 = maps:merge(CommonParams, SecondConn),
-            Client1 = start_client(Params1),
-            {ok, _} = emqtt:connect(Client1),
+            Client1 = start_connect_client(Params1),
             Info1 = maps:from_list(emqtt:info(Client1)),
             ?assertEqual(1, maps:get(session_present, Info1), #{info => Info1}),
             Subs1 = emqtt:subscriptions(Client1),
@@ -1139,8 +1145,7 @@ do_t_session_expiration(Opts) ->
             ct:sleep(2_500),
 
             Params2 = maps:merge(CommonParams, ThirdConn),
-            Client2 = start_client(Params2),
-            {ok, _} = emqtt:connect(Client2),
+            Client2 = start_connect_client(Params2),
             Info2 = maps:from_list(emqtt:info(Client2)),
             ?assertEqual(0, maps:get(session_present, Info2), #{info => Info2}),
             Subs2 = emqtt:subscriptions(Client2),
@@ -1177,9 +1182,7 @@ t_session_gc(Config) ->
             port => Port,
             properties => #{'Session-Expiry-Interval' => ExpiryInterval}
         }),
-        Client = start_client(Params),
-        {ok, _} = emqtt:connect(Client),
-        Client
+        start_connect_client(Params)
     end,
 
     ?check_trace(
@@ -1265,14 +1268,13 @@ t_crashed_node_session_gc(Config) ->
         #{timetrap => 30_000},
         begin
             ClientId = <<"session_on_crashed_node">>,
-            Client = start_client(#{
+            _ = start_connect_client(#{
                 clientid => ClientId,
                 port => Port,
                 properties => #{'Session-Expiry-Interval' => 1},
                 clean_start => false,
                 proto_ver => v5
             }),
-            {ok, _} = emqtt:connect(Client),
             ct:sleep(1500),
             emqx_cth_peer:kill(Node1),
 
@@ -1376,14 +1378,13 @@ t_delayed_will_message(_Config) ->
             WillTopic = <<"will/t">>,
             ok = emqx:subscribe(WillTopic, #{qos => 2}),
             ClientId = <<"will_msg_client">>,
-            Client = start_client(#{
+            Client = start_connect_client(#{
                 clientid => ClientId,
                 will_topic => WillTopic,
                 will_payload => <<"will payload">>,
                 will_qos => 0,
                 will_props => #{'Will-Delay-Interval' => 5}
             }),
-            {ok, _} = emqtt:connect(Client),
             %% Use reason code =/= `?RC_SUCCESS' to allow will message
             {ok, {ok, _}} =
                 ?wait_async_action(
