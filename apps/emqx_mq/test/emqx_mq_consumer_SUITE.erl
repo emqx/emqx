@@ -59,8 +59,8 @@ t_auto_shutdown(_Config) ->
         1000
     ).
 
-%% Verify that if the consumer fails to start because of "already_registered" error
-%% (a conflicting consumer is already running), then the consumer will quickly reconnect
+%% Verify that if a subscriber fails to spawn a consumer because of "already_registered" error
+%% (a conflicting consumer is already running), then the subscriber will quickly reconnect
 %% and start consuming messages from the already existing consumer.
 t_quick_reconnect(_Config) ->
     %% Create a non-lastvalue Queue
@@ -72,6 +72,7 @@ t_quick_reconnect(_Config) ->
     %% Publish a message to the queue
     CPub = emqx_mq_test_utils:emqtt_connect([]),
     emqx_mq_test_utils:emqtt_pub_mq(CPub, <<"t/1">>, <<"test message">>),
+    ok = emqtt:disconnect(CPub),
 
     %% Create a "conflicting consumer"
     Pid = spawn_link(fun() ->
@@ -96,9 +97,13 @@ t_quick_reconnect(_Config) ->
     erlang:send(Pid, stop),
     meck:unload(emqx_mq_consumer),
 
+    %% Verify that the message is received within little threshold
     receive
         {publish, #{topic := <<"t/1">>, payload := <<"test message">>}} ->
             ok
     after 1000 ->
         ct:fail("message not received")
-    end.
+    end,
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
