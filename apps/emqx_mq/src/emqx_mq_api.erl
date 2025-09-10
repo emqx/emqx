@@ -203,18 +203,20 @@ put_message_queue_example() ->
 
 get_message_queue_example() ->
     #{
-        <<"busy_session_retry_interval">> => 100,
-        <<"consumer_max_inactive">> => 30000,
-        <<"consumer_persistence_interval">> => 10000,
-        <<"data_retention_period">> => 604800000,
-        <<"dispatch_strategy">> => <<"random">>,
+        <<"topic_filter">> => <<"t/1">>,
         <<"is_lastvalue">> => false,
-        <<"local_max_inflight">> => 10,
-        <<"ping_interval">> => 10000,
-        <<"redispatch_interval">> => 100,
-        <<"stream_max_buffer_size">> => 2000,
-        <<"stream_max_unacked">> => 1000,
-        <<"topic_filter">> => <<"t/1">>
+        <<"data_retention_period">> => 604800000,
+        <<"dispatch_strategy">> => <<"random">>
+
+        %% Hidden fields
+        %% <<"busy_session_retry_interval">> => 100,
+        %% <<"consumer_max_inactive">> => 30000,
+        %% <<"consumer_persistence_interval">> => 10000,
+        %% <<"local_max_inflight">> => 10,
+        %% <<"ping_interval">> => 10000,
+        %% <<"redispatch_interval">> => 100,
+        %% <<"stream_max_buffer_size">> => 2000,
+        %% <<"stream_max_unacked">> => 1000
     }.
 
 post_message_queue_example() ->
