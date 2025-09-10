@@ -12,7 +12,6 @@
 
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -31,39 +30,6 @@
     "insert into t_mqtt_msgs(msgid, topic, qos, payload) "
     "values (${id}, ${topic}, ${qos}, ${payload})"
 >>).
-
-conn_bridge_examples(_Method) ->
-    [
-        #{
-            <<"oracle">> => #{
-                summary => <<"Oracle Database Bridge">>,
-                value => conn_bridge_examples_values()
-            }
-        }
-    ].
-
-conn_bridge_examples_values() ->
-    #{
-        enable => true,
-        type => oracle,
-        name => <<"foo">>,
-        server => <<"127.0.0.1:1521">>,
-        pool_size => 8,
-        service_name => <<"ORCL">>,
-        sid => <<"ORCL">>,
-        username => <<"root">>,
-        password => <<"******">>,
-        sql => ?DEFAULT_SQL,
-        local_topic => <<"local/topic/#">>,
-        resource_opts => #{
-            worker_pool_size => 8,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            batch_size => ?DEFAULT_BATCH_SIZE,
-            batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => async,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-        }
-    }.
 
 connector_examples(Method) ->
     [
@@ -179,11 +145,6 @@ fields("config") ->
             hoconsc:mk(
                 emqx_schema:template(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
-            )},
-        {local_topic,
-            hoconsc:mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
         fields(connector_fields);
@@ -195,7 +156,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    emqx_bridge_v2_api:status_fields() ++ fields("post").
 
 fields("post", Type) ->
     [type_field(Type), name_field() | fields("config")].

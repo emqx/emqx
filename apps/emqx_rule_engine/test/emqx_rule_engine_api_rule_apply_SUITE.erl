@@ -168,11 +168,12 @@ basic_apply_rule_test_helper(TestCase, Action, TraceType, StopAfterRender, Paylo
     %% Create Rule
     RuleTopic = iolist_to_binary([<<"my_rule_topic/">>, atom_to_binary(?FUNCTION_NAME)]),
     SQL = <<"SELECT payload.id as id, payload as payload FROM \"", RuleTopic/binary, "\"">>,
-    {ok, #{<<"id">> := RuleId}} =
-        emqx_bridge_testlib:create_rule_and_action(
-            Action,
-            RuleTopic,
-            #{sql => SQL}
+    {201, #{<<"id">> := RuleId}} =
+        emqx_bridge_v2_testlib:create_rule_api2(
+            #{
+                <<"sql">> => SQL,
+                <<"actions">> => [Action]
+            }
         ),
     ClientId = <<"c_emqx">>,
     %% ===================================

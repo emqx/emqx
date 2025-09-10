@@ -4,9 +4,9 @@ config_body.desc:
 """The body of the HTTP request.<br/>
 If not provided, the body will be a JSON object of all the available fields.<br/>
 There, 'all the available fields' means the context of a MQTT message when
-this webhook is triggered by receiving a MQTT message (the `local_topic` is set),
+this action is triggered by receiving a MQTT message,
 or the context of the event when this webhook is triggered by a rule (i.e. this
-webhook is used as an action of a rule).<br/>
+action is used as an action of a rule).<br/>
 Template with variables is allowed."""
 
 config_body.label:
@@ -24,16 +24,6 @@ Template with variables is allowed."""
 
 config_headers.label:
 """HTTP Header"""
-
-config_local_topic.desc:
-"""The MQTT topic filter to be forwarded to the HTTP server. All MQTT 'PUBLISH' messages with the topic
-matching the local_topic will be forwarded.<br/>
-NOTE: If this action is used as the action of a rule (EMQX rule engine), and also local_topic is
-configured, then both the data got from the rule and the MQTT messages that match local_topic
-will be forwarded."""
-
-config_local_topic.label:
-"""Local Topic"""
 
 config_max_retries.desc:
 """HTTP request max retry times if failed."""

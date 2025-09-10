@@ -19,7 +19,6 @@
 
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -55,7 +54,7 @@ fields(action) ->
             }
         )};
 fields(action_parameters) ->
-    proplists:delete(local_topic, fields(producer));
+    fields(producer);
 fields(kinesis_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         hoconsc:mk(
@@ -81,30 +80,6 @@ fields(action_resource_opts) ->
             }}
         ]
     );
-fields("config_producer") ->
-    emqx_bridge_schema:common_bridge_fields() ++
-        fields("resource_opts") ++
-        fields(connector_config) ++
-        fields(producer);
-fields("resource_opts") ->
-    [
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts"),
-                #{
-                    required => false,
-                    default => #{},
-                    desc => ?DESC(emqx_resource_schema, "creation_opts")
-                }
-            )}
-    ];
-fields("creation_opts") ->
-    emqx_resource_schema:create_opts([
-        {batch_size, #{
-            type => range(1, 500),
-            validator => emqx_resource_validator:max(int, 500)
-        }}
-    ]);
 fields(connector_config) ->
     [
         {aws_access_key_id,
@@ -175,23 +150,7 @@ fields(producer) ->
                     desc => ?DESC("partition_key")
                 }
             )}
-    ] ++ fields(local_topic);
-fields(local_topic) ->
-    [
-        {local_topic,
-            sc(
-                binary(),
-                #{
-                    desc => ?DESC("local_topic")
-                }
-            )}
     ];
-fields("get_producer") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_producer");
-fields("post_producer") ->
-    [type_field_producer(), name_field() | fields("config_producer")];
-fields("put_producer") ->
-    fields("config_producer");
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         fields(connector_config) ++
@@ -205,10 +164,6 @@ fields(Field) when
 ->
     emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(kinesis_action)).
 
-desc("config_producer") ->
-    ?DESC("desc_config");
-desc("creation_opts") ->
-    ?DESC(emqx_resource_schema, "creation_opts");
 desc("config_connector") ->
     ?DESC("config_connector");
 desc(kinesis_action) ->
@@ -221,16 +176,6 @@ desc(action_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
-
-conn_bridge_examples(_Method) ->
-    [
-        #{
-            <<"kinesis_producer">> => #{
-                summary => <<"Amazon Kinesis Producer Bridge">>,
-                value => conn_bridge_values()
-            }
-        }
-    ].
 
 connector_examples(Method) ->
     [
@@ -276,26 +221,6 @@ action_values() ->
         }
     }.
 
-conn_bridge_values() ->
-    #{
-        enable => true,
-        type => kinesis_producer,
-        name => <<"foo">>,
-        aws_access_key_id => <<"aws_access_key_id">>,
-        aws_secret_access_key => <<"******">>,
-        endpoint => <<"https://kinesis.us-east-1.amazonaws.com">>,
-        max_retries => 3,
-        stream_name => <<"stream_name">>,
-        partition_key => <<"key">>,
-        resource_opts => #{
-            worker_pool_size => 1,
-            health_check_interval => 15000,
-            query_mode => async,
-            inflight_window => 100,
-            max_buffer_bytes => 100 * 1024 * 1024
-        }
-    }.
-
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
@@ -303,13 +228,3 @@ conn_bridge_values() ->
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
-
-enum(OfSymbols) -> hoconsc:enum(OfSymbols).
-
-ref(Module, Name) -> hoconsc:ref(Module, Name).
-
-type_field_producer() ->
-    {type, mk(enum([kinesis_producer]), #{required => true, desc => ?DESC("desc_type")})}.
-
-name_field() ->
-    {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.

@@ -21,8 +21,7 @@
 
 -export([
     bridge_v2_examples/1,
-    connector_examples/1,
-    conn_bridge_examples/1
+    connector_examples/1
 ]).
 
 -define(CONNECTOR_TYPE, rocketmq).
@@ -31,39 +30,6 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% api
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"rocketmq">> => #{
-                summary => <<"RocketMQ Bridge">>,
-                value => conn_bridge_example_values(Method)
-            }
-        }
-    ].
-
-conn_bridge_example_values(get) ->
-    conn_bridge_example_values(post);
-conn_bridge_example_values(post) ->
-    #{
-        enable => true,
-        type => rocketmq,
-        name => <<"foo">>,
-        server => <<"127.0.0.1:9876">>,
-        topic => <<"TopicTest">>,
-        template => ?DEFAULT_TEMPLATE,
-        local_topic => <<"local/topic/#">>,
-        resource_opts => #{
-            worker_pool_size => 1,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            batch_size => ?DEFAULT_BATCH_SIZE,
-            batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => sync,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-        }
-    };
-conn_bridge_example_values(put) ->
-    conn_bridge_example_values(post).
 
 connector_examples(Method) ->
     [
@@ -224,11 +190,6 @@ fields("config") ->
                 emqx_schema:template(),
                 #{desc => ?DESC("template"), default => ?DEFAULT_TEMPLATE}
             )},
-        {local_topic,
-            mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), required => false}
-            )},
         {strategy,
             mk(
                 hoconsc:union([roundrobin, binary()]),
@@ -241,7 +202,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    emqx_bridge_v2_api:status_fields() ++ fields("post").
 
 desc("config") ->
     ?DESC("desc_config");

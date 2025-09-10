@@ -334,10 +334,6 @@ init_per_testcase(t_events_legacy, Config) ->
     ),
     ?assertMatch(#{id := <<"rule:t_events">>}, Rule),
     [{hook_points_rules, Rule} | Config];
-init_per_testcase(t_get_basic_usage_info_1, Config) ->
-    meck:new(emqx_bridge, [passthrough, no_link, no_history]),
-    meck:expect(emqx_bridge, lookup, fun(_Type, _Name) -> {ok, #{mocked => true}} end),
-    Config;
 init_per_testcase(_TestCase, Config) ->
     Config.
 
@@ -351,13 +347,9 @@ end_per_testcase(t_events_legacy, _Config) ->
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_common_test_helpers:call_janitor(),
     ok;
-end_per_testcase(t_get_basic_usage_info_1, _Config) ->
-    meck:unload(),
-    emqx_bridge_v2_testlib:delete_all_rules(),
-    emqx_common_test_helpers:call_janitor(),
-    ok;
 end_per_testcase(_TestCase, _Config) ->
     emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 

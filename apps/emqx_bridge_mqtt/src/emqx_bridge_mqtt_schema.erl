@@ -19,7 +19,7 @@ roots() -> [].
 
 fields("config") ->
     %% enable
-    emqx_bridge_schema:common_bridge_fields() ++
+    emqx_connector_schema:common_fields() ++
         [
             {resource_opts,
                 mk(
@@ -40,7 +40,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("config").
+    emqx_bridge_v2_api:status_fields() ++ fields("config").
 
 desc("config") ->
     ?DESC("config");

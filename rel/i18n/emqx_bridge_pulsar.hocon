@@ -115,13 +115,6 @@ producer_compression.desc:
 producer_compression.label:
 """Compression"""
 
-producer_local_topic.desc:
-"""MQTT topic or topic filter as data source (bridge input)
- If rule action is used as data source, this config should be left empty,
- otherwise messages will be duplicated in Pulsar."""
-producer_local_topic.label:
-"""Source MQTT Topic"""
-
 producer_max_batch_bytes.desc:
 """Maximum bytes to collect in a Pulsar message batch. Most of the Pulsar brokers
  default to a limit of 5 MB batch size. EMQX's default value is less than 5 MB in

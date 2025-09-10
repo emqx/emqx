@@ -8,10 +8,6 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
-    conn_bridge_examples/1
-]).
-
--export([
     namespace/0,
     roots/0,
     fields/1,
@@ -26,19 +22,6 @@
 
 -define(CONNECTOR_TYPE, matrix).
 -define(ACTION_TYPE, matrix).
-
-%% -------------------------------------------------------------------------------------------------
-%% api
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"matrix">> => #{
-                summary => <<"Matrix Bridge">>,
-                value => emqx_bridge_pgsql:values_conn_bridge_examples(Method, matrix)
-            }
-        }
-    ].
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions

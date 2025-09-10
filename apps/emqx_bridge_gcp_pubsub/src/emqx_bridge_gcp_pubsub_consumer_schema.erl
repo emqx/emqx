@@ -22,7 +22,6 @@
 %% `emqx_bridge_v2_schema' "unofficial" API
 -export([
     source_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -63,22 +62,7 @@ fields(consumer_source) ->
         #{resource_opts_ref => ref(?MODULE, source_resource_opts)}
     );
 fields(source_parameters) ->
-    Fields0 = emqx_bridge_gcp_pubsub:fields(consumer),
-    Fields = lists:map(
-        fun
-            ({topic_mapping = Name, Sc}) ->
-                Override = #{
-                    required => false,
-                    default => [],
-                    validator => fun(_) -> ok end,
-                    importance => ?IMPORTANCE_HIDDEN
-                },
-                {Name, hocon_schema:override(Sc, Override)};
-            (FieldSchema) ->
-                FieldSchema
-        end,
-        Fields0
-    ),
+    Fields = emqx_bridge_gcp_pubsub:fields(consumer),
     [
         {topic,
             mk(
@@ -174,9 +158,6 @@ connector_examples(Method) ->
             }
         }
     ].
-
-conn_bridge_examples(Method) ->
-    emqx_bridge_gcp_pubsub:conn_bridge_examples(Method).
 
 source_example(post) ->
     maps:merge(

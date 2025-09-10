@@ -485,24 +485,6 @@ do_handle_action(Rule, ActId, Selected, Envs) ->
             )
     end.
 
-do_handle_action2(#{} = Rule, {bridge, BridgeType, BridgeName, ResId} = Action, Selected, _Envs) ->
-    trace_action_bridge("BRIDGE", Action, "bridge_action", #{}, debug),
-    {TraceCtx, IncCtx} = do_handle_action_get_trace_inc_metrics_context(Rule, Action),
-    ReplyTo = {
-        fun ?MODULE:eval_action_reply_to/2,
-        [IncCtx],
-        ?EXT_TRACE_WITH_ACTION_METADATA(_Envs, #{reply_dropped => true})
-    },
-    case
-        emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected, #{
-            reply_to => ReplyTo, trace_ctx => TraceCtx
-        })
-    of
-        {error, Reason} when Reason == bridge_not_found; Reason == bridge_disabled ->
-            throw({discard, Reason});
-        Result ->
-            Result
-    end;
 do_handle_action2(
     #{namespace := Namespace} = Rule,
     {bridge_v2, BridgeType, BridgeName} = Action,
@@ -916,11 +898,6 @@ do_inc_action_metrics(#{rule_res_id := RuleResId, action_id := ActId} = TraceCon
 
 trace_formatted_result({{bridge_v2, Type, _Name}, R}) ->
     ConnectorType = emqx_action_info:action_type_to_connector_type(Type),
-    ResourceModule = emqx_connector_info:resource_callback_module(ConnectorType),
-    clean_up_error_tuple(emqx_resource:call_format_query_result(ResourceModule, R));
-trace_formatted_result({{bridge, BridgeType, _BridgeName, _ResId}, R}) ->
-    BridgeV2Type = emqx_action_info:bridge_v1_type_to_action_type(BridgeType),
-    ConnectorType = emqx_action_info:action_type_to_connector_type(BridgeV2Type),
     ResourceModule = emqx_connector_info:resource_callback_module(ConnectorType),
     clean_up_error_tuple(emqx_resource:call_format_query_result(ResourceModule, R));
 trace_formatted_result({_, R}) ->

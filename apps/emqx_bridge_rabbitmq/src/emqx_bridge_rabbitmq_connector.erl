@@ -47,9 +47,8 @@
 
 namespace() -> "rabbitmq".
 
-%% bridge v1
 roots() ->
-    [{config, #{type => hoconsc:ref(?MODULE, config)}}].
+    [].
 
 %% bridge v1 called by emqx_bridge_rabbitmq
 fields(config) ->

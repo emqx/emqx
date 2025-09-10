@@ -11,7 +11,6 @@
 -import(hoconsc, [mk/2, enum/1, ref/2, array/1]).
 
 -export([
-    conn_bridge_examples/1,
     bridge_v2_examples/1,
     default_data_template/0
 ]).
@@ -25,35 +24,6 @@
 
 -define(CONNECTOR_TYPE, opents).
 -define(ACTION_TYPE, ?CONNECTOR_TYPE).
-
-%% -------------------------------------------------------------------------------------------------
-%% v1 examples
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"opents">> => #{
-                summary => <<"OpenTSDB Bridge">>,
-                value => values(Method)
-            }
-        }
-    ].
-
-values(_Method) ->
-    #{
-        enabledb => true,
-        type => opents,
-        name => <<"foo">>,
-        server => <<"http://127.0.0.1:4242">>,
-        pool_size => 8,
-        resource_opts => #{
-            worker_pool_size => 1,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            batch_size => ?DEFAULT_BATCH_SIZE,
-            batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => async,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-        }
-    }.
 
 %% -------------------------------------------------------------------------------------------------
 %% v2 examples
@@ -101,7 +71,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post");
+    emqx_bridge_v2_api:status_fields() ++ fields("post");
 %% -------------------------------------------------------------------------------------------------
 %% V2 Schema Definitions
 
@@ -196,11 +166,11 @@ fields(action_parameters_data) ->
             )}
     ];
 fields("post_bridge_v2") ->
-    emqx_bridge_schema:type_and_name_fields(enum([opents])) ++ fields(action_config);
+    emqx_bridge_v2_schema:type_and_name_fields(enum([opents])) ++ fields(action_config);
 fields("put_bridge_v2") ->
     fields(action_config);
 fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2").
+    emqx_bridge_v2_api:status_fields() ++ fields("post_bridge_v2").
 
 desc("config") ->
     ?DESC("desc_config");

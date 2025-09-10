@@ -76,7 +76,7 @@ fields("post") ->
 fields("put") ->
     fields("config_connector");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    emqx_bridge_v2_api:status_fields() ++ fields("post").
 
 base_config(HasDatabase) ->
     [

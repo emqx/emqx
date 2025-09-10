@@ -561,7 +561,16 @@ get_query_opts(Mod, ActionOrSourceConfig) ->
         true ->
             Mod:query_opts(ActionOrSourceConfig);
         false ->
-            emqx_bridge:query_opts(ActionOrSourceConfig)
+            case
+                emqx_utils_maps:deep_get([resource_opts, request_ttl], ActionOrSourceConfig, false)
+            of
+                Timeout when is_integer(Timeout) orelse Timeout =:= infinity ->
+                    %% request_ttl is configured
+                    #{timeout => Timeout};
+                _ ->
+                    %% emqx_resource has a default value (15s)
+                    #{}
+            end
     end.
 
 -spec call_start(resource_id(), module(), resource_config()) ->

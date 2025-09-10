@@ -69,7 +69,7 @@ fields("post") ->
 fields("put") ->
     fields("config_connector");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    emqx_bridge_v2_api:status_fields() ++ fields("post").
 
 desc(config) ->
     ?DESC("desc_config");
@@ -230,13 +230,13 @@ on_get_channel_status(InstanceId, ChannelId, #{channels := Channels} = State) ->
 %% Helper fns
 %%========================================================================================
 
-do_query(InstanceId, ChannelID, Query, #{pool_name := PoolName} = State) ->
+do_query(InstanceId, ChannelId, Query, #{pool_name := PoolName} = State) ->
     ?TRACE(
         "QUERY",
         "opents_connector_received",
         #{connector => InstanceId, query => Query, state => State}
     ),
-    emqx_trace:rendered_action_template(ChannelID, #{query => Query}),
+    emqx_trace:rendered_action_template(ChannelId, #{query => Query}),
 
     ?tp(opents_bridge_on_query, #{instance_id => InstanceId}),
 

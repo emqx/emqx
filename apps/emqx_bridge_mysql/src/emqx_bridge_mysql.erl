@@ -13,7 +13,6 @@
 
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -51,16 +50,6 @@ bridge_v2_examples(Method) ->
 action_values() ->
     #{parameters => #{sql => ?DEFAULT_SQL}}.
 
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"mysql">> => #{
-                summary => <<"MySQL Bridge">>,
-                value => values(Method)
-            }
-        }
-    ].
-
 connector_examples(Method) ->
     [
         #{
@@ -84,28 +73,6 @@ connector_values() ->
         resource_opts => #{health_check_interval => <<"20s">>}
     }.
 
-values(_Method) ->
-    #{
-        enable => true,
-        type => mysql,
-        name => <<"foo">>,
-        server => <<"127.0.0.1:3306">>,
-        database => <<"test">>,
-        pool_size => 8,
-        username => <<"root">>,
-        password => <<"******">>,
-        sql => ?DEFAULT_SQL,
-        local_topic => <<"local/topic/#">>,
-        resource_opts => #{
-            worker_pool_size => 1,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            batch_size => ?DEFAULT_BATCH_SIZE,
-            batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => async,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-        }
-    }.
-
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
 namespace() -> "bridge_mysql".
@@ -119,11 +86,6 @@ fields("config") ->
             mk(
                 emqx_schema:template(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
-            )},
-        {local_topic,
-            mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
         emqx_mysql:fields(config);
@@ -162,7 +124,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post");
+    emqx_bridge_v2_api:status_fields() ++ fields("post");
 fields(Field) when
     Field == "get_bridge_v2";
     Field == "post_bridge_v2";

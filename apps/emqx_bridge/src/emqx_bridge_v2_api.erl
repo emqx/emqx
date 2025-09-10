@@ -58,6 +58,10 @@
     '/source_types'/2
 ]).
 
+-export([
+    status_fields/0
+]).
+
 %% BpAPI / RPC Targets
 -export([
     lookup_from_local_node/2,
@@ -351,7 +355,7 @@ schema("/actions/:id/metrics") ->
             description => ?DESC("desc_bridge_metrics"),
             parameters => [param_path_id()],
             responses => #{
-                200 => emqx_bridge_schema:metrics_fields(),
+                200 => metrics_fields(),
                 404 => error_schema('NOT_FOUND', ?DESC("action_not_found"))
             }
         }
@@ -571,7 +575,7 @@ schema("/sources/:id/metrics") ->
             description => ?DESC("desc_bridge_metrics"),
             parameters => [param_path_id()],
             responses => #{
-                200 => emqx_bridge_schema:metrics_fields(),
+                200 => metrics_fields(),
                 404 => error_schema('NOT_FOUND', ?DESC("source_not_found"))
             }
         }
@@ -720,6 +724,78 @@ fields(response_summary) ->
         {rules, mk(array(binary()), #{})},
         {status, mk(binary(), #{})},
         {status_reason, mk(binary(), #{})}
+    ];
+fields("metrics") ->
+    [
+        {"dropped", mk(integer(), #{desc => ?DESC("metric_dropped")})},
+        {"dropped.other", mk(integer(), #{desc => ?DESC("metric_dropped_other")})},
+        {"dropped.queue_full", mk(integer(), #{desc => ?DESC("metric_dropped_queue_full")})},
+        {"dropped.resource_not_found",
+            mk(integer(), #{desc => ?DESC("metric_dropped_resource_not_found")})},
+        {"dropped.resource_stopped",
+            mk(integer(), #{desc => ?DESC("metric_dropped_resource_stopped")})},
+        {"matched", mk(integer(), #{desc => ?DESC("metric_matched")})},
+        {"queuing", mk(integer(), #{desc => ?DESC("metric_queuing")})},
+        {"retried", mk(integer(), #{desc => ?DESC("metric_retried")})},
+        {"failed", mk(integer(), #{desc => ?DESC("metric_sent_failed")})},
+        {"inflight", mk(integer(), #{desc => ?DESC("metric_inflight")})},
+        {"success", mk(integer(), #{desc => ?DESC("metric_sent_success")})},
+        {"rate", mk(float(), #{desc => ?DESC("metric_rate")})},
+        {"rate_max", mk(float(), #{desc => ?DESC("metric_rate_max")})},
+        {"rate_last5m",
+            mk(
+                float(),
+                #{desc => ?DESC("metric_rate_last5m")}
+            )},
+        {"received", mk(float(), #{desc => ?DESC("metric_received")})}
+    ];
+fields("node_metrics") ->
+    [
+        node_name(),
+        {"metrics", mk(ref(?MODULE, "metrics"), #{})}
+    ];
+fields("node_status") ->
+    [
+        node_name(),
+        {"status", mk(status(), #{})},
+        {"status_reason",
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_status_reason"),
+                example => <<"Connection refused">>
+            })}
+    ].
+
+status_fields() ->
+    [
+        {"status", mk(status(), #{desc => ?DESC("desc_status")})},
+        {"status_reason",
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_status_reason"),
+                example => <<"Connection refused">>
+            })},
+        {"node_status",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_status")),
+                #{desc => ?DESC("desc_node_status")}
+            )}
+    ].
+
+status() ->
+    hoconsc:enum([connected, disconnected, connecting, inconsistent]).
+
+node_name() ->
+    {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
+
+metrics_fields() ->
+    [
+        {"metrics", mk(ref(?MODULE, "metrics"), #{desc => ?DESC("desc_metrics")})},
+        {"node_metrics",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_metrics")),
+                #{desc => ?DESC("desc_node_metrics")}
+            )}
     ].
 
 %%------------------------------------------------------------------------------
@@ -1729,3 +1805,5 @@ get_raw_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
     emqx:get_raw_namespaced_config(Namespace, KeyPath, Default);
 get_raw_config(?global_ns, KeyPath, Default) ->
     emqx:get_raw_config(KeyPath, Default).
+
+ref(Module, StructName) -> hoconsc:ref(Module, StructName).

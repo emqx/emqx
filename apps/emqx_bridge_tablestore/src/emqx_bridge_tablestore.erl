@@ -22,7 +22,6 @@
 %% Examples
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -30,15 +29,6 @@
 -define(ACTION_TYPE, tablestore).
 
 %% Examples
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"tablestore_timeseries">> => #{
-                summary => <<"Tablestore Timeseries Bridge">>,
-                value => values(timeseries, Method)
-            }
-        }
-    ].
 
 bridge_v2_examples(Method) ->
     [
@@ -95,43 +85,6 @@ action_parameters_example(timeseries) ->
             ],
             meta_update_model => <<"MUM_IGNORE">>
         }
-    }.
-
-values(StorageType, get) ->
-    values(StorageType, post);
-values(StorageType, put) ->
-    values(StorageType, post);
-values(timeseries, post) ->
-    #{
-        name => <<"tablestore_connector">>,
-        enable => true,
-        local_topic => <<"local/topic/#">>,
-        endpoint => <<"https://myinstance.cn-hangzhou.ots.aliyuncs.com">>,
-        storage_model_type => timeseries,
-        instance_name => <<"myinstance">>,
-        access_key_id => <<"******">>,
-        access_key_secret => <<"******">>,
-        table_name => <<"table_name">>,
-        measurement => <<"measurement">>,
-        tags => #{
-            tag1 => <<"${tag1}">>,
-            tag2 => <<"${tag2}">>
-        },
-        fields => [
-            #{
-                column => <<"${column}">>,
-                value => <<"${value}">>,
-                isint => true
-            }
-        ],
-        data_source => <<"${data_source}">>,
-        meta_update_model => <<"MUM_IGNORE">>,
-        resource_opts => #{
-            batch_size => 1,
-            batch_time => <<"20ms">>
-        },
-        pool_size => 8,
-        ssl => #{enable => false}
     }.
 
 %% -------------------------------------------------------------------------------------------------

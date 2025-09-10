@@ -57,7 +57,7 @@ fields("rules") ->
                     desc => ?DESC("rules_actions"),
                     default => [],
                     example => [
-                        <<"webhook:my_webhook">>,
+                        <<"http:my_webhook">>,
                         #{
                             function => republish,
                             args => #{
