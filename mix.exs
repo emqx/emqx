@@ -301,8 +301,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:unicode_util_compat, "0.7.1", override: true}
 
   def common_dep(:proper),
-    # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
-    do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}
+    do: {:proper, "1.5.0", only: :test}
 
   def common_dep(:optvar),
     do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
