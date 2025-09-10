@@ -28,6 +28,11 @@
 %% replicants _do nothing_ on connectivity loss, regardless of how long
 %% it is. Coupled with the fact that replicants are not affected by
 %% "autoheal" mechanism, this may still lead to routing inconsistencies.
+%%
+%% TODO
+%% Since this module is now responsible for purging stuff not _directly_
+%% related to the routing table, it needs to be refactored to be more
+%% generic and placed in a more suitable spot in the supervision tree.
 
 -module(emqx_router_helper).
 
@@ -379,20 +384,20 @@ schedule_purge_left(Node) ->
 handle_purge(Node, Why, State) ->
     try purge_dead_node_trans(Node) of
         true ->
-            ?tp(warning, router_node_routing_table_purged, #{
+            ?tp(warning, broker_node_purged, #{
                 node => Node,
                 reason => Why,
                 hint => "Ignore if the node in question went offline due to cluster maintenance"
             }),
             forget_node(Node);
         false ->
-            ?tp(debug, router_node_purge_skipped, #{node => Node}),
+            ?tp(debug, broker_node_purge_skipped, #{node => Node}),
             forget_node(Node);
         aborted ->
-            ?tp(notice, router_node_purge_aborted, #{node => Node})
+            ?tp(notice, broker_node_purge_aborted, #{node => Node})
     catch
         Kind:Error ->
-            ?tp(warning, router_node_purge_error, #{
+            ?tp(warning, broker_node_purge_error, #{
                 node => Node,
                 kind => Kind,
                 error => Error
@@ -403,7 +408,7 @@ handle_purge(Node, Why, State) ->
 purge_dead_node(Node) ->
     case node_has_routes(Node) of
         true ->
-            ok = cleanup_routes(Node),
+            ok = do_purge_node(Node),
             true;
         false ->
             false
@@ -418,7 +423,7 @@ purge_dead_node_trans(Node) ->
                     global:trans(
                         {?LOCK(Node), self()},
                         fun() ->
-                            ok = cleanup_routes(Node),
+                            ok = do_purge_node(Node),
                             true
                         end,
                         Nodes,
@@ -431,8 +436,8 @@ purge_dead_node_trans(Node) ->
             false
     end.
 
-cleanup_routes(Node) ->
-    emqx_router:cleanup_routes(Node),
+do_purge_node(Node) ->
+    emqx_broker:purge_node(Node),
     remove_routing_node(Node).
 
 %%

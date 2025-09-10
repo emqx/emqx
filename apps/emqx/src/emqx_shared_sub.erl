@@ -2,6 +2,10 @@
 %% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
+%% TODO
+%% This server might crash during the runtime. Naturally, `?SHARED_SUBSCRIPTION`
+%% table can be used to reconstruct local state in `init/1`.
+
 -module(emqx_shared_sub).
 
 -behaviour(gen_server).
@@ -13,15 +17,22 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-include_lib("stdlib/include/ms_transform.hrl").
+
 %% Mnesia bootstrap
 -export([create_tables/0]).
 
 %% APIs
--export([start_link/0]).
+-export([
+    start_link/0,
+    post_start/0
+]).
 
 -export([
     subscribe/3,
-    unsubscribe/3
+    unsubscribe/3,
+    unsubscribe_down/3,
+    purge_node/1
 ]).
 
 -export([
@@ -52,14 +63,15 @@
     init/1,
     handle_call/3,
     handle_cast/2,
-    handle_info/2,
-    terminate/2,
-    code_change/3
+    handle_info/2
 ]).
 
-%% Internal exports (RPC)
+%% Internal exports
 -export([
-    init_monitors/0
+    %% RPC Targets:
+    init_monitors/0,
+    %% Other:
+    update_stats/0
 ]).
 
 -export_type([strategy/0]).
@@ -117,6 +129,14 @@ create_tables() ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+-spec post_start() -> ignore.
+post_start() ->
+    %% There may be leftovers from older incarnation of this node, clean them up:
+    %% Might take lots of time.
+    _ = mria:wait_for_tables([?SHARED_SUBSCRIPTION]),
+    ok = purge_node(node()),
+    ignore.
+
 -spec subscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok.
 subscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
     gen_server:call(?SERVER, {subscribe, Group, Topic, SubPid}).
@@ -124,6 +144,16 @@ subscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
 -spec unsubscribe(emqx_types:group(), emqx_types:topic(), pid()) -> ok.
 unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
     gen_server:call(?SERVER, {unsubscribe, Group, Topic, SubPid}).
+
+-spec unsubscribe_down(emqx_types:group(), emqx_types:topic(), pid()) -> ok.
+unsubscribe_down(Group, Topic, SubPid) when is_pid(SubPid) ->
+    gen_server:cast(?SERVER, {unsubscribe, Group, Topic, SubPid}).
+
+-spec purge_node(node()) -> ok | false.
+purge_node(Node) ->
+    %% TODO: Refactor `emqx_router_helper` to avoid this hack.
+    erlang:whereis(?SERVER) =/= undefined andalso
+        gen_server:call(?SERVER, {purge, Node}, infinity).
 
 record(Group, Topic, SubPid) ->
     #?SHARED_SUBSCRIPTION{group = Group, topic = Topic, subpid = SubPid}.
@@ -227,7 +257,7 @@ do_dispatch_with_ack(SubPid, Group, Topic, Msg) ->
             {error, timeout}
         end
     after
-        ok = emqx_pmon:demonitor(Ref)
+        erlang:demonitor(Ref, [flush])
     end.
 
 with_group_ack(Msg, Group, Sender, Ref) ->
@@ -410,80 +440,47 @@ subscribers(Group, Topic) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    %% Set up tables:
     ok = mria:wait_for_tables([?SHARED_SUBSCRIPTION]),
-    {ok, _} = mnesia:subscribe({table, ?SHARED_SUBSCRIPTION, simple}),
-    {atomic, PMon} = mria:transaction(?SHARED_SUB_SHARD, fun ?MODULE:init_monitors/0),
     ok = emqx_utils_ets:new(?SHARED_SUBSCRIBER, [protected, bag]),
     ok = emqx_utils_ets:new(?SHARED_SUBS_ROUND_ROBIN_COUNTER, [
         public, set, {write_concurrency, true}
     ]),
-    {ok, update_stats(#state{pmon = PMon})}.
+    %% Let `emqx_stats` periodically update stats instead of relying on mnesia events:
+    ok = emqx_stats:update_interval(?MODULE, fun ?MODULE:update_stats/0),
+    {ok, #state{}}.
 
+%% Deprecated, left for backwards compatibility.
+%% Should be removed in the next release.
 init_monitors() ->
-    mnesia:foldl(
-        fun(#?SHARED_SUBSCRIPTION{subpid = SubPid}, Mon) ->
-            emqx_pmon:monitor(SubPid, Mon)
-        end,
-        emqx_pmon:new(),
-        ?SHARED_SUBSCRIPTION
-    ).
+    emqx_pmon:new().
 
-handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon}) ->
-    mria:dirty_write(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid)),
-    case ets:member(?SHARED_SUBSCRIBER, {Group, Topic}) of
-        true ->
-            ok;
-        false ->
-            ok = emqx_router:do_add_route(Topic, {Group, node()}),
-            _ = emqx_external_broker:add_shared_route(Topic, Group),
-            ok
-    end,
-    ok = maybe_insert_round_robin_count({Group, Topic}),
-    true = ets:insert(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}),
-    {reply, ok, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
+handle_call({subscribe, Group, Topic, SubPid}, _From, State) ->
+    handle_subscribe(Group, Topic, SubPid),
+    update_stats(),
+    {reply, ok, State};
 handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
-    mria:dirty_delete_object(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid)),
-    true = ets:delete_object(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}),
-    delete_route_if_needed({Group, Topic}),
-    maybe_delete_round_robin_count({Group, Topic}),
-    {reply, ok, update_stats(State)};
+    handle_unsubscribe(Group, Topic, SubPid),
+    update_stats(),
+    {reply, ok, State};
+handle_call({purge, Node}, _From, State) ->
+    handle_purge_node(Node),
+    update_stats(),
+    {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
 
+handle_cast({unsubscribe, Group, Topic, SubPid}, State) ->
+    handle_unsubscribe(Group, Topic, SubPid),
+    update_stats(),
+    {noreply, State};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
 
-handle_info(
-    {mnesia_table_event, {write, #?SHARED_SUBSCRIPTION{subpid = SubPid}, _}},
-    State = #state{pmon = PMon}
-) ->
-    {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
-handle_info({mnesia_table_event, {delete_object, _OldRecord, _}}, State = #state{pmon = _PMon}) ->
-    %% The subscriber may have subscribed multiple topics, so we need to keep monitoring the PID until
-    %% it `unsubscribed` the last topic.
-    %% The trick is we don't demonitor the subscriber here, and (after a long time) it will eventually
-    %% be disconnected.
-    %% #?SHARED_SUBSCRIPTION{subpid = SubPid} = OldRecord,
-    %% {noreply, update_stats(State#state{pmon = emqx_pmon:demonitor(SubPid, PMon)})};
-    %%
-    %% So we only need to update stats here.
-    {noreply, update_stats(State)};
-handle_info({mnesia_table_event, _Event}, State) ->
-    {noreply, State};
-handle_info({'DOWN', _MRef, process, SubPid, Reason}, State = #state{pmon = PMon}) ->
-    ?SLOG(debug, #{msg => "shared_subscriber_down", sub_pid => SubPid, reason => Reason}),
-    cleanup_down(SubPid),
-    {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 handle_info(_Info, State) ->
     {noreply, State}.
-
-terminate(_Reason, _State) ->
-    mnesia:unsubscribe({table, ?SHARED_SUBSCRIPTION, simple}).
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -500,17 +497,34 @@ send(Pid, Topic, Msg) ->
         end,
     ok.
 
+handle_subscribe(Group, Topic, SubPid) ->
+    mria:dirty_write(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid)),
+    case ets:member(?SHARED_SUBSCRIBER, {Group, Topic}) of
+        true ->
+            ok;
+        false ->
+            ok = emqx_router:do_add_route(Topic, {Group, node()}),
+            emqx_external_broker:add_shared_route(Topic, Group)
+    end,
+    maybe_insert_round_robin_count({Group, Topic}),
+    ets:insert(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}).
+
 maybe_insert_round_robin_count({Group, _Topic} = GroupTopic) ->
     strategy(Group) =:= round_robin_per_group andalso
-        ets:insert(?SHARED_SUBS_ROUND_ROBIN_COUNTER, {GroupTopic, 0}),
-    ok.
+        ets:insert(?SHARED_SUBS_ROUND_ROBIN_COUNTER, {GroupTopic, 0}).
 
 maybe_delete_round_robin_count({Group, _Topic} = GroupTopic) ->
     strategy(Group) =:= round_robin_per_group andalso
-        if_no_more_subscribers(GroupTopic, fun() ->
-            ets:delete(?SHARED_SUBS_ROUND_ROBIN_COUNTER, GroupTopic)
-        end),
-    ok.
+        ets:delete(?SHARED_SUBS_ROUND_ROBIN_COUNTER, GroupTopic).
+
+handle_unsubscribe(Group, Topic, SubPid) ->
+    GroupTopic = {Group, Topic},
+    mria:dirty_delete_object(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid)),
+    true = ets:delete_object(?SHARED_SUBSCRIBER, {GroupTopic, SubPid}),
+    if_no_more_subscribers(GroupTopic, fun() ->
+        maybe_delete_round_robin_count(GroupTopic),
+        delete_route(Group, Topic)
+    end).
 
 if_no_more_subscribers(GroupTopic, Fn) ->
     case ets:member(?SHARED_SUBSCRIBER, GroupTopic) of
@@ -519,24 +533,26 @@ if_no_more_subscribers(GroupTopic, Fn) ->
     end,
     ok.
 
-cleanup_down(SubPid) ->
+handle_purge_node(Node) ->
+    Records = mnesia:dirty_select(
+        ?SHARED_SUBSCRIPTION,
+        ets:fun2ms(
+            fun(Record = #?SHARED_SUBSCRIPTION{subpid = SubPid}) when node(SubPid) == Node ->
+                Record
+            end
+        )
+    ),
     lists:foreach(
-        fun(Record = #?SHARED_SUBSCRIPTION{topic = Topic, group = Group}) ->
-            ok = mria:dirty_delete_object(?SHARED_SUBSCRIPTION, Record),
-            true = ets:delete_object(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}),
-            maybe_delete_round_robin_count({Group, Topic}),
-            delete_route_if_needed({Group, Topic})
-        end,
-        mnesia:dirty_match_object(#?SHARED_SUBSCRIPTION{_ = '_', subpid = SubPid})
+        fun(Record) -> mria:dirty_delete_object(?SHARED_SUBSCRIPTION, Record) end,
+        Records
     ).
 
-update_stats(State) ->
+update_stats() ->
     emqx_stats:setstat(
         'subscriptions.shared.count',
         'subscriptions.shared.max',
         ets:info(?SHARED_SUBSCRIPTION, size)
-    ),
-    State.
+    ).
 
 %% Return 'true' if the subscriber process is alive AND not in the failed list
 is_active_sub(Pid, FailedSubs, All) ->
@@ -552,12 +568,13 @@ is_alive_sub(Pid) ->
     %% When process is not local, the best guess is it's alive.
     emqx_router_helper:is_routable(node(Pid)).
 
-delete_route_if_needed({Group, Topic} = GroupTopic) ->
-    if_no_more_subscribers(GroupTopic, fun() ->
-        ok = emqx_router:do_delete_route(Topic, {Group, node()}),
-        _ = emqx_external_broker:delete_shared_route(Topic, Group),
-        ok
-    end).
+delete_route(Group, Topic) ->
+    delete_route(Group, Topic, node()).
+
+delete_route(Group, Topic, Node) ->
+    ok = emqx_router:do_delete_route(Topic, {Group, Node}),
+    _ = emqx_external_broker:delete_shared_route(Topic, Group),
+    ok.
 
 get_default_shared_subscription_strategy() ->
     emqx:get_config([mqtt, shared_subscription_strategy]).

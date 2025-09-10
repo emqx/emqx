@@ -746,8 +746,8 @@ t_stats(Config) when is_list(Config) ->
     emqtt:subscribe(ConnPid1, {SharedTopic, 0}),
     %% Verify LOCAL stats update
     ?retry(
-        100,
-        5,
+        200,
+        10,
         ?assertMatch(
             #{'subscriptions.shared.count' := 1},
             maps:from_list(emqx_stats:getstats())
@@ -756,8 +756,8 @@ t_stats(Config) when is_list(Config) ->
     emqtt:unsubscribe(ConnPid1, SharedTopic),
     %% Verify LOCAL stats update again
     ?retry(
-        100,
-        5,
+        200,
+        10,
         ?assertMatch(
             #{'subscriptions.shared.count' := 0},
             maps:from_list(emqx_stats:getstats())
