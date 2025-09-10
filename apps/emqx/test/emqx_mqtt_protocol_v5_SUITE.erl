@@ -8,8 +8,9 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -727,8 +728,19 @@ t_connack_client_id_unavailable(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     DeadPid = spawn(fun() -> exit(normal) end),
     ok = emqx_cm_registry:register_channel({ClientId, DeadPid}),
+    WillTopic = iolist_to_binary([atom_to_binary(?FUNCTION_NAME), "/will"]),
+    NotWillMsg = #message{topic = WillTopic, payload = <<"NotWillMsg">>},
+    Opts = [
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {will_flag, true},
+        {will_topic, WillTopic},
+        {will_payload, <<"WillMsg">>}
+        | Config
+    ],
+    emqx_broker:subscribe(WillTopic),
     try
-        {ok, Client} = emqtt:start_link([{proto_ver, v5}, {clientid, ClientId} | Config]),
+        {ok, Client} = emqtt:start_link(Opts),
         unlink(Client),
         {error, ConnAck} = emqtt:ConnFun(Client),
         ?assertMatch(
@@ -740,6 +752,11 @@ t_connack_client_id_unavailable(Config) ->
     after
         ok = emqx_cm_registry:unregister_channel({ClientId, DeadPid})
     end,
+    %% Assert no will message is published for server_busy CONNACK reason
+    emqx_broker:publish(NotWillMsg),
+    ?assertReceive({deliver, WillTopic, #message{payload = <<"NotWillMsg">>}}, 1000),
+    ?assertNotReceive({deliver, WillTopic, #message{payload = <<"WillMsg">>}}, 100),
+    emqx_broker:subscriber_down(self()),
     ok.
 
 %%--------------------------------------------------------------------

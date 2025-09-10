@@ -554,7 +554,8 @@ static_clientid_validate_distinct_clientids(Entries) ->
             {error, Msg}
     end.
 
-static_clientid_validate_clientids_length(Ids) ->
+static_clientid_validate_clientids_length(Ids0) ->
+    Ids = lists:map(fun emqx_utils_maps:binary_key_map/1, Ids0),
     case lists:any(fun(#{<<"clientid">> := Id}) -> Id == <<"">> end, Ids) of
         true ->
             {error, <<"clientids must be non-empty">>};
