@@ -197,17 +197,18 @@ list() ->
 List at most `Limit` MQs starting from `Cursor` position.
 """.
 -spec list(cursor(), non_neg_integer()) -> {[emqx_mq_types:mq()], cursor()}.
-list(Cursor, Limit) ->
-    MQs = emqx_utils_stream:consume(
+list(Cursor, Limit) when Limit >= 1 ->
+    MQs0 = emqx_utils_stream:consume(
         emqx_utils_stream:limit_length(
-            Limit,
+            Limit + 1,
             mq_record_stream_to_queues(mq_record_stream(Cursor))
         )
     ),
-    case length(MQs) < Limit of
+    case length(MQs0) < Limit + 1 of
         true ->
-            {MQs, undefined};
+            {MQs0, undefined};
         false ->
+            MQs = lists:sublist(MQs0, Limit),
             #{topic_filter := TopicFilter} = lists:last(MQs),
             NewCursor = TopicFilter,
             {MQs, NewCursor}
