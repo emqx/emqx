@@ -795,7 +795,6 @@ flush(D0 = #d{n_items = NItems}) ->
         timestamp = Timestamp
     } = D,
     DBShard = {DB, Shard},
-    ?tp(debug, emqx_ds_optimistic_tx_flush, #{}),
     Batch = make_batch(Gens0),
     T0 = erlang:monotonic_time(microsecond),
     Result = CBM:otx_commit_tx_batch(DBShard, SerCtl, Serial, Timestamp, Batch),
