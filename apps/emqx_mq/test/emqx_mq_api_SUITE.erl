@@ -103,10 +103,10 @@ t_crud(_Config) ->
     ),
     ?assertMatch(
         {ok, 204},
-        api_delete([message_queues, queues, urlencode(<<"t/2">>)])
+        api_delete([message_queues, queues, urlencode(<<"t/1">>)])
     ),
     ?assertMatch(
-        {ok, 204},
+        {ok, 404, _},
         api_delete([message_queues, queues, urlencode(<<"t/1">>)])
     ),
     ?retry(

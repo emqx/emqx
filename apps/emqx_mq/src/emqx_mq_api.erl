@@ -290,7 +290,7 @@ put_message_queue_config_example() ->
 '/message_queues/queues/:topic_filter'(delete, #{bindings := #{topic_filter := TopicFilter}}) ->
     case delete_message_queue(TopicFilter) of
         not_found ->
-            ?NO_CONTENT;
+            ?NOT_FOUND(<<"Message queue not found">>);
         ok ->
             ?NO_CONTENT
     end.
