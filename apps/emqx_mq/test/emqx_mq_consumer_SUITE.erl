@@ -30,11 +30,14 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(_CaseName, Config) ->
+    ok = emqx_mq_test_utils:cleanup_mqs(),
     ok = snabbkaffe:start_trace(),
     Config.
-end_per_testcase(_TestCase, _Config) ->
-    ok = snabbkaffe:stop().
+
+end_per_testcase(_CaseName, _Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_mq_test_utils:cleanup_mqs().
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -44,14 +47,58 @@ end_per_testcase(_TestCase, _Config) ->
 t_auto_shutdown(_Config) ->
     %% Create a non-lastvalue Queue
     _ = emqx_mq_test_utils:create_mq(#{
-        topic_filter => <<"t1/#">>, is_lastvalue => false, consumer_max_inactive => 50
+        topic_filter => <<"t/#">>, is_lastvalue => false, consumer_max_inactive => 50
     }),
 
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t1/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
 
     ?assertWaitEvent(
         emqtt:disconnect(CSub),
-        #{?snk_kind := mq_consumer_shutdown, mq_topic_filter := <<"t1/#">>},
+        #{?snk_kind := mq_consumer_shutdown, mq_topic_filter := <<"t/#">>},
         1000
     ).
+
+%% Verify that if the consumer fails to start because of "already_registered" error
+%% (a conflicting consumer is already running), then the consumer will quickly reconnect
+%% and start consuming messages from the already existing consumer.
+t_quick_reconnect(_Config) ->
+    %% Create a non-lastvalue Queue
+    #{id := MQId} =
+        _ = emqx_mq_test_utils:create_mq(#{
+            topic_filter => <<"t/#">>, is_lastvalue => false, consumer_max_inactive => 50
+        }),
+
+    %% Publish a message to the queue
+    CPub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_pub_mq(CPub, <<"t/1">>, <<"test message">>),
+
+    %% Create a "conflicting consumer"
+    Pid = spawn_link(fun() ->
+        global:register_name(emqx_mq_consumer:global_name(MQId), self()),
+        receive
+            stop ->
+                ok
+        end
+    end),
+    meck:new(emqx_mq_consumer, [passthrough]),
+    meck:expect(emqx_mq_consumer, find, fun(_) -> not_found end),
+
+    %% Connect a client to the queue
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    ?assertWaitEvent(
+        emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+        #{?snk_kind := mq_sub_handle_connect_error},
+        1000
+    ),
+
+    %% Stop the "conflicting consumer"
+    erlang:send(Pid, stop),
+    meck:unload(emqx_mq_consumer),
+
+    receive
+        {publish, #{topic := <<"t/1">>, payload := <<"test message">>}} ->
+            ok
+    after 1000 ->
+        ct:fail("message not received")
+    end.

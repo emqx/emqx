@@ -53,6 +53,11 @@ Consumer's responsibilities:
     stop_v1/1
 ]).
 
+%% For testing
+-export([
+    global_name/1
+]).
+
 -record(state, {
     mq :: emqx_mq_types:mq(),
     streams :: emqx_mq_consumer_streams:t(),
@@ -357,7 +362,7 @@ do_connect(ConsumerRef, SubscriberRef, ClientId) ->
     ).
 
 find_or_start(#{id := Id, topic_filter := _MQTopicFilter} = MQ) ->
-    case find(Id) of
+    case ?MODULE:find(Id) of
         {ok, ConsumerRef} ->
             {ok, ConsumerRef};
         not_found ->
