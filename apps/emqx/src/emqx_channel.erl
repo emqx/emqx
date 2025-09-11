@@ -689,7 +689,16 @@ packet_to_message(Packet, #channel{
         )
     ).
 
-do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
+do_publish(_PacketId, Msg0 = #message{qos = ?QOS_0, extra = Extra}, Channel) ->
+    Zone = info(zone, Channel),
+    ProtoVer = info(proto_ver, Channel),
+    Msg =
+        case emqx_config:get_zone_conf(Zone, [mqtt, fast_forward_qos0], false) of
+            true ->
+                Msg0#message{extra = Extra#{fast_forward => #{proto_ver => ProtoVer}}};
+            false ->
+                Msg0
+        end,
     Result = emqx_broker:publish(Msg),
     case Result of
         disconnect ->

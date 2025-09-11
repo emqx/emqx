@@ -873,6 +873,15 @@ handle_incoming(Packet = ?PACKET(Type), State) ->
                 stats_timer = init_stats_timer(State)
             },
             with_channel(handle_in, [Packet], NState);
+        ?SUBSCRIBE ->
+            Zone = State#state.zone,
+            case emqx_config:get_zone_conf(Zone, [mqtt, fast_forward_qos0], false) of
+                true ->
+                    ok = emqx_broker:ensure_sub_socket(self(), State#state.socket);
+                false ->
+                    ok
+            end,
+            with_channel(handle_in, [Packet], State);
         _ ->
             with_channel(handle_in, [Packet], State)
     end;
