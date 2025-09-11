@@ -706,7 +706,7 @@ parse_optional(Bin, _F, false) ->
 parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true, _Cause) ->
     {validate_utf8(Str), Rest};
 parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false, _Cause) ->
-    {Str, Rest};
+    {binary:copy(Str), Rest};
 parse_utf8_string(<<Len:16/big, Rest/binary>>, _, Cause) when Len > byte_size(Rest) ->
     ?PARSE_ERR(#{
         cause => Cause,
@@ -721,7 +721,9 @@ parse_utf8_string(Bin, _, Cause) when 2 > byte_size(Bin) ->
     }).
 
 parse_will_payload(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
-    {Data, Rest};
+    %% So the will message payload is off the reference of the whole CONNECT packet
+    %% which can be large if client ID + Username + Password is long.
+    {binary:copy(Data), Rest};
 parse_will_payload(<<Len:16/big, Rest/binary>>) when
     Len > byte_size(Rest)
 ->
@@ -1243,7 +1245,7 @@ fixqos(_Type, QoS) -> QoS.
 
 validate_utf8(Bin) ->
     case validate_mqtt_utf8_char(Bin) of
-        true -> Bin;
+        true -> binary:copy(Bin);
         false -> ?PARSE_ERR(utf8_string_invalid)
     end.
 
