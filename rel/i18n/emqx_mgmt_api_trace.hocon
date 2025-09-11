@@ -25,9 +25,9 @@ stop_trace.desc:
 stop_trace.label:
 """Stop trace by name"""
 
-download_log_by_name.desc:
+download_trace_log.desc:
 """Download trace log by name"""
-download_log_by_name.label:
+download_trace_log.label:
 """Download trace log by name"""
 
 trace_zip_file.desc:
@@ -35,15 +35,25 @@ trace_zip_file.desc:
 trace_zip_file.label:
 """A trace zip file"""
 
-get_trace_file_metadata.desc:
+get_trace_log_detail.desc:
 """get trace log file's metadata, such as size, last update time"""
-get_trace_file_metadata.label:
+get_trace_log_detail.label:
 """get trace log file's metadata"""
 
-view_trace_log.desc:
-"""view trace log"""
-view_trace_log.label:
-"""view trace log"""
+stream_trace_log.desc:
+"""Stream trace log"""
+stream_trace_log.label:
+"""Stream trace log"""
+
+get_config.desc:
+"""Get current Tracing configuration."""
+get_config.label:
+"""Get Configuration"""
+
+update_config.desc:
+"""Update Tracing configuration."""
+update_config.label:
+"""Update Configuration"""
 
 file_size.desc:
 """file size"""
