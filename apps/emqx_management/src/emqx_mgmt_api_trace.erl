@@ -25,7 +25,8 @@
     stop_trace/2,
     download_trace_log/2,
     get_trace_log_detail/2,
-    stream_trace_log/2
+    stream_trace_log/2,
+    config/2
 ]).
 
 -export([validate_name/1]).
@@ -37,6 +38,7 @@
     read_trace_file/3
 ]).
 
+-define(CONF_ROOT, <<"trace">>).
 -define(MAX_READ_TRACE_BYTES, 64 * 1024 * 1024).
 -define(STREAM_TRACE_RETRY_TIMEOUT, 20).
 
@@ -56,7 +58,8 @@ paths() ->
         "/trace/:name/download",
         "/trace/:name/log",
         "/trace/:name/log_detail",
-        "/trace/:name"
+        "/trace/:name",
+        "/tracing"
     ].
 
 schema("/trace") ->
@@ -187,6 +190,30 @@ schema("/trace/:name/log") ->
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], <<"Requested chunk size too big">>
+                )
+            }
+        }
+    };
+schema("/tracing") ->
+    ConfigSchema = hoconsc:ref(emqx_schema, "trace"),
+    #{
+        'operationId' => config,
+        get => #{
+            tags => ?TAGS,
+            description => ?DESC(get_config),
+            responses => #{
+                200 => ConfigSchema
+            }
+        },
+        put => #{
+            tags => ?TAGS,
+            summary => <<"Update Tracing configuration">>,
+            description => ?DESC(update_config),
+            'requestBody' => ConfigSchema,
+            responses => #{
+                200 => ConfigSchema,
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['INVALID_CONFIG'], <<"Provided configuration is invalid">>
                 )
             }
         }
@@ -729,6 +756,25 @@ stream_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) ->
         {error, bad_cursor} ->
             ?BAD_REQUEST(<<"Invalid cursor">>)
     end.
+
+-doc "`/tracing`".
+config(get, #{}) ->
+    {200, get_config_root()};
+config(put, #{body := NewConf}) ->
+    UpdateOpts = #{rawconf_with_defaults => true, override_to => cluster},
+    case emqx_conf:update([?CONF_ROOT], NewConf, UpdateOpts) of
+        {ok, #{raw_config := _}} ->
+            {200, get_config_root()};
+        {error, Reason} ->
+            ?BAD_REQUEST(<<"INVALID_CONFIG">>, Reason)
+    end.
+
+get_config_root() ->
+    RawConf = emqx:get_raw_config([?CONF_ROOT]),
+    RootConf = emqx_config:fill_defaults(#{?CONF_ROOT => RawConf}),
+    maps:get(?CONF_ROOT, RootConf).
+
+%%
 
 parse_node(Query, Default) ->
     try

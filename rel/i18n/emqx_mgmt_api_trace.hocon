@@ -45,6 +45,16 @@ stream_trace_log.desc:
 stream_trace_log.label:
 """Stream trace log"""
 
+get_config.desc:
+"""Get current Tracing configuration."""
+get_config.label:
+"""Get Configuration"""
+
+update_config.desc:
+"""Update Tracing configuration."""
+update_config.label:
+"""Update Configuration"""
+
 file_size.desc:
 """file size"""
 file_size.label:
