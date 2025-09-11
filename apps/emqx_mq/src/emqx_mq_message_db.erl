@@ -173,29 +173,48 @@ add_regular_db_generation() ->
     ok = emqx_ds:add_generation(?MQ_MESSAGE_REGULAR_DB).
 
 -spec delete_lastvalue_data([emqx_mq_types:mq()], non_neg_integer()) -> ok.
-delete_lastvalue_data(MQs, TimeThreshold) ->
+delete_lastvalue_data(MQs, NowMS) ->
     Shards = emqx_ds:list_shards(?MQ_MESSAGE_LASTVALUE_DB),
-    lists:foreach(
+    Refs = lists:map(
         fun(Shard) ->
             TxOpts = #{
                 db => ?MQ_MESSAGE_LASTVALUE_DB,
                 shard => Shard,
                 generation => insert_generation(?MQ_MESSAGE_LASTVALUE_DB),
-                sync => true,
+                sync => false,
                 retries => ?MQ_MESSAGE_DB_APPEND_RETRY
             },
-            emqx_ds:trans(TxOpts, fun() ->
+            {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(
                     fun(#{is_lastvalue := true, data_retention_period := DataRetentionPeriod} = MQ) ->
                         Topic = mq_message_topic(MQ, '#'),
-                        DeleteTill = max(TimeThreshold - DataRetentionPeriod, 0),
+                        DeleteTill = max(NowMS - DataRetentionPeriod, 0),
                         emqx_ds:tx_del_topic(Topic, 0, DeleteTill)
                     end,
                     MQs
                 )
-            end)
+            end),
+            Ref
         end,
         Shards
+    ),
+    lists:foreach(
+        fun(Ref) ->
+            receive
+                ?ds_tx_commit_reply(Ref, Reply) ->
+                    case emqx_ds:tx_commit_outcome(?MQ_MESSAGE_LASTVALUE_DB, Ref, Reply) of
+                        {ok, _} ->
+                            ok;
+                        {error, IsRecoverable, Reason} ->
+                            ?tp(error, emqx_mq_message_db_delete_expired_error, #{
+                                mqs => MQs,
+                                is_recoverable => IsRecoverable,
+                                reason => Reason
+                            })
+                    end
+            end
+        end,
+        Refs
     ).
 
 -spec regular_db_slab_info() -> #{emqx_ds:slab() => emqx_ds:slab_info()}.
@@ -284,20 +303,49 @@ format_insert_tx_results([{error, _, _} = Error | Results], ErrorAcc) ->
     format_insert_tx_results(Results, [Error | ErrorAcc]).
 
 delete(DB, Topic) ->
-    lists:foreach(
+    {Time, ok} = timer:tc(fun() ->
+        do_delete(DB, Topic)
+    end),
+    ?tp(debug, emqx_mq_message_db_delete, #{
+        topic => Topic,
+        time => erlang:convert_time_unit(Time, microsecond, millisecond)
+    }),
+    ok.
+
+do_delete(DB, Topic) ->
+    Refs = lists:map(
         fun({Shard, Generation}) ->
             TxOpts = #{
                 db => DB,
                 shard => Shard,
                 generation => Generation,
-                sync => true,
+                sync => false,
                 retries => ?MQ_MESSAGE_DB_APPEND_RETRY
             },
-            emqx_ds:trans(TxOpts, fun() ->
+            {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
                 emqx_ds:tx_del_topic(Topic)
-            end)
+            end),
+            Ref
         end,
         maps:keys(emqx_ds:list_slabs(DB))
+    ),
+    lists:foreach(
+        fun(Ref) ->
+            receive
+                ?ds_tx_commit_reply(Ref, Reply) ->
+                    case emqx_ds:tx_commit_outcome(DB, Ref, Reply) of
+                        {ok, _} ->
+                            ok;
+                        {error, IsRecoverable, Reason} ->
+                            ?tp(error, emqx_mq_message_db_delete_error, #{
+                                topic => Topic,
+                                is_recoverable => IsRecoverable,
+                                reason => Reason
+                            })
+                    end
+            end
+        end,
+        Refs
     ).
 
 mq_message_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, Key) ->

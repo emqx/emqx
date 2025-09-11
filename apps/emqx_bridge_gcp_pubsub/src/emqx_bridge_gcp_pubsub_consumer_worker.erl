@@ -41,7 +41,6 @@
     hookpoints := [binary()],
     connector_resource_id := binary(),
     source_resource_id := binary(),
-    mqtt_config => emqx_bridge_gcp_pubsub_impl_consumer:mqtt_config(),
     project_id := emqx_bridge_gcp_pubsub_client:project_id(),
     pull_max_messages := non_neg_integer(),
     pull_retry_interval := emqx_schema:timeout_duration_ms(),
@@ -61,7 +60,6 @@
     hookpoints := [binary()],
     connector_resource_id := binary(),
     source_resource_id := binary(),
-    mqtt_config := #{} | emqx_bridge_gcp_pubsub_impl_consumer:mqtt_config(),
     pending_acks := #{message_id() => ack_id()},
     project_id := emqx_bridge_gcp_pubsub_client:project_id(),
     pull_max_messages := non_neg_integer(),
@@ -158,7 +156,6 @@ connect(Opts0) ->
         ack_retry_interval := AckRetryInterval,
         bridge_name := BridgeName,
         client := Client,
-        ecpool_worker_id := WorkerId,
         forget_interval := ForgetInterval,
         hookpoints := Hookpoints,
         namespace := Namespace,
@@ -168,11 +165,8 @@ connect(Opts0) ->
         pull_max_messages := PullMaxMessages,
         pull_retry_interval := PullRetryInterval,
         request_ttl := RequestTTL,
-        topic_mapping := TopicMapping
+        topic := Topic
     } = Opts,
-    TopicMappingList = lists:keysort(1, maps:to_list(TopicMapping)),
-    Index = 1 + (WorkerId rem map_size(TopicMapping)),
-    {Topic, MQTTConfig} = lists:nth(Index, TopicMappingList),
     Config = #{
         ack_deadline => AckDeadlineSeconds,
         ack_retry_interval => AckRetryInterval,
@@ -185,7 +179,6 @@ connect(Opts0) ->
         namespace => Namespace,
         connector_resource_id => ConnectorResId,
         source_resource_id => SourceResId,
-        mqtt_config => MQTTConfig,
         project_id => ProjectId,
         pull_max_messages => PullMaxMessages,
         pull_retry_interval => PullRetryInterval,
@@ -749,7 +742,6 @@ handle_message(State, #{<<"ackId">> := AckId, <<"message">> := InnerMsg} = _Mess
             #{
                 source_resource_id := SourceResId,
                 hookpoints := Hookpoints,
-                mqtt_config := MQTTConfig,
                 namespace := Namespace,
                 topic := Topic
             } = State,
@@ -774,7 +766,6 @@ handle_message(State, #{<<"ackId">> := AckId, <<"message">> := InnerMsg} = _Mess
                         {<<"orderingKey">>, ordering_key}
                     ]
                 ),
-            legacy_maybe_publish_mqtt_message(MQTTConfig, SourceResId, FullMessage),
             lists:foreach(
                 fun(Hookpoint) -> emqx_hooks:run(Hookpoint, [FullMessage, Namespace]) end,
                 Hookpoints
@@ -784,22 +775,6 @@ handle_message(State, #{<<"ackId">> := AckId, <<"message">> := InnerMsg} = _Mess
         end
     ).
 
-legacy_maybe_publish_mqtt_message(
-    _MQTTConfig = #{
-        payload_template := PayloadTemplate,
-        qos := MQTTQoS,
-        mqtt_topic := MQTTTopic
-    },
-    SourceResId,
-    FullMessage
-) when MQTTTopic =/= <<>> ->
-    Payload = render(FullMessage, PayloadTemplate),
-    MQTTMessage = emqx_message:make(SourceResId, MQTTQoS, MQTTTopic, Payload),
-    _ = emqx:publish(MQTTMessage),
-    ok;
-legacy_maybe_publish_mqtt_message(_MQTTConfig, _SourceResId, _FullMessage) ->
-    ok.
-
 -spec add_if_present(any(), map(), any(), map()) -> map().
 add_if_present(FromKey, Message, ToKey, Map) ->
     case maps:get(FromKey, Message, undefined) of
@@ -808,10 +783,6 @@ add_if_present(FromKey, Message, ToKey, Map) ->
         Value ->
             Map#{ToKey => Value}
     end.
-
-render(FullMessage, PayloadTemplate) ->
-    Opts = #{return => full_binary},
-    emqx_placeholder:proc_tmpl(PayloadTemplate, FullMessage, Opts).
 
 forget_message_ids_after(MsgIds0, Timeout) ->
     MsgIds = sets:from_list(MsgIds0, [{version, 2}]),

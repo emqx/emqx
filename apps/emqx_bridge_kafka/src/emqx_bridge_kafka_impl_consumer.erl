@@ -59,14 +59,7 @@
     offset_commit_interval_seconds := pos_integer(),
     offset_reset_policy := offset_reset_policy(),
     topic := kafka_topic(),
-    value_encoding_mode := encoding_mode(),
-    topic_mapping => [one_topic_mapping()]
-}.
--type one_topic_mapping() :: #{
-    kafka_topic => kafka_topic(),
-    mqtt_topic => emqx_types:topic(),
-    qos => emqx_types:qos(),
-    payload_template => string()
+    value_encoding_mode := encoding_mode()
 }.
 -type subscriber_id() :: emqx_bridge_kafka_consumer_sup:child_id().
 -type kafka_topic() :: brod:topic().
@@ -87,13 +80,6 @@
     namespace := emqx_bridge_v2:maybe_namespace(),
     key_encoding_mode := encoding_mode(),
     resource_id := source_resource_id(),
-    topic_mapping := #{
-        kafka_topic() := #{
-            payload_template => emqx_placeholder:tmpl_token(),
-            mqtt_topic_template => emqx_placeholder:tmpl_token(),
-            qos => emqx_types:qos()
-        }
-    },
     value_encoding_mode := encoding_mode()
 }.
 -type consumer_state() :: #{
@@ -102,13 +88,6 @@
     kafka_topic := kafka_topic(),
     key_encoding_mode := encoding_mode(),
     resource_id := source_resource_id(),
-    topic_mapping := #{
-        kafka_topic() := #{
-            payload_template => emqx_placeholder:tmpl_token(),
-            mqtt_topic_template => emqx_placeholder:tmpl_token(),
-            qos => emqx_types:qos()
-        }
-    },
     value_encoding_mode := encoding_mode()
 }.
 -type subscriber_init_info() :: #{
@@ -314,7 +293,6 @@ do_handle_message(Message, State) ->
         kafka_topic := KafkaTopic,
         key_encoding_mode := KeyEncodingMode,
         resource_id := SourceResId,
-        topic_mapping := TopicMapping,
         value_encoding_mode := ValueEncodingMode
     } = State,
     FullMessage = #{
@@ -326,8 +304,6 @@ do_handle_message(Message, State) ->
         ts_type => Message#kafka_message.ts_type,
         value => encode(Message#kafka_message.value, ValueEncodingMode)
     },
-    LegacyMQTTConfig = maps:get(KafkaTopic, TopicMapping, #{}),
-    legacy_maybe_publish_mqtt_message(LegacyMQTTConfig, SourceResId, FullMessage),
     lists:foreach(
         fun(Hookpoint) ->
             emqx_hooks:run(Hookpoint, [FullMessage, Namespace])
@@ -338,23 +314,6 @@ do_handle_message(Message, State) ->
     %% note: just `ack' does not commit the offset to the
     %% kafka consumer group.
     {ok, commit, State}.
-
-legacy_maybe_publish_mqtt_message(
-    _MQTTConfig = #{
-        payload_template := PayloadTemplate,
-        qos := MQTTQoS,
-        mqtt_topic_template := MQTTTopicTemplate
-    },
-    SourceResId,
-    FullMessage
-) when MQTTTopicTemplate =/= <<>> ->
-    Payload = render(FullMessage, PayloadTemplate),
-    MQTTTopic = render(FullMessage, MQTTTopicTemplate),
-    MQTTMessage = emqx_message:make(SourceResId, MQTTQoS, MQTTTopic, Payload),
-    _ = emqx_broker:safe_publish(MQTTMessage),
-    ok;
-legacy_maybe_publish_mqtt_message(_MQTTConfig, _SourceResId, _FullMessage) ->
-    ok.
 
 %%-------------------------------------------------------------------------------------
 %% Helper fns
@@ -389,19 +348,18 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
             max_rejoin_attempts := MaxRejoinAttempts,
             offset_commit_interval_seconds := OffsetCommitInterval,
             offset_reset_policy := OffsetResetPolicy0,
-            topic := _Topic,
+            topic := Topic,
             value_encoding_mode := ValueEncodingMode
         } = Params0
     } = Config,
     #{namespace := Namespace} = emqx_resource:parse_channel_id(SourceResId),
     ?tp(kafka_consumer_sup_started, #{}),
-    TopicMapping = ensure_topic_mapping(Params0),
     InitialState = #{
         namespace => Namespace,
         key_encoding_mode => KeyEncodingMode,
         hookpoints => Hookpoints,
         resource_id => SourceResId,
-        topic_mapping => TopicMapping,
+        topic => Topic,
         value_encoding_mode => ValueEncodingMode
     },
     %% note: the group id should be the same for all nodes in the
@@ -425,7 +383,7 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
         {max_rejoin_attempts, MaxRejoinAttempts},
         {offset_commit_interval_seconds, OffsetCommitInterval}
     ],
-    KafkaTopics = maps:keys(TopicMapping),
+    KafkaTopics = [Topic],
     ensure_no_repeated_topics(KafkaTopics, ConnState),
     GroupSubscriberConfig =
         #{
@@ -489,16 +447,6 @@ ensure_no_repeated_topics(KafkaTopics, ConnState) ->
             ]),
             throw(Message)
     end.
-
-%% This is to ensure backwards compatibility with the deprectated topic mapping.
--spec ensure_topic_mapping(source_parameters()) -> #{kafka_topic() := map()}.
-ensure_topic_mapping(#{topic_mapping := [_ | _] = TM}) ->
-    %% There is an existing topic mapping: legacy config.  We use it and ignore the single
-    %% pubsub topic so that the bridge keeps working as before.
-    convert_topic_mapping(TM);
-ensure_topic_mapping(#{topic := KafkaTopic}) ->
-    %% No topic mapping: generate one without MQTT templates.
-    #{KafkaTopic => #{}}.
 
 -spec stop_subscriber(emqx_bridge_kafka_consumer_sup:child_id()) -> ok.
 stop_subscriber(SubscriberId) ->
@@ -723,41 +671,6 @@ make_client_id(ConnectorResId) ->
             %% atoms.
             probing_brod_consumers
     end.
-
-convert_topic_mapping(TopicMappingList) ->
-    lists:foldl(
-        fun(Fields, Acc) ->
-            #{
-                kafka_topic := KafkaTopic,
-                mqtt_topic := MQTTTopicTemplate0,
-                qos := QoS,
-                payload_template := PayloadTemplate0
-            } = Fields,
-            PayloadTemplate = emqx_placeholder:preproc_tmpl(PayloadTemplate0),
-            MQTTTopicTemplate = emqx_placeholder:preproc_tmpl(MQTTTopicTemplate0),
-            Acc#{
-                KafkaTopic => #{
-                    payload_template => PayloadTemplate,
-                    mqtt_topic_template => MQTTTopicTemplate,
-                    qos => QoS
-                }
-            }
-        end,
-        #{},
-        TopicMappingList
-    ).
-
-render(FullMessage, PayloadTemplate) ->
-    Opts = #{
-        return => full_binary,
-        var_trans => fun
-            (undefined) ->
-                <<>>;
-            (X) ->
-                emqx_utils_conv:bin(X)
-        end
-    },
-    emqx_placeholder:proc_tmpl(PayloadTemplate, FullMessage, Opts).
 
 encode(Value, none) ->
     Value;

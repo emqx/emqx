@@ -1151,7 +1151,7 @@ The following is guaranteed, though:
   transaction fails before the commit.
 
   Result of the commit is sent to the caller asynchronously as a
-  message that should be matched using `?tx_commit_reply(Ref, Reply)`
+  message that should be matched using `?ds_tx_commit_reply(Ref, Reply)`
   macro. This macro binds `Reply` to a variable that should be passed
   to `emqx_ds:check_commit_reply` function to get the outcome of the
   async commit. For example:
@@ -1159,12 +1159,12 @@ The following is guaranteed, though:
   ```erlang
   {async, Ref, Ret} = emqx_ds:trans(#{sync => false}, Fun),
   receive
-    ?tx_commit_reply(Ref, Reply) ->
-       CommitOutcome = emqx_ds:tx_commit_outcome(Ref, Reply)
+    ?ds_tx_commit_reply(Ref, Reply) ->
+       CommitOutcome = emqx_ds:tx_commit_outcome(DB, Ref, Reply)
   end.
   ```
 
-  WARNING: `?tx_commit_reply(Ref, Reply)` has the same structure as a
+  WARNING: `?ds_tx_commit_reply(Ref, Reply)` has the same structure as a
   monitor `'DOWN'` message. Therefore, in a selective receive or
   `gen_*` callbacks it should be matched before other `'DOWN'`
   messages. Also, indiscriminate flushing such messages must be

@@ -50,21 +50,14 @@
     installed_sources := #{source_resource_id() => source_state()},
     project_id := binary()
 }.
--type topic_mapping() :: #{
-    pubsub_topic := binary(),
-    mqtt_topic := binary(),
-    qos := emqx_types:qos(),
-    payload_template := binary()
-}.
 -type source_config() :: #{
     bridge_name := binary(),
     hookpoints := [binary()],
     parameters := #{
         consumer_workers_per_topic := pos_integer(),
-        topic_mapping := [topic_mapping(), ...]
+        topic := binary()
     },
-    resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
-    topic := binary()
+    resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()}
 }.
 -type source_state() :: #{}.
 
@@ -253,16 +246,14 @@ check_if_unhealthy(SourceResId) ->
 start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
     #{
         bridge_name := BridgeName,
-        parameters := ConsumerConfig0,
+        parameters := #{topic := PubsubTopic} = ConsumerConfig0,
         hookpoints := Hookpoints,
         resource_opts := #{request_ttl := RequestTTL}
     } = SourceConfig,
     #{namespace := Namespace} = emqx_resource:parse_channel_id(SourceResId),
-    ConsumerConfig1 = ensure_topic_mapping(ConsumerConfig0),
-    TopicMapping = maps:get(topic_mapping, ConsumerConfig1),
-    ConsumerWorkersPerTopic = maps:get(consumer_workers_per_topic, ConsumerConfig1),
-    PoolSize = map_size(TopicMapping) * ConsumerWorkersPerTopic,
-    ConsumerConfig = ConsumerConfig1#{
+    ConsumerWorkersPerTopic = maps:get(consumer_workers_per_topic, ConsumerConfig0),
+    PoolSize = ConsumerWorkersPerTopic,
+    ConsumerConfig = ConsumerConfig0#{
         auto_reconnect => ?AUTO_RECONNECT_S,
         bridge_name => BridgeName,
         client => Client,
@@ -278,7 +269,8 @@ start_consumers(ConnectorResId, SourceResId, Client, ProjectId, SourceConfig) ->
     },
     ConsumerOpts = maps:to_list(ConsumerConfig),
     ReqOpts = #{request_ttl => RequestTTL},
-    case validate_pubsub_topics(TopicMapping, Client, ReqOpts) of
+    PubsubTopics = [PubsubTopic],
+    case validate_pubsub_topics(PubsubTopics, Client, ReqOpts) of
         ok ->
             ok;
         {error, not_found} ->
@@ -331,39 +323,7 @@ stop_consumers1(SourceState) ->
     ),
     ok.
 
-%% This is to ensure backwards compatibility with the deprectated topic mapping.
-ensure_topic_mapping(ConsumerConfig0 = #{topic_mapping := [_ | _]}) ->
-    %% There is an existing topic mapping: legacy config.  We use it and ignore the single
-    %% pubsub topic so that the bridge keeps working as before.
-    maps:update_with(topic_mapping, fun convert_topic_mapping/1, ConsumerConfig0);
-ensure_topic_mapping(ConsumerConfig0 = #{topic := PubsubTopic}) ->
-    %% No topic mapping: generate one without MQTT templates.
-    maps:put(topic_mapping, #{PubsubTopic => #{}}, ConsumerConfig0).
-
-convert_topic_mapping(TopicMappingList) ->
-    lists:foldl(
-        fun(Fields, Acc) ->
-            #{
-                pubsub_topic := PubsubTopic,
-                mqtt_topic := MQTTTopic,
-                qos := QoS,
-                payload_template := PayloadTemplate0
-            } = Fields,
-            PayloadTemplate = emqx_placeholder:preproc_tmpl(PayloadTemplate0),
-            Acc#{
-                PubsubTopic => #{
-                    payload_template => PayloadTemplate,
-                    mqtt_topic => MQTTTopic,
-                    qos => QoS
-                }
-            }
-        end,
-        #{},
-        TopicMappingList
-    ).
-
-validate_pubsub_topics(TopicMapping, Client, ReqOpts) ->
-    PubsubTopics = maps:keys(TopicMapping),
+validate_pubsub_topics(PubsubTopics, Client, ReqOpts) ->
     do_validate_pubsub_topics(Client, PubsubTopics, ReqOpts).
 
 do_validate_pubsub_topics(Client, [Topic | Rest], ReqOpts) ->
@@ -374,7 +334,6 @@ do_validate_pubsub_topics(Client, [Topic | Rest], ReqOpts) ->
             Err
     end;
 do_validate_pubsub_topics(_Client, [], _ReqOpts) ->
-    %% we already validate that the mapping is not empty in the config schema.
     ok.
 
 check_for_topic_existence(Topic, Client, ReqOpts) ->

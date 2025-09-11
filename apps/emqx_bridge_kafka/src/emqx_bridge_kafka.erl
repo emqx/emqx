@@ -15,7 +15,6 @@
 
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -28,9 +27,6 @@
     ssl_client_opts_fields/0,
     producer_opts/1
 ]).
-
-%% Internal export to be used in v2 schema
--export([consumer_topic_mapping_validator/1]).
 
 -export([
     kafka_connector_config_fields/0,
@@ -61,22 +57,6 @@ bridge_v2_examples(Method) ->
             <<"kafka_producer">> => #{
                 summary => <<"Kafka Producer Action">>,
                 value => values({Method, bridge_v2_producer})
-            }
-        }
-    ].
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"kafka_producer">> => #{
-                summary => <<"Kafka Producer Bridge">>,
-                value => values({Method, producer})
-            }
-        },
-        #{
-            <<"kafka_consumer">> => #{
-                summary => <<"Kafka Consumer Bridge">>,
-                value => values({Method, consumer})
             }
         }
     ].
@@ -135,7 +115,6 @@ values(bridge_v2_producer) ->
         enable => true,
         connector => <<"my_kafka_producer_connector">>,
         parameters => values(producer_values),
-        local_topic => <<"mqtt/local/topic">>,
         resource_opts => #{
             health_check_interval => "32s"
         }
@@ -158,11 +137,6 @@ values(common_config) ->
             nodelay => true,
             tcp_keepalive => <<"none">>
         }
-    };
-values(producer) ->
-    #{
-        kafka => values(producer_values),
-        local_topic => <<"mqtt/local/topic">>
     };
 values(producer_values) ->
     #{
@@ -199,30 +173,6 @@ values(producer_values) ->
             segment_bytes => <<"10MB">>,
             memory_overload_protection => true
         }
-    };
-values(consumer) ->
-    #{
-        kafka => #{
-            max_batch_bytes => <<"896KB">>,
-            offset_reset_policy => <<"latest">>,
-            offset_commit_interval_seconds => 5
-        },
-        key_encoding_mode => <<"none">>,
-        topic_mapping => [
-            #{
-                kafka_topic => <<"kafka-topic-1">>,
-                mqtt_topic => <<"mqtt/topic/${.offset}">>,
-                qos => 1,
-                payload_template => <<"${.}">>
-            },
-            #{
-                kafka_topic => <<"kafka-topic-2">>,
-                mqtt_topic => <<"mqtt/topic/2">>,
-                qos => 2,
-                payload_template => <<"v = ${.value}">>
-            }
-        ],
-        value_encoding_mode => <<"none">>
     }.
 
 %% -------------------------------------------------------------------------------------------------
@@ -284,7 +234,7 @@ fields("post_" ++ Type) ->
 fields("put_" ++ Type) ->
     fields("config_" ++ Type);
 fields("get_" ++ Type) ->
-    emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
+    emqx_bridge_v2_api:status_fields() ++ fields("post_" ++ Type);
 fields("config_bridge_v2") ->
     fields(kafka_producer_action);
 fields("config_connector") ->
@@ -546,15 +496,6 @@ fields(consumer_opts) ->
     [
         {kafka,
             mk(ref(consumer_kafka_opts), #{required => false, desc => ?DESC(consumer_kafka_opts)})},
-        {topic_mapping,
-            mk(
-                hoconsc:array(ref(consumer_topic_mapping)),
-                #{
-                    required => true,
-                    desc => ?DESC(consumer_topic_mapping),
-                    validator => fun consumer_topic_mapping_validator/1
-                }
-            )},
         {key_encoding_mode,
             mk(enum([none, base64]), #{
                 default => none, desc => ?DESC(consumer_key_encoding_mode)
@@ -563,20 +504,6 @@ fields(consumer_opts) ->
             mk(enum([none, base64]), #{
                 default => none, desc => ?DESC(consumer_value_encoding_mode)
             })}
-    ];
-fields(consumer_topic_mapping) ->
-    [
-        {kafka_topic, mk(binary(), #{required => true, desc => ?DESC(consumer_kafka_topic)})},
-        {mqtt_topic, mk(binary(), #{required => true, desc => ?DESC(consumer_mqtt_topic)})},
-        {qos, mk(emqx_schema:qos(), #{default => 0, desc => ?DESC(consumer_mqtt_qos)})},
-        {payload_template,
-            mk(
-                emqx_schema:template(),
-                #{
-                    default => <<"${.}">>,
-                    desc => ?DESC(consumer_mqtt_payload)
-                }
-            )}
     ];
 fields(consumer_kafka_opts) ->
     [
@@ -700,10 +627,6 @@ kafka_connector_config_fields() ->
 
 producer_opts(ActionOrBridgeV1) ->
     [
-        %% Note: there's an implicit convention in `emqx_bridge' that,
-        %% for egress bridges with this config, the published messages
-        %% will be forwarded to such bridges.
-        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
         parameters_field(ActionOrBridgeV1)
     ] ++ [resource_opts() || ActionOrBridgeV1 =:= action].
 
@@ -752,16 +675,9 @@ kafka_producer_converter(
     #{<<"producer">> := OldOpts0, <<"bootstrap_hosts">> := _} = Config0, _HoconOpts
 ) ->
     %% prior to e5.0.2
-    MQTTOpts = maps:get(<<"mqtt">>, OldOpts0, #{}),
-    LocalTopic = maps:get(<<"topic">>, MQTTOpts, undefined),
     KafkaOpts = maps:get(<<"kafka">>, OldOpts0),
     Config = maps:without([<<"producer">>], Config0),
-    case LocalTopic =:= undefined of
-        true ->
-            Config#{<<"parameters">> => KafkaOpts};
-        false ->
-            Config#{<<"parameters">> => KafkaOpts, <<"local_topic">> => LocalTopic}
-    end;
+    Config#{<<"parameters">> => KafkaOpts};
 kafka_producer_converter(
     #{<<"kafka">> := _} = Config0, _HoconOpts
 ) ->
@@ -771,20 +687,6 @@ kafka_producer_converter(
 kafka_producer_converter(Config, _HoconOpts) ->
     %% new schema
     Config.
-
-consumer_topic_mapping_validator(_TopicMapping = []) ->
-    {error, "There must be at least one Kafka-MQTT topic mapping"};
-consumer_topic_mapping_validator(TopicMapping0 = [_ | _]) ->
-    TopicMapping = [emqx_utils_maps:binary_key_map(TM) || TM <- TopicMapping0],
-    NumEntries = length(TopicMapping),
-    KafkaTopics = [KT || #{<<"kafka_topic">> := KT} <- TopicMapping],
-    DistinctKafkaTopics = length(lists:usort(KafkaTopics)),
-    case DistinctKafkaTopics =:= NumEntries of
-        true ->
-            ok;
-        false ->
-            {error, "Kafka topics must not be repeated in a bridge"}
-    end.
 
 producer_parameters_validator(Conf) ->
     maybe

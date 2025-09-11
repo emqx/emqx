@@ -8,10 +8,6 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
-    conn_bridge_examples/1
-]).
-
--export([
     namespace/0,
     roots/0,
     fields/1,
@@ -26,19 +22,6 @@
 
 -define(CONNECTOR_TYPE, timescale).
 -define(ACTION_TYPE, timescale).
-
-%% -------------------------------------------------------------------------------------------------
-%% api
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"timescale">> => #{
-                summary => <<"Timescale Bridge">>,
-                value => emqx_bridge_pgsql:values_conn_bridge_examples(Method, timescale)
-            }
-        }
-    ].
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions

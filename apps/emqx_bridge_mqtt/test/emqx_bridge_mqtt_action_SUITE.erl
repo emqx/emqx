@@ -256,6 +256,9 @@ update_connector_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:update_connector_api(Name, Type, Cfg)
     ).
 
+probe_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:probe_connector_api2(TCConfig, Overrides).
+
 get_connector_api(TCConfig) ->
     #{connector_type := Type, connector_name := Name} =
         emqx_bridge_v2_testlib:get_common_values(TCConfig),
@@ -1314,6 +1317,157 @@ t_static_clientids_username_password_tuples(TCConfig) ->
             ?assertNot(is_map_key(password, C2), #{opts => C2}),
             ?assertNot(is_map_key(username, C3), #{opts => C3}),
             ?assertNot(is_map_key(password, C3), #{opts => C3}),
+            ok
+        end
+    ),
+    ok.
+
+-doc """
+Checks that we correctly deobfuscate passwords inside the static clientid tuple array.
+""".
+t_static_clientids_username_password_tuples_deobfuscate(TCConfig) ->
+    NodeBin = atom_to_binary(node()),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        %% Root username and password are ignored if static clientids are used.
+        <<"username">> => <<"should_not_use_this">>,
+        <<"password">> => <<"should_not_use_this">>,
+        <<"static_clientids">> => [
+            #{
+                <<"node">> => NodeBin,
+                <<"ids">> => [
+                    #{
+                        <<"clientid">> => <<"1">>,
+                        <<"username">> => <<"u1">>,
+                        <<"password">> => <<"p1">>
+                    },
+                    #{
+                        <<"clientid">> => <<"2">>,
+                        <<"username">> => <<"u2">>
+                    },
+                    #{<<"clientid">> => <<"3">>},
+                    #{
+                        <<"clientid">> => <<"4">>,
+                        <<"username">> => <<"u4">>,
+                        <<"password">> => <<"p4">>
+                    }
+                ]
+            }
+        ]
+    }),
+    ?check_trace(
+        begin
+            Overrides = #{
+                <<"username">> => <<"should_not_use_this">>,
+                <<"password">> => <<"should_not_use_this">>,
+                <<"static_clientids">> => [
+                    #{
+                        <<"node">> => NodeBin,
+                        <<"ids">> => [
+                            %% Clientid 1 is removed
+                            #{
+                                <<"clientid">> => <<"2">>,
+                                <<"username">> => <<"u2">>
+                            },
+                            #{<<"clientid">> => <<"3">>},
+                            %% Clientid 4 is retained
+                            #{
+                                <<"clientid">> => <<"4">>,
+                                <<"username">> => <<"u4">>,
+                                %% Obfuscated
+                                <<"password">> => <<"******">>
+                            },
+                            %% New clientid
+                            #{
+                                <<"clientid">> => <<"5">>,
+                                <<"username">> => <<"u5">>,
+                                <<"password">> => <<"p5">>
+                            }
+                        ]
+                    }
+                ]
+            },
+            %% Probe should also deobfuscate correctly
+            {204, _} = probe_connector_api(TCConfig, Overrides),
+            %% Update to check deobfuscation of passwords inside the array
+            {200, #{<<"status">> := <<"connected">>}} = update_connector_api(TCConfig, Overrides),
+            ConnectedClients0 =
+                lists:map(
+                    fun(ConnPid) ->
+                        ConnState = sys:get_state(ConnPid),
+                        emqx_connection:info({channel, [clientid, username]}, ConnState)
+                    end,
+                    emqx_cm:all_channels()
+                ),
+            ConnectedClients1 = lists:sort(ConnectedClients0),
+            ConnectedClients = lists:map(fun maps:from_list/1, ConnectedClients1),
+            ?assertMatch(
+                [
+                    #{
+                        clientid := <<"2">>,
+                        username := <<"u2">>
+                    },
+                    #{
+                        clientid := <<"3">>,
+                        username := undefined
+                    },
+                    #{
+                        clientid := <<"4">>,
+                        username := <<"u4">>
+                    },
+                    #{
+                        clientid := <<"5">>,
+                        username := <<"u5">>
+                    }
+                ],
+                ConnectedClients
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            SubTrace0 = ?of_kind("mqtt_emqtt_client_about_to_start", Trace),
+            {ProbeSubTrace, UpdateSubTrace} = lists:split(4, SubTrace0),
+            GetOpts = fun(SubTrace) ->
+                Opts0 = lists:map(fun(#{opts := Opts}) -> Opts end, SubTrace),
+                lists:sort(fun(#{clientid := C1}, #{clientid := C2}) -> C1 =< C2 end, Opts0)
+            end,
+            ProbeOpts = GetOpts(ProbeSubTrace),
+            UpdateOpts = GetOpts(UpdateSubTrace),
+            %% Checking used passwords
+            Check = fun(CollectedOpts) ->
+                ?assertMatch(
+                    [
+                        #{
+                            clientid := <<"2">>,
+                            username := <<"u2">>
+                        },
+                        #{clientid := <<"3">>},
+                        #{
+                            clientid := <<"4">>,
+                            username := <<"u4">>,
+                            password := _
+                        },
+                        #{
+                            clientid := <<"5">>,
+                            username := <<"u5">>,
+                            password := _
+                        }
+                    ],
+                    CollectedOpts
+                ),
+                [C2, C3, C4, C5] = CollectedOpts,
+                ?assertNot(is_map_key(password, C2), #{opts => C2}),
+                ?assertNot(is_map_key(username, C3), #{opts => C3}),
+                ?assertNot(is_map_key(password, C3), #{opts => C3}),
+                ?assertEqual(<<"p4">>, emqx_secret:unwrap(maps:get(password, C4)), #{opts => C4}),
+                ?assertEqual(<<"p5">>, emqx_secret:unwrap(maps:get(password, C5)), #{opts => C5}),
+                ok
+            end,
+
+            ct:pal("update"),
+            Check(UpdateOpts),
+            ct:pal("probe"),
+            Check(ProbeOpts),
+
             ok
         end
     ),

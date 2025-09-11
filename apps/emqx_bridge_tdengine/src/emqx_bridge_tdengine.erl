@@ -9,7 +9,7 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
--export([conn_bridge_examples/1, values/1, bridge_v2_examples/1]).
+-export([bridge_v2_examples/1]).
 -export([namespace/0, roots/0, fields/1, desc/1]).
 
 -define(DEFAULT_SQL, <<
@@ -19,34 +19,6 @@
 >>).
 -define(CONNECTOR_TYPE, tdengine).
 -define(ACTION_TYPE, ?CONNECTOR_TYPE).
-
-%% -------------------------------------------------------------------------------------------------
-%% v1 examples
-conn_bridge_examples(Method) ->
-    [#{<<"tdengine">> => #{summary => <<"TDengine Bridge">>, value => values(Method)}}].
-
-values(_Method) ->
-    #{
-        enable => true,
-        type => tdengine,
-        name => <<"foo">>,
-        server => <<"127.0.0.1:6041">>,
-        database => <<"mqtt">>,
-        pool_size => 8,
-        username => <<"root">>,
-        password => <<"******">>,
-        sql => ?DEFAULT_SQL,
-        local_topic => <<"local/topic/#">>,
-        resource_opts =>
-            #{
-                worker_pool_size => 8,
-                health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-                batch_size => ?DEFAULT_BATCH_SIZE,
-                batch_time => ?DEFAULT_BATCH_TIME,
-                query_mode => sync,
-                max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-            }
-    }.
 
 %% -------------------------------------------------------------------------------------------------
 %% v2 examples
@@ -90,8 +62,7 @@ fields("config") ->
                     format => <<"sql">>
                 }
             )},
-        emqx_bridge_v2_schema:undefined_as_null_field(),
-        {local_topic, mk(binary(), #{desc => ?DESC("local_topic"), default => undefined})}
+        emqx_bridge_v2_schema:undefined_as_null_field()
     ] ++
         emqx_resource_schema:fields("resource_opts") ++
         emqx_bridge_tdengine_connector:fields(config);
@@ -100,7 +71,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post");
+    emqx_bridge_v2_api:status_fields() ++ fields("post");
 %% -------------------------------------------------------------------------------------------------
 %% v2 Hocon Schema Definitions
 fields(action) ->
@@ -136,11 +107,11 @@ fields(action_parameters) ->
         emqx_bridge_v2_schema:undefined_as_null_field()
     ];
 fields("post_bridge_v2") ->
-    emqx_bridge_schema:type_and_name_fields(enum([tdengine])) ++ fields(action_config);
+    emqx_bridge_v2_schema:type_and_name_fields(enum([tdengine])) ++ fields(action_config);
 fields("put_bridge_v2") ->
     fields(action_config);
 fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2").
+    emqx_bridge_v2_api:status_fields() ++ fields("post_bridge_v2").
 
 desc("config") ->
     ?DESC("desc_config");

@@ -469,6 +469,8 @@ clean_suite_state() ->
 
 %%
 
+app_schema(emqx_bridge) ->
+    {ok, emqx_bridge_v2_schema};
 app_schema(App) ->
     Mod = list_to_atom(atom_to_list(App) ++ "_schema"),
     try

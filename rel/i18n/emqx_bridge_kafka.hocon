@@ -59,12 +59,6 @@ that the consumer can make progress. As such, this is not an absolute maximum. S
 consumer_max_batch_bytes.label:
 """Fetch Bytes"""
 
-consumer_topic_mapping.desc:
-"""Defines the mapping between Kafka topics and MQTT topics. Must contain at least one item."""
-
-consumer_topic_mapping.label:
-"""Topic Mapping"""
-
 producer_kafka_opts.desc:
 """Kafka producer configs."""
 

@@ -62,24 +62,21 @@
 
 fetch_from_local_node(Mode) ->
     Rules = get_rules_all_namespaces(),
-    BridgesV1 = emqx:get_config([bridges], #{}),
     BridgeV2Actions = emqx_bridge_v2:list(?global_ns, ?ROOT_KEY_ACTIONS),
     Connectors = emqx_connector:list(?global_ns),
     {node(self()), #{
         rule_metric_data => rule_metric_data(Mode, Rules),
         action_metric_data => action_metric_data(Mode, BridgeV2Actions),
-        connector_metric_data => connector_metric_data(Mode, BridgesV1, Connectors)
+        connector_metric_data => connector_metric_data(Mode, Connectors)
     }}.
 
 fetch_cluster_consistented_data() ->
     Rules = get_rules_all_namespaces(),
-    %% for bridge v1
-    BridgesV1 = emqx:get_config([bridges], #{}),
     Connectors = emqx_connector:list(?global_ns),
     (maybe_collect_schema_registry())#{
         rules_ov_data => rules_ov_data(Rules),
         actions_ov_data => actions_ov_data(Rules),
-        connectors_ov_data => connectors_ov_data(BridgesV1, Connectors)
+        connectors_ov_data => connectors_ov_data(Connectors)
     }.
 
 aggre_or_zip_init_acc() ->
@@ -149,11 +146,9 @@ collect(<<"json">>) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
     Rules = get_rules_all_namespaces(),
     Connectors = emqx_connector:list(?global_ns),
-    %% for bridge v1
-    BridgesV1 = emqx:get_config([bridges], #{}),
     #{
         data_integration_overview => collect_data_integration_overview(
-            Rules, BridgesV1, Connectors
+            Rules, Connectors
         ),
         rules => collect_json_data(?MG(rule_metric_data, RawData)),
         actions => collect_json_data(?MG(action_metric_data, RawData)),
@@ -336,17 +331,9 @@ connectors_ov_metric_meta() ->
 connectors_ov_metric(names) ->
     emqx_prometheus_cluster:metric_names(connectors_ov_metric_meta()).
 
-connectors_ov_data(BridgesV1, Connectors) ->
-    %% Both Bridge V1 and V2
-    V1ConnectorsCnt = maps:fold(
-        fun(_Type, NameAndConf, AccIn) ->
-            AccIn + maps:size(NameAndConf)
-        end,
-        0,
-        BridgesV1
-    ),
+connectors_ov_data(Connectors) ->
     #{
-        emqx_connectors_count => erlang:length(Connectors) + V1ConnectorsCnt
+        emqx_connectors_count => erlang:length(Connectors)
     }.
 
 %%========================================
@@ -512,10 +499,9 @@ connector_metric_meta() ->
 connectr_metric(names) ->
     emqx_prometheus_cluster:metric_names(connector_metric_meta()).
 
-connector_metric_data(Mode, BridgesV1, Connectors) ->
+connector_metric_data(Mode, Connectors) ->
     AccIn = maps:from_keys(connectr_metric(names), []),
-    Acc0 = connector_metric_data_v1(Mode, BridgesV1, AccIn),
-    _AccOut = connector_metric_data_v2(Mode, Connectors, Acc0).
+    connector_metric_data_v2(Mode, Connectors, AccIn).
 
 connector_metric_data_v2(Mode, Connectors, InitAcc) ->
     lists:foldl(
@@ -525,29 +511,6 @@ connector_metric_data_v2(Mode, Connectors, InitAcc) ->
         end,
         InitAcc,
         Connectors
-    ).
-
-connector_metric_data_v1(Mode, BridgesV1, InitAcc) ->
-    maps:fold(
-        fun(Type, NameAndConfMap, Acc0) ->
-            maps:fold(
-                fun(Name, _Conf, Acc1) ->
-                    BridgeV1Id = emqx_bridge_resource:resource_id(Type, Name),
-                    case emqx_resource:get_instance(BridgeV1Id) of
-                        {error, not_found} ->
-                            Acc1;
-                        {ok, _, ResourceData} ->
-                            merge_acc_with_connectors(
-                                Mode, BridgeV1Id, get_connector_status(ResourceData), Acc1
-                            )
-                    end
-                end,
-                Acc0,
-                NameAndConfMap
-            )
-        end,
-        InitAcc,
-        BridgesV1
     ).
 
 merge_acc_with_connectors(Mode, Id, ConnectorMetrics, PointsAcc) ->
@@ -576,10 +539,10 @@ get_connector_status(ResourceData) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% merge / zip formatting funcs for type `application/json`
-collect_data_integration_overview(Rules, BridgesV1, Connectors) ->
+collect_data_integration_overview(Rules, Connectors) ->
     RulesD = rules_ov_data(Rules),
     ActionsD = actions_ov_data(Rules),
-    ConnectorsD = connectors_ov_data(BridgesV1, Connectors),
+    ConnectorsD = connectors_ov_data(Connectors),
 
     M1 = lists:foldl(
         fun(K, AccIn) -> AccIn#{K => ?MG(K, RulesD)} end,

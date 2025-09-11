@@ -22,14 +22,13 @@
 %% `emqx_bridge_v2_schema' "unofficial" API
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
 %% emqx_connector_resource behaviour callbacks
 -export([connector_config/2]).
 
--export([producer_converter/2, host_opts/0]).
+-export([host_opts/0]).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
@@ -65,7 +64,7 @@ fields("put_bridge_v2") ->
     ),
     override_documentations(Fields);
 fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++
+    emqx_bridge_v2_api:status_fields() ++
         fields("post_bridge_v2");
 fields("post_bridge_v2") ->
     Fields = override(
@@ -180,16 +179,6 @@ connector_examples(Method) ->
         }
     ].
 
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"azure_event_hub_producer">> => #{
-                summary => <<"Azure Event Hub Producer Bridge">>,
-                value => values({Method, producer})
-            }
-        }
-    ].
-
 values({get, connector}) ->
     maps:merge(
         #{
@@ -241,17 +230,6 @@ values({post, connector}) ->
             }
         }
     );
-values({post, producer}) ->
-    maps:merge(
-        #{
-            name => <<"my_azure_event_hub_producer">>,
-            type => <<"azure_event_hub_producer">>
-        },
-        maps:merge(
-            values(common_config),
-            values(producer)
-        )
-    );
 values({put, connector}) ->
     values(common_config);
 values({put, bridge_v2}) ->
@@ -262,8 +240,6 @@ values({put, bridge_v2}) ->
             connector => <<"my_azure_event_hub_producer_connector">>
         }
     );
-values({put, producer}) ->
-    values({post, producer});
 values(common_config) ->
     #{
         authentication => #{
@@ -314,8 +290,7 @@ values(producer) ->
                 segment_bytes => <<"100MB">>,
                 memory_overload_protection => true
             }
-        },
-        local_topic => <<"mqtt/local/topic">>
+        }
     }.
 
 %%-------------------------------------------------------------------------------------------------
@@ -449,7 +424,18 @@ auth_overrides() ->
 %% Azure must use SSL
 ssl_overrides() ->
     #{
-        "enable" => mk(true, #{default => true})
+        "enable" => mk(true, #{default => true}),
+        "server_name_indication" =>
+            mk(
+                hoconsc:union([auto, disable, string()]),
+                #{
+                    example => auto,
+                    default => <<"auto">>,
+                    converter => fun server_name_indication_converter/2,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC("server_name_indication")
+                }
+            )
     }.
 
 kafka_producer_overrides() ->
@@ -490,18 +476,13 @@ override(Fields, Overrides) ->
         Fields
     ).
 
-producer_converter(undefined, _HoconOpts) ->
+server_name_indication_converter(undefined, _HoconOpts) ->
     undefined;
-producer_converter(
-    Opts = #{<<"ssl">> := #{<<"server_name_indication">> := <<"auto">>}}, _HoconOpts
-) ->
+server_name_indication_converter(<<"auto">>, _HoconOpts) ->
     %% Azure Event Hub's SNI is just the hostname without the Event Hub Namespace...
-    emqx_utils_maps:deep_merge(
-        Opts,
-        #{<<"ssl">> => #{<<"server_name_indication">> => <<"servicebus.windows.net">>}}
-    );
-producer_converter(Opts, _HoconOpts) ->
-    Opts.
+    <<"servicebus.windows.net">>;
+server_name_indication_converter(SNI, _HoconOpts) ->
+    SNI.
 
 host_opts() ->
     #{default_port => 9093}.

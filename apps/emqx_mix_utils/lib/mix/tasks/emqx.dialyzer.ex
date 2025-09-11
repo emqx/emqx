@@ -206,13 +206,17 @@ defmodule Mix.Tasks.Emqx.Dialyzer do
   end
 
   defp parse_args!(args) do
-    {opts, _rest} =
+    {opts, rest} =
       OptionParser.parse!(
         args,
         strict: [
           mode: :string
         ]
       )
+
+    if rest != [] do
+      Mix.raise("Unknown options:\n  #{inspect(rest, pretty: true)}")
+    end
 
     mode =
       opts

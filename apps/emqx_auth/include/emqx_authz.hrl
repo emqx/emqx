@@ -204,3 +204,4 @@
 ]).
 
 -define(AUTHZ_CACHE, emqx_authz_cache).
+-define(ALL_TOPICS, 'ALL_TOPICS').

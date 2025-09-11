@@ -38,7 +38,6 @@ actions.confluent_producer.my_producer {
     sync_query_timeout = 5s
     topic = test
   }
-  local_topic = \"t/confluent\"
 }
 ".
 

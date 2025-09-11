@@ -15,7 +15,6 @@
 %% emqx_bridge_enterprise "callbacks"
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -144,11 +143,11 @@ fields(Field) when
 ->
     emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(mongodb_action));
 fields("post_rs") ->
-    fields(mongodb_rs) ++ emqx_bridge_schema:type_and_name_fields(mongodb_rs);
+    fields(mongodb_rs) ++ emqx_bridge_v2_schema:type_and_name_fields(mongodb_rs);
 fields("post_sharded") ->
-    fields(mongodb_sharded) ++ emqx_bridge_schema:type_and_name_fields(mongodb_sharded);
+    fields(mongodb_sharded) ++ emqx_bridge_v2_schema:type_and_name_fields(mongodb_sharded);
 fields("post_single") ->
-    fields(mongodb_single) ++ emqx_bridge_schema:type_and_name_fields(mongodb_single);
+    fields(mongodb_single) ++ emqx_bridge_v2_schema:type_and_name_fields(mongodb_single);
 fields("put_rs") ->
     fields(mongodb_rs);
 fields("put_sharded") ->
@@ -156,17 +155,17 @@ fields("put_sharded") ->
 fields("put_single") ->
     fields(mongodb_single);
 fields("get_rs") ->
-    emqx_bridge_schema:status_fields() ++
+    emqx_bridge_v2_api:status_fields() ++
         fields(mongodb_rs) ++
-        emqx_bridge_schema:type_and_name_fields(mongodb_rs);
+        emqx_bridge_v2_schema:type_and_name_fields(mongodb_rs);
 fields("get_sharded") ->
-    emqx_bridge_schema:status_fields() ++
+    emqx_bridge_v2_api:status_fields() ++
         fields(mongodb_sharded) ++
-        emqx_bridge_schema:type_and_name_fields(mongodb_sharded);
+        emqx_bridge_v2_schema:type_and_name_fields(mongodb_sharded);
 fields("get_single") ->
-    emqx_bridge_schema:status_fields() ++
+    emqx_bridge_v2_api:status_fields() ++
         fields(mongodb_single) ++
-        emqx_bridge_schema:type_and_name_fields(mongodb_single).
+        emqx_bridge_v2_schema:type_and_name_fields(mongodb_single).
 
 bridge_v2_examples(Method) ->
     [
@@ -176,28 +175,6 @@ bridge_v2_examples(Method) ->
                 value => emqx_bridge_v2_schema:action_values(
                     Method, mongodb, mongodb, #{parameters => #{collection => <<"mycol">>}}
                 )
-            }
-        }
-    ].
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"mongodb_rs">> => #{
-                summary => <<"MongoDB (Replica Set) Bridge">>,
-                value => values(mongodb_rs, Method)
-            }
-        },
-        #{
-            <<"mongodb_sharded">> => #{
-                summary => <<"MongoDB (Sharded) Bridge">>,
-                value => values(mongodb_sharded, Method)
-            }
-        },
-        #{
-            <<"mongodb_single">> => #{
-                summary => <<"MongoDB (Standalone) Bridge">>,
-                value => values(mongodb_single, Method)
             }
         }
     ].
@@ -260,46 +237,6 @@ desc(_) ->
 %%=================================================================================================
 %% Internal fns
 %%=================================================================================================
-
-values(MongoType, Method) ->
-    maps:merge(
-        mongo_type_opts(MongoType),
-        bridge_values(MongoType, Method)
-    ).
-
-mongo_type_opts(mongodb_rs) ->
-    #{
-        mongo_type => <<"rs">>,
-        servers => <<"localhost:27017, localhost:27018">>,
-        w_mode => <<"safe">>,
-        r_mode => <<"safe">>,
-        replica_set_name => <<"rs">>
-    };
-mongo_type_opts(mongodb_sharded) ->
-    #{
-        mongo_type => <<"sharded">>,
-        servers => <<"localhost:27017, localhost:27018">>,
-        w_mode => <<"safe">>
-    };
-mongo_type_opts(mongodb_single) ->
-    #{
-        mongo_type => <<"single">>,
-        server => <<"localhost:27017">>,
-        w_mode => <<"safe">>
-    }.
-
-bridge_values(Type, _Method) ->
-    %% [FIXME] _Method makes a difference since PUT doesn't allow name and type
-    %% for connectors.
-    TypeBin = atom_to_binary(Type),
-    maps:merge(
-        #{
-            name => <<TypeBin/binary, "_demo">>,
-            type => TypeBin,
-            collection => <<"mycol">>
-        },
-        connector_values()
-    ).
 
 connector_values() ->
     #{

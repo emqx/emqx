@@ -123,7 +123,7 @@ fields("put") ->
 fields("put_bridge_v2") ->
     fields("put");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post");
+    emqx_bridge_v2_api:status_fields() ++ fields("post");
 fields("get_bridge_v2") ->
     fields("get").
 

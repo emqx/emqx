@@ -22,7 +22,11 @@ defmodule Mix.Tasks.Emqx.StaticChecks do
   @test_script_src ~c"apps/emqx/test/emqx_static_checks.erl"
 
   @impl true
-  def run(_args) do
+  def run(args) do
+    if args != [] do
+      Mix.raise("Unknown options:\n  #{inspect(args, pretty: true)}")
+    end
+
     ensure_compiled_and_loaded!(@common_helpers_src)
     ensure_compiled_and_loaded!(@bpapi_test_src)
     ECt.ensure_whole_emqx_project_is_loaded()

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_mq_api_SUITE).
@@ -103,10 +103,10 @@ t_crud(_Config) ->
     ),
     ?assertMatch(
         {ok, 204},
-        api_delete([message_queues, queues, urlencode(<<"t/2">>)])
+        api_delete([message_queues, queues, urlencode(<<"t/1">>)])
     ),
     ?assertMatch(
-        {ok, 204},
+        {ok, 404, _},
         api_delete([message_queues, queues, urlencode(<<"t/1">>)])
     ),
     ?retry(
@@ -135,6 +135,11 @@ t_pagination(_Config) ->
     {ok, 200, #{<<"data">> := Data1, <<"meta">> := #{<<"hasnext">> := false}}} =
         api_get([message_queues, queues, "?limit=6&cursor=" ++ urlencode(Cursor)]),
     ?assertEqual(4, length(Data1)),
+
+    %% Check that the last page does not have `hasnext
+    {ok, 200, #{<<"data">> := Data2, <<"meta">> := #{<<"hasnext">> := false}}} =
+        api_get([message_queues, queues, "?limit=4&cursor=" ++ urlencode(Cursor)]),
+    ?assertEqual(4, length(Data2)),
 
     %% Check that we do not crash on invalid cursor
     ?assertMatch(

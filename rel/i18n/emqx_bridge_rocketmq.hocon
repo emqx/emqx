@@ -24,14 +24,6 @@ desc_type.desc:
 desc_type.label:
 """Bridge Type"""
 
-local_topic.desc:
-"""The MQTT topic filter to be forwarded to RocketMQ. All MQTT `PUBLISH` messages with the topic
-matching the `local_topic` will be forwarded.<br/>
-NOTE: if the bridge is used as a rule action, `local_topic` should be left empty otherwise the messages will be duplicated."""
-
-local_topic.label:
-"""Local Topic"""
-
 template.desc:
 """Template, the default value is empty. When this value is empty the whole message will be stored in the RocketMQ.<br>
             The template can be any valid string with placeholders, example:<br>

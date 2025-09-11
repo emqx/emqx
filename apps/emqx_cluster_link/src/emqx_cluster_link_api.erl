@@ -230,11 +230,21 @@ handle_list() ->
         end,
         Errors
     ),
-    EmptyStatus = #{status => inconsistent, node_status => NodeErrors},
+    InconsistentStatus = #{status => inconsistent, node_status => NodeErrors},
+    DisabledStatus = #{status => ?status_disconnected, node_status => NodeErrors},
     Response =
         lists:map(
             fun(#{<<"name">> := Name} = Link) ->
-                Status = maps:get(Name, NameToStatus, EmptyStatus),
+                IsEnabled = maps:get(<<"enable">>, Link, true),
+                Status =
+                    case maps:find(Name, NameToStatus) of
+                        error when IsEnabled ->
+                            InconsistentStatus;
+                        error ->
+                            DisabledStatus;
+                        {ok, Status0} ->
+                            Status0
+                    end,
                 redact(maps:merge(Link, Status))
             end,
             Links

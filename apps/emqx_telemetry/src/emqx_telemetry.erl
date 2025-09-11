@@ -505,7 +505,7 @@ get_rule_engine_and_bridge_info() ->
     #{
         num_bridges := NumDataBridges,
         count_by_type := BridgeTypeCount
-    } = emqx_bridge:get_basic_usage_info(),
+    } = emqx_bridge_v2:get_basic_usage_info(),
     BridgeInfo =
         maps:fold(
             fun(BridgeType, BridgeCount, Acc) ->
