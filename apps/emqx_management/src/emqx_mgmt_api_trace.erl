@@ -5,7 +5,6 @@
 
 -behaviour(minirest_api).
 
--include_lib("kernel/include/file.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -23,10 +22,10 @@
 -export([
     trace/2,
     delete_trace/2,
-    update_trace/2,
+    stop_trace/2,
     download_trace_log/2,
-    stream_log_file/2,
-    log_file_detail/2
+    get_trace_log_detail/2,
+    stream_trace_log/2
 ]).
 
 -export([validate_name/1]).
@@ -73,7 +72,7 @@ schema("/trace") ->
         post => #{
             description => ?DESC(create_new),
             tags => ?TAGS,
-            'requestBody' => delete([status, log_size], fields(trace)),
+            'requestBody' => hoconsc:ref(trace_params),
             responses => #{
                 200 => hoconsc:ref(trace),
                 400 => emqx_dashboard_swagger:error_codes(
@@ -116,7 +115,7 @@ schema("/trace/:name") ->
     };
 schema("/trace/:name/stop") ->
     #{
-        'operationId' => update_trace,
+        'operationId' => stop_trace,
         put => #{
             description => ?DESC(stop_trace),
             tags => ?TAGS,
@@ -131,7 +130,7 @@ schema("/trace/:name/download") ->
     #{
         'operationId' => download_trace_log,
         get => #{
-            description => ?DESC(download_log_by_name),
+            description => ?DESC(download_trace_log),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name), hoconsc:ref(node)],
             responses => #{
@@ -151,9 +150,9 @@ schema("/trace/:name/download") ->
     };
 schema("/trace/:name/log_detail") ->
     #{
-        'operationId' => log_file_detail,
+        'operationId' => get_trace_log_detail,
         get => #{
-            description => ?DESC(get_trace_file_metadata),
+            description => ?DESC(get_trace_log_detail),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
@@ -164,9 +163,9 @@ schema("/trace/:name/log_detail") ->
     };
 schema("/trace/:name/log") ->
     #{
-        'operationId' => stream_log_file,
+        'operationId' => stream_trace_log,
         get => #{
-            description => ?DESC(view_trace_log),
+            description => ?DESC(stream_trace_log),
             tags => ?TAGS,
             parameters => [
                 hoconsc:ref(name),
@@ -193,12 +192,6 @@ schema("/trace/:name/log") ->
         }
     }.
 
-fields(log_file_detail) ->
-    fields(node) ++
-        [
-            {size, hoconsc:mk(integer(), #{description => ?DESC(file_size)})},
-            {mtime, hoconsc:mk(integer(), #{description => ?DESC(file_mtime)})}
-        ];
 fields(trace) ->
     [
         {name,
@@ -331,6 +324,12 @@ fields(trace) ->
                 }
             )}
     ];
+fields(trace_params) ->
+    lists:foldl(
+        fun proplists:delete/2,
+        fields(trace),
+        [status, log_size]
+    );
 fields(name) ->
     [
         {name,
@@ -383,6 +382,12 @@ fields(position) ->
                 }
             )}
     ];
+fields(log_file_detail) ->
+    fields(node) ++
+        [
+            {size, hoconsc:mk(integer(), #{description => ?DESC(file_size)})},
+            {mtime, hoconsc:mk(integer(), #{description => ?DESC(file_mtime)})}
+        ];
 fields(stream_hint) ->
     [
         {hint,
@@ -395,6 +400,8 @@ fields(stream_hint) ->
                 }
             )}
     ].
+
+%%
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
 
@@ -410,9 +417,9 @@ validate_name(Name) ->
             {error, "Name Length must =< 256"}
     end.
 
-delete(Keys, Fields) ->
-    lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Fields, Keys).
+%% API Handlers
 
+-doc "`/trace`".
 trace(get, _Params) ->
     case emqx_trace:list() of
         [] ->
@@ -517,21 +524,25 @@ format_trace(
         log_size => LogSize
     }.
 
+-doc "`/trace/:name`".
 delete_trace(delete, #{bindings := #{name := Name}}) ->
     case emqx_trace:delete(Name) of
         ok -> {204};
         {error, not_found} -> ?NOT_FOUND_WITH_MSG(Name)
     end.
 
-update_trace(put, #{bindings := #{name := Name}}) ->
+-doc "`/trace/:name/stop`".
+stop_trace(put, #{bindings := #{name := Name}}) ->
     case emqx_trace:update(Name, false) of
         ok -> {200, #{enable => false, name => Name}};
         {error, not_found} -> ?NOT_FOUND_WITH_MSG(Name)
     end.
 
-%% if HTTP request headers include accept-encoding: gzip and file size > 300 bytes.
-%% cowboy_compress_h will auto encode gzip format.
+-doc "`/trace/:name/download`".
 download_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) ->
+    %% NOTE
+    %% If HTTP request headers include accept-encoding: gzip and file size > 300 bytes.
+    %% cowboy_compress_h will auto encode gzip format.
     case emqx_trace:get(Name) of
         {ok, Trace} ->
             case parse_node(Query, undefined) of
@@ -655,7 +666,8 @@ serve_trace_log_archive(_Trace = #{name := Name}, ZipDir, Files) ->
     },
     {200, Headers, {file_binary, ZipName, Binary}}.
 
-log_file_detail(get, #{bindings := #{name := Name}}) ->
+-doc "`/trace/:name/log_detail`".
+get_trace_log_detail(get, #{bindings := #{name := Name}}) ->
     case emqx_trace:get(Name) of
         {ok, _Trace} ->
             Details = cluster_trace_details(Name),
@@ -675,7 +687,8 @@ filter_trace_details(TraceLogDetail) ->
         end,
     lists:foldl(GroupFun, [], TraceLogDetail).
 
-stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
+-doc "`/trace/:name/log`".
+stream_trace_log(get, #{bindings := #{name := Name}, query_string := Query}) ->
     Position = maps:get(<<"position">>, Query, 0),
     Bytes = maps:get(<<"bytes">>, Query, 1000),
     maybe
