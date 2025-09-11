@@ -713,7 +713,7 @@ parse_optional(Bin, _F, false) ->
 parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true) ->
     {validate_utf8(Str), Rest};
 parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false) ->
-    {Str, Rest};
+    {binary:copy(Str), Rest};
 parse_utf8_string(<<Len:16/big, Rest/binary>>, _) when Len > byte_size(Rest) ->
     ?PARSE_ERR(#{
         cause => malformed_utf8_string,
@@ -724,7 +724,9 @@ parse_utf8_string(Bin, _) when 2 > byte_size(Bin) ->
     ?PARSE_ERR(#{cause => malformed_utf8_string_length}).
 
 parse_will_payload(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
-    {Data, Rest};
+    %% So the will message payload is off the reference of the whole CONNECT packet
+    %% which can be large if client ID + Username + Password is long.
+    {binary:copy(Data), Rest};
 parse_will_payload(<<Len:16/big, Rest/binary>>) when
     Len > byte_size(Rest)
 ->
@@ -1243,15 +1245,15 @@ fixqos(?SUBSCRIBE, 0) -> 1;
 fixqos(?UNSUBSCRIBE, 0) -> 1;
 fixqos(_Type, QoS) -> QoS.
 
-validate_utf8(Bin) ->
-    case unicode:characters_to_binary(Bin) of
+validate_utf8(Bin0) ->
+    case unicode:characters_to_binary(Bin0) of
         {error, _, _} ->
             ?PARSE_ERR(utf8_string_invalid);
         {incomplete, _, _} ->
             ?PARSE_ERR(utf8_string_invalid);
         Bin when is_binary(Bin) ->
             case validate_mqtt_utf8_char(Bin) of
-                true -> Bin;
+                true -> binary:copy(Bin);
                 false -> ?PARSE_ERR(utf8_string_invalid)
             end
     end.
