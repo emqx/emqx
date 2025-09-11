@@ -21,7 +21,7 @@ namespace() -> ?TYPE.
 roots() -> [].
 
 fields("config_connector") ->
-    emqx_bridge_schema:common_bridge_fields() ++
+    emqx_connector_schema:common_fields() ++
         fields(connector) ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector) ->
@@ -92,7 +92,7 @@ fields("post") ->
 fields("put") ->
     fields("config_connector");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("config_connector").
+    emqx_bridge_v2_api:status_fields() ++ fields("config_connector").
 
 desc("config_connector") ->
     ?DESC("config_connector");

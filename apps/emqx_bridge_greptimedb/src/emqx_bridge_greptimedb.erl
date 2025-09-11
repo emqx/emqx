@@ -22,7 +22,6 @@
 %% Examples
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -31,16 +30,6 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% api
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"greptimedb">> => #{
-                summary => <<"Greptimedb HTTP API V2 Bridge">>,
-                value => bridge_v1_values(Method)
-            }
-        }
-    ].
 
 bridge_v2_examples(Method) ->
     ParamsExample = #{
@@ -76,7 +65,6 @@ bridge_v1_values(_Method) ->
         type => greptimedb,
         name => <<"demo">>,
         enable => true,
-        local_topic => <<"local/topic/#">>,
         write_syntax => write_syntax_value(),
         precision => ms,
         resource_opts => #{
@@ -106,15 +94,6 @@ namespace() -> "bridge_greptimedb".
 
 roots() -> [].
 
-fields("post_grpc_v1") ->
-    method_fields(post, greptimedb);
-fields("put_grpc_v1") ->
-    method_fields(put, greptimedb);
-fields("get_grpc_v1") ->
-    method_fields(get, greptimedb);
-fields(greptimedb = Type) ->
-    greptimedb_bridge_common_fields() ++
-        connector_fields(Type);
 %% Actions
 fields(action) ->
     {greptimedb,
@@ -157,40 +136,8 @@ fields(Field) when
 ->
     emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(greptimedb_action)).
 
-method_fields(post, ConnectorType) ->
-    greptimedb_bridge_common_fields() ++
-        connector_fields(ConnectorType) ++
-        type_name_fields(ConnectorType);
-method_fields(get, ConnectorType) ->
-    greptimedb_bridge_common_fields() ++
-        connector_fields(ConnectorType) ++
-        type_name_fields(ConnectorType) ++
-        emqx_bridge_schema:status_fields();
-method_fields(put, ConnectorType) ->
-    greptimedb_bridge_common_fields() ++
-        connector_fields(ConnectorType).
-
-greptimedb_bridge_common_fields() ->
-    emqx_bridge_schema:common_bridge_fields() ++
-        [
-            {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
-            {write_syntax, fun write_syntax/1}
-        ] ++
-        emqx_resource_schema:fields("resource_opts").
-
-connector_fields(Type) ->
-    emqx_bridge_greptimedb_connector:fields(Type).
-
-type_name_fields(Type) ->
-    [
-        {type, mk(Type, #{required => true, desc => ?DESC("desc_type")})},
-        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
-    ].
-
 desc("config") ->
     ?DESC("desc_config");
-desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for Greptimedb using `", string:to_upper(Method), "` method."];
 desc(greptimedb) ->
     ?DESC(emqx_bridge_greptimedb_connector, "greptimedb");
 desc(greptimedb_action) ->

@@ -134,9 +134,9 @@ end_per_testcase(TestCase, _Config) ->
     maybe
         true ?= needs_mock(TestCase),
         ets:delete(fun_table_name()),
-        emqx_action_info:clean_cache(),
         update_root_config(#{})
     end,
+    emqx_action_info:clean_cache(),
     emqx_common_test_helpers:call_janitor(),
     emqx_bridge_v2_testlib:delete_all_rules(),
     delete_all_bridges_and_connectors(),
@@ -281,9 +281,6 @@ setup_mocks() ->
                 meck:passthrough([Type])
         end
     ),
-    meck:expect(emqx_bridge_v2, bridge_v1_type_to_bridge_v2_type, 1, bridge_type()),
-
-    meck:expect(emqx_bridge_v2, is_bridge_v2_type, fun(Type) -> Type =:= BridgeType end),
     ok.
 
 delete_all_bridges_and_connectors() ->
@@ -404,6 +401,64 @@ data_file(Name) ->
     {ok, Bin} = file:read_file(filename:join([Dir, "test", "data", Name])),
     Bin.
 
+setup_fake_telemetry_data() ->
+    HTTPTCConfig1 = [
+        {bridge_kind, action},
+        {connector_type, <<"http">>},
+        {connector_name, <<"basic_usage_info_webhook">>},
+        {connector_config,
+            emqx_bridge_schema_testlib:http_connector_config(#{
+                <<"url">> => <<"http://localhost:9901/">>
+            })},
+        {action_type, <<"http">>},
+        {action_name, <<"basic_usage_info_webhook">>},
+        {action_config,
+            emqx_bridge_schema_testlib:http_action_config(#{
+                <<"connector">> => <<"basic_usage_info_webhook">>
+            })}
+    ],
+    {201, _} = emqx_bridge_v2_testlib:create_connector_api2(HTTPTCConfig1, #{}),
+    {201, _} = emqx_bridge_v2_testlib:create_action_api2(HTTPTCConfig1, #{}),
+    HTTPTCConfig2 = [
+        {connector_name, <<"basic_usage_info_webhook_disabled">>},
+        {action_name, <<"basic_usage_info_webhook_disabled">>}
+        | HTTPTCConfig1
+    ],
+    {201, _} = emqx_bridge_v2_testlib:create_connector_api2(HTTPTCConfig2, #{
+        <<"enable">> => false
+    }),
+    {201, _} = emqx_bridge_v2_testlib:create_action_api2(HTTPTCConfig2, #{
+        <<"enable">> => false
+    }),
+    MQTTTCConfig1 = [
+        {bridge_kind, action},
+        {connector_type, <<"mqtt">>},
+        {connector_name, <<"basic_usage_info_mqtt">>},
+        {connector_config, emqx_bridge_schema_testlib:mqtt_connector_config(#{})},
+        {action_type, <<"mqtt">>},
+        {action_name, <<"basic_usage_info_mqtt">>},
+        {action_config,
+            emqx_bridge_schema_testlib:mqtt_action_config(#{
+                <<"connector">> => <<"basic_usage_info_mqtt">>
+            })}
+    ],
+    {201, _} = emqx_bridge_v2_testlib:create_connector_api2(MQTTTCConfig1, #{}),
+    {201, _} = emqx_bridge_v2_testlib:create_action_api2(MQTTTCConfig1, #{}),
+    MQTTTCConfig2 = [
+        {bridge_kind, source},
+        {connector_type, <<"mqtt">>},
+        {connector_name, <<"basic_usage_info_mqtt">>},
+        {connector_config, emqx_bridge_schema_testlib:mqtt_connector_config(#{})},
+        {source_type, <<"mqtt">>},
+        {source_name, <<"basic_usage_info_mqtt_from_select">>},
+        {source_config,
+            emqx_bridge_schema_testlib:mqtt_source_config(#{
+                <<"connector">> => <<"basic_usage_info_mqtt">>
+            })}
+    ],
+    {201, _} = emqx_bridge_v2_testlib:create_source_api(MQTTTCConfig2, #{}),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -485,19 +540,6 @@ t_create_dry_run_fail_get_channel_status(_) ->
 t_create_dry_run_connector_does_not_exist(_) ->
     BridgeConf = (bridge_config())#{<<"connector">> => <<"connector_does_not_exist">>},
     {error, _} = create_dry_run(bridge_type(), BridgeConf).
-
-t_bridge_v1_is_valid(_) ->
-    {ok, _} = create(bridge_type(), my_test_bridge, bridge_config()),
-    true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
-    %% Add another channel/bridge to the connector
-    {ok, _} = create(bridge_type(), my_test_bridge_2, bridge_config()),
-    false = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
-    ok = remove(bridge_type(), my_test_bridge),
-    true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge_2),
-    ok = remove(bridge_type(), my_test_bridge_2),
-    %% Non existing bridge is a valid Bridge V1
-    true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
-    ok.
 
 t_manual_health_check(_) ->
     {ok, _} = create(bridge_type(), my_test_bridge, bridge_config()),
@@ -659,26 +701,6 @@ t_send_message_through_rule(_) ->
             get_rule_metrics(RuleId)
         )
     ),
-    unregister(registered_process_name()),
-    ok = remove(bridge_type(), BridgeName),
-    ok.
-
-t_send_message_through_local_topic(_) ->
-    %% Bridge configuration with local topic
-    BridgeName = my_test_bridge,
-    TopicName = <<"t/b">>,
-    BridgeConfig = (bridge_config())#{
-        <<"local_topic">> => TopicName
-    },
-    {ok, _} = create(bridge_type(), BridgeName, BridgeConfig),
-    %% Register name for this process
-    register(registered_process_name(), self()),
-    %% Send message to the topic
-    ClientId = atom_to_binary(?FUNCTION_NAME),
-    Payload = <<"hej">>,
-    Msg = emqx_message:make(ClientId, 0, TopicName, Payload),
-    emqx:publish(Msg),
-    ?assertReceive({query_called, #{message := #{payload := Payload}}}),
     unregister(registered_process_name()),
     ok = remove(bridge_type(), BridgeName),
     ok.
@@ -1195,14 +1217,19 @@ t_start_operation_when_on_add_channel_gives_error(_Config) ->
             ),
             %% emqx_bridge_v2:start/2 should return ok if bridge if connected after
             %% start and otherwise and error
-            ?assertMatch({error, _}, emqx_bridge_v2:start(bridge_type(), BridgeName)),
+            ?assertMatch(
+                {error, _},
+                emqx_bridge_v2:start(
+                    ?global_ns, actions, bridge_type(), BridgeName
+                )
+            ),
             %% Let us change on_add_channel to be successful and try again
             ok = meck:expect(
                 emqx_bridge_v2_test_connector,
                 on_add_channel,
                 fun(_, _, _ResId, _Channel) -> {ok, #{}} end
             ),
-            ?assertMatch(ok, emqx_bridge_v2:start(bridge_type(), BridgeName))
+            ?assertMatch(ok, emqx_bridge_v2:start(?global_ns, actions, bridge_type(), BridgeName))
         end
     ),
     ok.
@@ -1975,3 +2002,12 @@ t_update_ssl_conf(_TCConfig) ->
     {ok, _} = emqx_tls_certfile_gc:force(),
     ?assertMatch({error, enoent}, file:list_dir(CertDir)),
     ok.
+
+t_get_basic_usage_info_0(_TCConfig) ->
+    ?assertEqual(
+        #{
+            num_bridges => 0,
+            count_by_type => #{}
+        },
+        emqx_bridge_v2:get_basic_usage_info()
+    ).

@@ -21,7 +21,6 @@
 %% Examples
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -43,16 +42,6 @@
 
 %%--------------------------------------------------------------------
 %% schema examples
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"cassandra">> => #{
-                summary => <<"Cassandra Bridge">>,
-                value => values(Method, cassandra)
-            }
-        }
-    ].
 
 bridge_v2_examples(Method) ->
     ParamsExample = #{
@@ -101,7 +90,6 @@ values(_Method, Type) ->
         username => <<"root">>,
         password => <<"******">>,
         cql => ?DEFAULT_CQL,
-        local_topic => <<"local/topic/#">>,
         resource_opts => #{
             worker_pool_size => 8,
             health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
@@ -159,12 +147,7 @@ fields(Field) when
 fields("config") ->
     [
         cql_field(),
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {local_topic,
-            mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
-            )}
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
         (emqx_bridge_cassandra_connector:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
@@ -173,7 +156,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    emqx_bridge_v2_api:status_fields() ++ fields("post").
 
 fields("post", Type) ->
     [type_field(Type), name_field() | fields("config")].

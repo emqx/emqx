@@ -81,26 +81,11 @@ is_unwrapped_header({_, [{str, _V}]}) -> throw(unexpected_tmpl_token);
 is_unwrapped_header(_) -> true.
 
 method_validator_test() ->
-    Conf0 = parse(webhook_config_hocon()),
-    ?assertMatch(
-        #{<<"method">> := _},
-        emqx_utils_maps:deep_get([<<"bridges">>, <<"webhook">>, <<"a">>], Conf0)
-    ),
     lists:foreach(
         fun(Method) ->
-            Conf1 = emqx_utils_maps:deep_put(
-                [<<"bridges">>, <<"webhook">>, <<"a">>, <<"method">>],
-                Conf0,
-                Method
-            ),
             ?assertMatch(
                 #{},
-                check(Conf1),
-                #{method => Method}
-            ),
-            ?assertMatch(
-                #{},
-                check_atom_key(Conf1),
+                check_action(#{<<"parameters">> => #{<<"method">> => Method}}),
                 #{method => Method}
             ),
             ok
@@ -109,11 +94,6 @@ method_validator_test() ->
     ),
     lists:foreach(
         fun(Method) ->
-            Conf1 = emqx_utils_maps:deep_put(
-                [<<"bridges">>, <<"webhook">>, <<"a">>, <<"method">>],
-                Conf0,
-                Method
-            ),
             ?assertThrow(
                 {_, [
                     #{
@@ -121,17 +101,7 @@ method_validator_test() ->
                         reason := not_a_enum_symbol
                     }
                 ]},
-                check(Conf1),
-                #{method => Method}
-            ),
-            ?assertThrow(
-                {_, [
-                    #{
-                        kind := validation_error,
-                        reason := not_a_enum_symbol
-                    }
-                ]},
-                check_atom_key(Conf1),
+                check_action(#{<<"parameters">> => #{<<"method">> => Method}}),
                 #{method => Method}
             ),
             ok
@@ -144,56 +114,9 @@ method_validator_test() ->
 %% Helper functions
 %%===========================================================================
 
-parse(Hocon) ->
-    {ok, Conf} = hocon:binary(Hocon),
-    Conf.
-
-%% what bridge creation does
-check(Conf) when is_map(Conf) ->
-    hocon_tconf:check_plain(emqx_bridge_schema, Conf).
-
-%% what bridge probe does
-check_atom_key(Conf) when is_map(Conf) ->
-    hocon_tconf:check_plain(emqx_bridge_schema, Conf, #{atom_key => true, required => false}).
+check_action(Overrides) ->
+    emqx_bridge_schema_testlib:http_action_config(Overrides#{<<"connector">> => <<"x">>}).
 
 %%===========================================================================
 %% Data section
 %%===========================================================================
-
-%% erlfmt-ignore
-webhook_config_hocon() ->
-"
-bridges.webhook.a {
-  body = \"${.}\"
-  connect_timeout = 15s
-  enable = false
-  enable_pipelining = 100
-  headers {content-type = \"application/json\", jjjjjjjjjjjjjjjjjjj = jjjjjjj}
-  max_retries = 2
-  method = post
-  pool_size = 8
-  pool_type = random
-  resource_opts {
-    health_check_interval = 15s
-    inflight_window = 100
-    max_buffer_bytes = 1GB
-    query_mode = async
-    request_ttl = 45s
-    start_after_created = true
-    start_timeout = 5s
-    worker_pool_size = 4
-  }
-  ssl {
-    ciphers = []
-    depth = 10
-    enable = false
-    hibernate_after = 5s
-    log_level = notice
-    reuse_sessions = true
-    secure_renegotiate = true
-    verify = verify_peer
-    versions = [tlsv1.3, tlsv1.2]
-  }
-  url = \"http://some.host:4000/api/echo\"
-}
-".

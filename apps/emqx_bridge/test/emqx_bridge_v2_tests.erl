@@ -126,8 +126,7 @@ actions_api_spec_post_fields_test() ->
     MinimalFields0 =
         [
             binary_to_atom(F)
-         || F <- emqx_bridge_v2_schema:top_level_common_action_keys(),
-            F =/= <<"local_topic">>
+         || F <- emqx_bridge_v2_schema:top_level_common_action_keys()
         ],
     MinimalFields = [type, name | MinimalFields0],
     MissingFields =

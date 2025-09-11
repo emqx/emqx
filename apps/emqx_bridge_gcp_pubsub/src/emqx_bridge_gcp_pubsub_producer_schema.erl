@@ -22,7 +22,6 @@
 %% `emqx_bridge_v2_schema' "unofficial" API
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -61,16 +60,7 @@ fields(producer_action) ->
         )
     );
 fields(action_parameters) ->
-    lists:map(
-        fun
-            ({local_topic, Sc}) ->
-                Override = #{importance => ?IMPORTANCE_HIDDEN},
-                {local_topic, hocon_schema:override(Sc, Override)};
-            (Field) ->
-                Field
-        end,
-        emqx_bridge_gcp_pubsub:fields(producer)
-    );
+    emqx_bridge_gcp_pubsub:fields(producer);
 %%=========================================
 %% Connector fields
 %%=========================================
@@ -96,7 +86,7 @@ fields(connector_resource_opts) ->
 %% HTTP API fields: action
 %%=========================================
 fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2");
+    emqx_bridge_v2_api:status_fields() ++ fields("post_bridge_v2");
 fields("post_bridge_v2") ->
     [type_field(), name_field() | fields("put_bridge_v2")];
 fields("put_bridge_v2") ->
@@ -156,9 +146,6 @@ connector_examples(Method) ->
         }
     ].
 
-conn_bridge_examples(Method) ->
-    emqx_bridge_gcp_pubsub:conn_bridge_examples(Method).
-
 action_example(post) ->
     maps:merge(
         action_example(put),
@@ -185,7 +172,6 @@ action_example(put) ->
         enable => true,
         connector => <<"my_connector_name">>,
         description => <<"My action">>,
-        local_topic => <<"local/topic">>,
         resource_opts =>
             #{batch_size => 5},
         parameters =>

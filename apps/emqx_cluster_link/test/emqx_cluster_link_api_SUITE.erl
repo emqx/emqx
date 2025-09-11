@@ -350,6 +350,23 @@ t_crud(Config) ->
         update_link(NameA, Params2, Config)
     ),
 
+    %% Check status of disabled link
+    Params3 = Params2#{<<"enable">> => false},
+    ?assertMatch(
+        {200, #{
+            <<"name">> := NameA,
+            <<"password">> := ?REDACTED,
+            <<"status">> := <<"disconnected">>,
+            <<"enable">> := false,
+            <<"node_status">> := [#{<<"node">> := _, <<"status">> := <<"disconnected">>} | _]
+        }},
+        update_link(NameA, Params3, Config)
+    ),
+    ?assertMatch(
+        {200, [#{<<"status">> := <<"disconnected">>}]},
+        list(Config)
+    ),
+
     ?assertMatch({204, _}, delete_link(NameA, Config)),
     ?assertMatch({404, _}, delete_link(NameA, Config)),
     ?assertMatch({404, _}, get_link(NameA, Config)),

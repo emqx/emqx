@@ -199,14 +199,21 @@ parse_and_check(Kind, Type, Name, InnerConfigMap0) ->
         end,
     TypeBin = emqx_utils_conv:bin(Type),
     RawConf = #{RootBin => #{TypeBin => #{Name => InnerConfigMap0}}},
-    do_parse_and_check(RootBin, TypeBin, Name, emqx_bridge_v2_schema, RawConf).
+    do_parse_and_check(RootBin, TypeBin, Name, emqx_bridge_v2_schema, RawConf, #{}).
 
 parse_and_check_connector(Type, Name, InnerConfigMap0) ->
     TypeBin = emqx_utils_conv:bin(Type),
     RawConf = #{<<"connectors">> => #{TypeBin => #{Name => InnerConfigMap0}}},
-    do_parse_and_check(<<"connectors">>, TypeBin, Name, emqx_connector_schema, RawConf).
+    do_parse_and_check(<<"connectors">>, TypeBin, Name, emqx_connector_schema, RawConf, #{}).
 
-do_parse_and_check(RootBin, TypeBin, NameBin, SchemaMod, RawConf) ->
+%% To check defaults for hidden fields
+parse_and_check_connector_not_seriailzable(Type, Name, InnerConfigMap0) ->
+    TypeBin = emqx_utils_conv:bin(Type),
+    RawConf = #{<<"connectors">> => #{TypeBin => #{Name => InnerConfigMap0}}},
+    Opts = #{final_hocon_pass_opts_override => #{make_serializable => false}},
+    do_parse_and_check(<<"connectors">>, TypeBin, Name, emqx_connector_schema, RawConf, Opts).
+
+do_parse_and_check(RootBin, TypeBin, NameBin, SchemaMod, RawConf, Opts) ->
     #{RootBin := #{TypeBin := #{NameBin := _}}} = hocon_tconf:check_plain(
         SchemaMod,
         RawConf,
@@ -217,14 +224,18 @@ do_parse_and_check(RootBin, TypeBin, NameBin, SchemaMod, RawConf) ->
             make_serializable => false
         }
     ),
+    FinalHoconPassOptsOverride = maps:get(final_hocon_pass_opts_override, Opts, #{}),
     #{RootBin := #{TypeBin := #{NameBin := InnerConfigMap}}} = hocon_tconf:check_plain(
         SchemaMod,
         RawConf,
-        #{
-            required => false,
-            atom_key => false,
-            make_serializable => true
-        }
+        maps:merge(
+            #{
+                required => false,
+                atom_key => false,
+                make_serializable => true
+            },
+            FinalHoconPassOptsOverride
+        )
     ),
     InnerConfigMap.
 
@@ -232,7 +243,7 @@ bridge_id(Config) ->
     BridgeType = get_ct_config_with_fallback(Config, [action_type, bridge_type]),
     BridgeName = get_ct_config_with_fallback(Config, [action_name, bridge_name]),
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
-    ConnectorId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+    ConnectorId = connector_resource_id(Config),
     <<"action:", BridgeId/binary, ":", ConnectorId/binary>>.
 
 source_hookpoint(Config) ->
@@ -890,13 +901,6 @@ probe_connector_api(Config, Overrides) ->
 
 probe_connector_api2(TCConfig, Overrides) ->
     simplify_result(probe_connector_api(TCConfig, Overrides)).
-
-list_bridges_http_api_v1() ->
-    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
-    ct:pal("list bridges (http v1)"),
-    Res = request(get, Path, _Params = []),
-    ct:pal("list bridges (http v1) result:\n  ~p", [Res]),
-    Res.
 
 list_actions_http_api() ->
     Path = emqx_mgmt_api_test_util:api_path(["actions"]),
@@ -1674,26 +1678,15 @@ t_consume(Config, Opts) ->
     ok.
 
 t_create_via_http(Config) ->
-    t_create_via_http(Config, false).
-t_create_via_http(Config, IsOnlyV2) ->
     ?check_trace(
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
-
             ?assertMatch(
                 {ok, _},
                 update_bridge_api(
                     Config
                 )
             ),
-
-            %% check that v1 list API is fine
-            (not IsOnlyV2) andalso
-                ?assertMatch(
-                    {ok, {{_, 200, _}, _, _}},
-                    list_bridges_http_api_v1()
-                ),
-
             ok
         end,
         []
@@ -1816,8 +1809,8 @@ t_start_stop(Config, StopTracePoint, #{} = Opts) ->
                 ?assertEqual({error, resource_is_stopped}, health_check_connector(Config))
             ),
 
-            ResourceId = emqx_bridge_resource:resource_id(conf_root_key(Kind), Type, Name),
-            #{resource_id => ResourceId}
+            ConnResId = connector_resource_id(Config),
+            #{resource_id => ConnResId}
         end,
         fun(Res, Trace) ->
             #{resource_id := ResourceId} = Res,

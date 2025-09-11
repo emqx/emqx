@@ -15,8 +15,6 @@
     fields/1,
     desc/1
 ]).
-%% emqx_bridge_enterprise "unofficial" API
--export([conn_bridge_examples/1]).
 
 -export([producer_strategy_key_validator/1]).
 
@@ -34,8 +32,6 @@ fields(pulsar_producer) ->
     fields(config) ++
         emqx_bridge_pulsar_pubsub_schema:fields(action_parameters) ++
         [
-            {local_topic,
-                mk(binary(), #{required => false, desc => ?DESC("producer_local_topic")})},
             {resource_opts,
                 mk(
                     ref(producer_resource_opts),
@@ -174,7 +170,7 @@ fields(auth_token) ->
             })}
     ];
 fields("get_" ++ Type) ->
-    emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
+    emqx_bridge_v2_api:status_fields() ++ fields("post_" ++ Type);
 fields("put_" ++ Type) ->
     fields("config_" ++ Type);
 fields("post_" ++ Type) ->
@@ -195,46 +191,6 @@ desc("post_" ++ Type) when Type =:= "producer" ->
 desc(Name) ->
     lists:member(Name, struct_names()) orelse throw({missing_desc, Name}),
     ?DESC(Name).
-
-conn_bridge_examples(_Method) ->
-    [
-        #{
-            <<"pulsar_producer">> => #{
-                summary => <<"Pulsar Producer Bridge">>,
-                value => #{
-                    <<"authentication">> => <<"none">>,
-                    <<"batch_size">> => 1,
-                    <<"buffer">> =>
-                        #{
-                            <<"memory_overload_protection">> => true,
-                            <<"mode">> => <<"memory">>,
-                            <<"per_partition_limit">> => <<"10MB">>,
-                            <<"segment_bytes">> => <<"5MB">>
-                        },
-                    <<"compression">> => <<"no_compression">>,
-                    <<"enable">> => true,
-                    <<"local_topic">> => <<"mqtt/topic/-576460752303423482">>,
-                    <<"max_batch_bytes">> => <<"900KB">>,
-                    <<"message">> =>
-                        #{<<"key">> => <<"${.clientid}">>, <<"value">> => <<"${.}">>},
-                    <<"name">> => <<"pulsar_example_name">>,
-                    <<"pulsar_topic">> => <<"pulsar_example_topic">>,
-                    <<"retention_period">> => <<"infinity">>,
-                    <<"send_buffer">> => <<"1MB">>,
-                    <<"servers">> => <<"pulsar://127.0.0.1:6650">>,
-                    <<"ssl">> =>
-                        #{
-                            <<"enable">> => false,
-                            <<"server_name_indication">> => <<"auto">>,
-                            <<"verify">> => <<"verify_none">>
-                        },
-                    <<"strategy">> => <<"key_dispatch">>,
-                    <<"sync_timeout">> => <<"5s">>,
-                    <<"type">> => <<"pulsar_producer">>
-                }
-            }
-        }
-    ].
 
 producer_strategy_key_validator(
     #{

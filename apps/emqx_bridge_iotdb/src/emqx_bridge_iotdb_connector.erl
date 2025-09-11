@@ -218,7 +218,7 @@ fields("post_" ++ Driver) ->
 fields("put_" ++ Driver) ->
     fields("config_" ++ Driver);
 fields("get_" ++ Driver) ->
-    emqx_bridge_schema:status_fields() ++ fields("post_" ++ Driver).
+    emqx_bridge_v2_api:status_fields() ++ fields("post_" ++ Driver).
 
 common_fields(Driver) ->
     [
@@ -294,8 +294,6 @@ callback_mode(#{driver := thrift}) ->
 
 -spec on_start(manager_id(), config()) -> {ok, state()} | no_return().
 on_start(InstanceId, #{driver := restapi, iotdb_version := Version} = Config) ->
-    %% [FIXME] The configuration passed in here is pre-processed and transformed
-    %% in emqx_bridge_resource:parse_confs/2.
     case emqx_bridge_http_connector:on_start(InstanceId, Config) of
         {ok, State} ->
             ?SLOG(info, #{

@@ -34,11 +34,7 @@
 ]).
 
 %% Exported for mocking
-%% TODO: refactor emqx_bridge_v1_compatibility_layer_SUITE so we don't need to
-%% export this
 -export([
-    registered_actions_api_schemas/1,
-    registered_sources_api_schemas/1,
     registered_action_types/0
 ]).
 
@@ -49,6 +45,7 @@
 
 -export([
     api_fields/3,
+    type_and_name_fields/1,
     undefined_as_null_field/0
 ]).
 
@@ -91,11 +88,11 @@ actions_post_request() ->
     actions_api_schema("post").
 
 actions_api_schema(Method) ->
-    APISchemas = ?MODULE:registered_actions_api_schemas(Method),
+    APISchemas = registered_actions_api_schemas(Method),
     hoconsc:union(bridge_api_union(APISchemas)).
 
 action_api_schema(Method, BridgeV2Type) ->
-    APISchemas = ?MODULE:registered_actions_api_schemas(Method),
+    APISchemas = registered_actions_api_schemas(Method),
     case lists:keyfind(atom_to_binary(BridgeV2Type), 1, APISchemas) of
         {_, SchemaRef} ->
             hoconsc:mk(SchemaRef);
@@ -159,11 +156,11 @@ sources_post_request() ->
     sources_api_schema("post").
 
 sources_api_schema(Method) ->
-    APISchemas = ?MODULE:registered_sources_api_schemas(Method),
+    APISchemas = registered_sources_api_schemas(Method),
     hoconsc:union(bridge_api_union(APISchemas)).
 
 source_api_schema(Method, SourceType) ->
-    APISchemas = ?MODULE:registered_sources_api_schemas(Method),
+    APISchemas = registered_sources_api_schemas(Method),
     case lists:keyfind(atom_to_binary(SourceType), 1, APISchemas) of
         {_, SchemaRef} ->
             hoconsc:mk(SchemaRef);
@@ -289,15 +286,15 @@ method_values(_Kind, put, _Type) ->
 api_fields("get_bridge_v2", Type, Fields) ->
     lists:append(
         [
-            emqx_bridge_schema:type_and_name_fields(Type),
-            emqx_bridge_schema:status_fields(),
+            type_and_name_fields(Type),
+            emqx_bridge_v2_api:status_fields(),
             Fields
         ]
     );
 api_fields("post_bridge_v2", Type, Fields) ->
     lists:append(
         [
-            emqx_bridge_schema:type_and_name_fields(Type),
+            type_and_name_fields(Type),
             Fields
         ]
     );
@@ -306,20 +303,26 @@ api_fields("put_bridge_v2", _Type, Fields) ->
 api_fields("get_source", Type, Fields) ->
     lists:append(
         [
-            emqx_bridge_schema:type_and_name_fields(Type),
-            emqx_bridge_schema:status_fields(),
+            type_and_name_fields(Type),
+            emqx_bridge_v2_api:status_fields(),
             Fields
         ]
     );
 api_fields("post_source", Type, Fields) ->
     lists:append(
         [
-            emqx_bridge_schema:type_and_name_fields(Type),
+            type_and_name_fields(Type),
             Fields
         ]
     );
 api_fields("put_source", _Type, Fields) ->
     Fields.
+
+type_and_name_fields(ConnectorType) ->
+    [
+        {type, mk(ConnectorType, #{required => true, desc => ?DESC("desc_type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
+    ].
 
 undefined_as_null_field() ->
     {undefined_vars_as_null,
@@ -513,7 +516,6 @@ top_level_common_action_keys() ->
         <<"created_at">>,
         <<"last_modified_at">>,
         <<"enable">>,
-        <<"local_topic">>,
         <<"parameters">>,
         <<"resource_opts">>
     ].
@@ -539,10 +541,7 @@ make_producer_action_schema(ActionParametersRef) ->
 
 make_producer_action_schema(ActionParametersRef, Opts) ->
     ResourceOptsRef = maps:get(resource_opts_ref, Opts, ref(?MODULE, action_resource_opts)),
-    [
-        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})}
-        | common_action_schema(ActionParametersRef, Opts)
-    ] ++
+    common_action_schema(ActionParametersRef, Opts) ++
         [
             {resource_opts,
                 mk(ResourceOptsRef, #{
@@ -740,16 +739,11 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
         [] ->
             false;
         _ ->
-            %% elasticsearch is new and doesn't have local_topic
-            case MissingFields of
-                [local_topic] when Module =:= emqx_bridge_es -> false;
-                _ ->
-                    {true, #{
-                        schema_module => Module,
-                        type_name => TypeName,
-                        missing_fields => MissingFields
-                    }}
-            end
+            {true, #{
+                schema_module => Module,
+                type_name => TypeName,
+                missing_fields => MissingFields
+            }}
     end.
 
 -endif.

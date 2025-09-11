@@ -14,8 +14,7 @@
 
 -export([
     bridge_v2_examples/1,
-    connector_examples/1,
-    conn_bridge_examples/1
+    connector_examples/1
 ]).
 
 -export([
@@ -37,43 +36,6 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% api.
-
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"sqlserver">> => #{
-                summary => <<"Microsoft SQL Server Bridge">>,
-                value => values(Method)
-            }
-        }
-    ].
-
-values(get) ->
-    values(post);
-values(post) ->
-    #{
-        enable => true,
-        type => sqlserver,
-        name => <<"bar">>,
-        server => <<"127.0.0.1:1433">>,
-        database => <<"test">>,
-        pool_size => 8,
-        username => <<"sa">>,
-        password => <<"******">>,
-        sql => ?DEFAULT_SQL,
-        driver => ?DEFAULT_DRIVER,
-        local_topic => <<"local/topic/#">>,
-        resource_opts => #{
-            worker_pool_size => 1,
-            health_check_interval => ?HEALTHCHECK_INTERVAL_RAW,
-            batch_size => ?DEFAULT_BATCH_SIZE,
-            batch_time => ?DEFAULT_BATCH_TIME,
-            query_mode => async,
-            max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
-        }
-    };
-values(put) ->
-    values(post).
 
 %% ====================
 %% Bridge V2: Connector + Action
@@ -158,11 +120,6 @@ fields("config") ->
                 binary(),
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
             )},
-        {local_topic,
-            mk(
-                binary(),
-                #{desc => ?DESC("local_topic"), default => undefined}
-            )},
         {resource_opts,
             mk(
                 ref(?MODULE, "creation_opts"),
@@ -205,7 +162,7 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    emqx_bridge_v2_api:status_fields() ++ fields("post").
 
 fields("post", Type) ->
     [type_field(Type), name_field() | fields("config")].

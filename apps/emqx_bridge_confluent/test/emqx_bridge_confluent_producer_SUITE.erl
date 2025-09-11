@@ -202,9 +202,7 @@ bridge_config(Name, ConnectorId, KafkaTopic) ->
                     <<"required_acks">> => <<"all_isr">>,
                     <<"sync_query_timeout">> => <<"5s">>,
                     <<"topic">> => KafkaTopic
-                },
-            <<"local_topic">> => <<"t/confluent">>
-            %%,
+                }
         },
     InnerConfigMap = serde_roundtrip(InnerConfigMap0),
     ExtraConfig =
@@ -342,46 +340,6 @@ t_same_name_confluent_kafka_bridges(Config) ->
         fun(Trace) ->
             ?assertMatch([#{instance_id := AehResourceId}], ?of_kind(TracePoint, Trace))
         end
-    ),
-    ok.
-
-t_list_v1_bridges(Config) ->
-    ?check_trace(
-        begin
-            {ok, _} = emqx_bridge_v2_testlib:create_bridge_api(Config),
-
-            ?assertMatch(
-                {error, no_v1_equivalent},
-                emqx_action_info:bridge_v1_type_name(confluent_producer)
-            ),
-
-            ?assertMatch(
-                {ok, {{_, 200, _}, _, []}}, emqx_bridge_v2_testlib:list_bridges_http_api_v1()
-            ),
-            ?assertMatch(
-                {ok, {{_, 200, _}, _, [_]}}, emqx_bridge_v2_testlib:list_actions_http_api()
-            ),
-            ?assertMatch(
-                {ok, {{_, 200, _}, _, [_]}}, emqx_bridge_v2_testlib:list_connectors_http_api()
-            ),
-
-            RuleTopic = <<"t/c">>,
-            {ok, #{<<"id">> := RuleId0}} =
-                emqx_bridge_v2_testlib:create_rule_and_action_http(
-                    ?ACTION_TYPE_BIN,
-                    RuleTopic,
-                    Config,
-                    #{overrides => #{enable => true}}
-                ),
-            ?assert(emqx_bridge_v2_testlib:is_rule_enabled(RuleId0)),
-            ?assertMatch(
-                {ok, {{_, 200, _}, _, _}}, emqx_bridge_v2_testlib:enable_rule_http(RuleId0)
-            ),
-            ?assert(emqx_bridge_v2_testlib:is_rule_enabled(RuleId0)),
-
-            ok
-        end,
-        []
     ),
     ok.
 

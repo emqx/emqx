@@ -34,7 +34,11 @@ defmodule Mix.Tasks.Emqx.Xref do
               ])
 
   @impl true
-  def run(_args) do
+  def run(args) do
+    if args != [] do
+      Mix.raise("Unknown options:\n  #{inspect(args, pretty: true)}")
+    end
+
     start_xref()
     set_library_path()
     set_default()

@@ -59,21 +59,7 @@ fields(source_parameters) ->
     Fields0 = emqx_bridge_kafka:fields(consumer_kafka_opts),
     Fields1 = emqx_bridge_kafka:fields(consumer_opts),
     Fields2 = proplists:delete(kafka, Fields1),
-    Fields = lists:map(
-        fun
-            ({topic_mapping = Name, Sc}) ->
-                Override = #{
-                    required => false,
-                    default => [],
-                    validator => fun legacy_consumer_topic_mapping_validator/1,
-                    importance => ?IMPORTANCE_HIDDEN
-                },
-                {Name, hocon_schema:override(Sc, Override)};
-            (FieldSchema) ->
-                FieldSchema
-        end,
-        Fields0 ++ Fields2
-    ),
+    Fields = Fields0 ++ Fields2,
     [
         {topic,
             mk(
@@ -247,12 +233,6 @@ connector_example(put) ->
                 start_timeout => <<"5s">>
             }
     }.
-
-legacy_consumer_topic_mapping_validator(_TopicMapping = []) ->
-    %% Can be (and should be, unless it has migrated from v1) empty in v2.
-    ok;
-legacy_consumer_topic_mapping_validator(TopicMapping = [_ | _]) ->
-    emqx_bridge_kafka:consumer_topic_mapping_validator(TopicMapping).
 
 connector_config_fields() ->
     lists:map(

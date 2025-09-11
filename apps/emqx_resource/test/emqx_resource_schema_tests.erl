@@ -14,12 +14,12 @@
 health_check_interval_validator_test_() ->
     [
         ?_assertMatch(
-            #{<<"resource_opts">> := #{<<"health_check_interval">> := 150_000}},
-            parse_and_check_webhook_bridge(webhook_bridge_health_check_hocon(<<"150s">>))
+            #{},
+            http_bridge_health_check_hocon(<<"150s">>)
         ),
         ?_assertMatch(
-            #{<<"resource_opts">> := #{<<"health_check_interval">> := 3_600_000}},
-            parse_and_check_webhook_bridge(webhook_bridge_health_check_hocon(<<"3600000ms">>))
+            #{},
+            http_bridge_health_check_hocon(<<"3600000ms">>)
         ),
         ?_assertThrow(
             {_, [
@@ -29,7 +29,7 @@ health_check_interval_validator_test_() ->
                     value := 3600001
                 }
             ]},
-            parse_and_check_webhook_bridge(webhook_bridge_health_check_hocon(<<"3600001ms">>))
+            http_bridge_health_check_hocon(<<"3600001ms">>)
         ),
         {"bad parse: negative number",
             ?_assertThrow(
@@ -40,7 +40,7 @@ health_check_interval_validator_test_() ->
                         value := <<"-10ms">>
                     }
                 ]},
-                parse_and_check_webhook_bridge(webhook_bridge_health_check_hocon(<<"-10ms">>))
+                http_bridge_health_check_hocon(<<"-10ms">>)
             )},
         {"bad parse: underscores",
             ?_assertThrow(
@@ -51,7 +51,7 @@ health_check_interval_validator_test_() ->
                         value := <<"3_600_000ms">>
                     }
                 ]},
-                parse_and_check_webhook_bridge(webhook_bridge_health_check_hocon(<<"3_600_000ms">>))
+                http_bridge_health_check_hocon(<<"3_600_000ms">>)
             )},
         ?_assertThrow(
             {_, [
@@ -60,28 +60,17 @@ health_check_interval_validator_test_() ->
                     reason := "timeout value too large" ++ _
                 }
             ]},
-            parse_and_check_webhook_bridge(
-                webhook_bridge_health_check_hocon(<<"150000000000000s">>)
-            )
+            http_bridge_health_check_hocon(<<"150000000000000s">>)
         )
     ].
 
 worker_pool_size_test_() ->
-    BaseConf = parse(webhook_bridge_health_check_hocon(<<"15s">>)),
     Check = fun(WorkerPoolSize) ->
-        Conf = emqx_utils_maps:deep_put(
-            [
-                <<"bridges">>,
-                <<"webhook">>,
-                <<"simple">>,
-                <<"resource_opts">>,
-                <<"worker_pool_size">>
-            ],
-            BaseConf,
-            WorkerPoolSize
-        ),
-        #{<<"bridges">> := #{<<"webhook">> := #{<<"simple">> := CheckedConf}}} = check(Conf),
-        #{<<"resource_opts">> := #{<<"worker_pool_size">> := WPS}} = CheckedConf,
+        #{<<"resource_opts">> := #{<<"worker_pool_size">> := WPS}} =
+            emqx_bridge_schema_testlib:http_action_config(#{
+                <<"connector">> => <<"my_connector">>,
+                <<"resource_opts">> => #{<<"worker_pool_size">> => WorkerPoolSize}
+            }),
         WPS
     end,
     AssertThrow = fun(WorkerPoolSize) ->
@@ -108,31 +97,11 @@ worker_pool_size_test_() ->
 %% Helper functions
 %%===========================================================================
 
-parse_and_check_webhook_bridge(Hocon) ->
-    #{<<"bridges">> := #{<<"webhook">> := #{<<"simple">> := Conf}}} = check(parse(Hocon)),
-    Conf.
-
-parse(Hocon) ->
-    {ok, Conf} = hocon:binary(Hocon),
-    Conf.
-
-check(Conf) when is_map(Conf) ->
-    hocon_tconf:check_plain(emqx_bridge_schema, Conf).
-
 %%===========================================================================
 %% Data section
 %%===========================================================================
 
-%% erlfmt-ignore
-webhook_bridge_health_check_hocon(HealthCheckInterval) ->
-io_lib:format(
-"
-bridges.webhook.simple {
-  url = \"http://localhost:4000\"
-  body = \"body\"
-  resource_opts {
-    health_check_interval = \"~s\"
-  }
-}
-",
-[HealthCheckInterval]).
+http_bridge_health_check_hocon(HealthCheckInterval) ->
+    emqx_bridge_schema_testlib:http_connector_config(#{
+        <<"resource_opts">> => #{<<"health_check_interval">> => HealthCheckInterval}
+    }).

@@ -95,7 +95,6 @@
         <<"required_acks">> => <<"all_isr">>,
         <<"topic">> => <<"kafka-topic">>
     },
-    <<"local_topic">> => <<"mqtt/local/topic">>,
     <<"resource_opts">> => #{
         <<"health_check_interval">> => <<"32s">>
     }
@@ -1071,7 +1070,6 @@ t_actions_field(Config) ->
             <<"node_status">> := [_ | _],
             <<"connector">> := Name,
             <<"parameters">> := #{},
-            <<"local_topic">> := _,
             <<"resource_opts">> := _
         }},
         request_json(
@@ -1126,7 +1124,6 @@ t_fail_delete_with_action(Config) ->
             <<"node_status">> := [_ | _],
             <<"connector">> := Name,
             <<"parameters">> := #{},
-            <<"local_topic">> := _,
             <<"resource_opts">> := _
         }},
         request_json(

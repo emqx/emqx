@@ -22,7 +22,6 @@
 %% Examples
 -export([
     bridge_v2_examples/1,
-    conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -42,22 +41,6 @@
 >>).
 
 %% Examples
-conn_bridge_examples(Method) ->
-    [
-        #{
-            <<"datalayers_influx">> => #{
-                summary => <<"Datalayers Bridge by InfluxDB Driver">>,
-                value => values("datalayers_influx", Method)
-            }
-        },
-        #{
-            <<"datalayers_arrow_flight">> => #{
-                summary => <<"Datalayers Bridge by Arrow Flight SQL Driver">>,
-                value => values("datalayers_arrow_flight", Method)
-            }
-        }
-    ].
-
 bridge_v2_examples(Method) ->
     ParamsExampleInflux = #{
         parameters => #{
@@ -130,47 +113,6 @@ basic_connector_values() ->
         pool_size => 8,
         ssl => #{enable => false}
     }.
-
-values(Protocol, get) ->
-    values(Protocol, post);
-values("datalayers_influx", post) ->
-    SupportUint = <<>>,
-    ConnOpts = connector_values_v(datalayers_influx),
-    values(common, "datalayers_influx", SupportUint, ConnOpts);
-values("datalayers_arrow_flight", post) ->
-    ConnOpts = connector_values_v(datalayers_arrow_flight),
-    values(common, "datalayers_arrow_flight", undefined, ConnOpts);
-values(Protocol, put) ->
-    values(Protocol, post);
-values(common, ConnTypeOpts) ->
-    CommonOpts = #{
-        name => <<"demo">>,
-        enable => true,
-        resource_opts => #{
-            batch_size => 100,
-            batch_time => <<"20ms">>
-        },
-        server => <<"127.0.0.1:8361">>,
-        ssl => #{enable => false}
-    },
-    maps:merge(CommonOpts, ConnTypeOpts).
-
-values(common, "datalayers_influx", SupportUint, ConnOpts) ->
-    TypeOpts = #{
-        type => datalayers_influx,
-        write_syntax =>
-            <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
-                "${clientid}_int_value=${payload.int_key}i,", SupportUint/binary,
-                "bool=${payload.bool}">>,
-        precision => ms
-    },
-    values(common, maps:merge(TypeOpts, ConnOpts));
-values(common, "datalayers_arrow_flight", _, ConnOpts) ->
-    TypeOpts = #{
-        type => datalayers_arrow_flight,
-        sql => ?DEFAULT_SQL
-    },
-    values(common, maps:merge(TypeOpts, ConnOpts)).
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions

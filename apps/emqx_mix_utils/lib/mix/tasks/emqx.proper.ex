@@ -106,13 +106,17 @@ defmodule Mix.Tasks.Emqx.Proper do
   end
 
   defp parse_args!(args) do
-    {opts, _rest} =
+    {opts, rest} =
       OptionParser.parse!(
         args,
         strict: [
           cover_export_name: :string
         ]
       )
+
+    if rest != [] do
+      Mix.raise("Unknown options:\n  #{inspect(rest, pretty: true)}")
+    end
 
     %{
       cover_export_name: Keyword.get(opts, :cover_export_name, "proper")

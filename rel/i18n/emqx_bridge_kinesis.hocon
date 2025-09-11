@@ -30,16 +30,6 @@ pool_size.desc:
 pool_size.label:
 """Pool Size"""
 
-local_topic.desc:
-"""The MQTT topic filter to be forwarded to Amazon Kinesis. All MQTT `PUBLISH` messages with the topic
-matching the `local_topic` will be forwarded.<br/>
-NOTE: If this action is used as the action of a rule (EMQX rule engine), and also `local_topic` is
-configured, then both the data got from the rule and the MQTT messages that match `local_topic`
-will be forwarded."""
-
-local_topic.label:
-"""Local Topic"""
-
 payload_template.desc:
 """The template for formatting the outgoing messages.  If undefined, will send all the available context in JSON format."""
 

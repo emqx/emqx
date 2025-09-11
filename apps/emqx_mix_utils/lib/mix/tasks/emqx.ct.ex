@@ -240,7 +240,6 @@ defmodule Mix.Tasks.Emqx.Ct do
   defp load_common_helpers!() do
     Code.ensure_all_loaded!([
       :emqx_common_test_helpers,
-      :emqx_bridge_testlib,
       :emqx_bridge_v2_testlib,
       :emqx_utils_http_test_server
     ])
@@ -322,7 +321,7 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   defp parse_args!(args) do
-    {opts, _rest} =
+    {opts, rest} =
       OptionParser.parse!(
         args,
         strict: [
@@ -334,6 +333,10 @@ defmodule Mix.Tasks.Emqx.Ct do
           repeat: :integer
         ]
       )
+
+    if rest != [] do
+      Mix.raise("Unknown options:\n  #{inspect(rest, pretty: true)}")
+    end
 
     suites = get_name_list(opts, :suites)
 

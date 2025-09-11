@@ -21,7 +21,11 @@ defmodule Mix.Tasks.Emqx.Cover do
   """
 
   @impl true
-  def run(_args) do
+  def run(args) do
+    if args != [] do
+      Mix.raise("Unknown options:\n  #{inspect(args, pretty: true)}")
+    end
+
     ECt.ensure_test_mix_env!()
     UMP.set_test_env!(true)
 
