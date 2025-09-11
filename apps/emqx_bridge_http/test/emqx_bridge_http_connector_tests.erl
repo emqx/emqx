@@ -19,7 +19,8 @@ wrap_auth_headers_test_() ->
             [ehttpc_sup, ehttpc, ehttpc_pool, emqx_resource]
         end,
         fun meck:unload/1, fun(_) ->
-            Config = #{
+            ConnResId = <<"connector:http:a">>,
+            ConnConfig = #{
                 request_base => #{
                     scheme => http,
                     host => "localhost",
@@ -28,16 +29,27 @@ wrap_auth_headers_test_() ->
                 connect_timeout => 1000,
                 pool_type => random,
                 pool_size => 1,
-                request => #{
+                request => #{method => get}
+            },
+            {ok, ConnState0} = emqx_bridge_http_connector:on_start(
+                ConnResId, ConnConfig
+            ),
+            ActionResId = <<"action:http:a:", ConnResId/binary>>,
+            ActionConfig = #{
+                parameters => #{
                     method => get,
                     path => "/status",
                     headers => auth_headers()
-                }
+                },
+                resource_opts => #{request_ttl => 5_000}
             },
-            {ok, #{request := #{headers := Headers}} = State} = emqx_bridge_http_connector:on_start(
-                <<"test">>, Config
+            {ok, ConnState} = emqx_bridge_http_connector:on_add_channel(
+                ConnResId, ConnState0, ActionResId, ActionConfig
             ),
-            {ok, 200, Req} = emqx_bridge_http_connector:on_query(foo, {send_message, #{}}, State),
+            #{installed_actions := #{ActionResId := #{headers := Headers}}} = ConnState,
+            {ok, 200, Req} = emqx_bridge_http_connector:on_query(
+                foo, {ActionResId, #{}}, ConnState
+            ),
             Tests =
                 [
                     ?_assert(is_wrapped(V))
