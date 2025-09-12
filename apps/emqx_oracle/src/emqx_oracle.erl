@@ -335,16 +335,51 @@ insert_array_marker_if_list(List) when is_list(List) ->
 insert_array_marker_if_list(Item) ->
     Item.
 
-on_get_status(_InstId, #{pool_name := Pool} = _State) ->
-    case emqx_resource_pool:health_check_workers(Pool, fun ?MODULE:do_get_status/1) of
-        true ->
-            ?status_connected;
-        false ->
-            ?status_disconnected
+on_get_status(_InstId, #{pool_name := PoolName} = _State) ->
+    Res = emqx_resource_pool:health_check_workers(
+        PoolName,
+        fun ?MODULE:do_get_status/1,
+        emqx_resource_pool:health_check_timeout(),
+        #{return_values => true}
+    ),
+    case Res of
+        {ok, []} ->
+            {?status_connecting, <<"connection_pool_not_initialized">>};
+        {ok, Results} ->
+            Errors =
+                lists:filter(
+                    fun
+                        ({ok, _}) ->
+                            false;
+                        (_) ->
+                            true
+                    end,
+                    Results
+                ),
+            case Errors of
+                [] ->
+                    ?status_connected;
+                [{error, Type, Reason} | _] ->
+                    {?status_disconnected, {Type, Reason}};
+                [{error, Reason} | _] ->
+                    {?status_disconnected, Reason};
+                [Reason | _] ->
+                    {?status_disconnected, Reason}
+            end;
+        {error, timeout} ->
+            %% We trigger a full reconnection if the health check times out, by declaring
+            %% the connector `?status_disconnected`.  We choose to do this because there
+            %% have been issues where the connection process does not die and the
+            %% connection itself unusable.
+            {?status_disconnected, <<"health_check_timeout">>};
+        {error, {processes_down, _}} ->
+            {?status_disconnected, <<"pool_crashed">>};
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 do_get_status(Conn) ->
-    ok == element(1, jamdb_oracle:sql_query(Conn, "select 1 from dual")).
+    jamdb_oracle:sql_query(Conn, "select 1 from dual").
 
 do_check_prepares(
     _ChannelId,

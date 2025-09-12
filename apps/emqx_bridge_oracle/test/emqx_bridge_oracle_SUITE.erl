@@ -920,3 +920,11 @@ t_update_with_invalid_prepare(Config) ->
         WorkerPids
     ),
     ok.
+
+%% Checks that we report the connector as `?status_disconnected` when `ecpool` supervision
+%% tree is unhealthy for any reason.
+%% N.B.: this is currently (5.x) commeneted out due to test suite incompatibilites.
+%% Uncomment when syncing to 6.0
+%% t_ecpool_workers_crash(TCConfig) ->
+%%     ok = emqx_bridge_v2_testlib:t_ecpool_workers_crash(TCConfig),
+%%     ok.
