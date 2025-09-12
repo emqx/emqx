@@ -253,7 +253,7 @@ oracle_config(TestCase, _ConnectionType, Config) ->
             "  pool_size = 1\n"
             "  sql = \"~s\"\n"
             "  resource_opts = {\n"
-            "     health_check_interval = \"15s\"\n"
+            "     health_check_interval = \"1s\"\n"
             "     request_ttl = \"30s\"\n"
             "     query_mode = \"async\"\n"
             "     batch_size = 3\n"
