@@ -1,18 +1,16 @@
 import os
 import time
-import unittest
 import pytest
 import requests
+import socket
 import logging
 from urllib.parse import urljoin
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.support import expected_conditions
-from selenium.webdriver.common import utils
-from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -26,61 +24,87 @@ def driver():
     yield _driver
     _driver.quit()
 
+def is_port_open(host, port, timeout=1):
+    """Checks if a network port is open and connectable."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect((host, port))
+        return True
+    except (socket.timeout, ConnectionRefusedError):
+        return False
+    finally:
+        s.close()
+
 @pytest.fixture(autouse=True)
 def dashboard_url(dashboard_host, dashboard_port):
-    count = 0
-    while utils.is_connectable(port=dashboard_port, host=dashboard_host) is False:
-        if count == 30:
-            raise Exception("Dashboard is not ready")
-        count += 1
+    max_wait = 30
+    for i in range(max_wait):
+        if is_port_open(dashboard_host, int(dashboard_port)):
+            return f"http://{dashboard_host}:{dashboard_port}"
         time.sleep(1)
-    return f"http://{dashboard_host}:{dashboard_port}"
+    raise ConnectionError(f"Dashboard at {dashboard_host}:{dashboard_port} is not ready after {max_wait} seconds.")
 
 def login(driver, dashboard_url):
+    USERNAME_INPUT = (By.XPATH, "//div[@class='login']//form//input[@type='text']")
+    PASSWORD_INPUT = (By.XPATH, "//div[@class='login']//form//input[@type='password']")
+    LOGIN_BUTTON = (By.XPATH, "//div[@class='login']//form//button")
+
     # admin is set in CI jobs, hence as default value
     password = os.getenv("EMQX_DASHBOARD__DEFAULT_PASSWORD", "admin")
     driver.get(dashboard_url)
     WebDriverWait(driver, 10).until(
-        expected_conditions.presence_of_element_located((By.CLASS_NAME, "login"))
+        EC.presence_of_element_located((By.CLASS_NAME, "login"))
     )
     assert "EMQX Dashboard" == driver.title
     assert f"{dashboard_url}/#/login?to=/dashboard/overview" == driver.current_url
     driver.execute_script("window.localStorage.setItem('licenseTipVisible','false');")
-    driver.find_element(By.XPATH, "//div[@class='login']//form//input[@type='text']").send_keys("admin")
-    driver.find_element(By.XPATH, "//div[@class='login']//form//input[@type='password']").send_keys(password)
-    driver.find_element(By.XPATH, "//div[@class='login']//form//button").click()
+
+    try:
+        username_field = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable(USERNAME_INPUT)
+        )
+        username_field.send_keys("admin")
+        password_field = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable(PASSWORD_INPUT)
+        )
+        password_field.send_keys(password)
+        login_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable(LOGIN_BUTTON)
+        )
+        login_button.click()
+
+    except TimeoutException:
+        print("Failed to login after 10+10+10 seconds.")
+        raise Exception("Could not interact with login form.")
+
     dest_url = urljoin(dashboard_url, "/#/dashboard/overview")
     ensure_current_url(driver, dest_url)
     assert len(driver.find_elements(By.XPATH, "//div[@class='login']")) == 0
     logger.info(f"Logged in to {dashboard_url}")
 
-def ensure_current_url(d, url):
-    count = 0
-    while url != d.current_url:
-        if count == 10:
-            raise Exception(f"Failed to load {url}")
-        count += 1
-        time.sleep(1)
+def ensure_current_url(driver, url, timeout=10):
+    try:
+        WebDriverWait(driver, timeout).until(EC.url_to_be(url))
+    except TimeoutException:
+        raise Exception(f"Failed to load URL '{url}' within {timeout} seconds. Current URL is '{driver.current_url}'")
 
-def title(d):
-    title = ''
-    for _ in range(5):
-        try:
-            title = d.find_element("xpath", "//div[@id='app']//h1[@class='header-title']")
-            break
-        except NoSuchElementException:
-            time.sleep(1)
-    else:
-        raise AssertionError("Cannot find the title element")
-    return title
-
-def wait_title_text(d, text):
-    return WebDriverWait(d, 10).until(lambda x: title(x).text == text)
+def wait_for_title_text(driver, text, timeout=10):
+    """Waits for the H1 header title to contain the specific text."""
+    TITLE_ELEMENT = (By.XPATH, "//div[@id='app']//h1[@class='header-title']")
+    try:
+        WebDriverWait(driver, timeout).until(
+            EC.text_to_be_present_in_element(TITLE_ELEMENT, text)
+        )
+    except TimeoutException:
+        # Find the element to provide a better error message
+        current_title = driver.find_element(*TITLE_ELEMENT).text
+        raise AssertionError(f"Title did not become '{text}'. Current title is '{current_title}'.")
 
 def test_basic(driver, dashboard_url):
     login(driver, dashboard_url)
     logger.info(f"Current URL: {driver.current_url}")
-    wait_title_text(driver, "Cluster Overview")
+    wait_for_title_text(driver, "Cluster Overview")
 
 def test_log(driver, dashboard_url):
     login(driver, dashboard_url)
@@ -88,7 +112,7 @@ def test_log(driver, dashboard_url):
     dest_url = urljoin(dashboard_url, "/#/log")
     driver.get(dest_url)
     ensure_current_url(driver, dest_url)
-    wait_title_text(driver, "Logging")
+    wait_for_title_text(driver, "Logging")
 
     label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Enable Log Handler')]")
     assert driver.find_elements(By.ID, label.get_attribute("for"))
