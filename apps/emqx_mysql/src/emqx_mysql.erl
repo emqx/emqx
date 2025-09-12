@@ -22,6 +22,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-define(HEALTH_CHECK_TIMEOUT, 10000).
+
 -behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource
@@ -237,19 +239,30 @@ mysql_function(_) ->
     mysql_function(prepared_query).
 
 on_get_status(_InstId, #{pool_name := PoolName} = State) ->
-    case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
-        true ->
-            case do_check_prepares(State) of
-                ok ->
-                    ?status_connected;
-                {error, undefined_table} ->
-                    {?status_disconnected, unhealthy_target};
-                {error, _Reason} ->
-                    %% do not log error, it is logged in prepare_sql_to_conn
-                    ?status_connecting
+    HCResult = emqx_resource_pool:health_check_workers(
+        PoolName, fun ?MODULE:do_get_status/1, ?HEALTH_CHECK_TIMEOUT, #{return_values => true}
+    ),
+    case HCResult of
+        {ok, []} ->
+            {?status_connecting, <<"connection_pool_not_initialized">>};
+        {ok, Results} ->
+            AllOk = lists:all(fun(S) -> S =:= true end, Results),
+            case AllOk of
+                true ->
+                    case do_check_prepares(State) of
+                        ok ->
+                            ?status_connected;
+                        {error, undefined_table} ->
+                            {?status_disconnected, unhealthy_target};
+                        {error, Reason} ->
+                            %% do not log error, it is logged in prepare_sql_to_conn
+                            {?status_connecting, emqx_utils:readable_error_msg(Reason)}
+                    end;
+                false ->
+                    {?status_connecting, <<"some_connections_are_unhealthy">>}
             end;
-        false ->
-            ?status_connecting
+        {error, timeout} ->
+            {?status_disconnected, <<"timeout_checking_connections">>}
     end.
 
 do_get_status(Conn) ->
