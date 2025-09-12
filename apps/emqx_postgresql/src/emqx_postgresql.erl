@@ -558,7 +558,11 @@ on_get_status(_InstId, #{pool_name := PoolName} = ConnState) ->
             %% the connector `?status_disconnected`.  We choose to do this because there
             %% have been issues where the connection process does not die and the
             %% connection itself unusable.
-            {?status_disconnected, <<"health_check_timeout">>}
+            {?status_disconnected, <<"health_check_timeout">>};
+        {error, {processes_down, _}} ->
+            {?status_disconnected, <<"pool_crashed">>};
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 do_on_get_status_prepares(ConnState) ->
