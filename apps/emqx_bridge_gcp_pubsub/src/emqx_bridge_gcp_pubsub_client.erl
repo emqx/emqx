@@ -400,6 +400,14 @@ reply_delegator(ResourceId, ReplyFunAndArgs, Response) ->
 
 -spec do_get_status(resource_id(), duration()) -> ok | {error, term()}.
 do_get_status(ResourceId, Timeout) ->
+    case ehttpc:check_pool_integrity(ResourceId) of
+        ok ->
+            do_get_status1(ResourceId, Timeout);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_get_status1(ResourceId, Timeout) ->
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(ResourceId)],
     DoPerWorker =
         fun(Worker) ->
