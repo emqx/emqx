@@ -65,9 +65,8 @@ The module represents a consumer of a single stream of the Message Queue data.
     %% So in the end of restoration the actual set of messages requiring acknowledgement
     %% may be smaller than the set of messages in the preserved unacked set.
     unacked := #{message_id() => true},
-    actual_unacked := #{message_id() => true},
-    last_message_id := message_id(),
-    messages := [emqx_ds:ttv()]
+    actual_unacked := #{message_id() => emqx_ds:ttv()},
+    last_message_id := message_id()
 }.
 
 -type t() :: st_active() | st_restoring().
@@ -115,8 +114,7 @@ restore(#{it := It, last_message_id := LastMessageId, unacked := UnackedMaps}, M
         it_begin => It,
         unacked => emqx_utils_maps:merge(UnackedMaps),
         actual_unacked => #{},
-        last_message_id => LastMessageId,
-        messages => []
+        last_message_id => LastMessageId
     }.
 
 -spec handle_ds_reply(t(), emqx_ds:subscription_handle(), #ds_sub_reply{}) ->
@@ -183,13 +181,13 @@ handle_ds_reply(
         status := restoring,
         it_begin := ItBegin,
         actual_unacked := ActualUnacked,
-        messages := Messages,
         last_message_id := LastMessageId,
         options := Options
     } = _SB0,
     Handle,
     #ds_sub_reply{payload = {ok, end_of_stream}, seqno = SeqNo}
 ) ->
+    {Unacked, TTVs} = restore_unacked(ActualUnacked),
     SB0 = #{
         mq => MQ,
         status => active,
@@ -197,15 +195,15 @@ handle_ds_reply(
         lower_buffer => #{
             it_begin => ItBegin,
             it_end => end_of_stream,
-            n => length(Messages),
-            unacked => ActualUnacked
+            n => length(TTVs),
+            unacked => Unacked
         },
         upper_buffer => undefined,
         upper_seqno => undefined,
         last_message_id => LastMessageId
     },
     SB = suback(SB0, Handle, SeqNo),
-    {ok, lists:reverse(Messages), SB};
+    {ok, TTVs, SB};
 handle_ds_reply(#{status := restoring} = SB0, Handle, #ds_sub_reply{
     payload = {ok, It, NewTTVs}, seqno = SeqNo, size = _Size
 }) ->
@@ -220,7 +218,6 @@ handle_ds_reply(#{status := restoring} = SB0, Handle, #ds_sub_reply{
     end.
 
 -spec handle_ack(t(), message_id()) -> {ok, t()} | finished.
-%% Must not receive any acks in restoring state
 handle_ack(
     #{status := active, lower_buffer := LowerBuffer0, upper_buffer := UpperBuffer0} = SB0, MessageId
 ) ->
@@ -236,7 +233,15 @@ handle_ack(
                         SB0
                 end
         end,
-    compact(SB).
+    compact(SB);
+%% This may happen if we reset the buffer due to subscription down
+handle_ack(
+    #{status := restoring, unacked := Unacked0, actual_unacked := ActualUnacked0} = SB, MessageId
+) ->
+    SB#{
+        unacked => maps:remove(MessageId, Unacked0),
+        actual_unacked => maps:remove(MessageId, ActualUnacked0)
+    }.
 
 -spec progress(t()) -> progress().
 progress(
@@ -285,8 +290,7 @@ iterator(#{status := restoring, it_begin := ItBegin} = _SB) ->
         status := restoring,
         last_message_id := message_id(),
         unacked := non_neg_integer(),
-        actual_unacked := non_neg_integer(),
-        messages := non_neg_integer()
+        actual_unacked := non_neg_integer()
     }.
 inspect(
     #{
@@ -309,16 +313,14 @@ inspect(
         status := restoring,
         last_message_id := LastMessageId,
         unacked := Unacked,
-        actual_unacked := ActualUnacked,
-        messages := Messages
+        actual_unacked := ActualUnacked
     } = _SB
 ) ->
     #{
         status => restoring,
         last_message_id => LastMessageId,
         unacked => map_size(Unacked),
-        actual_unacked => map_size(ActualUnacked),
-        messages => length(Messages)
+        actual_unacked => map_size(ActualUnacked)
     }.
 
 %%--------------------------------------------------------------------
@@ -331,7 +333,6 @@ handle_restore(
         mq := MQ,
         it_begin := ItBegin,
         actual_unacked := ActualUnacked,
-        messages := Messages,
         last_message_id := LastMessageId,
         options := Options
     } = SB0,
@@ -340,8 +341,9 @@ handle_restore(
     It
 ) ->
     case LastMessageId =< LastTTVMessageId of
-        %% Restoration is complete, we can transition to active state in paused state
+        %% Restoration is complete, we can transition to active state
         true ->
+            {Unacked, TTVs} = restore_unacked(ActualUnacked),
             SB = SB0#{
                 status => active,
                 mq => MQ,
@@ -349,14 +351,14 @@ handle_restore(
                 lower_buffer => #{
                     it_begin => ItBegin,
                     it_end => It,
-                    n => length(Messages),
-                    unacked => ActualUnacked
+                    n => map_size(Unacked),
+                    unacked => Unacked
                 },
                 upper_buffer => undefined,
                 upper_seqno => undefined,
                 last_message_id => LastTTVMessageId
             },
-            {ok, lists:reverse(Messages), SB};
+            {ok, TTVs, SB};
         false ->
             {ok, [], SB0}
     end;
@@ -365,7 +367,6 @@ handle_restore(
         status := restoring,
         unacked := Unacked,
         actual_unacked := ActualUnacked,
-        messages := Messages,
         last_message_id := LastMessageId
     } = SB0,
     [{_Topic, MessageId, _TTV} = TTV | Rest],
@@ -380,8 +381,7 @@ handle_restore(
                     %% Unacked message from the previous buffer
                     #{MessageId := true} ->
                         SB0#{
-                            actual_unacked => ActualUnacked#{MessageId => true},
-                            messages => [TTV | Messages]
+                            actual_unacked => ActualUnacked#{MessageId => TTV}
                         };
                     %% Acknowledged message from the previous buffer
                     _ ->
@@ -390,8 +390,7 @@ handle_restore(
             false ->
                 %% New message, was not seen in the previous buffer
                 SB0#{
-                    actual_unacked => ActualUnacked#{MessageId => true},
-                    messages => [TTV | Messages]
+                    actual_unacked => ActualUnacked#{MessageId => TTV}
                 }
         end,
     handle_restore(SB, Rest, MessageId, It).
@@ -508,3 +507,7 @@ info_paused(#{upper_seqno := _UpperSeqNo} = _SB) ->
 handle_options(#{stream_max_buffer_size := MaxStreamBufferSize} = _MQ) ->
     MaxBufferSize = max(1, MaxStreamBufferSize div 2),
     #{max_buffer_size => MaxBufferSize}.
+
+restore_unacked(ActualUnacked) ->
+    {MessageIds, TTVs} = lists:unzip(lists:sort(maps:to_list(ActualUnacked))),
+    {maps:from_keys(MessageIds, true), TTVs}.

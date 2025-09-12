@@ -301,6 +301,9 @@ on_unrecoverable_error(
 on_subscription_down(
     ?SUB_ID, {Shard, Generation}, Stream, #{mq := MQ, shards := Shards, streams := Streams} = State
 ) ->
+    ?tp(error, emqx_mq_consumer_streams_subscription_down, #{
+        shard => Shard, generation => Generation, stream => Stream
+    }),
     case {Shards, Streams} of
         {
             #{
