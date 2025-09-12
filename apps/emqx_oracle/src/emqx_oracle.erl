@@ -337,16 +337,58 @@ insert_array_marker_if_list(List) when is_list(List) ->
 insert_array_marker_if_list(Item) ->
     Item.
 
-on_get_status(_InstId, #{pool_name := Pool} = _State) ->
-    case emqx_resource_pool:health_check_workers(Pool, fun ?MODULE:do_get_status/1) of
-        true ->
-            ?status_connected;
-        false ->
-            ?status_disconnected
+on_get_status(_InstId, #{pool_name := PoolName} = _State) ->
+    Res = emqx_resource_pool:health_check_workers(
+        PoolName,
+        fun ?MODULE:do_get_status/1,
+        emqx_resource_pool:health_check_timeout(),
+        #{return_values => true}
+    ),
+    case Res of
+        {ok, []} ->
+            {?status_disconnected, <<"connection_pool_not_initialized">>};
+        {ok, Results} ->
+            Errors =
+                lists:filter(
+                    fun
+                        (ok) ->
+                            false;
+                        (_) ->
+                            true
+                    end,
+                    Results
+                ),
+            case Errors of
+                [] ->
+                    ?status_connected;
+                [{error, Reason} | _] ->
+                    {?status_disconnected, Reason};
+                [Reason | _] ->
+                    {?status_disconnected, Reason}
+            end;
+        {error, timeout} ->
+            %% We trigger a full reconnection if the health check times out, by declaring
+            %% the connector `?status_disconnected`.  We choose to do this because there
+            %% have been issues where the connection process does not die and the
+            %% connection itself unusable.
+            {?status_disconnected, <<"health_check_timeout">>};
+        {error, {processes_down, _}} ->
+            {?status_disconnected, <<"pool_crashed">>};
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 do_get_status(Conn) ->
-    ok == element(1, jamdb_oracle:sql_query(Conn, "select 1 from dual")).
+    Res = do_sql_query(Conn, "select 1 from dual"),
+    case ok == element(1, Res) of
+        true ->
+            ok;
+        false ->
+            case Res of
+                {error, _Reason} -> Res;
+                _ -> {error, Res}
+            end
+    end.
 
 do_check_prepares(
     _ChannelId,
@@ -410,13 +452,13 @@ sql_params_to_str(Params) when is_list(Params) ->
     ).
 
 query(Conn, SQL, Params) ->
-    Ret = jamdb_oracle:sql_query(Conn, {sql_query_to_str(SQL), sql_params_to_str(Params)}),
+    Ret = do_sql_query(Conn, {sql_query_to_str(SQL), sql_params_to_str(Params)}),
     ?tp(oracle_query, #{conn => Conn, sql => SQL, params => Params, result => Ret}),
     handle_result(Ret).
 
 execute_batch(Conn, SQL, ParamsList) ->
     ParamsListStr = lists:map(fun sql_params_to_str/1, ParamsList),
-    Ret = jamdb_oracle:sql_query(Conn, {batch, sql_query_to_str(SQL), ParamsListStr}),
+    Ret = do_sql_query(Conn, {batch, sql_query_to_str(SQL), ParamsListStr}),
     ?tp(oracle_batch_query, #{conn => Conn, sql => SQL, params => ParamsList, result => Ret}),
     handle_result(Ret).
 
@@ -457,6 +499,18 @@ init_prepare(PoolName, State = #{prepare_sql := Prepares, params_tokens := Token
             State#{prepare_sql => {error, Prepares}}
     end.
 
+do_sql_query(Conn, Req) ->
+    try
+        jamdb_oracle:sql_query(Conn, Req)
+    catch
+        exit:{noproc, _} = Reason ->
+            %% Note [jamdb oracle race condition]
+            %% Race condition?  Maybe the connection process within the ecpool worker is
+            %% restarting after an update?
+            %% Trying again should not fail consistently.
+            {error, Reason}
+    end.
+
 prepare_sql(Prepares, PoolName, TokensMap) when is_map(Prepares) ->
     prepare_sql(maps:to_list(Prepares), PoolName, TokensMap);
 prepare_sql(Prepares, PoolName, TokensMap) ->
@@ -486,7 +540,8 @@ do_prepare_sql([], _Prepares, _PoolName, _TokensMap, LastSts) ->
 prepare_sql_to_conn(Conn, Prepares, TokensMap) ->
     prepare_sql_to_conn(Conn, Prepares, TokensMap, #{}).
 
-prepare_sql_to_conn(Conn, [], _TokensMap, Statements) when is_pid(Conn) -> {ok, Statements};
+prepare_sql_to_conn(Conn, [], _TokensMap, Statements) when is_pid(Conn) ->
+    {ok, Statements};
 prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], TokensMap, Statements) when is_pid(Conn) ->
     LogMeta = #{msg => "oracle_prepare_statement", name => Key, prepare_sql => SQL},
     Tokens = maps:get(Key, TokensMap, []),
@@ -528,7 +583,7 @@ check_if_table_exists(Conn, SQL, Tokens0) ->
     ),
     SqlQuery = "begin " ++ binary_to_list(SQL) ++ "; rollback; end;",
     Params = emqx_placeholder:proc_sql(Tokens, Event),
-    case jamdb_oracle:sql_query(Conn, {SqlQuery, Params}) of
+    case do_sql_query(Conn, {SqlQuery, Params}) of
         {ok, [{proc_result, 0, _Description}]} ->
             ok;
         {ok, [{proc_result, 942, _Description}]} ->
@@ -571,6 +626,11 @@ check_if_table_exists(Conn, SQL, Tokens0) ->
                 _ ->
                     {error, Description}
             end;
+        {error, {noproc, _}} ->
+            %% See Note [jamdb oracle race condition]
+            check_if_table_exists(Conn, SQL, Tokens0);
+        {error, socket, closed} ->
+            check_if_table_exists(Conn, SQL, Tokens0);
         Reason ->
             {error, Reason}
     end.
@@ -586,6 +646,9 @@ handle_result({error, {unrecoverable_error, _Error}} = Res) ->
     Res;
 handle_result({error, disconnected}) ->
     {error, {recoverable_error, disconnected}};
+handle_result({error, {noproc, _}}) ->
+    %% See Note [jamdb oracle race condition]
+    {error, {recoverable_error, worker_restarting}};
 handle_result({error, Error}) ->
     {error, {unrecoverable_error, Error}};
 handle_result({error, socket, closed} = Error) ->

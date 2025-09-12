@@ -212,7 +212,7 @@ on_start(
         {host, Host},
         {port, Port},
         {connect_timeout, ConnectTimeout},
-        {keepalive, 30000},
+        {keepalive, 30_000},
         {pool_type, PoolType},
         {pool_size, PoolSize},
         {transport, Transport},
@@ -273,8 +273,19 @@ on_add_channel(
     NewState = maps:put(installed_actions, NewInstalledActions, OldState),
     {ok, NewState}.
 
-do_create_http_action(_ActionConfig = #{parameters := Params}) ->
-    {ok, preprocess_request(Params)}.
+do_create_http_action(#{parameters := Params} = ActionConfig) ->
+    case preprocess_request(Params) of
+        undefined = ActionState0 ->
+            {ok, ActionState0};
+        #{} = ActionState0 ->
+            RequestTimeout = emqx_utils_maps:deep_get(
+                [resource_opts, request_ttl],
+                ActionConfig,
+                ?DEFAULT_REQUEST_TIMEOUT_MS
+            ),
+            ActionState = maps:put(request_timeout, RequestTimeout, ActionState0),
+            {ok, ActionState}
+    end.
 
 on_stop(InstId, _State) ->
     ?SLOG(info, #{
@@ -660,6 +671,7 @@ on_format_query_result(Result) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
 preprocess_request(undefined) ->
     undefined;
 preprocess_request(Req) when map_size(Req) == 0 ->
