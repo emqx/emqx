@@ -229,7 +229,6 @@ on_start(
         {transport_opts, NTransportOpts},
         {enable_pipelining, maps:get(enable_pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
-
     State = #{
         pool_name => InstId,
         pool_type => PoolType,
@@ -616,6 +615,14 @@ do_get_status(PoolName, Timeout) ->
     do_get_status(PoolName, Timeout, fun default_health_checker/2).
 
 do_get_status(PoolName, Timeout, DoPerWorker) ->
+    case ehttpc:check_pool_integrity(PoolName) of
+        ok ->
+            do_get_status1(PoolName, Timeout, DoPerWorker);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_get_status1(PoolName, Timeout, DoPerWorker) ->
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(PoolName)],
     try emqx_utils:pmap(fun(Worker) -> DoPerWorker(Worker, Timeout) end, Workers, Timeout) of
         [] ->
