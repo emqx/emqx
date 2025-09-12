@@ -121,6 +121,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:grpc),
       common_dep(:minirest),
       common_dep(:ecpool),
+      common_dep(:unicode_util_compat),
       common_dep(:replayq),
       # maybe forbid to fetch quicer
       common_dep(:emqtt),
@@ -210,6 +211,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:ecpool),
     do: {:ecpool, github: "emqx/ecpool", tag: "0.6.1-hotfix", override: true}
+  def common_dep(:unicode_util_compat), do: {:unicode_util_compat, "0.7.1", override: true}
 
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.4.1", override: true}
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
