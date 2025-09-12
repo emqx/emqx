@@ -837,6 +837,10 @@ connector_resource_id(Config) ->
     #{connector_type := Type, connector_name := Name} = get_common_values(Config),
     emqx_connector_resource:resource_id(Type, Name).
 
+health_check_connector(Config) ->
+    ConnectorResId = connector_resource_id(Config),
+    emqx_resource_manager:health_check(ConnectorResId).
+
 health_check_channel(Config) ->
     ConnectorResId = connector_resource_id(Config),
     ChannelResId = resource_id(Config),
@@ -1447,6 +1451,24 @@ t_deobfuscate_connector(Config) ->
             ok
         end,
         []
+    ),
+    ok.
+
+%% Checks that we report the connector as `?status_disconnected` when `ecpool` supervision
+%% tree is unhealthy for any reason.
+t_ecpool_workers_crash(TCConfig) ->
+    {201, _} = simplify_result(create_connector_api(TCConfig, #{})),
+    ConnResId = connector_resource_id(TCConfig),
+    %% Since the supervisor might restart quickly, we just mock the response to avoid
+    %% flakiness.  See `ecpool:check_pool_integrity` for the possible return values.
+    emqx_common_test_helpers:with_mock(
+        ecpool,
+        check_pool_integrity,
+        fun(_PoolName) -> {error, {processes_down, [worker_sup]}} end,
+        fun() ->
+            %% Force immediate health check.
+            ?assertMatch({ok, ?status_disconnected}, health_check_connector(TCConfig))
+        end
     ),
     ok.
 

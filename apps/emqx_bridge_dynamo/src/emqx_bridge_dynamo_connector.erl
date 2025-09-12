@@ -208,6 +208,10 @@ on_get_status(_InstanceId, #{pool_name := Pool}) ->
     case Health of
         {error, timeout} ->
             {?status_connecting, <<"timeout_while_checking_connection">>};
+        {error, {processes_down, _}} ->
+            {?status_disconnected, <<"pool_crashed">>};
+        {error, Reason} ->
+            {?status_disconnected, Reason};
         {ok, Results} ->
             status_result(Results)
     end.
