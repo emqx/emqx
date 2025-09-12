@@ -22,7 +22,12 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-ifndef(TEST).
 -define(HEALTH_CHECK_TIMEOUT, 10000).
+-else.
+%% make tests faster
+-define(HEALTH_CHECK_TIMEOUT, 1000).
+-endif.
 
 -behaviour(emqx_resource).
 

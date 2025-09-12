@@ -211,6 +211,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:ecpool),
     do: {:ecpool, github: "emqx/ecpool", tag: "0.6.1-hotfix", override: true}
+
   def common_dep(:unicode_util_compat), do: {:unicode_util_compat, "0.7.1", override: true}
 
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.4.1", override: true}

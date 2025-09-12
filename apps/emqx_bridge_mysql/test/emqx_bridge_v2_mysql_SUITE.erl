@@ -342,7 +342,7 @@ t_timeout_disconnected_then_recover(Config) ->
                 500,
                 10,
                 ?assertMatch(
-                    {200, #{<<"status">> := <<"connecting">>}},
+                    {200, #{<<"status">> := <<"disconnected">>}},
                     get_connector_api(Config)
                 )
             ),
@@ -353,7 +353,7 @@ t_timeout_disconnected_then_recover(Config) ->
                 500,
                 10,
                 ?assertMatch(
-                    {200, #{<<"status">> := <<"connecting">>}},
+                    {200, #{<<"status">> := <<"disconnected">>}},
                     get_connector_api(Config)
                 )
             ),
