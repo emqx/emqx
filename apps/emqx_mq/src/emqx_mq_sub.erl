@@ -82,6 +82,14 @@ It uses timers:
 -export_type([t/0]).
 
 %%--------------------------------------------------------------------
+%% Constants
+%%--------------------------------------------------------------------
+
+-define(CONNECT_RETRY_INTERVAL_UNEXPECTED_ERROR, 1000).
+%% Quick retry if conflict occurred when trying to connect to the consumer and spawning a new one.
+-define(CONNECT_RETRY_INTERVAL_ALREADY_REGISTERED, 100).
+
+%%--------------------------------------------------------------------
 %% Messages
 %%--------------------------------------------------------------------
 
@@ -133,15 +141,28 @@ handle_connect(#{clientid := ClientId}, MQTopic) ->
                 {error, Reason} ->
                     %% MQ found but something went wrong with the consumer.
                     %% Retry to find the queue later.
-                    ?tp(error, mq_sub_handle_connect_error, #{
-                        reason => Reason,
-                        mq => MQTopic,
-                        subscriber_ref => SubscriberRef,
-                        clientid => ClientId
-                    }),
+                    RetryInterval = connect_retry_interval(Reason),
+                    case Reason of
+                        R when R =:= already_registered orelse R =:= no_mq ->
+                            ?tp_debug(mq_sub_handle_connect_error, #{
+                                reason => Reason,
+                                mq => MQTopic,
+                                subscriber_ref => SubscriberRef,
+                                clientid => ClientId,
+                                retry_interval => RetryInterval
+                            });
+                        _ ->
+                            ?tp(error, mq_sub_handle_connect_error, #{
+                                reason => Reason,
+                                mq => MQTopic,
+                                subscriber_ref => SubscriberRef,
+                                clientid => ClientId,
+                                retry_interval => RetryInterval
+                            })
+                    end,
                     Status = #finding_mq{
                         find_mq_retry_tref = send_after(
-                            Sub, find_mq_retry_interval(), #find_mq_retry{}
+                            Sub, RetryInterval, #find_mq_retry{}
                         )
                     },
                     Sub#{status => Status};
@@ -508,6 +529,13 @@ consumer_timeout(MQ) ->
 
 max_inflight(#{local_max_inflight := LocalMaxInflight} = _MQ) ->
     LocalMaxInflight.
+
+connect_retry_interval(no_mq) ->
+    find_mq_retry_interval();
+connect_retry_interval(already_registered) ->
+    ?CONNECT_RETRY_INTERVAL_ALREADY_REGISTERED;
+connect_retry_interval(_Reason) ->
+    ?CONNECT_RETRY_INTERVAL_UNEXPECTED_ERROR.
 
 %%--------------------------------------------------------------------
 %% Introspection helpers
