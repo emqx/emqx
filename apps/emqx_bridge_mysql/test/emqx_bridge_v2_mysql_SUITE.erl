@@ -20,6 +20,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -define(ACTION_TYPE, mysql).
 -define(ACTION_TYPE_BIN, <<"mysql">>).
@@ -249,7 +250,7 @@ t_create_via_http(Config) ->
     ok.
 
 t_on_get_status(Config) ->
-    emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}),
+    emqx_bridge_v2_testlib:t_on_get_status(Config),
     ok.
 
 t_start_action_or_source_with_disabled_connector(Config) ->
@@ -342,7 +343,7 @@ t_timeout_disconnected_then_recover(Config) ->
                 500,
                 10,
                 ?assertMatch(
-                    {200, #{<<"status">> := <<"connecting">>}},
+                    {200, #{<<"status">> := Status}} when Status /= <<"connected">>,
                     get_connector_api(Config)
                 )
             ),
@@ -353,7 +354,7 @@ t_timeout_disconnected_then_recover(Config) ->
                 500,
                 10,
                 ?assertMatch(
-                    {200, #{<<"status">> := <<"connecting">>}},
+                    {200, #{<<"status">> := Status}} when Status /= <<"connected">>,
                     get_connector_api(Config)
                 )
             ),
@@ -389,4 +390,10 @@ t_timeout_disconnected_then_recover(Config) ->
         end,
         []
     ),
+    ok.
+
+%% Checks that we report the connector as `?status_disconnected` when `ecpool` supervision
+%% tree is unhealthy for any reason.
+t_ecpool_workers_crash(TCConfig) ->
+    ok = emqx_bridge_v2_testlib:t_ecpool_workers_crash(TCConfig),
     ok.
