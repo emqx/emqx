@@ -376,6 +376,10 @@ on_get_status(_InstanceId, #{pool_name := PoolName} = ConnState) ->
 
 status_result({error, timeout}, _ConnState) ->
     {?status_connecting, <<"timeout_checking_connections">>};
+status_result({error, {processes_down, _}}, _ConnState) ->
+    {?status_disconnected, <<"pool_crashed">>};
+status_result({error, Reason}, _ConnState) ->
+    {?status_disconnected, Reason};
 status_result({ok, []}, _ConnState) ->
     %% ecpool will auto-restart after delay
     {?status_connecting, <<"connection_pool_not_initialized">>};

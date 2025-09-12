@@ -277,6 +277,8 @@ on_get_status(_InstanceId, #{pool_name := PoolName}) ->
                 {error, Reason} ->
                     {?status_connecting, enhance_reason(Reason)}
             end;
+        {error, {processes_down, _}} ->
+            {?status_disconnected, <<"pool_crashed">>};
         {error, Reason} ->
             {?status_connecting, enhance_reason(Reason)}
     end.
