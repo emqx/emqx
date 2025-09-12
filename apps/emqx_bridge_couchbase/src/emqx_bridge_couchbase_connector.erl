@@ -142,9 +142,14 @@ on_stop(ConnResId, _ConnState) ->
     Res.
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
-    ?status_connected | ?status_disconnected.
+    ?status_connected | {?status_connecting, term()} | {?status_disconnected, term()}.
 on_get_status(ConnResId, _ConnState) ->
-    health_check_pool_workers(ConnResId).
+    case ehttpc:check_pool_integrity(ConnResId) of
+        ok ->
+            health_check_pool_workers(ConnResId);
+        {error, Reason} ->
+            {?status_disconnected, Reason}
+    end.
 
 -spec on_add_channel(
     connector_resource_id(),
@@ -250,7 +255,7 @@ create_action(ActionConfig) ->
     }.
 
 -spec health_check_pool_workers(connector_resource_id()) ->
-    ?status_connected | ?status_connecting | ?status_disconnected.
+    ?status_connected | {?status_connecting, term()} | {?status_disconnected, term()}.
 health_check_pool_workers(ConnResId) ->
     Timeout = emqx_resource_pool:health_check_timeout(),
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(ConnResId)],
@@ -258,7 +263,7 @@ health_check_pool_workers(ConnResId) ->
         emqx_utils:pmap(fun(Worker) -> ehttpc:health_check(Worker, Timeout) end, Workers, Timeout)
     of
         [] ->
-            ?status_connecting;
+            {?status_connecting, <<"connection_pool_not_initialized">>};
         [_ | _] = Results ->
             case [E || {error, _} = E <- Results] of
                 [] ->
