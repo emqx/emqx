@@ -152,6 +152,7 @@ fi
 
 if [[ "${IS_NATIVE_SYSTEM}" == 'yes' && "${IS_NATIVE_ARCH}" == 'yes' ]]; then
     export ACLOCAL_PATH="/usr/share/aclocal:/usr/local/share/aclocal"
+    export DEBUG=1
     eval "$CMD_RUN"
 elif docker info; then
     if [[ "${IS_NATIVE_ARCH}" == 'no' ]]; then
@@ -163,6 +164,7 @@ elif docker info; then
         --platform="linux/$ARCH" \
         --env ACLOCAL_PATH="/usr/share/aclocal:/usr/local/share/aclocal" \
         --env EMQX_FLAVOR="$EMQX_FLAVOR" \
+        --env DEBUG=1 \
         "$EMQX_BUILDER" \
         bash -euc "git config --global --add safe.directory /emqx && $CMD_RUN"
 else
