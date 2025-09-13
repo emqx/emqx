@@ -11,8 +11,8 @@
     ""
     "\n"
     "-----BEGIN PUBLIC KEY-----\n"
-    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEbtkdos3TZmSv+D7+X5pc0yfcjum2\n"
-    "Q1DK6PCWkiQihjvjJjKFzdYzcWOgC6f4Ou3mgGAUSjdQYYnFKZ/9f5ax4g==\n"
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGul8oM77eCk9HgOt0mOkBnQHUf0G\n"
+    "M8QyDrnMYLOTpP93XcEQlf70nvodmEmHBbDzKTa7DoZMZRRIW3vGCK6zsw==\n"
     "-----END PUBLIC KEY-----\n"
     ""
 >>).
