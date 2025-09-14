@@ -23,6 +23,9 @@
     stats/1
 ]).
 
+%% For testing
+-export([update_now/0]).
+
 %% gen_server callbacks
 -export([
     init/1,
@@ -80,6 +83,12 @@ local_connection_count() ->
 stats(Time) ->
     #{sessions => emqx_cm:get_sessions_count(), tps => emqx_dashboard_monitor:local_tps(Time)}.
 
+%% @doc For testing
+-spec update_now() -> ok.
+update_now() ->
+    _ = erlang:send(whereis(?MODULE), update_resources),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
@@ -90,7 +99,7 @@ init([CheckInterval]) ->
     {ok, State}.
 
 handle_call(_Req, _From, State) ->
-    {noreply, State}.
+    {reply, ignored, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -139,25 +148,27 @@ connection_quota_early_alarm(_Limits) ->
 %% The alarm is deactivated after a new license is loaded with higher TPS limit.
 max_tps_alarm({ok, #{max_tps := Limit}}) when is_integer(Limit) ->
     MaxTps0 = cached_max_tps(),
-    {IsUpdatedDetails, AlarmDetails} =
+    {Action, AlarmDetails} =
         case emqx_alarm:read_details(license_tps) of
-            {ok, #{max_tps := AlarmTps} = Details} when AlarmTps < MaxTps0 ->
-                {true, Details#{max_tps => MaxTps0, observed_at => now_rfc3339()}};
+            {ok, #{max_tps := AlarmTps} = Details} when MaxTps0 > AlarmTps ->
+                {update, Details#{max_tps => MaxTps0, observed_at => now_rfc3339()}};
             {ok, Details} ->
-                {false, Details};
+                {ignore, Details};
             {error, not_found} ->
-                {false, new_tps_alarm_details(MaxTps0)}
+                {activate, new_tps_alarm_details(MaxTps0)}
         end,
-    MaxTps = max(MaxTps0, maps:get(max_tps, AlarmDetails, 0)),
-    case MaxTps < Limit of
-        true ->
-            ?OK(emqx_alarm:ensure_deactivated(license_tps));
-        false when IsUpdatedDetails ->
+    MaxTps = maps:get(max_tps, AlarmDetails),
+    case MaxTps > Limit of
+        true when Action =:= update ->
             _ = emqx_alarm:update_details(license_tps, AlarmDetails),
             ok;
-        false ->
+        true when Action =:= activate ->
             Message = iolist_to_binary(io_lib:format("License: TPS limit (~w) exceeded.", [Limit])),
-            ?OK(emqx_alarm:activate(license_tps, AlarmDetails, Message))
+            ?OK(emqx_alarm:activate(license_tps, AlarmDetails, Message));
+        true when Action =:= ignore ->
+            ok;
+        false ->
+            ?OK(emqx_alarm:ensure_deactivated(license_tps))
     end;
 max_tps_alarm(_Limits) ->
     %% license has no TPS limit, consider it unlimited.
@@ -167,7 +178,7 @@ new_tps_alarm_details(MaxTps0) ->
     emqx_alarm:make_persistent_details(#{max_tps => MaxTps0, observed_at => now_rfc3339()}).
 
 now_rfc3339() ->
-    emqx_utils_calendar:epoch_to_rfc3339(erlang:system_time(second), second).
+    emqx_utils_calendar:epoch_to_rfc3339(erlang:system_time(millisecond), millisecond).
 
 cached_connection_count() ->
     ?SAFE_CACHE_LOOKUP(total_connection_count, 0).

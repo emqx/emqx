@@ -43,7 +43,8 @@ make_license(Values0 = #{}) ->
         deployment => "bar-deployment",
         start_date => "20220111",
         days => "100000",
-        max_sessions => "0"
+        max_sessions => "0",
+        max_tps => ""
     },
     Values1 = maps:merge(Defaults, Values0),
     Keys = [
@@ -55,9 +56,10 @@ make_license(Values0 = #{}) ->
         deployment,
         start_date,
         days,
-        max_sessions
+        max_sessions,
+        max_tps
     ],
-    Values = lists:map(fun(K) -> maps:get(K, Values1) end, Keys),
+    Values = lists:map(fun(K) -> ensure_string(maps:get(K, Values1)) end, Keys),
     make_license(Values);
 make_license(Values) ->
     Key = private_key(),
@@ -85,3 +87,8 @@ mock_parser() ->
 unmock_parser() ->
     meck:unload(emqx_license_parser),
     ok.
+
+ensure_string(V) when is_integer(V) ->
+    integer_to_list(V);
+ensure_string(V) ->
+    V.
