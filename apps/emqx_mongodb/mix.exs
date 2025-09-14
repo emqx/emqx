@@ -25,7 +25,7 @@ defmodule EMQXMongodb.MixProject do
     UMP.deps([
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
-      {:mongodb, github: "emqx/mongodb-erlang", tag: "v3.0.25"}
+      {:mongodb, github: "emqx/mongodb-erlang", tag: "v3.1.0"}
     ])
   end
 end
