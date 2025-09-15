@@ -515,7 +515,16 @@ check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) ->
     end.
 
 format_app_extend(App) ->
-    App.
+    emqx_utils_maps:update_if_present(
+        ?namespace,
+        fun
+            (?global_ns) ->
+                null;
+            (Namespace) ->
+                Namespace
+        end,
+        App
+    ).
 
 parse_role(Role) ->
     emqx_dashboard_rbac:parse_api_role(Role).
