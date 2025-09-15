@@ -29,7 +29,8 @@
 %%--------------------------------------------------------------------
 
 load() ->
-    gen_event:swap_handler(alarm_handler, {alarm_handler, swap}, {?MODULE, []}).
+    ok = gen_event:swap_handler(alarm_handler, {alarm_handler, swap}, {?MODULE, []}),
+    ignore.
 
 %% on the way shutting down, give it back to OTP
 unload() ->
