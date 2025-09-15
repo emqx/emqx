@@ -49,7 +49,7 @@ t_deactivate_all_alarms(_) ->
     {error, already_existed} = emqx_alarm:activate(unknown_alarm),
     ?assertNotEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(activated))),
 
-    emqx_alarm:deactivate_ephermrial_alarms(),
+    emqx_alarm:deactivate_ephemral_alarms(),
     ?assertNotEqual(
         {error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))
     ),
@@ -62,7 +62,7 @@ t_persistence(_) ->
     ok = emqx_alarm:activate(
         Name, #{'_persistence' => true, test => "test_details"}, <<"Reach Rate Limit">>
     ),
-    emqx_alarm:deactivate_ephermrial_alarms(),
+    emqx_alarm:deactivate_ephemral_alarms(),
     ?assertEqual({error, not_found}, get_alarm(Name, emqx_alarm:get_alarms(deactivated))),
     ok = emqx_alarm:deactivate(Name),
     ?assertNotEqual({error, not_found}, get_alarm(Name, emqx_alarm:get_alarms(deactivated))),

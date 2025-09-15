@@ -257,10 +257,10 @@ init([]) ->
         ?worker => start_worker(),
         pmon => #{}
     },
-    {ok, State, {continue, deactivate_ephermrial_alarms}}.
+    {ok, State, {continue, deactivate_ephemral_alarms}}.
 
-handle_continue(deactivate_ephermrial_alarms, State) ->
-    deactivate_ephermrial_alarms(),
+handle_continue(deactivate_ephemral_alarms, State) ->
+    deactivate_ephemral_alarms(),
     {noreply, State, get_validity_period()}.
 
 handle_call({activate_alarm, Pid, Name, Details, Message}, _From, State) ->
@@ -275,7 +275,7 @@ handle_call({activate_alarm, Pid, Name, Details, Message}, _From, State) ->
 handle_call({deactivate_alarm, Name, Details, Message}, _From, State) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [] ->
-            {reply, {error, not_found}, State};
+            {reply, {error, not_found}, State, get_validity_period()};
         [Alarm] ->
             deactivate_alarm(Alarm, Details, Message, State),
             {reply, ok, State, get_validity_period()}
@@ -283,7 +283,7 @@ handle_call({deactivate_alarm, Name, Details, Message}, _From, State) ->
 handle_call({update_details, Name, Details}, _From, State) ->
     case mnesia:dirty_read(?ACTIVATED_ALARM, Name) of
         [] ->
-            {reply, {error, not_found}, State};
+            {reply, {error, not_found}, State, get_validity_period()};
         [Alarm] ->
             ok = mria:dirty_write(?ACTIVATED_ALARM, Alarm#activated_alarm{details = Details}),
             {reply, ok, State, get_validity_period()}
@@ -423,11 +423,11 @@ make_deactivated_alarm(ActivateAt, Name, Details, Message, DeactivateAt) ->
         deactivate_at = DeactivateAt
     }.
 
-%% All alarms are by default ephermrial unless there is a '_persistence' flag set in details map.
-deactivate_ephermrial_alarms() ->
+%% All alarms are by default ephemral unless there is a '_persistence' flag set in details map.
+deactivate_ephemral_alarms() ->
     lists:foreach(
         fun(Alarm) ->
-            case is_ephermrial_alarm(Alarm) of
+            case is_ephemral_alarm(Alarm) of
                 true ->
                     move_to_deactivated_alarm(Alarm);
                 false ->
@@ -437,9 +437,9 @@ deactivate_ephermrial_alarms() ->
         ets:tab2list(?ACTIVATED_ALARM)
     ).
 
-is_ephermrial_alarm(#activated_alarm{details = #{?PERSISTENCE := Persistence}}) ->
+is_ephemral_alarm(#activated_alarm{details = #{?PERSISTENCE := Persistence}}) ->
     not Persistence;
-is_ephermrial_alarm(_) ->
+is_ephemral_alarm(_) ->
     true.
 
 move_to_deactivated_alarm(#activated_alarm{
